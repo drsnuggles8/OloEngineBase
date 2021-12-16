@@ -1,0 +1,3 @@
+[submodule "OloEngine/vendor/spdlog"]
+	path = OloEngine/vendor/spdlog
+	url = https://github.com/gabime/spdlog
