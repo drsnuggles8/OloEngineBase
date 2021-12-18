@@ -2,8 +2,6 @@
 
 #include "Event.h"
 
-#include <sstream>
-
 namespace OloEngine {
 
 	class OLO_API WindowResizeEvent : public Event
@@ -12,10 +10,10 @@ namespace OloEngine {
 		WindowResizeEvent(unsigned int width, unsigned int height)
 			: m_Width(width), m_Height(height) {}
 
-		inline unsinged int GetWidth() const { return m_Width; }
-		inline unsinged int GetHeight() const { return m_Height; }
+		inline unsigned int GetWidth() const { return m_Width; }
+		inline unsigned int GetHeight() const { return m_Height; }
 
-		std::strong ToString() const override
+		std::string ToString() const override
 		{
 			std::stringstream ss;
 			ss << "WindowResizeEvent: " << m_Width << ", " << m_Height;
@@ -23,9 +21,9 @@ namespace OloEngine {
 		}
 
 		EVENT_CLASS_TYPE(WindowResize)
-		Event_CLASS_CATEGORY(EventCategoryApplication)
+			EVENT_CLASS_CATEGORY(EventCategoryApplication)
 	private:
-		unsinged int m_Width; m_Height;
+		unsigned int m_Width, m_Height;
 	};
 
 	class OLO_API WindowCloseEvent : public Event
@@ -34,7 +32,7 @@ namespace OloEngine {
 		WindowCloseEvent() {}
 
 		EVENT_CLASS_TYPE(WindowClose)
-		EVENT_CLASS_CATEGORY(EventCategoryApplication)
+			EVENT_CLASS_CATEGORY(EventCategoryApplication)
 	};
 
 	class OLO_API AppTickEvent : public Event

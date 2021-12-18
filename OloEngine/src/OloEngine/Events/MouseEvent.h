@@ -2,8 +2,6 @@
 
 #include "Event.h"
 
-#include <sstream>
-
 namespace OloEngine {
 
 	class OLO_API MouseMovedEvent : public Event

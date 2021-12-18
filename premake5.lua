@@ -18,6 +18,9 @@ project "OloEngine"
 	targetdir ("bin/" .. outputdir .. "/%{prj.name}")
 	objdir ("bin-int/" .. outputdir .. "/%{prj.name}")
 
+	pchheader "OloEnginePCH.h"
+	pchsource "OloEngine/src/OloEnginePCH.cpp"
+
 	files
 	{
 		"%{prj.name}/src/**.h",
