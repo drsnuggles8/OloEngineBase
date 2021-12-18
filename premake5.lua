@@ -10,6 +10,13 @@ workspace "OloEngine"
 
 outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
+-- Include directories relative to root folder (solution directory)
+IncludeDir = {}
+IncludeDir["GLFW"] = "OloEngine/vendor/GLFW/include"
+
+include "OloEngine/vendor/GLFW"
+
+
 project "OloEngine"
 	location "OloEngine"
 	kind "SharedLib"
@@ -30,7 +37,14 @@ project "OloEngine"
 	includedirs
 	{
 		"%{prj.name}/src",
-		"%{prj.name}/vendor/spdlog/include"
+		"%{prj.name}/vendor/spdlog/include",
+		"%{IncludeDir.GLFW}"
+	}
+	
+	links
+	{
+		"GLFW",
+		"opengl32.lib"
 	}
 
 	filter "system:windows"

@@ -7,6 +7,12 @@
     <Filter Include="OloEngine\Events">
       <UniqueIdentifier>{E9D3E6E1-D5CC-0534-FEFE-EAB8EA56E53F}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Platform">
+      <UniqueIdentifier>{2AC788B4-1694-E3BF-3FAD-D1672BD9184E}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Platform\Windows">
+      <UniqueIdentifier>{64FBD71A-50F4-F66C-7926-DCF1657ED678}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\OloEngine.h" />
@@ -34,7 +40,13 @@
     <ClInclude Include="src\OloEngine\Log.h">
       <Filter>OloEngine</Filter>
     </ClInclude>
+    <ClInclude Include="src\OloEngine\Window.h">
+      <Filter>OloEngine</Filter>
+    </ClInclude>
     <ClInclude Include="src\OloEnginePCH.h" />
+    <ClInclude Include="src\Platform\Windows\WindowsWindow.h">
+      <Filter>Platform\Windows</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\OloEngine\Application.cpp">
@@ -44,5 +56,8 @@
       <Filter>OloEngine</Filter>
     </ClCompile>
     <ClCompile Include="src\OloEnginePCH.cpp" />
+    <ClCompile Include="src\Platform\Windows\WindowsWindow.cpp">
+      <Filter>Platform\Windows</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>
