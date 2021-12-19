@@ -13,8 +13,10 @@ outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 -- Include directories relative to root folder (solution directory)
 IncludeDir = {}
 IncludeDir["GLFW"] = "OloEngine/vendor/GLFW/include"
+IncludeDir["Glad"] = "OloEngine/vendor/Glad/include"
 
 include "OloEngine/vendor/GLFW"
+include "OloEngine/vendor/Glad"
 
 
 project "OloEngine"
@@ -38,12 +40,14 @@ project "OloEngine"
 	{
 		"%{prj.name}/src",
 		"%{prj.name}/vendor/spdlog/include",
-		"%{IncludeDir.GLFW}"
+		"%{IncludeDir.GLFW}",
+		"%{IncludeDir.Glad}"
 	}
 	
 	links
 	{
 		"GLFW",
+		"Glad",
 		"opengl32.lib"
 	}
 
@@ -55,7 +59,8 @@ project "OloEngine"
 		defines
 		{
 			"OLO_PLATFORM_WINDOWS",
-			"OLO_BUILD_DLL"
+			"OLO_BUILD_DLL",
+			"GLFW_INCLUDE_NONE"
 		}
 
 		postbuildcommands
@@ -114,12 +119,15 @@ project "Sandbox"
 
 	filter "configurations:Debug"
 		defines "OLO_DEBUG"
+		buildoptions "/MDd"
 		symbols "On"
 
 	filter "configurations:Release"
 		defines "OLO_RELEASE"
+		buildoptions "/MD"
 		optimize "On"
 
 	filter "configurations:Dist"
 		defines "OLO_DIST"
+		buildoptions "/MD"
 		optimize "On"

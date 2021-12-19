@@ -37,6 +37,12 @@
     <ClInclude Include="src\OloEngine\Events\MouseEvent.h">
       <Filter>OloEngine\Events</Filter>
     </ClInclude>
+    <ClInclude Include="src\OloEngine\Layer.h">
+      <Filter>OloEngine</Filter>
+    </ClInclude>
+    <ClInclude Include="src\OloEngine\LayerStack.h">
+      <Filter>OloEngine</Filter>
+    </ClInclude>
     <ClInclude Include="src\OloEngine\Log.h">
       <Filter>OloEngine</Filter>
     </ClInclude>
@@ -50,6 +56,12 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\OloEngine\Application.cpp">
+      <Filter>OloEngine</Filter>
+    </ClCompile>
+    <ClCompile Include="src\OloEngine\Layer.cpp">
+      <Filter>OloEngine</Filter>
+    </ClCompile>
+    <ClCompile Include="src\OloEngine\LayerStack.cpp">
       <Filter>OloEngine</Filter>
     </ClCompile>
     <ClCompile Include="src\OloEngine\Log.cpp">
