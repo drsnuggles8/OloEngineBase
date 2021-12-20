@@ -1,5 +1,6 @@
 workspace "OloEngine"
 	architecture "x64"
+	startproject "Sandbox"
 
 	configurations
 	{
@@ -19,8 +20,6 @@ IncludeDir["ImGui"] = "OloEngine/vendor/imgui"
 include "OloEngine/vendor/GLFW"
 include "OloEngine/vendor/Glad"
 include "OloEngine/vendor/imgui"
-
-startproject "Sandbox"
 
 project "OloEngine"
 	location "OloEngine"
