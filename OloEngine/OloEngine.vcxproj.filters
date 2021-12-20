@@ -46,6 +46,12 @@
     <ClInclude Include="src\OloEngine\ImGui\ImGuiLayer.h">
       <Filter>OloEngine\ImGui</Filter>
     </ClInclude>
+    <ClInclude Include="src\OloEngine\Input.h">
+      <Filter>OloEngine</Filter>
+    </ClInclude>
+    <ClInclude Include="src\OloEngine\KeyCodes.h">
+      <Filter>OloEngine</Filter>
+    </ClInclude>
     <ClInclude Include="src\OloEngine\Layer.h">
       <Filter>OloEngine</Filter>
     </ClInclude>
@@ -55,6 +61,9 @@
     <ClInclude Include="src\OloEngine\Log.h">
       <Filter>OloEngine</Filter>
     </ClInclude>
+    <ClInclude Include="src\OloEngine\MouseButtonCodes.h">
+      <Filter>OloEngine</Filter>
+    </ClInclude>
     <ClInclude Include="src\OloEngine\Window.h">
       <Filter>OloEngine</Filter>
     </ClInclude>
@@ -62,13 +71,12 @@
     <ClInclude Include="src\Platform\OpenGL\ImGuiOpenGLRenderer.h">
       <Filter>Platform\OpenGL</Filter>
     </ClInclude>
+    <ClInclude Include="src\Platform\Windows\WindowsInput.h">
+      <Filter>Platform\Windows</Filter>
+    </ClInclude>
     <ClInclude Include="src\Platform\Windows\WindowsWindow.h">
       <Filter>Platform\Windows</Filter>
     </ClInclude>
-    <ClInclude Include="src\OloEngine\Input.h" />
-    <ClInclude Include="src\Platform\Windows\WindowsInput.h" />
-    <ClInclude Include="src\OloEngine\KeyCodes.h" />
-    <ClInclude Include="src\OloEngine\MouseButtonCodes.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\OloEngine\Application.cpp">
@@ -90,9 +98,11 @@
     <ClCompile Include="src\Platform\OpenGL\ImGuiOpenGLRenderer.cpp">
       <Filter>Platform\OpenGL</Filter>
     </ClCompile>
+    <ClCompile Include="src\Platform\Windows\WindowsInput.cpp">
+      <Filter>Platform\Windows</Filter>
+    </ClCompile>
     <ClCompile Include="src\Platform\Windows\WindowsWindow.cpp">
       <Filter>Platform\Windows</Filter>
     </ClCompile>
-    <ClCompile Include="src\Platform\Windows\WindowsInput.cpp" />
   </ItemGroup>
 </Project>
