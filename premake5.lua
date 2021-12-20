@@ -71,8 +71,7 @@ project "OloEngine"
 
 		postbuildcommands
 		{
-			("IF NOT EXIST ../bin/" .. outputdir .. "/Sandbox mkdir ../biin/" .. outputdir .. "/Sandbox"),
-			("{COPY} %{cfg.buildtarget.relpath} ../bin/" .. outputdir .. "/Sandbox")
+			("{COPY} %{cfg.buildtarget.relpath} \"../bin/" .. outputdir .. "/Sandbox/\"")
 		}
 		
 	filter "configurations:Debug"
