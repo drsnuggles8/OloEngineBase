@@ -14,10 +14,13 @@ outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 IncludeDir = {}
 IncludeDir["GLFW"] = "OloEngine/vendor/GLFW/include"
 IncludeDir["Glad"] = "OloEngine/vendor/Glad/include"
+IncludeDir["ImGui"] = "OloEngine/vendor/imgui"
 
 include "OloEngine/vendor/GLFW"
 include "OloEngine/vendor/Glad"
+include "OloEngine/vendor/imgui"
 
+startproject "Sandbox"
 
 project "OloEngine"
 	location "OloEngine"
@@ -43,14 +46,16 @@ project "OloEngine"
 		"%{prj.name}/src",
 		"%{prj.name}/vendor/spdlog/include",
 		"%{IncludeDir.GLFW}",
-		"%{IncludeDir.Glad}"
+		"%{IncludeDir.Glad}",
+		"%{IncludeDir.ImGui}"
 	}
 	
 	links
 	{
 		"GLFW",
 		"Glad",
-		"opengl32.lib"
+		"opengl32.lib",
+		"ImGui"
 	}
 
 	filter "system:windows"

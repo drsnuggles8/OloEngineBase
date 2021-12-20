@@ -4,3 +4,6 @@
 [submodule "OloEngine/vendor/GLFW"]
 	path = OloEngine/vendor/GLFW
 	url = https://github.com/drsnuggles8/glfw/
+[submodule "OloEngine/vendor/imgui"]
+	path = OloEngine/vendor/imgui
+	url = https://github.com/drsnuggles8/imgui/
