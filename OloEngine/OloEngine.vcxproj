@@ -159,9 +159,11 @@
     <ClInclude Include="src\OloEngine\Events\MouseEvent.h" />
     <ClInclude Include="src\OloEngine\ImGui\ImGuiLayer.h" />
     <ClInclude Include="src\OloEngine\Input.h" />
+    <ClInclude Include="src\OloEngine\KeyCodes.h" />
     <ClInclude Include="src\OloEngine\Layer.h" />
     <ClInclude Include="src\OloEngine\LayerStack.h" />
     <ClInclude Include="src\OloEngine\Log.h" />
+    <ClInclude Include="src\OloEngine\MouseButtonCodes.h" />
     <ClInclude Include="src\OloEngine\Window.h" />
     <ClInclude Include="src\OloEnginePCH.h" />
     <ClInclude Include="src\Platform\OpenGL\ImGuiOpenGLRenderer.h" />

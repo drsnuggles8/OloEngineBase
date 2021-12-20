@@ -1,9 +1,11 @@
 #include "OloEnginePCH.h"
 #include "Application.h"
 
-#include "OloEngine/Log.h"
+#include "Log.h"
 
 #include <glad/glad.h>
+
+#include "Input.h"
 
 namespace OloEngine {
 
@@ -59,6 +61,7 @@ namespace OloEngine {
 
 			for (Layer* layer : m_LayerStack)
 				layer->OnUpdate();
+
 
 			m_Window->OnUpdate();
 		}

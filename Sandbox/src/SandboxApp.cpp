@@ -11,11 +11,19 @@ public:
 	void OnUpdate() override
 	{
 		OLO_INFO("ExampleLayer::Update");
+		if (OloEngine::Input::IsKeyPressed(OLO_KEY_TAB))
+			OLO_TRACE("Tab key is pressed (poll)!");
 	}
 
 	void OnEvent(OloEngine::Event& event) override
 	{
-		OLO_TRACE("{0}", event);
+		if (event.GetEventType() == OloEngine::EventType::KeyPressed)
+		{
+			OloEngine::KeyPressedEvent& e = (OloEngine::KeyPressedEvent&)event;
+			if (e.GetKeyCode() == OLO_KEY_TAB)
+				OLO_TRACE("Tab key is pressed (event)!");
+			OLO_TRACE("{0}", (char)e.GetKeyCode());
+		}
 	}
 };
 
