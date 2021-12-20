@@ -23,6 +23,8 @@ project "OloEngine"
 	location "OloEngine"
 	kind "SharedLib"
 	language "C++"
+	cppdialect "C++20"
+	staticruntime "off"
 
 	targetdir ("bin/" .. outputdir .. "/%{prj.name}")
 	objdir ("bin-int/" .. outputdir .. "/%{prj.name}")
@@ -52,8 +54,6 @@ project "OloEngine"
 	}
 
 	filter "system:windows"
-		cppdialect "C++20"
-		staticruntime "On"
 		systemversion "latest"
 
 		defines
@@ -70,22 +70,26 @@ project "OloEngine"
 		
 	filter "configurations:Debug"
 		defines "OLO_DEBUG"
+		runtime "Debug"
 		symbols "On"
 
 	filter "configurations:Release"
 		defines "OLO_RELEASE"
+		runtime "Release"
 		optimize "On"
 
 	filter "configurations:Dist"
 		defines "OLO_DIST"
+		runtime "Release"
 		optimize "On"
 
 
 project "Sandbox"
 	location "Sandbox"
 	kind "ConsoleApp"
-
 	language "C++"
+	cppdialect "C++20"
+	staticruntime "off"	
 
 	targetdir ("bin/" .. outputdir .. "/%{prj.name}")
 	objdir ("bin-int/" .. outputdir .. "/%{prj.name}")
@@ -108,8 +112,6 @@ project "Sandbox"
 	}
 
 	filter "system:windows"
-		cppdialect "C++20"
-		staticruntime "On"
 		systemversion "latest"
 
 		defines
@@ -118,16 +120,16 @@ project "Sandbox"
 		}
 
 	filter "configurations:Debug"
-		defines "OLO_DEBUG"
-		buildoptions "/MDd"
+		defines "OLO_DEBUG"		
+		runtime "Debug"
 		symbols "On"
 
 	filter "configurations:Release"
 		defines "OLO_RELEASE"
-		buildoptions "/MD"
+		runtime "Release"
 		optimize "On"
 
 	filter "configurations:Dist"
 		defines "OLO_DIST"
-		buildoptions "/MD"
+		runtime "Release"
 		optimize "On"
