@@ -1,10 +1,13 @@
 #pragma once
 
 #include "Core.h"
+
 #include "Window.h"
 #include "OloEngine/LayerStack.h"
 #include "Events/Event.h"
 #include "OloEngine/Events/ApplicationEvent.h"
+
+#include "OloEngine/ImGui/ImGuiLayer.h"
 
 namespace OloEngine {
 	class OLO_API Application
@@ -27,6 +30,7 @@ namespace OloEngine {
 		bool OnWindowClose(WindowCloseEvent& e);
 
 		std::unique_ptr<Window> m_Window;
+		ImGuiLayer* m_ImGuiLayer;
 		bool m_Running = true;
 		LayerStack m_LayerStack;
 

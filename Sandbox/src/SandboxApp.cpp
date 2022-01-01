@@ -1,5 +1,7 @@
 #include <OloEngine.h>
 
+#include "imgui/imgui.h"
+
 class ExampleLayer : public OloEngine::Layer
 {
 public:
@@ -10,9 +12,15 @@ public:
 
 	void OnUpdate() override
 	{
-		OLO_INFO("ExampleLayer::Update");
 		if (OloEngine::Input::IsKeyPressed(OLO_KEY_TAB))
 			OLO_TRACE("Tab key is pressed (poll)!");
+	}
+
+	virtual void OnImGuiRender() override
+	{
+		ImGui::Begin("Test");
+		ImGui::Text("Hello World");
+		ImGui::End();
 	}
 
 	void OnEvent(OloEngine::Event& event) override
@@ -33,7 +41,6 @@ public:
 	Sandbox()
 	{
 		PushLayer(new ExampleLayer());
-		PushOverlay(new OloEngine::ImGuiLayer());
 	}
 	~Sandbox()
 	{

@@ -114,6 +114,7 @@ project "Sandbox"
 	{
 		"OloEngine/vendor/spdlog/include",
 		"OloEngine/src",
+		"OloEngine/vendor",
 		"%{IncludeDir.glm}"
 	}
 

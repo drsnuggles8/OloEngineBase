@@ -91,6 +91,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>opengl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <ImportLibrary>..\bin\Debug-windows-x86_64\OloEngine\OloEngine.lib</ImportLibrary>
+      <ModuleDefinitionFile>OloEngine.def</ModuleDefinitionFile>
     </Link>
     <PostBuildEvent>
       <Command>IF EXIST ..\bin\Debug-windows-x86_64\OloEngine\OloEngine.dll\ (xcopy /Q /E /Y /I ..\bin\Debug-windows-x86_64\OloEngine\OloEngine.dll "..\bin\Debug-windows-x86_64\Sandbox\" &gt; nul) ELSE (xcopy /Q /Y /I ..\bin\Debug-windows-x86_64\OloEngine\OloEngine.dll "..\bin\Debug-windows-x86_64\Sandbox\" &gt; nul)</Command>
@@ -166,7 +167,6 @@
     <ClInclude Include="src\OloEngine\MouseButtonCodes.h" />
     <ClInclude Include="src\OloEngine\Window.h" />
     <ClInclude Include="src\OloEnginePCH.h" />
-    <ClInclude Include="src\Platform\OpenGL\ImGuiOpenGLRenderer.h" />
     <ClInclude Include="src\Platform\Windows\WindowsInput.h" />
     <ClInclude Include="src\Platform\Windows\WindowsWindow.h" />
     <ClInclude Include="vendor\glm\glm\common.hpp" />
@@ -587,6 +587,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\OloEngine\Application.cpp" />
+    <ClCompile Include="src\OloEngine\ImGui\ImGuiBuild.cpp" />
     <ClCompile Include="src\OloEngine\ImGui\ImGuiLayer.cpp" />
     <ClCompile Include="src\OloEngine\Layer.cpp" />
     <ClCompile Include="src\OloEngine\LayerStack.cpp" />
@@ -594,7 +595,6 @@
     <ClCompile Include="src\OloEnginePCH.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="src\Platform\OpenGL\ImGuiOpenGLRenderer.cpp" />
     <ClCompile Include="src\Platform\Windows\WindowsInput.cpp" />
     <ClCompile Include="src\Platform\Windows\WindowsWindow.cpp" />
   </ItemGroup>
@@ -608,6 +608,9 @@
     <ProjectReference Include="vendor\imgui\ImGui.vcxproj">
       <Project>{C0FF640D-2C14-8DBE-F595-301E616989EF}</Project>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="OloEngine.def" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
