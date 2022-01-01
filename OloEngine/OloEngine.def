@@ -1,0 +1,7 @@
+LIBRARY OloEngine
+EXPORTS
+	?ShowDemoWindow@ImGui@@YAXPEA_N@Z
+	?Begin@ImGui@@YA_NPEBDPEA_NH@Z
+	?End@ImGui@@YAXXZ
+	?ColorEdit4@ImGui@@YA_NPEBDQEAMH@Z
+	?Text@ImGui@@YAXPEBDZZ
