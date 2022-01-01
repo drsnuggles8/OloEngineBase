@@ -8,7 +8,6 @@
 #include "Input.h"
 
 namespace OloEngine {
-
 #define BIND_EVENT_FN(x) std::bind(&Application::x, this, std::placeholders::_1)
 
 	Application* Application::s_Instance = nullptr;
@@ -38,7 +37,6 @@ namespace OloEngine {
 		layer->OnAttach();
 	}
 
-
 	void Application::OnEvent(Event& e)
 	{
 		EventDispatcher dispatcher(e);
@@ -62,7 +60,6 @@ namespace OloEngine {
 			for (Layer* layer : m_LayerStack)
 				layer->OnUpdate();
 
-
 			m_Window->OnUpdate();
 		}
 	}
@@ -72,5 +69,4 @@ namespace OloEngine {
 		m_Running = false;
 		return true;
 	}
-
 }

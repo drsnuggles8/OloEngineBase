@@ -6,7 +6,6 @@
 #include "spdlog/sinks/stdout_color_sinks.h"
 
 namespace OloEngine {
-
 	class OLO_API Log
 	{
 	public:

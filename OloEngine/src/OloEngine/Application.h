@@ -6,9 +6,7 @@
 #include "Events/Event.h"
 #include "OloEngine/Events/ApplicationEvent.h"
 
-
 namespace OloEngine {
-
 	class OLO_API Application
 	{
 	public:

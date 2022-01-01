@@ -15,5 +15,5 @@
 #include "OloEngine/Log.h"
 
 #ifdef OLO_PLATFORM_WINDOWS
-	#include <Windows.h>
+#include <Windows.h>
 #endif

@@ -3,7 +3,6 @@
 #include "OloEngine/Core.h"
 
 namespace OloEngine {
-
 	class OLO_API Input
 	{
 	public:
@@ -23,5 +22,4 @@ namespace OloEngine {
 	private:
 		static Input* s_Instance;
 	};
-
 }

@@ -27,7 +27,6 @@ public:
 	}
 };
 
-
 class Sandbox : public OloEngine::Application
 {
 public:
@@ -38,9 +37,7 @@ public:
 	}
 	~Sandbox()
 	{
-
 	}
-
 };
 
 OloEngine::Application* OloEngine::CreateApplication()

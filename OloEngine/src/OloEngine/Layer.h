@@ -4,7 +4,6 @@
 #include "OloEngine/Events/Event.h"
 
 namespace OloEngine {
-
 	class OLO_API Layer
 	{
 	public:
@@ -20,5 +19,4 @@ namespace OloEngine {
 	protected:
 		std::string m_DebugName;
 	};
-
 }

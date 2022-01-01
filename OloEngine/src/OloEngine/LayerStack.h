@@ -3,7 +3,6 @@
 #include "OloEngine/Core.h"
 #include "Layer.h"
 
-
 namespace OloEngine {
 	class OLO_API LayerStack
 	{

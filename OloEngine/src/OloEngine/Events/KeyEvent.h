@@ -3,7 +3,6 @@
 #include "Event.h"
 
 namespace OloEngine {
-
 	class OLO_API KeyEvent : public Event
 	{
 	public:

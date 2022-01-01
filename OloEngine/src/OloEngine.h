@@ -12,7 +12,6 @@
 #include "OloEngine/Log.h"
 #include "OloEngine/ImGui/ImGuiLayer.h"
 
-
 // --Entry Point-----------------
 #include "OloEngine/EntryPoint.h"
 // ------------------------------

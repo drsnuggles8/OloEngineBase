@@ -58,7 +58,6 @@ namespace OloEngine
 
 	void ImGuiLayer::OnDetach()
 	{
-
 	}
 
 	void ImGuiLayer::OnUpdate()

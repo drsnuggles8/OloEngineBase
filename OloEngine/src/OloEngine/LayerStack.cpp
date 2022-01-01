@@ -2,7 +2,6 @@
 #include "LayerStack.h"
 
 namespace OloEngine {
-	
 	LayerStack::LayerStack()
 	{
 		m_LayerInsert = m_Layers.begin();
@@ -40,5 +39,4 @@ namespace OloEngine {
 		if (it != m_Layers.end())
 			m_Layers.erase(it);
 	}
-
 }

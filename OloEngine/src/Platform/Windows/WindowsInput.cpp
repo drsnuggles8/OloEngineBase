@@ -5,7 +5,6 @@
 #include <GLFW/glfw3.h>
 
 namespace OloEngine {
-
 	Input* Input::s_Instance = new WindowsInput();
 
 	bool WindowsInput::IsKeyPressedImpl(int keycode)
@@ -42,5 +41,4 @@ namespace OloEngine {
 		auto [x, y] = GetMousePositionImpl();
 		return y;
 	}
-
 }
