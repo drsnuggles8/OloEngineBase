@@ -1374,7 +1374,4 @@
       <Filter>src\Platform\Windows</Filter>
     </ClCompile>
   </ItemGroup>
-  <ItemGroup>
-    <None Include="OloEngine.def" />
-  </ItemGroup>
 </Project>
