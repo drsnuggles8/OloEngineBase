@@ -42,8 +42,7 @@ project "OloEngine"
 		"%{prj.name}/src/**.h",
 		"%{prj.name}/src/**.cpp",
 		"%{prj.name}/vendor/glm/glm/**.hpp",
-		"%{prj.name}/vendor/glm/glm/**.inl",
-		"%{prj.name}/OloEngine.def"
+		"%{prj.name}/vendor/glm/glm/**.inl"
 	}
 
 	includedirs
