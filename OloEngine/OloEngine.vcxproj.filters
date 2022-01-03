@@ -1346,6 +1346,7 @@
     </ClInclude>
     <ClInclude Include="src\Platform\OpenGL\OpenGLContext.h" />
     <ClInclude Include="src\OloEngine\Renderer\GraphicsContext.h" />
+    <ClInclude Include="src\OloEngine\Renderer\Shader.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\OloEngine\Application.cpp">
@@ -1376,5 +1377,6 @@
       <Filter>src\Platform\Windows</Filter>
     </ClCompile>
     <ClCompile Include="src\Platform\OpenGL\OpenGLContext.cpp" />
+    <ClCompile Include="src\OloEngine\Renderer\Shader.cpp" />
   </ItemGroup>
 </Project>
