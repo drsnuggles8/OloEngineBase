@@ -13,6 +13,8 @@
 #include "OloEngine/Renderer/Buffer.h"
 #include "OloEngine/Renderer/VertexArray.h"
 
+#include "OloEngine/Renderer/OrthographicCamera.h"
+
 namespace OloEngine {
 	class OLO_API Application
 	{
@@ -42,6 +44,8 @@ namespace OloEngine {
 		std::shared_ptr<VertexArray> m_VertexArray;
 		std::shared_ptr<Shader> m_BlueShader;
 		std::shared_ptr<VertexArray> m_SquareVA;
+
+		OrthographicCamera m_Camera;
 	private:
 		static Application* s_Instance;
 	};
