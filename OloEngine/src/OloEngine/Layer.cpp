@@ -7,7 +7,4 @@ namespace OloEngine {
 	{
 	}
 
-	Layer::~Layer()
-	{
-	}
 }

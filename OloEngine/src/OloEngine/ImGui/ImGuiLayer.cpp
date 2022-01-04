@@ -1,3 +1,4 @@
+
 #include "OloEnginePCH.h"
 #include "ImGuiLayer.h"
 
@@ -15,10 +16,6 @@ namespace OloEngine
 {
 	ImGuiLayer::ImGuiLayer()
 		: Layer("ImGuiLayer")
-	{
-	}
-
-	ImGuiLayer::~ImGuiLayer()
 	{
 	}
 
