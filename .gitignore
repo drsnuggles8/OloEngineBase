@@ -433,3 +433,5 @@ FodyWeavers.xsd
 # Directories
 /bin/
 bin-int/
+OloEngine/vendor/GLFW/bin/
+OloEngine/vendor/GLFW/bin-int/
