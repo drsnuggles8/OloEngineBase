@@ -431,5 +431,5 @@ FodyWeavers.xsd
 *.app
 
 # Directories
-bin/
+/bin/
 bin-int/
