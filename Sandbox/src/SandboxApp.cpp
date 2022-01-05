@@ -21,7 +21,7 @@ public:
 			 0.0f,  0.5f, 0.0f, 0.8f, 0.8f, 0.2f, 1.0f
 		};
 
-		std::shared_ptr<OloEngine::VertexBuffer> vertexBuffer;
+		OloEngine::Ref<OloEngine::VertexBuffer> vertexBuffer;
 		vertexBuffer.reset(OloEngine::VertexBuffer::Create(vertices, sizeof(vertices)));
 		OloEngine::BufferLayout layout = {
 			{ OloEngine::ShaderDataType::Float3, "a_Position" },
@@ -31,7 +31,7 @@ public:
 		m_VertexArray->AddVertexBuffer(vertexBuffer);
 
 		uint32_t indices[3] = { 0, 1, 2 };
-		std::shared_ptr<OloEngine::IndexBuffer> indexBuffer;
+		OloEngine::Ref<OloEngine::IndexBuffer> indexBuffer;
 		indexBuffer.reset(OloEngine::IndexBuffer::Create(indices, sizeof(indices) / sizeof(uint32_t)));
 		m_VertexArray->SetIndexBuffer(indexBuffer);
 
@@ -44,7 +44,7 @@ public:
 			-0.5f,  0.5f, 0.0f
 		};
 
-		std::shared_ptr<OloEngine::VertexBuffer> squareVB;
+		OloEngine::Ref<OloEngine::VertexBuffer> squareVB;
 		squareVB.reset(OloEngine::VertexBuffer::Create(squareVertices, sizeof(squareVertices)));
 		squareVB->SetLayout({
 			{ OloEngine::ShaderDataType::Float3, "a_Position" }
@@ -52,7 +52,7 @@ public:
 		m_SquareVA->AddVertexBuffer(squareVB);
 
 		uint32_t squareIndices[6] = { 0, 1, 2, 2, 3, 0 };
-		std::shared_ptr<OloEngine::IndexBuffer> squareIB;
+		OloEngine::Ref<OloEngine::IndexBuffer> squareIB;
 		squareIB.reset(OloEngine::IndexBuffer::Create(squareIndices, sizeof(squareIndices) / sizeof(uint32_t)));
 		m_SquareVA->SetIndexBuffer(squareIB);
 
@@ -185,11 +185,11 @@ public:
 	{
 	}
 private:
-	std::shared_ptr<OloEngine::Shader> m_Shader;
-	std::shared_ptr<OloEngine::VertexArray> m_VertexArray;
+	OloEngine::Ref<OloEngine::Shader> m_Shader;
+	OloEngine::Ref<OloEngine::VertexArray> m_VertexArray;
 
-	std::shared_ptr<OloEngine::Shader> m_FlatColorShader;
-	std::shared_ptr<OloEngine::VertexArray> m_SquareVA;
+	OloEngine::Ref<OloEngine::Shader> m_FlatColorShader;
+	OloEngine::Ref<OloEngine::VertexArray> m_SquareVA;
 
 	OloEngine::OrthographicCamera m_Camera;
 	glm::vec3 m_CameraPosition;
