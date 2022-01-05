@@ -149,6 +149,7 @@
     </Lib>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="src\Platform\OpenGL\OpenGLShader.h" />
     <ClInclude Include="src\OloEngine.h" />
     <ClInclude Include="src\OloEngine\Application.h" />
     <ClInclude Include="src\OloEngine\Core.h" />
@@ -598,6 +599,7 @@
     <ClInclude Include="vendor\glm\glm\vector_relational.hpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\Platform\OpenGL\OpenGLShader.cpp" />
     <ClCompile Include="src\OloEngine\Application.cpp" />
     <ClCompile Include="src\OloEngine\ImGui\ImGuiBuild.cpp" />
     <ClCompile Include="src\OloEngine\ImGui\ImGuiLayer.cpp" />
