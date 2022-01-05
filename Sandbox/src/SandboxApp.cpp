@@ -33,10 +33,10 @@ public:
 		m_SquareVA.reset(OloEngine::VertexArray::Create());
 
 		float squareVertices[3 * 4] = {
-					-0.75f, -0.75f, 0.0f,
-					 0.75f, -0.75f, 0.0f,
-					 0.75f,  0.75f, 0.0f,
-					-0.75f,  0.75f, 0.0f
+			-0.75f, -0.75f, 0.0f,
+			 0.75f, -0.75f, 0.0f,
+			 0.75f,  0.75f, 0.0f,
+			-0.75f,  0.75f, 0.0f
 		};
 
 		std::shared_ptr<OloEngine::VertexBuffer> squareVB;
@@ -52,80 +52,95 @@ public:
 		m_SquareVA->SetIndexBuffer(squareIB);
 
 		std::string vertexSrc = R"(
-		#version 330 core
+			#version 330 core
 			
-		layout(location = 0) in vec3 a_Position;
-		layout(location = 1) in vec4 a_Color;
+			layout(location = 0) in vec3 a_Position;
+			layout(location = 1) in vec4 a_Color;
 
-		uniform mat4 u_ViewProjection;
+			uniform mat4 u_ViewProjection;
 
-		out vec3 v_Position;
-		out vec4 v_Color;
+			out vec3 v_Position;
+			out vec4 v_Color;
 
-		void main()
-		{
-			v_Position = a_Position;
-			v_Color = a_Color;
-			gl_Position = u_ViewProjection * vec4(a_Position, 1.0);	
-		}
-	)";
+			void main()
+			{
+				v_Position = a_Position;
+				v_Color = a_Color;
+				gl_Position = u_ViewProjection * vec4(a_Position, 1.0);	
+			}
+		)";
 
 		std::string fragmentSrc = R"(
-		#version 330 core
+			#version 330 core
 			
-		layout(location = 0) out vec4 color;
+			layout(location = 0) out vec4 color;
 
-		in vec3 v_Position;
-		in vec4 v_Color;
+			in vec3 v_Position;
+			in vec4 v_Color;
 
-		void main()
-		{
-			color = vec4(v_Position * 0.5 + 0.5, 1.0);
-			color = v_Color;
-		}
-	)";
+			void main()
+			{
+				color = vec4(v_Position * 0.5 + 0.5, 1.0);
+				color = v_Color;
+			}
+		)";
 
 		m_Shader.reset(new OloEngine::Shader(vertexSrc, fragmentSrc));
 
 		std::string blueShaderVertexSrc = R"(
-		#version 330 core
+			#version 330 core
 			
-		layout(location = 0) in vec3 a_Position;
+			layout(location = 0) in vec3 a_Position;
 
-		uniform mat4 u_ViewProjection;
+			uniform mat4 u_ViewProjection;
 
-		out vec3 v_Position;
+			out vec3 v_Position;
 
-		void main()
-		{
-			v_Position = a_Position;
-			gl_Position = u_ViewProjection * vec4(a_Position, 1.0);	
-		}
-	)";
+			void main()
+			{
+				v_Position = a_Position;
+				gl_Position = u_ViewProjection * vec4(a_Position, 1.0);	
+			}
+		)";
 
 		std::string blueShaderFragmentSrc = R"(
-		#version 330 core
+			#version 330 core
 			
-		layout(location = 0) out vec4 color;
+			layout(location = 0) out vec4 color;
 
-		in vec3 v_Position;
+			in vec3 v_Position;
 
-		void main()
-		{
-			color = vec4(0.2, 0.3, 0.8, 1.0);
-		}
-	)";
+			void main()
+			{
+				color = vec4(0.2, 0.3, 0.8, 1.0);
+			}
+		)";
 
 		m_BlueShader.reset(new OloEngine::Shader(blueShaderVertexSrc, blueShaderFragmentSrc));
 	}
 
-	void OnUpdate() override
+	void OnUpdate(OloEngine::Timestep ts) override
 	{
+		if (OloEngine::Input::IsKeyPressed(OLO_KEY_LEFT))
+			m_CameraPosition.x -= m_CameraMoveSpeed * ts;
+		else if (OloEngine::Input::IsKeyPressed(OLO_KEY_RIGHT))
+			m_CameraPosition.x += m_CameraMoveSpeed * ts;
+
+		if (OloEngine::Input::IsKeyPressed(OLO_KEY_UP))
+			m_CameraPosition.y += m_CameraMoveSpeed * ts;
+		else if (OloEngine::Input::IsKeyPressed(OLO_KEY_DOWN))
+			m_CameraPosition.y -= m_CameraMoveSpeed * ts;
+
+		if (OloEngine::Input::IsKeyPressed(OLO_KEY_A))
+			m_CameraRotation += m_CameraRotationSpeed * ts;
+		if (OloEngine::Input::IsKeyPressed(OLO_KEY_D))
+			m_CameraRotation -= m_CameraRotationSpeed * ts;
+
 		OloEngine::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1 });
 		OloEngine::RenderCommand::Clear();
 
-		m_Camera.SetPosition({ 0.0f, -0.25f, 0.0f });
-		m_Camera.SetRotation(90.0f);
+		m_Camera.SetPosition(m_CameraPosition);
+		m_Camera.SetRotation(m_CameraRotation);
 
 		OloEngine::Renderer::BeginScene(m_Camera);
 
@@ -142,7 +157,6 @@ public:
 
 	void OnEvent(OloEngine::Event& event) override
 	{
-
 	}
 private:
 	std::shared_ptr<OloEngine::Shader> m_Shader;
@@ -166,9 +180,12 @@ public:
 	{
 		PushLayer(new ExampleLayer());
 	}
+
 	~Sandbox()
 	{
+
 	}
+
 };
 
 OloEngine::Application* OloEngine::CreateApplication()

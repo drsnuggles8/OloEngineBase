@@ -6,6 +6,7 @@
 #include "OloEngine/Layer.h"
 #include "OloEngine/Log.h"
 
+#include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Input.h"
 #include "OloEngine/KeyCodes.h"
 #include "OloEngine/MouseButtonCodes.h"

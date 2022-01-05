@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core.h"
+#include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Events/Event.h"
 
 namespace OloEngine {
@@ -12,7 +13,7 @@ namespace OloEngine {
 
 		virtual void OnAttach() {}
 		virtual void OnDetach() {}
-		virtual void OnUpdate() {}
+		virtual void OnUpdate(Timestep ts) {}
 		virtual void OnImGuiRender() {}
 		virtual void OnEvent(Event& event) {}
 
