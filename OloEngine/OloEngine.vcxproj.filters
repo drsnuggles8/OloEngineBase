@@ -7,14 +7,23 @@
     <Filter Include="src\OloEngine">
       <UniqueIdentifier>{7CB578D9-E875-F40F-B1B0-3D8D1D3039EC}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\OloEngine\Core">
+      <UniqueIdentifier>{54A7EADE-408B-AB34-A9EB-A58795EE95B6}</UniqueIdentifier>
+    </Filter>
     <Filter Include="src\OloEngine\Events">
       <UniqueIdentifier>{E0DD5349-CC6C-DD12-758B-F10D61F9EDB8}</UniqueIdentifier>
     </Filter>
     <Filter Include="src\OloEngine\ImGui">
       <UniqueIdentifier>{A657AABC-12B9-87CA-9B26-CE7C0787BE89}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\OloEngine\Renderer">
+      <UniqueIdentifier>{A2E4BDE4-8EDE-E636-774B-7D4763E44CA3}</UniqueIdentifier>
+    </Filter>
     <Filter Include="src\Platform">
       <UniqueIdentifier>{21CA02E5-0D2D-9289-B6B2-CA3FA2F45D0C}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\Platform\OpenGL">
+      <UniqueIdentifier>{35A49437-A105-7245-2A73-B8F796D3A804}</UniqueIdentifier>
     </Filter>
     <Filter Include="src\Platform\Windows">
       <UniqueIdentifier>{5B054582-4794-CE4B-F0B2-E246DC20DFF1}</UniqueIdentifier>
@@ -50,6 +59,9 @@
     </ClInclude>
     <ClInclude Include="src\OloEngine\Core.h">
       <Filter>src\OloEngine</Filter>
+    </ClInclude>
+    <ClInclude Include="src\OloEngine\Core\Timestep.h">
+      <Filter>src\OloEngine\Core</Filter>
     </ClInclude>
     <ClInclude Include="src\OloEngine\EntryPoint.h">
       <Filter>src\OloEngine</Filter>
@@ -87,11 +99,50 @@
     <ClInclude Include="src\OloEngine\MouseButtonCodes.h">
       <Filter>src\OloEngine</Filter>
     </ClInclude>
+    <ClInclude Include="src\OloEngine\Renderer\Buffer.h">
+      <Filter>src\OloEngine\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\OloEngine\Renderer\GraphicsContext.h">
+      <Filter>src\OloEngine\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\OloEngine\Renderer\OrthographicCamera.h">
+      <Filter>src\OloEngine\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\OloEngine\Renderer\RenderCommand.h">
+      <Filter>src\OloEngine\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\OloEngine\Renderer\Renderer.h">
+      <Filter>src\OloEngine\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\OloEngine\Renderer\RendererAPI.h">
+      <Filter>src\OloEngine\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\OloEngine\Renderer\Shader.h">
+      <Filter>src\OloEngine\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\OloEngine\Renderer\VertexArray.h">
+      <Filter>src\OloEngine\Renderer</Filter>
+    </ClInclude>
     <ClInclude Include="src\OloEngine\Window.h">
       <Filter>src\OloEngine</Filter>
     </ClInclude>
     <ClInclude Include="src\OloEnginePCH.h">
       <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Platform\OpenGL\OpenGLBuffer.h">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Platform\OpenGL\OpenGLContext.h">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Platform\OpenGL\OpenGLRendererAPI.h">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Platform\OpenGL\OpenGLShader.h">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Platform\OpenGL\OpenGLVertexArray.h">
+      <Filter>src\Platform\OpenGL</Filter>
     </ClInclude>
     <ClInclude Include="src\Platform\Windows\WindowsInput.h">
       <Filter>src\Platform\Windows</Filter>
@@ -1344,20 +1395,6 @@
     <ClInclude Include="vendor\glm\glm\vector_relational.hpp">
       <Filter>vendor\glm\glm</Filter>
     </ClInclude>
-    <ClInclude Include="src\Platform\OpenGL\OpenGLContext.h" />
-    <ClInclude Include="src\OloEngine\Renderer\GraphicsContext.h" />
-    <ClInclude Include="src\OloEngine\Renderer\Shader.h" />
-    <ClInclude Include="src\OloEngine\Renderer\Buffer.h" />
-    <ClInclude Include="src\Platform\OpenGL\OpenGLBuffer.h" />
-    <ClInclude Include="src\OloEngine\Renderer\Renderer.h" />
-    <ClInclude Include="src\OloEngine\Renderer\VertexArray.h" />
-    <ClInclude Include="src\Platform\OpenGL\OpenGLVertexArray.h" />
-    <ClInclude Include="src\OloEngine\Renderer\RendererAPI.h" />
-    <ClInclude Include="src\OloEngine\Renderer\RenderCommand.h" />
-    <ClInclude Include="src\Platform\OpenGL\OpenGLRendererAPI.h" />
-    <ClInclude Include="src\OloEngine\Renderer\OrthographicCamera.h" />
-    <ClInclude Include="src\OloEngine\Core\Timestep.h" />
-    <ClInclude Include="src\Platform\OpenGL\OpenGLShader.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\OloEngine\Application.cpp">
@@ -1378,8 +1415,44 @@
     <ClCompile Include="src\OloEngine\Log.cpp">
       <Filter>src\OloEngine</Filter>
     </ClCompile>
+    <ClCompile Include="src\OloEngine\Renderer\Buffer.cpp">
+      <Filter>src\OloEngine\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="src\OloEngine\Renderer\OrthographicCamera.cpp">
+      <Filter>src\OloEngine\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="src\OloEngine\Renderer\RenderCommand.cpp">
+      <Filter>src\OloEngine\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="src\OloEngine\Renderer\Renderer.cpp">
+      <Filter>src\OloEngine\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="src\OloEngine\Renderer\RendererAPI.cpp">
+      <Filter>src\OloEngine\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="src\OloEngine\Renderer\Shader.cpp">
+      <Filter>src\OloEngine\Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="src\OloEngine\Renderer\VertexArray.cpp">
+      <Filter>src\OloEngine\Renderer</Filter>
+    </ClCompile>
     <ClCompile Include="src\OloEnginePCH.cpp">
       <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Platform\OpenGL\OpenGLContext.cpp">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Platform\OpenGL\OpenGLRendererAPI.cpp">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Platform\OpenGL\OpenGLShader.cpp">
+      <Filter>src\Platform\OpenGL</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Platform\OpenGL\OpenGLVertexArray.cpp">
+      <Filter>src\Platform\OpenGL</Filter>
     </ClCompile>
     <ClCompile Include="src\Platform\Windows\WindowsInput.cpp">
       <Filter>src\Platform\Windows</Filter>
@@ -1387,17 +1460,5 @@
     <ClCompile Include="src\Platform\Windows\WindowsWindow.cpp">
       <Filter>src\Platform\Windows</Filter>
     </ClCompile>
-    <ClCompile Include="src\Platform\OpenGL\OpenGLContext.cpp" />
-    <ClCompile Include="src\OloEngine\Renderer\Shader.cpp" />
-    <ClCompile Include="src\OloEngine\Renderer\Buffer.cpp" />
-    <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp" />
-    <ClCompile Include="src\OloEngine\Renderer\Renderer.cpp" />
-    <ClCompile Include="src\OloEngine\Renderer\VertexArray.cpp" />
-    <ClCompile Include="src\Platform\OpenGL\OpenGLVertexArray.cpp" />
-    <ClCompile Include="src\OloEngine\Renderer\RendererAPI.cpp" />
-    <ClCompile Include="src\OloEngine\Renderer\RenderCommand.cpp" />
-    <ClCompile Include="src\Platform\OpenGL\OpenGLRendererAPI.cpp" />
-    <ClCompile Include="src\OloEngine\Renderer\OrthographicCamera.cpp" />
-    <ClCompile Include="src\Platform\OpenGL\OpenGLShader.cpp" />
   </ItemGroup>
 </Project>
