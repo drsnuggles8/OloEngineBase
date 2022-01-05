@@ -22,6 +22,7 @@ IncludeDir["GLFW"] = "OloEngine/vendor/GLFW/include"
 IncludeDir["Glad"] = "OloEngine/vendor/Glad/include"
 IncludeDir["ImGui"] = "OloEngine/vendor/imgui"
 IncludeDir["glm"] = "OloEngine/vendor/glm"
+IncludeDir["stb_image"] = "OloEngine/vendor/stb_image"
 
 group "Dependencies"
 	include "OloEngine/vendor/GLFW"
@@ -46,6 +47,8 @@ project "OloEngine"
 	{
 		"%{prj.name}/src/**.h",
 		"%{prj.name}/src/**.cpp",
+		"%{prj.name}/vendor/stb_image/**.h",
+		"%{prj.name}/vendor/stb_image/**.cpp",
 		"%{prj.name}/vendor/glm/glm/**.hpp",
 		"%{prj.name}/vendor/glm/glm/**.inl"
 	}
@@ -57,7 +60,8 @@ project "OloEngine"
 		"%{IncludeDir.GLFW}",
 		"%{IncludeDir.Glad}",
 		"%{IncludeDir.ImGui}",
-		"%{IncludeDir.glm}"
+		"%{IncludeDir.glm}",
+		"%{IncludeDir.stb_image}"
 	}
 	
 	links

@@ -19,6 +19,7 @@
 
 #include "OloEngine/Renderer/Buffer.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/VertexArray.h"
 
 #include "OloEngine/Renderer/OrthographicCamera.h"

@@ -37,17 +37,18 @@ public:
 
 		m_SquareVA.reset(OloEngine::VertexArray::Create());
 
-		float squareVertices[3 * 4] = {
-			-0.5f, -0.5f, 0.0f,
-			 0.5f, -0.5f, 0.0f,
-			 0.5f,  0.5f, 0.0f,
-			-0.5f,  0.5f, 0.0f
+		float squareVertices[5 * 4] = {
+			-0.5f, -0.5f, 0.0f, 0.0f, 0.0f,
+			 0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
+			 0.5f,  0.5f, 0.0f, 1.0f, 1.0f,
+			-0.5f,  0.5f, 0.0f, 0.0f, 1.0f
 		};
 
 		OloEngine::Ref<OloEngine::VertexBuffer> squareVB;
 		squareVB.reset(OloEngine::VertexBuffer::Create(squareVertices, sizeof(squareVertices)));
 		squareVB->SetLayout({
-			{ OloEngine::ShaderDataType::Float3, "a_Position" }
+			{ OloEngine::ShaderDataType::Float3, "a_Position" },
+			{ OloEngine::ShaderDataType::Float2, "a_TexCoord" }
 		});
 		m_SquareVA->AddVertexBuffer(squareVB);
 
@@ -116,7 +117,7 @@ public:
 			layout(location = 0) out vec4 color;
 
 			in vec3 v_Position;
-
+			
 			uniform vec3 u_Color;
 
 			void main()
@@ -126,11 +127,50 @@ public:
 		)";
 
 		m_FlatColorShader.reset(OloEngine::Shader::Create(flatColorShaderVertexSrc, flatColorShaderFragmentSrc));
+
+		std::string textureShaderVertexSrc = R"(
+			#version 330 core
+			
+			layout(location = 0) in vec3 a_Position;
+			layout(location = 1) in vec2 a_TexCoord;
+
+			uniform mat4 u_ViewProjection;
+			uniform mat4 u_Transform;
+
+			out vec2 v_TexCoord;
+
+			void main()
+			{
+				v_TexCoord = a_TexCoord;
+				gl_Position = u_ViewProjection * u_Transform * vec4(a_Position, 1.0);	
+			}
+		)";
+
+		std::string textureShaderFragmentSrc = R"(
+			#version 330 core
+			
+			layout(location = 0) out vec4 color;
+
+			in vec2 v_TexCoord;
+			
+			uniform sampler2D u_Texture;
+
+			void main()
+			{
+				color = texture(u_Texture, v_TexCoord);
+			}
+		)";
+
+		m_TextureShader.reset(OloEngine::Shader::Create(textureShaderVertexSrc, textureShaderFragmentSrc));
+
+		m_Texture = OloEngine::Texture2D::Create("assets/textures/Checkerboard.png");
+
+		std::dynamic_pointer_cast<OloEngine::OpenGLShader>(m_TextureShader)->Bind();
+		std::dynamic_pointer_cast<OloEngine::OpenGLShader>(m_TextureShader)->UploadUniformInt("u_Texture", 0);
 	}
 
 	void OnUpdate(OloEngine::Timestep ts) override
 	{
-
 		if (OloEngine::Input::IsKeyPressed(OLO_KEY_LEFT))
 			m_CameraPosition.x -= m_CameraMoveSpeed * ts;
 		else if (OloEngine::Input::IsKeyPressed(OLO_KEY_RIGHT))
@@ -166,10 +206,14 @@ public:
 				glm::vec3 pos(x * 0.11f, y * 0.11f, 0.0f);
 				glm::mat4 transform = glm::translate(glm::mat4(1.0f), pos) * scale;
 				OloEngine::Renderer::Submit(m_FlatColorShader, m_SquareVA, transform);
-			}
+			}		
 		}
 
-		OloEngine::Renderer::Submit(m_Shader, m_VertexArray);
+		m_Texture->Bind();
+		OloEngine::Renderer::Submit(m_TextureShader, m_SquareVA, glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
+
+		// Triangle
+		// OloEngine::Renderer::Submit(m_Shader, m_VertexArray);
 
 		OloEngine::Renderer::EndScene();
 	}
@@ -188,8 +232,10 @@ private:
 	OloEngine::Ref<OloEngine::Shader> m_Shader;
 	OloEngine::Ref<OloEngine::VertexArray> m_VertexArray;
 
-	OloEngine::Ref<OloEngine::Shader> m_FlatColorShader;
+	OloEngine::Ref<OloEngine::Shader> m_FlatColorShader, m_TextureShader;
 	OloEngine::Ref<OloEngine::VertexArray> m_SquareVA;
+
+	OloEngine::Ref<OloEngine::Texture2D> m_Texture;
 
 	OloEngine::OrthographicCamera m_Camera;
 	glm::vec3 m_CameraPosition;
