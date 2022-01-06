@@ -10,6 +10,7 @@
 #include "OloEngine/Input.h"
 #include "OloEngine/KeyCodes.h"
 #include "OloEngine/MouseButtonCodes.h"
+#include "OloEngine/OrthographicCameraController.h"
 
 #include "OloEngine/ImGui/ImGuiLayer.h"
 

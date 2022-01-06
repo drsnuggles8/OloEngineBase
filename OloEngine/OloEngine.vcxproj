@@ -144,6 +144,7 @@
     </Lib>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="src\OloEngine\OrthographicCameraController.h" />
     <ClInclude Include="src\OloEngine.h" />
     <ClInclude Include="src\OloEngine\Application.h" />
     <ClInclude Include="src\OloEngine\Core.h" />
@@ -597,6 +598,7 @@
     <ClInclude Include="vendor\stb_image\stb_image.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\OloEngine\OrthographicCameraController.cpp" />
     <ClCompile Include="src\OloEngine\Application.cpp" />
     <ClCompile Include="src\OloEngine\ImGui\ImGuiBuild.cpp" />
     <ClCompile Include="src\OloEngine\ImGui\ImGuiLayer.cpp" />
