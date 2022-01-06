@@ -164,6 +164,8 @@ public:
 		m_TextureShader.reset(OloEngine::Shader::Create(textureShaderVertexSrc, textureShaderFragmentSrc));
 
 		m_Texture = OloEngine::Texture2D::Create("assets/textures/Checkerboard.png");
+		m_OloLogoTexture = OloEngine::Texture2D::Create("assets/textures/Otter.png");
+		m_ChernoLogoTexture = OloEngine::Texture2D::Create("assets/textures/ChernoLogo.png");
 
 		std::dynamic_pointer_cast<OloEngine::OpenGLShader>(m_TextureShader)->Bind();
 		std::dynamic_pointer_cast<OloEngine::OpenGLShader>(m_TextureShader)->UploadUniformInt("u_Texture", 0);
@@ -211,6 +213,10 @@ public:
 
 		m_Texture->Bind();
 		OloEngine::Renderer::Submit(m_TextureShader, m_SquareVA, glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
+		m_OloLogoTexture->Bind();
+		OloEngine::Renderer::Submit(m_TextureShader, m_SquareVA, glm::translate(glm::mat4(1.0f), glm::vec3(0.25f, -0.25f, 0.0f)) * glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
+		m_ChernoLogoTexture->Bind();
+		OloEngine::Renderer::Submit(m_TextureShader, m_SquareVA, glm::translate(glm::mat4(1.0f), glm::vec3(0.50f, -0.50f, 0.0f)) * glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
 
 		// Triangle
 		// OloEngine::Renderer::Submit(m_Shader, m_VertexArray);
@@ -235,7 +241,7 @@ private:
 	OloEngine::Ref<OloEngine::Shader> m_FlatColorShader, m_TextureShader;
 	OloEngine::Ref<OloEngine::VertexArray> m_SquareVA;
 
-	OloEngine::Ref<OloEngine::Texture2D> m_Texture;
+	OloEngine::Ref<OloEngine::Texture2D> m_Texture, m_OloLogoTexture, m_ChernoLogoTexture;
 
 	OloEngine::OrthographicCamera m_Camera;
 	glm::vec3 m_CameraPosition;
