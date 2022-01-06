@@ -92,7 +92,7 @@ public:
 			}
 		)";
 
-		m_Shader.reset(OloEngine::Shader::Create(vertexSrc, fragmentSrc));
+		m_Shader = OloEngine::Shader::Create("VertexPosColor", vertexSrc, fragmentSrc);
 
 		std::string flatColorShaderVertexSrc = R"(
 			#version 330 core
@@ -126,49 +126,16 @@ public:
 			}
 		)";
 
-		m_FlatColorShader.reset(OloEngine::Shader::Create(flatColorShaderVertexSrc, flatColorShaderFragmentSrc));
+		m_FlatColorShader = OloEngine::Shader::Create("FlatColor", flatColorShaderVertexSrc, flatColorShaderFragmentSrc);
 
-		std::string textureShaderVertexSrc = R"(
-			#version 330 core
-			
-			layout(location = 0) in vec3 a_Position;
-			layout(location = 1) in vec2 a_TexCoord;
-
-			uniform mat4 u_ViewProjection;
-			uniform mat4 u_Transform;
-
-			out vec2 v_TexCoord;
-
-			void main()
-			{
-				v_TexCoord = a_TexCoord;
-				gl_Position = u_ViewProjection * u_Transform * vec4(a_Position, 1.0);	
-			}
-		)";
-
-		std::string textureShaderFragmentSrc = R"(
-			#version 330 core
-			
-			layout(location = 0) out vec4 color;
-
-			in vec2 v_TexCoord;
-			
-			uniform sampler2D u_Texture;
-
-			void main()
-			{
-				color = texture(u_Texture, v_TexCoord);
-			}
-		)";
-
-		m_TextureShader.reset(OloEngine::Shader::Create(textureShaderVertexSrc, textureShaderFragmentSrc));
+		auto textureShader = m_ShaderLibrary.Load("assets/shaders/Texture.glsl");
 
 		m_Texture = OloEngine::Texture2D::Create("assets/textures/Checkerboard.png");
 		m_OloLogoTexture = OloEngine::Texture2D::Create("assets/textures/Otter.png");
 		m_ChernoLogoTexture = OloEngine::Texture2D::Create("assets/textures/ChernoLogo.png");
 
-		std::dynamic_pointer_cast<OloEngine::OpenGLShader>(m_TextureShader)->Bind();
-		std::dynamic_pointer_cast<OloEngine::OpenGLShader>(m_TextureShader)->UploadUniformInt("u_Texture", 0);
+		std::dynamic_pointer_cast<OloEngine::OpenGLShader>(textureShader)->Bind();
+		std::dynamic_pointer_cast<OloEngine::OpenGLShader>(textureShader)->UploadUniformInt("u_Texture", 0);
 	}
 
 	void OnUpdate(OloEngine::Timestep ts) override
@@ -211,12 +178,13 @@ public:
 			}		
 		}
 
+		auto textureShader = m_ShaderLibrary.Get("Texture");
 		m_Texture->Bind();
-		OloEngine::Renderer::Submit(m_TextureShader, m_SquareVA, glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
+		OloEngine::Renderer::Submit(textureShader, m_SquareVA, glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
 		m_OloLogoTexture->Bind();
-		OloEngine::Renderer::Submit(m_TextureShader, m_SquareVA, glm::translate(glm::mat4(1.0f), glm::vec3(0.25f, -0.25f, 0.0f)) * glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
+		OloEngine::Renderer::Submit(textureShader, m_SquareVA, glm::translate(glm::mat4(1.0f), glm::vec3(0.25f, -0.25f, 0.0f)) * glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
 		m_ChernoLogoTexture->Bind();
-		OloEngine::Renderer::Submit(m_TextureShader, m_SquareVA, glm::translate(glm::mat4(1.0f), glm::vec3(0.50f, -0.50f, 0.0f)) * glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
+		OloEngine::Renderer::Submit(textureShader, m_SquareVA, glm::translate(glm::mat4(1.0f), glm::vec3(0.50f, -0.50f, 0.0f)) * glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
 
 		// Triangle
 		// OloEngine::Renderer::Submit(m_Shader, m_VertexArray);
@@ -235,10 +203,11 @@ public:
 	{
 	}
 private:
+	OloEngine::ShaderLibrary m_ShaderLibrary;
 	OloEngine::Ref<OloEngine::Shader> m_Shader;
 	OloEngine::Ref<OloEngine::VertexArray> m_VertexArray;
 
-	OloEngine::Ref<OloEngine::Shader> m_FlatColorShader, m_TextureShader;
+	OloEngine::Ref<OloEngine::Shader> m_FlatColorShader;
 	OloEngine::Ref<OloEngine::VertexArray> m_SquareVA;
 
 	OloEngine::Ref<OloEngine::Texture2D> m_Texture, m_OloLogoTexture, m_ChernoLogoTexture;
