@@ -1,11 +1,13 @@
 #pragma once
 
-#include "Core.h"
+#include "OloEngine/Core/Core.h"
 
-#include "Window.h"
+#include "OloEngine/Core/Window.h"
 #include "OloEngine/Core/LayerStack.h"
 #include "OloEngine/Events/Event.h"
 #include "OloEngine/Events/ApplicationEvent.h"
+
+#include "OloEngine/Core/Timestep.h"
 
 #include "OloEngine/ImGui/ImGuiLayer.h"
 
@@ -14,7 +16,7 @@ namespace OloEngine {
 	{
 	public:
 		Application();
-		virtual ~Application() = default;
+		virtual ~Application();
 
 		void Run();
 

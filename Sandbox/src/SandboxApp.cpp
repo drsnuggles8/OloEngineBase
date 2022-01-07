@@ -1,11 +1,14 @@
 #include <OloEngine.h>
+#include <OloEngine/Core/EntryPoint.h>
 
 #include "Platform/OpenGL/OpenGLShader.h"
 
-#include "imgui/imgui.h"
+#include <imgui/imgui.h>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+
+#include "Sandbox2D.h"
 
 class ExampleLayer : public OloEngine::Layer
 {
@@ -13,7 +16,7 @@ public:
 	ExampleLayer()
 		: Layer("Example"), m_CameraController(1280.0f / 720.0f)
 	{
-		m_VertexArray.reset(OloEngine::VertexArray::Create());
+		m_VertexArray = OloEngine::VertexArray::Create();
 
 		float vertices[3 * 7] = {
 			-0.5f, -0.5f, 0.0f, 0.8f, 0.2f, 0.8f, 1.0f,
@@ -21,8 +24,7 @@ public:
 			 0.0f,  0.5f, 0.0f, 0.8f, 0.8f, 0.2f, 1.0f
 		};
 
-		OloEngine::Ref<OloEngine::VertexBuffer> vertexBuffer;
-		vertexBuffer.reset(OloEngine::VertexBuffer::Create(vertices, sizeof(vertices)));
+		OloEngine::Ref<OloEngine::VertexBuffer> vertexBuffer = OloEngine::VertexBuffer::Create(vertices, sizeof(vertices));
 		OloEngine::BufferLayout layout = {
 			{ OloEngine::ShaderDataType::Float3, "a_Position" },
 			{ OloEngine::ShaderDataType::Float4, "a_Color" }
@@ -31,11 +33,10 @@ public:
 		m_VertexArray->AddVertexBuffer(vertexBuffer);
 
 		uint32_t indices[3] = { 0, 1, 2 };
-		OloEngine::Ref<OloEngine::IndexBuffer> indexBuffer;
-		indexBuffer.reset(OloEngine::IndexBuffer::Create(indices, sizeof(indices) / sizeof(uint32_t)));
+		OloEngine::Ref<OloEngine::IndexBuffer> indexBuffer = OloEngine::IndexBuffer::Create(indices, sizeof(indices) / sizeof(uint32_t));
 		m_VertexArray->SetIndexBuffer(indexBuffer);
 
-		m_SquareVA.reset(OloEngine::VertexArray::Create());
+		m_SquareVA = OloEngine::VertexArray::Create();
 
 		float squareVertices[5 * 4] = {
 			-0.5f, -0.5f, 0.0f, 0.0f, 0.0f,
@@ -44,8 +45,7 @@ public:
 			-0.5f,  0.5f, 0.0f, 0.0f, 1.0f
 		};
 
-		OloEngine::Ref<OloEngine::VertexBuffer> squareVB;
-		squareVB.reset(OloEngine::VertexBuffer::Create(squareVertices, sizeof(squareVertices)));
+		OloEngine::Ref<OloEngine::VertexBuffer> squareVB = OloEngine::VertexBuffer::Create(squareVertices, sizeof(squareVertices));
 		squareVB->SetLayout({
 			{ OloEngine::ShaderDataType::Float3, "a_Position" },
 			{ OloEngine::ShaderDataType::Float2, "a_TexCoord" }
@@ -53,8 +53,7 @@ public:
 		m_SquareVA->AddVertexBuffer(squareVB);
 
 		uint32_t squareIndices[6] = { 0, 1, 2, 2, 3, 0 };
-		OloEngine::Ref<OloEngine::IndexBuffer> squareIB;
-		squareIB.reset(OloEngine::IndexBuffer::Create(squareIndices, sizeof(squareIndices) / sizeof(uint32_t)));
+		OloEngine::Ref<OloEngine::IndexBuffer> squareIB = OloEngine::IndexBuffer::Create(squareIndices, sizeof(squareIndices) / sizeof(uint32_t));
 		m_SquareVA->SetIndexBuffer(squareIB);
 
 		std::string vertexSrc = R"(
@@ -134,8 +133,8 @@ public:
 		m_OloLogoTexture = OloEngine::Texture2D::Create("assets/textures/Otter.png");
 		m_ChernoLogoTexture = OloEngine::Texture2D::Create("assets/textures/ChernoLogo.png");
 
-		std::dynamic_pointer_cast<OloEngine::OpenGLShader>(textureShader)->Bind();
-		std::dynamic_pointer_cast<OloEngine::OpenGLShader>(textureShader)->UploadUniformInt("u_Texture", 0);
+		textureShader->Bind();
+		textureShader->SetInt("u_Texture", 0);
 	}
 
 	void OnUpdate(OloEngine::Timestep ts) override
@@ -151,8 +150,8 @@ public:
 
 		glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
 
-		std::dynamic_pointer_cast<OloEngine::OpenGLShader>(m_FlatColorShader)->Bind();
-		std::dynamic_pointer_cast<OloEngine::OpenGLShader>(m_FlatColorShader)->UploadUniformFloat3("u_Color", m_SquareColor);
+		m_FlatColorShader->Bind();
+		m_FlatColorShader->SetFloat3("u_Color", m_SquareColor);
 
 		for (int y = 0; y < 20; y++)
 		{
@@ -209,14 +208,13 @@ class Sandbox : public OloEngine::Application
 public:
 	Sandbox()
 	{
-		PushLayer(new ExampleLayer());
+		// PushLayer(new ExampleLayer());
+		PushLayer(new Sandbox2D());
 	}
 
 	~Sandbox()
 	{
-
 	}
-
 };
 
 OloEngine::Application* OloEngine::CreateApplication()

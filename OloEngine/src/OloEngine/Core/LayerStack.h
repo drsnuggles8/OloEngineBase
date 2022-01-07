@@ -1,13 +1,13 @@
 #pragma once
 
 #include "OloEngine/Core/Core.h"
-#include "Layer.h"
+#include "OloEngine/Core/Layer.h"
 
 namespace OloEngine {
-	class OLO_API LayerStack
+	class LayerStack
 	{
 	public:
-		LayerStack();
+		LayerStack() = default;
 		~LayerStack();
 
 		void PushLayer(Layer* layer);

@@ -1,9 +1,9 @@
 #pragma once
 
-#include "Event.h"
+#include "OloEngine/Events/Event.h"
 
 namespace OloEngine {
-	class OLO_API MouseMovedEvent : public Event
+	class MouseMovedEvent : public Event
 	{
 	public:
 		MouseMovedEvent(float x, float y)
@@ -25,7 +25,7 @@ namespace OloEngine {
 		float m_MouseX, m_MouseY;
 	};
 
-	class OLO_API MouseScrolledEvent : public Event
+	class MouseScrolledEvent : public Event
 	{
 	public:
 		MouseScrolledEvent(float xOffset, float yOffset)
@@ -47,7 +47,7 @@ namespace OloEngine {
 		float m_XOffset, m_YOffset;
 	};
 
-	class OLO_API MouseButtonEvent : public Event
+	class MouseButtonEvent : public Event
 	{
 	public:
 		inline int GetMouseButton() const { return m_Button; }
@@ -60,7 +60,7 @@ namespace OloEngine {
 		int m_Button;
 	};
 
-	class OLO_API MouseButtonPressedEvent : public MouseButtonEvent
+	class MouseButtonPressedEvent : public MouseButtonEvent
 	{
 	public:
 		MouseButtonPressedEvent(int button)
@@ -76,7 +76,7 @@ namespace OloEngine {
 		EVENT_CLASS_TYPE(MouseButtonPressed)
 	};
 
-	class OLO_API MouseButtonReleasedEvent : public MouseButtonEvent
+	class MouseButtonReleasedEvent : public MouseButtonEvent
 	{
 	public:
 		MouseButtonReleasedEvent(int button)

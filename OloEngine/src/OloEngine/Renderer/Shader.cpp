@@ -1,7 +1,7 @@
 #include "OloEnginePCH.h"
-#include "Shader.h"
+#include "OloEngine/Renderer/Shader.h"
 
-#include "Renderer.h"
+#include "OloEngine/Renderer/Renderer.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 
 namespace OloEngine {
@@ -11,7 +11,7 @@ namespace OloEngine {
 		switch (Renderer::GetAPI())
 		{
 			case RendererAPI::API::None:    OLO_CORE_ASSERT(false, "RendererAPI::None is currently not supported!"); return nullptr;
-			case RendererAPI::API::OpenGL:  return std::make_shared<OpenGLShader>(filepath);
+			case RendererAPI::API::OpenGL:  return CreateRef<OpenGLShader>(filepath);
 		}
 
 		OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
@@ -23,7 +23,7 @@ namespace OloEngine {
 		switch (Renderer::GetAPI())
 		{
 			case RendererAPI::API::None:    OLO_CORE_ASSERT(false, "RendererAPI::None is currently not supported!"); return nullptr;
-			case RendererAPI::API::OpenGL:  return std::make_shared<OpenGLShader>(name, vertexSrc, fragmentSrc);
+			case RendererAPI::API::OpenGL:  return CreateRef<OpenGLShader>(name, vertexSrc, fragmentSrc);
 		}
 
 		OLO_CORE_ASSERT(false, "Unknown RendererAPI!");

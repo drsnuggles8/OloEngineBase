@@ -1,30 +1,30 @@
 #include "OloEnginePCH.h"
-#include "Buffer.h"
+#include "OloEngine/Renderer/Buffer.h"
 
-#include "Renderer.h"
+#include "OloEngine/Renderer/Renderer.h"
 
 #include "Platform/OpenGL/OpenGLBuffer.h"
 
 namespace OloEngine {
 	
-	VertexBuffer* VertexBuffer::Create(float* vertices, uint32_t size)
+	Ref<VertexBuffer> VertexBuffer::Create(float* vertices, uint32_t size)
 	{
 		switch (Renderer::GetAPI())
 		{
 			case RendererAPI::API::None:		OLO_CORE_ASSERT(false, "RenderererAPI::None is currently not supported!");  return nullptr;
-			case RendererAPI::API::OpenGL:		return new OpenGLVertexBuffer(vertices, size);
+			case RendererAPI::API::OpenGL:		return CreateRef<OpenGLVertexBuffer>(vertices, size);
 		}
 
 		OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
 		return nullptr;
 	}
 
-	IndexBuffer* IndexBuffer::Create(uint32_t* indices, uint32_t size)
+	Ref<IndexBuffer> IndexBuffer::Create(uint32_t* indices, uint32_t size)
 	{
 		switch (Renderer::GetAPI())
 		{
 			case RendererAPI::API::None:		OLO_CORE_ASSERT(false, "RenderererAPI::None is currently not supported!");  return nullptr;
-			case RendererAPI::API::OpenGL:		return new OpenGLIndexBuffer(indices, size);
+			case RendererAPI::API::OpenGL:		return CreateRef<OpenGLIndexBuffer>(indices, size);
 		}
 		OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
 		return nullptr;

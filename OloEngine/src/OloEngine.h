@@ -2,6 +2,8 @@
 
 // For use by OloEngine applications
 
+#include "OloEngine/Core/Core.h"
+
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Layer.h"
 #include "OloEngine/Core/Log.h"
@@ -16,6 +18,7 @@
 
 // --Renderer-------------------
 #include "OloEngine/Renderer/Renderer.h"
+#include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 
 #include "OloEngine/Renderer/Buffer.h"
@@ -24,8 +27,4 @@
 #include "OloEngine/Renderer/VertexArray.h"
 
 #include "OloEngine/Renderer/OrthographicCamera.h"
-// ------------------------------
-
-// --Entry Point-----------------
-#include "OloEngine/Core/EntryPoint.h"
 // ------------------------------

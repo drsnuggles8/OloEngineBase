@@ -1,9 +1,9 @@
 #pragma once
 
-#include "Event.h"
+#include "OloEngine/Events/Event.h"
 
 namespace OloEngine {
-	class OLO_API KeyEvent : public Event
+	class KeyEvent : public Event
 	{
 	public:
 		inline int GetKeyCode() const { return m_KeyCode; }
@@ -16,7 +16,7 @@ namespace OloEngine {
 		int m_KeyCode;
 	};
 
-	class OLO_API KeyPressedEvent : public KeyEvent
+	class KeyPressedEvent : public KeyEvent
 	{
 	public:
 		KeyPressedEvent(int keycode, int repeatCount)
@@ -36,7 +36,7 @@ namespace OloEngine {
 		int m_RepeatCount;
 	};
 
-	class OLO_API KeyReleasedEvent : public KeyEvent
+	class KeyReleasedEvent : public KeyEvent
 	{
 	public:
 		KeyReleasedEvent(int keycode)
@@ -52,7 +52,7 @@ namespace OloEngine {
 		EVENT_CLASS_TYPE(KeyReleased)
 	};
 
-	class OLO_API KeyTypedEvent : public KeyEvent
+	class KeyTypedEvent : public KeyEvent
 	{
 	public:
 		KeyTypedEvent(int keycode)

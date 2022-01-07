@@ -1,10 +1,7 @@
 #include "OloEnginePCH.h"
-#include "LayerStack.h"
+#include "OloEngine/Core/LayerStack.h"
 
 namespace OloEngine {
-	LayerStack::LayerStack()
-	{
-	}
 
 	LayerStack::~LayerStack()
 	{

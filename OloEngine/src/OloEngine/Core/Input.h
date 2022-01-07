@@ -3,7 +3,7 @@
 #include "OloEngine/Core/Core.h"
 
 namespace OloEngine {
-	class OLO_API Input
+	class Input
 	{
 	protected:
 		Input() = default;

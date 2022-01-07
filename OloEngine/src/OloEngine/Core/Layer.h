@@ -5,7 +5,7 @@
 #include "OloEngine/Events/Event.h"
 
 namespace OloEngine {
-	class OLO_API Layer
+	class Layer
 	{
 	public:
 		Layer(const std::string& name = "Layer");

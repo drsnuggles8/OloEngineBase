@@ -8,7 +8,7 @@
 
 namespace OloEngine
 {
-	class OLO_API ImGuiLayer : public Layer
+	class ImGuiLayer : public Layer
 	{
 	public:
 		ImGuiLayer();

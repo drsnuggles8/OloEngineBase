@@ -1,4 +1,5 @@
 #pragma once
+#include "OloEngine/Core/Core.h"
 
 #ifdef OLO_PLATFORM_WINDOWS
 
@@ -15,4 +16,5 @@ int main(int argc, char** argv)
 	app->Run();
 	delete app;
 }
+
 #endif

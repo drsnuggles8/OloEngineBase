@@ -43,24 +43,8 @@
 #error "Unknown platform!"
 #endif // End of platform detection
 
-
-// DLL support
-#ifdef OLO_PLATFORM_WINDOWS
-#if OLO_DYNAMIC_LINK
-#ifdef OLO_BUILD_DLL
-#define OLO_API __declspec(dllexport)
-#else
-#define OLO_API __declspec(dllimport)
-#endif
-#else
-#define OLO_API
-#endif
-#else
-#error OloEngine only supports Windows!
-#endif // End of DLL support
-
 #ifdef OLO_DEBUG
-#define OLO_ENABLE_ASSERTS
+	#define OLO_ENABLE_ASSERTS
 #endif
 
 #ifdef OLO_ENABLE_ASSERTS

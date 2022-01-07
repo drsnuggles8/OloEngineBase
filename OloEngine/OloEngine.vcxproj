@@ -144,6 +144,7 @@
     </Lib>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="src\OloEngine\Renderer\Renderer2D.h" />
     <ClInclude Include="src\OloEngine.h" />
     <ClInclude Include="src\OloEngine\Core\Application.h" />
     <ClInclude Include="src\OloEngine\Core\Core.h" />
@@ -598,6 +599,7 @@
     <ClInclude Include="vendor\stb_image\stb_image.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\OloEngine\Renderer\Renderer2D.cpp" />
     <ClCompile Include="src\OloEngine\Core\Application.cpp" />
     <ClCompile Include="src\OloEngine\Core\Layer.cpp" />
     <ClCompile Include="src\OloEngine\Core\LayerStack.cpp" />
@@ -605,6 +607,7 @@
     <ClCompile Include="src\OloEngine\ImGui\ImGuiBuild.cpp" />
     <ClCompile Include="src\OloEngine\ImGui\ImGuiLayer.cpp" />
     <ClCompile Include="src\OloEngine\Renderer\Buffer.cpp" />
+    <ClCompile Include="src\OloEngine\Renderer\GraphicsContext.cpp" />
     <ClCompile Include="src\OloEngine\Renderer\OrthographicCamera.cpp" />
     <ClCompile Include="src\OloEngine\Renderer\OrthographicCameraController.cpp" />
     <ClCompile Include="src\OloEngine\Renderer\RenderCommand.cpp" />
