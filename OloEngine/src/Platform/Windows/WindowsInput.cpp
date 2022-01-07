@@ -1,7 +1,7 @@
 #include "OloEnginePCH.h"
 #include "WindowsInput.h"
 
-#include "OloEngine/Application.h"
+#include "OloEngine/Core/Application.h"
 #include <GLFW/glfw3.h>
 
 namespace OloEngine {

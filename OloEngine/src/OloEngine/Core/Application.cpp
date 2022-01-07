@@ -1,7 +1,7 @@
 #include "OloEnginePCH.h"
 #include "Application.h"
 
-#include "OloEngine/Log.h"
+#include "OloEngine/Core/Log.h"
 
 #include "OloEngine/Renderer/Renderer.h"
 

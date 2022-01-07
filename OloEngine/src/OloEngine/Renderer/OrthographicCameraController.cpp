@@ -1,8 +1,8 @@
 #include "OloEnginePCH.h"
 #include "OrthographicCameraController.h"
 
-#include "OloEngine/Input.h"
-#include "OloEngine/KeyCodes.h"
+#include "OloEngine/Core/Input.h"
+#include "OloEngine/Core/KeyCodes.h"
 
 namespace OloEngine {
 

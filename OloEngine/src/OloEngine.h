@@ -2,15 +2,15 @@
 
 // For use by OloEngine applications
 
-#include "OloEngine/Application.h"
-#include "OloEngine/Layer.h"
-#include "OloEngine/Log.h"
+#include "OloEngine/Core/Application.h"
+#include "OloEngine/Core/Layer.h"
+#include "OloEngine/Core/Log.h"
 
 #include "OloEngine/Core/Timestep.h"
-#include "OloEngine/Input.h"
-#include "OloEngine/KeyCodes.h"
-#include "OloEngine/MouseButtonCodes.h"
-#include "OloEngine/OrthographicCameraController.h"
+#include "OloEngine/Core/Input.h"
+#include "OloEngine/Core/KeyCodes.h"
+#include "OloEngine/Core/MouseButtonCodes.h"
+#include "OloEngine/Renderer/OrthographicCameraController.h"
 
 #include "OloEngine/ImGui/ImGuiLayer.h"
 
@@ -27,5 +27,5 @@
 // ------------------------------
 
 // --Entry Point-----------------
-#include "OloEngine/EntryPoint.h"
+#include "OloEngine/Core/EntryPoint.h"
 // ------------------------------

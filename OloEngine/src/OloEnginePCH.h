@@ -13,7 +13,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "OloEngine/Log.h"
+#include "OloEngine/Core/Log.h"
 
 #ifdef OLO_PLATFORM_WINDOWS
 #include <Windows.h>

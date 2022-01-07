@@ -1,6 +1,6 @@
 #pragma once
 
-#include "OloEngine/Window.h"
+#include "OloEngine/Core/Window.h"
 #include "OloEngine/Renderer/GraphicsContext.h"
 
 #include <GLFW/glfw3.h>

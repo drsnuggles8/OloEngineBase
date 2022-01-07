@@ -1,6 +1,6 @@
 #pragma once
 
-#include "OloEngine/Core.h"
+#include "OloEngine/Core/Core.h"
 #include "OloEngine/Events/Event.h"
 
 namespace OloEngine {

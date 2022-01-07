@@ -3,8 +3,8 @@
 #include "Core.h"
 
 #include "Window.h"
-#include "OloEngine/LayerStack.h"
-#include "Events/Event.h"
+#include "OloEngine/Core/LayerStack.h"
+#include "OloEngine/Events/Event.h"
 #include "OloEngine/Events/ApplicationEvent.h"
 
 #include "OloEngine/ImGui/ImGuiLayer.h"

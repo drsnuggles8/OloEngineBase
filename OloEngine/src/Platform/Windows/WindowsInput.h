@@ -1,6 +1,6 @@
 #pragma once
 
-#include "OloEngine/Input.h"
+#include "OloEngine/Core/Input.h"
 
 namespace OloEngine {
 	class WindowsInput : public Input
