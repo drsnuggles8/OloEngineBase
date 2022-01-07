@@ -40,6 +40,12 @@ bld/
 # Visual Studio 2017 auto generated files
 Generated\ Files/
 
+# Other Visual Studio files
+**.sln
+**.vcxproj
+**.vcxproj.filters
+**.vcxproj.user
+
 # MSTest test Results
 [Tt]est[Rr]esult*/
 [Bb]uild[Ll]og.*
@@ -430,10 +436,7 @@ FodyWeavers.xsd
 *.out
 *.app
 
-# Directories
-/bin/
+# Binaries
+**/bin/
 bin-int/
-OloEngine/vendor/GLFW/bin/
-OloEngine/vendor/GLFW/bin-int/
-OloEngine/vendor/imgui/bin/
-OloEngine/vendor/imgui/bin-int/
+!vendor/bin/premake/
