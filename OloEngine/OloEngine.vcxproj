@@ -144,6 +144,7 @@
     </Lib>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="src\OloEngine\Debug\Instrumentor.h" />
     <ClInclude Include="src\OloEngine\Renderer\Renderer2D.h" />
     <ClInclude Include="src\OloEngine.h" />
     <ClInclude Include="src\OloEngine\Core\Application.h" />
