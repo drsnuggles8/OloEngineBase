@@ -19,7 +19,7 @@
 	 * to ensure that we're running on MAC
 	 * and not some other Apple platform */
 	#if TARGET_IPHONE_SIMULATOR == 1
-	#error "IOS simulator is not supported!"
+		#error "IOS simulator is not supported!"
 	#elif TARGET_OS_IPHONE == 1
 	#define OLO_PLATFORM_IOS
 	#error "IOS is not supported!"
@@ -27,7 +27,7 @@
 	#define OLO_PLATFORM_MACOS
 	#error "MacOS is not supported!"
 	#else
-	#error "Unknown Apple platform!"
+		#error "Unknown Apple platform!"
 	#endif
 	 /* We also have to check __ANDROID__ before __linux__
 	  * since android is based on the linux kernel
@@ -40,7 +40,7 @@
 		#error "Linux is not supported!"
 #else
 	/* Unknown compiler/platform */
-#error "Unknown platform!"
+	#error "Unknown platform!"
 #endif // End of platform detection
 
 #ifdef OLO_DEBUG
@@ -76,4 +76,5 @@ namespace OloEngine {
 	{
 		return std::make_shared<T>(std::forward<Args>(args)...);
 	}
+
 }

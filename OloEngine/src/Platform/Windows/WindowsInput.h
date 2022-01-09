@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Input.h"
 
 namespace OloEngine {
+
 	class WindowsInput : public Input
 	{
 	protected:
@@ -13,4 +14,5 @@ namespace OloEngine {
 		virtual float GetMouseXImpl() override;
 		virtual float GetMouseYImpl() override;
 	};
+
 }

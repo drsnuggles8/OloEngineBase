@@ -33,7 +33,6 @@ namespace OloEngine {
 		m_Name = path.stem().string(); //
 	}
 
-
 	OpenGLShader::OpenGLShader(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc)
 		: m_Name(name)
 	{
@@ -90,7 +89,7 @@ namespace OloEngine {
 
 		const char* typeToken = "#type";
 		size_t typeTokenLength = strlen(typeToken);
-		size_t pos = source.find(typeToken, 0);
+		size_t pos = source.find(typeToken, 0); //Start of shader type declaration line
 		while (pos != std::string::npos)
 		{
 			size_t eol = source.find_first_of("\r\n", pos);
@@ -149,8 +148,9 @@ namespace OloEngine {
 			glAttachShader(program, shader);
 			glShaderIDs[glShaderIDIndex++] = shader;
 		}
+		
 		m_RendererID = program;
-	
+
 		// Link our program
 		glLinkProgram(program);
 
@@ -168,7 +168,7 @@ namespace OloEngine {
 
 			// We don't need the program anymore.
 			glDeleteProgram(program);
-			// Don't leak shaders either.
+			
 			for (auto id : glShaderIDs)
 				glDeleteShader(id);
 
@@ -182,8 +182,6 @@ namespace OloEngine {
 			glDetachShader(program, id);
 			glDeleteShader(id);
 		}
-			
-
 	}
 
 	void OpenGLShader::Bind() const

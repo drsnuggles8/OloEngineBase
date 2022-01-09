@@ -3,6 +3,8 @@
 #include "OloEngine/Core/Core.h"
 #include "OloEngine/Core/Layer.h"
 
+#include <vector>
+
 namespace OloEngine {
 	class LayerStack
 	{
@@ -28,4 +30,5 @@ namespace OloEngine {
 		std::vector<Layer*> m_Layers;
 		unsigned int m_LayerInsertIndex = 0;
 	};
+
 }

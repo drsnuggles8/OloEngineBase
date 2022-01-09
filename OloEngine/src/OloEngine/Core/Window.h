@@ -4,6 +4,7 @@
 #include "OloEngine/Events/Event.h"
 
 namespace OloEngine {
+
 	struct WindowProps
 	{
 		std::string Title;
@@ -40,4 +41,5 @@ namespace OloEngine {
 
 		static Scope<Window> Create(const WindowProps& props = WindowProps());
 	};
+
 }

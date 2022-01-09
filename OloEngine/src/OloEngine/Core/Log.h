@@ -2,9 +2,9 @@
 
 #include "OloEngine/Core/Core.h"
 
-#include "spdlog/spdlog.h"
-#include "spdlog/fmt/ostr.h"
-#include "spdlog/sinks/stdout_color_sinks.h"
+#include <spdlog/spdlog.h>
+#include <spdlog/fmt/ostr.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 
 namespace OloEngine {
 	class Log
@@ -18,7 +18,8 @@ namespace OloEngine {
 		static Ref<spdlog::logger> s_CoreLogger;
 		static Ref<spdlog::logger> s_ClientLogger;
 	};
-};
+
+}
 
 // Core log macros
 #define OLO_CORE_TRACE(...)   ::OloEngine::Log::GetCoreLogger()->trace(__VA_ARGS__)

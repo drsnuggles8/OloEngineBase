@@ -2,7 +2,7 @@
 #include "OloEngine/Core/Window.h"
 
 #ifdef OLO_PLATFORM_WINDOWS
-	#include "Platform/Windows/WindowsWindow.h"
+#include "Platform/Windows/WindowsWindow.h"
 #endif
 
 namespace OloEngine

@@ -92,4 +92,5 @@ namespace OloEngine {
 
 		EVENT_CLASS_TYPE(MouseButtonReleased)
 	};
+
 }

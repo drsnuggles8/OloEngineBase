@@ -19,10 +19,8 @@ namespace OloEngine {
 
 		OLO_CORE_ASSERT(!s_Instance, "Application already exists!");
 		s_Instance = this;
-
 		m_Window = Window::Create();
 		m_Window->SetEventCallback(OLO_BIND_EVENT_FN(Application::OnEvent));
-		m_Window->SetVSync(false);
 
 		Renderer::Init();
 
@@ -98,6 +96,7 @@ namespace OloEngine {
 				}
 				m_ImGuiLayer->End();
 			}
+
 			m_Window->OnUpdate();
 		}
 	}
@@ -119,9 +118,9 @@ namespace OloEngine {
 		}
 
 		m_Minimized = false;
-
 		Renderer::OnWindowResize(e.GetWidth(), e.GetHeight());
 
 		return false;
 	}
+
 }

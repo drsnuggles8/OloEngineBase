@@ -1,11 +1,11 @@
 #include "ExampleLayer.h"
 
-#include "imgui/imgui.h"
+#include <imgui/imgui.h>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-ExampleLayer::ExampleLayer()
+ExampleLayer::ExampleLayer() 
 	: Layer("ExampleLayer"), m_CameraController(1280.0f / 720.0f)
 {
 	m_VertexArray = OloEngine::VertexArray::Create();

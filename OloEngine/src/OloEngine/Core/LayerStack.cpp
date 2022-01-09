@@ -10,7 +10,6 @@ namespace OloEngine {
 			layer->OnDetach();
 			delete layer;
 		}
-			
 	}
 
 	void LayerStack::PushLayer(Layer* layer)

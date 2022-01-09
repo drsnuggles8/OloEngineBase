@@ -41,4 +41,5 @@ namespace OloEngine {
 
 		WindowData m_Data;
 	};
+
 }
