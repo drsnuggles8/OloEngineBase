@@ -157,6 +157,7 @@
     <ClInclude Include="src\OloEngine\Core\Timestep.h" />
     <ClInclude Include="src\OloEngine\Core\Window.h" />
     <ClInclude Include="src\OloEngine\Debug\Instrumentor.h" />
+    <ClInclude Include="src\OloEngine\Debug\Instrumentor.h" />
     <ClInclude Include="src\OloEngine\Events\ApplicationEvent.h" />
     <ClInclude Include="src\OloEngine\Events\Event.h" />
     <ClInclude Include="src\OloEngine\Events\KeyEvent.h" />
