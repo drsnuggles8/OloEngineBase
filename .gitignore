@@ -243,3 +243,4 @@ bin-int/
 
 # Log files
 *.json
+*.log
