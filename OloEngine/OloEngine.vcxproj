@@ -601,9 +601,11 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\OloEngine\Core\Application.cpp" />
+    <ClCompile Include="src\OloEngine\Core\Input.cpp" />
     <ClCompile Include="src\OloEngine\Core\Layer.cpp" />
     <ClCompile Include="src\OloEngine\Core\LayerStack.cpp" />
     <ClCompile Include="src\OloEngine\Core\Log.cpp" />
+    <ClCompile Include="src\OloEngine\Core\Window.cpp" />
     <ClCompile Include="src\OloEngine\ImGui\ImGuiBuild.cpp" />
     <ClCompile Include="src\OloEngine\ImGui\ImGuiLayer.cpp" />
     <ClCompile Include="src\OloEngine\Renderer\Buffer.cpp" />

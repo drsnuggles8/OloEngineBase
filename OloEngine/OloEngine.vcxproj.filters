@@ -1500,5 +1500,7 @@
     <ClCompile Include="vendor\stb_image\stb_image.cpp">
       <Filter>vendor\stb_image</Filter>
     </ClCompile>
+    <ClCompile Include="src\OloEngine\Core\Input.cpp" />
+    <ClCompile Include="src\OloEngine\Core\Window.cpp" />
   </ItemGroup>
 </Project>
