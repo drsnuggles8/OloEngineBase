@@ -11,11 +11,11 @@ namespace OloEngine {
 
 	Scope<Input> Input::Create()
 	{
-#ifdef OLO_PLATFORM_WINDOWS
-		return CreateScope<WindowsInput>();
-#else
-		OLO_CORE_ASSERT(false, "Unknown platform!");
-		return nullptr;
-#endif
+	#ifdef OLO_PLATFORM_WINDOWS
+			return CreateScope<WindowsInput>();
+	#else
+			OLO_CORE_ASSERT(false, "Unknown platform!");
+			return nullptr;
+	#endif
 	}
-}
+} 
