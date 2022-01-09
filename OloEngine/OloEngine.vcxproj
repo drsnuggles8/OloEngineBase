@@ -153,7 +153,7 @@
     <ClInclude Include="src\OloEngine\Core\Layer.h" />
     <ClInclude Include="src\OloEngine\Core\LayerStack.h" />
     <ClInclude Include="src\OloEngine\Core\Log.h" />
-    <ClInclude Include="src\OloEngine\Core\MouseButtonCodes.h" />
+    <ClInclude Include="src\OloEngine\Core\MouseCodes.h" />
     <ClInclude Include="src\OloEngine\Core\Timestep.h" />
     <ClInclude Include="src\OloEngine\Core\Window.h" />
     <ClInclude Include="src\OloEngine\Debug\Instrumentor.h" />

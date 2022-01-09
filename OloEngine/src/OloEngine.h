@@ -11,7 +11,7 @@
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/KeyCodes.h"
-#include "OloEngine/Core/MouseButtonCodes.h"
+#include "OloEngine/Core/MouseCodes.h"
 #include "OloEngine/Renderer/OrthographicCameraController.h"
 
 #include "OloEngine/ImGui/ImGuiLayer.h"
