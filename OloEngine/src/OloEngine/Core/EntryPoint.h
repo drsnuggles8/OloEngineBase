@@ -1,6 +1,6 @@
 #pragma once
 #include "OloEngine/Core/Core.h"
-#include <OloEnginePCH.cpp>
+#include "OloEngine/Debug/Instrumentor.h"
 
 #ifdef OLO_PLATFORM_WINDOWS
 

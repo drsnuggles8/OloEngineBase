@@ -18,5 +18,5 @@
 #include "OloEngine/Debug/Instrumentor.h"
 
 #ifdef OLO_PLATFORM_WINDOWS
-	
+	#include <Windows.h>
 #endif
