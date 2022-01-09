@@ -22,16 +22,22 @@ namespace OloEngine {
 
 	WindowsWindow::WindowsWindow(const WindowProps& props)
 	{
+		OLO_PROFILE_FUNCTION();
+
 		Init(props);
 	}
 
 	WindowsWindow::~WindowsWindow()
 	{
+		OLO_PROFILE_FUNCTION();
+
 		Shutdown();
 	}
 
 	void WindowsWindow::Init(const WindowProps& props)
 	{
+		OLO_PROFILE_FUNCTION();
+
 		m_Data.Title = props.Title;
 		m_Data.Width = props.Width;
 		m_Data.Height = props.Height;
@@ -40,13 +46,17 @@ namespace OloEngine {
 
 		if (s_GLFWWindowCount == 0)
 		{
+			OLO_PROFILE_SCOPE("glfwInit");
 			int success = glfwInit();
 			OLO_CORE_ASSERT(success, "Could not initialize GLFW!");
 			glfwSetErrorCallback(GLFWErrorCallback);
 		}
 
-		m_Window = glfwCreateWindow((int)props.Width, (int)props.Height, m_Data.Title.c_str(), nullptr, nullptr);
-		++s_GLFWWindowCount;
+		{
+			OLO_PROFILE_SCOPE("glfwCreateWindow");
+			m_Window = glfwCreateWindow((int)props.Width, (int)props.Height, m_Data.Title.c_str(), nullptr, nullptr);
+			++s_GLFWWindowCount;
+		}
 		
 		m_Context = GraphicsContext::Create(m_Window);
 		m_Context->Init();
@@ -147,6 +157,8 @@ namespace OloEngine {
 
 	void WindowsWindow::Shutdown()
 	{
+		OLO_PROFILE_FUNCTION();
+
 		glfwDestroyWindow(m_Window);
 		--s_GLFWWindowCount;
 
@@ -158,12 +170,16 @@ namespace OloEngine {
 
 	void WindowsWindow::OnUpdate()
 	{
+		OLO_PROFILE_FUNCTION();
+
 		glfwPollEvents();
 		m_Context->SwapBuffers();
 	}
 
 	void WindowsWindow::SetVSync(bool enabled)
 	{
+		OLO_PROFILE_FUNCTION();
+
 		if (enabled)
 			glfwSwapInterval(1);
 		else

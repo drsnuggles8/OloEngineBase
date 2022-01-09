@@ -10,6 +10,8 @@ namespace OloEngine {
 
 	void Renderer::Init()
 	{
+		OLO_PROFILE_FUNCTION();
+
 		RenderCommand::Init();
 		Renderer2D::Init();
 	}

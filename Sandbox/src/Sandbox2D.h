@@ -24,14 +24,4 @@ private:
 	OloEngine::Ref<OloEngine::Texture2D> m_CheckerboardTexture;
 
 	glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
-
-	struct ProfileResult
-	{
-		const char* Name;
-		float Time;
-	};
-
-	std::vector<ProfileResult> m_ProfileResults;
-
-
 };

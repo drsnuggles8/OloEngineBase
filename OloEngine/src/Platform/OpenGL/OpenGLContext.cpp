@@ -15,6 +15,8 @@ namespace OloEngine {
 
 	void OpenGLContext::Init()
 	{
+		OLO_PROFILE_FUNCTION();
+
 		glfwMakeContextCurrent(m_WindowHandle);
 		int status = gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
 		OLO_CORE_ASSERT(status, "Failed to initialize Glad!");
@@ -36,6 +38,8 @@ namespace OloEngine {
 
 	void OpenGLContext::SwapBuffers()
 	{
+		OLO_PROFILE_FUNCTION();
+
 		glfwSwapBuffers(m_WindowHandle);
 	}
 

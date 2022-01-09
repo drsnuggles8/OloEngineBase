@@ -1,9 +1,5 @@
 #pragma once
 
-#ifdef OLO_PLATFORM_WINDOWS
-#include <Windows.h>
-#endif
-
 #include <iostream>
 #include <memory>
 #include <utility>
@@ -19,3 +15,8 @@
 
 #include "OloEngine/Core/Log.h"
 
+#include "OloEngine/Debug/Instrumentor.h"
+
+#ifdef OLO_PLATFORM_WINDOWS
+	
+#endif

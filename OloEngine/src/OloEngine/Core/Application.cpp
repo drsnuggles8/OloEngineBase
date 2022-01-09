@@ -15,6 +15,8 @@ namespace OloEngine {
 
 	Application::Application()
 	{
+		OLO_PROFILE_FUNCTION();
+
 		OLO_CORE_ASSERT(!s_Instance, "Application already exists!");
 		s_Instance = this;
 
@@ -30,21 +32,31 @@ namespace OloEngine {
 
 	Application::~Application()
 	{
+		OLO_PROFILE_FUNCTION();
+
 		Renderer::Shutdown();
 	}
 
 	void Application::PushLayer(Layer* layer)
 	{
-		m_LayerStack.PushLayer(layer);		
+		OLO_PROFILE_FUNCTION();
+
+		m_LayerStack.PushLayer(layer);
+		layer->OnAttach();
 	}
 
 	void Application::PushOverlay(Layer* layer)
 	{
+		OLO_PROFILE_FUNCTION();
+
 		m_LayerStack.PushOverlay(layer);
+		layer->OnAttach();
 	}
 
 	void Application::OnEvent(Event& e)
 	{
+		OLO_PROFILE_FUNCTION();
+
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<WindowCloseEvent>(OLO_BIND_EVENT_FN(Application::OnWindowClose));
 		dispatcher.Dispatch<WindowResizeEvent>(OLO_BIND_EVENT_FN(Application::OnWindowResize));
@@ -59,23 +71,33 @@ namespace OloEngine {
 
 	void Application::Run()
 	{
+		OLO_PROFILE_FUNCTION();
+
 		while (m_Running)
 		{
+			OLO_PROFILE_SCOPE("RunLoop");
+
 			float time = static_cast<float>(glfwGetTime());
 			Timestep timestep = time - m_LastFrameTime;
 			m_LastFrameTime = time;
 
 			if (!m_Minimized)
 			{
-				for (Layer* layer : m_LayerStack)
-					layer->OnUpdate(timestep);
+				{
+					OLO_PROFILE_SCOPE("LayerStack OnUpdate");
+					for (Layer* layer : m_LayerStack)
+						layer->OnUpdate(timestep);
+				}
+
+				m_ImGuiLayer->Begin();
+				{
+					OLO_PROFILE_SCOPE("LayerStack OnImGuiRender");
+
+					for (Layer* layer : m_LayerStack)
+						layer->OnImGuiRender();
+				}
+				m_ImGuiLayer->End();
 			}
-
-			m_ImGuiLayer->Begin();
-			for (Layer* layer : m_LayerStack)
-				layer->OnImGuiRender();
-			m_ImGuiLayer->End();
-
 			m_Window->OnUpdate();
 		}
 	}
@@ -88,6 +110,8 @@ namespace OloEngine {
 
 	bool Application::OnWindowResize(WindowResizeEvent& e)
 	{
+		OLO_PROFILE_FUNCTION();
+
 		if (e.GetWidth() == 0 || e.GetHeight() == 0)
 		{
 			m_Minimized = true;

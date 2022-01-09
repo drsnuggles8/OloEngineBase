@@ -256,3 +256,6 @@ MigrationBackup/
 **/bin/
 bin-int/
 !vendor/bin/premake/
+
+# Log files
+*.json

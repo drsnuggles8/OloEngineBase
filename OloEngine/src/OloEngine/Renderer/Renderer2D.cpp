@@ -20,6 +20,8 @@ namespace OloEngine {
 
 	void Renderer2D::Init()
 	{
+		OLO_PROFILE_FUNCTION();
+
 		s_Data = CreateScope<Renderer2DStorage>();
 		s_Data->QuadVertexArray = VertexArray::Create();
 
@@ -53,17 +55,23 @@ namespace OloEngine {
 
 	void Renderer2D::Shutdown()
 	{
+		OLO_PROFILE_FUNCTION();
+
 		s_Data.reset();
 	}
 
 	void Renderer2D::BeginScene(const OrthographicCamera& camera)
 	{
+		OLO_PROFILE_FUNCTION();
+
 		s_Data->TextureShader->Bind();
 		s_Data->TextureShader->SetMat4("u_ViewProjection", camera.GetViewProjectionMatrix());
 	}
 
 	void Renderer2D::EndScene()
 	{
+		OLO_PROFILE_FUNCTION();
+
 	}
 
 	void Renderer2D::DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color)
@@ -73,6 +81,8 @@ namespace OloEngine {
 
 	void Renderer2D::DrawQuad(const glm::vec3& position, const glm::vec2& size, const glm::vec4& color)
 	{
+		OLO_PROFILE_FUNCTION();
+
 		s_Data->TextureShader->SetFloat4("u_Color", color);
 		s_Data->WhiteTexture->Bind();
 
@@ -90,6 +100,8 @@ namespace OloEngine {
 
 	void Renderer2D::DrawQuad(const glm::vec3& position, const glm::vec2& size, const Ref<Texture2D>& texture)
 	{
+		OLO_PROFILE_FUNCTION();
+
 		s_Data->TextureShader->SetFloat4("u_Color", glm::vec4(1.0f));
 		texture->Bind();
 
