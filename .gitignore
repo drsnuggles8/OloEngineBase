@@ -24,12 +24,6 @@ mono_crash.*
 # Visual Studio 2017 auto generated files
 Generated\ Files/
 
-# Other Visual Studio files
-**.sln
-**.vcxproj
-**.vcxproj.filters
-**.vcxproj.user
-
 # MSTest test Results
 [Tt]est[Rr]esult*/
 [Bb]uild[Ll]og.*
