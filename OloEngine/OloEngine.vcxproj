@@ -146,7 +146,7 @@
   <ItemGroup>
     <ClInclude Include="src\OloEngine.h" />
     <ClInclude Include="src\OloEngine\Core\Application.h" />
-    <ClInclude Include="src\OloEngine\Core\Core.h" />
+    <ClInclude Include="src\OloEngine\Core\Base.h" />
     <ClInclude Include="src\OloEngine\Core\EntryPoint.h" />
     <ClInclude Include="src\OloEngine\Core\Input.h" />
     <ClInclude Include="src\OloEngine\Core\KeyCodes.h" />

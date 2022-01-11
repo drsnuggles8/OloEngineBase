@@ -63,7 +63,7 @@
     <ClInclude Include="src\OloEngine\Core\Application.h">
       <Filter>src\OloEngine\Core</Filter>
     </ClInclude>
-    <ClInclude Include="src\OloEngine\Core\Core.h">
+    <ClInclude Include="src\OloEngine\Core\Base.h">
       <Filter>src\OloEngine\Core</Filter>
     </ClInclude>
     <ClInclude Include="src\OloEngine\Core\EntryPoint.h">

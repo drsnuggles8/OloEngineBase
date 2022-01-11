@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include "OloEngine/Core/Core.h"
+#include "OloEngine/Core/Base.h"
 
 namespace OloEngine {
 

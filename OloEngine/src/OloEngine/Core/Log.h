@@ -1,6 +1,6 @@
 #pragma once
 
-#include "OloEngine/Core/Core.h"
+#include "OloEngine/Core/Base.h"
 
 #include <spdlog/spdlog.h>
 #include <spdlog/fmt/ostr.h>

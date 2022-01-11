@@ -1,5 +1,5 @@
 #pragma once
-#include "OloEngine/Core/Core.h"
+#include "OloEngine/Core/Base.h"
 #include "OloEngine/Debug/Instrumentor.h"
 
 #ifdef OLO_PLATFORM_WINDOWS

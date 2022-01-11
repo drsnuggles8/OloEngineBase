@@ -2,7 +2,7 @@
 
 // For use by OloEngine applications
 
-#include "OloEngine/Core/Core.h"
+#include "OloEngine/Core/Base.h"
 
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Layer.h"

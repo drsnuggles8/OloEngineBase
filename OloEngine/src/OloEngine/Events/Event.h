@@ -3,7 +3,7 @@
 #include <functional>
 #include <string>
 #include <sstream>
-#include "OloEngine/Core/Core.h"
+#include "OloEngine/Core/Base.h"
 
 namespace OloEngine {
 	// Events in OloEngine are currently blocking, meaning when an event occurs it
