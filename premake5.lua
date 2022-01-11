@@ -53,6 +53,12 @@ project "OloEngine"
 		"%{prj.name}/vendor/glm/glm/**.inl"
 	}
 
+	defines
+	{
+		"_CRT_SECURE_NO_WARNINGS",
+		"GLFW_INCLUDE_NONE"
+	}
+
 	includedirs
 	{
 		"%{prj.name}/src",
@@ -75,11 +81,6 @@ project "OloEngine"
 	filter "system:windows"
 		systemversion "latest"
 
-		defines
-		{
-			"OLO_BUILD_DLL",
-			"GLFW_INCLUDE_NONE"
-		}
 		
 	filter "configurations:Debug"
 		defines "OLO_DEBUG"

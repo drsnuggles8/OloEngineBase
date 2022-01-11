@@ -44,12 +44,22 @@
 #endif // End of platform detection
 
 #ifdef OLO_DEBUG
+	#if defined(OLO_PLATFORM_WINDOWS)
+		#define OLO_DEBUGBREAK() __debugbreak()
+	#elif defined(OLO_PLATFORM_LINUX)
+		#include <signal.h>
+		#define OLO_DEBUGBREAK() raise(SIGTRAP)
+	#else
+		#error "Platform doesn't support debugbreak yet!"
+	#endif
 	#define OLO_ENABLE_ASSERTS
+#else
+	#define OLO_DEBUGBREAK()
 #endif
 
 #ifdef OLO_ENABLE_ASSERTS
-	#define OLO_ASSERT(x, ...) { if(!(x)) { OLO_ERROR("Assertion Failed: {0}", __VA_ARGS__); __debugbreak(); } }
-	#define OLO_CORE_ASSERT(x, ...) { if(!(x)) { OLO_CORE_ERROR("Assertion Failed: {0}", __VA_ARGS__); __debugbreak(); } }
+	#define OLO_ASSERT(x, ...) { if(!(x)) { OLO_ERROR("Assertion Failed: {0}", __VA_ARGS__); OLO_DEBUGBREAK(); } }
+	#define OLO_CORE_ASSERT(x, ...) { if(!(x)) { OLO_CORE_ERROR("Assertion Failed: {0}", __VA_ARGS__); OLO_DEBUGBREAK(); } }
 #else
 	#define OLO_ASSERT(x, ...)
 	#define OLO_CORE_ASSERT(x, ...)

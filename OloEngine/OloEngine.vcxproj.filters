@@ -84,6 +84,9 @@
     <ClInclude Include="src\OloEngine\Core\Log.h">
       <Filter>src\OloEngine\Core</Filter>
     </ClInclude>
+    <ClInclude Include="src\OloEngine\Core\MouseCodes.h">
+      <Filter>src\OloEngine\Core</Filter>
+    </ClInclude>
     <ClInclude Include="src\OloEngine\Core\Timestep.h">
       <Filter>src\OloEngine\Core</Filter>
     </ClInclude>
@@ -1416,10 +1419,12 @@
     <ClInclude Include="vendor\stb_image\stb_image.h">
       <Filter>vendor\stb_image</Filter>
     </ClInclude>
-    <ClInclude Include="src\OloEngine\Core\MouseCodes.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\OloEngine\Core\Application.cpp">
+      <Filter>src\OloEngine\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\OloEngine\Core\Input.cpp">
       <Filter>src\OloEngine\Core</Filter>
     </ClCompile>
     <ClCompile Include="src\OloEngine\Core\Layer.cpp">
@@ -1429,6 +1434,9 @@
       <Filter>src\OloEngine\Core</Filter>
     </ClCompile>
     <ClCompile Include="src\OloEngine\Core\Log.cpp">
+      <Filter>src\OloEngine\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\OloEngine\Core\Window.cpp">
       <Filter>src\OloEngine\Core</Filter>
     </ClCompile>
     <ClCompile Include="src\OloEngine\ImGui\ImGuiBuild.cpp">
@@ -1500,7 +1508,5 @@
     <ClCompile Include="vendor\stb_image\stb_image.cpp">
       <Filter>vendor\stb_image</Filter>
     </ClCompile>
-    <ClCompile Include="src\OloEngine\Core\Input.cpp" />
-    <ClCompile Include="src\OloEngine\Core\Window.cpp" />
   </ItemGroup>
 </Project>
