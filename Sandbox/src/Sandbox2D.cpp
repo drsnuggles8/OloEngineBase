@@ -17,6 +17,11 @@ void Sandbox2D::OnAttach()
 	OLO_PROFILE_FUNCTION();
 
 	m_CheckerboardTexture = OloEngine::Texture2D::Create("assets/textures/Checkerboard.png");
+
+	OloEngine::FramebufferSpecification fbSpec;
+	fbSpec.Width = 1280;
+	fbSpec.Height = 720;
+	m_Framebuffer = OloEngine::Framebuffer::Create(fbSpec);
 }
 
 void Sandbox2D::OnDetach()
@@ -35,6 +40,7 @@ void Sandbox2D::OnUpdate(OloEngine::Timestep ts)
 	OloEngine::Renderer2D::ResetStats();
 	{
 		OLO_PROFILE_SCOPE("Renderer Prep");
+		m_Framebuffer->Bind();
 		OloEngine::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1 });
 		OloEngine::RenderCommand::Clear();
 	}
@@ -62,6 +68,7 @@ void Sandbox2D::OnUpdate(OloEngine::Timestep ts)
 			}
 		}
 		OloEngine::Renderer2D::EndScene();
+		m_Framebuffer->Unbind();
 	}
 }
 
@@ -70,7 +77,7 @@ void Sandbox2D::OnImGuiRender()
 	OLO_PROFILE_FUNCTION();
 
 	// Note: Switch this to true to enable dockspace
-	static bool dockingEnabled = false;
+	static bool dockingEnabled = true;
 	if (dockingEnabled)
 	{
 		static bool dockspaceOpen = true;
@@ -143,8 +150,8 @@ void Sandbox2D::OnImGuiRender()
 
 		ImGui::ColorEdit4("Square Color", glm::value_ptr(m_SquareColor));
 
-		uint32_t textureID = m_CheckerboardTexture->GetRendererID();
-		ImGui::Image((void*)textureID, ImVec2{ 256.0f, 256.0f });
+		uint32_t textureID = m_Framebuffer->GetColorAttachmentRendererID();
+		ImGui::Image((void*)textureID, ImVec2{ 1280, 720 });
 		ImGui::End();
 
 		ImGui::End();
@@ -163,7 +170,7 @@ void Sandbox2D::OnImGuiRender()
 		ImGui::ColorEdit4("Square Color", glm::value_ptr(m_SquareColor));
 
 		uint32_t textureID = m_CheckerboardTexture->GetRendererID();
-		ImGui::Image((void*)textureID, ImVec2{ 256.0f, 256.0f });
+		ImGui::Image((void*)textureID, ImVec2{ 1280, 720 });
 		ImGui::End();
 	}
 }

@@ -1,0 +1,2088 @@
+<?xml version="1.0" standalone="yes"?>
+<NewDataSet>
+  <xs:schema id="NewDataSet" xmlns="" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xs:element name="NewDataSet" msdata:IsDataSet="true" msdata:UseCurrentLocale="true">
+      <xs:complexType>
+        <xs:choice minOccurs="0" maxOccurs="unbounded">
+          <xs:element name="Solution_Path">
+            <xs:complexType>
+              <xs:sequence>
+                <xs:element name="SolutionPath" type="xs:string" minOccurs="0" />
+                <xs:element name="SolutionVersion" type="xs:string" minOccurs="0" />
+                <xs:element name="PlogVersion" type="xs:unsignedInt" minOccurs="0" />
+                <xs:element name="ModificationDate" msdata:DateTimeMode="Utc" type="xs:dateTime" minOccurs="0" />
+              </xs:sequence>
+            </xs:complexType>
+          </xs:element>
+          <xs:element name="PVS-Studio_Analysis_Log">
+            <xs:complexType>
+              <xs:sequence>
+                <xs:element name="FavIcon" type="xs:boolean" minOccurs="0" msdata:Ordinal="0" />
+                <xs:element name="Level" type="xs:unsignedInt" minOccurs="0" msdata:Ordinal="1" />
+                <xs:element name="DefaultOrder" type="xs:int" minOccurs="0" msdata:Ordinal="2" />
+                <xs:element name="ErrorCode" type="xs:string" msdata:Ordinal="3" />
+                <xs:element name="Message" type="xs:string" msdata:Ordinal="4" />
+                <xs:element name="Project" type="xs:string" minOccurs="0" msdata:Ordinal="5" />
+                <xs:element name="ShortFile" type="xs:string" minOccurs="0" msdata:Ordinal="6" />
+                <xs:element name="Line" type="xs:int" msdata:Ordinal="7" />
+                <xs:element name="FalseAlarm" type="xs:boolean" minOccurs="0" msdata:Ordinal="8" />
+                <xs:element name="File" type="xs:string" msdata:Ordinal="9" />
+                <xs:element name="CodePrev" type="xs:unsignedInt" minOccurs="0" msdata:Ordinal="10" />
+                <xs:element name="CodeCurrent" type="xs:unsignedInt" minOccurs="0" msdata:Ordinal="11" />
+                <xs:element name="CodeNext" type="xs:unsignedInt" minOccurs="0" msdata:Ordinal="12" />
+                <xs:element name="TrialMessage" type="xs:boolean" minOccurs="0" msdata:Ordinal="13" />
+                <xs:element name="Analyzer" type="xs:int" minOccurs="0" msdata:Ordinal="14" />
+                <xs:element name="LineExtension" type="xs:string" minOccurs="0" msdata:Ordinal="15" />
+                <xs:element name="Retired" type="xs:boolean" default="false" minOccurs="0" msdata:Ordinal="16" />
+                <xs:element name="AnalyzedSourceFiles" type="xs:string" minOccurs="0" msdata:Ordinal="17" />
+                <xs:element name="CWECode" type="xs:string" minOccurs="0" msdata:Ordinal="18" />
+                <xs:element name="SAST" type="xs:string" minOccurs="0" msdata:Ordinal="19" />
+                <xs:element name="Positions" msdata:DataType="ProgramVerificationSystems.PVSStudio.CommonTypes.SourceFilePositions, PVS-Studio-vs2022, Version=7.16.55368.3308, Culture=neutral, PublicKeyToken=null" type="xs:anyType" minOccurs="0" msdata:Ordinal="20" />
+                <xs:element name="MISRA" type="xs:string" minOccurs="0" msdata:Ordinal="21" />
+              </xs:sequence>
+              <xs:attribute name="ErrorCodeNumeric" msdata:ReadOnly="true" msdata:Expression="IIF(LEN(ErrorCode) &lt; 2 OR (SUBSTRING(ErrorCode, 1, 1) &lt;&gt; 'V'), 0, CONVERT(SUBSTRING(ErrorCode, 2, LEN(ErrorCode) - 1), 'System.UInt32'))" type="xs:unsignedInt" use="prohibited" />
+              <xs:attribute name="CWECodeNumeric" msdata:ReadOnly="true" msdata:Expression="ISNULL(IIF(LEN(CWECode) &lt; 4 + 1 OR (SUBSTRING(CWECode, 1, 4) &lt;&gt; 'CWE-'), 4294967295, CONVERT(SUBSTRING(CWECode, 4 + 1, LEN(CWECode) - 4), 'System.UInt32')), 4294967295)" type="xs:unsignedInt" use="prohibited" />
+            </xs:complexType>
+          </xs:element>
+        </xs:choice>
+      </xs:complexType>
+      <xs:unique name="Constraint1" msdata:PrimaryKey="true">
+        <xs:selector xpath=".//PVS-Studio_Analysis_Log" />
+        <xs:field xpath="Line" />
+        <xs:field xpath="Message" />
+        <xs:field xpath="File" />
+        <xs:field xpath="ErrorCode" />
+      </xs:unique>
+    </xs:element>
+  </xs:schema>
+  <Solution_Path>
+    <SolutionPath>C:\Users\ole\source\repos\OloEngine\OloEngine.sln</SolutionPath>
+    <SolutionVersion>17.0</SolutionVersion>
+    <PlogVersion>7</PlogVersion>
+    <ModificationDate>2022-01-12T12:42:23.8690524Z</ModificationDate>
+  </Solution_Path>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>1</DefaultOrder>
+    <ErrorCode>V122</ErrorCode>
+    <Message>Memsize type is used in the struct/class.</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Instrumentor.h</ShortFile>
+    <Line>32</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Debug\Instrumentor.h</File>
+    <CodePrev>11401039</CodePrev>
+    <CodeCurrent>1065182075</CodeCurrent>
+    <CodeNext>3050510383</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Log.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\LayerStack.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Input.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\OrthographicCameraController.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Layer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Window.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\ImGui\ImGuiLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="32">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Debug\Instrumentor.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>2</DefaultOrder>
+    <ErrorCode>V122</ErrorCode>
+    <Message>Memsize type is used in the struct/class.</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Instrumentor.h</ShortFile>
+    <Line>161</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Debug\Instrumentor.h</File>
+    <CodePrev>11496</CodePrev>
+    <CodeCurrent>4467469</CodeCurrent>
+    <CodeNext>1696698031</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Log.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\LayerStack.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Input.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\OrthographicCameraController.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Layer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Window.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\ImGui\ImGuiLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="161">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Debug\Instrumentor.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>3</DefaultOrder>
+    <ErrorCode>V1003</ErrorCode>
+    <Message>The macro 'BIT' is a dangerous expression. The parameter 'x' must be surrounded by parentheses.</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Base.h</ShortFile>
+    <Line>68</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Base.h</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>21913</CodeCurrent>
+    <CodeNext>0</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>4</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Log.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\LayerStack.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Input.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\OrthographicCameraController.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Layer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Window.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\ImGui\ImGuiLayer.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="68">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Base.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>4</DefaultOrder>
+    <ErrorCode>V2006</ErrorCode>
+    <Message>Implicit type conversion from enum type to integer type.</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Event.h</ShortFile>
+    <Line>51</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Events\Event.h</File>
+    <CodePrev>123</CodePrev>
+    <CodeCurrent>3262152324</CodeCurrent>
+    <CodeNext>125</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\LayerStack.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\OrthographicCameraController.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Layer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Window.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\ImGui\ImGuiLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsInput.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="51">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Events\Event.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>5</DefaultOrder>
+    <ErrorCode>V112</ErrorCode>
+    <Message>Dangerous magic number 4 used: ...:    return 4;.</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>14</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>123</CodePrev>
+    <CodeCurrent>823035234</CodeCurrent>
+    <CodeNext>2289398782</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="14">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>6</DefaultOrder>
+    <ErrorCode>V112</ErrorCode>
+    <Message>Dangerous magic number 4 used: ...2:   return 4 * 2;.</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>15</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>823035234</CodePrev>
+    <CodeCurrent>2289398782</CodeCurrent>
+    <CodeNext>2289400828</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="15">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>7</DefaultOrder>
+    <ErrorCode>V112</ErrorCode>
+    <Message>Dangerous magic number 4 used: ...3:   return 4 * 3;.</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>16</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>2289398782</CodePrev>
+    <CodeCurrent>2289400828</CodeCurrent>
+    <CodeNext>2289386482</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="16">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>8</DefaultOrder>
+    <ErrorCode>V112</ErrorCode>
+    <Message>Dangerous magic number 4 used: ...4:   return 4 * 4;.</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>17</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>2289400828</CodePrev>
+    <CodeCurrent>2289386482</CodeCurrent>
+    <CodeNext>2289302148</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="17">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>9</DefaultOrder>
+    <ErrorCode>V112</ErrorCode>
+    <Message>Dangerous magic number 4 used: ...return 4 * 3 * 3;.</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>18</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>2289386482</CodePrev>
+    <CodeCurrent>2289302148</CodeCurrent>
+    <CodeNext>2289244850</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="18">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>10</DefaultOrder>
+    <ErrorCode>V112</ErrorCode>
+    <Message>Dangerous magic number 4 used: ...return 4 * 4 * 4;.</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>19</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>2289302148</CodePrev>
+    <CodeCurrent>2289244850</CodeCurrent>
+    <CodeNext>1279502793</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="19">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>11</DefaultOrder>
+    <ErrorCode>V112</ErrorCode>
+    <Message>Dangerous magic number 4 used: ...return 4;.</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>20</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>2289244850</CodePrev>
+    <CodeCurrent>1279502793</CodeCurrent>
+    <CodeNext>1646007973</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="20">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>12</DefaultOrder>
+    <ErrorCode>V112</ErrorCode>
+    <Message>Dangerous magic number 4 used: ...return 4 * 2;.</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>21</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>1279502793</CodePrev>
+    <CodeCurrent>1646007973</CodeCurrent>
+    <CodeNext>1646010023</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="21">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>13</DefaultOrder>
+    <ErrorCode>V112</ErrorCode>
+    <Message>Dangerous magic number 4 used: ...return 4 * 3;.</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>22</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>1646007973</CodePrev>
+    <CodeCurrent>1646010023</CodeCurrent>
+    <CodeNext>1646012073</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="22">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>14</DefaultOrder>
+    <ErrorCode>V112</ErrorCode>
+    <Message>Dangerous magic number 4 used: ...return 4 * 4;.</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>23</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>1646010023</CodePrev>
+    <CodeCurrent>1646012073</CodeCurrent>
+    <CodeNext>2559012261</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="23">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>15</DefaultOrder>
+    <ErrorCode>V1037</ErrorCode>
+    <Message>Two or more case-branches perform the same actions. Check lines: 17, 23</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>17</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>2289400828</CodePrev>
+    <CodeCurrent>2289386482</CodeCurrent>
+    <CodeNext>2289302148</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>4</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <CWECode>CWE-691</CWECode>
+    <Positions>
+      <Position lines="17,23">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>16</DefaultOrder>
+    <ErrorCode>V1037</ErrorCode>
+    <Message>Two or more case-branches perform the same actions. Check lines: 16, 22</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>16</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>2289398782</CodePrev>
+    <CodeCurrent>2289400828</CodeCurrent>
+    <CodeNext>2289386482</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>4</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <CWECode>CWE-691</CWECode>
+    <Positions>
+      <Position lines="16,22">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>17</DefaultOrder>
+    <ErrorCode>V1037</ErrorCode>
+    <Message>Two or more case-branches perform the same actions. Check lines: 15, 21</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>15</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>823035234</CodePrev>
+    <CodeCurrent>2289398782</CodeCurrent>
+    <CodeNext>2289400828</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>4</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <CWECode>CWE-691</CWECode>
+    <Positions>
+      <Position lines="15,21">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>18</DefaultOrder>
+    <ErrorCode>V1037</ErrorCode>
+    <Message>Two or more case-branches perform the same actions. Check lines: 14, 20</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>14</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>123</CodePrev>
+    <CodeCurrent>823035234</CodeCurrent>
+    <CodeNext>2289398782</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>4</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <CWECode>CWE-691</CWECode>
+    <Positions>
+      <Position lines="14,20">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>19</DefaultOrder>
+    <ErrorCode>V122</ErrorCode>
+    <Message>Memsize type is used in the struct/class.</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>36</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>1438021</CodePrev>
+    <CodeCurrent>1348413</CodeCurrent>
+    <CodeNext>4525149</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="36">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>20</DefaultOrder>
+    <ErrorCode>V112</ErrorCode>
+    <Message>Dangerous magic number 4 used: ...t4:  return 4;.</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>53</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>1646092023</CodePrev>
+    <CodeCurrent>1646088441</CodeCurrent>
+    <CodeNext>486468677</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="53">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>21</DefaultOrder>
+    <ErrorCode>V112</ErrorCode>
+    <Message>Dangerous magic number 4 used: ...:    return 4;.</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>55</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>486468677</CodePrev>
+    <CodeCurrent>482793410</CodeCurrent>
+    <CodeNext>1279502787</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="55">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>22</DefaultOrder>
+    <ErrorCode>V112</ErrorCode>
+    <Message>Dangerous magic number 4 used: ...:    return 4;.</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>59</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>2558986145</CodePrev>
+    <CodeCurrent>2558986671</CodeCurrent>
+    <CodeNext>2559012261</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="59">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>23</DefaultOrder>
+    <ErrorCode>V525</ErrorCode>
+    <Message>The code contains the collection of similar blocks. Check items '1', '2', '3', '4', '3', '4', '1', '2', '3', '4', '1' in lines 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60.</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>50</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>123</CodePrev>
+    <CodeCurrent>823035240</CodeCurrent>
+    <CodeNext>1646091509</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>4</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <CWECode>CWE-682</CWECode>
+    <Positions>
+      <Position lines="50,51,52,53,54,55,56,57,58,59,60">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>24</DefaultOrder>
+    <ErrorCode>V1037</ErrorCode>
+    <Message>Two or more case-branches perform the same actions. Check lines: 50, 56, 60</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>50</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>123</CodePrev>
+    <CodeCurrent>823035240</CodeCurrent>
+    <CodeNext>1646091509</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>4</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <CWECode>CWE-691</CWECode>
+    <Positions>
+      <Position lines="50,56,60">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>25</DefaultOrder>
+    <ErrorCode>V1037</ErrorCode>
+    <Message>Two or more case-branches perform the same actions. Check lines: 53, 55, 59</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>53</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>1646092023</CodePrev>
+    <CodeCurrent>1646088441</CodeCurrent>
+    <CodeNext>486468677</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>4</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <CWECode>CWE-691</CWECode>
+    <Positions>
+      <Position lines="53,55,59">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>26</DefaultOrder>
+    <ErrorCode>V1037</ErrorCode>
+    <Message>Two or more case-branches perform the same actions. Check lines: 52, 54, 58</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>52</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>1646091509</CodePrev>
+    <CodeCurrent>1646092023</CodeCurrent>
+    <CodeNext>1646088441</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>4</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <CWECode>CWE-691</CWECode>
+    <Positions>
+      <Position lines="52,54,58">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>27</DefaultOrder>
+    <ErrorCode>V1037</ErrorCode>
+    <Message>Two or more case-branches perform the same actions. Check lines: 51, 57</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>51</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>823035240</CodePrev>
+    <CodeCurrent>1646091509</CodeCurrent>
+    <CodeNext>1646092023</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>4</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <CWECode>CWE-691</CWECode>
+    <Positions>
+      <Position lines="51,57">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>28</DefaultOrder>
+    <ErrorCode>V832</ErrorCode>
+    <Message>It's better to use '= default;' syntax instead of empty constructor body.</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>71</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>5816</CodePrev>
+    <CodeCurrent>3462863</CodeCurrent>
+    <CodeNext>0</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>5</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="71">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>29</DefaultOrder>
+    <ErrorCode>V101</ErrorCode>
+    <Message>Implicit assignment type conversion to memsize type.</Message>
+    <Project>OloEngine%Sandbox</Project>
+    <ShortFile>Buffer.h</ShortFile>
+    <Line>94</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</File>
+    <CodePrev>140791615</CodePrev>
+    <CodeCurrent>82334625</CodeCurrent>
+    <CodeNext>393597857</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="94">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>30</DefaultOrder>
+    <ErrorCode>V2009</ErrorCode>
+    <Message>Consider passing the 'e' argument as a reference to const.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>OrthographicCameraController.cpp</ShortFile>
+    <Line>71</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\OrthographicCameraController.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>2024950288</CodeCurrent>
+    <CodeNext>123</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="71">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\OrthographicCameraController.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>31</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>OrthographicCameraController.cpp</ShortFile>
+    <Line>85</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\OrthographicCameraController.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>1698974698</CodeCurrent>
+    <CodeNext>1445029460</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="85">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\OrthographicCameraController.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>32</DefaultOrder>
+    <ErrorCode>V2009</ErrorCode>
+    <Message>Consider passing the 'e' argument as a reference to const.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>OrthographicCameraController.cpp</ShortFile>
+    <Line>81</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\OrthographicCameraController.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>515617510</CodeCurrent>
+    <CodeNext>123</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="81">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\OrthographicCameraController.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>33</DefaultOrder>
+    <ErrorCode>V122</ErrorCode>
+    <Message>Memsize type is used in the struct/class.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>WindowsWindow.h</ShortFile>
+    <Line>30</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.h</File>
+    <CodePrev>11496</CodePrev>
+    <CodeCurrent>66842313</CodeCurrent>
+    <CodeNext>2702168035</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Window.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="30">C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>34</DefaultOrder>
+    <ErrorCode>V122</ErrorCode>
+    <Message>Memsize type is used in the struct/class.</Message>
+    <Project>Sandbox%OloEngine</Project>
+    <ShortFile>Application.h</ShortFile>
+    <Line>39</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.h</File>
+    <CodePrev>1059112674</CodePrev>
+    <CodeCurrent>849214675</CodeCurrent>
+    <CodeNext>18352533</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\ImGui\ImGuiLayer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsInput.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="39">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>35</DefaultOrder>
+    <ErrorCode>V112</ErrorCode>
+    <Message>Dangerous magic number 4 used: ...QuadCount * 4; }.</Message>
+    <Project>Sandbox%OloEngine</Project>
+    <ShortFile>Renderer2D.h</ShortFile>
+    <Line>36</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.h</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>2554692789</CodeCurrent>
+    <CodeNext>2553921522</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp*C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="36">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>36</DefaultOrder>
+    <ErrorCode>V2009</ErrorCode>
+    <Message>Consider passing the 'e' argument as a reference to const.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Application.cpp</ShortFile>
+    <Line>117</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>478730491</CodeCurrent>
+    <CodeNext>123</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="117">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>37</DefaultOrder>
+    <ErrorCode>V591</ErrorCode>
+    <Message>The 'main' function does not return a value, which is equivalent to 'return 0'. It is possible that this is an unintended behavior. </Message>
+    <Project>Sandbox</Project>
+    <ShortFile>EntryPoint.h</ShortFile>
+    <Line>24</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\EntryPoint.h</File>
+    <CodePrev>4007955753</CodePrev>
+    <CodeCurrent>125</CodeCurrent>
+    <CodeNext>0</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>4</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp</AnalyzedSourceFiles>
+    <CWECode>CWE-393</CWECode>
+    <SAST>CERT-MSC52-CPP</SAST>
+    <Positions>
+      <Position lines="24">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\EntryPoint.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>38</DefaultOrder>
+    <ErrorCode>V1034</ErrorCode>
+    <Message>Do not use real type variables as loop counters.</Message>
+    <Project>Sandbox</Project>
+    <ShortFile>Sandbox2D.cpp</ShortFile>
+    <Line>58</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp</File>
+    <CodePrev>123</CodePrev>
+    <CodeCurrent>526394375</CodeCurrent>
+    <CodeNext>123</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>4</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <CWECode>CWE-834</CWECode>
+    <SAST>CERT-FLP30-C</SAST>
+    <Positions>
+      <Position lines="58">C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>39</DefaultOrder>
+    <ErrorCode>V1034</ErrorCode>
+    <Message>Do not use real type variables as loop counters.</Message>
+    <Project>Sandbox</Project>
+    <ShortFile>Sandbox2D.cpp</ShortFile>
+    <Line>56</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp</File>
+    <CodePrev>180256207</CodePrev>
+    <CodeCurrent>522216583</CodeCurrent>
+    <CodeNext>123</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>4</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <CWECode>CWE-834</CWECode>
+    <SAST>CERT-FLP30-C</SAST>
+    <Positions>
+      <Position lines="56">C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>40</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>Sandbox</Project>
+    <ShortFile>Sandbox2D.cpp</ShortFile>
+    <Line>147</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp</File>
+    <CodePrev>2632253238</CodePrev>
+    <CodeCurrent>2320631316</CodeCurrent>
+    <CodeNext>424233</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="147">C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>1</Level>
+    <DefaultOrder>41</DefaultOrder>
+    <ErrorCode>V204</ErrorCode>
+    <Message>Explicit conversion from 32-bit integer type to pointer type: (void *) textureID</Message>
+    <Project>Sandbox</Project>
+    <ShortFile>Sandbox2D.cpp</ShortFile>
+    <Line>147</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp</File>
+    <CodePrev>2632253238</CodePrev>
+    <CodeCurrent>2320631316</CodeCurrent>
+    <CodeNext>424233</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="147">C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>42</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>Sandbox</Project>
+    <ShortFile>Sandbox2D.cpp</ShortFile>
+    <Line>166</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp</File>
+    <CodePrev>2632253238</CodePrev>
+    <CodeCurrent>2320631316</CodeCurrent>
+    <CodeNext>424233</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="166">C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>1</Level>
+    <DefaultOrder>43</DefaultOrder>
+    <ErrorCode>V204</ErrorCode>
+    <Message>Explicit conversion from 32-bit integer type to pointer type: (void *) textureID</Message>
+    <Project>Sandbox</Project>
+    <ShortFile>Sandbox2D.cpp</ShortFile>
+    <Line>166</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp</File>
+    <CodePrev>2632253238</CodePrev>
+    <CodeCurrent>2320631316</CodeCurrent>
+    <CodeNext>424233</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="166">C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>44</DefaultOrder>
+    <ErrorCode>V2009</ErrorCode>
+    <Message>Consider passing the 'camera' argument as a reference to const.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer.cpp</ShortFile>
+    <Line>31</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>1282247147</CodeCurrent>
+    <CodeNext>123</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="31">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>45</DefaultOrder>
+    <ErrorCode>V104</ErrorCode>
+    <Message>Implicit conversion of 'count' to memsize type in an arithmetic expression: count * sizeof (uint32_t)</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>OpenGLBuffer.cpp</ShortFile>
+    <Line>73</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp</File>
+    <CodePrev>273803700</CodePrev>
+    <CodeCurrent>298820245</CodeCurrent>
+    <CodeNext>125</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="73">C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>46</DefaultOrder>
+    <ErrorCode>V112</ErrorCode>
+    <Message>Dangerous magic number 4 used: ...MaxQuads * 4;.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>26</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>3036031021</CodePrev>
+    <CodeCurrent>4134747255</CodeCurrent>
+    <CodeNext>2068566429</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="26">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>47</DefaultOrder>
+    <ErrorCode>V122</ErrorCode>
+    <Message>Memsize type is used in the struct/class.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>36</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>1473098511</CodePrev>
+    <CodeCurrent>1186335925</CodeCurrent>
+    <CodeNext>593212562</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="36">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>48</DefaultOrder>
+    <ErrorCode>V122</ErrorCode>
+    <Message>Memsize type is used in the struct/class.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>37</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>1186335925</CodePrev>
+    <CodeCurrent>593212562</CodeCurrent>
+    <CodeNext>0</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="37">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>49</DefaultOrder>
+    <ErrorCode>V104</ErrorCode>
+    <Message>Implicit conversion of 's_Data.MaxVertices' to memsize type in an arithmetic expression: s_Data.MaxVertices * sizeof (QuadVertex)</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>55</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>2687657231</CodeCurrent>
+    <CodeNext>112387566</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="55">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>50</DefaultOrder>
+    <ErrorCode>V107</ErrorCode>
+    <Message>Implicit type conversion first argument 's_Data.MaxVertices * sizeof (QuadVertex)' of function 'Create' to 32-bit type.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>55</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>2687657231</CodeCurrent>
+    <CodeNext>112387566</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="55">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>51</DefaultOrder>
+    <ErrorCode>V121</ErrorCode>
+    <Message>Implicit conversion of the type of 'new' operator's argument to size_t type.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>65</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>801539245</CodeCurrent>
+    <CodeNext>0</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="65">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>52</DefaultOrder>
+    <ErrorCode>V121</ErrorCode>
+    <Message>Implicit conversion of the type of 'new' operator's argument to size_t type.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>67</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>1825809604</CodeCurrent>
+    <CodeNext>0</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="67">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>53</DefaultOrder>
+    <ErrorCode>V108</ErrorCode>
+    <Message>Incorrect index type: quadIndices[not a memsize-type]. Use memsize type instead.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>72</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>123</CodePrev>
+    <CodeCurrent>3007779047</CodeCurrent>
+    <CodeNext>3007781093</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="72">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>54</DefaultOrder>
+    <ErrorCode>V108</ErrorCode>
+    <Message>Incorrect index type: quadIndices[not a memsize-type]. Use memsize type instead.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>73</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>3007779047</CodePrev>
+    <CodeCurrent>3007781093</CodeCurrent>
+    <CodeNext>3007774947</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="73">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>55</DefaultOrder>
+    <ErrorCode>V108</ErrorCode>
+    <Message>Incorrect index type: quadIndices[not a memsize-type]. Use memsize type instead.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>74</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>3007781093</CodePrev>
+    <CodeCurrent>3007774947</CodeCurrent>
+    <CodeNext>0</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="74">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>56</DefaultOrder>
+    <ErrorCode>V108</ErrorCode>
+    <Message>Incorrect index type: quadIndices[not a memsize-type]. Use memsize type instead.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>76</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>3007776995</CodeCurrent>
+    <CodeNext>3007787233</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="76">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>57</DefaultOrder>
+    <ErrorCode>V108</ErrorCode>
+    <Message>Incorrect index type: quadIndices[not a memsize-type]. Use memsize type instead.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>77</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>3007776995</CodePrev>
+    <CodeCurrent>3007787233</CodeCurrent>
+    <CodeNext>3007789287</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="77">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>58</DefaultOrder>
+    <ErrorCode>V108</ErrorCode>
+    <Message>Incorrect index type: quadIndices[not a memsize-type]. Use memsize type instead.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>78</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>3007787233</CodePrev>
+    <CodeCurrent>3007789287</CodeCurrent>
+    <CodeNext>0</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="78">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>59</DefaultOrder>
+    <ErrorCode>V112</ErrorCode>
+    <Message>Dangerous magic number 4 used: offset += 4;.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>80</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>40415</CodeCurrent>
+    <CodeNext>125</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="80">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>60</DefaultOrder>
+    <ErrorCode>V525</ErrorCode>
+    <Message>The code contains the collection of similar blocks. Check items '0', '1', '2', '2', '3', '0' in lines 72, 73, 74, 76, 77, 78.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>72</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>123</CodePrev>
+    <CodeCurrent>3007779047</CodeCurrent>
+    <CodeNext>3007781093</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>4</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <CWECode>CWE-682</CWECode>
+    <Positions>
+      <Position lines="72,73,74,76,77,78">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>61</DefaultOrder>
+    <ErrorCode>V112</ErrorCode>
+    <Message>Dangerous magic number 0xffffffff used: ...xtureData = 0xffffffff;.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>88</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>1465624909</CodePrev>
+    <CodeCurrent>812011200</CodeCurrent>
+    <CodeNext>2280152320</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="88">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>62</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>132</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>3637623327</CodeCurrent>
+    <CodeNext>793745601</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="132">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>63</DefaultOrder>
+    <ErrorCode>V202</ErrorCode>
+    <Message>Explicit conversion from memsize type to 32-bit integer type.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>132</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>3637623327</CodeCurrent>
+    <CodeNext>793745601</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="132">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>64</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>216</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>123</CodePrev>
+    <CodeCurrent>175241757</CodeCurrent>
+    <CodeNext>2337</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="216">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>65</DefaultOrder>
+    <ErrorCode>V550</ErrorCode>
+    <Message>An odd precise comparison: textureIndex == 0.0f. It's probably better to use a comparison with defined precision: fabs(A - B) &lt; Epsilon.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>221</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>189676469</CodeCurrent>
+    <CodeNext>123</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>4</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <CWECode>CWE-682</CWECode>
+    <SAST>CERT-FLP02-C</SAST>
+    <Positions>
+      <Position lines="221">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>66</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>226</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>2681808193</CodeCurrent>
+    <CodeNext>3005862206</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="226">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>67</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>305</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>123</CodePrev>
+    <CodeCurrent>175241757</CodeCurrent>
+    <CodeNext>2337</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="305">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>68</DefaultOrder>
+    <ErrorCode>V550</ErrorCode>
+    <Message>An odd precise comparison: textureIndex == 0.0f. It's probably better to use a comparison with defined precision: fabs(A - B) &lt; Epsilon.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>310</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>189676469</CodeCurrent>
+    <CodeNext>123</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>4</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <CWECode>CWE-682</CWECode>
+    <SAST>CERT-FLP02-C</SAST>
+    <Positions>
+      <Position lines="310">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>69</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>315</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>2681808193</CodeCurrent>
+    <CodeNext>3005862206</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="315">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>70</DefaultOrder>
+    <ErrorCode>V730</ErrorCode>
+    <Message>Not all members of a class are initialized inside the compiler generated constructor. Consider inspecting: QuadVertexPositions.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>Renderer2D.cpp</ShortFile>
+    <Line>23</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>50063149</CodeCurrent>
+    <CodeNext>123</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>4</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <CWECode>CWE-457</CWECode>
+    <SAST>CERT-EXP53-CPP</SAST>
+    <Positions>
+      <Position lines="23">C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>71</DefaultOrder>
+    <ErrorCode>V122</ErrorCode>
+    <Message>Memsize type is used in the struct/class.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>OpenGLContext.h</ShortFile>
+    <Line>17</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLContext.h</File>
+    <CodePrev>11496</CodePrev>
+    <CodeCurrent>4277904929</CodeCurrent>
+    <CodeNext>193</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLContext.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\GraphicsContext.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="17">C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLContext.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>72</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>OpenGLContext.cpp</ShortFile>
+    <Line>22</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLContext.cpp</File>
+    <CodePrev>3353304179</CodePrev>
+    <CodeCurrent>3972396068</CodeCurrent>
+    <CodeNext>839733118</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="22">C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLContext.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>73</DefaultOrder>
+    <ErrorCode>V112</ErrorCode>
+    <Message>Dangerous magic number 4 used: ...sionMajor &gt; 4 || (version...</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>OpenGLContext.cpp</ShortFile>
+    <Line>36</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLContext.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>3237741595</CodeCurrent>
+    <CodeNext>100</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="36">C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLContext.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>74</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>OpenGLVertexArray.cpp</ShortFile>
+    <Line>89</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLVertexArray.cpp</File>
+    <CodePrev>19831062</CodePrev>
+    <CodeCurrent>1379176801</CodeCurrent>
+    <CodeNext>197506769</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="89">C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLVertexArray.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>75</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>OpenGLVertexArray.cpp</ShortFile>
+    <Line>105</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLVertexArray.cpp</File>
+    <CodePrev>19831062</CodePrev>
+    <CodeCurrent>706856705</CodeCurrent>
+    <CodeNext>1804580712</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="105">C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLVertexArray.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>76</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>WindowsInput.cpp</ShortFile>
+    <Line>31</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsInput.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>1180321086</CodeCurrent>
+    <CodeNext>125</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="31">C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsInput.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>77</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>OpenGLTexture.h</ShortFile>
+    <Line>26</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLTexture.h</File>
+    <CodePrev>123</CodePrev>
+    <CodeCurrent>2170233747</CodeCurrent>
+    <CodeNext>125</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLTexture.cpp*C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Texture.cpp</AnalyzedSourceFiles>
+    <Positions>
+      <Position lines="26">C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLTexture.h</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>78</DefaultOrder>
+    <ErrorCode>V112</ErrorCode>
+    <Message>Dangerous magic number 4 used: ...= GL_RGBA ? 4 : 3;.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>OpenGLTexture.cpp</ShortFile>
+    <Line>86</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLTexture.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>16721723</CodeCurrent>
+    <CodeNext>2068665793</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>1</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="86">C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLTexture.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>79</DefaultOrder>
+    <ErrorCode>V2009</ErrorCode>
+    <Message>Consider rendering the 'data' pointer as a pointer to const.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>OpenGLTexture.cpp</ShortFile>
+    <Line>82</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLTexture.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>242979040</CodeCurrent>
+    <CodeNext>123</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="82">C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLTexture.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>80</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>OpenGLShader.cpp</ShortFile>
+    <Line>161</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLShader.cpp</File>
+    <CodePrev>3787199</CodePrev>
+    <CodeCurrent>963137839</CodeCurrent>
+    <CodeNext>187295647</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="161">C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLShader.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>3</Level>
+    <DefaultOrder>81</DefaultOrder>
+    <ErrorCode>V2009</ErrorCode>
+    <Message>Consider rendering the 'values' pointer as a pointer to const.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>OpenGLShader.cpp</ShortFile>
+    <Line>249</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLShader.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>18380007</CodeCurrent>
+    <CodeNext>123</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="249">C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLShader.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>82</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>WindowsWindow.cpp</ShortFile>
+    <Line>64</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>1432771527</CodeCurrent>
+    <CodeNext>24359443</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="64">C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>83</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>WindowsWindow.cpp</ShortFile>
+    <Line>77</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.cpp</File>
+    <CodePrev>123</CodePrev>
+    <CodeCurrent>529388995</CodeCurrent>
+    <CodeNext>4509995</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="77">C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>84</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>WindowsWindow.cpp</ShortFile>
+    <Line>87</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.cpp</File>
+    <CodePrev>123</CodePrev>
+    <CodeCurrent>529388995</CodeCurrent>
+    <CodeNext>235652739</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="87">C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>85</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>WindowsWindow.cpp</ShortFile>
+    <Line>94</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.cpp</File>
+    <CodePrev>123</CodePrev>
+    <CodeCurrent>529388995</CodeCurrent>
+    <CodeNext>0</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="94">C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>86</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>WindowsWindow.cpp</ShortFile>
+    <Line>121</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.cpp</File>
+    <CodePrev>123</CodePrev>
+    <CodeCurrent>529388995</CodeCurrent>
+    <CodeNext>0</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="121">C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>87</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>WindowsWindow.cpp</ShortFile>
+    <Line>129</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.cpp</File>
+    <CodePrev>123</CodePrev>
+    <CodeCurrent>529388995</CodeCurrent>
+    <CodeNext>0</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="129">C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>88</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>WindowsWindow.cpp</ShortFile>
+    <Line>150</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.cpp</File>
+    <CodePrev>123</CodePrev>
+    <CodeCurrent>529388995</CodeCurrent>
+    <CodeNext>0</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="150">C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>89</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>WindowsWindow.cpp</ShortFile>
+    <Line>152</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>29283115</CodeCurrent>
+    <CodeNext>2288827929</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="152">C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>90</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>WindowsWindow.cpp</ShortFile>
+    <Line>158</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.cpp</File>
+    <CodePrev>123</CodePrev>
+    <CodeCurrent>529388995</CodeCurrent>
+    <CodeNext>0</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="158">C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <FavIcon>false</FavIcon>
+    <Level>2</Level>
+    <DefaultOrder>91</DefaultOrder>
+    <ErrorCode>V2005</ErrorCode>
+    <Message>C-style explicit type casting is utilized. Consider using: static_cast/const_cast/reinterpret_cast.</Message>
+    <Project>OloEngine</Project>
+    <ShortFile>WindowsWindow.cpp</ShortFile>
+    <Line>160</Line>
+    <FalseAlarm>false</FalseAlarm>
+    <File>C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.cpp</File>
+    <CodePrev>0</CodePrev>
+    <CodeCurrent>678942496</CodeCurrent>
+    <CodeNext>2288827929</CodeNext>
+    <TrialMessage>false</TrialMessage>
+    <Analyzer>6</Analyzer>
+    <Retired>false</Retired>
+    <AnalyzedSourceFiles />
+    <Positions>
+      <Position lines="160">C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.cpp</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+</NewDataSet>
