@@ -28,6 +28,8 @@ namespace OloEngine {
 		Window& GetWindow() { return *m_Window; }
 
 		static Application& Get() { return *s_Instance; }
+
+		void Close();
 	private:
 		void Run();
 		bool OnWindowClose(WindowCloseEvent& e);
