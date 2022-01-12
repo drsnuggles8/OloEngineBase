@@ -182,7 +182,6 @@
     <ClInclude Include="src\Platform\OpenGL\OpenGLShader.h" />
     <ClInclude Include="src\Platform\OpenGL\OpenGLTexture.h" />
     <ClInclude Include="src\Platform\OpenGL\OpenGLVertexArray.h" />
-    <ClInclude Include="src\Platform\Windows\WindowsInput.h" />
     <ClInclude Include="src\Platform\Windows\WindowsWindow.h" />
     <ClInclude Include="vendor\glm\glm\common.hpp" />
     <ClInclude Include="vendor\glm\glm\detail\_features.hpp" />
@@ -603,7 +602,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\OloEngine\Core\Application.cpp" />
-    <ClCompile Include="src\OloEngine\Core\Input.cpp" />
     <ClCompile Include="src\OloEngine\Core\Layer.cpp" />
     <ClCompile Include="src\OloEngine\Core\LayerStack.cpp" />
     <ClCompile Include="src\OloEngine\Core\Log.cpp" />
