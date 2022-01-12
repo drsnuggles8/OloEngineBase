@@ -18,7 +18,7 @@ int main(int argc, char** argv)
 	app->Run();
 	OLO_PROFILE_END_SESSION();
 
-	OLO_PROFILE_BEGIN_SESSION("Startup", "OloProfile-Shutdown.json");
+	OLO_PROFILE_BEGIN_SESSION("Shutdown", "OloProfile-Shutdown.json");
 	delete app;
 	OLO_PROFILE_END_SESSION();
 }
