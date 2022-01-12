@@ -17,7 +17,7 @@ namespace OloEngine {
 	class Application
 	{
 	public:
-		Application();
+		Application(const std::string& name = "OloEngine App");
 		virtual ~Application();
 
 		void OnEvent(Event& e);

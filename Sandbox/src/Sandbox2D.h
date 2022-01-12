@@ -20,7 +20,6 @@ private:
 	// Temp
 	OloEngine::Ref<OloEngine::VertexArray> m_SquareVA;
 	OloEngine::Ref<OloEngine::Shader> m_FlatColorShader;
-	OloEngine::Ref<OloEngine::Framebuffer> m_Framebuffer;
 
 	OloEngine::Ref<OloEngine::Texture2D> m_CheckerboardTexture;
 

@@ -1,6 +1,6 @@
 workspace "OloEngine"
 	architecture "x86_64"
-	startproject "Sandbox"
+	startproject "Olo-Editor"
 
 	configurations
 	{
@@ -132,6 +132,53 @@ project "Sandbox"
 
 	filter "configurations:Debug"
 		defines "OLO_DEBUG"		
+		runtime "Debug"
+		symbols "on"
+
+	filter "configurations:Release"
+		defines "OLO_RELEASE"
+		runtime "Release"
+		optimize "on"
+
+	filter "configurations:Dist"
+		defines "OLO_DIST"
+		runtime "Release"
+		optimize "on"
+
+project "Olo-Editor"
+	location "Olo-Editor"
+	kind "ConsoleApp"
+	language "C++"
+	cppdialect "C++20"
+	staticruntime "on"
+
+	targetdir ("bin/" .. outputdir .. "/%{prj.name}")
+	objdir ("bin-int/" .. outputdir .. "/%{prj.name}")
+
+	files
+	{
+		"%{prj.name}/src/**.h",
+		"%{prj.name}/src/**.cpp"
+	}
+
+	includedirs
+	{
+		"OloEngine/vendor/spdlog/include",
+		"OloEngine/src",
+		"OloEngine/vendor",
+		"%{IncludeDir.glm}"
+	}
+
+	links
+	{
+		"OloEngine"
+	}
+
+	filter "system:windows"
+		systemversion "latest"
+
+	filter "configurations:Debug"
+		defines "OLO_DEBUG"
 		runtime "Debug"
 		symbols "on"
 
