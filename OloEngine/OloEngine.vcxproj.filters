@@ -1422,6 +1422,8 @@
     <ClInclude Include="vendor\stb_image\stb_image.h">
       <Filter>vendor\stb_image</Filter>
     </ClInclude>
+    <ClInclude Include="src\OloEngine\Scene\Scene.h" />
+    <ClInclude Include="src\OloEngine\Scene\Components.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\OloEngine\Core\Application.cpp">
@@ -1514,5 +1516,6 @@
     <ClCompile Include="vendor\stb_image\stb_image.cpp">
       <Filter>vendor\stb_image</Filter>
     </ClCompile>
+    <ClCompile Include="src\OloEngine\Scene\Scene.cpp" />
   </ItemGroup>
 </Project>

@@ -18,10 +18,11 @@ outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
 -- Include directories relative to root folder (solution directory)
 IncludeDir = {}
-IncludeDir["GLFW"] = "OloEngine/vendor/GLFW/include"
+IncludeDir["entt"] = "OloEngine/vendor/entt/include"
 IncludeDir["Glad"] = "OloEngine/vendor/Glad/include"
-IncludeDir["ImGui"] = "OloEngine/vendor/imgui"
+IncludeDir["GLFW"] = "OloEngine/vendor/GLFW/include"
 IncludeDir["glm"] = "OloEngine/vendor/glm"
+IncludeDir["ImGui"] = "OloEngine/vendor/imgui"
 IncludeDir["stb_image"] = "OloEngine/vendor/stb_image"
 
 group "Dependencies"
@@ -67,7 +68,8 @@ project "OloEngine"
 		"%{IncludeDir.Glad}",
 		"%{IncludeDir.ImGui}",
 		"%{IncludeDir.glm}",
-		"%{IncludeDir.stb_image}"
+		"%{IncludeDir.stb_image}",
+		"%{IncludeDir.entt}"
 	}
 	
 	links
@@ -119,7 +121,8 @@ project "Sandbox"
 		"OloEngine/vendor/spdlog/include",
 		"OloEngine/src",
 		"OloEngine/vendor",
-		"%{IncludeDir.glm}"
+		"%{IncludeDir.glm}",
+		"%{IncludeDir.entt}"
 	}
 
 	links
@@ -166,7 +169,8 @@ project "Olo-Editor"
 		"OloEngine/vendor/spdlog/include",
 		"OloEngine/src",
 		"OloEngine/vendor",
-		"%{IncludeDir.glm}"
+		"%{IncludeDir.glm}",
+		"%{IncludeDir.entt}"
 	}
 
 	links

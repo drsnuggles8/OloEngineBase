@@ -16,6 +16,9 @@
 
 #include "OloEngine/ImGui/ImGuiLayer.h"
 
+#include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Scene/Components.h"
+
 // --Renderer-------------------
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer2D.h"
