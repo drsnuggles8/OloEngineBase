@@ -217,8 +217,10 @@ namespace OloEngine {
 	#endif
 	#define OLO_PROFILE_BEGIN_SESSION(name, filepath) ::OloEngine::Instrumentor::Get().BeginSession(name, filepath)
 	#define OLO_PROFILE_END_SESSION() ::OloEngine::Instrumentor::Get().EndSession()
-	#define OLO_PROFILE_SCOPE(name) constexpr auto fixedName = ::OloEngine::InstrumentorUtils::CleanupOutputString(name, "__cdecl ");\
-									::OloEngine::InstrumentationTimer timer##__LINE__(fixedName.Data)
+	#define OLO_PROFILE_SCOPE_LINE2(name, line) constexpr auto fixedName##line = ::OloEngine::InstrumentorUtils::CleanupOutputString(name, "__cdecl ");\
+								   ::OloEngine::InstrumentationTimer timer##line(fixedName##line.Data)
+	#define OLO_PROFILE_SCOPE_LINE(name, line) HZ_PROFILE_SCOPE_LINE2(name, line)
+	#define OLO_PROFILE_SCOPE(name) HZ_PROFILE_SCOPE_LINE(name, __LINE__)
 	#define OLO_PROFILE_FUNCTION() OLO_PROFILE_SCOPE(OLO_FUNC_SIG)
 #else
 	#define OLO_PROFILE_BEGIN_SESSION(name, filepath)
