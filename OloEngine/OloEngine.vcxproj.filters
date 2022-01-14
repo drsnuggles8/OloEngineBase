@@ -1425,6 +1425,7 @@
     <ClInclude Include="src\OloEngine\Scene\Scene.h" />
     <ClInclude Include="src\OloEngine\Scene\Components.h" />
     <ClInclude Include="src\OloEngine\Scene\Entity.h" />
+    <ClInclude Include="src\OloEngine\Renderer\Camera.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\OloEngine\Core\Application.cpp">

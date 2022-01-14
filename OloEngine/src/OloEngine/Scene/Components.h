@@ -2,6 +2,8 @@
 
 #include <glm/glm.hpp>
 
+#include "OloEngine/Renderer/Camera.h"
+
 namespace OloEngine {
 
 	struct TagComponent
@@ -36,6 +38,17 @@ namespace OloEngine {
 		SpriteRendererComponent(const SpriteRendererComponent&) = default;
 		SpriteRendererComponent(const glm::vec4& color)
 			: Color(color) {}
+	};
+
+	struct CameraComponent
+	{
+		OloEngine::Camera Camera;
+		bool Primary = true; // TODO: think about moving to Scene
+
+		CameraComponent() = default;
+		CameraComponent(const CameraComponent&) = default;
+		CameraComponent(const glm::mat4& projection)
+			: Camera(projection) {}
 	};
 
 }

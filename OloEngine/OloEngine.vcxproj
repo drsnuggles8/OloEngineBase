@@ -163,6 +163,7 @@
     <ClInclude Include="src\OloEngine\Events\MouseEvent.h" />
     <ClInclude Include="src\OloEngine\ImGui\ImGuiLayer.h" />
     <ClInclude Include="src\OloEngine\Renderer\Buffer.h" />
+    <ClInclude Include="src\OloEngine\Renderer\Camera.h" />
     <ClInclude Include="src\OloEngine\Renderer\FrameBuffer.h" />
     <ClInclude Include="src\OloEngine\Renderer\GraphicsContext.h" />
     <ClInclude Include="src\OloEngine\Renderer\OrthographicCamera.h" />
