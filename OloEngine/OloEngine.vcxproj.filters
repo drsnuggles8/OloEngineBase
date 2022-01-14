@@ -1426,6 +1426,7 @@
     <ClInclude Include="src\OloEngine\Scene\Components.h" />
     <ClInclude Include="src\OloEngine\Scene\Entity.h" />
     <ClInclude Include="src\OloEngine\Renderer\Camera.h" />
+    <ClInclude Include="src\OloEngine\Scene\SceneCamera.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\OloEngine\Core\Application.cpp">
@@ -1520,5 +1521,6 @@
     </ClCompile>
     <ClCompile Include="src\OloEngine\Scene\Scene.cpp" />
     <ClCompile Include="src\OloEngine\Scene\Entity.cpp" />
+    <ClCompile Include="src\OloEngine\Scene\SceneCamera.cpp" />
   </ItemGroup>
 </Project>

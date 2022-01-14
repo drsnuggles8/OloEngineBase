@@ -2,7 +2,7 @@
 
 #include <glm/glm.hpp>
 
-#include "OloEngine/Renderer/Camera.h"
+#include "SceneCamera.h"
 
 namespace OloEngine {
 
@@ -42,13 +42,12 @@ namespace OloEngine {
 
 	struct CameraComponent
 	{
-		OloEngine::Camera Camera;
+		SceneCamera Camera;
 		bool Primary = true; // TODO: think about moving to Scene
+		bool FixedAspectRatio = false;
 
 		CameraComponent() = default;
 		CameraComponent(const CameraComponent&) = default;
-		CameraComponent(const glm::mat4& projection)
-			: Camera(projection) {}
 	};
 
 }
