@@ -18,7 +18,7 @@ namespace OloEngine {
 	{
 		switch (severity)
 		{
-		case GL_DEBUG_SEVERITY_HIGH:         OLO_CORE_FATAL(message); return;
+		case GL_DEBUG_SEVERITY_HIGH:         OLO_CORE_CRITICAL(message); return;
 		case GL_DEBUG_SEVERITY_MEDIUM:       OLO_CORE_ERROR(message); return;
 		case GL_DEBUG_SEVERITY_LOW:          OLO_CORE_WARN(message); return;
 		case GL_DEBUG_SEVERITY_NOTIFICATION: OLO_CORE_TRACE(message); return;
