@@ -7,6 +7,7 @@
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Layer.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Core/Assert.h"
 
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Core/Input.h"

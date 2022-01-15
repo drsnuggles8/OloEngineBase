@@ -18,14 +18,8 @@
 	#define OLO_DEBUGBREAK()
 #endif
 
-// TODO: Make this macro able to take in no arguments except condition
-#ifdef OLO_ENABLE_ASSERTS
-	#define OLO_ASSERT(x, ...) { if(!(x)) { OLO_ERROR("Assertion Failed: {0}", __VA_ARGS__); OLO_DEBUGBREAK(); } }
-	#define OLO_CORE_ASSERT(x, ...) { if(!(x)) { OLO_CORE_ERROR("Assertion Failed: {0}", __VA_ARGS__); OLO_DEBUGBREAK(); } }
-#else
-	#define OLO_ASSERT(x, ...)
-	#define OLO_CORE_ASSERT(x, ...)
-#endif
+#define OLO_EXPAND_MACRO(x) x
+#define OLO_STRINGIFY_MACRO(x) #x
 
 #define BIT(x) ((1) << (x))
 
@@ -50,3 +44,6 @@ namespace OloEngine {
 	}
 
 }
+
+#include "OloEngine/Core/Log.h"
+#include "OloEngine/Core/Assert.h"
