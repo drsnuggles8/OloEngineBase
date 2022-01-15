@@ -3,6 +3,8 @@
 #include <functional>
 #include <string>
 #include <sstream>
+
+#include "OloEngine/Debug/Instrumentor.h"
 #include "OloEngine/Core/Base.h"
 
 namespace OloEngine {

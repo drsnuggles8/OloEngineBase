@@ -1,5 +1,7 @@
 #pragma once
 
+#include <sstream>
+
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Events/Event.h"
 
