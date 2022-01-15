@@ -154,6 +154,7 @@
     <ClInclude Include="src\OloEngine\Core\LayerStack.h" />
     <ClInclude Include="src\OloEngine\Core\Log.h" />
     <ClInclude Include="src\OloEngine\Core\MouseCodes.h" />
+    <ClInclude Include="src\OloEngine\Core\PlatformDetection.h" />
     <ClInclude Include="src\OloEngine\Core\Timestep.h" />
     <ClInclude Include="src\OloEngine\Core\Window.h" />
     <ClInclude Include="src\OloEngine\Debug\Instrumentor.h" />
@@ -172,15 +173,15 @@
     <ClInclude Include="src\OloEngine\Renderer\Renderer.h" />
     <ClInclude Include="src\OloEngine\Renderer\Renderer2D.h" />
     <ClInclude Include="src\OloEngine\Renderer\RendererAPI.h" />
-    <ClInclude Include="src\OloEngine\Scene\SceneCamera.h" />
     <ClInclude Include="src\OloEngine\Renderer\Shader.h" />
     <ClInclude Include="src\OloEngine\Renderer\Texture.h" />
     <ClInclude Include="src\OloEngine\Renderer\VertexArray.h" />
-    <ClInclude Include="src\OloEnginePCH.h" />
     <ClInclude Include="src\OloEngine\Scene\Components.h" />
     <ClInclude Include="src\OloEngine\Scene\Entity.h" />
     <ClInclude Include="src\OloEngine\Scene\Scene.h" />
+    <ClInclude Include="src\OloEngine\Scene\SceneCamera.h" />
     <ClInclude Include="src\OloEngine\Scene\ScriptableEntity.h" />
+    <ClInclude Include="src\OloEnginePCH.h" />
     <ClInclude Include="src\Platform\OpenGL\OpenGLBuffer.h" />
     <ClInclude Include="src\Platform\OpenGL\OpenGLContext.h" />
     <ClInclude Include="src\Platform\OpenGL\OpenGLFrameBuffer.h" />
@@ -623,15 +624,15 @@
     <ClCompile Include="src\OloEngine\Renderer\Renderer.cpp" />
     <ClCompile Include="src\OloEngine\Renderer\Renderer2D.cpp" />
     <ClCompile Include="src\OloEngine\Renderer\RendererAPI.cpp" />
-    <ClCompile Include="src\OloEngine\Scene\SceneCamera.cpp" />
     <ClCompile Include="src\OloEngine\Renderer\Shader.cpp" />
     <ClCompile Include="src\OloEngine\Renderer\Texture.cpp" />
     <ClCompile Include="src\OloEngine\Renderer\VertexArray.cpp" />
+    <ClCompile Include="src\OloEngine\Scene\Entity.cpp" />
+    <ClCompile Include="src\OloEngine\Scene\Scene.cpp" />
+    <ClCompile Include="src\OloEngine\Scene\SceneCamera.cpp" />
     <ClCompile Include="src\OloEnginePCH.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="src\OloEngine\Scene\Entity.cpp" />
-    <ClCompile Include="src\OloEngine\Scene\Scene.cpp" />
     <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp" />
     <ClCompile Include="src\Platform\OpenGL\OpenGLContext.cpp" />
     <ClCompile Include="src\Platform\OpenGL\OpenGLFrameBuffer.cpp" />

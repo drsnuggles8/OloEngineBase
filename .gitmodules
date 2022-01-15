@@ -1,16 +1,16 @@
 [submodule "OloEngine/vendor/spdlog"]
 	path = OloEngine/vendor/spdlog
-	url = https://github.com/gabime/spdlog
+	url = ../../gabime/spdlog.git
 	branch = v1.x
 [submodule "OloEngine/vendor/GLFW"]
 	path = OloEngine/vendor/GLFW
-	url = https://github.com/drsnuggles8/glfw/
+	url =  ../../drsnuggles8/glfw.git
 	branch = master
 [submodule "OloEngine/vendor/imgui"]
 	path = OloEngine/vendor/imgui
-	url = https://github.com/drsnuggles8/imgui/
+	url = ../../drsnuggles8/imgui.git
 	branch = docking
 [submodule "OloEngine/vendor/glm"]
 	path = OloEngine/vendor/glm
-	url = https://github.com/g-truc/glm
+	url = ../../g-truc/glm.git
 	branch = master

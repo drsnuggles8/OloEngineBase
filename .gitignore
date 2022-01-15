@@ -233,7 +233,7 @@ MigrationBackup/
 # Binaries
 **/bin/
 bin-int/
-!vendor/bin/premake/
+!vendor/premake/bin/
 
 # Log files
 *.json

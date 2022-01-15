@@ -22,6 +22,9 @@
     <Filter Include="src\OloEngine\Renderer">
       <UniqueIdentifier>{A2E4BDE4-8EDE-E636-774B-7D4763E44CA3}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\OloEngine\Scene">
+      <UniqueIdentifier>{994F5ABD-05B1-37CB-8E1E-7E7DFA7E6E8A}</UniqueIdentifier>
+    </Filter>
     <Filter Include="src\Platform">
       <UniqueIdentifier>{21CA02E5-0D2D-9289-B6B2-CA3FA2F45D0C}</UniqueIdentifier>
     </Filter>
@@ -87,6 +90,9 @@
     <ClInclude Include="src\OloEngine\Core\MouseCodes.h">
       <Filter>src\OloEngine\Core</Filter>
     </ClInclude>
+    <ClInclude Include="src\OloEngine\Core\PlatformDetection.h">
+      <Filter>src\OloEngine\Core</Filter>
+    </ClInclude>
     <ClInclude Include="src\OloEngine\Core\Timestep.h">
       <Filter>src\OloEngine\Core</Filter>
     </ClInclude>
@@ -112,6 +118,9 @@
       <Filter>src\OloEngine\ImGui</Filter>
     </ClInclude>
     <ClInclude Include="src\OloEngine\Renderer\Buffer.h">
+      <Filter>src\OloEngine\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\OloEngine\Renderer\Camera.h">
       <Filter>src\OloEngine\Renderer</Filter>
     </ClInclude>
     <ClInclude Include="src\OloEngine\Renderer\FrameBuffer.h">
@@ -146,6 +155,21 @@
     </ClInclude>
     <ClInclude Include="src\OloEngine\Renderer\VertexArray.h">
       <Filter>src\OloEngine\Renderer</Filter>
+    </ClInclude>
+    <ClInclude Include="src\OloEngine\Scene\Components.h">
+      <Filter>src\OloEngine\Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="src\OloEngine\Scene\Entity.h">
+      <Filter>src\OloEngine\Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="src\OloEngine\Scene\Scene.h">
+      <Filter>src\OloEngine\Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="src\OloEngine\Scene\SceneCamera.h">
+      <Filter>src\OloEngine\Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="src\OloEngine\Scene\ScriptableEntity.h">
+      <Filter>src\OloEngine\Scene</Filter>
     </ClInclude>
     <ClInclude Include="src\OloEnginePCH.h">
       <Filter>src</Filter>
@@ -1422,12 +1446,6 @@
     <ClInclude Include="vendor\stb_image\stb_image.h">
       <Filter>vendor\stb_image</Filter>
     </ClInclude>
-    <ClInclude Include="src\OloEngine\Scene\Scene.h" />
-    <ClInclude Include="src\OloEngine\Scene\Components.h" />
-    <ClInclude Include="src\OloEngine\Scene\Entity.h" />
-    <ClInclude Include="src\OloEngine\Renderer\Camera.h" />
-    <ClInclude Include="src\OloEngine\Scene\SceneCamera.h" />
-    <ClInclude Include="src\OloEngine\Scene\ScriptableEntity.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\OloEngine\Core\Application.cpp">
@@ -1487,6 +1505,15 @@
     <ClCompile Include="src\OloEngine\Renderer\VertexArray.cpp">
       <Filter>src\OloEngine\Renderer</Filter>
     </ClCompile>
+    <ClCompile Include="src\OloEngine\Scene\Entity.cpp">
+      <Filter>src\OloEngine\Scene</Filter>
+    </ClCompile>
+    <ClCompile Include="src\OloEngine\Scene\Scene.cpp">
+      <Filter>src\OloEngine\Scene</Filter>
+    </ClCompile>
+    <ClCompile Include="src\OloEngine\Scene\SceneCamera.cpp">
+      <Filter>src\OloEngine\Scene</Filter>
+    </ClCompile>
     <ClCompile Include="src\OloEnginePCH.cpp">
       <Filter>src</Filter>
     </ClCompile>
@@ -1520,8 +1547,5 @@
     <ClCompile Include="vendor\stb_image\stb_image.cpp">
       <Filter>vendor\stb_image</Filter>
     </ClCompile>
-    <ClCompile Include="src\OloEngine\Scene\Scene.cpp" />
-    <ClCompile Include="src\OloEngine\Scene\Entity.cpp" />
-    <ClCompile Include="src\OloEngine\Scene\SceneCamera.cpp" />
   </ItemGroup>
 </Project>
