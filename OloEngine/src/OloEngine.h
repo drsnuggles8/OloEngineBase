@@ -18,6 +18,7 @@
 
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scene/ScriptableEntity.h"
 #include "OloEngine/Scene/Components.h"
 
 // --Renderer-------------------
