@@ -14,8 +14,8 @@ namespace OloEngine {
 		uint32_t Height;
 
 		WindowProps(const std::string& title = "OloEngine",
-			uint32_t width = 1920,
-			uint32_t height = 1080)
+			uint32_t width = 1600,
+			uint32_t height = 900)
 			: Title(title), Width(width), Height(height)
 		{
 		}
