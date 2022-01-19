@@ -17,3 +17,6 @@
 [submodule "OloEngine/vendor/yaml-cpp"]
 	path = OloEngine/vendor/yaml-cpp
 	url = ../../drsnuggles8/yaml-cpp.git
+[submodule "OloEngine/vendor/ryml"]
+	path = OloEngine/vendor/ryml
+	url = https://github.com/drsnuggles8/rapidyaml/
