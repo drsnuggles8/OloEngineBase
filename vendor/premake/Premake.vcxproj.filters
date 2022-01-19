@@ -22,6 +22,9 @@
     <Filter Include="..\OloEngine\vendor\imgui">
       <UniqueIdentifier>{373FAA7D-A301-DE07-ECB1-6C9458B3B6E5}</UniqueIdentifier>
     </Filter>
+    <Filter Include="..\OloEngine\vendor\yaml-cpp">
+      <UniqueIdentifier>{5F61B3ED-4B1C-A399-F4D3-1BE4E06DED29}</UniqueIdentifier>
+    </Filter>
     <Filter Include="..\Sandbox">
       <UniqueIdentifier>{3F7B6B1D-2B33-AD6A-943A-86C68011485B}</UniqueIdentifier>
     </Filter>
@@ -41,6 +44,9 @@
     </None>
     <None Include="..\..\OloEngine\vendor\imgui\premake5.lua">
       <Filter>..\OloEngine\vendor\imgui</Filter>
+    </None>
+    <None Include="..\..\OloEngine\vendor\yaml-cpp\premake5.lua">
+      <Filter>..\OloEngine\vendor\yaml-cpp</Filter>
     </None>
     <None Include="..\..\Sandbox\premake5.lua">
       <Filter>..\Sandbox</Filter>

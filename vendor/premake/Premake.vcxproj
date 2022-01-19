@@ -82,6 +82,7 @@
     <None Include="..\..\OloEngine\vendor\GLFW\premake5.lua" />
     <None Include="..\..\OloEngine\vendor\Glad\premake5.lua" />
     <None Include="..\..\OloEngine\vendor\imgui\premake5.lua" />
+    <None Include="..\..\OloEngine\vendor\yaml-cpp\premake5.lua" />
     <None Include="..\..\Sandbox\premake5.lua" />
     <None Include="..\..\premake5.lua" />
     <None Include="premake5.lua" />

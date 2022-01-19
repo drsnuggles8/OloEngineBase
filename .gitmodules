@@ -14,3 +14,6 @@
 	path = OloEngine/vendor/glm
 	url = ../../g-truc/glm.git
 	branch = master
+[submodule "OloEngine/vendor/yaml-cpp"]
+	path = OloEngine/vendor/yaml-cpp
+	url = ../../drsnuggles8/yaml-cpp.git

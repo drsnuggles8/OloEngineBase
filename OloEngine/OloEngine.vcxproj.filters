@@ -66,6 +66,9 @@
     <ClInclude Include="src\OloEngine\Core\Application.h">
       <Filter>src\OloEngine\Core</Filter>
     </ClInclude>
+    <ClInclude Include="src\OloEngine\Core\Assert.h">
+      <Filter>src\OloEngine\Core</Filter>
+    </ClInclude>
     <ClInclude Include="src\OloEngine\Core\Base.h">
       <Filter>src\OloEngine\Core</Filter>
     </ClInclude>
@@ -166,6 +169,9 @@
       <Filter>src\OloEngine\Scene</Filter>
     </ClInclude>
     <ClInclude Include="src\OloEngine\Scene\SceneCamera.h">
+      <Filter>src\OloEngine\Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="src\OloEngine\Scene\SceneSerializer.h">
       <Filter>src\OloEngine\Scene</Filter>
     </ClInclude>
     <ClInclude Include="src\OloEngine\Scene\ScriptableEntity.h">
@@ -1446,7 +1452,6 @@
     <ClInclude Include="vendor\stb_image\stb_image.h">
       <Filter>vendor\stb_image</Filter>
     </ClInclude>
-    <ClInclude Include="src\OloEngine\Core\Assert.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\OloEngine\Core\Application.cpp">
@@ -1513,6 +1518,9 @@
       <Filter>src\OloEngine\Scene</Filter>
     </ClCompile>
     <ClCompile Include="src\OloEngine\Scene\SceneCamera.cpp">
+      <Filter>src\OloEngine\Scene</Filter>
+    </ClCompile>
+    <ClCompile Include="src\OloEngine\Scene\SceneSerializer.cpp">
       <Filter>src\OloEngine\Scene</Filter>
     </ClCompile>
     <ClCompile Include="src\OloEnginePCH.cpp">
