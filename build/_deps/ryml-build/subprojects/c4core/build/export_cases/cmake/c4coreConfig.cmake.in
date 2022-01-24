@@ -1,0 +1,21 @@
+
+set(C4CORE_VERSION )
+
+@PACKAGE_INIT@
+
+if(NOT TARGET c4core::c4core)
+    include(${PACKAGE_PREFIX_DIR}/c4coreTargets.cmake)
+endif()
+
+# HACK: PACKAGE_PREFIX_DIR is obtained from the PACKAGE_INIT macro above;
+# When used below in the calls to set_and_check(),
+# it points at the location of this file. So point it instead
+# to the CMAKE_INSTALL_PREFIX, in relative terms
+get_filename_component(PACKAGE_PREFIX_DIR
+    "${PACKAGE_PREFIX_DIR}/.." ABSOLUTE)
+
+set_and_check(C4CORE_INCLUDE_DIR "@PACKAGE__INCLUDE_INSTALL_DIR@")
+set_and_check(C4CORE_LIB_DIR "@PACKAGE__LIBRARY_INSTALL_DIR@")
+#set_and_check(C4CORE_SYSCONFIG_DIR "@PACKAGE__SYSCONFIG_INSTALL_DIR@")
+
+check_required_components(c4core)

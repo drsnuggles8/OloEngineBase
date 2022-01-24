@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\spdlog-subbuild\CMakeFiles\37b1c7bebfa98bb70844da3e5cacfd77\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{C99F5A8E-6B19-363B-BD5B-C8D83C7DE9F0}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

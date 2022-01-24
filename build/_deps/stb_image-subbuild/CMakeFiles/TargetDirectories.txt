@@ -1,0 +1,3 @@
+C:/Users/ole/source/repos/OloEngine/build/_deps/stb_image-subbuild/CMakeFiles/stb_image-populate.dir
+C:/Users/ole/source/repos/OloEngine/build/_deps/stb_image-subbuild/CMakeFiles/ALL_BUILD.dir
+C:/Users/ole/source/repos/OloEngine/build/_deps/stb_image-subbuild/CMakeFiles/ZERO_CHECK.dir
