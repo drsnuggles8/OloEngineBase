@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-subbuild\CMakeFiles\30e946eaead6aa256ba793a4aa00a824\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{DCC209AE-AE67-3F87-9886-4C44F536C6E5}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

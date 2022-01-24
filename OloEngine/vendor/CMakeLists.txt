@@ -1,4 +1,5 @@
 include(FetchContent)
+set(FETCHCONTENT_QUIET off)
 
 message(STATUS "Fetching third party libraries")
 

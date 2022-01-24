@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\glad-subbuild\CMakeFiles\c82929eee2b160b7c98ac778dabbad0f\glad-populate-mkdir.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\glad-subbuild\CMakeFiles\c82929eee2b160b7c98ac778dabbad0f\glad-populate-download.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\glad-subbuild\CMakeFiles\c82929eee2b160b7c98ac778dabbad0f\glad-populate-update.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\glad-subbuild\CMakeFiles\c82929eee2b160b7c98ac778dabbad0f\glad-populate-patch.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\glad-subbuild\CMakeFiles\c82929eee2b160b7c98ac778dabbad0f\glad-populate-configure.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\glad-subbuild\CMakeFiles\c82929eee2b160b7c98ac778dabbad0f\glad-populate-build.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\glad-subbuild\CMakeFiles\c82929eee2b160b7c98ac778dabbad0f\glad-populate-install.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\glad-subbuild\CMakeFiles\c82929eee2b160b7c98ac778dabbad0f\glad-populate-test.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\glad-subbuild\CMakeFiles\63286313b33153aa5cd49a6e5e900827\glad-populate-complete.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\glad-subbuild\CMakeFiles\f141a850851a3c2f50989dc24f554ee9\glad-populate.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\glad-subbuild\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="C:\Users\ole\source\repos\OloEngine\build\_deps\glad-subbuild\CMakeFiles\glad-populate" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{E353B250-0938-3D98-B494-C345DAF97079}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

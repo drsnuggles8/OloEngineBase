@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\entt-subbuild\CMakeFiles\b4ee277eadc7969e0f1cd68bbc627c8c\entt-populate-mkdir.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\entt-subbuild\CMakeFiles\b4ee277eadc7969e0f1cd68bbc627c8c\entt-populate-download.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\entt-subbuild\CMakeFiles\b4ee277eadc7969e0f1cd68bbc627c8c\entt-populate-update.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\entt-subbuild\CMakeFiles\b4ee277eadc7969e0f1cd68bbc627c8c\entt-populate-patch.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\entt-subbuild\CMakeFiles\b4ee277eadc7969e0f1cd68bbc627c8c\entt-populate-configure.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\entt-subbuild\CMakeFiles\b4ee277eadc7969e0f1cd68bbc627c8c\entt-populate-build.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\entt-subbuild\CMakeFiles\b4ee277eadc7969e0f1cd68bbc627c8c\entt-populate-install.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\entt-subbuild\CMakeFiles\b4ee277eadc7969e0f1cd68bbc627c8c\entt-populate-test.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\entt-subbuild\CMakeFiles\753020924603e3a10fdd6ced3a4955a1\entt-populate-complete.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\entt-subbuild\CMakeFiles\4e7f87fae0a458da6ee6c4748c8ddc3d\entt-populate.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\entt-subbuild\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="C:\Users\ole\source\repos\OloEngine\build\_deps\entt-subbuild\CMakeFiles\entt-populate" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{24C10C3F-E093-374C-80FE-32F808494EE3}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

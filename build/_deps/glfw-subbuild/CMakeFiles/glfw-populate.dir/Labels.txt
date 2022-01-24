@@ -1,0 +1,14 @@
+# Target labels
+ glfw-populate
+# Source files and their labels
+C:/Users/ole/source/repos/OloEngine/build/_deps/glfw-subbuild/CMakeFiles/glfw-populate
+C:/Users/ole/source/repos/OloEngine/build/_deps/glfw-subbuild/CMakeFiles/30e946eaead6aa256ba793a4aa00a824/glfw-populate.rule
+C:/Users/ole/source/repos/OloEngine/build/_deps/glfw-subbuild/CMakeFiles/3235acbdcee6c7911b2f839b64b44617/glfw-populate-complete.rule
+C:/Users/ole/source/repos/OloEngine/build/_deps/glfw-subbuild/CMakeFiles/9257c4cb355ad78f43887111d3145d27/glfw-populate-build.rule
+C:/Users/ole/source/repos/OloEngine/build/_deps/glfw-subbuild/CMakeFiles/9257c4cb355ad78f43887111d3145d27/glfw-populate-configure.rule
+C:/Users/ole/source/repos/OloEngine/build/_deps/glfw-subbuild/CMakeFiles/9257c4cb355ad78f43887111d3145d27/glfw-populate-download.rule
+C:/Users/ole/source/repos/OloEngine/build/_deps/glfw-subbuild/CMakeFiles/9257c4cb355ad78f43887111d3145d27/glfw-populate-install.rule
+C:/Users/ole/source/repos/OloEngine/build/_deps/glfw-subbuild/CMakeFiles/9257c4cb355ad78f43887111d3145d27/glfw-populate-mkdir.rule
+C:/Users/ole/source/repos/OloEngine/build/_deps/glfw-subbuild/CMakeFiles/9257c4cb355ad78f43887111d3145d27/glfw-populate-patch.rule
+C:/Users/ole/source/repos/OloEngine/build/_deps/glfw-subbuild/CMakeFiles/9257c4cb355ad78f43887111d3145d27/glfw-populate-test.rule
+C:/Users/ole/source/repos/OloEngine/build/_deps/glfw-subbuild/CMakeFiles/9257c4cb355ad78f43887111d3145d27/glfw-populate-update.rule
