@@ -92,10 +92,10 @@ target_compile_options("OloEngine" PRIVATE
 #target_link_directories("OloEngine" PRIVATE)
 
 target_link_libraries(OloEngine
-  Glad
-  glfw
-  ImGui
-  opengl32.lib
-  ryml
-  stb_image
+                      Glad
+                      glfw
+                      ImGui
+                      opengl32.lib
+                      ryml
+                      stb_image
 )
