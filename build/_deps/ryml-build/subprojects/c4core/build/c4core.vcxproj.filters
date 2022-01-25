@@ -1,0 +1,194 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\base64.cpp">
+      <Filter>c4</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\char_traits.cpp">
+      <Filter>c4</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\error.cpp">
+      <Filter>c4</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\format.cpp">
+      <Filter>c4</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\language.cpp">
+      <Filter>c4</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\memory_resource.cpp">
+      <Filter>c4</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\memory_util.cpp">
+      <Filter>c4</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\allocator.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\base64.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\blob.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\bitmask.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\charconv.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\c4_pop.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\c4_push.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\char_traits.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\common.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\compiler.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\config.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\cpu.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\ctor_dtor.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\enum.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\error.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\export.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\format.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\hash.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\language.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\memory_resource.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\memory_util.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\platform.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\preprocessor.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\restrict.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\span.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\std\std.hpp">
+      <Filter>c4\std</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\std\std_fwd.hpp">
+      <Filter>c4\std</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\std\string.hpp">
+      <Filter>c4\std</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\std\string_fwd.hpp">
+      <Filter>c4\std</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\std\tuple.hpp">
+      <Filter>c4\std</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\std\vector.hpp">
+      <Filter>c4\std</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\std\vector_fwd.hpp">
+      <Filter>c4\std</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\substr.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\substr_fwd.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\szconv.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\type_name.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\types.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\unrestrict.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\windows.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\windows_pop.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\windows_push.hpp">
+      <Filter>c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\ext\debugbreak\debugbreak.h">
+      <Filter>c4\ext\debugbreak</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\ext\rng\rng.hpp">
+      <Filter>c4\ext\rng</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\ext\sg14\inplace_function.h">
+      <Filter>c4\ext\sg14</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\ext\fast_float.hpp">
+      <Filter>c4\ext</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\ext\fast_float_all.h">
+      <Filter>c4\ext</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Natvis Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\c4core.natvis">
+      <Filter>c4</Filter>
+    </Natvis>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="c4">
+      <UniqueIdentifier>{4C53C825-AEDE-382B-9FA9-F23E88BD9E43}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="c4\ext">
+      <UniqueIdentifier>{37A081DB-0F9A-3600-B8E9-BC4B05EDC229}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="c4\ext\debugbreak">
+      <UniqueIdentifier>{05902290-B1D7-30F7-8B64-149E66F6A430}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="c4\ext\rng">
+      <UniqueIdentifier>{C4791280-0823-35B1-9572-490223578D23}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="c4\ext\sg14">
+      <UniqueIdentifier>{C16C7B72-C631-38E1-A384-B40BA5B4C637}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="c4\std">
+      <UniqueIdentifier>{521523BF-66EB-36D7-A051-B0180705A0CC}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

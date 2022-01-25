@@ -1,0 +1,576 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+  </PropertyGroup>
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|win32">
+      <Configuration>Debug</Configuration>
+      <Platform>win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|win32">
+      <Configuration>Release</Configuration>
+      <Platform>win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="MinSizeRel|win32">
+      <Configuration>MinSizeRel</Configuration>
+      <Platform>win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="RelWithDebInfo|win32">
+      <Configuration>RelWithDebInfo</Configuration>
+      <Platform>win32</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{447C0629-7A42-3237-9018-64EF431923B7}</ProjectGuid>
+    <WindowsTargetPlatformVersion>10.0.20348.0</WindowsTargetPlatformVersion>
+    <Keyword>Win32Proj</Keyword>
+    <Platform>win32</Platform>
+    <ProjectName>OloEngine</ProjectName>
+    <VCProjectUpgraderObjectName>NoUpgrade</VCProjectUpgraderObjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|win32'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|win32'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <_ProjectFileVersion>10.0.20506.1</_ProjectFileVersion>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:\Users\ole\source\repos\OloEngine\bin\Release-windows-x86_64\OloEngine\Debug\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">OloEngine.dir\Debug\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">OloEngine</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">.lib</TargetExt>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:\Users\ole\source\repos\OloEngine\bin\Release-windows-x86_64\OloEngine\Release\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|win32'">OloEngine.dir\Release\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|win32'">OloEngine</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='Release|win32'">.lib</TargetExt>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:\Users\ole\source\repos\OloEngine\bin\Release-windows-x86_64\OloEngine\MinSizeRel\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">OloEngine.dir\MinSizeRel\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">OloEngine</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">.lib</TargetExt>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:\Users\ole\source\repos\OloEngine\bin\Release-windows-x86_64\OloEngine\RelWithDebInfo\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">OloEngine.dir\RelWithDebInfo\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">OloEngine</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">.lib</TargetExt>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\GLFW\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\Glad\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml\src;C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-src\include;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\src;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) -m64 -g -std=c++20</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <Optimization>Disabled</Optimization>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/OloEngine.dir/Debug/cmake_pch.pch</PrecompiledHeaderOutputFile>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;_CRT_SECURE_NO_WARNINGS;GLFW_INCLUDE_NONE;OLO_DEBUG;CMAKE_INTDIR="Debug"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;_CRT_SECURE_NO_WARNINGS;GLFW_INCLUDE_NONE;OLO_DEBUG;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\GLFW\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\Glad\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml\src;C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-src\include;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\src;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\GLFW\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\Glad\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml\src;C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-src\include;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\src;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:X86</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|win32'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\GLFW\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\Glad\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml\src;C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-src\include;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\src;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) -m64 -g -std=c++20</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/OloEngine.dir/Release/cmake_pch.pch</PrecompiledHeaderOutputFile>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;_CRT_SECURE_NO_WARNINGS;GLFW_INCLUDE_NONE;OLO_RELEASE;CMAKE_INTDIR="Release"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <DebugInformationFormat>
+      </DebugInformationFormat>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;_CRT_SECURE_NO_WARNINGS;GLFW_INCLUDE_NONE;OLO_RELEASE;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\GLFW\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\Glad\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml\src;C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-src\include;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\src;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\GLFW\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\Glad\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml\src;C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-src\include;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\src;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:X86</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\GLFW\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\Glad\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml\src;C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-src\include;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\src;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) -m64 -g -std=c++20</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <Optimization>MinSpace</Optimization>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/OloEngine.dir/MinSizeRel/cmake_pch.pch</PrecompiledHeaderOutputFile>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;_CRT_SECURE_NO_WARNINGS;GLFW_INCLUDE_NONE;CMAKE_INTDIR="MinSizeRel"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <DebugInformationFormat>
+      </DebugInformationFormat>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;_CRT_SECURE_NO_WARNINGS;GLFW_INCLUDE_NONE;CMAKE_INTDIR=\"MinSizeRel\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\GLFW\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\Glad\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml\src;C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-src\include;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\src;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\GLFW\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\Glad\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml\src;C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-src\include;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\src;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:X86</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\GLFW\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\Glad\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml\src;C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-src\include;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\src;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) -m64 -g -std=c++20</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/OloEngine.dir/RelWithDebInfo/cmake_pch.pch</PrecompiledHeaderOutputFile>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;_CRT_SECURE_NO_WARNINGS;GLFW_INCLUDE_NONE;CMAKE_INTDIR="RelWithDebInfo"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;_CRT_SECURE_NO_WARNINGS;GLFW_INCLUDE_NONE;CMAKE_INTDIR=\"RelWithDebInfo\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\GLFW\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\Glad\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml\src;C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-src\include;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\src;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\GLFW\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\Glad\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml\src;C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-src\include;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\src;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:X86</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\CMakeLists.txt">
+      <UseUtf8Encoding>Always</UseUtf8Encoding>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">Building Custom Rule C:/Users/ole/source/repos/OloEngine/OloEngine/src/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/ole/source/repos/OloEngine -BC:/Users/ole/source/repos/OloEngine/build --check-stamp-file C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:\Users\ole\source\repos\OloEngine\build\OloEngine\src\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|win32'">Building Custom Rule C:/Users/ole/source/repos/OloEngine/OloEngine/src/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|win32'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/ole/source/repos/OloEngine -BC:/Users/ole/source/repos/OloEngine/build --check-stamp-file C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:\Users\ole\source\repos\OloEngine\build\OloEngine\src\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|win32'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">Building Custom Rule C:/Users/ole/source/repos/OloEngine/OloEngine/src/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/ole/source/repos/OloEngine -BC:/Users/ole/source/repos/OloEngine/build --check-stamp-file C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:\Users\ole\source\repos\OloEngine\build\OloEngine\src\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">Building Custom Rule C:/Users/ole/source/repos/OloEngine/OloEngine/src/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/ole/source/repos/OloEngine -BC:/Users/ole/source/repos/OloEngine/build --check-stamp-file C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:\Users\ole\source\repos\OloEngine\build\OloEngine\src\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\build\OloEngine\src\CMakeFiles\OloEngine.dir\cmake_pch.cxx">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">Create</PrecompiledHeader>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/OloEngine.dir/Debug/cmake_pch.pch</PrecompiledHeaderOutputFile>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|win32'">Create</PrecompiledHeader>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/OloEngine.dir/Release/cmake_pch.pch</PrecompiledHeaderOutputFile>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">Create</PrecompiledHeader>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/OloEngine.dir/MinSizeRel/cmake_pch.pch</PrecompiledHeaderOutputFile>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">Create</PrecompiledHeader>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/OloEngine.dir/RelWithDebInfo/cmake_pch.pch</PrecompiledHeaderOutputFile>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Layer.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\LayerStack.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Log.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Window.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\ImGui\ImGuiBuild.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\ImGui\ImGuiLayer.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\FrameBuffer.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\GraphicsContext.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\OrthographicCamera.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\OrthographicCameraController.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Shader.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Texture.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\VertexArray.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Scene\Entity.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Scene\Scene.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Scene\SceneCamera.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Scene\SceneSerializer.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEnginePCH.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLContext.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLFrameBuffer.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLRendererAPI.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLShader.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLTexture.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLVertexArray.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsInput.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/MinSizeRel/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/RelWithDebInfo/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Application.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Assert.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Base.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\EntryPoint.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Input.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\KeyCodes.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Layer.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\LayerStack.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Log.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\MouseCodes.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\PlatformDetection.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Timestep.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Core\Window.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Debug\Instrumentor.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Events\ApplicationEvent.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Events\Event.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Events\KeyEvent.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Events\MouseEvent.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\ImGui\ImGuiLayer.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Buffer.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Camera.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\FrameBuffer.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\GraphicsContext.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\OrthographicCamera.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\OrthographicCameraController.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RenderCommand.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Renderer2D.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\RendererAPI.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Shader.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\Texture.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Renderer\VertexArray.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Scene\Components.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Scene\Entity.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Scene\Scene.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Scene\SceneCamera.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Scene\SceneSerializer.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Scene\ScriptableEntity.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEnginePCH.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLContext.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLFrameBuffer.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLRendererAPI.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLShader.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLTexture.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLVertexArray.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\Windows\WindowsWindow.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\OloEngine\src\CMakeFiles\OloEngine.dir\Debug\cmake_pch.hxx" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\OloEngine\src\CMakeFiles\OloEngine.dir\Release\cmake_pch.hxx" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\OloEngine\src\CMakeFiles\OloEngine.dir\MinSizeRel\cmake_pch.hxx" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\OloEngine\src\CMakeFiles\OloEngine.dir\RelWithDebInfo\cmake_pch.hxx" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\build\ZERO_CHECK.vcxproj">
+      <Project>{14A5E1C8-1C93-3BCA-8A99-D064F48239E6}</Project>
+      <Name>ZERO_CHECK</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\build\_deps\glad-build\glad.vcxproj">
+      <Project>{6DAC22DF-567A-3345-9EB9-CAA0EA673B5B}</Project>
+      <Name>glad</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-build\src\glfw.vcxproj">
+      <Project>{57999481-0ACA-3F57-BD93-7B063B018B80}</Project>
+      <Name>glfw</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-build\ryml.vcxproj">
+      <Project>{0688FC90-507A-3D96-86B9-83406081831C}</Project>
+      <Name>ryml</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

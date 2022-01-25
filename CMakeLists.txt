@@ -1,5 +1,5 @@
 ﻿# Preamble
-cmake_minimum_required(VERSION 3.16 .. 3.22)
+cmake_minimum_required(VERSION 3.16)
 
 message(STATUS "CMake version: ${CMAKE_VERSION}")
 

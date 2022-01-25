@@ -487,6 +487,15 @@ GLFW_USE_HYBRID_HPG:BOOL=OFF
 GLM_TEST_ENABLE:BOOL=OFF
 
 //Value Computed by CMake
+OloEditor_BINARY_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/build/OloEditor
+
+//Value Computed by CMake
+OloEditor_IS_TOP_LEVEL:STATIC=OFF
+
+//Value Computed by CMake
+OloEditor_SOURCE_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/OloEditor
+
+//Value Computed by CMake
 OloEngineBase_BINARY_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/build
 
 //Value Computed by CMake
@@ -496,16 +505,13 @@ OloEngineBase_IS_TOP_LEVEL:STATIC=ON
 OloEngineBase_SOURCE_DIR:STATIC=C:/Users/ole/source/repos/OloEngine
 
 //Value Computed by CMake
-OloEngine_BINARY_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/build/Sandbox
+OloEngine_BINARY_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/build/OloEngine
 
 //Value Computed by CMake
 OloEngine_IS_TOP_LEVEL:STATIC=OFF
 
 //Value Computed by CMake
-OloEngine_SOURCE_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/Sandbox
-
-//Enable API generation (python, etc)
-RYML_BUILD_API:BOOL=OFF
+OloEngine_SOURCE_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/OloEngine
 
 //build tools
 RYML_BUILD_TOOLS:BOOL=OFF
@@ -607,6 +613,15 @@ SPDLOG_WCHAR_FILENAMES:BOOL=OFF
 
 //Support wchar api
 SPDLOG_WCHAR_SUPPORT:BOOL=OFF
+
+//Value Computed by CMake
+Sandbox_BINARY_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/build/Sandbox
+
+//Value Computed by CMake
+Sandbox_IS_TOP_LEVEL:STATIC=OFF
+
+//Value Computed by CMake
+Sandbox_SOURCE_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/Sandbox
 
 //Use MSVC runtime library DLL
 USE_MSVC_RUNTIME_LIBRARY_DLL:BOOL=ON
@@ -822,6 +837,8 @@ GIT_EXECUTABLE-ADVANCED:INTERNAL=1
 GLFW_PKG_CONFIG_LIBS_PRIVATE:INTERNAL= -lgdi32
 //GLFW pkg-config Requires.private
 GLFW_PKG_CONFIG_REQUIRES_PRIVATE:INTERNAL=
+//Enable API generation (python, etc)
+RYML_BUILD_API:INTERNAL=OFF
 //CMAKE_INSTALL_PREFIX during last run
 _GNUInstallDirs_LAST_CMAKE_INSTALL_PREFIX:INTERNAL=C:/Program Files (x86)/OloEngineBase
 //Path to a program.
