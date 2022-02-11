@@ -19,10 +19,10 @@ set_target_properties("Sandbox" PROPERTIES
                       INTERPROCEDURAL_OPTIMIZATION False
 )
 
-#Rather than referring to CMAKE_BUILD_TYPE in
-#the CMakeLists.txt file, projects should instead use other more robust alternative techniques, such
-#as generator expressions based on $<CONFIG:…>
-#NOT SURE IF THIS WHOLE SHIT IS EVEN NEEDED
+# Rather than referring to CMAKE_BUILD_TYPE in
+# the CMakeLists.txt file, projects should instead use other more robust alternative techniques, such
+# as generator expressions based on $<CONFIG:…>
+# NOT SURE IF THIS WHOLE SHIT IS EVEN NEEDED
 # FIX THIS SECTION, COMBINE SHIT AND STUFF
 
 if(CMAKE_BUILD_TYPE STREQUAL Debug)

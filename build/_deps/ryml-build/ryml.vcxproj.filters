@@ -37,6 +37,9 @@
     <ClCompile Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\memory_util.cpp">
       <Filter>c4core\c4</Filter>
     </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\utf.cpp">
+      <Filter>c4core\c4</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\src\ryml.hpp" />
@@ -134,6 +137,9 @@
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\ctor_dtor.hpp">
       <Filter>c4core\c4</Filter>
     </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\dump.hpp">
+      <Filter>c4core\c4</Filter>
+    </ClInclude>
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\enum.hpp">
       <Filter>c4core\c4</Filter>
     </ClInclude>
@@ -207,6 +213,9 @@
       <Filter>c4core\c4</Filter>
     </ClInclude>
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\unrestrict.hpp">
+      <Filter>c4core\c4</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\utf.hpp">
       <Filter>c4core\c4</Filter>
     </ClInclude>
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\windows.hpp">

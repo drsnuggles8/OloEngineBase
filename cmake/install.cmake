@@ -2,17 +2,14 @@
 #            Install                        #
 #############################################
 
-# we have to install these scripts since the we required 
-# find our depandancies wheneven someone want to include 
-# this project. 
 configure_file("${CMAKE_CURRENT_LIST_DIR}/findDependancies.cmake" "findDependancies.cmake" COPYONLY)
 configure_file("${CMAKE_CURRENT_LIST_DIR}/preamble.cmake" "preamble.cmake" COPYONLY)
 
-# make cache variables for install destinations
+# Make cache variables for install destinations
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
-# generate the config file that is includes the exports
+# Generate the config file that is includes the exports
 configure_package_config_file(
   "${CMAKE_CURRENT_LIST_DIR}/Config.cmake.in"
   "${CMAKE_CURRENT_BINARY_DIR}/projTempConfig.cmake"
@@ -27,14 +24,14 @@ endif()
 
 set_property(TARGET projTemp PROPERTY VERSION ${projTemp_VERSION})
 
-# generate the version file for the config file
+# Generate the version file for the config file
 write_basic_package_version_file(
   "${CMAKE_CURRENT_BINARY_DIR}/projTempConfigVersion.cmake"
   VERSION "${projTemp_VERSION_MAJOR}.${projTemp_VERSION_MINOR}.${projTemp_VERSION_PATCH}"
   COMPATIBILITY AnyNewerVersion
 )
 
-# install the configuration file
+# Install the configuration file
 install(FILES
           "${CMAKE_CURRENT_BINARY_DIR}/projTempConfig.cmake"
           "${CMAKE_CURRENT_BINARY_DIR}/projTempConfigVersion.cmake"
@@ -43,13 +40,13 @@ install(FILES
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/projTemp
 )
 
-# install library
+# Install library
 install(
     TARGETS projTemp
     DESTINATION ${CMAKE_INSTALL_LIBDIR}
     EXPORT projTempTargets)
 
-# install headers
+# Install headers
 install(
     DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/../projTemp"
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/"

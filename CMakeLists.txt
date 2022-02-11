@@ -11,13 +11,13 @@ set(OloEngineBase_VERSION_PATCH 1)
 set(OloEngineBase_VERSION ${OloEngineBase_VERSION_MAJOR}.${OloEngineBase_VERSION_MINOR}.${OloEngineBase_VERSION_PATCH})
 
 # sets some variables
-include(cmake/preamble.cmake)
+#include(cmake/preamble.cmake)
 
 # sets build option
-include(cmake/buildOptions.cmake)
+#include(cmake/buildOptions.cmake)
 
 # find all the dependancies.
-include(cmake/findDependancies.cmake)
+#include(cmake/findDependancies.cmake)
 
 # Project wide setup
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake)

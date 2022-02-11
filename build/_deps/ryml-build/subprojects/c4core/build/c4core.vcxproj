@@ -284,6 +284,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\config.hpp" />
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\cpu.hpp" />
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\ctor_dtor.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\dump.hpp" />
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\enum.hpp" />
     <ClCompile Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\error.cpp" />
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\error.hpp" />
@@ -314,6 +315,8 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\type_name.hpp" />
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\types.hpp" />
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\unrestrict.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\utf.hpp" />
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\utf.cpp" />
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\windows.hpp" />
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\windows_pop.hpp" />
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src\c4\windows_push.hpp" />
