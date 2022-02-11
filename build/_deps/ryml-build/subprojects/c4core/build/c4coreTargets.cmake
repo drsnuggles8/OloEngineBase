@@ -63,18 +63,11 @@ set_target_properties(c4core::c4core PROPERTIES
   IMPORTED_LOCATION_RELEASE "C:/Users/ole/source/repos/OloEngine/build/_deps/ryml-build/subprojects/c4core/build/Release/c4core.lib"
   )
 
-# Import target "c4core::c4core" for configuration "MinSizeRel"
-set_property(TARGET c4core::c4core APPEND PROPERTY IMPORTED_CONFIGURATIONS MINSIZEREL)
+# Import target "c4core::c4core" for configuration "Dist"
+set_property(TARGET c4core::c4core APPEND PROPERTY IMPORTED_CONFIGURATIONS DIST)
 set_target_properties(c4core::c4core PROPERTIES
-  IMPORTED_LINK_INTERFACE_LANGUAGES_MINSIZEREL "CXX"
-  IMPORTED_LOCATION_MINSIZEREL "C:/Users/ole/source/repos/OloEngine/build/_deps/ryml-build/subprojects/c4core/build/MinSizeRel/c4core.lib"
-  )
-
-# Import target "c4core::c4core" for configuration "RelWithDebInfo"
-set_property(TARGET c4core::c4core APPEND PROPERTY IMPORTED_CONFIGURATIONS RELWITHDEBINFO)
-set_target_properties(c4core::c4core PROPERTIES
-  IMPORTED_LINK_INTERFACE_LANGUAGES_RELWITHDEBINFO "CXX"
-  IMPORTED_LOCATION_RELWITHDEBINFO "C:/Users/ole/source/repos/OloEngine/build/_deps/ryml-build/subprojects/c4core/build/RelWithDebInfo/c4core.lib"
+  IMPORTED_LINK_INTERFACE_LANGUAGES_DIST "CXX"
+  IMPORTED_LOCATION_DIST "C:/Users/ole/source/repos/OloEngine/build/_deps/ryml-build/subprojects/c4core/build/Dist/c4core.lib"
   )
 
 # This file does not depend on other imported targets which have

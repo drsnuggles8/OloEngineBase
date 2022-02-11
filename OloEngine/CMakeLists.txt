@@ -1,4 +1,6 @@
-﻿project(OloEngine
+﻿include(../cmake/SetupConfigurations.cmake)
+
+project(OloEngine
         LANGUAGES CXX)
 
 set(OloEngine_VERSION_MAJOR 0)
@@ -14,7 +16,9 @@ add_subdirectory(vendor)
 # Main targets built by this project
 add_subdirectory(src)
 
-set_target_properties("OloEngine" PROPERTIES
+set_target_properties(OloEngine PROPERTIES
+                      PROJECT_LABEL "Test LABEL"
+                      FOLDER "OloEngine"
                       CXX_STANDARD 20
                       CXX_STANDARD_REQUIRED YES
                       CXX_EXTENSIONS NO
@@ -28,6 +32,7 @@ set_target_properties("OloEngine" PROPERTIES
 # NOT SURE IF THIS WHOLE SHIT IS EVEN NEEDED
 # FIX THIS SECTION, COMBINE SHIT AND STUFF
 
+#[[
 if(CMAKE_BUILD_TYPE STREQUAL Debug)
   set_target_properties("OloEngine" PROPERTIES
     OUTPUT_NAME "OloEngine"
@@ -52,6 +57,17 @@ if(CMAKE_BUILD_TYPE STREQUAL Dist)
     RUNTIME_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Dist-windows-x86_64/OloEngine"
   )
 endif()
+]]
+
+# Set output directories for all builds
+foreach( OUTPUTCONFIG ${CMAKE_CONFIGURATION_TYPES} )
+    string( TOUPPER ${OUTPUTCONFIG} OUTPUTCONFIG )
+    set( CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${OUTPUTCONFIG} ${CMAKE_SOURCE_DIR}/lib )
+    set( CMAKE_LIBRARY_OUTPUT_DIRECTORY_${OUTPUTCONFIG} ${CMAKE_SOURCE_DIR}/lib )
+    set( CMAKE_RUNTIME_OUTPUT_DIRECTORY_${OUTPUTCONFIG} ${CMAKE_SOURCE_DIR}/bin )
+endforeach( OUTPUTCONFIG CMAKE_CONFIGURATION_TYPES )
+
+# C:\Users\ole\source\repos\OloEngine\build\OloEngine\src\Release\ 
 
 add_dependencies(OloEngine
                 glfw

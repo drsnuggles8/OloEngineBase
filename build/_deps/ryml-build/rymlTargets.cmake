@@ -63,18 +63,11 @@ set_target_properties(ryml::ryml PROPERTIES
   IMPORTED_LOCATION_RELEASE "C:/Users/ole/source/repos/OloEngine/build/_deps/ryml-build/Release/ryml.lib"
   )
 
-# Import target "ryml::ryml" for configuration "MinSizeRel"
-set_property(TARGET ryml::ryml APPEND PROPERTY IMPORTED_CONFIGURATIONS MINSIZEREL)
+# Import target "ryml::ryml" for configuration "Dist"
+set_property(TARGET ryml::ryml APPEND PROPERTY IMPORTED_CONFIGURATIONS DIST)
 set_target_properties(ryml::ryml PROPERTIES
-  IMPORTED_LINK_INTERFACE_LANGUAGES_MINSIZEREL "CXX"
-  IMPORTED_LOCATION_MINSIZEREL "C:/Users/ole/source/repos/OloEngine/build/_deps/ryml-build/MinSizeRel/ryml.lib"
-  )
-
-# Import target "ryml::ryml" for configuration "RelWithDebInfo"
-set_property(TARGET ryml::ryml APPEND PROPERTY IMPORTED_CONFIGURATIONS RELWITHDEBINFO)
-set_target_properties(ryml::ryml PROPERTIES
-  IMPORTED_LINK_INTERFACE_LANGUAGES_RELWITHDEBINFO "CXX"
-  IMPORTED_LOCATION_RELWITHDEBINFO "C:/Users/ole/source/repos/OloEngine/build/_deps/ryml-build/RelWithDebInfo/ryml.lib"
+  IMPORTED_LINK_INTERFACE_LANGUAGES_DIST "CXX"
+  IMPORTED_LOCATION_DIST "C:/Users/ole/source/repos/OloEngine/build/_deps/ryml-build/Dist/ryml.lib"
   )
 
 # This file does not depend on other imported targets which have
