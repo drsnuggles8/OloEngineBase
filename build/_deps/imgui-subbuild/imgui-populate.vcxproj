@@ -4,48 +4,48 @@
     <PreferredToolArchitecture>x64</PreferredToolArchitecture>
   </PropertyGroup>
   <ItemGroup Label="ProjectConfigurations">
-    <ProjectConfiguration Include="Debug|win32">
+    <ProjectConfiguration Include="Debug|x64">
       <Configuration>Debug</Configuration>
-      <Platform>win32</Platform>
+      <Platform>x64</Platform>
     </ProjectConfiguration>
-    <ProjectConfiguration Include="Release|win32">
+    <ProjectConfiguration Include="Release|x64">
       <Configuration>Release</Configuration>
-      <Platform>win32</Platform>
+      <Platform>x64</Platform>
     </ProjectConfiguration>
-    <ProjectConfiguration Include="MinSizeRel|win32">
+    <ProjectConfiguration Include="MinSizeRel|x64">
       <Configuration>MinSizeRel</Configuration>
-      <Platform>win32</Platform>
+      <Platform>x64</Platform>
     </ProjectConfiguration>
-    <ProjectConfiguration Include="RelWithDebInfo|win32">
+    <ProjectConfiguration Include="RelWithDebInfo|x64">
       <Configuration>RelWithDebInfo</Configuration>
-      <Platform>win32</Platform>
+      <Platform>x64</Platform>
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{01794FCC-564B-362C-AA25-D2ED50DE3954}</ProjectGuid>
     <WindowsTargetPlatformVersion>10.0.20348.0</WindowsTargetPlatformVersion>
     <Keyword>Win32Proj</Keyword>
-    <Platform>win32</Platform>
+    <Platform>x64</Platform>
     <ProjectName>imgui-populate</ProjectName>
     <VCProjectUpgraderObjectName>NoUpgrade</VCProjectUpgraderObjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|win32'" Label="Configuration">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Utility</ConfigurationType>
     <CharacterSet>MultiByte</CharacterSet>
     <PlatformToolset>v143</PlatformToolset>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|win32'" Label="Configuration">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Utility</ConfigurationType>
     <CharacterSet>MultiByte</CharacterSet>
     <PlatformToolset>v143</PlatformToolset>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'" Label="Configuration">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'" Label="Configuration">
     <ConfigurationType>Utility</ConfigurationType>
     <CharacterSet>MultiByte</CharacterSet>
     <PlatformToolset>v143</PlatformToolset>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'" Label="Configuration">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'" Label="Configuration">
     <ConfigurationType>Utility</ConfigurationType>
     <CharacterSet>MultiByte</CharacterSet>
     <PlatformToolset>v143</PlatformToolset>
@@ -59,12 +59,12 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
     <_ProjectFileVersion>10.0.20506.1</_ProjectFileVersion>
-    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
-    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|win32'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
-    <IntDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
-    <IntDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
   </PropertyGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <Midl>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
@@ -74,7 +74,7 @@
       <ProxyFileName>%(Filename)_p.c</ProxyFileName>
     </Midl>
   </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|win32'">
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Midl>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
@@ -84,7 +84,7 @@
       <ProxyFileName>%(Filename)_p.c</ProxyFileName>
     </Midl>
   </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">
     <Midl>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
@@ -94,7 +94,7 @@
       <ProxyFileName>%(Filename)_p.c</ProxyFileName>
     </Midl>
   </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">
     <Midl>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
@@ -106,8 +106,8 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\35b9a6571ab46d03192cd01ca10f1c40\imgui-populate-mkdir.rule">
-      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">Creating directories for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">setlocal
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Creating directories for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E make_directory C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-src
 if %errorlevel% neq 0 goto :cmEnd
 "C:\Program Files\CMake\bin\cmake.exe" -E make_directory C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-build
@@ -130,11 +130,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">false</LinkObjects>
-      <Message Condition="'$(Configuration)|$(Platform)'=='Release|win32'">Creating directories for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Release|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Creating directories for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E make_directory C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-src
 if %errorlevel% neq 0 goto :cmEnd
 "C:\Program Files\CMake\bin\cmake.exe" -E make_directory C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-build
@@ -157,11 +157,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|win32'">false</LinkObjects>
-      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">Creating directories for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Creating directories for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E make_directory C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-src
 if %errorlevel% neq 0 goto :cmEnd
 "C:\Program Files\CMake\bin\cmake.exe" -E make_directory C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-build
@@ -184,11 +184,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">false</LinkObjects>
-      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">Creating directories for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Creating directories for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E make_directory C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-src
 if %errorlevel% neq 0 goto :cmEnd
 "C:\Program Files\CMake\bin\cmake.exe" -E make_directory C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-build
@@ -211,15 +211,15 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">false</LinkObjects>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\35b9a6571ab46d03192cd01ca10f1c40\imgui-populate-download.rule">
-      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">Performing download step (git clone) for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">setlocal
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Performing download step (git clone) for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -234,11 +234,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\imgui-populate-gitinfo.txt;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">false</LinkObjects>
-      <Message Condition="'$(Configuration)|$(Platform)'=='Release|win32'">Performing download step (git clone) for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Release|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\imgui-populate-gitinfo.txt;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Performing download step (git clone) for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -253,11 +253,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\imgui-populate-gitinfo.txt;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|win32'">false</LinkObjects>
-      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">Performing download step (git clone) for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\imgui-populate-gitinfo.txt;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Performing download step (git clone) for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -272,11 +272,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\imgui-populate-gitinfo.txt;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">false</LinkObjects>
-      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">Performing download step (git clone) for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\imgui-populate-gitinfo.txt;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Performing download step (git clone) for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -291,15 +291,15 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\imgui-populate-gitinfo.txt;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">false</LinkObjects>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\imgui-populate-gitinfo.txt;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\35b9a6571ab46d03192cd01ca10f1c40\imgui-populate-update.rule">
-      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">Performing update step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">setlocal
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Performing update step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-src
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -312,12 +312,12 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">false</LinkObjects>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">false</VerifyInputsAndOutputsExist>
-      <Message Condition="'$(Configuration)|$(Platform)'=='Release|win32'">Performing update step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Release|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Performing update step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-src
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -330,12 +330,12 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|win32'">false</LinkObjects>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|win32'">false</VerifyInputsAndOutputsExist>
-      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">Performing update step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Performing update step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-src
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -348,12 +348,12 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">false</LinkObjects>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">false</VerifyInputsAndOutputsExist>
-      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">Performing update step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</VerifyInputsAndOutputsExist>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Performing update step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-src
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -366,16 +366,16 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">false</LinkObjects>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">false</VerifyInputsAndOutputsExist>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</VerifyInputsAndOutputsExist>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\35b9a6571ab46d03192cd01ca10f1c40\imgui-populate-patch.rule">
-      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">No patch step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">setlocal
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">No patch step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E echo_append
 if %errorlevel% neq 0 goto :cmEnd
 "C:\Program Files\CMake\bin\cmake.exe" -E touch C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/imgui-populate-prefix/src/imgui-populate-stamp/$(Configuration)/imgui-populate-patch
@@ -386,12 +386,12 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">false</LinkObjects>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">false</VerifyInputsAndOutputsExist>
-      <Message Condition="'$(Configuration)|$(Platform)'=='Release|win32'">No patch step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Release|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">No patch step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E echo_append
 if %errorlevel% neq 0 goto :cmEnd
 "C:\Program Files\CMake\bin\cmake.exe" -E touch C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/imgui-populate-prefix/src/imgui-populate-stamp/$(Configuration)/imgui-populate-patch
@@ -402,12 +402,12 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|win32'">false</LinkObjects>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|win32'">false</VerifyInputsAndOutputsExist>
-      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">No patch step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">No patch step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E echo_append
 if %errorlevel% neq 0 goto :cmEnd
 "C:\Program Files\CMake\bin\cmake.exe" -E touch C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/imgui-populate-prefix/src/imgui-populate-stamp/$(Configuration)/imgui-populate-patch
@@ -418,12 +418,12 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">false</LinkObjects>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">false</VerifyInputsAndOutputsExist>
-      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">No patch step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</VerifyInputsAndOutputsExist>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">No patch step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E echo_append
 if %errorlevel% neq 0 goto :cmEnd
 "C:\Program Files\CMake\bin\cmake.exe" -E touch C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/imgui-populate-prefix/src/imgui-populate-stamp/$(Configuration)/imgui-populate-patch
@@ -434,16 +434,16 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">false</LinkObjects>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">false</VerifyInputsAndOutputsExist>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</VerifyInputsAndOutputsExist>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\35b9a6571ab46d03192cd01ca10f1c40\imgui-populate-configure.rule">
-      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">No configure step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">setlocal
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">No configure step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-build
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -458,11 +458,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\tmp\imgui-populate-cfgcmd.txt;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">false</LinkObjects>
-      <Message Condition="'$(Configuration)|$(Platform)'=='Release|win32'">No configure step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Release|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\tmp\imgui-populate-cfgcmd.txt;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">No configure step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-build
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -477,11 +477,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\tmp\imgui-populate-cfgcmd.txt;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|win32'">false</LinkObjects>
-      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">No configure step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\tmp\imgui-populate-cfgcmd.txt;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">No configure step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-build
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -496,11 +496,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\tmp\imgui-populate-cfgcmd.txt;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">false</LinkObjects>
-      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">No configure step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\tmp\imgui-populate-cfgcmd.txt;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">No configure step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-build
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -515,15 +515,15 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\tmp\imgui-populate-cfgcmd.txt;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">false</LinkObjects>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\tmp\imgui-populate-cfgcmd.txt;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\35b9a6571ab46d03192cd01ca10f1c40\imgui-populate-build.rule">
-      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">No build step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">setlocal
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">No build step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-build
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -538,11 +538,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">false</LinkObjects>
-      <Message Condition="'$(Configuration)|$(Platform)'=='Release|win32'">No build step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Release|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">No build step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-build
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -557,11 +557,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|win32'">false</LinkObjects>
-      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">No build step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">No build step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-build
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -576,11 +576,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">false</LinkObjects>
-      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">No build step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">No build step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-build
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -595,15 +595,15 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">false</LinkObjects>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\35b9a6571ab46d03192cd01ca10f1c40\imgui-populate-install.rule">
-      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">No install step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">setlocal
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">No install step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-build
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -618,11 +618,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">false</LinkObjects>
-      <Message Condition="'$(Configuration)|$(Platform)'=='Release|win32'">No install step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Release|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">No install step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-build
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -637,11 +637,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|win32'">false</LinkObjects>
-      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">No install step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">No install step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-build
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -656,11 +656,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">false</LinkObjects>
-      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">No install step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">No install step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-build
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -675,15 +675,15 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">false</LinkObjects>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\35b9a6571ab46d03192cd01ca10f1c40\imgui-populate-test.rule">
-      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">No test step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">setlocal
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">No test step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-build
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -698,11 +698,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-test</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">false</LinkObjects>
-      <Message Condition="'$(Configuration)|$(Platform)'=='Release|win32'">No test step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Release|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-test</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">No test step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-build
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -717,11 +717,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-test</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|win32'">false</LinkObjects>
-      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">No test step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-test</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">No test step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-build
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -736,11 +736,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-test</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">false</LinkObjects>
-      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">No test step for 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-test</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">No test step for 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
 cd C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-build
 if %errorlevel% neq 0 goto :cmEnd
 C:
@@ -755,15 +755,15 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-test</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">false</LinkObjects>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-test</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\4cb55f25160f4e5b4006233d3c4d4d48\imgui-populate-complete.rule">
-      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">Completed 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">setlocal
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Completed 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E make_directory C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/CMakeFiles/$(Configuration)
 if %errorlevel% neq 0 goto :cmEnd
 "C:\Program Files\CMake\bin\cmake.exe" -E touch C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/CMakeFiles/$(Configuration)/imgui-populate-complete
@@ -776,12 +776,12 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-test;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\$(Configuration)\imgui-populate-complete</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">false</LinkObjects>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">false</VerifyInputsAndOutputsExist>
-      <Message Condition="'$(Configuration)|$(Platform)'=='Release|win32'">Completed 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Release|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-test;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\$(Configuration)\imgui-populate-complete</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Completed 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E make_directory C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/CMakeFiles/$(Configuration)
 if %errorlevel% neq 0 goto :cmEnd
 "C:\Program Files\CMake\bin\cmake.exe" -E touch C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/CMakeFiles/$(Configuration)/imgui-populate-complete
@@ -794,12 +794,12 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-test;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\$(Configuration)\imgui-populate-complete</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|win32'">false</LinkObjects>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|win32'">false</VerifyInputsAndOutputsExist>
-      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">Completed 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-test;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\$(Configuration)\imgui-populate-complete</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Completed 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E make_directory C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/CMakeFiles/$(Configuration)
 if %errorlevel% neq 0 goto :cmEnd
 "C:\Program Files\CMake\bin\cmake.exe" -E touch C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/CMakeFiles/$(Configuration)/imgui-populate-complete
@@ -812,12 +812,12 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-test;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\$(Configuration)\imgui-populate-complete</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">false</LinkObjects>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">false</VerifyInputsAndOutputsExist>
-      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">Completed 'imgui-populate'</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-test;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\$(Configuration)\imgui-populate-complete</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</VerifyInputsAndOutputsExist>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Completed 'imgui-populate'</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E make_directory C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/CMakeFiles/$(Configuration)
 if %errorlevel% neq 0 goto :cmEnd
 "C:\Program Files\CMake\bin\cmake.exe" -E touch C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/CMakeFiles/$(Configuration)/imgui-populate-complete
@@ -830,69 +830,69 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-test;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\$(Configuration)\imgui-populate-complete</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">false</LinkObjects>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">false</VerifyInputsAndOutputsExist>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-install;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-mkdir;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-download;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-update;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-patch;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-configure;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-build;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\src\imgui-populate-stamp\$(Configuration)\imgui-populate-test;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\$(Configuration)\imgui-populate-complete</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</VerifyInputsAndOutputsExist>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\18268fd36a45298930b58c462252cd98\imgui-populate.rule">
-      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|win32'"></Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">setlocal
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'"></Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 :cmErrorLevel
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\$(Configuration)\imgui-populate-complete;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\imgui-populate</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">false</LinkObjects>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">false</VerifyInputsAndOutputsExist>
-      <Message Condition="'$(Configuration)|$(Platform)'=='Release|win32'"></Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Release|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\$(Configuration)\imgui-populate-complete;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\imgui-populate</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'"></Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 :cmErrorLevel
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\$(Configuration)\imgui-populate-complete;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\imgui-populate</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|win32'">false</LinkObjects>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|win32'">false</VerifyInputsAndOutputsExist>
-      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'"></Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\$(Configuration)\imgui-populate-complete;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\imgui-populate</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'"></Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 :cmErrorLevel
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\$(Configuration)\imgui-populate-complete;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\imgui-populate</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">false</LinkObjects>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">false</VerifyInputsAndOutputsExist>
-      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'"></Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\$(Configuration)\imgui-populate-complete;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\imgui-populate</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</VerifyInputsAndOutputsExist>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'"></Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 :cmErrorLevel
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\$(Configuration)\imgui-populate-complete;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\imgui-populate</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">false</LinkObjects>
-      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">false</VerifyInputsAndOutputsExist>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\$(Configuration)\imgui-populate-complete;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\imgui-populate</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+      <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</VerifyInputsAndOutputsExist>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeLists.txt">
       <UseUtf8Encoding>Always</UseUtf8Encoding>
-      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">Building Custom Rule C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/CMakeLists.txt</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">setlocal
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Building Custom Rule C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild -BC:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild --check-stamp-file C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/CMakeFiles/generate.stamp
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
@@ -901,11 +901,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeDetermineSystem.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeSystem.cmake.in;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\ExternalProject-gitupdate.cmake.in;C:\Program Files\CMake\share\cmake-3.22\Modules\ExternalProject.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\Platform\WindowsPaths.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\RepositoryInfo.txt.in;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\3.22.1\CMakeSystem.cmake;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\tmp\imgui-populate-cfgcmd.txt.in;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\generate.stamp</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|win32'">false</LinkObjects>
-      <Message Condition="'$(Configuration)|$(Platform)'=='Release|win32'">Building Custom Rule C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/CMakeLists.txt</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Release|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\ExternalProject-gitupdate.cmake.in;C:\Program Files\CMake\share\cmake-3.22\Modules\ExternalProject.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\Platform\WindowsPaths.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\RepositoryInfo.txt.in;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\3.22.1\CMakeSystem.cmake;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\tmp\imgui-populate-cfgcmd.txt.in;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Building Custom Rule C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild -BC:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild --check-stamp-file C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/CMakeFiles/generate.stamp
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
@@ -914,11 +914,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeDetermineSystem.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeSystem.cmake.in;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\ExternalProject-gitupdate.cmake.in;C:\Program Files\CMake\share\cmake-3.22\Modules\ExternalProject.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\Platform\WindowsPaths.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\RepositoryInfo.txt.in;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\3.22.1\CMakeSystem.cmake;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\tmp\imgui-populate-cfgcmd.txt.in;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\generate.stamp</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|win32'">false</LinkObjects>
-      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">Building Custom Rule C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/CMakeLists.txt</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\ExternalProject-gitupdate.cmake.in;C:\Program Files\CMake\share\cmake-3.22\Modules\ExternalProject.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\Platform\WindowsPaths.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\RepositoryInfo.txt.in;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\3.22.1\CMakeSystem.cmake;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\tmp\imgui-populate-cfgcmd.txt.in;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Building Custom Rule C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild -BC:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild --check-stamp-file C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/CMakeFiles/generate.stamp
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
@@ -927,11 +927,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeDetermineSystem.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeSystem.cmake.in;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\ExternalProject-gitupdate.cmake.in;C:\Program Files\CMake\share\cmake-3.22\Modules\ExternalProject.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\Platform\WindowsPaths.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\RepositoryInfo.txt.in;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\3.22.1\CMakeSystem.cmake;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\tmp\imgui-populate-cfgcmd.txt.in;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\generate.stamp</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|win32'">false</LinkObjects>
-      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">Building Custom Rule C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/CMakeLists.txt</Message>
-      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">setlocal
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\ExternalProject-gitupdate.cmake.in;C:\Program Files\CMake\share\cmake-3.22\Modules\ExternalProject.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\Platform\WindowsPaths.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\RepositoryInfo.txt.in;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\3.22.1\CMakeSystem.cmake;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\tmp\imgui-populate-cfgcmd.txt.in;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Building Custom Rule C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild -BC:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild --check-stamp-file C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/CMakeFiles/generate.stamp
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
@@ -940,9 +940,9 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeDetermineSystem.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeSystem.cmake.in;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\ExternalProject-gitupdate.cmake.in;C:\Program Files\CMake\share\cmake-3.22\Modules\ExternalProject.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\Platform\WindowsPaths.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\RepositoryInfo.txt.in;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\3.22.1\CMakeSystem.cmake;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\tmp\imgui-populate-cfgcmd.txt.in;%(AdditionalInputs)</AdditionalInputs>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\generate.stamp</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|win32'">false</LinkObjects>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\ExternalProject-gitupdate.cmake.in;C:\Program Files\CMake\share\cmake-3.22\Modules\ExternalProject.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\Platform\WindowsPaths.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\RepositoryInfo.txt.in;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\3.22.1\CMakeSystem.cmake;C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\imgui-populate-prefix\tmp\imgui-populate-cfgcmd.txt.in;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\ole\source\repos\OloEngine\build\_deps\imgui-subbuild\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>

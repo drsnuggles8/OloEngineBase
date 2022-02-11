@@ -1,7 +1,7 @@
-prefix=C:/Program Files (x86)/OloEngineBase
+prefix=C:/Program Files/OloEngineBase
 exec_prefix=${prefix}
-includedir=C:/Program Files (x86)/OloEngineBase/include
-libdir=C:/Program Files (x86)/OloEngineBase/lib
+includedir=C:/Program Files/OloEngineBase/include
+libdir=C:/Program Files/OloEngineBase/lib
 
 Name: GLFW
 Description: A multi-platform library for OpenGL, window and input

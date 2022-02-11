@@ -1,4 +1,4 @@
-prefix=C:/Program Files (x86)/OloEngineBase
+prefix=C:/Program Files/OloEngineBase
 includedir=${prefix}/include
 
 Name: EnTT
