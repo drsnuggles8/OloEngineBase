@@ -1,5 +1,5 @@
-#ifndef ENTT_CONTAINER_DENSE_HASH_SET_HPP
-#define ENTT_CONTAINER_DENSE_HASH_SET_HPP
+#ifndef ENTT_CONTAINER_DENSE_SET_HPP
+#define ENTT_CONTAINER_DENSE_SET_HPP
 
 #include <algorithm>
 #include <cmath>
@@ -28,9 +28,9 @@ namespace entt {
 namespace internal {
 
 template<typename Type>
-struct dense_hash_set_node final {
+struct dense_set_node final {
     template<typename... Args>
-    dense_hash_set_node(const std::size_t pos, Args &&...args)
+    dense_set_node(const std::size_t pos, Args &&...args)
         : next{pos},
           element{std::forward<Args>(args)...} {}
 
@@ -39,8 +39,8 @@ struct dense_hash_set_node final {
 };
 
 template<typename It>
-class dense_hash_set_iterator {
-    friend dense_hash_set_iterator<const std::remove_pointer_t<It> *>;
+class dense_set_iterator final {
+    friend dense_set_iterator<const std::remove_pointer_t<It> *>;
 
     using iterator_traits = std::iterator_traits<decltype(std::addressof(std::as_const(std::declval<It>()->element)))>;
 
@@ -51,48 +51,48 @@ public:
     using difference_type = typename iterator_traits::difference_type;
     using iterator_category = std::random_access_iterator_tag;
 
-    dense_hash_set_iterator() ENTT_NOEXCEPT = default;
+    dense_set_iterator() ENTT_NOEXCEPT = default;
 
-    dense_hash_set_iterator(const It iter) ENTT_NOEXCEPT
+    dense_set_iterator(const It iter) ENTT_NOEXCEPT
         : it{iter} {}
 
     template<bool Const = std::is_const_v<std::remove_pointer_t<It>>, typename = std::enable_if_t<Const>>
-    dense_hash_set_iterator(const dense_hash_set_iterator<std::remove_const_t<std::remove_pointer_t<It>> *> &other)
+    dense_set_iterator(const dense_set_iterator<std::remove_const_t<std::remove_pointer_t<It>> *> &other)
         : it{other.it} {}
 
-    dense_hash_set_iterator &operator++() ENTT_NOEXCEPT {
+    dense_set_iterator &operator++() ENTT_NOEXCEPT {
         return ++it, *this;
     }
 
-    dense_hash_set_iterator operator++(int) ENTT_NOEXCEPT {
-        dense_hash_set_iterator orig = *this;
+    dense_set_iterator operator++(int) ENTT_NOEXCEPT {
+        dense_set_iterator orig = *this;
         return ++(*this), orig;
     }
 
-    dense_hash_set_iterator &operator--() ENTT_NOEXCEPT {
+    dense_set_iterator &operator--() ENTT_NOEXCEPT {
         return --it, *this;
     }
 
-    dense_hash_set_iterator operator--(int) ENTT_NOEXCEPT {
-        dense_hash_set_iterator orig = *this;
+    dense_set_iterator operator--(int) ENTT_NOEXCEPT {
+        dense_set_iterator orig = *this;
         return operator--(), orig;
     }
 
-    dense_hash_set_iterator &operator+=(const difference_type value) ENTT_NOEXCEPT {
+    dense_set_iterator &operator+=(const difference_type value) ENTT_NOEXCEPT {
         it += value;
         return *this;
     }
 
-    dense_hash_set_iterator operator+(const difference_type value) const ENTT_NOEXCEPT {
-        dense_hash_set_iterator copy = *this;
+    dense_set_iterator operator+(const difference_type value) const ENTT_NOEXCEPT {
+        dense_set_iterator copy = *this;
         return (copy += value);
     }
 
-    dense_hash_set_iterator &operator-=(const difference_type value) ENTT_NOEXCEPT {
+    dense_set_iterator &operator-=(const difference_type value) ENTT_NOEXCEPT {
         return (*this += -value);
     }
 
-    dense_hash_set_iterator operator-(const difference_type value) const ENTT_NOEXCEPT {
+    dense_set_iterator operator-(const difference_type value) const ENTT_NOEXCEPT {
         return (*this + -value);
     }
 
@@ -109,56 +109,56 @@ public:
     }
 
     template<typename ILhs, typename IRhs>
-    friend auto operator-(const dense_hash_set_iterator<ILhs> &, const dense_hash_set_iterator<IRhs> &) ENTT_NOEXCEPT;
+    friend auto operator-(const dense_set_iterator<ILhs> &, const dense_set_iterator<IRhs> &) ENTT_NOEXCEPT;
 
     template<typename ILhs, typename IRhs>
-    friend bool operator==(const dense_hash_set_iterator<ILhs> &, const dense_hash_set_iterator<IRhs> &) ENTT_NOEXCEPT;
+    friend bool operator==(const dense_set_iterator<ILhs> &, const dense_set_iterator<IRhs> &) ENTT_NOEXCEPT;
 
     template<typename ILhs, typename IRhs>
-    friend bool operator<(const dense_hash_set_iterator<ILhs> &, const dense_hash_set_iterator<IRhs> &) ENTT_NOEXCEPT;
+    friend bool operator<(const dense_set_iterator<ILhs> &, const dense_set_iterator<IRhs> &) ENTT_NOEXCEPT;
 
 private:
     It it;
 };
 
 template<typename ILhs, typename IRhs>
-[[nodiscard]] auto operator-(const dense_hash_set_iterator<ILhs> &lhs, const dense_hash_set_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
+[[nodiscard]] auto operator-(const dense_set_iterator<ILhs> &lhs, const dense_set_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
     return lhs.it - rhs.it;
 }
 
 template<typename ILhs, typename IRhs>
-[[nodiscard]] bool operator==(const dense_hash_set_iterator<ILhs> &lhs, const dense_hash_set_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
+[[nodiscard]] bool operator==(const dense_set_iterator<ILhs> &lhs, const dense_set_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
     return lhs.it == rhs.it;
 }
 
 template<typename ILhs, typename IRhs>
-[[nodiscard]] bool operator!=(const dense_hash_set_iterator<ILhs> &lhs, const dense_hash_set_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
+[[nodiscard]] bool operator!=(const dense_set_iterator<ILhs> &lhs, const dense_set_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
     return !(lhs == rhs);
 }
 
 template<typename ILhs, typename IRhs>
-[[nodiscard]] bool operator<(const dense_hash_set_iterator<ILhs> &lhs, const dense_hash_set_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
+[[nodiscard]] bool operator<(const dense_set_iterator<ILhs> &lhs, const dense_set_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
     return lhs.it < rhs.it;
 }
 
 template<typename ILhs, typename IRhs>
-[[nodiscard]] bool operator>(const dense_hash_set_iterator<ILhs> &lhs, const dense_hash_set_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
+[[nodiscard]] bool operator>(const dense_set_iterator<ILhs> &lhs, const dense_set_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
     return rhs < lhs;
 }
 
 template<typename ILhs, typename IRhs>
-[[nodiscard]] bool operator<=(const dense_hash_set_iterator<ILhs> &lhs, const dense_hash_set_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
+[[nodiscard]] bool operator<=(const dense_set_iterator<ILhs> &lhs, const dense_set_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
     return !(lhs > rhs);
 }
 
 template<typename ILhs, typename IRhs>
-[[nodiscard]] bool operator>=(const dense_hash_set_iterator<ILhs> &lhs, const dense_hash_set_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
+[[nodiscard]] bool operator>=(const dense_set_iterator<ILhs> &lhs, const dense_set_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
     return !(lhs < rhs);
 }
 
 template<typename It>
-class dense_hash_set_local_iterator {
-    friend dense_hash_set_local_iterator<const std::remove_pointer_t<It> *>;
+class dense_set_local_iterator final {
+    friend dense_set_local_iterator<const std::remove_pointer_t<It> *>;
 
     using iterator_traits = std::iterator_traits<decltype(std::addressof(std::as_const(std::declval<It>()->element)))>;
 
@@ -169,23 +169,23 @@ public:
     using difference_type = typename iterator_traits::difference_type;
     using iterator_category = std::forward_iterator_tag;
 
-    dense_hash_set_local_iterator() ENTT_NOEXCEPT = default;
+    dense_set_local_iterator() ENTT_NOEXCEPT = default;
 
-    dense_hash_set_local_iterator(It iter, const std::size_t pos) ENTT_NOEXCEPT
+    dense_set_local_iterator(It iter, const std::size_t pos) ENTT_NOEXCEPT
         : it{iter},
           offset{pos} {}
 
     template<bool Const = std::is_const_v<std::remove_pointer_t<It>>, typename = std::enable_if_t<Const>>
-    dense_hash_set_local_iterator(const dense_hash_set_local_iterator<std::remove_const_t<std::remove_pointer_t<It>> *> &other)
+    dense_set_local_iterator(const dense_set_local_iterator<std::remove_const_t<std::remove_pointer_t<It>> *> &other)
         : it{other.it},
           offset{other.offset} {}
 
-    dense_hash_set_local_iterator &operator++() ENTT_NOEXCEPT {
+    dense_set_local_iterator &operator++() ENTT_NOEXCEPT {
         return offset = it[offset].next, *this;
     }
 
-    dense_hash_set_local_iterator operator++(int) ENTT_NOEXCEPT {
-        dense_hash_set_local_iterator orig = *this;
+    dense_set_local_iterator operator++(int) ENTT_NOEXCEPT {
+        dense_set_local_iterator orig = *this;
         return ++(*this), orig;
     }
 
@@ -207,12 +207,12 @@ private:
 };
 
 template<typename ILhs, typename IRhs>
-[[nodiscard]] bool operator==(const dense_hash_set_local_iterator<ILhs> &lhs, const dense_hash_set_local_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
+[[nodiscard]] bool operator==(const dense_set_local_iterator<ILhs> &lhs, const dense_set_local_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
     return lhs.index() == rhs.index();
 }
 
 template<typename ILhs, typename IRhs>
-[[nodiscard]] bool operator!=(const dense_hash_set_local_iterator<ILhs> &lhs, const dense_hash_set_local_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
+[[nodiscard]] bool operator!=(const dense_set_local_iterator<ILhs> &lhs, const dense_set_local_iterator<IRhs> &rhs) ENTT_NOEXCEPT {
     return !(lhs == rhs);
 }
 
@@ -236,15 +236,14 @@ template<typename ILhs, typename IRhs>
  * @tparam Allocator Type of allocator used to manage memory and elements.
  */
 template<typename Type, typename Hash, typename KeyEqual, typename Allocator>
-class dense_hash_set final {
+class dense_set {
     static constexpr float default_threshold = 0.875f;
     static constexpr std::size_t minimum_capacity = 8u;
 
-    using allocator_traits = std::allocator_traits<Allocator>;
-    using alloc = typename allocator_traits::template rebind_alloc<Type>;
-    using alloc_traits = typename std::allocator_traits<alloc>;
+    using alloc_traits = std::allocator_traits<Allocator>;
+    static_assert(std::is_same_v<typename alloc_traits::value_type, Type>);
 
-    using node_type = internal::dense_hash_set_node<Type>;
+    using node_type = internal::dense_set_node<Type>;
     using sparse_container_type = std::vector<std::size_t, typename alloc_traits::template rebind_alloc<std::size_t>>;
     using packed_container_type = std::vector<node_type, typename alloc_traits::template rebind_alloc<node_type>>;
 
@@ -256,7 +255,7 @@ class dense_hash_set final {
     [[nodiscard]] auto constrained_find(const Other &value, std::size_t bucket) {
         for(auto it = begin(bucket), last = end(bucket); it != last; ++it) {
             if(packed.second()(*it, value)) {
-                return begin() + it.index();
+                return begin() + static_cast<typename iterator::difference_type>(it.index());
             }
         }
 
@@ -267,7 +266,7 @@ class dense_hash_set final {
     [[nodiscard]] auto constrained_find(const Other &value, std::size_t bucket) const {
         for(auto it = cbegin(bucket), last = cend(bucket); it != last; ++it) {
             if(packed.second()(*it, value)) {
-                return cbegin() + it.index();
+                return cbegin() + static_cast<typename iterator::difference_type>(it.index());
             }
         }
 
@@ -336,24 +335,24 @@ public:
     /*! @brief Allocator type. */
     using allocator_type = Allocator;
     /*! @brief Random access iterator type. */
-    using iterator = internal::dense_hash_set_iterator<typename packed_container_type::pointer>;
+    using iterator = internal::dense_set_iterator<typename packed_container_type::pointer>;
     /*! @brief Constant random access iterator type. */
-    using const_iterator = internal::dense_hash_set_iterator<typename packed_container_type::const_pointer>;
+    using const_iterator = internal::dense_set_iterator<typename packed_container_type::const_pointer>;
     /*! @brief Forward iterator type. */
-    using local_iterator = internal::dense_hash_set_local_iterator<typename packed_container_type::pointer>;
+    using local_iterator = internal::dense_set_local_iterator<typename packed_container_type::pointer>;
     /*! @brief Constant forward iterator type. */
-    using const_local_iterator = internal::dense_hash_set_local_iterator<typename packed_container_type::const_pointer>;
+    using const_local_iterator = internal::dense_set_local_iterator<typename packed_container_type::const_pointer>;
 
     /*! @brief Default constructor. */
-    dense_hash_set()
-        : dense_hash_set(minimum_capacity) {}
+    dense_set()
+        : dense_set(minimum_capacity) {}
 
     /**
      * @brief Constructs an empty container with a given allocator.
      * @param allocator The allocator to use.
      */
-    explicit dense_hash_set(const allocator_type &allocator)
-        : dense_hash_set{minimum_capacity, hasher{}, key_equal{}, allocator} {}
+    explicit dense_set(const allocator_type &allocator)
+        : dense_set{minimum_capacity, hasher{}, key_equal{}, allocator} {}
 
     /**
      * @brief Constructs an empty container with a given allocator and user
@@ -361,8 +360,8 @@ public:
      * @param bucket_count Minimal number of buckets.
      * @param allocator The allocator to use.
      */
-    dense_hash_set(const size_type bucket_count, const allocator_type &allocator)
-        : dense_hash_set{bucket_count, hasher{}, key_equal{}, allocator} {}
+    dense_set(const size_type bucket_count, const allocator_type &allocator)
+        : dense_set{bucket_count, hasher{}, key_equal{}, allocator} {}
 
     /**
      * @brief Constructs an empty container with a given allocator, hash
@@ -371,8 +370,8 @@ public:
      * @param hash Hash function to use.
      * @param allocator The allocator to use.
      */
-    dense_hash_set(const size_type bucket_count, const hasher &hash, const allocator_type &allocator)
-        : dense_hash_set{bucket_count, hash, key_equal{}, allocator} {}
+    dense_set(const size_type bucket_count, const hasher &hash, const allocator_type &allocator)
+        : dense_set{bucket_count, hash, key_equal{}, allocator} {}
 
     /**
      * @brief Constructs an empty container with a given allocator, hash
@@ -382,7 +381,7 @@ public:
      * @param equal Compare function to use.
      * @param allocator The allocator to use.
      */
-    explicit dense_hash_set(const size_type bucket_count, const hasher &hash = hasher{}, const key_equal &equal = key_equal{}, const allocator_type &allocator = allocator_type())
+    explicit dense_set(const size_type bucket_count, const hasher &hash = hasher{}, const key_equal &equal = key_equal{}, const allocator_type &allocator = allocator_type())
         : sparse{allocator, hash},
           packed{allocator, equal},
           threshold{default_threshold} {
@@ -393,15 +392,15 @@ public:
      * @brief Copy constructor.
      * @param other The instance to copy from.
      */
-    dense_hash_set(const dense_hash_set &other)
-        : dense_hash_set{other, alloc_traits::select_on_container_copy_construction(other.get_allocator())} {}
+    dense_set(const dense_set &other)
+        : dense_set{other, alloc_traits::select_on_container_copy_construction(other.get_allocator())} {}
 
     /**
      * @brief Allocator-extended copy constructor.
      * @param other The instance to copy from.
      * @param allocator The allocator to use.
      */
-    dense_hash_set(const dense_hash_set &other, const allocator_type &allocator)
+    dense_set(const dense_set &other, const allocator_type &allocator)
         : sparse{sparse_container_type{other.sparse.first(), allocator}, other.sparse.second()},
           // cannot copy the container directly due to a nasty issue of apple clang :(
           packed{packed_container_type{other.packed.first().begin(), other.packed.first().end(), allocator}, other.packed.second()},
@@ -412,28 +411,28 @@ public:
      * @brief Default move constructor.
      * @param other The instance to move from.
      */
-    dense_hash_set(dense_hash_set &&other) ENTT_NOEXCEPT = default;
+    dense_set(dense_set &&other) ENTT_NOEXCEPT = default;
 
     /**
      * @brief Allocator-extended move constructor.
      * @param other The instance to move from.
      * @param allocator The allocator to use.
      */
-    dense_hash_set(dense_hash_set &&other, const allocator_type &allocator) ENTT_NOEXCEPT
+    dense_set(dense_set &&other, const allocator_type &allocator) ENTT_NOEXCEPT
         : sparse{sparse_container_type{std::move(other.sparse.first()), allocator}, std::move(other.sparse.second())},
           // cannot move the container directly due to a nasty issue of apple clang :(
           packed{packed_container_type{std::make_move_iterator(other.packed.first().begin()), std::make_move_iterator(other.packed.first().end()), allocator}, std::move(other.packed.second())},
           threshold{other.threshold} {}
 
     /*! @brief Default destructor. */
-    ~dense_hash_set() = default;
+    ~dense_set() = default;
 
     /**
      * @brief Copy assignment operator.
      * @param other The instance to copy from.
      * @return This container.
      */
-    dense_hash_set &operator=(const dense_hash_set &other) {
+    dense_set &operator=(const dense_set &other) {
         threshold = other.threshold;
         sparse.first().clear();
         packed.first().clear();
@@ -448,7 +447,7 @@ public:
      * @param other The instance to move from.
      * @return This container.
      */
-    dense_hash_set &operator=(dense_hash_set &&other) ENTT_NOEXCEPT = default;
+    dense_set &operator=(dense_set &&other) ENTT_NOEXCEPT = default;
 
     /**
      * @brief Returns the associated allocator.
@@ -614,7 +613,7 @@ public:
      * @brief Exchanges the contents with those of a given container.
      * @param other Container to exchange the content with.
      */
-    void swap(dense_hash_set &other) {
+    void swap(dense_set &other) {
         using std::swap;
         swap(sparse, other.sparse);
         swap(packed, other.packed);

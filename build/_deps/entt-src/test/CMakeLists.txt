@@ -162,8 +162,8 @@ endif()
 
 # Test container
 
-SETUP_BASIC_TEST(dense_hash_map entt/container/dense_hash_map.cpp)
-SETUP_BASIC_TEST(dense_hash_set entt/container/dense_hash_set.cpp)
+SETUP_BASIC_TEST(dense_map entt/container/dense_map.cpp)
+SETUP_BASIC_TEST(dense_set entt/container/dense_set.cpp)
 
 # Test core
 
@@ -223,8 +223,7 @@ SETUP_BASIC_TEST(meta_utility entt/meta/meta_utility.cpp)
 
 # Test poly
 
-SETUP_BASIC_TEST(poly_deduced entt/poly/poly_deduced.cpp)
-SETUP_BASIC_TEST(poly_defined entt/poly/poly_defined.cpp)
+SETUP_BASIC_TEST(poly entt/poly/poly.cpp)
 
 # Test process
 

@@ -6,7 +6,7 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
-#include "../container/dense_hash_map.hpp"
+#include "../container/dense_map.hpp"
 #include "../core/type_info.hpp"
 #include "../core/type_traits.hpp"
 #include "../core/utility.hpp"
@@ -131,7 +131,7 @@ class basic_organizer final {
         } else if constexpr(internal::is_view_v<Type>) {
             return as_view{reg};
         } else {
-            return reg.template ctx_or_set<std::remove_reference_t<Type>>();
+            return reg.ctx().template emplace<std::remove_reference_t<Type>>();
         }
     }
 
@@ -478,7 +478,7 @@ public:
     }
 
 private:
-    dense_hash_map<id_type, std::vector<std::pair<std::size_t, bool>>, identity> dependencies;
+    dense_map<id_type, std::vector<std::pair<std::size_t, bool>>, identity> dependencies;
     std::vector<vertex_data> vertices;
 };
 

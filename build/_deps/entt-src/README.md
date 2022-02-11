@@ -86,7 +86,7 @@ Here is a brief, yet incomplete list of what it offers today:
 * The smallest and most basic implementation of a **service locator** ever seen.
 * A built-in, non-intrusive and macro-free runtime **reflection system**.
 * **Static polymorphism** made simple and within everyone's reach.
-* A few homemade containers, like a sparse set based **dense hash map**.
+* A few homemade containers, like a sparse set based **hash map**.
 * A **cooperative scheduler** for processes of any type.
 * All that is needed for **resource management** (cache, loaders, handles).
 * Delegates, **signal handlers** and a tiny event dispatcher.
@@ -94,16 +94,12 @@ Here is a brief, yet incomplete list of what it offers today:
 * And **much more**! Check out the
   [**wiki**](https://github.com/skypjack/entt/wiki).
 
-**Breaking news**:
-
-* The ECS allows attaching multiple components of the same type to an entity.
-* All tools work perfectly across boundaries (DLL-friendly)!!
-  :slightly_smiling_face:
-
 Consider these lists a work in progress as well as the project. The whole API is
-fully documented in-code for those who are brave enough to read it.
+fully documented in-code for those who are brave enough to read it.<br/>
+Please, do note that all tools are also DLL-friendly now and run smoothly across
+boundaries.
 
-It is also known that `EnTT` is used in **Minecraft**.<br/>
+One thing known to most is that `EnTT` is also used in **Minecraft**.<br/>
 Given that the game is available literally everywhere, I can confidently say 
 that the library has been sufficiently tested on every platform that can come to 
 mind.
@@ -160,7 +156,7 @@ int main() {
 ## Motivation
 
 I started developing `EnTT` for the _wrong_ reason: my goal was to design an
-entity-component system to beat another well known open source solution both in
+entity-component system to beat another well known open source library both in
 terms of performance and possibly memory usage.<br/>
 In the end, I did it, but it wasn't very satisfying. Actually it wasn't
 satisfying at all. The fastest and nothing more, fairly little indeed. When I
@@ -417,7 +413,7 @@ know who has participated so far.
 
 # License
 
-Code and documentation Copyright (c) 2017-2021 Michele Caini.<br/>
+Code and documentation Copyright (c) 2017-2022 Michele Caini.<br/>
 Colorful logo Copyright (c) 2018-2021 Richard Caseres.
 
 Code released under

@@ -1,6 +1,8 @@
 # CMake generation dependency list for this directory.
+C:/Program Files/CMake/share/cmake-3.22/Modules/CMakeDetermineSystem.cmake
 C:/Program Files/CMake/share/cmake-3.22/Modules/CMakeGenericSystem.cmake
 C:/Program Files/CMake/share/cmake-3.22/Modules/CMakeInitializeConfigs.cmake
+C:/Program Files/CMake/share/cmake-3.22/Modules/CMakeSystem.cmake.in
 C:/Program Files/CMake/share/cmake-3.22/Modules/CMakeSystemSpecificInformation.cmake
 C:/Program Files/CMake/share/cmake-3.22/Modules/CMakeSystemSpecificInitialize.cmake
 C:/Program Files/CMake/share/cmake-3.22/Modules/ExternalProject-download.cmake.in

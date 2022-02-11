@@ -10,7 +10,7 @@
 #include <utility>
 #include <vector>
 #include "../config/config.h"
-#include "../container/dense_hash_map.hpp"
+#include "../container/dense_map.hpp"
 #include "../core/algorithm.hpp"
 #include "../core/any.hpp"
 #include "../core/fwd.hpp"
@@ -38,7 +38,7 @@ namespace entt {
 namespace internal {
 
 template<typename It>
-class storage_proxy_iterator {
+class storage_proxy_iterator final {
     template<typename Other>
     friend class storage_proxy_iterator;
 
@@ -158,6 +158,54 @@ template<typename ILhs, typename IRhs>
     return !(lhs < rhs);
 }
 
+class registry_context {
+    template<typename Type>
+    [[nodiscard]] id_type type_to_key() const ENTT_NOEXCEPT {
+        return type_id<std::remove_const_t<std::remove_reference_t<Type>>>().hash();
+    }
+
+public:
+    template<typename Type, typename... Args>
+    Type &emplace(Args &&...args) {
+        return any_cast<Type &>(data.try_emplace(type_to_key<Type>(), std::in_place_type<Type>, std::forward<Args>(args)...).first->second);
+    }
+
+    template<typename Type>
+    void erase() {
+        data.erase(type_to_key<Type>());
+    }
+
+    template<typename Type>
+    [[nodiscard]] std::add_const_t<Type> &at() const {
+        return any_cast<std::add_const_t<Type> &>(data.at(type_to_key<Type>()));
+    }
+
+    template<typename Type>
+    [[nodiscard]] Type &at() {
+        return any_cast<Type &>(data.at(type_to_key<Type>()));
+    }
+
+    template<typename Type>
+    [[nodiscard]] std::add_const_t<Type> *find() const {
+        auto it = data.find(type_to_key<Type>());
+        return it == data.cend() ? nullptr : any_cast<std::add_const_t<Type>>(&it->second);
+    }
+
+    template<typename Type>
+    [[nodiscard]] Type *find() {
+        auto it = data.find(type_to_key<Type>());
+        return it == data.end() ? nullptr : any_cast<Type>(&it->second);
+    }
+
+    template<typename Type>
+    [[nodiscard]] bool contains() const {
+        return data.contains(type_to_key<Type>());
+    }
+
+private:
+    dense_map<id_type, basic_any<0u>, identity> data;
+};
+
 } // namespace internal
 
 /**
@@ -236,6 +284,7 @@ class basic_registry {
             cpool->bind(forward_as_any(*this));
         }
 
+        ENTT_ASSERT(cpool->type() == type_id<Component>(), "Unexpected type");
         return static_cast<storage_type<Component> &>(*cpool);
     }
 
@@ -244,6 +293,7 @@ class basic_registry {
         static_assert(std::is_same_v<Component, std::decay_t<Component>>, "Non-decayed types not allowed");
 
         if(const auto it = pools.find(id); it != pools.cend()) {
+            ENTT_ASSERT(it->second->type() == type_id<Component>(), "Unexpected type");
             return static_cast<const storage_type<Component> &>(*it->second);
         }
 
@@ -279,6 +329,8 @@ public:
     using size_type = std::size_t;
     /*! @brief Common type among all storage types. */
     using base_type = basic_common_type;
+    /*! @brief Context type. */
+    using context = internal::registry_context;
 
     /*! @brief Default constructor. */
     basic_registry() = default;
@@ -289,10 +341,10 @@ public:
      */
     basic_registry(basic_registry &&other) ENTT_NOEXCEPT
         : pools{std::move(other.pools)},
-          vars{std::move(other.vars)},
           groups{std::move(other.groups)},
           entities{std::move(other.entities)},
-          free_list{other.free_list} {
+          free_list{other.free_list},
+          vars{std::move(other.vars)} {
         for(auto &&curr: pools) {
             curr.second->bind(forward_as_any(*this));
         }
@@ -305,10 +357,10 @@ public:
      */
     basic_registry &operator=(basic_registry &&other) ENTT_NOEXCEPT {
         pools = std::move(other.pools);
-        vars = std::move(other.vars);
         groups = std::move(other.groups);
         entities = std::move(other.entities);
         free_list = other.free_list;
+        vars = std::move(other.vars);
 
         for(auto &&curr: pools) {
             curr.second->bind(forward_as_any(*this));
@@ -335,14 +387,38 @@ public:
     }
 
     /**
+     * @brief Finds the storage associated with a given name, if any.
+     * @param id Name used to map the storage within the registry.
+     * @return An iterator to the given storage if it's found, past the end
+     * iterator otherwise.
+     */
+    [[nodiscard]] auto storage(const id_type id) {
+        return internal::storage_proxy_iterator{pools.find(id)};
+    }
+
+    /**
+     * @brief Finds the storage associated with a given name, if any.
+     * @param id Name used to map the storage within the registry.
+     * @return An iterator to the given storage if it's found, past the end
+     * iterator otherwise.
+     */
+    [[nodiscard]] auto storage(const id_type id) const {
+        return internal::storage_proxy_iterator{pools.find(id)};
+    }
+
+    /**
      * @brief Returns the storage for a given component type.
      * @tparam Component Type of component of which to return the storage.
      * @param id Optional name used to map the storage within the registry.
      * @return The storage for the given component type.
      */
     template<typename Component>
-    [[nodiscard]] decltype(auto) storage(const id_type id = type_hash<Component>::value()) {
-        return assure<Component>(id);
+    decltype(auto) storage(const id_type id = type_hash<std::remove_const_t<Component>>::value()) {
+        if constexpr(std::is_const_v<Component>) {
+            return std::as_const(*this).template storage<std::remove_const_t<Component>>(id);
+        } else {
+            return assure<Component>(id);
+        }
     }
 
     /**
@@ -357,27 +433,8 @@ public:
      * @return The storage for the given component type.
      */
     template<typename Component>
-    [[nodiscard]] decltype(auto) storage(const id_type id = type_hash<Component>::value()) const {
-        return assure<Component>(id);
-    }
-
-    /**
-     * @brief Returns the storage associated with a given name, if any.
-     * @param id Name used to map the storage within the registry.
-     * @return The requested storage if it exists, a null pointer otherwise.
-     */
-    [[nodiscard]] base_type *storage(const id_type id) {
-        return const_cast<base_type *>(std::as_const(*this).storage(id));
-    }
-
-    /**
-     * @brief Returns the storage associated with a given name, if any.
-     * @param id Name used to map the storage within the registry.
-     * @return The requested storage if it exists, a null pointer otherwise.
-     */
-    [[nodiscard]] const base_type *storage(const id_type id) const {
-        const auto it = pools.find(id);
-        return it == pools.end() ? nullptr : it->second.get();
+    decltype(auto) storage(const id_type id = type_hash<std::remove_const_t<Component>>::value()) const {
+        return assure<std::remove_const_t<Component>>(id);
     }
 
     /**
@@ -661,16 +718,8 @@ public:
      */
     template<typename It>
     void destroy(It first, It last) {
-        if constexpr(is_iterator_type_v<typename base_type::iterator, It>) {
-            for(; first != last; ++first) {
-                destroy(*first, entity_traits::to_version(*first) + 1u);
-            }
-        } else {
-            for(auto &&curr: pools) {
-                curr.second->remove(first, last);
-            }
-
-            release(first, last);
+        for(; first != last; ++first) {
+            destroy(*first, entity_traits::to_version(*first) + 1u);
         }
     }
 
@@ -825,7 +874,7 @@ public:
      *
      * @sa remove
      *
-     * @tparam Component Types of components to remove.
+     * @tparam Component Type of component to remove.
      * @tparam Other Other types of components to remove.
      * @tparam It Type of input iterator.
      * @param first An iterator to the first element of the range of entities.
@@ -834,15 +883,19 @@ public:
      */
     template<typename Component, typename... Other, typename It>
     size_type remove(It first, It last) {
-        size_type count{};
+        if constexpr(sizeof...(Other) == 0u) {
+            ENTT_ASSERT(std::all_of(first, last, [this](const auto entity) { return valid(entity); }), "Invalid entity");
+            return assure<Component>().remove(std::move(first), std::move(last));
+        } else {
+            size_type count{};
 
-        for(const auto cpools = std::forward_as_tuple(assure<Component>(), assure<Other>()...); first != last; ++first) {
-            const auto entity = *first;
-            ENTT_ASSERT(valid(entity), "Invalid entity");
-            count += (std::get<storage_type<Component> &>(cpools).remove(entity) + ... + std::get<storage_type<Other> &>(cpools).remove(entity));
+            for(auto cpools = std::forward_as_tuple(assure<Component>(), assure<Other>()...); first != last; ++first) {
+                ENTT_ASSERT(valid(*first), "Invalid entity");
+                count += std::apply([entt = *first](auto &...curr) { return (curr.remove(entt) + ... + 0u); }, cpools);
+            }
+
+            return count;
         }
-
-        return count;
     }
 
     /**
@@ -875,10 +928,14 @@ public:
      */
     template<typename Component, typename... Other, typename It>
     void erase(It first, It last) {
-        for(const auto cpools = std::forward_as_tuple(assure<Component>(), assure<Other>()...); first != last; ++first) {
-            const auto entity = *first;
-            ENTT_ASSERT(valid(entity), "Invalid entity");
-            (std::get<storage_type<Component> &>(cpools).erase(entity), (std::get<storage_type<Other> &>(cpools).erase(entity), ...));
+        if constexpr(sizeof...(Other) == 0u) {
+            ENTT_ASSERT(std::all_of(first, last, [this](const auto entity) { return valid(entity); }), "Invalid entity");
+            assure<Component>().erase(std::move(first), std::move(last));
+        } else {
+            for(auto cpools = std::forward_as_tuple(assure<Component>(), assure<Other>()...); first != last; ++first) {
+                ENTT_ASSERT(valid(*first), "Invalid entity");
+                std::apply([entt = *first](auto &...curr) { (curr.erase(entt), ...); }, cpools);
+            }
         }
     }
 
@@ -1395,118 +1452,24 @@ public:
     }
 
     /**
-     * @brief Binds an object to the context of the registry.
-     *
-     * If the value already exists it is overwritten, otherwise a new instance
-     * of the given type is created and initialized with the arguments provided.
-     *
-     * @tparam Type Type of object to set.
-     * @tparam Args Types of arguments to use to construct the object.
-     * @param args Parameters to use to initialize the value.
-     * @return A reference to the newly created object.
+     * @brief Returns the context object, that is, a general purpose container.
+     * @return The context object, that is, a general purpose container.
      */
-    template<typename Type, typename... Args>
-    Type &set(Args &&...args) {
-        auto &&elem = vars[type_hash<std::remove_const_t<std::remove_reference_t<Type>>>::value()];
-        elem.template emplace<Type>(std::forward<Args>(args)...);
-        return any_cast<Type &>(elem);
-    }
-
-    /**
-     * @brief Unsets a context variable if it exists.
-     * @tparam Type Type of object to set.
-     */
-    template<typename Type>
-    void unset() {
-        vars.erase(type_hash<std::remove_const_t<std::remove_reference_t<Type>>>::value());
-    }
-
-    /**
-     * @brief Binds an object to the context of the registry.
-     *
-     * In case the context doesn't contain the given object, the parameters
-     * provided are used to construct it.
-     *
-     * @tparam Type Type of object to set.
-     * @tparam Args Types of arguments to use to construct the object.
-     * @param args Parameters to use to initialize the object.
-     * @return A reference to the object in the context of the registry.
-     */
-    template<typename Type, typename... Args>
-    [[nodiscard]] Type &ctx_or_set(Args &&...args) {
-        return any_cast<Type &>(vars.try_emplace(type_hash<std::remove_const_t<std::remove_reference_t<Type>>>::value(), std::in_place_type<Type>, std::forward<Args>(args)...).first->second);
-    }
-
-    /**
-     * @brief Returns a pointer to an object in the context of the registry.
-     * @tparam Type Type of object to get.
-     * @return A pointer to the object if it exists in the context of the
-     * registry, a null pointer otherwise.
-     */
-    template<typename Type>
-    [[nodiscard]] std::add_const_t<Type> *try_ctx() const {
-        auto it = vars.find(type_hash<std::remove_const_t<std::remove_reference_t<Type>>>::value());
-        return it == vars.cend() ? nullptr : any_cast<std::add_const_t<Type>>(&it->second);
-    }
-
-    /*! @copydoc try_ctx */
-    template<typename Type>
-    [[nodiscard]] Type *try_ctx() {
-        auto it = vars.find(type_hash<std::remove_const_t<std::remove_reference_t<Type>>>::value());
-        return it == vars.end() ? nullptr : any_cast<Type>(&it->second);
-    }
-
-    /**
-     * @brief Returns a reference to an object in the context of the registry.
-     *
-     * @warning
-     * Attempting to get a context variable that doesn't exist results in
-     * undefined behavior.
-     *
-     * @tparam Type Type of object to get.
-     * @return A valid reference to the object in the context of the registry.
-     */
-    template<typename Type>
-    [[nodiscard]] std::add_const_t<Type> &ctx() const {
-        return any_cast<std::add_const_t<Type> &>(vars.at(type_hash<std::remove_const_t<std::remove_reference_t<Type>>>::value()));
+    context &ctx() ENTT_NOEXCEPT {
+        return vars;
     }
 
     /*! @copydoc ctx */
-    template<typename Type>
-    [[nodiscard]] Type &ctx() {
-        return any_cast<Type &>(vars.at(type_hash<std::remove_const_t<std::remove_reference_t<Type>>>::value()));
-    }
-
-    /**
-     * @brief Visits a registry and returns the type info for its context
-     * variables.
-     *
-     * The signature of the function should be equivalent to the following:
-     *
-     * @code{.cpp}
-     * void(const type_info &);
-     * @endcode
-     *
-     * Returned identifiers are those of the context variables currently set.
-     *
-     * @sa type_info
-     *
-     * @tparam Func Type of the function object to invoke.
-     * @param func A valid function object.
-     */
-    template<typename Func>
-    void ctx(Func func) const {
-        for(auto &&curr: vars) {
-            func(curr.second.type());
-        }
+    const context &ctx() const ENTT_NOEXCEPT {
+        return vars;
     }
 
 private:
-    dense_hash_map<id_type, std::unique_ptr<base_type>, identity> pools{};
-    dense_hash_map<id_type, basic_any<0u>, identity> vars{};
+    dense_map<id_type, std::unique_ptr<base_type>, identity> pools{};
     std::vector<group_data> groups{};
     std::vector<entity_type> entities{};
     entity_type free_list{tombstone};
+    context vars;
 };
 
 } // namespace entt

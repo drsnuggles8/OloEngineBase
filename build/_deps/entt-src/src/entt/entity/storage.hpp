@@ -36,13 +36,13 @@ class storage_iterator final {
     friend storage_iterator<const Container>;
 
     using container_type = std::remove_const_t<Container>;
-    using allocator_traits = std::allocator_traits<typename container_type::allocator_type>;
+    using alloc_traits = std::allocator_traits<typename container_type::allocator_type>;
     using comp_traits = component_traits<typename container_type::value_type>;
 
     using iterator_traits = std::iterator_traits<std::conditional_t<
         std::is_const_v<Container>,
-        typename allocator_traits::template rebind_traits<typename std::pointer_traits<typename container_type::value_type>::element_type>::const_pointer,
-        typename allocator_traits::template rebind_traits<typename std::pointer_traits<typename container_type::value_type>::element_type>::pointer>>;
+        typename alloc_traits::template rebind_traits<typename std::pointer_traits<typename container_type::value_type>::element_type>::const_pointer,
+        typename alloc_traits::template rebind_traits<typename std::pointer_traits<typename container_type::value_type>::element_type>::pointer>>;
 
 public:
     using difference_type = typename iterator_traits::difference_type;
@@ -99,12 +99,12 @@ public:
     }
 
     [[nodiscard]] reference operator[](const difference_type value) const ENTT_NOEXCEPT {
-        const auto pos = offset - value - 1;
+        const auto pos = index() - value;
         return (*packed)[pos / comp_traits::page_size][fast_mod(pos, comp_traits::page_size)];
     }
 
     [[nodiscard]] pointer operator->() const ENTT_NOEXCEPT {
-        const auto pos = offset - 1;
+        const auto pos = index();
         return (*packed)[pos / comp_traits::page_size] + fast_mod(pos, comp_traits::page_size);
     }
 
@@ -113,7 +113,7 @@ public:
     }
 
     [[nodiscard]] difference_type index() const ENTT_NOEXCEPT {
-        return offset;
+        return offset - 1;
     }
 
 private:
@@ -235,19 +235,18 @@ template<typename... CLhs, typename... CRhs>
  */
 template<typename Entity, typename Type, typename Allocator, typename>
 class basic_storage: public basic_sparse_set<Entity, typename std::allocator_traits<Allocator>::template rebind_alloc<Entity>> {
-    using allocator_traits = std::allocator_traits<Allocator>;
-    using alloc = typename allocator_traits::template rebind_alloc<Type>;
-    using alloc_traits = typename std::allocator_traits<alloc>;
+    using alloc_traits = std::allocator_traits<Allocator>;
+    static_assert(std::is_same_v<typename alloc_traits::value_type, Type>);
 
     using comp_traits = component_traits<Type>;
-    using underlying_type = basic_sparse_set<Entity, typename allocator_traits::template rebind_alloc<Entity>>;
+    using underlying_type = basic_sparse_set<Entity, typename alloc_traits::template rebind_alloc<Entity>>;
     using container_type = std::vector<typename alloc_traits::pointer, typename alloc_traits::template rebind_alloc<typename alloc_traits::pointer>>;
 
     [[nodiscard]] auto &element_at(const std::size_t pos) const {
         return packed.first()[pos / comp_traits::page_size][fast_mod(pos, comp_traits::page_size)];
     }
 
-    auto *assure_at_least(const std::size_t pos) {
+    auto assure_at_least(const std::size_t pos) {
         auto &&container = packed.first();
         const auto idx = pos / comp_traits::page_size;
 
@@ -269,16 +268,35 @@ class basic_storage: public basic_sparse_set<Entity, typename std::allocator_tra
         return container[idx] + fast_mod(pos, comp_traits::page_size);
     }
 
-    void shrink_to_size(const std::size_t sz) {
-        if(base_type::slot() == base_type::size()) {
-            for(auto pos = sz, last = base_type::size(); pos < last; ++pos) {
-                std::destroy_at(std::addressof(element_at(pos)));
+    template<typename... Args>
+    auto emplace_element(const Entity entt, const bool force_back, Args &&...args) {
+        const auto it = base_type::try_emplace(entt, force_back);
+
+        ENTT_TRY {
+            auto elem = assure_at_least(static_cast<size_type>(it.index()));
+            alloc_traits::construct(packed.second(), to_address(elem), std::forward<Args>(args)...);
+        }
+        ENTT_CATCH {
+            if constexpr(comp_traits::in_place_delete) {
+                base_type::in_place_pop(it, it + 1u);
+            } else {
+                base_type::swap_and_pop(it, it + 1u);
             }
-        } else {
-            for(auto pos = sz, last = base_type::size(); pos < last; ++pos) {
+
+            ENTT_THROW;
+        }
+
+        return it;
+    }
+
+    void shrink_to_size(const std::size_t sz) {
+        for(auto pos = sz, length = base_type::size(); pos < length; ++pos) {
+            if constexpr(comp_traits::in_place_delete) {
                 if(base_type::at(pos) != tombstone) {
                     std::destroy_at(std::addressof(element_at(pos)));
                 }
+            } else {
+                std::destroy_at(std::addressof(element_at(pos)));
             }
         }
 
@@ -293,95 +311,68 @@ class basic_storage: public basic_sparse_set<Entity, typename std::allocator_tra
         container.resize(from);
     }
 
-    template<typename... Args>
-    void construct(typename alloc_traits::pointer ptr, Args &&...args) {
-        if constexpr(std::is_aggregate_v<value_type>) {
-            alloc_traits::construct(packed.second(), to_address(ptr), Type{std::forward<Args>(args)...});
-        } else {
-            alloc_traits::construct(packed.second(), to_address(ptr), std::forward<Args>(args)...);
-        }
-    }
-
-    template<typename It, typename Generator>
-    void consume_range(It first, It last, Generator generator) {
-        for(const auto sz = base_type::size(); first != last && base_type::slot() != sz; ++first) {
-            emplace(*first, generator());
-        }
-
-        reserve(base_type::size() + std::distance(first, last));
-
-        for(; first != last; ++first) {
-            emplace(*first, generator());
-        }
-    }
-
-protected:
-    /**
-     * @brief Returns the element assigned to an entity.
-     * @param pos A valid position of an element within a storage.
-     * @return An opaque pointer to the element assigned to the entity.
-     */
-    const void *get_at(const std::size_t pos) const ENTT_NOEXCEPT override {
+private:
+    const void *get_at(const std::size_t pos) const final {
         return std::addressof(element_at(pos));
     }
 
-    /**
-     * @brief Swaps two elements in a storage.
-     * @param lhs A valid position of an element within a storage.
-     * @param rhs A valid position of an element within a storage.
-     */
     void swap_at(const std::size_t lhs, const std::size_t rhs) final {
         std::swap(element_at(lhs), element_at(rhs));
     }
 
-    /**
-     * @brief Moves an element within a storage.
-     * @param from A valid position of an element within a storage.
-     * @param to A valid position of an element within a storage.
-     */
     void move_element(const std::size_t from, const std::size_t to) final {
         auto &elem = element_at(from);
-        construct(assure_at_least(to), std::move(elem));
-        std::destroy_at(std::addressof(elem));
-        base_type::move_element(from, to);
-    }
-
-    /**
-     * @brief Erases an element from a storage.
-     * @param pos A valid position of an element within a storage.
-     */
-    void swap_and_pop(const std::size_t pos) override {
-        auto &elem = element_at(base_type::size() - 1u);
-        // support for nosy destructors
-        [[maybe_unused]] auto unused = std::exchange(element_at(pos), std::move(elem));
-        base_type::swap_and_pop(pos);
+        alloc_traits::construct(packed.second(), to_address(assure_at_least(to)), std::move(elem));
         std::destroy_at(std::addressof(elem));
     }
 
+protected:
     /**
-     * @brief Erases an element from a storage.
-     * @param pos A valid position of an element within a storage.
+     * @brief Erases elements from a storage.
+     * @param first An iterator to the first element to erase.
+     * @param last An iterator past the last element to erase.
      */
-    void in_place_pop(const std::size_t pos) override {
-        auto &elem = element_at(pos);
-        base_type::in_place_pop(pos);
-        // support for nosy destructors
-        std::destroy_at(std::addressof(elem));
+    void swap_and_pop(typename underlying_type::basic_iterator first, typename underlying_type::basic_iterator last) override {
+        for(; first != last; ++first) {
+            auto &elem = element_at(base_type::size() - 1u);
+            // destroying on exit allows reentrant destructors
+            [[maybe_unused]] auto unused = std::exchange(element_at(static_cast<size_type>(first.index())), std::move(elem));
+            std::destroy_at(std::addressof(elem));
+            base_type::swap_and_pop(first, first + 1u);
+        }
+    }
+
+    /**
+     * @brief Erases elements from a storage.
+     * @param first An iterator to the first element to erase.
+     * @param last An iterator past the last element to erase.
+     */
+    void in_place_pop(typename underlying_type::basic_iterator first, typename underlying_type::basic_iterator last) override {
+        for(; first != last; ++first) {
+            base_type::in_place_pop(first, first + 1u);
+            std::destroy_at(std::addressof(element_at(static_cast<size_type>(first.index()))));
+        }
     }
 
     /**
      * @brief Assigns an entity to a storage.
      * @param entt A valid identifier.
      * @param value Optional opaque value.
+     * @param force_back Force back insertion.
+     * @return Iterator pointing to the emplaced element.
      */
-    void try_emplace([[maybe_unused]] const Entity entt, const void *value) override {
+    typename underlying_type::basic_iterator try_emplace([[maybe_unused]] const Entity entt, const bool force_back, const void *value) override {
         if(value) {
             if constexpr(std::is_copy_constructible_v<value_type>) {
-                emplace(entt, *static_cast<const value_type *>(value));
+                return emplace_element(entt, force_back, *static_cast<const value_type *>(value));
+            } else {
+                return base_type::end();
             }
         } else {
             if constexpr(std::is_default_constructible_v<value_type>) {
-                emplace(entt);
+                return emplace_element(entt, force_back);
+            } else {
+                return base_type::end();
             }
         }
     }
@@ -456,7 +447,7 @@ public:
      * @return This storage.
      */
     basic_storage &operator=(basic_storage &&other) ENTT_NOEXCEPT {
-        ENTT_ASSERT(alloc_traits::is_always_equal::value || packed.second() == other.packed.second(), "Copying a sparse set is not allowed");
+        ENTT_ASSERT(alloc_traits::is_always_equal::value || packed.second() == other.packed.second(), "Copying a storage is not allowed");
 
         shrink_to_size(0u);
         base_type::operator=(std::move(other));
@@ -643,9 +634,6 @@ public:
 
     /**
      * @brief Returns the object assigned to an entity as a tuple.
-     *
-     * @sa get
-     *
      * @param entt A valid identifier.
      * @return The object assigned to the entity as a tuple.
      */
@@ -672,20 +660,13 @@ public:
      */
     template<typename... Args>
     value_type &emplace(const entity_type entt, Args &&...args) {
-        const auto pos = base_type::slot();
-        auto *elem = assure_at_least(pos);
-        construct(elem, std::forward<Args>(args)...);
-
-        ENTT_TRY {
-            base_type::try_emplace(entt);
-            ENTT_ASSERT(pos == base_type::index(entt), "Misplaced component");
+        if constexpr(std::is_aggregate_v<value_type>) {
+            const auto it = emplace_element(entt, false, Type{std::forward<Args>(args)...});
+            return element_at(static_cast<size_type>(it.index()));
+        } else {
+            const auto it = emplace_element(entt, false, std::forward<Args>(args)...);
+            return element_at(static_cast<size_type>(it.index()));
         }
-        ENTT_CATCH {
-            std::destroy_at(std::addressof(*elem));
-            ENTT_THROW;
-        }
-
-        return *elem;
     }
 
     /**
@@ -718,7 +699,9 @@ public:
      */
     template<typename It>
     void insert(It first, It last, const value_type &value = {}) {
-        consume_range(std::move(first), std::move(last), [&value]() -> decltype(auto) { return value; });
+        for(; first != last; ++first) {
+            emplace_element(*first, true, value);
+        }
     }
 
     /**
@@ -735,7 +718,9 @@ public:
      */
     template<typename EIt, typename CIt, typename = std::enable_if_t<std::is_same_v<std::decay_t<typename std::iterator_traits<CIt>::value_type>, value_type>>>
     void insert(EIt first, EIt last, CIt from) {
-        consume_range(std::move(first), std::move(last), [&from]() -> decltype(auto) { return *(from++); });
+        for(; first != last; ++first, ++from) {
+            emplace_element(*first, true, *from);
+        }
     }
 
     /**
@@ -756,19 +741,22 @@ public:
     }
 
 private:
-    compressed_pair<container_type, alloc> packed;
+    compressed_pair<container_type, allocator_type> packed;
 };
 
 /*! @copydoc basic_storage */
 template<typename Entity, typename Type, typename Allocator>
 class basic_storage<Entity, Type, Allocator, std::enable_if_t<ignore_as_empty_v<Type>>>
     : public basic_sparse_set<Entity, typename std::allocator_traits<Allocator>::template rebind_alloc<Entity>> {
-    using allocator_traits = std::allocator_traits<Allocator>;
+    using alloc_traits = std::allocator_traits<Allocator>;
+    static_assert(std::is_same_v<typename alloc_traits::value_type, Type>);
+
     using comp_traits = component_traits<Type>;
+    using underlying_type = basic_sparse_set<Entity, typename alloc_traits::template rebind_alloc<Entity>>;
 
 public:
     /*! @brief Base type. */
-    using base_type = basic_sparse_set<Entity, typename allocator_traits::template rebind_alloc<Entity>>;
+    using base_type = underlying_type;
     /*! @brief Allocator type. */
     using allocator_type = Allocator;
     /*! @brief Type of the objects assigned to entities. */
@@ -859,12 +847,10 @@ public:
      *
      * @tparam Args Types of arguments to use to construct the object.
      * @param entt A valid identifier.
-     * @param args Parameters to use to construct an object for the entity.
      */
     template<typename... Args>
-    void emplace(const entity_type entt, Args &&...args) {
-        [[maybe_unused]] const value_type elem{std::forward<Args>(args)...};
-        base_type::try_emplace(entt);
+    void emplace(const entity_type entt, Args &&...) {
+        base_type::try_emplace(entt, false);
     }
 
     /**
@@ -888,14 +874,8 @@ public:
      */
     template<typename It, typename... Args>
     void insert(It first, It last, Args &&...) {
-        for(const auto sz = base_type::size(); first != last && base_type::slot() != sz; ++first) {
-            emplace(*first);
-        }
-
-        base_type::reserve(base_type::size() + std::distance(first, last));
-
         for(; first != last; ++first) {
-            emplace(*first);
+            base_type::try_emplace(*first, true);
         }
     }
 
@@ -931,30 +911,31 @@ public:
  */
 template<typename Type>
 class sigh_storage_mixin final: public Type {
-    /*! @copydoc basic_sparse_set::swap_and_pop */
-    void swap_and_pop(const std::size_t pos) final {
+    template<typename Func>
+    void notify_destruction(typename Type::basic_iterator first, typename Type::basic_iterator last, Func func) {
         ENTT_ASSERT(owner != nullptr, "Invalid pointer to registry");
-        const auto entt = Type::operator[](pos);
-        destruction.publish(*owner, entt);
-        Type::swap_and_pop(Type::index(entt));
-    }
 
-    /*! @copydoc basic_sparse_set::in_place_pop */
-    void in_place_pop(const std::size_t pos) final {
-        ENTT_ASSERT(owner != nullptr, "Invalid pointer to registry");
-        const auto entt = Type::operator[](pos);
-        destruction.publish(*owner, entt);
-        Type::in_place_pop(Type::index(entt));
-    }
-
-    /*! @copydoc basic_sparse_set::try_emplace */
-    void try_emplace(const typename Type::entity_type entt, const void *value) final {
-        ENTT_ASSERT(owner != nullptr, "Invalid pointer to registry");
-        Type::try_emplace(entt, value);
-
-        if(Type::contains(entt)) {
-            construction.publish(*owner, entt);
+        for(; first != last; ++first) {
+            const auto entt = *first;
+            destruction.publish(*owner, entt);
+            const auto it = Type::find(entt);
+            func(it, it + 1u);
         }
+    }
+
+    void swap_and_pop(typename Type::basic_iterator first, typename Type::basic_iterator last) final {
+        notify_destruction(std::move(first), std::move(last), [this](auto... args) { Type::swap_and_pop(args...); });
+    }
+
+    void in_place_pop(typename Type::basic_iterator first, typename Type::basic_iterator last) final {
+        notify_destruction(std::move(first), std::move(last), [this](auto... args) { Type::in_place_pop(args...); });
+    }
+
+    typename Type::basic_iterator try_emplace(const typename Type::entity_type entt, const bool force_back, const void *value) final {
+        ENTT_ASSERT(owner != nullptr, "Invalid pointer to registry");
+        Type::try_emplace(entt, force_back, value);
+        construction.publish(*owner, entt);
+        return Type::find(entt);
     }
 
 public:
@@ -1020,6 +1001,7 @@ public:
      */
     template<typename... Args>
     decltype(auto) emplace(const entity_type entt, Args &&...args) {
+        ENTT_ASSERT(owner != nullptr, "Invalid pointer to registry");
         Type::emplace(entt, std::forward<Args>(args)...);
         construction.publish(*owner, entt);
         return this->get(entt);
@@ -1034,6 +1016,7 @@ public:
      */
     template<typename... Func>
     decltype(auto) patch(const entity_type entt, Func &&...func) {
+        ENTT_ASSERT(owner != nullptr, "Invalid pointer to registry");
         Type::patch(entt, std::forward<Func>(func)...);
         update.publish(*owner, entt);
         return this->get(entt);
@@ -1051,6 +1034,7 @@ public:
      */
     template<typename It, typename... Args>
     void insert(It first, It last, Args &&...args) {
+        ENTT_ASSERT(owner != nullptr, "Invalid pointer to registry");
         Type::insert(first, last, std::forward<Args>(args)...);
 
         for(auto it = construction.empty() ? last : first; it != last; ++it) {

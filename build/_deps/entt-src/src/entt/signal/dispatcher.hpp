@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 #include "../config/config.h"
-#include "../container/dense_hash_map.hpp"
+#include "../container/dense_map.hpp"
 #include "../core/fwd.hpp"
 #include "../core/type_info.hpp"
 #include "../core/utility.hpp"
@@ -64,10 +64,8 @@ class dispatcher {
             return sink_type{signal};
         }
 
-        template<typename... Args>
-        void trigger(Args &&...args) {
-            Event instance{std::forward<Args>(args)...};
-            signal.publish(instance);
+        void trigger(Event event) {
+            signal.publish(event);
         }
 
         template<typename... Args>
@@ -139,7 +137,7 @@ public:
      */
     template<typename Event, typename... Args>
     void trigger(Args &&...args) {
-        assure<Event>().trigger(std::forward<Args>(args)...);
+        assure<Event>().trigger(Event{std::forward<Args>(args)...});
     }
 
     /**
@@ -256,7 +254,7 @@ public:
     }
 
 private:
-    dense_hash_map<id_type, std::unique_ptr<basic_pool>, identity> pools;
+    dense_map<id_type, std::unique_ptr<basic_pool>, identity> pools;
 };
 
 } // namespace entt

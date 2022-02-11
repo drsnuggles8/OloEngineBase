@@ -5,14 +5,6 @@
 cmake_minimum_required(VERSION 3.12.4)
 
 #
-# Building in-tree is not allowed (we take care of your craziness).
-#
-
-if(${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_BINARY_DIR})
-    message(FATAL_ERROR "Prevented in-tree built. Please create a build directory outside of the source code and call cmake from there. Thank you.")
-endif()
-
-#
 # Read project version
 #
 
@@ -39,7 +31,7 @@ endif()
 
 message(VERBOSE "*")
 message(VERBOSE "* ${PROJECT_NAME} v${PROJECT_VERSION} (${CMAKE_BUILD_TYPE})")
-message(VERBOSE "* Copyright (c) 2017-2021 Michele Caini <michele.caini@gmail.com>")
+message(VERBOSE "* Copyright (c) 2017-2022 Michele Caini <michele.caini@gmail.com>")
 message(VERBOSE "*")
 
 #
@@ -120,8 +112,8 @@ if(ENTT_INCLUDE_HEADERS)
         INTERFACE
             $<BUILD_INTERFACE:${EnTT_SOURCE_DIR}/src/entt/config/config.h>
             $<BUILD_INTERFACE:${EnTT_SOURCE_DIR}/src/entt/config/version.h>
-            $<BUILD_INTERFACE:${EnTT_SOURCE_DIR}/src/entt/container/dense_hash_map.hpp>
-            $<BUILD_INTERFACE:${EnTT_SOURCE_DIR}/src/entt/container/dense_hash_set.hpp>
+            $<BUILD_INTERFACE:${EnTT_SOURCE_DIR}/src/entt/container/dense_map.hpp>
+            $<BUILD_INTERFACE:${EnTT_SOURCE_DIR}/src/entt/container/dense_set.hpp>
             $<BUILD_INTERFACE:${EnTT_SOURCE_DIR}/src/entt/container/fwd.hpp>
             $<BUILD_INTERFACE:${EnTT_SOURCE_DIR}/src/entt/core/algorithm.hpp>
             $<BUILD_INTERFACE:${EnTT_SOURCE_DIR}/src/entt/core/any.hpp>

@@ -236,7 +236,7 @@ public:
      */
     template<typename Base>
     auto base() ENTT_NOEXCEPT {
-        static_assert(std::is_base_of_v<Base, Type>, "Invalid base type");
+        static_assert(!std::is_same_v<Type, Base> && std::is_base_of_v<Base, Type>, "Invalid base type");
 
         static internal::meta_base_node node{
             nullptr,
@@ -293,8 +293,6 @@ public:
      */
     template<typename To>
     auto conv() ENTT_NOEXCEPT {
-        static_assert(std::is_convertible_v<Type, To>, "Could not convert to the required type");
-
         static internal::meta_conv_node node{
             nullptr,
             internal::meta_node<std::remove_const_t<std::remove_reference_t<To>>>::resolve(),
@@ -323,7 +321,7 @@ public:
     auto ctor() ENTT_NOEXCEPT {
         using descriptor = meta_function_helper_t<Type, decltype(Candidate)>;
         static_assert(Policy::template value<typename descriptor::return_type>, "Invalid return type for the given policy");
-        static_assert(std::is_same_v<std::decay_t<typename descriptor::return_type>, Type>, "The function doesn't return an object of the required type");
+        static_assert(std::is_same_v<std::remove_const_t<std::remove_reference_t<typename descriptor::return_type>>, Type>, "The function doesn't return an object of the required type");
 
         static internal::meta_ctor_node node{
             nullptr,
