@@ -75,11 +75,11 @@ target_compile_definitions("OloEngine" PRIVATE
 )
 
 target_compile_options("OloEngine" PRIVATE
-					  $<$<COMPILE_LANGUAGE:C>:-m64>
-					  $<$<COMPILE_LANGUAGE:C>:-g>
-					  $<$<COMPILE_LANGUAGE:CXX>:-m64>
-					  $<$<COMPILE_LANGUAGE:CXX>:-g>
-					  $<$<COMPILE_LANGUAGE:CXX>:-std=c++20>
+						$<$<COMPILE_LANGUAGE:C>:-m64>
+						$<$<COMPILE_LANGUAGE:C>:-g>
+						$<$<COMPILE_LANGUAGE:CXX>:-m64>
+						$<$<COMPILE_LANGUAGE:CXX>:-g>
+						$<$<COMPILE_LANGUAGE:CXX>:-std=c++20>
 )
 
 #target_link_directories("OloEngine" PRIVATE)
