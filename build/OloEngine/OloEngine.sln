@@ -36,58 +36,58 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ZERO_CHECK", "..\\ZERO_CHEC
 	ProjectSection(ProjectDependencies) = postProject
 	EndProjectSection
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "aob", "..\_deps\entt-build\aob.vcxproj", "{FA692D2E-E33E-3276-A987-AA2D11F82414}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "aob", "..\..\OloEngine\vendor\entt-build\aob.vcxproj", "{FA692D2E-E33E-3276-A987-AA2D11F82414}"
 	ProjectSection(ProjectDependencies) = postProject
 		{14A5E1C8-1C93-3BCA-8A99-D064F48239E6} = {14A5E1C8-1C93-3BCA-8A99-D064F48239E6}
 	EndProjectSection
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "c4core", "..\_deps\ryml-build\subprojects\c4core\build\c4core.vcxproj", "{498BD095-2325-3F5C-96F0-18B34320708C}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "c4core", "..\..\OloEngine\vendor\ryml-build\subprojects\c4core\build\c4core.vcxproj", "{498BD095-2325-3F5C-96F0-18B34320708C}"
 	ProjectSection(ProjectDependencies) = postProject
 		{14A5E1C8-1C93-3BCA-8A99-D064F48239E6} = {14A5E1C8-1C93-3BCA-8A99-D064F48239E6}
 	EndProjectSection
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "c4core-amalgamate", "..\_deps\ryml-build\subprojects\c4core\build\c4core-amalgamate.vcxproj", "{C5B90C24-85E9-3212-8642-7CC0A561B4D9}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "c4core-amalgamate", "..\..\OloEngine\vendor\ryml-build\subprojects\c4core\build\c4core-amalgamate.vcxproj", "{C5B90C24-85E9-3212-8642-7CC0A561B4D9}"
 	ProjectSection(ProjectDependencies) = postProject
 		{14A5E1C8-1C93-3BCA-8A99-D064F48239E6} = {14A5E1C8-1C93-3BCA-8A99-D064F48239E6}
 	EndProjectSection
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "glad", "..\_deps\glad-build\glad.vcxproj", "{6DAC22DF-567A-3345-9EB9-CAA0EA673B5B}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "glad", "..\..\OloEngine\vendor\glad-build\glad.vcxproj", "{6DAC22DF-567A-3345-9EB9-CAA0EA673B5B}"
 	ProjectSection(ProjectDependencies) = postProject
 		{14A5E1C8-1C93-3BCA-8A99-D064F48239E6} = {14A5E1C8-1C93-3BCA-8A99-D064F48239E6}
 		{34C7A275-8422-3F70-8925-B59517182620} = {34C7A275-8422-3F70-8925-B59517182620}
 	EndProjectSection
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "glad-generate-files", "..\_deps\glad-build\glad-generate-files.vcxproj", "{34C7A275-8422-3F70-8925-B59517182620}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "glad-generate-files", "..\..\OloEngine\vendor\glad-build\glad-generate-files.vcxproj", "{34C7A275-8422-3F70-8925-B59517182620}"
 	ProjectSection(ProjectDependencies) = postProject
 		{14A5E1C8-1C93-3BCA-8A99-D064F48239E6} = {14A5E1C8-1C93-3BCA-8A99-D064F48239E6}
 	EndProjectSection
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "glfw", "..\_deps\glfw-build\src\glfw.vcxproj", "{57999481-0ACA-3F57-BD93-7B063B018B80}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "glfw", "..\..\OloEngine\vendor\glfw-build\src\glfw.vcxproj", "{57999481-0ACA-3F57-BD93-7B063B018B80}"
 	ProjectSection(ProjectDependencies) = postProject
 		{14A5E1C8-1C93-3BCA-8A99-D064F48239E6} = {14A5E1C8-1C93-3BCA-8A99-D064F48239E6}
 	EndProjectSection
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ryml", "..\_deps\ryml-build\ryml.vcxproj", "{0688FC90-507A-3D96-86B9-83406081831C}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ryml", "..\..\OloEngine\vendor\ryml-build\ryml.vcxproj", "{0688FC90-507A-3D96-86B9-83406081831C}"
 	ProjectSection(ProjectDependencies) = postProject
 		{14A5E1C8-1C93-3BCA-8A99-D064F48239E6} = {14A5E1C8-1C93-3BCA-8A99-D064F48239E6}
 	EndProjectSection
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ryml-uninstall", "..\_deps\ryml-build\ryml-uninstall.vcxproj", "{0164E227-1430-3D10-9172-8C1064488E88}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ryml-uninstall", "..\..\OloEngine\vendor\ryml-build\ryml-uninstall.vcxproj", "{0164E227-1430-3D10-9172-8C1064488E88}"
 	ProjectSection(ProjectDependencies) = postProject
 		{14A5E1C8-1C93-3BCA-8A99-D064F48239E6} = {14A5E1C8-1C93-3BCA-8A99-D064F48239E6}
 	EndProjectSection
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "spdlog", "..\_deps\spdlog-build\spdlog.vcxproj", "{0C818BB8-0EDE-3F81-9C02-AA6AE7F9E815}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "spdlog", "..\..\OloEngine\vendor\spdlog-build\spdlog.vcxproj", "{0C818BB8-0EDE-3F81-9C02-AA6AE7F9E815}"
 	ProjectSection(ProjectDependencies) = postProject
 		{14A5E1C8-1C93-3BCA-8A99-D064F48239E6} = {14A5E1C8-1C93-3BCA-8A99-D064F48239E6}
 	EndProjectSection
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "uninstall", "..\_deps\glfw-build\uninstall.vcxproj", "{9C8DD062-BE87-3B6D-A297-EE447BC54663}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "uninstall", "..\..\OloEngine\vendor\glfw-build\uninstall.vcxproj", "{9C8DD062-BE87-3B6D-A297-EE447BC54663}"
 	ProjectSection(ProjectDependencies) = postProject
 		{14A5E1C8-1C93-3BCA-8A99-D064F48239E6} = {14A5E1C8-1C93-3BCA-8A99-D064F48239E6}
 	EndProjectSection
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "update_mappings", "..\_deps\glfw-build\src\update_mappings.vcxproj", "{EB639A2B-6599-37C4-B57C-B5B4B453E759}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "update_mappings", "..\..\OloEngine\vendor\glfw-build\src\update_mappings.vcxproj", "{EB639A2B-6599-37C4-B57C-B5B4B453E759}"
 	ProjectSection(ProjectDependencies) = postProject
 		{14A5E1C8-1C93-3BCA-8A99-D064F48239E6} = {14A5E1C8-1C93-3BCA-8A99-D064F48239E6}
 	EndProjectSection

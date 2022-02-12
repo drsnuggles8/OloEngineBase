@@ -70,9 +70,6 @@
     <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Scene\SceneCamera.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Scene\SceneSerializer.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEnginePCH.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -214,9 +211,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Scene\SceneCamera.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Scene\SceneSerializer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Scene\ScriptableEntity.h">

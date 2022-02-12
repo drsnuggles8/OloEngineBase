@@ -1,3 +1,0 @@
-C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/CMakeFiles/imgui-populate.dir
-C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/CMakeFiles/ALL_BUILD.dir
-C:/Users/ole/source/repos/OloEngine/build/_deps/imgui-subbuild/CMakeFiles/ZERO_CHECK.dir

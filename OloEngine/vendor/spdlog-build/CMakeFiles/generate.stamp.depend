@@ -1,0 +1,12 @@
+# CMake generation dependency list for this directory.
+C:/Program Files/CMake/share/cmake-3.22/Modules/CheckCXXSourceCompiles.cmake
+C:/Program Files/CMake/share/cmake-3.22/Modules/CheckIncludeFileCXX.cmake
+C:/Program Files/CMake/share/cmake-3.22/Modules/CheckLibraryExists.cmake
+C:/Program Files/CMake/share/cmake-3.22/Modules/FindPackageHandleStandardArgs.cmake
+C:/Program Files/CMake/share/cmake-3.22/Modules/FindPackageMessage.cmake
+C:/Program Files/CMake/share/cmake-3.22/Modules/FindThreads.cmake
+C:/Program Files/CMake/share/cmake-3.22/Modules/GNUInstallDirs.cmake
+C:/Program Files/CMake/share/cmake-3.22/Modules/Internal/CheckSourceCompiles.cmake
+C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/spdlog-src/CMakeLists.txt
+C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/spdlog-src/cmake/ide.cmake
+C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/spdlog-src/cmake/utils.cmake

@@ -71,6 +71,8 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt-src\single_include\entt;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glad-build\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glfw-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) -m64 -g -std=c++20</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
@@ -78,18 +80,21 @@
       <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <Optimization>Disabled</Optimization>
-      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/CMakeFiles/Sandbox.dir/Debug/cmake_pch.hxx</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/Sandbox.dir/Debug/cmake_pch.pch</PrecompiledHeaderOutputFile>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <RuntimeTypeInfo>true</RuntimeTypeInfo>
       <UseFullPaths>false</UseFullPaths>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;CMAKE_INTDIR="Debug"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;OLO_DEBUG;CMAKE_INTDIR="Debug"</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
     </ClCompile>
     <ResourceCompile>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;OLO_DEBUG;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt-src\single_include\entt;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glad-build\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glfw-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt-src\single_include\entt;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glad-build\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glfw-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -97,7 +102,7 @@
       <ProxyFileName>%(Filename)_p.c</ProxyFileName>
     </Midl>
     <Link>
-      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalDependencies>..\..\OloEngine\src\Debug\OloEngine.lib;..\..\..\OloEngine\vendor\glad-build\Debug\glad.lib;..\..\..\OloEngine\vendor\glfw-build\src\Debug\glfw3.lib;imgui.lib;opengl32.lib;..\..\..\OloEngine\vendor\ryml-build\Debug\ryml.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -112,25 +117,30 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt-src\single_include\entt;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glad-build\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glfw-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) -m64 -g -std=c++20</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ExceptionHandling>Sync</ExceptionHandling>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <Optimization>MaxSpeed</Optimization>
-      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/CMakeFiles/Sandbox.dir/Release/cmake_pch.hxx</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/Sandbox.dir/Release/cmake_pch.pch</PrecompiledHeaderOutputFile>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <RuntimeTypeInfo>true</RuntimeTypeInfo>
       <UseFullPaths>false</UseFullPaths>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;CMAKE_INTDIR="Release"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;OLO_RELEASE;CMAKE_INTDIR="Release"</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <DebugInformationFormat>
       </DebugInformationFormat>
     </ClCompile>
     <ResourceCompile>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;OLO_RELEASE;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt-src\single_include\entt;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glad-build\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glfw-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt-src\single_include\entt;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glad-build\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glfw-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -138,7 +148,7 @@
       <ProxyFileName>%(Filename)_p.c</ProxyFileName>
     </Midl>
     <Link>
-      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalDependencies>..\..\OloEngine\src\Release\OloEngine.lib;..\..\..\OloEngine\vendor\glad-build\Release\glad.lib;..\..\..\OloEngine\vendor\glfw-build\src\Release\glfw3.lib;imgui.lib;opengl32.lib;..\..\..\OloEngine\vendor\ryml-build\Release\ryml.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
       <GenerateDebugInformation>false</GenerateDebugInformation>
@@ -153,26 +163,30 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">
     <ClCompile>
-      <AdditionalOptions>%(AdditionalOptions) -p</AdditionalOptions>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt-src\single_include\entt;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glad-build\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glfw-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) -p -m64 -g -std=c++20</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ExceptionHandling>Sync</ExceptionHandling>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <Optimization>MaxSpeed</Optimization>
-      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/CMakeFiles/Sandbox.dir/Dist/cmake_pch.hxx</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/Sandbox.dir/Dist/cmake_pch.pch</PrecompiledHeaderOutputFile>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <RuntimeTypeInfo>true</RuntimeTypeInfo>
       <UseFullPaths>false</UseFullPaths>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;CMAKE_INTDIR="Dist"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;OLO_DIST;CMAKE_INTDIR="Dist"</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <DebugInformationFormat>
       </DebugInformationFormat>
     </ClCompile>
     <ResourceCompile>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;CMAKE_INTDIR=\"Dist\"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;OLO_DIST;CMAKE_INTDIR=\"Dist\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt-src\single_include\entt;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glad-build\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glfw-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt-src\single_include\entt;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glad-build\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glfw-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -180,7 +194,7 @@
       <ProxyFileName>%(Filename)_p.c</ProxyFileName>
     </Midl>
     <Link>
-      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalDependencies>..\..\OloEngine\src\Dist\OloEngine.lib;..\..\..\OloEngine\vendor\glad-build\Dist\glad.lib;..\..\..\OloEngine\vendor\glfw-build\src\Dist\glfw3.lib;imgui.lib;opengl32.lib;..\..\..\OloEngine\vendor\ryml-build\Dist\ryml.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64 -p</AdditionalOptions>
       <GenerateDebugInformation>false</GenerateDebugInformation>
@@ -238,11 +252,40 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp" />
-    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp" />
-    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp" />
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\build\Sandbox\src\CMakeFiles\Sandbox.dir\cmake_pch.cxx">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/CMakeFiles/Sandbox.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/CMakeFiles/Sandbox.dir/Debug/cmake_pch.hxx</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/Sandbox.dir/Debug/cmake_pch.pch</PrecompiledHeaderOutputFile>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/CMakeFiles/Sandbox.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/CMakeFiles/Sandbox.dir/Release/cmake_pch.hxx</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/Sandbox.dir/Release/cmake_pch.pch</PrecompiledHeaderOutputFile>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/CMakeFiles/Sandbox.dir/Dist/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">Create</PrecompiledHeader>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/CMakeFiles/Sandbox.dir/Dist/cmake_pch.hxx</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/Sandbox.dir/Dist/cmake_pch.pch</PrecompiledHeaderOutputFile>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/CMakeFiles/Sandbox.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/CMakeFiles/Sandbox.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/CMakeFiles/Sandbox.dir/Dist/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/CMakeFiles/Sandbox.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/CMakeFiles/Sandbox.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/CMakeFiles/Sandbox.dir/Dist/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\Sandbox\src\SandboxApp.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/CMakeFiles/Sandbox.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/CMakeFiles/Sandbox.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">C:/Users/ole/source/repos/OloEngine/build/Sandbox/src/CMakeFiles/Sandbox.dir/Dist/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\Sandbox\src\ExampleLayer.h" />
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\Sandbox\src\Sandbox2D.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\Sandbox\src\CMakeFiles\Sandbox.dir\Debug\cmake_pch.hxx" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\Sandbox\src\CMakeFiles\Sandbox.dir\Release\cmake_pch.hxx" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\build\Sandbox\src\CMakeFiles\Sandbox.dir\Dist\cmake_pch.hxx" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\build\ZERO_CHECK.vcxproj">
@@ -250,6 +293,22 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <Name>ZERO_CHECK</Name>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\build\OloEngine\src\OloEngine.vcxproj">
+      <Project>{447C0629-7A42-3237-9018-64EF431923B7}</Project>
+      <Name>OloEngine</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glad-build\glad.vcxproj">
+      <Project>{6DAC22DF-567A-3345-9EB9-CAA0EA673B5B}</Project>
+      <Name>glad</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glfw-build\src\glfw.vcxproj">
+      <Project>{57999481-0ACA-3F57-BD93-7B063B018B80}</Project>
+      <Name>glfw</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-build\ryml.vcxproj">
+      <Project>{0688FC90-507A-3D96-86B9-83406081831C}</Project>
+      <Name>ryml</Name>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

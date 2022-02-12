@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-subbuild\CMakeFiles\4cfe0108915488aa12c91340df266426\spdlog-populate-mkdir.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-subbuild\CMakeFiles\4cfe0108915488aa12c91340df266426\spdlog-populate-download.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-subbuild\CMakeFiles\4cfe0108915488aa12c91340df266426\spdlog-populate-update.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-subbuild\CMakeFiles\4cfe0108915488aa12c91340df266426\spdlog-populate-patch.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-subbuild\CMakeFiles\4cfe0108915488aa12c91340df266426\spdlog-populate-configure.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-subbuild\CMakeFiles\4cfe0108915488aa12c91340df266426\spdlog-populate-build.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-subbuild\CMakeFiles\4cfe0108915488aa12c91340df266426\spdlog-populate-install.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-subbuild\CMakeFiles\4cfe0108915488aa12c91340df266426\spdlog-populate-test.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-subbuild\CMakeFiles\8833f6ebf887070fd9e3926ee6318093\spdlog-populate-complete.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-subbuild\CMakeFiles\7e149f7bba0b5133b3ff6229df53301f\spdlog-populate.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-subbuild\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-subbuild\CMakeFiles\spdlog-populate" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{0D4249BB-C941-3B42-B4B9-32030F44B35E}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

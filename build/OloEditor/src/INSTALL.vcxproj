@@ -152,7 +152,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </ProjectReference>
-    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\build\_deps\spdlog-build\ALL_BUILD.vcxproj">
+    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-build\ALL_BUILD.vcxproj">
       <Project>{D09AADC1-3D5F-3CA8-8D56-6D82B5E63F67}</Project>
       <Name>ALL_BUILD</Name>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>

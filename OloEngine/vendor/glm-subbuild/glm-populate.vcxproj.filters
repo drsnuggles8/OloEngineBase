@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-subbuild\CMakeFiles\56cd7cd98d76e38f29eb16f0f7c47131\glm-populate-mkdir.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-subbuild\CMakeFiles\56cd7cd98d76e38f29eb16f0f7c47131\glm-populate-download.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-subbuild\CMakeFiles\56cd7cd98d76e38f29eb16f0f7c47131\glm-populate-update.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-subbuild\CMakeFiles\56cd7cd98d76e38f29eb16f0f7c47131\glm-populate-patch.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-subbuild\CMakeFiles\56cd7cd98d76e38f29eb16f0f7c47131\glm-populate-configure.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-subbuild\CMakeFiles\56cd7cd98d76e38f29eb16f0f7c47131\glm-populate-build.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-subbuild\CMakeFiles\56cd7cd98d76e38f29eb16f0f7c47131\glm-populate-install.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-subbuild\CMakeFiles\56cd7cd98d76e38f29eb16f0f7c47131\glm-populate-test.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-subbuild\CMakeFiles\dda288283195170ba97dc5f80e8769b7\glm-populate-complete.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-subbuild\CMakeFiles\1f71f559feb607c923272028bb1453eb\glm-populate.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-subbuild\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-subbuild\CMakeFiles\glm-populate" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{85E2C484-CBCB-3806-BC31-A60233D6347D}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

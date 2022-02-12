@@ -49,8 +49,6 @@ foreach(OUTPUTCONFIG ${CMAKE_CONFIGURATION_TYPES})
 endforeach( OUTPUTCONFIG CMAKE_CONFIGURATION_TYPES )
 ]]
 
-# C:\Users\ole\source\repos\OloEngine\build\OloEngine\src\Release\ 
-
 add_dependencies(OloEngine
 				glfw
 				glad
@@ -61,14 +59,14 @@ target_precompile_headers("OloEngine" PUBLIC src/OloEnginePCH.h)
 
 target_include_directories("OloEngine" PRIVATE
   src
-  vendor/spdlog/include
-  vendor/GLFW/include
-  vendor/Glad/include
-  vendor/imgui
-  vendor/glm
-  vendor/stb_image
-  vendor/entt/include
-  vendor/ryml/src
+  vendor/spdlog-src/include
+  vendor/glfw-src/include
+ ${GLAD_OUT_DIR}/include
+  vendor/imgui-src
+  vendor/glm-src
+  vendor/stb_image-src
+  vendor/entt-src/single_include/entt
+  vendor/ryml-src/src
 )
 
 target_compile_definitions("OloEngine" PRIVATE
@@ -89,10 +87,11 @@ target_compile_options("OloEngine" PRIVATE
 
 #target_link_directories("OloEngine" PRIVATE)
 
+
 target_link_libraries(OloEngine
-					  Glad
+					  glad
 					  glfw
-					  ImGui
+					  imgui
 					  opengl32.lib
 					  ryml
 					  stb_image

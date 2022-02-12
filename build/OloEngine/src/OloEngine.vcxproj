@@ -50,22 +50,22 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
     <_ProjectFileVersion>10.0.20506.1</_ProjectFileVersion>
-    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\bin\Release-windows-x86_64\OloEngine\Debug\</OutDir>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\build\OloEngine\src\Debug\</OutDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">OloEngine.dir\Debug\</IntDir>
     <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">OloEngine</TargetName>
     <TargetExt Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">.lib</TargetExt>
-    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\bin\Release-windows-x86_64\OloEngine\Release\</OutDir>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\build\OloEngine\src\Release\</OutDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">OloEngine.dir\Release\</IntDir>
     <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">OloEngine</TargetName>
     <TargetExt Condition="'$(Configuration)|$(Platform)'=='Release|x64'">.lib</TargetExt>
-    <OutDir Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">C:\Users\ole\source\repos\OloEngine\bin\Release-windows-x86_64\OloEngine\Dist\</OutDir>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">C:\Users\ole\source\repos\OloEngine\build\OloEngine\src\Dist\</OutDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">OloEngine.dir\Dist\</IntDir>
     <TargetName Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">OloEngine</TargetName>
     <TargetExt Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">.lib</TargetExt>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\GLFW\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\Glad\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml\src;C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-src\include;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\src;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glfw-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glad-build\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt-src\single_include\entt;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>%(AdditionalOptions) -m64 -g -std=c++20</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
@@ -85,10 +85,10 @@
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;_CRT_SECURE_NO_WARNINGS;GLFW_INCLUDE_NONE;OLO_DEBUG;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\GLFW\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\Glad\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml\src;C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-src\include;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\src;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glfw-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glad-build\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt-src\single_include\entt;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
-      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\GLFW\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\Glad\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml\src;C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-src\include;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\src;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glfw-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glad-build\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt-src\single_include\entt;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -101,7 +101,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\GLFW\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\Glad\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml\src;C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-src\include;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\src;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glfw-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glad-build\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt-src\single_include\entt;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>%(AdditionalOptions) -m64 -g -std=c++20</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ExceptionHandling>Sync</ExceptionHandling>
@@ -121,10 +121,10 @@
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;_CRT_SECURE_NO_WARNINGS;GLFW_INCLUDE_NONE;OLO_RELEASE;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\GLFW\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\Glad\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml\src;C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-src\include;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\src;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glfw-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glad-build\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt-src\single_include\entt;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
-      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\GLFW\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\Glad\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml\src;C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-src\include;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\src;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glfw-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glad-build\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt-src\single_include\entt;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -137,7 +137,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\GLFW\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\Glad\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml\src;C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-src\include;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\src;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glfw-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glad-build\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt-src\single_include\entt;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>%(AdditionalOptions) -p -m64 -g -std=c++20</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <ExceptionHandling>Sync</ExceptionHandling>
@@ -157,10 +157,10 @@
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;_CRT_SECURE_NO_WARNINGS;GLFW_INCLUDE_NONE;OLO_DIST;CMAKE_INTDIR=\"Dist\"</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\GLFW\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\Glad\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml\src;C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-src\include;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\src;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glfw-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glad-build\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt-src\single_include\entt;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
-      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\GLFW\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\Glad\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml\src;C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-src\include;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\src;C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glfw-src\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glad-build\include;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\imgui-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glm-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\stb_image-src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\entt-src\single_include\entt;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -340,11 +340,6 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
       <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Dist/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
     </ClCompile>
-    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Scene\SceneSerializer.cpp">
-      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
-      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
-      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Dist/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
-    </ClCompile>
     <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEnginePCH.cpp">
       <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Debug/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
       <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:/Users/ole/source/repos/OloEngine/build/OloEngine/src/CMakeFiles/OloEngine.dir/Release/cmake_pch.hxx;%(ForcedIncludeFiles)</ForcedIncludeFiles>
@@ -432,7 +427,6 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Scene\Entity.h" />
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Scene\Scene.h" />
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Scene\SceneCamera.h" />
-    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Scene\SceneSerializer.h" />
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEngine\Scene\ScriptableEntity.h" />
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\OloEnginePCH.h" />
     <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\src\Platform\OpenGL\OpenGLBuffer.h" />
@@ -454,15 +448,15 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </ProjectReference>
-    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\build\_deps\glad-build\glad.vcxproj">
+    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glad-build\glad.vcxproj">
       <Project>{6DAC22DF-567A-3345-9EB9-CAA0EA673B5B}</Project>
       <Name>glad</Name>
     </ProjectReference>
-    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-build\src\glfw.vcxproj">
+    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glfw-build\src\glfw.vcxproj">
       <Project>{57999481-0ACA-3F57-BD93-7B063B018B80}</Project>
       <Name>glfw</Name>
     </ProjectReference>
-    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-build\ryml.vcxproj">
+    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-build\ryml.vcxproj">
       <Project>{0688FC90-507A-3D96-86B9-83406081831C}</Project>
       <Name>ryml</Name>
     </ProjectReference>

@@ -1,36 +1,52 @@
 include(FetchContent)
 set(FETCHCONTENT_QUIET off)
+set(FETCHCONTENT_BASE_DIR ${PROJECT_SOURCE_DIR}/vendor CACHE PATH "Missing description." FORCE)
 
 message(STATUS "Fetching third party libraries")
 
 # Declare all the dependency details first in case any dependency wants
 # to pull in some of the same ones (this keeps us in control)
 FetchContent_Declare(
-    entt
-    URL https://github.com/skypjack/entt/archive/master.zip
-    )
+	entt
+	URL https://github.com/skypjack/entt/archive/master.zip
+	)
 FetchContent_MakeAvailable(entt)
 message(STATUS "${Green} entt Should Be Downloaded ${ColourReset}")
-    
+	
 FetchContent_Declare(
-    glad
-    GIT_REPOSITORY https://github.com/Dav1dde/glad.git
-    GIT_TAG v0.1.36
-    )
-    FetchContent_MakeAvailable(glad)
+	glad
+	GIT_REPOSITORY https://github.com/Dav1dde/glad.git
+	GIT_TAG v0.1.36
+	)
+FetchContent_GetProperties(glad)
+if(NOT glad_POPULATED)
+	FetchContent_Populate(glad)
+	set(
+		GLAD_PROFILE "core"
+		CACHE STRING "OpenGL profile"
+	)
+	set(
+		GLAD_GENERATOR "c"
+		CACHE STRING "Language to generate the binding for"
+	)
+	add_subdirectory(
+		${glad_SOURCE_DIR}
+		${glad_BINARY_DIR}
+	)
+endif()
 message(STATUS "${Green} glad Should Be Downloaded ${ColourReset}")
 
 FetchContent_Declare(
-    glfw
-    GIT_REPOSITORY https://github.com/glfw/glfw.git
-    )
+	glfw
+	GIT_REPOSITORY https://github.com/glfw/glfw.git
+	)
 FetchContent_GetProperties(glfw)
 if(NOT glfw_POPULATED)
-    FetchContent_Populate(glfw)
-    set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-    set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-    add_subdirectory(${glfw_SOURCE_DIR} ${glfw_BINARY_DIR})
+	FetchContent_Populate(glfw)
+	set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+	set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+	set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+	add_subdirectory(${glfw_SOURCE_DIR} ${glfw_BINARY_DIR})
 endif()
 message(STATUS "${Green} glfw Should Be Downloaded ${ColourReset}")
 
@@ -48,24 +64,24 @@ endif()
 message(STATUS "${Green} GLM Should Be Downloaded ${ColourReset}")
 
 FetchContent_Declare(
-    imgui
-    GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG docking
+	imgui
+	GIT_REPOSITORY https://github.com/ocornut/imgui.git
+	GIT_TAG docking
 )
 FetchContent_MakeAvailable(imgui)
 message(STATUS "${Green} ImGui Should Be Downloaded ${ColourReset}")
 
 FetchContent_Declare(ryml
-    GIT_REPOSITORY https://github.com/biojppm/rapidyaml.git
-    GIT_TAG master
-    GIT_SHALLOW FALSE  # ensure submodules are checked out
+	GIT_REPOSITORY https://github.com/biojppm/rapidyaml.git
+	GIT_TAG master
+	GIT_SHALLOW FALSE  # ensure submodules are checked out
 )
 FetchContent_MakeAvailable(ryml)
 message(STATUS "${Green} ryml Should Be Downloaded ${ColourReset}")
 
 FetchContent_Declare(spdlog
-    GIT_REPOSITORY https://github.com/gabime/spdlog.git
-    GIT_TAG v1.9.2
+	GIT_REPOSITORY https://github.com/gabime/spdlog.git
+	GIT_TAG v1.9.2
 )
 FetchContent_MakeAvailable(spdlog)
 message(STATUS "${Green} spdlog Should Be Downloaded ${ColourReset}")

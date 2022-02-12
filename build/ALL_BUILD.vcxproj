@@ -149,23 +149,23 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <Project>{38569C24-4CCD-3980-A675-855B506C2789}</Project>
       <Name>Sandbox</Name>
     </ProjectReference>
-    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-build\subprojects\c4core\build\c4core.vcxproj">
+    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-build\subprojects\c4core\build\c4core.vcxproj">
       <Project>{498BD095-2325-3F5C-96F0-18B34320708C}</Project>
       <Name>c4core</Name>
     </ProjectReference>
-    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\build\_deps\glad-build\glad.vcxproj">
+    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glad-build\glad.vcxproj">
       <Project>{6DAC22DF-567A-3345-9EB9-CAA0EA673B5B}</Project>
       <Name>glad</Name>
     </ProjectReference>
-    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\build\_deps\glfw-build\src\glfw.vcxproj">
+    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glfw-build\src\glfw.vcxproj">
       <Project>{57999481-0ACA-3F57-BD93-7B063B018B80}</Project>
       <Name>glfw</Name>
     </ProjectReference>
-    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\build\_deps\ryml-build\ryml.vcxproj">
+    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-build\ryml.vcxproj">
       <Project>{0688FC90-507A-3D96-86B9-83406081831C}</Project>
       <Name>ryml</Name>
     </ProjectReference>
-    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\build\_deps\spdlog-build\spdlog.vcxproj">
+    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\spdlog-build\spdlog.vcxproj">
       <Project>{0C818BB8-0EDE-3F81-9C02-AA6AE7F9E815}</Project>
       <Name>spdlog</Name>
     </ProjectReference>

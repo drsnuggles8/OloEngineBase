@@ -34,31 +34,31 @@ endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for the subdirectory.
-  include("C:/Users/ole/source/repos/OloEngine/build/_deps/entt-build/cmake_install.cmake")
+  include("C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/entt-build/cmake_install.cmake")
 endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for the subdirectory.
-  include("C:/Users/ole/source/repos/OloEngine/build/_deps/glad-build/cmake_install.cmake")
+  include("C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glad-build/cmake_install.cmake")
 endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for the subdirectory.
-  include("C:/Users/ole/source/repos/OloEngine/build/_deps/glfw-build/cmake_install.cmake")
+  include("C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glfw-build/cmake_install.cmake")
 endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for the subdirectory.
-  include("C:/Users/ole/source/repos/OloEngine/build/_deps/glm-build/cmake_install.cmake")
+  include("C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glm-build/cmake_install.cmake")
 endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for the subdirectory.
-  include("C:/Users/ole/source/repos/OloEngine/build/_deps/ryml-build/cmake_install.cmake")
+  include("C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/ryml-build/cmake_install.cmake")
 endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for the subdirectory.
-  include("C:/Users/ole/source/repos/OloEngine/build/_deps/spdlog-build/cmake_install.cmake")
+  include("C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/spdlog-build/cmake_install.cmake")
 endif()
 

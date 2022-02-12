@@ -341,16 +341,16 @@ ENTT_USE_LIBCPP:BOOL=OFF
 ENTT_USE_SANITIZER:BOOL=OFF
 
 //Value Computed by CMake
-EnTT_BINARY_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/build/_deps/entt-build
+EnTT_BINARY_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/entt-build
 
 //Value Computed by CMake
 EnTT_IS_TOP_LEVEL:STATIC=OFF
 
 //Value Computed by CMake
-EnTT_SOURCE_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/build/_deps/entt-src
+EnTT_SOURCE_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/entt-src
 
-//Directory under which to collect all populated content
-FETCHCONTENT_BASE_DIR:PATH=C:/Users/ole/source/repos/OloEngine/build/_deps
+//Missing description.
+FETCHCONTENT_BASE_DIR:PATH=C:/Users/ole/source/repos/OloEngine/OloEngine/vendor
 
 //Disables all attempts to download or update content and assumes
 // source dirs already exist
@@ -429,7 +429,7 @@ GLAD_ALL_EXTENSIONS:BOOL=OFF
 GLAD_API:STRING=
 
 //Value Computed by CMake
-GLAD_BINARY_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/build/_deps/glad-build
+GLAD_BINARY_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glad-build
 
 //Set export variables for external project
 GLAD_EXPORT:BOOL=ON
@@ -451,22 +451,22 @@ GLAD_IS_TOP_LEVEL:STATIC=OFF
 GLAD_NO_LOADER:BOOL=OFF
 
 //Output directory
-GLAD_OUT_DIR:STRING=C:/Users/ole/source/repos/OloEngine/build/_deps/glad-build
+GLAD_OUT_DIR:STRING=C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glad-build
 
 //OpenGL profile
-GLAD_PROFILE:STRING=compatibility
+GLAD_PROFILE:STRING=core
 
 //Reproducible build
 GLAD_REPRODUCIBLE:BOOL=OFF
 
 //Value Computed by CMake
-GLAD_SOURCE_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/build/_deps/glad-src
+GLAD_SOURCE_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glad-src
 
 //Name of the spec or list of multiple specs (separated by semicolons).
 GLAD_SPEC:STRING=gl
 
 //Value Computed by CMake
-GLFW_BINARY_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/build/_deps/glfw-build
+GLFW_BINARY_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glfw-build
 
 //Build the GLFW documentation
 GLFW_BUILD_DOCS:BOOL=OFF
@@ -491,7 +491,7 @@ GLFW_IS_TOP_LEVEL:STATIC=OFF
 GLFW_LIBRARY_TYPE:STRING=
 
 //Value Computed by CMake
-GLFW_SOURCE_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/build/_deps/glfw-src
+GLFW_SOURCE_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glfw-src
 
 //Force use of high-performance GPU on hybrid systems
 GLFW_USE_HYBRID_HPG:BOOL=OFF
@@ -643,40 +643,40 @@ Sandbox_SOURCE_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/Sandbox
 USE_MSVC_RUNTIME_LIBRARY_DLL:BOOL=ON
 
 //Value Computed by CMake
-c4core_BINARY_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/build/_deps/ryml-build/subprojects/c4core/build
+c4core_BINARY_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/ryml-build/subprojects/c4core/build
 
 //Value Computed by CMake
 c4core_IS_TOP_LEVEL:STATIC=OFF
 
 //Value Computed by CMake
-c4core_SOURCE_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/build/_deps/ryml-src/ext/c4core
+c4core_SOURCE_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/ryml-src/ext/c4core
 
 //Value Computed by CMake
-glm_BINARY_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/build/_deps/glm-build
+glm_BINARY_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glm-build
 
 //Value Computed by CMake
 glm_IS_TOP_LEVEL:STATIC=OFF
 
 //Value Computed by CMake
-glm_SOURCE_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/build/_deps/glm-src
+glm_SOURCE_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glm-src
 
 //Value Computed by CMake
-ryml_BINARY_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/build/_deps/ryml-build
+ryml_BINARY_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/ryml-build
 
 //Value Computed by CMake
 ryml_IS_TOP_LEVEL:STATIC=OFF
 
 //Value Computed by CMake
-ryml_SOURCE_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/build/_deps/ryml-src
+ryml_SOURCE_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/ryml-src
 
 //Value Computed by CMake
-spdlog_BINARY_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/build/_deps/spdlog-build
+spdlog_BINARY_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/spdlog-build
 
 //Value Computed by CMake
 spdlog_IS_TOP_LEVEL:STATIC=OFF
 
 //Value Computed by CMake
-spdlog_SOURCE_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/build/_deps/spdlog-src
+spdlog_SOURCE_DIR:STATIC=C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/spdlog-src
 
 
 ########################

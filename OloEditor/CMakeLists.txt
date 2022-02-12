@@ -51,30 +51,26 @@ if(CMAKE_BUILD_TYPE STREQUAL Dist)
 endif()
 
 
-add_dependencies(OloEngine
+add_dependencies(OloEditor
+				OloEngine
 )
 
 target_include_directories("OloEditor" PRIVATE
-							src
-							vendor/spdlog/include
-							vendor/GLFW/include
-							vendor/Glad/include
-							vendor/imgui
-							vendor/glm
-							vendor/stb_image
-							vendor/entt/include
-							vendor/ryml/src
+							C:/Users/ole/source/repos/OloEngine/OloEngine/src
+							C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/spdlog-src/include
+							C:/Users/ole/source/repos/OloEngine/OloEngine/vendor
+							C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glm-src
+							C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/entt-src/single_include/entt
+							C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/imgui-src
 )
 
-target_compile_definitions("OloEngine" PRIVATE
-							_CRT_SECURE_NO_WARNINGS
-							GLFW_INCLUDE_NONE
+target_compile_definitions("OloEditor" PRIVATE
 							$<$<CONFIG:Debug>:OLO_DEBUG>
 							$<$<CONFIG:Release>:OLO_RELEASE>
 							$<$<CONFIG:Dist>:OLO_DIST>
 )
 
-target_compile_options("OloEngine" PRIVATE
+target_compile_options("OloEditor" PRIVATE
 						$<$<COMPILE_LANGUAGE:C>:-m64>
 						$<$<COMPILE_LANGUAGE:C>:-g>
 						$<$<COMPILE_LANGUAGE:CXX>:-m64>
@@ -84,11 +80,6 @@ target_compile_options("OloEngine" PRIVATE
 
 #target_link_directories("OloEngine" PRIVATE)
 
-target_link_libraries(OloEngine
-					  Glad
-					  glfw
-					  ImGui
-					  opengl32.lib
-					  ryml
-					  stb_image
+target_link_libraries(OloEditor
+					OloEngine
 )

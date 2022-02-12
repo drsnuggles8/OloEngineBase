@@ -1,0 +1,674 @@
+﻿add_library("OloEngine" STATIC
+        "OloEngine/src/OloEngine/Core/Application.cpp"
+        "OloEngine/src/OloEngine/Core/Application.h"
+        "OloEngine/src/OloEngine/Core/Assert.h"
+        "OloEngine/src/OloEngine/Core/Base.h"
+        "OloEngine/src/OloEngine/Core/EntryPoint.h"
+        "OloEngine/src/OloEngine/Core/Input.h"
+        "OloEngine/src/OloEngine/Core/KeyCodes.h"
+        "OloEngine/src/OloEngine/Core/Layer.cpp"
+        "OloEngine/src/OloEngine/Core/Layer.h"
+        "OloEngine/src/OloEngine/Core/LayerStack.cpp"
+        "OloEngine/src/OloEngine/Core/LayerStack.h"
+        "OloEngine/src/OloEngine/Core/Log.cpp"
+        "OloEngine/src/OloEngine/Core/Log.h"
+        "OloEngine/src/OloEngine/Core/MouseCodes.h"
+        "OloEngine/src/OloEngine/Core/PlatformDetection.h"
+        "OloEngine/src/OloEngine/Core/Timestep.h"
+        "OloEngine/src/OloEngine/Core/Window.cpp"
+        "OloEngine/src/OloEngine/Core/Window.h"
+        "OloEngine/src/OloEngine/Debug/Instrumentor.h"
+        "OloEngine/src/OloEngine/Events/ApplicationEvent.h"
+        "OloEngine/src/OloEngine/Events/Event.h"
+        "OloEngine/src/OloEngine/Events/KeyEvent.h"
+        "OloEngine/src/OloEngine/Events/MouseEvent.h"
+        "OloEngine/src/OloEngine/ImGui/ImGuiBuild.cpp"
+        "OloEngine/src/OloEngine/ImGui/ImGuiLayer.cpp"
+        "OloEngine/src/OloEngine/ImGui/ImGuiLayer.h"
+        "OloEngine/src/OloEngine/Renderer/Buffer.cpp"
+        "OloEngine/src/OloEngine/Renderer/Buffer.h"
+        "OloEngine/src/OloEngine/Renderer/Camera.h"
+        "OloEngine/src/OloEngine/Renderer/FrameBuffer.cpp"
+        "OloEngine/src/OloEngine/Renderer/FrameBuffer.h"
+        "OloEngine/src/OloEngine/Renderer/GraphicsContext.cpp"
+        "OloEngine/src/OloEngine/Renderer/GraphicsContext.h"
+        "OloEngine/src/OloEngine/Renderer/OrthographicCamera.cpp"
+        "OloEngine/src/OloEngine/Renderer/OrthographicCamera.h"
+        "OloEngine/src/OloEngine/Renderer/OrthographicCameraController.cpp"
+        "OloEngine/src/OloEngine/Renderer/OrthographicCameraController.h"
+        "OloEngine/src/OloEngine/Renderer/RenderCommand.cpp"
+        "OloEngine/src/OloEngine/Renderer/RenderCommand.h"
+        "OloEngine/src/OloEngine/Renderer/Renderer.cpp"
+        "OloEngine/src/OloEngine/Renderer/Renderer.h"
+        "OloEngine/src/OloEngine/Renderer/Renderer2D.cpp"
+        "OloEngine/src/OloEngine/Renderer/Renderer2D.h"
+        "OloEngine/src/OloEngine/Renderer/RendererAPI.cpp"
+        "OloEngine/src/OloEngine/Renderer/RendererAPI.h"
+        "OloEngine/src/OloEngine/Renderer/Shader.cpp"
+        "OloEngine/src/OloEngine/Renderer/Shader.h"
+        "OloEngine/src/OloEngine/Renderer/Texture.cpp"
+        "OloEngine/src/OloEngine/Renderer/Texture.h"
+        "OloEngine/src/OloEngine/Renderer/VertexArray.cpp"
+        "OloEngine/src/OloEngine/Renderer/VertexArray.h"
+        "OloEngine/src/OloEngine/Scene/Components.h"
+        "OloEngine/src/OloEngine/Scene/Entity.cpp"
+        "OloEngine/src/OloEngine/Scene/Entity.h"
+        "OloEngine/src/OloEngine/Scene/Scene.cpp"
+        "OloEngine/src/OloEngine/Scene/Scene.h"
+        "OloEngine/src/OloEngine/Scene/SceneCamera.cpp"
+        "OloEngine/src/OloEngine/Scene/SceneCamera.h"
+        "OloEngine/src/OloEngine/Scene/SceneSerializer.cpp"
+        "OloEngine/src/OloEngine/Scene/SceneSerializer.h"
+        "OloEngine/src/OloEngine/Scene/ScriptableEntity.h"
+    "OloEngine/src/OloEngine.h"
+    "OloEngine/src/OloEnginePCH.cpp"
+    "OloEngine/src/OloEnginePCH.h"
+        "OloEngine/src/Platform/OpenGL/OpenGLBuffer.cpp"
+        "OloEngine/src/Platform/OpenGL/OpenGLBuffer.h"
+        "OloEngine/src/Platform/OpenGL/OpenGLContext.cpp"
+        "OloEngine/src/Platform/OpenGL/OpenGLContext.h"
+        "OloEngine/src/Platform/OpenGL/OpenGLFrameBuffer.cpp"
+        "OloEngine/src/Platform/OpenGL/OpenGLFrameBuffer.h"
+        "OloEngine/src/Platform/OpenGL/OpenGLRendererAPI.cpp"
+        "OloEngine/src/Platform/OpenGL/OpenGLRendererAPI.h"
+        "OloEngine/src/Platform/OpenGL/OpenGLShader.cpp"
+        "OloEngine/src/Platform/OpenGL/OpenGLShader.h"
+        "OloEngine/src/Platform/OpenGL/OpenGLTexture.cpp"
+        "OloEngine/src/Platform/OpenGL/OpenGLTexture.h"
+        "OloEngine/src/Platform/OpenGL/OpenGLVertexArray.cpp"
+        "OloEngine/src/Platform/OpenGL/OpenGLVertexArray.h"
+        "OloEngine/src/Platform/Windows/WindowsInput.cpp"
+        "OloEngine/src/Platform/Windows/WindowsWindow.cpp"
+        "OloEngine/src/Platform/Windows/WindowsWindow.h"
+        "OloEngine/vendor/glm/glm/common.hpp"
+          "OloEngine/vendor/glm/glm/detail/_features.hpp"
+          "OloEngine/vendor/glm/glm/detail/_fixes.hpp"
+          "OloEngine/vendor/glm/glm/detail/_noise.hpp"
+          "OloEngine/vendor/glm/glm/detail/_swizzle.hpp"
+          "OloEngine/vendor/glm/glm/detail/_swizzle_func.hpp"
+          "OloEngine/vendor/glm/glm/detail/_vectorize.hpp"
+          "OloEngine/vendor/glm/glm/detail/compute_common.hpp"
+          "OloEngine/vendor/glm/glm/detail/compute_vector_relational.hpp"
+          "OloEngine/vendor/glm/glm/detail/func_common.inl"
+          "OloEngine/vendor/glm/glm/detail/func_common_simd.inl"
+          "OloEngine/vendor/glm/glm/detail/func_exponential.inl"
+          "OloEngine/vendor/glm/glm/detail/func_exponential_simd.inl"
+          "OloEngine/vendor/glm/glm/detail/func_geometric.inl"
+          "OloEngine/vendor/glm/glm/detail/func_geometric_simd.inl"
+          "OloEngine/vendor/glm/glm/detail/func_integer.inl"
+          "OloEngine/vendor/glm/glm/detail/func_integer_simd.inl"
+          "OloEngine/vendor/glm/glm/detail/func_matrix.inl"
+          "OloEngine/vendor/glm/glm/detail/func_matrix_simd.inl"
+          "OloEngine/vendor/glm/glm/detail/func_packing.inl"
+          "OloEngine/vendor/glm/glm/detail/func_packing_simd.inl"
+          "OloEngine/vendor/glm/glm/detail/func_trigonometric.inl"
+          "OloEngine/vendor/glm/glm/detail/func_trigonometric_simd.inl"
+          "OloEngine/vendor/glm/glm/detail/func_vector_relational.inl"
+          "OloEngine/vendor/glm/glm/detail/func_vector_relational_simd.inl"
+          "OloEngine/vendor/glm/glm/detail/qualifier.hpp"
+          "OloEngine/vendor/glm/glm/detail/setup.hpp"
+          "OloEngine/vendor/glm/glm/detail/type_float.hpp"
+          "OloEngine/vendor/glm/glm/detail/type_half.hpp"
+          "OloEngine/vendor/glm/glm/detail/type_half.inl"
+          "OloEngine/vendor/glm/glm/detail/type_mat2x2.hpp"
+          "OloEngine/vendor/glm/glm/detail/type_mat2x2.inl"
+          "OloEngine/vendor/glm/glm/detail/type_mat2x3.hpp"
+          "OloEngine/vendor/glm/glm/detail/type_mat2x3.inl"
+          "OloEngine/vendor/glm/glm/detail/type_mat2x4.hpp"
+          "OloEngine/vendor/glm/glm/detail/type_mat2x4.inl"
+          "OloEngine/vendor/glm/glm/detail/type_mat3x2.hpp"
+          "OloEngine/vendor/glm/glm/detail/type_mat3x2.inl"
+          "OloEngine/vendor/glm/glm/detail/type_mat3x3.hpp"
+          "OloEngine/vendor/glm/glm/detail/type_mat3x3.inl"
+          "OloEngine/vendor/glm/glm/detail/type_mat3x4.hpp"
+          "OloEngine/vendor/glm/glm/detail/type_mat3x4.inl"
+          "OloEngine/vendor/glm/glm/detail/type_mat4x2.hpp"
+          "OloEngine/vendor/glm/glm/detail/type_mat4x2.inl"
+          "OloEngine/vendor/glm/glm/detail/type_mat4x3.hpp"
+          "OloEngine/vendor/glm/glm/detail/type_mat4x3.inl"
+          "OloEngine/vendor/glm/glm/detail/type_mat4x4.hpp"
+          "OloEngine/vendor/glm/glm/detail/type_mat4x4.inl"
+          "OloEngine/vendor/glm/glm/detail/type_mat4x4_simd.inl"
+          "OloEngine/vendor/glm/glm/detail/type_quat.hpp"
+          "OloEngine/vendor/glm/glm/detail/type_quat.inl"
+          "OloEngine/vendor/glm/glm/detail/type_quat_simd.inl"
+          "OloEngine/vendor/glm/glm/detail/type_vec1.hpp"
+          "OloEngine/vendor/glm/glm/detail/type_vec1.inl"
+          "OloEngine/vendor/glm/glm/detail/type_vec2.hpp"
+          "OloEngine/vendor/glm/glm/detail/type_vec2.inl"
+          "OloEngine/vendor/glm/glm/detail/type_vec3.hpp"
+          "OloEngine/vendor/glm/glm/detail/type_vec3.inl"
+          "OloEngine/vendor/glm/glm/detail/type_vec4.hpp"
+          "OloEngine/vendor/glm/glm/detail/type_vec4.inl"
+          "OloEngine/vendor/glm/glm/detail/type_vec4_simd.inl"
+        "OloEngine/vendor/glm/glm/exponential.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_clip_space.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_clip_space.inl"
+          "OloEngine/vendor/glm/glm/ext/matrix_common.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_common.inl"
+          "OloEngine/vendor/glm/glm/ext/matrix_double2x2.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_double2x2_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_double2x3.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_double2x3_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_double2x4.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_double2x4_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_double3x2.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_double3x2_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_double3x3.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_double3x3_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_double3x4.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_double3x4_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_double4x2.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_double4x2_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_double4x3.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_double4x3_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_double4x4.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_double4x4_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_float2x2.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_float2x2_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_float2x3.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_float2x3_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_float2x4.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_float2x4_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_float3x2.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_float3x2_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_float3x3.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_float3x3_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_float3x4.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_float3x4_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_float4x2.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_float4x2_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_float4x3.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_float4x3_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_float4x4.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_float4x4_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_int2x2.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_int2x2_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_int2x3.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_int2x3_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_int2x4.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_int2x4_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_int3x2.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_int3x2_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_int3x3.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_int3x3_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_int3x4.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_int3x4_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_int4x2.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_int4x2_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_int4x3.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_int4x3_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_int4x4.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_int4x4_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_integer.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_integer.inl"
+          "OloEngine/vendor/glm/glm/ext/matrix_projection.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_projection.inl"
+          "OloEngine/vendor/glm/glm/ext/matrix_relational.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_relational.inl"
+          "OloEngine/vendor/glm/glm/ext/matrix_transform.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_transform.inl"
+          "OloEngine/vendor/glm/glm/ext/matrix_uint2x2.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_uint2x2_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_uint2x3.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_uint2x3_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_uint2x4.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_uint2x4_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_uint3x2.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_uint3x2_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_uint3x3.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_uint3x3_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_uint3x4.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_uint3x4_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_uint4x2.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_uint4x2_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_uint4x3.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_uint4x3_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_uint4x4.hpp"
+          "OloEngine/vendor/glm/glm/ext/matrix_uint4x4_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/quaternion_common.hpp"
+          "OloEngine/vendor/glm/glm/ext/quaternion_common.inl"
+          "OloEngine/vendor/glm/glm/ext/quaternion_common_simd.inl"
+          "OloEngine/vendor/glm/glm/ext/quaternion_double.hpp"
+          "OloEngine/vendor/glm/glm/ext/quaternion_double_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/quaternion_exponential.hpp"
+          "OloEngine/vendor/glm/glm/ext/quaternion_exponential.inl"
+          "OloEngine/vendor/glm/glm/ext/quaternion_float.hpp"
+          "OloEngine/vendor/glm/glm/ext/quaternion_float_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/quaternion_geometric.hpp"
+          "OloEngine/vendor/glm/glm/ext/quaternion_geometric.inl"
+          "OloEngine/vendor/glm/glm/ext/quaternion_relational.hpp"
+          "OloEngine/vendor/glm/glm/ext/quaternion_relational.inl"
+          "OloEngine/vendor/glm/glm/ext/quaternion_transform.hpp"
+          "OloEngine/vendor/glm/glm/ext/quaternion_transform.inl"
+          "OloEngine/vendor/glm/glm/ext/quaternion_trigonometric.hpp"
+          "OloEngine/vendor/glm/glm/ext/quaternion_trigonometric.inl"
+          "OloEngine/vendor/glm/glm/ext/scalar_common.hpp"
+          "OloEngine/vendor/glm/glm/ext/scalar_common.inl"
+          "OloEngine/vendor/glm/glm/ext/scalar_constants.hpp"
+          "OloEngine/vendor/glm/glm/ext/scalar_constants.inl"
+          "OloEngine/vendor/glm/glm/ext/scalar_int_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/scalar_integer.hpp"
+          "OloEngine/vendor/glm/glm/ext/scalar_integer.inl"
+          "OloEngine/vendor/glm/glm/ext/scalar_packing.hpp"
+          "OloEngine/vendor/glm/glm/ext/scalar_packing.inl"
+          "OloEngine/vendor/glm/glm/ext/scalar_reciprocal.hpp"
+          "OloEngine/vendor/glm/glm/ext/scalar_reciprocal.inl"
+          "OloEngine/vendor/glm/glm/ext/scalar_relational.hpp"
+          "OloEngine/vendor/glm/glm/ext/scalar_relational.inl"
+          "OloEngine/vendor/glm/glm/ext/scalar_uint_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/scalar_ulp.hpp"
+          "OloEngine/vendor/glm/glm/ext/scalar_ulp.inl"
+          "OloEngine/vendor/glm/glm/ext/vector_bool1.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_bool1_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_bool2.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_bool2_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_bool3.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_bool3_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_bool4.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_bool4_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_common.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_common.inl"
+          "OloEngine/vendor/glm/glm/ext/vector_double1.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_double1_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_double2.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_double2_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_double3.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_double3_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_double4.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_double4_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_float1.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_float1_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_float2.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_float2_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_float3.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_float3_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_float4.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_float4_precision.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_int1.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_int1_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_int2.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_int2_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_int3.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_int3_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_int4.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_int4_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_integer.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_integer.inl"
+          "OloEngine/vendor/glm/glm/ext/vector_packing.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_packing.inl"
+          "OloEngine/vendor/glm/glm/ext/vector_reciprocal.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_reciprocal.inl"
+          "OloEngine/vendor/glm/glm/ext/vector_relational.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_relational.inl"
+          "OloEngine/vendor/glm/glm/ext/vector_uint1.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_uint1_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_uint2.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_uint2_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_uint3.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_uint3_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_uint4.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_uint4_sized.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_ulp.hpp"
+          "OloEngine/vendor/glm/glm/ext/vector_ulp.inl"
+        "OloEngine/vendor/glm/glm/ext.hpp"
+        "OloEngine/vendor/glm/glm/fwd.hpp"
+        "OloEngine/vendor/glm/glm/geometric.hpp"
+        "OloEngine/vendor/glm/glm/glm.hpp"
+          "OloEngine/vendor/glm/glm/gtc/bitfield.hpp"
+          "OloEngine/vendor/glm/glm/gtc/bitfield.inl"
+          "OloEngine/vendor/glm/glm/gtc/color_space.hpp"
+          "OloEngine/vendor/glm/glm/gtc/color_space.inl"
+          "OloEngine/vendor/glm/glm/gtc/constants.hpp"
+          "OloEngine/vendor/glm/glm/gtc/constants.inl"
+          "OloEngine/vendor/glm/glm/gtc/epsilon.hpp"
+          "OloEngine/vendor/glm/glm/gtc/epsilon.inl"
+          "OloEngine/vendor/glm/glm/gtc/integer.hpp"
+          "OloEngine/vendor/glm/glm/gtc/integer.inl"
+          "OloEngine/vendor/glm/glm/gtc/matrix_access.hpp"
+          "OloEngine/vendor/glm/glm/gtc/matrix_access.inl"
+          "OloEngine/vendor/glm/glm/gtc/matrix_integer.hpp"
+          "OloEngine/vendor/glm/glm/gtc/matrix_inverse.hpp"
+          "OloEngine/vendor/glm/glm/gtc/matrix_inverse.inl"
+          "OloEngine/vendor/glm/glm/gtc/matrix_transform.hpp"
+          "OloEngine/vendor/glm/glm/gtc/matrix_transform.inl"
+          "OloEngine/vendor/glm/glm/gtc/noise.hpp"
+          "OloEngine/vendor/glm/glm/gtc/noise.inl"
+          "OloEngine/vendor/glm/glm/gtc/packing.hpp"
+          "OloEngine/vendor/glm/glm/gtc/packing.inl"
+          "OloEngine/vendor/glm/glm/gtc/quaternion.hpp"
+          "OloEngine/vendor/glm/glm/gtc/quaternion.inl"
+          "OloEngine/vendor/glm/glm/gtc/quaternion_simd.inl"
+          "OloEngine/vendor/glm/glm/gtc/random.hpp"
+          "OloEngine/vendor/glm/glm/gtc/random.inl"
+          "OloEngine/vendor/glm/glm/gtc/reciprocal.hpp"
+          "OloEngine/vendor/glm/glm/gtc/round.hpp"
+          "OloEngine/vendor/glm/glm/gtc/round.inl"
+          "OloEngine/vendor/glm/glm/gtc/type_aligned.hpp"
+          "OloEngine/vendor/glm/glm/gtc/type_precision.hpp"
+          "OloEngine/vendor/glm/glm/gtc/type_precision.inl"
+          "OloEngine/vendor/glm/glm/gtc/type_ptr.hpp"
+          "OloEngine/vendor/glm/glm/gtc/type_ptr.inl"
+          "OloEngine/vendor/glm/glm/gtc/ulp.hpp"
+          "OloEngine/vendor/glm/glm/gtc/ulp.inl"
+          "OloEngine/vendor/glm/glm/gtc/vec1.hpp"
+          "OloEngine/vendor/glm/glm/gtx/associated_min_max.hpp"
+          "OloEngine/vendor/glm/glm/gtx/associated_min_max.inl"
+          "OloEngine/vendor/glm/glm/gtx/bit.hpp"
+          "OloEngine/vendor/glm/glm/gtx/bit.inl"
+          "OloEngine/vendor/glm/glm/gtx/closest_point.hpp"
+          "OloEngine/vendor/glm/glm/gtx/closest_point.inl"
+          "OloEngine/vendor/glm/glm/gtx/color_encoding.hpp"
+          "OloEngine/vendor/glm/glm/gtx/color_encoding.inl"
+          "OloEngine/vendor/glm/glm/gtx/color_space.hpp"
+          "OloEngine/vendor/glm/glm/gtx/color_space.inl"
+          "OloEngine/vendor/glm/glm/gtx/color_space_YCoCg.hpp"
+          "OloEngine/vendor/glm/glm/gtx/color_space_YCoCg.inl"
+          "OloEngine/vendor/glm/glm/gtx/common.hpp"
+          "OloEngine/vendor/glm/glm/gtx/common.inl"
+          "OloEngine/vendor/glm/glm/gtx/compatibility.hpp"
+          "OloEngine/vendor/glm/glm/gtx/compatibility.inl"
+          "OloEngine/vendor/glm/glm/gtx/component_wise.hpp"
+          "OloEngine/vendor/glm/glm/gtx/component_wise.inl"
+          "OloEngine/vendor/glm/glm/gtx/dual_quaternion.hpp"
+          "OloEngine/vendor/glm/glm/gtx/dual_quaternion.inl"
+          "OloEngine/vendor/glm/glm/gtx/easing.hpp"
+          "OloEngine/vendor/glm/glm/gtx/easing.inl"
+          "OloEngine/vendor/glm/glm/gtx/euler_angles.hpp"
+          "OloEngine/vendor/glm/glm/gtx/euler_angles.inl"
+          "OloEngine/vendor/glm/glm/gtx/extend.hpp"
+          "OloEngine/vendor/glm/glm/gtx/extend.inl"
+          "OloEngine/vendor/glm/glm/gtx/extended_min_max.hpp"
+          "OloEngine/vendor/glm/glm/gtx/extended_min_max.inl"
+          "OloEngine/vendor/glm/glm/gtx/exterior_product.hpp"
+          "OloEngine/vendor/glm/glm/gtx/exterior_product.inl"
+          "OloEngine/vendor/glm/glm/gtx/fast_exponential.hpp"
+          "OloEngine/vendor/glm/glm/gtx/fast_exponential.inl"
+          "OloEngine/vendor/glm/glm/gtx/fast_square_root.hpp"
+          "OloEngine/vendor/glm/glm/gtx/fast_square_root.inl"
+          "OloEngine/vendor/glm/glm/gtx/fast_trigonometry.hpp"
+          "OloEngine/vendor/glm/glm/gtx/fast_trigonometry.inl"
+          "OloEngine/vendor/glm/glm/gtx/float_notmalize.inl"
+          "OloEngine/vendor/glm/glm/gtx/functions.hpp"
+          "OloEngine/vendor/glm/glm/gtx/functions.inl"
+          "OloEngine/vendor/glm/glm/gtx/gradient_paint.hpp"
+          "OloEngine/vendor/glm/glm/gtx/gradient_paint.inl"
+          "OloEngine/vendor/glm/glm/gtx/handed_coordinate_space.hpp"
+          "OloEngine/vendor/glm/glm/gtx/handed_coordinate_space.inl"
+          "OloEngine/vendor/glm/glm/gtx/hash.hpp"
+          "OloEngine/vendor/glm/glm/gtx/hash.inl"
+          "OloEngine/vendor/glm/glm/gtx/integer.hpp"
+          "OloEngine/vendor/glm/glm/gtx/integer.inl"
+          "OloEngine/vendor/glm/glm/gtx/intersect.hpp"
+          "OloEngine/vendor/glm/glm/gtx/intersect.inl"
+          "OloEngine/vendor/glm/glm/gtx/io.hpp"
+          "OloEngine/vendor/glm/glm/gtx/io.inl"
+          "OloEngine/vendor/glm/glm/gtx/log_base.hpp"
+          "OloEngine/vendor/glm/glm/gtx/log_base.inl"
+          "OloEngine/vendor/glm/glm/gtx/matrix_cross_product.hpp"
+          "OloEngine/vendor/glm/glm/gtx/matrix_cross_product.inl"
+          "OloEngine/vendor/glm/glm/gtx/matrix_decompose.hpp"
+          "OloEngine/vendor/glm/glm/gtx/matrix_decompose.inl"
+          "OloEngine/vendor/glm/glm/gtx/matrix_factorisation.hpp"
+          "OloEngine/vendor/glm/glm/gtx/matrix_factorisation.inl"
+          "OloEngine/vendor/glm/glm/gtx/matrix_interpolation.hpp"
+          "OloEngine/vendor/glm/glm/gtx/matrix_interpolation.inl"
+          "OloEngine/vendor/glm/glm/gtx/matrix_major_storage.hpp"
+          "OloEngine/vendor/glm/glm/gtx/matrix_major_storage.inl"
+          "OloEngine/vendor/glm/glm/gtx/matrix_operation.hpp"
+          "OloEngine/vendor/glm/glm/gtx/matrix_operation.inl"
+          "OloEngine/vendor/glm/glm/gtx/matrix_query.hpp"
+          "OloEngine/vendor/glm/glm/gtx/matrix_query.inl"
+          "OloEngine/vendor/glm/glm/gtx/matrix_transform_2d.hpp"
+          "OloEngine/vendor/glm/glm/gtx/matrix_transform_2d.inl"
+          "OloEngine/vendor/glm/glm/gtx/mixed_product.hpp"
+          "OloEngine/vendor/glm/glm/gtx/mixed_product.inl"
+          "OloEngine/vendor/glm/glm/gtx/norm.hpp"
+          "OloEngine/vendor/glm/glm/gtx/norm.inl"
+          "OloEngine/vendor/glm/glm/gtx/normal.hpp"
+          "OloEngine/vendor/glm/glm/gtx/normal.inl"
+          "OloEngine/vendor/glm/glm/gtx/normalize_dot.hpp"
+          "OloEngine/vendor/glm/glm/gtx/normalize_dot.inl"
+          "OloEngine/vendor/glm/glm/gtx/number_precision.hpp"
+          "OloEngine/vendor/glm/glm/gtx/number_precision.inl"
+          "OloEngine/vendor/glm/glm/gtx/optimum_pow.hpp"
+          "OloEngine/vendor/glm/glm/gtx/optimum_pow.inl"
+          "OloEngine/vendor/glm/glm/gtx/orthonormalize.hpp"
+          "OloEngine/vendor/glm/glm/gtx/orthonormalize.inl"
+          "OloEngine/vendor/glm/glm/gtx/pca.hpp"
+          "OloEngine/vendor/glm/glm/gtx/pca.inl"
+          "OloEngine/vendor/glm/glm/gtx/perpendicular.hpp"
+          "OloEngine/vendor/glm/glm/gtx/perpendicular.inl"
+          "OloEngine/vendor/glm/glm/gtx/polar_coordinates.hpp"
+          "OloEngine/vendor/glm/glm/gtx/polar_coordinates.inl"
+          "OloEngine/vendor/glm/glm/gtx/projection.hpp"
+          "OloEngine/vendor/glm/glm/gtx/projection.inl"
+          "OloEngine/vendor/glm/glm/gtx/quaternion.hpp"
+          "OloEngine/vendor/glm/glm/gtx/quaternion.inl"
+          "OloEngine/vendor/glm/glm/gtx/range.hpp"
+          "OloEngine/vendor/glm/glm/gtx/raw_data.hpp"
+          "OloEngine/vendor/glm/glm/gtx/raw_data.inl"
+          "OloEngine/vendor/glm/glm/gtx/rotate_normalized_axis.hpp"
+          "OloEngine/vendor/glm/glm/gtx/rotate_normalized_axis.inl"
+          "OloEngine/vendor/glm/glm/gtx/rotate_vector.hpp"
+          "OloEngine/vendor/glm/glm/gtx/rotate_vector.inl"
+          "OloEngine/vendor/glm/glm/gtx/scalar_multiplication.hpp"
+          "OloEngine/vendor/glm/glm/gtx/scalar_relational.hpp"
+          "OloEngine/vendor/glm/glm/gtx/scalar_relational.inl"
+          "OloEngine/vendor/glm/glm/gtx/spline.hpp"
+          "OloEngine/vendor/glm/glm/gtx/spline.inl"
+          "OloEngine/vendor/glm/glm/gtx/std_based_type.hpp"
+          "OloEngine/vendor/glm/glm/gtx/std_based_type.inl"
+          "OloEngine/vendor/glm/glm/gtx/string_cast.hpp"
+          "OloEngine/vendor/glm/glm/gtx/string_cast.inl"
+          "OloEngine/vendor/glm/glm/gtx/texture.hpp"
+          "OloEngine/vendor/glm/glm/gtx/texture.inl"
+          "OloEngine/vendor/glm/glm/gtx/transform.hpp"
+          "OloEngine/vendor/glm/glm/gtx/transform.inl"
+          "OloEngine/vendor/glm/glm/gtx/transform2.hpp"
+          "OloEngine/vendor/glm/glm/gtx/transform2.inl"
+          "OloEngine/vendor/glm/glm/gtx/type_aligned.hpp"
+          "OloEngine/vendor/glm/glm/gtx/type_aligned.inl"
+          "OloEngine/vendor/glm/glm/gtx/type_trait.hpp"
+          "OloEngine/vendor/glm/glm/gtx/type_trait.inl"
+          "OloEngine/vendor/glm/glm/gtx/vec_swizzle.hpp"
+          "OloEngine/vendor/glm/glm/gtx/vector_angle.hpp"
+          "OloEngine/vendor/glm/glm/gtx/vector_angle.inl"
+          "OloEngine/vendor/glm/glm/gtx/vector_query.hpp"
+          "OloEngine/vendor/glm/glm/gtx/vector_query.inl"
+          "OloEngine/vendor/glm/glm/gtx/wrap.hpp"
+          "OloEngine/vendor/glm/glm/gtx/wrap.inl"
+        "OloEngine/vendor/glm/glm/integer.hpp"
+        "OloEngine/vendor/glm/glm/mat2x2.hpp"
+        "OloEngine/vendor/glm/glm/mat2x3.hpp"
+        "OloEngine/vendor/glm/glm/mat2x4.hpp"
+        "OloEngine/vendor/glm/glm/mat3x2.hpp"
+        "OloEngine/vendor/glm/glm/mat3x3.hpp"
+        "OloEngine/vendor/glm/glm/mat3x4.hpp"
+        "OloEngine/vendor/glm/glm/mat4x2.hpp"
+        "OloEngine/vendor/glm/glm/mat4x3.hpp"
+        "OloEngine/vendor/glm/glm/mat4x4.hpp"
+        "OloEngine/vendor/glm/glm/matrix.hpp"
+        "OloEngine/vendor/glm/glm/packing.hpp"
+        "OloEngine/vendor/glm/glm/trigonometric.hpp"
+        "OloEngine/vendor/glm/glm/vec2.hpp"
+        "OloEngine/vendor/glm/glm/vec3.hpp"
+        "OloEngine/vendor/glm/glm/vec4.hpp"
+        "OloEngine/vendor/glm/glm/vector_relational.hpp"
+      "OloEngine/vendor/stb_image/stb_image.cpp"
+      "OloEngine/vendor/stb_image/stb_image.h"
+)
+if(CMAKE_BUILD_TYPE STREQUAL Debug)
+  add_dependencies("OloEngine"
+    "GLFW"
+    "Glad"
+    "ImGui"
+    "yaml-cpp"
+  )
+  set_target_properties("OloEngine" PROPERTIES
+    OUTPUT_NAME "OloEngine"
+    ARCHIVE_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Debug-windows-x86_64/OloEngine"
+    LIBRARY_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Debug-windows-x86_64/OloEngine"
+    RUNTIME_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Debug-windows-x86_64/OloEngine"
+  )
+endif()
+target_include_directories("OloEngine" PRIVATE
+  $<$<CONFIG:Debug>:C:/Users/ole/source/repos/OloEngine/OloEngine/src>
+  $<$<CONFIG:Debug>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/spdlog/include>
+  $<$<CONFIG:Debug>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/GLFW/include>
+  $<$<CONFIG:Debug>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/Glad/include>
+  $<$<CONFIG:Debug>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/imgui>
+  $<$<CONFIG:Debug>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glm>
+  $<$<CONFIG:Debug>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/stb_image>
+  $<$<CONFIG:Debug>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/entt/include>
+  $<$<CONFIG:Debug>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/yaml-cpp/include>
+)
+target_compile_definitions("OloEngine" PRIVATE
+  $<$<CONFIG:Debug>:_CRT_SECURE_NO_WARNINGS>
+  $<$<CONFIG:Debug>:GLFW_INCLUDE_NONE>
+  $<$<CONFIG:Debug>:OLO_DEBUG>
+)
+target_link_directories("OloEngine" PRIVATE
+)
+target_link_libraries("OloEngine"
+  $<$<CONFIG:Debug>:GLFW>
+  $<$<CONFIG:Debug>:Glad>
+  $<$<CONFIG:Debug>:ImGui>
+  $<$<CONFIG:Debug>:yaml-cpp>
+  $<$<CONFIG:Debug>:opengl32.lib>
+)
+target_compile_options("OloEngine" PRIVATE
+  $<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:C>>:-m64>
+  $<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:C>>:-g>
+  $<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:CXX>>:-m64>
+  $<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:CXX>>:-g>
+  $<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:CXX>>:-std=c++20>
+)
+if(CMAKE_BUILD_TYPE STREQUAL Debug)
+  set_target_properties("OloEngine" PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED YES
+    CXX_EXTENSIONS NO
+    POSITION_INDEPENDENT_CODE False
+    INTERPROCEDURAL_OPTIMIZATION False
+  )
+endif()
+if(CMAKE_BUILD_TYPE STREQUAL Debug)
+target_precompile_headers("OloEngine" PUBLIC src/OloEnginePCH.h)
+endif()
+if(CMAKE_BUILD_TYPE STREQUAL Release)
+  add_dependencies("OloEngine"
+    "GLFW"
+    "Glad"
+    "ImGui"
+    "yaml-cpp"
+  )
+  set_target_properties("OloEngine" PROPERTIES
+    OUTPUT_NAME "OloEngine"
+    ARCHIVE_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Release-windows-x86_64/OloEngine"
+    LIBRARY_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Release-windows-x86_64/OloEngine"
+    RUNTIME_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Release-windows-x86_64/OloEngine"
+  )
+endif()
+target_include_directories("OloEngine" PRIVATE
+  $<$<CONFIG:Release>:C:/Users/ole/source/repos/OloEngine/OloEngine/src>
+  $<$<CONFIG:Release>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/spdlog/include>
+  $<$<CONFIG:Release>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/GLFW/include>
+  $<$<CONFIG:Release>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/Glad/include>
+  $<$<CONFIG:Release>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/imgui>
+  $<$<CONFIG:Release>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glm>
+  $<$<CONFIG:Release>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/stb_image>
+  $<$<CONFIG:Release>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/entt/include>
+  $<$<CONFIG:Release>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/yaml-cpp/include>
+)
+target_compile_definitions("OloEngine" PRIVATE
+  $<$<CONFIG:Release>:_CRT_SECURE_NO_WARNINGS>
+  $<$<CONFIG:Release>:GLFW_INCLUDE_NONE>
+  $<$<CONFIG:Release>:OLO_RELEASE>
+)
+target_link_directories("OloEngine" PRIVATE
+)
+target_link_libraries("OloEngine"
+  $<$<CONFIG:Release>:GLFW>
+  $<$<CONFIG:Release>:Glad>
+  $<$<CONFIG:Release>:ImGui>
+  $<$<CONFIG:Release>:yaml-cpp>
+  $<$<CONFIG:Release>:opengl32.lib>
+)
+target_compile_options("OloEngine" PRIVATE
+  $<$<AND:$<CONFIG:Release>,$<COMPILE_LANGUAGE:C>>:-m64>
+  $<$<AND:$<CONFIG:Release>,$<COMPILE_LANGUAGE:C>>:-O2>
+  $<$<AND:$<CONFIG:Release>,$<COMPILE_LANGUAGE:CXX>>:-m64>
+  $<$<AND:$<CONFIG:Release>,$<COMPILE_LANGUAGE:CXX>>:-O2>
+  $<$<AND:$<CONFIG:Release>,$<COMPILE_LANGUAGE:CXX>>:-std=c++20>
+)
+if(CMAKE_BUILD_TYPE STREQUAL Release)
+  set_target_properties("OloEngine" PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED YES
+    CXX_EXTENSIONS NO
+    POSITION_INDEPENDENT_CODE False
+    INTERPROCEDURAL_OPTIMIZATION False
+  )
+endif()
+if(CMAKE_BUILD_TYPE STREQUAL Release)
+target_precompile_headers("OloEngine" PUBLIC src/OloEnginePCH.h)
+endif()
+if(CMAKE_BUILD_TYPE STREQUAL Dist)
+  add_dependencies("OloEngine"
+    "GLFW"
+    "Glad"
+    "ImGui"
+    "yaml-cpp"
+  )
+  set_target_properties("OloEngine" PROPERTIES
+    OUTPUT_NAME "OloEngine"
+    ARCHIVE_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Dist-windows-x86_64/OloEngine"
+    LIBRARY_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Dist-windows-x86_64/OloEngine"
+    RUNTIME_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Dist-windows-x86_64/OloEngine"
+  )
+endif()
+target_include_directories("OloEngine" PRIVATE
+  $<$<CONFIG:Dist>:C:/Users/ole/source/repos/OloEngine/OloEngine/src>
+  $<$<CONFIG:Dist>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/spdlog/include>
+  $<$<CONFIG:Dist>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/GLFW/include>
+  $<$<CONFIG:Dist>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/Glad/include>
+  $<$<CONFIG:Dist>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/imgui>
+  $<$<CONFIG:Dist>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glm>
+  $<$<CONFIG:Dist>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/stb_image>
+  $<$<CONFIG:Dist>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/entt/include>
+  $<$<CONFIG:Dist>:C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/yaml-cpp/include>
+)
+target_compile_definitions("OloEngine" PRIVATE
+  $<$<CONFIG:Dist>:_CRT_SECURE_NO_WARNINGS>
+  $<$<CONFIG:Dist>:GLFW_INCLUDE_NONE>
+  $<$<CONFIG:Dist>:OLO_DIST>
+)
+target_link_directories("OloEngine" PRIVATE
+)
+target_link_libraries("OloEngine"
+  $<$<CONFIG:Dist>:GLFW>
+  $<$<CONFIG:Dist>:Glad>
+  $<$<CONFIG:Dist>:ImGui>
+  $<$<CONFIG:Dist>:yaml-cpp>
+  $<$<CONFIG:Dist>:opengl32.lib>
+)
+target_compile_options("OloEngine" PRIVATE
+  $<$<AND:$<CONFIG:Dist>,$<COMPILE_LANGUAGE:C>>:-m64>
+  $<$<AND:$<CONFIG:Dist>,$<COMPILE_LANGUAGE:C>>:-O2>
+  $<$<AND:$<CONFIG:Dist>,$<COMPILE_LANGUAGE:CXX>>:-m64>
+  $<$<AND:$<CONFIG:Dist>,$<COMPILE_LANGUAGE:CXX>>:-O2>
+  $<$<AND:$<CONFIG:Dist>,$<COMPILE_LANGUAGE:CXX>>:-std=c++20>
+)
+if(CMAKE_BUILD_TYPE STREQUAL Dist)
+  set_target_properties("OloEngine" PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED YES
+    CXX_EXTENSIONS NO
+    POSITION_INDEPENDENT_CODE False
+    INTERPROCEDURAL_OPTIMIZATION False
+  )
+endif()
+if(CMAKE_BUILD_TYPE STREQUAL Dist)
+target_precompile_headers("OloEngine" PUBLIC src/OloEnginePCH.h)
+endif()

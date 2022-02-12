@@ -1,0 +1,308 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+  </PropertyGroup>
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Dist|x64">
+      <Configuration>Dist</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{0688FC90-507A-3D96-86B9-83406081831C}</ProjectGuid>
+    <WindowsTargetPlatformVersion>10.0.20348.0</WindowsTargetPlatformVersion>
+    <Keyword>Win32Proj</Keyword>
+    <Platform>x64</Platform>
+    <ProjectName>ryml</ProjectName>
+    <VCProjectUpgraderObjectName>NoUpgrade</VCProjectUpgraderObjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Dist|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <_ProjectFileVersion>10.0.20506.1</_ProjectFileVersion>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-build\Debug\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">ryml.dir\Debug\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">ryml</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">.lib</TargetExt>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-build\Release\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">ryml.dir\Release\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">ryml</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='Release|x64'">.lib</TargetExt>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-build\Dist\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">ryml.dir\Dist\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">ryml</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">.lib</TargetExt>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <Optimization>Disabled</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
+      <UseFullPaths>false</UseFullPaths>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;CMAKE_INTDIR="Debug"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
+      <UseFullPaths>false</UseFullPaths>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;CMAKE_INTDIR="Release"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <DebugInformationFormat>
+      </DebugInformationFormat>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) -p</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
+      <UseFullPaths>false</UseFullPaths>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;CMAKE_INTDIR="Dist"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <DebugInformationFormat>
+      </DebugInformationFormat>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;CMAKE_INTDIR=\"Dist\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64 -p</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\CMakeLists.txt">
+      <UseUtf8Encoding>Always</UseUtf8Encoding>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Building Custom Rule C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/ryml-src/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/ole/source/repos/OloEngine -BC:/Users/ole/source/repos/OloEngine/build --check-stamp-file C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/ryml-build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Program Files\CMake\share\cmake-3.22\Modules\BasicConfigVersion-AnyNewerVersion.cmake.in;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeDependentOption.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakePackageConfigHelpers.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\WriteBasicConfigVersionFile.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-build\export_cases\cmake\rymlConfig.cmake.in;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\ConfigurationTypes.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\CreateSourceGroup.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\GetFlags.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\PVS-Studio.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\PrintVar.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\c4CatSources.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\c4Doxygen.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\c4GetTargetPropertyRecursive.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\c4Project.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\c4SanitizeTarget.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\c4StaticAnalysis.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-build\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Building Custom Rule C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/ryml-src/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/ole/source/repos/OloEngine -BC:/Users/ole/source/repos/OloEngine/build --check-stamp-file C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/ryml-build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Program Files\CMake\share\cmake-3.22\Modules\BasicConfigVersion-AnyNewerVersion.cmake.in;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeDependentOption.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakePackageConfigHelpers.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\WriteBasicConfigVersionFile.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-build\export_cases\cmake\rymlConfig.cmake.in;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\ConfigurationTypes.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\CreateSourceGroup.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\GetFlags.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\PVS-Studio.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\PrintVar.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\c4CatSources.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\c4Doxygen.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\c4GetTargetPropertyRecursive.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\c4Project.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\c4SanitizeTarget.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\c4StaticAnalysis.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-build\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">Building Custom Rule C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/ryml-src/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/ole/source/repos/OloEngine -BC:/Users/ole/source/repos/OloEngine/build --check-stamp-file C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/ryml-build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">C:\Program Files\CMake\share\cmake-3.22\Modules\BasicConfigVersion-AnyNewerVersion.cmake.in;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakeDependentOption.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\CMakePackageConfigHelpers.cmake;C:\Program Files\CMake\share\cmake-3.22\Modules\WriteBasicConfigVersionFile.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-build\export_cases\cmake\rymlConfig.cmake.in;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\ConfigurationTypes.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\CreateSourceGroup.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\GetFlags.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\PVS-Studio.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\PrintVar.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\c4CatSources.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\c4Doxygen.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\c4GetTargetPropertyRecursive.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\c4Project.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\c4SanitizeTarget.cmake;C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\cmake\c4StaticAnalysis.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-build\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\ryml.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\ryml_std.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\c4\yml\detail\checks.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\c4\yml\detail\parser_dbg.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\c4\yml\detail\print.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\c4\yml\detail\stack.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\c4\yml\common.hpp" />
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\c4\yml\common.cpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\c4\yml\emit.def.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\c4\yml\emit.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\c4\yml\export.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\c4\yml\node.hpp" />
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\c4\yml\node.cpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\c4\yml\parse.hpp" />
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\c4\yml\parse.cpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\c4\yml\preprocess.hpp" />
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\c4\yml\preprocess.cpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\c4\yml\std\map.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\c4\yml\std\std.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\c4\yml\std\string.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\c4\yml\std\vector.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\c4\yml\tree.hpp" />
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\c4\yml\tree.cpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\c4\yml\writer.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\c4\yml\yml.hpp" />
+    <Natvis Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\src\ryml.natvis">
+    </Natvis>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\allocator.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\base64.hpp" />
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\base64.cpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\blob.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\bitmask.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\charconv.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\c4_pop.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\c4_push.hpp" />
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\char_traits.cpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\char_traits.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\common.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\compiler.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\config.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\cpu.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\ctor_dtor.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\dump.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\enum.hpp" />
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\error.cpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\error.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\export.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\format.hpp" />
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\format.cpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\hash.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\language.hpp" />
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\language.cpp" />
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\memory_resource.cpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\memory_resource.hpp" />
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\memory_util.cpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\memory_util.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\platform.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\preprocessor.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\restrict.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\span.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\std\std.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\std\std_fwd.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\std\string.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\std\string_fwd.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\std\tuple.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\std\vector.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\std\vector_fwd.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\substr.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\substr_fwd.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\szconv.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\type_name.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\types.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\unrestrict.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\utf.hpp" />
+    <ClCompile Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\utf.cpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\windows.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\windows_pop.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\windows_push.hpp" />
+    <Natvis Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\c4core.natvis">
+    </Natvis>
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\ext\debugbreak\debugbreak.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\ext\rng\rng.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\ext\sg14\inplace_function.h" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\ext\fast_float.hpp" />
+    <ClInclude Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-src\ext\c4core\src\c4\ext\fast_float_all.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\build\ZERO_CHECK.vcxproj">
+      <Project>{14A5E1C8-1C93-3BCA-8A99-D064F48239E6}</Project>
+      <Name>ZERO_CHECK</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

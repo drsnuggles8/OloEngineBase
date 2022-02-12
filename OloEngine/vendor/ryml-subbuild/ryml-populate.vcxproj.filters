@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-subbuild\CMakeFiles\93d5e487677cc7ffc7d09192897475fe\ryml-populate-mkdir.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-subbuild\CMakeFiles\93d5e487677cc7ffc7d09192897475fe\ryml-populate-download.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-subbuild\CMakeFiles\93d5e487677cc7ffc7d09192897475fe\ryml-populate-update.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-subbuild\CMakeFiles\93d5e487677cc7ffc7d09192897475fe\ryml-populate-patch.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-subbuild\CMakeFiles\93d5e487677cc7ffc7d09192897475fe\ryml-populate-configure.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-subbuild\CMakeFiles\93d5e487677cc7ffc7d09192897475fe\ryml-populate-build.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-subbuild\CMakeFiles\93d5e487677cc7ffc7d09192897475fe\ryml-populate-install.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-subbuild\CMakeFiles\93d5e487677cc7ffc7d09192897475fe\ryml-populate-test.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-subbuild\CMakeFiles\89b074744a1d35a5805b57e57982aadd\ryml-populate-complete.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-subbuild\CMakeFiles\c29e04732a0b209f7f915efadd678826\ryml-populate.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-subbuild\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-subbuild\CMakeFiles\ryml-populate" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{A6011423-D533-3FA1-9BDB-A6FAC65BEF6F}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
