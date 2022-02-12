@@ -58,16 +58,21 @@ add_dependencies(OloEngine
 target_precompile_headers("OloEngine" PUBLIC src/OloEnginePCH.h)
 
 target_include_directories("OloEngine" PRIVATE
-  src
-  vendor/spdlog-src/include
-  vendor/glfw-src/include
- ${GLAD_OUT_DIR}/include
-  vendor/imgui-src
-  vendor/glm-src
-  vendor/stb_image-src
-  vendor/entt-src/single_include/entt
-  vendor/ryml-src/src
+	src
+	vendor/spdlog-src/include
+	vendor/glfw-src/include
+	{GLAD_OUT_DIR}/include
+	vendor/imgui-src
+	vendor/glm-src
+	vendor/stb_image-src
+	vendor/entt-src/single_include/entt
+	vendor/ryml-src/src
+	${imgui_SOURCE_DIR}
+	${imgui_SOURCE_DIR}/backends
+	${imgui_SOURCE_DIR}/examples
+	${gl3w_BINARY_DIR}/include
 )
+
 
 target_compile_definitions("OloEngine" PRIVATE
   _CRT_SECURE_NO_WARNINGS

@@ -68,6 +68,13 @@ FetchContent_Declare(
 	GIT_REPOSITORY https://github.com/ocornut/imgui.git
 	GIT_TAG docking
 )
+# Set where the ImGui files are stored
+set(IMGUI_PATH  "imgui-src")
+	
+# Compile as static library 
+file(GLOB IMGUI_SOURCES ${IMGUI_PATH}/*.cpp) 
+add_library("imgui" STATIC ${IMGUI_SOURCES})
+target_include_directories("imgui" PUBLIC ${IMGUI_PATH})
 FetchContent_MakeAvailable(imgui)
 message(STATUS "${Green} ImGui Should Be Downloaded ${ColourReset}")
 
@@ -102,9 +109,9 @@ file(
 COPY
 	${${libStbImage}_SOURCE_DIR}/stb_image.h
 DESTINATION
-	${CMAKE_CURRENT_BINARY_DIR}/_deps/installs/${libStbImage}/include/${libStbImage}
+	"${PROJECT_SOURCE_DIR}/vendor/stb_image-build/include/stb_image"
 )
-set(STBIMAGE_INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}/_deps/installs/${libStbImage})
+set(STBIMAGE_INSTALL_DIR "${PROJECT_SOURCE_DIR}/vendor/stb_image-build")
 message(STATUS "${Green} stb_image Should Be Downloaded ${ColourReset}")
 
 #======================================

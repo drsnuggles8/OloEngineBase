@@ -102,7 +102,7 @@
       <ProxyFileName>%(Filename)_p.c</ProxyFileName>
     </Midl>
     <Link>
-      <AdditionalDependencies>..\..\OloEngine\src\Debug\OloEngine.lib;..\..\..\OloEngine\vendor\glad-build\Debug\glad.lib;..\..\..\OloEngine\vendor\glfw-build\src\Debug\glfw3.lib;imgui.lib;opengl32.lib;..\..\..\OloEngine\vendor\ryml-build\Debug\ryml.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalDependencies>..\..\OloEngine\src\Debug\OloEngine.lib;..\..\..\OloEngine\vendor\glad-build\Debug\glad.lib;..\..\..\OloEngine\vendor\glfw-build\src\Debug\glfw3.lib;..\..\OloEngine\vendor\Debug\imgui.lib;opengl32.lib;..\..\..\OloEngine\vendor\ryml-build\Debug\ryml.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -148,7 +148,7 @@
       <ProxyFileName>%(Filename)_p.c</ProxyFileName>
     </Midl>
     <Link>
-      <AdditionalDependencies>..\..\OloEngine\src\Release\OloEngine.lib;..\..\..\OloEngine\vendor\glad-build\Release\glad.lib;..\..\..\OloEngine\vendor\glfw-build\src\Release\glfw3.lib;imgui.lib;opengl32.lib;..\..\..\OloEngine\vendor\ryml-build\Release\ryml.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalDependencies>..\..\OloEngine\src\Release\OloEngine.lib;..\..\..\OloEngine\vendor\glad-build\Release\glad.lib;..\..\..\OloEngine\vendor\glfw-build\src\Release\glfw3.lib;..\..\OloEngine\vendor\Release\imgui.lib;opengl32.lib;..\..\..\OloEngine\vendor\ryml-build\Release\ryml.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
       <GenerateDebugInformation>false</GenerateDebugInformation>
@@ -194,7 +194,7 @@
       <ProxyFileName>%(Filename)_p.c</ProxyFileName>
     </Midl>
     <Link>
-      <AdditionalDependencies>..\..\OloEngine\src\Dist\OloEngine.lib;..\..\..\OloEngine\vendor\glad-build\Dist\glad.lib;..\..\..\OloEngine\vendor\glfw-build\src\Dist\glfw3.lib;imgui.lib;opengl32.lib;..\..\..\OloEngine\vendor\ryml-build\Dist\ryml.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalDependencies>..\..\OloEngine\src\Dist\OloEngine.lib;..\..\..\OloEngine\vendor\glad-build\Dist\glad.lib;..\..\..\OloEngine\vendor\glfw-build\src\Dist\glfw3.lib;..\..\OloEngine\vendor\Dist\imgui.lib;opengl32.lib;..\..\..\OloEngine\vendor\ryml-build\Dist\ryml.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64 -p</AdditionalOptions>
       <GenerateDebugInformation>false</GenerateDebugInformation>
@@ -305,6 +305,10 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\glfw-build\src\glfw.vcxproj">
       <Project>{57999481-0ACA-3F57-BD93-7B063B018B80}</Project>
       <Name>glfw</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\build\OloEngine\vendor\imgui.vcxproj">
+      <Project>{EA2CB7C0-F77B-3209-822C-E06AAFC0BD33}</Project>
+      <Name>imgui</Name>
     </ProjectReference>
     <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-build\ryml.vcxproj">
       <Project>{0688FC90-507A-3D96-86B9-83406081831C}</Project>

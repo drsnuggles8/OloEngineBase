@@ -3,6 +3,7 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLTexture.h"
 
+#define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
 namespace OloEngine {

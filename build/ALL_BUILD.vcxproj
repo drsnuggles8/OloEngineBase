@@ -161,6 +161,10 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <Project>{57999481-0ACA-3F57-BD93-7B063B018B80}</Project>
       <Name>glfw</Name>
     </ProjectReference>
+    <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\build\OloEngine\vendor\imgui.vcxproj">
+      <Project>{EA2CB7C0-F77B-3209-822C-E06AAFC0BD33}</Project>
+      <Name>imgui</Name>
+    </ProjectReference>
     <ProjectReference Include="C:\Users\ole\source\repos\OloEngine\OloEngine\vendor\ryml-build\ryml.vcxproj">
       <Project>{0688FC90-507A-3D96-86B9-83406081831C}</Project>
       <Name>ryml</Name>
