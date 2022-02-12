@@ -17,8 +17,6 @@ add_subdirectory(vendor)
 add_subdirectory(src)
 
 set_target_properties(OloEngine PROPERTIES
-					  PROJECT_LABEL "Test LABEL"
-					  FOLDER "OloEngine"
 					  CXX_STANDARD 20
 					  CXX_STANDARD_REQUIRED YES
 					  CXX_EXTENSIONS NO
@@ -33,32 +31,15 @@ set_target_properties(OloEngine PROPERTIES
 # FIX THIS SECTION, COMBINE SHIT AND STUFF
 
 #[[
-if(CMAKE_BUILD_TYPE STREQUAL Debug)
-  set_target_properties("OloEngine" PROPERTIES
-	OUTPUT_NAME "OloEngine"
-	ARCHIVE_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Debug-windows-x86_64/OloEngine"
-	LIBRARY_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Debug-windows-x86_64/OloEngine"
-	RUNTIME_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Debug-windows-x86_64/OloEngine"
-  )
-endif()
-if(CMAKE_BUILD_TYPE STREQUAL Release)
-  set_target_properties("OloEngine" PROPERTIES
-	OUTPUT_NAME "OloEngine"
-	ARCHIVE_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Release-windows-x86_64/OloEngine"
-	LIBRARY_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Release-windows-x86_64/OloEngine"
-	RUNTIME_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Release-windows-x86_64/OloEngine"
-  )
-endif()
-if(CMAKE_BUILD_TYPE STREQUAL Dist)
-  set_target_properties("OloEngine" PROPERTIES
-	OUTPUT_NAME "OloEngine"
-	ARCHIVE_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Dist-windows-x86_64/OloEngine"
-	LIBRARY_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Dist-windows-x86_64/OloEngine"
-	RUNTIME_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Dist-windows-x86_64/OloEngine"
-  )
-endif()
+set_target_properties("OloEngine" PROPERTIES
+					OUTPUT_NAME "OloEngine"
+					ARCHIVE_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Debug-windows-x86_64/OloEngine"
+					LIBRARY_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Debug-windows-x86_64/OloEngine"
+					RUNTIME_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Debug-windows-x86_64/OloEngine"
+)
+]]
 
-
+#[[
 # Set output directories for all builds
 foreach(OUTPUTCONFIG ${CMAKE_CONFIGURATION_TYPES})
 	string(TOUPPER ${OUTPUTCONFIG} OUTPUTCONFIG)
@@ -66,21 +47,6 @@ foreach(OUTPUTCONFIG ${CMAKE_CONFIGURATION_TYPES})
 	set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${OUTPUTCONFIG} ${CMAKE_SOURCE_DIR}/lib )
 	set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${OUTPUTCONFIG} ${CMAKE_SOURCE_DIR}/bin )
 endforeach( OUTPUTCONFIG CMAKE_CONFIGURATION_TYPES )
-
-
-include(GNUInstallDirs)
-if(NOT CMAKE_RUNTIME_OUTPUT_DIRECTORY)
-	set(CMAKE_RUNTIME_OUTPUT_DIRECTORY
-		${CMAKE_CURRENT_BINARY_DIR}/stage/${CMAKE_INSTALL_BINDIR})
-endif()
-if(NOT CMAKE_LIBRARY_OUTPUT_DIRECTORY)
-	set(CMAKE_LIBRARY_OUTPUT_DIRECTORY
-		${CMAKE_CURRENT_BINARY_DIR}/stage/${CMAKE_INSTALL_LIBDIR})
-endif()
-if(NOT CMAKE_ARCHIVE_OUTPUT_DIRECTORY)
-	set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY
-		${CMAKE_CURRENT_BINARY_DIR}/stage/${CMAKE_INSTALL_LIBDIR})
-endif()
 ]]
 
 # C:\Users\ole\source\repos\OloEngine\build\OloEngine\src\Release\ 

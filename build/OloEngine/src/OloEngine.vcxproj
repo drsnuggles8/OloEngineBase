@@ -22,7 +22,7 @@
     <WindowsTargetPlatformVersion>10.0.20348.0</WindowsTargetPlatformVersion>
     <Keyword>Win32Proj</Keyword>
     <Platform>x64</Platform>
-    <ProjectName>Test LABEL</ProjectName>
+    <ProjectName>OloEngine</ProjectName>
     <VCProjectUpgraderObjectName>NoUpgrade</VCProjectUpgraderObjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -50,15 +50,15 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
     <_ProjectFileVersion>10.0.20506.1</_ProjectFileVersion>
-    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\build\OloEngine\src\Debug\</OutDir>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\ole\source\repos\OloEngine\bin\Release-windows-x86_64\OloEngine\Debug\</OutDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">OloEngine.dir\Debug\</IntDir>
     <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">OloEngine</TargetName>
     <TargetExt Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">.lib</TargetExt>
-    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\build\OloEngine\src\Release\</OutDir>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\ole\source\repos\OloEngine\bin\Release-windows-x86_64\OloEngine\Release\</OutDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">OloEngine.dir\Release\</IntDir>
     <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">OloEngine</TargetName>
     <TargetExt Condition="'$(Configuration)|$(Platform)'=='Release|x64'">.lib</TargetExt>
-    <OutDir Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">C:\Users\ole\source\repos\OloEngine\build\OloEngine\src\Dist\</OutDir>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">C:\Users\ole\source\repos\OloEngine\bin\Release-windows-x86_64\OloEngine\Dist\</OutDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">OloEngine.dir\Dist\</IntDir>
     <TargetName Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">OloEngine</TargetName>
     <TargetExt Condition="'$(Configuration)|$(Platform)'=='Dist|x64'">.lib</TargetExt>
