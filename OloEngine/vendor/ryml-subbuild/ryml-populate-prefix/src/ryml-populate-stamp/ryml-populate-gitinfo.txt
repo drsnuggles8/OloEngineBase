@@ -1,3 +1,0 @@
-repository='https://github.com/biojppm/rapidyaml.git'
-module=''
-tag='origin'
