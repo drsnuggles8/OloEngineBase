@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glm-subbuild/CMakeFiles/glm-populate"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glm-subbuild/CMakeFiles/1f71f559feb607c923272028bb1453eb/glm-populate.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glm-subbuild/CMakeFiles/dda288283195170ba97dc5f80e8769b7/glm-populate-complete.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glm-subbuild/CMakeFiles/56cd7cd98d76e38f29eb16f0f7c47131/glm-populate-build.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glm-subbuild/CMakeFiles/56cd7cd98d76e38f29eb16f0f7c47131/glm-populate-configure.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glm-subbuild/CMakeFiles/56cd7cd98d76e38f29eb16f0f7c47131/glm-populate-download.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glm-subbuild/CMakeFiles/56cd7cd98d76e38f29eb16f0f7c47131/glm-populate-install.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glm-subbuild/CMakeFiles/56cd7cd98d76e38f29eb16f0f7c47131/glm-populate-mkdir.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glm-subbuild/CMakeFiles/56cd7cd98d76e38f29eb16f0f7c47131/glm-populate-patch.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glm-subbuild/CMakeFiles/56cd7cd98d76e38f29eb16f0f7c47131/glm-populate-test.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glm-subbuild/CMakeFiles/56cd7cd98d76e38f29eb16f0f7c47131/glm-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"glm-populate"
+		],
+		"name" : "glm-populate"
+	}
+}

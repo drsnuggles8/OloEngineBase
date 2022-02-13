@@ -5,3 +5,7 @@ add_library(OloEngine STATIC
 		${source}
 		${header}
 )
+
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}
+			FILES ${source} ${header}
+)

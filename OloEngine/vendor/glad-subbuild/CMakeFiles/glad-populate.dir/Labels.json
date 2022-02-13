@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glad-subbuild/CMakeFiles/glad-populate"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glad-subbuild/CMakeFiles/2b1ea1a7681eb495f140592d3541862a/glad-populate.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glad-subbuild/CMakeFiles/0590eb908bf4fcef7fe663812f44a7ac/glad-populate-complete.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glad-subbuild/CMakeFiles/477eb9dfa8537a3e4be882ef8d4483d9/glad-populate-build.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glad-subbuild/CMakeFiles/477eb9dfa8537a3e4be882ef8d4483d9/glad-populate-configure.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glad-subbuild/CMakeFiles/477eb9dfa8537a3e4be882ef8d4483d9/glad-populate-download.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glad-subbuild/CMakeFiles/477eb9dfa8537a3e4be882ef8d4483d9/glad-populate-install.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glad-subbuild/CMakeFiles/477eb9dfa8537a3e4be882ef8d4483d9/glad-populate-mkdir.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glad-subbuild/CMakeFiles/477eb9dfa8537a3e4be882ef8d4483d9/glad-populate-patch.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glad-subbuild/CMakeFiles/477eb9dfa8537a3e4be882ef8d4483d9/glad-populate-test.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glad-subbuild/CMakeFiles/477eb9dfa8537a3e4be882ef8d4483d9/glad-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"glad-populate"
+		],
+		"name" : "glad-populate"
+	}
+}

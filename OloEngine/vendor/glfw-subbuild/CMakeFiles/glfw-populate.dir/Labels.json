@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glfw-subbuild/CMakeFiles/glfw-populate"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glfw-subbuild/CMakeFiles/2a0c837878d16fb4d354004cde844f1a/glfw-populate.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glfw-subbuild/CMakeFiles/13c0b9c46cbfa2d5849a29596cb1bf68/glfw-populate-complete.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glfw-subbuild/CMakeFiles/dddf330c18281d9b46f57835e2f255dd/glfw-populate-build.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glfw-subbuild/CMakeFiles/dddf330c18281d9b46f57835e2f255dd/glfw-populate-configure.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glfw-subbuild/CMakeFiles/dddf330c18281d9b46f57835e2f255dd/glfw-populate-download.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glfw-subbuild/CMakeFiles/dddf330c18281d9b46f57835e2f255dd/glfw-populate-install.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glfw-subbuild/CMakeFiles/dddf330c18281d9b46f57835e2f255dd/glfw-populate-mkdir.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glfw-subbuild/CMakeFiles/dddf330c18281d9b46f57835e2f255dd/glfw-populate-patch.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glfw-subbuild/CMakeFiles/dddf330c18281d9b46f57835e2f255dd/glfw-populate-test.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glfw-subbuild/CMakeFiles/dddf330c18281d9b46f57835e2f255dd/glfw-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"glfw-populate"
+		],
+		"name" : "glfw-populate"
+	}
+}

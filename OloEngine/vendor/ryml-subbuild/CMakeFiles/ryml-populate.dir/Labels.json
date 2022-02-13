@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/ryml-subbuild/CMakeFiles/ryml-populate"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/ryml-subbuild/CMakeFiles/c29e04732a0b209f7f915efadd678826/ryml-populate.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/ryml-subbuild/CMakeFiles/89b074744a1d35a5805b57e57982aadd/ryml-populate-complete.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/ryml-subbuild/CMakeFiles/93d5e487677cc7ffc7d09192897475fe/ryml-populate-build.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/ryml-subbuild/CMakeFiles/93d5e487677cc7ffc7d09192897475fe/ryml-populate-configure.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/ryml-subbuild/CMakeFiles/93d5e487677cc7ffc7d09192897475fe/ryml-populate-download.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/ryml-subbuild/CMakeFiles/93d5e487677cc7ffc7d09192897475fe/ryml-populate-install.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/ryml-subbuild/CMakeFiles/93d5e487677cc7ffc7d09192897475fe/ryml-populate-mkdir.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/ryml-subbuild/CMakeFiles/93d5e487677cc7ffc7d09192897475fe/ryml-populate-patch.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/ryml-subbuild/CMakeFiles/93d5e487677cc7ffc7d09192897475fe/ryml-populate-test.rule"
+		},
+		{
+			"file" : "C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/ryml-subbuild/CMakeFiles/93d5e487677cc7ffc7d09192897475fe/ryml-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"ryml-populate"
+		],
+		"name" : "ryml-populate"
+	}
+}
