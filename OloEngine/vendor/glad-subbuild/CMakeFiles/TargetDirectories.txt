@@ -1,3 +1,0 @@
-C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glad-subbuild/CMakeFiles/glad-populate.dir
-C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glad-subbuild/CMakeFiles/ALL_BUILD.dir
-C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glad-subbuild/CMakeFiles/ZERO_CHECK.dir
