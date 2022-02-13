@@ -138,6 +138,9 @@ CMAKE_EXE_LINKER_FLAGS_RELEASE:STRING=/INCREMENTAL:NO
 CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO:STRING=/debug /INCREMENTAL
 
 //No help, variable specified on the command line.
+CMAKE_EXPORT_COMPILE_COMMANDS:BOOL=TRUE
+
+//No help, variable specified on the command line.
 CMAKE_GENERATOR_PLATFORM:UNINITIALIZED=x64
 
 //User executables (bin)
