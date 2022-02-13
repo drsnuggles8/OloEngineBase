@@ -1,4 +1,5 @@
 ﻿cmake_minimum_required(VERSION 3.16)
+include(CMakePrintHelpers)
 
 message(STATUS "CMake version: ${CMAKE_VERSION}")
 
@@ -21,3 +22,5 @@ set_property(GLOBAL PROPERTY USE_FOLDERS YES)
 add_subdirectory(OloEngine)
 add_subdirectory(OloEditor)
 add_subdirectory(Sandbox)
+
+set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT "OloEditor")

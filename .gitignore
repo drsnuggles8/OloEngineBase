@@ -99,6 +99,10 @@ StyleCopReport.xml
 *.pidb
 *.svclog
 *.scc
+**/.DS_Store
+*.slo
+*.lo
+*.o
 
 # Chutzpah Test files
 _Chutzpah*
@@ -398,3 +402,54 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+**/cmake-build-debug
+**/CMakeCache.txt
+**/cmake_install.cmake
+**/install_manifest.txt
+**/CMakeFiles/
+**/CTestTestfile.cmake
+**/Makefile
+**/*.cbp
+**/CMakeScripts
+**/compile_commands.json
+
+include/divisible/*
+
+## Local 
+
+.idea/*.xml
+build/**/*
+include/*
+lib/*
+bin/*
+test/test_runner
+
+# Don't upload vendor folder, except for the CMakeLists.txt
+!/vendor/
+/vendor/*
+!/vendor/CMakeLists.txt
