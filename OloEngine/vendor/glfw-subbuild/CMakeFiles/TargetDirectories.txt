@@ -1,3 +1,0 @@
-C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glfw-subbuild/CMakeFiles/glfw-populate.dir
-C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glfw-subbuild/CMakeFiles/ALL_BUILD.dir
-C:/Users/ole/source/repos/OloEngine/OloEngine/vendor/glfw-subbuild/CMakeFiles/ZERO_CHECK.dir
