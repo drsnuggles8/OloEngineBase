@@ -450,6 +450,6 @@ bin/*
 test/test_runner
 
 # Don't upload vendor folder, except for the CMakeLists.txt
-!/vendor/
-/vendor/*
-!/vendor/CMakeLists.txt
+!OloEngine/vendor/
+OloEngine/vendor/*
+!OloEngine//vendor/CMakeLists.txt
