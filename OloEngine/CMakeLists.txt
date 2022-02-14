@@ -1,4 +1,4 @@
-﻿include(../cmake/SetupConfigurations.cmake)
+﻿include(CMakePrintHelpers)
 
 project(OloEngine
 		LANGUAGES CXX)
@@ -24,30 +24,17 @@ set_target_properties(OloEngine PROPERTIES
 					  INTERPROCEDURAL_OPTIMIZATION False
 )
 
-# Rather than referring to CMAKE_BUILD_TYPE in
-# the CMakeLists.txt file, projects should instead use other more robust alternative techniques, such
-# as generator expressions based on $<CONFIG:…>
-# NOT SURE IF THIS WHOLE SHIT IS EVEN NEEDED
-# FIX THIS SECTION, COMBINE SHIT AND STUFF
-
-#[[
 set_target_properties("OloEngine" PROPERTIES
-					OUTPUT_NAME "OloEngine"
-					ARCHIVE_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Debug-windows-x86_64/OloEngine"
-					LIBRARY_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Debug-windows-x86_64/OloEngine"
-					RUNTIME_OUTPUT_DIRECTORY "C:/Users/ole/source/repos/OloEngine/bin/Debug-windows-x86_64/OloEngine"
+					ARCHIVE_OUTPUT_DIRECTORY_DEBUG ${CMAKE_SOURCE_DIR}/bin/Debug/OloEngine
+					ARCHIVE_OUTPUT_DIRECTORY_RELEASE ${CMAKE_SOURCE_DIR}/bin/Release/OloEngine
+					ARCHIVE_OUTPUT_DIRECTORY_DIST ${CMAKE_SOURCE_DIR}/bin/Dist/OloEngine
+					LIBRARY_OUTPUT_DIRECTORY_DEBUG ${CMAKE_SOURCE_DIR}/bin/Debug/OloEngine
+					LIBRARY_OUTPUT_DIRECTORY_RELEASE ${CMAKE_SOURCE_DIR}/bin/Release/OloEngine
+					LIBRARY_OUTPUT_DIRECTORY_DIST ${CMAKE_SOURCE_DIR}/bin/Dist/OloEngine
+					RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_SOURCE_DIR}/bin/Debug/OloEngine
+					RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_SOURCE_DIR}/bin/Release/OloEngine
+					RUNTIME_OUTPUT_DIRECTORY_DIST ${CMAKE_SOURCE_DIR}/bin/Dist/OloEngine
 )
-]]
-
-#[[
-# Set output directories for all builds
-foreach(OUTPUTCONFIG ${CMAKE_CONFIGURATION_TYPES})
-	string(TOUPPER ${OUTPUTCONFIG} OUTPUTCONFIG)
-	set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${OUTPUTCONFIG} ${CMAKE_SOURCE_DIR}/lib )
-	set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${OUTPUTCONFIG} ${CMAKE_SOURCE_DIR}/lib )
-	set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${OUTPUTCONFIG} ${CMAKE_SOURCE_DIR}/bin )
-endforeach( OUTPUTCONFIG CMAKE_CONFIGURATION_TYPES )
-]]
 
 add_dependencies(OloEngine
 				glfw
@@ -61,37 +48,24 @@ target_include_directories("OloEngine" PRIVATE
 	src
 	vendor/spdlog-src/include
 	vendor/glfw-src/include
-	{GLAD_OUT_DIR}/include
+	${GLAD_OUT_DIR}/include
 	vendor/imgui-src
+	vendor/imgui-src/backends
+	vendor/imgui-src/examples
 	vendor/glm-src
 	vendor/stb_image-src
 	vendor/entt-src/single_include/entt
-	vendor/ryml-src/src
-	${imgui_SOURCE_DIR}
-	${imgui_SOURCE_DIR}/backends
-	${imgui_SOURCE_DIR}/examples
+	vendor/ryml-src/src	
 	${gl3w_BINARY_DIR}/include
 )
 
-
 target_compile_definitions("OloEngine" PRIVATE
-  _CRT_SECURE_NO_WARNINGS
-  GLFW_INCLUDE_NONE
-  $<$<CONFIG:Debug>:OLO_DEBUG>
-  $<$<CONFIG:Release>:OLO_RELEASE>
-  $<$<CONFIG:Dist>:OLO_DIST>
+							_CRT_SECURE_NO_WARNINGS
+							GLFW_INCLUDE_NONE
+							$<$<CONFIG:Debug>:OLO_DEBUG>
+							$<$<CONFIG:Release>:OLO_RELEASE>
+							$<$<CONFIG:Dist>:OLO_DIST>
 )
-
-target_compile_options("OloEngine" PRIVATE
-  $<$<COMPILE_LANGUAGE:C>:-m64>
-  $<$<COMPILE_LANGUAGE:C>:-g>
-  $<$<COMPILE_LANGUAGE:CXX>:-m64>
-  $<$<COMPILE_LANGUAGE:CXX>:-g>
-  $<$<COMPILE_LANGUAGE:CXX>:-std=c++20>
-)
-
-#target_link_directories("OloEngine" PRIVATE)
-
 
 target_link_libraries(OloEngine
 					  glad

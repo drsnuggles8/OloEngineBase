@@ -1,10 +1,9 @@
 ﻿cmake_minimum_required(VERSION 3.16)
-include(CMakePrintHelpers)
 
 message(STATUS "CMake version: ${CMAKE_VERSION}")
 
 project(OloEngineBase
-        LANGUAGES CXX)
+        LANGUAGES CXX C)
 
 set(OloEngineBase_VERSION_MAJOR 0)
 set(OloEngineBase_VERSION_MINOR 0)
@@ -12,11 +11,15 @@ set(OloEngineBase_VERSION_PATCH 1)
 set(OloEngineBase_VERSION ${OloEngineBase_VERSION_MAJOR}.${OloEngineBase_VERSION_MINOR}.${OloEngineBase_VERSION_PATCH})
 
 # Project wide setup
+include(cmake/SetupConfigurations.cmake)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED YES)
 set(CMAKE_CXX_EXTENSIONS NO)
 set_property(GLOBAL PROPERTY USE_FOLDERS YES)
+
+# SET THE BELOW TO OFF IF YOU WANT TO DOWNLOAD ALL DEPENDENCIES
+set(FETCHCONTENT_FULLY_DISCONNECTED ON)
 
 # Main targets built by this project
 add_subdirectory(OloEngine)

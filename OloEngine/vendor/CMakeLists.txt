@@ -2,6 +2,7 @@ include(FetchContent)
 set(FETCHCONTENT_QUIET off)
 set(FETCHCONTENT_BASE_DIR ${PROJECT_SOURCE_DIR}/vendor CACHE PATH "Missing description." FORCE)
 
+
 message(STATUS "Fetching third party libraries")
 
 # Declare all the dependency details first in case any dependency wants
@@ -72,9 +73,18 @@ FetchContent_Declare(
 set(IMGUI_PATH  "imgui-src")
 	
 # Compile as static library 
-file(GLOB IMGUI_SOURCES ${IMGUI_PATH}/*.cpp) 
-add_library("imgui" STATIC ${IMGUI_SOURCES})
-target_include_directories("imgui" PUBLIC ${IMGUI_PATH})
+file(GLOB IMGUI_SOURCES ${IMGUI_PATH}/*.cpp)
+file(GLOB IMGUI_HEADERS ${IMGUI_PATH}/*.h)  
+add_library("imgui" STATIC ${IMGUI_SOURCES} ${IMGUI_HEADERS} "${IMGUI_PATH}/backends/imgui_impl_opengl3.cpp" "${IMGUI_PATH}/backends/imgui_impl_opengl3.h" "${IMGUI_PATH}/backends/imgui_impl_opengl3_loader.h")
+target_compile_definitions("imgui" PRIVATE IMGUI_IMPL_OPENGL_LOADER_GLAD=1)
+target_include_directories("imgui" PUBLIC ${IMGUI_PATH} "glfw-src/include" "glad-build/include")
+set_target_properties("imgui"
+    PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
+    LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
+    RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
+)
+
 FetchContent_MakeAvailable(imgui)
 message(STATUS "${Green} ImGui Should Be Downloaded ${ColourReset}")
 
