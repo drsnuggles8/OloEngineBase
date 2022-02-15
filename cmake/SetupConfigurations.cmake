@@ -17,7 +17,7 @@ if(NOT SET_UP_CONFIGURATIONS_DONE)
             message(FATAL_ERROR "Invalid build type: ${CMAKE_BUILD_TYPE}")
         endif()
     endif()
-    # now set up the Dist configuration, basically just a copy of RELEASE for now
+    # now set up the Dist configuration, basically just a copy of RELEASE for now..could add more stuff later
     set(CMAKE_C_FLAGS_DIST
         "${CMAKE_C_FLAGS_RELEASE} -p" CACHE STRING "")
     set(CMAKE_CXX_FLAGS_DIST
