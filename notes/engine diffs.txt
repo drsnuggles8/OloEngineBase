@@ -1,0 +1,13 @@
+1. OpenGLShader.cpp uses std::filesystem, I like mine more
+2. VertexArray.h has destructor with = default, I like mine more
+3. My Renderer2D.cpp uses CreateScope instead of new and delete, I like mine more
+4. My ImGuiLayer.cpp uses static_cast instead of c-style cast, I like mine more
+5. My Event.h doesn't have the PCH, but includes the needed stuff directly
+6. My Window.h doesn't include PCH
+7. My Application.cpp uses static_cast instead of c-style cast, I like mine more
+
+1. Application.cpp: static_cast instead of c-style cast
+2. ImGuiLayer.cpp: statuc_cast instead of c-style cast
+3. Renderer2D.cpp: Scope instead of new
+4. OpenGLShader.cpp: filesystem instead of manual shit
+5. WindowsWindow.cpp: 

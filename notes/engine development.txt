@@ -1,0 +1,37 @@
+Game engine - what things to we need?:
+1. Entry point - what control what code gets executed in the main function (of the game)? when we launch our game, what happens, and what controls what happens? 
+2. Application Layer - our run loop, what keeps the time going, event handling, windows being closed/resized, mouse & keyboard input
+3. Window Layer - OpenGL needs a window, it's the target for all the graphics. certain layers can subscribe to events, and they get notified by the application layer / event handler
+4. Renderer - the renderer that creates the graphics (usually once per frame). this is the biggest and most complicated part of the system. we won't build this first, we first plan around it.
+5. Render API abstraction - we support multiple rendering APIs (openGL, vulkan, ..)
+6. Debugging support, logging system, profiling system
+7. scripting support (lua, xml, etc.)
+8. Memory system - custom allocators. popular to use EnTT, also Flecs
+9. entity compononent system (ECS) - a way to be able to create game objects, include certain components, so that we can define behavior of how the engine deals with it
+10. Physics
+11. File IO, VFS
+12. Build system
+
+Approach: first, include libraries, then think about replacing them with other libraries, or adding my own stuff
+
+Choices so far:
+1. SPDLOG for logging
+2. Premake to create builds:
+Learn CMake so we can replace the Premake5 stuff?
+
+3. the way the event handler is set up (no buffer/queue, just straight up blocked) is not what I like, look into alternative setups and compare..
+Definitely a ToDo for later, think about adding that SafeQueue from stackexchange, and if there's something that actual needs a real event system, we can do something cooler there
+Actually might not even be necessary, it's fast at handling events and simple, not that many events coming through that thing..yet
+
+4. Window manager thing: GLFW
+Discussion on alternatives: https://www.reddit.com/r/opengl/comments/2r7n0u/glfw_or_sdl_alternatives/
+SDL sounds pretty good, and there's premake5 examples on github (https://github.com/SpookyScaryDev/SDL2)
+SFML works too
+or, we use non-multi-platform systems..e.g., Windows window manager
+
+5. Render API: OpenGL, very easy to learn..Vulkan is difficult
+
+6. connection to OpenGL - GLAD, alternative: GLUE?
+Should probably update this to glad2, then we have vulkan support too..yay
+
+7. GLM for Math, Alternatives: Armadillo, Blaze

@@ -157,7 +157,7 @@ namespace OloEngine {
 
 		// Note the different functions here: glGetProgram* instead of glGetShader*.
 		GLint isLinked = 0;
-		glGetProgramiv(program, GL_LINK_STATUS, (int*)&isLinked);
+		glGetProgramiv(program, GL_LINK_STATUS, &isLinked);
 		if (isLinked == GL_FALSE)
 		{
 			GLint maxLength = 0;
@@ -165,7 +165,7 @@ namespace OloEngine {
 
 			// The maxLength includes the NULL character
 			std::vector<GLchar> infoLog(maxLength);
-			glGetProgramInfoLog(program, maxLength, &maxLength, &infoLog[0]);
+			glGetProgramInfoLog(program, maxLength, &maxLength, infoLog.data());
 
 			// We don't need the program anymore.
 			glDeleteProgram(program);
@@ -175,7 +175,6 @@ namespace OloEngine {
 
 			OLO_CORE_ERROR("{0}", infoLog.data());
 			OLO_CORE_ASSERT(false, "Shader link failure!");
-			return;
 		}
 
 		for (auto id : glShaderIDs)
