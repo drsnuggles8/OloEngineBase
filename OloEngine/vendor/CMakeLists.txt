@@ -13,6 +13,13 @@ FetchContent_Declare(
 	)
 FetchContent_MakeAvailable(entt)
 message(STATUS "${Green} entt Should Be Downloaded ${ColourReset}")
+
+FetchContent_Declare(
+	yaml-cpp
+	GIT_REPOSITORY https://github.com/jbeder/yaml-cpp/
+	)
+FetchContent_MakeAvailable(yaml-cpp)
+message(STATUS "${Green} yaml-cpp Should Be Downloaded ${ColourReset}")
 	
 FetchContent_Declare(
 	glad
@@ -79,22 +86,13 @@ add_library("imgui" STATIC ${IMGUI_SOURCES} ${IMGUI_HEADERS} "${IMGUI_PATH}/back
 target_compile_definitions("imgui" PRIVATE IMGUI_IMPL_OPENGL_LOADER_GLAD=1)
 target_include_directories("imgui" PUBLIC ${IMGUI_PATH} "glfw-src/include" "glad-build/include")
 set_target_properties("imgui"
-    PROPERTIES
-    ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
-    LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
-    RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
+	PROPERTIES
+	ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
+	LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
+	RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
 )
-
 FetchContent_MakeAvailable(imgui)
 message(STATUS "${Green} ImGui Should Be Downloaded ${ColourReset}")
-
-FetchContent_Declare(ryml
-	GIT_REPOSITORY https://github.com/biojppm/rapidyaml.git
-	GIT_TAG master
-	GIT_SHALLOW FALSE  # ensure submodules are checked out
-)
-FetchContent_MakeAvailable(ryml)
-message(STATUS "${Green} ryml Should Be Downloaded ${ColourReset}")
 
 FetchContent_Declare(spdlog
 	GIT_REPOSITORY https://github.com/gabime/spdlog.git
@@ -124,10 +122,10 @@ DESTINATION
 set(STBIMAGE_INSTALL_DIR "${PROJECT_SOURCE_DIR}/vendor/stb_image-build")
 message(STATUS "${Green} stb_image Should Be Downloaded ${ColourReset}")
 
-set_target_properties(ryml PROPERTIES FOLDER "Utilities/ryml")
-set_target_properties(ryml-uninstall PROPERTIES FOLDER "Utilities/ryml")
-set_target_properties(c4core PROPERTIES FOLDER "Utilities/ryml")
-set_target_properties(c4core-amalgamate PROPERTIES FOLDER "Utilities/ryml")
+set_target_properties("yaml-cpp" PROPERTIES FOLDER "Utilities/yaml")
+set_target_properties("yaml-cpp-parse" PROPERTIES FOLDER "Utilities/yaml")
+set_target_properties("yaml-cpp-read" PROPERTIES FOLDER "Utilities/yaml")
+set_target_properties("yaml-cpp-sandbox" PROPERTIES FOLDER "Utilities/yaml")
 set_target_properties(aob PROPERTIES FOLDER "Utilities/entt")
 set_target_properties(glad PROPERTIES FOLDER "Utilities/glad")
 set_target_properties(glad-generate-files PROPERTIES FOLDER "Utilities/glad")

@@ -1,6 +1,4 @@
-﻿include(CMakePrintHelpers)
-
-project(OloEngine
+﻿project(OloEngine
 		LANGUAGES CXX)
 
 set(OloEngine_VERSION_MAJOR 0)
@@ -31,7 +29,7 @@ set_target_properties(OloEngine PROPERTIES
 add_dependencies(OloEngine
 				glfw
 				glad
-				ryml
+				yaml-cpp
 )
 
 target_precompile_headers("OloEngine" PUBLIC src/OloEnginePCH.h)
@@ -47,7 +45,7 @@ target_include_directories("OloEngine" PRIVATE
 	vendor/glm-src
 	vendor/stb_image-src
 	vendor/entt-src/single_include/entt
-	vendor/ryml-src/src	
+	vendor/yaml-cpp-src/include
 	${gl3w_BINARY_DIR}/include
 )
 
@@ -61,9 +59,9 @@ target_compile_definitions("OloEngine" PRIVATE
 
 if(MSVC)
 	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-	target_compile_definitions("OloEngine" PRIVATE /W4)
+	target_compile_options("OloEngine" PRIVATE /W4)
 else()
-	target_compile_definitions("OloEngine" PRIVATE -Wall -Wextra -pedantic)
+	target_compile_options("OloEngine" PRIVATE -Wall -Wextra -pedantic)
 endif()
 
 target_link_libraries(OloEngine
@@ -71,6 +69,6 @@ target_link_libraries(OloEngine
 					  glfw
 					  imgui
 					  opengl32.lib
-					  ryml
+					  yaml-cpp
 					  stb_image
 )
