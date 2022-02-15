@@ -1,6 +1,6 @@
 # OloEngine
 
-OloEngine is primarily an early-stage interactive application and rendering engine for Windows based on [Hazel](https://github.com/TheCherno/Hazel/) 
+OloEngine is primarily an early-stage interactive application and rendering engine for Windows based on [Hazel](https://github.com/TheCherno/Hazel/).
 
 ## Getting Started
 Visual Studio 2022 is recommended, OloEngine is officially untested on other development environments whilst we focus on a Windows build.
@@ -14,7 +14,7 @@ Alternatively, you can run the command to run cmake (again, adjust the folders t
 
 `cmake -Hc:/Users/ole/source/repos/OloEngineBase -Bc:/Users/ole/source/repos/OloEngineBase/build -G "Visual Studio 17 2022" -DCMAKE_GENERATOR_PLATFORM=x64`
 
-CMake will download all dependencies via the `Fetchcontent_Declare()` function, and store them in the OloEngine/vendor directory, while also creating the build directory, which contains the Visual Studio solution files.
+CMake will download all dependencies via the `Fetchcontent_Declare()` function, and store them in the OloEngine/vendor directory, while also creating the build directory, which contains the Visual Studio solution files. You can also let the build files be generated from inside Visual Studio Code with the CMake extension.
 
 If you want to disable the automatic downloading, consider editing the CMakeLists.txt file in the root directory, and setting `FETCHCONTENT_FULLY_DISCONNECTED` to `ON` in line 25.
 
