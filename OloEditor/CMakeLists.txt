@@ -11,15 +11,7 @@ ${OloEditor_VERSION_MAJOR}.${OloEditor_VERSION_MINOR}.${OloEditor_VERSION_PATCH}
 # Main targets built by this project
 add_subdirectory(src)
 
-set_target_properties("OloEditor" PROPERTIES
-					  CXX_STANDARD 20
-					  CXX_STANDARD_REQUIRED YES
-					  CXX_EXTENSIONS NO
-					  POSITION_INDEPENDENT_CODE False
-					  INTERPROCEDURAL_OPTIMIZATION False
-)
-
-set_target_properties("OloEditor" PROPERTIES
+set_target_properties(OloEditor PROPERTIES
 					ARCHIVE_OUTPUT_DIRECTORY_DEBUG ${CMAKE_SOURCE_DIR}/bin/Debug/OloEditor
 					ARCHIVE_OUTPUT_DIRECTORY_RELEASE ${CMAKE_SOURCE_DIR}/bin/Release/OloEditor
 					ARCHIVE_OUTPUT_DIRECTORY_DIST ${CMAKE_SOURCE_DIR}/bin/Dist/OloEditor
@@ -50,6 +42,12 @@ target_compile_definitions("OloEditor" PRIVATE
 							$<$<CONFIG:Release>:OLO_RELEASE>
 							$<$<CONFIG:Dist>:OLO_DIST>
 )
+
+if(MSVC)
+	target_compile_definitions("OloEditor" PRIVATE /W4)
+else()
+	target_compile_definitions("OloEditor" PRIVATE -Wall -Wextra -pedantic)
+endif()
 
 target_link_libraries(OloEditor
 					OloEngine

@@ -17,14 +17,6 @@ add_subdirectory(vendor)
 add_subdirectory(src)
 
 set_target_properties(OloEngine PROPERTIES
-					  CXX_STANDARD 20
-					  CXX_STANDARD_REQUIRED YES
-					  CXX_EXTENSIONS NO
-					  POSITION_INDEPENDENT_CODE False
-					  INTERPROCEDURAL_OPTIMIZATION False
-)
-
-set_target_properties("OloEngine" PROPERTIES
 					ARCHIVE_OUTPUT_DIRECTORY_DEBUG ${CMAKE_SOURCE_DIR}/bin/Debug/OloEngine
 					ARCHIVE_OUTPUT_DIRECTORY_RELEASE ${CMAKE_SOURCE_DIR}/bin/Release/OloEngine
 					ARCHIVE_OUTPUT_DIRECTORY_DIST ${CMAKE_SOURCE_DIR}/bin/Dist/OloEngine
@@ -66,6 +58,13 @@ target_compile_definitions("OloEngine" PRIVATE
 							$<$<CONFIG:Release>:OLO_RELEASE>
 							$<$<CONFIG:Dist>:OLO_DIST>
 )
+
+if(MSVC)
+	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+	target_compile_definitions("OloEngine" PRIVATE /W4)
+else()
+	target_compile_definitions("OloEngine" PRIVATE -Wall -Wextra -pedantic)
+endif()
 
 target_link_libraries(OloEngine
 					  glad

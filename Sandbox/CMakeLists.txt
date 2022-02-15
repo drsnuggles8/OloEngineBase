@@ -11,15 +11,7 @@ ${Sandbox_VERSION_MAJOR}.${Sandbox_VERSION_MINOR}.${Sandbox_VERSION_PATCH}
 # Main targets built by this project
 add_subdirectory(src)
 
-set_target_properties("Sandbox" PROPERTIES
-					  CXX_STANDARD 20
-					  CXX_STANDARD_REQUIRED YES
-					  CXX_EXTENSIONS NO
-					  POSITION_INDEPENDENT_CODE False
-					  INTERPROCEDURAL_OPTIMIZATION False
-)
-
-set_target_properties("Sandbox" PROPERTIES
+set_target_properties(Sandbox PROPERTIES
 					ARCHIVE_OUTPUT_DIRECTORY_DEBUG ${CMAKE_SOURCE_DIR}/bin/Debug/Sandbox
 					ARCHIVE_OUTPUT_DIRECTORY_RELEASE ${CMAKE_SOURCE_DIR}/bin/Release/Sandbox
 					ARCHIVE_OUTPUT_DIRECTORY_DIST ${CMAKE_SOURCE_DIR}/bin/Dist/Sandbox
@@ -50,6 +42,12 @@ target_compile_definitions("Sandbox" PRIVATE
 							$<$<CONFIG:Release>:OLO_RELEASE>
 							$<$<CONFIG:Dist>:OLO_DIST>
 )
+
+if(MSVC)
+	target_compile_definitions("Sandbox" PRIVATE /W4)
+else()
+	target_compile_definitions("Sandbox" PRIVATE -Wall -Wextra -pedantic)
+endif()
 
 target_link_libraries(Sandbox
 					OloEngine
