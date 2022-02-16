@@ -1,11 +1,95 @@
-﻿file (GLOB_RECURSE source *.cpp)
-file (GLOB_RECURSE header *.h)
+﻿#file (GLOB_RECURSE source *.cpp)
+#file (GLOB_RECURSE header *.h)
 
-add_library(OloEngine STATIC
-		${source}
-		${header}
-)
+#source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}
+#			FILES ${source} ${header}
+#)
 
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}
-			FILES ${source} ${header}
+add_library("OloEngine" STATIC
+		"OloEngine.h"
+		"OloEnginePCH.cpp"
+		"OloEnginePCH.h"
+		
+        "OloEngine/Core/Application.cpp"
+        "OloEngine/Core/Application.h"
+        "OloEngine/Core/Assert.h"
+        "OloEngine/Core/Base.h"
+        "OloEngine/Core/EntryPoint.h"
+        "OloEngine/Core/Input.h"
+        "OloEngine/Core/KeyCodes.h"
+        "OloEngine/Core/Layer.cpp"
+        "OloEngine/Core/Layer.h"
+        "OloEngine/Core/LayerStack.cpp"
+        "OloEngine/Core/LayerStack.h"
+        "OloEngine/Core/Log.cpp"
+        "OloEngine/Core/Log.h"
+        "OloEngine/Core/MouseCodes.h"
+        "OloEngine/Core/PlatformDetection.h"
+        "OloEngine/Core/Timestep.h"
+        "OloEngine/Core/Window.cpp"
+        "OloEngine/Core/Window.h"
+
+        "OloEngine/Debug/Instrumentor.h"
+
+        "OloEngine/Events/ApplicationEvent.h"
+        "OloEngine/Events/Event.h"
+        "OloEngine/Events/KeyEvent.h"
+        "OloEngine/Events/MouseEvent.h"
+
+        "OloEngine/ImGui/ImGuiBuild.cpp"
+        "OloEngine/ImGui/ImGuiLayer.cpp"
+        "OloEngine/ImGui/ImGuiLayer.h"
+
+        "OloEngine/Renderer/Buffer.cpp"
+        "OloEngine/Renderer/Buffer.h"
+        "OloEngine/Renderer/Camera.h"
+        "OloEngine/Renderer/FrameBuffer.cpp"
+        "OloEngine/Renderer/FrameBuffer.h"
+        "OloEngine/Renderer/GraphicsContext.cpp"
+        "OloEngine/Renderer/GraphicsContext.h"
+        "OloEngine/Renderer/OrthographicCamera.cpp"
+        "OloEngine/Renderer/OrthographicCamera.h"
+        "OloEngine/Renderer/OrthographicCameraController.cpp"
+        "OloEngine/Renderer/OrthographicCameraController.h"
+        "OloEngine/Renderer/RenderCommand.cpp"
+        "OloEngine/Renderer/RenderCommand.h"
+        "OloEngine/Renderer/Renderer.cpp"
+        "OloEngine/Renderer/Renderer.h"
+        "OloEngine/Renderer/Renderer2D.cpp"
+        "OloEngine/Renderer/Renderer2D.h"
+        "OloEngine/Renderer/RendererAPI.cpp"
+        "OloEngine/Renderer/RendererAPI.h"
+        "OloEngine/Renderer/Shader.cpp"
+        "OloEngine/Renderer/Shader.h"
+        "OloEngine/Renderer/Texture.cpp"
+        "OloEngine/Renderer/Texture.h"
+        "OloEngine/Renderer/VertexArray.cpp"
+        "OloEngine/Renderer/VertexArray.h"
+		
+        "OloEngine/Scene/Components.h"
+        "OloEngine/Scene/Entity.cpp"
+        "OloEngine/Scene/Entity.h"
+        "OloEngine/Scene/Scene.cpp"
+        "OloEngine/Scene/Scene.h"
+        "OloEngine/Scene/SceneCamera.cpp"
+        "OloEngine/Scene/SceneCamera.h"
+        "OloEngine/Scene/ScriptableEntity.h"
+
+        "Platform/OpenGL/OpenGLBuffer.cpp"
+        "Platform/OpenGL/OpenGLBuffer.h"
+        "Platform/OpenGL/OpenGLContext.cpp"
+        "Platform/OpenGL/OpenGLContext.h"
+        "Platform/OpenGL/OpenGLFrameBuffer.cpp"
+        "Platform/OpenGL/OpenGLFrameBuffer.h"
+        "Platform/OpenGL/OpenGLRendererAPI.cpp"
+        "Platform/OpenGL/OpenGLRendererAPI.h"
+        "Platform/OpenGL/OpenGLShader.cpp"
+        "Platform/OpenGL/OpenGLShader.h"
+        "Platform/OpenGL/OpenGLTexture.cpp"
+        "Platform/OpenGL/OpenGLTexture.h"
+        "Platform/OpenGL/OpenGLVertexArray.cpp"
+        "Platform/OpenGL/OpenGLVertexArray.h"
+        "Platform/Windows/WindowsInput.cpp"
+        "Platform/Windows/WindowsWindow.cpp"
+        "Platform/Windows/WindowsWindow.h"
 )

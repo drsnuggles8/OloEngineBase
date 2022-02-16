@@ -61,9 +61,9 @@ target_compile_definitions("OloEngine" PRIVATE
 
 if(MSVC)
 	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-	target_compile_definitions("OloEngine" PRIVATE /W4)
+	target_compile_options("OloEngine" PRIVATE /W4)
 else()
-	target_compile_definitions("OloEngine" PRIVATE -Wall -Wextra -pedantic)
+	target_compile_options("OloEngine" PRIVATE -Wall -Wextra -pedantic)
 endif()
 
 target_link_libraries(OloEngine
@@ -72,5 +72,6 @@ target_link_libraries(OloEngine
 					  imgui
 					  opengl32.lib
 					  ryml
+					  yaml-cpp
 					  stb_image
 )

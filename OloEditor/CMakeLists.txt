@@ -44,9 +44,9 @@ target_compile_definitions("OloEditor" PRIVATE
 )
 
 if(MSVC)
-	target_compile_definitions("OloEditor" PRIVATE /W4)
+	target_compile_options("OloEditor" PRIVATE /W4)
 else()
-	target_compile_definitions("OloEditor" PRIVATE -Wall -Wextra -pedantic)
+	target_compile_options("OloEditor" PRIVATE -Wall -Wextra -pedantic)
 endif()
 
 target_link_libraries(OloEditor
