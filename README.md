@@ -9,12 +9,12 @@ You can clone the repository to a local destination using git:
 
 `git clone https://github.com/drsnuggles8/OloEngine`
 
-This project uses CMake to build the solution files. There's a batch file that you can run to generate the solution file for Visual Studio 2022 (although you probably have to change the directories used).
+This project uses [CMake](https://cmake.org/download/) to build the solution files. There's a batch file that you can run to generate the solution file for Visual Studio 2022 (although you probably have to change the directories used).
 Alternatively, you can run the command to run cmake (again, adjust the folders to your needs):
 
 `cmake -Hc:/Users/ole/source/repos/OloEngineBase -Bc:/Users/ole/source/repos/OloEngineBase/build -G "Visual Studio 17 2022" -DCMAKE_GENERATOR_PLATFORM=x64`
 
-CMake will download all dependencies via the `Fetchcontent_Declare()` function, and store them in the OloEngine/vendor directory, while also creating the build directory, which contains the Visual Studio solution files. You can also let the build files be generated from inside Visual Studio Code with the CMake extension.
+[CMake](https://cmake.org/download/) will download all dependencies via the `Fetchcontent_Declare()` function, and store them in the OloEngine/vendor directory, while also creating the build directory, which contains the Visual Studio solution files. You can also let the build files be generated from inside Visual Studio Code with the CMake extension.
 
 If you want to disable the automatic downloading, consider editing the CMakeLists.txt file in the root directory, and setting `FETCHCONTENT_FULLY_DISCONNECTED` to `ON` in line 25.
 
