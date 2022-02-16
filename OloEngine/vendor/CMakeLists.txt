@@ -96,13 +96,6 @@ FetchContent_Declare(ryml
 FetchContent_MakeAvailable(ryml)
 message(STATUS "${Green} ryml Should Be Downloaded ${ColourReset}")
 
-FetchContent_Declare(yaml-cpp
-	GIT_REPOSITORY https://github.com/jbeder/yaml-cpp/
-	GIT_TAG master
-)
-FetchContent_MakeAvailable(yaml-cpp)
-message(STATUS "${Green} yaml-cpp Should Be Downloaded ${ColourReset}")
-
 FetchContent_Declare(spdlog
 	GIT_REPOSITORY https://github.com/gabime/spdlog.git
 	GIT_TAG v1.9.2
@@ -135,10 +128,6 @@ set_target_properties(ryml PROPERTIES FOLDER "Utilities/ryml")
 set_target_properties(ryml-uninstall PROPERTIES FOLDER "Utilities/ryml")
 set_target_properties(c4core PROPERTIES FOLDER "Utilities/ryml")
 set_target_properties(c4core-amalgamate PROPERTIES FOLDER "Utilities/ryml")
-set_target_properties(yaml-cpp PROPERTIES FOLDER "Utilities/yaml-cpp")
-set_target_properties(yaml-cpp-read PROPERTIES FOLDER "Utilities/yaml-cpp")
-set_target_properties(yaml-cpp-parse PROPERTIES FOLDER "Utilities/yaml-cpp")
-set_target_properties(yaml-cpp-sandbox PROPERTIES FOLDER "Utilities/yaml-cpp")
 set_target_properties(aob PROPERTIES FOLDER "Utilities/entt")
 set_target_properties(glad PROPERTIES FOLDER "Utilities/glad")
 set_target_properties(glad-generate-files PROPERTIES FOLDER "Utilities/glad")

@@ -47,7 +47,7 @@ target_include_directories("OloEngine" PRIVATE
 	vendor/glm-src
 	vendor/stb_image-src
 	vendor/entt-src/single_include/entt
-	vendor/ryml-src/src	
+	vendor/ryml-src/src
 	${gl3w_BINARY_DIR}/include
 )
 
@@ -72,6 +72,5 @@ target_link_libraries(OloEngine
 					  imgui
 					  opengl32.lib
 					  ryml
-					  yaml-cpp
 					  stb_image
 )
