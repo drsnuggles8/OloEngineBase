@@ -9,7 +9,7 @@ You can clone the repository to a local destination using git:
 
 `git clone https://github.com/drsnuggles8/OloEngine`
 
-This project uses [CMake](https://cmake.org/download/) to build the solution files. There's a batch file that you can run to generate the solution file for Visual Studio 2022 (although you probably have to change the directories used).
+This project uses [CMake](https://cmake.org/download/) to build the solution files. There's a batch file in the scripts folder named `Win-GenerateProject.bat` that you can run to generate the solution file for Visual Studio 2022 (although you probably have to change the directories used). At the moment, you have to run the script twice to properly generate the ImGUI dependency.
 Alternatively, you can run the command to run cmake (again, adjust the folders to your needs):
 
 `cmake -Hc:/Users/ole/source/repos/OloEngineBase -Bc:/Users/ole/source/repos/OloEngineBase/build -G "Visual Studio 17 2022" -DCMAKE_GENERATOR_PLATFORM=x64`
