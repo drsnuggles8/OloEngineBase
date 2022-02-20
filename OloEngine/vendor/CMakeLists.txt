@@ -69,6 +69,7 @@ FetchContent_Declare(
 	GIT_REPOSITORY https://github.com/ocornut/imgui.git
 	GIT_TAG docking
 )
+FetchContent_MakeAvailable(imgui)
 # Set where the ImGui files are stored
 set(IMGUI_PATH  "imgui-src")
 	
@@ -84,8 +85,6 @@ set_target_properties("imgui"
     LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
     RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
 )
-
-FetchContent_MakeAvailable(imgui)
 message(STATUS "${Green} ImGui Should Be Downloaded ${ColourReset}")
 
 FetchContent_Declare(ryml
