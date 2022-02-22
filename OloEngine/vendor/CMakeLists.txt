@@ -70,7 +70,6 @@ FetchContent_Declare(
 	GIT_TAG docking
 )
 FetchContent_MakeAvailable(imgui)
-# Set where the ImGui files are stored
 set(IMGUI_PATH  "imgui-src")
 	
 # Compile as static library 
@@ -85,7 +84,25 @@ set_target_properties("imgui"
     LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
     RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
 )
-message(STATUS "${Green} ImGui Should Be Downloaded ${ColourReset}")
+message(STATUS "${Green} ImGUI Should Be Downloaded ${ColourReset}")
+
+FetchContent_Declare(
+	imguizmo
+	GIT_REPOSITORY https://github.com/CedricGuillemet/ImGuizmo.git
+)
+FetchContent_MakeAvailable(imguizmo)
+set(IMGUIZMO_PATH  "imguizmo-src")
+file(GLOB IMGUIZMO_SOURCES ${IMGUIZMO_PATH}/*.cpp)
+file(GLOB IMGUIZMO_HEADERS ${IMGUIZMO_PATH}/*.h)  
+add_library(imguizmo STATIC ${IMGUIZMO_SOURCES} ${IMGUIZMO_HEADERS})
+set_target_properties(imguizmo
+    PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imguizmo-build"
+    LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imguizmo-build"
+    RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imguizmo-build"
+)
+
+message(STATUS "${Green} imguizmo Should Be Downloaded ${ColourReset}")
 
 FetchContent_Declare(ryml
 	GIT_REPOSITORY https://github.com/biojppm/rapidyaml.git
@@ -130,7 +147,8 @@ set_target_properties(c4core-amalgamate PROPERTIES FOLDER "Utilities/ryml")
 set_target_properties(aob PROPERTIES FOLDER "Utilities/entt")
 set_target_properties(glad PROPERTIES FOLDER "Utilities/glad")
 set_target_properties(glad-generate-files PROPERTIES FOLDER "Utilities/glad")
-set_target_properties(imgui PROPERTIES FOLDER "Utilities")
+set_target_properties(imgui PROPERTIES FOLDER "Utilities/imgui")
+set_target_properties(imguizmo PROPERTIES FOLDER "Utilities/imgui")
 set_target_properties(spdlog PROPERTIES FOLDER "Utilities")
 set_target_properties(glfw PROPERTIES FOLDER "Utilities/GLFW3")
 set_target_properties(uninstall PROPERTIES FOLDER "Utilities/GLFW3")
