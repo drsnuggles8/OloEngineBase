@@ -21,8 +21,10 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)
 set_property(GLOBAL PROPERTY USE_FOLDERS YES)
 
-# SET THE BELOW TO OFF IF YOU WANT TO DOWNLOAD ALL DEPENDENCIES
-set(FETCHCONTENT_FULLY_DISCONNECTED OFF)
+# OFF => Download dependencies, ON => don't download dependencies
+set(FETCHCONTENT_FULLY_DISCONNECTED ON)
+# OFF => Download dependencies, ON => Check if dependencies are up2date, only download if new version is out
+set(FETCHCONTENT_UPDATES_DISCONNECTED ON CACHE BOOL)
 
 # Main targets built by this project
 add_subdirectory(OloEngine)
