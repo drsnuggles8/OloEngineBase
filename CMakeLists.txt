@@ -24,7 +24,7 @@ set_property(GLOBAL PROPERTY USE_FOLDERS YES)
 # OFF => Download dependencies, ON => don't download dependencies
 set(FETCHCONTENT_FULLY_DISCONNECTED ON)
 # OFF => Download dependencies, ON => Check if dependencies are up2date, only download if new version is out
-set(FETCHCONTENT_UPDATES_DISCONNECTED ON CACHE BOOL)
+set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
 
 # Main targets built by this project
 add_subdirectory(OloEngine)
