@@ -94,7 +94,8 @@ FetchContent_MakeAvailable(imguizmo)
 set(IMGUIZMO_PATH  "imguizmo-src")
 file(GLOB IMGUIZMO_SOURCES ${IMGUIZMO_PATH}/*.cpp)
 file(GLOB IMGUIZMO_HEADERS ${IMGUIZMO_PATH}/*.h)  
-add_library(imguizmo STATIC ${IMGUIZMO_SOURCES} ${IMGUIZMO_HEADERS})
+add_library("imguizmo" STATIC ${IMGUIZMO_SOURCES} ${IMGUIZMO_HEADERS})
+target_include_directories("imguizmo" PUBLIC ${IMGUI_PATH})
 set_target_properties(imguizmo
     PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imguizmo-build"
