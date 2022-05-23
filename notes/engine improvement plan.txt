@@ -1,5 +1,3 @@
-
-
 1. get rid of that unordered map in shader, see comments on video #45
 
 2. rework that Instrumentor. could probably use jthread from https://www.youtube.com/watch?v=gKwkpe8jmGo and combine it with https://gist.github.com/TheCherno/31f135eea6ee729ab5f26a6908eb3a5e (plus their derivatives)
@@ -23,7 +21,6 @@ https://stackoverflow.com/questions/440144/in-opengl-is-there-a-way-to-get-a-lis
 
 9. Once we've added all the stuff, go through all the old videos and check comments for possible improvements
 
-
 10. Swap to cmake instead of premake
 i) First step, check what already has a CMakeLists.txt file:
 - Sandbox: No
@@ -37,3 +34,7 @@ i) First step, check what already has a CMakeLists.txt file:
 - ryml: Yes
 - spdlog: Yes
 - stb_image: No, but it's header-only, should be fine
+
+11. Change how the Serializer works in two ways:
+i) Replace yaml-cpp with rapidyaml (or cereal?) to improve speed
+ii) Use reflection principles so we don't have to copy-paste all this shit for every damn entity, this ain't future proof
