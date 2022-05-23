@@ -57,6 +57,7 @@ target_compile_definitions("OloEngine" PRIVATE
 							$<$<CONFIG:Debug>:OLO_DEBUG>
 							$<$<CONFIG:Release>:OLO_RELEASE>
 							$<$<CONFIG:Dist>:OLO_DIST>
+							YAML_CPP_DLL
 )
 
 if(MSVC)
@@ -73,4 +74,5 @@ target_link_libraries(OloEngine
 					  opengl32.lib
 					  ryml
 					  stb_image
+					  yaml-cpp
 )

@@ -79,10 +79,10 @@ add_library("imgui" STATIC ${IMGUI_SOURCES} ${IMGUI_HEADERS} "${IMGUI_PATH}/back
 target_compile_definitions("imgui" PRIVATE IMGUI_IMPL_OPENGL_LOADER_GLAD=1)
 target_include_directories("imgui" PUBLIC ${IMGUI_PATH} "glfw-src/include" "glad-build/include")
 set_target_properties("imgui"
-    PROPERTIES
-    ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
-    LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
-    RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
+	PROPERTIES
+	ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
+	LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
+	RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
 )
 message(STATUS "${Green} ImGUI Should Be Downloaded ${ColourReset}")
 
@@ -97,13 +97,21 @@ file(GLOB IMGUIZMO_HEADERS ${IMGUIZMO_PATH}/*.h)
 add_library("imguizmo" STATIC ${IMGUIZMO_SOURCES} ${IMGUIZMO_HEADERS})
 target_include_directories("imguizmo" PUBLIC ${IMGUI_PATH})
 set_target_properties(imguizmo
-    PROPERTIES
-    ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imguizmo-build"
-    LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imguizmo-build"
-    RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imguizmo-build"
+	PROPERTIES
+	ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imguizmo-build"
+	LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imguizmo-build"
+	RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imguizmo-build"
 )
 
 message(STATUS "${Green} imguizmo Should Be Downloaded ${ColourReset}")
+
+FetchContent_Declare(yaml-cpp
+	GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+	GIT_TAG master
+)
+set(YAML_CPP_BUILD_TESTS OFF)
+FetchContent_MakeAvailable(yaml-cpp)
+message(STATUS "${Green} yaml-cpp Should Be Downloaded ${ColourReset}")
 
 FetchContent_Declare(ryml
 	GIT_REPOSITORY https://github.com/biojppm/rapidyaml.git
@@ -154,5 +162,9 @@ set_target_properties(spdlog PROPERTIES FOLDER "Utilities")
 set_target_properties(glfw PROPERTIES FOLDER "Utilities/GLFW3")
 set_target_properties(uninstall PROPERTIES FOLDER "Utilities/GLFW3")
 set_target_properties(update_mappings PROPERTIES FOLDER "Utilities/GLFW3")
+set_target_properties(format PROPERTIES FOLDER "Utilities/yaml-cpp")
+set_target_properties(yaml-cpp-parse PROPERTIES FOLDER "Utilities/yaml-cpp")
+set_target_properties(yaml-cpp-read PROPERTIES FOLDER "Utilities/yaml-cpp")
+set_target_properties(yaml-cpp-sandbox PROPERTIES FOLDER "Utilities/yaml-cpp")
 #======================================
 message(STATUS "Fetching thirdparty libraries done")
