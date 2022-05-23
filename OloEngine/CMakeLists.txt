@@ -57,7 +57,7 @@ target_compile_definitions("OloEngine" PRIVATE
 							$<$<CONFIG:Debug>:OLO_DEBUG>
 							$<$<CONFIG:Release>:OLO_RELEASE>
 							$<$<CONFIG:Dist>:OLO_DIST>
-							YAML_CPP_DLL
+							YAML_CPP_STATIC_DEFINE
 )
 
 if(MSVC)
