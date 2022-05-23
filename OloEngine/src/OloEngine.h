@@ -1,6 +1,6 @@
 #pragma once
 
-// For use by OloEngine applications
+// Only for use by applications, never include this anywhere in the engine codebase
 
 #include "OloEngine/Core/Base.h"
 

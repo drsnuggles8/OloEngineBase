@@ -10,8 +10,9 @@ namespace OloEngine {
 	{
 	public:
 		Entity() = default;
-		Entity(entt::entity handle, Scene* scene);
-		Entity(const Entity& other) = default;
+		Entity(entt::entity handle, Scene* scene)
+			: m_EntityHandle(handle), m_Scene(scene) {}
+		~Entity() {}
 
 		template<typename T, typename... Args>
 		T& AddComponent(Args&&... args)
@@ -30,9 +31,34 @@ namespace OloEngine {
 		}
 
 		template<typename T>
+		const T& GetComponent() const
+		{
+			OLO_CORE_ASSERT(HasComponent<T>(), "Entity doesn't have component!");
+			return m_Scene->m_Registry.get<T>(m_EntityHandle);
+		}
+
+		template<typename T>
 		bool HasComponent()
 		{
 			return m_Scene->m_Registry.all_of<T>(m_EntityHandle);
+		}
+
+		template<typename T>
+		bool HasComponent() const
+		{
+			return m_Scene->m_Registry.all_of<T>(m_EntityHandle);
+		}
+
+		template<typename...T>
+		bool HasAny()
+		{
+			return m_Scene->m_Registry.any_of<T...>(m_EntityHandle);
+		}
+
+		template<typename...T>
+		bool HasAny() const
+		{
+			return m_Scene->m_Registry.any_of<T...>(m_EntityHandle);
 		}
 
 		template<typename T>
