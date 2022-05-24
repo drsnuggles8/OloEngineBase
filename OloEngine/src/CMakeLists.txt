@@ -68,7 +68,9 @@
 		"OloEngine/Scene/SceneCamera.h"
 		"OloEngine/Scene/SceneSerializer.cpp"
 		"OloEngine/Scene/SceneSerializer.h"
-		"OloEngine/Scene/ScriptableEntity.h"
+		"OloEngine/Scene/ScriptableEntity.h".
+
+		"OloEngine/Utils/PlatformUtils.h"
 
 		"Platform/OpenGL/OpenGLBuffer.cpp"
 		"Platform/OpenGL/OpenGLBuffer.h"
@@ -87,6 +89,7 @@
 		"Platform/Windows/WindowsInput.cpp"
 		"Platform/Windows/WindowsWindow.cpp"
 		"Platform/Windows/WindowsWindow.h"
+		"Platform/Windows/WindowsPlatformUtils.cpp"
 )
 
 add_library("OloEngine" STATIC
