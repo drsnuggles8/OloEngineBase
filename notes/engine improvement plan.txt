@@ -37,4 +37,4 @@ i) First step, check what already has a CMakeLists.txt file:
 
 11. Change how the Serializer works in two ways:
 i) Replace yaml-cpp with rapidyaml (or cereal?) to improve speed
-ii) Use reflection principles so we don't have to copy-paste all this shit for every damn entity, this ain't future proof
+ii) Use reflection principles so we don't have to copy-paste all this shit for every damn entity, this ain't future proof (https://github.com/OverShifted/OverEngine has something like this from Godot)
