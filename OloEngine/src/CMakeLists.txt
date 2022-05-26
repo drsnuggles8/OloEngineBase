@@ -33,6 +33,9 @@
 		"OloEngine/ImGui/ImGuiLayer.cpp"
 		"OloEngine/ImGui/ImGuiLayer.h"
 
+		"OloEngine/Math/Math.cpp"
+		"OloEngine/Math/Math.h"
+
 		"OloEngine/Renderer/Buffer.cpp"
 		"OloEngine/Renderer/Buffer.h"
 		"OloEngine/Renderer/Camera.h"
@@ -68,7 +71,7 @@
 		"OloEngine/Scene/SceneCamera.h"
 		"OloEngine/Scene/SceneSerializer.cpp"
 		"OloEngine/Scene/SceneSerializer.h"
-		"OloEngine/Scene/ScriptableEntity.h".
+		"OloEngine/Scene/ScriptableEntity.h"
 
 		"OloEngine/Utils/PlatformUtils.h"
 

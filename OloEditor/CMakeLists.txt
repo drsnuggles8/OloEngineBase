@@ -35,6 +35,7 @@ target_include_directories("OloEditor" PRIVATE
 							${CMAKE_SOURCE_DIR}/OloEngine/vendor/glm-src
 							${CMAKE_SOURCE_DIR}/OloEngine/vendor/entt-src/single_include/entt
 							${CMAKE_SOURCE_DIR}/OloEngine/vendor/imgui-src
+							${CMAKE_SOURCE_DIR}/OloEngine/vendor/imguizmo-src
 )
 
 target_compile_definitions("OloEditor" PRIVATE

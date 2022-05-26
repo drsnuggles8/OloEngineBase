@@ -44,6 +44,7 @@ target_include_directories("OloEngine" PRIVATE
 	vendor/imgui-src
 	vendor/imgui-src/backends
 	vendor/imgui-src/examples
+	vendor/imguizmo-src
 	vendor/glm-src
 	vendor/stb_image-src
 	vendor/entt-src/single_include/entt
@@ -71,6 +72,7 @@ target_link_libraries(OloEngine
 					  glad
 					  glfw
 					  imgui
+					  imguizmo
 					  opengl32.lib
 					  ryml
 					  stb_image
