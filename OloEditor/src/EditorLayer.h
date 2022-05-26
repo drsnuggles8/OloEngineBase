@@ -3,6 +3,9 @@
 #include "OloEngine.h"
 #include "Panels/SceneHierarchyPanel.h"
 
+#include "OloEngine/Renderer/EditorCamera.h"
+
+
 namespace OloEngine {
 
 	class EditorLayer : public Layer
@@ -38,6 +41,8 @@ namespace OloEngine {
 		Entity m_SecondCamera;
 
 		bool m_PrimaryCamera = true;
+
+		EditorCamera m_EditorCamera;
 
 		Ref<Texture2D> m_CheckerboardTexture;
 

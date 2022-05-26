@@ -39,6 +39,8 @@
 		"OloEngine/Renderer/Buffer.cpp"
 		"OloEngine/Renderer/Buffer.h"
 		"OloEngine/Renderer/Camera.h"
+		"OloEngine/Renderer/EditorCamera.cpp"
+		"OloEngine/Renderer/EditorCamera.h"
 		"OloEngine/Renderer/FrameBuffer.cpp"
 		"OloEngine/Renderer/FrameBuffer.h"
 		"OloEngine/Renderer/GraphicsContext.cpp"

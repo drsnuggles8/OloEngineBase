@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/Texture.h"
 
 #include "OloEngine/Renderer/Camera.h"
+#include "OloEngine/Renderer/EditorCamera.h"
 
 namespace OloEngine {
 
@@ -15,6 +16,7 @@ namespace OloEngine {
 		static void Shutdown();
 
 		static void BeginScene(const Camera& camera, const glm::mat4& transform);
+		static void BeginScene(const EditorCamera& camera);
 		static void BeginScene(const OrthographicCamera& camera); // TODO: Remove
 		static void EndScene();
 		static void Flush();
