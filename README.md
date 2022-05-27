@@ -1,6 +1,7 @@
 # OloEngine
 
 OloEngine is primarily an early-stage interactive application and rendering engine for Windows based on [Hazel](https://github.com/TheCherno/Hazel/).
+[![Codacy Badge](https://app.codacy.com/project/badge/Grade/27fd33101b4645adae82af51575585bc)](https://www.codacy.com/gh/drsnuggles8/OloEngineBase/dashboard?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=drsnuggles8/OloEngineBase&amp;utm_campaign=Badge_Grade)
 
 ## Getting Started
 Visual Studio 2022 is recommended, OloEngine is officially untested on other development environments whilst we focus on a Windows build.
@@ -22,16 +23,16 @@ If you want to disable the automatic downloading, consider editing the CMakeList
 The plan for OloEngine is to create a 2D engine by following the Hazel videos, and then expanding to 3D graphics while implementing our own desired features.
 We aim to use modern C++ 20, implementing modules as soon as they're properly supported in Visual Studio
 
-### Main features to come:
-- Fast 2D rendering (UI, particles, sprites, etc.)
-- High-fidelity physically-based 3D rendering (this will be expanded later, 2D to come first)
-- Native rendering API support (Vulkan)
-- Fully featured viewer and editor applications
-- Fully scripted interaction and behavior
-- Integrated 3rd party 2D and 3D physics engine
-- Procedural terrain and world generation
-- Artificial Intelligence
-- Audio system
-- Smart procedural generation
-- Asset management system
-- Networking capabilities
+### Main features to come
+-   Fast 2D rendering (UI, particles, sprites, etc.)
+-   High-fidelity physically-based 3D rendering (this will be expanded later, 2D to come first)
+-   Native rendering API support (Vulkan)
+-   Fully featured viewer and editor applications
+-   Fully scripted interaction and behavior
+-   Integrated 3rd party 2D and 3D physics engine
+-   Procedural terrain and world generation
+-   Artificial Intelligence
+-   Audio system
+-   Smart procedural generation
+-   Asset management system
+-   Networking capabilities
