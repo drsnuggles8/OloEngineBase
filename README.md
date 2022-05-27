@@ -24,15 +24,15 @@ The plan for OloEngine is to create a 2D engine by following the Hazel videos, a
 We aim to use modern C++ 20, implementing modules as soon as they're properly supported in Visual Studio
 
 ### Main features to come
--  Fast 2D rendering (UI, particles, sprites, etc.)
--  High-fidelity physically-based 3D rendering (this will be expanded later, 2D to come first)
--  Native rendering API support (Vulkan)
--  Fully featured viewer and editor applications
--  Fully scripted interaction and behavior
--  Integrated 3rd party 2D and 3D physics engine
--  Procedural terrain and world generation
--  Artificial Intelligence
--  Audio system
--  Smart procedural generation
--  Asset management system
--  Networking capabilities
+-   Fast 2D rendering (UI, particles, sprites, etc.)
+-   High-fidelity physically-based 3D rendering (this will be expanded later, 2D to come first)
+-   Native rendering API support (Vulkan)
+-   Fully featured viewer and editor applications
+-   Fully scripted interaction and behavior
+-   Integrated 3rd party 2D and 3D physics engine
+-   Procedural terrain and world generation
+-   Artificial Intelligence
+-   Audio system
+-   Smart procedural generation
+-   Asset management system
+-   Networking capabilities
