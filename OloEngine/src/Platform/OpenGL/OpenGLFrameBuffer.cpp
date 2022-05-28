@@ -11,7 +11,7 @@ namespace OloEngine {
 
 	namespace Utils {
 
-		static GLenum TextureTarget(bool multisampled)
+		constexpr static GLenum TextureTarget(bool multisampled) noexcept
 		{
 			return multisampled ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D;
 		}
@@ -68,7 +68,7 @@ namespace OloEngine {
 			glFramebufferTexture2D(GL_FRAMEBUFFER, attachmentType, TextureTarget(multisampled), id, 0);
 		}
 
-		static bool IsDepthFormat(FramebufferTextureFormat format)
+		static bool IsDepthFormat(FramebufferTextureFormat format) noexcept
 		{
 			switch (format)
 			{
