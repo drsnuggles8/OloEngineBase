@@ -453,3 +453,7 @@ test/test_runner
 !OloEngine/vendor/
 OloEngine/vendor/*
 !OloEngine//vendor/CMakeLists.txt
+
+# cppcheck
+test-cppcheck-build-dir/
+*.cppcheck
