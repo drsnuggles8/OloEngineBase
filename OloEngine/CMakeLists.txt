@@ -84,4 +84,11 @@ target_link_libraries(OloEngine
 					  stb_image
 					  yaml-cpp
 					  ${Vulkan_LIBRARIES}
+					  debug ${Vulkan_LIBRARY}/shaderc_sharedd.lib
+					  debug ${Vulkan_LIBRARY}/spirv-cross-cored.lib
+					  debug ${Vulkan_LIBRARY}/spirv-cross-glsld.lib
+					  debug ${Vulkan_LIBRARY}/SPIRV-Toolsd.lib
+					  optimized ${Vulkan_LIBRARY}/shaderc_shared.lib
+					  optimized ${Vulkan_LIBRARY}/spirv-cross-core.lib
+					  optimized ${Vulkan_LIBRARY}/spirv-cross-glsl.lib
 )
