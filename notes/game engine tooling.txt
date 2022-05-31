@@ -29,3 +29,5 @@ Other stuff to add:
 - Unit tests
 - Integration tests
 - 
+
+3. We are now using Github Actions for automatic build -> sonarscanning.
