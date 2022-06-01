@@ -18,6 +18,7 @@ message("Alright, where is it? " ${Vulkan_LIBRARIES})
 message("And I can include it? " ${Vulkan_INCLUDE_DIRS})
 message("Vulkan version: " ${Vulkan_VERSION})
 message("Path to GLSL SPIR-V Compiler:" ${Vulkan_GLSLC_EXECUTABLE})
+message("Path to Vulkan: " $ENV{VULKAN_SDK})
 
 # Main targets built by this project
 add_subdirectory(src)
@@ -84,11 +85,11 @@ target_link_libraries(OloEngine
 					  stb_image
 					  yaml-cpp
 					  ${Vulkan_LIBRARIES}
-					  debug ${Vulkan_LIBRARY}/shaderc_sharedd.lib
-					  debug ${Vulkan_LIBRARY}/spirv-cross-cored.lib
-					  debug ${Vulkan_LIBRARY}/spirv-cross-glsld.lib
-					  debug ${Vulkan_LIBRARY}/SPIRV-Toolsd.lib
-					  optimized ${Vulkan_LIBRARY}/shaderc_shared.lib
-					  optimized ${Vulkan_LIBRARY}/spirv-cross-core.lib
-					  optimized ${Vulkan_LIBRARY}/spirv-cross-glsl.lib
+					  debug $ENV{VULKAN_SDK}/Lib/shaderc_sharedd.lib
+					  debug $ENV{VULKAN_SDK}/Lib/spirv-cross-cored.lib
+					  debug $ENV{VULKAN_SDK}/Lib/spirv-cross-glsld.lib
+					  debug $ENV{VULKAN_SDK}/Lib/SPIRV-Toolsd.lib
+					  optimized $ENV{VULKAN_SDK}/Lib/shaderc_shared.lib
+					  optimized $ENV{VULKAN_SDK}/Lib/spirv-cross-core.lib
+					  optimized $ENV{VULKAN_SDK}/Lib/spirv-cross-glsl.lib
 )
