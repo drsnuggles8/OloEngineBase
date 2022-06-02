@@ -35,12 +35,6 @@ set_target_properties(OloEngine PROPERTIES
 					RUNTIME_OUTPUT_DIRECTORY_DIST ${CMAKE_SOURCE_DIR}/bin/Dist/OloEngine
 )
 
-#add_dependencies(OloEngine
-#				glfw
-#				glad
-#				ryml
-#)
-
 target_precompile_headers("OloEngine" PUBLIC src/OloEnginePCH.h)
 
 target_include_directories("OloEngine" PRIVATE
@@ -55,7 +49,6 @@ target_include_directories("OloEngine" PRIVATE
 	vendor/glm-src
 	vendor/stb_image-src
 	vendor/entt-src/single_include/entt
-	vendor/ryml-src/src
 	${Vulkan_INCLUDE_DIRS}
 )
 
@@ -81,7 +74,6 @@ target_link_libraries(OloEngine
 					  imgui
 					  imguizmo
 					  opengl32.lib
-					  ryml
 					  stb_image
 					  yaml-cpp
 					  ${Vulkan_LIBRARIES}
