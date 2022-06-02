@@ -117,13 +117,13 @@ FetchContent_MakeAvailable(yaml-cpp)
 message(STATUS "${Green} yaml-cpp Should Be Downloaded ${ColourReset}")
 
 # ryml - yaml-cpp alternative, currently not being used
-FetchContent_Declare(ryml
-	GIT_REPOSITORY https://github.com/biojppm/rapidyaml.git
-	GIT_TAG master
-	GIT_SHALLOW FALSE  # ensure submodules are checked out
-)
-FetchContent_MakeAvailable(ryml)
-message(STATUS "${Green} ryml Should Be Downloaded ${ColourReset}")
+#FetchContent_Declare(ryml
+#	GIT_REPOSITORY https://github.com/biojppm/rapidyaml.git
+#	GIT_TAG master
+#	GIT_SHALLOW FALSE  # ensure submodules are checked out
+#)
+#FetchContent_MakeAvailable(ryml)
+#message(STATUS "${Green} ryml Should Be Downloaded ${ColourReset}")
 
 # spdlog - logging library
 FetchContent_Declare(spdlog
@@ -155,10 +155,10 @@ DESTINATION
 set(STBIMAGE_INSTALL_DIR "${PROJECT_SOURCE_DIR}/vendor/stb_image-build")
 message(STATUS "${Green} stb_image Should Be Downloaded ${ColourReset}")
 
-set_target_properties(ryml PROPERTIES FOLDER "Utilities/ryml")
-set_target_properties(ryml-uninstall PROPERTIES FOLDER "Utilities/ryml")
-set_target_properties(c4core PROPERTIES FOLDER "Utilities/ryml")
-set_target_properties(c4core-amalgamate PROPERTIES FOLDER "Utilities/ryml")
+#set_target_properties(ryml PROPERTIES FOLDER "Utilities/ryml")
+#set_target_properties(ryml-uninstall PROPERTIES FOLDER "Utilities/ryml")
+#set_target_properties(c4core PROPERTIES FOLDER "Utilities/ryml")
+#set_target_properties(c4core-amalgamate PROPERTIES FOLDER "Utilities/ryml")
 set_target_properties(aob PROPERTIES FOLDER "Utilities/entt")
 set_target_properties(glad PROPERTIES FOLDER "Utilities/glad")
 set_target_properties(glad-generate-files PROPERTIES FOLDER "Utilities/glad")
@@ -168,7 +168,6 @@ set_target_properties(spdlog PROPERTIES FOLDER "Utilities")
 set_target_properties(glfw PROPERTIES FOLDER "Utilities/GLFW3")
 set_target_properties(uninstall PROPERTIES FOLDER "Utilities/GLFW3")
 set_target_properties(update_mappings PROPERTIES FOLDER "Utilities/GLFW3")
-set_target_properties(format PROPERTIES FOLDER "Utilities/yaml-cpp")
 set_target_properties(yaml-cpp-parse PROPERTIES FOLDER "Utilities/yaml-cpp")
 set_target_properties(yaml-cpp-read PROPERTIES FOLDER "Utilities/yaml-cpp")
 set_target_properties(yaml-cpp-sandbox PROPERTIES FOLDER "Utilities/yaml-cpp")
