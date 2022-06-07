@@ -10,8 +10,8 @@ namespace OloEngine {
 	class OloEngineEditor : public Application
 	{
 	public:
-		OloEngineEditor()
-			: Application("OloEngine Editor")
+		OloEngineEditor(ApplicationCommandLineArgs args)
+			: Application("OloEngineEditor", args)
 		{
 			PushLayer(new EditorLayer());
 		}
@@ -21,9 +21,9 @@ namespace OloEngine {
 		}
 	};
 
-	Application* CreateApplication()
+	Application* CreateApplication(ApplicationCommandLineArgs args)
 	{
-		return new OloEngineEditor();
+		return new OloEngineEditor(args);
 	}
 
 }
