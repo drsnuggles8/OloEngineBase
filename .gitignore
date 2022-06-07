@@ -457,3 +457,6 @@ OloEngine/vendor/*
 # cppcheck
 test-cppcheck-build-dir/
 *.cppcheck
+
+# directory
+OloEditor/assets/cache
