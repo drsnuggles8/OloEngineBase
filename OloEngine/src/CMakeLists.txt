@@ -25,6 +25,7 @@
 		"OloEngine/Debug/Instrumentor.h"
 
 		"OloEngine/Events/ApplicationEvent.h"
+		"OloEngine/Events/Event.cpp"
 		"OloEngine/Events/Event.h"
 		"OloEngine/Events/KeyEvent.h"
 		"OloEngine/Events/MouseEvent.h"
