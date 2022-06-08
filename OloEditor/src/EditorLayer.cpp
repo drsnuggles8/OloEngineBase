@@ -227,16 +227,24 @@ namespace OloEngine {
 				// which we can't undo at the moment without finer window depth/z control.
 				//ImGui::MenuItem("Fullscreen", NULL, &opt_fullscreen_persistant);
 				if (ImGui::MenuItem("New", "Ctrl+N"))
+				{
 					NewScene();
+				}
 
 				if (ImGui::MenuItem("Open...", "Ctrl+O"))
+				{
 					OpenScene();
+				}
 
 				if (ImGui::MenuItem("Save", "Ctrl+S", false, m_ActiveScene != nullptr))
+				{
 					SaveScene();
+				}
 
 				if (ImGui::MenuItem("Save As...", "Ctrl+Shift+S", false, m_ActiveScene != nullptr))
+				{
 					SaveSceneAs();
+				}
 
 				if (ImGui::MenuItem("Exit")) Application::Get().Close();
 				ImGui::EndMenu();
@@ -288,24 +296,30 @@ namespace OloEngine {
 			{
 				const wchar_t* path = (const wchar_t*)payload->Data;
 
-				std::filesystem::path filePath = std::filesystem::path(path);
+				const auto filePath = std::filesystem::path(path);
 				if (filePath.extension().string() == ".olo")
 				{
 					OpenScene(std::filesystem::path(g_AssetPath) / path);
 				}
 				else if (filePath.extension().string() == ".png")
 				{
-					std::filesystem::path texturePath = std::filesystem::path(g_AssetPath) / path;
-					Ref<Texture2D> texture = Texture2D::Create(texturePath.string());
+					const std::filesystem::path texturePath = std::filesystem::path(g_AssetPath) / path;
+					const Ref<Texture2D> texture = Texture2D::Create(texturePath.string());
 					if (texture->IsLoaded())
 					{
 						if (m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>())
+						{
 							m_HoveredEntity.GetComponent<SpriteRendererComponent>().Texture = texture;
+						}
 					}
 					else
 					{
 						OLO_WARN("Could not load texture {0}", texturePath.filename().string());
 					}
+				}
+				else
+				{
+					OLO_WARN("Tried to load unknown filetype {0}", filePath);
 				}
 			}
 			ImGui::EndDragDropTarget();
@@ -435,9 +449,13 @@ namespace OloEngine {
 				if (control)
 				{
 					if (shift)
+					{
 						SaveSceneAs();
+					}
 					else
+					{
 						SaveScene();
+					}
 				}
 
 				break;
@@ -528,7 +546,7 @@ namespace OloEngine {
 
 	void EditorLayer::SaveSceneAs()
 	{
-		std::string m_ActiveSceneFilePath = FileDialogs::SaveFile("Hazel Scene (*.hazel)\0*.hazel\0");
+		const std::string m_ActiveSceneFilePath = FileDialogs::SaveFile("OloEditor Scene (*.olo)\0*.olo\0");
 		if (!m_ActiveSceneFilePath.empty())
 		{
 			SceneSerializer serializer(m_ActiveScene);
