@@ -6,7 +6,7 @@
 		"Panels/ContentBrowserPanel.cpp"
 		"Panels/ContentBrowserPanel.h"
 		"Panels/SceneHierarchyPanel.cpp"
-		"Panels/SceneHierarchyPanel.cpp"
+		"Panels/SceneHierarchyPanel.h"
 )
 
 add_executable("OloEditor"
