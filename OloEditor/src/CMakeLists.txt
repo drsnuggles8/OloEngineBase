@@ -1,7 +1,14 @@
-﻿file (GLOB_RECURSE source *.cpp)
-file (GLOB_RECURSE header *.h)
+﻿set(EDITOR_SOURCES
+		"EditorLayer.cpp"
+		"EditorLayer.h"
+		"OloEditorApp.cpp"
+		
+		"Panels/ContentBrowserPanel.cpp"
+		"Panels/ContentBrowserPanel.h"
+		"Panels/SceneHierarchyPanel.cpp"
+		"Panels/SceneHierarchyPanel.cpp"
+)
 
 add_executable("OloEditor"
-        ${source}
-        ${header}
+        ${EDITOR_SOURCES}
 )
