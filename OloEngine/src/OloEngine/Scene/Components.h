@@ -15,6 +15,7 @@ namespace OloEngine {
 	struct TagComponent
 	{
 		std::string Tag;
+		bool renaming = false;
 
 		TagComponent() = default;
 		TagComponent(const TagComponent& other) = default;
