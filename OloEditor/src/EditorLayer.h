@@ -2,6 +2,7 @@
 
 #include "OloEngine.h"
 #include "Panels/SceneHierarchyPanel.h"
+#include "Panels/ContentBrowserPanel.h"
 
 #include "OloEngine/Renderer/EditorCamera.h"
 
@@ -60,6 +61,7 @@ namespace OloEngine {
 
 		// Panels
 		SceneHierarchyPanel m_SceneHierarchyPanel;
+		ContentBrowserPanel m_ContentBrowserPanel;
 	};
 
 }
