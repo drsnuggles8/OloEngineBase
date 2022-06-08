@@ -103,6 +103,10 @@ namespace OloEngine {
 			memset(buffer, 0, sizeof(buffer));
 			// TODO: GET AWAY FROM THIS C-STYLE SHIT
 			std::strncpy(buffer, tag.c_str(), sizeof(buffer));
+			if (buffer[sizeof(buffer) - 1] != 0)
+			{
+				OLO_ERROR("strncpy did something bad");
+			}
 			if (ImGui::InputText("##Tag", buffer, sizeof(buffer)))
 			{
 				tag = std::string(buffer);
