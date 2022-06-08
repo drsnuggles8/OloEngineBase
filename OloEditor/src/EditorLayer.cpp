@@ -67,17 +67,13 @@ namespace OloEngine {
 		auto& cc = m_SecondCamera.AddComponent<CameraComponent>();
 		cc.Primary = false;
 
-		class CameraController : public ScriptableEntity
+		class CameraController : public NativeScript
 		{
 		public:
-			virtual void OnCreate() override
+			CameraController(Entity entity) : NativeScript(entity)
 			{
 				auto& translation = GetComponent<TransformComponent>().Translation;
 				translation.x = rand() % 10 - 5.0f;
-			}
-
-			virtual void OnDestroy() override
-			{
 			}
 
 			virtual void OnUpdate(Timestep ts) override

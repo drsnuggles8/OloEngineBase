@@ -75,7 +75,7 @@
 		"OloEngine/Scene/SceneCamera.h"
 		"OloEngine/Scene/SceneSerializer.cpp"
 		"OloEngine/Scene/SceneSerializer.h"
-		"OloEngine/Scene/ScriptableEntity.h"
+		"OloEngine/Scene/NativeScript.h"
 
 		"OloEngine/Utils/PlatformUtils.h"
 
