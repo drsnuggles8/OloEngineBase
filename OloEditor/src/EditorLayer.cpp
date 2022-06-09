@@ -67,17 +67,13 @@ namespace OloEngine {
 		auto& cc = m_SecondCamera.AddComponent<CameraComponent>();
 		cc.Primary = false;
 
-		class CameraController : public ScriptableEntity
+		class CameraController : public NativeScript
 		{
 		public:
-			virtual void OnCreate() override
+			CameraController(Entity entity) : NativeScript(entity)
 			{
 				auto& translation = GetComponent<TransformComponent>().Translation;
 				translation.x = rand() % 10 - 5.0f;
-			}
-
-			virtual void OnDestroy() override
-			{
 			}
 
 			virtual void OnUpdate(Timestep ts) override
@@ -148,6 +144,10 @@ namespace OloEngine {
 			case SceneState::Play:
 			{
 				m_ActiveScene->OnUpdateRuntime(ts);
+				break;
+			}
+			default:
+			{
 				break;
 			}
 		}
@@ -231,13 +231,24 @@ namespace OloEngine {
 				// which we can't undo at the moment without finer window depth/z control.
 				//ImGui::MenuItem("Fullscreen", NULL, &opt_fullscreen_persistant);
 				if (ImGui::MenuItem("New", "Ctrl+N"))
+				{
 					NewScene();
+				}
 
 				if (ImGui::MenuItem("Open...", "Ctrl+O"))
+				{
 					OpenScene();
+				}
 
-				if (ImGui::MenuItem("Save As...", "Ctrl+Shift+S"))
+				if (ImGui::MenuItem("Save", "Ctrl+S", false, m_ActiveScene != nullptr))
+				{
+					SaveScene();
+				}
+
+				if (ImGui::MenuItem("Save As...", "Ctrl+Shift+S", false, m_ActiveScene != nullptr))
+				{
 					SaveSceneAs();
+				}
 
 				if (ImGui::MenuItem("Exit")) Application::Get().Close();
 				ImGui::EndMenu();
@@ -288,7 +299,32 @@ namespace OloEngine {
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
 			{
 				const wchar_t* path = (const wchar_t*)payload->Data;
-				OpenScene(std::filesystem::path(g_AssetPath) / path);
+
+				const auto filePath = std::filesystem::path(path);
+				if (filePath.extension().string() == ".olo")
+				{
+					OpenScene(std::filesystem::path(g_AssetPath) / path);
+				}
+				else if (filePath.extension().string() == ".png")
+				{
+					const std::filesystem::path texturePath = std::filesystem::path(g_AssetPath) / path;
+					const Ref<Texture2D> texture = Texture2D::Create(texturePath.string());
+					if (texture->IsLoaded())
+					{
+						if (m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>())
+						{
+							m_HoveredEntity.GetComponent<SpriteRendererComponent>().Texture = texture;
+						}
+					}
+					else
+					{
+						OLO_WARN("Could not load texture {0}", texturePath.filename().string());
+					}
+				}
+				else
+				{
+					OLO_WARN("Tried to load unknown filetype {0}", filePath);
+				}
 			}
 			ImGui::EndDragDropTarget();
 		}
@@ -414,8 +450,17 @@ namespace OloEngine {
 			}
 			case Key::S:
 			{
-				if (control && shift)
-					SaveSceneAs();
+				if (control)
+				{
+					if (shift)
+					{
+						SaveSceneAs();
+					}
+					else
+					{
+						SaveScene();
+					}
+				}
 
 				break;
 			}
@@ -445,6 +490,9 @@ namespace OloEngine {
 					m_GizmoType = ImGuizmo::OPERATION::SCALE;
 				break;
 			}
+
+			default:
+				break;
 		}
 	}
 
@@ -489,12 +537,23 @@ namespace OloEngine {
 			m_ActiveScene = newScene;
 			m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
 			m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+
+			m_ActiveSceneFilePath = path.string();
 		}
+	}
+
+	void EditorLayer::SaveScene()
+	{
+		if (m_ActiveSceneFilePath.empty())
+			SaveSceneAs();
+
+		SceneSerializer serializer(m_ActiveScene);
+		serializer.Serialize(m_ActiveSceneFilePath);
 	}
 
 	void EditorLayer::SaveSceneAs()
 	{
-		std::string filepath = FileDialogs::SaveFile("OloEditor Scene (*.olo)\0*.olo\0");
+		const std::string filepath = FileDialogs::SaveFile("OloEditor Scene (*.olo)\0*.olo\0");
 		if (!filepath.empty())
 		{
 			SceneSerializer serializer(m_ActiveScene);

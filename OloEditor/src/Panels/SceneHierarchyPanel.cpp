@@ -72,7 +72,8 @@ namespace OloEngine {
 
 	void SceneHierarchyPanel::DrawEntityNode(Entity entity)
 	{
-		auto& tag = entity.GetComponent<TagComponent>().Tag;
+		auto& tagComponent = entity.GetComponent<TagComponent>();
+		auto& tag = tagComponent.Tag;
 		
 		ImGuiTreeNodeFlags flags = ((m_SelectionContext == entity) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
 		flags |= ImGuiTreeNodeFlags_SpanAvailWidth;
@@ -85,10 +86,36 @@ namespace OloEngine {
 		bool entityDeleted = false;
 		if (ImGui::BeginPopupContextItem())
 		{
+			if (ImGui::MenuItem("Rename"))
+			{
+				tagComponent.renaming = true;
+			}
+
 			if (ImGui::MenuItem("Delete Entity"))
 				entityDeleted = true;
 
 			ImGui::EndPopup();
+		}
+
+		if (tagComponent.renaming)
+		{
+			// TODO(olbu): GET AWAY FROM THIS C-STYLE SHIT, convert to C++ modern style..learn about text handling
+			char buffer[256];
+			memset(buffer, 0, sizeof(buffer));
+			strncpy_s(buffer, tag.c_str(), sizeof(buffer));
+			if (buffer[sizeof(buffer) - 1] != 0)
+			{
+				OLO_ERROR("strncpy did something bad");
+			}
+			if (ImGui::InputText("##Tag", buffer, sizeof(buffer)))
+			{
+				tag = std::string(buffer);
+			}
+
+			if (ImGui::IsMouseClicked(0) && ImGui::IsWindowHovered())
+			{
+				tagComponent.renaming = false;
+			}
 		}
 
 		if (opened)
@@ -238,23 +265,8 @@ namespace OloEngine {
 
 		if (ImGui::BeginPopup("AddComponent"))
 		{
-			if (ImGui::MenuItem("Camera"))
-			{
-				if (!m_SelectionContext.HasComponent<CameraComponent>())
-					m_SelectionContext.AddComponent<CameraComponent>();
-				else
-					OLO_CORE_WARN("This entity already has a Camera Component!");
-				ImGui::CloseCurrentPopup();
-			}
-
-			if (ImGui::MenuItem("Sprite Renderer"))
-			{
-				if (!m_SelectionContext.HasComponent<SpriteRendererComponent>())
-					m_SelectionContext.AddComponent<SpriteRendererComponent>();
-				else
-					OLO_CORE_WARN("This entity already has a Sprite Renderer Component!");
-				ImGui::CloseCurrentPopup();
-			}
+			DisplayAddComponentEntry<CameraComponent>("Camera");
+			DisplayAddComponentEntry<SpriteRendererComponent>("Sprite Renderer");
 
 			ImGui::EndPopup();
 		}
@@ -356,4 +368,13 @@ namespace OloEngine {
 
 	}
 
+	template<typename T>
+	void SceneHierarchyPanel::DisplayAddComponentEntry(const std::string& entryName)
+	{
+		if ((!m_SelectionContext.HasComponent<T>()) && ImGui::MenuItem(entryName.c_str()))
+		{
+			m_SelectionContext.AddComponent<T>();
+			ImGui::CloseCurrentPopup();
+		}
+	}
 }
