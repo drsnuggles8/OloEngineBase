@@ -146,6 +146,10 @@ namespace OloEngine {
 				m_ActiveScene->OnUpdateRuntime(ts);
 				break;
 			}
+			default:
+			{
+				break;
+			}
 		}
 
 		auto [mx, my] = ImGui::GetMousePos();
@@ -486,6 +490,9 @@ namespace OloEngine {
 					m_GizmoType = ImGuizmo::OPERATION::SCALE;
 				break;
 			}
+
+			default:
+				break;
 		}
 	}
 
@@ -546,11 +553,11 @@ namespace OloEngine {
 
 	void EditorLayer::SaveSceneAs()
 	{
-		const std::string m_ActiveSceneFilePath = FileDialogs::SaveFile("OloEditor Scene (*.olo)\0*.olo\0");
-		if (!m_ActiveSceneFilePath.empty())
+		const std::string filepath = FileDialogs::SaveFile("OloEditor Scene (*.olo)\0*.olo\0");
+		if (!filepath.empty())
 		{
 			SceneSerializer serializer(m_ActiveScene);
-			serializer.Serialize(m_ActiveSceneFilePath);
+			serializer.Serialize(filepath);
 		}
 	}
 
