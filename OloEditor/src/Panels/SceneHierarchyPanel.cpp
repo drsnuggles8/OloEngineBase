@@ -99,9 +99,9 @@ namespace OloEngine {
 
 		if (tagComponent.renaming)
 		{
-			// TODO: GET AWAY FROM THIS C-STYLE SHIT, convert to C++ modern style..learn about text handling
+			// TODO(olbu): GET AWAY FROM THIS C-STYLE SHIT, convert to C++ modern style..learn about text handling
 			char buffer[256];
-			memset(buffer, 0, sizeof(buffer));			
+			memset(buffer, 0, sizeof(buffer));
 			strncpy_s(buffer, tag.c_str(), sizeof(buffer));
 			if (buffer[sizeof(buffer) - 1] != 0)
 			{
@@ -371,7 +371,7 @@ namespace OloEngine {
 	template<typename T>
 	void SceneHierarchyPanel::DisplayAddComponentEntry(const std::string& entryName)
 	{
-		if (!m_SelectionContext.HasComponent<T>() && ImGui::MenuItem(entryName.c_str()))
+		if ((!m_SelectionContext.HasComponent<T>()) && ImGui::MenuItem(entryName.c_str()))
 		{
 			m_SelectionContext.AddComponent<T>();
 			ImGui::CloseCurrentPopup();
