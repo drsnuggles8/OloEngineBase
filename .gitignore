@@ -460,3 +460,8 @@ test-cppcheck-build-dir/
 
 # directory
 OloEditor/assets/cache
+
+# Profiling files
+**/OloProfile-Runtime.json
+**/OloProfile-Shutdown.json
+**/OloProfile-Startup.json

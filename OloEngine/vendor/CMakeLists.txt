@@ -137,7 +137,7 @@ message(STATUS "${Green} spdlog Should Be Downloaded ${ColourReset}")
 set(libStbImage stb_image)
 FetchContent_Declare(${libStbImage}
 	GIT_REPOSITORY https://github.com/nothings/stb.git
-	GIT_TAG origin/master
+	GIT_TAG master
 	CONFIGURE_COMMAND ""
 	BUILD_COMMAND ""
 )
@@ -155,6 +155,15 @@ DESTINATION
 set(STBIMAGE_INSTALL_DIR "${PROJECT_SOURCE_DIR}/vendor/stb_image-build")
 message(STATUS "${Green} stb_image Should Be Downloaded ${ColourReset}")
 
+FetchContent_Declare(googletest
+	GIT_REPOSITORY https://github.com/google/googletest.git
+	GIT_TAG main
+  
+)
+# For Windows: Prevent overriding the parent project's compiler/linker settings
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
+
 #set_target_properties(ryml PROPERTIES FOLDER "Utilities/ryml")
 #set_target_properties(ryml-uninstall PROPERTIES FOLDER "Utilities/ryml")
 #set_target_properties(c4core PROPERTIES FOLDER "Utilities/ryml")
@@ -171,5 +180,9 @@ set_target_properties(update_mappings PROPERTIES FOLDER "Utilities/GLFW3")
 set_target_properties(yaml-cpp-parse PROPERTIES FOLDER "Utilities/yaml-cpp")
 set_target_properties(yaml-cpp-read PROPERTIES FOLDER "Utilities/yaml-cpp")
 set_target_properties(yaml-cpp-sandbox PROPERTIES FOLDER "Utilities/yaml-cpp")
+set_target_properties(gmock PROPERTIES FOLDER "Utilities/googletest")
+set_target_properties(gmock_main PROPERTIES FOLDER "Utilities/googletest")
+set_target_properties(gtest PROPERTIES FOLDER "Utilities/googletest")
+set_target_properties(gtest_main PROPERTIES FOLDER "Utilities/googletest")
 #======================================
 message(STATUS "Fetching thirdparty libraries done")
