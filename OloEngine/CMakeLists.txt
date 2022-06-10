@@ -22,6 +22,7 @@ message("Path to Vulkan: " $ENV{VULKAN_SDK})
 
 # Main targets built by this project
 add_subdirectory(src)
+add_subdirectory(test)
 
 set_target_properties(OloEngine PROPERTIES
 					ARCHIVE_OUTPUT_DIRECTORY_DEBUG ${CMAKE_SOURCE_DIR}/bin/Debug/OloEngine
@@ -85,3 +86,4 @@ target_link_libraries(OloEngine
 					  optimized $ENV{VULKAN_SDK}/Lib/spirv-cross-core.lib
 					  optimized $ENV{VULKAN_SDK}/Lib/spirv-cross-glsl.lib
 )
+

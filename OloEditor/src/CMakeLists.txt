@@ -10,5 +10,5 @@
 )
 
 add_executable("OloEditor"
-        ${EDITOR_SOURCES}
+		${EDITOR_SOURCES}
 )
