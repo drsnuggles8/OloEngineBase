@@ -465,3 +465,6 @@ OloEditor/assets/cache
 **/OloProfile-Runtime.json
 **/OloProfile-Shutdown.json
 **/OloProfile-Startup.json
+
+# imgui profiles
+**/imgui.ini
