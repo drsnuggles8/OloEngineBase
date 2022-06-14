@@ -22,7 +22,7 @@ namespace OloEngine {
 	struct FramebufferTextureSpecification
 	{
 		FramebufferTextureSpecification() = default;
-		explicit FramebufferTextureSpecification(FramebufferTextureFormat format)
+		FramebufferTextureSpecification(FramebufferTextureFormat format)
 			: TextureFormat(format) {}
 
 		FramebufferTextureFormat TextureFormat = FramebufferTextureFormat::None;

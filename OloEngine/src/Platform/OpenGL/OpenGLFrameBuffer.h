@@ -7,7 +7,7 @@ namespace OloEngine {
 	class OpenGLFramebuffer : public Framebuffer
 	{
 	public:
-		explicit OpenGLFramebuffer(const FramebufferSpecification& spec);
+		OpenGLFramebuffer(const FramebufferSpecification& spec);
 		~OpenGLFramebuffer() override;
 
 		void Invalidate();
