@@ -20,14 +20,14 @@ namespace OloEngine {
 
 		glfwMakeContextCurrent(m_WindowHandle);
 		int status = gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
-		OLO_CORE_ASSERT(status, "Failed to initialize Glad!");
+		OLO_CORE_ASSERT(status, "Failed to initialize Glad!")
 
 		OLO_CORE_INFO("OpenGL Info:");
 		OLO_CORE_INFO("  Vendor: {0}", glGetString(GL_VENDOR));
 		OLO_CORE_INFO("  Renderer: {0}", glGetString(GL_RENDERER));
 		OLO_CORE_INFO("  Version: {0}", glGetString(GL_VERSION));
 
-		OLO_CORE_ASSERT(GLVersion.major > 4 || (GLVersion.major == 4 && GLVersion.minor >= 5), "OloEngine requires at least OpenGL version 4.5!");
+		OLO_CORE_ASSERT(GLVersion.major > 4 || (GLVersion.major == 4 && GLVersion.minor >= 5), "OloEngine requires at least OpenGL version 4.5!")
 
 	}
 

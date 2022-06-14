@@ -22,9 +22,10 @@ namespace OloEngine {
 			case ShaderDataType::Int3:     return GL_INT;
 			case ShaderDataType::Int4:     return GL_INT;
 			case ShaderDataType::Bool:     return GL_BOOL;
-		}
+            case ShaderDataType::None:     break;
+        }
 
-		OLO_CORE_ASSERT(false, "Unknown ShaderDataType!");
+		OLO_CORE_ASSERT(false, "Unknown ShaderDataType!")
 		return 0;
 	}
 
@@ -60,7 +61,7 @@ namespace OloEngine {
 	{
 		OLO_PROFILE_FUNCTION();
 
-		OLO_CORE_ASSERT(vertexBuffer->GetLayout().GetElements().size(), "Vertex Buffer has no layout!");
+		OLO_CORE_ASSERT(vertexBuffer->GetLayout().GetElements().size(), "Vertex Buffer has no layout!")
 
 		glBindVertexArray(m_RendererID);
 		vertexBuffer->Bind();
@@ -119,7 +120,7 @@ namespace OloEngine {
 				break;
 			}
 			default:
-				OLO_CORE_ASSERT(false, "Unknown ShaderDataType!");
+				OLO_CORE_ASSERT(false, "Unknown ShaderDataType!")
 			}
 		}
 

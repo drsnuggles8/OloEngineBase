@@ -5,6 +5,7 @@
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
+#include <utility>
 
 #include "SceneCamera.h"
 #include "NativeScript.h"
@@ -19,11 +20,11 @@ namespace OloEngine {
 
 		TagComponent() = default;
 		TagComponent(const TagComponent& other) = default;
-		TagComponent(const std::string& tag)
-			: Tag(tag) {}
+		explicit TagComponent(std::string  tag)
+			: Tag(std::move(tag)) {}
 
-		operator std::string& () { return Tag; }
-		operator const std::string& () const { return Tag; }
+		explicit operator std::string& () { return Tag; }
+		explicit operator const std::string& () const { return Tag; }
 	};
 
 
@@ -35,11 +36,11 @@ namespace OloEngine {
 
 		TransformComponent() = default;
 		TransformComponent(const TransformComponent& other) = default;
-		TransformComponent(const glm::vec3& translation)
+		explicit TransformComponent(const glm::vec3& translation)
 			: Translation(translation) {}
 
 
-		glm::mat4 GetTransform() const
+		[[nodiscard]] glm::mat4 GetTransform() const
 		{
 			glm::mat4 rotation = glm::toMat4(glm::quat(Rotation));
 
@@ -57,7 +58,7 @@ namespace OloEngine {
 
 		SpriteRendererComponent() = default;
 		SpriteRendererComponent(const SpriteRendererComponent&) = default;
-		SpriteRendererComponent(const glm::vec4& color)
+		explicit SpriteRendererComponent(const glm::vec4& color)
 			: Color(color) {}
 	};
 

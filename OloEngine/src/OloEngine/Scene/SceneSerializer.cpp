@@ -180,7 +180,7 @@ namespace OloEngine {
 	void SceneSerializer::SerializeRuntime(const std::string& filepath)
 	{
 		// Not implemented
-		OLO_CORE_ASSERT(false);
+		OLO_CORE_ASSERT(false)
 	}
 
 	bool SceneSerializer::Deserialize(const std::string& filepath)
@@ -262,7 +262,7 @@ namespace OloEngine {
 	bool SceneSerializer::DeserializeRuntime(const std::string& filepath)
 	{
 		// Not implemented
-		OLO_CORE_ASSERT(false);
+		OLO_CORE_ASSERT(false)
 		return false;
 	}
 

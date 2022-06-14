@@ -25,7 +25,7 @@ namespace OloEngine {
 			if (type == "fragment" || type == "pixel")
 				return GL_FRAGMENT_SHADER;
 
-			OLO_CORE_ASSERT(false, "Unknown shader type!");
+			OLO_CORE_ASSERT(false, "Unknown shader type!")
 			return 0;
 		}
 
@@ -36,7 +36,7 @@ namespace OloEngine {
 				case GL_VERTEX_SHADER:   return shaderc_glsl_vertex_shader;
 				case GL_FRAGMENT_SHADER: return shaderc_glsl_fragment_shader;
 			}
-			OLO_CORE_ASSERT(false);
+			OLO_CORE_ASSERT(false)
 			return (shaderc_shader_kind)0;
 		}
 
@@ -47,7 +47,7 @@ namespace OloEngine {
 				case GL_VERTEX_SHADER:   return "GL_VERTEX_SHADER";
 				case GL_FRAGMENT_SHADER: return "GL_FRAGMENT_SHADER";
 			}
-			OLO_CORE_ASSERT(false);
+			OLO_CORE_ASSERT(false)
 			return nullptr;
 		}
 
@@ -71,7 +71,7 @@ namespace OloEngine {
 				case GL_VERTEX_SHADER:    return ".cached_opengl.vert";
 				case GL_FRAGMENT_SHADER:  return ".cached_opengl.frag";
 			}
-			OLO_CORE_ASSERT(false);
+			OLO_CORE_ASSERT(false)
 			return "";
 		}
 
@@ -82,11 +82,11 @@ namespace OloEngine {
 				case GL_VERTEX_SHADER:    return ".cached_vulkan.vert";
 				case GL_FRAGMENT_SHADER:  return ".cached_vulkan.frag";
 			}
-			OLO_CORE_ASSERT(false);
+			OLO_CORE_ASSERT(false)
 			return "";
 		}
 
-		static const bool IsAmdGpu()
+		static bool IsAmdGpu()
 		{
 			const char* vendor = (char*)glGetString(GL_VENDOR);
 			return strstr(vendor, "ATI") != nullptr;
@@ -196,13 +196,13 @@ namespace OloEngine {
 		while (pos != std::string::npos)
 		{
 			size_t eol = source.find_first_of("\r\n", pos); //End of shader type declaration line
-			OLO_CORE_ASSERT(eol != std::string::npos, "Syntax error");
+			OLO_CORE_ASSERT(eol != std::string::npos, "Syntax error")
 			size_t begin = pos + typeTokenLength + 1; //Start of shader type name (after "#type " keyword)
 			std::string type = source.substr(begin, eol - begin);
-			OLO_CORE_ASSERT(Utils::ShaderTypeFromString(type), "Invalid shader type specified");
+			OLO_CORE_ASSERT(Utils::ShaderTypeFromString(type), "Invalid shader type specified")
 
 			size_t nextLinePos = source.find_first_not_of("\r\n", eol); //Start of shader code after shader type declaration line
-			OLO_CORE_ASSERT(nextLinePos != std::string::npos, "Syntax error");
+			OLO_CORE_ASSERT(nextLinePos != std::string::npos, "Syntax error")
 			pos = source.find(typeToken, nextLinePos); //Start of next shader type declaration line
 
 			shaderSources[Utils::ShaderTypeFromString(type)] = (pos == std::string::npos) ? source.substr(nextLinePos) : source.substr(nextLinePos, pos - nextLinePos);
@@ -248,7 +248,7 @@ namespace OloEngine {
 				if (module.GetCompilationStatus() != shaderc_compilation_status_success)
 				{
 					OLO_CORE_ERROR(module.GetErrorMessage());
-					OLO_CORE_ASSERT(false);
+					OLO_CORE_ASSERT(false)
 				}
 
 				shaderData[stage] = std::vector<uint32_t>(module.cbegin(), module.cend());
@@ -309,7 +309,7 @@ namespace OloEngine {
 				if (module.GetCompilationStatus() != shaderc_compilation_status_success)
 				{
 					OLO_CORE_ERROR(module.GetErrorMessage());
-					OLO_CORE_ASSERT(false);
+					OLO_CORE_ASSERT(false)
 				}
 
 				shaderData[stage] = std::vector<uint32_t>(module.cbegin(), module.cend());
@@ -382,7 +382,7 @@ namespace OloEngine {
 			glDeleteProgram(program);
 
 			OLO_CORE_ERROR("{0}", infoLog.data());
-			OLO_CORE_ASSERT(false, "[OpenGL] Shader link failure!");
+			OLO_CORE_ASSERT(false, "[OpenGL] Shader link failure!")
 			return false;
 		}
 		return true;
@@ -426,7 +426,7 @@ namespace OloEngine {
 				// Save program data
 				GLint formats = 0;
 				glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &formats);
-				OLO_CORE_ASSERT(formats > 0, "Driver does not support binary format");
+				OLO_CORE_ASSERT(formats > 0, "Driver does not support binary format")
 				Utils::CreateCacheDirectoryIfNeeded();
 				GLint length = 0;
 				glGetProgramiv(program, GL_PROGRAM_BINARY_LENGTH, &length);
@@ -480,7 +480,7 @@ namespace OloEngine {
 				glDeleteShader(shader);
 
 				OLO_CORE_ERROR("{0}", infoLog.data());
-				OLO_CORE_ASSERT(false, "[OpenGL] Shader compilation failure!");
+				OLO_CORE_ASSERT(false, "[OpenGL] Shader compilation failure!")
 				return;
 			}
 			glAttachShader(program, shader);
