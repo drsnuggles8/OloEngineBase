@@ -22,7 +22,7 @@ namespace OloEngine {
 
 		const char* operator[](const int index) const
 		{
-			OLO_CORE_ASSERT(index < Count);
+			OLO_CORE_ASSERT(index < Count)
 			return Args[index];
 		}
 	};
@@ -30,7 +30,7 @@ namespace OloEngine {
 	class Application
 	{
 	public:
-		Application(const std::string& name = "OloEngine App", const ApplicationCommandLineArgs args = ApplicationCommandLineArgs());
+		explicit Application(const std::string& name = "OloEngine App", ApplicationCommandLineArgs args = ApplicationCommandLineArgs());
 		virtual ~Application();
 
 		void OnEvent(Event& e);

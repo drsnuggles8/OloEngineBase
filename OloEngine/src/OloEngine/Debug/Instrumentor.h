@@ -78,10 +78,10 @@ namespace OloEngine {
 
 			json << std::setprecision(3) << std::fixed;
 			json << ",{";
-			json << "\"cat\":\"function\",";
+			json << R"("cat":"function",)";
 			json << "\"dur\":" << (result.ElapsedTime.count()) << ',';
-			json << "\"name\":\"" << result.Name << "\",";
-			json << "\"ph\":\"X\",";
+			json << R"("name":")" << result.Name << "\",";
+			json << R"("ph":"X",)";
 			json << "\"pid\":0,";
 			json << "\"tid\":" << result.ThreadID << ",";
 			json << "\"ts\":" << result.Start.count();
@@ -113,7 +113,7 @@ namespace OloEngine {
 
 		void WriteHeader()
 		{
-			m_OutputStream << "{\"otherData\": {},\"traceEvents\":[{}";
+			m_OutputStream << R"({"otherData": {},"traceEvents":[{})";
 			m_OutputStream.flush();
 		}
 
@@ -144,7 +144,7 @@ namespace OloEngine {
 	class InstrumentationTimer
 	{
 	public:
-		InstrumentationTimer(const char* name)
+		explicit InstrumentationTimer(const char* name)
 			: m_Name(name), m_Stopped(false)
 		{
 			m_StartTimepoint = std::chrono::steady_clock::now();
