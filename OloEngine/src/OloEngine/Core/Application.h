@@ -30,7 +30,7 @@ namespace OloEngine {
 	class Application
 	{
 	public:
-		Application(const std::string& name = "OloEngine App", ApplicationCommandLineArgs args = ApplicationCommandLineArgs());
+		Application(const std::string& name = "OloEngine App", const ApplicationCommandLineArgs args = ApplicationCommandLineArgs());
 		virtual ~Application();
 
 		void OnEvent(Event& e);

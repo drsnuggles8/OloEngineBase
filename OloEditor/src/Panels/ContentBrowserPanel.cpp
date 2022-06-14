@@ -21,22 +21,21 @@ namespace OloEngine {
 	{
 		ImGui::Begin("Content Browser");
 
-		if (m_CurrentDirectory != std::filesystem::path(g_AssetPath))
+		if ((m_CurrentDirectory != std::filesystem::path(g_AssetPath)) && (ImGui::Button("<-")))
 		{
-			if (ImGui::Button("<-"))
-			{
-				m_CurrentDirectory = m_CurrentDirectory.parent_path();
-			}
+			m_CurrentDirectory = m_CurrentDirectory.parent_path();
 		}
 
 		static float padding = 16.0f;
 		static float thumbnailSize = 128.0f;
-		float cellSize = thumbnailSize + padding;
+		const float cellSize = thumbnailSize + padding;
 
-		float panelWidth = ImGui::GetContentRegionAvail().x;
-		int columnCount = (int)(panelWidth / cellSize);
+		const float panelWidth = ImGui::GetContentRegionAvail().x;
+		auto columnCount = (int)(panelWidth / cellSize);
 		if (columnCount < 1)
+		{
 			columnCount = 1;
+		}
 
 		ImGui::Columns(columnCount, 0, false);
 
@@ -52,7 +51,7 @@ namespace OloEngine {
 
 			if (ImGui::BeginDragDropSource())
 			{
-				auto relativePath = std::filesystem::relative(path, g_AssetPath);
+				const auto relativePath = std::filesystem::relative(path, g_AssetPath);
 				const wchar_t* itemPath = relativePath.c_str();
 				ImGui::SetDragDropPayload("CONTENT_BROWSER_ITEM", itemPath, (wcslen(itemPath) + 1) * sizeof(wchar_t));
 				ImGui::EndDragDropSource();
@@ -60,10 +59,9 @@ namespace OloEngine {
 
 			ImGui::PopStyleColor();
 
-			if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+			if ((ImGui::IsItemHovered()) && (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) && (directoryEntry.is_directory()))
 			{
-				if (directoryEntry.is_directory())
-					m_CurrentDirectory /= path.filename();
+				m_CurrentDirectory /= path.filename();
 
 			}
 			ImGui::TextWrapped(filenameString.c_str());

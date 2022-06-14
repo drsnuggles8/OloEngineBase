@@ -6,10 +6,10 @@ namespace OloEngine {
 	class WindowResizeEvent : public Event
 	{
 	public:
-		WindowResizeEvent(unsigned int width, unsigned int height)
+		WindowResizeEvent(const unsigned int width, const unsigned int height)
 			: m_Width(width), m_Height(height) {}
 
-		unsigned int GetWidth() const { return m_Width; }
+		unsigned int GetWidth()  const { return m_Width; }
 		unsigned int GetHeight() const { return m_Height; }
 
 		std::string ToString() const override
