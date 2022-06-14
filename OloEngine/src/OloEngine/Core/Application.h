@@ -20,7 +20,7 @@ namespace OloEngine {
 		int Count = 0;
 		char** Args = nullptr;
 
-		const char* operator[](int index) const
+		const char* operator[](const int index) const
 		{
 			OLO_CORE_ASSERT(index < Count);
 			return Args[index];
@@ -38,15 +38,15 @@ namespace OloEngine {
 		void PushLayer(Layer* layer);
 		void PushOverlay(Layer* layer);
 
-		Window& GetWindow() { return *m_Window; }
+		[[nodiscard]] Window& GetWindow() { return *m_Window; }
 
-		static Application& Get() { return *s_Instance; }
+		[[nodiscard]] static Application& Get() { return *s_Instance; }
 
 		void Close();
 
-		ImGuiLayer* GetImGuiLayer() { return m_ImGuiLayer; }
+		[[nodiscard]] ImGuiLayer* GetImGuiLayer() { return m_ImGuiLayer; }
 
-		ApplicationCommandLineArgs GetCommandLineArgs() const { return m_CommandLineArgs; }
+		[[nodiscard]] ApplicationCommandLineArgs GetCommandLineArgs() const { return m_CommandLineArgs; }
 	private:
 		void Run();
 		bool OnWindowClose(WindowCloseEvent& e);
