@@ -1,5 +1,6 @@
 // This is an independent project of an individual developer. Dear PVS-Studio, please check it.
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
+#include <ranges>
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/Application.h"
 
@@ -67,13 +68,13 @@ namespace OloEngine {
 		dispatcher.Dispatch<WindowCloseEvent>(OLO_BIND_EVENT_FN(Application::OnWindowClose));
 		dispatcher.Dispatch<WindowResizeEvent>(OLO_BIND_EVENT_FN(Application::OnWindowResize));
 
-		for (auto it = m_LayerStack.rbegin(); it != m_LayerStack.rend(); ++it)
+		for (auto& it : std::ranges::reverse_view(m_LayerStack))
 		{
 			if (e.Handled)
 			{
 				break;
 			}
-			(*it)->OnEvent(e);
+			it->OnEvent(e);
 		}
 	}
 
@@ -99,7 +100,7 @@ namespace OloEngine {
 					}
 				}
 
-				m_ImGuiLayer->Begin();
+				OloEngine::ImGuiLayer::Begin();
 				{
 					OLO_PROFILE_SCOPE("LayerStack OnImGuiRender");
 
@@ -108,7 +109,7 @@ namespace OloEngine {
 						layer->OnImGuiRender();
 					}
 				}
-				m_ImGuiLayer->End();
+				OloEngine::ImGuiLayer::End();
 			}
 
 			m_Window->OnUpdate();
