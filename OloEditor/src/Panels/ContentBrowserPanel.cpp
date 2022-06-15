@@ -31,13 +31,13 @@ namespace OloEngine {
 		const float cellSize = thumbnailSize + padding;
 
 		const float panelWidth = ImGui::GetContentRegionAvail().x;
-		auto columnCount = (int)(panelWidth / cellSize);
+		auto columnCount = static_cast<int>(panelWidth / cellSize);
 		if (columnCount < 1)
 		{
 			columnCount = 1;
 		}
 
-		ImGui::Columns(columnCount, 0, false);
+		ImGui::Columns(columnCount, nullptr, false);
 
 		for (auto& directoryEntry : std::filesystem::directory_iterator(m_CurrentDirectory))
 		{
@@ -45,7 +45,7 @@ namespace OloEngine {
 			const std::string filenameString = path.filename().string();
 
 			ImGui::PushID(filenameString.c_str());
-			Ref<Texture2D> icon = directoryEntry.is_directory() ? m_DirectoryIcon : m_FileIcon;
+			const Ref<Texture2D> icon = directoryEntry.is_directory() ? m_DirectoryIcon : m_FileIcon;
 			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
 			ImGui::ImageButton((ImTextureID)icon->GetRendererID(), { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
 
@@ -53,7 +53,7 @@ namespace OloEngine {
 			{
 				const auto relativePath = std::filesystem::relative(path, g_AssetPath);
 				const wchar_t* itemPath = relativePath.c_str();
-				ImGui::SetDragDropPayload("CONTENT_BROWSER_ITEM", itemPath, (wcslen(itemPath) + 1) * sizeof(wchar_t));
+				ImGui::SetDragDropPayload("CONTENT_BROWSER_ITEM", itemPath, (std::wcslen(itemPath) + 1) * sizeof(wchar_t));
 				ImGui::EndDragDropSource();
 			}
 
@@ -76,7 +76,7 @@ namespace OloEngine {
 		ImGui::SliderFloat("Thumbnail Size", &thumbnailSize, 16, 512);
 		ImGui::SliderFloat("Padding", &padding, 0, 32);
 
-		// TODO: status bar
+		// TODO(olbu): status bar
 		ImGui::End();
 	}
 
