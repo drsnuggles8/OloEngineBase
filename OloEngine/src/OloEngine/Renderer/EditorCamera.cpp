@@ -45,7 +45,7 @@ namespace OloEngine {
 		return { xFactor, yFactor };
 	}
 
-	float EditorCamera::RotationSpeed() const
+	float EditorCamera::RotationSpeed()
 	{
 		return 0.8f;
 	}

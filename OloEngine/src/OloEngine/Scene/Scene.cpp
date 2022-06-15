@@ -13,12 +13,10 @@
 namespace OloEngine {
 
 	Scene::Scene()
-	{
-	}
+	= default;
 
 	Scene::~Scene()
-	{
-	}
+	= default;
 
 	Entity Scene::CreateEntity(const std::string& name)
 	{

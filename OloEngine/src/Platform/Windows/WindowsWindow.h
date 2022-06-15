@@ -27,7 +27,7 @@ namespace OloEngine {
 		virtual void Init(const WindowProps& props);
 		virtual void Shutdown();
 	private:
-		GLFWwindow* m_Window;
+		GLFWwindow* m_Window{};
 		Scope<GraphicsContext> m_Context;
 
 		struct WindowData
