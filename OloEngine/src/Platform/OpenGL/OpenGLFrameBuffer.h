@@ -20,7 +20,7 @@ namespace OloEngine {
 
 		void ClearAttachment(uint32_t attachmentIndex, int value) override;
 
-		[[nodiscard]] uint32_t GetColorAttachmentRendererID(uint32_t index = 0) const override { OLO_CORE_ASSERT(index < m_ColorAttachments.size()) return m_ColorAttachments[index]; }
+		[[nodiscard]] uint32_t GetColorAttachmentRendererID(uint32_t index) const override { OLO_CORE_ASSERT(index < m_ColorAttachments.size()) return m_ColorAttachments[index]; }
 
 		[[nodiscard]] const FramebufferSpecification& GetSpecification() const override { return m_Specification; }
 	private:

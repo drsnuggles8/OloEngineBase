@@ -11,7 +11,7 @@ namespace OloEngine {
 	class OrthographicCameraController
 	{
 	public:
-		OrthographicCameraController(float aspectRatio, bool rotation = true);
+		explicit OrthographicCameraController(float aspectRatio, bool rotation = true);
 
 		void OnUpdate(Timestep ts);
 		void OnEvent(Event& e);

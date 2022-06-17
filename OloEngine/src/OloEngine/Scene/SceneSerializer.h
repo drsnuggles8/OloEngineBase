@@ -7,7 +7,7 @@ namespace OloEngine {
 	class SceneSerializer
 	{
 	public:
-		SceneSerializer(const Ref<Scene>& scene);
+		explicit SceneSerializer(const Ref<Scene>& scene);
 
 		void Serialize(const std::string& filepath);
 		void SerializeRuntime(const std::string& filepath);

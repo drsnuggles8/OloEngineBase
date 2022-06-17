@@ -62,7 +62,7 @@ namespace OloEngine {
 		// TODO: template this for different value types (int/float etc.)
 		virtual void ClearAttachment(uint32_t attachmentIndex, int value) = 0;
 
-		[[nodiscard]] virtual uint32_t GetColorAttachmentRendererID(uint32_t index = 0) const = 0;
+		[[nodiscard]] virtual uint32_t GetColorAttachmentRendererID(uint32_t index) const = 0;
 
 		[[nodiscard]] virtual const FramebufferSpecification& GetSpecification() const = 0;
 

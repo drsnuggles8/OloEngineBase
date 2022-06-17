@@ -138,7 +138,7 @@ namespace OloEngine {
 
 	glm::quat EditorCamera::GetOrientation() const
 	{
-		return glm::quat(glm::vec3(-m_Pitch, -m_Yaw, 0.0f));
+		return {(glm::vec3(-m_Pitch, -m_Yaw, 0.0f))};
 	}
 
 }

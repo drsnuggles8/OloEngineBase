@@ -120,7 +120,7 @@ namespace OloEngine {
 					break;
 				}
 				default:
-					OLO_CORE_ASSERT(false, "Unknown ShaderDataType!");
+					OLO_CORE_ASSERT(false, "Unknown ShaderDataType!")
 			}
 		}
 
