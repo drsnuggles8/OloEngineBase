@@ -10,9 +10,9 @@ namespace OloEngine {
 	{
 	public:
 		SceneHierarchyPanel() = default;
-		SceneHierarchyPanel(const Ref<Scene>& scene);
+		SceneHierarchyPanel(const Ref<Scene>& context);
 
-		void SetContext(const Ref<Scene>& scene);
+		void SetContext(const Ref<Scene>& context);
 
 		void OnImGuiRender();
 

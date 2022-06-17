@@ -38,7 +38,7 @@ namespace OloEngine {
 
 		m_Context->m_Registry.each([&](auto entityID)
 		{
-			Entity entity{ entityID , m_Context.get() };
+			Entity const entity{ entityID , m_Context.get() };
 			DrawEntityNode(entity);
 		});
 
@@ -48,7 +48,7 @@ namespace OloEngine {
 		}
 
 		// Right-click on blank space
-		if (ImGui::BeginPopupContextWindow(0, 1, false))
+		if (ImGui::BeginPopupContextWindow(nullptr, 1, false))
 		{
 			if (ImGui::MenuItem("Create Empty Entity"))
 			{
@@ -106,8 +106,8 @@ namespace OloEngine {
 		if (tagComponent.renaming)
 		{
 			char buffer[256];
-			memset(buffer, 0, sizeof(buffer));
-			strncpy_s(buffer, tag.c_str(), sizeof(buffer));
+			::memset(buffer, 0, sizeof(buffer));
+			::strncpy_s(buffer, tag.c_str(), sizeof(buffer));
 			if (buffer[sizeof(buffer) - 1] != 0)
 			{
 				OLO_CORE_ERROR("Something went wrong with entering strings here");
@@ -127,8 +127,7 @@ namespace OloEngine {
 		{
 			const ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
 			//TODO(olbu): this is just a test, with some random ID used
-			const bool opened = ImGui::TreeNodeEx((void*)9817239, flags, tag.c_str());
-			if (opened)
+			if (const bool opened = ImGui::TreeNodeEx((void*)9817239, flags, tag.c_str()))
 			{
 				ImGui::TreePop();
 			}
@@ -160,7 +159,7 @@ namespace OloEngine {
 		ImGui::PushMultiItemsWidths(3, ImGui::CalcItemWidth());
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
 
-		const float lineHeight = ::GImGui->Font->FontSize + ::GImGui->Style.FramePadding.y * 2.0f;
+		const float lineHeight = ::GImGui->Font->FontSize + (::GImGui->Style.FramePadding.y * 2.0f);
 		const ImVec2 buttonSize = { lineHeight + 3.0f, lineHeight };
 
 		ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.8f, 0.1f, 0.15f, 1.0f });
@@ -232,7 +231,7 @@ namespace OloEngine {
 			const bool open = ImGui::TreeNodeEx((void*)typeid(T).hash_code(), treeNodeFlags, name.c_str());
 			ImGui::PopStyleVar(
 			);
-			ImGui::SameLine(contentRegionAvailable.x - lineHeight * 0.5f);
+			ImGui::SameLine(contentRegionAvailable.x - (lineHeight * 0.5f));
 			if (ImGui::Button("+", ImVec2{ lineHeight, lineHeight }))
 			{
 				ImGui::OpenPopup("ComponentSettings");
@@ -269,8 +268,8 @@ namespace OloEngine {
 			auto& tag = entity.GetComponent<TagComponent>().Tag;
 
 			char buffer[256];
-			memset(buffer, 0, sizeof(buffer));
-			std::strncpy(buffer, tag.c_str(), sizeof(buffer));
+			::memset(buffer, 0, sizeof(buffer));
+			::strncpy_s(buffer, tag.c_str(), sizeof(buffer));
 			if (ImGui::InputText("##Tag", buffer, sizeof(buffer)))
 			{
 				tag = std::string(buffer);
@@ -310,17 +309,16 @@ namespace OloEngine {
 
 			ImGui::Checkbox("Primary", &component.Primary);
 
-			const char* projectionTypeStrings[] = { "Perspective", "Orthographic" };
-			const char* currentProjectionTypeString = projectionTypeStrings[(int)camera.GetProjectionType()];
-			if (ImGui::BeginCombo("Projection", currentProjectionTypeString))
+			const char* const projectionTypeStrings[2] = { "Perspective", "Orthographic" };
+			if (const char* currentProjectionTypeString = projectionTypeStrings[static_cast<int>(camera.GetProjectionType())]; ImGui::BeginCombo("Projection", currentProjectionTypeString))
 			{
-				for (int i = 0; i < 2; i++)
+				for (int i = 0; i < 2; ++i)
 				{
-					bool isSelected = currentProjectionTypeString == projectionTypeStrings[i];
+					const bool isSelected = currentProjectionTypeString == projectionTypeStrings[i];
 					if (ImGui::Selectable(projectionTypeStrings[i], isSelected))
 					{
 						currentProjectionTypeString = projectionTypeStrings[i];
-						camera.SetProjectionType((SceneCamera::ProjectionType)i);
+						camera.SetProjectionType(static_cast<SceneCamera::ProjectionType>(i));
 					}
 
 					if (isSelected)
@@ -334,14 +332,12 @@ namespace OloEngine {
 
 			if (camera.GetProjectionType() == SceneCamera::ProjectionType::Perspective)
 			{
-				float perspectiveVerticalFov = glm::degrees(camera.GetPerspectiveVerticalFOV());
-				if (ImGui::DragFloat("Vertical FOV", &perspectiveVerticalFov))
+				if (float perspectiveVerticalFov = glm::degrees(camera.GetPerspectiveVerticalFOV()); ImGui::DragFloat("Vertical FOV", &perspectiveVerticalFov))
 				{
 					camera.SetPerspectiveVerticalFOV(glm::radians(perspectiveVerticalFov));
 				}
 
-				float perspectiveNear = camera.GetPerspectiveNearClip();
-				if (ImGui::DragFloat("Near", &perspectiveNear))
+				if (float perspectiveNear = camera.GetPerspectiveNearClip(); ImGui::DragFloat("Near", &perspectiveNear))
 				{
 					camera.SetPerspectiveNearClip(perspectiveNear);
 				}
@@ -355,20 +351,17 @@ namespace OloEngine {
 
 			if (camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
 			{
-				float orthoSize = camera.GetOrthographicSize();
-				if (ImGui::DragFloat("Size", &orthoSize))
+				if (float orthoSize = camera.GetOrthographicSize(); ImGui::DragFloat("Size", &orthoSize))
 				{
 					camera.SetOrthographicSize(orthoSize);
 				}
 
-				float orthoNear = camera.GetOrthographicNearClip();
-				if (ImGui::DragFloat("Near", &orthoNear))
+				if (float orthoNear = camera.GetOrthographicNearClip(); ImGui::DragFloat("Near", &orthoNear))
 				{
 					camera.SetOrthographicNearClip(orthoNear);
 				}
 
-				float orthoFar = camera.GetOrthographicFarClip();
-				if (ImGui::DragFloat("Far", &orthoFar))
+				if (float orthoFar = camera.GetOrthographicFarClip(); ImGui::DragFloat("Far", &orthoFar))
 				{
 					camera.SetOrthographicFarClip(orthoFar);
 				}
@@ -386,9 +379,9 @@ namespace OloEngine {
 			{
 				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
 				{
-					const wchar_t* path = (const wchar_t*)payload->Data;
-					std::filesystem::path texturePath = std::filesystem::path(g_AssetPath) / path;
-					Ref<Texture2D> texture = Texture2D::Create(texturePath.string());
+					auto const path = static_cast<wchar_t*>(payload->Data);
+					std::filesystem::path const texturePath = std::filesystem::path(g_AssetPath) / path;
+					Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
 					if (texture->IsLoaded())
 					{
 						component.Texture = texture;
