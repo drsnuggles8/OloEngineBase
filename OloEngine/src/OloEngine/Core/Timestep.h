@@ -5,12 +5,14 @@ namespace OloEngine {
 	class Timestep
 	{
 	public:
-		explicit Timestep(float time = 0.0f)
+		//TODO(olbu): Figure out how we can get Timestep to be explicit
+		Timestep(float time = 0.0f)
 			: m_Time(time)
 		{
 		}
 
-		explicit operator float() const { return m_Time; }
+		//TODO(olby): figure out how we can get float operator to be explicit
+		operator float() const { return m_Time; }
 
 		[[nodiscard]] float GetSeconds() const { return m_Time; }
 		[[nodiscard]] float GetMilliseconds() const { return m_Time * 1000.0f; }

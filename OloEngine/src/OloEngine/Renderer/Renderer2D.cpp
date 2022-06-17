@@ -130,7 +130,7 @@ namespace OloEngine {
 		OLO_PROFILE_FUNCTION();
 
 		s_Data.CameraBuffer.ViewProjection = camera.GetViewProjectionMatrix();
-		s_Data.CameraUniformBuffer->SetData(&s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData));
+		s_Data.CameraUniformBuffer->SetData(&s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData), 0);
 
 		StartBatch();
 	}
@@ -140,7 +140,7 @@ namespace OloEngine {
 		OLO_PROFILE_FUNCTION();
 
 		s_Data.CameraBuffer.ViewProjection = camera.GetProjection() * glm::inverse(transform);
-		s_Data.CameraUniformBuffer->SetData(&s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData));
+		s_Data.CameraUniformBuffer->SetData(&s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData), 0);
 
 		StartBatch();
 	}
@@ -150,7 +150,7 @@ namespace OloEngine {
 		OLO_PROFILE_FUNCTION();
 
 		s_Data.CameraBuffer.ViewProjection = camera.GetViewProjection();
-		s_Data.CameraUniformBuffer->SetData(&s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData));
+		s_Data.CameraUniformBuffer->SetData(&s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData), 0);
 
 		StartBatch();
 	}
