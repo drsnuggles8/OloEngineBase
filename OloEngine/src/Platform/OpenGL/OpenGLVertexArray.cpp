@@ -7,7 +7,7 @@
 
 namespace OloEngine {
 
-	static GLenum ShaderDataTypeToOpenGLBaseType(ShaderDataType type)
+	static GLenum ShaderDataTypeToOpenGLBaseType(ShaderDataType const type)
 	{
 		switch (type)
 		{
@@ -66,8 +66,7 @@ namespace OloEngine {
 		glBindVertexArray(m_RendererID);
 		vertexBuffer->Bind();
 
-		const auto& layout = vertexBuffer->GetLayout();
-		for (const auto& element : layout)
+		for (const auto& layout = vertexBuffer->GetLayout(); const auto& element : layout)
 		{
 			switch (element.Type)
 			{
@@ -83,7 +82,7 @@ namespace OloEngine {
 						element.Normalized ? GL_TRUE : GL_FALSE,
 						layout.GetStride(),
 						(const void*)element.Offset);
-					m_VertexBufferIndex++;
+					++m_VertexBufferIndex;
 					break;
 				}
 				case ShaderDataType::Int:
@@ -98,14 +97,14 @@ namespace OloEngine {
 						ShaderDataTypeToOpenGLBaseType(element.Type),
 						layout.GetStride(),
 						(const void*)element.Offset);
-					m_VertexBufferIndex++;
+					++m_VertexBufferIndex;
 					break;
 				}
 				case ShaderDataType::Mat3:
 				case ShaderDataType::Mat4:
 				{
-					uint8_t count = element.GetComponentCount();
-					for (uint8_t i = 0; i < count; i++)
+					uint8_t const count = element.GetComponentCount();
+					for (uint8_t i = 0; i < count; ++i)
 					{
 						glEnableVertexAttribArray(m_VertexBufferIndex);
 						glVertexAttribPointer(m_VertexBufferIndex,
@@ -113,9 +112,9 @@ namespace OloEngine {
 							ShaderDataTypeToOpenGLBaseType(element.Type),
 							element.Normalized ? GL_TRUE : GL_FALSE,
 							layout.GetStride(),
-							(const void*)(element.Offset + sizeof(float) * count * i));
+							(const void*)(element.Offset + (sizeof(float) * count * i)));
 						glVertexAttribDivisor(m_VertexBufferIndex, 1);
-						m_VertexBufferIndex++;
+						++m_VertexBufferIndex;
 					}
 					break;
 				}

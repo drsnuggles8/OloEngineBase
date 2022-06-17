@@ -24,8 +24,8 @@ namespace OloEngine {
 			case ShaderDataType::Int3:     return 4 * 3;
 			case ShaderDataType::Int4:     return 4 * 4;
 			case ShaderDataType::Bool:     return 1;
-            case ShaderDataType::None:     break;
-        }
+			case ShaderDataType::None:     break;
+		}
 
 		OLO_CORE_ASSERT(false, "Unknown ShaderDataType!")
 		return 0;
@@ -61,8 +61,8 @@ namespace OloEngine {
 				case ShaderDataType::Int3:    return 3;
 				case ShaderDataType::Int4:    return 4;
 				case ShaderDataType::Bool:    return 1;
-                case ShaderDataType::None:    break;
-            }
+				case ShaderDataType::None:    break;
+			}
 
 			OLO_CORE_ASSERT(false, "Unknown ShaderDataType!")
 			return 0;
@@ -133,7 +133,7 @@ namespace OloEngine {
 
 		[[nodiscard]] virtual uint32_t GetCount() const = 0;
 
-		static Ref<IndexBuffer> Create(uint32_t* indices, uint32_t count);
+		static Ref<IndexBuffer> Create(uint32_t* indices, uint32_t size);
 	};
 
 }

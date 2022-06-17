@@ -38,20 +38,20 @@ namespace OloEngine {
 		void PushLayer(Layer* layer);
 		void PushOverlay(Layer* layer);
 
-		[[nodiscard]] Window& GetWindow() { return *m_Window; }
+		[[nodiscard("Returns *m_Window, you probably wanted some other function!")]] Window& GetWindow() { return *m_Window; }
 
-		[[nodiscard]] static Application& Get() { return *s_Instance; }
+		[[nodiscard("Returns *s_Instance, you probably wanted some other function!")]] static Application& Get() { return *s_Instance; }
 
 		void Close();
 
-		[[nodiscard]] ImGuiLayer* GetImGuiLayer() { return m_ImGuiLayer; }
+		[[nodiscard("Returns m_ImGuiLayer, you probably wanted some other function!")]] ImGuiLayer* GetImGuiLayer() { return m_ImGuiLayer; }
 
-		[[nodiscard]] ApplicationCommandLineArgs GetCommandLineArgs() const { return m_CommandLineArgs; }
+		[[nodiscard("Returns m_CommandLineArgs, you probably wanted some other function!")]] ApplicationCommandLineArgs GetCommandLineArgs() const { return m_CommandLineArgs; }
 	private:
 		void Run();
 		bool OnWindowClose(WindowCloseEvent& e);
 		bool OnWindowResize(WindowResizeEvent& e);
-	private:
+
 		ApplicationCommandLineArgs m_CommandLineArgs;
 		Scope<Window> m_Window;
 		ImGuiLayer* m_ImGuiLayer;
@@ -59,7 +59,7 @@ namespace OloEngine {
 		bool m_Minimized = false;
 		LayerStack m_LayerStack;
 		float m_LastFrameTime = 0.0f;
-	private:
+
 		static Application* s_Instance;
 		friend int ::main(int argc, char** argv);
 	};
