@@ -63,7 +63,7 @@ namespace OloEngine {
 		[[nodiscard]] virtual EventCategory GetCategoryFlags() const = 0;
 		[[nodiscard]] virtual std::string ToString() const { return GetName(); }
 
-		bool IsInCategory(EventCategory category) const
+		[[nodiscard]] bool IsInCategory(EventCategory category) const
 		{
 			return static_cast<bool>(GetCategoryFlags() & category);
 		}

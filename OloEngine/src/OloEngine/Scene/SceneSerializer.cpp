@@ -198,7 +198,7 @@ namespace OloEngine {
 		if (!data["Scene"])
 			return false;
 
-		std::string sceneName = data["Scene"].as<std::string>();
+		auto sceneName = data["Scene"].as<std::string>();
 		OLO_CORE_TRACE("Deserializing scene '{0}'", sceneName);
 
 		auto entities = data["Entities"];
@@ -206,7 +206,7 @@ namespace OloEngine {
 		{
 			for (auto entity : entities)
 			{
-				uint64_t uuid = entity["Entity"].as<uint64_t>(); // TODO
+				auto uuid = entity["Entity"].as<uint64_t>(); // TODO
 
 				std::string name;
 				auto tagComponent = entity["TagComponent"];

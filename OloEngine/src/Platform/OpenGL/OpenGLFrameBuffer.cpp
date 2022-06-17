@@ -5,6 +5,8 @@
 
 #include <glad/glad.h>
 
+#include <utility>
+
 namespace OloEngine {
 
 	static const uint32_t s_MaxFramebufferSize = 8192;
@@ -90,8 +92,8 @@ namespace OloEngine {
 		}
 	}
 
-	OpenGLFramebuffer::OpenGLFramebuffer(const FramebufferSpecification& spec)
-		: m_Specification(spec)
+	OpenGLFramebuffer::OpenGLFramebuffer(FramebufferSpecification  spec)
+		: m_Specification(std::move(spec))
 	{
 		for (auto spec : m_Specification.Attachments.Attachments)
 		{
@@ -129,7 +131,7 @@ namespace OloEngine {
 		bool multisample = m_Specification.Samples > 1;
 
 		// Attachments
-		if (m_ColorAttachmentSpecifications.size())
+		if (!m_ColorAttachmentSpecifications.empty())
 		{
 			m_ColorAttachments.resize(m_ColorAttachmentSpecifications.size());
 			Utils::CreateTextures(multisample, m_ColorAttachments.data(), m_ColorAttachments.size());
