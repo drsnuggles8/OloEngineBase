@@ -81,7 +81,7 @@ namespace OloEngine {
 
 		ImGuiTreeNodeFlags flags = ((m_SelectionContext == entity) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
 		flags |= ImGuiTreeNodeFlags_SpanAvailWidth;
-		const bool opened = ImGui::TreeNodeEx((void*)(uint64_t)(uint32_t)entity, flags, tag.c_str());
+		const bool opened = ImGui::TreeNodeEx((void*)static_cast<uint64_t>(static_cast<uint32_t>(entity)), flags, tag.c_str());
 		if (ImGui::IsItemClicked())
 		{
 			m_SelectionContext = entity;
@@ -105,13 +105,12 @@ namespace OloEngine {
 
 		if (tagComponent.renaming)
 		{
-			// TODO(olbu): GET AWAY FROM THIS C-STYLE SHIT, convert to C++ modern style..learn about text handling
 			char buffer[256];
 			memset(buffer, 0, sizeof(buffer));
 			strncpy_s(buffer, tag.c_str(), sizeof(buffer));
 			if (buffer[sizeof(buffer) - 1] != 0)
 			{
-				OLO_ERROR("strncpy did something bad");
+				OLO_CORE_ERROR("Something went wrong with entering strings here");
 			}
 			if (ImGui::InputText("##Tag", buffer, sizeof(buffer)))
 			{
@@ -127,7 +126,7 @@ namespace OloEngine {
 		if (opened)
 		{
 			const ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
-			const bool opened = ImGui::TreeNodeEx((void*)9817239, flags, tag.c_str());
+			const bool opened = ImGui::TreeNodeEx((void*)9'817'239, flags, tag.c_str());
 			if (opened)
 			{
 				ImGui::TreePop();
@@ -229,7 +228,7 @@ namespace OloEngine {
 			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 4, 4 });
 			const float lineHeight = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
 			ImGui::Separator();
-			const bool open = ImGui::TreeNodeEx((void*)typeid(T).hash_code(), treeNodeFlags, name.c_str());
+			const bool open = ImGui::TreeNodeEx(static_cast<void*>(typeid(T)).hash_code(), treeNodeFlags, name.c_str());
 			ImGui::PopStyleVar(
 			);
 			ImGui::SameLine(contentRegionAvailable.x - lineHeight * 0.5f);
