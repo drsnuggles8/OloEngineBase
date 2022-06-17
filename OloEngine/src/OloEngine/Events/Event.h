@@ -58,12 +58,12 @@ namespace OloEngine {
 
 		bool Handled = false;
 
-		virtual EventType GetEventType() const = 0;
-		virtual const char* GetName() const = 0;
-		virtual EventCategory GetCategoryFlags() const = 0;
-		virtual std::string ToString() const { return GetName(); }
+		[[nodiscard]] virtual EventType GetEventType() const = 0;
+		[[nodiscard]] virtual const char* GetName() const = 0;
+		[[nodiscard]] virtual EventCategory GetCategoryFlags() const = 0;
+		[[nodiscard]] virtual std::string ToString() const { return GetName(); }
 
-		bool IsInCategory(EventCategory category)
+		[[nodiscard]] bool IsInCategory(EventCategory category) const
 		{
 			return static_cast<bool>(GetCategoryFlags() & category);
 		}
@@ -72,7 +72,7 @@ namespace OloEngine {
 	class EventDispatcher
 	{
 	public:
-		EventDispatcher(Event& event)
+		explicit EventDispatcher(Event& event)
 			: m_Event(event)
 		{
 		}

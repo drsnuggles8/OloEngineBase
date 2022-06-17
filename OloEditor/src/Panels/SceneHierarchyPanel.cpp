@@ -10,9 +10,9 @@
 #include "OloEngine/Scene/Components.h"
 
 #include <cstring>
-/* The Microsoft C++ compiler is non-compliant with the C++ standard and needs
- * the following definition to disable a security warning on std::strncpy().
- */
+// The Microsoft C++ compiler is non-compliant with the C++ standard and needs
+// the following definition to disable a security warning on std::strncpy().
+//
 #ifdef _MSVC_LANG
 	#define _CRT_SECURE_NO_WARNINGS
 #endif
@@ -38,18 +38,22 @@ namespace OloEngine {
 
 		m_Context->m_Registry.each([&](auto entityID)
 		{
-			Entity entity{ entityID , m_Context.get() };
+			Entity const entity{ entityID , m_Context.get() };
 			DrawEntityNode(entity);
 		});
 
 		if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
+		{
 			m_SelectionContext = {};
+		}
 
 		// Right-click on blank space
-		if (ImGui::BeginPopupContextWindow(0, 1, false))
+		if (ImGui::BeginPopupContextWindow(nullptr, 1, false))
 		{
 			if (ImGui::MenuItem("Create Empty Entity"))
+			{
 				m_Context->CreateEntity("Empty Entity");
+			}
 
 			ImGui::EndPopup();
 		}
@@ -65,7 +69,7 @@ namespace OloEngine {
 		ImGui::End();
 	}
 
-	void SceneHierarchyPanel::SetSelectedEntity(Entity entity)
+	void SceneHierarchyPanel::SetSelectedEntity(const Entity entity)
 	{
 		m_SelectionContext = entity;
 	}
@@ -74,10 +78,10 @@ namespace OloEngine {
 	{
 		auto& tagComponent = entity.GetComponent<TagComponent>();
 		auto& tag = tagComponent.Tag;
-		
+
 		ImGuiTreeNodeFlags flags = ((m_SelectionContext == entity) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
 		flags |= ImGuiTreeNodeFlags_SpanAvailWidth;
-		bool opened = ImGui::TreeNodeEx((void*)(uint64_t)(uint32_t)entity, flags, tag.c_str());
+		const bool opened = ImGui::TreeNodeEx((void*)static_cast<uint64_t>(static_cast<uint32_t>(entity)), flags, tag.c_str());
 		if (ImGui::IsItemClicked())
 		{
 			m_SelectionContext = entity;
@@ -92,20 +96,21 @@ namespace OloEngine {
 			}
 
 			if (ImGui::MenuItem("Delete Entity"))
+			{
 				entityDeleted = true;
+			}
 
 			ImGui::EndPopup();
 		}
 
 		if (tagComponent.renaming)
 		{
-			// TODO(olbu): GET AWAY FROM THIS C-STYLE SHIT, convert to C++ modern style..learn about text handling
 			char buffer[256];
-			memset(buffer, 0, sizeof(buffer));
-			strncpy_s(buffer, tag.c_str(), sizeof(buffer));
+			::memset(buffer, 0, sizeof(buffer));
+			::strncpy_s(buffer, tag.c_str(), sizeof(buffer));
 			if (buffer[sizeof(buffer) - 1] != 0)
 			{
-				OLO_ERROR("strncpy did something bad");
+				OLO_CORE_ERROR("Something went wrong with entering strings here");
 			}
 			if (ImGui::InputText("##Tag", buffer, sizeof(buffer)))
 			{
@@ -120,10 +125,12 @@ namespace OloEngine {
 
 		if (opened)
 		{
-			ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
-			bool opened = ImGui::TreeNodeEx((void*)9817239, flags, tag.c_str());
-			if (opened)
+			const ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
+			//TODO(olbu): this is just a test, with some random ID used
+			if (const bool opened = ImGui::TreeNodeEx((void*)9817239, flags, tag.c_str()))
+			{
 				ImGui::TreePop();
+			}
 			ImGui::TreePop();
 		}
 
@@ -131,14 +138,16 @@ namespace OloEngine {
 		{
 			m_Context->DestroyEntity(entity);
 			if (m_SelectionContext == entity)
+			{
 				m_SelectionContext = {};
+			}
 		}
 	}
 
-	static void DrawVec3Control(const std::string& label, glm::vec3& values, float resetValue = 0.0f, float columnWidth = 100.0f)
+	static void DrawVec3Control(const std::string& label, glm::vec3& values, const float resetValue = 0.0f, const float columnWidth = 100.0f)
 	{
 		ImGuiIO& io = ImGui::GetIO();
-		auto boldFont = io.Fonts->Fonts[0];
+		const auto boldFont = io.Fonts->Fonts[0];
 
 		ImGui::PushID(label.c_str());
 
@@ -150,15 +159,17 @@ namespace OloEngine {
 		ImGui::PushMultiItemsWidths(3, ImGui::CalcItemWidth());
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
 
-		float lineHeight = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
-		ImVec2 buttonSize = { lineHeight + 3.0f, lineHeight };
+		const float lineHeight = ::GImGui->Font->FontSize + (::GImGui->Style.FramePadding.y * 2.0f);
+		const ImVec2 buttonSize = { lineHeight + 3.0f, lineHeight };
 
 		ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.8f, 0.1f, 0.15f, 1.0f });
 		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{ 0.9f, 0.2f, 0.2f, 1.0f });
 		ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4{ 0.8f, 0.1f, 0.15f, 1.0f });
 		ImGui::PushFont(boldFont);
 		if (ImGui::Button("X", buttonSize))
+		{
 			values.x = resetValue;
+		}
 		ImGui::PopFont();
 		ImGui::PopStyleColor(3);
 
@@ -172,7 +183,9 @@ namespace OloEngine {
 		ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4{ 0.2f, 0.7f, 0.2f, 1.0f });
 		ImGui::PushFont(boldFont);
 		if (ImGui::Button("Y", buttonSize))
+		{
 			values.y = resetValue;
+		}
 		ImGui::PopFont();
 		ImGui::PopStyleColor(3);
 
@@ -186,7 +199,9 @@ namespace OloEngine {
 		ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4{ 0.1f, 0.25f, 0.8f, 1.0f });
 		ImGui::PushFont(boldFont);
 		if (ImGui::Button("Z", buttonSize))
+		{
 			values.z = resetValue;
+		}
 		ImGui::PopFont();
 		ImGui::PopStyleColor(3);
 
@@ -200,7 +215,7 @@ namespace OloEngine {
 
 		ImGui::PopID();
 	}
-	
+
 	template<typename T, typename UIFunction>
 	static void DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction)
 	{
@@ -208,15 +223,15 @@ namespace OloEngine {
 		if (entity.HasComponent<T>())
 		{
 			auto& component = entity.GetComponent<T>();
-			ImVec2 contentRegionAvailable = ImGui::GetContentRegionAvail();
+			const ImVec2 contentRegionAvailable = ImGui::GetContentRegionAvail();
 
 			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 4, 4 });
-			float lineHeight = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
+			const float lineHeight = (::GImGui->Font->FontSize) + (::GImGui->Style.FramePadding.y * 2.0f);
 			ImGui::Separator();
-			bool open = ImGui::TreeNodeEx((void*)typeid(T).hash_code(), treeNodeFlags, name.c_str());
+			const bool open = ImGui::TreeNodeEx((void*)typeid(T).hash_code(), treeNodeFlags, name.c_str());
 			ImGui::PopStyleVar(
 			);
-			ImGui::SameLine(contentRegionAvailable.x - lineHeight * 0.5f);
+			ImGui::SameLine(contentRegionAvailable.x - (lineHeight * 0.5f));
 			if (ImGui::Button("+", ImVec2{ lineHeight, lineHeight }))
 			{
 				ImGui::OpenPopup("ComponentSettings");
@@ -226,7 +241,9 @@ namespace OloEngine {
 			if (ImGui::BeginPopup("ComponentSettings"))
 			{
 				if (ImGui::MenuItem("Remove component"))
+				{
 					removeComponent = true;
+				}
 
 				ImGui::EndPopup();
 			}
@@ -238,7 +255,9 @@ namespace OloEngine {
 			}
 
 			if (removeComponent)
+			{
 				entity.RemoveComponent<T>();
+			}
 		}
 	}
 
@@ -249,8 +268,8 @@ namespace OloEngine {
 			auto& tag = entity.GetComponent<TagComponent>().Tag;
 
 			char buffer[256];
-			memset(buffer, 0, sizeof(buffer));
-			std::strncpy(buffer, tag.c_str(), sizeof(buffer));
+			::memset(buffer, 0, sizeof(buffer));
+			::strncpy_s(buffer, tag.c_str(), sizeof(buffer));
 			if (ImGui::InputText("##Tag", buffer, sizeof(buffer)))
 			{
 				tag = std::string(buffer);
@@ -261,7 +280,9 @@ namespace OloEngine {
 		ImGui::PushItemWidth(-1);
 
 		if (ImGui::Button("Add Component"))
+		{
 			ImGui::OpenPopup("AddComponent");
+		}
 
 		if (ImGui::BeginPopup("AddComponent"))
 		{
@@ -288,21 +309,22 @@ namespace OloEngine {
 
 			ImGui::Checkbox("Primary", &component.Primary);
 
-			const char* projectionTypeStrings[] = { "Perspective", "Orthographic" };
-			const char* currentProjectionTypeString = projectionTypeStrings[(int)camera.GetProjectionType()];
-			if (ImGui::BeginCombo("Projection", currentProjectionTypeString))
+			const char* const projectionTypeStrings[2] = { "Perspective", "Orthographic" };
+			if (const char* currentProjectionTypeString = projectionTypeStrings[static_cast<int>(camera.GetProjectionType())]; ImGui::BeginCombo("Projection", currentProjectionTypeString))
 			{
-				for (int i = 0; i < 2; i++)
+				for (int i = 0; i < 2; ++i)
 				{
-					bool isSelected = currentProjectionTypeString == projectionTypeStrings[i];
+					const bool isSelected = currentProjectionTypeString == projectionTypeStrings[i];
 					if (ImGui::Selectable(projectionTypeStrings[i], isSelected))
 					{
 						currentProjectionTypeString = projectionTypeStrings[i];
-						camera.SetProjectionType((SceneCamera::ProjectionType)i);
+						camera.SetProjectionType(static_cast<SceneCamera::ProjectionType>(i));
 					}
 
 					if (isSelected)
+					{
 						ImGui::SetItemDefaultFocus();
+					}
 				}
 
 				ImGui::EndCombo();
@@ -310,32 +332,39 @@ namespace OloEngine {
 
 			if (camera.GetProjectionType() == SceneCamera::ProjectionType::Perspective)
 			{
-				float perspectiveVerticalFov = glm::degrees(camera.GetPerspectiveVerticalFOV());
-				if (ImGui::DragFloat("Vertical FOV", &perspectiveVerticalFov))
+				if (float perspectiveVerticalFov = glm::degrees(camera.GetPerspectiveVerticalFOV()); ImGui::DragFloat("Vertical FOV", &perspectiveVerticalFov))
+				{
 					camera.SetPerspectiveVerticalFOV(glm::radians(perspectiveVerticalFov));
+				}
 
-				float perspectiveNear = camera.GetPerspectiveNearClip();
-				if (ImGui::DragFloat("Near", &perspectiveNear))
+				if (float perspectiveNear = camera.GetPerspectiveNearClip(); ImGui::DragFloat("Near", &perspectiveNear))
+				{
 					camera.SetPerspectiveNearClip(perspectiveNear);
+				}
 
 				float perspectiveFar = camera.GetPerspectiveFarClip();
 				if (ImGui::DragFloat("Far", &perspectiveFar))
+				{
 					camera.SetPerspectiveFarClip(perspectiveFar);
+				}
 			}
 
 			if (camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
 			{
-				float orthoSize = camera.GetOrthographicSize();
-				if (ImGui::DragFloat("Size", &orthoSize))
+				if (float orthoSize = camera.GetOrthographicSize(); ImGui::DragFloat("Size", &orthoSize))
+				{
 					camera.SetOrthographicSize(orthoSize);
+				}
 
-				float orthoNear = camera.GetOrthographicNearClip();
-				if (ImGui::DragFloat("Near", &orthoNear))
+				if (float orthoNear = camera.GetOrthographicNearClip(); ImGui::DragFloat("Near", &orthoNear))
+				{
 					camera.SetOrthographicNearClip(orthoNear);
+				}
 
-				float orthoFar = camera.GetOrthographicFarClip();
-				if (ImGui::DragFloat("Far", &orthoFar))
+				if (float orthoFar = camera.GetOrthographicFarClip(); ImGui::DragFloat("Far", &orthoFar))
+				{
 					camera.SetOrthographicFarClip(orthoFar);
+				}
 
 				ImGui::Checkbox("Fixed Aspect Ratio", &component.FixedAspectRatio);
 			}
@@ -350,13 +379,17 @@ namespace OloEngine {
 			{
 				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
 				{
-					const wchar_t* path = (const wchar_t*)payload->Data;
-					std::filesystem::path texturePath = std::filesystem::path(g_AssetPath) / path;
-					Ref<Texture2D> texture = Texture2D::Create(texturePath.string());
+					auto const path = static_cast<wchar_t*>(payload->Data);
+					std::filesystem::path const texturePath = std::filesystem::path(g_AssetPath) / path;
+					Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
 					if (texture->IsLoaded())
+					{
 						component.Texture = texture;
+					}
 					else
+					{
 						OLO_WARN("Could not load texture {0}", texturePath.filename().string());
+					}
 				}
 				ImGui::EndDragDropTarget();
 			}

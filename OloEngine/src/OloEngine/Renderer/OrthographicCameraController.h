@@ -11,7 +11,7 @@ namespace OloEngine {
 	class OrthographicCameraController
 	{
 	public:
-		OrthographicCameraController(float aspectRatio, bool rotation = true);
+		explicit OrthographicCameraController(float aspectRatio, bool rotation = true);
 
 		void OnUpdate(Timestep ts);
 		void OnEvent(Event& e);
@@ -19,9 +19,9 @@ namespace OloEngine {
 		void OnResize(float width, float height);
 
 		OrthographicCamera& GetCamera() { return m_Camera; }
-		const OrthographicCamera& GetCamera() const { return m_Camera; }
+		[[nodiscard]] const OrthographicCamera& GetCamera() const { return m_Camera; }
 
-		float GetZoomLevel() const { return m_ZoomLevel; }
+		[[nodiscard]] float GetZoomLevel() const { return m_ZoomLevel; }
 		void SetZoomLevel(float level) { m_ZoomLevel = level; }
 	private:
 		bool OnMouseScrolled(MouseScrolledEvent& e);

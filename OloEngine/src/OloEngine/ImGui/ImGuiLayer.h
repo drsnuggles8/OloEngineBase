@@ -11,18 +11,18 @@ namespace OloEngine {
 	{
 	public:
 		ImGuiLayer();
-		~ImGuiLayer() = default;
+		~ImGuiLayer() override = default;
 
-		virtual void OnAttach() override;
-		virtual void OnDetach() override;
-		virtual void OnEvent(Event& e) override;
+		void OnAttach() override;
+		void OnDetach() override;
+		void OnEvent(Event& e) override;
 
-		void Begin();
-		void End();
+		static void Begin();
+		static void End();
 
-		void BlockEvents(bool block) { m_BlockEvents = block; }
+		void BlockEvents(bool const block) { m_BlockEvents = block; }
 
-		void SetDarkThemeColors();
+		static void SetDarkThemeColors();
 	private:
 		bool m_BlockEvents = true;
 	};

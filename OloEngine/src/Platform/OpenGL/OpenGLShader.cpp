@@ -11,6 +11,7 @@
 #include <shaderc/shaderc.hpp>
 #include <spirv_cross/spirv_cross.hpp>
 #include <spirv_cross/spirv_glsl.hpp>
+#include <utility>
 
 #include "OloEngine/Core/Timer.h"
 
@@ -25,7 +26,7 @@ namespace OloEngine {
 			if (type == "fragment" || type == "pixel")
 				return GL_FRAGMENT_SHADER;
 
-			OLO_CORE_ASSERT(false, "Unknown shader type!");
+			OLO_CORE_ASSERT(false, "Unknown shader type!")
 			return 0;
 		}
 
@@ -36,7 +37,7 @@ namespace OloEngine {
 				case GL_VERTEX_SHADER:   return shaderc_glsl_vertex_shader;
 				case GL_FRAGMENT_SHADER: return shaderc_glsl_fragment_shader;
 			}
-			OLO_CORE_ASSERT(false);
+			OLO_CORE_ASSERT(false)
 			return (shaderc_shader_kind)0;
 		}
 
@@ -47,7 +48,7 @@ namespace OloEngine {
 				case GL_VERTEX_SHADER:   return "GL_VERTEX_SHADER";
 				case GL_FRAGMENT_SHADER: return "GL_FRAGMENT_SHADER";
 			}
-			OLO_CORE_ASSERT(false);
+			OLO_CORE_ASSERT(false)
 			return nullptr;
 		}
 
@@ -71,7 +72,7 @@ namespace OloEngine {
 				case GL_VERTEX_SHADER:    return ".cached_opengl.vert";
 				case GL_FRAGMENT_SHADER:  return ".cached_opengl.frag";
 			}
-			OLO_CORE_ASSERT(false);
+			OLO_CORE_ASSERT(false)
 			return "";
 		}
 
@@ -82,11 +83,11 @@ namespace OloEngine {
 				case GL_VERTEX_SHADER:    return ".cached_vulkan.vert";
 				case GL_FRAGMENT_SHADER:  return ".cached_vulkan.frag";
 			}
-			OLO_CORE_ASSERT(false);
+			OLO_CORE_ASSERT(false)
 			return "";
 		}
 
-		static const bool IsAmdGpu()
+		static bool IsAmdGpu()
 		{
 			const char* vendor = (char*)glGetString(GL_VENDOR);
 			return strstr(vendor, "ATI") != nullptr;
@@ -127,8 +128,8 @@ namespace OloEngine {
 		m_Name = filepath.substr(lastSlash, count);
 	}
 
-	OpenGLShader::OpenGLShader(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc)
-		: m_Name(name)
+	OpenGLShader::OpenGLShader(std::string  name, const std::string& vertexSrc, const std::string& fragmentSrc)
+		: m_Name(std::move(name))
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -196,13 +197,13 @@ namespace OloEngine {
 		while (pos != std::string::npos)
 		{
 			size_t eol = source.find_first_of("\r\n", pos); //End of shader type declaration line
-			OLO_CORE_ASSERT(eol != std::string::npos, "Syntax error");
+			OLO_CORE_ASSERT(eol != std::string::npos, "Syntax error")
 			size_t begin = pos + typeTokenLength + 1; //Start of shader type name (after "#type " keyword)
 			std::string type = source.substr(begin, eol - begin);
-			OLO_CORE_ASSERT(Utils::ShaderTypeFromString(type), "Invalid shader type specified");
+			OLO_CORE_ASSERT(Utils::ShaderTypeFromString(type), "Invalid shader type specified")
 
 			size_t nextLinePos = source.find_first_not_of("\r\n", eol); //Start of shader code after shader type declaration line
-			OLO_CORE_ASSERT(nextLinePos != std::string::npos, "Syntax error");
+			OLO_CORE_ASSERT(nextLinePos != std::string::npos, "Syntax error")
 			pos = source.find(typeToken, nextLinePos); //Start of next shader type declaration line
 
 			shaderSources[Utils::ShaderTypeFromString(type)] = (pos == std::string::npos) ? source.substr(nextLinePos) : source.substr(nextLinePos, pos - nextLinePos);
@@ -218,9 +219,7 @@ namespace OloEngine {
 		shaderc::Compiler compiler;
 		shaderc::CompileOptions options;
 		options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_3);
-		const bool optimize = true;
-		if (optimize)
-			options.SetOptimizationLevel(shaderc_optimization_level_performance);
+        options.SetOptimizationLevel(shaderc_optimization_level_performance);
 
 		std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
 
@@ -248,7 +247,7 @@ namespace OloEngine {
 				if (module.GetCompilationStatus() != shaderc_compilation_status_success)
 				{
 					OLO_CORE_ERROR(module.GetErrorMessage());
-					OLO_CORE_ASSERT(false);
+					OLO_CORE_ASSERT(false)
 				}
 
 				shaderData[stage] = std::vector<uint32_t>(module.cbegin(), module.cend());
@@ -275,9 +274,6 @@ namespace OloEngine {
 		shaderc::Compiler compiler;
 		shaderc::CompileOptions options;
 		options.SetTargetEnvironment(shaderc_target_env_opengl, shaderc_env_version_opengl_4_5);
-		const bool optimize = false;
-		if (optimize)
-			options.SetOptimizationLevel(shaderc_optimization_level_performance);
 
 		std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
 
@@ -309,7 +305,7 @@ namespace OloEngine {
 				if (module.GetCompilationStatus() != shaderc_compilation_status_success)
 				{
 					OLO_CORE_ERROR(module.GetErrorMessage());
-					OLO_CORE_ASSERT(false);
+					OLO_CORE_ASSERT(false)
 				}
 
 				shaderData[stage] = std::vector<uint32_t>(module.cbegin(), module.cend());
@@ -382,7 +378,7 @@ namespace OloEngine {
 			glDeleteProgram(program);
 
 			OLO_CORE_ERROR("{0}", infoLog.data());
-			OLO_CORE_ASSERT(false, "[OpenGL] Shader link failure!");
+			OLO_CORE_ASSERT(false, "[OpenGL] Shader link failure!")
 			return false;
 		}
 		return true;
@@ -415,7 +411,7 @@ namespace OloEngine {
 		}
 		else
 		{
-			std::array<uint32_t, 2> glShadersIDs;
+			std::array<uint32_t, 2> glShadersIDs{};
 			CompileOpenGLBinariesForAmd(program, glShadersIDs);
 			glLinkProgram(program);
 
@@ -426,7 +422,7 @@ namespace OloEngine {
 				// Save program data
 				GLint formats = 0;
 				glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &formats);
-				OLO_CORE_ASSERT(formats > 0, "Driver does not support binary format");
+				OLO_CORE_ASSERT(formats > 0, "Driver does not support binary format")
 				Utils::CreateCacheDirectoryIfNeeded();
 				GLint length = 0;
 				glGetProgramiv(program, GL_PROGRAM_BINARY_LENGTH, &length);
@@ -463,7 +459,7 @@ namespace OloEngine {
 			shader = glCreateShader(stage);
 
 			const GLchar* sourceCStr = source.c_str();
-			glShaderSource(shader, 1, &sourceCStr, 0);
+			glShaderSource(shader, 1, &sourceCStr, nullptr);
 
 			glCompileShader(shader);
 
@@ -480,7 +476,7 @@ namespace OloEngine {
 				glDeleteShader(shader);
 
 				OLO_CORE_ERROR("{0}", infoLog.data());
-				OLO_CORE_ASSERT(false, "[OpenGL] Shader compilation failure!");
+				OLO_CORE_ASSERT(false, "[OpenGL] Shader compilation failure!")
 				return;
 			}
 			glAttachShader(program, shader);
@@ -573,49 +569,49 @@ namespace OloEngine {
 		UploadUniformMat4(name, value);
 	}
 
-	void OpenGLShader::UploadUniformInt(const std::string& name, int value)
+	void OpenGLShader::UploadUniformInt(const std::string& name, int value) const
 	{
 		GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniform1i(location, value);
 	}
 
-	void OpenGLShader::UploadUniformIntArray(const std::string& name, int* values, uint32_t count)
+	void OpenGLShader::UploadUniformIntArray(const std::string& name, int* values, uint32_t count) const
 	{
 		GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniform1iv(location, count, values);
 	}
 
-	void OpenGLShader::UploadUniformFloat(const std::string& name, float value)
+	void OpenGLShader::UploadUniformFloat(const std::string& name, float value) const
 	{
 		GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniform1f(location, value);
 	}
 
-	void OpenGLShader::UploadUniformFloat2(const std::string& name, const glm::vec2& value)
+	void OpenGLShader::UploadUniformFloat2(const std::string& name, const glm::vec2& value) const
 	{
 		GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniform2f(location, value.x, value.y);
 	}
 
-	void OpenGLShader::UploadUniformFloat3(const std::string& name, const glm::vec3& value)
+	void OpenGLShader::UploadUniformFloat3(const std::string& name, const glm::vec3& value) const
 	{
 		GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniform3f(location, value.x, value.y, value.z);
 	}
 
-	void OpenGLShader::UploadUniformFloat4(const std::string& name, const glm::vec4& value)
+	void OpenGLShader::UploadUniformFloat4(const std::string& name, const glm::vec4& value) const
 	{
 		GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniform4f(location, value.x, value.y, value.z, value.w);
 	}
 
-	void OpenGLShader::UploadUniformMat3(const std::string& name, const glm::mat3& matrix)
+	void OpenGLShader::UploadUniformMat3(const std::string& name, const glm::mat3& matrix) const
 	{
 		GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniformMatrix3fv(location, 1, GL_FALSE, glm::value_ptr(matrix));
 	}
 
-	void OpenGLShader::UploadUniformMat4(const std::string& name, const glm::mat4& matrix)
+	void OpenGLShader::UploadUniformMat4(const std::string& name, const glm::mat4& matrix) const
 	{
 		GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniformMatrix4fv(location, 1, GL_FALSE, glm::value_ptr(matrix));

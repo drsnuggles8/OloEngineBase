@@ -32,7 +32,7 @@ namespace OloEngine {
 		{
 			return ofn.lpstrFile;
 		}
-		return std::string();
+		return {};
 	}
 
 	std::string FileDialogs::SaveFile(const char* filter)
@@ -58,7 +58,7 @@ namespace OloEngine {
 		{
 			return ofn.lpstrFile;
 		}
-		return std::string();
+		return {};
 	}
 
 }

@@ -1,5 +1,6 @@
 // This is an independent project of an individual developer. Dear PVS-Studio, please check it.
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
+#include <ranges>
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/Application.h"
 
@@ -15,12 +16,12 @@ namespace OloEngine {
 
 	Application* Application::s_Instance = nullptr;
 
-	Application::Application(const std::string& name, ApplicationCommandLineArgs args)
+	Application::Application(const std::string& name, ApplicationCommandLineArgs const args)
 		: m_CommandLineArgs(args)
 	{
 		OLO_PROFILE_FUNCTION();
 
-		OLO_CORE_ASSERT(!s_Instance, "Application already exists!");
+		OLO_CORE_ASSERT(!s_Instance, "Application already exists!")
 		s_Instance = this;
 		m_Window = Window::Create(WindowProps(name));
 		m_Window->SetEventCallback(OLO_BIND_EVENT_FN(Application::OnEvent));
@@ -38,7 +39,7 @@ namespace OloEngine {
 		Renderer::Shutdown();
 	}
 
-	void Application::PushLayer(Layer* layer)
+	void Application::PushLayer(Layer* const layer)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -46,7 +47,7 @@ namespace OloEngine {
 		layer->OnAttach();
 	}
 
-	void Application::PushOverlay(Layer* layer)
+	void Application::PushOverlay(Layer* const layer)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -67,11 +68,13 @@ namespace OloEngine {
 		dispatcher.Dispatch<WindowCloseEvent>(OLO_BIND_EVENT_FN(Application::OnWindowClose));
 		dispatcher.Dispatch<WindowResizeEvent>(OLO_BIND_EVENT_FN(Application::OnWindowResize));
 
-		for (auto it = m_LayerStack.rbegin(); it != m_LayerStack.rend(); ++it)
+		for (auto& it : std::ranges::reverse_view(m_LayerStack))
 		{
 			if (e.Handled)
+			{
 				break;
-			(*it)->OnEvent(e);
+			}
+			it->OnEvent(e);
 		}
 	}
 
@@ -83,33 +86,37 @@ namespace OloEngine {
 		{
 			OLO_PROFILE_SCOPE("RunLoop");
 
-			float time = static_cast<float>(glfwGetTime());
-			Timestep timestep = time - m_LastFrameTime;
-			m_LastFrameTime = time;
+			const auto timeNow = static_cast<float>(::glfwGetTime());
+			const Timestep timestep = timeNow - m_LastFrameTime;
+			m_LastFrameTime = timeNow;
 
 			if (!m_Minimized)
 			{
 				{
 					OLO_PROFILE_SCOPE("LayerStack OnUpdate");
-					for (Layer* layer : m_LayerStack)
+					for (Layer* const layer : m_LayerStack)
+					{
 						layer->OnUpdate(timestep);
+					}
 				}
 
-				m_ImGuiLayer->Begin();
+				OloEngine::ImGuiLayer::Begin();
 				{
 					OLO_PROFILE_SCOPE("LayerStack OnImGuiRender");
 
-					for (Layer* layer : m_LayerStack)
+					for (Layer* const layer : m_LayerStack)
+					{
 						layer->OnImGuiRender();
+					}
 				}
-				m_ImGuiLayer->End();
+				OloEngine::ImGuiLayer::End();
 			}
 
 			m_Window->OnUpdate();
 		}
 	}
 
-	bool Application::OnWindowClose(WindowCloseEvent& e)
+	bool Application::OnWindowClose([[maybe_unused]] WindowCloseEvent& e)
 	{
 		m_Running = false;
 		return true;
@@ -119,7 +126,7 @@ namespace OloEngine {
 	{
 		OLO_PROFILE_FUNCTION();
 
-		if (e.GetWidth() == 0 || e.GetHeight() == 0)
+		if ((0 == e.GetWidth()) || (0 == e.GetHeight()))
 		{
 			m_Minimized = true;
 			return false;

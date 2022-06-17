@@ -180,7 +180,7 @@ namespace OloEngine {
 	void SceneSerializer::SerializeRuntime(const std::string& filepath)
 	{
 		// Not implemented
-		OLO_CORE_ASSERT(false);
+		OLO_CORE_ASSERT(false)
 	}
 
 	bool SceneSerializer::Deserialize(const std::string& filepath)
@@ -198,7 +198,7 @@ namespace OloEngine {
 		if (!data["Scene"])
 			return false;
 
-		std::string sceneName = data["Scene"].as<std::string>();
+		auto sceneName = data["Scene"].as<std::string>();
 		OLO_CORE_TRACE("Deserializing scene '{0}'", sceneName);
 
 		auto entities = data["Entities"];
@@ -206,7 +206,7 @@ namespace OloEngine {
 		{
 			for (auto entity : entities)
 			{
-				uint64_t uuid = entity["Entity"].as<uint64_t>(); // TODO
+				auto uuid = entity["Entity"].as<uint64_t>(); // TODO
 
 				std::string name;
 				auto tagComponent = entity["TagComponent"];
@@ -262,7 +262,7 @@ namespace OloEngine {
 	bool SceneSerializer::DeserializeRuntime(const std::string& filepath)
 	{
 		// Not implemented
-		OLO_CORE_ASSERT(false);
+		OLO_CORE_ASSERT(false)
 		return false;
 	}
 

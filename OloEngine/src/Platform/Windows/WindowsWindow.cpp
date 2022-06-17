@@ -49,7 +49,7 @@ namespace OloEngine {
 		{
 			OLO_PROFILE_SCOPE("glfwInit");
 			int success = glfwInit();
-			OLO_CORE_ASSERT(success, "Could not initialize GLFW!");
+			OLO_CORE_ASSERT(success, "Could not initialize GLFW!")
 			glfwSetErrorCallback(GLFWErrorCallback);
 		}
 

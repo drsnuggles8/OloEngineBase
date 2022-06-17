@@ -9,25 +9,25 @@ namespace OloEngine {
 	class WindowsWindow : public Window
 	{
 	public:
-		WindowsWindow(const WindowProps& props);
-		virtual ~WindowsWindow();
+		explicit WindowsWindow(const WindowProps& props);
+		~WindowsWindow() override;
 
 		void OnUpdate() override;
 
-		unsigned int GetWidth() const noexcept override { return m_Data.Width; }
-		unsigned int GetHeight() const noexcept override { return m_Data.Height; }
+		[[nodiscard]] unsigned int GetWidth() const noexcept override { return m_Data.Width; }
+		[[nodiscard]] unsigned int GetHeight() const noexcept override { return m_Data.Height; }
 
 		// Window attributes
 		void SetEventCallback(const EventCallbackFn& callback) override { m_Data.EventCallback = callback; }
 		void SetVSync(bool enabled) override;
-		bool IsVSync() const override;
+		[[nodiscard]] bool IsVSync() const override;
 
-		virtual void* GetNativeWindow() const noexcept override { return m_Window; }
+		[[nodiscard]] void* GetNativeWindow() const noexcept override { return m_Window; }
 	private:
 		virtual void Init(const WindowProps& props);
 		virtual void Shutdown();
 	private:
-		GLFWwindow* m_Window;
+		GLFWwindow* m_Window{};
 		Scope<GraphicsContext> m_Context;
 
 		struct WindowData
