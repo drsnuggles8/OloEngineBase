@@ -126,7 +126,8 @@ namespace OloEngine {
 		if (opened)
 		{
 			const ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
-			const bool opened = ImGui::TreeNodeEx((void*)9'817'239, flags, tag.c_str());
+			//TODO(olbu): this is just a test, with some random ID used
+			const bool opened = ImGui::TreeNodeEx((void*)9817239, flags, tag.c_str());
 			if (opened)
 			{
 				ImGui::TreePop();
@@ -144,7 +145,7 @@ namespace OloEngine {
 		}
 	}
 
-	static void DrawVec3Control(const std::string& label, glm::vec3& values, float resetValue = 0.0f, float columnWidth = 100.0f)
+	static void DrawVec3Control(const std::string& label, glm::vec3& values, const float resetValue = 0.0f, const float columnWidth = 100.0f)
 	{
 		ImGuiIO& io = ImGui::GetIO();
 		const auto boldFont = io.Fonts->Fonts[0];
@@ -159,7 +160,7 @@ namespace OloEngine {
 		ImGui::PushMultiItemsWidths(3, ImGui::CalcItemWidth());
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
 
-		const float lineHeight = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
+		const float lineHeight = ::GImGui->Font->FontSize + ::GImGui->Style.FramePadding.y * 2.0f;
 		const ImVec2 buttonSize = { lineHeight + 3.0f, lineHeight };
 
 		ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.8f, 0.1f, 0.15f, 1.0f });
@@ -226,7 +227,7 @@ namespace OloEngine {
 			const ImVec2 contentRegionAvailable = ImGui::GetContentRegionAvail();
 
 			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 4, 4 });
-			const float lineHeight = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
+			const float lineHeight = (::GImGui->Font->FontSize) + (::GImGui->Style.FramePadding.y * 2.0f);
 			ImGui::Separator();
 			const bool open = ImGui::TreeNodeEx((void*)typeid(T).hash_code(), treeNodeFlags, name.c_str());
 			ImGui::PopStyleVar(
@@ -323,7 +324,9 @@ namespace OloEngine {
 					}
 
 					if (isSelected)
+					{
 						ImGui::SetItemDefaultFocus();
+					}
 				}
 
 				ImGui::EndCombo();
@@ -333,30 +336,42 @@ namespace OloEngine {
 			{
 				float perspectiveVerticalFov = glm::degrees(camera.GetPerspectiveVerticalFOV());
 				if (ImGui::DragFloat("Vertical FOV", &perspectiveVerticalFov))
+				{
 					camera.SetPerspectiveVerticalFOV(glm::radians(perspectiveVerticalFov));
+				}
 
 				float perspectiveNear = camera.GetPerspectiveNearClip();
 				if (ImGui::DragFloat("Near", &perspectiveNear))
+				{
 					camera.SetPerspectiveNearClip(perspectiveNear);
+				}
 
 				float perspectiveFar = camera.GetPerspectiveFarClip();
 				if (ImGui::DragFloat("Far", &perspectiveFar))
+				{
 					camera.SetPerspectiveFarClip(perspectiveFar);
+				}
 			}
 
 			if (camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
 			{
 				float orthoSize = camera.GetOrthographicSize();
 				if (ImGui::DragFloat("Size", &orthoSize))
+				{
 					camera.SetOrthographicSize(orthoSize);
+				}
 
 				float orthoNear = camera.GetOrthographicNearClip();
 				if (ImGui::DragFloat("Near", &orthoNear))
+				{
 					camera.SetOrthographicNearClip(orthoNear);
+				}
 
 				float orthoFar = camera.GetOrthographicFarClip();
 				if (ImGui::DragFloat("Far", &orthoFar))
+				{
 					camera.SetOrthographicFarClip(orthoFar);
+				}
 
 				ImGui::Checkbox("Fixed Aspect Ratio", &component.FixedAspectRatio);
 			}
@@ -375,9 +390,13 @@ namespace OloEngine {
 					std::filesystem::path texturePath = std::filesystem::path(g_AssetPath) / path;
 					Ref<Texture2D> texture = Texture2D::Create(texturePath.string());
 					if (texture->IsLoaded())
+					{
 						component.Texture = texture;
+					}
 					else
+					{
 						OLO_WARN("Could not load texture {0}", texturePath.filename().string());
+					}
 				}
 				ImGui::EndDragDropTarget();
 			}
