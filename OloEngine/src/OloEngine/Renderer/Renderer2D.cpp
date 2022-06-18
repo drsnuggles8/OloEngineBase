@@ -100,12 +100,14 @@ namespace OloEngine {
 		delete[] quadIndices;
 
 		s_Data.WhiteTexture = Texture2D::Create(1, 1);
-		uint32_t whiteTextureData = 0xffffffff;
+		uint32_t whiteTextureData = 0xffffffffU;
 		s_Data.WhiteTexture->SetData(&whiteTextureData, sizeof(uint32_t));
 
 		int32_t samplers[OloEngine::Renderer2DData::MaxTextureSlots];
 		for (uint32_t i = 0; i < OloEngine::Renderer2DData::MaxTextureSlots; i++)
+		{
 			samplers[i] = i;
+		}
 
 		s_Data.TextureShader = Shader::Create("assets/shaders/Texture.glsl");
 
@@ -239,7 +241,9 @@ namespace OloEngine {
 		const float tilingFactor = 1.0f;
 
 		if (s_Data.QuadIndexCount >= Renderer2DData::MaxIndices)
+		{
 			NextBatch();
+		}
 
 		for (size_t i = 0; i < quadVertexCount; i++)
 		{

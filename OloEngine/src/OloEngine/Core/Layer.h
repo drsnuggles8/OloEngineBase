@@ -13,12 +13,12 @@ namespace OloEngine {
 
 		virtual void OnAttach() {}
 		virtual void OnDetach() {}
-		virtual void OnUpdate(Timestep ts) {}
+		virtual void OnUpdate(Timestep const ts) {}
 		virtual void OnImGuiRender() {}
 		virtual void OnEvent(Event& event) {}
 
-		[[nodiscard]] const std::string& GetName() const { return m_DebugName; }
-	protected:
+		[[nodiscard("This returns m_DebugName, you probably wanted another function!")]] const std::string& GetName() const { return m_DebugName; }
+	private:
 		std::string m_DebugName;
 	};
 

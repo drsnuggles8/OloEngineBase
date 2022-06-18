@@ -134,7 +134,9 @@ namespace OloEngine {
 			case SceneState::Edit:
 			{
 				if (m_ViewportFocused)
+				{
 					m_CameraController.OnUpdate(ts);
+				}
 
 				m_EditorCamera.OnUpdate(ts);
 
@@ -196,7 +198,9 @@ namespace OloEngine {
 
 		// When using ImGuiDockNodeFlags_PassthruCentralNode, DockSpace() will render our background and handle the pass-thru hole, so we ask Begin() to not render a background.
 		if (dockspace_flags & ImGuiDockNodeFlags_PassthruCentralNode)
+		{
 			window_flags |= ImGuiWindowFlags_NoBackground;
+		}
 
 		// Important: note that we proceed even if Begin() returns false (aka window is collapsed).
 		// This is because we want to keep our DockSpace() active. If a DockSpace() is inactive, 
@@ -208,7 +212,9 @@ namespace OloEngine {
 		ImGui::PopStyleVar();
 
 		if (opt_fullscreen)
+		{
 			ImGui::PopStyleVar(2);
+		}
 
 		// DockSpace
 		ImGuiIO& io = ImGui::GetIO();
@@ -251,7 +257,9 @@ namespace OloEngine {
 				}
 
 				if (ImGui::MenuItem("Exit")) Application::Get().Close();
-				ImGui::EndMenu();
+				{
+					ImGui::EndMenu();
+				}
 			}
 
 			ImGui::EndMenuBar();
@@ -264,7 +272,9 @@ namespace OloEngine {
 
 		std::string name = "None";
 		if (m_HoveredEntity)
+		{
 			name = m_HoveredEntity.GetComponent<TagComponent>().Tag;
+		}
 		ImGui::Text("Hovered Entity: %s", name.c_str());
 
 		auto stats = Renderer2D::GetStats();
@@ -358,7 +368,9 @@ namespace OloEngine {
 			float snapValue = 0.5f; // Snap to 0.5m for translation/scale
 			// Snap to 45 degrees for rotation
 			if (m_GizmoType == ImGuizmo::OPERATION::ROTATE)
+			{
 				snapValue = 45.0f;
+			}
 
 			float snapValues[3] = { snapValue, snapValue, snapValue };
 
@@ -404,9 +416,13 @@ namespace OloEngine {
 		if (ImGui::ImageButton((ImTextureID)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0))
 		{
 			if (m_SceneState == SceneState::Edit)
+			{
 				OnScenePlay();
+			}
 			else if (m_SceneState == SceneState::Play)
+			{
 				OnSceneStop();
+			}
 		}
 		ImGui::PopStyleVar(2);
 		ImGui::PopStyleColor(3);
@@ -427,7 +443,9 @@ namespace OloEngine {
 	{
 		// Shortcuts
 		if (e.GetRepeatCount() > 0)
+		{
 			return false;
+		}
 
 		bool control = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
 		bool shift = Input::IsKeyPressed(Key::LeftShift) || Input::IsKeyPressed(Key::RightShift);
@@ -437,14 +455,18 @@ namespace OloEngine {
 			case Key::N:
 			{
 				if (control)
+				{
 					NewScene();
+				}
 
 				break;
 			}
 			case Key::O:
 			{
 				if (control)
+				{
 					OpenScene();
+				}
 
 				break;
 			}
@@ -469,25 +491,33 @@ namespace OloEngine {
 			case Key::Q:
 			{
 				if (!ImGuizmo::IsUsing())
+				{
 					m_GizmoType = -1;
+				}
 				break;
 			}
 			case Key::W:
 			{
 				if (!ImGuizmo::IsUsing())
+				{
 					m_GizmoType = ImGuizmo::OPERATION::TRANSLATE;
+				}
 				break;
 			}
 			case Key::E:
 			{
 				if (!ImGuizmo::IsUsing())
+				{
 					m_GizmoType = ImGuizmo::OPERATION::ROTATE;
+				}
 				break;
 			}
 			case Key::R:
 			{
 				if (!ImGuizmo::IsUsing())
+				{
 					m_GizmoType = ImGuizmo::OPERATION::SCALE;
+				}
 				break;
 			}
 
@@ -501,7 +531,9 @@ namespace OloEngine {
 		if (e.GetMouseButton() == Mouse::ButtonLeft)
 		{
 			if (m_ViewportHovered && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt))
+			{
 				m_SceneHierarchyPanel.SetSelectedEntity(m_HoveredEntity);
+			}
 		}
 		return false;
 	}

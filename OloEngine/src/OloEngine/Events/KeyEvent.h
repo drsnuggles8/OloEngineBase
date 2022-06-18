@@ -7,7 +7,7 @@ namespace OloEngine {
 	class KeyEvent : public Event
 	{
 	public:
-		[[nodiscard]] KeyCode GetKeyCode() const { return m_KeyCode; }
+		[[nodiscard("This returns m_KeyCode, you probably wanted another function!")]] KeyCode GetKeyCode() const { return m_KeyCode; }
 
 		EVENT_CLASS_CATEGORY(EventCategory::Keyboard | EventCategory::Input)
 	protected:
