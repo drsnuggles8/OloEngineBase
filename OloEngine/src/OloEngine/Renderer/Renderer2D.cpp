@@ -179,7 +179,7 @@ namespace OloEngine {
 			return;
 		}
 
-		const auto dataSize = static_cast<uint32_t>(reinterpret_cast<uint8_t*>(s_Data.QuadVertexBufferPtr) - reinterpret_cast<uint8_t*>(s_Data.QuadVertexBufferBase));
+		const auto dataSize = static_cast<uint32_t>(reinterpret_cast<std::byte*>(s_Data.QuadVertexBufferPtr) - reinterpret_cast<std::byte*>(s_Data.QuadVertexBufferBase));
 		s_Data.QuadVertexBuffer->SetData(s_Data.QuadVertexBufferBase, dataSize);
 
 		// Bind textures
@@ -279,7 +279,7 @@ namespace OloEngine {
 			}
 		}
 
-		if (const float epsilon = 1e-5; std::abs(textureIndex - 0.0f) > epsilon)
+		if (const double epsilon = 1e-5; std::abs(textureIndex - 0.0f) > epsilon)
 		{
 			if (s_Data.TextureSlotIndex >= Renderer2DData::MaxTextureSlots)
 			{

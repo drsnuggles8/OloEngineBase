@@ -72,7 +72,7 @@ namespace OloEngine::Math {
 		}
 
 		rotation.y = std::asin(-Row[0][2]);
-		if (const float epsilon = 1e-5; std::abs(std::cos(rotation.y) - 0) > epsilon)
+		if (const double epsilon = 1e-5; std::abs(std::cos(rotation.y) - 0) > epsilon)
 		{
 			rotation.x = std::atan2(Row[1][2], Row[2][2]);
 			rotation.z = std::atan2(Row[0][1], Row[0][0]);
