@@ -36,6 +36,12 @@ namespace OloEngine {
 	{
 		OLO_PROFILE_FUNCTION();
 
+		for (Layer* const layer : m_LayerStack)
+		{
+			layer->OnDetach();
+			delete layer;
+		}
+
 		Renderer::Shutdown();
 	}
 
@@ -54,6 +60,19 @@ namespace OloEngine {
 		m_LayerStack.PushOverlay(layer);
 		layer->OnAttach();
 	}
+
+	void Application::PopLayer(Layer* const layer)
+	{
+		m_LayerStack.PopLayer(layer);
+		layer->OnDetach();
+	}
+
+	void Application::PopOverlay(Layer* const layer)
+	{
+		m_LayerStack.PopOverlay(layer);
+		layer->OnDetach();
+	}
+
 
 	void Application::Close()
 	{

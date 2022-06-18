@@ -31,6 +31,7 @@ namespace OloEngine {
 		Mouse = BIT(3),
 		MouseButton = BIT(4)
 	};
+
 	EventCategory operator |(EventCategory lhs, EventCategory rhs);
 
 	EventCategory operator &(EventCategory lhs, EventCategory rhs);
@@ -58,12 +59,12 @@ namespace OloEngine {
 
 		bool Handled = false;
 
-		[[nodiscard]] virtual EventType GetEventType() const = 0;
-		[[nodiscard]] virtual const char* GetName() const = 0;
-		[[nodiscard]] virtual EventCategory GetCategoryFlags() const = 0;
-		[[nodiscard]] virtual std::string ToString() const { return GetName(); }
+		[[nodiscard("This returns EventType::type, you probably wanted some other function!")]] virtual EventType GetEventType() const = 0;
+		[[nodiscard("This returns #type, you probably wanted some other function!")]] virtual const char* GetName() const = 0;
+		[[nodiscard("This returns (category), you probably wanted some other function!")]] virtual EventCategory GetCategoryFlags() const = 0;
+		[[nodiscard("This returns GetName as string, you probably wanted some other function!")]] virtual std::string ToString() const { return GetName(); }
 
-		[[nodiscard]] bool IsInCategory(EventCategory category) const
+		[[nodiscard("This returns a boolean whether the category is in the category, you probably wanted some other function!")]] bool IsInCategory(EventCategory const category) const
 		{
 			return static_cast<bool>(GetCategoryFlags() & category);
 		}
@@ -76,14 +77,14 @@ namespace OloEngine {
 			: m_Event(event)
 		{
 		}
-		
+
 		// F will be deduced by the compiler
 		template<typename T, typename F>
 		bool Dispatch(const F& func)
 		{
-			if (m_Event.GetEventType() == T::GetStaticType())
+			if (!m_Event.Handled && m_Event.GetEventType() == T::GetStaticType())
 			{
-				m_Event.Handled |= func(static_cast<T&>(m_Event));
+				m_Event.Handled = func(static_cast<T&>(m_Event));
 				return true;
 			}
 			return false;
