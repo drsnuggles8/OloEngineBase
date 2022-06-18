@@ -27,7 +27,7 @@ namespace OloEngine {
 
 	struct Renderer2DData
 	{
-		// TODO: RenderCaps
+		// TODO(olbu): RenderCaps
 		static const uint32_t MaxQuads = 20000;
 		static const uint32_t MaxVertices = MaxQuads * 4;
 		static const uint32_t MaxIndices = MaxQuads * 6;
