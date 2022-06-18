@@ -37,6 +37,8 @@ namespace OloEngine {
 
 		void PushLayer(Layer* layer);
 		void PushOverlay(Layer* layer);
+		void PopLayer(Layer* layer);
+		void PopOverlay(Layer* layer);
 
 		[[nodiscard("Returns *m_Window, you probably wanted some other function!")]] Window& GetWindow() { return *m_Window; }
 

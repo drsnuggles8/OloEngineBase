@@ -8,7 +8,7 @@
 
 namespace OloEngine {
 
-	OpenGLContext::OpenGLContext(GLFWwindow* windowHandle)
+	OpenGLContext::OpenGLContext(GLFWwindow* const windowHandle)
 		: m_WindowHandle(windowHandle)
 	{
 		OLO_CORE_ASSERT(windowHandle, "Window handle is null!")
@@ -18,8 +18,8 @@ namespace OloEngine {
 	{
 		OLO_PROFILE_FUNCTION();
 
-		glfwMakeContextCurrent(m_WindowHandle);
-		int status = gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
+		GLFWAPI::glfwMakeContextCurrent(m_WindowHandle);
+		const int status = ::gladLoadGLLoader((GLADloadproc) GLFWAPI::glfwGetProcAddress);
 		OLO_CORE_ASSERT(status, "Failed to initialize Glad!")
 
 		OLO_CORE_INFO("OpenGL Info:");
@@ -35,7 +35,7 @@ namespace OloEngine {
 	{
 		OLO_PROFILE_FUNCTION();
 
-		glfwSwapBuffers(m_WindowHandle);
+		GLFWAPI::glfwSwapBuffers(m_WindowHandle);
 	}
 
 }

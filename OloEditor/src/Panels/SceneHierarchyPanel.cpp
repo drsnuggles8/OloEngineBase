@@ -108,10 +108,6 @@ namespace OloEngine {
 			char buffer[256];
 			::memset(buffer, 0, sizeof(buffer));
 			::strncpy_s(buffer, tag.c_str(), sizeof(buffer));
-			if (buffer[sizeof(buffer) - 1] != 0)
-			{
-				OLO_CORE_ERROR("Something went wrong with entering strings here");
-			}
 			if (ImGui::InputText("##Tag", buffer, sizeof(buffer)))
 			{
 				tag = std::string(buffer);
