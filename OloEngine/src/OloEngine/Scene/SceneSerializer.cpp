@@ -28,7 +28,9 @@ namespace YAML {
 		static bool decode(const Node& node, glm::vec3& rhs)
 		{
 			if (!node.IsSequence() || node.size() != 3)
+			{
 				return false;
+			}
 
 			rhs.x = node[0].as<float>();
 			rhs.y = node[1].as<float>();
@@ -54,7 +56,9 @@ namespace YAML {
 		static bool decode(const Node& node, glm::vec4& rhs)
 		{
 			if (!node.IsSequence() || node.size() != 4)
+			{
 				return false;
+			}
 
 			rhs.x = node[0].as<float>();
 			rhs.y = node[1].as<float>();
@@ -166,7 +170,9 @@ namespace OloEngine {
 			{
 				Entity entity = { entityID, m_Scene.get() };
 				if (!entity)
+				{
 					return;
+				}
 
 				SerializeEntity(out, entity);
 			});
@@ -196,13 +202,14 @@ namespace OloEngine {
 		}
 
 		if (!data["Scene"])
+		{
 			return false;
+		}
 
 		auto sceneName = data["Scene"].as<std::string>();
 		OLO_CORE_TRACE("Deserializing scene '{0}'", sceneName);
 
-		auto entities = data["Entities"];
-		if (entities)
+		if (auto entities = data["Entities"]; entities)
 		{
 			for (auto entity : entities)
 			{
@@ -211,7 +218,9 @@ namespace OloEngine {
 				std::string name;
 				auto tagComponent = entity["TagComponent"];
 				if (tagComponent)
+				{
 					name = tagComponent["Tag"].as<std::string>();
+				}
 
 				OLO_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
 

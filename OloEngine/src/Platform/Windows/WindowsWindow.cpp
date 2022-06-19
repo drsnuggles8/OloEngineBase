@@ -188,9 +188,13 @@ namespace OloEngine {
 		OLO_PROFILE_FUNCTION();
 
 		if (enabled)
+		{
 			glfwSwapInterval(1);
+		}
 		else
+		{
 			glfwSwapInterval(0);
+		}
 
 		m_Data.VSync = enabled;
 	}

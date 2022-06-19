@@ -157,14 +157,14 @@ namespace OloEngine {
 		auto [mx, my] = ImGui::GetMousePos();
 		mx -= m_ViewportBounds[0].x;
 		my -= m_ViewportBounds[0].y;
-		glm::vec2 viewportSize = m_ViewportBounds[1] - m_ViewportBounds[0];
+		glm::vec2 const viewportSize = m_ViewportBounds[1] - m_ViewportBounds[0];
 		my = viewportSize.y - my;
-		int mouseX = (int)mx;
-		int mouseY = (int)my;
+		const auto mouseX = static_cast<int>(mx);
+		const auto mouseY = static_cast<int>(my);
 
-		if (mouseX >= 0 && mouseY >= 0 && mouseX < (int)viewportSize.x && mouseY < (int)viewportSize.y)
+		if (mouseX >= 0 && mouseY >= 0 && mouseX < static_cast<int>(viewportSize.x) && mouseY < static_cast<int>(viewportSize.y))
 		{
-			int pixelData = m_Framebuffer->ReadPixel(1, mouseX, mouseY);
+			const int pixelData = m_Framebuffer->ReadPixel(1, mouseX, mouseY);
 			m_HoveredEntity = pixelData == -1 ? Entity() : Entity((entt::entity)pixelData, m_ActiveScene.get());
 		}
 
@@ -447,8 +447,8 @@ namespace OloEngine {
 			return false;
 		}
 
-		bool control = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
-		bool shift = Input::IsKeyPressed(Key::LeftShift) || Input::IsKeyPressed(Key::RightShift);
+		const bool control = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
+		const bool shift = Input::IsKeyPressed(Key::LeftShift) || Input::IsKeyPressed(Key::RightShift);
 
 		switch (e.GetKeyCode())
 		{
@@ -528,12 +528,9 @@ namespace OloEngine {
 
 	bool EditorLayer::OnMouseButtonPressed(MouseButtonPressedEvent& e)
 	{
-		if (e.GetMouseButton() == Mouse::ButtonLeft)
+		if (e.GetMouseButton() == Mouse::ButtonLeft && m_ViewportHovered && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt))
 		{
-			if (m_ViewportHovered && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt))
-			{
-				m_SceneHierarchyPanel.SetSelectedEntity(m_HoveredEntity);
-			}
+			m_SceneHierarchyPanel.SetSelectedEntity(m_HoveredEntity);
 		}
 		return false;
 	}
@@ -541,13 +538,13 @@ namespace OloEngine {
 	void EditorLayer::NewScene()
 	{
 		m_ActiveScene = CreateRef<Scene>();
-		m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+		m_ActiveScene->OnViewportResize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));
 		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
 	}
 
 	void EditorLayer::OpenScene()
 	{
-		std::string filepath = FileDialogs::OpenFile("OloEditor Scene (*.olo)\0*.olo\0");
+		std::string const filepath = FileDialogs::OpenFile("OloEditor Scene (*.olo)\0*.olo\0");
 		if (!filepath.empty())
 		{
 			OpenScene(filepath);
@@ -562,12 +559,12 @@ namespace OloEngine {
 			return;
 		}
 
-		Ref<Scene> newScene = CreateRef<Scene>();
+		Ref<Scene> const newScene = CreateRef<Scene>();
 		SceneSerializer serializer(newScene);
 		if (serializer.Deserialize(path.string()))
 		{
 			m_ActiveScene = newScene;
-			m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+			m_ActiveScene->OnViewportResize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));
 			m_SceneHierarchyPanel.SetContext(m_ActiveScene);
 
 			m_ActiveSceneFilePath = path.string();
@@ -577,7 +574,9 @@ namespace OloEngine {
 	void EditorLayer::SaveScene()
 	{
 		if (m_ActiveSceneFilePath.empty())
+		{
 			SaveSceneAs();
+		}
 
 		SceneSerializer serializer(m_ActiveScene);
 		serializer.Serialize(m_ActiveSceneFilePath);

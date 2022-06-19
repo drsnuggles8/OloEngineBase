@@ -81,7 +81,7 @@ namespace OloEngine {
 
 	}
 
-	void Scene::OnUpdateEditor(Timestep ts, EditorCamera& camera)
+	void Scene::OnUpdateEditor([[maybe_unused]] Timestep ts, EditorCamera& camera)
 	{
 		Renderer2D::BeginScene(camera);
 
@@ -107,7 +107,9 @@ namespace OloEngine {
 		{
 			auto& cameraComponent = view.get<CameraComponent>(entity);
 			if (!cameraComponent.FixedAspectRatio)
+			{
 				cameraComponent.Camera.SetViewportSize(width, height);
+			}
 		}
 
 	}
@@ -119,7 +121,9 @@ namespace OloEngine {
 		{
 			const auto& camera = view.get<CameraComponent>(entity);
 			if (camera.Primary)
+			{
 				return Entity{ entity, this };
+			}
 		}
 		return {};
 	}
@@ -139,7 +143,9 @@ namespace OloEngine {
 	void Scene::OnComponentAdded<CameraComponent>(Entity entity, CameraComponent& component)
 	{
 		if (m_ViewportWidth > 0 && m_ViewportHeight > 0)
+		{
 			component.Camera.SetViewportSize(m_ViewportWidth, m_ViewportHeight);
+		}
 	}
 
 	template<>

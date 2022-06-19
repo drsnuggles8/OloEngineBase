@@ -22,9 +22,13 @@ namespace OloEngine {
 		static GLenum ShaderTypeFromString(const std::string& type)
 		{
 			if (type == "vertex")
+			{
 				return GL_VERTEX_SHADER;
+			}
 			if (type == "fragment" || type == "pixel")
+			{
 				return GL_FRAGMENT_SHADER;
+			}
 
 			OLO_CORE_ASSERT(false, "Unknown shader type!")
 			return 0;
@@ -62,7 +66,9 @@ namespace OloEngine {
 		{
 			std::string cacheDirectory = GetCacheDirectory();
 			if (!std::filesystem::exists(cacheDirectory))
+			{
 				std::filesystem::create_directories(cacheDirectory);
+			}
 		}
 
 		static const char* GLShaderStageCachedOpenGLFileExtension(uint32_t stage)
@@ -407,7 +413,9 @@ namespace OloEngine {
 			bool linked = VerifyProgramLink(program);
 
 			if (!linked)
+			{
 				return;
+			}
 		}
 		else
 		{
