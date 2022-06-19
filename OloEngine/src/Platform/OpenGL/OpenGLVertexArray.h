@@ -16,8 +16,8 @@ namespace OloEngine {
 		void AddVertexBuffer(const Ref<VertexBuffer>& vertexBuffer) override;
 		void SetIndexBuffer(const Ref<IndexBuffer>& indexBuffer) override;
 
-		[[nodiscard]] const std::vector<Ref<VertexBuffer>>& GetVertexBuffers() const override { return m_VertexBuffers; }
-		[[nodiscard]] const Ref<IndexBuffer>& GetIndexBuffer() const override { return m_IndexBuffer; }
+		[[nodiscard("This returns m_VertexBuffers, you probably wanted another function!")]] const std::vector<Ref<VertexBuffer>>& GetVertexBuffers() const override { return m_VertexBuffers; }
+		[[nodiscard("This returns m_IndexBuffer, you probably wanted another function!")]] const Ref<IndexBuffer>& GetIndexBuffer() const override { return m_IndexBuffer; }
 	private:
 		uint32_t m_RendererID{};
 		uint32_t m_VertexBufferIndex = 0;

@@ -45,7 +45,7 @@ namespace OloEngine {
 		return { xFactor, yFactor };
 	}
 
-	[[nodiscard]] float EditorCamera::RotationSpeed()
+	[[nodiscard("This returns the RotationSpeed, you probably wanted another function!")]] float EditorCamera::RotationSpeed()
 	{
 		return 0.8f;
 	}

@@ -23,9 +23,9 @@ namespace OloEngine {
 		KeyPressedEvent(const KeyCode keycode, const uint16_t repeatCount)
 			: KeyEvent(keycode), m_RepeatCount(repeatCount) {}
 
-		[[nodiscard]] uint16_t GetRepeatCount() const { return m_RepeatCount; }
+		[[nodiscard("This returns m_RepeatCount, you probably wanted another function!")]] uint16_t GetRepeatCount() const { return m_RepeatCount; }
 
-		[[nodiscard]] std::string ToString() const override
+		[[nodiscard("Store this, you probably wanted another function!")]] std::string ToString() const override
 		{
 			std::stringstream ss;
 			ss << "KeyPressedEvent: " << m_KeyCode << " (" << m_RepeatCount << " repeats)";
@@ -43,7 +43,7 @@ namespace OloEngine {
 		explicit KeyReleasedEvent(const KeyCode keycode)
 			: KeyEvent(keycode) {}
 
-		[[nodiscard]] std::string ToString() const override
+		[[nodiscard("Store this, you probably wanted another function!")]] std::string ToString() const override
 		{
 			std::stringstream ss;
 			ss << "KeyReleasedEvent: " << m_KeyCode;
@@ -59,7 +59,7 @@ namespace OloEngine {
 		explicit KeyTypedEvent(const KeyCode keycode)
 			: KeyEvent(keycode) {}
 
-		[[nodiscard]] std::string ToString() const override
+		[[nodiscard("Store this, you probably wanted another function!")]] std::string ToString() const override
 		{
 			std::stringstream ss;
 			ss << "KeyTypedEvent: " << m_KeyCode;

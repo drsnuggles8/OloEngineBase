@@ -19,9 +19,9 @@ namespace OloEngine {
 		void OnResize(float width, float height);
 
 		OrthographicCamera& GetCamera() { return m_Camera; }
-		[[nodiscard]] const OrthographicCamera& GetCamera() const { return m_Camera; }
+		[[nodiscard("This returns m_Camera, you probably wanted another function!")]] const OrthographicCamera& GetCamera() const { return m_Camera; }
 
-		[[nodiscard]] float GetZoomLevel() const { return m_ZoomLevel; }
+		[[nodiscard("This returns m_ZoomLevel, you probably wanted another function!")]] float GetZoomLevel() const { return m_ZoomLevel; }
 		void SetZoomLevel(float level) { m_ZoomLevel = level; }
 	private:
 		bool OnMouseScrolled(MouseScrolledEvent& e);

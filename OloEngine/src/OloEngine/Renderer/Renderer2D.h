@@ -45,8 +45,8 @@ namespace OloEngine {
 			uint32_t DrawCalls = 0;
 			uint32_t QuadCount = 0;
 
-			[[nodiscard]] uint32_t GetTotalVertexCount() const { return QuadCount * 4; }
-			[[nodiscard]] uint32_t GetTotalIndexCount() const { return QuadCount * 6; }
+			[[nodiscard("This returns QuadCount * 4, you probably wanted another function!")]] uint32_t GetTotalVertexCount() const { return QuadCount * 4; }
+			[[nodiscard("This returns QuadCount * 6, you probably wanted another function!")]] uint32_t GetTotalIndexCount() const { return QuadCount * 6; }
 		};
 		static void ResetStats();
 		static Statistics GetStats();

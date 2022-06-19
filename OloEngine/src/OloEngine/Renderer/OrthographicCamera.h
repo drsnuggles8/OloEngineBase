@@ -11,15 +11,15 @@ namespace OloEngine {
 
 		void SetProjection(float left, float right, float bottom, float top);
 
-		[[nodiscard]] const glm::vec3& GetPosition() const { return m_Position; }
+		[[nodiscard("This returns m_Position, you probably wanted another function!")]] const glm::vec3& GetPosition() const { return m_Position; }
 		void SetPosition(const glm::vec3& position) { m_Position = position; RecalculateViewMatrix(); }
 
-		[[nodiscard]] float GetRotation() const { return m_Rotation; }
+		[[nodiscard("This returns m_Rotation, you probably wanted another function!")]] float GetRotation() const { return m_Rotation; }
 		void SetRotation(float rotation) { m_Rotation = rotation; RecalculateViewMatrix(); }
 
-		[[nodiscard]] const glm::mat4& GetProjectionMatrix() const { return m_ProjectionMatrix; }
-		[[nodiscard]] const glm::mat4& GetViewMatrix() const { return m_ViewMatrix; }
-		[[nodiscard]] const glm::mat4& GetViewProjectionMatrix() const { return m_ViewProjectionMatrix; }
+		[[nodiscard("This returns m_ProjectionMatrix, you probably wanted another function!")]] const glm::mat4& GetProjectionMatrix() const { return m_ProjectionMatrix; }
+		[[nodiscard("This returns m_ViewMatrix, you probably wanted another function!")]] const glm::mat4& GetViewMatrix() const { return m_ViewMatrix; }
+		[[nodiscard("This returns m_ViewProjectionMatrix, you probably wanted another function!")]] const glm::mat4& GetViewProjectionMatrix() const { return m_ViewProjectionMatrix; }
 	private:
 		void RecalculateViewMatrix();
 	private:

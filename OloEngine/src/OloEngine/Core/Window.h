@@ -15,8 +15,8 @@ namespace OloEngine {
 		uint32_t Height;
 
 		explicit WindowProps(std::string  title = "OloEngine",
-			uint32_t width = 1600,
-			uint32_t height = 900)
+			const uint32_t width = 1600,
+			const uint32_t height = 900)
 			: Title(std::move(title)), Width(width), Height(height)
 		{
 		}
@@ -32,15 +32,15 @@ namespace OloEngine {
 
 		virtual void OnUpdate() = 0;
 
-		[[nodiscard]] virtual uint32_t GetWidth() const = 0;
-		[[nodiscard]] virtual uint32_t GetHeight() const = 0;
+		[[nodiscard("This returns width, you probably wanted another function!")]] virtual uint32_t GetWidth() const = 0;
+		[[nodiscard("This returns height, you probably wanted another function!")]] virtual uint32_t GetHeight() const = 0;
 
 		// Window attributes
 		virtual void SetEventCallback(const EventCallbackFn& callback) = 0;
 		virtual void SetVSync(bool enabled) = 0;
-		[[nodiscard]] virtual bool IsVSync() const = 0;
+		[[nodiscard("This returns VSync, you probably wanted another function!")]] virtual bool IsVSync() const = 0;
 
-		[[nodiscard]] virtual void* GetNativeWindow() const = 0;
+		[[nodiscard("This returns the native window, you probably wanted another function!")]] virtual void* GetNativeWindow() const = 0;
 
 		static Scope<Window> Create(const WindowProps& props = WindowProps());
 	};
