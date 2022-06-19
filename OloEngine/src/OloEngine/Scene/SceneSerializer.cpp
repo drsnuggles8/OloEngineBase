@@ -209,7 +209,7 @@ namespace OloEngine {
 		auto sceneName = data["Scene"].as<std::string>();
 		OLO_CORE_TRACE("Deserializing scene '{0}'", sceneName);
 
-		if (auto entities = data["Entities"]; entities)
+		if (const auto entities = data["Entities"]; entities)
 		{
 			for (auto entity : entities)
 			{
