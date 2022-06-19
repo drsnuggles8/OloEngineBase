@@ -183,7 +183,7 @@ namespace OloEngine {
 		fout << out.c_str();
 	}
 
-	void SceneSerializer::SerializeRuntime(const std::string& filepath)
+    [[maybe_unused]] void SceneSerializer::SerializeRuntime(const std::string& filepath)
 	{
 		// Not implemented
 		OLO_CORE_ASSERT(false)
@@ -268,7 +268,7 @@ namespace OloEngine {
 		return true;
 	}
 
-	bool SceneSerializer::DeserializeRuntime(const std::string& filepath)
+    [[maybe_unused]] bool SceneSerializer::DeserializeRuntime(const std::string& filepath)
 	{
 		// Not implemented
 		OLO_CORE_ASSERT(false)

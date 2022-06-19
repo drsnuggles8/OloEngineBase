@@ -6,7 +6,7 @@ namespace OloEngine {
 	{
 	public:
 		//TODO(olbu): Figure out how we can get Timestep to be explicit
-		Timestep(const float timeStep = 0.0f)
+		explicit(false) Timestep(const float timeStep = 0.0f)
 			: m_Time(timeStep)
 		{
 		}
