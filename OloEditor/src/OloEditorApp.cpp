@@ -16,9 +16,7 @@ namespace OloEngine {
 			PushLayer(new EditorLayer());
 		}
 
-		~OloEngineEditor()
-		{
-		}
+		~OloEngineEditor() = default;
 	};
 
 	Application* CreateApplication(ApplicationCommandLineArgs args)

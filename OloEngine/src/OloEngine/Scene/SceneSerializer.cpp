@@ -27,8 +27,10 @@ namespace YAML {
 
 		static bool decode(const Node& node, glm::vec3& rhs)
 		{
-			if (!node.IsSequence() || node.size() != 3)
+			if ((!node.IsSequence()) || (node.size() != 3))
+			{
 				return false;
+			}
 
 			rhs.x = node[0].as<float>();
 			rhs.y = node[1].as<float>();
@@ -53,8 +55,10 @@ namespace YAML {
 
 		static bool decode(const Node& node, glm::vec4& rhs)
 		{
-			if (!node.IsSequence() || node.size() != 4)
+			if ((!node.IsSequence()) || (node.size() != 4))
+			{
 				return false;
+			}
 
 			rhs.x = node[0].as<float>();
 			rhs.y = node[1].as<float>();
@@ -156,7 +160,7 @@ namespace OloEngine {
 		out << YAML::EndMap; // Entity
 	}
 
-	void SceneSerializer::Serialize(const std::string& filepath)
+	void SceneSerializer::Serialize(const std::string& filepath) const
 	{
 		YAML::Emitter out;
 		out << YAML::BeginMap;
@@ -166,7 +170,9 @@ namespace OloEngine {
 			{
 				Entity entity = { entityID, m_Scene.get() };
 				if (!entity)
+				{
 					return;
+				}
 
 				SerializeEntity(out, entity);
 			});
@@ -177,13 +183,13 @@ namespace OloEngine {
 		fout << out.c_str();
 	}
 
-	void SceneSerializer::SerializeRuntime(const std::string& filepath)
+	[[maybe_unused]] void SceneSerializer::SerializeRuntime([[maybe_unused]] std::string_view filepath) const
 	{
 		// Not implemented
 		OLO_CORE_ASSERT(false)
 	}
 
-	bool SceneSerializer::Deserialize(const std::string& filepath)
+	bool SceneSerializer::Deserialize(const std::string& filepath) const
 	{
 		YAML::Node data;
 		try
@@ -196,13 +202,14 @@ namespace OloEngine {
 		}
 
 		if (!data["Scene"])
+		{
 			return false;
+		}
 
 		auto sceneName = data["Scene"].as<std::string>();
 		OLO_CORE_TRACE("Deserializing scene '{0}'", sceneName);
 
-		auto entities = data["Entities"];
-		if (entities)
+		if (const auto entities = data["Entities"]; entities)
 		{
 			for (auto entity : entities)
 			{
@@ -211,7 +218,9 @@ namespace OloEngine {
 				std::string name;
 				auto tagComponent = entity["TagComponent"];
 				if (tagComponent)
+				{
 					name = tagComponent["Tag"].as<std::string>();
+				}
 
 				OLO_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
 
@@ -259,7 +268,7 @@ namespace OloEngine {
 		return true;
 	}
 
-	bool SceneSerializer::DeserializeRuntime(const std::string& filepath)
+	[[nodiscard("This returns something, you probably wanted another function!")]] [[maybe_unused]] bool SceneSerializer::DeserializeRuntime([[maybe_unused]] std::string_view const filepath) const
 	{
 		// Not implemented
 		OLO_CORE_ASSERT(false)

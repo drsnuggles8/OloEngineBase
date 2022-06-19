@@ -3,7 +3,7 @@
 #pragma once
 
 namespace OloEngine {
-	
+
 	enum class ShaderDataType
 	{
 		None = 0, Float, Float2, Float3, Float4, Mat3, Mat4, Int, Int2, Int3, Int4, Bool
@@ -41,12 +41,12 @@ namespace OloEngine {
 
 		BufferElement() = default;
 
-		BufferElement(ShaderDataType type, std::string  name, bool normalized = false)
+		BufferElement(ShaderDataType const type, std::string  name, const bool normalized = false)
 			: Name(std::move(name)), Type(type), Size(ShaderDataTypeSize(type)), Offset(0), Normalized(normalized)
 		{
 		}
 
-		[[nodiscard]] uint32_t GetComponentCount() const
+		[[nodiscard("Store this, you probably wanted another function!")]] uint32_t GetComponentCount() const
 		{
 			switch (Type)
 			{
@@ -80,13 +80,13 @@ namespace OloEngine {
 			CalculateOffsetsAndStride();
 		}
 
-		[[nodiscard]] uint32_t GetStride() const { return m_Stride; }
-		[[nodiscard]] const std::vector<BufferElement>& GetElements() const { return m_Elements; }
+		[[nodiscard("This returns m_Stride, you probably wanted another function!")]] uint32_t GetStride() const { return m_Stride; }
+		[[nodiscard("This returns m_Elements, you probably wanted another function!")]] const std::vector<BufferElement>& GetElements() const { return m_Elements; }
 
 		std::vector<BufferElement>::iterator begin() { return m_Elements.begin(); }
 		std::vector<BufferElement>::iterator end() { return m_Elements.end(); }
-		[[nodiscard]] std::vector<BufferElement>::const_iterator begin() const { return m_Elements.begin(); }
-		[[nodiscard]] std::vector<BufferElement>::const_iterator end() const { return m_Elements.end(); }
+		[[nodiscard("This returns m_Elements.begin(), you probably wanted another function!")]] std::vector<BufferElement>::const_iterator begin() const { return m_Elements.begin(); }
+		[[nodiscard("This returns m_Elements.end(), you probably wanted another function!")]] std::vector<BufferElement>::const_iterator end() const { return m_Elements.end(); }
 	private:
 		void CalculateOffsetsAndStride()
 		{
@@ -113,8 +113,8 @@ namespace OloEngine {
 		virtual void Unbind() const = 0;
 
 		virtual void SetData(const void* data, uint32_t size) = 0;
-		
-		[[nodiscard]] virtual const BufferLayout& GetLayout() const = 0;
+
+		[[nodiscard("Store this, you probably wanted another function!")]] virtual const BufferLayout& GetLayout() const = 0;
 		virtual void SetLayout(const BufferLayout& layout) = 0;
 
 		static Ref<VertexBuffer> Create(uint32_t size);
@@ -131,7 +131,7 @@ namespace OloEngine {
 		virtual void Bind() const = 0;
 		virtual void Unbind() const = 0;
 
-		[[nodiscard]] virtual uint32_t GetCount() const = 0;
+		[[nodiscard("Store this, you probably wanted another function!")]] virtual uint32_t GetCount() const = 0;
 
 		static Ref<IndexBuffer> Create(uint32_t* indices, uint32_t size);
 	};

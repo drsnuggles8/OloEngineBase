@@ -27,12 +27,12 @@ namespace OloEngine {
 		return entity;
 	}
 
-	void Scene::DestroyEntity(Entity entity)
+	void Scene::DestroyEntity(Entity const entity)
 	{
 		m_Registry.destroy(entity);
 	}
 
-	void Scene::OnUpdateRuntime(Timestep ts)
+	void Scene::OnUpdateRuntime(Timestep const ts)
 	{
 		// Update scripts
 		{
@@ -48,14 +48,13 @@ namespace OloEngine {
 		}
 
 		// Render 2D
-		Camera* mainCamera = nullptr;
+		Camera const* mainCamera = nullptr;
 		glm::mat4 cameraTransform;
 
 		{
-			auto view = m_Registry.view<TransformComponent, CameraComponent>();
-			for (auto entity : view)
+			for (const auto view = m_Registry.view<TransformComponent, CameraComponent>(); const auto entity : view)
 			{
-				auto [transform, camera] = view.get<TransformComponent, CameraComponent>(entity);
+				const auto [transform, camera] = view.get<TransformComponent, CameraComponent>(entity);
 
 				if (camera.Primary)
 				{
@@ -70,56 +69,56 @@ namespace OloEngine {
 		{
 			Renderer2D::BeginScene(*mainCamera, cameraTransform);
 
-			auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
-			for (auto entity : group)
+			for (const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>); const auto entity : group)
 			{
 				auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
-				Renderer2D::DrawSprite(transform.GetTransform(), sprite, (int)entity);
+				Renderer2D::DrawSprite(transform.GetTransform(), sprite, static_cast<int>(entity));
 			}
 			Renderer2D::EndScene();
 		}
 
 	}
 
-	void Scene::OnUpdateEditor(Timestep ts, EditorCamera& camera)
+	void Scene::OnUpdateEditor([[maybe_unused]] Timestep const ts, EditorCamera const& camera)
 	{
 		Renderer2D::BeginScene(camera);
 
-		auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
-		for (auto entity : group)
+		for (const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>); const auto entity : group)
 		{
 			auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
 
-			Renderer2D::DrawSprite(transform.GetTransform(), sprite, (int)entity);
+			Renderer2D::DrawSprite(transform.GetTransform(), sprite, static_cast<int>(entity));
 		}
 
 		Renderer2D::EndScene();
 	}
 
-	void Scene::OnViewportResize(uint32_t width, uint32_t height)
+	void Scene::OnViewportResize(const uint32_t width, const uint32_t height)
 	{
 		m_ViewportWidth = width;
 		m_ViewportHeight = height;
 
 		// Resize our non-FixedAspectRatio cameras
-		auto view = m_Registry.view<CameraComponent>();
-		for (auto entity : view)
+		for (const auto view = m_Registry.view<CameraComponent>(); auto const entity : view)
 		{
 			auto& cameraComponent = view.get<CameraComponent>(entity);
 			if (!cameraComponent.FixedAspectRatio)
+			{
 				cameraComponent.Camera.SetViewportSize(width, height);
+			}
 		}
 
 	}
 
 	Entity Scene::GetPrimaryCameraEntity()
 	{
-		auto view = m_Registry.view<CameraComponent>();
-		for (auto entity : view)
+		for (const auto view = m_Registry.view<CameraComponent>(); auto const entity : view)
 		{
 			const auto& camera = view.get<CameraComponent>(entity);
 			if (camera.Primary)
+			{
 				return Entity{ entity, this };
+			}
 		}
 		return {};
 	}
@@ -138,8 +137,10 @@ namespace OloEngine {
 	template<>
 	void Scene::OnComponentAdded<CameraComponent>(Entity entity, CameraComponent& component)
 	{
-		if (m_ViewportWidth > 0 && m_ViewportHeight > 0)
+		if ((m_ViewportWidth > 0) && (m_ViewportHeight > 0))
+		{
 			component.Camera.SetViewportSize(m_ViewportWidth, m_ViewportHeight);
+		}
 	}
 
 	template<>

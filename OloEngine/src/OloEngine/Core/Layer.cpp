@@ -10,5 +10,4 @@ namespace OloEngine {
 		: m_DebugName(std::move(debugName))
 	{
 	}
-	
 }

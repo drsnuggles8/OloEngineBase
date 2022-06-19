@@ -51,8 +51,8 @@ namespace OloEngine {
 		[[nodiscard("Returns m_CommandLineArgs, you probably wanted some other function!")]] ApplicationCommandLineArgs GetCommandLineArgs() const { return m_CommandLineArgs; }
 	private:
 		void Run();
-		bool OnWindowClose(WindowCloseEvent& e);
-		bool OnWindowResize(WindowResizeEvent& e);
+		bool OnWindowClose(WindowCloseEvent const& e);
+		bool OnWindowResize(WindowResizeEvent const& e);
 
 		ApplicationCommandLineArgs m_CommandLineArgs;
 		Scope<Window> m_Window;

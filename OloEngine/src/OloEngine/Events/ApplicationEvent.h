@@ -9,10 +9,10 @@ namespace OloEngine {
 		WindowResizeEvent(const unsigned int width, const unsigned int height)
 			: m_Width(width), m_Height(height) {}
 
-		[[nodiscard]] unsigned int GetWidth()  const { return m_Width; }
-		[[nodiscard]] unsigned int GetHeight() const { return m_Height; }
+		[[nodiscard("This returns width, you probably wanted another function!")]] unsigned int GetWidth()  const { return m_Width; }
+		[[nodiscard("This returns height, you probably wanted another function!")]] unsigned int GetHeight() const { return m_Height; }
 
-		[[nodiscard]] std::string ToString() const override
+		[[nodiscard("Store this return, you probably wanted another function!")]] std::string ToString() const override
 		{
 			std::stringstream ss;
 			ss << "WindowResizeEvent: " << m_Width << ", " << m_Height;
@@ -22,7 +22,8 @@ namespace OloEngine {
 		EVENT_CLASS_TYPE(WindowResize)
 		EVENT_CLASS_CATEGORY(EventCategory::Application)
 	private:
-		unsigned int m_Width, m_Height;
+		unsigned int m_Width;
+		unsigned int m_Height;
 	};
 
 	class WindowCloseEvent : public Event

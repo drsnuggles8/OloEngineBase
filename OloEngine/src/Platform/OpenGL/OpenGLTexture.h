@@ -10,18 +10,18 @@ namespace OloEngine {
 	{
 	public:
 		OpenGLTexture2D(uint32_t width, uint32_t height);
-		OpenGLTexture2D(const std::string& path);
+		explicit OpenGLTexture2D(const std::string& path);
 		~OpenGLTexture2D() override;
 
-		[[nodiscard]] uint32_t GetWidth() const override { return m_Width;  }
-		[[nodiscard]] uint32_t GetHeight() const override { return m_Height; }
-		[[nodiscard]] uint32_t GetRendererID() const override { return m_RendererID; }
-		
+		[[nodiscard("This returns m_Width, you probably wanted another function!")]] uint32_t GetWidth() const override { return m_Width;  }
+		[[nodiscard("This returns m_Height, you probably wanted another function!")]] uint32_t GetHeight() const override { return m_Height; }
+		[[nodiscard("This returns m_RendererID, you probably wanted another function!")]] uint32_t GetRendererID() const override { return m_RendererID; }
+
 		void SetData(void* data, uint32_t size) override;
 
 		void Bind(uint32_t slot) const override;
 
-		[[nodiscard]] bool IsLoaded() const override { return m_IsLoaded; }
+		[[nodiscard("This returns m_IsLoaded, you probably wanted another function!")]] bool IsLoaded() const override { return m_IsLoaded; }
 
 		bool operator==(const Texture& other) const override
 		{
@@ -30,9 +30,11 @@ namespace OloEngine {
 	private:
 		std::string m_Path;
 		bool m_IsLoaded = false;
-		uint32_t m_Width, m_Height;
+		uint32_t m_Width;
+		uint32_t m_Height;
 		uint32_t m_RendererID{};
-		GLenum m_InternalFormat, m_DataFormat;
+		GLenum m_InternalFormat;
+		GLenum m_DataFormat;
 	};
 
 }

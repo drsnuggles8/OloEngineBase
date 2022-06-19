@@ -40,11 +40,10 @@ namespace OloEngine {
 
 		m_ActiveScene = CreateRef<Scene>();
 
-		auto commandLineArgs = Application::Get().GetCommandLineArgs();
-		if (commandLineArgs.Count > 1)
+		if (const auto commandLineArgs = Application::Get().GetCommandLineArgs(); commandLineArgs.Count > 1)
 		{
-			auto sceneFilePath = commandLineArgs[1];
-			SceneSerializer serializer(m_ActiveScene);
+			const auto sceneFilePath = commandLineArgs[1];
+			SceneSerializer const serializer(m_ActiveScene);
 			serializer.Deserialize(sceneFilePath);
 		}
 
@@ -105,19 +104,21 @@ namespace OloEngine {
 		OLO_PROFILE_FUNCTION();
 	}
 
-	void EditorLayer::OnUpdate(Timestep ts)
+	void EditorLayer::OnUpdate(Timestep const ts)
 	{
 		OLO_PROFILE_FUNCTION();
 
+		const double epsilon = 1e-5;
+
 		// Resize
-		if (FramebufferSpecification spec = m_Framebuffer->GetSpecification();
-			m_ViewportSize.x > 0.0f && m_ViewportSize.y > 0.0f && // zero sized framebuffer is invalid
-			(spec.Width != m_ViewportSize.x || spec.Height != m_ViewportSize.y))
+		if (FramebufferSpecification const spec = m_Framebuffer->GetSpecification();
+			(m_ViewportSize.x > 0.0f) && (m_ViewportSize.y > 0.0f) && // zero sized framebuffer is invalid
+			((std::abs(static_cast<float>(spec.Width) - m_ViewportSize.x) > epsilon) || (std::abs(static_cast<float>(spec.Height) - m_ViewportSize.y) > epsilon)))
 		{
-			m_Framebuffer->Resize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+			m_Framebuffer->Resize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));
 			m_CameraController.OnResize(m_ViewportSize.x, m_ViewportSize.y);
 			m_EditorCamera.SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
-			m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+			m_ActiveScene->OnViewportResize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));
 		}
 
 		// Render
@@ -134,7 +135,9 @@ namespace OloEngine {
 			case SceneState::Edit:
 			{
 				if (m_ViewportFocused)
+				{
 					m_CameraController.OnUpdate(ts);
+				}
 
 				m_EditorCamera.OnUpdate(ts);
 
@@ -155,15 +158,14 @@ namespace OloEngine {
 		auto [mx, my] = ImGui::GetMousePos();
 		mx -= m_ViewportBounds[0].x;
 		my -= m_ViewportBounds[0].y;
-		glm::vec2 viewportSize = m_ViewportBounds[1] - m_ViewportBounds[0];
+		glm::vec2 const viewportSize = m_ViewportBounds[1] - m_ViewportBounds[0];
 		my = viewportSize.y - my;
-		int mouseX = (int)mx;
-		int mouseY = (int)my;
+		const auto mouseX = static_cast<int>(mx);
 
-		if (mouseX >= 0 && mouseY >= 0 && mouseX < (int)viewportSize.x && mouseY < (int)viewportSize.y)
+		if (const auto mouseY = static_cast<int>(my); (mouseX >= 0) && (mouseY >= 0) && (mouseX < static_cast<int>(viewportSize.x)) && (mouseY < static_cast<int>(viewportSize.y)))
 		{
-			int pixelData = m_Framebuffer->ReadPixel(1, mouseX, mouseY);
-			m_HoveredEntity = pixelData == -1 ? Entity() : Entity((entt::entity)pixelData, m_ActiveScene.get());
+			const int pixelData = m_Framebuffer->ReadPixel(1, mouseX, mouseY);
+			m_HoveredEntity = pixelData == -1 ? Entity() : Entity(static_cast<entt::entity>(pixelData), m_ActiveScene.get());
 		}
 
 		m_Framebuffer->Unbind();
@@ -175,16 +177,16 @@ namespace OloEngine {
 
 		// Note: Switch this to true to enable dockspace
 		static bool dockspaceOpen = true;
-		static bool opt_fullscreen_persistant = true;
-		bool opt_fullscreen = opt_fullscreen_persistant;
-		static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
+		const static bool opt_fullscreen_persistant = true;
+		const bool opt_fullscreen = opt_fullscreen_persistant;
+		static ImGuiDockNodeFlags const dockspace_flags = ImGuiDockNodeFlags_None;
 
 		// We are using the ImGuiWindowFlags_NoDocking flag to make the parent window not dockable into,
 		// because it would be confusing to have two docking targets within each others.
 		ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
 		if (opt_fullscreen)
 		{
-			ImGuiViewport* viewport = ImGui::GetMainViewport();
+			ImGuiViewport const* viewport = ImGui::GetMainViewport();
 			ImGui::SetNextWindowPos(viewport->Pos);
 			ImGui::SetNextWindowSize(viewport->Size);
 			ImGui::SetNextWindowViewport(viewport->ID);
@@ -196,28 +198,32 @@ namespace OloEngine {
 
 		// When using ImGuiDockNodeFlags_PassthruCentralNode, DockSpace() will render our background and handle the pass-thru hole, so we ask Begin() to not render a background.
 		if (dockspace_flags & ImGuiDockNodeFlags_PassthruCentralNode)
+		{
 			window_flags |= ImGuiWindowFlags_NoBackground;
+		}
 
 		// Important: note that we proceed even if Begin() returns false (aka window is collapsed).
-		// This is because we want to keep our DockSpace() active. If a DockSpace() is inactive, 
+		// This is because we want to keep our DockSpace() active. If a DockSpace() is inactive,
 		// all active windows docked into it will lose their parent and become undocked.
-		// We cannot preserve the docking relationship between an active window and an inactive docking, otherwise 
+		// We cannot preserve the docking relationship between an active window and an inactive docking, otherwise
 		// any change of dockspace/settings would lead to windows being stuck in limbo and never being visible.
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 		ImGui::Begin("DockSpace Demo", &dockspaceOpen, window_flags);
 		ImGui::PopStyleVar();
 
 		if (opt_fullscreen)
+		{
 			ImGui::PopStyleVar(2);
+		}
 
 		// DockSpace
-		ImGuiIO& io = ImGui::GetIO();
+		ImGuiIO const& io = ImGui::GetIO();
 		ImGuiStyle& style = ImGui::GetStyle();
-		float minWinSizeX = style.WindowMinSize.x;
+		const float minWinSizeX = style.WindowMinSize.x;
 		style.WindowMinSize.x = 370.0f;
 		if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
 		{
-			ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
+			ImGuiID const dockspace_id = ImGui::GetID("MyDockSpace");
 			ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
 		}
 
@@ -227,7 +233,7 @@ namespace OloEngine {
 		{
 			if (ImGui::BeginMenu("File"))
 			{
-				// Disabling fullscreen would allow the window to be moved to the front of other windows, 
+				// Disabling fullscreen would allow the window to be moved to the front of other windows,
 				// which we can't undo at the moment without finer window depth/z control.
 				//ImGui::MenuItem("Fullscreen", NULL, &opt_fullscreen_persistant);
 				if (ImGui::MenuItem("New", "Ctrl+N"))
@@ -250,7 +256,10 @@ namespace OloEngine {
 					SaveSceneAs();
 				}
 
-				if (ImGui::MenuItem("Exit")) Application::Get().Close();
+				if (ImGui::MenuItem("Exit"))
+				{
+					Application::Get().Close();
+				}
 				ImGui::EndMenu();
 			}
 
@@ -264,10 +273,12 @@ namespace OloEngine {
 
 		std::string name = "None";
 		if (m_HoveredEntity)
+		{
 			name = m_HoveredEntity.GetComponent<TagComponent>().Tag;
+		}
 		ImGui::Text("Hovered Entity: %s", name.c_str());
 
-		auto stats = Renderer2D::GetStats();
+		const auto stats = Renderer2D::GetStats();
 		ImGui::Text("Renderer2D Stats:");
 		ImGui::Text("Draw Calls: %d", stats.DrawCalls);
 		ImGui::Text("Quads: %d", stats.QuadCount);
@@ -278,27 +289,27 @@ namespace OloEngine {
 
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0, 0 });
 		ImGui::Begin("Viewport");
-		auto viewportMinRegion = ImGui::GetWindowContentRegionMin();
-		auto viewportMaxRegion = ImGui::GetWindowContentRegionMax();
-		auto viewportOffset = ImGui::GetWindowPos();
+		const auto viewportMinRegion = ImGui::GetWindowContentRegionMin();
+		const auto viewportMaxRegion = ImGui::GetWindowContentRegionMax();
+		const auto viewportOffset = ImGui::GetWindowPos();
 		m_ViewportBounds[0] = { viewportMinRegion.x + viewportOffset.x, viewportMinRegion.y + viewportOffset.y };
 		m_ViewportBounds[1] = { viewportMaxRegion.x + viewportOffset.x, viewportMaxRegion.y + viewportOffset.y };
 
 		m_ViewportFocused = ImGui::IsWindowFocused();
 		m_ViewportHovered = ImGui::IsWindowHovered();
-		Application::Get().GetImGuiLayer()->BlockEvents(!m_ViewportFocused && !m_ViewportHovered);
+		Application::Get().GetImGuiLayer()->BlockEvents((!m_ViewportFocused) && (!m_ViewportHovered));
 
-		ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
+		ImVec2 const viewportPanelSize = ImGui::GetContentRegionAvail();
 		m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
 
-		uint64_t textureID = m_Framebuffer->GetColorAttachmentRendererID(0);
+		uint64_t const textureID = m_Framebuffer->GetColorAttachmentRendererID(0);
 		ImGui::Image(reinterpret_cast<void*>(textureID), ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
 
 		if (ImGui::BeginDragDropTarget())
 		{
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
 			{
-				const wchar_t* path = (const wchar_t*)payload->Data;
+				const auto* path = (const wchar_t*)payload->Data;
 
 				const auto filePath = std::filesystem::path(path);
 				if (filePath.extension().string() == ".olo")
@@ -330,8 +341,7 @@ namespace OloEngine {
 		}
 
 		// Gizmos
-		Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
-		if (selectedEntity && m_GizmoType != -1)
+		if (Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity(); selectedEntity && (m_GizmoType != -1))
 		{
 			ImGuizmo::SetOrthographic(false);
 			ImGuizmo::SetDrawlist();
@@ -354,24 +364,32 @@ namespace OloEngine {
 			glm::mat4 transform = tc.GetTransform();
 
 			// Snapping
-			bool snap = Input::IsKeyPressed(Key::LeftControl);
+			const bool snap = Input::IsKeyPressed(Key::LeftControl);
 			float snapValue = 0.5f; // Snap to 0.5m for translation/scale
 			// Snap to 45 degrees for rotation
 			if (m_GizmoType == ImGuizmo::OPERATION::ROTATE)
+			{
 				snapValue = 45.0f;
+			}
 
-			float snapValues[3] = { snapValue, snapValue, snapValue };
+			const std::array<float, 3> snapValues = { snapValue, snapValue, snapValue };
 
-			ImGuizmo::Manipulate(glm::value_ptr(cameraView), glm::value_ptr(cameraProjection),
-				(ImGuizmo::OPERATION)m_GizmoType, ImGuizmo::LOCAL, glm::value_ptr(transform),
-				nullptr, snap ? snapValues : nullptr);
+			ImGuizmo::Manipulate(glm::value_ptr(cameraView),
+				glm::value_ptr(cameraProjection),
+				static_cast<ImGuizmo::OPERATION>(m_GizmoType),
+				ImGuizmo::LOCAL,
+				glm::value_ptr(transform),
+				nullptr,
+				snap ? snapValues.data() : nullptr);
 
 			if (ImGuizmo::IsUsing())
 			{
-				glm::vec3 translation, rotation, scale;
+				glm::vec3 translation;
+				glm::vec3 rotation;
+				glm::vec3 scale;
 				Math::DecomposeTransform(transform, translation, rotation, scale);
 
-				glm::vec3 deltaRotation = rotation - tc.Rotation;
+				glm::vec3 const deltaRotation = rotation - tc.Rotation;
 				tc.Translation = translation;
 				tc.Rotation += deltaRotation;
 				tc.Scale = scale;
@@ -390,7 +408,7 @@ namespace OloEngine {
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 2));
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, ImVec2(0, 0));
 		ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-		auto& colors = ImGui::GetStyle().Colors;
+		auto const& colors = ImGui::GetStyle().Colors;
 		const auto& buttonHovered = colors[ImGuiCol_ButtonHovered];
 		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(buttonHovered.x, buttonHovered.y, buttonHovered.z, 0.5f));
 		const auto& buttonActive = colors[ImGuiCol_ButtonActive];
@@ -398,15 +416,19 @@ namespace OloEngine {
 
 		ImGui::Begin("##toolbar", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
-		float size = ImGui::GetWindowHeight() - 4.0f;
-		Ref<Texture2D> icon = m_SceneState == SceneState::Edit ? m_IconPlay : m_IconStop;
+		const float size = ImGui::GetWindowHeight() - 4.0f;
+		Ref<Texture2D> const icon = m_SceneState == SceneState::Edit ? m_IconPlay : m_IconStop;
 		ImGui::SetCursorPosX((ImGui::GetWindowContentRegionMax().x * 0.5f) - (size * 0.5f));
-		if (ImGui::ImageButton((ImTextureID)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0))
+		if (ImGui::ImageButton(reinterpret_cast<ImTextureID>(icon->GetRendererID()), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0))
 		{
 			if (m_SceneState == SceneState::Edit)
+			{
 				OnScenePlay();
+			}
 			else if (m_SceneState == SceneState::Play)
+			{
 				OnSceneStop();
+			}
 		}
 		ImGui::PopStyleVar(2);
 		ImGui::PopStyleColor(3);
@@ -423,28 +445,34 @@ namespace OloEngine {
 		dispatcher.Dispatch<MouseButtonPressedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnMouseButtonPressed));
 	}
 
-	bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
+	bool EditorLayer::OnKeyPressed(KeyPressedEvent const& e)
 	{
 		// Shortcuts
 		if (e.GetRepeatCount() > 0)
+		{
 			return false;
+		}
 
-		bool control = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
-		bool shift = Input::IsKeyPressed(Key::LeftShift) || Input::IsKeyPressed(Key::RightShift);
+		const bool control = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
+		const bool shift = Input::IsKeyPressed(Key::LeftShift) || Input::IsKeyPressed(Key::RightShift);
 
 		switch (e.GetKeyCode())
 		{
 			case Key::N:
 			{
 				if (control)
+				{
 					NewScene();
+				}
 
 				break;
 			}
 			case Key::O:
 			{
 				if (control)
+				{
 					OpenScene();
+				}
 
 				break;
 			}
@@ -469,39 +497,48 @@ namespace OloEngine {
 			case Key::Q:
 			{
 				if (!ImGuizmo::IsUsing())
+				{
 					m_GizmoType = -1;
+				}
 				break;
 			}
 			case Key::W:
 			{
 				if (!ImGuizmo::IsUsing())
+				{
 					m_GizmoType = ImGuizmo::OPERATION::TRANSLATE;
+				}
 				break;
 			}
 			case Key::E:
 			{
 				if (!ImGuizmo::IsUsing())
+				{
 					m_GizmoType = ImGuizmo::OPERATION::ROTATE;
+				}
 				break;
 			}
 			case Key::R:
 			{
 				if (!ImGuizmo::IsUsing())
+				{
 					m_GizmoType = ImGuizmo::OPERATION::SCALE;
+				}
 				break;
 			}
 
 			default:
+			{
 				break;
+			}
 		}
 	}
 
-	bool EditorLayer::OnMouseButtonPressed(MouseButtonPressedEvent& e)
+	bool EditorLayer::OnMouseButtonPressed(MouseButtonPressedEvent const& e)
 	{
-		if (e.GetMouseButton() == Mouse::ButtonLeft)
+		if ((e.GetMouseButton() == Mouse::ButtonLeft) && m_ViewportHovered && (!ImGuizmo::IsOver()) && (!Input::IsKeyPressed(Key::LeftAlt)))
 		{
-			if (m_ViewportHovered && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt))
-				m_SceneHierarchyPanel.SetSelectedEntity(m_HoveredEntity);
+			m_SceneHierarchyPanel.SetSelectedEntity(m_HoveredEntity);
 		}
 		return false;
 	}
@@ -509,13 +546,13 @@ namespace OloEngine {
 	void EditorLayer::NewScene()
 	{
 		m_ActiveScene = CreateRef<Scene>();
-		m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+		m_ActiveScene->OnViewportResize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));
 		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
 	}
 
 	void EditorLayer::OpenScene()
 	{
-		std::string filepath = FileDialogs::OpenFile("OloEditor Scene (*.olo)\0*.olo\0");
+		std::string const filepath = FileDialogs::OpenFile("OloEditor Scene (*.olo)\0*.olo\0");
 		if (!filepath.empty())
 		{
 			OpenScene(filepath);
@@ -530,33 +567,35 @@ namespace OloEngine {
 			return;
 		}
 
-		Ref<Scene> newScene = CreateRef<Scene>();
-		SceneSerializer serializer(newScene);
+		Ref<Scene> const newScene = CreateRef<Scene>();
+		SceneSerializer const serializer(newScene);
 		if (serializer.Deserialize(path.string()))
 		{
 			m_ActiveScene = newScene;
-			m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+			m_ActiveScene->OnViewportResize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));
 			m_SceneHierarchyPanel.SetContext(m_ActiveScene);
 
 			m_ActiveSceneFilePath = path.string();
 		}
 	}
 
-	void EditorLayer::SaveScene()
+	void EditorLayer::SaveScene() const
 	{
 		if (m_ActiveSceneFilePath.empty())
+		{
 			SaveSceneAs();
+		}
 
-		SceneSerializer serializer(m_ActiveScene);
+		SceneSerializer const serializer(m_ActiveScene);
 		serializer.Serialize(m_ActiveSceneFilePath);
 	}
 
-	void EditorLayer::SaveSceneAs()
+	void EditorLayer::SaveSceneAs() const
 	{
 		const std::string filepath = FileDialogs::SaveFile("OloEditor Scene (*.olo)\0*.olo\0");
 		if (!filepath.empty())
 		{
-			SceneSerializer serializer(m_ActiveScene);
+			SceneSerializer const serializer(m_ActiveScene);
 			serializer.Serialize(filepath);
 		}
 	}

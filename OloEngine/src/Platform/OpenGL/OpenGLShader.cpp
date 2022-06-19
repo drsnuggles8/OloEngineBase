@@ -22,9 +22,13 @@ namespace OloEngine {
 		static GLenum ShaderTypeFromString(const std::string& type)
 		{
 			if (type == "vertex")
+			{
 				return GL_VERTEX_SHADER;
+			}
 			if (type == "fragment" || type == "pixel")
+			{
 				return GL_FRAGMENT_SHADER;
+			}
 
 			OLO_CORE_ASSERT(false, "Unknown shader type!")
 			return 0;
@@ -62,7 +66,9 @@ namespace OloEngine {
 		{
 			std::string cacheDirectory = GetCacheDirectory();
 			if (!std::filesystem::exists(cacheDirectory))
+			{
 				std::filesystem::create_directories(cacheDirectory);
+			}
 		}
 
 		static const char* GLShaderStageCachedOpenGLFileExtension(uint32_t stage)
@@ -165,8 +171,8 @@ namespace OloEngine {
 		if (in)
 		{
 			in.seekg(0, std::ios::end);
-			size_t size = in.tellg();
-			if (size != -1)
+			size_t const size = in.tellg();
+			if (std::cmp_not_equal(size, -1))
 			{
 				result.resize(size);
 				in.seekg(0, std::ios::beg);
@@ -219,7 +225,7 @@ namespace OloEngine {
 		shaderc::Compiler compiler;
 		shaderc::CompileOptions options;
 		options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_3);
-        options.SetOptimizationLevel(shaderc_optimization_level_performance);
+		options.SetOptimizationLevel(shaderc_optimization_level_performance);
 
 		std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
 
@@ -243,14 +249,14 @@ namespace OloEngine {
 			}
 			else
 			{
-				shaderc::SpvCompilationResult module = compiler.CompileGlslToSpv(source, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str(), options);
-				if (module.GetCompilationStatus() != shaderc_compilation_status_success)
+				shaderc::SpvCompilationResult const spirvModule = compiler.CompileGlslToSpv(source, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str(), options);
+				if (spirvModule.GetCompilationStatus() != shaderc_compilation_status_success)
 				{
-					OLO_CORE_ERROR(module.GetErrorMessage());
+					OLO_CORE_ERROR(spirvModule.GetErrorMessage());
 					OLO_CORE_ASSERT(false)
 				}
 
-				shaderData[stage] = std::vector<uint32_t>(module.cbegin(), module.cend());
+				shaderData[stage] = std::vector<uint32_t>(spirvModule.cbegin(), spirvModule.cend());
 
 				std::ofstream out(cachedPath, std::ios::out | std::ios::binary);
 				if (out.is_open())
@@ -301,14 +307,14 @@ namespace OloEngine {
 				m_OpenGLSourceCode[stage] = glslCompiler.compile();
 				auto& source = m_OpenGLSourceCode[stage];
 
-				shaderc::SpvCompilationResult module = compiler.CompileGlslToSpv(source, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str());
-				if (module.GetCompilationStatus() != shaderc_compilation_status_success)
+				shaderc::SpvCompilationResult const spirvModule = compiler.CompileGlslToSpv(source, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str());
+				if (spirvModule.GetCompilationStatus() != shaderc_compilation_status_success)
 				{
-					OLO_CORE_ERROR(module.GetErrorMessage());
+					OLO_CORE_ERROR(spirvModule.GetErrorMessage());
 					OLO_CORE_ASSERT(false)
 				}
 
-				shaderData[stage] = std::vector<uint32_t>(module.cbegin(), module.cend());
+				shaderData[stage] = std::vector<uint32_t>(spirvModule.cbegin(), spirvModule.cend());
 
 				std::ofstream out(cachedPath, std::ios::out | std::ios::binary);
 				if (out.is_open())
@@ -407,7 +413,9 @@ namespace OloEngine {
 			bool linked = VerifyProgramLink(program);
 
 			if (!linked)
+			{
 				return;
+			}
 		}
 		else
 		{
