@@ -135,13 +135,13 @@ namespace OloEngine {
 		}
 	}
 
-	bool Application::OnWindowClose([[maybe_unused]] WindowCloseEvent& e)
+	bool Application::OnWindowClose([[maybe_unused]] WindowCloseEvent const& e)
 	{
 		m_Running = false;
 		return true;
 	}
 
-	bool Application::OnWindowResize(WindowResizeEvent& e)
+	bool Application::OnWindowResize(WindowResizeEvent const& e)
 	{
 		OLO_PROFILE_FUNCTION();
 

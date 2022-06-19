@@ -10,7 +10,7 @@ namespace OloEngine {
 	{
 	public:
 		Entity() = default;
-		Entity(entt::entity handle, Scene* scene)
+		Entity(entt::entity const handle, Scene* scene)
 			: m_EntityHandle(handle), m_Scene(scene) {}
 		~Entity() = default;
 

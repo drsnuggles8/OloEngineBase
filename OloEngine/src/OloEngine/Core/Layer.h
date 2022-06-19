@@ -8,7 +8,7 @@ namespace OloEngine {
 	class Layer
 	{
 	public:
-		explicit Layer(std::string  name = "Layer");
+		explicit Layer(std::string name = "Layer");
 		virtual ~Layer() = default;
 
 		virtual void OnAttach() {}

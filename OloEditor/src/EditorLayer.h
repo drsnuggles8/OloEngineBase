@@ -12,17 +12,17 @@ namespace OloEngine {
 	{
 	public:
 		EditorLayer();
-		virtual ~EditorLayer() = default;
+		~EditorLayer() override = default;
 
-		virtual void OnAttach() override;
-		virtual void OnDetach() override;
+		void OnAttach() override;
+		void OnDetach() override;
 
 		void OnUpdate(Timestep ts) override;
 		virtual void OnImGuiRender() override;
 		void OnEvent(Event& e) override;
 	private:
-		bool OnKeyPressed(KeyPressedEvent& e);
-		bool OnMouseButtonPressed(MouseButtonPressedEvent& e);
+		bool OnKeyPressed(KeyPressedEvent const& e);
+		bool OnMouseButtonPressed(MouseButtonPressedEvent const& e);
 
 		void NewScene();
 		void OpenScene();
@@ -57,7 +57,8 @@ namespace OloEngine {
 
 		Ref<Texture2D> m_CheckerboardTexture;
 
-		bool m_ViewportFocused = false, m_ViewportHovered = false;
+		bool m_ViewportFocused = false;
+		bool m_ViewportHovered = false;
 
 		glm::vec2 m_ViewportSize = { 0.0f, 0.0f };
 		glm::vec2 m_ViewportBounds[2];
@@ -79,7 +80,8 @@ namespace OloEngine {
 		ContentBrowserPanel m_ContentBrowserPanel;
 
 		// Editor resources
-		Ref<Texture2D> m_IconPlay, m_IconStop;
+		Ref<Texture2D> m_IconPlay;
+		Ref<Texture2D> m_IconStop;
 	};
 
 }
