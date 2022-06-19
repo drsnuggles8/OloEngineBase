@@ -27,7 +27,7 @@ namespace YAML {
 
 		static bool decode(const Node& node, glm::vec3& rhs)
 		{
-			if (!node.IsSequence() || node.size() != 3)
+			if ((!node.IsSequence()) || (node.size() != 3))
 			{
 				return false;
 			}
@@ -55,7 +55,7 @@ namespace YAML {
 
 		static bool decode(const Node& node, glm::vec4& rhs)
 		{
-			if (!node.IsSequence() || node.size() != 4)
+			if ((!node.IsSequence()) || (node.size() != 4))
 			{
 				return false;
 			}
@@ -160,7 +160,7 @@ namespace OloEngine {
 		out << YAML::EndMap; // Entity
 	}
 
-	void SceneSerializer::Serialize(const std::string& filepath)
+	void SceneSerializer::Serialize(const std::string& filepath) const
 	{
 		YAML::Emitter out;
 		out << YAML::BeginMap;
@@ -183,13 +183,13 @@ namespace OloEngine {
 		fout << out.c_str();
 	}
 
-    [[maybe_unused]] void SceneSerializer::SerializeRuntime(const std::string& filepath)
+	[[maybe_unused]] void SceneSerializer::SerializeRuntime([[maybe_unused]] const std::string& filepath) const
 	{
 		// Not implemented
 		OLO_CORE_ASSERT(false)
 	}
 
-	bool SceneSerializer::Deserialize(const std::string& filepath)
+	bool SceneSerializer::Deserialize(const std::string& filepath) const
 	{
 		YAML::Node data;
 		try
@@ -268,7 +268,7 @@ namespace OloEngine {
 		return true;
 	}
 
-    [[maybe_unused]] bool SceneSerializer::DeserializeRuntime(const std::string& filepath)
+	[[maybe_unused]] bool SceneSerializer::DeserializeRuntime([[maybe_unused]] const std::string& filepath) const
 	{
 		// Not implemented
 		OLO_CORE_ASSERT(false)

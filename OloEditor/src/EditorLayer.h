@@ -27,8 +27,8 @@ namespace OloEngine {
 		void NewScene();
 		void OpenScene();
 		void OpenScene(const std::filesystem::path& path);
-		void SaveScene();
-		void SaveSceneAs();
+		void SaveScene() const;
+		void SaveSceneAs() const;
 
 		void OnScenePlay();
 		void OnSceneStop();

@@ -186,7 +186,7 @@ namespace OloEngine {
 		ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
 		if (opt_fullscreen)
 		{
-			ImGuiViewport* viewport = ImGui::GetMainViewport();
+			ImGuiViewport const* viewport = ImGui::GetMainViewport();
 			ImGui::SetNextWindowPos(viewport->Pos);
 			ImGui::SetNextWindowSize(viewport->Size);
 			ImGui::SetNextWindowViewport(viewport->ID);
@@ -256,8 +256,9 @@ namespace OloEngine {
 					SaveSceneAs();
 				}
 
-				if (ImGui::MenuItem("Exit")) Application::Get().Close();
+				if (ImGui::MenuItem("Exit")) 
 				{
+					Application::Get().Close();
 					ImGui::EndMenu();
 				}
 			}
@@ -308,7 +309,7 @@ namespace OloEngine {
 		{
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
 			{
-				const wchar_t* path = (const wchar_t*)payload->Data;
+				const auto* path = (const wchar_t*)payload->Data;
 
 				const auto filePath = std::filesystem::path(path);
 				if (filePath.extension().string() == ".olo")
@@ -340,8 +341,7 @@ namespace OloEngine {
 		}
 
 		// Gizmos
-		Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
-		if ((selectedEntity) && (m_GizmoType != -1))
+		if (Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity(); selectedEntity && (m_GizmoType != -1))
 		{
 			ImGuizmo::SetOrthographic(false);
 			ImGuizmo::SetDrawlist();
@@ -520,9 +520,6 @@ namespace OloEngine {
 				}
 				break;
 			}
-
-			default:
-				break;
 		}
 	}
 
@@ -571,7 +568,7 @@ namespace OloEngine {
 		}
 	}
 
-	void EditorLayer::SaveScene()
+	void EditorLayer::SaveScene() const
 	{
 		if (m_ActiveSceneFilePath.empty())
 		{
@@ -582,7 +579,7 @@ namespace OloEngine {
 		serializer.Serialize(m_ActiveSceneFilePath);
 	}
 
-	void EditorLayer::SaveSceneAs()
+	void EditorLayer::SaveSceneAs() const
 	{
 		const std::string filepath = FileDialogs::SaveFile("OloEditor Scene (*.olo)\0*.olo\0");
 		if (!filepath.empty())

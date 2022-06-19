@@ -66,7 +66,7 @@ namespace OloEngine {
 	class MouseButtonPressedEvent : public MouseButtonEvent
 	{
 	public:
-		explicit MouseButtonPressedEvent(MouseCode button)
+		explicit MouseButtonPressedEvent(const MouseCode button)
 			: MouseButtonEvent(button) {}
 
 		[[nodiscard("Store this, you probably wanted another function!")]] std::string ToString() const override
