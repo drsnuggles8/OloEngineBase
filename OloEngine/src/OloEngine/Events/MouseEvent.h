@@ -57,7 +57,7 @@ namespace OloEngine {
 
 		EVENT_CLASS_CATEGORY(EventCategory::Mouse | EventCategory::Input | EventCategory::MouseButton)
 	protected:
-		MouseButtonEvent(const MouseCode button)
+		explicit MouseButtonEvent(const MouseCode button)
 			: m_Button(button) {}
 
 		MouseCode m_Button;
@@ -66,7 +66,7 @@ namespace OloEngine {
 	class MouseButtonPressedEvent : public MouseButtonEvent
 	{
 	public:
-		MouseButtonPressedEvent(MouseCode button)
+		explicit MouseButtonPressedEvent(MouseCode button)
 			: MouseButtonEvent(button) {}
 
 		[[nodiscard("Store this, you probably wanted another function!")]] std::string ToString() const override
@@ -82,7 +82,7 @@ namespace OloEngine {
 	class MouseButtonReleasedEvent : public MouseButtonEvent
 	{
 	public:
-		MouseButtonReleasedEvent(const MouseCode button)
+		explicit MouseButtonReleasedEvent(const MouseCode button)
 			: MouseButtonEvent(button) {}
 
 		[[nodiscard("Store this, you probably wanted another function!")]] std::string ToString() const override

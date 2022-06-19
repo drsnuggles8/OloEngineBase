@@ -10,7 +10,7 @@ namespace OloEngine {
 	{
 	public:
 		OpenGLTexture2D(uint32_t width, uint32_t height);
-		OpenGLTexture2D(const std::string& path);
+		explicit OpenGLTexture2D(const std::string& path);
 		~OpenGLTexture2D() override;
 
 		[[nodiscard("This returns m_Width, you probably wanted another function!")]] uint32_t GetWidth() const override { return m_Width;  }
