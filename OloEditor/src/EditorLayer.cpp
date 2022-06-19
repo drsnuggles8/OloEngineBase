@@ -256,11 +256,11 @@ namespace OloEngine {
 					SaveSceneAs();
 				}
 
-				if (ImGui::MenuItem("Exit")) 
+				if (ImGui::MenuItem("Exit"))
 				{
 					Application::Get().Close();
-					ImGui::EndMenu();
 				}
+				ImGui::EndMenu();
 			}
 
 			ImGui::EndMenuBar();
