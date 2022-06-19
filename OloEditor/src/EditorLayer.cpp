@@ -108,7 +108,7 @@ namespace OloEngine {
 	{
 		OLO_PROFILE_FUNCTION();
 
-		const float epsilon = 1e-5;
+		const double epsilon = 1e-5;
 
 		// Resize
 		if (FramebufferSpecification const spec = m_Framebuffer->GetSpecification();
@@ -372,11 +372,15 @@ namespace OloEngine {
 				snapValue = 45.0f;
 			}
 
-			const float snapValues[3] = { snapValue, snapValue, snapValue };
+			const std::array<float, 3> snapValues = { snapValue, snapValue, snapValue };
 
-			ImGuizmo::Manipulate(glm::value_ptr(cameraView), glm::value_ptr(cameraProjection),
-				static_cast<ImGuizmo::OPERATION>(m_GizmoType), ImGuizmo::LOCAL, glm::value_ptr(transform),
-				nullptr, snap ? snapValues : nullptr);
+			ImGuizmo::Manipulate(glm::value_ptr(cameraView),
+				glm::value_ptr(cameraProjection),
+				static_cast<ImGuizmo::OPERATION>(m_GizmoType),
+				ImGuizmo::LOCAL,
+				glm::value_ptr(transform),
+				nullptr,
+				snap ? snapValues.data() : nullptr);
 
 			if (ImGuizmo::IsUsing())
 			{
