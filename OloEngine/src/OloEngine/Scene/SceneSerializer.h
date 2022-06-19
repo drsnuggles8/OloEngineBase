@@ -11,11 +11,11 @@ namespace OloEngine {
 
 		void Serialize(const std::string& filepath) const;
 
-		[[maybe_unused]] void SerializeRuntime(const std::string& filepath) const;
+		[[maybe_unused]] void SerializeRuntime(std::string_view filepath) const;
 
 		bool Deserialize(const std::string& filepath) const;
 
-		[[maybe_unused]] bool DeserializeRuntime(const std::string& filepath) const;
+		[[maybe_unused]] bool DeserializeRuntime(std::string_view filepath) const;
 	private:
 		Ref<Scene> m_Scene;
 	};
