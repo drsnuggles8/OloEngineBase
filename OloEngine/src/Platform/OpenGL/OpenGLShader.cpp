@@ -243,7 +243,7 @@ namespace OloEngine {
 			}
 			else
 			{
-				shaderc::SpvCompilationResult spirvModule = compiler.CompileGlslToSpv(source, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str(), options);
+				shaderc::SpvCompilationResult const spirvModule = compiler.CompileGlslToSpv(source, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str(), options);
 				if (spirvModule.GetCompilationStatus() != shaderc_compilation_status_success)
 				{
 					OLO_CORE_ERROR(spirvModule.GetErrorMessage());
@@ -301,7 +301,7 @@ namespace OloEngine {
 				m_OpenGLSourceCode[stage] = glslCompiler.compile();
 				auto& source = m_OpenGLSourceCode[stage];
 
-				shaderc::SpvCompilationResult spirvModule = compiler.CompileGlslToSpv(source, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str());
+				shaderc::SpvCompilationResult const spirvModule = compiler.CompileGlslToSpv(source, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str());
 				if (spirvModule.GetCompilationStatus() != shaderc_compilation_status_success)
 				{
 					OLO_CORE_ERROR(spirvModule.GetErrorMessage());
