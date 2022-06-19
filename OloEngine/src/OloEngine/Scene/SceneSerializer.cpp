@@ -268,7 +268,7 @@ namespace OloEngine {
 		return true;
 	}
 
-	[[maybe_unused]] bool SceneSerializer::DeserializeRuntime([[maybe_unused]] std::string_view filepath) const
+	[[nodiscard("This returns something, you probably wanted another function!")]] [[maybe_unused]] bool SceneSerializer::DeserializeRuntime([[maybe_unused]] std::string_view const filepath) const
 	{
 		// Not implemented
 		OLO_CORE_ASSERT(false)

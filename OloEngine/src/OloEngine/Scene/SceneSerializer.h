@@ -15,7 +15,7 @@ namespace OloEngine {
 
 		bool Deserialize(const std::string& filepath) const;
 
-		[[maybe_unused]] bool DeserializeRuntime(std::string_view filepath) const;
+		[[maybe_unused]] bool DeserializeRuntime(std::string_view const filepath) const;
 	private:
 		Ref<Scene> m_Scene;
 	};

@@ -108,10 +108,12 @@ namespace OloEngine {
 	{
 		OLO_PROFILE_FUNCTION();
 
+		const float epsilon = 1e-5;
+
 		// Resize
 		if (FramebufferSpecification const spec = m_Framebuffer->GetSpecification();
 			(m_ViewportSize.x > 0.0f) && (m_ViewportSize.y > 0.0f) && // zero sized framebuffer is invalid
-			((spec.Width != m_ViewportSize.x) || (spec.Height != m_ViewportSize.y)))
+			((std::abs(static_cast<float>(spec.Width) - m_ViewportSize.x) > epsilon) || (std::abs(static_cast<float>(spec.Height) - m_ViewportSize.y) > epsilon)))
 		{
 			m_Framebuffer->Resize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));
 			m_CameraController.OnResize(m_ViewportSize.x, m_ViewportSize.y);
