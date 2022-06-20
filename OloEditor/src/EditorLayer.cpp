@@ -307,9 +307,9 @@ namespace OloEngine {
 
 		if (ImGui::BeginDragDropTarget())
 		{
-			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+			if (const ImGuiPayload* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
 			{
-				const auto* path = (const wchar_t*)payload->Data;
+				auto* const path = static_cast<wchar_t* const>(payload->Data);
 
 				const auto filePath = std::filesystem::path(path);
 				if (filePath.extension().string() == ".olo")

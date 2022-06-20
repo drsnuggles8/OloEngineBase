@@ -28,7 +28,7 @@ namespace OloEngine {
 		double xpos, ypos;
 		GLFWAPI::glfwGetCursorPos(window, &xpos, &ypos);
 
-		return { (float)xpos, (float)ypos };
+		return { static_cast<float>(xpos), static_cast<float>(ypos) };
 	}
 
 	float Input::GetMouseX()

@@ -290,7 +290,7 @@ namespace OloEngine {
 				NextBatch();
 			}
 
-			textureIndex = (float)s_Data.TextureSlotIndex;
+			textureIndex = static_cast<float>(s_Data.TextureSlotIndex);
 			s_Data.TextureSlots[s_Data.TextureSlotIndex] = texture;
 			s_Data.TextureSlotIndex++;
 		}

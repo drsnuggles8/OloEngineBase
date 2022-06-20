@@ -61,7 +61,7 @@ namespace OloEngine {
 							glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
 			#endif
 
-			m_Window = GLFWAPI::glfwCreateWindow((int)props.Width, (int)props.Height, m_Data.Title.c_str(), nullptr, nullptr);
+			m_Window = GLFWAPI::glfwCreateWindow(static_cast<int>(props.Width), static_cast<int>(props.Height), m_Data.Title.c_str(), nullptr, nullptr);
 			++s_GLFWWindowCount;
 		}
 
@@ -74,7 +74,7 @@ namespace OloEngine {
 		// Set GLFW callbacks
 		GLFWAPI::glfwSetWindowSizeCallback(m_Window, [](GLFWwindow* const window, const int width, const int height)
 		{
-			WindowData& data = *(WindowData*)GLFWAPI::glfwGetWindowUserPointer(window);
+			WindowData& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
 			data.Width = width;
 			data.Height = height;
 
@@ -84,14 +84,14 @@ namespace OloEngine {
 
 		GLFWAPI::glfwSetWindowCloseCallback(m_Window, [](GLFWwindow* const window)
 		{
-			WindowData& data = *(WindowData*)GLFWAPI::glfwGetWindowUserPointer(window);
+			WindowData& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
 			WindowCloseEvent event;
 			data.EventCallback(event);
 		});
 
 		GLFWAPI::glfwSetKeyCallback(m_Window, [](GLFWwindow* const window, const int key, const int scancode, const int action, const int mods)
 		{
-			WindowData& data = *(WindowData*)GLFWAPI::glfwGetWindowUserPointer(window);
+			WindowData& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
 
 			switch (action)
 			{
@@ -118,7 +118,7 @@ namespace OloEngine {
 
 		GLFWAPI::glfwSetCharCallback(m_Window, [](GLFWwindow* const window, const unsigned int keycode)
 		{
-			WindowData& data = *(WindowData*)GLFWAPI::glfwGetWindowUserPointer(window);
+			WindowData& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
 
 			KeyTypedEvent event(keycode);
 			data.EventCallback(event);
@@ -126,7 +126,7 @@ namespace OloEngine {
 
 		GLFWAPI::glfwSetMouseButtonCallback(m_Window, [](GLFWwindow* const window, const int button, const int action, const int mods)
 		{
-			WindowData& data = *(WindowData*)GLFWAPI::glfwGetWindowUserPointer(window);
+			WindowData& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
 
 			switch (action)
 			{
@@ -147,17 +147,17 @@ namespace OloEngine {
 
 		GLFWAPI::glfwSetScrollCallback(m_Window, [](GLFWwindow* const window, const double xOffset, const double yOffset)
 		{
-			WindowData& data = *(WindowData*)GLFWAPI::glfwGetWindowUserPointer(window);
+			WindowData& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
 
-			MouseScrolledEvent event((float)xOffset, (float)yOffset);
+			MouseScrolledEvent event(static_cast<float>(xOffset), static_cast<float>(yOffset));
 			data.EventCallback(event);
 		});
 
 		GLFWAPI::glfwSetCursorPosCallback(m_Window, [](GLFWwindow* const window, const double xPos, const double yPos)
 		{
-			WindowData& data = *(WindowData*)GLFWAPI::glfwGetWindowUserPointer(window);
+			WindowData& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
 
-			MouseMovedEvent event((float)xPos, (float)yPos);
+			MouseMovedEvent event(static_cast<float>(xPos), static_cast<float>(yPos));
 			data.EventCallback(event);
 		});
 	}

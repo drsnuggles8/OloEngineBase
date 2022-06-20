@@ -19,7 +19,7 @@ namespace OloEngine {
 		OLO_PROFILE_FUNCTION();
 
 		GLFWAPI::glfwMakeContextCurrent(m_WindowHandle);
-		const int status = ::gladLoadGLLoader((GLADloadproc) GLFWAPI::glfwGetProcAddress);
+		const int status = ::gladLoadGLLoader(reinterpret_cast<GLADloadproc>(GLFWAPI::glfwGetProcAddress));
 		OLO_CORE_ASSERT(status, "Failed to initialize Glad!")
 
 		OLO_CORE_INFO("OpenGL Info:");

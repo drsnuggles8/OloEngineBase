@@ -42,7 +42,7 @@ namespace OloEngine {
 				case GL_FRAGMENT_SHADER: return shaderc_glsl_fragment_shader;
 			}
 			OLO_CORE_ASSERT(false)
-			return (shaderc_shader_kind)0;
+			return static_cast<shaderc_shader_kind>(0);
 		}
 
 		[[nodiscard("This returns something, you probably wanted another function!")]] static const char* GLShaderStageToString(const GLenum stage)
@@ -245,7 +245,7 @@ namespace OloEngine {
 
 				auto& data = shaderData[stage];
 				data.resize(size / sizeof(uint32_t));
-				in.read((char*)data.data(), size);
+				in.read(reinterpret_cast<char*>(data.data()), size);
 			}
 			else
 			{
@@ -262,7 +262,7 @@ namespace OloEngine {
 				if (out.is_open())
 				{
 					auto& data = shaderData[stage];
-					out.write((char*)data.data(), data.size() * sizeof(uint32_t));
+					out.write(reinterpret_cast<char*>(data.data()), data.size() * sizeof(uint32_t));
 					out.flush();
 					out.close();
 				}
@@ -299,7 +299,7 @@ namespace OloEngine {
 
 				auto& data = shaderData[stage];
 				data.resize(size / sizeof(uint32_t));
-				in.read((char*)data.data(), size);
+				in.read(reinterpret_cast<char*>(data.data()), size);
 			}
 			else
 			{
@@ -320,7 +320,7 @@ namespace OloEngine {
 				if (out.is_open())
 				{
 					auto& data = shaderData[stage];
-					out.write((char*)data.data(), data.size() * sizeof(uint32_t));
+					out.write(reinterpret_cast<char*>(data.data()), data.size() * sizeof(uint32_t));
 					out.flush();
 					out.close();
 				}
@@ -372,7 +372,7 @@ namespace OloEngine {
 	static bool VerifyProgramLink(GLenum& program)
 	{
 		int isLinked = 0;
-		glGetProgramiv(program, GL_LINK_STATUS, (int*)&isLinked);
+		glGetProgramiv(program, GL_LINK_STATUS, static_cast<int*>(&isLinked));
 		if (isLinked == GL_FALSE)
 		{
 			int maxLength = 0;
@@ -406,8 +406,8 @@ namespace OloEngine {
 
 			auto data = std::vector<char>(size);
 			uint32_t format = 0;
-			in.read((char*)&format, sizeof(uint32_t));
-			in.read((char*)data.data(), size);
+			in.read(reinterpret_cast<char*>(&format), sizeof(uint32_t));
+			in.read(reinterpret_cast<char*>(data.data()), size);
 			glProgramBinary(program, format, data.data(), data.size());
 
 			const bool linked = VerifyProgramLink(program);
@@ -440,7 +440,7 @@ namespace OloEngine {
 				std::ofstream out(cachedPath, std::ios::out | std::ios::binary);
 				if (out.is_open())
 				{
-					out.write((char*)&format, sizeof(uint32_t));
+					out.write(reinterpret_cast<char*>(&format), sizeof(uint32_t));
 					out.write(shaderData.data(), shaderData.size());
 					out.flush();
 					out.close();

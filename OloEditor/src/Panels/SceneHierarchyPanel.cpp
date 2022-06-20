@@ -224,7 +224,7 @@ namespace OloEngine {
 			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 4, 4 });
 			const float lineHeight = (::GImGui->Font->FontSize) + (::GImGui->Style.FramePadding.y * 2.0f);
 			ImGui::Separator();
-			const bool open = ImGui::TreeNodeEx((void*)typeid(T).hash_code(), treeNodeFlags, name.c_str());
+			const bool open = ImGui::TreeNodeEx(reinterpret_cast<void*>(typeid(T).hash_code()), treeNodeFlags, name.c_str());
 			ImGui::PopStyleVar(
 			);
 			ImGui::SameLine(contentRegionAvailable.x - (lineHeight * 0.5f));
