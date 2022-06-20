@@ -45,5 +45,5 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: googletest_results_xml
-        path: ${{runner.workspace}}/OloEngineBase/test-results/*.xml
+        path: ${{runner.workspace}}/OloEngineBase/test_results/*.xml
         if-no-files-found: 'warn' 
