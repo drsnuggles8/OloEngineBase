@@ -80,7 +80,7 @@ void Sandbox2D::OnImGuiRender()
 	ImGui::Text("Indices: %d", stats.GetTotalIndexCount());
 
 	ImGui::ColorEdit4("Square Color", glm::value_ptr(m_SquareColor));
-	ImGui::End();	
+	ImGui::End();
 }
 
 void Sandbox2D::OnEvent(OloEngine::Event& e)

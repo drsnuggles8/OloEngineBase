@@ -7,7 +7,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-ExampleLayer::ExampleLayer() 
+ExampleLayer::ExampleLayer()
 	: Layer("ExampleLayer"), m_CameraController(1280.0f / 720.0f)
 {
 	m_VertexArray = OloEngine::VertexArray::Create();
@@ -52,7 +52,7 @@ ExampleLayer::ExampleLayer()
 
 	const std::string vertexSrc = R"(
 			#version 330 core
-			
+
 			layout(location = 0) in vec3 a_Position;
 			layout(location = 1) in vec4 a_Color;
 
@@ -66,13 +66,13 @@ ExampleLayer::ExampleLayer()
 			{
 				v_Position = a_Position;
 				v_Color = a_Color;
-				gl_Position = u_ViewProjection * u_Transform * vec4(a_Position, 1.0);	
+				gl_Position = u_ViewProjection * u_Transform * vec4(a_Position, 1.0);
 			}
 		)";
 
 	const std::string fragmentSrc = R"(
 			#version 330 core
-			
+
 			layout(location = 0) out vec4 color;
 
 			in vec3 v_Position;
@@ -89,7 +89,7 @@ ExampleLayer::ExampleLayer()
 
 	const std::string flatColorShaderVertexSrc = R"(
 			#version 330 core
-			
+
 			layout(location = 0) in vec3 a_Position;
 
 			uniform mat4 u_ViewProjection;
@@ -100,17 +100,17 @@ ExampleLayer::ExampleLayer()
 			void main()
 			{
 				v_Position = a_Position;
-				gl_Position = u_ViewProjection * u_Transform * vec4(a_Position, 1.0);	
+				gl_Position = u_ViewProjection * u_Transform * vec4(a_Position, 1.0);
 			}
 		)";
 
 	const std::string flatColorShaderFragmentSrc = R"(
 			#version 330 core
-			
+
 			layout(location = 0) out vec4 color;
 
 			in vec3 v_Position;
-			
+
 			uniform vec3 u_Color;
 
 			void main()
