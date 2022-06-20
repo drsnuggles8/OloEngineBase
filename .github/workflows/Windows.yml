@@ -19,12 +19,9 @@ jobs:
         uses: humbletim/install-vulkan-sdk@v1.1.1
         with:
             cache: true
-          
-      - name: Configure CMake
-         run: cmake -B ${{github.workspace}}/build
 
-      - name: Build
-         run: cmake --build ${{github.workspace}}/build --config Debug
+      - name: Build with CMake
+         run: cmake -Bbuild -config Debug
           
   Release:
     name: "Release"
@@ -37,8 +34,5 @@ jobs:
         with:
             cache: true
           
-      - name: Configure CMake
-         run: cmake -B ${{github.workspace}}/build
-
-      - name: Build
-         run: cmake --build ${{github.workspace}}/build --config Release
+      - name: Build with CMake
+         run: cmake -Bbuild -config Release
