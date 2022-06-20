@@ -20,7 +20,7 @@ namespace OloEngine {
 		glBufferData(GL_ARRAY_BUFFER, size, nullptr, GL_DYNAMIC_DRAW);
 	}
 
-	OpenGLVertexBuffer::OpenGLVertexBuffer(const float* vertices, const uint32_t size)
+	OpenGLVertexBuffer::OpenGLVertexBuffer(const float* const vertices, const uint32_t size)
 	{
 		OLO_PROFILE_FUNCTION();
 

@@ -25,8 +25,8 @@ namespace OloEngine {
 	glm::vec2 Input::GetMousePosition()
 	{
 		auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
-		double xpos;
-		double ypos;
+		double xpos {};
+		double ypos {};
 		GLFWAPI::glfwGetCursorPos(window, &xpos, &ypos);
 
 		return { static_cast<float>(xpos), static_cast<float>(ypos) };

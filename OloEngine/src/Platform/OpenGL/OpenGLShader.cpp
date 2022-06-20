@@ -376,7 +376,7 @@ namespace OloEngine {
 	static bool VerifyProgramLink(GLenum& program)
 	{
 		int isLinked = 0;
-		glGetProgramiv(program, GL_LINK_STATUS, static_cast<int*>(&isLinked));
+		glGetProgramiv(program, GL_LINK_STATUS, &isLinked);
 		if (GL_FALSE == isLinked)
 		{
 			int maxLength = 0;
@@ -411,7 +411,7 @@ namespace OloEngine {
 			auto data = std::vector<char>(size);
 			uint32_t format = 0;
 			in.read(reinterpret_cast<char*>(&format), sizeof(uint32_t));
-			in.read(reinterpret_cast<char*>(data.data()), size);
+			in.read(data.data(), size);
 			glProgramBinary(program, format, data.data(), data.size());
 
 			const bool linked = VerifyProgramLink(program);
@@ -452,13 +452,15 @@ namespace OloEngine {
 			}
 
 			for (auto const& id : glShadersIDs)
+			{
 				glDetachShader(program, id);
+			}
 		}
 
 		m_RendererID = program;
 	}
 
-	void OpenGLShader::CompileOpenGLBinariesForAmd(GLenum& program, std::array<uint32_t, 2>& glShadersIDs) const
+	void OpenGLShader::CompileOpenGLBinariesForAmd(GLenum const& program, std::array<uint32_t, 2>& glShadersIDs) const
 	{
 		int glShaderIDIndex = 0;
 		for (auto&& [stage, spirv] : m_VulkanSPIRV)
@@ -587,7 +589,7 @@ namespace OloEngine {
 		glUniform1i(location, value);
 	}
 
-	void OpenGLShader::UploadUniformIntArray(const std::string& name, int* const values, const uint32_t count) const
+	void OpenGLShader::UploadUniformIntArray(const std::string& name, int const* const values, const uint32_t count) const
 	{
 		const GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniform1iv(location, count, values);
