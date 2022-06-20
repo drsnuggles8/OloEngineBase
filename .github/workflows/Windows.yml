@@ -1,0 +1,38 @@
+name: Windows
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  Debug:
+    name: "Debug"
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+          
+      - name: Install Vulkan SDK
+        uses: humbletim/install-vulkan-sdk@v1.1.1
+        with:
+            cache: true
+          
+      - name: Build
+          cmake --build build/ --config Debug
+          
+  Release:
+    name: "Release"
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+          
+      - name: Install Vulkan SDK
+        uses: humbletim/install-vulkan-sdk@v1.1.1
+        with:
+            cache: true
+          
+      - name: Build
+          cmake --build build/ --config Release
