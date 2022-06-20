@@ -18,8 +18,8 @@ ExampleLayer::ExampleLayer()
 		 0.0f,  0.5f, 0.0f, 0.8f, 0.8f, 0.2f, 1.0f
 	};
 
-	OloEngine::Ref<OloEngine::VertexBuffer> vertexBuffer = OloEngine::VertexBuffer::Create(vertices, sizeof(vertices));
-	OloEngine::BufferLayout layout = {
+	OloEngine::Ref<OloEngine::VertexBuffer> const vertexBuffer = OloEngine::VertexBuffer::Create(vertices, sizeof(vertices));
+	OloEngine::BufferLayout const layout = {
 		{ OloEngine::ShaderDataType::Float3, "a_Position" },
 		{ OloEngine::ShaderDataType::Float4, "a_Color" }
 	};
@@ -27,7 +27,7 @@ ExampleLayer::ExampleLayer()
 	m_VertexArray->AddVertexBuffer(vertexBuffer);
 
 	uint32_t indices[3] = { 0, 1, 2 };
-	OloEngine::Ref<OloEngine::IndexBuffer> indexBuffer = OloEngine::IndexBuffer::Create(indices, sizeof(indices) / sizeof(uint32_t));
+	OloEngine::Ref<OloEngine::IndexBuffer> const indexBuffer = OloEngine::IndexBuffer::Create(indices, sizeof(indices) / sizeof(uint32_t));
 	m_VertexArray->SetIndexBuffer(indexBuffer);
 
 	m_SquareVA = OloEngine::VertexArray::Create();
@@ -39,7 +39,7 @@ ExampleLayer::ExampleLayer()
 		-0.5f,  0.5f, 0.0f, 0.0f, 1.0f
 	};
 
-	OloEngine::Ref<OloEngine::VertexBuffer> squareVB = OloEngine::VertexBuffer::Create(squareVertices, sizeof(squareVertices));
+	OloEngine::Ref<OloEngine::VertexBuffer> const squareVB = OloEngine::VertexBuffer::Create(squareVertices, sizeof(squareVertices));
 	squareVB->SetLayout({
 		{ OloEngine::ShaderDataType::Float3, "a_Position" },
 		{ OloEngine::ShaderDataType::Float2, "a_TexCoord" }
@@ -47,10 +47,10 @@ ExampleLayer::ExampleLayer()
 	m_SquareVA->AddVertexBuffer(squareVB);
 
 	uint32_t squareIndices[6] = { 0, 1, 2, 2, 3, 0 };
-	OloEngine::Ref<OloEngine::IndexBuffer> squareIB = OloEngine::IndexBuffer::Create(squareIndices, sizeof(squareIndices) / sizeof(uint32_t));
+	OloEngine::Ref<OloEngine::IndexBuffer> const squareIB = OloEngine::IndexBuffer::Create(squareIndices, sizeof(squareIndices) / sizeof(uint32_t));
 	m_SquareVA->SetIndexBuffer(squareIB);
 
-	std::string vertexSrc = R"(
+	const std::string vertexSrc = R"(
 			#version 330 core
 			
 			layout(location = 0) in vec3 a_Position;
@@ -70,7 +70,7 @@ ExampleLayer::ExampleLayer()
 			}
 		)";
 
-	std::string fragmentSrc = R"(
+	const std::string fragmentSrc = R"(
 			#version 330 core
 			
 			layout(location = 0) out vec4 color;
@@ -87,7 +87,7 @@ ExampleLayer::ExampleLayer()
 
 	m_Shader = OloEngine::Shader::Create("VertexPosColor", vertexSrc, fragmentSrc);
 
-	std::string flatColorShaderVertexSrc = R"(
+	const std::string flatColorShaderVertexSrc = R"(
 			#version 330 core
 			
 			layout(location = 0) in vec3 a_Position;
@@ -104,7 +104,7 @@ ExampleLayer::ExampleLayer()
 			}
 		)";
 
-	std::string flatColorShaderFragmentSrc = R"(
+	const std::string flatColorShaderFragmentSrc = R"(
 			#version 330 core
 			
 			layout(location = 0) out vec4 color;
@@ -121,7 +121,7 @@ ExampleLayer::ExampleLayer()
 
 	m_FlatColorShader = OloEngine::Shader::Create("FlatColor", flatColorShaderVertexSrc, flatColorShaderFragmentSrc);
 
-	auto textureShader = m_ShaderLibrary.Load("assets/shaders/Texture.glsl");
+	const auto textureShader = m_ShaderLibrary.Load("assets/shaders/Texture.glsl");
 
 	m_Texture = OloEngine::Texture2D::Create("assets/textures/Checkerboard.png");
 	m_ChernoLogoTexture = OloEngine::Texture2D::Create("assets/textures/ChernoLogo.png");
@@ -138,7 +138,7 @@ void ExampleLayer::OnDetach()
 {
 }
 
-void ExampleLayer::OnUpdate(OloEngine::Timestep ts)
+void ExampleLayer::OnUpdate(const OloEngine::Timestep ts)
 {
 	// Update
 	m_CameraController.OnUpdate(ts);
@@ -149,7 +149,7 @@ void ExampleLayer::OnUpdate(OloEngine::Timestep ts)
 
 	OloEngine::Renderer::BeginScene(m_CameraController.GetCamera());
 
-	glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
+	const glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
 
 	m_FlatColorShader->Bind();
 	m_FlatColorShader->SetFloat3("u_Color", m_SquareColor);
@@ -158,13 +158,13 @@ void ExampleLayer::OnUpdate(OloEngine::Timestep ts)
 	{
 		for (int x = 0; x < 20; x++)
 		{
-			glm::vec3 pos(x * 0.11f, y * 0.11f, 0.0f);
-			glm::mat4 transform = glm::translate(glm::mat4(1.0f), pos) * scale;
+			const glm::vec3 pos(x * 0.11f, y * 0.11f, 0.0f);
+			const glm::mat4 transform = glm::translate(glm::mat4(1.0f), pos) * scale;
 			OloEngine::Renderer::Submit(m_FlatColorShader, m_SquareVA, transform);
 		}
 	}
 
-	auto textureShader = m_ShaderLibrary.Get("Texture");
+	const auto textureShader = m_ShaderLibrary.Get("Texture");
 
 	m_Texture->Bind(0);
 	OloEngine::Renderer::Submit(textureShader, m_SquareVA, glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));

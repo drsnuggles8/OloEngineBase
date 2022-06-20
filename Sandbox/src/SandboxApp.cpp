@@ -9,7 +9,7 @@
 class Sandbox : public OloEngine::Application
 {
 public:
-	Sandbox(OloEngine::ApplicationCommandLineArgs args)
+	Sandbox(const OloEngine::ApplicationCommandLineArgs args)
 	{
 		// PushLayer(new ExampleLayer());
 		PushLayer(new Sandbox2D());
@@ -20,7 +20,7 @@ public:
 	}
 };
 
-OloEngine::Application* OloEngine::CreateApplication(OloEngine::ApplicationCommandLineArgs args)
+OloEngine::Application* OloEngine::CreateApplication(const OloEngine::ApplicationCommandLineArgs args)
 {
 	return new Sandbox(args);
 }

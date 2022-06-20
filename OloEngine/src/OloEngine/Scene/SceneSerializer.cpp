@@ -168,7 +168,7 @@ namespace OloEngine {
 		out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
 		m_Scene->m_Registry.each([&](auto entityID)
 			{
-				Entity entity = { entityID, m_Scene.get() };
+				Entity const entity = { entityID, m_Scene.get() };
 				if (!entity)
 				{
 					return;
@@ -183,7 +183,7 @@ namespace OloEngine {
 		fout << out.c_str();
 	}
 
-	[[maybe_unused]] void SceneSerializer::SerializeRuntime([[maybe_unused]] std::string_view filepath) const
+	[[maybe_unused]] void SceneSerializer::SerializeRuntime([[maybe_unused]] const std::string_view filepath) const
 	{
 		// Not implemented
 		OLO_CORE_ASSERT(false)
@@ -196,7 +196,7 @@ namespace OloEngine {
 		{
 			data = YAML::LoadFile(filepath);
 		}
-		catch (YAML::ParserException e)
+		catch (YAML::ParserException const e)
 		{
 			return false;
 		}

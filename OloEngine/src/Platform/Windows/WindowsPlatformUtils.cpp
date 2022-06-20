@@ -12,7 +12,7 @@
 
 namespace OloEngine {
 
-	std::string FileDialogs::OpenFile(const char* filter)
+	std::string FileDialogs::OpenFile(const char* const filter)
 	{
 		OPENFILENAMEA ofn;
 		CHAR szFile[260] = { 0 };
@@ -37,7 +37,7 @@ namespace OloEngine {
 		return {};
 	}
 
-	std::string FileDialogs::SaveFile(const char* filter)
+	std::string FileDialogs::SaveFile(const char* const filter)
 	{
 		OPENFILENAMEA ofn;
 		CHAR szFile[260] = { 0 };

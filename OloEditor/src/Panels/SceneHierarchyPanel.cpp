@@ -373,7 +373,7 @@ namespace OloEngine {
 			ImGui::Button("Texture", ImVec2(100.0f, 0.0f));
 			if (ImGui::BeginDragDropTarget())
 			{
-				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+				if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
 				{
 					auto const path = static_cast<wchar_t*>(payload->Data);
 					std::filesystem::path const texturePath = std::filesystem::path(g_AssetPath) / path;

@@ -8,13 +8,13 @@ namespace OloEngine {
 	{
 	public:
 		explicit OpenGLVertexBuffer(uint32_t size);
-		OpenGLVertexBuffer(float* vertices, uint32_t size);
+		OpenGLVertexBuffer(const float* vertices, const uint32_t size);
 		~OpenGLVertexBuffer() override;
 
 		void Bind() const override;
 		void Unbind() const override;
 
-		void SetData(const void* data, uint32_t size) override;
+		void SetData(void const* const data, const uint32_t size) override;
 
 		[[nodiscard("This returns m_Layout, you probably wanted another function!")]] const BufferLayout& GetLayout() const override { return m_Layout; }
 		void SetLayout(const BufferLayout& layout) override { m_Layout = layout; }
@@ -26,7 +26,7 @@ namespace OloEngine {
 	class OpenGLIndexBuffer : public IndexBuffer
 	{
 	public:
-		OpenGLIndexBuffer(uint32_t* indices, uint32_t count);
+		OpenGLIndexBuffer(uint32_t const* const indices, const uint32_t count);
 		~OpenGLIndexBuffer() override;
 
 		void Bind() const override;

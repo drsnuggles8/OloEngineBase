@@ -8,7 +8,7 @@
 
 namespace OloEngine {
 
-	Scope<GraphicsContext> GraphicsContext::Create(void* window)
+	Scope<GraphicsContext> GraphicsContext::Create(void* const window)
 	{
 		switch (Renderer::GetAPI())
 		{

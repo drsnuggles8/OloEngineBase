@@ -10,16 +10,16 @@ namespace OloEngine {
 	class OloEngineEditor : public Application
 	{
 	public:
-		OloEngineEditor(ApplicationCommandLineArgs args)
+		explicit OloEngineEditor(const ApplicationCommandLineArgs args)
 			: Application("OloEngineEditor", args)
 		{
 			PushLayer(new EditorLayer());
 		}
 
-		~OloEngineEditor() = default;
+		~OloEngineEditor() final = default;
 	};
 
-	Application* CreateApplication(ApplicationCommandLineArgs args)
+	Application* CreateApplication(ApplicationCommandLineArgs const args)
 	{
 		return new OloEngineEditor(args);
 	}

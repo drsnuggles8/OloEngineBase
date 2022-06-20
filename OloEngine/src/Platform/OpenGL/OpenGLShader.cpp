@@ -34,7 +34,7 @@ namespace OloEngine {
 			return 0;
 		}
 
-		static shaderc_shader_kind GLShaderStageToShaderC(GLenum stage)
+		static shaderc_shader_kind GLShaderStageToShaderC(const GLenum stage)
 		{
 			switch (stage)
 			{
@@ -45,7 +45,7 @@ namespace OloEngine {
 			return (shaderc_shader_kind)0;
 		}
 
-		static const char* GLShaderStageToString(GLenum stage)
+		static const char* GLShaderStageToString(const GLenum stage)
 		{
 			switch (stage)
 			{
@@ -64,14 +64,14 @@ namespace OloEngine {
 
 		static void CreateCacheDirectoryIfNeeded()
 		{
-			std::string cacheDirectory = GetCacheDirectory();
+			const std::string cacheDirectory = GetCacheDirectory();
 			if (!std::filesystem::exists(cacheDirectory))
 			{
 				std::filesystem::create_directories(cacheDirectory);
 			}
 		}
 
-		static const char* GLShaderStageCachedOpenGLFileExtension(uint32_t stage)
+		static const char* GLShaderStageCachedOpenGLFileExtension(const uint32_t stage)
 		{
 			switch (stage)
 			{
@@ -82,7 +82,7 @@ namespace OloEngine {
 			return "";
 		}
 
-		static const char* GLShaderStageCachedVulkanFileExtension(uint32_t stage)
+		static const char* GLShaderStageCachedVulkanFileExtension(const uint32_t stage)
 		{
 			switch (stage)
 			{
@@ -95,8 +95,8 @@ namespace OloEngine {
 
 		static bool IsAmdGpu()
 		{
-			const char* vendor = (char*)glGetString(GL_VENDOR);
-			return strstr(vendor, "ATI") != nullptr;
+			const char* const vendor = (char*)glGetString(GL_VENDOR);
+			return std::strstr(vendor, "ATI") != nullptr;
 		}
 
 	}
@@ -108,8 +108,8 @@ namespace OloEngine {
 
 		Utils::CreateCacheDirectoryIfNeeded();
 
-		std::string source = ReadFile(filepath);
-		auto shaderSources = PreProcess(source);
+		const std::string source = ReadFile(filepath);
+		const auto shaderSources = PreProcess(source);
 
 		{
 			Timer timer;
@@ -129,8 +129,8 @@ namespace OloEngine {
 		// Extract name from filepath
 		auto lastSlash = filepath.find_last_of("/\\");
 		lastSlash = lastSlash == std::string::npos ? 0 : lastSlash + 1;
-		auto lastDot = filepath.rfind('.');
-		auto count = lastDot == std::string::npos ? filepath.size() - lastSlash : lastDot - lastSlash;
+		const auto lastDot = filepath.rfind('.');
+		const auto count = lastDot == std::string::npos ? filepath.size() - lastSlash : lastDot - lastSlash;
 		m_Name = filepath.substr(lastSlash, count);
 	}
 
@@ -197,18 +197,18 @@ namespace OloEngine {
 
 		std::unordered_map<GLenum, std::string> shaderSources;
 
-		const char* typeToken = "#type";
-		size_t typeTokenLength = strlen(typeToken);
+		const char* const typeToken = "#type";
+		const size_t typeTokenLength = strlen(typeToken);
 		size_t pos = source.find(typeToken, 0); //Start of shader type declaration line
 		while (pos != std::string::npos)
 		{
-			size_t eol = source.find_first_of("\r\n", pos); //End of shader type declaration line
+			const size_t eol = source.find_first_of("\r\n", pos); //End of shader type declaration line
 			OLO_CORE_ASSERT(eol != std::string::npos, "Syntax error")
-			size_t begin = pos + typeTokenLength + 1; //Start of shader type name (after "#type " keyword)
-			std::string type = source.substr(begin, eol - begin);
+			const size_t begin = pos + typeTokenLength + 1; //Start of shader type name (after "#type " keyword)
+			const std::string type = source.substr(begin, eol - begin);
 			OLO_CORE_ASSERT(Utils::ShaderTypeFromString(type), "Invalid shader type specified")
 
-			size_t nextLinePos = source.find_first_not_of("\r\n", eol); //Start of shader code after shader type declaration line
+			const size_t nextLinePos = source.find_first_not_of("\r\n", eol); //Start of shader code after shader type declaration line
 			OLO_CORE_ASSERT(nextLinePos != std::string::npos, "Syntax error")
 			pos = source.find(typeToken, nextLinePos); //Start of next shader type declaration line
 
@@ -220,27 +220,27 @@ namespace OloEngine {
 
 	void OpenGLShader::CompileOrGetVulkanBinaries(const std::unordered_map<GLenum, std::string>& shaderSources)
 	{
-		GLuint program = glCreateProgram();
+		const GLuint program = glCreateProgram();
 
-		shaderc::Compiler compiler;
+		const shaderc::Compiler compiler;
 		shaderc::CompileOptions options;
 		options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_3);
 		options.SetOptimizationLevel(shaderc_optimization_level_performance);
 
-		std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
+		const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
 
 		auto& shaderData = m_VulkanSPIRV;
 		shaderData.clear();
 		for (auto&& [stage, source] : shaderSources)
 		{
-			std::filesystem::path shaderFilePath = m_FilePath;
-			std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + Utils::GLShaderStageCachedVulkanFileExtension(stage));
+			const std::filesystem::path shaderFilePath = m_FilePath;
+			const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + Utils::GLShaderStageCachedVulkanFileExtension(stage));
 
 			std::ifstream in(cachedPath, std::ios::in | std::ios::binary);
 			if (in.is_open())
 			{
 				in.seekg(0, std::ios::end);
-				auto size = in.tellg();
+				const auto size = in.tellg();
 				in.seekg(0, std::ios::beg);
 
 				auto& data = shaderData[stage];
@@ -277,24 +277,24 @@ namespace OloEngine {
 	{
 		auto& shaderData = m_OpenGLSPIRV;
 
-		shaderc::Compiler compiler;
+		const shaderc::Compiler compiler;
 		shaderc::CompileOptions options;
 		options.SetTargetEnvironment(shaderc_target_env_opengl, shaderc_env_version_opengl_4_5);
 
-		std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
+		const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
 
 		shaderData.clear();
 		m_OpenGLSourceCode.clear();
 		for (auto&& [stage, spirv] : m_VulkanSPIRV)
 		{
-			std::filesystem::path shaderFilePath = m_FilePath;
-			std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + Utils::GLShaderStageCachedOpenGLFileExtension(stage));
+			const std::filesystem::path shaderFilePath = m_FilePath;
+			const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + Utils::GLShaderStageCachedOpenGLFileExtension(stage));
 
 			std::ifstream in(cachedPath, std::ios::in | std::ios::binary);
 			if (in.is_open())
 			{
 				in.seekg(0, std::ios::end);
-				auto size = in.tellg();
+				const auto size = in.tellg();
 				in.seekg(0, std::ios::beg);
 
 				auto& data = shaderData[stage];
@@ -330,12 +330,12 @@ namespace OloEngine {
 
 	void OpenGLShader::CreateProgram()
 	{
-		GLuint program = glCreateProgram();
+		const GLuint program = glCreateProgram();
 
 		std::vector<GLuint> shaderIDs;
 		for (auto&& [stage, spirv] : m_OpenGLSPIRV)
 		{
-			GLuint shaderID = shaderIDs.emplace_back(glCreateShader(stage));
+			const GLuint shaderID = shaderIDs.emplace_back(glCreateShader(stage));
 			glShaderBinary(1, &shaderID, GL_SHADER_BINARY_FORMAT_SPIR_V, spirv.data(), spirv.size() * sizeof(uint32_t));
 			glSpecializeShader(shaderID, "main", 0, nullptr, nullptr);
 			glAttachShader(program, shaderID);
@@ -356,11 +356,11 @@ namespace OloEngine {
 
 			glDeleteProgram(program);
 
-			for (auto id : shaderIDs)
+			for (const auto id : shaderIDs)
 				glDeleteShader(id);
 		}
 
-		for (auto id : shaderIDs)
+		for (const auto id : shaderIDs)
 		{
 			glDetachShader(program, id);
 			glDeleteShader(id);
@@ -394,14 +394,14 @@ namespace OloEngine {
 	{
 		GLuint program = glCreateProgram();
 
-		std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
-		std::filesystem::path shaderFilePath = m_FilePath;
-		std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + ".cached_opengl.pgr");
+		const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
+		const std::filesystem::path shaderFilePath = m_FilePath;
+		const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + ".cached_opengl.pgr");
 		std::ifstream in(cachedPath, std::ios::ate | std::ios::binary);
 
 		if (in.is_open())
 		{
-			auto size = in.tellg();
+			const auto size = in.tellg();
 			in.seekg(0);
 
 			auto data = std::vector<char>(size);
@@ -410,7 +410,7 @@ namespace OloEngine {
 			in.read((char*)data.data(), size);
 			glProgramBinary(program, format, data.data(), data.size());
 
-			bool linked = VerifyProgramLink(program);
+			const bool linked = VerifyProgramLink(program);
 
 			if (!linked)
 			{
@@ -423,7 +423,7 @@ namespace OloEngine {
 			CompileOpenGLBinariesForAmd(program, glShadersIDs);
 			glLinkProgram(program);
 
-			bool linked = VerifyProgramLink(program);
+			const bool linked = VerifyProgramLink(program);
 
 			if (linked)
 			{
@@ -460,13 +460,13 @@ namespace OloEngine {
 		for (auto&& [stage, spirv] : m_VulkanSPIRV)
 		{
 			spirv_cross::CompilerGLSL glslCompiler(spirv);
-			auto source = glslCompiler.compile();
+			const auto source = glslCompiler.compile();
 
 			uint32_t shader;
 
 			shader = glCreateShader(stage);
 
-			const GLchar* sourceCStr = source.c_str();
+			const GLchar* const sourceCStr = source.c_str();
 			glShaderSource(shader, 1, &sourceCStr, nullptr);
 
 			glCompileShader(shader);
@@ -492,10 +492,10 @@ namespace OloEngine {
 		}
 	}
 
-	void OpenGLShader::Reflect(GLenum stage, const std::vector<uint32_t>& shaderData)
+	void OpenGLShader::Reflect(const GLenum stage, const std::vector<uint32_t>& shaderData)
 	{
-		spirv_cross::Compiler compiler(shaderData);
-		spirv_cross::ShaderResources resources = compiler.get_shader_resources();
+		const spirv_cross::Compiler compiler(shaderData);
+		const spirv_cross::ShaderResources resources = compiler.get_shader_resources();
 
 		OLO_CORE_TRACE("OpenGLShader::Reflect - {0} {1}", Utils::GLShaderStageToString(stage), m_FilePath);
 		OLO_CORE_TRACE("    {0} uniform buffers", resources.uniform_buffers.size());
@@ -530,19 +530,19 @@ namespace OloEngine {
 		glUseProgram(0);
 	}
 
-	void OpenGLShader::SetInt(const std::string& name, int value)
+	void OpenGLShader::SetInt(const std::string& name, const int value)
 	{
 		OLO_PROFILE_FUNCTION();
 
 		UploadUniformInt(name, value);
 	}
 
-	void OpenGLShader::SetIntArray(const std::string& name, int* values, uint32_t count)
+	void OpenGLShader::SetIntArray(const std::string& name, int* const values, const uint32_t count)
 	{
 		UploadUniformIntArray(name, values, count);
 	}
 
-	void OpenGLShader::SetFloat(const std::string& name, float value)
+	void OpenGLShader::SetFloat(const std::string& name, const float value)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -577,51 +577,51 @@ namespace OloEngine {
 		UploadUniformMat4(name, value);
 	}
 
-	void OpenGLShader::UploadUniformInt(const std::string& name, int value) const
+	void OpenGLShader::UploadUniformInt(const std::string& name, const int value) const
 	{
-		GLint location = glGetUniformLocation(m_RendererID, name.c_str());
+		const GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniform1i(location, value);
 	}
 
-	void OpenGLShader::UploadUniformIntArray(const std::string& name, int* values, uint32_t count) const
+	void OpenGLShader::UploadUniformIntArray(const std::string& name, int* const values, const uint32_t count) const
 	{
-		GLint location = glGetUniformLocation(m_RendererID, name.c_str());
+		const GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniform1iv(location, count, values);
 	}
 
-	void OpenGLShader::UploadUniformFloat(const std::string& name, float value) const
+	void OpenGLShader::UploadUniformFloat(const std::string& name, const float value) const
 	{
-		GLint location = glGetUniformLocation(m_RendererID, name.c_str());
+		const GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniform1f(location, value);
 	}
 
 	void OpenGLShader::UploadUniformFloat2(const std::string& name, const glm::vec2& value) const
 	{
-		GLint location = glGetUniformLocation(m_RendererID, name.c_str());
+		const GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniform2f(location, value.x, value.y);
 	}
 
 	void OpenGLShader::UploadUniformFloat3(const std::string& name, const glm::vec3& value) const
 	{
-		GLint location = glGetUniformLocation(m_RendererID, name.c_str());
+		const GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniform3f(location, value.x, value.y, value.z);
 	}
 
 	void OpenGLShader::UploadUniformFloat4(const std::string& name, const glm::vec4& value) const
 	{
-		GLint location = glGetUniformLocation(m_RendererID, name.c_str());
+		const GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniform4f(location, value.x, value.y, value.z, value.w);
 	}
 
 	void OpenGLShader::UploadUniformMat3(const std::string& name, const glm::mat3& matrix) const
 	{
-		GLint location = glGetUniformLocation(m_RendererID, name.c_str());
+		const GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniformMatrix3fv(location, 1, GL_FALSE, glm::value_ptr(matrix));
 	}
 
 	void OpenGLShader::UploadUniformMat4(const std::string& name, const glm::mat4& matrix) const
 	{
-		GLint location = glGetUniformLocation(m_RendererID, name.c_str());
+		const GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniformMatrix4fv(location, 1, GL_FALSE, glm::value_ptr(matrix));
 	}
 
