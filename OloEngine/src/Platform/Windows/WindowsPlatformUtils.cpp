@@ -30,7 +30,7 @@ namespace OloEngine {
 		ofn.nFilterIndex = 1;
 		ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
 
-		if (::GetOpenFileNameA(&ofn) == TRUE)
+		if (TRUE == ::GetOpenFileNameA(&ofn))
 		{
 			return ofn.lpstrFile;
 		}
@@ -58,7 +58,7 @@ namespace OloEngine {
 		// Sets the default extension by extracting it from the filter
 		ofn.lpstrDefExt = std::strchr(filter, '\0') + 1;
 
-		if (::GetSaveFileNameA(&ofn) == TRUE)
+		if (TRUE == ::GetSaveFileNameA(&ofn))
 		{
 			return ofn.lpstrFile;
 		}

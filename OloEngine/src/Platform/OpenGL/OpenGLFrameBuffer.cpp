@@ -197,7 +197,7 @@ namespace OloEngine {
 
 	void OpenGLFramebuffer::Resize(uint32_t width, uint32_t height)
 	{
-		if (width == 0 || height == 0 || width > s_MaxFramebufferSize || height > s_MaxFramebufferSize)
+		if (0 == width || 0 == height || width > s_MaxFramebufferSize || height > s_MaxFramebufferSize)
 		{
 			OLO_CORE_WARN("Attempted to rezize framebuffer to {0}, {1}", width, height);
 			return;

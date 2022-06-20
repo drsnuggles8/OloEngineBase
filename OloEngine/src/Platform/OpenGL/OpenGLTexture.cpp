@@ -46,12 +46,12 @@ namespace OloEngine {
 			m_Height = height;
 
 			GLenum internalFormat = 0, dataFormat = 0;
-			if (channels == 4)
+			if (4 == channels)
 			{
 				internalFormat = GL_RGBA8;
 				dataFormat = GL_RGBA;
 			}
-			else if (channels == 3)
+			else if (3 == channels)
 			{
 				internalFormat = GL_RGB8;
 				dataFormat = GL_RGB;
@@ -88,7 +88,7 @@ namespace OloEngine {
 	{
 		OLO_PROFILE_FUNCTION();
 
-		const uint32_t bpp = m_DataFormat == GL_RGBA ? 4 : 3;
+		const uint32_t bpp = GL_RGBA == m_DataFormat ? 4 : 3;
 		OLO_CORE_ASSERT(size == m_Width * m_Height * bpp, "Data must be entire texture!")
 		glTextureSubImage2D(m_RendererID, 0, 0, 0, m_Width, m_Height, m_DataFormat, GL_UNSIGNED_BYTE, data);
 	}

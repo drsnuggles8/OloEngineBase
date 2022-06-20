@@ -45,7 +45,7 @@ namespace OloEngine {
 
 		OLO_CORE_INFO("Creating window {0}, ({1}, {2})", props.Title, props.Width, props.Height);
 
-		if (s_GLFWWindowCount == 0)
+		if (0 == s_GLFWWindowCount)
 		{
 			OLO_PROFILE_SCOPE("glfwInit");
 			const int success = GLFWAPI::glfwInit();
@@ -169,7 +169,7 @@ namespace OloEngine {
 		GLFWAPI::glfwDestroyWindow(m_Window);
 		--s_GLFWWindowCount;
 
-		if (s_GLFWWindowCount == 0)
+		if (0 == s_GLFWWindowCount)
 		{
 			GLFWAPI::glfwTerminate();
 		}

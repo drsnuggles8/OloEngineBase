@@ -347,7 +347,7 @@ namespace OloEngine {
 
 		GLint isLinked;
 		glGetProgramiv(program, GL_LINK_STATUS, &isLinked);
-		if (isLinked == GL_FALSE)
+		if (GL_FALSE == isLinked)
 		{
 			GLint maxLength;
 			glGetProgramiv(program, GL_INFO_LOG_LENGTH, &maxLength);
@@ -359,7 +359,9 @@ namespace OloEngine {
 			glDeleteProgram(program);
 
 			for (const auto id : shaderIDs)
+			{
 				glDeleteShader(id);
+			}
 		}
 
 		for (const auto id : shaderIDs)
@@ -375,7 +377,7 @@ namespace OloEngine {
 	{
 		int isLinked = 0;
 		glGetProgramiv(program, GL_LINK_STATUS, static_cast<int*>(&isLinked));
-		if (isLinked == GL_FALSE)
+		if (GL_FALSE == isLinked)
 		{
 			int maxLength = 0;
 			glGetProgramiv(program, GL_INFO_LOG_LENGTH, &maxLength);
@@ -475,7 +477,7 @@ namespace OloEngine {
 
 			int isCompiled = 0;
 			glGetShaderiv(shader, GL_COMPILE_STATUS, &isCompiled);
-			if (isCompiled == GL_FALSE)
+			if (GL_FALSE == isCompiled)
 			{
 				int maxLength = 0;
 				glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &maxLength);

@@ -12,20 +12,21 @@ namespace OloEngine {
 	{
 		auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
 		const auto state = GLFWAPI::glfwGetKey(window, static_cast<int32_t>(key));
-		return state == GLFW_PRESS || state == GLFW_REPEAT;
+		return GLFW_PRESS == state || GLFW_REPEAT == state;
 	}
 
 	bool Input::IsMouseButtonPressed(const MouseCode button)
 	{
 		auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
 		const auto state = GLFWAPI::glfwGetMouseButton(window, static_cast<int32_t>(button));
-		return state == GLFW_PRESS;
+		return GLFW_PRESS == state;
 	}
 
 	glm::vec2 Input::GetMousePosition()
 	{
 		auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
-		double xpos, ypos;
+		double xpos;
+		double ypos;
 		GLFWAPI::glfwGetCursorPos(window, &xpos, &ypos);
 
 		return { static_cast<float>(xpos), static_cast<float>(ypos) };
