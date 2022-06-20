@@ -12,7 +12,7 @@ namespace OloEngine {
 	{
 		auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
 		const auto state = GLFWAPI::glfwGetKey(window, static_cast<int32_t>(key));
-		return GLFW_PRESS == state || GLFW_REPEAT == state;
+		return GLFW_PRESS == state;
 	}
 
 	bool Input::IsMouseButtonPressed(const MouseCode button)
