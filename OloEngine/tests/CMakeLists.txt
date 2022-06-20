@@ -1,7 +1,7 @@
 ﻿enable_testing()
 add_executable(OloEngine_Tests
 		OloEngineTest.cpp
-		LogTest.cpp)
+		LoggerTest.cpp)
 		
 target_link_libraries(OloEngine_Tests
 	OloEngine
