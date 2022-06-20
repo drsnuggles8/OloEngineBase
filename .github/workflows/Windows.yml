@@ -43,7 +43,7 @@ jobs:
 
     - name: Upload test results
       uses: actions/upload-artifact@v3
-      if: failure()
       with:
         name: googletest_results_xml
-        path: ${{runner.workspace}}/test-results/**/*.xml
+        path: ${{runner.workspace}}/test-results/*.xml
+        if-no-files-found: 'warn' 
