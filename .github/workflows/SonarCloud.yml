@@ -1,4 +1,4 @@
-name: Build
+name: SonarCloud Scan
 on:
   push:
     branches: [ master ]
@@ -16,29 +16,29 @@ jobs:
                                         # https://docs.sonarcloud.io/advanced-setup/ci-based-analysis/sonarscanner-cli/
       SONAR_SERVER_URL: "https://sonarcloud.io"
       BUILD_WRAPPER_OUT_DIR: build_wrapper_output_directory # Directory where build-wrapper output will be placed
-      VULKAN_SDK: C:\VulkanSDK\
     steps:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
-      - name: Set up Vulkan
-        run: |
-          $ver = (Invoke-WebRequest -Uri "https://vulkan.lunarg.com/sdk/latest.json" | ConvertFrom-Json).windows
-          echo Version $ver
-          $ProgressPreference = 'SilentlyContinue'
-          Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/$ver/windows/VulkanSDK-$ver-Installer.exe" -OutFile VulkanSDK.exe
-          echo Downloaded
-          .\VulkanSDK.exe --root C:\VulkanSDK  --accept-licenses --default-answer --confirm-command install
-      - name: Set up JDK 11
-        uses: actions/setup-java@v1
+          
+      - name: Install Vulkan SDK
+        uses: humbletim/install-vulkan-sdk@v1.1.1
         with:
+            cache: true
+        
+      - name: Set up JDK 11
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
           java-version: 11
+          
       - name: Cache SonarCloud packages
-        uses: actions/cache@v1
+        uses: actions/cache@v3
         with:
           path: ~/.sonar/cache
           key: ${{ runner.os }}-sonar
           restore-keys: ${{ runner.os }}-sonar
+          
       - name: Download and set up sonar-scanner
         env:
           SONAR_SCANNER_DOWNLOAD_URL: https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${{ env.SONAR_SCANNER_VERSION }}-windows.zip
@@ -47,6 +47,7 @@ jobs:
           curl -sSLo $HOME\.sonar\sonar-scanner.zip ${{ env.SONAR_SCANNER_DOWNLOAD_URL }}
           unzip -o $HOME\.sonar\sonar-scanner.zip -d $HOME\.sonar\
           echo "$HOME\.sonar\sonar-scanner-${{ env.SONAR_SCANNER_VERSION }}-windows\bin" | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
+          
       - name: Download and set up build-wrapper
         env:
            BUILD_WRAPPER_DOWNLOAD_URL: ${{ env.SONAR_SERVER_URL }}/static/cpp/build-wrapper-win-x86.zip
@@ -54,11 +55,13 @@ jobs:
           curl -sSLo $HOME\.sonar\build-wrapper.zip ${{ env.BUILD_WRAPPER_DOWNLOAD_URL }}
           unzip -o $HOME\.sonar\build-wrapper.zip -d $HOME\.sonar\
           echo "$HOME\.sonar\build-wrapper-win-x86" | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
+          
       - name: Run build-wrapper
         run: |
           New-Item -ItemType directory -Path build
           cmake -S . -B build
           build-wrapper-win-x86-64 --out-dir ${{ env.BUILD_WRAPPER_OUT_DIR }} cmake --build build/ --config Release
+          
       - name: Run sonar-scanner
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
