@@ -10,11 +10,7 @@ on:
 
 env:
   BUILD_TYPE: Release
-
-jobs:
-          
-
-          
+  
 jobs:
   build:
     # The CMake configure and build commands are platform agnostic and should work equally well on Ubuntu or Mac.
