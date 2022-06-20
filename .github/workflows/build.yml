@@ -16,13 +16,12 @@ jobs:
                                         # https://docs.sonarcloud.io/advanced-setup/ci-based-analysis/sonarscanner-cli/
       SONAR_SERVER_URL: "https://sonarcloud.io"
       BUILD_WRAPPER_OUT_DIR: build_wrapper_output_directory # Directory where build-wrapper output will be placed
-      VULKAN_SDK: C:\VulkanSDK\
     steps:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
           
-       -name: Install Vulkan SDK
+      - name: Install Vulkan SDK
         uses: humbletim/install-vulkan-sdk@v1.1.1
         with:
         version: latest
