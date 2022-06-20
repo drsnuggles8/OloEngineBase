@@ -112,7 +112,7 @@ namespace OloEngine {
 		const auto shaderSources = PreProcess(source);
 
 		{
-			Timer timer;
+			const Timer timer;
 			CompileOrGetVulkanBinaries(shaderSources);
 			if (Utils::IsAmdGpu())
 			{
