@@ -9,7 +9,7 @@ namespace OloEngine {
 
 	RendererAPI::API RendererAPI::s_API = RendererAPI::API::OpenGL;
 
-	Scope<RendererAPI> RendererAPI::Create()
+	[[nodiscard("This returns something, you probably wanted another function!")]] Scope<RendererAPI> RendererAPI::Create()
 	{
 		switch (s_API)
 		{

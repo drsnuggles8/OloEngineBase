@@ -7,7 +7,7 @@
 
 namespace OloEngine {
 
-	static GLenum ShaderDataTypeToOpenGLBaseType(ShaderDataType const type)
+	[[nodiscard("This returns something, you probably wanted another function!")]] static GLenum ShaderDataTypeToOpenGLBaseType(ShaderDataType const type)
 	{
 		switch (type)
 		{

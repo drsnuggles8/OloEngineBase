@@ -18,6 +18,7 @@
 		"OloEngine/Core/Log.h"
 		"OloEngine/Core/MouseCodes.h"
 		"OloEngine/Core/PlatformDetection.h"
+		"OloEngine/Core/Timer.h"
 		"OloEngine/Core/Timestep.h"
 		"OloEngine/Core/Window.cpp"
 		"OloEngine/Core/Window.h"

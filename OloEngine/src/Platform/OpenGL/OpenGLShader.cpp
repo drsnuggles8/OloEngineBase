@@ -34,7 +34,7 @@ namespace OloEngine {
 			return 0;
 		}
 
-		static shaderc_shader_kind GLShaderStageToShaderC(const GLenum stage)
+		[[nodiscard("This returns something, you probably wanted another function!")]] static shaderc_shader_kind GLShaderStageToShaderC(const GLenum stage)
 		{
 			switch (stage)
 			{
@@ -45,7 +45,7 @@ namespace OloEngine {
 			return (shaderc_shader_kind)0;
 		}
 
-		static const char* GLShaderStageToString(const GLenum stage)
+		[[nodiscard("This returns something, you probably wanted another function!")]] static const char* GLShaderStageToString(const GLenum stage)
 		{
 			switch (stage)
 			{
@@ -56,9 +56,9 @@ namespace OloEngine {
 			return nullptr;
 		}
 
-		static const char* GetCacheDirectory()
+		[[nodiscard("This returns something, you probably wanted another function!")]] static const char* GetCacheDirectory()
 		{
-			// TODO: make sure the assets directory is valid
+			// TODO(olbu): make sure the assets directory is valid
 			return "assets/cache/shader/opengl";
 		}
 
@@ -71,7 +71,7 @@ namespace OloEngine {
 			}
 		}
 
-		static const char* GLShaderStageCachedOpenGLFileExtension(const uint32_t stage)
+		[[nodiscard("This returns something, you probably wanted another function!")]] static const char* GLShaderStageCachedOpenGLFileExtension(const uint32_t stage)
 		{
 			switch (stage)
 			{
@@ -82,7 +82,7 @@ namespace OloEngine {
 			return "";
 		}
 
-		static const char* GLShaderStageCachedVulkanFileExtension(const uint32_t stage)
+		[[nodiscard("This returns something, you probably wanted another function!")]] static const char* GLShaderStageCachedVulkanFileExtension(const uint32_t stage)
 		{
 			switch (stage)
 			{

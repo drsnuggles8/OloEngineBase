@@ -361,7 +361,7 @@ namespace OloEngine {
 		std::memset(&s_Data.Stats, 0, sizeof(Statistics));
 	}
 
-	Renderer2D::Statistics Renderer2D::GetStats()
+	[[nodiscard("This returns s_Data.Stats, you probably wanted another function!")]] Renderer2D::Statistics Renderer2D::GetStats()
 	{
 		return s_Data.Stats;
 	}

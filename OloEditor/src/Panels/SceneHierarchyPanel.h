@@ -16,7 +16,7 @@ namespace OloEngine {
 
 		void OnImGuiRender();
 
-		Entity GetSelectedEntity() const { return m_SelectionContext; }
+		[[nodiscard("This returns m_SelectionContext, you probably wanted another function!")]] Entity GetSelectedEntity() const { return m_SelectionContext; }
 		void SetSelectedEntity(Entity entity);
 	private:
 		template<typename T>
