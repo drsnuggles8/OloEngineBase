@@ -3,7 +3,7 @@
 #include "OloEngine/Renderer/RendererAPI.h"
 
 namespace OloEngine {
-	
+
 	class OpenGLRendererAPI : public RendererAPI
 	{
 	public:

@@ -64,7 +64,7 @@ namespace OloEngine::Math {
 		Pdum3 = glm::cross(Row[1], Row[2]); // v3Cross(row[1], row[2], Pdum3);
 		if (glm::dot(Row[0], Pdum3) < 0)
 		{
-			for (glm::length_t i = 0; i < 3; i++)
+			for (glm::length_t i = 0; i < 3; ++i)
 			{
 				scale[i] *= static_cast<T>(-1);
 				Row[i] *= static_cast<T>(-1);

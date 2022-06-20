@@ -102,7 +102,7 @@ namespace OloEngine {
 			out << YAML::Key << "TagComponent";
 			out << YAML::BeginMap; // TagComponent
 
-			auto& tag = entity.GetComponent<TagComponent>().Tag;
+			auto const& tag = entity.GetComponent<TagComponent>().Tag;
 			out << YAML::Key << "Tag" << YAML::Value << tag;
 
 			out << YAML::EndMap; // TagComponent
@@ -113,7 +113,7 @@ namespace OloEngine {
 			out << YAML::Key << "TransformComponent";
 			out << YAML::BeginMap; // TransformComponent
 
-			auto& tc = entity.GetComponent<TransformComponent>();
+			auto const& tc = entity.GetComponent<TransformComponent>();
 			out << YAML::Key << "Translation" << YAML::Value << tc.Translation;
 			out << YAML::Key << "Rotation" << YAML::Value << tc.Rotation;
 			out << YAML::Key << "Scale" << YAML::Value << tc.Scale;
@@ -126,12 +126,12 @@ namespace OloEngine {
 			out << YAML::Key << "CameraComponent";
 			out << YAML::BeginMap; // CameraComponent
 
-			auto& cameraComponent = entity.GetComponent<CameraComponent>();
-			auto& camera = cameraComponent.Camera;
+			auto const& cameraComponent = entity.GetComponent<CameraComponent>();
+			auto const& camera = cameraComponent.Camera;
 
 			out << YAML::Key << "Camera" << YAML::Value;
 			out << YAML::BeginMap; // Camera
-			out << YAML::Key << "ProjectionType" << YAML::Value << (int)camera.GetProjectionType();
+			out << YAML::Key << "ProjectionType" << YAML::Value << static_cast<int>(camera.GetProjectionType());
 			out << YAML::Key << "PerspectiveFOV" << YAML::Value << camera.GetPerspectiveVerticalFOV();
 			out << YAML::Key << "PerspectiveNear" << YAML::Value << camera.GetPerspectiveNearClip();
 			out << YAML::Key << "PerspectiveFar" << YAML::Value << camera.GetPerspectiveFarClip();
@@ -151,7 +151,7 @@ namespace OloEngine {
 			out << YAML::Key << "SpriteRendererComponent";
 			out << YAML::BeginMap; // SpriteRendererComponent
 
-			auto& spriteRendererComponent = entity.GetComponent<SpriteRendererComponent>();
+			auto const& spriteRendererComponent = entity.GetComponent<SpriteRendererComponent>();
 			out << YAML::Key << "Color" << YAML::Value << spriteRendererComponent.Color;
 
 			out << YAML::EndMap; // SpriteRendererComponent
@@ -168,7 +168,7 @@ namespace OloEngine {
 		out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
 		m_Scene->m_Registry.each([&](auto entityID)
 			{
-				Entity entity = { entityID, m_Scene.get() };
+				Entity const entity = { entityID, m_Scene.get() };
 				if (!entity)
 				{
 					return;
@@ -183,7 +183,7 @@ namespace OloEngine {
 		fout << out.c_str();
 	}
 
-	[[maybe_unused]] void SceneSerializer::SerializeRuntime([[maybe_unused]] std::string_view filepath) const
+	[[maybe_unused]] void SceneSerializer::SerializeRuntime([[maybe_unused]] const std::string_view filepath) const
 	{
 		// Not implemented
 		OLO_CORE_ASSERT(false)
@@ -196,7 +196,7 @@ namespace OloEngine {
 		{
 			data = YAML::LoadFile(filepath);
 		}
-		catch (YAML::ParserException e)
+		catch (YAML::ParserException const e)
 		{
 			return false;
 		}
@@ -242,7 +242,7 @@ namespace OloEngine {
 					auto& cc = deserializedEntity.AddComponent<CameraComponent>();
 
 					auto cameraProps = cameraComponent["Camera"];
-					cc.Camera.SetProjectionType((SceneCamera::ProjectionType)cameraProps["ProjectionType"].as<int>());
+					cc.Camera.SetProjectionType(static_cast<SceneCamera::ProjectionType>(cameraProps["ProjectionType"].as<int>()));
 
 					cc.Camera.SetPerspectiveVerticalFOV(cameraProps["PerspectiveFOV"].as<float>());
 					cc.Camera.SetPerspectiveNearClip(cameraProps["PerspectiveNear"].as<float>());

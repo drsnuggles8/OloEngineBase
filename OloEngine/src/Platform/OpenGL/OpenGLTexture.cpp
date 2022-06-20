@@ -8,7 +8,7 @@
 
 namespace OloEngine {
 
-	OpenGLTexture2D::OpenGLTexture2D(uint32_t width, uint32_t height)
+	OpenGLTexture2D::OpenGLTexture2D(const uint32_t width, const uint32_t height)
 		: m_Width(width), m_Height(height)
 	{
 		OLO_PROFILE_FUNCTION();
@@ -32,11 +32,11 @@ namespace OloEngine {
 		OLO_PROFILE_FUNCTION();
 
 		int width, height, channels;
-		stbi_set_flip_vertically_on_load(1);
+		::stbi_set_flip_vertically_on_load(1);
 		stbi_uc* data = nullptr;
 		{
 			OLO_PROFILE_SCOPE("stbi_load - OpenGLTexture2D::OpenGLTexture2D(const std::string&)");
-			data = stbi_load(path.c_str(), &width, &height, &channels, 0);
+			data = ::stbi_load(path.c_str(), &width, &height, &channels, 0);
 		}
 		if (data)
 		{
@@ -46,12 +46,12 @@ namespace OloEngine {
 			m_Height = height;
 
 			GLenum internalFormat = 0, dataFormat = 0;
-			if (channels == 4)
+			if (4 == channels)
 			{
 				internalFormat = GL_RGBA8;
 				dataFormat = GL_RGBA;
 			}
-			else if (channels == 3)
+			else if (3 == channels)
 			{
 				internalFormat = GL_RGB8;
 				dataFormat = GL_RGB;
@@ -73,7 +73,7 @@ namespace OloEngine {
 
 			glTextureSubImage2D(m_RendererID, 0, 0, 0, m_Width, m_Height, dataFormat, GL_UNSIGNED_BYTE, data);
 
-			stbi_image_free(data);
+			::stbi_image_free(data);
 		}
 	}
 
@@ -84,16 +84,16 @@ namespace OloEngine {
 		glDeleteTextures(1, &m_RendererID);
 	}
 
-	void OpenGLTexture2D::SetData(void* data, uint32_t size)
+	void OpenGLTexture2D::SetData(void* const data, const uint32_t size)
 	{
 		OLO_PROFILE_FUNCTION();
 
-		uint32_t bpp = m_DataFormat == GL_RGBA ? 4 : 3;
+		const uint32_t bpp = GL_RGBA == m_DataFormat ? 4 : 3;
 		OLO_CORE_ASSERT(size == m_Width * m_Height * bpp, "Data must be entire texture!")
 		glTextureSubImage2D(m_RendererID, 0, 0, 0, m_Width, m_Height, m_DataFormat, GL_UNSIGNED_BYTE, data);
 	}
 
-	void OpenGLTexture2D::Bind(uint32_t slot) const
+	void OpenGLTexture2D::Bind(const uint32_t slot) const
 	{
 		OLO_PROFILE_FUNCTION();
 

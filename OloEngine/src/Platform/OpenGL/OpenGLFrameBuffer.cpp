@@ -13,22 +13,22 @@ namespace OloEngine {
 
 	namespace Utils {
 
-		constexpr static GLenum TextureTarget(bool multisampled) noexcept
+		[[nodiscard("This returns something, you probably wanted another function!")]]  constexpr static GLenum TextureTarget(const bool multisampled) noexcept
 		{
 			return multisampled ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D;
 		}
 
-		static void CreateTextures(bool multisampled, uint32_t* outID, uint32_t count)
+		static void CreateTextures(const bool multisampled, uint32_t* const outID, const uint32_t count)
 		{
 			glCreateTextures(TextureTarget(multisampled), count, outID);
 		}
 
-		static void BindTexture(bool multisampled, uint32_t id)
+		static void BindTexture(const bool multisampled, const uint32_t id)
 		{
 			glBindTexture(TextureTarget(multisampled), id);
 		}
 
-		static void AttachColorTexture(uint32_t id, int samples, GLenum internalFormat, GLenum format, uint32_t width, uint32_t height, int index)
+		static void AttachColorTexture(const uint32_t id, const int samples, const GLenum internalFormat, const GLenum format, const uint32_t width, const uint32_t height, const int index)
 		{
 			bool multisampled = samples > 1;
 			if (multisampled)
@@ -49,9 +49,9 @@ namespace OloEngine {
 			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + index, TextureTarget(multisampled), id, 0);
 		}
 
-		static void AttachDepthTexture(uint32_t id, int samples, GLenum format, GLenum attachmentType, uint32_t width, uint32_t height)
+		static void AttachDepthTexture(const uint32_t id, const int samples, const GLenum format, const GLenum attachmentType, const uint32_t width, const uint32_t height)
 		{
-			bool multisampled = samples > 1;
+			const bool multisampled = samples > 1;
 			if (multisampled)
 			{
 				glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, samples, format, width, height, GL_FALSE);
@@ -70,7 +70,7 @@ namespace OloEngine {
 			glFramebufferTexture2D(GL_FRAMEBUFFER, attachmentType, TextureTarget(multisampled), id, 0);
 		}
 
-		static bool IsDepthFormat(FramebufferTextureFormat format) noexcept
+		[[nodiscard("This returns something, you probably wanted another function!")]] static bool IsDepthFormat(const FramebufferTextureFormat format) noexcept
 		{
 			switch (format)
 			{
@@ -79,7 +79,7 @@ namespace OloEngine {
 			return false;
 		}
 
-		static GLenum OloFBTextureFormatToGL(FramebufferTextureFormat format)
+		[[nodiscard("This returns something, you probably wanted another function!")]] static GLenum OloFBTextureFormatToGL(const FramebufferTextureFormat format)
 		{
 			switch (format)
 			{
@@ -132,7 +132,7 @@ namespace OloEngine {
 		glCreateFramebuffers(1, &m_RendererID);
 		glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
 
-		bool multisample = m_Specification.Samples > 1;
+		const bool multisample = m_Specification.Samples > 1;
 
 		// Attachments
 		if (!m_ColorAttachmentSpecifications.empty())
@@ -140,7 +140,7 @@ namespace OloEngine {
 			m_ColorAttachments.resize(m_ColorAttachmentSpecifications.size());
 			Utils::CreateTextures(multisample, m_ColorAttachments.data(), m_ColorAttachments.size());
 
-			for (size_t i = 0; i < m_ColorAttachments.size(); i++)
+			for (size_t i = 0; i < m_ColorAttachments.size(); ++i)
 			{
 				Utils::BindTexture(multisample, m_ColorAttachments[i]);
 				switch (m_ColorAttachmentSpecifications[i].TextureFormat)
@@ -170,7 +170,7 @@ namespace OloEngine {
 		if (m_ColorAttachments.size() > 1)
 		{
 			OLO_CORE_ASSERT(m_ColorAttachments.size() <= 4)
-			GLenum buffers[4] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };
+			const GLenum buffers[4] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };
 			glDrawBuffers(m_ColorAttachments.size(), buffers);
 		}
 		else if (m_ColorAttachments.empty())
@@ -197,7 +197,7 @@ namespace OloEngine {
 
 	void OpenGLFramebuffer::Resize(uint32_t width, uint32_t height)
 	{
-		if (width == 0 || height == 0 || width > s_MaxFramebufferSize || height > s_MaxFramebufferSize)
+		if (0 == width || 0 == height || width > s_MaxFramebufferSize || height > s_MaxFramebufferSize)
 		{
 			OLO_CORE_WARN("Attempted to rezize framebuffer to {0}, {1}", width, height);
 			return;
@@ -209,7 +209,7 @@ namespace OloEngine {
 		Invalidate();
 	}
 
-	int OpenGLFramebuffer::ReadPixel(uint32_t attachmentIndex, int x, int y)
+	int OpenGLFramebuffer::ReadPixel(const uint32_t attachmentIndex, const int x, const int y)
 	{
 		OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size())
 
@@ -220,11 +220,11 @@ namespace OloEngine {
 
 	}
 
-	void OpenGLFramebuffer::ClearAttachment(uint32_t attachmentIndex, int value)
+	void OpenGLFramebuffer::ClearAttachment(const uint32_t attachmentIndex, const int value)
 	{
 		OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size())
 
-		auto& spec = m_ColorAttachmentSpecifications[attachmentIndex];
+		auto const& spec = m_ColorAttachmentSpecifications[attachmentIndex];
 		glClearTexImage(m_ColorAttachments[attachmentIndex], 0,
 			Utils::OloFBTextureFormatToGL(spec.TextureFormat), GL_INT, &value);
 	}

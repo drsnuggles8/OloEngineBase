@@ -7,7 +7,7 @@
 
 namespace OloEngine {
 
-	OpenGLUniformBuffer::OpenGLUniformBuffer(uint32_t size, uint32_t binding)
+	OpenGLUniformBuffer::OpenGLUniformBuffer(const uint32_t size, const uint32_t binding)
 	{
 		glCreateBuffers(1, &m_RendererID);
 		glNamedBufferData(m_RendererID, size, nullptr, GL_DYNAMIC_DRAW); // TODO: investigate usage hint
@@ -20,7 +20,7 @@ namespace OloEngine {
 	}
 
 
-	void OpenGLUniformBuffer::SetData(const void* data, uint32_t size, uint32_t offset)
+	void OpenGLUniformBuffer::SetData(const void* const data, const uint32_t size, const uint32_t offset)
 	{
 		glNamedBufferSubData(m_RendererID, offset, size, data);
 	}

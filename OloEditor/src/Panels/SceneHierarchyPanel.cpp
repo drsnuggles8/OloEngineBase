@@ -224,7 +224,7 @@ namespace OloEngine {
 			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 4, 4 });
 			const float lineHeight = (::GImGui->Font->FontSize) + (::GImGui->Style.FramePadding.y * 2.0f);
 			ImGui::Separator();
-			const bool open = ImGui::TreeNodeEx((void*)typeid(T).hash_code(), treeNodeFlags, name.c_str());
+			const bool open = ImGui::TreeNodeEx(reinterpret_cast<void*>(typeid(T).hash_code()), treeNodeFlags, name.c_str());
 			ImGui::PopStyleVar(
 			);
 			ImGui::SameLine(contentRegionAvailable.x - (lineHeight * 0.5f));
@@ -373,7 +373,7 @@ namespace OloEngine {
 			ImGui::Button("Texture", ImVec2(100.0f, 0.0f));
 			if (ImGui::BeginDragDropTarget())
 			{
-				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+				if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
 				{
 					auto const path = static_cast<wchar_t*>(payload->Data);
 					std::filesystem::path const texturePath = std::filesystem::path(g_AssetPath) / path;

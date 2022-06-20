@@ -6,13 +6,13 @@ class Sandbox2D : public OloEngine::Layer
 {
 public:
 	Sandbox2D();
-	virtual ~Sandbox2D() = default;
+	~Sandbox2D() final = default;
 
-	virtual void OnAttach() override;
-	virtual void OnDetach() override;
+	void OnAttach() override;
+	void OnDetach() override;
 
 	void OnUpdate(OloEngine::Timestep ts) override;
-	virtual void OnImGuiRender() override;
+	void OnImGuiRender() override;
 	void OnEvent(OloEngine::Event& e) override;
 private:
 	OloEngine::OrthographicCameraController m_CameraController;

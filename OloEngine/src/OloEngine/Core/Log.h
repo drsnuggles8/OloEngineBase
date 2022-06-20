@@ -18,8 +18,8 @@ namespace OloEngine {
 	public:
 		static void Init();
 
-		static Ref<spdlog::logger>& GetCoreLogger() { return s_CoreLogger; }
-		static Ref<spdlog::logger>& GetClientLogger() { return s_ClientLogger; }
+		[[nodiscard("This returns s_CoreLogger, you probably wanted another function!")]] static Ref<spdlog::logger>& GetCoreLogger() { return s_CoreLogger; }
+		[[nodiscard("This returns s_ClientLogger, you probably wanted another function!")]] static Ref<spdlog::logger>& GetClientLogger() { return s_ClientLogger; }
 	private:
 		static Ref<spdlog::logger> s_CoreLogger;
 		static Ref<spdlog::logger> s_ClientLogger;

@@ -8,13 +8,13 @@
 namespace OloEngine {
 
 	void OpenGLMessageCallback(
-		unsigned source,
-		unsigned type,
-		unsigned id,
-		unsigned severity,
-		int length,
-		const char* message,
-		const void* userParam)
+		const unsigned source,
+		const unsigned type,
+		const unsigned id,
+		const unsigned severity,
+		const int length,
+		const char* const message,
+		const void* const userParam)
 	{
 		switch (severity)
 		{
@@ -45,7 +45,7 @@ namespace OloEngine {
 		glEnable(GL_DEPTH_TEST);
 	}
 
-	void OpenGLRendererAPI::SetViewport(uint32_t x, uint32_t y, uint32_t width, uint32_t height)
+	void OpenGLRendererAPI::SetViewport(const uint32_t x, const uint32_t y, const uint32_t width, const uint32_t height)
 	{
 		glViewport(x, y, width, height);
 	}
@@ -60,9 +60,9 @@ namespace OloEngine {
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	}
 
-	void OpenGLRendererAPI::DrawIndexed(const Ref<VertexArray>& vertexArray, uint32_t indexCount)
+	void OpenGLRendererAPI::DrawIndexed(const Ref<VertexArray>& vertexArray, const uint32_t indexCount)
 	{
-		uint32_t count = indexCount ? indexCount : vertexArray->GetIndexBuffer()->GetCount();
+		const uint32_t count = indexCount ? indexCount : vertexArray->GetIndexBuffer()->GetCount();
 		glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, nullptr);
 		glBindTexture(GL_TEXTURE_2D, 0);
 	}

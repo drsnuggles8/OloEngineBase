@@ -25,7 +25,7 @@ void Sandbox2D::OnDetach()
 	OLO_PROFILE_FUNCTION();
 }
 
-void Sandbox2D::OnUpdate(OloEngine::Timestep ts)
+void Sandbox2D::OnUpdate(const OloEngine::Timestep ts)
 {
 	OLO_PROFILE_FUNCTION();
 
@@ -58,7 +58,7 @@ void Sandbox2D::OnUpdate(OloEngine::Timestep ts)
 		{
 			for (float x = -5.0f; x < 5.0f; x += 0.5f)
 			{
-				glm::vec4 color = { (x + 5.0f) / 10.0f, 0.4f, (y + 5.0f) / 10.0f, 0.7f };
+				const glm::vec4 color = { (x + 5.0f) / 10.0f, 0.4f, (y + 5.0f) / 10.0f, 0.7f };
 				OloEngine::Renderer2D::DrawQuad({ x, y }, { 0.45f, 0.45f }, color);
 			}
 		}
@@ -72,7 +72,7 @@ void Sandbox2D::OnImGuiRender()
 
 	ImGui::Begin("Settings");
 
-	auto stats = OloEngine::Renderer2D::GetStats();
+	const auto stats = OloEngine::Renderer2D::GetStats();
 	ImGui::Text("Renderer2D Stats:");
 	ImGui::Text("Draw Calls: %d", stats.DrawCalls);
 	ImGui::Text("Quads: %d", stats.QuadCount);
@@ -80,7 +80,7 @@ void Sandbox2D::OnImGuiRender()
 	ImGui::Text("Indices: %d", stats.GetTotalIndexCount());
 
 	ImGui::ColorEdit4("Square Color", glm::value_ptr(m_SquareColor));
-	ImGui::End();	
+	ImGui::End();
 }
 
 void Sandbox2D::OnEvent(OloEngine::Event& e)

@@ -18,21 +18,21 @@ namespace OloEngine {
 		void SetViewportSize(uint32_t width, uint32_t height);
 
 		[[nodiscard("This returns m_PerspectiveFOV, you probably wanted another function!")]] float GetPerspectiveVerticalFOV() const { return m_PerspectiveFOV; }
-		void SetPerspectiveVerticalFOV(float verticalFov) { m_PerspectiveFOV = verticalFov; RecalculateProjection(); }
+		void SetPerspectiveVerticalFOV(const float verticalFov) { m_PerspectiveFOV = verticalFov; RecalculateProjection(); }
 		[[nodiscard("This returns m_PerspectiveNear, you probably wanted another function!")]] float GetPerspectiveNearClip() const { return m_PerspectiveNear; }
-		void SetPerspectiveNearClip(float nearClip) { m_PerspectiveNear = nearClip; RecalculateProjection(); }
+		void SetPerspectiveNearClip(const float nearClip) { m_PerspectiveNear = nearClip; RecalculateProjection(); }
 		[[nodiscard("This returns m_PerspectiveFar, you probably wanted another function!")]] float GetPerspectiveFarClip() const { return m_PerspectiveFar; }
-		void SetPerspectiveFarClip(float farClip) { m_PerspectiveFar = farClip; RecalculateProjection(); }
+		void SetPerspectiveFarClip(const float farClip) { m_PerspectiveFar = farClip; RecalculateProjection(); }
 
 		[[nodiscard("This returns m_OrthographicSize, you probably wanted another function!")]] float GetOrthographicSize() const { return m_OrthographicSize; }
-		void SetOrthographicSize(float size) { m_OrthographicSize = size; RecalculateProjection(); }
+		void SetOrthographicSize(const float size) { m_OrthographicSize = size; RecalculateProjection(); }
 		[[nodiscard("This returns m_OrthographicNear, you probably wanted another function!")]] float GetOrthographicNearClip() const { return m_OrthographicNear; }
-		void SetOrthographicNearClip(float nearClip) { m_OrthographicNear = nearClip; RecalculateProjection(); }
+		void SetOrthographicNearClip(const float nearClip) { m_OrthographicNear = nearClip; RecalculateProjection(); }
 		[[nodiscard("This returns m_OrthographicFar, you probably wanted another function!")]] float GetOrthographicFarClip() const { return m_OrthographicFar; }
-		void SetOrthographicFarClip(float farClip) { m_OrthographicFar = farClip; RecalculateProjection(); }
+		void SetOrthographicFarClip(const float farClip) { m_OrthographicFar = farClip; RecalculateProjection(); }
 
 		[[nodiscard("This returns m_ProjectionType, you probably wanted another function!")]] ProjectionType GetProjectionType() const { return m_ProjectionType; }
-		void SetProjectionType(ProjectionType type) { m_ProjectionType = type; RecalculateProjection(); }
+		void SetProjectionType(const ProjectionType type) { m_ProjectionType = type; RecalculateProjection(); }
 	private:
 		void RecalculateProjection();
 	private:

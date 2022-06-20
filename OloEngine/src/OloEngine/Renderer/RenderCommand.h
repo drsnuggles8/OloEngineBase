@@ -12,7 +12,7 @@ namespace OloEngine {
 			s_RendererAPI->Init();
 		}
 
-		static void SetViewport(uint32_t x, uint32_t y, uint32_t width, uint32_t height)
+		static void SetViewport(const uint32_t x, const uint32_t y, const uint32_t width, const uint32_t height)
 		{
 			s_RendererAPI->SetViewport(x, y, width, height);
 		}
@@ -27,7 +27,7 @@ namespace OloEngine {
 			s_RendererAPI->Clear();
 		}
 
-		static void DrawIndexed(const Ref<VertexArray>& vertexArray, uint32_t count = 0)
+		static void DrawIndexed(const Ref<VertexArray>& vertexArray, const uint32_t count = 0)
 		{
 			s_RendererAPI->DrawIndexed(vertexArray, count);
 		}
