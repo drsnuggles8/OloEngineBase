@@ -448,7 +448,7 @@ namespace OloEngine {
 	bool EditorLayer::OnKeyPressed(KeyPressedEvent const& e)
 	{
 		// Shortcuts
-		if (e.GetRepeatCount() > 0)
+		if (e.IsRepeat())
 		{
 			return false;
 		}
