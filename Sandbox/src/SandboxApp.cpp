@@ -15,9 +15,7 @@ public:
 		PushLayer(new Sandbox2D());
 	}
 
-	~Sandbox()
-	{
-	}
+	~Sandbox() final = default;
 };
 
 OloEngine::Application* OloEngine::CreateApplication(const OloEngine::ApplicationCommandLineArgs args)
