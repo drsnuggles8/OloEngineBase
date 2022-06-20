@@ -84,14 +84,14 @@ namespace OloEngine {
 
 		GLFWAPI::glfwSetWindowCloseCallback(m_Window, [](GLFWwindow* const window)
 		{
-			WindowData& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
+			WindowData const& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
 			WindowCloseEvent event;
 			data.EventCallback(event);
 		});
 
 		GLFWAPI::glfwSetKeyCallback(m_Window, [](GLFWwindow* const window, const int key, const int scancode, const int action, const int mods)
 		{
-			WindowData& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
+			WindowData const& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
 
 			switch (action)
 			{
@@ -118,7 +118,7 @@ namespace OloEngine {
 
 		GLFWAPI::glfwSetCharCallback(m_Window, [](GLFWwindow* const window, const unsigned int keycode)
 		{
-			WindowData& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
+			WindowData const& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
 
 			KeyTypedEvent event(keycode);
 			data.EventCallback(event);
@@ -126,7 +126,7 @@ namespace OloEngine {
 
 		GLFWAPI::glfwSetMouseButtonCallback(m_Window, [](GLFWwindow* const window, const int button, const int action, const int mods)
 		{
-			WindowData& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
+			WindowData const& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
 
 			switch (action)
 			{
@@ -147,7 +147,7 @@ namespace OloEngine {
 
 		GLFWAPI::glfwSetScrollCallback(m_Window, [](GLFWwindow* const window, const double xOffset, const double yOffset)
 		{
-			WindowData& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
+			WindowData const& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
 
 			MouseScrolledEvent event(static_cast<float>(xOffset), static_cast<float>(yOffset));
 			data.EventCallback(event);
@@ -155,7 +155,7 @@ namespace OloEngine {
 
 		GLFWAPI::glfwSetCursorPosCallback(m_Window, [](GLFWwindow* const window, const double xPos, const double yPos)
 		{
-			WindowData& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
+			WindowData const& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
 
 			MouseMovedEvent event(static_cast<float>(xPos), static_cast<float>(yPos));
 			data.EventCallback(event);

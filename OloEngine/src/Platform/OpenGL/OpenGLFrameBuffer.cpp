@@ -224,7 +224,7 @@ namespace OloEngine {
 	{
 		OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size())
 
-		auto& spec = m_ColorAttachmentSpecifications[attachmentIndex];
+		auto const& spec = m_ColorAttachmentSpecifications[attachmentIndex];
 		glClearTexImage(m_ColorAttachments[attachmentIndex], 0,
 			Utils::OloFBTextureFormatToGL(spec.TextureFormat), GL_INT, &value);
 	}

@@ -269,8 +269,10 @@ namespace OloEngine {
 			}
 		}
 
-		for (auto&& [stage, data]: shaderData)
+		for (auto&& [stage, data] : shaderData)
+		{
 			Reflect(stage, data);
+		}
 	}
 
 	void OpenGLShader::CompileOrGetOpenGLBinaries()
@@ -305,7 +307,7 @@ namespace OloEngine {
 			{
 				spirv_cross::CompilerGLSL glslCompiler(spirv);
 				m_OpenGLSourceCode[stage] = glslCompiler.compile();
-				auto& source = m_OpenGLSourceCode[stage];
+				auto const& source = m_OpenGLSourceCode[stage];
 
 				shaderc::SpvCompilationResult const spirvModule = compiler.CompileGlslToSpv(source, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str());
 				if (spirvModule.GetCompilationStatus() != shaderc_compilation_status_success)
@@ -447,14 +449,14 @@ namespace OloEngine {
 				}
 			}
 
-			for (auto& id : glShadersIDs)
+			for (auto const& id : glShadersIDs)
 				glDetachShader(program, id);
 		}
 
 		m_RendererID = program;
 	}
 
-	void OpenGLShader::CompileOpenGLBinariesForAmd(GLenum& program, std::array<uint32_t, 2>& glShadersIDs)
+	void OpenGLShader::CompileOpenGLBinariesForAmd(GLenum& program, std::array<uint32_t, 2>& glShadersIDs) const
 	{
 		int glShaderIDIndex = 0;
 		for (auto&& [stage, spirv] : m_VulkanSPIRV)
