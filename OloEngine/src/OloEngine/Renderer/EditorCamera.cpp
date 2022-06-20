@@ -79,10 +79,6 @@ namespace OloEngine {
 			{
 				MouseZoom(delta.y);
 			}
-			else
-			{
-				OLO_CORE_TRACE("EditorCamera doesn't have a handle for this keypress.");
-			}
 		}
 
 		UpdateView();
