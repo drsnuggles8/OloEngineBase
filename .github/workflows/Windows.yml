@@ -21,7 +21,7 @@ jobs:
             cache: true
           
       - name: Build
-          cmake --build build/ --config Debug
+         run: cmake --build build/ --config Debug
           
   Release:
     name: "Release"
@@ -35,4 +35,4 @@ jobs:
             cache: true
           
       - name: Build
-          cmake --build build/ --config Release
+         run: cmake --build build/ --config Release
