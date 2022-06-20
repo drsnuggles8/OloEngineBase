@@ -198,7 +198,7 @@ namespace OloEngine {
 		std::unordered_map<GLenum, std::string> shaderSources;
 
 		const char* const typeToken = "#type";
-		const size_t typeTokenLength = strlen(typeToken);
+		const size_t typeTokenLength = std::strlen(typeToken);
 		size_t pos = source.find(typeToken, 0); //Start of shader type declaration line
 		while (pos != std::string::npos)
 		{

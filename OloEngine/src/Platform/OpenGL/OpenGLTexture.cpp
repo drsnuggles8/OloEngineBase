@@ -32,11 +32,11 @@ namespace OloEngine {
 		OLO_PROFILE_FUNCTION();
 
 		int width, height, channels;
-		stbi_set_flip_vertically_on_load(1);
+		::stbi_set_flip_vertically_on_load(1);
 		stbi_uc* data = nullptr;
 		{
 			OLO_PROFILE_SCOPE("stbi_load - OpenGLTexture2D::OpenGLTexture2D(const std::string&)");
-			data = stbi_load(path.c_str(), &width, &height, &channels, 0);
+			data = ::stbi_load(path.c_str(), &width, &height, &channels, 0);
 		}
 		if (data)
 		{
@@ -73,7 +73,7 @@ namespace OloEngine {
 
 			glTextureSubImage2D(m_RendererID, 0, 0, 0, m_Width, m_Height, dataFormat, GL_UNSIGNED_BYTE, data);
 
-			stbi_image_free(data);
+			::stbi_image_free(data);
 		}
 	}
 

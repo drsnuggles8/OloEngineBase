@@ -11,14 +11,14 @@ namespace OloEngine {
 	bool Input::IsKeyPressed(const KeyCode key)
 	{
 		auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
-		const auto state = glfwGetKey(window, static_cast<int32_t>(key));
+		const auto state = GLFWAPI::glfwGetKey(window, static_cast<int32_t>(key));
 		return state == GLFW_PRESS || state == GLFW_REPEAT;
 	}
 
 	bool Input::IsMouseButtonPressed(const MouseCode button)
 	{
 		auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
-		const auto state = glfwGetMouseButton(window, static_cast<int32_t>(button));
+		const auto state = GLFWAPI::glfwGetMouseButton(window, static_cast<int32_t>(button));
 		return state == GLFW_PRESS;
 	}
 
@@ -26,7 +26,7 @@ namespace OloEngine {
 	{
 		auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
 		double xpos, ypos;
-		glfwGetCursorPos(window, &xpos, &ypos);
+		GLFWAPI::glfwGetCursorPos(window, &xpos, &ypos);
 
 		return { (float)xpos, (float)ypos };
 	}
