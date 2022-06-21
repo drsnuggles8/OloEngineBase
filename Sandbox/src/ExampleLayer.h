@@ -12,7 +12,7 @@ public:
 	void OnDetach() override;
 
 	void OnUpdate(OloEngine::Timestep ts) override;
-	virtual void OnImGuiRender() override;
+	void OnImGuiRender() override;
 	void OnEvent(OloEngine::Event& e) override;
 private:
 	OloEngine::ShaderLibrary m_ShaderLibrary;

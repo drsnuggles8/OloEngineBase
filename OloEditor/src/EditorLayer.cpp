@@ -72,10 +72,10 @@ namespace OloEngine {
 			CameraController(Entity entity) : NativeScript(entity)
 			{
 				auto& translation = GetComponent<TransformComponent>().Translation;
-				translation.x = rand() % 10 - 5.0f;
+				translation.x = rand_r() % 10 - 5.0f;
 			}
 
-			virtual void OnUpdate(Timestep ts) override
+			void OnUpdate(Timestep ts) override
 			{
 				auto& translation = GetComponent<TransformComponent>().Translation;
 
@@ -608,7 +608,6 @@ namespace OloEngine {
 	void EditorLayer::OnSceneStop()
 	{
 		m_SceneState = SceneState::Edit;
-
 	}
 
 }

@@ -76,7 +76,6 @@ namespace OloEngine {
 			}
 			Renderer2D::EndScene();
 		}
-
 	}
 
 	void Scene::OnUpdateEditor([[maybe_unused]] Timestep const ts, EditorCamera const& camera)
@@ -107,7 +106,6 @@ namespace OloEngine {
 				cameraComponent.Camera.SetViewportSize(width, height);
 			}
 		}
-
 	}
 
 	Entity Scene::GetPrimaryCameraEntity()

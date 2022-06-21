@@ -217,7 +217,6 @@ namespace OloEngine {
 		int pixelData;
 		glReadPixels(x, y, 1, 1, GL_RED_INTEGER, GL_INT, &pixelData);
 		return pixelData;
-
 	}
 
 	void OpenGLFramebuffer::ClearAttachment(const uint32_t attachmentIndex, const int value)

@@ -47,10 +47,10 @@ namespace OloEngine {
 	EventCategory& operator ^=(EventCategory& lhs, EventCategory rhs);
 
 #define EVENT_CLASS_TYPE(type) static EventType GetStaticType() { return EventType::type; }\
-								virtual EventType GetEventType() const override { return GetStaticType(); }\
-								virtual const char* GetName() const override { return #type; }
+								EventType GetEventType() const override { return GetStaticType(); }\
+								const char* GetName() const override { return #type; }
 // TODO(olbu): Refactor these with functions instead of macros
-#define EVENT_CLASS_CATEGORY(category) virtual EventCategory GetCategoryFlags() const override { return (category); }
+#define EVENT_CLASS_CATEGORY(category) EventCategory GetCategoryFlags() const override { return (category); }
 
 	class Event
 	{

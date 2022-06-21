@@ -10,12 +10,6 @@
 #include "OloEngine/Scene/Components.h"
 
 #include <cstring>
-// The Microsoft C++ compiler is non-compliant with the C++ standard and needs
-// the following definition to disable a security warning on std::strncpy().
-//
-#ifdef _MSVC_LANG
-	#define _CRT_SECURE_NO_WARNINGS
-#endif
 
 namespace OloEngine {
 
@@ -389,12 +383,8 @@ namespace OloEngine {
 				}
 				ImGui::EndDragDropTarget();
 			}
-
-
-
 			ImGui::DragFloat("Tiling Factor", &component.TilingFactor, 0.1f, 0.0f, 100.0f);
 		});
-
 	}
 
 	template<typename T>

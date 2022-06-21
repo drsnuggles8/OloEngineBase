@@ -17,7 +17,6 @@ void Sandbox2D::OnAttach()
 	OLO_PROFILE_FUNCTION();
 
 	m_CheckerboardTexture = OloEngine::Texture2D::Create("assets/textures/Checkerboard.png");
-
 }
 
 void Sandbox2D::OnDetach()
