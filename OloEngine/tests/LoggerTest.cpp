@@ -5,7 +5,7 @@
 
 #include "OloEngine/Core/Log.h"
 
-TEST(LogTest, InitTest)
+TEST(LoggerTest, InitTest)
 {
 	ASSERT_EQ(OloEngine::Log::GetCoreLogger(), nullptr);
 	ASSERT_EQ(OloEngine::Log::GetClientLogger(), nullptr);
