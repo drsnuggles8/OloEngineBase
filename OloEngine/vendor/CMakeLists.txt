@@ -19,37 +19,22 @@ FetchContent_Declare(
 	GIT_REPOSITORY https://github.com/Dav1dde/glad.git
 	GIT_TAG v0.1.36
 	)
-FetchContent_GetProperties(glad)
-if(NOT glad_POPULATED)
-	FetchContent_Populate(glad)
-	set(
-		GLAD_PROFILE "core"
-		CACHE STRING "OpenGL profile"
-	)
-	set(
-		GLAD_GENERATOR "c"
-		CACHE STRING "Language to generate the binding for"
-	)
-	add_subdirectory(
-		${glad_SOURCE_DIR}
-		${glad_BINARY_DIR}
-	)
-endif()
+
+set(GLAD_PROFILE "core"	CACHE STRING "OpenGL profile")
+set(GLAD_GENERATOR "c"	CACHE STRING "Language to generate the binding for")
+FetchContent_MakeAvailable(glad)
 message(STATUS "${Green} glad Should Be Downloaded ${ColourReset}")
 
 # glfw - platform-independent API for window & context management
 FetchContent_Declare(
 	glfw
 	GIT_REPOSITORY https://github.com/glfw/glfw.git
-	)
-FetchContent_GetProperties(glfw)
-if(NOT glfw_POPULATED)
-	FetchContent_Populate(glfw)
-	set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-	set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-	set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-	add_subdirectory(${glfw_SOURCE_DIR} ${glfw_BINARY_DIR})
-endif()
+)
+
+set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(glfw)
 message(STATUS "${Green} glfw Should Be Downloaded ${ColourReset}")
 
 # glm - header-only mathematics library 
@@ -58,12 +43,8 @@ FetchContent_Declare(
 	GIT_REPOSITORY https://github.com/g-truc/glm.git
 	GIT_TAG		   0.9.9.8
 )
-FetchContent_GetProperties(glm)
-if(NOT glm_POPULATED)
-	FetchContent_Populate(glm)
-	set(GLM_TEST_ENABLE OFF CACHE BOOL "" FORCE)
-	add_subdirectory(${glm_SOURCE_DIR} ${glm_BINARY_DIR})
-endif()
+set(GLM_TEST_ENABLE OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(glm)
 message(STATUS "${Green} GLM Should Be Downloaded ${ColourReset}")
 
 # imgui - gui library for C++
