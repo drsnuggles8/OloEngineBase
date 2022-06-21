@@ -11,7 +11,7 @@ TEST(MathTest, DecomposeTransformTest)
 	glm::vec3 rotation;
 	glm::vec3 scale;
 
-	glm::mat4 transform = { glm::vec4(-107374176.f, -107374176.f, -107374176.f, -107374176.f),
+	const glm::mat4 transform = { glm::vec4(-107374176.f, -107374176.f, -107374176.f, -107374176.f),
 		glm::vec4(-107374176.f, -107374176.f, -107374176.f, -107374176.f),
 		glm::vec4(-107374176.f, -107374176.f, -107374176.f, -107374176.f),
 		glm::vec4(-107374176.f, -107374176.f, -107374176.f, -107374176.f) };
