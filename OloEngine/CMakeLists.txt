@@ -51,6 +51,7 @@ target_include_directories("OloEngine" PRIVATE
 	vendor/stb_image-src
 	vendor/entt-src/single_include/entt
 	${Vulkan_INCLUDE_DIRS}
+	vendor/box2d-src/include/box2d
 )
 
 target_compile_definitions("OloEngine" PRIVATE
@@ -85,4 +86,5 @@ target_link_libraries(OloEngine
 					  optimized $ENV{VULKAN_SDK}/Lib/shaderc_shared.lib
 					  optimized $ENV{VULKAN_SDK}/Lib/spirv-cross-core.lib
 					  optimized $ENV{VULKAN_SDK}/Lib/spirv-cross-glsl.lib
+					  box2d
 )

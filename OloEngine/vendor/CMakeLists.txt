@@ -145,6 +145,15 @@ FetchContent_Declare(googletest
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
+FetchContent_Declare(box2d
+	GIT_REPOSITORY https://github.com/erincatto/box2d.git
+	GIT_TAG main
+  
+)
+set(BOX2D_BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+set(BOX2D_BUILD_TESTBED OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(box2d)
+
 #set_target_properties(ryml PROPERTIES FOLDER "Utilities/ryml")
 #set_target_properties(ryml-uninstall PROPERTIES FOLDER "Utilities/ryml")
 #set_target_properties(c4core PROPERTIES FOLDER "Utilities/ryml")
@@ -165,5 +174,6 @@ set_target_properties(gmock PROPERTIES FOLDER "Utilities/googletest")
 set_target_properties(gmock_main PROPERTIES FOLDER "Utilities/googletest")
 set_target_properties(gtest PROPERTIES FOLDER "Utilities/googletest")
 set_target_properties(gtest_main PROPERTIES FOLDER "Utilities/googletest")
+set_target_properties(box2d PROPERTIES FOLDER "Utilities/box2d")
 #======================================
 message(STATUS "Fetching thirdparty libraries done")
