@@ -103,7 +103,9 @@ namespace OloEngine {
 				{
 					if (!nsc.Instance)
 					{
-						nsc.Instance = nsc.InstantiateScript({ entity, this });
+						nsc.Instance = nsc.InstantiateScript();
+						nsc.Instance->m_Entity = Entity{ entity, this };
+						nsc.Instance->OnCreate();
 					}
 
 					nsc.Instance->OnUpdate(ts);

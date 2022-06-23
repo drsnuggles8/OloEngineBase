@@ -4,11 +4,10 @@
 
 namespace OloEngine {
 
-	class NativeScript
+	class ScriptableEntity
 	{
 	public:
-		explicit NativeScript(const Entity entity) : m_Entity(entity) {}
-		virtual ~NativeScript() = default;
+		virtual ~ScriptableEntity() {}
 
 		template<typename T>
 		T& GetComponent()
@@ -17,6 +16,8 @@ namespace OloEngine {
 		}
 
 	protected:
+		virtual void OnCreate() {}
+		virtual void OnDestroy() {}
 		virtual void OnUpdate(const Timestep ts) {}
 
 	private:
