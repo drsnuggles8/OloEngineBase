@@ -28,7 +28,7 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 
 #include "OloEngine/Renderer/Buffer.h"
-#include "OloEngine/Renderer/FrameBuffer.h"
+#include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/VertexArray.h"
