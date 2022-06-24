@@ -1,5 +1,10 @@
 #pragma once
 
+#include "SceneCamera.h"
+#include "OloEngine/Core/UUID.h"
+#include "OloEngine/Renderer/Texture.h"
+//#include "NativeScript.h"
+
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -7,11 +12,16 @@
 #include <glm/gtx/quaternion.hpp>
 #include <utility>
 
-#include "SceneCamera.h"
-#include "NativeScript.h"
-#include "OloEngine/Renderer/Texture.h"
-
 namespace OloEngine {
+
+	struct IDComponent
+	{
+		UUID ID;
+
+		IDComponent() = default;
+		IDComponent(const IDComponent&) = default;
+	};
+
 
 	struct TagComponent
 	{
@@ -71,6 +81,10 @@ namespace OloEngine {
 		CameraComponent() = default;
 		CameraComponent(const CameraComponent&) = default;
 	};
+
+	// Forward declaration
+	class NativeScript;
+	class Entity;
 
 	struct NativeScriptComponent
 	{

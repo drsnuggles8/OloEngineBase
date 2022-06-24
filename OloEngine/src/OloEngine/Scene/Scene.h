@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Timestep.h"
+#include "OloEngine/Core/UUID.h"
 #include "OloEngine/Renderer/EditorCamera.h"
 
 #include "entt.hpp"
@@ -18,6 +19,7 @@ namespace OloEngine {
 		~Scene();
 
 		Entity CreateEntity(const std::string& name = std::string());
+		Entity CreateEntityWithUUID(UUID uuid, const std::string& name = std::string());
 		void DestroyEntity(Entity const entity);
 
 		void OnRuntimeStart();
