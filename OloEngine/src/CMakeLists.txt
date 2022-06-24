@@ -20,8 +20,6 @@
 		"OloEngine/Core/PlatformDetection.h"
 		"OloEngine/Core/Timer.h"
 		"OloEngine/Core/Timestep.h"
-		"OloEngine/Core/UUID.cpp"
-		"OloEngine/Core/UUID.h"
 		"OloEngine/Core/Window.cpp"
 		"OloEngine/Core/Window.h"
 
