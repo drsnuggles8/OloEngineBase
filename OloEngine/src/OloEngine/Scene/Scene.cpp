@@ -45,10 +45,12 @@ namespace OloEngine {
 
 	Entity Scene::CreateEntityWithUUID(UUID uuid, const std::string & name)
 	{
-		Entity entity = { m_Registry.create(), this };
-		// TODO(olbu): Get the adding of uuid to the ID component working
-		entity.AddComponent<IDComponent>();
+		auto entity = Entity { m_Registry.create(), this };
+		auto& idComponent = entity.AddComponent<IDComponent>();
+		idComponent.ID = uuid;
+
 		entity.AddComponent<TransformComponent>();
+
 		auto& tag = entity.AddComponent<TagComponent>();
 		tag.Tag = name.empty() ? "Entity" : name;
 		return entity;

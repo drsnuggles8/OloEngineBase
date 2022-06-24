@@ -11,7 +11,8 @@ namespace OloEngine {
 		UUID(uint64_t uuid);
 		UUID(const UUID&) = default;
 
-		operator uint64_t() const { return m_UUID; }
+		operator uint64_t() { return m_UUID; }
+		operator const uint64_t() const { return m_UUID; }
 	private:
 		uint64_t m_UUID;
 	};
@@ -25,7 +26,9 @@ namespace std {
 	{
 		std::size_t operator()(const OloEngine::UUID& uuid) const
 		{
-			return hash<uint64_t>()((uint64_t)uuid);
+			// uuid is already a randomly generated number, and is suitable as a hash key as-is.
+			// this may change in future, in which case return hash<uint64_t>{}(uuid); might be more appropriate
+			return uuid;
 		}
 	};
 

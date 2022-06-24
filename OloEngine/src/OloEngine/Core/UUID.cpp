@@ -5,8 +5,6 @@
 
 #include <random>
 
-#include <unordered_map>
-
 namespace OloEngine {
 
 	static std::random_device s_RandomDevice;
@@ -22,5 +20,4 @@ namespace OloEngine {
 		: m_UUID(uuid)
 	{
 	}
-
 }
