@@ -18,7 +18,7 @@ namespace OloEngine {
 	{
 	}
 
-	UUID::UUID(const uint64_t uuid)
+	UUID::UUID(uint64_t uuid)
 		: m_UUID(uuid)
 	{
 	}

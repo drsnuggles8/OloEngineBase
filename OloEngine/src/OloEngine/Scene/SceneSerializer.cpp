@@ -149,8 +149,10 @@ namespace OloEngine {
 
 	static void SerializeEntity(YAML::Emitter& out, Entity entity)
 	{
+		OLO_CORE_ASSERT(entity.HasComponent<IDComponent>())
+
 		out << YAML::BeginMap; // Entity
-		out << YAML::Key << "Entity" << YAML::Value << "12837192831273"; // TODO: Entity ID goes here
+		out << YAML::Key << "Entity" << YAML::Value << entity.GetUUID();
 
 		if (entity.HasComponent<TagComponent>())
 		{
@@ -296,7 +298,7 @@ namespace OloEngine {
 		{
 			for (auto entity : entities)
 			{
-				auto uuid = entity["Entity"].as<uint64_t>(); // TODO
+				auto uuid = entity["Entity"].as<uint64_t>();
 
 				std::string name;
 				if (auto tagComponent = entity["TagComponent"]; tagComponent)
@@ -306,7 +308,7 @@ namespace OloEngine {
 
 				OLO_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
 
-				Entity deserializedEntity = m_Scene->CreateEntity(name);
+				Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);
 
 				if (auto transformComponent = entity["TransformComponent"]; transformComponent)
 				{
