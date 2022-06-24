@@ -8,10 +8,10 @@ namespace OloEngine {
 	{
 	public:
 		UUID();
-		explicit UUID(const uint64_t uuid);
+		UUID(uint64_t uuid);
 		UUID(const UUID&) = default;
 
-		explicit operator uint64_t() const { return m_UUID; }
+		operator uint64_t() const { return m_UUID; }
 	private:
 		uint64_t m_UUID;
 	};
