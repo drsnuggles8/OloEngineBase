@@ -7,13 +7,16 @@ namespace OloEngine {
 
 	struct NativeScriptComponent
 	{
-		std::function<Scope<NativeScript>(Entity entity)> InstantiateScript;
-		Scope<NativeScript> Instance;
+		NativeScript* Instance = nullptr;
 
-		template<typename T, typename... Args>
-		void Bind(Args... args)
+		NativeScript* (*InstantiateScript)();
+		void (*DestroyScript)(NativeScriptComponent*);
+
+		template<typename T>
+		void Bind()
 		{
-			InstantiateScript = [args...](Entity entity)->Scope<NativeScript> { return CreateScope<T>(entity, args...); };
+			InstantiateScript = []() { return static_cast<NativeScript*>(new T()); };
+			DestroyScript = [](NativeScriptComponent* nsc) { delete nsc->Instance; nsc->Instance = nullptr; };
 		}
 	};
 
