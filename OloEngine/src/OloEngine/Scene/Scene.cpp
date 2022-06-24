@@ -39,13 +39,7 @@ namespace OloEngine {
 
 	Entity Scene::CreateEntity(const std::string& name)
 	{
-		return CreateEntityWithUUID(UUID(), name);
-	}
-
-	Entity Scene::CreateEntityWithUUID(UUID uuid, const std::string & name)
-	{
 		Entity entity = { m_Registry.create(), this };
-		entity.AddComponent<IDComponent>(uuid);
 		entity.AddComponent<TransformComponent>();
 		auto& tag = entity.AddComponent<TagComponent>();
 		tag.Tag = name.empty() ? "Entity" : name;
@@ -216,11 +210,6 @@ namespace OloEngine {
 	void Scene::OnComponentAdded(Entity entity, T& component)
 	{
 		//static_assert(false);
-	}
-
-	template<>
-	void Scene::OnComponentAdded<IDComponent>(Entity entity, IDComponent& component)
-	{
 	}
 
 	template<>
