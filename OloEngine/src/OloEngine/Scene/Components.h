@@ -72,18 +72,6 @@ namespace OloEngine {
 		CameraComponent(const CameraComponent&) = default;
 	};
 
-	struct NativeScriptComponent
-	{
-		std::function<Scope<NativeScript>(Entity entity)> InstantiateScript;
-		Scope<NativeScript> Instance;
-
-		template<typename T, typename... Args>
-		void Bind(Args... args)
-		{
-			InstantiateScript = [args...](Entity entity)->Scope<NativeScript> { return CreateScope<T>(entity, args...); };
-		}
-	};
-
 	// Physics
 
 	struct Rigidbody2DComponent
