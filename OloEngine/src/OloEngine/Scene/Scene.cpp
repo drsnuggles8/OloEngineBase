@@ -394,7 +394,6 @@ namespace OloEngine {
 
 		// Draw circles
 		{
-			
 			for (const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>(); const auto entity : view)
 			{
 				auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
