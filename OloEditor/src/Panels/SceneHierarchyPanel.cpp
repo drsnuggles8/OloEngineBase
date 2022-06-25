@@ -49,7 +49,6 @@ namespace OloEngine {
 
 				ImGui::EndPopup();
 			}
-
 		}
 
 		ImGui::End();
@@ -442,7 +441,6 @@ namespace OloEngine {
 			ImGui::DragFloat("Restitution", &component.Restitution, 0.01f, 0.0f, 1.0f);
 			ImGui::DragFloat("Restitution Threshold", &component.RestitutionThreshold, 0.01f, 0.0f);
 		});
-
 	}
 
 	template<typename T>
