@@ -42,6 +42,8 @@ namespace OloEngine {
 
 		[[nodiscard("This returns the native window, you probably wanted another function!")]] virtual void* GetNativeWindow() const = 0;
 
+		virtual void SetTitle(const std::string& title) = 0;
+
 		static Scope<Window> Create(const WindowProps& props = WindowProps());
 	};
 

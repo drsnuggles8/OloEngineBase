@@ -28,6 +28,8 @@ namespace OloEngine {
 	{
 		OLO_PROFILE_FUNCTION();
 
+		Application::Get().GetWindow().SetTitle("Test");
+
 		m_CheckerboardTexture = Texture2D::Create("assets/textures/Checkerboard.png");
 		m_IconPlay = Texture2D::Create("Resources/Icons/PlayButton.png");
 		m_IconSimulate = Texture2D::Create("Resources/Icons/SimulateButton.png");

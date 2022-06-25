@@ -23,6 +23,8 @@ namespace OloEngine {
 		[[nodiscard("This returns m_Data.VSync, you probably wanted another function!")]] bool IsVSync() const override;
 
 		[[nodiscard("This returns m_Window, you probably wanted another function!")]] void* GetNativeWindow() const noexcept override { return m_Window; }
+
+		void SetTitle(const std::string& title) override;
 	private:
 		virtual void Init(const WindowProps& props);
 		virtual void Shutdown();
