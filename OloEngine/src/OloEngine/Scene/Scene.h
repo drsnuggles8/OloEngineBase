@@ -31,7 +31,7 @@ namespace OloEngine {
 		void OnSimulationStop();
 
 		void OnUpdateRuntime(Timestep const ts);
-		void OnUpdateSimulation(const Timestep ts, EditorCamera& camera);
+		void OnUpdateSimulation(const Timestep ts, EditorCamera const& camera);
 		void OnUpdateEditor(Timestep const ts, EditorCamera& camera);
 		void OnViewportResize(uint32_t width, uint32_t height);
 
@@ -51,7 +51,7 @@ namespace OloEngine {
 		void OnPhysics2DStart();
 		void OnPhysics2DStop();
 
-		void RenderScene(EditorCamera& camera);
+		void RenderScene(EditorCamera const& camera);
 	private:
 		entt::registry m_Registry;
 		uint32_t m_ViewportWidth = 0;

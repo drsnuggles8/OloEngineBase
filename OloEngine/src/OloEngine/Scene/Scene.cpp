@@ -92,7 +92,7 @@ namespace OloEngine {
 		auto& dstSceneRegistry = newScene->m_Registry;
 		std::unordered_map<UUID, entt::entity> enttMap;
 
-		// Create entities in new scene		
+		// Create entities in new scene
 		for (const auto idView = srcSceneRegistry.view<IDComponent>(); const auto e : idView)
 		{
 			const UUID uuid = srcSceneRegistry.get<IDComponent>(e).ID;
@@ -217,7 +217,7 @@ namespace OloEngine {
 				const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
 				for (const auto entity : group)
 				{
-					auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
+					const auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
 					Renderer2D::DrawSprite(transform.GetTransform(), sprite, static_cast<int>(entity));
 				}
 			}
@@ -227,7 +227,7 @@ namespace OloEngine {
 				const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
 				for (const auto entity : view)
 				{
-					auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
+					const auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
 
 					Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(entity));
 				}
@@ -237,7 +237,7 @@ namespace OloEngine {
 		}
 	}
 
-	void Scene::OnUpdateSimulation(const Timestep ts, EditorCamera& camera)
+	void Scene::OnUpdateSimulation(const Timestep ts, EditorCamera const& camera)
 	{
 		// Physics
 		{
@@ -246,14 +246,13 @@ namespace OloEngine {
 			m_PhysicsWorld->Step(ts, velocityIterations, positionIterations);
 
 			// Retrieve transform from Box2D
-			const auto view = m_Registry.view<Rigidbody2DComponent>();
-			for (const auto e : view)
+			for (const auto view = m_Registry.view<Rigidbody2DComponent>(); const auto e : view)
 			{
 				Entity entity = { e, this };
 				auto& transform = entity.GetComponent<TransformComponent>();
 				auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
 
-				auto const* body = static_cast<b2Body*>(rb2d.RuntimeBody);
+				auto const* const body = static_cast<b2Body*>(rb2d.RuntimeBody);
 				const auto& position = body->GetPosition();
 				transform.Translation.x = position.x;
 				transform.Translation.y = position.y;
@@ -302,9 +301,8 @@ namespace OloEngine {
 	Entity Scene::GetPrimaryCameraEntity()
 	{
 		for (const auto view = m_Registry.view<CameraComponent>(); auto const entity : view)
-		{
-			const auto& camera = view.get<CameraComponent>(entity);
-			if (camera.Primary)
+		{			
+			if (const auto& camera = view.get<CameraComponent>(entity); camera.Primary)
 			{
 				return Entity{ entity, this };
 			}
@@ -321,11 +319,11 @@ namespace OloEngine {
 	void Scene::OnPhysics2DStart()
 	{
 		m_PhysicsWorld = new b2World({ 0.0f, -9.8f });
-		
+
 		for (const auto view = m_Registry.view<Rigidbody2DComponent>(); const auto e : view)
 		{
 			Entity entity = { e, this };
-			auto& transform = entity.GetComponent<TransformComponent>();
+			auto const& transform = entity.GetComponent<TransformComponent>();
 			auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
 
 			b2BodyDef bodyDef;
@@ -333,13 +331,13 @@ namespace OloEngine {
 			bodyDef.position.Set(transform.Translation.x, transform.Translation.y);
 			bodyDef.angle = transform.Rotation.z;
 
-			b2Body* body = m_PhysicsWorld->CreateBody(&bodyDef);
+			b2Body* const body = m_PhysicsWorld->CreateBody(&bodyDef);
 			body->SetFixedRotation(rb2d.FixedRotation);
 			rb2d.RuntimeBody = body;
 
 			if (entity.HasComponent<BoxCollider2DComponent>())
 			{
-				auto& bc2d = entity.GetComponent<BoxCollider2DComponent>();
+				auto const& bc2d = entity.GetComponent<BoxCollider2DComponent>();
 
 				b2PolygonShape boxShape;
 				boxShape.SetAsBox(bc2d.Size.x * transform.Scale.x, bc2d.Size.y * transform.Scale.y);
@@ -355,7 +353,7 @@ namespace OloEngine {
 
 			if (entity.HasComponent<CircleCollider2DComponent>())
 			{
-				auto& cc2d = entity.GetComponent<CircleCollider2DComponent>();
+				auto const& cc2d = entity.GetComponent<CircleCollider2DComponent>();
 
 				b2CircleShape circleShape;
 				circleShape.m_p.Set(cc2d.Offset.x, cc2d.Offset.y);
@@ -378,15 +376,15 @@ namespace OloEngine {
 		m_PhysicsWorld = nullptr;
 	}
 
-	void Scene::RenderScene(EditorCamera& camera)
+	void Scene::RenderScene(EditorCamera const& camera)
 	{
 		Renderer2D::BeginScene(camera);
 
 		// Draw sprites
-		{			
+		{
 			for (const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>); const auto entity : group)
 			{
-				auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
+				const auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
 
 				Renderer2D::DrawSprite(transform.GetTransform(), sprite, static_cast<int>(entity));
 			}
@@ -396,7 +394,7 @@ namespace OloEngine {
 		{
 			for (const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>(); const auto entity : view)
 			{
-				auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
+				const auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
 
 				Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(entity));
 			}

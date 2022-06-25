@@ -441,7 +441,7 @@ namespace OloEngine {
 	{
 		OLO_PROFILE_FUNCTION();
 
-		// TODO: implement for circles
+		// TODO(olbu): implement for circles
 		// if (s_Data.QuadIndexCount >= Renderer2DData::MaxIndices)
 		// 	NextBatch();
 
