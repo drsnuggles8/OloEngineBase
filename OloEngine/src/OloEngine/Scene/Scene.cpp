@@ -298,6 +298,11 @@ namespace OloEngine {
 		CopyComponentIfExists<NativeScriptComponent>(newEntity, entity);
 	}
 
+	void Scene::SetName(const std::string& name)
+	{
+		m_Name = name;
+	}
+
 	Entity Scene::GetPrimaryCameraEntity()
 	{
 		for (const auto view = m_Registry.view<CameraComponent>(); auto const entity : view)

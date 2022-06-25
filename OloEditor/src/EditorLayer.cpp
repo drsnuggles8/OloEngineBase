@@ -714,6 +714,7 @@ namespace OloEngine {
 		{
 			SerializeScene(m_ActiveScene, filepath);
 			m_EditorScenePath = filepath;
+			m_ActiveScene->SetName(std::filesystem::path(filepath).filename().string());
 		}
 	}
 
