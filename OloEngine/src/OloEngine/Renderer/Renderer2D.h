@@ -47,7 +47,7 @@ namespace OloEngine {
 
 		static void DrawSprite(const glm::mat4& transform, SpriteRendererComponent const& src, const int entityID);
 
-		static float GetLineWidth();
+		[[nodiscard("This returns s_Data.LineWidth, you probably wanted another function!")]] static float GetLineWidth();
 		static void SetLineWidth(float width);
 
 		// Stats

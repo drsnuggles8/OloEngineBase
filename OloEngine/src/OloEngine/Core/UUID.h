@@ -8,7 +8,7 @@ namespace OloEngine {
 	{
 	public:
 		UUID();
-		UUID(uint64_t uuid);
+		explicit(false) UUID(uint64_t uuid);
 		UUID(const UUID&) = default;
 
 		operator uint64_t() { return m_UUID; }

@@ -478,10 +478,10 @@ namespace OloEngine {
 
 	void Renderer2D::DrawRect(const glm::vec3& position, const glm::vec2& size, const glm::vec4& color, const int entityID)
 	{
-		const auto p0 = glm::vec3(position.x - size.x * 0.5f, position.y - size.y * 0.5f, position.z);
-		const auto p1 = glm::vec3(position.x + size.x * 0.5f, position.y - size.y * 0.5f, position.z);
-		const auto p2 = glm::vec3(position.x + size.x * 0.5f, position.y + size.y * 0.5f, position.z);
-		const auto p3 = glm::vec3(position.x - size.x * 0.5f, position.y + size.y * 0.5f, position.z);
+		const auto p0 = glm::vec3(position.x - (size.x * 0.5f), position.y - (size.y * 0.5f), position.z);
+		const auto p1 = glm::vec3(position.x + (size.x * 0.5f), position.y - (size.y * 0.5f), position.z);
+		const auto p2 = glm::vec3(position.x + (size.x * 0.5f), position.y + (size.y * 0.5f), position.z);
+		const auto p3 = glm::vec3(position.x - (size.x * 0.5f), position.y + (size.y * 0.5f), position.z);
 
 		DrawLine(p0, p1, color, entityID);
 		DrawLine(p1, p2, color, entityID);
