@@ -605,6 +605,11 @@ namespace OloEngine {
 
 		if (m_ShowPhysicsColliders)
 		{
+			// Calculate z index for translation
+			const float zIndex = 0.001f;
+			glm::vec3 cameraForwardDirection = m_EditorCamera.GetForwardDirection();
+			glm::vec3 projectionCollider = cameraForwardDirection * glm::vec3(zIndex);
+
 			// Box Colliders
 			{
 				const auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, BoxCollider2DComponent>();
@@ -612,7 +617,7 @@ namespace OloEngine {
 				{
 					const auto [tc, bc2d] = view.get<TransformComponent, BoxCollider2DComponent>(entity);
 
-					const glm::vec3 translation = tc.Translation + glm::vec3(bc2d.Offset, 0.001f);
+					const glm::vec3 translation = tc.Translation + glm::vec3(bc2d.Offset, -projectionCollider.z);
 					const glm::vec3 scale = tc.Scale * glm::vec3(bc2d.Size * 2.0f, 1.0f);
 
 					const glm::mat4 transform = glm::translate(glm::mat4(1.0f), translation)
@@ -630,7 +635,7 @@ namespace OloEngine {
 				{
 					const auto [tc, cc2d] = view.get<TransformComponent, CircleCollider2DComponent>(entity);
 
-					const glm::vec3 translation = tc.Translation + glm::vec3(cc2d.Offset, 0.001f);
+					const glm::vec3 translation = tc.Translation + glm::vec3(cc2d.Offset, -projectionCollider.z);
 					const glm::vec3 scale = tc.Scale * glm::vec3(cc2d.Radius * 2.0f);
 
 					const glm::mat4 transform = glm::translate(glm::mat4(1.0f), translation)
