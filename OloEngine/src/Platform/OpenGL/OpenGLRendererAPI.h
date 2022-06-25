@@ -13,7 +13,10 @@ namespace OloEngine {
 		void SetClearColor(const glm::vec4& color) override;
 		void Clear() override;
 
-		void DrawIndexed(const Ref<VertexArray>& vertexArray, uint32_t indexCount = 0) override;
+		void DrawIndexed(const Ref<VertexArray>& vertexArray, const uint32_t indexCount = 0) override;
+		void DrawLines(const Ref<VertexArray>& vertexArray, const uint32_t vertexCount) override;
+
+		void SetLineWidth(const float width) override;
 	};
 
 

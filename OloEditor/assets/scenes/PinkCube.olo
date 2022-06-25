@@ -1,6 +1,16 @@
 Scene: Untitled
 Entities:
-  - Entity: 12837192831273
+  - Entity: 6767739041032949213
+    TagComponent:
+      Tag: Test
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    Rigidbody2DComponent:
+      BodyType: Static
+      FixedRotation: false
+  - Entity: 14837192831273
     TagComponent:
       Tag: Top
     TransformComponent:
@@ -9,7 +19,7 @@ Entities:
       Scale: [1, 1, 1]
     SpriteRendererComponent:
       Color: [0.876447856, 0, 0.834712803, 1]
-  - Entity: 12837192831273
+  - Entity: 11837192831273
     TagComponent:
       Tag: Camera
     TransformComponent:
@@ -36,7 +46,7 @@ Entities:
       Scale: [1, 1, 1]
     SpriteRendererComponent:
       Color: [0.54842025, 0, 0.586872578, 1]
-  - Entity: 12837192831273
+  - Entity: 13837192831273
     TagComponent:
       Tag: Left
     TransformComponent:

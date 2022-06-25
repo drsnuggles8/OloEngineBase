@@ -1,7 +1,7 @@
 // This is an independent project of an individual developer. Dear PVS-Studio, please check it.
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "OloEnginePCH.h"
-#include "Platform/OpenGL/OpenGLFrameBuffer.h"
+#include "Platform/OpenGL/OpenGLFramebuffer.h"
 
 #include <glad/glad.h>
 
@@ -140,7 +140,8 @@ namespace OloEngine {
 			m_ColorAttachments.resize(m_ColorAttachmentSpecifications.size());
 			Utils::CreateTextures(multisample, m_ColorAttachments.data(), m_ColorAttachments.size());
 
-			for (size_t i = 0; i < m_ColorAttachments.size(); ++i)
+			auto stopCondition = m_ColorAttachments.size();
+			for (size_t i = 0; i < stopCondition; ++i)
 			{
 				Utils::BindTexture(multisample, m_ColorAttachments[i]);
 				switch (m_ColorAttachmentSpecifications[i].TextureFormat)
@@ -197,7 +198,7 @@ namespace OloEngine {
 
 	void OpenGLFramebuffer::Resize(uint32_t width, uint32_t height)
 	{
-		if (0 == width || 0 == height || width > s_MaxFramebufferSize || height > s_MaxFramebufferSize)
+		if ((0 == width) || (0 == height) || (width > s_MaxFramebufferSize) || (height > s_MaxFramebufferSize))
 		{
 			OLO_CORE_WARN("Attempted to rezize framebuffer to {0}, {1}", width, height);
 			return;
@@ -214,7 +215,7 @@ namespace OloEngine {
 		OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size())
 
 		glReadBuffer(GL_COLOR_ATTACHMENT0 + attachmentIndex);
-		int pixelData;
+		int pixelData{};
 		glReadPixels(x, y, 1, 1, GL_RED_INTEGER, GL_INT, &pixelData);
 		return pixelData;
 	}

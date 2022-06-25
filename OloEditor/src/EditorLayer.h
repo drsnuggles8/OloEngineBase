@@ -24,14 +24,21 @@ namespace OloEngine {
 		bool OnKeyPressed(KeyPressedEvent const& e);
 		bool OnMouseButtonPressed(MouseButtonPressedEvent const& e);
 
+		void OnOverlayRender() const;
+
 		void NewScene();
 		void OpenScene();
 		void OpenScene(const std::filesystem::path& path);
-		void SaveScene() const;
-		void SaveSceneAs() const;
+		void SaveScene();
+		void SaveSceneAs();
+
+		void SerializeScene(Ref<Scene> const scene, const std::filesystem::path& path) const;
 
 		void OnScenePlay();
+		void OnSceneSimulate();
 		void OnSceneStop();
+
+		void OnDuplicateEntity() const;
 
 		// UI Panels
 		void UI_Toolbar();
@@ -45,6 +52,8 @@ namespace OloEngine {
 		Ref<Framebuffer> m_Framebuffer;
 
 		Ref<Scene> m_ActiveScene;
+		Ref<Scene> m_EditorScene;
+		std::filesystem::path m_EditorScenePath;
 		Entity m_SquareEntity;
 		Entity m_CameraEntity;
 		Entity m_SecondCamera;
@@ -67,11 +76,11 @@ namespace OloEngine {
 
 		int m_GizmoType = -1;
 
-		std::string m_ActiveSceneFilePath = "";
+		bool m_ShowPhysicsColliders = false;
 
 		enum class SceneState
 		{
-			Edit = 0, Play = 1
+			Edit = 0, Play = 1, Simulate = 2
 		};
 		SceneState m_SceneState = SceneState::Edit;
 
@@ -81,6 +90,7 @@ namespace OloEngine {
 
 		// Editor resources
 		Ref<Texture2D> m_IconPlay;
+		Ref<Texture2D> m_IconSimulate;
 		Ref<Texture2D> m_IconStop;
 	};
 

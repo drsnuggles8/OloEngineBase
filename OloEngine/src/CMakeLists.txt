@@ -20,6 +20,8 @@
 		"OloEngine/Core/PlatformDetection.h"
 		"OloEngine/Core/Timer.h"
 		"OloEngine/Core/Timestep.h"
+		"OloEngine/Core/UUID.cpp"
+		"OloEngine/Core/UUID.h"
 		"OloEngine/Core/Window.cpp"
 		"OloEngine/Core/Window.h"
 
@@ -43,8 +45,8 @@
 		"OloEngine/Renderer/Camera.h"
 		"OloEngine/Renderer/EditorCamera.cpp"
 		"OloEngine/Renderer/EditorCamera.h"
-		"OloEngine/Renderer/FrameBuffer.cpp"
-		"OloEngine/Renderer/FrameBuffer.h"
+		"OloEngine/Renderer/Framebuffer.cpp"
+		"OloEngine/Renderer/Framebuffer.h"
 		"OloEngine/Renderer/GraphicsContext.cpp"
 		"OloEngine/Renderer/GraphicsContext.h"
 		"OloEngine/Renderer/OrthographicCamera.cpp"
@@ -78,6 +80,7 @@
 		"OloEngine/Scene/SceneSerializer.cpp"
 		"OloEngine/Scene/SceneSerializer.h"
 		"OloEngine/Scene/NativeScript.h"
+		"OloEngine/Scene/NativeScriptComponent.h"
 
 		"OloEngine/Utils/PlatformUtils.h"
 
@@ -85,8 +88,8 @@
 		"Platform/OpenGL/OpenGLBuffer.h"
 		"Platform/OpenGL/OpenGLContext.cpp"
 		"Platform/OpenGL/OpenGLContext.h"
-		"Platform/OpenGL/OpenGLFrameBuffer.cpp"
-		"Platform/OpenGL/OpenGLFrameBuffer.h"
+		"Platform/OpenGL/OpenGLFramebuffer.cpp"
+		"Platform/OpenGL/OpenGLFramebuffer.h"
 		"Platform/OpenGL/OpenGLRendererAPI.cpp"
 		"Platform/OpenGL/OpenGLRendererAPI.h"
 		"Platform/OpenGL/OpenGLShader.cpp"

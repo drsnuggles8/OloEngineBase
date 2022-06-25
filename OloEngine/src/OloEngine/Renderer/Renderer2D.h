@@ -37,7 +37,18 @@ namespace OloEngine {
 		static void DrawRotatedQuad(const glm::vec2& position, const glm::vec2& size, float rotation, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
 		static void DrawRotatedQuad(const glm::vec3& position, const glm::vec2& size, float rotation, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
 
-		static void DrawSprite(const glm::mat4& transform, SpriteRendererComponent& src, int entityID);
+		static void DrawCircle(const glm::mat4& transform, const glm::vec4& color, const float thickness = 1.0f, const float fade = 0.005f, const int entityID = -1);
+
+		static void DrawLine(const glm::vec3& p0, const glm::vec3& p1, const glm::vec4& color, const int entityID = -1);
+
+		static void DrawRect(const glm::vec3& position, const glm::vec2& size, const glm::vec4& color, const int entityID = -1);
+		static void DrawRect(const glm::mat4& transform, const glm::vec4& color, const int entityID = -1);
+
+
+		static void DrawSprite(const glm::mat4& transform, SpriteRendererComponent const& src, const int entityID);
+
+		[[nodiscard("This returns s_Data.LineWidth, you probably wanted another function!")]] static float GetLineWidth();
+		static void SetLineWidth(float width);
 
 		// Stats
 		struct Statistics

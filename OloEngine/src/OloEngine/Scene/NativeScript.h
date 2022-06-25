@@ -17,6 +17,8 @@ namespace OloEngine {
 		}
 
 	protected:
+		virtual void OnCreate() {}
+		virtual void OnDestroy() {}
 		virtual void OnUpdate(const Timestep ts) {}
 
 	private:
