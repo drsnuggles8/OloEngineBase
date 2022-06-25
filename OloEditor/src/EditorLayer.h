@@ -24,6 +24,8 @@ namespace OloEngine {
 		bool OnKeyPressed(KeyPressedEvent const& e);
 		bool OnMouseButtonPressed(MouseButtonPressedEvent const& e);
 
+		void OnOverlayRender();
+
 		void NewScene();
 		void OpenScene();
 		void OpenScene(const std::filesystem::path& path);
@@ -73,7 +75,7 @@ namespace OloEngine {
 
 		int m_GizmoType = -1;
 
-		std::string m_ActiveSceneFilePath = "";
+		bool m_ShowPhysicsColliders = false;
 
 		enum class SceneState
 		{
