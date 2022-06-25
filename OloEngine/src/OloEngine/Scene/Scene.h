@@ -18,10 +18,10 @@ namespace OloEngine {
 		Scene();
 		~Scene();
 
-		static Ref<Scene> Copy(Ref<Scene> other);
+		static Ref<Scene> Copy(Ref<Scene> const other);
 
 		Entity CreateEntity(const std::string& name = std::string());
-		Entity CreateEntityWithUUID(UUID uuid, const std::string& name = std::string());
+		Entity CreateEntityWithUUID(const UUID uuid, const std::string& name = std::string());
 		void DestroyEntity(Entity const entity);
 
 		void OnRuntimeStart();
@@ -31,7 +31,7 @@ namespace OloEngine {
 		void OnSimulationStop();
 
 		void OnUpdateRuntime(Timestep const ts);
-		void OnUpdateSimulation(Timestep ts, EditorCamera& camera);
+		void OnUpdateSimulation(const Timestep ts, EditorCamera& camera);
 		void OnUpdateEditor(Timestep const ts, EditorCamera& camera);
 		void OnViewportResize(uint32_t width, uint32_t height);
 

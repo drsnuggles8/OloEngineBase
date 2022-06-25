@@ -16,7 +16,7 @@ namespace OloEngine {
 		void Bind()
 		{
 			InstantiateScript = []() { return static_cast<NativeScript*>(new T()); };
-			DestroyScript = [](NativeScriptComponent* nsc) { delete nsc->Instance; nsc->Instance = nullptr; };
+			DestroyScript = [](NativeScriptComponent* const nsc) { delete nsc->Instance; nsc->Instance = nullptr; };
 		}
 	};
 

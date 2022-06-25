@@ -425,17 +425,19 @@ namespace OloEngine {
 
 		ImGui::Begin("##toolbar", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
-		bool toolbarEnabled = (bool)m_ActiveScene;
+		const auto toolbarEnabled = static_cast<bool>(m_ActiveScene);
 
-		ImVec4 tintColor = ImVec4(1, 1, 1, 1);
+		auto tintColor = ImVec4(1, 1, 1, 1);
 		if (!toolbarEnabled)
+		{
 			tintColor.w = 0.5f;
+		}
 
 		const float size = ImGui::GetWindowHeight() - 4.0f;
 		{
-			Ref<Texture2D> icon = (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Simulate) ? m_IconPlay : m_IconStop;
+			Ref<Texture2D> const icon = (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Simulate) ? m_IconPlay : m_IconStop;
 			ImGui::SetCursorPosX((ImGui::GetWindowContentRegionMax().x * 0.5f) - (size * 0.5f));
-			if (ImGui::ImageButton((ImTextureID)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
+			if (ImGui::ImageButton(reinterpret_cast<ImTextureID>(icon->GetRendererID()), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
 			{
 				if (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Simulate)
 				{
@@ -449,13 +451,17 @@ namespace OloEngine {
 		}
 		ImGui::SameLine();
 		{
-			Ref<Texture2D> icon = (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Play) ? m_IconSimulate : m_IconStop;		//ImGui::SetCursorPosX((ImGui::GetWindowContentRegionMax().x * 0.5f) - (size * 0.5f));
-			if (ImGui::ImageButton((ImTextureID)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
+			Ref<Texture2D> const icon = (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Play) ? m_IconSimulate : m_IconStop;		//ImGui::SetCursorPosX((ImGui::GetWindowContentRegionMax().x * 0.5f) - (size * 0.5f));
+			if (ImGui::ImageButton(reinterpret_cast<ImTextureID>(icon->GetRendererID()), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
 			{
 				if (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Play)
+				{
 					OnSceneSimulate();
+				}
 				else if (m_SceneState == SceneState::Simulate)
+				{
 					OnSceneStop();
+				}
 			}
 		}
 		ImGui::PopStyleVar(2);
@@ -525,8 +531,9 @@ namespace OloEngine {
 			case Key::D:
 			{
 				if (control)
+				{
 					OnDuplicateEntity();
-
+				}
 				break;
 			}
 
@@ -580,13 +587,15 @@ namespace OloEngine {
 		return false;
 	}
 
-	void EditorLayer::OnOverlayRender()
+	void EditorLayer::OnOverlayRender() const
 	{
 		if (m_SceneState == SceneState::Play)
 		{
 			Entity camera = m_ActiveScene->GetPrimaryCameraEntity();
 			if (!camera)
+			{
 				return;
+			}
 			Renderer2D::BeginScene(camera.GetComponent<CameraComponent>().Camera, camera.GetComponent<TransformComponent>().GetTransform());
 		}
 		else
@@ -598,15 +607,15 @@ namespace OloEngine {
 		{
 			// Box Colliders
 			{
-				auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, BoxCollider2DComponent>();
-				for (auto entity : view)
+				const auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, BoxCollider2DComponent>();
+				for (const auto entity : view)
 				{
-					auto [tc, bc2d] = view.get<TransformComponent, BoxCollider2DComponent>(entity);
+					const auto [tc, bc2d] = view.get<TransformComponent, BoxCollider2DComponent>(entity);
 
-					glm::vec3 translation = tc.Translation + glm::vec3(bc2d.Offset, 0.001f);
-					glm::vec3 scale = tc.Scale * glm::vec3(bc2d.Size * 2.0f, 1.0f);
+					const glm::vec3 translation = tc.Translation + glm::vec3(bc2d.Offset, 0.001f);
+					const glm::vec3 scale = tc.Scale * glm::vec3(bc2d.Size * 2.0f, 1.0f);
 
-					glm::mat4 transform = glm::translate(glm::mat4(1.0f), translation)
+					const glm::mat4 transform = glm::translate(glm::mat4(1.0f), translation)
 						* glm::rotate(glm::mat4(1.0f), tc.Rotation.z, glm::vec3(0.0f, 0.0f, 1.0f))
 						* glm::scale(glm::mat4(1.0f), scale);
 
@@ -671,7 +680,7 @@ namespace OloEngine {
 		if (serializer.Deserialize(path.string()))
 		{
 			m_EditorScene = newScene;
-			m_EditorScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+			m_EditorScene->OnViewportResize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));
 			m_SceneHierarchyPanel.SetContext(m_EditorScene);
 
 			m_ActiveScene = m_EditorScene;
@@ -682,9 +691,13 @@ namespace OloEngine {
 	void EditorLayer::SaveScene()
 	{
 		if (!m_EditorScenePath.empty())
+		{
 			SerializeScene(m_ActiveScene, m_EditorScenePath);
+		}
 		else
+		{
 			SaveSceneAs();
+		}
 	}
 
 	void EditorLayer::SaveSceneAs()
@@ -697,16 +710,18 @@ namespace OloEngine {
 		}
 	}
 
-	void EditorLayer::SerializeScene(Ref<Scene> scene, const std::filesystem::path& path)
+	void EditorLayer::SerializeScene(Ref<Scene> const scene, const std::filesystem::path& path) const
 	{
-		SceneSerializer serializer(scene);
+		const SceneSerializer serializer(scene);
 		serializer.Serialize(path.string());
 	}
 
 	void EditorLayer::OnScenePlay()
 	{
 		if (m_SceneState == SceneState::Simulate)
+		{
 			OnSceneStop();
+		}
 
 		m_SceneState = SceneState::Play;
 
@@ -719,7 +734,9 @@ namespace OloEngine {
 	void EditorLayer::OnSceneSimulate()
 	{
 		if (m_SceneState == SceneState::Play)
+		{
 			OnSceneStop();
+		}
 
 		m_SceneState = SceneState::Simulate;
 
@@ -735,9 +752,13 @@ namespace OloEngine {
 		OLO_CORE_ASSERT(m_SceneState == SceneState::Play || m_SceneState == SceneState::Simulate)
 
 		if (m_SceneState == SceneState::Play)
+		{
 			m_ActiveScene->OnRuntimeStop();
+		}
 		else if (m_SceneState == SceneState::Simulate)
+		{
 			m_ActiveScene->OnSimulationStop();
+		}
 
 		m_SceneState = SceneState::Edit;
 
@@ -746,14 +767,18 @@ namespace OloEngine {
 		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
 	}
 
-	void EditorLayer::OnDuplicateEntity()
+	void EditorLayer::OnDuplicateEntity() const
 	{
 		if (m_SceneState != SceneState::Edit)
+		{
 			return;
+		}
 
-		Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
+		const Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity();
 		if (selectedEntity)
+		{
 			m_EditorScene->DuplicateEntity(selectedEntity);
+		}
 	}
 
 }

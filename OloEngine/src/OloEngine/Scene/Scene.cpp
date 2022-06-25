@@ -69,7 +69,9 @@ namespace OloEngine {
 		([&]()
 		{
 			if (src.HasComponent<Component>())
+			{
 				dst.AddOrReplaceComponent<Component>(src.GetComponent<Component>());
+			}
 		}(), ...);
 	}
 
@@ -79,7 +81,7 @@ namespace OloEngine {
 		CopyComponentIfExists<Component...>(dst, src);
 	}
 
-	Ref<Scene> Scene::Copy(Ref<Scene> other)
+	Ref<Scene> Scene::Copy(Ref<Scene> const other)
 	{
 		Ref<Scene> newScene = CreateRef<Scene>();
 
@@ -90,14 +92,13 @@ namespace OloEngine {
 		auto& dstSceneRegistry = newScene->m_Registry;
 		std::unordered_map<UUID, entt::entity> enttMap;
 
-		// Create entities in new scene
-		auto idView = srcSceneRegistry.view<IDComponent>();
-		for (auto e : idView)
+		// Create entities in new scene		
+		for (const auto idView = srcSceneRegistry.view<IDComponent>(); const auto e : idView)
 		{
-			UUID uuid = srcSceneRegistry.get<IDComponent>(e).ID;
+			const UUID uuid = srcSceneRegistry.get<IDComponent>(e).ID;
 			const auto& name = srcSceneRegistry.get<TagComponent>(e).Tag;
-			Entity newEntity = newScene->CreateEntityWithUUID(uuid, name);
-			enttMap[uuid] = (entt::entity)newEntity;
+			const Entity newEntity = newScene->CreateEntityWithUUID(uuid, name);
+			enttMap[uuid] = static_cast<entt::entity>(newEntity);
 		}
 
 		// Copy components (except IDComponent and TagComponent)
@@ -112,7 +113,7 @@ namespace OloEngine {
 		return CreateEntityWithUUID(UUID(), name);
 	}
 
-	Entity Scene::CreateEntityWithUUID(UUID uuid, const std::string & name)
+	Entity Scene::CreateEntityWithUUID(const UUID uuid, const std::string & name)
 	{
 		auto entity = Entity { m_Registry.create(), this };
 		auto& idComponent = entity.AddComponent<IDComponent>();
@@ -213,8 +214,8 @@ namespace OloEngine {
 
 			// Draw sprites
 			{
-				auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
-				for (auto entity : group)
+				const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
+				for (const auto entity : group)
 				{
 					auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
 					Renderer2D::DrawSprite(transform.GetTransform(), sprite, static_cast<int>(entity));
@@ -223,12 +224,12 @@ namespace OloEngine {
 
 			// Draw circles
 			{
-				auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
-				for (auto entity : view)
+				const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
+				for (const auto entity : view)
 				{
 					auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
 
-					Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, (int)entity);
+					Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(entity));
 				}
 			}
 
@@ -236,7 +237,7 @@ namespace OloEngine {
 		}
 	}
 
-	void Scene::OnUpdateSimulation(Timestep ts, EditorCamera& camera)
+	void Scene::OnUpdateSimulation(const Timestep ts, EditorCamera& camera)
 	{
 		// Physics
 		{
@@ -245,14 +246,14 @@ namespace OloEngine {
 			m_PhysicsWorld->Step(ts, velocityIterations, positionIterations);
 
 			// Retrieve transform from Box2D
-			auto view = m_Registry.view<Rigidbody2DComponent>();
-			for (auto e : view)
+			const auto view = m_Registry.view<Rigidbody2DComponent>();
+			for (const auto e : view)
 			{
 				Entity entity = { e, this };
 				auto& transform = entity.GetComponent<TransformComponent>();
 				auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
 
-				b2Body* body = (b2Body*)rb2d.RuntimeBody;
+				auto const* body = static_cast<b2Body*>(rb2d.RuntimeBody);
 				const auto& position = body->GetPosition();
 				transform.Translation.x = position.x;
 				transform.Translation.y = position.y;
@@ -292,7 +293,7 @@ namespace OloEngine {
 
 	void Scene::DuplicateEntity(Entity entity)
 	{
-		Entity newEntity = CreateEntity(entity.GetName());
+		const Entity newEntity = CreateEntity(entity.GetName());
 
 		CopyComponentIfExists(AllComponents{}, newEntity, entity);
 		CopyComponentIfExists<NativeScriptComponent>(newEntity, entity);
@@ -320,9 +321,8 @@ namespace OloEngine {
 	void Scene::OnPhysics2DStart()
 	{
 		m_PhysicsWorld = new b2World({ 0.0f, -9.8f });
-
-		auto view = m_Registry.view<Rigidbody2DComponent>();
-		for (auto e : view)
+		
+		for (const auto view = m_Registry.view<Rigidbody2DComponent>(); const auto e : view)
 		{
 			Entity entity = { e, this };
 			auto& transform = entity.GetComponent<TransformComponent>();
@@ -383,24 +383,23 @@ namespace OloEngine {
 		Renderer2D::BeginScene(camera);
 
 		// Draw sprites
-		{
-			auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
-			for (auto entity : group)
+		{			
+			for (const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>); const auto entity : group)
 			{
 				auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
 
-				Renderer2D::DrawSprite(transform.GetTransform(), sprite, (int)entity);
+				Renderer2D::DrawSprite(transform.GetTransform(), sprite, static_cast<int>(entity));
 			}
 		}
 
 		// Draw circles
 		{
-			auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
-			for (auto entity : view)
+			
+			for (const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>(); const auto entity : view)
 			{
 				auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
 
-				Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, (int)entity);
+				Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(entity));
 			}
 		}
 

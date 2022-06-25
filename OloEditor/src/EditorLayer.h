@@ -24,7 +24,7 @@ namespace OloEngine {
 		bool OnKeyPressed(KeyPressedEvent const& e);
 		bool OnMouseButtonPressed(MouseButtonPressedEvent const& e);
 
-		void OnOverlayRender();
+		void OnOverlayRender() const;
 
 		void NewScene();
 		void OpenScene();
@@ -32,13 +32,13 @@ namespace OloEngine {
 		void SaveScene();
 		void SaveSceneAs();
 
-		void SerializeScene(Ref<Scene> scene, const std::filesystem::path& path);
+		void SerializeScene(Ref<Scene> const scene, const std::filesystem::path& path) const;
 
 		void OnScenePlay();
 		void OnSceneSimulate();
 		void OnSceneStop();
 
-		void OnDuplicateEntity();
+		void OnDuplicateEntity() const;
 
 		// UI Panels
 		void UI_Toolbar();
