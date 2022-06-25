@@ -1,16 +1,13 @@
 // This is an independent project of an individual developer. Dear PVS-Studio, please check it.
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
-#include <ranges>
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/Application.h"
-
 #include "OloEngine/Core/Log.h"
-
 #include "OloEngine/Renderer/Renderer.h"
-
 #include "OloEngine/Core/Input.h"
+#include "OloEngine/Utils/PlatformUtils.h"
 
-#include <GLFW/glfw3.h>
+#include <ranges>
 
 namespace OloEngine {
 
@@ -105,7 +102,7 @@ namespace OloEngine {
 		{
 			OLO_PROFILE_SCOPE("RunLoop");
 
-			const auto timeNow = static_cast<float>(::glfwGetTime());
+			const auto timeNow = Time::GetTime();
 			const Timestep timestep = timeNow - m_LastFrameTime;
 			m_LastFrameTime = timeNow;
 
