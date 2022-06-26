@@ -210,6 +210,11 @@ namespace OloEngine {
 
 			auto const& spriteRendererComponent = entity.GetComponent<SpriteRendererComponent>();
 			out << YAML::Key << "Color" << YAML::Value << spriteRendererComponent.Color;
+			if (auto& texture = spriteRendererComponent.Texture)
+			{
+				out << YAML::Key << "TexturePath" << YAML::Value << texture->GetPath();
+				out << YAML::Key << "TilingFactor" << YAML::Value << spriteRendererComponent.TilingFactor;
+			}
 
 			out << YAML::EndMap; // SpriteRendererComponent
 		}
@@ -372,6 +377,15 @@ namespace OloEngine {
 				{
 					auto& src = deserializedEntity.AddComponent<SpriteRendererComponent>();
 					src.Color = spriteRendererComponent["Color"].as<glm::vec4>();
+					if (auto texture = spriteRendererComponent["TexturePath"])
+					{
+						if (std::string textureFilePath = texture.as<std::string>();
+							std::filesystem::exists(textureFilePath))
+							src.Texture = Texture2D::Create(textureFilePath);
+						else
+							OLO_CORE_ERROR("Texture '{0}' was not found", textureFilePath);
+						src.TilingFactor = spriteRendererComponent["TilingFactor"].as<float>();
+					}
 				}
 
 				if (auto circleRendererComponent = entity["CircleRendererComponent"]; circleRendererComponent)
