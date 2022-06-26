@@ -87,6 +87,7 @@ namespace OloEngine {
 	void EditorCamera::OnEvent(Event& e)
 	{
 		EventDispatcher dispatcher(e);
+		// TODO(olbu): Only dispatch when hovering viewport?
 		dispatcher.Dispatch<MouseScrolledEvent>(OLO_BIND_EVENT_FN(EditorCamera::OnMouseScroll));
 	}
 

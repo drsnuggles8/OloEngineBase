@@ -7,7 +7,7 @@
 
 namespace OloEngine {
 
-	// Once we have projects, change this
+	// TODO(Olbu): Once we have projects, change this
 	extern const std::filesystem::path g_AssetPath = "assets";
 
 	ContentBrowserPanel::ContentBrowserPanel()

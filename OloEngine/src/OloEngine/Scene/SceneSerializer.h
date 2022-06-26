@@ -2,6 +2,8 @@
 
 #include "OloEngine/Scene/Scene.h"
 
+#include <filesystem>
+
 namespace OloEngine {
 
 	class SceneSerializer
@@ -9,13 +11,13 @@ namespace OloEngine {
 	public:
 		explicit SceneSerializer(const Ref<Scene>& scene);
 
-		void Serialize(const std::string& filepath) const;
+		void Serialize(const std::filesystem::path& filepath) const;
 
-		[[maybe_unused]] void SerializeRuntime(std::string_view filepath) const;
+		[[maybe_unused]] void SerializeRuntime(const std::filesystem::path& filepath) const;
 
-		bool Deserialize(const std::string& filepath) const;
+		bool Deserialize(const std::filesystem::path& filepath) const;
 
-		[[maybe_unused]] bool DeserializeRuntime(std::string_view const filepath) const;
+		[[maybe_unused]] bool DeserializeRuntime(const std::filesystem::path& filepath) const;
 	private:
 		Ref<Scene> m_Scene;
 	};

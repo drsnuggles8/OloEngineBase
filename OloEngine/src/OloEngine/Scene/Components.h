@@ -82,8 +82,9 @@ namespace OloEngine {
 
 	struct CameraComponent
 	{
+		// TODO(olbu): think about moving to Scene
 		SceneCamera Camera;
-		bool Primary = true; // TODO: think about moving to Scene
+		bool Primary = true;
 		bool FixedAspectRatio = false;
 
 		CameraComponent() = default;
