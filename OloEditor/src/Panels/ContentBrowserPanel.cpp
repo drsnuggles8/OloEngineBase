@@ -88,8 +88,8 @@ namespace OloEngine {
 			auto imageIcon = Texture2D::Create(filepath.string());
 			if (imageIcon->IsLoaded())
 			{
-				m_ImageIcons[filepath] = imageIcon;
-				return m_ImageIcons[filepath];
+				auto& icon = m_ImageIcons[filepath] = imageIcon;
+				return icon;
 			}
 			else
 			{
