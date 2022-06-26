@@ -443,7 +443,7 @@ namespace OloEngine {
 	void EditorLayer::OnEvent(Event& e)
 	{
 		m_CameraController.OnEvent(e);
-		if ((m_SceneState == SceneState::Edit) && m_ViewportHovered)
+		if ((m_SceneState != SceneState::Play) && m_ViewportHovered)
 		{
 			m_EditorCamera.OnEvent(e);
 		}

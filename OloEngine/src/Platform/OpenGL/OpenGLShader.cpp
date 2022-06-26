@@ -64,7 +64,7 @@ namespace OloEngine {
 
 		static void CreateCacheDirectoryIfNeeded()
 		{
-			const std::string cacheDirectory = GetCacheDirectory();
+			const std::filesystem::path cacheDirectory = GetCacheDirectory();
 			if (!std::filesystem::exists(cacheDirectory))
 			{
 				std::filesystem::create_directories(cacheDirectory);
@@ -167,8 +167,7 @@ namespace OloEngine {
 		OLO_PROFILE_FUNCTION();
 
 		std::string result;
-		std::ifstream in(filepath, std::ios::in | std::ios::binary); // ifstream closes itself due to RAII
-		if (in)
+		if (std::ifstream in(filepath, std::ios::in | std::ios::binary); in)
 		{
 			in.seekg(0, std::ios::end);
 			size_t const size = in.tellg();
@@ -338,7 +337,7 @@ namespace OloEngine {
 		for (auto&& [stage, spirv] : m_OpenGLSPIRV)
 		{
 			const GLuint shaderID = shaderIDs.emplace_back(glCreateShader(stage));
-			glShaderBinary(1, &shaderID, GL_SHADER_BINARY_FORMAT_SPIR_V, spirv.data(), spirv.size() * sizeof(uint32_t));
+			glShaderBinary(1, &shaderID, GL_SHADER_BINARY_FORMAT_SPIR_V, spirv.data(), static_cast<GLsizei>(spirv.size() * sizeof(uint32_t)));
 			glSpecializeShader(shaderID, "main", 0, nullptr, nullptr);
 			glAttachShader(program, shaderID);
 		}
@@ -511,9 +510,9 @@ namespace OloEngine {
 		for (const auto& resource : resources.uniform_buffers)
 		{
 			const auto& bufferType = compiler.get_type(resource.base_type_id);
-			uint32_t bufferSize = compiler.get_declared_struct_size(bufferType);
+			size_t bufferSize = compiler.get_declared_struct_size(bufferType);
 			uint32_t binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
-			int memberCount = bufferType.member_types.size();
+			size_t memberCount = bufferType.member_types.size();
 
 			OLO_CORE_TRACE("  {0}", resource.name);
 			OLO_CORE_TRACE("    Size = {0}", bufferSize);
