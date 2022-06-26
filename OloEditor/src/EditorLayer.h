@@ -43,7 +43,7 @@ namespace OloEngine {
 		// UI Panels
 		void UI_MenuBar();
 		void UI_Viewport();
-		void UI_Gizmos();
+		void UI_Gizmos() const;
 		void UI_Toolbar();
 		void UI_ChildPanels();
 		void UI_Settings();

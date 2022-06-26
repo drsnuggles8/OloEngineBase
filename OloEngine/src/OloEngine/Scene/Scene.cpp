@@ -318,7 +318,7 @@ namespace OloEngine {
 	template<typename T>
 	void Scene::OnComponentAdded(Entity entity, T& component)
 	{
-		static_assert(sizeof(T) == 0);
+		static_assert(0 == sizeof(T));
 	}
 
 	void Scene::OnPhysics2DStart()

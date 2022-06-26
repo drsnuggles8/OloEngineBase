@@ -217,7 +217,7 @@ namespace OloEngine {
 		if (entity.HasComponent<T>())
 		{
 			static char imguiPopupID[64];
-			sprintf_s(imguiPopupID, 64, "ComponentSettings%s", typeid(T).name());
+			::sprintf_s(imguiPopupID, 64, "ComponentSettings%s", typeid(T).name());
 			ImGui::PushID(imguiPopupID);
 
 			auto& component = entity.GetComponent<T>();

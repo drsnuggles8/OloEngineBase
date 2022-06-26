@@ -84,7 +84,7 @@ namespace OloEngine {
 		}
 
 		if (filepath.extension().string() == ".png")
-		{		
+		{
 			auto imageIcon = Texture2D::Create(filepath.string());
 			if (imageIcon->IsLoaded())
 			{

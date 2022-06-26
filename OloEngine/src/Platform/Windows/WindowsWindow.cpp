@@ -59,11 +59,11 @@ namespace OloEngine {
 			OLO_PROFILE_SCOPE("glfwCreateWindow");
 
 			GLFWmonitor* monitor = GLFWAPI::glfwGetPrimaryMonitor();
-			float xscale;
-			float yscale;
+			float xscale{};
+			float yscale{};
 			GLFWAPI::glfwGetMonitorContentScale(monitor, &xscale, &yscale);
 
-			if (xscale > 1.0f || yscale > 1.0f)
+			if ((xscale > 1.0f) || (yscale > 1.0f))
 			{
 				s_HighDPIScaleFactor = yscale;
 				GLFWAPI::glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);

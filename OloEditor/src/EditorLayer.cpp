@@ -49,10 +49,11 @@ namespace OloEngine {
 		}
 
 		if (!sceneLoaded)
+		{
 			NewScene();
+		}
 
 		m_EditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
-
 	}
 
 	void EditorLayer::OnDetach()
@@ -301,7 +302,7 @@ namespace OloEngine {
 		ImGui::PopStyleVar();
 	}
 
-	void EditorLayer::UI_Gizmos()
+	void EditorLayer::UI_Gizmos() const
 	{
 		if (Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity(); selectedEntity && (m_GizmoType != -1))
 		{
@@ -413,7 +414,7 @@ namespace OloEngine {
 	{
 		m_SceneHierarchyPanel.OnImGuiRender();
 		m_ContentBrowserPanel.OnImGuiRender();
-	}	
+	}
 
 	void EditorLayer::UI_Settings()
 	{
@@ -444,8 +445,10 @@ namespace OloEngine {
 	void EditorLayer::OnEvent(Event& e)
 	{
 		m_CameraController.OnEvent(e);
-		if (m_SceneState == SceneState::Edit && m_ViewportHovered)
+		if ((m_SceneState == SceneState::Edit) && m_ViewportHovered)
+		{
 			m_EditorCamera.OnEvent(e);
+		}
 
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<KeyPressedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
@@ -625,7 +628,9 @@ namespace OloEngine {
 	void EditorLayer::NewScene()
 	{
 		if (m_SceneState != SceneState::Edit)
+		{
 			return;
+		}
 
 		Ref<Scene> newScene = CreateRef<Scene>();
 		SetEditorScene(newScene);
@@ -655,8 +660,7 @@ namespace OloEngine {
 		}
 
 		Ref<Scene> const newScene = CreateRef<Scene>();
-		SceneSerializer const serializer(newScene);
-		if (!serializer.Deserialize(path.string()))
+		if (SceneSerializer const serializer(newScene); !serializer.Deserialize(path.string()))
 		{
 			return false;
 		}
