@@ -32,7 +32,7 @@ namespace OloEngine {
 
 		const float panelWidth = ImGui::GetContentRegionAvail().x;
 		auto columnCount = static_cast<int>(panelWidth / cellSize);
-		columnCount = std::max(columnCount, 0, false);
+		columnCount = std::max(columnCount, 1);
 
 		ImGui::Columns(columnCount, nullptr, false);
 
