@@ -4,8 +4,8 @@
 #include "Scene.h"
 
 #include "Components.h"
-#include "NativeScriptComponent.h"
 #include "OloEngine/Renderer/Renderer2D.h"
+#include "NativeScript.h"
 
 #include <glm/glm.hpp>
 

@@ -142,6 +142,23 @@ namespace OloEngine {
 		CircleCollider2DComponent(const CircleCollider2DComponent&) = default;
 	};
 
+	class NativeScript;
+
+	struct NativeScriptComponent
+	{
+		NativeScript* Instance = nullptr;
+
+		NativeScript* (*InstantiateScript)();
+		void (*DestroyScript)(NativeScriptComponent*);
+
+		template<typename T>
+		void Bind()
+		{
+			InstantiateScript = []() { return static_cast<NativeScript*>(new T()); };
+			DestroyScript = [](NativeScriptComponent* const nsc) { delete nsc->Instance; nsc->Instance = nullptr; };
+		}
+	};
+
 	template<typename... Component>
 	struct ComponentGroup
 	{
@@ -150,6 +167,7 @@ namespace OloEngine {
 	using AllComponents =
 		ComponentGroup<TransformComponent, SpriteRendererComponent,
 		CircleRendererComponent, CameraComponent,
-		Rigidbody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent>;
+		Rigidbody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
+		NativeScriptComponent>;
 
 }
