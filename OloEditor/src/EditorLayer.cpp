@@ -468,6 +468,13 @@ namespace OloEngine {
 		}
 		ImGui::PopStyleVar(2);
 		ImGui::PopStyleColor(3);
+
+		// TODO(olbu): maybe display active scene in window bar
+		ImGui::SameLine();
+		const std::string sceneName = m_EditorScenePath.has_filename() ? m_EditorScenePath.filename().string() : "unsaved Scene";
+		ImGui::SetCursorPosX(5.0f);
+		ImGui::Text(m_SceneState == SceneState::Play ? "Playing: %s" : "Editing: %s", sceneName.c_str());
+
 		ImGui::End();
 	}
 
@@ -721,7 +728,7 @@ namespace OloEngine {
 	void EditorLayer::SerializeScene(Ref<Scene> const scene, const std::filesystem::path& path) const
 	{
 		const SceneSerializer serializer(scene);
-		serializer.Serialize(path.string());
+		serializer.Serialize(path);
 	}
 
 	void EditorLayer::OnScenePlay()
