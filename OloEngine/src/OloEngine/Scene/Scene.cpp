@@ -47,11 +47,11 @@ namespace OloEngine {
 		([&]()
 		{
 			auto view = src.view<Component>();
-			for (auto srcEntity : view)
+			for (auto it = view.rbegin(); it != view.rend(); it++)
 			{
-				entt::entity dstEntity = enttMap.at(src.get<IDComponent>(srcEntity).ID);
+				entt::entity dstEntity = enttMap.at(src.get<IDComponent>(*it).ID);
 
-				auto& srcComponent = src.get<Component>(srcEntity);
+				auto& srcComponent = src.get<Component>(*it);
 				dst.emplace_or_replace<Component>(dstEntity, srcComponent);
 			}
 		}(), ...);
@@ -93,8 +93,10 @@ namespace OloEngine {
 		std::unordered_map<UUID, entt::entity> enttMap;
 
 		// Create entities in new scene
-		for (const auto idView = srcSceneRegistry.view<IDComponent>(); const auto e : idView)
+		const auto idView = srcSceneRegistry.view<IDComponent>();
+		for (auto it = idView.rbegin(); it != idView.rend(); it++)
 		{
+			entt::entity e = *it;
 			const UUID uuid = srcSceneRegistry.get<IDComponent>(e).ID;
 			const auto& name = srcSceneRegistry.get<TagComponent>(e).Tag;
 			const Entity newEntity = newScene->CreateEntityWithUUID(uuid, name);

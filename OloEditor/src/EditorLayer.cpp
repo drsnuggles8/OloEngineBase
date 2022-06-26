@@ -266,31 +266,29 @@ namespace OloEngine {
 			if (const ImGuiPayload* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
 			{
 				auto* const path = static_cast<wchar_t* const>(payload->Data);
-
 				const auto filePath = std::filesystem::path(path);
-				if (filePath.extension().string() == ".olo")
+				const auto parentPath = std::filesystem::path(path).parent_path();
+
+				if (parentPath == "scenes")	// Load scene
 				{
+					m_HoveredEntity = Entity();
 					OpenScene(std::filesystem::path(g_AssetPath) / path);
 				}
-				else if (filePath.extension().string() == ".png")
+				else if (parentPath == "textures") // Load texture
 				{
-					const std::filesystem::path texturePath = std::filesystem::path(g_AssetPath) / path;
-					const Ref<Texture2D> texture = Texture2D::Create(texturePath.string());
-					if (texture->IsLoaded())
+					if (m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>())
 					{
-						if (m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>())
+						const auto texturePath = std::filesystem::path(g_AssetPath) / path;
+						const Ref<Texture2D> texture = Texture2D::Create(texturePath.string());
+						if (texture->IsLoaded())
 						{
 							m_HoveredEntity.GetComponent<SpriteRendererComponent>().Texture = texture;
 						}
+						else
+						{
+							OLO_WARN("Could not load texture {0}", texturePath.filename().string());
+						}
 					}
-					else
-					{
-						OLO_WARN("Could not load texture {0}", texturePath.filename().string());
-					}
-				}
-				else
-				{
-					OLO_WARN("Tried to load unknown filetype {0}", filePath);
 				}
 			}
 			ImGui::EndDragDropTarget();
@@ -465,6 +463,7 @@ namespace OloEngine {
 
 		const bool control = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
 		const bool shift = Input::IsKeyPressed(Key::LeftShift) || Input::IsKeyPressed(Key::RightShift);
+		bool editing = m_ViewportHovered && m_SceneState == SceneState::Edit;
 
 		switch (e.GetKeyCode())
 		{
@@ -506,7 +505,7 @@ namespace OloEngine {
 			// Scene Commands
 			case Key::D:
 			{
-				if (control)
+				if (control && editing)
 				{
 					OnDuplicateEntity();
 				}
@@ -516,7 +515,7 @@ namespace OloEngine {
 			// Gizmos
 			case Key::Q:
 			{
-				if (!ImGuizmo::IsUsing())
+				if (!ImGuizmo::IsUsing() && editing)
 				{
 					m_GizmoType = -1;
 				}
@@ -524,7 +523,7 @@ namespace OloEngine {
 			}
 			case Key::W:
 			{
-				if (!ImGuizmo::IsUsing())
+				if (!ImGuizmo::IsUsing() && editing)
 				{
 					m_GizmoType = ImGuizmo::OPERATION::TRANSLATE;
 				}
@@ -532,7 +531,7 @@ namespace OloEngine {
 			}
 			case Key::E:
 			{
-				if (!ImGuizmo::IsUsing())
+				if (!ImGuizmo::IsUsing() && editing)
 				{
 					m_GizmoType = ImGuizmo::OPERATION::ROTATE;
 				}
@@ -540,18 +539,15 @@ namespace OloEngine {
 			}
 			case Key::R:
 			{
-				if (!ImGuizmo::IsUsing())
+				if (!ImGuizmo::IsUsing() && editing)
 				{
 					m_GizmoType = ImGuizmo::OPERATION::SCALE;
 				}
 				break;
 			}
-
-			default:
-			{
-				break;
-			}
 		}
+		return false;
+
 	}
 
 	bool EditorLayer::OnMouseButtonPressed(MouseButtonPressedEvent const& e)

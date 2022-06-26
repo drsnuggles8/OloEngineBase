@@ -32,11 +32,12 @@ namespace OloEngine {
 
 		if (m_Context)
 		{
-			m_Context->m_Registry.each([&](auto entityID)
+			auto view = m_Context->m_Registry.view<IDComponent>();
+			for (auto it = view.rbegin(); it != view.rend(); it++)
 			{
-				const Entity entity{ entityID , m_Context.get() };
+				Entity entity{ *it, *m_Context };
 				DrawEntityNode(entity);
-			});
+			}
 
 			if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
 			{

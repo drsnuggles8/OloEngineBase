@@ -83,7 +83,7 @@ namespace OloEngine {
 			return m_ImageIcons[filepath];
 		}
 
-		if (filepath.extension().string() == ".png")
+		if (std::string extension = filepath.extension().string(); extension == ".png" || extension == ".jpg")
 		{
 			auto imageIcon = Texture2D::Create(filepath.string());
 			if (imageIcon->IsLoaded())
@@ -93,7 +93,7 @@ namespace OloEngine {
 			}
 			else
 			{
-				OLO_WARN("Could not load texture {0}", filepath.filename().string());
+				OLO_WARN("Could not load texture {0}", extension);
 			}
 		}
 		return m_FileIcon;
