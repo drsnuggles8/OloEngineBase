@@ -642,7 +642,7 @@ namespace OloEngine {
 					const glm::vec3 scale = tc.Scale * glm::vec3(cc2d.Radius * 2.0f);
 
 					const glm::mat4 transform = glm::translate(glm::mat4(1.0f), translation)
-						* glm::scale(glm::mat4(1.0f), scale);
+						* glm::scale(glm::mat4(1.0f), glm::vec3(scale.x, scale.x, scale.z));
 
 					Renderer2D::DrawCircle(transform, glm::vec4(0, 1, 0, 1), 0.01f);
 				}
