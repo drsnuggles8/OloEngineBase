@@ -278,7 +278,7 @@ namespace OloEngine {
 	{
 		YAML::Emitter out;
 		out << YAML::BeginMap;
-		out << YAML::Key << "Scene" << YAML::Value << filepath.filename().string();
+		out << YAML::Key << "Scene" << YAML::Value << m_Scene->GetName();
 		out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
 		m_Scene->m_Registry.each([&](auto entityID)
 			{
@@ -322,6 +322,7 @@ namespace OloEngine {
 
 		auto sceneName = data["Scene"].as<std::string>();
 		OLO_CORE_TRACE("Deserializing scene '{0}'", sceneName);
+		m_Scene->SetName(sceneName);
 
 		if (const auto entities = data["Entities"]; entities)
 		{
