@@ -300,7 +300,7 @@ namespace OloEngine {
 		CopyComponentIfExists<NativeScriptComponent>(newEntity, entity);
 	}
 
-	void Scene::SetName(const std::string& name)
+	void Scene::SetName(std::string_view name)
 	{
 		m_Name = name;
 	}

@@ -39,7 +39,7 @@ namespace OloEngine {
 
 		Entity GetPrimaryCameraEntity();
 
-		void SetName(const std::string& name);
+		void SetName(std::string_view name);
 		[[nodiscard("This returns m_Name, you probably wanted another function!")]] const std::string & GetName() const { return m_Name; }
 
 		template<typename... Components>

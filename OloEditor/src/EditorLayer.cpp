@@ -273,20 +273,17 @@ namespace OloEngine {
 					m_HoveredEntity = Entity();
 					OpenScene(std::filesystem::path(g_AssetPath) / path);
 				}
-				else if (parentPath == "textures") // Load texture
+				else if (parentPath == "textures" && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
 				{
-					if (m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>())
+					const auto texturePath = std::filesystem::path(g_AssetPath) / path;
+					const Ref<Texture2D> texture = Texture2D::Create(texturePath.string());
+					if (texture->IsLoaded())
 					{
-						const auto texturePath = std::filesystem::path(g_AssetPath) / path;
-						const Ref<Texture2D> texture = Texture2D::Create(texturePath.string());
-						if (texture->IsLoaded())
-						{
-							m_HoveredEntity.GetComponent<SpriteRendererComponent>().Texture = texture;
-						}
-						else
-						{
-							OLO_WARN("Could not load texture {0}", texturePath.filename().string());
-						}
+						m_HoveredEntity.GetComponent<SpriteRendererComponent>().Texture = texture;
+					}
+					else
+					{
+						OLO_WARN("Could not load texture {0}", texturePath.filename().string());
 					}
 				}
 			}
@@ -462,7 +459,7 @@ namespace OloEngine {
 
 		const bool control = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
 		const bool shift = Input::IsKeyPressed(Key::LeftShift) || Input::IsKeyPressed(Key::RightShift);
-		bool editing = m_ViewportHovered && m_SceneState == SceneState::Edit;
+		bool editing = m_ViewportHovered && (m_SceneState == SceneState::Edit);
 
 		switch (e.GetKeyCode())
 		{
@@ -514,7 +511,7 @@ namespace OloEngine {
 			// Gizmos
 			case Key::Q:
 			{
-				if (!ImGuizmo::IsUsing() && editing)
+				if ((!ImGuizmo::IsUsing()) && editing)
 				{
 					m_GizmoType = -1;
 				}
@@ -522,7 +519,7 @@ namespace OloEngine {
 			}
 			case Key::W:
 			{
-				if (!ImGuizmo::IsUsing() && editing)
+				if ((!ImGuizmo::IsUsing()) && editing)
 				{
 					m_GizmoType = ImGuizmo::OPERATION::TRANSLATE;
 				}
@@ -530,7 +527,7 @@ namespace OloEngine {
 			}
 			case Key::E:
 			{
-				if (!ImGuizmo::IsUsing() && editing)
+				if ((!ImGuizmo::IsUsing()) && editing)
 				{
 					m_GizmoType = ImGuizmo::OPERATION::ROTATE;
 				}
@@ -538,7 +535,7 @@ namespace OloEngine {
 			}
 			case Key::R:
 			{
-				if (!ImGuizmo::IsUsing() && editing)
+				if ((!ImGuizmo::IsUsing()) && editing)
 				{
 					m_GizmoType = ImGuizmo::OPERATION::SCALE;
 				}
@@ -582,10 +579,12 @@ namespace OloEngine {
 
 			if (selection.HasComponent<TransformComponent>())
 			{
-				auto& tc = selection.GetComponent<TransformComponent>();
+				auto const& tc = selection.GetComponent<TransformComponent>();
 
 				if (selection.HasComponent<SpriteRendererComponent>())
+				{
 					Renderer2D::DrawRect(tc.GetTransform(), glm::vec4(1, 1, 1, 1));
+				}
 
 				if (selection.HasComponent<CircleRendererComponent>())
 				{
@@ -595,13 +594,13 @@ namespace OloEngine {
 					Renderer2D::DrawCircle(transform, glm::vec4(1, 1, 1, 1), 0.03f);
 				}
 
-				// TODO: Add outline for camera?
+				// TODO(olbu): Add outline for camera?
 			}
 		}
 
 		if (m_ShowPhysicsColliders)
-		{
-			if (Renderer2D::GetLineWidth() != -2.0f)
+		{			
+			if (const double epsilon = 1e-5; std::abs(Renderer2D::GetLineWidth() - -2.0f) > static_cast<float>(epsilon))
 			{
 				Renderer2D::Flush();
 				Renderer2D::SetLineWidth(2.0f);
