@@ -273,48 +273,13 @@ namespace OloEngine {
 			ImGui::EndMenuBar();
 		}
 
+		// UI Panels
 		m_SceneHierarchyPanel.OnImGuiRender();
 		m_ContentBrowserPanel.OnImGuiRender();
 
-		ImGui::Begin("Stats");
-
-		std::string name = "None";
-		if (m_HoveredEntity)
-		{
-			name = m_HoveredEntity.GetComponent<TagComponent>().Tag;
-		}
-		ImGui::Text("Hovered Entity: %s", name.c_str());
-
-		const auto stats = Renderer2D::GetStats();
-		ImGui::Text("Renderer2D Stats:");
-		ImGui::Text("Draw Calls: %d", stats.DrawCalls);
-		ImGui::Text("Quads: %d", stats.QuadCount);
-		ImGui::Text("Vertices: %d", stats.GetTotalVertexCount());
-		ImGui::Text("Indices: %d", stats.GetTotalIndexCount());
-
-		ImGui::End();
-
-		ImGui::Begin("Settings");
-		ImGui::Checkbox("Show physics colliders", &m_ShowPhysicsColliders);
-		ImGui::End();
-
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0, 0 });
-		ImGui::Begin("Viewport");
-		const auto viewportMinRegion = ImGui::GetWindowContentRegionMin();
-		const auto viewportMaxRegion = ImGui::GetWindowContentRegionMax();
-		const auto viewportOffset = ImGui::GetWindowPos();
-		m_ViewportBounds[0] = { viewportMinRegion.x + viewportOffset.x, viewportMinRegion.y + viewportOffset.y };
-		m_ViewportBounds[1] = { viewportMaxRegion.x + viewportOffset.x, viewportMaxRegion.y + viewportOffset.y };
-
-		m_ViewportFocused = ImGui::IsWindowFocused();
-		m_ViewportHovered = ImGui::IsWindowHovered();
-		Application::Get().GetImGuiLayer()->BlockEvents((!m_ViewportFocused) && (!m_ViewportHovered));
-
-		ImVec2 const viewportPanelSize = ImGui::GetContentRegionAvail();
-		m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
-
-		uint64_t const textureID = m_Framebuffer->GetColorAttachmentRendererID(0);
-		ImGui::Image(reinterpret_cast<void*>(textureID), ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
+		UI_RendererStats();
+		UI_Settings();
+		UI_Viewport();
 
 		if (ImGui::BeginDragDropTarget())
 		{
@@ -414,6 +379,27 @@ namespace OloEngine {
 		ImGui::End();
 	}
 
+	void EditorLayer::UI_Viewport()
+	{
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0, 0 });
+		ImGui::Begin("Viewport");
+		const auto viewportMinRegion = ImGui::GetWindowContentRegionMin();
+		const auto viewportMaxRegion = ImGui::GetWindowContentRegionMax();
+		const auto viewportOffset = ImGui::GetWindowPos();
+		m_ViewportBounds[0] = { viewportMinRegion.x + viewportOffset.x, viewportMinRegion.y + viewportOffset.y };
+		m_ViewportBounds[1] = { viewportMaxRegion.x + viewportOffset.x, viewportMaxRegion.y + viewportOffset.y };
+
+		m_ViewportFocused = ImGui::IsWindowFocused();
+		m_ViewportHovered = ImGui::IsWindowHovered();
+		Application::Get().GetImGuiLayer()->BlockEvents((!m_ViewportFocused) && (!m_ViewportHovered));
+
+		ImVec2 const viewportPanelSize = ImGui::GetContentRegionAvail();
+		m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
+
+		uint64_t const textureID = m_Framebuffer->GetColorAttachmentRendererID(0);
+		ImGui::Image(reinterpret_cast<void*>(textureID), ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
+	}
+
 	void EditorLayer::UI_Toolbar()
 	{
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 2));
@@ -469,12 +455,37 @@ namespace OloEngine {
 		ImGui::PopStyleVar(2);
 		ImGui::PopStyleColor(3);
 
-		// TODO(olbu): maybe display active scene in window bar
+		// TODO(olbu): maybe display active scene in window bar instead of toolbar
 		ImGui::SameLine();
 		const std::string sceneName = m_EditorScenePath.has_filename() ? m_EditorScenePath.filename().string() : "unsaved Scene";
 		ImGui::SetCursorPosX(5.0f);
 		ImGui::Text(m_SceneState == SceneState::Play ? "Playing: %s" : "Editing: %s", sceneName.c_str());
 
+		ImGui::End();
+	}
+
+	void EditorLayer::UI_Settings()
+	{
+		ImGui::Begin("Settings");
+		ImGui::Checkbox("Show physics colliders", &m_ShowPhysicsColliders);
+		ImGui::End();
+	}
+
+	void EditorLayer::UI_RendererStats()
+	{
+		ImGui::Begin("Stats");
+		std::string name = "None";
+		if (m_HoveredEntity)
+		{
+			name = m_HoveredEntity.GetComponent<TagComponent>().Tag;
+		}
+		ImGui::Text("Hovered Entity: %s", name.c_str());
+		const auto stats = Renderer2D::GetStats();
+		ImGui::Text("Renderer2D Stats:");
+		ImGui::Text("Draw Calls: %d", stats.DrawCalls);
+		ImGui::Text("Quads: %d", stats.QuadCount);
+		ImGui::Text("Vertices: %d", stats.GetTotalVertexCount());
+		ImGui::Text("Indices: %d", stats.GetTotalIndexCount());
 		ImGui::End();
 	}
 

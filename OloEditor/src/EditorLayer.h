@@ -41,7 +41,10 @@ namespace OloEngine {
 		void OnDuplicateEntity() const;
 
 		// UI Panels
+		void UI_Viewport();
 		void UI_Toolbar();
+		void UI_Settings();
+		void UI_RendererStats();
 
 	private:
 		OloEngine::OrthographicCameraController m_CameraController;
