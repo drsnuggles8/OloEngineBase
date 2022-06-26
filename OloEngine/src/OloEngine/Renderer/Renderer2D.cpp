@@ -377,7 +377,7 @@ namespace OloEngine {
 			}
 		}
 
-		if (const double epsilon = 1e-5; std::abs(textureIndex - 0.0f) > epsilon)
+		if (const double epsilon = 1e-5; std::abs(textureIndex - 0.0f) < epsilon)
 		{
 			if (s_Data.TextureSlotIndex >= Renderer2DData::MaxTextureSlots)
 			{
