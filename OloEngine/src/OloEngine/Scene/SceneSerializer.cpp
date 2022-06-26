@@ -210,6 +210,11 @@ namespace OloEngine {
 
 			auto const& spriteRendererComponent = entity.GetComponent<SpriteRendererComponent>();
 			out << YAML::Key << "Color" << YAML::Value << spriteRendererComponent.Color;
+			if (auto& texture = spriteRendererComponent.Texture)
+			{
+				out << YAML::Key << "TexturePath" << YAML::Value << texture->GetPath();
+				out << YAML::Key << "TilingFactor" << YAML::Value << spriteRendererComponent.TilingFactor;
+			}
 
 			out << YAML::EndMap; // SpriteRendererComponent
 		}
@@ -274,11 +279,11 @@ namespace OloEngine {
 		out << YAML::EndMap; // Entity
 	}
 
-	void SceneSerializer::Serialize(const std::string& filepath) const
+	void SceneSerializer::Serialize(const std::filesystem::path& filepath) const
 	{
 		YAML::Emitter out;
 		out << YAML::BeginMap;
-		out << YAML::Key << "Scene" << YAML::Value << "Untitled";
+		out << YAML::Key << "Scene" << YAML::Value << m_Scene->GetName();
 		out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
 		m_Scene->m_Registry.each([&](auto entityID)
 			{
@@ -297,18 +302,18 @@ namespace OloEngine {
 		fout << out.c_str();
 	}
 
-	[[maybe_unused]] void SceneSerializer::SerializeRuntime([[maybe_unused]] const std::string_view filepath) const
+	[[maybe_unused]] void SceneSerializer::SerializeRuntime([[maybe_unused]] const std::filesystem::path& filepath) const
 	{
 		// Not implemented
 		OLO_CORE_ASSERT(false)
 	}
 
-	bool SceneSerializer::Deserialize(const std::string& filepath) const
+	bool SceneSerializer::Deserialize(const std::filesystem::path& filepath) const
 	{
 		YAML::Node data;
 		try
 		{
-			data = YAML::LoadFile(filepath);
+			data = YAML::LoadFile(filepath.string());
 		}
 		catch (YAML::ParserException const e)
 		{
@@ -322,6 +327,7 @@ namespace OloEngine {
 
 		auto sceneName = data["Scene"].as<std::string>();
 		OLO_CORE_TRACE("Deserializing scene '{0}'", sceneName);
+		m_Scene->SetName(sceneName);
 
 		if (const auto entities = data["Entities"]; entities)
 		{
@@ -371,10 +377,22 @@ namespace OloEngine {
 				{
 					auto& src = deserializedEntity.AddComponent<SpriteRendererComponent>();
 					src.Color = spriteRendererComponent["Color"].as<glm::vec4>();
+					if (auto texture = spriteRendererComponent["TexturePath"])
+					{
+						if (std::string textureFilePath = texture.as<std::string>();
+							std::filesystem::exists(textureFilePath))
+						{
+							src.Texture = Texture2D::Create(textureFilePath);
+						}
+						else
+						{
+							OLO_CORE_ERROR("Texture '{0}' was not found", textureFilePath);
+						}
+						src.TilingFactor = spriteRendererComponent["TilingFactor"].as<float>();
+					}
 				}
 
-				auto circleRendererComponent = entity["CircleRendererComponent"];
-				if (circleRendererComponent)
+				if (auto circleRendererComponent = entity["CircleRendererComponent"]; circleRendererComponent)
 				{
 					auto& crc = deserializedEntity.AddComponent<CircleRendererComponent>();
 					crc.Color = circleRendererComponent["Color"].as<glm::vec4>();
@@ -389,8 +407,7 @@ namespace OloEngine {
 					rb2d.FixedRotation = rigidbody2DComponent["FixedRotation"].as<bool>();
 				}
 
-				auto boxCollider2DComponent = entity["BoxCollider2DComponent"];
-				if (boxCollider2DComponent)
+				if (auto boxCollider2DComponent = entity["BoxCollider2DComponent"]; boxCollider2DComponent)
 				{
 					auto& bc2d = deserializedEntity.AddComponent<BoxCollider2DComponent>();
 					bc2d.Offset = boxCollider2DComponent["Offset"].as<glm::vec2>();
@@ -401,8 +418,7 @@ namespace OloEngine {
 					bc2d.RestitutionThreshold = boxCollider2DComponent["RestitutionThreshold"].as<float>();
 				}
 
-				auto circleCollider2DComponent = entity["CircleCollider2DComponent"];
-				if (circleCollider2DComponent)
+				if (auto circleCollider2DComponent = entity["CircleCollider2DComponent"]; circleCollider2DComponent)
 				{
 					auto& cc2d = deserializedEntity.AddComponent<CircleCollider2DComponent>();
 					cc2d.Offset = circleCollider2DComponent["Offset"].as<glm::vec2>();
@@ -414,11 +430,12 @@ namespace OloEngine {
 				}
 			}
 		}
+		m_Scene->SetName(std::filesystem::path(filepath).filename().string());
 
 		return true;
 	}
 
-	[[nodiscard("This returns something, you probably wanted another function!")]] [[maybe_unused]] bool SceneSerializer::DeserializeRuntime([[maybe_unused]] std::string_view const filepath) const
+	[[nodiscard("This returns something, you probably wanted another function!")]] [[maybe_unused]] bool SceneSerializer::DeserializeRuntime([[maybe_unused]] const std::filesystem::path& filepath) const
 	{
 		// Not implemented
 		OLO_CORE_ASSERT(false)

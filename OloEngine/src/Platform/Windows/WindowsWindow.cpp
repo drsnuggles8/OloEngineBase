@@ -14,6 +14,8 @@
 #include "Platform/OpenGL/OpenGLContext.h"
 
 namespace OloEngine {
+	float Window::s_HighDPIScaleFactor = 1.0f;
+
 	static uint8_t s_GLFWWindowCount = 0;
 
 	static void GLFWErrorCallback(int error, const char* description)
@@ -55,6 +57,17 @@ namespace OloEngine {
 
 		{
 			OLO_PROFILE_SCOPE("glfwCreateWindow");
+
+			GLFWmonitor* monitor = GLFWAPI::glfwGetPrimaryMonitor();
+			float xscale{};
+			float yscale{};
+			GLFWAPI::glfwGetMonitorContentScale(monitor, &xscale, &yscale);
+
+			if ((xscale > 1.0f) || (yscale > 1.0f))
+			{
+				s_HighDPIScaleFactor = yscale;
+				GLFWAPI::glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
+			}
 
 			#if defined(OLO_DEBUG)
 						if (Renderer::GetAPI() == RendererAPI::API::OpenGL)
@@ -202,6 +215,12 @@ namespace OloEngine {
 	bool WindowsWindow::IsVSync() const
 	{
 		return m_Data.VSync;
+	}
+
+	void WindowsWindow::SetTitle(const std::string& title)
+	{
+		m_Data.Title = title;
+		GLFWAPI::glfwSetWindowTitle(m_Window, title.c_str());
 	}
 
 }

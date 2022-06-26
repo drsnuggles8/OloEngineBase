@@ -32,11 +32,7 @@ namespace OloEngine {
 
 		if (m_Context)
 		{
-			m_Context->m_Registry.each([&](auto entityID)
-			{
-				const Entity entity{ entityID , m_Context.get() };
-				DrawEntityNode(entity);
-			});
+			m_Context->m_Registry.each([&](const auto e) { DrawEntityNode({ e, *m_Context }); });
 
 			if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
 			{
@@ -216,6 +212,10 @@ namespace OloEngine {
 		const ImGuiTreeNodeFlags treeNodeFlags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowItemOverlap | ImGuiTreeNodeFlags_FramePadding;
 		if (entity.HasComponent<T>())
 		{
+			static char imguiPopupID[64];
+			::sprintf_s(imguiPopupID, 64, "ComponentSettings%s", typeid(T).name());
+			ImGui::PushID(imguiPopupID);
+
 			auto& component = entity.GetComponent<T>();
 			const ImVec2 contentRegionAvailable = ImGui::GetContentRegionAvail();
 
@@ -241,6 +241,8 @@ namespace OloEngine {
 
 				ImGui::EndPopup();
 			}
+
+			ImGui::PopID();
 
 			if (open)
 			{

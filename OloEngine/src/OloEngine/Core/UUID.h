@@ -1,7 +1,5 @@
 #pragma once
 
-#include <xhash>
-
 namespace OloEngine {
 
 	class UUID
@@ -28,7 +26,7 @@ namespace std {
 		{
 			// uuid is already a randomly generated number, and is suitable as a hash key as-is.
 			// this may change in future, in which case return hash<uint64_t>{}(uuid); might be more appropriate
-			return uuid;
+			return static_cast<uint64_t>(uuid);
 		}
 	};
 

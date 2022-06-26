@@ -28,6 +28,8 @@ namespace OloEngine {
 	{
 		OLO_PROFILE_FUNCTION();
 
+		Application::Get().GetWindow().SetTitle("Test");
+
 		m_CheckerboardTexture = Texture2D::Create("assets/textures/Checkerboard.png");
 		m_IconPlay = Texture2D::Create("Resources/Icons/PlayButton.png");
 		m_IconSimulate = Texture2D::Create("Resources/Icons/SimulateButton.png");
@@ -39,64 +41,18 @@ namespace OloEngine {
 		fbSpec.Height = 720;
 		m_Framebuffer = Framebuffer::Create(fbSpec);
 
-		m_EditorScene = CreateRef<Scene>();
-		m_ActiveScene = m_EditorScene;
+		bool sceneLoaded = false;
 
 		if (const auto commandLineArgs = Application::Get().GetCommandLineArgs(); commandLineArgs.Count > 1)
 		{
-			const auto sceneFilePath = commandLineArgs[1];
-			SceneSerializer const serializer(m_ActiveScene);
-			serializer.Deserialize(sceneFilePath);
+			sceneLoaded = OpenScene(commandLineArgs[1]);
 		}
 
-		m_EditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
-
-#if 0
-		// Entity
-		auto square = m_ActiveScene->CreateEntity("Green Square");
-		square.AddComponent<SpriteRendererComponent>(glm::vec4{ 0.0f, 1.0f, 0.0f, 1.0f });
-
-		auto redSquare = m_ActiveScene->CreateEntity("Red Square");
-		redSquare.AddComponent<SpriteRendererComponent>(glm::vec4{ 1.0f, 0.0f, 0.0f, 1.0f });
-
-		m_SquareEntity = square;
-
-		m_CameraEntity = m_ActiveScene->CreateEntity("Camera A");
-		m_CameraEntity.AddComponent<CameraComponent>();
-
-		m_SecondCamera = m_ActiveScene->CreateEntity("Camera B");
-		auto& cc = m_SecondCamera.AddComponent<CameraComponent>();
-		cc.Primary = false;
-
-		class CameraController : public NativeScript
+		if (!sceneLoaded)
 		{
-		public:
-			CameraController(Entity entity) : NativeScript(entity)
-			{
-				auto& translation = GetComponent<TransformComponent>().Translation;
-				translation.x = rand_r() % 10 - 5.0f;
-			}
-
-			void OnUpdate(Timestep ts) override
-			{
-				auto& translation = GetComponent<TransformComponent>().Translation;
-
-				float speed = 5.0f;
-
-				if (Input::IsKeyPressed(Key::A))
-					translation.x -= speed * ts;
-				if (Input::IsKeyPressed(Key::D))
-					translation.x += speed * ts;
-				if (Input::IsKeyPressed(Key::W))
-					translation.y += speed * ts;
-				if (Input::IsKeyPressed(Key::S))
-					translation.y -= speed * ts;
-			}
-		};
-
-		m_CameraEntity.AddComponent<NativeScriptComponent>().Bind<CameraController>();
-		m_SecondCamera.AddComponent<NativeScriptComponent>().Bind<CameraController>();
-#endif
+			NewScene();
+		}
+		m_EditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
 	}
 
 	void EditorLayer::OnDetach()
@@ -234,6 +190,18 @@ namespace OloEngine {
 
 		style.WindowMinSize.x = minWinSizeX;
 
+		UI_MenuBar();
+		UI_Viewport();
+		UI_Toolbar();
+		UI_ChildPanels();
+		UI_Settings();
+		UI_RendererStats();
+
+		ImGui::End();
+	}
+
+	void EditorLayer::UI_MenuBar()
+	{
 		if (ImGui::BeginMenuBar())
 		{
 			if (ImGui::BeginMenu("File"))
@@ -270,32 +238,10 @@ namespace OloEngine {
 
 			ImGui::EndMenuBar();
 		}
+	}
 
-		m_SceneHierarchyPanel.OnImGuiRender();
-		m_ContentBrowserPanel.OnImGuiRender();
-
-		ImGui::Begin("Stats");
-
-		std::string name = "None";
-		if (m_HoveredEntity)
-		{
-			name = m_HoveredEntity.GetComponent<TagComponent>().Tag;
-		}
-		ImGui::Text("Hovered Entity: %s", name.c_str());
-
-		const auto stats = Renderer2D::GetStats();
-		ImGui::Text("Renderer2D Stats:");
-		ImGui::Text("Draw Calls: %d", stats.DrawCalls);
-		ImGui::Text("Quads: %d", stats.QuadCount);
-		ImGui::Text("Vertices: %d", stats.GetTotalVertexCount());
-		ImGui::Text("Indices: %d", stats.GetTotalIndexCount());
-
-		ImGui::End();
-
-		ImGui::Begin("Settings");
-		ImGui::Checkbox("Show physics colliders", &m_ShowPhysicsColliders);
-		ImGui::End();
-
+	void EditorLayer::UI_Viewport()
+	{
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0, 0 });
 		ImGui::Begin("Viewport");
 		const auto viewportMinRegion = ImGui::GetWindowContentRegionMin();
@@ -319,50 +265,45 @@ namespace OloEngine {
 			if (const ImGuiPayload* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
 			{
 				auto* const path = static_cast<wchar_t* const>(payload->Data);
-
 				const auto filePath = std::filesystem::path(path);
-				if (filePath.extension().string() == ".olo")
+				const auto parentPath = std::filesystem::path(path).parent_path();
+
+				if (parentPath == "scenes")	// Load scene
 				{
+					m_HoveredEntity = Entity();
 					OpenScene(std::filesystem::path(g_AssetPath) / path);
 				}
-				else if (filePath.extension().string() == ".png")
+				else if (parentPath == "textures" && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
 				{
-					const std::filesystem::path texturePath = std::filesystem::path(g_AssetPath) / path;
+					const auto texturePath = std::filesystem::path(g_AssetPath) / path;
 					const Ref<Texture2D> texture = Texture2D::Create(texturePath.string());
 					if (texture->IsLoaded())
 					{
-						if (m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>())
-						{
-							m_HoveredEntity.GetComponent<SpriteRendererComponent>().Texture = texture;
-						}
+						m_HoveredEntity.GetComponent<SpriteRendererComponent>().Texture = texture;
 					}
 					else
 					{
 						OLO_WARN("Could not load texture {0}", texturePath.filename().string());
 					}
 				}
-				else
-				{
-					OLO_WARN("Tried to load unknown filetype {0}", filePath);
-				}
 			}
 			ImGui::EndDragDropTarget();
 		}
 
-		// Gizmos
+		UI_Gizmos();
+
+		ImGui::End();
+		ImGui::PopStyleVar();
+	}
+
+	void EditorLayer::UI_Gizmos() const
+	{
 		if (Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity(); selectedEntity && (m_GizmoType != -1))
 		{
 			ImGuizmo::SetOrthographic(false);
 			ImGuizmo::SetDrawlist();
 
 			ImGuizmo::SetRect(m_ViewportBounds[0].x, m_ViewportBounds[0].y, m_ViewportBounds[1].x - m_ViewportBounds[0].x, m_ViewportBounds[1].y - m_ViewportBounds[0].y);
-
-			// Camera
-			// Runtime camera from entity
-			// auto cameraEntity = m_ActiveScene->GetPrimaryCameraEntity();
-			// const auto& camera = cameraEntity.GetComponent<CameraComponent>().Camera;
-			// const glm::mat4& cameraProjection = camera.GetProjection();
-			// glm::mat4 cameraView = glm::inverse(cameraEntity.GetComponent<TransformComponent>().GetTransform());
 
 			// Editor camera
 			const glm::mat4& cameraProjection = m_EditorCamera.GetProjection();
@@ -374,8 +315,7 @@ namespace OloEngine {
 
 			// Snapping
 			const bool snap = Input::IsKeyPressed(Key::LeftControl);
-			float snapValue = 0.5f; // Snap to 0.5m for translation/scale
-			// Snap to 45 degrees for rotation
+			float snapValue = 0.5f;
 			if (m_GizmoType == ImGuizmo::OPERATION::ROTATE)
 			{
 				snapValue = 45.0f;
@@ -404,12 +344,6 @@ namespace OloEngine {
 				tc.Scale = scale;
 			}
 		}
-		ImGui::End();
-		ImGui::PopStyleVar();
-
-		UI_Toolbar();
-
-		ImGui::End();
 	}
 
 	void EditorLayer::UI_Toolbar()
@@ -466,13 +400,49 @@ namespace OloEngine {
 		}
 		ImGui::PopStyleVar(2);
 		ImGui::PopStyleColor(3);
+
+		ImGui::End();
+	}
+
+	void EditorLayer::UI_ChildPanels()
+	{
+		m_SceneHierarchyPanel.OnImGuiRender();
+		m_ContentBrowserPanel.OnImGuiRender();
+	}
+
+	void EditorLayer::UI_Settings()
+	{
+		ImGui::Begin("Settings");
+		ImGui::Checkbox("Show physics colliders", &m_ShowPhysicsColliders);
+		ImGui::End();
+	}
+
+	void EditorLayer::UI_RendererStats()
+	{
+		ImGui::Begin("Stats");
+		std::string name = "None";
+		if (m_HoveredEntity)
+		{
+			name = m_HoveredEntity.GetComponent<TagComponent>().Tag;
+		}
+		ImGui::Text("Hovered Entity: %s", name.c_str());
+
+		const auto stats = Renderer2D::GetStats();
+		ImGui::Text("Renderer2D Stats:");
+		ImGui::Text("Draw Calls: %d", stats.DrawCalls);
+		ImGui::Text("Quads: %d", stats.QuadCount);
+		ImGui::Text("Vertices: %d", stats.GetTotalVertexCount());
+		ImGui::Text("Indices: %d", stats.GetTotalIndexCount());
 		ImGui::End();
 	}
 
 	void EditorLayer::OnEvent(Event& e)
 	{
 		m_CameraController.OnEvent(e);
-		m_EditorCamera.OnEvent(e);
+		if ((m_SceneState != SceneState::Play) && m_ViewportHovered)
+		{
+			m_EditorCamera.OnEvent(e);
+		}
 
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<KeyPressedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
@@ -489,6 +459,7 @@ namespace OloEngine {
 
 		const bool control = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
 		const bool shift = Input::IsKeyPressed(Key::LeftShift) || Input::IsKeyPressed(Key::RightShift);
+		bool editing = m_ViewportHovered && (m_SceneState == SceneState::Edit);
 
 		switch (e.GetKeyCode())
 		{
@@ -530,7 +501,7 @@ namespace OloEngine {
 			// Scene Commands
 			case Key::D:
 			{
-				if (control)
+				if (control && editing)
 				{
 					OnDuplicateEntity();
 				}
@@ -540,7 +511,7 @@ namespace OloEngine {
 			// Gizmos
 			case Key::Q:
 			{
-				if (!ImGuizmo::IsUsing())
+				if ((!ImGuizmo::IsUsing()) && editing)
 				{
 					m_GizmoType = -1;
 				}
@@ -548,7 +519,7 @@ namespace OloEngine {
 			}
 			case Key::W:
 			{
-				if (!ImGuizmo::IsUsing())
+				if ((!ImGuizmo::IsUsing()) && editing)
 				{
 					m_GizmoType = ImGuizmo::OPERATION::TRANSLATE;
 				}
@@ -556,7 +527,7 @@ namespace OloEngine {
 			}
 			case Key::E:
 			{
-				if (!ImGuizmo::IsUsing())
+				if ((!ImGuizmo::IsUsing()) && editing)
 				{
 					m_GizmoType = ImGuizmo::OPERATION::ROTATE;
 				}
@@ -564,18 +535,15 @@ namespace OloEngine {
 			}
 			case Key::R:
 			{
-				if (!ImGuizmo::IsUsing())
+				if ((!ImGuizmo::IsUsing()) && editing)
 				{
 					m_GizmoType = ImGuizmo::OPERATION::SCALE;
 				}
 				break;
 			}
-
-			default:
-			{
-				break;
-			}
 		}
+		return false;
+
 	}
 
 	bool EditorLayer::OnMouseButtonPressed(MouseButtonPressedEvent const& e)
@@ -603,8 +571,46 @@ namespace OloEngine {
 			Renderer2D::BeginScene(m_EditorCamera);
 		}
 
-		if (m_ShowPhysicsColliders)
+		// Entity outline
+		Entity selection = m_SceneHierarchyPanel.GetSelectedEntity();
+		if (selection)
 		{
+			Renderer2D::SetLineWidth(4.0f);
+
+			if (selection.HasComponent<TransformComponent>())
+			{
+				auto const& tc = selection.GetComponent<TransformComponent>();
+
+				if (selection.HasComponent<SpriteRendererComponent>())
+				{
+					Renderer2D::DrawRect(tc.GetTransform(), glm::vec4(1, 1, 1, 1));
+				}
+
+				if (selection.HasComponent<CircleRendererComponent>())
+				{
+					glm::mat4 transform = glm::translate(glm::mat4(1.0f), tc.Translation)
+						* glm::toMat4(glm::quat(tc.Rotation))
+						* glm::scale(glm::mat4(1.0f), tc.Scale + 0.03f);
+					Renderer2D::DrawCircle(transform, glm::vec4(1, 1, 1, 1), 0.03f);
+				}
+
+				// TODO(olbu): Add outline for camera?
+			}
+		}
+
+		if (m_ShowPhysicsColliders)
+		{			
+			if (const double epsilon = 1e-5; std::abs(Renderer2D::GetLineWidth() - -2.0f) > static_cast<float>(epsilon))
+			{
+				Renderer2D::Flush();
+				Renderer2D::SetLineWidth(2.0f);
+			}
+
+			// Calculate z index for translation
+			const float zIndex = 0.001f;
+			glm::vec3 cameraForwardDirection = m_EditorCamera.GetForwardDirection();
+			glm::vec3 projectionCollider = cameraForwardDirection * glm::vec3(zIndex);
+
 			// Box Colliders
 			{
 				const auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, BoxCollider2DComponent>();
@@ -612,7 +618,7 @@ namespace OloEngine {
 				{
 					const auto [tc, bc2d] = view.get<TransformComponent, BoxCollider2DComponent>(entity);
 
-					const glm::vec3 translation = tc.Translation + glm::vec3(bc2d.Offset, 0.001f);
+					const glm::vec3 translation = tc.Translation + glm::vec3(bc2d.Offset, -projectionCollider.z);
 					const glm::vec3 scale = tc.Scale * glm::vec3(bc2d.Size * 2.0f, 1.0f);
 
 					const glm::mat4 transform = glm::translate(glm::mat4(1.0f), translation)
@@ -630,11 +636,11 @@ namespace OloEngine {
 				{
 					const auto [tc, cc2d] = view.get<TransformComponent, CircleCollider2DComponent>(entity);
 
-					const glm::vec3 translation = tc.Translation + glm::vec3(cc2d.Offset, 0.001f);
+					const glm::vec3 translation = tc.Translation + glm::vec3(cc2d.Offset, -projectionCollider.z);
 					const glm::vec3 scale = tc.Scale * glm::vec3(cc2d.Radius * 2.0f);
 
 					const glm::mat4 transform = glm::translate(glm::mat4(1.0f), translation)
-						* glm::scale(glm::mat4(1.0f), scale);
+						* glm::scale(glm::mat4(1.0f), glm::vec3(scale.x, scale.x, scale.z));
 
 					Renderer2D::DrawCircle(transform, glm::vec4(0, 1, 0, 1), 0.01f);
 				}
@@ -646,10 +652,13 @@ namespace OloEngine {
 
 	void EditorLayer::NewScene()
 	{
-		m_ActiveScene = CreateRef<Scene>();
-		m_ActiveScene->OnViewportResize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));
-		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+		if (m_SceneState != SceneState::Edit)
+		{
+			return;
+		}
 
+		Ref<Scene> newScene = CreateRef<Scene>();
+		SetEditorScene(newScene);
 		m_EditorScenePath = std::filesystem::path();
 	}
 
@@ -662,7 +671,7 @@ namespace OloEngine {
 		}
 	}
 
-	void EditorLayer::OpenScene(const std::filesystem::path& path)
+	bool EditorLayer::OpenScene(const std::filesystem::path& path)
 	{
 		if (m_SceneState != SceneState::Edit)
 		{
@@ -672,20 +681,17 @@ namespace OloEngine {
 		if (path.extension().string() != ".olo")
 		{
 			OLO_WARN("Could not load {0} - not a scene file", path.filename().string());
-			return;
+			return false;
 		}
 
 		Ref<Scene> const newScene = CreateRef<Scene>();
-		SceneSerializer const serializer(newScene);
-		if (serializer.Deserialize(path.string()))
+		if (SceneSerializer const serializer(newScene); !serializer.Deserialize(path.string()))
 		{
-			m_EditorScene = newScene;
-			m_EditorScene->OnViewportResize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));
-			m_SceneHierarchyPanel.SetContext(m_EditorScene);
-
-			m_ActiveScene = m_EditorScene;
-			m_EditorScenePath = path;
+			return false;
 		}
+		SetEditorScene(newScene);
+		m_EditorScenePath = path;
+		return true;
 	}
 
 	void EditorLayer::SaveScene()
@@ -702,18 +708,21 @@ namespace OloEngine {
 
 	void EditorLayer::SaveSceneAs()
 	{
-		const std::string filepath = FileDialogs::SaveFile("OloEditor Scene (*.olo)\0*.olo\0");
+		const std::filesystem::path filepath = FileDialogs::SaveFile("OloEditor Scene (*.olo)\0*.olo\0");
 		if (!filepath.empty())
 		{
-			SerializeScene(m_ActiveScene, filepath);
+			m_EditorScene->SetName(filepath.stem().string());
 			m_EditorScenePath = filepath;
+
+			SerializeScene(m_EditorScene, filepath);
+			SyncWindowTitle();
 		}
 	}
 
 	void EditorLayer::SerializeScene(Ref<Scene> const scene, const std::filesystem::path& path) const
 	{
 		const SceneSerializer serializer(scene);
-		serializer.Serialize(path.string());
+		serializer.Serialize(path);
 	}
 
 	void EditorLayer::OnScenePlay()
@@ -765,6 +774,24 @@ namespace OloEngine {
 		m_ActiveScene = m_EditorScene;
 
 		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+	}
+
+	void EditorLayer::SetEditorScene(const Ref<Scene>& scene)
+	{
+		OLO_CORE_ASSERT(scene, "EditorLayer ActiveScene cannot be null");
+
+		m_EditorScene = scene;
+		m_EditorScene->OnViewportResize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));
+		m_SceneHierarchyPanel.SetContext(m_EditorScene);
+
+		m_ActiveScene = m_EditorScene;
+
+		SyncWindowTitle();
+	}
+
+	void EditorLayer::SyncWindowTitle() const
+	{
+		Application::Get().GetWindow().SetTitle("Olo Editor - " + m_EditorScene->GetName());
 	}
 
 	void EditorLayer::OnDuplicateEntity() const

@@ -80,7 +80,6 @@
 		"OloEngine/Scene/SceneSerializer.cpp"
 		"OloEngine/Scene/SceneSerializer.h"
 		"OloEngine/Scene/NativeScript.h"
-		"OloEngine/Scene/NativeScriptComponent.h"
 
 		"OloEngine/Utils/PlatformUtils.h"
 

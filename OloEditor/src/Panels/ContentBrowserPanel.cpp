@@ -7,12 +7,12 @@
 
 namespace OloEngine {
 
-	// Once we have projects, change this
+	// TODO(Olbu): Once we have projects, change this
 	extern const std::filesystem::path g_AssetPath = "assets";
 
 	ContentBrowserPanel::ContentBrowserPanel()
-		: m_CurrentDirectory(g_AssetPath)
 	{
+		m_CurrentDirectory = g_AssetPath;
 		m_DirectoryIcon = Texture2D::Create("Resources/Icons/ContentBrowser/DirectoryIcon.png");
 		m_FileIcon = Texture2D::Create("Resources/Icons/ContentBrowser/FileIcon.png");
 	}
@@ -32,10 +32,7 @@ namespace OloEngine {
 
 		const float panelWidth = ImGui::GetContentRegionAvail().x;
 		auto columnCount = static_cast<int>(panelWidth / cellSize);
-		if (columnCount < 1)
-		{
-			columnCount = 1;
-		}
+		columnCount = std::max(columnCount, 1);
 
 		ImGui::Columns(columnCount, nullptr, false);
 
@@ -45,10 +42,9 @@ namespace OloEngine {
 			const std::string filenameString = path.filename().string();
 
 			ImGui::PushID(filenameString.c_str());
-			const Ref<Texture2D> icon = directoryEntry.is_directory() ? m_DirectoryIcon : m_FileIcon;
+			const Ref<Texture2D> icon = directoryEntry.is_directory() ? m_DirectoryIcon : GetFileIcon(directoryEntry.path());
 			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-			const uint64_t t_rendererID = icon->GetRendererID();
-			ImGui::ImageButton(reinterpret_cast<ImTextureID>(t_rendererID), { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
+			ImGui::ImageButton(reinterpret_cast<ImTextureID>(static_cast<uint64_t>(icon->GetRendererID())), { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
 
 			if (ImGui::BeginDragDropSource())
 			{
@@ -78,6 +74,29 @@ namespace OloEngine {
 
 		// TODO(olbu): status bar
 		ImGui::End();
+	}
+
+	Ref<Texture2D>& ContentBrowserPanel::GetFileIcon(const std::filesystem::path& filepath)
+	{
+		if (m_ImageIcons.contains(filepath))
+		{
+			return m_ImageIcons[filepath];
+		}
+
+		if (std::string extension = filepath.extension().string(); (extension == ".png") || (extension == ".jpg"))
+		{
+			auto imageIcon = Texture2D::Create(filepath.string());
+			if (imageIcon->IsLoaded())
+			{
+				auto& icon = m_ImageIcons[filepath] = imageIcon;
+				return icon;
+			}
+			else
+			{
+				OLO_WARN("Could not load texture {0}", extension);
+			}
+		}
+		return m_FileIcon;
 	}
 
 }

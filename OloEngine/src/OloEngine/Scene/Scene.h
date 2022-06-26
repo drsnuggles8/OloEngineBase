@@ -39,6 +39,9 @@ namespace OloEngine {
 
 		Entity GetPrimaryCameraEntity();
 
+		void SetName(std::string_view name);
+		[[nodiscard("This returns m_Name, you probably wanted another function!")]] const std::string & GetName() const { return m_Name; }
+
 		template<typename... Components>
 		auto GetAllEntitiesWith()
 		{
@@ -58,6 +61,8 @@ namespace OloEngine {
 		uint32_t m_ViewportHeight = 0;
 
 		b2World* m_PhysicsWorld = nullptr;
+
+		std::string m_Name = "Untitled";
 
 		friend class Entity;
 		friend class SceneSerializer;
