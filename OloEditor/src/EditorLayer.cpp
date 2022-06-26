@@ -41,64 +41,18 @@ namespace OloEngine {
 		fbSpec.Height = 720;
 		m_Framebuffer = Framebuffer::Create(fbSpec);
 
-		m_EditorScene = CreateRef<Scene>();
-		m_ActiveScene = m_EditorScene;
+		bool sceneLoaded = false;
 
 		if (const auto commandLineArgs = Application::Get().GetCommandLineArgs(); commandLineArgs.Count > 1)
 		{
-			const auto sceneFilePath = commandLineArgs[1];
-			SceneSerializer const serializer(m_ActiveScene);
-			serializer.Deserialize(sceneFilePath);
+			sceneLoaded = OpenScene(commandLineArgs[1]);
 		}
+
+		if (!sceneLoaded)
+			NewScene();
 
 		m_EditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
 
-#if 0
-		// Entity
-		auto square = m_ActiveScene->CreateEntity("Green Square");
-		square.AddComponent<SpriteRendererComponent>(glm::vec4{ 0.0f, 1.0f, 0.0f, 1.0f });
-
-		auto redSquare = m_ActiveScene->CreateEntity("Red Square");
-		redSquare.AddComponent<SpriteRendererComponent>(glm::vec4{ 1.0f, 0.0f, 0.0f, 1.0f });
-
-		m_SquareEntity = square;
-
-		m_CameraEntity = m_ActiveScene->CreateEntity("Camera A");
-		m_CameraEntity.AddComponent<CameraComponent>();
-
-		m_SecondCamera = m_ActiveScene->CreateEntity("Camera B");
-		auto& cc = m_SecondCamera.AddComponent<CameraComponent>();
-		cc.Primary = false;
-
-		class CameraController : public NativeScript
-		{
-		public:
-			CameraController(Entity entity) : NativeScript(entity)
-			{
-				auto& translation = GetComponent<TransformComponent>().Translation;
-				translation.x = rand_r() % 10 - 5.0f;
-			}
-
-			void OnUpdate(Timestep ts) override
-			{
-				auto& translation = GetComponent<TransformComponent>().Translation;
-
-				float speed = 5.0f;
-
-				if (Input::IsKeyPressed(Key::A))
-					translation.x -= speed * ts;
-				if (Input::IsKeyPressed(Key::D))
-					translation.x += speed * ts;
-				if (Input::IsKeyPressed(Key::W))
-					translation.y += speed * ts;
-				if (Input::IsKeyPressed(Key::S))
-					translation.y -= speed * ts;
-			}
-		};
-
-		m_CameraEntity.AddComponent<NativeScriptComponent>().Bind<CameraController>();
-		m_SecondCamera.AddComponent<NativeScriptComponent>().Bind<CameraController>();
-#endif
 	}
 
 	void EditorLayer::OnDetach()
@@ -236,6 +190,18 @@ namespace OloEngine {
 
 		style.WindowMinSize.x = minWinSizeX;
 
+		UI_MenuBar();
+		UI_Viewport();
+		UI_Toolbar();
+		UI_ChildPanels();
+		UI_Settings();
+		UI_RendererStats();
+
+		ImGui::End();
+	}
+
+	void EditorLayer::UI_MenuBar()
+	{
 		if (ImGui::BeginMenuBar())
 		{
 			if (ImGui::BeginMenu("File"))
@@ -272,14 +238,27 @@ namespace OloEngine {
 
 			ImGui::EndMenuBar();
 		}
+	}
 
-		// UI Panels
-		m_SceneHierarchyPanel.OnImGuiRender();
-		m_ContentBrowserPanel.OnImGuiRender();
+	void EditorLayer::UI_Viewport()
+	{
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0, 0 });
+		ImGui::Begin("Viewport");
+		const auto viewportMinRegion = ImGui::GetWindowContentRegionMin();
+		const auto viewportMaxRegion = ImGui::GetWindowContentRegionMax();
+		const auto viewportOffset = ImGui::GetWindowPos();
+		m_ViewportBounds[0] = { viewportMinRegion.x + viewportOffset.x, viewportMinRegion.y + viewportOffset.y };
+		m_ViewportBounds[1] = { viewportMaxRegion.x + viewportOffset.x, viewportMaxRegion.y + viewportOffset.y };
 
-		UI_RendererStats();
-		UI_Settings();
-		UI_Viewport();
+		m_ViewportFocused = ImGui::IsWindowFocused();
+		m_ViewportHovered = ImGui::IsWindowHovered();
+		Application::Get().GetImGuiLayer()->BlockEvents((!m_ViewportFocused) && (!m_ViewportHovered));
+
+		ImVec2 const viewportPanelSize = ImGui::GetContentRegionAvail();
+		m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
+
+		uint64_t const textureID = m_Framebuffer->GetColorAttachmentRendererID(0);
+		ImGui::Image(reinterpret_cast<void*>(textureID), ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
 
 		if (ImGui::BeginDragDropTarget())
 		{
@@ -316,20 +295,20 @@ namespace OloEngine {
 			ImGui::EndDragDropTarget();
 		}
 
-		// Gizmos
+		UI_Gizmos();
+
+		ImGui::End();
+		ImGui::PopStyleVar();
+	}
+
+	void EditorLayer::UI_Gizmos()
+	{
 		if (Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity(); selectedEntity && (m_GizmoType != -1))
 		{
 			ImGuizmo::SetOrthographic(false);
 			ImGuizmo::SetDrawlist();
 
 			ImGuizmo::SetRect(m_ViewportBounds[0].x, m_ViewportBounds[0].y, m_ViewportBounds[1].x - m_ViewportBounds[0].x, m_ViewportBounds[1].y - m_ViewportBounds[0].y);
-
-			// Camera
-			// Runtime camera from entity
-			// auto cameraEntity = m_ActiveScene->GetPrimaryCameraEntity();
-			// const auto& camera = cameraEntity.GetComponent<CameraComponent>().Camera;
-			// const glm::mat4& cameraProjection = camera.GetProjection();
-			// glm::mat4 cameraView = glm::inverse(cameraEntity.GetComponent<TransformComponent>().GetTransform());
 
 			// Editor camera
 			const glm::mat4& cameraProjection = m_EditorCamera.GetProjection();
@@ -341,8 +320,7 @@ namespace OloEngine {
 
 			// Snapping
 			const bool snap = Input::IsKeyPressed(Key::LeftControl);
-			float snapValue = 0.5f; // Snap to 0.5m for translation/scale
-			// Snap to 45 degrees for rotation
+			float snapValue = 0.5f;
 			if (m_GizmoType == ImGuizmo::OPERATION::ROTATE)
 			{
 				snapValue = 45.0f;
@@ -371,33 +349,6 @@ namespace OloEngine {
 				tc.Scale = scale;
 			}
 		}
-		ImGui::End();
-		ImGui::PopStyleVar();
-
-		UI_Toolbar();
-
-		ImGui::End();
-	}
-
-	void EditorLayer::UI_Viewport()
-	{
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0, 0 });
-		ImGui::Begin("Viewport");
-		const auto viewportMinRegion = ImGui::GetWindowContentRegionMin();
-		const auto viewportMaxRegion = ImGui::GetWindowContentRegionMax();
-		const auto viewportOffset = ImGui::GetWindowPos();
-		m_ViewportBounds[0] = { viewportMinRegion.x + viewportOffset.x, viewportMinRegion.y + viewportOffset.y };
-		m_ViewportBounds[1] = { viewportMaxRegion.x + viewportOffset.x, viewportMaxRegion.y + viewportOffset.y };
-
-		m_ViewportFocused = ImGui::IsWindowFocused();
-		m_ViewportHovered = ImGui::IsWindowHovered();
-		Application::Get().GetImGuiLayer()->BlockEvents((!m_ViewportFocused) && (!m_ViewportHovered));
-
-		ImVec2 const viewportPanelSize = ImGui::GetContentRegionAvail();
-		m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
-
-		uint64_t const textureID = m_Framebuffer->GetColorAttachmentRendererID(0);
-		ImGui::Image(reinterpret_cast<void*>(textureID), ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
 	}
 
 	void EditorLayer::UI_Toolbar()
@@ -455,14 +406,14 @@ namespace OloEngine {
 		ImGui::PopStyleVar(2);
 		ImGui::PopStyleColor(3);
 
-		// TODO(olbu): maybe display active scene in window bar instead of toolbar
-		ImGui::SameLine();
-		const std::string sceneName = m_EditorScenePath.has_filename() ? m_EditorScenePath.filename().string() : "unsaved Scene";
-		ImGui::SetCursorPosX(5.0f);
-		ImGui::Text(m_SceneState == SceneState::Play ? "Playing: %s" : "Editing: %s", sceneName.c_str());
-
 		ImGui::End();
 	}
+
+	void EditorLayer::UI_ChildPanels()
+	{
+		m_SceneHierarchyPanel.OnImGuiRender();
+		m_ContentBrowserPanel.OnImGuiRender();
+	}	
 
 	void EditorLayer::UI_Settings()
 	{
@@ -480,6 +431,7 @@ namespace OloEngine {
 			name = m_HoveredEntity.GetComponent<TagComponent>().Tag;
 		}
 		ImGui::Text("Hovered Entity: %s", name.c_str());
+
 		const auto stats = Renderer2D::GetStats();
 		ImGui::Text("Renderer2D Stats:");
 		ImGui::Text("Draw Calls: %d", stats.DrawCalls);
@@ -492,7 +444,8 @@ namespace OloEngine {
 	void EditorLayer::OnEvent(Event& e)
 	{
 		m_CameraController.OnEvent(e);
-		m_EditorCamera.OnEvent(e);
+		if (m_SceneState == SceneState::Edit && m_ViewportHovered)
+			m_EditorCamera.OnEvent(e);
 
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<KeyPressedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
@@ -671,10 +624,11 @@ namespace OloEngine {
 
 	void EditorLayer::NewScene()
 	{
-		m_ActiveScene = CreateRef<Scene>();
-		m_ActiveScene->OnViewportResize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));
-		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+		if (m_SceneState != SceneState::Edit)
+			return;
 
+		Ref<Scene> newScene = CreateRef<Scene>();
+		SetEditorScene(newScene);
 		m_EditorScenePath = std::filesystem::path();
 	}
 
@@ -687,7 +641,7 @@ namespace OloEngine {
 		}
 	}
 
-	void EditorLayer::OpenScene(const std::filesystem::path& path)
+	bool EditorLayer::OpenScene(const std::filesystem::path& path)
 	{
 		if (m_SceneState != SceneState::Edit)
 		{
@@ -697,20 +651,18 @@ namespace OloEngine {
 		if (path.extension().string() != ".olo")
 		{
 			OLO_WARN("Could not load {0} - not a scene file", path.filename().string());
-			return;
+			return false;
 		}
 
 		Ref<Scene> const newScene = CreateRef<Scene>();
 		SceneSerializer const serializer(newScene);
-		if (serializer.Deserialize(path.string()))
+		if (!serializer.Deserialize(path.string()))
 		{
-			m_EditorScene = newScene;
-			m_EditorScene->OnViewportResize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));
-			m_SceneHierarchyPanel.SetContext(m_EditorScene);
-
-			m_ActiveScene = m_EditorScene;
-			m_EditorScenePath = path;
+			return false;
 		}
+		SetEditorScene(newScene);
+		m_EditorScenePath = path;
+		return true;
 	}
 
 	void EditorLayer::SaveScene()
@@ -727,12 +679,14 @@ namespace OloEngine {
 
 	void EditorLayer::SaveSceneAs()
 	{
-		const std::string filepath = FileDialogs::SaveFile("OloEditor Scene (*.olo)\0*.olo\0");
+		const std::filesystem::path filepath = FileDialogs::SaveFile("OloEditor Scene (*.olo)\0*.olo\0");
 		if (!filepath.empty())
 		{
-			SerializeScene(m_ActiveScene, filepath);
+			m_EditorScene->SetName(filepath.stem().string());
 			m_EditorScenePath = filepath;
-			m_ActiveScene->SetName(std::filesystem::path(filepath).filename().string());
+
+			SerializeScene(m_EditorScene, filepath);
+			SyncWindowTitle();
 		}
 	}
 
@@ -791,6 +745,24 @@ namespace OloEngine {
 		m_ActiveScene = m_EditorScene;
 
 		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
+	}
+
+	void EditorLayer::SetEditorScene(const Ref<Scene>& scene)
+	{
+		OLO_CORE_ASSERT(scene, "EditorLayer ActiveScene cannot be null");
+
+		m_EditorScene = scene;
+		m_EditorScene->OnViewportResize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));
+		m_SceneHierarchyPanel.SetContext(m_EditorScene);
+
+		m_ActiveScene = m_EditorScene;
+
+		SyncWindowTitle();
+	}
+
+	void EditorLayer::SyncWindowTitle() const
+	{
+		Application::Get().GetWindow().SetTitle("Olo Editor - " + m_EditorScene->GetName());
 	}
 
 	void EditorLayer::OnDuplicateEntity() const

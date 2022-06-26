@@ -28,7 +28,7 @@ namespace OloEngine {
 
 		void NewScene();
 		void OpenScene();
-		void OpenScene(const std::filesystem::path& path);
+		bool OpenScene(const std::filesystem::path& path);
 		void SaveScene();
 		void SaveSceneAs();
 
@@ -41,11 +41,16 @@ namespace OloEngine {
 		void OnDuplicateEntity() const;
 
 		// UI Panels
+		void UI_MenuBar();
 		void UI_Viewport();
+		void UI_Gizmos();
 		void UI_Toolbar();
+		void UI_ChildPanels();
 		void UI_Settings();
 		void UI_RendererStats();
 
+		void SetEditorScene(const Ref<Scene>& scene);
+		void SyncWindowTitle() const;
 	private:
 		OloEngine::OrthographicCameraController m_CameraController;
 

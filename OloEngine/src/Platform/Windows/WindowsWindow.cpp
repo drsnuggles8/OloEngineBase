@@ -207,7 +207,7 @@ namespace OloEngine {
 	void WindowsWindow::SetTitle(const std::string& title)
 	{
 		m_Data.Title = title;
-		glfwSetWindowTitle(m_Window, title.c_str());
+		GLFWAPI::glfwSetWindowTitle(m_Window, title.c_str());
 	}
 
 }

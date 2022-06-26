@@ -381,9 +381,13 @@ namespace OloEngine {
 					{
 						if (std::string textureFilePath = texture.as<std::string>();
 							std::filesystem::exists(textureFilePath))
+						{
 							src.Texture = Texture2D::Create(textureFilePath);
+						}
 						else
+						{
 							OLO_CORE_ERROR("Texture '{0}' was not found", textureFilePath);
+						}
 						src.TilingFactor = spriteRendererComponent["TilingFactor"].as<float>();
 					}
 				}
