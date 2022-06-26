@@ -45,6 +45,8 @@ namespace OloEngine {
 		virtual void SetTitle(const std::string& title) = 0;
 
 		static Scope<Window> Create(const WindowProps& props = WindowProps());
+	public:
+		static float s_HighDPIScaleFactor;
 	};
 
 }
