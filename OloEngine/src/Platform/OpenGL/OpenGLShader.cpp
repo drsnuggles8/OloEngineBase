@@ -2,18 +2,17 @@
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLShader.h"
+#include "OloEngine/Core/Timer.h"
 
-#include <fstream>
 #include <glad/glad.h>
-
 #include <glm/gtc/type_ptr.hpp>
-
 #include <shaderc/shaderc.hpp>
 #include <spirv_cross/spirv_cross.hpp>
 #include <spirv_cross/spirv_glsl.hpp>
+
+#include <fstream>
 #include <utility>
 
-#include "OloEngine/Core/Timer.h"
 
 namespace OloEngine {
 

@@ -2,14 +2,13 @@
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "OloEnginePCH.h"
 #include "Scene.h"
+#include "Entity.h"
 
 #include "Components.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "NativeScript.h"
 
 #include <glm/glm.hpp>
-
-#include "Entity.h"
 
 // Box2D
 #include "b2_world.h"

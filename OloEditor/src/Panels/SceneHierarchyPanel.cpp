@@ -1,13 +1,11 @@
 // This is an independent project of an individual developer. Dear PVS-Studio, please check it.
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "SceneHierarchyPanel.h"
+#include "OloEngine/Scene/Components.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
-
 #include <glm/gtc/type_ptr.hpp>
-
-#include "OloEngine/Scene/Components.h"
 
 #include <cstring>
 

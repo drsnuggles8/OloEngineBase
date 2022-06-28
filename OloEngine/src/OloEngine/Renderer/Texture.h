@@ -1,8 +1,8 @@
 #pragma once
 
-#include <string>
-
 #include "OloEngine/Core/Base.h"
+
+#include <string>
 
 namespace OloEngine {
 

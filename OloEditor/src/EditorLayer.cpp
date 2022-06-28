@@ -1,19 +1,15 @@
 // This is an independent project of an individual developer. Dear PVS-Studio, please check it.
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
-#include <OloEnginePCH.h>
+#include "OloEnginePCH.h"
 #include "EditorLayer.h"
-#include <imgui.h>
-
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Scene/SceneSerializer.h"
-
 #include "OloEngine/Utils/PlatformUtils.h"
 
-#include "ImGuizmo.h"
-
-#include "OloEngine/Math/Math.h"
+#include <imgui.h>
+#include <ImGuizmo.h>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 namespace OloEngine {
 

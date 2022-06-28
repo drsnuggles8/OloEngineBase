@@ -1,10 +1,10 @@
 #pragma once
 
-#include <sstream>
-#include <utility>
-
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Events/Event.h"
+
+#include <sstream>
+#include <utility>
 
 namespace OloEngine {
 
