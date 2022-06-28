@@ -12,7 +12,7 @@ namespace OloEngine {
 	{
 	public:
 		OpenGLShader(const std::string& filepath);
-		OpenGLShader(std::string  name, const std::string& vertexSrc, const std::string& fragmentSrc);
+		OpenGLShader(std::string  name, std::string_view vertexSrc, std::string_view fragmentSrc);
 		~OpenGLShader() override;
 
 		void Bind() const override;
@@ -39,7 +39,7 @@ namespace OloEngine {
 		void UploadUniformMat4(const std::string& name, const glm::mat4& matrix) const;
 	private:
 		static std::string ReadFile(const std::string& filepath);
-		static std::unordered_map<GLenum, std::string> PreProcess(const std::string& source);
+		static std::unordered_map<GLenum, std::string> PreProcess(std::string_view source);
 
 		void CompileOrGetVulkanBinaries(const std::unordered_map<GLenum, std::string>& shaderSources);
 		void CompileOrGetOpenGLBinaries();

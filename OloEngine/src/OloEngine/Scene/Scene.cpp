@@ -266,7 +266,7 @@ namespace OloEngine {
 		RenderScene(camera);
 	}
 
-	void Scene::OnUpdateEditor(Timestep const ts, EditorCamera& camera)
+	void Scene::OnUpdateEditor([[maybe_unused]] Timestep const ts, EditorCamera const& camera)
 	{
 		// Render
 		RenderScene(camera);
@@ -308,7 +308,7 @@ namespace OloEngine {
 	Entity Scene::GetPrimaryCameraEntity()
 	{
 		for (const auto view = m_Registry.view<CameraComponent>(); auto const entity : view)
-		{			
+		{
 			if (const auto& camera = view.get<CameraComponent>(entity); camera.Primary)
 			{
 				return Entity{ entity, this };

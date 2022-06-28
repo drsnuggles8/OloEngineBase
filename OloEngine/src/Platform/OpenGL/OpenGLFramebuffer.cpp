@@ -200,7 +200,7 @@ namespace OloEngine {
 	{
 		if ((0 == width) || (0 == height) || (width > s_MaxFramebufferSize) || (height > s_MaxFramebufferSize))
 		{
-			OLO_CORE_WARN("Attempted to rezize framebuffer to {0}, {1}", width, height);
+			OLO_CORE_WARN("Attempted to resize framebuffer to {0}, {1}", width, height);
 			return;
 		}
 

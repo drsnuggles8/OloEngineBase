@@ -492,7 +492,7 @@ namespace OloEngine {
 
 	void Renderer2D::DrawRect(const glm::mat4& transform, const glm::vec4& color, const int entityID)
 	{
-		glm::vec3 lineVertices[4];
+		glm::vec3 lineVertices[4]{};
 		for (size_t i = 0; i < 4; i++)
 		{
 			lineVertices[i] = transform * s_Data.QuadVertexPositions[i];
