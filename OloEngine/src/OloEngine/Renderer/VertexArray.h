@@ -1,7 +1,8 @@
 #pragma once
 
-#include <memory>
 #include "OloEngine/Renderer/Buffer.h"
+
+#include <memory>
 
 namespace OloEngine {
 

@@ -2,30 +2,29 @@
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLShader.h"
+#include "OloEngine/Core/Timer.h"
 
-#include <fstream>
 #include <glad/glad.h>
-
 #include <glm/gtc/type_ptr.hpp>
-
 #include <shaderc/shaderc.hpp>
 #include <spirv_cross/spirv_cross.hpp>
 #include <spirv_cross/spirv_glsl.hpp>
+
+#include <fstream>
 #include <utility>
 
-#include "OloEngine/Core/Timer.h"
 
 namespace OloEngine {
 
 	namespace Utils {
 
-		static GLenum ShaderTypeFromString(const std::string& type)
+		static GLenum ShaderTypeFromString(std::string_view type)
 		{
 			if (type == "vertex")
 			{
 				return GL_VERTEX_SHADER;
 			}
-			if (type == "fragment" || type == "pixel")
+			if ((type == "fragment") || (type == "pixel"))
 			{
 				return GL_FRAGMENT_SHADER;
 			}
@@ -95,7 +94,7 @@ namespace OloEngine {
 
 		static bool IsAmdGpu()
 		{
-			const char* const vendor = (char*)glGetString(GL_VENDOR);
+			const auto* const vendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
 			return std::strstr(vendor, "ATI") != nullptr;
 		}
 
@@ -128,13 +127,13 @@ namespace OloEngine {
 
 		// Extract name from filepath
 		auto lastSlash = filepath.find_last_of("/\\");
-		lastSlash = lastSlash == std::string::npos ? 0 : lastSlash + 1;
+		lastSlash = lastSlash == std::string::npos ? 0 : (lastSlash + 1);
 		const auto lastDot = filepath.rfind('.');
-		const auto count = lastDot == std::string::npos ? filepath.size() - lastSlash : lastDot - lastSlash;
+		const auto count = lastDot == std::string::npos ? (filepath.size() - lastSlash) : (lastDot - lastSlash);
 		m_Name = filepath.substr(lastSlash, count);
 	}
 
-	OpenGLShader::OpenGLShader(std::string  name, const std::string& vertexSrc, const std::string& fragmentSrc)
+	OpenGLShader::OpenGLShader(std::string  name, std::string_view vertexSrc, std::string_view fragmentSrc)
 		: m_Name(std::move(name))
 	{
 		OLO_PROFILE_FUNCTION();
@@ -190,7 +189,7 @@ namespace OloEngine {
 		return result;
 	}
 
-	std::unordered_map<GLenum, std::string> OpenGLShader::PreProcess(const std::string& source)
+	std::unordered_map<GLenum, std::string> OpenGLShader::PreProcess(std::string_view source)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -204,7 +203,7 @@ namespace OloEngine {
 			const size_t eol = source.find_first_of("\r\n", pos); //End of shader type declaration line
 			OLO_CORE_ASSERT(eol != std::string::npos, "Syntax error")
 			const size_t begin = pos + typeTokenLength + 1; //Start of shader type name (after "#type " keyword)
-			const std::string type = source.substr(begin, eol - begin);
+			std::string_view type = source.substr(begin, eol - begin);
 			OLO_CORE_ASSERT(Utils::ShaderTypeFromString(type), "Invalid shader type specified")
 
 			const size_t nextLinePos = source.find_first_not_of("\r\n", eol); //Start of shader code after shader type declaration line
@@ -223,8 +222,11 @@ namespace OloEngine {
 
 		const shaderc::Compiler compiler;
 		shaderc::CompileOptions options;
-		options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_3);
-		options.SetOptimizationLevel(shaderc_optimization_level_performance);
+		options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_2);
+		if (const bool optimize = true)
+		{
+			options.SetOptimizationLevel(shaderc_optimization_level_performance);
+		}
 
 		const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
 
@@ -344,11 +346,11 @@ namespace OloEngine {
 
 		glLinkProgram(program);
 
-		GLint isLinked;
+		GLint isLinked{};
 		glGetProgramiv(program, GL_LINK_STATUS, &isLinked);
 		if (GL_FALSE == isLinked)
 		{
-			GLint maxLength;
+			GLint maxLength{};
 			glGetProgramiv(program, GL_INFO_LOG_LENGTH, &maxLength);
 
 			std::vector<GLchar> infoLog(maxLength);
@@ -400,9 +402,8 @@ namespace OloEngine {
 		const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
 		const std::filesystem::path shaderFilePath = m_FilePath;
 		const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + ".cached_opengl.pgr");
-		std::ifstream in(cachedPath, std::ios::ate | std::ios::binary);
 
-		if (in.is_open())
+		if (std::ifstream in(cachedPath, std::ios::ate | std::ios::binary); in.is_open())
 		{
 			const auto size = in.tellg();
 			in.seekg(0);
@@ -426,9 +427,8 @@ namespace OloEngine {
 			CompileOpenGLBinariesForAmd(program, glShadersIDs);
 			glLinkProgram(program);
 
-			const bool linked = VerifyProgramLink(program);
 
-			if (linked)
+			if (const bool linked = VerifyProgramLink(program))
 			{
 				// Save program data
 				GLint formats = 0;

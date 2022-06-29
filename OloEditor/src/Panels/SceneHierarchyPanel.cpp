@@ -1,13 +1,11 @@
 // This is an independent project of an individual developer. Dear PVS-Studio, please check it.
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "SceneHierarchyPanel.h"
+#include "OloEngine/Scene/Components.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
-
 #include <glm/gtc/type_ptr.hpp>
-
-#include "OloEngine/Scene/Components.h"
 
 #include <cstring>
 
@@ -379,7 +377,7 @@ namespace OloEngine {
 			{
 				if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
 				{
-					auto const path = static_cast<wchar_t*>(payload->Data);
+					auto* const path = static_cast<wchar_t*>(payload->Data);
 					std::filesystem::path const texturePath = std::filesystem::path(g_AssetPath) / path;
 					Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
 					if (texture->IsLoaded())

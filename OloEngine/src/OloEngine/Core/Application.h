@@ -53,7 +53,7 @@ namespace OloEngine {
 		void Run();
 		bool OnWindowClose(WindowCloseEvent const& e);
 		bool OnWindowResize(WindowResizeEvent const& e);
-
+	private:
 		ApplicationCommandLineArgs m_CommandLineArgs;
 		Scope<Window> m_Window;
 		ImGuiLayer* m_ImGuiLayer;
@@ -61,7 +61,7 @@ namespace OloEngine {
 		bool m_Minimized = false;
 		LayerStack m_LayerStack;
 		float m_LastFrameTime = 0.0f;
-
+	private:
 		static Application* s_Instance;
 		friend int ::main(int argc, char** argv);
 	};

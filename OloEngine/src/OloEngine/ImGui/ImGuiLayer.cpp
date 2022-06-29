@@ -99,8 +99,8 @@ namespace OloEngine {
 
 		ImGuiIO& io = ImGui::GetIO();
 
-		Application& app = Application::Get();
-		io.DisplaySize = ImVec2(static_cast<float>(app.GetWindow().GetWidth()), static_cast<float>(app.GetWindow().GetHeight()));
+		Window const& window = Application::Get().GetWindow();
+		io.DisplaySize = ImVec2(static_cast<float>(window.GetWidth()), static_cast<float>(window.GetHeight()));
 
 		// Rendering
 		ImGui::Render();

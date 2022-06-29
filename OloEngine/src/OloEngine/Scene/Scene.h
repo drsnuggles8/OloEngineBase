@@ -32,7 +32,7 @@ namespace OloEngine {
 
 		void OnUpdateRuntime(Timestep const ts);
 		void OnUpdateSimulation(const Timestep ts, EditorCamera const& camera);
-		void OnUpdateEditor(Timestep const ts, EditorCamera& camera);
+		void OnUpdateEditor(Timestep const ts, EditorCamera const& camera);
 		void OnViewportResize(uint32_t width, uint32_t height);
 
 		void DuplicateEntity(Entity entity);

@@ -2,14 +2,13 @@
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "OloEnginePCH.h"
 #include "Scene.h"
+#include "Entity.h"
 
 #include "Components.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "NativeScript.h"
 
 #include <glm/glm.hpp>
-
-#include "Entity.h"
 
 // Box2D
 #include "b2_world.h"
@@ -266,7 +265,7 @@ namespace OloEngine {
 		RenderScene(camera);
 	}
 
-	void Scene::OnUpdateEditor(Timestep const ts, EditorCamera& camera)
+	void Scene::OnUpdateEditor([[maybe_unused]] Timestep const ts, EditorCamera const& camera)
 	{
 		// Render
 		RenderScene(camera);
@@ -308,7 +307,7 @@ namespace OloEngine {
 	Entity Scene::GetPrimaryCameraEntity()
 	{
 		for (const auto view = m_Registry.view<CameraComponent>(); auto const entity : view)
-		{			
+		{
 			if (const auto& camera = view.get<CameraComponent>(entity); camera.Primary)
 			{
 				return Entity{ entity, this };

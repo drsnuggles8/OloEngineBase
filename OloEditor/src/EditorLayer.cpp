@@ -1,19 +1,15 @@
 // This is an independent project of an individual developer. Dear PVS-Studio, please check it.
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
-#include <OloEnginePCH.h>
+#include "OloEnginePCH.h"
 #include "EditorLayer.h"
-#include <imgui.h>
-
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Scene/SceneSerializer.h"
-
 #include "OloEngine/Utils/PlatformUtils.h"
 
-#include "ImGuizmo.h"
-
-#include "OloEngine/Math/Math.h"
+#include <imgui.h>
+#include <ImGuizmo.h>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 namespace OloEngine {
 
@@ -572,8 +568,7 @@ namespace OloEngine {
 		}
 
 		// Entity outline
-		Entity selection = m_SceneHierarchyPanel.GetSelectedEntity();
-		if (selection)
+		if (Entity selection = m_SceneHierarchyPanel.GetSelectedEntity(); selection)
 		{
 			Renderer2D::SetLineWidth(4.0f);
 
@@ -599,7 +594,7 @@ namespace OloEngine {
 		}
 
 		if (m_ShowPhysicsColliders)
-		{			
+		{
 			if (const double epsilon = 1e-5; std::abs(Renderer2D::GetLineWidth() - -2.0f) > static_cast<float>(epsilon))
 			{
 				Renderer2D::Flush();
@@ -778,7 +773,7 @@ namespace OloEngine {
 
 	void EditorLayer::SetEditorScene(const Ref<Scene>& scene)
 	{
-		OLO_CORE_ASSERT(scene, "EditorLayer ActiveScene cannot be null");
+		OLO_CORE_ASSERT(scene, "EditorLayer ActiveScene cannot be null")
 
 		m_EditorScene = scene;
 		m_EditorScene->OnViewportResize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));

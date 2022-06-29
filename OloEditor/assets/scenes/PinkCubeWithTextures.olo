@@ -1,15 +1,5 @@
-Scene: PinkCube.olo
+Scene: PinkCubeWithTextures.olo
 Entities:
-  - Entity: 6767739041032949213
-    TagComponent:
-      Tag: Test
-    TransformComponent:
-      Translation: [0, 0, 0]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    Rigidbody2DComponent:
-      BodyType: Static
-      FixedRotation: false
   - Entity: 14837192831273
     TagComponent:
       Tag: Top
