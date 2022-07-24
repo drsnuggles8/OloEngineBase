@@ -294,7 +294,7 @@ namespace OloEngine {
 
 	void EditorLayer::UI_Gizmos() const
 	{
-		if (Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity(); selectedEntity && (m_GizmoType != -1))
+		if (Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity(); selectedEntity && (m_GizmoType != -1) && (!Input::IsKeyPressed(Key::LeftAlt)))
 		{
 			ImGuizmo::SetOrthographic(false);
 			ImGuizmo::SetDrawlist();
