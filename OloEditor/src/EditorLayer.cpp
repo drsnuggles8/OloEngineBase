@@ -39,7 +39,7 @@ namespace OloEngine {
 
 		bool sceneLoaded = false;
 
-		if (const auto commandLineArgs = Application::Get().GetCommandLineArgs(); commandLineArgs.Count > 1)
+		if (const auto commandLineArgs = Application::Get().GetSpecification().CommandLineArgs; commandLineArgs.Count > 1)
 		{
 			sceneLoaded = OpenScene(commandLineArgs[1]);
 		}
@@ -294,7 +294,7 @@ namespace OloEngine {
 
 	void EditorLayer::UI_Gizmos() const
 	{
-		if (Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity(); selectedEntity && (m_GizmoType != -1))
+		if (Entity selectedEntity = m_SceneHierarchyPanel.GetSelectedEntity(); selectedEntity && (m_GizmoType != -1) && (!Input::IsKeyPressed(Key::LeftAlt)))
 		{
 			ImGuizmo::SetOrthographic(false);
 			ImGuizmo::SetDrawlist();

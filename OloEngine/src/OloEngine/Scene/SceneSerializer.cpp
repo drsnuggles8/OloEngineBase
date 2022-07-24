@@ -378,17 +378,13 @@ namespace OloEngine {
 				{
 					auto& src = deserializedEntity.AddComponent<SpriteRendererComponent>();
 					src.Color = spriteRendererComponent["Color"].as<glm::vec4>();
-					if (auto texture = spriteRendererComponent["TexturePath"])
+					if (spriteRendererComponent["TexturePath"])
 					{
-						if (std::string textureFilePath = texture.as<std::string>();
-							std::filesystem::exists(textureFilePath))
-						{
-							src.Texture = Texture2D::Create(textureFilePath);
-						}
-						else
-						{
-							OLO_CORE_ERROR("Texture '{0}' was not found", textureFilePath);
-						}
+						src.Texture = Texture2D::Create(spriteRendererComponent["TexturePath"].as<std::string>());
+					}
+
+					if (spriteRendererComponent["TilingFactor"])
+					{
 						src.TilingFactor = spriteRendererComponent["TilingFactor"].as<float>();
 					}
 				}

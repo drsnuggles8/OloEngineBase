@@ -9,7 +9,8 @@
 class Sandbox : public OloEngine::Application
 {
 public:
-	Sandbox(const OloEngine::ApplicationCommandLineArgs args)
+	Sandbox(const OloEngine::ApplicationSpecification& specification)
+		: OloEngine::Application(specification)
 	{
 		// PushLayer(new ExampleLayer());
 		PushLayer(new Sandbox2D());
@@ -20,5 +21,10 @@ public:
 
 OloEngine::Application* OloEngine::CreateApplication(const OloEngine::ApplicationCommandLineArgs args)
 {
-	return new Sandbox(args);
+	ApplicationSpecification spec;
+	spec.Name = "Sandbox";
+	spec.WorkingDirectory = "../OloEditor";
+	spec.CommandLineArgs = args;
+
+	return new Sandbox(spec);
 }

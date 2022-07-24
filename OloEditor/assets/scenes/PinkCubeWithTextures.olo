@@ -9,6 +9,8 @@ Entities:
       Scale: [1, 1, 1]
     SpriteRendererComponent:
       Color: [0.876447856, 0, 0.834712803, 1]
+      TexturePath: assets\textures\Otter.png
+      TilingFactor: 1
   - Entity: 11837192831273
     TagComponent:
       Tag: Camera
@@ -47,5 +49,5 @@ Entities:
       Scale: [1, 1, 1]
     SpriteRendererComponent:
       Color: [1, 0, 0.949807167, 1]
-      TexturePath: assets\textures\ChernoLogo.png
+      TexturePath: assets\textures\Otter.png
       TilingFactor: 1

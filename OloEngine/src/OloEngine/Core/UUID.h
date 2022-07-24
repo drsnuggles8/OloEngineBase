@@ -18,14 +18,13 @@ namespace OloEngine {
 }
 
 namespace std {
+	template <typename T> struct hash;
 
 	template<>
 	struct hash<OloEngine::UUID>
 	{
 		std::size_t operator()(const OloEngine::UUID& uuid) const
 		{
-			// uuid is already a randomly generated number, and is suitable as a hash key as-is.
-			// this may change in future, in which case return hash<uint64_t>{}(uuid); might be more appropriate
 			return static_cast<uint64_t>(uuid);
 		}
 	};

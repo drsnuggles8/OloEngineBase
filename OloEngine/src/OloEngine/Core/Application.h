@@ -1,14 +1,11 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-
 #include "OloEngine/Core/Window.h"
 #include "OloEngine/Core/LayerStack.h"
 #include "OloEngine/Events/Event.h"
 #include "OloEngine/Events/ApplicationEvent.h"
-
 #include "OloEngine/Core/Timestep.h"
-
 #include "OloEngine/ImGui/ImGuiLayer.h"
 
 int main(int argc, char** argv);
@@ -27,10 +24,17 @@ namespace OloEngine {
 		}
 	};
 
+	struct ApplicationSpecification
+	{
+		std::string Name = "OloEngine Application";
+		std::string WorkingDirectory;
+		ApplicationCommandLineArgs CommandLineArgs;
+	};
+
 	class Application
 	{
 	public:
-		explicit Application(const std::string& name = "OloEngine App", ApplicationCommandLineArgs args = ApplicationCommandLineArgs());
+		explicit Application(const ApplicationSpecification& specification);
 		virtual ~Application();
 
 		void OnEvent(Event& e);
@@ -48,13 +52,13 @@ namespace OloEngine {
 
 		[[nodiscard("Returns m_ImGuiLayer, you probably wanted some other function!")]] ImGuiLayer* GetImGuiLayer() { return m_ImGuiLayer; }
 
-		[[nodiscard("Returns m_CommandLineArgs, you probably wanted some other function!")]] ApplicationCommandLineArgs GetCommandLineArgs() const { return m_CommandLineArgs; }
+		[[nodiscard("Returns m_Specification, you probably wanted some other function!")]] const ApplicationSpecification& GetSpecification() const { return m_Specification; }
 	private:
 		void Run();
 		bool OnWindowClose(WindowCloseEvent const& e);
 		bool OnWindowResize(WindowResizeEvent const& e);
 	private:
-		ApplicationCommandLineArgs m_CommandLineArgs;
+		ApplicationSpecification m_Specification;
 		Scope<Window> m_Window;
 		ImGuiLayer* m_ImGuiLayer;
 		bool m_Running = true;
