@@ -39,7 +39,7 @@ namespace OloEngine {
 
 		bool sceneLoaded = false;
 
-		if (const auto commandLineArgs = Application::Get().GetCommandLineArgs(); commandLineArgs.Count > 1)
+		if (const auto commandLineArgs = Application::Get().GetSpecification().CommandLineArgs; commandLineArgs.Count > 1)
 		{
 			sceneLoaded = OpenScene(commandLineArgs[1]);
 		}
