@@ -97,7 +97,7 @@ namespace OloEngine {
 			const char* nameSpace = mono_metadata_string_heap(image, cols[MONO_TYPEDEF_NAMESPACE]);
 			const char* name = mono_metadata_string_heap(image, cols[MONO_TYPEDEF_NAME]);
 
-			HZ_CORE_TRACE("{}.{}", nameSpace, name);
+			OLO_CORE_TRACE("{}.{}", nameSpace, name);
 		}
 	}
 
@@ -105,22 +105,22 @@ namespace OloEngine {
 	{
 		mono_set_assemblies_path("mono/lib");
 
-		MonoDomain* rootDomain = mono_jit_init("HazelJITRuntime");
-		HZ_CORE_ASSERT(rootDomain);
+		MonoDomain* rootDomain = mono_jit_init("OloEngineJITRuntime");
+		OLO_CORE_ASSERT(rootDomain);
 
 		// Store the root domain pointer
 		s_Data->RootDomain = rootDomain;
 
 		// Create an App Domain
-		s_Data->AppDomain = mono_domain_create_appdomain("HazelScriptRuntime", nullptr);
+		s_Data->AppDomain = mono_domain_create_appdomain("OloEngineScriptRuntime", nullptr);
 		mono_domain_set(s_Data->AppDomain, true);
 
 		// Move this maybe
-		s_Data->CoreAssembly = LoadCSharpAssembly("Resources/Scripts/Hazel-ScriptCore.dll");
+		s_Data->CoreAssembly = LoadCSharpAssembly("Resources/Scripts/OloEngine-ScriptCore.dll");
 		PrintAssemblyTypes(s_Data->CoreAssembly);
 
 		MonoImage* assemblyImage = mono_assembly_get_image(s_Data->CoreAssembly);
-		MonoClass* monoClass = mono_class_from_name(assemblyImage, "Hazel", "Main");
+		MonoClass* monoClass = mono_class_from_name(assemblyImage, "OloEngine", "Main");
 
 		// 1. create an object (and call constructor)
 		MonoObject* instance = mono_object_new(s_Data->AppDomain, monoClass);
