@@ -470,4 +470,7 @@ OloEditor/assets/cache
 **/imgui.ini
 
 # Specifically allow mono lib files
-!OloEngine/mono/*
+!OloEngine/mono/bin/Debug/*
+!OloEngine/mono/bin/Release/*
+!OloEngine/mono/lib/Debug/*
+!OloEngine/mono/lib/Release/*
