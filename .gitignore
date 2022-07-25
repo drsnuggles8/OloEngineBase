@@ -407,6 +407,26 @@ FodyWeavers.xsd
 *.gch
 *.pch
 
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
 **/cmake-build-debug
 **/CMakeCache.txt
 **/cmake_install.cmake
@@ -448,3 +468,6 @@ OloEditor/assets/cache
 
 # imgui profiles
 **/imgui.ini
+
+# Specifically allow mono lib files
+!OloEngine/mono/*
