@@ -12,15 +12,15 @@ ${OloEngine-ScriptCore_VERSION_MAJOR}.${OloEngine-ScriptCore_VERSION_MINOR}.${Ol
 add_subdirectory(src)
 
 set_target_properties(OloEngine-ScriptCore PROPERTIES
-					ARCHIVE_OUTPUT_DIRECTORY_DEBUG OloEditor/Resources/Scripts
-					ARCHIVE_OUTPUT_DIRECTORY_RELEASE OloEditor/Resources/Scripts
-					ARCHIVE_OUTPUT_DIRECTORY_DIST OloEditor/Resources/Scripts
-					LIBRARY_OUTPUT_DIRECTORY_DEBUG OloEditor/Resources/Scripts
-					LIBRARY_OUTPUT_DIRECTORY_RELEASE OloEditor/Resources/Scripts
-					LIBRARY_OUTPUT_DIRECTORY_DIST OloEditor/Resources/Scripts
-					RUNTIME_OUTPUT_DIRECTORY_DEBUG OloEditor/Resources/Scripts
-					RUNTIME_OUTPUT_DIRECTORY_RELEASE OloEditor/Resources/Scripts
-					RUNTIME_OUTPUT_DIRECTORY_DIST OloEditor/Resources/Scripts
+					ARCHIVE_OUTPUT_DIRECTORY_DEBUG ${CMAKE_SOURCE_DIR}/OloEditor/Resources/Scripts
+					ARCHIVE_OUTPUT_DIRECTORY_RELEASE ${CMAKE_SOURCE_DIR}/OloEditor/Resources/Scripts
+					ARCHIVE_OUTPUT_DIRECTORY_DIST ${CMAKE_SOURCE_DIR}/OloEditor/Resources/Scripts
+					LIBRARY_OUTPUT_DIRECTORY_DEBUG ${CMAKE_SOURCE_DIR}/OloEditor/Resources/Scripts
+					LIBRARY_OUTPUT_DIRECTORY_RELEASE ${CMAKE_SOURCE_DIR}/OloEditor/Resources/Scripts
+					LIBRARY_OUTPUT_DIRECTORY_DIST ${CMAKE_SOURCE_DIR}/OloEditor/Resources/Scripts
+					RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_SOURCE_DIR}/OloEditor/Resources/Scripts
+					RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_SOURCE_DIR}/OloEditor/Resources/Scripts
+					RUNTIME_OUTPUT_DIRECTORY_DIST ${CMAKE_SOURCE_DIR}/OloEditor/Resources/Scripts
 )
 
 target_compile_definitions(OloEngine-ScriptCore PRIVATE

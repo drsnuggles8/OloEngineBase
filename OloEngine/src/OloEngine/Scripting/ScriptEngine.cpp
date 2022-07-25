@@ -17,19 +17,6 @@ namespace OloEngine {
 
 	static ScriptEngineData* s_Data = nullptr;
 
-	void ScriptEngine::Init()
-	{
-		s_Data = new ScriptEngineData();
-
-		InitMono();
-	}
-
-	void ScriptEngine::Shutdown()
-	{
-		ShutdownMono();
-		delete s_Data;
-	}
-
 	char* ReadBytes(const std::string& filepath, uint32_t* outSize)
 	{
 		std::ifstream stream(filepath, std::ios::binary | std::ios::ate);
@@ -101,18 +88,32 @@ namespace OloEngine {
 		}
 	}
 
+	void ScriptEngine::Init()
+	{
+		s_Data = new ScriptEngineData();
+
+		InitMono();
+	}
+
+	void ScriptEngine::Shutdown()
+	{
+		ShutdownMono();
+		delete s_Data;
+	}
+
 	void ScriptEngine::InitMono()
 	{
 		mono_set_assemblies_path("mono/lib");
 
 		MonoDomain* rootDomain = mono_jit_init("OloEngineJITRuntime");
-		OLO_CORE_ASSERT(rootDomain);
+		OLO_CORE_ASSERT(rootDomain)
 
 		// Store the root domain pointer
 		s_Data->RootDomain = rootDomain;
 
 		// Create an App Domain
-		s_Data->AppDomain = mono_domain_create_appdomain("OloEngineScriptRuntime", nullptr);
+		char domainName[] = "OloEngineScriptRuntime";
+		s_Data->AppDomain = mono_domain_create_appdomain(domainName, nullptr);
 		mono_domain_set(s_Data->AppDomain, true);
 
 		// Move this maybe

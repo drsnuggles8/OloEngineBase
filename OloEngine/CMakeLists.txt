@@ -12,6 +12,8 @@ ${OloEngine_VERSION_MAJOR}.${OloEngine_VERSION_MINOR}.${OloEngine_VERSION_PATCH}
 
 # Externally provided content
 add_subdirectory(vendor)
+
+# Vulkan stuff
 find_package(Vulkan REQUIRED FATAL_ERROR)
 message("Vulkan found? " ${Vulkan_FOUND})
 message("Alright, where is it? " ${Vulkan_LIBRARIES})
@@ -90,4 +92,8 @@ target_link_libraries(OloEngine
 					  box2d
 					  debug ${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Debug/libmono-static-sgen.lib
 					  optimized ${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Release/libmono-static-sgen.lib
+					  ws2_32
+					  WinMM
+					  Version
+					  BCrypt
 )
