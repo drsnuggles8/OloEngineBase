@@ -81,6 +81,9 @@
 		"OloEngine/Scene/SceneSerializer.h"
 		"OloEngine/Scene/NativeScript.h"
 
+		"OloEngine/Scripting/ScriptEngine.cpp"
+		"OloEngine/Scripting/ScriptEngine.h"
+
 		"OloEngine/Utils/PlatformUtils.h"
 
 		"Platform/OpenGL/OpenGLBuffer.cpp"

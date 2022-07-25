@@ -52,6 +52,7 @@ target_include_directories("OloEngine" PRIVATE
 	vendor/entt-src/single_include/entt
 	${Vulkan_INCLUDE_DIRS}
 	vendor/box2d-src/include/box2d
+	mono/include
 )
 
 target_compile_definitions("OloEngine" PRIVATE
@@ -87,4 +88,6 @@ target_link_libraries(OloEngine
 					  optimized $ENV{VULKAN_SDK}/Lib/spirv-cross-core.lib
 					  optimized $ENV{VULKAN_SDK}/Lib/spirv-cross-glsl.lib
 					  box2d
+					  debug ${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Debug/libmono-static-sgen.lib
+					  optimized ${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Release/libmono-static-sgen.lib
 )
