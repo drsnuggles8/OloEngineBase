@@ -83,6 +83,8 @@
 
 		"OloEngine/Scripting/ScriptEngine.cpp"
 		"OloEngine/Scripting/ScriptEngine.h"
+		"OloEngine/Scripting/ScriptGlue.cpp"
+		"OloEngine/Scripting/ScriptGlue.h"
 
 		"OloEngine/Utils/PlatformUtils.h"
 
