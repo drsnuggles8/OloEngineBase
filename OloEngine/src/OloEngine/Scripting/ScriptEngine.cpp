@@ -158,7 +158,7 @@ namespace OloEngine {
 
 	void ScriptEngine::ShutdownMono()
 	{
-		// NOTE(Yan): mono is a little confusing to shutdown, so maybe come back to this
+		// NOTE(Yan): mono is a little confusing to shut down, so maybe come back to this
 
 		// mono_domain_unload(s_Data->AppDomain);
 		s_Data->AppDomain = nullptr;

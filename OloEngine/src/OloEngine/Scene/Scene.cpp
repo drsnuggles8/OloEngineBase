@@ -9,6 +9,7 @@
 #include "NativeScript.h"
 
 #include <glm/glm.hpp>
+#include <ranges>
 
 // Box2D
 #include "b2_world.h"
@@ -80,7 +81,7 @@ namespace OloEngine {
 		CopyComponentIfExists<Component...>(dst, src);
 	}
 
-	Ref<Scene> Scene::Copy(Ref<Scene> const other)
+	Ref<Scene> Scene::Copy(Ref<Scene> const& other)
 	{
 		Ref<Scene> newScene = CreateRef<Scene>();
 
@@ -93,10 +94,9 @@ namespace OloEngine {
 
 		// Create entities in new scene
 		const auto idView = srcSceneRegistry.view<IDComponent>();
-		for (auto it = idView.rbegin(); it != idView.rend(); it++)
+		for (auto e : std::ranges::reverse_view(idView))
 		{
-			entt::entity e = *it;
-			const UUID uuid = srcSceneRegistry.get<IDComponent>(e).ID;
+            const UUID uuid = srcSceneRegistry.get<IDComponent>(e).ID;
 			const auto& name = srcSceneRegistry.get<TagComponent>(e).Tag;
 			const Entity newEntity = newScene->CreateEntityWithUUID(uuid, name);
 			enttMap[uuid] = static_cast<entt::entity>(newEntity);

@@ -9,13 +9,14 @@
 #include "OloEngine/Utils/PlatformUtils.h"
 
 #include <ranges>
+#include <utility>
 
 namespace OloEngine {
 
 	Application* Application::s_Instance = nullptr;
 
-	Application::Application(const ApplicationSpecification& specification)
-		: m_Specification(specification)
+	Application::Application(ApplicationSpecification specification)
+		: m_Specification(std::move(specification))
 	{
 		OLO_PROFILE_FUNCTION();
 
