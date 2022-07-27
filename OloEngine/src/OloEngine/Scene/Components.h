@@ -148,8 +148,8 @@ namespace OloEngine {
 	{
 		NativeScript* Instance = nullptr;
 
-		NativeScript* (*InstantiateScript)();
-		void (*DestroyScript)(NativeScriptComponent*);
+		NativeScript* (*InstantiateScript)(){};
+		void (*DestroyScript)(NativeScriptComponent*){};
 
 		template<typename T>
 		void Bind()

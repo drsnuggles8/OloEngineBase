@@ -34,7 +34,7 @@ namespace OloEngine {
 	class Application
 	{
 	public:
-		explicit Application(const ApplicationSpecification& specification);
+		explicit Application(ApplicationSpecification  specification);
 		virtual ~Application();
 
 		void OnEvent(Event& e);

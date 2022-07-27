@@ -12,6 +12,8 @@ ${OloEngine_VERSION_MAJOR}.${OloEngine_VERSION_MINOR}.${OloEngine_VERSION_PATCH}
 
 # Externally provided content
 add_subdirectory(vendor)
+
+# Vulkan stuff
 find_package(Vulkan REQUIRED FATAL_ERROR)
 message("Vulkan found? " ${Vulkan_FOUND})
 message("Alright, where is it? " ${Vulkan_LIBRARIES})
@@ -52,6 +54,7 @@ target_include_directories("OloEngine" PRIVATE
 	vendor/entt-src/single_include/entt
 	${Vulkan_INCLUDE_DIRS}
 	vendor/box2d-src/include/box2d
+	mono/include
 )
 
 target_compile_definitions("OloEngine" PRIVATE
@@ -87,4 +90,10 @@ target_link_libraries(OloEngine
 					  optimized $ENV{VULKAN_SDK}/Lib/spirv-cross-core.lib
 					  optimized $ENV{VULKAN_SDK}/Lib/spirv-cross-glsl.lib
 					  box2d
+					  debug ${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Debug/libmono-static-sgen.lib
+					  optimized ${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Release/libmono-static-sgen.lib
+					  ws2_32
+					  WinMM
+					  Version
+					  BCrypt
 )

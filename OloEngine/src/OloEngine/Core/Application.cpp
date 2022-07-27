@@ -4,17 +4,19 @@
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Renderer/Renderer.h"
+#include "OloEngine/Scripting/ScriptEngine.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
 #include <ranges>
+#include <utility>
 
 namespace OloEngine {
 
 	Application* Application::s_Instance = nullptr;
 
-	Application::Application(const ApplicationSpecification& specification)
-		: m_Specification(specification)
+	Application::Application(ApplicationSpecification specification)
+		: m_Specification(std::move(specification))
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -30,6 +32,7 @@ namespace OloEngine {
 		m_Window->SetEventCallback(OLO_BIND_EVENT_FN(Application::OnEvent));
 
 		Renderer::Init();
+		ScriptEngine::Init();
 
 		m_ImGuiLayer = new ImGuiLayer();
 		PushOverlay(m_ImGuiLayer);
@@ -45,6 +48,7 @@ namespace OloEngine {
 			delete layer;
 		}
 
+		ScriptEngine::Shutdown();
 		Renderer::Shutdown();
 	}
 

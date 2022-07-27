@@ -13,7 +13,7 @@ namespace OloEngine {
 	public:
 		Entity() = default;
 		Entity(entt::entity handle, Scene& scene);
-		Entity(entt::entity const handle, Scene* const scene);
+		Entity(entt::entity handle, Scene* scene);
 		~Entity() = default;
 
 		template<typename T, typename... Args>
