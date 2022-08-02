@@ -82,7 +82,7 @@ namespace OloEngine {
 		m_Context->Init();
 
 		GLFWAPI::glfwSetWindowUserPointer(m_Window, &m_Data);
-		SetVSync(true);
+		SetVSync(false);
 
 		// Set GLFW callbacks
 		GLFWAPI::glfwSetWindowSizeCallback(m_Window, [](GLFWwindow* const window, const int width, const int height)

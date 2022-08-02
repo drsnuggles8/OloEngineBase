@@ -1,5 +1,15 @@
 ﻿set(SOURCES
-		"Main.cs"
+		"Camera.cs"
+		"Player.cs"
+		
+		"OloEngine/Input.cs"
+		"OloEngine/InternalCalls.cs"
+		"OloEngine/KeyCode.cs"
+		"OloEngine/Vector2.cs"
+		"OloEngine/Vector3.cs"
+		
+		"OloEngine/Scene/Components.cs"
+		"OloEngine/Scene/Entity.cs"
 )
 
 add_library(OloEngine-ScriptCore SHARED

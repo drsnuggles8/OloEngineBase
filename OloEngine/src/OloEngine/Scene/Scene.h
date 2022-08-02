@@ -37,6 +37,8 @@ namespace OloEngine {
 
 		void DuplicateEntity(Entity entity);
 
+		Entity GetEntityByUUID(UUID uuid);
+
 		Entity GetPrimaryCameraEntity();
 
 		void SetName(std::string_view name);
@@ -61,6 +63,8 @@ namespace OloEngine {
 		uint32_t m_ViewportHeight = 0;
 
 		b2World* m_PhysicsWorld = nullptr;
+
+		std::unordered_map<UUID, entt::entity> m_EntityMap;
 
 		std::string m_Name = "Untitled";
 

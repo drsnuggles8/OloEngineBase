@@ -6,6 +6,7 @@
 
 #include "Components.h"
 #include "OloEngine/Renderer/Renderer2D.h"
+#include "OloEngine/Scripting/ScriptEngine.h"
 #include "NativeScript.h"
 
 #include <glm/glm.hpp>
@@ -96,7 +97,7 @@ namespace OloEngine {
 		const auto idView = srcSceneRegistry.view<IDComponent>();
 		for (auto e : std::ranges::reverse_view(idView))
 		{
-            const UUID uuid = srcSceneRegistry.get<IDComponent>(e).ID;
+			const UUID uuid = srcSceneRegistry.get<IDComponent>(e).ID;
 			const auto& name = srcSceneRegistry.get<TagComponent>(e).Tag;
 			const Entity newEntity = newScene->CreateEntityWithUUID(uuid, name);
 			enttMap[uuid] = static_cast<entt::entity>(newEntity);
@@ -124,22 +125,39 @@ namespace OloEngine {
 
 		auto& tag = entity.AddComponent<TagComponent>();
 		tag.Tag = name.empty() ? "Entity" : name;
+
+		m_EntityMap[uuid] = entity;
+
 		return entity;
 	}
 
-	void Scene::DestroyEntity(Entity const entity)
+	void Scene::DestroyEntity(Entity entity)
 	{
 		m_Registry.destroy(entity);
+		m_EntityMap.erase(entity.GetUUID());
 	}
 
 	void Scene::OnRuntimeStart()
 	{
 		OnPhysics2DStart();
+
+		// Scripting
+		{
+			ScriptEngine::OnRuntimeStart(this);
+			// Instantiate all script entities
+			for (const auto view = m_Registry.view<ScriptComponent>(); const auto e : view)
+			{
+				Entity entity = { e, this };
+				ScriptEngine::OnCreateEntity(entity);
+			}
+		}
 	}
 
 	void Scene::OnRuntimeStop()
 	{
 		OnPhysics2DStop();
+
+		ScriptEngine::OnRuntimeStop();
 	}
 
 	void Scene::OnSimulationStart()
@@ -156,8 +174,16 @@ namespace OloEngine {
 	{
 		// Update scripts
 		{
+			// C# Entity OnUpdate
+			for (const auto view = m_Registry.view<ScriptComponent>(); const auto e : view)
+			{
+				Entity entity = { e, this };
+				ScriptEngine::OnUpdateEntity(entity, ts);
+			}
+
+
 			m_Registry.view<NativeScriptComponent>().each([=](auto entity, auto& nsc)
-				{
+			{
 				if (!nsc.Instance)
 				{
 					nsc.Instance = nsc.InstantiateScript();
@@ -165,8 +191,8 @@ namespace OloEngine {
 					nsc.Instance->OnCreate();
 				}
 
-					nsc.Instance->OnUpdate(ts);
-				});
+				nsc.Instance->OnUpdate(ts);
+			});
 		}
 
 		// Physics
@@ -322,6 +348,17 @@ namespace OloEngine {
 		static_assert(0 == sizeof(T));
 	}
 
+	Entity Scene::GetEntityByUUID(UUID uuid)
+	{
+		// TODO(OLBU): Maybe should be assert
+		if (m_EntityMap.find(uuid) != m_EntityMap.end())
+		{
+			return { m_EntityMap.at(uuid), this };
+		}
+
+		return {};
+	}
+
 	void Scene::OnPhysics2DStart()
 	{
 		m_PhysicsWorld = new b2World({ 0.0f, -9.8f });
@@ -426,6 +463,11 @@ namespace OloEngine {
 		{
 			component.Camera.SetViewportSize(m_ViewportWidth, m_ViewportHeight);
 		}
+	}
+
+	template<>
+	void Scene::OnComponentAdded<ScriptComponent>(Entity entity, ScriptComponent& component)
+	{
 	}
 
 	template<>

@@ -142,6 +142,14 @@ namespace OloEngine {
 		CircleCollider2DComponent(const CircleCollider2DComponent&) = default;
 	};
 
+	struct ScriptComponent
+	{
+		std::string ClassName;
+
+		ScriptComponent() = default;
+		ScriptComponent(const ScriptComponent&) = default;
+	};
+
 	class NativeScript;
 
 	struct NativeScriptComponent
@@ -168,6 +176,6 @@ namespace OloEngine {
 		ComponentGroup<TransformComponent, SpriteRendererComponent,
 		CircleRendererComponent, CameraComponent,
 		Rigidbody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
-		NativeScriptComponent>;
+		ScriptComponent, NativeScriptComponent>;
 
 }
