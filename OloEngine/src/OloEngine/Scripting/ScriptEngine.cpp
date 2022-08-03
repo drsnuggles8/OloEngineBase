@@ -258,7 +258,7 @@ namespace OloEngine {
 			std::string fullName;
 			if (strlen(nameSpace) != 0)
 			{
-				fullName = std::format("{}.{}", nameSpace, name);
+				fullName = fmt::format("{}.{}", nameSpace, name);
 			}
 			else
 			{
@@ -312,7 +312,7 @@ namespace OloEngine {
 		return ::mono_runtime_invoke(method, instance, params, nullptr);
 	}
 
-	ScriptInstance::ScriptInstance(Ref<ScriptClass> scriptClass, Entity entity)
+	ScriptInstance::ScriptInstance(const Ref<ScriptClass>& scriptClass, Entity entity)
 		: m_ScriptClass(scriptClass)
 	{
 		m_Instance = scriptClass->Instantiate();

@@ -34,7 +34,7 @@ namespace OloEngine {
 	class ScriptInstance
 	{
 	public:
-		ScriptInstance(Ref<ScriptClass> scriptClass, Entity entity);
+		ScriptInstance(const Ref<ScriptClass>& scriptClass, Entity entity);
 
 		void InvokeOnCreate();
 		void InvokeOnUpdate(float ts);
