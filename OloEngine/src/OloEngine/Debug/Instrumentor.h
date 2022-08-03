@@ -153,7 +153,9 @@ namespace OloEngine {
 		~InstrumentationTimer()
 		{
 			if (!m_Stopped)
+			{
 				Stop();
+			}
 		}
 
 		void Stop()
@@ -191,9 +193,13 @@ namespace OloEngine {
 			{
 				size_t matchIndex = 0;
 				while (matchIndex < K - 1 && srcIndex + matchIndex < N - 1 && expr[srcIndex + matchIndex] == remove[matchIndex])
+				{
 					matchIndex++;
+				}
 				if (matchIndex == K - 1)
+				{
 					srcIndex += matchIndex;
+				}
 				result.Data[dstIndex++] = expr[srcIndex] == '"' ? '\'' : expr[srcIndex];
 				srcIndex++;
 			}

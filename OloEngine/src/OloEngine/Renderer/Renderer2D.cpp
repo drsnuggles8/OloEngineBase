@@ -446,7 +446,7 @@ namespace OloEngine {
 			NextBatch();
 		}
 
-		for (auto & QuadVertexPosition : s_Data.QuadVertexPositions)
+		for (auto const & QuadVertexPosition : s_Data.QuadVertexPositions)
 		{
 			s_Data.CircleVertexBufferPtr->WorldPosition = transform * QuadVertexPosition;
 			s_Data.CircleVertexBufferPtr->LocalPosition = QuadVertexPosition * 2.0f;

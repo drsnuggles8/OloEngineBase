@@ -93,9 +93,8 @@ namespace OloEngine {
 		auto& dstSceneRegistry = newScene->m_Registry;
 		std::unordered_map<UUID, entt::entity> enttMap;
 
-		// Create entities in new scene
-		const auto idView = srcSceneRegistry.view<IDComponent>();
-		for (auto e : std::ranges::reverse_view(idView))
+		// Create entities in new scene		
+		for (const auto idView = srcSceneRegistry.view<IDComponent>(); auto e : std::ranges::reverse_view(idView))
 		{
 			const UUID uuid = srcSceneRegistry.get<IDComponent>(e).ID;
 			const auto& name = srcSceneRegistry.get<TagComponent>(e).Tag;
@@ -351,7 +350,7 @@ namespace OloEngine {
 	Entity Scene::GetEntityByUUID(UUID uuid)
 	{
 		// TODO(OLBU): Maybe should be assert
-		if (m_EntityMap.find(uuid) != m_EntityMap.end())
+		if (m_EntityMap.contains(uuid))
 		{
 			return { m_EntityMap.at(uuid), this };
 		}
