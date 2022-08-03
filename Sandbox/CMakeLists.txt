@@ -46,7 +46,7 @@ target_compile_definitions("Sandbox" PRIVATE
 if(MSVC)
 	target_compile_options("Sandbox" PRIVATE /W4)
 else()
-	target_compile_options("Sandbox" PRIVATE -Wall -Wextra -pedantic)
+	target_compile_options("Sandbox" PRIVATE -Wall -Wextra -Wundef -Wno-cast-function-type -pedantic -Wno-long-long -Wshadow -Werror -Wno-error=deprecated-declarations)
 endif()
 
 target_link_libraries(Sandbox

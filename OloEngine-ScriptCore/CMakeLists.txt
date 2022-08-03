@@ -34,5 +34,5 @@ target_compile_definitions(OloEngine-ScriptCore PRIVATE
 if(MSVC)
 	target_compile_options(OloEngine-ScriptCore PRIVATE /W4)
 else()
-	target_compile_options(OloEngine-ScriptCore PRIVATE -Wall -Wextra -pedantic)
+	target_compile_options(OloEngine-ScriptCore PRIVATE -Wall -Wextra -Wundef -Wno-cast-function-type -pedantic -Wno-long-long -Wshadow -Werror -Wno-error=deprecated-declarations)
 endif()
