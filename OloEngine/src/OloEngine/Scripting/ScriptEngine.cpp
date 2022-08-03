@@ -10,7 +10,7 @@ namespace OloEngine {
 
 	namespace Utils {
 
-		// TODO: move to FileSystem class
+		// TODO(OLBU): move to FileSystem class
 		static char* ReadBytes(const std::filesystem::path& filepath, uint32_t* outSize)
 		{
 			std::ifstream stream(filepath, std::ios::binary | std::ios::ate);
@@ -25,17 +25,17 @@ namespace OloEngine {
 			stream.seekg(0, std::ios::beg);
 			uint64_t size = end - stream.tellg();
 
-			if (size == 0)
+			if (0 == size)
 			{
 				// File is empty
 				return nullptr;
 			}
 
-			char* buffer = new char[size];
-			stream.read((char*)buffer, size);
+			auto* buffer = new char[size];
+			stream.read(buffer, size);
 			stream.close();
 
-			*outSize = (uint32_t)size;
+			*outSize = static_cast<uint32_t>(size);
 			return buffer;
 		}
 
@@ -46,18 +46,18 @@ namespace OloEngine {
 
 			// NOTE: We can't use this image for anything other than loading the assembly because this image doesn't have a reference to the assembly
 			MonoImageOpenStatus status;
-			MonoImage* image = mono_image_open_from_data_full(fileData, fileSize, 1, &status, 0);
+			MonoImage* image = ::mono_image_open_from_data_full(fileData, fileSize, 1, &status, 0);
 
 			if (status != MONO_IMAGE_OK)
 			{
-				const char* errorMessage = mono_image_strerror(status);
+				const char* errorMessage = ::mono_image_strerror(status);
 				// Log some error message using the errorMessage data
 				return nullptr;
 			}
 
 			std::string pathString = assemblyPath.string();
-			MonoAssembly* assembly = mono_assembly_load_from_full(image, pathString.c_str(), &status, 0);
-			mono_image_close(image);
+			MonoAssembly* assembly = ::mono_assembly_load_from_full(image, pathString.c_str(), &status, 0);
+			::mono_image_close(image);
 
 			// Don't forget to free the file data
 			delete[] fileData;
@@ -67,17 +67,17 @@ namespace OloEngine {
 
 		void PrintAssemblyTypes(MonoAssembly* assembly)
 		{
-			MonoImage* image = mono_assembly_get_image(assembly);
-			const MonoTableInfo* typeDefinitionsTable = mono_image_get_table_info(image, MONO_TABLE_TYPEDEF);
-			int32_t numTypes = mono_table_info_get_rows(typeDefinitionsTable);
+			MonoImage* image = ::mono_assembly_get_image(assembly);
+			const MonoTableInfo* typeDefinitionsTable = ::mono_image_get_table_info(image, MONO_TABLE_TYPEDEF);
+			int32_t numTypes = ::mono_table_info_get_rows(typeDefinitionsTable);
 
 			for (int32_t i = 0; i < numTypes; i++)
 			{
 				uint32_t cols[MONO_TYPEDEF_SIZE];
-				mono_metadata_decode_row(typeDefinitionsTable, i, cols, MONO_TYPEDEF_SIZE);
+				::mono_metadata_decode_row(typeDefinitionsTable, i, cols, MONO_TYPEDEF_SIZE);
 
-				const char* nameSpace = mono_metadata_string_heap(image, cols[MONO_TYPEDEF_NAMESPACE]);
-				const char* name = mono_metadata_string_heap(image, cols[MONO_TYPEDEF_NAME]);
+				const char* nameSpace = ::mono_metadata_string_heap(image, cols[MONO_TYPEDEF_NAMESPACE]);
+				const char* name = ::mono_metadata_string_heap(image, cols[MONO_TYPEDEF_NAME]);
 				OLO_CORE_TRACE("{}.{}", nameSpace, name);
 			}
 		}
@@ -110,7 +110,7 @@ namespace OloEngine {
 		InitMono();
 		LoadAssembly("Resources/Scripts/OloEngine-ScriptCore.dll");
 		LoadAssemblyClasses(s_Data->CoreAssembly);
-		
+
 		ScriptGlue::RegisterComponents();
 		ScriptGlue::RegisterFunctions();
 
@@ -158,9 +158,9 @@ namespace OloEngine {
 
 	void ScriptEngine::InitMono()
 	{
-		mono_set_assemblies_path("mono/lib");
+		::mono_set_assemblies_path("mono/lib");
 
-		MonoDomain* rootDomain = mono_jit_init("OloEngineJITRuntime");
+		MonoDomain* rootDomain = ::mono_jit_init("OloEngineJITRuntime");
 		OLO_CORE_ASSERT(rootDomain)
 
 		// Store the root domain pointer
@@ -182,12 +182,12 @@ namespace OloEngine {
 	{
 		// Create an App Domain
 		char domainName[] = "OloEngineScriptRuntime";
-		s_Data->AppDomain = mono_domain_create_appdomain(domainName, nullptr);
-		mono_domain_set(s_Data->AppDomain, true);
+		s_Data->AppDomain = ::mono_domain_create_appdomain(domainName, nullptr);
+		::mono_domain_set(s_Data->AppDomain, true);
 
 		// Move this maybe
 		s_Data->CoreAssembly = Utils::LoadMonoAssembly(filepath);
-		s_Data->CoreAssemblyImage = mono_assembly_get_image(s_Data->CoreAssembly);
+		s_Data->CoreAssemblyImage = ::mono_assembly_get_image(s_Data->CoreAssembly);
 		// Utils::PrintAssemblyTypes(s_Data->CoreAssembly);
 	}
 
@@ -198,7 +198,7 @@ namespace OloEngine {
 
 	bool ScriptEngine::EntityClassExists(const std::string& fullClassName)
 	{
-		return s_Data->EntityClasses.find(fullClassName) != s_Data->EntityClasses.end();
+		return s_Data->EntityClasses.contains(fullClassName);
 	}
 
 	void ScriptEngine::OnCreateEntity(Entity entity)
@@ -215,7 +215,7 @@ namespace OloEngine {
 	void ScriptEngine::OnUpdateEntity(Entity entity, Timestep ts)
 	{
 		UUID entityUUID = entity.GetUUID();
-		OLO_CORE_ASSERT(s_Data->EntityInstances.find(entityUUID) != s_Data->EntityInstances.end());
+		OLO_CORE_ASSERT(s_Data->EntityInstances.contains(entityUUID))
 
 		Ref<ScriptInstance> instance = s_Data->EntityInstances[entityUUID];
 		instance->InvokeOnUpdate(static_cast<float>(ts));
@@ -242,18 +242,18 @@ namespace OloEngine {
 	{
 		s_Data->EntityClasses.clear();
 
-		MonoImage* image = mono_assembly_get_image(assembly);
-		const MonoTableInfo* typeDefinitionsTable = mono_image_get_table_info(image, MONO_TABLE_TYPEDEF);
-		int32_t numTypes = mono_table_info_get_rows(typeDefinitionsTable);
-		MonoClass* entityClass = mono_class_from_name(image, "OloEngine", "Entity");
+		MonoImage* image = ::mono_assembly_get_image(assembly);
+		const MonoTableInfo* typeDefinitionsTable = ::mono_image_get_table_info(image, MONO_TABLE_TYPEDEF);
+		int32_t numTypes = ::mono_table_info_get_rows(typeDefinitionsTable);
+		MonoClass* entityClass = ::mono_class_from_name(image, "OloEngine", "Entity");
 
 		for (int32_t i = 0; i < numTypes; i++)
 		{
 			uint32_t cols[MONO_TYPEDEF_SIZE];
-			mono_metadata_decode_row(typeDefinitionsTable, i, cols, MONO_TYPEDEF_SIZE);
+			::mono_metadata_decode_row(typeDefinitionsTable, i, cols, MONO_TYPEDEF_SIZE);
 
-			const char* nameSpace = mono_metadata_string_heap(image, cols[MONO_TYPEDEF_NAMESPACE]);
-			const char* name = mono_metadata_string_heap(image, cols[MONO_TYPEDEF_NAME]);
+			const char* nameSpace = ::mono_metadata_string_heap(image, cols[MONO_TYPEDEF_NAMESPACE]);
+			const char* name = ::mono_metadata_string_heap(image, cols[MONO_TYPEDEF_NAME]);
 
 			std::string fullName;
 			if (strlen(nameSpace) != 0)
@@ -265,13 +265,13 @@ namespace OloEngine {
 				fullName = name;
 			}
 
-			MonoClass* monoClass = mono_class_from_name(image, nameSpace, name);
+			MonoClass* monoClass = ::mono_class_from_name(image, nameSpace, name);
 			if (monoClass == entityClass)
 			{
 				continue;
 			}
 
-			bool isEntity = mono_class_is_subclass_of(monoClass, entityClass, false);
+			bool isEntity = ::mono_class_is_subclass_of(monoClass, entityClass, false);
 			if (isEntity)
 			{
 				s_Data->EntityClasses[fullName] = CreateRef<ScriptClass>(nameSpace, name);
@@ -286,15 +286,15 @@ namespace OloEngine {
 
 	MonoObject* ScriptEngine::InstantiateClass(MonoClass* monoClass)
 	{
-		MonoObject* instance = mono_object_new(s_Data->AppDomain, monoClass);
-		mono_runtime_object_init(instance);
+		MonoObject* instance = ::mono_object_new(s_Data->AppDomain, monoClass);
+		::mono_runtime_object_init(instance);
 		return instance;
 	}
 
 	ScriptClass::ScriptClass(const std::string& classNamespace, const std::string& className)
 		: m_ClassNamespace(classNamespace), m_ClassName(className)
 	{
-		m_MonoClass = mono_class_from_name(s_Data->CoreAssemblyImage, classNamespace.c_str(), className.c_str());
+		m_MonoClass = ::mono_class_from_name(s_Data->CoreAssemblyImage, classNamespace.c_str(), className.c_str());
 	}
 
 	MonoObject* ScriptClass::Instantiate()
@@ -304,12 +304,12 @@ namespace OloEngine {
 
 	MonoMethod* ScriptClass::GetMethod(const std::string& name, int parameterCount)
 	{
-		return mono_class_get_method_from_name(m_MonoClass, name.c_str(), parameterCount);
+		return ::mono_class_get_method_from_name(m_MonoClass, name.c_str(), parameterCount);
 	}
 
 	MonoObject* ScriptClass::InvokeMethod(MonoObject* instance, MonoMethod* method, void** params)
 	{
-		return mono_runtime_invoke(method, instance, params, nullptr);
+		return ::mono_runtime_invoke(method, instance, params, nullptr);
 	}
 
 	ScriptInstance::ScriptInstance(Ref<ScriptClass> scriptClass, Entity entity)
