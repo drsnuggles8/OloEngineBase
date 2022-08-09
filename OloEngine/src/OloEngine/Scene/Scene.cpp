@@ -93,7 +93,7 @@ namespace OloEngine {
 		auto& dstSceneRegistry = newScene->m_Registry;
 		std::unordered_map<UUID, entt::entity> enttMap;
 
-		// Create entities in new scene		
+		// Create entities in new scene
 		for (const auto idView = srcSceneRegistry.view<IDComponent>(); auto e : std::ranges::reverse_view(idView))
 		{
 			const UUID uuid = srcSceneRegistry.get<IDComponent>(e).ID;
