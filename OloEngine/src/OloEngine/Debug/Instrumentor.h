@@ -137,7 +137,7 @@ namespace OloEngine {
 		}
 	private:
 		std::mutex m_Mutex;
-		InstrumentationSession* m_CurrentSession;
+		InstrumentationSession* m_CurrentSession{nullptr};
 		std::ofstream m_OutputStream;
 	};
 
@@ -145,7 +145,7 @@ namespace OloEngine {
 	{
 	public:
 		explicit InstrumentationTimer(const char* name)
-			: m_Name(name), m_Stopped(false)
+			: m_Name(name)
 		{
 			m_StartTimepoint = std::chrono::steady_clock::now();
 		}
@@ -153,7 +153,9 @@ namespace OloEngine {
 		~InstrumentationTimer()
 		{
 			if (!m_Stopped)
+			{
 				Stop();
+			}
 		}
 
 		void Stop()
@@ -169,7 +171,7 @@ namespace OloEngine {
 	private:
 		const char* m_Name;
 		std::chrono::time_point<std::chrono::steady_clock> m_StartTimepoint;
-		bool m_Stopped;
+		bool m_Stopped{false};
 	};
 
 	namespace InstrumentorUtils {
@@ -191,9 +193,13 @@ namespace OloEngine {
 			{
 				size_t matchIndex = 0;
 				while (matchIndex < K - 1 && srcIndex + matchIndex < N - 1 && expr[srcIndex + matchIndex] == remove[matchIndex])
+				{
 					matchIndex++;
+				}
 				if (matchIndex == K - 1)
+				{
 					srcIndex += matchIndex;
+				}
 				result.Data[dstIndex++] = expr[srcIndex] == '"' ? '\'' : expr[srcIndex];
 				srcIndex++;
 			}

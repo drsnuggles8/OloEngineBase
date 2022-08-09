@@ -446,10 +446,10 @@ namespace OloEngine {
 			NextBatch();
 		}
 
-		for (size_t i = 0; i < 4; i++)
+		for (auto const & QuadVertexPosition : s_Data.QuadVertexPositions)
 		{
-			s_Data.CircleVertexBufferPtr->WorldPosition = transform * s_Data.QuadVertexPositions[i];
-			s_Data.CircleVertexBufferPtr->LocalPosition = s_Data.QuadVertexPositions[i] * 2.0f;
+			s_Data.CircleVertexBufferPtr->WorldPosition = transform * QuadVertexPosition;
+			s_Data.CircleVertexBufferPtr->LocalPosition = QuadVertexPosition * 2.0f;
 			s_Data.CircleVertexBufferPtr->Color = color;
 			s_Data.CircleVertexBufferPtr->Thickness = thickness;
 			s_Data.CircleVertexBufferPtr->Fade = fade;

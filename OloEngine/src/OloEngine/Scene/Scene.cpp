@@ -6,9 +6,11 @@
 
 #include "Components.h"
 #include "OloEngine/Renderer/Renderer2D.h"
+#include "OloEngine/Scripting/ScriptEngine.h"
 #include "NativeScript.h"
 
 #include <glm/glm.hpp>
+#include <ranges>
 
 // Box2D
 #include "b2_world.h"
@@ -80,7 +82,7 @@ namespace OloEngine {
 		CopyComponentIfExists<Component...>(dst, src);
 	}
 
-	Ref<Scene> Scene::Copy(Ref<Scene> const other)
+	Ref<Scene> Scene::Copy(Ref<Scene> const& other)
 	{
 		Ref<Scene> newScene = CreateRef<Scene>();
 
@@ -92,10 +94,8 @@ namespace OloEngine {
 		std::unordered_map<UUID, entt::entity> enttMap;
 
 		// Create entities in new scene
-		const auto idView = srcSceneRegistry.view<IDComponent>();
-		for (auto it = idView.rbegin(); it != idView.rend(); it++)
+		for (const auto idView = srcSceneRegistry.view<IDComponent>(); auto e : std::ranges::reverse_view(idView))
 		{
-			entt::entity e = *it;
 			const UUID uuid = srcSceneRegistry.get<IDComponent>(e).ID;
 			const auto& name = srcSceneRegistry.get<TagComponent>(e).Tag;
 			const Entity newEntity = newScene->CreateEntityWithUUID(uuid, name);
@@ -124,22 +124,39 @@ namespace OloEngine {
 
 		auto& tag = entity.AddComponent<TagComponent>();
 		tag.Tag = name.empty() ? "Entity" : name;
+
+		m_EntityMap[uuid] = entity;
+
 		return entity;
 	}
 
-	void Scene::DestroyEntity(Entity const entity)
+	void Scene::DestroyEntity(Entity entity)
 	{
 		m_Registry.destroy(entity);
+		m_EntityMap.erase(entity.GetUUID());
 	}
 
 	void Scene::OnRuntimeStart()
 	{
 		OnPhysics2DStart();
+
+		// Scripting
+		{
+			ScriptEngine::OnRuntimeStart(this);
+			// Instantiate all script entities
+			for (const auto view = m_Registry.view<ScriptComponent>(); const auto e : view)
+			{
+				Entity entity = { e, this };
+				ScriptEngine::OnCreateEntity(entity);
+			}
+		}
 	}
 
 	void Scene::OnRuntimeStop()
 	{
 		OnPhysics2DStop();
+
+		ScriptEngine::OnRuntimeStop();
 	}
 
 	void Scene::OnSimulationStart()
@@ -156,8 +173,16 @@ namespace OloEngine {
 	{
 		// Update scripts
 		{
+			// C# Entity OnUpdate
+			for (const auto view = m_Registry.view<ScriptComponent>(); const auto e : view)
+			{
+				Entity entity = { e, this };
+				ScriptEngine::OnUpdateEntity(entity, ts);
+			}
+
+
 			m_Registry.view<NativeScriptComponent>().each([=](auto entity, auto& nsc)
-				{
+			{
 				if (!nsc.Instance)
 				{
 					nsc.Instance = nsc.InstantiateScript();
@@ -165,8 +190,8 @@ namespace OloEngine {
 					nsc.Instance->OnCreate();
 				}
 
-					nsc.Instance->OnUpdate(ts);
-				});
+				nsc.Instance->OnUpdate(ts);
+			});
 		}
 
 		// Physics
@@ -322,6 +347,17 @@ namespace OloEngine {
 		static_assert(0 == sizeof(T));
 	}
 
+	Entity Scene::GetEntityByUUID(UUID uuid)
+	{
+		// TODO(OLBU): Maybe should be assert
+		if (m_EntityMap.contains(uuid))
+		{
+			return { m_EntityMap.at(uuid), this };
+		}
+
+		return {};
+	}
+
 	void Scene::OnPhysics2DStart()
 	{
 		m_PhysicsWorld = new b2World({ 0.0f, -9.8f });
@@ -426,6 +462,11 @@ namespace OloEngine {
 		{
 			component.Camera.SetViewportSize(m_ViewportWidth, m_ViewportHeight);
 		}
+	}
+
+	template<>
+	void Scene::OnComponentAdded<ScriptComponent>(Entity entity, ScriptComponent& component)
+	{
 	}
 
 	template<>

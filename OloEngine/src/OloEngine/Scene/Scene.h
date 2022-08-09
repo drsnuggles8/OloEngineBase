@@ -18,11 +18,11 @@ namespace OloEngine {
 		Scene();
 		~Scene();
 
-		static Ref<Scene> Copy(Ref<Scene> const other);
+		static Ref<Scene> Copy(const Ref<Scene>& other);
 
 		Entity CreateEntity(const std::string& name = std::string());
-		Entity CreateEntityWithUUID(const UUID uuid, const std::string& name = std::string());
-		void DestroyEntity(Entity const entity);
+		Entity CreateEntityWithUUID(UUID uuid, const std::string& name = std::string());
+		void DestroyEntity(Entity entity);
 
 		void OnRuntimeStart();
 		void OnRuntimeStop();
@@ -30,12 +30,14 @@ namespace OloEngine {
 		void OnSimulationStart();
 		void OnSimulationStop();
 
-		void OnUpdateRuntime(Timestep const ts);
-		void OnUpdateSimulation(const Timestep ts, EditorCamera const& camera);
-		void OnUpdateEditor(Timestep const ts, EditorCamera const& camera);
+		void OnUpdateRuntime(Timestep ts);
+		void OnUpdateSimulation(Timestep ts, EditorCamera const& camera);
+		void OnUpdateEditor(Timestep ts, EditorCamera const& camera);
 		void OnViewportResize(uint32_t width, uint32_t height);
 
 		void DuplicateEntity(Entity entity);
+
+		Entity GetEntityByUUID(UUID uuid);
 
 		Entity GetPrimaryCameraEntity();
 
@@ -61,6 +63,8 @@ namespace OloEngine {
 		uint32_t m_ViewportHeight = 0;
 
 		b2World* m_PhysicsWorld = nullptr;
+
+		std::unordered_map<UUID, entt::entity> m_EntityMap;
 
 		std::string m_Name = "Untitled";
 

@@ -2,7 +2,6 @@ include(FetchContent)
 set(FETCHCONTENT_QUIET off)
 set(FETCHCONTENT_BASE_DIR ${PROJECT_SOURCE_DIR}/vendor CACHE PATH "Missing description." FORCE)
 
-
 message(STATUS "Downloading third party libraries using CMake FetchContent")
 
 # entt - entity component system
@@ -11,7 +10,6 @@ FetchContent_Declare(
 	URL https://github.com/skypjack/entt/archive/master.zip
 	)
 FetchContent_MakeAvailable(entt)
-message(STATUS "${Green} entt Should Be Downloaded ${ColourReset}")
 
 # glad - GL/GLES/EGL/GLX/WGL Loader-Generator
 FetchContent_Declare(
@@ -19,23 +17,19 @@ FetchContent_Declare(
 	GIT_REPOSITORY https://github.com/Dav1dde/glad.git
 	GIT_TAG v0.1.36
 	)
-
 set(GLAD_PROFILE "core"	CACHE STRING "OpenGL profile")
 set(GLAD_GENERATOR "c"	CACHE STRING "Language to generate the binding for")
 FetchContent_MakeAvailable(glad)
-message(STATUS "${Green} glad Should Be Downloaded ${ColourReset}")
 
 # glfw - platform-independent API for window & context management
 FetchContent_Declare(
 	glfw
 	GIT_REPOSITORY https://github.com/glfw/glfw.git
 )
-
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(glfw)
-message(STATUS "${Green} glfw Should Be Downloaded ${ColourReset}")
 
 # glm - header-only mathematics library 
 FetchContent_Declare(
@@ -45,7 +39,6 @@ FetchContent_Declare(
 )
 set(GLM_TEST_ENABLE OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(glm)
-message(STATUS "${Green} GLM Should Be Downloaded ${ColourReset}")
 
 # imgui - gui library for C++
 FetchContent_Declare(
@@ -54,8 +47,7 @@ FetchContent_Declare(
 	GIT_TAG docking
 )
 FetchContent_MakeAvailable(imgui)
-set(IMGUI_PATH  "imgui-src")
-	
+set(IMGUI_PATH  "imgui-src")	
 file(GLOB IMGUI_SOURCES ${IMGUI_PATH}/*.cpp)
 file(GLOB IMGUI_HEADERS ${IMGUI_PATH}/*.h)  
 add_library("imgui" STATIC ${IMGUI_SOURCES} ${IMGUI_HEADERS} "${IMGUI_PATH}/backends/imgui_impl_opengl3.cpp" "${IMGUI_PATH}/backends/imgui_impl_opengl3.h" "${IMGUI_PATH}/backends/imgui_impl_opengl3_loader.h")
@@ -67,7 +59,6 @@ set_target_properties("imgui"
 	LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
 	RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imgui-build"
 )
-message(STATUS "${Green} ImGUI Should Be Downloaded ${ColourReset}")
 
 # imguizmo - guizmo extension for C++ 
 FetchContent_Declare(
@@ -86,7 +77,6 @@ set_target_properties(imguizmo
 	LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imguizmo-build"
 	RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/imguizmo-build"
 )
-message(STATUS "${Green} imguizmo Should Be Downloaded ${ColourReset}")
 
 # yaml-cpp - a YAML parser and emitter
 FetchContent_Declare(yaml-cpp
@@ -95,16 +85,6 @@ FetchContent_Declare(yaml-cpp
 )
 set(YAML_CPP_BUILD_TESTS OFF)
 FetchContent_MakeAvailable(yaml-cpp)
-message(STATUS "${Green} yaml-cpp Should Be Downloaded ${ColourReset}")
-
-# ryml - yaml-cpp alternative, currently not being used
-#FetchContent_Declare(ryml
-#	GIT_REPOSITORY https://github.com/biojppm/rapidyaml.git
-#	GIT_TAG master
-#	GIT_SHALLOW FALSE  # ensure submodules are checked out
-#)
-#FetchContent_MakeAvailable(ryml)
-#message(STATUS "${Green} ryml Should Be Downloaded ${ColourReset}")
 
 # spdlog - logging library
 FetchContent_Declare(spdlog
@@ -112,7 +92,6 @@ FetchContent_Declare(spdlog
 	GIT_TAG v1.9.2
 )
 FetchContent_MakeAvailable(spdlog)
-message(STATUS "${Green} spdlog Should Be Downloaded ${ColourReset}")
 
 # stb_image - image loader
 set(libStbImage stb_image)
@@ -134,12 +113,10 @@ DESTINATION
 	"${PROJECT_SOURCE_DIR}/vendor/stb_image-build/include/stb_image"
 )
 set(STBIMAGE_INSTALL_DIR "${PROJECT_SOURCE_DIR}/vendor/stb_image-build")
-message(STATUS "${Green} stb_image Should Be Downloaded ${ColourReset}")
 
 FetchContent_Declare(googletest
 	GIT_REPOSITORY https://github.com/google/googletest.git
-	GIT_TAG main
-  
+	GIT_TAG main  
 )
 # For Windows: Prevent overriding the parent project's compiler/linker settings
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
@@ -147,18 +124,12 @@ FetchContent_MakeAvailable(googletest)
 
 FetchContent_Declare(box2d
 	GIT_REPOSITORY https://github.com/erincatto/box2d.git
-	GIT_TAG main
-  
+	GIT_TAG main  
 )
 set(BOX2D_BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
 set(BOX2D_BUILD_TESTBED OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(box2d)
 
-#set_target_properties(ryml PROPERTIES FOLDER "Utilities/ryml")
-#set_target_properties(ryml-uninstall PROPERTIES FOLDER "Utilities/ryml")
-#set_target_properties(c4core PROPERTIES FOLDER "Utilities/ryml")
-#set_target_properties(c4core-amalgamate PROPERTIES FOLDER "Utilities/ryml")
-set_target_properties(aob PROPERTIES FOLDER "Utilities/entt")
 set_target_properties(glad PROPERTIES FOLDER "Utilities/glad")
 set_target_properties(glad-generate-files PROPERTIES FOLDER "Utilities/glad")
 set_target_properties(imgui PROPERTIES FOLDER "Utilities/imgui")
