@@ -14,13 +14,8 @@ ${OloEngine_VERSION_MAJOR}.${OloEngine_VERSION_MINOR}.${OloEngine_VERSION_PATCH}
 add_subdirectory(vendor)
 
 # Vulkan stuff
-find_package(Vulkan REQUIRED FATAL_ERROR)
-message("Vulkan found? " ${Vulkan_FOUND})
-message("Alright, where is it? " ${Vulkan_LIBRARIES})
-message("And I can include it? " ${Vulkan_INCLUDE_DIRS})
-message("Vulkan version: " ${Vulkan_VERSION})
-message("Path to GLSL SPIR-V Compiler:" ${Vulkan_GLSLC_EXECUTABLE})
-message("Path to Vulkan: " $ENV{VULKAN_SDK})
+message(STATUS "Using module to find Vulkan")
+find_package(Vulkan)
 
 # Main targets built by this project
 add_subdirectory(src)

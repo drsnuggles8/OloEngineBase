@@ -7,7 +7,8 @@ message(STATUS "Downloading third party libraries using CMake FetchContent")
 # entt - entity component system
 FetchContent_Declare(
 	entt
-	URL https://github.com/skypjack/entt/archive/master.zip
+	GIT_REPOSITORY https://github.com/skypjack/entt.git
+	GIT_TAG master
 	)
 FetchContent_MakeAvailable(entt)
 
