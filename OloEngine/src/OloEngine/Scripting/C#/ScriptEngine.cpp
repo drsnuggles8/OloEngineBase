@@ -105,6 +105,8 @@ namespace OloEngine {
 
 	void ScriptEngine::Init()
 	{
+		OLO_CORE_TRACE("[ScriptEngine] Initializing.");
+		
 		s_Data = new ScriptEngineData();
 
 		InitMono();
@@ -152,6 +154,7 @@ namespace OloEngine {
 
 	void ScriptEngine::Shutdown()
 	{
+		OLO_CORE_TRACE("[ScriptEngine] Shutting down.");
 		ShutdownMono();
 		delete s_Data;
 	}

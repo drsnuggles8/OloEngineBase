@@ -8,7 +8,7 @@ namespace OloEngine {
 	namespace Scripting {
 		extern sol::state* GetState();
 	}
-	
+
 	void LuaScriptGlue::RegisterAllTypes()
 	{
 	}

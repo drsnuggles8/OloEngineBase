@@ -13,7 +13,7 @@ namespace OloEngine {
 	{
 		sol::state* LuaState = nullptr;
 	};
-	
+
 	static LuaScriptEngineData s_LuaData;
 
 	namespace Scripting {
@@ -24,18 +24,18 @@ namespace OloEngine {
 
 	static int Lua_AtPanicHandler(lua_State* lua)
 	{
-		longjmp(s_LuaPanicJump, 1);
+		::longjmp(s_LuaPanicJump, 1);
 		return 0; // Will never return
 	}
-	
+
 	static void OnInternalLuaError()
 	{
-		std::cout << "[LuaScriptEngine] Internal Lua error!\n";
+		OLO_CORE_TRACE("[LuaScriptEngine] Internal Lua error!");
 	}
-	
+
 	void LuaScriptEngine::Init()
 	{
-		std::cout << "[LuaScriptEngine] Initializing.\n";
+		OLO_CORE_TRACE("[LuaScriptEngine] Initializing.");
 
 		s_LuaData.LuaState = new sol::state();
 		s_LuaData.LuaState->open_libraries(sol::lib::base, sol::lib::math);
@@ -43,18 +43,18 @@ namespace OloEngine {
 		lua_State* L = s_LuaData.LuaState->lua_state();
 		L->l_G->panic = [](lua_State* L)
 		{
-			std::cout << "[ScriptEngine] PANIC!!! We should never reach this line!\n";
+			OLO_CORE_CRITICAL("[ScriptEngine] PANIC!!! We should never reach this line!");
 			return 0;
 		};
 
-		lua_atpanic(L, &Lua_AtPanicHandler);
+		::lua_atpanic(L, &Lua_AtPanicHandler);
 
 		LuaScriptGlue::RegisterAllTypes();
 	}
-	
+
 	void LuaScriptEngine::Shutdown()
 	{
-		std::cout << "[LuaScriptEngine] Shutting down.\n";
+		OLO_CORE_TRACE("[LuaScriptEngine] Shutting down.");
 
 		delete s_LuaData.LuaState;
 		s_LuaData.LuaState = nullptr;
@@ -72,14 +72,13 @@ namespace OloEngine {
 
 	void LuaScriptEngine::LoadEntityScript(const std::string& file)
 	{
-		std::cout << "[ScriptEngine] Running " << file << "...\n";
-
+		OLO_CORE_TRACE("[LuaScriptEngine] Running file {0}", file);
+		
 		sol::load_result loadResult = s_LuaData.LuaState->load_file(file);
 		if (!loadResult.valid())
 		{
 			sol::error error = loadResult;
-			std::cout << "[ScriptEngine] Lua error!\n";
-			std::cout << "  " << error.what() << std::endl;
+			OLO_CORE_ERROR("[LuaScriptEngine] Lua error!{0}", error.what());
 		}
 		else
 		{
@@ -87,8 +86,7 @@ namespace OloEngine {
 			if (!functionResult.valid())
 			{
 				sol::error error = functionResult;
-				std::cout << "[ScriptEngine] Lua error!\n";
-				std::cout << "  " << error.what() << std::endl;
+				OLO_CORE_ERROR("[LuaScriptEngine] Lua error!{0}", error.what());
 			}
 		}
 	}
