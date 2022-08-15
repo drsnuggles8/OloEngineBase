@@ -6,20 +6,32 @@ project(OloEngine
 set(OloEngine_VERSION_MAJOR 0)
 set(OloEngine_VERSION_MINOR 0)
 set(OloEngine_VERSION_PATCH 1)
-set(OloEngine_VERSION
-${OloEngine_VERSION_MAJOR}.${OloEngine_VERSION_MINOR}.${OloEngine_VERSION_PATCH}
-)
+set(OloEngine_VERSION ${OloEngine_VERSION_MAJOR}.${OloEngine_VERSION_MINOR}.${OloEngine_VERSION_PATCH})
 
 # Externally provided content
 add_subdirectory(vendor)
 
-# Vulkan stuff
-message(STATUS "Using module to find Vulkan")
-find_package(Vulkan)
+
+# Sol2 - for Lua scripting
+CPMAddPackage(
+  NAME sol2
+  GIT_REPOSITORY https://github.com/ThePhD/sol2.git
+  VERSION 3.3.0
+  DOWNLOAD_ONLY YES
+)
+if(sol2_ADDED)
+  add_library(sol2 INTERFACE IMPORTED)
+  target_include_directories(sol2 SYSTEM INTERFACE ${sol2_SOURCE_DIR}/include)
+  target_link_libraries(sol2 INTERFACE lua)
+endif()
 
 # Main targets built by this project
 add_subdirectory(src)
 add_subdirectory(tests)
+
+# Vulkan stuff
+message(STATUS "Using module to find Vulkan")
+find_package(Vulkan)
 
 set_target_properties(OloEngine PROPERTIES
 					ARCHIVE_OUTPUT_DIRECTORY_DEBUG ${CMAKE_SOURCE_DIR}/bin/Debug/OloEngine
@@ -37,28 +49,56 @@ target_precompile_headers("OloEngine" PUBLIC src/OloEnginePCH.h)
 
 target_include_directories("OloEngine" PRIVATE
 	src
-	vendor/spdlog-src/include
-	vendor/glfw-src/include
+	vendor/box2d-src/include/box2d
+	vendor/entt-src/single_include/entt
 	${GLAD_OUT_DIR}/include
+	vendor/glfw-src/include
+	vendor/lua-src
 	vendor/imgui-src
 	vendor/imgui-src/backends
 	vendor/imgui-src/examples
 	vendor/imguizmo-src
 	vendor/glm-src
+	vendor/spdlog-src/include
 	vendor/stb_image-src
-	vendor/entt-src/single_include/entt
-	${Vulkan_INCLUDE_DIRS}
-	vendor/box2d-src/include/box2d
+	vendor/sol2-src/include
 	mono/include
+	${Vulkan_INCLUDE_DIRS}
 )
 
 target_compile_definitions("OloEngine" PRIVATE
 							_CRT_SECURE_NO_WARNINGS
 							GLFW_INCLUDE_NONE
+							YAML_CPP_STATIC_DEFINE
 							$<$<CONFIG:Debug>:OLO_DEBUG>
 							$<$<CONFIG:Release>:OLO_RELEASE>
 							$<$<CONFIG:Dist>:OLO_DIST>
-							YAML_CPP_STATIC_DEFINE
+)
+
+target_link_libraries(OloEngine
+					box2d
+					glad
+					glfw
+					imgui
+					imguizmo
+					opengl32.lib
+					sol2
+					stb_image
+					yaml-cpp
+					${Vulkan_LIBRARIES}
+					debug $ENV{VULKAN_SDK}/Lib/shaderc_sharedd.lib
+					debug $ENV{VULKAN_SDK}/Lib/spirv-cross-cored.lib
+					debug $ENV{VULKAN_SDK}/Lib/spirv-cross-glsld.lib
+					debug $ENV{VULKAN_SDK}/Lib/SPIRV-Toolsd.lib
+					optimized $ENV{VULKAN_SDK}/Lib/shaderc_shared.lib
+					optimized $ENV{VULKAN_SDK}/Lib/spirv-cross-core.lib
+					optimized $ENV{VULKAN_SDK}/Lib/spirv-cross-glsl.lib
+					debug ${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Debug/libmono-static-sgen.lib
+					optimized ${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Release/libmono-static-sgen.lib
+					BCrypt
+					Version
+					ws2_32
+					WinMM
 )
 
 if(MSVC)
@@ -67,28 +107,3 @@ if(MSVC)
 else()
 	target_compile_options("OloEngine" PRIVATE -Wall -Wextra -Wundef -Wno-cast-function-type -pedantic -Wno-long-long -Wshadow -Werror -Wno-error=deprecated-declarations)
 endif()
-
-target_link_libraries(OloEngine
-					  glad
-					  glfw
-					  imgui
-					  imguizmo
-					  opengl32.lib
-					  stb_image
-					  yaml-cpp
-					  ${Vulkan_LIBRARIES}
-					  debug $ENV{VULKAN_SDK}/Lib/shaderc_sharedd.lib
-					  debug $ENV{VULKAN_SDK}/Lib/spirv-cross-cored.lib
-					  debug $ENV{VULKAN_SDK}/Lib/spirv-cross-glsld.lib
-					  debug $ENV{VULKAN_SDK}/Lib/SPIRV-Toolsd.lib
-					  optimized $ENV{VULKAN_SDK}/Lib/shaderc_shared.lib
-					  optimized $ENV{VULKAN_SDK}/Lib/spirv-cross-core.lib
-					  optimized $ENV{VULKAN_SDK}/Lib/spirv-cross-glsl.lib
-					  box2d
-					  debug ${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Debug/libmono-static-sgen.lib
-					  optimized ${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Release/libmono-static-sgen.lib
-					  ws2_32
-					  WinMM
-					  Version
-					  BCrypt
-)

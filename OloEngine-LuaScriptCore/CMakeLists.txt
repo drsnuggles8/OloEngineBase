@@ -1,17 +1,17 @@
-﻿project(OloEngine-ScriptCore
-		LANGUAGES CSharp)
+﻿project(OloEngine-LuaScriptCore
+		LANGUAGES CXX)
 
-set(OloEngine-ScriptCore_VERSION_MAJOR 0)
-set(OloEngine-ScriptCore_VERSION_MINOR 0)
-set(OloEngine-ScriptCore_VERSION_PATCH 1)
-set(OloEngine-ScriptCore_VERSION
-${OloEngine-ScriptCore_VERSION_MAJOR}.${OloEngine-ScriptCore_VERSION_MINOR}.${OloEngine-ScriptCore_VERSION_PATCH}
+set(OloEngine-LuaScriptCore_VERSION_MAJOR 0)
+set(OloEngine-LuaScriptCore_VERSION_MINOR 0)
+set(OloEngine-LuaScriptCore_VERSION_PATCH 1)
+set(OloEngine-LuaScriptCore_VERSION
+${OloEngine-LuaScriptCore_VERSION_MAJOR}.${OloEngine-LuaScriptCore_VERSION_MINOR}.${OloEngine-LuaScriptCore_VERSION_PATCH}
 )
 
 # Main targets built by this project
 add_subdirectory(src)
 
-set_target_properties(OloEngine-ScriptCore PROPERTIES
+set_target_properties(OloEngine-LuaScriptCore PROPERTIES
 					ARCHIVE_OUTPUT_DIRECTORY_DEBUG ${CMAKE_SOURCE_DIR}/OloEditor/Resources/Scripts
 					ARCHIVE_OUTPUT_DIRECTORY_RELEASE ${CMAKE_SOURCE_DIR}/OloEditor/Resources/Scripts
 					ARCHIVE_OUTPUT_DIRECTORY_DIST ${CMAKE_SOURCE_DIR}/OloEditor/Resources/Scripts
@@ -21,18 +21,16 @@ set_target_properties(OloEngine-ScriptCore PROPERTIES
 					RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_SOURCE_DIR}/OloEditor/Resources/Scripts
 					RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_SOURCE_DIR}/OloEditor/Resources/Scripts
 					RUNTIME_OUTPUT_DIRECTORY_DIST ${CMAKE_SOURCE_DIR}/OloEditor/Resources/Scripts
-					CMAKE_DOTNET_TARGET_FRAMEWORK_VERSION "v4.7.2"
-					CMAKE_CSharp_FLAGS "/langversion:6"
 )
 
-target_compile_definitions(OloEngine-ScriptCore PRIVATE
+target_compile_definitions(OloEngine-LuaScriptCore PRIVATE
 							$<$<CONFIG:Debug>:OLO_DEBUG>
 							$<$<CONFIG:Release>:OLO_RELEASE>
 							$<$<CONFIG:Dist>:OLO_DIST>
 )
 
 if(MSVC)
-	target_compile_options(OloEngine-ScriptCore PRIVATE /W4)
+	target_compile_options(OloEngine-LuaScriptCore PRIVATE /W4)
 else()
-	target_compile_options(OloEngine-ScriptCore PRIVATE -Wall -Wextra -Wundef -Wno-cast-function-type -pedantic -Wno-long-long -Wshadow -Werror -Wno-error=deprecated-declarations)
+	target_compile_options(OloEngine-LuaScriptCore PRIVATE -Wall -Wextra -Wundef -Wno-cast-function-type -pedantic -Wno-long-long -Wshadow -Werror -Wno-error=deprecated-declarations)
 endif()

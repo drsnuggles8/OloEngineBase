@@ -6,7 +6,7 @@
 
 #include "Components.h"
 #include "OloEngine/Renderer/Renderer2D.h"
-#include "OloEngine/Scripting/ScriptEngine.h"
+#include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "NativeScript.h"
 
 #include <glm/glm.hpp>

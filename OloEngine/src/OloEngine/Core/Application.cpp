@@ -4,7 +4,8 @@
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Renderer/Renderer.h"
-#include "OloEngine/Scripting/ScriptEngine.h"
+#include "OloEngine/Scripting/C#/ScriptEngine.h"
+#include "OloEngine/Scripting/Lua/LuaScriptEngine.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
@@ -33,6 +34,7 @@ namespace OloEngine {
 
 		Renderer::Init();
 		ScriptEngine::Init();
+		LuaScriptEngine::Init();
 
 		m_ImGuiLayer = new ImGuiLayer();
 		PushOverlay(m_ImGuiLayer);

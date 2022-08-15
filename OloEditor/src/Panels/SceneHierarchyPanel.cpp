@@ -2,7 +2,7 @@
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "SceneHierarchyPanel.h"
 #include "OloEngine/Scene/Components.h"
-#include "OloEngine/Scripting/ScriptEngine.h"
+#include "OloEngine/Scripting/C#/ScriptEngine.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
