@@ -17,7 +17,7 @@ namespace OloEngine {
 	static LuaScriptEngineData s_LuaData;
 
 	namespace Scripting {
-		sol::state* GetState() { return s_LuaData.LuaState;}
+		[[nodiscard("This returns s_LuaData.LuaState, you probably wanted another function!")]] sol::state* GetState() { return s_LuaData.LuaState;}
 	}
 
 	static jmp_buf s_LuaPanicJump;

@@ -62,10 +62,10 @@ namespace OloEngine {
 		static void OnCreateEntity(Entity entity);
 		static void OnUpdateEntity(Entity entity, Timestep ts);
 
-		static Scene* GetSceneContext();
-		static std::unordered_map<std::string, Ref<ScriptClass>> GetEntityClasses();
+		[[nodiscard("This returns SceneContext, you probably wanted another function!")]] static Scene* GetSceneContext();
+		[[nodiscard("This returns EntityClasses, you probably wanted another function!")]] static std::unordered_map<std::string, Ref<ScriptClass>> GetEntityClasses();
 
-		static MonoImage* GetCoreAssemblyImage();
+		[[nodiscard("This returns the CoreAssemblyImage, you probably wanted another function!")]] static MonoImage* GetCoreAssemblyImage();
 	private:
 		static void InitMono();
 		static void ShutdownMono();
