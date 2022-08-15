@@ -22,7 +22,7 @@ namespace OloEngine {
 
 	static jmp_buf s_LuaPanicJump;
 
-	static int Lua_AtPanicHandler(lua_State* lua)
+	static int Lua_AtPanicHandler(lua_State const* lua)
 	{
 		::longjmp(s_LuaPanicJump, 1);
 		return 0; // Will never return
@@ -73,7 +73,7 @@ namespace OloEngine {
 	void LuaScriptEngine::LoadEntityScript(const std::string& file)
 	{
 		OLO_CORE_TRACE("[LuaScriptEngine] Running file {0}", file);
-		
+
 		sol::load_result loadResult = s_LuaData.LuaState->load_file(file);
 		if (!loadResult.valid())
 		{
@@ -93,19 +93,19 @@ namespace OloEngine {
 
 	void LuaScriptEngine::OnCreate(const Entity* entity)
 	{
-		auto& lua = *s_LuaData.LuaState;
+		auto const& lua = *s_LuaData.LuaState;
 		//LUA_CALL(entity->GetName(), "OnCreate");
 	}
 
 	void LuaScriptEngine::OnDestroyed(const Entity* entity)
 	{
-		auto& lua = *s_LuaData.LuaState;
+		auto const& lua = *s_LuaData.LuaState;
 		//LUA_CALL(entity->GetName(), "OnDestroy");
 	}
 
 	void LuaScriptEngine::OnUpdate(const Entity* entity, float ts)
 	{
-		auto& lua = *s_LuaData.LuaState;
+		auto const& lua = *s_LuaData.LuaState;
 		//LUA_CALL(entity->GetName(), "OnUpdate", ts);
 	}
 }
