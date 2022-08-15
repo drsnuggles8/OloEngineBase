@@ -22,7 +22,7 @@ namespace OloEngine {
 
 	static jmp_buf s_LuaPanicJump;
 
-	static int Lua_AtPanicHandler(lua_State const* lua)
+	static int Lua_AtPanicHandler(lua_State* lua)
 	{
 		::longjmp(s_LuaPanicJump, 1);
 		return 0; // Will never return
