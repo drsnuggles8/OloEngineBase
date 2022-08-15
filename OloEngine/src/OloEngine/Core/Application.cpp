@@ -50,6 +50,7 @@ namespace OloEngine {
 			delete layer;
 		}
 
+		LuaScriptEngine::Shutdown();
 		ScriptEngine::Shutdown();
 		Renderer::Shutdown();
 	}
