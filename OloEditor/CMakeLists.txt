@@ -4,9 +4,7 @@
 set(OloEditor_VERSION_MAJOR 0)
 set(OloEditor_VERSION_MINOR 0)
 set(OloEditor_VERSION_PATCH 1)
-set(OloEditor_VERSION
-${OloEditor_VERSION_MAJOR}.${OloEditor_VERSION_MINOR}.${OloEditor_VERSION_PATCH}
-)
+set(OloEditor_VERSION ${OloEditor_VERSION_MAJOR}.${OloEditor_VERSION_MINOR}.${OloEditor_VERSION_PATCH})
 
 # Main targets built by this project
 add_subdirectory(src)
@@ -44,12 +42,12 @@ target_compile_definitions("OloEditor" PRIVATE
 							$<$<CONFIG:Dist>:OLO_DIST>
 )
 
+target_link_libraries(OloEditor
+					OloEngine
+)
+
 if(MSVC)
 	target_compile_options("OloEditor" PRIVATE /W4)
 else()
 	target_compile_options("OloEditor" PRIVATE -Wall -Wextra -Wundef -Wno-cast-function-type -pedantic -Wno-long-long -Wshadow -Werror -Wno-error=deprecated-declarations)
 endif()
-
-target_link_libraries(OloEditor
-					OloEngine
-)

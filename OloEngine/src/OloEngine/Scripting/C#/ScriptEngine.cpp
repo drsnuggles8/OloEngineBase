@@ -51,7 +51,7 @@ namespace OloEngine {
 			if (status != MONO_IMAGE_OK)
 			{
 				const char* errorMessage = ::mono_image_strerror(status);
-				// Log some error message using the errorMessage data
+				OLO_CORE_ERROR("[ScriptEngine] Error detected! {0}", errorMessage);
 				return nullptr;
 			}
 
@@ -71,7 +71,7 @@ namespace OloEngine {
 			const MonoTableInfo* typeDefinitionsTable = ::mono_image_get_table_info(image, MONO_TABLE_TYPEDEF);
 			int32_t numTypes = ::mono_table_info_get_rows(typeDefinitionsTable);
 
-			for (int32_t i = 0; i < numTypes; i++)
+			for (int32_t i = 0; i < numTypes; ++i)
 			{
 				uint32_t cols[MONO_TYPEDEF_SIZE];
 				::mono_metadata_decode_row(typeDefinitionsTable, i, cols, MONO_TYPEDEF_SIZE);
@@ -105,6 +105,8 @@ namespace OloEngine {
 
 	void ScriptEngine::Init()
 	{
+		OLO_CORE_TRACE("[ScriptEngine] Initializing.");
+
 		s_Data = new ScriptEngineData();
 
 		InitMono();
@@ -152,6 +154,7 @@ namespace OloEngine {
 
 	void ScriptEngine::Shutdown()
 	{
+		OLO_CORE_TRACE("[ScriptEngine] Shutting down.");
 		ShutdownMono();
 		delete s_Data;
 	}
@@ -247,7 +250,7 @@ namespace OloEngine {
 		int32_t numTypes = ::mono_table_info_get_rows(typeDefinitionsTable);
 		MonoClass* entityClass = ::mono_class_from_name(image, "OloEngine", "Entity");
 
-		for (int32_t i = 0; i < numTypes; i++)
+		for (int32_t i = 0; i < numTypes; ++i)
 		{
 			uint32_t cols[MONO_TYPEDEF_SIZE];
 			::mono_metadata_decode_row(typeDefinitionsTable, i, cols, MONO_TYPEDEF_SIZE);
@@ -256,7 +259,7 @@ namespace OloEngine {
 			const char* name = ::mono_metadata_string_heap(image, cols[MONO_TYPEDEF_NAME]);
 
 			std::string fullName;
-			if (strlen(nameSpace) != 0)
+			if (std::strlen(nameSpace) != 0)
 			{
 				fullName = fmt::format("{}.{}", nameSpace, name);
 			}

@@ -81,10 +81,14 @@
 		"OloEngine/Scene/SceneSerializer.h"
 		"OloEngine/Scene/NativeScript.h"
 
-		"OloEngine/Scripting/ScriptEngine.cpp"
-		"OloEngine/Scripting/ScriptEngine.h"
-		"OloEngine/Scripting/ScriptGlue.cpp"
-		"OloEngine/Scripting/ScriptGlue.h"
+		"OloEngine/Scripting/C#/ScriptEngine.cpp"
+		"OloEngine/Scripting/C#/ScriptEngine.h"
+		"OloEngine/Scripting/C#/ScriptGlue.cpp"
+		"OloEngine/Scripting/C#/ScriptGlue.h"
+		"OloEngine/Scripting/Lua/LuaScriptEngine.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptEngine.h"
+		"OloEngine/Scripting/Lua/LuaScriptGlue.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue.h"
 
 		"OloEngine/Utils/PlatformUtils.h"
 

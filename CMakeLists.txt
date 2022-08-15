@@ -1,4 +1,4 @@
-﻿cmake_minimum_required(VERSION 3.20)
+﻿cmake_minimum_required(VERSION 3.23)
 
 message(STATUS "CMake version: ${CMAKE_VERSION}")
 
@@ -10,8 +10,11 @@ set(OloEngineBase_VERSION_MINOR 0)
 set(OloEngineBase_VERSION_PATCH 1)
 set(OloEngineBase_VERSION ${OloEngineBase_VERSION_MAJOR}.${OloEngineBase_VERSION_MINOR}.${OloEngineBase_VERSION_PATCH})
 
-# Project wide setup
+# Includes
 include(cmake/SetupConfigurations.cmake)
+include(cmake/CPM.cmake)
+
+# Project wide setup
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -30,7 +33,14 @@ set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
 # Main targets built by this project
 add_subdirectory(OloEngine)
 add_subdirectory(OloEngine-ScriptCore)
+add_subdirectory(OloEngine-LuaScriptCore)
 add_subdirectory(OloEditor)
 add_subdirectory(Sandbox)
+
+set_target_properties(OloEngine-Tests PROPERTIES FOLDER "Test")
+set_target_properties(OloEngine-ScriptCore PROPERTIES FOLDER "Scripting")
+set_target_properties(OloEngine-LuaScriptCore PROPERTIES FOLDER "Scripting")
+set_target_properties(OloEditor PROPERTIES FOLDER "Applications")
+set_target_properties(Sandbox PROPERTIES FOLDER "Applications")
 
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT "OloEditor")
