@@ -10,20 +10,22 @@ set(OloEditor_VERSION ${OloEditor_VERSION_MAJOR}.${OloEditor_VERSION_MINOR}.${Ol
 add_subdirectory(src)
 
 set_target_properties(OloEditor PROPERTIES
-					ARCHIVE_OUTPUT_DIRECTORY_DEBUG ${CMAKE_SOURCE_DIR}/bin/Debug/OloEditor
-					ARCHIVE_OUTPUT_DIRECTORY_RELEASE ${CMAKE_SOURCE_DIR}/bin/Release/OloEditor
-					ARCHIVE_OUTPUT_DIRECTORY_DIST ${CMAKE_SOURCE_DIR}/bin/Dist/OloEditor
-					LIBRARY_OUTPUT_DIRECTORY_DEBUG ${CMAKE_SOURCE_DIR}/bin/Debug/OloEditor
-					LIBRARY_OUTPUT_DIRECTORY_RELEASE ${CMAKE_SOURCE_DIR}/bin/Release/OloEditor
-					LIBRARY_OUTPUT_DIRECTORY_DIST ${CMAKE_SOURCE_DIR}/bin/Dist/OloEditor
-					RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_SOURCE_DIR}/bin/Debug/OloEditor
-					RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_SOURCE_DIR}/bin/Release/OloEditor
-					RUNTIME_OUTPUT_DIRECTORY_DIST ${CMAKE_SOURCE_DIR}/bin/Dist/OloEditor
+					ARCHIVE_OUTPUT_DIRECTORY_DEBUG		${CMAKE_SOURCE_DIR}/bin/Debug/OloEditor
+					ARCHIVE_OUTPUT_DIRECTORY_RELEASE	${CMAKE_SOURCE_DIR}/bin/Release/OloEditor
+					ARCHIVE_OUTPUT_DIRECTORY_DIST		${CMAKE_SOURCE_DIR}/bin/Dist/OloEditor
+					LIBRARY_OUTPUT_DIRECTORY_DEBUG		${CMAKE_SOURCE_DIR}/bin/Debug/OloEditor
+					LIBRARY_OUTPUT_DIRECTORY_RELEASE	${CMAKE_SOURCE_DIR}/bin/Release/OloEditor
+					LIBRARY_OUTPUT_DIRECTORY_DIST		${CMAKE_SOURCE_DIR}/bin/Dist/OloEditor
+					RUNTIME_OUTPUT_DIRECTORY_DEBUG		${CMAKE_SOURCE_DIR}/bin/Debug/OloEditor
+					RUNTIME_OUTPUT_DIRECTORY_RELEASE	${CMAKE_SOURCE_DIR}/bin/Release/OloEditor
+					RUNTIME_OUTPUT_DIRECTORY_DIST		${CMAKE_SOURCE_DIR}/bin/Dist/OloEditor
 					VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 add_dependencies(OloEditor
 				OloEngine
+				OloEngine-ScriptCore
+				Sandbox-Scripting
 )
 
 target_include_directories("OloEditor" PRIVATE
@@ -34,6 +36,7 @@ target_include_directories("OloEditor" PRIVATE
 							${CMAKE_SOURCE_DIR}/OloEngine/vendor/entt-src/single_include/entt
 							${CMAKE_SOURCE_DIR}/OloEngine/vendor/imgui-src
 							${CMAKE_SOURCE_DIR}/OloEngine/vendor/imguizmo-src
+							${CMAKE_SOURCE_DIR}/OloEngine/vendor/sol2-src/include
 )
 
 target_compile_definitions("OloEditor" PRIVATE

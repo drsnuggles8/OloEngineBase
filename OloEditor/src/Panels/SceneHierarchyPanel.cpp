@@ -40,7 +40,7 @@ namespace OloEngine {
 
 			// Right-click on blank space
 			//TODO(olbu): Replace the deprecated BeginPopupContextWindow with the newer BeginPopupContextWindow(const char*, flags)
-			if (ImGui::BeginPopupContextWindow(nullptr, 1, false))
+			if (ImGui::BeginPopupContextWindow(nullptr, 1))
 			{
 				if (ImGui::MenuItem("Create Empty Entity"))
 				{
