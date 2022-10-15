@@ -1,4 +1,5 @@
 ﻿include(CMakePrintHelpers)
+include(CheckIPOSupported)
 
 project(OloEngine
 		LANGUAGES CXX)
@@ -45,9 +46,17 @@ set_target_properties(OloEngine PROPERTIES
 					RUNTIME_OUTPUT_DIRECTORY_DIST 		${CMAKE_SOURCE_DIR}/bin/Dist/OloEngine
 )
 
-target_precompile_headers("OloEngine" PUBLIC src/OloEnginePCH.h)
+check_ipo_supported(RESULT result OUTPUT output)
+if(result)
+	message(STATUS "-- Enabled Link-Time Optimization (LTO)!")
+	set_target_properties(OloEngine PROPERTIES INTERPROCEDURAL_OPTIMIZATION TRUE)
+else()
+	message(WARNING "IPO is not supported: ${output}")
+endif()
 
-target_include_directories("OloEngine" PRIVATE
+target_precompile_headers(OloEngine PUBLIC src/OloEnginePCH.h)
+
+target_include_directories(OloEngine PRIVATE
 	src
 	vendor/box2d-src/include/box2d
 	vendor/entt-src/single_include/entt
@@ -66,7 +75,7 @@ target_include_directories("OloEngine" PRIVATE
 	${Vulkan_INCLUDE_DIRS}
 )
 
-target_compile_definitions("OloEngine" PRIVATE
+target_compile_definitions(OloEngine PRIVATE
 							_CRT_SECURE_NO_WARNINGS
 							GLFW_INCLUDE_NONE
 							YAML_CPP_STATIC_DEFINE
