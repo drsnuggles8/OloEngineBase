@@ -41,6 +41,8 @@ namespace OloEngine {
 
 		Entity GetPrimaryCameraEntity();
 
+		bool IsRunning() const { return m_IsRunning; }
+
 		void SetName(std::string_view name);
 		[[nodiscard("This returns m_Name, you probably wanted another function!")]] const std::string & GetName() const { return m_Name; }
 
@@ -61,6 +63,7 @@ namespace OloEngine {
 		entt::registry m_Registry;
 		uint32_t m_ViewportWidth = 0;
 		uint32_t m_ViewportHeight = 0;
+		bool m_IsRunning = false;
 
 		b2World* m_PhysicsWorld = nullptr;
 
