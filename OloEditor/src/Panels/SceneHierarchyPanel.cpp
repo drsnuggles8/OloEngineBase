@@ -388,17 +388,14 @@ namespace OloEngine {
 			}
 
 			// Fields
-			Ref<ScriptInstance> scriptInstance = ScriptEngine::GetEntityScriptInstance(entity.GetUUID());
-			if (scriptInstance)
+			if (Ref<ScriptInstance> scriptInstance = ScriptEngine::GetEntityScriptInstance(entity.GetUUID()); scriptInstance)
 			{
-				const auto& fields = scriptInstance->GetScriptClass()->GetFields();
-
-				for (const auto& [name, field] : fields)
+				for (const auto& fields = scriptInstance->GetScriptClass()->GetFields(); const auto& [name, field] : fields)
 				{
 					if (field.Type == ScriptFieldType::Float)
 					{
-						float data = scriptInstance->GetFieldValue<float>(name);
-						if (ImGui::DragFloat(name.c_str(), &data))
+						
+						if (float data = scriptInstance->GetFieldValue<float>(name); ImGui::DragFloat(name.c_str(), &data))
 						{
 							scriptInstance->SetFieldValue(name, data);
 						}
