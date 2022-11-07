@@ -3,6 +3,7 @@
 #include "OloEnginePCH.h"
 #include "EditorLayer.h"
 #include "OloEngine/Math/Math.h"
+#include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
@@ -231,6 +232,17 @@ namespace OloEngine {
 				{
 					Application::Get().Close();
 				}
+
+				ImGui::EndMenu();
+			}
+
+			if (ImGui::BeginMenu("Script"))
+			{
+				if (ImGui::MenuItem("Reload assembly", "Ctrl+R"))
+				{
+					ScriptEngine::ReloadAssembly();
+				}
+
 				ImGui::EndMenu();
 			}
 
@@ -533,10 +545,18 @@ namespace OloEngine {
 			}
 			case Key::R:
 			{
-				if ((!ImGuizmo::IsUsing()) && editing)
+				if (control)
 				{
-					m_GizmoType = ImGuizmo::OPERATION::SCALE;
+					ScriptEngine::ReloadAssembly();
 				}
+				else
+				{
+					if ((!ImGuizmo::IsUsing()) && editing)
+					{
+						m_GizmoType = ImGuizmo::OPERATION::SCALE;
+					}
+				}
+				
 				break;
 			}
 		}
