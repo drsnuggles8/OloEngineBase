@@ -117,6 +117,8 @@ namespace OloEngine {
 
 			SetFieldValueInternal(name, &value);
 		}
+
+		MonoObject* GetManagedObject() { return m_Instance; }
 	private:
 		bool GetFieldValueInternal(const std::string& name, void* buffer);
 		bool SetFieldValueInternal(const std::string& name, const void* value);
@@ -157,6 +159,8 @@ namespace OloEngine {
 		[[nodiscard]] static ScriptFieldMap& GetScriptFieldMap(Entity entity);
 
 		[[nodiscard("This returns the CoreAssemblyImage, you probably wanted another function!")]] static MonoImage* GetCoreAssemblyImage();
+
+		[[nodiscard("This returns the GetManagedInstance, you probably wanted another function!")]] static MonoObject* GetManagedInstance(UUID uuid);
 	private:
 		static void InitMono();
 		static void ShutdownMono();

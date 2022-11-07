@@ -61,6 +61,8 @@ namespace OloEngine {
 	{
 		OLO_PROFILE_FUNCTION();
 
+		m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+
 		const double epsilon = 1e-5;
 
 		// Resize
@@ -71,7 +73,6 @@ namespace OloEngine {
 			m_Framebuffer->Resize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));
 			m_CameraController.OnResize(m_ViewportSize.x, m_ViewportSize.y);
 			m_EditorCamera.SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
-			m_ActiveScene->OnViewportResize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));
 		}
 
 		// Render

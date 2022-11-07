@@ -349,6 +349,17 @@ namespace OloEngine {
 		static_assert(0 == sizeof(T));
 	}
 
+	Entity Scene::FindEntityByName(std::string_view name)
+	{		
+		for (auto view = m_Registry.view<TagComponent>(); auto entity : view)
+		{
+			const TagComponent& tc = view.get<TagComponent>(entity);
+			if (tc.Tag == name)
+				return Entity{ entity, this };
+		}
+		return {};
+	}
+
 	Entity Scene::GetEntityByUUID(UUID uuid)
 	{
 		// TODO(OLBU): Maybe should be assert
