@@ -38,13 +38,14 @@ add_dependencies(OloEditor
 
 target_include_directories("OloEditor" PRIVATE
 							${CMAKE_SOURCE_DIR}/OloEngine/src
-							${CMAKE_SOURCE_DIR}/OloEngine/vendor/spdlog-src/include
 							${CMAKE_SOURCE_DIR}/OloEngine/vendor
-							${CMAKE_SOURCE_DIR}/OloEngine/vendor/glm-src
 							${CMAKE_SOURCE_DIR}/OloEngine/vendor/entt-src/single_include/entt
+							${CMAKE_SOURCE_DIR}/OloEngine/vendor/filewatch-src
+							${CMAKE_SOURCE_DIR}/OloEngine/vendor/glm-src
 							${CMAKE_SOURCE_DIR}/OloEngine/vendor/imgui-src
 							${CMAKE_SOURCE_DIR}/OloEngine/vendor/imguizmo-src
 							${CMAKE_SOURCE_DIR}/OloEngine/vendor/sol2-src/include
+							${CMAKE_SOURCE_DIR}/OloEngine/vendor/spdlog-src/include
 )
 
 target_compile_definitions("OloEditor" PRIVATE

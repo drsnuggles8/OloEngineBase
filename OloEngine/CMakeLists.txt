@@ -60,6 +60,7 @@ target_include_directories(OloEngine PRIVATE
 	src
 	vendor/box2d-src/include/box2d
 	vendor/entt-src/single_include/entt
+	vendor/filewatch-src
 	${GLAD_OUT_DIR}/include
 	vendor/glfw-src/include
 	vendor/lua-src

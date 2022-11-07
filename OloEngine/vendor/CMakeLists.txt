@@ -28,6 +28,9 @@ FetchContent_Declare(googletest
 FetchContent_Declare(box2d
 	GIT_REPOSITORY https://github.com/erincatto/box2d.git
 	GIT_TAG main)
+FetchContent_Declare(filewatch
+	GIT_REPOSITORY https://github.com/ThomasMonkman/filewatch.git
+	GIT_TAG master)
 
 set(GLAD_PROFILE "core"	CACHE STRING "OpenGL profile")
 set(GLAD_GENERATOR "c"	CACHE STRING "Language to generate the binding for")
@@ -43,8 +46,9 @@ set(SPDLOG_USE_STD_FORMAT OFF CACHE BOOL "" FORCE)
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 set(BOX2D_BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
 set(BOX2D_BUILD_TESTBED OFF CACHE BOOL "" FORCE)
+set(BuildTests OFF CACHE BOOL "" FORCE)
 
-FetchContent_MakeAvailable(box2d entt glad glfw glm googletest spdlog yaml-cpp)
+FetchContent_MakeAvailable(box2d entt filewatch glad glfw glm googletest spdlog yaml-cpp)
 
 FetchContent_Declare(stb_image
 	GIT_REPOSITORY https://github.com/nothings/stb.git
