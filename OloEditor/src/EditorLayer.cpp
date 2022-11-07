@@ -556,7 +556,6 @@ namespace OloEngine {
 						m_GizmoType = ImGuizmo::OPERATION::SCALE;
 					}
 				}
-				
 				break;
 			}
 		}

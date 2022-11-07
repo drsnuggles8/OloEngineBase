@@ -96,15 +96,14 @@ namespace OloEngine {
 		void InvokeOnCreate();
 		void InvokeOnUpdate(float ts);
 
-		Ref<ScriptClass> GetScriptClass() { return m_ScriptClass; }
+		Ref<ScriptClass> GetScriptClass() const { return m_ScriptClass; }
 
 		template<typename T>
 		T GetFieldValue(const std::string& name)
 		{
 			static_assert(sizeof(T) <= 16, "Type too large!");
 
-			bool success = GetFieldValueInternal(name, s_FieldValueBuffer);
-			if (!success)
+			if (bool success = GetFieldValueInternal(name, s_FieldValueBuffer); !success)
 				return T();
 
 			return *(T*)s_FieldValueBuffer;
@@ -118,7 +117,7 @@ namespace OloEngine {
 			SetFieldValueInternal(name, &value);
 		}
 
-		MonoObject* GetManagedObject() { return m_Instance; }
+		[[nodiscard("This returns m_Instance, you probably wanted another function!")]] MonoObject * GetManagedObject() { return m_Instance; }
 	private:
 		bool GetFieldValueInternal(const std::string& name, void* buffer);
 		bool SetFieldValueInternal(const std::string& name, const void* value);

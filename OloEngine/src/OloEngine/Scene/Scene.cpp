@@ -350,12 +350,14 @@ namespace OloEngine {
 	}
 
 	Entity Scene::FindEntityByName(std::string_view name)
-	{		
+	{
 		for (auto view = m_Registry.view<TagComponent>(); auto entity : view)
 		{
 			const TagComponent& tc = view.get<TagComponent>(entity);
 			if (tc.Tag == name)
+			{
 				return Entity{ entity, this };
+			}
 		}
 		return {};
 	}

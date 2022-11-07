@@ -28,7 +28,7 @@ namespace OloEngine {
 		std::cout << str << ", " << parameter << "\n";
 	}
 
-	[[nodiscard("This returns the normalized vector, you probably wanted another function!")]] static void NativeLog_Vector(glm::vec3 const* parameter, glm::vec3* outResult)
+	static void NativeLog_Vector(glm::vec3 const* parameter, glm::vec3* outResult)
 	{
 		//TODO(olbu): Fix the logger, glm::vec3* is not valid type, need to provide a formatter<T> specialization
 		//https://fmt.dev/latest/api.html#udt
