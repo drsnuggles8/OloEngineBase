@@ -43,6 +43,11 @@ namespace OloEngine {
 		Entity GetPrimaryCameraEntity();
 
 		bool IsRunning() const { return m_IsRunning; }
+		bool IsPaused() const { return m_IsPaused; }
+
+		void SetPaused(bool paused) { m_IsPaused = paused; }
+
+		void Step(int frames = 1);
 
 		void SetName(std::string_view name);
 		[[nodiscard("This returns m_Name, you probably wanted another function!")]] const std::string & GetName() const { return m_Name; }
@@ -65,6 +70,8 @@ namespace OloEngine {
 		uint32_t m_ViewportWidth = 0;
 		uint32_t m_ViewportHeight = 0;
 		bool m_IsRunning = false;
+		bool m_IsPaused = false;
+		int m_StepFrames = 0;
 
 		b2World* m_PhysicsWorld = nullptr;
 
