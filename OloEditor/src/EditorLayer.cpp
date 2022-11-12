@@ -405,16 +405,18 @@ namespace OloEngine {
 		if (hasSimulateButton)
 		{
 			if (hasPlayButton)
-				ImGui::SameLine();
-
-			Ref<Texture2D> icon = (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Play) ? m_IconSimulate : m_IconStop;
-			if ((ImGui::ImageButton(reinterpret_cast<ImTextureID>(icon->GetRendererID()), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor)) && toolbarEnabled)
 			{
-				if ((m_SceneState == SceneState::Edit) || (m_SceneState == SceneState::Play))
+				ImGui::SameLine();
+			}
+
+			if (Ref<Texture2D> icon = (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Play) ? m_IconSimulate : m_IconStop; (ImGui::ImageButton(reinterpret_cast<ImTextureID>(icon->GetRendererID()), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor)) && toolbarEnabled)
+			{
+				using enum OloEngine::EditorLayer::SceneState;
+				if ((m_SceneState == Edit) || (m_SceneState == Play))
 				{
 					OnSceneSimulate();
 				}
-				else if (m_SceneState == SceneState::Simulate)
+				else if (m_SceneState == Simulate)
 				{
 					OnSceneStop();
 				}
@@ -850,7 +852,9 @@ namespace OloEngine {
 	void EditorLayer::OnScenePause() const
 	{
 		if (m_SceneState == SceneState::Edit)
+		{
 			return;
+		}
 
 		m_ActiveScene->SetPaused(true);
 	}

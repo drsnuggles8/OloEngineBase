@@ -179,9 +179,10 @@ namespace OloEngine {
 	{
 		std::scoped_lock<std::mutex> lock(m_MainThreadQueueMutex);
 
-		for (auto& func : m_MainThreadQueue)
+		for (auto const& func : m_MainThreadQueue)
+		{
 			func();
-
+		}
 		m_MainThreadQueue.clear();
 	}
 

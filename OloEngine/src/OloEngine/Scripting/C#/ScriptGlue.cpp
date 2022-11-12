@@ -71,7 +71,9 @@ namespace OloEngine {
 		mono_free(nameCStr);
 
 		if (!entity)
+		{
 			return 0;
+		}
 
 		return entity.GetUUID();
 	}

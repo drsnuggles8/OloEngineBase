@@ -173,7 +173,7 @@ namespace OloEngine {
 
 	static ScriptEngineData* s_Data = nullptr;
 
-	static void OnAppAssemblyFileSystemEvent(const std::string& path, const filewatch::Event change_type)
+	static void OnAppAssemblyFileSystemEvent(const std::string_view path, const filewatch::Event change_type)
 	{
 		if (!s_Data->AssemblyReloadPending && change_type == filewatch::Event::modified)
 		{
@@ -182,7 +182,7 @@ namespace OloEngine {
 			Application::Get().SubmitToMainThread([]()
 			{
 				s_Data->AppAssemblyFileWatcher.reset();
-			ScriptEngine::ReloadAssembly();
+				ScriptEngine::ReloadAssembly();
 			});
 		}
 	}
@@ -251,23 +251,28 @@ namespace OloEngine {
 
 		if (s_Data->EnableDebugging)
 		{
-			const char* argv[2] = {
-				"--debugger-agent=transport=dt_socket,address=127.0.0.1:2550,server=y,suspend=n,loglevel=3,logfile=MonoDebugger.log",
+			std::string debuggerAgentArguments = "--debugger-agent=transport=dt_socket,address=127.0.0.1:2550,server=y,suspend=n,loglevel=3,logfile=MonoDebugger.log";
+
+			// Enable mono soft debugger
+			const char* options[2] = {
+				debuggerAgentArguments.c_str(),
 				"--soft-breakpoints"
 			};
 
-			mono_jit_parse_options(2, (char**)argv);
+			mono_jit_parse_options(2, (char**)options);
 			mono_debug_init(MONO_DEBUG_FORMAT_MONO);
 		}
 
 		MonoDomain* rootDomain = ::mono_jit_init("OloEngineJITRuntime");
-		OLO_CORE_ASSERT(rootDomain)
+		OLO_CORE_ASSERT(rootDomain, "Unable to initialize MONO JIT");
 
 		// Store the root domain pointer
 		s_Data->RootDomain = rootDomain;
 
 		if (s_Data->EnableDebugging)
+		{
 			mono_debug_domain_create(s_Data->RootDomain);
+		}
 
 		mono_thread_set_main(mono_thread_current());
 	}

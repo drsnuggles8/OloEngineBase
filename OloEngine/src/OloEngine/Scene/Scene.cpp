@@ -178,8 +178,7 @@ namespace OloEngine {
 			// Update scripts
 			{
 				// C# Entity OnUpdate
-				auto view = m_Registry.view<ScriptComponent>();
-				for (auto e : view)
+				for (auto view = m_Registry.view<ScriptComponent>(); auto e : view)
 				{
 					Entity entity = { e, this };
 					ScriptEngine::OnUpdateEntity(entity, ts);
@@ -205,7 +204,7 @@ namespace OloEngine {
 				const int32_t positionIterations = 2;
 				m_PhysicsWorld->Step(ts, velocityIterations, positionIterations);
 
-				// Retrieve transform from Box2D			
+				// Retrieve transform from Box2D
 				for (const auto view = m_Registry.view<Rigidbody2DComponent>(); const auto e : view)
 				{
 					Entity entity = { e, this };
@@ -244,7 +243,7 @@ namespace OloEngine {
 			Renderer2D::BeginScene(*mainCamera, cameraTransform);
 
 			// Draw sprites
-			{				
+			{
 				for (const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>); const auto entity : group)
 				{
 					const auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
@@ -253,7 +252,7 @@ namespace OloEngine {
 			}
 
 			// Draw circles
-			{				
+			{
 				for (const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>(); const auto entity : view)
 				{
 					const auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
