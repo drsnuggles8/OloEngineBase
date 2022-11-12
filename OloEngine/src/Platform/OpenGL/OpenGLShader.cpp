@@ -380,10 +380,10 @@ namespace OloEngine {
 		glGetProgramiv(program, GL_LINK_STATUS, &isLinked);
 		if (GL_FALSE == isLinked)
 		{
-			int maxLength = 0;
+			GLint maxLength = 0;
 			glGetProgramiv(program, GL_INFO_LOG_LENGTH, &maxLength);
 
-			std::vector<char> infoLog(maxLength);
+			std::vector<GLchar> infoLog(maxLength);
 			glGetProgramInfoLog(program, maxLength, &maxLength, &infoLog[0]);
 
 			glDeleteProgram(program);

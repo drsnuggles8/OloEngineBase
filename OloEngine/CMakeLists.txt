@@ -1,4 +1,5 @@
 ﻿include(CMakePrintHelpers)
+include(CheckIPOSupported)
 
 project(OloEngine
 		LANGUAGES CXX)
@@ -34,23 +35,32 @@ message(STATUS "Using module to find Vulkan")
 find_package(Vulkan)
 
 set_target_properties(OloEngine PROPERTIES
-					ARCHIVE_OUTPUT_DIRECTORY_DEBUG ${CMAKE_SOURCE_DIR}/bin/Debug/OloEngine
-					ARCHIVE_OUTPUT_DIRECTORY_RELEASE ${CMAKE_SOURCE_DIR}/bin/Release/OloEngine
-					ARCHIVE_OUTPUT_DIRECTORY_DIST ${CMAKE_SOURCE_DIR}/bin/Dist/OloEngine
-					LIBRARY_OUTPUT_DIRECTORY_DEBUG ${CMAKE_SOURCE_DIR}/bin/Debug/OloEngine
-					LIBRARY_OUTPUT_DIRECTORY_RELEASE ${CMAKE_SOURCE_DIR}/bin/Release/OloEngine
-					LIBRARY_OUTPUT_DIRECTORY_DIST ${CMAKE_SOURCE_DIR}/bin/Dist/OloEngine
-					RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_SOURCE_DIR}/bin/Debug/OloEngine
-					RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_SOURCE_DIR}/bin/Release/OloEngine
-					RUNTIME_OUTPUT_DIRECTORY_DIST ${CMAKE_SOURCE_DIR}/bin/Dist/OloEngine
+					ARCHIVE_OUTPUT_DIRECTORY_DEBUG 		${CMAKE_SOURCE_DIR}/bin/Debug/OloEngine
+					ARCHIVE_OUTPUT_DIRECTORY_RELEASE 	${CMAKE_SOURCE_DIR}/bin/Release/OloEngine
+					ARCHIVE_OUTPUT_DIRECTORY_DIST 		${CMAKE_SOURCE_DIR}/bin/Dist/OloEngine
+					LIBRARY_OUTPUT_DIRECTORY_DEBUG 		${CMAKE_SOURCE_DIR}/bin/Debug/OloEngine
+					LIBRARY_OUTPUT_DIRECTORY_RELEASE 	${CMAKE_SOURCE_DIR}/bin/Release/OloEngine
+					LIBRARY_OUTPUT_DIRECTORY_DIST 		${CMAKE_SOURCE_DIR}/bin/Dist/OloEngine
+					RUNTIME_OUTPUT_DIRECTORY_DEBUG 		${CMAKE_SOURCE_DIR}/bin/Debug/OloEngine
+					RUNTIME_OUTPUT_DIRECTORY_RELEASE 	${CMAKE_SOURCE_DIR}/bin/Release/OloEngine
+					RUNTIME_OUTPUT_DIRECTORY_DIST 		${CMAKE_SOURCE_DIR}/bin/Dist/OloEngine
 )
 
-target_precompile_headers("OloEngine" PUBLIC src/OloEnginePCH.h)
+check_ipo_supported(RESULT result OUTPUT output)
+if(result)
+	message(STATUS "-- Enabled Link-Time Optimization (LTO)!")
+	set_target_properties(OloEngine PROPERTIES INTERPROCEDURAL_OPTIMIZATION TRUE)
+else()
+	message(WARNING "IPO is not supported: ${output}")
+endif()
 
-target_include_directories("OloEngine" PRIVATE
+target_precompile_headers(OloEngine PUBLIC src/OloEnginePCH.h)
+
+target_include_directories(OloEngine PRIVATE
 	src
 	vendor/box2d-src/include/box2d
 	vendor/entt-src/single_include/entt
+	vendor/filewatch-src
 	${GLAD_OUT_DIR}/include
 	vendor/glfw-src/include
 	vendor/lua-src
@@ -66,7 +76,7 @@ target_include_directories("OloEngine" PRIVATE
 	${Vulkan_INCLUDE_DIRS}
 )
 
-target_compile_definitions("OloEngine" PRIVATE
+target_compile_definitions(OloEngine PRIVATE
 							_CRT_SECURE_NO_WARNINGS
 							GLFW_INCLUDE_NONE
 							YAML_CPP_STATIC_DEFINE

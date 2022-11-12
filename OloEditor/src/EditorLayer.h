@@ -37,6 +37,7 @@ namespace OloEngine {
 		void OnScenePlay();
 		void OnSceneSimulate();
 		void OnSceneStop();
+		void OnScenePause() const;
 
 		void OnDuplicateEntity() const;
 
@@ -98,7 +99,9 @@ namespace OloEngine {
 
 		// Editor resources
 		Ref<Texture2D> m_IconPlay;
+		Ref<Texture2D> m_IconPause;
 		Ref<Texture2D> m_IconSimulate;
+		Ref<Texture2D> m_IconStep;
 		Ref<Texture2D> m_IconStop;
 	};
 

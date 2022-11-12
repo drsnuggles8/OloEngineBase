@@ -3,6 +3,7 @@
 #include "OloEnginePCH.h"
 #include "EditorLayer.h"
 #include "OloEngine/Math/Math.h"
+#include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
@@ -28,7 +29,9 @@ namespace OloEngine {
 
 		m_CheckerboardTexture = Texture2D::Create("assets/textures/Checkerboard.png");
 		m_IconPlay = Texture2D::Create("Resources/Icons/PlayButton.png");
+		m_IconPause = Texture2D::Create("Resources/Icons/PauseButton.png");
 		m_IconSimulate = Texture2D::Create("Resources/Icons/SimulateButton.png");
+		m_IconStep = Texture2D::Create("Resources/Icons/StepButton.png");
 		m_IconStop = Texture2D::Create("Resources/Icons/StopButton.png");
 
 		FramebufferSpecification fbSpec;
@@ -41,7 +44,8 @@ namespace OloEngine {
 
 		if (const auto commandLineArgs = Application::Get().GetSpecification().CommandLineArgs; commandLineArgs.Count > 1)
 		{
-			sceneLoaded = OpenScene(commandLineArgs[1]);
+			auto sceneFilePath = commandLineArgs[1];
+			sceneLoaded = OpenScene(sceneFilePath);
 		}
 
 		if (!sceneLoaded)
@@ -60,6 +64,8 @@ namespace OloEngine {
 	{
 		OLO_PROFILE_FUNCTION();
 
+		m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+
 		const double epsilon = 1e-5;
 
 		// Resize
@@ -70,7 +76,6 @@ namespace OloEngine {
 			m_Framebuffer->Resize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));
 			m_CameraController.OnResize(m_ViewportSize.x, m_ViewportSize.y);
 			m_EditorCamera.SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
-			m_ActiveScene->OnViewportResize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));
 		}
 
 		// Render
@@ -229,6 +234,17 @@ namespace OloEngine {
 				{
 					Application::Get().Close();
 				}
+
+				ImGui::EndMenu();
+			}
+
+			if (ImGui::BeginMenu("Script"))
+			{
+				if (ImGui::MenuItem("Reload assembly", "Ctrl+R"))
+				{
+					ScriptEngine::ReloadAssembly();
+				}
+
 				ImGui::EndMenu();
 			}
 
@@ -248,7 +264,7 @@ namespace OloEngine {
 
 		m_ViewportFocused = ImGui::IsWindowFocused();
 		m_ViewportHovered = ImGui::IsWindowHovered();
-		Application::Get().GetImGuiLayer()->BlockEvents((!m_ViewportFocused) && (!m_ViewportHovered));
+		Application::Get().GetImGuiLayer()->BlockEvents(!m_ViewportHovered);
 
 		ImVec2 const viewportPanelSize = ImGui::GetContentRegionAvail();
 		m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
@@ -364,9 +380,16 @@ namespace OloEngine {
 		}
 
 		const float size = ImGui::GetWindowHeight() - 4.0f;
+
+		ImGui::SetCursorPosX((ImGui::GetWindowContentRegionMax().x * 0.5f) - (size * 0.5f));
+
+		bool hasPlayButton = m_SceneState == SceneState::Edit || m_SceneState == SceneState::Play;
+		bool hasSimulateButton = m_SceneState == SceneState::Edit || m_SceneState == SceneState::Simulate;
+		bool hasPauseButton = m_SceneState != SceneState::Edit;
+
+		if (hasPlayButton)
 		{
 			Ref<Texture2D> const icon = ((m_SceneState == SceneState::Edit) || (m_SceneState == SceneState::Simulate)) ? m_IconPlay : m_IconStop;
-			ImGui::SetCursorPosX((ImGui::GetWindowContentRegionMax().x * 0.5f) - (size * 0.5f));
 			if (ImGui::ImageButton(reinterpret_cast<ImTextureID>(icon->GetRendererID()), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
 			{
 				if ((m_SceneState == SceneState::Edit) || (m_SceneState == SceneState::Simulate))
@@ -379,24 +402,54 @@ namespace OloEngine {
 				}
 			}
 		}
-		ImGui::SameLine();
+		if (hasSimulateButton)
 		{
-			Ref<Texture2D> const icon = ((m_SceneState == SceneState::Edit) || (m_SceneState == SceneState::Play)) ? m_IconSimulate : m_IconStop;		//ImGui::SetCursorPosX((ImGui::GetWindowContentRegionMax().x * 0.5f) - (size * 0.5f));
-			if ((ImGui::ImageButton(reinterpret_cast<ImTextureID>(icon->GetRendererID()), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor)) && toolbarEnabled)
+			if (hasPlayButton)
 			{
-				if ((m_SceneState == SceneState::Edit) || (m_SceneState == SceneState::Play))
+				ImGui::SameLine();
+			}
+
+			if (Ref<Texture2D> icon = (m_SceneState == SceneState::Edit || m_SceneState == SceneState::Play) ? m_IconSimulate : m_IconStop; (ImGui::ImageButton(reinterpret_cast<ImTextureID>(icon->GetRendererID()), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor)) && toolbarEnabled)
+			{
+				using enum OloEngine::EditorLayer::SceneState;
+				if ((m_SceneState == Edit) || (m_SceneState == Play))
 				{
 					OnSceneSimulate();
 				}
-				else if (m_SceneState == SceneState::Simulate)
+				else if (m_SceneState == Simulate)
 				{
 					OnSceneStop();
+				}
+			}
+			if (hasPauseButton)
+			{
+				bool isPaused = m_ActiveScene->IsPaused();
+				ImGui::SameLine();
+				{
+					Ref<Texture2D> icon = m_IconPause;
+					if (ImGui::ImageButton((ImTextureID)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
+					{
+						m_ActiveScene->SetPaused(!isPaused);
+					}
+				}
+
+				// Step button
+				if (isPaused)
+				{
+					ImGui::SameLine();
+					{
+						Ref<Texture2D> icon = m_IconStep;
+						bool isPaused = m_ActiveScene->IsPaused();
+						if (ImGui::ImageButton((ImTextureID)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
+						{
+							m_ActiveScene->Step();
+						}
+					}
 				}
 			}
 		}
 		ImGui::PopStyleVar(2);
 		ImGui::PopStyleColor(3);
-
 		ImGui::End();
 	}
 
@@ -531,9 +584,16 @@ namespace OloEngine {
 			}
 			case Key::R:
 			{
-				if ((!ImGuizmo::IsUsing()) && editing)
+				if (control)
 				{
-					m_GizmoType = ImGuizmo::OPERATION::SCALE;
+					ScriptEngine::ReloadAssembly();
+				}
+				else
+				{
+					if ((!ImGuizmo::IsUsing()) && editing)
+					{
+						m_GizmoType = ImGuizmo::OPERATION::SCALE;
+					}
 				}
 				break;
 			}
@@ -787,6 +847,16 @@ namespace OloEngine {
 	void EditorLayer::SyncWindowTitle() const
 	{
 		Application::Get().GetWindow().SetTitle("Olo Editor - " + m_EditorScene->GetName());
+	}
+
+	void EditorLayer::OnScenePause() const
+	{
+		if (m_SceneState == SceneState::Edit)
+		{
+			return;
+		}
+
+		m_ActiveScene->SetPaused(true);
 	}
 
 	void EditorLayer::OnDuplicateEntity() const

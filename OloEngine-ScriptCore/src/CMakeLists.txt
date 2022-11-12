@@ -1,7 +1,4 @@
 ﻿set(SOURCES
-		"Camera.cs"
-		"Player.cs"
-		
 		"OloEngine/Input.cs"
 		"OloEngine/InternalCalls.cs"
 		"OloEngine/KeyCode.cs"

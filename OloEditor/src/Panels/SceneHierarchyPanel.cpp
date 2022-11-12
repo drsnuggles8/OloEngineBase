@@ -39,8 +39,7 @@ namespace OloEngine {
 			}
 
 			// Right-click on blank space
-			//TODO(olbu): Replace the deprecated BeginPopupContextWindow with the newer BeginPopupContextWindow(const char*, flags)
-			if (ImGui::BeginPopupContextWindow(nullptr, 1, false))
+			if (ImGui::BeginPopupContextWindow(nullptr, 1))
 			{
 				if (ImGui::MenuItem("Create Empty Entity"))
 				{
@@ -115,7 +114,7 @@ namespace OloEngine {
 		if (opened)
 		{
 			const ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
-			//TODO(olbu): this is just a test, with some random ID used
+			//TODO(olbu): this is just a test with some random ID used
 			if (const bool opened = ImGui::TreeNodeEx((void*)9817239, flags, tag.c_str()))
 			{
 				ImGui::TreePop();
@@ -264,7 +263,7 @@ namespace OloEngine {
 
 			char buffer[256];
 			::memset(buffer, 0, sizeof(buffer));
-			::strncpy_s(buffer, tag.c_str(), sizeof(buffer));
+			::strncpy_s(buffer, sizeof(buffer), tag.c_str(), sizeof(buffer));
 			if (ImGui::InputText("##Tag", buffer, sizeof(buffer)))
 			{
 				tag = std::string(buffer);
@@ -370,12 +369,12 @@ namespace OloEngine {
 			}
 		});
 
-		DrawComponent<ScriptComponent>("Script", entity, [](auto& component)
+		DrawComponent<ScriptComponent>("Script", entity, [entity, scene = m_Context](auto& component) mutable
 		{
-			bool scriptClassExists = ScriptEngine::EntityClassExists(component.ClassName);;
+			bool scriptClassExists = ScriptEngine::EntityClassExists(component.ClassName);
 
 			static char buffer[64];
-			strcpy(buffer, component.ClassName.c_str());
+			::strcpy_s(buffer, sizeof(buffer), component.ClassName.c_str());
 
 			if (!scriptClassExists)
 			{
@@ -385,6 +384,65 @@ namespace OloEngine {
 			if (ImGui::InputText("Class", buffer, sizeof(buffer)))
 			{
 				component.ClassName = buffer;
+			}
+
+			// Fields
+			
+			if (bool sceneRunning = scene->IsRunning(); sceneRunning)
+			{
+				if (Ref<ScriptInstance> scriptInstance = ScriptEngine::GetEntityScriptInstance(entity.GetUUID()); scriptInstance)
+				{					
+					for (const auto& fields = scriptInstance->GetScriptClass()->GetFields(); const auto& [name, field] : fields)
+					{
+						if (field.Type == ScriptFieldType::Float)
+						{
+							if (float data = scriptInstance->GetFieldValue<float>(name); ImGui::DragFloat(name.c_str(), &data))
+							{
+								scriptInstance->SetFieldValue(name, data);
+							}
+						}
+					}
+				}
+			}
+			else
+			{
+				if (scriptClassExists)
+				{
+					Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(component.ClassName);
+					const auto& fields = entityClass->GetFields();
+
+					auto& entityFields = ScriptEngine::GetScriptFieldMap(entity);
+					for (const auto& [name, field] : fields)
+					{
+						// Field has been set in editor
+						if (entityFields.contains(name))
+						{
+							ScriptFieldInstance& scriptField = entityFields.at(name);
+
+							// Display control to set it maybe
+							if (field.Type == ScriptFieldType::Float)
+							{
+								float data = scriptField.GetValue<float>();
+								if (ImGui::DragFloat(name.c_str(), &data))
+									scriptField.SetValue(data);
+							}
+						}
+						else
+						{
+							// Display control to set it maybe
+							if (field.Type == ScriptFieldType::Float)
+							{
+								float data = 0.0f;
+								if (ImGui::DragFloat(name.c_str(), &data))
+								{
+									ScriptFieldInstance& fieldInstance = entityFields[name];
+									fieldInstance.Field = field;
+									fieldInstance.SetValue(data);
+								}
+							}
+						}
+					}
+				}
 			}
 
 			if (!scriptClassExists)

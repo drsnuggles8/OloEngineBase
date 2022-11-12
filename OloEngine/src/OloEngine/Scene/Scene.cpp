@@ -1,5 +1,3 @@
-// This is an independent project of an individual developer. Dear PVS-Studio, please check it.
-// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "OloEnginePCH.h"
 #include "Scene.h"
 #include "Entity.h"
@@ -138,6 +136,8 @@ namespace OloEngine {
 
 	void Scene::OnRuntimeStart()
 	{
+		m_IsRunning = true;
+
 		OnPhysics2DStart();
 
 		// Scripting
@@ -154,6 +154,8 @@ namespace OloEngine {
 
 	void Scene::OnRuntimeStop()
 	{
+		m_IsRunning = false;
+
 		OnPhysics2DStop();
 
 		ScriptEngine::OnRuntimeStop();
@@ -171,55 +173,57 @@ namespace OloEngine {
 
 	void Scene::OnUpdateRuntime(Timestep const ts)
 	{
-		// Update scripts
+		if (!m_IsPaused || m_StepFrames-- > 0)
 		{
-			// C# Entity OnUpdate
-			for (const auto view = m_Registry.view<ScriptComponent>(); const auto e : view)
+			// Update scripts
 			{
-				Entity entity = { e, this };
-				ScriptEngine::OnUpdateEntity(entity, ts);
-			}
-
-
-			m_Registry.view<NativeScriptComponent>().each([=](auto entity, auto& nsc)
-			{
-				if (!nsc.Instance)
+				// C# Entity OnUpdate
+				for (auto view = m_Registry.view<ScriptComponent>(); auto e : view)
 				{
-					nsc.Instance = nsc.InstantiateScript();
-					nsc.Instance->m_Entity = Entity{ entity, this };
-					nsc.Instance->OnCreate();
+					Entity entity = { e, this };
+					ScriptEngine::OnUpdateEntity(entity, ts);
 				}
 
+				m_Registry.view<NativeScriptComponent>().each([=](auto entity, auto& nsc)
+				{
+					// TODO: Move to Scene::OnScenePlay
+					if (!nsc.Instance)
+					{
+						nsc.Instance = nsc.InstantiateScript();
+						nsc.Instance->m_Entity = Entity{ entity, this };
+						nsc.Instance->OnCreate();
+					}
+
 				nsc.Instance->OnUpdate(ts);
-			});
-		}
+				});
+			}
 
-		// Physics
-		{
-			const int32_t velocityIterations = 6;
-			const int32_t positionIterations = 2;
-			m_PhysicsWorld->Step(ts, velocityIterations, positionIterations);
-
-			// Retrieve transform from Box2D
-			const auto view = m_Registry.view<Rigidbody2DComponent>();
-			for (const auto e : view)
+			// Physics
 			{
-				Entity entity = { e, this };
-				auto& transform = entity.GetComponent<TransformComponent>();
-				auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
+				const int32_t velocityIterations = 6;
+				const int32_t positionIterations = 2;
+				m_PhysicsWorld->Step(ts, velocityIterations, positionIterations);
 
-				auto const* const body = static_cast<b2Body*>(rb2d.RuntimeBody);
-				const auto& position = body->GetPosition();
-				transform.Translation.x = position.x;
-				transform.Translation.y = position.y;
-				transform.Rotation.z = body->GetAngle();
+				// Retrieve transform from Box2D
+				for (const auto view = m_Registry.view<Rigidbody2DComponent>(); const auto e : view)
+				{
+					Entity entity = { e, this };
+					auto& transform = entity.GetComponent<TransformComponent>();
+					auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
+
+					auto const* const body = static_cast<b2Body*>(rb2d.RuntimeBody);
+
+					const auto& position = body->GetPosition();
+					transform.Translation.x = position.x;
+					transform.Translation.y = position.y;
+					transform.Rotation.z = body->GetAngle();
+				}
 			}
 		}
 
 		// Render 2D
 		Camera const* mainCamera = nullptr;
 		glm::mat4 cameraTransform;
-
 		{
 			for (const auto view = m_Registry.view<TransformComponent, CameraComponent>(); const auto entity : view)
 			{
@@ -240,8 +244,7 @@ namespace OloEngine {
 
 			// Draw sprites
 			{
-				const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
-				for (const auto entity : group)
+				for (const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>); const auto entity : group)
 				{
 					const auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
 					Renderer2D::DrawSprite(transform.GetTransform(), sprite, static_cast<int>(entity));
@@ -250,8 +253,7 @@ namespace OloEngine {
 
 			// Draw circles
 			{
-				const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
-				for (const auto entity : view)
+				for (const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>(); const auto entity : view)
 				{
 					const auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
 
@@ -265,24 +267,28 @@ namespace OloEngine {
 
 	void Scene::OnUpdateSimulation(const Timestep ts, EditorCamera const& camera)
 	{
-		// Physics
+		if (!m_IsPaused || m_StepFrames-- > 0)
 		{
-			const int32_t velocityIterations = 6;
-			const int32_t positionIterations = 2;
-			m_PhysicsWorld->Step(ts, velocityIterations, positionIterations);
 
-			// Retrieve transform from Box2D
-			for (const auto view = m_Registry.view<Rigidbody2DComponent>(); const auto e : view)
+			// Physics
 			{
-				Entity entity = { e, this };
-				auto& transform = entity.GetComponent<TransformComponent>();
-				auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
+				const int32_t velocityIterations = 6;
+				const int32_t positionIterations = 2;
+				m_PhysicsWorld->Step(ts, velocityIterations, positionIterations);
 
-				auto const* const body = static_cast<b2Body*>(rb2d.RuntimeBody);
-				const auto& position = body->GetPosition();
-				transform.Translation.x = position.x;
-				transform.Translation.y = position.y;
-				transform.Rotation.z = body->GetAngle();
+				// Retrieve transform from Box2D
+				for (const auto view = m_Registry.view<Rigidbody2DComponent>(); const auto e : view)
+				{
+					Entity entity = { e, this };
+					auto& transform = entity.GetComponent<TransformComponent>();
+					auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
+
+					auto const* const body = static_cast<b2Body*>(rb2d.RuntimeBody);
+					const auto& position = body->GetPosition();
+					transform.Translation.x = position.x;
+					transform.Translation.y = position.y;
+					transform.Rotation.z = body->GetAngle();
+				}
 			}
 		}
 
@@ -316,6 +322,11 @@ namespace OloEngine {
 		}
 	}
 
+	void Scene::Step(int frames)
+	{
+		m_StepFrames = frames;
+	}
+
 	void Scene::DuplicateEntity(Entity entity)
 	{
 		const Entity newEntity = CreateEntity(entity.GetName());
@@ -345,6 +356,19 @@ namespace OloEngine {
 	void Scene::OnComponentAdded(Entity entity, T& component)
 	{
 		static_assert(0 == sizeof(T));
+	}
+
+	Entity Scene::FindEntityByName(std::string_view name)
+	{
+		for (auto view = m_Registry.view<TagComponent>(); auto entity : view)
+		{
+			const TagComponent& tc = view.get<TagComponent>(entity);
+			if (tc.Tag == name)
+			{
+				return Entity{ entity, this };
+			}
+		}
+		return {};
 	}
 
 	Entity Scene::GetEntityByUUID(UUID uuid)
