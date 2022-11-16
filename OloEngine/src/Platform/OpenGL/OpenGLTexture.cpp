@@ -31,7 +31,9 @@ namespace OloEngine {
 	{
 		OLO_PROFILE_FUNCTION();
 
-		int width, height, channels;
+		int width;
+		int height;
+		int channels;
 		::stbi_set_flip_vertically_on_load(1);
 		stbi_uc* data = nullptr;
 		{
@@ -45,7 +47,8 @@ namespace OloEngine {
 			m_Width = width;
 			m_Height = height;
 
-			GLenum internalFormat = 0, dataFormat = 0;
+			GLenum internalFormat = 0;
+			GLenum dataFormat = 0;
 			if (4 == channels)
 			{
 				internalFormat = GL_RGBA8;

@@ -1,17 +1,13 @@
 // This is an independent project of an individual developer. Dear PVS-Studio, please check it.
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "OloEnginePCH.h"
-#include "Platform/Windows/WindowsWindow.h"
-
 #include "OloEngine/Core/Input.h"
-
 #include "OloEngine/Events/ApplicationEvent.h"
 #include "OloEngine/Events/MouseEvent.h"
 #include "OloEngine/Events/KeyEvent.h"
-
 #include "OloEngine/Renderer/Renderer.h"
-
 #include "Platform/OpenGL/OpenGLContext.h"
+#include "Platform/Windows/WindowsWindow.h"
 
 namespace OloEngine {
 	float Window::s_HighDPIScaleFactor = 1.0f;
@@ -52,7 +48,7 @@ namespace OloEngine {
 			OLO_PROFILE_SCOPE("glfwInit");
 			const int success = GLFWAPI::glfwInit();
 			OLO_CORE_ASSERT(success, "Could not initialize GLFW!")
-				GLFWAPI::glfwSetErrorCallback(GLFWErrorCallback);
+			GLFWAPI::glfwSetErrorCallback(GLFWErrorCallback);
 		}
 
 		{
@@ -70,8 +66,10 @@ namespace OloEngine {
 			}
 
 			#if defined(OLO_DEBUG)
-						if (Renderer::GetAPI() == RendererAPI::API::OpenGL)
-							glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
+			if (Renderer::GetAPI() == RendererAPI::API::OpenGL)
+			{
+				glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
+			}
 			#endif
 
 			m_Window = GLFWAPI::glfwCreateWindow(static_cast<int>(props.Width), static_cast<int>(props.Height), m_Data.Title.c_str(), nullptr, nullptr);
