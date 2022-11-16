@@ -2,6 +2,8 @@
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scripting/C#/ScriptGlue.h"
 #include "OloEngine/Core/Application.h"
+#include "OloEngine/Core/Buffer.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/Timer.h"
 
 #include <mono/jit/jit.h>
@@ -40,43 +42,13 @@ namespace OloEngine {
 
 	namespace Utils {
 
-		// TODO(OLBU): move to FileSystem class
-		static char* ReadBytes(const std::filesystem::path& filepath, uint32_t* outSize)
-		{
-			std::ifstream stream(filepath, std::ios::binary | std::ios::ate);
-
-			if (!stream)
-			{
-				// Failed to open the file
-				return nullptr;
-			}
-
-			std::streampos end = stream.tellg();
-			stream.seekg(0, std::ios::beg);
-			auto size = static_cast<uint64_t>(end - stream.tellg());
-
-			if (0 == size)
-			{
-				// File is empty
-				return nullptr;
-			}
-
-			auto* buffer = new char[size];
-			stream.read(buffer, size);
-			stream.close();
-
-			*outSize = static_cast<uint32_t>(size);
-			return buffer;
-		}
-
 		static MonoAssembly* LoadMonoAssembly(const std::filesystem::path& assemblyPath, bool loadPDB = false)
 		{
-			uint32_t fileSize = 0;
-			char* fileData = ReadBytes(assemblyPath, &fileSize);
+			ScopedBuffer fileData = FileSystem::ReadFileBinary(assemblyPath);
 
 			// NOTE: We can't use this image for anything other than loading the assembly because this image doesn't have a reference to the assembly
 			MonoImageOpenStatus status;
-			MonoImage* image = ::mono_image_open_from_data_full(fileData, fileSize, 1, &status, 0);
+			MonoImage* image = ::mono_image_open_from_data_full(fileData.As<char>(), fileData.Size(), 1, &status, 0);
 
 			if (status != MONO_IMAGE_OK)
 			{
@@ -92,20 +64,15 @@ namespace OloEngine {
 
 				if (std::filesystem::exists(pdbPath))
 				{
-					uint32_t pdbFileSize = 0;
-					char* pdbFileData = ReadBytes(pdbPath, &pdbFileSize);
-					mono_debug_open_image_from_memory(image, (const mono_byte*)pdbFileData, pdbFileSize);
+					ScopedBuffer pdbFileData = FileSystem::ReadFileBinary(pdbPath);
+					mono_debug_open_image_from_memory(image, pdbFileData.As<const mono_byte>(), pdbFileData.Size());
 					OLO_CORE_INFO("Loaded PDB {}", pdbPath);
-					delete[] pdbFileData;
 				}
 			}
 
 			std::string pathString = assemblyPath.string();
 			MonoAssembly* assembly = ::mono_assembly_load_from_full(image, pathString.c_str(), &status, 0);
 			::mono_image_close(image);
-
-			// Don't forget to free the file data
-			delete[] fileData;
 
 			return assembly;
 		}
