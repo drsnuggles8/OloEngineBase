@@ -98,6 +98,7 @@ namespace OloEngine {
 		{
 			std::string typeName = mono_type_get_name(monoType);
 
+			// TODO(olbu): Replace this with some form of .contains?
 			auto it = s_ScriptFieldTypeMap.find(typeName);
 			if (it == s_ScriptFieldTypeMap.end())
 			{
@@ -300,7 +301,7 @@ namespace OloEngine {
 			s_Data->EntityInstances[entityID] = instance;
 
 			// Copy field values
-			if (s_Data->EntityScriptFields.find(entityID) != s_Data->EntityScriptFields.end())
+			if (s_Data->EntityScriptFields.contains(entityID))
 			{
 				const ScriptFieldMap& fieldMap = s_Data->EntityScriptFields.at(entityID);
 				for (const auto& [name, fieldInstance] : fieldMap)
@@ -333,6 +334,7 @@ namespace OloEngine {
 
 	Ref<ScriptInstance> ScriptEngine::GetEntityScriptInstance(UUID entityID)
 	{
+		// TODO(olbu): Replace this with .contains()?
 		auto it = s_Data->EntityInstances.find(entityID);
 		if (it == s_Data->EntityInstances.end())
 			return nullptr;
@@ -342,7 +344,7 @@ namespace OloEngine {
 
 	Ref<ScriptClass> ScriptEngine::GetEntityClass(const std::string& name)
 	{
-		if (s_Data->EntityClasses.find(name) == s_Data->EntityClasses.end())
+		if (!s_Data->EntityClasses.contains(name))
 		{
 			return nullptr;
 		}
@@ -443,7 +445,7 @@ namespace OloEngine {
 
 	MonoObject* ScriptEngine::GetManagedInstance(UUID uuid)
 	{
-		OLO_CORE_ASSERT(s_Data->EntityInstances.find(uuid) != s_Data->EntityInstances.end());
+		OLO_CORE_ASSERT(s_Data->EntityInstances.contains(uuid))
 		return s_Data->EntityInstances.at(uuid)->GetManagedObject();
 	}
 
@@ -513,6 +515,7 @@ namespace OloEngine {
 	bool ScriptInstance::GetFieldValueInternal(const std::string& name, void* buffer)
 	{
 		const auto& fields = m_ScriptClass->GetFields();
+		// TODO(olbu): Replace with .contains()?
 		auto it = fields.find(name);
 		if (it == fields.end())
 			return false;

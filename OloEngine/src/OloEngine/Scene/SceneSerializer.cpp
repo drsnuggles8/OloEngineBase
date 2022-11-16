@@ -243,16 +243,15 @@ namespace OloEngine {
 			out << YAML::Key << "ClassName" << YAML::Value << scriptComponent.ClassName;
 
 			// Fields
-			Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(scriptComponent.ClassName);
-			const auto& fields = entityClass->GetFields();
-			if (fields.size() > 0)
+			Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(scriptComponent.ClassName);			
+			if (const auto& fields = entityClass->GetFields(); !fields.empty())
 			{
 				out << YAML::Key << "ScriptFields" << YAML::Value;
 				auto& entityFields = ScriptEngine::GetScriptFieldMap(entity);
 				out << YAML::BeginSeq;
 				for (const auto& [name, field] : fields)
 				{
-					if (entityFields.find(name) == entityFields.end())
+					if (!entityFields.contains(name))
 					{
 						continue;
 					}
