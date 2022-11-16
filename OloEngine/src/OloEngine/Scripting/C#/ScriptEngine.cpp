@@ -528,6 +528,7 @@ namespace OloEngine {
 	bool ScriptInstance::SetFieldValueInternal(const std::string& name, const void* value)
 	{
 		const auto& fields = m_ScriptClass->GetFields();
+		// TODO(olbu): Replace with .contains()?
 		auto it = fields.find(name);
 		if (it == fields.end())
 			return false;
