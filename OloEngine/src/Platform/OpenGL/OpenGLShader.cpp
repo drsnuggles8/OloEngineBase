@@ -218,7 +218,7 @@ namespace OloEngine {
 
 	void OpenGLShader::CompileOrGetVulkanBinaries(const std::unordered_map<GLenum, std::string>& shaderSources)
 	{
-		const GLuint program = glCreateProgram();
+		glCreateProgram();
 
 		const shaderc::Compiler compiler;
 		shaderc::CompileOptions options;

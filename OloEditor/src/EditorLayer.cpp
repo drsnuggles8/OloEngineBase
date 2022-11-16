@@ -158,11 +158,15 @@ namespace OloEngine {
 			window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
 		}
 
+
 		// When using ImGuiDockNodeFlags_PassthruCentralNode, DockSpace() will render our background and handle the pass-thru hole, so we ask Begin() to not render a background.
+#pragma warning( push )
+#pragma warning (disable: 4127)
 		if (dockspace_flags & ImGuiDockNodeFlags_PassthruCentralNode)
 		{
 			window_flags |= ImGuiWindowFlags_NoBackground;
 		}
+#pragma warning( pop )
 
 		// Important: note that we proceed even if Begin() returns false (aka window is collapsed).
 		// This is because we want to keep our DockSpace() active. If a DockSpace() is inactive,
@@ -427,7 +431,7 @@ namespace OloEngine {
 				bool isPaused = m_ActiveScene->IsPaused();
 				ImGui::SameLine();
 				{
-					Ref<Texture2D> icon = m_IconPause;
+					icon = m_IconPause;
 					if (ImGui::ImageButton((ImTextureID)(uint64_t)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
 					{
 						m_ActiveScene->SetPaused(!isPaused);
@@ -439,8 +443,8 @@ namespace OloEngine {
 				{
 					ImGui::SameLine();
 					{
-						Ref<Texture2D> icon = m_IconStep;
-						bool isPaused = m_ActiveScene->IsPaused();
+						icon = m_IconStep;
+						isPaused = m_ActiveScene->IsPaused();
 						if (ImGui::ImageButton((ImTextureID)(uint64_t)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
 						{
 							m_ActiveScene->Step();

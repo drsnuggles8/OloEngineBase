@@ -124,8 +124,8 @@ namespace OloEngine {
 #define READ_SCRIPT_FIELD(FieldType, Type)            \
 	case ScriptFieldType::FieldType:                  \
 	{                                                 \
-		Type data = scriptField["Data"].as<Type>();   \
-		fieldInstance.SetValue(data);                 \
+		Type fieldData = scriptField["Data"].as<Type>();   \
+		fieldInstance.SetValue(fieldData);                 \
 		break;                                        \
 	}
 
@@ -476,7 +476,7 @@ namespace OloEngine {
 
 							for (auto scriptField : scriptFields)
 							{
-								std::string name = scriptField["Name"].as<std::string>();
+								name = scriptField["Name"].as<std::string>();
 								std::string typeString = scriptField["Type"].as<std::string>();
 								ScriptFieldType type = Utils::ScriptFieldTypeFromString(typeString);
 

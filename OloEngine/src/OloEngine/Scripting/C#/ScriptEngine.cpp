@@ -141,7 +141,7 @@ namespace OloEngine {
 
 	static ScriptEngineData* s_Data = nullptr;
 
-	static void OnAppAssemblyFileSystemEvent(const std::string_view path, const filewatch::Event change_type)
+	static void OnAppAssemblyFileSystemEvent(const std::string_view, const filewatch::Event change_type)
 	{
 		if (!s_Data->AssemblyReloadPending && change_type == filewatch::Event::modified)
 		{
@@ -433,8 +433,8 @@ namespace OloEngine {
 			}
 		}
 
-		auto& entityClasses = s_Data->EntityClasses;
-
+		// TODO(olbu): Find out why Cherno has that line below, seems unnecessary
+		// auto const& entityClasses = s_Data->EntityClasses;
 		//mono_field_get_value()
 	}
 

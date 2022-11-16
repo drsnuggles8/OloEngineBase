@@ -100,7 +100,7 @@ namespace OloEngine {
 			data.EventCallback(event);
 		});
 
-		GLFWAPI::glfwSetKeyCallback(m_Window, [](GLFWwindow* const window, const int key, const int scancode, const int action, const int mods)
+		GLFWAPI::glfwSetKeyCallback(m_Window, [](GLFWwindow* const window, const int key, const int, const int action, const int)
 		{
 			WindowData const& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
 

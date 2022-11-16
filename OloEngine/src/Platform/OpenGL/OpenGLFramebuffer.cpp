@@ -92,8 +92,8 @@ namespace OloEngine {
 		}
 	}
 
-	OpenGLFramebuffer::OpenGLFramebuffer(FramebufferSpecification  spec)
-		: m_Specification(std::move(spec))
+	OpenGLFramebuffer::OpenGLFramebuffer(FramebufferSpecification specification)
+		: m_Specification(std::move(specification))
 	{
 		for (auto& spec : m_Specification.Attachments.Attachments)
 		{

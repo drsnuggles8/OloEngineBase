@@ -4,7 +4,10 @@
 #include "Scene.h"
 #include "Components.h"
 
+#pragma warning( push )
+#pragma warning( disable : 4996)
 #include "entt.hpp"
+#pragma warning( pop )
 
 namespace OloEngine {
 

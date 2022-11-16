@@ -22,10 +22,9 @@ namespace OloEngine {
 
 	static jmp_buf s_LuaPanicJump;
 
-	static int Lua_AtPanicHandler(lua_State* lua)
+	static int Lua_AtPanicHandler(lua_State*)
 	{
 		::longjmp(s_LuaPanicJump, 1);
-		return 0; // Will never return
 	}
 
 	static void OnInternalLuaError()
@@ -41,7 +40,7 @@ namespace OloEngine {
 		s_LuaData.LuaState->open_libraries(sol::lib::base, sol::lib::math);
 
 		lua_State* L = s_LuaData.LuaState->lua_state();
-		L->l_G->panic = [](lua_State* L)
+		L->l_G->panic = [](lua_State*)
 		{
 			OLO_CORE_CRITICAL("[ScriptEngine] PANIC!!! We should never reach this line!");
 			return 0;
@@ -91,21 +90,21 @@ namespace OloEngine {
 		}
 	}
 
-	void LuaScriptEngine::OnCreate(const Entity* entity)
+	void LuaScriptEngine::OnCreate(const Entity*)
 	{
-		auto const& lua = *s_LuaData.LuaState;
+		//auto const& lua = *s_LuaData.LuaState;
 		//LUA_CALL(entity->GetName(), "OnCreate");
 	}
 
-	void LuaScriptEngine::OnDestroyed(const Entity* entity)
+	void LuaScriptEngine::OnDestroyed(const Entity*)
 	{
-		auto const& lua = *s_LuaData.LuaState;
+		//auto const& lua = *s_LuaData.LuaState;
 		//LUA_CALL(entity->GetName(), "OnDestroy");
 	}
 
-	void LuaScriptEngine::OnUpdate(const Entity* entity, float ts)
+	void LuaScriptEngine::OnUpdate(const Entity*, float)
 	{
-		auto const& lua = *s_LuaData.LuaState;
+		//auto const& lua = *s_LuaData.LuaState;
 		//LUA_CALL(entity->GetName(), "OnUpdate", ts);
 	}
 }

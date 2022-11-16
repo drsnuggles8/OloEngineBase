@@ -8,13 +8,13 @@
 namespace OloEngine {
 
 	void OpenGLMessageCallback(
-		const unsigned source,
-		const unsigned type,
-		const unsigned id,
+		const unsigned,
+		const unsigned,
+		const unsigned,
 		const unsigned severity,
-		const int length,
+		const int,
 		const char* const message,
-		const void* const userParam)
+		const void* const)
 	{
 		switch (severity)
 		{

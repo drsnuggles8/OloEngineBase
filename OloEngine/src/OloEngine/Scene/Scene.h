@@ -4,7 +4,10 @@
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Renderer/EditorCamera.h"
 
+#pragma warning( push )
+#pragma warning( disable : 4996)
 #include "entt.hpp"
+#pragma warning( pop )
 
 class b2World;
 

@@ -88,6 +88,8 @@
 		"OloEngine/Scripting/C#/ScriptEngine.h"
 		"OloEngine/Scripting/C#/ScriptGlue.cpp"
 		"OloEngine/Scripting/C#/ScriptGlue.h"
+		"OloEngine/Scripting/C#/ScriptUtils.cpp"
+		"OloEngine/Scripting/C#/ScriptUtils.h"
 		"OloEngine/Scripting/Lua/LuaScriptEngine.cpp"
 		"OloEngine/Scripting/Lua/LuaScriptEngine.h"
 		"OloEngine/Scripting/Lua/LuaScriptGlue.cpp"

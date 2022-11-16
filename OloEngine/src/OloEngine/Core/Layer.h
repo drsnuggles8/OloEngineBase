@@ -15,9 +15,9 @@ namespace OloEngine {
 
 		virtual void OnAttach() {}
 		virtual void OnDetach() {}
-		virtual void OnUpdate(Timestep const ts) {}
+		virtual void OnUpdate(Timestep const) {}
 		virtual void OnImGuiRender() {}
-		virtual void OnEvent(Event& event) {}
+		virtual void OnEvent(Event&) {}
 
 		[[nodiscard("This returns m_DebugName, you probably wanted another function!")]] const std::string& GetName() const { return m_DebugName; }
 	private:

@@ -73,7 +73,7 @@ namespace OloEngine {
 
 		ImGuiTreeNodeFlags flags = ((m_SelectionContext == entity) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
 		flags |= ImGuiTreeNodeFlags_SpanAvailWidth;
-		const bool opened = ImGui::TreeNodeEx((void*)static_cast<uint64_t>(static_cast<uint32_t>(entity)), flags, tag.c_str());
+		bool opened = ImGui::TreeNodeEx((void*)static_cast<uint64_t>(static_cast<uint32_t>(entity)), flags, tag.c_str());
 		if (ImGui::IsItemClicked())
 		{
 			m_SelectionContext = entity;
@@ -113,9 +113,9 @@ namespace OloEngine {
 
 		if (opened)
 		{
-			const ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
-			//TODO(olbu): this is just a test with some random ID used
-			if (const bool opened = ImGui::TreeNodeEx((void*)9817239, flags, tag.c_str()))
+			flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
+			opened = ImGui::TreeNodeEx((void*)9817239, flags, tag.c_str());
+			if (opened)
 			{
 				ImGui::TreePop();
 			}

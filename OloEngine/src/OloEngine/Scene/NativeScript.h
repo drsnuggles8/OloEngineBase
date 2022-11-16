@@ -19,7 +19,7 @@ namespace OloEngine {
 	protected:
 		virtual void OnCreate() {}
 		virtual void OnDestroy() {}
-		virtual void OnUpdate(const Timestep ts) {}
+		virtual void OnUpdate(const Timestep) {}
 
 	private:
 		Entity m_Entity;
