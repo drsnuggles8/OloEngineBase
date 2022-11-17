@@ -4,8 +4,18 @@ set(FETCHCONTENT_BASE_DIR ${PROJECT_SOURCE_DIR}/vendor CACHE PATH "Missing descr
 
 message(STATUS "Downloading third party libraries using CMake's FetchContent and CPM")
 
+FetchContent_Declare(assimp
+	GIT_REPOSITORY https://github.com/assimp/assimp.git
+	GIT_TAG master
+)
+FetchContent_Declare(box2d
+	GIT_REPOSITORY https://github.com/erincatto/box2d.git
+	GIT_TAG main)
 FetchContent_Declare(entt
 	GIT_REPOSITORY https://github.com/skypjack/entt.git
+	GIT_TAG master)
+FetchContent_Declare(filewatch
+	GIT_REPOSITORY https://github.com/ThomasMonkman/filewatch.git
 	GIT_TAG master)
 FetchContent_Declare(glad
 	GIT_REPOSITORY https://github.com/Dav1dde/glad.git
@@ -16,22 +26,20 @@ FetchContent_Declare(glfw
 FetchContent_Declare(glm
 	GIT_REPOSITORY https://github.com/g-truc/glm.git
 	GIT_TAG 0.9.9.8)
-FetchContent_Declare(yaml-cpp
-	GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
-	GIT_TAG master)
-FetchContent_Declare(spdlog
-	GIT_REPOSITORY https://github.com/gabime/spdlog.git
-	GIT_TAG v1.10.0)
 FetchContent_Declare(googletest
 	GIT_REPOSITORY https://github.com/google/googletest.git
 	GIT_TAG main)
-FetchContent_Declare(box2d
-	GIT_REPOSITORY https://github.com/erincatto/box2d.git
-	GIT_TAG main)
-FetchContent_Declare(filewatch
-	GIT_REPOSITORY https://github.com/ThomasMonkman/filewatch.git
+FetchContent_Declare(spdlog
+	GIT_REPOSITORY https://github.com/gabime/spdlog.git
+	GIT_TAG v1.10.0)
+FetchContent_Declare(yaml-cpp
+	GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
 	GIT_TAG master)
 
+set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(BOX2D_BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+set(BOX2D_BUILD_TESTBED OFF CACHE BOOL "" FORCE)
 set(GLAD_PROFILE "core"	CACHE STRING "OpenGL profile")
 set(GLAD_GENERATOR "c"	CACHE STRING "Language to generate the binding for")
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
@@ -39,16 +47,14 @@ set(GLFW_BUILD_EXAMPLES Off CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS Off CACHE BOOL "" FORCE)
 set(GLFW_INSTALL Off CACHE BOOL "" FORCE)
 set(GLM_TEST_ENABLE OFF CACHE BOOL "" FORCE)
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+set(BuildTests OFF CACHE BOOL "" FORCE)
+set(SPDLOG_USE_STD_FORMAT OFF CACHE BOOL "" FORCE)
 set(YAML_BUILD_SHARED_LIBS Off CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TESTS Off CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS Off CACHE BOOL "" FORCE)
-set(SPDLOG_USE_STD_FORMAT OFF CACHE BOOL "" FORCE)
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-set(BOX2D_BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
-set(BOX2D_BUILD_TESTBED OFF CACHE BOOL "" FORCE)
-set(BuildTests OFF CACHE BOOL "" FORCE)
 
-FetchContent_MakeAvailable(box2d entt filewatch glad glfw glm googletest spdlog yaml-cpp)
+FetchContent_MakeAvailable(assimp box2d entt filewatch glad glfw glm googletest spdlog yaml-cpp)
 
 FetchContent_Declare(stb_image
 	GIT_REPOSITORY https://github.com/nothings/stb.git
@@ -131,5 +137,8 @@ set_target_properties(gtest PROPERTIES FOLDER "Utilities/googletest")
 set_target_properties(gtest_main PROPERTIES FOLDER "Utilities/googletest")
 set_target_properties(box2d PROPERTIES FOLDER "Utilities/box2d")
 set_target_properties(lua PROPERTIES FOLDER "Utilities/Lua")
+set_target_properties(assimp PROPERTIES FOLDER "Utilities/assimp")
+set_target_properties(zlibstatic PROPERTIES FOLDER "Utilities/assimp")
+set_target_properties(UpdateAssimpLibsDebugSymbolsAndDLLs PROPERTIES FOLDER "Utilities/assimp")
 #======================================
 message(STATUS "Fetching thirdparty libraries done")
