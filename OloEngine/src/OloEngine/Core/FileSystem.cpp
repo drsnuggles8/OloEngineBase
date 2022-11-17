@@ -16,7 +16,7 @@ namespace OloEngine {
 
 		std::streampos end = stream.tellg();
 		stream.seekg(0, std::ios::beg);
-		uint64_t size = end - stream.tellg();
+		uint64_t size = static_cast<uint64_t>(end - stream.tellg());
 
 		if (size == 0)
 		{
@@ -25,7 +25,7 @@ namespace OloEngine {
 		}
 
 		Buffer buffer(size);
-		stream.read(buffer.As<char>(), size);
+		stream.read(buffer.As<char>(), static_cast<std::streamsize>(size));
 		stream.close();
 		return buffer;
 	}

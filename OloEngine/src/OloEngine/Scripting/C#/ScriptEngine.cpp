@@ -65,7 +65,7 @@ namespace OloEngine {
 				if (std::filesystem::exists(pdbPath))
 				{
 					ScopedBuffer pdbFileData = FileSystem::ReadFileBinary(pdbPath);
-					mono_debug_open_image_from_memory(image, pdbFileData.As<const mono_byte>(), static_cast<int>(pdbFileData.Size()));
+					::mono_debug_open_image_from_memory(image, pdbFileData.As<const mono_byte>(), static_cast<int>(pdbFileData.Size()));
 					OLO_CORE_INFO("Loaded PDB {}", pdbPath);
 				}
 			}
@@ -169,7 +169,7 @@ namespace OloEngine {
 			OLO_CORE_ERROR("[ScriptEngine] Could not load OloEngine-ScriptCore assembly.");
 			return;
 		}
-		
+
 		if (bool status = LoadAppAssembly("SandboxProject/Assets/Scripts/Binaries/Sandbox-Scripting.dll"); !status)
 		{
 			OLO_CORE_ERROR("[ScriptEngine] Could not load app assembly.");
@@ -244,7 +244,9 @@ namespace OloEngine {
 		s_Data->CoreAssemblyFilepath = filepath;
 		s_Data->CoreAssembly = Utils::LoadMonoAssembly(filepath, s_Data->EnableDebugging);
 		if (s_Data->CoreAssembly == nullptr)
+		{
 			return false;
+		}
 
 		s_Data->CoreAssemblyImage = ::mono_assembly_get_image(s_Data->CoreAssembly);
 		return true;
@@ -255,7 +257,9 @@ namespace OloEngine {
 		s_Data->AppAssemblyFilepath = filepath;
 		s_Data->AppAssembly = Utils::LoadMonoAssembly(filepath, s_Data->EnableDebugging);
 		if (s_Data->AppAssembly == nullptr)
+		{
 			return false;
+		}
 
 		s_Data->AppAssemblyImage = mono_assembly_get_image(s_Data->AppAssembly);
 

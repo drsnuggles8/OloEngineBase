@@ -108,7 +108,7 @@ namespace OloEngine {
 			{
 				case GLFW_PRESS:
 				{
-					KeyPressedEvent event(static_cast<OloEngine::KeyCode>(key), 0);
+					KeyPressedEvent event(static_cast<OloEngine::KeyCode>(key), false);
 					data.EventCallback(event);
 					break;
 				}

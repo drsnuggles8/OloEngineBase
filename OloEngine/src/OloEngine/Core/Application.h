@@ -44,15 +44,15 @@ namespace OloEngine {
 		void PopLayer(Layer* layer);
 		void PopOverlay(Layer* layer);
 
-		[[nodiscard("Returns *m_Window, you probably wanted some other function!")]] Window& GetWindow() { return *m_Window; }
+		[[nodiscard("Store this!")]] Window& GetWindow() { return *m_Window; }
 
-		[[nodiscard("Returns *s_Instance, you probably wanted some other function!")]] static Application& Get() { return *s_Instance; }
+		[[nodiscard("Store this!")]] static Application& Get() { return *s_Instance; }
 
 		void Close();
 
-		[[nodiscard("Returns m_ImGuiLayer, you probably wanted some other function!")]] ImGuiLayer* GetImGuiLayer() { return m_ImGuiLayer; }
+		[[nodiscard("Store this!")]] ImGuiLayer* GetImGuiLayer() { return m_ImGuiLayer; }
 
-		[[nodiscard("Returns m_Specification, you probably wanted some other function!")]] const ApplicationSpecification& GetSpecification() const { return m_Specification; }
+		[[nodiscard("Store this!")]] const ApplicationSpecification& GetSpecification() const { return m_Specification; }
 
 		void SubmitToMainThread(const std::function<void()>& function);
 	private:
