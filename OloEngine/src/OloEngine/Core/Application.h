@@ -19,7 +19,7 @@ namespace OloEngine {
 
 		const char* operator[](const int index) const
 		{
-			OLO_CORE_ASSERT(index < Count)
+			OLO_CORE_ASSERT(index < Count);
 			return Args[index];
 		}
 	};

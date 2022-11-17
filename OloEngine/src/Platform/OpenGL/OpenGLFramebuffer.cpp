@@ -70,7 +70,7 @@ namespace OloEngine {
 			glFramebufferTexture2D(GL_FRAMEBUFFER, attachmentType, TextureTarget(multisampled), id, 0);
 		}
 
-		[[nodiscard("This returns something, you probably wanted another function!")]] static bool IsDepthFormat(const FramebufferTextureFormat format) noexcept
+		[[nodiscard("Store this!")]] static bool IsDepthFormat(const FramebufferTextureFormat format) noexcept
 		{
 			switch (format)
 			{
@@ -79,7 +79,7 @@ namespace OloEngine {
 			return false;
 		}
 
-		[[nodiscard("This returns something, you probably wanted another function!")]] static GLenum OloFBTextureFormatToGL(const FramebufferTextureFormat format)
+		[[nodiscard("Store this!")]] static GLenum OloFBTextureFormatToGL(const FramebufferTextureFormat format)
 		{
 			switch (format)
 			{
@@ -87,7 +87,7 @@ namespace OloEngine {
 				case FramebufferTextureFormat::RED_INTEGER: return GL_RED_INTEGER;
 			}
 
-			OLO_CORE_ASSERT(false)
+			OLO_CORE_ASSERT(false);
 			return 0;
 		}
 	}
@@ -170,7 +170,7 @@ namespace OloEngine {
 
 		if (m_ColorAttachments.size() > 1)
 		{
-			OLO_CORE_ASSERT(m_ColorAttachments.size() <= 4)
+			OLO_CORE_ASSERT(m_ColorAttachments.size() <= 4);
 			const GLenum buffers[4] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };
 			glDrawBuffers(static_cast<GLsizei>(m_ColorAttachments.size()), buffers);
 		}
@@ -180,7 +180,7 @@ namespace OloEngine {
 			glDrawBuffer(GL_NONE);
 		}
 
-		OLO_CORE_ASSERT(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE, "Framebuffer is incomplete!")
+		OLO_CORE_ASSERT(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE, "Framebuffer is incomplete!");
 
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
@@ -212,7 +212,7 @@ namespace OloEngine {
 
 	int OpenGLFramebuffer::ReadPixel(const uint32_t attachmentIndex, const int x, const int y)
 	{
-		OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size())
+		OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size());
 
 		glReadBuffer(GL_COLOR_ATTACHMENT0 + attachmentIndex);
 		int pixelData{};
@@ -222,7 +222,7 @@ namespace OloEngine {
 
 	void OpenGLFramebuffer::ClearAttachment(const uint32_t attachmentIndex, const int value)
 	{
-		OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size())
+		OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size());
 
 		auto const& spec = m_ColorAttachmentSpecifications[attachmentIndex];
 		glClearTexImage(m_ColorAttachments[attachmentIndex], 0,

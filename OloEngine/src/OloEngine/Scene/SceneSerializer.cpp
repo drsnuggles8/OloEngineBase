@@ -154,23 +154,25 @@ namespace OloEngine {
 	{
 		switch (bodyType)
 		{
-			case Rigidbody2DComponent::BodyType::Static:    return "Static";
-			case Rigidbody2DComponent::BodyType::Dynamic:   return "Dynamic";
-			case Rigidbody2DComponent::BodyType::Kinematic: return "Kinematic";
+			using enum OloEngine::Rigidbody2DComponent::BodyType;
+			case Static:    return "Static";
+			case Dynamic:   return "Dynamic";
+			case Kinematic: return "Kinematic";
 		}
 
-		OLO_CORE_ASSERT(false, "Unknown body type")
+		OLO_CORE_ASSERT(false, "Unknown body type");
 		return {};
 	}
 
 	static Rigidbody2DComponent::BodyType RigidBody2DBodyTypeFromString(const std::string_view bodyTypeString)
 	{
-		if (bodyTypeString == "Static") { return Rigidbody2DComponent::BodyType::Static; }
-		if (bodyTypeString == "Dynamic") { return Rigidbody2DComponent::BodyType::Dynamic; }
-		if (bodyTypeString == "Kinematic") { return Rigidbody2DComponent::BodyType::Kinematic; }
+		using enum OloEngine::Rigidbody2DComponent::BodyType;
+		if (bodyTypeString == "Static") { return Static; }
+		if (bodyTypeString == "Dynamic") { return Dynamic; }
+		if (bodyTypeString == "Kinematic") { return Kinematic; }
 
-		OLO_CORE_ASSERT(false, "Unknown body type")
-		return Rigidbody2DComponent::BodyType::Static;
+		OLO_CORE_ASSERT(false, "Unknown body type");
+		return Static;
 	}
 
 	SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
@@ -180,7 +182,7 @@ namespace OloEngine {
 
 	static void SerializeEntity(YAML::Emitter& out, Entity entity)
 	{
-		OLO_CORE_ASSERT(entity.HasComponent<IDComponent>())
+		OLO_CORE_ASSERT(entity.HasComponent<IDComponent>());
 
 		out << YAML::BeginMap; // Entity
 		out << YAML::Key << "Entity" << YAML::Value << entity.GetUUID();
@@ -393,7 +395,7 @@ namespace OloEngine {
 	[[maybe_unused]] void SceneSerializer::SerializeRuntime([[maybe_unused]] const std::filesystem::path& filepath) const
 	{
 		// Not implemented
-		OLO_CORE_ASSERT(false)
+		OLO_CORE_ASSERT(false);
 	}
 
 	bool SceneSerializer::Deserialize(const std::filesystem::path& filepath) const
@@ -483,7 +485,7 @@ namespace OloEngine {
 								ScriptFieldInstance& fieldInstance = entityFields[name];
 
 								// TODO(Ole): turn this assert into log warning
-								OLO_CORE_ASSERT(fields.find(name) != fields.end())
+								OLO_CORE_ASSERT(fields.find(name) != fields.end());
 
 									if (!fields.contains(name))
 									{
@@ -577,7 +579,7 @@ namespace OloEngine {
 	[[nodiscard("This returns something, you probably wanted another function!")]] [[maybe_unused]] bool SceneSerializer::DeserializeRuntime([[maybe_unused]] const std::filesystem::path& filepath) const
 	{
 		// Not implemented
-		OLO_CORE_ASSERT(false)
+		OLO_CORE_ASSERT(false);
 		return false;
 	}
 

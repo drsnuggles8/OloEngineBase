@@ -21,7 +21,7 @@ namespace OloEngine {
 	{
 		OLO_PROFILE_FUNCTION();
 
-		OLO_CORE_ASSERT(!s_Instance, "Application already exists!")
+		OLO_CORE_ASSERT(!s_Instance, "Application already exists!");
 		s_Instance = this;
 		// Set working directory here
 		if (!m_Specification.WorkingDirectory.empty())

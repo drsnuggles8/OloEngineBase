@@ -27,10 +27,11 @@ namespace OloEngine {
 		::longjmp(s_LuaPanicJump, 1);
 	}
 
-	static void OnInternalLuaError()
+	/*static void OnInternalLuaError()
 	{
 		OLO_CORE_TRACE("[LuaScriptEngine] Internal Lua error!");
 	}
+	*/
 
 	void LuaScriptEngine::Init()
 	{

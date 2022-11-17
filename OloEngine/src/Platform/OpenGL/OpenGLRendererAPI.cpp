@@ -24,7 +24,7 @@ namespace OloEngine {
 		case GL_DEBUG_SEVERITY_NOTIFICATION: OLO_CORE_TRACE(message); return;
 		}
 
-		OLO_CORE_ASSERT(false, "Unknown severity level!")
+		OLO_CORE_ASSERT(false, "Unknown severity level!");
 	}
 
 	void OpenGLRendererAPI::Init()

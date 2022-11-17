@@ -29,7 +29,7 @@ namespace OloEngine {
 				return GL_FRAGMENT_SHADER;
 			}
 
-			OLO_CORE_ASSERT(false, "Unknown shader type!")
+			OLO_CORE_ASSERT(false, "Unknown shader type!");
 			return 0;
 		}
 
@@ -40,7 +40,7 @@ namespace OloEngine {
 				case GL_VERTEX_SHADER:   return shaderc_glsl_vertex_shader;
 				case GL_FRAGMENT_SHADER: return shaderc_glsl_fragment_shader;
 			}
-			OLO_CORE_ASSERT(false)
+			OLO_CORE_ASSERT(false);
 			return static_cast<shaderc_shader_kind>(0);
 		}
 
@@ -51,7 +51,7 @@ namespace OloEngine {
 				case GL_VERTEX_SHADER:   return "GL_VERTEX_SHADER";
 				case GL_FRAGMENT_SHADER: return "GL_FRAGMENT_SHADER";
 			}
-			OLO_CORE_ASSERT(false)
+			OLO_CORE_ASSERT(false);
 			return nullptr;
 		}
 
@@ -77,7 +77,7 @@ namespace OloEngine {
 				case GL_VERTEX_SHADER:    return ".cached_opengl.vert";
 				case GL_FRAGMENT_SHADER:  return ".cached_opengl.frag";
 			}
-			OLO_CORE_ASSERT(false)
+			OLO_CORE_ASSERT(false);
 			return "";
 		}
 
@@ -88,7 +88,7 @@ namespace OloEngine {
 				case GL_VERTEX_SHADER:    return ".cached_vulkan.vert";
 				case GL_FRAGMENT_SHADER:  return ".cached_vulkan.frag";
 			}
-			OLO_CORE_ASSERT(false)
+			OLO_CORE_ASSERT(false);
 			return "";
 		}
 
@@ -201,13 +201,13 @@ namespace OloEngine {
 		while (pos != std::string::npos)
 		{
 			const size_t eol = source.find_first_of("\r\n", pos); //End of shader type declaration line
-			OLO_CORE_ASSERT(eol != std::string::npos, "Syntax error")
+			OLO_CORE_ASSERT(eol != std::string::npos, "Syntax error");
 			const size_t begin = pos + typeTokenLength + 1; //Start of shader type name (after "#type " keyword)
 			std::string_view type = source.substr(begin, eol - begin);
-			OLO_CORE_ASSERT(Utils::ShaderTypeFromString(type), "Invalid shader type specified")
+			OLO_CORE_ASSERT(Utils::ShaderTypeFromString(type), "Invalid shader type specified");
 
 			const size_t nextLinePos = source.find_first_not_of("\r\n", eol); //Start of shader code after shader type declaration line
-			OLO_CORE_ASSERT(nextLinePos != std::string::npos, "Syntax error")
+			OLO_CORE_ASSERT(nextLinePos != std::string::npos, "Syntax error");
 			pos = source.find(typeToken, nextLinePos); //Start of next shader type declaration line
 
 			shaderSources[Utils::ShaderTypeFromString(type)] = (pos == std::string::npos) ? source.substr(nextLinePos) : source.substr(nextLinePos, pos - nextLinePos);
@@ -254,7 +254,7 @@ namespace OloEngine {
 				if (spirvModule.GetCompilationStatus() != shaderc_compilation_status_success)
 				{
 					OLO_CORE_ERROR(spirvModule.GetErrorMessage());
-					OLO_CORE_ASSERT(false)
+					OLO_CORE_ASSERT(false);
 				}
 
 				shaderData[stage] = std::vector<uint32_t>(spirvModule.cbegin(), spirvModule.cend());
@@ -314,7 +314,7 @@ namespace OloEngine {
 				if (spirvModule.GetCompilationStatus() != shaderc_compilation_status_success)
 				{
 					OLO_CORE_ERROR(spirvModule.GetErrorMessage());
-					OLO_CORE_ASSERT(false)
+					OLO_CORE_ASSERT(false);
 				}
 
 				shaderData[stage] = std::vector<uint32_t>(spirvModule.cbegin(), spirvModule.cend());
@@ -374,7 +374,7 @@ namespace OloEngine {
 		m_RendererID = program;
 	}
 
-	static bool VerifyProgramLink(GLenum& program)
+	static bool VerifyProgramLink(GLenum const& program)
 	{
 		int isLinked = 0;
 		glGetProgramiv(program, GL_LINK_STATUS, &isLinked);
@@ -389,7 +389,7 @@ namespace OloEngine {
 			glDeleteProgram(program);
 
 			OLO_CORE_ERROR("{0}", infoLog.data());
-			OLO_CORE_ASSERT(false, "[OpenGL] Shader link failure!")
+			OLO_CORE_ASSERT(false, "[OpenGL] Shader link failure!");
 			return false;
 		}
 		return true;
@@ -412,7 +412,7 @@ namespace OloEngine {
 			uint32_t format = 0;
 			in.read(reinterpret_cast<char*>(&format), sizeof(uint32_t));
 			in.read(data.data(), size);
-			glProgramBinary(program, format, data.data(), data.size());
+			glProgramBinary(program, format, data.data(), static_cast<GLsizei>(data.size()));
 
 			const bool linked = VerifyProgramLink(program);
 
@@ -433,7 +433,7 @@ namespace OloEngine {
 				// Save program data
 				GLint formats = 0;
 				glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &formats);
-				OLO_CORE_ASSERT(formats > 0, "Driver does not support binary format")
+				OLO_CORE_ASSERT(formats > 0, "Driver does not support binary format");
 				Utils::CreateCacheDirectoryIfNeeded();
 				GLint length = 0;
 				glGetProgramiv(program, GL_PROGRAM_BINARY_LENGTH, &length);
@@ -489,7 +489,7 @@ namespace OloEngine {
 				glDeleteShader(shader);
 
 				OLO_CORE_ERROR("{0}", infoLog.data());
-				OLO_CORE_ASSERT(false, "[OpenGL] Shader compilation failure!")
+				OLO_CORE_ASSERT(false, "[OpenGL] Shader compilation failure!");
 				return;
 			}
 			glAttachShader(program, shader);

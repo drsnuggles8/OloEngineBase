@@ -23,12 +23,13 @@ namespace OloEngine {
 	{
 		switch (bodyType)
 		{
-			case Rigidbody2DComponent::BodyType::Static:    return b2_staticBody;
-			case Rigidbody2DComponent::BodyType::Dynamic:   return b2_dynamicBody;
-			case Rigidbody2DComponent::BodyType::Kinematic: return b2_kinematicBody;
+			using enum OloEngine::Rigidbody2DComponent::BodyType;
+			case Static:    return b2_staticBody;
+			case Dynamic:   return b2_dynamicBody;
+			case Kinematic: return b2_kinematicBody;
 		}
 
-		OLO_CORE_ASSERT(false, "Unknown body type")
+		OLO_CORE_ASSERT(false, "Unknown body type");
 		return b2_staticBody;
 	}
 

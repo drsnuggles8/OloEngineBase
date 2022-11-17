@@ -393,14 +393,15 @@ namespace OloEngine {
 
 		if (hasPlayButton)
 		{
-			Ref<Texture2D> const icon = ((m_SceneState == SceneState::Edit) || (m_SceneState == SceneState::Simulate)) ? m_IconPlay : m_IconStop;
+			using enum OloEngine::EditorLayer::SceneState;
+			Ref<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Simulate)) ? m_IconPlay : m_IconStop;
 			if (ImGui::ImageButton((ImTextureID)(uint64_t)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
 			{
-				if ((m_SceneState == SceneState::Edit) || (m_SceneState == SceneState::Simulate))
+				if ((m_SceneState == Edit) || (m_SceneState == Simulate))
 				{
 					OnScenePlay();
 				}
-				else if (m_SceneState == SceneState::Play)
+				else if (m_SceneState == Play)
 				{
 					OnSceneStop();
 				}
@@ -818,18 +819,19 @@ namespace OloEngine {
 
 	void EditorLayer::OnSceneStop()
 	{
-		OLO_CORE_ASSERT(m_SceneState == SceneState::Play || m_SceneState == SceneState::Simulate)
+		using enum OloEngine::EditorLayer::SceneState;
+		OLO_CORE_ASSERT(m_SceneState == Play || m_SceneState == Simulate);
 
-		if (m_SceneState == SceneState::Play)
+		if (m_SceneState == Play)
 		{
 			m_ActiveScene->OnRuntimeStop();
 		}
-		else if (m_SceneState == SceneState::Simulate)
+		else if (m_SceneState == Simulate)
 		{
 			m_ActiveScene->OnSimulationStop();
 		}
 
-		m_SceneState = SceneState::Edit;
+		m_SceneState = Edit;
 
 		m_ActiveScene = m_EditorScene;
 
@@ -838,7 +840,7 @@ namespace OloEngine {
 
 	void EditorLayer::SetEditorScene(const Ref<Scene>& scene)
 	{
-		OLO_CORE_ASSERT(scene, "EditorLayer ActiveScene cannot be null")
+		OLO_CORE_ASSERT(scene, "EditorLayer ActiveScene cannot be null");
 
 		m_EditorScene = scene;
 		m_EditorScene->OnViewportResize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));
