@@ -33,7 +33,7 @@ namespace OloEngine {
 			return 0;
 		}
 
-		[[nodiscard("This returns something, you probably wanted another function!")]] static shaderc_shader_kind GLShaderStageToShaderC(const GLenum stage)
+		[[nodiscard("Store this!")]] static shaderc_shader_kind GLShaderStageToShaderC(const GLenum stage)
 		{
 			switch (stage)
 			{
@@ -44,7 +44,7 @@ namespace OloEngine {
 			return static_cast<shaderc_shader_kind>(0);
 		}
 
-		[[nodiscard("This returns something, you probably wanted another function!")]] static const char* GLShaderStageToString(const GLenum stage)
+		[[nodiscard("Store this!")]] static const char* GLShaderStageToString(const GLenum stage)
 		{
 			switch (stage)
 			{
@@ -70,7 +70,7 @@ namespace OloEngine {
 			}
 		}
 
-		[[nodiscard("This returns something, you probably wanted another function!")]] static const char* GLShaderStageCachedOpenGLFileExtension(const uint32_t stage)
+		[[nodiscard("Store this!")]] static const char* GLShaderStageCachedOpenGLFileExtension(const uint32_t stage)
 		{
 			switch (stage)
 			{
@@ -81,7 +81,7 @@ namespace OloEngine {
 			return "";
 		}
 
-		[[nodiscard("This returns something, you probably wanted another function!")]] static const char* GLShaderStageCachedVulkanFileExtension(const uint32_t stage)
+		[[nodiscard("Store this!")]] static const char* GLShaderStageCachedVulkanFileExtension(const uint32_t stage)
 		{
 			switch (stage)
 			{
@@ -467,9 +467,7 @@ namespace OloEngine {
 			spirv_cross::CompilerGLSL glslCompiler(spirv);
 			const auto source = glslCompiler.compile();
 
-			uint32_t shader;
-
-			shader = glCreateShader(stage);
+			uint32_t shader = glCreateShader(stage);
 
 			const GLchar* const sourceCStr = source.c_str();
 			glShaderSource(shader, 1, &sourceCStr, nullptr);

@@ -7,12 +7,12 @@
 #include <map>
 
 extern "C" {
-	typedef struct _MonoClass MonoClass;
-	typedef struct _MonoObject MonoObject;
-	typedef struct _MonoMethod MonoMethod;
-	typedef struct _MonoAssembly MonoAssembly;
-	typedef struct _MonoImage MonoImage;
-	typedef struct _MonoClassField MonoClassField;
+	using MonoClass = struct _MonoClass;
+	using MonoObject = struct _MonoObject;
+	using MonoMethod = struct _MonoMethod;
+	using MonoAssembly = struct _MonoAssembly;
+	using MonoImage = struct _MonoImage;
+	using MonoClassField = struct _MonoClassField;
 }
 
 namespace OloEngine {
@@ -104,7 +104,9 @@ namespace OloEngine {
 			static_assert(sizeof(T) <= 16, "Type too large!");
 
 			if (bool success = GetFieldValueInternal(name, s_FieldValueBuffer); !success)
+			{
 				return T();
+			}
 
 			return *(T*)s_FieldValueBuffer;
 		}
@@ -117,7 +119,7 @@ namespace OloEngine {
 			SetFieldValueInternal(name, &value);
 		}
 
-		[[nodiscard("This returns m_Instance, you probably wanted another function!")]] MonoObject * GetManagedObject() { return m_Instance; }
+		[[nodiscard("Store this!")]] MonoObject * GetManagedObject() { return m_Instance; }
 	private:
 		bool GetFieldValueInternal(const std::string& name, void* buffer);
 		bool SetFieldValueInternal(const std::string& name, const void* value);
@@ -153,15 +155,15 @@ namespace OloEngine {
 		static void OnCreateEntity(Entity entity);
 		static void OnUpdateEntity(Entity entity, Timestep ts);
 
-		[[nodiscard("This returns SceneContext, you probably wanted another function!")]] static Scene* GetSceneContext();
-		[[nodiscard("This returns entityID, you probably wanted another function!")]] static Ref<ScriptInstance> GetEntityScriptInstance(UUID entityID);
-		[[nodiscard]] static Ref<ScriptClass> GetEntityClass(const std::string& name);
-		[[nodiscard("This returns EntityClasses, you probably wanted another function!")]] static std::unordered_map<std::string, Ref<ScriptClass>> GetEntityClasses();
-		[[nodiscard]] static ScriptFieldMap& GetScriptFieldMap(Entity entity);
+		[[nodiscard("Store this!")]] static Scene* GetSceneContext();
+		[[nodiscard("Store this!")]] static Ref<ScriptInstance> GetEntityScriptInstance(UUID entityID);
+		[[nodiscard("Store this!")]] static Ref<ScriptClass> GetEntityClass(const std::string& name);
+		[[nodiscard("Store this!")]] static std::unordered_map<std::string, Ref<ScriptClass>> GetEntityClasses();
+		[[nodiscard("Store this!")]] static ScriptFieldMap& GetScriptFieldMap(Entity entity);
 
-		[[nodiscard("This returns the CoreAssemblyImage, you probably wanted another function!")]] static MonoImage* GetCoreAssemblyImage();
+		[[nodiscard("Store this!")]] static MonoImage* GetCoreAssemblyImage();
 
-		[[nodiscard("This returns the GetManagedInstance, you probably wanted another function!")]] static MonoObject* GetManagedInstance(UUID uuid);
+		[[nodiscard("Store this!")]] static MonoObject* GetManagedInstance(UUID uuid);
 	private:
 		static void InitMono();
 		static void ShutdownMono();
