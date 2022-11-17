@@ -8,13 +8,13 @@
 namespace OloEngine {
 
 	void OpenGLMessageCallback(
-		const unsigned source,
-		const unsigned type,
-		const unsigned id,
+		const unsigned,
+		const unsigned,
+		const unsigned,
 		const unsigned severity,
-		const int length,
+		const int,
 		const char* const message,
-		const void* const userParam)
+		const void* const)
 	{
 		switch (severity)
 		{
@@ -24,7 +24,7 @@ namespace OloEngine {
 		case GL_DEBUG_SEVERITY_NOTIFICATION: OLO_CORE_TRACE(message); return;
 		}
 
-		OLO_CORE_ASSERT(false, "Unknown severity level!")
+		OLO_CORE_ASSERT(false, "Unknown severity level!");
 	}
 
 	void OpenGLRendererAPI::Init()
@@ -48,7 +48,7 @@ namespace OloEngine {
 
 	void OpenGLRendererAPI::SetViewport(const uint32_t x, const uint32_t y, const uint32_t width, const uint32_t height)
 	{
-		glViewport(x, y, width, height);
+		glViewport(static_cast<GLint>(x), static_cast<GLint>(y), static_cast<GLsizei>(width), static_cast<GLsizei>(height));
 	}
 
 	void OpenGLRendererAPI::SetClearColor(const glm::vec4& color)
@@ -65,13 +65,13 @@ namespace OloEngine {
 	{
 		vertexArray->Bind();
 		const uint32_t count = indexCount ? indexCount : vertexArray->GetIndexBuffer()->GetCount();
-		glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, nullptr);
+		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(count), GL_UNSIGNED_INT, nullptr);
 	}
 
 	void OpenGLRendererAPI::DrawLines(const Ref<VertexArray>& vertexArray, const uint32_t vertexCount)
 	{
 		vertexArray->Bind();
-		glDrawArrays(GL_LINES, 0, vertexCount);
+		glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(vertexCount));
 	}
 
 	void OpenGLRendererAPI::SetLineWidth(const float width)

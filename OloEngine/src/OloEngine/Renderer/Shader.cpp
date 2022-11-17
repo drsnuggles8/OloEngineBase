@@ -12,11 +12,18 @@ namespace OloEngine {
 	{
 		switch (Renderer::GetAPI())
 		{
-			case RendererAPI::API::None:    OLO_CORE_ASSERT(false, "RendererAPI::None is currently not supported!") return nullptr;
-			case RendererAPI::API::OpenGL:  return CreateRef<OpenGLShader>(filepath);
+			case RendererAPI::API::None:
+			{
+				OLO_CORE_ASSERT(false, "RendererAPI::None is currently not supported!");
+				return nullptr;
+			}
+			case RendererAPI::API::OpenGL:
+			{
+				return CreateRef<OpenGLShader>(filepath);
+			}
 		}
 
-		OLO_CORE_ASSERT(false, "Unknown RendererAPI!")
+		OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
 		return nullptr;
 	}
 
@@ -24,17 +31,24 @@ namespace OloEngine {
 	{
 		switch (Renderer::GetAPI())
 		{
-			case RendererAPI::API::None:    OLO_CORE_ASSERT(false, "RendererAPI::None is currently not supported!") return nullptr;
-			case RendererAPI::API::OpenGL:  return CreateRef<OpenGLShader>(name, vertexSrc, fragmentSrc);
+			case RendererAPI::API::None:
+			{
+				OLO_CORE_ASSERT(false, "RendererAPI::None is currently not supported!");
+				return nullptr;
+			}
+			case RendererAPI::API::OpenGL:
+			{
+				return CreateRef<OpenGLShader>(name, vertexSrc, fragmentSrc);
+			}
 		}
 
-		OLO_CORE_ASSERT(false, "Unknown RendererAPI!")
+		OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
 		return nullptr;
 	}
 
 	void ShaderLibrary::Add(const std::string& name, const Ref<Shader>& shader)
 	{
-		OLO_CORE_ASSERT(!Exists(name), "Shader already exists!")
+		OLO_CORE_ASSERT(!Exists(name), "Shader already exists!");
 		m_Shaders[name] = shader;
 	}
 
@@ -60,7 +74,7 @@ namespace OloEngine {
 
 	Ref<Shader> ShaderLibrary::Get(const std::string& name)
 	{
-		OLO_CORE_ASSERT(Exists(name), "Shader not found!")
+		OLO_CORE_ASSERT(Exists(name), "Shader not found!");
 		return m_Shaders[name];
 	}
 

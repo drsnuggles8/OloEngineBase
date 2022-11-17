@@ -7,25 +7,26 @@
 
 namespace OloEngine {
 
-	[[nodiscard("This returns something, you probably wanted another function!")]] static GLenum ShaderDataTypeToOpenGLBaseType(ShaderDataType const type)
+	[[nodiscard("Store this!")]] static GLenum ShaderDataTypeToOpenGLBaseType(ShaderDataType const type)
 	{
 		switch (type)
 		{
-			case ShaderDataType::Float:    return GL_FLOAT;
-			case ShaderDataType::Float2:   return GL_FLOAT;
-			case ShaderDataType::Float3:   return GL_FLOAT;
-			case ShaderDataType::Float4:   return GL_FLOAT;
-			case ShaderDataType::Mat3:     return GL_FLOAT;
-			case ShaderDataType::Mat4:     return GL_FLOAT;
-			case ShaderDataType::Int:      return GL_INT;
-			case ShaderDataType::Int2:     return GL_INT;
-			case ShaderDataType::Int3:     return GL_INT;
-			case ShaderDataType::Int4:     return GL_INT;
-			case ShaderDataType::Bool:     return GL_BOOL;
-			case ShaderDataType::None:     break;
+			using enum OloEngine::ShaderDataType;
+			case Float:    return GL_FLOAT;
+			case Float2:   return GL_FLOAT;
+			case Float3:   return GL_FLOAT;
+			case Float4:   return GL_FLOAT;
+			case Mat3:     return GL_FLOAT;
+			case Mat4:     return GL_FLOAT;
+			case Int:      return GL_INT;
+			case Int2:     return GL_INT;
+			case Int3:     return GL_INT;
+			case Int4:     return GL_INT;
+			case Bool:     return GL_BOOL;
+			case None:     break;
 		}
 
-		OLO_CORE_ASSERT(false, "Unknown ShaderDataType!")
+		OLO_CORE_ASSERT(false, "Unknown ShaderDataType!");
 		return 0;
 	}
 
@@ -61,7 +62,7 @@ namespace OloEngine {
 	{
 		OLO_PROFILE_FUNCTION();
 
-		OLO_CORE_ASSERT(vertexBuffer->GetLayout().GetElements().size(), "Vertex Buffer has no layout!")
+		OLO_CORE_ASSERT(vertexBuffer->GetLayout().GetElements().size(), "Vertex Buffer has no layout!");
 
 		glBindVertexArray(m_RendererID);
 		vertexBuffer->Bind();
@@ -70,10 +71,11 @@ namespace OloEngine {
 		{
 			switch (element.Type)
 			{
-				case ShaderDataType::Float:
-				case ShaderDataType::Float2:
-				case ShaderDataType::Float3:
-				case ShaderDataType::Float4:
+				using enum OloEngine::ShaderDataType;
+				case Float:
+				case Float2:
+				case Float3:
+				case Float4:
 				{
 					glEnableVertexAttribArray(m_VertexBufferIndex);
 					glVertexAttribPointer(m_VertexBufferIndex,
@@ -85,11 +87,11 @@ namespace OloEngine {
 					++m_VertexBufferIndex;
 					break;
 				}
-				case ShaderDataType::Int:
-				case ShaderDataType::Int2:
-				case ShaderDataType::Int3:
-				case ShaderDataType::Int4:
-				case ShaderDataType::Bool:
+				case Int:
+				case Int2:
+				case Int3:
+				case Int4:
+				case Bool:
 				{
 					glEnableVertexAttribArray(m_VertexBufferIndex);
 					glVertexAttribIPointer(m_VertexBufferIndex,
@@ -100,10 +102,10 @@ namespace OloEngine {
 					++m_VertexBufferIndex;
 					break;
 				}
-				case ShaderDataType::Mat3:
-				case ShaderDataType::Mat4:
+				case Mat3:
+				case Mat4:
 				{
-					uint8_t const count = element.GetComponentCount();
+					auto const count = static_cast<uint8_t>(element.GetComponentCount());
 					for (uint8_t i = 0; i < count; ++i)
 					{
 						glEnableVertexAttribArray(m_VertexBufferIndex);
@@ -120,7 +122,7 @@ namespace OloEngine {
 				}
 				default:
 				{
-					OLO_CORE_ASSERT(false, "Unknown ShaderDataType!")
+					OLO_CORE_ASSERT(false, "Unknown ShaderDataType!");
 				}
 			}
 		}

@@ -32,7 +32,7 @@ namespace OloEngine {
 
 	void SceneCamera::SetViewportSize(const uint32_t width, const uint32_t height)
 	{
-		OLO_CORE_ASSERT(width > 0 && height > 0)
+		OLO_CORE_ASSERT(width > 0 && height > 0);
 		m_AspectRatio = static_cast<float>(width) / static_cast<float>(height);
 		RecalculateProjection();
 	}

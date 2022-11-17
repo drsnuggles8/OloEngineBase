@@ -2,6 +2,8 @@
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scripting/C#/ScriptGlue.h"
 #include "OloEngine/Core/Application.h"
+#include "OloEngine/Core/Buffer.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/Timer.h"
 
 #include <mono/jit/jit.h>
@@ -40,43 +42,13 @@ namespace OloEngine {
 
 	namespace Utils {
 
-		// TODO(OLBU): move to FileSystem class
-		static char* ReadBytes(const std::filesystem::path& filepath, uint32_t* outSize)
-		{
-			std::ifstream stream(filepath, std::ios::binary | std::ios::ate);
-
-			if (!stream)
-			{
-				// Failed to open the file
-				return nullptr;
-			}
-
-			std::streampos end = stream.tellg();
-			stream.seekg(0, std::ios::beg);
-			auto size = static_cast<uint64_t>(end - stream.tellg());
-
-			if (0 == size)
-			{
-				// File is empty
-				return nullptr;
-			}
-
-			auto* buffer = new char[size];
-			stream.read(buffer, size);
-			stream.close();
-
-			*outSize = static_cast<uint32_t>(size);
-			return buffer;
-		}
-
 		static MonoAssembly* LoadMonoAssembly(const std::filesystem::path& assemblyPath, bool loadPDB = false)
 		{
-			uint32_t fileSize = 0;
-			char* fileData = ReadBytes(assemblyPath, &fileSize);
+			ScopedBuffer fileData = FileSystem::ReadFileBinary(assemblyPath);
 
 			// NOTE: We can't use this image for anything other than loading the assembly because this image doesn't have a reference to the assembly
 			MonoImageOpenStatus status;
-			MonoImage* image = ::mono_image_open_from_data_full(fileData, fileSize, 1, &status, 0);
+			MonoImage* image = ::mono_image_open_from_data_full(fileData.As<char>(), static_cast<uint32_t>(fileData.Size()), 1, &status, 0);
 
 			if (status != MONO_IMAGE_OK)
 			{
@@ -92,20 +64,15 @@ namespace OloEngine {
 
 				if (std::filesystem::exists(pdbPath))
 				{
-					uint32_t pdbFileSize = 0;
-					char* pdbFileData = ReadBytes(pdbPath, &pdbFileSize);
-					mono_debug_open_image_from_memory(image, (const mono_byte*)pdbFileData, pdbFileSize);
+					ScopedBuffer pdbFileData = FileSystem::ReadFileBinary(pdbPath);
+					::mono_debug_open_image_from_memory(image, pdbFileData.As<const mono_byte>(), static_cast<int>(pdbFileData.Size()));
 					OLO_CORE_INFO("Loaded PDB {}", pdbPath);
-					delete[] pdbFileData;
 				}
 			}
 
 			std::string pathString = assemblyPath.string();
 			MonoAssembly* assembly = ::mono_assembly_load_from_full(image, pathString.c_str(), &status, 0);
 			::mono_image_close(image);
-
-			// Don't forget to free the file data
-			delete[] fileData;
 
 			return assembly;
 		}
@@ -131,6 +98,7 @@ namespace OloEngine {
 		{
 			std::string typeName = mono_type_get_name(monoType);
 
+			// TODO(olbu): Replace this with some form of .contains?
 			auto it = s_ScriptFieldTypeMap.find(typeName);
 			if (it == s_ScriptFieldTypeMap.end())
 			{
@@ -173,7 +141,7 @@ namespace OloEngine {
 
 	static ScriptEngineData* s_Data = nullptr;
 
-	static void OnAppAssemblyFileSystemEvent(const std::string_view path, const filewatch::Event change_type)
+	static void OnAppAssemblyFileSystemEvent(const std::string_view, const filewatch::Event change_type)
 	{
 		if (!s_Data->AssemblyReloadPending && change_type == filewatch::Event::modified)
 		{
@@ -196,46 +164,24 @@ namespace OloEngine {
 		InitMono();
 		ScriptGlue::RegisterFunctions();
 
-		LoadAssembly("Resources/Scripts/OloEngine-ScriptCore.dll");
-		LoadAppAssembly("SandboxProject/Assets/Scripts/Binaries/Sandbox-Scripting.dll");
+		if (bool status = LoadAssembly("Resources/Scripts/OloEngine-ScriptCore.dll"); !status)
+		{
+			OLO_CORE_ERROR("[ScriptEngine] Could not load OloEngine-ScriptCore assembly.");
+			return;
+		}
+
+		if (bool status = LoadAppAssembly("SandboxProject/Assets/Scripts/Binaries/Sandbox-Scripting.dll"); !status)
+		{
+			OLO_CORE_ERROR("[ScriptEngine] Could not load app assembly.");
+			return;
+		}
+
 		LoadAssemblyClasses();
 
 		ScriptGlue::RegisterComponents();
 
 		// Retrieve and instantiate class
 		s_Data->EntityClass = ScriptClass("OloEngine", "Entity", true);
-
-#if 0
-		MonoObject* instance = s_Data->EntityClass.Instantiate();
-
-		// Call method
-		MonoMethod* printMessageFunc = s_Data->EntityClass.GetMethod("PrintMessage", 0);
-		s_Data->EntityClass.InvokeMethod(instance, printMessageFunc);
-
-		// Call method with param
-		MonoMethod* printIntFunc = s_Data->EntityClass.GetMethod("PrintInt", 1);
-
-		int value = 5;
-		void* param = &value;
-
-		s_Data->EntityClass.InvokeMethod(instance, printIntFunc, &param);
-
-		MonoMethod* printIntsFunc = s_Data->EntityClass.GetMethod("PrintInts", 2);
-		int value2 = 508;
-		void* params[2] =
-		{
-			&value,
-			&value2
-		};
-		s_Data->EntityClass.InvokeMethod(instance, printIntsFunc, params);
-
-		MonoString* monoString = mono_string_new(s_Data->AppDomain, "Hello World from C++!");
-		MonoMethod* printCustomMessageFunc = s_Data->EntityClass.GetMethod("PrintCustomMessage", 1);
-		void* stringParam = monoString;
-		s_Data->EntityClass.InvokeMethod(instance, printCustomMessageFunc, &stringParam);
-
-		//OLO_CORE_ASSERT(false)
-#endif
 	}
 
 	void ScriptEngine::Shutdown()
@@ -288,32 +234,38 @@ namespace OloEngine {
 		s_Data->RootDomain = nullptr;
 	}
 
-	void ScriptEngine::LoadAssembly(const std::filesystem::path& filepath)
+	bool ScriptEngine::LoadAssembly(const std::filesystem::path& filepath)
 	{
 		// Create an App Domain
 		char domainName[] = "OloEngineScriptRuntime";
 		s_Data->AppDomain = ::mono_domain_create_appdomain(domainName, nullptr);
 		::mono_domain_set(s_Data->AppDomain, true);
 
-		// Move this maybe
 		s_Data->CoreAssemblyFilepath = filepath;
 		s_Data->CoreAssembly = Utils::LoadMonoAssembly(filepath, s_Data->EnableDebugging);
+		if (s_Data->CoreAssembly == nullptr)
+		{
+			return false;
+		}
+
 		s_Data->CoreAssemblyImage = ::mono_assembly_get_image(s_Data->CoreAssembly);
-		// Utils::PrintAssemblyTypes(s_Data->CoreAssembly);
+		return true;
 	}
 
-	void ScriptEngine::LoadAppAssembly(const std::filesystem::path& filepath)
+	bool ScriptEngine::LoadAppAssembly(const std::filesystem::path& filepath)
 	{
-		// Move this maybe
 		s_Data->AppAssemblyFilepath = filepath;
 		s_Data->AppAssembly = Utils::LoadMonoAssembly(filepath, s_Data->EnableDebugging);
-		auto assemb = s_Data->AppAssembly;
+		if (s_Data->AppAssembly == nullptr)
+		{
+			return false;
+		}
+
 		s_Data->AppAssemblyImage = mono_assembly_get_image(s_Data->AppAssembly);
-		auto assembi = s_Data->AppAssemblyImage;
-		// Utils::PrintAssemblyTypes(s_Data->AppAssembly);
 
 		s_Data->AppAssemblyFileWatcher = CreateScope<filewatch::FileWatch<std::string>>(filepath.string(), OnAppAssemblyFileSystemEvent);
 		s_Data->AssemblyReloadPending = false;
+		return true;
 	}
 
 	void ScriptEngine::ReloadAssembly()
@@ -353,7 +305,7 @@ namespace OloEngine {
 			s_Data->EntityInstances[entityID] = instance;
 
 			// Copy field values
-			if (s_Data->EntityScriptFields.find(entityID) != s_Data->EntityScriptFields.end())
+			if (s_Data->EntityScriptFields.contains(entityID))
 			{
 				const ScriptFieldMap& fieldMap = s_Data->EntityScriptFields.at(entityID);
 				for (const auto& [name, fieldInstance] : fieldMap)
@@ -367,10 +319,16 @@ namespace OloEngine {
 	void ScriptEngine::OnUpdateEntity(Entity entity, Timestep ts)
 	{
 		UUID entityUUID = entity.GetUUID();
-		OLO_CORE_ASSERT(s_Data->EntityInstances.contains(entityUUID))
 
-		Ref<ScriptInstance> instance = s_Data->EntityInstances[entityUUID];
-		instance->InvokeOnUpdate(static_cast<float>(ts));
+		if (s_Data->EntityInstances.contains(entityUUID))
+		{
+			Ref<ScriptInstance> instance = s_Data->EntityInstances[entityUUID];
+			instance->InvokeOnUpdate((float)ts);
+		}
+		else
+		{
+			OLO_CORE_ERROR("Could not find ScriptInstance for entity {}", entityUUID);
+		}
 	}
 
 	Scene* ScriptEngine::GetSceneContext()
@@ -380,6 +338,7 @@ namespace OloEngine {
 
 	Ref<ScriptInstance> ScriptEngine::GetEntityScriptInstance(UUID entityID)
 	{
+		// TODO(olbu): Replace this with .contains()?
 		auto it = s_Data->EntityInstances.find(entityID);
 		if (it == s_Data->EntityInstances.end())
 			return nullptr;
@@ -389,7 +348,7 @@ namespace OloEngine {
 
 	Ref<ScriptClass> ScriptEngine::GetEntityClass(const std::string& name)
 	{
-		if (s_Data->EntityClasses.find(name) == s_Data->EntityClasses.end())
+		if (!s_Data->EntityClasses.contains(name))
 		{
 			return nullptr;
 		}
@@ -478,8 +437,8 @@ namespace OloEngine {
 			}
 		}
 
-		auto& entityClasses = s_Data->EntityClasses;
-
+		// TODO(olbu): Find out why Cherno has that line below, seems unnecessary
+		// auto const& entityClasses = s_Data->EntityClasses;
 		//mono_field_get_value()
 	}
 
@@ -490,7 +449,7 @@ namespace OloEngine {
 
 	MonoObject* ScriptEngine::GetManagedInstance(UUID uuid)
 	{
-		OLO_CORE_ASSERT(s_Data->EntityInstances.find(uuid) != s_Data->EntityInstances.end());
+		OLO_CORE_ASSERT(s_Data->EntityInstances.contains(uuid));
 		return s_Data->EntityInstances.at(uuid)->GetManagedObject();
 	}
 
@@ -560,6 +519,7 @@ namespace OloEngine {
 	bool ScriptInstance::GetFieldValueInternal(const std::string& name, void* buffer)
 	{
 		const auto& fields = m_ScriptClass->GetFields();
+		// TODO(olbu): Replace with .contains()?
 		auto it = fields.find(name);
 		if (it == fields.end())
 			return false;
@@ -572,6 +532,7 @@ namespace OloEngine {
 	bool ScriptInstance::SetFieldValueInternal(const std::string& name, const void* value)
 	{
 		const auto& fields = m_ScriptClass->GetFields();
+		// TODO(olbu): Replace with .contains()?
 		auto it = fields.find(name);
 		if (it == fields.end())
 			return false;

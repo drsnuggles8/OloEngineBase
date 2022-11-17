@@ -5,7 +5,7 @@
 
 #include "OloEngine/Core/Base.h"
 
-// This ignores all warnings raised inside External headers
+// This ignores all warnings raised inside the following external headers
 #pragma warning(push, 0)
 #include <spdlog/spdlog.h>
 #include <spdlog/fmt/ostr.h>
@@ -18,8 +18,8 @@ namespace OloEngine {
 	public:
 		static void Init();
 
-		[[nodiscard("This returns s_CoreLogger, you probably wanted another function!")]] static Ref<spdlog::logger>& GetCoreLogger() { return s_CoreLogger; }
-		[[nodiscard("This returns s_ClientLogger, you probably wanted another function!")]] static Ref<spdlog::logger>& GetClientLogger() { return s_ClientLogger; }
+		[[nodiscard("Store this!")]] static Ref<spdlog::logger>& GetCoreLogger() { return s_CoreLogger; }
+		[[nodiscard("Store this!")]] static Ref<spdlog::logger>& GetClientLogger() { return s_ClientLogger; }
 	private:
 		static Ref<spdlog::logger> s_CoreLogger;
 		static Ref<spdlog::logger> s_ClientLogger;

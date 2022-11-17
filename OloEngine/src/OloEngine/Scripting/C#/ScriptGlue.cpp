@@ -52,12 +52,12 @@ namespace OloEngine {
 	static bool Entity_HasComponent(UUID entityID, MonoReflectionType* componentType)
 	{
 		Scene* scene = ScriptEngine::GetSceneContext();
-		OLO_CORE_ASSERT(scene)
+		OLO_CORE_ASSERT(scene);
 		Entity entity = scene->GetEntityByUUID(entityID);
-		OLO_CORE_ASSERT(entity)
+		OLO_CORE_ASSERT(entity);
 
 		MonoType* managedType = ::mono_reflection_type_get_type(componentType);
-		OLO_CORE_ASSERT(s_EntityHasComponentFuncs.contains(managedType))
+		OLO_CORE_ASSERT(s_EntityHasComponentFuncs.contains(managedType));
 		return s_EntityHasComponentFuncs.at(managedType)(entity);
 	}
 
@@ -81,9 +81,9 @@ namespace OloEngine {
 	static void TransformComponent_GetTranslation(UUID entityID, glm::vec3* outTranslation)
 	{
 		Scene* scene = ScriptEngine::GetSceneContext();
-		OLO_CORE_ASSERT(scene)
+		OLO_CORE_ASSERT(scene);
 		Entity entity = scene->GetEntityByUUID(entityID);
-		OLO_CORE_ASSERT(entity)
+		OLO_CORE_ASSERT(entity);
 
 		*outTranslation = entity.GetComponent<TransformComponent>().Translation;
 	}
@@ -91,9 +91,9 @@ namespace OloEngine {
 	static void TransformComponent_SetTranslation(UUID entityID, glm::vec3 const* translation)
 	{
 		Scene* scene = ScriptEngine::GetSceneContext();
-		OLO_CORE_ASSERT(scene)
+		OLO_CORE_ASSERT(scene);
 		Entity entity = scene->GetEntityByUUID(entityID);
-		OLO_CORE_ASSERT(entity)
+		OLO_CORE_ASSERT(entity);
 
 		entity.GetComponent<TransformComponent>().Translation = *translation;
 	}
@@ -101,9 +101,9 @@ namespace OloEngine {
 	static void Rigidbody2DComponent_ApplyLinearImpulse(UUID entityID, glm::vec2 const* impulse, glm::vec2 const* point, bool wake)
 	{
 		Scene* scene = ScriptEngine::GetSceneContext();
-		OLO_CORE_ASSERT(scene)
+		OLO_CORE_ASSERT(scene);
 		Entity entity = scene->GetEntityByUUID(entityID);
-		OLO_CORE_ASSERT(entity)
+		OLO_CORE_ASSERT(entity);
 
 		auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
 		auto* body = (b2Body*)rb2d.RuntimeBody;
@@ -113,9 +113,9 @@ namespace OloEngine {
 	static void Rigidbody2DComponent_ApplyLinearImpulseToCenter(UUID entityID, glm::vec2 const* impulse, bool wake)
 	{
 		Scene* scene = ScriptEngine::GetSceneContext();
-		OLO_CORE_ASSERT(scene)
+		OLO_CORE_ASSERT(scene);
 		Entity entity = scene->GetEntityByUUID(entityID);
-		OLO_CORE_ASSERT(entity)
+		OLO_CORE_ASSERT(entity);
 
 		auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
 		auto* body = static_cast<b2Body*>(rb2d.RuntimeBody);

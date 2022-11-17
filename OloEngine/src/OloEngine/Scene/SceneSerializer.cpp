@@ -124,8 +124,8 @@ namespace OloEngine {
 #define READ_SCRIPT_FIELD(FieldType, Type)            \
 	case ScriptFieldType::FieldType:                  \
 	{                                                 \
-		Type data = scriptField["Data"].as<Type>();   \
-		fieldInstance.SetValue(data);                 \
+		Type fieldData = scriptField["Data"].as<Type>();   \
+		fieldInstance.SetValue(fieldData);                 \
 		break;                                        \
 	}
 
@@ -154,23 +154,25 @@ namespace OloEngine {
 	{
 		switch (bodyType)
 		{
-			case Rigidbody2DComponent::BodyType::Static:    return "Static";
-			case Rigidbody2DComponent::BodyType::Dynamic:   return "Dynamic";
-			case Rigidbody2DComponent::BodyType::Kinematic: return "Kinematic";
+			using enum OloEngine::Rigidbody2DComponent::BodyType;
+			case Static:    return "Static";
+			case Dynamic:   return "Dynamic";
+			case Kinematic: return "Kinematic";
 		}
 
-		OLO_CORE_ASSERT(false, "Unknown body type")
+		OLO_CORE_ASSERT(false, "Unknown body type");
 		return {};
 	}
 
 	static Rigidbody2DComponent::BodyType RigidBody2DBodyTypeFromString(const std::string_view bodyTypeString)
 	{
-		if (bodyTypeString == "Static") { return Rigidbody2DComponent::BodyType::Static; }
-		if (bodyTypeString == "Dynamic") { return Rigidbody2DComponent::BodyType::Dynamic; }
-		if (bodyTypeString == "Kinematic") { return Rigidbody2DComponent::BodyType::Kinematic; }
+		using enum OloEngine::Rigidbody2DComponent::BodyType;
+		if (bodyTypeString == "Static") { return Static; }
+		if (bodyTypeString == "Dynamic") { return Dynamic; }
+		if (bodyTypeString == "Kinematic") { return Kinematic; }
 
-		OLO_CORE_ASSERT(false, "Unknown body type")
-		return Rigidbody2DComponent::BodyType::Static;
+		OLO_CORE_ASSERT(false, "Unknown body type");
+		return Static;
 	}
 
 	SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
@@ -180,7 +182,7 @@ namespace OloEngine {
 
 	static void SerializeEntity(YAML::Emitter& out, Entity entity)
 	{
-		OLO_CORE_ASSERT(entity.HasComponent<IDComponent>())
+		OLO_CORE_ASSERT(entity.HasComponent<IDComponent>());
 
 		out << YAML::BeginMap; // Entity
 		out << YAML::Key << "Entity" << YAML::Value << entity.GetUUID();
@@ -244,15 +246,14 @@ namespace OloEngine {
 
 			// Fields
 			Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(scriptComponent.ClassName);
-			const auto& fields = entityClass->GetFields();
-			if (fields.size() > 0)
+			if (const auto& fields = entityClass->GetFields(); !fields.empty())
 			{
 				out << YAML::Key << "ScriptFields" << YAML::Value;
 				auto& entityFields = ScriptEngine::GetScriptFieldMap(entity);
 				out << YAML::BeginSeq;
 				for (const auto& [name, field] : fields)
 				{
-					if (entityFields.find(name) == entityFields.end())
+					if (!entityFields.contains(name))
 					{
 						continue;
 					}
@@ -394,7 +395,7 @@ namespace OloEngine {
 	[[maybe_unused]] void SceneSerializer::SerializeRuntime([[maybe_unused]] const std::filesystem::path& filepath) const
 	{
 		// Not implemented
-		OLO_CORE_ASSERT(false)
+		OLO_CORE_ASSERT(false);
 	}
 
 	bool SceneSerializer::Deserialize(const std::filesystem::path& filepath) const
@@ -468,48 +469,50 @@ namespace OloEngine {
 					auto& sc = deserializedEntity.AddComponent<ScriptComponent>();
 					sc.ClassName = scriptComponent["ClassName"].as<std::string>();
 
-					
 					if (auto scriptFields = scriptComponent["ScriptFields"]; scriptFields)
 					{
-						Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(sc.ClassName);
-						OLO_CORE_ASSERT(entityClass)
-						const auto& fields = entityClass->GetFields();
-						auto& entityFields = ScriptEngine::GetScriptFieldMap(deserializedEntity);
-
-						for (auto scriptField : scriptFields)
+						if (Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(sc.ClassName); entityClass)
 						{
-							std::string name = scriptField["Name"].as<std::string>();
-							std::string typeString = scriptField["Type"].as<std::string>();
-							ScriptFieldType type = Utils::ScriptFieldTypeFromString(typeString);
+							const auto& fields = entityClass->GetFields();
+							auto& entityFields = ScriptEngine::GetScriptFieldMap(deserializedEntity);
 
-							ScriptFieldInstance& fieldInstance = entityFields[name];
-
-							// TODO(Ole): turn this assert into log warning
-							OLO_CORE_ASSERT(fields.find(name) != fields.end())
-
-							if (!fields.contains(name))
-								continue;
-
-							fieldInstance.Field = fields.at(name);
-
-							switch (type)
+							for (auto scriptField : scriptFields)
 							{
-								READ_SCRIPT_FIELD(Float, float)
-								READ_SCRIPT_FIELD(Double, double)
-								READ_SCRIPT_FIELD(Bool, bool)
-								READ_SCRIPT_FIELD(Char, char)
-								READ_SCRIPT_FIELD(Byte, int8_t)
-								READ_SCRIPT_FIELD(Short, int16_t)
-								READ_SCRIPT_FIELD(Int, int32_t)
-								READ_SCRIPT_FIELD(Long, int64_t)
-								READ_SCRIPT_FIELD(UByte, uint8_t)
-								READ_SCRIPT_FIELD(UShort, uint16_t)
-								READ_SCRIPT_FIELD(UInt, uint32_t)
-								READ_SCRIPT_FIELD(ULong, uint64_t)
-								READ_SCRIPT_FIELD(Vector2, glm::vec2)
-								READ_SCRIPT_FIELD(Vector3, glm::vec3)
-								READ_SCRIPT_FIELD(Vector4, glm::vec4)
-								READ_SCRIPT_FIELD(Entity, UUID)
+								name = scriptField["Name"].as<std::string>();
+								std::string typeString = scriptField["Type"].as<std::string>();
+								ScriptFieldType type = Utils::ScriptFieldTypeFromString(typeString);
+
+								ScriptFieldInstance& fieldInstance = entityFields[name];
+
+								// TODO(Ole): turn this assert into log warning
+								OLO_CORE_ASSERT(fields.find(name) != fields.end());
+
+									if (!fields.contains(name))
+									{
+										continue;
+									}
+
+								fieldInstance.Field = fields.at(name);
+
+								switch (type)
+								{
+									READ_SCRIPT_FIELD(Float, float)
+									READ_SCRIPT_FIELD(Double, double)
+									READ_SCRIPT_FIELD(Bool, bool)
+									READ_SCRIPT_FIELD(Char, char)
+									READ_SCRIPT_FIELD(Byte, int8_t)
+									READ_SCRIPT_FIELD(Short, int16_t)
+									READ_SCRIPT_FIELD(Int, int32_t)
+									READ_SCRIPT_FIELD(Long, int64_t)
+									READ_SCRIPT_FIELD(UByte, uint8_t)
+									READ_SCRIPT_FIELD(UShort, uint16_t)
+									READ_SCRIPT_FIELD(UInt, uint32_t)
+									READ_SCRIPT_FIELD(ULong, uint64_t)
+									READ_SCRIPT_FIELD(Vector2, glm::vec2)
+									READ_SCRIPT_FIELD(Vector3, glm::vec3)
+									READ_SCRIPT_FIELD(Vector4, glm::vec4)
+									READ_SCRIPT_FIELD(Entity, UUID)
+								}
 							}
 						}
 					}
@@ -576,7 +579,7 @@ namespace OloEngine {
 	[[nodiscard("This returns something, you probably wanted another function!")]] [[maybe_unused]] bool SceneSerializer::DeserializeRuntime([[maybe_unused]] const std::filesystem::path& filepath) const
 	{
 		// Not implemented
-		OLO_CORE_ASSERT(false)
+		OLO_CORE_ASSERT(false);
 		return false;
 	}
 

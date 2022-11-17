@@ -7,12 +7,12 @@
 #include <map>
 
 extern "C" {
-	typedef struct _MonoClass MonoClass;
-	typedef struct _MonoObject MonoObject;
-	typedef struct _MonoMethod MonoMethod;
-	typedef struct _MonoAssembly MonoAssembly;
-	typedef struct _MonoImage MonoImage;
-	typedef struct _MonoClassField MonoClassField;
+	using MonoClass = struct _MonoClass;
+	using MonoObject = struct _MonoObject;
+	using MonoMethod = struct _MonoMethod;
+	using MonoAssembly = struct _MonoAssembly;
+	using MonoImage = struct _MonoImage;
+	using MonoClassField = struct _MonoClassField;
 }
 
 namespace OloEngine {
@@ -104,7 +104,9 @@ namespace OloEngine {
 			static_assert(sizeof(T) <= 16, "Type too large!");
 
 			if (bool success = GetFieldValueInternal(name, s_FieldValueBuffer); !success)
+			{
 				return T();
+			}
 
 			return *(T*)s_FieldValueBuffer;
 		}
@@ -117,7 +119,7 @@ namespace OloEngine {
 			SetFieldValueInternal(name, &value);
 		}
 
-		[[nodiscard("This returns m_Instance, you probably wanted another function!")]] MonoObject * GetManagedObject() { return m_Instance; }
+		[[nodiscard("Store this!")]] MonoObject * GetManagedObject() { return m_Instance; }
 	private:
 		bool GetFieldValueInternal(const std::string& name, void* buffer);
 		bool SetFieldValueInternal(const std::string& name, const void* value);
@@ -141,8 +143,8 @@ namespace OloEngine {
 		static void Init();
 		static void Shutdown();
 
-		static void LoadAssembly(const std::filesystem::path& filepath);
-		static void LoadAppAssembly(const std::filesystem::path& filepath);
+		static bool LoadAssembly(const std::filesystem::path& filepath);
+		static bool LoadAppAssembly(const std::filesystem::path& filepath);
 
 		static void ReloadAssembly();
 
@@ -153,15 +155,15 @@ namespace OloEngine {
 		static void OnCreateEntity(Entity entity);
 		static void OnUpdateEntity(Entity entity, Timestep ts);
 
-		[[nodiscard("This returns SceneContext, you probably wanted another function!")]] static Scene* GetSceneContext();
-		[[nodiscard("This returns entityID, you probably wanted another function!")]] static Ref<ScriptInstance> GetEntityScriptInstance(UUID entityID);
-		[[nodiscard]] static Ref<ScriptClass> GetEntityClass(const std::string& name);
-		[[nodiscard("This returns EntityClasses, you probably wanted another function!")]] static std::unordered_map<std::string, Ref<ScriptClass>> GetEntityClasses();
-		[[nodiscard]] static ScriptFieldMap& GetScriptFieldMap(Entity entity);
+		[[nodiscard("Store this!")]] static Scene* GetSceneContext();
+		[[nodiscard("Store this!")]] static Ref<ScriptInstance> GetEntityScriptInstance(UUID entityID);
+		[[nodiscard("Store this!")]] static Ref<ScriptClass> GetEntityClass(const std::string& name);
+		[[nodiscard("Store this!")]] static std::unordered_map<std::string, Ref<ScriptClass>> GetEntityClasses();
+		[[nodiscard("Store this!")]] static ScriptFieldMap& GetScriptFieldMap(Entity entity);
 
-		[[nodiscard("This returns the CoreAssemblyImage, you probably wanted another function!")]] static MonoImage* GetCoreAssemblyImage();
+		[[nodiscard("Store this!")]] static MonoImage* GetCoreAssemblyImage();
 
-		[[nodiscard("This returns the GetManagedInstance, you probably wanted another function!")]] static MonoObject* GetManagedInstance(UUID uuid);
+		[[nodiscard("Store this!")]] static MonoObject* GetManagedInstance(UUID uuid);
 	private:
 		static void InitMono();
 		static void ShutdownMono();
@@ -179,50 +181,52 @@ namespace OloEngine {
 		{
 			switch (fieldType)
 			{
-				case ScriptFieldType::None:    return "None";
-				case ScriptFieldType::Float:   return "Float";
-				case ScriptFieldType::Double:  return "Double";
-				case ScriptFieldType::Bool:    return "Bool";
-				case ScriptFieldType::Char:    return "Char";
-				case ScriptFieldType::Byte:    return "Byte";
-				case ScriptFieldType::Short:   return "Short";
-				case ScriptFieldType::Int:     return "Int";
-				case ScriptFieldType::Long:    return "Long";
-				case ScriptFieldType::UByte:   return "UByte";
-				case ScriptFieldType::UShort:  return "UShort";
-				case ScriptFieldType::UInt:    return "UInt";
-				case ScriptFieldType::ULong:   return "ULong";
-				case ScriptFieldType::Vector2: return "Vector2";
-				case ScriptFieldType::Vector3: return "Vector3";
-				case ScriptFieldType::Vector4: return "Vector4";
-				case ScriptFieldType::Entity:  return "Entity";
+				using enum OloEngine::ScriptFieldType;
+				case None:    return "None";
+				case Float:   return "Float";
+				case Double:  return "Double";
+				case Bool:    return "Bool";
+				case Char:    return "Char";
+				case Byte:    return "Byte";
+				case Short:   return "Short";
+				case Int:     return "Int";
+				case Long:    return "Long";
+				case UByte:   return "UByte";
+				case UShort:  return "UShort";
+				case UInt:    return "UInt";
+				case ULong:   return "ULong";
+				case Vector2: return "Vector2";
+				case Vector3: return "Vector3";
+				case Vector4: return "Vector4";
+				case Entity:  return "Entity";
 			}
-			OLO_CORE_ASSERT(false, "Unknown ScriptFieldType")
+			OLO_CORE_ASSERT(false, "Unknown ScriptFieldType");
 			return "None";
 		}
 
 		inline ScriptFieldType ScriptFieldTypeFromString(std::string_view fieldType)
 		{
-			if (fieldType == "None")    return ScriptFieldType::None;
-			if (fieldType == "Float")   return ScriptFieldType::Float;
-			if (fieldType == "Double")  return ScriptFieldType::Double;
-			if (fieldType == "Bool")    return ScriptFieldType::Bool;
-			if (fieldType == "Char")    return ScriptFieldType::Char;
-			if (fieldType == "Byte")    return ScriptFieldType::Byte;
-			if (fieldType == "Short")   return ScriptFieldType::Short;
-			if (fieldType == "Int")     return ScriptFieldType::Int;
-			if (fieldType == "Long")    return ScriptFieldType::Long;
-			if (fieldType == "UByte")   return ScriptFieldType::UByte;
-			if (fieldType == "UShort")  return ScriptFieldType::UShort;
-			if (fieldType == "UInt")    return ScriptFieldType::UInt;
-			if (fieldType == "ULong")   return ScriptFieldType::ULong;
-			if (fieldType == "Vector2") return ScriptFieldType::Vector2;
-			if (fieldType == "Vector3") return ScriptFieldType::Vector3;
-			if (fieldType == "Vector4") return ScriptFieldType::Vector4;
-			if (fieldType == "Entity")  return ScriptFieldType::Entity;
+			using enum OloEngine::ScriptFieldType;
+			if (fieldType == "None")    return None;
+			if (fieldType == "Float")   return Float;
+			if (fieldType == "Double")  return Double;
+			if (fieldType == "Bool")    return Bool;
+			if (fieldType == "Char")    return Char;
+			if (fieldType == "Byte")    return Byte;
+			if (fieldType == "Short")   return Short;
+			if (fieldType == "Int")     return Int;
+			if (fieldType == "Long")    return Long;
+			if (fieldType == "UByte")   return UByte;
+			if (fieldType == "UShort")  return UShort;
+			if (fieldType == "UInt")    return UInt;
+			if (fieldType == "ULong")   return ULong;
+			if (fieldType == "Vector2") return Vector2;
+			if (fieldType == "Vector3") return Vector3;
+			if (fieldType == "Vector4") return Vector4;
+			if (fieldType == "Entity")  return Entity;
 
-			OLO_CORE_ASSERT(false, "Unknown ScriptFieldType")
-			return ScriptFieldType::None;
+			OLO_CORE_ASSERT(false, "Unknown ScriptFieldType");
+			return None;
 		}
 
 	}

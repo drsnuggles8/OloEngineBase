@@ -31,7 +31,9 @@ namespace OloEngine {
 	{
 		OLO_PROFILE_FUNCTION();
 
-		int width, height, channels;
+		int width {};
+		int height {};
+		int channels {};
 		::stbi_set_flip_vertically_on_load(1);
 		stbi_uc* data = nullptr;
 		{
@@ -45,7 +47,8 @@ namespace OloEngine {
 			m_Width = width;
 			m_Height = height;
 
-			GLenum internalFormat = 0, dataFormat = 0;
+			GLenum internalFormat = 0;
+			GLenum dataFormat = 0;
 			if (4 == channels)
 			{
 				internalFormat = GL_RGBA8;
@@ -60,7 +63,7 @@ namespace OloEngine {
 			m_InternalFormat = internalFormat;
 			m_DataFormat = dataFormat;
 
-			OLO_CORE_ASSERT(internalFormat & dataFormat, "Format not supported!")
+			OLO_CORE_ASSERT(internalFormat & dataFormat, "Format not supported!");
 
 			glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
 			glTextureStorage2D(m_RendererID, 1, internalFormat, m_Width, m_Height);
@@ -89,7 +92,7 @@ namespace OloEngine {
 		OLO_PROFILE_FUNCTION();
 
 		const uint32_t bpp = GL_RGBA == m_DataFormat ? 4 : 3;
-		OLO_CORE_ASSERT(size == m_Width * m_Height * bpp, "Data must be entire texture!")
+		OLO_CORE_ASSERT(size == m_Width * m_Height * bpp, "Data must be entire texture!");
 		glTextureSubImage2D(m_RendererID, 0, 0, 0, m_Width, m_Height, m_DataFormat, GL_UNSIGNED_BYTE, data);
 	}
 

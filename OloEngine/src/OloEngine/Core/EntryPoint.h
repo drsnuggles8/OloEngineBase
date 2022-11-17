@@ -13,7 +13,7 @@ int main(int argc, char** argv)
 
 	OLO_PROFILE_BEGIN_SESSION("Startup", "OloProfile-Startup.json");
 	auto* app = OloEngine::CreateApplication({ argc, argv });
-	OLO_CORE_ASSERT(app, "Client application is null!")
+	OLO_CORE_ASSERT(app, "Client application is null!");
 	OLO_PROFILE_END_SESSION();
 
 	OLO_PROFILE_BEGIN_SESSION("Runtime", "OloProfile-Runtime.json");

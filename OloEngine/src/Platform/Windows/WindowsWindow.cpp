@@ -1,17 +1,13 @@
 // This is an independent project of an individual developer. Dear PVS-Studio, please check it.
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "OloEnginePCH.h"
-#include "Platform/Windows/WindowsWindow.h"
-
 #include "OloEngine/Core/Input.h"
-
 #include "OloEngine/Events/ApplicationEvent.h"
 #include "OloEngine/Events/MouseEvent.h"
 #include "OloEngine/Events/KeyEvent.h"
-
 #include "OloEngine/Renderer/Renderer.h"
-
 #include "Platform/OpenGL/OpenGLContext.h"
+#include "Platform/Windows/WindowsWindow.h"
 
 namespace OloEngine {
 	float Window::s_HighDPIScaleFactor = 1.0f;
@@ -51,8 +47,8 @@ namespace OloEngine {
 		{
 			OLO_PROFILE_SCOPE("glfwInit");
 			const int success = GLFWAPI::glfwInit();
-			OLO_CORE_ASSERT(success, "Could not initialize GLFW!")
-				GLFWAPI::glfwSetErrorCallback(GLFWErrorCallback);
+			OLO_CORE_ASSERT(success, "Could not initialize GLFW!");
+			GLFWAPI::glfwSetErrorCallback(GLFWErrorCallback);
 		}
 
 		{
@@ -70,8 +66,10 @@ namespace OloEngine {
 			}
 
 			#if defined(OLO_DEBUG)
-						if (Renderer::GetAPI() == RendererAPI::API::OpenGL)
-							glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
+			if (Renderer::GetAPI() == RendererAPI::API::OpenGL)
+			{
+				glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
+			}
 			#endif
 
 			m_Window = GLFWAPI::glfwCreateWindow(static_cast<int>(props.Width), static_cast<int>(props.Height), m_Data.Title.c_str(), nullptr, nullptr);
@@ -102,7 +100,7 @@ namespace OloEngine {
 			data.EventCallback(event);
 		});
 
-		GLFWAPI::glfwSetKeyCallback(m_Window, [](GLFWwindow* const window, const int key, const int scancode, const int action, const int mods)
+		GLFWAPI::glfwSetKeyCallback(m_Window, [](GLFWwindow* const window, const int key, const int, const int action, const int)
 		{
 			WindowData const& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
 
@@ -110,19 +108,19 @@ namespace OloEngine {
 			{
 				case GLFW_PRESS:
 				{
-					KeyPressedEvent event(key, 0);
+					KeyPressedEvent event(static_cast<OloEngine::KeyCode>(key), false);
 					data.EventCallback(event);
 					break;
 				}
 				case GLFW_RELEASE:
 				{
-					KeyReleasedEvent event(key);
+					KeyReleasedEvent event(static_cast<OloEngine::KeyCode>(key));
 					data.EventCallback(event);
 					break;
 				}
 				case GLFW_REPEAT:
 				{
-					KeyPressedEvent event(key, true);
+					KeyPressedEvent event(static_cast<OloEngine::KeyCode>(key), true);
 					data.EventCallback(event);
 					break;
 				}
@@ -133,11 +131,11 @@ namespace OloEngine {
 		{
 			WindowData const& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
 
-			KeyTypedEvent event(keycode);
+			KeyTypedEvent event(static_cast<OloEngine::KeyCode>(keycode));
 			data.EventCallback(event);
 		});
 
-		GLFWAPI::glfwSetMouseButtonCallback(m_Window, [](GLFWwindow* const window, const int button, const int action, const int mods)
+		GLFWAPI::glfwSetMouseButtonCallback(m_Window, [](GLFWwindow* const window, const int button, const int action, const int)
 		{
 			WindowData const& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
 
@@ -145,13 +143,13 @@ namespace OloEngine {
 			{
 				case GLFW_PRESS:
 				{
-					MouseButtonPressedEvent event(button);
+					MouseButtonPressedEvent event(static_cast<OloEngine::MouseCode>(button));
 					data.EventCallback(event);
 					break;
 				}
 				case GLFW_RELEASE:
 				{
-					MouseButtonReleasedEvent event(button);
+					MouseButtonReleasedEvent event(static_cast<OloEngine::MouseCode>(button));
 					data.EventCallback(event);
 					break;
 				}
