@@ -1,5 +1,5 @@
 #include "OloEnginePCH.h"
-#include "FileSystem.h"
+#include "OloEngine/Core/FileSystem.h"
 
 namespace OloEngine {
 
@@ -9,10 +9,8 @@ namespace OloEngine {
 
 		if (!stream)
 		{
-			// Failed to open the file
 			return {};
 		}
-
 
 		std::streampos end = stream.tellg();
 		stream.seekg(0, std::ios::beg);
@@ -20,7 +18,6 @@ namespace OloEngine {
 
 		if (size == 0)
 		{
-			// File is empty
 			return {};
 		}
 
