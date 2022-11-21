@@ -42,6 +42,11 @@
 
 		"OloEngine/Math/Math.cpp"
 		"OloEngine/Math/Math.h"
+		
+		"OloEngine/Project/Project.cpp"
+		"OloEngine/Project/Project.h"
+		"OloEngine/Project/ProjectSerializer.cpp"
+		"OloEngine/Project/ProjectSerializer.h"
 
 		"OloEngine/Renderer/Buffer.cpp"
 		"OloEngine/Renderer/Buffer.h"
