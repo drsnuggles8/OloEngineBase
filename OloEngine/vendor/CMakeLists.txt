@@ -6,8 +6,7 @@ message(STATUS "Downloading third party libraries using CMake's FetchContent and
 
 FetchContent_Declare(assimp
 	GIT_REPOSITORY https://github.com/assimp/assimp.git
-	GIT_TAG master
-)
+	GIT_TAG master)
 FetchContent_Declare(box2d
 	GIT_REPOSITORY https://github.com/erincatto/box2d.git
 	GIT_TAG main)
@@ -36,8 +35,10 @@ FetchContent_Declare(yaml-cpp
 	GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
 	GIT_TAG master)
 
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(ASSIMP_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_INJECT_DEBUG_POSTFIX OFF CACHE BOOL "" FORCE)
+set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
 set(BOX2D_BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
 set(BOX2D_BUILD_TESTBED OFF CACHE BOOL "" FORCE)
 set(GLAD_PROFILE "core"	CACHE STRING "OpenGL profile")
