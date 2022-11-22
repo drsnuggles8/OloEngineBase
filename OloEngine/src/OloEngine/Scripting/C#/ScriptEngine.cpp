@@ -309,7 +309,9 @@ namespace OloEngine {
 			{
 				const ScriptFieldMap& fieldMap = s_Data->EntityScriptFields.at(entityID);
 				for (const auto& [name, fieldInstance] : fieldMap)
+				{
 					instance->SetFieldValueInternal(name, fieldInstance.m_Buffer);
+				}
 			}
 
 			instance->InvokeOnCreate();

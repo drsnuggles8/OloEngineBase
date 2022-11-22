@@ -22,6 +22,8 @@
 #include "OloEngine/Scene/NativeScript.h"
 #include "OloEngine/Scene/Components.h"
 
+#include "OloEngine/Project/Project.h"
+
 // --Renderer-------------------
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer2D.h"

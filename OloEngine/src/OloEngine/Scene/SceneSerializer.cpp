@@ -464,14 +464,14 @@ namespace OloEngine {
 					cc.FixedAspectRatio = cameraComponent["FixedAspectRatio"].as<bool>();
 				}
 
-				if (auto scriptComponent = entity["ScriptComponent"]; scriptComponent)
+				if (auto scriptComponent = entity["ScriptComponent"])
 				{
 					auto& sc = deserializedEntity.AddComponent<ScriptComponent>();
 					sc.ClassName = scriptComponent["ClassName"].as<std::string>();
 
 					if (auto scriptFields = scriptComponent["ScriptFields"]; scriptFields)
 					{
-						if (Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(sc.ClassName); entityClass)
+						if (Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(sc.ClassName))
 						{
 							const auto& fields = entityClass->GetFields();
 							auto& entityFields = ScriptEngine::GetScriptFieldMap(deserializedEntity);
@@ -487,10 +487,10 @@ namespace OloEngine {
 								// TODO(Ole): turn this assert into log warning
 								OLO_CORE_ASSERT(fields.find(name) != fields.end());
 
-									if (!fields.contains(name))
-									{
-										continue;
-									}
+								if (!fields.contains(name))
+								{
+									continue;
+								}
 
 								fieldInstance.Field = fields.at(name);
 

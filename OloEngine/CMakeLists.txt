@@ -58,6 +58,7 @@ target_precompile_headers(OloEngine PUBLIC src/OloEnginePCH.h)
 
 target_include_directories(OloEngine PRIVATE
 	src
+	vendor/assimp-src/include
 	vendor/box2d-src/include/box2d
 	vendor/entt-src/single_include/entt
 	vendor/filewatch-src
@@ -86,6 +87,7 @@ target_compile_definitions(OloEngine PRIVATE
 )
 
 target_link_libraries(OloEngine
+					assimp
 					box2d
 					glad
 					glfw
