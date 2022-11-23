@@ -42,7 +42,7 @@ namespace OloEngine {
 
 		if (const auto commandLineArgs = Application::Get().GetSpecification().CommandLineArgs; commandLineArgs.Count > 1)
 		{
-			auto projectFilePath = commandLineArgs[1];
+			auto* projectFilePath = commandLineArgs[1];
 			isProjectLoaded = OpenProject(projectFilePath);
 		}
 		if (!isProjectLoaded)
@@ -281,7 +281,7 @@ namespace OloEngine {
 					m_HoveredEntity = Entity();
 					OpenScene(path);
 				}
-				else if (path.extension() == ".png" || path.extension() == ".jpeg" && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
+				else if ((path.extension() == ".png") || (path.extension() == ".jpeg") && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
 				{
 					const Ref<Texture2D> texture = Texture2D::Create(path.string());
 					if (texture->IsLoaded())
