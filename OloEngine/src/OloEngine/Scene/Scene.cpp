@@ -309,6 +309,11 @@ namespace OloEngine {
 
 	void Scene::OnViewportResize(const uint32_t width, const uint32_t height)
 	{
+		if (m_ViewportWidth == width && m_ViewportHeight == height)
+		{
+			return;
+		}
+
 		m_ViewportWidth = width;
 		m_ViewportHeight = height;
 

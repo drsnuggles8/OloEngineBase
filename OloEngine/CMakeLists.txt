@@ -12,14 +12,11 @@ set(OloEngine_VERSION ${OloEngine_VERSION_MAJOR}.${OloEngine_VERSION_MINOR}.${Ol
 # Externally provided content
 add_subdirectory(vendor)
 
-
 # Sol2 - for Lua scripting
-CPMAddPackage(
-  NAME sol2
+CPMAddPackage(NAME sol2
   GIT_REPOSITORY https://github.com/ThePhD/sol2.git
   VERSION 3.3.0
-  DOWNLOAD_ONLY YES
-)
+  DOWNLOAD_ONLY YES)
 if(sol2_ADDED)
   add_library(sol2 INTERFACE IMPORTED)
   target_include_directories(sol2 SYSTEM INTERFACE ${sol2_SOURCE_DIR}/include)

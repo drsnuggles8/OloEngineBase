@@ -12,8 +12,6 @@
 
 namespace OloEngine {
 
-	extern const std::filesystem::path g_AssetPath;
-
 	SceneHierarchyPanel::SceneHierarchyPanel(const Ref<Scene>& context)
 	{
 		SetContext(context);
@@ -461,7 +459,7 @@ namespace OloEngine {
 				if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
 				{
 					auto* const path = static_cast<wchar_t*>(payload->Data);
-					std::filesystem::path const texturePath = std::filesystem::path(g_AssetPath) / path;
+					std::filesystem::path texturePath(path);
 					Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
 					if (texture->IsLoaded())
 					{

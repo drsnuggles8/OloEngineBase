@@ -14,8 +14,6 @@
 
 namespace OloEngine {
 
-	extern const std::filesystem::path g_AssetPath;
-
 	EditorLayer::EditorLayer()
 		: Layer("EditorLayer"), m_CameraController(1280.0f / 720.0f), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
 	{
@@ -40,17 +38,16 @@ namespace OloEngine {
 		fbSpec.Height = 720;
 		m_Framebuffer = Framebuffer::Create(fbSpec);
 
-		bool sceneLoaded = false;
+		bool isProjectLoaded = false;
 
 		if (const auto commandLineArgs = Application::Get().GetSpecification().CommandLineArgs; commandLineArgs.Count > 1)
 		{
-			auto sceneFilePath = commandLineArgs[1];
-			sceneLoaded = OpenScene(sceneFilePath);
+			auto projectFilePath = commandLineArgs[1];
+			isProjectLoaded = OpenProject(projectFilePath);
 		}
-
-		if (!sceneLoaded)
+		if (!isProjectLoaded)
 		{
-			NewScene();
+			NewProject();
 		}
 		m_EditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
 	}
@@ -196,11 +193,11 @@ namespace OloEngine {
 		style.WindowMinSize.x = minWinSizeX;
 
 		UI_MenuBar();
-		UI_Viewport();
 		UI_Toolbar();
-		UI_ChildPanels();
-		UI_Settings();
+		UI_Viewport();
 		UI_RendererStats();
+		UI_Settings();
+		UI_ChildPanels();
 
 		ImGui::End();
 	}
@@ -280,26 +277,23 @@ namespace OloEngine {
 		{
 			if (const ImGuiPayload* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
 			{
-				auto* const path = static_cast<wchar_t* const>(payload->Data);
-				const auto filePath = std::filesystem::path(path);
-				const auto parentPath = std::filesystem::path(path).parent_path();
+				std::filesystem::path path = (const wchar_t*)payload->Data;
 
-				if (parentPath == "scenes")	// Load scene
+				if (path.extension() == ".olo")	// Load scene
 				{
 					m_HoveredEntity = Entity();
-					OpenScene(std::filesystem::path(g_AssetPath) / path);
+					OpenScene(path);
 				}
-				else if (parentPath == "textures" && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
+				else if (path.extension() == ".png" || path.extension() == ".jpeg" && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
 				{
-					const auto texturePath = std::filesystem::path(g_AssetPath) / path;
-					const Ref<Texture2D> texture = Texture2D::Create(texturePath.string());
+					const Ref<Texture2D> texture = Texture2D::Create(path.string());
 					if (texture->IsLoaded())
 					{
 						m_HoveredEntity.GetComponent<SpriteRendererComponent>().Texture = texture;
 					}
 					else
 					{
-						OLO_WARN("Could not load texture {0}", texturePath.filename().string());
+						OLO_WARN("Could not load texture {0}", path.filename().string());
 					}
 				}
 			}
@@ -462,7 +456,7 @@ namespace OloEngine {
 	void EditorLayer::UI_ChildPanels()
 	{
 		m_SceneHierarchyPanel.OnImGuiRender();
-		m_ContentBrowserPanel.OnImGuiRender();
+		m_ContentBrowserPanel->OnImGuiRender();
 	}
 
 	void EditorLayer::UI_Settings()
@@ -711,6 +705,31 @@ namespace OloEngine {
 		Renderer2D::EndScene();
 	}
 
+	void EditorLayer::NewProject()
+	{
+		Project::New();
+		NewScene();
+		m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
+	}
+
+	bool EditorLayer::OpenProject(const std::filesystem::path& path)
+	{
+		if (Project::Load(path))
+		{
+			auto startScenePath = Project::GetAssetFileSystemPath(Project::GetActive()->GetConfig().StartScene);
+			OLO_ASSERT(std::filesystem::exists(startScenePath));
+			OpenScene(startScenePath);
+			m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
+			return true;
+		}
+		return false;
+	}
+
+	void EditorLayer::SaveProject()
+	{
+		// Project::SaveActive();
+	}
+
 	void EditorLayer::NewScene()
 	{
 		if (m_SceneState != SceneState::Edit)
@@ -843,7 +862,7 @@ namespace OloEngine {
 		OLO_CORE_ASSERT(scene, "EditorLayer ActiveScene cannot be null");
 
 		m_EditorScene = scene;
-		m_EditorScene->OnViewportResize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));
+		//m_EditorScene->OnViewportResize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));
 		m_SceneHierarchyPanel.SetContext(m_EditorScene);
 
 		m_ActiveScene = m_EditorScene;
@@ -853,7 +872,9 @@ namespace OloEngine {
 
 	void EditorLayer::SyncWindowTitle() const
 	{
-		Application::Get().GetWindow().SetTitle("Olo Editor - " + m_EditorScene->GetName());
+		std::string& projectName = Project::GetActive()->GetConfig().Name;
+		std::string title = projectName + " - " + m_ActiveScene->GetName() + " - OloEditor";
+		Application::Get().GetWindow().SetTitle(title);
 	}
 
 	void EditorLayer::OnScenePause() const

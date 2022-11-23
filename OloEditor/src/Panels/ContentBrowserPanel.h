@@ -16,6 +16,7 @@ namespace OloEngine {
 	private:
 		Ref<Texture2D>& GetFileIcon(const std::filesystem::path& filepath);
 	private:
+		std::filesystem::path m_BaseDirectory;
 		std::filesystem::path m_CurrentDirectory;
 
 		Ref<Texture2D> m_DirectoryIcon;
