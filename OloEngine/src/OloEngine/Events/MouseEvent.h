@@ -10,8 +10,8 @@ namespace OloEngine {
 		MouseMovedEvent(const float x, const float y)
 			: m_MouseX(x), m_MouseY(y) {}
 
-		[[nodiscard("This returns m_MouseX, you probably wanted another function!")]] float GetX() const { return m_MouseX; }
-		[[nodiscard("This returns m_MouseY, you probably wanted another function!")]] float GetY() const { return m_MouseY; }
+		[[nodiscard("Store this!")]] float GetX() const { return m_MouseX; }
+		[[nodiscard("Store this!")]] float GetY() const { return m_MouseY; }
 
 		[[nodiscard("Store this!")]] std::string ToString() const override
 		{
@@ -33,8 +33,8 @@ namespace OloEngine {
 		MouseScrolledEvent(const float xOffset, const float yOffset)
 			: m_XOffset(xOffset), m_YOffset(yOffset) {}
 
-		[[nodiscard("This returns m_XOffset, you probably wanted another function!")]] float GetXOffset() const { return m_XOffset; }
-		[[nodiscard("This returns y_Offset, you probably wanted another function!")]] float GetYOffset() const { return m_YOffset; }
+		[[nodiscard("Store this!")]] float GetXOffset() const { return m_XOffset; }
+		[[nodiscard("Store this!")]] float GetYOffset() const { return m_YOffset; }
 
 		[[nodiscard("Store this!")]] std::string ToString() const override
 		{
@@ -53,7 +53,7 @@ namespace OloEngine {
 	class MouseButtonEvent : public Event
 	{
 	public:
-		[[nodiscard("This returns m_Button, you probably wanted another function!")]] MouseCode GetMouseButton() const { return m_Button; }
+		[[nodiscard("Store this!")]] MouseCode GetMouseButton() const { return m_Button; }
 
 		EVENT_CLASS_CATEGORY(EventCategory::Mouse | EventCategory::Input | EventCategory::MouseButton)
 	protected:

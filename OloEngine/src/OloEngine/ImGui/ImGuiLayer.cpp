@@ -2,18 +2,16 @@
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "OloEnginePCH.h"
 #include "OloEngine/ImGui/ImGuiLayer.h"
+#include "OloEngine/Core/Application.h"
 
 #include <imgui.h>
+#include <ImGuizmo.h>
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_opengl3.h>
-
-#include "OloEngine/Core/Application.h"
 
 // TEMPORARY
 #include <GLFW/glfw3.h>
 #include <glad/glad.h>
-
-#include <ImGuizmo.h>
 
 namespace OloEngine {
 	ImGuiLayer::ImGuiLayer()

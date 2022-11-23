@@ -22,10 +22,10 @@ namespace OloEngine {
 		std::vector<Layer*>::reverse_iterator rbegin() { return m_Layers.rbegin(); }
 		std::vector<Layer*>::reverse_iterator rend() { return m_Layers.rend(); }
 
-		[[nodiscard("Returns m_Layers.begin(), you probably wanted some other function!")]] std::vector<Layer*>::const_iterator begin() const { return m_Layers.begin(); }
-		[[nodiscard("Returns m_Layers.end(), you probably wanted some other function!")]] std::vector<Layer*>::const_iterator end()	const { return m_Layers.end(); }
-		[[nodiscard("Returns m_Layers.rbegin(), you probably wanted some other function!")]] std::vector<Layer*>::const_reverse_iterator rbegin() const { return m_Layers.rbegin(); }
-		[[nodiscard("Returns m_Layers.rend(), you probably wanted some other function!")]] std::vector<Layer*>::const_reverse_iterator rend() const { return m_Layers.rend(); }
+		[[nodiscard("Store this!")]] std::vector<Layer*>::const_iterator begin() const { return m_Layers.begin(); }
+		[[nodiscard("Store this!")]] std::vector<Layer*>::const_iterator end()	const { return m_Layers.end(); }
+		[[nodiscard("Store this!")]] std::vector<Layer*>::const_reverse_iterator rbegin() const { return m_Layers.rbegin(); }
+		[[nodiscard("Store this!")]] std::vector<Layer*>::const_reverse_iterator rend() const { return m_Layers.rend(); }
 	private:
 		std::vector<Layer*> m_Layers;
 		unsigned int m_LayerInsertIndex = 0;

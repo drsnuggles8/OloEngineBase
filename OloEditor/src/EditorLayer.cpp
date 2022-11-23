@@ -204,50 +204,69 @@ namespace OloEngine {
 
 	void EditorLayer::UI_MenuBar()
 	{
-		if (ImGui::BeginMenuBar())
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+		ImGui::BeginMainMenuBar();
+		ImGui::PopStyleVar();
+
+		if (ImGui::BeginMenu("File"))
 		{
-			if (ImGui::BeginMenu("File"))
+			if (ImGui::BeginMenu("New"))
 			{
-				if (ImGui::MenuItem("New", "Ctrl+N"))
+				if (ImGui::MenuItem("Project"))
+				{
+					NewProject();
+				}
+				if (ImGui::MenuItem("Scene", "Ctrl+N"))
 				{
 					NewScene();
 				}
+				ImGui::EndMenu();
+			}
 
-				if (ImGui::MenuItem("Open...", "Ctrl+O"))
+			if (ImGui::BeginMenu("Open..."))
+			{
+				if (ImGui::MenuItem("Scene", "Ctrl+O"))
 				{
 					OpenScene();
 				}
-
-				if (ImGui::MenuItem("Save", "Ctrl+S", false, m_ActiveScene != nullptr))
+				if (ImGui::MenuItem("Project"))
 				{
-					SaveScene();
+					OpenProject();
 				}
-
-				if (ImGui::MenuItem("Save As...", "Ctrl+Shift+S", false, m_ActiveScene != nullptr))
-				{
-					SaveSceneAs();
-				}
-
-				if (ImGui::MenuItem("Exit"))
-				{
-					Application::Get().Close();
-				}
-
 				ImGui::EndMenu();
 			}
 
-			if (ImGui::BeginMenu("Script"))
+			if (ImGui::MenuItem("Save Scene", "Ctrl+S", false, m_ActiveScene != nullptr))
 			{
-				if (ImGui::MenuItem("Reload assembly", "Ctrl+R"))
-				{
-					ScriptEngine::ReloadAssembly();
-				}
-
-				ImGui::EndMenu();
+				SaveScene();
 			}
 
-			ImGui::EndMenuBar();
+			if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S", false, m_ActiveScene != nullptr))
+			{
+				SaveSceneAs();
+			}
+
+			ImGui::Separator();
+
+			if (ImGui::MenuItem("Exit"))
+			{
+				Application::Get().Close();
+			}
+
+			ImGui::EndMenu();
 		}
+
+		if (ImGui::BeginMenu("Script"))
+		{
+			if (ImGui::MenuItem("Reload assembly", "Ctrl+R"))
+			{
+				ScriptEngine::ReloadAssembly();
+			}
+
+			ImGui::EndMenu();
+		}
+
+		ImGui::EndMainMenuBar();
 	}
 
 	void EditorLayer::UI_Viewport()
@@ -707,6 +726,15 @@ namespace OloEngine {
 		Project::New();
 		NewScene();
 		m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
+	}
+
+	void EditorLayer::OpenProject()
+	{
+		std::string filepath = FileDialogs::OpenFile("OloEngine Project (*.oloproj)\0*.oloproj\0");
+		if (!filepath.empty())
+		{
+			OpenProject(filepath);
+		}
 	}
 
 	bool EditorLayer::OpenProject(const std::filesystem::path& path)

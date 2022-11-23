@@ -55,7 +55,7 @@ namespace OloEngine {
 			return nullptr;
 		}
 
-		[[nodiscard("This returns something, you probably wanted another function!")]] static const char* GetCacheDirectory()
+		[[nodiscard("Store this!")]] static const char* GetCacheDirectory()
 		{
 			// TODO(olbu): make sure the assets directory is valid
 			return "assets/cache/shader/opengl";

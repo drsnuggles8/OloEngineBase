@@ -13,7 +13,7 @@ namespace OloEngine {
 
 	namespace Utils {
 
-		[[nodiscard("This returns something, you probably wanted another function!")]]  constexpr static GLenum TextureTarget(const bool multisampled) noexcept
+		[[nodiscard("Store this!")]]  constexpr static GLenum TextureTarget(const bool multisampled) noexcept
 		{
 			return multisampled ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D;
 		}

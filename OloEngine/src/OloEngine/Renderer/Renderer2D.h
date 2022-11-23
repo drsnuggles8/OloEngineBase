@@ -47,7 +47,7 @@ namespace OloEngine {
 
 		static void DrawSprite(const glm::mat4& transform, SpriteRendererComponent const& src, int entityID);
 
-		[[nodiscard("This returns s_Data.LineWidth, you probably wanted another function!")]] static float GetLineWidth();
+		[[nodiscard("Store this!")]] static float GetLineWidth();
 		static void SetLineWidth(float width);
 
 		// Stats
@@ -56,8 +56,8 @@ namespace OloEngine {
 			uint32_t DrawCalls = 0;
 			uint32_t QuadCount = 0;
 
-			[[nodiscard("This returns QuadCount * 4, you probably wanted another function!")]] uint32_t GetTotalVertexCount() const { return QuadCount * 4; }
-			[[nodiscard("This returns QuadCount * 6, you probably wanted another function!")]] uint32_t GetTotalIndexCount() const { return QuadCount * 6; }
+			[[nodiscard("Store this!")]] uint32_t GetTotalVertexCount() const { return QuadCount * 4; }
+			[[nodiscard("Store this!")]] uint32_t GetTotalIndexCount() const { return QuadCount * 6; }
 		};
 		static void ResetStats();
 		static Statistics GetStats();
