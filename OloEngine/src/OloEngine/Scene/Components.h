@@ -48,7 +48,7 @@ namespace OloEngine {
 			: Translation(translation) {}
 
 
-		[[nodiscard("Store this, you probably wanted another function!")]] glm::mat4 GetTransform() const
+		[[nodiscard("Store this!")]] glm::mat4 GetTransform() const
 		{
 			glm::mat4 const rotation = glm::toMat4(glm::quat(Rotation));
 

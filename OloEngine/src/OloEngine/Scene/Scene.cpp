@@ -19,7 +19,7 @@
 
 namespace OloEngine {
 
-	[[nodiscard("This returns a body type, you probably wanted another function!")]] static b2BodyType Rigidbody2DTypeToBox2DBody(const Rigidbody2DComponent::BodyType bodyType)
+	[[nodiscard("Store this!")]] static b2BodyType Rigidbody2DTypeToBox2DBody(const Rigidbody2DComponent::BodyType bodyType)
 	{
 		switch (bodyType)
 		{

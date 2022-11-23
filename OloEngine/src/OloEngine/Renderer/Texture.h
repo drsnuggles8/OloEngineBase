@@ -11,16 +11,16 @@ namespace OloEngine {
 	public:
 		virtual ~Texture() = default;
 
-		[[nodiscard("Store this, you probably wanted another function!")]] virtual uint32_t GetWidth() const = 0;
-		[[nodiscard("Store this, you probably wanted another function!")]] virtual uint32_t GetHeight() const = 0;
-		[[nodiscard("Store this, you probably wanted another function!")]] virtual uint32_t GetRendererID() const = 0;
-		[[nodiscard("Store this, you probably wanted another function!")]] virtual const std::string& GetPath() const = 0;
+		[[nodiscard("Store this!")]] virtual uint32_t GetWidth() const = 0;
+		[[nodiscard("Store this!")]] virtual uint32_t GetHeight() const = 0;
+		[[nodiscard("Store this!")]] virtual uint32_t GetRendererID() const = 0;
+		[[nodiscard("Store this!")]] virtual const std::string& GetPath() const = 0;
 
 		virtual void SetData(void* data, uint32_t size) = 0;
 
 		virtual void Bind(uint32_t slot) const = 0;
 
-		[[nodiscard("Store this, you probably wanted another function!")]] virtual bool IsLoaded() const = 0;
+		[[nodiscard("Store this!")]] virtual bool IsLoaded() const = 0;
 
 		virtual bool operator==(const Texture& other) const = 0;
 	};

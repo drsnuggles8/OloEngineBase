@@ -57,7 +57,7 @@ namespace OloEngine {
 		}
 
 		template<typename T>
-		[[nodiscard("Store this, you probably wanted another function!")]] bool HasComponent() const
+		[[nodiscard("Store this!")]] bool HasComponent() const
 		{
 			return m_Scene->m_Registry.all_of<T>(m_EntityHandle);
 		}
@@ -69,7 +69,7 @@ namespace OloEngine {
 		}
 
 		template<typename...T>
-		[[nodiscard("Store this, you probably wanted another function!")]] bool HasAny() const
+		[[nodiscard("Store this!")]] bool HasAny() const
 		{
 			return m_Scene->m_Registry.any_of<T...>(m_EntityHandle);
 		}

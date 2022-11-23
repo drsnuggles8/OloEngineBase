@@ -281,7 +281,7 @@ namespace OloEngine {
 		ScriptGlue::RegisterComponents();
 
 		// Retrieve and instantiate class
-		s_Data->EntityClass = ScriptClass("Hazel", "Entity", true);
+		s_Data->EntityClass = ScriptClass("OloEgine", "Entity", true);
 	}
 
 	void ScriptEngine::OnRuntimeStart(Scene* scene)

@@ -13,7 +13,7 @@ namespace OloEngine {
 		[[nodiscard("This returns m_MouseX, you probably wanted another function!")]] float GetX() const { return m_MouseX; }
 		[[nodiscard("This returns m_MouseY, you probably wanted another function!")]] float GetY() const { return m_MouseY; }
 
-		[[nodiscard("Store this, you probably wanted another function!")]] std::string ToString() const override
+		[[nodiscard("Store this!")]] std::string ToString() const override
 		{
 			std::stringstream ss;
 			ss << "MouseMovedEvent: " << m_MouseX << ", " << m_MouseY;
@@ -36,7 +36,7 @@ namespace OloEngine {
 		[[nodiscard("This returns m_XOffset, you probably wanted another function!")]] float GetXOffset() const { return m_XOffset; }
 		[[nodiscard("This returns y_Offset, you probably wanted another function!")]] float GetYOffset() const { return m_YOffset; }
 
-		[[nodiscard("Store this, you probably wanted another function!")]] std::string ToString() const override
+		[[nodiscard("Store this!")]] std::string ToString() const override
 		{
 			std::stringstream ss;
 			ss << "MouseScrolledEvent: " << GetXOffset() << ", " << GetYOffset();
@@ -69,7 +69,7 @@ namespace OloEngine {
 		explicit MouseButtonPressedEvent(const MouseCode button)
 			: MouseButtonEvent(button) {}
 
-		[[nodiscard("Store this, you probably wanted another function!")]] std::string ToString() const override
+		[[nodiscard("Store this!")]] std::string ToString() const override
 		{
 			std::stringstream ss;
 			ss << "MouseButtonPressedEvent: " << m_Button;
@@ -85,7 +85,7 @@ namespace OloEngine {
 		explicit MouseButtonReleasedEvent(const MouseCode button)
 			: MouseButtonEvent(button) {}
 
-		[[nodiscard("Store this, you probably wanted another function!")]] std::string ToString() const override
+		[[nodiscard("Store this!")]] std::string ToString() const override
 		{
 			std::stringstream ss;
 			ss << "MouseButtonReleasedEvent: " << m_Button;

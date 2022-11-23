@@ -9,10 +9,10 @@ namespace OloEngine {
 		WindowResizeEvent(const unsigned int width, const unsigned int height)
 			: m_Width(width), m_Height(height) {}
 
-		[[nodiscard("This returns width, you probably wanted another function!")]] unsigned int GetWidth()  const { return m_Width; }
-		[[nodiscard("This returns height, you probably wanted another function!")]] unsigned int GetHeight() const { return m_Height; }
+		[[nodiscard("Store this!")]] unsigned int GetWidth()  const { return m_Width; }
+		[[nodiscard("Store this!")]] unsigned int GetHeight() const { return m_Height; }
 
-		[[nodiscard("Store this return, you probably wanted another function!")]] std::string ToString() const override
+		[[nodiscard("Store this!")]] std::string ToString() const override
 		{
 			std::stringstream ss;
 			ss << "WindowResizeEvent: " << m_Width << ", " << m_Height;

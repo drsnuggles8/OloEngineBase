@@ -208,9 +208,6 @@ namespace OloEngine {
 		{
 			if (ImGui::BeginMenu("File"))
 			{
-				// Disabling fullscreen would allow the window to be moved to the front of other windows,
-				// which we can't undo at the moment without finer window depth/z control.
-				//ImGui::MenuItem("Fullscreen", NULL, &opt_fullscreen_persistant);
 				if (ImGui::MenuItem("New", "Ctrl+N"))
 				{
 					NewScene();
@@ -862,7 +859,6 @@ namespace OloEngine {
 		OLO_CORE_ASSERT(scene, "EditorLayer ActiveScene cannot be null");
 
 		m_EditorScene = scene;
-		//m_EditorScene->OnViewportResize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));
 		m_SceneHierarchyPanel.SetContext(m_EditorScene);
 
 		m_ActiveScene = m_EditorScene;
@@ -872,7 +868,7 @@ namespace OloEngine {
 
 	void EditorLayer::SyncWindowTitle() const
 	{
-		std::string& projectName = Project::GetActive()->GetConfig().Name;
+		std::string const& projectName = Project::GetActive()->GetConfig().Name;
 		std::string title = projectName + " - " + m_ActiveScene->GetName() + " - OloEditor";
 		Application::Get().GetWindow().SetTitle(title);
 	}
