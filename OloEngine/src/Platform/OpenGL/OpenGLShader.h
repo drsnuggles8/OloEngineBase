@@ -1,15 +1,12 @@
 #pragma once
-
 #include "OloEngine/Renderer/Shader.h"
 #include <glm/glm.hpp>
-
-// TODO: REMOVE!
-typedef unsigned int GLenum;
 
 namespace OloEngine {
 
 	class OpenGLShader : public Shader
 	{
+	using GLenum = unsigned int;
 	public:
 		OpenGLShader(const std::string& filepath);
 		OpenGLShader(std::string  name, std::string_view vertexSrc, std::string_view fragmentSrc);
