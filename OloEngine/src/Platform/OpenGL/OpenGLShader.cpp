@@ -4,7 +4,7 @@
 #include "Platform/OpenGL/OpenGLShader.h"
 #include "OloEngine/Core/Timer.h"
 
-#include <glad/glad.h>
+#include <glad/gl.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <shaderc/shaderc.hpp>
 #include <spirv_cross/spirv_cross.hpp>

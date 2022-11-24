@@ -3,7 +3,7 @@
 #include "OloEnginePCH.h"
 #include "OpenGLUniformBuffer.h"
 
-#include <glad/glad.h>
+#include <glad/gl.h>
 
 namespace OloEngine {
 

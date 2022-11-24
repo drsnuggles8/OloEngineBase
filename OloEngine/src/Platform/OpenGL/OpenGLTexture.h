@@ -2,7 +2,7 @@
 
 #include "OloEngine/Renderer/Texture.h"
 
-#include <glad/glad.h>
+#include <glad/gl.h>
 
 namespace OloEngine {
 
@@ -13,16 +13,16 @@ namespace OloEngine {
 		explicit OpenGLTexture2D(const std::string& path);
 		~OpenGLTexture2D() override;
 
-		[[nodiscard("This returns m_Width, you probably wanted another function!")]] uint32_t GetWidth() const override { return m_Width;  }
-		[[nodiscard("This returns m_Height, you probably wanted another function!")]] uint32_t GetHeight() const override { return m_Height; }
-		[[nodiscard("This returns m_RendererID, you probably wanted another function!")]] uint32_t GetRendererID() const override { return m_RendererID; }
-		[[nodiscard("This returns m_Path, you probably wanted another function!")]] const std::string& GetPath() const override { return m_Path; }
+		[[nodiscard("Store this!")]] uint32_t GetWidth() const override { return m_Width;  }
+		[[nodiscard("Store this!")]] uint32_t GetHeight() const override { return m_Height; }
+		[[nodiscard("Store this!")]] uint32_t GetRendererID() const override { return m_RendererID; }
+		[[nodiscard("Store this!")]] const std::string& GetPath() const override { return m_Path; }
 
 		void SetData(void* data, uint32_t size) override;
 
 		void Bind(uint32_t slot) const override;
 
-		[[nodiscard("This returns m_IsLoaded, you probably wanted another function!")]] bool IsLoaded() const override { return m_IsLoaded; }
+		[[nodiscard("Store this!")]] bool IsLoaded() const override { return m_IsLoaded; }
 
 		bool operator==(const Texture& other) const override
 		{

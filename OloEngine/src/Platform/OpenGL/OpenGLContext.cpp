@@ -3,8 +3,8 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLContext.h"
 
+#include <glad/gl.h>
 #include <GLFW/glfw3.h>
-#include <glad/glad.h>
 
 namespace OloEngine {
 
@@ -19,15 +19,15 @@ namespace OloEngine {
 		OLO_PROFILE_FUNCTION();
 
 		GLFWAPI::glfwMakeContextCurrent(m_WindowHandle);
-		const int status = ::gladLoadGLLoader(reinterpret_cast<GLADloadproc>(GLFWAPI::glfwGetProcAddress));
-		OLO_CORE_ASSERT(status, "Failed to initialize Glad!");
+		const int version = ::gladLoadGL(reinterpret_cast<GLADloadfunc>(GLFWAPI::glfwGetProcAddress));
+		OLO_CORE_ASSERT(version, "Failed to initialize Glad!");
 
 		OLO_CORE_INFO("OpenGL Info:");
 		OLO_CORE_INFO("  Vendor: {0}", glGetString(GL_VENDOR));
 		OLO_CORE_INFO("  Renderer: {0}", glGetString(GL_RENDERER));
 		OLO_CORE_INFO("  Version: {0}", glGetString(GL_VERSION));
 
-		OLO_CORE_ASSERT(GLVersion.major > 4 || (GLVersion.major == 4 && GLVersion.minor >= 5), "OloEngine requires at least OpenGL version 4.5!");
+		OLO_CORE_ASSERT(GLAD_VERSION_MAJOR(version) == 4 && GLAD_VERSION_MINOR(version) >= 5, "OloEngine requires at least OpenGL version 4.5!");
 	}
 
 	void OpenGLContext::SwapBuffers()

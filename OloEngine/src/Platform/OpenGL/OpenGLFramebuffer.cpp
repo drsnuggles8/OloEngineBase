@@ -3,7 +3,7 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLFramebuffer.h"
 
-#include <glad/glad.h>
+#include <glad/gl.h>
 
 #include <utility>
 
