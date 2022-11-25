@@ -6,12 +6,13 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
+
 #include <utility>
 
-namespace OloEngine {
+namespace OloEngine
+{
 
 	struct IDComponent
 	{
@@ -28,13 +29,12 @@ namespace OloEngine {
 
 		TagComponent() = default;
 		TagComponent(const TagComponent& other) = default;
-		explicit TagComponent(std::string  tag)
+		explicit TagComponent(std::string tag)
 			: Tag(std::move(tag)) {}
 
 		explicit operator std::string& () { return Tag; }
 		explicit operator const std::string& () const { return Tag; }
 	};
-
 
 	struct TransformComponent
 	{
@@ -61,7 +61,7 @@ namespace OloEngine {
 	struct SpriteRendererComponent
 	{
 		glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
-		Ref<Texture2D> Texture;
+		Ref<Texture2D> Texture = nullptr;
 		float TilingFactor = 1.0f;
 
 		SpriteRendererComponent() = default;
@@ -150,23 +150,6 @@ namespace OloEngine {
 		ScriptComponent(const ScriptComponent&) = default;
 	};
 
-	class NativeScript;
-
-	struct NativeScriptComponent
-	{
-		NativeScript* Instance = nullptr;
-
-		NativeScript* (*InstantiateScript)(){};
-		void (*DestroyScript)(NativeScriptComponent*){};
-
-		template<typename T>
-		void Bind()
-		{
-			InstantiateScript = []() { return static_cast<NativeScript*>(new T()); };
-			DestroyScript = [](NativeScriptComponent* const nsc) { delete nsc->Instance; nsc->Instance = nullptr; };
-		}
-	};
-
 	template<typename... Component>
 	struct ComponentGroup
 	{
@@ -176,6 +159,6 @@ namespace OloEngine {
 		ComponentGroup<TransformComponent, SpriteRendererComponent,
 		CircleRendererComponent, CameraComponent,
 		Rigidbody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
-		ScriptComponent, NativeScriptComponent>;
+		ScriptComponent>;
 
 }

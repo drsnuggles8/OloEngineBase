@@ -1,10 +1,10 @@
 #pragma once
-
 #include "OloEngine/Renderer/Texture.h"
 
 #include <glad/gl.h>
 
-namespace OloEngine {
+namespace OloEngine
+{
 
 	class OpenGLTexture2D : public Texture2D
 	{

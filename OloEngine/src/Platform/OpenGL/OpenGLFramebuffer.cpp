@@ -7,7 +7,8 @@
 
 #include <utility>
 
-namespace OloEngine {
+namespace OloEngine
+{
 
 	static const uint32_t s_MaxFramebufferSize = 8192;
 
@@ -95,7 +96,7 @@ namespace OloEngine {
 	OpenGLFramebuffer::OpenGLFramebuffer(FramebufferSpecification specification)
 		: m_Specification(std::move(specification))
 	{
-		for (auto& spec : m_Specification.Attachments.Attachments)
+		for (const auto& spec : m_Specification.Attachments.Attachments)
 		{
 			if (!Utils::IsDepthFormat(spec.TextureFormat))
 			{
@@ -144,14 +145,19 @@ namespace OloEngine {
 			for (size_t i = 0; i < stopCondition; ++i)
 			{
 				Utils::BindTexture(multisample, m_ColorAttachments[i]);
+				// TODO(olbu): Add more FramebufferTextureFormats in Framebuffer.h and here
 				switch (m_ColorAttachmentSpecifications[i].TextureFormat)
 				{
 					case FramebufferTextureFormat::RGBA8:
+					{
 						Utils::AttachColorTexture(m_ColorAttachments[i], m_Specification.Samples, GL_RGBA8, GL_RGBA, m_Specification.Width, m_Specification.Height, static_cast<int>(i));
 						break;
+					}
 					case FramebufferTextureFormat::RED_INTEGER:
+					{
 						Utils::AttachColorTexture(m_ColorAttachments[i], m_Specification.Samples, GL_R32I, GL_RED_INTEGER, m_Specification.Width, m_Specification.Height, static_cast<int>(i));
 						break;
+					}
 				}
 			}
 		}
@@ -163,13 +169,16 @@ namespace OloEngine {
 			switch (m_DepthAttachmentSpecification.TextureFormat)
 			{
 				case FramebufferTextureFormat::DEPTH24STENCIL8:
+				{
 					Utils::AttachDepthTexture(m_DepthAttachment, m_Specification.Samples, GL_DEPTH24_STENCIL8, GL_DEPTH_STENCIL_ATTACHMENT, m_Specification.Width, m_Specification.Height);
 					break;
+				}
 			}
 		}
 
 		if (m_ColorAttachments.size() > 1)
 		{
+			// TODO(olbu): Add color_attachment4, size() <= 5
 			OLO_CORE_ASSERT(m_ColorAttachments.size() <= 4);
 			const GLenum buffers[4] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };
 			glDrawBuffers(static_cast<GLsizei>(m_ColorAttachments.size()), buffers);
@@ -210,6 +219,7 @@ namespace OloEngine {
 		Invalidate();
 	}
 
+	// TODO(olbu): Check if we can delete those two functions
 	int OpenGLFramebuffer::ReadPixel(const uint32_t attachmentIndex, const int x, const int y)
 	{
 		OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size());

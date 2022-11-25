@@ -40,6 +40,8 @@ namespace OloEngine {
 			OLO_PROFILE_SCOPE("stbi_load - OpenGLTexture2D::OpenGLTexture2D(const std::string&)");
 			data = ::stbi_load(path.c_str(), &width, &height, &channels, 0);
 		}
+
+		// TODO(olbu): Extend the below check for more channels, and move to seperate function
 		if (data)
 		{
 			m_IsLoaded = true;

@@ -6,11 +6,11 @@
 
 #pragma warning( push )
 #pragma warning( disable : 4996)
-#include "entt.hpp"
+#include <entt.hpp>
 #pragma warning( pop )
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	class Entity
 	{
 	public:
@@ -86,7 +86,7 @@ namespace OloEngine {
 		explicit(false) operator entt::entity() const { return m_EntityHandle; }
 		explicit operator uint32_t() const { return static_cast<uint32_t>(m_EntityHandle); }
 
-		UUID GetUUID() { return GetComponent<IDComponent>().ID; }
+		UUID GetUUID() const { return GetComponent<IDComponent>().ID; }
 		const std::string& GetName() { return GetComponent<TagComponent>().Tag; }
 
 		bool operator==(const Entity& other) const

@@ -15,7 +15,8 @@
 
 #include "FileWatch.hpp"
 
-namespace OloEngine {
+namespace OloEngine
+{
 
 	static std::unordered_map<std::string, ScriptFieldType> s_ScriptFieldTypeMap =
 	{

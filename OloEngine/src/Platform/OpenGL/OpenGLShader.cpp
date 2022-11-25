@@ -13,11 +13,11 @@
 #include <fstream>
 #include <utility>
 
-
-namespace OloEngine {
-
-	namespace Utils {
-
+namespace OloEngine
+{
+	// TODO(olbu0: Rework the whole shader setup?
+	namespace Utils
+	{
 		static GLenum ShaderTypeFromString(std::string_view type)
 		{
 			if (type == "vertex")

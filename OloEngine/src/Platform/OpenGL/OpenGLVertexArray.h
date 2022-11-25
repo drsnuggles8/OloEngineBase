@@ -2,7 +2,8 @@
 
 #include "OloEngine/Renderer/VertexArray.h"
 
-namespace OloEngine {
+namespace OloEngine
+{
 
 	class OpenGLVertexArray : public VertexArray
 	{
@@ -16,8 +17,8 @@ namespace OloEngine {
 		void AddVertexBuffer(const Ref<VertexBuffer>& vertexBuffer) override;
 		void SetIndexBuffer(const Ref<IndexBuffer>& indexBuffer) override;
 
-		[[nodiscard("This returns m_VertexBuffers, you probably wanted another function!")]] const std::vector<Ref<VertexBuffer>>& GetVertexBuffers() const override { return m_VertexBuffers; }
-		[[nodiscard("This returns m_IndexBuffer, you probably wanted another function!")]] const Ref<IndexBuffer>& GetIndexBuffer() const override { return m_IndexBuffer; }
+		[[nodiscard("Store this!")]] const std::vector<Ref<VertexBuffer>>& GetVertexBuffers() const override { return m_VertexBuffers; }
+		[[nodiscard("Store this!")]] const Ref<IndexBuffer>& GetIndexBuffer() const override { return m_IndexBuffer; }
 	private:
 		uint32_t m_RendererID{};
 		uint32_t m_VertexBufferIndex = 0;

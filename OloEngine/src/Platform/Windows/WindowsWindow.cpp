@@ -9,7 +9,9 @@
 #include "Platform/OpenGL/OpenGLContext.h"
 #include "Platform/Windows/WindowsWindow.h"
 
-namespace OloEngine {
+namespace OloEngine
+{
+
 	float Window::s_HighDPIScaleFactor = 1.0f;
 
 	static uint8_t s_GLFWWindowCount = 0;
@@ -46,6 +48,7 @@ namespace OloEngine {
 		if (0 == s_GLFWWindowCount)
 		{
 			OLO_PROFILE_SCOPE("glfwInit");
+
 			const int success = GLFWAPI::glfwInit();
 			OLO_CORE_ASSERT(success, "Could not initialize GLFW!");
 			GLFWAPI::glfwSetErrorCallback(GLFWErrorCallback);
