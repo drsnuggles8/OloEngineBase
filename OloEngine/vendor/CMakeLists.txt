@@ -140,7 +140,7 @@ set_target_properties(gtest_main PROPERTIES FOLDER "Utilities/googletest")
 set_target_properties(box2d PROPERTIES FOLDER "Utilities/box2d")
 set_target_properties(lua PROPERTIES FOLDER "Utilities/Lua")
 set_target_properties(assimp PROPERTIES FOLDER "Utilities/assimp")
-set_target_properties(zlibstatic PROPERTIES FOLDER "Utilities/assimp")
+#set_target_properties(zlibstatic PROPERTIES FOLDER "Utilities/assimp")
 set_target_properties(UpdateAssimpLibsDebugSymbolsAndDLLs PROPERTIES FOLDER "Utilities/assimp")
 #======================================
 message(STATUS "Fetching thirdparty libraries done")
