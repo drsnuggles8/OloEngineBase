@@ -21,6 +21,12 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
+    - name: Install Python 3.10
+      uses: actions/setup-python@v4
+      with:
+       python-version: '3.10'
+       cache: 'pip'
+
     - name: Install python dependencies
       run: pip install jinja2
     
