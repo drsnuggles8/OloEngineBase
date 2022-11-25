@@ -21,6 +21,9 @@ jobs:
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
           
+      - name: Install python dependencies
+        run: pip install jinja2
+
       - name: Install Vulkan SDK
         uses: humbletim/install-vulkan-sdk@v1.1.1
         with:
