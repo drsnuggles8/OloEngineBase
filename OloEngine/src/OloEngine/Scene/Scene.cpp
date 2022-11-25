@@ -5,7 +5,6 @@
 #include "Components.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
-#include "NativeScript.h"
 
 #include <glm/glm.hpp>
 #include <ranges>
@@ -19,7 +18,7 @@
 
 namespace OloEngine {
 
-	[[nodiscard("This returns a body type, you probably wanted another function!")]] static b2BodyType Rigidbody2DTypeToBox2DBody(const Rigidbody2DComponent::BodyType bodyType)
+	[[nodiscard("Store this!")]] static b2BodyType Rigidbody2DTypeToBox2DBody(const Rigidbody2DComponent::BodyType bodyType)
 	{
 		switch (bodyType)
 		{
@@ -42,17 +41,17 @@ namespace OloEngine {
 	}
 
 	template<typename... Component>
-	static void CopyComponent(entt::registry& dst, entt::registry& src, const std::unordered_map<UUID, entt::entity>& enttMap)
+	static void CopyComponent(entt::registry& dstRegistry, entt::registry& srcRegistry, const std::unordered_map<UUID, entt::entity>& enttMap)
 	{
 		([&]()
 		{
-			auto view = src.view<Component>();
+			auto view = srcRegistry.view<Component>();
 			for (auto it = view.rbegin(); it != view.rend(); it++)
 			{
-				entt::entity dstEntity = enttMap.at(src.get<IDComponent>(*it).ID);
+				entt::entity dstEntity = enttMap.at(srcRegistry.get<IDComponent>(*it).ID);
 
-				auto& srcComponent = src.get<Component>(*it);
-				dst.emplace_or_replace<Component>(dstEntity, srcComponent);
+				const auto& srcComponent = srcRegistry.get<Component>(*it);
+				dstRegistry.emplace_or_replace<Component>(dstEntity, srcComponent);
 			}
 		}(), ...);
 	}
@@ -102,7 +101,6 @@ namespace OloEngine {
 		}
 
 		// Copy components (except IDComponent and TagComponent)
-		CopyComponent<NativeScriptComponent>(dstSceneRegistry, srcSceneRegistry, enttMap);
 		CopyComponent(AllComponents{}, dstSceneRegistry, srcSceneRegistry, enttMap);
 
 		return newScene;
@@ -124,7 +122,7 @@ namespace OloEngine {
 		auto& tag = entity.AddComponent<TagComponent>();
 		tag.Tag = name.empty() ? "Entity" : name;
 
-		m_EntityMap[uuid] = entity;
+		m_EntityMap.emplace(uuid, entity);
 
 		return entity;
 	}
@@ -145,7 +143,7 @@ namespace OloEngine {
 		{
 			ScriptEngine::OnRuntimeStart(this);
 			// Instantiate all script entities
-			for (const auto view = m_Registry.view<ScriptComponent>(); const auto e : view)
+			for (const auto scriptView = m_Registry.view<ScriptComponent>(); const auto e : scriptView)
 			{
 				Entity entity = { e, this };
 				ScriptEngine::OnCreateEntity(entity);
@@ -179,24 +177,11 @@ namespace OloEngine {
 			// Update scripts
 			{
 				// C# Entity OnUpdate
-				for (auto view = m_Registry.view<ScriptComponent>(); auto e : view)
+				for (auto scriptView = m_Registry.view<ScriptComponent>(); auto e : scriptView)
 				{
 					Entity entity = { e, this };
 					ScriptEngine::OnUpdateEntity(entity, ts);
 				}
-
-				m_Registry.view<NativeScriptComponent>().each([=](auto entity, auto& nsc)
-				{
-					// TODO: Move to Scene::OnScenePlay
-					if (!nsc.Instance)
-					{
-						nsc.Instance = nsc.InstantiateScript();
-						nsc.Instance->m_Entity = Entity{ entity, this };
-						nsc.Instance->OnCreate();
-					}
-
-				nsc.Instance->OnUpdate(ts);
-				});
 			}
 
 			// Physics
@@ -303,12 +288,17 @@ namespace OloEngine {
 		RenderScene(camera);
 	}
 
-		//TODO(olbu): Implement these as tests, rest from Renderer2D.cpp too
+		// TODO(olbu): Implement these as tests, rest from Renderer2D.cpp too
 		// Renderer2D::DrawLine(glm::vec3(0.0f), glm::vec3(5.0f), glm::vec4(1, 0, 1, 1));
 		// Renderer2D::DrawRect(glm::vec3(0.0f), glm::vec2(5.0f), glm::vec4(1, 1, 1, 1));
 
 	void Scene::OnViewportResize(const uint32_t width, const uint32_t height)
 	{
+		if ((m_ViewportWidth == width) && (m_ViewportHeight == height))
+		{
+			return;
+		}
+
 		m_ViewportWidth = width;
 		m_ViewportHeight = height;
 
@@ -333,7 +323,6 @@ namespace OloEngine {
 		const Entity newEntity = CreateEntity(entity.GetName());
 
 		CopyComponentIfExists(AllComponents{}, newEntity, entity);
-		CopyComponentIfExists<NativeScriptComponent>(newEntity, entity);
 	}
 
 	void Scene::SetName(std::string_view name)
@@ -506,11 +495,6 @@ namespace OloEngine {
 
 	template<>
 	void Scene::OnComponentAdded<TagComponent>(Entity, TagComponent&)
-	{
-	}
-
-	template<>
-	void Scene::OnComponentAdded<NativeScriptComponent>(Entity, NativeScriptComponent&)
 	{
 	}
 

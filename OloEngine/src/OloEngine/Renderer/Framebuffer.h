@@ -26,7 +26,7 @@ namespace OloEngine {
 			: TextureFormat(format) {}
 
 		FramebufferTextureFormat TextureFormat = FramebufferTextureFormat::None;
-		//TODO(olbu): filtering/wrap
+		// TODO(olbu): filtering/wrap
 	};
 
 	struct FramebufferAttachmentSpecification
@@ -59,12 +59,12 @@ namespace OloEngine {
 		virtual void Resize(uint32_t width, uint32_t height) = 0;
 		virtual int ReadPixel(uint32_t attachmentIndex, int x, int y) = 0;
 
-		//TODO(olbu): template this for different value types (int/float etc.)
+		// TODO(olbu): template this for different value types (int/float etc.)
 		virtual void ClearAttachment(uint32_t attachmentIndex, int value) = 0;
 
-		[[nodiscard("Store this, you probably wanted another function!")]] virtual uint32_t GetColorAttachmentRendererID(uint32_t index) const = 0;
+		[[nodiscard("Store this!")]] virtual uint32_t GetColorAttachmentRendererID(uint32_t index) const = 0;
 
-		[[nodiscard("Store this, you probably wanted another function!")]] virtual const FramebufferSpecification& GetSpecification() const = 0;
+		[[nodiscard("Store this!")]] virtual const FramebufferSpecification& GetSpecification() const = 0;
 
 		static Ref<Framebuffer> Create(const FramebufferSpecification& spec);
 	};

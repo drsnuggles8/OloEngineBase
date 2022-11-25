@@ -20,11 +20,20 @@ jobs:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+
+      - name: Install Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
           
+      - name: Install python dependencies
+        run: pip install jinja2
+
       - name: Install Vulkan SDK
         uses: humbletim/install-vulkan-sdk@v1.1.1
         with:
-            cache: true
+         version: latest
+         cache: true
         
       - name: Set up JDK 11
         uses: actions/setup-java@v3

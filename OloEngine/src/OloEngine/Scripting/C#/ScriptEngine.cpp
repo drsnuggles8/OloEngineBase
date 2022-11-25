@@ -15,7 +15,8 @@
 
 #include "FileWatch.hpp"
 
-namespace OloEngine {
+namespace OloEngine
+{
 
 	static std::unordered_map<std::string, ScriptFieldType> s_ScriptFieldTypeMap =
 	{
@@ -281,7 +282,7 @@ namespace OloEngine {
 		ScriptGlue::RegisterComponents();
 
 		// Retrieve and instantiate class
-		s_Data->EntityClass = ScriptClass("Hazel", "Entity", true);
+		s_Data->EntityClass = ScriptClass("OloEgine", "Entity", true);
 	}
 
 	void ScriptEngine::OnRuntimeStart(Scene* scene)

@@ -15,7 +15,8 @@ extern "C" {
 	using MonoClassField = struct _MonoClassField;
 }
 
-namespace OloEngine {
+namespace OloEngine
+{
 
 	enum class ScriptFieldType
 	{

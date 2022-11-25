@@ -19,7 +19,6 @@
 
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
-#include "OloEngine/Scene/NativeScript.h"
 #include "OloEngine/Scene/Components.h"
 
 #include "OloEngine/Project/Project.h"

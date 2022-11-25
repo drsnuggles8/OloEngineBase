@@ -1,10 +1,10 @@
 #pragma once
-
 #include "OloEngine/Renderer/GraphicsContext.h"
 
 struct GLFWwindow;
 
-namespace OloEngine {
+namespace OloEngine
+{
 
 	class OpenGLContext : public GraphicsContext
 	{

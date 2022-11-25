@@ -2,14 +2,15 @@
 
 #pragma once
 
-namespace OloEngine {
+namespace OloEngine
+{
 
 	enum class ShaderDataType
 	{
 		None = 0, Float, Float2, Float3, Float4, Mat3, Mat4, Int, Int2, Int3, Int4, Bool
 	};
 
-	[[nodiscard("This returns something, you probably wanted another function!")]] static uint32_t ShaderDataTypeSize(ShaderDataType const type)
+	[[nodiscard("Store this!")]] static uint32_t ShaderDataTypeSize(ShaderDataType const type)
 	{
 		switch (type)
 		{
@@ -47,7 +48,7 @@ namespace OloEngine {
 		{
 		}
 
-		[[nodiscard("Store this, you probably wanted another function!")]] uint32_t GetComponentCount() const
+		[[nodiscard("Store this!")]] uint32_t GetComponentCount() const
 		{
 			switch (Type)
 			{
@@ -82,13 +83,13 @@ namespace OloEngine {
 			CalculateOffsetsAndStride();
 		}
 
-		[[nodiscard("This returns m_Stride, you probably wanted another function!")]] uint32_t GetStride() const { return m_Stride; }
-		[[nodiscard("This returns m_Elements, you probably wanted another function!")]] const std::vector<BufferElement>& GetElements() const { return m_Elements; }
+		[[nodiscard("Store this!")]] uint32_t GetStride() const { return m_Stride; }
+		[[nodiscard("Store this!")]] const std::vector<BufferElement>& GetElements() const { return m_Elements; }
 
 		std::vector<BufferElement>::iterator begin() { return m_Elements.begin(); }
 		std::vector<BufferElement>::iterator end() { return m_Elements.end(); }
-		[[nodiscard("This returns m_Elements.begin(), you probably wanted another function!")]] std::vector<BufferElement>::const_iterator begin() const { return m_Elements.begin(); }
-		[[nodiscard("This returns m_Elements.end(), you probably wanted another function!")]] std::vector<BufferElement>::const_iterator end() const { return m_Elements.end(); }
+		[[nodiscard("Store this!")]] std::vector<BufferElement>::const_iterator begin() const { return m_Elements.begin(); }
+		[[nodiscard("Store this!")]] std::vector<BufferElement>::const_iterator end() const { return m_Elements.end(); }
 	private:
 		void CalculateOffsetsAndStride()
 		{
@@ -116,7 +117,7 @@ namespace OloEngine {
 
 		virtual void SetData(const void* data, uint32_t size) = 0;
 
-		[[nodiscard("Store this, you probably wanted another function!")]] virtual const BufferLayout& GetLayout() const = 0;
+		[[nodiscard("Store this!")]] virtual const BufferLayout& GetLayout() const = 0;
 		virtual void SetLayout(const BufferLayout& layout) = 0;
 
 		static Ref<VertexBuffer> Create(uint32_t size);
@@ -133,9 +134,17 @@ namespace OloEngine {
 		virtual void Bind() const = 0;
 		virtual void Unbind() const = 0;
 
-		[[nodiscard("Store this, you probably wanted another function!")]] virtual uint32_t GetCount() const = 0;
+		[[nodiscard("Store this!")]] virtual uint32_t GetCount() const = 0;
 
 		static Ref<IndexBuffer> Create(uint32_t* indices, uint32_t size);
 	};
 
+	class UniformBuffer
+	{
+	public:
+		virtual ~UniformBuffer() = default;
+		virtual void SetData(const void* data, uint32_t size, uint32_t offset) = 0;
+
+		static Ref<UniformBuffer> Create(uint32_t size, uint32_t binding);
+	};
 }

@@ -59,12 +59,12 @@ namespace OloEngine {
 
 		bool Handled = false;
 
-		[[nodiscard("This returns EventType::type, you probably wanted some other function!")]] virtual EventType GetEventType() const = 0;
-		[[nodiscard("This returns #type, you probably wanted some other function!")]] virtual const char* GetName() const = 0;
-		[[nodiscard("This returns (category), you probably wanted some other function!")]] virtual EventCategory GetCategoryFlags() const = 0;
-		[[nodiscard("This returns GetName as string, you probably wanted some other function!")]] virtual std::string ToString() const { return GetName(); }
+		[[nodiscard("Store this!")]] virtual EventType GetEventType() const = 0;
+		[[nodiscard("Store this!")]] virtual const char* GetName() const = 0;
+		[[nodiscard("Store this!")]] virtual EventCategory GetCategoryFlags() const = 0;
+		[[nodiscard("Store this!")]] virtual std::string ToString() const { return GetName(); }
 
-		[[nodiscard("This returns a boolean whether the category is in the category, you probably wanted some other function!")]] bool IsInCategory(EventCategory const category) const
+		[[nodiscard("Store this!")]] bool IsInCategory(EventCategory const category) const
 		{
 			return static_cast<bool>(GetCategoryFlags() & category);
 		}

@@ -87,7 +87,6 @@
 		"OloEngine/Scene/SceneCamera.h"
 		"OloEngine/Scene/SceneSerializer.cpp"
 		"OloEngine/Scene/SceneSerializer.h"
-		"OloEngine/Scene/NativeScript.h"
 
 		"OloEngine/Scripting/C#/ScriptEngine.cpp"
 		"OloEngine/Scripting/C#/ScriptEngine.h"

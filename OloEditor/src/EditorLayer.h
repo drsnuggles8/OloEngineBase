@@ -26,6 +26,11 @@ namespace OloEngine {
 
 		void OnOverlayRender() const;
 
+		void NewProject();
+		void OpenProject();
+		bool OpenProject(const std::filesystem::path& path);
+		void SaveProject();
+
 		void NewScene();
 		void OpenScene();
 		bool OpenScene(const std::filesystem::path& path);
@@ -43,12 +48,12 @@ namespace OloEngine {
 
 		// UI Panels
 		void UI_MenuBar();
+		void UI_Toolbar();
 		void UI_Viewport();
 		void UI_Gizmos() const;
-		void UI_Toolbar();
-		void UI_ChildPanels();
-		void UI_Settings();
 		void UI_RendererStats();
+		void UI_Settings();
+		void UI_ChildPanels();
 
 		void SetEditorScene(const Ref<Scene>& scene);
 		void SyncWindowTitle() const;
@@ -95,7 +100,7 @@ namespace OloEngine {
 
 		// Panels
 		SceneHierarchyPanel m_SceneHierarchyPanel;
-		ContentBrowserPanel m_ContentBrowserPanel;
+		Scope<ContentBrowserPanel> m_ContentBrowserPanel;
 
 		// Editor resources
 		Ref<Texture2D> m_IconPlay;

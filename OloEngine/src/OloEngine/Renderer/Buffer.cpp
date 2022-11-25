@@ -2,12 +2,11 @@
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Buffer.h"
-
 #include "OloEngine/Renderer/Renderer.h"
-
 #include "Platform/OpenGL/OpenGLBuffer.h"
 
-namespace OloEngine {
+namespace OloEngine
+{
 
 	Ref<VertexBuffer> VertexBuffer::Create(uint32_t size)
 	{
@@ -59,6 +58,25 @@ namespace OloEngine {
 			case RendererAPI::API::OpenGL:
 			{
 				return CreateRef<OpenGLIndexBuffer>(indices, size);
+			}
+		}
+
+		OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
+		return nullptr;
+	}
+
+	Ref<UniformBuffer> UniformBuffer::Create(uint32_t size, uint32_t binding)
+	{
+		switch (Renderer::GetAPI())
+		{
+			case RendererAPI::API::None:
+			{
+				OLO_CORE_ASSERT(false, "RendererAPI::None is currently not supported!");
+				return nullptr;
+			}
+			case RendererAPI::API::OpenGL:
+			{
+				return CreateRef<OpenGLUniformBuffer>(size, binding);
 			}
 		}
 

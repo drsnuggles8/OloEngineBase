@@ -4,7 +4,7 @@
 #include "Platform/OpenGL/OpenGLShader.h"
 #include "OloEngine/Core/Timer.h"
 
-#include <glad/glad.h>
+#include <glad/gl.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <shaderc/shaderc.hpp>
 #include <spirv_cross/spirv_cross.hpp>
@@ -13,11 +13,11 @@
 #include <fstream>
 #include <utility>
 
-
-namespace OloEngine {
-
-	namespace Utils {
-
+namespace OloEngine
+{
+	// TODO(olbu0: Rework the whole shader setup?
+	namespace Utils
+	{
 		static GLenum ShaderTypeFromString(std::string_view type)
 		{
 			if (type == "vertex")
@@ -55,7 +55,7 @@ namespace OloEngine {
 			return nullptr;
 		}
 
-		[[nodiscard("This returns something, you probably wanted another function!")]] static const char* GetCacheDirectory()
+		[[nodiscard("Store this!")]] static const char* GetCacheDirectory()
 		{
 			// TODO(olbu): make sure the assets directory is valid
 			return "assets/cache/shader/opengl";

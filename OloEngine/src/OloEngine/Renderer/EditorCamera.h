@@ -18,22 +18,22 @@ namespace OloEngine {
 		void OnUpdate(Timestep ts);
 		void OnEvent(Event& e);
 
-		[[nodiscard("This returns m_Distance, you probably wanted some other function!")]] float GetDistance() const { return m_Distance; }
+		[[nodiscard("Store this!")]] float GetDistance() const { return m_Distance; }
 		void SetDistance(const float distance) { m_Distance = distance; }
 
 		void SetViewportSize(const float width, const float height) { m_ViewportWidth = width; m_ViewportHeight = height; UpdateProjection(); }
 
-		[[nodiscard("This returns m_ViewMatrix, you probably wanted some other function!")]] const glm::mat4& GetViewMatrix() const { return m_ViewMatrix; }
-		[[nodiscard("This returns m_Projection * m_ViewMatrix, you probably wanted some other function!")]] glm::mat4 GetViewProjection() const { return m_Projection * m_ViewMatrix; }
+		[[nodiscard("Store this!")]] const glm::mat4& GetViewMatrix() const { return m_ViewMatrix; }
+		[[nodiscard("Store this!")]] glm::mat4 GetViewProjection() const { return m_Projection * m_ViewMatrix; }
 
-		[[nodiscard("This returns the Up direction, you probably wanted some other function!")]] glm::vec3 GetUpDirection() const;
-		[[nodiscard("This returns the Right direction, you probably wanted some other function!")]] glm::vec3 GetRightDirection() const;
-		[[nodiscard("This returns the Forward direction, you probably wanted some other function!")]] glm::vec3 GetForwardDirection() const;
-		[[nodiscard("This returns m_Position, you probably wanted some other function!")]] const glm::vec3& GetPosition() const { return m_Position; }
-		[[nodiscard("This returns the Orientation, you probably wanted some other function!")]] glm::quat GetOrientation() const;
+		[[nodiscard("Store this!")]] glm::vec3 GetUpDirection() const;
+		[[nodiscard("Store this!")]] glm::vec3 GetRightDirection() const;
+		[[nodiscard("Store this!")]] glm::vec3 GetForwardDirection() const;
+		[[nodiscard("Store this!")]] const glm::vec3& GetPosition() const { return m_Position; }
+		[[nodiscard("Store this!")]] glm::quat GetOrientation() const;
 
-		[[nodiscard("This returns m_Pitch, you probably wanted some other function!")]] float GetPitch() const { return m_Pitch; }
-		[[nodiscard("This returns m_Yaw, you probably wanted some other function!")]] float GetYaw() const { return m_Yaw; }
+		[[nodiscard("Store this!")]] float GetPitch() const { return m_Pitch; }
+		[[nodiscard("Store this!")]] float GetYaw() const { return m_Yaw; }
 	private:
 		void UpdateProjection();
 		void UpdateView();
@@ -44,11 +44,11 @@ namespace OloEngine {
 		void MouseRotate(const glm::vec2& delta);
 		void MouseZoom(float delta);
 
-		[[nodiscard("This calculates the position, you probably wanted some other function!")]] glm::vec3 CalculatePosition() const;
+		[[nodiscard("Store this!")]] glm::vec3 CalculatePosition() const;
 
-		[[nodiscard("This returns a pair of xFactor, yFactor as speed, you probably wanted some other function!")]] std::pair<float, float> PanSpeed() const;
+		[[nodiscard("Store this!")]] std::pair<float, float> PanSpeed() const;
 		static float RotationSpeed() ;
-		[[nodiscard("This returns the calculated zoom speed, you probably wanted some other function!")]] float ZoomSpeed() const;
+		[[nodiscard("Store this!")]] float ZoomSpeed() const;
 
 		float m_FOV = 45.0F;
 		float m_AspectRatio = 1.778F;

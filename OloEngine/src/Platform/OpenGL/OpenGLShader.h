@@ -1,15 +1,12 @@
 #pragma once
-
 #include "OloEngine/Renderer/Shader.h"
 #include <glm/glm.hpp>
-
-// TODO: REMOVE!
-typedef unsigned int GLenum;
 
 namespace OloEngine {
 
 	class OpenGLShader : public Shader
 	{
+	using GLenum = unsigned int;
 	public:
 		OpenGLShader(const std::string& filepath);
 		OpenGLShader(std::string  name, std::string_view vertexSrc, std::string_view fragmentSrc);
@@ -26,7 +23,7 @@ namespace OloEngine {
 		void SetFloat4(const std::string& name, const glm::vec4& value) override;
 		void SetMat4(const std::string& name, const glm::mat4& value) override;
 
-		[[nodiscard ("This returns m_Name, you probably wanted something else!")]] const std::string& GetName() const override { return m_Name; }
+		[[nodiscard ("Store this!")]] const std::string& GetName() const override { return m_Name; }
 
 		void UploadUniformInt(const std::string& name, int value) const;
 		void UploadUniformIntArray(const std::string& name, int const* values, uint32_t count) const;
@@ -38,6 +35,7 @@ namespace OloEngine {
 		void UploadUniformMat3(const std::string& name, const glm::mat3& matrix) const;
 		void UploadUniformMat4(const std::string& name, const glm::mat4& matrix) const;
 	private:
+		// TODO(olbu): Get rid of ReadFile, add GetLocation
 		static std::string ReadFile(const std::string& filepath);
 		static std::unordered_map<GLenum, std::string> PreProcess(std::string_view source);
 

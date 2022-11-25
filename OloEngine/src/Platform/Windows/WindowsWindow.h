@@ -5,7 +5,8 @@
 
 #include <GLFW/glfw3.h>
 
-namespace OloEngine {
+namespace OloEngine
+{
 	class WindowsWindow : public Window
 	{
 	public:
@@ -14,15 +15,15 @@ namespace OloEngine {
 
 		void OnUpdate() override;
 
-		[[nodiscard("This returns m_Data.Width, you probably wanted another function!")]] unsigned int GetWidth() const noexcept override { return m_Data.Width; }
-		[[nodiscard("This returns m_Data.Height, you probably wanted another function!")]] unsigned int GetHeight() const noexcept override { return m_Data.Height; }
+		[[nodiscard("Store this!")]] unsigned int GetWidth() const noexcept override { return m_Data.Width; }
+		[[nodiscard("Store this!")]] unsigned int GetHeight() const noexcept override { return m_Data.Height; }
 
 		// Window attributes
 		void SetEventCallback(const EventCallbackFn& callback) override { m_Data.EventCallback = callback; }
 		void SetVSync(bool enabled) override;
-		[[nodiscard("This returns m_Data.VSync, you probably wanted another function!")]] bool IsVSync() const override;
+		[[nodiscard("Store this!")]] bool IsVSync() const override;
 
-		[[nodiscard("This returns m_Window, you probably wanted another function!")]] void* GetNativeWindow() const noexcept override { return m_Window; }
+		[[nodiscard("Store this!")]] void* GetNativeWindow() const noexcept override { return m_Window; }
 
 		void SetTitle(const std::string& title) override;
 	private:

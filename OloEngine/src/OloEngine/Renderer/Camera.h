@@ -13,7 +13,7 @@ namespace OloEngine {
 
 		virtual ~Camera() = default;
 
-		[[nodiscard("This returns m_Projection, you probably wanted another function!")]] const glm::mat4& GetProjection() const { return m_Projection; }
+		[[nodiscard("Store this!")]] const glm::mat4& GetProjection() const { return m_Projection; }
 	protected:
 		glm::mat4 m_Projection = glm::mat4(1.0f);
 	};

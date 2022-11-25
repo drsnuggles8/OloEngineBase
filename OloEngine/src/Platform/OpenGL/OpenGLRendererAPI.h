@@ -1,8 +1,8 @@
 #pragma once
-
 #include "OloEngine/Renderer/RendererAPI.h"
 
-namespace OloEngine {
+namespace OloEngine
+{
 
 	class OpenGLRendererAPI : public RendererAPI
 	{
@@ -17,7 +17,7 @@ namespace OloEngine {
 		void DrawLines(const Ref<VertexArray>& vertexArray, uint32_t vertexCount) override;
 
 		void SetLineWidth(float width) override;
+
+		// TODO(olbu): Add a bunch of advanced OpenGL functions like culling
 	};
-
-
 }

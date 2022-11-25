@@ -19,7 +19,7 @@ namespace OloEngine {
 		virtual void OnImGuiRender() {}
 		virtual void OnEvent(Event&) {}
 
-		[[nodiscard("This returns m_DebugName, you probably wanted another function!")]] const std::string& GetName() const { return m_DebugName; }
+		[[nodiscard("Store this!")]] const std::string& GetName() const { return m_DebugName; }
 	private:
 		std::string m_DebugName;
 	};

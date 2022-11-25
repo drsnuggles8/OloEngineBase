@@ -18,7 +18,8 @@ FetchContent_Declare(filewatch
 	GIT_TAG master)
 FetchContent_Declare(glad
 	GIT_REPOSITORY https://github.com/Dav1dde/glad.git
-	GIT_TAG v0.1.36)
+	GIT_TAG v2.0.2
+	SOURCE_SUBDIR cmake)
 FetchContent_Declare(glfw
 	GIT_REPOSITORY https://github.com/glfw/glfw.git
 	GIT_TAG 3.3.8)
@@ -28,6 +29,7 @@ FetchContent_Declare(glm
 FetchContent_Declare(googletest
 	GIT_REPOSITORY https://github.com/google/googletest.git
 	GIT_TAG main)
+# Don't update spdlog to 1.11.0, gives errors in OpenGLContext.cpp
 FetchContent_Declare(spdlog
 	GIT_REPOSITORY https://github.com/gabime/spdlog.git
 	GIT_TAG v1.10.0)
@@ -41,8 +43,6 @@ set(ASSIMP_INJECT_DEBUG_POSTFIX OFF CACHE BOOL "" FORCE)
 set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
 set(BOX2D_BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
 set(BOX2D_BUILD_TESTBED OFF CACHE BOOL "" FORCE)
-set(GLAD_PROFILE "core"	CACHE STRING "OpenGL profile")
-set(GLAD_GENERATOR "c"	CACHE STRING "Language to generate the binding for")
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES Off CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS Off CACHE BOOL "" FORCE)
@@ -56,6 +56,8 @@ set(YAML_CPP_BUILD_TESTS Off CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS Off CACHE BOOL "" FORCE)
 
 FetchContent_MakeAvailable(assimp box2d entt filewatch glad glfw glm googletest spdlog yaml-cpp)
+
+glad_add_library(glad STATIC API gl:core=4.6 LOCATION ${PROJECT_SOURCE_DIR}/vendor/glad-build/${TARGET})
 
 FetchContent_Declare(stb_image
 	GIT_REPOSITORY https://github.com/nothings/stb.git
@@ -124,7 +126,6 @@ if(lua_ADDED)
 endif()
 
 set_target_properties(glad PROPERTIES FOLDER "Utilities/glad")
-set_target_properties(glad-generate-files PROPERTIES FOLDER "Utilities/glad")
 set_target_properties(imgui PROPERTIES FOLDER "Utilities/imgui")
 set_target_properties(imguizmo PROPERTIES FOLDER "Utilities/imgui")
 set_target_properties(spdlog PROPERTIES FOLDER "Utilities")
@@ -139,7 +140,7 @@ set_target_properties(gtest_main PROPERTIES FOLDER "Utilities/googletest")
 set_target_properties(box2d PROPERTIES FOLDER "Utilities/box2d")
 set_target_properties(lua PROPERTIES FOLDER "Utilities/Lua")
 set_target_properties(assimp PROPERTIES FOLDER "Utilities/assimp")
-set_target_properties(zlibstatic PROPERTIES FOLDER "Utilities/assimp")
+#set_target_properties(zlibstatic PROPERTIES FOLDER "Utilities/assimp")
 set_target_properties(UpdateAssimpLibsDebugSymbolsAndDLLs PROPERTIES FOLDER "Utilities/assimp")
 #======================================
 message(STATUS "Fetching thirdparty libraries done")

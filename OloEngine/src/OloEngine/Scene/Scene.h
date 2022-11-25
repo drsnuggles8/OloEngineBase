@@ -11,7 +11,8 @@
 
 class b2World;
 
-namespace OloEngine {
+namespace OloEngine
+{
 
 	class Entity;
 
@@ -53,7 +54,7 @@ namespace OloEngine {
 		void Step(int frames = 1);
 
 		void SetName(std::string_view name);
-		[[nodiscard("This returns m_Name, you probably wanted another function!")]] const std::string & GetName() const { return m_Name; }
+		[[nodiscard("Store this!")]] const std::string & GetName() const { return m_Name; }
 
 		template<typename... Components>
 		auto GetAllEntitiesWith()

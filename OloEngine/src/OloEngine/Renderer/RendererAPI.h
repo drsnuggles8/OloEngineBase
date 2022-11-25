@@ -4,7 +4,8 @@
 
 #include <glm/glm.hpp>
 
-namespace OloEngine {
+namespace OloEngine
+{
 
 	class RendererAPI
 	{
@@ -26,7 +27,7 @@ namespace OloEngine {
 
 		virtual void SetLineWidth(float width) = 0;
 
-		[[nodiscard("This returns s_API, you probably wanted another function!")]] static API GetAPI() { return s_API; }
+		[[nodiscard("Store this!")]] static API GetAPI() { return s_API; }
 		static Scope<RendererAPI> Create();
 
 	private:
