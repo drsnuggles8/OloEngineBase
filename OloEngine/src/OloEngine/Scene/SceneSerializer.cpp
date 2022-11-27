@@ -597,9 +597,9 @@ namespace OloEngine {
 					TrySet(src.Config.ConeOuterGain, audioSourceComponent["ConeOuterGain"]);
 					TrySet(src.Config.DopplerFactor, audioSourceComponent["DopplerFactor"]);
 
-					if (!filepath.empty())
+					if (!audioFilepath.empty())
 					{
-						std::filesystem::path path = filepath.c_str();
+						std::filesystem::path path = audioFilepath.c_str();
 						path = Project::GetAssetFileSystemPath(path);
 						src.Source = CreateRef<AudioSource>(path.string().c_str());
 					}
