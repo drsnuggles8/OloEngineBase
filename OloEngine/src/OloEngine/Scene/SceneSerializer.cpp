@@ -155,7 +155,9 @@ namespace OloEngine {
 	inline T TrySet(T& value, const YAML::Node& node)
 	{
 		if (node)
+		{
 			value = node.as<T>(value);
+		}
 		return value;
 	}
 
@@ -163,7 +165,9 @@ namespace OloEngine {
 	inline T TrySetEnum(T& value, const YAML::Node& node)
 	{
 		if (node)
+		{
 			value = (T)node.as<int>((int)value);
+		}
 		return value;
 	}
 

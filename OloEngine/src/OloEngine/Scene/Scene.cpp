@@ -140,8 +140,7 @@ namespace OloEngine {
 		OnPhysics2DStart();
 
 
-		auto listenerView = m_Registry.group<AudioListenerComponent>(entt::get<TransformComponent>);
-		for (auto&& [e, ac, tc] : listenerView.each())
+		for (auto listenerView = m_Registry.group<AudioListenerComponent>(entt::get<TransformComponent>); auto&& [e, ac, tc] : listenerView.each())
 		{
 			ac.Listener = CreateRef<AudioListener>();
 			if (ac.Active)
@@ -155,8 +154,7 @@ namespace OloEngine {
 			}
 		}
 
-		auto sourceView = m_Registry.group<AudioSourceComponent>(entt::get<TransformComponent>);
-		for (auto&& [e, ac, tc] : sourceView.each())
+		for (auto sourceView = m_Registry.group<AudioSourceComponent>(entt::get<TransformComponent>); auto&& [e, ac, tc] : sourceView.each())
 		{
 			if (ac.Source)
 			{
@@ -166,7 +164,9 @@ namespace OloEngine {
 				ac.Source->SetPosition(tc.Translation);
 				ac.Source->SetDirection(forward);
 				if (ac.Config.PlayOnAwake)
+				{
 					ac.Source->Play();
+				}
 			}
 		}
 
@@ -188,8 +188,7 @@ namespace OloEngine {
 
 		ScriptEngine::OnRuntimeStop();
 
-		auto view = m_Registry.view<AudioSourceComponent>();
-		for (auto&& [e, ac] : view.each())
+		for (auto view = m_Registry.view<AudioSourceComponent>(); auto&& [e, ac] : view.each())
 		{
 			if (ac.Source)
 				ac.Source->Stop();

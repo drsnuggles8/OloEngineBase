@@ -10,21 +10,21 @@ namespace OloEngine
 
 	void AudioEngine::Init()
 	{
-		ma_engine_config config = ma_engine_config_init();
+		ma_engine_config config = ::ma_engine_config_init();
 		config.listenerCount = 1;
 
 		s_Engine = new ma_engine();
-		ma_result result = ma_engine_init(nullptr, s_Engine);
+		ma_result result = ::ma_engine_init(nullptr, s_Engine);
 		OLO_CORE_ASSERT(result == MA_SUCCESS, "Failed to initialize audio engine!");
 	}
 
 	void AudioEngine::Shutdown()
 	{
-		ma_engine_uninit(s_Engine);
+		::ma_engine_uninit(s_Engine);
 		delete s_Engine;
 	}
 
-	AudioEngineInternal AudioEngine::GetEngine()
+	[[nodiscard("Store this!")]] AudioEngineInternal AudioEngine::GetEngine()
 	{
 		return s_Engine;
 	}

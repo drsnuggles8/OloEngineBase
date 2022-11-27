@@ -87,7 +87,7 @@ namespace OloEngine
 		explicit operator uint32_t() const { return static_cast<uint32_t>(m_EntityHandle); }
 
 		TransformComponent GetTransform() const { return GetComponent<TransformComponent>(); }
-		
+
 		glm::mat4 GetLocalTransform() const
 		{
 			const auto& transform = GetTransform();
