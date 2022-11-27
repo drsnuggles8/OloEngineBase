@@ -50,6 +50,17 @@ namespace OloEngine
 		return ScriptEngine::GetManagedInstance(entityID);
 	}
 
+	///////////////////////////////////////////////////////////////////////////////////////////
+	// Entity /////////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////////
+
+	Entity GetEntity(UUID entityID)
+	{
+		Scene* scene = ScriptEngine::GetSceneContext();
+		OLO_CORE_ASSERT(scene);
+		return scene->GetEntityByUUID(entityID);
+	}
+
 	static bool Entity_HasComponent(UUID entityID, MonoReflectionType* componentType)
 	{
 		Scene* scene = ScriptEngine::GetSceneContext();
@@ -79,6 +90,10 @@ namespace OloEngine
 		return entity.GetUUID();
 	}
 
+	///////////////////////////////////////////////////////////////////////////////////////////
+	// Transform //////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////////
+
 	static void TransformComponent_GetTranslation(UUID entityID, glm::vec3* outTranslation)
 	{
 		Scene* scene = ScriptEngine::GetSceneContext();
@@ -98,6 +113,10 @@ namespace OloEngine
 
 		entity.GetComponent<TransformComponent>().Translation = *translation;
 	}
+
+	///////////////////////////////////////////////////////////////////////////////////////////
+	// Rigidbody 2D ///////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////////
 
 	static void Rigidbody2DComponent_ApplyLinearImpulse(UUID entityID, glm::vec2 const* impulse, glm::vec2 const* point, bool wake)
 	{
@@ -122,6 +141,297 @@ namespace OloEngine
 		auto* body = static_cast<b2Body*>(rb2d.RuntimeBody);
 		body->ApplyLinearImpulseToCenter(b2Vec2(impulse->x, impulse->y), wake);
 	}
+
+	///////////////////////////////////////////////////////////////////////////////////////////
+	// Audio Source ///////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////////
+
+	void AudioSourceComponent_GetVolume(uint64_t entityID, float* outVolume)
+	{
+		*outVolume = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.VolumeMultiplier;
+	}
+
+	void AudioSourceComponent_SetVolume(uint64_t entityID, const float* volume)
+	{
+		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+		component.Config.VolumeMultiplier = *volume;
+		if (component.Source)
+		{
+			component.Source->SetVolume(*volume);
+		}
+	}
+
+	void AudioSourceComponent_GetPitch(uint64_t entityID, float* outPitch)
+	{
+		*outPitch = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.PitchMultiplier;
+	}
+
+	void AudioSourceComponent_SetPitch(uint64_t entityID, const float* pitch)
+	{
+		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+		component.Config.PitchMultiplier = *pitch;
+		if (component.Source)
+		{
+			component.Source->SetVolume(*pitch);
+		}
+	}
+
+	void AudioSourceComponent_GetPlayOnAwake(uint64_t entityID, bool* outPlayOnAwake)
+	{
+		*outPlayOnAwake = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.PlayOnAwake;
+	}
+
+	void AudioSourceComponent_SetPlayOnAwake(uint64_t entityID, const bool* playOnAwake)
+	{
+		GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.PlayOnAwake = *playOnAwake;
+	}
+
+	void AudioSourceComponent_GetLooping(uint64_t entityID, bool* outLooping)
+	{
+		*outLooping = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.Looping;
+	}
+
+	void AudioSourceComponent_SetLooping(uint64_t entityID, const bool* looping)
+	{
+		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+		component.Config.Looping = *looping;
+		if (component.Source)
+		{
+			component.Source->SetLooping(*looping);
+		}
+	}
+
+	void AudioSourceComponent_GetSpatialization(uint64_t entityID, bool* outSpatialization)
+	{
+		*outSpatialization = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.Spatialization;
+	}
+
+	void AudioSourceComponent_SetSpatialization(uint64_t entityID, const bool* spatialization)
+	{
+		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+		component.Config.Spatialization = *spatialization;
+		if (component.Source)
+		{
+			component.Source->SetSpatialization(*spatialization);
+		}
+	}
+
+	void AudioSourceComponent_GetAttenuationModel(uint64_t entityID, int* outAttenuationModel)
+	{
+		*outAttenuationModel = (int)GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.AttenuationModel;
+	}
+
+	void AudioSourceComponent_SetAttenuationModel(uint64_t entityID, const int* attenuationModel)
+	{
+		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+		component.Config.AttenuationModel = (AttenuationModelType)(*attenuationModel);
+		if (component.Source)
+		{
+			component.Source->SetAttenuationModel(component.Config.AttenuationModel);
+		}
+	}
+
+	void AudioSourceComponent_GetRollOff(uint64_t entityID, float* outRollOff)
+	{
+		*outRollOff = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.RollOff;
+	}
+
+	void AudioSourceComponent_SetRollOff(uint64_t entityID, const float* rollOff)
+	{
+		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+		component.Config.RollOff = *rollOff;
+		if (component.Source)
+		{
+			component.Source->SetRollOff(*rollOff);
+		}
+	}
+
+	void AudioSourceComponent_GetMinGain(uint64_t entityID, float* outMinGain)
+	{
+		*outMinGain = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.MinGain;
+	}
+
+	void AudioSourceComponent_SetMinGain(uint64_t entityID, const float* minGain)
+	{
+		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+		component.Config.MinGain = *minGain;
+		if (component.Source)
+		{
+			component.Source->SetMinGain(*minGain);
+		}
+	}
+
+	void AudioSourceComponent_GetMaxGain(uint64_t entityID, float* outMaxGain)
+	{
+		*outMaxGain = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.MaxGain;
+	}
+
+	void AudioSourceComponent_SetMaxGain(uint64_t entityID, const float* maxGain)
+	{
+		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+		component.Config.MaxGain = *maxGain;
+		if (component.Source)
+		{
+			component.Source->SetMaxGain(*maxGain);
+		}
+	}
+
+	void AudioSourceComponent_GetMinDistance(uint64_t entityID, float* outMinDistance)
+	{
+		*outMinDistance = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.MinDistance;
+	}
+
+	void AudioSourceComponent_SetMinDistance(uint64_t entityID, const float* minDistance)
+	{
+		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+		component.Config.MinDistance = *minDistance;
+		if (component.Source)
+		{
+			component.Source->SetMinDistance(*minDistance);
+		}
+	}
+
+	void AudioSourceComponent_GetMaxDistance(uint64_t entityID, float* outMaxDistance)
+	{
+		*outMaxDistance = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.MaxDistance;
+	}
+
+	void AudioSourceComponent_SetMaxDistance(uint64_t entityID, const float* maxDistance)
+	{
+		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+		component.Config.MaxDistance = *maxDistance;
+		if (component.Source)
+		{
+			component.Source->SetMaxDistance(*maxDistance);
+		}
+	}
+
+	void AudioSourceComponent_GetConeInnerAngle(uint64_t entityID, float* outConeInnerAngle)
+	{
+		*outConeInnerAngle = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.ConeInnerAngle;
+	}
+
+	void AudioSourceComponent_SetConeInnerAngle(uint64_t entityID, const float* coneInnerAngle)
+	{
+		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+		component.Config.ConeInnerAngle = *coneInnerAngle;
+		if (component.Source)
+		{
+			component.Source->SetCone(component.Config.ConeInnerAngle, component.Config.ConeOuterAngle, component.Config.ConeOuterGain);
+		}
+	}
+
+	void AudioSourceComponent_GetConeOuterAngle(uint64_t entityID, float* outConeOuterAngle)
+	{
+		*outConeOuterAngle = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.ConeOuterAngle;
+	}
+
+	void AudioSourceComponent_SetConeOuterAngle(uint64_t entityID, const float* coneOuterAngle)
+	{
+		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+		component.Config.ConeOuterAngle = *coneOuterAngle;
+		if (component.Source)
+		{
+			component.Source->SetCone(component.Config.ConeInnerAngle, component.Config.ConeOuterAngle, component.Config.ConeOuterGain);
+		}
+	}
+
+	void AudioSourceComponent_GetConeOuterGain(uint64_t entityID, float* outConeOuterGain)
+	{
+		*outConeOuterGain = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.ConeOuterGain;
+	}
+
+	void AudioSourceComponent_SetConeOuterGain(uint64_t entityID, const float* coneOuterGain)
+	{
+		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+		component.Config.ConeOuterGain = *coneOuterGain;
+		if (component.Source)
+		{
+			component.Source->SetCone(component.Config.ConeInnerAngle, component.Config.ConeOuterAngle, component.Config.ConeOuterGain);
+		}
+	}
+
+	void AudioSourceComponent_SetCone(uint64_t entityID, const float* coneInnerAngle, const float* coneOuterAngle, const float* coneOuterGain)
+	{
+		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+		component.Config.ConeInnerAngle = *coneInnerAngle;
+		component.Config.ConeOuterAngle = *coneOuterAngle;
+		component.Config.ConeOuterGain = *coneOuterGain;
+		if (component.Source)
+		{
+			component.Source->SetCone(component.Config.ConeInnerAngle, component.Config.ConeOuterAngle, component.Config.ConeOuterGain);
+		}
+	}
+
+	void AudioSourceComponent_GetDopplerFactor(uint64_t entityID, float* outDopplerFactor)
+	{
+		{
+			*outDopplerFactor = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.DopplerFactor;
+		}
+	}
+
+	void AudioSourceComponent_SetDopplerFactor(uint64_t entityID, const float* dopplerFactor)
+	{
+		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+		component.Config.DopplerFactor = *dopplerFactor;
+		if (component.Source)
+		{
+			component.Source->SetDopplerFactor(*dopplerFactor);
+		}
+	}
+
+	void AudioSourceComponent_IsPlaying(uint64_t entityID, bool* outIsPlaying)
+	{
+		const auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+		if (component.Source)
+		{
+			*outIsPlaying = component.Source->IsPlaying();
+		}
+		else
+		{
+			*outIsPlaying = false;
+		}
+	}
+
+	void AudioSourceComponent_Play(uint64_t entityID)
+	{
+		const auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+		if (component.Source)
+		{
+			component.Source->Play();
+		}
+	}
+
+	void AudioSourceComponent_Pause(uint64_t entityID)
+	{
+		const auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+		if (component.Source)
+		{
+			component.Source->Pause();
+		}
+	}
+
+	void AudioSourceComponent_UnPause(uint64_t entityID)
+	{
+		const auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+		if (component.Source)
+		{
+			component.Source->UnPause();
+		}
+	}
+
+	void AudioSourceComponent_Stop(uint64_t entityID)
+	{
+		const auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
+		if (component.Source)
+		{
+			component.Source->Stop();
+		}
+	}
+
+	///////////////////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////////
 
 	static bool Input_IsKeyDown(KeyCode keycode)
 	{
