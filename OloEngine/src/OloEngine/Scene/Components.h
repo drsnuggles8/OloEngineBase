@@ -1,8 +1,9 @@
 #pragma once
-
 #include "SceneCamera.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Audio/AudioSource.h"
+#include "OloEngine/Audio/AudioListener.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -150,15 +151,43 @@ namespace OloEngine
 		ScriptComponent(const ScriptComponent&) = default;
 	};
 
+	struct AudioSourceComponent
+	{
+		AudioSourceConfig Config;
+
+		Ref<AudioSource> Source = nullptr;
+
+		AudioSourceComponent() = default;
+		AudioSourceComponent(const AudioSourceComponent&) = default;
+	};
+
+	struct AudioListenerComponent
+	{
+		bool Active = true;
+		AudioListenerConfig Config;
+
+		Ref<AudioListener> Listener;
+
+		AudioListenerComponent() = default;
+		AudioListenerComponent(const AudioListenerComponent&) = default;
+	};
+
 	template<typename... Component>
 	struct ComponentGroup
 	{
 	};
 
-	using AllComponents =
-		ComponentGroup<TransformComponent, SpriteRendererComponent,
-		CircleRendererComponent, CameraComponent,
-		Rigidbody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
-		ScriptComponent>;
+	using AllComponents = ComponentGroup<
+		TransformComponent,
+		SpriteRendererComponent,
+		CircleRendererComponent,
+		CameraComponent,
+		Rigidbody2DComponent,
+		BoxCollider2DComponent,
+		CircleCollider2DComponent,
+		ScriptComponent,
+		AudioSourceComponent,
+		AudioListenerComponent
+	>;
 
 }

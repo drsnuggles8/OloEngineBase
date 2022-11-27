@@ -33,11 +33,16 @@ namespace OloEngine
 			return GetProjectDirectory() / s_ActiveProject->m_Config.AssetDirectory;
 		}
 
-		// TODO(olbu): move to asset manager when we have one
 		static std::filesystem::path GetAssetFileSystemPath(const std::filesystem::path& path)
 		{
 			OLO_CORE_ASSERT(s_ActiveProject);
 			return GetAssetDirectory() / path;
+		}
+
+		static std::filesystem::path GetAssetRelativeFileSystemPath(const std::filesystem::path& path)
+		{
+			OLO_CORE_ASSERT(s_ActiveProject);
+			return std::filesystem::relative(path, GetAssetDirectory());
 		}
 
 		ProjectConfig& GetConfig() { return m_Config; }

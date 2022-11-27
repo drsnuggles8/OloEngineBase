@@ -86,6 +86,14 @@ namespace OloEngine
 		explicit(false) operator entt::entity() const { return m_EntityHandle; }
 		explicit operator uint32_t() const { return static_cast<uint32_t>(m_EntityHandle); }
 
+		TransformComponent GetTransform() const { return GetComponent<TransformComponent>(); }
+		
+		glm::mat4 GetLocalTransform() const
+		{
+			const auto& transform = GetTransform();
+			return glm::translate(glm::mat4(1.0f), transform.Translation) * glm::toMat4(glm::quat(transform.Rotation)) * glm::scale(glm::mat4(1.0f), transform.Scale);
+		}
+
 		UUID GetUUID() const { return GetComponent<IDComponent>().ID; }
 		const std::string& GetName() { return GetComponent<TagComponent>().Tag; }
 

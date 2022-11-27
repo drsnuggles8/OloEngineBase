@@ -139,6 +139,37 @@ namespace OloEngine {
 
 		OnPhysics2DStart();
 
+
+		auto listenerView = m_Registry.group<AudioListenerComponent>(entt::get<TransformComponent>);
+		for (auto&& [e, ac, tc] : listenerView.each())
+		{
+			ac.Listener = CreateRef<AudioListener>();
+			if (ac.Active)
+			{
+				const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());
+				const glm::vec3 forward = normalize(glm::vec3(inverted[2]));
+				ac.Listener->SetConfig(ac.Config);
+				ac.Listener->SetPosition(tc.Translation);
+				ac.Listener->SetDirection(-forward);
+				break;
+			}
+		}
+
+		auto sourceView = m_Registry.group<AudioSourceComponent>(entt::get<TransformComponent>);
+		for (auto&& [e, ac, tc] : sourceView.each())
+		{
+			if (ac.Source)
+			{
+				const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());
+				const glm::vec3 forward = normalize(glm::vec3(inverted[2]));
+				ac.Source->SetConfig(ac.Config);
+				ac.Source->SetPosition(tc.Translation);
+				ac.Source->SetDirection(forward);
+				if (ac.Config.PlayOnAwake)
+					ac.Source->Play();
+			}
+		}
+
 		// Scripting
 		{
 			ScriptEngine::OnRuntimeStart(this);
@@ -155,9 +186,17 @@ namespace OloEngine {
 	{
 		m_IsRunning = false;
 
+		ScriptEngine::OnRuntimeStop();
+
+		auto view = m_Registry.view<AudioSourceComponent>();
+		for (auto&& [e, ac] : view.each())
+		{
+			if (ac.Source)
+				ac.Source->Stop();
+		}
+
 		OnPhysics2DStop();
 
-		ScriptEngine::OnRuntimeStop();
 	}
 
 	void Scene::OnSimulationStart()
@@ -203,6 +242,32 @@ namespace OloEngine {
 					transform.Translation.x = position.x;
 					transform.Translation.y = position.y;
 					transform.Rotation.z = body->GetAngle();
+				}
+			}
+
+			auto listenerView = m_Registry.group<AudioListenerComponent>(entt::get<TransformComponent>);
+			for (auto&& [e, ac, tc] : listenerView.each())
+			{
+				if (ac.Active)
+				{
+					const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());
+					const glm::vec3 forward = normalize(glm::vec3(inverted[2]));
+					ac.Listener->SetPosition(tc.Translation);
+					ac.Listener->SetDirection(-forward);
+					break;
+				}
+			}
+
+			auto sourceView = m_Registry.group<AudioSourceComponent>(entt::get<TransformComponent>);
+			for (auto&& [e, ac, tc] : sourceView.each())
+			{
+				if (ac.Source)
+				{
+					Entity entity = { e, this };
+					const glm::mat4 inverted = glm::inverse(entity.GetLocalTransform());
+					const glm::vec3 forward = normalize(glm::vec3(inverted[2]));
+					ac.Source->SetPosition(tc.Translation);
+					ac.Source->SetDirection(forward);
 				}
 			}
 		}
@@ -510,6 +575,16 @@ namespace OloEngine {
 
 	template<>
 	void Scene::OnComponentAdded<CircleCollider2DComponent>(Entity, CircleCollider2DComponent&)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<AudioSourceComponent>(Entity, AudioSourceComponent&)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<AudioListenerComponent>(Entity, AudioListenerComponent&)
 	{
 	}
 

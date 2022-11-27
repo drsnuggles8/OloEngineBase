@@ -2,6 +2,7 @@
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/Application.h"
+#include "OloEngine/Audio/AudioEngine.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
@@ -33,6 +34,7 @@ namespace OloEngine {
 		m_Window->SetEventCallback(OLO_BIND_EVENT_FN(Application::OnEvent));
 
 		Renderer::Init();
+		AudioEngine::Init();
 		ScriptEngine::Init();
 		LuaScriptEngine::Init();
 
@@ -52,6 +54,7 @@ namespace OloEngine {
 
 		LuaScriptEngine::Shutdown();
 		ScriptEngine::Shutdown();
+		AudioEngine::Shutdown();
 		Renderer::Shutdown();
 	}
 
