@@ -61,15 +61,16 @@ target_include_directories(OloEngine PRIVATE
 	vendor/filewatch-src
 	vendor/glad-build/include
 	vendor/glfw-src/include
+	vendor/glm-src
+	vendor/miniaudio-build/include
 	vendor/lua-src
 	vendor/imgui-src
 	vendor/imgui-src/backends
 	vendor/imgui-src/examples
-	vendor/imguizmo-src
-	vendor/glm-src
+	vendor/imguizmo-src	
 	vendor/spdlog-src/include
-	vendor/stb_image-src
 	vendor/sol2-src/include
+	vendor/stb_image-build/include	
 	mono/include
 	${Vulkan_INCLUDE_DIRS}
 )

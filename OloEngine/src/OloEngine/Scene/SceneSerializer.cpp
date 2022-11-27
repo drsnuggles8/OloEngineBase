@@ -7,6 +7,7 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Core/UUID.h"
+#include "OloEngine/Project/Project.h"
 
 #include <fstream>
 
@@ -150,6 +151,26 @@ namespace OloEngine {
 		return out;
 	}
 
+	template<typename T>
+	inline T TrySet(T& value, const YAML::Node& node)
+	{
+		if (node)
+		{
+			value = node.as<T>(value);
+		}
+		return value;
+	}
+
+	template<typename T>
+	inline T TrySetEnum(T& value, const YAML::Node& node)
+	{
+		if (node)
+		{
+			value = (T)node.as<int>((int)value);
+		}
+		return value;
+	}
+
 	static std::string RigidBody2DBodyTypeToString(const Rigidbody2DComponent::BodyType bodyType)
 	{
 		switch (bodyType)
@@ -291,6 +312,47 @@ namespace OloEngine {
 
 			out << YAML::EndMap;
 
+		}
+
+		if (entity.HasComponent<AudioSourceComponent>())
+		{
+			out << YAML::Key << "AudioSourceComponent";
+			out << YAML::BeginMap; // AudioSourceComponent
+
+			const auto& audioSourceComponent = entity.GetComponent<AudioSourceComponent>();
+			std::string f = (audioSourceComponent.Source ? Project::GetAssetRelativeFileSystemPath(audioSourceComponent.Source->GetPath()).string().c_str() : "");
+			out << YAML::Key << "Filepath" << YAML::Value << f.c_str();
+			out << YAML::Key << "VolumeMultiplier" << YAML::Value << audioSourceComponent.Config.VolumeMultiplier;
+			out << YAML::Key << "PitchMultiplier" << YAML::Value << audioSourceComponent.Config.PitchMultiplier;
+			out << YAML::Key << "PlayOnAwake" << YAML::Value << audioSourceComponent.Config.PlayOnAwake;
+			out << YAML::Key << "Looping" << YAML::Value << audioSourceComponent.Config.Looping;
+			out << YAML::Key << "Spatialization" << YAML::Value << audioSourceComponent.Config.Spatialization;
+			out << YAML::Key << "AttenuationModel" << YAML::Value << (int)audioSourceComponent.Config.AttenuationModel;
+			out << YAML::Key << "RollOff" << YAML::Value << audioSourceComponent.Config.RollOff;
+			out << YAML::Key << "MinGain" << YAML::Value << audioSourceComponent.Config.MinGain;
+			out << YAML::Key << "MaxGain" << YAML::Value << audioSourceComponent.Config.MaxGain;
+			out << YAML::Key << "MinDistance" << YAML::Value << audioSourceComponent.Config.MinDistance;
+			out << YAML::Key << "MaxDistance" << YAML::Value << audioSourceComponent.Config.MaxDistance;
+			out << YAML::Key << "ConeInnerAngle" << YAML::Value << audioSourceComponent.Config.ConeInnerAngle;
+			out << YAML::Key << "ConeOuterAngle" << YAML::Value << audioSourceComponent.Config.ConeOuterAngle;
+			out << YAML::Key << "ConeOuterGain" << YAML::Value << audioSourceComponent.Config.ConeOuterGain;
+			out << YAML::Key << "DopplerFactor" << YAML::Value << audioSourceComponent.Config.DopplerFactor;
+
+			out << YAML::EndMap; // AudioSourceComponent
+		}
+
+		if (entity.HasComponent<AudioListenerComponent>())
+		{
+			out << YAML::Key << "AudioListenerComponent";
+			out << YAML::BeginMap; // AudioListenerComponent
+
+			const auto& audioListenerComponent = entity.GetComponent<AudioListenerComponent>();
+			out << YAML::Key << "Active" << YAML::Value << audioListenerComponent.Active;
+			out << YAML::Key << "ConeInnerAngle" << YAML::Value << audioListenerComponent.Config.ConeInnerAngle;
+			out << YAML::Key << "ConeOuterAngle" << YAML::Value << audioListenerComponent.Config.ConeOuterAngle;
+			out << YAML::Key << "ConeOuterGain" << YAML::Value << audioListenerComponent.Config.ConeOuterGain;
+
+			out << YAML::EndMap; // AudioListenerComponent
 		}
 
 		if (entity.HasComponent<SpriteRendererComponent>())
@@ -518,6 +580,44 @@ namespace OloEngine {
 					}
 				}
 
+				if (const auto& audioSourceComponent = entity["AudioSourceComponent"])
+				{
+					auto& src = deserializedEntity.AddComponent<AudioSourceComponent>();
+					std::string audioFilepath = "";
+					TrySet(audioFilepath, audioSourceComponent["Filepath"]);
+					TrySet(src.Config.VolumeMultiplier, audioSourceComponent["VolumeMultiplier"]);
+					TrySet(src.Config.PitchMultiplier, audioSourceComponent["PitchMultiplier"]);
+					TrySet(src.Config.PlayOnAwake, audioSourceComponent["PlayOnAwake"]);
+					TrySet(src.Config.Looping, audioSourceComponent["Looping"]);
+					TrySet(src.Config.Spatialization, audioSourceComponent["Spatialization"]);
+					TrySetEnum(src.Config.AttenuationModel, audioSourceComponent["AttenuationModel"]);
+					TrySet(src.Config.RollOff, audioSourceComponent["RollOff"]);
+					TrySet(src.Config.MinGain, audioSourceComponent["MinGain"]);
+					TrySet(src.Config.MaxGain, audioSourceComponent["MaxGain"]);
+					TrySet(src.Config.MinDistance, audioSourceComponent["MinDistance"]);
+					TrySet(src.Config.MaxDistance, audioSourceComponent["MaxDistance"]);
+					TrySet(src.Config.ConeInnerAngle, audioSourceComponent["ConeInnerAngle"]);
+					TrySet(src.Config.ConeOuterAngle, audioSourceComponent["ConeOuterAngle"]);
+					TrySet(src.Config.ConeOuterGain, audioSourceComponent["ConeOuterGain"]);
+					TrySet(src.Config.DopplerFactor, audioSourceComponent["DopplerFactor"]);
+
+					if (!audioFilepath.empty())
+					{
+						std::filesystem::path path = audioFilepath.c_str();
+						path = Project::GetAssetFileSystemPath(path);
+						src.Source = CreateRef<AudioSource>(path.string().c_str());
+					}
+				}
+
+				if (const auto& audioListenerComponent = entity["AudioListenerComponent"])
+				{
+					auto& src = deserializedEntity.AddComponent<AudioListenerComponent>();
+					TrySet(src.Active, audioListenerComponent["Active"]);
+					TrySet(src.Config.ConeInnerAngle, audioListenerComponent["ConeInnerAngle"]);
+					TrySet(src.Config.ConeOuterAngle, audioListenerComponent["ConeOuterAngle"]);
+					TrySet(src.Config.ConeOuterGain, audioListenerComponent["ConeOuterGain"]);
+				}
+
 				if (auto spriteRendererComponent = entity["SpriteRendererComponent"]; spriteRendererComponent)
 				{
 					auto& src = deserializedEntity.AddComponent<SpriteRendererComponent>();
@@ -576,7 +676,7 @@ namespace OloEngine {
 		return true;
 	}
 
-	[[nodiscard("This returns something, you probably wanted another function!")]] [[maybe_unused]] bool SceneSerializer::DeserializeRuntime([[maybe_unused]] const std::filesystem::path& filepath) const
+	[[nodiscard("Store this!")]] [[maybe_unused]] bool SceneSerializer::DeserializeRuntime([[maybe_unused]] const std::filesystem::path& filepath) const
 	{
 		// Not implemented
 		OLO_CORE_ASSERT(false);
