@@ -488,6 +488,46 @@ namespace OloEngine
 		OLO_ADD_INTERNAL_CALL(Rigidbody2DComponent_ApplyLinearImpulseToCenter);
 
 		OLO_ADD_INTERNAL_CALL(Input_IsKeyDown);
+
+		///////////////////////////////////////////////////////////////
+		// Audio Source ///////////////////////////////////////////////
+		///////////////////////////////////////////////////////////////
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetVolume);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetVolume);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetPitch);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetPitch);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetPlayOnAwake);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetPlayOnAwake);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetLooping);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetLooping);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetSpatialization);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetSpatialization);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetAttenuationModel);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetAttenuationModel);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetRollOff);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetRollOff);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetMinGain);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetMinGain);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetMaxGain);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetMaxGain);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetMinDistance);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetMinDistance);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetMaxDistance);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetMaxDistance);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetConeInnerAngle);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetConeInnerAngle);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetConeOuterAngle);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetConeOuterAngle);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetConeOuterGain);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetConeOuterGain);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetCone);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetDopplerFactor);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetDopplerFactor);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_IsPlaying);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_Play);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_Pause);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_UnPause);
+		OLO_ADD_INTERNAL_CALL(AudioSourceComponent_Stop);
 	}
 
 }
