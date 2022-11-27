@@ -1,5 +1,5 @@
 include(FetchContent)
-set(FETCHCONTENT_QUIET off)
+set(FETCHCONTENT_QUIET on)
 set(FETCHCONTENT_BASE_DIR ${PROJECT_SOURCE_DIR}/vendor CACHE PATH "Missing description." FORCE)
 
 message(STATUS "Downloading third party libraries using CMake's FetchContent and CPM")
@@ -66,12 +66,18 @@ FetchContent_Declare(stb_image
 	BUILD_COMMAND "")
 FetchContent_MakeAvailable(stb_image)
 add_library(stb_image INTERFACE)
-file(COPY
-	${stb_image_SOURCE_DIR}/stb_image.h
-DESTINATION
-	"${PROJECT_SOURCE_DIR}/vendor/stb_image-build/include/stb_image"
-)
+file(COPY ${stb_image_SOURCE_DIR}/stb_image.h DESTINATION "${PROJECT_SOURCE_DIR}/vendor/stb_image-build/include/stb_image")
 set(STBIMAGE_INSTALL_DIR "${PROJECT_SOURCE_DIR}/vendor/stb_image-build")
+
+FetchContent_Declare(miniaudio
+	GIT_REPOSITORY https://github.com/mackron/miniaudio.git
+	GIT_TAG master
+	CONFIGURE_COMMAND ""
+	BUILD_COMMAND "")
+FetchContent_MakeAvailable(miniaudio)
+add_library(miniaudio INTERFACE)
+file(COPY ${miniaudio_SOURCE_DIR}/miniaudio.h DESTINATION "${PROJECT_SOURCE_DIR}/vendor/miniaudio-build/include/miniaudio")
+set(STBIMAGE_INSTALL_DIR "${PROJECT_SOURCE_DIR}/vendor/miniaudio-build")
 
 CPMAddPackage(NAME imgui
 	GITHUB_REPOSITORY ocornut/imgui

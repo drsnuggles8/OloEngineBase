@@ -3,6 +3,13 @@
 		"OloEnginePCH.cpp"
 		"OloEnginePCH.h"
 		
+		"OloEngine/Audio/AudioEngine.cpp"
+		"OloEngine/Audio/AudioEngine.h"
+		"OloEngine/Audio/AudioListener.cpp"
+		"OloEngine/Audio/AudioListener.h"
+		"OloEngine/Audio/AudioSource.cpp"
+		"OloEngine/Audio/AudioSource.h"
+		
 		"OloEngine/Core/Application.cpp"
 		"OloEngine/Core/Application.h"
 		"OloEngine/Core/Assert.h"
