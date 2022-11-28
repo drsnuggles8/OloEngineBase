@@ -5,8 +5,8 @@
 
 #include <glad/gl.h>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	[[nodiscard("Store this!")]] static GLenum ShaderDataTypeToOpenGLBaseType(ShaderDataType const type)
 	{
 		switch (type)

@@ -6,8 +6,8 @@
 
 #include "OloEngine/Renderer/EditorCamera.h"
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	class EditorLayer : public Layer
 	{
 	public:

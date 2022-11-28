@@ -3,8 +3,8 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Events/Event.h"
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	EventCategory operator |(const EventCategory lhs, const EventCategory rhs)
 	{
 		return static_cast<EventCategory> (

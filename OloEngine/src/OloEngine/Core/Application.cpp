@@ -13,8 +13,8 @@
 #include <ranges>
 #include <utility>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	Application* Application::s_Instance = nullptr;
 
 	Application::Application(ApplicationSpecification specification)

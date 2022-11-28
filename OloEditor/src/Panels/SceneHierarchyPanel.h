@@ -4,8 +4,8 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	class SceneHierarchyPanel
 	{
 	public:
@@ -16,7 +16,7 @@ namespace OloEngine {
 
 		void OnImGuiRender();
 
-		[[nodiscard("This returns m_SelectionContext, you probably wanted another function!")]] Entity GetSelectedEntity() const { return m_SelectionContext; }
+		[[nodiscard("Store this!")]] Entity GetSelectedEntity() const { return m_SelectionContext; }
 		void SetSelectedEntity(Entity entity);
 	private:
 		template<typename T>
@@ -28,5 +28,4 @@ namespace OloEngine {
 		Ref<Scene> m_Context;
 		Entity m_SelectionContext;
 	};
-
 }

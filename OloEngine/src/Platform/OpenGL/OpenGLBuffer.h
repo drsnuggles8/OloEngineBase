@@ -2,8 +2,8 @@
 
 #include "OloEngine/Renderer/Buffer.h"
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	class OpenGLVertexBuffer : public VertexBuffer
 	{
 	public:
@@ -48,5 +48,4 @@ namespace OloEngine {
 	private:
 		uint32_t m_RendererID = 0;
 	};
-
 }

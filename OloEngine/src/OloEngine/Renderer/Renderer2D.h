@@ -9,8 +9,8 @@
 
 #include "OloEngine/Scene/Components.h"
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	class Renderer2D
 	{
 	public:
@@ -66,5 +66,4 @@ namespace OloEngine {
 		static void StartBatch();
 		static void NextBatch();
 	};
-
 }

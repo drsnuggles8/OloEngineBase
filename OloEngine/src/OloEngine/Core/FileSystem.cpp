@@ -1,8 +1,8 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/FileSystem.h"
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	Buffer FileSystem::ReadFileBinary(const std::filesystem::path& filepath)
 	{
 		std::ifstream stream(filepath, std::ios::binary | std::ios::ate);

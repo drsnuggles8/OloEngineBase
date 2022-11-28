@@ -7,8 +7,8 @@
 
 #include <glm/glm.hpp>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	class EditorCamera : public Camera
 	{
 	public:

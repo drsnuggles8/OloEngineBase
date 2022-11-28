@@ -6,7 +6,8 @@
 
 #include <string>
 
-namespace OloEngine {
+namespace OloEngine
+{
 	class Layer
 	{
 	public:
@@ -23,5 +24,4 @@ namespace OloEngine {
 	private:
 		std::string m_DebugName;
 	};
-
 }

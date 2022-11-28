@@ -6,8 +6,8 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image/stb_image.h>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	OpenGLTexture2D::OpenGLTexture2D(const uint32_t width, const uint32_t height)
 		: m_Width(width), m_Height(height)
 	{

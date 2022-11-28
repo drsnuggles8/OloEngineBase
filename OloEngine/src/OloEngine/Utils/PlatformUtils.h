@@ -3,8 +3,8 @@
 #include <string>
 #include <optional>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	class FileDialogs
 	{
 	public:

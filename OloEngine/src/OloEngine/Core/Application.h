@@ -10,8 +10,8 @@
 
 int main(int argc, char** argv);
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	struct ApplicationCommandLineArgs
 	{
 		int Count = 0;

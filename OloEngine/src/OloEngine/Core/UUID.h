@@ -1,7 +1,7 @@
 #pragma once
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	class UUID
 	{
 	public:
@@ -14,10 +14,10 @@ namespace OloEngine {
 	private:
 		uint64_t m_UUID;
 	};
-
 }
 
-namespace std {
+namespace std
+{
 	template <typename T> struct hash;
 
 	template<>
@@ -28,5 +28,4 @@ namespace std {
 			return static_cast<uint64_t>(uuid);
 		}
 	};
-
 }

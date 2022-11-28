@@ -12,7 +12,8 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #pragma warning(pop)
 
-namespace OloEngine {
+namespace OloEngine
+{
 	class Log
 	{
 	public:
@@ -24,7 +25,6 @@ namespace OloEngine {
 		static Ref<spdlog::logger> s_CoreLogger;
 		static Ref<spdlog::logger> s_ClientLogger;
 	};
-
 }
 
 template<typename OStream, glm::length_t L, typename T, glm::qualifier Q>

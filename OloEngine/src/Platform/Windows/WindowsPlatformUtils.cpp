@@ -9,8 +9,8 @@
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	float Time::GetTime()
 	{
 		return static_cast<float>(GLFWAPI::glfwGetTime());
@@ -68,5 +68,4 @@ namespace OloEngine {
 		}
 		return {};
 	}
-
 }

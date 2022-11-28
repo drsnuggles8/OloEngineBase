@@ -2,8 +2,8 @@
 
 #include "OloEngine/Scene/Entity.h"
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	class LuaScriptEngine
 	{
 	public:

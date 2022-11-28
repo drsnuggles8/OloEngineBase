@@ -5,7 +5,8 @@
 
 #include <vector>
 
-namespace OloEngine {
+namespace OloEngine
+{
 	class LayerStack
 	{
 	public:
@@ -30,5 +31,4 @@ namespace OloEngine {
 		std::vector<Layer*> m_Layers;
 		unsigned int m_LayerInsertIndex = 0;
 	};
-
 }

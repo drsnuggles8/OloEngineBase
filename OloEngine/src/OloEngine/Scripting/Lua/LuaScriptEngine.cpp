@@ -7,8 +7,8 @@
 #include "lstate.h"
 #include "setjmp.h"
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	struct LuaScriptEngineData
 	{
 		sol::state* LuaState = nullptr;

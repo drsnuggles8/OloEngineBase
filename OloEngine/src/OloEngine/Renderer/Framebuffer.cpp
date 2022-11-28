@@ -7,8 +7,8 @@
 
 #include "Platform/OpenGL/OpenGLFramebuffer.h"
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	Ref<Framebuffer> Framebuffer::Create(const FramebufferSpecification& spec)
 	{
 		switch (Renderer::GetAPI())
@@ -27,5 +27,4 @@ namespace OloEngine {
 		OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
 		return nullptr;
 	}
-
 }

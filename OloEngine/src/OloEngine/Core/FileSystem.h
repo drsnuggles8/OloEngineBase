@@ -4,8 +4,8 @@
 
 #include <filesystem>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	class FileSystem
 	{
 	public:

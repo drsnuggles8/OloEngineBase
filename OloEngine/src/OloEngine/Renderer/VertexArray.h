@@ -4,8 +4,8 @@
 
 #include <memory>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	class VertexArray
 	{
 	public:
@@ -22,5 +22,4 @@ namespace OloEngine {
 
 		static Ref<VertexArray> Create();
 	};
-
 }

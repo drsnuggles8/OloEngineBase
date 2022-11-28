@@ -2,8 +2,8 @@
 #include "OloEngine/Renderer/Shader.h"
 #include <glm/glm.hpp>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	class OpenGLShader : public Shader
 	{
 	using GLenum = unsigned int;

@@ -1,7 +1,7 @@
 #pragma once
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	class GraphicsContext
 	{
 	public:

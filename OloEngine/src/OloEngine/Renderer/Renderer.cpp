@@ -6,8 +6,8 @@
 #include "OloEngine/Renderer/Renderer2D.h"
 
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	Scope<Renderer::SceneData> Renderer::s_SceneData = CreateScope<Renderer::SceneData>();
 
 	void Renderer::Init()
@@ -46,5 +46,4 @@ namespace OloEngine {
 		vertexArray->Bind();
 		RenderCommand::DrawIndexed(vertexArray);
 	}
-
 }

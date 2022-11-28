@@ -115,8 +115,8 @@ namespace YAML {
 }
 
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 #define WRITE_SCRIPT_FIELD(FieldType, Type)   \
 	case ScriptFieldType::FieldType:          \
 		out << scriptField.GetValue<Type>();  \
@@ -682,5 +682,4 @@ namespace OloEngine {
 		OLO_CORE_ASSERT(false);
 		return false;
 	}
-
 }

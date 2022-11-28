@@ -6,8 +6,8 @@
 #include "OloEngine/Core/Application.h"
 #include <GLFW/glfw3.h>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	bool Input::IsKeyPressed(const KeyCode key)
 	{
 		auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
@@ -41,5 +41,4 @@ namespace OloEngine {
 	{
 		return GetMousePosition().y;
 	}
-
 }

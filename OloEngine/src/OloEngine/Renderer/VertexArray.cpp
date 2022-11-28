@@ -6,8 +6,8 @@
 #include "OloEngine/Renderer/Renderer.h"
 #include "Platform/OpenGL/OpenGLVertexArray.h"
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	Ref<VertexArray> VertexArray::Create()
 	{
 		switch (Renderer::GetAPI())
@@ -26,5 +26,4 @@ namespace OloEngine {
 		OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
 		return nullptr;
 	}
-
 }

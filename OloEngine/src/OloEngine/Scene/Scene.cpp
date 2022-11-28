@@ -16,8 +16,8 @@
 #include "b2_polygon_shape.h"
 #include "b2_circle_shape.h"
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	[[nodiscard("Store this!")]] static b2BodyType Rigidbody2DTypeToBox2DBody(const Rigidbody2DComponent::BodyType bodyType)
 	{
 		switch (bodyType)
@@ -586,5 +586,4 @@ namespace OloEngine {
 	void Scene::OnComponentAdded<AudioListenerComponent>(Entity, AudioListenerComponent&)
 	{
 	}
-
 }

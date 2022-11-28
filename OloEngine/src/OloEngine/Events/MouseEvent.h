@@ -3,7 +3,8 @@
 #include "OloEngine/Events/Event.h"
 #include "OloEngine/Core/MouseCodes.h"
 
-namespace OloEngine {
+namespace OloEngine
+{
 	class MouseMovedEvent : public Event
 	{
 	public:
@@ -94,5 +95,4 @@ namespace OloEngine {
 
 		EVENT_CLASS_TYPE(MouseButtonReleased)
 	};
-
 }

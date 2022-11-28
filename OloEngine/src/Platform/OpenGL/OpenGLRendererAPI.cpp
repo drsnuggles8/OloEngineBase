@@ -5,8 +5,8 @@
 
 #include <glad/gl.h>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	void OpenGLMessageCallback(
 		const unsigned,
 		const unsigned,
@@ -78,5 +78,4 @@ namespace OloEngine {
 	{
 		glLineWidth(width);
 	}
-
 }

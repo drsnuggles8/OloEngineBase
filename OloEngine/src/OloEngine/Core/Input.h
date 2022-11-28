@@ -5,8 +5,8 @@
 
 #include <glm/glm.hpp>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	class Input
 	{
 	public:

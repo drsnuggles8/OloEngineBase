@@ -6,8 +6,8 @@
 #include <sstream>
 #include <utility>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	struct WindowProps
 	{
 		std::string Title;
@@ -32,15 +32,15 @@ namespace OloEngine {
 
 		virtual void OnUpdate() = 0;
 
-		[[nodiscard("This returns width, you probably wanted another function!")]] virtual uint32_t GetWidth() const = 0;
-		[[nodiscard("This returns height, you probably wanted another function!")]] virtual uint32_t GetHeight() const = 0;
+		[[nodiscard("Store this!")]] virtual uint32_t GetWidth() const = 0;
+		[[nodiscard("Store this!")]] virtual uint32_t GetHeight() const = 0;
 
 		// Window attributes
 		virtual void SetEventCallback(const EventCallbackFn& callback) = 0;
 		virtual void SetVSync(bool enabled) = 0;
-		[[nodiscard("This returns VSync, you probably wanted another function!")]] virtual bool IsVSync() const = 0;
+		[[nodiscard("Store this!")]] virtual bool IsVSync() const = 0;
 
-		[[nodiscard("This returns the native window, you probably wanted another function!")]] virtual void* GetNativeWindow() const = 0;
+		[[nodiscard("Store this!")]] virtual void* GetNativeWindow() const = 0;
 
 		virtual void SetTitle(const std::string& title) = 0;
 
@@ -48,5 +48,4 @@ namespace OloEngine {
 	public:
 		static float s_HighDPIScaleFactor;
 	};
-
 }

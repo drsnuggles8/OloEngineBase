@@ -6,8 +6,8 @@
 #include "OloEngine/Renderer/Renderer.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	Ref<Shader> Shader::Create(const std::string& filepath)
 	{
 		switch (Renderer::GetAPI())
@@ -82,5 +82,4 @@ namespace OloEngine {
 	{
 		return m_Shaders.contains(name);
 	}
-
 }

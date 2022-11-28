@@ -3,8 +3,8 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/LayerStack.h"
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	void LayerStack::PushLayer(Layer* layer)
 	{
 		m_Layers.emplace(m_Layers.begin() + m_LayerInsertIndex, layer);
@@ -34,5 +34,4 @@ namespace OloEngine {
 			m_Layers.erase(it);
 		}
 	}
-
 }
