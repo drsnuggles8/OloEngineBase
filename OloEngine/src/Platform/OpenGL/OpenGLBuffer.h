@@ -18,8 +18,6 @@ namespace OloEngine
 
 		[[nodiscard("Store this!")]] const BufferLayout& GetLayout() const override { return m_Layout; }
 		void SetLayout(const BufferLayout& layout) override { m_Layout = layout; }
-
-		[[nodiscard("Store this!")]] const uint32_t GetBufferHandle() const override { return m_RendererID; }
 	private:
 		uint32_t m_RendererID{};
 		BufferLayout m_Layout;
@@ -35,7 +33,6 @@ namespace OloEngine
 		void Unbind() const override;
 
 		[[nodiscard("Store this!")]] uint32_t GetCount() const override { return m_Count; }
-		[[nodiscard("Store this!")]] const uint32_t GetBufferHandle() const override { return m_RendererID; }
 	private:
 		uint32_t m_RendererID{};
 		uint32_t m_Count;

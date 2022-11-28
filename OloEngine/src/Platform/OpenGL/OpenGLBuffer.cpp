@@ -17,7 +17,8 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 
 		glCreateBuffers(1, &m_RendererID);
-		glNamedBufferData(m_RendererID, size, nullptr, GL_DYNAMIC_DRAW);
+		glBindBuffer(GL_ARRAY_BUFFER, m_RendererID);
+		glBufferData(GL_ARRAY_BUFFER, size, nullptr, GL_DYNAMIC_DRAW);
 	}
 
 	OpenGLVertexBuffer::OpenGLVertexBuffer(const float* const vertices, const uint32_t size)
@@ -25,7 +26,8 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 
 		glCreateBuffers(1, &m_RendererID);
-		glNamedBufferData(m_RendererID, size, vertices, GL_STATIC_DRAW);
+		glBindBuffer(GL_ARRAY_BUFFER, m_RendererID);
+		glBufferData(GL_ARRAY_BUFFER, size, vertices, GL_STATIC_DRAW);
 	}
 
 	OpenGLVertexBuffer::~OpenGLVertexBuffer()
@@ -51,7 +53,8 @@ namespace OloEngine
 
 	void OpenGLVertexBuffer::SetData(void const* const data, const uint32_t size)
 	{
-		glNamedBufferSubData(m_RendererID, 0, size, data);
+		glBindBuffer(GL_ARRAY_BUFFER, m_RendererID);
+		glBufferSubData(GL_ARRAY_BUFFER, 0, size, data);
 	}
 
 	/////////////////////////////////////////////////////////////////////////////
@@ -65,7 +68,10 @@ namespace OloEngine
 
 		glCreateBuffers(1, &m_RendererID);
 
-		glNamedBufferData(m_RendererID, count * sizeof(uint32_t), indices, GL_STATIC_DRAW);
+		// GL_ELEMENT_ARRAY_BUFFER is not valid without an actively bound VAO
+		// Binding with GL_ARRAY_BUFFER allows the data to be loaded regardless of VAO state.
+		glBindBuffer(GL_ARRAY_BUFFER, m_RendererID);
+		glBufferData(GL_ARRAY_BUFFER, count * sizeof(uint32_t), indices, GL_STATIC_DRAW);
 	}
 
 	OpenGLIndexBuffer::~OpenGLIndexBuffer()
