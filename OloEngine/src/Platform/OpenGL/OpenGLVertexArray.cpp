@@ -69,62 +69,11 @@ namespace OloEngine
 
 		for (const auto& layout = vertexBuffer->GetLayout(); const auto& element : layout)
 		{
-			switch (element.Type)
-			{
-				using enum OloEngine::ShaderDataType;
-				case Float:
-				case Float2:
-				case Float3:
-				case Float4:
-				{
-					glEnableVertexAttribArray(m_VertexBufferIndex);
-					glVertexAttribPointer(m_VertexBufferIndex,
-						element.GetComponentCount(),
-						ShaderDataTypeToOpenGLBaseType(element.Type),
-						element.Normalized ? GL_TRUE : GL_FALSE,
-						layout.GetStride(),
-						reinterpret_cast<const void*>(element.Offset));
-					++m_VertexBufferIndex;
-					break;
-				}
-				case Int:
-				case Int2:
-				case Int3:
-				case Int4:
-				case Bool:
-				{
-					glEnableVertexAttribArray(m_VertexBufferIndex);
-					glVertexAttribIPointer(m_VertexBufferIndex,
-						element.GetComponentCount(),
-						ShaderDataTypeToOpenGLBaseType(element.Type),
-						layout.GetStride(),
-						reinterpret_cast<const void*>(element.Offset));
-					++m_VertexBufferIndex;
-					break;
-				}
-				case Mat3:
-				case Mat4:
-				{
-					auto const count = static_cast<uint8_t>(element.GetComponentCount());
-					for (uint8_t i = 0; i < count; ++i)
-					{
-						glEnableVertexAttribArray(m_VertexBufferIndex);
-						glVertexAttribPointer(m_VertexBufferIndex,
-							count,
-							ShaderDataTypeToOpenGLBaseType(element.Type),
-							element.Normalized ? GL_TRUE : GL_FALSE,
-							layout.GetStride(),
-							reinterpret_cast<const void*>(element.Offset + (sizeof(float) * count * i)));
-						glVertexAttribDivisor(m_VertexBufferIndex, 1);
-						++m_VertexBufferIndex;
-					}
-					break;
-				}
-				default:
-				{
-					OLO_CORE_ASSERT(false, "Unknown ShaderDataType!");
-				}
-			}
+			glEnableVertexArrayAttrib(m_RendererID, m_VertexBufferIndex);
+			glVertexArrayVertexBuffer(m_RendererID, m_VertexBufferIndex, vertexBuffer->GetBufferHandle(), element.Offset, layout.GetStride());
+			glVertexArrayAttribFormat(m_RendererID, m_VertexBufferIndex, element.GetComponentCount(), ShaderDataTypeToOpenGLBaseType(element.Type), element.Normalized ? GL_TRUE : GL_FALSE, 0);
+			glVertexArrayAttribBinding(m_RendererID, m_VertexBufferIndex, m_VertexBufferIndex);
+			m_VertexBufferIndex++;
 		}
 
 		m_VertexBuffers.push_back(vertexBuffer);
@@ -134,8 +83,7 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
 
-		glBindVertexArray(m_RendererID);
-		indexBuffer->Bind();
+		glVertexArrayElementBuffer(m_RendererID, indexBuffer->GetBufferHandle());
 
 		m_IndexBuffer = indexBuffer;
 	}
