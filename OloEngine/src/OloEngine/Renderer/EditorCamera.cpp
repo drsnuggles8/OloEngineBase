@@ -10,8 +10,8 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	EditorCamera::EditorCamera(const float fov, const float aspectRatio, const float nearClip, const float farClip)
 		: Camera(glm::perspective(glm::radians(fov), aspectRatio, nearClip, farClip)), m_FOV(fov), m_AspectRatio(aspectRatio), m_NearClip(nearClip), m_FarClip(farClip)
 	{

@@ -1,7 +1,7 @@
 #pragma once
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	class Timestep
 	{
 	public:
@@ -19,5 +19,4 @@ namespace OloEngine {
 	private:
 		float m_Time;
 	};
-
 }

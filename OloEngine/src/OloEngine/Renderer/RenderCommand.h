@@ -2,8 +2,8 @@
 
 #include "OloEngine/Renderer/RendererAPI.h"
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	class RenderCommand
 	{
 	public:
@@ -44,5 +44,4 @@ namespace OloEngine {
 	private:
 		static Scope<RendererAPI> s_RendererAPI;
 	};
-
 }

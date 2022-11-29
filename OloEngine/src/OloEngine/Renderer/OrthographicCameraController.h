@@ -6,8 +6,8 @@
 #include "OloEngine/Events/ApplicationEvent.h"
 #include "OloEngine/Events/MouseEvent.h"
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	class OrthographicCameraController
 	{
 	public:
@@ -38,5 +38,4 @@ namespace OloEngine {
 		float m_CameraTranslationSpeed = 5.0f;
 		float m_CameraRotationSpeed = 180.0f;
 	};
-
 }

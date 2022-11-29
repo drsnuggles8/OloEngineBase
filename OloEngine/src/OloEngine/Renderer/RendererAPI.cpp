@@ -2,14 +2,13 @@
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/RendererAPI.h"
-
 #include "Platform/OpenGL/OpenGLRendererAPI.h"
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	RendererAPI::API RendererAPI::s_API = RendererAPI::API::OpenGL;
 
-	[[nodiscard("This returns something, you probably wanted another function!")]] Scope<RendererAPI> RendererAPI::Create()
+	[[nodiscard("Store this!")]] Scope<RendererAPI> RendererAPI::Create()
 	{
 		switch (s_API)
 		{
@@ -27,5 +26,4 @@ namespace OloEngine {
 		OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
 		return nullptr;
 	}
-
 }

@@ -10,8 +10,8 @@
 
 #include <cstring>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	SceneHierarchyPanel::SceneHierarchyPanel(const Ref<Scene>& context)
 	{
 		SetContext(context);

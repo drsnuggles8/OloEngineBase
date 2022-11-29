@@ -3,7 +3,8 @@
 #include "OloEngine/Events/Event.h"
 #include "OloEngine/Core/KeyCodes.h"
 
-namespace OloEngine {
+namespace OloEngine
+{
 	class KeyEvent : public Event
 	{
 	public:

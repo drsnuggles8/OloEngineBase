@@ -2,8 +2,8 @@
 
 #include <chrono>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	class Timer
 	{
 	public:
@@ -17,12 +17,12 @@ namespace OloEngine {
 			m_Start = std::chrono::high_resolution_clock::now();
 		}
 
-		[[nodiscard("This returns something, you probably wanted another function!")]] float Elapsed() const
+		[[nodiscard("Store this!")]] float Elapsed() const
 		{
 			return static_cast<float>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - this->m_Start).count()) * 0.001f * 0.001f * 0.001f;
 		}
 
-		[[nodiscard("This returns something, you probably wanted another function!")]] float ElapsedMillis() const
+		[[nodiscard("Store this!")]] float ElapsedMillis() const
 		{
 			return Elapsed() * 1000.0f;
 		}
@@ -30,5 +30,4 @@ namespace OloEngine {
 	private:
 		std::chrono::time_point<std::chrono::high_resolution_clock> m_Start;
 	};
-
 }

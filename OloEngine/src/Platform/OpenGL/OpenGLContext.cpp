@@ -6,8 +6,8 @@
 #include <GLFW/glfw3.h>
 #include <glad/gl.h>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	OpenGLContext::OpenGLContext(GLFWwindow* const windowHandle)
 		: m_WindowHandle(windowHandle)
 	{
@@ -36,5 +36,4 @@ namespace OloEngine {
 
 		GLFWAPI::glfwSwapBuffers(m_WindowHandle);
 	}
-
 }

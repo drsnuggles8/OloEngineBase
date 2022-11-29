@@ -6,7 +6,8 @@
 #include "OloEngine/Events/KeyEvent.h"
 #include "OloEngine/Events/MouseEvent.h"
 
-namespace OloEngine {
+namespace OloEngine
+{
 	class ImGuiLayer : public Layer
 	{
 	public:
@@ -26,5 +27,4 @@ namespace OloEngine {
 	private:
 		bool m_BlockEvents = true;
 	};
-
 }

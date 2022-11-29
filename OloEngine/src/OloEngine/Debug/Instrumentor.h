@@ -11,8 +11,8 @@
 #include <mutex>
 #include <sstream>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	using FloatingPointMicroseconds = std::chrono::duration<double, std::micro>;
 
 	struct ProfileResult

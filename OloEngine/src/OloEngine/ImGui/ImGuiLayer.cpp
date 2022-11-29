@@ -13,7 +13,8 @@
 #include <GLFW/glfw3.h>
 #include <glad/gl.h>
 
-namespace OloEngine {
+namespace OloEngine
+{
 	ImGuiLayer::ImGuiLayer()
 		: Layer("ImGuiLayer")
 	{
@@ -145,5 +146,4 @@ namespace OloEngine {
 		colors[ImGuiCol_TitleBgActive] = ImVec4{ 0.15f, 0.1505f, 0.151f, 1.0f };
 		colors[ImGuiCol_TitleBgCollapsed] = ImVec4{ 0.15f, 0.1505f, 0.151f, 1.0f };
 	}
-
 }

@@ -5,8 +5,8 @@
 #include <filesystem>
 #include <unordered_map>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	class ContentBrowserPanel
 	{
 	public:

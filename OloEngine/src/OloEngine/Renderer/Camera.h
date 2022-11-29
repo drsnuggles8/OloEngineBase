@@ -2,8 +2,8 @@
 
 #include <glm/glm.hpp>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	class Camera
 	{
 	public:

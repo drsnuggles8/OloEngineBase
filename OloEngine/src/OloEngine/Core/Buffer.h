@@ -3,8 +3,8 @@
 #include <stdint.h>
 #include <cstring>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	// Non-owning raw buffer class
 	struct Buffer
 	{

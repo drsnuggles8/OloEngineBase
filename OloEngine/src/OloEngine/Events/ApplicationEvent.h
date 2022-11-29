@@ -2,7 +2,8 @@
 
 #include "OloEngine/Events/Event.h"
 
-namespace OloEngine {
+namespace OloEngine
+{
 	class WindowResizeEvent : public Event
 	{
 	public:

@@ -2,8 +2,8 @@
 
 #include "OloEngine/Renderer/Framebuffer.h"
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	class OpenGLFramebuffer : public Framebuffer
 	{
 	public:
@@ -35,5 +35,4 @@ namespace OloEngine {
 		std::vector<uint32_t> m_ColorAttachments;
 		uint32_t m_DepthAttachment = 0;
 	};
-
 }

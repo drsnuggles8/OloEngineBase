@@ -6,8 +6,8 @@
 
 #include <imgui.h>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	ContentBrowserPanel::ContentBrowserPanel()
 	{
 		m_BaseDirectory = Project::GetAssetDirectory();

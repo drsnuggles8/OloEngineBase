@@ -2,8 +2,8 @@
 
 #include "OloEngine/Core/Base.h"
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	enum class FramebufferTextureFormat
 	{
 		None = 0,

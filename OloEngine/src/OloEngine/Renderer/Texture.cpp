@@ -6,8 +6,8 @@
 #include "OloEngine/Renderer/Renderer.h"
 #include "Platform/OpenGL/OpenGLTexture.h"
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	Ref<Texture2D> Texture2D::Create(uint32_t width, uint32_t height)
 	{
 		switch (Renderer::GetAPI())
@@ -45,5 +45,4 @@ namespace OloEngine {
 		OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
 		return nullptr;
 	}
-
 }

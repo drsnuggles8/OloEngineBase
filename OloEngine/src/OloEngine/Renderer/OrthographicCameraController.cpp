@@ -2,14 +2,13 @@
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/OrthographicCameraController.h"
-
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/KeyCodes.h"
 
 #include <cmath>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	OrthographicCameraController::OrthographicCameraController(const float aspectRatio, const bool rotation)
 		: m_AspectRatio(aspectRatio), m_Camera(-m_AspectRatio * m_ZoomLevel, m_AspectRatio * m_ZoomLevel, -m_ZoomLevel, m_ZoomLevel), m_Rotation(rotation)
 	{
@@ -101,5 +100,4 @@ namespace OloEngine {
 		OnResize(static_cast<float>(e.GetWidth()), static_cast<float>(e.GetHeight()));
 		return false;
 	}
-
 }

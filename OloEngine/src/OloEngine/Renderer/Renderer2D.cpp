@@ -11,8 +11,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-namespace OloEngine {
-
+namespace OloEngine
+{
 	struct QuadVertex
 	{
 		glm::vec3 Position;
@@ -532,9 +532,8 @@ namespace OloEngine {
 		std::memset(&s_Data.Stats, 0, sizeof(Statistics));
 	}
 
-	[[nodiscard("This returns s_Data.Stats, you probably wanted another function!")]] Renderer2D::Statistics Renderer2D::GetStats()
+	[[nodiscard("Store this!")]] Renderer2D::Statistics Renderer2D::GetStats()
 	{
 		return s_Data.Stats;
 	}
-
 }
