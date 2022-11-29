@@ -109,7 +109,7 @@ namespace OloEngine
 					glVertexArrayAttribFormat(m_RendererID, m_VertexBufferIndex, element.GetComponentCount(), ShaderDataTypeToOpenGLBaseType(element.Type), element.Normalized ? GL_TRUE : GL_FALSE, 0);
 
 					glVertexArrayAttribBinding(m_RendererID, m_VertexBufferIndex, m_VertexBufferIndex);
-					m_VertexBufferIndex++;
+					++m_VertexBufferIndex;
 					break;
 				}
 				default:
