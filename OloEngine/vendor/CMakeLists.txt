@@ -1,5 +1,5 @@
 include(FetchContent)
-set(FETCHCONTENT_QUIET on)
+set(FETCHCONTENT_QUIET off)
 set(FETCHCONTENT_BASE_DIR ${PROJECT_SOURCE_DIR}/vendor CACHE PATH "Missing description." FORCE)
 
 message(STATUS "Downloading third party libraries using CMake's FetchContent and CPM")
@@ -33,6 +33,11 @@ FetchContent_Declare(googletest
 FetchContent_Declare(spdlog
 	GIT_REPOSITORY https://github.com/gabime/spdlog.git
 	GIT_TAG v1.10.0)
+FetchContent_Declare(tracy
+	GIT_REPOSITORY https://github.com/wolfpld/tracy.git
+	GIT_TAG master
+	GIT_SHALLOW TRUE
+	GIT_PROGRESS TRUE)
 FetchContent_Declare(yaml-cpp
 	GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
 	GIT_TAG master)
@@ -51,11 +56,12 @@ set(GLM_TEST_ENABLE OFF CACHE BOOL "" FORCE)
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 set(BuildTests OFF CACHE BOOL "" FORCE)
 set(SPDLOG_USE_STD_FORMAT OFF CACHE BOOL "" FORCE)
-set(YAML_BUILD_SHARED_LIBS Off CACHE BOOL "" FORCE)
-set(YAML_CPP_BUILD_TESTS Off CACHE BOOL "" FORCE)
-set(YAML_CPP_BUILD_TOOLS Off CACHE BOOL "" FORCE)
+set(TRACY_ON_DEMAND ON CACHE BOOL "" FORCE)
+set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
-FetchContent_MakeAvailable(assimp box2d entt filewatch glad glfw glm googletest spdlog yaml-cpp)
+FetchContent_MakeAvailable(assimp box2d entt filewatch glad glfw glm googletest spdlog tracy yaml-cpp)
 
 glad_add_library(glad STATIC API gl:core=4.6 LOCATION ${PROJECT_SOURCE_DIR}/vendor/glad-build/${TARGET})
 
@@ -131,22 +137,23 @@ if(lua_ADDED)
 		RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/vendor/lua-build")
 endif()
 
+set_target_properties(assimp PROPERTIES FOLDER "Utilities/assimp")
+set_target_properties(UpdateAssimpLibsDebugSymbolsAndDLLs PROPERTIES FOLDER "Utilities/assimp")
+#set_target_properties(zlibstatic PROPERTIES FOLDER "Utilities/assimp")
+set_target_properties(box2d PROPERTIES FOLDER "Utilities/box2d")
 set_target_properties(glad PROPERTIES FOLDER "Utilities/glad")
-set_target_properties(imgui PROPERTIES FOLDER "Utilities/imgui")
-set_target_properties(imguizmo PROPERTIES FOLDER "Utilities/imgui")
-set_target_properties(spdlog PROPERTIES FOLDER "Utilities")
 set_target_properties(glfw PROPERTIES FOLDER "Utilities/GLFW3")
 set_target_properties(uninstall PROPERTIES FOLDER "Utilities/GLFW3")
 set_target_properties(update_mappings PROPERTIES FOLDER "Utilities/GLFW3")
-set_target_properties(yaml-cpp PROPERTIES FOLDER "Utilities/yaml-cpp")
 set_target_properties(gmock PROPERTIES FOLDER "Utilities/googletest")
 set_target_properties(gmock_main PROPERTIES FOLDER "Utilities/googletest")
 set_target_properties(gtest PROPERTIES FOLDER "Utilities/googletest")
 set_target_properties(gtest_main PROPERTIES FOLDER "Utilities/googletest")
-set_target_properties(box2d PROPERTIES FOLDER "Utilities/box2d")
+set_target_properties(imgui PROPERTIES FOLDER "Utilities/imgui")
+set_target_properties(imguizmo PROPERTIES FOLDER "Utilities/imgui")
 set_target_properties(lua PROPERTIES FOLDER "Utilities/Lua")
-set_target_properties(assimp PROPERTIES FOLDER "Utilities/assimp")
-#set_target_properties(zlibstatic PROPERTIES FOLDER "Utilities/assimp")
-set_target_properties(UpdateAssimpLibsDebugSymbolsAndDLLs PROPERTIES FOLDER "Utilities/assimp")
+set_target_properties(spdlog PROPERTIES FOLDER "Utilities")
+set_target_properties(TracyClient PROPERTIES FOLDER "Utilities")
+set_target_properties(yaml-cpp PROPERTIES FOLDER "Utilities")
 #======================================
 message(STATUS "Fetching thirdparty libraries done")

@@ -10,6 +10,8 @@
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
+#include <tracy/Tracy.hpp>
+
 #include <ranges>
 #include <utility>
 
@@ -122,7 +124,6 @@ namespace OloEngine
 
 		while (m_Running)
 		{
-			OLO_PROFILE_SCOPE("RunLoop");
 
 			const auto timeNow = Time::GetTime();
 			const Timestep timestep = timeNow - m_LastFrameTime;
@@ -133,26 +134,29 @@ namespace OloEngine
 			if (!m_Minimized)
 			{
 				{
-					OLO_PROFILE_SCOPE("LayerStack OnUpdate");
+					FrameMarkStart("LayerStack OnUpdate");
 					for (Layer* const layer : m_LayerStack)
 					{
 						layer->OnUpdate(timestep);
 					}
+					FrameMarkEnd("LayerStack OnUpdate");
 				}
 
 				OloEngine::ImGuiLayer::Begin();
 				{
-					OLO_PROFILE_SCOPE("LayerStack OnImGuiRender");
-
+					FrameMarkStart("LayerStack OnImGuiRender");
 					for (Layer* const layer : m_LayerStack)
 					{
 						layer->OnImGuiRender();
 					}
+					FrameMarkEnd("LayerStack OnImGuiRender");
 				}
 				OloEngine::ImGuiLayer::End();
 			}
 
+			FrameMarkStart("Window OnUpdate");
 			m_Window->OnUpdate();
+			FrameMarkEnd("Window OnUpdate");
 		}
 	}
 
