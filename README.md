@@ -11,7 +11,7 @@ You can clone the repository to a local destination using git:
 `git clone https://github.com/drsnuggles8/OloEngine`
 
 This project uses [CMake](https://cmake.org/download/) to build the solution files. There's a batch script `scripts/Win-GenerateProject.bat` that will generate the solution file for Visual Studio 2022.
-If you're using CLion, just open the OloEngineBase folder, let CLion initialize the CMake project and then edit the run configurations by changing the working directory of the OloEditor application to be the OloEngine folder. 
+If you're using CLion, just open the OloEngineBase folder, let CLion initialize the CMake project and then edit the run configurations by changing the working directory of the OloEditor application to be the OloEditor folder. 
 
 The batch script will download all dependencies via CMake's `Fetchcontent_Declare()` function, and store them in the OloEngine/vendor directory.
 CMake will also creatie the build directory, which contains the Visual Studio solution files.
