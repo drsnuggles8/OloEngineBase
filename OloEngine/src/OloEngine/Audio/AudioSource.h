@@ -45,13 +45,13 @@ namespace OloEngine
 		AudioSource(const AudioSource& other) = default;
 		AudioSource(AudioSource&& other) = default;
 
-		const char* GetPath() const { return m_Path.c_str(); }
+		[[nodiscard("Store this!")]] const char* GetPath() const { return m_Path.c_str(); }
 
 		void Play() const;
 		void Pause() const;
 		void UnPause() const;
 		void Stop() const;
-		bool IsPlaying() const;
+		[[nodiscard("Store this!")]] bool IsPlaying() const;
 
 		void SetConfig(const AudioSourceConfig& config);
 
