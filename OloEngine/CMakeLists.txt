@@ -67,10 +67,11 @@ target_include_directories(OloEngine PRIVATE
 	vendor/imgui-src
 	vendor/imgui-src/backends
 	vendor/imgui-src/examples
-	vendor/imguizmo-src	
+	vendor/imguizmo-src
 	vendor/spdlog-src/include
+	vendor/tracy-src/public
 	vendor/sol2-src/include
-	vendor/stb_image-build/include	
+	vendor/stb_image-build/include
 	mono/include
 	${Vulkan_INCLUDE_DIRS}
 )
@@ -81,6 +82,8 @@ target_compile_definitions(OloEngine PRIVATE
 							YAML_CPP_STATIC_DEFINE
 							$<$<CONFIG:Debug>:OLO_DEBUG>
 							$<$<CONFIG:Release>:OLO_RELEASE>
+							$<$<CONFIG:Release>:TRACY_ENABLE>
+							$<$<CONFIG:Release>:TRACY_ON_DEMAND>
 							$<$<CONFIG:Dist>:OLO_DIST>
 )
 
@@ -94,6 +97,7 @@ target_link_libraries(OloEngine
 					opengl32.lib
 					sol2
 					stb_image
+					TracyClient
 					yaml-cpp
 					${Vulkan_LIBRARIES}
 					debug $ENV{VULKAN_SDK}/Lib/shaderc_sharedd.lib

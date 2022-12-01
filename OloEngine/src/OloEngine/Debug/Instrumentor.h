@@ -2,6 +2,10 @@
 
 #include "OloEngine/Core/Log.h"
 
+#if TRACY_ENABLE
+	#include <tracy/Tracy.hpp>
+#endif
+
 #include <algorithm>
 #include <chrono>
 #include <fstream>
@@ -11,6 +15,7 @@
 #include <mutex>
 #include <sstream>
 
+#if !TRACY_ENABLE
 namespace OloEngine
 {
 	using FloatingPointMicroseconds = std::chrono::duration<double, std::micro>;
@@ -207,9 +212,10 @@ namespace OloEngine
 		}
 	}
 }
+#endif
 
 #define OLO_PROFILE 1
-#if OLO_PROFILE
+#if OLO_PROFILE && !TRACY_ENABLE
 	// Resolve which function signature macro will be used. Note that this only
 	// is resolved when the (pre)compiler starts, so the syntax highlighting
 	// could mark the wrong one in your editor!
@@ -233,14 +239,31 @@ namespace OloEngine
 
 	#define OLO_PROFILE_BEGIN_SESSION(name, filepath) ::OloEngine::Instrumentor::Get().BeginSession(name, filepath)
 	#define OLO_PROFILE_END_SESSION() ::OloEngine::Instrumentor::Get().EndSession()
+
 	#define OLO_PROFILE_SCOPE_LINE2(name, line) constexpr auto fixedName##line = ::OloEngine::InstrumentorUtils::CleanupOutputString(name, "__cdecl ");\
 												   ::OloEngine::InstrumentationTimer timer##line(fixedName##line.Data)
 	#define OLO_PROFILE_SCOPE_LINE(name, line) OLO_PROFILE_SCOPE_LINE2(name, line)
+
 	#define OLO_PROFILE_SCOPE(name) OLO_PROFILE_SCOPE_LINE(name, __LINE__)
 	#define OLO_PROFILE_FUNCTION() OLO_PROFILE_SCOPE(OLO_FUNC_SIG)
+	#define OLO_PROFILE_FRAMEMARK_START(name)
+	#define OLO_PROFILE_FRAMEMARK_END(name)
+	#define OLO_PROFILE_SETVALUE(value)
+#elif OLO_PROFILE && TRACY_ENABLE
+	#define OLO_PROFILE_BEGIN_SESSION(name, filepath)
+	#define OLO_PROFILE_END_SESSION()
+
+	#define OLO_PROFILE_SCOPE(name) ZoneScopedN(name)
+	#define OLO_PROFILE_FUNCTION() ZoneScoped
+	#define OLO_PROFILE_FRAMEMARK_START(name) FrameMarkStart(name)
+	#define OLO_PROFILE_FRAMEMARK_END(name) FrameMarkEnd(name)
+	#define OLO_PROFILE_SETVALUE(value) ZoneValue(value)
 #else
 	#define OLO_PROFILE_BEGIN_SESSION(name, filepath)
 	#define OLO_PROFILE_END_SESSION()
 	#define OLO_PROFILE_SCOPE(name)
 	#define OLO_PROFILE_FUNCTION()
+	#define OLO_PROFILE_FRAMEMARK_START(name)
+	#define OLO_PROFILE_FRAMEMARK_END(name)
+	#define OLO_PROFILE_SETVALUE(value)
 #endif

@@ -121,7 +121,6 @@ namespace OloEngine
 
 		while (m_Running)
 		{
-			OLO_PROFILE_SCOPE("RunLoop");
 
 			const auto timeNow = Time::GetTime();
 			const Timestep timestep = timeNow - m_LastFrameTime;
@@ -132,26 +131,29 @@ namespace OloEngine
 			if (!m_Minimized)
 			{
 				{
-					OLO_PROFILE_SCOPE("LayerStack OnUpdate");
+					OLO_PROFILE_FRAMEMARK_START("LayerStack OnUpdate");
 					for (Layer* const layer : m_LayerStack)
 					{
 						layer->OnUpdate(timestep);
 					}
+					OLO_PROFILE_FRAMEMARK_END("LayerStack OnUpdate");
 				}
 
 				OloEngine::ImGuiLayer::Begin();
 				{
-					OLO_PROFILE_SCOPE("LayerStack OnImGuiRender");
-
+					OLO_PROFILE_FRAMEMARK_START("LayerStack OnImGuiRender");
 					for (Layer* const layer : m_LayerStack)
 					{
 						layer->OnImGuiRender();
 					}
+					OLO_PROFILE_FRAMEMARK_END("LayerStack OnImGuiRender");
 				}
 				OloEngine::ImGuiLayer::End();
 			}
 
+			OLO_PROFILE_FRAMEMARK_START("Window OnUpdate");
 			m_Window->OnUpdate();
+			OLO_PROFILE_FRAMEMARK_END("Window OnUpdate");
 		}
 	}
 
