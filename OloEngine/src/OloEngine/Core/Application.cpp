@@ -10,8 +10,6 @@
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
-#include <tracy/Tracy.hpp>
-
 #include <ranges>
 #include <utility>
 
@@ -134,29 +132,29 @@ namespace OloEngine
 			if (!m_Minimized)
 			{
 				{
-					FrameMarkStart("LayerStack OnUpdate");
+					OLO_PROFILE_FRAMEMARK_START("LayerStack OnUpdate");
 					for (Layer* const layer : m_LayerStack)
 					{
 						layer->OnUpdate(timestep);
 					}
-					FrameMarkEnd("LayerStack OnUpdate");
+					OLO_PROFILE_FRAMEMARK_END("LayerStack OnUpdate");
 				}
 
 				OloEngine::ImGuiLayer::Begin();
 				{
-					FrameMarkStart("LayerStack OnImGuiRender");
+					OLO_PROFILE_FRAMEMARK_START("LayerStack OnImGuiRender");
 					for (Layer* const layer : m_LayerStack)
 					{
 						layer->OnImGuiRender();
 					}
-					FrameMarkEnd("LayerStack OnImGuiRender");
+					OLO_PROFILE_FRAMEMARK_END("LayerStack OnImGuiRender");
 				}
 				OloEngine::ImGuiLayer::End();
 			}
 
-			FrameMarkStart("Window OnUpdate");
+			OLO_PROFILE_FRAMEMARK_START("Window OnUpdate");
 			m_Window->OnUpdate();
-			FrameMarkEnd("Window OnUpdate");
+			OLO_PROFILE_FRAMEMARK_END("Window OnUpdate");
 		}
 	}
 
