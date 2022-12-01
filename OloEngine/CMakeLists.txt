@@ -82,6 +82,7 @@ target_compile_definitions(OloEngine PRIVATE
 							YAML_CPP_STATIC_DEFINE
 							$<$<CONFIG:Debug>:OLO_DEBUG>
 							$<$<CONFIG:Release>:OLO_RELEASE>
+							$<$<CONFIG:Release>:TRACY_ENABLE>
 							$<$<CONFIG:Dist>:OLO_DIST>
 )
 

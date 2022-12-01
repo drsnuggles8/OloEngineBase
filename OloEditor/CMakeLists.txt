@@ -51,6 +51,7 @@ target_include_directories("OloEditor" PRIVATE
 target_compile_definitions("OloEditor" PRIVATE
 							$<$<CONFIG:Debug>:OLO_DEBUG>
 							$<$<CONFIG:Release>:OLO_RELEASE>
+							$<$<CONFIG:Release>:TRACY_ENABLE>
 							$<$<CONFIG:Dist>:OLO_DIST>
 )
 

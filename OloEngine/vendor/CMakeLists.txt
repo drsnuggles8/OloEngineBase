@@ -4,43 +4,85 @@ set(FETCHCONTENT_BASE_DIR ${PROJECT_SOURCE_DIR}/vendor CACHE PATH "Missing descr
 
 message(STATUS "Downloading third party libraries using CMake's FetchContent and CPM")
 
-FetchContent_Declare(assimp
-	GIT_REPOSITORY https://github.com/assimp/assimp.git
-	GIT_TAG master)
-FetchContent_Declare(box2d
-	GIT_REPOSITORY https://github.com/erincatto/box2d.git
-	GIT_TAG main)
-FetchContent_Declare(entt
-	GIT_REPOSITORY https://github.com/skypjack/entt.git
-	GIT_TAG master)
-FetchContent_Declare(filewatch
-	GIT_REPOSITORY https://github.com/ThomasMonkman/filewatch.git
-	GIT_TAG master)
-FetchContent_Declare(glad
-	GIT_REPOSITORY https://github.com/Dav1dde/glad.git
-	GIT_TAG v2.0.2
-	SOURCE_SUBDIR cmake)
-FetchContent_Declare(glfw
-	GIT_REPOSITORY https://github.com/glfw/glfw.git
-	GIT_TAG 3.3.8)
-FetchContent_Declare(glm
+FetchContent_Declare(
+	assimp
+	GIT_REPOSITORY	https://github.com/assimp/assimp.git
+	GIT_TAG			master
+	GIT_SHALLOW		TRUE
+	GIT_PROGRESS	TRUE
+)
+FetchContent_Declare(
+	box2d
+	GIT_REPOSITORY	https://github.com/erincatto/box2d.git
+	GIT_TAG			main
+	GIT_SHALLOW		TRUE
+	GIT_PROGRESS	TRUE
+)
+FetchContent_Declare(
+	entt
+	GIT_REPOSITORY	https://github.com/skypjack/entt.git
+	GIT_TAG			master
+	GIT_SHALLOW		TRUE
+	GIT_PROGRESS	TRUE
+)
+FetchContent_Declare(
+	filewatch
+	GIT_REPOSITORY	https://github.com/ThomasMonkman/filewatch.git
+	GIT_TAG			master
+	GIT_SHALLOW		TRUE
+	GIT_PROGRESS	TRUE
+)
+FetchContent_Declare(
+	glad
+	GIT_REPOSITORY	https://github.com/Dav1dde/glad.git
+	GIT_TAG			v2.0.2
+	GIT_SHALLOW		TRUE
+	GIT_PROGRESS	TRUE
+	SOURCE_SUBDIR	cmake
+)
+FetchContent_Declare(
+	glfw
+	GIT_REPOSITORY	https://github.com/glfw/glfw.git
+	GIT_TAG			3.3.8
+	GIT_SHALLOW		TRUE
+	GIT_PROGRESS	TRUE
+)
+FetchContent_Declare(
+	glm
 	GIT_REPOSITORY https://github.com/g-truc/glm.git
-	GIT_TAG 0.9.9.8)
-FetchContent_Declare(googletest
+	GIT_TAG 0.9.9.8
+	GIT_SHALLOW		TRUE
+	GIT_PROGRESS	TRUE
+)
+FetchContent_Declare(
+	googletest
 	GIT_REPOSITORY https://github.com/google/googletest.git
-	GIT_TAG main)
+	GIT_TAG main
+	GIT_SHALLOW		TRUE
+	GIT_PROGRESS	TRUE
+)
 # Don't update spdlog to 1.11.0, gives errors in OpenGLContext.cpp
-FetchContent_Declare(spdlog
-	GIT_REPOSITORY https://github.com/gabime/spdlog.git
-	GIT_TAG v1.10.0)
-FetchContent_Declare(tracy
-	GIT_REPOSITORY https://github.com/wolfpld/tracy.git
-	GIT_TAG master
-	GIT_SHALLOW TRUE
-	GIT_PROGRESS TRUE)
-FetchContent_Declare(yaml-cpp
-	GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
-	GIT_TAG master)
+FetchContent_Declare(
+	spdlog
+	GIT_REPOSITORY	https://github.com/gabime/spdlog.git
+	GIT_TAG			v1.10.0
+	GIT_SHALLOW		TRUE
+	GIT_PROGRESS	TRUE
+)
+FetchContent_Declare(
+	tracy
+	GIT_REPOSITORY	https://github.com/wolfpld/tracy.git
+	GIT_TAG			master
+	GIT_SHALLOW		TRUE
+	GIT_PROGRESS	TRUE
+)
+FetchContent_Declare(
+	yaml-cpp
+	GIT_REPOSITORY	https://github.com/jbeder/yaml-cpp.git
+	GIT_TAG			master
+	GIT_SHALLOW		TRUE
+	GIT_PROGRESS	TRUE
+)
 
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -56,12 +98,18 @@ set(GLM_TEST_ENABLE OFF CACHE BOOL "" FORCE)
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 set(BuildTests OFF CACHE BOOL "" FORCE)
 set(SPDLOG_USE_STD_FORMAT OFF CACHE BOOL "" FORCE)
-set(TRACY_ON_DEMAND ON CACHE BOOL "" FORCE)
+set(TRACY_ENABLE OFF CACHE BOOL "Enable profiling")
+option(TRACY_ENABLE "Enable profiling" ON)
+set(TRACY_ON_DEMAND OFF CACHE BOOL "" FORCE)
 set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
 FetchContent_MakeAvailable(assimp box2d entt filewatch glad glfw glm googletest spdlog tracy yaml-cpp)
+
+target_compile_definitions("TracyClient" PRIVATE $<$<CONFIG:Release>:TRACY_ENABLE>
+
+)
 
 glad_add_library(glad STATIC API gl:core=4.6 LOCATION ${PROJECT_SOURCE_DIR}/vendor/glad-build/${TARGET})
 
