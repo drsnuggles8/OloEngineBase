@@ -77,7 +77,7 @@ namespace OloEngine
 		MonoMethod* GetMethod(const std::string& name, int parameterCount);
 		MonoObject* InvokeMethod(MonoObject* instance, MonoMethod* method, void** params = nullptr);
 
-		const std::map<std::string, ScriptField>& GetFields() const { return m_Fields; }
+        [[nodiscard("Store this!")]] const std::map<std::string, ScriptField>& GetFields() const { return m_Fields; }
 	private:
 		std::string m_ClassNamespace;
 		std::string m_ClassName;
@@ -97,7 +97,7 @@ namespace OloEngine
 		void InvokeOnCreate();
 		void InvokeOnUpdate(float ts);
 
-		Ref<ScriptClass> GetScriptClass() const { return m_ScriptClass; }
+        [[nodiscard("Store this!")]] Ref<ScriptClass> GetScriptClass() const { return m_ScriptClass; }
 
 		template<typename T>
 		T GetFieldValue(const std::string& name)

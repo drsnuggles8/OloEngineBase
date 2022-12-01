@@ -46,8 +46,8 @@ namespace OloEngine
 
 		Entity GetPrimaryCameraEntity();
 
-		bool IsRunning() const { return m_IsRunning; }
-		bool IsPaused() const { return m_IsPaused; }
+		[[nodiscard("Store this!")]] bool IsRunning() const { return m_IsRunning; }
+        [[nodiscard("Store this!")]] bool IsPaused() const { return m_IsPaused; }
 
 		void SetPaused(bool paused) { m_IsPaused = paused; }
 

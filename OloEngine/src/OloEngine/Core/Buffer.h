@@ -72,7 +72,7 @@ namespace OloEngine
 			m_Buffer.Release();
 		}
 
-		[[nodiscard("Store this!")]] uint8_t * Data() { return m_Buffer.Data; }
+		[[nodiscard("Store this!")]] uint8_t * Data() const { return m_Buffer.Data; }
 		[[nodiscard("Store this!")]] uint64_t Size() const { return m_Buffer.Size; }
 
 		template<typename T>

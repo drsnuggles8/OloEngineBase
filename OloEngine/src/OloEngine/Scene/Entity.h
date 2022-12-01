@@ -44,7 +44,7 @@ namespace OloEngine
 		}
 
 		template<typename T>
-		const T& GetComponent() const
+		[[nodiscard]] const T& GetComponent() const
 		{
 			OLO_CORE_ASSERT(HasComponent<T>(), "Entity doesn't have component!");
 			return m_Scene->m_Registry.get<T>(m_EntityHandle);
@@ -86,15 +86,15 @@ namespace OloEngine
 		explicit(false) operator entt::entity() const { return m_EntityHandle; }
 		explicit operator uint32_t() const { return static_cast<uint32_t>(m_EntityHandle); }
 
-		TransformComponent GetTransform() const { return GetComponent<TransformComponent>(); }
+		[[nodiscard("Store this!")]] TransformComponent GetTransform() const { return GetComponent<TransformComponent>(); }
 
-		glm::mat4 GetLocalTransform() const
+		[[nodiscard("Store this!")]] glm::mat4 GetLocalTransform() const
 		{
 			const auto& transform = GetTransform();
 			return glm::translate(glm::mat4(1.0f), transform.Translation) * glm::toMat4(glm::quat(transform.Rotation)) * glm::scale(glm::mat4(1.0f), transform.Scale);
 		}
 
-		UUID GetUUID() const { return GetComponent<IDComponent>().ID; }
+		[[nodiscard("Store this!")]] UUID GetUUID() const { return GetComponent<IDComponent>().ID; }
 		const std::string& GetName() { return GetComponent<TagComponent>().Tag; }
 
 		bool operator==(const Entity& other) const
