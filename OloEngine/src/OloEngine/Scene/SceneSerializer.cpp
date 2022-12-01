@@ -541,7 +541,7 @@ namespace OloEngine
 							for (auto scriptField : scriptFields)
 							{
 								name = scriptField["Name"].as<std::string>();
-								std::string typeString = scriptField["Type"].as<std::string>();
+								auto typeString = scriptField["Type"].as<std::string>();
 								ScriptFieldType type = Utils::ScriptFieldTypeFromString(typeString);
 
 								ScriptFieldInstance& fieldInstance = entityFields[name];
@@ -583,7 +583,7 @@ namespace OloEngine
 				if (const auto& audioSourceComponent = entity["AudioSourceComponent"])
 				{
 					auto& src = deserializedEntity.AddComponent<AudioSourceComponent>();
-					std::string audioFilepath = "";
+					std::string audioFilepath;
 					TrySet(audioFilepath, audioSourceComponent["Filepath"]);
 					TrySet(src.Config.VolumeMultiplier, audioSourceComponent["VolumeMultiplier"]);
 					TrySet(src.Config.PitchMultiplier, audioSourceComponent["PitchMultiplier"]);

@@ -39,7 +39,7 @@ namespace OloEngine
 	class AudioSource
 	{
 	public:
-		explicit AudioSource(const char* filepath);
+		AudioSource(const char* filepath);
 		~AudioSource();
 
 		AudioSource(const AudioSource& other) = default;
