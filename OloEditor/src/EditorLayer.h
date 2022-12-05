@@ -27,7 +27,7 @@ namespace OloEngine
 		void OnOverlayRender() const;
 
 		void NewProject();
-		void OpenProject();
+		bool OpenProject();
 		bool OpenProject(const std::filesystem::path& path);
 		void SaveProject();
 

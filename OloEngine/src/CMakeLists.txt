@@ -106,6 +106,8 @@
 		"OloEngine/Scripting/Lua/LuaScriptGlue.cpp"
 		"OloEngine/Scripting/Lua/LuaScriptGlue.h"
 
+		"OloEngine/UI/UI.h"
+
 		"OloEngine/Utils/PlatformUtils.h"
 
 		"Platform/OpenGL/OpenGLBuffer.cpp"
