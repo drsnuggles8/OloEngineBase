@@ -43,8 +43,8 @@ namespace OloEngine
 
 		BufferElement() = default;
 
-		BufferElement(ShaderDataType const type, std::string  name, const bool normalized = false)
-			: Name(std::move(name)), Type(type), Size(ShaderDataTypeSize(type)), Offset(0), Normalized(normalized)
+		BufferElement(ShaderDataType const type, const std::string& name, const bool normalized = false)
+			: Name(name), Type(type), Size(ShaderDataTypeSize(type)), Offset(0), Normalized(normalized)
 		{
 		}
 
@@ -77,14 +77,14 @@ namespace OloEngine
 	public:
 		BufferLayout() = default;
 
-		BufferLayout(std::initializer_list<BufferElement> elements)
+		BufferLayout(const std::initializer_list<BufferElement>& elements)
 			: m_Elements(elements)
 		{
 			CalculateOffsetsAndStride();
 		}
 
 		[[nodiscard("Store this!")]] uint32_t GetStride() const { return m_Stride; }
-		[[nodiscard("Store this!")]] const std::vector<BufferElement>& GetElements() const { return m_Elements; }
+		[[nodiscard("Store this!")]] const std::vector<BufferElement> GetElements() const { return m_Elements; }
 
 		std::vector<BufferElement>::iterator begin() { return m_Elements.begin(); }
 		std::vector<BufferElement>::iterator end() { return m_Elements.end(); }
@@ -137,7 +137,6 @@ namespace OloEngine
 		virtual void Unbind() const = 0;
 
 		[[nodiscard("Store this!")]] virtual uint32_t GetCount() const = 0;
-
         [[nodiscard("Store this!")]] virtual uint32_t GetBufferHandle() const = 0;
 
 		static Ref<IndexBuffer> Create(uint32_t* indices, uint32_t size);

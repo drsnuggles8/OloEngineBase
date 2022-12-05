@@ -15,7 +15,6 @@
 
 namespace OloEngine
 {
-	// TODO(olbu0: Rework the whole shader setup?
 	namespace Utils
 	{
 		static GLenum ShaderTypeFromString(std::string_view type)
@@ -37,8 +36,14 @@ namespace OloEngine
 		{
 			switch (stage)
 			{
-				case GL_VERTEX_SHADER:   return shaderc_glsl_vertex_shader;
-				case GL_FRAGMENT_SHADER: return shaderc_glsl_fragment_shader;
+				case GL_VERTEX_SHADER:
+				{
+					return shaderc_glsl_vertex_shader;
+				}
+				case GL_FRAGMENT_SHADER: 
+				{
+					return shaderc_glsl_fragment_shader;
+				}
 			}
 			OLO_CORE_ASSERT(false);
 			return static_cast<shaderc_shader_kind>(0);
@@ -48,8 +53,14 @@ namespace OloEngine
 		{
 			switch (stage)
 			{
-				case GL_VERTEX_SHADER:   return "GL_VERTEX_SHADER";
-				case GL_FRAGMENT_SHADER: return "GL_FRAGMENT_SHADER";
+				case GL_VERTEX_SHADER:
+				{
+					return "GL_VERTEX_SHADER";
+				}
+				case GL_FRAGMENT_SHADER:
+				{
+					return "GL_FRAGMENT_SHADER";
+				}
 			}
 			OLO_CORE_ASSERT(false);
 			return nullptr;
@@ -74,8 +85,14 @@ namespace OloEngine
 		{
 			switch (stage)
 			{
-				case GL_VERTEX_SHADER:    return ".cached_opengl.vert";
-				case GL_FRAGMENT_SHADER:  return ".cached_opengl.frag";
+				case GL_VERTEX_SHADER:
+				{
+					return ".cached_opengl.vert";
+				}
+				case GL_FRAGMENT_SHADER:
+				{
+					return ".cached_opengl.frag";
+				}
 			}
 			OLO_CORE_ASSERT(false);
 			return "";
@@ -85,8 +102,14 @@ namespace OloEngine
 		{
 			switch (stage)
 			{
-				case GL_VERTEX_SHADER:    return ".cached_vulkan.vert";
-				case GL_FRAGMENT_SHADER:  return ".cached_vulkan.frag";
+				case GL_VERTEX_SHADER:
+				{
+					return ".cached_vulkan.vert";
+				}
+				case GL_FRAGMENT_SHADER:
+				{
+					return ".cached_vulkan.frag";
+				}
 			}
 			OLO_CORE_ASSERT(false);
 			return "";
@@ -110,30 +133,29 @@ namespace OloEngine
 		const std::string source = ReadFile(filepath);
 		const auto shaderSources = PreProcess(source);
 
+		const Timer timer;
+		CompileOrGetVulkanBinaries(shaderSources);
+		if (Utils::IsAmdGpu())
 		{
-			const Timer timer;
-			CompileOrGetVulkanBinaries(shaderSources);
-			if (Utils::IsAmdGpu())
-			{
-				CreateProgramForAmd();
-			}
-			else
-			{
-				CompileOrGetOpenGLBinaries();
-				CreateProgram();
-			}
-			OLO_CORE_WARN("Shader creation took {0} ms", timer.ElapsedMillis());
+			CreateProgramForAmd();
 		}
+		else
+		{
+			CompileOrGetOpenGLBinaries();
+			CreateProgram();
+		}
+		OLO_CORE_WARN("Shader creation took {0} ms", timer.ElapsedMillis());
 
-		// Extract name from filepath
+		// Extract shader name from filepath
 		auto lastSlash = filepath.find_last_of("/\\");
-		lastSlash = lastSlash == std::string::npos ? 0 : (lastSlash + 1);
 		const auto lastDot = filepath.rfind('.');
+		lastSlash = lastSlash == std::string::npos ? 0 : (lastSlash + 1);
 		const auto count = lastDot == std::string::npos ? (filepath.size() - lastSlash) : (lastDot - lastSlash);
+		
 		m_Name = filepath.substr(lastSlash, count);
 	}
 
-	OpenGLShader::OpenGLShader(std::string  name, std::string_view vertexSrc, std::string_view fragmentSrc)
+	OpenGLShader::OpenGLShader(std::string name, std::string_view vertexSrc, std::string_view fragmentSrc)
 		: m_Name(std::move(name))
 	{
 		OLO_PROFILE_FUNCTION();
@@ -288,7 +310,7 @@ namespace OloEngine
 
 		shaderData.clear();
 		m_OpenGLSourceCode.clear();
-		for (auto&& [stage, spirv] : m_VulkanSPIRV)
+		for (auto&& [stage, spirv]: m_VulkanSPIRV)
 		{
 			const std::filesystem::path shaderFilePath = m_FilePath;
 			const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + Utils::GLShaderStageCachedOpenGLFileExtension(stage));
