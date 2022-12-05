@@ -80,8 +80,6 @@
 		"OloEngine/Renderer/Shader.h"
 		"OloEngine/Renderer/Texture.cpp"
 		"OloEngine/Renderer/Texture.h"
-		"OloEngine/Renderer/UniformBuffer.cpp"
-		"OloEngine/Renderer/UniformBuffer.h"
 		"OloEngine/Renderer/VertexArray.cpp"
 		"OloEngine/Renderer/VertexArray.h"
 		
@@ -120,8 +118,6 @@
 		"Platform/OpenGL/OpenGLShader.h"
 		"Platform/OpenGL/OpenGLTexture.cpp"
 		"Platform/OpenGL/OpenGLTexture.h"
-		"Platform/OpenGL/OpenGLUniformBuffer.cpp"
-		"Platform/OpenGL/OpenGLUniformBuffer.h"
 		"Platform/OpenGL/OpenGLVertexArray.cpp"
 		"Platform/OpenGL/OpenGLVertexArray.h"
 		"Platform/Windows/WindowsInput.cpp"

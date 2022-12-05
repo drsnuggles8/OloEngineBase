@@ -12,18 +12,30 @@ namespace OloEngine
 		switch (type)
 		{
 			using enum OloEngine::ShaderDataType;
-			case Float:    return GL_FLOAT;
-			case Float2:   return GL_FLOAT;
-			case Float3:   return GL_FLOAT;
-			case Float4:   return GL_FLOAT;
-			case Mat3:     return GL_FLOAT;
-			case Mat4:     return GL_FLOAT;
-			case Int:      return GL_INT;
-			case Int2:     return GL_INT;
-			case Int3:     return GL_INT;
-			case Int4:     return GL_INT;
-			case Bool:     return GL_BOOL;
-			case None:     break;
+			case Float:
+			case Float2:
+			case Float3:
+			case Float4:
+			case Mat3:
+			case Mat4:
+			{
+				return GL_FLOAT;
+			}
+			case Int:
+			case Int2:
+			case Int3:
+			case Int4:
+			{
+				return GL_INT;
+			}
+			case Bool:
+			{
+				return GL_BOOL;
+			}
+			case None:
+			{
+				break;
+			}
 		}
 
 		OLO_CORE_ASSERT(false, "Unknown ShaderDataType!");
@@ -76,6 +88,8 @@ namespace OloEngine
 				case Float2:
 				case Float3:
 				case Float4:
+				case Mat3:
+				case Mat4:
 				{
 					glEnableVertexArrayAttrib(m_RendererID, m_VertexBufferIndex);
 					glVertexArrayVertexBuffer(m_RendererID, m_VertexBufferIndex, vertexBuffer->GetBufferHandle(), element.Offset, layout.GetStride());
@@ -96,17 +110,6 @@ namespace OloEngine
 					//glVertexArrayVertexBuffer(m_RendererID, m_VertexBufferIndex, vertexBuffer->GetBufferHandle(), element.Offset, layout.GetStride());
 					//glVertexArrayAttribFormat(m_RendererID, m_VertexBufferIndex, element.GetComponentCount(), ShaderDataTypeToOpenGLBaseType(element.Type), element.Normalized ? GL_TRUE : GL_FALSE, 0);
 					glVertexAttribIPointer(m_VertexBufferIndex, element.GetComponentCount(), ShaderDataTypeToOpenGLBaseType(element.Type), layout.GetStride(), reinterpret_cast<const void*>(element.Offset));
-
-					glVertexArrayAttribBinding(m_RendererID, m_VertexBufferIndex, m_VertexBufferIndex);
-					++m_VertexBufferIndex;
-					break;
-				}
-				case Mat3:
-				case Mat4:
-				{
-					glEnableVertexArrayAttrib(m_RendererID, m_VertexBufferIndex);
-					glVertexArrayVertexBuffer(m_RendererID, m_VertexBufferIndex, vertexBuffer->GetBufferHandle(), element.Offset, layout.GetStride());
-					glVertexArrayAttribFormat(m_RendererID, m_VertexBufferIndex, element.GetComponentCount(), ShaderDataTypeToOpenGLBaseType(element.Type), element.Normalized ? GL_TRUE : GL_FALSE, 0);
 
 					glVertexArrayAttribBinding(m_RendererID, m_VertexBufferIndex, m_VertexBufferIndex);
 					++m_VertexBufferIndex;
