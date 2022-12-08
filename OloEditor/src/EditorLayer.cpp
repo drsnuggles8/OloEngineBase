@@ -50,7 +50,6 @@ namespace OloEngine
 				Application::Get().Close();
 			}
 		}
-		
 		m_EditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
 	}
 
@@ -732,8 +731,7 @@ namespace OloEngine
 
 	bool EditorLayer::OpenProject()
 	{
-		std::string filepath = FileDialogs::OpenFile("OloEngine Project (*.oloproj)\0*.oloproj\0");
-		if (!filepath.empty())
+		if (std::string filepath = FileDialogs::OpenFile("OloEngine Project (*.oloproj)\0*.oloproj\0"); !filepath.empty())
 		{
 			OpenProject(filepath);
 			return true;
