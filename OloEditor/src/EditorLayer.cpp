@@ -38,16 +38,17 @@ namespace OloEngine
 		fbSpec.Height = 720;
 		m_Framebuffer = Framebuffer::Create(fbSpec);
 
-		bool isProjectLoaded = false;
-
 		if (const auto commandLineArgs = Application::Get().GetSpecification().CommandLineArgs; commandLineArgs.Count > 1)
 		{
 			auto* projectFilePath = commandLineArgs[1];
-			isProjectLoaded = OpenProject(projectFilePath);
+			OpenProject(projectFilePath);
 		}
-		if (!isProjectLoaded)
+		else
 		{
-			NewProject();
+			if (!OpenProject())
+			{
+				Application::Get().Close();
+			}
 		}
 		m_EditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
 	}
@@ -225,13 +226,13 @@ namespace OloEngine
 
 			if (ImGui::BeginMenu("Open..."))
 			{
-				if (ImGui::MenuItem("Scene", "Ctrl+O"))
-				{
-					OpenScene();
-				}
 				if (ImGui::MenuItem("Project"))
 				{
 					OpenProject();
+				}
+				if (ImGui::MenuItem("Scene", "Ctrl+O"))
+				{
+					OpenScene();
 				}
 				ImGui::EndMenu();
 			}
@@ -728,13 +729,14 @@ namespace OloEngine
 		m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
 	}
 
-	void EditorLayer::OpenProject()
+	bool EditorLayer::OpenProject()
 	{
-		std::string filepath = FileDialogs::OpenFile("OloEngine Project (*.oloproj)\0*.oloproj\0");
-		if (!filepath.empty())
+		if (std::string filepath = FileDialogs::OpenFile("OloEngine Project (*.oloproj)\0*.oloproj\0"); !filepath.empty())
 		{
 			OpenProject(filepath);
+			return true;
 		}
+		return false;
 	}
 
 	bool EditorLayer::OpenProject(const std::filesystem::path& path)
