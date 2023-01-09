@@ -49,9 +49,9 @@ namespace OloEngine
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 	}
 
-	void OpenGLVertexBuffer::SetData(void const* const data, const uint32_t size)
+	void OpenGLVertexBuffer::SetData(const VertexData& data)
 	{
-		glNamedBufferSubData(m_RendererID, 0, size, data);
+		glNamedBufferSubData(m_RendererID, 0, data.size, data.data);
 	}
 
 	/////////////////////////////////////////////////////////////////////////////
@@ -64,7 +64,6 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 
 		glCreateBuffers(1, &m_RendererID);
-
 		glNamedBufferData(m_RendererID, count * sizeof(uint32_t), indices, GL_STATIC_DRAW);
 	}
 
@@ -106,9 +105,9 @@ namespace OloEngine
 	}
 
 
-	void OpenGLUniformBuffer::SetData(const void* const data, const uint32_t size, const uint32_t offset)
+	void OpenGLUniformBuffer::SetData(const UniformData& data)
 	{
-		glNamedBufferSubData(m_RendererID, offset, size, data);
+		glNamedBufferSubData(m_RendererID, data.offset, data.size, data.data);
 	}
 
 }

@@ -202,7 +202,8 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 
 		s_Data.CameraBuffer.ViewProjection = camera.GetViewProjectionMatrix();
-		s_Data.CameraUniformBuffer->SetData(&s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData), 0);
+		UniformData data = { &s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData), 0 };
+		s_Data.CameraUniformBuffer->SetData(data);
 
 		StartBatch();
 	}
@@ -212,7 +213,8 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 
 		s_Data.CameraBuffer.ViewProjection = camera.GetProjection() * glm::inverse(transform);
-		s_Data.CameraUniformBuffer->SetData(&s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData), 0);
+		UniformData data = { &s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData), 0 };
+		s_Data.CameraUniformBuffer->SetData(data);
 
 		StartBatch();
 	}
@@ -222,7 +224,8 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 
 		s_Data.CameraBuffer.ViewProjection = camera.GetViewProjection();
-		s_Data.CameraUniformBuffer->SetData(&s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData), 0);
+		UniformData data = { &s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData), 0 };
+		s_Data.CameraUniformBuffer->SetData(data);
 
 		StartBatch();
 	}
@@ -253,7 +256,8 @@ namespace OloEngine
 		if (s_Data.QuadIndexCount)
 		{
 			const auto dataSize = static_cast<uint32_t>(reinterpret_cast<uint8_t*>(s_Data.QuadVertexBufferPtr) - reinterpret_cast<uint8_t*>(s_Data.QuadVertexBufferBase));
-			s_Data.QuadVertexBuffer->SetData(s_Data.QuadVertexBufferBase, dataSize);
+			VertexData data = { s_Data.QuadVertexBufferBase, dataSize };
+			s_Data.QuadVertexBuffer->SetData(data);
 
 			// Bind textures
 			for (uint32_t i = 0; i < s_Data.TextureSlotIndex; i++)
@@ -269,7 +273,8 @@ namespace OloEngine
 		if (s_Data.CircleIndexCount)
 		{
 			const auto dataSize = static_cast<uint32_t>(reinterpret_cast<uint8_t*>(s_Data.CircleVertexBufferPtr) - reinterpret_cast<uint8_t*>(s_Data.CircleVertexBufferBase));
-			s_Data.CircleVertexBuffer->SetData(s_Data.CircleVertexBufferBase, dataSize);
+			VertexData data = { s_Data.CircleVertexBufferBase, dataSize };
+			s_Data.CircleVertexBuffer->SetData(data);
 
 			s_Data.CircleShader->Bind();
 			RenderCommand::DrawIndexed(s_Data.CircleVertexArray, s_Data.CircleIndexCount);
@@ -279,7 +284,8 @@ namespace OloEngine
 		if (s_Data.LineVertexCount)
 		{
 			const auto dataSize = static_cast<uint32_t>(reinterpret_cast<uint8_t*>(s_Data.LineVertexBufferPtr) - reinterpret_cast<uint8_t*>(s_Data.LineVertexBufferBase));
-			s_Data.LineVertexBuffer->SetData(s_Data.LineVertexBufferBase, dataSize);
+			VertexData data = { s_Data.LineVertexBufferBase, dataSize };
+			s_Data.LineVertexBuffer->SetData(data);
 
 			s_Data.LineShader->Bind();
 			RenderCommand::SetLineWidth(s_Data.LineWidth);
