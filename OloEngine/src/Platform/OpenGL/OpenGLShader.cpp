@@ -40,7 +40,7 @@ namespace OloEngine
 				{
 					return shaderc_glsl_vertex_shader;
 				}
-				case GL_FRAGMENT_SHADER: 
+				case GL_FRAGMENT_SHADER:
 				{
 					return shaderc_glsl_fragment_shader;
 				}
@@ -151,7 +151,7 @@ namespace OloEngine
 		const auto lastDot = filepath.rfind('.');
 		lastSlash = lastSlash == std::string::npos ? 0 : (lastSlash + 1);
 		const auto count = lastDot == std::string::npos ? (filepath.size() - lastSlash) : (lastDot - lastSlash);
-		
+
 		m_Name = filepath.substr(lastSlash, count);
 	}
 

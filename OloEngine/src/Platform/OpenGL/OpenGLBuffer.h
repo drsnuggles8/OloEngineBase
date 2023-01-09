@@ -14,7 +14,7 @@ namespace OloEngine
 		void Bind() const override;
 		void Unbind() const override;
 
-		void SetData(void const* data, uint32_t size) override;
+		void SetData(const VertexData& data) override;
 
 		[[nodiscard("Store this!")]] const BufferLayout& GetLayout() const override { return m_Layout; }
 		void SetLayout(const BufferLayout& layout) override { m_Layout = layout; }
@@ -47,7 +47,7 @@ namespace OloEngine
 		OpenGLUniformBuffer(uint32_t size, uint32_t binding);
 		~OpenGLUniformBuffer() override;
 
-		void SetData(const void* data, uint32_t size, uint32_t offset = 0) override;
+		void SetData(const UniformData& data) override;
 	private:
 		uint32_t m_RendererID = 0;
 	};
