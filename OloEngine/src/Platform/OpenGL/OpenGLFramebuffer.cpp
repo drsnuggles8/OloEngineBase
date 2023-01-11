@@ -21,16 +21,27 @@ namespace OloEngine
 
 		static void CreateTextures(const bool multisampled, uint32_t* const outID, const uint32_t count)
 		{
+			OLO_CORE_ASSERT(count > 0, "Invalid count.");
 			glCreateTextures(TextureTarget(multisampled), count, outID);
 		}
 
 		static void BindTexture(const uint32_t id)
 		{
+			OLO_CORE_ASSERT(id > 0, "Invalid texture ID.");
 			glBindTextureUnit(0, id);
 		}
 
 		static void AttachColorTexture(const uint32_t fbo, const uint32_t id, const int samples, const GLenum internalFormat, const uint32_t width, const uint32_t height, const int index)
 		{
+			OLO_CORE_ASSERT(fbo > 0, "Invalid framebuffer object ID.");
+			OLO_CORE_ASSERT(id > 0, "Invalid texture ID.");
+			OLO_CORE_ASSERT(samples > 0, "Invalid number of samples.");
+			OLO_CORE_ASSERT((internalFormat == GL_RGBA8 || internalFormat == GL_RGBA16F || internalFormat == GL_RGBA32F
+				|| internalFormat == GL_DEPTH24_STENCIL8 || internalFormat == GL_DEPTH_COMPONENT32F), "Invalid internal format.");
+			OLO_CORE_ASSERT(width > 0, "Invalid texture width.");
+			OLO_CORE_ASSERT(height > 0, "Invalid texture height.");
+			OLO_CORE_ASSERT(index >= 0 && index <= 15, "Invalid color attachment index.");
+
 			if (bool multisampled = samples > 1)
 			{
 				glTextureStorage2DMultisample(id, samples, internalFormat, width, height, GL_FALSE);
@@ -48,7 +59,6 @@ namespace OloEngine
 
 			glNamedFramebufferTexture(fbo, GL_COLOR_ATTACHMENT0 + index, id, 0);
 
-			// Check for any errors
 			if (glGetError() != GL_NO_ERROR)
 			{
 				OLO_CORE_ERROR("Error attaching color texture!");
@@ -57,6 +67,14 @@ namespace OloEngine
 
 		static void AttachDepthTexture(const uint32_t fbo, const uint32_t id, const int samples, const GLenum format, const GLenum attachmentType, const uint32_t width, const uint32_t height)
 		{
+			OLO_CORE_ASSERT(fbo > 0, "Invalid framebuffer object ID.");
+			OLO_CORE_ASSERT(id > 0, "Invalid texture ID.");
+			OLO_CORE_ASSERT(samples > 0, "Invalid number of samples.");
+			OLO_CORE_ASSERT((format == GL_DEPTH24_STENCIL8 || format == GL_DEPTH_COMPONENT32F), "Invalid format.");
+			OLO_CORE_ASSERT((attachmentType == GL_DEPTH_ATTACHMENT || attachmentType == GL_STENCIL_ATTACHMENT || attachmentType == GL_DEPTH_STENCIL_ATTACHMENT), "Invalid attachment type.");
+			OLO_CORE_ASSERT(width > 0, "Invalid texture width.");
+			OLO_CORE_ASSERT(height > 0, "Invalid texture height.");
+
 			if (const bool multisampled = samples > 1)
 			{
 				glTextureStorage2DMultisample(id, samples, format, width, height, GL_FALSE);
