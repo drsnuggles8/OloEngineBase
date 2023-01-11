@@ -12,8 +12,8 @@ namespace OloEngine
 
 	static const uint32_t s_MaxFramebufferSize = 8192;
 
-	namespace Utils {
-
+	namespace Utils
+	{
 		[[nodiscard("Store this!")]]  constexpr static GLenum TextureTarget(const bool multisampled) noexcept
 		{
 			return multisampled ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D;
@@ -47,6 +47,12 @@ namespace OloEngine
 			}
 
 			glNamedFramebufferTexture(fbo, GL_COLOR_ATTACHMENT0 + index, id, 0);
+
+			// Check for any errors
+			if (glGetError() != GL_NO_ERROR)
+			{
+				OLO_CORE_ERROR("Error attaching color texture!");
+			}
 		}
 
 		static void AttachDepthTexture(const uint32_t fbo, const uint32_t id, const int samples, const GLenum format, const GLenum attachmentType, const uint32_t width, const uint32_t height)
