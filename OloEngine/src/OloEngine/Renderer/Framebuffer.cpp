@@ -2,9 +2,7 @@
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Framebuffer.h"
-
 #include "OloEngine/Renderer/Renderer.h"
-
 #include "Platform/OpenGL/OpenGLFramebuffer.h"
 
 namespace OloEngine
