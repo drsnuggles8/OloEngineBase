@@ -4,15 +4,16 @@
 
 namespace OloEngine
 {
+	// TODO(olbu): Add more formats here and to the OpenFLFramebuffer functions
 	enum class FramebufferTextureFormat
 	{
 		None = 0,
 
-		// Color
+		// Color formats
 		RGBA8,
 		RED_INTEGER,
 
-		// Depth/stencil
+		// Depth/stencil formats
 		DEPTH24STENCIL8,
 
 		// Defaults
@@ -41,7 +42,8 @@ namespace OloEngine
 
 	struct FramebufferSpecification
 	{
-		uint32_t Width = 0, Height = 0;
+		uint32_t Width = 0;
+		uint32_t Height = 0;
 		FramebufferAttachmentSpecification Attachments;
 		uint32_t Samples = 1;
 
