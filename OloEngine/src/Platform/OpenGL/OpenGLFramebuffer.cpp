@@ -26,7 +26,7 @@ namespace OloEngine
 
 		static void PrepareTexture(const uint32_t id, const int samples, const GLenum format, const uint32_t width, const uint32_t height, const uint32_t layer)
 		{
-			OLO_CORE_TRACE("Creating texture with id: {0}, samples: {1}, format: {2}, width: {3}, height: {4}, number of layers: {5}", id, samples, format, width, height, layer);
+			OLO_CORE_TRACE("Preparing texture with id: {0}, samples: {1}, format: {2}, width: {3}, height: {4}, number of layers: {5}", id, samples, format, width, height, layer);
 			OLO_CORE_ASSERT((format == GL_RGBA8 || format == GL_R32I || format == GL_DEPTH24_STENCIL8), "Invalid format.");
 
 			if (const bool multisampled = samples > 1)
@@ -124,15 +124,33 @@ namespace OloEngine
 			GLint objectName;
 			GLint level;
 			GLint layer;
+			GLint redSize;
+			GLint greenSize;
+			GLint blueSize;
+			GLint alphaSize;
+			GLint depthSize;
+			GLint stencilSize;
 			glGetNamedFramebufferAttachmentParameteriv(framebuffer, attachment, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &objectType);
 			glGetNamedFramebufferAttachmentParameteriv(framebuffer, attachment, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &objectName);
 			glGetNamedFramebufferAttachmentParameteriv(framebuffer, attachment, GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LEVEL, &level);
 			glGetNamedFramebufferAttachmentParameteriv(framebuffer, attachment, GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LAYER, &layer);
+			glGetNamedFramebufferAttachmentParameteriv(framebuffer, attachment, GL_FRAMEBUFFER_ATTACHMENT_RED_SIZE, &redSize);
+			glGetNamedFramebufferAttachmentParameteriv(framebuffer, attachment, GL_FRAMEBUFFER_ATTACHMENT_GREEN_SIZE, &greenSize);
+			glGetNamedFramebufferAttachmentParameteriv(framebuffer, attachment, GL_FRAMEBUFFER_ATTACHMENT_BLUE_SIZE, &blueSize);
+			glGetNamedFramebufferAttachmentParameteriv(framebuffer, attachment, GL_FRAMEBUFFER_ATTACHMENT_ALPHA_SIZE, &alphaSize);
+			glGetNamedFramebufferAttachmentParameteriv(framebuffer, attachment, GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LAYER, &depthSize);
+			glGetNamedFramebufferAttachmentParameteriv(framebuffer, attachment, GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LAYER, &stencilSize);
 			OLO_CORE_TRACE("Attachment parameters for framebuffer {0} and attachment {1}", framebuffer, attachment);
 			OLO_CORE_TRACE("Object type: {0}", objectType); 
 			OLO_CORE_TRACE("Object name: {0}", objectName); 
 			OLO_CORE_TRACE("Level: {0}", level);
 			OLO_CORE_TRACE("Layer: {0}", layer);
+			OLO_CORE_TRACE("Red Size: {0}", redSize);
+			OLO_CORE_TRACE("Green Size: {0}", greenSize);
+			OLO_CORE_TRACE("Blue Size: {0}", blueSize);
+			OLO_CORE_TRACE("Alpha Size: {0}", alphaSize);
+			OLO_CORE_TRACE("Depth size: {0}", depthSize);
+			OLO_CORE_TRACE("Stencil size: {0}", stencilSize);
 		}
 	}
 
@@ -192,6 +210,12 @@ namespace OloEngine
 				// TODO(olbu): Add more FramebufferTextureFormats in Framebuffer.h and here
 				GLenum internalFormat = Utils::OloFBColorTextureFormatToGL(m_ColorAttachmentSpecifications[i].TextureFormat);
 				Utils::AttachColorTexture(m_RendererID, m_ColorAttachments[i], m_Specification.Samples, internalFormat, m_Specification.Width, m_Specification.Height, i, 1);
+
+				GLenum status = glCheckNamedFramebufferStatus(m_RendererID, GL_FRAMEBUFFER);
+				if (status != GL_FRAMEBUFFER_COMPLETE)
+				{
+					OLO_CORE_ERROR("Framebuffer is incomplete. Status: {0}", status);
+				}
 			}
 		}
 
@@ -206,17 +230,13 @@ namespace OloEngine
 
 		if (m_ColorAttachments.size() > 1)
 		{
-			OLO_CORE_ASSERT(m_ColorAttachments.size() <= 4);
-			const GLenum buffers[4] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };
-			glDrawBuffers(static_cast<GLsizei>(m_ColorAttachments.size()), buffers);
+			std::vector<GLenum> colorBuffers;
+			for (int i = 0; i < m_ColorAttachments.size(); i++)
+			{
+				colorBuffers.push_back(GL_COLOR_ATTACHMENT0 + i);
+			}
 
-			//std::vector<GLenum> colorBuffers;
-			//for (int i = 0; i < m_ColorAttachments.size(); i++)
-			//{
-			//	colorBuffers.push_back(GL_COLOR_ATTACHMENT0 + i);
-			//}
-
-			//glDrawBuffers(static_cast<GLsizei>(m_ColorAttachments.size()), colorBuffers.data());
+			glDrawBuffers(static_cast<GLsizei>(m_ColorAttachments.size()), colorBuffers.data());
 		}
 		else if (m_ColorAttachments.empty())
 		{
@@ -232,6 +252,7 @@ namespace OloEngine
 		Utils::PrintAttachmentParameters(m_RendererID, GL_COLOR_ATTACHMENT3);
 
 		// Check framebuffer completeness
+		auto test = GL_TEXTURE;
 		GLenum status = glCheckNamedFramebufferStatus(m_RendererID, GL_FRAMEBUFFER); // 36054 => incomplete attachment somewhere
 		OLO_CORE_TRACE("Framebuffer status: {0}", status);
 		OLO_CORE_ASSERT(glCheckNamedFramebufferStatus(m_RendererID, GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE, "Framebuffer is incomplete!");
