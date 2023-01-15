@@ -104,4 +104,113 @@ namespace OloEngine
 
 		glBindTextureUnit(slot, m_RendererID);
 	}
+
+	OpenGLTexture2DArray::OpenGLTexture2DArray(std::vector<uint32_t> widths, std::vector<uint32_t> heights)
+		: m_Widths(std::move(widths)), m_Heights(std::move(heights)), m_Layers(m_Widths.size())
+	{
+		OLO_PROFILE_FUNCTION();
+
+		m_InternalFormat = GL_RGBA8;
+		m_DataFormat = GL_RGBA;
+
+		glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &m_RendererID);
+		glTextureStorage3D(m_RendererID, 1, m_InternalFormat, m_Widths[0], m_Heights[0], m_Layers);
+
+		glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+		glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
+		glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	}
+
+	OpenGLTexture2DArray::OpenGLTexture2DArray(const std::vector<std::string>& paths)
+		: m_Paths(paths), m_Layers(paths.size())
+	{
+		OLO_PROFILE_FUNCTION();
+
+		int width{};
+		int height{};
+		int channels{};
+		std::vector<stbi_uc*> data;
+		data.reserve(paths.size());
+		::stbi_set_flip_vertically_on_load(1);
+		for (auto& path: paths)
+		{
+			OLO_PROFILE_SCOPE("stbi_load - OpenGLTexture2DArray::OpenGLTexture2DArray(const std::vector<std::string>&)");
+			data.push_back(::stbi_load(path.c_str(), &width, &height, &channels, 0));
+			m_Widths.push_back(width);
+			m_Heights.push_back(height);
+		}
+
+		// TODO(olbu): Extend the below check for more channels, and move to seperate function
+		if (!data.empty())
+		{
+			m_IsLoaded = true;
+
+			GLenum internalFormat = 0;
+			GLenum dataFormat = 0;
+			if (4 == channels)
+			{
+				internalFormat = GL_RGBA8;
+				dataFormat = GL_RGBA;
+			}
+			else if (3 == channels)
+			{
+				internalFormat = GL_RGB8;
+				dataFormat = GL_RGB;
+			}
+
+			m_InternalFormat = internalFormat;
+			m_DataFormat = dataFormat;
+
+			OLO_CORE_ASSERT(internalFormat & dataFormat, "Format not supported!");
+
+			glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &m_RendererID);
+			glTextureStorage3D(m_RendererID, 1, internalFormat, m_Widths[0], m_Heights[0], data.size());
+
+			glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+			glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+			glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
+			glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+			for (int i = 0; i < m_Layers; i++)
+			{
+				glTextureSubImage3D(m_RendererID, 0, 0, 0, i, m_Widths[i], m_Heights[i], 1, dataFormat, GL_UNSIGNED_BYTE, data[i]);
+			}
+
+			for (auto& d : data)
+				::stbi_image_free(d);
+		}
+	}
+
+	OpenGLTexture2DArray::~OpenGLTexture2DArray()
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glDeleteTextures(1, &m_RendererID);
+	}
+
+	void OpenGLTexture2DArray::SetLayerData(void* const data, const uint32_t size, const uint32_t layer)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		const uint32_t bpp = GL_RGBA == m_DataFormat ? 4 : 3;
+		OLO_CORE_ASSERT(size == m_Widths[layer] * m_Heights[layer] * bpp, "Data must be entire texture!");
+		glTextureSubImage3D(m_RendererID, 0, 0, 0, layer, m_Widths[layer], m_Heights[layer], 1, m_DataFormat, GL_UNSIGNED_BYTE, data);
+	}
+
+	void OpenGLTexture2DArray::Bind(const uint32_t slot) const
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glBindTextureUnit(slot, m_RendererID);
+	}
+
+	void OpenGLTexture2DArray::BindLayer(const uint32_t slot, const uint32_t layer) const
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glBindImageTexture(slot, m_RendererID, 0, GL_FALSE, layer, GL_READ_WRITE, m_InternalFormat);
+	}
 }
