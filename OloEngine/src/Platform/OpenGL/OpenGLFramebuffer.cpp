@@ -48,7 +48,7 @@ namespace OloEngine
 			glBindTextureUnit(0, id);
 		}
 
-		static void AttachColorTexture(const uint32_t fbo, const uint32_t id, const int samples, const GLenum internalFormat, const uint32_t width, const uint32_t height, const int index)
+		static void AttachColorTexture(const uint32_t fbo, const uint32_t id, const int samples, const GLenum internalFormat, const uint32_t width, const uint32_t height, const uint32_t index)
 		{
 			PrepareTexture(id, samples, internalFormat, width, height);
 
@@ -171,7 +171,7 @@ namespace OloEngine
 				Utils::BindTexture(m_ColorAttachments[i]);
 				// TODO(olbu): Add more FramebufferTextureFormats in Framebuffer.h and here
 				GLenum internalFormat = Utils::OloFBColorTextureFormatToGL(m_ColorAttachmentSpecifications[i].TextureFormat);
-				Utils::AttachColorTexture(m_RendererID, m_ColorAttachments[i], m_Specification.Samples, internalFormat, m_Specification.Width, m_Specification.Height, static_cast<int>(i));
+				Utils::AttachColorTexture(m_RendererID, m_ColorAttachments[i], m_Specification.Samples, internalFormat, m_Specification.Width, m_Specification.Height, static_cast<uint32_t>(i));
 			}
 		}
 
@@ -187,9 +187,10 @@ namespace OloEngine
 		if (m_ColorAttachments.size() > 1)
 		{
 			std::vector<GLenum> colorBuffers;
-			for (int i = 0; i < m_ColorAttachments.size(); i++)
+			auto colorAttachmentSize = static_cast<int>(m_ColorAttachments.size());
+			for (int i = 0; i < colorAttachmentSize; ++i)
 			{
-				colorBuffers.push_back(GL_COLOR_ATTACHMENT0 + i);
+				colorBuffers.push_back(static_cast<uint32_t>(GL_COLOR_ATTACHMENT0 + i));
 			}
 
 			glDrawBuffers(static_cast<GLsizei>(m_ColorAttachments.size()), colorBuffers.data());
@@ -208,7 +209,7 @@ namespace OloEngine
 	void OpenGLFramebuffer::Bind()
 	{
 		glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
-		glViewport(0, 0, m_Specification.Width, m_Specification.Height);
+		glViewport(0, 0, static_cast<GLsizei>(m_Specification.Width), static_cast<GLsizei>(m_Specification.Height));
 	}
 
 	void OpenGLFramebuffer::Unbind()
