@@ -133,6 +133,8 @@ namespace OloEngine
 			OLO_CORE_TRACE("Object name: {0}", objectName); 
 			OLO_CORE_TRACE("Level: {0}", level);
 			OLO_CORE_TRACE("Layer: {0}", layer);
+
+			OLO_CORE_ASSERT((objectType != GL_NONE) & (objectName != GL_NONE), "Framebuffer is incomplete!");
 		}
 	}
 
@@ -206,17 +208,13 @@ namespace OloEngine
 
 		if (m_ColorAttachments.size() > 1)
 		{
-			OLO_CORE_ASSERT(m_ColorAttachments.size() <= 4);
-			const GLenum buffers[4] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };
-			glDrawBuffers(static_cast<GLsizei>(m_ColorAttachments.size()), buffers);
+			std::vector<GLenum> colorBuffers;
+			for (int i = 0; i < m_ColorAttachments.size(); i++)
+			{
+				colorBuffers.push_back(GL_COLOR_ATTACHMENT0 + i);
+			}
 
-			//std::vector<GLenum> colorBuffers;
-			//for (int i = 0; i < m_ColorAttachments.size(); i++)
-			//{
-			//	colorBuffers.push_back(GL_COLOR_ATTACHMENT0 + i);
-			//}
-
-			//glDrawBuffers(static_cast<GLsizei>(m_ColorAttachments.size()), colorBuffers.data());
+			glDrawBuffers(static_cast<GLsizei>(m_ColorAttachments.size()), colorBuffers.data());
 		}
 		else if (m_ColorAttachments.empty())
 		{
@@ -230,9 +228,10 @@ namespace OloEngine
 		Utils::PrintAttachmentParameters(m_RendererID, GL_COLOR_ATTACHMENT1);
 		Utils::PrintAttachmentParameters(m_RendererID, GL_COLOR_ATTACHMENT2);
 		Utils::PrintAttachmentParameters(m_RendererID, GL_COLOR_ATTACHMENT3);
+		Utils::PrintAttachmentParameters(m_RendererID, GL_COLOR_ATTACHMENT4);
 
 		// Check framebuffer completeness
-		GLenum status = glCheckNamedFramebufferStatus(m_RendererID, GL_FRAMEBUFFER); // 36054 => incomplete attachment somewhere
+		GLenum status = glCheckNamedFramebufferStatus(m_RendererID, GL_FRAMEBUFFER);
 		OLO_CORE_TRACE("Framebuffer status: {0}", status);
 		OLO_CORE_ASSERT(glCheckNamedFramebufferStatus(m_RendererID, GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE, "Framebuffer is incomplete!");
 
