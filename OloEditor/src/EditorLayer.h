@@ -108,9 +108,6 @@ namespace OloEngine
 		Ref<Texture2D> m_IconSimulate;
 		Ref<Texture2D> m_IconStep;
 		Ref<Texture2D> m_IconStop;
-
-		// Texture Array
-		Ref<Texture2DArray> m_TextureArray;
 	};
 
 }

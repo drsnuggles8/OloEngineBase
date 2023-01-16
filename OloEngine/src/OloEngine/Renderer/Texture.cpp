@@ -45,42 +45,4 @@ namespace OloEngine
 		OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
 		return nullptr;
 	}
-
-	Ref<Texture2DArray> Texture2DArray::Create(const std::vector<uint32_t> widths, const std::vector<uint32_t> heights)
-	{
-		switch (Renderer::GetAPI())
-		{
-			case RendererAPI::API::None:
-			{
-				OLO_CORE_ASSERT(false, "RendererAPI::None is currently not supported!");
-				return nullptr;
-			}
-			case RendererAPI::API::OpenGL:
-			{
-				return CreateRef<OpenGLTexture2DArray>(widths, heights);
-			}
-		}
-
-		OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
-		return nullptr;
-	}
-
-	Ref<Texture2DArray> Texture2DArray::Create(const std::vector<std::string>& paths)
-	{
-		switch (Renderer::GetAPI())
-		{
-			case RendererAPI::API::None:
-			{
-				OLO_CORE_ASSERT(false, "RendererAPI::None is currently not supported!");
-				return nullptr;
-			}
-			case RendererAPI::API::OpenGL:
-			{
-				return CreateRef<OpenGLTexture2DArray>(paths);
-			}
-		}
-
-		OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
-		return nullptr;
-	}
 }

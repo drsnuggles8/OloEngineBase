@@ -25,8 +25,6 @@ namespace OloEngine
 
 		Application::Get().GetWindow().SetTitle("Test");
 
-		m_TextureArray = Texture2DArray::Create({"assets/textures/Checkerboard.png", "Resources/Icons/PlayButton.png", "Resources/Icons/PauseButton.png", "Resources/Icons/SimulateButton.png", "Resources/Icons/StepButton.png", "Resources/Icons/StopButton.png" });
-
 		m_CheckerboardTexture = Texture2D::Create("assets/textures/Checkerboard.png");
 		m_IconPlay = Texture2D::Create("Resources/Icons/PlayButton.png");
 		m_IconPause = Texture2D::Create("Resources/Icons/PauseButton.png");
