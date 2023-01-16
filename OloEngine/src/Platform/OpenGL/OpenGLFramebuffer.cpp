@@ -21,9 +21,7 @@ namespace OloEngine
 
 		static void PrepareTexture(const uint32_t id, const int samples, const GLenum format, const uint32_t width, const uint32_t height)
 		{
-			OLO_CORE_TRACE("Creating texture with format: {0}", format);
-			OLO_CORE_ASSERT((format == GL_RGBA8 || format == GL_RGBA16F || format == GL_RGBA32F || format == GL_R32I
-				|| format == GL_DEPTH24_STENCIL8 || format == GL_DEPTH_COMPONENT32F), "Invalid format.");
+			OLO_CORE_ASSERT((format == GL_RGBA8 || format == GL_R32I || format == GL_DEPTH24_STENCIL8), "Invalid format.");
 
 			if (const bool multisampled = samples > 1)
 			{
