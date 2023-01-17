@@ -12,11 +12,30 @@ namespace OloEngine
 
 	static const uint32_t s_MaxFramebufferSize = 8192;
 
-	namespace Utils {
-
+	namespace Utils
+	{
 		[[nodiscard("Store this!")]]  constexpr static GLenum TextureTarget(const bool multisampled) noexcept
 		{
 			return multisampled ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D;
+		}
+
+		static void PrepareTexture(const uint32_t id, const int samples, const GLenum format, const uint32_t width, const uint32_t height)
+		{
+			OLO_CORE_ASSERT((format == GL_RGBA8 || format == GL_R32I || format == GL_DEPTH24_STENCIL8), "Invalid format.");
+
+			if (const bool multisampled = samples > 1)
+			{
+				glTextureStorage2DMultisample(id, samples, format, width, height, GL_FALSE);
+			}
+			else
+			{
+				glTextureStorage2D(id, 1, format, width, height);
+				glTextureParameteri(id, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+				glTextureParameteri(id, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+				glTextureParameteri(id, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+				glTextureParameteri(id, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+				glTextureParameteri(id, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+			}
 		}
 
 		static void CreateTextures(const bool multisampled, uint32_t* const outID, const uint32_t count)
@@ -29,44 +48,28 @@ namespace OloEngine
 			glBindTextureUnit(0, id);
 		}
 
-		static void AttachColorTexture(const uint32_t fbo, const uint32_t id, const int samples, const GLenum internalFormat, const uint32_t width, const uint32_t height, const int index)
+		static void AttachColorTexture(const uint32_t fbo, const uint32_t id, const int samples, const GLenum internalFormat, const uint32_t width, const uint32_t height, const uint32_t index)
 		{
-			if (bool multisampled = samples > 1)
-			{
-				glTextureStorage2DMultisample(id, samples, internalFormat, width, height, GL_FALSE);
-			}
-			else
-			{
-				glTextureStorage2D(id, 1, internalFormat, width, height);
-
-				glTextureParameteri(id, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-				glTextureParameteri(id, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-				glTextureParameteri(id, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-				glTextureParameteri(id, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-				glTextureParameteri(id, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-			}
+			PrepareTexture(id, samples, internalFormat, width, height);
 
 			glNamedFramebufferTexture(fbo, GL_COLOR_ATTACHMENT0 + index, id, 0);
+
+			if (glGetError() != GL_NO_ERROR)
+			{
+				OLO_CORE_ERROR("Error attaching color texture!");
+			}
 		}
 
 		static void AttachDepthTexture(const uint32_t fbo, const uint32_t id, const int samples, const GLenum format, const GLenum attachmentType, const uint32_t width, const uint32_t height)
 		{
-			if (const bool multisampled = samples > 1)
-			{
-				glTextureStorage2DMultisample(id, samples, format, width, height, GL_FALSE);
-			}
-			else
-			{
-				glTextureStorage2D(id, 1, format, width, height);
-
-				glTextureParameteri(id, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-				glTextureParameteri(id, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-				glTextureParameteri(id, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-				glTextureParameteri(id, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-				glTextureParameteri(id, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-			}
+			PrepareTexture(id, samples, format, width, height);
 
 			glNamedFramebufferTexture(fbo, attachmentType, id, 0);
+
+			if (glGetError() != GL_NO_ERROR)
+			{
+				OLO_CORE_ERROR("Error attaching depth texture!");
+			}
 		}
 
 		[[nodiscard("Store this!")]] static bool IsDepthFormat(const FramebufferTextureFormat format) noexcept
@@ -84,6 +87,29 @@ namespace OloEngine
 			{
 				case FramebufferTextureFormat::RGBA8:       return GL_RGBA8;
 				case FramebufferTextureFormat::RED_INTEGER: return GL_RED_INTEGER;
+			}
+
+			OLO_CORE_ASSERT(false);
+			return 0;
+		}
+
+		[[nodiscard("Store this!")]] static GLenum OloFBColorTextureFormatToGL(const FramebufferTextureFormat format)
+		{
+			switch (format)
+			{
+				case FramebufferTextureFormat::RGBA8:       return GL_RGBA8;
+				case FramebufferTextureFormat::RED_INTEGER: return GL_R32I;
+			}
+
+			OLO_CORE_ASSERT(false);
+			return 0;
+		}
+
+		[[nodiscard("Store this!")]] static GLenum OloFBDepthTextureFormatToGL(const FramebufferTextureFormat format)
+		{
+			switch (format)
+			{
+				case FramebufferTextureFormat::DEPTH24STENCIL8: return GL_DEPTH24_STENCIL8;
 			}
 
 			OLO_CORE_ASSERT(false);
@@ -137,26 +163,15 @@ namespace OloEngine
 		if (!m_ColorAttachmentSpecifications.empty())
 		{
 			m_ColorAttachments.resize(m_ColorAttachmentSpecifications.size());
-			Utils::CreateTextures(multisample, m_ColorAttachments.data(), static_cast<uint32_t>(m_ColorAttachments.size()));
+			auto colorAttachmentSize = m_ColorAttachments.size();
+			Utils::CreateTextures(multisample, m_ColorAttachments.data(), static_cast<uint32_t>(colorAttachmentSize));
 
-			auto stopCondition = m_ColorAttachments.size();
-			for (size_t i = 0; i < stopCondition; ++i)
+			for (size_t i = 0; i < colorAttachmentSize; ++i)
 			{
 				Utils::BindTexture(m_ColorAttachments[i]);
 				// TODO(olbu): Add more FramebufferTextureFormats in Framebuffer.h and here
-				switch (m_ColorAttachmentSpecifications[i].TextureFormat)
-				{
-					case FramebufferTextureFormat::RGBA8:
-					{
-						Utils::AttachColorTexture(m_RendererID, m_ColorAttachments[i], m_Specification.Samples, GL_RGBA8, m_Specification.Width, m_Specification.Height, static_cast<int>(i));
-						break;
-					}
-					case FramebufferTextureFormat::RED_INTEGER:
-					{
-						Utils::AttachColorTexture(m_RendererID, m_ColorAttachments[i], m_Specification.Samples, GL_R32I, m_Specification.Width, m_Specification.Height, static_cast<int>(i));
-						break;
-					}
-				}
+				GLenum internalFormat = Utils::OloFBColorTextureFormatToGL(m_ColorAttachmentSpecifications[i].TextureFormat);
+				Utils::AttachColorTexture(m_RendererID, m_ColorAttachments[i], m_Specification.Samples, internalFormat, m_Specification.Width, m_Specification.Height, static_cast<uint32_t>(i));
 			}
 		}
 
@@ -164,22 +179,21 @@ namespace OloEngine
 		{
 			Utils::CreateTextures(multisample, &m_DepthAttachment, 1);
 			Utils::BindTexture(m_DepthAttachment);
-			switch (m_DepthAttachmentSpecification.TextureFormat)
-			{
-				case FramebufferTextureFormat::DEPTH24STENCIL8:
-				{
-					Utils::AttachDepthTexture(m_RendererID, m_DepthAttachment, m_Specification.Samples, GL_DEPTH24_STENCIL8, GL_DEPTH_STENCIL_ATTACHMENT, m_Specification.Width, m_Specification.Height);
-					break;
-				}
-			}
+
+			GLenum format = Utils::OloFBDepthTextureFormatToGL(m_DepthAttachmentSpecification.TextureFormat);
+			Utils::AttachDepthTexture(m_RendererID, m_DepthAttachment, m_Specification.Samples, format, GL_DEPTH_STENCIL_ATTACHMENT, m_Specification.Width, m_Specification.Height);
 		}
 
 		if (m_ColorAttachments.size() > 1)
 		{
-			// TODO(olbu): Add color_attachment4, size() <= 5
-			OLO_CORE_ASSERT(m_ColorAttachments.size() <= 4);
-			const GLenum buffers[4] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };
-			glDrawBuffers(static_cast<GLsizei>(m_ColorAttachments.size()), buffers);
+			std::vector<GLenum> colorBuffers;
+			auto colorAttachmentSize = static_cast<int>(m_ColorAttachments.size());
+			for (int i = 0; i < colorAttachmentSize; ++i)
+			{
+				colorBuffers.push_back(static_cast<uint32_t>(GL_COLOR_ATTACHMENT0 + i));
+			}
+
+			glDrawBuffers(static_cast<GLsizei>(m_ColorAttachments.size()), colorBuffers.data());
 		}
 		else if (m_ColorAttachments.empty())
 		{
@@ -195,7 +209,7 @@ namespace OloEngine
 	void OpenGLFramebuffer::Bind()
 	{
 		glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
-		glViewport(0, 0, m_Specification.Width, m_Specification.Height);
+		glViewport(0, 0, static_cast<GLsizei>(m_Specification.Width), static_cast<GLsizei>(m_Specification.Height));
 	}
 
 	void OpenGLFramebuffer::Unbind()
@@ -217,7 +231,6 @@ namespace OloEngine
 		Invalidate();
 	}
 
-	// TODO(olbu): Check if we can delete those two functions
 	int OpenGLFramebuffer::ReadPixel(const uint32_t attachmentIndex, const int x, const int y)
 	{
 		OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size());
@@ -233,8 +246,7 @@ namespace OloEngine
 		OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size());
 
 		auto const& spec = m_ColorAttachmentSpecifications[attachmentIndex];
-		glClearTexImage(m_ColorAttachments[attachmentIndex], 0,
-			Utils::OloFBTextureFormatToGL(spec.TextureFormat), GL_INT, &value);
+		glClearTexImage(m_ColorAttachments[attachmentIndex], 0, Utils::OloFBTextureFormatToGL(spec.TextureFormat), GL_INT, &value);
 	}
 
 }

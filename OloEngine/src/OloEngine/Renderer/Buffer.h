@@ -43,8 +43,8 @@ namespace OloEngine
 
 		BufferElement() = default;
 
-		BufferElement(ShaderDataType const type, std::string  name, const bool normalized = false)
-			: Name(std::move(name)), Type(type), Size(ShaderDataTypeSize(type)), Offset(0), Normalized(normalized)
+		BufferElement(ShaderDataType const type, const std::string& name, const bool normalized = false)
+			: Name(name), Type(type), Size(ShaderDataTypeSize(type)), Offset(0), Normalized(normalized)
 		{
 		}
 
@@ -72,19 +72,32 @@ namespace OloEngine
 		}
 	};
 
+	struct VertexData
+	{
+		const void* data;
+		uint32_t size;
+	};
+
+	struct UniformData
+	{
+		const void* data;
+		uint32_t size;
+		uint32_t offset;
+	};
+
 	class BufferLayout
 	{
 	public:
 		BufferLayout() = default;
 
-		BufferLayout(std::initializer_list<BufferElement> elements)
+		BufferLayout(const std::initializer_list<BufferElement>& elements)
 			: m_Elements(elements)
 		{
 			CalculateOffsetsAndStride();
 		}
 
 		[[nodiscard("Store this!")]] uint32_t GetStride() const { return m_Stride; }
-		[[nodiscard("Store this!")]] const std::vector<BufferElement>& GetElements() const { return m_Elements; }
+		[[nodiscard("Store this!")]] std::vector<BufferElement> GetElements() const { return m_Elements; }
 
 		std::vector<BufferElement>::iterator begin() { return m_Elements.begin(); }
 		std::vector<BufferElement>::iterator end() { return m_Elements.end(); }
@@ -115,7 +128,7 @@ namespace OloEngine
 		virtual void Bind() const = 0;
 		virtual void Unbind() const = 0;
 
-		virtual void SetData(const void* data, uint32_t size) = 0;
+		virtual void SetData(const VertexData& data) = 0;
 
 		[[nodiscard("Store this!")]] virtual const BufferLayout& GetLayout() const = 0;
 		virtual void SetLayout(const BufferLayout& layout) = 0;
@@ -137,7 +150,6 @@ namespace OloEngine
 		virtual void Unbind() const = 0;
 
 		[[nodiscard("Store this!")]] virtual uint32_t GetCount() const = 0;
-
         [[nodiscard("Store this!")]] virtual uint32_t GetBufferHandle() const = 0;
 
 		static Ref<IndexBuffer> Create(uint32_t* indices, uint32_t size);
@@ -147,7 +159,7 @@ namespace OloEngine
 	{
 	public:
 		virtual ~UniformBuffer() = default;
-		virtual void SetData(const void* data, uint32_t size, uint32_t offset) = 0;
+		virtual void SetData(const UniformData& data) = 0;
 
 		static Ref<UniformBuffer> Create(uint32_t size, uint32_t binding);
 	};

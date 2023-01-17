@@ -35,7 +35,6 @@ namespace OloEngine
 		void UploadUniformMat3(const std::string& name, const glm::mat3& matrix) const;
 		void UploadUniformMat4(const std::string& name, const glm::mat4& matrix) const;
 	private:
-		// TODO(olbu): Get rid of ReadFile, add GetLocation
 		static std::string ReadFile(const std::string& filepath);
 		static std::unordered_map<GLenum, std::string> PreProcess(std::string_view source);
 
