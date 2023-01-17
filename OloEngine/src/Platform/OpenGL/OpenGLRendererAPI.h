@@ -18,6 +18,12 @@ namespace OloEngine
 
 		void SetLineWidth(float width) override;
 
-		// TODO(olbu): Add a bunch of advanced OpenGL functions like culling
+		void EnableCulling() override;
+		void DisableCulling() override;
+		void FrontCull() override;
+		void BackCull() override;
+		void SetDepthMask(bool value) override;
+		void SetDepthTest(bool value) override;
+		void SetBlendState(bool value) override;
 	};
 }

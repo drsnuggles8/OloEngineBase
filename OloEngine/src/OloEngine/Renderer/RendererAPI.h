@@ -27,6 +27,14 @@ namespace OloEngine
 
 		virtual void SetLineWidth(float width) = 0;
 
+		virtual void EnableCulling() = 0;
+		virtual void DisableCulling() = 0;
+		virtual void FrontCull() = 0;
+		virtual void BackCull() = 0;
+		virtual void SetDepthMask(bool value) = 0;
+		virtual void SetDepthTest(bool value) = 0;
+		virtual void SetBlendState(bool value) = 0;
+
 		[[nodiscard("Store this!")]] static API GetAPI() { return s_API; }
 		static Scope<RendererAPI> Create();
 
