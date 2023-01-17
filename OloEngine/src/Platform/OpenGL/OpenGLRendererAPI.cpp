@@ -152,9 +152,13 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 
 		if (value)
+		{
 			glEnable(GL_DEPTH_TEST);
+		}
 		else
+		{
 			glDisable(GL_DEPTH_TEST);
+		}
 	}
 
 	void OpenGLRendererAPI::SetBlendState(bool value)
@@ -162,8 +166,12 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 
 		if (value)
+		{
 			glEnable(GL_BLEND);
+		}
 		else
+		{
 			glDisable(GL_BLEND);
+		}
 	}
 }
