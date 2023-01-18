@@ -81,7 +81,7 @@ namespace OloEngine
 
 		for (const auto& layout = vertexBuffer->GetLayout(); const auto& element : layout)
 		{
-			switch (element.Type)
+			switch (element.dataType)
 			{
 				using enum OloEngine::ShaderDataType;
 				case Float:
@@ -92,8 +92,8 @@ namespace OloEngine
 				case Mat4:
 				{
 					glEnableVertexArrayAttrib(m_RendererID, m_VertexBufferIndex);
-					glVertexArrayVertexBuffer(m_RendererID, m_VertexBufferIndex, vertexBuffer->GetBufferHandle(), element.Offset, layout.GetStride());
-					glVertexArrayAttribFormat(m_RendererID, m_VertexBufferIndex, static_cast<GLint>(element.GetComponentCount()), ShaderDataTypeToOpenGLBaseType(element.Type), element.Normalized ? GL_TRUE : GL_FALSE, 0);
+					glVertexArrayVertexBuffer(m_RendererID, m_VertexBufferIndex, vertexBuffer->GetBufferHandle(), element.offset, layout.GetStride());
+					glVertexArrayAttribFormat(m_RendererID, m_VertexBufferIndex, static_cast<GLint>(element.GetComponentCount()), ShaderDataTypeToOpenGLBaseType(element.dataType), element.normalized ? GL_TRUE : GL_FALSE, 0);
 
 					glVertexArrayAttribBinding(m_RendererID, m_VertexBufferIndex, m_VertexBufferIndex);
 					++m_VertexBufferIndex;
@@ -109,7 +109,7 @@ namespace OloEngine
 					// NOTE(olbu): If we uncomment these two and comment the one below, we lose hovered entity, not sure why
 					//glVertexArrayVertexBuffer(m_RendererID, m_VertexBufferIndex, vertexBuffer->GetBufferHandle(), element.Offset, layout.GetStride());
 					//glVertexArrayAttribFormat(m_RendererID, m_VertexBufferIndex, element.GetComponentCount(), ShaderDataTypeToOpenGLBaseType(element.Type), element.Normalized ? GL_TRUE : GL_FALSE, 0);
-					glVertexAttribIPointer(m_VertexBufferIndex, element.GetComponentCount(), ShaderDataTypeToOpenGLBaseType(element.Type), layout.GetStride(), reinterpret_cast<const void*>(element.Offset));
+					glVertexAttribIPointer(m_VertexBufferIndex, element.GetComponentCount(), ShaderDataTypeToOpenGLBaseType(element.dataType), layout.GetStride(), reinterpret_cast<const void*>(element.offset));
 
 					glVertexArrayAttribBinding(m_RendererID, m_VertexBufferIndex, m_VertexBufferIndex);
 					++m_VertexBufferIndex;

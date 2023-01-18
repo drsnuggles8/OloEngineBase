@@ -35,22 +35,22 @@ namespace OloEngine
 
 	struct BufferElement
 	{
-		std::string Name;
-		ShaderDataType Type{};
-		uint32_t Size{};
-		size_t Offset{};
-		bool Normalized{};
+		std::string name;
+		ShaderDataType dataType{};
+		uint32_t size{};
+		size_t offset{};
+		bool normalized{};
 
 		BufferElement() = default;
 
 		BufferElement(ShaderDataType const type, const std::string& name, const bool normalized = false)
-			: Name(name), Type(type), Size(ShaderDataTypeSize(type)), Offset(0), Normalized(normalized)
+			: name(name), dataType(type), size(ShaderDataTypeSize(type)), offset(0), normalized(normalized)
 		{
 		}
 
 		[[nodiscard("Store this!")]] uint32_t GetComponentCount() const
 		{
-			switch (Type)
+			switch (dataType)
 			{
 				using enum OloEngine::ShaderDataType;
 				case Float:   return 1;
@@ -110,9 +110,9 @@ namespace OloEngine
 			m_Stride = 0;
 			for (auto& element : m_Elements)
 			{
-				element.Offset = offset;
-				offset += element.Size;
-				m_Stride += element.Size;
+				element.offset = offset;
+				offset += element.size;
+				m_Stride += element.size;
 			}
 		}
 	private:
