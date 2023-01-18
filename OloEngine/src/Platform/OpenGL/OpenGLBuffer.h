@@ -2,13 +2,17 @@
 
 #include "OloEngine/Renderer/Buffer.h"
 
+#include <glad/gl.h>
+
 namespace OloEngine
 {
 	class OpenGLVertexBuffer : public VertexBuffer
 	{
 	public:
-		explicit OpenGLVertexBuffer(uint32_t size);
+		explicit OpenGLVertexBuffer(const uint32_t size);
+		OpenGLVertexBuffer(const uint32_t size, const GLenum usage);
 		OpenGLVertexBuffer(const float* vertices, uint32_t size);
+		OpenGLVertexBuffer(const float* vertices, uint32_t size, GLenum usage);
 		~OpenGLVertexBuffer() override;
 
 		void Bind() const override;
@@ -29,6 +33,7 @@ namespace OloEngine
 	{
 	public:
 		OpenGLIndexBuffer(uint32_t const* indices, uint32_t count);
+		OpenGLIndexBuffer(uint32_t const* indices, uint32_t count, GLenum usage);
 		~OpenGLIndexBuffer() override;
 
 		void Bind() const override;
@@ -44,7 +49,8 @@ namespace OloEngine
 	class OpenGLUniformBuffer : public UniformBuffer
 	{
 	public:
-		OpenGLUniformBuffer(uint32_t size, uint32_t binding);
+		OpenGLUniformBuffer(const uint32_t size, const uint32_t binding);
+		OpenGLUniformBuffer(const uint32_t size, const uint32_t binding, const GLenum usage);
 		~OpenGLUniformBuffer() override;
 
 		void SetData(const UniformData& data) override;
