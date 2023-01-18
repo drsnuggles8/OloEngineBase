@@ -120,6 +120,7 @@ namespace OloEngine
 		uint32_t m_Stride = 0;
 	};
 
+	// TODO(olbu): Add Create() functions for the new constructors of OpenGLVertexBuffer, OpenGLIndexBuffer, OpenGLUniformBuffer
 	class VertexBuffer
 	{
 	public:
