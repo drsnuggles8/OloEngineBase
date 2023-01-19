@@ -19,7 +19,7 @@ namespace OloEngine
 			return multisampled ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D;
 		}
 
-		static void PrepareTexture(const uint32_t id, const int samples, const GLenum format, const uint32_t width, const uint32_t height)
+		static void PrepareTexture(const uint32_t id, const int samples, const GLenum format, const int width, const int height)
 		{
 			OLO_CORE_ASSERT((format == GL_RGBA8 || format == GL_R32I || format == GL_DEPTH24_STENCIL8), "Invalid format.");
 
@@ -38,7 +38,7 @@ namespace OloEngine
 			}
 		}
 
-		static void CreateTextures(const bool multisampled, uint32_t* const outID, const uint32_t count)
+		static void CreateTextures(const bool multisampled, const int count, uint32_t* const outID)
 		{
 			glCreateTextures(TextureTarget(multisampled), count, outID);
 		}
@@ -48,7 +48,12 @@ namespace OloEngine
 			glBindTextureUnit(0, id);
 		}
 
-		static void AttachColorTexture(const uint32_t fbo, const uint32_t id, const int samples, const GLenum internalFormat, const uint32_t width, const uint32_t height, const uint32_t index)
+		static void BindTextures(const uint32_t firstID, const uint32_t count, const GLuint* id)
+		{
+			glBindTextures(firstID, static_cast<int>(count), id);
+		}
+
+		static void AttachColorTexture(const uint32_t fbo, const uint32_t id, const int samples, const GLenum internalFormat, const int width, const int height, const uint32_t index)
 		{
 			PrepareTexture(id, samples, internalFormat, width, height);
 
@@ -60,7 +65,7 @@ namespace OloEngine
 			}
 		}
 
-		static void AttachDepthTexture(const uint32_t fbo, const uint32_t id, const int samples, const GLenum format, const GLenum attachmentType, const uint32_t width, const uint32_t height)
+		static void AttachDepthTexture(const uint32_t fbo, const uint32_t id, const int samples, const GLenum format, const GLenum attachmentType, const int width, const int height)
 		{
 			PrepareTexture(id, samples, format, width, height);
 
@@ -164,24 +169,24 @@ namespace OloEngine
 		{
 			m_ColorAttachments.resize(m_ColorAttachmentSpecifications.size());
 			auto colorAttachmentSize = m_ColorAttachments.size();
-			Utils::CreateTextures(multisample, m_ColorAttachments.data(), static_cast<uint32_t>(colorAttachmentSize));
+			Utils::CreateTextures(multisample, static_cast<int>(colorAttachmentSize), m_ColorAttachments.data());
 
 			for (size_t i = 0; i < colorAttachmentSize; ++i)
 			{
 				Utils::BindTexture(m_ColorAttachments[i]);
 				// TODO(olbu): Add more FramebufferTextureFormats in Framebuffer.h and here
 				GLenum internalFormat = Utils::OloFBColorTextureFormatToGL(m_ColorAttachmentSpecifications[i].TextureFormat);
-				Utils::AttachColorTexture(m_RendererID, m_ColorAttachments[i], m_Specification.Samples, internalFormat, m_Specification.Width, m_Specification.Height, static_cast<uint32_t>(i));
+				Utils::AttachColorTexture(m_RendererID, m_ColorAttachments[i], static_cast<int>(m_Specification.Samples), internalFormat, static_cast<int>(m_Specification.Width), static_cast<int>(m_Specification.Height), static_cast<uint32_t>(i));
 			}
 		}
 
 		if (m_DepthAttachmentSpecification.TextureFormat != FramebufferTextureFormat::None)
 		{
-			Utils::CreateTextures(multisample, &m_DepthAttachment, 1);
+			Utils::CreateTextures(multisample, 1, &m_DepthAttachment);
 			Utils::BindTexture(m_DepthAttachment);
 
 			GLenum format = Utils::OloFBDepthTextureFormatToGL(m_DepthAttachmentSpecification.TextureFormat);
-			Utils::AttachDepthTexture(m_RendererID, m_DepthAttachment, m_Specification.Samples, format, GL_DEPTH_STENCIL_ATTACHMENT, m_Specification.Width, m_Specification.Height);
+			Utils::AttachDepthTexture(m_RendererID, m_DepthAttachment, static_cast<int>(m_Specification.Samples), format, GL_DEPTH_STENCIL_ATTACHMENT, static_cast<int>(m_Specification.Width), static_cast<int>(m_Specification.Height));
 		}
 
 		if (m_ColorAttachments.size() > 1)

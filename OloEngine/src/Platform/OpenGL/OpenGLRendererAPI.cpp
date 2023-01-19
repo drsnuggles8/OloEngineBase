@@ -69,21 +69,29 @@ namespace OloEngine
 
 	void OpenGLRendererAPI::SetViewport(const uint32_t x, const uint32_t y, const uint32_t width, const uint32_t height)
 	{
+		OLO_PROFILE_FUNCTION();
+
 		glViewport(static_cast<GLint>(x), static_cast<GLint>(y), static_cast<GLsizei>(width), static_cast<GLsizei>(height));
 	}
 
 	void OpenGLRendererAPI::SetClearColor(const glm::vec4& color)
 	{
+		OLO_PROFILE_FUNCTION();
+
 		glClearColor(color.r, color.g, color.b, color.a);
 	}
 
 	void OpenGLRendererAPI::Clear()
 	{
+		OLO_PROFILE_FUNCTION();
+
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	}
 
 	void OpenGLRendererAPI::DrawIndexed(const Ref<VertexArray>& vertexArray, const uint32_t indexCount)
 	{
+		OLO_PROFILE_FUNCTION();
+
 		vertexArray->Bind();
 		const uint32_t count = indexCount ? indexCount : vertexArray->GetIndexBuffer()->GetCount();
 		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(count), GL_UNSIGNED_INT, nullptr);
@@ -91,12 +99,79 @@ namespace OloEngine
 
 	void OpenGLRendererAPI::DrawLines(const Ref<VertexArray>& vertexArray, const uint32_t vertexCount)
 	{
+		OLO_PROFILE_FUNCTION();
+
 		vertexArray->Bind();
 		glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(vertexCount));
 	}
 
 	void OpenGLRendererAPI::SetLineWidth(const float width)
 	{
+		OLO_PROFILE_FUNCTION();
+
 		glLineWidth(width);
+	}
+
+	void OpenGLRendererAPI::EnableCulling()
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glEnable(GL_CULL_FACE);
+	}
+
+	void OpenGLRendererAPI::DisableCulling()
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glDisable(GL_CULL_FACE);
+	}
+
+	void OpenGLRendererAPI::FrontCull()
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glCullFace(GL_FRONT);
+	}
+
+	void OpenGLRendererAPI::BackCull()
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glCullFace(GL_BACK);
+	}
+
+	void OpenGLRendererAPI::SetDepthMask(bool value)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glDepthMask(value);
+	}
+
+	void OpenGLRendererAPI::SetDepthTest(bool value)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		if (value)
+		{
+			glEnable(GL_DEPTH_TEST);
+		}
+		else
+		{
+			glDisable(GL_DEPTH_TEST);
+		}
+	}
+
+	void OpenGLRendererAPI::SetBlendState(bool value)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		if (value)
+		{
+			glEnable(GL_BLEND);
+		}
+		else
+		{
+			glDisable(GL_BLEND);
+		}
 	}
 }
