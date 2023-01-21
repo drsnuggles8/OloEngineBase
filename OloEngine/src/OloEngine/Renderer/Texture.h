@@ -32,4 +32,10 @@ namespace OloEngine
 		static Ref<Texture2D> Create(uint32_t width, uint32_t height);
 		static Ref<Texture2D> Create(const std::string& path);
 	};
+
+	class TextureCubemap : public Texture
+	{
+	public:
+		static Ref<TextureCubemap> Create(const std::string& path);
+	};
 }
