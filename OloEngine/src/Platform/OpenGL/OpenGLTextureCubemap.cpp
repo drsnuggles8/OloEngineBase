@@ -7,7 +7,7 @@
 
 namespace OloEngine
 {
-
+	// TODO(olbu): Add functional usage of the cubemap, at the moment this is unused
 	OpenGLTextureCubemap::OpenGLTextureCubemap(const std::string& path)
 	{
 		OLO_PROFILE_FUNCTION();
