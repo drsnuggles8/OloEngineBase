@@ -120,6 +120,8 @@
 		"Platform/OpenGL/OpenGLShader.h"
 		"Platform/OpenGL/OpenGLTexture.cpp"
 		"Platform/OpenGL/OpenGLTexture.h"
+		"Platform/OpenGL/OpenGLTextureCubemap.cpp"
+		"Platform/OpenGL/OpenGLTextureCubemap.h"
 		"Platform/OpenGL/OpenGLVertexArray.cpp"
 		"Platform/OpenGL/OpenGLVertexArray.h"
 		"Platform/Windows/WindowsInput.cpp"
