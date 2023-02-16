@@ -22,8 +22,8 @@ set_target_properties(Sandbox-Scripting PROPERTIES
 					RUNTIME_OUTPUT_DIRECTORY_DEBUG		${CMAKE_SOURCE_DIR}/OloEditor/SandboxProject/Assets/Scripts/Binaries
 					RUNTIME_OUTPUT_DIRECTORY_RELEASE	${CMAKE_SOURCE_DIR}/OloEditor/SandboxProject/Assets/Scripts/Binaries
 					RUNTIME_OUTPUT_DIRECTORY_DIST		${CMAKE_SOURCE_DIR}/OloEditor/SandboxProject/Assets/Scripts/Binaries
-					CMAKE_DOTNET_TARGET_FRAMEWORK_VERSION "v4.7.2"
-					CMAKE_CSharp_FLAGS "/langversion:6"
+					CMAKE_DOTNET_TARGET_FRAMEWORK_VERSION "v4.8.1"
+					CMAKE_CSharp_FLAGS "/langversion:8"
 )
 
 target_compile_definitions(Sandbox-Scripting PRIVATE
