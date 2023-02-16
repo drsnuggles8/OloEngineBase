@@ -19,8 +19,6 @@ set_target_properties(OloEngine-ScriptCore PROPERTIES
 					RUNTIME_OUTPUT_DIRECTORY_DEBUG		${CMAKE_SOURCE_DIR}/OloEditor/Resources/Scripts
 					RUNTIME_OUTPUT_DIRECTORY_RELEASE	${CMAKE_SOURCE_DIR}/OloEditor/Resources/Scripts
 					RUNTIME_OUTPUT_DIRECTORY_DIST		${CMAKE_SOURCE_DIR}/OloEditor/Resources/Scripts
-					CMAKE_DOTNET_TARGET_FRAMEWORK_VERSION "v4.8.1"
-					CMAKE_CSharp_FLAGS "/langversion:8"
 )
 
 target_compile_definitions(OloEngine-ScriptCore PRIVATE
