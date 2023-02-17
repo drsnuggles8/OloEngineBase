@@ -59,9 +59,10 @@ namespace OloEngine
 
 			glNamedFramebufferTexture(fbo, GL_COLOR_ATTACHMENT0 + index, id, 0);
 
-			if (glGetError() != GL_NO_ERROR)
+			auto fboStatus = glCheckNamedFramebufferStatus(fbo, GL_FRAMEBUFFER);
+			if (fboStatus != GL_FRAMEBUFFER_COMPLETE)
 			{
-				OLO_CORE_ERROR("Error attaching color texture!");
+				OLO_CORE_ERROR("Framebuffer error: {0}", fboStatus);
 			}
 		}
 
