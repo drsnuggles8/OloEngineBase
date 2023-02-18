@@ -24,14 +24,13 @@ set_target_properties(Sandbox PROPERTIES
 					VS_DEBUGGER_WORKING_DIRECTORY 		${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-check_ipo_supported(RESULT result OUTPUT output)
-if(result)
+check_ipo_supported(RESULT LTO_SUPPORT OUTPUT output)
+if(LTO_SUPPORT)
 	message(STATUS "-- Enabled Link-Time Optimization (LTO)!")
 	set_target_properties(Sandbox PROPERTIES INTERPROCEDURAL_OPTIMIZATION TRUE)
 else()
 	message(WARNING "IPO is not supported: ${output}")
 endif()
-
 add_dependencies(Sandbox
 				OloEngine
 )
