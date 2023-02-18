@@ -22,8 +22,8 @@ set_target_properties(OloEditor PROPERTIES
 					VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-check_ipo_supported(RESULT result OUTPUT output)
-if(result)
+check_ipo_supported(RESULT LTO_SUPPORT OUTPUT output)
+if(LTO_SUPPORT)
 	message(STATUS "-- Enabled Link-Time Optimization (LTO)!")
 	set_target_properties(OloEditor PROPERTIES INTERPROCEDURAL_OPTIMIZATION TRUE)
 else()
@@ -55,6 +55,15 @@ target_compile_definitions("OloEditor" PRIVATE
 							$<$<CONFIG:Release>:TRACY_ON_DEMAND>
 							$<$<CONFIG:Dist>:OLO_DIST>
 )
+
+if(MSVC)
+	target_link_options("OloEditor" PRIVATE
+								$<$<CONFIG:Release>:/INCREMENTAL:NO>
+								$<$<CONFIG:Release>:/DEBUG>
+								$<$<CONFIG:Release>:/OPT:REF> # Remove unreferenced functions and data
+								$<$<CONFIG:Release>:/OPT:ICF> # Identical COMDAT folding
+	)
+	endif()
 
 target_link_libraries(OloEditor
 					OloEngine

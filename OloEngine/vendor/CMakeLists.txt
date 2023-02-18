@@ -98,9 +98,7 @@ set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
 FetchContent_MakeAvailable(assimp box2d entt filewatch glad glfw glm googletest spdlog tracy yaml-cpp)
 
-target_compile_definitions("TracyClient" PRIVATE $<$<CONFIG:Release>:TRACY_ENABLE>
-
-)
+target_compile_definitions("TracyClient" PRIVATE $<$<CONFIG:Release>:TRACY_ENABLE>)
 
 glad_add_library(glad STATIC API gl:core=4.6 LOCATION ${PROJECT_SOURCE_DIR}/vendor/glad-build/${TARGET})
 
