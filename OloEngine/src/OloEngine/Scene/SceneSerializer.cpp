@@ -546,8 +546,7 @@ namespace OloEngine
 
 								ScriptFieldInstance& fieldInstance = entityFields[name];
 
-								// TODO(Ole): turn this assert into log warning
-								OLO_CORE_ASSERT(fields.find(name) != fields.end());
+								OLO_CORE_ASSERT(fields.contains(name));
 
 								if (!fields.contains(name))
 								{

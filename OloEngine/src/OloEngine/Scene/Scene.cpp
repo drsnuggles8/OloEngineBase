@@ -427,13 +427,8 @@ namespace OloEngine
 
 	Entity Scene::GetEntityByUUID(UUID uuid)
 	{
-		// TODO(OLBU): Maybe should be assert
-		if (m_EntityMap.contains(uuid))
-		{
-			return { m_EntityMap.at(uuid), this };
-		}
-
-		return {};
+		OLO_CORE_ASSERT(m_EntityMap.contains(uuid));
+		return { m_EntityMap.at(uuid), this };
 	}
 
 	void Scene::OnPhysics2DStart()
