@@ -99,14 +99,13 @@ namespace OloEngine
 		{
 			std::string typeName = mono_type_get_name(monoType);
 
-			// TODO(olbu): Replace this with some form of .contains?
-			auto it = s_ScriptFieldTypeMap.find(typeName);
-			if (it == s_ScriptFieldTypeMap.end())
+			if (!s_ScriptFieldTypeMap.contains(typeName))
 			{
 				OLO_CORE_ERROR("Unknown type: {}", typeName);
 				return ScriptFieldType::None;
 			}
 
+			auto it = s_ScriptFieldTypeMap.find(typeName);
 			return it->second;
 		}
 	}
@@ -341,11 +340,10 @@ namespace OloEngine
 
 	Ref<ScriptInstance> ScriptEngine::GetEntityScriptInstance(UUID entityID)
 	{
-		// TODO(olbu): Replace this with .contains()?
-		auto it = s_Data->EntityInstances.find(entityID);
-		if (it == s_Data->EntityInstances.end())
+		if (!s_Data->EntityInstances.contains(entityID))
 			return nullptr;
 
+		auto it = s_Data->EntityInstances.find(entityID);
 		return it->second;
 	}
 
@@ -522,11 +520,12 @@ namespace OloEngine
 	bool ScriptInstance::GetFieldValueInternal(const std::string& name, void* buffer)
 	{
 		const auto& fields = m_ScriptClass->GetFields();
-		// TODO(olbu): Replace with .contains()?
-		auto it = fields.find(name);
-		if (it == fields.end())
+		if (!fields.contains(name))
+		{
 			return false;
+		}
 
+		auto it = fields.find(name);
 		const ScriptField& field = it->second;
 		mono_field_get_value(m_Instance, field.ClassField, buffer);
 		return true;
@@ -535,11 +534,12 @@ namespace OloEngine
 	bool ScriptInstance::SetFieldValueInternal(const std::string& name, const void* value)
 	{
 		const auto& fields = m_ScriptClass->GetFields();
-		// TODO(olbu): Replace with .contains()?
-		auto it = fields.find(name);
-		if (it == fields.end())
+		if (!fields.contains(name))
+		{
 			return false;
+		}
 
+		auto it = fields.find(name);
 		const ScriptField& field = it->second;
 		mono_field_set_value(m_Instance, field.ClassField, (void*)value);
 		return true;
