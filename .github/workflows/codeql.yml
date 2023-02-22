@@ -1,5 +1,4 @@
 name: "CodeQL"
-
 on:
   push:
     branches: [ master ]
@@ -22,20 +21,33 @@ jobs:
           
     steps:
     - uses: actions/checkout@v3
+    
+    - name: Install Python 3.10
+      uses: actions/setup-python@v4
+      with:
+       python-version: '3.10'
+
+    - name: Install python dependencies
+      run: pip install jinja2
+      
+    - name: Install Vulkan SDK
+      uses: humbletim/install-vulkan-sdk@v1.1.1
+      with:
+        version: latest
+        cache: true
 
     - name: Configure CMake
-      run: |
-        cmake -S . -B ./build -G "Visual Studio 17 2022"
-
+      run: cmake -B ${{github.workspace}}/build
+        
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v1
       with:
         languages: ${{ matrix.language }}
 
-    - name: Build
-      run: |
-        cmake --build ./build
+    - name: Build with CMake
+      # Build your program with the given configuration
+      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v1
