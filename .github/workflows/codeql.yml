@@ -2,19 +2,15 @@ name: "CodeQL"
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master ]
   pull_request:
-    branches: [ main ]
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 jobs:
   analyze:
     name: Analyze
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
+    runs-on: windows-latest
 
     strategy:
       fail-fast: false
@@ -23,35 +19,13 @@ jobs:
         compiler:
           - msvc
           - llvm
-        generator:
-          - "Visual Studio 17 2022"
-        build_type:
-          - Debug
           
     steps:
     - uses: actions/checkout@v3
 
-    - name: Setup Cpp
-      uses: aminya/setup-cpp@v1
-      with:
-        compiler: ${{ matrix.compiler }}
-        vcvarsall: ${{ contains(matrix.os, 'windows' )}}
-
-        cmake: true
-        ninja: false
-        conan: false
-        vcpkg: false
-        ccache: true
-        clangtidy: false
-
-        cppcheck: false
-
-        gcovr: false
-        opencppcoverage: false
-
     - name: Configure CMake
       run: |
-        cmake -S . -B ./build -G "${{matrix.generator}}" -DCMAKE_BUILD_TYPE:STRING=${{matrix.build_type}}
+        cmake -S . -B ./build -G "Visual Studio 17 2022"
 
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
@@ -61,7 +35,7 @@ jobs:
 
     - name: Build
       run: |
-        cmake --build ./build --config ${{matrix.build_type}}
+        cmake --build ./build
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v1
