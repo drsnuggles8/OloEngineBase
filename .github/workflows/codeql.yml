@@ -1,0 +1,88 @@
+# For most projects, this workflow file will not need changing; you simply need
+# to commit it to your repository.
+#
+# You may wish to alter this file to override the set of languages analyzed,
+# or to provide custom queries or build logic.
+#
+# ******** NOTE ********
+# We have attempted to detect the languages in your repository. Please check
+# the `language` matrix defined below to confirm you have the correct set of
+# supported CodeQL languages.
+#
+name: "CodeQL"
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    # The branches below must be a subset of the branches above
+    branches: [ main, develop ]
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'cpp' ]
+        compiler:
+          # you can specify the version after `-` like "llvm-13.0.0".
+          - msvc
+          - llvm
+        generator:
+          - "Visual Studio 17 2022"
+        build_type:
+          - Debug
+          - Release
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Setup Cache
+      uses: ./.github/actions/setup_cache
+      with:
+        compiler: ${{ matrix.compiler }}
+        build_type: ${{ matrix.build_type }}
+        developer_mode: ${{ matrix.developer_mode }}
+        generator: ${{ matrix.generator }}
+
+    - name: Setup Cpp
+      uses: aminya/setup-cpp@v1
+      with:
+        compiler: ${{ matrix.compiler }}
+        vcvarsall: ${{ contains(matrix.os, 'windows' )}}
+
+        cmake: true
+        ninja: false
+        conan: false
+        vcpkg: false
+        ccache: true
+        clangtidy: false
+
+        cppcheck: false
+
+        gcovr: false
+        opencppcoverage: false
+
+    - name: Configure CMake
+      run: |
+        cmake -S . -B ./build -G "${{matrix.generator}}" -DCMAKE_BUILD_TYPE:STRING=${{matrix.build_type}}
+
+    # Initializes the CodeQL tools for scanning.
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v1
+      with:
+        languages: ${{ matrix.language }}
+
+    - name: Build
+      run: |
+        cmake --build ./build --config ${{matrix.build_type}}
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v1
