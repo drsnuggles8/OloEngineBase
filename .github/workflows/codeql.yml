@@ -6,6 +6,9 @@ on:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
 
+env:
+  BUILD_TYPE: Release
+
 jobs:
   analyze:
     name: Analyze
