@@ -62,16 +62,16 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
 
-		m_ActiveScene->OnViewportResize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
+		m_ActiveScene->OnViewportResize(static_cast<u32>(m_ViewportSize.x), static_cast<u32>(m_ViewportSize.y));
 
-		const double epsilon = 1e-5;
+		const f64 epsilon = 1e-5;
 
 		// Resize
 		if (FramebufferSpecification const spec = m_Framebuffer->GetSpecification();
 			(m_ViewportSize.x > 0.0f) && (m_ViewportSize.y > 0.0f) && // zero sized framebuffer is invalid
-			((std::abs(static_cast<float>(spec.Width) - m_ViewportSize.x) > epsilon) || (std::abs(static_cast<float>(spec.Height) - m_ViewportSize.y) > epsilon)))
+			((std::abs(static_cast<f32>(spec.Width) - m_ViewportSize.x) > epsilon) || (std::abs(static_cast<f32>(spec.Height) - m_ViewportSize.y) > epsilon)))
 		{
-			m_Framebuffer->Resize(static_cast<uint32_t>(m_ViewportSize.x), static_cast<uint32_t>(m_ViewportSize.y));
+			m_Framebuffer->Resize(static_cast<u32>(m_ViewportSize.x), static_cast<u32>(m_ViewportSize.y));
 			m_CameraController.OnResize(m_ViewportSize.x, m_ViewportSize.y);
 			m_EditorCamera.SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
 		}
@@ -183,7 +183,7 @@ namespace OloEngine
 		// DockSpace
 		ImGuiIO const& io = ImGui::GetIO();
 		ImGuiStyle& style = ImGui::GetStyle();
-		const float minWinSizeX = style.WindowMinSize.x;
+		const f32 minWinSizeX = style.WindowMinSize.x;
 		style.WindowMinSize.x = 370.0f;
 		if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
 		{
@@ -287,7 +287,7 @@ namespace OloEngine
 		ImVec2 const viewportPanelSize = ImGui::GetContentRegionAvail();
 		m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
 
-		uint64_t const textureID = m_Framebuffer->GetColorAttachmentRendererID(0);
+		u64 const textureID = m_Framebuffer->GetColorAttachmentRendererID(0);
 		ImGui::Image(reinterpret_cast<void*>(textureID), ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
 
 		if (ImGui::BeginDragDropTarget())
@@ -342,13 +342,13 @@ namespace OloEngine
 
 			// Snapping
 			const bool snap = Input::IsKeyPressed(Key::LeftControl);
-			float snapValue = 0.5f;
+			f32 snapValue = 0.5f;
 			if (m_GizmoType == ImGuizmo::OPERATION::ROTATE)
 			{
 				snapValue = 45.0f;
 			}
 
-			const std::array<float, 3> snapValues = { snapValue, snapValue, snapValue };
+			const std::array<f32, 3> snapValues = { snapValue, snapValue, snapValue };
 
 			ImGuizmo::Manipulate(glm::value_ptr(cameraView),
 				glm::value_ptr(cameraProjection),
@@ -394,7 +394,7 @@ namespace OloEngine
 			tintColor.w = 0.5f;
 		}
 
-		const float size = ImGui::GetWindowHeight() - 4.0f;
+		const f32 size = ImGui::GetWindowHeight() - 4.0f;
 
 		ImGui::SetCursorPosX((ImGui::GetWindowContentRegionMax().x * 0.5f) - (size * 0.5f));
 
@@ -406,7 +406,7 @@ namespace OloEngine
 		{
 			using enum OloEngine::EditorLayer::SceneState;
 			Ref<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Simulate)) ? m_IconPlay : m_IconStop;
-			if (ImGui::ImageButton((ImTextureID)(uint64_t)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
+			if (ImGui::ImageButton((ImTextureID)(u64)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
 			{
 				if ((m_SceneState == Edit) || (m_SceneState == Simulate))
 				{
@@ -426,7 +426,7 @@ namespace OloEngine
 			}
 
 			Ref<Texture2D> icon = ((m_SceneState == SceneState::Edit) || (m_SceneState == SceneState::Play)) ? m_IconSimulate : m_IconStop;
-			if (ImGui::ImageButton((ImTextureID)(uint64_t)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
+			if (ImGui::ImageButton((ImTextureID)(u64)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
 			{
 				using enum OloEngine::EditorLayer::SceneState;
 				if ((m_SceneState == Edit) || (m_SceneState == Play))
@@ -444,7 +444,7 @@ namespace OloEngine
 				ImGui::SameLine();
 				{
 					icon = m_IconPause;
-					if (ImGui::ImageButton((ImTextureID)(uint64_t)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
+					if (ImGui::ImageButton((ImTextureID)(u64)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
 					{
 						m_ActiveScene->SetPaused(!isPaused);
 					}
@@ -457,7 +457,7 @@ namespace OloEngine
 					{
 						icon = m_IconStep;
 						isPaused = m_ActiveScene->IsPaused();
-						if (ImGui::ImageButton((ImTextureID)(uint64_t)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
+						if (ImGui::ImageButton((ImTextureID)(u64)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
 						{
 							m_ActiveScene->Step();
 						}
@@ -672,14 +672,14 @@ namespace OloEngine
 
 		if (m_ShowPhysicsColliders)
 		{
-			if (const double epsilon = 1e-5; std::abs(Renderer2D::GetLineWidth() - -2.0f) > static_cast<float>(epsilon))
+			if (const f64 epsilon = 1e-5; std::abs(Renderer2D::GetLineWidth() - -2.0f) > static_cast<f32>(epsilon))
 			{
 				Renderer2D::Flush();
 				Renderer2D::SetLineWidth(2.0f);
 			}
 
 			// Calculate z index for translation
-			const float zIndex = 0.001f;
+			const f32 zIndex = 0.001f;
 			glm::vec3 cameraForwardDirection = m_EditorCamera.GetForwardDirection();
 			glm::vec3 projectionCollider = cameraForwardDirection * glm::vec3(zIndex);
 

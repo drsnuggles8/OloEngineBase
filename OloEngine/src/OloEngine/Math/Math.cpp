@@ -14,12 +14,12 @@ namespace OloEngine::Math {
 	{
 		// From glm::decompose in matrix_decompose.inl
 
-		using T = float;
+		using T = f32;
 
 		glm::mat4 LocalMatrix(transform);
 
 		// Normalize the matrix.
-		if (glm::epsilonEqual(LocalMatrix[3][3], static_cast<float>(0), glm::epsilon<T>()))
+		if (glm::epsilonEqual(LocalMatrix[3][3], static_cast<f32>(0), glm::epsilon<T>()))
 		{
 			return false;
 		}
@@ -73,7 +73,7 @@ namespace OloEngine::Math {
 		}
 
 		rotation.y = std::asin(-Row[0][2]);
-		if (const double epsilon = 1e-5; std::abs(std::cos(rotation.y) - 0) > epsilon)
+		if (const f64 epsilon = 1e-5; std::abs(std::cos(rotation.y) - 0) > epsilon)
 		{
 			rotation.x = std::atan2(Row[1][2], Row[2][2]);
 			rotation.z = std::atan2(Row[0][1], Row[0][0]);

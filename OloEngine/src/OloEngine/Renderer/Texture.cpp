@@ -9,7 +9,7 @@
 
 namespace OloEngine
 {
-	Ref<Texture2D> Texture2D::Create(uint32_t width, uint32_t height)
+	Ref<Texture2D> Texture2D::Create(u32 width, u32 height)
 	{
 		switch (Renderer::GetAPI())
 		{

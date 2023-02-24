@@ -10,7 +10,7 @@ namespace OloEngine
 		None = 0, Float, Float2, Float3, Float4, Mat3, Mat4, Int, Int2, Int3, Int4, Bool
 	};
 
-	[[nodiscard("Store this!")]] static uint32_t ShaderDataTypeSize(ShaderDataType const type)
+	[[nodiscard("Store this!")]] static u32 ShaderDataTypeSize(ShaderDataType const type)
 	{
 		switch (type)
 		{
@@ -37,8 +37,8 @@ namespace OloEngine
 	{
 		std::string name;
 		ShaderDataType dataType{};
-		uint32_t size{};
-		size_t offset{};
+		u32 size{};
+		sizet offset{};
 		bool normalized{};
 
 		BufferElement() = default;
@@ -48,7 +48,7 @@ namespace OloEngine
 		{
 		}
 
-		[[nodiscard("Store this!")]] uint32_t GetComponentCount() const
+		[[nodiscard("Store this!")]] u32 GetComponentCount() const
 		{
 			switch (dataType)
 			{
@@ -75,14 +75,14 @@ namespace OloEngine
 	struct VertexData
 	{
 		const void* data;
-		uint32_t size;
+		u32 size;
 	};
 
 	struct UniformData
 	{
 		const void* data;
-		uint32_t size;
-		uint32_t offset;
+		u32 size;
+		u32 offset;
 	};
 
 	class BufferLayout
@@ -96,7 +96,7 @@ namespace OloEngine
 			CalculateOffsetsAndStride();
 		}
 
-		[[nodiscard("Store this!")]] uint32_t GetStride() const { return m_Stride; }
+		[[nodiscard("Store this!")]] u32 GetStride() const { return m_Stride; }
 		[[nodiscard("Store this!")]] std::vector<BufferElement> GetElements() const { return m_Elements; }
 
 		std::vector<BufferElement>::iterator begin() { return m_Elements.begin(); }
@@ -106,7 +106,7 @@ namespace OloEngine
 	private:
 		void CalculateOffsetsAndStride()
 		{
-			size_t offset = 0;
+			sizet offset = 0;
 			m_Stride = 0;
 			for (auto& element : m_Elements)
 			{
@@ -117,7 +117,7 @@ namespace OloEngine
 		}
 	private:
 		std::vector<BufferElement> m_Elements;
-		uint32_t m_Stride = 0;
+		u32 m_Stride = 0;
 	};
 
 	// TODO(olbu): Add Create() functions for the new constructors of OpenGLVertexBuffer, OpenGLIndexBuffer, OpenGLUniformBuffer
@@ -134,10 +134,10 @@ namespace OloEngine
 		[[nodiscard("Store this!")]] virtual const BufferLayout& GetLayout() const = 0;
 		virtual void SetLayout(const BufferLayout& layout) = 0;
 
-		[[nodiscard("Store this!")]] virtual uint32_t GetBufferHandle() const = 0;
+		[[nodiscard("Store this!")]] virtual u32 GetBufferHandle() const = 0;
 
-		static Ref<VertexBuffer> Create(uint32_t size);
-		static Ref<VertexBuffer> Create(float* vertices, uint32_t size);
+		static Ref<VertexBuffer> Create(u32 size);
+		static Ref<VertexBuffer> Create(f32* vertices, u32 size);
 	};
 
 	// Currently OloEngine only supports 32-bit index buffers
@@ -150,10 +150,10 @@ namespace OloEngine
 		virtual void Bind() const = 0;
 		virtual void Unbind() const = 0;
 
-		[[nodiscard("Store this!")]] virtual uint32_t GetCount() const = 0;
-        [[nodiscard("Store this!")]] virtual uint32_t GetBufferHandle() const = 0;
+		[[nodiscard("Store this!")]] virtual u32 GetCount() const = 0;
+        [[nodiscard("Store this!")]] virtual u32 GetBufferHandle() const = 0;
 
-		static Ref<IndexBuffer> Create(uint32_t* indices, uint32_t size);
+		static Ref<IndexBuffer> Create(u32* indices, u32 size);
 	};
 
 	class UniformBuffer
@@ -162,6 +162,6 @@ namespace OloEngine
 		virtual ~UniformBuffer() = default;
 		virtual void SetData(const UniformData& data) = 0;
 
-		static Ref<UniformBuffer> Create(uint32_t size, uint32_t binding);
+		static Ref<UniformBuffer> Create(u32 size, u32 binding);
 	};
 }

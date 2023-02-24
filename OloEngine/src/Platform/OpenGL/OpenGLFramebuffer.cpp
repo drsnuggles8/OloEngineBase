@@ -10,7 +10,7 @@
 namespace OloEngine
 {
 
-	static const uint32_t s_MaxFramebufferSize = 8192;
+	static const u32 s_MaxFramebufferSize = 8192;
 
 	namespace Utils
 	{
@@ -19,7 +19,7 @@ namespace OloEngine
 			return multisampled ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D;
 		}
 
-		static void PrepareTexture(const uint32_t id, const int samples, const GLenum format, const int width, const int height)
+		static void PrepareTexture(const u32 id, const int samples, const GLenum format, const int width, const int height)
 		{
 			OLO_CORE_ASSERT((format == GL_RGBA8 || format == GL_R32I || format == GL_DEPTH24_STENCIL8), "Invalid format.");
 
@@ -38,22 +38,22 @@ namespace OloEngine
 			}
 		}
 
-		static void CreateTextures(const bool multisampled, const int count, uint32_t* const outID)
+		static void CreateTextures(const bool multisampled, const int count, u32* const outID)
 		{
 			glCreateTextures(TextureTarget(multisampled), count, outID);
 		}
 
-		static void BindTexture(const uint32_t id)
+		static void BindTexture(const u32 id)
 		{
 			glBindTextureUnit(0, id);
 		}
 
-		static void BindTextures(const uint32_t firstID, const uint32_t count, const GLuint* id)
+		static void BindTextures(const u32 firstID, const u32 count, const GLuint* id)
 		{
 			glBindTextures(firstID, static_cast<int>(count), id);
 		}
 
-		static void AttachColorTexture(const uint32_t fbo, const uint32_t id, const int samples, const GLenum internalFormat, const int width, const int height, const uint32_t index)
+		static void AttachColorTexture(const u32 fbo, const u32 id, const int samples, const GLenum internalFormat, const int width, const int height, const u32 index)
 		{
 			PrepareTexture(id, samples, internalFormat, width, height);
 
@@ -66,7 +66,7 @@ namespace OloEngine
 			}
 		}
 
-		static void AttachDepthTexture(const uint32_t fbo, const uint32_t id, const int samples, const GLenum format, const GLenum attachmentType, const int width, const int height)
+		static void AttachDepthTexture(const u32 fbo, const u32 id, const int samples, const GLenum format, const GLenum attachmentType, const int width, const int height)
 		{
 			PrepareTexture(id, samples, format, width, height);
 
@@ -178,7 +178,7 @@ namespace OloEngine
 				Utils::BindTexture(m_ColorAttachments[i]);
 				// TODO(olbu): Add more FramebufferTextureFormats in Framebuffer.h and here
 				GLenum internalFormat = Utils::OloFBColorTextureFormatToGL(m_ColorAttachmentSpecifications[i].TextureFormat);
-				Utils::AttachColorTexture(m_RendererID, m_ColorAttachments[i], static_cast<int>(m_Specification.Samples), internalFormat, static_cast<int>(m_Specification.Width), static_cast<int>(m_Specification.Height), static_cast<uint32_t>(i));
+				Utils::AttachColorTexture(m_RendererID, m_ColorAttachments[i], static_cast<int>(m_Specification.Samples), internalFormat, static_cast<int>(m_Specification.Width), static_cast<int>(m_Specification.Height), static_cast<u32>(i));
 			}
 		}
 
@@ -197,7 +197,7 @@ namespace OloEngine
 			auto colorAttachmentSize = static_cast<int>(m_ColorAttachments.size());
 			for (int i = 0; i < colorAttachmentSize; ++i)
 			{
-				colorBuffers.push_back(static_cast<uint32_t>(GL_COLOR_ATTACHMENT0 + i));
+				colorBuffers.push_back(static_cast<u32>(GL_COLOR_ATTACHMENT0 + i));
 			}
 
 			glDrawBuffers(static_cast<GLsizei>(m_ColorAttachments.size()), colorBuffers.data());
@@ -224,7 +224,7 @@ namespace OloEngine
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
 
-	void OpenGLFramebuffer::Resize(uint32_t width, uint32_t height)
+	void OpenGLFramebuffer::Resize(u32 width, u32 height)
 	{
 		if ((0 == width) || (0 == height) || (width > s_MaxFramebufferSize) || (height > s_MaxFramebufferSize))
 		{
@@ -238,7 +238,7 @@ namespace OloEngine
 		Invalidate();
 	}
 
-	int OpenGLFramebuffer::ReadPixel(const uint32_t attachmentIndex, const int x, const int y)
+	int OpenGLFramebuffer::ReadPixel(const u32 attachmentIndex, const int x, const int y)
 	{
 		OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size());
 
@@ -248,7 +248,7 @@ namespace OloEngine
 		return pixelData;
 	}
 
-	void OpenGLFramebuffer::ClearAttachment(const uint32_t attachmentIndex, const int value)
+	void OpenGLFramebuffer::ClearAttachment(const u32 attachmentIndex, const int value)
 	{
 		OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size());
 

@@ -14,7 +14,7 @@ namespace OloEngine
 
 		std::streampos end = stream.tellg();
 		stream.seekg(0, std::ios::beg);
-		auto size = static_cast<uint64_t>(end - stream.tellg());
+		auto size = static_cast<u64>(end - stream.tellg());
 
 		if (size == 0)
 		{

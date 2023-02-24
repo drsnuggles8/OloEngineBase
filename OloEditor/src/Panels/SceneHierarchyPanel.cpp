@@ -72,7 +72,7 @@ namespace OloEngine
 
 		ImGuiTreeNodeFlags flags = ((m_SelectionContext == entity) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
 		flags |= ImGuiTreeNodeFlags_SpanAvailWidth;
-		bool opened = ImGui::TreeNodeEx((void*)static_cast<uint64_t>(static_cast<uint32_t>(entity)), flags, tag.c_str());
+		bool opened = ImGui::TreeNodeEx((void*)static_cast<u64>(static_cast<u32>(entity)), flags, tag.c_str());
 		if (ImGui::IsItemClicked())
 		{
 			m_SelectionContext = entity;
@@ -131,7 +131,7 @@ namespace OloEngine
 		}
 	}
 
-	static void DrawVec3Control(const std::string& label, glm::vec3& values, const float resetValue = 0.0f, const float columnWidth = 100.0f)
+	static void DrawVec3Control(const std::string& label, glm::vec3& values, const f32 resetValue = 0.0f, const f32 columnWidth = 100.0f)
 	{
 		ImGuiIO& io = ImGui::GetIO();
 		const auto boldFont = io.Fonts->Fonts[0];
@@ -146,7 +146,7 @@ namespace OloEngine
 		ImGui::PushMultiItemsWidths(3, ImGui::CalcItemWidth());
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
 
-		const float lineHeight = ::GImGui->Font->FontSize + (::GImGui->Style.FramePadding.y * 2.0f);
+		const f32 lineHeight = ::GImGui->Font->FontSize + (::GImGui->Style.FramePadding.y * 2.0f);
 		const ImVec2 buttonSize = { lineHeight + 3.0f, lineHeight };
 
 		ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.8f, 0.1f, 0.15f, 1.0f });
@@ -217,7 +217,7 @@ namespace OloEngine
 			const ImVec2 contentRegionAvailable = ImGui::GetContentRegionAvail();
 
 			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 4, 4 });
-			const float lineHeight = (::GImGui->Font->FontSize) + (::GImGui->Style.FramePadding.y * 2.0f);
+			const f32 lineHeight = (::GImGui->Font->FontSize) + (::GImGui->Style.FramePadding.y * 2.0f);
 			ImGui::Separator();
 			const bool open = ImGui::TreeNodeEx(reinterpret_cast<void*>(typeid(T).hash_code()), treeNodeFlags, name.c_str());
 			ImGui::PopStyleVar(
@@ -330,17 +330,17 @@ namespace OloEngine
 
 			if (camera.GetProjectionType() == SceneCamera::ProjectionType::Perspective)
 			{
-				if (float perspectiveVerticalFov = glm::degrees(camera.GetPerspectiveVerticalFOV()); ImGui::DragFloat("Vertical FOV", &perspectiveVerticalFov))
+				if (f32 perspectiveVerticalFov = glm::degrees(camera.GetPerspectiveVerticalFOV()); ImGui::DragFloat("Vertical FOV", &perspectiveVerticalFov))
 				{
 					camera.SetPerspectiveVerticalFOV(glm::radians(perspectiveVerticalFov));
 				}
 
-				if (float perspectiveNear = camera.GetPerspectiveNearClip(); ImGui::DragFloat("Near", &perspectiveNear))
+				if (f32 perspectiveNear = camera.GetPerspectiveNearClip(); ImGui::DragFloat("Near", &perspectiveNear))
 				{
 					camera.SetPerspectiveNearClip(perspectiveNear);
 				}
 
-				float perspectiveFar = camera.GetPerspectiveFarClip();
+				f32 perspectiveFar = camera.GetPerspectiveFarClip();
 				if (ImGui::DragFloat("Far", &perspectiveFar))
 				{
 					camera.SetPerspectiveFarClip(perspectiveFar);
@@ -349,17 +349,17 @@ namespace OloEngine
 
 			if (camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
 			{
-				if (float orthoSize = camera.GetOrthographicSize(); ImGui::DragFloat("Size", &orthoSize))
+				if (f32 orthoSize = camera.GetOrthographicSize(); ImGui::DragFloat("Size", &orthoSize))
 				{
 					camera.SetOrthographicSize(orthoSize);
 				}
 
-				if (float orthoNear = camera.GetOrthographicNearClip(); ImGui::DragFloat("Near", &orthoNear))
+				if (f32 orthoNear = camera.GetOrthographicNearClip(); ImGui::DragFloat("Near", &orthoNear))
 				{
 					camera.SetOrthographicNearClip(orthoNear);
 				}
 
-				if (float orthoFar = camera.GetOrthographicFarClip(); ImGui::DragFloat("Far", &orthoFar))
+				if (f32 orthoFar = camera.GetOrthographicFarClip(); ImGui::DragFloat("Far", &orthoFar))
 				{
 					camera.SetOrthographicFarClip(orthoFar);
 				}
@@ -393,7 +393,7 @@ namespace OloEngine
 					{
 						if (field.Type == ScriptFieldType::Float)
 						{
-							if (float data = scriptInstance->GetFieldValue<float>(name); ImGui::DragFloat(name.c_str(), &data))
+							if (f32 data = scriptInstance->GetFieldValue<f32>(name); ImGui::DragFloat(name.c_str(), &data))
 							{
 								scriptInstance->SetFieldValue(name, data);
 							}
@@ -419,7 +419,7 @@ namespace OloEngine
 							// Display control to set it maybe
 							if (field.Type == ScriptFieldType::Float)
 							{
-								float data = scriptField.GetValue<float>();
+								f32 data = scriptField.GetValue<f32>();
 								if (ImGui::DragFloat(name.c_str(), &data))
 									scriptField.SetValue(data);
 							}
@@ -429,7 +429,7 @@ namespace OloEngine
 							// Display control to set it maybe
 							if (field.Type == ScriptFieldType::Float)
 							{
-								float data = 0.0f;
+								f32 data = 0.0f;
 								if (ImGui::DragFloat(name.c_str(), &data))
 								{
 									ScriptFieldInstance& fieldInstance = entityFields[name];

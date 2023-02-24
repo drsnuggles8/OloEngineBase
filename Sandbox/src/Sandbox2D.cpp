@@ -40,7 +40,7 @@ void Sandbox2D::OnUpdate(const OloEngine::Timestep ts)
 	}
 
 	{
-		static float rotation = 0.0f;
+		static f32 rotation = 0.0f;
 		rotation += ts * 50.0f;
 
 		OLO_PROFILE_SCOPE("Renderer Draw");
@@ -53,9 +53,9 @@ void Sandbox2D::OnUpdate(const OloEngine::Timestep ts)
 		OloEngine::Renderer2D::EndScene();
 
 		OloEngine::Renderer2D::BeginScene(m_CameraController.GetCamera());
-		for (float y = -5.0f; y < 5.0f; y += 0.5f)
+		for (f32 y = -5.0f; y < 5.0f; y += 0.5f)
 		{
-			for (float x = -5.0f; x < 5.0f; x += 0.5f)
+			for (f32 x = -5.0f; x < 5.0f; x += 0.5f)
 			{
 				const glm::vec4 color = { (x + 5.0f) / 10.0f, 0.4f, (y + 5.0f) / 10.0f, 0.7f };
 				OloEngine::Renderer2D::DrawQuad({ x, y }, { 0.45f, 0.45f }, color);

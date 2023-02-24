@@ -34,7 +34,7 @@ namespace OloEngine
 		//io.ConfigFlags |= ImGuiConfigFlags_ViewportsNoTaskBarIcons;
 		//io.ConfigFlags |= ImGuiConfigFlags_ViewportsNoMerge;
 
-		const float fontSize = 18.0f;// *2.0f;
+		const f32 fontSize = 18.0f;// *2.0f;
 		io.Fonts->AddFontFromFileTTF("assets/fonts/opensans/OpenSans-Bold.ttf", Window::s_HighDPIScaleFactor * fontSize);
 		io.FontDefault = io.Fonts->AddFontFromFileTTF("assets/fonts/opensans/OpenSans-Regular.ttf", Window::s_HighDPIScaleFactor * fontSize);
 
@@ -98,7 +98,7 @@ namespace OloEngine
 		ImGuiIO& io = ImGui::GetIO();
 
 		Window const& window = Application::Get().GetWindow();
-		io.DisplaySize = ImVec2(static_cast<float>(window.GetWidth()), static_cast<float>(window.GetHeight()));
+		io.DisplaySize = ImVec2(static_cast<f32>(window.GetWidth()), static_cast<f32>(window.GetHeight()));
 
 		// Rendering
 		ImGui::Render();

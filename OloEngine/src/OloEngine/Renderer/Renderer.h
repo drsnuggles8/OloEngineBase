@@ -13,7 +13,7 @@ namespace OloEngine
 		static void Init();
 		static void Shutdown();
 
-		static void OnWindowResize(uint32_t width, uint32_t height);
+		static void OnWindowResize(u32 width, u32 height);
 
 		static void BeginScene(OrthographicCamera const& camera);
 		static void EndScene();

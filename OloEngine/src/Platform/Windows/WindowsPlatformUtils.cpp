@@ -11,9 +11,9 @@
 
 namespace OloEngine
 {
-	float Time::GetTime()
+	f32 Time::GetTime()
 	{
-		return static_cast<float>(GLFWAPI::glfwGetTime());
+		return static_cast<f32>(GLFWAPI::glfwGetTime());
 	}
 
 	std::string FileDialogs::OpenFile(const char* const filter)

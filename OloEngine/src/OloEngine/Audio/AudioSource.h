@@ -16,24 +16,24 @@ namespace OloEngine
 
 	struct AudioSourceConfig
 	{
-		float VolumeMultiplier = 1.0f;
-		float PitchMultiplier = 1.0f;
+		f32 VolumeMultiplier = 1.0f;
+		f32 PitchMultiplier = 1.0f;
 		bool PlayOnAwake = true;
 		bool Looping = false;
 
 		bool Spatialization = false;
 		AttenuationModelType AttenuationModel = AttenuationModelType::Inverse;
-		float RollOff = 1.0f;
-		float MinGain = 0.0f;
-		float MaxGain = 1.0f;
-		float MinDistance = 0.3f;
-		float MaxDistance = 1000.0f;
+		f32 RollOff = 1.0f;
+		f32 MinGain = 0.0f;
+		f32 MaxGain = 1.0f;
+		f32 MinDistance = 0.3f;
+		f32 MaxDistance = 1000.0f;
 
-		float ConeInnerAngle = glm::radians(360.0f);
-		float ConeOuterAngle = glm::radians(360.0f);
-		float ConeOuterGain = 0.0f;
+		f32 ConeInnerAngle = glm::radians(360.0f);
+		f32 ConeOuterAngle = glm::radians(360.0f);
+		f32 ConeOuterGain = 0.0f;
 
-		float DopplerFactor = 1.0f;
+		f32 DopplerFactor = 1.0f;
 	};
 
 	class AudioSource
@@ -55,18 +55,18 @@ namespace OloEngine
 
 		void SetConfig(const AudioSourceConfig& config);
 
-		void SetVolume(const float volume) const;
-		void SetPitch(const float pitch) const;
+		void SetVolume(const f32 volume) const;
+		void SetPitch(const f32 pitch) const;
 		void SetLooping(const bool state) const;
 		void SetSpatialization(const bool state);
 		void SetAttenuationModel(const AttenuationModelType type) const;
-		void SetRollOff(const float rollOff) const;
-		void SetMinGain(const float minGain) const;
-		void SetMaxGain(const float maxGain) const;
-		void SetMinDistance(const float minDistance) const;
-		void SetMaxDistance(const float maxDistance) const;
-		void SetCone(const float innerAngle, const float outerAngle, const float outerGain) const;
-		void SetDopplerFactor(const float factor) const;
+		void SetRollOff(const f32 rollOff) const;
+		void SetMinGain(const f32 minGain) const;
+		void SetMaxGain(const f32 maxGain) const;
+		void SetMinDistance(const f32 minDistance) const;
+		void SetMaxDistance(const f32 maxDistance) const;
+		void SetCone(const f32 innerAngle, const f32 outerAngle, const f32 outerGain) const;
+		void SetDopplerFactor(const f32 factor) const;
 
 		void SetPosition(const glm::vec3& position) const;
 		void SetDirection(const glm::vec3& forward) const;

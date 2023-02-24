@@ -22,7 +22,7 @@ namespace OloEngine
 			data = ::stbi_load(path.c_str(), &width, &height, &channels, 0);
 		}
 
-		InvalidateImpl(path, static_cast<uint32_t>(width), static_cast<uint32_t>(height), data, static_cast<uint32_t>(channels));
+		InvalidateImpl(path, static_cast<u32>(width), static_cast<u32>(height), data, static_cast<u32>(channels));
 
 		::stbi_image_free(data);
 	}
@@ -34,23 +34,23 @@ namespace OloEngine
 		glDeleteTextures(1, &m_RendererID);
 	}
 
-	void OpenGLTextureCubemap::SetData(void* const data, const uint32_t size)
+	void OpenGLTextureCubemap::SetData(void* const data, const u32 size)
 	{
 		OLO_PROFILE_FUNCTION();
 
-		const uint32_t bpp = GL_RGBA == m_DataFormat ? 4 : 3;
+		const u32 bpp = GL_RGBA == m_DataFormat ? 4 : 3;
 		OLO_CORE_ASSERT(size == m_Width * m_Height * bpp, "Data must be entire texture!");
 		glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<int>(m_Width), static_cast<int>(m_Height), m_DataFormat, GL_UNSIGNED_BYTE, data);
 	}
 
-	void OpenGLTextureCubemap::Invalidate(std::string_view path, uint32_t width, uint32_t height, const void* data, uint32_t channels)
+	void OpenGLTextureCubemap::Invalidate(std::string_view path, u32 width, u32 height, const void* data, u32 channels)
 	{
 		OLO_PROFILE_FUNCTION();
 
 		InvalidateImpl(path, width, height, data, channels);
 	}
 
-	void OpenGLTextureCubemap::InvalidateImpl(std::string_view path, uint32_t width, uint32_t height, const void* data, uint32_t channels)
+	void OpenGLTextureCubemap::InvalidateImpl(std::string_view path, u32 width, u32 height, const void* data, u32 channels)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -102,7 +102,7 @@ namespace OloEngine
 		}
 	}
 
-	void OpenGLTextureCubemap::Bind(const uint32_t slot) const
+	void OpenGLTextureCubemap::Bind(const u32 slot) const
 	{
 		OLO_PROFILE_FUNCTION();
 

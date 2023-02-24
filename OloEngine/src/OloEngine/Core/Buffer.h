@@ -8,12 +8,12 @@ namespace OloEngine
 	// Non-owning raw buffer class
 	struct Buffer
 	{
-		uint8_t* Data = nullptr;
-		uint64_t Size = 0;
+		u8* Data = nullptr;
+		u64 Size = 0;
 
 		Buffer() = default;
 
-		Buffer(uint64_t size)
+		Buffer(u64 size)
 		{
 			Allocate(size);
 		}
@@ -27,11 +27,11 @@ namespace OloEngine
 			return result;
 		}
 
-		void Allocate(uint64_t size)
+		void Allocate(u64 size)
 		{
 			Release();
 
-			Data = new uint8_t[size];
+			Data = new u8[size];
 			Size = size;
 		}
 
@@ -62,7 +62,7 @@ namespace OloEngine
 		{
 		}
 
-		ScopedBuffer(uint64_t size)
+		ScopedBuffer(u64 size)
 			: m_Buffer(size)
 		{
 		}
@@ -72,8 +72,8 @@ namespace OloEngine
 			m_Buffer.Release();
 		}
 
-		[[nodiscard("Store this!")]] uint8_t * Data() const { return m_Buffer.Data; }
-		[[nodiscard("Store this!")]] uint64_t Size() const { return m_Buffer.Size; }
+		[[nodiscard("Store this!")]] u8 * Data() const { return m_Buffer.Data; }
+		[[nodiscard("Store this!")]] u64 Size() const { return m_Buffer.Size; }
 
 		template<typename T>
 		T* As()

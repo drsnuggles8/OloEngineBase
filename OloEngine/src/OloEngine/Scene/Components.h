@@ -63,7 +63,7 @@ namespace OloEngine
 	{
 		glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
 		Ref<Texture2D> Texture = nullptr;
-		float TilingFactor = 1.0f;
+		f32 TilingFactor = 1.0f;
 
 		SpriteRendererComponent() = default;
 		SpriteRendererComponent(const SpriteRendererComponent&) = default;
@@ -74,8 +74,8 @@ namespace OloEngine
 	struct CircleRendererComponent
 	{
 		glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
-		float Thickness = 1.0f;
-		float Fade = 0.005f;
+		f32 Thickness = 1.0f;
+		f32 Fade = 0.005f;
 
 		CircleRendererComponent() = default;
 		CircleRendererComponent(const CircleRendererComponent&) = default;
@@ -113,10 +113,10 @@ namespace OloEngine
 		glm::vec2 Size = { 0.5f, 0.5f };
 
 		// TODO(olbu): move into physics material in the future maybe
-		float Density = 1.0f;
-		float Friction = 0.5f;
-		float Restitution = 0.0f;
-		float RestitutionThreshold = 0.5f;
+		f32 Density = 1.0f;
+		f32 Friction = 0.5f;
+		f32 Restitution = 0.0f;
+		f32 RestitutionThreshold = 0.5f;
 
 		// Storage for runtime
 		void* RuntimeFixture = nullptr;
@@ -128,13 +128,13 @@ namespace OloEngine
 	struct CircleCollider2DComponent
 	{
 		glm::vec2 Offset = { 0.0f, 0.0f };
-		float Radius = 0.5f;
+		f32 Radius = 0.5f;
 
 		// TODO(olbu): move into physics material in the future maybe
-		float Density = 1.0f;
-		float Friction = 0.5f;
-		float Restitution = 0.0f;
-		float RestitutionThreshold = 0.5f;
+		f32 Density = 1.0f;
+		f32 Friction = 0.5f;
+		f32 Restitution = 0.0f;
+		f32 RestitutionThreshold = 0.5f;
 
 		// Storage for runtime
 		void* RuntimeFixture = nullptr;

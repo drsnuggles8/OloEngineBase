@@ -25,11 +25,11 @@ namespace OloEngine
 			m_CurrentDirectory = m_CurrentDirectory.parent_path();
 		}
 
-		static float padding = 16.0f;
-		static float thumbnailSize = 128.0f;
-		const float cellSize = thumbnailSize + padding;
+		static f32 padding = 16.0f;
+		static f32 thumbnailSize = 128.0f;
+		const f32 cellSize = thumbnailSize + padding;
 
-		const float panelWidth = ImGui::GetContentRegionAvail().x;
+		const f32 panelWidth = ImGui::GetContentRegionAvail().x;
 		auto columnCount = static_cast<int>(panelWidth / cellSize);
 		columnCount = std::max(columnCount, 1);
 
@@ -43,7 +43,7 @@ namespace OloEngine
 			ImGui::PushID(filenameString.c_str());
 			const Ref<Texture2D> icon = directoryEntry.is_directory() ? m_DirectoryIcon : GetFileIcon(directoryEntry.path());
 			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-			ImGui::ImageButton(reinterpret_cast<ImTextureID>(static_cast<uint64_t>(icon->GetRendererID())), { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
+			ImGui::ImageButton(reinterpret_cast<ImTextureID>(static_cast<u64>(icon->GetRendererID())), { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
 
 			if (ImGui::BeginDragDropSource())
 			{

@@ -34,8 +34,8 @@ namespace YAML {
 				return false;
 			}
 
-			rhs.x = node[0].as<float>();
-			rhs.y = node[1].as<float>();
+			rhs.x = node[0].as<f32>();
+			rhs.y = node[1].as<f32>();
 			return true;
 		}
 	};
@@ -60,9 +60,9 @@ namespace YAML {
 				return false;
 			}
 
-			rhs.x = node[0].as<float>();
-			rhs.y = node[1].as<float>();
-			rhs.z = node[2].as<float>();
+			rhs.x = node[0].as<f32>();
+			rhs.y = node[1].as<f32>();
+			rhs.z = node[2].as<f32>();
 			return true;
 		}
 	};
@@ -88,10 +88,10 @@ namespace YAML {
 				return false;
 			}
 
-			rhs.x = node[0].as<float>();
-			rhs.y = node[1].as<float>();
-			rhs.z = node[2].as<float>();
-			rhs.w = node[3].as<float>();
+			rhs.x = node[0].as<f32>();
+			rhs.y = node[1].as<f32>();
+			rhs.z = node[2].as<f32>();
+			rhs.w = node[3].as<f32>();
 			return true;
 		}
 	};
@@ -102,13 +102,13 @@ namespace YAML {
 		static Node encode(const OloEngine::UUID& uuid)
 		{
 			Node node;
-			node.push_back(static_cast<uint64_t>(uuid));
+			node.push_back(static_cast<u64>(uuid));
 			return node;
 		}
 
 		static bool decode(const Node& node, OloEngine::UUID& uuid)
 		{
-			uuid = node.as<uint64_t>();
+			uuid = node.as<u64>();
 			return true;
 		}
 	};
@@ -288,18 +288,18 @@ namespace OloEngine
 
 					switch (field.Type)
 					{
-						WRITE_SCRIPT_FIELD(Float, float);
-						WRITE_SCRIPT_FIELD(Double, double);
+						WRITE_SCRIPT_FIELD(Float, f32);
+						WRITE_SCRIPT_FIELD(Double, f64);
 						WRITE_SCRIPT_FIELD(Bool, bool);
 						WRITE_SCRIPT_FIELD(Char, char);
-						WRITE_SCRIPT_FIELD(Byte, int8_t);
-						WRITE_SCRIPT_FIELD(Short, int16_t);
-						WRITE_SCRIPT_FIELD(Int, int32_t);
-						WRITE_SCRIPT_FIELD(Long, int64_t);
-						WRITE_SCRIPT_FIELD(UByte, uint8_t);
-						WRITE_SCRIPT_FIELD(UShort, uint16_t);
-						WRITE_SCRIPT_FIELD(UInt, uint32_t);
-						WRITE_SCRIPT_FIELD(ULong, uint64_t);
+						WRITE_SCRIPT_FIELD(Byte, i8);
+						WRITE_SCRIPT_FIELD(Short, i16);
+						WRITE_SCRIPT_FIELD(Int, i32);
+						WRITE_SCRIPT_FIELD(Long, i64);
+						WRITE_SCRIPT_FIELD(UByte, u8);
+						WRITE_SCRIPT_FIELD(UShort, u16);
+						WRITE_SCRIPT_FIELD(UInt, u32);
+						WRITE_SCRIPT_FIELD(ULong, u64);
 						WRITE_SCRIPT_FIELD(Vector2, glm::vec2);
 						WRITE_SCRIPT_FIELD(Vector3, glm::vec3);
 						WRITE_SCRIPT_FIELD(Vector4, glm::vec4);
@@ -486,7 +486,7 @@ namespace OloEngine
 		{
 			for (auto entity : entities)
 			{
-				auto uuid = entity["Entity"].as<uint64_t>();
+				auto uuid = entity["Entity"].as<u64>();
 
 				std::string name;
 				if (auto tagComponent = entity["TagComponent"]; tagComponent)
@@ -514,13 +514,13 @@ namespace OloEngine
 					auto cameraProps = cameraComponent["Camera"];
 					cc.Camera.SetProjectionType(static_cast<SceneCamera::ProjectionType>(cameraProps["ProjectionType"].as<int>()));
 
-					cc.Camera.SetPerspectiveVerticalFOV(cameraProps["PerspectiveFOV"].as<float>());
-					cc.Camera.SetPerspectiveNearClip(cameraProps["PerspectiveNear"].as<float>());
-					cc.Camera.SetPerspectiveFarClip(cameraProps["PerspectiveFar"].as<float>());
+					cc.Camera.SetPerspectiveVerticalFOV(cameraProps["PerspectiveFOV"].as<f32>());
+					cc.Camera.SetPerspectiveNearClip(cameraProps["PerspectiveNear"].as<f32>());
+					cc.Camera.SetPerspectiveFarClip(cameraProps["PerspectiveFar"].as<f32>());
 
-					cc.Camera.SetOrthographicSize(cameraProps["OrthographicSize"].as<float>());
-					cc.Camera.SetOrthographicNearClip(cameraProps["OrthographicNear"].as<float>());
-					cc.Camera.SetOrthographicFarClip(cameraProps["OrthographicFar"].as<float>());
+					cc.Camera.SetOrthographicSize(cameraProps["OrthographicSize"].as<f32>());
+					cc.Camera.SetOrthographicNearClip(cameraProps["OrthographicNear"].as<f32>());
+					cc.Camera.SetOrthographicFarClip(cameraProps["OrthographicFar"].as<f32>());
 
 					cc.Primary = cameraComponent["Primary"].as<bool>();
 					cc.FixedAspectRatio = cameraComponent["FixedAspectRatio"].as<bool>();
@@ -557,18 +557,18 @@ namespace OloEngine
 
 								switch (type)
 								{
-									READ_SCRIPT_FIELD(Float, float)
-									READ_SCRIPT_FIELD(Double, double)
+									READ_SCRIPT_FIELD(Float, f32)
+									READ_SCRIPT_FIELD(Double, f64)
 									READ_SCRIPT_FIELD(Bool, bool)
 									READ_SCRIPT_FIELD(Char, char)
-									READ_SCRIPT_FIELD(Byte, int8_t)
-									READ_SCRIPT_FIELD(Short, int16_t)
-									READ_SCRIPT_FIELD(Int, int32_t)
-									READ_SCRIPT_FIELD(Long, int64_t)
-									READ_SCRIPT_FIELD(UByte, uint8_t)
-									READ_SCRIPT_FIELD(UShort, uint16_t)
-									READ_SCRIPT_FIELD(UInt, uint32_t)
-									READ_SCRIPT_FIELD(ULong, uint64_t)
+									READ_SCRIPT_FIELD(Byte, i8)
+									READ_SCRIPT_FIELD(Short, i16)
+									READ_SCRIPT_FIELD(Int, i32)
+									READ_SCRIPT_FIELD(Long, i64)
+									READ_SCRIPT_FIELD(UByte, u8)
+									READ_SCRIPT_FIELD(UShort, u16)
+									READ_SCRIPT_FIELD(UInt, u32)
+									READ_SCRIPT_FIELD(ULong, u64)
 									READ_SCRIPT_FIELD(Vector2, glm::vec2)
 									READ_SCRIPT_FIELD(Vector3, glm::vec3)
 									READ_SCRIPT_FIELD(Vector4, glm::vec4)
@@ -628,7 +628,7 @@ namespace OloEngine
 
 					if (spriteRendererComponent["TilingFactor"])
 					{
-						src.TilingFactor = spriteRendererComponent["TilingFactor"].as<float>();
+						src.TilingFactor = spriteRendererComponent["TilingFactor"].as<f32>();
 					}
 				}
 
@@ -636,8 +636,8 @@ namespace OloEngine
 				{
 					auto& crc = deserializedEntity.AddComponent<CircleRendererComponent>();
 					crc.Color = circleRendererComponent["Color"].as<glm::vec4>();
-					crc.Thickness = circleRendererComponent["Thickness"].as<float>();
-					crc.Fade = circleRendererComponent["Fade"].as<float>();
+					crc.Thickness = circleRendererComponent["Thickness"].as<f32>();
+					crc.Fade = circleRendererComponent["Fade"].as<f32>();
 				}
 
 				if (auto rigidbody2DComponent = entity["Rigidbody2DComponent"]; rigidbody2DComponent)
@@ -652,21 +652,21 @@ namespace OloEngine
 					auto& bc2d = deserializedEntity.AddComponent<BoxCollider2DComponent>();
 					bc2d.Offset = boxCollider2DComponent["Offset"].as<glm::vec2>();
 					bc2d.Size = boxCollider2DComponent["Size"].as<glm::vec2>();
-					bc2d.Density = boxCollider2DComponent["Density"].as<float>();
-					bc2d.Friction = boxCollider2DComponent["Friction"].as<float>();
-					bc2d.Restitution = boxCollider2DComponent["Restitution"].as<float>();
-					bc2d.RestitutionThreshold = boxCollider2DComponent["RestitutionThreshold"].as<float>();
+					bc2d.Density = boxCollider2DComponent["Density"].as<f32>();
+					bc2d.Friction = boxCollider2DComponent["Friction"].as<f32>();
+					bc2d.Restitution = boxCollider2DComponent["Restitution"].as<f32>();
+					bc2d.RestitutionThreshold = boxCollider2DComponent["RestitutionThreshold"].as<f32>();
 				}
 
 				if (auto circleCollider2DComponent = entity["CircleCollider2DComponent"]; circleCollider2DComponent)
 				{
 					auto& cc2d = deserializedEntity.AddComponent<CircleCollider2DComponent>();
 					cc2d.Offset = circleCollider2DComponent["Offset"].as<glm::vec2>();
-					cc2d.Radius = circleCollider2DComponent["Radius"].as<float>();
-					cc2d.Density = circleCollider2DComponent["Density"].as<float>();
-					cc2d.Friction = circleCollider2DComponent["Friction"].as<float>();
-					cc2d.Restitution = circleCollider2DComponent["Restitution"].as<float>();
-					cc2d.RestitutionThreshold = circleCollider2DComponent["RestitutionThreshold"].as<float>();
+					cc2d.Radius = circleCollider2DComponent["Radius"].as<f32>();
+					cc2d.Density = circleCollider2DComponent["Density"].as<f32>();
+					cc2d.Friction = circleCollider2DComponent["Friction"].as<f32>();
+					cc2d.Restitution = circleCollider2DComponent["Restitution"].as<f32>();
+					cc2d.RestitutionThreshold = circleCollider2DComponent["RestitutionThreshold"].as<f32>();
 				}
 			}
 		}

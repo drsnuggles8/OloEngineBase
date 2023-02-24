@@ -68,7 +68,7 @@ namespace OloEngine
 		bool m_Running = true;
 		bool m_Minimized = false;
 		LayerStack m_LayerStack;
-		float m_LastFrameTime = 0.0f;
+		f32 m_LastFrameTime = 0.0f;
 
 		std::vector<std::function<void()>> m_MainThreadQueue;
 		std::mutex m_MainThreadQueueMutex;

@@ -16,7 +16,7 @@ namespace OloEngine
 	class Time
 	{
 	public:
-		static float GetTime();
+		static f32 GetTime();
 	};
 
 }

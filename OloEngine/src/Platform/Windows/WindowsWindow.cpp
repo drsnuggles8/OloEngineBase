@@ -12,9 +12,9 @@
 namespace OloEngine
 {
 
-	float Window::s_HighDPIScaleFactor = 1.0f;
+	f32 Window::s_HighDPIScaleFactor = 1.0f;
 
-	static uint8_t s_GLFWWindowCount = 0;
+	static u8 s_GLFWWindowCount = 0;
 
 	static void GLFWErrorCallback(int error, const char* description)
 	{
@@ -58,8 +58,8 @@ namespace OloEngine
 			OLO_PROFILE_SCOPE("glfwCreateWindow");
 
 			GLFWmonitor* monitor = GLFWAPI::glfwGetPrimaryMonitor();
-			float xscale{};
-			float yscale{};
+			f32 xscale{};
+			f32 yscale{};
 			GLFWAPI::glfwGetMonitorContentScale(monitor, &xscale, &yscale);
 
 			if ((xscale > 1.0f) || (yscale > 1.0f))
@@ -159,19 +159,19 @@ namespace OloEngine
 			}
 		});
 
-		GLFWAPI::glfwSetScrollCallback(m_Window, [](GLFWwindow* const window, const double xOffset, const double yOffset)
+		GLFWAPI::glfwSetScrollCallback(m_Window, [](GLFWwindow* const window, const f64 xOffset, const f64 yOffset)
 		{
 			WindowData const& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
 
-			MouseScrolledEvent event(static_cast<float>(xOffset), static_cast<float>(yOffset));
+			MouseScrolledEvent event(static_cast<f32>(xOffset), static_cast<f32>(yOffset));
 			data.EventCallback(event);
 		});
 
-		GLFWAPI::glfwSetCursorPosCallback(m_Window, [](GLFWwindow* const window, const double xPos, const double yPos)
+		GLFWAPI::glfwSetCursorPosCallback(m_Window, [](GLFWwindow* const window, const f64 xPos, const f64 yPos)
 		{
 			WindowData const& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
 
-			MouseMovedEvent event(static_cast<float>(xPos), static_cast<float>(yPos));
+			MouseMovedEvent event(static_cast<f32>(xPos), static_cast<f32>(yPos));
 			data.EventCallback(event);
 		});
 	}

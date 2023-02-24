@@ -16,8 +16,8 @@ namespace OloEngine
 		void Unbind() const override;
 
 		void SetInt(const std::string& name, int value) override;
-		void SetIntArray(const std::string& name, int* values, uint32_t count) override;
-		void SetFloat(const std::string& name, float value) override;
+		void SetIntArray(const std::string& name, int* values, u32 count) override;
+		void SetFloat(const std::string& name, f32 value) override;
 		void SetFloat2(const std::string& name, const glm::vec2& value) override;
 		void SetFloat3(const std::string& name, const glm::vec3& value) override;
 		void SetFloat4(const std::string& name, const glm::vec4& value) override;
@@ -26,8 +26,8 @@ namespace OloEngine
 		[[nodiscard ("Store this!")]] const std::string& GetName() const override { return m_Name; }
 
 		void UploadUniformInt(const std::string& name, int value) const;
-		void UploadUniformIntArray(const std::string& name, int const* values, uint32_t count) const;
-		void UploadUniformFloat(const std::string& name, float value) const;
+		void UploadUniformIntArray(const std::string& name, int const* values, u32 count) const;
+		void UploadUniformFloat(const std::string& name, f32 value) const;
 		void UploadUniformFloat2(const std::string& name, const glm::vec2& value) const;
 		void UploadUniformFloat3(const std::string& name, const glm::vec3& value) const;
 		void UploadUniformFloat4(const std::string& name, const glm::vec4& value) const;
@@ -42,17 +42,17 @@ namespace OloEngine
 		void CompileOrGetOpenGLBinaries();
 		void CreateProgram();
 
-		void CompileOpenGLBinariesForAmd(GLenum const& program, std::array<uint32_t, 2>& glShadersIDs) const;
+		void CompileOpenGLBinariesForAmd(GLenum const& program, std::array<u32, 2>& glShadersIDs) const;
 		void CreateProgramForAmd();
 
-		void Reflect(GLenum stage, const std::vector<uint32_t>& shaderData);
+		void Reflect(GLenum stage, const std::vector<u32>& shaderData);
 	private:
-		uint32_t m_RendererID{};
+		u32 m_RendererID{};
 		std::string m_FilePath;
 		std::string m_Name;
 
-		std::unordered_map<GLenum, std::vector<uint32_t>> m_VulkanSPIRV;
-		std::unordered_map<GLenum, std::vector<uint32_t>> m_OpenGLSPIRV;
+		std::unordered_map<GLenum, std::vector<u32>> m_VulkanSPIRV;
+		std::unordered_map<GLenum, std::vector<u32>> m_OpenGLSPIRV;
 
 		std::unordered_map<GLenum, std::string> m_OpenGLSourceCode;
 	};

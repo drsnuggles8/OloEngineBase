@@ -37,7 +37,7 @@ namespace OloEngine
 		void OnUpdateRuntime(Timestep ts);
 		void OnUpdateSimulation(Timestep ts, EditorCamera const& camera);
 		void OnUpdateEditor(Timestep ts, EditorCamera const& camera);
-		void OnViewportResize(uint32_t width, uint32_t height);
+		void OnViewportResize(u32 width, u32 height);
 
 		void DuplicateEntity(Entity entity);
 
@@ -71,8 +71,8 @@ namespace OloEngine
 		void RenderScene(EditorCamera const& camera);
 	private:
 		entt::registry m_Registry;
-		uint32_t m_ViewportWidth = 0;
-		uint32_t m_ViewportHeight = 0;
+		u32 m_ViewportWidth = 0;
+		u32 m_ViewportHeight = 0;
 		bool m_IsRunning = false;
 		bool m_IsPaused = false;
 		int m_StepFrames = 0;

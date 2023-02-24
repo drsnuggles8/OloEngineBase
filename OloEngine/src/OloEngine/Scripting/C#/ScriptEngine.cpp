@@ -49,7 +49,7 @@ namespace OloEngine
 
 			// NOTE: We can't use this image for anything other than loading the assembly because this image doesn't have a reference to the assembly
 			MonoImageOpenStatus status;
-			MonoImage* image = ::mono_image_open_from_data_full(fileData.As<char>(), static_cast<uint32_t>(fileData.Size()), 1, &status, 0);
+			MonoImage* image = ::mono_image_open_from_data_full(fileData.As<char>(), static_cast<u32>(fileData.Size()), 1, &status, 0);
 
 			if (status != MONO_IMAGE_OK)
 			{
@@ -82,11 +82,11 @@ namespace OloEngine
 		{
 			MonoImage* image = ::mono_assembly_get_image(assembly);
 			const MonoTableInfo* typeDefinitionsTable = ::mono_image_get_table_info(image, MONO_TABLE_TYPEDEF);
-			int32_t numTypes = ::mono_table_info_get_rows(typeDefinitionsTable);
+			i32 numTypes = ::mono_table_info_get_rows(typeDefinitionsTable);
 
-			for (int32_t i = 0; i < numTypes; ++i)
+			for (i32 i = 0; i < numTypes; ++i)
 			{
-				uint32_t cols[MONO_TYPEDEF_SIZE];
+				u32 cols[MONO_TYPEDEF_SIZE];
 				::mono_metadata_decode_row(typeDefinitionsTable, i, cols, MONO_TYPEDEF_SIZE);
 
 				const char* nameSpace = ::mono_metadata_string_heap(image, cols[MONO_TYPEDEF_NAMESPACE]);
@@ -325,7 +325,7 @@ namespace OloEngine
 		if (s_Data->EntityInstances.contains(entityUUID))
 		{
 			Ref<ScriptInstance> instance = s_Data->EntityInstances[entityUUID];
-			instance->InvokeOnUpdate((float)ts);
+			instance->InvokeOnUpdate(static_cast<f32>(ts));
 		}
 		else
 		{
@@ -382,12 +382,12 @@ namespace OloEngine
 		s_Data->EntityClasses.clear();
 
 		const MonoTableInfo* typeDefinitionsTable = ::mono_image_get_table_info(s_Data->AppAssemblyImage, MONO_TABLE_TYPEDEF);
-		int32_t numTypes = ::mono_table_info_get_rows(typeDefinitionsTable);
+		i32 numTypes = ::mono_table_info_get_rows(typeDefinitionsTable);
 		MonoClass* entityClass = ::mono_class_from_name(s_Data->CoreAssemblyImage, "OloEngine", "Entity");
 
-		for (int32_t i = 0; i < numTypes; ++i)
+		for (i32 i = 0; i < numTypes; ++i)
 		{
-			uint32_t cols[MONO_TYPEDEF_SIZE];
+			u32 cols[MONO_TYPEDEF_SIZE];
 			::mono_metadata_decode_row(typeDefinitionsTable, i, cols, MONO_TYPEDEF_SIZE);
 
 			const char* nameSpace = ::mono_metadata_string_heap(s_Data->AppAssemblyImage, cols[MONO_TYPEDEF_NAMESPACE]);
@@ -426,7 +426,7 @@ namespace OloEngine
 			while (MonoClassField* field = mono_class_get_fields(monoClass, &iterator))
 			{
 				const char* fieldName = mono_field_get_name(field);
-				uint32_t flags = mono_field_get_flags(field);
+				u32 flags = mono_field_get_flags(field);
 				if (flags & FIELD_ATTRIBUTE_PUBLIC)
 				{
 					MonoType* type = mono_field_get_type(field);
@@ -508,7 +508,7 @@ namespace OloEngine
 		}
 	}
 
-	void ScriptInstance::InvokeOnUpdate(float ts)
+	void ScriptInstance::InvokeOnUpdate(f32 ts)
 	{
 		if (m_OnUpdateMethod)
 		{

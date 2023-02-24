@@ -20,8 +20,8 @@ namespace OloEngine
 		[[nodiscard("Store this!")]] const std::vector<Ref<VertexBuffer>>& GetVertexBuffers() const override { return m_VertexBuffers; }
 		[[nodiscard("Store this!")]] const Ref<IndexBuffer>& GetIndexBuffer() const override { return m_IndexBuffer; }
 	private:
-		uint32_t m_RendererID{};
-		uint32_t m_VertexBufferIndex = 0;
+		u32 m_RendererID{};
+		u32 m_VertexBufferIndex = 0;
 		std::vector<Ref<VertexBuffer>> m_VertexBuffers;
 		Ref<IndexBuffer> m_IndexBuffer;
 	};

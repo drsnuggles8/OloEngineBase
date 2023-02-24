@@ -12,7 +12,7 @@ namespace OloEngine
 		RecalculateProjection();
 	}
 
-	void SceneCamera::SetPerspective(const float verticalFOV, const float nearClip, const float farClip)
+	void SceneCamera::SetPerspective(const f32 verticalFOV, const f32 nearClip, const f32 farClip)
 	{
 		m_ProjectionType = ProjectionType::Perspective;
 		m_PerspectiveFOV = verticalFOV;
@@ -21,7 +21,7 @@ namespace OloEngine
 		RecalculateProjection();
 	}
 
-	void SceneCamera::SetOrthographic(const float size, const float nearClip, const float farClip)
+	void SceneCamera::SetOrthographic(const f32 size, const f32 nearClip, const f32 farClip)
 	{
 		m_ProjectionType = ProjectionType::Orthographic;
 		m_OrthographicSize = size;
@@ -30,10 +30,10 @@ namespace OloEngine
 		RecalculateProjection();
 	}
 
-	void SceneCamera::SetViewportSize(const uint32_t width, const uint32_t height)
+	void SceneCamera::SetViewportSize(const u32 width, const u32 height)
 	{
 		OLO_CORE_ASSERT(width > 0 && height > 0);
-		m_AspectRatio = static_cast<float>(width) / static_cast<float>(height);
+		m_AspectRatio = static_cast<f32>(width) / static_cast<f32>(height);
 		RecalculateProjection();
 	}
 
@@ -45,10 +45,10 @@ namespace OloEngine
 		}
 		else
 		{
-			const float orthoLeft = -m_OrthographicSize * m_AspectRatio * 0.5f;
-			const float orthoRight = m_OrthographicSize * m_AspectRatio * 0.5f;
-			const float orthoBottom = -m_OrthographicSize * 0.5f;
-			const float orthoTop = m_OrthographicSize * 0.5f;
+			const f32 orthoLeft = -m_OrthographicSize * m_AspectRatio * 0.5f;
+			const f32 orthoRight = m_OrthographicSize * m_AspectRatio * 0.5f;
+			const f32 orthoBottom = -m_OrthographicSize * 0.5f;
+			const f32 orthoTop = m_OrthographicSize * 0.5f;
 
 			m_Projection = glm::ortho(orthoLeft, orthoRight, orthoBottom, orthoTop, m_OrthographicNear, m_OrthographicFar);
 		}

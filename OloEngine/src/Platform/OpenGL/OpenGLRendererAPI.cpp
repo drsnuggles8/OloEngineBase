@@ -67,7 +67,7 @@ namespace OloEngine
 		glEnable(GL_LINE_SMOOTH);
 	}
 
-	void OpenGLRendererAPI::SetViewport(const uint32_t x, const uint32_t y, const uint32_t width, const uint32_t height)
+	void OpenGLRendererAPI::SetViewport(const u32 x, const u32 y, const u32 width, const u32 height)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -88,16 +88,16 @@ namespace OloEngine
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	}
 
-	void OpenGLRendererAPI::DrawIndexed(const Ref<VertexArray>& vertexArray, const uint32_t indexCount)
+	void OpenGLRendererAPI::DrawIndexed(const Ref<VertexArray>& vertexArray, const u32 indexCount)
 	{
 		OLO_PROFILE_FUNCTION();
 
 		vertexArray->Bind();
-		const uint32_t count = indexCount ? indexCount : vertexArray->GetIndexBuffer()->GetCount();
+		const u32 count = indexCount ? indexCount : vertexArray->GetIndexBuffer()->GetCount();
 		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(count), GL_UNSIGNED_INT, nullptr);
 	}
 
-	void OpenGLRendererAPI::DrawLines(const Ref<VertexArray>& vertexArray, const uint32_t vertexCount)
+	void OpenGLRendererAPI::DrawLines(const Ref<VertexArray>& vertexArray, const u32 vertexCount)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -105,7 +105,7 @@ namespace OloEngine
 		glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(vertexCount));
 	}
 
-	void OpenGLRendererAPI::SetLineWidth(const float width)
+	void OpenGLRendererAPI::SetLineWidth(const f32 width)
 	{
 		OLO_PROFILE_FUNCTION();
 
