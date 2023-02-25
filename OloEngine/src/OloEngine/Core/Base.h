@@ -37,7 +37,7 @@
 #define OLO_STRINGIFY_MACRO(x) #x
 #define OLO_MAKESTRING(x) OLO_STRINGIFY_MACRO(x)
 #define OLO_CONCAT(x, y)                         OLO_CONCAT_OPERATOR(x, y)
-#define OLO_LINE_STRING                          OLO_MAKESTRING( __LINE__ ) 
+#define OLO_LINE_STRING                          OLO_MAKESTRING( __LINE__ )
 #define OLO_FILELINE(MESSAGE)                    __FILE__ "(" OLO_LINE_STRING ") : " MESSAGE
 
 // Unique names
@@ -69,22 +69,20 @@ namespace OloEngine
 
 // Native types typedefs /////////////////////////////////////////////////
 // TODO(olbu): Make sure we actually use these everywhere!
-typedef uint8_t                 u8;
-typedef uint16_t                u16;
-typedef uint32_t                u32;
-typedef uint64_t                u64;
+using u8 = uint8_t;
+using u16 = uint16_t;
+using u32 = uint32_t;
+using u64 = uint64_t;
 
-typedef int8_t                  i8;
-typedef int16_t                 i16;
-typedef int32_t                 i32;
-typedef int64_t                 i64;
+using i8 = int8_t;
+using i16 = int16_t;
+using i32 = int32_t;
+using i64 = int64_t;
 
-typedef float                   f32;
-typedef double                  f64;
+using f32 = float;
+using f64 = double;
 
-typedef size_t                  sizet;
-
-typedef const char* cstring;
+using sizet = size_t;
 
 static const u64                u64_max = UINT64_MAX;
 static const i64                i64_max = INT64_MAX;
