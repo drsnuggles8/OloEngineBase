@@ -20,8 +20,6 @@
 	#define OLO_DEBUGBREAK()
 #endif
 
-#define ArraySize(array)		( sizeof(array)/sizeof((array)[0]) )
-
 #if defined (_MSC_VER)
 	#define OLO_INLINE                               inline
 	#define OLO_FINLINE                              __forceinline
@@ -32,6 +30,11 @@
 	#define OLO_FINLINE                              always_inline
 	#define OLO_CONCAT_OPERATOR(x, y)                x y
 #endif // MSVC
+
+
+template<typename T>
+constexpr auto ArraySize(T array) { return ( sizeof(array)/sizeof((array)[0]) ); }
+#define OLO_BIND_EVENT_FN(fn) [this](auto&&... args) -> decltype(auto) { return this->fn(std::forward<decltype(args)>(args)...); }
 
 #define OLO_EXPAND_MACRO(x) x
 #define OLO_STRINGIFY_MACRO(x) #x
@@ -45,7 +48,6 @@
 
 #define BIT(x) ((1) << (x))
 
-#define OLO_BIND_EVENT_FN(fn) [this](auto&&... args) -> decltype(auto) { return this->fn(std::forward<decltype(args)>(args)...); }
 
 namespace OloEngine
 {
