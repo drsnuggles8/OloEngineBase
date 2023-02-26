@@ -54,3 +54,4 @@ OloEngine/vendor/*
 # Log files
 **.log
 **.tlog
+/OloEditor/imgui.ini
