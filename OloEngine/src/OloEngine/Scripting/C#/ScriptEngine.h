@@ -123,7 +123,7 @@ namespace OloEngine
 		[[nodiscard("Store this!")]] MonoObject * GetManagedObject() { return m_Instance; }
 	private:
 		bool GetFieldValueInternal(const std::string& name, void* buffer);
-		bool SetFieldValueInternal(const std::string& name, const void* value);
+		bool SetFieldValueInternal(const std::string& name, void* value);
 	private:
 		Ref<ScriptClass> m_ScriptClass;
 
