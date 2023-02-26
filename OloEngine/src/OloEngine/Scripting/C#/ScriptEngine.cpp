@@ -533,7 +533,7 @@ namespace OloEngine
 		return true;
 	}
 
-	bool ScriptInstance::SetFieldValueInternal(const std::string& name, void* value)
+	bool ScriptInstance::SetFieldValueInternal(const std::string& name, const void* value)
 	{
 		const auto& fields = m_ScriptClass->GetFields();
 		if (!fields.contains(name))
@@ -543,7 +543,7 @@ namespace OloEngine
 
 		auto it = fields.find(name);
 		const ScriptField& field = it->second;
-		::mono_field_set_value(m_Instance, field.ClassField, value);
+		::mono_field_set_value(m_Instance, field.ClassField, (void*)value);
 		return true;
 	}
 
