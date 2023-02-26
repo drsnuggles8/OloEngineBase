@@ -31,7 +31,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	glad
 	GIT_REPOSITORY	https://github.com/Dav1dde/glad.git
-	GIT_TAG			v2.0.2
+	GIT_TAG			v2.0.4
 	GIT_SHALLOW		TRUE
 	SOURCE_SUBDIR	cmake
 )
