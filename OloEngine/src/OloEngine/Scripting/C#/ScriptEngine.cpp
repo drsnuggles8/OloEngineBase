@@ -49,7 +49,7 @@ namespace OloEngine
 
 			// NOTE: We can't use this image for anything other than loading the assembly because this image doesn't have a reference to the assembly
 			MonoImageOpenStatus status;
-			MonoImage* image = ::mono_image_open_from_data_full(fileData.As<char>(), static_cast<uint32_t>(fileData.Size()), 1, &status, 0);
+			MonoImage* image = ::mono_image_open_from_data_full(fileData.As<char>(), static_cast<u32>(fileData.Size()), 1, &status, 0);
 
 			if (status != MONO_IMAGE_OK)
 			{
@@ -82,11 +82,11 @@ namespace OloEngine
 		{
 			MonoImage* image = ::mono_assembly_get_image(assembly);
 			const MonoTableInfo* typeDefinitionsTable = ::mono_image_get_table_info(image, MONO_TABLE_TYPEDEF);
-			int32_t numTypes = ::mono_table_info_get_rows(typeDefinitionsTable);
+			i32 numTypes = ::mono_table_info_get_rows(typeDefinitionsTable);
 
-			for (int32_t i = 0; i < numTypes; ++i)
+			for (i32 i = 0; i < numTypes; ++i)
 			{
-				uint32_t cols[MONO_TYPEDEF_SIZE];
+				u32 cols[MONO_TYPEDEF_SIZE];
 				::mono_metadata_decode_row(typeDefinitionsTable, i, cols, MONO_TYPEDEF_SIZE);
 
 				const char* nameSpace = ::mono_metadata_string_heap(image, cols[MONO_TYPEDEF_NAMESPACE]);
@@ -97,16 +97,15 @@ namespace OloEngine
 
 		ScriptFieldType MonoTypeToScriptFieldType(MonoType* monoType)
 		{
-			std::string typeName = mono_type_get_name(monoType);
+			std::string typeName = ::mono_type_get_name(monoType);
 
-			// TODO(olbu): Replace this with some form of .contains?
-			auto it = s_ScriptFieldTypeMap.find(typeName);
-			if (it == s_ScriptFieldTypeMap.end())
+			if (!s_ScriptFieldTypeMap.contains(typeName))
 			{
 				OLO_CORE_ERROR("Unknown type: {}", typeName);
 				return ScriptFieldType::None;
 			}
 
+			auto it = s_ScriptFieldTypeMap.find(typeName);
 			return it->second;
 		}
 	}
@@ -206,8 +205,8 @@ namespace OloEngine
 				"--soft-breakpoints"
 			};
 
-			mono_jit_parse_options(2, (char**)options);
-			mono_debug_init(MONO_DEBUG_FORMAT_MONO);
+			::mono_jit_parse_options(2, (char**)options);
+			::mono_debug_init(MONO_DEBUG_FORMAT_MONO);
 		}
 
 		MonoDomain* rootDomain = ::mono_jit_init("OloEngineJITRuntime");
@@ -218,20 +217,20 @@ namespace OloEngine
 
 		if (s_Data->EnableDebugging)
 		{
-			mono_debug_domain_create(s_Data->RootDomain);
+			::mono_debug_domain_create(s_Data->RootDomain);
 		}
 
-		mono_thread_set_main(mono_thread_current());
+		::mono_thread_set_main(::mono_thread_current());
 	}
 
 	void ScriptEngine::ShutdownMono()
 	{
-		mono_domain_set(mono_get_root_domain(), false);
+		::mono_domain_set(::mono_get_root_domain(), false);
 
-		mono_domain_unload(s_Data->AppDomain);
+		::mono_domain_unload(s_Data->AppDomain);
 		s_Data->AppDomain = nullptr;
 
-		mono_jit_cleanup(s_Data->RootDomain);
+		::mono_jit_cleanup(s_Data->RootDomain);
 		s_Data->RootDomain = nullptr;
 	}
 
@@ -262,7 +261,7 @@ namespace OloEngine
 			return false;
 		}
 
-		s_Data->AppAssemblyImage = mono_assembly_get_image(s_Data->AppAssembly);
+		s_Data->AppAssemblyImage = ::mono_assembly_get_image(s_Data->AppAssembly);
 
 		s_Data->AppAssemblyFileWatcher = CreateScope<filewatch::FileWatch<std::string>>(filepath.string(), OnAppAssemblyFileSystemEvent);
 		s_Data->AssemblyReloadPending = false;
@@ -271,9 +270,9 @@ namespace OloEngine
 
 	void ScriptEngine::ReloadAssembly()
 	{
-		mono_domain_set(mono_get_root_domain(), false);
+		::mono_domain_set(::mono_get_root_domain(), false);
 
-		mono_domain_unload(s_Data->AppDomain);
+		::mono_domain_unload(s_Data->AppDomain);
 
 		LoadAssembly(s_Data->CoreAssemblyFilepath);
 		LoadAppAssembly(s_Data->AppAssemblyFilepath);
@@ -326,7 +325,7 @@ namespace OloEngine
 		if (s_Data->EntityInstances.contains(entityUUID))
 		{
 			Ref<ScriptInstance> instance = s_Data->EntityInstances[entityUUID];
-			instance->InvokeOnUpdate((float)ts);
+			instance->InvokeOnUpdate(static_cast<f32>(ts));
 		}
 		else
 		{
@@ -341,11 +340,12 @@ namespace OloEngine
 
 	Ref<ScriptInstance> ScriptEngine::GetEntityScriptInstance(UUID entityID)
 	{
-		// TODO(olbu): Replace this with .contains()?
-		auto it = s_Data->EntityInstances.find(entityID);
-		if (it == s_Data->EntityInstances.end())
+		if (!s_Data->EntityInstances.contains(entityID))
+		{
 			return nullptr;
+		}
 
+		auto it = s_Data->EntityInstances.find(entityID);
 		return it->second;
 	}
 
@@ -384,16 +384,16 @@ namespace OloEngine
 		s_Data->EntityClasses.clear();
 
 		const MonoTableInfo* typeDefinitionsTable = ::mono_image_get_table_info(s_Data->AppAssemblyImage, MONO_TABLE_TYPEDEF);
-		int32_t numTypes = ::mono_table_info_get_rows(typeDefinitionsTable);
+		i32 numTypes = ::mono_table_info_get_rows(typeDefinitionsTable);
 		MonoClass* entityClass = ::mono_class_from_name(s_Data->CoreAssemblyImage, "OloEngine", "Entity");
 
-		for (int32_t i = 0; i < numTypes; ++i)
+		for (i32 i = 0; i < numTypes; ++i)
 		{
-			uint32_t cols[MONO_TYPEDEF_SIZE];
+			u32 cols[MONO_TYPEDEF_SIZE];
 			::mono_metadata_decode_row(typeDefinitionsTable, i, cols, MONO_TYPEDEF_SIZE);
 
 			const char* nameSpace = ::mono_metadata_string_heap(s_Data->AppAssemblyImage, cols[MONO_TYPEDEF_NAMESPACE]);
-			const char* className = mono_metadata_string_heap(s_Data->AppAssemblyImage, cols[MONO_TYPEDEF_NAME]);
+			const char* className = ::mono_metadata_string_heap(s_Data->AppAssemblyImage, cols[MONO_TYPEDEF_NAME]);
 
 			std::string fullName;
 			if (std::strlen(nameSpace) != 0)
@@ -422,16 +422,16 @@ namespace OloEngine
 			// You must pass a gpointer that points to zero and is treated as an opaque handle
 			// to iterate over all of the elements. When no more values are available, the return value is NULL.
 
-			int fieldCount = mono_class_num_fields(monoClass);
+			int fieldCount = ::mono_class_num_fields(monoClass);
 			OLO_CORE_WARN("{} has {} fields:", className, fieldCount);
 			void* iterator = nullptr;
-			while (MonoClassField* field = mono_class_get_fields(monoClass, &iterator))
+			while (MonoClassField* field = ::mono_class_get_fields(monoClass, &iterator))
 			{
-				const char* fieldName = mono_field_get_name(field);
-				uint32_t flags = mono_field_get_flags(field);
+				const char* fieldName = ::mono_field_get_name(field);
+				u32 flags = ::mono_field_get_flags(field);
 				if (flags & FIELD_ATTRIBUTE_PUBLIC)
 				{
-					MonoType* type = mono_field_get_type(field);
+					MonoType* type = ::mono_field_get_type(field);
 					ScriptFieldType fieldType = Utils::MonoTypeToScriptFieldType(type);
 					OLO_CORE_WARN("  {} ({})", fieldName, Utils::ScriptFieldTypeToString(fieldType));
 
@@ -482,7 +482,7 @@ namespace OloEngine
 	MonoObject* ScriptClass::InvokeMethod(MonoObject* instance, MonoMethod* method, void** params)
 	{
 		MonoObject* exception = nullptr;
-		return mono_runtime_invoke(method, instance, params, &exception);
+		return ::mono_runtime_invoke(method, instance, params, &exception);
 	}
 
 	ScriptInstance::ScriptInstance(const Ref<ScriptClass>& scriptClass, Entity entity)
@@ -510,7 +510,7 @@ namespace OloEngine
 		}
 	}
 
-	void ScriptInstance::InvokeOnUpdate(float ts)
+	void ScriptInstance::InvokeOnUpdate(f32 ts)
 	{
 		if (m_OnUpdateMethod)
 		{
@@ -522,26 +522,28 @@ namespace OloEngine
 	bool ScriptInstance::GetFieldValueInternal(const std::string& name, void* buffer)
 	{
 		const auto& fields = m_ScriptClass->GetFields();
-		// TODO(olbu): Replace with .contains()?
-		auto it = fields.find(name);
-		if (it == fields.end())
+		if (!fields.contains(name))
+		{
 			return false;
+		}
 
+		auto it = fields.find(name);
 		const ScriptField& field = it->second;
-		mono_field_get_value(m_Instance, field.ClassField, buffer);
+		::mono_field_get_value(m_Instance, field.ClassField, buffer);
 		return true;
 	}
 
 	bool ScriptInstance::SetFieldValueInternal(const std::string& name, const void* value)
 	{
 		const auto& fields = m_ScriptClass->GetFields();
-		// TODO(olbu): Replace with .contains()?
-		auto it = fields.find(name);
-		if (it == fields.end())
+		if (!fields.contains(name))
+		{
 			return false;
+		}
 
+		auto it = fields.find(name);
 		const ScriptField& field = it->second;
-		mono_field_set_value(m_Instance, field.ClassField, (void*)value);
+		::mono_field_set_value(m_Instance, field.ClassField, (void*)value);
 		return true;
 	}
 

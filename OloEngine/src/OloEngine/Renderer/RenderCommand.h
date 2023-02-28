@@ -12,7 +12,7 @@ namespace OloEngine
 			s_RendererAPI->Init();
 		}
 
-		static void SetViewport(const uint32_t x, const uint32_t y, const uint32_t width, const uint32_t height)
+		static void SetViewport(const u32 x, const u32 y, const u32 width, const u32 height)
 		{
 			s_RendererAPI->SetViewport(x, y, width, height);
 		}
@@ -27,17 +27,17 @@ namespace OloEngine
 			s_RendererAPI->Clear();
 		}
 
-		static void DrawIndexed(const Ref<VertexArray>& vertexArray, const uint32_t indexCount = 0)
+		static void DrawIndexed(const Ref<VertexArray>& vertexArray, const u32 indexCount = 0)
 		{
 			s_RendererAPI->DrawIndexed(vertexArray, indexCount);
 		}
 
-		static void DrawLines(const Ref<VertexArray>& vertexArray, const uint32_t vertexCount)
+		static void DrawLines(const Ref<VertexArray>& vertexArray, const u32 vertexCount)
 		{
 			s_RendererAPI->DrawLines(vertexArray, vertexCount);
 		}
 
-		static void SetLineWidth(const float width)
+		static void SetLineWidth(const f32 width)
 		{
 			s_RendererAPI->SetLineWidth(width);
 		}

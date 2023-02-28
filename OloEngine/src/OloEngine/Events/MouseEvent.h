@@ -8,11 +8,11 @@ namespace OloEngine
 	class MouseMovedEvent : public Event
 	{
 	public:
-		MouseMovedEvent(const float x, const float y)
+		MouseMovedEvent(const f32 x, const f32 y)
 			: m_MouseX(x), m_MouseY(y) {}
 
-		[[nodiscard("Store this!")]] float GetX() const { return m_MouseX; }
-		[[nodiscard("Store this!")]] float GetY() const { return m_MouseY; }
+		[[nodiscard("Store this!")]] f32 GetX() const { return m_MouseX; }
+		[[nodiscard("Store this!")]] f32 GetY() const { return m_MouseY; }
 
 		[[nodiscard("Store this!")]] std::string ToString() const override
 		{
@@ -24,18 +24,18 @@ namespace OloEngine
 		EVENT_CLASS_TYPE(MouseMoved)
 		EVENT_CLASS_CATEGORY(EventCategory::Mouse | EventCategory::Input)
 	private:
-		float m_MouseX;
-		float m_MouseY;
+		f32 m_MouseX;
+		f32 m_MouseY;
 	};
 
 	class MouseScrolledEvent : public Event
 	{
 	public:
-		MouseScrolledEvent(const float xOffset, const float yOffset)
+		MouseScrolledEvent(const f32 xOffset, const f32 yOffset)
 			: m_XOffset(xOffset), m_YOffset(yOffset) {}
 
-		[[nodiscard("Store this!")]] float GetXOffset() const { return m_XOffset; }
-		[[nodiscard("Store this!")]] float GetYOffset() const { return m_YOffset; }
+		[[nodiscard("Store this!")]] f32 GetXOffset() const { return m_XOffset; }
+		[[nodiscard("Store this!")]] f32 GetYOffset() const { return m_YOffset; }
 
 		[[nodiscard("Store this!")]] std::string ToString() const override
 		{
@@ -47,8 +47,8 @@ namespace OloEngine
 		EVENT_CLASS_TYPE(MouseScrolled)
 		EVENT_CLASS_CATEGORY(EventCategory::Mouse | EventCategory::Input)
 	private:
-		float m_XOffset;
-		float m_YOffset;
+		f32 m_XOffset;
+		f32 m_YOffset;
 	};
 
 	class MouseButtonEvent : public Event

@@ -9,7 +9,7 @@
 
 namespace OloEngine
 {
-	OrthographicCameraController::OrthographicCameraController(const float aspectRatio, const bool rotation)
+	OrthographicCameraController::OrthographicCameraController(const f32 aspectRatio, const bool rotation)
 		: m_AspectRatio(aspectRatio), m_Camera(-m_AspectRatio * m_ZoomLevel, m_AspectRatio * m_ZoomLevel, -m_ZoomLevel, m_ZoomLevel), m_Rotation(rotation)
 	{
 	}
@@ -77,7 +77,7 @@ namespace OloEngine
 		dispatcher.Dispatch<WindowResizeEvent>(OLO_BIND_EVENT_FN(OrthographicCameraController::OnWindowResized));
 	}
 
-	void OrthographicCameraController::OnResize(const float width, const float height)
+	void OrthographicCameraController::OnResize(const f32 width, const f32 height)
 	{
 		m_AspectRatio = width / height;
 		m_Camera.SetProjection(-m_AspectRatio * m_ZoomLevel, m_AspectRatio * m_ZoomLevel, -m_ZoomLevel, m_ZoomLevel);
@@ -97,7 +97,7 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
 
-		OnResize(static_cast<float>(e.GetWidth()), static_cast<float>(e.GetHeight()));
+		OnResize(static_cast<f32>(e.GetWidth()), static_cast<f32>(e.GetHeight()));
 		return false;
 	}
 }

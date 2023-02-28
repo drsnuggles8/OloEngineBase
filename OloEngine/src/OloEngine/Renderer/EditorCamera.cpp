@@ -10,7 +10,7 @@
 
 namespace OloEngine
 {
-	EditorCamera::EditorCamera(const float fov, const float aspectRatio, const float nearClip, const float farClip)
+	EditorCamera::EditorCamera(const f32 fov, const f32 aspectRatio, const f32 nearClip, const f32 farClip)
 		: Camera(glm::perspective(glm::radians(fov), aspectRatio, nearClip, farClip)), m_FOV(fov), m_AspectRatio(aspectRatio), m_NearClip(nearClip), m_FarClip(farClip)
 	{
 		UpdateView();
@@ -32,27 +32,27 @@ namespace OloEngine
 		m_ViewMatrix = glm::inverse(m_ViewMatrix);
 	}
 
-	std::pair<float, float> EditorCamera::PanSpeed() const
+	std::pair<f32, f32> EditorCamera::PanSpeed() const
 	{
-		const float x = std::min(m_ViewportWidth / 1000.0f, 2.4f);
-		float xFactor = ((0.0366f * (x * x)) - (0.1778f * x)) + 0.3021f;
+		const f32 x = std::min(m_ViewportWidth / 1000.0f, 2.4f);
+		f32 xFactor = ((0.0366f * (x * x)) - (0.1778f * x)) + 0.3021f;
 
-		const float y = std::min(m_ViewportHeight / 1000.0f, 2.4f);
-		float yFactor = ((0.0366f * (y * y)) - (0.1778f * y)) + 0.3021f;
+		const f32 y = std::min(m_ViewportHeight / 1000.0f, 2.4f);
+		f32 yFactor = ((0.0366f * (y * y)) - (0.1778f * y)) + 0.3021f;
 
 		return { xFactor, yFactor };
 	}
 
-	[[nodiscard("Store this!")]] float EditorCamera::RotationSpeed()
+	[[nodiscard("Store this!")]] f32 EditorCamera::RotationSpeed()
 	{
 		return 0.8f;
 	}
 
-	float EditorCamera::ZoomSpeed() const
+	f32 EditorCamera::ZoomSpeed() const
 	{
-		float distance = m_Distance * 0.2f;
+		f32 distance = m_Distance * 0.2f;
 		distance = std::max(distance, 0.0f);
-		float speed = distance * distance;
+		f32 speed = distance * distance;
 		speed = std::min(speed, 100.0f);
 		return speed;
 	}
@@ -91,7 +91,7 @@ namespace OloEngine
 
 	bool EditorCamera::OnMouseScroll(const MouseScrolledEvent& e)
 	{
-		const float delta = e.GetYOffset() * 0.1f;
+		const f32 delta = e.GetYOffset() * 0.1f;
 		MouseZoom(delta);
 		UpdateView();
 		return false;
@@ -106,12 +106,12 @@ namespace OloEngine
 
 	void EditorCamera::MouseRotate(const glm::vec2& delta)
 	{
-		const float yawSign = GetUpDirection().y < 0 ? -1.0f : 1.0f;
+		const f32 yawSign = GetUpDirection().y < 0 ? -1.0f : 1.0f;
 		m_Yaw += yawSign * delta.x * RotationSpeed();
 		m_Pitch += delta.y * RotationSpeed();
 	}
 
-	void EditorCamera::MouseZoom(const float delta)
+	void EditorCamera::MouseZoom(const f32 delta)
 	{
 		m_Distance -= delta * ZoomSpeed();
 		if (m_Distance < 1.0f)

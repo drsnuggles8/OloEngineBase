@@ -18,8 +18,8 @@ namespace OloEngine
 		glm::vec3 Position;
 		glm::vec4 Color;
 		glm::vec2 TexCoord;
-		float TexIndex;
-		float TilingFactor;
+		f32 TexIndex;
+		f32 TilingFactor;
 
 		// Editor-only
 		int EntityID;
@@ -30,8 +30,8 @@ namespace OloEngine
 		glm::vec3 WorldPosition;
 		glm::vec3 LocalPosition;
 		glm::vec4 Color;
-		float Thickness;
-		float Fade;
+		f32 Thickness;
+		f32 Fade;
 
 		// Editor-only
 		int EntityID;
@@ -48,10 +48,10 @@ namespace OloEngine
 
 	struct Renderer2DData
 	{
-		static constexpr uint32_t MaxQuads = 20000;
-		static constexpr uint32_t MaxVertices = MaxQuads * 4;
-		static constexpr uint32_t MaxIndices = MaxQuads * 6;
-		static constexpr uint32_t MaxTextureSlots = 32;
+		static constexpr u32 MaxQuads = 20000;
+		static constexpr u32 MaxVertices = MaxQuads * 4;
+		static constexpr u32 MaxIndices = MaxQuads * 6;
+		static constexpr u32 MaxTextureSlots = 32;
 
 		Ref<VertexArray> QuadVertexArray;
 		Ref<VertexBuffer> QuadVertexBuffer;
@@ -66,23 +66,23 @@ namespace OloEngine
 		Ref<VertexBuffer> LineVertexBuffer;
 		Ref<Shader> LineShader;
 
-		uint32_t QuadIndexCount = 0;
+		u32 QuadIndexCount = 0;
 		QuadVertex* QuadVertexBufferBase = nullptr;
 		QuadVertex* QuadVertexBufferPtr = nullptr;
 
-		uint32_t CircleIndexCount = 0;
+		u32 CircleIndexCount = 0;
 		CircleVertex* CircleVertexBufferBase = nullptr;
 		CircleVertex* CircleVertexBufferPtr = nullptr;
 
-		uint32_t LineVertexCount = 0;
+		u32 LineVertexCount = 0;
 		LineVertex* LineVertexBufferBase = nullptr;
 		LineVertex* LineVertexBufferPtr = nullptr;
 
-		float LineWidth = 2.0f;
+		f32 LineWidth = 2.0f;
 
 		std::array<Ref<Texture2D>, MaxTextureSlots> TextureSlots;
 		// 0 = white texture
-		uint32_t TextureSlotIndex = 1;
+		u32 TextureSlotIndex = 1;
 
 		glm::vec4 QuadVertexPositions[4]{};
 
@@ -117,10 +117,10 @@ namespace OloEngine
 
 		s_Data.QuadVertexBufferBase = new QuadVertex[OloEngine::Renderer2DData::MaxVertices];
 
-		auto* quadIndices = new uint32_t[OloEngine::Renderer2DData::MaxIndices];
+		auto* quadIndices = new u32[OloEngine::Renderer2DData::MaxIndices];
 
-		uint32_t offset = 0;
-		for (uint32_t i = 0; i < OloEngine::Renderer2DData::MaxIndices; i += 6)
+		u32 offset = 0;
+		for (u32 i = 0; i < OloEngine::Renderer2DData::MaxIndices; i += 6)
 		{
 			quadIndices[i + 0] = offset + 0;
 			quadIndices[i + 1] = offset + 1;
@@ -166,11 +166,11 @@ namespace OloEngine
 		s_Data.LineVertexBufferBase = new LineVertex[OloEngine::Renderer2DData::MaxVertices];
 
 		s_Data.WhiteTexture = Texture2D::Create(1, 1);
-		uint32_t whiteTextureData = 0xffffffffU;
-		s_Data.WhiteTexture->SetData(&whiteTextureData, sizeof(uint32_t));
+		u32 whiteTextureData = 0xffffffffU;
+		s_Data.WhiteTexture->SetData(&whiteTextureData, sizeof(u32));
 
-		int32_t samplers[OloEngine::Renderer2DData::MaxTextureSlots]{};
-		for (uint32_t i = 0; i < OloEngine::Renderer2DData::MaxTextureSlots; ++i)
+		i32 samplers[OloEngine::Renderer2DData::MaxTextureSlots]{};
+		for (u32 i = 0; i < OloEngine::Renderer2DData::MaxTextureSlots; ++i)
 		{
 			samplers[i] = i;
 		}
@@ -255,12 +255,12 @@ namespace OloEngine
 	{
 		if (s_Data.QuadIndexCount)
 		{
-			const auto dataSize = static_cast<uint32_t>(reinterpret_cast<uint8_t*>(s_Data.QuadVertexBufferPtr) - reinterpret_cast<uint8_t*>(s_Data.QuadVertexBufferBase));
+			const auto dataSize = static_cast<u32>(reinterpret_cast<u8*>(s_Data.QuadVertexBufferPtr) - reinterpret_cast<u8*>(s_Data.QuadVertexBufferBase));
 			VertexData data = { s_Data.QuadVertexBufferBase, dataSize };
 			s_Data.QuadVertexBuffer->SetData(data);
 
 			// Bind textures
-			for (uint32_t i = 0; i < s_Data.TextureSlotIndex; i++)
+			for (u32 i = 0; i < s_Data.TextureSlotIndex; i++)
 			{
 				s_Data.TextureSlots[i]->Bind(i);
 			}
@@ -272,7 +272,7 @@ namespace OloEngine
 
 		if (s_Data.CircleIndexCount)
 		{
-			const auto dataSize = static_cast<uint32_t>(reinterpret_cast<uint8_t*>(s_Data.CircleVertexBufferPtr) - reinterpret_cast<uint8_t*>(s_Data.CircleVertexBufferBase));
+			const auto dataSize = static_cast<u32>(reinterpret_cast<u8*>(s_Data.CircleVertexBufferPtr) - reinterpret_cast<u8*>(s_Data.CircleVertexBufferBase));
 			VertexData data = { s_Data.CircleVertexBufferBase, dataSize };
 			s_Data.CircleVertexBuffer->SetData(data);
 
@@ -283,7 +283,7 @@ namespace OloEngine
 
 		if (s_Data.LineVertexCount)
 		{
-			const auto dataSize = static_cast<uint32_t>(reinterpret_cast<uint8_t*>(s_Data.LineVertexBufferPtr) - reinterpret_cast<uint8_t*>(s_Data.LineVertexBufferBase));
+			const auto dataSize = static_cast<u32>(reinterpret_cast<u8*>(s_Data.LineVertexBufferPtr) - reinterpret_cast<u8*>(s_Data.LineVertexBufferBase));
 			VertexData data = { s_Data.LineVertexBufferBase, dataSize };
 			s_Data.LineVertexBuffer->SetData(data);
 
@@ -315,12 +315,12 @@ namespace OloEngine
 		DrawQuad(transform, color);
 	}
 
-	void Renderer2D::DrawQuad(const glm::vec2& position, const glm::vec2& size, const Ref<Texture2D>& texture, const float tilingFactor, const glm::vec4& tintColor)
+	void Renderer2D::DrawQuad(const glm::vec2& position, const glm::vec2& size, const Ref<Texture2D>& texture, const f32 tilingFactor, const glm::vec4& tintColor)
 	{
 		DrawQuad({ position.x, position.y, 0.0f }, size, texture, tilingFactor, tintColor);
 	}
 
-	void Renderer2D::DrawQuad(const glm::vec3& position, const glm::vec2& size, const Ref<Texture2D>& texture, const float tilingFactor, const glm::vec4& tintColor)
+	void Renderer2D::DrawQuad(const glm::vec3& position, const glm::vec2& size, const Ref<Texture2D>& texture, const f32 tilingFactor, const glm::vec4& tintColor)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -334,17 +334,17 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
 
-		constexpr size_t quadVertexCount = 4;
-		const float textureIndex = 0.0f; // White Texture
+		constexpr sizet quadVertexCount = 4;
+		const f32 textureIndex = 0.0f; // White Texture
 		constexpr glm::vec2 textureCoords[] = { { 0.0f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 1.0f }, { 0.0f, 1.0f } };
-		const float tilingFactor = 1.0f;
+		const f32 tilingFactor = 1.0f;
 
 		if (s_Data.QuadIndexCount >= Renderer2DData::MaxIndices)
 		{
 			NextBatch();
 		}
 
-		for (size_t i = 0; i < quadVertexCount; ++i)
+		for (sizet i = 0; i < quadVertexCount; ++i)
 		{
 			s_Data.QuadVertexBufferPtr->Position = transform * s_Data.QuadVertexPositions[i];
 			s_Data.QuadVertexBufferPtr->Color = color;
@@ -360,11 +360,11 @@ namespace OloEngine
 		++s_Data.Stats.QuadCount;
 	}
 
-	void Renderer2D::DrawQuad(const glm::mat4& transform, const Ref<Texture2D>& texture, const float tilingFactor, const glm::vec4& tintColor, const int entityID)
+	void Renderer2D::DrawQuad(const glm::mat4& transform, const Ref<Texture2D>& texture, const f32 tilingFactor, const glm::vec4& tintColor, const int entityID)
 	{
 		OLO_PROFILE_FUNCTION();
 
-		constexpr size_t quadVertexCount = 4;
+		constexpr sizet quadVertexCount = 4;
 		constexpr glm::vec2 textureCoords[] = { { 0.0f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 1.0f }, { 0.0f, 1.0f } };
 
 		if (s_Data.QuadIndexCount >= Renderer2DData::MaxIndices)
@@ -372,29 +372,29 @@ namespace OloEngine
 			NextBatch();
 		}
 
-		float textureIndex = 0.0f;
-		for (uint32_t i = 1; i < s_Data.TextureSlotIndex; ++i)
+		f32 textureIndex = 0.0f;
+		for (u32 i = 1; i < s_Data.TextureSlotIndex; ++i)
 		{
 			if (*s_Data.TextureSlots[i] == *texture)
 			{
-				textureIndex = static_cast<float>(i);
+				textureIndex = static_cast<f32>(i);
 				break;
 			}
 		}
 
-		if (const double epsilon = 1e-5; std::abs(textureIndex - 0.0f) < epsilon)
+		if (const f64 epsilon = 1e-5; std::abs(textureIndex - 0.0f) < epsilon)
 		{
 			if (s_Data.TextureSlotIndex >= Renderer2DData::MaxTextureSlots)
 			{
 				NextBatch();
 			}
 
-			textureIndex = static_cast<float>(s_Data.TextureSlotIndex);
+			textureIndex = static_cast<f32>(s_Data.TextureSlotIndex);
 			s_Data.TextureSlots[s_Data.TextureSlotIndex] = texture;
 			++s_Data.TextureSlotIndex;
 		}
 
-		for (size_t i = 0; i < quadVertexCount; ++i)
+		for (sizet i = 0; i < quadVertexCount; ++i)
 		{
 			s_Data.QuadVertexBufferPtr->Position = transform * s_Data.QuadVertexPositions[i];
 			s_Data.QuadVertexBufferPtr->Color = tintColor;
@@ -410,12 +410,12 @@ namespace OloEngine
 		++s_Data.Stats.QuadCount;
 	}
 
-	void Renderer2D::DrawRotatedQuad(const glm::vec2& position, const glm::vec2& size, const float rotation, const glm::vec4& color)
+	void Renderer2D::DrawRotatedQuad(const glm::vec2& position, const glm::vec2& size, const f32 rotation, const glm::vec4& color)
 	{
 		DrawRotatedQuad({ position.x, position.y, 0.0f }, size, rotation, color);
 	}
 
-	void Renderer2D::DrawRotatedQuad(const glm::vec3& position, const glm::vec2& size, const float rotation, const glm::vec4& color)
+	void Renderer2D::DrawRotatedQuad(const glm::vec3& position, const glm::vec2& size, const f32 rotation, const glm::vec4& color)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -426,12 +426,12 @@ namespace OloEngine
 		DrawQuad(transform, color);
 	}
 
-	void Renderer2D::DrawRotatedQuad(const glm::vec2& position, const glm::vec2& size, const float rotation, const Ref<Texture2D>& texture, const float tilingFactor, const glm::vec4& tintColor)
+	void Renderer2D::DrawRotatedQuad(const glm::vec2& position, const glm::vec2& size, const f32 rotation, const Ref<Texture2D>& texture, const f32 tilingFactor, const glm::vec4& tintColor)
 	{
 		DrawRotatedQuad({ position.x, position.y, 0.0f }, size, rotation, texture, tilingFactor, tintColor);
 	}
 
-	void Renderer2D::DrawRotatedQuad(const glm::vec3& position, const glm::vec2& size, const float rotation, const Ref<Texture2D>& texture, const float tilingFactor, const glm::vec4& tintColor)
+	void Renderer2D::DrawRotatedQuad(const glm::vec3& position, const glm::vec2& size, const f32 rotation, const Ref<Texture2D>& texture, const f32 tilingFactor, const glm::vec4& tintColor)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -442,7 +442,7 @@ namespace OloEngine
 		DrawQuad(transform, texture, tilingFactor, tintColor);
 	}
 
-	void Renderer2D::DrawCircle(const glm::mat4& transform, const glm::vec4& color, const float thickness /*= 1.0f*/, const float fade /*= 0.005f*/, const int entityID /*= -1*/)
+	void Renderer2D::DrawCircle(const glm::mat4& transform, const glm::vec4& color, const f32 thickness /*= 1.0f*/, const f32 fade /*= 0.005f*/, const int entityID /*= -1*/)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -498,7 +498,7 @@ namespace OloEngine
 	void Renderer2D::DrawRect(const glm::mat4& transform, const glm::vec4& color, const int entityID)
 	{
 		glm::vec3 lineVertices[4]{};
-		for (size_t i = 0; i < 4; i++)
+		for (sizet i = 0; i < 4; i++)
 		{
 			lineVertices[i] = transform * s_Data.QuadVertexPositions[i];
 		}
@@ -522,12 +522,12 @@ namespace OloEngine
 		}
 	}
 
-	float Renderer2D::GetLineWidth()
+	f32 Renderer2D::GetLineWidth()
 	{
 		return s_Data.LineWidth;
 	}
 
-	void Renderer2D::SetLineWidth(const float width)
+	void Renderer2D::SetLineWidth(const f32 width)
 	{
 		s_Data.LineWidth = width;
 	}

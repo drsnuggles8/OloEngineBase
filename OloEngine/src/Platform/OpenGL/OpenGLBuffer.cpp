@@ -7,7 +7,7 @@
 
 namespace OloEngine
 {
-	OpenGLVertexBuffer::OpenGLVertexBuffer(const uint32_t size)
+	OpenGLVertexBuffer::OpenGLVertexBuffer(const u32 size)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -15,7 +15,7 @@ namespace OloEngine
 		glNamedBufferData(m_RendererID, size, nullptr, GL_DYNAMIC_DRAW);
 	}
 
-	OpenGLVertexBuffer::OpenGLVertexBuffer(const uint32_t size, const GLenum usage)
+	OpenGLVertexBuffer::OpenGLVertexBuffer(const u32 size, const GLenum usage)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -23,7 +23,7 @@ namespace OloEngine
 		glNamedBufferStorage(m_RendererID, size, nullptr, usage);
 	}
 
-	OpenGLVertexBuffer::OpenGLVertexBuffer(const float* const vertices, const uint32_t size)
+	OpenGLVertexBuffer::OpenGLVertexBuffer(const f32* const vertices, const u32 size)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -31,7 +31,7 @@ namespace OloEngine
 		glNamedBufferData(m_RendererID, size, vertices, GL_STATIC_DRAW);
 	}
 
-	OpenGLVertexBuffer::OpenGLVertexBuffer(const float* vertices, const uint32_t size, const GLenum usage)
+	OpenGLVertexBuffer::OpenGLVertexBuffer(const f32* vertices, const u32 size, const GLenum usage)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -68,22 +68,22 @@ namespace OloEngine
 	}
 
 
-	OpenGLIndexBuffer::OpenGLIndexBuffer(uint32_t const* const indices, const uint32_t count)
+	OpenGLIndexBuffer::OpenGLIndexBuffer(u32 const* const indices, const u32 count)
 		: m_Count(count)
 	{
 		OLO_PROFILE_FUNCTION();
 
 		glCreateBuffers(1, &m_RendererID);
-		glNamedBufferData(m_RendererID, count * sizeof(uint32_t), indices, GL_STATIC_DRAW);
+		glNamedBufferData(m_RendererID, count * sizeof(u32), indices, GL_STATIC_DRAW);
 	}
 
-	OpenGLIndexBuffer::OpenGLIndexBuffer(uint32_t const* indices, uint32_t count, GLenum usage)
+	OpenGLIndexBuffer::OpenGLIndexBuffer(u32 const* indices, u32 count, GLenum usage)
 		: m_Count(count)
 	{
 		OLO_PROFILE_FUNCTION();
 
 		glCreateBuffers(1, &m_RendererID);
-		glNamedBufferStorage(m_RendererID, count * sizeof(uint32_t), indices, usage);
+		glNamedBufferStorage(m_RendererID, count * sizeof(u32), indices, usage);
 	}
 
 	OpenGLIndexBuffer::~OpenGLIndexBuffer()
@@ -107,14 +107,14 @@ namespace OloEngine
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 	}
 
-	OpenGLUniformBuffer::OpenGLUniformBuffer(const uint32_t size, const uint32_t binding)
+	OpenGLUniformBuffer::OpenGLUniformBuffer(const u32 size, const u32 binding)
 	{
 		glCreateBuffers(1, &m_RendererID);
 		glNamedBufferData(m_RendererID, size, nullptr, GL_DYNAMIC_DRAW);
 		glBindBufferBase(GL_UNIFORM_BUFFER, binding, m_RendererID);
 	}
 
-	OpenGLUniformBuffer::OpenGLUniformBuffer(const uint32_t size, const uint32_t binding, const GLenum usage)
+	OpenGLUniformBuffer::OpenGLUniformBuffer(const u32 size, const u32 binding, const GLenum usage)
 	{
 		glCreateBuffers(1, &m_RendererID);
 		glNamedBufferStorage(m_RendererID, size, nullptr, usage);

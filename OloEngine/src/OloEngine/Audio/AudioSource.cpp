@@ -96,12 +96,12 @@ namespace OloEngine
 		}
 	}
 
-	void AudioSource::SetVolume(const float volume) const
+	void AudioSource::SetVolume(const f32 volume) const
 	{
 		::ma_sound_set_volume(m_Sound.get(), volume);
 	}
 
-	void AudioSource::SetPitch(const float pitch) const
+	void AudioSource::SetPitch(const f32 pitch) const
 	{
 		::ma_sound_set_pitch(m_Sound.get(), pitch);
 	}
@@ -129,37 +129,37 @@ namespace OloEngine
 		}
 	}
 
-	void AudioSource::SetRollOff(const float rollOff) const
+	void AudioSource::SetRollOff(const f32 rollOff) const
 	{
 		::ma_sound_set_rolloff(m_Sound.get(), rollOff);
 	}
 
-	void AudioSource::SetMinGain(const float minGain) const
+	void AudioSource::SetMinGain(const f32 minGain) const
 	{
 		::ma_sound_set_min_gain(m_Sound.get(), minGain);
 	}
 
-	void AudioSource::SetMaxGain(const float maxGain) const
+	void AudioSource::SetMaxGain(const f32 maxGain) const
 	{
 		::ma_sound_set_max_gain(m_Sound.get(), maxGain);
 	}
 
-	void AudioSource::SetMinDistance(const float minDistance) const
+	void AudioSource::SetMinDistance(const f32 minDistance) const
 	{
 		::ma_sound_set_min_distance(m_Sound.get(), minDistance);
 	}
 
-	void AudioSource::SetMaxDistance(const float maxDistance) const
+	void AudioSource::SetMaxDistance(const f32 maxDistance) const
 	{
 		::ma_sound_set_max_distance(m_Sound.get(), maxDistance);
 	}
 
-	void AudioSource::SetCone(const float innerAngle, const float outerAngle, const float outerGain) const
+	void AudioSource::SetCone(const f32 innerAngle, const f32 outerAngle, const f32 outerGain) const
 	{
 		::ma_sound_set_cone(m_Sound.get(), innerAngle, outerAngle, outerGain);
 	}
 
-	void AudioSource::SetDopplerFactor(const float factor) const
+	void AudioSource::SetDopplerFactor(const f32 factor) const
 	{
 		::ma_sound_set_doppler_factor(m_Sound.get(), glm::max(factor, 0.0f));
 	}

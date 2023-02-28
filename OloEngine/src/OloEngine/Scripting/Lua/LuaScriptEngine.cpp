@@ -103,7 +103,7 @@ namespace OloEngine
 		//LUA_CALL(entity->GetName(), "OnDestroy");
 	}
 
-	void LuaScriptEngine::OnUpdate(const Entity*, float)
+	void LuaScriptEngine::OnUpdate(const Entity*, f32)
 	{
 		//auto const& lua = *s_LuaData.LuaState;
 		//LUA_CALL(entity->GetName(), "OnUpdate", ts);

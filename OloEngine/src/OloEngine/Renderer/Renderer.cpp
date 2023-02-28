@@ -23,7 +23,7 @@ namespace OloEngine
 		Renderer2D::Shutdown();
 	}
 
-	void Renderer::OnWindowResize(const uint32_t width, const uint32_t height)
+	void Renderer::OnWindowResize(const u32 width, const u32 height)
 	{
 		RenderCommand::SetViewport(0, 0, width, height);
 	}

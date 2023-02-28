@@ -84,7 +84,7 @@ namespace OloEngine
 		explicit operator bool() const { return m_EntityHandle != entt::null; }
 		// TODO(olbu):: Check if we can make the below operator explicit
 		explicit(false) operator entt::entity() const { return m_EntityHandle; }
-		explicit operator uint32_t() const { return static_cast<uint32_t>(m_EntityHandle); }
+		explicit operator u32() const { return static_cast<u32>(m_EntityHandle); }
 
 		[[nodiscard("Store this!")]] TransformComponent GetTransform() const { return GetComponent<TransformComponent>(); }
 

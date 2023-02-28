@@ -4,6 +4,8 @@
 
 #if TRACY_ENABLE
 	#include <tracy/Tracy.hpp>
+	#include <glad/gl.h>
+	#include <tracy/TracyOpenGL.hpp>
 #endif
 
 #include <algorithm>
@@ -18,7 +20,7 @@
 #if !TRACY_ENABLE
 namespace OloEngine
 {
-	using FloatingPointMicroseconds = std::chrono::duration<double, std::micro>;
+	using FloatingPointMicroseconds = std::chrono::duration<f64, std::micro>;
 
 	struct ProfileResult
 	{
@@ -181,22 +183,22 @@ namespace OloEngine
 
 	namespace InstrumentorUtils {
 
-		template <size_t N>
+		template <sizet N>
 		struct ChangeResult
 		{
 			char Data[N];
 		};
 
-		template <size_t N, size_t K>
+		template <sizet N, size_t K>
 		constexpr auto CleanupOutputString(const char(&expr)[N], const char(&remove)[K])
 		{
 			ChangeResult<N> result = {};
 
-			size_t srcIndex = 0;
-			size_t dstIndex = 0;
+			sizet srcIndex = 0;
+			sizet dstIndex = 0;
 			while (srcIndex < N)
 			{
-				size_t matchIndex = 0;
+				sizet matchIndex = 0;
 				while (matchIndex < K - 1 && srcIndex + matchIndex < N - 1 && expr[srcIndex + matchIndex] == remove[matchIndex])
 				{
 					matchIndex++;
@@ -249,6 +251,9 @@ namespace OloEngine
 	#define OLO_PROFILE_FRAMEMARK_START(name)
 	#define OLO_PROFILE_FRAMEMARK_END(name)
 	#define OLO_PROFILE_SETVALUE(value)
+	#define OLO_PROFILE_GPU(name)
+	#define OLO_PROFILE_GPU_COLOR(name, color)
+	#define OLO_PROFILE_GPU_COLLECT()
 #elif OLO_PROFILE && TRACY_ENABLE
 	#define OLO_PROFILE_BEGIN_SESSION(name, filepath)
 	#define OLO_PROFILE_END_SESSION()
@@ -258,6 +263,9 @@ namespace OloEngine
 	#define OLO_PROFILE_FRAMEMARK_START(name) FrameMarkStart(name)
 	#define OLO_PROFILE_FRAMEMARK_END(name) FrameMarkEnd(name)
 	#define OLO_PROFILE_SETVALUE(value) ZoneValue(value)
+	#define OLO_PROFILE_GPU(name) TracyGpuZone(name)
+	#define OLO_PROFILE_GPU_COLOR(name, color) TracyGpuZoneC(name, color)
+	#define OLO_PROFILE_GPU_COLLECT() TracyGpuCollect
 #else
 	#define OLO_PROFILE_BEGIN_SESSION(name, filepath)
 	#define OLO_PROFILE_END_SESSION()
@@ -266,4 +274,7 @@ namespace OloEngine
 	#define OLO_PROFILE_FRAMEMARK_START(name)
 	#define OLO_PROFILE_FRAMEMARK_END(name)
 	#define OLO_PROFILE_SETVALUE(value)
+	#define OLO_PROFILE_GPU(name)
+	#define OLO_PROFILE_GPU_COLOR(name, color)
+	#define OLO_PROFILE_GPU_COLLECT()
 #endif

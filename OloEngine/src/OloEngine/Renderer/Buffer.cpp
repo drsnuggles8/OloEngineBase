@@ -8,7 +8,7 @@
 namespace OloEngine
 {
 
-	Ref<VertexBuffer> VertexBuffer::Create(uint32_t size)
+	Ref<VertexBuffer> VertexBuffer::Create(u32 size)
 	{
 		switch (Renderer::GetAPI())
 		{
@@ -27,7 +27,7 @@ namespace OloEngine
 		return nullptr;
 	}
 
-	Ref<VertexBuffer> VertexBuffer::Create(float* vertices, uint32_t size)
+	Ref<VertexBuffer> VertexBuffer::Create(f32* vertices, u32 size)
 	{
 		switch (Renderer::GetAPI())
 		{
@@ -46,7 +46,7 @@ namespace OloEngine
 		return nullptr;
 	}
 
-	Ref<IndexBuffer> IndexBuffer::Create(uint32_t* indices, uint32_t size)
+	Ref<IndexBuffer> IndexBuffer::Create(u32* indices, u32 size)
 	{
 		switch (Renderer::GetAPI())
 		{
@@ -65,7 +65,7 @@ namespace OloEngine
 		return nullptr;
 	}
 
-	Ref<UniformBuffer> UniformBuffer::Create(uint32_t size, uint32_t binding)
+	Ref<UniformBuffer> UniformBuffer::Create(u32 size, u32 binding)
 	{
 		switch (Renderer::GetAPI())
 		{

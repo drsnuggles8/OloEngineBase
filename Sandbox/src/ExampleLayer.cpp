@@ -12,7 +12,7 @@ ExampleLayer::ExampleLayer()
 {
 	m_VertexArray = OloEngine::VertexArray::Create();
 
-	float vertices[3 * 7] = {
+	f32 vertices[3 * 7] = {
 		-0.5f, -0.5f, 0.0f, 0.8f, 0.2f, 0.8f, 1.0f,
 		 0.5f, -0.5f, 0.0f, 0.2f, 0.3f, 0.8f, 1.0f,
 		 0.0f,  0.5f, 0.0f, 0.8f, 0.8f, 0.2f, 1.0f
@@ -26,13 +26,13 @@ ExampleLayer::ExampleLayer()
 	vertexBuffer->SetLayout(layout);
 	m_VertexArray->AddVertexBuffer(vertexBuffer);
 
-	uint32_t indices[3] = { 0, 1, 2 };
-	OloEngine::Ref<OloEngine::IndexBuffer> const indexBuffer = OloEngine::IndexBuffer::Create(indices, sizeof(indices) / sizeof(uint32_t));
+	u32 indices[3] = { 0, 1, 2 };
+	OloEngine::Ref<OloEngine::IndexBuffer> const indexBuffer = OloEngine::IndexBuffer::Create(indices, sizeof(indices) / sizeof(u32));
 	m_VertexArray->SetIndexBuffer(indexBuffer);
 
 	m_SquareVA = OloEngine::VertexArray::Create();
 
-	float squareVertices[5 * 4] = {
+	f32 squareVertices[5 * 4] = {
 		-0.5f, -0.5f, 0.0f, 0.0f, 0.0f,
 		 0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
 		 0.5f,  0.5f, 0.0f, 1.0f, 1.0f,
@@ -46,8 +46,8 @@ ExampleLayer::ExampleLayer()
 		});
 	m_SquareVA->AddVertexBuffer(squareVB);
 
-	uint32_t squareIndices[6] = { 0, 1, 2, 2, 3, 0 };
-	OloEngine::Ref<OloEngine::IndexBuffer> const squareIB = OloEngine::IndexBuffer::Create(squareIndices, sizeof(squareIndices) / sizeof(uint32_t));
+	u32 squareIndices[6] = { 0, 1, 2, 2, 3, 0 };
+	OloEngine::Ref<OloEngine::IndexBuffer> const squareIB = OloEngine::IndexBuffer::Create(squareIndices, sizeof(squareIndices) / sizeof(u32));
 	m_SquareVA->SetIndexBuffer(squareIB);
 
 	const std::string vertexSrc = R"(

@@ -37,7 +37,7 @@ namespace OloEngine
 		*outResult = glm::normalize(*parameter);
 	}
 
-	[[nodiscard("Store this!")]] static float NativeLog_VectorDot(glm::vec3 const* parameter)
+	[[nodiscard("Store this!")]] static f32 NativeLog_VectorDot(glm::vec3 const* parameter)
 	{
 		// TODO(olbu): Fix the logger, glm::vec3* is not valid type, need to provide a formatter<T> specialization
 		//https://fmt.dev/latest/api.html#udt
@@ -73,7 +73,7 @@ namespace OloEngine
 		return s_EntityHasComponentFuncs.at(managedType)(entity);
 	}
 
-	static uint64_t Entity_FindEntityByName(MonoString* name)
+	static u64 Entity_FindEntityByName(MonoString* name)
 	{
 		char* nameCStr = mono_string_to_utf8(name);
 
@@ -146,12 +146,12 @@ namespace OloEngine
 	// Audio Source ///////////////////////////////////////////////////////////////////////////
 	///////////////////////////////////////////////////////////////////////////////////////////
 
-	void AudioSourceComponent_GetVolume(uint64_t entityID, float* outVolume)
+	void AudioSourceComponent_GetVolume(u64 entityID, f32* outVolume)
 	{
 		*outVolume = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.VolumeMultiplier;
 	}
 
-	void AudioSourceComponent_SetVolume(uint64_t entityID, const float* volume)
+	void AudioSourceComponent_SetVolume(u64 entityID, const f32* volume)
 	{
 		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
 		component.Config.VolumeMultiplier = *volume;
@@ -161,12 +161,12 @@ namespace OloEngine
 		}
 	}
 
-	void AudioSourceComponent_GetPitch(uint64_t entityID, float* outPitch)
+	void AudioSourceComponent_GetPitch(u64 entityID, f32* outPitch)
 	{
 		*outPitch = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.PitchMultiplier;
 	}
 
-	void AudioSourceComponent_SetPitch(uint64_t entityID, const float* pitch)
+	void AudioSourceComponent_SetPitch(u64 entityID, const f32* pitch)
 	{
 		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
 		component.Config.PitchMultiplier = *pitch;
@@ -176,22 +176,22 @@ namespace OloEngine
 		}
 	}
 
-	void AudioSourceComponent_GetPlayOnAwake(uint64_t entityID, bool* outPlayOnAwake)
+	void AudioSourceComponent_GetPlayOnAwake(u64 entityID, bool* outPlayOnAwake)
 	{
 		*outPlayOnAwake = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.PlayOnAwake;
 	}
 
-	void AudioSourceComponent_SetPlayOnAwake(uint64_t entityID, const bool* playOnAwake)
+	void AudioSourceComponent_SetPlayOnAwake(u64 entityID, const bool* playOnAwake)
 	{
 		GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.PlayOnAwake = *playOnAwake;
 	}
 
-	void AudioSourceComponent_GetLooping(uint64_t entityID, bool* outLooping)
+	void AudioSourceComponent_GetLooping(u64 entityID, bool* outLooping)
 	{
 		*outLooping = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.Looping;
 	}
 
-	void AudioSourceComponent_SetLooping(uint64_t entityID, const bool* looping)
+	void AudioSourceComponent_SetLooping(u64 entityID, const bool* looping)
 	{
 		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
 		component.Config.Looping = *looping;
@@ -201,12 +201,12 @@ namespace OloEngine
 		}
 	}
 
-	void AudioSourceComponent_GetSpatialization(uint64_t entityID, bool* outSpatialization)
+	void AudioSourceComponent_GetSpatialization(u64 entityID, bool* outSpatialization)
 	{
 		*outSpatialization = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.Spatialization;
 	}
 
-	void AudioSourceComponent_SetSpatialization(uint64_t entityID, const bool* spatialization)
+	void AudioSourceComponent_SetSpatialization(u64 entityID, const bool* spatialization)
 	{
 		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
 		component.Config.Spatialization = *spatialization;
@@ -216,12 +216,12 @@ namespace OloEngine
 		}
 	}
 
-	void AudioSourceComponent_GetAttenuationModel(uint64_t entityID, int* outAttenuationModel)
+	void AudioSourceComponent_GetAttenuationModel(u64 entityID, int* outAttenuationModel)
 	{
 		*outAttenuationModel = (int)GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.AttenuationModel;
 	}
 
-	void AudioSourceComponent_SetAttenuationModel(uint64_t entityID, const int* attenuationModel)
+	void AudioSourceComponent_SetAttenuationModel(u64 entityID, const int* attenuationModel)
 	{
 		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
 		component.Config.AttenuationModel = (AttenuationModelType)(*attenuationModel);
@@ -231,12 +231,12 @@ namespace OloEngine
 		}
 	}
 
-	void AudioSourceComponent_GetRollOff(uint64_t entityID, float* outRollOff)
+	void AudioSourceComponent_GetRollOff(u64 entityID, f32* outRollOff)
 	{
 		*outRollOff = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.RollOff;
 	}
 
-	void AudioSourceComponent_SetRollOff(uint64_t entityID, const float* rollOff)
+	void AudioSourceComponent_SetRollOff(u64 entityID, const f32* rollOff)
 	{
 		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
 		component.Config.RollOff = *rollOff;
@@ -246,12 +246,12 @@ namespace OloEngine
 		}
 	}
 
-	void AudioSourceComponent_GetMinGain(uint64_t entityID, float* outMinGain)
+	void AudioSourceComponent_GetMinGain(u64 entityID, f32* outMinGain)
 	{
 		*outMinGain = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.MinGain;
 	}
 
-	void AudioSourceComponent_SetMinGain(uint64_t entityID, const float* minGain)
+	void AudioSourceComponent_SetMinGain(u64 entityID, const f32* minGain)
 	{
 		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
 		component.Config.MinGain = *minGain;
@@ -261,12 +261,12 @@ namespace OloEngine
 		}
 	}
 
-	void AudioSourceComponent_GetMaxGain(uint64_t entityID, float* outMaxGain)
+	void AudioSourceComponent_GetMaxGain(u64 entityID, f32* outMaxGain)
 	{
 		*outMaxGain = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.MaxGain;
 	}
 
-	void AudioSourceComponent_SetMaxGain(uint64_t entityID, const float* maxGain)
+	void AudioSourceComponent_SetMaxGain(u64 entityID, const f32* maxGain)
 	{
 		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
 		component.Config.MaxGain = *maxGain;
@@ -276,12 +276,12 @@ namespace OloEngine
 		}
 	}
 
-	void AudioSourceComponent_GetMinDistance(uint64_t entityID, float* outMinDistance)
+	void AudioSourceComponent_GetMinDistance(u64 entityID, f32* outMinDistance)
 	{
 		*outMinDistance = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.MinDistance;
 	}
 
-	void AudioSourceComponent_SetMinDistance(uint64_t entityID, const float* minDistance)
+	void AudioSourceComponent_SetMinDistance(u64 entityID, const f32* minDistance)
 	{
 		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
 		component.Config.MinDistance = *minDistance;
@@ -291,12 +291,12 @@ namespace OloEngine
 		}
 	}
 
-	void AudioSourceComponent_GetMaxDistance(uint64_t entityID, float* outMaxDistance)
+	void AudioSourceComponent_GetMaxDistance(u64 entityID, f32* outMaxDistance)
 	{
 		*outMaxDistance = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.MaxDistance;
 	}
 
-	void AudioSourceComponent_SetMaxDistance(uint64_t entityID, const float* maxDistance)
+	void AudioSourceComponent_SetMaxDistance(u64 entityID, const f32* maxDistance)
 	{
 		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
 		component.Config.MaxDistance = *maxDistance;
@@ -306,12 +306,12 @@ namespace OloEngine
 		}
 	}
 
-	void AudioSourceComponent_GetConeInnerAngle(uint64_t entityID, float* outConeInnerAngle)
+	void AudioSourceComponent_GetConeInnerAngle(u64 entityID, f32* outConeInnerAngle)
 	{
 		*outConeInnerAngle = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.ConeInnerAngle;
 	}
 
-	void AudioSourceComponent_SetConeInnerAngle(uint64_t entityID, const float* coneInnerAngle)
+	void AudioSourceComponent_SetConeInnerAngle(u64 entityID, const f32* coneInnerAngle)
 	{
 		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
 		component.Config.ConeInnerAngle = *coneInnerAngle;
@@ -321,12 +321,12 @@ namespace OloEngine
 		}
 	}
 
-	void AudioSourceComponent_GetConeOuterAngle(uint64_t entityID, float* outConeOuterAngle)
+	void AudioSourceComponent_GetConeOuterAngle(u64 entityID, f32* outConeOuterAngle)
 	{
 		*outConeOuterAngle = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.ConeOuterAngle;
 	}
 
-	void AudioSourceComponent_SetConeOuterAngle(uint64_t entityID, const float* coneOuterAngle)
+	void AudioSourceComponent_SetConeOuterAngle(u64 entityID, const f32* coneOuterAngle)
 	{
 		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
 		component.Config.ConeOuterAngle = *coneOuterAngle;
@@ -336,12 +336,12 @@ namespace OloEngine
 		}
 	}
 
-	void AudioSourceComponent_GetConeOuterGain(uint64_t entityID, float* outConeOuterGain)
+	void AudioSourceComponent_GetConeOuterGain(u64 entityID, f32* outConeOuterGain)
 	{
 		*outConeOuterGain = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.ConeOuterGain;
 	}
 
-	void AudioSourceComponent_SetConeOuterGain(uint64_t entityID, const float* coneOuterGain)
+	void AudioSourceComponent_SetConeOuterGain(u64 entityID, const f32* coneOuterGain)
 	{
 		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
 		component.Config.ConeOuterGain = *coneOuterGain;
@@ -351,7 +351,7 @@ namespace OloEngine
 		}
 	}
 
-	void AudioSourceComponent_SetCone(uint64_t entityID, const float* coneInnerAngle, const float* coneOuterAngle, const float* coneOuterGain)
+	void AudioSourceComponent_SetCone(u64 entityID, const f32* coneInnerAngle, const f32* coneOuterAngle, const f32* coneOuterGain)
 	{
 		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
 		component.Config.ConeInnerAngle = *coneInnerAngle;
@@ -363,14 +363,14 @@ namespace OloEngine
 		}
 	}
 
-	void AudioSourceComponent_GetDopplerFactor(uint64_t entityID, float* outDopplerFactor)
+	void AudioSourceComponent_GetDopplerFactor(u64 entityID, f32* outDopplerFactor)
 	{
 		{
 			*outDopplerFactor = GetEntity(entityID).GetComponent<AudioSourceComponent>().Config.DopplerFactor;
 		}
 	}
 
-	void AudioSourceComponent_SetDopplerFactor(uint64_t entityID, const float* dopplerFactor)
+	void AudioSourceComponent_SetDopplerFactor(u64 entityID, const f32* dopplerFactor)
 	{
 		auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
 		component.Config.DopplerFactor = *dopplerFactor;
@@ -380,7 +380,7 @@ namespace OloEngine
 		}
 	}
 
-	void AudioSourceComponent_IsPlaying(uint64_t entityID, bool* outIsPlaying)
+	void AudioSourceComponent_IsPlaying(u64 entityID, bool* outIsPlaying)
 	{
 		const auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
 		if (component.Source)
@@ -393,7 +393,7 @@ namespace OloEngine
 		}
 	}
 
-	void AudioSourceComponent_Play(uint64_t entityID)
+	void AudioSourceComponent_Play(u64 entityID)
 	{
 		const auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
 		if (component.Source)
@@ -402,7 +402,7 @@ namespace OloEngine
 		}
 	}
 
-	void AudioSourceComponent_Pause(uint64_t entityID)
+	void AudioSourceComponent_Pause(u64 entityID)
 	{
 		const auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
 		if (component.Source)
@@ -411,7 +411,7 @@ namespace OloEngine
 		}
 	}
 
-	void AudioSourceComponent_UnPause(uint64_t entityID)
+	void AudioSourceComponent_UnPause(u64 entityID)
 	{
 		const auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
 		if (component.Source)
@@ -420,7 +420,7 @@ namespace OloEngine
 		}
 	}
 
-	void AudioSourceComponent_Stop(uint64_t entityID)
+	void AudioSourceComponent_Stop(u64 entityID)
 	{
 		const auto& component = GetEntity(entityID).GetComponent<AudioSourceComponent>();
 		if (component.Source)
@@ -444,7 +444,7 @@ namespace OloEngine
 		([]()
 		{
 			std::string_view typeName = typeid(Component).name();
-			size_t pos = typeName.find_last_of(':');
+			sizet pos = typeName.find_last_of(':');
 			std::string_view structName = typeName.substr(pos + 1);
 			std::string managedTypename = fmt::format("OloEngine.{}", structName);
 

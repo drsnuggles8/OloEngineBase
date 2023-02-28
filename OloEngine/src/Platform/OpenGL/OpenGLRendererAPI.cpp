@@ -2,52 +2,12 @@
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLRendererAPI.h"
+#include "Platform/OpenGL/OpenGLDebug.h"
 
 #include <glad/gl.h>
 
 namespace OloEngine
-{
-	void OpenGLMessageCallback(
-		const unsigned int source,
-		const unsigned int type,
-		const unsigned int id,
-		const unsigned int severity,
-		const int,
-		const char* const message,
-		const void* const)
-	{
-		std::string sourceStr;
-		switch (source)
-		{
-			case GL_DEBUG_SOURCE_API:             sourceStr = "API"; break;
-			case GL_DEBUG_SOURCE_WINDOW_SYSTEM:   sourceStr = "WINDOW_SYSTEM"; break;
-			case GL_DEBUG_SOURCE_SHADER_COMPILER: sourceStr = "SHADER_COMPILER"; break;
-			case GL_DEBUG_SOURCE_THIRD_PARTY:     sourceStr = "THIRD_PARTY"; break;
-			case GL_DEBUG_SOURCE_APPLICATION:     sourceStr = "APPLICATION"; break;
-			case GL_DEBUG_SOURCE_OTHER:           sourceStr = "OTHER"; break;
-		}
-		std::string typeStr;
-		switch (type)
-		{
-			case GL_DEBUG_TYPE_ERROR:               typeStr = "ERROR"; break;
-			case GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR: typeStr = "DEPRECATED_BEHAVIOR"; break;
-			case GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR:  typeStr = "UNDEFINED_BEHAVIOR"; break;
-			case GL_DEBUG_TYPE_PORTABILITY:         typeStr = "PORTABILITY"; break;
-			case GL_DEBUG_TYPE_PERFORMANCE:         typeStr = "PERFORMANCE"; break;
-			case GL_DEBUG_TYPE_OTHER:               typeStr = "OTHER"; break;
-			case GL_DEBUG_TYPE_MARKER:              typeStr = "MARKER"; break;
-		}
-		switch (severity)
-		{
-			case GL_DEBUG_SEVERITY_HIGH:         OLO_CORE_CRITICAL("OpenGL debug message (source: {0}, type: {1}, id: {2}): {3}", sourceStr, typeStr, id, message); return;
-			case GL_DEBUG_SEVERITY_MEDIUM:       OLO_CORE_ERROR("OpenGL debug message (source: {0}, type: {1}, id: {2}): {3}", sourceStr, typeStr, id, message); return;
-			case GL_DEBUG_SEVERITY_LOW:          OLO_CORE_WARN("OpenGL debug message (source: {0}, type: {1}, id: {2}): {3}", sourceStr, typeStr, id, message); return;
-			case GL_DEBUG_SEVERITY_NOTIFICATION: OLO_CORE_TRACE("OpenGL debug message (source: {0}, type: {1}, id: {2}): {3}", sourceStr, typeStr, id, message); return;
-		}
-
-		OLO_CORE_ASSERT(false, "Unknown severity level!");
-	}
-
+{	
 	void OpenGLRendererAPI::Init()
 	{
 		OLO_PROFILE_FUNCTION();
@@ -67,7 +27,7 @@ namespace OloEngine
 		glEnable(GL_LINE_SMOOTH);
 	}
 
-	void OpenGLRendererAPI::SetViewport(const uint32_t x, const uint32_t y, const uint32_t width, const uint32_t height)
+	void OpenGLRendererAPI::SetViewport(const u32 x, const u32 y, const u32 width, const u32 height)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -88,16 +48,16 @@ namespace OloEngine
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	}
 
-	void OpenGLRendererAPI::DrawIndexed(const Ref<VertexArray>& vertexArray, const uint32_t indexCount)
+	void OpenGLRendererAPI::DrawIndexed(const Ref<VertexArray>& vertexArray, const u32 indexCount)
 	{
 		OLO_PROFILE_FUNCTION();
 
 		vertexArray->Bind();
-		const uint32_t count = indexCount ? indexCount : vertexArray->GetIndexBuffer()->GetCount();
+		const u32 count = indexCount ? indexCount : vertexArray->GetIndexBuffer()->GetCount();
 		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(count), GL_UNSIGNED_INT, nullptr);
 	}
 
-	void OpenGLRendererAPI::DrawLines(const Ref<VertexArray>& vertexArray, const uint32_t vertexCount)
+	void OpenGLRendererAPI::DrawLines(const Ref<VertexArray>& vertexArray, const u32 vertexCount)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -105,7 +65,7 @@ namespace OloEngine
 		glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(vertexCount));
 	}
 
-	void OpenGLRendererAPI::SetLineWidth(const float width)
+	void OpenGLRendererAPI::SetLineWidth(const f32 width)
 	{
 		OLO_PROFILE_FUNCTION();
 

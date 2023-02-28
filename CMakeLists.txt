@@ -1,9 +1,9 @@
-﻿cmake_minimum_required(VERSION 3.23)
+﻿cmake_minimum_required(VERSION 3.25)
 
 message(STATUS "CMake version: ${CMAKE_VERSION}")
 
 project(OloEngineBase
-        LANGUAGES CXX C)
+        LANGUAGES CXX C CSharp)
 
 set(OloEngineBase_VERSION_MAJOR 0)
 set(OloEngineBase_VERSION_MINOR 0)
@@ -22,13 +22,10 @@ set(CMAKE_CXX_EXTENSIONS ON)
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)
+set(CMAKE_DOTNET_TARGET_FRAMEWORK_VERSION "v4.8.1")
+set(CMAKE_CSharp_FLAGS "/langversion:8")
 set_property(GLOBAL PROPERTY USE_FOLDERS YES)
 set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "Utilities/cmake")
-
-# OFF => Download dependencies, ON => don't download dependencies
-set(FETCHCONTENT_FULLY_DISCONNECTED OFF)
-# OFF => Download dependencies, ON => Check if dependencies are up2date, only download if new version is out
-set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
 
 # Main targets built by this project
 add_subdirectory(OloEngine)

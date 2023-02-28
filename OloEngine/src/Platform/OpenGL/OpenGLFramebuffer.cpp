@@ -2,125 +2,13 @@
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLFramebuffer.h"
-
-#include <glad/gl.h>
+#include "Platform/OpenGL/OpenGLUtilities.h"
 
 #include <utility>
 
 namespace OloEngine
 {
-
-	static const uint32_t s_MaxFramebufferSize = 8192;
-
-	namespace Utils
-	{
-		[[nodiscard("Store this!")]]  constexpr static GLenum TextureTarget(const bool multisampled) noexcept
-		{
-			return multisampled ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D;
-		}
-
-		static void PrepareTexture(const uint32_t id, const int samples, const GLenum format, const int width, const int height)
-		{
-			OLO_CORE_ASSERT((format == GL_RGBA8 || format == GL_R32I || format == GL_DEPTH24_STENCIL8), "Invalid format.");
-
-			if (const bool multisampled = samples > 1)
-			{
-				glTextureStorage2DMultisample(id, samples, format, width, height, GL_FALSE);
-			}
-			else
-			{
-				glTextureStorage2D(id, 1, format, width, height);
-				glTextureParameteri(id, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-				glTextureParameteri(id, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-				glTextureParameteri(id, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-				glTextureParameteri(id, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-				glTextureParameteri(id, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-			}
-		}
-
-		static void CreateTextures(const bool multisampled, const int count, uint32_t* const outID)
-		{
-			glCreateTextures(TextureTarget(multisampled), count, outID);
-		}
-
-		static void BindTexture(const uint32_t id)
-		{
-			glBindTextureUnit(0, id);
-		}
-
-		static void BindTextures(const uint32_t firstID, const uint32_t count, const GLuint* id)
-		{
-			glBindTextures(firstID, static_cast<int>(count), id);
-		}
-
-		static void AttachColorTexture(const uint32_t fbo, const uint32_t id, const int samples, const GLenum internalFormat, const int width, const int height, const uint32_t index)
-		{
-			PrepareTexture(id, samples, internalFormat, width, height);
-
-			glNamedFramebufferTexture(fbo, GL_COLOR_ATTACHMENT0 + index, id, 0);
-
-			if (glGetError() != GL_NO_ERROR)
-			{
-				OLO_CORE_ERROR("Error attaching color texture!");
-			}
-		}
-
-		static void AttachDepthTexture(const uint32_t fbo, const uint32_t id, const int samples, const GLenum format, const GLenum attachmentType, const int width, const int height)
-		{
-			PrepareTexture(id, samples, format, width, height);
-
-			glNamedFramebufferTexture(fbo, attachmentType, id, 0);
-
-			if (glGetError() != GL_NO_ERROR)
-			{
-				OLO_CORE_ERROR("Error attaching depth texture!");
-			}
-		}
-
-		[[nodiscard("Store this!")]] static bool IsDepthFormat(const FramebufferTextureFormat format) noexcept
-		{
-			switch (format)
-			{
-				case FramebufferTextureFormat::DEPTH24STENCIL8:  return true;
-			}
-			return false;
-		}
-
-		[[nodiscard("Store this!")]] static GLenum OloFBTextureFormatToGL(const FramebufferTextureFormat format)
-		{
-			switch (format)
-			{
-				case FramebufferTextureFormat::RGBA8:       return GL_RGBA8;
-				case FramebufferTextureFormat::RED_INTEGER: return GL_RED_INTEGER;
-			}
-
-			OLO_CORE_ASSERT(false);
-			return 0;
-		}
-
-		[[nodiscard("Store this!")]] static GLenum OloFBColorTextureFormatToGL(const FramebufferTextureFormat format)
-		{
-			switch (format)
-			{
-				case FramebufferTextureFormat::RGBA8:       return GL_RGBA8;
-				case FramebufferTextureFormat::RED_INTEGER: return GL_R32I;
-			}
-
-			OLO_CORE_ASSERT(false);
-			return 0;
-		}
-
-		[[nodiscard("Store this!")]] static GLenum OloFBDepthTextureFormatToGL(const FramebufferTextureFormat format)
-		{
-			switch (format)
-			{
-				case FramebufferTextureFormat::DEPTH24STENCIL8: return GL_DEPTH24_STENCIL8;
-			}
-
-			OLO_CORE_ASSERT(false);
-			return 0;
-		}
-	}
+	static const u32 s_MaxFramebufferSize = 8192;
 
 	OpenGLFramebuffer::OpenGLFramebuffer(FramebufferSpecification specification)
 		: m_Specification(std::move(specification))
@@ -176,7 +64,7 @@ namespace OloEngine
 				Utils::BindTexture(m_ColorAttachments[i]);
 				// TODO(olbu): Add more FramebufferTextureFormats in Framebuffer.h and here
 				GLenum internalFormat = Utils::OloFBColorTextureFormatToGL(m_ColorAttachmentSpecifications[i].TextureFormat);
-				Utils::AttachColorTexture(m_RendererID, m_ColorAttachments[i], static_cast<int>(m_Specification.Samples), internalFormat, static_cast<int>(m_Specification.Width), static_cast<int>(m_Specification.Height), static_cast<uint32_t>(i));
+				Utils::AttachColorTexture(m_RendererID, m_ColorAttachments[i], static_cast<int>(m_Specification.Samples), internalFormat, static_cast<int>(m_Specification.Width), static_cast<int>(m_Specification.Height), static_cast<u32>(i));
 			}
 		}
 
@@ -195,7 +83,7 @@ namespace OloEngine
 			auto colorAttachmentSize = static_cast<int>(m_ColorAttachments.size());
 			for (int i = 0; i < colorAttachmentSize; ++i)
 			{
-				colorBuffers.push_back(static_cast<uint32_t>(GL_COLOR_ATTACHMENT0 + i));
+				colorBuffers.push_back(static_cast<u32>(GL_COLOR_ATTACHMENT0 + i));
 			}
 
 			glDrawBuffers(static_cast<GLsizei>(m_ColorAttachments.size()), colorBuffers.data());
@@ -222,7 +110,7 @@ namespace OloEngine
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
 
-	void OpenGLFramebuffer::Resize(uint32_t width, uint32_t height)
+	void OpenGLFramebuffer::Resize(u32 width, u32 height)
 	{
 		if ((0 == width) || (0 == height) || (width > s_MaxFramebufferSize) || (height > s_MaxFramebufferSize))
 		{
@@ -236,7 +124,7 @@ namespace OloEngine
 		Invalidate();
 	}
 
-	int OpenGLFramebuffer::ReadPixel(const uint32_t attachmentIndex, const int x, const int y)
+	int OpenGLFramebuffer::ReadPixel(const u32 attachmentIndex, const int x, const int y)
 	{
 		OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size());
 
@@ -246,7 +134,7 @@ namespace OloEngine
 		return pixelData;
 	}
 
-	void OpenGLFramebuffer::ClearAttachment(const uint32_t attachmentIndex, const int value)
+	void OpenGLFramebuffer::ClearAttachment(const u32 attachmentIndex, const int value)
 	{
 		OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size());
 

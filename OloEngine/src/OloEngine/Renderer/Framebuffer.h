@@ -42,10 +42,10 @@ namespace OloEngine
 
 	struct FramebufferSpecification
 	{
-		uint32_t Width = 0;
-		uint32_t Height = 0;
+		u32 Width = 0;
+		u32 Height = 0;
 		FramebufferAttachmentSpecification Attachments;
-		uint32_t Samples = 1;
+		u32 Samples = 1;
 
 		bool SwapChainTarget = false;
 	};
@@ -58,13 +58,13 @@ namespace OloEngine
 		virtual void Bind() = 0;
 		virtual void Unbind() = 0;
 
-		virtual void Resize(uint32_t width, uint32_t height) = 0;
-		virtual int ReadPixel(uint32_t attachmentIndex, int x, int y) = 0;
+		virtual void Resize(u32 width, u32 height) = 0;
+		virtual int ReadPixel(u32 attachmentIndex, int x, int y) = 0;
 
 		// TODO(olbu): template this for different value types (int/float etc.)
-		virtual void ClearAttachment(uint32_t attachmentIndex, int value) = 0;
+		virtual void ClearAttachment(u32 attachmentIndex, int value) = 0;
 
-		[[nodiscard("Store this!")]] virtual uint32_t GetColorAttachmentRendererID(uint32_t index) const = 0;
+		[[nodiscard("Store this!")]] virtual u32 GetColorAttachmentRendererID(u32 index) const = 0;
 
 		[[nodiscard("Store this!")]] virtual const FramebufferSpecification& GetSpecification() const = 0;
 

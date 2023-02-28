@@ -81,7 +81,7 @@ namespace OloEngine
 			}
 		}
 
-		[[nodiscard("Store this!")]] static const char* GLShaderStageCachedOpenGLFileExtension(const uint32_t stage)
+		[[nodiscard("Store this!")]] static const char* GLShaderStageCachedOpenGLFileExtension(const u32 stage)
 		{
 			switch (stage)
 			{
@@ -98,7 +98,7 @@ namespace OloEngine
 			return "";
 		}
 
-		[[nodiscard("Store this!")]] static const char* GLShaderStageCachedVulkanFileExtension(const uint32_t stage)
+		[[nodiscard("Store this!")]] static const char* GLShaderStageCachedVulkanFileExtension(const u32 stage)
 		{
 			switch (stage)
 			{
@@ -191,7 +191,7 @@ namespace OloEngine
 		if (std::ifstream in(filepath, std::ios::in | std::ios::binary); in)
 		{
 			in.seekg(0, std::ios::end);
-			size_t const size = in.tellg();
+			sizet const size = in.tellg();
 			if (std::cmp_not_equal(size, -1))
 			{
 				result.resize(size);
@@ -218,17 +218,17 @@ namespace OloEngine
 		std::unordered_map<GLenum, std::string> shaderSources;
 
 		const char* const typeToken = "#type";
-		const size_t typeTokenLength = std::strlen(typeToken);
-		size_t pos = source.find(typeToken, 0); //Start of shader type declaration line
+		const sizet typeTokenLength = std::strlen(typeToken);
+		sizet pos = source.find(typeToken, 0); //Start of shader type declaration line
 		while (pos != std::string::npos)
 		{
-			const size_t eol = source.find_first_of("\r\n", pos); //End of shader type declaration line
+			const sizet eol = source.find_first_of("\r\n", pos); //End of shader type declaration line
 			OLO_CORE_ASSERT(eol != std::string::npos, "Syntax error");
-			const size_t begin = pos + typeTokenLength + 1; //Start of shader type name (after "#type " keyword)
+			const sizet begin = pos + typeTokenLength + 1; //Start of shader type name (after "#type " keyword)
 			std::string_view type = source.substr(begin, eol - begin);
 			OLO_CORE_ASSERT(Utils::ShaderTypeFromString(type), "Invalid shader type specified");
 
-			const size_t nextLinePos = source.find_first_not_of("\r\n", eol); //Start of shader code after shader type declaration line
+			const sizet nextLinePos = source.find_first_not_of("\r\n", eol); //Start of shader code after shader type declaration line
 			OLO_CORE_ASSERT(nextLinePos != std::string::npos, "Syntax error");
 			pos = source.find(typeToken, nextLinePos); //Start of next shader type declaration line
 
@@ -267,7 +267,7 @@ namespace OloEngine
 				in.seekg(0, std::ios::beg);
 
 				auto& data = shaderData[stage];
-				data.resize(size / sizeof(uint32_t));
+				data.resize(size / sizeof(u32));
 				in.read(reinterpret_cast<char*>(data.data()), size);
 			}
 			else
@@ -279,13 +279,13 @@ namespace OloEngine
 					OLO_CORE_ASSERT(false);
 				}
 
-				shaderData[stage] = std::vector<uint32_t>(spirvModule.cbegin(), spirvModule.cend());
+				shaderData[stage] = std::vector<u32>(spirvModule.cbegin(), spirvModule.cend());
 
 				std::ofstream out(cachedPath, std::ios::out | std::ios::binary);
 				if (out.is_open())
 				{
 					auto& data = shaderData[stage];
-					out.write(reinterpret_cast<char*>(data.data()), data.size() * sizeof(uint32_t));
+					out.write(reinterpret_cast<char*>(data.data()), data.size() * sizeof(u32));
 					out.flush();
 					out.close();
 				}
@@ -323,7 +323,7 @@ namespace OloEngine
 				in.seekg(0, std::ios::beg);
 
 				auto& data = shaderData[stage];
-				data.resize(size / sizeof(uint32_t));
+				data.resize(size / sizeof(u32));
 				in.read(reinterpret_cast<char*>(data.data()), size);
 			}
 			else
@@ -339,13 +339,13 @@ namespace OloEngine
 					OLO_CORE_ASSERT(false);
 				}
 
-				shaderData[stage] = std::vector<uint32_t>(spirvModule.cbegin(), spirvModule.cend());
+				shaderData[stage] = std::vector<u32>(spirvModule.cbegin(), spirvModule.cend());
 
 				std::ofstream out(cachedPath, std::ios::out | std::ios::binary);
 				if (out.is_open())
 				{
 					auto& data = shaderData[stage];
-					out.write(reinterpret_cast<char*>(data.data()), data.size() * sizeof(uint32_t));
+					out.write(reinterpret_cast<char*>(data.data()), data.size() * sizeof(u32));
 					out.flush();
 					out.close();
 				}
@@ -361,7 +361,7 @@ namespace OloEngine
 		for (auto&& [stage, spirv] : m_OpenGLSPIRV)
 		{
 			const GLuint shaderID = shaderIDs.emplace_back(glCreateShader(stage));
-			glShaderBinary(1, &shaderID, GL_SHADER_BINARY_FORMAT_SPIR_V, spirv.data(), static_cast<GLsizei>(spirv.size() * sizeof(uint32_t)));
+			glShaderBinary(1, &shaderID, GL_SHADER_BINARY_FORMAT_SPIR_V, spirv.data(), static_cast<GLsizei>(spirv.size() * sizeof(u32)));
 			glSpecializeShader(shaderID, "main", 0, nullptr, nullptr);
 			glAttachShader(program, shaderID);
 		}
@@ -431,8 +431,8 @@ namespace OloEngine
 			in.seekg(0);
 
 			auto data = std::vector<char>(size);
-			uint32_t format = 0;
-			in.read(reinterpret_cast<char*>(&format), sizeof(uint32_t));
+			u32 format = 0;
+			in.read(reinterpret_cast<char*>(&format), sizeof(u32));
 			in.read(data.data(), size);
 			glProgramBinary(program, format, data.data(), static_cast<GLsizei>(data.size()));
 
@@ -445,7 +445,7 @@ namespace OloEngine
 		}
 		else
 		{
-			std::array<uint32_t, 2> glShadersIDs{};
+			std::array<u32, 2> glShadersIDs{};
 			CompileOpenGLBinariesForAmd(program, glShadersIDs);
 			glLinkProgram(program);
 
@@ -460,12 +460,12 @@ namespace OloEngine
 				GLint length = 0;
 				glGetProgramiv(program, GL_PROGRAM_BINARY_LENGTH, &length);
 				auto shaderData = std::vector<char>(length);
-				uint32_t format = 0;
+				u32 format = 0;
 				glGetProgramBinary(program, length, nullptr, &format, shaderData.data());
 				std::ofstream out(cachedPath, std::ios::out | std::ios::binary);
 				if (out.is_open())
 				{
-					out.write(reinterpret_cast<char*>(&format), sizeof(uint32_t));
+					out.write(reinterpret_cast<char*>(&format), sizeof(u32));
 					out.write(shaderData.data(), shaderData.size());
 					out.flush();
 					out.close();
@@ -481,7 +481,7 @@ namespace OloEngine
 		m_RendererID = program;
 	}
 
-	void OpenGLShader::CompileOpenGLBinariesForAmd(GLenum const& program, std::array<uint32_t, 2>& glShadersIDs) const
+	void OpenGLShader::CompileOpenGLBinariesForAmd(GLenum const& program, std::array<u32, 2>& glShadersIDs) const
 	{
 		int glShaderIDIndex = 0;
 		for (auto&& [stage, spirv] : m_VulkanSPIRV)
@@ -489,7 +489,7 @@ namespace OloEngine
 			spirv_cross::CompilerGLSL glslCompiler(spirv);
 			const auto source = glslCompiler.compile();
 
-			uint32_t shader = glCreateShader(stage);
+			u32 shader = glCreateShader(stage);
 
 			const GLchar* const sourceCStr = source.c_str();
 			glShaderSource(shader, 1, &sourceCStr, nullptr);
@@ -517,7 +517,7 @@ namespace OloEngine
 		}
 	}
 
-	void OpenGLShader::Reflect(const GLenum stage, const std::vector<uint32_t>& shaderData)
+	void OpenGLShader::Reflect(const GLenum stage, const std::vector<u32>& shaderData)
 	{
 		const spirv_cross::Compiler compiler(shaderData);
 		const spirv_cross::ShaderResources resources = compiler.get_shader_resources();
@@ -530,9 +530,9 @@ namespace OloEngine
 		for (const auto& resource : resources.uniform_buffers)
 		{
 			const auto& bufferType = compiler.get_type(resource.base_type_id);
-			size_t bufferSize = compiler.get_declared_struct_size(bufferType);
-			uint32_t binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
-			size_t memberCount = bufferType.member_types.size();
+			sizet bufferSize = compiler.get_declared_struct_size(bufferType);
+			u32 binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
+			sizet memberCount = bufferType.member_types.size();
 
 			OLO_CORE_TRACE("  {0}", resource.name);
 			OLO_CORE_TRACE("    Size = {0}", bufferSize);
@@ -562,12 +562,12 @@ namespace OloEngine
 		UploadUniformInt(name, value);
 	}
 
-	void OpenGLShader::SetIntArray(const std::string& name, int* const values, const uint32_t count)
+	void OpenGLShader::SetIntArray(const std::string& name, int* const values, const u32 count)
 	{
 		UploadUniformIntArray(name, values, count);
 	}
 
-	void OpenGLShader::SetFloat(const std::string& name, const float value)
+	void OpenGLShader::SetFloat(const std::string& name, const f32 value)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -608,13 +608,13 @@ namespace OloEngine
 		glUniform1i(location, value);
 	}
 
-	void OpenGLShader::UploadUniformIntArray(const std::string& name, int const* const values, const uint32_t count) const
+	void OpenGLShader::UploadUniformIntArray(const std::string& name, int const* const values, const u32 count) const
 	{
 		const GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniform1iv(location, count, values);
 	}
 
-	void OpenGLShader::UploadUniformFloat(const std::string& name, const float value) const
+	void OpenGLShader::UploadUniformFloat(const std::string& name, const f32 value) const
 	{
 		const GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniform1f(location, value);

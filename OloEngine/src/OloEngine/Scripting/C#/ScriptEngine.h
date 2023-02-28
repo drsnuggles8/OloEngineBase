@@ -59,7 +59,7 @@ namespace OloEngine
 			::memcpy(m_Buffer, &value, sizeof(T));
 		}
 	private:
-		uint8_t m_Buffer[16];
+		u8 m_Buffer[16];
 
 		friend class ScriptEngine;
 		friend class ScriptInstance;
@@ -95,7 +95,7 @@ namespace OloEngine
 		ScriptInstance(const Ref<ScriptClass>& scriptClass, Entity entity);
 
 		void InvokeOnCreate();
-		void InvokeOnUpdate(float ts);
+		void InvokeOnUpdate(f32 ts);
 
         [[nodiscard("Store this!")]] Ref<ScriptClass> GetScriptClass() const { return m_ScriptClass; }
 

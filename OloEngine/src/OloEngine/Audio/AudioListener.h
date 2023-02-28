@@ -6,9 +6,9 @@ namespace OloEngine
 {
 	struct AudioListenerConfig
 	{
-		float ConeInnerAngle = glm::radians(360.0f);
-		float ConeOuterAngle = glm::radians(360.0f);
-		float ConeOuterGain = 0.0f;
+		f32 ConeInnerAngle = glm::radians(360.0f);
+		f32 ConeOuterAngle = glm::radians(360.0f);
+		f32 ConeOuterGain = 0.0f;
 	};
 
 	class AudioListener
@@ -23,6 +23,6 @@ namespace OloEngine
 		void SetVelocity(const glm::vec3& velocity) const;
 
 	private:
-		uint32_t m_ListenerIndex = 0;
+		u32 m_ListenerIndex = 0;
 	};
 }

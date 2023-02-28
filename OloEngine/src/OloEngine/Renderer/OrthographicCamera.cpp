@@ -7,7 +7,7 @@
 
 namespace OloEngine
 {
-	OrthographicCamera::OrthographicCamera(const float left, const float right, const float bottom, const float top)
+	OrthographicCamera::OrthographicCamera(const f32 left, const f32 right, const f32 bottom, const f32 top)
 		: m_ProjectionMatrix(glm::ortho(left, right, bottom, top, -1.0f, 1.0f)), m_ViewMatrix(1.0f)
 	{
 		OLO_PROFILE_FUNCTION();
@@ -15,7 +15,7 @@ namespace OloEngine
 		m_ViewProjectionMatrix = m_ProjectionMatrix * m_ViewMatrix;
 	}
 
-	void OrthographicCamera::SetProjection(const float left, const float right, const float bottom, const float top)
+	void OrthographicCamera::SetProjection(const f32 left, const f32 right, const f32 bottom, const f32 top)
 	{
 		OLO_PROFILE_FUNCTION();
 

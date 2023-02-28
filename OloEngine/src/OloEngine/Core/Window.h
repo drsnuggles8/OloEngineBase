@@ -11,12 +11,10 @@ namespace OloEngine
 	struct WindowProps
 	{
 		std::string Title;
-		uint32_t Width;
-		uint32_t Height;
+		u32 Width;
+		u32 Height;
 
-		explicit WindowProps(std::string  title = "OloEngine",
-			const uint32_t width = 1600,
-			const uint32_t height = 900)
+		explicit WindowProps(std::string title = "OloEngine", const u32 width = 1600, const u32 height = 900)
 			: Title(std::move(title)), Width(width), Height(height)
 		{
 		}
@@ -32,8 +30,8 @@ namespace OloEngine
 
 		virtual void OnUpdate() = 0;
 
-		[[nodiscard("Store this!")]] virtual uint32_t GetWidth() const = 0;
-		[[nodiscard("Store this!")]] virtual uint32_t GetHeight() const = 0;
+		[[nodiscard("Store this!")]] virtual u32 GetWidth() const = 0;
+		[[nodiscard("Store this!")]] virtual u32 GetHeight() const = 0;
 
 		// Window attributes
 		virtual void SetEventCallback(const EventCallbackFn& callback) = 0;
@@ -46,6 +44,6 @@ namespace OloEngine
 
 		static Scope<Window> Create(const WindowProps& props = WindowProps());
 	public:
-		static float s_HighDPIScaleFactor;
+		static f32 s_HighDPIScaleFactor;
 	};
 }

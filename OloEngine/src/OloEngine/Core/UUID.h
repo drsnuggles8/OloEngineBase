@@ -6,13 +6,13 @@ namespace OloEngine
 	{
 	public:
 		UUID();
-		explicit(false) UUID(uint64_t uuid);
+		explicit(false) UUID(u64 uuid);
 		UUID(const UUID&) = default;
 
-		operator uint64_t() { return m_UUID; }
-		operator uint64_t() const { return m_UUID; }
+		operator u64() { return m_UUID; }
+		operator u64() const { return m_UUID; }
 	private:
-		uint64_t m_UUID;
+		u64 m_UUID;
 	};
 }
 
@@ -25,7 +25,7 @@ namespace std
 	{
 		std::size_t operator()(const OloEngine::UUID& uuid) const
 		{
-			return static_cast<uint64_t>(uuid);
+			return static_cast<u64>(uuid);
 		}
 	};
 }

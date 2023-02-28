@@ -17,22 +17,22 @@ namespace OloEngine
 
 		// TODO(olbu): Add BindColorAttachment, BindDepthAttachment
 
-		void Resize(uint32_t width, uint32_t height) override;
-		int ReadPixel(uint32_t attachmentIndex, int x, int y) override;
+		void Resize(u32 width, u32 height) override;
+		int ReadPixel(u32 attachmentIndex, int x, int y) override;
 
-		void ClearAttachment(uint32_t attachmentIndex, int value) override;
+		void ClearAttachment(u32 attachmentIndex, int value) override;
 
-		[[nodiscard("Store this!")]] uint32_t GetColorAttachmentRendererID(const uint32_t index) const override { OLO_CORE_ASSERT(index < m_ColorAttachments.size()); return m_ColorAttachments[index]; }
+		[[nodiscard("Store this!")]] u32 GetColorAttachmentRendererID(const u32 index) const override { OLO_CORE_ASSERT(index < m_ColorAttachments.size()); return m_ColorAttachments[index]; }
 		// TODO(olbu): Add GetDepthAttachmentRendererID
 		[[nodiscard("Store this!")]] const FramebufferSpecification& GetSpecification() const override { return m_Specification; }
 	private:
-		uint32_t m_RendererID = 0;
+		u32 m_RendererID = 0;
 		FramebufferSpecification m_Specification;
 
 		std::vector<FramebufferTextureSpecification> m_ColorAttachmentSpecifications;
 		FramebufferTextureSpecification m_DepthAttachmentSpecification = FramebufferTextureFormat::None;
 
-		std::vector<uint32_t> m_ColorAttachments;
-		uint32_t m_DepthAttachment = 0;
+		std::vector<u32> m_ColorAttachments;
+		u32 m_DepthAttachment = 0;
 	};
 }

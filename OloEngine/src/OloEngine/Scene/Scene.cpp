@@ -224,8 +224,8 @@ namespace OloEngine
 
 			// Physics
 			{
-				const int32_t velocityIterations = 6;
-				const int32_t positionIterations = 2;
+				const i32 velocityIterations = 6;
+				const i32 positionIterations = 2;
 				m_PhysicsWorld->Step(ts, velocityIterations, positionIterations);
 
 				// Retrieve transform from Box2D
@@ -322,8 +322,8 @@ namespace OloEngine
 
 			// Physics
 			{
-				const int32_t velocityIterations = 6;
-				const int32_t positionIterations = 2;
+				const i32 velocityIterations = 6;
+				const i32 positionIterations = 2;
 				m_PhysicsWorld->Step(ts, velocityIterations, positionIterations);
 
 				// Retrieve transform from Box2D
@@ -356,7 +356,7 @@ namespace OloEngine
 		// Renderer2D::DrawLine(glm::vec3(0.0f), glm::vec3(5.0f), glm::vec4(1, 0, 1, 1));
 		// Renderer2D::DrawRect(glm::vec3(0.0f), glm::vec2(5.0f), glm::vec4(1, 1, 1, 1));
 
-	void Scene::OnViewportResize(const uint32_t width, const uint32_t height)
+	void Scene::OnViewportResize(const u32 width, const u32 height)
 	{
 		if ((m_ViewportWidth == width) && (m_ViewportHeight == height))
 		{
@@ -427,13 +427,8 @@ namespace OloEngine
 
 	Entity Scene::GetEntityByUUID(UUID uuid)
 	{
-		// TODO(OLBU): Maybe should be assert
-		if (m_EntityMap.contains(uuid))
-		{
-			return { m_EntityMap.at(uuid), this };
-		}
-
-		return {};
+		OLO_CORE_ASSERT(m_EntityMap.contains(uuid));
+		return { m_EntityMap.at(uuid), this };
 	}
 
 	void Scene::OnPhysics2DStart()

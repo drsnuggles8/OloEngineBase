@@ -17,6 +17,6 @@ namespace OloEngine
 		// Lua functions to call from C++
 		static void OnCreate(const Entity* entity);
 		static void OnDestroyed(const Entity* entity);
-		static void OnUpdate(const Entity* entity, float ts);
+		static void OnUpdate(const Entity* entity, f32 ts);
 	};
 }

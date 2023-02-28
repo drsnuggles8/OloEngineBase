@@ -14,7 +14,7 @@ namespace OloEngine
 
 		static bool IsMouseButtonPressed(MouseCode button);
 		static glm::vec2 GetMousePosition();
-		static float GetMouseX();
-		static float GetMouseY();
+		static f32 GetMouseX();
+		static f32 GetMouseY();
 	};
 }
