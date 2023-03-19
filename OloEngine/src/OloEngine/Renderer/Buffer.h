@@ -99,8 +99,8 @@ namespace OloEngine
 		[[nodiscard("Store this!")]] u32 GetStride() const { return m_Stride; }
 		[[nodiscard("Store this!")]] std::vector<BufferElement> GetElements() const { return m_Elements; }
 
-		std::vector<BufferElement>::iterator begin() { return m_Elements.begin(); }
-		std::vector<BufferElement>::iterator end() { return m_Elements.end(); }
+		[[nodiscard("Store this!")]] std::vector<BufferElement>::iterator begin() { return m_Elements.begin(); }
+		[[nodiscard("Store this!")]] std::vector<BufferElement>::iterator end() { return m_Elements.end(); }
 		[[nodiscard("Store this!")]] std::vector<BufferElement>::const_iterator begin() const { return m_Elements.begin(); }
 		[[nodiscard("Store this!")]] std::vector<BufferElement>::const_iterator end() const { return m_Elements.end(); }
 	private:
@@ -118,50 +118,5 @@ namespace OloEngine
 	private:
 		std::vector<BufferElement> m_Elements;
 		u32 m_Stride = 0;
-	};
-
-	// TODO(olbu): Add Create() functions for the new constructors of OpenGLVertexBuffer, OpenGLIndexBuffer, OpenGLUniformBuffer
-	class VertexBuffer
-	{
-	public:
-		virtual ~VertexBuffer() = default;
-
-		virtual void Bind() const = 0;
-		virtual void Unbind() const = 0;
-
-		virtual void SetData(const VertexData& data) = 0;
-
-		[[nodiscard("Store this!")]] virtual const BufferLayout& GetLayout() const = 0;
-		virtual void SetLayout(const BufferLayout& layout) = 0;
-
-		[[nodiscard("Store this!")]] virtual u32 GetBufferHandle() const = 0;
-
-		static Ref<VertexBuffer> Create(u32 size);
-		static Ref<VertexBuffer> Create(f32* vertices, u32 size);
-	};
-
-	// Currently OloEngine only supports 32-bit index buffers
-
-	class IndexBuffer
-	{
-	public:
-		virtual ~IndexBuffer() = default;
-
-		virtual void Bind() const = 0;
-		virtual void Unbind() const = 0;
-
-		[[nodiscard("Store this!")]] virtual u32 GetCount() const = 0;
-        [[nodiscard("Store this!")]] virtual u32 GetBufferHandle() const = 0;
-
-		static Ref<IndexBuffer> Create(u32* indices, u32 size);
-	};
-
-	class UniformBuffer
-	{
-	public:
-		virtual ~UniformBuffer() = default;
-		virtual void SetData(const UniformData& data) = 0;
-
-		static Ref<UniformBuffer> Create(u32 size, u32 binding);
 	};
 }

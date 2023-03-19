@@ -8,11 +8,13 @@
 
 namespace OloEngine
 {
-	static const u32 s_MaxFramebufferSize = 8192;
+	constexpr u32 s_MaxFramebufferSize = 8192;
 
 	OpenGLFramebuffer::OpenGLFramebuffer(FramebufferSpecification specification)
 		: m_Specification(std::move(specification))
 	{
+		OLO_PROFILE_FUNCTION();
+
 		for (const auto& spec : m_Specification.Attachments.Attachments)
 		{
 			if (!Utils::IsDepthFormat(spec.TextureFormat))

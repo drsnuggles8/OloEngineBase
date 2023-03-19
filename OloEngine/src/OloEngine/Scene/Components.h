@@ -1,5 +1,5 @@
 #pragma once
-#include "SceneCamera.h"
+#include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Audio/AudioSource.h"

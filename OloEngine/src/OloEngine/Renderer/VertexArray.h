@@ -1,6 +1,7 @@
 #pragma once
 
-#include "OloEngine/Renderer/Buffer.h"
+#include "OloEngine/Renderer/IndexBuffer.h"
+#include "OloEngine/Renderer/VertexBuffer.h"
 
 #include <memory>
 
