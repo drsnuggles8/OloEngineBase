@@ -1,13 +1,13 @@
 // This is an independent project of an individual developer. Dear PVS-Studio, please check it.
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "OloEnginePCH.h"
-#include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/Renderer.h"
-#include "Platform/OpenGL/OpenGLUniformBuffer.h"
+#include "Platform/OpenGL/OpenGLIndexBuffer.h"
 
 namespace OloEngine
 {
-	Ref<UniformBuffer> UniformBuffer::Create(u32 size, u32 binding)
+	Ref<IndexBuffer> IndexBuffer::Create(u32* indices, u32 size)
 	{
 		switch (Renderer::GetAPI())
 		{
@@ -18,7 +18,7 @@ namespace OloEngine
 			}
 			case RendererAPI::API::OpenGL:
 			{
-				return CreateRef<OpenGLUniformBuffer>(size, binding);
+				return CreateRef<OpenGLIndexBuffer>(indices, size);
 			}
 		}
 

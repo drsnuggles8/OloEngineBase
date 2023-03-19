@@ -55,3 +55,4 @@ OloEngine/vendor/*
 **.log
 **.tlog
 /OloEditor/imgui.ini
+/.vscode/tasks.json

@@ -5,6 +5,7 @@
 
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/Buffer.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 

@@ -30,9 +30,12 @@
 
 #include "OloEngine/Renderer/Buffer.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/VertexArray.h"
+#include "OloEngine/Renderer/VertexBuffer.h"
 
 #include "OloEngine/Renderer/OrthographicCamera.h"
 // ------------------------------
