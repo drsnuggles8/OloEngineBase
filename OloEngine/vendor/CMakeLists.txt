@@ -29,6 +29,12 @@ FetchContent_Declare(
 	GIT_SHALLOW		TRUE
 )
 FetchContent_Declare(
+	freetype
+	GIT_REPOSITORY	https://github.com/freetype/freetype.git
+	GIT_TAG			master
+	GIT_SHALLOW		TRUE
+)
+FetchContent_Declare(
 	glad
 	GIT_REPOSITORY	https://github.com/Dav1dde/glad.git
 	GIT_TAG			v2.0.4
@@ -53,6 +59,15 @@ FetchContent_Declare(
 	GIT_TAG main
 	GIT_SHALLOW		TRUE
 )
+FetchContent_Declare(
+    libpng
+    GIT_REPOSITORY https://github.com/glennrp/libpng.git
+    GIT_TAG v1.6.39
+)
+FetchContent_Declare(
+	msdf-atlas-gen
+	GIT_REPOSITORY https://github.com/Chlumsky/msdf-atlas-gen.git
+)
 # Don't update spdlog to 1.11.0, gives errors in OpenGLContext.cpp
 FetchContent_Declare(
 	spdlog
@@ -67,18 +82,75 @@ FetchContent_Declare(
 	GIT_SHALLOW		TRUE
 )
 FetchContent_Declare(
+    tinyxml2
+    GIT_REPOSITORY https://github.com/leethomason/tinyxml2.git
+    GIT_TAG 9.0.0
+)
+FetchContent_Declare(
 	yaml-cpp
 	GIT_REPOSITORY	https://github.com/jbeder/yaml-cpp.git
 	GIT_TAG			master
 	GIT_SHALLOW		TRUE
 )
+FetchContent_Declare(
+    zlib
+    GIT_REPOSITORY https://github.com/madler/zlib.git
+    GIT_TAG v1.2.13
+)
+
+FetchContent_GetProperties(zlib)
+if(NOT zlib_POPULATED)
+  FetchContent_Populate(zlib)
+  add_subdirectory(${zlib_SOURCE_DIR} ${zlib_BINARY_DIR})
+endif()
+
+set(ZLIB_LIBRARY "${zlib_BINARY_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}zlib${CMAKE_STATIC_LIBRARY_SUFFIX}")
+set(ZLIB_INCLUDE_DIR "${zlib_SOURCE_DIR};${zlib_BINARY_DIR}")
+set(ZLIB_INCLUDE_DIRS "${zlib_SOURCE_DIR};${zlib_BINARY_DIR}")
+find_package(ZLIB REQUIRED)
+
+FetchContent_GetProperties(libpng)
+# libpng setup
+option(PNG_TESTS OFF)
+set(PNG_TESTS OFF)
+#option(PNG_SHARED OFF)
+#set(PNG_SHARED OFF)
+option(PNG_EXECUTABLES OFF)
+set(PNG_EXECUTABLES OFF)
+option(PNG_BUILD_ZLIB ON)
+set(PNG_BUILD_ZLIB ON CACHE BOOL "Use custom zlib location")
+set(ZLIB_INCLUDE_DIRS "${CMAKE_CURRENT_LIST_DIR}/zlib" "${CMAKE_CURRENT_BINARY_DIR}/zlib")
+set(ZLIB_LIBRARY "zlib")
+if(NOT libpng_POPULATED)
+  FetchContent_Populate(libpng)
+  add_subdirectory(${libpng_SOURCE_DIR} ${libpng_BINARY_DIR})
+endif()
+
+set(PNG_LIBRARY png CACHE INTERNAL "")
+set(PNG_PNG_INCLUDE_DIR ${libpng_SOURCE_DIR} CACHE INTERNAL "")
+
+FetchContent_MakeAvailable(freetype tinyxml2)
+add_library(Freetype::Freetype ALIAS freetype)
+
+# Prevent redefinition of targets
+#if(NOT TARGET zlib)
+#  add_library(zlib STATIC IMPORTED)
+#  set_target_properties(zlib PROPERTIES
+#    IMPORTED_LOCATION "${zlib_BINARY_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}zlibstatic${CMAKE_STATIC_LIBRARY_SUFFIX}"
+#    INTERFACE_INCLUDE_DIRECTORIES "${zlib_SOURCE_DIR};${zlib_BINARY_DIR}"
+#  )
+#endif()
+
+#if(NOT TARGET tinyxml2::tinyxml2)
+#  add_library(tinyxml2::tinyxml2 ALIAS tinyxml2)
+#endif()
 
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_INJECT_DEBUG_POSTFIX OFF CACHE BOOL "" FORCE)
 set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE INTERNAL "" FORCE)
-set(ASSIMP_BUILD_ZLIB ON CACHE INTERNAL "" FORCE)
+set(ASSIMP_BUILD_ZLIB OFF CACHE INTERNAL "" FORCE)
 set(BOX2D_BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
 set(BOX2D_BUILD_TESTBED OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
@@ -88,6 +160,8 @@ set(GLFW_INSTALL Off CACHE BOOL "" FORCE)
 set(GLM_TEST_ENABLE OFF CACHE BOOL "" FORCE)
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 set(BuildTests OFF CACHE BOOL "" FORCE)
+set(MSDF_ATLAS_USE_VCPKG OFF CACHE INTERNAL "")
+set(MSDF_ATLAS_USE_SKIA OFF CACHE INTERNAL "")
 set(SPDLOG_USE_STD_FORMAT OFF CACHE BOOL "" FORCE)
 set(TRACY_ENABLE OFF CACHE BOOL "Enable profiling")
 option(TRACY_ENABLE "Enable profiling" ON)
@@ -96,7 +170,7 @@ set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
-FetchContent_MakeAvailable(assimp box2d entt filewatch glad glfw glm googletest spdlog tracy yaml-cpp)
+FetchContent_MakeAvailable(assimp box2d entt filewatch glad glfw glm googletest msdf-atlas-gen spdlog tracy yaml-cpp)
 
 target_compile_definitions("TracyClient" PRIVATE $<$<CONFIG:Release>:TRACY_ENABLE>)
 

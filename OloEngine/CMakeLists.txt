@@ -94,6 +94,7 @@ target_link_libraries(OloEngine
 					glfw
 					imgui
 					imguizmo
+					msdf-atlas-gen
 					opengl32.lib
 					sol2
 					stb_image
