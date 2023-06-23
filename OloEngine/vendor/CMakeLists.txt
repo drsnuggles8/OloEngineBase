@@ -104,30 +104,46 @@ if(NOT zlib_POPULATED)
   add_subdirectory(${zlib_SOURCE_DIR} ${zlib_BINARY_DIR})
 endif()
 
-set(ZLIB_LIBRARY "${zlib_BINARY_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}zlib${CMAKE_STATIC_LIBRARY_SUFFIX}")
+message("Generated with config types: ${CMAKE_CONFIGURATION_TYPES}")
+set(ZLIB_LIBRARY_DEBUG "${zlib_BINARY_DIR}/Debug/${CMAKE_STATIC_LIBRARY_PREFIX}zlibd${CMAKE_STATIC_LIBRARY_SUFFIX}")
+set(ZLIB_LIBRARY_RELEASE "${zlib_BINARY_DIR}/Release/${CMAKE_STATIC_LIBRARY_PREFIX}zlib${CMAKE_STATIC_LIBRARY_SUFFIX}")
+set(ZLIB_LIBRARY_DIST "${zlib_BINARY_DIR}/Dist/${CMAKE_STATIC_LIBRARY_PREFIX}zlib${CMAKE_STATIC_LIBRARY_SUFFIX}")
+
+set(ZLIB_LIBRARY $<$<CONFIG:Debug>:${ZLIB_LIBRARY_DEBUG}>$<$<CONFIG:Release>:${ZLIB_LIBRARY_RELEASE}>$<$<CONFIG:Dist>:${ZLIB_LIBRARY_DIST}>)
+
 set(ZLIB_INCLUDE_DIR "${zlib_SOURCE_DIR};${zlib_BINARY_DIR}")
 set(ZLIB_INCLUDE_DIRS "${zlib_SOURCE_DIR};${zlib_BINARY_DIR}")
+set(ZLIB_INCLUDE_DIRS "${CMAKE_CURRENT_LIST_DIR}/zlib" "${CMAKE_CURRENT_BINARY_DIR}/zlib")
+#set(ZLIB_LIBRARY zlib)
 find_package(ZLIB REQUIRED)
 
 FetchContent_GetProperties(libpng)
-# libpng setup
-option(PNG_TESTS OFF)
 set(PNG_TESTS OFF)
-#option(PNG_SHARED OFF)
-#set(PNG_SHARED OFF)
-option(PNG_EXECUTABLES OFF)
+set(PNG_STATIC OFF)
 set(PNG_EXECUTABLES OFF)
-option(PNG_BUILD_ZLIB ON)
 set(PNG_BUILD_ZLIB ON CACHE BOOL "Use custom zlib location")
-set(ZLIB_INCLUDE_DIRS "${CMAKE_CURRENT_LIST_DIR}/zlib" "${CMAKE_CURRENT_BINARY_DIR}/zlib")
-set(ZLIB_LIBRARY "zlib")
-if(NOT libpng_POPULATED)
-  FetchContent_Populate(libpng)
-  add_subdirectory(${libpng_SOURCE_DIR} ${libpng_BINARY_DIR})
-endif()
+
+FetchContent_MakeAvailable(libpng)
+#if(NOT libpng_POPULATED)
+#  FetchContent_Populate(libpng)
+#  add_subdirectory(${libpng_SOURCE_DIR} ${libpng_BINARY_DIR})
+#endif()
 
 set(PNG_LIBRARY png CACHE INTERNAL "")
 set(PNG_PNG_INCLUDE_DIR ${libpng_SOURCE_DIR} CACHE INTERNAL "")
+set(PNG_LIBRARY_RELEASE ${libpng_BINARY_DIR}/Dist/libpng16.lib)
+set(PNG_LIBRARY_RELEASE ${libpng_BINARY_DIR}/Release/libpng16.lib)
+set(PNG_LIBRARY_DEBUG ${libpng_BINARY_DIR}/Debug/libpng16d.lib)
+find_package(PNG REQUIRED)
+if(TARGET PNG::PNG)
+  set_target_properties(PNG::PNG PROPERTIES
+    IMPORTED_LOCATION_DEBUG ${PNG_LIBRARY_DEBUG}
+    IMPORTED_LOCATION_RELEASE ${PNG_LIBRARY_RELEASE}
+	IMPORTED_LOCATION_DIST ${PNG_LIBRARY_RELEASE}
+  )
+endif()
+include_directories(${libpng_SOURCE_DIR} ${libpng_BINARY_DIR})
+add_dependencies(PNG::PNG zlib)
 
 FetchContent_MakeAvailable(freetype tinyxml2)
 add_library(Freetype::Freetype ALIAS freetype)
