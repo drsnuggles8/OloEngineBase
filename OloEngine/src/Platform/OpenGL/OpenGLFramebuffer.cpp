@@ -85,7 +85,7 @@ namespace OloEngine
 			auto colorAttachmentSize = static_cast<int>(m_ColorAttachments.size());
 			for (int i = 0; i < colorAttachmentSize; ++i)
 			{
-				colorBuffers.push_back(static_cast<u32>(GL_COLOR_ATTACHMENT0 + i));
+				colorBuffers.emplace_back(static_cast<u32>(GL_COLOR_ATTACHMENT0 + i));
 			}
 
 			glDrawBuffers(static_cast<GLsizei>(m_ColorAttachments.size()), colorBuffers.data());
