@@ -1,12 +1,6 @@
 ﻿project(OloEngine-LuaScriptCore
+		VERSION 0.0.1
 		LANGUAGES CXX)
-
-set(OloEngine-LuaScriptCore_VERSION_MAJOR 0)
-set(OloEngine-LuaScriptCore_VERSION_MINOR 0)
-set(OloEngine-LuaScriptCore_VERSION_PATCH 1)
-set(OloEngine-LuaScriptCore_VERSION
-${OloEngine-LuaScriptCore_VERSION_MAJOR}.${OloEngine-LuaScriptCore_VERSION_MINOR}.${OloEngine-LuaScriptCore_VERSION_PATCH}
-)
 
 # Main targets built by this project
 add_subdirectory(src)

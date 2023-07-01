@@ -1,10 +1,6 @@
 ﻿project(OloEngine-ScriptCore
+		VERSION 0.0.1
 		LANGUAGES CSharp)
-
-set(OloEngine_ScriptCore_VERSION_MAJOR 0)
-set(OloEngine_ScriptCore_VERSION_MINOR 1)
-set(OloEngine_ScriptCore_VERSION_PATCH 0)
-set(OloEngine_ScriptCore_VERSION ${OloEngine_ScriptCore_VERSION_MAJOR}.${OloEngine_ScriptCore_VERSION_MINOR}.${OloEngine_ScriptCore_VERSION_PATCH})
 
 # Main targets built by this project
 add_subdirectory(src)

@@ -1,10 +1,6 @@
 ﻿project(OloEditor
+		VERSION 0.0.1
 		LANGUAGES CXX)
-
-set(OloEditor_VERSION_MAJOR 0)
-set(OloEditor_VERSION_MINOR 0)
-set(OloEditor_VERSION_PATCH 1)
-set(OloEditor_VERSION ${OloEditor_VERSION_MAJOR}.${OloEditor_VERSION_MINOR}.${OloEditor_VERSION_PATCH})
 
 # Main targets built by this project
 add_subdirectory(src)
@@ -36,7 +32,7 @@ add_dependencies(OloEditor
 				Sandbox-Scripting
 )
 
-target_include_directories("OloEditor" PRIVATE
+target_include_directories(OloEditor PRIVATE
 							${CMAKE_SOURCE_DIR}/OloEngine/src
 							${CMAKE_SOURCE_DIR}/OloEngine/vendor
 							${CMAKE_SOURCE_DIR}/OloEngine/vendor/entt-src/single_include/entt
@@ -48,7 +44,7 @@ target_include_directories("OloEditor" PRIVATE
 							${CMAKE_SOURCE_DIR}/OloEngine/vendor/spdlog-src/include
 )
 
-target_compile_definitions("OloEditor" PRIVATE
+target_compile_definitions(OloEditor PRIVATE
 							$<$<CONFIG:Debug>:OLO_DEBUG>
 							$<$<CONFIG:Release>:OLO_RELEASE>
 							$<$<CONFIG:Release>:TRACY_ENABLE>
@@ -57,7 +53,7 @@ target_compile_definitions("OloEditor" PRIVATE
 )
 
 if(MSVC)
-	target_link_options("OloEditor" PRIVATE
+	target_link_options(OloEditor PRIVATE
 								$<$<CONFIG:Release>:/INCREMENTAL:NO>
 								$<$<CONFIG:Release>:/DEBUG>
 								$<$<CONFIG:Release>:/OPT:REF> # Remove unreferenced functions and data
@@ -70,7 +66,7 @@ target_link_libraries(OloEditor
 )
 
 if(MSVC)
-	target_compile_options("OloEditor" PRIVATE /W4)
+	target_compile_options(OloEditor PRIVATE /W4)
 else()
-	target_compile_options("OloEditor" PRIVATE -Wall -Wextra -Wundef -Wno-cast-function-type -pedantic -Wno-long-long -Wshadow -Werror -Wno-error=deprecated-declarations)
+	target_compile_options(OloEditor PRIVATE -Wall -Wextra -Wundef -Wno-cast-function-type -pedantic -Wno-long-long -Wshadow -Werror -Wno-error=deprecated-declarations)
 endif()

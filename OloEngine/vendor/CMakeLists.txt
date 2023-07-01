@@ -29,6 +29,12 @@ FetchContent_Declare(
 	GIT_SHALLOW		TRUE
 )
 FetchContent_Declare(
+	freetype
+	GIT_REPOSITORY	https://github.com/freetype/freetype.git
+	GIT_TAG			master
+	GIT_SHALLOW		TRUE
+)
+FetchContent_Declare(
 	glad
 	GIT_REPOSITORY	https://github.com/Dav1dde/glad.git
 	GIT_TAG			v2.0.4
@@ -53,6 +59,15 @@ FetchContent_Declare(
 	GIT_TAG main
 	GIT_SHALLOW		TRUE
 )
+FetchContent_Declare(
+    libpng
+    GIT_REPOSITORY https://github.com/glennrp/libpng.git
+    GIT_TAG v1.6.39
+)
+FetchContent_Declare(
+	msdf-atlas-gen
+	GIT_REPOSITORY https://github.com/Chlumsky/msdf-atlas-gen.git
+)
 # Don't update spdlog to 1.11.0, gives errors in OpenGLContext.cpp
 FetchContent_Declare(
 	spdlog
@@ -67,18 +82,65 @@ FetchContent_Declare(
 	GIT_SHALLOW		TRUE
 )
 FetchContent_Declare(
+    tinyxml2
+    GIT_REPOSITORY https://github.com/leethomason/tinyxml2.git
+    GIT_TAG 9.0.0
+)
+FetchContent_Declare(
 	yaml-cpp
 	GIT_REPOSITORY	https://github.com/jbeder/yaml-cpp.git
 	GIT_TAG			master
 	GIT_SHALLOW		TRUE
 )
+FetchContent_Declare(
+    zlib
+    GIT_REPOSITORY https://github.com/madler/zlib.git
+    GIT_TAG v1.2.13
+)
+
+FetchContent_GetProperties(zlib)
+FetchContent_MakeAvailable(zlib)
+set(ZLIB_LIBRARY_DEBUG "${zlib_BINARY_DIR}/Debug/${CMAKE_STATIC_LIBRARY_PREFIX}zlibd${CMAKE_STATIC_LIBRARY_SUFFIX}")
+set(ZLIB_LIBRARY_RELEASE "${zlib_BINARY_DIR}/Release/${CMAKE_STATIC_LIBRARY_PREFIX}zlib${CMAKE_STATIC_LIBRARY_SUFFIX}")
+set(ZLIB_LIBRARY_DIST "${zlib_BINARY_DIR}/Dist/${CMAKE_STATIC_LIBRARY_PREFIX}zlib${CMAKE_STATIC_LIBRARY_SUFFIX}")
+set(ZLIB_LIBRARY $<$<CONFIG:Debug>:${ZLIB_LIBRARY_DEBUG}>$<$<CONFIG:Release>:${ZLIB_LIBRARY_RELEASE}>$<$<CONFIG:Dist>:${ZLIB_LIBRARY_DIST}>)
+set(ZLIB_INCLUDE_DIR "${zlib_SOURCE_DIR};${zlib_BINARY_DIR}")
+set(ZLIB_INCLUDE_DIRS "${zlib_SOURCE_DIR};${zlib_BINARY_DIR}")
+set(ZLIB_INCLUDE_DIRS "${CMAKE_CURRENT_LIST_DIR}/zlib" "${CMAKE_CURRENT_BINARY_DIR}/zlib")
+find_package(ZLIB REQUIRED)
+
+FetchContent_GetProperties(libpng)
+option(PNG_TESTS OFF)
+option(PNG_STATIC OFF)
+option(PNG_EXECUTABLES OFF)
+set(PNG_BUILD_ZLIB ON CACHE BOOL "Use custom zlib location" FORCE)
+FetchContent_MakeAvailable(libpng)
+set(PNG_LIBRARY png CACHE INTERNAL "")
+set(PNG_PNG_INCLUDE_DIR ${libpng_SOURCE_DIR} CACHE INTERNAL "")
+set(PNG_LIBRARY_RELEASE ${libpng_BINARY_DIR}/Dist/libpng16.lib)
+set(PNG_LIBRARY_RELEASE ${libpng_BINARY_DIR}/Release/libpng16.lib)
+set(PNG_LIBRARY_DEBUG ${libpng_BINARY_DIR}/Debug/libpng16d.lib)
+find_package(PNG REQUIRED)
+if(TARGET PNG::PNG)
+  set_target_properties(PNG::PNG PROPERTIES
+    IMPORTED_LOCATION_DEBUG ${PNG_LIBRARY_DEBUG}
+    IMPORTED_LOCATION_RELEASE ${PNG_LIBRARY_RELEASE}
+	IMPORTED_LOCATION_DIST ${PNG_LIBRARY_RELEASE}
+  )
+endif()
+include_directories(${libpng_SOURCE_DIR} ${libpng_BINARY_DIR})
+add_dependencies(PNG::PNG zlib)
+
+set(tinyxml2_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(freetype tinyxml2)
+add_library(Freetype::Freetype ALIAS freetype)
 
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_INJECT_DEBUG_POSTFIX OFF CACHE BOOL "" FORCE)
 set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE INTERNAL "" FORCE)
-set(ASSIMP_BUILD_ZLIB ON CACHE INTERNAL "" FORCE)
+set(ASSIMP_BUILD_ZLIB OFF CACHE INTERNAL "" FORCE)
 set(BOX2D_BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
 set(BOX2D_BUILD_TESTBED OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
@@ -88,6 +150,8 @@ set(GLFW_INSTALL Off CACHE BOOL "" FORCE)
 set(GLM_TEST_ENABLE OFF CACHE BOOL "" FORCE)
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 set(BuildTests OFF CACHE BOOL "" FORCE)
+set(MSDF_ATLAS_USE_VCPKG OFF CACHE INTERNAL "")
+set(MSDF_ATLAS_USE_SKIA OFF CACHE INTERNAL "")
 set(SPDLOG_USE_STD_FORMAT OFF CACHE BOOL "" FORCE)
 set(TRACY_ENABLE OFF CACHE BOOL "Enable profiling")
 option(TRACY_ENABLE "Enable profiling" ON)
@@ -96,7 +160,7 @@ set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
-FetchContent_MakeAvailable(assimp box2d entt filewatch glad glfw glm googletest spdlog tracy yaml-cpp)
+FetchContent_MakeAvailable(assimp box2d entt filewatch glad glfw glm googletest msdf-atlas-gen spdlog tracy yaml-cpp)
 
 target_compile_definitions("TracyClient" PRIVATE $<$<CONFIG:Release>:TRACY_ENABLE>)
 
@@ -192,5 +256,16 @@ set_target_properties(lua PROPERTIES FOLDER "Utilities/Lua")
 set_target_properties(spdlog PROPERTIES FOLDER "Utilities")
 set_target_properties(TracyClient PROPERTIES FOLDER "Utilities")
 set_target_properties(yaml-cpp PROPERTIES FOLDER "Utilities")
+set_target_properties(freetype PROPERTIES FOLDER "Utilities")
+set_target_properties(tinyxml2 PROPERTIES FOLDER "Utilities")
+set_target_properties(msdf-atlas-gen PROPERTIES FOLDER "Utilities/msdf-atlas-gen")
+set_target_properties(msdf-atlas-gen-standalone PROPERTIES FOLDER "Utilities/msdf-atlas-gen")
+set_target_properties(msdfgen-core PROPERTIES FOLDER "Utilities/msdf-gen")
+set_target_properties(msdfgen-ext PROPERTIES FOLDER "Utilities/msdf-gen")
+set_target_properties(png PROPERTIES FOLDER "Utilities/pnglib")
+set_target_properties(genfiles PROPERTIES FOLDER "Utilities/pnglib")
+set_target_properties(example PROPERTIES FOLDER "Utilities/zlib")
+set_target_properties(minigzip PROPERTIES FOLDER "Utilities/zlib")
+set_target_properties(zlib PROPERTIES FOLDER "Utilities/zlib")
 #======================================
 message(STATUS "Fetching thirdparty libraries done")
