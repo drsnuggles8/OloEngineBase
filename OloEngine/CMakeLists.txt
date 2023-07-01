@@ -2,12 +2,8 @@
 include(CheckIPOSupported)
 
 project(OloEngine
-		LANGUAGES CXX)
-
-set(OloEngine_VERSION_MAJOR 0)
-set(OloEngine_VERSION_MINOR 0)
-set(OloEngine_VERSION_PATCH 1)
-set(OloEngine_VERSION ${OloEngine_VERSION_MAJOR}.${OloEngine_VERSION_MINOR}.${OloEngine_VERSION_PATCH})
+        VERSION 0.0.1
+        LANGUAGES CXX)
 
 # Externally provided content
 add_subdirectory(vendor)
@@ -25,11 +21,12 @@ endif()
 
 # Main targets built by this project
 add_subdirectory(src)
-add_subdirectory(tests)
+if(BUILD_TESTS)
+  add_subdirectory(tests)
+endif()
 
 # Vulkan stuff
-message(STATUS "Using module to find Vulkan")
-find_package(Vulkan)
+find_package(Vulkan REQUIRED COMPONENTS glslc glslang SPIRV-Tools)
 
 set_target_properties(OloEngine PROPERTIES
 					ARCHIVE_OUTPUT_DIRECTORY_DEBUG 		${CMAKE_SOURCE_DIR}/bin/Debug/OloEngine
@@ -42,6 +39,8 @@ set_target_properties(OloEngine PROPERTIES
 					RUNTIME_OUTPUT_DIRECTORY_RELEASE 	${CMAKE_SOURCE_DIR}/bin/Release/OloEngine
 					RUNTIME_OUTPUT_DIRECTORY_DIST 		${CMAKE_SOURCE_DIR}/bin/Dist/OloEngine
 )
+
+set_target_properties(OloEngine-Tests PROPERTIES FOLDER "Test")
 
 check_ipo_supported(RESULT LTO_SUPPORT OUTPUT output)
 if(LTO_SUPPORT)
@@ -100,11 +99,12 @@ target_link_libraries(OloEngine
 					stb_image
 					TracyClient
 					yaml-cpp
-					${Vulkan_LIBRARIES}
+					Vulkan::Vulkan
+					Vulkan::glslang
+					Vulkan::SPIRV-Tools
 					debug $ENV{VULKAN_SDK}/Lib/shaderc_sharedd.lib
 					debug $ENV{VULKAN_SDK}/Lib/spirv-cross-cored.lib
 					debug $ENV{VULKAN_SDK}/Lib/spirv-cross-glsld.lib
-					debug $ENV{VULKAN_SDK}/Lib/SPIRV-Toolsd.lib
 					optimized $ENV{VULKAN_SDK}/Lib/shaderc_shared.lib
 					optimized $ENV{VULKAN_SDK}/Lib/spirv-cross-core.lib
 					optimized $ENV{VULKAN_SDK}/Lib/spirv-cross-glsl.lib
@@ -118,7 +118,7 @@ target_link_libraries(OloEngine
 
 if(MSVC)
 	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-	target_compile_options("OloEngine" PRIVATE /W4)
+	target_compile_options(OloEngine PRIVATE /W4)
 else()
-	target_compile_options("OloEngine" PRIVATE -Wall -Wextra -Wundef -Wno-cast-function-type -pedantic -Wno-long-long -Wshadow -Werror -Wno-error=deprecated-declarations)
+	target_compile_options(OloEngine PRIVATE -Wall -Wextra -Wundef -Wno-cast-function-type -pedantic -Wno-long-long -Wshadow -Werror -Wno-error=deprecated-declarations)
 endif()

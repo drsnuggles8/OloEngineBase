@@ -143,7 +143,7 @@
 		"Platform/Windows/WindowsPlatformUtils.cpp"
 )
 
-add_library("OloEngine" STATIC
+add_library(OloEngine STATIC
 		${SOURCES}
 )
 

@@ -9,7 +9,7 @@
 		"Panels/SceneHierarchyPanel.h"
 )
 
-add_executable("OloEditor"
+add_executable(OloEditor
 		${EDITOR_SOURCES}
 )
 

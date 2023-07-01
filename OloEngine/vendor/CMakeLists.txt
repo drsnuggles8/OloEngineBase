@@ -99,36 +99,22 @@ FetchContent_Declare(
 )
 
 FetchContent_GetProperties(zlib)
-if(NOT zlib_POPULATED)
-  FetchContent_Populate(zlib)
-  add_subdirectory(${zlib_SOURCE_DIR} ${zlib_BINARY_DIR})
-endif()
-
-message("Generated with config types: ${CMAKE_CONFIGURATION_TYPES}")
+FetchContent_MakeAvailable(zlib)
 set(ZLIB_LIBRARY_DEBUG "${zlib_BINARY_DIR}/Debug/${CMAKE_STATIC_LIBRARY_PREFIX}zlibd${CMAKE_STATIC_LIBRARY_SUFFIX}")
 set(ZLIB_LIBRARY_RELEASE "${zlib_BINARY_DIR}/Release/${CMAKE_STATIC_LIBRARY_PREFIX}zlib${CMAKE_STATIC_LIBRARY_SUFFIX}")
 set(ZLIB_LIBRARY_DIST "${zlib_BINARY_DIR}/Dist/${CMAKE_STATIC_LIBRARY_PREFIX}zlib${CMAKE_STATIC_LIBRARY_SUFFIX}")
-
 set(ZLIB_LIBRARY $<$<CONFIG:Debug>:${ZLIB_LIBRARY_DEBUG}>$<$<CONFIG:Release>:${ZLIB_LIBRARY_RELEASE}>$<$<CONFIG:Dist>:${ZLIB_LIBRARY_DIST}>)
-
 set(ZLIB_INCLUDE_DIR "${zlib_SOURCE_DIR};${zlib_BINARY_DIR}")
 set(ZLIB_INCLUDE_DIRS "${zlib_SOURCE_DIR};${zlib_BINARY_DIR}")
 set(ZLIB_INCLUDE_DIRS "${CMAKE_CURRENT_LIST_DIR}/zlib" "${CMAKE_CURRENT_BINARY_DIR}/zlib")
-#set(ZLIB_LIBRARY zlib)
 find_package(ZLIB REQUIRED)
 
 FetchContent_GetProperties(libpng)
-set(PNG_TESTS OFF)
-set(PNG_STATIC OFF)
-set(PNG_EXECUTABLES OFF)
-set(PNG_BUILD_ZLIB ON CACHE BOOL "Use custom zlib location")
-
+option(PNG_TESTS OFF)
+option(PNG_STATIC OFF)
+option(PNG_EXECUTABLES OFF)
+set(PNG_BUILD_ZLIB ON CACHE BOOL "Use custom zlib location" FORCE)
 FetchContent_MakeAvailable(libpng)
-#if(NOT libpng_POPULATED)
-#  FetchContent_Populate(libpng)
-#  add_subdirectory(${libpng_SOURCE_DIR} ${libpng_BINARY_DIR})
-#endif()
-
 set(PNG_LIBRARY png CACHE INTERNAL "")
 set(PNG_PNG_INCLUDE_DIR ${libpng_SOURCE_DIR} CACHE INTERNAL "")
 set(PNG_LIBRARY_RELEASE ${libpng_BINARY_DIR}/Dist/libpng16.lib)
@@ -145,21 +131,9 @@ endif()
 include_directories(${libpng_SOURCE_DIR} ${libpng_BINARY_DIR})
 add_dependencies(PNG::PNG zlib)
 
+set(tinyxml2_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(freetype tinyxml2)
 add_library(Freetype::Freetype ALIAS freetype)
-
-# Prevent redefinition of targets
-#if(NOT TARGET zlib)
-#  add_library(zlib STATIC IMPORTED)
-#  set_target_properties(zlib PROPERTIES
-#    IMPORTED_LOCATION "${zlib_BINARY_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}zlibstatic${CMAKE_STATIC_LIBRARY_SUFFIX}"
-#    INTERFACE_INCLUDE_DIRECTORIES "${zlib_SOURCE_DIR};${zlib_BINARY_DIR}"
-#  )
-#endif()
-
-#if(NOT TARGET tinyxml2::tinyxml2)
-#  add_library(tinyxml2::tinyxml2 ALIAS tinyxml2)
-#endif()
 
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -282,5 +256,16 @@ set_target_properties(lua PROPERTIES FOLDER "Utilities/Lua")
 set_target_properties(spdlog PROPERTIES FOLDER "Utilities")
 set_target_properties(TracyClient PROPERTIES FOLDER "Utilities")
 set_target_properties(yaml-cpp PROPERTIES FOLDER "Utilities")
+set_target_properties(freetype PROPERTIES FOLDER "Utilities")
+set_target_properties(tinyxml2 PROPERTIES FOLDER "Utilities")
+set_target_properties(msdf-atlas-gen PROPERTIES FOLDER "Utilities/msdf-atlas-gen")
+set_target_properties(msdf-atlas-gen-standalone PROPERTIES FOLDER "Utilities/msdf-atlas-gen")
+set_target_properties(msdfgen-core PROPERTIES FOLDER "Utilities/msdf-gen")
+set_target_properties(msdfgen-ext PROPERTIES FOLDER "Utilities/msdf-gen")
+set_target_properties(png PROPERTIES FOLDER "Utilities/pnglib")
+set_target_properties(genfiles PROPERTIES FOLDER "Utilities/pnglib")
+set_target_properties(example PROPERTIES FOLDER "Utilities/zlib")
+set_target_properties(minigzip PROPERTIES FOLDER "Utilities/zlib")
+set_target_properties(zlib PROPERTIES FOLDER "Utilities/zlib")
 #======================================
 message(STATUS "Fetching thirdparty libraries done")
