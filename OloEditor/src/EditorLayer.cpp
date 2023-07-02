@@ -3,6 +3,7 @@
 #include "OloEnginePCH.h"
 #include "EditorLayer.h"
 #include "OloEngine/Math/Math.h"
+#include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Utils/PlatformUtils.h"
@@ -17,6 +18,7 @@ namespace OloEngine
 	EditorLayer::EditorLayer()
 		: Layer("EditorLayer"), m_CameraController(1280.0f / 720.0f), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
 	{
+		Font font("C:/Windows/Fonts/arial.ttf");
 	}
 
 	void EditorLayer::OnAttach()
