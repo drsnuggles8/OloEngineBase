@@ -134,16 +134,47 @@ namespace OloEngine
 		const auto shaderSources = PreProcess(source);
 
 		const Timer timer;
+
 		CompileOrGetVulkanBinaries(shaderSources);
+
 		if (Utils::IsAmdGpu())
 		{
-			CreateProgramForAmd();
+			std::string fullVersion(reinterpret_cast<const char*>(glGetString(GL_VERSION)));
+
+			if (std::size_t lastSpace = fullVersion.rfind(' '); lastSpace != std::string::npos)
+			{
+				std::string driverVersion = fullVersion.substr(lastSpace + 1);
+				std::istringstream versionStream(driverVersion);
+				std::string token;
+				std::vector<int> versionNumbers;
+
+				while (std::getline(versionStream, token, '.'))
+				{
+					versionNumbers.push_back(std::stoi(token));
+				}
+
+				if (versionNumbers[0] < 23 || (versionNumbers[0] == 23 && versionNumbers[1] < 5) || (versionNumbers[0] == 23 && versionNumbers[1] == 5 && versionNumbers[2] < 2))
+				{
+					CreateProgramForAmd();
+				}
+				else
+				{
+					CompileOrGetOpenGLBinaries();
+					CreateProgram();
+				}
+			}
+			else
+			{
+				OLO_CORE_ERROR("Could not find driver version in string: '{0}'", fullVersion);
+			}
 		}
 		else
 		{
 			CompileOrGetOpenGLBinaries();
 			CreateProgram();
 		}
+
+
 		OLO_CORE_WARN("Shader creation took {0} ms", timer.ElapsedMillis());
 
 		// Extract shader name from filepath
@@ -399,6 +430,7 @@ namespace OloEngine
 	static bool VerifyProgramLink(GLenum const& program)
 	{
 		int isLinked = 0;
+		glGetError();
 		glGetProgramiv(program, GL_LINK_STATUS, &isLinked);
 		if (GL_FALSE == isLinked)
 		{
