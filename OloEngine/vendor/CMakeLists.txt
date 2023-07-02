@@ -65,6 +65,10 @@ FetchContent_Declare(
     GIT_TAG v1.6.39
 )
 FetchContent_Declare(
+	msdfgen
+	GIT_REPOSITORY https://github.com/Chlumsky/msdfgen.git
+)
+FetchContent_Declare(
 	msdf-atlas-gen
 	GIT_REPOSITORY https://github.com/Chlumsky/msdf-atlas-gen.git
 )
@@ -110,9 +114,11 @@ set(ZLIB_INCLUDE_DIRS "${CMAKE_CURRENT_LIST_DIR}/zlib" "${CMAKE_CURRENT_BINARY_D
 find_package(ZLIB REQUIRED)
 
 FetchContent_GetProperties(libpng)
-option(PNG_TESTS OFF)
-option(PNG_STATIC OFF)
+set(PNG_STATIC ON CACHE BOOL "Build libpng as a static lib" FORCE)
+set(PNG_SHARED ON CACHE BOOL "Build libpng as a shared lib" FORCE)
 option(PNG_EXECUTABLES OFF)
+option(PNG_TESTS OFF)
+option(PNG_DEBUG ON)
 set(PNG_BUILD_ZLIB ON CACHE BOOL "Use custom zlib location" FORCE)
 FetchContent_MakeAvailable(libpng)
 set(PNG_LIBRARY png CACHE INTERNAL "")
@@ -150,8 +156,15 @@ set(GLFW_INSTALL Off CACHE BOOL "" FORCE)
 set(GLM_TEST_ENABLE OFF CACHE BOOL "" FORCE)
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 set(BuildTests OFF CACHE BOOL "" FORCE)
+set(MSDFGEN_BUILD_STANDALONE OFF CACHE BOOL "" FORCE)
+set(MSDFGEN_USE_VCPKG OFF CACHE BOOL "" FORCE)
+set(MSDFGEN_USE_SKIA OFF CACHE INTERNAL "")
+set(MSDFGEN_DYNAMIC_RUNTIME ON CACHE BOOL "" FORCE)
+set(MSDF_ATLAS_BUILD_STANDALONE OFF CACHE BOOL "" FORCE)
 set(MSDF_ATLAS_USE_VCPKG OFF CACHE INTERNAL "")
 set(MSDF_ATLAS_USE_SKIA OFF CACHE INTERNAL "")
+set(MSDF_ATLAS_MSDFGEN_EXTERNAL ON CACHE BOOL "" FORCE)
+set(MSDF_ATLAS_DYNAMIC_RUNTIME ON CACHE BOOL "" FORCE)
 set(SPDLOG_USE_STD_FORMAT OFF CACHE BOOL "" FORCE)
 set(TRACY_ENABLE OFF CACHE BOOL "Enable profiling")
 option(TRACY_ENABLE "Enable profiling" ON)
@@ -160,7 +173,7 @@ set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
-FetchContent_MakeAvailable(assimp box2d entt filewatch glad glfw glm googletest msdf-atlas-gen spdlog tracy yaml-cpp)
+FetchContent_MakeAvailable(assimp box2d entt filewatch glad glfw glm googletest msdfgen msdf-atlas-gen spdlog tracy yaml-cpp)
 
 target_compile_definitions("TracyClient" PRIVATE $<$<CONFIG:Release>:TRACY_ENABLE>)
 
@@ -240,7 +253,6 @@ endif()
 
 set_target_properties(assimp PROPERTIES FOLDER "Utilities/assimp")
 set_target_properties(UpdateAssimpLibsDebugSymbolsAndDLLs PROPERTIES FOLDER "Utilities/assimp")
-set_target_properties(zlibstatic PROPERTIES FOLDER "Utilities/assimp")
 set_target_properties(box2d PROPERTIES FOLDER "Utilities/box2d")
 set_target_properties(glad PROPERTIES FOLDER "Utilities/glad")
 set_target_properties(glfw PROPERTIES FOLDER "Utilities/GLFW3")
@@ -259,13 +271,14 @@ set_target_properties(yaml-cpp PROPERTIES FOLDER "Utilities")
 set_target_properties(freetype PROPERTIES FOLDER "Utilities")
 set_target_properties(tinyxml2 PROPERTIES FOLDER "Utilities")
 set_target_properties(msdf-atlas-gen PROPERTIES FOLDER "Utilities/msdf-atlas-gen")
-set_target_properties(msdf-atlas-gen-standalone PROPERTIES FOLDER "Utilities/msdf-atlas-gen")
 set_target_properties(msdfgen-core PROPERTIES FOLDER "Utilities/msdf-gen")
 set_target_properties(msdfgen-ext PROPERTIES FOLDER "Utilities/msdf-gen")
-set_target_properties(png PROPERTIES FOLDER "Utilities/pnglib")
-set_target_properties(genfiles PROPERTIES FOLDER "Utilities/pnglib")
+set_target_properties(png PROPERTIES FOLDER "Utilities/libpng")
+set_target_properties(png_static PROPERTIES FOLDER "Utilities/libpng")
+set_target_properties(genfiles PROPERTIES FOLDER "Utilities/libpng")
 set_target_properties(example PROPERTIES FOLDER "Utilities/zlib")
 set_target_properties(minigzip PROPERTIES FOLDER "Utilities/zlib")
 set_target_properties(zlib PROPERTIES FOLDER "Utilities/zlib")
+set_target_properties(zlibstatic PROPERTIES FOLDER "Utilities/zlib")
 #======================================
 message(STATUS "Fetching thirdparty libraries done")

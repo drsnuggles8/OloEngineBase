@@ -59,6 +59,8 @@
 		"OloEngine/Renderer/Camera.h"
 		"OloEngine/Renderer/EditorCamera.cpp"
 		"OloEngine/Renderer/EditorCamera.h"
+		"OloEngine/Renderer/Font.cpp"
+		"OloEngine/Renderer/Font.h"
 		"OloEngine/Renderer/Framebuffer.cpp"
 		"OloEngine/Renderer/Framebuffer.h"
 		"OloEngine/Renderer/GraphicsContext.cpp"
