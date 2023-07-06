@@ -456,6 +456,11 @@ namespace OloEngine
 		return s_Data->EntityInstances.at(uuid)->GetManagedObject();
 	}
 
+	MonoString* ScriptEngine::CreateString(const char* string)
+	{
+		return mono_string_new(s_Data->AppDomain, string);
+	}
+
 	MonoObject* ScriptEngine::InstantiateClass(MonoClass* monoClass)
 	{
 		MonoObject* instance = ::mono_object_new(s_Data->AppDomain, monoClass);

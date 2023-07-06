@@ -13,6 +13,7 @@ extern "C" {
 	using MonoAssembly = struct _MonoAssembly;
 	using MonoImage = struct _MonoImage;
 	using MonoClassField = struct _MonoClassField;
+	using MonoString =  struct _MonoString;
 }
 
 namespace OloEngine
@@ -165,6 +166,8 @@ namespace OloEngine
 		[[nodiscard("Store this!")]] static MonoImage* GetCoreAssemblyImage();
 
 		[[nodiscard("Store this!")]] static MonoObject* GetManagedInstance(UUID uuid);
+
+		static MonoString* CreateString(const char* string);
 	private:
 		static void InitMono();
 		static void ShutdownMono();
