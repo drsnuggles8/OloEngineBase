@@ -136,6 +136,7 @@ if(TARGET PNG::PNG)
 endif()
 include_directories(${libpng_SOURCE_DIR} ${libpng_BINARY_DIR})
 add_dependencies(PNG::PNG zlib)
+add_dependencies(png zlib)
 
 set(tinyxml2_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(freetype tinyxml2)
