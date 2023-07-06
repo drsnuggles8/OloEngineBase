@@ -67,6 +67,7 @@
 		"OloEngine/Renderer/GraphicsContext.h"
 		"OloEngine/Renderer/IndexBuffer.cpp"
 		"OloEngine/Renderer/IndexBuffer.h"
+		"OloEngine/Renderer/MSDFData.h"
 		"OloEngine/Renderer/OrthographicCamera.cpp"
 		"OloEngine/Renderer/OrthographicCamera.h"
 		"OloEngine/Renderer/OrthographicCameraController.cpp"

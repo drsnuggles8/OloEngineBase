@@ -8,15 +8,10 @@
 #include "msdf-atlas-gen/FontGeometry.h"
 #include "msdf-atlas-gen/GlyphGeometry.h"
 
+#include "MSDFData.h"
+
 namespace OloEngine
 {
-	struct MSDFData
-	{
-		std::vector<msdf_atlas::GlyphGeometry> Glyphs;
-		msdf_atlas::FontGeometry FontGeometry;
-
-	};
-
 	template<typename T, typename S, int N, msdf_atlas::GeneratorFunction<S, N> GenFunc>
 	static Ref<Texture2D> CreateAndCacheAtlas(const std::string& fontName, float fontSize, const std::vector<msdf_atlas::GlyphGeometry>& glyphs,
 		const msdf_atlas::FontGeometry& fontGeometry, uint32_t width, uint32_t height)
@@ -98,23 +93,34 @@ namespace OloEngine
 		atlasPacker.getDimensions(width, height);
 		emSize = atlasPacker.getScale();
 
-		m_AtlasTexture = CreateAndCacheAtlas<uint8_t, float, 3, msdf_atlas::msdfGenerator>("Test", (float)emSize, m_Data->Glyphs, m_Data->FontGeometry, width, height);
+#define DEFAULT_ANGLE_THRESHOLD 3.0
+#define LCG_MULTIPLIER 6364136223846793005ull
+#define LCG_INCREMENT 1442695040888963407ull
+#define THREAD_COUNT 8
+		// if MSDF || MTSDF
 
-
-#if 0
-		msdfgen::Shape shape;
-		if (msdfgen::loadGlyph(shape, font, 'C'))
+		uint64_t coloringSeed = 0;
+		bool expensiveColoring = false;
+		if (expensiveColoring)
 		{
-			shape.normalize();
-			//                      max. angle
-			msdfgen::edgeColoringSimple(shape, 3.0);
-			//           image width, height
-			msdfgen::Bitmap<float, 3> msdf(32, 32);
-			//                     range, scale, translation
-			msdfgen::generateMSDF(msdf, shape, 4.0, 1.0, msdfgen::Vector2(4.0, 4.0));
-			msdfgen::savePng(msdf, "output.png");
+			msdf_atlas::Workload([&glyphs = m_Data->Glyphs, &coloringSeed](int i, int threadNo) -> bool
+			{
+				unsigned long long glyphSeed = (LCG_MULTIPLIER * (coloringSeed ^ i) + LCG_INCREMENT) * !!coloringSeed;
+				glyphs[i].edgeColoring(msdfgen::edgeColoringInkTrap, DEFAULT_ANGLE_THRESHOLD, glyphSeed);
+				return true;
+			}, m_Data->Glyphs.size()).finish(THREAD_COUNT);
 		}
-#endif
+		else
+		{
+			unsigned long long glyphSeed = coloringSeed;
+			for (msdf_atlas::GlyphGeometry& glyph : m_Data->Glyphs)
+			{
+				glyphSeed *= LCG_MULTIPLIER;
+				glyph.edgeColoring(msdfgen::edgeColoringInkTrap, DEFAULT_ANGLE_THRESHOLD, glyphSeed);
+			}
+		}
+
+		m_AtlasTexture = CreateAndCacheAtlas<uint8_t, float, 3, msdf_atlas::msdfGenerator>("Test", (float)emSize, m_Data->Glyphs, m_Data->FontGeometry, width, height);
 
 		msdfgen::destroyFont(font);
 		msdfgen::deinitializeFreetype(ft);
@@ -123,6 +129,18 @@ namespace OloEngine
 	Font::~Font()
 	{
 		delete m_Data;
+	}
+
+	Ref<Font> Font::GetDefault()
+	{
+		static Ref<Font> DefaultFont;
+		if (!DefaultFont)
+		{
+			DefaultFont = CreateRef<Font>("C:/Windows/Fonts/arial.ttf");
+			//DefaultFont = CreateRef<Font>("assets/fonts/opensans/OpenSans-Regular.ttf");
+		}
+
+		return DefaultFont;
 	}
 
 

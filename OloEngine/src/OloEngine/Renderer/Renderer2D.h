@@ -1,12 +1,10 @@
 #pragma once
 
-#include "OloEngine/Renderer/OrthographicCamera.h"
-
-#include "OloEngine/Renderer/Texture.h"
-
 #include "OloEngine/Renderer/Camera.h"
 #include "OloEngine/Renderer/EditorCamera.h"
-
+#include "OloEngine/Renderer/Font.h"
+#include "OloEngine/Renderer/OrthographicCamera.h"
+#include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Scene/Components.h"
 
 namespace OloEngine
@@ -46,6 +44,8 @@ namespace OloEngine
 
 
 		static void DrawSprite(const glm::mat4& transform, SpriteRendererComponent const& src, int entityID);
+
+		static void DrawString(const std::string& string, Ref<Font> font, const glm::mat4& transform, const glm::vec4& color);
 
 		[[nodiscard("Store this!")]] static f32 GetLineWidth();
 		static void SetLineWidth(f32 width);
