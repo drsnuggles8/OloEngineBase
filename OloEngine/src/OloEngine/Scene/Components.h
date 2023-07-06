@@ -2,6 +2,7 @@
 #include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Audio/AudioSource.h"
 #include "OloEngine/Audio/AudioListener.h"
 
@@ -143,6 +144,15 @@ namespace OloEngine
 		CircleCollider2DComponent(const CircleCollider2DComponent&) = default;
 	};
 
+	struct TextComponent
+	{
+		std::string TextString;
+		Ref<Font> FontAsset = Font::GetDefault();
+		glm::vec4 Color{ 1.0f };
+		float Kerning = 0.0f;
+		float LineSpacing = 0.0f;
+	};
+
 	struct ScriptComponent
 	{
 		std::string ClassName;
@@ -185,6 +195,7 @@ namespace OloEngine
 		Rigidbody2DComponent,
 		BoxCollider2DComponent,
 		CircleCollider2DComponent,
+		TextComponent,
 		ScriptComponent,
 		AudioSourceComponent,
 		AudioListenerComponent
