@@ -166,7 +166,7 @@ namespace OloEngine
 		s_Data.LineVertexArray->AddVertexBuffer(s_Data.LineVertexBuffer);
 		s_Data.LineVertexBufferBase = new LineVertex[OloEngine::Renderer2DData::MaxVertices];
 
-		s_Data.WhiteTexture = Texture2D::Create(1, 1);
+		s_Data.WhiteTexture = Texture2D::Create(TextureSpecification());
 		u32 whiteTextureData = 0xffffffffU;
 		s_Data.WhiteTexture->SetData(&whiteTextureData, sizeof(u32));
 
