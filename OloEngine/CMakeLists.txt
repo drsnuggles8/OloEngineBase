@@ -117,7 +117,7 @@ target_link_libraries(OloEngine
 )
 
 if(MSVC)
-	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 	target_compile_options(OloEngine PRIVATE /W4)
 else()
 	target_compile_options(OloEngine PRIVATE -Wall -Wextra -Wundef -Wno-cast-function-type -pedantic -Wno-long-long -Wshadow -Werror -Wno-error=deprecated-declarations)

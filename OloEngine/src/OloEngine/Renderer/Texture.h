@@ -6,10 +6,29 @@
 
 namespace OloEngine
 {
+	enum class ImageFormat
+	{
+		None = 0,
+		R8,
+		RGB8,
+		RGBA8,
+		RGBA32F
+	};
+
+	struct TextureSpecification
+	{
+		u32 Width = 1;
+		u32 Height = 1;
+		ImageFormat Format = ImageFormat::RGBA8;
+		bool GenerateMips = true;
+	};
+
 	class Texture
 	{
 	public:
 		virtual ~Texture() = default;
+
+		virtual const TextureSpecification& GetSpecification() const = 0;
 
 		[[nodiscard("Store this!")]] virtual u32 GetWidth() const = 0;
 		[[nodiscard("Store this!")]] virtual u32 GetHeight() const = 0;
@@ -29,13 +48,7 @@ namespace OloEngine
 	class Texture2D : public Texture
 	{
 	public:
-		static Ref<Texture2D> Create(u32 width, u32 height);
+		static Ref<Texture2D> Create(const TextureSpecification& specification);
 		static Ref<Texture2D> Create(const std::string& path);
-	};
-
-	class TextureCubemap : public Texture
-	{
-	public:
-		static Ref<TextureCubemap> Create(const std::string& path);
 	};
 }

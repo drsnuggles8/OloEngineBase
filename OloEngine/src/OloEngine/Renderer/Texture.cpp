@@ -5,11 +5,10 @@
 
 #include "OloEngine/Renderer/Renderer.h"
 #include "Platform/OpenGL/OpenGLTexture.h"
-#include "Platform/OpenGL/OpenGLTextureCubemap.h"
 
 namespace OloEngine
 {
-	Ref<Texture2D> Texture2D::Create(u32 width, u32 height)
+	Ref<Texture2D> Texture2D::Create(const TextureSpecification& specification)
 	{
 		switch (Renderer::GetAPI())
 		{
@@ -20,7 +19,7 @@ namespace OloEngine
 			}
 			case RendererAPI::API::OpenGL:
 			{
-				return CreateRef<OpenGLTexture2D>(width, height);
+				return CreateRef<OpenGLTexture2D>(specification);
 			}
 		}
 
@@ -40,25 +39,6 @@ namespace OloEngine
 			case RendererAPI::API::OpenGL:
 			{
 				return CreateRef<OpenGLTexture2D>(path);
-			}
-		}
-
-		OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
-		return nullptr;
-	}
-
-	Ref<TextureCubemap> TextureCubemap::Create(const std::string& path)
-	{
-		switch (Renderer::GetAPI())
-		{
-			case RendererAPI::API::None:
-			{
-				OLO_CORE_ASSERT(false, "RendererAPI::None is currently not supported!");
-				return nullptr;
-			}
-			case RendererAPI::API::OpenGL:
-			{
-				return CreateRef<OpenGLTextureCubemap>(path);
 			}
 		}
 

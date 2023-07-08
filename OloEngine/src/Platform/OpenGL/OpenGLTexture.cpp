@@ -8,13 +8,42 @@
 
 namespace OloEngine
 {
-	OpenGLTexture2D::OpenGLTexture2D(const u32 width, const u32 height)
-		: m_Width(width), m_Height(height)
+	namespace Utils
+	{
+
+		[[nodiscard("Store this!")]] static GLenum OloEngineImageFormatToGLDataFormat(ImageFormat format)
+		{
+			switch (format)
+			{
+				case ImageFormat::RGB8:  return GL_RGB;
+				case ImageFormat::RGBA8: return GL_RGBA;
+			}
+
+			OLO_CORE_ASSERT(false);
+			return 0;
+		}
+
+		[[nodiscard("Store this!")]] static GLenum OloEngineImageFormatToGLInternalFormat(ImageFormat format)
+		{
+			switch (format)
+			{
+				case ImageFormat::RGB8:  return GL_RGB8;
+				case ImageFormat::RGBA8: return GL_RGBA8;
+			}
+
+			OLO_CORE_ASSERT(false);
+			return 0;
+		}
+
+	}
+
+	OpenGLTexture2D::OpenGLTexture2D(const TextureSpecification& specification)
+		: m_Specification(specification), m_Width(m_Specification.Width), m_Height(m_Specification.Height)
 	{
 		OLO_PROFILE_FUNCTION();
 
-		m_InternalFormat = GL_RGBA8;
-		m_DataFormat = GL_RGBA;
+		m_InternalFormat = Utils::OloEngineImageFormatToGLInternalFormat(m_Specification.Format);
+		m_DataFormat = Utils::OloEngineImageFormatToGLDataFormat(m_Specification.Format);
 
 		glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
 		glTextureStorage2D(m_RendererID, 1, m_InternalFormat, static_cast<int>(m_Width), static_cast<int>(m_Height));

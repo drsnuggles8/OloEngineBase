@@ -66,6 +66,7 @@ target_link_libraries(OloEditor
 )
 
 if(MSVC)
+	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 	target_compile_options(OloEditor PRIVATE /W4)
 else()
 	target_compile_options(OloEditor PRIVATE -Wall -Wextra -Wundef -Wno-cast-function-type -pedantic -Wno-long-long -Wshadow -Werror -Wno-error=deprecated-declarations)

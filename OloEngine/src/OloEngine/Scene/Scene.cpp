@@ -311,6 +311,16 @@ namespace OloEngine
 				}
 			}
 
+			// Draw text
+			{
+				for (const auto view = m_Registry.view<TransformComponent, TextComponent>();  const auto entity : view)
+				{
+					const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
+
+					Renderer2D::DrawString(text.TextString, transform.GetTransform(), text, static_cast<int>(entity));
+				}
+			}
+
 			Renderer2D::EndScene();
 		}
 	}
@@ -455,7 +465,7 @@ namespace OloEngine
 				auto const& bc2d = entity.GetComponent<BoxCollider2DComponent>();
 
 				b2PolygonShape boxShape;
-				boxShape.SetAsBox(bc2d.Size.x * transform.Scale.x, bc2d.Size.y * transform.Scale.y);
+				boxShape.SetAsBox(bc2d.Size.x * transform.Scale.x, bc2d.Size.y * transform.Scale.y, b2Vec2(bc2d.Offset.x, bc2d.Offset.y), 0.0f);
 
 				b2FixtureDef fixtureDef;
 				fixtureDef.shape = &boxShape;
@@ -515,6 +525,15 @@ namespace OloEngine
 			}
 		}
 
+		// Draw text
+		{
+			for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
+			{
+				const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
+				Renderer2D::DrawString(text.TextString, transform.GetTransform(), text, static_cast<int>(entity));
+			}
+		}
+		
 		Renderer2D::EndScene();
 	}
 
@@ -569,6 +588,11 @@ namespace OloEngine
 
 	template<>
 	void Scene::OnComponentAdded<CircleCollider2DComponent>(Entity, CircleCollider2DComponent&)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<TextComponent>(Entity entity, TextComponent& component)
 	{
 	}
 
