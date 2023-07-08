@@ -25,7 +25,7 @@ namespace OloEngine
 		generator.setThreadCount(8);
 		generator.generate(glyphs.data(), (int)glyphs.size());
 
-		msdfgen::BitmapConstRef<T, N> bitmap = (msdfgen::BitmapConstRef<T, N>)generator.atlasStorage();
+		auto bitmap = (msdfgen::BitmapConstRef<T, N>)generator.atlasStorage();
 
 		TextureSpecification spec;
 		spec.Width = bitmap.width;
@@ -89,8 +89,8 @@ namespace OloEngine
 		int remaining = atlasPacker.pack(m_Data->Glyphs.data(), (int)m_Data->Glyphs.size());
 		OLO_CORE_ASSERT(remaining == 0);
 
-		int width;
-		int height;
+		int width{};
+		int height{};
 		atlasPacker.getDimensions(width, height);
 		emSize = atlasPacker.getScale();
 
@@ -101,7 +101,7 @@ namespace OloEngine
 
 		// if MSDF || MTSDF
 
-		uint64_t coloringSeed = 0;
+		u64 coloringSeed = 0;
 		bool expensiveColoring = false;
 		if (expensiveColoring)
 		{
@@ -122,7 +122,7 @@ namespace OloEngine
 			}
 		}
 
-		m_AtlasTexture = CreateAndCacheAtlas<uint8_t, float, 3, msdf_atlas::msdfGenerator>("Test", static_cast<float>(emSize), m_Data->Glyphs, m_Data->FontGeometry, width, height);
+		m_AtlasTexture = CreateAndCacheAtlas<u8, float, 3, msdf_atlas::msdfGenerator>("Test", static_cast<float>(emSize), m_Data->Glyphs, m_Data->FontGeometry, width, height);
 
 		msdfgen::destroyFont(font);
 		msdfgen::deinitializeFreetype(ft);

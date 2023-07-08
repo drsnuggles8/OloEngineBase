@@ -604,14 +604,14 @@ namespace OloEngine
 			if (character == '\n')
 			{
 				x = 0;
-				y -= fsScale * metrics.lineHeight + textParams.LineSpacing;
+				y -= (fsScale * metrics.lineHeight) + textParams.LineSpacing;
 				continue;
 			}
 
 			if (character == ' ')
 			{
 				float advance = spaceGlyphAdvance;
-				if (i < string.size() - 1)
+				if (i < (string.size() - 1))
 				{
 					char nextCharacter = string[i + 1];
 					double dAdvance;
@@ -619,14 +619,14 @@ namespace OloEngine
 					advance = (float)dAdvance;
 				}
 
-				x += fsScale * advance + textParams.Kerning;
+				x += (fsScale * advance) + textParams.Kerning;
 				continue;
 			}
 
 			if (character == '\t')
 			{
 				// NOTE(Yan): is this right?
-				x += 4.0f * (fsScale * spaceGlyphAdvance + textParams.Kerning);
+				x += 4.0f * ((fsScale * spaceGlyphAdvance) + textParams.Kerning);
 				continue;
 			}
 
@@ -640,12 +640,18 @@ namespace OloEngine
 				return;
 			}
 
-			double al, ab, ar, at;
+			double al;
+			double ab;
+			double ar;
+			double at;
 			glyph->getQuadAtlasBounds(al, ab, ar, at);
 			glm::vec2 texCoordMin((float)al, (float)ab);
 			glm::vec2 texCoordMax((float)ar, (float)at);
 
-			double pl, pb, pr, pt;
+			double pl;
+			double pb;
+			double pr;
+			double pt;
 			glyph->getQuadPlaneBounds(pl, pb, pr, pt);
 			glm::vec2 quadMin((float)pl, (float)pb);
 			glm::vec2 quadMax((float)pr, (float)pt);
@@ -687,13 +693,13 @@ namespace OloEngine
 			s_Data.TextIndexCount += 6;
 			s_Data.Stats.QuadCount++;
 
-			if (i < string.size() - 1)
+			if (i < (string.size() - 1))
 			{
 				double advance = glyph->getAdvance();
 				char nextCharacter = string[i + 1];
 				fontGeometry.getAdvance(advance, character, nextCharacter);
 
-				x += fsScale * advance + textParams.Kerning;
+				x += (fsScale * advance) + textParams.Kerning;
 			}
 		}
 	}

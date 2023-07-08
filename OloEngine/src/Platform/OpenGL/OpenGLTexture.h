@@ -9,7 +9,7 @@ namespace OloEngine
 	class OpenGLTexture2D : public Texture2D
 	{
 	public:
-		OpenGLTexture2D(const TextureSpecification& specification);
+		explicit OpenGLTexture2D(const TextureSpecification& specification);
 		explicit OpenGLTexture2D(const std::string& path);
 		~OpenGLTexture2D() override;
 

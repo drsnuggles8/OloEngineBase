@@ -11,7 +11,7 @@ namespace OloEngine
 	namespace Utils
 	{
 
-		static GLenum OloEngineImageFormatToGLDataFormat(ImageFormat format)
+		[[nodiscard("Store this!")]] static GLenum OloEngineImageFormatToGLDataFormat(ImageFormat format)
 		{
 			switch (format)
 			{
@@ -23,7 +23,7 @@ namespace OloEngine
 			return 0;
 		}
 
-		static GLenum OloEngineImageFormatToGLInternalFormat(ImageFormat format)
+		[[nodiscard("Store this!")]] static GLenum OloEngineImageFormatToGLInternalFormat(ImageFormat format)
 		{
 			switch (format)
 			{
