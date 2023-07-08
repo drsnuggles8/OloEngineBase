@@ -433,7 +433,7 @@ namespace OloEngine
 			out << YAML::Key << "TextComponent";
 			out << YAML::BeginMap; // TextComponent
 
-			auto& textComponent = entity.GetComponent<TextComponent>();
+			auto const& textComponent = entity.GetComponent<TextComponent>();
 			out << YAML::Key << "TextString" << YAML::Value << textComponent.TextString;
 			// TODO(olbu): textComponent.FontAsset
 			out << YAML::Key << "Color" << YAML::Value << textComponent.Color;
@@ -683,7 +683,7 @@ namespace OloEngine
 					cc2d.Restitution = circleCollider2DComponent["Restitution"].as<f32>();
 					cc2d.RestitutionThreshold = circleCollider2DComponent["RestitutionThreshold"].as<f32>();
 				}
-								
+				
 				if (auto textComponent = entity["TextComponent"]; textComponent)
 				{
 					auto& tc = deserializedEntity.AddComponent<TextComponent>();

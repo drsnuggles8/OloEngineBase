@@ -312,7 +312,7 @@ namespace OloEngine
 			}
 
 			// Draw text
-			{				
+			{
 				for (const auto view = m_Registry.view<TransformComponent, TextComponent>();  const auto entity : view)
 				{
 					const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
@@ -526,7 +526,7 @@ namespace OloEngine
 		}
 
 		// Draw text
-		{			
+		{
 			for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
 			{
 				const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);

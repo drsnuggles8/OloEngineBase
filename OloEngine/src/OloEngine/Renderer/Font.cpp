@@ -13,7 +13,7 @@
 namespace OloEngine
 {
 	template<typename T, typename S, int N, msdf_atlas::GeneratorFunction<S, N> GenFunc>
-	static Ref<Texture2D> CreateAndCacheAtlas(const std::string& fontName, float fontSize, const std::vector<msdf_atlas::GlyphGeometry>& glyphs,
+	static Ref<Texture2D> CreateAndCacheAtlas(const std::string_view fontName, float fontSize, const std::vector<msdf_atlas::GlyphGeometry>& glyphs,
 		const msdf_atlas::FontGeometry& fontGeometry, u32 width, u32 height)
 	{
 		msdf_atlas::GeneratorAttributes attributes;
@@ -46,7 +46,7 @@ namespace OloEngine
 
 		std::string fileString = filepath.string();
 
-		// TODO(Yan): msdfgen::loadFontData loads from memory buffer which we'll need 
+		// TODO(olbu): msdfgen::loadFontData loads from memory buffer which we'll need
 		msdfgen::FontHandle* font = msdfgen::loadFont(ft, fileString.c_str());
 		if (!font)
 		{
@@ -69,8 +69,10 @@ namespace OloEngine
 		msdf_atlas::Charset charset;
 		for (CharsetRange range : charsetRanges)
 		{
-			for (u32 c = range.Begin; c <= range.End; c++)
+			for (u32 c = range.Begin; c <= range.End; ++c)
+			{
 				charset.add(c);
+			}
 		}
 
 		double fontScale = 1.0;
@@ -107,7 +109,7 @@ namespace OloEngine
 		{
 			msdf_atlas::Workload([&glyphs = m_Data->Glyphs, &coloringSeed](int i, int threadNo) -> bool
 			{
-				unsigned long long glyphSeed = coloringSeed ? (LCG_MULTIPLIER * (coloringSeed ^ i) + LCG_INCREMENT) : 0;
+				unsigned long long glyphSeed = coloringSeed ? ((LCG_MULTIPLIER * (coloringSeed ^ i)) + LCG_INCREMENT) : 0;
 				glyphs[i].edgeColoring(msdfgen::edgeColoringInkTrap, DEFAULT_ANGLE_THRESHOLD, glyphSeed);
 				return true;
 			}, m_Data->Glyphs.size()).finish(THREAD_COUNT);

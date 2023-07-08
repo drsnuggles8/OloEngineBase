@@ -163,7 +163,7 @@ namespace OloEngine
 		OLO_CORE_ASSERT(entity);
 		OLO_CORE_ASSERT(entity.HasComponent<TextComponent>());
 
-		auto& tc = entity.GetComponent<TextComponent>();
+		auto const& tc = entity.GetComponent<TextComponent>();
 		return ScriptEngine::CreateString(tc.TextString.c_str());
 	}
 
@@ -187,11 +187,11 @@ namespace OloEngine
 		OLO_CORE_ASSERT(entity);
 		OLO_CORE_ASSERT(entity.HasComponent<TextComponent>());
 
-		auto& tc = entity.GetComponent<TextComponent>();
+		auto const& tc = entity.GetComponent<TextComponent>();
 		*color = tc.Color;
 	}
 
-	static void TextComponent_SetColor(UUID entityID, glm::vec4* color)
+	static void TextComponent_SetColor(UUID entityID, glm::vec4 const* color)
 	{
 		Scene* scene = ScriptEngine::GetSceneContext();
 		OLO_CORE_ASSERT(scene);
@@ -211,7 +211,7 @@ namespace OloEngine
 		OLO_CORE_ASSERT(entity);
 		OLO_CORE_ASSERT(entity.HasComponent<TextComponent>());
 
-		auto& tc = entity.GetComponent<TextComponent>();
+		auto const& tc = entity.GetComponent<TextComponent>();
 		return tc.Kerning;
 	}
 
@@ -235,7 +235,7 @@ namespace OloEngine
 		OLO_CORE_ASSERT(entity);
 		OLO_CORE_ASSERT(entity.HasComponent<TextComponent>());
 
-		auto& tc = entity.GetComponent<TextComponent>();
+		auto const& tc = entity.GetComponent<TextComponent>();
 		return tc.LineSpacing;
 	}
 

@@ -309,7 +309,7 @@ namespace OloEngine
 
 			s_Data.QuadShader->Bind();
 			RenderCommand::DrawIndexed(s_Data.QuadVertexArray, s_Data.QuadIndexCount);
-			s_Data.Stats.DrawCalls++;
+			++s_Data.Stats.DrawCalls;
 		}
 
 		if (s_Data.CircleIndexCount)
@@ -320,7 +320,7 @@ namespace OloEngine
 
 			s_Data.CircleShader->Bind();
 			RenderCommand::DrawIndexed(s_Data.CircleVertexArray, s_Data.CircleIndexCount);
-			s_Data.Stats.DrawCalls++;
+			++s_Data.Stats.DrawCalls;
 		}
 
 		if (s_Data.LineVertexCount)
@@ -332,7 +332,7 @@ namespace OloEngine
 			s_Data.LineShader->Bind();
 			RenderCommand::SetLineWidth(s_Data.LineWidth);
 			RenderCommand::DrawLines(s_Data.LineVertexArray, s_Data.LineVertexCount);
-			s_Data.Stats.DrawCalls++;
+			++s_Data.Stats.DrawCalls;
 		}
 
 		if (s_Data.TextIndexCount)
@@ -342,12 +342,12 @@ namespace OloEngine
 			s_Data.TextVertexBuffer->SetData(data);
 
 			// TODO(olbu): Find out wtf this buf is
-			auto buf = s_Data.TextVertexBufferBase;
+			//auto buf = s_Data.TextVertexBufferBase;
 			s_Data.FontAtlasTexture->Bind(0);
 
 			s_Data.TextShader->Bind();
 			RenderCommand::DrawIndexed(s_Data.TextVertexArray, s_Data.TextIndexCount);
-			s_Data.Stats.DrawCalls++;
+			++s_Data.Stats.DrawCalls;
 		}
 	}
 
@@ -614,7 +614,7 @@ namespace OloEngine
 				if (i < (string.size() - 1))
 				{
 					char nextCharacter = string[i + 1];
-					double dAdvance;
+					double dAdvance{};
 					fontGeometry.getAdvance(dAdvance, character, nextCharacter);
 					advance = (float)dAdvance;
 				}
@@ -630,7 +630,7 @@ namespace OloEngine
 				continue;
 			}
 
-			auto glyph = fontGeometry.getGlyph(character);
+			auto* glyph = fontGeometry.getGlyph(character);
 			if (!glyph)
 			{
 				glyph = fontGeometry.getGlyph('?');
@@ -640,23 +640,24 @@ namespace OloEngine
 				return;
 			}
 
-			double al;
-			double ab;
-			double ar;
-			double at;
+			double al{};
+			double ab{};
+			double ar{};
+			double at{};
 			glyph->getQuadAtlasBounds(al, ab, ar, at);
 			glm::vec2 texCoordMin((float)al, (float)ab);
 			glm::vec2 texCoordMax((float)ar, (float)at);
 
-			double pl;
-			double pb;
-			double pr;
-			double pt;
+			double pl{};
+			double pb{};
+			double pr{};
+			double pt{};
 			glyph->getQuadPlaneBounds(pl, pb, pr, pt);
 			glm::vec2 quadMin((float)pl, (float)pb);
 			glm::vec2 quadMax((float)pr, (float)pt);
 
-			quadMin *= fsScale, quadMax *= fsScale;
+			quadMin *= fsScale;
+			quadMax *= fsScale;
 			quadMin += glm::vec2(x, y);
 			quadMax += glm::vec2(x, y);
 
@@ -670,28 +671,28 @@ namespace OloEngine
 			s_Data.TextVertexBufferPtr->Color = textParams.Color;
 			s_Data.TextVertexBufferPtr->TexCoord = texCoordMin;
 			s_Data.TextVertexBufferPtr->EntityID = entityID;
-			s_Data.TextVertexBufferPtr++;
+			++s_Data.TextVertexBufferPtr;
 
 			s_Data.TextVertexBufferPtr->Position = transform * glm::vec4(quadMin.x, quadMax.y, 0.0f, 1.0f);
 			s_Data.TextVertexBufferPtr->Color = textParams.Color;
 			s_Data.TextVertexBufferPtr->TexCoord = { texCoordMin.x, texCoordMax.y };
 			s_Data.TextVertexBufferPtr->EntityID = entityID;
-			s_Data.TextVertexBufferPtr++;
+			++s_Data.TextVertexBufferPtr;
 
 			s_Data.TextVertexBufferPtr->Position = transform * glm::vec4(quadMax, 0.0f, 1.0f);
 			s_Data.TextVertexBufferPtr->Color = textParams.Color;
 			s_Data.TextVertexBufferPtr->TexCoord = texCoordMax;
 			s_Data.TextVertexBufferPtr->EntityID = entityID;
-			s_Data.TextVertexBufferPtr++;
+			++s_Data.TextVertexBufferPtr;
 
 			s_Data.TextVertexBufferPtr->Position = transform * glm::vec4(quadMax.x, quadMin.y, 0.0f, 1.0f);
 			s_Data.TextVertexBufferPtr->Color = textParams.Color;
 			s_Data.TextVertexBufferPtr->TexCoord = { texCoordMax.x, texCoordMin.y };
 			s_Data.TextVertexBufferPtr->EntityID = entityID;
-			s_Data.TextVertexBufferPtr++;
+			++s_Data.TextVertexBufferPtr;
 
 			s_Data.TextIndexCount += 6;
-			s_Data.Stats.QuadCount++;
+			++s_Data.Stats.QuadCount;
 
 			if (i < (string.size() - 1))
 			{
