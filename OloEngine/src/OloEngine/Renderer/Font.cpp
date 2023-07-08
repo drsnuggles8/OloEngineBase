@@ -14,7 +14,7 @@ namespace OloEngine
 {
 	template<typename T, typename S, int N, msdf_atlas::GeneratorFunction<S, N> GenFunc>
 	static Ref<Texture2D> CreateAndCacheAtlas(const std::string& fontName, float fontSize, const std::vector<msdf_atlas::GlyphGeometry>& glyphs,
-		const msdf_atlas::FontGeometry& fontGeometry, uint32_t width, uint32_t height)
+		const msdf_atlas::FontGeometry& fontGeometry, u32 width, u32 height)
 	{
 		msdf_atlas::GeneratorAttributes attributes;
 		attributes.config.overlapSupport = true;
@@ -56,7 +56,8 @@ namespace OloEngine
 
 		struct CharsetRange
 		{
-			uint32_t Begin, End;
+			u32 Begin;
+			u32 End;
 		};
 
 		// From imgui_draw.cpp
@@ -68,7 +69,7 @@ namespace OloEngine
 		msdf_atlas::Charset charset;
 		for (CharsetRange range : charsetRanges)
 		{
-			for (uint32_t c = range.Begin; c <= range.End; c++)
+			for (u32 c = range.Begin; c <= range.End; c++)
 				charset.add(c);
 		}
 
@@ -76,7 +77,6 @@ namespace OloEngine
 		m_Data->FontGeometry = msdf_atlas::FontGeometry(&m_Data->Glyphs);
 		int glyphsLoaded = m_Data->FontGeometry.loadCharset(font, fontScale, charset);
 		OLO_CORE_INFO("Loaded {} glyphs from font (out of {})", glyphsLoaded, charset.size());
-
 
 		double emSize = 40.0;
 
@@ -89,14 +89,16 @@ namespace OloEngine
 		int remaining = atlasPacker.pack(m_Data->Glyphs.data(), (int)m_Data->Glyphs.size());
 		OLO_CORE_ASSERT(remaining == 0);
 
-		int width, height;
+		int width;
+		int height;
 		atlasPacker.getDimensions(width, height);
 		emSize = atlasPacker.getScale();
 
-#define DEFAULT_ANGLE_THRESHOLD 3.0
-#define LCG_MULTIPLIER 6364136223846793005ull
-#define LCG_INCREMENT 1442695040888963407ull
-#define THREAD_COUNT 8
+		constexpr double DEFAULT_ANGLE_THRESHOLD = 3.0;
+		constexpr u64 LCG_MULTIPLIER = 6364136223846793005ull;
+		constexpr u64 LCG_INCREMENT = 1442695040888963407ull;
+		constexpr int THREAD_COUNT = 8;
+
 		// if MSDF || MTSDF
 
 		uint64_t coloringSeed = 0;
@@ -105,7 +107,7 @@ namespace OloEngine
 		{
 			msdf_atlas::Workload([&glyphs = m_Data->Glyphs, &coloringSeed](int i, int threadNo) -> bool
 			{
-				unsigned long long glyphSeed = (LCG_MULTIPLIER * (coloringSeed ^ i) + LCG_INCREMENT) * !!coloringSeed;
+				unsigned long long glyphSeed = coloringSeed ? (LCG_MULTIPLIER * (coloringSeed ^ i) + LCG_INCREMENT) : 0;
 				glyphs[i].edgeColoring(msdfgen::edgeColoringInkTrap, DEFAULT_ANGLE_THRESHOLD, glyphSeed);
 				return true;
 			}, m_Data->Glyphs.size()).finish(THREAD_COUNT);
@@ -120,7 +122,7 @@ namespace OloEngine
 			}
 		}
 
-		m_AtlasTexture = CreateAndCacheAtlas<uint8_t, float, 3, msdf_atlas::msdfGenerator>("Test", (float)emSize, m_Data->Glyphs, m_Data->FontGeometry, width, height);
+		m_AtlasTexture = CreateAndCacheAtlas<uint8_t, float, 3, msdf_atlas::msdfGenerator>("Test", static_cast<float>(emSize), m_Data->Glyphs, m_Data->FontGeometry, width, height);
 
 		msdfgen::destroyFont(font);
 		msdfgen::deinitializeFreetype(ft);
