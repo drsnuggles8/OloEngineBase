@@ -5,6 +5,7 @@
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
+#include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
@@ -673,7 +674,25 @@ namespace OloEngine
 					Renderer2D::DrawCircle(transform, glm::vec4(1, 1, 1, 1), 0.03f);
 				}
 
-				// TODO(olbu): Add outline for camera?
+				if (selection.HasComponent<CameraComponent>())
+				{
+					auto const& cc = selection.GetComponent<CameraComponent>();
+
+					if (cc.Camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
+					{
+						// For orthographic cameras, we can still use a rectangle as an indicator
+						glm::mat4 transform = glm::translate(glm::mat4(1.0f), tc.Translation)
+							* glm::toMat4(glm::quat(tc.Rotation))
+							* glm::scale(glm::mat4(1.0f), glm::vec3(cc.Camera.GetOrthographicSize(), cc.Camera.GetOrthographicSize(), 1.0f) + glm::vec3(0.03f));
+						Renderer2D::DrawRect(transform, glm::vec4(1, 1, 1, 1));
+					}
+					else if (cc.Camera.GetProjectionType() == SceneCamera::ProjectionType::Perspective)
+					{
+						//auto position = glm::vec3(tc.Translation.x, tc.Translation.y, 0.0f);
+						//auto size = glm::vec2(0.5f); // adjust as needed
+						// TODO(olbu): Draw the selected camera properly once the Renderer2D can draw triangles/points
+					}
+				}
 			}
 		}
 

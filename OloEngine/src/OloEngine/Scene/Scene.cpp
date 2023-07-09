@@ -362,10 +362,6 @@ namespace OloEngine
 		RenderScene(camera);
 	}
 
-		// TODO(olbu): Implement these as tests, rest from Renderer2D.cpp too
-		// Renderer2D::DrawLine(glm::vec3(0.0f), glm::vec3(5.0f), glm::vec4(1, 0, 1, 1));
-		// Renderer2D::DrawRect(glm::vec3(0.0f), glm::vec2(5.0f), glm::vec4(1, 1, 1, 1));
-
 	void Scene::OnViewportResize(const u32 width, const u32 height)
 	{
 		if ((m_ViewportWidth == width) && (m_ViewportHeight == height))
@@ -592,7 +588,7 @@ namespace OloEngine
 	}
 
 	template<>
-	void Scene::OnComponentAdded<TextComponent>(Entity entity, TextComponent& component)
+	void Scene::OnComponentAdded<TextComponent>(Entity, TextComponent&)
 	{
 	}
 
