@@ -68,9 +68,16 @@ namespace OloEngine
 
 		[[nodiscard("Store this!")]] static const char* GetCacheDirectory()
 		{
-			// TODO(olbu): make sure the assets directory is valid
+			const std::filesystem::path assetsDirectory = "assets";
+			if (!std::filesystem::exists(assetsDirectory))
+			{
+				OLO_CORE_ERROR("The assets directory does not exist.");
+				return nullptr;  // Or return some default path.
+			}
+
 			return "assets/cache/shader/opengl";
 		}
+
 
 		static void CreateCacheDirectoryIfNeeded()
 		{

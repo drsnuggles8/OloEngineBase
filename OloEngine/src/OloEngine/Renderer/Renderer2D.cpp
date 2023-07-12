@@ -340,11 +340,7 @@ namespace OloEngine
 			const auto dataSize = static_cast<u32>(reinterpret_cast<u8*>(s_Data.TextVertexBufferPtr) - reinterpret_cast<u8*>(s_Data.TextVertexBufferBase));
 			VertexData data = { s_Data.TextVertexBufferBase, dataSize };
 			s_Data.TextVertexBuffer->SetData(data);
-
-			// TODO(olbu): Find out wtf this buf is
-			//auto buf = s_Data.TextVertexBufferBase;
 			s_Data.FontAtlasTexture->Bind(0);
-
 			s_Data.TextShader->Bind();
 			RenderCommand::DrawIndexed(s_Data.TextVertexArray, s_Data.TextIndexCount);
 			++s_Data.Stats.DrawCalls;

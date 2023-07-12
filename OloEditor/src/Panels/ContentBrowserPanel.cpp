@@ -71,7 +71,33 @@ namespace OloEngine
 		ImGui::SliderFloat("Thumbnail Size", &thumbnailSize, 16, 512);
 		ImGui::SliderFloat("Padding", &padding, 0, 32);
 
-		// TODO(olbu): status bar
+		// Get the total count of the files in the current directory.
+		int totalCount = 0;
+		for (auto& _ : std::filesystem::directory_iterator(m_CurrentDirectory))
+		{
+			totalCount++;
+		}
+
+		ImGui::Separator();  // Draw a line to separate the status bar from the rest of the content.
+
+		// Change the background color for the status bar.
+		ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.20f, 0.25f, 0.29f, 0.5f));
+
+		// Create a child window for the status bar.
+		ImGui::BeginChild("status_bar", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() + 20), true, 0);
+
+		// Change the text color for the status bar.
+		ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 255, 255, 255));
+
+		// Add status bar information.
+		ImGui::Text("Total files: %d", totalCount);
+		ImGui::SameLine();
+		ImGui::Text("Current path: %s", m_CurrentDirectory.string().c_str());
+
+		// Restore the colors we changed.
+		ImGui::PopStyleColor(2);
+
+		ImGui::EndChild();  // End of child window.
 		ImGui::End();
 	}
 

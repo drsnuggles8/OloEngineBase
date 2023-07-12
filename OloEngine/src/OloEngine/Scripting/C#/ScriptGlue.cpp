@@ -40,17 +40,13 @@ namespace OloEngine
 
 	static void NativeLog_Vector(glm::vec3 const* parameter, glm::vec3* outResult)
 	{
-		// TODO(olbu): Fix the logger, glm::vec3* is not valid type, need to provide a formatter<T> specialization
-		//https://fmt.dev/latest/api.html#udt
-		//OLO_CORE_WARN("Value: {0}", *parameter);
+		OLO_CORE_WARN("Value: {0}", *parameter);
 		*outResult = glm::normalize(*parameter);
 	}
 
 	[[nodiscard("Store this!")]] static f32 NativeLog_VectorDot(glm::vec3 const* parameter)
 	{
-		// TODO(olbu): Fix the logger, glm::vec3* is not valid type, need to provide a formatter<T> specialization
-		//https://fmt.dev/latest/api.html#udt
-		//OLO_CORE_WARN("Value: {0}", *parameter);
+		OLO_CORE_WARN("Value: {0}", *parameter);
 		return glm::dot(*parameter, *parameter);
 	}
 

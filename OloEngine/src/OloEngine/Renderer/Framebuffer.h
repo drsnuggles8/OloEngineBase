@@ -65,6 +65,7 @@ namespace OloEngine
 		virtual void ClearAttachment(u32 attachmentIndex, int value) = 0;
 
 		[[nodiscard("Store this!")]] virtual u32 GetColorAttachmentRendererID(u32 index) const = 0;
+		[[nodiscard("Store this!")]] virtual u32 GetDepthAttachmentRendererID() const = 0;
 
 		[[nodiscard("Store this!")]] virtual const FramebufferSpecification& GetSpecification() const = 0;
 
