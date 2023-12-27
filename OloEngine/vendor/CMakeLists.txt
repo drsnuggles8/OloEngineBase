@@ -256,7 +256,7 @@ set_target_properties(UpdateAssimpLibsDebugSymbolsAndDLLs PROPERTIES FOLDER "Uti
 set_target_properties(box2d PROPERTIES FOLDER "Utilities/box2d")
 set_target_properties(glad PROPERTIES FOLDER "Utilities/glad")
 set_target_properties(glfw PROPERTIES FOLDER "Utilities/GLFW3")
-set_target_properties(uninstall PROPERTIES FOLDER "Utilities/GLFW3")
+#set_target_properties(uninstall PROPERTIES FOLDER "Utilities/GLFW3")
 set_target_properties(update_mappings PROPERTIES FOLDER "Utilities/GLFW3")
 set_target_properties(gmock PROPERTIES FOLDER "Utilities/googletest")
 set_target_properties(gmock_main PROPERTIES FOLDER "Utilities/googletest")
