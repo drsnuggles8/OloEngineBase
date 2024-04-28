@@ -31,7 +31,7 @@ namespace OloEngine
 
 		if (m_Context)
 		{
-			m_Context->m_Registry.each([&](const auto e) { DrawEntityNode({ e, *m_Context }); });
+			m_Context->m_Registry.view<entt::entity>().each([&](const auto e) { DrawEntityNode({ e, *m_Context }); });
 
 			if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
 			{
