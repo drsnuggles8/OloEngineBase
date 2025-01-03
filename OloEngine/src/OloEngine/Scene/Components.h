@@ -6,6 +6,8 @@
 #include "OloEngine/Audio/AudioSource.h"
 #include "OloEngine/Audio/AudioListener.h"
 
+#include "box2d/box2d.h"
+
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
@@ -102,7 +104,7 @@ namespace OloEngine
 		bool FixedRotation = false;
 
 		// Storage for runtime
-		void* RuntimeBody = nullptr;
+		b2BodyId RuntimeBody = b2_nullBodyId;
 
 		Rigidbody2DComponent() = default;
 		Rigidbody2DComponent(const Rigidbody2DComponent&) = default;
