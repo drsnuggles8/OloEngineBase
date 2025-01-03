@@ -1,5 +1,3 @@
-// This is an independent project of an individual developer. Dear PVS-Studio, please check it.
-// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLFramebuffer.h"
 #include "Platform/OpenGL/OpenGLUtilities.h"
@@ -105,6 +103,27 @@ namespace OloEngine
 	{
 		glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
 		glViewport(0, 0, static_cast<GLsizei>(m_Specification.Width), static_cast<GLsizei>(m_Specification.Height));
+
+		bool isIntegerFramebuffer = false;
+		for (const auto& spec : m_ColorAttachmentSpecifications)
+		{
+			if (spec.TextureFormat == FramebufferTextureFormat::RED_INTEGER)
+			{
+				isIntegerFramebuffer = true;
+				break;
+			}
+		}
+
+		if (isIntegerFramebuffer)
+		{
+			glDisable(GL_BLEND);
+			glDisable(GL_DITHER);
+		}
+		else
+		{
+			glEnable(GL_BLEND);
+			glEnable(GL_DITHER);
+		}
 	}
 
 	void OpenGLFramebuffer::Unbind()
