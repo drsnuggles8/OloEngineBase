@@ -33,8 +33,11 @@ namespace OloEngine
 
 	Scene::~Scene()
 	{
-		b2DestroyWorld(m_PhysicsWorld);
-		m_PhysicsWorld = b2_nullWorldId;
+		if (b2World_IsValid(m_PhysicsWorld))
+		{
+			b2DestroyWorld(m_PhysicsWorld);
+			m_PhysicsWorld = b2_nullWorldId;
+		}
 	}
 
 	template<typename... Component>
@@ -486,8 +489,11 @@ namespace OloEngine
 
 	void Scene::OnPhysics2DStop()
 	{
-		b2DestroyWorld(m_PhysicsWorld);
-		m_PhysicsWorld = b2_nullWorldId;
+		if (b2World_IsValid(m_PhysicsWorld))
+		{
+			b2DestroyWorld(m_PhysicsWorld);
+			m_PhysicsWorld = b2_nullWorldId;
+		}
 	}
 
 	void Scene::RenderScene(EditorCamera const& camera)
