@@ -14,7 +14,7 @@ namespace OloEngine
 		const char* const message,
 		const void* const)
 	{
-		if (id == 131185)
+		if (id == 131185 || id == 131204) // Ignore these non-significant error codes
 		{
 			return; // Suppress this specific message
 		}
