@@ -4,6 +4,8 @@
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Renderer/EditorCamera.h"
 
+#include "box2d/box2d.h" // Include Box2D header
+
 #pragma warning( push )
 #pragma warning( disable : 4996)
 #include "entt.hpp"
@@ -77,7 +79,7 @@ namespace OloEngine
 		bool m_IsPaused = false;
 		int m_StepFrames = 0;
 
-		b2World* m_PhysicsWorld = nullptr;
+		b2WorldId m_PhysicsWorld = b2_nullWorldId;
 
 		std::unordered_map<UUID, entt::entity> m_EntityMap;
 

@@ -10,11 +10,7 @@
 #include <ranges>
 
 // Box2D
-#include "b2_world.h"
-#include "b2_body.h"
-#include "b2_fixture.h"
-#include "b2_polygon_shape.h"
-#include "b2_circle_shape.h"
+#include "box2d/box2d.h"
 
 namespace OloEngine
 {
@@ -37,7 +33,11 @@ namespace OloEngine
 
 	Scene::~Scene()
 	{
-		delete m_PhysicsWorld;
+		if (b2World_IsValid(m_PhysicsWorld))
+		{
+			b2DestroyWorld(m_PhysicsWorld);
+			m_PhysicsWorld = b2_nullWorldId;
+		}
 	}
 
 	template<typename... Component>
@@ -226,7 +226,7 @@ namespace OloEngine
 			{
 				const i32 velocityIterations = 6;
 				const i32 positionIterations = 2;
-				m_PhysicsWorld->Step(ts, velocityIterations, positionIterations);
+				b2World_Step(m_PhysicsWorld, ts.GetSeconds(), velocityIterations);
 
 				// Retrieve transform from Box2D
 				for (const auto view = m_Registry.view<Rigidbody2DComponent>(); const auto e : view)
@@ -235,12 +235,12 @@ namespace OloEngine
 					auto& transform = entity.GetComponent<TransformComponent>();
 					auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
 
-					auto const* const body = static_cast<b2Body*>(rb2d.RuntimeBody);
+					b2Vec2 position = b2Body_GetPosition(rb2d.RuntimeBody);
+					b2Rot rotation = b2Body_GetRotation(rb2d.RuntimeBody);
 
-					const auto& position = body->GetPosition();
 					transform.Translation.x = position.x;
 					transform.Translation.y = position.y;
-					transform.Rotation.z = body->GetAngle();
+					transform.Rotation.z = b2Rot_GetAngle(rotation);
 				}
 			}
 
@@ -334,7 +334,7 @@ namespace OloEngine
 			{
 				const i32 velocityIterations = 6;
 				const i32 positionIterations = 2;
-				m_PhysicsWorld->Step(ts, velocityIterations, positionIterations);
+				b2World_Step(m_PhysicsWorld, ts.GetSeconds(), velocityIterations);
 
 				// Retrieve transform from Box2D
 				for (const auto view = m_Registry.view<Rigidbody2DComponent>(); const auto e : view)
@@ -343,11 +343,12 @@ namespace OloEngine
 					auto& transform = entity.GetComponent<TransformComponent>();
 					auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
 
-					auto const* const body = static_cast<b2Body*>(rb2d.RuntimeBody);
-					const auto& position = body->GetPosition();
+					b2Vec2 position = b2Body_GetPosition(rb2d.RuntimeBody);
+					b2Rot rotation = b2Body_GetRotation(rb2d.RuntimeBody);
+
 					transform.Translation.x = position.x;
 					transform.Translation.y = position.y;
-					transform.Rotation.z = body->GetAngle();
+					transform.Rotation.z = b2Rot_GetAngle(rotation);
 				}
 			}
 		}
@@ -439,7 +440,9 @@ namespace OloEngine
 
 	void Scene::OnPhysics2DStart()
 	{
-		m_PhysicsWorld = new b2World({ 0.0f, -9.8f });
+		b2WorldDef worldDef = b2DefaultWorldDef();
+		worldDef.gravity = { 0.0f, -9.8f };
+		m_PhysicsWorld = b2CreateWorld(&worldDef);
 
 		for (const auto view = m_Registry.view<Rigidbody2DComponent>(); const auto e : view)
 		{
@@ -447,54 +450,50 @@ namespace OloEngine
 			auto const& transform = entity.GetComponent<TransformComponent>();
 			auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
 
-			b2BodyDef bodyDef;
+			b2BodyDef bodyDef = b2DefaultBodyDef();
 			bodyDef.type = Rigidbody2DTypeToBox2DBody(rb2d.Type);
-			bodyDef.position.Set(transform.Translation.x, transform.Translation.y);
-			bodyDef.angle = transform.Rotation.z;
+			bodyDef.position = { transform.Translation.x, transform.Translation.y };
+			bodyDef.rotation = b2MakeRot(transform.Rotation.z);
 
-			b2Body* const body = m_PhysicsWorld->CreateBody(&bodyDef);
-			body->SetFixedRotation(rb2d.FixedRotation);
+			b2BodyId body = b2CreateBody(m_PhysicsWorld, &bodyDef);
+			b2Body_SetFixedRotation(body, rb2d.FixedRotation);
 			rb2d.RuntimeBody = body;
 
 			if (entity.HasComponent<BoxCollider2DComponent>())
 			{
 				auto const& bc2d = entity.GetComponent<BoxCollider2DComponent>();
 
-				b2PolygonShape boxShape;
-				boxShape.SetAsBox(bc2d.Size.x * transform.Scale.x, bc2d.Size.y * transform.Scale.y, b2Vec2(bc2d.Offset.x, bc2d.Offset.y), 0.0f);
+				b2ShapeDef shapeDef = b2DefaultShapeDef();
+				shapeDef.density = bc2d.Density;
+				shapeDef.friction = bc2d.Friction;
+				shapeDef.restitution = bc2d.Restitution;
 
-				b2FixtureDef fixtureDef;
-				fixtureDef.shape = &boxShape;
-				fixtureDef.density = bc2d.Density;
-				fixtureDef.friction = bc2d.Friction;
-				fixtureDef.restitution = bc2d.Restitution;
-				fixtureDef.restitutionThreshold = bc2d.RestitutionThreshold;
-				body->CreateFixture(&fixtureDef);
+				b2Polygon polygon = b2MakeBox(bc2d.Size.x * transform.Scale.x, bc2d.Size.y * transform.Scale.y);
+				b2CreatePolygonShape(body, &shapeDef, &polygon);
 			}
 
 			if (entity.HasComponent<CircleCollider2DComponent>())
 			{
 				auto const& cc2d = entity.GetComponent<CircleCollider2DComponent>();
 
-				b2CircleShape circleShape;
-				circleShape.m_p.Set(cc2d.Offset.x, cc2d.Offset.y);
-				circleShape.m_radius = transform.Scale.x * cc2d.Radius;
+				b2ShapeDef shapeDef = b2DefaultShapeDef();
+				shapeDef.density = cc2d.Density;
+				shapeDef.friction = cc2d.Friction;
+				shapeDef.restitution = cc2d.Restitution;
 
-				b2FixtureDef fixtureDef;
-				fixtureDef.shape = &circleShape;
-				fixtureDef.density = cc2d.Density;
-				fixtureDef.friction = cc2d.Friction;
-				fixtureDef.restitution = cc2d.Restitution;
-				fixtureDef.restitutionThreshold = cc2d.RestitutionThreshold;
-				body->CreateFixture(&fixtureDef);
+				b2Circle circle = { b2Vec2(cc2d.Offset.x, cc2d.Offset.y), transform.Scale.x * cc2d.Radius };
+				b2CreateCircleShape(body, &shapeDef, &circle);
 			}
 		}
 	}
 
 	void Scene::OnPhysics2DStop()
 	{
-		delete m_PhysicsWorld;
-		m_PhysicsWorld = nullptr;
+		if (b2World_IsValid(m_PhysicsWorld))
+		{
+			b2DestroyWorld(m_PhysicsWorld);
+			m_PhysicsWorld = b2_nullWorldId;
+		}
 	}
 
 	void Scene::RenderScene(EditorCamera const& camera)

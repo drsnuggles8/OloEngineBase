@@ -293,7 +293,7 @@ namespace OloEngine
 		m_ViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
 
 		u64 const textureID = m_Framebuffer->GetColorAttachmentRendererID(0);
-		ImGui::Image(reinterpret_cast<void*>(textureID), ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
+		ImGui::Image(textureID, ImVec2{ m_ViewportSize.x, m_ViewportSize.y }, ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
 
 		if (ImGui::BeginDragDropTarget())
 		{
@@ -411,7 +411,7 @@ namespace OloEngine
 		{
 			using enum OloEngine::EditorLayer::SceneState;
 			Ref<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Simulate)) ? m_IconPlay : m_IconStop;
-			if (ImGui::ImageButton((ImTextureID)(u64)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
+			if (ImGui::ImageButton("##play_stop_icon", (u64)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
 			{
 				if ((m_SceneState == Edit) || (m_SceneState == Simulate))
 				{
@@ -431,7 +431,7 @@ namespace OloEngine
 			}
 
 			Ref<Texture2D> icon = ((m_SceneState == SceneState::Edit) || (m_SceneState == SceneState::Play)) ? m_IconSimulate : m_IconStop;
-			if (ImGui::ImageButton((ImTextureID)(u64)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
+			if (ImGui::ImageButton("##simulate_stop_icon", (u64)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
 			{
 				using enum OloEngine::EditorLayer::SceneState;
 				if ((m_SceneState == Edit) || (m_SceneState == Play))
@@ -449,7 +449,7 @@ namespace OloEngine
 				ImGui::SameLine();
 				{
 					icon = m_IconPause;
-					if (ImGui::ImageButton((ImTextureID)(u64)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
+					if (ImGui::ImageButton("##pause_icon", (u64)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
 					{
 						m_ActiveScene->SetPaused(!isPaused);
 					}
@@ -462,7 +462,7 @@ namespace OloEngine
 					{
 						icon = m_IconStep;
 						isPaused = m_ActiveScene->IsPaused();
-						if (ImGui::ImageButton((ImTextureID)(u64)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
+						if (ImGui::ImageButton("##step_icon", (u64)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
 						{
 							m_ActiveScene->Step();
 						}

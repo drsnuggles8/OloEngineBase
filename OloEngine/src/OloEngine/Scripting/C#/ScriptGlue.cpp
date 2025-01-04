@@ -12,7 +12,7 @@
 #include "mono/metadata/object.h"
 #include "mono/metadata/reflection.h"
 
-#include "box2d/b2_body.h"
+#include "box2d/box2d.h"
 
 namespace OloEngine
 {
@@ -131,8 +131,7 @@ namespace OloEngine
 		OLO_CORE_ASSERT(entity);
 
 		auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
-		auto* body = (b2Body*)rb2d.RuntimeBody;
-		body->ApplyLinearImpulse(b2Vec2(impulse->x, impulse->y), b2Vec2(point->x, point->y), wake);
+		b2Body_ApplyLinearImpulse(rb2d.RuntimeBody, b2Vec2(impulse->x, impulse->y), b2Vec2(point->x, point->y), wake);
 	}
 
 	static void Rigidbody2DComponent_ApplyLinearImpulseToCenter(UUID entityID, glm::vec2 const* impulse, bool wake)
@@ -143,8 +142,7 @@ namespace OloEngine
 		OLO_CORE_ASSERT(entity);
 
 		auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
-		auto* body = static_cast<b2Body*>(rb2d.RuntimeBody);
-		body->ApplyLinearImpulseToCenter(b2Vec2(impulse->x, impulse->y), wake);
+		b2Body_ApplyLinearImpulseToCenter(rb2d.RuntimeBody, b2Vec2(impulse->x, impulse->y), wake);
 	}
 
 	///////////////////////////////////////////////////////////////////////////////////////////

@@ -56,6 +56,7 @@ target_include_directories(OloEngine PRIVATE
 	src
 	vendor/assimp-src/include
 	vendor/box2d-src/include/box2d
+	vendor/box2d-src/src
 	vendor/entt-src/single_include/entt
 	vendor/filewatch-src
 	vendor/glad-build/include

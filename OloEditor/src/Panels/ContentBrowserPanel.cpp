@@ -43,7 +43,7 @@ namespace OloEngine
 			ImGui::PushID(filenameString.c_str());
 			const Ref<Texture2D> icon = directoryEntry.is_directory() ? m_DirectoryIcon : GetFileIcon(directoryEntry.path());
 			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-			ImGui::ImageButton(reinterpret_cast<ImTextureID>(static_cast<u64>(icon->GetRendererID())), { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
+			ImGui::ImageButton(filenameString.c_str(), (ImTextureID)(icon->GetRendererID()), { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
 
 			if (ImGui::BeginDragDropSource())
 			{
