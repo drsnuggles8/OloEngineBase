@@ -33,15 +33,20 @@ else()
 endif()
 add_dependencies(Sandbox
 				OloEngine
+				OloEngine-ScriptCore
+				Sandbox-Scripting
 )
 
 target_include_directories("Sandbox" PRIVATE
 							${CMAKE_SOURCE_DIR}/OloEngine/src
-							${CMAKE_SOURCE_DIR}/OloEngine/vendor/spdlog-src/include
 							${CMAKE_SOURCE_DIR}/OloEngine/vendor
-							${CMAKE_SOURCE_DIR}/OloEngine/vendor/glm-src
 							${CMAKE_SOURCE_DIR}/OloEngine/vendor/entt-src/single_include/entt
+							${CMAKE_SOURCE_DIR}/OloEngine/vendor/filewatch-src
+							${CMAKE_SOURCE_DIR}/OloEngine/vendor/glm-src
 							${CMAKE_SOURCE_DIR}/OloEngine/vendor/imgui-src
+							${CMAKE_SOURCE_DIR}/OloEngine/vendor/imguizmo-src
+							${CMAKE_SOURCE_DIR}/OloEngine/vendor/sol2-src/include
+							${CMAKE_SOURCE_DIR}/OloEngine/vendor/spdlog-src/include
 )
 
 target_compile_definitions("Sandbox" PRIVATE
@@ -51,6 +56,15 @@ target_compile_definitions("Sandbox" PRIVATE
 							$<$<CONFIG:Release>:TRACY_ON_DEMAND>
 							$<$<CONFIG:Dist>:OLO_DIST>
 )
+
+if(MSVC)
+	target_link_options("Sandbox" PRIVATE
+								$<$<CONFIG:Release>:/INCREMENTAL:NO>
+								$<$<CONFIG:Release>:/DEBUG>
+								$<$<CONFIG:Release>:/OPT:REF> # Remove unreferenced functions and data
+								$<$<CONFIG:Release>:/OPT:ICF> # Identical COMDAT folding
+	)
+endif()
 
 if(MSVC)
 	target_compile_options("Sandbox" PRIVATE /W4)

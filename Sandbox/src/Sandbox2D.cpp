@@ -50,9 +50,7 @@ void Sandbox2D::OnUpdate(const OloEngine::Timestep ts)
 		OloEngine::Renderer2D::DrawQuad({ 0.5f, -0.5f }, { 0.5f, 0.75f }, m_SquareColor);
 		OloEngine::Renderer2D::DrawQuad({ 0.0f, 0.0f, -0.1f }, { 20.0f, 20.0f }, m_CheckerboardTexture, 10.0f);
 		OloEngine::Renderer2D::DrawRotatedQuad({ -2.0f, 0.0f, 0.0f }, { 1.0f, 1.0f }, rotation, m_CheckerboardTexture, 20.0f);
-		OloEngine::Renderer2D::EndScene();
 
-		OloEngine::Renderer2D::BeginScene(m_CameraController.GetCamera());
 		for (f32 y = -5.0f; y < 5.0f; y += 0.5f)
 		{
 			for (f32 x = -5.0f; x < 5.0f; x += 0.5f)
