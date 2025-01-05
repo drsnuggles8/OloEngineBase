@@ -27,6 +27,15 @@ namespace OloEngine
 		int EntityID;
 	};
 
+	struct PolygonVertex
+	{
+		glm::vec3 Position;
+		glm::vec4 Color;
+
+		// Editor-only
+		int EntityID;
+	};
+
 	struct CircleVertex
 	{
 		glm::vec3 WorldPosition;
@@ -72,6 +81,10 @@ namespace OloEngine
 		Ref<Shader> QuadShader;
 		Ref<Texture2D> WhiteTexture;
 
+		Ref<VertexArray> PolygonVertexArray;
+		Ref<VertexBuffer> PolygonVertexBuffer;
+		Ref<Shader> PolygonShader;
+
 		Ref<VertexArray> CircleVertexArray;
 		Ref<VertexBuffer> CircleVertexBuffer;
 		Ref<Shader> CircleShader;
@@ -87,6 +100,10 @@ namespace OloEngine
 		u32 QuadIndexCount = 0;
 		QuadVertex* QuadVertexBufferBase = nullptr;
 		QuadVertex* QuadVertexBufferPtr = nullptr;
+
+		u32 PolygonVertexCount = 0;
+		PolygonVertex* PolygonVertexBufferBase = nullptr;
+		PolygonVertex* PolygonVertexBufferPtr = nullptr;
 
 		u32 CircleIndexCount = 0;
 		CircleVertex* CircleVertexBufferBase = nullptr;
@@ -161,6 +178,18 @@ namespace OloEngine
 		s_Data.QuadVertexArray->SetIndexBuffer(quadIB);
 		delete[] quadIndices;
 
+		// Polygons
+		s_Data.PolygonVertexArray = VertexArray::Create();
+
+		s_Data.PolygonVertexBuffer = VertexBuffer::Create(OloEngine::Renderer2DData::MaxVertices * sizeof(PolygonVertex));
+		s_Data.PolygonVertexBuffer->SetLayout({
+			{ ShaderDataType::Float3, "a_Position" },
+			{ ShaderDataType::Float4, "a_Color"    },
+			{ ShaderDataType::Int,    "a_EntityID" }
+		});
+		s_Data.PolygonVertexArray->AddVertexBuffer(s_Data.PolygonVertexBuffer);
+		s_Data.PolygonVertexBufferBase = new PolygonVertex[OloEngine::Renderer2DData::MaxVertices];
+
 		// Circles
 		s_Data.CircleVertexArray = VertexArray::Create();
 
@@ -214,6 +243,7 @@ namespace OloEngine
 		}
 
 		s_Data.QuadShader = Shader::Create("assets/shaders/Renderer2D_Quad.glsl");
+		s_Data.PolygonShader = Shader::Create("assets/shaders/Renderer2D_Polygon.glsl");
 		s_Data.CircleShader = Shader::Create("assets/shaders/Renderer2D_Circle.glsl");
 		s_Data.LineShader = Shader::Create("assets/shaders/Renderer2D_Line.glsl");
 		s_Data.TextShader = Shader::Create("assets/shaders/Renderer2D_Text.glsl");
@@ -281,6 +311,9 @@ namespace OloEngine
 		s_Data.QuadIndexCount = 0;
 		s_Data.QuadVertexBufferPtr = s_Data.QuadVertexBufferBase;
 
+		s_Data.PolygonVertexCount = 0;
+		s_Data.PolygonVertexBufferPtr = s_Data.PolygonVertexBufferBase;
+
 		s_Data.CircleIndexCount = 0;
 		s_Data.CircleVertexBufferPtr = s_Data.CircleVertexBufferBase;
 
@@ -309,6 +342,17 @@ namespace OloEngine
 
 			s_Data.QuadShader->Bind();
 			RenderCommand::DrawIndexed(s_Data.QuadVertexArray, s_Data.QuadIndexCount);
+			++s_Data.Stats.DrawCalls;
+		}
+
+		if (s_Data.PolygonVertexCount)
+		{
+			const auto dataSize = static_cast<u32>(reinterpret_cast<u8*>(s_Data.PolygonVertexBufferPtr) - reinterpret_cast<u8*>(s_Data.PolygonVertexBufferBase));
+			VertexData data = { s_Data.PolygonVertexBufferBase, dataSize };
+			s_Data.PolygonVertexBuffer->SetData(data);
+
+			s_Data.PolygonShader->Bind();
+			RenderCommand::DrawArrays(s_Data.PolygonVertexArray, s_Data.PolygonVertexCount);
 			++s_Data.Stats.DrawCalls;
 		}
 
@@ -463,6 +507,33 @@ namespace OloEngine
 		++s_Data.Stats.QuadCount;
 	}
 
+	void Renderer2D::DrawPolygon(const std::vector<glm::vec3>& vertices, const glm::vec4& color, int entityID)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		if (vertices.size() < 3)
+		{
+			// A polygon must have at least 3 vertices
+			return;
+		}
+
+		if (s_Data.PolygonVertexCount + vertices.size() >= Renderer2DData::MaxVertices)
+		{
+			NextBatch();
+		}
+
+		for (const auto& vertex : vertices)
+		{
+			s_Data.PolygonVertexBufferPtr->Position = vertex;
+			s_Data.PolygonVertexBufferPtr->Color = color;
+			s_Data.PolygonVertexBufferPtr->EntityID = entityID;
+			++s_Data.PolygonVertexBufferPtr;
+		}
+
+		s_Data.PolygonVertexCount += vertices.size();
+		++s_Data.Stats.QuadCount; // Update stats (optional)
+	}
+
 	void Renderer2D::DrawRotatedQuad(const glm::vec2& position, const glm::vec2& size, const f32 rotation, const glm::vec4& color)
 	{
 		DrawRotatedQuad({ position.x, position.y, 0.0f }, size, rotation, color);
@@ -561,7 +632,6 @@ namespace OloEngine
 		DrawLine(lineVertices[2], lineVertices[3], color, entityID);
 		DrawLine(lineVertices[3], lineVertices[0], color, entityID);
 	}
-
 
 	void Renderer2D::DrawSprite(const glm::mat4& transform, SpriteRendererComponent const& src, const int entityID)
 	{

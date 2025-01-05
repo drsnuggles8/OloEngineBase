@@ -17,6 +17,7 @@ void Sandbox2D::OnAttach()
 	OLO_PROFILE_FUNCTION();
 
 	m_CheckerboardTexture = OloEngine::Texture2D::Create("assets/textures/Checkerboard.png");
+	m_OtterTexture = OloEngine::Texture2D::Create("assets/textures/Otter.png");
 }
 
 void Sandbox2D::OnDetach()
@@ -45,11 +46,26 @@ void Sandbox2D::OnUpdate(const OloEngine::Timestep ts)
 
 		OLO_PROFILE_SCOPE("Renderer Draw");
 		OloEngine::Renderer2D::BeginScene(m_CameraController.GetCamera());
+
 		OloEngine::Renderer2D::DrawRotatedQuad({ 1.0f, 0.0f }, { 0.8f, 0.8f }, -45.0f, { 0.8f, 0.2f, 0.3f, 1.0f });
 		OloEngine::Renderer2D::DrawQuad({ -1.0f, 0.0f }, { 0.8f, 0.8f }, { 0.8f, 0.2f, 0.3f, 1.0f });
 		OloEngine::Renderer2D::DrawQuad({ 0.5f, -0.5f }, { 0.5f, 0.75f }, m_SquareColor);
 		OloEngine::Renderer2D::DrawQuad({ 0.0f, 0.0f, -0.1f }, { 20.0f, 20.0f }, m_CheckerboardTexture, 10.0f);
-		OloEngine::Renderer2D::DrawRotatedQuad({ -2.0f, 0.0f, 0.0f }, { 1.0f, 1.0f }, rotation, m_CheckerboardTexture, 20.0f);
+		OloEngine::Renderer2D::DrawRotatedQuad({ -2.0f, 0.0f, 0.0f }, { 1.0f, 1.0f }, rotation, m_OtterTexture, 20.0f);
+
+		std::vector<glm::vec3> hexagonVertices = {
+				{ 0.0f, 3.0f, 0.1f },
+				{ -0.5f, 2.5f, 0.1f },
+				{  0.5f, 2.5f, 0.1f },
+				{  0.75f, 3.0f, 0.1f },
+				{  0.5f, 3.5f, 0.1f },
+				{ -0.5f, 3.5f, 0.1f },
+				{ -0.75f, 3.0f, 0.1f },
+				{ -0.5f, 2.5f, 0.1f }
+		};
+
+		OloEngine::Renderer2D::DrawPolygon(hexagonVertices, { 0.2f, 0.8f, 0.3f, 1.0f }, 10);
+
 
 		for (f32 y = -5.0f; y < 5.0f; y += 0.5f)
 		{
@@ -59,6 +75,7 @@ void Sandbox2D::OnUpdate(const OloEngine::Timestep ts)
 				OloEngine::Renderer2D::DrawQuad({ x, y }, { 0.45f, 0.45f }, color);
 			}
 		}
+
 		OloEngine::Renderer2D::EndScene();
 	}
 }

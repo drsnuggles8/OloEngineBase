@@ -27,6 +27,11 @@ namespace OloEngine
 			s_RendererAPI->Clear();
 		}
 
+		static void DrawArrays(const Ref<VertexArray>& vertexArray, u32 vertexCount)
+		{
+			s_RendererAPI->DrawArrays(vertexArray, vertexCount);
+		}
+
 		static void DrawIndexed(const Ref<VertexArray>& vertexArray, const u32 indexCount = 0)
 		{
 			s_RendererAPI->DrawIndexed(vertexArray, indexCount);
