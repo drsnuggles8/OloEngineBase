@@ -17,7 +17,6 @@ public:
 private:
 	OloEngine::OrthographicCameraController m_CameraController;
 
-	// Temp
 	OloEngine::Ref<OloEngine::VertexArray> m_SquareVA;
 	OloEngine::Ref<OloEngine::Shader> m_FlatColorShader;
 
@@ -25,4 +24,7 @@ private:
 	OloEngine::Ref<OloEngine::Texture2D> m_OtterTexture;
 
 	glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
+
+	float m_Timer = 0.0f;
+	int m_Scene = 0;
 };

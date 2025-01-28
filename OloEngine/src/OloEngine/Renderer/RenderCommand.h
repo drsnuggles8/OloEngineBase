@@ -2,6 +2,8 @@
 
 #include "OloEngine/Renderer/RendererAPI.h"
 
+#include <glad/gl.h>
+
 namespace OloEngine
 {
 	class RenderCommand
@@ -46,6 +48,82 @@ namespace OloEngine
 		{
 			s_RendererAPI->SetLineWidth(width);
 		}
+
+		static void EnableCulling()
+		{
+			s_RendererAPI->EnableCulling();
+		}
+
+		static void DisableCulling()
+		{
+			s_RendererAPI->DisableCulling();
+		}
+
+		static void FrontCull()
+		{
+			s_RendererAPI->FrontCull();
+		}
+
+		static void BackCull()
+		{
+			s_RendererAPI->BackCull();
+		}
+
+		static void SetDepthMask(bool value)
+		{
+			s_RendererAPI->SetDepthMask(value);
+		}
+
+		static void SetDepthTest(bool value)
+		{
+			s_RendererAPI->SetDepthTest(value);
+		}
+
+		static void SetBlendState(bool value)
+		{
+			s_RendererAPI->SetBlendState(value);
+		}
+
+		static void EnableStencilTest()
+		{
+			s_RendererAPI->EnableStencilTest();
+		}
+
+		static void DisableStencilTest()
+		{
+			s_RendererAPI->DisableStencilTest();
+		}
+
+		static void SetStencilFunc(GLenum func, GLint ref, GLuint mask)
+		{
+			s_RendererAPI->SetStencilFunc(func, ref, mask);
+		}
+
+		static void SetStencilOp(GLenum sfail, GLenum dpfail, GLenum dppass)
+		{
+			s_RendererAPI->SetStencilOp(sfail, dpfail, dppass);
+		}
+
+		static void SetPolygonMode(GLenum face, GLenum mode)
+		{
+			s_RendererAPI->SetPolygonMode(face, mode);
+		}
+
+		static void EnableScissorTest()
+		{
+			s_RendererAPI->EnableScissorTest();
+		}
+
+		static void DisableScissorTest()
+		{
+			s_RendererAPI->DisableScissorTest();
+		}
+
+		static void SetScissorBox(GLint x, GLint y, GLsizei width, GLsizei height)
+		{
+			s_RendererAPI->SetScissorBox(x, y, width, height);
+		}
+
 	private:
 		static Scope<RendererAPI> s_RendererAPI;
 	};
