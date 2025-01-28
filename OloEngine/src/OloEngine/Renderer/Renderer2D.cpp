@@ -204,24 +204,24 @@ namespace OloEngine
 		});
 		s_Data.CircleVertexArray->AddVertexBuffer(s_Data.CircleVertexBuffer);
 		s_Data.CircleVertexArray->SetIndexBuffer(quadIB); // Use quad IB
-		s_Data.CircleVertexBufferBase = new CircleVertex[OloEngine::Renderer2DData::MaxVertices];
+		s_Data.CircleVertexBufferBase = new CircleVertex[Renderer2DData::MaxVertices];
 
 		// Lines
 		s_Data.LineVertexArray = VertexArray::Create();
 
-		s_Data.LineVertexBuffer = VertexBuffer::Create(OloEngine::Renderer2DData::MaxVertices * sizeof(LineVertex));
+		s_Data.LineVertexBuffer = VertexBuffer::Create(Renderer2DData::MaxVertices * sizeof(LineVertex));
 		s_Data.LineVertexBuffer->SetLayout({
 			{ ShaderDataType::Float3, "a_Position" },
 			{ ShaderDataType::Float4, "a_Color"    },
 			{ ShaderDataType::Int,    "a_EntityID" }
 		});
 		s_Data.LineVertexArray->AddVertexBuffer(s_Data.LineVertexBuffer);
-		s_Data.LineVertexBufferBase = new LineVertex[OloEngine::Renderer2DData::MaxVertices];
+		s_Data.LineVertexBufferBase = new LineVertex[Renderer2DData::MaxVertices];
 
 		// Text
 		s_Data.TextVertexArray = VertexArray::Create();
 
-		s_Data.TextVertexBuffer = VertexBuffer::Create(s_Data.MaxVertices * sizeof(TextVertex));
+		s_Data.TextVertexBuffer = VertexBuffer::Create(Renderer2DData::MaxVertices * sizeof(TextVertex));
 		s_Data.TextVertexBuffer->SetLayout({
 			{ ShaderDataType::Float3, "a_Position"     },
 			{ ShaderDataType::Float4, "a_Color"        },
@@ -230,7 +230,7 @@ namespace OloEngine
 		});
 		s_Data.TextVertexArray->AddVertexBuffer(s_Data.TextVertexBuffer);
 		s_Data.TextVertexArray->SetIndexBuffer(quadIB);
-		s_Data.TextVertexBufferBase = new TextVertex[s_Data.MaxVertices];
+		s_Data.TextVertexBufferBase = new TextVertex[Renderer2DData::MaxVertices];
 
 		s_Data.WhiteTexture = Texture2D::Create(TextureSpecification());
 		u32 whiteTextureData = 0xffffffffU;
@@ -328,65 +328,120 @@ namespace OloEngine
 
 	void Renderer2D::Flush()
 	{
+		struct DrawCall
+		{
+			Ref<Shader> Shader;
+			std::vector<Ref<Texture2D>> Textures;
+			u32 IndexCount = 0;
+			void* VertexBufferBase = nullptr;
+			u32 VertexBufferSize = 0;
+			Ref<VertexArray> VertexArray;
+		};
+
+		std::vector<DrawCall> drawCalls;
+
+		// Collect draw calls for quads
 		if (s_Data.QuadIndexCount)
 		{
-			const auto dataSize = static_cast<u32>(reinterpret_cast<u8*>(s_Data.QuadVertexBufferPtr) - reinterpret_cast<u8*>(s_Data.QuadVertexBufferBase));
-			VertexData data = { s_Data.QuadVertexBufferBase, dataSize };
-			s_Data.QuadVertexBuffer->SetData(data);
-
-			// Bind textures
-			for (u32 i = 0; i < s_Data.TextureSlotIndex; i++)
-			{
-				s_Data.TextureSlots[i]->Bind(i);
-			}
-
-			s_Data.QuadShader->Bind();
-			RenderCommand::DrawIndexed(s_Data.QuadVertexArray, s_Data.QuadIndexCount);
-			++s_Data.Stats.DrawCalls;
+			DrawCall drawCall;
+			drawCall.Shader = s_Data.QuadShader;
+			drawCall.Textures.assign(s_Data.TextureSlots.begin(), s_Data.TextureSlots.begin() + s_Data.TextureSlotIndex);
+			drawCall.IndexCount = s_Data.QuadIndexCount;
+			drawCall.VertexBufferBase = s_Data.QuadVertexBufferBase;
+			drawCall.VertexBufferSize = static_cast<u32>(std::bit_cast<std::byte*>(s_Data.QuadVertexBufferPtr) - std::bit_cast<std::byte*>(s_Data.QuadVertexBufferBase));
+			drawCall.VertexArray = s_Data.QuadVertexArray;
+			drawCalls.push_back(drawCall);
 		}
 
+		// Collect draw calls for polygons
 		if (s_Data.PolygonVertexCount)
 		{
-			const auto dataSize = static_cast<u32>(reinterpret_cast<u8*>(s_Data.PolygonVertexBufferPtr) - reinterpret_cast<u8*>(s_Data.PolygonVertexBufferBase));
-			VertexData data = { s_Data.PolygonVertexBufferBase, dataSize };
-			s_Data.PolygonVertexBuffer->SetData(data);
-
-			s_Data.PolygonShader->Bind();
-			RenderCommand::DrawArrays(s_Data.PolygonVertexArray, s_Data.PolygonVertexCount);
-			++s_Data.Stats.DrawCalls;
+			DrawCall drawCall;
+			drawCall.Shader = s_Data.PolygonShader;
+			drawCall.IndexCount = s_Data.PolygonVertexCount;
+			drawCall.VertexBufferBase = s_Data.PolygonVertexBufferBase;
+			drawCall.VertexBufferSize = static_cast<u32>(std::bit_cast<std::byte*>(s_Data.PolygonVertexBufferPtr) - std::bit_cast<std::byte*>(s_Data.PolygonVertexBufferBase));
+			drawCall.VertexArray = s_Data.PolygonVertexArray;
+			drawCalls.push_back(drawCall);
 		}
 
+		// Collect draw calls for circles
 		if (s_Data.CircleIndexCount)
 		{
-			const auto dataSize = static_cast<u32>(reinterpret_cast<u8*>(s_Data.CircleVertexBufferPtr) - reinterpret_cast<u8*>(s_Data.CircleVertexBufferBase));
-			VertexData data = { s_Data.CircleVertexBufferBase, dataSize };
-			s_Data.CircleVertexBuffer->SetData(data);
-
-			s_Data.CircleShader->Bind();
-			RenderCommand::DrawIndexed(s_Data.CircleVertexArray, s_Data.CircleIndexCount);
-			++s_Data.Stats.DrawCalls;
+			DrawCall drawCall;
+			drawCall.Shader = s_Data.CircleShader;
+			drawCall.IndexCount = s_Data.CircleIndexCount;
+			drawCall.VertexBufferBase = s_Data.CircleVertexBufferBase;
+			drawCall.VertexBufferSize = static_cast<u32>(std::bit_cast<std::byte*>(s_Data.CircleVertexBufferPtr) - std::bit_cast<std::byte*>(s_Data.CircleVertexBufferBase));
+			drawCall.VertexArray = s_Data.CircleVertexArray;
+			drawCalls.push_back(drawCall);
 		}
 
+		// Collect draw calls for lines
 		if (s_Data.LineVertexCount)
 		{
-			const auto dataSize = static_cast<u32>(reinterpret_cast<u8*>(s_Data.LineVertexBufferPtr) - reinterpret_cast<u8*>(s_Data.LineVertexBufferBase));
-			VertexData data = { s_Data.LineVertexBufferBase, dataSize };
-			s_Data.LineVertexBuffer->SetData(data);
-
-			s_Data.LineShader->Bind();
-			RenderCommand::SetLineWidth(s_Data.LineWidth);
-			RenderCommand::DrawLines(s_Data.LineVertexArray, s_Data.LineVertexCount);
-			++s_Data.Stats.DrawCalls;
+			DrawCall drawCall;
+			drawCall.Shader = s_Data.LineShader;
+			drawCall.IndexCount = s_Data.LineVertexCount;
+			drawCall.VertexBufferBase = s_Data.LineVertexBufferBase;
+			drawCall.VertexBufferSize = static_cast<u32>(std::bit_cast<std::byte*>(s_Data.LineVertexBufferPtr) - std::bit_cast<std::byte*>(s_Data.LineVertexBufferBase));
+			drawCall.VertexArray = s_Data.LineVertexArray;
+			drawCalls.push_back(drawCall);
 		}
 
+		// Collect draw calls for text
 		if (s_Data.TextIndexCount)
 		{
-			const auto dataSize = static_cast<u32>(reinterpret_cast<u8*>(s_Data.TextVertexBufferPtr) - reinterpret_cast<u8*>(s_Data.TextVertexBufferBase));
-			VertexData data = { s_Data.TextVertexBufferBase, dataSize };
-			s_Data.TextVertexBuffer->SetData(data);
-			s_Data.FontAtlasTexture->Bind(0);
-			s_Data.TextShader->Bind();
-			RenderCommand::DrawIndexed(s_Data.TextVertexArray, s_Data.TextIndexCount);
+			DrawCall drawCall;
+			drawCall.Shader = s_Data.TextShader;
+			drawCall.Textures.push_back(s_Data.FontAtlasTexture);
+			drawCall.IndexCount = s_Data.TextIndexCount;
+			drawCall.VertexBufferBase = s_Data.TextVertexBufferBase;
+			drawCall.VertexBufferSize = static_cast<u32>(std::bit_cast<std::byte*>(s_Data.TextVertexBufferPtr) - std::bit_cast<std::byte*>(s_Data.TextVertexBufferBase));
+			drawCall.VertexArray = s_Data.TextVertexArray;
+			drawCalls.push_back(drawCall);
+		}
+
+		// Sort draw calls by shader and textures
+		std::sort(drawCalls.begin(), drawCalls.end(), [](const DrawCall& a, const DrawCall& b)
+		{
+			if (a.Shader != b.Shader)
+				return a.Shader < b.Shader;
+			return a.Textures < b.Textures;
+		});
+
+		// Execute draw calls
+		for (const auto& drawCall : drawCalls)
+		{
+			drawCall.VertexArray->Bind();
+			drawCall.Shader->Bind();
+
+			// Bind textures
+			for (u32 i = 0; i < drawCall.Textures.size(); i++)
+			{
+				drawCall.Textures[i]->Bind(i);
+			}
+
+			VertexData data = { drawCall.VertexBufferBase, drawCall.VertexBufferSize };
+			for (const auto& vertexBuffer : drawCall.VertexArray->GetVertexBuffers())
+			{
+				vertexBuffer->SetData(data);
+			}
+
+			if (drawCall.VertexArray == s_Data.QuadVertexArray || drawCall.VertexArray == s_Data.CircleVertexArray || drawCall.VertexArray == s_Data.TextVertexArray)
+			{
+				RenderCommand::DrawIndexed(drawCall.VertexArray, drawCall.IndexCount);
+			}
+			else if (drawCall.VertexArray == s_Data.PolygonVertexArray)
+			{
+				RenderCommand::DrawArrays(drawCall.VertexArray, drawCall.IndexCount);
+			}
+			else if (drawCall.VertexArray == s_Data.LineVertexArray)
+			{
+				RenderCommand::SetLineWidth(s_Data.LineWidth);
+				RenderCommand::DrawLines(drawCall.VertexArray, drawCall.IndexCount);
+			}
+
 			++s_Data.Stats.DrawCalls;
 		}
 	}
@@ -530,7 +585,7 @@ namespace OloEngine
 			++s_Data.PolygonVertexBufferPtr;
 		}
 
-		s_Data.PolygonVertexCount += vertices.size();
+		s_Data.PolygonVertexCount += static_cast<u32>(vertices.size());
 		++s_Data.Stats.QuadCount; // Update stats (optional)
 	}
 
@@ -657,7 +712,7 @@ namespace OloEngine
 		double fsScale = 1.0 / (metrics.ascenderY - metrics.descenderY);
 		double y = 0.0;
 
-		const float spaceGlyphAdvance = fontGeometry.getGlyph(' ')->getAdvance();
+		const auto spaceGlyphAdvance = static_cast<float>(fontGeometry.getGlyph(' ')->getAdvance());
 
 		for (sizet i = 0; i < string.size(); i++)
 		{
@@ -727,8 +782,8 @@ namespace OloEngine
 			quadMin += glm::vec2(x, y);
 			quadMax += glm::vec2(x, y);
 
-			float texelWidth = 1.0f / fontAtlas->GetWidth();
-			float texelHeight = 1.0f / fontAtlas->GetHeight();
+			float texelWidth = 1.0f / static_cast<float>(fontAtlas->GetWidth());
+			float texelHeight = 1.0f / static_cast<float>(fontAtlas->GetHeight());
 			texCoordMin *= glm::vec2(texelWidth, texelHeight);
 			texCoordMax *= glm::vec2(texelWidth, texelHeight);
 
