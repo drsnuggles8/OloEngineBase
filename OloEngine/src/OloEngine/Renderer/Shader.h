@@ -25,10 +25,14 @@ namespace OloEngine
 
 		[[nodiscard("Store this!")]] virtual const std::string& GetName() const = 0;
 
+		virtual void Reload() = 0;
+
 		static Ref<Shader> Create(const std::string& filepath);
 		static Ref<Shader> Create(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc);
 	};
 
+
+	// TODO(olbu): Refactor this so that ShaderLibrary code is in its own file
 	class ShaderLibrary
 	{
 	public:
@@ -38,6 +42,8 @@ namespace OloEngine
 		Ref<Shader> Load(const std::string& name, const std::string& filepath);
 
 		Ref<Shader> Get(const std::string& name);
+
+		void ReloadShaders();
 
         [[nodiscard("Store this!")]] bool Exists(const std::string& name) const;
 	private:

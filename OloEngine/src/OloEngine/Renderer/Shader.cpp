@@ -76,6 +76,14 @@ namespace OloEngine
 		return m_Shaders[name];
 	}
 
+	void ShaderLibrary::ReloadShaders()
+	{
+		for (auto& [name, shader] : m_Shaders)
+		{
+			shader->Reload();
+		}
+	}
+
 	bool ShaderLibrary::Exists(const std::string& name) const
 	{
 		return m_Shaders.contains(name);

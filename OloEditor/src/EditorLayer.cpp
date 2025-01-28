@@ -56,6 +56,7 @@ namespace OloEngine
 			}
 		}
 		m_EditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
+
 	}
 
 	void EditorLayer::OnDetach()
@@ -267,6 +268,16 @@ namespace OloEngine
 			if (ImGui::MenuItem("Reload assembly", "Ctrl+R"))
 			{
 				ScriptEngine::ReloadAssembly();
+			}
+
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("Shaders"))
+		{
+			if (ImGui::MenuItem("Reload shader", "Ctrl+Shift+R"))
+			{
+				Renderer2D::GetShaderLibrary().ReloadShaders();
 			}
 
 			ImGui::EndMenu();

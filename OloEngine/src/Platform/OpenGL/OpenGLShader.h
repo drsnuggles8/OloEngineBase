@@ -25,6 +25,8 @@ namespace OloEngine
 
 		[[nodiscard ("Store this!")]] const std::string& GetName() const override { return m_Name; }
 
+		void Reload() override;
+
 		void UploadUniformInt(const std::string& name, int value) const;
 		void UploadUniformIntArray(const std::string& name, int const* values, u32 count) const;
 		void UploadUniformFloat(const std::string& name, f32 value) const;

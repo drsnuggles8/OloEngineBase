@@ -133,7 +133,6 @@ void Sandbox2D::OnImGuiRender()
 
 	ImGui::ColorEdit4("Square Color", glm::value_ptr(m_SquareColor));
 
-	// Display countdown timer
 	ImGui::Text("Scene will switch in: %.1f seconds", 5.0f - m_Timer);
 
 	ImGui::End();

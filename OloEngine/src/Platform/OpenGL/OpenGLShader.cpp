@@ -578,6 +578,25 @@ namespace OloEngine
 		}
 	}
 
+	void OpenGLShader::Reload()
+	{
+		// Implement the logic to reload the shader
+		// This might involve recompiling the shader source code and updating the GPU resources
+		std::string source = ReadFile(m_FilePath);
+		auto shaderSources = PreProcess(source);
+
+		CompileOrGetVulkanBinaries(shaderSources);
+		if (Utils::IsAmdGpu())
+		{
+			CreateProgramForAmd();
+		}
+		else
+		{
+			CompileOrGetOpenGLBinaries();
+			CreateProgram();
+		}
+	}
+
 	void OpenGLShader::Bind() const
 	{
 		OLO_PROFILE_FUNCTION();

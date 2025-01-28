@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/OrthographicCamera.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Renderer/Shader.h"
 
 namespace OloEngine
 {
@@ -57,6 +58,8 @@ namespace OloEngine
 		[[nodiscard("Store this!")]] static f32 GetLineWidth();
 		static void SetLineWidth(f32 width);
 
+		static ShaderLibrary& GetShaderLibrary();
+
 		// Stats
 		struct Statistics
 		{
@@ -72,5 +75,7 @@ namespace OloEngine
 	private:
 		static void StartBatch();
 		static void NextBatch();
+
+		static ShaderLibrary m_ShaderLibrary;
 	};
 }

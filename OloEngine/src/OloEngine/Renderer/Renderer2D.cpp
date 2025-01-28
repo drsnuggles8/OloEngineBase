@@ -137,6 +137,8 @@ namespace OloEngine
 
 	static Renderer2DData s_Data;
 
+	ShaderLibrary Renderer2D::m_ShaderLibrary;
+
 	void Renderer2D::Init()
 	{
 		OLO_PROFILE_FUNCTION();
@@ -240,11 +242,17 @@ namespace OloEngine
 			samplers[i] = i;
 		}
 
-		s_Data.QuadShader = Shader::Create("assets/shaders/Renderer2D_Quad.glsl");
-		s_Data.PolygonShader = Shader::Create("assets/shaders/Renderer2D_Polygon.glsl");
-		s_Data.CircleShader = Shader::Create("assets/shaders/Renderer2D_Circle.glsl");
-		s_Data.LineShader = Shader::Create("assets/shaders/Renderer2D_Line.glsl");
-		s_Data.TextShader = Shader::Create("assets/shaders/Renderer2D_Text.glsl");
+		m_ShaderLibrary.Load("assets/shaders/Renderer2D_Quad.glsl");
+		m_ShaderLibrary.Load("assets/shaders/Renderer2D_Polygon.glsl");
+		m_ShaderLibrary.Load("assets/shaders/Renderer2D_Circle.glsl");
+		m_ShaderLibrary.Load("assets/shaders/Renderer2D_Line.glsl");
+		m_ShaderLibrary.Load("assets/shaders/Renderer2D_Text.glsl");
+
+		s_Data.QuadShader = m_ShaderLibrary.Get("Renderer2D_Quad");
+		s_Data.PolygonShader = m_ShaderLibrary.Get("Renderer2D_Polygon");
+		s_Data.CircleShader = m_ShaderLibrary.Get("Renderer2D_Circle");
+		s_Data.LineShader = m_ShaderLibrary.Get("Renderer2D_Line");
+		s_Data.TextShader = m_ShaderLibrary.Get("Renderer2D_Text");
 
 		// Set first texture slot to 0
 		s_Data.TextureSlots[0] = s_Data.WhiteTexture;
@@ -448,6 +456,11 @@ namespace OloEngine
 	{
 		Flush();
 		StartBatch();
+	}
+
+	ShaderLibrary& Renderer2D::GetShaderLibrary()
+	{
+		return m_ShaderLibrary;
 	}
 
 	void Renderer2D::DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color)
