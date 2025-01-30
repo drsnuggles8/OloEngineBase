@@ -277,7 +277,9 @@ namespace OloEngine
 		{
 			if (ImGui::MenuItem("Reload shader", "Ctrl+Shift+R"))
 			{
+				OLO_INFO("Reloading shaders...");
 				Renderer2D::GetShaderLibrary().ReloadShaders();
+				OLO_INFO("Shaders reloaded!");
 			}
 
 			ImGui::EndMenu();
@@ -518,6 +520,8 @@ namespace OloEngine
 		ImGui::Text("Quads: %d", stats.QuadCount);
 		ImGui::Text("Vertices: %d", stats.GetTotalVertexCount());
 		ImGui::Text("Indices: %d", stats.GetTotalIndexCount());
+		ImGui::Text("Frame Rate: %.1f FPS", ImGui::GetIO().Framerate);
+		ImGui::Text("Frame Time: %.3f ms", 1000.0f / ImGui::GetIO().Framerate);
 		ImGui::End();
 	}
 

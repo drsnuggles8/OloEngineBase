@@ -82,6 +82,8 @@
 		"OloEngine/Renderer/RendererAPI.h"
 		"OloEngine/Renderer/Shader.cpp"
 		"OloEngine/Renderer/Shader.h"
+		"OloEngine/Renderer/ShaderLibrary.cpp"
+		"OloEngine/Renderer/ShaderLibrary.h"
 		"OloEngine/Renderer/Texture.cpp"
 		"OloEngine/Renderer/Texture.h"
 		"OloEngine/Renderer/UniformBuffer.cpp"
