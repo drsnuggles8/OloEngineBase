@@ -30,6 +30,8 @@ add_dependencies(OloEditor
 				OloEngine
 				OloEngine-ScriptCore
 				Sandbox-Scripting
+				png_shared
+				zlib
 )
 
 target_include_directories(OloEditor PRIVATE
