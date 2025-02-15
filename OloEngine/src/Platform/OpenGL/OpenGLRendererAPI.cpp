@@ -1,5 +1,3 @@
-// This is an independent project of an individual developer. Dear PVS-Studio, please check it.
-// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLRendererAPI.h"
 #include "Platform/OpenGL/OpenGLDebug.h"
@@ -46,6 +44,14 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	}
+
+	void OpenGLRendererAPI::DrawArrays(const Ref<VertexArray>& vertexArray, u32 vertexCount)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		vertexArray->Bind();
+		glDrawArrays(GL_TRIANGLE_FAN, 0, static_cast<GLsizei>(vertexCount));
 	}
 
 	void OpenGLRendererAPI::DrawIndexed(const Ref<VertexArray>& vertexArray, const u32 indexCount)
@@ -133,5 +139,61 @@ namespace OloEngine
 		{
 			glDisable(GL_BLEND);
 		}
+	}
+
+	void OpenGLRendererAPI::EnableStencilTest()
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glEnable(GL_STENCIL_TEST);
+	}
+
+	void OpenGLRendererAPI::DisableStencilTest()
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glDisable(GL_STENCIL_TEST);
+	}
+
+	void OpenGLRendererAPI::SetStencilFunc(GLenum func, GLint ref, GLuint mask)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glStencilFunc(func, ref, mask);
+	}
+
+	void OpenGLRendererAPI::SetStencilOp(GLenum sfail, GLenum dpfail, GLenum dppass)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glStencilOp(sfail, dpfail, dppass);
+	}
+
+	void OpenGLRendererAPI::SetPolygonMode(GLenum face, GLenum mode)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glPolygonMode(face, mode);
+	}
+
+	void OpenGLRendererAPI::EnableScissorTest()
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glEnable(GL_SCISSOR_TEST);
+	}
+
+	void OpenGLRendererAPI::DisableScissorTest()
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glDisable(GL_SCISSOR_TEST);
+	}
+
+	void OpenGLRendererAPI::SetScissorBox(GLint x, GLint y, GLsizei width, GLsizei height)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glScissor(x, y, width, height);
 	}
 }

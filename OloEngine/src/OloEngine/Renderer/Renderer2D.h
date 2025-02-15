@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/OrthographicCamera.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Renderer/Shader.h"
 
 namespace OloEngine
 {
@@ -28,6 +29,8 @@ namespace OloEngine
 		static void DrawQuad(const glm::vec3& position, const glm::vec2& size, const Ref<Texture2D>& texture, f32 tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
 		static void DrawQuad(const glm::mat4& transform, const glm::vec4& color, int entityID = -1);
 		static void DrawQuad(const glm::mat4& transform, const Ref<Texture2D>& texture, f32 tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f), int entityID = -1);
+
+		static void DrawPolygon(const std::vector<glm::vec3>& vertices, const glm::vec4& color, int entityID);
 
 		static void DrawRotatedQuad(const glm::vec2& position, const glm::vec2& size, f32 rotation, const glm::vec4& color);
 		static void DrawRotatedQuad(const glm::vec3& position, const glm::vec2& size, f32 rotation, const glm::vec4& color);
@@ -55,6 +58,8 @@ namespace OloEngine
 		[[nodiscard("Store this!")]] static f32 GetLineWidth();
 		static void SetLineWidth(f32 width);
 
+		static ShaderLibrary& GetShaderLibrary();
+
 		// Stats
 		struct Statistics
 		{
@@ -70,5 +75,7 @@ namespace OloEngine
 	private:
 		static void StartBatch();
 		static void NextBatch();
+
+		static ShaderLibrary m_ShaderLibrary;
 	};
 }

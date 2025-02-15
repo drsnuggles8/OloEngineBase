@@ -1,5 +1,3 @@
-// This is an independent project of an individual developer. Dear PVS-Studio, please check it.
-// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 #include "OloEngine/Core/Timer.h"
@@ -577,6 +575,23 @@ namespace OloEngine
 			OLO_CORE_TRACE("    Size = {0}", bufferSize);
 			OLO_CORE_TRACE("    Binding = {0}", binding);
 			OLO_CORE_TRACE("    Members = {0}", memberCount);
+		}
+	}
+
+	void OpenGLShader::Reload()
+	{
+		std::string source = ReadFile(m_FilePath);
+		auto shaderSources = PreProcess(source);
+
+		CompileOrGetVulkanBinaries(shaderSources);
+		if (Utils::IsAmdGpu())
+		{
+			CreateProgramForAmd();
+		}
+		else
+		{
+			CompileOrGetOpenGLBinaries();
+			CreateProgram();
 		}
 	}
 

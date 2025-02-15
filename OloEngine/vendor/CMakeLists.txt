@@ -37,20 +37,20 @@ FetchContent_Declare(
 FetchContent_Declare(
 	glad
 	GIT_REPOSITORY	https://github.com/Dav1dde/glad.git
-	GIT_TAG			v2.0.4
+	GIT_TAG			v2.0.8
 	GIT_SHALLOW		TRUE
 	SOURCE_SUBDIR	cmake
 )
 FetchContent_Declare(
 	glfw
 	GIT_REPOSITORY	https://github.com/glfw/glfw.git
-	GIT_TAG			3.3.8
+	GIT_TAG			3.4
 	GIT_SHALLOW		TRUE
 )
 FetchContent_Declare(
 	glm
 	GIT_REPOSITORY https://github.com/g-truc/glm.git
-	GIT_TAG 0.9.9.8
+	GIT_TAG 1.0.1
 	GIT_SHALLOW		TRUE
 )
 FetchContent_Declare(
@@ -62,15 +62,18 @@ FetchContent_Declare(
 FetchContent_Declare(
     libpng
     GIT_REPOSITORY https://github.com/glennrp/libpng.git
-    GIT_TAG v1.6.39
+    GIT_TAG v1.6.46
+	GIT_SHALLOW		TRUE
 )
 FetchContent_Declare(
 	msdfgen
 	GIT_REPOSITORY https://github.com/Chlumsky/msdfgen.git
+	GIT_SHALLOW		TRUE
 )
 FetchContent_Declare(
 	msdf-atlas-gen
 	GIT_REPOSITORY https://github.com/Chlumsky/msdf-atlas-gen.git
+	GIT_SHALLOW		TRUE
 )
 # Don't update spdlog to 1.11.0, gives errors in OpenGLContext.cpp
 FetchContent_Declare(
@@ -88,7 +91,8 @@ FetchContent_Declare(
 FetchContent_Declare(
     tinyxml2
     GIT_REPOSITORY https://github.com/leethomason/tinyxml2.git
-    GIT_TAG 9.0.0
+    GIT_TAG 10.0.0
+	GIT_SHALLOW		TRUE
 )
 FetchContent_Declare(
 	yaml-cpp
@@ -99,7 +103,8 @@ FetchContent_Declare(
 FetchContent_Declare(
     zlib
     GIT_REPOSITORY https://github.com/madler/zlib.git
-    GIT_TAG v1.2.13
+    GIT_TAG v1.3.1
+	GIT_SHALLOW		TRUE
 )
 
 FetchContent_GetProperties(zlib)
@@ -114,12 +119,11 @@ set(ZLIB_INCLUDE_DIRS "${CMAKE_CURRENT_LIST_DIR}/zlib" "${CMAKE_CURRENT_BINARY_D
 find_package(ZLIB REQUIRED)
 
 FetchContent_GetProperties(libpng)
-set(PNG_STATIC ON CACHE BOOL "Build libpng as a static lib" FORCE)
+set(PNG_STATIC OFF CACHE BOOL "Build libpng as a static lib" FORCE)
 set(PNG_SHARED ON CACHE BOOL "Build libpng as a shared lib" FORCE)
 option(PNG_EXECUTABLES OFF)
 option(PNG_TESTS OFF)
 option(PNG_DEBUG ON)
-set(PNG_BUILD_ZLIB ON CACHE BOOL "Use custom zlib location" FORCE)
 FetchContent_MakeAvailable(libpng)
 set(PNG_LIBRARY png CACHE INTERNAL "")
 set(PNG_PNG_INCLUDE_DIR ${libpng_SOURCE_DIR} CACHE INTERNAL "")
@@ -135,7 +139,7 @@ if(TARGET PNG::PNG)
   )
 endif()
 include_directories(${libpng_SOURCE_DIR} ${libpng_BINARY_DIR})
-add_dependencies(png zlib)
+#add_dependencies(png_shared zlib)
 
 set(tinyxml2_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(freetype tinyxml2)
@@ -238,7 +242,7 @@ endif()
 
 CPMAddPackage(NAME lua
   GIT_REPOSITORY https://github.com/lua/lua.git
-  VERSION 5.4.4
+  VERSION 5.4.7
   DOWNLOAD_ONLY YES)  
 if(lua_ADDED)
   file(GLOB lua_sources ${lua_SOURCE_DIR}/*.c)
@@ -256,7 +260,7 @@ set_target_properties(UpdateAssimpLibsDebugSymbolsAndDLLs PROPERTIES FOLDER "Uti
 set_target_properties(box2d PROPERTIES FOLDER "Utilities/box2d")
 set_target_properties(glad PROPERTIES FOLDER "Utilities/glad")
 set_target_properties(glfw PROPERTIES FOLDER "Utilities/GLFW3")
-#set_target_properties(uninstall PROPERTIES FOLDER "Utilities/GLFW3")
+set_target_properties(glm PROPERTIES FOLDER "Utilities")
 set_target_properties(update_mappings PROPERTIES FOLDER "Utilities/GLFW3")
 set_target_properties(gmock PROPERTIES FOLDER "Utilities/googletest")
 set_target_properties(gmock_main PROPERTIES FOLDER "Utilities/googletest")
@@ -273,9 +277,8 @@ set_target_properties(tinyxml2 PROPERTIES FOLDER "Utilities")
 set_target_properties(msdf-atlas-gen PROPERTIES FOLDER "Utilities/msdf-atlas-gen")
 set_target_properties(msdfgen-core PROPERTIES FOLDER "Utilities/msdf-gen")
 set_target_properties(msdfgen-ext PROPERTIES FOLDER "Utilities/msdf-gen")
-set_target_properties(png PROPERTIES FOLDER "Utilities/libpng")
-set_target_properties(png_static PROPERTIES FOLDER "Utilities/libpng")
-set_target_properties(genfiles PROPERTIES FOLDER "Utilities/libpng")
+set_target_properties(png_shared PROPERTIES FOLDER "Utilities/libpng")
+set_target_properties(png_genfiles PROPERTIES FOLDER "Utilities/libpng")
 set_target_properties(example PROPERTIES FOLDER "Utilities/zlib")
 set_target_properties(minigzip PROPERTIES FOLDER "Utilities/zlib")
 set_target_properties(zlib PROPERTIES FOLDER "Utilities/zlib")

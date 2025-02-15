@@ -56,6 +56,7 @@ namespace OloEngine
 			}
 		}
 		m_EditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
+
 	}
 
 	void EditorLayer::OnDetach()
@@ -267,6 +268,18 @@ namespace OloEngine
 			if (ImGui::MenuItem("Reload assembly", "Ctrl+R"))
 			{
 				ScriptEngine::ReloadAssembly();
+			}
+
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("Shaders"))
+		{
+			if (ImGui::MenuItem("Reload shader", "Ctrl+Shift+R"))
+			{
+				OLO_INFO("Reloading shaders...");
+				Renderer2D::GetShaderLibrary().ReloadShaders();
+				OLO_INFO("Shaders reloaded!");
 			}
 
 			ImGui::EndMenu();
@@ -507,6 +520,8 @@ namespace OloEngine
 		ImGui::Text("Quads: %d", stats.QuadCount);
 		ImGui::Text("Vertices: %d", stats.GetTotalVertexCount());
 		ImGui::Text("Indices: %d", stats.GetTotalIndexCount());
+		ImGui::Text("Frame Rate: %.1f FPS", ImGui::GetIO().Framerate);
+		ImGui::Text("Frame Time: %.3f ms", 1000.0f / ImGui::GetIO().Framerate);
 		ImGui::End();
 	}
 
