@@ -22,9 +22,17 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Verify Python Installation
+        run: |
+          python --version
+          pip --version
           
       - name: Install python dependencies
         run: pip install jinja2
+
+      - name: Verify Jinja2 Installation
+        run: pip list
 
       - name: Install Vulkan SDK
         uses: humbletim/install-vulkan-sdk@v1.1.1
@@ -39,7 +47,7 @@ jobs:
         run: |
           New-Item -ItemType directory -Path build
           cmake -S . -B build
-          build-wrapper-win-x86-64 --out-dir ${{ env.BUILD_WRAPPER_OUT_DIR }} cmake --build build/ --config Dist
+          build-wrapper-win-x86-64 --out-dir ${{ env.BUILD_WRAPPER_OUT_DIR }} cmake --build build/ --config Debug
           
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v4
