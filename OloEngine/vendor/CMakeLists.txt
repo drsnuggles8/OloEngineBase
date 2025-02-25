@@ -66,6 +66,12 @@ FetchContent_Declare(
 	GIT_SHALLOW		TRUE
 )
 FetchContent_Declare(
+	miniaudio
+	GIT_REPOSITORY https://github.com/mackron/miniaudio.git
+	GIT_TAG master
+	GIT_SHALLOW		TRUE
+)
+FetchContent_Declare(
 	msdfgen
 	GIT_REPOSITORY https://github.com/Chlumsky/msdfgen.git
 	GIT_SHALLOW		TRUE
@@ -177,7 +183,7 @@ set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
-FetchContent_MakeAvailable(assimp box2d entt filewatch glad glfw glm googletest msdfgen msdf-atlas-gen spdlog tracy yaml-cpp)
+FetchContent_MakeAvailable(assimp box2d entt filewatch glad glfw glm googletest miniaudio msdfgen msdf-atlas-gen spdlog tracy yaml-cpp)
 
 target_compile_definitions("TracyClient" PRIVATE $<$<CONFIG:Release>:TRACY_ENABLE>)
 
@@ -192,16 +198,6 @@ FetchContent_MakeAvailable(stb_image)
 add_library(stb_image INTERFACE)
 file(COPY ${stb_image_SOURCE_DIR}/stb_image.h DESTINATION "${PROJECT_SOURCE_DIR}/vendor/stb_image-build/include/stb_image")
 set(STBIMAGE_INSTALL_DIR "${PROJECT_SOURCE_DIR}/vendor/stb_image-build")
-
-FetchContent_Declare(miniaudio
-	GIT_REPOSITORY https://github.com/mackron/miniaudio.git
-	GIT_TAG master
-	CONFIGURE_COMMAND ""
-	BUILD_COMMAND "")
-FetchContent_MakeAvailable(miniaudio)
-add_library(miniaudio INTERFACE)
-file(COPY ${miniaudio_SOURCE_DIR}/miniaudio.h DESTINATION "${PROJECT_SOURCE_DIR}/vendor/miniaudio-build/include/miniaudio")
-set(STBIMAGE_INSTALL_DIR "${PROJECT_SOURCE_DIR}/vendor/miniaudio-build")
 
 CPMAddPackage(NAME imgui
 	GITHUB_REPOSITORY ocornut/imgui
@@ -266,6 +262,12 @@ set_target_properties(gmock PROPERTIES FOLDER "Utilities/googletest")
 set_target_properties(gmock_main PROPERTIES FOLDER "Utilities/googletest")
 set_target_properties(gtest PROPERTIES FOLDER "Utilities/googletest")
 set_target_properties(gtest_main PROPERTIES FOLDER "Utilities/googletest")
+set_target_properties(miniaudio PROPERTIES FOLDER "Utilities/miniaudio")
+set_target_properties(miniaudio_channel_combiner_node PROPERTIES FOLDER "Utilities/miniaudio")
+set_target_properties(miniaudio_channel_separator_node PROPERTIES FOLDER "Utilities/miniaudio")
+set_target_properties(miniaudio_ltrim_node PROPERTIES FOLDER "Utilities/miniaudio")
+set_target_properties(miniaudio_reverb_node PROPERTIES FOLDER "Utilities/miniaudio")
+set_target_properties(miniaudio_vocoder_node PROPERTIES FOLDER "Utilities/miniaudio")
 set_target_properties(imgui PROPERTIES FOLDER "Utilities/imgui")
 set_target_properties(imguizmo PROPERTIES FOLDER "Utilities/imgui")
 set_target_properties(lua PROPERTIES FOLDER "Utilities/Lua")

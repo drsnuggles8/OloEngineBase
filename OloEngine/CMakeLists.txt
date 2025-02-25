@@ -62,7 +62,7 @@ target_include_directories(OloEngine PRIVATE
 	vendor/glad-build/include
 	vendor/glfw-src/include
 	vendor/glm-src
-	vendor/miniaudio-build/include
+	vendor/miniaudio-src
 	vendor/lua-src
 	vendor/imgui-src
 	vendor/imgui-src/backends
