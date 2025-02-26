@@ -18,7 +18,6 @@ namespace OloEngine
 
 		// Draw methods
 		static void Draw(const glm::mat4& modelMatrix);
-		static void Draw(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
 
 	private:
 		static ShaderLibrary m_ShaderLibrary;

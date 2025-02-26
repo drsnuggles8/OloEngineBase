@@ -18,7 +18,7 @@ public:
 OloEngine::Application* OloEngine::CreateApplication(const OloEngine::ApplicationCommandLineArgs args)
 {
 	ApplicationSpecification spec;
-	spec.Name = "Sandbox";
+	spec.Name = "Sandbox3D";
 	spec.WorkingDirectory = "../OloEditor";
 	spec.CommandLineArgs = args;
 	spec.PreferredRenderer = RendererType::Renderer3D;

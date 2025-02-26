@@ -19,12 +19,6 @@ private:
 
 	OloEngine::Ref<OloEngine::VertexArray> m_CubeVA;
 	OloEngine::Ref<OloEngine::Shader> m_Shader;
-	OloEngine::Ref<OloEngine::Texture2D> m_CubeTexture;
-	OloEngine::Ref<OloEngine::Texture2D> m_LogoTexture;
-
-	glm::vec4 m_CubeColor = { 0.2f, 0.3f, 0.8f, 1.0f };
     float m_RotationAngleY;
     float m_RotationAngleX;
-    bool m_UseTexture = true;
-    int m_TextureIndex = 0;
 };
