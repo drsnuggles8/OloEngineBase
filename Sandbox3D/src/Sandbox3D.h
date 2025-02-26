@@ -19,6 +19,6 @@ private:
 
 	OloEngine::Ref<OloEngine::VertexArray> m_CubeVA;
 	OloEngine::Ref<OloEngine::Shader> m_Shader;
-    float m_RotationAngleY;
-    float m_RotationAngleX;
+    f32 m_RotationAngleY;
+    f32 m_RotationAngleX;
 };

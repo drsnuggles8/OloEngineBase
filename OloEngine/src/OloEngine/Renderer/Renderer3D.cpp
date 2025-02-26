@@ -82,7 +82,7 @@ namespace OloEngine
 		});
 		s_Data.VertexArray->AddVertexBuffer(s_Data.VertexBuffer);
 
-		s_Data.IndexBuffer = IndexBuffer::Create(indices, sizeof(indices) / sizeof(uint32_t));
+		s_Data.IndexBuffer = IndexBuffer::Create(indices, sizeof(indices) / sizeof(u32));
 		s_Data.VertexArray->SetIndexBuffer(s_Data.IndexBuffer);
 
 		s_Data.Shader = Shader::Create("assets/shaders/Basic3D.glsl");
@@ -101,7 +101,8 @@ namespace OloEngine
 	}
 
 	void Renderer3D::EndScene()
-	{}
+	{
+	}
 
 	void Renderer3D::Draw(const glm::mat4& modelMatrix)
 	{

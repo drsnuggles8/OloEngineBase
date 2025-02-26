@@ -16,7 +16,6 @@ namespace OloEngine
 		static void BeginScene(const glm::mat4& viewProjectionMatrix);
 		static void EndScene();
 
-		// Draw methods
 		static void Draw(const glm::mat4& modelMatrix);
 
 	private:
