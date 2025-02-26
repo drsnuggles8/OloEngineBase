@@ -1,9 +1,15 @@
-﻿file (GLOB_RECURSE source *.cpp)
-file (GLOB_RECURSE header *.h)
+﻿set(Sandbox2D_SOURCES
+		"Sandbox2D.cpp"
+		"Sandbox2D.h"
+		"SandboxApp.cpp"
+)
 
 add_executable(Sandbox2D
-        ${source}
-        ${header}
+        ${Sandbox2D_SOURCES}
+)
+
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}
+			FILES ${Sandbox2D_SOURCES}
 )
 
 

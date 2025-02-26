@@ -391,6 +391,28 @@ namespace OloEngine
 
 	void OpenGLShader::CreateProgram()
 	{
+		// Log the current working directory
+		std::filesystem::path currentPath = std::filesystem::current_path();
+		OLO_CORE_INFO("Current working directory: {0}", currentPath.string());
+
+		// List all shader files in the assets/shaders/ directory
+		std::filesystem::path shaderDirectory = "assets/shaders";
+		if (std::filesystem::exists(shaderDirectory) && std::filesystem::is_directory(shaderDirectory))
+		{
+			OLO_CORE_INFO("Listing shader files in {0}:", shaderDirectory.string());
+			for (const auto& entry : std::filesystem::directory_iterator(shaderDirectory))
+			{
+				if (entry.is_regular_file())
+				{
+					OLO_CORE_INFO("  {0}", entry.path().string());
+				}
+			}
+		}
+		else
+		{
+			OLO_CORE_ERROR("Shader directory {0} does not exist or is not a directory.", shaderDirectory.string());
+		}
+
 		const GLuint program = glCreateProgram();
 
 		std::vector<GLuint> shaderIDs;

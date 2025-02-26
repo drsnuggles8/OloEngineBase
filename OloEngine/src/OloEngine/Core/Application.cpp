@@ -30,7 +30,7 @@ namespace OloEngine
 		m_Window = Window::Create(WindowProps(m_Specification.Name));
 		m_Window->SetEventCallback(OLO_BIND_EVENT_FN(Application::OnEvent));
 
-		Renderer::Init();
+		Renderer::Init(m_Specification.PreferredRenderer);
 		AudioEngine::Init();
 		ScriptEngine::Init();
 		LuaScriptEngine::Init();

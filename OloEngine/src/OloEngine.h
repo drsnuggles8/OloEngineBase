@@ -26,6 +26,7 @@
 // --Renderer-------------------
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer2D.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 
 #include "OloEngine/Renderer/Buffer.h"

@@ -1,12 +1,13 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Core/Window.h"
 #include "OloEngine/Core/LayerStack.h"
+#include "OloEngine/Core/Timestep.h"
+#include "OloEngine/Core/Window.h"
 #include "OloEngine/Events/Event.h"
 #include "OloEngine/Events/ApplicationEvent.h"
-#include "OloEngine/Core/Timestep.h"
 #include "OloEngine/ImGui/ImGuiLayer.h"
+#include "OloEngine/Renderer/Renderer.h"
 
 int main(int argc, char** argv);
 
@@ -29,6 +30,7 @@ namespace OloEngine
 		std::string Name = "OloEngine Application";
 		std::string WorkingDirectory;
 		ApplicationCommandLineArgs CommandLineArgs;
+		RendererType PreferredRenderer = RendererType::Renderer2D;
 	};
 
 	class Application

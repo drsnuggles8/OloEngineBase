@@ -7,10 +7,16 @@
 
 namespace OloEngine
 {
+	enum class RendererType
+	{
+		Renderer2D,
+		Renderer3D
+	};
+
 	class Renderer
 	{
 	public:
-		static void Init();
+		static void Init(RendererType type);
 		static void Shutdown();
 
 		static void OnWindowResize(u32 width, u32 height);
@@ -28,5 +34,6 @@ namespace OloEngine
 		};
 
 		static Scope<SceneData> s_SceneData;
+		static RendererType s_RendererType;
 	};
 }

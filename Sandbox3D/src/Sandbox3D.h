@@ -17,14 +17,14 @@ public:
 private:
 	OloEngine::OrthographicCameraController m_CameraController;
 
-	OloEngine::Ref<OloEngine::VertexArray> m_SquareVA;
-	OloEngine::Ref<OloEngine::Shader> m_FlatColorShader;
+	OloEngine::Ref<OloEngine::VertexArray> m_CubeVA;
+	OloEngine::Ref<OloEngine::Shader> m_Shader;
+	OloEngine::Ref<OloEngine::Texture2D> m_CubeTexture;
+	OloEngine::Ref<OloEngine::Texture2D> m_LogoTexture;
 
-	OloEngine::Ref<OloEngine::Texture2D> m_CheckerboardTexture;
-	OloEngine::Ref<OloEngine::Texture2D> m_OtterTexture;
-
-	glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
-
-	float m_Timer = 0.0f;
-	int m_Scene = 0;
+	glm::vec4 m_CubeColor = { 0.2f, 0.3f, 0.8f, 1.0f };
+    float m_RotationAngleY;
+    float m_RotationAngleX;
+    bool m_UseTexture = true;
+    int m_TextureIndex = 0;
 };
