@@ -13,6 +13,9 @@ Sandbox3D::Sandbox3D()
 void Sandbox3D::OnAttach()
 {
 	OLO_PROFILE_FUNCTION();
+	
+	// Load the checkerboard texture
+	m_CheckerboardTexture = OloEngine::Texture2D::Create("assets/textures/Checkerboard.png");
 }
 
 void Sandbox3D::OnDetach()
@@ -52,8 +55,8 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 	modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX), glm::vec3(1.0f, 0.0f, 0.0f));
 	modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
 	
-	// Draw a cube with the model matrix
-	OloEngine::Renderer3D::Draw(modelMatrix);
+	// Draw a textured cube with the model matrix
+	OloEngine::Renderer3D::Draw(modelMatrix, m_CheckerboardTexture);
 
 	OloEngine::Renderer3D::EndScene();
 }

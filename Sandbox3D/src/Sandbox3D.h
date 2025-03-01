@@ -19,6 +19,7 @@ private:
 
 	OloEngine::Ref<OloEngine::VertexArray> m_CubeVA;
 	OloEngine::Ref<OloEngine::Shader> m_Shader;
+	OloEngine::Ref<OloEngine::Texture2D> m_CheckerboardTexture;
     f32 m_RotationAngleY;
     f32 m_RotationAngleX;
 };

@@ -43,5 +43,5 @@ set_target_properties(Sandbox2D PROPERTIES FOLDER "Applications")
 set_target_properties(Sandbox3D PROPERTIES FOLDER "Applications")
 
 if(${CMAKE_GENERATOR} MATCHES "Visual Studio")
-    set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT "Sandbox2D")
+    set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT "Sandbox3D")
 endif()
