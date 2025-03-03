@@ -33,31 +33,31 @@ namespace OloEngine
 		s_Data.VertexArray = VertexArray::Create();
 
 		float vertices[] = {
-			// positions          // colors
-			 0.5f,  0.5f,  0.5f,   1.0f, 0.0f, 0.0f, // top right front (red)
-			 0.5f, -0.5f,  0.5f,   1.0f, 0.0f, 0.0f, // bottom right front (red)
-			-0.5f, -0.5f,  0.5f,   1.0f, 0.0f, 0.0f, // bottom left front (red)
-			-0.5f,  0.5f,  0.5f,   1.0f, 0.0f, 0.0f, // top left front (red)
-			 0.5f,  0.5f, -0.5f,   0.0f, 1.0f, 0.0f, // top right back (green)
-			 0.5f, -0.5f, -0.5f,   0.0f, 1.0f, 0.0f, // bottom right back (green)
-			-0.5f, -0.5f, -0.5f,   0.0f, 1.0f, 0.0f, // bottom left back (green)
-			-0.5f,  0.5f, -0.5f,   0.0f, 1.0f, 0.0f, // top left back (green)
-			 0.5f,  0.5f,  0.5f,   0.0f, 0.0f, 1.0f, // top right front (blue)
-			 0.5f, -0.5f,  0.5f,   0.0f, 0.0f, 1.0f, // bottom right front (blue)
-			 0.5f, -0.5f, -0.5f,   0.0f, 0.0f, 1.0f, // bottom right back (blue)
-			 0.5f,  0.5f, -0.5f,   0.0f, 0.0f, 1.0f, // top right back (blue)
-			-0.5f,  0.5f,  0.5f,   1.0f, 1.0f, 0.0f, // top left front (yellow)
-			-0.5f, -0.5f,  0.5f,   1.0f, 1.0f, 0.0f, // bottom left front (yellow)
-			-0.5f, -0.5f, -0.5f,   1.0f, 1.0f, 0.0f, // bottom left back (yellow)
-			-0.5f,  0.5f, -0.5f,   1.0f, 1.0f, 0.0f, // top left back (yellow)
-			 0.5f,  0.5f,  0.5f,   1.0f, 0.0f, 1.0f, // top right front (magenta)
-			 0.5f,  0.5f, -0.5f,   1.0f, 0.0f, 1.0f, // top right back (magenta)
-			-0.5f,  0.5f, -0.5f,   1.0f, 0.0f, 1.0f, // top left back (magenta)
-			-0.5f,  0.5f,  0.5f,   1.0f, 0.0f, 1.0f, // top left front (magenta)
-			 0.5f, -0.5f,  0.5f,   0.0f, 1.0f, 1.0f, // bottom right front (cyan)
-			 0.5f, -0.5f, -0.5f,   0.0f, 1.0f, 1.0f, // bottom right back (cyan)
-			-0.5f, -0.5f, -0.5f,   0.0f, 1.0f, 1.0f, // bottom left back (cyan)
-			-0.5f, -0.5f,  0.5f,   0.0f, 1.0f, 1.0f  // bottom left front (cyan)
+			// positions          // colors             // texture coordinates
+			 0.5f,  0.5f,  0.5f,   1.0f, 0.0f, 0.0f,    1.0f, 1.0f, // top right front (red)
+			 0.5f, -0.5f,  0.5f,   1.0f, 0.0f, 0.0f,    1.0f, 0.0f, // bottom right front (red)
+			-0.5f, -0.5f,  0.5f,   1.0f, 0.0f, 0.0f,    0.0f, 0.0f, // bottom left front (red)
+			-0.5f,  0.5f,  0.5f,   1.0f, 0.0f, 0.0f,    0.0f, 1.0f, // top left front (red)
+			 0.5f,  0.5f, -0.5f,   0.0f, 1.0f, 0.0f,    1.0f, 1.0f, // top right back (green)
+			 0.5f, -0.5f, -0.5f,   0.0f, 1.0f, 0.0f,    1.0f, 0.0f, // bottom right back (green)
+			-0.5f, -0.5f, -0.5f,   0.0f, 1.0f, 0.0f,    0.0f, 0.0f, // bottom left back (green)
+			-0.5f,  0.5f, -0.5f,   0.0f, 1.0f, 0.0f,    0.0f, 1.0f, // top left back (green)
+			 0.5f,  0.5f,  0.5f,   0.0f, 0.0f, 1.0f,    1.0f, 1.0f, // top right front (blue)
+			 0.5f, -0.5f,  0.5f,   0.0f, 0.0f, 1.0f,    1.0f, 0.0f, // bottom right front (blue)
+			 0.5f, -0.5f, -0.5f,   0.0f, 0.0f, 1.0f,    0.0f, 0.0f, // bottom right back (blue)
+			 0.5f,  0.5f, -0.5f,   0.0f, 0.0f, 1.0f,    0.0f, 1.0f, // top right back (blue)
+			-0.5f,  0.5f,  0.5f,   1.0f, 1.0f, 0.0f,    1.0f, 1.0f, // top left front (yellow)
+			-0.5f, -0.5f,  0.5f,   1.0f, 1.0f, 0.0f,    1.0f, 0.0f, // bottom left front (yellow)
+			-0.5f, -0.5f, -0.5f,   1.0f, 1.0f, 0.0f,    0.0f, 0.0f, // bottom left back (yellow)
+			-0.5f,  0.5f, -0.5f,   1.0f, 1.0f, 0.0f,    0.0f, 1.0f, // top left back (yellow)
+			 0.5f,  0.5f,  0.5f,   1.0f, 0.0f, 1.0f,    1.0f, 1.0f, // top right front (magenta)
+			 0.5f,  0.5f, -0.5f,   1.0f, 0.0f, 1.0f,    1.0f, 0.0f, // top right back (magenta)
+			-0.5f,  0.5f, -0.5f,   1.0f, 0.0f, 1.0f,    0.0f, 0.0f, // top left back (magenta)
+			-0.5f,  0.5f,  0.5f,   1.0f, 0.0f, 1.0f,    0.0f, 1.0f, // top left front (magenta)
+			 0.5f, -0.5f,  0.5f,   0.0f, 1.0f, 1.0f,    1.0f, 1.0f, // bottom right front (cyan)
+			 0.5f, -0.5f, -0.5f,   0.0f, 1.0f, 1.0f,    1.0f, 0.0f, // bottom right back (cyan)
+			-0.5f, -0.5f, -0.5f,   0.0f, 1.0f, 1.0f,    0.0f, 0.0f, // bottom left back (cyan)
+			-0.5f, -0.5f,  0.5f,   0.0f, 1.0f, 1.0f,    0.0f, 1.0f  // bottom left front (cyan)
 		};
 
 		uint32_t indices[] = {
@@ -78,7 +78,8 @@ namespace OloEngine
 		s_Data.VertexBuffer = VertexBuffer::Create(vertices, sizeof(vertices));
 		s_Data.VertexBuffer->SetLayout({
 			{ ShaderDataType::Float3, "a_Position" },
-			{ ShaderDataType::Float3, "a_Color" }
+			{ ShaderDataType::Float3, "a_Color" },
+			{ ShaderDataType::Float2, "a_TexCoord" }
 		});
 		s_Data.VertexArray->AddVertexBuffer(s_Data.VertexBuffer);
 
@@ -113,6 +114,23 @@ namespace OloEngine
 		UniformData modelData = { &modelMatrix, sizeof(glm::mat4), sizeof(glm::mat4) };
 		s_Data.UniformBuffer->SetData(viewProjectionData);
 		s_Data.UniformBuffer->SetData(modelData);
+
+		s_Data.VertexArray->Bind();
+		RenderCommand::DrawIndexed(s_Data.VertexArray);
+	}
+
+	void Renderer3D::Draw(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture)
+	{
+		s_Data.Shader->Bind();
+
+		// Update the UBO with the view projection and model matrices
+		UniformData viewProjectionData = { &s_Data.ViewProjectionMatrix, sizeof(glm::mat4), 0 };
+		UniformData modelData = { &modelMatrix, sizeof(glm::mat4), sizeof(glm::mat4) };
+		s_Data.UniformBuffer->SetData(viewProjectionData);
+		s_Data.UniformBuffer->SetData(modelData);
+
+		// Bind the texture
+		texture->Bind(0);
 
 		s_Data.VertexArray->Bind();
 		RenderCommand::DrawIndexed(s_Data.VertexArray);
