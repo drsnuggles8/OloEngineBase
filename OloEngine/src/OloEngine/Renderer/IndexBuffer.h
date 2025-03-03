@@ -5,7 +5,6 @@
 namespace OloEngine
 {
 	// Currently OloEngine only supports 32-bit index buffers
-	// TODO(olbu): Add Create() functions for the new constructors of OpenGLIndexBuffer
 	class IndexBuffer
 	{
 	public:
