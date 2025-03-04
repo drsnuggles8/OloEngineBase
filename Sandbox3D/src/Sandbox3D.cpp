@@ -18,7 +18,6 @@ void Sandbox3D::OnAttach()
 {
 	OLO_PROFILE_FUNCTION();
 
-	// Load the checkerboard texture
 	m_CheckerboardTexture = OloEngine::Texture2D::Create("assets/textures/Checkerboard.png");
 }
 
