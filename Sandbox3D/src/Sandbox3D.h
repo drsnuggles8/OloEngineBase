@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine.h"
+#include "OloEngine/Renderer/Camera/PerspectiveCameraController.h"
 
 class Sandbox3D : public OloEngine::Layer
 {
@@ -15,7 +16,7 @@ public:
 	void OnImGuiRender() override;
 	void OnEvent(OloEngine::Event& e) override;
 private:
-	OloEngine::OrthographicCameraController m_CameraController;
+	OloEngine::PerspectiveCameraController m_CameraController;
 
 	OloEngine::Ref<OloEngine::VertexArray> m_CubeVA;
 	OloEngine::Ref<OloEngine::Shader> m_Shader;

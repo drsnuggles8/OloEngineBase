@@ -4,7 +4,7 @@
 #include "Panels/SceneHierarchyPanel.h"
 #include "Panels/ContentBrowserPanel.h"
 
-#include "OloEngine/Renderer/EditorCamera.h"
+#include "OloEngine/Renderer/Camera/EditorCamera.h"
 
 namespace OloEngine
 {

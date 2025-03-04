@@ -1,5 +1,5 @@
 #include "OloEnginePCH.h"
-#include "OloEngine/Renderer/OrthographicCamera.h"
+#include "OloEngine/Renderer/Camera/OrthographicCamera.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 

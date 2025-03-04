@@ -1,5 +1,5 @@
 #include "OloEnginePCH.h"
-#include "OloEngine/Renderer/OrthographicCameraController.h"
+#include "OloEngine/Renderer/Camera/OrthographicCameraController.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/KeyCodes.h"
 

@@ -2,7 +2,7 @@
 
 #include "OloEngine/Renderer/RenderCommand.h"
 
-#include "OloEngine/Renderer/OrthographicCamera.h"
+#include "OloEngine/Renderer/Camera/OrthographicCamera.h"
 #include "OloEngine/Renderer/Shader.h"
 
 namespace OloEngine

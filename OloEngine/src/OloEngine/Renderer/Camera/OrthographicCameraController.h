@@ -1,6 +1,6 @@
 #pragma once
 
-#include "OloEngine/Renderer/OrthographicCamera.h"
+#include "OloEngine/Renderer/Camera/OrthographicCamera.h"
 #include "OloEngine/Core/Timestep.h"
 
 #include "OloEngine/Events/ApplicationEvent.h"

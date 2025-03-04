@@ -2,7 +2,7 @@
 
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Core/UUID.h"
-#include "OloEngine/Renderer/EditorCamera.h"
+#include "OloEngine/Renderer/Camera/EditorCamera.h"
 
 #include "box2d/box2d.h" // Include Box2D header
 

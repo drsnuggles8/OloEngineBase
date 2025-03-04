@@ -13,7 +13,7 @@
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/KeyCodes.h"
 #include "OloEngine/Core/MouseCodes.h"
-#include "OloEngine/Renderer/OrthographicCameraController.h"
+#include "OloEngine/Renderer/Camera/OrthographicCameraController.h"
 
 #include "OloEngine/ImGui/ImGuiLayer.h"
 
@@ -38,5 +38,5 @@
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
 
-#include "OloEngine/Renderer/OrthographicCamera.h"
+#include "OloEngine/Renderer/Camera/OrthographicCamera.h"
 // ------------------------------

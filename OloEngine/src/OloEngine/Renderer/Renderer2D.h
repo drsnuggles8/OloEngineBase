@@ -1,9 +1,9 @@
 #pragma once
 
-#include "OloEngine/Renderer/Camera.h"
-#include "OloEngine/Renderer/EditorCamera.h"
+#include "OloEngine/Renderer/Camera/Camera.h"
+#include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Font.h"
-#include "OloEngine/Renderer/OrthographicCamera.h"
+#include "OloEngine/Renderer/Camera/OrthographicCamera.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Renderer/Shader.h"
