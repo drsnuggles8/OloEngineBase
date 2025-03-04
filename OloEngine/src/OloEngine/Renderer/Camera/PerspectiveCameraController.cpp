@@ -2,6 +2,7 @@
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/KeyCodes.h"
 #include "OloEngine/Core/MouseCodes.h"
+#include <glm/gtx/quaternion.hpp> // For quaternion-vector multiplications
 
 namespace OloEngine
 {
@@ -11,31 +12,39 @@ namespace OloEngine
 
 	void PerspectiveCameraController::OnUpdate(Timestep ts)
 	{
+		// Compute local direction vectors from the camera rotation
+		const glm::vec3 forward = glm::normalize(m_CameraRotation * glm::vec3(0.0f, 0.0f, -1.0f));
+		const glm::vec3 right = glm::normalize(m_CameraRotation * glm::vec3(1.0f, 0.0f, 0.0f));
+		const glm::vec3 up = glm::normalize(m_CameraRotation * glm::vec3(0.0f, 1.0f, 0.0f));
+
+		// Strafe left/right
 		if (Input::IsKeyPressed(Key::A))
-		{
-			m_CameraPosition.x -= m_CameraTranslationSpeed * ts;
-		}
+			m_CameraPosition -= right * (m_CameraTranslationSpeed * ts);
 		else if (Input::IsKeyPressed(Key::D))
-		{
-			m_CameraPosition.x += m_CameraTranslationSpeed * ts;
-		}
+			m_CameraPosition += right * (m_CameraTranslationSpeed * ts);
 
+		// Move forward/back
 		if (Input::IsKeyPressed(Key::W))
-		{
-			m_CameraPosition.z -= m_CameraTranslationSpeed * ts;
-		}
+			m_CameraPosition += forward * (m_CameraTranslationSpeed * ts);
 		else if (Input::IsKeyPressed(Key::S))
-		{
-			m_CameraPosition.z += m_CameraTranslationSpeed * ts;
-		}
+			m_CameraPosition -= forward * (m_CameraTranslationSpeed * ts);
 
+		// Move up/down
+		if (Input::IsKeyPressed(Key::LeftShift))
+			m_CameraPosition += up * (m_CameraTranslationSpeed * ts);
+		else if (Input::IsKeyPressed(Key::LeftControl))
+			m_CameraPosition -= up * (m_CameraTranslationSpeed * ts);
+
+		// Mouse look
 		if (m_MouseLookEnabled)
 		{
-			const glm::vec2 mousePosition = { Input::GetMouseX(), Input::GetMouseY() };
-			const glm::vec2 delta = (mousePosition - m_LastMousePosition) * m_CameraRotationSpeed;
+			glm::vec2 mousePosition = { Input::GetMouseX(), Input::GetMouseY() };
+			glm::vec2 delta = (mousePosition - m_LastMousePosition) * m_CameraRotationSpeed;
 			m_LastMousePosition = mousePosition;
 
+			// Yaw (around world Y)
 			m_CameraRotation = glm::rotate(m_CameraRotation, glm::radians(-delta.x), glm::vec3(0.0f, 1.0f, 0.0f));
+			// Pitch (around local X)
 			m_CameraRotation = glm::rotate(m_CameraRotation, glm::radians(-delta.y), glm::vec3(1.0f, 0.0f, 0.0f));
 		}
 
@@ -57,8 +66,7 @@ namespace OloEngine
 
 	bool PerspectiveCameraController::OnMouseScrolled(MouseScrolledEvent& e)
 	{
-		m_CameraTranslationSpeed -= e.GetYOffset() * 0.25f;
-		m_CameraTranslationSpeed = std::max(m_CameraTranslationSpeed, 0.25f);
+		m_CameraTranslationSpeed = std::max(m_CameraTranslationSpeed - e.GetYOffset() * 0.25f, 0.25f);
 		return false;
 	}
 
