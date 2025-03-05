@@ -77,4 +77,13 @@ void Sandbox3D::OnImGuiRender()
 void Sandbox3D::OnEvent(OloEngine::Event& e)
 {
 	m_CameraController.OnEvent(e);
+
+	if (e.GetEventType() == OloEngine::EventType::KeyPressed)
+	{
+		auto& keyEvent = static_cast<OloEngine::KeyPressedEvent&>(e);
+		if (keyEvent.GetKeyCode() == OloEngine::Key::Escape)
+		{
+			OloEngine::Application::Get().Close();
+		}
+	}
 }
