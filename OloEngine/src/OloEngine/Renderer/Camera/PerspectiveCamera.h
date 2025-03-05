@@ -15,6 +15,7 @@ namespace OloEngine
 		void SetRotation(const glm::quat& rotation);
 
 		const glm::mat4& GetViewProjection() const { return m_ViewProjection; }
+		const glm::vec3& GetPosition() const { return m_Position; }
 
 	private:
 		void UpdateProjection();

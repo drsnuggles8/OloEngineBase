@@ -11,14 +11,19 @@ Sandbox3D::Sandbox3D()
 	m_RotationAngleY(0.0f),
 	m_RotationAngleX(0.0f),
 	m_RotationEnabled(true),
-	m_WasSpacePressed(false)
+	m_WasSpacePressed(false),
+	m_LightAnimTime(0.0f),
+	m_CameraMovementEnabled(true),
+	m_WasTabPressed(false)
 {}
 
 void Sandbox3D::OnAttach()
 {
 	OLO_PROFILE_FUNCTION();
 
-	//m_CheckerboardTexture = OloEngine::Texture2D::Create("assets/textures/Checkerboard.png");
+	// Set initial lighting parameters
+	OloEngine::Renderer3D::SetLightingParameters(m_AmbientStrength, m_SpecularStrength, m_Shininess);
+	OloEngine::Renderer3D::SetLightPosition(m_LightPosition);
 }
 
 void Sandbox3D::OnDetach()
@@ -30,8 +35,27 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 {
 	OLO_PROFILE_FUNCTION();
 
-	// Update camera
-	m_CameraController.OnUpdate(ts);
+	// Update camera only if camera movement is enabled
+	if (m_CameraMovementEnabled)
+	{
+		m_CameraController.OnUpdate(ts);
+	}
+
+	// Check for Tab key press to toggle camera movement
+	bool tabPressed = OloEngine::Input::IsKeyPressed(OloEngine::Key::Tab);
+	if (tabPressed && !m_WasTabPressed)
+	{
+		m_CameraMovementEnabled = !m_CameraMovementEnabled;
+		// Show a message when camera mode changes
+		if (m_CameraMovementEnabled)
+			OLO_INFO("Camera movement enabled");
+		else
+			OLO_INFO("Camera movement disabled - UI mode active");
+	}
+	m_WasTabPressed = tabPressed;
+
+	// Update view position for specular highlights
+	OloEngine::Renderer3D::SetViewPosition(m_CameraController.GetCamera().GetPosition());
 
 	// Toggle rotation on spacebar press
 	bool spacePressed = OloEngine::Input::IsKeyPressed(OloEngine::Key::Space);
@@ -48,6 +72,16 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 		// Keep angles in [0, 360)
 		if (m_RotationAngleY > 360.0f)  m_RotationAngleY -= 360.0f;
 		if (m_RotationAngleX > 360.0f)  m_RotationAngleX -= 360.0f;
+	}
+
+	// Animate the light position in a circular pattern
+	if (m_AnimateLight)
+	{
+		m_LightAnimTime += ts;
+		float radius = 3.0f;
+		m_LightPosition.x = std::cos(m_LightAnimTime) * radius;
+		m_LightPosition.z = std::sin(m_LightAnimTime) * radius;
+		OloEngine::Renderer3D::SetLightPosition(m_LightPosition);
 	}
 
 	// Render setup
@@ -94,9 +128,10 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 		OloEngine::Renderer3D::DrawCube(modelMatrix, objectColor, lightColor);
 	}
 
+	// Light cube (moving in a circle)
 	{
 		auto lightCubeModelMatrix = glm::mat4(1.0f);
-		lightCubeModelMatrix = glm::translate(lightCubeModelMatrix, glm::vec3(1.2f, 1.0f, 2.0f));
+		lightCubeModelMatrix = glm::translate(lightCubeModelMatrix, m_LightPosition);
 		lightCubeModelMatrix = glm::scale(lightCubeModelMatrix, glm::vec3(0.2f));
 		OloEngine::Renderer3D::DrawLightCube(lightCubeModelMatrix);
 	}
@@ -107,11 +142,50 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 void Sandbox3D::OnImGuiRender()
 {
 	OLO_PROFILE_FUNCTION();
+
+	ImGui::Begin("Lighting Settings");
+
+	// Add camera control status indicator
+	if (!m_CameraMovementEnabled)
+	{
+		ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Camera Movement: DISABLED");
+		ImGui::Text("Press TAB to re-enable camera movement");
+		ImGui::Separator();
+	}
+
+	// Light animation toggle
+	ImGui::Checkbox("Animate Light", &m_AnimateLight);
+
+	// If light is not animating, allow manual positioning
+	if (!m_AnimateLight)
+	{
+		if (ImGui::DragFloat3("Light Position", glm::value_ptr(m_LightPosition), 0.1f))
+		{
+			OloEngine::Renderer3D::SetLightPosition(m_LightPosition);
+		}
+	}
+
+	// Phong model parameters
+	bool parametersChanged = false;
+	parametersChanged |= ImGui::SliderFloat("Ambient Strength", &m_AmbientStrength, 0.0f, 1.0f);
+	parametersChanged |= ImGui::SliderFloat("Specular Strength", &m_SpecularStrength, 0.0f, 1.0f);
+	parametersChanged |= ImGui::SliderFloat("Shininess", &m_Shininess, 1.0f, 128.0f);
+
+	if (parametersChanged)
+	{
+		OloEngine::Renderer3D::SetLightingParameters(m_AmbientStrength, m_SpecularStrength, m_Shininess);
+	}
+
+	ImGui::End();
 }
 
 void Sandbox3D::OnEvent(OloEngine::Event& e)
 {
-	m_CameraController.OnEvent(e);
+	// Only process camera events if camera movement is enabled
+	if (m_CameraMovementEnabled)
+	{
+		m_CameraController.OnEvent(e);
+	}
 
 	if (e.GetEventType() == OloEngine::EventType::KeyPressed)
 	{
