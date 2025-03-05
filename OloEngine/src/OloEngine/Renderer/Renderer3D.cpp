@@ -17,14 +17,19 @@ namespace OloEngine
 	{
 		Ref<VertexArray> VertexArray;
 		Ref<VertexBuffer> VertexBuffer;
-		Ref<Shader> Shader;
+		//Ref<Shader> BasicShader;
+		Ref<Shader> LightCubeShader;
+		Ref<Shader> LightingShader;
 		Ref<IndexBuffer> IndexBuffer;
-		Ref<UniformBuffer> UniformBuffer;
+		Ref<UniformBuffer> UBO;
+		Ref<UniformBuffer> LightPropertiesBuffer;
 
 		glm::mat4 ViewProjectionMatrix;
 	};
 
 	static Renderer3DData s_Data;
+
+	ShaderLibrary Renderer3D::m_ShaderLibrary;
 
 	void Renderer3D::Init()
 	{
@@ -32,63 +37,52 @@ namespace OloEngine
 
 		s_Data.VertexArray = VertexArray::Create();
 
-		float vertices[] = {
-			// positions          // colors             // texture coordinates
-			 0.5f,  0.5f,  0.5f,   1.0f, 0.0f, 0.0f,    1.0f, 1.0f, // top right front (red)
-			 0.5f, -0.5f,  0.5f,   1.0f, 0.0f, 0.0f,    1.0f, 0.0f, // bottom right front (red)
-			-0.5f, -0.5f,  0.5f,   1.0f, 0.0f, 0.0f,    0.0f, 0.0f, // bottom left front (red)
-			-0.5f,  0.5f,  0.5f,   1.0f, 0.0f, 0.0f,    0.0f, 1.0f, // top left front (red)
-			 0.5f,  0.5f, -0.5f,   0.0f, 1.0f, 0.0f,    1.0f, 1.0f, // top right back (green)
-			 0.5f, -0.5f, -0.5f,   0.0f, 1.0f, 0.0f,    1.0f, 0.0f, // bottom right back (green)
-			-0.5f, -0.5f, -0.5f,   0.0f, 1.0f, 0.0f,    0.0f, 0.0f, // bottom left back (green)
-			-0.5f,  0.5f, -0.5f,   0.0f, 1.0f, 0.0f,    0.0f, 1.0f, // top left back (green)
-			 0.5f,  0.5f,  0.5f,   0.0f, 0.0f, 1.0f,    1.0f, 1.0f, // top right front (blue)
-			 0.5f, -0.5f,  0.5f,   0.0f, 0.0f, 1.0f,    1.0f, 0.0f, // bottom right front (blue)
-			 0.5f, -0.5f, -0.5f,   0.0f, 0.0f, 1.0f,    0.0f, 0.0f, // bottom right back (blue)
-			 0.5f,  0.5f, -0.5f,   0.0f, 0.0f, 1.0f,    0.0f, 1.0f, // top right back (blue)
-			-0.5f,  0.5f,  0.5f,   1.0f, 1.0f, 0.0f,    1.0f, 1.0f, // top left front (yellow)
-			-0.5f, -0.5f,  0.5f,   1.0f, 1.0f, 0.0f,    1.0f, 0.0f, // bottom left front (yellow)
-			-0.5f, -0.5f, -0.5f,   1.0f, 1.0f, 0.0f,    0.0f, 0.0f, // bottom left back (yellow)
-			-0.5f,  0.5f, -0.5f,   1.0f, 1.0f, 0.0f,    0.0f, 1.0f, // top left back (yellow)
-			 0.5f,  0.5f,  0.5f,   1.0f, 0.0f, 1.0f,    1.0f, 1.0f, // top right front (magenta)
-			 0.5f,  0.5f, -0.5f,   1.0f, 0.0f, 1.0f,    1.0f, 0.0f, // top right back (magenta)
-			-0.5f,  0.5f, -0.5f,   1.0f, 0.0f, 1.0f,    0.0f, 0.0f, // top left back (magenta)
-			-0.5f,  0.5f,  0.5f,   1.0f, 0.0f, 1.0f,    0.0f, 1.0f, // top left front (magenta)
-			 0.5f, -0.5f,  0.5f,   0.0f, 1.0f, 1.0f,    1.0f, 1.0f, // bottom right front (cyan)
-			 0.5f, -0.5f, -0.5f,   0.0f, 1.0f, 1.0f,    1.0f, 0.0f, // bottom right back (cyan)
-			-0.5f, -0.5f, -0.5f,   0.0f, 1.0f, 1.0f,    0.0f, 0.0f, // bottom left back (cyan)
-			-0.5f, -0.5f,  0.5f,   0.0f, 1.0f, 1.0f,    0.0f, 1.0f  // bottom left front (cyan)
+		f32 vertices[] = {
+			// positions
+			 0.5f,  0.5f,  0.5f,
+			 0.5f, -0.5f,  0.5f,
+			-0.5f, -0.5f,  0.5f,
+			-0.5f,  0.5f,  0.5f,
+			 0.5f,  0.5f, -0.5f,
+			 0.5f, -0.5f, -0.5f,
+			-0.5f, -0.5f, -0.5f,
+			-0.5f,  0.5f, -0.5f
 		};
 
-		uint32_t indices[] = {
+		u32 indices[] = {
 			// front face
 			0, 1, 3, 1, 2, 3,
 			// back face
 			4, 5, 7, 5, 6, 7,
 			// right face
-			8, 9, 11, 9, 10, 11,
+			0, 1, 4, 1, 5, 4,
 			// left face
-			12, 13, 15, 13, 14, 15,
+			2, 3, 6, 3, 7, 6,
 			// top face
-			16, 17, 19, 17, 18, 19,
+			0, 3, 4, 3, 7, 4,
 			// bottom face
-			20, 21, 23, 21, 22, 23
+			1, 2, 5, 2, 6, 5
 		};
 
 		s_Data.VertexBuffer = VertexBuffer::Create(vertices, sizeof(vertices));
 		s_Data.VertexBuffer->SetLayout({
-			{ ShaderDataType::Float3, "a_Position" },
-			{ ShaderDataType::Float3, "a_Color" },
-			{ ShaderDataType::Float2, "a_TexCoord" }
+			{ ShaderDataType::Float3, "a_Position" }
 		});
 		s_Data.VertexArray->AddVertexBuffer(s_Data.VertexBuffer);
 
 		s_Data.IndexBuffer = IndexBuffer::Create(indices, sizeof(indices) / sizeof(u32));
 		s_Data.VertexArray->SetIndexBuffer(s_Data.IndexBuffer);
 
-		s_Data.Shader = Shader::Create("assets/shaders/Basic3D.glsl");
+		//m_ShaderLibrary.Load("assets/shaders/Basic3D.glsl");
+		m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
+		m_ShaderLibrary.Load("assets/shaders/Lighting3D.glsl");
 
-		s_Data.UniformBuffer = UniformBuffer::Create(sizeof(glm::mat4) * 2, 0);
+		//s_Data.BasicShader = m_ShaderLibrary.Get("Basic3D");
+		s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
+		s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
+
+		s_Data.UBO = UniformBuffer::Create(sizeof(glm::mat4) * 2, 0);
+		s_Data.LightPropertiesBuffer = UniformBuffer::Create(sizeof(glm::vec4) * 2, 1);
 	}
 
 	void Renderer3D::Shutdown()
@@ -102,35 +96,40 @@ namespace OloEngine
 	}
 
 	void Renderer3D::EndScene()
-	{
-	}
+	{}
 
-	void Renderer3D::Draw(const glm::mat4& modelMatrix)
+	void Renderer3D::DrawCube(const glm::mat4& modelMatrix, const glm::vec3& objectColor, const glm::vec3& lightColor)
 	{
-		s_Data.Shader->Bind();
+		s_Data.LightingShader->Bind();
 
 		// Update the UBO with the view projection and model matrices
 		UniformData viewProjectionData = { &s_Data.ViewProjectionMatrix, sizeof(glm::mat4), 0 };
 		UniformData modelData = { &modelMatrix, sizeof(glm::mat4), sizeof(glm::mat4) };
-		s_Data.UniformBuffer->SetData(viewProjectionData);
-		s_Data.UniformBuffer->SetData(modelData);
+		s_Data.UBO->SetData(viewProjectionData);
+		s_Data.UBO->SetData(modelData);
+
+		// Update the LightProperties UBO
+		glm::vec4 paddedObjectColor(objectColor, 1.0f);
+		glm::vec4 paddedLightColor(lightColor, 1.0f);
+
+		UniformData objectColorData = { &paddedObjectColor, sizeof(glm::vec4), 0 };
+		UniformData lightColorData = { &paddedLightColor, sizeof(glm::vec4), sizeof(glm::vec4) };
+		s_Data.LightPropertiesBuffer->SetData(objectColorData);
+		s_Data.LightPropertiesBuffer->SetData(lightColorData);
 
 		s_Data.VertexArray->Bind();
 		RenderCommand::DrawIndexed(s_Data.VertexArray);
 	}
 
-	void Renderer3D::Draw(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture)
+	void Renderer3D::DrawLightCube(const glm::mat4& modelMatrix)
 	{
-		s_Data.Shader->Bind();
+		s_Data.LightCubeShader->Bind();
 
 		// Update the UBO with the view projection and model matrices
 		UniformData viewProjectionData = { &s_Data.ViewProjectionMatrix, sizeof(glm::mat4), 0 };
 		UniformData modelData = { &modelMatrix, sizeof(glm::mat4), sizeof(glm::mat4) };
-		s_Data.UniformBuffer->SetData(viewProjectionData);
-		s_Data.UniformBuffer->SetData(modelData);
-
-		// Bind the texture
-		texture->Bind(0);
+		s_Data.UBO->SetData(viewProjectionData);
+		s_Data.UBO->SetData(modelData);
 
 		s_Data.VertexArray->Bind();
 		RenderCommand::DrawIndexed(s_Data.VertexArray);

@@ -18,7 +18,7 @@ void Sandbox3D::OnAttach()
 {
 	OLO_PROFILE_FUNCTION();
 
-	m_CheckerboardTexture = OloEngine::Texture2D::Create("assets/textures/Checkerboard.png");
+	//m_CheckerboardTexture = OloEngine::Texture2D::Create("assets/textures/Checkerboard.png");
 }
 
 void Sandbox3D::OnDetach()
@@ -50,7 +50,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 		if (m_RotationAngleX > 360.0f)  m_RotationAngleX -= 360.0f;
 	}
 
-	// Render
+	// Render setup
 	{
 		OLO_PROFILE_SCOPE("Renderer Prep");
 		OloEngine::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1 });
@@ -60,11 +60,46 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 	OLO_PROFILE_SCOPE("Renderer Draw");
 	OloEngine::Renderer3D::BeginScene(m_CameraController.GetCamera().GetViewProjection());
 
-	glm::mat4 modelMatrix = glm::mat4(1.0f);
-	modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX), glm::vec3(1.0f, 0.0f, 0.0f));
-	modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
+	// Define a common white light color
+	glm::vec3 lightColor(1.0f, 1.0f, 1.0f);
 
-	OloEngine::Renderer3D::Draw(modelMatrix, m_CheckerboardTexture);
+	// Cube 1: Blue cube (rotating around both axes)
+	{
+		auto modelMatrix = glm::mat4(1.0f);
+		modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX), glm::vec3(1.0f, 0.0f, 0.0f));
+		modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
+		glm::vec3 objectColor(0.0f, 0.0f, 1.0f); // Blue
+		OloEngine::Renderer3D::DrawCube(modelMatrix, objectColor, lightColor);
+	}
+
+	// Cube 2: Red cube (translated right and rotating)
+	{
+		auto modelMatrix = glm::mat4(1.0f);
+		// Translate to the right by 2 units
+		modelMatrix = glm::translate(modelMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
+		// Apply a different rotation speed
+		modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY * 1.5f), glm::vec3(0.0f, 1.0f, 0.0f));
+		glm::vec3 objectColor(1.0f, 0.0f, 0.0f); // Red
+		OloEngine::Renderer3D::DrawCube(modelMatrix, objectColor, lightColor);
+	}
+
+	// Cube 3: Green cube (translated left and rotating)
+	{
+		auto modelMatrix = glm::mat4(1.0f);
+		// Translate to the left by 2 units
+		modelMatrix = glm::translate(modelMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
+		// Apply a different rotation speed/axis
+		modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
+		glm::vec3 objectColor(0.0f, 1.0f, 0.0f); // Green
+		OloEngine::Renderer3D::DrawCube(modelMatrix, objectColor, lightColor);
+	}
+
+	{
+		auto lightCubeModelMatrix = glm::mat4(1.0f);
+		lightCubeModelMatrix = glm::translate(lightCubeModelMatrix, glm::vec3(1.2f, 1.0f, 2.0f));
+		lightCubeModelMatrix = glm::scale(lightCubeModelMatrix, glm::vec3(0.2f));
+		OloEngine::Renderer3D::DrawLightCube(lightCubeModelMatrix);
+	}
 
 	OloEngine::Renderer3D::EndScene();
 }
@@ -80,7 +115,7 @@ void Sandbox3D::OnEvent(OloEngine::Event& e)
 
 	if (e.GetEventType() == OloEngine::EventType::KeyPressed)
 	{
-		auto& keyEvent = static_cast<OloEngine::KeyPressedEvent&>(e);
+		auto const& keyEvent = static_cast<OloEngine::KeyPressedEvent&>(e);
 		if (keyEvent.GetKeyCode() == OloEngine::Key::Escape)
 		{
 			OloEngine::Application::Get().Close();
