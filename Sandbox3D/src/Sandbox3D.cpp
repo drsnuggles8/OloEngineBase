@@ -11,19 +11,39 @@ Sandbox3D::Sandbox3D()
 	m_RotationAngleY(0.0f),
 	m_RotationAngleX(0.0f),
 	m_RotationEnabled(true),
-	m_WasSpacePressed(false),
 	m_LightAnimTime(0.0f),
 	m_CameraMovementEnabled(true),
 	m_WasTabPressed(false)
-{}
+{
+	// Initialize materials with colors
+	m_BlueMaterial.Ambient = glm::vec3(0.0f, 0.0f, 0.1f);  // Dark blue
+	m_BlueMaterial.Diffuse = glm::vec3(0.0f, 0.0f, 0.8f);  // Blue
+	m_BlueMaterial.Specular = glm::vec3(0.5f);             // White-ish specular
+	m_BlueMaterial.Shininess = 32.0f;                      // Medium shininess
+
+	m_RedMaterial.Ambient = glm::vec3(0.1f, 0.0f, 0.0f);   // Dark red
+	m_RedMaterial.Diffuse = glm::vec3(0.8f, 0.0f, 0.0f);   // Red
+	m_RedMaterial.Specular = glm::vec3(0.7f);              // Brighter specular
+	m_RedMaterial.Shininess = 64.0f;                       // Shinier
+
+	m_GreenMaterial.Ambient = glm::vec3(0.0f, 0.1f, 0.0f); // Dark green
+	m_GreenMaterial.Diffuse = glm::vec3(0.0f, 0.8f, 0.0f); // Green
+	m_GreenMaterial.Specular = glm::vec3(0.3f);            // Duller specular
+	m_GreenMaterial.Shininess = 16.0f;                     // Less shiny
+
+	// Initialize light with default values
+	m_Light.Position = glm::vec3(1.2f, 1.0f, 2.0f);
+	m_Light.Ambient = glm::vec3(0.2f);
+	m_Light.Diffuse = glm::vec3(0.5f);
+	m_Light.Specular = glm::vec3(1.0f);
+}
 
 void Sandbox3D::OnAttach()
 {
 	OLO_PROFILE_FUNCTION();
 
 	// Set initial lighting parameters
-	OloEngine::Renderer3D::SetLightingParameters(m_AmbientStrength, m_SpecularStrength, m_Shininess);
-	OloEngine::Renderer3D::SetLightPosition(m_LightPosition);
+	OloEngine::Renderer3D::SetLight(m_Light);
 }
 
 void Sandbox3D::OnDetach()
@@ -79,9 +99,9 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 	{
 		m_LightAnimTime += ts;
 		float radius = 3.0f;
-		m_LightPosition.x = std::cos(m_LightAnimTime) * radius;
-		m_LightPosition.z = std::sin(m_LightAnimTime) * radius;
-		OloEngine::Renderer3D::SetLightPosition(m_LightPosition);
+		m_Light.Position.x = std::cos(m_LightAnimTime) * radius;
+		m_Light.Position.z = std::sin(m_LightAnimTime) * radius;
+		OloEngine::Renderer3D::SetLight(m_Light);
 	}
 
 	// Render setup
@@ -94,16 +114,12 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 	OLO_PROFILE_SCOPE("Renderer Draw");
 	OloEngine::Renderer3D::BeginScene(m_CameraController.GetCamera().GetViewProjection());
 
-	// Define a common white light color
-	glm::vec3 lightColor(1.0f, 1.0f, 1.0f);
-
 	// Cube 1: Blue cube (rotating around both axes)
 	{
 		auto modelMatrix = glm::mat4(1.0f);
 		modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX), glm::vec3(1.0f, 0.0f, 0.0f));
 		modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
-		glm::vec3 objectColor(0.0f, 0.0f, 1.0f); // Blue
-		OloEngine::Renderer3D::DrawCube(modelMatrix, objectColor, lightColor);
+		OloEngine::Renderer3D::DrawCube(modelMatrix, m_BlueMaterial);
 	}
 
 	// Cube 2: Red cube (translated right and rotating)
@@ -113,8 +129,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 		modelMatrix = glm::translate(modelMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
 		// Apply a different rotation speed
 		modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY * 1.5f), glm::vec3(0.0f, 1.0f, 0.0f));
-		glm::vec3 objectColor(1.0f, 0.0f, 0.0f); // Red
-		OloEngine::Renderer3D::DrawCube(modelMatrix, objectColor, lightColor);
+		OloEngine::Renderer3D::DrawCube(modelMatrix, m_RedMaterial);
 	}
 
 	// Cube 3: Green cube (translated left and rotating)
@@ -124,14 +139,13 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 		modelMatrix = glm::translate(modelMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
 		// Apply a different rotation speed/axis
 		modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
-		glm::vec3 objectColor(0.0f, 1.0f, 0.0f); // Green
-		OloEngine::Renderer3D::DrawCube(modelMatrix, objectColor, lightColor);
+		OloEngine::Renderer3D::DrawCube(modelMatrix, m_GreenMaterial);
 	}
 
 	// Light cube (moving in a circle)
 	{
 		auto lightCubeModelMatrix = glm::mat4(1.0f);
-		lightCubeModelMatrix = glm::translate(lightCubeModelMatrix, m_LightPosition);
+		lightCubeModelMatrix = glm::translate(lightCubeModelMatrix, m_Light.Position);
 		lightCubeModelMatrix = glm::scale(lightCubeModelMatrix, glm::vec3(0.2f));
 		OloEngine::Renderer3D::DrawLightCube(lightCubeModelMatrix);
 	}
@@ -156,24 +170,56 @@ void Sandbox3D::OnImGuiRender()
 	// Light animation toggle
 	ImGui::Checkbox("Animate Light", &m_AnimateLight);
 
+	// Material selection
+	ImGui::Separator();
+	ImGui::Text("Material Properties");
+	ImGui::Combo("Select Material", &m_SelectedMaterial, m_MaterialNames, 3);
+
+	// Get the selected material based on the combo box selection
+	OloEngine::Material* currentMaterial;
+	switch (m_SelectedMaterial)
+	{
+		case 0:
+			currentMaterial = &m_BlueMaterial;
+			break;
+		case 1:
+			currentMaterial = &m_RedMaterial;
+			break;
+		case 2:
+			currentMaterial = &m_GreenMaterial;
+			break;
+		default:
+			currentMaterial = &m_BlueMaterial;
+	}
+
+	// Edit the selected material
+	ImGui::ColorEdit3("Ambient", glm::value_ptr(currentMaterial->Ambient));
+	ImGui::ColorEdit3("Diffuse", glm::value_ptr(currentMaterial->Diffuse));
+	ImGui::ColorEdit3("Specular", glm::value_ptr(currentMaterial->Specular));
+	ImGui::SliderFloat("Shininess", &currentMaterial->Shininess, 1.0f, 128.0f);
+
+	// Light properties
+	ImGui::Separator();
+	ImGui::Text("Light Properties");
+
 	// If light is not animating, allow manual positioning
 	if (!m_AnimateLight)
 	{
-		if (ImGui::DragFloat3("Light Position", glm::value_ptr(m_LightPosition), 0.1f))
+		if (ImGui::DragFloat3("Light Position", glm::value_ptr(m_Light.Position), 0.1f))
 		{
-			OloEngine::Renderer3D::SetLightPosition(m_LightPosition);
+			OloEngine::Renderer3D::SetLight(m_Light);
 		}
 	}
 
-	// Phong model parameters
-	bool parametersChanged = false;
-	parametersChanged |= ImGui::SliderFloat("Ambient Strength", &m_AmbientStrength, 0.0f, 1.0f);
-	parametersChanged |= ImGui::SliderFloat("Specular Strength", &m_SpecularStrength, 0.0f, 1.0f);
-	parametersChanged |= ImGui::SliderFloat("Shininess", &m_Shininess, 1.0f, 128.0f);
+	// Edit light colors
+	bool lightChanged = false;
+	lightChanged |= ImGui::ColorEdit3("Light Ambient", glm::value_ptr(m_Light.Ambient));
+	lightChanged |= ImGui::ColorEdit3("Light Diffuse", glm::value_ptr(m_Light.Diffuse));
+	lightChanged |= ImGui::ColorEdit3("Light Specular", glm::value_ptr(m_Light.Specular));
 
-	if (parametersChanged)
+	if (lightChanged)
 	{
-		OloEngine::Renderer3D::SetLightingParameters(m_AmbientStrength, m_SpecularStrength, m_Shininess);
+		OloEngine::Renderer3D::SetLight(m_Light);
 	}
 
 	ImGui::End();

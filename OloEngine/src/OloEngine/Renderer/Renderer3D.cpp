@@ -24,11 +24,10 @@ namespace OloEngine
 		Ref<UniformBuffer> LightPropertiesBuffer;
 
 		glm::mat4 ViewProjectionMatrix;
-		glm::vec3 LightPos;
+
+		// Light and material properties
+		Light SceneLight;
 		glm::vec3 ViewPos;
-		float AmbientStrength;
-		float SpecularStrength;
-		float Shininess;
 	};
 
 	static Renderer3DData s_Data;
@@ -114,15 +113,20 @@ namespace OloEngine
 
 		s_Data.UBO = UniformBuffer::Create(sizeof(glm::mat4) * 2, 0);
 
-		// 4 vec4s for object color, light color, light position, view position, and lighting parameters
-		s_Data.LightPropertiesBuffer = UniformBuffer::Create(sizeof(glm::vec4) * 5, 1);
+		// Create uniform buffer for Material and Light struct: 
+		// Material (vec3 ambient, vec3 diffuse, vec3 specular, float shininess) = 4 vec4s
+		// Light (vec3 position, vec3 ambient, vec3 diffuse, vec3 specular) = 4 vec4s
+		// ViewPos (vec3) = 1 vec4
+		// Total: 9 vec4s = 9 * 16 bytes = 144 bytes
+		s_Data.LightPropertiesBuffer = UniformBuffer::Create(sizeof(glm::vec4) * 9, 1);
 
-		// Set default lighting parameters
-		s_Data.LightPos = glm::vec3(1.2f, 1.0f, 2.0f);
+		// Set default values
+		s_Data.SceneLight.Position = glm::vec3(1.2f, 1.0f, 2.0f);
+		s_Data.SceneLight.Ambient = glm::vec3(0.2f, 0.2f, 0.2f);
+		s_Data.SceneLight.Diffuse = glm::vec3(0.5f, 0.5f, 0.5f);
+		s_Data.SceneLight.Specular = glm::vec3(1.0f, 1.0f, 1.0f);
+
 		s_Data.ViewPos = glm::vec3(0.0f, 0.0f, 3.0f);
-		s_Data.AmbientStrength = 0.1f;
-		s_Data.SpecularStrength = 0.5f;
-		s_Data.Shininess = 32.0f;
 	}
 
 	void Renderer3D::Shutdown()
@@ -135,9 +139,9 @@ namespace OloEngine
 		s_Data.ViewProjectionMatrix = viewProjectionMatrix;
 	}
 
-	void Renderer3D::SetLightPosition(const glm::vec3& position)
+	void Renderer3D::SetLight(const Light& light)
 	{
-		s_Data.LightPos = position;
+		s_Data.SceneLight = light;
 	}
 
 	void Renderer3D::SetViewPosition(const glm::vec3& position)
@@ -145,17 +149,10 @@ namespace OloEngine
 		s_Data.ViewPos = position;
 	}
 
-	void Renderer3D::SetLightingParameters(float ambientStrength, float specularStrength, float shininess)
-	{
-		s_Data.AmbientStrength = ambientStrength;
-		s_Data.SpecularStrength = specularStrength;
-		s_Data.Shininess = shininess;
-	}
-
 	void Renderer3D::EndScene()
 	{}
 
-	void Renderer3D::DrawCube(const glm::mat4& modelMatrix, const glm::vec3& objectColor, const glm::vec3& lightColor)
+	void Renderer3D::DrawCube(const glm::mat4& modelMatrix, const Material& material)
 	{
 		s_Data.LightingShader->Bind();
 
@@ -165,24 +162,41 @@ namespace OloEngine
 		s_Data.UBO->SetData(viewProjectionData);
 		s_Data.UBO->SetData(modelData);
 
+		// Prepare material data with padding for std140 layout
+		glm::vec4 materialAmbient(material.Ambient, 0.0f);
+		glm::vec4 materialDiffuse(material.Diffuse, 0.0f);
+		glm::vec4 materialSpecular(material.Specular, material.Shininess);
+		glm::vec4 padding1(0.0f); // Padding to align to vec4 boundary
+
+		// Prepare light data with padding for std140 layout
+		glm::vec4 lightPosition(s_Data.SceneLight.Position, 0.0f);
+		glm::vec4 lightAmbient(s_Data.SceneLight.Ambient, 0.0f);
+		glm::vec4 lightDiffuse(s_Data.SceneLight.Diffuse, 0.0f);
+		glm::vec4 lightSpecular(s_Data.SceneLight.Specular, 0.0f);
+		glm::vec4 viewPos(s_Data.ViewPos, 0.0f);
+
 		// Update the LightProperties UBO
-		glm::vec4 paddedObjectColor(objectColor, 1.0f);
-		glm::vec4 paddedLightColor(lightColor, 1.0f);
-		glm::vec4 paddedLightPos(s_Data.LightPos, 1.0f);
-		glm::vec4 paddedViewPos(s_Data.ViewPos, 1.0f);
-		glm::vec4 lightingParams(s_Data.AmbientStrength, s_Data.SpecularStrength, s_Data.Shininess, 0.0f);
+		UniformData materialAmbientData = { &materialAmbient, sizeof(glm::vec4), 0 };
+		UniformData materialDiffuseData = { &materialDiffuse, sizeof(glm::vec4), sizeof(glm::vec4) };
+		UniformData materialSpecularData = { &materialSpecular, sizeof(glm::vec4), sizeof(glm::vec4) * 2 };
+		UniformData paddingData = { &padding1, sizeof(glm::vec4), sizeof(glm::vec4) * 3 };
 
-		UniformData objectColorData = { &paddedObjectColor, sizeof(glm::vec4), 0 };
-		UniformData lightColorData = { &paddedLightColor, sizeof(glm::vec4), sizeof(glm::vec4) };
-		UniformData lightPosData = { &paddedLightPos, sizeof(glm::vec4), sizeof(glm::vec4) * 2 };
-		UniformData viewPosData = { &paddedViewPos, sizeof(glm::vec4), sizeof(glm::vec4) * 3 };
-		UniformData lightingParamsData = { &lightingParams, sizeof(glm::vec4), sizeof(glm::vec4) * 4 };
+		UniformData lightPositionData = { &lightPosition, sizeof(glm::vec4), sizeof(glm::vec4) * 4 };
+		UniformData lightAmbientData = { &lightAmbient, sizeof(glm::vec4), sizeof(glm::vec4) * 5 };
+		UniformData lightDiffuseData = { &lightDiffuse, sizeof(glm::vec4), sizeof(glm::vec4) * 6 };
+		UniformData lightSpecularData = { &lightSpecular, sizeof(glm::vec4), sizeof(glm::vec4) * 7 };
 
-		s_Data.LightPropertiesBuffer->SetData(objectColorData);
-		s_Data.LightPropertiesBuffer->SetData(lightColorData);
-		s_Data.LightPropertiesBuffer->SetData(lightPosData);
+		UniformData viewPosData = { &viewPos, sizeof(glm::vec4), sizeof(glm::vec4) * 8 };
+
+		s_Data.LightPropertiesBuffer->SetData(materialAmbientData);
+		s_Data.LightPropertiesBuffer->SetData(materialDiffuseData);
+		s_Data.LightPropertiesBuffer->SetData(materialSpecularData);
+		s_Data.LightPropertiesBuffer->SetData(paddingData);
+		s_Data.LightPropertiesBuffer->SetData(lightPositionData);
+		s_Data.LightPropertiesBuffer->SetData(lightAmbientData);
+		s_Data.LightPropertiesBuffer->SetData(lightDiffuseData);
+		s_Data.LightPropertiesBuffer->SetData(lightSpecularData);
 		s_Data.LightPropertiesBuffer->SetData(viewPosData);
-		s_Data.LightPropertiesBuffer->SetData(lightingParamsData);
 
 		s_Data.VertexArray->Bind();
 		RenderCommand::DrawIndexed(s_Data.VertexArray);

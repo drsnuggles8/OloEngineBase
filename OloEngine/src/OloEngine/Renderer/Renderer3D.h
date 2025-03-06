@@ -7,6 +7,25 @@
 
 namespace OloEngine
 {
+	// Material struct to match the shader
+	struct Material
+	{
+		glm::vec3 Ambient = { 0.1f, 0.1f, 0.1f };
+		glm::vec3 Diffuse = { 0.7f, 0.7f, 0.7f };
+		glm::vec3 Specular = { 0.5f, 0.5f, 0.5f };
+		float Shininess = 32.0f;
+	};
+
+	// Light struct to match the shader
+	struct Light
+	{
+		glm::vec3 Position = { 1.2f, 1.0f, 2.0f };
+
+		glm::vec3 Ambient = { 0.2f, 0.2f, 0.2f };
+		glm::vec3 Diffuse = { 0.5f, 0.5f, 0.5f };
+		glm::vec3 Specular = { 1.0f, 1.0f, 1.0f };
+	};
+
 	class Renderer3D
 	{
 	public:
@@ -16,13 +35,13 @@ namespace OloEngine
 		static void BeginScene(const glm::mat4& viewProjectionMatrix);
 		static void EndScene();
 
-		static void DrawCube(const glm::mat4& modelMatrix, const glm::vec3& objectColor, const glm::vec3& lightColor);
+		static void DrawCube(const glm::mat4& modelMatrix, const Material& material);
 		static void DrawLightCube(const glm::mat4& modelMatrix);
 
-		// Phong lighting model setters
-		static void SetLightPosition(const glm::vec3& position);
+		// Light and view setters
+		static void SetLight(const Light& light);
 		static void SetViewPosition(const glm::vec3& position);
-		static void SetLightingParameters(float ambientStrength, float specularStrength, float shininess);
+
 	private:
 		static ShaderLibrary m_ShaderLibrary;
 	};

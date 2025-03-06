@@ -28,39 +28,51 @@ layout(location = 1) in vec3 v_FragPos;
 
 layout(location = 0) out vec4 FragColor;
 
+// Material properties
+struct Material {
+    vec3 ambient;
+    vec3 diffuse;
+    vec3 specular;
+    float shininess;
+};
+
+// Light properties
+struct Light {
+    vec3 position;
+    
+    vec3 ambient;
+    vec3 diffuse;
+    vec3 specular;
+};
+
 layout(std140, binding = 1) uniform LightProperties {
-    vec4 u_ObjectColor;     // Using vec4 for proper std140 alignment
-    vec4 u_LightColor;      // Using vec4 for proper std140 alignment
-    vec4 u_LightPos;        // Using vec4 for proper std140 alignment
-    vec4 u_ViewPos;         // Using vec4 for proper std140 alignment
-    vec4 u_LightingParams;  // x: ambient strength, y: specular strength, z: shininess, w: padding
+    Material u_Material;
+    Light u_Light;
+    vec3 u_ViewPos;
 };
 
 void main()
 {
     // Normalize normal vector
     vec3 normal = normalize(v_Normal);
-
-    // Get lighting parameters
-    float ambientStrength = u_LightingParams.x;
-    float specularStrength = u_LightingParams.y;
-    float shininess = u_LightingParams.z;
-
-    // Ambient component
-    vec3 ambient = ambientStrength * u_LightColor.rgb;
-
-    // Diffuse component
-    vec3 lightDir = normalize(u_LightPos.xyz - v_FragPos);
-    float diff = max(dot(normal, lightDir), 0.0);
-    vec3 diffuse = diff * u_LightColor.rgb;
-
-    // Specular component
-    vec3 viewDir = normalize(u_ViewPos.xyz - v_FragPos);
+    
+    // Calculate direction vectors
+    vec3 lightDir = normalize(u_Light.position - v_FragPos);
+    vec3 viewDir = normalize(u_ViewPos - v_FragPos);
     vec3 reflectDir = reflect(-lightDir, normal);
-    float spec = pow(max(dot(viewDir, reflectDir), 0.0), shininess);
-    vec3 specular = specularStrength * spec * u_LightColor.rgb;
-
+    
+    // Ambient component
+    vec3 ambient = u_Light.ambient * u_Material.ambient;
+    
+    // Diffuse component
+    float diff = max(dot(normal, lightDir), 0.0);
+    vec3 diffuse = u_Light.diffuse * (diff * u_Material.diffuse);
+    
+    // Specular component
+    float spec = pow(max(dot(viewDir, reflectDir), 0.0), u_Material.shininess);
+    vec3 specular = u_Light.specular * (spec * u_Material.specular);
+    
     // Combine all components
-    vec3 result = (ambient + diffuse + specular) * u_ObjectColor.rgb;
+    vec3 result = ambient + diffuse + specular;
     FragColor = vec4(result, 1.0);
 }
