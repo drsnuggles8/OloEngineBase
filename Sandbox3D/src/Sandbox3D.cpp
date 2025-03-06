@@ -10,8 +10,9 @@ Sandbox3D::Sandbox3D()
 	m_CameraController(45.0f, 1280.0f / 720.0f, 0.1f, 1000.0f),
 	m_RotationAngleY(0.0f),
 	m_RotationAngleX(0.0f),
-	m_RotationEnabled(true),
 	m_LightAnimTime(0.0f),
+	m_RotationEnabled(true),
+	m_WasSpacePressed(false),
 	m_CameraMovementEnabled(true),
 	m_WasTabPressed(false)
 {
@@ -31,6 +32,13 @@ Sandbox3D::Sandbox3D()
 	m_GreenMaterial.Specular = glm::vec3(0.3f);            // Duller specular
 	m_GreenMaterial.Shininess = 16.0f;                     // Less shiny
 
+	// Initialize textured material
+	m_TexturedMaterial.Ambient = glm::vec3(0.1f);          // Ambient multiplier
+	m_TexturedMaterial.Diffuse = glm::vec3(1.0f);          // Full diffuse texture color
+	m_TexturedMaterial.Specular = glm::vec3(1.0f);         // Full specular texture color
+	m_TexturedMaterial.Shininess = 64.0f;                  // Shininess
+	m_TexturedMaterial.UseTextureMaps = true;              // Enable texture mapping
+
 	// Initialize light with default values
 	m_Light.Position = glm::vec3(1.2f, 1.0f, 2.0f);
 	m_Light.Ambient = glm::vec3(0.2f);
@@ -41,6 +49,14 @@ Sandbox3D::Sandbox3D()
 void Sandbox3D::OnAttach()
 {
 	OLO_PROFILE_FUNCTION();
+
+	// Load textures
+	m_DiffuseMap = OloEngine::Texture2D::Create("assets/textures/container2.png");
+	m_SpecularMap = OloEngine::Texture2D::Create("assets/textures/container2_specular.png");
+
+	// Assign textures to the material
+	m_TexturedMaterial.DiffuseMap = m_DiffuseMap;
+	m_TexturedMaterial.SpecularMap = m_SpecularMap;
 
 	// Set initial lighting parameters
 	OloEngine::Renderer3D::SetLight(m_Light);
@@ -142,6 +158,17 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 		OloEngine::Renderer3D::DrawCube(modelMatrix, m_GreenMaterial);
 	}
 
+	// Cube 4: Textured cube (with diffuse and specular maps)
+	{
+		auto modelMatrix = glm::mat4(1.0f);
+		// Position above
+		modelMatrix = glm::translate(modelMatrix, glm::vec3(0.0f, 2.0f, 0.0f));
+		// Apply a rotation
+		modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX * 0.8f), glm::vec3(1.0f, 0.0f, 0.0f));
+		modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY * 0.8f), glm::vec3(0.0f, 1.0f, 0.0f));
+		OloEngine::Renderer3D::DrawCube(modelMatrix, m_TexturedMaterial);
+	}
+
 	// Light cube (moving in a circle)
 	{
 		auto lightCubeModelMatrix = glm::mat4(1.0f);
@@ -173,7 +200,7 @@ void Sandbox3D::OnImGuiRender()
 	// Material selection
 	ImGui::Separator();
 	ImGui::Text("Material Properties");
-	ImGui::Combo("Select Material", &m_SelectedMaterial, m_MaterialNames, 3);
+	ImGui::Combo("Select Material", &m_SelectedMaterial, m_MaterialNames, 4);
 
 	// Get the selected material based on the combo box selection
 	OloEngine::Material* currentMaterial;
@@ -188,15 +215,39 @@ void Sandbox3D::OnImGuiRender()
 		case 2:
 			currentMaterial = &m_GreenMaterial;
 			break;
+		case 3:
+			currentMaterial = &m_TexturedMaterial;
+			break;
 		default:
 			currentMaterial = &m_BlueMaterial;
 	}
 
 	// Edit the selected material
-	ImGui::ColorEdit3("Ambient", glm::value_ptr(currentMaterial->Ambient));
-	ImGui::ColorEdit3("Diffuse", glm::value_ptr(currentMaterial->Diffuse));
-	ImGui::ColorEdit3("Specular", glm::value_ptr(currentMaterial->Specular));
-	ImGui::SliderFloat("Shininess", &currentMaterial->Shininess, 1.0f, 128.0f);
+	if (m_SelectedMaterial == 3) // Textured material
+	{
+		// For textured material, show the texture map toggle
+		ImGui::Checkbox("Use Texture Maps", &currentMaterial->UseTextureMaps);
+		ImGui::Text("Shininess");
+		ImGui::SliderFloat("##Shininess", &currentMaterial->Shininess, 1.0f, 128.0f);
+		
+		if (m_DiffuseMap)
+			ImGui::Text("Diffuse Map: Loaded");
+		else
+			ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Diffuse Map: Not Found!");
+		
+		if (m_SpecularMap)
+			ImGui::Text("Specular Map: Loaded");
+		else 
+			ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Specular Map: Not Found!");
+	}
+	else
+	{
+		// For solid color materials, show the color controls
+		ImGui::ColorEdit3("Ambient", glm::value_ptr(currentMaterial->Ambient));
+		ImGui::ColorEdit3("Diffuse", glm::value_ptr(currentMaterial->Diffuse));
+		ImGui::ColorEdit3("Specular", glm::value_ptr(currentMaterial->Specular));
+		ImGui::SliderFloat("Shininess", &currentMaterial->Shininess, 1.0f, 128.0f);
+	}
 
 	// Light properties
 	ImGui::Separator();

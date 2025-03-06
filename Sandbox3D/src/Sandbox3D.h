@@ -17,38 +17,47 @@ public:
 private:
 	OloEngine::PerspectiveCameraController m_CameraController;
 
+	// Rendering resources
 	OloEngine::Ref<OloEngine::VertexArray> m_CubeVA;
 	OloEngine::Ref<OloEngine::Shader> m_Shader;
 	OloEngine::Ref<OloEngine::Texture2D> m_CheckerboardTexture;
+	
+	// Lighting texture maps
+	OloEngine::Ref<OloEngine::Texture2D> m_DiffuseMap;
+	OloEngine::Ref<OloEngine::Texture2D> m_SpecularMap;
 
+	// Rotation animation state
 	f32 m_RotationAngleY;
 	f32 m_RotationAngleX;
 
-	// Materials for the three cubes
+	// Materials for different cubes
 	OloEngine::Material m_BlueMaterial;
 	OloEngine::Material m_RedMaterial;
 	OloEngine::Material m_GreenMaterial;
+	OloEngine::Material m_TexturedMaterial;
 
 	// Light properties
 	OloEngine::Light m_Light;
 	
-	// Legacy lighting parameters (for backward compatibility)
+	// Legacy lighting parameters
 	float m_AmbientStrength = 0.1f;
 	float m_SpecularStrength = 0.5f;
 	float m_Shininess = 32.0f;
 
-	// Selected material for editing
+	// Material editor selection state
 	int m_SelectedMaterial = 0;
-	const char* m_MaterialNames[3] = { "Blue Cube", "Red Cube", "Green Cube" };
+	const char* m_MaterialNames[4] = { "Blue Cube", "Red Cube", "Green Cube", "Textured Cube" };
 
-	// Animation variables
+	// Light animation state
 	float m_LightAnimTime = 0.0f;
 	bool m_AnimateLight = true;
 
+	// Input state tracking
 	bool m_RotationEnabled;
 	bool m_WasSpacePressed;
-
-	// Camera control toggle
 	bool m_CameraMovementEnabled;
 	bool m_WasTabPressed;
+	
+	// Rendering options
+	bool m_UseTextureMaps = true;
 };

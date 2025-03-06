@@ -22,6 +22,7 @@ namespace OloEngine
 		Ref<IndexBuffer> IndexBuffer;
 		Ref<UniformBuffer> UBO;
 		Ref<UniformBuffer> LightPropertiesBuffer;
+		Ref<UniformBuffer> TextureFlagBuffer;
 
 		glm::mat4 ViewProjectionMatrix;
 
@@ -40,44 +41,44 @@ namespace OloEngine
 
 		s_Data.VertexArray = VertexArray::Create();
 
-		// Cube vertices with position and normals
+		// Cube vertices with position, normals, and texture coordinates
 		f32 vertices[] = {
-			// positions             // normals
+			// positions             // normals           // texture coords
 			// Front face
-			 0.5f,  0.5f,  0.5f,     0.0f,  0.0f,  1.0f,
-			 0.5f, -0.5f,  0.5f,     0.0f,  0.0f,  1.0f,
-			-0.5f, -0.5f,  0.5f,     0.0f,  0.0f,  1.0f,
-			-0.5f,  0.5f,  0.5f,     0.0f,  0.0f,  1.0f,
+			 0.5f,  0.5f,  0.5f,     0.0f,  0.0f,  1.0f,  1.0f, 1.0f,
+			 0.5f, -0.5f,  0.5f,     0.0f,  0.0f,  1.0f,  1.0f, 0.0f,
+			-0.5f, -0.5f,  0.5f,     0.0f,  0.0f,  1.0f,  0.0f, 0.0f,
+			-0.5f,  0.5f,  0.5f,     0.0f,  0.0f,  1.0f,  0.0f, 1.0f,
 
 			// Back face
-			 0.5f,  0.5f, -0.5f,     0.0f,  0.0f, -1.0f,
-			 0.5f, -0.5f, -0.5f,     0.0f,  0.0f, -1.0f,
-			-0.5f, -0.5f, -0.5f,     0.0f,  0.0f, -1.0f,
-			-0.5f,  0.5f, -0.5f,     0.0f,  0.0f, -1.0f,
+			 0.5f,  0.5f, -0.5f,     0.0f,  0.0f, -1.0f,  0.0f, 1.0f,
+			 0.5f, -0.5f, -0.5f,     0.0f,  0.0f, -1.0f,  0.0f, 0.0f,
+			-0.5f, -0.5f, -0.5f,     0.0f,  0.0f, -1.0f,  1.0f, 0.0f,
+			-0.5f,  0.5f, -0.5f,     0.0f,  0.0f, -1.0f,  1.0f, 1.0f,
 
 			// Right face
-			 0.5f,  0.5f,  0.5f,     1.0f,  0.0f,  0.0f,
-			 0.5f, -0.5f,  0.5f,     1.0f,  0.0f,  0.0f,
-			 0.5f, -0.5f, -0.5f,     1.0f,  0.0f,  0.0f,
-			 0.5f,  0.5f, -0.5f,     1.0f,  0.0f,  0.0f,
+			 0.5f,  0.5f,  0.5f,     1.0f,  0.0f,  0.0f,  0.0f, 1.0f,
+			 0.5f, -0.5f,  0.5f,     1.0f,  0.0f,  0.0f,  0.0f, 0.0f,
+			 0.5f, -0.5f, -0.5f,     1.0f,  0.0f,  0.0f,  1.0f, 0.0f,
+			 0.5f,  0.5f, -0.5f,     1.0f,  0.0f,  0.0f,  1.0f, 1.0f,
 
 			 // Left face
-			 -0.5f,  0.5f,  0.5f,    -1.0f,  0.0f,  0.0f,
-			 -0.5f, -0.5f,  0.5f,    -1.0f,  0.0f,  0.0f,
-			 -0.5f, -0.5f, -0.5f,    -1.0f,  0.0f,  0.0f,
-			 -0.5f,  0.5f, -0.5f,    -1.0f,  0.0f,  0.0f,
+			 -0.5f,  0.5f,  0.5f,    -1.0f,  0.0f,  0.0f,  1.0f, 1.0f,
+			 -0.5f, -0.5f,  0.5f,    -1.0f,  0.0f,  0.0f,  1.0f, 0.0f,
+			 -0.5f, -0.5f, -0.5f,    -1.0f,  0.0f,  0.0f,  0.0f, 0.0f,
+			 -0.5f,  0.5f, -0.5f,    -1.0f,  0.0f,  0.0f,  0.0f, 1.0f,
 
 			 // Top face
-			  0.5f,  0.5f,  0.5f,     0.0f,  1.0f,  0.0f,
-			  0.5f,  0.5f, -0.5f,     0.0f,  1.0f,  0.0f,
-			 -0.5f,  0.5f, -0.5f,     0.0f,  1.0f,  0.0f,
-			 -0.5f,  0.5f,  0.5f,     0.0f,  1.0f,  0.0f,
+			  0.5f,  0.5f,  0.5f,     0.0f,  1.0f,  0.0f,  1.0f, 0.0f,
+			  0.5f,  0.5f, -0.5f,     0.0f,  1.0f,  0.0f,  1.0f, 1.0f,
+			 -0.5f,  0.5f, -0.5f,     0.0f,  1.0f,  0.0f,  0.0f, 1.0f,
+			 -0.5f,  0.5f,  0.5f,     0.0f,  1.0f,  0.0f,  0.0f, 0.0f,
 
 			 // Bottom face
-			  0.5f, -0.5f,  0.5f,     0.0f, -1.0f,  0.0f,
-			  0.5f, -0.5f, -0.5f,     0.0f, -1.0f,  0.0f,
-			 -0.5f, -0.5f, -0.5f,     0.0f, -1.0f,  0.0f,
-			 -0.5f, -0.5f,  0.5f,     0.0f, -1.0f,  0.0f
+			  0.5f, -0.5f,  0.5f,     0.0f, -1.0f,  0.0f,  1.0f, 1.0f,
+			  0.5f, -0.5f, -0.5f,     0.0f, -1.0f,  0.0f,  1.0f, 0.0f,
+			 -0.5f, -0.5f, -0.5f,     0.0f, -1.0f,  0.0f,  0.0f, 0.0f,
+			 -0.5f, -0.5f,  0.5f,     0.0f, -1.0f,  0.0f,  0.0f, 1.0f
 		};
 
 		u32 indices[] = {
@@ -98,7 +99,8 @@ namespace OloEngine
 		s_Data.VertexBuffer = VertexBuffer::Create(vertices, sizeof(vertices));
 		s_Data.VertexBuffer->SetLayout({
 			{ ShaderDataType::Float3, "a_Position" },
-			{ ShaderDataType::Float3, "a_Normal" }
+			{ ShaderDataType::Float3, "a_Normal" },
+			{ ShaderDataType::Float2, "a_TexCoord" }
 		});
 		s_Data.VertexArray->AddVertexBuffer(s_Data.VertexBuffer);
 
@@ -111,14 +113,10 @@ namespace OloEngine
 		s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
 		s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
 
+		// Create uniform buffers
 		s_Data.UBO = UniformBuffer::Create(sizeof(glm::mat4) * 2, 0);
-
-		// Create uniform buffer for Material and Light struct: 
-		// Material (vec3 ambient, vec3 diffuse, vec3 specular, float shininess) = 4 vec4s
-		// Light (vec3 position, vec3 ambient, vec3 diffuse, vec3 specular) = 4 vec4s
-		// ViewPos (vec3) = 1 vec4
-		// Total: 9 vec4s = 9 * 16 bytes = 144 bytes
 		s_Data.LightPropertiesBuffer = UniformBuffer::Create(sizeof(glm::vec4) * 9, 1);
+		s_Data.TextureFlagBuffer = UniformBuffer::Create(sizeof(int), 2);
 
 		// Set default values
 		s_Data.SceneLight.Position = glm::vec3(1.2f, 1.0f, 2.0f);
@@ -197,6 +195,25 @@ namespace OloEngine
 		s_Data.LightPropertiesBuffer->SetData(lightDiffuseData);
 		s_Data.LightPropertiesBuffer->SetData(lightSpecularData);
 		s_Data.LightPropertiesBuffer->SetData(viewPosData);
+
+		// Set texture usage flag
+		int useTextureMaps = material.UseTextureMaps ? 1 : 0;
+		UniformData textureFlagData = { &useTextureMaps, sizeof(int), 0 };
+		s_Data.TextureFlagBuffer->SetData(textureFlagData);
+
+		// Bind texture maps if we're using them
+		if (material.UseTextureMaps)
+		{
+			if (material.DiffuseMap)
+			{
+				material.DiffuseMap->Bind(0);
+			}
+
+			if (material.SpecularMap)
+			{
+				material.SpecularMap->Bind(1);
+			}
+		}
 
 		s_Data.VertexArray->Bind();
 		RenderCommand::DrawIndexed(s_Data.VertexArray);
