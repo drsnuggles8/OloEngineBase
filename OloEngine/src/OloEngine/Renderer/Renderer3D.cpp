@@ -113,9 +113,16 @@ namespace OloEngine
 		s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
 		s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
 
-		// Create uniform buffers
+		// Create uniform buffers with proper sizes
 		s_Data.UBO = UniformBuffer::Create(sizeof(glm::mat4) * 2, 0);
-		s_Data.LightPropertiesBuffer = UniformBuffer::Create(sizeof(glm::vec4) * 9, 1);
+		
+		// Calculate the total size needed for all lighting properties
+		// Material: 3 vec4s (ambient, diffuse, specular+shininess) + 1 vec4 padding = 4 vec4s
+		// Light: Position vec4 + Direction vec4 + 3 color vec4s + 2 param vec4s = 6 vec4s
+		// ViewPos + LightType: 1 vec4
+		// Total: 11 vec4s = 11 * 16 bytes = 176 bytes
+		s_Data.LightPropertiesBuffer = UniformBuffer::Create(sizeof(glm::vec4) * 12, 1);
+		
 		s_Data.TextureFlagBuffer = UniformBuffer::Create(sizeof(int), 2);
 
 		// Set default values
@@ -167,33 +174,79 @@ namespace OloEngine
 		glm::vec4 padding1(0.0f); // Padding to align to vec4 boundary
 
 		// Prepare light data with padding for std140 layout
+		int lightType = static_cast<int>(s_Data.SceneLight.Type);
 		glm::vec4 lightPosition(s_Data.SceneLight.Position, 0.0f);
+		glm::vec4 lightDirection(s_Data.SceneLight.Direction, 0.0f);
 		glm::vec4 lightAmbient(s_Data.SceneLight.Ambient, 0.0f);
 		glm::vec4 lightDiffuse(s_Data.SceneLight.Diffuse, 0.0f);
 		glm::vec4 lightSpecular(s_Data.SceneLight.Specular, 0.0f);
-		glm::vec4 viewPos(s_Data.ViewPos, 0.0f);
+		
+		// Attenuation parameters and spotlight parameters
+		glm::vec4 lightAttenuationParams(
+			s_Data.SceneLight.Constant, 
+			s_Data.SceneLight.Linear, 
+			s_Data.SceneLight.Quadratic, 
+			0.0f // padding
+		);
+		
+		glm::vec4 lightSpotParams(
+			s_Data.SceneLight.CutOff,
+			s_Data.SceneLight.OuterCutOff,
+			0.0f, // padding
+			0.0f  // padding
+		);
+		
+		glm::vec4 viewPos(s_Data.ViewPos, static_cast<float>(lightType)); // Use w component to store light type
 
-		// Update the LightProperties UBO
-		UniformData materialAmbientData = { &materialAmbient, sizeof(glm::vec4), 0 };
-		UniformData materialDiffuseData = { &materialDiffuse, sizeof(glm::vec4), sizeof(glm::vec4) };
-		UniformData materialSpecularData = { &materialSpecular, sizeof(glm::vec4), sizeof(glm::vec4) * 2 };
-		UniformData paddingData = { &padding1, sizeof(glm::vec4), sizeof(glm::vec4) * 3 };
-
-		UniformData lightPositionData = { &lightPosition, sizeof(glm::vec4), sizeof(glm::vec4) * 4 };
-		UniformData lightAmbientData = { &lightAmbient, sizeof(glm::vec4), sizeof(glm::vec4) * 5 };
-		UniformData lightDiffuseData = { &lightDiffuse, sizeof(glm::vec4), sizeof(glm::vec4) * 6 };
-		UniformData lightSpecularData = { &lightSpecular, sizeof(glm::vec4), sizeof(glm::vec4) * 7 };
-
-		UniformData viewPosData = { &viewPos, sizeof(glm::vec4), sizeof(glm::vec4) * 8 };
+		// Update the LightProperties UBO with proper offsets
+		// Use precise offsets to match the std140 layout requirements
+		size_t offset = 0;
+		UniformData materialAmbientData = { &materialAmbient, sizeof(glm::vec4), offset };
+		offset += sizeof(glm::vec4);
+		
+		UniformData materialDiffuseData = { &materialDiffuse, sizeof(glm::vec4), offset };
+		offset += sizeof(glm::vec4);
+		
+		UniformData materialSpecularData = { &materialSpecular, sizeof(glm::vec4), offset };
+		offset += sizeof(glm::vec4);
+		
+		UniformData paddingData = { &padding1, sizeof(glm::vec4), offset };
+		offset += sizeof(glm::vec4);
+		
+		UniformData lightPositionData = { &lightPosition, sizeof(glm::vec4), offset };
+		offset += sizeof(glm::vec4);
+		
+		UniformData lightDirectionData = { &lightDirection, sizeof(glm::vec4), offset };
+		offset += sizeof(glm::vec4);
+		
+		UniformData lightAmbientData = { &lightAmbient, sizeof(glm::vec4), offset };
+		offset += sizeof(glm::vec4);
+		
+		UniformData lightDiffuseData = { &lightDiffuse, sizeof(glm::vec4), offset };
+		offset += sizeof(glm::vec4);
+		
+		UniformData lightSpecularData = { &lightSpecular, sizeof(glm::vec4), offset };
+		offset += sizeof(glm::vec4);
+		
+		UniformData lightAttenuationData = { &lightAttenuationParams, sizeof(glm::vec4), offset };
+		offset += sizeof(glm::vec4);
+		
+		UniformData lightSpotParamsData = { &lightSpotParams, sizeof(glm::vec4), offset };
+		offset += sizeof(glm::vec4);
+		
+		UniformData viewPosData = { &viewPos, sizeof(glm::vec4), offset };
 
 		s_Data.LightPropertiesBuffer->SetData(materialAmbientData);
 		s_Data.LightPropertiesBuffer->SetData(materialDiffuseData);
 		s_Data.LightPropertiesBuffer->SetData(materialSpecularData);
 		s_Data.LightPropertiesBuffer->SetData(paddingData);
 		s_Data.LightPropertiesBuffer->SetData(lightPositionData);
+		s_Data.LightPropertiesBuffer->SetData(lightDirectionData);
 		s_Data.LightPropertiesBuffer->SetData(lightAmbientData);
 		s_Data.LightPropertiesBuffer->SetData(lightDiffuseData);
 		s_Data.LightPropertiesBuffer->SetData(lightSpecularData);
+		s_Data.LightPropertiesBuffer->SetData(lightAttenuationData);
+		s_Data.LightPropertiesBuffer->SetData(lightSpotParamsData);
 		s_Data.LightPropertiesBuffer->SetData(viewPosData);
 
 		// Set texture usage flag

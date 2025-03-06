@@ -23,14 +23,35 @@ namespace OloEngine
 		bool UseTextureMaps = false;
 	};
 
-	// Light parameters for Phong lighting model
+	// Light types enumeration
+	enum class LightType
+	{
+		Directional = 0,
+		Point = 1,
+		Spot = 2
+	};
+
+	// Base light properties common to all light types
 	struct Light
 	{
-		glm::vec3 Position = { 1.2f, 1.0f, 2.0f };
-
+		LightType Type = LightType::Point;
+		
+		// Common light properties
+		glm::vec3 Position = { 1.2f, 1.0f, 2.0f };  // Used by point and spot lights
+		glm::vec3 Direction = { 0.0f, -1.0f, 0.0f }; // Used by directional and spot lights
+		
 		glm::vec3 Ambient = { 0.2f, 0.2f, 0.2f };
 		glm::vec3 Diffuse = { 0.5f, 0.5f, 0.5f };
 		glm::vec3 Specular = { 1.0f, 1.0f, 1.0f };
+		
+		// Point light attenuation factors
+		float Constant = 1.0f;    // Should be 1.0 in most cases
+		float Linear = 0.09f;     // Controls linear attenuation
+		float Quadratic = 0.032f; // Controls quadratic attenuation
+		
+		// Spotlight properties
+		float CutOff = glm::cos(glm::radians(12.5f));     // Spotlight inner cutoff (cosine of angle)
+		float OuterCutOff = glm::cos(glm::radians(17.5f)); // Spotlight outer cutoff for soft edges
 	};
 
 	class Renderer3D

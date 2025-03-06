@@ -40,10 +40,21 @@ Sandbox3D::Sandbox3D()
 	m_TexturedMaterial.UseTextureMaps = true;              // Enable texture mapping
 
 	// Initialize light with default values
+	m_Light.Type = OloEngine::LightType::Point; // Default to point light
 	m_Light.Position = glm::vec3(1.2f, 1.0f, 2.0f);
+	m_Light.Direction = glm::vec3(0.0f, -1.0f, 0.0f); // Points downward
 	m_Light.Ambient = glm::vec3(0.2f);
 	m_Light.Diffuse = glm::vec3(0.5f);
 	m_Light.Specular = glm::vec3(1.0f);
+	
+	// Point light attenuation defaults
+	m_Light.Constant = 1.0f;
+	m_Light.Linear = 0.09f;
+	m_Light.Quadratic = 0.032f;
+	
+	// Spotlight defaults
+	m_Light.CutOff = glm::cos(glm::radians(m_SpotlightInnerAngle));
+	m_Light.OuterCutOff = glm::cos(glm::radians(m_SpotlightOuterAngle));
 }
 
 void Sandbox3D::OnAttach()
@@ -110,13 +121,20 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 		if (m_RotationAngleX > 360.0f)  m_RotationAngleX -= 360.0f;
 	}
 
-	// Animate the light position in a circular pattern
-	if (m_AnimateLight)
+	// Animate the light position in a circular pattern (only for point and spot lights)
+	if (m_AnimateLight && m_Light.Type != OloEngine::LightType::Directional)
 	{
 		m_LightAnimTime += ts;
 		float radius = 3.0f;
 		m_Light.Position.x = std::cos(m_LightAnimTime) * radius;
 		m_Light.Position.z = std::sin(m_LightAnimTime) * radius;
+
+		// For spotlights, make them always point toward the center
+		if (m_Light.Type == OloEngine::LightType::Spot)
+		{
+			m_Light.Direction = -glm::normalize(m_Light.Position);
+		}
+		
 		OloEngine::Renderer3D::SetLight(m_Light);
 	}
 
@@ -169,7 +187,8 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 		OloEngine::Renderer3D::DrawCube(modelMatrix, m_TexturedMaterial);
 	}
 
-	// Light cube (moving in a circle)
+	// Light cube (only for point and spot lights)
+	if (m_Light.Type != OloEngine::LightType::Directional)
 	{
 		auto lightCubeModelMatrix = glm::mat4(1.0f);
 		lightCubeModelMatrix = glm::translate(lightCubeModelMatrix, m_Light.Position);
@@ -194,8 +213,46 @@ void Sandbox3D::OnImGuiRender()
 		ImGui::Separator();
 	}
 
-	// Light animation toggle
-	ImGui::Checkbox("Animate Light", &m_AnimateLight);
+	// Light type selection
+	ImGui::Text("Light Type");
+	bool lightTypeChanged = ImGui::Combo("##LightType", &m_LightTypeIndex, m_LightTypeNames, 3);
+	
+	if (lightTypeChanged)
+	{
+		// Update light type
+		m_Light.Type = static_cast<OloEngine::LightType>(m_LightTypeIndex);
+		
+		// Disable animation for directional lights
+		if (m_Light.Type == OloEngine::LightType::Directional && m_AnimateLight)
+		{
+			m_AnimateLight = false;
+		}
+		
+		OloEngine::Renderer3D::SetLight(m_Light);
+	}
+
+	// Show different UI controls based on light type
+	ImGui::Separator();
+	ImGui::Text("Light Properties");
+	
+	switch (m_Light.Type)
+	{
+		case OloEngine::LightType::Directional:
+			RenderDirectionalLightUI();
+			break;
+		
+		case OloEngine::LightType::Point:
+			// Only show animation toggle for positional lights
+			ImGui::Checkbox("Animate Light", &m_AnimateLight);
+			RenderPointLightUI();
+			break;
+		
+		case OloEngine::LightType::Spot:
+			// Only show animation toggle for positional lights
+			ImGui::Checkbox("Animate Light", &m_AnimateLight);
+			RenderSpotlightUI();
+			break;
+	}
 
 	// Material selection
 	ImGui::Separator();
@@ -228,7 +285,7 @@ void Sandbox3D::OnImGuiRender()
 		// For textured material, show the texture map toggle
 		ImGui::Checkbox("Use Texture Maps", &currentMaterial->UseTextureMaps);
 		ImGui::Text("Shininess");
-		ImGui::SliderFloat("##Shininess", &currentMaterial->Shininess, 1.0f, 128.0f);
+		ImGui::SliderFloat("##TexturedShininess", &currentMaterial->Shininess, 1.0f, 128.0f);
 		
 		if (m_DiffuseMap)
 			ImGui::Text("Diffuse Map: Loaded");
@@ -243,37 +300,149 @@ void Sandbox3D::OnImGuiRender()
 	else
 	{
 		// For solid color materials, show the color controls
-		ImGui::ColorEdit3("Ambient", glm::value_ptr(currentMaterial->Ambient));
-		ImGui::ColorEdit3("Diffuse", glm::value_ptr(currentMaterial->Diffuse));
-		ImGui::ColorEdit3("Specular", glm::value_ptr(currentMaterial->Specular));
-		ImGui::SliderFloat("Shininess", &currentMaterial->Shininess, 1.0f, 128.0f);
+		ImGui::ColorEdit3(("Ambient##Material" + std::to_string(m_SelectedMaterial)).c_str(), glm::value_ptr(currentMaterial->Ambient));
+		ImGui::ColorEdit3(("Diffuse##Material" + std::to_string(m_SelectedMaterial)).c_str(), glm::value_ptr(currentMaterial->Diffuse));
+		ImGui::ColorEdit3(("Specular##Material" + std::to_string(m_SelectedMaterial)).c_str(), glm::value_ptr(currentMaterial->Specular));
+		ImGui::SliderFloat(("Shininess##Material" + std::to_string(m_SelectedMaterial)).c_str(), &currentMaterial->Shininess, 1.0f, 128.0f);
 	}
 
-	// Light properties
-	ImGui::Separator();
-	ImGui::Text("Light Properties");
+	ImGui::End();
+}
 
-	// If light is not animating, allow manual positioning
-	if (!m_AnimateLight)
+void Sandbox3D::RenderDirectionalLightUI()
+{
+	ImGui::Text("Directional Light");
+	
+	// Direction control
+	bool directionChanged = ImGui::DragFloat3("Direction##DirLight", glm::value_ptr(m_Light.Direction), 0.01f);
+	if (directionChanged)
 	{
-		if (ImGui::DragFloat3("Light Position", glm::value_ptr(m_Light.Position), 0.1f))
+		// Normalize direction
+		if (glm::length(m_Light.Direction) > 0.0f)
 		{
-			OloEngine::Renderer3D::SetLight(m_Light);
+			m_Light.Direction = glm::normalize(m_Light.Direction);
 		}
+		else
+		{
+			m_Light.Direction = glm::vec3(0.0f, -1.0f, 0.0f);
+		}
+		
+		OloEngine::Renderer3D::SetLight(m_Light);
 	}
-
-	// Edit light colors
+	
+	// Light colors
 	bool lightChanged = false;
-	lightChanged |= ImGui::ColorEdit3("Light Ambient", glm::value_ptr(m_Light.Ambient));
-	lightChanged |= ImGui::ColorEdit3("Light Diffuse", glm::value_ptr(m_Light.Diffuse));
-	lightChanged |= ImGui::ColorEdit3("Light Specular", glm::value_ptr(m_Light.Specular));
+	lightChanged |= ImGui::ColorEdit3("Ambient##DirLight", glm::value_ptr(m_Light.Ambient));
+	lightChanged |= ImGui::ColorEdit3("Diffuse##DirLight", glm::value_ptr(m_Light.Diffuse));
+	lightChanged |= ImGui::ColorEdit3("Specular##DirLight", glm::value_ptr(m_Light.Specular));
 
 	if (lightChanged)
 	{
 		OloEngine::Renderer3D::SetLight(m_Light);
 	}
+}
 
-	ImGui::End();
+void Sandbox3D::RenderPointLightUI()
+{
+	ImGui::Text("Point Light");
+	
+	if (!m_AnimateLight)
+	{
+		// Position control (only if not animating)
+		bool positionChanged = ImGui::DragFloat3("Position##PointLight", glm::value_ptr(m_Light.Position), 0.1f);
+		if (positionChanged)
+		{
+			OloEngine::Renderer3D::SetLight(m_Light);
+		}
+	}
+	
+	// Light colors
+	bool lightChanged = false;
+	lightChanged |= ImGui::ColorEdit3("Ambient##PointLight", glm::value_ptr(m_Light.Ambient));
+	lightChanged |= ImGui::ColorEdit3("Diffuse##PointLight", glm::value_ptr(m_Light.Diffuse));
+	lightChanged |= ImGui::ColorEdit3("Specular##PointLight", glm::value_ptr(m_Light.Specular));
+	
+	// Attenuation factors
+	ImGui::Text("Attenuation Factors");
+	lightChanged |= ImGui::DragFloat("Constant##PointLight", &m_Light.Constant, 0.01f, 0.1f, 10.0f);
+	lightChanged |= ImGui::DragFloat("Linear##PointLight", &m_Light.Linear, 0.001f, 0.0f, 1.0f);
+	lightChanged |= ImGui::DragFloat("Quadratic##PointLight", &m_Light.Quadratic, 0.0001f, 0.0f, 1.0f);
+
+	if (lightChanged)
+	{
+		OloEngine::Renderer3D::SetLight(m_Light);
+	}
+}
+
+void Sandbox3D::RenderSpotlightUI()
+{
+	ImGui::Text("Spotlight");
+	
+	if (!m_AnimateLight)
+	{
+		// Position control (only if not animating)
+		bool positionChanged = ImGui::DragFloat3("Position##Spotlight", glm::value_ptr(m_Light.Position), 0.1f);
+		if (positionChanged)
+		{
+			OloEngine::Renderer3D::SetLight(m_Light);
+		}
+		
+		// Direction control (only if not animating)
+		bool directionChanged = ImGui::DragFloat3("Direction##Spotlight", glm::value_ptr(m_Light.Direction), 0.01f);
+		if (directionChanged)
+		{
+			// Normalize direction
+			if (glm::length(m_Light.Direction) > 0.0f)
+			{
+				m_Light.Direction = glm::normalize(m_Light.Direction);
+			}
+			else
+			{
+				m_Light.Direction = glm::vec3(0.0f, -1.0f, 0.0f);
+			}
+			
+			OloEngine::Renderer3D::SetLight(m_Light);
+		}
+	}
+	else
+	{
+		ImGui::Text("Light Direction: Auto (points to center)");
+	}
+	
+	// Light colors
+	bool lightChanged = false;
+	lightChanged |= ImGui::ColorEdit3("Ambient##Spotlight", glm::value_ptr(m_Light.Ambient));
+	lightChanged |= ImGui::ColorEdit3("Diffuse##Spotlight", glm::value_ptr(m_Light.Diffuse));
+	lightChanged |= ImGui::ColorEdit3("Specular##Spotlight", glm::value_ptr(m_Light.Specular));
+	
+	// Attenuation factors
+	ImGui::Text("Attenuation Factors");
+	lightChanged |= ImGui::DragFloat("Constant##Spotlight", &m_Light.Constant, 0.01f, 0.1f, 10.0f);
+	lightChanged |= ImGui::DragFloat("Linear##Spotlight", &m_Light.Linear, 0.001f, 0.0f, 1.0f);
+	lightChanged |= ImGui::DragFloat("Quadratic##Spotlight", &m_Light.Quadratic, 0.0001f, 0.0f, 1.0f);
+	
+	// Spotlight cutoff angles
+	ImGui::Text("Spotlight Angles");
+	bool cutoffChanged = false;
+	cutoffChanged |= ImGui::SliderFloat("Inner Cone", &m_SpotlightInnerAngle, 0.0f, 90.0f);
+	cutoffChanged |= ImGui::SliderFloat("Outer Cone", &m_SpotlightOuterAngle, 0.0f, 90.0f);
+	
+	if (cutoffChanged)
+	{
+		// Make sure inner angle is less than or equal to outer angle
+		m_SpotlightInnerAngle = std::min(m_SpotlightInnerAngle, m_SpotlightOuterAngle);
+		
+		// Convert angles to cosines
+		m_Light.CutOff = glm::cos(glm::radians(m_SpotlightInnerAngle));
+		m_Light.OuterCutOff = glm::cos(glm::radians(m_SpotlightOuterAngle));
+		
+		lightChanged = true;
+	}
+
+	if (lightChanged)
+	{
+		OloEngine::Renderer3D::SetLight(m_Light);
+	}
 }
 
 void Sandbox3D::OnEvent(OloEngine::Event& e)

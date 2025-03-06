@@ -15,6 +15,12 @@ public:
 	void OnImGuiRender() override;
 	void OnEvent(OloEngine::Event& e) override;
 private:
+	// UI helper functions for different light types
+	void RenderDirectionalLightUI();
+	void RenderPointLightUI();
+	void RenderSpotlightUI();
+
+private:
 	OloEngine::PerspectiveCameraController m_CameraController;
 
 	// Rendering resources
@@ -38,6 +44,8 @@ private:
 
 	// Light properties
 	OloEngine::Light m_Light;
+	int m_LightTypeIndex = 1; // Default to point light
+	const char* m_LightTypeNames[3] = { "Directional Light", "Point Light", "Spotlight" };
 	
 	// Legacy lighting parameters
 	float m_AmbientStrength = 0.1f;
@@ -60,4 +68,8 @@ private:
 	
 	// Rendering options
 	bool m_UseTextureMaps = true;
+	
+	// Spotlight properties
+	float m_SpotlightInnerAngle = 12.5f;
+	float m_SpotlightOuterAngle = 17.5f;
 };
