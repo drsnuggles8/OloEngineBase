@@ -28,15 +28,21 @@ namespace OloEngine
 		void SetDepthMask(bool value) override;
 		void SetDepthTest(bool value) override;
 		void SetBlendState(bool value) override;
-		void EnableStencilTest();
-		void DisableStencilTest();
-		void SetStencilFunc(GLenum func, GLint ref, GLuint mask);
-		void SetStencilOp(GLenum sfail, GLenum dpfail, GLenum dppass);
+		void SetDepthFunc(GLenum func);
+		void EnableStencilTest() override;
+		void DisableStencilTest() override;
+		void SetStencilFunc(GLenum func, GLint ref, GLuint mask) override;
+		void SetStencilOp(GLenum sfail, GLenum dpfail, GLenum dppass) override;
+		void SetStencilMask(GLuint mask) override;
+		void ClearStencil() override;
 
-		void SetPolygonMode(GLenum face, GLenum mode);
+		void SetPolygonMode(GLenum face, GLenum mode) override;
 
-		void EnableScissorTest();
-		void DisableScissorTest();
-		void SetScissorBox(GLint x, GLint y, GLsizei width, GLsizei height);
+		void EnableScissorTest() override;
+		void DisableScissorTest() override;
+		void SetScissorBox(GLint x, GLint y, GLsizei width, GLsizei height) override;
+	private:
+		bool m_DepthTestEnabled = false;
+		bool m_StencilTestEnabled = false;
 	};
 }

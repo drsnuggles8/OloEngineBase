@@ -124,6 +124,16 @@ namespace OloEngine
 			s_RendererAPI->SetScissorBox(x, y, width, height);
 		}
 
+		static void SetStencilMask(GLuint mask)
+		{
+			s_RendererAPI->SetStencilMask(mask);
+		}
+
+		static void ClearStencil()
+		{
+			s_RendererAPI->ClearStencil();
+		}
+
 	private:
 		static Scope<RendererAPI> s_RendererAPI;
 	};

@@ -140,7 +140,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 		{
 			m_Light.Direction = -glm::normalize(m_Light.Position);
 		}
-		
+
 		OloEngine::Renderer3D::SetLight(m_Light);
 	}
 
@@ -177,24 +177,55 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 		m_BackpackModel->Draw(modelMatrix, m_TexturedMaterial);
 	}
 
+	// Draw cubes with stencil testing
+	{
+		// Enable stencil testing and set stencil function
+		OloEngine::RenderCommand::EnableStencilTest();
+		OloEngine::RenderCommand::SetStencilFunc(GL_ALWAYS, 1, 0xFF);
+		OloEngine::RenderCommand::SetStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+
+		// Draw the center blue cube and write to the stencil buffer
+		OloEngine::RenderCommand::SetStencilMask(0xFF);
+		OloEngine::RenderCommand::ClearStencil();
+		auto modelMatrix = glm::mat4(1.0f);
+		modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX), glm::vec3(1.0f, 0.0f, 0.0f));
+		modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
+		OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, m_BlueMaterial);
+
+		// Disable writing to the stencil buffer
+		OloEngine::RenderCommand::SetStencilMask(0x00);
+
+		// Draw the outline
+		OloEngine::RenderCommand::SetStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+		OloEngine::RenderCommand::SetLineWidth(3.0f);
+		auto outlineMatrix = glm::scale(modelMatrix, glm::vec3(1.1f));
+		OloEngine::Material outlineMaterial;
+		outlineMaterial.Ambient = glm::vec3(1.0f, 1.0f, 0.0f); // Yellow outline
+		outlineMaterial.Diffuse = glm::vec3(1.0f, 1.0f, 0.0f);
+		outlineMaterial.Specular = glm::vec3(0.0f);
+		outlineMaterial.Shininess = 1.0f;
+		OloEngine::Renderer3D::DrawMesh(m_CubeMesh, outlineMatrix, outlineMaterial);
+
+		// Reset stencil settings
+		OloEngine::RenderCommand::SetStencilFunc(GL_ALWAYS, 1, 0xFF);
+		OloEngine::RenderCommand::SetStencilMask(0xFF);
+		OloEngine::RenderCommand::DisableStencilTest();
+	}
+
+	// Draw other objects
 	switch (m_PrimitiveTypeIndex)
 	{
-	case 0: // Cubes
-		// Draw cubes
+		case 0: // Cubes
+			// Draw right red cube
 		{
-			// Center blue cube
-			auto modelMatrix = glm::mat4(1.0f);
-			modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX), glm::vec3(1.0f, 0.0f, 0.0f));
-			modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
-			OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, m_BlueMaterial);
-
-			// Right red cube
 			auto redCubeMatrix = glm::mat4(1.0f);
 			redCubeMatrix = glm::translate(redCubeMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
 			redCubeMatrix = glm::rotate(redCubeMatrix, glm::radians(m_RotationAngleY * 1.5f), glm::vec3(0.0f, 1.0f, 0.0f));
 			OloEngine::Renderer3D::DrawMesh(m_CubeMesh, redCubeMatrix, m_RedMaterial);
+		}
 
-			// Left green cube
+		// Draw left green cube
+		{
 			auto greenCubeMatrix = glm::mat4(1.0f);
 			greenCubeMatrix = glm::translate(greenCubeMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
 			greenCubeMatrix = glm::rotate(greenCubeMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
@@ -202,41 +233,38 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 		}
 		break;
 
-	case 1: // Spheres
-		// Draw spheres
+		case 1: // Spheres
+			// Draw center blue sphere
 		{
-			// Center blue sphere
 			auto modelMatrix = glm::mat4(1.0f);
 			OloEngine::Renderer3D::DrawMesh(m_SphereMesh, modelMatrix, m_BlueMaterial);
+		}
 
-			// Right red sphere
+		// Draw right red sphere
+		{
 			auto redSphereMatrix = glm::mat4(1.0f);
 			redSphereMatrix = glm::translate(redSphereMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
 			OloEngine::Renderer3D::DrawMesh(m_SphereMesh, redSphereMatrix, m_RedMaterial);
+		}
 
-			// Left green sphere
+		// Draw left green sphere
+		{
 			auto greenSphereMatrix = glm::mat4(1.0f);
 			greenSphereMatrix = glm::translate(greenSphereMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
 			OloEngine::Renderer3D::DrawMesh(m_SphereMesh, greenSphereMatrix, m_GreenMaterial);
 		}
 		break;
 
-	case 2: // Mixed
-	default:
-		// Draw mixed shapes
+		case 2: // Mixed
+		default:
+			// Draw mixed shapes
 		{
-			// Center blue cube
-			auto modelMatrix = glm::mat4(1.0f);
-			modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX), glm::vec3(1.0f, 0.0f, 0.0f));
-			modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
-			OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, m_BlueMaterial);
-
-			// Right red sphere
+			// Draw right red sphere
 			auto redSphereMatrix = glm::mat4(1.0f);
 			redSphereMatrix = glm::translate(redSphereMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
 			OloEngine::Renderer3D::DrawMesh(m_SphereMesh, redSphereMatrix, m_RedMaterial);
 
-			// Left green cube
+			// Draw left green cube
 			auto greenCubeMatrix = glm::mat4(1.0f);
 			greenCubeMatrix = glm::translate(greenCubeMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
 			greenCubeMatrix = glm::rotate(greenCubeMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
@@ -265,6 +293,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 
 	OloEngine::Renderer3D::EndScene();
 }
+
 
 void Sandbox3D::OnImGuiRender()
 {
