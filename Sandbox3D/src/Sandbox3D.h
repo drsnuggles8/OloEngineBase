@@ -4,6 +4,8 @@
 #include "OloEngine/Renderer/Camera/PerspectiveCameraController.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/Model.h"
+#include "OloEngine/Renderer/Material.h"
+#include "OloEngine/Renderer/Light.h"
 
 class Sandbox3D : public OloEngine::Layer
 {
