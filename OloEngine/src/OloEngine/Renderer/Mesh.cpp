@@ -6,21 +6,45 @@
 
 namespace OloEngine
 {
-    Mesh::Mesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices)
+    // Copy constructor
+    Mesh::Mesh(const std::vector<Vertex>& vertices, const std::vector<u32>& indices)
         : m_Vertices(vertices), m_Indices(indices)
     {
         Build();
     }
 
+    // Move constructor
+    Mesh::Mesh(std::vector<Vertex>&& vertices, std::vector<u32>&& indices)
+        : m_Vertices(std::move(vertices)), m_Indices(std::move(indices))
+    {
+        Build();
+    }
+
+    // Copy assignment for vertices
     void Mesh::SetVertices(const std::vector<Vertex>& vertices)
     {
         m_Vertices = vertices;
         m_Built = false;
     }
 
-    void Mesh::SetIndices(const std::vector<uint32_t>& indices)
+    // Move assignment for vertices
+    void Mesh::SetVertices(std::vector<Vertex>&& vertices)
+    {
+        m_Vertices = std::move(vertices);
+        m_Built = false;
+    }
+
+    // Copy assignment for indices
+    void Mesh::SetIndices(const std::vector<u32>& indices)
     {
         m_Indices = indices;
+        m_Built = false;
+    }
+
+    // Move assignment for indices
+    void Mesh::SetIndices(std::vector<u32>&& indices)
+    {
+        m_Indices = std::move(indices);
         m_Built = false;
     }
 
@@ -109,7 +133,7 @@ namespace OloEngine
             { {-0.5f, -0.5f,  0.5f}, { 0.0f, -1.0f,  0.0f}, {0.0f, 1.0f} }  // 23
         };
 
-        std::vector<uint32_t> indices = {
+        std::vector<u32> indices = {
             // Front face
             0, 1, 3, 1, 2, 3,
             // Back face
@@ -127,29 +151,29 @@ namespace OloEngine
         return CreateRef<Mesh>(vertices, indices);
     }
 
-    Ref<Mesh> Mesh::CreateSphere(float radius, uint32_t segments)
+    Ref<Mesh> Mesh::CreateSphere(f32 radius, u32 segments)
     {
         OLO_PROFILE_FUNCTION();
 
         std::vector<Vertex> vertices;
-        std::vector<uint32_t> indices;
+        std::vector<u32> indices;
 
-        const uint32_t rings = segments;
-        const uint32_t sectors = segments * 2;
+        const u32 rings = segments;
+        const u32 sectors = segments * 2;
 
-        const float R = 1.0f / static_cast<float>(rings - 1);
-        const float S = 1.0f / static_cast<float>(sectors - 1);
+        const f32 R = 1.0f / static_cast<f32>(rings - 1);
+        const f32 S = 1.0f / static_cast<f32>(sectors - 1);
 
         vertices.reserve(rings * sectors);
         
         // Generate vertices
-        for (uint32_t r = 0; r < rings; ++r)
+        for (u32 r = 0; r < rings; ++r)
         {
-            for (uint32_t s = 0; s < sectors; ++s)
+            for (u32 s = 0; s < sectors; ++s)
             {
-                const float y = sin(-glm::half_pi<float>() + glm::pi<float>() * r * R);
-                const float x = cos(2 * glm::pi<float>() * s * S) * sin(glm::pi<float>() * r * R);
-                const float z = sin(2 * glm::pi<float>() * s * S) * sin(glm::pi<float>() * r * R);
+                const f32 y = sin(-glm::half_pi<f32>() + glm::pi<f32>() * r * R);
+                const f32 x = cos(2 * glm::pi<f32>() * s * S) * sin(glm::pi<f32>() * r * R);
+                const f32 z = sin(2 * glm::pi<f32>() * s * S) * sin(glm::pi<f32>() * r * R);
 
                 // Position
                 glm::vec3 position = glm::vec3(x, y, z) * radius;
@@ -167,9 +191,9 @@ namespace OloEngine
         // Generate indices
         indices.reserve((rings - 1) * (sectors) * 6);
         
-        for (uint32_t r = 0; r < rings - 1; ++r)
+        for (u32 r = 0; r < rings - 1; ++r)
         {
-            for (uint32_t s = 0; s < sectors - 1; ++s)
+            for (u32 s = 0; s < sectors - 1; ++s)
             {
                 indices.push_back(r * sectors + s);
                 indices.push_back(r * sectors + (s + 1));
@@ -193,12 +217,12 @@ namespace OloEngine
         return CreateRef<Mesh>(vertices, indices);
     }
 
-    Ref<Mesh> Mesh::CreatePlane(float width, float length)
+    Ref<Mesh> Mesh::CreatePlane(f32 width, f32 length)
     {
         OLO_PROFILE_FUNCTION();
 
-        const float halfWidth = width * 0.5f;
-        const float halfLength = length * 0.5f;
+        const f32 halfWidth = width * 0.5f;
+        const f32 halfLength = length * 0.5f;
         
         std::vector<Vertex> vertices = {
             // Top face (facing positive Y)
@@ -208,7 +232,7 @@ namespace OloEngine
             { {-halfWidth, 0.0f,  halfLength}, { 0.0f, 1.0f, 0.0f}, {0.0f, 1.0f} }
         };
 
-        std::vector<uint32_t> indices = {
+        std::vector<u32> indices = {
             0, 1, 3, 1, 2, 3 // Top face
         };
 
