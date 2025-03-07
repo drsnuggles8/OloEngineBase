@@ -1,3 +1,5 @@
+#include <format>
+
 #include <OloEnginePCH.h>
 #include "Sandbox3D.h"
 #include <imgui.h>
@@ -285,19 +287,17 @@ void Sandbox3D::OnImGuiRender()
 
 	// Light type selection
 	ImGui::Text("Light Type");
-	bool lightTypeChanged = ImGui::Combo("##LightType", &m_LightTypeIndex, m_LightTypeNames, 3);
-	
-	if (lightTypeChanged)
+	if (bool lightTypeChanged = ImGui::Combo("##LightType", &m_LightTypeIndex, m_LightTypeNames, 3); lightTypeChanged)
 	{
 		// Update light type
 		m_Light.Type = static_cast<OloEngine::LightType>(m_LightTypeIndex);
-		
+
 		// Disable animation for directional lights
 		if (m_Light.Type == OloEngine::LightType::Directional && m_AnimateLight)
 		{
 			m_AnimateLight = false;
 		}
-		
+
 		OloEngine::Renderer3D::SetLight(m_Light);
 	}
 
@@ -305,19 +305,20 @@ void Sandbox3D::OnImGuiRender()
 	ImGui::Separator();
 	ImGui::Text("Light Properties");
 	
+	using enum OloEngine::LightType;
 	switch (m_Light.Type)
 	{
-		case OloEngine::LightType::Directional:
+		case Directional:
 			RenderDirectionalLightUI();
 			break;
-		
-		case OloEngine::LightType::Point:
+
+		case Point:
 			// Only show animation toggle for positional lights
 			ImGui::Checkbox("Animate Light", &m_AnimateLight);
 			RenderPointLightUI();
 			break;
-		
-		case OloEngine::LightType::Spot:
+
+		case Spot:
 			// Only show animation toggle for positional lights
 			ImGui::Checkbox("Animate Light", &m_AnimateLight);
 			RenderSpotlightUI();
@@ -370,10 +371,10 @@ void Sandbox3D::OnImGuiRender()
 	else
 	{
 		// For solid color materials, show the color controls
-		ImGui::ColorEdit3(("Ambient##Material" + std::to_string(m_SelectedMaterial)).c_str(), glm::value_ptr(currentMaterial->Ambient));
-		ImGui::ColorEdit3(("Diffuse##Material" + std::to_string(m_SelectedMaterial)).c_str(), glm::value_ptr(currentMaterial->Diffuse));
-		ImGui::ColorEdit3(("Specular##Material" + std::to_string(m_SelectedMaterial)).c_str(), glm::value_ptr(currentMaterial->Specular));
-		ImGui::SliderFloat(("Shininess##Material" + std::to_string(m_SelectedMaterial)).c_str(), &currentMaterial->Shininess, 1.0f, 128.0f);
+		ImGui::ColorEdit3(std::format("Ambient##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Ambient));
+		ImGui::ColorEdit3(std::format("Diffuse##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Diffuse));
+		ImGui::ColorEdit3(std::format("Specular##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Specular));
+		ImGui::SliderFloat(std::format("Shininess##Material{}", m_SelectedMaterial).c_str(), &currentMaterial->Shininess, 1.0f, 128.0f);
 	}
 
 	ImGui::End();
@@ -384,8 +385,7 @@ void Sandbox3D::RenderDirectionalLightUI()
 	ImGui::Text("Directional Light");
 	
 	// Direction control
-	bool directionChanged = ImGui::DragFloat3("Direction##DirLight", glm::value_ptr(m_Light.Direction), 0.01f);
-	if (directionChanged)
+	if (bool directionChanged = ImGui::DragFloat3("Direction##DirLight", glm::value_ptr(m_Light.Direction), 0.01f); directionChanged)
 	{
 		// Normalize direction
 		if (glm::length(m_Light.Direction) > 0.0f)
@@ -396,7 +396,7 @@ void Sandbox3D::RenderDirectionalLightUI()
 		{
 			m_Light.Direction = glm::vec3(0.0f, -1.0f, 0.0f);
 		}
-		
+
 		OloEngine::Renderer3D::SetLight(m_Light);
 	}
 	
@@ -451,15 +451,13 @@ void Sandbox3D::RenderSpotlightUI()
 	if (!m_AnimateLight)
 	{
 		// Position control (only if not animating)
-		bool positionChanged = ImGui::DragFloat3("Position##Spotlight", glm::value_ptr(m_Light.Position), 0.1f);
-		if (positionChanged)
+		if (bool positionChanged = ImGui::DragFloat3("Position##Spotlight", glm::value_ptr(m_Light.Position), 0.1f); positionChanged)
 		{
 			OloEngine::Renderer3D::SetLight(m_Light);
 		}
 		
 		// Direction control (only if not animating)
-		bool directionChanged = ImGui::DragFloat3("Direction##Spotlight", glm::value_ptr(m_Light.Direction), 0.01f);
-		if (directionChanged)
+		if (bool directionChanged = ImGui::DragFloat3("Direction##Spotlight", glm::value_ptr(m_Light.Direction), 0.01f); directionChanged)
 		{
 			// Normalize direction
 			if (glm::length(m_Light.Direction) > 0.0f)
@@ -470,7 +468,7 @@ void Sandbox3D::RenderSpotlightUI()
 			{
 				m_Light.Direction = glm::vec3(0.0f, -1.0f, 0.0f);
 			}
-			
+
 			OloEngine::Renderer3D::SetLight(m_Light);
 		}
 	}

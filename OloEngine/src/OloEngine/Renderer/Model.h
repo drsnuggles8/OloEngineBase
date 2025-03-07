@@ -26,9 +26,9 @@ namespace OloEngine
 		void Draw(const glm::mat4& transform, const Material& material) const;
 
 	private:
-		void ProcessNode(aiNode* node, const aiScene* scene);
-		Ref<Mesh> ProcessMesh(aiMesh* mesh, const aiScene* scene);
-		std::vector<Ref<Texture2D>> LoadMaterialTextures(aiMaterial* mat, aiTextureType type);
+		void ProcessNode(const aiNode* node, const aiScene* scene);
+		Ref<Mesh> ProcessMesh(const aiMesh* mesh, const aiScene* scene);
+		std::vector<Ref<Texture2D>> LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type);
 
 		std::vector<Ref<Mesh>> m_Meshes;
 		std::string m_Directory;

@@ -41,14 +41,14 @@ namespace OloEngine
 		ProcessNode(scene->mRootNode, scene);
 	}
 
-	void Model::ProcessNode(aiNode* node, const aiScene* scene)
+	void Model::ProcessNode(const aiNode* node, const aiScene* scene)
 	{
 		OLO_PROFILE_FUNCTION();
 
 		// Process all the node's meshes (if any)
 		for (u32 i = 0; i < node->mNumMeshes; i++)
 		{
-			aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
+			const aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
 			m_Meshes.push_back(ProcessMesh(mesh, scene));
 		}
 
@@ -59,7 +59,7 @@ namespace OloEngine
 		}
 	}
 
-	Ref<Mesh> Model::ProcessMesh(aiMesh* mesh, const aiScene* scene)
+	Ref<Mesh> Model::ProcessMesh(const aiMesh* mesh, const aiScene* scene)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -106,7 +106,7 @@ namespace OloEngine
 		// Process indices
 		for (u32 i = 0; i < mesh->mNumFaces; i++)
 		{
-			aiFace face = mesh->mFaces[i];
+			const aiFace face = mesh->mFaces[i];
 			for (u32 j = 0; j < face.mNumIndices; j++)
 			{
 				indices.push_back(face.mIndices[j]);
@@ -114,9 +114,9 @@ namespace OloEngine
 		}
 
 		// Process material
-		if (mesh->mMaterialIndex >= 0)
+		if (mesh->mMaterialIndex < scene->mNumMaterials)
 		{
-			aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
+			const aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
 
 			std::vector<Ref<Texture2D>> diffuseMaps = LoadMaterialTextures(material, aiTextureType_DIFFUSE);
 			textures.insert(textures.end(), diffuseMaps.begin(), diffuseMaps.end());
@@ -128,7 +128,7 @@ namespace OloEngine
 		return CreateRef<Mesh>(vertices, indices);
 	}
 
-	std::vector<Ref<Texture2D>> Model::LoadMaterialTextures(aiMaterial* mat, aiTextureType type)
+	std::vector<Ref<Texture2D>> Model::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -141,7 +141,7 @@ namespace OloEngine
 
 			// Check if texture was loaded before
 			std::string texturePath = m_Directory + "/" + str.C_Str();
-			if (m_LoadedTextures.find(texturePath) == m_LoadedTextures.end())
+			if (!m_LoadedTextures.contains(texturePath))
 			{
 				// Texture not loaded yet - load it
 				Ref<Texture2D> texture = Texture2D::Create(texturePath);

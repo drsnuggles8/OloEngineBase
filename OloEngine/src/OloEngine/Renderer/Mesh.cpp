@@ -182,7 +182,7 @@ namespace OloEngine
                 glm::vec3 normal = glm::normalize(position);
                 
                 // Texture coordinates
-                glm::vec2 texCoord = glm::vec2(s * S, r * R);
+                auto texCoord = glm::vec2(s * S, r * R);
                 
                 vertices.emplace_back(position, normal, texCoord);
             }
