@@ -10,6 +10,8 @@
 
 #include <fstream>
 #include <utility>
+#include <filesystem>
+#include <chrono>
 
 namespace OloEngine
 {
@@ -302,29 +304,34 @@ namespace OloEngine
 				const auto size = in.tellg();
 				in.seekg(0, std::ios::beg);
 
-				auto& data = shaderData[stage];
-				data.resize(size / sizeof(u32));
-				in.read(reinterpret_cast<char*>(data.data()), size);
-			}
-			else
-			{
-				shaderc::SpvCompilationResult const spirvModule = compiler.CompileGlslToSpv(source, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str(), options);
-				if (spirvModule.GetCompilationStatus() != shaderc_compilation_status_success)
-				{
-					OLO_CORE_ERROR(spirvModule.GetErrorMessage());
-					OLO_CORE_ASSERT(false);
-				}
+				std::filesystem::file_time_type cacheLastWriteTime = std::filesystem::last_write_time(cachedPath);
+				std::filesystem::file_time_type shaderLastWriteTime = std::filesystem::last_write_time(shaderFilePath);
 
-				shaderData[stage] = std::vector<u32>(spirvModule.cbegin(), spirvModule.cend());
-
-				std::ofstream out(cachedPath, std::ios::out | std::ios::binary);
-				if (out.is_open())
+				if (shaderLastWriteTime <= cacheLastWriteTime)
 				{
 					auto& data = shaderData[stage];
-					out.write(reinterpret_cast<char*>(data.data()), data.size() * sizeof(u32));
-					out.flush();
-					out.close();
+					data.resize(size / sizeof(u32));
+					in.read(reinterpret_cast<char*>(data.data()), size);
+					continue;
 				}
+			}
+
+			shaderc::SpvCompilationResult const spirvModule = compiler.CompileGlslToSpv(source, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str(), options);
+			if (spirvModule.GetCompilationStatus() != shaderc_compilation_status_success)
+			{
+				OLO_CORE_ERROR(spirvModule.GetErrorMessage());
+				OLO_CORE_ASSERT(false);
+			}
+
+			shaderData[stage] = std::vector<u32>(spirvModule.cbegin(), spirvModule.cend());
+
+			std::ofstream out(cachedPath, std::ios::out | std::ios::binary);
+			if (out.is_open())
+			{
+				auto& data = shaderData[stage];
+				out.write(reinterpret_cast<char*>(data.data()), data.size() * sizeof(u32));
+				out.flush();
+				out.close();
 			}
 		}
 
