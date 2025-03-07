@@ -7,6 +7,9 @@
 
 namespace OloEngine
 {
+	// Forward declarations
+	class Mesh;
+	
 	// Material properties for 3D lighting
 	struct Material
 	{
@@ -63,7 +66,13 @@ namespace OloEngine
 		static void BeginScene(const glm::mat4& viewProjectionMatrix);
 		static void EndScene();
 
+		// Draw methods
+		static void DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material);
+		
+		// Convenience method that uses the internally stored cube mesh
 		static void DrawCube(const glm::mat4& modelMatrix, const Material& material);
+		
+		// Special method for visualizing light sources
 		static void DrawLightCube(const glm::mat4& modelMatrix);
 
 		// Light and view setters
@@ -71,6 +80,11 @@ namespace OloEngine
 		static void SetViewPosition(const glm::vec3& position);
 
 	private:
+		// Helper methods for updating uniform buffers
+		static void UpdateTransformUBO(const glm::mat4& modelMatrix);
+		static void UpdateLightPropertiesUBO(const Material& material);
+		static void UpdateTextureFlag(const Material& material);
+		
 		static ShaderLibrary m_ShaderLibrary;
 	};
 }

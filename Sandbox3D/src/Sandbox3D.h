@@ -2,6 +2,7 @@
 
 #include "OloEngine.h"
 #include "OloEngine/Renderer/Camera/PerspectiveCameraController.h"
+#include "OloEngine/Renderer/Mesh.h"
 
 class Sandbox3D : public OloEngine::Layer
 {
@@ -14,6 +15,7 @@ public:
 	void OnUpdate(OloEngine::Timestep ts) override;
 	void OnImGuiRender() override;
 	void OnEvent(OloEngine::Event& e) override;
+
 private:
 	// UI helper functions for different light types
 	void RenderDirectionalLightUI();
@@ -23,20 +25,20 @@ private:
 private:
 	OloEngine::PerspectiveCameraController m_CameraController;
 
-	// Rendering resources
-	OloEngine::Ref<OloEngine::VertexArray> m_CubeVA;
-	OloEngine::Ref<OloEngine::Shader> m_Shader;
-	OloEngine::Ref<OloEngine::Texture2D> m_CheckerboardTexture;
+	// Mesh objects
+	OloEngine::Ref<OloEngine::Mesh> m_CubeMesh;
+	OloEngine::Ref<OloEngine::Mesh> m_SphereMesh;
+	OloEngine::Ref<OloEngine::Mesh> m_PlaneMesh;
 	
-	// Lighting texture maps
+	// Texture resources
 	OloEngine::Ref<OloEngine::Texture2D> m_DiffuseMap;
 	OloEngine::Ref<OloEngine::Texture2D> m_SpecularMap;
 
 	// Rotation animation state
-	f32 m_RotationAngleY;
-	f32 m_RotationAngleX;
+	f32 m_RotationAngleY = 0.0f;
+	f32 m_RotationAngleX = 0.0f;
 
-	// Materials for different cubes
+	// Materials for different objects
 	OloEngine::Material m_BlueMaterial;
 	OloEngine::Material m_RedMaterial;
 	OloEngine::Material m_GreenMaterial;
@@ -47,29 +49,25 @@ private:
 	int m_LightTypeIndex = 1; // Default to point light
 	const char* m_LightTypeNames[3] = { "Directional Light", "Point Light", "Spotlight" };
 	
-	// Legacy lighting parameters
-	float m_AmbientStrength = 0.1f;
-	float m_SpecularStrength = 0.5f;
-	float m_Shininess = 32.0f;
-
 	// Material editor selection state
 	int m_SelectedMaterial = 0;
-	const char* m_MaterialNames[4] = { "Blue Cube", "Red Cube", "Green Cube", "Textured Cube" };
+	const char* m_MaterialNames[4] = { "Blue Cube", "Red Cube", "Green Cube", "Textured Sphere" };
 
 	// Light animation state
 	float m_LightAnimTime = 0.0f;
 	bool m_AnimateLight = true;
 
 	// Input state tracking
-	bool m_RotationEnabled;
-	bool m_WasSpacePressed;
-	bool m_CameraMovementEnabled;
-	bool m_WasTabPressed;
-	
-	// Rendering options
-	bool m_UseTextureMaps = true;
+	bool m_RotationEnabled = true;
+	bool m_WasSpacePressed = false;
+	bool m_CameraMovementEnabled = true;
+	bool m_WasTabPressed = false;
 	
 	// Spotlight properties
 	float m_SpotlightInnerAngle = 12.5f;
 	float m_SpotlightOuterAngle = 17.5f;
+	
+	// Object type selection
+	int m_PrimitiveTypeIndex = 0;
+	const char* m_PrimitiveNames[3] = { "Cubes", "Spheres", "Mixed" };
 };

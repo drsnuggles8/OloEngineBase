@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Buffer.h"
+#include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/MSDFData.h"
@@ -15,11 +16,9 @@ namespace OloEngine
 {
 	struct Renderer3DData
 	{
-		Ref<VertexArray> VertexArray;
-		Ref<VertexBuffer> VertexBuffer;
+		Ref<Mesh> CubeMesh;
 		Ref<Shader> LightCubeShader;
 		Ref<Shader> LightingShader;
-		Ref<IndexBuffer> IndexBuffer;
 		Ref<UniformBuffer> UBO;
 		Ref<UniformBuffer> LightPropertiesBuffer;
 		Ref<UniformBuffer> TextureFlagBuffer;
@@ -39,73 +38,8 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
 
-		s_Data.VertexArray = VertexArray::Create();
-
-		// Cube vertices with position, normals, and texture coordinates
-		f32 vertices[] = {
-			// positions             // normals           // texture coords
-			// Front face
-			 0.5f,  0.5f,  0.5f,     0.0f,  0.0f,  1.0f,  1.0f, 1.0f,
-			 0.5f, -0.5f,  0.5f,     0.0f,  0.0f,  1.0f,  1.0f, 0.0f,
-			-0.5f, -0.5f,  0.5f,     0.0f,  0.0f,  1.0f,  0.0f, 0.0f,
-			-0.5f,  0.5f,  0.5f,     0.0f,  0.0f,  1.0f,  0.0f, 1.0f,
-
-			// Back face
-			 0.5f,  0.5f, -0.5f,     0.0f,  0.0f, -1.0f,  0.0f, 1.0f,
-			 0.5f, -0.5f, -0.5f,     0.0f,  0.0f, -1.0f,  0.0f, 0.0f,
-			-0.5f, -0.5f, -0.5f,     0.0f,  0.0f, -1.0f,  1.0f, 0.0f,
-			-0.5f,  0.5f, -0.5f,     0.0f,  0.0f, -1.0f,  1.0f, 1.0f,
-
-			// Right face
-			 0.5f,  0.5f,  0.5f,     1.0f,  0.0f,  0.0f,  0.0f, 1.0f,
-			 0.5f, -0.5f,  0.5f,     1.0f,  0.0f,  0.0f,  0.0f, 0.0f,
-			 0.5f, -0.5f, -0.5f,     1.0f,  0.0f,  0.0f,  1.0f, 0.0f,
-			 0.5f,  0.5f, -0.5f,     1.0f,  0.0f,  0.0f,  1.0f, 1.0f,
-
-			 // Left face
-			 -0.5f,  0.5f,  0.5f,    -1.0f,  0.0f,  0.0f,  1.0f, 1.0f,
-			 -0.5f, -0.5f,  0.5f,    -1.0f,  0.0f,  0.0f,  1.0f, 0.0f,
-			 -0.5f, -0.5f, -0.5f,    -1.0f,  0.0f,  0.0f,  0.0f, 0.0f,
-			 -0.5f,  0.5f, -0.5f,    -1.0f,  0.0f,  0.0f,  0.0f, 1.0f,
-
-			 // Top face
-			  0.5f,  0.5f,  0.5f,     0.0f,  1.0f,  0.0f,  1.0f, 0.0f,
-			  0.5f,  0.5f, -0.5f,     0.0f,  1.0f,  0.0f,  1.0f, 1.0f,
-			 -0.5f,  0.5f, -0.5f,     0.0f,  1.0f,  0.0f,  0.0f, 1.0f,
-			 -0.5f,  0.5f,  0.5f,     0.0f,  1.0f,  0.0f,  0.0f, 0.0f,
-
-			 // Bottom face
-			  0.5f, -0.5f,  0.5f,     0.0f, -1.0f,  0.0f,  1.0f, 1.0f,
-			  0.5f, -0.5f, -0.5f,     0.0f, -1.0f,  0.0f,  1.0f, 0.0f,
-			 -0.5f, -0.5f, -0.5f,     0.0f, -1.0f,  0.0f,  0.0f, 0.0f,
-			 -0.5f, -0.5f,  0.5f,     0.0f, -1.0f,  0.0f,  0.0f, 1.0f
-		};
-
-		u32 indices[] = {
-			// front face
-			0, 1, 3, 1, 2, 3,
-			// back face
-			4, 5, 7, 5, 6, 7,
-			// right face
-			8, 9, 11, 9, 10, 11,
-			// left face
-			12, 13, 15, 13, 14, 15,
-			// top face
-			16, 17, 19, 17, 18, 19,
-			// bottom face
-			20, 21, 23, 21, 22, 23
-		};
-
-		s_Data.VertexBuffer = VertexBuffer::Create(vertices, sizeof(vertices));
-		s_Data.VertexBuffer->SetLayout({
-			{ ShaderDataType::Float3, "a_Position" },
-			{ ShaderDataType::Float3, "a_Normal" },
-			{ ShaderDataType::Float2, "a_TexCoord" }
-		});
-		s_Data.VertexArray->AddVertexBuffer(s_Data.VertexBuffer);
-
-		s_Data.IndexBuffer = IndexBuffer::Create(indices, sizeof(indices) / sizeof(u32));
-		s_Data.VertexArray->SetIndexBuffer(s_Data.IndexBuffer);
+		// Create a standard cube mesh for common use
+		s_Data.CubeMesh = Mesh::CreateCube();
 
 		m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
 		m_ShaderLibrary.Load("assets/shaders/Lighting3D.glsl");
@@ -116,11 +50,10 @@ namespace OloEngine
 		// Create uniform buffers with proper sizes
 		s_Data.UBO = UniformBuffer::Create(sizeof(glm::mat4) * 2, 0);
 		
-		// Calculate the total size needed for all lighting properties
-		// Material: 3 vec4s (ambient, diffuse, specular+shininess) + 1 vec4 padding = 4 vec4s
-		// Light: Position vec4 + Direction vec4 + 3 color vec4s + 2 param vec4s = 6 vec4s
+		// Total size for light properties buffer: 12 vec4s = 12 * 16 bytes = 192 bytes
+		// Material: 3 vec4s (ambient, diffuse, specular+shininess) + 1 vec4 padding
+		// Light: Position vec4 + Direction vec4 + 3 color vec4s + 2 param vec4s
 		// ViewPos + LightType: 1 vec4
-		// Total: 11 vec4s = 11 * 16 bytes = 176 bytes
 		s_Data.LightPropertiesBuffer = UniformBuffer::Create(sizeof(glm::vec4) * 12, 1);
 		
 		s_Data.TextureFlagBuffer = UniformBuffer::Create(sizeof(int), 2);
@@ -159,130 +92,136 @@ namespace OloEngine
 
 	void Renderer3D::DrawCube(const glm::mat4& modelMatrix, const Material& material)
 	{
+		// Simply use the generic DrawMesh function with the cube mesh
+		DrawMesh(s_Data.CubeMesh, modelMatrix, material);
+	}
+
+	void Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material)
+	{
+		OLO_PROFILE_FUNCTION();
+		
 		s_Data.LightingShader->Bind();
 
-		// Update the UBO with the view projection and model matrices
-		UniformData viewProjectionData = { &s_Data.ViewProjectionMatrix, sizeof(glm::mat4), 0 };
-		UniformData modelData = { &modelMatrix, sizeof(glm::mat4), sizeof(glm::mat4) };
-		s_Data.UBO->SetData(viewProjectionData);
-		s_Data.UBO->SetData(modelData);
-
-		// Prepare material data with padding for std140 layout
-		glm::vec4 materialAmbient(material.Ambient, 0.0f);
-		glm::vec4 materialDiffuse(material.Diffuse, 0.0f);
-		glm::vec4 materialSpecular(material.Specular, material.Shininess);
-		glm::vec4 padding1(0.0f); // Padding to align to vec4 boundary
-
-		// Prepare light data with padding for std140 layout
-		int lightType = static_cast<int>(s_Data.SceneLight.Type);
-		glm::vec4 lightPosition(s_Data.SceneLight.Position, 0.0f);
-		glm::vec4 lightDirection(s_Data.SceneLight.Direction, 0.0f);
-		glm::vec4 lightAmbient(s_Data.SceneLight.Ambient, 0.0f);
-		glm::vec4 lightDiffuse(s_Data.SceneLight.Diffuse, 0.0f);
-		glm::vec4 lightSpecular(s_Data.SceneLight.Specular, 0.0f);
+		// Update the matrices in the UBO
+		UpdateTransformUBO(modelMatrix);
 		
-		// Attenuation parameters and spotlight parameters
-		glm::vec4 lightAttenuationParams(
-			s_Data.SceneLight.Constant, 
-			s_Data.SceneLight.Linear, 
-			s_Data.SceneLight.Quadratic, 
+		// Update the material and light properties
+		UpdateLightPropertiesUBO(material);
+		
+		// Set texture usage flag
+		UpdateTextureFlag(material);
+
+		// Bind texture maps if we're using them
+		if (material.UseTextureMaps)
+		{
+			if (material.DiffuseMap)
+				material.DiffuseMap->Bind(0);
+			
+			if (material.SpecularMap)
+				material.SpecularMap->Bind(1);
+		}
+
+		// Draw the provided mesh
+		mesh->Draw();
+	}
+
+	void Renderer3D::DrawLightCube(const glm::mat4& modelMatrix)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		s_Data.LightCubeShader->Bind();
+
+		// Update the UBO with the view projection and model matrices
+		UpdateTransformUBO(modelMatrix);
+
+		// Draw the cube mesh for light visualization
+		s_Data.CubeMesh->Draw();
+	}
+	
+	void Renderer3D::UpdateTransformUBO(const glm::mat4& modelMatrix)
+	{
+		// Create a struct to hold all the data we want to upload
+		struct TransformMatrices
+		{
+			glm::mat4 ViewProjection;
+			glm::mat4 Model;
+		};
+		
+		// Populate the data
+		TransformMatrices matrices;
+		matrices.ViewProjection = s_Data.ViewProjectionMatrix;
+		matrices.Model = modelMatrix;
+		
+		// Set data directly using our new convenience method
+		s_Data.UBO->SetData(&matrices, sizeof(TransformMatrices));
+	}
+	
+	void Renderer3D::UpdateLightPropertiesUBO(const Material& material)
+	{
+		// Define the data structure that matches our shader's UBO layout
+		struct LightPropertiesData
+		{
+			// Material properties
+			glm::vec4 MaterialAmbient;      // offset 0
+			glm::vec4 MaterialDiffuse;      // offset 16
+			glm::vec4 MaterialSpecular;     // offset 32 (specular.xyz, shininess.w)
+			glm::vec4 Padding1;             // offset 48
+			
+			// Light properties
+			glm::vec4 LightPosition;        // offset 64
+			glm::vec4 LightDirection;       // offset 80
+			glm::vec4 LightAmbient;         // offset 96
+			glm::vec4 LightDiffuse;         // offset 112
+			glm::vec4 LightSpecular;        // offset 128
+			glm::vec4 LightAttParams;       // offset 144 (constant, linear, quadratic, padding)
+			glm::vec4 LightSpotParams;      // offset 160 (cutOff, outerCutOff, padding, padding)
+			
+			glm::vec4 ViewPosAndLightType;  // offset 176 (viewPos.xyz, lightType.w)
+		};
+		
+		// Create and populate our UBO data structure
+		LightPropertiesData lightData;
+		
+		// Set material data
+		lightData.MaterialAmbient = glm::vec4(material.Ambient, 0.0f);
+		lightData.MaterialDiffuse = glm::vec4(material.Diffuse, 0.0f);
+		lightData.MaterialSpecular = glm::vec4(material.Specular, material.Shininess);
+		lightData.Padding1 = glm::vec4(0.0f);
+		
+		// Set light data
+		int lightType = static_cast<int>(s_Data.SceneLight.Type);
+		lightData.LightPosition = glm::vec4(s_Data.SceneLight.Position, 0.0f);
+		lightData.LightDirection = glm::vec4(s_Data.SceneLight.Direction, 0.0f);
+		lightData.LightAmbient = glm::vec4(s_Data.SceneLight.Ambient, 0.0f);
+		lightData.LightDiffuse = glm::vec4(s_Data.SceneLight.Diffuse, 0.0f);
+		lightData.LightSpecular = glm::vec4(s_Data.SceneLight.Specular, 0.0f);
+		
+		lightData.LightAttParams = glm::vec4(
+			s_Data.SceneLight.Constant,
+			s_Data.SceneLight.Linear,
+			s_Data.SceneLight.Quadratic,
 			0.0f // padding
 		);
 		
-		glm::vec4 lightSpotParams(
+		lightData.LightSpotParams = glm::vec4(
 			s_Data.SceneLight.CutOff,
 			s_Data.SceneLight.OuterCutOff,
 			0.0f, // padding
 			0.0f  // padding
 		);
 		
-		glm::vec4 viewPos(s_Data.ViewPos, static_cast<float>(lightType)); // Use w component to store light type
-
-		// Update the LightProperties UBO with proper offsets
-		// Use precise offsets to match the std140 layout requirements
-		size_t offset = 0;
-		UniformData materialAmbientData = { &materialAmbient, sizeof(glm::vec4), offset };
-		offset += sizeof(glm::vec4);
+		lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<float>(lightType));
 		
-		UniformData materialDiffuseData = { &materialDiffuse, sizeof(glm::vec4), offset };
-		offset += sizeof(glm::vec4);
-		
-		UniformData materialSpecularData = { &materialSpecular, sizeof(glm::vec4), offset };
-		offset += sizeof(glm::vec4);
-		
-		UniformData paddingData = { &padding1, sizeof(glm::vec4), offset };
-		offset += sizeof(glm::vec4);
-		
-		UniformData lightPositionData = { &lightPosition, sizeof(glm::vec4), offset };
-		offset += sizeof(glm::vec4);
-		
-		UniformData lightDirectionData = { &lightDirection, sizeof(glm::vec4), offset };
-		offset += sizeof(glm::vec4);
-		
-		UniformData lightAmbientData = { &lightAmbient, sizeof(glm::vec4), offset };
-		offset += sizeof(glm::vec4);
-		
-		UniformData lightDiffuseData = { &lightDiffuse, sizeof(glm::vec4), offset };
-		offset += sizeof(glm::vec4);
-		
-		UniformData lightSpecularData = { &lightSpecular, sizeof(glm::vec4), offset };
-		offset += sizeof(glm::vec4);
-		
-		UniformData lightAttenuationData = { &lightAttenuationParams, sizeof(glm::vec4), offset };
-		offset += sizeof(glm::vec4);
-		
-		UniformData lightSpotParamsData = { &lightSpotParams, sizeof(glm::vec4), offset };
-		offset += sizeof(glm::vec4);
-		
-		UniformData viewPosData = { &viewPos, sizeof(glm::vec4), offset };
-
-		s_Data.LightPropertiesBuffer->SetData(materialAmbientData);
-		s_Data.LightPropertiesBuffer->SetData(materialDiffuseData);
-		s_Data.LightPropertiesBuffer->SetData(materialSpecularData);
-		s_Data.LightPropertiesBuffer->SetData(paddingData);
-		s_Data.LightPropertiesBuffer->SetData(lightPositionData);
-		s_Data.LightPropertiesBuffer->SetData(lightDirectionData);
-		s_Data.LightPropertiesBuffer->SetData(lightAmbientData);
-		s_Data.LightPropertiesBuffer->SetData(lightDiffuseData);
-		s_Data.LightPropertiesBuffer->SetData(lightSpecularData);
-		s_Data.LightPropertiesBuffer->SetData(lightAttenuationData);
-		s_Data.LightPropertiesBuffer->SetData(lightSpotParamsData);
-		s_Data.LightPropertiesBuffer->SetData(viewPosData);
-
-		// Set texture usage flag
-		int useTextureMaps = material.UseTextureMaps ? 1 : 0;
-		UniformData textureFlagData = { &useTextureMaps, sizeof(int), 0 };
-		s_Data.TextureFlagBuffer->SetData(textureFlagData);
-
-		// Bind texture maps if we're using them
-		if (material.UseTextureMaps)
-		{
-			if (material.DiffuseMap)
-			{
-				material.DiffuseMap->Bind(0);
-			}
-
-			if (material.SpecularMap)
-			{
-				material.SpecularMap->Bind(1);
-			}
-		}
-
-		s_Data.VertexArray->Bind();
-		RenderCommand::DrawIndexed(s_Data.VertexArray);
+		// Upload all the data at once using our new convenience method
+		s_Data.LightPropertiesBuffer->SetData(&lightData, sizeof(LightPropertiesData));
 	}
-
-	void Renderer3D::DrawLightCube(const glm::mat4& modelMatrix)
+	
+	void Renderer3D::UpdateTextureFlag(const Material& material)
 	{
-		s_Data.LightCubeShader->Bind();
-
-		// Update the UBO with the view projection and model matrices
-		UniformData viewProjectionData = { &s_Data.ViewProjectionMatrix, sizeof(glm::mat4), 0 };
-		UniformData modelData = { &modelMatrix, sizeof(glm::mat4), sizeof(glm::mat4) };
-		s_Data.UBO->SetData(viewProjectionData);
-		s_Data.UBO->SetData(modelData);
-
-		s_Data.VertexArray->Bind();
-		RenderCommand::DrawIndexed(s_Data.VertexArray);
+		// Set texture usage flag (0 = false, 1 = true)
+		int useTextureMaps = material.UseTextureMaps ? 1 : 0;
+		
+		// Set data directly using our new convenience method
+		s_Data.TextureFlagBuffer->SetData(&useTextureMaps, sizeof(int));
 	}
 }

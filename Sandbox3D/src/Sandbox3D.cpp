@@ -7,14 +7,7 @@
 
 Sandbox3D::Sandbox3D()
 	: Layer("Sandbox3D"),
-	m_CameraController(45.0f, 1280.0f / 720.0f, 0.1f, 1000.0f),
-	m_RotationAngleY(0.0f),
-	m_RotationAngleX(0.0f),
-	m_LightAnimTime(0.0f),
-	m_RotationEnabled(true),
-	m_WasSpacePressed(false),
-	m_CameraMovementEnabled(true),
-	m_WasTabPressed(false)
+	m_CameraController(45.0f, 1280.0f / 720.0f, 0.1f, 1000.0f)
 {
 	// Initialize materials with colors
 	m_BlueMaterial.Ambient = glm::vec3(0.0f, 0.0f, 0.1f);  // Dark blue
@@ -60,6 +53,11 @@ Sandbox3D::Sandbox3D()
 void Sandbox3D::OnAttach()
 {
 	OLO_PROFILE_FUNCTION();
+
+	// Create 3D meshes
+	m_CubeMesh = OloEngine::Mesh::CreateCube();
+	m_SphereMesh = OloEngine::Mesh::CreateSphere();
+	m_PlaneMesh = OloEngine::Mesh::CreatePlane(5.0f, 5.0f);
 
 	// Load textures
 	m_DiffuseMap = OloEngine::Texture2D::Create("assets/textures/container2.png");
@@ -148,43 +146,93 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 	OLO_PROFILE_SCOPE("Renderer Draw");
 	OloEngine::Renderer3D::BeginScene(m_CameraController.GetCamera().GetViewProjection());
 
-	// Cube 1: Blue cube (rotating around both axes)
+	// Draw ground plane
 	{
-		auto modelMatrix = glm::mat4(1.0f);
-		modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX), glm::vec3(1.0f, 0.0f, 0.0f));
-		modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
-		OloEngine::Renderer3D::DrawCube(modelMatrix, m_BlueMaterial);
+		auto planeMatrix = glm::mat4(1.0f);
+		planeMatrix = glm::translate(planeMatrix, glm::vec3(0.0f, -1.0f, 0.0f));
+		OloEngine::Material planeMaterial;
+		planeMaterial.Ambient = glm::vec3(0.1f);
+		planeMaterial.Diffuse = glm::vec3(0.3f);
+		planeMaterial.Specular = glm::vec3(0.2f);
+		planeMaterial.Shininess = 8.0f;
+		OloEngine::Renderer3D::DrawMesh(m_PlaneMesh, planeMatrix, planeMaterial);
 	}
 
-	// Cube 2: Red cube (translated right and rotating)
+	switch (m_PrimitiveTypeIndex)
 	{
-		auto modelMatrix = glm::mat4(1.0f);
-		// Translate to the right by 2 units
-		modelMatrix = glm::translate(modelMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
-		// Apply a different rotation speed
-		modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY * 1.5f), glm::vec3(0.0f, 1.0f, 0.0f));
-		OloEngine::Renderer3D::DrawCube(modelMatrix, m_RedMaterial);
+	case 0: // Cubes
+		// Draw cubes
+		{
+			// Center blue cube
+			auto modelMatrix = glm::mat4(1.0f);
+			modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX), glm::vec3(1.0f, 0.0f, 0.0f));
+			modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
+			OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, m_BlueMaterial);
+
+			// Right red cube
+			auto redCubeMatrix = glm::mat4(1.0f);
+			redCubeMatrix = glm::translate(redCubeMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
+			redCubeMatrix = glm::rotate(redCubeMatrix, glm::radians(m_RotationAngleY * 1.5f), glm::vec3(0.0f, 1.0f, 0.0f));
+			OloEngine::Renderer3D::DrawMesh(m_CubeMesh, redCubeMatrix, m_RedMaterial);
+
+			// Left green cube
+			auto greenCubeMatrix = glm::mat4(1.0f);
+			greenCubeMatrix = glm::translate(greenCubeMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
+			greenCubeMatrix = glm::rotate(greenCubeMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
+			OloEngine::Renderer3D::DrawMesh(m_CubeMesh, greenCubeMatrix, m_GreenMaterial);
+		}
+		break;
+
+	case 1: // Spheres
+		// Draw spheres
+		{
+			// Center blue sphere
+			auto modelMatrix = glm::mat4(1.0f);
+			OloEngine::Renderer3D::DrawMesh(m_SphereMesh, modelMatrix, m_BlueMaterial);
+
+			// Right red sphere
+			auto redSphereMatrix = glm::mat4(1.0f);
+			redSphereMatrix = glm::translate(redSphereMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
+			OloEngine::Renderer3D::DrawMesh(m_SphereMesh, redSphereMatrix, m_RedMaterial);
+
+			// Left green sphere
+			auto greenSphereMatrix = glm::mat4(1.0f);
+			greenSphereMatrix = glm::translate(greenSphereMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
+			OloEngine::Renderer3D::DrawMesh(m_SphereMesh, greenSphereMatrix, m_GreenMaterial);
+		}
+		break;
+
+	case 2: // Mixed
+	default:
+		// Draw mixed shapes
+		{
+			// Center blue cube
+			auto modelMatrix = glm::mat4(1.0f);
+			modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX), glm::vec3(1.0f, 0.0f, 0.0f));
+			modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
+			OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, m_BlueMaterial);
+
+			// Right red sphere
+			auto redSphereMatrix = glm::mat4(1.0f);
+			redSphereMatrix = glm::translate(redSphereMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
+			OloEngine::Renderer3D::DrawMesh(m_SphereMesh, redSphereMatrix, m_RedMaterial);
+
+			// Left green cube
+			auto greenCubeMatrix = glm::mat4(1.0f);
+			greenCubeMatrix = glm::translate(greenCubeMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
+			greenCubeMatrix = glm::rotate(greenCubeMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
+			OloEngine::Renderer3D::DrawMesh(m_CubeMesh, greenCubeMatrix, m_GreenMaterial);
+		}
+		break;
 	}
 
-	// Cube 3: Green cube (translated left and rotating)
+	// Textured sphere (shared across all modes)
 	{
-		auto modelMatrix = glm::mat4(1.0f);
-		// Translate to the left by 2 units
-		modelMatrix = glm::translate(modelMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
-		// Apply a different rotation speed/axis
-		modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
-		OloEngine::Renderer3D::DrawCube(modelMatrix, m_GreenMaterial);
-	}
-
-	// Cube 4: Textured cube (with diffuse and specular maps)
-	{
-		auto modelMatrix = glm::mat4(1.0f);
-		// Position above
-		modelMatrix = glm::translate(modelMatrix, glm::vec3(0.0f, 2.0f, 0.0f));
-		// Apply a rotation
-		modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX * 0.8f), glm::vec3(1.0f, 0.0f, 0.0f));
-		modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY * 0.8f), glm::vec3(0.0f, 1.0f, 0.0f));
-		OloEngine::Renderer3D::DrawCube(modelMatrix, m_TexturedMaterial);
+		auto sphereMatrix = glm::mat4(1.0f);
+		sphereMatrix = glm::translate(sphereMatrix, glm::vec3(0.0f, 2.0f, 0.0f));
+		sphereMatrix = glm::rotate(sphereMatrix, glm::radians(m_RotationAngleX * 0.8f), glm::vec3(1.0f, 0.0f, 0.0f));
+		sphereMatrix = glm::rotate(sphereMatrix, glm::radians(m_RotationAngleY * 0.8f), glm::vec3(0.0f, 1.0f, 0.0f));
+		OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, m_TexturedMaterial);
 	}
 
 	// Light cube (only for point and spot lights)
@@ -212,6 +260,11 @@ void Sandbox3D::OnImGuiRender()
 		ImGui::Text("Press TAB to re-enable camera movement");
 		ImGui::Separator();
 	}
+	
+	// Add scene object selection
+	ImGui::Text("Scene Objects");
+	ImGui::Combo("Primitive Types", &m_PrimitiveTypeIndex, m_PrimitiveNames, 3);
+	ImGui::Separator();
 
 	// Light type selection
 	ImGui::Text("Light Type");
