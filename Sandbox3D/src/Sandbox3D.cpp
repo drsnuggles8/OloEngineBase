@@ -59,6 +59,9 @@ void Sandbox3D::OnAttach()
 	m_SphereMesh = OloEngine::Mesh::CreateSphere();
 	m_PlaneMesh = OloEngine::Mesh::CreatePlane(5.0f, 5.0f);
 
+	// Load backpack model
+	m_BackpackModel = OloEngine::CreateRef<OloEngine::Model>("assets/backpack/backpack.obj");
+
 	// Load textures
 	m_DiffuseMap = OloEngine::Texture2D::Create("assets/textures/container2.png");
 	m_SpecularMap = OloEngine::Texture2D::Create("assets/textures/container2_specular.png");
@@ -158,6 +161,15 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 		planeMaterial.Specular = glm::vec3(0.2f);
 		planeMaterial.Shininess = 8.0f;
 		OloEngine::Renderer3D::DrawMesh(m_PlaneMesh, planeMatrix, planeMaterial);
+	}
+
+	// Draw backpack model
+	{
+		auto modelMatrix = glm::mat4(1.0f);
+		modelMatrix = glm::translate(modelMatrix, glm::vec3(0.0f, 1.0f, -2.0f)); // Raise it up and move it back
+		modelMatrix = glm::scale(modelMatrix, glm::vec3(0.5f)); // Scale down to reasonable size
+		modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
+		m_BackpackModel->Draw(modelMatrix, m_TexturedMaterial);
 	}
 
 	switch (m_PrimitiveTypeIndex)

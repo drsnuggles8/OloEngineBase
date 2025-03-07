@@ -3,6 +3,7 @@
 #include "OloEngine.h"
 #include "OloEngine/Renderer/Camera/PerspectiveCameraController.h"
 #include "OloEngine/Renderer/Mesh.h"
+#include "OloEngine/Renderer/Model.h"
 
 class Sandbox3D : public OloEngine::Layer
 {
@@ -29,6 +30,9 @@ private:
 	OloEngine::Ref<OloEngine::Mesh> m_CubeMesh;
 	OloEngine::Ref<OloEngine::Mesh> m_SphereMesh;
 	OloEngine::Ref<OloEngine::Mesh> m_PlaneMesh;
+	
+	// Model object
+	OloEngine::Ref<OloEngine::Model> m_BackpackModel;
 	
 	// Texture resources
 	OloEngine::Ref<OloEngine::Texture2D> m_DiffuseMap;

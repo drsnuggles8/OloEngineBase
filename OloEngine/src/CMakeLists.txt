@@ -68,6 +68,8 @@
 		"OloEngine/Renderer/MSDFData.h"
 		"OloEngine/Renderer/Mesh.cpp"
 		"OloEngine/Renderer/Mesh.h"
+		"OloEngine/Renderer/Model.cpp"
+		"OloEngine/Renderer/Model.h"
 		"OloEngine/Renderer/RenderCommand.cpp"
 		"OloEngine/Renderer/RenderCommand.h"
 		"OloEngine/Renderer/Renderer.cpp"
