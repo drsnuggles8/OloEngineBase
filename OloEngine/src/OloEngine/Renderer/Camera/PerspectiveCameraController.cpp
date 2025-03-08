@@ -8,7 +8,19 @@ namespace OloEngine
 {
 	PerspectiveCameraController::PerspectiveCameraController(float fov, float aspectRatio, float nearClip, float farClip)
 		: m_AspectRatio(aspectRatio), m_Camera(fov, aspectRatio, nearClip, farClip)
-	{}
+	{
+		 // Start with a position that gives a good view of the scene
+		m_CameraPosition = glm::vec3(0.0f, 2.0f, 6.0f);
+		
+		// Start with identity rotation
+		m_CameraRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+		
+		// Then add a slight downward tilt by rotating around the local X axis
+		glm::quat pitchRotation = glm::angleAxis(glm::radians(-15.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+		m_CameraRotation = pitchRotation * m_CameraRotation;
+		
+		UpdateCameraView();
+	}
 
 	void PerspectiveCameraController::OnUpdate(Timestep ts)
 	{

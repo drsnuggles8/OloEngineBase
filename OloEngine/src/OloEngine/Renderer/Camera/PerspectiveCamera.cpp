@@ -7,6 +7,10 @@ namespace OloEngine
 	PerspectiveCamera::PerspectiveCamera(float fov, float aspectRatio, float nearClip, float farClip)
 		: m_FOV(fov), m_AspectRatio(aspectRatio), m_NearClip(nearClip), m_FarClip(farClip)
 	{
+		// Initialize with identity rotation
+		m_Position = glm::vec3(0.0f);
+		m_Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f); // Identity quaternion
+		
 		UpdateProjection();
 		UpdateView();
 	}
@@ -37,7 +41,10 @@ namespace OloEngine
 
 	void PerspectiveCamera::UpdateView()
 	{
-		glm::mat4 transform = glm::translate(glm::mat4(1.0f), m_Position) * glm::mat4_cast(m_Rotation);
+		// Create view matrix using OpenGL's camera space convention (looking down -Z with Y up)
+		glm::mat4 transform = glm::translate(glm::mat4(1.0f), m_Position);
+		transform = transform * glm::mat4_cast(m_Rotation);
+		
 		m_ViewProjection = m_Projection * glm::inverse(transform);
 	}
 }
