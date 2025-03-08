@@ -62,7 +62,7 @@ void Sandbox3D::OnAttach()
 	// Create 3D meshes
 	m_CubeMesh = OloEngine::Mesh::CreateCube();
 	m_SphereMesh = OloEngine::Mesh::CreateSphere();
-	m_PlaneMesh = OloEngine::Mesh::CreatePlane(5.0f, 5.0f);
+	m_PlaneMesh = OloEngine::Mesh::CreatePlane(25.0f, 25.0f);
 
 	// Load backpack model
 	m_BackpackModel = OloEngine::CreateRef<OloEngine::Model>("assets/backpack/backpack.obj");
@@ -87,6 +87,10 @@ void Sandbox3D::OnDetach()
 void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 {
 	OLO_PROFILE_FUNCTION();
+
+	// Calculate frametime and FPS
+	m_FrameTime = ts.GetMilliseconds();
+	m_FPS = 1.0f / ts.GetSeconds();
 
 	// Update camera only if camera movement is enabled
 	if (m_CameraMovementEnabled)
@@ -300,6 +304,10 @@ void Sandbox3D::OnImGuiRender()
 	OLO_PROFILE_FUNCTION();
 
 	ImGui::Begin("Lighting Settings");
+
+	// Display frametime and FPS
+	ImGui::Text("Frametime: %.2f ms", m_FrameTime);
+	ImGui::Text("FPS: %.2f", m_FPS);
 
 	// Add camera control status indicator
 	if (!m_CameraMovementEnabled)

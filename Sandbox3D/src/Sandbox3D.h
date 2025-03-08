@@ -76,4 +76,8 @@ private:
 	// Object type selection
 	int m_PrimitiveTypeIndex = 0;
 	const char* m_PrimitiveNames[3] = { "Cubes", "Spheres", "Mixed" };
+
+	// FPS
+	float m_FrameTime = 0.0f;
+	float m_FPS = 0.0f;
 };

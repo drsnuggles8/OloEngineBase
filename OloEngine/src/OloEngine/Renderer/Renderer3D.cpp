@@ -166,7 +166,7 @@ namespace OloEngine
 		lightData.MaterialSpecular = glm::vec4(material.Specular, material.Shininess);
 		lightData.Padding1 = glm::vec4(0.0f);
 
-		int lightType = static_cast<int>(s_Data.SceneLight.Type);
+		auto lightType = std::to_underlying(s_Data.SceneLight.Type);
 		lightData.LightPosition = glm::vec4(s_Data.SceneLight.Position, 0.0f);
 		lightData.LightDirection = glm::vec4(s_Data.SceneLight.Direction, 0.0f);
 		lightData.LightAmbient = glm::vec4(s_Data.SceneLight.Ambient, 0.0f);
