@@ -6,42 +6,36 @@
 
 namespace OloEngine
 {
-    // Copy constructor
     Mesh::Mesh(const std::vector<Vertex>& vertices, const std::vector<u32>& indices)
         : m_Vertices(vertices), m_Indices(indices)
     {
         Build();
     }
 
-    // Move constructor
     Mesh::Mesh(std::vector<Vertex>&& vertices, std::vector<u32>&& indices)
         : m_Vertices(std::move(vertices)), m_Indices(std::move(indices))
     {
         Build();
     }
 
-    // Copy assignment for vertices
     void Mesh::SetVertices(const std::vector<Vertex>& vertices)
     {
         m_Vertices = vertices;
         m_Built = false;
     }
 
-    // Move assignment for vertices
     void Mesh::SetVertices(std::vector<Vertex>&& vertices)
     {
         m_Vertices = std::move(vertices);
         m_Built = false;
     }
 
-    // Copy assignment for indices
     void Mesh::SetIndices(const std::vector<u32>& indices)
     {
         m_Indices = indices;
         m_Built = false;
     }
 
-    // Move assignment for indices
     void Mesh::SetIndices(std::vector<u32>&& indices)
     {
         m_Indices = std::move(indices);

@@ -38,7 +38,7 @@ Sandbox3D::Sandbox3D()
 	m_TexturedMaterial.UseTextureMaps = true;              // Enable texture mapping
 
 	// Initialize light with default values
-	m_Light.Type = OloEngine::LightType::Point; // Default to point light
+	m_Light.Type = OloEngine::LightType::Point;
 	m_Light.Position = glm::vec3(1.2f, 1.0f, 2.0f);
 	m_Light.Direction = glm::vec3(0.0f, -1.0f, 0.0f); // Points downward
 	m_Light.Ambient = glm::vec3(0.2f);

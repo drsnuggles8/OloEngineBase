@@ -121,6 +121,7 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 
 		m_Path = path;
+		OLO_CORE_TRACE("Loading texture from path: {}", m_Path);
 		m_IsLoaded = true;
 		m_Width = width;
 		m_Height = height;
@@ -132,18 +133,22 @@ namespace OloEngine
 			case 1:
 				internalFormat = GL_R8;
 				dataFormat = GL_RED;
+				OLO_CORE_TRACE("Texture channel count is 1. Internal format is: {}. Data Format is: {}.", internalFormat, dataFormat);
 				break;
 			case 2:
 				internalFormat = GL_RG8;
 				dataFormat = GL_RG;
+				OLO_CORE_TRACE("Texture channel count is 2. Internal format is: {}. Data Format is: {}.", internalFormat, dataFormat);
 				break;
 			case 3:
 				internalFormat = GL_RGB8;
 				dataFormat = GL_RGB;
+				OLO_CORE_TRACE("Texture channel count is 3. Internal format is: {}. Data Format is: {}.", internalFormat, dataFormat);
 				break;
 			case 4:
 				internalFormat = GL_RGBA8;
 				dataFormat = GL_RGBA;
+				OLO_CORE_TRACE("Texture channel count is 4. Internal format is: {}. Data Format is: {}.", internalFormat, dataFormat);
 				break;
 			default:
 				OLO_CORE_ERROR("Texture channel count is not within (1-4) range. Channel count: {}", channels);
