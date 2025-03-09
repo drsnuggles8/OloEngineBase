@@ -12,7 +12,11 @@ namespace OloEngine
 		R8,
 		RGB8,
 		RGBA8,
-		RGBA32F
+		RGBA32F, // Unsupported
+		R32F, // Unsupported
+		RG32F, // Unsupported
+		RGB32F, // Unsupported
+		DEPTH24STENCIL8
 	};
 
 	struct TextureSpecification
