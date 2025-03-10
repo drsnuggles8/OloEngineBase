@@ -39,6 +39,7 @@ private:
 	// Texture resources
 	OloEngine::Ref<OloEngine::Texture2D> m_DiffuseMap;
 	OloEngine::Ref<OloEngine::Texture2D> m_SpecularMap;
+	OloEngine::Ref<OloEngine::Texture2D> m_GrassMap;  // Added grass texture
 
 	// Rotation animation state
 	f32 m_RotationAngleY = 0.0f;

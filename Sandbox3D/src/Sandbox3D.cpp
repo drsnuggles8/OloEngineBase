@@ -70,6 +70,7 @@ void Sandbox3D::OnAttach()
 	// Load textures
 	m_DiffuseMap = OloEngine::Texture2D::Create("assets/textures/container2.png");
 	m_SpecularMap = OloEngine::Texture2D::Create("assets/textures/container2_specular.png");
+	m_GrassMap = OloEngine::Texture2D::Create("assets/textures/grass.png");  // Load grass texture
 
 	// Assign textures to the material
 	m_TexturedMaterial.DiffuseMap = m_DiffuseMap;
@@ -170,6 +171,15 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 		planeMaterial.Specular = glm::vec3(0.2f);
 		planeMaterial.Shininess = 8.0f;
 		OloEngine::Renderer3D::DrawMesh(m_PlaneMesh, planeMatrix, planeMaterial);
+	}
+
+	// Draw a grass quad
+	{
+		auto grassMatrix = glm::mat4(1.0f);
+		grassMatrix = glm::translate(grassMatrix, glm::vec3(0.0f, 0.5f, -1.0f));
+		// Make it face the camera by rotating around X axis
+		grassMatrix = glm::rotate(grassMatrix, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+		OloEngine::Renderer3D::DrawQuad(grassMatrix, m_GrassMap);
 	}
 
 	// Draw backpack model

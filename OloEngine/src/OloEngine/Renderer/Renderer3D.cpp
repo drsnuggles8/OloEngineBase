@@ -19,8 +19,10 @@ namespace OloEngine
 	struct Renderer3DData
 	{
 		Ref<Mesh> CubeMesh;
+		Ref<Mesh> QuadMesh;  // Added quad mesh
 		Ref<Shader> LightCubeShader;
 		Ref<Shader> LightingShader;
+		Ref<Shader> BasicTextureShader;  // Added basic texture shader
 		Ref<UniformBuffer> UBO;
 		Ref<UniformBuffer> LightPropertiesBuffer;
 		Ref<UniformBuffer> TextureFlagBuffer;
@@ -40,12 +42,15 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 
 		s_Data.CubeMesh = Mesh::CreateCube();
+		s_Data.QuadMesh = Mesh::CreatePlane(1.0f, 1.0f);  // Create a 1x1 quad
 
 		m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
 		m_ShaderLibrary.Load("assets/shaders/Lighting3D.glsl");
+		m_ShaderLibrary.Load("assets/shaders/BasicTexture.glsl");  // Load the basic texture shader
 
 		s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
 		s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
+		s_Data.BasicTextureShader = m_ShaderLibrary.Get("BasicTexture");  // Store the shader reference
 
 		s_Data.UBO = UniformBuffer::Create(sizeof(glm::mat4) * 2, 0);
 
@@ -87,6 +92,17 @@ namespace OloEngine
 	void Renderer3D::DrawCube(const glm::mat4& modelMatrix, const Material& material)
 	{
 		DrawMesh(s_Data.CubeMesh, modelMatrix, material);
+	}
+
+	void Renderer3D::DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		s_Data.BasicTextureShader->Bind();
+		UpdateTransformUBO(modelMatrix);
+		
+		texture->Bind(0);
+		s_Data.QuadMesh->Draw();
 	}
 
 	void Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material)

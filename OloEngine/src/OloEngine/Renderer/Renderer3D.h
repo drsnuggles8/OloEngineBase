@@ -25,7 +25,10 @@ namespace OloEngine
 		static void DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material);
 		static void DrawCube(const glm::mat4& modelMatrix, const Material& material);
 		static void DrawLightCube(const glm::mat4& modelMatrix);
-
+		
+		// Simple textured quad rendering
+		static void DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
+		
 		// Light and view setters
 		static void SetLight(const Light& light);
 		static void SetViewPosition(const glm::vec3& position);
