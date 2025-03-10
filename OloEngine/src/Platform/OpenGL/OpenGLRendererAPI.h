@@ -28,6 +28,7 @@ namespace OloEngine
 		void SetDepthMask(bool value) override;
 		void SetDepthTest(bool value) override;
 		void SetBlendState(bool value) override;
+		void SetBlendFunc(GLenum sfactor, GLenum dfactor) override;
 		void SetDepthFunc(GLenum func);
 		void EnableStencilTest() override;
 		void DisableStencilTest() override;

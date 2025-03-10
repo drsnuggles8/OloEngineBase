@@ -36,6 +36,7 @@ namespace OloEngine
 		virtual void SetDepthMask(bool value) = 0;
 		virtual void SetDepthTest(bool value) = 0;
 		virtual void SetBlendState(bool value) = 0;
+		virtual void SetBlendFunc(GLenum sfactor, GLenum dfactor) = 0;
 
 		virtual void EnableStencilTest() = 0;
 		virtual void DisableStencilTest() = 0;

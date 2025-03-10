@@ -84,6 +84,21 @@ namespace OloEngine
 			s_RendererAPI->SetBlendState(value);
 		}
 
+		static void EnableBlending()
+		{
+			s_RendererAPI->SetBlendState(true);
+		}
+
+		static void DisableBlending()
+		{
+			s_RendererAPI->SetBlendState(false);
+		}
+
+		static void SetBlendFunc(GLenum sfactor, GLenum dfactor)
+		{
+			s_RendererAPI->SetBlendFunc(sfactor, dfactor);
+		}
+
 		static void EnableStencilTest()
 		{
 			s_RendererAPI->EnableStencilTest();

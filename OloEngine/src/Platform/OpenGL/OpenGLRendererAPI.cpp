@@ -179,6 +179,13 @@ namespace OloEngine
 		}
 	}
 
+	void OpenGLRendererAPI::SetBlendFunc(GLenum sfactor, GLenum dfactor)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glBlendFunc(sfactor, dfactor);
+	}
+
 	void OpenGLRendererAPI::EnableStencilTest()
 	{
 		OLO_PROFILE_FUNCTION();

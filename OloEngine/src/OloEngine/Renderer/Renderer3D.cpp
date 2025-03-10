@@ -19,10 +19,10 @@ namespace OloEngine
 	struct Renderer3DData
 	{
 		Ref<Mesh> CubeMesh;
-		Ref<Mesh> QuadMesh;  // Added quad mesh
+		Ref<Mesh> QuadMesh;
 		Ref<Shader> LightCubeShader;
 		Ref<Shader> LightingShader;
-		Ref<Shader> BasicTextureShader;  // Added basic texture shader
+		Ref<Shader> QuadShader;
 		Ref<UniformBuffer> UBO;
 		Ref<UniformBuffer> LightPropertiesBuffer;
 		Ref<UniformBuffer> TextureFlagBuffer;
@@ -42,15 +42,15 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 
 		s_Data.CubeMesh = Mesh::CreateCube();
-		s_Data.QuadMesh = Mesh::CreatePlane(1.0f, 1.0f);  // Create a 1x1 quad
+		s_Data.QuadMesh = Mesh::CreatePlane(1.0f, 1.0f);
 
 		m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
 		m_ShaderLibrary.Load("assets/shaders/Lighting3D.glsl");
-		m_ShaderLibrary.Load("assets/shaders/BasicTexture.glsl");  // Load the basic texture shader
+		m_ShaderLibrary.Load("assets/shaders/Renderer3D_Quad.glsl");
 
 		s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
 		s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
-		s_Data.BasicTextureShader = m_ShaderLibrary.Get("BasicTexture");  // Store the shader reference
+		s_Data.QuadShader = m_ShaderLibrary.Get("Renderer3D_Quad");
 
 		s_Data.UBO = UniformBuffer::Create(sizeof(glm::mat4) * 2, 0);
 
@@ -98,11 +98,23 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
 
-		s_Data.BasicTextureShader->Bind();
+		// Set up proper blending for transparency
+		RenderCommand::EnableBlending();
+		RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			
+		// Disable depth writing (but keep depth testing) for transparent objects
+		// This ensures proper rendering of transparent objects
+		RenderCommand::SetDepthMask(false);
+			
+		s_Data.QuadShader->Bind();
 		UpdateTransformUBO(modelMatrix);
-		
+			
 		texture->Bind(0);
 		s_Data.QuadMesh->Draw();
+			
+		// Restore the default state
+		RenderCommand::SetDepthMask(true);
+		RenderCommand::SetBlendFunc(GL_ONE, GL_ZERO);
 	}
 
 	void Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material)
