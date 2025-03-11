@@ -14,27 +14,27 @@ Sandbox3D::Sandbox3D()
 	: Layer("Sandbox3D"),
 	m_CameraController(45.0f, 1280.0f / 720.0f, 0.1f, 1000.0f)
 {
-	// Initialize materials with colors
-	m_BlueMaterial.Ambient = glm::vec3(0.0f, 0.0f, 0.1f);  // Dark blue
-	m_BlueMaterial.Diffuse = glm::vec3(0.0f, 0.0f, 0.8f);  // Blue
-	m_BlueMaterial.Specular = glm::vec3(0.5f);             // White-ish specular
-	m_BlueMaterial.Shininess = 32.0f;                      // Medium shininess
+	// Initialize materials with metallic properties
+	m_GoldMaterial.Ambient = glm::vec3(0.24725f, 0.1995f, 0.0745f);
+	m_GoldMaterial.Diffuse = glm::vec3(0.75164f, 0.60648f, 0.22648f);
+	m_GoldMaterial.Specular = glm::vec3(0.628281f, 0.555802f, 0.366065f);
+	m_GoldMaterial.Shininess = 51.2f;
 
-	m_RedMaterial.Ambient = glm::vec3(0.1f, 0.0f, 0.0f);   // Dark red
-	m_RedMaterial.Diffuse = glm::vec3(0.8f, 0.0f, 0.0f);   // Red
-	m_RedMaterial.Specular = glm::vec3(0.7f);              // Brighter specular
-	m_RedMaterial.Shininess = 64.0f;                       // Shinier
+	m_SilverMaterial.Ambient = glm::vec3(0.19225f, 0.19225f, 0.19225f);
+	m_SilverMaterial.Diffuse = glm::vec3(0.50754f, 0.50754f, 0.50754f);
+	m_SilverMaterial.Specular = glm::vec3(0.508273f, 0.508273f, 0.508273f);
+	m_SilverMaterial.Shininess = 76.8f;
 
-	m_GreenMaterial.Ambient = glm::vec3(0.0f, 0.1f, 0.0f); // Dark green
-	m_GreenMaterial.Diffuse = glm::vec3(0.0f, 0.8f, 0.0f); // Green
-	m_GreenMaterial.Specular = glm::vec3(0.3f);            // Duller specular
-	m_GreenMaterial.Shininess = 16.0f;                     // Less shiny
+	m_ChromeMaterial.Ambient = glm::vec3(0.25f, 0.25f, 0.25f);
+	m_ChromeMaterial.Diffuse = glm::vec3(0.4f, 0.4f, 0.4f);
+	m_ChromeMaterial.Specular = glm::vec3(0.774597f, 0.774597f, 0.774597f);
+	m_ChromeMaterial.Shininess = 96.0f;
 
 	// Initialize textured material
-	m_TexturedMaterial.Ambient = glm::vec3(0.1f);          // Ambient multiplier
-	m_TexturedMaterial.Diffuse = glm::vec3(1.0f);          // Full diffuse texture color
-	m_TexturedMaterial.Specular = glm::vec3(1.0f);         // Full specular texture color
-	m_TexturedMaterial.Shininess = 64.0f;                  // Shininess
+	m_TexturedMaterial.Ambient = glm::vec3(0.1f);
+	m_TexturedMaterial.Diffuse = glm::vec3(1.0f);
+	m_TexturedMaterial.Specular = glm::vec3(1.0f);
+	m_TexturedMaterial.Shininess = 64.0f;
 	m_TexturedMaterial.UseTextureMaps = true;              // Enable texture mapping
 
 	// Initialize light with default values
@@ -70,7 +70,7 @@ void Sandbox3D::OnAttach()
 	// Load textures
 	m_DiffuseMap = OloEngine::Texture2D::Create("assets/textures/container2.png");
 	m_SpecularMap = OloEngine::Texture2D::Create("assets/textures/container2_specular.png");
-	m_GrassMap = OloEngine::Texture2D::Create("assets/textures/grass.png");  // Load grass texture
+	m_GrassTexture = OloEngine::Texture2D::Create("assets/textures/grass.png");
 
 	// Assign textures to the material
 	m_TexturedMaterial.DiffuseMap = m_DiffuseMap;
@@ -89,7 +89,6 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 {
 	OLO_PROFILE_FUNCTION();
 
-	// Calculate frametime and FPS
 	m_FrameTime = ts.GetMilliseconds();
 	m_FPS = 1.0f / ts.GetSeconds();
 
@@ -104,7 +103,6 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 	if (tabPressed && !m_WasTabPressed)
 	{
 		m_CameraMovementEnabled = !m_CameraMovementEnabled;
-		// Show a message when camera mode changes
 		if (m_CameraMovementEnabled)
 			OLO_INFO("Camera movement enabled");
 		else
@@ -179,7 +177,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 		grassMatrix = glm::translate(grassMatrix, glm::vec3(0.0f, 0.5f, -1.0f));
 		// Make it face the camera by rotating around X axis
 		grassMatrix = glm::rotate(grassMatrix, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-		OloEngine::Renderer3D::DrawQuad(grassMatrix, m_GrassMap);
+		OloEngine::Renderer3D::DrawQuad(grassMatrix, m_GrassTexture);
 	}
 
 	// Draw backpack model
@@ -198,13 +196,13 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 		OloEngine::RenderCommand::SetStencilFunc(GL_ALWAYS, 1, 0xFF);
 		OloEngine::RenderCommand::SetStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
 
-		// Draw the center blue cube and write to the stencil buffer
+		// Draw the center gold cube and write to the stencil buffer
 		OloEngine::RenderCommand::SetStencilMask(0xFF);
 		OloEngine::RenderCommand::ClearStencil();
 		auto modelMatrix = glm::mat4(1.0f);
 		modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX), glm::vec3(1.0f, 0.0f, 0.0f));
 		modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
-		OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, m_BlueMaterial);
+		OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, m_GoldMaterial);
 
 		// Disable writing to the stencil buffer
 		OloEngine::RenderCommand::SetStencilMask(0x00);
@@ -230,59 +228,58 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 	switch (m_PrimitiveTypeIndex)
 	{
 		case 0: // Cubes
-			// Draw right red cube
+		// Draw right silver cube
 		{
-			auto redCubeMatrix = glm::mat4(1.0f);
-			redCubeMatrix = glm::translate(redCubeMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
-			redCubeMatrix = glm::rotate(redCubeMatrix, glm::radians(m_RotationAngleY * 1.5f), glm::vec3(0.0f, 1.0f, 0.0f));
-			OloEngine::Renderer3D::DrawMesh(m_CubeMesh, redCubeMatrix, m_RedMaterial);
+			auto silverCubeMatrix = glm::mat4(1.0f);
+			silverCubeMatrix = glm::translate(silverCubeMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
+			silverCubeMatrix = glm::rotate(silverCubeMatrix, glm::radians(m_RotationAngleY * 1.5f), glm::vec3(0.0f, 1.0f, 0.0f));
+			OloEngine::Renderer3D::DrawMesh(m_CubeMesh, silverCubeMatrix, m_SilverMaterial);
 		}
 
-		// Draw left green cube
+		// Draw left chrome cube
 		{
-			auto greenCubeMatrix = glm::mat4(1.0f);
-			greenCubeMatrix = glm::translate(greenCubeMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
-			greenCubeMatrix = glm::rotate(greenCubeMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
-			OloEngine::Renderer3D::DrawMesh(m_CubeMesh, greenCubeMatrix, m_GreenMaterial);
+			auto chromeCubeMatrix = glm::mat4(1.0f);
+			chromeCubeMatrix = glm::translate(chromeCubeMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
+			chromeCubeMatrix = glm::rotate(chromeCubeMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
+			OloEngine::Renderer3D::DrawMesh(m_CubeMesh, chromeCubeMatrix, m_ChromeMaterial);
 		}
 		break;
 
 		case 1: // Spheres
-			// Draw center blue sphere
+		// Draw center gold sphere
 		{
 			auto modelMatrix = glm::mat4(1.0f);
-			OloEngine::Renderer3D::DrawMesh(m_SphereMesh, modelMatrix, m_BlueMaterial);
+			OloEngine::Renderer3D::DrawMesh(m_SphereMesh, modelMatrix, m_GoldMaterial);
 		}
 
-		// Draw right red sphere
+		// Draw right silver sphere
 		{
-			auto redSphereMatrix = glm::mat4(1.0f);
-			redSphereMatrix = glm::translate(redSphereMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
-			OloEngine::Renderer3D::DrawMesh(m_SphereMesh, redSphereMatrix, m_RedMaterial);
+			auto silverSphereMatrix = glm::mat4(1.0f);
+			silverSphereMatrix = glm::translate(silverSphereMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
+			OloEngine::Renderer3D::DrawMesh(m_SphereMesh, silverSphereMatrix, m_SilverMaterial);
 		}
 
-		// Draw left green sphere
+		// Draw left chrome sphere
 		{
-			auto greenSphereMatrix = glm::mat4(1.0f);
-			greenSphereMatrix = glm::translate(greenSphereMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
-			OloEngine::Renderer3D::DrawMesh(m_SphereMesh, greenSphereMatrix, m_GreenMaterial);
+			auto chromeSphereMatrix = glm::mat4(1.0f);
+			chromeSphereMatrix = glm::translate(chromeSphereMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
+			OloEngine::Renderer3D::DrawMesh(m_SphereMesh, chromeSphereMatrix, m_ChromeMaterial);
 		}
 		break;
 
 		case 2: // Mixed
 		default:
-			// Draw mixed shapes
 		{
-			// Draw right red sphere
-			auto redSphereMatrix = glm::mat4(1.0f);
-			redSphereMatrix = glm::translate(redSphereMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
-			OloEngine::Renderer3D::DrawMesh(m_SphereMesh, redSphereMatrix, m_RedMaterial);
+			// Draw right silver sphere
+			auto silverSphereMatrix = glm::mat4(1.0f);
+			silverSphereMatrix = glm::translate(silverSphereMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
+			OloEngine::Renderer3D::DrawMesh(m_SphereMesh, silverSphereMatrix, m_SilverMaterial);
 
-			// Draw left green cube
-			auto greenCubeMatrix = glm::mat4(1.0f);
-			greenCubeMatrix = glm::translate(greenCubeMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
-			greenCubeMatrix = glm::rotate(greenCubeMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
-			OloEngine::Renderer3D::DrawMesh(m_CubeMesh, greenCubeMatrix, m_GreenMaterial);
+			// Draw left chrome cube
+			auto chromeCubeMatrix = glm::mat4(1.0f);
+			chromeCubeMatrix = glm::translate(chromeCubeMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
+			chromeCubeMatrix = glm::rotate(chromeCubeMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
+			OloEngine::Renderer3D::DrawMesh(m_CubeMesh, chromeCubeMatrix, m_ChromeMaterial);
 		}
 		break;
 	}
@@ -382,19 +379,19 @@ void Sandbox3D::OnImGuiRender()
 	switch (m_SelectedMaterial)
 	{
 		case 0:
-			currentMaterial = &m_BlueMaterial;
+			currentMaterial = &m_GoldMaterial;
 			break;
 		case 1:
-			currentMaterial = &m_RedMaterial;
+			currentMaterial = &m_SilverMaterial;
 			break;
 		case 2:
-			currentMaterial = &m_GreenMaterial;
+			currentMaterial = &m_ChromeMaterial;
 			break;
 		case 3:
 			currentMaterial = &m_TexturedMaterial;
 			break;
 		default:
-			currentMaterial = &m_BlueMaterial;
+			currentMaterial = &m_GoldMaterial;
 	}
 
 	// Edit the selected material

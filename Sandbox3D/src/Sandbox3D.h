@@ -39,16 +39,16 @@ private:
 	// Texture resources
 	OloEngine::Ref<OloEngine::Texture2D> m_DiffuseMap;
 	OloEngine::Ref<OloEngine::Texture2D> m_SpecularMap;
-	OloEngine::Ref<OloEngine::Texture2D> m_GrassMap;  // Added grass texture
+	OloEngine::Ref<OloEngine::Texture2D> m_GrassTexture;
 
 	// Rotation animation state
 	f32 m_RotationAngleY = 0.0f;
 	f32 m_RotationAngleX = 0.0f;
 
 	// Materials for different objects
-	OloEngine::Material m_BlueMaterial;
-	OloEngine::Material m_RedMaterial;
-	OloEngine::Material m_GreenMaterial;
+	OloEngine::Material m_GoldMaterial;
+	OloEngine::Material m_SilverMaterial;
+	OloEngine::Material m_ChromeMaterial;
 	OloEngine::Material m_TexturedMaterial;
 
 	// Light properties
@@ -58,7 +58,7 @@ private:
 	
 	// Material editor selection state
 	int m_SelectedMaterial = 0;
-	const char* m_MaterialNames[4] = { "Blue Cube", "Red Cube", "Green Cube", "Textured Sphere" };
+	const char* m_MaterialNames[4] = { "Gold", "Silver", "Chrome", "Textured" };
 
 	// Light animation state
 	float m_LightAnimTime = 0.0f;
