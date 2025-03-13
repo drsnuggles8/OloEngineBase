@@ -66,8 +66,8 @@ namespace OloEngine
 
 		[[nodiscard("Store this!")]] virtual u32 GetColorAttachmentRendererID(u32 index) const = 0;
 		[[nodiscard("Store this!")]] virtual u32 GetDepthAttachmentRendererID() const = 0;
-
 		[[nodiscard("Store this!")]] virtual const FramebufferSpecification& GetSpecification() const = 0;
+		[[nodiscard("Store this!")]] virtual u32 GetRendererID() const = 0;
 
 		static Ref<Framebuffer> Create(const FramebufferSpecification& spec);
 	};

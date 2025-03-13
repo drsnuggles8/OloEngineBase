@@ -23,8 +23,9 @@ namespace OloEngine
 		void ClearAttachment(u32 attachmentIndex, int value) override;
 
 		[[nodiscard("Store this!")]] u32 GetColorAttachmentRendererID(const u32 index) const override { OLO_CORE_ASSERT(index < m_ColorAttachments.size()); return m_ColorAttachments[index]; }
-		[[nodiscard]] u32 GetDepthAttachmentRendererID() const override { return m_DepthAttachment; }
+		[[nodiscard("Store this!")]] u32 GetDepthAttachmentRendererID() const override { return m_DepthAttachment; }
 		[[nodiscard("Store this!")]] const FramebufferSpecification& GetSpecification() const override { return m_Specification; }
+		[[nodiscard("Store this!")]] u32 GetRendererID() const { return m_RendererID; }
 	private:
 		u32 m_RendererID = 0;
 		FramebufferSpecification m_Specification;

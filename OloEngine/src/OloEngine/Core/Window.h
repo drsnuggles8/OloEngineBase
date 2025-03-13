@@ -14,7 +14,7 @@ namespace OloEngine
 		u32 Width;
 		u32 Height;
 
-		explicit WindowProps(std::string title = "OloEngine", const u32 width = 1600, const u32 height = 900)
+		explicit WindowProps(std::string title = "OloEngine", const u32 width = 1280, const u32 height = 720)
 			: Title(std::move(title)), Width(width), Height(height)
 		{
 		}

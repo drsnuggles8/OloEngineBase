@@ -3,6 +3,7 @@
 #include <OloEnginePCH.h>
 #include "Sandbox3D.h"
 #include <imgui.h>
+#include <GLFW/glfw3.h>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -57,27 +58,42 @@ Sandbox3D::Sandbox3D()
 
 void Sandbox3D::OnAttach()
 {
-	OLO_PROFILE_FUNCTION();
+    OLO_PROFILE_FUNCTION();
+    
+    // Create 3D meshes
+    m_CubeMesh = OloEngine::Mesh::CreateCube();
+    m_SphereMesh = OloEngine::Mesh::CreateSphere();
+    m_PlaneMesh = OloEngine::Mesh::CreatePlane(25.0f, 25.0f);
+    
+    // Load backpack model
+    m_BackpackModel = OloEngine::CreateRef<OloEngine::Model>("assets/backpack/backpack.obj");
+    
+    // Load textures
+    m_DiffuseMap = OloEngine::Texture2D::Create("assets/textures/container2.png");
+    m_SpecularMap = OloEngine::Texture2D::Create("assets/textures/container2_specular.png");
+    m_GrassTexture = OloEngine::Texture2D::Create("assets/textures/grass.png");
+    
+    // Assign textures to the material
+    m_TexturedMaterial.DiffuseMap = m_DiffuseMap;
+    m_TexturedMaterial.SpecularMap = m_SpecularMap;
 
-	// Create 3D meshes
-	m_CubeMesh = OloEngine::Mesh::CreateCube();
-	m_SphereMesh = OloEngine::Mesh::CreateSphere();
-	m_PlaneMesh = OloEngine::Mesh::CreatePlane(25.0f, 25.0f);
+    auto& window = OloEngine::Application::Get().GetWindow();
+    
+    // Get the actual framebuffer size
+    int fbWidth, fbHeight;
+    glfwGetFramebufferSize(static_cast<GLFWwindow*>(window.GetNativeWindow()), &fbWidth, &fbHeight);
+    
+    OloEngine::FramebufferSpecification fbSpec;
+    fbSpec.Attachments = { OloEngine::FramebufferTextureFormat::RGBA8, OloEngine::FramebufferTextureFormat::Depth };
+    fbSpec.Width = static_cast<u32>(fbWidth);
+    fbSpec.Height = static_cast<u32>(fbHeight);
+    m_Framebuffer = OloEngine::Framebuffer::Create(fbSpec);
 
-	// Load backpack model
-	m_BackpackModel = OloEngine::CreateRef<OloEngine::Model>("assets/backpack/backpack.obj");
-
-	// Load textures
-	m_DiffuseMap = OloEngine::Texture2D::Create("assets/textures/container2.png");
-	m_SpecularMap = OloEngine::Texture2D::Create("assets/textures/container2_specular.png");
-	m_GrassTexture = OloEngine::Texture2D::Create("assets/textures/grass.png");
-
-	// Assign textures to the material
-	m_TexturedMaterial.DiffuseMap = m_DiffuseMap;
-	m_TexturedMaterial.SpecularMap = m_SpecularMap;
-
-	// Set initial lighting parameters
-	OloEngine::Renderer3D::SetLight(m_Light);
+    OLO_CORE_INFO("Window size: {}x{}", window.GetWidth(), window.GetHeight());
+    OLO_CORE_INFO("Framebuffer size: {}x{}", fbWidth, fbHeight);
+    
+    // Set initial lighting parameters
+    OloEngine::Renderer3D::SetLight(m_Light);
 }
 
 void Sandbox3D::OnDetach()
@@ -88,6 +104,20 @@ void Sandbox3D::OnDetach()
 void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 {
 	OLO_PROFILE_FUNCTION();
+
+	auto& window = OloEngine::Application::Get().GetWindow();
+    
+    // Get the actual framebuffer size
+    int fbWidth, fbHeight;
+    glfwGetFramebufferSize(static_cast<GLFWwindow*>(window.GetNativeWindow()), &fbWidth, &fbHeight);
+
+    // Check if framebuffer size changed
+    if (m_Framebuffer->GetSpecification().Width != static_cast<uint32_t>(fbWidth) ||
+        m_Framebuffer->GetSpecification().Height != static_cast<uint32_t>(fbHeight))
+    {
+        m_Framebuffer->Resize(static_cast<uint32_t>(fbWidth), static_cast<uint32_t>(fbHeight));
+        m_CameraController.OnResize(static_cast<float>(fbWidth), static_cast<float>(fbHeight));
+    }
 
 	m_FrameTime = ts.GetMilliseconds();
 	m_FPS = 1.0f / ts.GetSeconds();
@@ -150,6 +180,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 	// Render setup
 	{
 		OLO_PROFILE_SCOPE("Renderer Prep");
+		m_Framebuffer->Bind();
 		OloEngine::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1 });
 		OloEngine::RenderCommand::Clear();
 	}
@@ -303,6 +334,17 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 	}
 
 	OloEngine::Renderer3D::EndScene();
+	m_Framebuffer->Unbind();
+
+    // Blit framebuffer to default framebuffer with proper dimensions
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_Framebuffer->GetRendererID());
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    glBlitFramebuffer(
+        0, 0, fbWidth, fbHeight,  // Source
+        0, 0, fbWidth, fbHeight,  // Destination
+        GL_COLOR_BUFFER_BIT,
+        GL_LINEAR  // Use GL_LINEAR for better scaling quality
+    );
 }
 
 

@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Light.h"
+#include "OloEngine/Renderer/Framebuffer.h"
 
 class Sandbox3D : public OloEngine::Layer
 {
@@ -27,6 +28,9 @@ private:
 
 private:
 	OloEngine::PerspectiveCameraController m_CameraController;
+
+	// Framebuffer
+	OloEngine::Ref<OloEngine::Framebuffer> m_Framebuffer;
 
 	// Mesh objects
 	OloEngine::Ref<OloEngine::Mesh> m_CubeMesh;
@@ -81,4 +85,7 @@ private:
 	// FPS
 	float m_FrameTime = 0.0f;
 	float m_FPS = 0.0f;
+	
+	// Viewport size
+	glm::vec2 m_ViewportSize = { 0.0f, 0.0f };
 };
