@@ -20,6 +20,12 @@ namespace OloEngine
 		Depth = DEPTH24STENCIL8
 	};
 
+	enum class PostProcessEffect
+	{
+		None = 0,
+		// Add more effects here later
+	};
+
 	struct FramebufferTextureSpecification
 	{
 		FramebufferTextureSpecification() = default;
@@ -46,6 +52,7 @@ namespace OloEngine
 		u32 Height = 0;
 		FramebufferAttachmentSpecification Attachments;
 		u32 Samples = 1;
+		PostProcessEffect PostProcess = PostProcessEffect::None;
 
 		bool SwapChainTarget = false;
 	};
