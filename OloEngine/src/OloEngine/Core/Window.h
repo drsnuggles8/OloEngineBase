@@ -33,6 +33,10 @@ namespace OloEngine
 		[[nodiscard("Store this!")]] virtual u32 GetWidth() const = 0;
 		[[nodiscard("Store this!")]] virtual u32 GetHeight() const = 0;
 
+		// Add new methods for framebuffer size
+		virtual u32 GetFramebufferWidth() const = 0;
+		virtual u32 GetFramebufferHeight() const = 0;
+
 		// Window attributes
 		virtual void SetEventCallback(const EventCallbackFn& callback) = 0;
 		virtual void SetVSync(bool enabled) = 0;

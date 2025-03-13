@@ -18,10 +18,14 @@ namespace OloEngine
 		[[nodiscard("Store this!")]] unsigned int GetWidth() const noexcept override { return m_Data.Width; }
 		[[nodiscard("Store this!")]] unsigned int GetHeight() const noexcept override { return m_Data.Height; }
 
+		// Add framebuffer size methods
+		[[nodiscard("Store this!")]] unsigned int GetFramebufferWidth() const override;
+		[[nodiscard("Store this!")]] unsigned int GetFramebufferHeight() const override;
+
 		// Window attributes
 		void SetEventCallback(const EventCallbackFn& callback) override { m_Data.EventCallback = callback; }
 		void SetVSync(bool enabled) override;
-		[[nodiscard("Store this!")]] bool IsVSync() const override;
+		[[nodiscard("Store this!")]] bool IsVSync() const override { return m_Data.VSync; }
 
 		[[nodiscard("Store this!")]] void* GetNativeWindow() const noexcept override { return m_Window; }
 

@@ -211,15 +211,26 @@ namespace OloEngine
 		m_Data.VSync = enabled;
 	}
 
-	bool WindowsWindow::IsVSync() const
-	{
-		return m_Data.VSync;
-	}
-
 	void WindowsWindow::SetTitle(const std::string& title)
 	{
 		m_Data.Title = title;
 		GLFWAPI::glfwSetWindowTitle(m_Window, title.c_str());
+	}
+
+	u32 WindowsWindow::GetFramebufferWidth() const
+	{
+		int width;
+		int height;
+		glfwGetFramebufferSize(m_Window, &width, &height);
+		return static_cast<u32>(width);
+	}
+
+	u32 WindowsWindow::GetFramebufferHeight() const
+	{
+		int width;
+		int height;
+		glfwGetFramebufferSize(m_Window, &width, &height);
+		return static_cast<u32>(height);
 	}
 
 }

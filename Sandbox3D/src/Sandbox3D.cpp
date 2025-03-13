@@ -77,16 +77,16 @@ void Sandbox3D::OnAttach()
     m_TexturedMaterial.DiffuseMap = m_DiffuseMap;
     m_TexturedMaterial.SpecularMap = m_SpecularMap;
 
-    auto& window = OloEngine::Application::Get().GetWindow();
+    auto const& window = OloEngine::Application::Get().GetWindow();
     
-    // Get the actual framebuffer size
-    int fbWidth, fbHeight;
-    glfwGetFramebufferSize(static_cast<GLFWwindow*>(window.GetNativeWindow()), &fbWidth, &fbHeight);
+    // Get the framebuffer size using the engine's abstraction
+    const u32 fbWidth = window.GetFramebufferWidth();
+    const u32 fbHeight = window.GetFramebufferHeight();
     
     OloEngine::FramebufferSpecification fbSpec;
     fbSpec.Attachments = { OloEngine::FramebufferTextureFormat::RGBA8, OloEngine::FramebufferTextureFormat::Depth };
-    fbSpec.Width = static_cast<u32>(fbWidth);
-    fbSpec.Height = static_cast<u32>(fbHeight);
+    fbSpec.Width = fbWidth;
+    fbSpec.Height = fbHeight;
     m_Framebuffer = OloEngine::Framebuffer::Create(fbSpec);
 
     OLO_CORE_INFO("Window size: {}x{}", window.GetWidth(), window.GetHeight());
@@ -105,17 +105,17 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 {
 	OLO_PROFILE_FUNCTION();
 
-	auto& window = OloEngine::Application::Get().GetWindow();
+	auto const& window = OloEngine::Application::Get().GetWindow();
     
-    // Get the actual framebuffer size
-    int fbWidth, fbHeight;
-    glfwGetFramebufferSize(static_cast<GLFWwindow*>(window.GetNativeWindow()), &fbWidth, &fbHeight);
+    // Get the framebuffer size using the engine's abstraction
+    const u32 fbWidth = window.GetFramebufferWidth();
+    const u32 fbHeight = window.GetFramebufferHeight();
 
     // Check if framebuffer size changed
-    if (m_Framebuffer->GetSpecification().Width != static_cast<uint32_t>(fbWidth) ||
-        m_Framebuffer->GetSpecification().Height != static_cast<uint32_t>(fbHeight))
+    if (m_Framebuffer->GetSpecification().Width != fbWidth ||
+        m_Framebuffer->GetSpecification().Height != fbHeight)
     {
-        m_Framebuffer->Resize(static_cast<uint32_t>(fbWidth), static_cast<uint32_t>(fbHeight));
+        m_Framebuffer->Resize(fbWidth, fbHeight);
         m_CameraController.OnResize(static_cast<float>(fbWidth), static_cast<float>(fbHeight));
     }
 
@@ -340,8 +340,8 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
     glBindFramebuffer(GL_READ_FRAMEBUFFER, m_Framebuffer->GetRendererID());
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glBlitFramebuffer(
-        0, 0, fbWidth, fbHeight,  // Source
-        0, 0, fbWidth, fbHeight,  // Destination
+        0, 0, static_cast<GLint>(fbWidth), static_cast<GLint>(fbHeight),  // Source
+        0, 0, static_cast<GLint>(fbWidth), static_cast<GLint>(fbHeight),  // Destination
         GL_COLOR_BUFFER_BIT,
         GL_LINEAR  // Use GL_LINEAR for better scaling quality
     );
