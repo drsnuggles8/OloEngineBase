@@ -162,6 +162,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 
 	// Draw ground plane
 	{
+		// Ground plane is static - it doesn't move
 		auto planeMatrix = glm::mat4(1.0f);
 		planeMatrix = glm::translate(planeMatrix, glm::vec3(0.0f, -1.0f, 0.0f));
 		OloEngine::Material planeMaterial;
@@ -169,11 +170,12 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 		planeMaterial.Diffuse = glm::vec3(0.3f);
 		planeMaterial.Specular = glm::vec3(0.2f);
 		planeMaterial.Shininess = 8.0f;
-		OloEngine::Renderer3D::DrawMesh(m_PlaneMesh, planeMatrix, planeMaterial);
+		OloEngine::Renderer3D::DrawMesh(m_PlaneMesh, planeMatrix, planeMaterial, true); // Mark as static
 	}
 
 	// Draw a grass quad
 	{
+		// Grass quad is static - it doesn't move
 		auto grassMatrix = glm::mat4(1.0f);
 		grassMatrix = glm::translate(grassMatrix, glm::vec3(0.0f, 0.5f, -1.0f));
 		// Make it face the camera by rotating around X axis
@@ -328,6 +330,78 @@ void Sandbox3D::OnImGuiRender()
 	// Add scene object selection
 	ImGui::Text("Scene Objects");
 	ImGui::Combo("Primitive Types", &m_PrimitiveTypeIndex, m_PrimitiveNames, 3);
+	ImGui::Separator();
+
+	// Add a section for frustum culling settings
+	ImGui::Separator();
+	ImGui::Text("Frustum Culling");
+	ImGui::Indent();
+	
+	bool frustumCullingEnabled = OloEngine::Renderer3D::IsFrustumCullingEnabled();
+	if (ImGui::Checkbox("Enable Frustum Culling", &frustumCullingEnabled))
+	{
+		OloEngine::Renderer3D::EnableFrustumCulling(frustumCullingEnabled);
+	}
+	ImGui::SameLine();
+	ImGui::TextDisabled("(?)");
+	if (ImGui::IsItemHovered())
+	{
+		ImGui::BeginTooltip();
+		ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+		ImGui::TextUnformatted("Enables frustum culling to skip rendering objects outside the camera view.");
+		ImGui::PopTextWrapPos();
+		ImGui::EndTooltip();
+	}
+	
+	bool dynamicCullingEnabled = OloEngine::Renderer3D::IsDynamicCullingEnabled();
+	if (ImGui::Checkbox("Cull Dynamic Objects", &dynamicCullingEnabled))
+	{
+		OloEngine::Renderer3D::EnableDynamicCulling(dynamicCullingEnabled);
+	}
+	ImGui::SameLine();
+	ImGui::TextDisabled("(?)");
+	if (ImGui::IsItemHovered())
+	{
+		ImGui::BeginTooltip();
+		ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+		ImGui::TextUnformatted("Warning: Enabling this may cause visual glitches with rotating objects.");
+		ImGui::PopTextWrapPos();
+		ImGui::EndTooltip();
+	}
+	
+	// Add a debug button to disable all culling
+	if (ImGui::Button("Disable All Culling (Debug)"))
+	{
+		OloEngine::Renderer3D::EnableFrustumCulling(false);
+		OloEngine::Renderer3D::EnableDynamicCulling(false);
+	}
+	ImGui::SameLine();
+	
+	// Add a button to reset to safe defaults
+	if (ImGui::Button("Reset to Safe Defaults"))
+	{
+		OloEngine::Renderer3D::EnableFrustumCulling(true);
+		OloEngine::Renderer3D::EnableDynamicCulling(false);
+	}
+	ImGui::SameLine();
+	ImGui::TextDisabled("(?)");
+	if (ImGui::IsItemHovered())
+	{
+		ImGui::BeginTooltip();
+		ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+		ImGui::TextUnformatted("Resets to safe defaults: Frustum culling enabled, dynamic culling disabled.");
+		ImGui::PopTextWrapPos();
+		ImGui::EndTooltip();
+	}
+	
+	ImGui::Text("Meshes: Total %d, Culled %d (%.1f%%)", 
+		OloEngine::Renderer3D::GetStats().TotalMeshes, 
+		OloEngine::Renderer3D::GetStats().CulledMeshes,
+		OloEngine::Renderer3D::GetStats().TotalMeshes > 0 
+			? 100.0f * OloEngine::Renderer3D::GetStats().CulledMeshes / OloEngine::Renderer3D::GetStats().TotalMeshes 
+			: 0.0f);
+	
+	ImGui::Unindent();
 	ImGui::Separator();
 
 	// Light type selection

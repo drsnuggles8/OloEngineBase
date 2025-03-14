@@ -10,12 +10,22 @@
 #include "OloEngine/Renderer/MSDFData.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Light.h"
+#include "OloEngine/Renderer/BoundingVolume.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
 namespace OloEngine
 {
+	// Forward declare the Statistics struct
+	struct Statistics
+	{
+		uint32_t TotalMeshes = 0;
+		uint32_t CulledMeshes = 0;
+		
+		void Reset() { TotalMeshes = 0; CulledMeshes = 0; }
+	};
+
 	struct Renderer3DData
 	{
 		Ref<Mesh> CubeMesh;
@@ -31,10 +41,15 @@ namespace OloEngine
 
 		Light SceneLight;
 		glm::vec3 ViewPos;
+
+		Frustum ViewFrustum;
+		bool FrustumCullingEnabled = true;
+		bool DynamicCullingEnabled = false;
+		Renderer3D::Statistics Stats;
 	};
 
-	static Renderer3DData s_Data;
-
+	// Static member definitions
+	Renderer3D::Renderer3DData Renderer3D::s_Data;
 	ShaderLibrary Renderer3D::m_ShaderLibrary;
 
 	void Renderer3D::Init()
@@ -65,6 +80,9 @@ namespace OloEngine
 		s_Data.SceneLight.Specular = glm::vec3(1.0f, 1.0f, 1.0f);
 
 		s_Data.ViewPos = glm::vec3(0.0f, 0.0f, 3.0f);
+		
+		// Initialize statistics
+		s_Data.Stats.Reset();
 
 		// Initialize the render queue
 		RenderQueue::Init();
@@ -82,6 +100,13 @@ namespace OloEngine
 	void Renderer3D::BeginScene(const glm::mat4& viewProjectionMatrix)
 	{
 		s_Data.ViewProjectionMatrix = viewProjectionMatrix;
+		
+		// Update the view frustum for culling
+		s_Data.ViewFrustum.Update(viewProjectionMatrix);
+		
+		// Reset statistics for this frame
+		s_Data.Stats.Reset();
+		
 		RenderQueue::BeginScene(viewProjectionMatrix);
 	}
 
@@ -99,10 +124,90 @@ namespace OloEngine
 	{
 		s_Data.ViewPos = position;
 	}
-
-	void Renderer3D::DrawCube(const glm::mat4& modelMatrix, const Material& material)
+	
+	// Frustum culling methods
+	void Renderer3D::EnableFrustumCulling(bool enable)
 	{
-		DrawMesh(s_Data.CubeMesh, modelMatrix, material);
+		s_Data.FrustumCullingEnabled = enable;
+	}
+	
+	bool Renderer3D::IsFrustumCullingEnabled()
+	{
+		return s_Data.FrustumCullingEnabled;
+	}
+	
+	void Renderer3D::EnableDynamicCulling(bool enable)
+	{
+		s_Data.DynamicCullingEnabled = enable;
+	}
+	
+	bool Renderer3D::IsDynamicCullingEnabled()
+	{
+		return s_Data.DynamicCullingEnabled;
+	}
+	
+	const Frustum& Renderer3D::GetViewFrustum()
+	{
+		return s_Data.ViewFrustum;
+	}
+	
+	Renderer3D::Statistics Renderer3D::GetStats()
+	{
+		return s_Data.Stats;
+	}
+	
+	void Renderer3D::ResetStats()
+	{
+		s_Data.Stats.Reset();
+		RenderQueue::ResetStats();
+	}
+
+	bool Renderer3D::IsVisibleInFrustum(const Ref<Mesh>& mesh, const glm::mat4& transform)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.FrustumCullingEnabled)
+			return true;
+		
+		// Get the transformed bounding sphere from the mesh
+		BoundingSphere sphere = mesh->GetTransformedBoundingSphere(transform);
+		
+		// Add a larger margin to the radius to prevent popping (40% increase)
+		sphere.Radius *= 1.4f;
+		
+		// Check if the sphere is visible in the frustum
+		return s_Data.ViewFrustum.IsBoundingSphereVisible(sphere);
+	}
+	
+	bool Renderer3D::IsVisibleInFrustum(const BoundingSphere& sphere)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.FrustumCullingEnabled)
+			return true;
+		
+		// Add a larger margin to the radius to prevent popping (40% increase)
+		BoundingSphere expandedSphere = sphere;
+		expandedSphere.Radius *= 1.4f;
+		
+		// Check if the sphere is visible in the frustum
+		return s_Data.ViewFrustum.IsBoundingSphereVisible(expandedSphere);
+	}
+	
+	bool Renderer3D::IsVisibleInFrustum(const BoundingBox& box)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.FrustumCullingEnabled)
+			return true;
+		
+		// Check if the box is visible in the frustum
+		return s_Data.ViewFrustum.IsBoundingBoxVisible(box);
+	}
+
+	void Renderer3D::DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic)
+	{
+		DrawMesh(s_Data.CubeMesh, modelMatrix, material, isStatic);
 	}
 
 	void Renderer3D::DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture)
@@ -110,9 +215,30 @@ namespace OloEngine
 		RenderQueue::SubmitQuad(modelMatrix, texture);
 	}
 
-	void Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material)
+	void Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic)
 	{
-		RenderQueue::SubmitMesh(mesh, modelMatrix, material);
+		OLO_PROFILE_FUNCTION();
+		
+		// Track total meshes for statistics
+		s_Data.Stats.TotalMeshes++;
+		
+		// Perform frustum culling if enabled
+		if (s_Data.FrustumCullingEnabled)
+		{
+			// Only perform culling if the object is static or dynamic culling is enabled
+			if (isStatic || s_Data.DynamicCullingEnabled)
+			{
+				// Use a more robust visibility check with a larger safety margin
+				if (!IsVisibleInFrustum(mesh, modelMatrix))
+				{
+					s_Data.Stats.CulledMeshes++;
+					return; // Skip this mesh
+				}
+			}
+		}
+		
+		// Submit to render queue if visible
+		RenderQueue::SubmitMesh(mesh, modelMatrix, material, isStatic);
 	}
 
 	void Renderer3D::DrawLightCube(const glm::mat4& modelMatrix)
@@ -128,20 +254,57 @@ namespace OloEngine
 
 	void Renderer3D::RenderMeshInternal(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material)
 	{
+		OLO_PROFILE_FUNCTION();
+		
+		// Ensure the shader is bound first
 		s_Data.LightingShader->Bind();
+		
+		// Update uniform buffers in a consistent order
 		UpdateTransformUBO(modelMatrix);
 		UpdateLightPropertiesUBO(material);
 		UpdateTextureFlag(material);
 
+		// Bind textures if needed
 		if (material.UseTextureMaps)
 		{
 			if (material.DiffuseMap)
 				material.DiffuseMap->Bind(0);
+			
 			if (material.SpecularMap)
 				material.SpecularMap->Bind(1);
 		}
 
+		// Draw the mesh
 		mesh->Draw();
+	}
+	
+	void Renderer3D::RenderMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		// Ensure the shader is bound first
+		s_Data.LightingShader->Bind();
+		
+		// We only need to update the view projection matrix once
+		s_Data.UBO->SetData(&s_Data.ViewProjectionMatrix, sizeof(glm::mat4));
+		
+		// Update uniform buffers in a consistent order
+		UpdateLightPropertiesUBO(material);
+		UpdateTextureFlag(material);
+
+		// Bind textures if needed
+		if (material.UseTextureMaps)
+		{
+			if (material.DiffuseMap)
+				material.DiffuseMap->Bind(0);
+			
+			if (material.SpecularMap)
+				material.SpecularMap->Bind(1);
+		}
+
+		// Draw the mesh with instancing
+		mesh->GetVertexArray()->Bind();
+		RenderCommand::DrawIndexedInstanced(mesh->GetVertexArray(), 0, static_cast<u32>(transforms.size()));
 	}
 
 	void Renderer3D::RenderQuadInternal(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture)
@@ -167,11 +330,21 @@ namespace OloEngine
 			glm::mat4 Model;
 		};
 
+		// Create a copy of the model matrix to ensure it's stable
+		glm::mat4 stableModelMatrix = modelMatrix;
+		
 		TransformMatrices matrices;
 		matrices.ViewProjection = s_Data.ViewProjectionMatrix;
-		matrices.Model = modelMatrix;
+		matrices.Model = stableModelMatrix;
 
 		s_Data.UBO->SetData(&matrices, sizeof(TransformMatrices));
+	}
+	
+	void Renderer3D::UpdateTransformsUBO(const std::vector<glm::mat4>& transforms)
+	{
+		// For instanced rendering, we only update the transforms
+		// The view-projection matrix is updated separately
+		s_Data.UBO->SetData(transforms.data(), sizeof(glm::mat4) * transforms.size(), sizeof(glm::mat4));
 	}
 
 	void Renderer3D::UpdateLightPropertiesUBO(const Material& material)

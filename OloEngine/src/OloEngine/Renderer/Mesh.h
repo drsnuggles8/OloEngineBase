@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Vertex.h"
 #include "OloEngine/Renderer/VertexArray.h"
+#include "OloEngine/Renderer/BoundingVolume.h"
 
 #include <vector>
 #include <memory>
@@ -23,6 +24,7 @@ namespace OloEngine
         void SetIndices(std::vector<uint32_t>&& indices);
 
         void Build();
+        void CalculateBounds();
 
         // Create primitive meshes - these return newly created meshes
         static Ref<Mesh> CreateCube();
@@ -34,6 +36,15 @@ namespace OloEngine
 
         [[nodiscard]] const std::vector<Vertex>& GetVertices() const { return m_Vertices; }
         [[nodiscard]] const std::vector<uint32_t>& GetIndices() const { return m_Indices; }
+        [[nodiscard]] const Ref<VertexArray>& GetVertexArray() const { return m_VertexArray; }
+        
+        // Bounding volume accessors
+        [[nodiscard]] const BoundingBox& GetBoundingBox() const { return m_BoundingBox; }
+        [[nodiscard]] const BoundingSphere& GetBoundingSphere() const { return m_BoundingSphere; }
+        
+        // Get transformed bounding volumes
+        [[nodiscard]] BoundingBox GetTransformedBoundingBox(const glm::mat4& transform) const { return m_BoundingBox.Transform(transform); }
+        [[nodiscard]] BoundingSphere GetTransformedBoundingSphere(const glm::mat4& transform) const { return m_BoundingSphere.Transform(transform); }
 
     private:
         std::vector<Vertex> m_Vertices;
@@ -42,6 +53,9 @@ namespace OloEngine
         Ref<VertexArray> m_VertexArray;
         Ref<VertexBuffer> m_VertexBuffer;
         Ref<IndexBuffer> m_IndexBuffer;
+        
+        BoundingBox m_BoundingBox;
+        BoundingSphere m_BoundingSphere;
         
         bool m_Built = false;
     };

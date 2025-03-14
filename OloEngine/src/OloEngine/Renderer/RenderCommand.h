@@ -39,6 +39,11 @@ namespace OloEngine
 			s_RendererAPI->DrawIndexed(vertexArray, indexCount);
 		}
 
+		static void DrawIndexedInstanced(const Ref<VertexArray>& vertexArray, const u32 indexCount = 0, const u32 instanceCount = 1)
+		{
+			s_RendererAPI->DrawIndexedInstanced(vertexArray, indexCount, instanceCount);
+		}
+
 		static void DrawLines(const Ref<VertexArray>& vertexArray, const u32 vertexCount)
 		{
 			s_RendererAPI->DrawLines(vertexArray, vertexCount);

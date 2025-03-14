@@ -119,12 +119,12 @@ namespace OloEngine
         }
     }
 
-    void RenderQueue::SubmitMesh(const Ref<Mesh>& mesh, const glm::mat4& transform, const Material& material)
+    void RenderQueue::SubmitMesh(const Ref<Mesh>& mesh, const glm::mat4& transform, const Material& material, bool isStatic)
     {
         auto command = GetCommandFromPool(CommandType::Mesh);
         if (auto meshCommand = std::static_pointer_cast<DrawMeshCommand>(command))
         {
-            meshCommand->Set(mesh, transform, material);
+            meshCommand->Set(mesh, transform, material, isStatic);
             s_CommandQueue.push_back(std::move(command));
             s_Stats.CommandCount++;
         }
@@ -173,6 +173,15 @@ namespace OloEngine
             [](const Ref<RenderCommandBase>& a, const Ref<RenderCommandBase>& b) {
                 if (a->GetType() != b->GetType())
                     return a->GetType() < b->GetType();
+                
+                if (a->GetType() == CommandType::Mesh)
+                {
+                    auto meshA = std::static_pointer_cast<DrawMeshCommand>(a);
+                    auto meshB = std::static_pointer_cast<DrawMeshCommand>(b);
+                    
+                    if (meshA->IsStatic() != meshB->IsStatic())
+                        return meshA->IsStatic() > meshB->IsStatic();
+                }
                 
                 if (a->GetShaderKey() != b->GetShaderKey())
                     return a->GetShaderKey() < b->GetShaderKey();
@@ -277,7 +286,16 @@ namespace OloEngine
 
     void DrawMeshCommand::Execute()
     {
-        Renderer3D::RenderMeshInternal(m_Mesh, m_Transform, m_Material);
+        if (m_Transforms.size() == 1)
+        {
+            // Single mesh rendering
+            Renderer3D::RenderMeshInternal(m_Mesh, m_Transforms[0], m_Material);
+        }
+        else if (m_Transforms.size() > 1)
+        {
+            // Instanced rendering for multiple transforms
+            Renderer3D::RenderMeshInstanced(m_Mesh, m_Transforms, m_Material);
+        }
     }
 
     uint64_t DrawMeshCommand::GetShaderKey() const
@@ -338,7 +356,14 @@ namespace OloEngine
             return false;
 
         const auto& otherMesh = static_cast<const DrawMeshCommand&>(other);
-        m_BatchSize += otherMesh.m_BatchSize;
+        
+        // Add the transform from the other command to our transforms list
+        for (const auto& transform : otherMesh.m_Transforms)
+        {
+            m_Transforms.push_back(transform);
+        }
+        
+        m_BatchSize = m_Transforms.size();
         return true;
     }
 

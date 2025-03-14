@@ -56,10 +56,13 @@
 		"OloEngine/Project/ProjectSerializer.h"
 		
 		"OloEngine/Renderer/Buffer.h"
+		"OloEngine/Renderer/BoundingVolume.h"
 		"OloEngine/Renderer/Font.cpp"
 		"OloEngine/Renderer/Font.h"
 		"OloEngine/Renderer/Framebuffer.cpp"
 		"OloEngine/Renderer/Framebuffer.h"
+		"OloEngine/Renderer/Frustum.cpp"
+		"OloEngine/Renderer/Frustum.h"
 		"OloEngine/Renderer/GraphicsContext.cpp"
 		"OloEngine/Renderer/GraphicsContext.h"
 		"OloEngine/Renderer/IndexBuffer.cpp"

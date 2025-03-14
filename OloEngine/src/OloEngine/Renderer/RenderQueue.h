@@ -52,12 +52,20 @@ namespace OloEngine
     {
     public:
         DrawMeshCommand() = default;
-        void Set(const Ref<Mesh>& mesh, const glm::mat4& transform, const Material& material)
+        void Set(const Ref<Mesh>& mesh, const glm::mat4& transform, const Material& material, bool isStatic = false)
         {
             m_Mesh = mesh;
-            m_Transform = transform;
+            m_Transforms.clear();
+            m_Transforms.push_back(transform);
             m_Material = material;
             m_BatchSize = 1;
+            m_IsStatic = isStatic;
+        }
+
+        void AddInstance(const glm::mat4& transform)
+        {
+            m_Transforms.push_back(transform);
+            m_BatchSize = m_Transforms.size();
         }
 
         void Execute() override;
@@ -71,21 +79,24 @@ namespace OloEngine
         void Reset() override
         {
             m_Mesh.reset();
-            m_Transform = glm::mat4(1.0f);
+            m_Transforms.clear();
             m_Material = Material();
             m_BatchSize = 1;
+            m_IsStatic = false;
         }
 
         // Command batching and merging
         [[nodiscard]] bool CanBatchWith(const RenderCommandBase& other) const override;
         bool MergeWith(const RenderCommandBase& other) override;
         [[nodiscard]] size_t GetBatchSize() const override { return m_BatchSize; }
+        [[nodiscard]] bool IsStatic() const { return m_IsStatic; }
 
     private:
         Ref<Mesh> m_Mesh;
-        glm::mat4 m_Transform;
+        std::vector<glm::mat4> m_Transforms;
         Material m_Material;
         size_t m_BatchSize;
+        bool m_IsStatic = false;
     };
 
     // Command for drawing a textured quad
@@ -163,7 +174,7 @@ namespace OloEngine
         static void BeginScene(const glm::mat4& viewProjectionMatrix);
         static void EndScene();
 
-        static void SubmitMesh(const Ref<Mesh>& mesh, const glm::mat4& transform, const Material& material);
+        static void SubmitMesh(const Ref<Mesh>& mesh, const glm::mat4& transform, const Material& material, bool isStatic = false);
         static void SubmitQuad(const glm::mat4& transform, const Ref<Texture2D>& texture);
 
         static void Flush();

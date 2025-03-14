@@ -68,7 +68,39 @@ namespace OloEngine
         );
 
         m_VertexArray->SetIndexBuffer(m_IndexBuffer);
+        
+        // Calculate bounding volumes
+        CalculateBounds();
+        
         m_Built = true;
+    }
+
+    void Mesh::CalculateBounds()
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        if (m_Vertices.empty())
+        {
+            // Default to a unit cube around the origin if no vertices
+            m_BoundingBox = BoundingBox(glm::vec3(-0.5f), glm::vec3(0.5f));
+            m_BoundingSphere = BoundingSphere(glm::vec3(0.0f), 0.5f);
+            return;
+        }
+        
+        // Extract positions from vertices for bounding volume calculation
+        std::vector<glm::vec3> positions;
+        positions.reserve(m_Vertices.size());
+        
+        for (const auto& vertex : m_Vertices)
+        {
+            positions.push_back(vertex.Position);
+        }
+        
+        // Create bounding box from positions
+        m_BoundingBox = BoundingBox(positions.data(), positions.size());
+        
+        // Create bounding sphere from bounding box (more efficient than from points)
+        m_BoundingSphere = BoundingSphere(m_BoundingBox);
     }
 
     void Mesh::Draw() const
