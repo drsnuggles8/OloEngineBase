@@ -6,21 +6,22 @@
 namespace OloEngine
 {
     Scope<RenderQueue::SceneData> RenderQueue::s_SceneData = CreateScope<RenderQueue::SceneData>();
-    std::vector<std::unique_ptr<RenderCommandBase>> RenderQueue::s_CommandQueue;
-    std::queue<std::unique_ptr<DrawMeshCommand>> RenderQueue::s_MeshCommandPool;
-    std::queue<std::unique_ptr<DrawQuadCommand>> RenderQueue::s_QuadCommandPool;
+    std::vector<Ref<RenderCommandBase>> RenderQueue::s_CommandQueue;
+    std::queue<Ref<DrawMeshCommand>> RenderQueue::s_MeshCommandPool;
+    std::queue<Ref<DrawQuadCommand>> RenderQueue::s_QuadCommandPool;
     RenderQueue::Statistics RenderQueue::s_Stats;
+    RenderQueue::Config RenderQueue::s_Config;
 
-    void RenderQueue::Init()
+    void RenderQueue::Init(const Config& config)
     {
+        s_Config = config;
         s_SceneData = CreateScope<SceneData>();
-        s_CommandQueue.reserve(1000);
+        s_CommandQueue.reserve(s_Config.CommandQueueReserve);
         
-        // Pre-allocate some commands for the pool
-        for (int i = 0; i < 100; ++i)
+        for (size_t i = 0; i < s_Config.InitialPoolSize; ++i)
         {
-            s_MeshCommandPool.push(std::make_unique<DrawMeshCommand>());
-            s_QuadCommandPool.push(std::make_unique<DrawQuadCommand>());
+            s_MeshCommandPool.push(CreateRef<DrawMeshCommand>());
+            s_QuadCommandPool.push(CreateRef<DrawQuadCommand>());
         }
     }
 
@@ -29,7 +30,6 @@ namespace OloEngine
         s_CommandQueue.clear();
         s_SceneData.reset();
         
-        // Clear command pools
         while (!s_MeshCommandPool.empty())
             s_MeshCommandPool.pop();
         while (!s_QuadCommandPool.empty())
@@ -48,7 +48,19 @@ namespace OloEngine
         Flush();
     }
 
-    std::unique_ptr<RenderCommandBase> RenderQueue::GetCommandFromPool(CommandType type)
+    void RenderQueue::GrowCommandPool(CommandType type)
+    {
+        if (type == CommandType::Mesh && s_MeshCommandPool.size() < s_Config.MaxPoolSize)
+        {
+            s_MeshCommandPool.push(CreateRef<DrawMeshCommand>());
+        }
+        else if (type == CommandType::Quad && s_QuadCommandPool.size() < s_Config.MaxPoolSize)
+        {
+            s_QuadCommandPool.push(CreateRef<DrawQuadCommand>());
+        }
+    }
+
+    Ref<RenderCommandBase> RenderQueue::GetCommandFromPool(CommandType type)
     {
         switch (type)
         {
@@ -56,26 +68,28 @@ namespace OloEngine
             {
                 if (!s_MeshCommandPool.empty())
                 {
-                    auto command = std::move(s_MeshCommandPool.front());
+                    auto command = s_MeshCommandPool.front();
                     s_MeshCommandPool.pop();
                     s_Stats.PoolHits++;
                     return command;
                 }
                 s_Stats.PoolMisses++;
-                return std::make_unique<DrawMeshCommand>();
+                GrowCommandPool(type);
+                return CreateRef<DrawMeshCommand>();
             }
             
             case CommandType::Quad:
             {
                 if (!s_QuadCommandPool.empty())
                 {
-                    auto command = std::move(s_QuadCommandPool.front());
+                    auto command = s_QuadCommandPool.front();
                     s_QuadCommandPool.pop();
                     s_Stats.PoolHits++;
                     return command;
                 }
                 s_Stats.PoolMisses++;
-                return std::make_unique<DrawQuadCommand>();
+                GrowCommandPool(type);
+                return CreateRef<DrawQuadCommand>();
             }
             
             default:
@@ -83,7 +97,7 @@ namespace OloEngine
         }
     }
 
-    void RenderQueue::ReturnCommandToPool(std::unique_ptr<RenderCommandBase>&& command)
+    void RenderQueue::ReturnCommandToPool(Ref<RenderCommandBase>&& command)
     {
         if (!command)
             return;
@@ -93,11 +107,11 @@ namespace OloEngine
         switch (command->GetType())
         {
             case CommandType::Mesh:
-                s_MeshCommandPool.push(std::unique_ptr<DrawMeshCommand>(static_cast<DrawMeshCommand*>(command.release())));
+                s_MeshCommandPool.push(std::static_pointer_cast<DrawMeshCommand>(command));
                 break;
             
             case CommandType::Quad:
-                s_QuadCommandPool.push(std::unique_ptr<DrawQuadCommand>(static_cast<DrawQuadCommand*>(command.release())));
+                s_QuadCommandPool.push(std::static_pointer_cast<DrawQuadCommand>(command));
                 break;
             
             default:
@@ -108,7 +122,7 @@ namespace OloEngine
     void RenderQueue::SubmitMesh(const Ref<Mesh>& mesh, const glm::mat4& transform, const Material& material)
     {
         auto command = GetCommandFromPool(CommandType::Mesh);
-        if (auto meshCommand = static_cast<DrawMeshCommand*>(command.get()))
+        if (auto meshCommand = std::static_pointer_cast<DrawMeshCommand>(command))
         {
             meshCommand->Set(mesh, transform, material);
             s_CommandQueue.push_back(std::move(command));
@@ -119,7 +133,7 @@ namespace OloEngine
     void RenderQueue::SubmitQuad(const glm::mat4& transform, const Ref<Texture2D>& texture)
     {
         auto command = GetCommandFromPool(CommandType::Quad);
-        if (auto quadCommand = static_cast<DrawQuadCommand*>(command.get()))
+        if (auto quadCommand = std::static_pointer_cast<DrawQuadCommand>(command))
         {
             quadCommand->Set(transform, texture);
             s_CommandQueue.push_back(std::move(command));
@@ -132,10 +146,13 @@ namespace OloEngine
         if (s_CommandQueue.empty())
             return;
 
-        SortCommands();
+        if (s_Config.EnableSorting)
+        {
+            SortCommands();
+        }
+
         ExecuteCommands();
         
-        // Return all commands to their respective pools
         for (auto& command : s_CommandQueue)
         {
             ReturnCommandToPool(std::move(command));
@@ -148,7 +165,7 @@ namespace OloEngine
     void RenderQueue::SortCommands()
     {
         std::sort(s_CommandQueue.begin(), s_CommandQueue.end(),
-            [](const std::unique_ptr<RenderCommandBase>& a, const std::unique_ptr<RenderCommandBase>& b) {
+            [](const Ref<RenderCommandBase>& a, const Ref<RenderCommandBase>& b) {
                 if (a->GetType() != b->GetType())
                     return a->GetType() < b->GetType();
                 
@@ -170,14 +187,30 @@ namespace OloEngine
         
         for (const auto& command : s_CommandQueue)
         {
+            bool stateChanged = false;
+            
             if (command->GetShaderKey() != currentShaderKey)
+            {
                 currentShaderKey = command->GetShaderKey();
+                stateChanged = true;
+            }
             
             if (command->GetMaterialKey() != currentMaterialKey)
+            {
                 currentMaterialKey = command->GetMaterialKey();
+                stateChanged = true;
+            }
             
             if (command->GetTextureKey() != currentTextureKey)
+            {
                 currentTextureKey = command->GetTextureKey();
+                stateChanged = true;
+            }
+            
+            if (stateChanged)
+            {
+                s_Stats.StateChanges++;
+            }
             
             command->Execute();
             s_Stats.DrawCalls++;
@@ -201,7 +234,7 @@ namespace OloEngine
 
     uint64_t DrawMeshCommand::GetShaderKey() const
     {
-        return 0; // Lighting shader ID
+        return 0;
     }
 
     uint64_t DrawMeshCommand::GetMaterialKey() const
@@ -248,7 +281,7 @@ namespace OloEngine
 
     uint64_t DrawQuadCommand::GetShaderKey() const
     {
-        return 1; // Quad shader ID
+        return 1;
     }
 
     uint64_t DrawQuadCommand::GetMaterialKey() const

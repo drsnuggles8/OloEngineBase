@@ -31,12 +31,12 @@ namespace OloEngine
     public:
         virtual ~RenderCommandBase() = default;
         virtual void Execute() = 0;
-        virtual CommandType GetType() const = 0;
+        [[nodiscard]] virtual CommandType GetType() const = 0;
         
         // Sorting keys
-        virtual uint64_t GetShaderKey() const = 0;
-        virtual uint64_t GetMaterialKey() const = 0;
-        virtual uint64_t GetTextureKey() const = 0;
+        [[nodiscard]] virtual uint64_t GetShaderKey() const = 0;
+        [[nodiscard]] virtual uint64_t GetMaterialKey() const = 0;
+        [[nodiscard]] virtual uint64_t GetTextureKey() const = 0;
 
         // Command pool management
         virtual void Reset() = 0;
@@ -55,12 +55,12 @@ namespace OloEngine
         }
 
         void Execute() override;
-        CommandType GetType() const override { return CommandType::Mesh; }
+        [[nodiscard]] CommandType GetType() const override { return CommandType::Mesh; }
         
         // Sorting keys
-        uint64_t GetShaderKey() const override;
-        uint64_t GetMaterialKey() const override;
-        uint64_t GetTextureKey() const override;
+        [[nodiscard]] uint64_t GetShaderKey() const override;
+        [[nodiscard]] uint64_t GetMaterialKey() const override;
+        [[nodiscard]] uint64_t GetTextureKey() const override;
 
         void Reset() override
         {
@@ -87,12 +87,12 @@ namespace OloEngine
         }
 
         void Execute() override;
-        CommandType GetType() const override { return CommandType::Quad; }
+        [[nodiscard]] CommandType GetType() const override { return CommandType::Quad; }
         
         // Sorting keys
-        uint64_t GetShaderKey() const override;
-        uint64_t GetMaterialKey() const override;
-        uint64_t GetTextureKey() const override;
+        [[nodiscard]] uint64_t GetShaderKey() const override;
+        [[nodiscard]] uint64_t GetMaterialKey() const override;
+        [[nodiscard]] uint64_t GetTextureKey() const override;
 
         void Reset() override
         {
@@ -120,9 +120,18 @@ namespace OloEngine
             uint32_t DrawCalls = 0;
             uint32_t PoolHits = 0;
             uint32_t PoolMisses = 0;
+            uint32_t StateChanges = 0;
         };
 
-        static void Init();
+        struct Config
+        {
+            size_t InitialPoolSize = 100;
+            size_t MaxPoolSize = 1000;
+            size_t CommandQueueReserve = 1000;
+            bool EnableSorting = true;
+        };
+
+        static void Init(const Config& config = Config{});
         static void Shutdown();
 
         static void BeginScene(const glm::mat4& viewProjectionMatrix);
@@ -133,18 +142,20 @@ namespace OloEngine
 
         static void Flush();
         static void ResetStats();
-        static Statistics GetStats();
+        [[nodiscard]] static Statistics GetStats();
 
     private:
         static void SortCommands();
         static void ExecuteCommands();
-        static void ReturnCommandToPool(std::unique_ptr<RenderCommandBase>&& command);
-        static std::unique_ptr<RenderCommandBase> GetCommandFromPool(CommandType type);
+        static void ReturnCommandToPool(Ref<RenderCommandBase>&& command);
+        static Ref<RenderCommandBase> GetCommandFromPool(CommandType type);
+        static void GrowCommandPool(CommandType type);
 
         static Scope<SceneData> s_SceneData;
-        static std::vector<std::unique_ptr<RenderCommandBase>> s_CommandQueue;
-        static std::queue<std::unique_ptr<DrawMeshCommand>> s_MeshCommandPool;
-        static std::queue<std::unique_ptr<DrawQuadCommand>> s_QuadCommandPool;
+        static std::vector<Ref<RenderCommandBase>> s_CommandQueue;
+        static std::queue<Ref<DrawMeshCommand>> s_MeshCommandPool;
+        static std::queue<Ref<DrawQuadCommand>> s_QuadCommandPool;
         static Statistics s_Stats;
+        static Config s_Config;
     };
 } 
