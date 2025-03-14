@@ -169,7 +169,8 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 		planeMaterial.Diffuse = glm::vec3(0.3f);
 		planeMaterial.Specular = glm::vec3(0.2f);
 		planeMaterial.Shininess = 8.0f;
-		OloEngine::Renderer3D::DrawMesh(m_PlaneMesh, planeMatrix, planeMaterial);
+		// Ground plane is static - it doesn't move
+		OloEngine::Renderer3D::DrawMesh(m_PlaneMesh, planeMatrix, planeMaterial, true);
 	}
 
 	// Draw a grass quad
@@ -178,6 +179,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 		grassMatrix = glm::translate(grassMatrix, glm::vec3(0.0f, 0.5f, -1.0f));
 		// Make it face the camera by rotating around X axis
 		grassMatrix = glm::rotate(grassMatrix, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+		// Grass quad is static - it doesn't move
 		OloEngine::Renderer3D::DrawQuad(grassMatrix, m_GrassTexture);
 	}
 
@@ -328,6 +330,77 @@ void Sandbox3D::OnImGuiRender()
 	// Add scene object selection
 	ImGui::Text("Scene Objects");
 	ImGui::Combo("Primitive Types", &m_PrimitiveTypeIndex, m_PrimitiveNames, 3);
+	ImGui::Separator();
+
+	// Add renderer statistics
+	ImGui::Text("Renderer Statistics");
+	auto stats = OloEngine::RenderQueue::GetStats();
+	
+	ImGui::Text("Commands: %u", stats.CommandCount);
+	ImGui::Text("Draw Calls: %u", stats.DrawCalls);
+	ImGui::Text("State Changes: %u", stats.StateChanges);
+	
+	ImGui::Text("Command Pool:");
+	ImGui::Indent(10);
+	ImGui::Text("Size: %zu", stats.PoolSize);
+	ImGui::Text("Hits: %u (%.1f%%)", stats.PoolHits, stats.PoolHits > 0 ? (float)stats.PoolHits / (stats.PoolHits + stats.PoolMisses) * 100.0f : 0.0f);
+	ImGui::Text("Misses: %u", stats.PoolMisses);
+	ImGui::Unindent(10);
+	
+	ImGui::Text("Command Cache:");
+	ImGui::Indent(10);
+	ImGui::Text("Hits: %u (%.1f%%)", stats.CacheHits, stats.CacheHits > 0 ? (float)stats.CacheHits / (stats.CacheHits + stats.CacheMisses) * 100.0f : 0.0f);
+	ImGui::Text("Misses: %u", stats.CacheMisses);
+	ImGui::Unindent(10);
+	
+	ImGui::Text("Command Optimization:");
+	ImGui::Indent(10);
+	ImGui::Text("Batched: %u", stats.BatchedCommands);
+	ImGui::Text("Merged: %u", stats.MergedCommands);
+	ImGui::Text("Invalid: %u", stats.InvalidCommands);
+	ImGui::Unindent(10);
+	
+	// Add render queue configuration
+	if (ImGui::CollapsingHeader("Render Queue Config"))
+	{
+		static bool enableSorting = true;
+		static bool enableBatching = true;
+		static bool enableMerging = true;
+		static bool enableCaching = true;
+		
+		if (ImGui::Checkbox("Enable Sorting", &enableSorting))
+		{
+			// Update config
+			OloEngine::RenderQueue::Config config;
+			config.EnableSorting = enableSorting;
+			OloEngine::RenderQueue::Init(config);
+		}
+		
+		if (ImGui::Checkbox("Enable Batching", &enableBatching))
+		{
+			// Update config
+			OloEngine::RenderQueue::Config config;
+			config.EnableBatching = enableBatching;
+			OloEngine::RenderQueue::Init(config);
+		}
+		
+		if (ImGui::Checkbox("Enable Merging", &enableMerging))
+		{
+			// Update config
+			OloEngine::RenderQueue::Config config;
+			config.EnableMerging = enableMerging;
+			OloEngine::RenderQueue::Init(config);
+		}
+		
+		if (ImGui::Checkbox("Enable Caching", &enableCaching))
+		{
+			// Update config
+			OloEngine::RenderQueue::Config config;
+			config.EnableCaching = enableCaching;
+			OloEngine::RenderQueue::Init(config);
+		}
+	}
+	
 	ImGui::Separator();
 
 	// Light type selection

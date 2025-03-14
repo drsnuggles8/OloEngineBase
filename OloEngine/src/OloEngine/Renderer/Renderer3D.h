@@ -23,8 +23,8 @@ namespace OloEngine
 		static void EndScene();
 
 		// Draw methods - now using RenderQueue
-		static void DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material);
-		static void DrawCube(const glm::mat4& modelMatrix, const Material& material);
+		static void DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = false);
+		static void DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = false);
 		static void DrawLightCube(const glm::mat4& modelMatrix);
 		
 		// Simple textured quad rendering
@@ -40,10 +40,12 @@ namespace OloEngine
 
 		// Internal rendering methods (used by RenderQueue)
 		static void RenderMeshInternal(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material);
+		static void RenderMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material);
 		static void RenderQuadInternal(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
 
 	private:
 		static void UpdateTransformUBO(const glm::mat4& modelMatrix);
+		static void UpdateTransformsUBO(const std::vector<glm::mat4>& transforms);
 		static void UpdateLightPropertiesUBO(const Material& material);
 		static void UpdateTextureFlag(const Material& material);
 

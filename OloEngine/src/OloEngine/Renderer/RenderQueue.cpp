@@ -9,6 +9,7 @@ namespace OloEngine
     std::vector<Ref<RenderCommandBase>> RenderQueue::s_CommandQueue;
     std::queue<Ref<DrawMeshCommand>> RenderQueue::s_MeshCommandPool;
     std::queue<Ref<DrawQuadCommand>> RenderQueue::s_QuadCommandPool;
+    std::unordered_map<uint64_t, Ref<RenderCommandBase>> RenderQueue::s_CommandCache;
     RenderQueue::Statistics RenderQueue::s_Stats;
     RenderQueue::Config RenderQueue::s_Config;
 
@@ -18,17 +19,22 @@ namespace OloEngine
         s_SceneData = CreateScope<SceneData>();
         s_CommandQueue.reserve(s_Config.CommandQueueReserve);
         
+        // Pre-allocate command pools
         for (size_t i = 0; i < s_Config.InitialPoolSize; ++i)
         {
             s_MeshCommandPool.push(CreateRef<DrawMeshCommand>());
             s_QuadCommandPool.push(CreateRef<DrawQuadCommand>());
         }
+
+        // Keep track of pool sizes
+        s_Stats.PoolSize = s_Config.InitialPoolSize;
     }
 
     void RenderQueue::Shutdown()
     {
         s_CommandQueue.clear();
         s_SceneData.reset();
+        s_CommandCache.clear();
         
         while (!s_MeshCommandPool.empty())
             s_MeshCommandPool.pop();
@@ -40,7 +46,13 @@ namespace OloEngine
     {
         s_SceneData->ViewProjectionMatrix = viewProjectionMatrix;
         s_CommandQueue.clear();
-        s_Stats = Statistics();
+        // Don't reset pool stats, only command-related stats
+        s_Stats.CommandCount = 0;
+        s_Stats.DrawCalls = 0;
+        s_Stats.StateChanges = 0;
+        s_Stats.BatchedCommands = 0;
+        s_Stats.MergedCommands = 0;
+        s_Stats.InvalidCommands = 0;
     }
 
     void RenderQueue::EndScene()
@@ -50,14 +62,59 @@ namespace OloEngine
 
     void RenderQueue::GrowCommandPool(CommandType type)
     {
+        // Grow the pool more aggressively when needed
+        const size_t growSize = s_Config.InitialPoolSize / 4;
+        
         if (type == CommandType::Mesh && s_MeshCommandPool.size() < s_Config.MaxPoolSize)
         {
-            s_MeshCommandPool.push(CreateRef<DrawMeshCommand>());
+            for (size_t i = 0; i < growSize && s_MeshCommandPool.size() < s_Config.MaxPoolSize; ++i)
+            {
+                s_MeshCommandPool.push(CreateRef<DrawMeshCommand>());
+                s_Stats.PoolSize++;
+            }
         }
         else if (type == CommandType::Quad && s_QuadCommandPool.size() < s_Config.MaxPoolSize)
         {
-            s_QuadCommandPool.push(CreateRef<DrawQuadCommand>());
+            for (size_t i = 0; i < growSize && s_QuadCommandPool.size() < s_Config.MaxPoolSize; ++i)
+            {
+                s_QuadCommandPool.push(CreateRef<DrawQuadCommand>());
+                s_Stats.PoolSize++;
+            }
         }
+    }
+
+    Ref<RenderCommandBase> RenderQueue::GetCommandFromCache(CommandType type, uint64_t cacheKey)
+    {
+        if (!s_Config.EnableCaching)
+            return nullptr;
+
+        auto it = s_CommandCache.find(cacheKey);
+        if (it != s_CommandCache.end())
+        {
+            s_Stats.CacheHits++;
+            return it->second;
+        }
+        s_Stats.CacheMisses++;
+        return nullptr;
+    }
+
+    void RenderQueue::CacheCommand(Ref<RenderCommandBase>&& command)
+    {
+        if (!s_Config.EnableCaching || !command || !command->IsValid())
+            return;
+
+        uint64_t cacheKey = command->GetCacheKey();
+        
+        // If cache is full, remove oldest entry
+        if (s_CommandCache.size() >= s_Config.MaxCacheSize)
+        {
+            // Instead of removing the first entry, which might be frequently used,
+            // we could implement a more sophisticated LRU cache here
+            auto oldestIt = s_CommandCache.begin();
+            s_CommandCache.erase(oldestIt);
+        }
+
+        s_CommandCache[cacheKey] = std::move(command);
     }
 
     Ref<RenderCommandBase> RenderQueue::GetCommandFromPool(CommandType type)
@@ -119,12 +176,28 @@ namespace OloEngine
         }
     }
 
-    void RenderQueue::SubmitMesh(const Ref<Mesh>& mesh, const glm::mat4& transform, const Material& material)
+    void RenderQueue::SubmitMesh(const Ref<Mesh>& mesh, const glm::mat4& transform, const Material& material, bool isStatic)
     {
         auto command = GetCommandFromPool(CommandType::Mesh);
         if (auto meshCommand = std::static_pointer_cast<DrawMeshCommand>(command))
         {
-            meshCommand->Set(mesh, transform, material);
+            meshCommand->Set(mesh, transform, material, isStatic);
+            
+            if (!meshCommand->IsValid())
+            {
+                s_Stats.InvalidCommands++;
+                return;
+            }
+
+            // Try to get from cache first
+            uint64_t cacheKey = meshCommand->GetCacheKey();
+            if (auto cachedCommand = GetCommandFromCache(CommandType::Mesh, cacheKey))
+            {
+                s_CommandQueue.push_back(std::move(cachedCommand));
+                s_Stats.CommandCount++;
+                return;
+            }
+
             s_CommandQueue.push_back(std::move(command));
             s_Stats.CommandCount++;
         }
@@ -136,6 +209,22 @@ namespace OloEngine
         if (auto quadCommand = std::static_pointer_cast<DrawQuadCommand>(command))
         {
             quadCommand->Set(transform, texture);
+            
+            if (!quadCommand->IsValid())
+            {
+                s_Stats.InvalidCommands++;
+                return;
+            }
+
+            // Try to get from cache first
+            uint64_t cacheKey = quadCommand->GetCacheKey();
+            if (auto cachedCommand = GetCommandFromCache(CommandType::Quad, cacheKey))
+            {
+                s_CommandQueue.push_back(std::move(cachedCommand));
+                s_Stats.CommandCount++;
+                return;
+            }
+
             s_CommandQueue.push_back(std::move(command));
             s_Stats.CommandCount++;
         }
@@ -160,7 +249,14 @@ namespace OloEngine
         
         for (auto& command : s_CommandQueue)
         {
-            ReturnCommandToPool(std::move(command));
+            if (command->IsValid())
+            {
+                CacheCommand(std::move(command));
+            }
+            else
+            {
+                ReturnCommandToPool(std::move(command));
+            }
         }
         
         s_CommandQueue.clear();
@@ -277,7 +373,16 @@ namespace OloEngine
 
     void DrawMeshCommand::Execute()
     {
-        Renderer3D::RenderMeshInternal(m_Mesh, m_Transform, m_Material);
+        if (m_Transforms.size() > 1)
+        {
+            // Use instanced rendering for multiple instances
+            Renderer3D::RenderMeshInstanced(m_Mesh, m_Transforms, m_Material);
+        }
+        else
+        {
+            // Use regular rendering for single instance
+            Renderer3D::RenderMeshInternal(m_Mesh, m_Transforms[0], m_Material);
+        }
     }
 
     uint64_t DrawMeshCommand::GetShaderKey() const
@@ -338,8 +443,91 @@ namespace OloEngine
             return false;
 
         const auto& otherMesh = static_cast<const DrawMeshCommand&>(other);
-        m_BatchSize += otherMesh.m_BatchSize;
+        
+        // Add all instances from the other command
+        for (const auto& transform : otherMesh.m_Transforms)
+        {
+            AddInstance(transform);
+        }
+        
         return true;
+    }
+
+    bool DrawMeshCommand::Validate()
+    {
+        if (!m_Mesh)
+        {
+            m_ValidationError = "Mesh is null";
+            return false;
+        }
+
+        if (m_Material.UseTextureMaps)
+        {
+            if (!m_Material.DiffuseMap)
+            {
+                m_ValidationError = "Diffuse map is required but not set";
+                return false;
+            }
+            if (!m_Material.SpecularMap)
+            {
+                m_ValidationError = "Specular map is required but not set";
+                return false;
+            }
+        }
+
+        m_ValidationError.clear();
+        return true;
+    }
+
+    uint64_t DrawMeshCommand::CalculateCacheKey() const
+    {
+        uint64_t key = 0;
+        
+        // Hash mesh pointer
+        if (m_Mesh)
+            key ^= std::hash<void*>{}(m_Mesh.get());
+        
+        // Hash material properties
+        key ^= GetMaterialKey();
+        
+        // Hash number of instances
+        key ^= std::hash<size_t>{}(m_Transforms.size());
+        
+        // For static objects, we could exclude the transform from the cache key
+        // This would allow reuse even when the object moves
+        if (!m_Transforms.empty())
+        {
+            if (m_IsStatic)
+            {
+                // For static objects, we don't include the transform in the cache key
+                // This allows the same static object to be reused even if it's at different positions
+            }
+            else
+            {
+                // Use a simplified transform hash that ignores small movements
+                // This allows for better cache hits with dynamic objects
+                for (int i = 0; i < 4; ++i)
+                {
+                    for (int j = 0; j < 4; ++j)
+                    {
+                        // Round to nearest 0.1 to allow for small movements
+                        float roundedValue = std::round(m_Transforms[0][i][j] * 10.0f) / 10.0f;
+                        key ^= std::hash<float>{}(roundedValue);
+                    }
+                }
+            }
+        }
+        
+        return key;
+    }
+
+    uint64_t DrawMeshCommand::GetCacheKey()
+    {
+        if (m_CacheKey == 0)
+        {
+            m_CacheKey = CalculateCacheKey();
+        }
+        return m_CacheKey;
     }
 
     void DrawQuadCommand::Execute()
@@ -379,5 +567,49 @@ namespace OloEngine
         const auto& otherQuad = static_cast<const DrawQuadCommand&>(other);
         m_BatchSize += otherQuad.m_BatchSize;
         return true;
+    }
+
+    bool DrawQuadCommand::Validate()
+    {
+        if (!m_Texture)
+        {
+            m_ValidationError = "Texture is null";
+            return false;
+        }
+
+        m_ValidationError.clear();
+        return true;
+    }
+
+    uint64_t DrawQuadCommand::CalculateCacheKey() const
+    {
+        uint64_t key = 0;
+        
+        // Hash texture ID
+        if (m_Texture)
+            key ^= std::hash<uint32_t>{}(m_Texture->GetRendererID());
+        
+        // Use a simplified transform hash that ignores small movements
+        // This allows for better cache hits with dynamic objects
+        for (int i = 0; i < 4; ++i)
+        {
+            for (int j = 0; j < 4; ++j)
+            {
+                // Round to nearest 0.1 to allow for small movements
+                float roundedValue = std::round(m_Transform[i][j] * 10.0f) / 10.0f;
+                key ^= std::hash<float>{}(roundedValue);
+            }
+        }
+        
+        return key;
+    }
+
+    uint64_t DrawQuadCommand::GetCacheKey()
+    {
+        if (m_CacheKey == 0)
+        {
+            m_CacheKey = CalculateCacheKey();
+        }
+        return m_CacheKey;
     }
 } 
