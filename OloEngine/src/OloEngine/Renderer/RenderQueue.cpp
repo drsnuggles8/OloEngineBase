@@ -151,6 +151,11 @@ namespace OloEngine
             SortCommands();
         }
 
+        if (s_Config.EnableBatching || s_Config.EnableMerging)
+        {
+            BatchCommands();
+        }
+
         ExecuteCommands();
         
         for (auto& command : s_CommandQueue)
@@ -177,6 +182,49 @@ namespace OloEngine
                 
                 return a->GetTextureKey() < b->GetTextureKey();
             });
+    }
+
+    void RenderQueue::BatchCommands()
+    {
+        if (s_CommandQueue.empty())
+            return;
+
+        std::vector<Ref<RenderCommandBase>> batchedCommands;
+        batchedCommands.reserve(s_CommandQueue.size());
+
+        for (size_t i = 0; i < s_CommandQueue.size();)
+        {
+            auto current = s_CommandQueue[i];
+            size_t batchSize = 1;
+
+            // Try to merge with subsequent commands
+            while (batchSize < s_Config.MaxBatchSize && i + batchSize < s_CommandQueue.size())
+            {
+                auto next = s_CommandQueue[i + batchSize];
+                if (!current->CanBatchWith(*next))
+                    break;
+
+                if (s_Config.EnableMerging && current->MergeWith(*next))
+                {
+                    s_Stats.MergedCommands++;
+                    batchSize++;
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            if (batchSize > 1)
+            {
+                s_Stats.BatchedCommands++;
+            }
+
+            batchedCommands.push_back(std::move(current));
+            i += batchSize;
+        }
+
+        s_CommandQueue = std::move(batchedCommands);
     }
 
     void RenderQueue::ExecuteCommands()
@@ -274,6 +322,26 @@ namespace OloEngine
         return key;
     }
 
+    bool DrawMeshCommand::CanBatchWith(const RenderCommandBase& other) const
+    {
+        if (other.GetType() != CommandType::Mesh)
+            return false;
+
+        const auto& otherMesh = static_cast<const DrawMeshCommand&>(other);
+        return m_Mesh == otherMesh.m_Mesh && 
+               m_Material == otherMesh.m_Material;
+    }
+
+    bool DrawMeshCommand::MergeWith(const RenderCommandBase& other)
+    {
+        if (!CanBatchWith(other))
+            return false;
+
+        const auto& otherMesh = static_cast<const DrawMeshCommand&>(other);
+        m_BatchSize += otherMesh.m_BatchSize;
+        return true;
+    }
+
     void DrawQuadCommand::Execute()
     {
         Renderer3D::RenderQuadInternal(m_Transform, m_Texture);
@@ -292,5 +360,24 @@ namespace OloEngine
     uint64_t DrawQuadCommand::GetTextureKey() const
     {
         return m_Texture ? std::hash<uint32_t>{}(m_Texture->GetRendererID()) : 0;
+    }
+
+    bool DrawQuadCommand::CanBatchWith(const RenderCommandBase& other) const
+    {
+        if (other.GetType() != CommandType::Quad)
+            return false;
+
+        const auto& otherQuad = static_cast<const DrawQuadCommand&>(other);
+        return m_Texture == otherQuad.m_Texture;
+    }
+
+    bool DrawQuadCommand::MergeWith(const RenderCommandBase& other)
+    {
+        if (!CanBatchWith(other))
+            return false;
+
+        const auto& otherQuad = static_cast<const DrawQuadCommand&>(other);
+        m_BatchSize += otherQuad.m_BatchSize;
+        return true;
     }
 } 

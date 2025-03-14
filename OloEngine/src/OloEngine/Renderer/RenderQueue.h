@@ -40,6 +40,11 @@ namespace OloEngine
 
         // Command pool management
         virtual void Reset() = 0;
+
+        // Command batching and merging
+        [[nodiscard]] virtual bool CanBatchWith(const RenderCommandBase& other) const = 0;
+        virtual bool MergeWith(const RenderCommandBase& other) = 0;
+        [[nodiscard]] virtual size_t GetBatchSize() const = 0;
     };
 
     // Command for drawing a mesh with material
@@ -52,6 +57,7 @@ namespace OloEngine
             m_Mesh = mesh;
             m_Transform = transform;
             m_Material = material;
+            m_BatchSize = 1;
         }
 
         void Execute() override;
@@ -67,12 +73,19 @@ namespace OloEngine
             m_Mesh.reset();
             m_Transform = glm::mat4(1.0f);
             m_Material = Material();
+            m_BatchSize = 1;
         }
+
+        // Command batching and merging
+        [[nodiscard]] bool CanBatchWith(const RenderCommandBase& other) const override;
+        bool MergeWith(const RenderCommandBase& other) override;
+        [[nodiscard]] size_t GetBatchSize() const override { return m_BatchSize; }
 
     private:
         Ref<Mesh> m_Mesh;
         glm::mat4 m_Transform;
         Material m_Material;
+        size_t m_BatchSize;
     };
 
     // Command for drawing a textured quad
@@ -84,6 +97,7 @@ namespace OloEngine
         {
             m_Transform = transform;
             m_Texture = texture;
+            m_BatchSize = 1;
         }
 
         void Execute() override;
@@ -98,11 +112,18 @@ namespace OloEngine
         {
             m_Transform = glm::mat4(1.0f);
             m_Texture.reset();
+            m_BatchSize = 1;
         }
+
+        // Command batching and merging
+        [[nodiscard]] bool CanBatchWith(const RenderCommandBase& other) const override;
+        bool MergeWith(const RenderCommandBase& other) override;
+        [[nodiscard]] size_t GetBatchSize() const override { return m_BatchSize; }
 
     private:
         glm::mat4 m_Transform;
         Ref<Texture2D> m_Texture;
+        size_t m_BatchSize;
     };
 
     // Main render queue class
@@ -121,6 +142,8 @@ namespace OloEngine
             uint32_t PoolHits = 0;
             uint32_t PoolMisses = 0;
             uint32_t StateChanges = 0;
+            uint32_t BatchedCommands = 0;
+            uint32_t MergedCommands = 0;
         };
 
         struct Config
@@ -129,6 +152,9 @@ namespace OloEngine
             size_t MaxPoolSize = 1000;
             size_t CommandQueueReserve = 1000;
             bool EnableSorting = true;
+            bool EnableBatching = true;
+            bool EnableMerging = true;
+            size_t MaxBatchSize = 100;
         };
 
         static void Init(const Config& config = Config{});
@@ -150,6 +176,8 @@ namespace OloEngine
         static void ReturnCommandToPool(Ref<RenderCommandBase>&& command);
         static Ref<RenderCommandBase> GetCommandFromPool(CommandType type);
         static void GrowCommandPool(CommandType type);
+        static void BatchCommands();
+        static bool TryMergeCommands(Ref<RenderCommandBase>& current, Ref<RenderCommandBase>& next);
 
         static Scope<SceneData> s_SceneData;
         static std::vector<Ref<RenderCommandBase>> s_CommandQueue;
