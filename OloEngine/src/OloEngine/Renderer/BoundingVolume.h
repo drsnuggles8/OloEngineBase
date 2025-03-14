@@ -133,18 +133,15 @@ namespace OloEngine
             glm::vec4 transformedCenter = transform * glm::vec4(Center, 1.0f);
             glm::vec3 newCenter = glm::vec3(transformedCenter) / transformedCenter.w;
             
-            // For non-uniform scaling, we need to find the maximum scale factor
             // Extract the scale from the transform matrix
             glm::vec3 scale;
             scale.x = glm::length(glm::vec3(transform[0]));
             scale.y = glm::length(glm::vec3(transform[1]));
             scale.z = glm::length(glm::vec3(transform[2]));
             
-            // Use the maximum scale factor for the radius
+            // Use the maximum scale factor for the radius with a small safety margin
             float maxScale = glm::max(glm::max(scale.x, scale.y), scale.z);
-            
-            // Add a larger margin to prevent popping (20% increase)
-            float newRadius = Radius * maxScale * 1.2f;
+            float newRadius = Radius * maxScale * 1.05f;
             
             return BoundingSphere(newCenter, newRadius);
         }

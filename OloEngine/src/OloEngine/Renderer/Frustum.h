@@ -58,28 +58,15 @@ namespace OloEngine
 
         Frustum() = default;
 
-        // Construct frustum from view-projection matrix
         explicit Frustum(const glm::mat4& viewProjection);
-
-        // Update frustum planes from view-projection matrix
         void Update(const glm::mat4& viewProjection);
 
-        // Test if point is inside frustum
         [[nodiscard]] bool IsPointVisible(const glm::vec3& point) const;
-
-        // Test if sphere is inside or intersects frustum
         [[nodiscard]] bool IsSphereVisible(const glm::vec3& center, float radius) const;
-
-        // Test if bounding sphere is inside or intersects frustum
         [[nodiscard]] bool IsBoundingSphereVisible(const BoundingSphere& sphere) const;
-
-        // Test if axis-aligned bounding box is inside or intersects frustum
         [[nodiscard]] bool IsBoxVisible(const glm::vec3& min, const glm::vec3& max) const;
-
-        // Test if bounding box is inside or intersects frustum
         [[nodiscard]] bool IsBoundingBoxVisible(const BoundingBox& box) const;
-
-        // Get a specific plane
+		
         [[nodiscard]] const Plane& GetPlane(Planes plane) const { return m_Planes[static_cast<size_t>(plane)]; }
 
     private:

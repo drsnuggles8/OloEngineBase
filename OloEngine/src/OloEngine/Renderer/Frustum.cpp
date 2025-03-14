@@ -14,8 +14,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Extract the planes from the view-projection matrix
-        // Based on the method described in "Fast Extraction of Viewing Frustum Planes from the World-View-Projection Matrix"
-        // by Gil Gribb and Klaus Hartmann
+        // Based on the method described in "Fast Extraction of Viewing Frustum Planes"
 
         // Left plane
         m_Planes[static_cast<size_t>(Planes::Left)].Normal.x = viewProjection[0][3] + viewProjection[0][0];
@@ -64,7 +63,6 @@ namespace OloEngine
 
     bool Frustum::IsPointVisible(const glm::vec3& point) const
     {
-        // A point is inside the frustum if it is on the positive side of all planes
         for (const auto& plane : m_Planes)
         {
             if (plane.GetSignedDistance(point) < 0.0f)
@@ -75,7 +73,6 @@ namespace OloEngine
 
     bool Frustum::IsSphereVisible(const glm::vec3& center, float radius) const
     {
-        // A sphere is inside the frustum if its center is inside all planes plus its radius
         for (const auto& plane : m_Planes)
         {
             if (plane.GetSignedDistance(center) < -radius)
@@ -86,23 +83,18 @@ namespace OloEngine
 
     bool Frustum::IsBoundingSphereVisible(const BoundingSphere& sphere) const
     {
-        // Explicitly implement sphere visibility check
         return IsSphereVisible(sphere.Center, sphere.Radius);
     }
 
     bool Frustum::IsBoxVisible(const glm::vec3& min, const glm::vec3& max) const
     {
-        // For each plane, find the positive vertex (P-vertex) and the negative vertex (N-vertex)
-        // If the N-vertex is outside, the box is outside the frustum
         for (const auto& plane : m_Planes)
         {
-            // Find the P-vertex
             glm::vec3 p = min;
             if (plane.Normal.x >= 0.0f) p.x = max.x;
             if (plane.Normal.y >= 0.0f) p.y = max.y;
             if (plane.Normal.z >= 0.0f) p.z = max.z;
 
-            // If the P-vertex is outside, the box is outside
             if (plane.GetSignedDistance(p) < 0.0f)
                 return false;
         }
@@ -111,7 +103,6 @@ namespace OloEngine
 
     bool Frustum::IsBoundingBoxVisible(const BoundingBox& box) const
     {
-        // Explicitly implement box visibility check
         return IsBoxVisible(box.Min, box.Max);
     }
 } 

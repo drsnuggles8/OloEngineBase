@@ -369,29 +369,10 @@ void Sandbox3D::OnImGuiRender()
 		ImGui::EndTooltip();
 	}
 	
-	// Add a debug button to disable all culling
-	if (ImGui::Button("Disable All Culling (Debug)"))
-	{
-		OloEngine::Renderer3D::EnableFrustumCulling(false);
-		OloEngine::Renderer3D::EnableDynamicCulling(false);
-	}
-	ImGui::SameLine();
-	
-	// Add a button to reset to safe defaults
-	if (ImGui::Button("Reset to Safe Defaults"))
+	if (ImGui::Button("Reset to Defaults"))
 	{
 		OloEngine::Renderer3D::EnableFrustumCulling(true);
 		OloEngine::Renderer3D::EnableDynamicCulling(false);
-	}
-	ImGui::SameLine();
-	ImGui::TextDisabled("(?)");
-	if (ImGui::IsItemHovered())
-	{
-		ImGui::BeginTooltip();
-		ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
-		ImGui::TextUnformatted("Resets to safe defaults: Frustum culling enabled, dynamic culling disabled.");
-		ImGui::PopTextWrapPos();
-		ImGui::EndTooltip();
 	}
 	
 	ImGui::Text("Meshes: Total %d, Culled %d (%.1f%%)", 

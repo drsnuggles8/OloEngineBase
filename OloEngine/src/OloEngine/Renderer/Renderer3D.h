@@ -90,7 +90,7 @@ namespace OloEngine
 			glm::mat4 ViewProjectionMatrix;
 			Frustum ViewFrustum;
 			bool FrustumCullingEnabled = true;
-			bool DynamicCullingEnabled = false; // Default to false to avoid glitching
+			bool DynamicCullingEnabled = true;
 
 			Light SceneLight;
 			glm::vec3 ViewPos;

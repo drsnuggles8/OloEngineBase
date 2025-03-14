@@ -169,13 +169,9 @@ namespace OloEngine
 		if (!s_Data.FrustumCullingEnabled)
 			return true;
 		
-		// Get the transformed bounding sphere from the mesh
 		BoundingSphere sphere = mesh->GetTransformedBoundingSphere(transform);
+		sphere.Radius *= 1.3f; // Safety margin to prevent popping
 		
-		// Add a larger margin to the radius to prevent popping (40% increase)
-		sphere.Radius *= 1.4f;
-		
-		// Check if the sphere is visible in the frustum
 		return s_Data.ViewFrustum.IsBoundingSphereVisible(sphere);
 	}
 	
@@ -186,11 +182,9 @@ namespace OloEngine
 		if (!s_Data.FrustumCullingEnabled)
 			return true;
 		
-		// Add a larger margin to the radius to prevent popping (40% increase)
 		BoundingSphere expandedSphere = sphere;
-		expandedSphere.Radius *= 1.4f;
+		expandedSphere.Radius *= 1.3f; // Safety margin to prevent popping
 		
-		// Check if the sphere is visible in the frustum
 		return s_Data.ViewFrustum.IsBoundingSphereVisible(expandedSphere);
 	}
 	
@@ -201,7 +195,6 @@ namespace OloEngine
 		if (!s_Data.FrustumCullingEnabled)
 			return true;
 		
-		// Check if the box is visible in the frustum
 		return s_Data.ViewFrustum.IsBoundingBoxVisible(box);
 	}
 
@@ -219,25 +212,17 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
 		
-		// Track total meshes for statistics
 		s_Data.Stats.TotalMeshes++;
 		
-		// Perform frustum culling if enabled
-		if (s_Data.FrustumCullingEnabled)
+		if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
 		{
-			// Only perform culling if the object is static or dynamic culling is enabled
-			if (isStatic || s_Data.DynamicCullingEnabled)
+			if (!IsVisibleInFrustum(mesh, modelMatrix))
 			{
-				// Use a more robust visibility check with a larger safety margin
-				if (!IsVisibleInFrustum(mesh, modelMatrix))
-				{
-					s_Data.Stats.CulledMeshes++;
-					return; // Skip this mesh
-				}
+				s_Data.Stats.CulledMeshes++;
+				return;
 			}
 		}
 		
-		// Submit to render queue if visible
 		RenderQueue::SubmitMesh(mesh, modelMatrix, material, isStatic);
 	}
 
