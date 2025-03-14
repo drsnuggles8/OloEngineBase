@@ -76,22 +76,7 @@ void Sandbox3D::OnAttach()
     // Assign textures to the material
     m_TexturedMaterial.DiffuseMap = m_DiffuseMap;
     m_TexturedMaterial.SpecularMap = m_SpecularMap;
-
-    auto const& window = OloEngine::Application::Get().GetWindow();
-    
-    // Get the framebuffer size using the engine's abstraction
-    const u32 fbWidth = window.GetFramebufferWidth();
-    const u32 fbHeight = window.GetFramebufferHeight();
-    
-    OloEngine::FramebufferSpecification fbSpec;
-    fbSpec.Attachments = { OloEngine::FramebufferTextureFormat::RGBA8, OloEngine::FramebufferTextureFormat::Depth };
-    fbSpec.Width = fbWidth;
-    fbSpec.Height = fbHeight;
-    m_Framebuffer = OloEngine::Framebuffer::Create(fbSpec);
-
-    OLO_CORE_INFO("Window size: {}x{}", window.GetWidth(), window.GetHeight());
-    OLO_CORE_INFO("Framebuffer size: {}x{}", fbWidth, fbHeight);
-    
+ 
     // Set initial lighting parameters
     OloEngine::Renderer3D::SetLight(m_Light);
 }
@@ -104,20 +89,6 @@ void Sandbox3D::OnDetach()
 void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 {
 	OLO_PROFILE_FUNCTION();
-
-	auto const& window = OloEngine::Application::Get().GetWindow();
-    
-    // Get the framebuffer size using the engine's abstraction
-    const u32 fbWidth = window.GetFramebufferWidth();
-    const u32 fbHeight = window.GetFramebufferHeight();
-
-    // Check if framebuffer size changed
-    if (m_Framebuffer->GetSpecification().Width != fbWidth ||
-        m_Framebuffer->GetSpecification().Height != fbHeight)
-    {
-        m_Framebuffer->Resize(fbWidth, fbHeight);
-        m_CameraController.OnResize(static_cast<float>(fbWidth), static_cast<float>(fbHeight));
-    }
 
 	m_FrameTime = ts.GetMilliseconds();
 	m_FPS = 1.0f / ts.GetSeconds();
@@ -180,7 +151,6 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 	// Render setup
 	{
 		OLO_PROFILE_SCOPE("Renderer Prep");
-		m_Framebuffer->Bind();
 		OloEngine::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1 });
 		OloEngine::RenderCommand::Clear();
 	}
@@ -334,17 +304,6 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 	}
 
 	OloEngine::Renderer3D::EndScene();
-	m_Framebuffer->Unbind();
-
-    // Blit framebuffer to default framebuffer with proper dimensions
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, m_Framebuffer->GetRendererID());
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-    glBlitFramebuffer(
-        0, 0, static_cast<GLint>(fbWidth), static_cast<GLint>(fbHeight),  // Source
-        0, 0, static_cast<GLint>(fbWidth), static_cast<GLint>(fbHeight),  // Destination
-        GL_COLOR_BUFFER_BIT,
-        GL_LINEAR  // Use GL_LINEAR for better scaling quality
-    );
 }
 
 

@@ -73,6 +73,8 @@
 		"OloEngine/Renderer/MSDFData.h"
 		"OloEngine/Renderer/RenderCommand.cpp"
 		"OloEngine/Renderer/RenderCommand.h"
+		"OloEngine/Renderer/RenderQueue.cpp"
+		"OloEngine/Renderer/RenderQueue.h"
 		"OloEngine/Renderer/Renderer.cpp"
 		"OloEngine/Renderer/Renderer.h"
 		"OloEngine/Renderer/Renderer2D.cpp"

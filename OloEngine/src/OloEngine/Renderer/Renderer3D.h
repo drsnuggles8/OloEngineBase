@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Light.h"
+#include "OloEngine/Renderer/RenderQueue.h"
 
 namespace OloEngine
 {
@@ -21,7 +22,7 @@ namespace OloEngine
 		static void BeginScene(const glm::mat4& viewProjectionMatrix);
 		static void EndScene();
 
-		// Draw methods
+		// Draw methods - now using RenderQueue
 		static void DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material);
 		static void DrawCube(const glm::mat4& modelMatrix, const Material& material);
 		static void DrawLightCube(const glm::mat4& modelMatrix);
@@ -32,6 +33,14 @@ namespace OloEngine
 		// Light and view setters
 		static void SetLight(const Light& light);
 		static void SetViewPosition(const glm::vec3& position);
+
+		// Statistics
+		static RenderQueue::Statistics GetStats() { return RenderQueue::GetStats(); }
+		static void ResetStats() { RenderQueue::ResetStats(); }
+
+		// Internal rendering methods (used by RenderQueue)
+		static void RenderMeshInternal(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material);
+		static void RenderQuadInternal(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
 
 	private:
 		static void UpdateTransformUBO(const glm::mat4& modelMatrix);
