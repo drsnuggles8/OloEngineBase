@@ -34,7 +34,6 @@ namespace OloEngine
 
         [[nodiscard]] const std::vector<Vertex>& GetVertices() const { return m_Vertices; }
         [[nodiscard]] const std::vector<uint32_t>& GetIndices() const { return m_Indices; }
-        [[nodiscard]] const Ref<VertexArray>& GetVertexArray() const { return m_VertexArray; }
 
     private:
         std::vector<Vertex> m_Vertices;

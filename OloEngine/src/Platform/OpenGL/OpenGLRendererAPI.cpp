@@ -78,15 +78,6 @@ namespace OloEngine
 		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(count), GL_UNSIGNED_INT, nullptr);
 	}
 
-	void OpenGLRendererAPI::DrawIndexedInstanced(const Ref<VertexArray>& vertexArray, u32 indexCount, u32 instanceCount)
-	{
-		OLO_PROFILE_FUNCTION();
-
-		vertexArray->Bind();
-		const u32 count = indexCount ? indexCount : vertexArray->GetIndexBuffer()->GetCount();
-		glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(count), GL_UNSIGNED_INT, nullptr, static_cast<GLsizei>(instanceCount));
-	}
-
 	void OpenGLRendererAPI::DrawLines(const Ref<VertexArray>& vertexArray, const u32 vertexCount)
 	{
 		OLO_PROFILE_FUNCTION();

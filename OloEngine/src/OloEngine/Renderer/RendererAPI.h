@@ -25,7 +25,6 @@ namespace OloEngine
 
 		virtual void DrawArrays(const Ref<VertexArray>& vertexArray, u32 vertexCount) = 0;
 		virtual void DrawIndexed(const Ref<VertexArray>& vertexArray, u32 indexCount) = 0;
-		virtual void DrawIndexedInstanced(const Ref<VertexArray>& vertexArray, u32 indexCount, u32 instanceCount) = 0;
 		virtual void DrawLines(const Ref<VertexArray>& vertexArray, u32 vertexCount) = 0;
 
 		virtual void SetLineWidth(f32 width) = 0;

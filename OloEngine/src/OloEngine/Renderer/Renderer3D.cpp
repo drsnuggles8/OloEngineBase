@@ -100,9 +100,9 @@ namespace OloEngine
 		s_Data.ViewPos = position;
 	}
 
-	void Renderer3D::DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic)
+	void Renderer3D::DrawCube(const glm::mat4& modelMatrix, const Material& material)
 	{
-		DrawMesh(s_Data.CubeMesh, modelMatrix, material, isStatic);
+		DrawMesh(s_Data.CubeMesh, modelMatrix, material);
 	}
 
 	void Renderer3D::DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture)
@@ -110,9 +110,9 @@ namespace OloEngine
 		RenderQueue::SubmitQuad(modelMatrix, texture);
 	}
 
-	void Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic)
+	void Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material)
 	{
-		RenderQueue::SubmitMesh(mesh, modelMatrix, material, isStatic);
+		RenderQueue::SubmitMesh(mesh, modelMatrix, material);
 	}
 
 	void Renderer3D::DrawLightCube(const glm::mat4& modelMatrix)
@@ -144,31 +144,6 @@ namespace OloEngine
 		mesh->Draw();
 	}
 
-	void Renderer3D::RenderMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material)
-	{
-		OLO_PROFILE_FUNCTION();
-
-		s_Data.LightingShader->Bind();
-		
-		// We only need to update the view projection matrix once
-		s_Data.UBO->SetData(&s_Data.ViewProjectionMatrix, sizeof(glm::mat4));
-		
-		UpdateLightPropertiesUBO(material);
-		UpdateTextureFlag(material);
-
-		if (material.UseTextureMaps)
-		{
-			if (material.DiffuseMap)
-				material.DiffuseMap->Bind(0);
-			if (material.SpecularMap)
-				material.SpecularMap->Bind(1);
-		}
-
-		// Draw the mesh with instancing
-		mesh->GetVertexArray()->Bind();
-		RenderCommand::DrawIndexedInstanced(mesh->GetVertexArray(), 0, static_cast<u32>(transforms.size()));
-	}
-
 	void Renderer3D::RenderQuadInternal(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture)
 	{
 		RenderCommand::EnableBlending();
@@ -197,13 +172,6 @@ namespace OloEngine
 		matrices.Model = modelMatrix;
 
 		s_Data.UBO->SetData(&matrices, sizeof(TransformMatrices));
-	}
-
-	void Renderer3D::UpdateTransformsUBO(const std::vector<glm::mat4>& transforms)
-	{
-		// For instanced rendering, we only need to update the view projection matrix
-		// The model matrices will be handled by the instancing mechanism
-		s_Data.UBO->SetData(&s_Data.ViewProjectionMatrix, sizeof(glm::mat4));
 	}
 
 	void Renderer3D::UpdateLightPropertiesUBO(const Material& material)
