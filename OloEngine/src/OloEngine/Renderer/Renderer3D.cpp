@@ -40,7 +40,7 @@ namespace OloEngine
 	void Renderer3D::Init()
 	{
 		OLO_PROFILE_FUNCTION();
-		OLO_INFO("Initializing Renderer3D");
+		OLO_CORE_INFO("Initializing Renderer3D");
 
 		s_Data.CubeMesh = Mesh::CreateCube();
 		s_Data.QuadMesh = Mesh::CreatePlane(1.0f, 1.0f);
@@ -68,27 +68,25 @@ namespace OloEngine
 
 		// Initialize the render queue
 		RenderQueue::Init();
-		OLO_INFO("Renderer3D initialization complete");
+		OLO_CORE_INFO("Renderer3D initialization complete");
 	}
 
 	void Renderer3D::Shutdown()
 	{
 		OLO_PROFILE_FUNCTION();
-		OLO_INFO("Shutting down Renderer3D");
+		OLO_CORE_INFO("Shutting down Renderer3D");
 		RenderQueue::Shutdown();
-		OLO_INFO("Renderer3D shutdown complete");
+		OLO_CORE_INFO("Renderer3D shutdown complete");
 	}
 
 	void Renderer3D::BeginScene(const glm::mat4& viewProjectionMatrix)
 	{
-		OLO_TRACE("Renderer3D::BeginScene");
 		s_Data.ViewProjectionMatrix = viewProjectionMatrix;
 		RenderQueue::BeginScene(viewProjectionMatrix);
 	}
 
 	void Renderer3D::EndScene()
 	{
-		OLO_TRACE("Renderer3D::EndScene");
 		RenderQueue::EndScene();
 	}
 
@@ -104,26 +102,22 @@ namespace OloEngine
 
 	void Renderer3D::DrawCube(const glm::mat4& modelMatrix, const Material& material)
 	{
-		OLO_TRACE("Renderer3D::DrawCube");
 		DrawMesh(s_Data.CubeMesh, modelMatrix, material);
 	}
 
 	void Renderer3D::DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture)
 	{
-		OLO_TRACE("Renderer3D::DrawQuad");
 		RenderQueue::SubmitQuad(modelMatrix, texture);
 	}
 
 	void Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material)
 	{
-		OLO_TRACE("Renderer3D::DrawMesh");
 		RenderQueue::SubmitMesh(mesh, modelMatrix, material);
 	}
 
 	void Renderer3D::DrawLightCube(const glm::mat4& modelMatrix)
 	{
 		OLO_PROFILE_FUNCTION();
-		OLO_TRACE("Renderer3D::DrawLightCube");
 
 		s_Data.LightCubeShader->Bind();
 
@@ -134,7 +128,6 @@ namespace OloEngine
 
 	void Renderer3D::RenderMeshInternal(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material)
 	{
-		OLO_TRACE("Renderer3D::RenderMeshInternal");
 		s_Data.LightingShader->Bind();
 		UpdateTransformUBO(modelMatrix);
 		UpdateLightPropertiesUBO(material);
@@ -153,7 +146,6 @@ namespace OloEngine
 
 	void Renderer3D::RenderQuadInternal(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture)
 	{
-		OLO_TRACE("Renderer3D::RenderQuadInternal");
 		RenderCommand::EnableBlending();
 		RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		RenderCommand::SetDepthMask(false);
