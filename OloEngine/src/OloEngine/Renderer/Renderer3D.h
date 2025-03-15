@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/RenderGraph.h"
 
 namespace OloEngine
 {
@@ -64,6 +65,10 @@ namespace OloEngine
 		static void RenderMeshInternal(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material);
 		static void RenderMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material);
 		static void RenderQuadInternal(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
+		
+		// RenderGraph methods
+		static void OnWindowResize(uint32_t width, uint32_t height);
+		static Ref<RenderGraph> GetRenderGraph() { return s_Data.RGraph; }
 
 	private:
 		static void UpdateTransformUBO(const glm::mat4& modelMatrix);
@@ -73,6 +78,9 @@ namespace OloEngine
 		
 		// Frustum culling helper
 		static bool IsVisibleInFrustum(const Ref<Mesh>& mesh, const glm::mat4& transform);
+		
+		// Setup the render graph
+		static void SetupRenderGraph(uint32_t width, uint32_t height);
 
 		static ShaderLibrary m_ShaderLibrary;
 		
@@ -96,6 +104,9 @@ namespace OloEngine
 			glm::vec3 ViewPos;
 			
 			Statistics Stats;
+			
+			// Render graph
+			Ref<RenderGraph> RGraph;
 		};
 		
 		static Renderer3DData s_Data;

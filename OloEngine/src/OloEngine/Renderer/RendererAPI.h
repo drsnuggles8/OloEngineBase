@@ -51,6 +51,10 @@ namespace OloEngine
 		virtual void EnableScissorTest() = 0;
 		virtual void DisableScissorTest() = 0;
 		virtual void SetScissorBox(GLint x, GLint y, GLsizei width, GLsizei height) = 0;
+		
+		// New methods for render graph
+		virtual void BindDefaultFramebuffer() = 0;
+		virtual void BindTexture(uint32_t slot, uint32_t textureID) = 0;
 
 		[[nodiscard("Store this!")]] static API GetAPI() { return s_API; }
 		static Scope<RendererAPI> Create();

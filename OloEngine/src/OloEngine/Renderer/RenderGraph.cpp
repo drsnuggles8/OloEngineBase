@@ -1,0 +1,138 @@
+#include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RenderGraph.h"
+#include "OloEngine/Renderer/Passes/FinalRenderPass.h"
+
+namespace OloEngine
+{
+    void RenderGraph::Init(uint32_t width, uint32_t height)
+    {
+        OLO_PROFILE_FUNCTION();
+        OLO_CORE_INFO("Initializing RenderGraph with dimensions: {}x{}", width, height);
+
+        m_Width = width;
+        m_Height = height;
+    }
+
+    void RenderGraph::Shutdown()
+    {
+        OLO_PROFILE_FUNCTION();
+        OLO_CORE_INFO("Shutting down RenderGraph");
+
+        m_Passes.clear();
+        m_PassLookup.clear();
+        m_PassConnections.clear();
+        m_FinalPassName.clear();
+    }
+
+    void RenderGraph::AddPass(const Ref<RenderPass>& pass)
+    {
+        OLO_PROFILE_FUNCTION();
+        OLO_CORE_INFO("Adding render pass: {}", pass->GetName());
+
+        // Store the pass in our collections
+        m_Passes.push_back(pass);
+        m_PassLookup[pass->GetName()] = pass;
+
+        // Set up the framebuffer for this pass
+        pass->SetupFramebuffer(m_Width, m_Height);
+    }
+
+    Ref<RenderPass> RenderGraph::GetPass(const std::string& name)
+    {
+        if (m_PassLookup.find(name) != m_PassLookup.end())
+            return m_PassLookup[name];
+
+        OLO_CORE_WARN("RenderGraph::GetPass: No pass found with name: {}", name);
+        return nullptr;
+    }
+
+    void RenderGraph::ConnectPass(const std::string& outputPass, const std::string& inputPass)
+    {
+        OLO_PROFILE_FUNCTION();
+        OLO_CORE_INFO("Connecting passes: {} -> {}", outputPass, inputPass);
+
+        // Store the connection
+        m_PassConnections[inputPass] = outputPass;
+
+        // Get the passes
+        auto output = GetPass(outputPass);
+        auto input = GetPass(inputPass);
+
+        if (!output || !input)
+        {
+            OLO_CORE_ERROR("RenderGraph::ConnectPass: Could not find passes! Output: {}, Input: {}", 
+                           outputPass, inputPass);
+            return;
+        }
+
+        // If the input pass is a FinalRenderPass, we need to set its input framebuffer
+        if (auto finalPass = std::dynamic_pointer_cast<FinalRenderPass>(input))
+        {
+            finalPass->SetInputFramebuffer(output->GetTarget());
+        }
+    }
+
+    void RenderGraph::SetFinalPass(const std::string& passName)
+    {
+        OLO_CORE_INFO("Setting final pass: {}", passName);
+        m_FinalPassName = passName;
+    }
+
+    void RenderGraph::Execute()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Execute all passes in the correct order
+        for (const auto& pass : m_Passes)
+        {
+            // Skip executing the final pass here, we'll do it last
+            if (pass->GetName() == m_FinalPassName)
+                continue;
+
+            pass->Execute();
+        }
+
+        // Execute the final pass last
+        if (!m_FinalPassName.empty())
+        {
+            auto finalPass = GetPass(m_FinalPassName);
+            if (finalPass)
+                finalPass->Execute();
+            else
+                OLO_CORE_ERROR("RenderGraph::Execute: Final pass '{}' not found!", m_FinalPassName);
+        }
+    }
+
+    void RenderGraph::Resize(uint32_t width, uint32_t height)
+    {
+        OLO_PROFILE_FUNCTION();
+        OLO_CORE_INFO("Resizing RenderGraph to: {}x{}", width, height);
+
+        m_Width = width;
+        m_Height = height;
+
+        // Resize all passes
+        for (const auto& pass : m_Passes)
+        {
+            pass->ResizeFramebuffer(width, height);
+        }
+    }
+
+    void RenderGraph::Reset()
+    {
+        OLO_PROFILE_FUNCTION();
+        OLO_CORE_INFO("Resetting RenderGraph");
+
+        // Reset all passes
+        for (const auto& pass : m_Passes)
+        {
+            pass->OnReset();
+        }
+
+        // Re-establish connections
+        for (const auto& [inputPass, outputPass] : m_PassConnections)
+        {
+            ConnectPass(outputPass, inputPass);
+        }
+    }
+} 

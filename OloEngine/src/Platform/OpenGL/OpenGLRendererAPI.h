@@ -43,6 +43,11 @@ namespace OloEngine
 		void EnableScissorTest() override;
 		void DisableScissorTest() override;
 		void SetScissorBox(GLint x, GLint y, GLsizei width, GLsizei height) override;
+		
+		// New methods for render graph
+		void BindDefaultFramebuffer() override;
+		void BindTexture(uint32_t slot, uint32_t textureID) override;
+		
 	private:
 		bool m_DepthTestEnabled = false;
 		bool m_StencilTestEnabled = false;

@@ -42,7 +42,21 @@ namespace OloEngine
 
 	void Renderer::OnWindowResize(const u32 width, const u32 height)
 	{
+		OLO_PROFILE_FUNCTION();
+		OLO_CORE_INFO("Renderer::OnWindowResize called: {}x{}", width, height);
+		
 		RenderCommand::SetViewport(0, 0, width, height);
+		
+		// Update the active renderer's framebuffers
+		switch (s_RendererType)
+		{
+			case RendererType::Renderer2D:
+				// When implementing Renderer2D render graph, add call here
+				break;
+			case RendererType::Renderer3D:
+				Renderer3D::OnWindowResize(width, height);
+				break;
+		}
 	}
 
 	void Renderer::BeginScene(OrthographicCamera const& camera)

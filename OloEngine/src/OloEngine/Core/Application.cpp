@@ -172,7 +172,16 @@ namespace OloEngine
 		}
 
 		m_Minimized = false;
-		Renderer::OnWindowResize(e.GetWidth(), e.GetHeight());
+		
+		// Get the framebuffer size which might be different on high DPI displays
+		uint32_t fbWidth = m_Window->GetFramebufferWidth();
+		uint32_t fbHeight = m_Window->GetFramebufferHeight();
+		
+		OLO_CORE_INFO("Application::OnWindowResize - Window: {}x{}, Framebuffer: {}x{}", 
+		               e.GetWidth(), e.GetHeight(), fbWidth, fbHeight);
+		
+		// Use framebuffer size for renderer
+		Renderer::OnWindowResize(fbWidth, fbHeight);
 
 		return false;
 	}

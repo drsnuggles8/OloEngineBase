@@ -153,6 +153,17 @@ namespace OloEngine
 		{
 			s_RendererAPI->ClearStencil();
 		}
+		
+		// New methods for render graph
+		static void BindDefaultFramebuffer()
+		{
+			s_RendererAPI->BindDefaultFramebuffer();
+		}
+		
+		static void BindTexture(uint32_t slot, uint32_t textureID)
+		{
+			s_RendererAPI->BindTexture(slot, textureID);
+		}
 
 	private:
 		static Scope<RendererAPI> s_RendererAPI;

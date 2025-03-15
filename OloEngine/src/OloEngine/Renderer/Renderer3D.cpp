@@ -11,6 +11,9 @@
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
+#include "OloEngine/Renderer/Passes/SceneRenderPass.h"
+#include "OloEngine/Renderer/Passes/FinalRenderPass.h"
+#include "OloEngine/Core/Application.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -46,6 +49,9 @@ namespace OloEngine
 		bool FrustumCullingEnabled = true;
 		bool DynamicCullingEnabled = false;
 		Renderer3D::Statistics Stats;
+		
+		// Render graph
+		Ref<RenderGraph> RGraph;
 	};
 
 	// Static member definitions
@@ -86,6 +92,22 @@ namespace OloEngine
 
 		// Initialize the render queue
 		RenderQueue::Init();
+		
+		// Get the window size from the application
+		auto& app = Application::Get();
+		Window& window = app.GetWindow();
+		
+		// Use framebuffer size instead of window size for high DPI displays
+		uint32_t width = window.GetFramebufferWidth();
+		uint32_t height = window.GetFramebufferHeight();
+		
+		OLO_CORE_INFO("Window size: {}x{}", window.GetWidth(), window.GetHeight());
+		OLO_CORE_INFO("Framebuffer size: {}x{}", width, height);
+		
+		// Initialize the render graph with the actual framebuffer size
+		s_Data.RGraph = CreateRef<RenderGraph>();
+		SetupRenderGraph(width, height);
+		
 		OLO_CORE_INFO("Renderer3D initialization complete");
 	}
 
@@ -93,6 +115,11 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
 		OLO_CORE_INFO("Shutting down Renderer3D");
+		
+		// Shutdown the render graph
+		if (s_Data.RGraph)
+			s_Data.RGraph->Shutdown();
+		
 		RenderQueue::Shutdown();
 		OLO_CORE_INFO("Renderer3D shutdown complete");
 	}
@@ -107,12 +134,17 @@ namespace OloEngine
 		// Reset statistics for this frame
 		s_Data.Stats.Reset();
 		
+		// Still need to call this to set up the view-projection matrix for the render queue
 		RenderQueue::BeginScene(viewProjectionMatrix);
 	}
 
 	void Renderer3D::EndScene()
 	{
-		RenderQueue::EndScene();
+		// Do not call RenderQueue::EndScene() here anymore
+		// Since it will be done within SceneRenderPass::Execute()
+		
+		// Execute the render graph
+		s_Data.RGraph->Execute();
 	}
 
 	void Renderer3D::SetLight(const Light& light)
@@ -390,5 +422,82 @@ namespace OloEngine
 		int useTextureMaps = material.UseTextureMaps ? 1 : 0;
 
 		s_Data.TextureFlagBuffer->SetData(&useTextureMaps, sizeof(int));
+	}
+	
+	void Renderer3D::SetupRenderGraph(uint32_t width, uint32_t height)
+	{
+		OLO_PROFILE_FUNCTION();
+		OLO_CORE_INFO("Setting up Renderer3D RenderGraph with dimensions: {}x{}", width, height);
+		
+		// Initialize the render graph
+		s_Data.RGraph->Init(width, height);
+		
+		// Create the framebuffer specification for our scene pass
+		FramebufferSpecification scenePassSpec;
+		scenePassSpec.Width = width;
+		scenePassSpec.Height = height;
+		scenePassSpec.Samples = 1;
+		scenePassSpec.Attachments = {
+			FramebufferTextureFormat::RGBA8,       // Color attachment
+			FramebufferTextureFormat::Depth        // Depth attachment
+		};
+		
+		// Create the final pass spec (this will render to the default framebuffer)
+		FramebufferSpecification finalPassSpec;
+		finalPassSpec.Width = width;
+		finalPassSpec.Height = height;
+		finalPassSpec.SwapChainTarget = true; // This will render to the default framebuffer
+		
+		// Create the passes
+		auto scenePass = CreateRef<SceneRenderPass>();
+		scenePass->SetName("ScenePass");
+		scenePass->Init(scenePassSpec);
+		
+		auto finalPass = CreateRef<FinalRenderPass>();
+		finalPass->SetName("FinalPass");
+		finalPass->Init(finalPassSpec);
+		
+		// Add passes to the render graph
+		s_Data.RGraph->AddPass(scenePass);
+		s_Data.RGraph->AddPass(finalPass);
+		
+		// Connect passes (scene pass output -> final pass input)
+		s_Data.RGraph->ConnectPass("ScenePass", "FinalPass");
+		
+		// Set the final pass
+		s_Data.RGraph->SetFinalPass("FinalPass");
+	}
+	
+	void Renderer3D::OnWindowResize(uint32_t width, uint32_t height)
+	{
+		OLO_CORE_INFO("Renderer3D::OnWindowResize called: {}x{}", width, height);
+		if (s_Data.RGraph)
+		{
+			// Debug log the render graph framebuffer sizes before resizing
+			auto scenePass = s_Data.RGraph->GetPass("ScenePass");
+			if (scenePass)
+			{
+				auto fb = scenePass->GetTarget();
+				if (fb)
+				{
+					auto& spec = fb->GetSpecification();
+					OLO_CORE_INFO("  ScenePass framebuffer before resize: {}x{}", spec.Width, spec.Height);
+				}
+			}
+			
+			s_Data.RGraph->Resize(width, height);
+			
+			// Debug log the render graph framebuffer sizes after resizing
+			scenePass = s_Data.RGraph->GetPass("ScenePass");
+			if (scenePass)
+			{
+				auto fb = scenePass->GetTarget();
+				if (fb)
+				{
+					auto& spec = fb->GetSpecification();
+					OLO_CORE_INFO("  ScenePass framebuffer after resize: {}x{}", spec.Width, spec.Height);
+				}
+			}
+		}
 	}
 }

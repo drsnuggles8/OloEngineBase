@@ -252,4 +252,19 @@ namespace OloEngine
 
 		glScissor(x, y, width, height);
 	}
+
+	void OpenGLRendererAPI::BindDefaultFramebuffer()
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	}
+	
+	void OpenGLRendererAPI::BindTexture(uint32_t slot, uint32_t textureID)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		glActiveTexture(GL_TEXTURE0 + slot);
+		glBindTexture(GL_TEXTURE_2D, textureID);
+	}
 }

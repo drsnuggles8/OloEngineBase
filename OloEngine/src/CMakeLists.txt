@@ -78,6 +78,8 @@
 		"OloEngine/Renderer/RenderCommand.h"
 		"OloEngine/Renderer/RenderQueue.cpp"
 		"OloEngine/Renderer/RenderQueue.h"
+		"OloEngine/Renderer/RenderGraph.cpp"
+		"OloEngine/Renderer/RenderGraph.h"
 		"OloEngine/Renderer/Renderer.cpp"
 		"OloEngine/Renderer/Renderer.h"
 		"OloEngine/Renderer/Renderer2D.cpp"
@@ -99,6 +101,12 @@
 		"OloEngine/Renderer/VertexArray.h"		
 		"OloEngine/Renderer/VertexBuffer.cpp"
 		"OloEngine/Renderer/VertexBuffer.h"
+		
+		"OloEngine/Renderer/Passes/RenderPass.h"
+		"OloEngine/Renderer/Passes/FinalRenderPass.h"
+		"OloEngine/Renderer/Passes/FinalRenderPass.cpp"
+		"OloEngine/Renderer/Passes/SceneRenderPass.h"
+		"OloEngine/Renderer/Passes/SceneRenderPass.cpp"
 		
 		"OloEngine/Renderer/Camera/Camera.h"
 		"OloEngine/Renderer/Camera/EditorCamera.cpp"
