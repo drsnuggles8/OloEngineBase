@@ -4,7 +4,7 @@
 
 namespace OloEngine
 {
-	PerspectiveCamera::PerspectiveCamera(float fov, float aspectRatio, float nearClip, float farClip)
+	PerspectiveCamera::PerspectiveCamera(f32 fov, f32 aspectRatio, f32 nearClip, f32 farClip)
 		: m_FOV(fov), m_AspectRatio(aspectRatio), m_NearClip(nearClip), m_FarClip(farClip)
 	{
 		// Initialize with identity rotation
@@ -15,7 +15,7 @@ namespace OloEngine
 		UpdateView();
 	}
 
-	void PerspectiveCamera::SetViewportSize(float width, float height)
+	void PerspectiveCamera::SetViewportSize(f32 width, f32 height)
 	{
 		m_AspectRatio = width / height;
 		UpdateProjection();

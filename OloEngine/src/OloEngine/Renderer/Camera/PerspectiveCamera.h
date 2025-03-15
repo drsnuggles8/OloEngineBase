@@ -8,9 +8,9 @@ namespace OloEngine
 	class PerspectiveCamera : public Camera
 	{
 	public:
-		PerspectiveCamera(float fov, float aspectRatio, float nearClip, float farClip);
+		PerspectiveCamera(f32 fov, f32 aspectRatio, f32 nearClip, f32 farClip);
 
-		void SetViewportSize(float width, float height);
+		void SetViewportSize(f32 width, f32 height);
 		void SetPosition(const glm::vec3& position);
 		void SetRotation(const glm::quat& rotation);
 
@@ -22,10 +22,10 @@ namespace OloEngine
 		void UpdateView();
 
 	private:
-		float m_FOV;
-		float m_AspectRatio;
-		float m_NearClip;
-		float m_FarClip;
+		f32 m_FOV;
+		f32 m_AspectRatio;
+		f32 m_NearClip;
+		f32 m_FarClip;
 		glm::mat4 m_Projection{ 1.0f };
 		glm::mat4 m_ViewProjection{ 1.0f };
 		glm::vec3 m_Position{ 0.0f };

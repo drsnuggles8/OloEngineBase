@@ -18,7 +18,7 @@ namespace OloEngine
         s_SceneData = CreateScope<SceneData>();
         s_CommandQueue.reserve(s_Config.CommandQueueReserve);
         
-        for (size_t i = 0; i < s_Config.InitialPoolSize; ++i)
+        for (sizet i = 0; i < s_Config.InitialPoolSize; ++i)
         {
             s_MeshCommandPool.push(CreateRef<DrawMeshCommand>());
             s_QuadCommandPool.push(CreateRef<DrawQuadCommand>());
@@ -201,10 +201,10 @@ namespace OloEngine
         std::vector<Ref<RenderCommandBase>> batchedCommands;
         batchedCommands.reserve(s_CommandQueue.size());
 
-        for (size_t i = 0; i < s_CommandQueue.size();)
+        for (sizet i = 0; i < s_CommandQueue.size();)
         {
             auto current = s_CommandQueue[i];
-            size_t batchSize = 1;
+            sizet batchSize = 1;
 
             // Try to merge with subsequent commands
             while (batchSize < s_Config.MaxBatchSize && i + batchSize < s_CommandQueue.size())
@@ -238,9 +238,9 @@ namespace OloEngine
 
     void RenderQueue::ExecuteCommands()
     {
-        uint64_t currentShaderKey = 0;
-        uint64_t currentMaterialKey = 0;
-        uint64_t currentTextureKey = 0;
+        u64 currentShaderKey = 0;
+        u64 currentMaterialKey = 0;
+        u64 currentTextureKey = 0;
         
         for (const auto& command : s_CommandQueue)
         {
@@ -298,43 +298,43 @@ namespace OloEngine
         }
     }
 
-    uint64_t DrawMeshCommand::GetShaderKey() const
+    u64 DrawMeshCommand::GetShaderKey() const
     {
         return 0;
     }
 
-    uint64_t DrawMeshCommand::GetMaterialKey() const
+    u64 DrawMeshCommand::GetMaterialKey() const
     {
-        uint64_t key = 0;
+        u64 key = 0;
         
-        key ^= std::hash<float>{}(m_Material.Ambient.x);
-        key ^= std::hash<float>{}(m_Material.Ambient.y);
-        key ^= std::hash<float>{}(m_Material.Ambient.z);
+        key ^= std::hash<f32>{}(m_Material.Ambient.x);
+        key ^= std::hash<f32>{}(m_Material.Ambient.y);
+        key ^= std::hash<f32>{}(m_Material.Ambient.z);
         
-        key ^= std::hash<float>{}(m_Material.Diffuse.x);
-        key ^= std::hash<float>{}(m_Material.Diffuse.y);
-        key ^= std::hash<float>{}(m_Material.Diffuse.z);
+        key ^= std::hash<f32>{}(m_Material.Diffuse.x);
+        key ^= std::hash<f32>{}(m_Material.Diffuse.y);
+        key ^= std::hash<f32>{}(m_Material.Diffuse.z);
         
-        key ^= std::hash<float>{}(m_Material.Specular.x);
-        key ^= std::hash<float>{}(m_Material.Specular.y);
-        key ^= std::hash<float>{}(m_Material.Specular.z);
-        key ^= std::hash<float>{}(m_Material.Shininess);
+        key ^= std::hash<f32>{}(m_Material.Specular.x);
+        key ^= std::hash<f32>{}(m_Material.Specular.y);
+        key ^= std::hash<f32>{}(m_Material.Specular.z);
+        key ^= std::hash<f32>{}(m_Material.Shininess);
         
         key ^= std::hash<bool>{}(m_Material.UseTextureMaps);
         
         return key;
     }
 
-    uint64_t DrawMeshCommand::GetTextureKey() const
+    u64 DrawMeshCommand::GetTextureKey() const
     {
-        uint64_t key = 0;
+        u64 key = 0;
         
         if (m_Material.UseTextureMaps)
         {
             if (m_Material.DiffuseMap)
-                key ^= std::hash<uint32_t>{}(m_Material.DiffuseMap->GetRendererID());
+                key ^= std::hash<u32>{}(m_Material.DiffuseMap->GetRendererID());
             if (m_Material.SpecularMap)
-                key ^= std::hash<uint32_t>{}(m_Material.SpecularMap->GetRendererID());
+                key ^= std::hash<u32>{}(m_Material.SpecularMap->GetRendererID());
         }
         
         return key;
@@ -372,19 +372,19 @@ namespace OloEngine
         Renderer3D::RenderQuadInternal(m_Transform, m_Texture);
     }
 
-    uint64_t DrawQuadCommand::GetShaderKey() const
+    u64 DrawQuadCommand::GetShaderKey() const
     {
         return 1;
     }
 
-    uint64_t DrawQuadCommand::GetMaterialKey() const
+    u64 DrawQuadCommand::GetMaterialKey() const
     {
         return 0;
     }
 
-    uint64_t DrawQuadCommand::GetTextureKey() const
+    u64 DrawQuadCommand::GetTextureKey() const
     {
-        return m_Texture ? std::hash<uint32_t>{}(m_Texture->GetRendererID()) : 0;
+        return m_Texture ? std::hash<u32>{}(m_Texture->GetRendererID()) : 0;
     }
 
     bool DrawQuadCommand::CanBatchWith(const RenderCommandBase& other) const

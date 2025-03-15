@@ -23,7 +23,7 @@ namespace std
 	template<>
 	struct hash<OloEngine::UUID>
 	{
-		std::size_t operator()(const OloEngine::UUID& uuid) const
+		sizet operator()(const OloEngine::UUID& uuid) const
 		{
 			return static_cast<u64>(uuid);
 		}

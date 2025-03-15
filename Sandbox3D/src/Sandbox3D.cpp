@@ -135,7 +135,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 	if (m_AnimateLight && m_Light.Type != OloEngine::LightType::Directional)
 	{
 		m_LightAnimTime += ts;
-		float radius = 3.0f;
+		f32 radius = 3.0f;
 		m_Light.Position.x = std::cos(m_LightAnimTime) * radius;
 		m_Light.Position.z = std::sin(m_LightAnimTime) * radius;
 

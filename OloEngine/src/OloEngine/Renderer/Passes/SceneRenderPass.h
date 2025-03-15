@@ -38,14 +38,14 @@ namespace OloEngine
          * @param width The width of the framebuffer
          * @param height The height of the framebuffer
          */
-        void SetupFramebuffer(uint32_t width, uint32_t height) override;
+        void SetupFramebuffer(u32 width, u32 height) override;
         
         /**
          * @brief Resize the framebuffer when the window is resized.
          * @param width The new width of the framebuffer
          * @param height The new height of the framebuffer
          */
-        void ResizeFramebuffer(uint32_t width, uint32_t height) override;
+        void ResizeFramebuffer(u32 width, u32 height) override;
         
         /**
          * @brief Reset the pass, recreating any necessary resources.

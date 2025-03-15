@@ -54,14 +54,14 @@ namespace OloEngine
          * @param height The height of the framebuffer
          * @note This pass doesn't create a framebuffer, but stores the dimensions for viewport setup
          */
-        void SetupFramebuffer(uint32_t width, uint32_t height) override;
+        void SetupFramebuffer(u32 width, u32 height) override;
         
         /**
          * @brief Update the dimensions when the window is resized.
          * @param width The new width 
          * @param height The new height
          */
-        void ResizeFramebuffer(uint32_t width, uint32_t height) override;
+        void ResizeFramebuffer(u32 width, u32 height) override;
         
         /**
          * @brief Reset the pass, recreating the fullscreen triangle and shader if needed.
@@ -78,8 +78,8 @@ namespace OloEngine
         void CreateFullscreenTriangle();
 
     private:
-        Ref<Framebuffer> m_InputFramebuffer; //!< The framebuffer to render to the screen
-        Ref<Shader> m_BlitShader;            //!< Shader for blitting the framebuffer to the screen
-        Ref<VertexArray> m_FullscreenTriangleVA; //!< Vertex array for the fullscreen triangle
+        Ref<Framebuffer> m_InputFramebuffer; // The framebuffer to render to the screen
+        Ref<Shader> m_BlitShader;            // Shader for blitting the framebuffer to the screen
+        Ref<VertexArray> m_FullscreenTriangleVA; // Vertex array for the fullscreen triangle
     };
 } 

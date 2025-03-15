@@ -46,7 +46,7 @@ namespace OloEngine
 		
 		// New methods for render graph
 		void BindDefaultFramebuffer() override;
-		void BindTexture(uint32_t slot, uint32_t textureID) override;
+		void BindTexture(u32 slot, u32 textureID) override;
 		
 	private:
 		bool m_DepthTestEnabled = false;

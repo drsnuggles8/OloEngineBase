@@ -58,7 +58,7 @@ namespace OloEngine
         m_Target->Unbind();
     }
 
-    void SceneRenderPass::SetupFramebuffer(uint32_t width, uint32_t height)
+    void SceneRenderPass::SetupFramebuffer(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
         
@@ -76,7 +76,7 @@ namespace OloEngine
         OLO_CORE_INFO("SceneRenderPass framebuffer set up with dimensions: {}x{}", width, height);
     }
 
-    void SceneRenderPass::ResizeFramebuffer(uint32_t width, uint32_t height)
+    void SceneRenderPass::ResizeFramebuffer(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
         

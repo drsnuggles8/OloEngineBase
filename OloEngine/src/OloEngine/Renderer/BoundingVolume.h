@@ -18,7 +18,7 @@ namespace OloEngine
             : Min(min), Max(max) {}
         
         // Create a bounding box from an array of points
-        BoundingBox(const glm::vec3* points, size_t count)
+        BoundingBox(const glm::vec3* points, sizet count)
         {
             if (count == 0)
             {
@@ -30,7 +30,7 @@ namespace OloEngine
             Min = points[0];
             Max = points[0];
             
-            for (size_t i = 1; i < count; ++i)
+            for (sizet i = 1; i < count; ++i)
             {
                 Min = glm::min(Min, points[i]);
                 Max = glm::max(Max, points[i]);
@@ -85,15 +85,15 @@ namespace OloEngine
     struct BoundingSphere
     {
         glm::vec3 Center;
-        float Radius;
+        f32 Radius;
         
         BoundingSphere() = default;
         
-        BoundingSphere(const glm::vec3& center, float radius)
+        BoundingSphere(const glm::vec3& center, f32 radius)
             : Center(center), Radius(radius) {}
         
         // Create a bounding sphere from an array of points
-        BoundingSphere(const glm::vec3* points, size_t count)
+        BoundingSphere(const glm::vec3* points, sizet count)
         {
             if (count == 0)
             {
@@ -104,17 +104,17 @@ namespace OloEngine
             
             // Calculate the center as the average of all points
             Center = glm::vec3(0.0f);
-            for (size_t i = 0; i < count; ++i)
+            for (sizet i = 0; i < count; ++i)
             {
                 Center += points[i];
             }
-            Center /= static_cast<float>(count);
+            Center /= static_cast<f32>(count);
             
             // Calculate the radius as the maximum distance from the center
             Radius = 0.0f;
-            for (size_t i = 0; i < count; ++i)
+            for (sizet i = 0; i < count; ++i)
             {
-                float distance = glm::length(points[i] - Center);
+                f32 distance = glm::length(points[i] - Center);
                 Radius = glm::max(Radius, distance);
             }
         }
@@ -140,8 +140,8 @@ namespace OloEngine
             scale.z = glm::length(glm::vec3(transform[2]));
             
             // Use the maximum scale factor for the radius with a small safety margin
-            float maxScale = glm::max(glm::max(scale.x, scale.y), scale.z);
-            float newRadius = Radius * maxScale * 1.05f;
+            f32 maxScale = glm::max(glm::max(scale.x, scale.y), scale.z);
+            f32 newRadius = Radius * maxScale * 1.05f;
             
             return BoundingSphere(newCenter, newRadius);
         }

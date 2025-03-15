@@ -197,7 +197,7 @@ namespace OloEngine
 		tc.Color = *color;
 	}
 
-	static float TextComponent_GetKerning(UUID entityID)
+	static f32 TextComponent_GetKerning(UUID entityID)
 	{
 		Scene* scene = ScriptEngine::GetSceneContext();
 		OLO_CORE_ASSERT(scene);
@@ -209,7 +209,7 @@ namespace OloEngine
 		return tc.Kerning;
 	}
 
-	static void TextComponent_SetKerning(UUID entityID, float kerning)
+	static void TextComponent_SetKerning(UUID entityID, f32 kerning)
 	{
 		Scene* scene = ScriptEngine::GetSceneContext();
 		OLO_CORE_ASSERT(scene);
@@ -221,7 +221,7 @@ namespace OloEngine
 		tc.Kerning = kerning;
 	}
 
-	static float TextComponent_GetLineSpacing(UUID entityID)
+	static f32 TextComponent_GetLineSpacing(UUID entityID)
 	{
 		Scene* scene = ScriptEngine::GetSceneContext();
 		OLO_CORE_ASSERT(scene);
@@ -233,7 +233,7 @@ namespace OloEngine
 		return tc.LineSpacing;
 	}
 
-	static void TextComponent_SetLineSpacing(UUID entityID, float lineSpacing)
+	static void TextComponent_SetLineSpacing(UUID entityID, f32 lineSpacing)
 	{
 		Scene* scene = ScriptEngine::GetSceneContext();
 		OLO_CORE_ASSERT(scene);

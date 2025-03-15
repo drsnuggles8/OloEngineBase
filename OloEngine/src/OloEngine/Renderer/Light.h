@@ -19,10 +19,10 @@ namespace OloEngine
 		glm::vec3 Ambient;
 		glm::vec3 Diffuse;
 		glm::vec3 Specular;
-		float Constant;
-		float Linear;
-		float Quadratic;
-		float CutOff;
-		float OuterCutOff;
+		f32 Constant;
+		f32 Linear;
+		f32 Quadratic;
+		f32 CutOff;
+		f32 OuterCutOff;
 	};
 }

@@ -54,7 +54,7 @@ namespace OloEngine
 		
 		// New methods for render graph
 		virtual void BindDefaultFramebuffer() = 0;
-		virtual void BindTexture(uint32_t slot, uint32_t textureID) = 0;
+		virtual void BindTexture(u32 slot, u32 textureID) = 0;
 
 		[[nodiscard("Store this!")]] static API GetAPI() { return s_API; }
 		static Scope<RendererAPI> Create();

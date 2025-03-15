@@ -18,16 +18,13 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         
         m_FramebufferSpec = spec;
-        m_FramebufferSpec.SwapChainTarget = true; // This pass renders to the default framebuffer
 
-        // Create fullscreen triangle mesh for efficient screen-space rendering
         CreateFullscreenTriangle();
 
         // Load the shader for blitting the texture to the screen
         m_BlitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
         
-        OLO_CORE_INFO("FinalRenderPass initialized with dimensions: {}x{}", 
-                      m_FramebufferSpec.Width, m_FramebufferSpec.Height);
+        OLO_CORE_INFO("FinalRenderPass initialized with dimensions: {}x{}", m_FramebufferSpec.Width, m_FramebufferSpec.Height);
     }
 
     void FinalRenderPass::Execute()
@@ -58,7 +55,7 @@ namespace OloEngine
         m_BlitShader->Bind();
         
         // Bind the color attachment from the input framebuffer as a texture
-        uint32_t colorAttachmentID = m_InputFramebuffer->GetColorAttachmentRendererID(0);
+        u32 colorAttachmentID = m_InputFramebuffer->GetColorAttachmentRendererID(0);
         RenderCommand::BindTexture(0, colorAttachmentID);
         m_BlitShader->SetInt("u_Texture", 0);
         
@@ -73,7 +70,7 @@ namespace OloEngine
         RenderCommand::DrawIndexed(m_FullscreenTriangleVA);
     }
 
-    void FinalRenderPass::SetupFramebuffer(uint32_t width, uint32_t height)
+    void FinalRenderPass::SetupFramebuffer(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
         
@@ -84,7 +81,7 @@ namespace OloEngine
         OLO_CORE_INFO("FinalRenderPass setup with dimensions: {}x{}", width, height);
     }
 
-    void FinalRenderPass::ResizeFramebuffer(uint32_t width, uint32_t height)
+    void FinalRenderPass::ResizeFramebuffer(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
         
@@ -124,14 +121,14 @@ namespace OloEngine
         // 1. Reduces the number of vertices (3 vs 4)
         // 2. Eliminates the shared edge and duplicate fragment shader invocations along it
         // 3. Reduces the workload on the vertex shader
-        float vertices[] = {
+        f32 vertices[] = {
             // positions      // texture coords
             -1.0f, -1.0f, 0.0f, 0.0f, 0.0f, // bottom left
              3.0f, -1.0f, 0.0f, 2.0f, 0.0f, // bottom right (far off screen)
             -1.0f,  3.0f, 0.0f, 0.0f, 2.0f  // top left (far off screen)
         };
 
-        uint32_t indices[] = { 0, 1, 2 };
+        u32 indices[] = { 0, 1, 2 };
 
         m_FullscreenTriangleVA = VertexArray::Create();
 
@@ -141,7 +138,7 @@ namespace OloEngine
             { ShaderDataType::Float2, "a_TexCoord" }
         });
 
-        Ref<IndexBuffer> indexBuffer = IndexBuffer::Create(indices, sizeof(indices) / sizeof(uint32_t));
+        Ref<IndexBuffer> indexBuffer = IndexBuffer::Create(indices, sizeof(indices) / sizeof(u32));
 
         m_FullscreenTriangleVA->AddVertexBuffer(vertexBuffer);
         m_FullscreenTriangleVA->SetIndexBuffer(indexBuffer);

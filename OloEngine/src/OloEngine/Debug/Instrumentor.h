@@ -189,7 +189,7 @@ namespace OloEngine
 			char Data[N];
 		};
 
-		template <sizet N, size_t K>
+		template <sizet N, sizet K>
 		constexpr auto CleanupOutputString(const char(&expr)[N], const char(&remove)[K])
 		{
 			ChangeResult<N> result = {};

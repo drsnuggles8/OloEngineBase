@@ -14,10 +14,10 @@ namespace OloEngine
     struct Plane
     {
         glm::vec3 Normal;  // (A, B, C) components - normalized
-        float Distance;    // D component
+        f32 Distance;    // D component
 
         Plane() = default;
-        Plane(const glm::vec3& normal, float distance)
+        Plane(const glm::vec3& normal, f32 distance)
             : Normal(normal), Distance(distance) {}
 
         // Create a plane from three points
@@ -35,7 +35,7 @@ namespace OloEngine
         }
 
         // Get signed distance from point to plane
-        float GetSignedDistance(const glm::vec3& point) const
+        f32 GetSignedDistance(const glm::vec3& point) const
         {
             return glm::dot(Normal, point) + Distance;
         }
@@ -62,14 +62,14 @@ namespace OloEngine
         void Update(const glm::mat4& viewProjection);
 
         [[nodiscard]] bool IsPointVisible(const glm::vec3& point) const;
-        [[nodiscard]] bool IsSphereVisible(const glm::vec3& center, float radius) const;
+        [[nodiscard]] bool IsSphereVisible(const glm::vec3& center, f32 radius) const;
         [[nodiscard]] bool IsBoundingSphereVisible(const BoundingSphere& sphere) const;
         [[nodiscard]] bool IsBoxVisible(const glm::vec3& min, const glm::vec3& max) const;
         [[nodiscard]] bool IsBoundingBoxVisible(const BoundingBox& box) const;
 		
-        [[nodiscard]] const Plane& GetPlane(Planes plane) const { return m_Planes[static_cast<size_t>(plane)]; }
+        [[nodiscard]] const Plane& GetPlane(Planes plane) const { return m_Planes[static_cast<sizet>(plane)]; }
 
     private:
-        std::array<Plane, static_cast<size_t>(Planes::Count)> m_Planes;
+        std::array<Plane, static_cast<sizet>(Planes::Count)> m_Planes;
     };
 } 

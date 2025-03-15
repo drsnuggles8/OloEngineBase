@@ -6,7 +6,7 @@
 
 namespace OloEngine
 {
-	PerspectiveCameraController::PerspectiveCameraController(float fov, float aspectRatio, float nearClip, float farClip)
+	PerspectiveCameraController::PerspectiveCameraController(f32 fov, f32 aspectRatio, f32 nearClip, f32 farClip)
 		: m_AspectRatio(aspectRatio), m_Camera(fov, aspectRatio, nearClip, farClip)
 	{
 		 // Start with a position that gives a good view of the scene
@@ -65,7 +65,7 @@ namespace OloEngine
 		dispatcher.Dispatch<WindowResizeEvent>(OLO_BIND_EVENT_FN(PerspectiveCameraController::OnWindowResized));
 	}
 
-	void PerspectiveCameraController::OnResize(float width, float height)
+	void PerspectiveCameraController::OnResize(f32 width, f32 height)
 	{
 		m_AspectRatio = width / height;
 		m_Camera.SetViewportSize(width, height);
@@ -79,7 +79,7 @@ namespace OloEngine
 
 	bool PerspectiveCameraController::OnWindowResized(WindowResizeEvent& e)
 	{
-		OnResize(static_cast<float>(e.GetWidth()), static_cast<float>(e.GetHeight()));
+		OnResize(static_cast<f32>(e.GetWidth()), static_cast<f32>(e.GetHeight()));
 		return false;
 	}
 

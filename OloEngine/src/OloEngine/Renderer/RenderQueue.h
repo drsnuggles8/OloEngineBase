@@ -44,7 +44,7 @@ namespace OloEngine
         // Command batching and merging
         [[nodiscard]] virtual bool CanBatchWith(const RenderCommandBase& other) const = 0;
         virtual bool MergeWith(const RenderCommandBase& other) = 0;
-        [[nodiscard]] virtual size_t GetBatchSize() const = 0;
+        [[nodiscard]] virtual sizet GetBatchSize() const = 0;
     };
 
     // Command for drawing a mesh with material
@@ -88,14 +88,14 @@ namespace OloEngine
         // Command batching and merging
         [[nodiscard]] bool CanBatchWith(const RenderCommandBase& other) const override;
         bool MergeWith(const RenderCommandBase& other) override;
-        [[nodiscard]] size_t GetBatchSize() const override { return m_BatchSize; }
+        [[nodiscard]] sizet GetBatchSize() const override { return m_BatchSize; }
         [[nodiscard]] bool IsStatic() const { return m_IsStatic; }
 
     private:
         Ref<Mesh> m_Mesh;
         std::vector<glm::mat4> m_Transforms;
         Material m_Material;
-        size_t m_BatchSize;
+        sizet m_BatchSize;
         bool m_IsStatic = false;
     };
 
@@ -129,12 +129,12 @@ namespace OloEngine
         // Command batching and merging
         [[nodiscard]] bool CanBatchWith(const RenderCommandBase& other) const override;
         bool MergeWith(const RenderCommandBase& other) override;
-        [[nodiscard]] size_t GetBatchSize() const override { return m_BatchSize; }
+        [[nodiscard]] sizet GetBatchSize() const override { return m_BatchSize; }
 
     private:
         glm::mat4 m_Transform;
         Ref<Texture2D> m_Texture;
-        size_t m_BatchSize;
+        sizet m_BatchSize;
     };
 
     // Main render queue class
@@ -148,24 +148,24 @@ namespace OloEngine
 
         struct Statistics
         {
-            uint32_t CommandCount = 0;
-            uint32_t DrawCalls = 0;
-            uint32_t PoolHits = 0;
-            uint32_t PoolMisses = 0;
-            uint32_t StateChanges = 0;
-            uint32_t BatchedCommands = 0;
-            uint32_t MergedCommands = 0;
+            u32 CommandCount = 0;
+            u32 DrawCalls = 0;
+            u32 PoolHits = 0;
+            u32 PoolMisses = 0;
+            u32 StateChanges = 0;
+            u32 BatchedCommands = 0;
+            u32 MergedCommands = 0;
         };
 
         struct Config
         {
-            size_t InitialPoolSize = 100;
-            size_t MaxPoolSize = 1000;
-            size_t CommandQueueReserve = 1000;
+            sizet InitialPoolSize = 100;
+            sizet MaxPoolSize = 1000;
+            sizet CommandQueueReserve = 1000;
             bool EnableSorting = true;
             bool EnableBatching = true;
             bool EnableMerging = true;
-            size_t MaxBatchSize = 100;
+            sizet MaxBatchSize = 100;
         };
 
         static void Init(const Config& config = Config{});

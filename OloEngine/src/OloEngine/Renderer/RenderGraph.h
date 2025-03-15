@@ -27,7 +27,7 @@ namespace OloEngine
          * @param width The width of the render targets
          * @param height The height of the render targets
          */
-        void Init(uint32_t width, uint32_t height);
+        void Init(u32 width, u32 height);
         
         /**
          * @brief Clean up resources used by the render graph.
@@ -74,7 +74,7 @@ namespace OloEngine
          * @param width The new width
          * @param height The new height
          */
-        void Resize(uint32_t width, uint32_t height);
+        void Resize(u32 width, u32 height);
         
         /**
          * @brief Reset the render graph and all its passes.
@@ -87,7 +87,7 @@ namespace OloEngine
         std::unordered_map<std::string, std::string> m_PassConnections;
         std::string m_FinalPassName;
         
-        uint32_t m_Width = 0;
-        uint32_t m_Height = 0;
+        u32 m_Width = 0;
+        u32 m_Height = 0;
     };
 } 

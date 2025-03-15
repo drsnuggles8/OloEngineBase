@@ -44,7 +44,7 @@ namespace OloEngine
 	void OpenGLFramebuffer::InitPostProcessing()
 	{
 		// Create and setup VAO/VBO for post-processing quad
-		float quadVertices[] = {
+		f32 quadVertices[] = {
 			// positions        // texture coords
 			-1.0f,  1.0f, 0.0f, 0.0f, 1.0f,
 			-1.0f, -1.0f, 0.0f, 0.0f, 0.0f,
@@ -60,9 +60,9 @@ namespace OloEngine
 		glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
 
 		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(f32), (void*)0);
 		glEnableVertexAttribArray(1);
-		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(f32), (void*)(3 * sizeof(f32)));
 
 		glBindVertexArray(0);
 
@@ -122,7 +122,7 @@ namespace OloEngine
 			auto colorAttachmentSize = m_ColorAttachments.size();
 			Utils::CreateTextures(multisample, static_cast<int>(colorAttachmentSize), m_ColorAttachments.data());
 
-			for (size_t i = 0; i < colorAttachmentSize; ++i)
+			for (sizet i = 0; i < colorAttachmentSize; ++i)
 			{
 				Utils::BindTexture(m_ColorAttachments[i]);
 				// TODO(olbu): Add more FramebufferTextureFormats in Framebuffer.h and here

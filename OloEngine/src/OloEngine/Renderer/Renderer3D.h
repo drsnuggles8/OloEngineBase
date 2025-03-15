@@ -52,8 +52,8 @@ namespace OloEngine
 		// Statistics
 		struct Statistics
 		{
-			uint32_t TotalMeshes = 0;
-			uint32_t CulledMeshes = 0;
+			u32 TotalMeshes = 0;
+			u32 CulledMeshes = 0;
 			
 			void Reset() { TotalMeshes = 0; CulledMeshes = 0; }
 		};
@@ -67,7 +67,7 @@ namespace OloEngine
 		static void RenderQuadInternal(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
 		
 		// RenderGraph methods
-		static void OnWindowResize(uint32_t width, uint32_t height);
+		static void OnWindowResize(u32 width, u32 height);
 		static Ref<RenderGraph> GetRenderGraph() { return s_Data.RGraph; }
 
 	private:
@@ -80,7 +80,7 @@ namespace OloEngine
 		static bool IsVisibleInFrustum(const Ref<Mesh>& mesh, const glm::mat4& transform);
 		
 		// Setup the render graph
-		static void SetupRenderGraph(uint32_t width, uint32_t height);
+		static void SetupRenderGraph(u32 width, u32 height);
 
 		static ShaderLibrary m_ShaderLibrary;
 		

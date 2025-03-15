@@ -148,7 +148,7 @@ namespace OloEngine
 		{
 			std::string fullVersion(reinterpret_cast<const char*>(glGetString(GL_VERSION)));
 
-			if (std::size_t lastSpace = fullVersion.rfind(' '); lastSpace != std::string::npos)
+			if (sizet lastSpace = fullVersion.rfind(' '); lastSpace != std::string::npos)
 			{
 				std::string driverVersion = fullVersion.substr(lastSpace + 1);
 				std::istringstream versionStream(driverVersion);

@@ -4,7 +4,7 @@
 
 namespace OloEngine
 {
-    void RenderGraph::Init(uint32_t width, uint32_t height)
+    void RenderGraph::Init(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Initializing RenderGraph with dimensions: {}x{}", width, height);
@@ -151,7 +151,7 @@ namespace OloEngine
         }
     }
 
-    void RenderGraph::Resize(uint32_t width, uint32_t height)
+    void RenderGraph::Resize(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
         
@@ -178,13 +178,11 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Resetting RenderGraph");
 
-        // Reset all passes
         for (const auto& pass : m_Passes)
         {
             pass->OnReset();
         }
 
-        // Re-establish connections
         for (const auto& [inputPass, outputPass] : m_PassConnections)
         {
             ConnectPass(outputPass, inputPass);

@@ -260,7 +260,7 @@ namespace OloEngine
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
 	
-	void OpenGLRendererAPI::BindTexture(uint32_t slot, uint32_t textureID)
+	void OpenGLRendererAPI::BindTexture(u32 slot, u32 textureID)
 	{
 		OLO_PROFILE_FUNCTION();
 		

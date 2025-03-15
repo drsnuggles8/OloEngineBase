@@ -186,7 +186,7 @@ namespace OloEngine
 		m_BoundingSphere = m_Meshes[0]->GetBoundingSphere();
 		
 		// Expand to include all other meshes
-		for (size_t i = 1; i < m_Meshes.size(); i++)
+		for (sizet i = 1; i < m_Meshes.size(); i++)
 		{
 			const BoundingBox& meshBox = m_Meshes[i]->GetBoundingBox();
 			
@@ -197,7 +197,7 @@ namespace OloEngine
 		
 		// Recalculate the bounding sphere based on the final bounding box
 		glm::vec3 center = (m_BoundingBox.Min + m_BoundingBox.Max) * 0.5f;
-		float radius = glm::length(m_BoundingBox.Max - center);
+		f32 radius = glm::length(m_BoundingBox.Max - center);
 		
 		// Add a small margin (5%) to prevent edge cases
 		radius *= 1.05f;

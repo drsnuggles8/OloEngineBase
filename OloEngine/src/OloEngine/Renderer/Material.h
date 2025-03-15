@@ -10,7 +10,7 @@ namespace OloEngine
 		glm::vec3 Ambient;
 		glm::vec3 Diffuse;
 		glm::vec3 Specular;
-		float Shininess;
+		f32 Shininess;
 		bool UseTextureMaps = false;
 		Ref<Texture2D> DiffuseMap;
 		Ref<Texture2D> SpecularMap;

@@ -61,7 +61,7 @@ private:
 	const char* m_MaterialNames[4] = { "Gold", "Silver", "Chrome", "Textured" };
 
 	// Light animation state
-	float m_LightAnimTime = 0.0f;
+	f32 m_LightAnimTime = 0.0f;
 	bool m_AnimateLight = true;
 
 	// Input state tracking
@@ -71,14 +71,14 @@ private:
 	bool m_WasTabPressed = false;
 	
 	// Spotlight properties
-	float m_SpotlightInnerAngle = 12.5f;
-	float m_SpotlightOuterAngle = 17.5f;
+	f32 m_SpotlightInnerAngle = 12.5f;
+	f32 m_SpotlightOuterAngle = 17.5f;
 	
 	// Object type selection
 	int m_PrimitiveTypeIndex = 0;
 	const char* m_PrimitiveNames[3] = { "Cubes", "Spheres", "Mixed" };
 
 	// FPS
-	float m_FrameTime = 0.0f;
-	float m_FPS = 0.0f;
+	f32 m_FrameTime = 0.0f;
+	f32 m_FPS = 0.0f;
 };

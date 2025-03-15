@@ -23,8 +23,8 @@ namespace OloEngine
 	// Forward declare the Statistics struct
 	struct Statistics
 	{
-		uint32_t TotalMeshes = 0;
-		uint32_t CulledMeshes = 0;
+		u32 TotalMeshes = 0;
+		u32 CulledMeshes = 0;
 		
 		void Reset() { TotalMeshes = 0; CulledMeshes = 0; }
 	};
@@ -144,7 +144,6 @@ namespace OloEngine
 		s_Data.ViewPos = position;
 	}
 	
-	// Frustum culling methods
 	void Renderer3D::EnableFrustumCulling(bool enable)
 	{
 		s_Data.FrustumCullingEnabled = enable;
@@ -260,10 +259,8 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
 		
-		// Ensure the shader is bound first
 		s_Data.LightingShader->Bind();
 		
-		// Update uniform buffers in a consistent order
 		UpdateTransformUBO(modelMatrix);
 		UpdateLightPropertiesUBO(material);
 		UpdateTextureFlag(material);
@@ -278,7 +275,6 @@ namespace OloEngine
 				material.SpecularMap->Bind(1);
 		}
 
-		// Draw the mesh
 		mesh->Draw();
 	}
 	
@@ -286,13 +282,10 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
 
-		// Ensure the shader is bound first
 		s_Data.LightingShader->Bind();
 		
-		// We only need to update the view projection matrix once
-		s_Data.UBO->SetData(&s_Data.ViewProjectionMatrix, sizeof(glm::mat4));
+			s_Data.UBO->SetData(&s_Data.ViewProjectionMatrix, sizeof(glm::mat4));
 		
-		// Update uniform buffers in a consistent order
 		UpdateLightPropertiesUBO(material);
 		UpdateTextureFlag(material);
 
@@ -306,7 +299,6 @@ namespace OloEngine
 				material.SpecularMap->Bind(1);
 		}
 
-		// Draw the mesh with instancing
 		mesh->GetVertexArray()->Bind();
 		RenderCommand::DrawIndexedInstanced(mesh->GetVertexArray(), 0, static_cast<u32>(transforms.size()));
 	}
@@ -399,7 +391,7 @@ namespace OloEngine
 			0.0f
 		);
 
-		lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<float>(lightType));
+		lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<f32>(lightType));
 
 		s_Data.LightPropertiesBuffer->SetData(&lightData, sizeof(LightPropertiesData));
 	}
@@ -411,12 +403,17 @@ namespace OloEngine
 		s_Data.TextureFlagBuffer->SetData(&useTextureMaps, sizeof(int));
 	}
 	
-	void Renderer3D::SetupRenderGraph(uint32_t width, uint32_t height)
+	void Renderer3D::SetupRenderGraph(u32 width, u32 height)
 	{
 		OLO_PROFILE_FUNCTION();
 		OLO_CORE_INFO("Setting up Renderer3D RenderGraph with dimensions: {}x{}", width, height);
+
+		if (width == 0 || height == 0)
+		{
+			OLO_CORE_WARN("Invalid dimensions for RenderGraph: {}x{}", width, height);
+			return;
+		}
 		
-		// Initialize the render graph
 		s_Data.RGraph->Init(width, height);
 		
 		// Create the framebuffer specification for our scene pass
@@ -429,11 +426,10 @@ namespace OloEngine
 			FramebufferTextureFormat::Depth        // Depth attachment
 		};
 		
-		// Create the final pass spec (this will render to the default framebuffer)
+		// Create the final pass spec
 		FramebufferSpecification finalPassSpec;
 		finalPassSpec.Width = width;
 		finalPassSpec.Height = height;
-		finalPassSpec.SwapChainTarget = true; // This will render to the default framebuffer
 		
 		// Create the passes
 		auto scenePass = CreateRef<SceneRenderPass>();
@@ -455,7 +451,7 @@ namespace OloEngine
 		s_Data.RGraph->SetFinalPass("FinalPass");
 	}
 	
-	void Renderer3D::OnWindowResize(uint32_t width, uint32_t height)
+	void Renderer3D::OnWindowResize(u32 width, u32 height)
 	{
 		OLO_PROFILE_FUNCTION();
 		OLO_CORE_INFO("Renderer3D::OnWindowResize: Resizing to {}x{}", width, height);

@@ -10,12 +10,12 @@ namespace OloEngine
 	class PerspectiveCameraController
 	{
 	public:
-		PerspectiveCameraController(float fov, float aspectRatio, float nearClip, float farClip);
+		PerspectiveCameraController(f32 fov, f32 aspectRatio, f32 nearClip, f32 farClip);
 
 		void OnUpdate(Timestep ts);
 		void OnEvent(Event& e);
 
-		void OnResize(float width, float height);
+		void OnResize(f32 width, f32 height);
 
 		PerspectiveCamera& GetCamera() { return m_Camera; }
 		const PerspectiveCamera& GetCamera() const { return m_Camera; }
@@ -26,13 +26,13 @@ namespace OloEngine
 		void UpdateCameraView();
 
 	private:
-		float m_AspectRatio;
+		f32 m_AspectRatio;
 		PerspectiveCamera m_Camera;
 
 		glm::vec3 m_CameraPosition = { 0.0f, 0.0f, 0.0f };
 		glm::quat m_CameraRotation = { 1.0f, 0.0f, 0.0f, 0.0f };
-		float m_CameraTranslationSpeed = 5.0f;
-		float m_CameraRotationSpeed = 0.1f;
+		f32 m_CameraTranslationSpeed = 5.0f;
+		f32 m_CameraRotationSpeed = 0.1f;
 
 		bool m_MouseLookEnabled = true;
 		glm::vec2 m_LastMousePosition = { 0.0f, 0.0f };
