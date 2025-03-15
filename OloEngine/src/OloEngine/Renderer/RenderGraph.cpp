@@ -9,8 +9,15 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Initializing RenderGraph with dimensions: {}x{}", width, height);
 
+        // Store dimensions for future passes
         m_Width = width;
         m_Height = height;
+        
+        // Clear any existing data if reinitialized
+        m_Passes.clear();
+        m_PassLookup.clear();
+        m_PassConnections.clear();
+        m_FinalPassName.clear();
     }
 
     void RenderGraph::Shutdown()
@@ -18,6 +25,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Shutting down RenderGraph");
 
+        // Clear all collections
         m_Passes.clear();
         m_PassLookup.clear();
         m_PassConnections.clear();
@@ -27,11 +35,25 @@ namespace OloEngine
     void RenderGraph::AddPass(const Ref<RenderPass>& pass)
     {
         OLO_PROFILE_FUNCTION();
-        OLO_CORE_INFO("Adding render pass: {}", pass->GetName());
+        
+        if (!pass)
+        {
+            OLO_CORE_ERROR("RenderGraph::AddPass: Attempted to add null pass!");
+            return;
+        }
+        
+        const auto& name = pass->GetName();
+        
+        if (m_PassLookup.find(name) != m_PassLookup.end())
+        {
+            OLO_CORE_WARN("RenderGraph::AddPass: Pass with name '{}' already exists, overwriting", name);
+        }
+        
+        OLO_CORE_INFO("Adding render pass: {}", name);
 
         // Store the pass in our collections
         m_Passes.push_back(pass);
-        m_PassLookup[pass->GetName()] = pass;
+        m_PassLookup[name] = pass;
 
         // Set up the framebuffer for this pass
         pass->SetupFramebuffer(m_Width, m_Height);
@@ -39,8 +61,9 @@ namespace OloEngine
 
     Ref<RenderPass> RenderGraph::GetPass(const std::string& name)
     {
-        if (m_PassLookup.find(name) != m_PassLookup.end())
-            return m_PassLookup[name];
+        auto it = m_PassLookup.find(name);
+        if (it != m_PassLookup.end())
+            return it->second;
 
         OLO_CORE_WARN("RenderGraph::GetPass: No pass found with name: {}", name);
         return nullptr;
@@ -49,6 +72,14 @@ namespace OloEngine
     void RenderGraph::ConnectPass(const std::string& outputPass, const std::string& inputPass)
     {
         OLO_PROFILE_FUNCTION();
+        
+        if (outputPass == inputPass)
+        {
+            OLO_CORE_ERROR("RenderGraph::ConnectPass: Cannot connect a pass to itself! {} -> {}", 
+                           outputPass, inputPass);
+            return;
+        }
+        
         OLO_CORE_INFO("Connecting passes: {} -> {}", outputPass, inputPass);
 
         // Store the connection
@@ -74,6 +105,12 @@ namespace OloEngine
 
     void RenderGraph::SetFinalPass(const std::string& passName)
     {
+        if (m_PassLookup.find(passName) == m_PassLookup.end())
+        {
+            OLO_CORE_ERROR("RenderGraph::SetFinalPass: Pass '{}' not found!", passName);
+            return;
+        }
+        
         OLO_CORE_INFO("Setting final pass: {}", passName);
         m_FinalPassName = passName;
     }
@@ -81,8 +118,15 @@ namespace OloEngine
     void RenderGraph::Execute()
     {
         OLO_PROFILE_FUNCTION();
+        
+        if (m_Passes.empty())
+        {
+            OLO_CORE_WARN("RenderGraph::Execute: No passes to execute!");
+            return;
+        }
 
-        // Execute all passes in the correct order
+        // Execute passes in dependency order (excluding final pass)
+        // For now, a simple approach: execute all non-final passes first
         for (const auto& pass : m_Passes)
         {
             // Skip executing the final pass here, we'll do it last
@@ -101,11 +145,22 @@ namespace OloEngine
             else
                 OLO_CORE_ERROR("RenderGraph::Execute: Final pass '{}' not found!", m_FinalPassName);
         }
+        else
+        {
+            OLO_CORE_WARN("RenderGraph::Execute: No final pass set!");
+        }
     }
 
     void RenderGraph::Resize(uint32_t width, uint32_t height)
     {
         OLO_PROFILE_FUNCTION();
+        
+        if (width == 0 || height == 0)
+        {
+            OLO_CORE_WARN("RenderGraph::Resize: Invalid dimensions: {}x{}", width, height);
+            return;
+        }
+        
         OLO_CORE_INFO("Resizing RenderGraph to: {}x{}", width, height);
 
         m_Width = width;

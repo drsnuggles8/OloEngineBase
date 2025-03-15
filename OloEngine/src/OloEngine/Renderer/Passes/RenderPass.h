@@ -8,29 +8,65 @@ namespace OloEngine
     // Forward declarations
     class RenderGraph;
 
+    /**
+     * @brief Abstract base class for all render passes in the render graph.
+     * 
+     * A render pass represents a stage in the rendering pipeline that renders to a target framebuffer.
+     * Subclasses should implement specific rendering functionality.
+     */
     class RenderPass
     {
     public:
         virtual ~RenderPass() = default;
 
-        // Initialize the render pass with a framebuffer specification
+        /**
+         * @brief Initialize the render pass with a framebuffer specification.
+         * @param spec The specification for the framebuffer to render to
+         */
         virtual void Init(const FramebufferSpecification& spec) = 0;
 
-        // Execute the render pass
+        /**
+         * @brief Execute the render pass operations.
+         * This is called by the render graph during the execution phase.
+         */
         virtual void Execute() = 0;
 
-        // Get the pass's input and output framebuffers
+        /**
+         * @brief Get the target framebuffer of this pass.
+         * @return A reference to the target framebuffer
+         */
         [[nodiscard]] virtual Ref<Framebuffer> GetTarget() const = 0;
 
-        // Set the render pass name (for debugging)
+        /**
+         * @brief Set a name for this render pass.
+         * @param name The name to assign to this pass
+         */
         void SetName(const std::string& name) { m_Name = name; }
+        
+        /**
+         * @brief Get the name of this render pass.
+         * @return The name of the render pass
+         */
         [[nodiscard]] const std::string& GetName() const { return m_Name; }
 
-        // Setup framebuffer
+        /**
+         * @brief Set up the framebuffer for this pass with the specified dimensions.
+         * @param width The width of the framebuffer
+         * @param height The height of the framebuffer
+         */
         virtual void SetupFramebuffer(uint32_t width, uint32_t height) = 0;
+        
+        /**
+         * @brief Resize the framebuffer when the window is resized.
+         * @param width The new width of the framebuffer
+         * @param height The new height of the framebuffer
+         */
         virtual void ResizeFramebuffer(uint32_t width, uint32_t height) = 0;
 
-        // Called whenever the pass needs to be reset (e.g., window resize)
+        /**
+         * @brief Called when the render pass needs to be reset.
+         * This might happen after significant renderer changes or window resize events.
+         */
         virtual void OnReset() = 0;
 
     protected:

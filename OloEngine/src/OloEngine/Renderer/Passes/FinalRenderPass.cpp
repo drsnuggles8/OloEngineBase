@@ -15,21 +15,26 @@ namespace OloEngine
 
     void FinalRenderPass::Init(const FramebufferSpecification& spec)
     {
+        OLO_PROFILE_FUNCTION();
+        
         m_FramebufferSpec = spec;
         m_FramebufferSpec.SwapChainTarget = true; // This pass renders to the default framebuffer
 
-        // Create fullscreen triangle mesh
+        // Create fullscreen triangle mesh for efficient screen-space rendering
         CreateFullscreenTriangle();
 
         // Load the shader for blitting the texture to the screen
         m_BlitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+        
+        OLO_CORE_INFO("FinalRenderPass initialized with dimensions: {}x{}", 
+                      m_FramebufferSpec.Width, m_FramebufferSpec.Height);
     }
 
     void FinalRenderPass::Execute()
     {
         OLO_PROFILE_FUNCTION();
 
-        // We're rendering to the default framebuffer
+        // We're rendering to the default framebuffer (swap chain)
         RenderCommand::BindDefaultFramebuffer();
         
         // Clear the framebuffer
@@ -44,6 +49,12 @@ namespace OloEngine
         }
 
         // Bind the shader and the input texture
+        if (!m_BlitShader)
+        {
+            OLO_CORE_ERROR("FinalRenderPass::Execute: Blit shader not loaded!");
+            return;
+        }
+        
         m_BlitShader->Bind();
         
         // Bind the color attachment from the input framebuffer as a texture
@@ -52,35 +63,67 @@ namespace OloEngine
         m_BlitShader->SetInt("u_Texture", 0);
         
         // Draw the fullscreen triangle
+        if (!m_FullscreenTriangleVA)
+        {
+            OLO_CORE_ERROR("FinalRenderPass::Execute: Fullscreen triangle vertex array not created!");
+            return;
+        }
+        
         m_FullscreenTriangleVA->Bind();
         RenderCommand::DrawIndexed(m_FullscreenTriangleVA);
     }
 
     void FinalRenderPass::SetupFramebuffer(uint32_t width, uint32_t height)
     {
+        OLO_PROFILE_FUNCTION();
+        
         // We don't create a framebuffer for the final pass since it renders to the default framebuffer
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
+        
+        OLO_CORE_INFO("FinalRenderPass setup with dimensions: {}x{}", width, height);
     }
 
     void FinalRenderPass::ResizeFramebuffer(uint32_t width, uint32_t height)
     {
+        OLO_PROFILE_FUNCTION();
+        
+        // Update dimensions for viewport sizing
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
+        
+        OLO_CORE_INFO("FinalRenderPass resized to: {}x{}", width, height);
     }
 
     void FinalRenderPass::OnReset()
     {
-        // Nothing to reset for now
+        OLO_PROFILE_FUNCTION();
+        
+        // Recreate fullscreen triangle if needed
+        if (!m_FullscreenTriangleVA)
+        {
+            CreateFullscreenTriangle();
+        }
+        
+        // Reload shader if needed
+        if (!m_BlitShader)
+        {
+            m_BlitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+        }
+        
+        OLO_CORE_INFO("FinalRenderPass reset");
     }
 
     void FinalRenderPass::CreateFullscreenTriangle()
     {
         OLO_PROFILE_FUNCTION();
 
-        // Create a fullscreen triangle
+        // Create a fullscreen triangle for efficient screen-space rendering
         // We use a single triangle that covers the entire screen
-        // This is more efficient than using two triangles (quad)
+        // This is more efficient than using two triangles (quad) as it:
+        // 1. Reduces the number of vertices (3 vs 4)
+        // 2. Eliminates the shared edge and duplicate fragment shader invocations along it
+        // 3. Reduces the workload on the vertex shader
         float vertices[] = {
             // positions      // texture coords
             -1.0f, -1.0f, 0.0f, 0.0f, 0.0f, // bottom left
@@ -102,5 +145,7 @@ namespace OloEngine
 
         m_FullscreenTriangleVA->AddVertexBuffer(vertexBuffer);
         m_FullscreenTriangleVA->SetIndexBuffer(indexBuffer);
+        
+        OLO_CORE_INFO("FinalRenderPass: Fullscreen triangle created");
     }
 } 

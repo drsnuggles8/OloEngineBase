@@ -87,26 +87,13 @@ namespace OloEngine
 
 		s_Data.ViewPos = glm::vec3(0.0f, 0.0f, 3.0f);
 		
-		// Initialize statistics
 		s_Data.Stats.Reset();
 
-		// Initialize the render queue
 		RenderQueue::Init();
 		
-		// Get the window size from the application
-		auto& app = Application::Get();
-		Window& window = app.GetWindow();
-		
-		// Use framebuffer size instead of window size for high DPI displays
-		uint32_t width = window.GetFramebufferWidth();
-		uint32_t height = window.GetFramebufferHeight();
-		
-		OLO_CORE_INFO("Window size: {}x{}", window.GetWidth(), window.GetHeight());
-		OLO_CORE_INFO("Framebuffer size: {}x{}", width, height);
-		
-		// Initialize the render graph with the actual framebuffer size
+		Window& window = Application::Get().GetWindow();		
 		s_Data.RGraph = CreateRef<RenderGraph>();
-		SetupRenderGraph(width, height);
+		SetupRenderGraph(window.GetFramebufferWidth(), window.GetFramebufferHeight());
 		
 		OLO_CORE_INFO("Renderer3D initialization complete");
 	}
@@ -470,34 +457,16 @@ namespace OloEngine
 	
 	void Renderer3D::OnWindowResize(uint32_t width, uint32_t height)
 	{
-		OLO_CORE_INFO("Renderer3D::OnWindowResize called: {}x{}", width, height);
+		OLO_PROFILE_FUNCTION();
+		OLO_CORE_INFO("Renderer3D::OnWindowResize: Resizing to {}x{}", width, height);
+		
 		if (s_Data.RGraph)
 		{
-			// Debug log the render graph framebuffer sizes before resizing
-			auto scenePass = s_Data.RGraph->GetPass("ScenePass");
-			if (scenePass)
-			{
-				auto fb = scenePass->GetTarget();
-				if (fb)
-				{
-					auto& spec = fb->GetSpecification();
-					OLO_CORE_INFO("  ScenePass framebuffer before resize: {}x{}", spec.Width, spec.Height);
-				}
-			}
-			
 			s_Data.RGraph->Resize(width, height);
-			
-			// Debug log the render graph framebuffer sizes after resizing
-			scenePass = s_Data.RGraph->GetPass("ScenePass");
-			if (scenePass)
-			{
-				auto fb = scenePass->GetTarget();
-				if (fb)
-				{
-					auto& spec = fb->GetSpecification();
-					OLO_CORE_INFO("  ScenePass framebuffer after resize: {}x{}", spec.Width, spec.Height);
-				}
-			}
+		}
+		else
+		{
+			OLO_CORE_WARN("Renderer3D::OnWindowResize: No render graph available!");
 		}
 	}
 }
