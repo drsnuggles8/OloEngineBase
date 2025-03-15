@@ -102,6 +102,9 @@
 		"OloEngine/Renderer/VertexBuffer.cpp"
 		"OloEngine/Renderer/VertexBuffer.h"
 		
+		"OloEngine/Renderer/Debug/RenderGraphDebugger.h"
+		"OloEngine/Renderer/Debug/RenderGraphDebugger.cpp"
+		
 		"OloEngine/Renderer/Passes/RenderPass.h"
 		"OloEngine/Renderer/Passes/FinalRenderPass.h"
 		"OloEngine/Renderer/Passes/FinalRenderPass.cpp"

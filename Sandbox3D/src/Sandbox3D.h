@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Light.h"
+#include "OloEngine/Renderer/Debug/RenderGraphDebugger.h"
 
 class Sandbox3D : public OloEngine::Layer
 {
@@ -24,6 +25,7 @@ private:
 	void RenderDirectionalLightUI();
 	void RenderPointLightUI();
 	void RenderSpotlightUI();
+    void RenderGraphDebuggerUI();
 
 private:
 	OloEngine::PerspectiveCameraController m_CameraController;
@@ -81,4 +83,8 @@ private:
 	// FPS
 	f32 m_FrameTime = 0.0f;
 	f32 m_FPS = 0.0f;
+    
+    // Render Graph Debugger
+    OloEngine::RenderGraphDebugger m_RenderGraphDebugger;
+    bool m_RenderGraphDebuggerOpen = false;
 };

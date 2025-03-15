@@ -308,24 +308,55 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 	OloEngine::Renderer3D::EndScene();
 }
 
+void Sandbox3D::RenderGraphDebuggerUI()
+{
+    OLO_PROFILE_FUNCTION();
+    
+    if (m_RenderGraphDebuggerOpen)
+    {
+        // Get the renderer's active render graph
+        auto renderGraph = OloEngine::Renderer3D::GetRenderGraph();
+        if (renderGraph)
+        {
+            m_RenderGraphDebugger.RenderDebugView(renderGraph, &m_RenderGraphDebuggerOpen, "Render Graph");
+        }
+        else
+        {
+            ImGui::Begin("Render Graph", &m_RenderGraphDebuggerOpen);
+            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "No active render graph available!");
+            if (ImGui::Button("Close"))
+                m_RenderGraphDebuggerOpen = false;
+            ImGui::End();
+        }
+    }
+}
 
 void Sandbox3D::OnImGuiRender()
 {
-	OLO_PROFILE_FUNCTION();
+    OLO_PROFILE_FUNCTION();
 
-	ImGui::Begin("Lighting Settings");
+    // Render the RenderGraph debugger window if open
+    RenderGraphDebuggerUI();
 
-	// Display frametime and FPS
-	ImGui::Text("Frametime: %.2f ms", m_FrameTime);
-	ImGui::Text("FPS: %.2f", m_FPS);
+    ImGui::Begin("Lighting Settings");
 
-	// Add camera control status indicator
-	if (!m_CameraMovementEnabled)
-	{
-		ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Camera Movement: DISABLED");
-		ImGui::Text("Press TAB to re-enable camera movement");
-		ImGui::Separator();
-	}
+    // Display frametime and FPS
+    ImGui::Text("Frametime: %.2f ms", m_FrameTime);
+    ImGui::Text("FPS: %.2f", m_FPS);
+    
+    // Add render graph button at the top
+    if (ImGui::Button("Show Render Graph"))
+    {
+        m_RenderGraphDebuggerOpen = true;
+    }
+    
+    // Add camera control status indicator
+    if (!m_CameraMovementEnabled)
+    {
+        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Camera Movement: DISABLED");
+        ImGui::Text("Press TAB to re-enable camera movement");
+        ImGui::Separator();
+    }
 	
 	// Add scene object selection
 	ImGui::Text("Scene Objects");

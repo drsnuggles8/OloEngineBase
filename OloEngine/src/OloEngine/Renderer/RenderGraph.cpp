@@ -17,7 +17,13 @@ namespace OloEngine
         m_Passes.clear();
         m_PassLookup.clear();
         m_PassConnections.clear();
+        m_ExplicitFinalPassName.clear();
         m_FinalPassName.clear();
+        
+        // Clear dependency tracking
+        m_Dependencies.clear();
+        m_DependentPasses.clear();
+        m_DependencyGraphDirty = true;
     }
 
     void RenderGraph::Shutdown()
@@ -55,8 +61,15 @@ namespace OloEngine
         m_Passes.push_back(pass);
         m_PassLookup[name] = pass;
 
+        // Initialize dependency tracking
+        m_Dependencies[name] = {};
+        m_DependentPasses[name] = {};
+        
         // Set up the framebuffer for this pass
         pass->SetupFramebuffer(m_Width, m_Height);
+        
+        // Mark the dependency graph as dirty
+        m_DependencyGraphDirty = true;
     }
 
     Ref<RenderPass> RenderGraph::GetPass(const std::string& name)
@@ -101,6 +114,9 @@ namespace OloEngine
         {
             finalPass->SetInputFramebuffer(output->GetTarget());
         }
+        
+        // Mark the dependency graph as dirty
+        m_DependencyGraphDirty = true;
     }
 
     void RenderGraph::SetFinalPass(const std::string& passName)
@@ -111,8 +127,11 @@ namespace OloEngine
             return;
         }
         
-        OLO_CORE_INFO("Setting final pass: {}", passName);
-        m_FinalPassName = passName;
+        OLO_CORE_INFO("Explicitly setting final pass: {}", passName);
+        m_ExplicitFinalPassName = passName;
+        
+        // Resolve the final pass (this will validate the explicit pass)
+        ResolveFinalPass();
     }
 
     void RenderGraph::Execute()
@@ -123,6 +142,13 @@ namespace OloEngine
         {
             OLO_CORE_WARN("RenderGraph::Execute: No passes to execute!");
             return;
+        }
+        
+        // Make sure the dependency graph is up-to-date
+        if (m_DependencyGraphDirty)
+        {
+            UpdateDependencyGraph();
+            ResolveFinalPass();
         }
 
         // Execute passes in dependency order (excluding final pass)
@@ -147,7 +173,7 @@ namespace OloEngine
         }
         else
         {
-            OLO_CORE_WARN("RenderGraph::Execute: No final pass set!");
+            OLO_CORE_WARN("RenderGraph::Execute: No final pass resolved!");
         }
     }
 
@@ -188,4 +214,148 @@ namespace OloEngine
             ConnectPass(outputPass, inputPass);
         }
     }
-} 
+
+    void RenderGraph::UpdateDependencyGraph()
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        // Clear existing dependency information
+        for (const auto& pass : m_Passes)
+        {
+            const std::string& passName = pass->GetName();
+            m_Dependencies[passName].clear();
+            m_DependentPasses[passName].clear();
+        }
+        
+        // Rebuild the dependency graph from connections
+        for (const auto& [inputPass, outputPass] : m_PassConnections)
+        {
+            // inputPass depends on outputPass
+            m_Dependencies[inputPass].insert(outputPass);
+            
+            // outputPass is depended on by inputPass
+            m_DependentPasses[outputPass].insert(inputPass);
+        }
+        
+        m_DependencyGraphDirty = false;
+    }
+
+    void RenderGraph::ResolveFinalPass()
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        // Make sure the dependency graph is up-to-date
+        if (m_DependencyGraphDirty)
+        {
+            UpdateDependencyGraph();
+        }
+        
+        // Get automatically detected final pass
+        std::string autoDetectedPass = DetectFinalPass();
+        
+        // If we have an explicitly set final pass and it's valid, use it
+        if (!m_ExplicitFinalPassName.empty() && 
+            m_PassLookup.find(m_ExplicitFinalPassName) != m_PassLookup.end())
+        {
+            // Check if the explicit final pass is a valid sink node (no dependents)
+            if (m_DependentPasses[m_ExplicitFinalPassName].empty())
+            {
+                m_FinalPassName = m_ExplicitFinalPassName;
+                OLO_CORE_INFO("Using explicitly set final pass: {}", m_FinalPassName);
+            }
+            else
+            {
+                // The explicit final pass has dependents, which makes it invalid as a final pass
+                OLO_CORE_WARN("Explicitly set final pass '{}' is not a valid sink node in the DAG. It has {} dependent passes.", 
+                    m_ExplicitFinalPassName, m_DependentPasses[m_ExplicitFinalPassName].size());
+                
+                if (!autoDetectedPass.empty())
+                {
+                    m_FinalPassName = autoDetectedPass;
+                    OLO_CORE_INFO("Using auto-detected final pass instead: {}", m_FinalPassName);
+                }
+            }
+        }
+        else if (!autoDetectedPass.empty())
+        {
+            // Use the auto-detected pass
+            m_FinalPassName = autoDetectedPass;
+            OLO_CORE_INFO("Using auto-detected final pass: {}", m_FinalPassName);
+        }
+        else
+        {
+            // No valid final pass found
+            m_FinalPassName.clear();
+            OLO_CORE_WARN("No valid final pass found in the render graph!");
+        }
+    }
+
+    std::string RenderGraph::DetectFinalPass() const
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        std::vector<std::string> sinkNodes;
+        
+        // Find all sink nodes (passes that don't have any dependent passes)
+        for (const auto& pass : m_Passes)
+        {
+            const std::string& passName = pass->GetName();
+            auto it = m_DependentPasses.find(passName);
+            
+            // If the pass has no dependents or it's not in the map, it's a sink node
+            if (it == m_DependentPasses.end() || it->second.empty())
+            {
+                sinkNodes.push_back(passName);
+            }
+        }
+        
+        if (sinkNodes.empty())
+        {
+            OLO_CORE_WARN("RenderGraph::DetectFinalPass: No sink nodes found in the DAG. Is there a cycle?");
+            return "";
+        }
+        
+        if (sinkNodes.size() > 1)
+        {
+            OLO_CORE_WARN("RenderGraph::DetectFinalPass: Multiple sink nodes found ({}). This may indicate separate render paths.", sinkNodes.size());
+            
+            // If the explicitly set final pass is one of the sink nodes, prefer it
+            if (!m_ExplicitFinalPassName.empty() && 
+                std::find(sinkNodes.begin(), sinkNodes.end(), m_ExplicitFinalPassName) != sinkNodes.end())
+            {
+                return m_ExplicitFinalPassName;
+            }
+            
+            // Otherwise, first check if any of them is a FinalRenderPass type
+            for (const auto& passName : sinkNodes)
+            {
+                auto it = m_PassLookup.find(passName);
+                if (it != m_PassLookup.end() && 
+                    std::dynamic_pointer_cast<FinalRenderPass>(it->second) != nullptr)
+                {
+                    OLO_CORE_INFO("Detected final pass of type FinalRenderPass: {}", passName);
+                    return passName;
+                }
+            }
+            
+            // If no FinalRenderPass is found, return the first sink node
+            OLO_CORE_INFO("Using first detected sink node as final pass: {}", sinkNodes[0]);
+            return sinkNodes[0];
+        }
+        
+        // Only one sink node found, it's our final pass
+        OLO_CORE_INFO("Single sink node detected as final pass: {}", sinkNodes[0]);
+        return sinkNodes[0];
+    }
+
+    bool RenderGraph::IsFinalPass(const std::string& passName) const
+    {
+        // Make sure we have a valid final pass name
+        if (m_FinalPassName.empty())
+        {
+            const_cast<RenderGraph*>(this)->ResolveFinalPass();
+        }
+        
+        return passName == m_FinalPassName;
+    }
+}
