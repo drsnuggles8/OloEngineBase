@@ -3,6 +3,7 @@
 
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderQueue.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 
 namespace OloEngine
 {
@@ -50,6 +51,9 @@ namespace OloEngine
         // Clear the framebuffer
         RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
         RenderCommand::Clear();
+        
+        // Draw the skybox first if available (before any other objects)
+        Renderer3D::DrawSkybox();
         
         // Execute the render queue to render all queued objects to this framebuffer
         RenderQueue::Flush();
@@ -110,4 +114,4 @@ namespace OloEngine
         OLO_CORE_INFO("SceneRenderPass reset with framebuffer dimensions: {}x{}", 
                       m_FramebufferSpec.Width, m_FramebufferSpec.Height);
     }
-} 
+}

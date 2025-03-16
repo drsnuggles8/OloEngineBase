@@ -36,6 +36,7 @@ namespace OloEngine
 		Ref<Shader> LightCubeShader;
 		Ref<Shader> LightingShader;
 		Ref<Shader> QuadShader;
+		Ref<Shader> SkyboxShader;
 		Ref<UniformBuffer> UBO;
 		Ref<UniformBuffer> LightPropertiesBuffer;
 		Ref<UniformBuffer> TextureFlagBuffer;
@@ -49,6 +50,9 @@ namespace OloEngine
 		bool FrustumCullingEnabled = true;
 		bool DynamicCullingEnabled = false;
 		Renderer3D::Statistics Stats;
+		
+		 // Skybox
+		Ref<TextureCubemap> Skybox;
 		
 		// Render graph
 		Ref<RenderGraph> RGraph;
@@ -69,10 +73,12 @@ namespace OloEngine
 		m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
 		m_ShaderLibrary.Load("assets/shaders/Lighting3D.glsl");
 		m_ShaderLibrary.Load("assets/shaders/Renderer3D_Quad.glsl");
+		m_ShaderLibrary.Load("assets/shaders/Skybox.glsl");
 
 		s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
 		s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
 		s_Data.QuadShader = m_ShaderLibrary.Get("Renderer3D_Quad");
+		s_Data.SkyboxShader = m_ShaderLibrary.Get("Skybox");
 
 		s_Data.UBO = UniformBuffer::Create(sizeof(glm::mat4) * 2, 0);
 
@@ -464,5 +470,41 @@ namespace OloEngine
 		{
 			OLO_CORE_WARN("Renderer3D::OnWindowResize: No render graph available!");
 		}
+	}
+
+	void Renderer3D::SetSkybox(const Ref<TextureCubemap>& skybox)
+	{
+		s_Data.Skybox = skybox;
+	}
+
+	void Renderer3D::DrawSkybox()
+	{
+		if (s_Data.Skybox)
+		{
+			RenderSkyboxInternal(s_Data.Skybox);
+		}
+	}
+	
+	void Renderer3D::RenderSkyboxInternal(const Ref<TextureCubemap>& skybox)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		// Save current GL state
+		RenderCommand::SetDepthTest(false);
+		
+		s_Data.SkyboxShader->Bind();
+		
+		// Set identity model matrix for skybox
+		glm::mat4 identityMatrix = glm::mat4(1.0f);
+		UpdateTransformUBO(identityMatrix);
+		
+		// Bind the skybox texture
+		skybox->Bind(0);
+		
+		// Draw the skybox cube
+		s_Data.CubeMesh->Draw();
+		
+		// Restore GL state
+		RenderCommand::SetDepthTest(true);
 	}
 }

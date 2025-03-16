@@ -5,7 +5,6 @@
 
 namespace OloEngine
 {
-
 	class OpenGLTexture2D : public Texture2D
 	{
 	public:
@@ -41,5 +40,4 @@ namespace OloEngine
 		GLenum m_InternalFormat{};
 		GLenum m_DataFormat{};
 	};
-
 }

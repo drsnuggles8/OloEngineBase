@@ -73,6 +73,18 @@ void Sandbox3D::OnAttach()
     m_SpecularMap = OloEngine::Texture2D::Create("assets/textures/container2_specular.png");
     m_GrassTexture = OloEngine::Texture2D::Create("assets/textures/grass.png");
     
+    // Load skybox textures
+    m_Skybox = OloEngine::TextureCubemap::Create("../OloEditor/assets/textures/skybox");
+    if (m_Skybox)
+    {
+        OLO_CORE_INFO("Skybox loaded successfully");
+        OloEngine::Renderer3D::SetSkybox(m_Skybox);
+    }
+    else
+    {
+        OLO_CORE_ERROR("Failed to load skybox textures");
+    }
+    
     // Assign textures to the material
     m_TexturedMaterial.DiffuseMap = m_DiffuseMap;
     m_TexturedMaterial.SpecularMap = m_SpecularMap;
@@ -357,6 +369,32 @@ void Sandbox3D::OnImGuiRender()
         ImGui::Text("Press TAB to re-enable camera movement");
         ImGui::Separator();
     }
+    
+    // Add skybox control
+    ImGui::Separator();
+    ImGui::Text("Environment");
+    if (ImGui::Checkbox("Enable Skybox", &m_EnableSkybox))
+    {
+        if (m_EnableSkybox && m_Skybox)
+        {
+            OloEngine::Renderer3D::SetSkybox(m_Skybox);
+        }
+        else
+        {
+            OloEngine::Renderer3D::SetSkybox(nullptr);
+        }
+    }
+    
+    // Add skybox status text
+    if (m_Skybox)
+    {
+        ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Skybox: Loaded");
+    }
+    else
+    {
+        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Skybox: Not loaded");
+    }
+    ImGui::Separator();
 	
 	// Add scene object selection
 	ImGui::Text("Scene Objects");
