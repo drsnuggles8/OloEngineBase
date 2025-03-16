@@ -53,6 +53,10 @@ namespace OloEngine
         
         // Execute the render queue to render all queued objects to this framebuffer
         RenderQueue::Flush();
+        
+        // Draw the skybox last - it will only be rendered where no geometry exists
+        // due to the depth buffer trick in the shader
+        Renderer3D::DrawSkybox();
 
         // Unbind the framebuffer so it can be used as a texture by subsequent passes
         m_Target->Unbind();
@@ -110,4 +114,4 @@ namespace OloEngine
         OLO_CORE_INFO("SceneRenderPass reset with framebuffer dimensions: {}x{}", 
                       m_FramebufferSpec.Width, m_FramebufferSpec.Height);
     }
-} 
+}

@@ -1,6 +1,8 @@
 #pragma once
 
 #include "OloEngine/Renderer/Passes/RenderPass.h"
+#include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Framebuffer.h"
 
 namespace OloEngine
 {
@@ -51,5 +53,8 @@ namespace OloEngine
          * @brief Reset the pass, recreating any necessary resources.
          */
         void OnReset() override;
+
+    private:
+        Ref<Framebuffer> m_Target;
     };
-} 
+}

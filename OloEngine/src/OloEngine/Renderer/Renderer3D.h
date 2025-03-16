@@ -2,6 +2,7 @@
 
 #include "OloEngine/Renderer/Camera/Camera.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Material.h"
@@ -33,6 +34,10 @@ namespace OloEngine
 		
 		// Simple textured quad rendering
 		static void DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
+		
+		// Skybox rendering
+		static void SetSkybox(const Ref<TextureCubemap>& skybox);
+		static void DrawSkybox();
 		
 		// Light and view setters
 		static void SetLight(const Light& light);
@@ -91,9 +96,14 @@ namespace OloEngine
 			Ref<Shader> LightCubeShader;
 			Ref<Shader> LightingShader;
 			Ref<Shader> QuadShader;
+			Ref<Shader> SkyboxShader;
 			Ref<UniformBuffer> UBO;
 			Ref<UniformBuffer> LightPropertiesBuffer;
 			Ref<UniformBuffer> TextureFlagBuffer;
+
+			// Skybox
+			Ref<TextureCubemap> SkyboxTexture;
+			bool HasSkybox = false;
 
 			glm::mat4 ViewProjectionMatrix;
 			Frustum ViewFrustum;

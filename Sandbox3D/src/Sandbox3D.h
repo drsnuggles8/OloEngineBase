@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Light.h"
+#include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugger.h"
 
 class Sandbox3D : public OloEngine::Layer
@@ -42,6 +43,9 @@ private:
 	OloEngine::Ref<OloEngine::Texture2D> m_DiffuseMap;
 	OloEngine::Ref<OloEngine::Texture2D> m_SpecularMap;
 	OloEngine::Ref<OloEngine::Texture2D> m_GrassTexture;
+	
+	// Skybox texture
+	OloEngine::Ref<OloEngine::TextureCubemap> m_SkyboxTexture;
 
 	// Rotation animation state
 	f32 m_RotationAngleY = 0.0f;
