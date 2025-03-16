@@ -94,8 +94,6 @@
 		"OloEngine/Renderer/ShaderLibrary.h"
 		"OloEngine/Renderer/Texture.cpp"
 		"OloEngine/Renderer/Texture.h"
-		"OloEngine/Renderer/TextureCubemap.cpp"
-		"OloEngine/Renderer/TextureCubemap.h"
 		"OloEngine/Renderer/UniformBuffer.cpp"
 		"OloEngine/Renderer/UniformBuffer.h"
 		"OloEngine/Renderer/Vertex.h"

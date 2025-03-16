@@ -2,7 +2,6 @@
 
 #include "OloEngine/Renderer/Camera/Camera.h"
 #include "OloEngine/Renderer/Texture.h"
-#include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Material.h"
@@ -50,10 +49,6 @@ namespace OloEngine
 		static bool IsVisibleInFrustum(const BoundingSphere& sphere);
 		static bool IsVisibleInFrustum(const BoundingBox& box);
 		
-		// Skybox
-		static void SetSkybox(const Ref<TextureCubemap>& skybox);
-		static void DrawSkybox();
-
 		// Statistics
 		struct Statistics
 		{
@@ -70,7 +65,6 @@ namespace OloEngine
 		static void RenderMeshInternal(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material);
 		static void RenderMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material);
 		static void RenderQuadInternal(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
-		static void RenderSkyboxInternal(const Ref<TextureCubemap>& skybox);
 		
 		// RenderGraph methods
 		static void OnWindowResize(u32 width, u32 height);
@@ -97,7 +91,6 @@ namespace OloEngine
 			Ref<Shader> LightCubeShader;
 			Ref<Shader> LightingShader;
 			Ref<Shader> QuadShader;
-			Ref<Shader> SkyboxShader;
 			Ref<UniformBuffer> UBO;
 			Ref<UniformBuffer> LightPropertiesBuffer;
 			Ref<UniformBuffer> TextureFlagBuffer;
@@ -110,9 +103,6 @@ namespace OloEngine
 			Light SceneLight;
 			glm::vec3 ViewPos;
 			
-			// Skybox
-			Ref<TextureCubemap> Skybox;
-
 			Statistics Stats;
 			
 			// Render graph

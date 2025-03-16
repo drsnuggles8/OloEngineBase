@@ -4,8 +4,6 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image/stb_image.h>
 
-#include <filesystem>
-
 namespace OloEngine
 {
 	namespace Utils
@@ -46,6 +44,7 @@ namespace OloEngine
 			OLO_CORE_ASSERT(false, "Unknown ImageFormat!");
 			return 0;
 		}
+
 	}
 
 	OpenGLTexture2D::OpenGLTexture2D(const TextureSpecification& specification)
