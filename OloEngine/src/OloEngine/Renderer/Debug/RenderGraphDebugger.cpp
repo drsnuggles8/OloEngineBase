@@ -136,7 +136,7 @@ namespace OloEngine
         }
         
         // Apply scrolling
-        ImVec2 offset = ImVec2(canvasPos.x + m_Settings.ScrollOffset.x, canvasPos.y + m_Settings.ScrollOffset.y);
+        auto offset = ImVec2(canvasPos.x + m_Settings.ScrollOffset.x, canvasPos.y + m_Settings.ScrollOffset.y);
         
         // Draw connections between nodes
         DrawConnections(graph, drawList, offset);
@@ -154,8 +154,8 @@ namespace OloEngine
             const ImVec2 mousePos = ImGui::GetIO().MousePos;
             for (const auto& [passName, nodeData] : m_NodePositions)
             {
-                ImVec2 nodeMin = ImVec2(offset.x + nodeData.Position.x, offset.y + nodeData.Position.y);
-                ImVec2 nodeMax = ImVec2(nodeMin.x + nodeData.Size.x, nodeMin.y + nodeData.Size.y);
+                auto nodeMin = ImVec2(offset.x + nodeData.Position.x, offset.y + nodeData.Position.y);
+                auto nodeMax = ImVec2(nodeMin.x + nodeData.Size.x, nodeMin.y + nodeData.Size.y);
                 
                 if (mousePos.x >= nodeMin.x && mousePos.x <= nodeMax.x && 
                     mousePos.y >= nodeMin.y && mousePos.y <= nodeMax.y)
@@ -177,7 +177,7 @@ namespace OloEngine
         ImGui::End();
     }
     
-    bool RenderGraphDebugger::ExportGraphViz(const Ref<RenderGraph>& graph, const std::string& outputPath)
+    bool RenderGraphDebugger::ExportGraphViz(const Ref<RenderGraph>& graph, const std::string& outputPath) const
     {
         if (!graph)
         {
@@ -213,14 +213,12 @@ namespace OloEngine
             
             dotFile << "label=\"" << pass->GetName();
             
-            // Add framebuffer info
-            auto framebuffer = pass->GetTarget();
-            if (framebuffer)
+			if (const auto& framebuffer = pass->GetTarget(); framebuffer)
             {
-                auto spec = framebuffer->GetSpecification();
+                const auto& spec = framebuffer->GetSpecification();
                 dotFile << "\\n" << spec.Width << "x" << spec.Height;
                 
-                if (spec.Attachments.Attachments.size() > 0)
+                if (!spec.Attachments.Attachments.empty())
                 {
                     dotFile << "\\nAttachments: " << spec.Attachments.Attachments.size();
                 }
@@ -234,7 +232,7 @@ namespace OloEngine
         }
         
         // Write edges
-        auto connections = graph->GetConnections();
+        const auto& connections = graph->GetConnections();
         for (const auto& [inputName, outputName] : connections)
         {
             dotFile << "  \"" << outputName << "\" -> \"" << inputName << "\";\n";
@@ -248,11 +246,11 @@ namespace OloEngine
         return true;
     }
     
-    void RenderGraphDebugger::DrawNode(const Ref<RenderPass>& pass, ImDrawList* drawList, ImVec2& offset, f32& maxWidth)
+    void RenderGraphDebugger::DrawNode(const Ref<RenderPass>& pass, ImDrawList* drawList, const ImVec2& offset, f32& maxWidth)
     {
         const std::string& passName = pass->GetName();
         
-        if (m_NodePositions.find(passName) == m_NodePositions.end())
+        if (!m_NodePositions.contains(passName))
         {
             // Should never happen if CalculateLayout was called
             OLO_CORE_WARN("RenderGraphDebugger::DrawNode: No position data for pass: {0}", passName);
@@ -261,7 +259,7 @@ namespace OloEngine
         
         const NodeData& nodeData = m_NodePositions[passName];
         
-        ImVec2 nodePos = ImVec2(offset.x + nodeData.Position.x, offset.y + nodeData.Position.y);
+        auto nodePos = ImVec2(offset.x + nodeData.Position.x, offset.y + nodeData.Position.y);
         ImVec2 nodeSize = nodeData.Size;
         
         // Adjust max width if needed
@@ -293,12 +291,11 @@ namespace OloEngine
             passName.c_str()
         );
         
-        // Draw framebuffer info if available
-        auto framebuffer = pass->GetTarget();
-        if (framebuffer)
+        // Draw framebuffer info if available        
+        if (auto framebuffer = pass->GetTarget(); framebuffer)
         {
-            auto spec = framebuffer->GetSpecification();
-            std::string fbInfo = std::to_string(spec.Width) + "x" + std::to_string(spec.Height);
+            const auto& spec = framebuffer->GetSpecification();
+			std::string fbInfo = std::format("{}x{}", spec.Width, spec.Height);
             
             textSize = ImGui::CalcTextSize(fbInfo.c_str());
             drawList->AddText(
@@ -320,13 +317,10 @@ namespace OloEngine
     }
     
     void RenderGraphDebugger::DrawConnections(const Ref<RenderGraph>& graph, ImDrawList* drawList, const ImVec2& offset)
-    {
-        auto connections = graph->GetConnections();
-        
-        for (const auto& [inputName, outputName] : connections)
+    {   
+        for (const auto& connections = graph->GetConnections(); const auto& [inputName, outputName] : connections)
         {
-            if (m_NodePositions.find(inputName) == m_NodePositions.end() ||
-                m_NodePositions.find(outputName) == m_NodePositions.end())
+            if (!m_NodePositions.contains(inputName) || !m_NodePositions.contains(outputName))
             {
                 continue;
             }
@@ -358,30 +352,29 @@ namespace OloEngine
             
             // Draw arrow
             constexpr f32 arrowSize = 7.0f;
-            ImVec2 dir = ImVec2(cp2.x - end.x, cp2.y - end.y);
+            auto dir = ImVec2(cp2.x - end.x, cp2.y - end.y);
             f32 len = sqrtf(dir.x * dir.x + dir.y * dir.y);
             dir.x /= len;
             dir.y /= len;
             
-            ImVec2 norm = ImVec2(-dir.y, dir.x);
-            ImVec2 p1 = ImVec2(end.x + dir.x * arrowSize + norm.x * arrowSize, 
+            auto norm = ImVec2(-dir.y, dir.x);
+            auto p1 = ImVec2(end.x + dir.x * arrowSize + norm.x * arrowSize, 
                               end.y + dir.y * arrowSize + norm.y * arrowSize);
-            ImVec2 p2 = ImVec2(end.x + dir.x * arrowSize - norm.x * arrowSize, 
+			auto p2 = ImVec2(end.x + dir.x * arrowSize - norm.x * arrowSize,
                               end.y + dir.y * arrowSize - norm.y * arrowSize);
             
             drawList->AddTriangleFilled(end, p1, p2, m_Settings.ConnectionColor);
         }
     }
     
-    void RenderGraphDebugger::DrawTooltip(const Ref<RenderPass>& pass)
+    void RenderGraphDebugger::DrawTooltip(const Ref<RenderPass>& pass) const
     {
         ImGui::BeginTooltip();
         ImGui::Text("Pass: %s", pass->GetName().c_str());
         
-        auto framebuffer = pass->GetTarget();
-        if (framebuffer)
+        if (auto framebuffer = pass->GetTarget(); framebuffer)
         {
-            auto spec = framebuffer->GetSpecification();
+            const auto& spec = framebuffer->GetSpecification();
             ImGui::Text("Size: %dx%d", spec.Width, spec.Height);
             ImGui::Text("Samples: %d", spec.Samples);
             
@@ -407,7 +400,7 @@ namespace OloEngine
         m_NodePositions.clear();
         
         auto passes = graph->GetAllPasses();
-        auto connections = graph->GetConnections();
+        const auto& connections = graph->GetConnections();
         
         // Step 1: Create a dependency graph
         std::unordered_map<std::string, std::vector<std::string>> dependsOn; // pass -> passes it depends on
@@ -480,7 +473,7 @@ namespace OloEngine
             const std::string& passName = pass->GetName();
             int layer = layers[passName];
             
-            if (layerCounts.find(layer) == layerCounts.end())
+            if (!layerCounts.contains(layer))
             {
                 layerCounts[layer] = 0;
             }

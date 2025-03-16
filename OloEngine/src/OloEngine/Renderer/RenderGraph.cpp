@@ -50,7 +50,7 @@ namespace OloEngine
         
         const auto& name = pass->GetName();
         
-        if (m_PassLookup.find(name) != m_PassLookup.end())
+        if (m_PassLookup.contains(name))
         {
             OLO_CORE_WARN("RenderGraph::AddPass: Pass with name '{}' already exists, overwriting", name);
         }
@@ -74,8 +74,7 @@ namespace OloEngine
 
     Ref<RenderPass> RenderGraph::GetPass(const std::string& name)
     {
-        auto it = m_PassLookup.find(name);
-        if (it != m_PassLookup.end())
+        if (auto it = m_PassLookup.find(name); it != m_PassLookup.end())
             return it->second;
 
         OLO_CORE_WARN("RenderGraph::GetPass: No pass found with name: {}", name);
@@ -121,7 +120,7 @@ namespace OloEngine
 
     void RenderGraph::SetFinalPass(const std::string& passName)
     {
-        if (m_PassLookup.find(passName) == m_PassLookup.end())
+        if (!m_PassLookup.contains(passName))
         {
             OLO_CORE_ERROR("RenderGraph::SetFinalPass: Pass '{}' not found!", passName);
             return;
@@ -254,8 +253,7 @@ namespace OloEngine
         std::string autoDetectedPass = DetectFinalPass();
         
         // If we have an explicitly set final pass and it's valid, use it
-        if (!m_ExplicitFinalPassName.empty() && 
-            m_PassLookup.find(m_ExplicitFinalPassName) != m_PassLookup.end())
+        if (!m_ExplicitFinalPassName.empty() && m_PassLookup.contains(m_ExplicitFinalPassName))
         {
             // Check if the explicit final pass is a valid sink node (no dependents)
             if (m_DependentPasses[m_ExplicitFinalPassName].empty())
@@ -328,9 +326,8 @@ namespace OloEngine
             
             // Otherwise, first check if any of them is a FinalRenderPass type
             for (const auto& passName : sinkNodes)
-            {
-                auto it = m_PassLookup.find(passName);
-                if (it != m_PassLookup.end() && 
+            {               
+                if (auto it = m_PassLookup.find(passName); it != m_PassLookup.end() &&
                     std::dynamic_pointer_cast<FinalRenderPass>(it->second) != nullptr)
                 {
                     OLO_CORE_INFO("Detected final pass of type FinalRenderPass: {}", passName);
@@ -348,13 +345,16 @@ namespace OloEngine
         return sinkNodes[0];
     }
 
-    bool RenderGraph::IsFinalPass(const std::string& passName) const
+    bool RenderGraph::IsFinalPass(std::string_view passName) const
     {
         // Make sure we have a valid final pass name
-        if (m_FinalPassName.empty())
-        {
-            const_cast<RenderGraph*>(this)->ResolveFinalPass();
-        }
+		if (m_FinalPassName.empty())
+		{
+			auto* mutableThis = const_cast<RenderGraph*>(this);
+			if (!mutableThis) return false; // Additional safety check
+
+			mutableThis->ResolveFinalPass();
+		}
         
         return passName == m_FinalPassName;
     }

@@ -112,7 +112,7 @@ namespace OloEngine
          * @param passName The name of the pass to check
          * @return True if the pass is the final pass, false otherwise
          */
-        bool IsFinalPass(const std::string& passName) const;
+        bool IsFinalPass(std::string_view passName) const;
         
         /**
          * @brief Get the current dimensions of the render graph.

@@ -9,77 +9,53 @@ namespace OloEngine
         Update(viewProjection);
     }
 
-    void Frustum::Update(const glm::mat4& viewProjection)
-    {
-        OLO_PROFILE_FUNCTION();
+	void Frustum::Update(const glm::mat4& viewProjection)
+	{
+		using enum OloEngine::Frustum::Planes;
+		OLO_PROFILE_FUNCTION();
 
-        // Extract the planes from the view-projection matrix
-        // Based on the method described in "Fast Extraction of Viewing Frustum Planes"
+		// Mapping of plane indices to the corresponding matrix row operations
+		constexpr std::array<std::tuple<Planes, int, int>, 6> planeData = { {
+			{Left,   0, 0}, {Right,  0, 0},
+			{Bottom, 1, 1}, {Top,    1, 1},
+			{Near,   2, 2}, {Far,    2, 2}
+		} };
 
-        // Left plane
-        m_Planes[static_cast<sizet>(Planes::Left)].Normal.x = viewProjection[0][3] + viewProjection[0][0];
-        m_Planes[static_cast<sizet>(Planes::Left)].Normal.y = viewProjection[1][3] + viewProjection[1][0];
-        m_Planes[static_cast<sizet>(Planes::Left)].Normal.z = viewProjection[2][3] + viewProjection[2][0];
-        m_Planes[static_cast<sizet>(Planes::Left)].Distance = viewProjection[3][3] + viewProjection[3][0];
+		for (const auto& [plane, row, col] : planeData)
+		{
+			auto idx = static_cast<size_t>(std::to_underlying(plane));
+			float sign = (plane == Right || plane == Top || plane == Far) ? -1.0f : 1.0f;
 
-        // Right plane
-        m_Planes[static_cast<sizet>(Planes::Right)].Normal.x = viewProjection[0][3] - viewProjection[0][0];
-        m_Planes[static_cast<sizet>(Planes::Right)].Normal.y = viewProjection[1][3] - viewProjection[1][0];
-        m_Planes[static_cast<sizet>(Planes::Right)].Normal.z = viewProjection[2][3] - viewProjection[2][0];
-        m_Planes[static_cast<sizet>(Planes::Right)].Distance = viewProjection[3][3] - viewProjection[3][0];
+			m_Planes[idx].Normal.x = viewProjection[0][3] + sign * viewProjection[0][col];
+			m_Planes[idx].Normal.y = viewProjection[1][3] + sign * viewProjection[1][col];
+			m_Planes[idx].Normal.z = viewProjection[2][3] + sign * viewProjection[2][col];
+			m_Planes[idx].Distance = viewProjection[3][3] + sign * viewProjection[3][col];
+		}
 
-        // Bottom plane
-        m_Planes[static_cast<sizet>(Planes::Bottom)].Normal.x = viewProjection[0][3] + viewProjection[0][1];
-        m_Planes[static_cast<sizet>(Planes::Bottom)].Normal.y = viewProjection[1][3] + viewProjection[1][1];
-        m_Planes[static_cast<sizet>(Planes::Bottom)].Normal.z = viewProjection[2][3] + viewProjection[2][1];
-        m_Planes[static_cast<sizet>(Planes::Bottom)].Distance = viewProjection[3][3] + viewProjection[3][1];
+		// Normalize all planes
+		for (auto& plane : m_Planes)
+		{
+			float length = glm::length(plane.Normal);
+			plane.Normal /= length;
+			plane.Distance /= length;
+		}
+	}
 
-        // Top plane
-        m_Planes[static_cast<sizet>(Planes::Top)].Normal.x = viewProjection[0][3] - viewProjection[0][1];
-        m_Planes[static_cast<sizet>(Planes::Top)].Normal.y = viewProjection[1][3] - viewProjection[1][1];
-        m_Planes[static_cast<sizet>(Planes::Top)].Normal.z = viewProjection[2][3] - viewProjection[2][1];
-        m_Planes[static_cast<sizet>(Planes::Top)].Distance = viewProjection[3][3] - viewProjection[3][1];
+	bool Frustum::IsPointVisible(const glm::vec3& point) const
+	{
+		return std::ranges::all_of(m_Planes, [&](const auto& plane)
+		{
+			return plane.GetSignedDistance(point) >= 0.0f;
+		});
+	}
 
-        // Near plane
-        m_Planes[static_cast<sizet>(Planes::Near)].Normal.x = viewProjection[0][3] + viewProjection[0][2];
-        m_Planes[static_cast<sizet>(Planes::Near)].Normal.y = viewProjection[1][3] + viewProjection[1][2];
-        m_Planes[static_cast<sizet>(Planes::Near)].Normal.z = viewProjection[2][3] + viewProjection[2][2];
-        m_Planes[static_cast<sizet>(Planes::Near)].Distance = viewProjection[3][3] + viewProjection[3][2];
-
-        // Far plane
-        m_Planes[static_cast<sizet>(Planes::Far)].Normal.x = viewProjection[0][3] - viewProjection[0][2];
-        m_Planes[static_cast<sizet>(Planes::Far)].Normal.y = viewProjection[1][3] - viewProjection[1][2];
-        m_Planes[static_cast<sizet>(Planes::Far)].Normal.z = viewProjection[2][3] - viewProjection[2][2];
-        m_Planes[static_cast<sizet>(Planes::Far)].Distance = viewProjection[3][3] - viewProjection[3][2];
-
-        // Normalize all planes
-        for (auto& plane : m_Planes)
-        {
-            f32 length = glm::length(plane.Normal);
-            plane.Normal /= length;
-            plane.Distance /= length;
-        }
-    }
-
-    bool Frustum::IsPointVisible(const glm::vec3& point) const
-    {
-        for (const auto& plane : m_Planes)
-        {
-            if (plane.GetSignedDistance(point) < 0.0f)
-                return false;
-        }
-        return true;
-    }
-
-    bool Frustum::IsSphereVisible(const glm::vec3& center, f32 radius) const
-    {
-        for (const auto& plane : m_Planes)
-        {
-            if (plane.GetSignedDistance(center) < -radius)
-                return false;
-        }
-        return true;
-    }
+	bool Frustum::IsSphereVisible(const glm::vec3& center, f32 radius) const
+	{
+		return std::ranges::all_of(m_Planes, [&](const auto& plane)
+		{
+			return plane.GetSignedDistance(center) >= -radius;
+		});
+	}
 
     bool Frustum::IsBoundingSphereVisible(const BoundingSphere& sphere) const
     {

@@ -41,7 +41,7 @@ namespace OloEngine
          * @brief Set a name for this render pass.
          * @param name The name to assign to this pass
          */
-        void SetName(const std::string& name) { m_Name = name; }
+        void SetName(std::string_view name) { m_Name = name; }
         
         /**
          * @brief Get the name of this render pass.

@@ -120,11 +120,9 @@ namespace OloEngine
         }
         
         // Create a bounding sphere from a bounding box
-        explicit BoundingSphere(const BoundingBox& box)
-        {
-            Center = box.GetCenter();
-            Radius = glm::length(box.GetExtents());
-        }
+		explicit BoundingSphere(const BoundingBox& box)
+			: Center(box.GetCenter()), Radius(glm::length(box.GetExtents()))
+		{}
         
         // Transform the bounding sphere by a matrix
         [[nodiscard]] BoundingSphere Transform(const glm::mat4& transform) const
@@ -134,7 +132,7 @@ namespace OloEngine
             glm::vec3 newCenter = glm::vec3(transformedCenter) / transformedCenter.w;
             
             // Extract the scale from the transform matrix
-            glm::vec3 scale;
+			glm::vec3 scale {};
             scale.x = glm::length(glm::vec3(transform[0]));
             scale.y = glm::length(glm::vec3(transform[1]));
             scale.z = glm::length(glm::vec3(transform[2]));
