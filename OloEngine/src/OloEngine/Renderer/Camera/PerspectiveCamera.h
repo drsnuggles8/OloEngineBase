@@ -15,6 +15,7 @@ namespace OloEngine
 		void SetRotation(const glm::quat& rotation);
 
 		const glm::mat4& GetViewProjection() const { return m_ViewProjection; }
+		const glm::mat4& GetView() const { return m_View; }
 		const glm::vec3& GetPosition() const { return m_Position; }
 
 	private:
@@ -27,6 +28,7 @@ namespace OloEngine
 		f32 m_NearClip;
 		f32 m_FarClip;
 		glm::mat4 m_Projection{ 1.0f };
+		glm::mat4 m_View{ 1.0f };
 		glm::mat4 m_ViewProjection{ 1.0f };
 		glm::vec3 m_Position{ 0.0f };
 		glm::quat m_Rotation{ 1.0f, 0.0f, 0.0f, 0.0f };

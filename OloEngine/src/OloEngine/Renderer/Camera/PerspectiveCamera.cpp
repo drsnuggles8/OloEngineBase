@@ -45,6 +45,10 @@ namespace OloEngine
 		glm::mat4 transform = glm::translate(glm::mat4(1.0f), m_Position);
 		transform = transform * glm::mat4_cast(m_Rotation);
 		
-		m_ViewProjection = m_Projection * glm::inverse(transform);
+		// Store the view matrix (inverse of transform)
+		m_View = glm::inverse(transform);
+		
+		// Calculate the combined view-projection matrix
+		m_ViewProjection = m_Projection * m_View;
 	}
 }
