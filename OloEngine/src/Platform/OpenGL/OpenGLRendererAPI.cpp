@@ -195,6 +195,11 @@ namespace OloEngine
 		glBlendFunc(sfactor, dfactor);
 	}
 
+	void OpenGLRendererAPI::SetBlendEquation(GLenum mode)
+	{
+		glBlendEquation(mode);
+	}
+
 	void OpenGLRendererAPI::EnableStencilTest()
 	{
 		OLO_PROFILE_FUNCTION();
@@ -266,5 +271,34 @@ namespace OloEngine
 		
 		glActiveTexture(GL_TEXTURE0 + slot);
 		glBindTexture(GL_TEXTURE_2D, textureID);
+	}
+
+	void OpenGLRendererAPI::SetPolygonOffset(f32 factor, f32 units)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glEnable(GL_POLYGON_OFFSET_FILL);
+		glPolygonOffset(factor, units);
+	}
+
+	void OpenGLRendererAPI::EnableMultisampling()
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glEnable(GL_MULTISAMPLE);
+	}
+
+	void OpenGLRendererAPI::DisableMultisampling()
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glDisable(GL_MULTISAMPLE);
+	}
+
+	void OpenGLRendererAPI::SetColorMask(bool red, bool green, bool blue, bool alpha)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glColorMask(red, green, blue, alpha);
 	}
 }

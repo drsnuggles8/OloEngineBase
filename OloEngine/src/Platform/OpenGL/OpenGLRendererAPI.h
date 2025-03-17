@@ -30,7 +30,8 @@ namespace OloEngine
 		void SetDepthTest(bool value) override;
 		void SetBlendState(bool value) override;
 		void SetBlendFunc(GLenum sfactor, GLenum dfactor) override;
-		void SetDepthFunc(GLenum func);
+		void SetBlendEquation(GLenum mode) override;
+		void SetDepthFunc(GLenum func) override;
 		void EnableStencilTest() override;
 		void DisableStencilTest() override;
 		void SetStencilFunc(GLenum func, GLint ref, GLuint mask) override;
@@ -39,12 +40,15 @@ namespace OloEngine
 		void ClearStencil() override;
 
 		void SetPolygonMode(GLenum face, GLenum mode) override;
+		void SetPolygonOffset(f32 factor, f32 units) override;
+		void EnableMultisampling() override;
+		void DisableMultisampling() override;
+		void SetColorMask(bool red, bool green, bool blue, bool alpha) override;
 
 		void EnableScissorTest() override;
 		void DisableScissorTest() override;
 		void SetScissorBox(GLint x, GLint y, GLsizei width, GLsizei height) override;
 		
-		// New methods for render graph
 		void BindDefaultFramebuffer() override;
 		void BindTexture(u32 slot, u32 textureID) override;
 		

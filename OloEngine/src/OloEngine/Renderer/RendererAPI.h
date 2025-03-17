@@ -36,8 +36,10 @@ namespace OloEngine
 		virtual void BackCull() = 0;
 		virtual void SetDepthMask(bool value) = 0;
 		virtual void SetDepthTest(bool value) = 0;
+		virtual void SetDepthFunc(GLenum func) = 0;
 		virtual void SetBlendState(bool value) = 0;
 		virtual void SetBlendFunc(GLenum sfactor, GLenum dfactor) = 0;
+		virtual void SetBlendEquation(GLenum mode) = 0;
 
 		virtual void EnableStencilTest() = 0;
 		virtual void DisableStencilTest() = 0;
@@ -55,6 +57,11 @@ namespace OloEngine
 		// New methods for render graph
 		virtual void BindDefaultFramebuffer() = 0;
 		virtual void BindTexture(u32 slot, u32 textureID) = 0;
+
+		virtual void SetPolygonOffset(f32 factor, f32 units) = 0;
+		virtual void EnableMultisampling() = 0;
+		virtual void DisableMultisampling() = 0;
+		virtual void SetColorMask(bool red, bool green, bool blue, bool alpha) = 0;
 
 		[[nodiscard("Store this!")]] static API GetAPI() { return s_API; }
 		static Scope<RendererAPI> Create();
