@@ -41,20 +41,21 @@ namespace OloEngine
 		Ref<UniformBuffer> TextureFlagBuffer;
 
 		glm::mat4 ViewProjectionMatrix;
-
-		Light SceneLight;
-		glm::vec3 ViewPos;
+		glm::mat4 ViewMatrix;
+		glm::mat4 ProjectionMatrix;
 
 		Frustum ViewFrustum;
 		bool FrustumCullingEnabled = true;
-		bool DynamicCullingEnabled = false;
-		Renderer3D::Statistics Stats;
+		bool DynamicCullingEnabled = true;
+
+		Light SceneLight;
+		glm::vec3 ViewPos;
 		
-		// Render graph
+		Statistics Stats;
+		
 		Ref<RenderGraph> RGraph;
 	};
 
-	// Static member definitions
 	Renderer3D::Renderer3DData Renderer3D::s_Data;
 	ShaderLibrary Renderer3D::m_ShaderLibrary;
 
@@ -123,6 +124,13 @@ namespace OloEngine
 		
 		// Still need to call this to set up the view-projection matrix for the render queue
 		RenderQueue::BeginScene(viewProjectionMatrix);
+	}
+
+	void Renderer3D::BeginScene(const glm::mat4& viewMatrix, const glm::mat4& projectionMatrix, const glm::mat4& viewProjectionMatrix)
+	{
+		s_Data.ViewMatrix = viewMatrix;
+		s_Data.ProjectionMatrix = projectionMatrix;
+		BeginScene(viewProjectionMatrix);
 	}
 
 	void Renderer3D::EndScene()

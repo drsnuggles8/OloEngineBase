@@ -24,9 +24,10 @@ namespace OloEngine
 		static void Shutdown();
 
 		static void BeginScene(const glm::mat4& viewProjectionMatrix);
+		static void BeginScene(const glm::mat4& viewMatrix, const glm::mat4& projectionMatrix, const glm::mat4& viewProjectionMatrix);
 		static void EndScene();
 
-		// Draw methods - now using RenderQueue
+		// Draw methods
 		static void DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = false);
 		static void DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = false);
 		static void DrawLightCube(const glm::mat4& modelMatrix);
@@ -96,6 +97,9 @@ namespace OloEngine
 			Ref<UniformBuffer> TextureFlagBuffer;
 
 			glm::mat4 ViewProjectionMatrix;
+			glm::mat4 ViewMatrix;
+			glm::mat4 ProjectionMatrix;
+
 			Frustum ViewFrustum;
 			bool FrustumCullingEnabled = true;
 			bool DynamicCullingEnabled = true;
@@ -105,7 +109,6 @@ namespace OloEngine
 			
 			Statistics Stats;
 			
-			// Render graph
 			Ref<RenderGraph> RGraph;
 		};
 		
