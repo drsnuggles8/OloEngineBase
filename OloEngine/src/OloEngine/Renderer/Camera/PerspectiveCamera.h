@@ -27,7 +27,6 @@ namespace OloEngine
 		f32 m_AspectRatio;
 		f32 m_NearClip;
 		f32 m_FarClip;
-		glm::mat4 m_Projection{ 1.0f };
 		glm::mat4 m_View{ 1.0f };
 		glm::mat4 m_ViewProjection{ 1.0f };
 		glm::vec3 m_Position{ 0.0f };

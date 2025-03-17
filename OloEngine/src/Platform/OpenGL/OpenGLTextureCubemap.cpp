@@ -96,7 +96,9 @@ namespace OloEngine
 
         glCreateTextures(GL_TEXTURE_CUBE_MAP, 1, &m_RendererID);
         
-        int width, height, channels;
+        int width;
+		int height;
+		int channels;
         stbi_set_flip_vertically_on_load(0); // Don't flip cubemap textures
 
         // First pass: check sizes and determine format

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Renderer/Camera/Camera.h"
+#include "OloEngine/Renderer/Camera/PerspectiveCamera.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -25,6 +26,7 @@ namespace OloEngine
 
 		static void BeginScene(const glm::mat4& viewProjectionMatrix);
 		static void BeginScene(const glm::mat4& viewMatrix, const glm::mat4& projectionMatrix, const glm::mat4& viewProjectionMatrix);
+		static void BeginScene(const PerspectiveCamera& camera);
 		static void EndScene();
 
 		// Draw methods

@@ -157,14 +157,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 
 	{
 		OLO_PROFILE_SCOPE("Renderer Draw");
-		//OloEngine::Renderer3D::BeginScene(m_CameraController.GetCamera().GetViewProjection());
-
-		auto camera = m_CameraController.GetCamera();
-		auto viewMatrix = camera.GetView();
-		auto projectionMatrix = camera.GetProjection();
-		auto viewProjectionMatrix = camera.GetViewProjection();
-
-		OloEngine::Renderer3D::BeginScene(viewMatrix, projectionMatrix, viewProjectionMatrix);
+		OloEngine::Renderer3D::BeginScene(m_CameraController.GetCamera());
 	}
 
 	// Draw ground plane

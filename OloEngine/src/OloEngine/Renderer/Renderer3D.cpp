@@ -133,6 +133,11 @@ namespace OloEngine
 		BeginScene(viewProjectionMatrix);
 	}
 
+	void Renderer3D::BeginScene(const PerspectiveCamera& camera)
+	{
+		BeginScene(camera.GetView(), camera.GetProjection(), camera.GetViewProjection());
+	}
+
 	void Renderer3D::EndScene()
 	{
 		// Do not call RenderQueue::EndScene() here anymore

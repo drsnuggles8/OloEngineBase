@@ -43,6 +43,15 @@ namespace OloEngine
         s_Stats = Statistics();
     }
 
+	void RenderQueue::BeginScene(const glm::mat4& viewMatrix, const glm::mat4& projectionMatrix, const glm::mat4& viewProjectionMatrix)
+	{
+		s_SceneData->ViewMatrix = viewMatrix;
+		s_SceneData->ProjectionMatrix = projectionMatrix;
+		s_SceneData->ViewProjectionMatrix = viewProjectionMatrix;
+		s_CommandQueue.clear();
+		s_Stats = Statistics();
+	}
+
     void RenderQueue::EndScene()
     {
         Flush();
