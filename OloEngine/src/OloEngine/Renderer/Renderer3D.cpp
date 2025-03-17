@@ -33,12 +33,15 @@ namespace OloEngine
 	{
 		Ref<Mesh> CubeMesh;
 		Ref<Mesh> QuadMesh;
+		Ref<Mesh> SkyboxMesh;
 		Ref<Shader> LightCubeShader;
 		Ref<Shader> LightingShader;
 		Ref<Shader> QuadShader;
+		Ref<Shader> SkyboxShader;
 		Ref<UniformBuffer> UBO;
 		Ref<UniformBuffer> LightPropertiesBuffer;
 		Ref<UniformBuffer> TextureFlagBuffer;
+		Ref<UniformBuffer> CameraMatricesBuffer;
 
 		glm::mat4 ViewProjectionMatrix;
 		glm::mat4 ViewMatrix;
@@ -66,20 +69,22 @@ namespace OloEngine
 
 		s_Data.CubeMesh = Mesh::CreateCube();
 		s_Data.QuadMesh = Mesh::CreatePlane(1.0f, 1.0f);
+		s_Data.SkyboxMesh = Mesh::CreateSkyboxCube(); // Use skybox-specific cube mesh
 
 		m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
 		m_ShaderLibrary.Load("assets/shaders/Lighting3D.glsl");
 		m_ShaderLibrary.Load("assets/shaders/Renderer3D_Quad.glsl");
+		m_ShaderLibrary.Load("assets/shaders/Skybox.glsl");
 
 		s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
 		s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
 		s_Data.QuadShader = m_ShaderLibrary.Get("Renderer3D_Quad");
+		s_Data.SkyboxShader = m_ShaderLibrary.Get("Skybox");
 
 		s_Data.UBO = UniformBuffer::Create(sizeof(glm::mat4) * 2, 0);
-
 		s_Data.LightPropertiesBuffer = UniformBuffer::Create(sizeof(glm::vec4) * 12, 1);
-
 		s_Data.TextureFlagBuffer = UniformBuffer::Create(sizeof(int), 2);
+		s_Data.CameraMatricesBuffer = UniformBuffer::Create(sizeof(glm::mat4) * 2, 3);
 
 		s_Data.SceneLight.Position = glm::vec3(1.2f, 1.0f, 2.0f);
 		s_Data.SceneLight.Ambient = glm::vec3(0.2f, 0.2f, 0.2f);
@@ -112,30 +117,19 @@ namespace OloEngine
 		OLO_CORE_INFO("Renderer3D shutdown complete");
 	}
 
-	void Renderer3D::BeginScene(const glm::mat4& viewProjectionMatrix)
+	void Renderer3D::BeginScene(const PerspectiveCamera& camera)
 	{
-		s_Data.ViewProjectionMatrix = viewProjectionMatrix;
-		
+		//BeginScene(camera.GetView(), camera.GetProjection(), camera.GetViewProjection());
+		s_Data.ViewMatrix = camera.GetView();
+		s_Data.ProjectionMatrix = camera.GetProjection();
+		s_Data.ViewProjectionMatrix = camera.GetViewProjection();
+
 		// Update the view frustum for culling
-		s_Data.ViewFrustum.Update(viewProjectionMatrix);
+		s_Data.ViewFrustum.Update(s_Data.ViewProjectionMatrix);
 		
 		// Reset statistics for this frame
 		s_Data.Stats.Reset();
-		
-		// Still need to call this to set up the view-projection matrix for the render queue
-		RenderQueue::BeginScene(viewProjectionMatrix);
-	}
-
-	void Renderer3D::BeginScene(const glm::mat4& viewMatrix, const glm::mat4& projectionMatrix, const glm::mat4& viewProjectionMatrix)
-	{
-		s_Data.ViewMatrix = viewMatrix;
-		s_Data.ProjectionMatrix = projectionMatrix;
-		BeginScene(viewProjectionMatrix);
-	}
-
-	void Renderer3D::BeginScene(const PerspectiveCamera& camera)
-	{
-		BeginScene(camera.GetView(), camera.GetProjection(), camera.GetViewProjection());
+		RenderQueue::BeginScene(s_Data.ViewProjectionMatrix);
 	}
 
 	void Renderer3D::EndScene()
@@ -195,7 +189,7 @@ namespace OloEngine
 
 	bool Renderer3D::IsVisibleInFrustum(const Ref<Mesh>& mesh, const glm::mat4& transform)
 	{
-		OLO_PROFILE_FUNCTION();
+		//OLO_PROFILE_FUNCTION();
 		
 		if (!s_Data.FrustumCullingEnabled)
 			return true;
@@ -208,7 +202,7 @@ namespace OloEngine
 	
 	bool Renderer3D::IsVisibleInFrustum(const BoundingSphere& sphere)
 	{
-		OLO_PROFILE_FUNCTION();
+		//OLO_PROFILE_FUNCTION();
 		
 		if (!s_Data.FrustumCullingEnabled)
 			return true;
@@ -221,7 +215,7 @@ namespace OloEngine
 	
 	bool Renderer3D::IsVisibleInFrustum(const BoundingBox& box)
 	{
-		OLO_PROFILE_FUNCTION();
+		//OLO_PROFILE_FUNCTION();
 		
 		if (!s_Data.FrustumCullingEnabled)
 			return true;
@@ -241,12 +235,11 @@ namespace OloEngine
 
 	void Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic)
 	{
-		OLO_PROFILE_FUNCTION();
-		
-		s_Data.Stats.TotalMeshes++;
+		//OLO_PROFILE_FUNCTION();
 		
 		if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
 		{
+			s_Data.Stats.TotalMeshes++; // Only count meshes that go through frustum culling
 			if (!IsVisibleInFrustum(mesh, modelMatrix))
 			{
 				s_Data.Stats.CulledMeshes++;
@@ -259,7 +252,7 @@ namespace OloEngine
 
 	void Renderer3D::DrawLightCube(const glm::mat4& modelMatrix)
 	{
-		OLO_PROFILE_FUNCTION();
+		//OLO_PROFILE_FUNCTION();
 
 		s_Data.LightCubeShader->Bind();
 
@@ -270,7 +263,7 @@ namespace OloEngine
 
 	void Renderer3D::RenderMeshInternal(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material)
 	{
-		OLO_PROFILE_FUNCTION();
+		//OLO_PROFILE_FUNCTION();
 		
 		s_Data.LightingShader->Bind();
 		
@@ -293,7 +286,7 @@ namespace OloEngine
 	
 	void Renderer3D::RenderMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material)
 	{
-		OLO_PROFILE_FUNCTION();
+		//OLO_PROFILE_FUNCTION();
 
 		s_Data.LightingShader->Bind();
 		
@@ -476,6 +469,73 @@ namespace OloEngine
 		else
 		{
 			OLO_CORE_WARN("Renderer3D::OnWindowResize: No render graph available!");
+		}
+	}
+
+	void Renderer3D::UpdateCameraMatricesUBO(const glm::mat4& view, const glm::mat4& projection)
+	{
+		//OLO_PROFILE_FUNCTION();
+		
+		struct CameraMatrices
+		{
+			glm::mat4 Projection;
+			glm::mat4 View;
+		};
+		
+		CameraMatrices matrices;
+		matrices.Projection = projection;
+		matrices.View = view;
+		
+		s_Data.CameraMatricesBuffer->SetData(&matrices, sizeof(CameraMatrices));
+	}
+
+	void Renderer3D::DrawSkybox(const Ref<TextureCubemap>& skybox)
+	{
+		//OLO_PROFILE_FUNCTION();
+		
+		// Save current depth function
+		GLint previousDepthFunc;
+		glGetIntegerv(GL_DEPTH_FUNC, &previousDepthFunc);
+		
+		// Change depth function to LEQUAL (so skybox passes depth test at far plane)
+		RenderCommand::SetDepthFunc(GL_LEQUAL);
+		
+		// Disable depth writing
+		RenderCommand::SetDepthMask(false);
+		
+		// Bind skybox shader
+		s_Data.SkyboxShader->Bind();
+		
+		// Update camera matrices UBO (binding 0 in skybox shader)
+		UpdateCameraMatricesUBO(s_Data.ViewMatrix, s_Data.ProjectionMatrix);
+		
+		// Bind skybox texture
+		skybox->Bind(1); // Binding 1 in skybox shader
+		
+		// Draw skybox cube
+		s_Data.SkyboxMesh->Draw();
+		
+		// Restore previous depth function
+		RenderCommand::SetDepthFunc(previousDepthFunc);
+		
+		// Re-enable depth writing
+		RenderCommand::SetDepthMask(true);
+	}
+
+	void Renderer3D::SetSkybox(const Ref<TextureCubemap>& skybox)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		s_Data.Skybox = skybox;
+		
+		// Get the scene render pass and update its skybox
+		if (auto scenePass = std::dynamic_pointer_cast<SceneRenderPass>(s_Data.RGraph->GetPass("ScenePass")))
+		{
+			scenePass->SetSkybox(skybox);
+		}
+		else
+		{
+			OLO_CORE_WARN("Renderer3D::SetSkybox: Failed to get SceneRenderPass!");
 		}
 	}
 }

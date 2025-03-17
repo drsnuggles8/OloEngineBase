@@ -72,6 +72,22 @@ void Sandbox3D::OnAttach()
     m_DiffuseMap = OloEngine::Texture2D::Create("assets/textures/container2.png");
     m_SpecularMap = OloEngine::Texture2D::Create("assets/textures/container2_specular.png");
     m_GrassTexture = OloEngine::Texture2D::Create("assets/textures/grass.png");
+	//m_GrassTexture = OloEngine::Texture2D::Create("assets/textures/skybox/right.jpg");
+    
+    // Load skybox textures
+    std::vector<std::string> skyboxFaces = {
+        "assets/textures/skybox/right.jpg",  // positive x
+        "assets/textures/skybox/left.jpg",   // negative x
+        "assets/textures/skybox/top.jpg",    // positive y
+        "assets/textures/skybox/bottom.jpg", // negative y
+        "assets/textures/skybox/front.jpg",  // positive z
+        "assets/textures/skybox/back.jpg"    // negative z
+    };
+    m_SkyboxTexture = OloEngine::TextureCubemap::Create(skyboxFaces);
+
+    
+    // Set the skybox in the renderer
+    OloEngine::Renderer3D::SetSkybox(m_SkyboxTexture);
     
     // Assign textures to the material
     m_TexturedMaterial.DiffuseMap = m_DiffuseMap;

@@ -174,7 +174,6 @@ namespace OloEngine
         static void Shutdown();
 
         static void BeginScene(const glm::mat4& viewProjectionMatrix);
-		static void BeginScene(const glm::mat4& viewMatrix, const glm::mat4& projectionMatrix, const glm::mat4& viewProjectionMatrix);
         static void EndScene();
 
         static void SubmitMesh(const Ref<Mesh>& mesh, const glm::mat4& transform, const Material& material, bool isStatic = false);
