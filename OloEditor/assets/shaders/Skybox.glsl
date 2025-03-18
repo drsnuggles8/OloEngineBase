@@ -13,9 +13,8 @@ layout(location = 0) out vec3 v_TexCoords;
 void main()
 {
     v_TexCoords = a_Position;
-    mat4 viewNoTranslation = mat4(mat3(u_View)); // Remove translation from the view matrix
-    vec4 pos = u_Projection * viewNoTranslation * vec4(a_Position, 1.0);
-    gl_Position = pos.xyww; // Ensure skybox is rendered at maximum depth
+    vec4 pos = u_Projection * u_View * vec4(a_Position, 1.0);
+    gl_Position = pos.xyww;
 }
 
 #type fragment

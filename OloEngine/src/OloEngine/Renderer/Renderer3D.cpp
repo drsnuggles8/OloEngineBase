@@ -507,7 +507,7 @@ namespace OloEngine
 		s_Data.SkyboxShader->Bind();
 		
 		// Update camera matrices UBO (binding 0 in skybox shader)
-		UpdateCameraMatricesUBO(s_Data.ViewMatrix, s_Data.ProjectionMatrix);
+		UpdateCameraMatricesUBO(glm::mat4(glm::mat3(s_Data.ViewMatrix)), s_Data.ProjectionMatrix);
 		
 		// Bind skybox texture
 		skybox->Bind(1); // Binding 1 in skybox shader
