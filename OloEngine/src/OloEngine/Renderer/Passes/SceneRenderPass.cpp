@@ -52,12 +52,6 @@ namespace OloEngine
         RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
         RenderCommand::Clear();
         
-        // Render skybox first if available
-        if (m_Skybox)
-        {
-            Renderer3D::DrawSkybox(m_Skybox);
-        }
-        
         // Execute the render queue to render all queued objects to this framebuffer
         RenderQueue::Flush();
 

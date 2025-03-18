@@ -52,14 +52,5 @@ namespace OloEngine
          * @brief Reset the pass, recreating any necessary resources.
          */
         void OnReset() override;
-
-        /**
-         * @brief Set the skybox texture to be rendered as the background.
-         * @param skybox The cubemap texture for the skybox
-         */
-        void SetSkybox(const Ref<TextureCubemap>& skybox) { m_Skybox = skybox; }
-
-    private:
-        Ref<TextureCubemap> m_Skybox;
     };
 }

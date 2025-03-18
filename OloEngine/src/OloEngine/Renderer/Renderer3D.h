@@ -32,7 +32,6 @@ namespace OloEngine
 		static void DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = false);
 		static void DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = false);
 		static void DrawLightCube(const glm::mat4& modelMatrix);
-		static void DrawSkybox(const Ref<TextureCubemap>& skybox);
 		
 		// Simple textured quad rendering
 		static void DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
@@ -40,7 +39,6 @@ namespace OloEngine
 		// Light and view setters
 		static void SetLight(const Light& light);
 		static void SetViewPosition(const glm::vec3& position);
-		static void SetSkybox(const Ref<TextureCubemap>& skybox);
 
 		// Frustum culling
 		static void EnableFrustumCulling(bool enable);
@@ -93,11 +91,9 @@ namespace OloEngine
 		{
 			Ref<Mesh> CubeMesh;
 			Ref<Mesh> QuadMesh;
-			Ref<Mesh> SkyboxMesh;
 			Ref<Shader> LightCubeShader;
 			Ref<Shader> LightingShader;
 			Ref<Shader> QuadShader;
-			Ref<Shader> SkyboxShader;
 			Ref<UniformBuffer> UBO;
 			Ref<UniformBuffer> LightPropertiesBuffer;
 			Ref<UniformBuffer> TextureFlagBuffer;
@@ -117,7 +113,6 @@ namespace OloEngine
 			Statistics Stats;
 			
 			Ref<RenderGraph> RGraph;
-			Ref<TextureCubemap> Skybox;
 		};
 		
 		static Renderer3DData s_Data;

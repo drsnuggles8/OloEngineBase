@@ -33,11 +33,9 @@ namespace OloEngine
 	{
 		Ref<Mesh> CubeMesh;
 		Ref<Mesh> QuadMesh;
-		Ref<Mesh> SkyboxMesh;
 		Ref<Shader> LightCubeShader;
 		Ref<Shader> LightingShader;
 		Ref<Shader> QuadShader;
-		Ref<Shader> SkyboxShader;
 		Ref<UniformBuffer> UBO;
 		Ref<UniformBuffer> LightPropertiesBuffer;
 		Ref<UniformBuffer> TextureFlagBuffer;
@@ -69,17 +67,14 @@ namespace OloEngine
 
 		s_Data.CubeMesh = Mesh::CreateCube();
 		s_Data.QuadMesh = Mesh::CreatePlane(1.0f, 1.0f);
-		s_Data.SkyboxMesh = Mesh::CreateSkyboxCube(); // Use skybox-specific cube mesh
 
 		m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
 		m_ShaderLibrary.Load("assets/shaders/Lighting3D.glsl");
 		m_ShaderLibrary.Load("assets/shaders/Renderer3D_Quad.glsl");
-		m_ShaderLibrary.Load("assets/shaders/Skybox.glsl");
 
 		s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
 		s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
 		s_Data.QuadShader = m_ShaderLibrary.Get("Renderer3D_Quad");
-		s_Data.SkyboxShader = m_ShaderLibrary.Get("Skybox");
 
 		s_Data.UBO = UniformBuffer::Create(sizeof(glm::mat4) * 2, 0);
 		s_Data.LightPropertiesBuffer = UniformBuffer::Create(sizeof(glm::vec4) * 12, 1);
@@ -487,55 +482,5 @@ namespace OloEngine
 		matrices.View = view;
 		
 		s_Data.CameraMatricesBuffer->SetData(&matrices, sizeof(CameraMatrices));
-	}
-
-	void Renderer3D::DrawSkybox(const Ref<TextureCubemap>& skybox)
-	{
-		//OLO_PROFILE_FUNCTION();
-		
-		// Save current depth function
-		GLint previousDepthFunc;
-		glGetIntegerv(GL_DEPTH_FUNC, &previousDepthFunc);
-		
-		// Change depth function to LEQUAL (so skybox passes depth test at far plane)
-		RenderCommand::SetDepthFunc(GL_LEQUAL);
-		
-		// Disable depth writing
-		RenderCommand::SetDepthMask(false);
-		
-		// Bind skybox shader
-		s_Data.SkyboxShader->Bind();
-		
-		// Update camera matrices UBO (binding 0 in skybox shader)
-		UpdateCameraMatricesUBO(glm::mat4(glm::mat3(s_Data.ViewMatrix)), s_Data.ProjectionMatrix);
-		
-		// Bind skybox texture
-		skybox->Bind(1); // Binding 1 in skybox shader
-		
-		// Draw skybox cube
-		s_Data.SkyboxMesh->Draw();
-		
-		// Restore previous depth function
-		RenderCommand::SetDepthFunc(previousDepthFunc);
-		
-		// Re-enable depth writing
-		RenderCommand::SetDepthMask(true);
-	}
-
-	void Renderer3D::SetSkybox(const Ref<TextureCubemap>& skybox)
-	{
-		OLO_PROFILE_FUNCTION();
-		
-		s_Data.Skybox = skybox;
-		
-		// Get the scene render pass and update its skybox
-		if (auto scenePass = std::dynamic_pointer_cast<SceneRenderPass>(s_Data.RGraph->GetPass("ScenePass")))
-		{
-			scenePass->SetSkybox(skybox);
-		}
-		else
-		{
-			OLO_CORE_WARN("Renderer3D::SetSkybox: Failed to get SceneRenderPass!");
-		}
 	}
 }

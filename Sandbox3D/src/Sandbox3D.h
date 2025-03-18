@@ -43,9 +43,6 @@ private:
 	OloEngine::Ref<OloEngine::Texture2D> m_DiffuseMap;
 	OloEngine::Ref<OloEngine::Texture2D> m_SpecularMap;
 	OloEngine::Ref<OloEngine::Texture2D> m_GrassTexture;
-	
-	// Skybox texture
-	OloEngine::Ref<OloEngine::TextureCubemap> m_SkyboxTexture;
 
 	// Rotation animation state
 	f32 m_RotationAngleY = 0.0f;
