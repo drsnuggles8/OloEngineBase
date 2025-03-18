@@ -55,8 +55,8 @@
 		"OloEngine/Project/ProjectSerializer.cpp"
 		"OloEngine/Project/ProjectSerializer.h"
 		
-		"OloEngine/Renderer/Buffer.h"
 		"OloEngine/Renderer/BoundingVolume.h"
+		"OloEngine/Renderer/Buffer.h"
 		"OloEngine/Renderer/Font.cpp"
 		"OloEngine/Renderer/Font.h"
 		"OloEngine/Renderer/Framebuffer.cpp"
@@ -76,10 +76,6 @@
 		"OloEngine/Renderer/MSDFData.h"
 		"OloEngine/Renderer/RenderCommand.cpp"
 		"OloEngine/Renderer/RenderCommand.h"
-		"OloEngine/Renderer/RenderQueue.cpp"
-		"OloEngine/Renderer/RenderQueue.h"
-		"OloEngine/Renderer/RenderGraph.cpp"
-		"OloEngine/Renderer/RenderGraph.h"
 		"OloEngine/Renderer/Renderer.cpp"
 		"OloEngine/Renderer/Renderer.h"
 		"OloEngine/Renderer/Renderer2D.cpp"
@@ -88,6 +84,11 @@
 		"OloEngine/Renderer/Renderer3D.h"
 		"OloEngine/Renderer/RendererAPI.cpp"
 		"OloEngine/Renderer/RendererAPI.h"
+		"OloEngine/Renderer/RenderGraph.cpp"
+		"OloEngine/Renderer/RenderGraph.h"
+		"OloEngine/Renderer/RenderQueue.cpp"
+		"OloEngine/Renderer/RenderQueue.h"
+		"OloEngine/Renderer/RenderState.h"
 		"OloEngine/Renderer/Shader.cpp"
 		"OloEngine/Renderer/Shader.h"
 		"OloEngine/Renderer/ShaderLibrary.cpp"
@@ -104,15 +105,6 @@
 		"OloEngine/Renderer/VertexBuffer.cpp"
 		"OloEngine/Renderer/VertexBuffer.h"
 		
-		"OloEngine/Renderer/Debug/RenderGraphDebugger.h"
-		"OloEngine/Renderer/Debug/RenderGraphDebugger.cpp"
-		
-		"OloEngine/Renderer/Passes/RenderPass.h"
-		"OloEngine/Renderer/Passes/FinalRenderPass.h"
-		"OloEngine/Renderer/Passes/FinalRenderPass.cpp"
-		"OloEngine/Renderer/Passes/SceneRenderPass.h"
-		"OloEngine/Renderer/Passes/SceneRenderPass.cpp"
-		
 		"OloEngine/Renderer/Camera/Camera.h"
 		"OloEngine/Renderer/Camera/EditorCamera.cpp"
 		"OloEngine/Renderer/Camera/EditorCamera.h"
@@ -124,6 +116,17 @@
 		"OloEngine/Renderer/Camera/PerspectiveCamera.h"
 		"OloEngine/Renderer/Camera/PerspectiveCameraController.cpp"
 		"OloEngine/Renderer/Camera/PerspectiveCameraController.h"
+		
+		"OloEngine/Renderer/Debug/RenderGraphDebugger.h"
+		"OloEngine/Renderer/Debug/RenderGraphDebugger.cpp"
+		
+		"OloEngine/Renderer/Passes/RenderPass.h"
+		"OloEngine/Renderer/Passes/FinalRenderPass.h"
+		"OloEngine/Renderer/Passes/FinalRenderPass.cpp"
+		"OloEngine/Renderer/Passes/SceneRenderPass.h"
+		"OloEngine/Renderer/Passes/SceneRenderPass.cpp"
+		
+		"OloEngine/Renderer/RenderCommands/RenderCommandBase.h"
 
 		"OloEngine/Scene/Components.h"
 		"OloEngine/Scene/Entity.cpp"

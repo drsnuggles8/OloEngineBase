@@ -114,7 +114,6 @@ namespace OloEngine
 
 	void Renderer3D::BeginScene(const PerspectiveCamera& camera)
 	{
-		//BeginScene(camera.GetView(), camera.GetProjection(), camera.GetViewProjection());
 		s_Data.ViewMatrix = camera.GetView();
 		s_Data.ProjectionMatrix = camera.GetProjection();
 		s_Data.ViewProjectionMatrix = camera.GetViewProjection();
@@ -184,8 +183,6 @@ namespace OloEngine
 
 	bool Renderer3D::IsVisibleInFrustum(const Ref<Mesh>& mesh, const glm::mat4& transform)
 	{
-		//OLO_PROFILE_FUNCTION();
-		
 		if (!s_Data.FrustumCullingEnabled)
 			return true;
 		
@@ -197,8 +194,6 @@ namespace OloEngine
 	
 	bool Renderer3D::IsVisibleInFrustum(const BoundingSphere& sphere)
 	{
-		//OLO_PROFILE_FUNCTION();
-		
 		if (!s_Data.FrustumCullingEnabled)
 			return true;
 		
@@ -210,8 +205,6 @@ namespace OloEngine
 	
 	bool Renderer3D::IsVisibleInFrustum(const BoundingBox& box)
 	{
-		//OLO_PROFILE_FUNCTION();
-		
 		if (!s_Data.FrustumCullingEnabled)
 			return true;
 		
@@ -230,11 +223,9 @@ namespace OloEngine
 
 	void Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic)
 	{
-		//OLO_PROFILE_FUNCTION();
-		
 		if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
 		{
-			s_Data.Stats.TotalMeshes++; // Only count meshes that go through frustum culling
+			s_Data.Stats.TotalMeshes++;
 			if (!IsVisibleInFrustum(mesh, modelMatrix))
 			{
 				s_Data.Stats.CulledMeshes++;
@@ -247,8 +238,6 @@ namespace OloEngine
 
 	void Renderer3D::DrawLightCube(const glm::mat4& modelMatrix)
 	{
-		//OLO_PROFILE_FUNCTION();
-
 		s_Data.LightCubeShader->Bind();
 
 		UpdateTransformUBO(modelMatrix);
@@ -258,8 +247,6 @@ namespace OloEngine
 
 	void Renderer3D::RenderMeshInternal(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material)
 	{
-		//OLO_PROFILE_FUNCTION();
-		
 		s_Data.LightingShader->Bind();
 		
 		UpdateTransformUBO(modelMatrix);
@@ -281,11 +268,9 @@ namespace OloEngine
 	
 	void Renderer3D::RenderMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material)
 	{
-		//OLO_PROFILE_FUNCTION();
-
 		s_Data.LightingShader->Bind();
 		
-			s_Data.UBO->SetData(&s_Data.ViewProjectionMatrix, sizeof(glm::mat4));
+		s_Data.UBO->SetData(&s_Data.ViewProjectionMatrix, sizeof(glm::mat4));
 		
 		UpdateLightPropertiesUBO(material);
 		UpdateTextureFlag(material);
@@ -469,8 +454,6 @@ namespace OloEngine
 
 	void Renderer3D::UpdateCameraMatricesUBO(const glm::mat4& view, const glm::mat4& projection)
 	{
-		//OLO_PROFILE_FUNCTION();
-		
 		struct CameraMatrices
 		{
 			glm::mat4 Projection;
