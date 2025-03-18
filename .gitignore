@@ -58,3 +58,4 @@ OloEngine/vendor/*
 /.vscode/tasks.json
 out/build/x64-Debug/VSInheritEnvironments.txt
 .gitignore
+/debug.cap
