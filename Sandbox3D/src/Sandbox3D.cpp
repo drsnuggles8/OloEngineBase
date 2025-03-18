@@ -161,7 +161,6 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 
 		// Draw ground plane
 		{
-			// Ground plane is static - it doesn't move
 			auto planeMatrix = glm::mat4(1.0f);
 			planeMatrix = glm::translate(planeMatrix, glm::vec3(0.0f, -1.0f, 0.0f));
 			OloEngine::Material planeMaterial;
@@ -169,12 +168,11 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 			planeMaterial.Diffuse = glm::vec3(0.3f);
 			planeMaterial.Specular = glm::vec3(0.2f);
 			planeMaterial.Shininess = 8.0f;
-			OloEngine::Renderer3D::DrawMesh(m_PlaneMesh, planeMatrix, planeMaterial, true); // Mark as static
+			OloEngine::Renderer3D::DrawMesh(m_PlaneMesh, planeMatrix, planeMaterial, true);
 		}
 
 		// Draw a grass quad
 		{
-			// Grass quad is static - it doesn't move
 			auto grassMatrix = glm::mat4(1.0f);
 			grassMatrix = glm::translate(grassMatrix, glm::vec3(0.0f, 0.5f, -1.0f));
 			// Make it face the camera by rotating around X axis
@@ -193,37 +191,38 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 
 		// Draw cubes with stencil testing
 		{
-			// Enable stencil testing and set stencil function
-			OloEngine::RenderCommand::EnableStencilTest();
-			OloEngine::RenderCommand::SetStencilFunc(GL_ALWAYS, 1, 0xFF);
-			OloEngine::RenderCommand::SetStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
-
-			// Draw the center gold cube and write to the stencil buffer
-			OloEngine::RenderCommand::SetStencilMask(0xFF);
+			 // Clear stencil and configure for base mesh
 			OloEngine::RenderCommand::ClearStencil();
+			OloEngine::RenderCommand::SetStencilMask(0xFF);
+			
+			// Draw the base gold cube
 			auto modelMatrix = glm::mat4(1.0f);
 			modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX), glm::vec3(1.0f, 0.0f, 0.0f));
 			modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
 			OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, m_GoldMaterial);
 
-			// Disable writing to the stencil buffer
+			// Configure stencil for outline - only draw where stencil is not 1
+			OloEngine::RenderCommand::SetStencilFunc(GL_NOTEQUAL, 1, 0xFF);
 			OloEngine::RenderCommand::SetStencilMask(0x00);
+			OloEngine::RenderCommand::SetStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
 
 			// Draw the outline
-			OloEngine::RenderCommand::SetStencilFunc(GL_NOTEQUAL, 1, 0xFF);
 			OloEngine::RenderCommand::SetLineWidth(3.0f);
+			OloEngine::RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+			
 			auto outlineMatrix = glm::scale(modelMatrix, glm::vec3(1.1f));
 			OloEngine::Material outlineMaterial;
-			outlineMaterial.Ambient = glm::vec3(1.0f, 1.0f, 0.0f); // Yellow outline
+			outlineMaterial.Ambient = glm::vec3(1.0f, 1.0f, 0.0f);
 			outlineMaterial.Diffuse = glm::vec3(1.0f, 1.0f, 0.0f);
 			outlineMaterial.Specular = glm::vec3(0.0f);
 			outlineMaterial.Shininess = 1.0f;
 			OloEngine::Renderer3D::DrawMesh(m_CubeMesh, outlineMatrix, outlineMaterial);
 
-			// Reset stencil settings
+			// Reset states back to renderer defaults
+			OloEngine::RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 			OloEngine::RenderCommand::SetStencilFunc(GL_ALWAYS, 1, 0xFF);
 			OloEngine::RenderCommand::SetStencilMask(0xFF);
-			OloEngine::RenderCommand::DisableStencilTest();
+			OloEngine::RenderCommand::SetStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
 		}
 
 		// Draw other objects

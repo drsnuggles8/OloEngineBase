@@ -63,7 +63,7 @@ namespace OloEngine
 	void Renderer3D::Init()
 	{
 		OLO_PROFILE_FUNCTION();
-		OLO_CORE_INFO("Initializing Renderer3D");
+		OLO_CORE_INFO("Initializing Renderer3D.");
 
 		s_Data.CubeMesh = Mesh::CreateCube();
 		s_Data.QuadMesh = Mesh::CreatePlane(1.0f, 1.0f);
@@ -96,20 +96,20 @@ namespace OloEngine
 		s_Data.RGraph = CreateRef<RenderGraph>();
 		SetupRenderGraph(window.GetFramebufferWidth(), window.GetFramebufferHeight());
 		
-		OLO_CORE_INFO("Renderer3D initialization complete");
+		OLO_CORE_INFO("Renderer3D initialization complete.");
 	}
 
 	void Renderer3D::Shutdown()
 	{
 		OLO_PROFILE_FUNCTION();
-		OLO_CORE_INFO("Shutting down Renderer3D");
+		OLO_CORE_INFO("Shutting down Renderer3D.");
 		
 		// Shutdown the render graph
 		if (s_Data.RGraph)
 			s_Data.RGraph->Shutdown();
 		
 		RenderQueue::Shutdown();
-		OLO_CORE_INFO("Renderer3D shutdown complete");
+		OLO_CORE_INFO("Renderer3D shutdown complete.");
 	}
 
 	void Renderer3D::BeginScene(const PerspectiveCamera& camera)
