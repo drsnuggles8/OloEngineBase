@@ -115,6 +115,13 @@ namespace OloEngine
 
 		glDisable(GL_CULL_FACE);
 	}
+	
+	void OpenGLRendererAPI::SetCullFace(GLenum face)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		glCullFace(face);
+	}
 
 	void OpenGLRendererAPI::FrontCull()
 	{

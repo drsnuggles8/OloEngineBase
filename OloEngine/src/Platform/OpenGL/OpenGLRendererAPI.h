@@ -24,6 +24,7 @@ namespace OloEngine
 
 		void EnableCulling() override;
 		void DisableCulling() override;
+		void SetCullFace(GLenum face) override;
 		void FrontCull() override;
 		void BackCull() override;
 		void SetDepthMask(bool value) override;

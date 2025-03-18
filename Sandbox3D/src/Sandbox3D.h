@@ -27,6 +27,7 @@ private:
 	void RenderPointLightUI();
 	void RenderSpotlightUI();
     void RenderGraphDebuggerUI();
+    void RenderStateTestObjects(f32 rotationAngle);
 
 private:
 	OloEngine::PerspectiveCameraController m_CameraController;
@@ -88,4 +89,10 @@ private:
     // Render Graph Debugger
     OloEngine::RenderGraphDebugger m_RenderGraphDebugger;
     bool m_RenderGraphDebuggerOpen = false;
+
+    // State testing settings
+    bool m_EnableStateTest = true;
+    i32 m_StateTestMode = 0;
+    const char* m_StateTestModes[4] = { "Wireframe", "Alpha Blend", "Polygon Offset", "All Effects" };
+    bool m_UseQueuedStateChanges = true;
 };

@@ -34,6 +34,7 @@ namespace OloEngine
 		virtual void DisableCulling() = 0;
 		virtual void FrontCull() = 0;
 		virtual void BackCull() = 0;
+		virtual void SetCullFace(GLenum face) = 0;
 		virtual void SetDepthMask(bool value) = 0;
 		virtual void SetDepthTest(bool value) = 0;
 		virtual void SetDepthFunc(GLenum func) = 0;

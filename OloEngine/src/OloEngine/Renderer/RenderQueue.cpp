@@ -9,8 +9,10 @@ namespace OloEngine
     std::vector<Ref<RenderCommandBase>> RenderQueue::s_CommandQueue;
     std::queue<Ref<DrawMeshCommand>> RenderQueue::s_MeshCommandPool;
     std::queue<Ref<DrawQuadCommand>> RenderQueue::s_QuadCommandPool;
+    std::queue<Ref<StateChangeCommand>> RenderQueue::s_StateCommandPool;
     RenderQueue::Statistics RenderQueue::s_Stats;
     RenderQueue::Config RenderQueue::s_Config;
+    RenderState RenderQueue::s_CurrentState;
 
     void RenderQueue::Init(const Config& config)
     {
@@ -22,7 +24,11 @@ namespace OloEngine
         {
             s_MeshCommandPool.push(CreateRef<DrawMeshCommand>());
             s_QuadCommandPool.push(CreateRef<DrawQuadCommand>());
+            s_StateCommandPool.push(CreateRef<StateChangeCommand>());
         }
+        
+        // Initialize default state
+        InitializeDefaultState();
     }
 
     void RenderQueue::Shutdown()
@@ -34,6 +40,8 @@ namespace OloEngine
             s_MeshCommandPool.pop();
         while (!s_QuadCommandPool.empty())
             s_QuadCommandPool.pop();
+        while (!s_StateCommandPool.empty())
+            s_StateCommandPool.pop();
     }
 
     void RenderQueue::BeginScene(const glm::mat4& viewProjectionMatrix)
@@ -50,13 +58,25 @@ namespace OloEngine
 
     void RenderQueue::GrowCommandPool(CommandType type)
     {
-        if (type == CommandType::Mesh && s_MeshCommandPool.size() < s_Config.MaxPoolSize)
+        switch (type)
         {
-            s_MeshCommandPool.push(CreateRef<DrawMeshCommand>());
-        }
-        else if (type == CommandType::Quad && s_QuadCommandPool.size() < s_Config.MaxPoolSize)
-        {
-            s_QuadCommandPool.push(CreateRef<DrawQuadCommand>());
+            case CommandType::Mesh:
+                if (s_MeshCommandPool.size() < s_Config.MaxPoolSize)
+                    s_MeshCommandPool.push(CreateRef<DrawMeshCommand>());
+                break;
+                
+            case CommandType::Quad:
+                if (s_QuadCommandPool.size() < s_Config.MaxPoolSize)
+                    s_QuadCommandPool.push(CreateRef<DrawQuadCommand>());
+                break;
+                
+            case CommandType::StateChange:
+                if (s_StateCommandPool.size() < s_Config.MaxPoolSize)
+                    s_StateCommandPool.push(CreateRef<StateChangeCommand>());
+                break;
+                
+            default:
+                break;
         }
     }
 
@@ -92,6 +112,20 @@ namespace OloEngine
                 return CreateRef<DrawQuadCommand>();
             }
             
+            case CommandType::StateChange:
+            {
+                if (!s_StateCommandPool.empty())
+                {
+                    auto command = s_StateCommandPool.front();
+                    s_StateCommandPool.pop();
+                    s_Stats.PoolHits++;
+                    return command;
+                }
+                s_Stats.PoolMisses++;
+                GrowCommandPool(type);
+                return CreateRef<StateChangeCommand>();
+            }
+            
             default:
                 return nullptr;
         }
@@ -112,6 +146,10 @@ namespace OloEngine
             
             case CommandType::Quad:
                 s_QuadCommandPool.push(std::static_pointer_cast<DrawQuadCommand>(command));
+                break;
+                
+            case CommandType::StateChange:
+                s_StateCommandPool.push(std::static_pointer_cast<StateChangeCommand>(command));
                 break;
             
             default:
@@ -165,32 +203,80 @@ namespace OloEngine
         
         s_CommandQueue.clear();
         s_Stats.CommandCount = 0;
+        s_Stats.StateCommandCount = 0;
     }
 
     void RenderQueue::SortCommands()
     {
-        std::sort(s_CommandQueue.begin(), s_CommandQueue.end(),
-            [](const Ref<RenderCommandBase>& a, const Ref<RenderCommandBase>& b) {
-                if (a->GetType() != b->GetType())
-                    return a->GetType() < b->GetType();
-                
-                if (a->GetType() == CommandType::Mesh)
+        // First, let's partition the queue into groups that maintain their relative order
+        std::vector<std::vector<Ref<RenderCommandBase>>> commandGroups;
+        
+        // Group by successive state changes followed by draw calls
+        std::vector<Ref<RenderCommandBase>> currentGroup;
+        CommandType lastType = CommandType::StateChange; // Start with state change as the initial group type
+        
+        for (const auto& cmd : s_CommandQueue)
+        {
+            // If we encounter a different command type than the last one, 
+            // start a new group (except for the first command)
+            if (!currentGroup.empty() && 
+                ((lastType == CommandType::StateChange && cmd->GetType() != CommandType::StateChange) ||
+                 (lastType != CommandType::StateChange && cmd->GetType() == CommandType::StateChange)))
+            {
+                commandGroups.push_back(std::move(currentGroup));
+                currentGroup.clear();
+            }
+            
+            currentGroup.push_back(cmd);
+            lastType = cmd->GetType();
+        }
+        
+        // Add the last group if it's not empty
+        if (!currentGroup.empty())
+        {
+            commandGroups.push_back(std::move(currentGroup));
+        }
+        
+        // Now sort each group internally
+        for (auto& group : commandGroups)
+        {
+            // Only sort within groups of the same command type
+            if (!group.empty())
+            {
+                if (group[0]->GetType() == CommandType::StateChange)
                 {
-                    auto meshA = std::static_pointer_cast<DrawMeshCommand>(a);
-                    auto meshB = std::static_pointer_cast<DrawMeshCommand>(b);
-                    
-                    if (meshA->IsStatic() != meshB->IsStatic())
-                        return meshA->IsStatic() > meshB->IsStatic();
+                    // For state changes, sort by state type to minimize state transitions
+                    std::stable_sort(group.begin(), group.end(),
+                        [](const Ref<RenderCommandBase>& a, const Ref<RenderCommandBase>& b) {
+                            return a->GetStateChangeKey() < b->GetStateChangeKey();
+                        });
                 }
-                
-                if (a->GetShaderKey() != b->GetShaderKey())
-                    return a->GetShaderKey() < b->GetShaderKey();
-                
-                if (a->GetMaterialKey() != b->GetMaterialKey())
-                    return a->GetMaterialKey() < b->GetMaterialKey();
-                
-                return a->GetTextureKey() < b->GetTextureKey();
-            });
+                else
+                {
+                    // For draw commands, sort to minimize state changes
+                    std::stable_sort(group.begin(), group.end(),
+                        [](const Ref<RenderCommandBase>& a, const Ref<RenderCommandBase>& b) {
+                            if (a->GetShaderKey() != b->GetShaderKey())
+                                return a->GetShaderKey() < b->GetShaderKey();
+                            
+                            if (a->GetMaterialKey() != b->GetMaterialKey())
+                                return a->GetMaterialKey() < b->GetMaterialKey();
+                            
+                            return a->GetTextureKey() < b->GetTextureKey();
+                        });
+                }
+            }
+        }
+        
+        // Rebuild the command queue from the sorted groups
+        s_CommandQueue.clear();
+        for (auto& group : commandGroups)
+        {
+            for (auto& cmd : group)
+            {
+                s_CommandQueue.push_back(std::move(cmd));
+            }
+        }
     }
 
     void RenderQueue::BatchCommands()
@@ -201,26 +287,37 @@ namespace OloEngine
         std::vector<Ref<RenderCommandBase>> batchedCommands;
         batchedCommands.reserve(s_CommandQueue.size());
 
+        // We need to be careful not to batch across different command types
+        // and respect the order of state changes
         for (sizet i = 0; i < s_CommandQueue.size();)
         {
             auto current = s_CommandQueue[i];
             sizet batchSize = 1;
-
-            // Try to merge with subsequent commands
-            while (batchSize < s_Config.MaxBatchSize && i + batchSize < s_CommandQueue.size())
+            
+            // Only try merging for draw commands, not state changes
+            if (current->GetType() != CommandType::StateChange && s_Config.EnableMerging)
             {
-                auto next = s_CommandQueue[i + batchSize];
-                if (!current->CanBatchWith(*next))
-                    break;
+                // Try to merge with subsequent commands
+                while (batchSize < s_Config.MaxBatchSize && i + batchSize < s_CommandQueue.size())
+                {
+                    auto next = s_CommandQueue[i + batchSize];
+                    
+                    // Don't cross state change boundaries
+                    if (next->GetType() == CommandType::StateChange)
+                        break;
+                        
+                    if (!current->CanBatchWith(*next))
+                        break;
 
-                if (s_Config.EnableMerging && current->MergeWith(*next))
-                {
-                    s_Stats.MergedCommands++;
-                    batchSize++;
-                }
-                else
-                {
-                    break;
+                    if (current->MergeWith(*next))
+                    {
+                        s_Stats.MergedCommands++;
+                        batchSize++;
+                    }
+                    else
+                    {
+                        break;
+                    }
                 }
             }
 
@@ -244,6 +341,14 @@ namespace OloEngine
         
         for (const auto& command : s_CommandQueue)
         {
+            if (command->GetType() == CommandType::StateChange)
+            {
+                // Execute state change commands directly
+                command->Execute();
+                continue;
+            }
+            
+            // For drawing commands, track state changes
             bool stateChanged = false;
             
             if (command->GetShaderKey() != currentShaderKey)
@@ -282,6 +387,274 @@ namespace OloEngine
     RenderQueue::Statistics RenderQueue::GetStats()
     {
         return s_Stats;
+    }
+
+    // State tracking implementation
+    bool RenderQueue::IsRedundantStateChange(const RenderStateBase& state)
+    {
+        switch (state.Type)
+        {
+            case StateType::Blend:
+                return *static_cast<const BlendState*>(&state) == s_CurrentState.Blend;
+                
+            case StateType::Depth:
+                return *static_cast<const DepthState*>(&state) == s_CurrentState.Depth;
+                
+            case StateType::Stencil:
+                return *static_cast<const StencilState*>(&state) == s_CurrentState.Stencil;
+                
+            case StateType::Culling:
+                return *static_cast<const CullingState*>(&state) == s_CurrentState.Culling;
+                
+            case StateType::LineWidth:
+                return *static_cast<const LineWidthState*>(&state) == s_CurrentState.LineWidth;
+                
+            case StateType::PolygonMode:
+                return *static_cast<const PolygonModeState*>(&state) == s_CurrentState.PolygonMode;
+                
+            case StateType::Scissor:
+                return *static_cast<const ScissorState*>(&state) == s_CurrentState.Scissor;
+                
+            case StateType::ColorMask:
+                return *static_cast<const ColorMaskState*>(&state) == s_CurrentState.ColorMask;
+                
+            case StateType::PolygonOffset:
+                return *static_cast<const PolygonOffsetState*>(&state) == s_CurrentState.PolygonOffset;
+                
+            case StateType::Multisampling:
+                return *static_cast<const MultisamplingState*>(&state) == s_CurrentState.Multisampling;
+                
+            default:
+                return false;
+        }
+    }
+
+    void RenderQueue::UpdateCurrentState(const RenderStateBase& state)
+    {
+        switch (state.Type)
+        {
+            case StateType::Blend:
+                s_CurrentState.Blend = *static_cast<const BlendState*>(&state);
+                break;
+                
+            case StateType::Depth:
+                s_CurrentState.Depth = *static_cast<const DepthState*>(&state);
+                break;
+                
+            case StateType::Stencil:
+                s_CurrentState.Stencil = *static_cast<const StencilState*>(&state);
+                break;
+                
+            case StateType::Culling:
+                s_CurrentState.Culling = *static_cast<const CullingState*>(&state);
+                break;
+                
+            case StateType::LineWidth:
+                s_CurrentState.LineWidth = *static_cast<const LineWidthState*>(&state);
+                break;
+                
+            case StateType::PolygonMode:
+                s_CurrentState.PolygonMode = *static_cast<const PolygonModeState*>(&state);
+                break;
+                
+            case StateType::Scissor:
+                s_CurrentState.Scissor = *static_cast<const ScissorState*>(&state);
+                break;
+                
+            case StateType::ColorMask:
+                s_CurrentState.ColorMask = *static_cast<const ColorMaskState*>(&state);
+                break;
+                
+            case StateType::PolygonOffset:
+                s_CurrentState.PolygonOffset = *static_cast<const PolygonOffsetState*>(&state);
+                break;
+                
+            case StateType::Multisampling:
+                s_CurrentState.Multisampling = *static_cast<const MultisamplingState*>(&state);
+                break;
+                
+            default:
+                break;
+        }
+    }
+
+    void RenderQueue::InitializeDefaultState()
+    {
+        // Initialize with OpenGL defaults
+        s_CurrentState.Blend.Enabled = false;
+        s_CurrentState.Blend.SrcFactor = GL_ONE;
+        s_CurrentState.Blend.DstFactor = GL_ZERO;
+        s_CurrentState.Blend.Equation = GL_FUNC_ADD;
+        
+        s_CurrentState.Depth.TestEnabled = false;
+        s_CurrentState.Depth.WriteMask = true;
+        s_CurrentState.Depth.Function = GL_LESS;
+        
+        s_CurrentState.Stencil.Enabled = false;
+        s_CurrentState.Stencil.Function = GL_ALWAYS;
+        s_CurrentState.Stencil.Reference = 0;
+        s_CurrentState.Stencil.ReadMask = 0xFF;
+        s_CurrentState.Stencil.WriteMask = 0xFF;
+        s_CurrentState.Stencil.StencilFail = GL_KEEP;
+        s_CurrentState.Stencil.DepthFail = GL_KEEP;
+        s_CurrentState.Stencil.DepthPass = GL_KEEP;
+        
+        s_CurrentState.Culling.Enabled = false;
+        s_CurrentState.Culling.Face = GL_BACK;
+        
+        s_CurrentState.LineWidth.Width = 1.0f;
+        
+        s_CurrentState.PolygonMode.Face = GL_FRONT_AND_BACK;
+        s_CurrentState.PolygonMode.Mode = GL_FILL;
+        
+        s_CurrentState.Scissor.Enabled = false;
+        
+        s_CurrentState.ColorMask.Red = true;
+        s_CurrentState.ColorMask.Green = true;
+        s_CurrentState.ColorMask.Blue = true;
+        s_CurrentState.ColorMask.Alpha = true;
+        
+        s_CurrentState.PolygonOffset.Enabled = false;
+        s_CurrentState.PolygonOffset.Factor = 0.0f;
+        s_CurrentState.PolygonOffset.Units = 0.0f;
+        
+        s_CurrentState.Multisampling.Enabled = true;
+    }
+
+    bool StateChangeCommand::CanBatchWith(const RenderCommandBase& other) const
+    {
+        if (other.GetType() != CommandType::StateChange)
+            return false;
+
+        // State commands with the same state type can potentially be batched
+        auto& otherState = static_cast<const StateChangeCommand&>(other);
+        return m_StateType == otherState.GetStateType();
+    }
+
+    bool StateChangeCommand::MergeWith(const RenderCommandBase& other)
+    {
+        // We don't merge different state commands, we will simply use the latest one
+        return false;
+    }
+
+    void StateChangeCommand::Execute()
+    {
+        if (!m_State)
+            return;
+
+        auto& rendererAPI = RenderCommand::GetRendererAPI();
+        
+        switch (m_StateType)
+        {
+            case StateType::Blend:
+            {
+                auto& state = static_cast<const BlendState&>(*m_State);
+                rendererAPI.SetBlendState(state.Enabled);
+                if (state.Enabled)
+                {
+                    rendererAPI.SetBlendFunc(state.SrcFactor, state.DstFactor);
+                    rendererAPI.SetBlendEquation(state.Equation);
+                }
+                break;
+            }
+            
+            case StateType::Depth:
+            {
+                auto& state = static_cast<const DepthState&>(*m_State);
+                rendererAPI.SetDepthTest(state.TestEnabled);
+                rendererAPI.SetDepthMask(state.WriteMask);
+                rendererAPI.SetDepthFunc(state.Function);
+                break;
+            }
+            
+            case StateType::Stencil:
+            {
+                auto& state = static_cast<const StencilState&>(*m_State);
+                if (state.Enabled)
+                    rendererAPI.EnableStencilTest();
+                else
+                    rendererAPI.DisableStencilTest();
+                
+                rendererAPI.SetStencilFunc(state.Function, state.Reference, state.ReadMask);
+                rendererAPI.SetStencilMask(state.WriteMask);
+                rendererAPI.SetStencilOp(state.StencilFail, state.DepthFail, state.DepthPass);
+                break;
+            }
+            
+            case StateType::Culling:
+            {
+                auto& state = static_cast<const CullingState&>(*m_State);
+                if (state.Enabled)
+                {
+                    rendererAPI.EnableCulling();
+                    rendererAPI.SetCullFace(state.Face);
+                }
+                else
+                {
+                    rendererAPI.DisableCulling();
+                }
+                break;
+            }
+            
+            case StateType::LineWidth:
+            {
+                auto& state = static_cast<const LineWidthState&>(*m_State);
+                rendererAPI.SetLineWidth(state.Width);
+                break;
+            }
+            
+            case StateType::PolygonMode:
+            {
+                auto& state = static_cast<const PolygonModeState&>(*m_State);
+                rendererAPI.SetPolygonMode(state.Face, state.Mode);
+                break;
+            }
+            
+            case StateType::Scissor:
+            {
+                auto& state = static_cast<const ScissorState&>(*m_State);
+                if (state.Enabled)
+                {
+                    rendererAPI.EnableScissorTest();
+                    rendererAPI.SetScissorBox(state.X, state.Y, state.Width, state.Height);
+                }
+                else
+                {
+                    rendererAPI.DisableScissorTest();
+                }
+                break;
+            }
+            
+            case StateType::ColorMask:
+            {
+                auto& state = static_cast<const ColorMaskState&>(*m_State);
+                rendererAPI.SetColorMask(state.Red, state.Green, state.Blue, state.Alpha);
+                break;
+            }
+            
+            case StateType::PolygonOffset:
+            {
+                auto& state = static_cast<const PolygonOffsetState&>(*m_State);
+                if (state.Enabled)
+                    rendererAPI.SetPolygonOffset(state.Factor, state.Units);
+                else
+                    rendererAPI.SetPolygonOffset(0.0f, 0.0f);
+                break;
+            }
+            
+            case StateType::Multisampling:
+            {
+                auto& state = static_cast<const MultisamplingState&>(*m_State);
+                if (state.Enabled)
+                    rendererAPI.EnableMultisampling();
+                else
+                    rendererAPI.DisableMultisampling();
+                break;
+            }
+            
+            default:
+                break;
+        }
     }
 
     void DrawMeshCommand::Execute()
@@ -405,4 +778,4 @@ namespace OloEngine
         m_BatchSize += otherQuad.m_BatchSize;
         return true;
     }
-} 
+}

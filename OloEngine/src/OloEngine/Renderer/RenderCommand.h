@@ -1,6 +1,8 @@
 #pragma once
 
 #include "OloEngine/Renderer/RendererAPI.h"
+#include "OloEngine/Renderer/RenderQueue.h"
+#include "OloEngine/Renderer/RenderState.h"
 
 #include <glad/gl.h>
 
@@ -51,95 +53,139 @@ namespace OloEngine
 
 		static void SetLineWidth(const f32 width)
 		{
-			s_RendererAPI->SetLineWidth(width);
+			LineWidthState state;
+			state.Width = width;
+			RenderQueue::SubmitStateChange(state);
 		}
 
 		static void EnableCulling()
 		{
-			s_RendererAPI->EnableCulling();
+			CullingState state;
+			state.Enabled = true;
+			state.Face = GL_BACK; // Default back face culling
+			RenderQueue::SubmitStateChange(state);
 		}
 
 		static void DisableCulling()
 		{
-			s_RendererAPI->DisableCulling();
+			CullingState state;
+			state.Enabled = false;
+			RenderQueue::SubmitStateChange(state);
 		}
 
 		static void FrontCull()
 		{
-			s_RendererAPI->FrontCull();
+			CullingState state;
+			state.Enabled = true;
+			state.Face = GL_FRONT;
+			RenderQueue::SubmitStateChange(state);
 		}
 
 		static void BackCull()
 		{
-			s_RendererAPI->BackCull();
+			CullingState state;
+			state.Enabled = true;
+			state.Face = GL_BACK;
+			RenderQueue::SubmitStateChange(state);
 		}
 
 		// Depth
 		static void SetDepthMask(bool value)
 		{
-			s_RendererAPI->SetDepthMask(value);
+			DepthState state = GetCurrentDepthState();
+			state.WriteMask = value;
+			RenderQueue::SubmitStateChange(state);
 		}
 
 		static void SetDepthTest(bool value)
 		{
-			s_RendererAPI->SetDepthTest(value);
+			DepthState state = GetCurrentDepthState();
+			state.TestEnabled = value;
+			RenderQueue::SubmitStateChange(state);
 		}
 
 		static void SetDepthFunc(GLenum func)
 		{
-			s_RendererAPI->SetDepthFunc(func);
+			DepthState state = GetCurrentDepthState();
+			state.Function = func;
+			RenderQueue::SubmitStateChange(state);
 		}
 
 		// Blending
 		static void EnableBlending()
 		{
-			s_RendererAPI->SetBlendState(true);
+			BlendState state = GetCurrentBlendState();
+			state.Enabled = true;
+			RenderQueue::SubmitStateChange(state);
 		}
 		
 		static void DisableBlending()
 		{
-			s_RendererAPI->SetBlendState(false);
+			BlendState state = GetCurrentBlendState();
+			state.Enabled = false;
+			RenderQueue::SubmitStateChange(state);
 		}
 
 		static void SetBlendState(bool value)
 		{
-			s_RendererAPI->SetBlendState(value);
+			BlendState state = GetCurrentBlendState();
+			state.Enabled = value;
+			RenderQueue::SubmitStateChange(state);
 		}
 
 		static void SetBlendFunc(GLenum sfactor, GLenum dfactor)
 		{
-			s_RendererAPI->SetBlendFunc(sfactor, dfactor);
+			BlendState state = GetCurrentBlendState();
+			state.SrcFactor = sfactor;
+			state.DstFactor = dfactor;
+			RenderQueue::SubmitStateChange(state);
 		}
 
 		static void SetBlendEquation(GLenum mode)
 		{
-			s_RendererAPI->SetBlendEquation(mode);
+			BlendState state = GetCurrentBlendState();
+			state.Equation = mode;
+			RenderQueue::SubmitStateChange(state);
 		}
 
 		// Stencil
 		static void EnableStencilTest()
 		{
-			s_RendererAPI->EnableStencilTest();
+			StencilState state = GetCurrentStencilState();
+			state.Enabled = true;
+			RenderQueue::SubmitStateChange(state);
 		}
 
 		static void DisableStencilTest()
 		{
-			s_RendererAPI->DisableStencilTest();
+			StencilState state = GetCurrentStencilState();
+			state.Enabled = false;
+			RenderQueue::SubmitStateChange(state);
 		}
 
 		static void SetStencilFunc(GLenum func, GLint ref, GLuint mask)
 		{
-			s_RendererAPI->SetStencilFunc(func, ref, mask);
+			StencilState state = GetCurrentStencilState();
+			state.Function = func;
+			state.Reference = ref;
+			state.ReadMask = mask;
+			RenderQueue::SubmitStateChange(state);
 		}
 
 		static void SetStencilOp(GLenum sfail, GLenum dpfail, GLenum dppass)
 		{
-			s_RendererAPI->SetStencilOp(sfail, dpfail, dppass);
+			StencilState state = GetCurrentStencilState();
+			state.StencilFail = sfail;
+			state.DepthFail = dpfail;
+			state.DepthPass = dppass;
+			RenderQueue::SubmitStateChange(state);
 		}
 		
 		static void SetStencilMask(GLuint mask)
 		{
-			s_RendererAPI->SetStencilMask(mask);
+			StencilState state = GetCurrentStencilState();
+			state.WriteMask = mask;
+			RenderQueue::SubmitStateChange(state);
 		}
 
 		static void ClearStencil()
@@ -149,22 +195,35 @@ namespace OloEngine
 
 		static void SetPolygonMode(GLenum face, GLenum mode)
 		{
-			s_RendererAPI->SetPolygonMode(face, mode);
+			PolygonModeState state;
+			state.Face = face;
+			state.Mode = mode;
+			RenderQueue::SubmitStateChange(state);
 		}
 
 		static void EnableScissorTest()
 		{
-			s_RendererAPI->EnableScissorTest();
+			ScissorState state = GetCurrentScissorState();
+			state.Enabled = true;
+			RenderQueue::SubmitStateChange(state);
 		}
 
 		static void DisableScissorTest()
 		{
-			s_RendererAPI->DisableScissorTest();
+			ScissorState state = GetCurrentScissorState();
+			state.Enabled = false;
+			RenderQueue::SubmitStateChange(state);
 		}
 
 		static void SetScissorBox(GLint x, GLint y, GLsizei width, GLsizei height)
 		{
-			s_RendererAPI->SetScissorBox(x, y, width, height);
+			ScissorState state = GetCurrentScissorState();
+			state.Enabled = true;
+			state.X = x;
+			state.Y = y;
+			state.Width = width;
+			state.Height = height;
+			RenderQueue::SubmitStateChange(state);
 		}
 		
 		static void BindDefaultFramebuffer()
@@ -175,29 +234,66 @@ namespace OloEngine
 		static void BindTexture(u32 slot, u32 textureID)
 		{
 			s_RendererAPI->BindTexture(slot, textureID);
-			}
+		}
 
 		static void SetPolygonOffset(f32 factor, f32 units)
 		{
-			s_RendererAPI->SetPolygonOffset(factor, units);
+			PolygonOffsetState state;
+			state.Enabled = true;
+			state.Factor = factor;
+			state.Units = units;
+			RenderQueue::SubmitStateChange(state);
 		}
 
 		static void EnableMultisampling()
 		{
-			s_RendererAPI->EnableMultisampling();
+			MultisamplingState state;
+			state.Enabled = true;
+			RenderQueue::SubmitStateChange(state);
 		}
 
 		static void DisableMultisampling()
 		{
-			s_RendererAPI->DisableMultisampling();
+			MultisamplingState state;
+			state.Enabled = false;
+			RenderQueue::SubmitStateChange(state);
 		}
 
 		static void SetColorMask(bool red, bool green, bool blue, bool alpha)
 		{
-			s_RendererAPI->SetColorMask(red, green, blue, alpha);
+			ColorMaskState state;
+			state.Red = red;
+			state.Green = green;
+			state.Blue = blue;
+			state.Alpha = alpha;
+			RenderQueue::SubmitStateChange(state);
 		}
+		
+		// For internal use by the renderer
+		static RendererAPI& GetRendererAPI() { return *s_RendererAPI; }
 
 	private:
+		// Helper functions to get current state
+		static DepthState GetCurrentDepthState()
+		{
+			return RenderQueue::GetCurrentState().Depth;
+		}
+		
+		static BlendState GetCurrentBlendState()
+		{
+			return RenderQueue::GetCurrentState().Blend;
+		}
+		
+		static StencilState GetCurrentStencilState()
+		{
+			return RenderQueue::GetCurrentState().Stencil;
+		}
+		
+		static ScissorState GetCurrentScissorState()
+		{
+			return RenderQueue::GetCurrentState().Scissor;
+		}
+
 		static Scope<RendererAPI> s_RendererAPI;
 	};
 }
