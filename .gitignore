@@ -59,3 +59,4 @@ OloEngine/vendor/*
 out/build/x64-Debug/VSInheritEnvironments.txt
 .gitignore
 /debug.cap
+.vscode/settings.json
