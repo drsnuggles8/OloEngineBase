@@ -539,6 +539,19 @@ void Sandbox3D::OnImGuiRender()
 		ImGui::Text("  Batched Commands: %u", stats.BatchedCommands);
 		ImGui::Text("  Merged Commands: %u", stats.MergedCommands);
 		ImGui::Text("  Redundant States: %u", stats.RedundantStateChanges);
+
+		// Add pool statistics
+		ImGui::Separator();
+		ImGui::Text("Pool Stats:");
+		ImGui::Text("  Pool Hits: %u", stats.PoolHits);
+		ImGui::Text("  Pool Misses: %u", stats.PoolMisses);
+		float hitRatio = stats.PoolHits + stats.PoolMisses > 0 
+			? (float)stats.PoolHits / (float)(stats.PoolHits + stats.PoolMisses) * 100.0f 
+			: 0.0f;
+		ImGui::Text("  Hit Ratio: %.1f%%", hitRatio);
+
+		// Use a progress bar to visualize the hit ratio
+		ImGui::ProgressBar(hitRatio / 100.0f, ImVec2(-1, 0), std::format("Hit Ratio {:.1f}%", hitRatio).c_str());
 	}
 
 	ImGui::End();
