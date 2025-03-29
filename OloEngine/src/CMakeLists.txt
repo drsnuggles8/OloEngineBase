@@ -18,6 +18,7 @@
 		"OloEngine/Core/EntryPoint.h"
 		"OloEngine/Core/FileSystem.cpp"
 		"OloEngine/Core/FileSystem.h"
+		"OloEngine/Core/FilesystemUtils.h"
 		"OloEngine/Core/Input.h"
 		"OloEngine/Core/KeyCodes.h"
 		"OloEngine/Core/Layer.cpp"
@@ -49,6 +50,7 @@
 
 		"OloEngine/Math/Math.cpp"
 		"OloEngine/Math/Math.h"
+		"OloEngine/Math/GLMFormatter.h"
 		
 		"OloEngine/Project/Project.cpp"
 		"OloEngine/Project/Project.h"

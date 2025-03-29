@@ -11,6 +11,7 @@
 
 #include <array>
 #include <algorithm>
+#include <filesystem>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -25,6 +26,8 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Core/FilesystemUtils.h"
+#include "OloEngine/Math/GLMFormatter.h"
 #include "OloEngine/Debug/Instrumentor.h"
 
 #ifdef OLO_PLATFORM_WINDOWS

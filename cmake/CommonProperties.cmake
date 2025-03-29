@@ -66,7 +66,10 @@ endfunction()
 # Configure common compiler options
 function(olo_set_compiler_options target_name)
     if(MSVC)
-        target_compile_options(${target_name} PRIVATE /W4)
+        target_compile_options(${target_name} PRIVATE 
+            /W4
+            /utf-8  # Enable UTF-8 encoding for source files
+        )
         # Use multi-threaded DLL runtime library
         set_target_properties(${target_name} PROPERTIES
             MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")

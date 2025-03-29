@@ -81,11 +81,10 @@ FetchContent_Declare(
 	GIT_REPOSITORY https://github.com/Chlumsky/msdf-atlas-gen.git
 	GIT_SHALLOW		TRUE
 )
-# Don't update spdlog to 1.11.0, gives errors in OpenGLContext.cpp
 FetchContent_Declare(
 	spdlog
 	GIT_REPOSITORY	https://github.com/gabime/spdlog.git
-	GIT_TAG			v1.10.0
+	GIT_TAG			v1.15.1
 	GIT_SHALLOW		TRUE
 )
 FetchContent_Declare(
