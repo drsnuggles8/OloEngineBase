@@ -138,3 +138,26 @@ function(olo_set_common_include_directories target_name)
         ${CMAKE_SOURCE_DIR}/OloEngine/vendor/spdlog-src/include
     )
 endfunction()
+
+# Configure C# project properties
+function(olo_configure_csharp_project target_name output_dir)
+    # Set output directories for C# assemblies
+    set_target_properties(${target_name} PROPERTIES
+        ARCHIVE_OUTPUT_DIRECTORY_DEBUG      ${output_dir}
+        ARCHIVE_OUTPUT_DIRECTORY_RELEASE    ${output_dir}
+        ARCHIVE_OUTPUT_DIRECTORY_DIST       ${output_dir}
+        LIBRARY_OUTPUT_DIRECTORY_DEBUG      ${output_dir}
+        LIBRARY_OUTPUT_DIRECTORY_RELEASE    ${output_dir}
+        LIBRARY_OUTPUT_DIRECTORY_DIST       ${output_dir}
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG      ${output_dir}
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE    ${output_dir}
+        RUNTIME_OUTPUT_DIRECTORY_DIST       ${output_dir}
+    )
+    
+    # Add common configuration definitions
+    target_compile_definitions(${target_name} PRIVATE
+        $<$<CONFIG:Debug>:OLO_DEBUG>
+        $<$<CONFIG:Release>:OLO_RELEASE>
+        $<$<CONFIG:Dist>:OLO_DIST>
+    )
+endfunction()
