@@ -35,7 +35,6 @@ __pycache__
 **/compile_commands.json
 
 *.pch
-*.obj
 build/**/*
 
 # Don't upload vendor folder, except for the CMakeLists.txt

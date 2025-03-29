@@ -22,7 +22,8 @@ endif()
 # Main targets built by this project
 add_subdirectory(src)
 if(BUILD_TESTS)
-  add_subdirectory(tests)
+	add_subdirectory(tests)
+	set_target_properties(OloEngine-Tests PROPERTIES FOLDER "Test")
 endif()
 
 # Vulkan stuff
@@ -40,7 +41,6 @@ set_target_properties(OloEngine PROPERTIES
 					RUNTIME_OUTPUT_DIRECTORY_DIST 		${CMAKE_SOURCE_DIR}/bin/Dist/OloEngine
 )
 
-set_target_properties(OloEngine-Tests PROPERTIES FOLDER "Test")
 
 check_ipo_supported(RESULT LTO_SUPPORT OUTPUT output)
 if(LTO_SUPPORT)

@@ -24,7 +24,7 @@ FetchContent_Declare(
 )
 FetchContent_Declare(
 	filewatch
-	GIT_REPOSITORY	https://github.com/ThomasMonkman/filewatch.git
+	GIT_REPOSITORY	https://github.com/drsnuggles8/filewatch.git
 	GIT_TAG			master
 	GIT_SHALLOW		TRUE
 )
@@ -145,7 +145,7 @@ if(TARGET PNG::PNG)
   )
 endif()
 include_directories(${libpng_SOURCE_DIR} ${libpng_BINARY_DIR})
-#add_dependencies(png_shared zlib)
+add_dependencies(png_shared zlib)
 
 set(tinyxml2_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(freetype tinyxml2)

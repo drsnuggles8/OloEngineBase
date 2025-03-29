@@ -35,6 +35,8 @@ add_dependencies(Sandbox2D
 				OloEngine
 				OloEngine-ScriptCore
 				Sandbox-Scripting
+				png_shared
+				zlib
 )
 
 target_include_directories("Sandbox2D" PRIVATE
