@@ -50,7 +50,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	glm
 	GIT_REPOSITORY https://github.com/g-truc/glm.git
-	GIT_TAG 1.0.1
+	GIT_TAG master
 	GIT_SHALLOW		TRUE
 )
 FetchContent_Declare(
@@ -126,7 +126,7 @@ find_package(ZLIB REQUIRED)
 FetchContent_GetProperties(libpng)
 set(PNG_STATIC OFF CACHE BOOL "Build libpng as a static lib" FORCE)
 set(PNG_SHARED ON CACHE BOOL "Build libpng as a shared lib" FORCE)
-option(PNG_EXECUTABLES OFF)
+option(PNG_TOOLS OFF)
 option(PNG_TESTS OFF)
 option(PNG_DEBUG ON)
 FetchContent_MakeAvailable(libpng)
