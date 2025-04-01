@@ -129,6 +129,21 @@
 		"OloEngine/Renderer/Passes/SceneRenderPass.cpp"
 		
 		"OloEngine/Renderer/RenderCommands/RenderCommandBase.h"
+		
+		"OloEngine/Renderer/Commands/RenderCommand.h"
+		"OloEngine/Renderer/Commands/CommandPacket.h"
+		"OloEngine/Renderer/Commands/CommandPacket.cpp"
+		"OloEngine/Renderer/Commands/CommandPacketList.h"
+		"OloEngine/Renderer/Commands/CommandPacketList.cpp"
+		"OloEngine/Renderer/Commands/CommandRingBuffer.h"
+		"OloEngine/Renderer/Commands/CommandRingBuffer.cpp"
+		"OloEngine/Renderer/Commands/CommandBuffer.h"
+		"OloEngine/Renderer/Commands/CommandBuffer.cpp"
+		"OloEngine/Renderer/Commands/CommandDispatch.h"
+		"OloEngine/Renderer/Commands/CommandAllocator.h"
+		"OloEngine/Renderer/Commands/CommandAllocator.cpp"
+		"OloEngine/Renderer/Commands/CommandMemoryManager.h"
+		"OloEngine/Renderer/Commands/CommandMemoryManager.cpp"
 
 		"OloEngine/Scene/Components.h"
 		"OloEngine/Scene/Entity.cpp"
