@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "CommandPacket.h"
+#include "ThreadLocalCache.h" // Added include for ThreadLocalCache
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -10,50 +11,6 @@
 
 namespace OloEngine
 {
-    // Memory block for storing command data
-    struct MemoryBlock
-    {
-        u8* Data = nullptr;
-        sizet Size = 0;
-        sizet Offset = 0;
-        MemoryBlock* Next = nullptr;
-    };
-
-    // Thread-local memory cache for command allocations
-    class ThreadLocalCache
-    {
-    public:
-        ThreadLocalCache(sizet blockSize);
-        ~ThreadLocalCache();
-
-        // Disallow copying
-        ThreadLocalCache(const ThreadLocalCache&) = delete;
-        ThreadLocalCache& operator=(const ThreadLocalCache&) = delete;
-
-        // Move operations
-        ThreadLocalCache(ThreadLocalCache&& other) noexcept;
-        ThreadLocalCache& operator=(ThreadLocalCache&& other) noexcept;
-
-        // Allocate memory for a command
-        void* Allocate(sizet size, sizet alignment = 8);
-        
-        // Reset the allocator - doesn't free memory, just resets offsets
-        void Reset();
-        
-        // Completely free all memory
-        void FreeAll();
-        
-        // Add a new block to the chain
-        void AddBlock(sizet minSize);
-
-    private:
-        MemoryBlock* m_CurrentBlock = nullptr;
-        MemoryBlock* m_FirstBlock = nullptr;
-        sizet m_DefaultBlockSize = 0;
-        sizet m_TotalAllocated = 0;
-        sizet m_WastedMemory = 0;
-    };
-
     // Command allocator for efficient command packet memory management
     class CommandAllocator
     {
@@ -62,8 +19,8 @@ namespace OloEngine
         static const sizet MAX_COMMAND_SIZE = 256; // Maximum size of any command
         static const sizet COMMAND_ALIGNMENT = 16; // Ensure commands are aligned properly
         
-        CommandAllocator(sizet blockSize = DEFAULT_BLOCK_SIZE);
-        ~CommandAllocator();
+        explicit CommandAllocator(sizet blockSize = DEFAULT_BLOCK_SIZE);
+        ~CommandAllocator() = default;
         
         // Disallow copying
         CommandAllocator(const CommandAllocator&) = delete;
@@ -88,7 +45,7 @@ namespace OloEngine
                 return nullptr;
                 
             // Construct a new CommandPacket in the allocated memory
-            CommandPacket* packet = new (packetMemory) CommandPacket();
+            auto* packet = new (packetMemory) CommandPacket();
             
             // Initialize the packet with the command data
             packet->Initialize(commandData, metadata);
@@ -109,7 +66,7 @@ namespace OloEngine
         
         sizet m_BlockSize;
         std::unordered_map<std::thread::id, ThreadLocalCache> m_ThreadCaches;
-        std::mutex m_CachesLock;
+		mutable std::mutex m_CachesLock;
         std::atomic<sizet> m_AllocationCount{0};
     };
 }

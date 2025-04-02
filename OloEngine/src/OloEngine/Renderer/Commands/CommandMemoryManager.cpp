@@ -144,7 +144,9 @@ namespace OloEngine
             for (auto& [threadId, allocator] : s_ThreadAllocators)
             {
                 if (allocator)
-                    allocator->Reset();
+				{
+					allocator->Reset();
+				}
             }
         }
 
@@ -201,8 +203,7 @@ namespace OloEngine
         {
             std::scoped_lock<std::mutex> lock(s_ThreadMapMutex);
             s_ThreadAllocators[threadId] = allocator;
-            OLO_CORE_TRACE("CommandMemoryManager: Assigned allocator to thread ID {0}", 
-                static_cast<void*>(&threadId));
+            OLO_CORE_TRACE("CommandMemoryManager: Assigned allocator to thread ID {0}", static_cast<void*>(&threadId));
         }
         
         return allocator;
