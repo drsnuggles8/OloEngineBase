@@ -132,8 +132,6 @@
 		
 		"OloEngine/Renderer/Commands/CommandAllocator.cpp"
 		"OloEngine/Renderer/Commands/CommandAllocator.h"
-		"OloEngine/Renderer/Commands/CommandBuffer.cpp"
-		"OloEngine/Renderer/Commands/CommandBuffer.h"
 		"OloEngine/Renderer/Commands/CommandDispatch.h"
 		"OloEngine/Renderer/Commands/CommandMemoryManager.cpp"
 		"OloEngine/Renderer/Commands/CommandMemoryManager.h"
