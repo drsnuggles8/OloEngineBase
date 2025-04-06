@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "CommandPacket.h"
+#include "CommandAllocator.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 
 namespace OloEngine
@@ -128,4 +129,46 @@ namespace OloEngine
                 return false;
         }
     }
+
+	bool CommandPacket::UpdateCommandData(const void* data, sizet size)
+	{
+		if (size > MAX_COMMAND_SIZE || !data)
+		{
+			OLO_CORE_ERROR("CommandPacket: Cannot update command data, invalid size or null data");
+			return false;
+		}
+		
+		std::memcpy(m_CommandData, data, size);
+		m_CommandSize = size;
+		return true;
+	}
+
+	CommandPacket* CommandPacket::Clone(CommandAllocator& allocator) const
+	{
+		OLO_PROFILE_FUNCTION();
+
+		// Allocate memory for a new command packet
+		void* packetMemory = allocator.AllocateCommandMemory(sizeof(CommandPacket));
+		if (!packetMemory)
+		{
+			OLO_CORE_ERROR("CommandPacket: Failed to allocate memory for clone");
+			return nullptr;
+		}
+
+		// Construct a new CommandPacket in the allocated memory
+		auto* clone = new (packetMemory) CommandPacket();
+
+		// Copy command data
+		std::memcpy(clone->m_CommandData, m_CommandData, m_CommandSize);
+
+		// Copy metadata
+		clone->m_CommandSize = m_CommandSize;
+		clone->m_CommandType = m_CommandType;
+		clone->m_DispatchFn = m_DispatchFn;
+		clone->m_Metadata = m_Metadata;
+		clone->m_Next = nullptr; // The clone doesn't inherit the linked list position
+
+		return clone;
+	}
+
 }

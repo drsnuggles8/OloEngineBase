@@ -8,6 +8,7 @@ namespace OloEngine
 {
     // Forward declarations
     class RendererAPI;
+	class CommandAllocator;
     
     // Command packet metadata
     struct PacketMetadata
@@ -91,6 +92,45 @@ namespace OloEngine
         
         // Returns true if this packet can be batched with another packet
         bool CanBatchWith(const CommandPacket& other) const;
+
+		// Add after the CanBatchWith method declaration, before private section:
+
+		// Get the command data for direct access (needed for batching)
+		template<typename T>
+		T* GetCommandData()
+		{
+			static_assert(sizeof(T) <= MAX_COMMAND_SIZE, "Command exceeds maximum size");
+			return reinterpret_cast<T*>(m_CommandData);
+		}
+
+		template<typename T>
+		const T* GetCommandData() const
+		{
+			static_assert(sizeof(T) <= MAX_COMMAND_SIZE, "Command exceeds maximum size");
+			return reinterpret_cast<const T*>(m_CommandData);
+		}
+
+		// Return command size for memory management
+		sizet GetCommandSize() const { return m_CommandSize; }
+
+		// Clone this packet (for cases where we need to duplicate commands)
+		CommandPacket* Clone(class CommandAllocator& allocator) const;
+
+		// For batch merging - update or modify command data
+		bool UpdateCommandData(const void* data, sizet size);
+
+				// For debugging - get the command type as a string
+				const char* GetCommandTypeString() const
+				{
+					switch (m_CommandType)
+					{
+						case CommandType::Clear: return "Clear";
+						case CommandType::DrawMesh: return "DrawMesh";
+						case CommandType::DrawMeshInstanced: return "DrawMeshInstanced";
+						case CommandType::DrawQuad: return "DrawQuad";
+						default: return "Unknown";
+					}
+				}
         
     private:
         // Command data

@@ -47,6 +47,65 @@ namespace OloEngine
         
         // Try to batch compatible packets together
         void BatchPackets();
+
+		// Get the head of the linked list
+		CommandPacket* GetHead() const { return m_Head; }
+
+		// Get the tail of the linked list
+		CommandPacket* GetTail() const { return m_Tail; }
+
+		// Convert the packet list to a vector for parallel processing
+		std::vector<CommandPacket*> ToVector();
+
+		// Rebuild the linked list from a vector
+		void FromVector(const std::vector<CommandPacket*>& packets);
+
+		// Find a packet by command type
+		CommandPacket* FindPacketByType(CommandType type);
+
+		// Split the list into multiple lists based on a predicate
+		// Returns a vector of lists, each containing packets that match the predicate
+		template<typename Predicate>
+		std::vector<CommandPacketList> Split(Predicate pred)
+		{
+			std::vector<CommandPacketList> result;
+			
+			CommandPacket* current = m_Head;
+			CommandPacket* splitStart = m_Head;
+			CommandPacketList currentList;
+			
+			while (current)
+			{
+				CommandPacket* next = current->GetNext();
+				
+				if (!pred(*current) || !next)
+				{
+					// End of a split or end of list
+					CommandPacketList list;
+					
+					// Copy packets from splitStart to current
+					CommandPacket* temp = splitStart;
+					while (temp && temp != next)
+					{
+						list.CreatePacket(*reinterpret_cast<const u8*>(temp->GetCommandData()), 
+										temp->GetCommandSize(), 
+										temp->GetMetadata());
+						temp = temp->GetNext();
+					}
+					
+					// Add the list to result if not empty
+					if (list.GetPacketCount() > 0)
+						result.push_back(std::move(list));
+						
+					// Start a new split
+					splitStart = next;
+				}
+				
+				current = next;
+			}
+			
+			return result;
+		}
         
         // Statistics
         u32 GetPacketCount() const { return m_PacketCount; }
