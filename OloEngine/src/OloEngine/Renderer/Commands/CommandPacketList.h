@@ -35,6 +35,25 @@ namespace OloEngine
             }
             return packet;
         }
+
+		CommandPacket* CreateRawPacket(const void* commandData, sizet commandSize, const PacketMetadata& metadata = {})
+		{
+			CommandPacket* packet = AllocatePacket();
+			if (packet)
+			{
+				// Copy the raw command data
+				packet->UpdateCommandData(commandData, commandSize);
+				
+				// Need to re-initialize dispatch function and command type from header
+				const CommandHeader* header = static_cast<const CommandHeader*>(commandData);
+				packet->SetCommandType(header->type);
+				packet->SetDispatchFunction(header->dispatchFn);
+				
+				// Set metadata
+				packet->SetMetadata(metadata);
+			}
+			return packet;
+		}
         
         // Execute all commands in the list
         void Execute(RendererAPI& api);
@@ -65,6 +84,7 @@ namespace OloEngine
 
 		// Split the list into multiple lists based on a predicate
 		// Returns a vector of lists, each containing packets that match the predicate
+		// Replace the problematic section in the Split method
 		template<typename Predicate>
 		std::vector<CommandPacketList> Split(Predicate pred)
 		{
@@ -87,9 +107,12 @@ namespace OloEngine
 					CommandPacket* temp = splitStart;
 					while (temp && temp != next)
 					{
-						list.CreatePacket(*reinterpret_cast<const u8*>(temp->GetCommandData()), 
-										temp->GetCommandSize(), 
-										temp->GetMetadata());
+						// Create a raw command header to get the type
+						const u8* commandData = static_cast<const u8*>(temp->GetRawCommandData());
+						
+						// Create a new packet with the raw command data
+						list.CreateRawPacket(commandData, temp->GetCommandSize(), temp->GetMetadata());
+						
 						temp = temp->GetNext();
 					}
 					

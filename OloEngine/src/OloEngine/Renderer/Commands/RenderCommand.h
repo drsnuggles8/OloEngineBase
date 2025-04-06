@@ -326,5 +326,5 @@ namespace OloEngine
     };
 
     // Maximum command size for allocation purposes
-    constexpr size_t MAX_COMMAND_SIZE = 128;
+    constexpr sizet MAX_COMMAND_SIZE = 256;
 }

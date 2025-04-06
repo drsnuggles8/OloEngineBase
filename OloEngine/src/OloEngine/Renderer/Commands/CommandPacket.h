@@ -110,6 +110,11 @@ namespace OloEngine
 			return reinterpret_cast<const T*>(m_CommandData);
 		}
 
+		// Add after GetCommandData methods
+		// Get raw command data as void pointer (for operations that don't need to know the type)
+		const void* GetRawCommandData() const { return m_CommandData; }
+		void* GetRawCommandData() { return m_CommandData; }
+
 		// Return command size for memory management
 		sizet GetCommandSize() const { return m_CommandSize; }
 
@@ -131,6 +136,12 @@ namespace OloEngine
 						default: return "Unknown";
 					}
 				}
+
+		// Add to public section
+		// Setters for command properties when working with raw data
+		void SetCommandType(CommandType type) { m_CommandType = type; }
+		void SetDispatchFunction(CommandDispatchFn fn) { m_DispatchFn = fn; }
+		void SetMetadata(const PacketMetadata& metadata) { m_Metadata = metadata; }
         
     private:
         // Command data
