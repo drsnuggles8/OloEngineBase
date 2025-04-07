@@ -8,7 +8,8 @@ namespace OloEngine
 {
     // Forward declarations
     class RendererAPI;
-	class CommandAllocator;
+    class CommandAllocator;
+    class RenderContext;
     
     // Command packet metadata
     struct PacketMetadata
@@ -76,8 +77,8 @@ namespace OloEngine
             }
         }
         
-        // Execute the command
-        void Execute(RendererAPI& api) const;
+        // Execute the command with a RendererAPI
+        void Execute(RendererAPI& rendererAPI) const;
         
         // Linked list functionality
         void SetNext(CommandPacket* next) { m_Next = next; }
@@ -93,55 +94,51 @@ namespace OloEngine
         // Returns true if this packet can be batched with another packet
         bool CanBatchWith(const CommandPacket& other) const;
 
-		// Add after the CanBatchWith method declaration, before private section:
+        // Get the command data for direct access (needed for batching)
+        template<typename T>
+        T* GetCommandData()
+        {
+            static_assert(sizeof(T) <= MAX_COMMAND_SIZE, "Command exceeds maximum size");
+            return reinterpret_cast<T*>(m_CommandData);
+        }
 
-		// Get the command data for direct access (needed for batching)
-		template<typename T>
-		T* GetCommandData()
-		{
-			static_assert(sizeof(T) <= MAX_COMMAND_SIZE, "Command exceeds maximum size");
-			return reinterpret_cast<T*>(m_CommandData);
-		}
+        template<typename T>
+        const T* GetCommandData() const
+        {
+            static_assert(sizeof(T) <= MAX_COMMAND_SIZE, "Command exceeds maximum size");
+            return reinterpret_cast<const T*>(m_CommandData);
+        }
 
-		template<typename T>
-		const T* GetCommandData() const
-		{
-			static_assert(sizeof(T) <= MAX_COMMAND_SIZE, "Command exceeds maximum size");
-			return reinterpret_cast<const T*>(m_CommandData);
-		}
+        // Get raw command data as void pointer (for operations that don't need to know the type)
+        const void* GetRawCommandData() const { return m_CommandData; }
+        void* GetRawCommandData() { return m_CommandData; }
 
-		// Add after GetCommandData methods
-		// Get raw command data as void pointer (for operations that don't need to know the type)
-		const void* GetRawCommandData() const { return m_CommandData; }
-		void* GetRawCommandData() { return m_CommandData; }
+        // Return command size for memory management
+        sizet GetCommandSize() const { return m_CommandSize; }
 
-		// Return command size for memory management
-		sizet GetCommandSize() const { return m_CommandSize; }
+        // Clone this packet (for cases where we need to duplicate commands)
+        CommandPacket* Clone(class CommandAllocator& allocator) const;
 
-		// Clone this packet (for cases where we need to duplicate commands)
-		CommandPacket* Clone(class CommandAllocator& allocator) const;
+        // For batch merging - update or modify command data
+        bool UpdateCommandData(const void* data, sizet size);
 
-		// For batch merging - update or modify command data
-		bool UpdateCommandData(const void* data, sizet size);
+        // For debugging - get the command type as a string
+        const char* GetCommandTypeString() const
+        {
+            switch (m_CommandType)
+            {
+                case CommandType::Clear: return "Clear";
+                case CommandType::DrawMesh: return "DrawMesh";
+                case CommandType::DrawMeshInstanced: return "DrawMeshInstanced";
+                case CommandType::DrawQuad: return "DrawQuad";
+                default: return "Unknown";
+            }
+        }
 
-				// For debugging - get the command type as a string
-				const char* GetCommandTypeString() const
-				{
-					switch (m_CommandType)
-					{
-						case CommandType::Clear: return "Clear";
-						case CommandType::DrawMesh: return "DrawMesh";
-						case CommandType::DrawMeshInstanced: return "DrawMeshInstanced";
-						case CommandType::DrawQuad: return "DrawQuad";
-						default: return "Unknown";
-					}
-				}
-
-		// Add to public section
-		// Setters for command properties when working with raw data
-		void SetCommandType(CommandType type) { m_CommandType = type; }
-		void SetDispatchFunction(CommandDispatchFn fn) { m_DispatchFn = fn; }
-		void SetMetadata(const PacketMetadata& metadata) { m_Metadata = metadata; }
+        // Setters for command properties when working with raw data
+        void SetCommandType(CommandType type) { m_CommandType = type; }
+        void SetDispatchFunction(CommandDispatchFn fn) { m_DispatchFn = fn; }
+        void SetMetadata(const PacketMetadata& metadata) { m_Metadata = metadata; }
         
     private:
         // Command data

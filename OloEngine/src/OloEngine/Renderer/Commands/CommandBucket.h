@@ -4,6 +4,8 @@
 #include "CommandPacket.h"
 #include "CommandAllocator.h"
 #include <vector>
+#include <mutex>
+#include <unordered_map>
 
 namespace OloEngine
 {
@@ -39,7 +41,8 @@ namespace OloEngine
 		template<typename T>
 		CommandPacket* Submit(const T& commandData, const PacketMetadata& metadata = {}, CommandAllocator* allocator = nullptr)
 		{
-			static_assert(std::is_pod<T>::value, "Command data must be POD");
+			static_assert(std::is_trivially_copyable<T>::value && std::is_standard_layout<T>::value, 
+				"Command data must be trivially copyable and have standard layout");
 
 			if (!allocator) // Now this check is valid
 			{
@@ -82,8 +85,7 @@ namespace OloEngine
 		// Batch compatible commands into instanced commands where possible
 		void BatchCommands(CommandAllocator& allocator);
 
-		// Execute all commands in the bucket
-		void Execute(RendererAPI& api);
+		void Execute(RendererAPI& rendererAPI);
 
 		// Clear the bucket (doesn't free memory, just resets)
 		void Clear();

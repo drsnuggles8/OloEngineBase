@@ -85,7 +85,7 @@ namespace OloEngine
                 UpdateCurrentState(state);
             }
             
-            auto command = GetCommandFromPool(CommandType::StateChange);
+            auto command = GetCommandFromPool(LegacyCommandType::StateChange);
             if (auto stateCommand = std::static_pointer_cast<StateChangeCommand>(command))
             {
                 stateCommand->Set(state);
@@ -106,8 +106,8 @@ namespace OloEngine
         static void SortCommands();
         static void ExecuteCommands();
         static void ReturnCommandToPool(Ref<RenderCommandBase>&& command);
-        static Ref<RenderCommandBase> GetCommandFromPool(CommandType type);
-        static void GrowCommandPool(CommandType type);
+        static Ref<RenderCommandBase> GetCommandFromPool(LegacyCommandType type);
+        static void GrowCommandPool(LegacyCommandType type);
         static void BatchCommands();
         
         // State tracking
@@ -117,8 +117,8 @@ namespace OloEngine
 
         static Scope<SceneData> s_SceneData;
         static std::vector<Ref<RenderCommandBase>> s_CommandQueue;
-        static std::queue<Ref<DrawMeshCommand>> s_MeshCommandPool;
-        static std::queue<Ref<DrawQuadCommand>> s_QuadCommandPool;
+        static std::queue<Ref<LegacyDrawMeshCommand>> s_MeshCommandPool;
+        static std::queue<Ref<LegacyDrawQuadCommand>> s_QuadCommandPool;
         static std::queue<Ref<StateChangeCommand>> s_StateCommandPool;
         static Statistics s_Stats;
         static Config s_Config;

@@ -380,7 +380,7 @@ namespace OloEngine
 		m_IsBatched = true;
 	}
 
-	void CommandBucket::Execute(RendererAPI& api)
+	void CommandBucket::Execute(RendererAPI& rendererAPI)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -394,7 +394,7 @@ namespace OloEngine
 			current = m_Head;
 		}
 
-		// Execute all commands in order (without redeclaring current)
+		// Execute all commands in order
 		while (current)
 		{
 			// Track statistics
@@ -410,8 +410,8 @@ namespace OloEngine
 				m_Stats.StateChanges++;
 			}
 
-			// Execute the command
-			current->Execute(api);
+			// Execute the command using the RendererAPI directly
+			current->Execute(rendererAPI);
 
 			// Move to the next command
 			current = current->GetNext();

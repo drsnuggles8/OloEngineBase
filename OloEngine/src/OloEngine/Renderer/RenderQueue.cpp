@@ -7,8 +7,8 @@ namespace OloEngine
 {
     Scope<RenderQueue::SceneData> RenderQueue::s_SceneData = CreateScope<RenderQueue::SceneData>();
     std::vector<Ref<RenderCommandBase>> RenderQueue::s_CommandQueue;
-    std::queue<Ref<DrawMeshCommand>> RenderQueue::s_MeshCommandPool;
-    std::queue<Ref<DrawQuadCommand>> RenderQueue::s_QuadCommandPool;
+    std::queue<Ref<LegacyDrawMeshCommand>> RenderQueue::s_MeshCommandPool;
+    std::queue<Ref<LegacyDrawQuadCommand>> RenderQueue::s_QuadCommandPool;
     std::queue<Ref<StateChangeCommand>> RenderQueue::s_StateCommandPool;
     RenderQueue::Statistics RenderQueue::s_Stats;
     RenderQueue::Config RenderQueue::s_Config;
@@ -22,8 +22,8 @@ namespace OloEngine
         
         for (sizet i = 0; i < s_Config.InitialPoolSize; ++i)
         {
-            s_MeshCommandPool.push(CreateRef<DrawMeshCommand>());
-            s_QuadCommandPool.push(CreateRef<DrawQuadCommand>());
+            s_MeshCommandPool.push(CreateRef<LegacyDrawMeshCommand>());
+            s_QuadCommandPool.push(CreateRef<LegacyDrawQuadCommand>());
             s_StateCommandPool.push(CreateRef<StateChangeCommand>());
         }
         
@@ -56,21 +56,21 @@ namespace OloEngine
         Flush();
     }
 
-    void RenderQueue::GrowCommandPool(CommandType type)
+    void RenderQueue::GrowCommandPool(LegacyCommandType type)
     {
         switch (type)
         {
-            case CommandType::Mesh:
+            case LegacyCommandType::Mesh:
                 if (s_MeshCommandPool.size() < s_Config.MaxPoolSize)
-                    s_MeshCommandPool.push(CreateRef<DrawMeshCommand>());
+                    s_MeshCommandPool.push(CreateRef<LegacyDrawMeshCommand>());
                 break;
                 
-            case CommandType::Quad:
+            case LegacyCommandType::Quad:
                 if (s_QuadCommandPool.size() < s_Config.MaxPoolSize)
-                    s_QuadCommandPool.push(CreateRef<DrawQuadCommand>());
+                    s_QuadCommandPool.push(CreateRef<LegacyDrawQuadCommand>());
                 break;
                 
-            case CommandType::StateChange:
+            case LegacyCommandType::StateChange:
                 if (s_StateCommandPool.size() < s_Config.MaxPoolSize)
                     s_StateCommandPool.push(CreateRef<StateChangeCommand>());
                 break;
@@ -80,11 +80,11 @@ namespace OloEngine
         }
     }
 
-    Ref<RenderCommandBase> RenderQueue::GetCommandFromPool(CommandType type)
+    Ref<RenderCommandBase> RenderQueue::GetCommandFromPool(LegacyCommandType type)
     {
         switch (type)
         {
-            case CommandType::Mesh:
+            case LegacyCommandType::Mesh:
             {
                 if (!s_MeshCommandPool.empty())
                 {
@@ -95,10 +95,10 @@ namespace OloEngine
                 }
                 s_Stats.PoolMisses++;
                 GrowCommandPool(type);
-                return CreateRef<DrawMeshCommand>();
+                return CreateRef<LegacyDrawMeshCommand>();
             }
             
-            case CommandType::Quad:
+            case LegacyCommandType::Quad:
             {
                 if (!s_QuadCommandPool.empty())
                 {
@@ -109,10 +109,10 @@ namespace OloEngine
                 }
                 s_Stats.PoolMisses++;
                 GrowCommandPool(type);
-                return CreateRef<DrawQuadCommand>();
+                return CreateRef<LegacyDrawQuadCommand>();
             }
             
-            case CommandType::StateChange:
+            case LegacyCommandType::StateChange:
             {
                 if (!s_StateCommandPool.empty())
                 {
@@ -140,15 +140,15 @@ namespace OloEngine
 
         switch (command->GetType())
         {
-            case CommandType::Mesh:
-                s_MeshCommandPool.push(std::static_pointer_cast<DrawMeshCommand>(command));
+            case LegacyCommandType::Mesh:
+                s_MeshCommandPool.push(std::static_pointer_cast<LegacyDrawMeshCommand>(command));
                 break;
             
-            case CommandType::Quad:
-                s_QuadCommandPool.push(std::static_pointer_cast<DrawQuadCommand>(command));
+            case LegacyCommandType::Quad:
+                s_QuadCommandPool.push(std::static_pointer_cast<LegacyDrawQuadCommand>(command));
                 break;
                 
-            case CommandType::StateChange:
+            case LegacyCommandType::StateChange:
                 s_StateCommandPool.push(std::static_pointer_cast<StateChangeCommand>(command));
                 break;
             
@@ -159,8 +159,8 @@ namespace OloEngine
 
     void RenderQueue::SubmitMesh(const Ref<Mesh>& mesh, const glm::mat4& transform, const Material& material, bool isStatic)
     {
-        auto command = GetCommandFromPool(CommandType::Mesh);
-        if (auto meshCommand = std::static_pointer_cast<DrawMeshCommand>(command))
+        auto command = GetCommandFromPool(LegacyCommandType::Mesh);
+        if (auto meshCommand = std::static_pointer_cast<LegacyDrawMeshCommand>(command))
         {
             meshCommand->Set(mesh, transform, material, isStatic);
             s_CommandQueue.push_back(std::move(command));
@@ -170,8 +170,8 @@ namespace OloEngine
 
     void RenderQueue::SubmitQuad(const glm::mat4& transform, const Ref<Texture2D>& texture)
     {
-        auto command = GetCommandFromPool(CommandType::Quad);
-        if (auto quadCommand = std::static_pointer_cast<DrawQuadCommand>(command))
+        auto command = GetCommandFromPool(LegacyCommandType::Quad);
+        if (auto quadCommand = std::static_pointer_cast<LegacyDrawQuadCommand>(command))
         {
             quadCommand->Set(transform, texture);
             s_CommandQueue.push_back(std::move(command));
@@ -213,15 +213,15 @@ namespace OloEngine
         
         // Group by successive state changes followed by draw calls
         std::vector<Ref<RenderCommandBase>> currentGroup;
-        CommandType lastType = CommandType::StateChange; // Start with state change as the initial group type
+        LegacyCommandType lastType = LegacyCommandType::StateChange; // Start with state change as the initial group type
         
         for (const auto& cmd : s_CommandQueue)
         {
             // If we encounter a different command type than the last one, 
             // start a new group (except for the first command)
             if (!currentGroup.empty() && 
-                ((lastType == CommandType::StateChange && cmd->GetType() != CommandType::StateChange) ||
-                 (lastType != CommandType::StateChange && cmd->GetType() == CommandType::StateChange)))
+                ((lastType == LegacyCommandType::StateChange && cmd->GetType() != LegacyCommandType::StateChange) ||
+                 (lastType != LegacyCommandType::StateChange && cmd->GetType() == LegacyCommandType::StateChange)))
             {
                 commandGroups.push_back(std::move(currentGroup));
                 currentGroup.clear();
@@ -243,7 +243,7 @@ namespace OloEngine
             // Only sort within groups of the same command type
             if (!group.empty())
             {
-                if (group[0]->GetType() == CommandType::StateChange)
+                if (group[0]->GetType() == LegacyCommandType::StateChange)
                 {
                     // For state changes, sort by state type to minimize state transitions
                     std::stable_sort(group.begin(), group.end(),
@@ -295,7 +295,7 @@ namespace OloEngine
             sizet batchSize = 1;
             
             // Only try merging for draw commands, not state changes
-            if (current->GetType() != CommandType::StateChange && s_Config.EnableMerging)
+            if (current->GetType() != LegacyCommandType::StateChange && s_Config.EnableMerging)
             {
                 // Try to merge with subsequent commands
                 while (batchSize < s_Config.MaxBatchSize && i + batchSize < s_CommandQueue.size())
@@ -303,7 +303,7 @@ namespace OloEngine
                     auto next = s_CommandQueue[i + batchSize];
                     
                     // Don't cross state change boundaries
-                    if (next->GetType() == CommandType::StateChange)
+                    if (next->GetType() == LegacyCommandType::StateChange)
                         break;
                         
                     if (!current->CanBatchWith(*next))
@@ -341,7 +341,7 @@ namespace OloEngine
         
         for (const auto& command : s_CommandQueue)
         {
-            if (command->GetType() == CommandType::StateChange)
+            if (command->GetType() == LegacyCommandType::StateChange)
             {
                 // Execute state change commands directly
                 command->Execute();
@@ -523,7 +523,7 @@ namespace OloEngine
 
     bool StateChangeCommand::CanBatchWith(const RenderCommandBase& other) const
     {
-        if (other.GetType() != CommandType::StateChange)
+        if (other.GetType() != LegacyCommandType::StateChange)
             return false;
 
         // State commands with the same state type can potentially be batched
@@ -657,7 +657,7 @@ namespace OloEngine
         }
     }
 
-    void DrawMeshCommand::Execute()
+    void LegacyDrawMeshCommand::Execute()
     {
         if (m_Transforms.size() == 1)
         {
@@ -671,12 +671,12 @@ namespace OloEngine
         }
     }
 
-    u64 DrawMeshCommand::GetShaderKey() const
+    u64 LegacyDrawMeshCommand::GetShaderKey() const
     {
         return 0;
     }
 
-    u64 DrawMeshCommand::GetMaterialKey() const
+    u64 LegacyDrawMeshCommand::GetMaterialKey() const
     {
         u64 key = 0;
         
@@ -698,7 +698,7 @@ namespace OloEngine
         return key;
     }
 
-    u64 DrawMeshCommand::GetTextureKey() const
+    u64 LegacyDrawMeshCommand::GetTextureKey() const
     {
         u64 key = 0;
         
@@ -713,22 +713,22 @@ namespace OloEngine
         return key;
     }
 
-    bool DrawMeshCommand::CanBatchWith(const RenderCommandBase& other) const
+    bool LegacyDrawMeshCommand::CanBatchWith(const RenderCommandBase& other) const
     {
-        if (other.GetType() != CommandType::Mesh)
+        if (other.GetType() != LegacyCommandType::Mesh)
             return false;
 
-        const auto& otherMesh = static_cast<const DrawMeshCommand&>(other);
+        const auto& otherMesh = static_cast<const LegacyDrawMeshCommand&>(other);
         return m_Mesh == otherMesh.m_Mesh && 
                m_Material == otherMesh.m_Material;
     }
 
-    bool DrawMeshCommand::MergeWith(const RenderCommandBase& other)
+    bool LegacyDrawMeshCommand::MergeWith(const RenderCommandBase& other)
     {
         if (!CanBatchWith(other))
             return false;
 
-        const auto& otherMesh = static_cast<const DrawMeshCommand&>(other);
+        const auto& otherMesh = static_cast<const LegacyDrawMeshCommand&>(other);
         
         // Add the transform from the other command to our transforms list
         for (const auto& transform : otherMesh.m_Transforms)
@@ -740,41 +740,41 @@ namespace OloEngine
         return true;
     }
 
-    void DrawQuadCommand::Execute()
+    void LegacyDrawQuadCommand::Execute()
     {
         Renderer3D::RenderQuadInternal(m_Transform, m_Texture);
     }
 
-    u64 DrawQuadCommand::GetShaderKey() const
+    u64 LegacyDrawQuadCommand::GetShaderKey() const
     {
         return 1;
     }
 
-    u64 DrawQuadCommand::GetMaterialKey() const
+    u64 LegacyDrawQuadCommand::GetMaterialKey() const
     {
         return 0;
     }
 
-    u64 DrawQuadCommand::GetTextureKey() const
+    u64 LegacyDrawQuadCommand::GetTextureKey() const
     {
         return m_Texture ? std::hash<u32>{}(m_Texture->GetRendererID()) : 0;
     }
 
-    bool DrawQuadCommand::CanBatchWith(const RenderCommandBase& other) const
+    bool LegacyDrawQuadCommand::CanBatchWith(const RenderCommandBase& other) const
     {
-        if (other.GetType() != CommandType::Quad)
+        if (other.GetType() != LegacyCommandType::Quad)
             return false;
 
-        const auto& otherQuad = static_cast<const DrawQuadCommand&>(other);
+        const auto& otherQuad = static_cast<const LegacyDrawQuadCommand&>(other);
         return m_Texture == otherQuad.m_Texture;
     }
 
-    bool DrawQuadCommand::MergeWith(const RenderCommandBase& other)
+    bool LegacyDrawQuadCommand::MergeWith(const RenderCommandBase& other)
     {
         if (!CanBatchWith(other))
             return false;
 
-        const auto& otherQuad = static_cast<const DrawQuadCommand&>(other);
+        const auto& otherQuad = static_cast<const LegacyDrawQuadCommand&>(other);
         m_BatchSize += otherQuad.m_BatchSize;
         return true;
     }

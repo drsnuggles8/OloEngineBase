@@ -8,7 +8,7 @@
 namespace OloEngine
 {
 	// Command type for sorting
-	enum class CommandType
+	enum class LegacyCommandType
 	{
 		Mesh,        // 3D mesh with material
 		Quad,        // 2D quad with texture
@@ -22,7 +22,7 @@ namespace OloEngine
 	public:
 		virtual ~RenderCommandBase() = default;
 		virtual void Execute() = 0;
-		[[nodiscard]] virtual CommandType GetType() const = 0;
+		[[nodiscard]] virtual LegacyCommandType GetType() const = 0;
 		
 		// Sorting keys
 		[[nodiscard]] virtual u64 GetShaderKey() const = 0;
@@ -54,7 +54,7 @@ namespace OloEngine
 		}
 
 		void Execute() override;
-		[[nodiscard]] CommandType GetType() const override { return CommandType::StateChange; }
+		[[nodiscard]] LegacyCommandType GetType() const override { return LegacyCommandType::StateChange; }
 		
 		// Sorting keys - state changes are sorted by type
 		[[nodiscard]] u64 GetShaderKey() const override { return 0; }
@@ -81,10 +81,10 @@ namespace OloEngine
 	};
 
 	// Command for drawing a mesh with material
-	class DrawMeshCommand : public RenderCommandBase
+	class LegacyDrawMeshCommand : public RenderCommandBase
 	{
 	public:
-		DrawMeshCommand() = default;
+		LegacyDrawMeshCommand() = default;
 		void Set(const Ref<Mesh>& mesh, const glm::mat4& transform, const Material& material, bool isStatic = false)
 		{
 			m_Mesh = mesh;
@@ -102,7 +102,7 @@ namespace OloEngine
 		}
 
 		void Execute() override;
-		[[nodiscard]] CommandType GetType() const override { return CommandType::Mesh; }
+		[[nodiscard]] LegacyCommandType GetType() const override { return LegacyCommandType::Mesh; }
 		
 		// Sorting keys
 		[[nodiscard]] u64 GetShaderKey() const override;
@@ -133,10 +133,10 @@ namespace OloEngine
 	};
 
 	// Command for drawing a textured quad
-	class DrawQuadCommand : public RenderCommandBase
+	class LegacyDrawQuadCommand : public RenderCommandBase
 	{
 	public:
-		DrawQuadCommand() = default;
+		LegacyDrawQuadCommand() = default;
 		void Set(const glm::mat4& transform, const Ref<Texture2D>& texture)
 		{
 			m_Transform = transform;
@@ -145,7 +145,7 @@ namespace OloEngine
 		}
 
 		void Execute() override;
-		[[nodiscard]] CommandType GetType() const override { return CommandType::Quad; }
+		[[nodiscard]] LegacyCommandType GetType() const override { return LegacyCommandType::Quad; }
 		
 		// Sorting keys
 		[[nodiscard]] u64 GetShaderKey() const override;

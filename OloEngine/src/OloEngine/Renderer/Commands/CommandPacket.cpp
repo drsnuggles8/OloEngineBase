@@ -50,11 +50,11 @@ namespace OloEngine
         return *this;
     }
 
-    void CommandPacket::Execute(RendererAPI& api) const
+    void CommandPacket::Execute(RendererAPI& rendererAPI) const
     {
         if (m_DispatchFn && m_CommandSize > 0)
         {
-            m_DispatchFn(m_CommandData, api);
+            m_DispatchFn(m_CommandData, rendererAPI);
         }
     }
 

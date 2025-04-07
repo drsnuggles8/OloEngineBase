@@ -72,6 +72,9 @@ namespace OloEngine
 		static void OnWindowResize(u32 width, u32 height);
 		static Ref<RenderGraph> GetRenderGraph() { return s_Data.RGraph; }
 
+		// Access to the shader library
+		static ShaderLibrary& GetShaderLibrary() { return m_ShaderLibrary; }
+
 	private:
 		static void UpdateTransformUBO(const glm::mat4& modelMatrix);
 		static void UpdateTransformsUBO(const std::vector<glm::mat4>& transforms);

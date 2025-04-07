@@ -6,6 +6,9 @@
 
 namespace OloEngine
 {
+    // Forward declarations
+    class RendererAPI;
+
     // Command packet list - a linked list of command packets
     class CommandPacketList
     {
@@ -55,8 +58,8 @@ namespace OloEngine
 			return packet;
 		}
         
-        // Execute all commands in the list
-        void Execute(RendererAPI& api);
+        // Execute all commands in the list using the provided RendererAPI
+        void Execute(RendererAPI& rendererAPI);
         
         // Clear the list, returning all packets to the pool
         void Clear();
@@ -84,7 +87,6 @@ namespace OloEngine
 
 		// Split the list into multiple lists based on a predicate
 		// Returns a vector of lists, each containing packets that match the predicate
-		// Replace the problematic section in the Split method
 		template<typename Predicate>
 		std::vector<CommandPacketList> Split(Predicate pred)
 		{

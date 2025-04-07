@@ -81,14 +81,14 @@ namespace OloEngine
         return packet;
     }
 
-    void CommandPacketList::Execute(RendererAPI& api)
+    void CommandPacketList::Execute(RendererAPI& rendererAPI)
     {
         OLO_PROFILE_FUNCTION();
         
         CommandPacket* current = m_Head;
         while (current)
         {
-            current->Execute(api);
+            current->Execute(rendererAPI);
             current = current->GetNext();
         }
     }
@@ -244,61 +244,61 @@ namespace OloEngine
         }
     }
 
-	std::vector<CommandPacket*> CommandPacketList::ToVector()
-	{
-		OLO_PROFILE_FUNCTION();
-		
-		std::vector<CommandPacket*> result;
-		result.reserve(m_PacketCount);
-		
-		CommandPacket* current = m_Head;
-		while (current)
-		{
-			result.push_back(current);
-			current = current->GetNext();
-		}
-		
-		return result;
-	}
+    std::vector<CommandPacket*> CommandPacketList::ToVector()
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        std::vector<CommandPacket*> result;
+        result.reserve(m_PacketCount);
+        
+        CommandPacket* current = m_Head;
+        while (current)
+        {
+            result.push_back(current);
+            current = current->GetNext();
+        }
+        
+        return result;
+    }
 
-	void CommandPacketList::FromVector(const std::vector<CommandPacket*>& packets)
-	{
-		OLO_PROFILE_FUNCTION();
-		
-		// Clear the existing list
-		m_Head = nullptr;
-		m_Tail = nullptr;
-		m_PacketCount = 0;
-		
-		if (packets.empty())
-			return;
-			
-		// Rebuild the list
-		m_Head = packets[0];
-		CommandPacket* current = m_Head;
-		
-		for (size_t i = 1; i < packets.size(); ++i)
-		{
-			current->SetNext(packets[i]);
-			current = packets[i];
-		}
-		
-		m_Tail = current;
-		m_Tail->SetNext(nullptr);
-		m_PacketCount = static_cast<u32>(packets.size());
-	}
+    void CommandPacketList::FromVector(const std::vector<CommandPacket*>& packets)
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        // Clear the existing list
+        m_Head = nullptr;
+        m_Tail = nullptr;
+        m_PacketCount = 0;
+        
+        if (packets.empty())
+            return;
+            
+        // Rebuild the list
+        m_Head = packets[0];
+        CommandPacket* current = m_Head;
+        
+        for (size_t i = 1; i < packets.size(); ++i)
+        {
+            current->SetNext(packets[i]);
+            current = packets[i];
+        }
+        
+        m_Tail = current;
+        m_Tail->SetNext(nullptr);
+        m_PacketCount = static_cast<u32>(packets.size());
+    }
 
-	CommandPacket* CommandPacketList::FindPacketByType(CommandType type)
-	{
-		CommandPacket* current = m_Head;
-		while (current)
-		{
-			if (current->GetCommandType() == type)
-				return current;
-				
-			current = current->GetNext();
-		}
-		
-		return nullptr;
-	}
+    CommandPacket* CommandPacketList::FindPacketByType(CommandType type)
+    {
+        CommandPacket* current = m_Head;
+        while (current)
+        {
+            if (current->GetCommandType() == type)
+                return current;
+                
+            current = current->GetNext();
+        }
+        
+        return nullptr;
+    }
 }
