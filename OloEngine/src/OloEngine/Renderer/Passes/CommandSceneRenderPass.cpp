@@ -8,7 +8,7 @@ namespace OloEngine
     CommandSceneRenderPass::CommandSceneRenderPass()
     {
         SetName("CommandSceneRenderPass");
-        OLO_CORE_INFO("Creating CommandSceneRenderPass");
+        OLO_CORE_INFO("Creating CommandSceneRenderPass.");
     }
 
     void CommandSceneRenderPass::Init(const FramebufferSpecification& spec)
@@ -17,16 +17,50 @@ namespace OloEngine
         
         m_FramebufferSpec = spec;
         
-        // Create framebuffer with appropriate attachments for a G-buffer
-        FramebufferSpecification fbSpec = spec;
-        fbSpec.Attachments = FramebufferAttachmentSpecification({
-            FramebufferTextureSpecification(FramebufferTextureFormat::RGBA8),      // Color buffer
-            FramebufferTextureSpecification(FramebufferTextureFormat::DEPTH24STENCIL8)  // Depth-stencil buffer
-        });
+		// Ensure the specification includes color and depth attachments
+		if (m_FramebufferSpec.Attachments.Attachments.empty())
+		{
+            OLO_CORE_WARN("CommandSceneRenderPass::Init: No attachments specified, adding default color and depth attachments");
+            m_FramebufferSpec.Attachments = {
+                FramebufferTextureFormat::RGBA8,      // Color buffer
+                FramebufferTextureFormat::Depth  	  // Depth attachment
+            };
+		}
         
-        m_Target = Framebuffer::Create(fbSpec);
+        m_Target = Framebuffer::Create(m_FramebufferSpec);
+		
         OLO_CORE_INFO("CommandSceneRenderPass: Created framebuffer with dimensions {}x{}", 
-                       spec.Width, spec.Height);
+			m_FramebufferSpec.Width, m_FramebufferSpec.Height);
+    }
+
+    void CommandSceneRenderPass::Execute()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_Target)
+        {
+            OLO_CORE_ERROR("CommandSceneRenderPass::Execute: No target framebuffer!");
+            return;
+        }
+        
+        m_Target->Bind();
+        
+        // Clear the framebuffer
+        RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
+        RenderCommand::Clear();
+        
+        // Execute all commands in the bucket
+        if (m_Allocator)
+        {
+            m_CommandBucket.SortCommands();
+            m_CommandBucket.Execute(RenderCommand::GetRendererAPI());
+        }
+        else
+        {
+            OLO_CORE_WARN("CommandSceneRenderPass::Execute: No command allocator available");
+        }
+
+        m_Target->Unbind();
     }
 
     void CommandSceneRenderPass::SetupFramebuffer(u32 width, u32 height)
@@ -61,13 +95,12 @@ namespace OloEngine
         {
             OLO_CORE_WARN("CommandSceneRenderPass::ResizeFramebuffer: Invalid dimensions: {}x{}", width, height);
             return;
-        }
-        
-        m_FramebufferSpec.Width = width;
-        m_FramebufferSpec.Height = height;
+        }        
         
         if (m_Target)
         {
+			m_FramebufferSpec.Width = width;
+			m_FramebufferSpec.Height = height;
             m_Target->Resize(width, height);
             OLO_CORE_INFO("CommandSceneRenderPass: Resized framebuffer to {}x{}", width, height);
         }
@@ -80,111 +113,10 @@ namespace OloEngine
         // Recreate the framebuffer with current specs
         if (m_FramebufferSpec.Width > 0 && m_FramebufferSpec.Height > 0)
         {
+			OLO_CORE_INFO("SceneRenderPass reset with framebuffer dimensions: {}x{}", 
+				m_FramebufferSpec.Width, m_FramebufferSpec.Height);
             Init(m_FramebufferSpec);
         }
     }
 
-    void CommandSceneRenderPass::SetCamera(const Camera& camera, const glm::mat4& transform)
-    {
-        OLO_PROFILE_FUNCTION();
-        
-        m_Camera = camera;
-        m_CameraTransform = transform;
-        
-        // Calculate the view and projection matrices
-        m_ViewMatrix = glm::inverse(m_CameraTransform);
-        m_ProjectionMatrix = m_Camera.GetProjection();
-        
-        m_HasValidCamera = true;
-    }
-
-    void CommandSceneRenderPass::BeginRender()
-    {
-        OLO_PROFILE_FUNCTION();
-        
-        // Call the base class implementation to bind the framebuffer
-        CommandRenderPass::BeginRender();
-        
-        // Clear the framebuffer
-        ClearCommand clearCmd;
-        clearCmd.clearColor = true;
-        clearCmd.clearDepth = true;
-        
-        if (m_Allocator)
-        {
-            CommandPacket* packet = m_Allocator->CreateCommandPacket(clearCmd);
-            if (packet)
-            {
-                packet->Execute(RenderCommand::GetRendererAPI());
-            }
-        }
-        
-        // Set up the viewport to match the framebuffer size
-        if (m_Target)
-        {
-            SetViewportCommand viewportCmd;
-            viewportCmd.x = 0;
-            viewportCmd.y = 0;
-            viewportCmd.width = m_Target->GetSpecification().Width;
-            viewportCmd.height = m_Target->GetSpecification().Height;
-            
-            if (m_Allocator)
-            {
-                CommandPacket* packet = m_Allocator->CreateCommandPacket(viewportCmd);
-                if (packet)
-                {
-                    packet->Execute(RenderCommand::GetRendererAPI());
-                }
-            }
-        }
-    }
-
-    void CommandSceneRenderPass::EndRender()
-    {
-        OLO_PROFILE_FUNCTION();
-        
-        // Call the base class implementation to unbind the framebuffer
-        CommandRenderPass::EndRender();
-    }
-
-    void CommandSceneRenderPass::BuildCommandBucket(CommandBucket& bucket)
-    {
-        // No scene iteration logic here - this is handled externally
-        // Commands are added to the bucket by external systems
-        OLO_PROFILE_FUNCTION();
-        
-        // Nothing to do here - commands are already in the bucket
-    }
-
-    void CommandSceneRenderPass::Execute()
-    {
-        OLO_PROFILE_FUNCTION();
-
-        // Bind the target framebuffer
-        if (!m_Target)
-        {
-            OLO_CORE_ERROR("CommandSceneRenderPass::Execute: No target framebuffer!");
-            return;
-        }
-        
-        m_Target->Bind();
-        
-        // Clear the framebuffer
-        RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
-        RenderCommand::Clear();
-        
-        // Execute all commands in the bucket
-        if (m_Allocator) // Using m_Allocator to check if we're initialized
-        {
-            m_CommandBucket.SortCommands(); // Use dot (.) instead of arrow (->) for non-pointer object
-            m_CommandBucket.Execute(RenderCommand::GetRendererAPI()); // Use dot (.) syntax
-        }
-        else
-        {
-            OLO_CORE_WARN("CommandSceneRenderPass::Execute: No command allocator available");
-        }
-
-        // Unbind the framebuffer
-        m_Target->Unbind();
-    }
 }

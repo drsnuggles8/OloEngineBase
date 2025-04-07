@@ -14,7 +14,7 @@ namespace OloEngine
     CommandFinalRenderPass::CommandFinalRenderPass()
     {
         SetName("CommandFinalRenderPass");
-        OLO_CORE_INFO("Creating CommandFinalRenderPass");
+        OLO_CORE_INFO("Creating CommandFinalRenderPass.");
     }
 
     void CommandFinalRenderPass::Init(const FramebufferSpecification& spec)
@@ -23,52 +23,67 @@ namespace OloEngine
         
         m_FramebufferSpec = spec;
         
-        // We don't create a framebuffer for this pass since we render to the default framebuffer
-        m_Target = nullptr;
-        
-        // Create the fullscreen triangle
         CreateFullscreenTriangle();
         
         // Load or create the blit shader
         m_BlitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
-        
-        if (!m_BlitShader)
-        {
-            OLO_CORE_ERROR("CommandFinalRenderPass::Init: Failed to load blit shader!");
-            
-            // Try to load from Renderer3D's shader library as fallback
-            m_BlitShader = Renderer3D::GetShaderLibrary().Get("FullscreenBlit");
-            
-            if (!m_BlitShader)
-            {
-                OLO_CORE_ERROR("CommandFinalRenderPass::Init: Failed to find blit shader in library!");
-            }
-        }
-        
+       
         OLO_CORE_INFO("CommandFinalRenderPass: Initialized with viewport dimensions {}x{}", 
-                     spec.Width, spec.Height);
+				m_FramebufferSpec.Width, m_FramebufferSpec.Height);
     }
 
-    void CommandFinalRenderPass::SetInputFramebuffer(const Ref<Framebuffer>& input)
+	void CommandFinalRenderPass::Execute()
     {
         OLO_PROFILE_FUNCTION();
+
+        // We're rendering to the default framebuffer (swap chain)
+        RenderCommand::BindDefaultFramebuffer();
         
-        m_InputFramebuffer = input;
+        // Clear the framebuffer
+        RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
+        RenderCommand::Clear();
+        
+        // Only execute if we have an input framebuffer
+        if (!m_InputFramebuffer)
+        {
+            OLO_CORE_WARN("CommandFinalRenderPass::Execute: No input framebuffer set!");
+            return;
+        }
+
+        // Bind the shader and the input texture
+        if (!m_BlitShader)
+        {
+            OLO_CORE_ERROR("CommandFinalRenderPass::Execute: Blit shader not loaded!");
+            return;
+        }
+        
+        m_BlitShader->Bind();
+        
+        // Bind the color attachment from the input framebuffer as a texture
+        u32 colorAttachmentID = m_InputFramebuffer->GetColorAttachmentRendererID(0);
+        RenderCommand::BindTexture(0, colorAttachmentID);
+        m_BlitShader->SetInt("u_Texture", 0);
+        
+        // Draw the fullscreen triangle
+        if (!m_FullscreenTriangleVA)
+        {
+            OLO_CORE_ERROR("CommandFinalRenderPass::Execute: Fullscreen triangle vertex array not created!");
+            return;
+        }
+        
+        m_FullscreenTriangleVA->Bind();
+        RenderCommand::DrawIndexed(m_FullscreenTriangleVA);
     }
 
     void CommandFinalRenderPass::SetupFramebuffer(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
         
-        if (width == 0 || height == 0)
-        {
-            OLO_CORE_WARN("CommandFinalRenderPass::SetupFramebuffer: Invalid dimensions: {}x{}", width, height);
-            return;
-        }
-        
-        // Store dimensions for viewport setup
+        // We don't create a framebuffer for the final pass since it renders to the default framebuffer
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
+
+		OLO_CORE_INFO("FinalRenderPass setup with dimensions: {}x{}", width, height);
     }
 
     void CommandFinalRenderPass::ResizeFramebuffer(u32 width, u32 height)
@@ -146,111 +161,5 @@ namespace OloEngine
         m_FullscreenTriangleVA->SetIndexBuffer(indexBuffer);
         
         OLO_CORE_INFO("CommandFinalRenderPass: Created fullscreen triangle");
-    }
-
-    void CommandFinalRenderPass::BeginRender()
-    {
-        OLO_PROFILE_FUNCTION();
-        
-        // We explicitly don't call the base class implementation here
-        // because we want to render to the default framebuffer
-        
-        // Set viewport to match the stored dimensions
-        SetViewportCommand viewportCmd;
-        viewportCmd.x = 0;
-        viewportCmd.y = 0;
-        viewportCmd.width = m_FramebufferSpec.Width;
-        viewportCmd.height = m_FramebufferSpec.Height;
-        
-        if (m_Allocator)
-        {
-            CommandPacket* packet = m_Allocator->CreateCommandPacket(viewportCmd);
-            if (packet)
-            {
-                packet->Execute(RenderCommand::GetRendererAPI());
-            }
-        }
-        
-        // Clear the default framebuffer
-        ClearCommand clearCmd;
-        clearCmd.clearColor = true;
-        clearCmd.clearDepth = true;
-        
-        if (m_Allocator)
-        {
-            CommandPacket* packet = m_Allocator->CreateCommandPacket(clearCmd);
-            if (packet)
-            {
-                packet->Execute(RenderCommand::GetRendererAPI());
-            }
-        }
-    }
-
-    void CommandFinalRenderPass::EndRender()
-    {
-        OLO_PROFILE_FUNCTION();
-        
-        // We explicitly don't call the base class implementation here
-        // as we're rendering to the default framebuffer
-    }
-
-    void CommandFinalRenderPass::BuildCommandBucket(CommandBucket& bucket)
-    {
-        OLO_PROFILE_FUNCTION();
-        
-        if (!m_InputFramebuffer)
-        {
-            OLO_CORE_WARN("CommandFinalRenderPass::BuildCommandBucket: No input framebuffer set");
-            return;
-        }
-        
-        if (!m_FullscreenTriangleVA || !m_BlitShader)
-        {
-            OLO_CORE_WARN("CommandFinalRenderPass::BuildCommandBucket: Missing resources for rendering");
-            return;
-        }
-        
-        // Bind the shader for fullscreen rendering
-        m_BlitShader->Bind();
-        m_BlitShader->SetInt("u_Texture", 0); // Texture slot 0
-        
-        // Create bind texture command for the input framebuffer's color attachment
-        BindTextureCommand bindTexCmd;
-        bindTexCmd.slot = 0;
-        bindTexCmd.textureID = m_InputFramebuffer->GetColorAttachmentRendererID(0);  // Use index 0
-        
-        // Set metadata for sorting
-        PacketMetadata bindTexMetadata;
-        bindTexMetadata.executionOrder = 0; // Make this execute first
-        
-        // Submit the command to the bucket
-        bucket.Submit(bindTexCmd, bindTexMetadata, m_Allocator);
-        
-        // Create depth test command (disable for fullscreen rendering)
-        SetDepthTestCommand depthCmd;
-        depthCmd.enabled = false;
-        
-        PacketMetadata depthMetadata;
-        depthMetadata.executionOrder = 1; // Execute second
-        
-        bucket.Submit(depthCmd, depthMetadata, m_Allocator);
-        
-        // Create draw indexed command for the fullscreen triangle
-        // Since we can't directly access the renderer ID, we'll bind the vertex array first
-        m_FullscreenTriangleVA->Bind();
-        
-        DrawArraysCommand drawCmd;
-        // Using a DrawArrays command which doesn't need a renderer ID
-        // since we've already bound the vertex array
-        drawCmd.vertexCount = 3; // Fullscreen triangle uses 3 vertices
-        drawCmd.primitiveType = GL_TRIANGLES;
-        
-        // We're not setting the rendererID field since we've already bound the vertex array
-        
-        PacketMetadata drawMetadata;
-        drawMetadata.executionOrder = 2; // Make this render last
-        
-        // Submit the command to the bucket
-        bucket.Submit(drawCmd, drawMetadata, m_Allocator);
     }
 }

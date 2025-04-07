@@ -11,6 +11,7 @@ namespace OloEngine
     FinalRenderPass::FinalRenderPass()
     {
         SetName("FinalRenderPass");
+		OLO_CORE_INFO("Creating FinalRenderPass.");
     }
 
     void FinalRenderPass::Init(const FramebufferSpecification& spec)

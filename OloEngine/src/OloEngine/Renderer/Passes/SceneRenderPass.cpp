@@ -10,6 +10,7 @@ namespace OloEngine
     SceneRenderPass::SceneRenderPass()
     {
         SetName("SceneRenderPass");
+		OLO_CORE_INFO("Creating SceneRenderPass.");
     }
 
     void SceneRenderPass::Init(const FramebufferSpecification& spec)
@@ -91,8 +92,7 @@ namespace OloEngine
         {
             m_FramebufferSpec.Width = width;
             m_FramebufferSpec.Height = height;
-            m_Target->Resize(width, height);
-            
+            m_Target->Resize(width, height);            
             OLO_CORE_INFO("SceneRenderPass framebuffer resized to: {}x{}", width, height);
         }
         else

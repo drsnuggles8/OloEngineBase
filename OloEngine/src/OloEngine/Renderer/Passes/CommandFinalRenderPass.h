@@ -25,12 +25,23 @@ namespace OloEngine
          * @param spec The specification for the framebuffer (mostly ignored as we render to default framebuffer)
          */
         void Init(const FramebufferSpecification& spec) override;
+
+		/**
+         * @brief Execute the final pass, rendering the input framebuffer to the screen.
+         */
+        void Execute() override;
+
+		/**
+         * @brief Get the target framebuffer of this pass (null since it renders to the default framebuffer).
+         * @return A reference to the target framebuffer (null for this pass)
+         */
+        [[nodiscard]] Ref<Framebuffer> GetTarget() const override { return m_Target; }
         
         /**
          * @brief Set the input framebuffer that will be rendered to the screen.
          * @param input The input framebuffer to render
          */
-        void SetInputFramebuffer(const Ref<Framebuffer>& input);
+        void SetInputFramebuffer(const Ref<Framebuffer>& input) { m_InputFramebuffer = input; }
         
         /**
          * @brief Get the current input framebuffer.
@@ -58,36 +69,6 @@ namespace OloEngine
          */
         void OnReset() override;
 
-        /**
-         * @brief Enable or disable tone mapping.
-         * @param enabled Whether tone mapping should be enabled
-         */
-        void SetToneMappingEnabled(bool enabled) { m_ToneMappingEnabled = enabled; }
-        
-        /**
-         * @brief Set the exposure value for tone mapping.
-         * @param exposure The exposure value (typically between 0.1 and 5.0)
-         */
-        void SetExposure(float exposure) { m_Exposure = exposure; }
-
-    protected:
-        /**
-         * @brief Build the command bucket for the final pass.
-         * @param bucket Reference to the command bucket to populate
-         */
-        void BuildCommandBucket(CommandBucket& bucket) override;
-
-        /**
-         * @brief Begin rendering to the screen.
-         * Sets up the viewport and binds the default framebuffer.
-         */
-        void BeginRender() override;
-
-        /**
-         * @brief End rendering to the screen.
-         */
-        void EndRender() override;
-
     private:
         /**
          * @brief Create a fullscreen triangle mesh for efficient screen rendering.
@@ -101,9 +82,5 @@ namespace OloEngine
         Ref<Framebuffer> m_InputFramebuffer;         // The framebuffer to render to the screen
         Ref<Shader> m_BlitShader;                    // Shader for blitting the framebuffer to the screen
         Ref<VertexArray> m_FullscreenTriangleVA;     // Vertex array for the fullscreen triangle
-        
-        // Post-processing parameters
-        bool m_ToneMappingEnabled = true;            // Whether to apply tone mapping
-        float m_Exposure = 1.0f;                     // Exposure value for tone mapping
     };
 }
