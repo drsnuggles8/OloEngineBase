@@ -67,6 +67,33 @@ namespace OloEngine
          * This might happen after significant renderer changes or window resize events.
          */
         virtual void OnReset() = 0;
+        
+        /**
+         * @brief Reset the command bucket to prepare for a new frame.
+         */
+        void ResetCommandBucket() { m_CommandBucket.Reset(); }
+        
+        /**
+         * @brief Set the command allocator to use for this render pass.
+         * @param allocator The command allocator to use
+         */
+        void SetCommandAllocator(CommandAllocator* allocator) { m_Allocator = allocator; }
+        
+        /**
+         * @brief Submit a command to the pass's command bucket.
+         * @param command The command to submit
+         * @param commandAllocator The allocator to use for command memory
+         * @return True if the command was successfully submitted
+         */
+        bool SubmitCommand(const void* command, CommandType type, CommandAllocator& commandAllocator)
+        {
+            if (!m_Allocator)
+            {
+                m_Allocator = &commandAllocator;
+            }
+            
+            return m_CommandBucket.AddCommand(command, type, *m_Allocator);
+        }
 
     protected:
 		std::string m_Name = "CommandRenderPass";

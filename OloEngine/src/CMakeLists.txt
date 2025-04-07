@@ -84,6 +84,8 @@
 		"OloEngine/Renderer/Renderer2D.h"
 		"OloEngine/Renderer/Renderer3D.cpp"
 		"OloEngine/Renderer/Renderer3D.h"
+		"OloEngine/Renderer/StatelessRenderer3D.cpp"
+		"OloEngine/Renderer/StatelessRenderer3D.h"
 		"OloEngine/Renderer/RendererAPI.cpp"
 		"OloEngine/Renderer/RendererAPI.h"
 		"OloEngine/Renderer/RenderGraph.cpp"
