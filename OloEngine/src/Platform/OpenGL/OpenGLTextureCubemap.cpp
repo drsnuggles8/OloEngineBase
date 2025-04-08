@@ -78,6 +78,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         OLO_CORE_ASSERT(facePaths.size() == 6, "Cubemap must have exactly 6 face textures!");
+		m_HasAlphaChannel = false;
         
         m_Path = facePaths[0] + ",..."; // Store abbreviated path of the first face + indication of more
         LoadFaces(facePaths);
@@ -133,7 +134,8 @@ namespace OloEngine
                         break;
                     case 4: 
                         m_InternalFormat = GL_RGBA8; 
-                        m_DataFormat = GL_RGBA; 
+                        m_DataFormat = GL_RGBA;
+						m_HasAlphaChannel = true;
                         break;
                     default:
                         OLO_CORE_ERROR("Unsupported number of channels for cubemap texture: {}", channels);

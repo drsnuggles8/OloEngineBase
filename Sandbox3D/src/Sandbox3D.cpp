@@ -10,6 +10,7 @@
 
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Light.h"
+#include "OloEngine/Renderer/RendererAdapter.h"
 
 Sandbox3D::Sandbox3D()
 	: Layer("Sandbox3D"),
@@ -78,7 +79,7 @@ void Sandbox3D::OnAttach()
     m_TexturedMaterial.SpecularMap = m_SpecularMap;
  
     // Set initial lighting parameters
-    OloEngine::Renderer3D::SetLight(m_Light);
+    OloEngine::RendererAdapter::SetLight(m_Light);
 }
 
 void Sandbox3D::OnDetach()
@@ -112,7 +113,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 	m_WasTabPressed = tabPressed;
 
 	// Update view position for specular highlights
-	OloEngine::Renderer3D::SetViewPosition(m_CameraController.GetCamera().GetPosition());
+	OloEngine::RendererAdapter::SetViewPosition(m_CameraController.GetCamera().GetPosition());
 
 	// Toggle rotation on spacebar press
 	bool spacePressed = OloEngine::Input::IsKeyPressed(OloEngine::Key::Space);
@@ -145,7 +146,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 			m_Light.Direction = -glm::normalize(m_Light.Position);
 		}
 
-		OloEngine::Renderer3D::SetLight(m_Light);
+		OloEngine::RendererAdapter::SetLight(m_Light);
 	}
 
 	// Render setup
@@ -157,7 +158,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 
 	{
 		OLO_PROFILE_SCOPE("Renderer Draw");
-		OloEngine::Renderer3D::BeginScene(m_CameraController.GetCamera());
+		OloEngine::RendererAdapter::BeginScene(m_CameraController.GetCamera());
 
 		// Draw ground plane
 		{
@@ -168,7 +169,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 			planeMaterial.Diffuse = glm::vec3(0.3f);
 			planeMaterial.Specular = glm::vec3(0.2f);
 			planeMaterial.Shininess = 8.0f;
-			OloEngine::Renderer3D::DrawMesh(m_PlaneMesh, planeMatrix, planeMaterial, true);
+			OloEngine::RendererAdapter::DrawMesh(m_PlaneMesh, planeMatrix, planeMaterial, true);
 		}
 
 		// Draw a grass quad
@@ -177,7 +178,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 			grassMatrix = glm::translate(grassMatrix, glm::vec3(0.0f, 0.5f, -1.0f));
 			// Make it face the camera by rotating around X axis
 			grassMatrix = glm::rotate(grassMatrix, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-			OloEngine::Renderer3D::DrawQuad(grassMatrix, m_GrassTexture);
+			OloEngine::RendererAdapter::DrawQuad(grassMatrix, m_GrassTexture);
 		}
 
 		// Draw backpack model
@@ -199,7 +200,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 			auto modelMatrix = glm::mat4(1.0f);
 			modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX), glm::vec3(1.0f, 0.0f, 0.0f));
 			modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
-			OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, m_GoldMaterial);
+			OloEngine::RendererAdapter::DrawMesh(m_CubeMesh, modelMatrix, m_GoldMaterial);
 
 			// Configure stencil for outline - only draw where stencil is not 1
 			OloEngine::RenderCommand::SetStencilFunc(GL_NOTEQUAL, 1, 0xFF);
@@ -216,7 +217,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 			outlineMaterial.Diffuse = glm::vec3(1.0f, 1.0f, 0.0f);
 			outlineMaterial.Specular = glm::vec3(0.0f);
 			outlineMaterial.Shininess = 1.0f;
-			OloEngine::Renderer3D::DrawMesh(m_CubeMesh, outlineMatrix, outlineMaterial);
+			OloEngine::RendererAdapter::DrawMesh(m_CubeMesh, outlineMatrix, outlineMaterial);
 
 			// Reset states back to renderer defaults
 			OloEngine::RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -234,7 +235,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 				auto silverCubeMatrix = glm::mat4(1.0f);
 				silverCubeMatrix = glm::translate(silverCubeMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
 				silverCubeMatrix = glm::rotate(silverCubeMatrix, glm::radians(m_RotationAngleY * 1.5f), glm::vec3(0.0f, 1.0f, 0.0f));
-				OloEngine::Renderer3D::DrawMesh(m_CubeMesh, silverCubeMatrix, m_SilverMaterial);
+				OloEngine::RendererAdapter::DrawMesh(m_CubeMesh, silverCubeMatrix, m_SilverMaterial);
 			}
 
 			// Draw left chrome cube
@@ -242,7 +243,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 				auto chromeCubeMatrix = glm::mat4(1.0f);
 				chromeCubeMatrix = glm::translate(chromeCubeMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
 				chromeCubeMatrix = glm::rotate(chromeCubeMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
-				OloEngine::Renderer3D::DrawMesh(m_CubeMesh, chromeCubeMatrix, m_ChromeMaterial);
+				OloEngine::RendererAdapter::DrawMesh(m_CubeMesh, chromeCubeMatrix, m_ChromeMaterial);
 			}
 			break;
 
@@ -250,21 +251,21 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 				// Draw center gold sphere
 			{
 				auto modelMatrix = glm::mat4(1.0f);
-				OloEngine::Renderer3D::DrawMesh(m_SphereMesh, modelMatrix, m_GoldMaterial);
+				OloEngine::RendererAdapter::DrawMesh(m_SphereMesh, modelMatrix, m_GoldMaterial);
 			}
 
 			// Draw right silver sphere
 			{
 				auto silverSphereMatrix = glm::mat4(1.0f);
 				silverSphereMatrix = glm::translate(silverSphereMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
-				OloEngine::Renderer3D::DrawMesh(m_SphereMesh, silverSphereMatrix, m_SilverMaterial);
+				OloEngine::RendererAdapter::DrawMesh(m_SphereMesh, silverSphereMatrix, m_SilverMaterial);
 			}
 
 			// Draw left chrome sphere
 			{
 				auto chromeSphereMatrix = glm::mat4(1.0f);
 				chromeSphereMatrix = glm::translate(chromeSphereMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
-				OloEngine::Renderer3D::DrawMesh(m_SphereMesh, chromeSphereMatrix, m_ChromeMaterial);
+				OloEngine::RendererAdapter::DrawMesh(m_SphereMesh, chromeSphereMatrix, m_ChromeMaterial);
 			}
 			break;
 
@@ -274,13 +275,13 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 				// Draw right silver sphere
 				auto silverSphereMatrix = glm::mat4(1.0f);
 				silverSphereMatrix = glm::translate(silverSphereMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
-				OloEngine::Renderer3D::DrawMesh(m_SphereMesh, silverSphereMatrix, m_SilverMaterial);
+				OloEngine::RendererAdapter::DrawMesh(m_SphereMesh, silverSphereMatrix, m_SilverMaterial);
 
 				// Draw left chrome cube
 				auto chromeCubeMatrix = glm::mat4(1.0f);
 				chromeCubeMatrix = glm::translate(chromeCubeMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
 				chromeCubeMatrix = glm::rotate(chromeCubeMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
-				OloEngine::Renderer3D::DrawMesh(m_CubeMesh, chromeCubeMatrix, m_ChromeMaterial);
+				OloEngine::RendererAdapter::DrawMesh(m_CubeMesh, chromeCubeMatrix, m_ChromeMaterial);
 			}
 			break;
 		}
@@ -291,7 +292,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 			sphereMatrix = glm::translate(sphereMatrix, glm::vec3(0.0f, 2.0f, 0.0f));
 			sphereMatrix = glm::rotate(sphereMatrix, glm::radians(m_RotationAngleX * 0.8f), glm::vec3(1.0f, 0.0f, 0.0f));
 			sphereMatrix = glm::rotate(sphereMatrix, glm::radians(m_RotationAngleY * 0.8f), glm::vec3(0.0f, 1.0f, 0.0f));
-			OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, m_TexturedMaterial);
+			OloEngine::RendererAdapter::DrawMesh(m_SphereMesh, sphereMatrix, m_TexturedMaterial);
 		}
 
 		// Light cube (only for point and spot lights)
@@ -300,7 +301,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 			auto lightCubeModelMatrix = glm::mat4(1.0f);
 			lightCubeModelMatrix = glm::translate(lightCubeModelMatrix, m_Light.Position);
 			lightCubeModelMatrix = glm::scale(lightCubeModelMatrix, glm::vec3(0.2f));
-			OloEngine::Renderer3D::DrawLightCube(lightCubeModelMatrix);
+			OloEngine::RendererAdapter::DrawLightCube(lightCubeModelMatrix);
 		}
 
 		// Draw our state test objects to demonstrate the new state system
@@ -310,7 +311,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 		}
 	}
 
-	OloEngine::Renderer3D::EndScene();
+	OloEngine::RendererAdapter::EndScene();
 }
 
 void Sandbox3D::RenderGraphDebuggerUI()
@@ -320,7 +321,7 @@ void Sandbox3D::RenderGraphDebuggerUI()
     if (m_RenderGraphDebuggerOpen)
     {
         // Get the renderer's active render graph
-        auto renderGraph = OloEngine::Renderer3D::GetRenderGraph();
+        auto renderGraph = OloEngine::RendererAdapter::GetRenderGraph();
         if (renderGraph)
         {
             m_RenderGraphDebugger.RenderDebugView(renderGraph, &m_RenderGraphDebuggerOpen, "Render Graph");
@@ -373,10 +374,10 @@ void Sandbox3D::OnImGuiRender()
 	ImGui::Text("Frustum Culling");
 	ImGui::Indent();
 	
-	bool frustumCullingEnabled = OloEngine::Renderer3D::IsFrustumCullingEnabled();
+	bool frustumCullingEnabled = OloEngine::RendererAdapter::IsFrustumCullingEnabled();
 	if (ImGui::Checkbox("Enable Frustum Culling", &frustumCullingEnabled))
 	{
-		OloEngine::Renderer3D::EnableFrustumCulling(frustumCullingEnabled);
+		OloEngine::RendererAdapter::EnableFrustumCulling(frustumCullingEnabled);
 	}
 	ImGui::SameLine();
 	ImGui::TextDisabled("(?)");
@@ -389,10 +390,10 @@ void Sandbox3D::OnImGuiRender()
 		ImGui::EndTooltip();
 	}
 	
-	bool dynamicCullingEnabled = OloEngine::Renderer3D::IsDynamicCullingEnabled();
+	bool dynamicCullingEnabled = OloEngine::RendererAdapter::IsDynamicCullingEnabled();
 	if (ImGui::Checkbox("Cull Dynamic Objects", &dynamicCullingEnabled))
 	{
-		OloEngine::Renderer3D::EnableDynamicCulling(dynamicCullingEnabled);
+		OloEngine::RendererAdapter::EnableDynamicCulling(dynamicCullingEnabled);
 	}
 	ImGui::SameLine();
 	ImGui::TextDisabled("(?)");
@@ -407,15 +408,15 @@ void Sandbox3D::OnImGuiRender()
 	
 	if (ImGui::Button("Reset to Defaults"))
 	{
-		OloEngine::Renderer3D::EnableFrustumCulling(true);
-		OloEngine::Renderer3D::EnableDynamicCulling(false);
+		OloEngine::RendererAdapter::EnableFrustumCulling(true);
+		OloEngine::RendererAdapter::EnableDynamicCulling(false);
 	}
 	
 	ImGui::Text("Meshes: Total %d, Culled %d (%.1f%%)", 
-		OloEngine::Renderer3D::GetStats().TotalMeshes, 
-		OloEngine::Renderer3D::GetStats().CulledMeshes,
-		OloEngine::Renderer3D::GetStats().TotalMeshes > 0 
-			? 100.0f * OloEngine::Renderer3D::GetStats().CulledMeshes / OloEngine::Renderer3D::GetStats().TotalMeshes 
+		OloEngine::RendererAdapter::GetStats().TotalMeshes, 
+		OloEngine::RendererAdapter::GetStats().CulledMeshes,
+		OloEngine::RendererAdapter::GetStats().TotalMeshes > 0 
+			? 100.0f * OloEngine::RendererAdapter::GetStats().CulledMeshes / OloEngine::RendererAdapter::GetStats().TotalMeshes 
 			: 0.0f);
 	
 	ImGui::Unindent();
@@ -434,7 +435,7 @@ void Sandbox3D::OnImGuiRender()
 			m_AnimateLight = false;
 		}
 
-		OloEngine::Renderer3D::SetLight(m_Light);
+		OloEngine::RendererAdapter::SetLight(m_Light);
 	}
 
 	// Show different UI controls based on light type
@@ -574,7 +575,7 @@ void Sandbox3D::RenderDirectionalLightUI()
 			m_Light.Direction = glm::vec3(0.0f, -1.0f, 0.0f);
 		}
 
-		OloEngine::Renderer3D::SetLight(m_Light);
+		OloEngine::RendererAdapter::SetLight(m_Light);
 	}
 	
 	// Light colors
@@ -585,7 +586,7 @@ void Sandbox3D::RenderDirectionalLightUI()
 
 	if (lightChanged)
 	{
-		OloEngine::Renderer3D::SetLight(m_Light);
+		OloEngine::RendererAdapter::SetLight(m_Light);
 	}
 }
 
@@ -599,7 +600,7 @@ void Sandbox3D::RenderPointLightUI()
 		bool positionChanged = ImGui::DragFloat3("Position##PointLight", glm::value_ptr(m_Light.Position), 0.1f);
 		if (positionChanged)
 		{
-			OloEngine::Renderer3D::SetLight(m_Light);
+			OloEngine::RendererAdapter::SetLight(m_Light);
 		}
 	}
 	
@@ -617,7 +618,7 @@ void Sandbox3D::RenderPointLightUI()
 
 	if (lightChanged)
 	{
-		OloEngine::Renderer3D::SetLight(m_Light);
+		OloEngine::RendererAdapter::SetLight(m_Light);
 	}
 }
 
@@ -630,7 +631,7 @@ void Sandbox3D::RenderSpotlightUI()
 		// Position control (only if not animating)
 		if (bool positionChanged = ImGui::DragFloat3("Position##Spotlight", glm::value_ptr(m_Light.Position), 0.1f); positionChanged)
 		{
-			OloEngine::Renderer3D::SetLight(m_Light);
+			OloEngine::RendererAdapter::SetLight(m_Light);
 		}
 		
 		// Direction control (only if not animating)
@@ -646,7 +647,7 @@ void Sandbox3D::RenderSpotlightUI()
 				m_Light.Direction = glm::vec3(0.0f, -1.0f, 0.0f);
 			}
 
-			OloEngine::Renderer3D::SetLight(m_Light);
+			OloEngine::RendererAdapter::SetLight(m_Light);
 		}
 	}
 	else
@@ -686,7 +687,7 @@ void Sandbox3D::RenderSpotlightUI()
 
 	if (lightChanged)
 	{
-		OloEngine::Renderer3D::SetLight(m_Light);
+		OloEngine::RendererAdapter::SetLight(m_Light);
 	}
 }
 
@@ -725,7 +726,7 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
         markerMaterial.Specular = glm::vec3(1.0f);
         markerMaterial.Shininess = 32.0f;
         
-        OloEngine::Renderer3D::DrawMesh(m_SphereMesh, markerMatrix, markerMaterial);
+        OloEngine::RendererAdapter::DrawMesh(m_SphereMesh, markerMatrix, markerMaterial);
     }
     
     switch (m_StateTestMode) 
@@ -750,7 +751,7 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
                 OloEngine::RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
                 OloEngine::RenderCommand::SetLineWidth(2.0f + i);  // Different line width for each cube
                 
-                OloEngine::Renderer3D::DrawMesh(m_CubeMesh, cubeMatrix, cubeMaterial);
+                OloEngine::RendererAdapter::DrawMesh(m_CubeMesh, cubeMatrix, cubeMaterial);
                 
                 // Reset polygon mode to fill after drawing
                 OloEngine::RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -793,7 +794,7 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
                     case 2: OloEngine::RenderCommand::SetColorMask(false, false, true, true); break;  // Blue only
                 }
                 
-                OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, sphereMaterial);
+                OloEngine::RendererAdapter::DrawMesh(m_SphereMesh, sphereMatrix, sphereMaterial);
                 
                 // Reset color mask
                 OloEngine::RenderCommand::SetColorMask(true, true, true, true);
@@ -816,7 +817,7 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
             solidMaterial.Specular = glm::vec3(0.5f);
             solidMaterial.Shininess = 32.0f;
             
-            OloEngine::Renderer3D::DrawMesh(m_CubeMesh, cubeMatrix, solidMaterial);
+            OloEngine::RendererAdapter::DrawMesh(m_CubeMesh, cubeMatrix, solidMaterial);
             
             // Wireframe overlay with polygon offset to prevent z-fighting
             OloEngine::Material wireMaterial;
@@ -832,7 +833,7 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
             // Apply polygon offset to prevent z-fighting with the solid cube
             OloEngine::RenderCommand::SetPolygonOffset(-1.0f, -1.0f);
             
-            OloEngine::Renderer3D::DrawMesh(m_CubeMesh, cubeMatrix, wireMaterial);
+            OloEngine::RendererAdapter::DrawMesh(m_CubeMesh, cubeMatrix, wireMaterial);
             
             // Reset states
             OloEngine::RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -859,7 +860,7 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
                 OloEngine::RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
                 OloEngine::RenderCommand::SetLineWidth(2.0f);
                 
-                OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, wireMaterial);
+                OloEngine::RendererAdapter::DrawMesh(m_SphereMesh, sphereMatrix, wireMaterial);
                 
                 OloEngine::RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
             }
@@ -907,7 +908,7 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
                 }
                 
                 // Draw the transparent cube
-                OloEngine::Renderer3D::DrawMesh(m_CubeMesh, cubeMatrix, glassMaterial);
+                OloEngine::RendererAdapter::DrawMesh(m_CubeMesh, cubeMatrix, glassMaterial);
                 
                 // Draw the outline
                 OloEngine::RenderCommand::SetStencilFunc(GL_NOTEQUAL, 1, 0xFF);
@@ -922,7 +923,7 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
                 outlineMaterial.Specular = glm::vec3(0.0f);
                 outlineMaterial.Shininess = 1.0f;
                 
-                OloEngine::Renderer3D::DrawMesh(m_CubeMesh, outlineMatrix, outlineMaterial);
+                OloEngine::RendererAdapter::DrawMesh(m_CubeMesh, outlineMatrix, outlineMaterial);
                 
                 // Reset states
                 OloEngine::RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);

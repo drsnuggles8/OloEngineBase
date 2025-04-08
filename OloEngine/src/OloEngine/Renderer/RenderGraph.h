@@ -40,6 +40,12 @@ namespace OloEngine
         // Set the final pass in the graph
         void SetFinalPass(const std::string& passName);
         
+        /**
+         * @brief Get all render passes in the graph for debugging or inspection.
+         * @return Vector of render passes in the execution order
+         */
+        [[nodiscard]] std::vector<Ref<RenderPass>> GetAllPasses() const;
+        
         // Get a pass by name and cast to the requested type
         template<typename T>
         Ref<T> GetPass(const std::string& name)
@@ -57,6 +63,29 @@ namespace OloEngine
             }
             return nullptr;
         }
+
+		/**
+		 * @brief Determine if the specified pass is the final pass in the render graph.
+		 * @param passName The name of the pass to check
+		 * @return True if the pass is the final pass, false otherwise
+		 */
+		[[nodiscard]] bool IsFinalPass(const std::string& passName) const;
+		
+		/**
+		 * @brief Connection information between render passes.
+		 */
+		struct ConnectionInfo
+		{
+			std::string OutputPass;
+			std::string InputPass;
+			u32 AttachmentIndex = 0;
+		};
+		
+		/**
+		 * @brief Get all connections between passes in the render graph.
+		 * @return Vector of connection information
+		 */
+		[[nodiscard]] std::vector<ConnectionInfo> GetConnections() const;
         
     private:
         void UpdateDependencyGraph();

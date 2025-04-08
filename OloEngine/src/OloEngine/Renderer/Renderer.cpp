@@ -3,6 +3,7 @@
 
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/StatelessRenderer3D.h"
 
 
 namespace OloEngine
@@ -24,6 +25,9 @@ namespace OloEngine
 			case RendererType::Renderer3D:
 				Renderer3D::Init();
 				break;
+			case RendererType::StatelessRenderer3D:
+				StatelessRenderer3D::Init();
+				break;
 		}
 	}
 
@@ -36,6 +40,9 @@ namespace OloEngine
 				break;
 			case RendererType::Renderer3D:
 				Renderer3D::Shutdown();
+				break;
+			case RendererType::StatelessRenderer3D:
+				StatelessRenderer3D::Shutdown();
 				break;
 		}
 	}

@@ -232,18 +232,18 @@ namespace OloEngine
         }
         
         // Write edges
-        const auto& connections = graph->GetConnections();
-        for (const auto& [inputName, outputName] : connections)
-        {
-            dotFile << "  \"" << outputName << "\" -> \"" << inputName << "\";\n";
-        }
-        
-        // Close DOT file
-        dotFile << "}\n";
-        dotFile.close();
-        
-        OLO_CORE_INFO("Render graph exported to {0}", outputPath);
-        return true;
+		const auto& connections = graph->GetConnections();
+		for (const auto& connection : connections)
+		{
+			dotFile << "  \"" << connection.OutputPass << "\" -> \"" << connection.InputPass << "\";\n";
+		}
+		
+		// Close DOT file
+		dotFile << "}\n";
+		dotFile.close();
+		
+		OLO_CORE_INFO("Render graph exported to {0}", outputPath);
+		return true;
     }
     
     void RenderGraphDebugger::DrawNode(const Ref<RenderPass>& pass, ImDrawList* drawList, const ImVec2& offset, f32& maxWidth)
@@ -318,26 +318,30 @@ namespace OloEngine
     
     void RenderGraphDebugger::DrawConnections(const Ref<RenderGraph>& graph, ImDrawList* drawList, const ImVec2& offset)
     {   
-        for (const auto& connections = graph->GetConnections(); const auto& [inputName, outputName] : connections)
-        {
-            if (!m_NodePositions.contains(inputName) || !m_NodePositions.contains(outputName))
-            {
-                continue;
-            }
-            
-            const NodeData& inputNode = m_NodePositions[inputName];
-            const NodeData& outputNode = m_NodePositions[outputName];
-            
-            // Calculate connection points with proper offset
-            ImVec2 start(
-                offset.x + outputNode.Position.x + outputNode.Size.x / 2.0f,
-                offset.y + outputNode.Position.y + outputNode.Size.y
-            );
-            
-            ImVec2 end(
-                offset.x + inputNode.Position.x + inputNode.Size.x / 2.0f,
-                offset.y + inputNode.Position.y
-            );
+        const auto& connections = graph->GetConnections();
+		for (const auto& connection : connections)
+		{
+			const std::string& outputName = connection.OutputPass;
+			const std::string& inputName = connection.InputPass;
+			
+			if (!m_NodePositions.contains(inputName) || !m_NodePositions.contains(outputName))
+			{
+				continue;
+			}
+			
+			const NodeData& inputNode = m_NodePositions[inputName];
+			const NodeData& outputNode = m_NodePositions[outputName];
+			
+			// Calculate connection points with proper offset
+			ImVec2 start(
+				offset.x + outputNode.Position.x + outputNode.Size.x / 2.0f,
+				offset.y + outputNode.Position.y + outputNode.Size.y
+			);
+			
+			ImVec2 end(
+				offset.x + inputNode.Position.x + inputNode.Size.x / 2.0f,
+				offset.y + inputNode.Position.y
+			);
             
             // Draw bezier curve
             const f32 curveHeight = 40.0f;
@@ -394,118 +398,123 @@ namespace OloEngine
     }
     
     void RenderGraphDebugger::CalculateLayout(const Ref<RenderGraph>& graph)
-    {
-        OLO_PROFILE_FUNCTION();
-        
-        m_NodePositions.clear();
-        
-        auto passes = graph->GetAllPasses();
-        const auto& connections = graph->GetConnections();
-        
-        // Step 1: Create a dependency graph
-        std::unordered_map<std::string, std::vector<std::string>> dependsOn; // pass -> passes it depends on
-        std::unordered_map<std::string, std::vector<std::string>> dependedBy; // pass -> passes that depend on it
-        std::unordered_map<std::string, int> inDegree; // Number of dependencies
-        
-        for (const auto& pass : passes)
-        {
-            const std::string& passName = pass->GetName();
-            dependsOn[passName] = {};
-            dependedBy[passName] = {};
-            inDegree[passName] = 0;
-        }
-        
-        for (const auto& [inputName, outputName] : connections)
-        {
-            dependsOn[inputName].push_back(outputName);
-            dependedBy[outputName].push_back(inputName);
-            inDegree[inputName]++;
-        }
-        
-        // Step 2: Assign layers using topological sorting
-        std::unordered_map<std::string, int> layers;
-        std::queue<std::string> queue;
-        
-        // Find nodes with no dependencies (sources)
-        for (const auto& [passName, deps] : inDegree)
-        {
-            if (deps == 0)
-            {
-                queue.push(passName);
-                layers[passName] = 0; // Source nodes are at layer 0
-            }
-        }
-        
-        while (!queue.empty())
-        {
-            std::string current = queue.front();
-            queue.pop();
-            
-            for (const auto& dependent : dependedBy[current])
-            {
-                // Update layer of dependent
-                layers[dependent] = std::max(layers[dependent], layers[current] + 1);
-                
-                // Decrease in-degree and check if ready
-                inDegree[dependent]--;
-                if (inDegree[dependent] == 0)
-                {
-                    queue.push(dependent);
-                }
-            }
-        }
-        
-        // Step 3: Count nodes per layer
-        std::unordered_map<int, int> nodesPerLayer;
-        int maxLayer = 0;
-        
-        for (const auto& [passName, layer] : layers)
-        {
-            nodesPerLayer[layer]++;
-            maxLayer = std::max(maxLayer, layer);
-        }
-        
-        // Step 4: Assign positions based on layers
-        std::unordered_map<int, int> layerCounts; // Current count for each layer
-        
-        for (const auto& pass : passes)
-        {
-            const std::string& passName = pass->GetName();
-            int layer = layers[passName];
-            
-            if (!layerCounts.contains(layer))
-            {
-                layerCounts[layer] = 0;
-            }
-            
-            // Calculate position
-            f32 x = m_Settings.CanvasPadding + 
-                     (m_Settings.NodeWidth + m_Settings.NodeSpacingX) * layerCounts[layer];
-            
-            f32 y = m_Settings.CanvasPadding + 
-                     (m_Settings.NodeHeight + m_Settings.NodeSpacingY) * layer;
-            
-            // Store node data
-            NodeData nodeData;
-            nodeData.Position = ImVec2(x, y);
-            nodeData.Size = ImVec2(m_Settings.NodeWidth, m_Settings.NodeHeight);
-            
-            // Set color based on whether it's the final pass
-            if (graph->IsFinalPass(passName))
-            {
-                nodeData.Color = m_Settings.FinalNodeFillColor;
-            }
-            else
-            {
-                nodeData.Color = m_Settings.NodeFillColor;
-            }
-            
-            m_NodePositions[passName] = nodeData;
-            
-            // Increment counter for this layer
-            layerCounts[layer]++;
-        }
-    }
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		m_NodePositions.clear();
+		
+		auto passes = graph->GetAllPasses();
+		
+		// Step 1: Create a dependency graph
+		std::unordered_map<std::string, std::vector<std::string>> dependsOn; // pass -> passes it depends on
+		std::unordered_map<std::string, std::vector<std::string>> dependedBy; // pass -> passes that depend on it
+		std::unordered_map<std::string, int> inDegree; // Number of dependencies
+		
+		// Initialize maps for all passes first
+		for (const auto& pass : passes)
+		{
+			const std::string& passName = pass->GetName();
+			dependsOn[passName] = {};
+			dependedBy[passName] = {};
+			inDegree[passName] = 0;
+		}
+		
+		// Now process the connections
+		const auto& connections = graph->GetConnections();
+		for (const auto& connection : connections)
+		{
+			const std::string& outputName = connection.OutputPass;
+			const std::string& inputName = connection.InputPass;
+			
+			dependsOn[inputName].push_back(outputName);
+			dependedBy[outputName].push_back(inputName);
+			inDegree[inputName]++;
+		}
+		
+		// Step 2: Assign layers using topological sorting
+		std::unordered_map<std::string, int> layers;
+		std::queue<std::string> queue;
+		
+		// Find nodes with no dependencies (sources)
+		for (const auto& [passName, deps] : inDegree)
+		{
+			if (deps == 0)
+			{
+				queue.push(passName);
+				layers[passName] = 0; // Source nodes are at layer 0
+			}
+		}
+		
+		while (!queue.empty())
+		{
+			std::string current = queue.front();
+			queue.pop();
+			
+			for (const auto& dependent : dependedBy[current])
+			{
+				// Update layer of dependent
+				layers[dependent] = std::max(layers[dependent], layers[current] + 1);
+				
+				// Decrease in-degree and check if ready
+				inDegree[dependent]--;
+				if (inDegree[dependent] == 0)
+				{
+					queue.push(dependent);
+				}
+			}
+		}
+		
+		// Step 3: Count nodes per layer
+		std::unordered_map<int, int> nodesPerLayer;
+		int maxLayer = 0;
+		
+		for (const auto& [passName, layer] : layers)
+		{
+			nodesPerLayer[layer]++;
+			maxLayer = std::max(maxLayer, layer);
+		}
+		
+		// Step 4: Assign positions based on layers
+		std::unordered_map<int, int> layerCounts; // Current count for each layer
+		
+		for (const auto& pass : passes)
+		{
+			const std::string& passName = pass->GetName();
+			int layer = layers[passName];
+			
+			if (!layerCounts.contains(layer))
+			{
+				layerCounts[layer] = 0;
+			}
+			
+			// Calculate position
+			f32 x = m_Settings.CanvasPadding + 
+					(m_Settings.NodeWidth + m_Settings.NodeSpacingX) * layerCounts[layer];
+			
+			f32 y = m_Settings.CanvasPadding + 
+					(m_Settings.NodeHeight + m_Settings.NodeSpacingY) * layer;
+			
+			// Store node data
+			NodeData nodeData;
+			nodeData.Position = ImVec2(x, y);
+			nodeData.Size = ImVec2(m_Settings.NodeWidth, m_Settings.NodeHeight);
+			
+			// Set color based on whether it's the final pass
+			if (graph->IsFinalPass(passName))
+			{
+				nodeData.Color = m_Settings.FinalNodeFillColor;
+			}
+			else
+			{
+				nodeData.Color = m_Settings.NodeFillColor;
+			}
+			
+			m_NodePositions[passName] = nodeData;
+			
+			// Increment counter for this layer
+			layerCounts[layer]++;
+		}
+	}
 
     // Update the LayoutSettings struct to include scroll offset
     struct LayoutSettings 

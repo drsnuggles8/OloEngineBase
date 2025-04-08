@@ -28,6 +28,7 @@ namespace OloEngine
         void Bind(u32 slot) const override;
 
         [[nodiscard("Store this!")]] bool IsLoaded() const override { return m_IsLoaded; }
+		[[nodiscard]] bool HasAlphaChannel() const override { return m_HasAlphaChannel; }
 
         // TextureCubemap specific methods
         const CubemapSpecification& GetCubemapSpecification() const override { return m_CubemapSpecification; }
@@ -47,5 +48,6 @@ namespace OloEngine
         u32 m_RendererID{};
         GLenum m_InternalFormat{};
         GLenum m_DataFormat{};
+		bool m_HasAlphaChannel = false;
     };
 }

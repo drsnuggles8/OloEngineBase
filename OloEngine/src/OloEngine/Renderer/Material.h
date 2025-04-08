@@ -5,6 +5,7 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/hash.hpp>
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/Shader.h"
 
 namespace OloEngine
 {

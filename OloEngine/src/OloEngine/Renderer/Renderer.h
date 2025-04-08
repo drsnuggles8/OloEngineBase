@@ -10,7 +10,8 @@ namespace OloEngine
 	enum class RendererType
 	{
 		Renderer2D,
-		Renderer3D
+		Renderer3D,
+		StatelessRenderer3D,
 	};
 
 	class Renderer

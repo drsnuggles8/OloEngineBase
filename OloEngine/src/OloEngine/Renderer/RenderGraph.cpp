@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/RenderGraph.h"
+#include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 
 namespace OloEngine
 {
@@ -84,33 +85,70 @@ namespace OloEngine
         m_DependencyGraphDirty = true;
     }
     
-    void RenderGraph::Execute()
-    {
-        OLO_PROFILE_FUNCTION();
-        
-        if (m_DependencyGraphDirty)
-        {
-            UpdateDependencyGraph();
-            ResolveFinalPass();
-            m_DependencyGraphDirty = false;
-        }
-        
-        for (const auto& passName : m_PassOrder)
-        {
-            auto& passVariant = m_PassLookup[passName];
-            
-            if (auto renderPass = std::get_if<Ref<RenderPass>>(&passVariant))
-            {
-                OLO_CORE_TRACE("Executing RenderPass: {}", passName);
-                (*renderPass)->Execute();
-            }
-            else if (auto cmdRenderPass = std::get_if<Ref<CommandRenderPass>>(&passVariant))
-            {
-                OLO_CORE_TRACE("Executing CommandRenderPass: {}", passName);
-                (*cmdRenderPass)->Execute();
-            }
-        }
-    }
+	void RenderGraph::Execute()
+	{
+		OLO_PROFILE_FUNCTION();
+
+		if (m_DependencyGraphDirty)
+		{
+			UpdateDependencyGraph();
+			ResolveFinalPass();
+			m_DependencyGraphDirty = false;
+		}
+
+		// First pass: Connect framebuffers between dependencies
+		for (const auto& [outputPass, inputPasses] : m_DependentPasses)
+		{
+			auto& outputPassVariant = m_PassLookup[outputPass];
+			Ref<Framebuffer> outputFramebuffer;
+
+			// Get output framebuffer from output pass
+			if (auto renderPass = std::get_if<Ref<RenderPass>>(&outputPassVariant))
+			{
+				outputFramebuffer = (*renderPass)->GetTarget();
+			}
+			else if (auto cmdRenderPass = std::get_if<Ref<CommandRenderPass>>(&outputPassVariant))
+			{
+				outputFramebuffer = (*cmdRenderPass)->GetTarget();
+			}
+
+			// Set this framebuffer as input for all dependent passes
+			if (outputFramebuffer)
+			{
+				for (const auto& inputPass : inputPasses)
+				{
+					auto& inputPassVariant = m_PassLookup[inputPass];
+
+					if (auto finalPass = std::get_if<Ref<RenderPass>>(&inputPassVariant))
+					{
+						if (auto* finalRenderPass = dynamic_cast<FinalRenderPass*>(finalPass->get()))
+						{
+							finalRenderPass->SetInputFramebuffer(outputFramebuffer);
+						}
+					}
+					// Handle CommandRenderPass if needed
+				}
+			}
+		}
+
+		// Second pass: Execute passes in order
+		for (const auto& passName : m_PassOrder)
+		{
+			auto& passVariant = m_PassLookup[passName];
+
+			if (auto renderPass = std::get_if<Ref<RenderPass>>(&passVariant))
+			{
+				// OLO_CORE_TRACE("Executing RenderPass: {}", passName);
+				(*renderPass)->Execute();
+			}
+			else if (auto cmdRenderPass = std::get_if<Ref<CommandRenderPass>>(&passVariant))
+			{
+				// OLO_CORE_TRACE("Executing CommandRenderPass: {}", passName);
+				(*cmdRenderPass)->Execute();
+			}
+		}
+	}
+
     
     void RenderGraph::Resize(u32 width, u32 height)
     {
@@ -225,4 +263,96 @@ namespace OloEngine
             OLO_CORE_WARN("RenderGraph: Could not determine final pass!");
         }
     }
+
+	std::vector<Ref<RenderPass>> RenderGraph::GetAllPasses() const
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		std::vector<Ref<RenderPass>> result;
+		result.reserve(m_PassOrder.size());
+		
+		// First add passes in execution order (from m_PassOrder)
+		for (const auto& passName : m_PassOrder)
+		{
+			const auto& passVariant = m_PassLookup.find(passName);
+			if (passVariant != m_PassLookup.end())
+			{
+				if (auto renderPass = std::get_if<Ref<RenderPass>>(&passVariant->second))
+				{
+					result.push_back(*renderPass);
+				}
+				else if (auto cmdRenderPass = std::get_if<Ref<CommandRenderPass>>(&passVariant->second))
+				{
+					// For the debugger, we need to treat CommandRenderPass as RenderPass
+					// This works if CommandRenderPass inherits from RenderPass, otherwise
+					// we might need a conversion or wrapper here
+					Ref<RenderPass> basePass = std::dynamic_pointer_cast<RenderPass>(*cmdRenderPass);
+					if (basePass)
+					{
+						result.push_back(basePass);
+					}
+				}
+			}
+		}
+		
+		// If any passes weren't included in the execution order, add them at the end
+		for (const auto& [name, passVariant] : m_PassLookup)
+		{
+			// Skip if already in execution order
+			if (std::find(m_PassOrder.begin(), m_PassOrder.end(), name) != m_PassOrder.end())
+				continue;
+				
+			if (auto renderPass = std::get_if<Ref<RenderPass>>(&passVariant))
+			{
+				result.push_back(*renderPass);
+			}
+			else if (auto cmdRenderPass = std::get_if<Ref<CommandRenderPass>>(&passVariant))
+			{
+				Ref<RenderPass> basePass = std::dynamic_pointer_cast<RenderPass>(*cmdRenderPass);
+				if (basePass)
+				{
+					result.push_back(basePass);
+				}
+			}
+		}
+		
+		return result;
+	}
+
+	bool RenderGraph::IsFinalPass(const std::string& passName) const
+	{
+		OLO_PROFILE_FUNCTION();
+		return passName == m_FinalPassName;
+	}
+
+	std::vector<RenderGraph::ConnectionInfo> RenderGraph::GetConnections() const
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		std::vector<ConnectionInfo> connections;
+		
+		// Reserve space to avoid reallocations
+		u32 totalConnections = 0;
+		for (const auto& [outputPass, inputPasses] : m_DependentPasses)
+		{
+			totalConnections += static_cast<u32>(inputPasses.size());
+		}
+		connections.reserve(totalConnections);
+		
+		// Build connection information from dependency graph
+		for (const auto& [outputPass, inputPasses] : m_DependentPasses)
+		{
+			for (const auto& inputPass : inputPasses)
+			{
+				ConnectionInfo connection;
+				connection.OutputPass = outputPass;
+				connection.InputPass = inputPass;
+				connection.AttachmentIndex = 0; // Default attachment index
+				
+				connections.push_back(connection);
+			}
+		}
+		
+		return connections;
+	}
 }
