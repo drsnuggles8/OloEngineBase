@@ -19,6 +19,8 @@ namespace OloEngine
 
 		[[nodiscard("Store this!")]] const std::vector<Ref<VertexBuffer>>& GetVertexBuffers() const override { return m_VertexBuffers; }
 		[[nodiscard("Store this!")]] const Ref<IndexBuffer>& GetIndexBuffer() const override { return m_IndexBuffer; }
+
+		[[nodiscard]] u32 GetRendererID() const override { return m_RendererID; }
 	private:
 		u32 m_RendererID{};
 		u32 m_VertexBufferIndex = 0;

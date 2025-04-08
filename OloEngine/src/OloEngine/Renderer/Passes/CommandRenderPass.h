@@ -16,9 +16,16 @@ namespace OloEngine
     class CommandRenderPass
     {
     public:
-		virtual ~CommandRenderPass() = default;
+        CommandRenderPass()
+        {
+            // Create owned allocator with default block size
+            m_OwnedAllocator = CreateRef<CommandAllocator>();
+            m_Allocator = m_OwnedAllocator.get();
+        }
+        
+        virtual ~CommandRenderPass() = default;
 
-		/**
+        /**
          * @brief Initialize the command-based render pass with a framebuffer specification.
          * @param spec The specification for the framebuffer to render to
          */
@@ -71,36 +78,48 @@ namespace OloEngine
         /**
          * @brief Reset the command bucket to prepare for a new frame.
          */
-        void ResetCommandBucket() { m_CommandBucket.Reset(); }
-        
-        /**
-         * @brief Set the command allocator to use for this render pass.
-         * @param allocator The command allocator to use
-         */
-        void SetCommandAllocator(CommandAllocator* allocator) { m_Allocator = allocator; }
-        
-        /**
-         * @brief Submit a command to the pass's command bucket.
-         * @param command The command to submit
-         * @param commandAllocator The allocator to use for command memory
-         * @return True if the command was successfully submitted
-         */
-        bool SubmitCommand(const void* command, CommandType type, CommandAllocator& commandAllocator)
-        {
-            if (!m_Allocator)
-            {
-                m_Allocator = &commandAllocator;
-            }
-            
-            return m_CommandBucket.AddCommand(command, type, *m_Allocator);
+        void ResetCommandBucket() 
+        { 
+            OLO_CORE_ASSERT(m_Allocator, "CommandRenderPass::ResetCommandBucket: No allocator available!");
+            m_CommandBucket.Reset(*m_Allocator); 
         }
+        
+        /**
+         * @brief Set an external command allocator to use for this render pass.
+         * @param allocator The command allocator to use (nullptr to use the owned allocator)
+         */
+        void SetCommandAllocator(CommandAllocator* allocator) 
+        { 
+            m_Allocator = allocator ? allocator : m_OwnedAllocator.get(); 
+        }
+        
+        /**
+		 * @brief Submit a command to the pass's command bucket.
+		 * @tparam T The command data type
+		 * @param commandData The command data to submit
+		 * @param metadata Metadata for sorting and batching
+		 * @return The created command packet or nullptr if creation failed
+		 */
+		template<typename T>
+		CommandPacket* SubmitCommand(const T& commandData, const PacketMetadata& metadata)
+		{
+			if (!m_Allocator)
+			{
+				OLO_CORE_ERROR("CommandRenderPass::SubmitCommand: No allocator available!");
+				return nullptr;
+			}
+			
+			// Submit to the command bucket with the provided metadata
+			return m_CommandBucket.Submit(commandData, metadata, m_Allocator);
+		}
 
     protected:
-		std::string m_Name = "CommandRenderPass";
-		Ref<Framebuffer> m_Target;
-		FramebufferSpecification m_FramebufferSpec;
+        std::string m_Name = "CommandRenderPass";
+        Ref<Framebuffer> m_Target;
+        FramebufferSpecification m_FramebufferSpec;
 
-		CommandBucket m_CommandBucket;
-		CommandAllocator* m_Allocator = nullptr;
+        CommandBucket m_CommandBucket;
+        Ref<CommandAllocator> m_OwnedAllocator;
+        CommandAllocator* m_Allocator = nullptr; // Points to m_OwnedAllocator or external allocator
     };
 }

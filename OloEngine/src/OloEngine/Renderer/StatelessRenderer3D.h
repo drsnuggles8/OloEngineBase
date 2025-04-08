@@ -92,9 +92,6 @@ namespace OloEngine
 			Ref<Shader> QuadShader;
 			Ref<UniformBuffer> CameraMatricesBuffer;
 			
-			// Command-based rendering resources
-			Ref<CommandAllocator> CommandAlloc;
-			
 			glm::mat4 ViewProjectionMatrix;
 			glm::mat4 ViewMatrix;
 			glm::mat4 ProjectionMatrix;
@@ -111,6 +108,8 @@ namespace OloEngine
 			Ref<RenderGraph> RGraph;
 			Ref<CommandSceneRenderPass> ScenePass;
 			Ref<CommandFinalRenderPass> FinalPass;
+
+			u64 CommandCounter = 0;
 		};
 		
 		static StatelessRenderer3DData s_Data;

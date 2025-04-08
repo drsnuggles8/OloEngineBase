@@ -22,5 +22,7 @@ namespace OloEngine
 		[[nodiscard("Store this!")]] virtual const Ref<IndexBuffer>& GetIndexBuffer() const = 0;
 
 		static Ref<VertexArray> Create();
+
+		[[nodiscard]] virtual u32 GetRendererID() const = 0;
 	};
 }

@@ -24,6 +24,8 @@ namespace OloEngine
 		virtual void SetFloat4(const std::string& name, const glm::vec4& value) = 0;
 		virtual void SetMat4(const std::string& name, const glm::mat4& value) = 0;
 
+		[[nodiscard]] virtual u32 GetRendererID() const = 0;
+
 		[[nodiscard("Store this!")]] virtual const std::string& GetName() const = 0;
 
 		virtual void Reload() = 0;

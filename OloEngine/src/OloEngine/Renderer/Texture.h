@@ -46,6 +46,8 @@ namespace OloEngine
 
 		[[nodiscard("Store this!")]] virtual bool IsLoaded() const = 0;
 
+		[[nodiscard("Use for transparency")]] virtual bool HasAlphaChannel() const = 0;
+
 		bool operator==(const Texture& other) const { return GetRendererID() == other.GetRendererID(); }
 	};
 

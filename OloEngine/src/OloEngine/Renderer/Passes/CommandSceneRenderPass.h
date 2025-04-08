@@ -59,55 +59,5 @@ namespace OloEngine
          * @brief Reset the pass, recreating any necessary resources.
          */
         void OnReset() override;
-        
-        /**
-         * @brief Submit a mesh for rendering.
-         * @param mesh The mesh to render
-         * @param transform The transformation matrix
-         * @param material The material to use
-         * @param commandAllocator The allocator for command memory
-         * @return True if the command was successfully submitted
-         */
-        bool SubmitMesh(const Ref<Mesh>& mesh, const glm::mat4& transform, const Material& material, CommandAllocator& commandAllocator);
-        
-        /**
-         * @brief Submit a cube for rendering.
-         * @param transform The transformation matrix
-         * @param material The material to use
-         * @param commandAllocator The allocator for command memory
-         * @return True if the command was successfully submitted
-         */
-        bool SubmitCube(const Ref<Mesh>& cubeMesh, const glm::mat4& transform, const Material& material, CommandAllocator& commandAllocator);
-        
-        /**
-         * @brief Submit a textured quad for rendering.
-         * @param transform The transformation matrix
-         * @param texture The texture to use
-         * @param commandAllocator The allocator for command memory
-         * @return True if the command was successfully submitted
-         */
-        bool SubmitQuad(const glm::mat4& transform, const Ref<Texture2D>& texture, CommandAllocator& commandAllocator);
-        
-        /**
-         * @brief Submit a transparent textured quad for rendering.
-         * @param transform The transformation matrix
-         * @param texture The texture to use 
-         * @param shader The shader to use for transparent rendering
-         * @param commandAllocator The allocator for command memory
-         * @return True if the command was successfully submitted
-         */
-        bool SubmitTransparentQuad(const glm::mat4& transform, const Ref<Texture2D>& texture, 
-                                  const Ref<Shader>& shader, CommandAllocator& commandAllocator);
-        
-        /**
-         * @brief Submit a light cube for rendering.
-         * @param cubeMesh The mesh to use for the light cube
-         * @param transform The transformation matrix
-         * @param lightCubeShader The shader to use for the light cube
-         * @param commandAllocator The allocator for command memory
-         * @return True if the command was successfully submitted
-         */
-        bool SubmitLightCube(const Ref<Mesh>& cubeMesh, const glm::mat4& transform, 
-                            const Ref<Shader>& lightCubeShader, CommandAllocator& commandAllocator);
 	};
 }

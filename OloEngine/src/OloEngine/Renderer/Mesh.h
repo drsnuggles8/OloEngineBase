@@ -47,6 +47,10 @@ namespace OloEngine
         [[nodiscard]] BoundingBox GetTransformedBoundingBox(const glm::mat4& transform) const { return m_BoundingBox.Transform(transform); }
         [[nodiscard]] BoundingSphere GetTransformedBoundingSphere(const glm::mat4& transform) const { return m_BoundingSphere.Transform(transform); }
 
+		// Add to Mesh.h in the public section
+		[[nodiscard]] u32 GetRendererID() const { return m_VertexArray ? m_VertexArray->GetRendererID() : 0; }
+		[[nodiscard]] u32 GetIndexCount() const { return static_cast<u32>(m_Indices.size()); }
+
     private:
         std::vector<Vertex> m_Vertices;
         std::vector<u32> m_Indices;

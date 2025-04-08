@@ -50,9 +50,6 @@ namespace OloEngine
 		s_Data.ViewPos = glm::vec3(0.0f, 0.0f, 3.0f);
 		
 		s_Data.Stats.Reset();
-
-		// Create the command allocator for command-based rendering
-		s_Data.CommandAlloc = CreateRef<CommandAllocator>();
 		
 		// Initialize the render graph with command-based render passes
 		Window& window = Application::Get().GetWindow();		
@@ -70,9 +67,6 @@ namespace OloEngine
 		// Shutdown the render graph
 		if (s_Data.RGraph)
 			s_Data.RGraph->Shutdown();
-			
-		// Release command allocator
-		s_Data.CommandAlloc.reset();
 		
 		OLO_CORE_INFO("StatelessRenderer3D shutdown complete.");
 	}
@@ -81,12 +75,11 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
         
-        // Check that we have our command allocator and CommandSceneRenderPass
-        if (!s_Data.CommandAlloc || !s_Data.ScenePass)
-        {
-            OLO_CORE_ERROR("StatelessRenderer3D::BeginScene: Command allocator or ScenePass is null!");
-            return;
-        }
+        if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::BeginScene: ScenePass is null!");
+			return;
+		}
 
 		s_Data.ViewMatrix = camera.GetView();
 		s_Data.ProjectionMatrix = camera.GetProjection();
@@ -97,15 +90,13 @@ namespace OloEngine
 		
 		// Reset statistics for this frame
 		s_Data.Stats.Reset();
+		s_Data.CommandCounter = 0;
 		
 		// Update the camera matrices UBO
 		UpdateCameraMatricesUBO(s_Data.ViewMatrix, s_Data.ProjectionMatrix);
 		
 		// Reset the command bucket for this frame - properly encapsulated
 		s_Data.ScenePass->ResetCommandBucket();
-		
-		// Make sure scene pass has access to the command allocator - properly encapsulated
-		s_Data.ScenePass->SetCommandAllocator(s_Data.CommandAlloc.get());
 	}
 
 	void StatelessRenderer3D::EndScene()
@@ -206,33 +197,41 @@ namespace OloEngine
 	void StatelessRenderer3D::DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture)
 	{
 		OLO_PROFILE_FUNCTION();
-        
-		if (!s_Data.ScenePass || !s_Data.CommandAlloc)
+		
+		if (!s_Data.ScenePass)
 		{
-			OLO_CORE_ERROR("StatelessRenderer3D::DrawQuad: ScenePass or CommandAllocator is null!");
+			OLO_CORE_ERROR("StatelessRenderer3D::DrawQuad: ScenePass is null!");
 			return;
 		}
 
-		 // Add transparency settings for quads if texture has alpha channel
-		if (texture->HasAlphaChannel())
-		{
-			// Submit a transparent quad with proper encapsulation
-			s_Data.ScenePass->SubmitTransparentQuad(modelMatrix, texture, s_Data.QuadShader, *s_Data.CommandAlloc);
-		}
-		else
-		{
-			// Submit an opaque quad with proper encapsulation
-			s_Data.ScenePass->SubmitQuad(modelMatrix, texture, *s_Data.CommandAlloc);
-		}
+		// Create the command structure directly
+		DrawQuadCommand command;
+		command.header.type = CommandType::DrawQuad;
+		// The dispatch function will be filled by the command system
+		
+		// Fill in the command data
+		command.transform = modelMatrix;
+		command.textureID = texture->GetRendererID();
+		command.shaderID = s_Data.QuadShader->GetRendererID();
+		
+		// Create metadata for sorting/batching
+		PacketMetadata metadata;
+		metadata.textureKey = texture->GetRendererID();
+		metadata.shaderKey = s_Data.QuadShader->GetRendererID();
+		metadata.stateChangeKey = texture->HasAlphaChannel() ? 1 : 0; // Different state for alpha textures
+		metadata.executionOrder = s_Data.CommandCounter++; // Maintain order if needed
+		
+		// Submit command via the CommandRenderPass's SubmitCommand method
+		s_Data.ScenePass->SubmitCommand(command, metadata);
 	}
 
 	void StatelessRenderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic)
 	{
 		OLO_PROFILE_FUNCTION();
-        
-		if (!s_Data.ScenePass || !s_Data.CommandAlloc)
+		
+		if (!s_Data.ScenePass)
 		{
-			OLO_CORE_ERROR("StatelessRenderer3D::DrawMesh: ScenePass or CommandAllocator is null!");
+			OLO_CORE_ERROR("StatelessRenderer3D::DrawMesh: ScenePass is null!");
 			return;
 		}
 			
@@ -247,27 +246,84 @@ namespace OloEngine
 			}
 		}
 		
-		 // Add additional material properties from scene light
-		Material materialWithLighting = material;
-		materialWithLighting.LightPosition = s_Data.SceneLight.Position;
-		materialWithLighting.ViewPosition = s_Data.ViewPos;
+		// Create the command structure
+		DrawMeshCommand command;
+		command.header.type = CommandType::DrawMesh;
+		// The dispatch function will be filled by the command system
 		
-		 // Submit mesh with proper encapsulation
-		s_Data.ScenePass->SubmitMesh(mesh, modelMatrix, materialWithLighting, *s_Data.CommandAlloc);
+		// Fill in the mesh data
+		command.meshRendererID = mesh->GetRendererID();
+		command.vaoID = mesh->GetVertexArray()->GetRendererID();
+		command.indexCount = mesh->GetIndexCount();
+		command.transform = modelMatrix;
+		
+		// Fill in material properties
+		command.ambient = material.Ambient;
+		command.diffuse = material.Diffuse;
+		command.specular = material.Specular;
+		command.shininess = material.Shininess;
+		command.useTextureMaps = material.UseTextureMaps;
+		
+		// Add lighting data from scene
+		command.diffuseMapID = material.DiffuseMap ? material.DiffuseMap->GetRendererID() : 0;
+		command.specularMapID = material.SpecularMap ? material.SpecularMap->GetRendererID() : 0;
+		command.shaderID = material.Shader ? material.Shader->GetRendererID() : s_Data.LightingShader->GetRendererID();
+		
+		// Create metadata for sorting/batching
+		PacketMetadata metadata;
+		metadata.shaderKey = command.shaderID;
+		metadata.materialKey = material.CalculateKey();
+		metadata.textureKey = command.diffuseMapID;
+		metadata.executionOrder = s_Data.CommandCounter++; // Maintain order if needed
+		metadata.isStatic = isStatic;
+		
+		// Submit command via the CommandRenderPass's SubmitCommand method
+		s_Data.ScenePass->SubmitCommand(command, metadata);
 	}
 
 	void StatelessRenderer3D::DrawLightCube(const glm::mat4& modelMatrix)
 	{
 		OLO_PROFILE_FUNCTION();
-        
-		if (!s_Data.ScenePass || !s_Data.CommandAlloc)
+		
+		if (!s_Data.ScenePass)
 		{
-			OLO_CORE_ERROR("StatelessRenderer3D::DrawLightCube: ScenePass or CommandAllocator is null!");
+			OLO_CORE_ERROR("StatelessRenderer3D::DrawLightCube: ScenePass is null!");
 			return;
-		 }
-
-		 // Submit light cube with proper encapsulation
-		s_Data.ScenePass->SubmitLightCube(s_Data.CubeMesh, modelMatrix, s_Data.LightCubeShader, *s_Data.CommandAlloc);
+		}
+		
+		// Create the command structure directly
+		DrawMeshCommand command;
+		command.header.type = CommandType::DrawMesh;
+		// The dispatch function will be filled by the command system
+		
+		// Fill in the mesh data
+		command.meshRendererID = s_Data.CubeMesh->GetRendererID();
+		command.vaoID = s_Data.CubeMesh->GetVertexArray()->GetRendererID();
+		command.indexCount = s_Data.CubeMesh->GetIndexCount();
+		command.transform = modelMatrix;
+		
+		// Light cube uses a special shader with solid color
+		command.shaderID = s_Data.LightCubeShader->GetRendererID();
+		
+		// Light cubes are typically just a solid color, so we set simple material properties
+		command.ambient = glm::vec3(1.0f);  // Full ambient for light sources
+		command.diffuse = glm::vec3(1.0f);  // Full diffuse for light sources
+		command.specular = glm::vec3(1.0f); // Full specular for light sources
+		command.shininess = 32.0f;
+		command.useTextureMaps = false;
+		command.diffuseMapID = 0;
+		command.specularMapID = 0;
+		
+		// Create metadata for sorting/batching
+		PacketMetadata metadata;
+		metadata.shaderKey = command.shaderID;
+		metadata.materialKey = 0; // Special zero key for light sources
+		metadata.textureKey = 0;  // No textures for light cubes
+		metadata.executionOrder = s_Data.CommandCounter++; // Maintain order if needed
+		metadata.isStatic = false; // Lights can move
+		
+		// Submit command via the CommandRenderPass's SubmitCommand method
+		s_Data.ScenePass->SubmitCommand(command, metadata);
 	}
 
 	void StatelessRenderer3D::UpdateCameraMatricesUBO(const glm::mat4& view, const glm::mat4& projection)
@@ -319,7 +375,6 @@ namespace OloEngine
 		s_Data.ScenePass = CreateRef<CommandSceneRenderPass>();
 		s_Data.ScenePass->SetName("CommandScenePass");
 		s_Data.ScenePass->Init(scenePassSpec);
-		s_Data.ScenePass->SetCommandAllocator(s_Data.CommandAlloc.get()); // Properly encapsulated
 		
 		s_Data.FinalPass = CreateRef<CommandFinalRenderPass>();
 		s_Data.FinalPass->SetName("CommandFinalPass");
