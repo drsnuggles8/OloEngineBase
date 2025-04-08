@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RenderCommand.h"
+#include "CommandDispatch.h"
 #include "OloEngine/Core/Base.h"
 #include <glm/glm.hpp>
 
@@ -55,7 +56,12 @@ namespace OloEngine
             std::memcpy(m_CommandData, &commandData, sizeof(T));
             m_CommandSize = sizeof(T);
             m_CommandType = commandData.header.type;
-            m_DispatchFn = commandData.header.dispatchFn;
+            m_DispatchFn = CommandDispatch::GetDispatchFunction(m_CommandType);
+    
+			if (!m_DispatchFn && m_CommandType != CommandType::Invalid)
+			{
+				OLO_CORE_WARN("No dispatch function found for command type {}", static_cast<int>(m_CommandType));
+			}
             
             // Set metadata
             m_Metadata = metadata;

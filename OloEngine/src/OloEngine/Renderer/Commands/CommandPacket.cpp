@@ -48,13 +48,21 @@ namespace OloEngine
             other.m_Next = nullptr;
         }
         return *this;
-    }
-
-    void CommandPacket::Execute(RendererAPI& rendererAPI) const
+    }  
+	
+	void CommandPacket::Execute(RendererAPI& rendererAPI) const
     {
-        if (m_DispatchFn && m_CommandSize > 0)
+        if (m_CommandSize > 0)
         {
-            m_DispatchFn(m_CommandData, rendererAPI);
+            if (m_DispatchFn)
+            {
+                m_DispatchFn(m_CommandData, rendererAPI);
+            }
+            else
+            {
+                OLO_CORE_ERROR("CommandPacket::Execute: No dispatch function for command type {}", 
+                    static_cast<int>(m_CommandType));
+            }
         }
     }
 

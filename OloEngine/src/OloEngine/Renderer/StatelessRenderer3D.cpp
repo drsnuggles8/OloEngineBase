@@ -12,6 +12,7 @@
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Passes/CommandSceneRenderPass.h"
 #include "OloEngine/Renderer/Passes/CommandFinalRenderPass.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Core/Application.h"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -21,11 +22,14 @@ namespace OloEngine
 {
 	StatelessRenderer3D::StatelessRenderer3DData StatelessRenderer3D::s_Data;
 	ShaderLibrary StatelessRenderer3D::m_ShaderLibrary;
-
 	void StatelessRenderer3D::Init()
 	{
 		OLO_PROFILE_FUNCTION();
 		OLO_CORE_INFO("Initializing StatelessRenderer3D.");
+
+		// Initialize the command dispatch system first
+		CommandDispatch::Initialize();
+		OLO_CORE_INFO("CommandDispatch system initialized.");
 
 		s_Data.CubeMesh = Mesh::CreateCube();
 		s_Data.QuadMesh = Mesh::CreatePlane(1.0f, 1.0f);
