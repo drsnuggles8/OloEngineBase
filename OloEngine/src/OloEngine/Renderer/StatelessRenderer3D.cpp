@@ -110,6 +110,12 @@ namespace OloEngine
             return;
         }
         
+        // Ensure the final pass has the scene pass's framebuffer as input
+        if (s_Data.ScenePass && s_Data.FinalPass)
+        {
+            s_Data.FinalPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
+        }
+        
 		// Execute the render graph (which will execute all passes in order)
 		s_Data.RGraph->Execute();
 	}
@@ -386,6 +392,10 @@ namespace OloEngine
 		
 		// Connect passes (scene pass output -> final pass input)
 		s_Data.RGraph->ConnectPass("CommandScenePass", "CommandFinalPass");
+		
+		 // Explicitly set the input framebuffer for the final pass
+		s_Data.FinalPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
+		OLO_CORE_INFO("StatelessRenderer3D: Connected scene pass framebuffer to final pass input");
 		
 		// Set the final pass
 		s_Data.RGraph->SetFinalPass("CommandFinalPass");

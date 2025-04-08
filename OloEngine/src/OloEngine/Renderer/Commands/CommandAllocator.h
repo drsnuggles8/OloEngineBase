@@ -16,7 +16,7 @@ namespace OloEngine
     {
     public:
         static const sizet DEFAULT_BLOCK_SIZE = 64 * 1024; // 64KB blocks
-        static const sizet MAX_COMMAND_SIZE = 256; // Maximum size of any command
+        static const sizet MAX_COMMAND_SIZE = 512; // Maximum size of any command
         static const sizet COMMAND_ALIGNMENT = 16; // Ensure commands are aligned properly
         
         explicit CommandAllocator(sizet blockSize = DEFAULT_BLOCK_SIZE);

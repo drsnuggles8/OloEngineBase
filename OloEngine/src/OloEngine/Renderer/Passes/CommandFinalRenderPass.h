@@ -41,7 +41,7 @@ namespace OloEngine
          * @brief Set the input framebuffer that will be rendered to the screen.
          * @param input The input framebuffer to render
          */
-        void SetInputFramebuffer(const Ref<Framebuffer>& input) { m_InputFramebuffer = input; }
+        void SetInputFramebuffer(const Ref<Framebuffer>& input);
         
         /**
          * @brief Get the current input framebuffer.

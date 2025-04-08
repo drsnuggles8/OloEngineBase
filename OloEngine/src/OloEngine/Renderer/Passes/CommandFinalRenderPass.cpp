@@ -32,6 +32,15 @@ namespace OloEngine
 				m_FramebufferSpec.Width, m_FramebufferSpec.Height);
     }
 
+    void CommandFinalRenderPass::SetInputFramebuffer(const Ref<Framebuffer>& input) 
+    { 
+        m_InputFramebuffer = input; 
+        if (input)
+            OLO_CORE_TRACE("CommandFinalRenderPass: Input framebuffer set with ID {}", input->GetRendererID());
+        else
+            OLO_CORE_WARN("CommandFinalRenderPass: Null input framebuffer!");
+    }
+
 	void CommandFinalRenderPass::Execute()
     {
         OLO_PROFILE_FUNCTION();
@@ -61,6 +70,15 @@ namespace OloEngine
         
         // Bind the color attachment from the input framebuffer as a texture
         u32 colorAttachmentID = m_InputFramebuffer->GetColorAttachmentRendererID(0);
+        
+        if (colorAttachmentID == 0)
+        {
+            OLO_CORE_ERROR("CommandFinalRenderPass::Execute: Invalid color attachment ID!");
+            return;
+        }
+        
+        OLO_CORE_TRACE("CommandFinalRenderPass::Execute: Using color attachment ID {}", colorAttachmentID);
+        
         RenderCommand::BindTexture(0, colorAttachmentID);
         m_BlitShader->SetInt("u_Texture", 0);
         
