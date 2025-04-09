@@ -219,19 +219,15 @@ namespace OloEngine
 		command.header.type = CommandType::DrawQuad;
 		// The dispatch function will be filled by the command system
 		
-		// Fill in the command data
 		command.transform = modelMatrix;
-		command.textureID = texture->GetRendererID();
-		command.shaderID = s_Data.QuadShader->GetRendererID();
+		command.texture = texture;
+		command.shader = s_Data.QuadShader;
+		command.quadVA = s_Data.QuadMesh->GetVertexArray(); // Use the actual quad mesh's VA
 		
-		// Create metadata for sorting/batching
 		PacketMetadata metadata;
-		metadata.textureKey = texture->GetRendererID();
-		metadata.shaderKey = s_Data.QuadShader->GetRendererID();
-		metadata.stateChangeKey = texture->HasAlphaChannel() ? 1 : 0; // Different state for alpha textures
-		metadata.executionOrder = s_Data.CommandCounter++; // Maintain order if needed
+		metadata.shaderKey = (u64)s_Data.QuadShader->GetRendererID();
+		metadata.textureKey = texture ? (u64)texture->GetRendererID() : 0;
 		
-		// Submit command via the CommandRenderPass's SubmitCommand method
 		s_Data.ScenePass->SubmitCommand(command, metadata);
 	}
 
@@ -261,9 +257,9 @@ namespace OloEngine
 		command.header.type = CommandType::DrawMesh;
 		// The dispatch function will be filled by the command system
 		
-		// Fill in the mesh data
-		command.meshRendererID = mesh->GetRendererID();
-		command.vaoID = mesh->GetVertexArray()->GetRendererID();
+		// Fill in the mesh data using actual objects instead of IDs
+		command.mesh = mesh;
+		command.vertexArray = mesh->GetVertexArray();
 		command.indexCount = mesh->GetIndexCount();
 		command.transform = modelMatrix;
 		
@@ -274,19 +270,85 @@ namespace OloEngine
 		command.shininess = material.Shininess;
 		command.useTextureMaps = material.UseTextureMaps;
 		
-		// Add lighting data from scene
-		command.diffuseMapID = material.DiffuseMap ? material.DiffuseMap->GetRendererID() : 0;
-		command.specularMapID = material.SpecularMap ? material.SpecularMap->GetRendererID() : 0;
-		command.shaderID = material.Shader ? material.Shader->GetRendererID() : s_Data.LightingShader->GetRendererID();
+		// Use actual texture and shader objects
+		command.diffuseMap = material.DiffuseMap;
+		command.specularMap = material.SpecularMap;
+		command.shader = material.Shader ? material.Shader : s_Data.LightingShader;
 		
 		// Create metadata for sorting/batching
 		PacketMetadata metadata;
-		metadata.shaderKey = command.shaderID;
+		metadata.shaderKey = command.shader->GetRendererID();
 		metadata.materialKey = material.CalculateKey();
-		metadata.textureKey = command.diffuseMapID;
+		metadata.textureKey = material.DiffuseMap ? material.DiffuseMap->GetRendererID() : 0;
 		metadata.executionOrder = s_Data.CommandCounter++; // Maintain order if needed
 		metadata.isStatic = isStatic;
 		
+		// Submit command via the CommandRenderPass's SubmitCommand method
+		s_Data.ScenePass->SubmitCommand(command, metadata);
+	}
+
+	void StatelessRenderer3D::DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, 
+		const Material& material, bool isStatic)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		if (!s_Data.ScenePass)
+		{
+		OLO_CORE_ERROR("StatelessRenderer3D::DrawMeshInstanced: ScenePass is null!");
+		return;
+		}
+
+		// Don't bother if there are no transforms
+		if (transforms.empty())
+		{
+		OLO_CORE_WARN("StatelessRenderer3D::DrawMeshInstanced: No transforms provided");
+		return;
+		}
+
+		// Track statistics and perform frustum culling on the first transform only for simplicity
+		// In a more advanced implementation, you might want to check each instance
+		s_Data.Stats.TotalMeshes += transforms.size();
+		if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
+		{
+		if (!IsVisibleInFrustum(mesh, transforms[0]))
+		{
+		s_Data.Stats.CulledMeshes += transforms.size();
+		return;
+		}
+		}
+
+		// Create the command structure
+		DrawMeshInstancedCommand command;
+		command.header.type = CommandType::DrawMeshInstanced;
+		// The dispatch function will be filled by the command system
+
+		// Fill in the mesh data
+		command.mesh = mesh;
+		command.vertexArray = mesh->GetVertexArray();
+		command.indexCount = mesh->GetIndexCount();
+		command.instanceCount = static_cast<u32>(transforms.size());
+		command.transforms = transforms;  // Store all transforms
+
+		// Fill in material properties
+		command.ambient = material.Ambient;
+		command.diffuse = material.Diffuse;
+		command.specular = material.Specular;
+		command.shininess = material.Shininess;
+		command.useTextureMaps = material.UseTextureMaps;
+
+		// Add texture maps and shader
+		command.diffuseMap = material.DiffuseMap;
+		command.specularMap = material.SpecularMap;
+		command.shader = material.Shader ? material.Shader : s_Data.LightingShader;
+
+		// Create metadata for sorting/batching
+		PacketMetadata metadata;
+		metadata.shaderKey = command.shader->GetRendererID();
+		metadata.materialKey = material.CalculateKey();
+		metadata.textureKey = material.DiffuseMap ? material.DiffuseMap->GetRendererID() : 0;
+		metadata.executionOrder = s_Data.CommandCounter++; // Maintain order if needed
+		metadata.isStatic = isStatic;
+
 		// Submit command via the CommandRenderPass's SubmitCommand method
 		s_Data.ScenePass->SubmitCommand(command, metadata);
 	}
@@ -306,14 +368,14 @@ namespace OloEngine
 		command.header.type = CommandType::DrawMesh;
 		// The dispatch function will be filled by the command system
 		
-		// Fill in the mesh data
-		command.meshRendererID = s_Data.CubeMesh->GetRendererID();
-		command.vaoID = s_Data.CubeMesh->GetVertexArray()->GetRendererID();
+		// Fill in the mesh data using actual objects
+		command.mesh = s_Data.CubeMesh;
+		command.vertexArray = s_Data.CubeMesh->GetVertexArray();
 		command.indexCount = s_Data.CubeMesh->GetIndexCount();
 		command.transform = modelMatrix;
 		
 		// Light cube uses a special shader with solid color
-		command.shaderID = s_Data.LightCubeShader->GetRendererID();
+		command.shader = s_Data.LightCubeShader;
 		
 		// Light cubes are typically just a solid color, so we set simple material properties
 		command.ambient = glm::vec3(1.0f);  // Full ambient for light sources
@@ -321,12 +383,12 @@ namespace OloEngine
 		command.specular = glm::vec3(1.0f); // Full specular for light sources
 		command.shininess = 32.0f;
 		command.useTextureMaps = false;
-		command.diffuseMapID = 0;
-		command.specularMapID = 0;
+		command.diffuseMap = nullptr;
+		command.specularMap = nullptr;
 		
 		// Create metadata for sorting/batching
 		PacketMetadata metadata;
-		metadata.shaderKey = command.shaderID;
+		metadata.shaderKey = s_Data.LightCubeShader->GetRendererID();
 		metadata.materialKey = 0; // Special zero key for light sources
 		metadata.textureKey = 0;  // No textures for light cubes
 		metadata.executionOrder = s_Data.CommandCounter++; // Maintain order if needed

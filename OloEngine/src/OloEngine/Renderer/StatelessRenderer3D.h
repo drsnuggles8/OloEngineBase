@@ -32,6 +32,7 @@ namespace OloEngine
 
 		// Draw methods
 		static void DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = false);
+		static void DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic);
 		static void DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = false);
 		static void DrawLightCube(const glm::mat4& modelMatrix);
 		

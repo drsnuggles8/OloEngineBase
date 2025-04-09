@@ -240,7 +240,7 @@ namespace OloEngine
     struct DrawIndexedCommand
     {
         CommandHeader header;
-        u32 rendererID; // VertexArray ID
+        Ref<VertexArray> vertexArray;
         u32 indexCount;
         GLenum indexType;
     };
@@ -248,7 +248,7 @@ namespace OloEngine
     struct DrawIndexedInstancedCommand
     {
         CommandHeader header;
-        u32 rendererID; // VertexArray ID
+        Ref<VertexArray> vertexArray; // Changed from rendererID to vertexArray
         u32 indexCount;
         u32 instanceCount;
         GLenum indexType;
@@ -257,7 +257,7 @@ namespace OloEngine
     struct DrawArraysCommand
     {
         CommandHeader header;
-        u32 rendererID; // VertexArray ID
+        Ref<VertexArray> vertexArray; // Changed from rendererID to vertexArray
         u32 vertexCount;
         GLenum primitiveType;
     };
@@ -265,65 +265,66 @@ namespace OloEngine
     struct DrawLinesCommand
     {
         CommandHeader header;
-        u32 rendererID; // VertexArray ID
+        Ref<VertexArray> vertexArray; // Changed from rendererID to vertexArray
         u32 vertexCount;
     };
 
     // Higher-level commands combine multiple lower-level commands
-    struct DrawMeshCommand
-    {
-        CommandHeader header;
-        u32 meshRendererID;
-        u32 vaoID;
-        u32 indexCount;
-        glm::mat4 transform;
-        
-        // Material properties
-        glm::vec3 ambient;
-        glm::vec3 diffuse;
-        glm::vec3 specular;
-        f32 shininess;
-        bool useTextureMaps;
-        
-        // Texture IDs
-        u32 diffuseMapID;
-        u32 specularMapID;
-        
-        // Shader ID
-        u32 shaderID;
-    };
+	struct DrawMeshCommand
+	{
+		CommandHeader header;
+		Ref<Mesh> mesh;              // Store the actual mesh reference
+		Ref<VertexArray> vertexArray; // Store the actual vertex array
+		u32 indexCount;
+		glm::mat4 transform;
+		
+		// Material properties
+		glm::vec3 ambient;
+		glm::vec3 diffuse;
+		glm::vec3 specular;
+		f32 shininess;
+		bool useTextureMaps;
+		
+		// Actual texture references instead of IDs
+		Ref<Texture2D> diffuseMap;
+		Ref<Texture2D> specularMap;
+		
+		// Actual shader instead of ID
+		Ref<Shader> shader;
+	};
 
-    struct DrawMeshInstancedCommand
-    {
-        CommandHeader header;
-        u32 meshRendererID;
-        u32 vaoID;
-        u32 indexCount;
-        u32 instanceCount;
-        glm::mat4* transforms;     // Pointer to transform data
-        
-        // Material properties (same for all instances)
-        glm::vec3 ambient;
-        glm::vec3 diffuse;
-        glm::vec3 specular;
-        f32 shininess;
-        bool useTextureMaps;
-        
-        // Texture IDs
-        u32 diffuseMapID;
-        u32 specularMapID;
-        
-        // Shader ID
-        u32 shaderID;
-    };
+	struct DrawMeshInstancedCommand
+	{
+		CommandHeader header;
+		Ref<Mesh> mesh;              // Store the actual mesh reference
+		Ref<VertexArray> vertexArray; // Store the actual vertex array
+		u32 indexCount;
+		u32 instanceCount;
+		std::vector<glm::mat4> transforms; // Store the actual transform data
+		
+		// Material properties (same for all instances)
+		glm::vec3 ambient;
+		glm::vec3 diffuse;
+		glm::vec3 specular;
+		f32 shininess;
+		bool useTextureMaps;
+		
+		// Actual texture references instead of IDs
+		Ref<Texture2D> diffuseMap;
+		Ref<Texture2D> specularMap;
+		
+		// Actual shader instead of ID
+		Ref<Shader> shader;
+	};
 
-    struct DrawQuadCommand
-    {
-        CommandHeader header;
-        glm::mat4 transform;
-        u32 textureID;
-        u32 shaderID;
-    };
+	struct DrawQuadCommand
+	{
+		CommandHeader header;
+		glm::mat4 transform;
+		Ref<Texture2D> texture;   // Store the actual texture
+		Ref<Shader> shader;       // Store the actual shader
+		Ref<VertexArray> quadVA;  // Store the quad vertex array
+	};
 
     // Maximum command size for allocation purposes
     constexpr sizet MAX_COMMAND_SIZE = 256;

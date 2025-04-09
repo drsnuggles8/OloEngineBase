@@ -89,54 +89,77 @@ namespace OloEngine
     }
 
     bool CommandPacket::CanBatchWith(const CommandPacket& other) const
-    {
-        // Different command types can't be batched
-        if (m_CommandType != other.m_CommandType)
-            return false;
-            
-        // Commands that depend on previous commands can't be batched
-        if (m_Metadata.dependsOnPrevious || other.m_Metadata.dependsOnPrevious)
-            return false;
-            
-        // Commands with different group IDs can't be batched
-        if (m_Metadata.groupId != other.m_Metadata.groupId && m_Metadata.groupId != 0 && other.m_Metadata.groupId != 0)
-            return false;
-            
-        // Specific batching logic based on command type
-        switch (m_CommandType)
-        {
-            case CommandType::DrawMesh:
-            {
-                auto* cmd1 = reinterpret_cast<const DrawMeshCommand*>(m_CommandData);
-                auto* cmd2 = reinterpret_cast<const DrawMeshCommand*>(other.m_CommandData);
-                
-                // Meshes can be batched if they use the same mesh, material and shader
-                return cmd1->meshRendererID == cmd2->meshRendererID &&
-                       cmd1->shaderID == cmd2->shaderID &&
-                       cmd1->useTextureMaps == cmd2->useTextureMaps &&
-                       cmd1->diffuseMapID == cmd2->diffuseMapID &&
-                       cmd1->specularMapID == cmd2->specularMapID &&
-                       cmd1->ambient == cmd2->ambient &&
-                       cmd1->diffuse == cmd2->diffuse &&
-                       cmd1->specular == cmd2->specular &&
-                       cmd1->shininess == cmd2->shininess;
-            }
-            
-            case CommandType::DrawQuad:
-            {
-                auto* cmd1 = reinterpret_cast<const DrawQuadCommand*>(m_CommandData);
-                auto* cmd2 = reinterpret_cast<const DrawQuadCommand*>(other.m_CommandData);
-                
-                // Quads can be batched if they use the same texture and shader
-                return cmd1->textureID == cmd2->textureID &&
-                       cmd1->shaderID == cmd2->shaderID;
-            }
-            
-            // State change commands generally can't be batched
-            default:
-                return false;
-        }
-    }
+	{
+		// Different command types can't be batched
+		if (m_CommandType != other.m_CommandType)
+			return false;
+			
+		// Commands that depend on previous commands can't be batched
+		if (m_Metadata.dependsOnPrevious || other.m_Metadata.dependsOnPrevious)
+			return false;
+			
+		// Commands with different group IDs can't be batched
+		if (m_Metadata.groupId != other.m_Metadata.groupId && m_Metadata.groupId != 0 && other.m_Metadata.groupId != 0)
+			return false;
+			
+		// Specific batching logic based on command type
+		switch (m_CommandType)
+		{
+			case CommandType::DrawMesh:
+			{
+				auto* cmd1 = reinterpret_cast<const DrawMeshCommand*>(m_CommandData);
+				auto* cmd2 = reinterpret_cast<const DrawMeshCommand*>(other.m_CommandData);
+				
+				// Check if mesh pointers are the same
+				if (cmd1->mesh != cmd2->mesh)
+					return false;
+					
+				// Check if shaders are the same
+				if (cmd1->shader != cmd2->shader)
+					return false;
+					
+				// Check material properties
+				if (cmd1->useTextureMaps != cmd2->useTextureMaps)
+					return false;
+					
+				if (cmd1->diffuseMap != cmd2->diffuseMap)
+					return false;
+					
+				if (cmd1->specularMap != cmd2->specularMap)
+					return false;
+					
+				// Check material properties
+				if (cmd1->ambient != cmd2->ambient)
+					return false;
+					
+				if (cmd1->diffuse != cmd2->diffuse)
+					return false;
+					
+				if (cmd1->specular != cmd2->specular)
+					return false;
+					
+				if (cmd1->shininess != cmd2->shininess)
+					return false;
+					
+				// All checks passed, these commands can be batched
+				return true;
+			}
+			
+			case CommandType::DrawQuad:
+			{
+				auto* cmd1 = reinterpret_cast<const DrawQuadCommand*>(m_CommandData);
+				auto* cmd2 = reinterpret_cast<const DrawQuadCommand*>(other.m_CommandData);
+				
+				// Quads can be batched if they use the same texture and shader
+				return cmd1->texture == cmd2->texture &&
+					cmd1->shader == cmd2->shader;
+			}
+			
+			// State change commands generally can't be batched
+			default:
+				return false;
+		}
+	}
 
 	bool CommandPacket::UpdateCommandData(const void* data, sizet size)
 	{

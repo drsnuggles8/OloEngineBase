@@ -8,9 +8,6 @@
 
 namespace OloEngine
 {
-    // Forward declaration of helper function
-    static Ref<VertexArray> GetVertexArrayFromID(u32 rendererID);
-    
     // Array of dispatch functions indexed by CommandType
     static CommandDispatchFn s_DispatchTable[static_cast<size_t>(CommandType::SetMultisampling) + 1] = { nullptr };
       // Initialize all command dispatch functions
@@ -266,175 +263,159 @@ namespace OloEngine
     }
     
     void CommandDispatch::DrawIndexed(const void* data, RendererAPI& api)
-    {
-        auto const* cmd = static_cast<const DrawIndexedCommand*>(data);
-        
-        // In a real implementation, we would get the VertexArray from a resource manager
-        // For now, let's use a helper function to get/create the vertex array
-        auto vertexArray = GetVertexArrayFromID(cmd->rendererID);
-        if (vertexArray)
-        {
-            api.DrawIndexed(vertexArray, cmd->indexCount);
-        }
-        else
-        {
-            OLO_CORE_ERROR("CommandDispatch::DrawIndexed: Invalid vertex array ID: {}", cmd->rendererID);
-        }
-    }
-    
-    void CommandDispatch::DrawIndexedInstanced(const void* data, RendererAPI& api)
-    {
-        auto const* cmd = static_cast<const DrawIndexedInstancedCommand*>(data);
-        
-        // In a real implementation, we would get the VertexArray from a resource manager
-        auto vertexArray = GetVertexArrayFromID(cmd->rendererID);
-        if (vertexArray)
-        {
-            api.DrawIndexedInstanced(vertexArray, cmd->indexCount, cmd->instanceCount);
-        }
-        else
-        {
-            OLO_CORE_ERROR("CommandDispatch::DrawIndexedInstanced: Invalid vertex array ID: {}", cmd->rendererID);
-        }
-    }
-    
-    void CommandDispatch::DrawArrays(const void* data, RendererAPI& api)
-    {
-        auto const* cmd = static_cast<const DrawArraysCommand*>(data);
-        
-        // In a real implementation, we would get the VertexArray from a resource manager
-        auto vertexArray = GetVertexArrayFromID(cmd->rendererID);
-        if (vertexArray)
-        {
-            api.DrawArrays(vertexArray, cmd->vertexCount);
-        }
-        else
-        {
-            OLO_CORE_ERROR("CommandDispatch::DrawArrays: Invalid vertex array ID: {}", cmd->rendererID);
-        }
-    }
-    
-    void CommandDispatch::DrawLines(const void* data, RendererAPI& api)
-    {
-        auto const* cmd = static_cast<const DrawLinesCommand*>(data);
-        
-        // In a real implementation, we would get the VertexArray from a resource manager
-        auto vertexArray = GetVertexArrayFromID(cmd->rendererID);
-        if (vertexArray)
-        {
-            api.DrawLines(vertexArray, cmd->vertexCount);
-        }
-        else
-        {
-            OLO_CORE_ERROR("CommandDispatch::DrawLines: Invalid vertex array ID: {}", cmd->rendererID);
-        }
-    }
+	{
+		auto const* cmd = static_cast<const DrawIndexedCommand*>(data);
+		
+		if (!cmd->vertexArray)
+		{
+			OLO_CORE_ERROR("CommandDispatch::DrawIndexed: Invalid vertex array");
+			return;
+		}
+		
+		api.DrawIndexed(cmd->vertexArray, cmd->indexCount);
+	}
+
+	void CommandDispatch::DrawIndexedInstanced(const void* data, RendererAPI& api)
+	{
+		auto const* cmd = static_cast<const DrawIndexedInstancedCommand*>(data);
+		
+		if (!cmd->vertexArray)
+		{
+			OLO_CORE_ERROR("CommandDispatch::DrawIndexedInstanced: Invalid vertex array");
+			return;
+		}
+		
+		api.DrawIndexedInstanced(cmd->vertexArray, cmd->indexCount, cmd->instanceCount);
+	}
+
+	void CommandDispatch::DrawArrays(const void* data, RendererAPI& api)
+	{
+		auto const* cmd = static_cast<const DrawArraysCommand*>(data);
+		
+		if (!cmd->vertexArray)
+		{
+			OLO_CORE_ERROR("CommandDispatch::DrawArrays: Invalid vertex array");
+			return;
+		}
+		
+		api.DrawArrays(cmd->vertexArray, cmd->vertexCount);
+	}
+
+	void CommandDispatch::DrawLines(const void* data, RendererAPI& api)
+	{
+		auto const* cmd = static_cast<const DrawLinesCommand*>(data);
+		
+		if (!cmd->vertexArray)
+		{
+			OLO_CORE_ERROR("CommandDispatch::DrawLines: Invalid vertex array");
+			return;
+		}
+		
+		api.DrawLines(cmd->vertexArray, cmd->vertexCount);
+	}
     
     // Higher-level commands
     void CommandDispatch::DrawMesh(const void* data, RendererAPI& api)
-    {
-        auto const* cmd = static_cast<const DrawMeshCommand*>(data);
-        
-        // Get the vertex array and shader from the resource manager
-        auto vertexArray = GetVertexArrayFromID(cmd->vaoID);
-        if (!vertexArray)
-        {
-            OLO_CORE_ERROR("CommandDispatch::DrawMesh: Invalid vertex array ID: {}", cmd->vaoID);
-            return;
-        }
-        
-        // Bind material textures if needed
-        if (cmd->useTextureMaps)
-        {
-            if (cmd->diffuseMapID > 0)
-            {
-                api.BindTexture(0, cmd->diffuseMapID);
-            }
-            
-            if (cmd->specularMapID > 0)
-            {
-                api.BindTexture(1, cmd->specularMapID);
-            }
-        }
-        
-        // Draw the mesh using the index buffer
-        api.DrawIndexed(vertexArray, cmd->indexCount);
-    }
+	{
+		auto const* cmd = static_cast<const DrawMeshCommand*>(data);
+		
+		if (!cmd->vertexArray)
+		{
+			OLO_CORE_ERROR("CommandDispatch::DrawMesh: Invalid vertex array");
+			return;
+		}
+		
+		// Bind material textures if needed
+		if (cmd->useTextureMaps)
+		{
+			if (cmd->diffuseMap)
+			{
+				cmd->diffuseMap->Bind(0);
+			}
+			
+			if (cmd->specularMap)
+			{
+				cmd->specularMap->Bind(1);
+			}
+		}
+		
+		// Draw the mesh using the index buffer
+		u32 indexCount = cmd->indexCount > 0 ? cmd->indexCount : 
+			cmd->vertexArray->GetIndexBuffer() ? cmd->vertexArray->GetIndexBuffer()->GetCount() : 0;
+		
+		if (indexCount == 0)
+		{
+			OLO_CORE_ERROR("CommandDispatch::DrawMesh: No indices to draw");
+			return;
+		}
+		
+		api.DrawIndexed(cmd->vertexArray, indexCount);
+	}
     
     void CommandDispatch::DrawMeshInstanced(const void* data, RendererAPI& api)
-    {
-        auto const* cmd = static_cast<const DrawMeshInstancedCommand*>(data);
-        
-        // Get the vertex array and shader from the resource manager
-        auto vertexArray = GetVertexArrayFromID(cmd->vaoID);
-        if (!vertexArray)
-        {
-            OLO_CORE_ERROR("CommandDispatch::DrawMeshInstanced: Invalid vertex array ID: {}", cmd->vaoID);
-            return;
-        }
-        
-        // Bind material textures if needed
-        if (cmd->useTextureMaps)
-        {
-            if (cmd->diffuseMapID > 0)
-            {
-                api.BindTexture(0, cmd->diffuseMapID);
-            }
-            
-            if (cmd->specularMapID > 0)
-            {
-                api.BindTexture(1, cmd->specularMapID);
-            }
-        }
-        
-        // In a real implementation, we'd need to provide the instance transforms to the shader
-        // For now we'll just assume they're already set up
-        
-        // Draw the mesh using instancing
-        api.DrawIndexedInstanced(vertexArray, cmd->indexCount, cmd->instanceCount);
-    }
+	{
+		auto const* cmd = static_cast<const DrawMeshInstancedCommand*>(data);
+		
+		if (!cmd->vertexArray)
+		{
+			OLO_CORE_ERROR("CommandDispatch::DrawMeshInstanced: Invalid vertex array");
+			return;
+		}
+		
+		// Bind material textures if needed
+		if (cmd->useTextureMaps)
+		{
+			if (cmd->diffuseMap)
+			{
+				cmd->diffuseMap->Bind(0);
+			}
+			
+			if (cmd->specularMap)
+			{
+				cmd->specularMap->Bind(1);
+			}
+		}
+		
+		// Draw the mesh using instancing
+		u32 indexCount = cmd->indexCount > 0 ? cmd->indexCount : 
+			cmd->vertexArray->GetIndexBuffer() ? cmd->vertexArray->GetIndexBuffer()->GetCount() : 0;
+			
+		if (indexCount == 0)
+		{
+			OLO_CORE_ERROR("CommandDispatch::DrawMeshInstanced: No indices to draw");
+			return;
+		}
+		
+		// Check if we have transforms to draw
+		if (cmd->transforms.empty())
+		{
+			OLO_CORE_ERROR("CommandDispatch::DrawMeshInstanced: No transforms to draw");
+			return;
+		}
+		
+		// In an actual implementation, we would need to set up instance buffers with transforms
+		// For now, we'll assume this is already handled by the shader and just draw
+		api.DrawIndexedInstanced(cmd->vertexArray, indexCount, cmd->transforms.size());
+	}
     
     void CommandDispatch::DrawQuad(const void* data, RendererAPI& api)
-    {
-        auto const* cmd = static_cast<const DrawQuadCommand*>(data);
-        
-        // Bind texture
-        if (cmd->textureID > 0)
-        {
-            api.BindTexture(0, cmd->textureID);
-        }
-        
-        // In a real implementation, we would have built-in quad rendering
-        // For now, we'll just simulate it with a warning
-        static bool warnedOnce = false;
-        if (!warnedOnce)
-        {
-            OLO_CORE_WARN("CommandDispatch::DrawQuad: Direct quad drawing not implemented in RendererAPI");
-            OLO_CORE_WARN("                         You need to create a quad mesh and use DrawMesh instead");
-            warnedOnce = true;
-        }
-    }
-    
-    // Helper function to get a VertexArray from its ID
-    Ref<VertexArray> GetVertexArrayFromID(u32 rendererID)
-    {
-        // In a real implementation, this would look up the VertexArray in a resource manager
-        // For now, we'll create a dummy VertexArray
-        static std::unordered_map<u32, Ref<VertexArray>> s_VertexArrayCache;
-        
-        if (s_VertexArrayCache.find(rendererID) != s_VertexArrayCache.end())
-        {
-            return s_VertexArrayCache[rendererID];
-        }
-        else if (rendererID > 0)
-        {
-            // Create a new one - in a real implementation this would be fetched from a registry
-            auto vertexArray = VertexArray::Create();
-            s_VertexArrayCache[rendererID] = vertexArray;
-            OLO_CORE_INFO("Created proxy VertexArray for ID: {}", rendererID);
-            return vertexArray;
-        }
-        
-        return nullptr;
-    }
+	{
+		auto const* cmd = static_cast<const DrawQuadCommand*>(data);
+		
+		// Bind texture
+		if (cmd->texture)
+		{
+			cmd->texture->Bind(0);
+		}
+		
+		// Now we have a real vertex array, so we can draw the quad
+		if (cmd->quadVA)
+		{
+			api.DrawIndexed(cmd->quadVA, 6); // Quad has 6 indices (2 triangles)
+		}
+		else
+		{
+			OLO_CORE_ERROR("CommandDispatch::DrawQuad: No vertex array provided");
+		}
+	}
 }

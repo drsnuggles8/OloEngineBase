@@ -201,18 +201,16 @@ namespace OloEngine
 		instancedCmd.header.type = CommandType::DrawMeshInstanced;
 		instancedCmd.header.dispatchFn = nullptr; // Will be set during initialization
 
-		// Copy mesh data
-		instancedCmd.meshRendererID = meshCmd->meshRendererID;
-		instancedCmd.vaoID = meshCmd->vaoID;
+		// Copy mesh data using full objects
+		instancedCmd.mesh = meshCmd->mesh;
+		instancedCmd.vertexArray = meshCmd->vertexArray;
 		instancedCmd.indexCount = meshCmd->indexCount;
 
 		// Initial instance count is 1
 		instancedCmd.instanceCount = 1;
 
-		// Allocate memory for transforms from our transform buffer pool
-		m_TransformBuffers.emplace_back(m_Config.MaxMeshInstances);
-		u32 bufferIndex = static_cast<u32>(m_TransformBuffers.size() - 1);
-		instancedCmd.transforms = m_TransformBuffers[bufferIndex].GetBuffer();
+		// Allocate transforms array
+		instancedCmd.transforms.resize(m_Config.MaxMeshInstances);
 		instancedCmd.transforms[0] = meshCmd->transform;
 
 		// Copy material properties
@@ -222,20 +220,16 @@ namespace OloEngine
 		instancedCmd.shininess = meshCmd->shininess;
 		instancedCmd.useTextureMaps = meshCmd->useTextureMaps;
 
-		// Copy texture IDs
-		instancedCmd.diffuseMapID = meshCmd->diffuseMapID;
-		instancedCmd.specularMapID = meshCmd->specularMapID;
+		// Copy textures using actual references
+		instancedCmd.diffuseMap = meshCmd->diffuseMap;
+		instancedCmd.specularMap = meshCmd->specularMap;
 
-		// Copy shader ID
-		instancedCmd.shaderID = meshCmd->shaderID;
+		// Copy shader reference
+		instancedCmd.shader = meshCmd->shader;
 
 		// Create a new packet for the instanced command
 		PacketMetadata metadata = meshPacket->GetMetadata();
 		CommandPacket* instancedPacket = allocator.CreateCommandPacket(instancedCmd, metadata);
-
-		// Track which buffer this packet uses
-		if (instancedPacket)
-			m_PacketToBufferIndex[instancedPacket] = bufferIndex;
 
 		return instancedPacket;
 	}
@@ -251,7 +245,7 @@ namespace OloEngine
 			return false;
 
 		// Handle batching based on command type
-		CommandType targetType = target->GetCommandType();		
+		CommandType targetType = target->GetCommandType();        
 
 		// We can have a few different scenarios:
 		// 1. Both are DrawMeshCommand - Convert to DrawMeshInstancedCommand
@@ -288,13 +282,12 @@ namespace OloEngine
 				m_Tail = instancedPacket;
 
 			// Now add source transform to the new instanced command
-			auto const* sourceCmd = source->GetCommandData<DrawMeshCommand>();			
+			auto const* sourceCmd = source->GetCommandData<DrawMeshCommand>();            
 
 			if (auto* instancedCmd = instancedPacket->GetCommandData<DrawMeshInstancedCommand>();
-				instancedCmd && sourceCmd && instancedCmd->instanceCount < m_Config.MaxMeshInstances)
+				instancedCmd && sourceCmd && instancedCmd->instanceCount < instancedCmd->transforms.size())
 			{
-				u32 currentIndex = instancedCmd->instanceCount++;
-				instancedCmd->transforms[currentIndex] = sourceCmd->transform;
+				instancedCmd->transforms[instancedCmd->instanceCount++] = sourceCmd->transform;
 				return true;
 			}
 
@@ -306,7 +299,7 @@ namespace OloEngine
 			auto* instancedCmd = target->GetCommandData<DrawMeshInstancedCommand>();
 			auto const* sourceCmd = source->GetCommandData<DrawMeshCommand>();
 
-			if (instancedCmd && sourceCmd && instancedCmd->instanceCount < m_Config.MaxMeshInstances)
+			if (instancedCmd && sourceCmd && instancedCmd->instanceCount < instancedCmd->transforms.size())
 			{
 				instancedCmd->transforms[instancedCmd->instanceCount++] = sourceCmd->transform;
 				return true;

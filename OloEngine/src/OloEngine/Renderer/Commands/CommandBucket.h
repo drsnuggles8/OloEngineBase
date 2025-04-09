@@ -41,8 +41,10 @@ namespace OloEngine
 		template<typename T>
 		CommandPacket* Submit(const T& commandData, const PacketMetadata& metadata = {}, CommandAllocator* allocator = nullptr)
 		{
-			static_assert(std::is_trivially_copyable<T>::value && std::is_standard_layout<T>::value, 
-				"Command data must be trivially copyable and have standard layout");
+			// Temporarily disable strict requirements for command data while we use object references
+    		// TODO: Restore this check when implementing a proper resource manager with handles    
+			// static_assert(std::is_trivially_copyable<T>::value && std::is_standard_layout<T>::value, 
+			// 	"Command data must be trivially copyable and have standard layout");
 
 			if (!allocator) // Now this check is valid
 			{

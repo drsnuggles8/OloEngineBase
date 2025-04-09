@@ -48,40 +48,45 @@ namespace OloEngine
         
         // Initialize a command packet with a specific command
         template<typename T>
-        void Initialize(const T& commandData, const PacketMetadata& metadata = {})
-        {
-            static_assert(sizeof(T) <= MAX_COMMAND_SIZE, "Command exceeds maximum size");
-            
-            // Copy the command data
-            std::memcpy(m_CommandData, &commandData, sizeof(T));
-            m_CommandSize = sizeof(T);
-            m_CommandType = commandData.header.type;
-            m_DispatchFn = CommandDispatch::GetDispatchFunction(m_CommandType);
-    
+		void Initialize(const T& commandData, const PacketMetadata& metadata = {})
+		{
+			static_assert(sizeof(T) <= MAX_COMMAND_SIZE, "Command exceeds maximum size");
+			
+			// Copy the command data
+			std::memcpy(m_CommandData, &commandData, sizeof(T));
+			m_CommandSize = sizeof(T);
+			m_CommandType = commandData.header.type;
+			m_DispatchFn = CommandDispatch::GetDispatchFunction(m_CommandType);
+
 			if (!m_DispatchFn && m_CommandType != CommandType::Invalid)
 			{
 				OLO_CORE_WARN("No dispatch function found for command type {}", static_cast<int>(m_CommandType));
 			}
-            
-            // Set metadata
-            m_Metadata = metadata;
-            
-            // Set default keys if not specified in metadata
-            if (m_Metadata.shaderKey == 0 && m_CommandType == CommandType::DrawMesh)
-            {
-                auto* cmd = reinterpret_cast<DrawMeshCommand*>(m_CommandData);
-                m_Metadata.shaderKey = cmd->shaderID;
-            }
-            
-            if (m_Metadata.textureKey == 0 && m_CommandType == CommandType::DrawMesh)
-            {
-                auto* cmd = reinterpret_cast<DrawMeshCommand*>(m_CommandData);
-                if (cmd->useTextureMaps)
-                {
-                    m_Metadata.textureKey = cmd->diffuseMapID ^ (cmd->specularMapID << 16);
-                }
-            }
-        }
+			
+			// Set metadata
+			m_Metadata = metadata;
+			
+			// Set default keys if not specified in metadata
+			if (m_Metadata.shaderKey == 0 && m_CommandType == CommandType::DrawMesh)
+			{
+				auto* cmd = reinterpret_cast<DrawMeshCommand*>(m_CommandData);
+				// Use shader's renderer ID instead of shaderID
+				if (cmd->shader)
+					m_Metadata.shaderKey = cmd->shader->GetRendererID();
+			}
+			
+			if (m_Metadata.textureKey == 0 && m_CommandType == CommandType::DrawMesh)
+			{
+				auto* cmd = reinterpret_cast<DrawMeshCommand*>(m_CommandData);
+				if (cmd->useTextureMaps)
+				{
+					// Use texture renderer IDs instead of texture IDs
+					u64 diffuseID = cmd->diffuseMap ? cmd->diffuseMap->GetRendererID() : 0;
+					u64 specularID = cmd->specularMap ? cmd->specularMap->GetRendererID() : 0;
+					m_Metadata.textureKey = diffuseID ^ (specularID << 16);
+				}
+			}
+		}
         
         // Execute the command with a RendererAPI
         void Execute(RendererAPI& rendererAPI) const;
