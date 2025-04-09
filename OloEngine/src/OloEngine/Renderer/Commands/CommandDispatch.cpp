@@ -5,9 +5,126 @@
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/VertexArray.h"
+#include "OloEngine/Renderer/UniformBuffer.h" 
 
 namespace OloEngine
 {
+	struct CommandDispatchData
+	{
+		// References to UBOs owned by StatelessRenderer3D
+		Ref<UniformBuffer> TransformUBO = nullptr;
+		Ref<UniformBuffer> MaterialUBO = nullptr;
+		Ref<UniformBuffer> TextureFlagUBO = nullptr;
+		Ref<UniformBuffer> CameraUBO = nullptr;
+		
+		// Cached matrices for transforms
+		glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
+		
+		// State tracking for optimizations
+		u32 CurrentBoundShaderID = 0;
+		std::array<u32, 32> BoundTextureIDs = { 0 };
+		
+		// Statistics for performance monitoring
+		CommandDispatch::Statistics Stats;
+	};
+
+	static CommandDispatchData s_Data;
+
+	void CommandDispatch::SetSharedUBOs(
+        const Ref<UniformBuffer>& transformUBO,
+        const Ref<UniformBuffer>& materialUBO,
+        const Ref<UniformBuffer>& textureFlagUBO,
+        const Ref<UniformBuffer>& cameraUBO)
+    {
+        s_Data.TransformUBO = transformUBO;
+        s_Data.MaterialUBO = materialUBO;
+        s_Data.TextureFlagUBO = textureFlagUBO;
+        s_Data.CameraUBO = cameraUBO;
+        
+        OLO_CORE_INFO("CommandDispatch: Shared UBOs configured");
+    }
+
+	void CommandDispatch::SetViewProjectionMatrix(const glm::mat4& viewProjection)
+    {
+        s_Data.ViewProjectionMatrix = viewProjection;
+    }
+
+	CommandDispatch::Statistics& CommandDispatch::GetStatistics()
+    {
+        return s_Data.Stats;
+    }
+
+	// UBO update methods that use the shared UBOs
+    void CommandDispatch::UpdateTransformUBO(const glm::mat4& modelMatrix)
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        if (!s_Data.TransformUBO)
+        {
+            OLO_CORE_WARN("CommandDispatch::UpdateTransformUBO: TransformUBO not initialized");
+            return;
+        }
+        
+        // Using the engine's expected layout for the transform UBO
+        struct alignas(16) TransformData
+        {
+            glm::mat4 Model;
+            glm::mat4 ViewProjection;
+        };
+        
+        TransformData data{
+            modelMatrix,
+            s_Data.ViewProjectionMatrix
+        };
+        
+        s_Data.TransformUBO->SetData(&data, sizeof(TransformData));
+    }
+    
+    void CommandDispatch::UpdateMaterialUBO(const glm::vec3& ambient, const glm::vec3& diffuse, 
+                                           const glm::vec3& specular, f32 shininess)
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        if (!s_Data.MaterialUBO)
+        {
+            OLO_CORE_WARN("CommandDispatch::UpdateMaterialUBO: MaterialUBO not initialized");
+            return;
+        }
+        
+        struct alignas(16) MaterialData
+        {
+            glm::vec4 Ambient;    // vec3 aligned to vec4
+            glm::vec4 Diffuse;    // vec3 aligned to vec4
+            glm::vec4 Specular;   // vec3 aligned to vec4
+            float Shininess;
+            float _pad[3];        // Padding for alignment
+        };
+        
+        MaterialData data{
+            glm::vec4(ambient, 1.0f),
+            glm::vec4(diffuse, 1.0f),
+            glm::vec4(specular, 1.0f),
+            shininess,
+            {0.0f, 0.0f, 0.0f}
+        };
+        
+        s_Data.MaterialUBO->SetData(&data, sizeof(MaterialData));
+    }
+    
+    void CommandDispatch::UpdateTextureFlag(bool useTextures)
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        if (!s_Data.TextureFlagUBO)
+        {
+            OLO_CORE_WARN("CommandDispatch::UpdateTextureFlag: TextureFlagUBO not initialized");
+            return;
+        }
+        
+        int flag = useTextures ? 1 : 0;
+        s_Data.TextureFlagUBO->SetData(&flag, sizeof(int));
+    }
+
     // Array of dispatch functions indexed by CommandType
     static CommandDispatchFn s_DispatchTable[static_cast<size_t>(CommandType::SetMultisampling) + 1] = { nullptr };
       // Initialize all command dispatch functions
@@ -15,6 +132,11 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Initializing CommandDispatch system");
+
+		// Initialize the state tracking and statistics
+		s_Data.CurrentBoundShaderID = 0;
+		std::fill(s_Data.BoundTextureIDs.begin(), s_Data.BoundTextureIDs.end(), 0);
+		s_Data.Stats.Reset();
         
         // Clear the dispatch table first to ensure all entries are nullptr
         for (size_t i = 0; i < sizeof(s_DispatchTable) / sizeof(CommandDispatchFn); ++i)
@@ -317,29 +439,57 @@ namespace OloEngine
     // Higher-level commands
     void CommandDispatch::DrawMesh(const void* data, RendererAPI& api)
 	{
+		OLO_PROFILE_FUNCTION();
+		
 		auto const* cmd = static_cast<const DrawMeshCommand*>(data);
 		
-		if (!cmd->vertexArray)
+		if (!cmd->vertexArray || !cmd->shader)
 		{
-			OLO_CORE_ERROR("CommandDispatch::DrawMesh: Invalid vertex array");
+			OLO_CORE_ERROR("CommandDispatch::DrawMesh: Invalid vertex array or shader");
 			return;
 		}
 		
-		// Bind material textures if needed
+		// Optimize shader binding - only bind if different from currently bound
+		u32 shaderID = cmd->shader->GetRendererID();
+		if (s_Data.CurrentBoundShaderID != shaderID)
+		{
+			cmd->shader->Bind();
+			s_Data.CurrentBoundShaderID = shaderID;
+			s_Data.Stats.ShaderBinds++;
+		}
+		
+		// Update UBOs with transform and material data
+		UpdateTransformUBO(cmd->transform);
+		UpdateMaterialUBO(cmd->ambient, cmd->diffuse, cmd->specular, cmd->shininess);
+		UpdateTextureFlag(cmd->useTextureMaps);
+		
+		// Efficiently bind textures if needed
 		if (cmd->useTextureMaps)
 		{
 			if (cmd->diffuseMap)
 			{
-				cmd->diffuseMap->Bind(0);
+				u32 texID = cmd->diffuseMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[0] != texID)
+				{
+					cmd->diffuseMap->Bind(0);
+					s_Data.BoundTextureIDs[0] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
 			}
 			
 			if (cmd->specularMap)
 			{
-				cmd->specularMap->Bind(1);
+				u32 texID = cmd->specularMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[1] != texID)
+				{
+					cmd->specularMap->Bind(1);
+					s_Data.BoundTextureIDs[1] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
 			}
 		}
 		
-		// Draw the mesh using the index buffer
+		// Get index count efficiently
 		u32 indexCount = cmd->indexCount > 0 ? cmd->indexCount : 
 			cmd->vertexArray->GetIndexBuffer() ? cmd->vertexArray->GetIndexBuffer()->GetCount() : 0;
 		
@@ -349,73 +499,148 @@ namespace OloEngine
 			return;
 		}
 		
+		// Track draw calls for statistics
+		s_Data.Stats.DrawCalls++;
+		
+		// Issue the actual draw call
 		api.DrawIndexed(cmd->vertexArray, indexCount);
 	}
     
     void CommandDispatch::DrawMeshInstanced(const void* data, RendererAPI& api)
 	{
+		OLO_PROFILE_FUNCTION();
+		
 		auto const* cmd = static_cast<const DrawMeshInstancedCommand*>(data);
 		
-		if (!cmd->vertexArray)
+		if (!cmd->vertexArray || !cmd->shader)
 		{
-			OLO_CORE_ERROR("CommandDispatch::DrawMeshInstanced: Invalid vertex array");
+			OLO_CORE_ERROR("CommandDispatch::DrawMeshInstanced: Invalid vertex array or shader");
 			return;
 		}
 		
-		// Bind material textures if needed
+		// Optimize shader binding - only bind if different from currently bound
+		u32 shaderID = cmd->shader->GetRendererID();
+		if (s_Data.CurrentBoundShaderID != shaderID)
+		{
+			cmd->shader->Bind();
+			s_Data.CurrentBoundShaderID = shaderID;
+			s_Data.Stats.ShaderBinds++;
+		}
+		
+		// Update material UBOs
+		UpdateMaterialUBO(cmd->ambient, cmd->diffuse, cmd->specular, cmd->shininess);
+		UpdateTextureFlag(cmd->useTextureMaps);
+		
+		// For instanced rendering, we'll set model matrices as shader uniforms
+		// A proper implementation would use an instance buffer or SSBO for better performance
+		// This is a simplified approach for now
+		const size_t maxInstances = 100; // Limit for uniform-based instancing
+		if (cmd->transforms.size() > maxInstances)
+		{
+			OLO_CORE_WARN("CommandDispatch::DrawMeshInstanced: Too many instances ({}). Only first {} will be rendered.",
+						cmd->transforms.size(), maxInstances);
+		}
+		
+		// Set instance transforms (limited approach - a better solution would use SSBOs or instance buffers)
+		size_t instanceCount = std::min(cmd->transforms.size(), maxInstances);
+		for (size_t i = 0; i < instanceCount; i++)
+		{
+			std::string uniformName = "u_ModelMatrices[" + std::to_string(i) + "]";
+			cmd->shader->SetMat4(uniformName, cmd->transforms[i]);
+		}
+		cmd->shader->SetInt("u_InstanceCount", static_cast<int>(instanceCount));
+		
+		// Bind textures with state tracking
 		if (cmd->useTextureMaps)
 		{
 			if (cmd->diffuseMap)
 			{
-				cmd->diffuseMap->Bind(0);
+				u32 texID = cmd->diffuseMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[0] != texID)
+				{
+					cmd->diffuseMap->Bind(0);
+					s_Data.BoundTextureIDs[0] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
 			}
 			
 			if (cmd->specularMap)
 			{
-				cmd->specularMap->Bind(1);
+				u32 texID = cmd->specularMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[1] != texID)
+				{
+					cmd->specularMap->Bind(1);
+					s_Data.BoundTextureIDs[1] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
 			}
 		}
 		
-		// Draw the mesh using instancing
+		// Get index count efficiently
 		u32 indexCount = cmd->indexCount > 0 ? cmd->indexCount : 
 			cmd->vertexArray->GetIndexBuffer() ? cmd->vertexArray->GetIndexBuffer()->GetCount() : 0;
-			
+		
 		if (indexCount == 0)
 		{
 			OLO_CORE_ERROR("CommandDispatch::DrawMeshInstanced: No indices to draw");
 			return;
 		}
 		
-		// Check if we have transforms to draw
-		if (cmd->transforms.empty())
-		{
-			OLO_CORE_ERROR("CommandDispatch::DrawMeshInstanced: No transforms to draw");
-			return;
-		}
+		// Track draw calls for statistics
+		s_Data.Stats.DrawCalls++;
 		
-		// In an actual implementation, we would need to set up instance buffers with transforms
-		// For now, we'll assume this is already handled by the shader and just draw
-		api.DrawIndexedInstanced(cmd->vertexArray, indexCount, cmd->transforms.size());
+		// Draw the instanced mesh
+		api.DrawIndexedInstanced(cmd->vertexArray, indexCount, instanceCount);
 	}
     
     void CommandDispatch::DrawQuad(const void* data, RendererAPI& api)
 	{
+		OLO_PROFILE_FUNCTION();
+		
 		auto const* cmd = static_cast<const DrawQuadCommand*>(data);
 		
-		// Bind texture
-		if (cmd->texture)
+		if (!cmd->quadVA || !cmd->shader)
 		{
-			cmd->texture->Bind(0);
+			OLO_CORE_ERROR("CommandDispatch::DrawQuad: Invalid vertex array or shader");
+			return;
 		}
 		
-		// Now we have a real vertex array, so we can draw the quad
-		if (cmd->quadVA)
+		// Optimize shader binding - only bind if different from currently bound
+		u32 shaderID = cmd->shader->GetRendererID();
+		if (s_Data.CurrentBoundShaderID != shaderID)
 		{
-			api.DrawIndexed(cmd->quadVA, 6); // Quad has 6 indices (2 triangles)
+			cmd->shader->Bind();
+			s_Data.CurrentBoundShaderID = shaderID;
+			s_Data.Stats.ShaderBinds++;
 		}
-		else
+		
+		// Update transform UBO with model matrix
+		UpdateTransformUBO(cmd->transform);
+		
+		// Bind texture with state tracking
+		if (cmd->texture)
 		{
-			OLO_CORE_ERROR("CommandDispatch::DrawQuad: No vertex array provided");
+			u32 texID = cmd->texture->GetRendererID();
+			if (s_Data.BoundTextureIDs[0] != texID)
+			{
+				cmd->texture->Bind(0);
+				cmd->shader->SetInt("u_Texture", 0);
+				s_Data.BoundTextureIDs[0] = texID;
+				s_Data.Stats.TextureBinds++;
+			}
 		}
+		
+		// Track draw calls for statistics
+		s_Data.Stats.DrawCalls++;
+		
+		// Draw the quad
+		api.DrawIndexed(cmd->quadVA, 6); // Quad has 6 indices (2 triangles)
+	}
+
+	void CommandDispatch::ResetState()
+	{
+		s_Data.CurrentBoundShaderID = 0;
+		std::fill(s_Data.BoundTextureIDs.begin(), s_Data.BoundTextureIDs.end(), 0);
+		s_Data.Stats.Reset();
 	}
 }

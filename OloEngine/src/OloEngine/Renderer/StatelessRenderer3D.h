@@ -91,6 +91,11 @@ namespace OloEngine
 			Ref<Shader> LightCubeShader;
 			Ref<Shader> LightingShader;
 			Ref<Shader> QuadShader;
+			
+			// Add these UBOs
+			Ref<UniformBuffer> TransformUBO;
+			Ref<UniformBuffer> MaterialUBO;
+			Ref<UniformBuffer> TextureFlagUBO;
 			Ref<UniformBuffer> CameraMatricesBuffer;
 			
 			glm::mat4 ViewProjectionMatrix;

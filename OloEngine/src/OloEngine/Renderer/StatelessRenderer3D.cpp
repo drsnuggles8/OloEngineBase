@@ -42,8 +42,21 @@ namespace OloEngine
 		s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
 		s_Data.QuadShader = m_ShaderLibrary.Get("Renderer3D_Quad");
 
-		// Create a camera matrices UBO (view and projection matrices)
-		s_Data.CameraMatricesBuffer = UniformBuffer::Create(sizeof(glm::mat4) * 2, 3);
+		// Create all necessary UBOs
+		s_Data.TransformUBO = UniformBuffer::Create(sizeof(glm::mat4) * 2, 0);  // Model + VP matrices
+		s_Data.MaterialUBO = UniformBuffer::Create(sizeof(glm::vec4) * 4, 1);   // Material properties
+		s_Data.TextureFlagUBO = UniformBuffer::Create(sizeof(int), 2);          // Texture flags
+		s_Data.CameraMatricesBuffer = UniformBuffer::Create(sizeof(glm::mat4) * 2, 3); // View and projection matrices
+		
+		// Share UBOs with CommandDispatch
+		CommandDispatch::SetSharedUBOs(
+			s_Data.TransformUBO,
+			s_Data.MaterialUBO, 
+			s_Data.TextureFlagUBO,
+			s_Data.CameraMatricesBuffer
+		);
+		
+		OLO_CORE_INFO("Shared UBOs with CommandDispatch");
 
 		// Initialize the default light
 		s_Data.SceneLight.Position = glm::vec3(1.2f, 1.0f, 2.0f);
@@ -56,7 +69,7 @@ namespace OloEngine
 		s_Data.Stats.Reset();
 		
 		// Initialize the render graph with command-based render passes
-		Window& window = Application::Get().GetWindow();		
+		Window& window = Application::Get().GetWindow();        
 		s_Data.RGraph = CreateRef<RenderGraph>();
 		SetupRenderGraph(window.GetFramebufferWidth(), window.GetFramebufferHeight());
 		
@@ -78,8 +91,8 @@ namespace OloEngine
 	void StatelessRenderer3D::BeginScene(const PerspectiveCamera& camera)
 	{
 		OLO_PROFILE_FUNCTION();
-        
-        if (!s_Data.ScenePass)
+		
+		if (!s_Data.ScenePass)
 		{
 			OLO_CORE_ERROR("StatelessRenderer3D::BeginScene: ScenePass is null!");
 			return;
@@ -99,8 +112,14 @@ namespace OloEngine
 		// Update the camera matrices UBO
 		UpdateCameraMatricesUBO(s_Data.ViewMatrix, s_Data.ProjectionMatrix);
 		
-		// Reset the command bucket for this frame - properly encapsulated
+		// Share the view-projection matrix with CommandDispatch
+		CommandDispatch::SetViewProjectionMatrix(s_Data.ViewProjectionMatrix);
+		
+		// Reset the command bucket for this frame
 		s_Data.ScenePass->ResetCommandBucket();
+		
+		// Reset CommandDispatch state tracking
+		CommandDispatch::ResetState();
 	}
 
 	void StatelessRenderer3D::EndScene()
