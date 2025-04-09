@@ -6,6 +6,7 @@
 namespace OloEngine
 {
 	class UniformBuffer;
+	class Light;
 
     // Command dispatch functions that take POD command data and execute it
     class CommandDispatch
@@ -35,7 +36,8 @@ namespace OloEngine
             const Ref<UniformBuffer>& transformUBO,
             const Ref<UniformBuffer>& materialUBO,
             const Ref<UniformBuffer>& textureFlagUBO,
-            const Ref<UniformBuffer>& cameraUBO);
+            const Ref<UniformBuffer>& cameraUBO,
+			const Ref<UniformBuffer>& lightUBO);
 
 		static void SetViewProjectionMatrix(const glm::mat4& viewProjection);
 
@@ -80,6 +82,10 @@ namespace OloEngine
 		static Statistics& GetStatistics();
 
 		static void ResetState();
+		// Add these functions to CommandDispatch class declaration:
+		static void SetSceneLight(const Light& light);
+		static void SetViewPosition(const glm::vec3& viewPos);
+		static void UpdateLightPropertiesUBO(const Light& light, const glm::vec3& viewPos);
 
 	private:
         static void UpdateTransformUBO(const glm::mat4& modelMatrix);

@@ -47,13 +47,15 @@ namespace OloEngine
 		s_Data.MaterialUBO = UniformBuffer::Create(sizeof(glm::vec4) * 4, 1);   // Material properties
 		s_Data.TextureFlagUBO = UniformBuffer::Create(sizeof(int), 2);          // Texture flags
 		s_Data.CameraMatricesBuffer = UniformBuffer::Create(sizeof(glm::mat4) * 2, 3); // View and projection matrices
+		s_Data.LightPropertiesUBO = UniformBuffer::Create(sizeof(glm::vec4) * 5, 4); // Position, Ambient, Diffuse, Specular, ViewPos
 		
 		// Share UBOs with CommandDispatch
 		CommandDispatch::SetSharedUBOs(
 			s_Data.TransformUBO,
 			s_Data.MaterialUBO, 
 			s_Data.TextureFlagUBO,
-			s_Data.CameraMatricesBuffer
+			s_Data.CameraMatricesBuffer,
+			s_Data.LightPropertiesUBO  // Add this
 		);
 		
 		OLO_CORE_INFO("Shared UBOs with CommandDispatch");
@@ -114,6 +116,8 @@ namespace OloEngine
 		
 		// Share the view-projection matrix with CommandDispatch
 		CommandDispatch::SetViewProjectionMatrix(s_Data.ViewProjectionMatrix);
+		CommandDispatch::SetSceneLight(s_Data.SceneLight);
+    	CommandDispatch::SetViewPosition(s_Data.ViewPos);
 		
 		// Reset the command bucket for this frame
 		s_Data.ScenePass->ResetCommandBucket();

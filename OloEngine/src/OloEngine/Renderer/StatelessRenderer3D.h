@@ -97,6 +97,7 @@ namespace OloEngine
 			Ref<UniformBuffer> MaterialUBO;
 			Ref<UniformBuffer> TextureFlagUBO;
 			Ref<UniformBuffer> CameraMatricesBuffer;
+			Ref<UniformBuffer> LightPropertiesUBO;
 			
 			glm::mat4 ViewProjectionMatrix;
 			glm::mat4 ViewMatrix;

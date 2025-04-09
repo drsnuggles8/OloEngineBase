@@ -5,20 +5,24 @@
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/VertexArray.h"
-#include "OloEngine/Renderer/UniformBuffer.h" 
+#include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/Light.h"
 
 namespace OloEngine
 {
 	struct CommandDispatchData
 	{
-		// References to UBOs owned by StatelessRenderer3D
+		// Existing UBO references
 		Ref<UniformBuffer> TransformUBO = nullptr;
 		Ref<UniformBuffer> MaterialUBO = nullptr;
 		Ref<UniformBuffer> TextureFlagUBO = nullptr;
 		Ref<UniformBuffer> CameraUBO = nullptr;
+		Ref<UniformBuffer> LightUBO = nullptr;
 		
-		// Cached matrices for transforms
+		// Cached matrices and light data
 		glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
+		Light SceneLight;
+		glm::vec3 ViewPos = glm::vec3(0.0f);
 		
 		// State tracking for optimizations
 		u32 CurrentBoundShaderID = 0;
@@ -30,28 +34,72 @@ namespace OloEngine
 
 	static CommandDispatchData s_Data;
 
+	// Add this to SetSharedUBOs function
 	void CommandDispatch::SetSharedUBOs(
-        const Ref<UniformBuffer>& transformUBO,
-        const Ref<UniformBuffer>& materialUBO,
-        const Ref<UniformBuffer>& textureFlagUBO,
-        const Ref<UniformBuffer>& cameraUBO)
-    {
-        s_Data.TransformUBO = transformUBO;
-        s_Data.MaterialUBO = materialUBO;
-        s_Data.TextureFlagUBO = textureFlagUBO;
-        s_Data.CameraUBO = cameraUBO;
-        
-        OLO_CORE_INFO("CommandDispatch: Shared UBOs configured");
-    }
+		const Ref<UniformBuffer>& transformUBO,
+		const Ref<UniformBuffer>& materialUBO,
+		const Ref<UniformBuffer>& textureFlagUBO,
+		const Ref<UniformBuffer>& cameraUBO,
+		const Ref<UniformBuffer>& lightUBO)
+	{
+		s_Data.TransformUBO = transformUBO;
+		s_Data.MaterialUBO = materialUBO;
+		s_Data.TextureFlagUBO = textureFlagUBO;
+		s_Data.CameraUBO = cameraUBO;
+		s_Data.LightUBO = lightUBO;
+		
+		OLO_CORE_INFO("CommandDispatch: Shared UBOs configured");
+	}
+
+	void CommandDispatch::SetSceneLight(const Light& light)
+	{
+		s_Data.SceneLight = light;
+	}
+
+	void CommandDispatch::SetViewPosition(const glm::vec3& viewPos)
+	{
+		s_Data.ViewPos = viewPos;
+	}
+
+	// Add this function to update the light UBO
+	void CommandDispatch::UpdateLightPropertiesUBO(const Light& light, const glm::vec3& viewPos)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.LightUBO)
+		{
+			OLO_CORE_WARN("CommandDispatch::UpdateLightPropertiesUBO: LightUBO not initialized");
+			return;
+		}
+		
+		struct alignas(16) LightData
+		{
+			glm::vec4 Position;        // Light position (vec3 aligned to vec4)
+			glm::vec4 Ambient;         // Ambient color component
+			glm::vec4 Diffuse;         // Diffuse color component
+			glm::vec4 Specular;        // Specular color component
+			glm::vec4 ViewPosition;    // Camera position for specular calculations
+		};
+		
+		LightData data{
+			glm::vec4(light.Position, 1.0f),
+			glm::vec4(light.Ambient, 1.0f),
+			glm::vec4(light.Diffuse, 1.0f),
+			glm::vec4(light.Specular, 1.0f),
+			glm::vec4(viewPos, 1.0f)
+		};
+		
+		s_Data.LightUBO->SetData(&data, sizeof(LightData));
+	}
+
+	CommandDispatch::Statistics& CommandDispatch::GetStatistics()
+	{
+		return s_Data.Stats;
+	}
 
 	void CommandDispatch::SetViewProjectionMatrix(const glm::mat4& viewProjection)
     {
         s_Data.ViewProjectionMatrix = viewProjection;
-    }
-
-	CommandDispatch::Statistics& CommandDispatch::GetStatistics()
-    {
-        return s_Data.Stats;
     }
 
 	// UBO update methods that use the shared UBOs
@@ -462,6 +510,7 @@ namespace OloEngine
 		UpdateTransformUBO(cmd->transform);
 		UpdateMaterialUBO(cmd->ambient, cmd->diffuse, cmd->specular, cmd->shininess);
 		UpdateTextureFlag(cmd->useTextureMaps);
+		UpdateLightPropertiesUBO(s_Data.SceneLight, s_Data.ViewPos);
 		
 		// Efficiently bind textures if needed
 		if (cmd->useTextureMaps)
