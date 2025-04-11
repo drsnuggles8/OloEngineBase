@@ -49,11 +49,20 @@ namespace OloEngine
         RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
         RenderCommand::Clear();
         
+        // Reset to default OpenGL state to ensure consistent rendering
+        auto& rendererAPI = RenderCommand::GetRendererAPI();
+        rendererAPI.SetDepthTest(true);
+        rendererAPI.SetDepthFunc(GL_LESS);
+        rendererAPI.SetDepthMask(true);
+        rendererAPI.SetBlendState(false);
+        rendererAPI.SetCullFace(GL_BACK);
+        rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        
         // Execute all commands in the bucket
         if (m_Allocator)
         {
             m_CommandBucket.SortCommands();
-            m_CommandBucket.Execute(RenderCommand::GetRendererAPI());
+            m_CommandBucket.Execute(rendererAPI);
         }
         else
         {

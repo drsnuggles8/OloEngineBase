@@ -559,10 +559,13 @@ namespace OloEngine
 			return;
 		}
 		
-		// Ensure depth testing is properly configured
+		// Ensure proper depth and state configuration for mesh rendering
 		api.SetDepthTest(true);
 		api.SetDepthFunc(GL_LESS);
 		api.SetDepthMask(true);
+		
+		// Reset any potential polygon mode changes
+		api.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 		
 		// Optimize shader binding - only bind if different from currently bound
 		u32 shaderID = cmd->shader->GetRendererID();
@@ -619,7 +622,8 @@ namespace OloEngine
 		{
 			s_Data.TextureFlagUBO->SetData(&useTextureMaps, sizeof(int));
 		}
-				// Update light properties with the specific material
+		
+		// Update light properties with the specific material
 		struct LightPropertiesData
 		{
 			glm::vec4 MaterialAmbient;
