@@ -60,8 +60,6 @@ namespace OloEngine
 	{
 		s_Data.ViewPos = viewPos;
 	}
-
-	// Add this function to update the light UBO
 	void CommandDispatch::UpdateLightPropertiesUBO(const Light& light, const glm::vec3& viewPos)
 	{
 		OLO_PROFILE_FUNCTION();
@@ -72,24 +70,89 @@ namespace OloEngine
 			return;
 		}
 		
-		struct alignas(16) LightData
+		struct alignas(16) LightPropertiesData
 		{
-			glm::vec4 Position;        // Light position (vec3 aligned to vec4)
-			glm::vec4 Ambient;         // Ambient color component
-			glm::vec4 Diffuse;         // Diffuse color component
-			glm::vec4 Specular;        // Specular color component
-			glm::vec4 ViewPosition;    // Camera position for specular calculations
+			glm::vec4 MaterialAmbient;
+			glm::vec4 MaterialDiffuse;
+			glm::vec4 MaterialSpecular;
+			glm::vec4 Padding1;
+
+			glm::vec4 LightPosition;
+			glm::vec4 LightDirection;
+			glm::vec4 LightAmbient;
+			glm::vec4 LightDiffuse;
+			glm::vec4 LightSpecular;
+			glm::vec4 LightAttParams;
+			glm::vec4 LightSpotParams;
+
+			glm::vec4 ViewPosAndLightType;
 		};
-		
-		LightData data{
-			glm::vec4(light.Position, 1.0f),
-			glm::vec4(light.Ambient, 1.0f),
-			glm::vec4(light.Diffuse, 1.0f),
-			glm::vec4(light.Specular, 1.0f),
-			glm::vec4(viewPos, 1.0f)
+
+		// Get material properties from the Material UBO
+		struct alignas(16) MaterialData
+		{
+			glm::vec4 Ambient;    // vec3 aligned to vec4
+			glm::vec4 Diffuse;    // vec3 aligned to vec4
+			glm::vec4 Specular;   // vec3 aligned to vec4
+			float Shininess;
+			float _pad[3];        // Padding for alignment
 		};
-		
-		s_Data.LightUBO->SetData(&data, sizeof(LightData));
+
+		// Default material values in case UBO data is not available
+		glm::vec3 materialAmbient(0.2f);
+		glm::vec3 materialDiffuse(0.8f);
+		glm::vec3 materialSpecular(1.0f);
+		float materialShininess = 32.0f;
+
+		// Try to read from MaterialUBO if it exists
+		if (s_Data.MaterialUBO)
+		{
+			MaterialData materialData;
+			// Read the current material data from UBO - this is a simplification
+			// In a full implementation, you would need a proper way to read back from UBOs
+			// or maintain a CPU-side copy of the last material data
+			
+			// For now, relying on the material values set by UpdateMaterialUBO
+			// which should be called before UpdateLightPropertiesUBO
+			
+			// This just reads directly from the CPU-side MaterialUBO
+			materialAmbient = glm::vec3(s_Data.MaterialUBO->GetData<MaterialData>().Ambient);
+			materialDiffuse = glm::vec3(s_Data.MaterialUBO->GetData<MaterialData>().Diffuse);
+			materialSpecular = glm::vec3(s_Data.MaterialUBO->GetData<MaterialData>().Specular);
+			materialShininess = s_Data.MaterialUBO->GetData<MaterialData>().Shininess;
+		}
+
+		LightPropertiesData lightData;
+
+		lightData.MaterialAmbient = glm::vec4(materialAmbient, 0.0f);
+		lightData.MaterialDiffuse = glm::vec4(materialDiffuse, 0.0f);
+		lightData.MaterialSpecular = glm::vec4(materialSpecular, materialShininess);
+		lightData.Padding1 = glm::vec4(0.0f);
+
+		auto lightType = std::to_underlying(light.Type);
+		lightData.LightPosition = glm::vec4(light.Position, 0.0f);
+		lightData.LightDirection = glm::vec4(light.Direction, 0.0f);
+		lightData.LightAmbient = glm::vec4(light.Ambient, 0.0f);
+		lightData.LightDiffuse = glm::vec4(light.Diffuse, 0.0f);
+		lightData.LightSpecular = glm::vec4(light.Specular, 0.0f);
+
+		lightData.LightAttParams = glm::vec4(
+			light.Constant,
+			light.Linear,
+			light.Quadratic,
+			0.0f
+		);
+
+		lightData.LightSpotParams = glm::vec4(
+			light.CutOff,
+			light.OuterCutOff,
+			0.0f,
+			0.0f
+		);
+
+		lightData.ViewPosAndLightType = glm::vec4(viewPos, static_cast<f32>(lightType));
+
+		s_Data.LightUBO->SetData(&lightData, sizeof(LightPropertiesData));
 	}
 
 	CommandDispatch::Statistics& CommandDispatch::GetStatistics()
@@ -481,8 +544,7 @@ namespace OloEngine
 			return;
 		}
 		
-		api.DrawLines(cmd->vertexArray, cmd->vertexCount);
-	}
+		api.DrawLines(cmd->vertexArray, cmd->vertexCount);	}
     
     // Higher-level commands
     void CommandDispatch::DrawMesh(const void* data, RendererAPI& api)
@@ -497,6 +559,11 @@ namespace OloEngine
 			return;
 		}
 		
+		// Ensure depth testing is properly configured
+		api.SetDepthTest(true);
+		api.SetDepthFunc(GL_LESS);
+		api.SetDepthMask(true);
+		
 		// Optimize shader binding - only bind if different from currently bound
 		u32 shaderID = cmd->shader->GetRendererID();
 		if (s_Data.CurrentBoundShaderID != shaderID)
@@ -506,11 +573,106 @@ namespace OloEngine
 			s_Data.Stats.ShaderBinds++;
 		}
 		
-		// Update UBOs with transform and material data
-		UpdateTransformUBO(cmd->transform);
-		UpdateMaterialUBO(cmd->ambient, cmd->diffuse, cmd->specular, cmd->shininess);
-		UpdateTextureFlag(cmd->useTextureMaps);
-		UpdateLightPropertiesUBO(s_Data.SceneLight, s_Data.ViewPos);
+		// Update transform UBO first - critical for correct positioning
+		struct TransformMatrices
+		{
+			glm::mat4 ViewProjection;
+			glm::mat4 Model;
+		};
+
+		TransformMatrices matrices;
+		matrices.ViewProjection = s_Data.ViewProjectionMatrix;
+		matrices.Model = cmd->transform;
+		
+		// Update the transform UBO
+		if (s_Data.TransformUBO)
+		{
+			s_Data.TransformUBO->SetData(&matrices, sizeof(TransformMatrices));
+		}
+		
+		// Update material properties next
+		struct MaterialData
+		{
+			glm::vec4 Ambient;    // vec3 aligned to vec4
+			glm::vec4 Diffuse;    // vec3 aligned to vec4
+			glm::vec4 Specular;   // vec3 aligned to vec4
+			float Shininess;
+			float _pad[3];        // Padding for alignment
+		};
+		
+		MaterialData materialData{
+			glm::vec4(cmd->ambient, 1.0f),
+			glm::vec4(cmd->diffuse, 1.0f),
+			glm::vec4(cmd->specular, 1.0f),
+			cmd->shininess,
+			{0.0f, 0.0f, 0.0f}
+		};
+		
+		if (s_Data.MaterialUBO)
+		{
+			s_Data.MaterialUBO->SetData(&materialData, sizeof(MaterialData));
+		}
+		
+		// Update texture flag
+		int useTextureMaps = cmd->useTextureMaps ? 1 : 0;
+		if (s_Data.TextureFlagUBO)
+		{
+			s_Data.TextureFlagUBO->SetData(&useTextureMaps, sizeof(int));
+		}
+				// Update light properties with the specific material
+		struct LightPropertiesData
+		{
+			glm::vec4 MaterialAmbient;
+			glm::vec4 MaterialDiffuse;
+			glm::vec4 MaterialSpecular;
+			glm::vec4 Padding1;
+
+			glm::vec4 LightPosition;
+			glm::vec4 LightDirection;
+			glm::vec4 LightAmbient;
+			glm::vec4 LightDiffuse;
+			glm::vec4 LightSpecular;
+			glm::vec4 LightAttParams;
+			glm::vec4 LightSpotParams;
+
+			glm::vec4 ViewPosAndLightType;
+		};
+
+		LightPropertiesData lightData;
+
+		lightData.MaterialAmbient = glm::vec4(cmd->ambient, 0.0f);
+		lightData.MaterialDiffuse = glm::vec4(cmd->diffuse, 0.0f);
+		lightData.MaterialSpecular = glm::vec4(cmd->specular, cmd->shininess);
+		lightData.Padding1 = glm::vec4(0.0f);
+
+		const Light& light = s_Data.SceneLight;
+		auto lightType = std::to_underlying(light.Type);
+		lightData.LightPosition = glm::vec4(light.Position, 1.0f); // Use 1.0 for w to indicate position
+		lightData.LightDirection = glm::vec4(light.Direction, 0.0f);
+		lightData.LightAmbient = glm::vec4(light.Ambient, 0.0f);
+		lightData.LightDiffuse = glm::vec4(light.Diffuse, 0.0f);
+		lightData.LightSpecular = glm::vec4(light.Specular, 0.0f);
+
+		lightData.LightAttParams = glm::vec4(
+			s_Data.SceneLight.Constant,
+			s_Data.SceneLight.Linear,
+			s_Data.SceneLight.Quadratic,
+			0.0f
+		);
+
+		lightData.LightSpotParams = glm::vec4(
+			s_Data.SceneLight.CutOff,
+			s_Data.SceneLight.OuterCutOff,
+			0.0f,
+			0.0f
+		);
+
+		lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<f32>(lightType));
+
+		if (s_Data.LightUBO)
+		{
+			s_Data.LightUBO->SetData(&lightData, sizeof(LightPropertiesData));
+		}
 		
 		// Efficiently bind textures if needed
 		if (cmd->useTextureMaps)
@@ -521,6 +683,7 @@ namespace OloEngine
 				if (s_Data.BoundTextureIDs[0] != texID)
 				{
 					cmd->diffuseMap->Bind(0);
+					cmd->shader->SetInt("u_DiffuseMap", 0);  // Explicitly set the uniform
 					s_Data.BoundTextureIDs[0] = texID;
 					s_Data.Stats.TextureBinds++;
 				}
@@ -532,6 +695,7 @@ namespace OloEngine
 				if (s_Data.BoundTextureIDs[1] != texID)
 				{
 					cmd->specularMap->Bind(1);
+					cmd->shader->SetInt("u_SpecularMap", 1);  // Explicitly set the uniform
 					s_Data.BoundTextureIDs[1] = texID;
 					s_Data.Stats.TextureBinds++;
 				}
@@ -641,8 +805,7 @@ namespace OloEngine
 		// Draw the instanced mesh
 		api.DrawIndexedInstanced(cmd->vertexArray, indexCount, instanceCount);
 	}
-    
-    void CommandDispatch::DrawQuad(const void* data, RendererAPI& api)
+      void CommandDispatch::DrawQuad(const void* data, RendererAPI& api)
 	{
 		OLO_PROFILE_FUNCTION();
 		
@@ -653,6 +816,11 @@ namespace OloEngine
 			OLO_CORE_ERROR("CommandDispatch::DrawQuad: Invalid vertex array or shader");
 			return;
 		}
+		
+		// Enable blending for transparent textures, matching Renderer3D::RenderQuadInternal
+		api.SetBlendState(true);
+		api.SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		api.SetDepthMask(false);  // Don't write to depth buffer for quads
 		
 		// Optimize shader binding - only bind if different from currently bound
 		u32 shaderID = cmd->shader->GetRendererID();
@@ -684,6 +852,11 @@ namespace OloEngine
 		
 		// Draw the quad
 		api.DrawIndexed(cmd->quadVA, 6); // Quad has 6 indices (2 triangles)
+		
+		// Reset depth mask and blend func to default values after quad rendering
+		// This matches the behavior in Renderer3D::RenderQuadInternal
+		api.SetDepthMask(true);
+		api.SetBlendFunc(GL_ONE, GL_ZERO);
 	}
 
 	void CommandDispatch::ResetState()

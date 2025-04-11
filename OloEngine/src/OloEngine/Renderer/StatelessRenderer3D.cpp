@@ -47,7 +47,7 @@ namespace OloEngine
 		s_Data.MaterialUBO = UniformBuffer::Create(sizeof(glm::vec4) * 4, 1);   // Material properties
 		s_Data.TextureFlagUBO = UniformBuffer::Create(sizeof(int), 2);          // Texture flags
 		s_Data.CameraMatricesBuffer = UniformBuffer::Create(sizeof(glm::mat4) * 2, 3); // View and projection matrices
-		s_Data.LightPropertiesUBO = UniformBuffer::Create(sizeof(glm::vec4) * 5, 4); // Position, Ambient, Diffuse, Specular, ViewPos
+		s_Data.LightPropertiesUBO = UniformBuffer::Create(sizeof(glm::vec4) * 12, 1); // Binding point 1, not 4
 		
 		// Share UBOs with CommandDispatch
 		CommandDispatch::SetSharedUBOs(
@@ -55,7 +55,7 @@ namespace OloEngine
 			s_Data.MaterialUBO, 
 			s_Data.TextureFlagUBO,
 			s_Data.CameraMatricesBuffer,
-			s_Data.LightPropertiesUBO  // Add this
+			s_Data.LightPropertiesUBO
 		);
 		
 		OLO_CORE_INFO("Shared UBOs with CommandDispatch");
@@ -89,7 +89,6 @@ namespace OloEngine
 		
 		OLO_CORE_INFO("StatelessRenderer3D shutdown complete.");
 	}
-
 	void StatelessRenderer3D::BeginScene(const PerspectiveCamera& camera)
 	{
 		OLO_PROFILE_FUNCTION();
@@ -124,6 +123,65 @@ namespace OloEngine
 		
 		// Reset CommandDispatch state tracking
 		CommandDispatch::ResetState();
+		
+		// Explicitly update light properties UBO just like Renderer3D does in its BeginScene
+		if (s_Data.LightPropertiesUBO)
+		{
+			// Use a default material for the initial UBO update
+			Material defaultMaterial;
+			
+			// Build light properties data exactly as Renderer3D does
+			struct LightPropertiesData
+			{
+				glm::vec4 MaterialAmbient;
+				glm::vec4 MaterialDiffuse;
+				glm::vec4 MaterialSpecular;
+				glm::vec4 Padding1;
+
+				glm::vec4 LightPosition;
+				glm::vec4 LightDirection;
+				glm::vec4 LightAmbient;
+				glm::vec4 LightDiffuse;
+				glm::vec4 LightSpecular;
+				glm::vec4 LightAttParams;
+				glm::vec4 LightSpotParams;
+
+				glm::vec4 ViewPosAndLightType;
+			};
+
+			LightPropertiesData lightData;
+
+			lightData.MaterialAmbient = glm::vec4(defaultMaterial.Ambient, 0.0f);
+			lightData.MaterialDiffuse = glm::vec4(defaultMaterial.Diffuse, 0.0f);
+			lightData.MaterialSpecular = glm::vec4(defaultMaterial.Specular, defaultMaterial.Shininess);
+			lightData.Padding1 = glm::vec4(0.0f);
+
+			auto lightType = std::to_underlying(s_Data.SceneLight.Type);
+			lightData.LightPosition = glm::vec4(s_Data.SceneLight.Position, 1.0f); // Use 1.0 for w to indicate position, not direction
+			lightData.LightDirection = glm::vec4(s_Data.SceneLight.Direction, 0.0f);
+			lightData.LightAmbient = glm::vec4(s_Data.SceneLight.Ambient, 0.0f);
+			lightData.LightDiffuse = glm::vec4(s_Data.SceneLight.Diffuse, 0.0f);
+			lightData.LightSpecular = glm::vec4(s_Data.SceneLight.Specular, 0.0f);
+
+			lightData.LightAttParams = glm::vec4(
+				s_Data.SceneLight.Constant,
+				s_Data.SceneLight.Linear,
+				s_Data.SceneLight.Quadratic,
+				0.0f
+			);
+
+			lightData.LightSpotParams = glm::vec4(
+				s_Data.SceneLight.CutOff,
+				s_Data.SceneLight.OuterCutOff,
+				0.0f,
+				0.0f
+			);
+
+			lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<f32>(lightType));
+
+			// Update the UBO directly
+			s_Data.LightPropertiesUBO->SetData(&lightData, sizeof(LightPropertiesData));
+		}
 	}
 
 	void StatelessRenderer3D::EndScene()
@@ -253,7 +311,6 @@ namespace OloEngine
 		
 		s_Data.ScenePass->SubmitCommand(command, metadata);
 	}
-
 	void StatelessRenderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic)
 	{
 		OLO_PROFILE_FUNCTION();
@@ -275,16 +332,30 @@ namespace OloEngine
 			}
 		}
 		
-		// Create the command structure
+		// Ensure we have a valid mesh reference
+		if (!mesh || !mesh->GetVertexArray())
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::DrawMesh: Invalid mesh or vertex array!");
+			return;
+		}
+		
+		// Select the appropriate shader - exactly as in Renderer3D
+		Ref<Shader> shaderToUse = material.Shader ? material.Shader : s_Data.LightingShader;
+		if (!shaderToUse)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::DrawMesh: No shader available!");
+			return;
+		}
+		
+		// Create the command structure with a stable copy of the model matrix
 		DrawMeshCommand command;
 		command.header.type = CommandType::DrawMesh;
-		// The dispatch function will be filled by the command system
 		
 		// Fill in the mesh data using actual objects instead of IDs
 		command.mesh = mesh;
-		command.vertexArray = mesh->GetVertexArray();
+		command.vertexArray = mesh->GetVertexArray(); 
 		command.indexCount = mesh->GetIndexCount();
-		command.transform = modelMatrix;
+		command.transform = glm::mat4(modelMatrix); // Make a copy to ensure it remains stable
 		
 		// Fill in material properties
 		command.ambient = material.Ambient;
@@ -296,14 +367,19 @@ namespace OloEngine
 		// Use actual texture and shader objects
 		command.diffuseMap = material.DiffuseMap;
 		command.specularMap = material.SpecularMap;
-		command.shader = material.Shader ? material.Shader : s_Data.LightingShader;
+		command.shader = shaderToUse;
 		
-		// Create metadata for sorting/batching
+		// Create metadata for sorting/batching that exactly matches Renderer3D's RenderQueue approach
 		PacketMetadata metadata;
-		metadata.shaderKey = command.shader->GetRendererID();
+		metadata.shaderKey = shaderToUse->GetRendererID();
 		metadata.materialKey = material.CalculateKey();
 		metadata.textureKey = material.DiffuseMap ? material.DiffuseMap->GetRendererID() : 0;
-		metadata.executionOrder = s_Data.CommandCounter++; // Maintain order if needed
+		
+		// Use depth sorting similar to RenderQueue for consistent ordering
+		glm::vec3 position = glm::vec3(modelMatrix[3]);
+		f32 distSqr = glm::distance2(s_Data.ViewPos, position);
+		metadata.sortKey = *reinterpret_cast<u64*>(&distSqr);
+		metadata.executionOrder = s_Data.CommandCounter++;
 		metadata.isStatic = isStatic;
 		
 		// Submit command via the CommandRenderPass's SubmitCommand method

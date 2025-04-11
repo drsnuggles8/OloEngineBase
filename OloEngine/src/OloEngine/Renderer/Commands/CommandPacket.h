@@ -11,14 +11,14 @@ namespace OloEngine
     class RendererAPI;
     class CommandAllocator;
     class RenderContext;
-    
-    // Command packet metadata
+      // Command packet metadata
     struct PacketMetadata
     {
         // Sorting keys
         u64 shaderKey = 0;          // Primary sorting key (shader program)
         u64 materialKey = 0;         // Secondary sorting key (material properties)
         u64 textureKey = 0;          // Tertiary sorting key (textures)
+        u64 sortKey = 0;            // Custom sorting key (for depth sorting)
         u32 stateChangeKey = 0;      // State change type identifier
         
         // Execution properties

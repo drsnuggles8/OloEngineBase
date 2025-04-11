@@ -73,8 +73,6 @@ namespace OloEngine
             return;
         }
         
-        OLO_CORE_TRACE("CommandFinalRenderPass::Execute: Using color attachment ID {}", colorAttachmentID);
-        
         RenderCommand::BindTexture(0, colorAttachmentID);
         m_BlitShader->SetInt("u_Texture", 0);
         
