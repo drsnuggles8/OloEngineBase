@@ -134,7 +134,6 @@ namespace OloEngine
 						if (auto* cmdFinalPass = dynamic_cast<CommandFinalRenderPass*>(cmdRenderPass->get()))
 						{
 							cmdFinalPass->SetInputFramebuffer(outputFramebuffer);
-							OLO_CORE_TRACE("Connected framebuffer from {} to {}", outputPass, inputPass);
 						}
 					}
 				}

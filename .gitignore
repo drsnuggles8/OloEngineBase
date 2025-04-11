@@ -54,8 +54,6 @@ OloEngine/vendor/*
 **.log
 **.tlog
 /OloEditor/imgui.ini
-/.vscode/tasks.json
 out/build/x64-Debug/VSInheritEnvironments.txt
 .gitignore
 /debug.cap
-.vscode/settings.json

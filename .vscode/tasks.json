@@ -1,0 +1,59 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "build-sandbox3d",
+        "type": "shell",
+        "command": "cmake",
+        "args": [
+          "--build",
+          "${workspaceFolder}/build",
+          "--target",
+          "Sandbox3D",
+          "--config",
+          "Debug"
+        ],
+        "group": {
+          "kind": "build",
+          "isDefault": true
+        },
+        "problemMatcher": [
+          "$msCompile"
+        ]
+      },
+      {
+        "label": "build-oloeditor",
+        "type": "shell",
+        "command": "cmake",
+        "args": [
+          "--build",
+          "${workspaceFolder}/build",
+          "--target",
+          "OloEditor",
+          "--config",
+          "Debug"
+        ],
+        "group": "build",
+        "problemMatcher": [
+          "$msCompile"
+        ]
+      },
+      {
+        "label": "build-sandbox2d",
+        "type": "shell",
+        "command": "cmake",
+        "args": [
+          "--build",
+          "${workspaceFolder}/build",
+          "--target",
+          "Sandbox2D",
+          "--config",
+          "Debug"
+        ],
+        "group": "build",
+        "problemMatcher": [
+          "$msCompile"
+        ]
+      }
+    ]
+  }

@@ -35,10 +35,6 @@ namespace OloEngine
     void CommandFinalRenderPass::SetInputFramebuffer(const Ref<Framebuffer>& input) 
     { 
         m_InputFramebuffer = input; 
-        if (input)
-            OLO_CORE_TRACE("CommandFinalRenderPass: Input framebuffer set with ID {}", input->GetRendererID());
-        else
-            OLO_CORE_WARN("CommandFinalRenderPass: Null input framebuffer!");
     }
 
 	void CommandFinalRenderPass::Execute()
