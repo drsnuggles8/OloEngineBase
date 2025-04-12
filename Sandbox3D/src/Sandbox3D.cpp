@@ -900,10 +900,10 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
                 OloEngine::RendererAdapter::DrawMesh(m_CubeMesh, cubeMatrix, glassMaterial);
                 
                 // Draw the outline
-                OloEngine::RenderCommand::SetStencilFunc(GL_NOTEQUAL, 1, 0xFF);
-                OloEngine::RenderCommand::SetStencilMask(0x00);
-                OloEngine::RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-                OloEngine::RenderCommand::SetLineWidth(3.0f);
+				OloEngine::RendererAdapter::SetStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+                OloEngine::RendererAdapter::SetStencilMask(0x00);
+                OloEngine::RendererAdapter::SetPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                OloEngine::RendererAdapter::SetLineWidth(3.0f);
                 
                 auto outlineMatrix = glm::scale(cubeMatrix, glm::vec3(1.05f));
                 OloEngine::Material outlineMaterial;
@@ -913,11 +913,10 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
                 outlineMaterial.Shininess = 1.0f;
                 
                 OloEngine::RendererAdapter::DrawMesh(m_CubeMesh, outlineMatrix, outlineMaterial);
-                
-                // Reset states
-                OloEngine::RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-                OloEngine::RenderCommand::DisableStencilTest();
-                OloEngine::RenderCommand::DisableBlending();
+                  // Reset states
+                OloEngine::RendererAdapter::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                OloEngine::RendererAdapter::DisableStencilTest();
+                OloEngine::RendererAdapter::DisableBlending();
             }
             break;
         }
