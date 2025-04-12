@@ -1,28 +1,41 @@
 #pragma once
 
-#include "OloEngine/Renderer/Camera/Camera.h"
+#include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/Camera/PerspectiveCamera.h"
-#include "OloEngine/Renderer/Texture.h"
-#include "OloEngine/Scene/Components.h"
-#include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Material.h"
+#include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/Frustum.h"
-#include "OloEngine/Renderer/BoundingVolume.h"
-#include "OloEngine/Renderer/UniformBuffer.h"
-#include "OloEngine/Renderer/RenderGraph.h"
-#include "OloEngine/Renderer/TextureCubemap.h"
-#include "OloEngine/Renderer/Commands/CommandAllocator.h"
+#include "OloEngine/Core/Timestep.h"
+
+// Forward declarations
+namespace OloEngine {
+    class Mesh;
+    class Texture2D;
+    class RenderCommand;
+    class UniformBuffer;
+    class CommandSceneRenderPass;
+    class CommandFinalRenderPass;
+}
 
 namespace OloEngine
 {
-	// Forward declarations
-	class Mesh;
-	class CommandSceneRenderPass;
-	class CommandFinalRenderPass;
+	class ShaderLibrary;
 
 	class StatelessRenderer3D
 	{
+	public:
+		struct Statistics
+		{
+			u32 TotalMeshes = 0;
+			u32 CulledMeshes = 0;
+			u32 DrawCalls = 0;
+			u32 ShaderBinds = 0;
+			u32 TextureBinds = 0;
+			
+			void Reset() { TotalMeshes = 0; CulledMeshes = 0; DrawCalls = 0; ShaderBinds = 0; TextureBinds = 0; }
+		};
+
 	public:
 		static void Init();
 		static void Shutdown();
@@ -30,60 +43,49 @@ namespace OloEngine
 		static void BeginScene(const PerspectiveCamera& camera);
 		static void EndScene();
 
-		// Draw methods
-		static void DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = false);
-		static void DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic);
-		static void DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = false);
-		static void DrawLightCube(const glm::mat4& modelMatrix);
-		
-		// Simple textured quad rendering
+		static void DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
 		static void DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
-		
-		// Light and view setters
+		static void DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
+		static void DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true);
+		static void DrawLightCube(const glm::mat4& modelMatrix);
+
+		// State management functions for compatibility with RenderCommand
+		static void SetPolygonMode(unsigned int face, unsigned int mode);
+		static void SetLineWidth(float width);
+		static void EnableBlending();
+		static void DisableBlending();
+		static void SetBlendFunc(unsigned int src, unsigned int dest);
+		static void SetColorMask(bool red, bool green, bool blue, bool alpha);
+		static void SetDepthMask(bool enabled);
+		static void EnableDepthTest();
+		static void DisableDepthTest();
+
 		static void SetLight(const Light& light);
 		static void SetViewPosition(const glm::vec3& position);
-
-		// Frustum culling
+		
+		// Culling methods
 		static void EnableFrustumCulling(bool enable);
 		static bool IsFrustumCullingEnabled();
 		static void EnableDynamicCulling(bool enable);
 		static bool IsDynamicCullingEnabled();
 		static const Frustum& GetViewFrustum();
-		
-		// Frustum culling visibility checks
+		static bool IsVisibleInFrustum(const Ref<Mesh>& mesh, const glm::mat4& transform);
 		static bool IsVisibleInFrustum(const BoundingSphere& sphere);
 		static bool IsVisibleInFrustum(const BoundingBox& box);
 		
-		// Statistics
-		struct Statistics
-		{
-			u32 TotalMeshes = 0;
-			u32 CulledMeshes = 0;
-			
-			void Reset() { TotalMeshes = 0; CulledMeshes = 0; }
-		};
-		
+		// Statistics and debug methods
 		static Statistics GetStats();
 		static void ResetStats();
-
-		// RenderGraph methods
+		
+		// Window resize handling
 		static void OnWindowResize(u32 width, u32 height);
-		static Ref<RenderGraph> GetRenderGraph() { return s_Data.RGraph; }
-
-		// Access to the shader library
-		static ShaderLibrary& GetShaderLibrary() { return m_ShaderLibrary; }
+		static const Ref<RenderGraph>& GetRenderGraph() { return s_Data.RGraph; }
 
 	private:
 		static void UpdateCameraMatricesUBO(const glm::mat4& view, const glm::mat4& projection);
-		
-		// Frustum culling helper
-		static bool IsVisibleInFrustum(const Ref<Mesh>& mesh, const glm::mat4& transform);
-		
-		// Setup the render graph with command-based passes
 		static void SetupRenderGraph(u32 width, u32 height);
 
-		static ShaderLibrary m_ShaderLibrary;
-		
+	private:
 		struct StatelessRenderer3DData
 		{
 			Ref<Mesh> CubeMesh;
@@ -92,16 +94,15 @@ namespace OloEngine
 			Ref<Shader> LightingShader;
 			Ref<Shader> QuadShader;
 			
-			// Add these UBOs
 			Ref<UniformBuffer> TransformUBO;
 			Ref<UniformBuffer> MaterialUBO;
 			Ref<UniformBuffer> TextureFlagUBO;
 			Ref<UniformBuffer> CameraMatricesBuffer;
 			Ref<UniformBuffer> LightPropertiesUBO;
-			
-			glm::mat4 ViewProjectionMatrix;
-			glm::mat4 ViewMatrix;
-			glm::mat4 ProjectionMatrix;
+
+			glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
+			glm::mat4 ViewMatrix = glm::mat4(1.0f);
+			glm::mat4 ProjectionMatrix = glm::mat4(1.0f);
 
 			Frustum ViewFrustum;
 			bool FrustumCullingEnabled = true;
@@ -111,14 +112,14 @@ namespace OloEngine
 			glm::vec3 ViewPos;
 			
 			Statistics Stats;
+			u32 CommandCounter = 0;
 			
 			Ref<RenderGraph> RGraph;
 			Ref<CommandSceneRenderPass> ScenePass;
-			Ref<CommandFinalRenderPass> FinalPass;
-
-			u64 CommandCounter = 0;
+            Ref<CommandFinalRenderPass> FinalPass;
 		};
-		
+
 		static StatelessRenderer3DData s_Data;
+		static ShaderLibrary m_ShaderLibrary;
 	};
 }

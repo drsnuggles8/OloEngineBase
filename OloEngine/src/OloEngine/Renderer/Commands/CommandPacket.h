@@ -28,6 +28,7 @@ namespace OloEngine
         
         // Statistics/debugging
         bool isStatic = false;            // Command doesn't change between frames
+        bool isTransparent = false;       // Command renders transparent objects (needs special handling)
         const char* debugName = nullptr;  // Optional name for debugging
     };
     

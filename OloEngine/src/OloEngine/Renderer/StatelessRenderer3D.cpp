@@ -27,7 +27,6 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 		OLO_CORE_INFO("Initializing StatelessRenderer3D.");
 
-		// Initialize the command dispatch system first
 		CommandDispatch::Initialize();
 		OLO_CORE_INFO("CommandDispatch system initialized.");
 
@@ -283,9 +282,7 @@ namespace OloEngine
 	void StatelessRenderer3D::DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic)
 	{
 		DrawMesh(s_Data.CubeMesh, modelMatrix, material, isStatic);
-	}
-
-	void StatelessRenderer3D::DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture)
+	}	void StatelessRenderer3D::DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture)
 	{
 		OLO_PROFILE_FUNCTION();
 		
@@ -295,20 +292,60 @@ namespace OloEngine
 			return;
 		}
 
+		if (!texture)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::DrawQuad: No texture provided!");
+			return;
+		}
+
+		if (!s_Data.QuadShader)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::DrawQuad: Quad shader is not loaded!");
+			return;
+		}
+
+		// Make absolutely sure we have a valid vertex array for the quad
+		if (!s_Data.QuadMesh || !s_Data.QuadMesh->GetVertexArray())
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::DrawQuad: Quad mesh or its vertex array is invalid!");
+			// Recreate the mesh as a fallback
+			s_Data.QuadMesh = Mesh::CreatePlane(1.0f, 1.0f);
+			if (!s_Data.QuadMesh || !s_Data.QuadMesh->GetVertexArray())
+			{
+				return; // Still invalid, can't continue
+			}
+		}
+
 		// Create the command structure directly
 		DrawQuadCommand command;
 		command.header.type = CommandType::DrawQuad;
-		// The dispatch function will be filled by the command system
 		
-		command.transform = modelMatrix;
+		// Store a copy of the transform to ensure it remains stable
+		command.transform = glm::mat4(modelMatrix);
 		command.texture = texture;
 		command.shader = s_Data.QuadShader;
-		command.quadVA = s_Data.QuadMesh->GetVertexArray(); // Use the actual quad mesh's VA
+		command.quadVA = s_Data.QuadMesh->GetVertexArray();
 		
+		// Add metadata for sorting and tracking - important for proper rendering
 		PacketMetadata metadata;
-		metadata.shaderKey = (u64)s_Data.QuadShader->GetRendererID();
-		metadata.textureKey = texture ? (u64)texture->GetRendererID() : 0;
+		metadata.shaderKey = s_Data.QuadShader->GetRendererID();  // Use shader's renderer ID
+		metadata.textureKey = texture->GetRendererID();           // Use texture's renderer ID
+		metadata.executionOrder = s_Data.CommandCounter++;        // Keep track of ordering
 		
+		// Add depth sorting - will put transparent quads at the end for proper blending
+		glm::vec3 position = glm::vec3(modelMatrix[3]);
+		f32 distSqr = glm::distance2(s_Data.ViewPos, position);
+		metadata.sortKey = *reinterpret_cast<u64*>(&distSqr);
+		
+		// Mark as transparent - CRITICAL for proper alpha handling
+		metadata.isTransparent = true;
+		metadata.dependsOnPrevious = false; // Don't need sequential execution
+		metadata.debugName = "GrassQuad";   // Helpful for debugging
+		
+		OLO_CORE_TRACE("Submitting quad command with texture ID: {}, shader ID: {}", 
+			texture->GetRendererID(), s_Data.QuadShader->GetRendererID());
+		
+		// Submit the command to the render pass
 		s_Data.ScenePass->SubmitCommand(command, metadata);
 	}
 	void StatelessRenderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic)
@@ -579,5 +616,191 @@ namespace OloEngine
 		{
 			OLO_CORE_WARN("StatelessRenderer3D::OnWindowResize: No render graph available!");
 		}
+	}
+
+	// State management functions implementation
+	void StatelessRenderer3D::SetPolygonMode(unsigned int face, unsigned int mode)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::SetPolygonMode: ScenePass is null!");
+			return;
+		}
+		
+		SetPolygonModeCommand command;
+		command.header.type = CommandType::SetPolygonMode;
+		command.face = face;
+		command.mode = mode;
+		
+		PacketMetadata metadata;
+		metadata.executionOrder = s_Data.CommandCounter++;
+		
+		s_Data.ScenePass->SubmitCommand(command, metadata);
+	}
+
+	void StatelessRenderer3D::SetLineWidth(float width)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::SetLineWidth: ScenePass is null!");
+			return;
+		}
+		
+		SetLineWidthCommand command;
+		command.header.type = CommandType::SetLineWidth;
+		command.width = width;
+		
+		PacketMetadata metadata;
+		metadata.executionOrder = s_Data.CommandCounter++;
+		
+		s_Data.ScenePass->SubmitCommand(command, metadata);
+	}
+
+	void StatelessRenderer3D::EnableBlending()
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::EnableBlending: ScenePass is null!");
+			return;
+		}
+		
+		SetBlendStateCommand command;
+		command.header.type = CommandType::SetBlendState;
+		command.enabled = true;
+		
+		PacketMetadata metadata;
+		metadata.executionOrder = s_Data.CommandCounter++;
+		
+		s_Data.ScenePass->SubmitCommand(command, metadata);
+	}
+
+	void StatelessRenderer3D::DisableBlending()
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::DisableBlending: ScenePass is null!");
+			return;
+		}
+		
+		SetBlendStateCommand command;
+		command.header.type = CommandType::SetBlendState;
+		command.enabled = false;
+		
+		PacketMetadata metadata;
+		metadata.executionOrder = s_Data.CommandCounter++;
+		
+		s_Data.ScenePass->SubmitCommand(command, metadata);
+	}
+
+	void StatelessRenderer3D::SetBlendFunc(unsigned int src, unsigned int dest)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::SetBlendFunc: ScenePass is null!");
+			return;
+		}
+		
+		SetBlendFuncCommand command;
+		command.header.type = CommandType::SetBlendFunc;
+		command.sourceFactor = src;
+		command.destFactor = dest;
+		
+		PacketMetadata metadata;
+		metadata.executionOrder = s_Data.CommandCounter++;
+		
+		s_Data.ScenePass->SubmitCommand(command, metadata);
+	}
+
+	void StatelessRenderer3D::SetColorMask(bool red, bool green, bool blue, bool alpha)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::SetColorMask: ScenePass is null!");
+			return;
+		}
+		
+		SetColorMaskCommand command;
+		command.header.type = CommandType::SetColorMask;
+		command.red = red;
+		command.green = green;
+		command.blue = blue;
+		command.alpha = alpha;
+		
+		PacketMetadata metadata;
+		metadata.executionOrder = s_Data.CommandCounter++;
+		
+		s_Data.ScenePass->SubmitCommand(command, metadata);
+	}
+
+	void StatelessRenderer3D::SetDepthMask(bool enabled)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::SetDepthMask: ScenePass is null!");
+			return;
+		}
+		
+		SetDepthMaskCommand command;
+		command.header.type = CommandType::SetDepthMask;
+		command.writeMask = enabled;
+		
+		PacketMetadata metadata;
+		metadata.executionOrder = s_Data.CommandCounter++;
+		
+		s_Data.ScenePass->SubmitCommand(command, metadata);
+	}
+
+	void StatelessRenderer3D::EnableDepthTest()
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::EnableDepthTest: ScenePass is null!");
+			return;
+		}
+		
+		SetDepthTestCommand command;
+		command.header.type = CommandType::SetDepthTest;
+		command.enabled = true;
+		
+		PacketMetadata metadata;
+		metadata.executionOrder = s_Data.CommandCounter++;
+		
+		s_Data.ScenePass->SubmitCommand(command, metadata);
+	}
+
+	void StatelessRenderer3D::DisableDepthTest()
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::DisableDepthTest: ScenePass is null!");
+			return;
+		}
+		
+		SetDepthTestCommand command;
+		command.header.type = CommandType::SetDepthTest;
+		command.enabled = false;
+		
+		PacketMetadata metadata;
+		metadata.executionOrder = s_Data.CommandCounter++;
+		
+		s_Data.ScenePass->SubmitCommand(command, metadata);
 	}
 }

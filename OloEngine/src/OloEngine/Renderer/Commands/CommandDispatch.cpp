@@ -808,8 +808,7 @@ namespace OloEngine
 		
 		// Draw the instanced mesh
 		api.DrawIndexedInstanced(cmd->vertexArray, indexCount, instanceCount);
-	}
-      void CommandDispatch::DrawQuad(const void* data, RendererAPI& api)
+	}	    void CommandDispatch::DrawQuad(const void* data, RendererAPI& api)
 	{
 		OLO_PROFILE_FUNCTION();
 		
@@ -821,10 +820,19 @@ namespace OloEngine
 			return;
 		}
 		
+		if (!cmd->texture)
+		{
+			OLO_CORE_ERROR("CommandDispatch::DrawQuad: Missing texture for quad");
+			return;
+		}
+		
 		// Enable blending for transparent textures, matching Renderer3D::RenderQuadInternal
 		api.SetBlendState(true);
 		api.SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		api.SetDepthMask(false);  // Don't write to depth buffer for quads
+		
+		// Reset polygon mode to fill for quads - they shouldn't be in wireframe
+		api.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 		
 		// Optimize shader binding - only bind if different from currently bound
 		u32 shaderID = cmd->shader->GetRendererID();
@@ -835,27 +843,37 @@ namespace OloEngine
 			s_Data.Stats.ShaderBinds++;
 		}
 		
-		// Update transform UBO with model matrix
-		UpdateTransformUBO(cmd->transform);
-		
-		// Bind texture with state tracking
-		if (cmd->texture)
+		// Transform UBO update - WITH CORRECT ORDER OF MATRICES
+		struct TransformMatrices
 		{
-			u32 texID = cmd->texture->GetRendererID();
-			if (s_Data.BoundTextureIDs[0] != texID)
-			{
-				cmd->texture->Bind(0);
-				cmd->shader->SetInt("u_Texture", 0);
-				s_Data.BoundTextureIDs[0] = texID;
-				s_Data.Stats.TextureBinds++;
-			}
+			glm::mat4 ViewProjection;
+			glm::mat4 Model;
+		};
+
+		TransformMatrices matrices;
+		matrices.ViewProjection = s_Data.ViewProjectionMatrix;
+		matrices.Model = cmd->transform;
+		
+		// Update the transform UBO directly
+		if (s_Data.TransformUBO)
+		{
+			s_Data.TransformUBO->SetData(&matrices, sizeof(TransformMatrices));
 		}
+		
+		// Always bind texture and set uniform, this is critical for quads
+		cmd->texture->Bind(0);
+		cmd->shader->SetInt("u_Texture", 0);
+		s_Data.BoundTextureIDs[0] = cmd->texture->GetRendererID();
+		s_Data.Stats.TextureBinds++;
+		
+		// Make sure the vertex array is bound
+		cmd->quadVA->Bind();
 		
 		// Track draw calls for statistics
 		s_Data.Stats.DrawCalls++;
 		
-		// Draw the quad
-		api.DrawIndexed(cmd->quadVA, 6); // Quad has 6 indices (2 triangles)
+		// Draw the quad with explicit 6 indices (two triangles)
+		api.DrawIndexed(cmd->quadVA, 6);
 		
 		// Reset depth mask and blend func to default values after quad rendering
 		// This matches the behavior in Renderer3D::RenderQuadInternal

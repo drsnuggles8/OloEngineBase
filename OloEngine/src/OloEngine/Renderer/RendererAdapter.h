@@ -202,6 +202,105 @@ namespace OloEngine {
                     return Renderer3D::GetRenderGraph();
             }
         }
+
+        // State management methods needed for state tests
+        static void SetPolygonMode(unsigned int face, unsigned int mode)
+        {
+            switch (GetActiveRendererType())
+            {
+                case RendererType::StatelessRenderer3D:
+                    StatelessRenderer3D::SetPolygonMode(face, mode);
+                    break;
+                case RendererType::Renderer3D:
+                default:
+                    RenderCommand::SetPolygonMode(face, mode);
+                    break;
+            }
+        }
+
+        static void SetLineWidth(float width)
+        {
+            switch (GetActiveRendererType())
+            {
+                case RendererType::StatelessRenderer3D:
+                    StatelessRenderer3D::SetLineWidth(width);
+                    break;
+                case RendererType::Renderer3D:
+                default:
+                    RenderCommand::SetLineWidth(width);
+                    break;
+            }
+        }
+
+        static void EnableBlending()
+        {
+            switch (GetActiveRendererType())
+            {
+                case RendererType::StatelessRenderer3D:
+                    StatelessRenderer3D::EnableBlending();
+                    break;
+                case RendererType::Renderer3D:
+                default:
+                    RenderCommand::EnableBlending();
+                    break;
+            }
+        }
+
+        static void DisableBlending()
+        {
+            switch (GetActiveRendererType())
+            {
+                case RendererType::StatelessRenderer3D:
+                    StatelessRenderer3D::DisableBlending();
+                    break;
+                case RendererType::Renderer3D:
+                default:
+                    RenderCommand::DisableBlending();
+                    break;
+            }
+        }
+
+        static void SetBlendFunc(unsigned int src, unsigned int dest)
+        {
+            switch (GetActiveRendererType())
+            {
+                case RendererType::StatelessRenderer3D:
+                    StatelessRenderer3D::SetBlendFunc(src, dest);
+                    break;
+                case RendererType::Renderer3D:
+                default:
+                    RenderCommand::SetBlendFunc(src, dest);
+                    break;
+            }
+        }
+
+        static void SetColorMask(bool red, bool green, bool blue, bool alpha)
+        {
+            switch (GetActiveRendererType())
+            {
+                case RendererType::StatelessRenderer3D:
+                    StatelessRenderer3D::SetColorMask(red, green, blue, alpha);
+                    break;
+                case RendererType::Renderer3D:
+                default:
+                    RenderCommand::SetColorMask(red, green, blue, alpha);
+                    break;
+            }
+        }
+
+        static void SetDepthMask(bool enabled)
+        {
+            switch (GetActiveRendererType())
+            {
+                case RendererType::StatelessRenderer3D:
+                    StatelessRenderer3D::SetDepthMask(enabled);
+                    break;
+                case RendererType::Renderer3D:
+                default:
+                    RenderCommand::SetDepthMask(enabled);
+                    break;
+            }
+        }
         
     private:
         static RendererType GetActiveRendererType()
