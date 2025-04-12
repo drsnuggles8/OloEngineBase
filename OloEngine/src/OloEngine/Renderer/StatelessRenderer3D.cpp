@@ -700,7 +700,7 @@ namespace OloEngine
 		s_Data.ScenePass->SubmitCommand(command, metadata);
 	}
 
-	void StatelessRenderer3D::SetBlendFunc(unsigned int src, unsigned int dest)
+	void StatelessRenderer3D::SetBlendFunc(u32 src, u32 dest)
 	{
 		OLO_PROFILE_FUNCTION();
 		
@@ -717,6 +717,28 @@ namespace OloEngine
 		
 		PacketMetadata metadata;
 		metadata.executionOrder = s_Data.CommandCounter++;
+		metadata.sortKey = 0; // Give state changes highest priority
+		
+		s_Data.ScenePass->SubmitCommand(command, metadata);
+	}
+
+	void StatelessRenderer3D::SetBlendEquation(unsigned int mode)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::SetBlendEquation: ScenePass is null!");
+			return;
+		}
+		
+		SetBlendEquationCommand command;
+		command.header.type = CommandType::SetBlendEquation;
+		command.mode = mode;
+		
+		PacketMetadata metadata;
+		metadata.executionOrder = s_Data.CommandCounter++;
+		metadata.sortKey = 0; // Give state changes highest priority
 		
 		s_Data.ScenePass->SubmitCommand(command, metadata);
 	}
@@ -740,6 +762,7 @@ namespace OloEngine
 		
 		PacketMetadata metadata;
 		metadata.executionOrder = s_Data.CommandCounter++;
+		metadata.sortKey = 0; // Give state changes highest priority
 		
 		s_Data.ScenePass->SubmitCommand(command, metadata);
 	}
@@ -760,6 +783,7 @@ namespace OloEngine
 		
 		PacketMetadata metadata;
 		metadata.executionOrder = s_Data.CommandCounter++;
+		metadata.sortKey = 0; // Give state changes highest priority
 		
 		s_Data.ScenePass->SubmitCommand(command, metadata);
 	}
@@ -780,6 +804,7 @@ namespace OloEngine
 		
 		PacketMetadata metadata;
 		metadata.executionOrder = s_Data.CommandCounter++;
+		metadata.sortKey = 0; // Give state changes highest priority
 		
 		s_Data.ScenePass->SubmitCommand(command, metadata);
 	}
@@ -800,6 +825,247 @@ namespace OloEngine
 		
 		PacketMetadata metadata;
 		metadata.executionOrder = s_Data.CommandCounter++;
+		metadata.sortKey = 0; // Give state changes highest priority
+		
+		s_Data.ScenePass->SubmitCommand(command, metadata);
+	}
+
+	// Stencil operations implementations
+	void StatelessRenderer3D::EnableStencilTest()
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::EnableStencilTest: ScenePass is null!");
+			return;
+		}
+		
+		SetStencilTestCommand command;
+		command.header.type = CommandType::SetStencilTest;
+		command.enabled = true;
+		
+		PacketMetadata metadata;
+		metadata.executionOrder = s_Data.CommandCounter++;
+		metadata.sortKey = 0; // Give state changes highest priority
+		
+		s_Data.ScenePass->SubmitCommand(command, metadata);
+	}
+
+	void StatelessRenderer3D::DisableStencilTest()
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::DisableStencilTest: ScenePass is null!");
+			return;
+		}
+		
+		SetStencilTestCommand command;
+		command.header.type = CommandType::SetStencilTest;
+		command.enabled = false;
+		
+		PacketMetadata metadata;
+		metadata.executionOrder = s_Data.CommandCounter++;
+		metadata.sortKey = 0; // Give state changes highest priority
+		
+		s_Data.ScenePass->SubmitCommand(command, metadata);
+	}
+
+	void StatelessRenderer3D::SetStencilFunc(unsigned int func, int ref, unsigned int mask)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::SetStencilFunc: ScenePass is null!");
+			return;
+		}
+		
+		SetStencilFuncCommand command;
+		command.header.type = CommandType::SetStencilFunc;
+		command.function = func;
+		command.reference = ref;
+		command.mask = mask;
+		
+		PacketMetadata metadata;
+		metadata.executionOrder = s_Data.CommandCounter++;
+		metadata.sortKey = 0; // Give state changes highest priority
+		
+		s_Data.ScenePass->SubmitCommand(command, metadata);
+	}
+
+	void StatelessRenderer3D::SetStencilMask(unsigned int mask)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::SetStencilMask: ScenePass is null!");
+			return;
+		}
+		
+		SetStencilMaskCommand command;
+		command.header.type = CommandType::SetStencilMask;
+		command.mask = mask;
+		
+		PacketMetadata metadata;
+		metadata.executionOrder = s_Data.CommandCounter++;
+		metadata.sortKey = 0; // Give state changes highest priority
+		
+		s_Data.ScenePass->SubmitCommand(command, metadata);
+	}
+
+	void StatelessRenderer3D::SetStencilOp(unsigned int sfail, unsigned int dpfail, unsigned int dppass)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::SetStencilOp: ScenePass is null!");
+			return;
+		}
+		
+		SetStencilOpCommand command;
+		command.header.type = CommandType::SetStencilOp;
+		command.stencilFail = sfail;
+		command.depthFail = dpfail;
+		command.depthPass = dppass;
+		
+		PacketMetadata metadata;
+		metadata.executionOrder = s_Data.CommandCounter++;
+		metadata.sortKey = 0; // Give state changes highest priority
+		
+		s_Data.ScenePass->SubmitCommand(command, metadata);
+	}
+
+	void StatelessRenderer3D::ClearStencil()
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::ClearStencil: ScenePass is null!");
+			return;
+		}
+		
+		ClearStencilCommand command;
+		command.header.type = CommandType::ClearStencil;
+		
+		PacketMetadata metadata;
+		metadata.executionOrder = s_Data.CommandCounter++;
+		metadata.sortKey = 0; // Give state changes highest priority
+		
+		s_Data.ScenePass->SubmitCommand(command, metadata);
+	}
+	
+	// Culling operations implementations
+	void StatelessRenderer3D::SetCulling(bool enabled)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::SetCulling: ScenePass is null!");
+			return;
+		}
+		
+		SetCullingCommand command;
+		command.header.type = CommandType::SetCulling;
+		command.enabled = enabled;
+		
+		PacketMetadata metadata;
+		metadata.executionOrder = s_Data.CommandCounter++;
+		metadata.sortKey = 0; // Give state changes highest priority
+		
+		s_Data.ScenePass->SubmitCommand(command, metadata);
+	}
+	
+	void StatelessRenderer3D::SetCullFace(unsigned int face)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::SetCullFace: ScenePass is null!");
+			return;
+		}
+		
+		SetCullFaceCommand command;
+		command.header.type = CommandType::SetCullFace;
+		command.face = face;
+		
+		PacketMetadata metadata;
+		metadata.executionOrder = s_Data.CommandCounter++;
+		metadata.sortKey = 0; // Give state changes highest priority
+		
+		s_Data.ScenePass->SubmitCommand(command, metadata);
+	}
+	
+	// Polygon offset implementation
+	void StatelessRenderer3D::SetPolygonOffset(float factor, float units)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::SetPolygonOffset: ScenePass is null!");
+			return;
+		}
+		
+		SetPolygonOffsetCommand command;
+		command.header.type = CommandType::SetPolygonOffset;
+		command.enabled = (factor != 0.0f || units != 0.0f);
+		command.factor = factor;
+		command.units = units;
+		
+		PacketMetadata metadata;
+		metadata.executionOrder = s_Data.CommandCounter++;
+		metadata.sortKey = 0; // Give state changes highest priority
+		
+		s_Data.ScenePass->SubmitCommand(command, metadata);
+	}
+
+	void StatelessRenderer3D::SetClearColor(const glm::vec4& color)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::SetClearColor: ScenePass is null!");
+			return;
+		}
+		
+		SetClearColorCommand command;
+		command.header.type = CommandType::SetClearColor;
+		command.color = color;
+		
+		PacketMetadata metadata;
+		metadata.executionOrder = s_Data.CommandCounter++;
+		metadata.sortKey = 0; // Give state changes highest priority
+		
+		s_Data.ScenePass->SubmitCommand(command, metadata);
+	}
+
+	void StatelessRenderer3D::Clear()
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("StatelessRenderer3D::Clear: ScenePass is null!");
+			return;
+		}
+		
+		ClearCommand command;
+		command.header.type = CommandType::Clear;
+		command.clearColor = true;
+		command.clearDepth = true;
+		
+		PacketMetadata metadata;
+		metadata.executionOrder = s_Data.CommandCounter++;
+		metadata.sortKey = 0; // Give state changes highest priority
 		
 		s_Data.ScenePass->SubmitCommand(command, metadata);
 	}

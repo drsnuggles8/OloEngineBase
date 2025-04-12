@@ -148,12 +148,11 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 
 		OloEngine::RendererAdapter::SetLight(m_Light);
 	}
-
 	// Render setup
 	{
 		OLO_PROFILE_SCOPE("Renderer Prep");
-		OloEngine::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1 });
-		OloEngine::RenderCommand::Clear();
+		OloEngine::RendererAdapter::SetClearColor({ 0.1f, 0.1f, 0.1f, 1 });
+		OloEngine::RendererAdapter::Clear();
 	}
 
 	{
@@ -191,25 +190,22 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 		}
 
 		// Draw cubes with stencil testing
-		{
-			 // Clear stencil and configure for base mesh
-			OloEngine::RenderCommand::ClearStencil();
-			OloEngine::RenderCommand::SetStencilMask(0xFF);
+		{			// Clear stencil and configure for base mesh
+			OloEngine::RendererAdapter::ClearStencil();
+			OloEngine::RendererAdapter::SetStencilMask(0xFF);
 			
 			// Draw the base gold cube
 			auto modelMatrix = glm::mat4(1.0f);
 			modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX), glm::vec3(1.0f, 0.0f, 0.0f));
 			modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
-			OloEngine::RendererAdapter::DrawMesh(m_CubeMesh, modelMatrix, m_GoldMaterial);
-
-			// Configure stencil for outline - only draw where stencil is not 1
-			OloEngine::RenderCommand::SetStencilFunc(GL_NOTEQUAL, 1, 0xFF);
-			OloEngine::RenderCommand::SetStencilMask(0x00);
-			OloEngine::RenderCommand::SetStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+			OloEngine::RendererAdapter::DrawMesh(m_CubeMesh, modelMatrix, m_GoldMaterial);			// Configure stencil for outline - only draw where stencil is not 1
+			OloEngine::RendererAdapter::SetStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+			OloEngine::RendererAdapter::SetStencilMask(0x00);
+			OloEngine::RendererAdapter::SetStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
 
 			// Draw the outline
-			OloEngine::RenderCommand::SetLineWidth(3.0f);
-			OloEngine::RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+			OloEngine::RendererAdapter::SetLineWidth(3.0f);
+			OloEngine::RendererAdapter::SetPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 			
 			auto outlineMatrix = glm::scale(modelMatrix, glm::vec3(1.1f));
 			OloEngine::Material outlineMaterial;
@@ -217,13 +213,11 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 			outlineMaterial.Diffuse = glm::vec3(1.0f, 1.0f, 0.0f);
 			outlineMaterial.Specular = glm::vec3(0.0f);
 			outlineMaterial.Shininess = 1.0f;
-			OloEngine::RendererAdapter::DrawMesh(m_CubeMesh, outlineMatrix, outlineMaterial);
-
-			// Reset states back to renderer defaults
-			OloEngine::RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-			OloEngine::RenderCommand::SetStencilFunc(GL_ALWAYS, 1, 0xFF);
-			OloEngine::RenderCommand::SetStencilMask(0xFF);
-			OloEngine::RenderCommand::SetStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+			OloEngine::RendererAdapter::DrawMesh(m_CubeMesh, outlineMatrix, outlineMaterial);			// Reset states back to renderer defaults
+			OloEngine::RendererAdapter::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+			OloEngine::RendererAdapter::SetStencilFunc(GL_ALWAYS, 1, 0xFF);
+			OloEngine::RendererAdapter::SetStencilMask(0xFF);
+			OloEngine::RendererAdapter::SetStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
 		}
 
 		// Draw other objects
@@ -746,15 +740,14 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
                 cubeMaterial.Diffuse = glm::vec3((i + 1) * 0.25f, 0.5f, 0.7f);
                 cubeMaterial.Specular = glm::vec3(0.5f);
                 cubeMaterial.Shininess = 32.0f;
-                
-                // Set polygon mode to wireframe before drawing
-                OloEngine::RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-                OloEngine::RenderCommand::SetLineWidth(2.0f + i);  // Different line width for each cube
+                  // Set polygon mode to wireframe before drawing
+                OloEngine::RendererAdapter::SetPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                OloEngine::RendererAdapter::SetLineWidth(2.0f + i);  // Different line width for each cube
                 
                 OloEngine::RendererAdapter::DrawMesh(m_CubeMesh, cubeMatrix, cubeMaterial);
                 
                 // Reset polygon mode to fill after drawing
-                OloEngine::RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                OloEngine::RendererAdapter::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
             }
             break;
         }
@@ -781,23 +774,22 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
                 
                 sphereMaterial.Specular = glm::vec3(0.5f);
                 sphereMaterial.Shininess = 32.0f;
-                
-                // Enable alpha blending
-                OloEngine::RenderCommand::EnableBlending();
-                OloEngine::RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                  // Enable alpha blending
+                OloEngine::RendererAdapter::EnableBlending();
+                OloEngine::RendererAdapter::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
                 
                 // Use color masking to only render specific channels
                 // This demonstrates another state change that works with our queue
                 switch (i) {
-                    case 0: OloEngine::RenderCommand::SetColorMask(true, false, false, true); break;  // Red only
-                    case 1: OloEngine::RenderCommand::SetColorMask(false, true, false, true); break;  // Green only
-                    case 2: OloEngine::RenderCommand::SetColorMask(false, false, true, true); break;  // Blue only
+                    case 0: OloEngine::RendererAdapter::SetColorMask(true, false, false, true); break;  // Red only
+                    case 1: OloEngine::RendererAdapter::SetColorMask(false, true, false, true); break;  // Green only
+                    case 2: OloEngine::RendererAdapter::SetColorMask(false, false, true, true); break;  // Blue only
                 }
                 
                 OloEngine::RendererAdapter::DrawMesh(m_SphereMesh, sphereMatrix, sphereMaterial);
                 
                 // Reset color mask
-                OloEngine::RenderCommand::SetColorMask(true, true, true, true);
+                OloEngine::RendererAdapter::SetColorMask(true, true, true, true);
             }
             break;
         }
@@ -825,19 +817,18 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
             wireMaterial.Diffuse = glm::vec3(0.0f, 0.0f, 0.0f);  // Black wireframe
             wireMaterial.Specular = glm::vec3(0.0f);
             wireMaterial.Shininess = 1.0f;
-            
-            // Set polygon mode to wireframe
-            OloEngine::RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-            OloEngine::RenderCommand::SetLineWidth(1.5f);
+              // Set polygon mode to wireframe
+            OloEngine::RendererAdapter::SetPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            OloEngine::RendererAdapter::SetLineWidth(1.5f);
             
             // Apply polygon offset to prevent z-fighting with the solid cube
-            OloEngine::RenderCommand::SetPolygonOffset(-1.0f, -1.0f);
+            OloEngine::RendererAdapter::SetPolygonOffset(-1.0f, -1.0f);
             
             OloEngine::RendererAdapter::DrawMesh(m_CubeMesh, cubeMatrix, wireMaterial);
             
             // Reset states
-            OloEngine::RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-            OloEngine::RenderCommand::SetPolygonOffset(0.0f, 0.0f);
+            OloEngine::RendererAdapter::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            OloEngine::RendererAdapter::SetPolygonOffset(0.0f, 0.0f);
             break;
         }
             
@@ -856,13 +847,12 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
                 wireMaterial.Diffuse = glm::vec3(1.0f, 1.0f, 0.0f);  // Yellow
                 wireMaterial.Specular = glm::vec3(1.0f);
                 wireMaterial.Shininess = 32.0f;
-                
-                OloEngine::RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-                OloEngine::RenderCommand::SetLineWidth(2.0f);
+                  OloEngine::RendererAdapter::SetPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                OloEngine::RendererAdapter::SetLineWidth(2.0f);
                 
                 OloEngine::RendererAdapter::DrawMesh(m_SphereMesh, sphereMatrix, wireMaterial);
                 
-                OloEngine::RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                OloEngine::RendererAdapter::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
             }
             
             // 2. Draw transparent cubes around the sphere
@@ -888,23 +878,22 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
                 
                 glassMaterial.Specular = glm::vec3(0.8f);
                 glassMaterial.Shininess = 64.0f;
-                
-                // Enable blending for transparency
-                OloEngine::RenderCommand::EnableBlending();
-                OloEngine::RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                  // Enable blending for transparency
+                OloEngine::RendererAdapter::EnableBlending();
+                OloEngine::RendererAdapter::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
                 
                 // Enable stencil test to create an outline effect
-                OloEngine::RenderCommand::EnableStencilTest();
-                OloEngine::RenderCommand::SetStencilFunc(GL_ALWAYS, 1, 0xFF);
-                OloEngine::RenderCommand::SetStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+                OloEngine::RendererAdapter::EnableStencilTest();
+                OloEngine::RendererAdapter::SetStencilFunc(GL_ALWAYS, 1, 0xFF);
+                OloEngine::RendererAdapter::SetStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
                 
                 // Set the stencil mask before clearing - this fixes the OpenGL warning
-                OloEngine::RenderCommand::SetStencilMask(0xFF);
+                OloEngine::RendererAdapter::SetStencilMask(0xFF);
                 
                 // Clear the stencil buffer for this object
                 if (i == 0) {
                     // Only clear once at the beginning of the loop to avoid multiple clears
-                    OloEngine::RenderCommand::ClearStencil();
+                    OloEngine::RendererAdapter::ClearStencil();
                 }
                 
                 // Draw the transparent cube

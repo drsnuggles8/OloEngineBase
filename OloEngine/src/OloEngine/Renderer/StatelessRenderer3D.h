@@ -55,10 +55,26 @@ namespace OloEngine
 		static void EnableBlending();
 		static void DisableBlending();
 		static void SetBlendFunc(unsigned int src, unsigned int dest);
+		static void SetBlendEquation(unsigned int mode);
 		static void SetColorMask(bool red, bool green, bool blue, bool alpha);
 		static void SetDepthMask(bool enabled);
 		static void EnableDepthTest();
 		static void DisableDepthTest();
+		
+		// Stencil operations
+		static void EnableStencilTest();
+		static void DisableStencilTest();
+		static void SetStencilFunc(unsigned int func, int ref, unsigned int mask);
+		static void SetStencilMask(unsigned int mask);
+		static void SetStencilOp(unsigned int sfail, unsigned int dpfail, unsigned int dppass);
+		static void ClearStencil();
+		
+		// Culling operations
+		static void SetCulling(bool enabled);
+		static void SetCullFace(unsigned int face);
+		
+		// Polygon offset operations
+		static void SetPolygonOffset(float factor, float units);
 
 		static void SetLight(const Light& light);
 		static void SetViewPosition(const glm::vec3& position);
@@ -80,6 +96,10 @@ namespace OloEngine
 		// Window resize handling
 		static void OnWindowResize(u32 width, u32 height);
 		static const Ref<RenderGraph>& GetRenderGraph() { return s_Data.RGraph; }
+        
+        // Basic rendering methods
+        static void SetClearColor(const glm::vec4& color);
+        static void Clear();
 
 	private:
 		static void UpdateCameraMatricesUBO(const glm::mat4& view, const glm::mat4& projection);

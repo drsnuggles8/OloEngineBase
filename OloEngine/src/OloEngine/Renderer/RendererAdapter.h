@@ -232,6 +232,7 @@ namespace OloEngine {
             }
         }
 
+        // Blending state functions
         static void EnableBlending()
         {
             switch (GetActiveRendererType())
@@ -245,7 +246,7 @@ namespace OloEngine {
                     break;
             }
         }
-
+        
         static void DisableBlending()
         {
             switch (GetActiveRendererType())
@@ -259,17 +260,31 @@ namespace OloEngine {
                     break;
             }
         }
-
-        static void SetBlendFunc(unsigned int src, unsigned int dest)
+        
+        static void SetBlendFunc(uint32_t src, uint32_t dst)
         {
             switch (GetActiveRendererType())
             {
                 case RendererType::StatelessRenderer3D:
-                    StatelessRenderer3D::SetBlendFunc(src, dest);
+                    StatelessRenderer3D::SetBlendFunc(src, dst);
                     break;
                 case RendererType::Renderer3D:
                 default:
-                    RenderCommand::SetBlendFunc(src, dest);
+                    RenderCommand::SetBlendFunc(src, dst);
+                    break;
+            }
+        }
+
+        static void SetBlendEquation(uint32_t mode)
+        {
+            switch (GetActiveRendererType())
+            {
+                case RendererType::StatelessRenderer3D:
+                    StatelessRenderer3D::SetBlendEquation(mode);
+                    break;
+                case RendererType::Renderer3D:
+                default:
+                    RenderCommand::SetBlendEquation(mode);
                     break;
             }
         }
@@ -298,6 +313,135 @@ namespace OloEngine {
                 case RendererType::Renderer3D:
                 default:
                     RenderCommand::SetDepthMask(enabled);
+                    break;
+            }
+        }
+
+        // Stencil test methods
+        static void EnableStencilTest()
+        {
+            switch (GetActiveRendererType())
+            {
+                case RendererType::StatelessRenderer3D:
+                    StatelessRenderer3D::EnableStencilTest();
+                    break;
+                case RendererType::Renderer3D:
+                default:
+                    RenderCommand::EnableStencilTest();
+                    break;
+            }
+        }
+
+        static void DisableStencilTest()
+        {
+            switch (GetActiveRendererType())
+            {
+                case RendererType::StatelessRenderer3D:
+                    StatelessRenderer3D::DisableStencilTest();
+                    break;
+                case RendererType::Renderer3D:
+                default:
+                    RenderCommand::DisableStencilTest();
+                    break;
+            }
+        }
+
+        static void SetStencilFunc(unsigned int func, int ref, unsigned int mask)
+        {
+            switch (GetActiveRendererType())
+            {
+                case RendererType::StatelessRenderer3D:
+                    StatelessRenderer3D::SetStencilFunc(func, ref, mask);
+                    break;
+                case RendererType::Renderer3D:
+                default:
+                    RenderCommand::SetStencilFunc(func, ref, mask);
+                    break;
+            }
+        }
+
+        static void SetStencilMask(unsigned int mask)
+        {
+            switch (GetActiveRendererType())
+            {
+                case RendererType::StatelessRenderer3D:
+                    StatelessRenderer3D::SetStencilMask(mask);
+                    break;
+                case RendererType::Renderer3D:
+                default:
+                    RenderCommand::SetStencilMask(mask);
+                    break;
+            }
+        }
+
+        static void SetStencilOp(unsigned int sfail, unsigned int dpfail, unsigned int dppass)
+        {
+            switch (GetActiveRendererType())
+            {
+                case RendererType::StatelessRenderer3D:
+                    StatelessRenderer3D::SetStencilOp(sfail, dpfail, dppass);
+                    break;
+                case RendererType::Renderer3D:
+                default:
+                    RenderCommand::SetStencilOp(sfail, dpfail, dppass);
+                    break;
+            }
+        }
+
+        static void ClearStencil()
+        {
+            switch (GetActiveRendererType())
+            {
+                case RendererType::StatelessRenderer3D:
+                    StatelessRenderer3D::ClearStencil();
+                    break;
+                case RendererType::Renderer3D:
+                default:
+                    RenderCommand::ClearStencil();
+                    break;
+            }
+        }
+
+        // Polygon offset method
+        static void SetPolygonOffset(float factor, float units)
+        {
+            switch (GetActiveRendererType())
+            {
+                case RendererType::StatelessRenderer3D:
+                    StatelessRenderer3D::SetPolygonOffset(factor, units);
+                    break;
+                case RendererType::Renderer3D:
+                default:
+                    RenderCommand::SetPolygonOffset(factor, units);
+                    break;
+            }
+        }
+        
+        // Basic rendering methods
+        static void SetClearColor(const glm::vec4& color)
+        {
+            switch (GetActiveRendererType())
+            {
+                case RendererType::StatelessRenderer3D:
+                    StatelessRenderer3D::SetClearColor(color);
+                    break;
+                case RendererType::Renderer3D:
+                default:
+                    RenderCommand::SetClearColor(color);
+                    break;
+            }
+        }
+        
+        static void Clear()
+        {
+            switch (GetActiveRendererType())
+            {
+                case RendererType::StatelessRenderer3D:
+                    StatelessRenderer3D::Clear();
+                    break;
+                case RendererType::Renderer3D:
+                default:
+                    RenderCommand::Clear();
                     break;
             }
         }
