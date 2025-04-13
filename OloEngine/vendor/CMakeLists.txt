@@ -13,7 +13,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	box2d
 	GIT_REPOSITORY	https://github.com/erincatto/box2d.git
-	GIT_TAG			main
+	GIT_TAG			v3.0.0
 	GIT_SHALLOW		TRUE
 )
 FetchContent_Declare(
@@ -24,7 +24,7 @@ FetchContent_Declare(
 )
 FetchContent_Declare(
 	filewatch
-	GIT_REPOSITORY	https://github.com/ThomasMonkman/filewatch.git
+	GIT_REPOSITORY	https://github.com/drsnuggles8/filewatch.git
 	GIT_TAG			master
 	GIT_SHALLOW		TRUE
 )
@@ -50,7 +50,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	glm
 	GIT_REPOSITORY https://github.com/g-truc/glm.git
-	GIT_TAG 1.0.1
+	GIT_TAG master
 	GIT_SHALLOW		TRUE
 )
 FetchContent_Declare(
@@ -66,6 +66,12 @@ FetchContent_Declare(
 	GIT_SHALLOW		TRUE
 )
 FetchContent_Declare(
+	miniaudio
+	GIT_REPOSITORY https://github.com/mackron/miniaudio.git
+	GIT_TAG master
+	GIT_SHALLOW		TRUE
+)
+FetchContent_Declare(
 	msdfgen
 	GIT_REPOSITORY https://github.com/Chlumsky/msdfgen.git
 	GIT_SHALLOW		TRUE
@@ -75,11 +81,10 @@ FetchContent_Declare(
 	GIT_REPOSITORY https://github.com/Chlumsky/msdf-atlas-gen.git
 	GIT_SHALLOW		TRUE
 )
-# Don't update spdlog to 1.11.0, gives errors in OpenGLContext.cpp
 FetchContent_Declare(
 	spdlog
 	GIT_REPOSITORY	https://github.com/gabime/spdlog.git
-	GIT_TAG			v1.10.0
+	GIT_TAG			v1.15.1
 	GIT_SHALLOW		TRUE
 )
 FetchContent_Declare(
@@ -121,7 +126,7 @@ find_package(ZLIB REQUIRED)
 FetchContent_GetProperties(libpng)
 set(PNG_STATIC OFF CACHE BOOL "Build libpng as a static lib" FORCE)
 set(PNG_SHARED ON CACHE BOOL "Build libpng as a shared lib" FORCE)
-option(PNG_EXECUTABLES OFF)
+option(PNG_TOOLS OFF)
 option(PNG_TESTS OFF)
 option(PNG_DEBUG ON)
 FetchContent_MakeAvailable(libpng)
@@ -139,7 +144,7 @@ if(TARGET PNG::PNG)
   )
 endif()
 include_directories(${libpng_SOURCE_DIR} ${libpng_BINARY_DIR})
-#add_dependencies(png_shared zlib)
+add_dependencies(png_shared zlib)
 
 set(tinyxml2_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(freetype tinyxml2)
@@ -177,7 +182,7 @@ set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
-FetchContent_MakeAvailable(assimp box2d entt filewatch glad glfw glm googletest msdfgen msdf-atlas-gen spdlog tracy yaml-cpp)
+FetchContent_MakeAvailable(assimp box2d entt filewatch glad glfw glm googletest miniaudio msdfgen msdf-atlas-gen spdlog tracy yaml-cpp)
 
 target_compile_definitions("TracyClient" PRIVATE $<$<CONFIG:Release>:TRACY_ENABLE>)
 
@@ -192,16 +197,6 @@ FetchContent_MakeAvailable(stb_image)
 add_library(stb_image INTERFACE)
 file(COPY ${stb_image_SOURCE_DIR}/stb_image.h DESTINATION "${PROJECT_SOURCE_DIR}/vendor/stb_image-build/include/stb_image")
 set(STBIMAGE_INSTALL_DIR "${PROJECT_SOURCE_DIR}/vendor/stb_image-build")
-
-FetchContent_Declare(miniaudio
-	GIT_REPOSITORY https://github.com/mackron/miniaudio.git
-	GIT_TAG master
-	CONFIGURE_COMMAND ""
-	BUILD_COMMAND "")
-FetchContent_MakeAvailable(miniaudio)
-add_library(miniaudio INTERFACE)
-file(COPY ${miniaudio_SOURCE_DIR}/miniaudio.h DESTINATION "${PROJECT_SOURCE_DIR}/vendor/miniaudio-build/include/miniaudio")
-set(STBIMAGE_INSTALL_DIR "${PROJECT_SOURCE_DIR}/vendor/miniaudio-build")
 
 CPMAddPackage(NAME imgui
 	GITHUB_REPOSITORY ocornut/imgui
@@ -258,6 +253,7 @@ endif()
 set_target_properties(assimp PROPERTIES FOLDER "Utilities/assimp")
 set_target_properties(UpdateAssimpLibsDebugSymbolsAndDLLs PROPERTIES FOLDER "Utilities/assimp")
 set_target_properties(box2d PROPERTIES FOLDER "Utilities/box2d")
+set_target_properties(simde PROPERTIES FOLDER "Utilities/box2d")
 set_target_properties(glad PROPERTIES FOLDER "Utilities/glad")
 set_target_properties(glfw PROPERTIES FOLDER "Utilities/GLFW3")
 set_target_properties(glm PROPERTIES FOLDER "Utilities")
@@ -266,6 +262,12 @@ set_target_properties(gmock PROPERTIES FOLDER "Utilities/googletest")
 set_target_properties(gmock_main PROPERTIES FOLDER "Utilities/googletest")
 set_target_properties(gtest PROPERTIES FOLDER "Utilities/googletest")
 set_target_properties(gtest_main PROPERTIES FOLDER "Utilities/googletest")
+set_target_properties(miniaudio PROPERTIES FOLDER "Utilities/miniaudio")
+set_target_properties(miniaudio_channel_combiner_node PROPERTIES FOLDER "Utilities/miniaudio")
+set_target_properties(miniaudio_channel_separator_node PROPERTIES FOLDER "Utilities/miniaudio")
+set_target_properties(miniaudio_ltrim_node PROPERTIES FOLDER "Utilities/miniaudio")
+set_target_properties(miniaudio_reverb_node PROPERTIES FOLDER "Utilities/miniaudio")
+set_target_properties(miniaudio_vocoder_node PROPERTIES FOLDER "Utilities/miniaudio")
 set_target_properties(imgui PROPERTIES FOLDER "Utilities/imgui")
 set_target_properties(imguizmo PROPERTIES FOLDER "Utilities/imgui")
 set_target_properties(lua PROPERTIES FOLDER "Utilities/Lua")

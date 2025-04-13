@@ -35,7 +35,6 @@ __pycache__
 **/compile_commands.json
 
 *.pch
-*.obj
 build/**/*
 
 # Don't upload vendor folder, except for the CMakeLists.txt
@@ -55,4 +54,6 @@ OloEngine/vendor/*
 **.log
 **.tlog
 /OloEditor/imgui.ini
-/.vscode/tasks.json
+out/build/x64-Debug/VSInheritEnvironments.txt
+.gitignore
+/debug.cap

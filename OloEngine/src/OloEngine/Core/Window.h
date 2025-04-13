@@ -14,7 +14,7 @@ namespace OloEngine
 		u32 Width;
 		u32 Height;
 
-		explicit WindowProps(std::string title = "OloEngine", const u32 width = 1600, const u32 height = 900)
+		explicit WindowProps(std::string title = "OloEngine", const u32 width = 1280, const u32 height = 720)
 			: Title(std::move(title)), Width(width), Height(height)
 		{
 		}
@@ -32,6 +32,10 @@ namespace OloEngine
 
 		[[nodiscard("Store this!")]] virtual u32 GetWidth() const = 0;
 		[[nodiscard("Store this!")]] virtual u32 GetHeight() const = 0;
+
+		// Add new methods for framebuffer size
+		virtual u32 GetFramebufferWidth() const = 0;
+		virtual u32 GetFramebufferHeight() const = 0;
 
 		// Window attributes
 		virtual void SetEventCallback(const EventCallbackFn& callback) = 0;

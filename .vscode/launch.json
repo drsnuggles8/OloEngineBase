@@ -1,0 +1,34 @@
+{
+    "configurations": [
+      {
+        "type": "cppvsdbg",
+        "request": "launch",
+        "name": "Debug Sandbox3D",
+        "program": "${workspaceFolder}/bin/Debug/Sandbox3D/Sandbox3D.exe",
+        "args": [],
+        "cwd": "${workspaceFolder}/OloEditor",
+        "stopAtEntry": false,
+        "preLaunchTask": "build-sandbox3d"
+      },
+      {
+        "type": "cppvsdbg",
+        "request": "launch",
+        "name": "Debug OloEditor",
+        "program": "${workspaceFolder}/bin/Debug/OloEditor/OloEditor.exe",
+        "args": [],
+        "cwd": "${workspaceFolder}/OloEditor",
+        "stopAtEntry": false,
+        "preLaunchTask": "build-oloeditor"
+      },
+      {
+        "type": "cppvsdbg",
+        "request": "launch",
+        "name": "Debug Sandbox2D",
+        "program": "${workspaceFolder}/bin/Debug/Sandbox2D/Sandbox2D.exe",
+        "args": [],
+        "cwd": "${workspaceFolder}/OloEditor",
+        "stopAtEntry": false,
+        "preLaunchTask": "build-sandbox2d"
+      }
+    ]
+  }

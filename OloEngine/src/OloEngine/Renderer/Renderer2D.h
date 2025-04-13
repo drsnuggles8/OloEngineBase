@@ -1,9 +1,9 @@
 #pragma once
 
-#include "OloEngine/Renderer/Camera.h"
-#include "OloEngine/Renderer/EditorCamera.h"
+#include "OloEngine/Renderer/Camera/Camera.h"
+#include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Font.h"
-#include "OloEngine/Renderer/OrthographicCamera.h"
+#include "OloEngine/Renderer/Camera/OrthographicCamera.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -18,7 +18,7 @@ namespace OloEngine
 
 		static void BeginScene(const Camera& camera, const glm::mat4& transform);
 		static void BeginScene(const EditorCamera& camera);
-		static void BeginScene(const OrthographicCamera& camera); // TODO: Remove
+		static void BeginScene(const OrthographicCamera& camera);
 		static void EndScene();
 		static void Flush();
 
@@ -49,8 +49,8 @@ namespace OloEngine
 		struct TextParams
 		{
 			glm::vec4 Color{ 1.0f };
-			float Kerning = 0.0f;
-			float LineSpacing = 0.0f;
+			f32 Kerning = 0.0f;
+			f32 LineSpacing = 0.0f;
 		};
 		static void DrawString(const std::string& string, Ref<Font> font, const glm::mat4& transform, const TextParams& textParams, int entityID = -1);
 		static void DrawString(const std::string& string, const glm::mat4& transform, const TextComponent& component, int entityID = -1);

@@ -5,24 +5,29 @@
 #include <glad/gl.h>
 
 namespace OloEngine
-{	
+{
 	void OpenGLRendererAPI::Init()
 	{
 		OLO_PROFILE_FUNCTION();
 
-		#ifdef OLO_DEBUG
-				glEnable(GL_DEBUG_OUTPUT);
-				glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
-				glDebugMessageCallback(OpenGLMessageCallback, nullptr);
+#ifdef OLO_DEBUG
+		glEnable(GL_DEBUG_OUTPUT);
+		glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+		glDebugMessageCallback(OpenGLMessageCallback, nullptr);
 
-				glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_TRUE);
-		#endif
+		glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_TRUE);
+#endif
 
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-		glEnable(GL_DEPTH_TEST);
+		SetDepthTest(true);
+		SetDepthFunc(GL_LESS);
 		glEnable(GL_LINE_SMOOTH);
+
+		EnableStencilTest();
+		SetStencilFunc(GL_ALWAYS, 1, 0xFF);
+		SetStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
 	}
 
 	void OpenGLRendererAPI::SetViewport(const u32 x, const u32 y, const u32 width, const u32 height)
@@ -43,7 +48,17 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
 
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		GLbitfield clearFlags = GL_COLOR_BUFFER_BIT;
+		if (m_DepthTestEnabled)
+		{
+			clearFlags |= GL_DEPTH_BUFFER_BIT;
+		}
+		if (m_StencilTestEnabled)
+		{
+			clearFlags |= GL_STENCIL_BUFFER_BIT;
+		}
+
+		glClear(clearFlags);
 	}
 
 	void OpenGLRendererAPI::DrawArrays(const Ref<VertexArray>& vertexArray, u32 vertexCount)
@@ -61,6 +76,15 @@ namespace OloEngine
 		vertexArray->Bind();
 		const u32 count = indexCount ? indexCount : vertexArray->GetIndexBuffer()->GetCount();
 		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(count), GL_UNSIGNED_INT, nullptr);
+	}
+
+	void OpenGLRendererAPI::DrawIndexedInstanced(const Ref<VertexArray>& vertexArray, const u32 indexCount, const u32 instanceCount)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		vertexArray->Bind();
+		const u32 count = indexCount ? indexCount : vertexArray->GetIndexBuffer()->GetCount();
+		glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(count), GL_UNSIGNED_INT, nullptr, static_cast<GLsizei>(instanceCount));
 	}
 
 	void OpenGLRendererAPI::DrawLines(const Ref<VertexArray>& vertexArray, const u32 vertexCount)
@@ -91,6 +115,13 @@ namespace OloEngine
 
 		glDisable(GL_CULL_FACE);
 	}
+	
+	void OpenGLRendererAPI::SetCullFace(GLenum face)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		glCullFace(face);
+	}
 
 	void OpenGLRendererAPI::FrontCull()
 	{
@@ -117,6 +148,8 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
 
+		m_DepthTestEnabled = value;
+
 		if (value)
 		{
 			glEnable(GL_DEPTH_TEST);
@@ -125,6 +158,27 @@ namespace OloEngine
 		{
 			glDisable(GL_DEPTH_TEST);
 		}
+	}
+
+	void OpenGLRendererAPI::SetDepthFunc(GLenum func)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glDepthFunc(func);
+	}
+
+	void OpenGLRendererAPI::SetStencilMask(GLuint mask)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glStencilMask(mask);
+	}
+
+	void OpenGLRendererAPI::ClearStencil()
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glClear(GL_STENCIL_BUFFER_BIT);
 	}
 
 	void OpenGLRendererAPI::SetBlendState(bool value)
@@ -141,10 +195,23 @@ namespace OloEngine
 		}
 	}
 
+	void OpenGLRendererAPI::SetBlendFunc(GLenum sfactor, GLenum dfactor)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glBlendFunc(sfactor, dfactor);
+	}
+
+	void OpenGLRendererAPI::SetBlendEquation(GLenum mode)
+	{
+		glBlendEquation(mode);
+	}
+
 	void OpenGLRendererAPI::EnableStencilTest()
 	{
 		OLO_PROFILE_FUNCTION();
 
+		m_StencilTestEnabled = true;
 		glEnable(GL_STENCIL_TEST);
 	}
 
@@ -152,6 +219,7 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
 
+		m_StencilTestEnabled = false;
 		glDisable(GL_STENCIL_TEST);
 	}
 
@@ -195,5 +263,49 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 
 		glScissor(x, y, width, height);
+	}
+
+	void OpenGLRendererAPI::BindDefaultFramebuffer()
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	}
+	
+	void OpenGLRendererAPI::BindTexture(u32 slot, u32 textureID)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		glActiveTexture(GL_TEXTURE0 + slot);
+		glBindTexture(GL_TEXTURE_2D, textureID);
+	}
+
+	void OpenGLRendererAPI::SetPolygonOffset(f32 factor, f32 units)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glEnable(GL_POLYGON_OFFSET_FILL);
+		glPolygonOffset(factor, units);
+	}
+
+	void OpenGLRendererAPI::EnableMultisampling()
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glEnable(GL_MULTISAMPLE);
+	}
+
+	void OpenGLRendererAPI::DisableMultisampling()
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glDisable(GL_MULTISAMPLE);
+	}
+
+	void OpenGLRendererAPI::SetColorMask(bool red, bool green, bool blue, bool alpha)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glColorMask(red, green, blue, alpha);
 	}
 }

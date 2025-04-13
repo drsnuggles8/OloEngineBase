@@ -11,7 +11,7 @@
 namespace OloEngine
 {
 	template<typename T, typename S, int N, msdf_atlas::GeneratorFunction<S, N> GenFunc>
-	static Ref<Texture2D> CreateAndCacheAtlas(const std::string_view fontName, float fontSize, const std::vector<msdf_atlas::GlyphGeometry>& glyphs,
+	static Ref<Texture2D> CreateAndCacheAtlas(const std::string_view fontName, f32 fontSize, const std::vector<msdf_atlas::GlyphGeometry>& glyphs,
 		const msdf_atlas::FontGeometry& fontGeometry, u32 width, u32 height)
 	{
 		msdf_atlas::GeneratorAttributes attributes;
@@ -122,7 +122,7 @@ namespace OloEngine
 			}
 		}
 
-		m_AtlasTexture = CreateAndCacheAtlas<u8, float, 3, msdf_atlas::msdfGenerator>("Test", static_cast<float>(emSize), m_Data->Glyphs, m_Data->FontGeometry, width, height);
+		m_AtlasTexture = CreateAndCacheAtlas<u8, f32, 3, msdf_atlas::msdfGenerator>("Test", static_cast<f32>(emSize), m_Data->Glyphs, m_Data->FontGeometry, width, height);
 
 		msdfgen::destroyFont(font);
 		msdfgen::deinitializeFreetype(ft);

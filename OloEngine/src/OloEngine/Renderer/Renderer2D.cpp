@@ -723,7 +723,7 @@ namespace OloEngine
 		double fsScale = 1.0 / (metrics.ascenderY - metrics.descenderY);
 		double y = 0.0;
 
-		const auto spaceGlyphAdvance = static_cast<float>(fontGeometry.getGlyph(' ')->getAdvance());
+		const auto spaceGlyphAdvance = static_cast<f32>(fontGeometry.getGlyph(' ')->getAdvance());
 
 		for (sizet i = 0; i < string.size(); i++)
 		{
@@ -742,13 +742,13 @@ namespace OloEngine
 
 			if (character == ' ')
 			{
-				float advance = spaceGlyphAdvance;
+				f32 advance = spaceGlyphAdvance;
 				if (i < (string.size() - 1))
 				{
 					char nextCharacter = string[i + 1];
 					double dAdvance{};
 					fontGeometry.getAdvance(dAdvance, character, nextCharacter);
-					advance = (float)dAdvance;
+					advance = (f32)dAdvance;
 				}
 
 				x += (fsScale * advance) + textParams.Kerning;
@@ -777,24 +777,24 @@ namespace OloEngine
 			double ar{};
 			double at{};
 			glyph->getQuadAtlasBounds(al, ab, ar, at);
-			glm::vec2 texCoordMin((float)al, (float)ab);
-			glm::vec2 texCoordMax((float)ar, (float)at);
+			glm::vec2 texCoordMin((f32)al, (f32)ab);
+			glm::vec2 texCoordMax((f32)ar, (f32)at);
 
 			double pl{};
 			double pb{};
 			double pr{};
 			double pt{};
 			glyph->getQuadPlaneBounds(pl, pb, pr, pt);
-			glm::vec2 quadMin((float)pl, (float)pb);
-			glm::vec2 quadMax((float)pr, (float)pt);
+			glm::vec2 quadMin((f32)pl, (f32)pb);
+			glm::vec2 quadMax((f32)pr, (f32)pt);
 
 			quadMin *= fsScale;
 			quadMax *= fsScale;
 			quadMin += glm::vec2(x, y);
 			quadMax += glm::vec2(x, y);
 
-			float texelWidth = 1.0f / static_cast<float>(fontAtlas->GetWidth());
-			float texelHeight = 1.0f / static_cast<float>(fontAtlas->GetHeight());
+			f32 texelWidth = 1.0f / static_cast<f32>(fontAtlas->GetWidth());
+			f32 texelHeight = 1.0f / static_cast<f32>(fontAtlas->GetHeight());
 			texCoordMin *= glm::vec2(texelWidth, texelHeight);
 			texCoordMax *= glm::vec2(texelWidth, texelHeight);
 

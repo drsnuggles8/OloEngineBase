@@ -27,6 +27,11 @@ namespace OloEngine
 
 		[[nodiscard("Store this!")]] bool IsLoaded() const override { return m_IsLoaded; }
 
+		[[nodiscard("Use for transparency")]] bool HasAlphaChannel() const override 
+		{ 
+			return m_DataFormat == GL_RGBA || m_Specification.Format == ImageFormat::RGBA8 || m_Specification.Format == ImageFormat::RGBA32F;
+		}
+
 	private:
 		void InvalidateImpl(std::string_view path, u32 width, u32 height, const void* data, u32 channels);
 

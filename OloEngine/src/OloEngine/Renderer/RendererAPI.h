@@ -15,6 +15,13 @@ namespace OloEngine
 		{
 			None = 0, OpenGL = 1
 		};
+
+		enum class RendererType
+		{
+			None = 0,
+			Renderer3D,
+			StatelessRenderer3D
+		};
 	public:
 		virtual ~RendererAPI() = default;
 
@@ -25,6 +32,7 @@ namespace OloEngine
 
 		virtual void DrawArrays(const Ref<VertexArray>& vertexArray, u32 vertexCount) = 0;
 		virtual void DrawIndexed(const Ref<VertexArray>& vertexArray, u32 indexCount) = 0;
+		virtual void DrawIndexedInstanced(const Ref<VertexArray>& vertexArray, u32 indexCount, u32 instanceCount) = 0;
 		virtual void DrawLines(const Ref<VertexArray>& vertexArray, u32 vertexCount) = 0;
 
 		virtual void SetLineWidth(f32 width) = 0;
@@ -33,21 +41,35 @@ namespace OloEngine
 		virtual void DisableCulling() = 0;
 		virtual void FrontCull() = 0;
 		virtual void BackCull() = 0;
+		virtual void SetCullFace(GLenum face) = 0;
 		virtual void SetDepthMask(bool value) = 0;
 		virtual void SetDepthTest(bool value) = 0;
+		virtual void SetDepthFunc(GLenum func) = 0;
 		virtual void SetBlendState(bool value) = 0;
+		virtual void SetBlendFunc(GLenum sfactor, GLenum dfactor) = 0;
+		virtual void SetBlendEquation(GLenum mode) = 0;
 
 		virtual void EnableStencilTest() = 0;
 		virtual void DisableStencilTest() = 0;
 		virtual void SetStencilFunc(GLenum func, GLint ref, GLuint mask) = 0;
 		virtual void SetStencilOp(GLenum sfail, GLenum dpfail, GLenum dppass) = 0;
+		virtual void SetStencilMask(GLuint mask) = 0;
+		virtual void ClearStencil() = 0;
 
 		virtual void SetPolygonMode(GLenum face, GLenum mode) = 0;
 
 		virtual void EnableScissorTest() = 0;
 		virtual void DisableScissorTest() = 0;
 		virtual void SetScissorBox(GLint x, GLint y, GLsizei width, GLsizei height) = 0;
+		
+		// New methods for render graph
+		virtual void BindDefaultFramebuffer() = 0;
+		virtual void BindTexture(u32 slot, u32 textureID) = 0;
 
+		virtual void SetPolygonOffset(f32 factor, f32 units) = 0;
+		virtual void EnableMultisampling() = 0;
+		virtual void DisableMultisampling() = 0;
+		virtual void SetColorMask(bool red, bool green, bool blue, bool alpha) = 0;
 
 		[[nodiscard("Store this!")]] static API GetAPI() { return s_API; }
 		static Scope<RendererAPI> Create();

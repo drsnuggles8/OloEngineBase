@@ -30,7 +30,7 @@ namespace OloEngine
 		m_Window = Window::Create(WindowProps(m_Specification.Name));
 		m_Window->SetEventCallback(OLO_BIND_EVENT_FN(Application::OnEvent));
 
-		Renderer::Init();
+		Renderer::Init(m_Specification.PreferredRenderer);
 		AudioEngine::Init();
 		ScriptEngine::Init();
 		LuaScriptEngine::Init();
@@ -172,7 +172,16 @@ namespace OloEngine
 		}
 
 		m_Minimized = false;
-		Renderer::OnWindowResize(e.GetWidth(), e.GetHeight());
+		
+		// Get the framebuffer size which might be different on high DPI displays
+		u32 fbWidth = m_Window->GetFramebufferWidth();
+		u32 fbHeight = m_Window->GetFramebufferHeight();
+		
+		OLO_CORE_INFO("Application::OnWindowResize - Window: {}x{}, Framebuffer: {}x{}", 
+		               e.GetWidth(), e.GetHeight(), fbWidth, fbHeight);
+		
+		// Use framebuffer size for renderer
+		Renderer::OnWindowResize(fbWidth, fbHeight);
 
 		return false;
 	}

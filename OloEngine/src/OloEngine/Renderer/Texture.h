@@ -12,7 +12,11 @@ namespace OloEngine
 		R8,
 		RGB8,
 		RGBA8,
-		RGBA32F
+		RGBA32F, // Unsupported
+		R32F, // Unsupported
+		RG32F, // Unsupported
+		RGB32F, // Unsupported
+		DEPTH24STENCIL8
 	};
 
 	struct TextureSpecification
@@ -41,6 +45,8 @@ namespace OloEngine
 		virtual void Bind(u32 slot) const = 0;
 
 		[[nodiscard("Store this!")]] virtual bool IsLoaded() const = 0;
+
+		[[nodiscard("Use for transparency")]] virtual bool HasAlphaChannel() const = 0;
 
 		bool operator==(const Texture& other) const { return GetRendererID() == other.GetRendererID(); }
 	};

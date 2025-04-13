@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLFramebuffer.h"
 #include "Platform/OpenGL/OpenGLUtilities.h"
+#include "OloEngine/Renderer/Shader.h"
 
 #include <utility>
 
@@ -26,6 +27,7 @@ namespace OloEngine
 		}
 
 		Invalidate();
+		InitPostProcessing();
 	}
 
 	OpenGLFramebuffer::~OpenGLFramebuffer()
@@ -33,6 +35,67 @@ namespace OloEngine
 		glDeleteFramebuffers(1, &m_RendererID);
 		glDeleteTextures(static_cast<GLsizei>(m_ColorAttachments.size()), m_ColorAttachments.data());
 		glDeleteTextures(1, &m_DepthAttachment);
+
+		// Cleanup post-processing resources
+		glDeleteVertexArrays(1, &m_PostProcessVAO);
+		glDeleteBuffers(1, &m_PostProcessVBO);
+	}
+
+	void OpenGLFramebuffer::InitPostProcessing()
+	{
+		// Create and setup VAO/VBO for post-processing quad
+		f32 quadVertices[] = {
+			// positions        // texture coords
+			-1.0f,  1.0f, 0.0f, 0.0f, 1.0f,
+			-1.0f, -1.0f, 0.0f, 0.0f, 0.0f,
+			 1.0f,  1.0f, 0.0f, 1.0f, 1.0f,
+			 1.0f, -1.0f, 0.0f, 1.0f, 0.0f,
+		};
+
+		glCreateVertexArrays(1, &m_PostProcessVAO);
+		glCreateBuffers(1, &m_PostProcessVBO);
+
+		glBindVertexArray(m_PostProcessVAO);
+		glBindBuffer(GL_ARRAY_BUFFER, m_PostProcessVBO);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
+
+		glEnableVertexAttribArray(0);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(f32), (void*)0);
+		glEnableVertexAttribArray(1);
+		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(f32), (void*)(3 * sizeof(f32)));
+
+		glBindVertexArray(0);
+
+		// Load post-processing shader
+		m_PostProcessShader = Shader::Create("assets/shaders/PostProcess.glsl");
+	}
+
+	void OpenGLFramebuffer::ApplyPostProcessing()
+	{
+		if (m_Specification.PostProcess == PostProcessEffect::None)
+		{
+			// Bind default framebuffer
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+			glDisable(GL_DEPTH_TEST);
+
+			// Clear the default framebuffer
+			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+			glClear(GL_COLOR_BUFFER_BIT);
+
+			// Bind our shader and texture
+			m_PostProcessShader->Bind();
+			glBindTextureUnit(0, m_ColorAttachments[0]);
+
+			// Render quad
+			glBindVertexArray(m_PostProcessVAO);
+			glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+			glBindVertexArray(0);
+
+			// Cleanup
+			m_PostProcessShader->Unbind();
+			glEnable(GL_DEPTH_TEST);
+		}
+		// Add more post-processing effects here later
 	}
 
 	void OpenGLFramebuffer::Invalidate()
@@ -59,7 +122,7 @@ namespace OloEngine
 			auto colorAttachmentSize = m_ColorAttachments.size();
 			Utils::CreateTextures(multisample, static_cast<int>(colorAttachmentSize), m_ColorAttachments.data());
 
-			for (size_t i = 0; i < colorAttachmentSize; ++i)
+			for (sizet i = 0; i < colorAttachmentSize; ++i)
 			{
 				Utils::BindTexture(m_ColorAttachments[i]);
 				// TODO(olbu): Add more FramebufferTextureFormats in Framebuffer.h and here
@@ -128,7 +191,7 @@ namespace OloEngine
 
 	void OpenGLFramebuffer::Unbind()
 	{
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		ApplyPostProcessing();
 	}
 
 	void OpenGLFramebuffer::Resize(u32 width, u32 height)

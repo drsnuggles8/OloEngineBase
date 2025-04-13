@@ -1,6 +1,6 @@
 #pragma once
 
-#include "OloEngine/Renderer/Camera.h"
+#include "OloEngine/Renderer/Camera/Camera.h"
 
 namespace OloEngine
 {

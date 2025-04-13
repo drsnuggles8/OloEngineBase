@@ -23,6 +23,7 @@ namespace OloEngine
 		void SetFloat4(const std::string& name, const glm::vec4& value) override;
 		void SetMat4(const std::string& name, const glm::mat4& value) override;
 
+		[[nodiscard]] u32 GetRendererID() const override { return m_RendererID; }
 		[[nodiscard ("Store this!")]] const std::string& GetName() const override { return m_Name; }
 
 		void Reload() override;

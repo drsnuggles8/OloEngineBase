@@ -2,7 +2,7 @@
 #include "AudioEngine.h"
 
 #define MINIAUDIO_IMPLEMENTATION
-#include <miniaudio/miniaudio.h>
+#include <miniaudio.h>
 
 namespace OloEngine
 {
@@ -10,6 +10,7 @@ namespace OloEngine
 
 	void AudioEngine::Init()
 	{
+		OLO_CORE_TRACE("[AudioEngine] Initializing.");
 		ma_engine_config config = ::ma_engine_config_init();
 		config.listenerCount = 1;
 

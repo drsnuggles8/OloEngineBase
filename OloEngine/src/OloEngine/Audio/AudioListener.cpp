@@ -1,7 +1,7 @@
 #include "OloEnginePCH.h"
 #include "AudioListener.h"
 
-#include <miniaudio/miniaudio.h>
+#include <miniaudio.h>
 
 #include "AudioEngine.h"
 

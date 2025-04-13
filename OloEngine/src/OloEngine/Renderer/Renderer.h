@@ -2,15 +2,22 @@
 
 #include "OloEngine/Renderer/RenderCommand.h"
 
-#include "OloEngine/Renderer/OrthographicCamera.h"
+#include "OloEngine/Renderer/Camera/OrthographicCamera.h"
 #include "OloEngine/Renderer/Shader.h"
 
 namespace OloEngine
 {
+	enum class RendererType
+	{
+		Renderer2D,
+		Renderer3D,
+		StatelessRenderer3D,
+	};
+
 	class Renderer
 	{
 	public:
-		static void Init();
+		static void Init(RendererType type);
 		static void Shutdown();
 
 		static void OnWindowResize(u32 width, u32 height);
@@ -28,5 +35,6 @@ namespace OloEngine
 		};
 
 		static Scope<SceneData> s_SceneData;
+		static RendererType s_RendererType;
 	};
 }
