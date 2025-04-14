@@ -14,8 +14,8 @@ namespace OloEngine {
     class Texture2D;
     class RenderCommand;
     class UniformBuffer;
-    class CommandSceneRenderPass;
-    class CommandFinalRenderPass;
+    class SceneRenderPass;
+    class FinalRenderPass;
 }
 
 namespace OloEngine
@@ -135,8 +135,8 @@ namespace OloEngine
 			u32 CommandCounter = 0;
 			
 			Ref<RenderGraph> RGraph;
-			Ref<CommandSceneRenderPass> ScenePass;
-            Ref<CommandFinalRenderPass> FinalPass;
+			Ref<SceneRenderPass> ScenePass;
+            Ref<FinalRenderPass> FinalPass;
 		};
 
 		static StatelessRenderer3DData s_Data;

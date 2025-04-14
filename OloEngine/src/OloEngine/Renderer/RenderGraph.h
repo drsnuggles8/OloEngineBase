@@ -2,13 +2,10 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
-#include "OloEngine/Renderer/Passes/CommandRenderPass.h"
-
 #include <vector>
 #include <unordered_map>
 #include <string>
 #include <unordered_set>
-#include <variant>
 
 namespace OloEngine
 {
@@ -24,9 +21,8 @@ namespace OloEngine
         void Init(u32 width, u32 height);
         void Shutdown();
         
-        // Add a pass to the render graph. Now supports both RenderPass and CommandRenderPass
+        // Only support RenderPass
         void AddPass(const Ref<RenderPass>& pass);
-        void AddPass(const Ref<CommandRenderPass>& pass);
         
         // Connect two passes in the graph
         void ConnectPass(const std::string& outputPass, const std::string& inputPass, u32 outputAttachment = 0);
@@ -52,52 +48,31 @@ namespace OloEngine
         {
             if (m_PassLookup.find(name) != m_PassLookup.end())
             {
-                if (auto renderPass = std::get_if<Ref<RenderPass>>(&m_PassLookup[name]))
-                {
-                    return std::dynamic_pointer_cast<T>(*renderPass);
-                }
-                else if (auto cmdRenderPass = std::get_if<Ref<CommandRenderPass>>(&m_PassLookup[name]))
-                {
-                    return std::dynamic_pointer_cast<T>(*cmdRenderPass);
-                }
+                return std::dynamic_pointer_cast<T>(m_PassLookup.at(name));
             }
             return nullptr;
         }
 
-		/**
-		 * @brief Determine if the specified pass is the final pass in the render graph.
-		 * @param passName The name of the pass to check
-		 * @return True if the pass is the final pass, false otherwise
-		 */
-		[[nodiscard]] bool IsFinalPass(const std::string& passName) const;
-		
-		/**
-		 * @brief Connection information between render passes.
-		 */
-		struct ConnectionInfo
-		{
-			std::string OutputPass;
-			std::string InputPass;
-			u32 AttachmentIndex = 0;
-		};
-		
-		/**
-		 * @brief Get all connections between passes in the render graph.
-		 * @return Vector of connection information
-		 */
-		[[nodiscard]] std::vector<ConnectionInfo> GetConnections() const;
+        [[nodiscard]] bool IsFinalPass(const std::string& passName) const;
+        
+        struct ConnectionInfo
+        {
+            std::string OutputPass;
+            std::string InputPass;
+            u32 AttachmentIndex = 0;
+        };
+        
+        [[nodiscard]] std::vector<ConnectionInfo> GetConnections() const;
         
     private:
         void UpdateDependencyGraph();
         void ResolveFinalPass();
         
-        using PassVariant = std::variant<Ref<RenderPass>, Ref<CommandRenderPass>>;
-        
-        std::unordered_map<std::string, PassVariant> m_PassLookup;
+        std::unordered_map<std::string, Ref<RenderPass>> m_PassLookup;
         std::unordered_map<std::string, std::vector<std::string>> m_Dependencies;
         std::unordered_map<std::string, std::vector<std::string>> m_DependentPasses;
         std::vector<std::string> m_PassOrder;
         std::string m_FinalPassName;
-        bool m_DependencyGraphDirty = true;
+        bool m_DependencyGraphDirty = false;
     };
 }

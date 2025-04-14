@@ -10,8 +10,8 @@
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
-#include "OloEngine/Renderer/Passes/CommandSceneRenderPass.h"
-#include "OloEngine/Renderer/Passes/CommandFinalRenderPass.h"
+#include "OloEngine/Renderer/Passes/SceneRenderPass.h"
+#include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Core/Application.h"
 
@@ -419,7 +419,7 @@ namespace OloEngine
 		metadata.executionOrder = s_Data.CommandCounter++;
 		metadata.isStatic = isStatic;
 		
-		// Submit command via the CommandRenderPass's SubmitCommand method
+		// Submit command via the RenderPass's SubmitCommand method
 		s_Data.ScenePass->SubmitCommand(command, metadata);
 	}
 
@@ -485,7 +485,7 @@ namespace OloEngine
 		metadata.executionOrder = s_Data.CommandCounter++; // Maintain order if needed
 		metadata.isStatic = isStatic;
 
-		// Submit command via the CommandRenderPass's SubmitCommand method
+		// Submit command via the RenderPass's SubmitCommand method
 		s_Data.ScenePass->SubmitCommand(command, metadata);
 	}
 
@@ -530,7 +530,7 @@ namespace OloEngine
 		metadata.executionOrder = s_Data.CommandCounter++; // Maintain order if needed
 		metadata.isStatic = false; // Lights can move
 		
-		// Submit command via the CommandRenderPass's SubmitCommand method
+		// Submit command via the RenderPass's SubmitCommand method
 		s_Data.ScenePass->SubmitCommand(command, metadata);
 	}
 
@@ -580,12 +580,12 @@ namespace OloEngine
 		finalPassSpec.Height = height;
 		
 		// Create the command-based passes
-		s_Data.ScenePass = CreateRef<CommandSceneRenderPass>();
-		s_Data.ScenePass->SetName("CommandScenePass");
+		s_Data.ScenePass = CreateRef<SceneRenderPass>();
+		s_Data.ScenePass->SetName("ScenePass");
 		s_Data.ScenePass->Init(scenePassSpec);
 		
-		s_Data.FinalPass = CreateRef<CommandFinalRenderPass>();
-		s_Data.FinalPass->SetName("CommandFinalPass");
+		s_Data.FinalPass = CreateRef<FinalRenderPass>();
+		s_Data.FinalPass->SetName("FinalPass");
 		s_Data.FinalPass->Init(finalPassSpec);
 		
 		// Add passes to the render graph
@@ -593,14 +593,14 @@ namespace OloEngine
 		s_Data.RGraph->AddPass(s_Data.FinalPass);
 		
 		// Connect passes (scene pass output -> final pass input)
-		s_Data.RGraph->ConnectPass("CommandScenePass", "CommandFinalPass");
+		s_Data.RGraph->ConnectPass("ScenePass", "FinalPass");
 		
 		 // Explicitly set the input framebuffer for the final pass
 		s_Data.FinalPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
 		OLO_CORE_INFO("StatelessRenderer3D: Connected scene pass framebuffer to final pass input");
 		
 		// Set the final pass
-		s_Data.RGraph->SetFinalPass("CommandFinalPass");
+		s_Data.RGraph->SetFinalPass("FinalPass");
 	}
 	
 	void StatelessRenderer3D::OnWindowResize(u32 width, u32 height)

@@ -120,12 +120,11 @@
 		"OloEngine/Renderer/Debug/RenderGraphDebugger.h"
 		"OloEngine/Renderer/Debug/RenderGraphDebugger.cpp"
 		
-		"OloEngine/Renderer/Passes/CommandRenderPass.h"
-		"OloEngine/Renderer/Passes/CommandFinalRenderPass.h"
-		"OloEngine/Renderer/Passes/CommandFinalRenderPass.cpp"
-		"OloEngine/Renderer/Passes/CommandSceneRenderPass.h"
-		"OloEngine/Renderer/Passes/CommandSceneRenderPass.cpp"
 		"OloEngine/Renderer/Passes/RenderPass.h"
+		"OloEngine/Renderer/Passes/FinalRenderPass.h"
+		"OloEngine/Renderer/Passes/FinalRenderPass.cpp"
+		"OloEngine/Renderer/Passes/SceneRenderPass.h"
+		"OloEngine/Renderer/Passes/SceneRenderPass.cpp"
 		
 		"OloEngine/Renderer/RenderCommands/RenderCommandBase.h"
 		

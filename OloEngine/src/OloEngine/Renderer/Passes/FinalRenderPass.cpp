@@ -1,5 +1,5 @@
 #include "OloEnginePCH.h"
-#include "CommandFinalRenderPass.h"
+#include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
@@ -10,13 +10,13 @@
 
 namespace OloEngine
 {
-    CommandFinalRenderPass::CommandFinalRenderPass()
+    FinalRenderPass::FinalRenderPass()
     {
-        SetName("CommandFinalRenderPass");
-        OLO_CORE_INFO("Creating CommandFinalRenderPass.");
+        SetName("FinalRenderPass");
+        OLO_CORE_INFO("Creating FinalRenderPass.");
     }
 
-    void CommandFinalRenderPass::Init(const FramebufferSpecification& spec)
+    void FinalRenderPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
         
@@ -27,16 +27,16 @@ namespace OloEngine
         // Load or create the blit shader
         m_BlitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
        
-        OLO_CORE_INFO("CommandFinalRenderPass: Initialized with viewport dimensions {}x{}", 
+        OLO_CORE_INFO("FinalRenderPass: Initialized with viewport dimensions {}x{}", 
 				m_FramebufferSpec.Width, m_FramebufferSpec.Height);
     }
 
-    void CommandFinalRenderPass::SetInputFramebuffer(const Ref<Framebuffer>& input) 
+    void FinalRenderPass::SetInputFramebuffer(const Ref<Framebuffer>& input) 
     { 
         m_InputFramebuffer = input; 
     }
 
-	void CommandFinalRenderPass::Execute()
+	void FinalRenderPass::Execute()
     {
         OLO_PROFILE_FUNCTION();
 
@@ -50,14 +50,14 @@ namespace OloEngine
         // Only execute if we have an input framebuffer
         if (!m_InputFramebuffer)
         {
-            OLO_CORE_WARN("CommandFinalRenderPass::Execute: No input framebuffer set!");
+            OLO_CORE_WARN("FinalRenderPass::Execute: No input framebuffer set!");
             return;
         }
 
         // Bind the shader and the input texture
         if (!m_BlitShader)
         {
-            OLO_CORE_ERROR("CommandFinalRenderPass::Execute: Blit shader not loaded!");
+            OLO_CORE_ERROR("FinalRenderPass::Execute: Blit shader not loaded!");
             return;
         }
         
@@ -68,7 +68,7 @@ namespace OloEngine
         
         if (colorAttachmentID == 0)
         {
-            OLO_CORE_ERROR("CommandFinalRenderPass::Execute: Invalid color attachment ID!");
+            OLO_CORE_ERROR("FinalRenderPass::Execute: Invalid color attachment ID!");
             return;
         }
         
@@ -78,7 +78,7 @@ namespace OloEngine
         // Draw the fullscreen triangle
         if (!m_FullscreenTriangleVA)
         {
-            OLO_CORE_ERROR("CommandFinalRenderPass::Execute: Fullscreen triangle vertex array not created!");
+            OLO_CORE_ERROR("FinalRenderPass::Execute: Fullscreen triangle vertex array not created!");
             return;
         }
         
@@ -86,7 +86,17 @@ namespace OloEngine
         RenderCommand::DrawIndexed(m_FullscreenTriangleVA);
     }
 
-    void CommandFinalRenderPass::SetupFramebuffer(u32 width, u32 height)
+    Ref<Framebuffer> FinalRenderPass::GetTarget() const
+    {
+        return m_Target;
+    }
+
+    Ref<Framebuffer> FinalRenderPass::GetInputFramebuffer() const
+    {
+        return m_InputFramebuffer;
+    }
+
+    void FinalRenderPass::SetupFramebuffer(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
         
@@ -97,13 +107,13 @@ namespace OloEngine
 		OLO_CORE_INFO("FinalRenderPass setup with dimensions: {}x{}", width, height);
     }
 
-    void CommandFinalRenderPass::ResizeFramebuffer(u32 width, u32 height)
+    void FinalRenderPass::ResizeFramebuffer(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
         
         if (width == 0 || height == 0)
         {
-            OLO_CORE_WARN("CommandFinalRenderPass::ResizeFramebuffer: Invalid dimensions: {}x{}", width, height);
+            OLO_CORE_WARN("FinalRenderPass::ResizeFramebuffer: Invalid dimensions: {}x{}", width, height);
             return;
         }
         
@@ -111,22 +121,17 @@ namespace OloEngine
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
         
-        OLO_CORE_INFO("CommandFinalRenderPass: Resized viewport to {}x{}", width, height);
+        OLO_CORE_INFO("FinalRenderPass: Resized viewport to {}x{}", width, height);
     }
 
-    void CommandFinalRenderPass::OnReset()
+    void FinalRenderPass::OnReset()
     {
         OLO_PROFILE_FUNCTION();
         
-        // Recreate the fullscreen triangle
-        CreateFullscreenTriangle();
-        
-        // Reload the shader
-        if (m_BlitShader)
-            m_BlitShader->Reload();
+        // TODO: Recreate the fullscreen triangle and shader if needed
     }
 
-    void CommandFinalRenderPass::CreateFullscreenTriangle()
+    void FinalRenderPass::CreateFullscreenTriangle()
     {
         OLO_PROFILE_FUNCTION();
         
@@ -171,6 +176,6 @@ namespace OloEngine
         m_FullscreenTriangleVA->AddVertexBuffer(vertexBuffer);
         m_FullscreenTriangleVA->SetIndexBuffer(indexBuffer);
         
-        OLO_CORE_INFO("CommandFinalRenderPass: Created fullscreen triangle");
+        OLO_CORE_INFO("FinalRenderPass: Created fullscreen triangle");
     }
 }

@@ -1,17 +1,17 @@
 #include "OloEnginePCH.h"
-#include "OloEngine/Renderer/Passes/CommandSceneRenderPass.h"
+#include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 
 namespace OloEngine
 {
-    CommandSceneRenderPass::CommandSceneRenderPass()
+    SceneRenderPass::SceneRenderPass()
     {
-        SetName("CommandSceneRenderPass");
-        OLO_CORE_INFO("Creating CommandSceneRenderPass.");
+        SetName("SceneRenderPass");
+        OLO_CORE_INFO("Creating SceneRenderPass.");
     }
 
-    void CommandSceneRenderPass::Init(const FramebufferSpecification& spec)
+    void SceneRenderPass::Init(const FramebufferSpecification& spec)
     {
         OLO_PROFILE_FUNCTION();
         
@@ -20,7 +20,7 @@ namespace OloEngine
 		// Ensure the specification includes color and depth attachments
 		if (m_FramebufferSpec.Attachments.Attachments.empty())
 		{
-            OLO_CORE_WARN("CommandSceneRenderPass::Init: No attachments specified, adding default color and depth attachments");
+            OLO_CORE_WARN("SceneRenderPass::Init: No attachments specified, adding default color and depth attachments");
             m_FramebufferSpec.Attachments = {
                 FramebufferTextureFormat::RGBA8,      // Color buffer
                 FramebufferTextureFormat::Depth  	  // Depth attachment
@@ -29,17 +29,17 @@ namespace OloEngine
         
         m_Target = Framebuffer::Create(m_FramebufferSpec);
 		
-        OLO_CORE_INFO("CommandSceneRenderPass: Created framebuffer with dimensions {}x{}", 
+        OLO_CORE_INFO("SceneRenderPass: Created framebuffer with dimensions {}x{}", 
 			m_FramebufferSpec.Width, m_FramebufferSpec.Height);
     }
 
-    void CommandSceneRenderPass::Execute()
+    void SceneRenderPass::Execute()
     {
         OLO_PROFILE_FUNCTION();
 
         if (!m_Target)
         {
-            OLO_CORE_ERROR("CommandSceneRenderPass::Execute: No target framebuffer!");
+            OLO_CORE_ERROR("SceneRenderPass::Execute: No target framebuffer!");
             return;
         }
         
@@ -66,19 +66,24 @@ namespace OloEngine
         }
         else
         {
-            OLO_CORE_WARN("CommandSceneRenderPass::Execute: No command allocator available");
+            OLO_CORE_WARN("SceneRenderPass::Execute: No command allocator available");
         }
 
         m_Target->Unbind();
     }
 
-    void CommandSceneRenderPass::SetupFramebuffer(u32 width, u32 height)
+    Ref<Framebuffer> SceneRenderPass::GetTarget() const
+    {
+        return m_Target;
+    }
+
+    void SceneRenderPass::SetupFramebuffer(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
         
         if (width == 0 || height == 0)
         {
-            OLO_CORE_WARN("CommandSceneRenderPass::SetupFramebuffer: Invalid dimensions: {}x{}", width, height);
+            OLO_CORE_WARN("SceneRenderPass::SetupFramebuffer: Invalid dimensions: {}x{}", width, height);
             return;
         }
         
@@ -96,26 +101,26 @@ namespace OloEngine
         }
     }
 
-    void CommandSceneRenderPass::ResizeFramebuffer(u32 width, u32 height)
+    void SceneRenderPass::ResizeFramebuffer(u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
         
         if (width == 0 || height == 0)
         {
-            OLO_CORE_WARN("CommandSceneRenderPass::ResizeFramebuffer: Invalid dimensions: {}x{}", width, height);
+            OLO_CORE_WARN("SceneRenderPass::ResizeFramebuffer: Invalid dimensions: {}x{}", width, height);
             return;
         }        
         
+        m_FramebufferSpec.Width = width;
+        m_FramebufferSpec.Height = height;
         if (m_Target)
         {
-			m_FramebufferSpec.Width = width;
-			m_FramebufferSpec.Height = height;
             m_Target->Resize(width, height);
-            OLO_CORE_INFO("CommandSceneRenderPass: Resized framebuffer to {}x{}", width, height);
+            OLO_CORE_INFO("SceneRenderPass: Resized framebuffer to {}x{}", width, height);
         }
     }
 
-    void CommandSceneRenderPass::OnReset()
+    void SceneRenderPass::OnReset()
     {
         OLO_PROFILE_FUNCTION();
         
