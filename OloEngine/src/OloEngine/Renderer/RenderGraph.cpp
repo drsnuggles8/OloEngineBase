@@ -81,29 +81,22 @@ namespace OloEngine
         // First pass: Connect framebuffers between dependencies
         for (const auto& [outputPass, inputPasses] : m_DependentPasses)
         {
-            auto& outputPassVariant = m_PassLookup[outputPass];
+            auto& outputPassRef = m_PassLookup[outputPass];
             Ref<Framebuffer> outputFramebuffer;
 
             // Get output framebuffer from output pass
-            if (auto cmdRenderPass = std::get_if<Ref<RenderPass>>(&outputPassVariant))
-            {
-                outputFramebuffer = (*cmdRenderPass)->GetTarget();
-            }
+            outputFramebuffer = outputPassRef->GetTarget();
 
             // Set this framebuffer as input for all dependent passes
             if (outputFramebuffer)
             {
                 for (const auto& inputPass : inputPasses)
                 {
-                    auto& inputPassVariant = m_PassLookup[inputPass];
-
-                    if (auto cmdRenderPass = std::get_if<Ref<RenderPass>>(&inputPassVariant))
+                    auto& inputPassRef = m_PassLookup[inputPass];
+                    // Handle RenderPass (like FinalRenderPass)
+                    if (auto* finalPass = dynamic_cast<FinalRenderPass*>(inputPassRef.get()))
                     {
-                        // Handle RenderPass (like FinalRenderPass)
-                        if (auto* cmdFinalPass = dynamic_cast<FinalRenderPass*>(cmdRenderPass->get()))
-                        {
-                            cmdFinalPass->SetInputFramebuffer(outputFramebuffer);
-                        }
+                        finalPass->SetInputFramebuffer(outputFramebuffer);
                     }
                 }
             }
