@@ -3,10 +3,10 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
-
+#include <glm/glm.hpp>
+#include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Mesh.h"
-#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 

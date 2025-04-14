@@ -5,7 +5,6 @@
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/Renderer.h"
-#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
 

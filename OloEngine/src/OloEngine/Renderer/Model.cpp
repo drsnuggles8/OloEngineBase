@@ -2,8 +2,7 @@
 
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Model.h"
-#include "OloEngine/Renderer/Renderer3D.h"
-#include "OloEngine/Renderer/RendererAdapter.h"
+#include "OloEngine/Renderer/StatelessRenderer3D.h"
 
 namespace OloEngine
 {
@@ -208,12 +207,10 @@ namespace OloEngine
 	void Model::Draw(const glm::mat4& transform, const Material& material) const
 	{
 		OLO_PROFILE_FUNCTION();
-
 		// Draw all meshes and let the active renderer handle culling
 		for (const auto& mesh : m_Meshes)
 		{
-			// Use the RendererAdapter to ensure compatibility with all renderer implementations
-			RendererAdapter::DrawMesh(mesh, transform, material);
+			OloEngine::StatelessRenderer3D::DrawMesh(mesh, transform, material);
 		}
 	}
 }

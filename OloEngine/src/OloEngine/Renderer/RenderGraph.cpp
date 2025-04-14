@@ -1,6 +1,5 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/RenderGraph.h"
-#include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Renderer/Passes/CommandFinalRenderPass.h"
 
 namespace OloEngine
@@ -120,15 +119,7 @@ namespace OloEngine
 				{
 					auto& inputPassVariant = m_PassLookup[inputPass];
 
-					if (auto renderPass = std::get_if<Ref<RenderPass>>(&inputPassVariant))
-					{
-						// Handle standard RenderPass (like FinalRenderPass)
-						if (auto* finalRenderPass = dynamic_cast<FinalRenderPass*>(renderPass->get()))
-						{
-							finalRenderPass->SetInputFramebuffer(outputFramebuffer);
-						}
-					}
-					else if (auto cmdRenderPass = std::get_if<Ref<CommandRenderPass>>(&inputPassVariant))
+					if (auto cmdRenderPass = std::get_if<Ref<CommandRenderPass>>(&inputPassVariant))
 					{
 						// Handle CommandRenderPass (like CommandFinalRenderPass)
 						if (auto* cmdFinalPass = dynamic_cast<CommandFinalRenderPass*>(cmdRenderPass->get()))
