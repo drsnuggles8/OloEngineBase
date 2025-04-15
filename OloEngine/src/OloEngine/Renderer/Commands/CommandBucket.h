@@ -80,6 +80,13 @@ namespace OloEngine
 			return packet;
 		}
 
+		template<typename T>
+		T* SubmitAndGetCommandPtr(const T& commandData, const PacketMetadata& metadata = {}, CommandAllocator* allocator = nullptr)
+		{
+			CommandPacket* packet = Submit(commandData, metadata, allocator);
+			if (!packet) return nullptr;
+			return reinterpret_cast<T*>(packet->GetCommandData());
+		}
 
 		// Sort commands for optimal rendering (minimizes state changes)
 		void SortCommands();
@@ -109,6 +116,25 @@ namespace OloEngine
 
 		// Get command count
 		sizet GetCommandCount() const { return m_CommandCount; }
+
+		// Templated draw call creation (builder pattern)
+		template<typename T>
+		T* CreateDrawCall()
+		{
+			OLO_CORE_ASSERT(m_Allocator, "CommandBucket::CreateDrawCall: No allocator available!");
+			void* mem = m_Allocator->AllocateCommand(sizeof(T), alignof(T));
+			OLO_CORE_ASSERT(mem, "CommandBucket::CreateDrawCall: Allocation failed!");
+			T* cmd = new (mem) T();
+			return cmd;
+		}
+
+		template<typename T>
+		void SubmitDrawCall(T* cmd, const PacketMetadata& metadata)
+		{
+			OLO_CORE_ASSERT(cmd, "CommandBucket::SubmitDrawCall: Null command pointer!");
+			CommandPacket* packet = m_Allocator->WrapCommand(cmd, sizeof(T), metadata);
+			AddCommand(packet);
+		}
 
 	private:
 		// Transform buffer for instanced rendering
@@ -198,6 +224,9 @@ namespace OloEngine
 
 		// Statistics
 		Statistics m_Stats;
+
+		// Allocator for command memory (must be set before use)
+		CommandAllocator* m_Allocator = nullptr;
 
 		mutable std::mutex m_Mutex;
 	};

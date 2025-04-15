@@ -43,11 +43,11 @@ namespace OloEngine
 		static void BeginScene(const PerspectiveCamera& camera);
 		static void EndScene();
 
-		static void DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
-		static void DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
-		static void DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
-		static void DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true);
-		static void DrawLightCube(const glm::mat4& modelMatrix);
+		static DrawMeshCommand* DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
+		static DrawQuadCommand* DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
+		static DrawMeshInstancedCommand* DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true);
+		static DrawMeshCommand* DrawLightCube(const glm::mat4& modelMatrix);
+		static DrawMeshCommand* DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
 
 		// State management functions for compatibility with RenderCommand
 		static void SetPolygonMode(unsigned int face, unsigned int mode);
@@ -100,6 +100,13 @@ namespace OloEngine
         // Basic rendering methods
         static void SetClearColor(const glm::vec4& color);
         static void Clear();
+
+		/**
+		 * Submits a draw call to the renderer's command bucket in a safe, encapsulated way.
+		 * This should be used instead of accessing the ScenePass or CommandBucket directly.
+		 * @param drawCall Pointer to the draw command (DrawMeshCommand, DrawQuadCommand, etc.)
+		 */
+		static void SubmitDrawCall(void* drawCall);
 
 	private:
 		static void UpdateCameraMatricesUBO(const glm::mat4& view, const glm::mat4& projection);

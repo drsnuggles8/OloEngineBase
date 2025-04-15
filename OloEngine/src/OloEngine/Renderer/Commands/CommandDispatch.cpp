@@ -548,22 +548,39 @@ namespace OloEngine
     
     // Higher-level commands
     void CommandDispatch::DrawMesh(const void* data, RendererAPI& api)
-	{
-		OLO_PROFILE_FUNCTION();
-		
-		auto const* cmd = static_cast<const DrawMeshCommand*>(data);
-		
-		if (!cmd->vertexArray || !cmd->shader)
-		{
-			OLO_CORE_ERROR("CommandDispatch::DrawMesh: Invalid vertex array or shader");
-			return;
-		}
-		
-		// Ensure proper depth and state configuration for mesh rendering
-		api.SetDepthTest(true);
-		api.SetDepthFunc(GL_LESS);
-		api.SetDepthMask(true);
-		
+    {
+        OLO_PROFILE_FUNCTION();
+        auto const* cmd = static_cast<const DrawMeshCommand*>(data);
+        if (!cmd->vertexArray || !cmd->shader)
+        {
+            OLO_CORE_ERROR("CommandDispatch::DrawMesh: Invalid vertex array or shader");
+            return;
+        }
+        // Apply per-draw-call render state if present
+        if (cmd->renderState)
+        {
+            const RenderState& state = *cmd->renderState;
+            api.SetBlendState(state.Blend.Enabled);
+            api.SetBlendFunc(state.Blend.SrcFactor, state.Blend.DstFactor);
+            api.SetBlendEquation(state.Blend.Equation);
+            api.SetDepthTest(state.Depth.TestEnabled);
+            api.SetDepthFunc(state.Depth.Function);
+            api.SetDepthMask(state.Depth.WriteMask);
+            api.SetStencilTest(state.Stencil.Enabled);
+            api.SetStencilFunc(state.Stencil.Function, state.Stencil.Reference, state.Stencil.ReadMask);
+            api.SetStencilMask(state.Stencil.WriteMask);
+            api.SetStencilOp(state.Stencil.StencilFail, state.Stencil.DepthFail, state.Stencil.DepthPass);
+            api.SetCulling(state.Culling.Enabled);
+            api.SetCullFace(state.Culling.Face);
+            api.SetLineWidth(state.LineWidth.Width);
+            api.SetPolygonMode(state.PolygonMode.Face, state.PolygonMode.Mode);
+            api.SetScissorTest(state.Scissor.Enabled);
+            api.SetScissorBox(state.Scissor.X, state.Scissor.Y, state.Scissor.Width, state.Scissor.Height);
+            api.SetColorMask(state.ColorMask.Red, state.ColorMask.Green, state.ColorMask.Blue, state.ColorMask.Alpha);
+            api.SetPolygonOffset(state.PolygonOffset.Enabled ? state.PolygonOffset.Factor : 0.0f, state.PolygonOffset.Enabled ? state.PolygonOffset.Units : 0.0f);
+            if (state.Multisampling.Enabled) api.EnableMultisampling(); else api.DisableMultisampling();
+        }
+        
 		// Reset any potential polygon mode changes
 		api.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 		
@@ -724,17 +741,39 @@ namespace OloEngine
 	}
     
     void CommandDispatch::DrawMeshInstanced(const void* data, RendererAPI& api)
-	{
-		OLO_PROFILE_FUNCTION();
-		
-		auto const* cmd = static_cast<const DrawMeshInstancedCommand*>(data);
-		
-		if (!cmd->vertexArray || !cmd->shader)
-		{
-			OLO_CORE_ERROR("CommandDispatch::DrawMeshInstanced: Invalid vertex array or shader");
-			return;
-		}
-		
+    {
+        OLO_PROFILE_FUNCTION();
+        auto const* cmd = static_cast<const DrawMeshInstancedCommand*>(data);
+        if (!cmd->vertexArray || !cmd->shader)
+        {
+            OLO_CORE_ERROR("CommandDispatch::DrawMeshInstanced: Invalid vertex array or shader");
+            return;
+        }
+        // Apply per-draw-call render state if present
+        if (cmd->renderState)
+        {
+            const RenderState& state = *cmd->renderState;
+            api.SetBlendState(state.Blend.Enabled);
+            api.SetBlendFunc(state.Blend.SrcFactor, state.Blend.DstFactor);
+            api.SetBlendEquation(state.Blend.Equation);
+            api.SetDepthTest(state.Depth.TestEnabled);
+            api.SetDepthFunc(state.Depth.Function);
+            api.SetDepthMask(state.Depth.WriteMask);
+            api.SetStencilTest(state.Stencil.Enabled);
+            api.SetStencilFunc(state.Stencil.Function, state.Stencil.Reference, state.Stencil.ReadMask);
+            api.SetStencilMask(state.Stencil.WriteMask);
+            api.SetStencilOp(state.Stencil.StencilFail, state.Stencil.DepthFail, state.Stencil.DepthPass);
+            api.SetCulling(state.Culling.Enabled);
+            api.SetCullFace(state.Culling.Face);
+            api.SetLineWidth(state.LineWidth.Width);
+            api.SetPolygonMode(state.PolygonMode.Face, state.PolygonMode.Mode);
+            api.SetScissorTest(state.Scissor.Enabled);
+            api.SetScissorBox(state.Scissor.X, state.Scissor.Y, state.Scissor.Width, state.Scissor.Height);
+            api.SetColorMask(state.ColorMask.Red, state.ColorMask.Green, state.ColorMask.Blue, state.ColorMask.Alpha);
+            api.SetPolygonOffset(state.PolygonOffset.Enabled ? state.PolygonOffset.Factor : 0.0f, state.PolygonOffset.Enabled ? state.PolygonOffset.Units : 0.0f);
+            if (state.Multisampling.Enabled) api.EnableMultisampling(); else api.DisableMultisampling();
+        }
+        
 		// Optimize shader binding - only bind if different from currently bound
 		u32 shaderID = cmd->shader->GetRendererID();
 		if (s_Data.CurrentBoundShaderID != shaderID)
@@ -825,13 +864,32 @@ namespace OloEngine
 			OLO_CORE_ERROR("CommandDispatch::DrawQuad: Missing texture for quad");
 			return;
 		}
+		// Apply per-draw-call render state if present
+		if (cmd->renderState)
+		{
+			const RenderState& state = *cmd->renderState;
+			api.SetBlendState(state.Blend.Enabled);
+			api.SetBlendFunc(state.Blend.SrcFactor, state.Blend.DstFactor);
+			api.SetBlendEquation(state.Blend.Equation);
+			api.SetDepthTest(state.Depth.TestEnabled);
+			api.SetDepthFunc(state.Depth.Function);
+			api.SetDepthMask(state.Depth.WriteMask);
+			api.SetStencilTest(state.Stencil.Enabled);
+			api.SetStencilFunc(state.Stencil.Function, state.Stencil.Reference, state.Stencil.ReadMask);
+			api.SetStencilMask(state.Stencil.WriteMask);
+			api.SetStencilOp(state.Stencil.StencilFail, state.Stencil.DepthFail, state.Stencil.DepthPass);
+			api.SetCulling(state.Culling.Enabled);
+			api.SetCullFace(state.Culling.Face);
+			api.SetLineWidth(state.LineWidth.Width);
+			api.SetPolygonMode(state.PolygonMode.Face, state.PolygonMode.Mode);
+			api.SetScissorTest(state.Scissor.Enabled);
+			api.SetScissorBox(state.Scissor.X, state.Scissor.Y, state.Scissor.Width, state.Scissor.Height);
+			api.SetColorMask(state.ColorMask.Red, state.ColorMask.Green, state.ColorMask.Blue, state.ColorMask.Alpha);
+			api.SetPolygonOffset(state.PolygonOffset.Enabled ? state.PolygonOffset.Factor : 0.0f, state.PolygonOffset.Enabled ? state.PolygonOffset.Units : 0.0f);
+			if (state.Multisampling.Enabled) api.EnableMultisampling(); else api.DisableMultisampling();
+		}
 		
-		// Enable blending for transparent textures, matching Renderer3D::RenderQuadInternal
-		api.SetBlendState(true);
-		api.SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		api.SetDepthMask(false);  // Don't write to depth buffer for quads
-		
-		// Reset polygon mode to fill for quads - they shouldn't be in wireframe
+		// Reset any potential polygon mode changes
 		api.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 		
 		// Optimize shader binding - only bind if different from currently bound

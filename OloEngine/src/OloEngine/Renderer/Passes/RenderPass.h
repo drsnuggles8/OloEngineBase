@@ -41,10 +41,12 @@ namespace OloEngine
             OLO_CORE_ASSERT(m_Allocator, "RenderPass::ResetCommandBucket: No allocator available!");
             m_CommandBucket.Reset(*m_Allocator); 
         }
+
         void SetCommandAllocator(CommandAllocator* allocator) 
         { 
             m_Allocator = allocator ? allocator : m_OwnedAllocator.get(); 
         }
+
         template<typename T>
         CommandPacket* SubmitCommand(const T& commandData, const PacketMetadata& metadata)
         {
@@ -55,6 +57,8 @@ namespace OloEngine
             }
             return m_CommandBucket.Submit(commandData, metadata, m_Allocator);
         }
+		
+        CommandBucket& GetCommandBucket() { return m_CommandBucket; }
     protected:
         std::string m_Name = "RenderPass";
         Ref<Framebuffer> m_Target;
