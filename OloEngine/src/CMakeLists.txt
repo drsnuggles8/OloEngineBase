@@ -88,7 +88,6 @@
 		"OloEngine/Renderer/RendererAPI.h"
 		"OloEngine/Renderer/RenderGraph.cpp"
 		"OloEngine/Renderer/RenderGraph.h"
-		"OloEngine/Renderer/RenderState.h"
 		"OloEngine/Renderer/Shader.cpp"
 		"OloEngine/Renderer/Shader.h"
 		"OloEngine/Renderer/ShaderLibrary.cpp"

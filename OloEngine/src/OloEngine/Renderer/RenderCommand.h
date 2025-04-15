@@ -1,7 +1,6 @@
 #pragma once
 
 #include "OloEngine/Renderer/RendererAPI.h"
-#include "OloEngine/Renderer/RenderState.h"
 
 #include <glad/gl.h>
 
