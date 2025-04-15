@@ -22,7 +22,7 @@ namespace OloEngine
 {
 	class ShaderLibrary;
 
-	class StatelessRenderer3D
+	class Renderer3D
 	{
 	public:
 		struct Statistics
@@ -106,7 +106,7 @@ namespace OloEngine
 		static void SetupRenderGraph(u32 width, u32 height);
 
 	private:
-		struct StatelessRenderer3DData
+		struct Renderer3DData
 		{
 			Ref<Mesh> CubeMesh;
 			Ref<Mesh> QuadMesh;
@@ -139,7 +139,7 @@ namespace OloEngine
             Ref<FinalRenderPass> FinalPass;
 		};
 
-		static StatelessRenderer3DData s_Data;
+		static Renderer3DData s_Data;
 		static ShaderLibrary m_ShaderLibrary;
 	};
 }

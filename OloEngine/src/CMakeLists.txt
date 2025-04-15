@@ -82,8 +82,8 @@
 		"OloEngine/Renderer/Renderer.h"
 		"OloEngine/Renderer/Renderer2D.cpp"
 		"OloEngine/Renderer/Renderer2D.h"
-		"OloEngine/Renderer/StatelessRenderer3D.cpp"
-		"OloEngine/Renderer/StatelessRenderer3D.h"
+		"OloEngine/Renderer/Renderer3D.cpp"
+		"OloEngine/Renderer/Renderer3D.h"
 		"OloEngine/Renderer/RendererAPI.cpp"
 		"OloEngine/Renderer/RendererAPI.h"
 		"OloEngine/Renderer/RenderGraph.cpp"
@@ -125,8 +125,6 @@
 		"OloEngine/Renderer/Passes/FinalRenderPass.cpp"
 		"OloEngine/Renderer/Passes/SceneRenderPass.h"
 		"OloEngine/Renderer/Passes/SceneRenderPass.cpp"
-		
-		"OloEngine/Renderer/RenderCommands/RenderCommandBase.h"
 		
 		"OloEngine/Renderer/Commands/CommandAllocator.cpp"
 		"OloEngine/Renderer/Commands/CommandAllocator.h"

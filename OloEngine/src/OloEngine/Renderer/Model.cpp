@@ -2,7 +2,7 @@
 
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Model.h"
-#include "OloEngine/Renderer/StatelessRenderer3D.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 
 namespace OloEngine
 {
@@ -210,7 +210,7 @@ namespace OloEngine
 		// Draw all meshes and let the active renderer handle culling
 		for (const auto& mesh : m_Meshes)
 		{
-			OloEngine::StatelessRenderer3D::DrawMesh(mesh, transform, material);
+			OloEngine::Renderer3D::DrawMesh(mesh, transform, material);
 		}
 	}
 }
