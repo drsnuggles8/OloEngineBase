@@ -122,7 +122,7 @@ namespace OloEngine
 		T* CreateDrawCall()
 		{
 			OLO_CORE_ASSERT(m_Allocator, "CommandBucket::CreateDrawCall: No allocator available!");
-			void* mem = m_Allocator->AllocateCommand(sizeof(T), alignof(T));
+			void* mem = m_Allocator->AllocateCommandMemory(sizeof(T));
 			OLO_CORE_ASSERT(mem, "CommandBucket::CreateDrawCall: Allocation failed!");
 			T* cmd = new (mem) T();
 			return cmd;
@@ -132,7 +132,7 @@ namespace OloEngine
 		void SubmitDrawCall(T* cmd, const PacketMetadata& metadata)
 		{
 			OLO_CORE_ASSERT(cmd, "CommandBucket::SubmitDrawCall: Null command pointer!");
-			CommandPacket* packet = m_Allocator->WrapCommand(cmd, sizeof(T), metadata);
+			CommandPacket* packet = m_Allocator->CreateCommandPacket(*cmd, metadata);
 			AddCommand(packet);
 		}
 

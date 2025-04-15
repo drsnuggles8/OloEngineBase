@@ -566,15 +566,24 @@ namespace OloEngine
             api.SetDepthTest(state.Depth.TestEnabled);
             api.SetDepthFunc(state.Depth.Function);
             api.SetDepthMask(state.Depth.WriteMask);
-            api.SetStencilTest(state.Stencil.Enabled);
+            if (state.Stencil.Enabled)
+                api.EnableStencilTest();
+            else
+                api.DisableStencilTest();
             api.SetStencilFunc(state.Stencil.Function, state.Stencil.Reference, state.Stencil.ReadMask);
             api.SetStencilMask(state.Stencil.WriteMask);
             api.SetStencilOp(state.Stencil.StencilFail, state.Stencil.DepthFail, state.Stencil.DepthPass);
-            api.SetCulling(state.Culling.Enabled);
+            if (state.Culling.Enabled)
+                api.EnableCulling();
+            else
+                api.DisableCulling();
             api.SetCullFace(state.Culling.Face);
             api.SetLineWidth(state.LineWidth.Width);
             api.SetPolygonMode(state.PolygonMode.Face, state.PolygonMode.Mode);
-            api.SetScissorTest(state.Scissor.Enabled);
+            if (state.Scissor.Enabled)
+                api.EnableScissorTest();
+            else
+                api.DisableScissorTest();
             api.SetScissorBox(state.Scissor.X, state.Scissor.Y, state.Scissor.Width, state.Scissor.Height);
             api.SetColorMask(state.ColorMask.Red, state.ColorMask.Green, state.ColorMask.Blue, state.ColorMask.Alpha);
             api.SetPolygonOffset(state.PolygonOffset.Enabled ? state.PolygonOffset.Factor : 0.0f, state.PolygonOffset.Enabled ? state.PolygonOffset.Units : 0.0f);
@@ -759,15 +768,24 @@ namespace OloEngine
             api.SetDepthTest(state.Depth.TestEnabled);
             api.SetDepthFunc(state.Depth.Function);
             api.SetDepthMask(state.Depth.WriteMask);
-            api.SetStencilTest(state.Stencil.Enabled);
+            if (state.Stencil.Enabled)
+                api.EnableStencilTest();
+            else
+                api.DisableStencilTest();
             api.SetStencilFunc(state.Stencil.Function, state.Stencil.Reference, state.Stencil.ReadMask);
             api.SetStencilMask(state.Stencil.WriteMask);
             api.SetStencilOp(state.Stencil.StencilFail, state.Stencil.DepthFail, state.Stencil.DepthPass);
-            api.SetCulling(state.Culling.Enabled);
+            if (state.Culling.Enabled)
+                api.EnableCulling();
+            else
+                api.DisableCulling();
             api.SetCullFace(state.Culling.Face);
             api.SetLineWidth(state.LineWidth.Width);
             api.SetPolygonMode(state.PolygonMode.Face, state.PolygonMode.Mode);
-            api.SetScissorTest(state.Scissor.Enabled);
+            if (state.Scissor.Enabled)
+                api.EnableScissorTest();
+            else
+                api.DisableScissorTest();
             api.SetScissorBox(state.Scissor.X, state.Scissor.Y, state.Scissor.Width, state.Scissor.Height);
             api.SetColorMask(state.ColorMask.Red, state.ColorMask.Green, state.ColorMask.Blue, state.ColorMask.Alpha);
             api.SetPolygonOffset(state.PolygonOffset.Enabled ? state.PolygonOffset.Factor : 0.0f, state.PolygonOffset.Enabled ? state.PolygonOffset.Units : 0.0f);
@@ -874,15 +892,24 @@ namespace OloEngine
 			api.SetDepthTest(state.Depth.TestEnabled);
 			api.SetDepthFunc(state.Depth.Function);
 			api.SetDepthMask(state.Depth.WriteMask);
-			api.SetStencilTest(state.Stencil.Enabled);
+			if (state.Stencil.Enabled)
+				api.EnableStencilTest();
+			else
+				api.DisableStencilTest();
 			api.SetStencilFunc(state.Stencil.Function, state.Stencil.Reference, state.Stencil.ReadMask);
 			api.SetStencilMask(state.Stencil.WriteMask);
 			api.SetStencilOp(state.Stencil.StencilFail, state.Stencil.DepthFail, state.Stencil.DepthPass);
-			api.SetCulling(state.Culling.Enabled);
+			if (state.Culling.Enabled)
+				api.EnableCulling();
+			else
+				api.DisableCulling();
 			api.SetCullFace(state.Culling.Face);
 			api.SetLineWidth(state.LineWidth.Width);
 			api.SetPolygonMode(state.PolygonMode.Face, state.PolygonMode.Mode);
-			api.SetScissorTest(state.Scissor.Enabled);
+			if (state.Scissor.Enabled)
+				api.EnableScissorTest();
+			else
+				api.DisableScissorTest();
 			api.SetScissorBox(state.Scissor.X, state.Scissor.Y, state.Scissor.Width, state.Scissor.Height);
 			api.SetColorMask(state.ColorMask.Red, state.ColorMask.Green, state.ColorMask.Blue, state.ColorMask.Alpha);
 			api.SetPolygonOffset(state.PolygonOffset.Enabled ? state.PolygonOffset.Factor : 0.0f, state.PolygonOffset.Enabled ? state.PolygonOffset.Units : 0.0f);
