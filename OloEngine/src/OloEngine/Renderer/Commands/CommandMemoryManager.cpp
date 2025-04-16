@@ -109,8 +109,7 @@ namespace OloEngine
         std::scoped_lock<std::mutex> lock(s_PoolMutex);
         s_AllocatorPool.push_back(std::unique_ptr<CommandAllocator>(allocator));
         
-        OLO_CORE_TRACE("CommandMemoryManager: Returned allocator to pool, available: {0}", 
-            s_AllocatorPool.size());
+        // OLO_CORE_TRACE("CommandMemoryManager: Returned allocator to pool, available: {0}", s_AllocatorPool.size());
     }
 
     void CommandMemoryManager::ReleaseCommandPacket(CommandPacket* packet)

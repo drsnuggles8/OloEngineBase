@@ -6,6 +6,8 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/Frustum.h"
+#include "OloEngine/Renderer/Passes/SceneRenderPass.h"
+#include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Core/Timestep.h"
 
 // Forward declarations
@@ -101,12 +103,23 @@ namespace OloEngine
         static void SetClearColor(const glm::vec4& color);
         static void Clear();
 
-		/**
-		 * Submits a draw call to the renderer's command bucket in a safe, encapsulated way.
-		 * This should be used instead of accessing the ScenePass or CommandBucket directly.
-		 * @param drawCall Pointer to the draw command (DrawMeshCommand, DrawQuadCommand, etc.)
-		 */
-		static void SubmitDrawCall(void* drawCall);
+		template<typename T>
+		static void SubmitDrawCall(T* drawCall)
+		{
+			OLO_PROFILE_FUNCTION();
+			static_assert(std::is_class_v<T> && requires(const T& t) { t.header.type; },
+				"SubmitDrawCall requires a pointer to a command struct with a 'header' member containing a 'type' field.");
+
+			if (!s_Data.ScenePass)
+			{
+				OLO_CORE_ERROR("Renderer3D::SubmitDrawCall: ScenePass is null!");
+				return;
+			}
+
+			PacketMetadata metadata;
+			metadata.executionOrder = s_Data.CommandCounter++;
+			s_Data.ScenePass->SubmitCommand(*drawCall, metadata); // Pass by value, not pointer
+		}
 
 	private:
 		static void UpdateCameraMatricesUBO(const glm::mat4& view, const glm::mat4& projection);

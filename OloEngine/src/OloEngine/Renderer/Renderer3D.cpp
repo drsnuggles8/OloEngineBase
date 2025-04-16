@@ -27,6 +27,8 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 		OLO_CORE_INFO("Initializing Renderer3D.");
 
+		CommandMemoryManager::Init();
+
 		CommandDispatch::Initialize();
 		OLO_CORE_INFO("CommandDispatch system initialized.");
 
@@ -88,6 +90,7 @@ namespace OloEngine
 		
 		OLO_CORE_INFO("Renderer3D shutdown complete.");
 	}
+
 	void Renderer3D::BeginScene(const PerspectiveCamera& camera)
 	{
 		OLO_PROFILE_FUNCTION();
@@ -97,6 +100,9 @@ namespace OloEngine
 			OLO_CORE_ERROR("Renderer3D::BeginScene: ScenePass is null!");
 			return;
 		}
+
+		CommandAllocator* frameAllocator = CommandMemoryManager::GetFrameAllocator();
+		s_Data.ScenePass->GetCommandBucket().SetAllocator(frameAllocator);
 
 		s_Data.ViewMatrix = camera.GetView();
 		s_Data.ProjectionMatrix = camera.GetProjection();
@@ -123,7 +129,7 @@ namespace OloEngine
 		// Reset CommandDispatch state tracking
 		CommandDispatch::ResetState();
 		
-		// Explicitly update light properties UBO just like Renderer3D does in its BeginScene
+		// Explicitly update light properties UBO
 		if (s_Data.LightPropertiesUBO)
 		{
 			// Use a default material for the initial UBO update
@@ -202,6 +208,10 @@ namespace OloEngine
         
 		// Execute the render graph (which will execute all passes in order)
 		s_Data.RGraph->Execute();
+
+		CommandAllocator* allocator = s_Data.ScenePass->GetCommandBucket().GetAllocator();
+		CommandMemoryManager::ReturnAllocator(allocator);
+		s_Data.ScenePass->GetCommandBucket().SetAllocator(nullptr);
 	}
 
 	void Renderer3D::SetLight(const Light& light)
@@ -287,6 +297,7 @@ namespace OloEngine
 			OLO_CORE_ERROR("Renderer3D::DrawMesh: ScenePass is null!");
 			return nullptr;
 		}
+		
 		s_Data.Stats.TotalMeshes++;
 		if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
 		{
@@ -308,6 +319,7 @@ namespace OloEngine
 			return nullptr;
 		}
 		auto* cmd = s_Data.ScenePass->GetCommandBucket().CreateDrawCall<DrawMeshCommand>();
+		cmd->header.type = CommandType::DrawMesh;
 		cmd->mesh = mesh;
 		cmd->vertexArray = mesh->GetVertexArray();
 		cmd->indexCount = mesh->GetIndexCount();
@@ -351,6 +363,7 @@ namespace OloEngine
 				return nullptr;
 		}
 		auto* cmd = s_Data.ScenePass->GetCommandBucket().CreateDrawCall<DrawQuadCommand>();
+		cmd->header.type = CommandType::DrawQuad;
 		cmd->transform = glm::mat4(modelMatrix);
 		cmd->texture = texture;
 		cmd->shader = s_Data.QuadShader;
@@ -373,16 +386,17 @@ namespace OloEngine
 			OLO_CORE_WARN("Renderer3D::DrawMeshInstanced: No transforms provided");
 			return nullptr;
 		}
-		s_Data.Stats.TotalMeshes += transforms.size();
+		s_Data.Stats.TotalMeshes += static_cast<u32>(transforms.size());
 		if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
 		{
 			if (!IsVisibleInFrustum(mesh, transforms[0]))
 			{
-				s_Data.Stats.CulledMeshes += transforms.size();
+				s_Data.Stats.CulledMeshes += static_cast<u32>(transforms.size());
 				return nullptr;
 			}
 		}
 		auto* cmd = s_Data.ScenePass->GetCommandBucket().CreateDrawCall<DrawMeshInstancedCommand>();
+		cmd->header.type = CommandType::DrawMeshInstanced;
 		cmd->mesh = mesh;
 		cmd->vertexArray = mesh->GetVertexArray();
 		cmd->indexCount = mesh->GetIndexCount();
@@ -410,6 +424,7 @@ namespace OloEngine
 			return nullptr;
 		}
 		auto* cmd = s_Data.ScenePass->GetCommandBucket().CreateDrawCall<DrawMeshCommand>();
+		cmd->header.type = CommandType::DrawMesh;
 		cmd->mesh = s_Data.CubeMesh;
 		cmd->vertexArray = s_Data.CubeMesh->GetVertexArray();
 		cmd->indexCount = s_Data.CubeMesh->GetIndexCount();
@@ -430,23 +445,6 @@ namespace OloEngine
 	DrawMeshCommand* Renderer3D::DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic)
 	{
 		return DrawMesh(s_Data.CubeMesh, modelMatrix, material, isStatic);
-	}
-
-	void Renderer3D::SubmitDrawCall(void* drawCall)
-	{
-		OLO_PROFILE_FUNCTION();
-
-		if (!s_Data.ScenePass)
-		{
-			OLO_CORE_ERROR("Renderer3D::SubmitDrawCall: ScenePass is null!");
-			return;
-		}
-
-		PacketMetadata metadata;
-		metadata.executionOrder = s_Data.CommandCounter++;
-		// Optionally set metadata.sortKey or other fields here if needed
-
-		s_Data.ScenePass->SubmitCommand(drawCall, metadata);
 	}
 
 	void Renderer3D::UpdateCameraMatricesUBO(const glm::mat4& view, const glm::mat4& projection)

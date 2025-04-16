@@ -136,6 +136,9 @@ namespace OloEngine
 			AddCommand(packet);
 		}
 
+		void SetAllocator(CommandAllocator* allocator) { m_Allocator = allocator; }
+		CommandAllocator* GetAllocator() const { return m_Allocator; }
+
 	private:
 		// Transform buffer for instanced rendering
 		class InstancedTransformBuffer
