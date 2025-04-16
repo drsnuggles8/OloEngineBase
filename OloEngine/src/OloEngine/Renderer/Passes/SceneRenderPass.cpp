@@ -58,16 +58,9 @@ namespace OloEngine
         rendererAPI.SetCullFace(GL_BACK);
         rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         
-        // Execute all commands in the bucket
-        if (m_Allocator)
-        {
-            m_CommandBucket.SortCommands();
-            m_CommandBucket.Execute(rendererAPI);
-        }
-        else
-        {
-            OLO_CORE_WARN("SceneRenderPass::Execute: No command allocator available");
-        }
+		//m_CommandBucket.SortCommands();
+		m_CommandBucket.Execute(rendererAPI);
+
 
         m_Target->Unbind();
     }

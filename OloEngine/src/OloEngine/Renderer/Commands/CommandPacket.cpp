@@ -52,6 +52,8 @@ namespace OloEngine
 	
 	void CommandPacket::Execute(RendererAPI& rendererAPI) const
     {
+		OLO_PROFILE_FUNCTION();
+
         if (m_CommandSize > 0)
         {
             if (m_DispatchFn)
