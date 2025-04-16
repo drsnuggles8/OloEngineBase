@@ -872,7 +872,9 @@ namespace OloEngine
 		
 		// Draw the instanced mesh
 		api.DrawIndexedInstanced(cmd->vertexArray, indexCount, instanceCount);
-	}	    void CommandDispatch::DrawQuad(const void* data, RendererAPI& api)
+	}	   
+	
+	void CommandDispatch::DrawQuad(const void* data, RendererAPI& api)
 	{
 		OLO_PROFILE_FUNCTION();
 		
