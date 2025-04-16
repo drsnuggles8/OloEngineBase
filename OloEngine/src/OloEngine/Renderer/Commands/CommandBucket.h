@@ -45,16 +45,9 @@ namespace OloEngine
     		// TODO: Restore this check when implementing a proper resource manager with handles    
 			// static_assert(std::is_trivially_copyable<T>::value && std::is_standard_layout<T>::value, 
 			// 	"Command data must be trivially copyable and have standard layout");
-
-			if (!allocator) // Now this check is valid
-			{
-				OLO_CORE_ERROR("CommandBucket::Submit: No allocator provided");
-				return nullptr;
-			}
-
 			std::lock_guard<std::mutex> lock(m_Mutex);
 
-			CommandPacket* packet = allocator->CreateCommandPacket(commandData, metadata); // Use -> instead of .
+			CommandPacket* packet = allocator->CreateCommandPacket(commandData, metadata);
 			if (packet)
 			{
 				// The rest of your code remains the same
@@ -117,7 +110,6 @@ namespace OloEngine
 		// Get command count
 		sizet GetCommandCount() const { return m_CommandCount; }
 
-		// Templated draw call creation (builder pattern)
 		template<typename T>
 		T* CreateDrawCall()
 		{

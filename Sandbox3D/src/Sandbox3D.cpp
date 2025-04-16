@@ -148,12 +148,6 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 
 		OloEngine::Renderer3D::SetLight(m_Light);
 	}
-	// Render setup
-	{
-		OLO_PROFILE_SCOPE("Renderer Prep");
-		OloEngine::Renderer3D::SetClearColor({ 0.1f, 0.1f, 0.1f, 1 });
-		OloEngine::Renderer3D::Clear();
-	}
 
 	{
 		OLO_PROFILE_SCOPE("Renderer Draw");
@@ -258,7 +252,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 				silverCubeMatrix = glm::translate(silverCubeMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
 				silverCubeMatrix = glm::rotate(silverCubeMatrix, glm::radians(m_RotationAngleY * 1.5f), glm::vec3(0.0f, 1.0f, 0.0f));
 				auto* cmd = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, silverCubeMatrix, m_SilverMaterial);
-                if (cmd) OloEngine::Renderer3D::SubmitDrawCall(cmd);
+				if (cmd) OloEngine::Renderer3D::SubmitDrawCall(cmd);
 			}
 
 			// Draw left chrome cube
@@ -276,7 +270,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 			{
 				auto modelMatrix = glm::mat4(1.0f);
 				auto* cmd = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, modelMatrix, m_GoldMaterial);
-				if (cmd) OloEngine::Renderer3D::SubmitDrawCall(cmd);
+				OloEngine::Renderer3D::SubmitDrawCall(cmd);
 			}
 
 			// Draw right silver sphere
@@ -284,7 +278,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 				auto silverSphereMatrix = glm::mat4(1.0f);
 				silverSphereMatrix = glm::translate(silverSphereMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
 				auto* cmd = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, silverSphereMatrix, m_SilverMaterial);
-				if (cmd) OloEngine::Renderer3D::SubmitDrawCall(cmd);
+				OloEngine::Renderer3D::SubmitDrawCall(cmd);
 			}
 
 			// Draw left chrome sphere
@@ -292,7 +286,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 				auto chromeSphereMatrix = glm::mat4(1.0f);
 				chromeSphereMatrix = glm::translate(chromeSphereMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
 				auto* cmd = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, chromeSphereMatrix, m_ChromeMaterial);
-				if (cmd) OloEngine::Renderer3D::SubmitDrawCall(cmd);
+				OloEngine::Renderer3D::SubmitDrawCall(cmd);
 			}
 			break;
 
@@ -303,14 +297,14 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 				auto silverSphereMatrix = glm::mat4(1.0f);
 				silverSphereMatrix = glm::translate(silverSphereMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
 				auto* cmd = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, silverSphereMatrix, m_SilverMaterial);
-				if (cmd) OloEngine::Renderer3D::SubmitDrawCall(cmd);
+				OloEngine::Renderer3D::SubmitDrawCall(cmd);
 
 				// Draw left chrome cube
 				auto chromeCubeMatrix = glm::mat4(1.0f);
 				chromeCubeMatrix = glm::translate(chromeCubeMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
 				chromeCubeMatrix = glm::rotate(chromeCubeMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
 				auto* cmdChrome = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, chromeCubeMatrix, m_ChromeMaterial);
-				if (cmdChrome) OloEngine::Renderer3D::SubmitDrawCall(cmdChrome);
+				OloEngine::Renderer3D::SubmitDrawCall(cmdChrome);
 			}
 			break;
 		}
@@ -333,7 +327,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 			lightCubeModelMatrix = glm::translate(lightCubeModelMatrix, m_Light.Position);
 			lightCubeModelMatrix = glm::scale(lightCubeModelMatrix, glm::vec3(0.2f));
 			auto* cmdLightCube = OloEngine::Renderer3D::DrawLightCube(lightCubeModelMatrix);
-			if (cmdLightCube) OloEngine::Renderer3D::SubmitDrawCall(cmdLightCube);
+			OloEngine::Renderer3D::SubmitDrawCall(cmdLightCube);
 		}
 
 		// Draw our state test objects to demonstrate the new state system
@@ -732,10 +726,7 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
         markerMaterial.Specular = glm::vec3(1.0f);
         markerMaterial.Shininess = 32.0f;
         auto* cmd = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, markerMatrix, markerMaterial);
-        if (cmd)
-        {
-            OloEngine::Renderer3D::SubmitDrawCall(cmd);
-        }
+        if (cmd) OloEngine::Renderer3D::SubmitDrawCall(cmd);
     }
     switch (m_StateTestMode)
     {
@@ -752,12 +743,13 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
                 cubeMaterial.Specular = glm::vec3(0.5f);
                 cubeMaterial.Shininess = 32.0f;
                 auto* cmd = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, cubeMatrix, cubeMaterial);
-                if (cmd) {
-                    // Set wireframe state per draw call
-                    cmd->renderState->PolygonMode.Mode = GL_LINE;
-                    cmd->renderState->LineWidth.Width = 2.0f + i;
-                    OloEngine::Renderer3D::SubmitDrawCall(cmd);
-                }
+				if (cmd)
+				{
+					cmd->renderState->PolygonMode.Mode = GL_LINE;
+					cmd->renderState->LineWidth.Width = 2.0f + i;
+					OloEngine::Renderer3D::SubmitDrawCall(cmd);
+				}
+                
             }
             break;
         }

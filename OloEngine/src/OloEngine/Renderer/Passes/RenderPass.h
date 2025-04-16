@@ -48,14 +48,9 @@ namespace OloEngine
         }
 
         template<typename T>
-        CommandPacket* SubmitCommand(const T& commandData, const PacketMetadata& metadata)
+        CommandPacket* SubmitCommand(const T& commandData)
         {
-            if (!m_Allocator)
-            {
-                OLO_CORE_ERROR("RenderPass::SubmitCommand: No allocator available!");
-                return nullptr;
-            }
-            return m_CommandBucket.Submit(commandData, metadata, m_Allocator);
+            return m_CommandBucket.Submit(commandData, PacketMetadata{}, m_Allocator);
         }
 		
         CommandBucket& GetCommandBucket() { return m_CommandBucket; }
