@@ -237,94 +237,74 @@ namespace OloEngine
     }
 
     // Array of dispatch functions indexed by CommandType
-    static CommandDispatchFn s_DispatchTable[static_cast<size_t>(CommandType::SetMultisampling) + 1] = { nullptr };
+    static CommandDispatchFn s_DispatchTable[static_cast<sizet>(CommandType::SetMultisampling) + 1] = { nullptr };
+
       // Initialize all command dispatch functions
     void CommandDispatch::Initialize()
     {
         OLO_PROFILE_FUNCTION();
-        OLO_CORE_INFO("Initializing CommandDispatch system");
+        OLO_CORE_INFO("Initializing CommandDispatch system.");
 
-		// Initialize the state tracking and statistics
 		s_Data.CurrentBoundShaderID = 0;
 		std::fill(s_Data.BoundTextureIDs.begin(), s_Data.BoundTextureIDs.end(), 0);
 		s_Data.Stats.Reset();
         
-        // Clear the dispatch table first to ensure all entries are nullptr
-        for (size_t i = 0; i < sizeof(s_DispatchTable) / sizeof(CommandDispatchFn); ++i)
-        {
-            s_DispatchTable[i] = nullptr;
-        }
+       	std::ranges::fill(s_DispatchTable, nullptr);
         
         // State management dispatch functions
-        s_DispatchTable[static_cast<size_t>(CommandType::SetViewport)] = CommandDispatch::SetViewport;
-        s_DispatchTable[static_cast<size_t>(CommandType::SetClearColor)] = CommandDispatch::SetClearColor;
-        s_DispatchTable[static_cast<size_t>(CommandType::Clear)] = CommandDispatch::Clear;
-        s_DispatchTable[static_cast<size_t>(CommandType::ClearStencil)] = CommandDispatch::ClearStencil;
-        s_DispatchTable[static_cast<size_t>(CommandType::SetBlendState)] = CommandDispatch::SetBlendState;
-        s_DispatchTable[static_cast<size_t>(CommandType::SetBlendFunc)] = CommandDispatch::SetBlendFunc;
-        s_DispatchTable[static_cast<size_t>(CommandType::SetBlendEquation)] = CommandDispatch::SetBlendEquation;
-        s_DispatchTable[static_cast<size_t>(CommandType::SetDepthTest)] = CommandDispatch::SetDepthTest;
-        s_DispatchTable[static_cast<size_t>(CommandType::SetDepthMask)] = CommandDispatch::SetDepthMask;
-        s_DispatchTable[static_cast<size_t>(CommandType::SetDepthFunc)] = CommandDispatch::SetDepthFunc;
-        s_DispatchTable[static_cast<size_t>(CommandType::SetStencilTest)] = CommandDispatch::SetStencilTest;
-        s_DispatchTable[static_cast<size_t>(CommandType::SetStencilFunc)] = CommandDispatch::SetStencilFunc;
-        s_DispatchTable[static_cast<size_t>(CommandType::SetStencilMask)] = CommandDispatch::SetStencilMask;
-        s_DispatchTable[static_cast<size_t>(CommandType::SetStencilOp)] = CommandDispatch::SetStencilOp;
-        s_DispatchTable[static_cast<size_t>(CommandType::SetCulling)] = CommandDispatch::SetCulling;
-        s_DispatchTable[static_cast<size_t>(CommandType::SetCullFace)] = CommandDispatch::SetCullFace;
-        s_DispatchTable[static_cast<size_t>(CommandType::SetLineWidth)] = CommandDispatch::SetLineWidth;
-        s_DispatchTable[static_cast<size_t>(CommandType::SetPolygonMode)] = CommandDispatch::SetPolygonMode;
-        s_DispatchTable[static_cast<size_t>(CommandType::SetPolygonOffset)] = CommandDispatch::SetPolygonOffset;
-        s_DispatchTable[static_cast<size_t>(CommandType::SetScissorTest)] = CommandDispatch::SetScissorTest;
-        s_DispatchTable[static_cast<size_t>(CommandType::SetScissorBox)] = CommandDispatch::SetScissorBox;
-        s_DispatchTable[static_cast<size_t>(CommandType::SetColorMask)] = CommandDispatch::SetColorMask;
-        s_DispatchTable[static_cast<size_t>(CommandType::SetMultisampling)] = CommandDispatch::SetMultisampling;
+        s_DispatchTable[static_cast<sizet>(CommandType::SetViewport)] = CommandDispatch::SetViewport;
+        s_DispatchTable[static_cast<sizet>(CommandType::SetClearColor)] = CommandDispatch::SetClearColor;
+        s_DispatchTable[static_cast<sizet>(CommandType::Clear)] = CommandDispatch::Clear;
+        s_DispatchTable[static_cast<sizet>(CommandType::ClearStencil)] = CommandDispatch::ClearStencil;
+        s_DispatchTable[static_cast<sizet>(CommandType::SetBlendState)] = CommandDispatch::SetBlendState;
+        s_DispatchTable[static_cast<sizet>(CommandType::SetBlendFunc)] = CommandDispatch::SetBlendFunc;
+        s_DispatchTable[static_cast<sizet>(CommandType::SetBlendEquation)] = CommandDispatch::SetBlendEquation;
+        s_DispatchTable[static_cast<sizet>(CommandType::SetDepthTest)] = CommandDispatch::SetDepthTest;
+        s_DispatchTable[static_cast<sizet>(CommandType::SetDepthMask)] = CommandDispatch::SetDepthMask;
+        s_DispatchTable[static_cast<sizet>(CommandType::SetDepthFunc)] = CommandDispatch::SetDepthFunc;
+        s_DispatchTable[static_cast<sizet>(CommandType::SetStencilTest)] = CommandDispatch::SetStencilTest;
+        s_DispatchTable[static_cast<sizet>(CommandType::SetStencilFunc)] = CommandDispatch::SetStencilFunc;
+        s_DispatchTable[static_cast<sizet>(CommandType::SetStencilMask)] = CommandDispatch::SetStencilMask;
+        s_DispatchTable[static_cast<sizet>(CommandType::SetStencilOp)] = CommandDispatch::SetStencilOp;
+        s_DispatchTable[static_cast<sizet>(CommandType::SetCulling)] = CommandDispatch::SetCulling;
+        s_DispatchTable[static_cast<sizet>(CommandType::SetCullFace)] = CommandDispatch::SetCullFace;
+        s_DispatchTable[static_cast<sizet>(CommandType::SetLineWidth)] = CommandDispatch::SetLineWidth;
+        s_DispatchTable[static_cast<sizet>(CommandType::SetPolygonMode)] = CommandDispatch::SetPolygonMode;
+        s_DispatchTable[static_cast<sizet>(CommandType::SetPolygonOffset)] = CommandDispatch::SetPolygonOffset;
+        s_DispatchTable[static_cast<sizet>(CommandType::SetScissorTest)] = CommandDispatch::SetScissorTest;
+        s_DispatchTable[static_cast<sizet>(CommandType::SetScissorBox)] = CommandDispatch::SetScissorBox;
+        s_DispatchTable[static_cast<sizet>(CommandType::SetColorMask)] = CommandDispatch::SetColorMask;
+        s_DispatchTable[static_cast<sizet>(CommandType::SetMultisampling)] = CommandDispatch::SetMultisampling;
         
         // Draw commands dispatch functions
-        s_DispatchTable[static_cast<size_t>(CommandType::BindDefaultFramebuffer)] = CommandDispatch::BindDefaultFramebuffer;
-        s_DispatchTable[static_cast<size_t>(CommandType::BindTexture)] = CommandDispatch::BindTexture;
-        s_DispatchTable[static_cast<size_t>(CommandType::DrawIndexed)] = CommandDispatch::DrawIndexed;
-        s_DispatchTable[static_cast<size_t>(CommandType::DrawIndexedInstanced)] = CommandDispatch::DrawIndexedInstanced;
-        s_DispatchTable[static_cast<size_t>(CommandType::DrawArrays)] = CommandDispatch::DrawArrays;
-        s_DispatchTable[static_cast<size_t>(CommandType::DrawLines)] = CommandDispatch::DrawLines;
+        s_DispatchTable[static_cast<sizet>(CommandType::BindDefaultFramebuffer)] = CommandDispatch::BindDefaultFramebuffer;
+        s_DispatchTable[static_cast<sizet>(CommandType::BindTexture)] = CommandDispatch::BindTexture;
+        s_DispatchTable[static_cast<sizet>(CommandType::DrawIndexed)] = CommandDispatch::DrawIndexed;
+        s_DispatchTable[static_cast<sizet>(CommandType::DrawIndexedInstanced)] = CommandDispatch::DrawIndexedInstanced;
+        s_DispatchTable[static_cast<sizet>(CommandType::DrawArrays)] = CommandDispatch::DrawArrays;
+        s_DispatchTable[static_cast<sizet>(CommandType::DrawLines)] = CommandDispatch::DrawLines;
         
-        // Higher-level commands - pay special attention to these as they are causing errors
-        OLO_CORE_INFO("Registering DrawMesh at index {}", static_cast<size_t>(CommandType::DrawMesh));
-        s_DispatchTable[static_cast<size_t>(CommandType::DrawMesh)] = CommandDispatch::DrawMesh;
+        // Higher-level commands
+        OLO_CORE_INFO("Registering DrawMesh at index {}", static_cast<sizet>(CommandType::DrawMesh));
+        s_DispatchTable[static_cast<sizet>(CommandType::DrawMesh)] = CommandDispatch::DrawMesh;        
+        OLO_CORE_INFO("Registering DrawMeshInstanced at index {}", static_cast<sizet>(CommandType::DrawMeshInstanced));
+        s_DispatchTable[static_cast<sizet>(CommandType::DrawMeshInstanced)] = CommandDispatch::DrawMeshInstanced;        
+        OLO_CORE_INFO("Registering DrawQuad at index {}", static_cast<sizet>(CommandType::DrawQuad));
+        s_DispatchTable[static_cast<sizet>(CommandType::DrawQuad)] = CommandDispatch::DrawQuad;
         
-        OLO_CORE_INFO("Registering DrawMeshInstanced at index {}", static_cast<size_t>(CommandType::DrawMeshInstanced));
-        s_DispatchTable[static_cast<size_t>(CommandType::DrawMeshInstanced)] = CommandDispatch::DrawMeshInstanced;
-        
-        OLO_CORE_INFO("Registering DrawQuad at index {}", static_cast<size_t>(CommandType::DrawQuad));
-        s_DispatchTable[static_cast<size_t>(CommandType::DrawQuad)] = CommandDispatch::DrawQuad;
-        
-        // Verify that the problematic entries have been set properly
-        if (s_DispatchTable[static_cast<size_t>(CommandType::DrawMesh)] == nullptr) {
-            OLO_CORE_ERROR("Failed to register DrawMesh dispatch function!");
-        }
-        
-        if (s_DispatchTable[static_cast<size_t>(CommandType::DrawQuad)] == nullptr) {
-            OLO_CORE_ERROR("Failed to register DrawQuad dispatch function!");
-        }
-        
-        // Log the full dispatch table for debugging
-        for (size_t i = 0; i < sizeof(s_DispatchTable) / sizeof(CommandDispatchFn); ++i) {
-            OLO_CORE_TRACE("Dispatch table[{}] = {}", i, s_DispatchTable[i] ? "Set" : "nullptr");
-        }
-        
-        OLO_CORE_INFO("CommandDispatch system initialized with {} dispatch functions", static_cast<size_t>(CommandType::SetMultisampling) + 1);
+        OLO_CORE_INFO("CommandDispatch system initialized with {} dispatch functions", static_cast<sizet>(CommandType::SetMultisampling) + 1);
     }
     
     // Get the dispatch function for a command type
     CommandDispatchFn CommandDispatch::GetDispatchFunction(CommandType type)
     {
-        if (type == CommandType::Invalid || static_cast<size_t>(type) >= sizeof(s_DispatchTable) / sizeof(CommandDispatchFn))
+        if (type == CommandType::Invalid || static_cast<sizet>(type) >= sizeof(s_DispatchTable) / sizeof(CommandDispatchFn))
         {
             OLO_CORE_ERROR("CommandDispatch::GetDispatchFunction: Invalid command type {}", static_cast<int>(type));
             return nullptr;
         }
         
-        return s_DispatchTable[static_cast<size_t>(type)];
+        return s_DispatchTable[static_cast<sizet>(type)];
     }
     
     // State management dispatch functions
@@ -548,28 +528,50 @@ namespace OloEngine
     
     // Higher-level commands
     void CommandDispatch::DrawMesh(const void* data, RendererAPI& api)
-	{
-		OLO_PROFILE_FUNCTION();
+    {
+        OLO_PROFILE_FUNCTION();
+        auto const* cmd = static_cast<const DrawMeshCommand*>(data);
+        if (!cmd->vertexArray || !cmd->shader)
+        {
+            OLO_CORE_ERROR("CommandDispatch::DrawMesh: Invalid vertex array or shader");
+            return;
+        }
+
+        if (cmd->renderState)
+        {
+            const RenderState& state = *cmd->renderState;
+            api.SetBlendState(state.Blend.Enabled);
+            api.SetBlendFunc(state.Blend.SrcFactor, state.Blend.DstFactor);
+            api.SetBlendEquation(state.Blend.Equation);
+            api.SetDepthTest(state.Depth.TestEnabled);
+            api.SetDepthFunc(state.Depth.Function);
+            api.SetDepthMask(state.Depth.WriteMask);
+            if (state.Stencil.Enabled)
+                api.EnableStencilTest();
+            else
+                api.DisableStencilTest();
+            api.SetStencilFunc(state.Stencil.Function, state.Stencil.Reference, state.Stencil.ReadMask);
+            api.SetStencilMask(state.Stencil.WriteMask);
+            api.SetStencilOp(state.Stencil.StencilFail, state.Stencil.DepthFail, state.Stencil.DepthPass);
+            if (state.Culling.Enabled)
+                api.EnableCulling();
+            else
+                api.DisableCulling();
+            api.SetCullFace(state.Culling.Face);
+            api.SetLineWidth(state.LineWidth.Width);
+			api.SetPolygonMode(state.PolygonMode.Face, state.PolygonMode.Mode);
+
+            if (state.Scissor.Enabled)
+                api.EnableScissorTest();
+            else
+                api.DisableScissorTest();
+            api.SetScissorBox(state.Scissor.X, state.Scissor.Y, state.Scissor.Width, state.Scissor.Height);
+            api.SetColorMask(state.ColorMask.Red, state.ColorMask.Green, state.ColorMask.Blue, state.ColorMask.Alpha);
+            api.SetPolygonOffset(state.PolygonOffset.Enabled ? state.PolygonOffset.Factor : 0.0f, state.PolygonOffset.Enabled ? state.PolygonOffset.Units : 0.0f);
+            if (state.Multisampling.Enabled) api.EnableMultisampling(); else api.DisableMultisampling();
+        }
 		
-		auto const* cmd = static_cast<const DrawMeshCommand*>(data);
-		
-		if (!cmd->vertexArray || !cmd->shader)
-		{
-			OLO_CORE_ERROR("CommandDispatch::DrawMesh: Invalid vertex array or shader");
-			return;
-		}
-		
-		// Ensure proper depth and state configuration for mesh rendering
-		api.SetDepthTest(true);
-		api.SetDepthFunc(GL_LESS);
-		api.SetDepthMask(true);
-		
-		// Reset any potential polygon mode changes
-		api.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-		
-		// Optimize shader binding - only bind if different from currently bound
-		u32 shaderID = cmd->shader->GetRendererID();
-		if (s_Data.CurrentBoundShaderID != shaderID)
+		if (u32 shaderID = cmd->shader->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
 		{
 			cmd->shader->Bind();
 			s_Data.CurrentBoundShaderID = shaderID;
@@ -724,20 +726,49 @@ namespace OloEngine
 	}
     
     void CommandDispatch::DrawMeshInstanced(const void* data, RendererAPI& api)
-	{
-		OLO_PROFILE_FUNCTION();
-		
-		auto const* cmd = static_cast<const DrawMeshInstancedCommand*>(data);
-		
-		if (!cmd->vertexArray || !cmd->shader)
-		{
-			OLO_CORE_ERROR("CommandDispatch::DrawMeshInstanced: Invalid vertex array or shader");
-			return;
-		}
-		
-		// Optimize shader binding - only bind if different from currently bound
-		u32 shaderID = cmd->shader->GetRendererID();
-		if (s_Data.CurrentBoundShaderID != shaderID)
+    {
+        OLO_PROFILE_FUNCTION();
+        auto const* cmd = static_cast<const DrawMeshInstancedCommand*>(data);
+        if (!cmd->vertexArray || !cmd->shader)
+        {
+            OLO_CORE_ERROR("CommandDispatch::DrawMeshInstanced: Invalid vertex array or shader");
+            return;
+        }
+
+        if (cmd->renderState)
+        {
+            const RenderState& state = *cmd->renderState;
+            api.SetBlendState(state.Blend.Enabled);
+            api.SetBlendFunc(state.Blend.SrcFactor, state.Blend.DstFactor);
+            api.SetBlendEquation(state.Blend.Equation);
+            api.SetDepthTest(state.Depth.TestEnabled);
+            api.SetDepthFunc(state.Depth.Function);
+            api.SetDepthMask(state.Depth.WriteMask);
+            if (state.Stencil.Enabled)
+                api.EnableStencilTest();
+            else
+                api.DisableStencilTest();
+            api.SetStencilFunc(state.Stencil.Function, state.Stencil.Reference, state.Stencil.ReadMask);
+            api.SetStencilMask(state.Stencil.WriteMask);
+            api.SetStencilOp(state.Stencil.StencilFail, state.Stencil.DepthFail, state.Stencil.DepthPass);
+            if (state.Culling.Enabled)
+                api.EnableCulling();
+            else
+                api.DisableCulling();
+            api.SetCullFace(state.Culling.Face);
+            api.SetLineWidth(state.LineWidth.Width);
+            api.SetPolygonMode(state.PolygonMode.Face, state.PolygonMode.Mode);
+            if (state.Scissor.Enabled)
+                api.EnableScissorTest();
+            else
+                api.DisableScissorTest();
+            api.SetScissorBox(state.Scissor.X, state.Scissor.Y, state.Scissor.Width, state.Scissor.Height);
+            api.SetColorMask(state.ColorMask.Red, state.ColorMask.Green, state.ColorMask.Blue, state.ColorMask.Alpha);
+            api.SetPolygonOffset(state.PolygonOffset.Enabled ? state.PolygonOffset.Factor : 0.0f, state.PolygonOffset.Enabled ? state.PolygonOffset.Units : 0.0f);
+            if (state.Multisampling.Enabled) api.EnableMultisampling(); else api.DisableMultisampling();
+        }
+        	
+		if (u32 shaderID = cmd->shader->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
 		{
 			cmd->shader->Bind();
 			s_Data.CurrentBoundShaderID = shaderID;
@@ -751,7 +782,7 @@ namespace OloEngine
 		// For instanced rendering, we'll set model matrices as shader uniforms
 		// A proper implementation would use an instance buffer or SSBO for better performance
 		// This is a simplified approach for now
-		const size_t maxInstances = 100; // Limit for uniform-based instancing
+		const sizet maxInstances = 100; // Limit for uniform-based instancing
 		if (cmd->transforms.size() > maxInstances)
 		{
 			OLO_CORE_WARN("CommandDispatch::DrawMeshInstanced: Too many instances ({}). Only first {} will be rendered.",
@@ -759,8 +790,8 @@ namespace OloEngine
 		}
 		
 		// Set instance transforms (limited approach - a better solution would use SSBOs or instance buffers)
-		size_t instanceCount = std::min(cmd->transforms.size(), maxInstances);
-		for (size_t i = 0; i < instanceCount; i++)
+		sizet instanceCount = std::min(cmd->transforms.size(), maxInstances);
+		for (sizet i = 0; i < instanceCount; i++)
 		{
 			std::string uniformName = "u_ModelMatrices[" + std::to_string(i) + "]";
 			cmd->shader->SetMat4(uniformName, cmd->transforms[i]);
@@ -807,8 +838,10 @@ namespace OloEngine
 		s_Data.Stats.DrawCalls++;
 		
 		// Draw the instanced mesh
-		api.DrawIndexedInstanced(cmd->vertexArray, indexCount, instanceCount);
-	}	    void CommandDispatch::DrawQuad(const void* data, RendererAPI& api)
+		api.DrawIndexedInstanced(cmd->vertexArray, indexCount, static_cast<u32>(instanceCount));
+	}	   
+	
+	void CommandDispatch::DrawQuad(const void* data, RendererAPI& api)
 	{
 		OLO_PROFILE_FUNCTION();
 		
@@ -825,25 +858,47 @@ namespace OloEngine
 			OLO_CORE_ERROR("CommandDispatch::DrawQuad: Missing texture for quad");
 			return;
 		}
+
+		if (cmd->renderState)
+		{
+			const RenderState& state = *cmd->renderState;
+			api.SetBlendState(state.Blend.Enabled);
+			api.SetBlendFunc(state.Blend.SrcFactor, state.Blend.DstFactor);
+			api.SetBlendEquation(state.Blend.Equation);
+			api.SetDepthTest(state.Depth.TestEnabled);
+			api.SetDepthFunc(state.Depth.Function);
+			api.SetDepthMask(state.Depth.WriteMask);
+			if (state.Stencil.Enabled)
+				api.EnableStencilTest();
+			else
+				api.DisableStencilTest();
+			api.SetStencilFunc(state.Stencil.Function, state.Stencil.Reference, state.Stencil.ReadMask);
+			api.SetStencilMask(state.Stencil.WriteMask);
+			api.SetStencilOp(state.Stencil.StencilFail, state.Stencil.DepthFail, state.Stencil.DepthPass);
+			if (state.Culling.Enabled)
+				api.EnableCulling();
+			else
+				api.DisableCulling();
+			api.SetCullFace(state.Culling.Face);
+			api.SetLineWidth(state.LineWidth.Width);
+			api.SetPolygonMode(state.PolygonMode.Face, state.PolygonMode.Mode);
+			if (state.Scissor.Enabled)
+				api.EnableScissorTest();
+			else
+				api.DisableScissorTest();
+			api.SetScissorBox(state.Scissor.X, state.Scissor.Y, state.Scissor.Width, state.Scissor.Height);
+			api.SetColorMask(state.ColorMask.Red, state.ColorMask.Green, state.ColorMask.Blue, state.ColorMask.Alpha);
+			api.SetPolygonOffset(state.PolygonOffset.Enabled ? state.PolygonOffset.Factor : 0.0f, state.PolygonOffset.Enabled ? state.PolygonOffset.Units : 0.0f);
+			if (state.Multisampling.Enabled) api.EnableMultisampling(); else api.DisableMultisampling();
+		}
 		
-		// Enable blending for transparent textures, matching Renderer3D::RenderQuadInternal
-		api.SetBlendState(true);
-		api.SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		api.SetDepthMask(false);  // Don't write to depth buffer for quads
-		
-		// Reset polygon mode to fill for quads - they shouldn't be in wireframe
-		api.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-		
-		// Optimize shader binding - only bind if different from currently bound
-		u32 shaderID = cmd->shader->GetRendererID();
-		if (s_Data.CurrentBoundShaderID != shaderID)
+		if (u32 shaderID = cmd->shader->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
 		{
 			cmd->shader->Bind();
 			s_Data.CurrentBoundShaderID = shaderID;
 			s_Data.Stats.ShaderBinds++;
 		}
 		
-		// Transform UBO update - WITH CORRECT ORDER OF MATRICES
 		struct TransformMatrices
 		{
 			glm::mat4 ViewProjection;
@@ -874,17 +929,12 @@ namespace OloEngine
 		
 		// Draw the quad with explicit 6 indices (two triangles)
 		api.DrawIndexed(cmd->quadVA, 6);
-		
-		// Reset depth mask and blend func to default values after quad rendering
-		// This matches the behavior in Renderer3D::RenderQuadInternal
-		api.SetDepthMask(true);
-		api.SetBlendFunc(GL_ONE, GL_ZERO);
 	}
 
 	void CommandDispatch::ResetState()
 	{
 		s_Data.CurrentBoundShaderID = 0;
-		std::fill(s_Data.BoundTextureIDs.begin(), s_Data.BoundTextureIDs.end(), 0);
+        std::ranges::fill(s_Data.BoundTextureIDs, 0);
 		s_Data.Stats.Reset();
 	}
 }

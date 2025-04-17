@@ -11,7 +11,6 @@ namespace OloEngine
 	{
 		Renderer2D,
 		Renderer3D,
-		StatelessRenderer3D,
 	};
 
 	class Renderer

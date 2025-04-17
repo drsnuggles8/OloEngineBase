@@ -182,7 +182,6 @@ namespace OloEngine
 		m_IsSorted = true;
 	}
 
-
 	CommandPacket* CommandBucket::ConvertToInstanced(CommandPacket* meshPacket, CommandAllocator& allocator)
 	{
 		OLO_PROFILE_FUNCTION();
@@ -403,10 +402,7 @@ namespace OloEngine
 				m_Stats.StateChanges++;
 			}
 
-			// Execute the command using the RendererAPI directly
 			current->Execute(rendererAPI);
-
-			// Move to the next command
 			current = current->GetNext();
 		}
 	}

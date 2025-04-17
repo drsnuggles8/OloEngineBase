@@ -19,8 +19,7 @@ namespace OloEngine
 		enum class RendererType
 		{
 			None = 0,
-			Renderer3D,
-			StatelessRenderer3D
+			Renderer3D
 		};
 	public:
 		virtual ~RendererAPI() = default;

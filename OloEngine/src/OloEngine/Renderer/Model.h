@@ -9,6 +9,7 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
+#include "OloEngine/Renderer/Renderer3D.h" // For DrawMeshCommand
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -25,6 +26,9 @@ namespace OloEngine
 
 		void LoadModel(const std::string& path);
 		void Draw(const glm::mat4& transform, const Material& material) const;
+
+		// New: Collect draw commands for all meshes in the model
+		void GetDrawCommands(const glm::mat4& transform, const Material& material, std::vector<DrawMeshCommand*>& outCommands) const;
 		
 		// Calculate bounding volumes for the entire model
 		void CalculateBounds();

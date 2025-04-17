@@ -45,16 +45,9 @@ namespace OloEngine
     		// TODO: Restore this check when implementing a proper resource manager with handles    
 			// static_assert(std::is_trivially_copyable<T>::value && std::is_standard_layout<T>::value, 
 			// 	"Command data must be trivially copyable and have standard layout");
-
-			if (!allocator) // Now this check is valid
-			{
-				OLO_CORE_ERROR("CommandBucket::Submit: No allocator provided");
-				return nullptr;
-			}
-
 			std::lock_guard<std::mutex> lock(m_Mutex);
 
-			CommandPacket* packet = allocator->CreateCommandPacket(commandData, metadata); // Use -> instead of .
+			CommandPacket* packet = allocator->CreateCommandPacket(commandData, metadata);
 			if (packet)
 			{
 				// The rest of your code remains the same
@@ -80,6 +73,13 @@ namespace OloEngine
 			return packet;
 		}
 
+		template<typename T>
+		T* SubmitAndGetCommandPtr(const T& commandData, const PacketMetadata& metadata = {}, CommandAllocator* allocator = nullptr)
+		{
+			CommandPacket* packet = Submit(commandData, metadata, allocator);
+			if (!packet) return nullptr;
+			return reinterpret_cast<T*>(packet->GetCommandData());
+		}
 
 		// Sort commands for optimal rendering (minimizes state changes)
 		void SortCommands();
@@ -109,6 +109,27 @@ namespace OloEngine
 
 		// Get command count
 		sizet GetCommandCount() const { return m_CommandCount; }
+
+		template<typename T>
+		T* CreateDrawCall()
+		{
+			OLO_CORE_ASSERT(m_Allocator, "CommandBucket::CreateDrawCall: No allocator available!");
+			void* mem = m_Allocator->AllocateCommandMemory(sizeof(T));
+			OLO_CORE_ASSERT(mem, "CommandBucket::CreateDrawCall: Allocation failed!");
+			T* cmd = new (mem) T();
+			return cmd;
+		}
+
+		template<typename T>
+		void SubmitDrawCall(T* cmd, const PacketMetadata& metadata)
+		{
+			OLO_CORE_ASSERT(cmd, "CommandBucket::SubmitDrawCall: Null command pointer!");
+			CommandPacket* packet = m_Allocator->CreateCommandPacket(*cmd, metadata);
+			AddCommand(packet);
+		}
+
+		void SetAllocator(CommandAllocator* allocator) { m_Allocator = allocator; }
+		CommandAllocator* GetAllocator() const { return m_Allocator; }
 
 	private:
 		// Transform buffer for instanced rendering
@@ -198,6 +219,9 @@ namespace OloEngine
 
 		// Statistics
 		Statistics m_Stats;
+
+		// Allocator for command memory (must be set before use)
+		CommandAllocator* m_Allocator = nullptr;
 
 		mutable std::mutex m_Mutex;
 	};

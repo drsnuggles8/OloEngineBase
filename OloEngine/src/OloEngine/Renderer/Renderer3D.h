@@ -6,6 +6,8 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/Frustum.h"
+#include "OloEngine/Renderer/Passes/SceneRenderPass.h"
+#include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Core/Timestep.h"
 
 // Forward declarations
@@ -14,15 +16,15 @@ namespace OloEngine {
     class Texture2D;
     class RenderCommand;
     class UniformBuffer;
-    class CommandSceneRenderPass;
-    class CommandFinalRenderPass;
+    class SceneRenderPass;
+    class FinalRenderPass;
 }
 
 namespace OloEngine
 {
 	class ShaderLibrary;
 
-	class StatelessRenderer3D
+	class Renderer3D
 	{
 	public:
 		struct Statistics
@@ -43,39 +45,12 @@ namespace OloEngine
 		static void BeginScene(const PerspectiveCamera& camera);
 		static void EndScene();
 
-		static void DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
-		static void DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
-		static void DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
-		static void DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true);
-		static void DrawLightCube(const glm::mat4& modelMatrix);
-
-		// State management functions for compatibility with RenderCommand
-		static void SetPolygonMode(unsigned int face, unsigned int mode);
-		static void SetLineWidth(float width);
-		static void EnableBlending();
-		static void DisableBlending();
-		static void SetBlendFunc(unsigned int src, unsigned int dest);
-		static void SetBlendEquation(unsigned int mode);
-		static void SetColorMask(bool red, bool green, bool blue, bool alpha);
-		static void SetDepthMask(bool enabled);
-		static void EnableDepthTest();
-		static void DisableDepthTest();
-		
-		// Stencil operations
-		static void EnableStencilTest();
-		static void DisableStencilTest();
-		static void SetStencilFunc(unsigned int func, int ref, unsigned int mask);
-		static void SetStencilMask(unsigned int mask);
-		static void SetStencilOp(unsigned int sfail, unsigned int dpfail, unsigned int dppass);
-		static void ClearStencil();
-		
-		// Culling operations
-		static void SetCulling(bool enabled);
-		static void SetCullFace(unsigned int face);
-		
-		// Polygon offset operations
-		static void SetPolygonOffset(float factor, float units);
-
+		static DrawMeshCommand* DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
+		static DrawQuadCommand* DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
+		static DrawMeshInstancedCommand* DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true);
+		static DrawMeshCommand* DrawLightCube(const glm::mat4& modelMatrix);
+		static DrawMeshCommand* DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
+	
 		static void SetLight(const Light& light);
 		static void SetViewPosition(const glm::vec3& position);
 		
@@ -96,17 +71,20 @@ namespace OloEngine
 		// Window resize handling
 		static void OnWindowResize(u32 width, u32 height);
 		static const Ref<RenderGraph>& GetRenderGraph() { return s_Data.RGraph; }
-        
-        // Basic rendering methods
-        static void SetClearColor(const glm::vec4& color);
-        static void Clear();
+
+		template<typename T>
+		static void SubmitDrawCall(T* drawCall)
+		{
+			OLO_PROFILE_FUNCTION();
+			s_Data.ScenePass->SubmitCommand(*drawCall); // Pass by value, not pointer
+		}
 
 	private:
 		static void UpdateCameraMatricesUBO(const glm::mat4& view, const glm::mat4& projection);
 		static void SetupRenderGraph(u32 width, u32 height);
 
 	private:
-		struct StatelessRenderer3DData
+		struct Renderer3DData
 		{
 			Ref<Mesh> CubeMesh;
 			Ref<Mesh> QuadMesh;
@@ -135,11 +113,11 @@ namespace OloEngine
 			u32 CommandCounter = 0;
 			
 			Ref<RenderGraph> RGraph;
-			Ref<CommandSceneRenderPass> ScenePass;
-            Ref<CommandFinalRenderPass> FinalPass;
+			Ref<SceneRenderPass> ScenePass;
+            Ref<FinalRenderPass> FinalPass;
 		};
 
-		static StatelessRenderer3DData s_Data;
+		static Renderer3DData s_Data;
 		static ShaderLibrary m_ShaderLibrary;
 	};
 }

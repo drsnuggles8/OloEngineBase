@@ -2,7 +2,7 @@
 
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Model.h"
-#include "OloEngine/Renderer/StatelessRenderer3D.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 
 namespace OloEngine
 {
@@ -204,13 +204,17 @@ namespace OloEngine
 		
 		m_BoundingSphere = BoundingSphere(center, radius);
 	}
-	void Model::Draw(const glm::mat4& transform, const Material& material) const
+
+	void Model::GetDrawCommands(const glm::mat4& transform, const Material& material, std::vector<DrawMeshCommand*>& outCommands) const
 	{
 		OLO_PROFILE_FUNCTION();
-		// Draw all meshes and let the active renderer handle culling
+		outCommands.clear();
+		outCommands.reserve(m_Meshes.size());
 		for (const auto& mesh : m_Meshes)
 		{
-			OloEngine::StatelessRenderer3D::DrawMesh(mesh, transform, material);
+			DrawMeshCommand* cmd = OloEngine::Renderer3D::DrawMesh(mesh, transform, material);
+			if (cmd)
+				outCommands.push_back(cmd);
 		}
 	}
 }

@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/Material.h"
+#include "OloEngine/Renderer/RenderState.h"
 #include <glad/gl.h>
 #include <glm/glm.hpp>
 
@@ -277,20 +278,19 @@ namespace OloEngine
 		Ref<VertexArray> vertexArray; // Store the actual vertex array
 		u32 indexCount;
 		glm::mat4 transform;
-		
 		// Material properties
 		glm::vec3 ambient;
 		glm::vec3 diffuse;
 		glm::vec3 specular;
 		f32 shininess;
 		bool useTextureMaps;
-		
 		// Actual texture references instead of IDs
 		Ref<Texture2D> diffuseMap;
 		Ref<Texture2D> specularMap;
-		
 		// Actual shader instead of ID
 		Ref<Shader> shader;
+		// Per-draw-call render state
+		Ref<RenderState> renderState;
 	};
 
 	struct DrawMeshInstancedCommand
@@ -301,20 +301,19 @@ namespace OloEngine
 		u32 indexCount;
 		u32 instanceCount;
 		std::vector<glm::mat4> transforms; // Store the actual transform data
-		
 		// Material properties (same for all instances)
 		glm::vec3 ambient;
 		glm::vec3 diffuse;
 		glm::vec3 specular;
 		f32 shininess;
 		bool useTextureMaps;
-		
 		// Actual texture references instead of IDs
 		Ref<Texture2D> diffuseMap;
 		Ref<Texture2D> specularMap;
-		
 		// Actual shader instead of ID
 		Ref<Shader> shader;
+		// Per-draw-call render state
+		Ref<RenderState> renderState;
 	};
 
 	struct DrawQuadCommand
@@ -324,6 +323,8 @@ namespace OloEngine
 		Ref<Texture2D> texture;   // Store the actual texture
 		Ref<Shader> shader;       // Store the actual shader
 		Ref<VertexArray> quadVA;  // Store the quad vertex array
+		// Per-draw-call render state
+		Ref<RenderState> renderState;
 	};
 
     // Maximum command size for allocation purposes
