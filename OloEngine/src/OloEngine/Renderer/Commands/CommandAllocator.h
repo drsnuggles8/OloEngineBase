@@ -52,6 +52,25 @@ namespace OloEngine
             
             return packet;
         }
+		
+        template<typename T>
+        CommandPacket* AllocatePacketWithCommand(const PacketMetadata& metadata = {})
+        {
+            constexpr sizet packetSize = sizeof(CommandPacket);
+            constexpr sizet commandSize = sizeof(T);
+            constexpr sizet totalSize = packetSize + commandSize;
+            void* block = AllocateCommandMemory(totalSize);
+            OLO_CORE_ASSERT(block, "CommandAllocator::AllocatePacketWithCommand: Allocation failed!");
+            // Placement-new the packet at the start
+            auto* packet = new (block) CommandPacket();
+            // Placement-new the command immediately after
+            void* commandMem = static_cast<u8*>(block) + packetSize;
+            T* cmd = new (commandMem) T();
+			
+            packet->SetCommandData(cmd, commandSize);
+            packet->SetMetadata(metadata);
+            return packet;
+        }
         
         // Reset the allocator - doesn't free memory, just resets offsets
         void Reset();

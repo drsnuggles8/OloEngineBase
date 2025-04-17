@@ -289,7 +289,7 @@ namespace OloEngine
 		return s_Data.ViewFrustum.IsBoundingBoxVisible(box);
 	}
 
-	DrawMeshCommand* Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic)
+	CommandPacket* Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic)
 	{
 		OLO_PROFILE_FUNCTION();
 		if (!s_Data.ScenePass)
@@ -297,7 +297,6 @@ namespace OloEngine
 			OLO_CORE_ERROR("Renderer3D::DrawMesh: ScenePass is null!");
 			return nullptr;
 		}
-		
 		s_Data.Stats.TotalMeshes++;
 		if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
 		{
@@ -318,7 +317,8 @@ namespace OloEngine
 			OLO_CORE_ERROR("Renderer3D::DrawMesh: No shader available!");
 			return nullptr;
 		}
-		auto* cmd = s_Data.ScenePass->GetCommandBucket().CreateDrawCall<DrawMeshCommand>();
+		CommandPacket* packet = CreateDrawCall<DrawMeshCommand>();
+		auto* cmd = packet->GetCommandData<DrawMeshCommand>();
 		cmd->header.type = CommandType::DrawMesh;
 		cmd->mesh = mesh;
 		cmd->vertexArray = mesh->GetVertexArray();
@@ -332,12 +332,13 @@ namespace OloEngine
 		cmd->diffuseMap = material.DiffuseMap;
 		cmd->specularMap = material.SpecularMap;
 		cmd->shader = shaderToUse;
-		cmd->renderState = CreateRef<RenderState>(); // Default state, user can override
-		// Do NOT submit here; let the caller fill in state and submit
-		return cmd;
+		cmd->renderState = CreateRef<RenderState>();
+		packet->SetCommandType(cmd->header.type);
+		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+		return packet;
 	}
 
-	DrawQuadCommand* Renderer3D::DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture)
+	CommandPacket* Renderer3D::DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture)
 	{
 		OLO_PROFILE_FUNCTION();
 		if (!s_Data.ScenePass)
@@ -362,18 +363,20 @@ namespace OloEngine
 			if (!s_Data.QuadMesh || !s_Data.QuadMesh->GetVertexArray())
 				return nullptr;
 		}
-		auto* cmd = s_Data.ScenePass->GetCommandBucket().CreateDrawCall<DrawQuadCommand>();
+		CommandPacket* packet = CreateDrawCall<DrawQuadCommand>();
+		auto* cmd = packet->GetCommandData<DrawQuadCommand>();
 		cmd->header.type = CommandType::DrawQuad;
 		cmd->transform = glm::mat4(modelMatrix);
 		cmd->texture = texture;
 		cmd->shader = s_Data.QuadShader;
 		cmd->quadVA = s_Data.QuadMesh->GetVertexArray();
-		cmd->renderState = CreateRef<RenderState>(); // Default state, user can override
-		// Do NOT submit here; let the caller fill in state and submit
-		return cmd;
+		cmd->renderState = CreateRef<RenderState>();
+		packet->SetCommandType(cmd->header.type);
+		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+		return packet;
 	}
 
-	DrawMeshInstancedCommand* Renderer3D::DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic)
+	CommandPacket* Renderer3D::DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic)
 	{
 		OLO_PROFILE_FUNCTION();
 		if (!s_Data.ScenePass)
@@ -395,7 +398,10 @@ namespace OloEngine
 				return nullptr;
 			}
 		}
-		auto* cmd = s_Data.ScenePass->GetCommandBucket().CreateDrawCall<DrawMeshInstancedCommand>();
+
+		CommandPacket* packet = CreateDrawCall<DrawMeshInstancedCommand>();
+		auto* cmd = packet->GetCommandData<DrawMeshInstancedCommand>();
+		
 		cmd->header.type = CommandType::DrawMeshInstanced;
 		cmd->mesh = mesh;
 		cmd->vertexArray = mesh->GetVertexArray();
@@ -410,12 +416,13 @@ namespace OloEngine
 		cmd->diffuseMap = material.DiffuseMap;
 		cmd->specularMap = material.SpecularMap;
 		cmd->shader = material.Shader ? material.Shader : s_Data.LightingShader;
-		cmd->renderState = CreateRef<RenderState>(); // Default state, user can override
-		// Do NOT submit here; let the caller fill in state and submit
-		return cmd;
+		cmd->renderState = CreateRef<RenderState>();
+		packet->SetCommandType(cmd->header.type);
+		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+		return packet;
 	}
 
-	DrawMeshCommand* Renderer3D::DrawLightCube(const glm::mat4& modelMatrix)
+	CommandPacket* Renderer3D::DrawLightCube(const glm::mat4& modelMatrix)
 	{
 		OLO_PROFILE_FUNCTION();
 		if (!s_Data.ScenePass)
@@ -423,7 +430,8 @@ namespace OloEngine
 			OLO_CORE_ERROR("Renderer3D::DrawLightCube: ScenePass is null!");
 			return nullptr;
 		}
-		auto* cmd = s_Data.ScenePass->GetCommandBucket().CreateDrawCall<DrawMeshCommand>();
+		CommandPacket* packet = CreateDrawCall<DrawMeshCommand>();
+		auto* cmd = packet->GetCommandData<DrawMeshCommand>();
 		cmd->header.type = CommandType::DrawMesh;
 		cmd->mesh = s_Data.CubeMesh;
 		cmd->vertexArray = s_Data.CubeMesh->GetVertexArray();
@@ -437,12 +445,13 @@ namespace OloEngine
 		cmd->useTextureMaps = false;
 		cmd->diffuseMap = nullptr;
 		cmd->specularMap = nullptr;
-		cmd->renderState = CreateRef<RenderState>(); // Default state, user can override
-		// Do NOT submit here; let the caller fill in state and submit
-		return cmd;
+		cmd->renderState = CreateRef<RenderState>();
+		packet->SetCommandType(cmd->header.type);
+		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+		return packet;
 	}
 
-	DrawMeshCommand* Renderer3D::DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic)
+	CommandPacket* Renderer3D::DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic)
 	{
 		return DrawMesh(s_Data.CubeMesh, modelMatrix, material, isStatic);
 	}

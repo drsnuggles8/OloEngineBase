@@ -162,8 +162,8 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 			planeMaterial.Diffuse = glm::vec3(0.3f);
 			planeMaterial.Specular = glm::vec3(0.2f);
 			planeMaterial.Shininess = 8.0f;
-			auto* cmd = OloEngine::Renderer3D::DrawMesh(m_PlaneMesh, planeMatrix, planeMaterial, true);
-			OloEngine::Renderer3D::SubmitDrawCall(cmd);
+			auto* planePacket = OloEngine::Renderer3D::DrawMesh(m_PlaneMesh, planeMatrix, planeMaterial, true);
+			if (planePacket) OloEngine::Renderer3D::SubmitPacket(planePacket);
 		}
 
 		// Draw a grass quad
@@ -172,8 +172,8 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 			grassMatrix = glm::translate(grassMatrix, glm::vec3(0.0f, 0.5f, -1.0f));
 			// Make it face the camera by rotating around X axis
 			grassMatrix = glm::rotate(grassMatrix, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-			auto* grassCmd = OloEngine::Renderer3D::DrawQuad(grassMatrix, m_GrassTexture);
-			OloEngine::Renderer3D::SubmitDrawCall(grassCmd);
+			auto* grassPacket = OloEngine::Renderer3D::DrawQuad(grassMatrix, m_GrassTexture);
+			if (grassPacket) OloEngine::Renderer3D::SubmitPacket(grassPacket);
 		}
 
 		// Draw backpack model using command-based renderer
@@ -182,12 +182,11 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 			modelMatrix = glm::translate(modelMatrix, glm::vec3(0.0f, 1.0f, -2.0f)); // Raise it up and move it back
 			modelMatrix = glm::scale(modelMatrix, glm::vec3(0.5f)); // Scale down to reasonable size
 			modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
-			std::vector<OloEngine::DrawMeshCommand*> backpackDrawCommands;
+			std::vector<OloEngine::CommandPacket*> backpackDrawCommands;
 			m_BackpackModel->GetDrawCommands(modelMatrix, m_TexturedMaterial, backpackDrawCommands);
-			for (auto* cmd : backpackDrawCommands)
+			for (auto* drawCmd : backpackDrawCommands)
 			{
-				// Optionally configure per-mesh state here
-				OloEngine::Renderer3D::SubmitDrawCall(cmd);
+				OloEngine::Renderer3D::SubmitPacket(drawCmd);
 			}
 		}
 
@@ -197,26 +196,24 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 			modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX), glm::vec3(1.0f, 0.0f, 0.0f));
 			modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
 			// Draw filled mesh (normal)
-			auto* solidCmd = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, m_GoldMaterial);
-			if (solidCmd)
-			{
-				OloEngine::Renderer3D::SubmitDrawCall(solidCmd);
-			}
+			auto* solidPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, m_GoldMaterial);
+			if (solidPacket) OloEngine::Renderer3D::SubmitPacket(solidPacket);
 			// Overlay wireframe
 			OloEngine::Material wireMaterial;
 			wireMaterial.Ambient = glm::vec3(0.0f);
 			wireMaterial.Diffuse = glm::vec3(0.0f, 0.0f, 0.0f);
 			wireMaterial.Specular = glm::vec3(0.0f);
 			wireMaterial.Shininess = 1.0f;
-			auto* wireCmd = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, wireMaterial);
-			if (wireCmd)
+			auto* wirePacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, wireMaterial);
+			if (wirePacket)
 			{
-				wireCmd->renderState->PolygonMode.Mode = GL_LINE;
-				wireCmd->renderState->LineWidth.Width = 2.5f; // Thicker line
-				wireCmd->renderState->PolygonOffset.Enabled = true;
-				wireCmd->renderState->PolygonOffset.Factor = -1.0f;
-				wireCmd->renderState->PolygonOffset.Units = -1.0f;
-				OloEngine::Renderer3D::SubmitDrawCall(wireCmd);
+				auto* drawCmd = wirePacket->GetCommandData<OloEngine::DrawMeshCommand>();
+				drawCmd->renderState->PolygonMode.Mode = GL_LINE;
+				drawCmd->renderState->LineWidth.Width = 2.5f; // Thicker line
+				drawCmd->renderState->PolygonOffset.Enabled = true;
+				drawCmd->renderState->PolygonOffset.Factor = -1.0f;
+				drawCmd->renderState->PolygonOffset.Units = -1.0f;
+				OloEngine::Renderer3D::SubmitPacket(wirePacket);
 			}
 		}
 
@@ -229,8 +226,8 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 				auto silverCubeMatrix = glm::mat4(1.0f);
 				silverCubeMatrix = glm::translate(silverCubeMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
 				silverCubeMatrix = glm::rotate(silverCubeMatrix, glm::radians(m_RotationAngleY * 1.5f), glm::vec3(0.0f, 1.0f, 0.0f));
-				auto* cmd = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, silverCubeMatrix, m_SilverMaterial);
-				if (cmd) OloEngine::Renderer3D::SubmitDrawCall(cmd);
+				auto* silverPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, silverCubeMatrix, m_SilverMaterial);
+				if (silverPacket) OloEngine::Renderer3D::SubmitPacket(silverPacket);
 			}
 
 			// Draw left chrome cube
@@ -238,8 +235,8 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 				auto chromeCubeMatrix = glm::mat4(1.0f);
 				chromeCubeMatrix = glm::translate(chromeCubeMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
 				chromeCubeMatrix = glm::rotate(chromeCubeMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
-				auto* cmd = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, chromeCubeMatrix, m_ChromeMaterial);
-				if (cmd) OloEngine::Renderer3D::SubmitDrawCall(cmd);
+				auto* chromePacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, chromeCubeMatrix, m_ChromeMaterial);
+				if (chromePacket) OloEngine::Renderer3D::SubmitPacket(chromePacket);
 			}
 			break;
 
@@ -247,24 +244,24 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 				// Draw center gold sphere
 			{
 				auto modelMatrix = glm::mat4(1.0f);
-				auto* cmd = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, modelMatrix, m_GoldMaterial);
-				OloEngine::Renderer3D::SubmitDrawCall(cmd);
+				auto* goldPacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, modelMatrix, m_GoldMaterial);
+				if (goldPacket) OloEngine::Renderer3D::SubmitPacket(goldPacket);
 			}
 
 			// Draw right silver sphere
 			{
 				auto silverSphereMatrix = glm::mat4(1.0f);
 				silverSphereMatrix = glm::translate(silverSphereMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
-				auto* cmd = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, silverSphereMatrix, m_SilverMaterial);
-				OloEngine::Renderer3D::SubmitDrawCall(cmd);
+				auto* silverPacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, silverSphereMatrix, m_SilverMaterial);
+				if (silverPacket) OloEngine::Renderer3D::SubmitPacket(silverPacket);
 			}
 
 			// Draw left chrome sphere
 			{
 				auto chromeSphereMatrix = glm::mat4(1.0f);
 				chromeSphereMatrix = glm::translate(chromeSphereMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
-				auto* cmd = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, chromeSphereMatrix, m_ChromeMaterial);
-				OloEngine::Renderer3D::SubmitDrawCall(cmd);
+				auto* chromePacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, chromeSphereMatrix, m_ChromeMaterial);
+				if (chromePacket) OloEngine::Renderer3D::SubmitPacket(chromePacket);
 			}
 			break;
 
@@ -274,15 +271,15 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 				// Draw right silver sphere
 				auto silverSphereMatrix = glm::mat4(1.0f);
 				silverSphereMatrix = glm::translate(silverSphereMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
-				auto* cmd = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, silverSphereMatrix, m_SilverMaterial);
-				OloEngine::Renderer3D::SubmitDrawCall(cmd);
+				auto* silverPacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, silverSphereMatrix, m_SilverMaterial);
+				if (silverPacket) OloEngine::Renderer3D::SubmitPacket(silverPacket);
 
 				// Draw left chrome cube
 				auto chromeCubeMatrix = glm::mat4(1.0f);
 				chromeCubeMatrix = glm::translate(chromeCubeMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
 				chromeCubeMatrix = glm::rotate(chromeCubeMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
-				auto* cmdChrome = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, chromeCubeMatrix, m_ChromeMaterial);
-				OloEngine::Renderer3D::SubmitDrawCall(cmdChrome);
+				auto* chromePacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, chromeCubeMatrix, m_ChromeMaterial);
+				if (chromePacket) OloEngine::Renderer3D::SubmitPacket(chromePacket);
 			}
 			break;
 		}
@@ -293,9 +290,8 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 			sphereMatrix = glm::translate(sphereMatrix, glm::vec3(0.0f, 2.0f, 0.0f));
 			sphereMatrix = glm::rotate(sphereMatrix, glm::radians(m_RotationAngleX * 0.8f), glm::vec3(1.0f, 0.0f, 0.0f));
 			sphereMatrix = glm::rotate(sphereMatrix, glm::radians(m_RotationAngleY * 0.8f), glm::vec3(0.0f, 1.0f, 0.0f));
-			auto* cmd = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, m_TexturedMaterial);
-			if (cmd) OloEngine::Renderer3D::SubmitDrawCall(cmd);
-				
+			auto* texturedPacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, m_TexturedMaterial);
+			if (texturedPacket) OloEngine::Renderer3D::SubmitPacket(texturedPacket);
 		}
 
 		// Light cube (only for point and spot lights)
@@ -304,8 +300,8 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 			auto lightCubeModelMatrix = glm::mat4(1.0f);
 			lightCubeModelMatrix = glm::translate(lightCubeModelMatrix, m_Light.Position);
 			lightCubeModelMatrix = glm::scale(lightCubeModelMatrix, glm::vec3(0.2f));
-			auto* cmdLightCube = OloEngine::Renderer3D::DrawLightCube(lightCubeModelMatrix);
-			OloEngine::Renderer3D::SubmitDrawCall(cmdLightCube);
+			auto* lightCubePacket = OloEngine::Renderer3D::DrawLightCube(lightCubeModelMatrix);
+			if (lightCubePacket) OloEngine::Renderer3D::SubmitPacket(lightCubePacket);
 		}
 
 		// Draw our state test objects to demonstrate the new state system
@@ -703,8 +699,8 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
         markerMaterial.Diffuse = glm::vec3(1.0f, 0.0f, 0.0f);
         markerMaterial.Specular = glm::vec3(1.0f);
         markerMaterial.Shininess = 32.0f;
-        auto* cmd = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, markerMatrix, markerMaterial);
-        if (cmd) OloEngine::Renderer3D::SubmitDrawCall(cmd);
+        auto* markerPacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, markerMatrix, markerMaterial);
+        if (markerPacket) OloEngine::Renderer3D::SubmitPacket(markerPacket);
     }
     switch (m_StateTestMode)
     {
@@ -720,13 +716,14 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
                 cubeMaterial.Diffuse = glm::vec3((i + 1) * 0.25f, 0.5f, 0.7f);
                 cubeMaterial.Specular = glm::vec3(0.5f);
                 cubeMaterial.Shininess = 32.0f;
-                auto* cmd = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, cubeMatrix, cubeMaterial);
-				if (cmd)
-				{
-					cmd->renderState->PolygonMode.Mode = GL_LINE;
-					cmd->renderState->LineWidth.Width = 2.0f + i;
-					OloEngine::Renderer3D::SubmitDrawCall(cmd);
-				}
+                auto* packet = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, cubeMatrix, cubeMaterial);
+                if (packet)
+                {
+                    auto* drawCmd = packet->GetCommandData<OloEngine::DrawMeshCommand>();
+                    drawCmd->renderState->PolygonMode.Mode = GL_LINE;
+                    drawCmd->renderState->LineWidth.Width = 2.0f + i;
+                    OloEngine::Renderer3D::SubmitPacket(packet);
+                }
                 
             }
             break;
@@ -747,13 +744,13 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
                 }
                 sphereMaterial.Specular = glm::vec3(0.5f);
                 sphereMaterial.Shininess = 32.0f;
-                auto* cmd = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, sphereMaterial);
-                if (cmd) {
-                    // Set alpha blend state per draw call
-                    cmd->renderState->Blend.Enabled = true;
-                    cmd->renderState->Blend.SrcFactor = GL_SRC_ALPHA;
-                    cmd->renderState->Blend.DstFactor = GL_ONE_MINUS_SRC_ALPHA;
-                    OloEngine::Renderer3D::SubmitDrawCall(cmd);
+                auto* packet = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, sphereMaterial);
+                if (packet) {
+                    auto* drawCmd = packet->GetCommandData<OloEngine::DrawMeshCommand>();
+                    drawCmd->renderState->Blend.Enabled = true;
+                    drawCmd->renderState->Blend.SrcFactor = GL_SRC_ALPHA;
+                    drawCmd->renderState->Blend.DstFactor = GL_ONE_MINUS_SRC_ALPHA;
+                    OloEngine::Renderer3D::SubmitPacket(packet);
                 }
             }
             break;
@@ -769,9 +766,9 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
             solidMaterial.Diffuse = glm::vec3(0.7f, 0.7f, 0.2f);
             solidMaterial.Specular = glm::vec3(0.5f);
             solidMaterial.Shininess = 32.0f;
-            auto* solidCmd = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, cubeMatrix, solidMaterial);
-            if (solidCmd) {
-                OloEngine::Renderer3D::SubmitDrawCall(solidCmd);
+            auto* solidPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, cubeMatrix, solidMaterial);
+            if (solidPacket) {
+                OloEngine::Renderer3D::SubmitPacket(solidPacket);
             }
             // Overlay wireframe
             OloEngine::Material wireMaterial;
@@ -779,14 +776,15 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
             wireMaterial.Diffuse = glm::vec3(0.0f, 0.0f, 0.0f);
             wireMaterial.Specular = glm::vec3(0.0f);
             wireMaterial.Shininess = 1.0f;
-            auto* wireCmd = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, cubeMatrix, wireMaterial);
-            if (wireCmd) {
-                wireCmd->renderState->PolygonMode.Mode = GL_LINE;
-                wireCmd->renderState->LineWidth.Width = 1.5f;
-                wireCmd->renderState->PolygonOffset.Enabled = true;
-                wireCmd->renderState->PolygonOffset.Factor = -1.0f;
-                wireCmd->renderState->PolygonOffset.Units = -1.0f;
-                OloEngine::Renderer3D::SubmitDrawCall(wireCmd);
+            auto* wirePacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, cubeMatrix, wireMaterial);
+            if (wirePacket) {
+                auto* drawCmd = wirePacket->GetCommandData<OloEngine::DrawMeshCommand>();
+                drawCmd->renderState->PolygonMode.Mode = GL_LINE;
+                drawCmd->renderState->LineWidth.Width = 1.5f;
+                drawCmd->renderState->PolygonOffset.Enabled = true;
+                drawCmd->renderState->PolygonOffset.Factor = -1.0f;
+                drawCmd->renderState->PolygonOffset.Units = -1.0f;
+                OloEngine::Renderer3D::SubmitPacket(wirePacket);
             }
             break;
         }
@@ -801,11 +799,12 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
             wireMaterial.Diffuse = glm::vec3(1.0f, 1.0f, 0.0f);
             wireMaterial.Specular = glm::vec3(1.0f);
             wireMaterial.Shininess = 32.0f;
-            auto* wireCmd = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, wireMaterial);
-            if (wireCmd) {
-                wireCmd->renderState->PolygonMode.Mode = GL_LINE;
-                wireCmd->renderState->LineWidth.Width = 2.0f;
-                OloEngine::Renderer3D::SubmitDrawCall(wireCmd);
+            auto* wirePacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, wireMaterial);
+            if (wirePacket) {
+                auto* drawCmd = wirePacket->GetCommandData<OloEngine::DrawMeshCommand>();
+                drawCmd->renderState->PolygonMode.Mode = GL_LINE;
+                drawCmd->renderState->LineWidth.Width = 2.0f;
+                OloEngine::Renderer3D::SubmitPacket(wirePacket);
             }
             // Transparent cubes around sphere
             for (int i = 0; i < 3; i++)
@@ -825,12 +824,13 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
                 }
                 glassMaterial.Specular = glm::vec3(0.8f);
                 glassMaterial.Shininess = 64.0f;
-                auto* glassCmd = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, cubeMatrix, glassMaterial);
-                if (glassCmd) {
-                    glassCmd->renderState->Blend.Enabled = true;
-                    glassCmd->renderState->Blend.SrcFactor = GL_SRC_ALPHA;
-                    glassCmd->renderState->Blend.DstFactor = GL_ONE_MINUS_SRC_ALPHA;
-                    OloEngine::Renderer3D::SubmitDrawCall(glassCmd);
+                auto* glassPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, cubeMatrix, glassMaterial);
+                if (glassPacket) {
+                    auto* drawCmd = glassPacket->GetCommandData<OloEngine::DrawMeshCommand>();
+                    drawCmd->renderState->Blend.Enabled = true;
+                    drawCmd->renderState->Blend.SrcFactor = GL_SRC_ALPHA;
+                    drawCmd->renderState->Blend.DstFactor = GL_ONE_MINUS_SRC_ALPHA;
+                    OloEngine::Renderer3D::SubmitPacket(glassPacket);
                 }
             }
             break;

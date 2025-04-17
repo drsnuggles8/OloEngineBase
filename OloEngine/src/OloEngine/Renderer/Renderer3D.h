@@ -45,11 +45,11 @@ namespace OloEngine
 		static void BeginScene(const PerspectiveCamera& camera);
 		static void EndScene();
 
-		static DrawMeshCommand* DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
-		static DrawQuadCommand* DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
-		static DrawMeshInstancedCommand* DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true);
-		static DrawMeshCommand* DrawLightCube(const glm::mat4& modelMatrix);
-		static DrawMeshCommand* DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
+		static CommandPacket* DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
+		static CommandPacket* DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
+		static CommandPacket* DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true);
+		static CommandPacket* DrawLightCube(const glm::mat4& modelMatrix);
+		static CommandPacket* DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
 	
 		static void SetLight(const Light& light);
 		static void SetViewPosition(const glm::vec3& position);
@@ -73,10 +73,21 @@ namespace OloEngine
 		static const Ref<RenderGraph>& GetRenderGraph() { return s_Data.RGraph; }
 
 		template<typename T>
-		static void SubmitDrawCall(T* drawCall)
+		static CommandPacket* CreateDrawCall()
 		{
 			OLO_PROFILE_FUNCTION();
-			s_Data.ScenePass->SubmitCommand(*drawCall); // Pass by value, not pointer
+			return s_Data.ScenePass->GetCommandBucket().CreateDrawCall<T>();
+		}
+
+		static void SubmitPacket(CommandPacket* packet)
+		{
+			OLO_PROFILE_FUNCTION();
+			if (!packet)
+			{
+				OLO_CORE_WARN("Renderer3D::SubmitPacket: Attempted to submit a null CommandPacket pointer!");
+				return;
+			}
+			s_Data.ScenePass->SubmitPacket(packet);
 		}
 
 	private:
