@@ -579,14 +579,6 @@ namespace OloEngine
                 api.DisableCulling();
             api.SetCullFace(state.Culling.Face);
             api.SetLineWidth(state.LineWidth.Width);
-			if (state.PolygonMode.Face != GL_FRONT_AND_BACK)
-			{
-				OLO_CORE_INFO("CommandDispatch::DrawMesh: Polygon mode face is not GL_FRONT_AND_BACK. Just checking for breakpoint.");
-			}
-			if (state.PolygonMode.Mode != GL_FILL)
-			{
-				OLO_CORE_INFO("CommandDispatch::DrawMesh: Polygon mode is not GL_FILL. Just checking for breakpoint.");
-			}
 			api.SetPolygonMode(state.PolygonMode.Face, state.PolygonMode.Mode);
 
             if (state.Scissor.Enabled)
@@ -598,7 +590,6 @@ namespace OloEngine
             api.SetPolygonOffset(state.PolygonOffset.Enabled ? state.PolygonOffset.Factor : 0.0f, state.PolygonOffset.Enabled ? state.PolygonOffset.Units : 0.0f);
             if (state.Multisampling.Enabled) api.EnableMultisampling(); else api.DisableMultisampling();
         }
-		// api.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         
 		// Optimize shader binding - only bind if different from currently bound
 		u32 shaderID = cmd->shader->GetRendererID();

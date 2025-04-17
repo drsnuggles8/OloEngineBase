@@ -22,7 +22,44 @@ namespace OloEngine
         
         m_FramebufferSpec = spec;
         
-        CreateFullscreenTriangle();
+        // Create a single triangle that covers the entire screen
+        // We use a large triangle (larger than NDC space) to ensure full screen coverage
+        
+        // Vertex layout:
+        // position (vec3) + texcoord (vec2)
+        struct FullscreenVertex
+        {
+            glm::vec3 Position;
+            glm::vec2 TexCoord;
+        };
+        
+        FullscreenVertex vertices[3] = {
+            { { -1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f } }, // Bottom left
+            { {  3.0f, -1.0f, 0.0f }, { 2.0f, 0.0f } }, // Bottom right (extended)
+            { { -1.0f,  3.0f, 0.0f }, { 0.0f, 2.0f } }  // Top left (extended)
+        };
+        
+        u32 indices[3] = { 0, 1, 2 }; // Triangle
+        
+        // Create vertex array
+        m_FullscreenTriangleVA = VertexArray::Create();
+        
+        Ref<VertexBuffer> vertexBuffer = VertexBuffer::Create(
+            reinterpret_cast<f32*>(vertices), 
+            static_cast<u32>(sizeof(vertices))
+        );
+        
+        vertexBuffer->SetLayout({
+            { ShaderDataType::Float3, "a_Position" },
+            { ShaderDataType::Float2, "a_TexCoord" }
+        });
+        
+        Ref<IndexBuffer> indexBuffer = IndexBuffer::Create(indices, 3);
+        
+        m_FullscreenTriangleVA->AddVertexBuffer(vertexBuffer);
+        m_FullscreenTriangleVA->SetIndexBuffer(indexBuffer);
+        
+        OLO_CORE_INFO("FinalRenderPass: Created fullscreen triangle.");
         
         // Load or create the blit shader
         m_BlitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
@@ -40,47 +77,31 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // We're rendering to the default framebuffer (swap chain)
+		// Reset OpenGL state to engine defaults (matches RenderState defaults)
+		RenderCommand::SetBlendState(false);
+		RenderCommand::SetDepthTest(true);
+		RenderCommand::SetDepthMask(true);
+		RenderCommand::SetDepthFunc(GL_LESS);
+		RenderCommand::DisableStencilTest();
+		RenderCommand::DisableCulling();
+		RenderCommand::SetCullFace(GL_BACK);
+		RenderCommand::SetLineWidth(1.0f);
+		RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+		RenderCommand::DisableScissorTest();
+		RenderCommand::SetColorMask(true, true, true, true);
+		RenderCommand::SetPolygonOffset(0.0f, 0.0f);
+		RenderCommand::EnableMultisampling();
+
         RenderCommand::BindDefaultFramebuffer();
-        
-        // Clear the framebuffer
         RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1.0f });
         RenderCommand::Clear();
-        
-        // Only execute if we have an input framebuffer
-        if (!m_InputFramebuffer)
-        {
-            OLO_CORE_WARN("FinalRenderPass::Execute: No input framebuffer set!");
-            return;
-        }
-
-        // Bind the shader and the input texture
-        if (!m_BlitShader)
-        {
-            OLO_CORE_ERROR("FinalRenderPass::Execute: Blit shader not loaded!");
-            return;
-        }
         
         m_BlitShader->Bind();
         
         // Bind the color attachment from the input framebuffer as a texture
-        u32 colorAttachmentID = m_InputFramebuffer->GetColorAttachmentRendererID(0);
-        
-        if (colorAttachmentID == 0)
-        {
-            OLO_CORE_ERROR("FinalRenderPass::Execute: Invalid color attachment ID!");
-            return;
-        }
-        
+        u32 colorAttachmentID = m_InputFramebuffer->GetColorAttachmentRendererID(0);       
         RenderCommand::BindTexture(0, colorAttachmentID);
         m_BlitShader->SetInt("u_Texture", 0);
-        
-        // Draw the fullscreen triangle
-        if (!m_FullscreenTriangleVA)
-        {
-            OLO_CORE_ERROR("FinalRenderPass::Execute: Fullscreen triangle vertex array not created!");
-            return;
-        }
         
         m_FullscreenTriangleVA->Bind();
         RenderCommand::DrawIndexed(m_FullscreenTriangleVA);
@@ -100,7 +121,6 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         
-        // We don't create a framebuffer for the final pass since it renders to the default framebuffer
         m_FramebufferSpec.Width = width;
         m_FramebufferSpec.Height = height;
 
@@ -130,52 +150,5 @@ namespace OloEngine
         
         // TODO: Recreate the fullscreen triangle and shader if needed
     }
-
-    void FinalRenderPass::CreateFullscreenTriangle()
-    {
-        OLO_PROFILE_FUNCTION();
         
-        // Create a single triangle that covers the entire screen
-        // We use a large triangle (larger than NDC space) to ensure full screen coverage
-        
-        // Vertex layout:
-        // position (vec3) + texcoord (vec2)
-        struct FullscreenVertex
-        {
-            glm::vec3 Position;
-            glm::vec2 TexCoord;
-        };
-        
-        FullscreenVertex vertices[3] = {
-            { { -1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f } }, // Bottom left
-            { {  3.0f, -1.0f, 0.0f }, { 2.0f, 0.0f } }, // Bottom right (extended)
-            { { -1.0f,  3.0f, 0.0f }, { 0.0f, 2.0f } }  // Top left (extended)
-        };
-        
-        u32 indices[3] = { 0, 1, 2 }; // Triangle
-        
-        // Create vertex array
-        m_FullscreenTriangleVA = VertexArray::Create();
-        
-        // Create vertex buffer with the correct data type
-        // Cast the vertices to float* as required by the VertexBuffer::Create method
-        Ref<VertexBuffer> vertexBuffer = VertexBuffer::Create(
-            reinterpret_cast<f32*>(vertices), 
-            static_cast<u32>(sizeof(vertices))
-        );
-        
-        vertexBuffer->SetLayout({
-            { ShaderDataType::Float3, "a_Position" },
-            { ShaderDataType::Float2, "a_TexCoord" }
-        });
-        
-        // Create index buffer
-        Ref<IndexBuffer> indexBuffer = IndexBuffer::Create(indices, 3);
-        
-        // Add buffers to vertex array
-        m_FullscreenTriangleVA->AddVertexBuffer(vertexBuffer);
-        m_FullscreenTriangleVA->SetIndexBuffer(indexBuffer);
-        
-        OLO_CORE_INFO("FinalRenderPass: Created fullscreen triangle");
-    }
 }
