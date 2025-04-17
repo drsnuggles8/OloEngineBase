@@ -111,20 +111,18 @@ namespace OloEngine
 		sizet GetCommandCount() const { return m_CommandCount; }
 
 		template<typename T>
-		T* CreateDrawCall()
+		CommandPacket* CreateDrawCall()
 		{
 			OLO_CORE_ASSERT(m_Allocator, "CommandBucket::CreateDrawCall: No allocator available!");
-			void* mem = m_Allocator->AllocateCommandMemory(sizeof(T));
-			OLO_CORE_ASSERT(mem, "CommandBucket::CreateDrawCall: Allocation failed!");
-			T* cmd = new (mem) T();
-			return cmd;
+			PacketMetadata initialMetadata; // Default metadata, to be enhanced later
+			return m_Allocator->AllocatePacketWithCommand<T>(initialMetadata);
 		}
 
-		template<typename T>
-		void SubmitDrawCall(T* cmd, const PacketMetadata& metadata)
+		void SubmitPacket(CommandPacket* packet)
 		{
-			OLO_CORE_ASSERT(cmd, "CommandBucket::SubmitDrawCall: Null command pointer!");
-			CommandPacket* packet = m_Allocator->CreateCommandPacket(*cmd, metadata);
+			OLO_CORE_ASSERT(packet, "CommandBucket::SubmitPacket: Null packet!");
+			std::lock_guard<std::mutex> lock(m_Mutex);
+			
 			AddCommand(packet);
 		}
 

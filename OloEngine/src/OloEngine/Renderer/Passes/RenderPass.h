@@ -47,11 +47,10 @@ namespace OloEngine
             m_Allocator = allocator ? allocator : m_OwnedAllocator.get(); 
         }
 
-        template<typename T>
-        CommandPacket* SubmitCommand(const T& commandData)
-        {
-            return m_CommandBucket.Submit(commandData, PacketMetadata{}, m_Allocator);
-        }
+        void SubmitPacket(CommandPacket* packet)
+		{
+			m_CommandBucket.SubmitPacket(packet);
+		}
 		
         CommandBucket& GetCommandBucket() { return m_CommandBucket; }
     protected:

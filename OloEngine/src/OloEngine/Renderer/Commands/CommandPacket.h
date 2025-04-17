@@ -106,18 +106,22 @@ namespace OloEngine
         // Returns true if this packet can be batched with another packet
         bool CanBatchWith(const CommandPacket& other) const;
 
-        // Get the command data for direct access (needed for batching)
+        // Set external command data pointer and size
+        void SetCommandData(void* data, sizet size)
+        {
+            m_CommandData = data;
+            m_CommandSize = size;
+        }
+
         template<typename T>
         T* GetCommandData()
         {
-            static_assert(sizeof(T) <= MAX_COMMAND_SIZE, "Command exceeds maximum size");
             return reinterpret_cast<T*>(m_CommandData);
         }
 
         template<typename T>
         const T* GetCommandData() const
         {
-            static_assert(sizeof(T) <= MAX_COMMAND_SIZE, "Command exceeds maximum size");
             return reinterpret_cast<const T*>(m_CommandData);
         }
 
@@ -153,16 +157,11 @@ namespace OloEngine
         void SetMetadata(const PacketMetadata& metadata) { m_Metadata = metadata; }
         
     private:
-        // Command data
-        u8 m_CommandData[MAX_COMMAND_SIZE];
+        void* m_CommandData = nullptr;
         sizet m_CommandSize = 0;
         CommandType m_CommandType = CommandType::Invalid;
         CommandDispatchFn m_DispatchFn = nullptr;
-        
-        // Metadata
         PacketMetadata m_Metadata;
-        
-        // Linked list
         CommandPacket* m_Next = nullptr;
     };
 }

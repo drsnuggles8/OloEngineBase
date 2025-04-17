@@ -69,7 +69,7 @@ namespace OloEngine
 		if (!packet)
 			return;
 
-		std::lock_guard<std::mutex> lock(m_Mutex);
+		packet->SetNext(nullptr); 
 
 		if (!m_Head)
 		{

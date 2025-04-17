@@ -27,8 +27,7 @@ namespace OloEngine
 		void LoadModel(const std::string& path);
 		void Draw(const glm::mat4& transform, const Material& material) const;
 
-		// New: Collect draw commands for all meshes in the model
-		void GetDrawCommands(const glm::mat4& transform, const Material& material, std::vector<DrawMeshCommand*>& outCommands) const;
+		void GetDrawCommands(const glm::mat4& transform, const Material& material, std::vector<CommandPacket*>& outCommands) const;
 		
 		// Calculate bounding volumes for the entire model
 		void CalculateBounds();

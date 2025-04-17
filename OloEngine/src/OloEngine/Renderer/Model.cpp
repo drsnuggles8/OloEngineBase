@@ -205,14 +205,14 @@ namespace OloEngine
 		m_BoundingSphere = BoundingSphere(center, radius);
 	}
 
-	void Model::GetDrawCommands(const glm::mat4& transform, const Material& material, std::vector<DrawMeshCommand*>& outCommands) const
+	void Model::GetDrawCommands(const glm::mat4& transform, const Material& material, std::vector<CommandPacket*>& outCommands) const
 	{
 		OLO_PROFILE_FUNCTION();
 		outCommands.clear();
 		outCommands.reserve(m_Meshes.size());
 		for (const auto& mesh : m_Meshes)
 		{
-			DrawMeshCommand* cmd = OloEngine::Renderer3D::DrawMesh(mesh, transform, material);
+			CommandPacket* cmd = OloEngine::Renderer3D::DrawMesh(mesh, transform, material);
 			if (cmd)
 				outCommands.push_back(cmd);
 		}
