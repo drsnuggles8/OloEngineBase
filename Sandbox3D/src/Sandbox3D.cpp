@@ -197,48 +197,26 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 			modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX), glm::vec3(1.0f, 0.0f, 0.0f));
 			modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
 			// Draw filled mesh (normal)
-			auto* filledCmd = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, m_GoldMaterial);
-			if (filledCmd)
+			auto* solidCmd = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, m_GoldMaterial);
+			if (solidCmd)
 			{
-				// Enable stencil, write 1s to the buffer where the cube is drawn
-				filledCmd->renderState->Stencil.Enabled = true;
-				filledCmd->renderState->Stencil.Function = GL_ALWAYS;
-				filledCmd->renderState->Stencil.Reference = 1;
-				filledCmd->renderState->Stencil.ReadMask = 0xFF;
-				filledCmd->renderState->Stencil.WriteMask = 0xFF;
-				filledCmd->renderState->Stencil.StencilFail = GL_KEEP;
-				filledCmd->renderState->Stencil.DepthFail = GL_KEEP;
-				filledCmd->renderState->Stencil.DepthPass = GL_REPLACE;
-				OloEngine::Renderer3D::SubmitDrawCall(filledCmd);
+				OloEngine::Renderer3D::SubmitDrawCall(solidCmd);
 			}
-
-			auto outlineMatrix = glm::scale(modelMatrix, glm::vec3(1.05f));
-			OloEngine::Material outlineMaterial;
-			outlineMaterial.Ambient = glm::vec3(0.0f, 1.0f, 0.0f);
-			outlineMaterial.Diffuse = glm::vec3(0.0f, 1.0f, 0.0f);
-			outlineMaterial.Specular = glm::vec3(0.0f);
-			outlineMaterial.Shininess = 1.0f;
-
-			auto* outlineCmd = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, outlineMatrix, outlineMaterial);
-			if (outlineCmd)
+			// Overlay wireframe
+			OloEngine::Material wireMaterial;
+			wireMaterial.Ambient = glm::vec3(0.0f);
+			wireMaterial.Diffuse = glm::vec3(0.0f, 0.0f, 0.0f);
+			wireMaterial.Specular = glm::vec3(0.0f);
+			wireMaterial.Shininess = 1.0f;
+			auto* wireCmd = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, wireMaterial);
+			if (wireCmd)
 			{
-				// Only draw where stencil != 1
-				outlineCmd->renderState->Stencil.Enabled = true;
-				outlineCmd->renderState->Stencil.Function = GL_NOTEQUAL;
-				outlineCmd->renderState->Stencil.Reference = 1;
-				outlineCmd->renderState->Stencil.ReadMask = 0xFF;
-				outlineCmd->renderState->Stencil.WriteMask = 0x00; // Don't write to stencil
-				outlineCmd->renderState->Stencil.StencilFail = GL_KEEP;
-				outlineCmd->renderState->Stencil.DepthFail = GL_KEEP;
-				outlineCmd->renderState->Stencil.DepthPass = GL_KEEP;
-
-				outlineCmd->renderState->Depth.WriteMask = false; // Don't write to depth
-				outlineCmd->renderState->Depth.TestEnabled = false;
-				outlineCmd->renderState->Culling.Enabled = true;
-				outlineCmd->renderState->Culling.Face = GL_BACK; // Usual culling
-				outlineCmd->renderState->Blend.Enabled = false;
-
-				OloEngine::Renderer3D::SubmitDrawCall(outlineCmd);
+				wireCmd->renderState->PolygonMode.Mode = GL_LINE;
+				wireCmd->renderState->LineWidth.Width = 2.5f; // Thicker line
+				wireCmd->renderState->PolygonOffset.Enabled = true;
+				wireCmd->renderState->PolygonOffset.Factor = -1.0f;
+				wireCmd->renderState->PolygonOffset.Units = -1.0f;
+				OloEngine::Renderer3D::SubmitDrawCall(wireCmd);
 			}
 		}
 
