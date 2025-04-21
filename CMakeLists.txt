@@ -36,11 +36,6 @@ set(CMAKE_CSharp_FLAGS "/langversion:8")
 set_property(GLOBAL PROPERTY USE_FOLDERS YES)
 set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "Utilities/cmake")
 
-# Enable multi-processor compilation for MSVC
-if(MSVC)
-    add_compile_options(/MP)
-endif()
-
 # Build options
 option(BUILD_TESTS "Build tests" OFF)
 

@@ -90,8 +90,9 @@ FetchContent_Declare(
 FetchContent_Declare(
 	tracy
 	GIT_REPOSITORY	https://github.com/wolfpld/tracy.git
-	GIT_TAG			master
+	GIT_TAG			v0.11.1
 	GIT_SHALLOW		TRUE
+	GIT_PROGRESS    TRUE
 )
 FetchContent_Declare(
     tinyxml2
@@ -132,7 +133,7 @@ option(PNG_DEBUG ON)
 FetchContent_MakeAvailable(libpng)
 set(PNG_LIBRARY png CACHE INTERNAL "")
 set(PNG_PNG_INCLUDE_DIR ${libpng_SOURCE_DIR} CACHE INTERNAL "")
-set(PNG_LIBRARY_RELEASE ${libpng_BINARY_DIR}/Dist/libpng16.lib)
+set(PNG_LIBRARY_DIST ${libpng_BINARY_DIR}/Dist/libpng16.lib)
 set(PNG_LIBRARY_RELEASE ${libpng_BINARY_DIR}/Release/libpng16.lib)
 set(PNG_LIBRARY_DEBUG ${libpng_BINARY_DIR}/Debug/libpng16d.lib)
 find_package(PNG REQUIRED)
@@ -140,9 +141,25 @@ if(TARGET PNG::PNG)
   set_target_properties(PNG::PNG PROPERTIES
     IMPORTED_LOCATION_DEBUG ${PNG_LIBRARY_DEBUG}
     IMPORTED_LOCATION_RELEASE ${PNG_LIBRARY_RELEASE}
-	IMPORTED_LOCATION_DIST ${PNG_LIBRARY_RELEASE}
+    IMPORTED_LOCATION_DIST ${PNG_LIBRARY_DIST}
   )
 endif()
+
+# --- Fix: Force png_shared to use correct zlib for all configs ---
+if(TARGET png_shared)
+    # Remove all previous zlib dependencies
+    set_property(TARGET png_shared PROPERTY INTERFACE_LINK_LIBRARIES "")
+    set_property(TARGET png_shared PROPERTY LINK_LIBRARIES "")
+    # Now add only the correct one for each config
+    target_link_libraries(png_shared PRIVATE
+        $<$<CONFIG:Debug>:${ZLIB_LIBRARY_DEBUG}>
+        $<$<CONFIG:Release>:${ZLIB_LIBRARY_RELEASE}>
+        $<$<CONFIG:Dist>:${ZLIB_LIBRARY_DIST}>
+    )
+    # Add zlib include directories so zlib.h can be found
+    target_include_directories(png_shared PRIVATE ${zlib_SOURCE_DIR} ${zlib_BINARY_DIR})
+endif()
+
 include_directories(${libpng_SOURCE_DIR} ${libpng_BINARY_DIR})
 add_dependencies(png_shared zlib)
 

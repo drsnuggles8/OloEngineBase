@@ -96,5 +96,7 @@ target_link_libraries(OloEngine
 	ws2_32
 	WinMM
 	png_shared
-	zlib
+    $<$<CONFIG:Debug>:${ZLIB_LIBRARY_DEBUG}>
+    $<$<CONFIG:Release>:${ZLIB_LIBRARY_RELEASE}>
+    $<$<CONFIG:Dist>:${ZLIB_LIBRARY_DIST}>
 )
