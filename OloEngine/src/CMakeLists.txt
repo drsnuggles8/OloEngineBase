@@ -135,8 +135,6 @@
 		"OloEngine/Renderer/Commands/CommandMemoryManager.h"
 		"OloEngine/Renderer/Commands/CommandPacket.cpp"
 		"OloEngine/Renderer/Commands/CommandPacket.h"
-		"OloEngine/Renderer/Commands/CommandPacketList.cpp"
-		"OloEngine/Renderer/Commands/CommandPacketList.h"
 		"OloEngine/Renderer/Commands/RenderCommand.h"
 		"OloEngine/Renderer/Commands/ThreadLocalCache.cpp"
 		"OloEngine/Renderer/Commands/ThreadLocalCache.h"
