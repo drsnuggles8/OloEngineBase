@@ -70,7 +70,7 @@ namespace OloEngine
 			// Set default keys if not specified in metadata
 			if (m_Metadata.shaderKey == 0 && m_CommandType == CommandType::DrawMesh)
 			{
-				auto* cmd = reinterpret_cast<DrawMeshCommand*>(m_CommandData);
+				auto const* cmd = reinterpret_cast<DrawMeshCommand*>(m_CommandData);
 				// Use shader's renderer ID instead of shaderID
 				if (cmd->shader)
 					m_Metadata.shaderKey = cmd->shader->GetRendererID();
@@ -78,7 +78,7 @@ namespace OloEngine
 			
 			if (m_Metadata.textureKey == 0 && m_CommandType == CommandType::DrawMesh)
 			{
-				auto* cmd = reinterpret_cast<DrawMeshCommand*>(m_CommandData);
+				auto const* cmd = reinterpret_cast<DrawMeshCommand*>(m_CommandData);
 				if (cmd->useTextureMaps)
 				{
 					// Use texture renderer IDs instead of texture IDs
