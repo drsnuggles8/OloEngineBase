@@ -28,6 +28,7 @@ namespace OloEngine
         virtual void Init(const FramebufferSpecification& spec) = 0;
         virtual void Execute() = 0;
         [[nodiscard]] virtual Ref<Framebuffer> GetTarget() const = 0;
+        virtual void Clear() = 0;
 
         void SetName(std::string_view name) { m_Name = name; }
         [[nodiscard]] const std::string& GetName() const { return m_Name; }

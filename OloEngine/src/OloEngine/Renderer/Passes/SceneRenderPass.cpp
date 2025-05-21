@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
+#include "OloEngine/Renderer/Commands/CommandBucket.h"
 
 namespace OloEngine
 {
@@ -124,5 +125,11 @@ namespace OloEngine
 				m_FramebufferSpec.Width, m_FramebufferSpec.Height);
             Init(m_FramebufferSpec);
         }
+    }
+
+    void SceneRenderPass::Clear()
+    {
+        OLO_PROFILE_FUNCTION();
+        m_CommandBucket.Clear();
     }
 }

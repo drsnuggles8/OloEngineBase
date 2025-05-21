@@ -13,6 +13,7 @@
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/Commands/CommandMemoryManager.h"
 #include "OloEngine/Core/Application.h"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -87,6 +88,8 @@ namespace OloEngine
 		// Shutdown the render graph
 		if (s_Data.RGraph)
 			s_Data.RGraph->Shutdown();
+
+		CommandMemoryManager::Shutdown();
 		
 		OLO_CORE_INFO("Renderer3D shutdown complete.");
 	}
@@ -124,7 +127,7 @@ namespace OloEngine
     	CommandDispatch::SetViewPosition(s_Data.ViewPos);
 		
 		// Reset the command bucket for this frame
-		s_Data.ScenePass->ResetCommandBucket();
+		s_Data.ScenePass->Clear();
 		
 		// Reset CommandDispatch state tracking
 		CommandDispatch::ResetState();
