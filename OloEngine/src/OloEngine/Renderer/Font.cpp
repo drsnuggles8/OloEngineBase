@@ -9,19 +9,17 @@
 #include "MSDFData.h"
 
 namespace OloEngine
-{
-	template<typename T, typename S, int N, msdf_atlas::GeneratorFunction<S, N> GenFunc>
-	static Ref<Texture2D> CreateAndCacheAtlas(const std::string_view fontName, f32 fontSize, const std::vector<msdf_atlas::GlyphGeometry>& glyphs,
-		const msdf_atlas::FontGeometry& fontGeometry, u32 width, u32 height)
+{	template<typename T, typename S, int N, msdf_atlas::GeneratorFunction<S, N> GenFunc>
+	static Ref<Texture2D> CreateAndCacheAtlas(const std::string_view /*fontName*/, f32 /*fontSize*/, const std::vector<msdf_atlas::GlyphGeometry>& glyphs,
+		const msdf_atlas::FontGeometry& /*fontGeometry*/, u32 width, u32 height)
 	{
 		msdf_atlas::GeneratorAttributes attributes;
 		attributes.config.overlapSupport = true;
 		attributes.scanlinePass = true;
 
 		msdf_atlas::ImmediateAtlasGenerator<S, N, GenFunc, msdf_atlas::BitmapAtlasStorage<T, N>> generator(width, height);
-		generator.setAttributes(attributes);
-		generator.setThreadCount(8);
-		generator.generate(glyphs.data(), (int)glyphs.size());
+		generator.setAttributes(attributes);		generator.setThreadCount(8);
+		generator.generate(glyphs.data(), static_cast<int>(glyphs.size()));
 
 		auto bitmap = (msdfgen::BitmapConstRef<T, N>)generator.atlasStorage();
 
@@ -102,10 +100,9 @@ namespace OloEngine
 		// if MSDF || MTSDF
 
 		u64 coloringSeed = 0;
-		bool expensiveColoring = false;
-		if (expensiveColoring)
+		bool expensiveColoring = false;		if (expensiveColoring)
 		{
-			msdf_atlas::Workload([&glyphs = m_Data->Glyphs, &coloringSeed](int i, int threadNo) -> bool
+			msdf_atlas::Workload([&glyphs = m_Data->Glyphs, &coloringSeed](int i, int /*threadNo*/) -> bool
 			{
 				unsigned long long glyphSeed = coloringSeed ? ((LCG_MULTIPLIER * (coloringSeed ^ i)) + LCG_INCREMENT) : 0;
 				glyphs[i].edgeColoring(msdfgen::edgeColoringInkTrap, DEFAULT_ANGLE_THRESHOLD, glyphSeed);

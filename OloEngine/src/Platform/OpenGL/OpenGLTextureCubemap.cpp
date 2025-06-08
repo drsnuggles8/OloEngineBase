@@ -208,7 +208,7 @@ namespace OloEngine
         OLO_CORE_TRACE("Loaded cubemap with {} faces, dimensions: {}x{}", facePaths.size(), m_Width, m_Height);
     }
 
-    void OpenGLTextureCubemap::SetData(void* data, u32 size)
+    void OpenGLTextureCubemap::SetData(void* /*data*/, u32 /*size*/)
     {
         OLO_PROFILE_FUNCTION();
         
@@ -240,7 +240,7 @@ namespace OloEngine
             glGenerateTextureMipmap(m_RendererID);
     }
 
-    void OpenGLTextureCubemap::Invalidate(std::string_view path, u32 width, u32 height, const void* data, u32 channels)
+    void OpenGLTextureCubemap::Invalidate(std::string_view /*path*/, u32 /*width*/, u32 /*height*/, const void* /*data*/, u32 /*channels*/)
     {
         OLO_CORE_ERROR("Invalidate is not supported for cubemaps");
     }
