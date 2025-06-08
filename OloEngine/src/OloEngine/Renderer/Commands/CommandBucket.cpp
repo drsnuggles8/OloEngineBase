@@ -327,12 +327,10 @@ namespace OloEngine
 		while (current)
 		{
 			CommandPacket* next = current->GetNext();
-
 			// Try to merge with subsequent compatible commands
 			while (next && TryMergeCommands(current, next, allocator))
 			{
 				// Merging succeeded, remove the next command from the list
-				CommandPacket* merged = next;
 				next = next->GetNext();
 				current->SetNext(next);
 

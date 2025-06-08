@@ -41,10 +41,11 @@ namespace OloEngine
         m_PassLookup[name] = pass;
         m_DependencyGraphDirty = true;
     }
-    
-    void RenderGraph::ConnectPass(const std::string& outputPass, const std::string& inputPass, u32 outputAttachment)
+
+	void RenderGraph::ConnectPass(const std::string& outputPass, const std::string& inputPass)
     {
         OLO_PROFILE_FUNCTION();
+        // TODO: Implement attachment-specific connections
         
         if (m_PassLookup.find(outputPass) == m_PassLookup.end())
         {

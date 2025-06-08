@@ -20,8 +20,7 @@ namespace OloEngine
         Additive,           // Additive blending
         Subtractive         // Subtractive blending
     };
-
-    /// @brief Sorting key for render commands to minimize state changes and optimize rendering order.
+	/// @brief Sorting key for render commands to minimize state changes and optimize rendering order.
     /// Uses a packed 64-bit integer for fast comparison and sorting.
     class DrawKey
     {
@@ -35,13 +34,13 @@ namespace OloEngine
         static DrawKey CreateCustom(u32 viewportID, ViewLayerType viewLayer, u32 priority);
 
         // Accessors
-        u32 GetViewportID() const;
-        ViewLayerType GetViewLayer() const;
-        RenderMode GetRenderMode() const;
-        u32 GetShaderID() const;
-        u32 GetMaterialID() const;
-        u32 GetDepth() const;
-        u32 GetPriority() const;
+        [[nodiscard("Store this!")]] u32 GetViewportID() const;
+        [[nodiscard("Store this!")]] ViewLayerType GetViewLayer() const;
+        [[nodiscard("Store this!")]] RenderMode GetRenderMode() const;
+        [[nodiscard("Store this!")]] u32 GetShaderID() const;
+        [[nodiscard("Store this!")]] u32 GetMaterialID() const;
+        [[nodiscard("Store this!")]] u32 GetDepth() const;
+        [[nodiscard("Store this!")]] u32 GetPriority() const;
 
         // Mutators
         void SetViewportID(u32 viewportID);
@@ -55,10 +54,8 @@ namespace OloEngine
         // Comparison operators for sorting
         bool operator<(const DrawKey& other) const { return m_Key > other.m_Key; } // Higher values = higher priority
         bool operator==(const DrawKey& other) const { return m_Key == other.m_Key; }
-        bool operator!=(const DrawKey& other) const { return m_Key != other.m_Key; }
-
-        // Get raw key value
-        u64 GetKey() const { return m_Key; }
+        bool operator!=(const DrawKey& other) const { return m_Key != other.m_Key; }        // Get raw key value
+        [[nodiscard("Store this!")]] u64 GetKey() const { return m_Key; }
         void SetKey(u64 key) { m_Key = key; }
 
         explicit operator u64() const { return m_Key; }
