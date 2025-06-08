@@ -124,7 +124,6 @@
 		"OloEngine/Renderer/Passes/FinalRenderPass.cpp"
 		"OloEngine/Renderer/Passes/SceneRenderPass.h"
 		"OloEngine/Renderer/Passes/SceneRenderPass.cpp"
-		
 		"OloEngine/Renderer/Commands/CommandAllocator.cpp"
 		"OloEngine/Renderer/Commands/CommandAllocator.h"
 		"OloEngine/Renderer/Commands/CommandBucket.cpp"
@@ -135,6 +134,7 @@
 		"OloEngine/Renderer/Commands/CommandMemoryManager.h"
 		"OloEngine/Renderer/Commands/CommandPacket.cpp"
 		"OloEngine/Renderer/Commands/CommandPacket.h"
+		"OloEngine/Renderer/Commands/DrawKey.h"
 		"OloEngine/Renderer/Commands/RenderCommand.h"
 		"OloEngine/Renderer/Commands/ThreadLocalCache.cpp"
 		"OloEngine/Renderer/Commands/ThreadLocalCache.h"

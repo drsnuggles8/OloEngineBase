@@ -106,12 +106,11 @@ namespace OloEngine
 		// First, group commands by dependency chains
 		std::vector<std::vector<CommandPacket*>> dependencyGroups;
 		std::vector<CommandPacket*> currentGroup;
-
 		CommandPacket* current = m_Head;
 		while (current)
 		{
 			// Start a new group if this is the first command or if it depends on previous
-			if (currentGroup.empty() || current->GetMetadata().dependsOnPrevious)
+			if (currentGroup.empty() || current->GetMetadata().m_DependsOnPrevious)
 			{
 				// If we have an existing group, finalize it
 				if (!currentGroup.empty())

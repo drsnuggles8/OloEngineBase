@@ -2,6 +2,7 @@
 
 #include "RenderCommand.h"
 #include "CommandDispatch.h"
+#include "DrawKey.h"
 #include "OloEngine/Core/Base.h"
 #include <glm/glm.hpp>
 
@@ -11,25 +12,21 @@ namespace OloEngine
     class RendererAPI;
     class CommandAllocator;
     class RenderContext;
-      // Command packet metadata
+
+    // Command packet metadata
     struct PacketMetadata
     {
-        // Sorting keys
-        u64 shaderKey = 0;          // Primary sorting key (shader program)
-        u64 materialKey = 0;         // Secondary sorting key (material properties)
-        u64 textureKey = 0;          // Tertiary sorting key (textures)
-        u64 sortKey = 0;            // Custom sorting key (for depth sorting)
-        u32 stateChangeKey = 0;      // State change type identifier
+        // Primary sorting key - packed bitfield for maximum performance
+        DrawKey m_SortKey;
         
         // Execution properties
-        bool dependsOnPrevious = false;   // This command must execute after the previous one
-        u32 groupId = 0;                  // Commands with the same groupId should be kept together
-        u32 executionOrder = 0;           // Sequence number for preserving order when needed
+        bool m_DependsOnPrevious = false;   // This command must execute after the previous one
+        u32 m_GroupID = 0;                  // Commands with the same groupId should be kept together
+        u32 m_ExecutionOrder = 0;           // Sequence number for preserving order when needed
         
         // Statistics/debugging
-        bool isStatic = false;            // Command doesn't change between frames
-        bool isTransparent = false;       // Command renders transparent objects (needs special handling)
-        const char* debugName = nullptr;  // Optional name for debugging
+        bool m_IsStatic = false;            // Command doesn't change between frames
+        const char* m_DebugName = nullptr;  // Optional name for debugging
     };
     
     // Command packet that wraps a command with metadata and links to other packets
@@ -66,25 +63,25 @@ namespace OloEngine
 			
 			// Set metadata
 			m_Metadata = metadata;
-			
 			// Set default keys if not specified in metadata
-			if (m_Metadata.shaderKey == 0 && m_CommandType == CommandType::DrawMesh)
+			if (m_Metadata.m_SortKey.GetShaderID() == 0 && m_CommandType == CommandType::DrawMesh)
 			{
 				auto const* cmd = reinterpret_cast<DrawMeshCommand*>(m_CommandData);
 				// Use shader's renderer ID instead of shaderID
 				if (cmd->shader)
-					m_Metadata.shaderKey = cmd->shader->GetRendererID();
+					m_Metadata.m_SortKey.SetShaderID(cmd->shader->GetRendererID());
 			}
 			
-			if (m_Metadata.textureKey == 0 && m_CommandType == CommandType::DrawMesh)
+			if (m_Metadata.m_SortKey.GetMaterialID() == 0 && m_CommandType == CommandType::DrawMesh)
 			{
 				auto const* cmd = reinterpret_cast<DrawMeshCommand*>(m_CommandData);
 				if (cmd->useTextureMaps)
 				{
-					// Use texture renderer IDs instead of texture IDs
+					// Use texture renderer IDs for material ID
 					u64 diffuseID = cmd->diffuseMap ? cmd->diffuseMap->GetRendererID() : 0;
 					u64 specularID = cmd->specularMap ? cmd->specularMap->GetRendererID() : 0;
-					m_Metadata.textureKey = diffuseID ^ (specularID << 16);
+					u32 materialID = static_cast<u32>(diffuseID ^ (specularID << 16));
+					m_Metadata.m_SortKey.SetMaterialID(materialID);
 				}
 			}
 		}
