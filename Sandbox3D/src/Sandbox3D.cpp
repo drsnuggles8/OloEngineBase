@@ -76,15 +76,21 @@ void Sandbox3D::OnAttach()
     
     // Assign textures to the material
     m_TexturedMaterial.DiffuseMap = m_DiffuseMap;
-    m_TexturedMaterial.SpecularMap = m_SpecularMap;
- 
-    // Set initial lighting parameters
+    m_TexturedMaterial.SpecularMap = m_SpecularMap;    // Set initial lighting parameters
     OloEngine::Renderer3D::SetLight(m_Light);
+    
+    // Initialize debugging tools
+    OloEngine::RendererMemoryTracker::GetInstance().Initialize();
+    OloEngine::RendererProfiler::GetInstance().Initialize();
 }
 
 void Sandbox3D::OnDetach()
 {
 	OLO_PROFILE_FUNCTION();
+	
+	// Shutdown debugging tools
+	OloEngine::RendererMemoryTracker::GetInstance().Shutdown();
+	OloEngine::RendererProfiler::GetInstance().Shutdown();
 }
 
 void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
@@ -529,9 +535,62 @@ void Sandbox3D::OnImGuiRender()
 			ImGui::Text("This option doesn't do anything yet - we're always using the queue now");
 			ImGui::EndTooltip();
 		}
-	}
+	}	ImGui::End();    // Renderer Debugging Tools
+    ImGui::Begin("Renderer Debugging");    // Command Packet Debugger
+    if (ImGui::CollapsingHeader("Command Packet Debugger"))
+    {
+        ImGui::Checkbox("Show Command Packets", &m_ShowCommandPacketDebugger);
+        ImGui::SameLine();
+        if (ImGui::Button("Export to CSV"))        {
+            const auto* commandBucket = OloEngine::Renderer3D::GetCommandBucket();
+            if (commandBucket)
+            {
+                m_CommandPacketDebugger.ExportToCSV(commandBucket, "command_packets.csv");
+            }
+        }
+          if (m_ShowCommandPacketDebugger)
+        {
+            const auto* commandBucket = OloEngine::Renderer3D::GetCommandBucket();
+            if (commandBucket)
+            {
+                m_CommandPacketDebugger.RenderDebugView(commandBucket, &m_ShowCommandPacketDebugger, "Command Packets");
+            }
+            else
+            {
+                ImGui::Text("Command bucket not available");
+            }
+        }
+    }    // Memory Tracker
+    if (ImGui::CollapsingHeader("Memory Tracker"))
+    {
+        ImGui::Checkbox("Show Memory Tracker", &m_ShowMemoryTracker);
+        ImGui::SameLine();
+        if (ImGui::Button("Reset Tracking"))
+        {
+            m_MemoryTracker.Reset();
+        }
+        
+        if (m_ShowMemoryTracker)
+        {
+            m_MemoryTracker.RenderUI(&m_ShowMemoryTracker);
+        }
+    }    // Renderer Profiler
+    if (ImGui::CollapsingHeader("Renderer Profiler"))
+    {
+        ImGui::Checkbox("Show Profiler", &m_ShowRendererProfiler);
+        ImGui::SameLine();
+        if (ImGui::Button("Reset Stats"))
+        {
+            m_RendererProfiler.Reset();
+        }
+        
+        if (m_ShowRendererProfiler)
+        {
+            m_RendererProfiler.RenderUI(&m_ShowRendererProfiler);
+        }
+    }
 
-	ImGui::End();
+    ImGui::End();
 }
 
 void Sandbox3D::RenderDirectionalLightUI()

@@ -115,9 +115,14 @@
 		"OloEngine/Renderer/Camera/PerspectiveCamera.h"
 		"OloEngine/Renderer/Camera/PerspectiveCameraController.cpp"
 		"OloEngine/Renderer/Camera/PerspectiveCameraController.h"
-		
-		"OloEngine/Renderer/Debug/RenderGraphDebugger.h"
+				"OloEngine/Renderer/Debug/RenderGraphDebugger.h"
 		"OloEngine/Renderer/Debug/RenderGraphDebugger.cpp"
+		"OloEngine/Renderer/Debug/CommandPacketDebugger.h"
+		"OloEngine/Renderer/Debug/CommandPacketDebugger.cpp"
+		"OloEngine/Renderer/Debug/RendererMemoryTracker.h"
+		"OloEngine/Renderer/Debug/RendererMemoryTracker.cpp"
+		"OloEngine/Renderer/Debug/RendererProfiler.h"
+		"OloEngine/Renderer/Debug/RendererProfiler.cpp"
 		
 		"OloEngine/Renderer/Passes/RenderPass.h"
 		"OloEngine/Renderer/Passes/FinalRenderPass.h"

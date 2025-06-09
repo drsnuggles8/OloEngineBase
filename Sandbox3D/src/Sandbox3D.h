@@ -8,6 +8,9 @@
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugger.h"
+#include "OloEngine/Renderer/Debug/CommandPacketDebugger.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
+#include "OloEngine/Renderer/Debug/RendererProfiler.h"
 
 class Sandbox3D : public OloEngine::Layer
 {
@@ -27,6 +30,7 @@ private:
 	void RenderPointLightUI();
 	void RenderSpotlightUI();
     void RenderGraphDebuggerUI();
+    void RenderDebuggingUI();
     void RenderStateTestObjects(f32 rotationAngle);
 
 private:
@@ -84,13 +88,18 @@ private:
 
 	// FPS
 	f32 m_FrameTime = 0.0f;
-	f32 m_FPS = 0.0f;
-    
-    // Render Graph Debugger
+	f32 m_FPS = 0.0f;      // Render Graph Debugger
     OloEngine::RenderGraphDebugger m_RenderGraphDebugger;
     bool m_RenderGraphDebuggerOpen = false;
-
-    // State testing settings
+    
+    // Debugging Tools
+    OloEngine::CommandPacketDebugger m_CommandPacketDebugger;
+    OloEngine::RendererMemoryTracker& m_MemoryTracker = OloEngine::RendererMemoryTracker::GetInstance();
+    OloEngine::RendererProfiler& m_RendererProfiler = OloEngine::RendererProfiler::GetInstance();
+    
+    bool m_ShowCommandPacketDebugger = false;
+    bool m_ShowMemoryTracker = false;
+    bool m_ShowRendererProfiler = false;    // State testing settings
     bool m_EnableStateTest = true;
     i32 m_StateTestMode = 0;
     const char* m_StateTestModes[4] = { "Wireframe", "Alpha Blend", "Polygon Offset", "All Effects" };

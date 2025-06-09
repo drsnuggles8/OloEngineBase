@@ -13,6 +13,7 @@
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Core/Application.h"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -90,10 +91,12 @@ namespace OloEngine
 		
 		OLO_CORE_INFO("Renderer3D shutdown complete.");
 	}
-
 	void Renderer3D::BeginScene(const PerspectiveCamera& camera)
 	{
 		OLO_PROFILE_FUNCTION();
+		
+		// Begin profiler frame tracking
+		RendererProfiler::GetInstance().BeginFrame();
 		
 		if (!s_Data.ScenePass)
 		{
@@ -188,7 +191,6 @@ namespace OloEngine
 			s_Data.LightPropertiesUBO->SetData(&lightData, sizeof(LightPropertiesData));
 		}
 	}
-
 	void Renderer3D::EndScene()
 	{
 		OLO_PROFILE_FUNCTION();
@@ -205,6 +207,13 @@ namespace OloEngine
         {
             s_Data.FinalPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
         }
+          // Update profiler with command bucket statistics
+        auto& profiler = RendererProfiler::GetInstance();
+        if (s_Data.ScenePass)
+        {
+            const auto& commandBucket = s_Data.ScenePass->GetCommandBucket();
+            profiler.IncrementCounter(RendererProfiler::MetricType::CommandPackets, static_cast<u32>(commandBucket.GetCommandCount()));
+        }
         
 		// Execute the render graph (which will execute all passes in order)
 		s_Data.RGraph->Execute();
@@ -212,6 +221,9 @@ namespace OloEngine
 		CommandAllocator* allocator = s_Data.ScenePass->GetCommandBucket().GetAllocator();
 		CommandMemoryManager::ReturnAllocator(allocator);
 		s_Data.ScenePass->GetCommandBucket().SetAllocator(nullptr);
+		
+		// End profiler frame tracking
+		profiler.EndFrame();
 	}
 
 	void Renderer3D::SetLight(const Light& light)
