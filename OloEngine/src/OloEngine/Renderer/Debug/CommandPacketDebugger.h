@@ -109,14 +109,14 @@ namespace OloEngine
                 m_DeallocationCount = 0;
             }
         };
-        
-        // Draw key analysis data
+          // Draw key analysis data
         struct DrawKeyStats
         {
             std::unordered_map<u32, u32> m_LayerDistribution;
             std::unordered_map<u32, u32> m_MaterialDistribution;
             std::unordered_map<u32, u32> m_DepthDistribution;
             std::unordered_map<u32, u32> m_TranslucencyDistribution;
+            u32 m_MaterialZeroCount = 0; // Count of commands with material ID 0
             
             void Reset()
             {
@@ -124,6 +124,7 @@ namespace OloEngine
                 m_MaterialDistribution.clear();
                 m_DepthDistribution.clear();
                 m_TranslucencyDistribution.clear();
+                m_MaterialZeroCount = 0;
             }
         };
         
@@ -155,9 +156,9 @@ namespace OloEngine
         std::vector<f32> m_ExecutionTimeHistory;
         std::vector<f32> m_MemoryUsageHistory;
         u32 m_HistoryIndex = 0;
-        
-        // UI state
+          // UI state
         i32 m_SelectedPacketIndex = -1;
+        const CommandPacket* m_SelectedPacket = nullptr;
         bool m_FilterByType = false;
         i32 m_TypeFilter = 0;
         bool m_FilterByStatic = false;

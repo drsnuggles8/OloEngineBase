@@ -527,28 +527,34 @@ void Sandbox3D::OnImGuiRender()
 	if (m_EnableStateTest)
 	{
 		ImGui::Combo("Test Mode", &m_StateTestMode, m_StateTestModes, 4);
-		
-		ImGui::Checkbox("Use Queued State Changes", &m_UseQueuedStateChanges);
+				ImGui::Checkbox("Use Queued State Changes", &m_UseQueuedStateChanges);
 		if (ImGui::IsItemHovered())
 		{
 			ImGui::BeginTooltip();
 			ImGui::Text("This option doesn't do anything yet - we're always using the queue now");
 			ImGui::EndTooltip();
 		}
-	}	ImGui::End();    // Renderer Debugging Tools
-    ImGui::Begin("Renderer Debugging");    // Command Packet Debugger
+	}
+	
+	// Debugging Tools Section
+	ImGui::Separator();
+	ImGui::Text("Renderer Debugging Tools");
+	
+	// Command Packet Debugger
     if (ImGui::CollapsingHeader("Command Packet Debugger"))
     {
-        ImGui::Checkbox("Show Command Packets", &m_ShowCommandPacketDebugger);
+        ImGui::Checkbox("Show Command Packets##CommandDebugger", &m_ShowCommandPacketDebugger);
         ImGui::SameLine();
-        if (ImGui::Button("Export to CSV"))        {
+        if (ImGui::Button("Export to CSV##CommandDebugger"))
+        {
             const auto* commandBucket = OloEngine::Renderer3D::GetCommandBucket();
             if (commandBucket)
             {
                 m_CommandPacketDebugger.ExportToCSV(commandBucket, "command_packets.csv");
             }
         }
-          if (m_ShowCommandPacketDebugger)
+        
+        if (m_ShowCommandPacketDebugger)
         {
             const auto* commandBucket = OloEngine::Renderer3D::GetCommandBucket();
             if (commandBucket)
@@ -560,12 +566,14 @@ void Sandbox3D::OnImGuiRender()
                 ImGui::Text("Command bucket not available");
             }
         }
-    }    // Memory Tracker
+    }
+
+    // Memory Tracker
     if (ImGui::CollapsingHeader("Memory Tracker"))
     {
-        ImGui::Checkbox("Show Memory Tracker", &m_ShowMemoryTracker);
+        ImGui::Checkbox("Show Memory Tracker##MemoryTracker", &m_ShowMemoryTracker);
         ImGui::SameLine();
-        if (ImGui::Button("Reset Tracking"))
+        if (ImGui::Button("Reset Tracking##MemoryTracker"))
         {
             m_MemoryTracker.Reset();
         }
@@ -574,12 +582,14 @@ void Sandbox3D::OnImGuiRender()
         {
             m_MemoryTracker.RenderUI(&m_ShowMemoryTracker);
         }
-    }    // Renderer Profiler
+    }
+
+    // Renderer Profiler
     if (ImGui::CollapsingHeader("Renderer Profiler"))
     {
-        ImGui::Checkbox("Show Profiler", &m_ShowRendererProfiler);
+        ImGui::Checkbox("Show Profiler##RendererProfiler", &m_ShowRendererProfiler);
         ImGui::SameLine();
-        if (ImGui::Button("Reset Stats"))
+        if (ImGui::Button("Reset Stats##RendererProfiler"))
         {
             m_RendererProfiler.Reset();
         }
@@ -590,7 +600,7 @@ void Sandbox3D::OnImGuiRender()
         }
     }
 
-    ImGui::End();
+	ImGui::End();
 }
 
 void Sandbox3D::RenderDirectionalLightUI()

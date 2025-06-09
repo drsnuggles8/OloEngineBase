@@ -164,8 +164,7 @@ namespace OloEngine
         
         // Pool statistics (placeholder for future implementation)
         std::unordered_map<std::string, PoolStats> m_PoolStats;
-        
-        // Leak detection parameters
+          // Leak detection parameters
         f64 m_LeakDetectionThreshold = 30.0; // seconds
         f64 m_LastLeakCheck = 0.0;
         

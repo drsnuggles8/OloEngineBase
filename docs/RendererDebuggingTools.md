@@ -16,11 +16,16 @@ The debugging tools are integrated into the Sandbox3D application and can be acc
 
 ### UI Access
 
-In the Sandbox3D application, you can access the debugging tools through the main menu:
+In the Sandbox3D application, the debugging tools are integrated into the **Lighting Settings** window. You can access them by:
 
-- **Debug > Show Command Packet Debugger** - Toggle the command packet visualization panel
-- **Debug > Show Memory Tracker** - Toggle the memory tracking panel  
-- **Debug > Show Renderer Profiler** - Toggle the profiler panel
+1. Opening the **Lighting Settings** window (automatically displayed)
+2. Scrolling down to the **Renderer Debugging Tools** section
+3. Expanding the collapsible headers for each tool:
+   - **Command Packet Debugger** - Visualize and analyze command packets
+   - **Memory Tracker** - Monitor memory usage and allocation patterns  
+   - **Renderer Profiler** - View timing and performance statistics
+
+Each tool can be toggled on/off with checkboxes and includes additional controls for resetting data and exporting information.
 
 ## Tools Description
 
@@ -38,9 +43,17 @@ In the Sandbox3D application, you can access the debugging tools through the mai
 
 **Usage**:
 ```cpp
-// The debugger automatically hooks into the active renderer's command bucket
-// Access through Sandbox3D Debug menu or programmatically:
-m_CommandPacketDebugger.RenderDebugView(commandBucket, &showFlag, "Command Packets");
+// In the Lighting Settings window UI:
+// 1. Check "Show Command Packets" to enable the debugger
+// 2. Click "Export to CSV" to save data for offline analysis
+// 3. The debugger automatically displays data from the active renderer's command bucket
+
+// Programmatic access:
+const auto* commandBucket = OloEngine::Renderer3D::GetCommandBucket();
+if (commandBucket)
+{
+    m_CommandPacketDebugger.RenderDebugView(commandBucket, &showFlag, "Command Packets");
+}
 ```
 
 ### 2. RendererMemoryTracker
@@ -87,17 +100,54 @@ m_CommandPacketDebugger.RenderDebugView(commandBucket, &showFlag, "Command Packe
 
 ### Initialization
 
-The debugging tools are initialized in `Sandbox3D::OnAttach()`:
+The debugging tools are automatically initialized in `Sandbox3D::OnAttach()`:
 
 ```cpp
-// Initialize debugging tools
-m_RendererMemoryTracker.Initialize();
-m_RendererProfiler.Initialize();
+void Sandbox3D::OnAttach()
+{
+    // ... other initialization code ...
+    
+    // Initialize debugging tools
+    OloEngine::RendererMemoryTracker::GetInstance().Initialize();
+    OloEngine::RendererProfiler::GetInstance().Initialize();
+}
 ```
 
-### Integration with Renderer
+### UI Integration
 
-The tools are integrated with the core renderer:
+The tools are integrated into the main Lighting Settings window in `Sandbox3D::OnImGuiRender()`:
+
+```cpp
+// Debugging Tools Section
+ImGui::Separator();
+ImGui::Text("Renderer Debugging Tools");
+
+// Command Packet Debugger
+if (ImGui::CollapsingHeader("Command Packet Debugger"))
+{
+    ImGui::Checkbox("Show Command Packets##CommandDebugger", &m_ShowCommandPacketDebugger);
+    ImGui::SameLine();
+    if (ImGui::Button("Export to CSV##CommandDebugger"))
+    {
+        const auto* commandBucket = OloEngine::Renderer3D::GetCommandBucket();
+        if (commandBucket)
+        {
+            m_CommandPacketDebugger.ExportToCSV(commandBucket, "command_packets.csv");
+        }
+    }
+    
+    if (m_ShowCommandPacketDebugger)
+    {
+        const auto* commandBucket = OloEngine::Renderer3D::GetCommandBucket();
+        if (commandBucket)
+        {
+            m_CommandPacketDebugger.RenderDebugView(commandBucket, &m_ShowCommandPacketDebugger, "Command Packets");
+        }
+    }
+}
+
+// Similar integration for Memory Tracker and Renderer Profiler...
+```
 
 - **CommandPacketDebugger**: Accesses command data through `Renderer3D::GetCommandBucket()`
 - **RendererProfiler**: Hooks into `Renderer3D::BeginScene()` and `EndScene()` calls
@@ -140,6 +190,36 @@ Potential additions to the debugging toolkit:
 2. **State Change Analyzer** - Tracking of OpenGL state changes and optimization suggestions
 3. **Shader Debugger** - Real-time shader parameter monitoring and debugging
 4. **Draw Call Analyzer** - Detailed analysis of draw call patterns and batching efficiency
+
+## Recent Bug Fixes and Improvements
+
+### Fixed Issues
+
+1. **Memory Tracker Crash** - Resolved duplicate `std::mutex` declaration in `RendererMemoryTracker.h` that was causing potential runtime crashes.
+
+2. **Command Packet Debugger Data Display** - Updated the debugger to use real command packet data instead of placeholder information:
+   - Fixed command packet type detection and filtering
+   - Implemented proper ImGui ID management to prevent conflicts
+   - Added real memory usage calculations based on actual command packet sizes
+   - Fixed CSV export to output actual command data
+
+3. **UI Integration** - Merged debugging tools into the main Lighting Settings window to eliminate duplicate UI elements:
+   - Removed separate "Renderer Debugging" window
+   - Integrated all tools into collapsible sections within Lighting Settings
+   - Eliminated duplicate frametime/FPS displays
+
+4. **Data Accuracy** - Enhanced data extraction from CommandBucket and CommandPacket:
+   - Updated selected packet details to show real metadata
+   - Fixed memory and performance statistics calculations
+   - Improved color coding for different command types
+
+### Validation
+
+All fixes have been validated through:
+- Successful compilation with no warnings or errors
+- Runtime testing of Sandbox3D application
+- Verification of debugging tools functionality
+- Memory usage and performance impact assessment
 
 ## Usage Examples
 
