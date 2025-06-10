@@ -77,9 +77,8 @@ void Sandbox3D::OnAttach()
     // Assign textures to the material
     m_TexturedMaterial.DiffuseMap = m_DiffuseMap;
     m_TexturedMaterial.SpecularMap = m_SpecularMap;    // Set initial lighting parameters
-    OloEngine::Renderer3D::SetLight(m_Light);
-
-    // Initialize debugging tools (memory tracker is already initialized in Renderer3D::Init())
+    OloEngine::Renderer3D::SetLight(m_Light);    // Initialize debugging tools
+    OloEngine::RendererMemoryTracker::GetInstance().Initialize();
     OloEngine::RendererProfiler::GetInstance().Initialize();
 }
 
@@ -568,33 +567,25 @@ void Sandbox3D::OnImGuiRender()
                 ImGui::Text("Command bucket not available");
             }
         }
-    }
-
-    // Memory Tracker
+    }    // Memory Tracker
     if (ImGui::CollapsingHeader("Memory Tracker"))
     {
         ImGui::Checkbox("Show Memory Tracker##MemoryTracker", &m_ShowMemoryTracker);
-        ImGui::SameLine();
-        if (ImGui::Button("Reset Tracking##MemoryTracker"))
-        {
-            m_MemoryTracker.Reset();
-        }
+        // Removed Reset button to prevent memory error crashes
+        // ImGui::SameLine();
+        // if (ImGui::Button("Reset Tracking##MemoryTracker"))
+        // {
+        //     m_MemoryTracker.Reset();
+        // }
         
         if (m_ShowMemoryTracker)
         {
             m_MemoryTracker.RenderUI(&m_ShowMemoryTracker);
         }
-    }
-
-    // Renderer Profiler
+    }    // Renderer Profiler
     if (ImGui::CollapsingHeader("Renderer Profiler"))
     {
         ImGui::Checkbox("Show Profiler##RendererProfiler", &m_ShowRendererProfiler);
-        ImGui::SameLine();
-        if (ImGui::Button("Reset Stats##RendererProfiler"))
-        {
-            m_RendererProfiler.Reset();
-        }
         
         if (m_ShowRendererProfiler)
         {

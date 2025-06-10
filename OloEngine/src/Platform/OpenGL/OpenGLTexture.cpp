@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLTexture.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
+#include "OloEngine/Renderer/Debug/RendererProfiler.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image/stb_image.h>
@@ -204,11 +205,13 @@ namespace OloEngine
 		glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<int>(m_Width), static_cast<int>(m_Height), dataFormat, GL_UNSIGNED_BYTE, data);
 		glGenerateTextureMipmap(m_RendererID);
 	}
-
 	void OpenGLTexture2D::Bind(const u32 slot) const
 	{
 		OLO_PROFILE_FUNCTION();
 
 		glBindTextureUnit(slot, m_RendererID);
+		
+		// Update profiler counters
+		RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::TextureBinds, 1);
 	}
 }

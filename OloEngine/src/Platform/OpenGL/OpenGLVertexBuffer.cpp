@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLVertexBuffer.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
+#include "OloEngine/Renderer/Debug/RendererProfiler.h"
 
 #include <glad/gl.h>
 
@@ -62,12 +63,12 @@ namespace OloEngine
 		
 		glDeleteBuffers(1, &m_RendererID);
 	}
-
 	void OpenGLVertexBuffer::Bind() const
 	{
 		OLO_PROFILE_FUNCTION();
 
 		glBindBuffer(GL_ARRAY_BUFFER, m_RendererID);
+		RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::BufferBinds, 1);
 	}
 
 	void OpenGLVertexBuffer::Unbind() const

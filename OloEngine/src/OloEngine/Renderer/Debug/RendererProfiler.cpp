@@ -72,12 +72,12 @@ namespace OloEngine
         
         OLO_CORE_INFO("Renderer Profiler reset");
     }
-    
-    void RendererProfiler::BeginFrame()
+      void RendererProfiler::BeginFrame()
     {
         OLO_PROFILE_FUNCTION();
         
         m_FrameStartTime = std::chrono::high_resolution_clock::now();
+        m_FrameNumber++;
         
         // Calculate frame time from previous frame
         auto now = std::chrono::high_resolution_clock::now();
@@ -247,10 +247,21 @@ namespace OloEngine
                     RenderCountersTab();
                     ImGui::EndTabItem();
                 }
-                
-                if (ImGui::BeginTabItem("History"))
+                  if (ImGui::BeginTabItem("History"))
                 {
                     RenderHistoryTab();
+                    ImGui::EndTabItem();
+                }
+                
+                if (ImGui::BeginTabItem("Frame Capture"))
+                {
+                    RenderFrameCaptureTab();
+                    ImGui::EndTabItem();
+                }
+                
+                if (ImGui::BeginTabItem("Frame Compare"))
+                {
+                    RenderFrameComparisonTab();
                     ImGui::EndTabItem();
                 }
                 
@@ -771,5 +782,337 @@ namespace OloEngine
         auto endTime = std::chrono::high_resolution_clock::now();
         f64 duration = std::chrono::duration<f64, std::milli>(endTime - m_StartTime).count();
         RendererProfiler::GetInstance().AddTimingSample(m_Name, duration, m_Type);
+    }
+
+    // Frame Capture Implementation
+    void RendererProfiler::CaptureFrame(const std::string& notes)
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        // Don't capture if we're already capturing
+        if (m_CapturingFrame)
+        {
+            OLO_CORE_WARN("RendererProfiler: Already capturing a frame, ignoring request");
+            return;
+        }
+        
+        CapturedFrame frame;
+        frame.m_FrameNumber = m_FrameNumber;
+        frame.m_Timestamp = std::chrono::duration<f64>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+        frame.m_FrameData = m_CurrentFrame;
+        frame.m_Notes = notes;
+        frame.m_BottleneckAnalysis = AnalyzeBottlenecks();
+        
+        // Add to captured frames (keep only last N frames)
+        m_CapturedFrames.push_back(frame);
+        if (m_CapturedFrames.size() > OLO_MAX_CAPTURED_FRAMES)
+        {
+            m_CapturedFrames.erase(m_CapturedFrames.begin());
+        }
+        
+        OLO_CORE_INFO("RendererProfiler: Captured frame {} - {}", frame.m_FrameNumber, notes);
+    }
+
+    void RendererProfiler::BeginRenderPass(const std::string& passName)
+    {
+        if (!m_CapturingFrame)
+            return;
+            
+        RenderPassInfo passInfo;
+        passInfo.m_Name = passName;
+        passInfo.m_StartTime = std::chrono::duration<f64, std::milli>(
+            std::chrono::high_resolution_clock::now() - m_FrameStartTime).count();
+        
+        // If we have a current captured frame, add this pass to it
+        if (!m_CapturedFrames.empty())
+        {
+            m_CapturedFrames.back().m_RenderPasses.push_back(passInfo);
+            m_CurrentRenderPass = &m_CapturedFrames.back().m_RenderPasses.back();
+        }
+        
+        OLO_CORE_TRACE("RendererProfiler: Begin render pass '{}'", passName);
+    }
+
+    void RendererProfiler::EndRenderPass()
+    {
+        if (!m_CapturingFrame || !m_CurrentRenderPass)
+            return;
+            
+        f64 currentTime = std::chrono::duration<f64, std::milli>(
+            std::chrono::high_resolution_clock::now() - m_FrameStartTime).count();
+        m_CurrentRenderPass->m_Duration = currentTime - m_CurrentRenderPass->m_StartTime;
+        
+        OLO_CORE_TRACE("RendererProfiler: End render pass '{}' ({}ms)", 
+                      m_CurrentRenderPass->m_Name, m_CurrentRenderPass->m_Duration);
+        
+        m_CurrentRenderPass = nullptr;
+    }
+
+    void RendererProfiler::TrackDrawCall(const std::string& name, const std::string& shaderName, 
+                                        u32 vertexCount, u32 indexCount, f64 cpuTime, f64 gpuTime)
+    {
+        if (!m_CapturingFrame || !m_CurrentRenderPass)
+            return;
+            
+        DrawCallInfo drawCall;
+        drawCall.m_Name = name;
+        drawCall.m_ShaderName = shaderName;
+        drawCall.m_VertexCount = vertexCount;
+        drawCall.m_IndexCount = indexCount;
+        drawCall.m_CPUTime = cpuTime;
+        drawCall.m_GPUTime = gpuTime;
+        
+        m_CurrentRenderPass->m_DrawCalls.push_back(drawCall);
+        m_CurrentRenderPass->m_DrawCallCount++;
+        
+        OLO_CORE_TRACE("RendererProfiler: Tracked draw call '{}' with shader '{}' - {} verts, {} indices", 
+                      name, shaderName, vertexCount, indexCount);
+    }
+
+    std::string RendererProfiler::CompareFrames(const CapturedFrame& frame1, const CapturedFrame& frame2) const
+    {
+        std::stringstream ss;
+        
+        ss << "Frame Comparison:\n";
+        ss << "================\n\n";
+        
+        ss << "Frame " << frame1.m_FrameNumber << " vs Frame " << frame2.m_FrameNumber << "\n\n";
+        
+        // Frame time comparison
+        f64 frameTimeDiff = frame2.m_FrameData.m_FrameTime - frame1.m_FrameData.m_FrameTime;
+        ss << "Frame Time: " << frame1.m_FrameData.m_FrameTime << "ms -> " 
+           << frame2.m_FrameData.m_FrameTime << "ms ";
+        if (frameTimeDiff > 0)
+            ss << "(+" << frameTimeDiff << "ms SLOWER)\n";
+        else
+            ss << "(" << frameTimeDiff << "ms faster)\n";
+        
+        // Draw call comparison
+        i32 drawCallDiff = (i32)frame2.m_FrameData.m_DrawCalls - (i32)frame1.m_FrameData.m_DrawCalls;
+        ss << "Draw Calls: " << frame1.m_FrameData.m_DrawCalls << " -> " 
+           << frame2.m_FrameData.m_DrawCalls;
+        if (drawCallDiff != 0)
+            ss << " (" << (drawCallDiff > 0 ? "+" : "") << drawCallDiff << ")";
+        ss << "\n";
+        
+        // Vertices comparison
+        i32 vertexDiff = (i32)frame2.m_FrameData.m_VerticesRendered - (i32)frame1.m_FrameData.m_VerticesRendered;
+        ss << "Vertices: " << frame1.m_FrameData.m_VerticesRendered << " -> " 
+           << frame2.m_FrameData.m_VerticesRendered;
+        if (vertexDiff != 0)
+            ss << " (" << (vertexDiff > 0 ? "+" : "") << vertexDiff << ")";
+        ss << "\n";
+        
+        // Bottleneck analysis
+        ss << "\nBottleneck Analysis:\n";
+        ss << "Frame " << frame1.m_FrameNumber << ": " << frame1.m_BottleneckAnalysis.m_Description << "\n";
+        ss << "Frame " << frame2.m_FrameNumber << ": " << frame2.m_BottleneckAnalysis.m_Description << "\n";
+        
+        return ss.str();
+    }
+    
+    void RendererProfiler::RenderFrameCaptureTab()
+    {
+        ImGui::Text("Frame Capture & Analysis");
+        ImGui::Separator();
+        
+        // Capture controls
+        ImGui::Text("Current Frame: %u", m_FrameNumber);
+        
+        static char captureNotes[256] = "";
+        ImGui::InputText("Notes", captureNotes, sizeof(captureNotes));
+        ImGui::SameLine();
+        
+        if (ImGui::Button("Capture Current Frame"))
+        {
+            CaptureFrame(std::string(captureNotes));
+            captureNotes[0] = '\0'; // Clear notes
+        }
+        
+        ImGui::Separator();
+        
+        // Display captured frames
+        ImGui::Text("Captured Frames: %zu", m_CapturedFrames.size());
+        
+        if (ImGui::Button("Clear All Captures"))
+        {
+            ClearCapturedFrames();
+        }
+        
+        // Frame list
+        if (!m_CapturedFrames.empty())
+        {
+            if (ImGui::BeginTable("CapturedFrames", 6, ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg))
+            {
+                ImGui::TableSetupColumn("Frame #", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+                ImGui::TableSetupColumn("Frame Time", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+                ImGui::TableSetupColumn("Draw Calls", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+                ImGui::TableSetupColumn("Vertices", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+                ImGui::TableSetupColumn("Bottleneck", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+                ImGui::TableSetupColumn("Notes", ImGuiTableColumnFlags_WidthStretch);
+                ImGui::TableHeadersRow();
+                
+                for (const auto& frame : m_CapturedFrames)
+                {
+                    ImGui::TableNextRow();
+                    
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::Text("%u", frame.m_FrameNumber);
+                    
+                    ImGui::TableSetColumnIndex(1);
+                    // Color code frame times
+                    if (frame.m_FrameData.m_FrameTime > 16.67f) // > 60 FPS
+                        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%.2fms", frame.m_FrameData.m_FrameTime);
+                    else if (frame.m_FrameData.m_FrameTime > 11.11f) // > 90 FPS
+                        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1.0f), "%.2fms", frame.m_FrameData.m_FrameTime);
+                    else
+                        ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%.2fms", frame.m_FrameData.m_FrameTime);
+                    
+                    ImGui::TableSetColumnIndex(2);
+                    ImGui::Text("%u", frame.m_FrameData.m_DrawCalls);
+                    
+                    ImGui::TableSetColumnIndex(3);
+                    ImGui::Text("%u", frame.m_FrameData.m_VerticesRendered);
+                    
+                    ImGui::TableSetColumnIndex(4);
+                    switch (frame.m_BottleneckAnalysis.m_Type)
+                    {
+                        case BottleneckInfo::CPU_Bound:
+                            ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.6f, 1.0f), "CPU");
+                            break;
+                        case BottleneckInfo::GPU_Bound:
+                            ImGui::TextColored(ImVec4(0.6f, 0.6f, 1.0f, 1.0f), "GPU");
+                            break;
+                        case BottleneckInfo::Memory_Bound:
+                            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1.0f), "Memory");
+                            break;
+                        case BottleneckInfo::IO_Bound:
+                            ImGui::TextColored(ImVec4(0.8f, 0.4f, 1.0f, 1.0f), "I/O");
+                            break;
+                        default:
+                            ImGui::TextColored(ImVec4(0.6f, 1.0f, 0.6f, 1.0f), "Balanced");
+                            break;
+                    }
+                    
+                    ImGui::TableSetColumnIndex(5);
+                    ImGui::Text("%s", frame.m_Notes.c_str());
+                }
+                
+                ImGui::EndTable();
+            }
+        }
+        else
+        {
+            ImGui::Text("No frames captured yet. Use 'Capture Current Frame' to start analyzing.");
+        }
+    }
+
+    void RendererProfiler::RenderFrameComparisonTab()
+    {
+        ImGui::Text("Frame Comparison Tool");
+        ImGui::Separator();
+        
+        if (m_CapturedFrames.size() < 2)
+        {
+            ImGui::Text("Capture at least 2 frames to enable comparison.");
+            return;
+        }
+        
+        static int selectedFrame1 = 0;
+        static int selectedFrame2 = 1;
+        
+        // Frame selection
+        ImGui::Text("Select frames to compare:");
+        
+        // Build frame list for combo boxes
+        std::vector<std::string> frameNames;
+        for (size_t i = 0; i < m_CapturedFrames.size(); ++i)
+        {
+            const auto& frame = m_CapturedFrames[i];
+            std::string name = "Frame " + std::to_string(frame.m_FrameNumber) + 
+                              " (" + std::to_string(frame.m_FrameData.m_FrameTime) + "ms)";
+            if (!frame.m_Notes.empty())
+                name += " - " + frame.m_Notes;
+            frameNames.push_back(name);
+        }
+        
+        // Convert to char* array for ImGui
+        std::vector<const char*> frameNamePtrs;
+        for (const auto& name : frameNames)
+            frameNamePtrs.push_back(name.c_str());
+        
+        ImGui::Combo("Frame 1", &selectedFrame1, frameNamePtrs.data(), (int)frameNamePtrs.size());
+        ImGui::Combo("Frame 2", &selectedFrame2, frameNamePtrs.data(), (int)frameNamePtrs.size());
+        
+        if (selectedFrame1 >= 0 && selectedFrame1 < (int)m_CapturedFrames.size() &&
+            selectedFrame2 >= 0 && selectedFrame2 < (int)m_CapturedFrames.size() &&
+            selectedFrame1 != selectedFrame2)
+        {
+            const auto& frame1 = m_CapturedFrames[selectedFrame1];
+            const auto& frame2 = m_CapturedFrames[selectedFrame2];
+            
+            ImGui::Separator();
+            
+            // Quick comparison metrics
+            if (ImGui::BeginTable("FrameComparison", 3, ImGuiTableFlags_Borders))
+            {
+                ImGui::TableSetupColumn("Metric", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+                ImGui::TableSetupColumn("Frame 1", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+                ImGui::TableSetupColumn("Frame 2", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+                ImGui::TableHeadersRow();
+                
+                // Frame time
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::Text("Frame Time");
+                ImGui::TableSetColumnIndex(1); 
+                ImGui::Text("%.2fms", frame1.m_FrameData.m_FrameTime);
+                ImGui::TableSetColumnIndex(2);
+                f64 frameTimeDiff = frame2.m_FrameData.m_FrameTime - frame1.m_FrameData.m_FrameTime;
+                if (frameTimeDiff > 0.5f)
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%.2fms (+%.2f)", frame2.m_FrameData.m_FrameTime, frameTimeDiff);
+                else if (frameTimeDiff < -0.5f)
+                    ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%.2fms (%.2f)", frame2.m_FrameData.m_FrameTime, frameTimeDiff);
+                else
+                    ImGui::Text("%.2fms", frame2.m_FrameData.m_FrameTime);
+                
+                // Draw calls
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::Text("Draw Calls");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%u", frame1.m_FrameData.m_DrawCalls);
+                ImGui::TableSetColumnIndex(2);
+                i32 drawCallDiff = (i32)frame2.m_FrameData.m_DrawCalls - (i32)frame1.m_FrameData.m_DrawCalls;
+                if (drawCallDiff > 0)
+                    ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.4f, 1.0f), "%u (+%d)", frame2.m_FrameData.m_DrawCalls, drawCallDiff);
+                else if (drawCallDiff < 0)
+                    ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%u (%d)", frame2.m_FrameData.m_DrawCalls, drawCallDiff);
+                else
+                    ImGui::Text("%u", frame2.m_FrameData.m_DrawCalls);
+                
+                // Vertices
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::Text("Vertices");
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%u", frame1.m_FrameData.m_VerticesRendered);
+                ImGui::TableSetColumnIndex(2);
+                i32 vertexDiff = (i32)frame2.m_FrameData.m_VerticesRendered - (i32)frame1.m_FrameData.m_VerticesRendered;
+                if (vertexDiff > 0)
+                    ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.4f, 1.0f), "%u (+%d)", frame2.m_FrameData.m_VerticesRendered, vertexDiff);
+                else if (vertexDiff < 0)
+                    ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%u (%d)", frame2.m_FrameData.m_VerticesRendered, vertexDiff);
+                else
+                    ImGui::Text("%u", frame2.m_FrameData.m_VerticesRendered);
+                
+                ImGui::EndTable();
+            }
+            
+            ImGui::Separator();
+            
+            // Detailed comparison text
+            if (ImGui::Button("Generate Detailed Report"))
+            {
+                std::string report = CompareFrames(frame1, frame2);
+                // For now just log it, later we could show it in a popup or export it
+                OLO_CORE_INFO("Frame Comparison Report:\n{}", report);
+            }
+        }
     }
 }

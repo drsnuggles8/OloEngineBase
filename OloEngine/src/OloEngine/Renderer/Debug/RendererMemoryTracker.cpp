@@ -23,7 +23,8 @@ namespace OloEngine
     {
         static RendererMemoryTracker s_Instance;
         return s_Instance;
-    }    void RendererMemoryTracker::Initialize()
+    }
+      void RendererMemoryTracker::Initialize()
     {
         OLO_PROFILE_FUNCTION();
         
@@ -43,37 +44,17 @@ namespace OloEngine
             return;
         }
         
-        // Count existing allocations to see if we're being called after allocations already happened
-        size_t existingAllocations = m_Allocations.size();
-        size_t existingMemory = 0;
-        for (size_t i = 0; i < static_cast<size_t>(ResourceType::COUNT); ++i)
-        {
-            existingMemory += m_TypeUsage[i];
-        }
-        
-        if (existingAllocations > 0 || existingMemory > 0)
-        {
-            OLO_CORE_WARN("RendererMemoryTracker: Initialize() called AFTER allocations already tracked! "
-                         "Existing: {} allocations, {} bytes. NOT zeroing existing data.", 
-                         existingAllocations, existingMemory);
-        }
-        else
-        {
-            OLO_CORE_INFO("RendererMemoryTracker: Initialize() called - no existing allocations, initializing clean");
-            
-            // Only zero arrays if no existing data
-            for (u32 i = 0; i < (u32)ResourceType::COUNT; ++i)
-            {
-                m_TypeUsage[i] = 0;
-                m_TypeCounts[i] = 0;
-            }
-        }
-        
         // Initialize history arrays
         m_MemoryHistory.resize(OLO_HISTORY_SIZE, 0.0f);
         m_AllocationHistory.resize(OLO_HISTORY_SIZE, 0.0f);
         m_GPUMemoryHistory.resize(OLO_HISTORY_SIZE, 0.0f);
         m_CPUMemoryHistory.resize(OLO_HISTORY_SIZE, 0.0f);
+          // Initialize type usage tracking
+        for (u32 i = 0; i < (u32)ResourceType::COUNT; ++i)
+        {
+            m_TypeUsage[i] = 0;
+            m_TypeCounts[i] = 0;
+        }
         
         m_LastUpdateTime = std::chrono::duration<f64>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
         
@@ -81,7 +62,7 @@ namespace OloEngine
         m_IsInitialized.store(true);
         
         OLO_CORE_INFO("Renderer Memory Tracker initialized");
-    }void RendererMemoryTracker::Shutdown()
+    }    void RendererMemoryTracker::Shutdown()
     {
         OLO_PROFILE_FUNCTION();
         
@@ -109,11 +90,10 @@ namespace OloEngine
         m_IsInitialized.store(false);
         
         OLO_CORE_INFO("Renderer Memory Tracker shutdown");
-    }    void RendererMemoryTracker::Reset()
+    }
+      void RendererMemoryTracker::Reset()
     {
         OLO_PROFILE_FUNCTION();
-        
-        OLO_CORE_WARN("RendererMemoryTracker: Reset() called - this will clear TypeUsage array!");
         
         std::lock_guard<std::mutex> lock(m_Mutex);
           // Clear all tracking data
@@ -175,7 +155,8 @@ namespace OloEngine
             }
         }
     }
-      void RendererMemoryTracker::TrackAllocation(void* address, size_t size, ResourceType type, 
+    
+    void RendererMemoryTracker::TrackAllocation(void* address, size_t size, ResourceType type, 
                                                const std::string& name, bool isGPU,
                                                const char* file, u32 line)
     {        if (!address || size == 0)
@@ -233,21 +214,7 @@ namespace OloEngine
         {
             m_PeakMemoryUsage = totalUsage;
         }
-        
-        // Debug: Double-check the array after our updates
-        size_t debugTotal = 0;
-        size_t debugNonZero = 0;
-        for (size_t i = 0; i < static_cast<size_t>(ResourceType::COUNT); ++i)
-        {
-            debugTotal += m_TypeUsage[i];
-            if (m_TypeUsage[i] > 0) debugNonZero++;
-        }
-        
-        if (debugNonZero == 0 && m_TotalAllocations > 0)
-        {
-            OLO_CORE_ERROR("RendererMemoryTracker: CRITICAL BUG - TypeUsage array is empty but TotalAllocations={}!", m_TotalAllocations);
-        }
-    }void RendererMemoryTracker::TrackDeallocation(void* address)
+    }    void RendererMemoryTracker::TrackDeallocation(void* address)
     {
         if (!address || m_IsShutdown)
             return;

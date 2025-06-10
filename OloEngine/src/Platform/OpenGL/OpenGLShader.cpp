@@ -2,6 +2,7 @@
 #include "Platform/OpenGL/OpenGLShader.h"
 #include "OloEngine/Core/Timer.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
+#include "OloEngine/Renderer/Debug/RendererProfiler.h"
 
 #include <glad/gl.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -627,12 +628,14 @@ namespace OloEngine
 			CreateProgram();
 		}
 	}
-
 	void OpenGLShader::Bind() const
 	{
 		OLO_PROFILE_FUNCTION();
 
 		glUseProgram(m_RendererID);
+		
+		// Update profiler counters
+		RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::ShaderBinds, 1);
 	}
 
 	void OpenGLShader::Unbind() const

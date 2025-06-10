@@ -92,6 +92,40 @@ namespace OloEngine
             std::string m_Description;
             std::vector<std::string> m_Recommendations;
         };
+
+        // Frame capture for detailed analysis
+        struct DrawCallInfo
+        {
+            std::string m_Name;
+            std::string m_ShaderName;
+            u32 m_VertexCount = 0;
+            u32 m_IndexCount = 0;
+            f64 m_CPUTime = 0.0;
+            f64 m_GPUTime = 0.0;
+            size_t m_TextureMemory = 0;
+            size_t m_BufferMemory = 0;
+            bool m_IsCulled = false;
+        };
+
+        struct RenderPassInfo
+        {
+            std::string m_Name;
+            f64 m_StartTime = 0.0;
+            f64 m_Duration = 0.0;
+            u32 m_DrawCallCount = 0;
+            std::vector<DrawCallInfo> m_DrawCalls;
+            size_t m_MemoryUsed = 0;
+        };
+
+        struct CapturedFrame
+        {
+            u32 m_FrameNumber = 0;
+            f64 m_Timestamp = 0.0;
+            FrameData m_FrameData;
+            std::vector<RenderPassInfo> m_RenderPasses;
+            BottleneckInfo m_BottleneckAnalysis;
+            std::string m_Notes; // User can add notes about why this frame was captured
+        };
         
     public:
         static RendererProfiler& GetInstance();
@@ -155,6 +189,43 @@ namespace OloEngine
          * @brief Analyze performance bottlenecks
          */
         BottleneckInfo AnalyzeBottlenecks() const;
+
+        // Frame Capture & Analysis Methods
+        /**
+         * @brief Capture the current frame for detailed analysis
+         */
+        void CaptureFrame(const std::string& notes = "");
+
+        /**
+         * @brief Begin tracking a render pass
+         */
+        void BeginRenderPass(const std::string& passName);
+
+        /**
+         * @brief End tracking a render pass
+         */
+        void EndRenderPass();
+
+        /**
+         * @brief Track a draw call within the current render pass
+         */
+        void TrackDrawCall(const std::string& name, const std::string& shaderName, 
+                          u32 vertexCount, u32 indexCount, f64 cpuTime, f64 gpuTime = 0.0);
+
+        /**
+         * @brief Get captured frames for analysis
+         */
+        const std::vector<CapturedFrame>& GetCapturedFrames() const { return m_CapturedFrames; }
+
+        /**
+         * @brief Clear captured frames
+         */
+        void ClearCapturedFrames() { m_CapturedFrames.clear(); }
+
+        /**
+         * @brief Compare two captured frames
+         */
+        std::string CompareFrames(const CapturedFrame& frame1, const CapturedFrame& frame2) const;
         
         /**
          * @brief Export performance data to CSV
@@ -166,16 +237,49 @@ namespace OloEngine
          */
         bool IsHittingTargetFramerate(f32 targetFPS = 60.0f) const;
         
+        /**
+         * @brief Get performance health score (0-100)
+         */
+        f32 GetPerformanceHealthScore() const;
+        
+        /**
+         * @brief Get optimization priority list for game developers
+         */
+        struct OptimizationPriority
+        {
+            enum Severity { Critical, High, Medium, Low };
+            Severity m_Severity;
+            std::string m_Issue;
+            std::string m_Solution;
+            f32 m_ExpectedGain; // Estimated FPS improvement
+        };
+        std::vector<OptimizationPriority> GetOptimizationPriorities() const;
+        
+        /**
+         * @brief Generate ship readiness report
+         */
+        struct ShipReadinessReport
+        {
+            f32 m_OverallScore; // 0-100
+            bool m_ReadyForShipping;
+            std::vector<std::string> m_CriticalIssues;
+            std::vector<std::string> m_Recommendations;
+            f32 m_AverageFrameRate;
+            f32 m_WorstCaseFrameRate;
+        };
+        ShipReadinessReport GenerateShipReadinessReport() const;
+        
     private:
         RendererProfiler() = default;
         ~RendererProfiler() = default;
-        
-        // UI rendering methods
+          // UI rendering methods
         void RenderOverviewTab();
         void RenderDetailedTimingTab();
         void RenderBottleneckAnalysisTab();
         void RenderCountersTab();
         void RenderHistoryTab();
+        void RenderFrameCaptureTab();
+        void RenderFrameComparisonTab();
         
         // Helper methods
         std::string GetMetricTypeName(MetricType type) const;
@@ -183,6 +287,12 @@ namespace OloEngine
         ImVec4 GetMetricTypeColor(MetricType type) const;
         f32 CalculateFrameRate() const;
         f32 CalculateAverageFrameTime() const;
+          // Frame capture state
+        std::vector<CapturedFrame> m_CapturedFrames;
+        bool m_CapturingFrame = false;
+        RenderPassInfo* m_CurrentRenderPass = nullptr;
+        u32 m_FrameNumber = 0;
+        static constexpr u32 OLO_MAX_CAPTURED_FRAMES = 10; // Keep only last 10 captured frames
         
         // Data storage
         FrameData m_CurrentFrame;
@@ -204,8 +314,7 @@ namespace OloEngine
         bool m_EnableGPUTiming = false; // Requires GPU timing queries
         bool m_ShowAdvancedMetrics = false;
         bool m_AutoAnalyzeBottlenecks = true;
-        
-        // UI state
+          // UI state
         i32 m_SelectedTab = 0;
         bool m_PauseUpdates = false;
         f32 m_UpdateInterval = 1.0f / 60.0f;

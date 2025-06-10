@@ -14,7 +14,6 @@
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
-#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Core/Application.h"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -23,13 +22,11 @@
 namespace OloEngine
 {
 	Renderer3D::Renderer3DData Renderer3D::s_Data;
-	ShaderLibrary Renderer3D::m_ShaderLibrary;	void Renderer3D::Init()
+	ShaderLibrary Renderer3D::m_ShaderLibrary;
+	void Renderer3D::Init()
 	{
 		OLO_PROFILE_FUNCTION();
 		OLO_CORE_INFO("Initializing Renderer3D.");
-
-		// Initialize debugging tools FIRST, before any allocations
-		RendererMemoryTracker::GetInstance().Initialize();
 
 		CommandMemoryManager::Init();
 
