@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <memory>
 #include <mutex>
+#include <atomic>
+#include <array>
 
 namespace OloEngine
 {
@@ -68,6 +70,9 @@ namespace OloEngine
         
     public:
         static RendererMemoryTracker& GetInstance();
+        
+        // Debug function to track when memory gets corrupted
+        void DebugDumpTypeUsage(const std::string& context);
         
         /**
          * @brief Initialize the memory tracker
@@ -148,11 +153,10 @@ namespace OloEngine
         
         // Thread safety
         mutable std::mutex m_Mutex;
-        
-        // Allocation tracking
+          // Allocation tracking
         std::unordered_map<void*, AllocationInfo> m_Allocations;
-        std::unordered_map<ResourceType, size_t> m_TypeUsage;
-        std::unordered_map<ResourceType, u32> m_TypeCounts;
+        std::array<size_t, static_cast<size_t>(ResourceType::COUNT)> m_TypeUsage{};
+        std::array<u32, static_cast<size_t>(ResourceType::COUNT)> m_TypeCounts{};
         
         // History for graphs
         static constexpr u32 OLO_HISTORY_SIZE = 300; // 5 minutes at 60fps
@@ -181,22 +185,23 @@ namespace OloEngine
         size_t m_TotalDeallocatedMemory = 0;
         size_t m_CurrentMemoryUsage = 0;
         size_t m_TotalAllocations = 0;
-        size_t m_TotalDeallocations = 0;
-        size_t m_CurrentAllocations = 0;
+        size_t m_TotalDeallocations = 0;        size_t m_CurrentAllocations = 0;
         size_t m_GPUMemoryUsage = 0;
-        size_t m_CPUMemoryUsage = 0;
-        size_t m_PeakGPUMemory = 0;
+        size_t m_CPUMemoryUsage = 0;        size_t m_PeakGPUMemory = 0;
         size_t m_PeakCPUMemory = 0;
         f64 m_LastUpdateTime = 0.0;
+          // Shutdown tracking
+        std::atomic<bool> m_IsShutdown{false};
+        std::atomic<bool> m_IsInitialized{false};
     };
-    
-    // Convenience macros for tracking allocations
-    #define OLO_TRACK_GPU_ALLOC(ptr, size, type, name) \
-        RendererMemoryTracker::GetInstance().TrackAllocation(ptr, size, type, name, true, __FILE__, __LINE__)
-    
-    #define OLO_TRACK_CPU_ALLOC(ptr, size, type, name) \
-        RendererMemoryTracker::GetInstance().TrackAllocation(ptr, size, type, name, false, __FILE__, __LINE__)
-    
-    #define OLO_TRACK_DEALLOC(ptr) \
-        RendererMemoryTracker::GetInstance().TrackDeallocation(ptr)
 }
+
+// Convenience macros for tracking allocations (defined outside namespace for global use)
+#define OLO_TRACK_GPU_ALLOC(ptr, size, type, name) \
+    OloEngine::RendererMemoryTracker::GetInstance().TrackAllocation(ptr, size, type, name, true, __FILE__, __LINE__)
+
+#define OLO_TRACK_CPU_ALLOC(ptr, size, type, name) \
+    OloEngine::RendererMemoryTracker::GetInstance().TrackAllocation(ptr, size, type, name, false, __FILE__, __LINE__)
+
+#define OLO_TRACK_DEALLOC(ptr) \
+    OloEngine::RendererMemoryTracker::GetInstance().TrackDeallocation(ptr)

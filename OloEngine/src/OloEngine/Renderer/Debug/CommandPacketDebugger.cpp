@@ -18,7 +18,8 @@ namespace
 }
 
 namespace OloEngine
-{    void CommandPacketDebugger::RenderDebugView(const CommandBucket* bucket, bool* open, const char* title)
+{
+	void CommandPacketDebugger::RenderDebugView(const CommandBucket* bucket, bool* open, const char* title)
     {
         OLO_PROFILE_FUNCTION();
         
@@ -423,7 +424,9 @@ namespace OloEngine
             ImGui::Unindent();
             ImGui::Unindent();
         }
-    }    void CommandPacketDebugger::RenderDrawKeyAnalysis(const CommandBucket* bucket)
+    }
+	
+	void CommandPacketDebugger::RenderDrawKeyAnalysis(const CommandBucket* bucket)
     {
         OLO_PROFILE_FUNCTION();
         (void)bucket; // Suppress warning - bucket parameter used for future functionality

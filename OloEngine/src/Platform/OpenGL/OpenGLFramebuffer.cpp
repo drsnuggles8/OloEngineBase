@@ -2,6 +2,7 @@
 #include "Platform/OpenGL/OpenGLFramebuffer.h"
 #include "Platform/OpenGL/OpenGLUtilities.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 
 #include <utility>
 
@@ -29,9 +30,10 @@ namespace OloEngine
 		Invalidate();
 		InitPostProcessing();
 	}
-
 	OpenGLFramebuffer::~OpenGLFramebuffer()
-	{
+	{		// Track GPU memory deallocation
+		OLO_TRACK_DEALLOC(this);
+		
 		glDeleteFramebuffers(1, &m_RendererID);
 		glDeleteTextures(static_cast<GLsizei>(m_ColorAttachments.size()), m_ColorAttachments.data());
 		glDeleteTextures(1, &m_DepthAttachment);
@@ -97,11 +99,12 @@ namespace OloEngine
 		}
 		// Add more post-processing effects here later
 	}
-
 	void OpenGLFramebuffer::Invalidate()
 	{
 		if (m_RendererID)
-		{
+		{			// Track GPU memory deallocation for existing framebuffer
+			OLO_TRACK_DEALLOC(this);
+			
 			glDeleteFramebuffers(1, &m_RendererID);
 			glDeleteTextures(static_cast<GLsizei>(m_ColorAttachments.size()), m_ColorAttachments.data());
 			glDeleteTextures(1, &m_DepthAttachment);
@@ -156,8 +159,31 @@ namespace OloEngine
 			// Only depth-pass
 			glDrawBuffer(GL_NONE);
 		}
-
 		OLO_CORE_ASSERT(glCheckNamedFramebufferStatus(m_RendererID, GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE, "Framebuffer is incomplete!");
+
+		// Calculate framebuffer memory usage
+		size_t framebufferMemory = 0;
+		
+		// Color attachments
+		for (size_t i = 0; i < m_ColorAttachments.size(); ++i)
+		{
+			// Estimate color attachment memory
+			u32 bytesPerPixel = 4; // Default RGBA8
+			// TODO: Could improve this by checking actual format
+			framebufferMemory += static_cast<size_t>(m_Specification.Width) * m_Specification.Height * bytesPerPixel;
+		}
+		
+		// Depth attachment
+		if (m_DepthAttachment != 0)
+		{
+			u32 depthBytesPerPixel = 4; // DEPTH24_STENCIL8
+			framebufferMemory += static_cast<size_t>(m_Specification.Width) * m_Specification.Height * depthBytesPerPixel;
+		}
+				// Track GPU memory allocation
+		OLO_TRACK_GPU_ALLOC(this, 
+		                     framebufferMemory, 
+		                     RendererMemoryTracker::ResourceType::Framebuffer, 
+		                     "OpenGL Framebuffer");
 
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}

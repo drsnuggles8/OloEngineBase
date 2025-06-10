@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <sstream>
 #include <chrono>
+#include <cmath>
 
 namespace
 {
@@ -18,18 +19,55 @@ namespace
 }
 
 namespace OloEngine
-{
-    RendererMemoryTracker& RendererMemoryTracker::GetInstance()
+{    RendererMemoryTracker& RendererMemoryTracker::GetInstance()
     {
         static RendererMemoryTracker s_Instance;
         return s_Instance;
-    }
-    
-    void RendererMemoryTracker::Initialize()
+    }    void RendererMemoryTracker::Initialize()
     {
         OLO_PROFILE_FUNCTION();
         
+        // Prevent double initialization
+        if (m_IsInitialized.load())
+        {
+            OLO_CORE_WARN("RendererMemoryTracker: Already initialized, skipping re-initialization");
+            return;
+        }
+        
         std::lock_guard<std::mutex> lock(m_Mutex);
+        
+        // Double-check after acquiring lock
+        if (m_IsInitialized.load())
+        {
+            OLO_CORE_WARN("RendererMemoryTracker: Already initialized (double check), skipping re-initialization");
+            return;
+        }
+        
+        // Count existing allocations to see if we're being called after allocations already happened
+        size_t existingAllocations = m_Allocations.size();
+        size_t existingMemory = 0;
+        for (size_t i = 0; i < static_cast<size_t>(ResourceType::COUNT); ++i)
+        {
+            existingMemory += m_TypeUsage[i];
+        }
+        
+        if (existingAllocations > 0 || existingMemory > 0)
+        {
+            OLO_CORE_WARN("RendererMemoryTracker: Initialize() called AFTER allocations already tracked! "
+                         "Existing: {} allocations, {} bytes. NOT zeroing existing data.", 
+                         existingAllocations, existingMemory);
+        }
+        else
+        {
+            OLO_CORE_INFO("RendererMemoryTracker: Initialize() called - no existing allocations, initializing clean");
+            
+            // Only zero arrays if no existing data
+            for (u32 i = 0; i < (u32)ResourceType::COUNT; ++i)
+            {
+                m_TypeUsage[i] = 0;
+                m_TypeCounts[i] = 0;
+            }
+        }
         
         // Initialize history arrays
         m_MemoryHistory.resize(OLO_HISTORY_SIZE, 0.0f);
@@ -37,20 +75,17 @@ namespace OloEngine
         m_GPUMemoryHistory.resize(OLO_HISTORY_SIZE, 0.0f);
         m_CPUMemoryHistory.resize(OLO_HISTORY_SIZE, 0.0f);
         
-        // Initialize type usage tracking
-        for (u32 i = 0; i < (u32)ResourceType::COUNT; ++i)
-        {
-            m_TypeUsage[(ResourceType)i] = 0;
-            m_TypeCounts[(ResourceType)i] = 0;        }
-        
         m_LastUpdateTime = std::chrono::duration<f64>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
         
+        // Set initialization flag
+        m_IsInitialized.store(true);
+        
         OLO_CORE_INFO("Renderer Memory Tracker initialized");
-    }
-    
-    void RendererMemoryTracker::Shutdown()
+    }void RendererMemoryTracker::Shutdown()
     {
         OLO_PROFILE_FUNCTION();
+        
+        m_IsShutdown = true; // Set shutdown flag first
         
         std::lock_guard<std::mutex> lock(m_Mutex);
         
@@ -66,24 +101,25 @@ namespace OloEngine
                              info.m_File, info.m_Line, info.m_Name);
             }
         }
+          m_Allocations.clear();
+        m_TypeUsage.fill(0);
+        m_TypeCounts.fill(0);
         
-        m_Allocations.clear();
-        m_TypeUsage.clear();
-        m_TypeCounts.clear();
+        // Reset initialization flag
+        m_IsInitialized.store(false);
         
         OLO_CORE_INFO("Renderer Memory Tracker shutdown");
-    }
-    
-    void RendererMemoryTracker::Reset()
+    }    void RendererMemoryTracker::Reset()
     {
         OLO_PROFILE_FUNCTION();
         
-        std::lock_guard<std::mutex> lock(m_Mutex);
+        OLO_CORE_WARN("RendererMemoryTracker: Reset() called - this will clear TypeUsage array!");
         
-        // Clear all tracking data
+        std::lock_guard<std::mutex> lock(m_Mutex);
+          // Clear all tracking data
         m_Allocations.clear();
-        m_TypeUsage.clear();
-        m_TypeCounts.clear();
+        m_TypeUsage.fill(0);
+        m_TypeCounts.fill(0);
         
         // Reset statistics
         m_TotalAllocatedMemory = 0;
@@ -107,17 +143,54 @@ namespace OloEngine
         m_HistoryIndex = 0;
         m_LastUpdateTime = GetCurrentTimeSeconds();
         
+        // Reset initialization flag so Initialize() can be called again
+        m_IsInitialized.store(false);
+        
         OLO_CORE_INFO("Renderer Memory Tracker reset");
     }
-    
-    void RendererMemoryTracker::TrackAllocation(void* address, size_t size, ResourceType type, 
+      void RendererMemoryTracker::DebugDumpTypeUsage(const std::string& context)
+    {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        
+        size_t total = 0;
+        size_t nonZero = 0;
+        for (size_t i = 0; i < static_cast<size_t>(ResourceType::COUNT); ++i)
+        {
+            total += m_TypeUsage[i];
+            if (m_TypeUsage[i] > 0)
+                nonZero++;
+        }
+        
+        OLO_CORE_INFO("DebugDump [{}]: nonZero={}, total={}, allocations={}", 
+                      context, nonZero, total, m_Allocations.size());
+        
+        if (nonZero > 0)
+        {
+            for (size_t i = 0; i < static_cast<size_t>(ResourceType::COUNT); ++i)
+            {
+                if (m_TypeUsage[i] > 0)
+                {
+                    OLO_CORE_INFO("  Type[{}] = {}", i, m_TypeUsage[i]);
+                }
+            }
+        }
+    }
+      void RendererMemoryTracker::TrackAllocation(void* address, size_t size, ResourceType type, 
                                                const std::string& name, bool isGPU,
                                                const char* file, u32 line)
-    {
-        if (!address || size == 0)
+    {        if (!address || size == 0)
+        {
+            OLO_CORE_WARN("RendererMemoryTracker: Invalid allocation - address={}, size={}", address, size);
             return;
+        }
+        
+        OLO_CORE_INFO("RendererMemoryTracker: TrackAllocation called - address={}, size={}, type={}, name={}", 
+                      address, size, (int)type, name);
             
         std::lock_guard<std::mutex> lock(m_Mutex);
+        
+        OLO_CORE_TRACE("RendererMemoryTracker: Tracking allocation - address={}, size={}, type={}, name={}", 
+                      address, size, (int)type, name);
         
         AllocationInfo info;
         info.m_Address = address;
@@ -133,53 +206,105 @@ namespace OloEngine
         if (m_Allocations.find(address) != m_Allocations.end())
         {
             OLO_CORE_WARN("Double allocation detected at address {0}", address);
-        }
+        }        m_Allocations[address] = info;
+          OLO_CORE_TRACE("RendererMemoryTracker: Before TypeUsage update - TypeUsage[{}]={}", 
+                      (int)type, m_TypeUsage[static_cast<size_t>(type)]);
         
-        m_Allocations[address] = info;
-        m_TypeUsage[type] += size;
-        m_TypeCounts[type]++;
+        m_TypeUsage[static_cast<size_t>(type)] += size;
+        
+        OLO_CORE_TRACE("RendererMemoryTracker: After TypeUsage update - TypeUsage[{}]={}", 
+                      (int)type, m_TypeUsage[static_cast<size_t>(type)]);
+        
+        m_TypeCounts[static_cast<size_t>(type)]++;
         m_TotalAllocations++;
         
-        size_t totalUsage = GetTotalMemoryUsage();
+        OLO_CORE_TRACE("RendererMemoryTracker: After allocation - TypeUsage[{}]={}, TotalAllocations={}", 
+                      (int)type, m_TypeUsage[static_cast<size_t>(type)], m_TotalAllocations);
+          // Calculate total usage inline (avoid double locking)
+        size_t totalUsage = 0;
+        for (size_t i = 0; i < static_cast<size_t>(ResourceType::COUNT); ++i)
+        {
+            totalUsage += m_TypeUsage[i];
+        }
+        
+        OLO_CORE_TRACE("RendererMemoryTracker: Current total usage: {} bytes", totalUsage);
+        
         if (totalUsage > m_PeakMemoryUsage)
         {
             m_PeakMemoryUsage = totalUsage;
         }
-    }
-    
-    void RendererMemoryTracker::TrackDeallocation(void* address)
+        
+        // Debug: Double-check the array after our updates
+        size_t debugTotal = 0;
+        size_t debugNonZero = 0;
+        for (size_t i = 0; i < static_cast<size_t>(ResourceType::COUNT); ++i)
+        {
+            debugTotal += m_TypeUsage[i];
+            if (m_TypeUsage[i] > 0) debugNonZero++;
+        }
+        
+        if (debugNonZero == 0 && m_TotalAllocations > 0)
+        {
+            OLO_CORE_ERROR("RendererMemoryTracker: CRITICAL BUG - TypeUsage array is empty but TotalAllocations={}!", m_TotalAllocations);
+        }
+    }void RendererMemoryTracker::TrackDeallocation(void* address)
     {
-        if (!address)
+        if (!address || m_IsShutdown)
             return;
             
-        std::lock_guard<std::mutex> lock(m_Mutex);
-        
-        auto it = m_Allocations.find(address);
-        if (it != m_Allocations.end())
+        // Try to acquire the mutex with a timeout to avoid deadlock during shutdown
+        std::unique_lock<std::mutex> lock(m_Mutex, std::try_to_lock);
+        if (!lock.owns_lock())
         {
-            const AllocationInfo& info = it->second;
-            m_TypeUsage[info.m_Type] -= info.m_Size;
-            m_TypeCounts[info.m_Type]--;
-            m_Allocations.erase(it);
-            m_TotalDeallocations++;
+            // If we can't acquire the lock, we might be in shutdown - just return
+            OLO_CORE_WARN("RendererMemoryTracker: Could not acquire lock for deallocation, possibly during shutdown");
+            return;
         }
-        else
+        
+        // Double-check shutdown state after acquiring lock
+        if (m_IsShutdown)
+            return;
+        
+        // Check if the allocations map is still valid
+        try
+        {            auto it = m_Allocations.find(address);
+            if (it != m_Allocations.end())
+            {
+                const AllocationInfo& info = it->second;
+                m_TypeUsage[static_cast<size_t>(info.m_Type)] -= info.m_Size;
+                m_TypeCounts[static_cast<size_t>(info.m_Type)]--;
+                m_Allocations.erase(it);
+                m_TotalDeallocations++;
+                
+                OLO_CORE_TRACE("RendererMemoryTracker: Tracked deallocation - address={}, size={}, type={}", 
+                              address, info.m_Size, (int)info.m_Type);
+            }
+            else
+            {
+                OLO_CORE_WARN("Attempted to deallocate untracked memory at address {0}", address);
+            }
+        }
+        catch (...)
         {
-            OLO_CORE_WARN("Attempted to deallocate untracked memory at address {0}", address);
+            // Catch any exceptions during shutdown
+            OLO_CORE_ERROR("RendererMemoryTracker: Exception during deallocation tracking, possibly during shutdown");
         }
     }
-    
-    void RendererMemoryTracker::UpdateStats()
+      void RendererMemoryTracker::UpdateStats()
     {
         OLO_PROFILE_FUNCTION();        
         f64 currentTime = GetCurrentTimeSeconds();
         if (currentTime - m_LastUpdateTime < m_RefreshInterval)
             return;
-            
-        std::lock_guard<std::mutex> lock(m_Mutex);
+              std::lock_guard<std::mutex> lock(m_Mutex);
         
-        // Update history
-        size_t totalMemory = GetTotalMemoryUsage();
+        // Calculate total memory usage inline (avoid double locking)
+        size_t totalMemory = 0;
+        for (size_t i = 0; i < static_cast<size_t>(ResourceType::COUNT); ++i)
+        {
+            totalMemory += m_TypeUsage[i];
+        }
+        
         size_t gpuMemory = 0;
         size_t cpuMemory = 0;
         
@@ -264,13 +389,41 @@ namespace OloEngine
             ImGui::End();
         }
     }
-    
-    void RendererMemoryTracker::RenderOverviewTab()
+      void RendererMemoryTracker::RenderOverviewTab()
     {
         std::lock_guard<std::mutex> lock(m_Mutex);
+          // Calculate total memory usage inline (avoid double locking)
+        size_t totalMemory = 0;        for (size_t i = 0; i < static_cast<size_t>(ResourceType::COUNT); ++i)
+        {
+            totalMemory += m_TypeUsage[i];
+        }        // Debug output to see what's in the type usage array
+        size_t nonZeroEntries = 0;
+        for (size_t i = 0; i < static_cast<size_t>(ResourceType::COUNT); ++i)
+        {
+            if (m_TypeUsage[i] > 0)
+                nonZeroEntries++;
+        }
+        
+        OLO_CORE_INFO("RendererMemoryTracker: Debug - nonZeroEntries={}, m_Allocations.size()={}, totalMemory={}", 
+                      nonZeroEntries, m_Allocations.size(), totalMemory);
+          if (nonZeroEntries > 0)
+        {
+            OLO_CORE_TRACE("RendererMemoryTracker: TypeUsage array has {} entries, total = {} bytes", 
+                          nonZeroEntries, totalMemory);
+            for (size_t i = 0; i < static_cast<size_t>(ResourceType::COUNT); ++i)
+            {
+                if (m_TypeUsage[i] > 0)
+                {
+                    OLO_CORE_TRACE("  Type {}: {} bytes", i, m_TypeUsage[i]);
+                }
+            }
+        }
+        else
+        {
+            OLO_CORE_INFO("RendererMemoryTracker: TypeUsage array has NO active entries!");
+        }
         
         // Summary statistics
-        size_t totalMemory = GetTotalMemoryUsage();
         ImGui::Text("Total Memory Usage: %s", FormatBytes(totalMemory).c_str());
         ImGui::Text("Peak Memory Usage: %s", FormatBytes(m_PeakMemoryUsage).c_str());
         ImGui::Text("Active Allocations: %zu", m_Allocations.size());
@@ -278,14 +431,14 @@ namespace OloEngine
         ImGui::Text("Total Deallocations: %zu", m_TotalDeallocations);
         
         ImGui::Separator();
-        
-        // Memory by type
-        ImGui::Text("Memory Usage by Type:");
+          // Memory by type        ImGui::Text("Memory Usage by Type:");
         for (u32 i = 0; i < (u32)ResourceType::COUNT; ++i)
         {
             ResourceType type = (ResourceType)i;
-            size_t usage = GetMemoryUsage(type);
-            u32 count = GetAllocationCount(type);
+            
+            // Get usage and count inline (avoid double locking)
+            size_t usage = m_TypeUsage[i];
+            u32 count = m_TypeCounts[i];
             
             if (usage > 0)
             {
@@ -303,22 +456,19 @@ namespace OloEngine
     void RendererMemoryTracker::RenderDetailedTab()
     {
         std::lock_guard<std::mutex> lock(m_Mutex);
-        
-        // Filter controls
+          // Filter controls
         static i32 s_TypeFilter = -1; // -1 means show all
         static bool s_ShowGPUOnly = false;
         static bool s_ShowCPUOnly = false;
-        
-        ImGui::Text("Filters:");
+        static void* s_SelectedAllocation = nullptr; // Track selected allocation
+          ImGui::Text("Filters:");
         ImGui::Combo("Resource Type", &s_TypeFilter, 
                    "All\0Vertex Buffer\0Index Buffer\0Uniform Buffer\0Texture 2D\0Texture Cubemap\0Framebuffer\0Shader\0Render Target\0Command Buffer\0Other\0");
         ImGui::Checkbox("GPU Only", &s_ShowGPUOnly);
         ImGui::SameLine();
         ImGui::Checkbox("CPU Only", &s_ShowCPUOnly);
         
-        ImGui::Separator();
-        
-        // Allocation table
+        ImGui::Separator();        // Allocation table
         if (ImGui::BeginTable("Allocations", 7, ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg))
         {
             ImGui::TableSetupColumn("Address", ImGuiTableColumnFlags_WidthFixed, 120.0f);
@@ -332,17 +482,32 @@ namespace OloEngine
             f64 currentTime = GetCurrentTimeSeconds();
             for (const auto& [address, info] : m_Allocations)
             {
-                // Apply filters
-                if (s_TypeFilter >= 0 && (i32)info.m_Type != s_TypeFilter)
+                // Apply filters - fix the type filter mapping
+                // s_TypeFilter: 0=All, 1=VertexBuffer, 2=IndexBuffer, etc.
+                // ResourceType enum: VertexBuffer=0, IndexBuffer=1, etc.
+                if (s_TypeFilter > 0 && (s_TypeFilter - 1) != (i32)info.m_Type)
                     continue;
                 if (s_ShowGPUOnly && !info.m_IsGPU)
                     continue;
                 if (s_ShowCPUOnly && info.m_IsGPU)
-                    continue;
-                    
-                ImGui::TableNextRow();
+                    continue;                ImGui::TableNextRow();
+                
+                // Check if this row is clicked for selection
+                bool isSelected = (s_SelectedAllocation == address);
+                if (isSelected)
+                {
+                    ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, IM_COL32(100, 100, 150, 100));
+                }
                 
                 ImGui::TableSetColumnIndex(0);
+                // Create unique ID for each selectable
+                char selectableId[64];
+                sprintf_s(selectableId, "##selectable_%p", address);
+                if (ImGui::Selectable(selectableId, isSelected, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowItemOverlap))
+                {
+                    s_SelectedAllocation = (s_SelectedAllocation == address) ? nullptr : address;
+                }
+                ImGui::SameLine();
                 ImGui::Text("0x%p", address);
                 
                 ImGui::TableSetColumnIndex(1);
@@ -365,13 +530,53 @@ namespace OloEngine
                 if (lastSlash != std::string::npos)
                     filename = filename.substr(lastSlash + 1);
                 ImGui::Text("%s:%u", filename.c_str(), info.m_Line);
-                
-                ImGui::TableSetColumnIndex(6);
+                  ImGui::TableSetColumnIndex(6);
                 f64 age = currentTime - info.m_Timestamp;
                 ImGui::Text("%.1fs", age);
             }
             
             ImGui::EndTable();
+        }
+        
+        // Show detailed information about selected allocation
+        if (s_SelectedAllocation)
+        {
+            auto it = m_Allocations.find(s_SelectedAllocation);
+            if (it != m_Allocations.end())
+            {
+                ImGui::Separator();
+                ImGui::Text("Selected Allocation Details:");
+                const AllocationInfo& info = it->second;
+                
+                ImGui::Text("Address: 0x%p", s_SelectedAllocation);
+                ImGui::Text("Size: %s (%zu bytes)", FormatBytes(info.m_Size).c_str(), info.m_Size);
+                ImGui::Text("Type: %s", GetResourceTypeName(info.m_Type).c_str());
+                ImGui::Text("Location: %s", info.m_IsGPU ? "GPU" : "CPU");
+                ImGui::Text("Name: %s", info.m_Name.c_str());
+                ImGui::Text("Source: %s:%u", info.m_File.c_str(), info.m_Line);
+                
+                f64 currentTime2 = GetCurrentTimeSeconds();
+                f64 age = currentTime2 - info.m_Timestamp;
+                ImGui::Text("Age: %.2f seconds", age);
+                ImGui::Text("Allocated at: %.6f", info.m_Timestamp);
+                
+                if (ImGui::Button("Copy Address to Clipboard"))
+                {
+                    char addressStr[32];
+                    sprintf_s(addressStr, "0x%p", s_SelectedAllocation);
+                    ImGui::SetClipboardText(addressStr);
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Clear Selection"))
+                {
+                    s_SelectedAllocation = nullptr;
+                }
+            }
+            else
+            {
+                // Selected allocation no longer exists
+                s_SelectedAllocation = nullptr;
+            }
         }
     }
     
@@ -390,11 +595,24 @@ namespace OloEngine
         {
             m_LastLeakCheck = GetCurrentTimeSeconds();
         }
+          ImGui::Separator();
         
-        ImGui::Separator();
+        // Detect and display potential leaks inline (avoid double locking)
+        std::vector<LeakInfo> leaks;
+        f64 currentTime = GetCurrentTimeSeconds();
         
-        // Detect and display potential leaks
-        auto leaks = DetectLeaks();
+        for (const auto& [address, info] : m_Allocations)
+        {
+            f64 age = currentTime - info.m_Timestamp;
+            if (age > m_LeakDetectionThreshold)
+            {
+                LeakInfo leak;
+                leak.m_Allocation = info;
+                leak.m_AgeSeconds = age;
+                leak.m_IsSuspicious = (age > m_LeakDetectionThreshold * 2.0); // Very old allocations are suspicious
+                leaks.push_back(leak);
+            }
+        }
         
         if (leaks.empty())
         {
@@ -449,20 +667,78 @@ namespace OloEngine
             }
         }
     }
-    
-    void RendererMemoryTracker::RenderPoolStatsTab()
+      void RendererMemoryTracker::RenderPoolStatsTab()
     {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        
         ImGui::Text("Memory Pool Statistics");
         ImGui::Separator();
         
-        // TODO: Implement actual memory pool statistics
-        // For now, show placeholder data
-        ImGui::Text("Feature coming soon - Memory pool analysis");
-        ImGui::Text("This will show:");
-        ImGui::BulletText("Pool utilization");
-        ImGui::BulletText("Fragmentation analysis");
-        ImGui::BulletText("Allocation patterns");
-        ImGui::BulletText("Pool efficiency metrics");
+        // Calculate pool statistics based on allocation patterns
+        std::map<ResourceType, std::vector<size_t>> allocationSizes;
+        std::map<ResourceType, size_t> totalTypeMemory;
+        
+        for (const auto& [address, info] : m_Allocations)
+        {
+            allocationSizes[info.m_Type].push_back(info.m_Size);
+            totalTypeMemory[info.m_Type] += info.m_Size;
+        }
+        
+        // Display statistics for each resource type
+        for (u32 i = 0; i < (u32)ResourceType::COUNT; ++i)
+        {
+            ResourceType type = (ResourceType)i;
+            if (allocationSizes.find(type) == allocationSizes.end())
+                continue;
+                
+            auto& sizes = allocationSizes[type];
+            if (sizes.empty())
+                continue;
+                
+            ImGui::Text("%s Pool:", GetResourceTypeName(type).c_str());
+            ImGui::Indent();
+            
+            // Count and total memory
+            ImGui::Text("Active Allocations: %zu", sizes.size());
+            ImGui::Text("Total Memory: %s", FormatBytes(totalTypeMemory[type]).c_str());
+            
+            // Calculate min, max, average
+            auto minMax = std::minmax_element(sizes.begin(), sizes.end());
+            size_t minSize = *minMax.first;
+            size_t maxSize = *minMax.second;
+            size_t avgSize = totalTypeMemory[type] / sizes.size();
+            
+            ImGui::Text("Size Range: %s - %s", FormatBytes(minSize).c_str(), FormatBytes(maxSize).c_str());
+            ImGui::Text("Average Size: %s", FormatBytes(avgSize).c_str());
+            
+            // Pool utilization (simple metric based on allocation count vs total memory)
+            f32 utilization = sizes.size() > 0 ? static_cast<f32>(totalTypeMemory[type]) / (sizes.size() * maxSize) * 100.0f : 0.0f;
+            ImGui::Text("Pool Utilization: %.1f%%", utilization);
+            
+            // Fragmentation estimate (high variance = more fragmentation)
+            if (sizes.size() > 1)
+            {
+                f64 variance = 0.0;
+                for (size_t size : sizes)
+                {
+                    f64 diff = static_cast<f64>(size) - static_cast<f64>(avgSize);
+                    variance += diff * diff;
+                }
+                variance /= sizes.size();
+                f64 stdDev = std::sqrt(variance);
+                f32 fragmentation = static_cast<f32>(stdDev / avgSize * 100.0);
+                
+                ImGui::Text("Fragmentation: %.1f%% (based on size variance)", fragmentation);
+            }
+            
+            ImGui::Unindent();
+            ImGui::Separator();
+        }
+        
+        if (allocationSizes.empty())
+        {
+            ImGui::Text("No active allocations to analyze");
+        }
     }
     
     void RendererMemoryTracker::RenderHistoryGraphs()
@@ -488,30 +764,25 @@ namespace OloEngine
                            nullptr, 0.0f, FLT_MAX, ImVec2(0, 60));
         }
     }
-    
-    size_t RendererMemoryTracker::GetMemoryUsage(ResourceType type) const
+      size_t RendererMemoryTracker::GetMemoryUsage(ResourceType type) const
     {
         std::lock_guard<std::mutex> lock(m_Mutex);
-        auto it = m_TypeUsage.find(type);
-        return it != m_TypeUsage.end() ? it->second : 0;
+        return m_TypeUsage[static_cast<size_t>(type)];
     }
-    
-    size_t RendererMemoryTracker::GetTotalMemoryUsage() const
+      size_t RendererMemoryTracker::GetTotalMemoryUsage() const
     {
         std::lock_guard<std::mutex> lock(m_Mutex);
         size_t total = 0;
-        for (const auto& [type, usage] : m_TypeUsage)
+        for (size_t i = 0; i < static_cast<size_t>(ResourceType::COUNT); ++i)
         {
-            total += usage;
+            total += m_TypeUsage[i];
         }
         return total;
     }
-    
-    u32 RendererMemoryTracker::GetAllocationCount(ResourceType type) const
+      u32 RendererMemoryTracker::GetAllocationCount(ResourceType type) const
     {
         std::lock_guard<std::mutex> lock(m_Mutex);
-        auto it = m_TypeCounts.find(type);
-        return it != m_TypeCounts.end() ? it->second : 0;
+        return m_TypeCounts[static_cast<size_t>(type)];
     }
     
     std::vector<RendererMemoryTracker::LeakInfo> RendererMemoryTracker::DetectLeaks() const
@@ -598,15 +869,20 @@ namespace OloEngine
             std::ofstream file(filePath);
             if (!file.is_open())
                 return false;
-            
-            std::lock_guard<std::mutex> lock(m_Mutex);
+              std::lock_guard<std::mutex> lock(m_Mutex);
+              // Calculate total memory usage inline (avoid double locking)
+            size_t totalMemoryUsage = 0;
+            for (size_t i = 0; i < static_cast<size_t>(ResourceType::COUNT); ++i)
+            {
+                totalMemoryUsage += m_TypeUsage[i];
+            }
             
             file << "Renderer Memory Usage Report\n";
             file << "Generated: " << std::chrono::system_clock::now().time_since_epoch().count() << "\n";
             file << "========================================\n\n";
             
             file << "Summary:\n";
-            file << "Total Memory Usage: " << FormatBytes(GetTotalMemoryUsage()) << "\n";
+            file << "Total Memory Usage: " << FormatBytes(totalMemoryUsage) << "\n";
             file << "Peak Memory Usage: " << FormatBytes(m_PeakMemoryUsage) << "\n";
             file << "Active Allocations: " << m_Allocations.size() << "\n";
             file << "Total Allocations: " << m_TotalAllocations << "\n";
@@ -616,8 +892,10 @@ namespace OloEngine
             for (u32 i = 0; i < (u32)ResourceType::COUNT; ++i)
             {
                 ResourceType type = (ResourceType)i;
-                size_t usage = GetMemoryUsage(type);
-                u32 count = GetAllocationCount(type);
+                
+                // Get usage and count inline (avoid double locking)
+                size_t usage = m_TypeUsage[i];
+                u32 count = m_TypeCounts[i];
                 
                 if (usage > 0)
                 {

@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 #include "OloEngine/Core/Timer.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 
 #include <glad/gl.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -213,11 +214,12 @@ namespace OloEngine
 			CreateProgram();
 		}
 	}
-
 	OpenGLShader::~OpenGLShader()
 	{
 		OLO_PROFILE_FUNCTION();
-
+		// Track GPU memory deallocation
+		OLO_TRACK_DEALLOC(this);
+		
 		glDeleteProgram(m_RendererID);
 	}
 
@@ -429,7 +431,6 @@ namespace OloEngine
 				glDeleteShader(id);
 			}
 		}
-
 		for (const auto id : shaderIDs)
 		{
 			glDetachShader(program, id);
@@ -437,6 +438,19 @@ namespace OloEngine
 		}
 
 		m_RendererID = program;
+		
+		// Estimate shader memory usage (basic approximation)
+		size_t estimatedMemory = 0;		for (const auto& [stage, spirv] : m_OpenGLSPIRV)
+		{
+			estimatedMemory += spirv.size() * sizeof(u32); // SPIR-V binary size
+		}
+		estimatedMemory += 1024; // Additional overhead for program linking, uniforms, etc.
+		
+		// Track GPU memory allocation
+		OLO_TRACK_GPU_ALLOC(this, 
+		                     estimatedMemory, 
+		                     RendererMemoryTracker::ResourceType::Shader, 
+		                     m_Name.empty() ? "OpenGL Shader" : m_Name);
 	}
 
 	static bool VerifyProgramLink(GLenum const& program)
@@ -515,14 +529,26 @@ namespace OloEngine
 					out.close();
 				}
 			}
-
-			for (auto const& id : glShadersIDs)
-			{
-				glDetachShader(program, id);
-			}
+		for (auto const& id : glShadersIDs)
+		{
+			glDetachShader(program, id);
 		}
+	}
 
-		m_RendererID = program;
+	m_RendererID = program;
+	
+	// Estimate shader memory usage (basic approximation) 
+	size_t estimatedMemory = 0;
+	for (const auto& [stage, spirv] : m_VulkanSPIRV)
+	{
+		estimatedMemory += spirv.size() * sizeof(u32); // SPIR-V binary size
+	}	estimatedMemory += 1024; // Additional overhead for program linking, uniforms, etc.
+	
+	// Track GPU memory allocation
+	OLO_TRACK_GPU_ALLOC(this, 
+	                     estimatedMemory, 
+	                     RendererMemoryTracker::ResourceType::Shader, 
+	                     m_Name.empty() ? "OpenGL Shader" : m_Name);
 	}
 
 	void OpenGLShader::CompileOpenGLBinariesForAmd(GLenum const& program, std::array<u32, 2>& glShadersIDs) const

@@ -78,9 +78,8 @@ void Sandbox3D::OnAttach()
     m_TexturedMaterial.DiffuseMap = m_DiffuseMap;
     m_TexturedMaterial.SpecularMap = m_SpecularMap;    // Set initial lighting parameters
     OloEngine::Renderer3D::SetLight(m_Light);
-    
-    // Initialize debugging tools
-    OloEngine::RendererMemoryTracker::GetInstance().Initialize();
+
+    // Initialize debugging tools (memory tracker is already initialized in Renderer3D::Init())
     OloEngine::RendererProfiler::GetInstance().Initialize();
 }
 
@@ -99,6 +98,9 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 
 	m_FrameTime = ts.GetMilliseconds();
 	m_FPS = 1.0f / ts.GetSeconds();
+		// Update debugging tools
+	OloEngine::RendererMemoryTracker::GetInstance().UpdateStats();
+	// Note: RendererProfiler doesn't have UpdateStats method
 
 	// Update camera only if camera movement is enabled
 	if (m_CameraMovementEnabled)
