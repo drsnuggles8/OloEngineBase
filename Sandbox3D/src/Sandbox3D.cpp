@@ -80,15 +80,16 @@ void Sandbox3D::OnAttach()
     OloEngine::Renderer3D::SetLight(m_Light);    // Initialize debugging tools
     OloEngine::RendererMemoryTracker::GetInstance().Initialize();
     OloEngine::RendererProfiler::GetInstance().Initialize();
+    OloEngine::GPUResourceInspector::GetInstance().Initialize();
 }
 
 void Sandbox3D::OnDetach()
 {
 	OLO_PROFILE_FUNCTION();
-	
-	// Shutdown debugging tools
+		// Shutdown debugging tools
 	OloEngine::RendererMemoryTracker::GetInstance().Shutdown();
 	OloEngine::RendererProfiler::GetInstance().Shutdown();
+	OloEngine::GPUResourceInspector::GetInstance().Shutdown();
 }
 
 void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
@@ -590,6 +591,22 @@ void Sandbox3D::OnImGuiRender()
         if (m_ShowRendererProfiler)
         {
             m_RendererProfiler.RenderUI(&m_ShowRendererProfiler);
+        }
+    }
+
+    // GPU Resource Inspector
+    if (ImGui::CollapsingHeader("GPU Resource Inspector"))
+    {
+        ImGui::Checkbox("Show GPU Resources##GPUResourceInspector", &m_ShowGPUResourceInspector);
+        ImGui::SameLine();
+        if (ImGui::Button("Export to CSV##GPUResourceInspector"))
+        {
+            m_GPUResourceInspector.ExportToCSV("gpu_resources.csv");
+        }
+        
+        if (m_ShowGPUResourceInspector)
+        {
+            m_GPUResourceInspector.RenderDebugView(&m_ShowGPUResourceInspector, "GPU Resource Inspector");
         }
     }
 

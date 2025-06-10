@@ -2,6 +2,7 @@
 #include "Platform/OpenGL/OpenGLTexture.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
+#include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image/stb_image.h>
@@ -73,11 +74,14 @@ namespace OloEngine
 			case ImageFormat::DEPTH24STENCIL8: bytesPerPixel = 4; break;
 		}
 		size_t textureMemory = static_cast<size_t>(m_Width) * m_Height * bytesPerPixel;
-				// Track GPU memory allocation
+		// Track GPU memory allocation
 		OLO_TRACK_GPU_ALLOC(this, 
 		                     textureMemory, 
 		                     RendererMemoryTracker::ResourceType::Texture2D, 
 		                     "OpenGL Texture2D (spec)");
+
+		// Register with GPU Resource Inspector
+		GPUResourceInspector::GetInstance().RegisterTexture(m_RendererID, "Texture2D (spec)", "Texture2D");
 
 		// NOTE: Texture Wrapping
 		glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
@@ -112,12 +116,14 @@ namespace OloEngine
 		InvalidateImpl(path, static_cast<u32>(width), static_cast<u32>(height), data, static_cast<u32>(channels));
 
 		::stbi_image_free(data);
-	}
-	OpenGLTexture2D::~OpenGLTexture2D()
+	}	OpenGLTexture2D::~OpenGLTexture2D()
 	{
 		OLO_PROFILE_FUNCTION();
 		// Track GPU memory deallocation
 		OLO_TRACK_DEALLOC(this);
+		
+		// Unregister from GPU Resource Inspector
+		GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
 		
 		glDeleteTextures(1, &m_RendererID);
 	}
@@ -186,13 +192,15 @@ namespace OloEngine
 
 		// Calculate memory usage based on channels and dimensions
 		size_t textureMemory = static_cast<size_t>(m_Width) * m_Height * channels;
-		
-		// Track GPU memory allocation
+				// Track GPU memory allocation
 		std::string textureName = "OpenGL Texture2D: " + std::string(path);
 		OLO_TRACK_GPU_ALLOC(reinterpret_cast<void*>(static_cast<uintptr_t>(m_RendererID)), 
 		                     textureMemory, 
 		                     RendererMemoryTracker::ResourceType::Texture2D, 
 		                     textureName);
+
+		// Register with GPU Resource Inspector
+		GPUResourceInspector::GetInstance().RegisterTexture(m_RendererID, std::string(path), textureName);
 
 		// NOTE: Texture Wrapping
 		glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);

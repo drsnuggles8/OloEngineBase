@@ -11,6 +11,7 @@
 #include "OloEngine/Renderer/Debug/CommandPacketDebugger.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
+#include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 
 class Sandbox3D : public OloEngine::Layer
 {
@@ -91,15 +92,16 @@ private:
 	f32 m_FPS = 0.0f;      // Render Graph Debugger
     OloEngine::RenderGraphDebugger m_RenderGraphDebugger;
     bool m_RenderGraphDebuggerOpen = false;
-    
-    // Debugging Tools
+      // Debugging Tools
     OloEngine::CommandPacketDebugger m_CommandPacketDebugger;
     OloEngine::RendererMemoryTracker& m_MemoryTracker = OloEngine::RendererMemoryTracker::GetInstance();
     OloEngine::RendererProfiler& m_RendererProfiler = OloEngine::RendererProfiler::GetInstance();
+    OloEngine::GPUResourceInspector& m_GPUResourceInspector = OloEngine::GPUResourceInspector::GetInstance();
     
     bool m_ShowCommandPacketDebugger = false;
     bool m_ShowMemoryTracker = false;
-    bool m_ShowRendererProfiler = false;    // State testing settings
+    bool m_ShowRendererProfiler = false;
+    bool m_ShowGPUResourceInspector = false;// State testing settings
     bool m_EnableStateTest = true;
     i32 m_StateTestMode = 0;
     const char* m_StateTestModes[4] = { "Wireframe", "Alpha Blend", "Polygon Offset", "All Effects" };
