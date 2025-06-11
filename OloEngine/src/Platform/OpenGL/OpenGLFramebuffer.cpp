@@ -3,6 +3,7 @@
 #include "Platform/OpenGL/OpenGLUtilities.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
+#include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 
 #include <utility>
 
@@ -29,10 +30,12 @@ namespace OloEngine
 
 		Invalidate();
 		InitPostProcessing();
-	}
-	OpenGLFramebuffer::~OpenGLFramebuffer()
+	}	OpenGLFramebuffer::~OpenGLFramebuffer()
 	{		// Track GPU memory deallocation
 		OLO_TRACK_DEALLOC(this);
+		
+		// Unregister from GPU Resource Inspector
+		GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
 		
 		glDeleteFramebuffers(1, &m_RendererID);
 		glDeleteTextures(static_cast<GLsizei>(m_ColorAttachments.size()), m_ColorAttachments.data());
@@ -98,12 +101,14 @@ namespace OloEngine
 			glEnable(GL_DEPTH_TEST);
 		}
 		// Add more post-processing effects here later
-	}
-	void OpenGLFramebuffer::Invalidate()
+	}	void OpenGLFramebuffer::Invalidate()
 	{
 		if (m_RendererID)
 		{			// Track GPU memory deallocation for existing framebuffer
 			OLO_TRACK_DEALLOC(this);
+			
+			// Unregister from GPU Resource Inspector for existing framebuffer
+			GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
 			
 			glDeleteFramebuffers(1, &m_RendererID);
 			glDeleteTextures(static_cast<GLsizei>(m_ColorAttachments.size()), m_ColorAttachments.data());
@@ -184,6 +189,9 @@ namespace OloEngine
 		                     framebufferMemory, 
 		                     RendererMemoryTracker::ResourceType::Framebuffer, 
 		                     "OpenGL Framebuffer");
+
+		// Register with GPU Resource Inspector
+		GPUResourceInspector::GetInstance().RegisterFramebuffer(m_RendererID, "OpenGL Framebuffer", "Framebuffer");
 
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}

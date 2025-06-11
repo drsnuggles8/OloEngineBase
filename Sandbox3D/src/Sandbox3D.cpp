@@ -61,6 +61,11 @@ void Sandbox3D::OnAttach()
 {
     OLO_PROFILE_FUNCTION();
     
+    // Initialize debugging tools FIRST before creating any resources
+    OloEngine::RendererMemoryTracker::GetInstance().Initialize();
+    OloEngine::RendererProfiler::GetInstance().Initialize();
+    // Note: GPUResourceInspector is now initialized in Application constructor
+    
     // Create 3D meshes
     m_CubeMesh = OloEngine::Mesh::CreateCube();
     m_SphereMesh = OloEngine::Mesh::CreateSphere();
@@ -77,19 +82,15 @@ void Sandbox3D::OnAttach()
     // Assign textures to the material
     m_TexturedMaterial.DiffuseMap = m_DiffuseMap;
     m_TexturedMaterial.SpecularMap = m_SpecularMap;    // Set initial lighting parameters
-    OloEngine::Renderer3D::SetLight(m_Light);    // Initialize debugging tools
-    OloEngine::RendererMemoryTracker::GetInstance().Initialize();
-    OloEngine::RendererProfiler::GetInstance().Initialize();
-    OloEngine::GPUResourceInspector::GetInstance().Initialize();
+    OloEngine::Renderer3D::SetLight(m_Light);
 }
 
 void Sandbox3D::OnDetach()
-{
-	OLO_PROFILE_FUNCTION();
+{	OLO_PROFILE_FUNCTION();
 		// Shutdown debugging tools
 	OloEngine::RendererMemoryTracker::GetInstance().Shutdown();
 	OloEngine::RendererProfiler::GetInstance().Shutdown();
-	OloEngine::GPUResourceInspector::GetInstance().Shutdown();
+	// Note: GPUResourceInspector is now shutdown in Application destructor
 }
 
 void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)

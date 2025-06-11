@@ -1,5 +1,7 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLTextureCubemap.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
+#include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 
 #include <stb_image/stb_image.h>
 
@@ -69,6 +71,30 @@ namespace OloEngine
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 
+        // Calculate memory usage based on format and dimensions
+        u32 bytesPerPixel = 4; // Default to RGBA
+        switch (m_Specification.Format)
+        {
+            case ImageFormat::R8: bytesPerPixel = 1; break;
+            case ImageFormat::RGB8: bytesPerPixel = 3; break;
+            case ImageFormat::RGBA8: bytesPerPixel = 4; break;
+            case ImageFormat::R32F: bytesPerPixel = 4; break;
+            case ImageFormat::RG32F: bytesPerPixel = 8; break;
+            case ImageFormat::RGB32F: bytesPerPixel = 12; break;
+            case ImageFormat::RGBA32F: bytesPerPixel = 16; break;
+            case ImageFormat::DEPTH24STENCIL8: bytesPerPixel = 4; break;
+        }
+        size_t cubemapMemory = static_cast<size_t>(m_Width) * m_Height * bytesPerPixel * 6; // 6 faces
+
+        // Track GPU memory allocation
+        OLO_TRACK_GPU_ALLOC(this, 
+                             cubemapMemory, 
+                             RendererMemoryTracker::ResourceType::TextureCubemap, 
+                             "OpenGL TextureCubemap (spec)");
+
+        // Register with GPU Resource Inspector
+        GPUResourceInspector::GetInstance().RegisterTextureCubemap(m_RendererID, "TextureCubemap (spec)", "TextureCubemap");
+
         m_IsLoaded = true;
         m_Path = "Generated Cubemap";
     }
@@ -82,11 +108,15 @@ namespace OloEngine
         
         m_Path = facePaths[0] + ",..."; // Store abbreviated path of the first face + indication of more
         LoadFaces(facePaths);
-    }
-
-    OpenGLTextureCubemap::~OpenGLTextureCubemap()
+    }    OpenGLTextureCubemap::~OpenGLTextureCubemap()
     {
         OLO_PROFILE_FUNCTION();
+
+        // Track GPU memory deallocation
+        OLO_TRACK_DEALLOC(this);
+        
+        // Unregister from GPU Resource Inspector
+        GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
 
         glDeleteTextures(1, &m_RendererID);
     }
@@ -203,6 +233,19 @@ namespace OloEngine
 
         // Generate mipmaps
         glGenerateTextureMipmap(m_RendererID);
+
+        // Calculate memory usage
+        u32 bytesPerPixel = channels; // Use actual channels from loaded images
+        size_t cubemapMemory = static_cast<size_t>(m_Width) * m_Height * bytesPerPixel * 6; // 6 faces
+
+        // Track GPU memory allocation
+        OLO_TRACK_GPU_ALLOC(this, 
+                             cubemapMemory, 
+                             RendererMemoryTracker::ResourceType::TextureCubemap, 
+                             "OpenGL TextureCubemap (loaded)");
+
+        // Register with GPU Resource Inspector
+        GPUResourceInspector::GetInstance().RegisterTextureCubemap(m_RendererID, m_Path, "TextureCubemap (loaded)");
 
         m_IsLoaded = true;
         OLO_CORE_TRACE("Loaded cubemap with {} faces, dimensions: {}x{}", facePaths.size(), m_Width, m_Height);

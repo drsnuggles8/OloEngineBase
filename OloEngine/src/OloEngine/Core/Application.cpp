@@ -3,6 +3,7 @@
 #include "OloEngine/Audio/AudioEngine.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Renderer/Renderer.h"
+#include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scripting/Lua/LuaScriptEngine.h"
 #include "OloEngine/Utils/PlatformUtils.h"
@@ -13,7 +14,6 @@
 namespace OloEngine
 {
 	Application* Application::s_Instance = nullptr;
-
 	Application::Application(ApplicationSpecification specification)
 		: m_Specification(std::move(specification))
 	{
@@ -30,6 +30,12 @@ namespace OloEngine
 		m_Window = Window::Create(WindowProps(m_Specification.Name));
 		m_Window->SetEventCallback(OLO_BIND_EVENT_FN(Application::OnEvent));
 
+		// Initialize GPU Resource Inspector before Renderer to catch all resource creation
+		#ifdef OLO_DEBUG
+			GPUResourceInspector::GetInstance().Initialize();
+			OLO_CORE_INFO("GPU Resource Inspector initialized before Renderer");
+		#endif
+
 		Renderer::Init(m_Specification.PreferredRenderer);
 		AudioEngine::Init();
 		ScriptEngine::Init();
@@ -38,7 +44,6 @@ namespace OloEngine
 		m_ImGuiLayer = new ImGuiLayer();
 		PushOverlay(m_ImGuiLayer);
 	}
-
 	Application::~Application()
 	{
 		OLO_PROFILE_FUNCTION();
@@ -52,6 +57,13 @@ namespace OloEngine
 		LuaScriptEngine::Shutdown();
 		ScriptEngine::Shutdown();
 		AudioEngine::Shutdown();
+		
+		// Shutdown GPU Resource Inspector before Renderer
+		#ifdef OLO_DEBUG
+			GPUResourceInspector::GetInstance().Shutdown();
+			OLO_CORE_INFO("GPU Resource Inspector shutdown");
+		#endif
+		
 		Renderer::Shutdown();
 	}
 

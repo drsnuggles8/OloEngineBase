@@ -12,6 +12,32 @@
 #include <memory>
 #include <mutex>
 
+// Convenience macros for resource registration (only in debug builds)
+#ifdef OLO_DEBUG
+    #define OLO_GPU_REGISTER_TEXTURE(id, name, debugName) \
+        OloEngine::GPUResourceInspector::GetInstance().RegisterTexture(id, name, debugName)
+    #define OLO_GPU_REGISTER_TEXTURE_CUBEMAP(id, name, debugName) \
+        OloEngine::GPUResourceInspector::GetInstance().RegisterTextureCubemap(id, name, debugName)
+    #define OLO_GPU_REGISTER_BUFFER(id, target, name, debugName) \
+        OloEngine::GPUResourceInspector::GetInstance().RegisterBuffer(id, target, name, debugName)
+    #define OLO_GPU_REGISTER_FRAMEBUFFER(id, name, debugName) \
+        OloEngine::GPUResourceInspector::GetInstance().RegisterFramebuffer(id, name, debugName)
+    #define OLO_GPU_UNREGISTER_RESOURCE(id) \
+        OloEngine::GPUResourceInspector::GetInstance().UnregisterResource(id)
+    #define OLO_GPU_UPDATE_BINDING(id, bound, slot) \
+        OloEngine::GPUResourceInspector::GetInstance().UpdateResourceBinding(id, bound, slot)
+    #define OLO_GPU_UPDATE_ACTIVE(id, active) \
+        OloEngine::GPUResourceInspector::GetInstance().UpdateResourceActiveState(id, active)
+#else
+    #define OLO_GPU_REGISTER_TEXTURE(id, name, debugName)
+    #define OLO_GPU_REGISTER_TEXTURE_CUBEMAP(id, name, debugName)
+    #define OLO_GPU_REGISTER_BUFFER(id, target, name, debugName)
+    #define OLO_GPU_REGISTER_FRAMEBUFFER(id, name, debugName)
+    #define OLO_GPU_UNREGISTER_RESOURCE(id)
+    #define OLO_GPU_UPDATE_BINDING(id, bound, slot)
+    #define OLO_GPU_UPDATE_ACTIVE(id, active)
+#endif
+
 namespace OloEngine
 {
     /**
@@ -59,7 +85,7 @@ namespace OloEngine
             std::vector<u8> m_PreviewData;
             bool m_PreviewDataValid = false;
             u32 m_SelectedMipLevel = 0;
-            ImTextureID m_ImGuiTextureID = nullptr;
+            ImTextureID m_ImGuiTextureID = 0;
         };
 
         struct BufferInfo : ResourceInfo
@@ -72,6 +98,19 @@ namespace OloEngine
             u32 m_PreviewOffset = 0;
             u32 m_PreviewSize = 256; // Preview first 256 bytes by default
             u32 m_Stride = 0; // For vertex buffers
+        };
+
+        struct FramebufferInfo : ResourceInfo
+        {
+            u32 m_Width = 0;
+            u32 m_Height = 0;
+            u32 m_ColorAttachmentCount = 0;
+            bool m_HasDepthAttachment = false;
+            bool m_HasStencilAttachment = false;
+            GLenum m_Status = GL_FRAMEBUFFER_COMPLETE;
+            std::vector<GLenum> m_ColorAttachmentFormats;
+            GLenum m_DepthAttachmentFormat = GL_NONE;
+            GLenum m_StencilAttachmentFormat = GL_NONE;
         };
 
         // Async texture download data
@@ -107,6 +146,22 @@ namespace OloEngine
         void RegisterTexture(u32 rendererID, const std::string& name, const std::string& debugName = "");
 
         /**
+         * @brief Register a texture cubemap resource for tracking
+         * @param rendererID OpenGL texture ID
+         * @param name Resource name/path
+         * @param debugName Optional debug name
+         */
+        void RegisterTextureCubemap(u32 rendererID, const std::string& name, const std::string& debugName = "");
+
+        /**
+         * @brief Register a framebuffer resource for tracking
+         * @param rendererID OpenGL framebuffer ID
+         * @param name Resource name
+         * @param debugName Optional debug name
+         */
+        void RegisterFramebuffer(u32 rendererID, const std::string& name, const std::string& debugName = "");
+
+        /**
          * @brief Register a buffer resource for tracking
          * @param rendererID OpenGL buffer ID
          * @param target Buffer target (GL_ARRAY_BUFFER, etc.)
@@ -114,6 +169,21 @@ namespace OloEngine
          * @param debugName Optional debug name
          */
         void RegisterBuffer(u32 rendererID, GLenum target, const std::string& name, const std::string& debugName = "");
+
+        /**
+         * @brief Update a resource's active state
+         * @param rendererID OpenGL resource ID
+         * @param isActive Whether the resource is currently active
+         */
+        void UpdateResourceActiveState(u32 rendererID, bool isActive);
+
+        /**
+         * @brief Update resource binding information
+         * @param rendererID OpenGL resource ID
+         * @param isBound Whether the resource is currently bound
+         * @param bindingSlot The binding slot/unit (for textures, uniform buffers, etc.)
+         */
+        void UpdateResourceBinding(u32 rendererID, bool isBound, u32 bindingSlot = 0);
 
         /**
          * @brief Unregister a resource (called when resource is destroyed)
@@ -156,7 +226,9 @@ namespace OloEngine
 
     private:
         void QueryTextureInfo(TextureInfo& info);
+        void QueryTextureCubemapInfo(TextureInfo& info);
         void QueryBufferInfo(BufferInfo& info);
+        void QueryFramebufferInfo(FramebufferInfo& info);
         void RequestTextureDownload(TextureInfo& info, u32 mipLevel);
         void ProcessTextureDownloads();
         void UpdateTexturePreview(TextureInfo& info);
@@ -166,12 +238,14 @@ namespace OloEngine
         void RenderResourceDetails();
         void RenderTexturePreview(TextureInfo& info);
         void RenderBufferContent(BufferInfo& info);
+        void RenderFramebufferDetails(FramebufferInfo& info);
         void RenderResourceStatistics();
         
         std::string FormatTextureFormat(GLenum format) const;
         std::string FormatBufferUsage(GLenum usage) const;
         std::string FormatMemorySize(size_t bytes) const;
         const char* GetResourceTypeName(ResourceType type) const;
+        const char* GetBufferTargetName(GLenum target) const;
 
     private:
         std::unordered_map<u32, std::unique_ptr<ResourceInfo>> m_Resources;
@@ -181,7 +255,7 @@ namespace OloEngine
         u32 m_SelectedResourceID = 0;
         ResourceType m_FilterType = ResourceType::COUNT; // No filter by default
         std::string m_SearchFilter;
-        bool m_ShowInactiveResources = false;
+        bool m_ShowInactiveResources = true;
         bool m_AutoUpdatePreviews = true;
         
         // Statistics
