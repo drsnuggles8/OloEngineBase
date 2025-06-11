@@ -354,27 +354,18 @@ namespace OloEngine
     }    void ShaderDebugger::UpdateReflectionData(u32 rendererID, ShaderStage stage, const std::vector<u32>& spirvData)
     {
         if (!m_IsInitialized || spirvData.empty())
-        {
-            OLO_CORE_ERROR("DEBUG: UpdateReflectionData early return - initialized: {0}, spirvData size: {1}", 
-                           m_IsInitialized, spirvData.size());
             return;
-        }
 
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
-        
-        OLO_CORE_ERROR("DEBUG: UpdateReflectionData called for shader ID {0}, stage {1}, SPIR-V size: {2}", 
-                       rendererID, static_cast<int>(stage), spirvData.size());
         
         auto it = m_Shaders.find(rendererID);
         if (it == m_Shaders.end())
         {
-            OLO_CORE_ERROR("DEBUG: UpdateReflectionData - Shader ID {0} not found!", rendererID);
+            OLO_CORE_WARN("ShaderDebugger::UpdateReflectionData - Shader ID {0} not found", rendererID);
             return;
         }
 
         ShaderInfo& info = it->second;
-        
-        OLO_CORE_ERROR("DEBUG: UpdateReflectionData processing shader: {0}", info.m_Name);
 
         try
         {
@@ -440,15 +431,10 @@ namespace OloEngine
 
                 info.m_Samplers.push_back(samplerInfo);
             }
-            
-            // Estimate instruction count
+              // Estimate instruction count
             u32 instructionCount = 0;
-            OLO_CORE_ERROR("DEBUG: About to call AnalyzeSPIRVFromWords");
             AnalyzeSPIRVFromWords(spirvData, instructionCount);
-            OLO_CORE_ERROR("DEBUG: AnalyzeSPIRVFromWords returned: {0}", instructionCount);
-            OLO_CORE_ERROR("DEBUG: Instruction count before accumulation: {0}", info.m_LastCompilation.m_InstructionCount);
             info.m_LastCompilation.m_InstructionCount += instructionCount;
-            OLO_CORE_ERROR("DEBUG: Instruction count after accumulation: {0}", info.m_LastCompilation.m_InstructionCount);
 
         }
         catch (const std::exception& e)
@@ -490,11 +476,8 @@ namespace OloEngine
                     info.m_LastCompilation.m_OpenGLSPIRVSize += spirvBinary.size();
                 
                 // Convert SPIR-V binary to u32 vector for analysis
-                std::vector<u32> spirvWords;
-                spirvWords.resize(spirvBinary.size() / sizeof(u32));
+                std::vector<u32> spirvWords;                spirvWords.resize(spirvBinary.size() / sizeof(u32));
                 std::memcpy(spirvWords.data(), spirvBinary.data(), spirvBinary.size());
-                
-                OLO_CORE_ERROR("DEBUG: SetShaderSource - About to analyze SPIR-V for shader ID {0}, stage {1}", rendererID, static_cast<int>(stage));
                 
                 // Perform reflection analysis and update instruction count
                 try
@@ -502,13 +485,10 @@ namespace OloEngine
                     u32 instructionCount = 0;
                     AnalyzeSPIRVFromWords(spirvWords, instructionCount);
                     info.m_LastCompilation.m_InstructionCount += instructionCount;
-                    
-                    OLO_CORE_ERROR("DEBUG: SetShaderSource - Stage {0} instruction count: {1}, Total: {2}", 
-                                   static_cast<int>(stage), instructionCount, info.m_LastCompilation.m_InstructionCount);
                 }
                 catch (const std::exception& e)
                 {
-                    OLO_CORE_ERROR("DEBUG: SetShaderSource - Failed to analyze SPIR-V: {0}", e.what());
+                    // Silently continue if SPIR-V analysis fails
                 }
             }
         }
@@ -595,6 +575,14 @@ namespace OloEngine
             return std::to_string(static_cast<i32>(milliseconds / 1000)) + " s";
     }
 
+    /**
+     * @brief Analyzes SPIR-V binary data to count instructions
+     * @param spirvData SPIR-V binary data
+     * @param instructionCount Output parameter for instruction count
+     * 
+     * Parses SPIR-V binary format to count the number of instructions.
+     * This provides a meaningful metric for shader complexity analysis.
+     */
     void ShaderDebugger::AnalyzeSPIRV(const std::vector<u8>& spirvData, u32& instructionCount) const
     {
         instructionCount = 0;
@@ -621,19 +609,20 @@ namespace OloEngine
             instructionCount++;
             offset += length;
         }
-    }    void ShaderDebugger::AnalyzeSPIRVFromWords(const std::vector<u32>& spirvWords, u32& instructionCount) const
+    }    /**
+     * @brief Analyzes SPIR-V word data to count instructions
+     * @param spirvWords SPIR-V data as 32-bit words
+     * @param instructionCount Output parameter for instruction count
+     * 
+     * More efficient version that works with pre-converted 32-bit word data.
+     * Used internally for instruction counting during shader compilation.
+     */
+    void ShaderDebugger::AnalyzeSPIRVFromWords(const std::vector<u32>& spirvWords, u32& instructionCount) const
     {
-        instructionCount = 0;
-        
-        OLO_CORE_ERROR("DEBUG: AnalyzeSPIRVFromWords called with {0} words", spirvWords.size());
-        
-        if (spirvWords.size() < 5) // Minimum SPIR-V header size (5 words)
+        instructionCount = 0;        if (spirvWords.size() < 5) // Minimum SPIR-V header size (5 words)
         {
-            OLO_CORE_ERROR("DEBUG: SPIR-V data too small: {0} words", spirvWords.size());
             return;
         }
-        
-        OLO_CORE_ERROR("DEBUG: AnalyzeSPIRVFromWords starting analysis");
         
         // SPIR-V instruction counting
         const u32* data = spirvWords.data();
@@ -652,11 +641,16 @@ namespace OloEngine
             
             instructionCount++;
             offset += length;
-        }
-        
-        OLO_CORE_ERROR("DEBUG: AnalyzeSPIRVFromWords completed - found {0} instructions", instructionCount);
-    }
+        }    }
 
+    /**
+     * @brief Exports a comprehensive shader debugging report to file
+     * @param filePath Path to output file
+     * @return True if export succeeded, false otherwise
+     * 
+     * Generates a detailed text report containing all shader information,
+     * compilation statistics, performance metrics, and error logs.
+     */
     bool ShaderDebugger::ExportReport(const std::string& filePath) const
     {
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
@@ -1474,9 +1468,16 @@ namespace OloEngine
 
         ImGui::Text("Error Message:");
         ImGui::BeginChild("ErrorMessage", ImVec2(0, 0), true);        ImGui::TextWrapped("%s", shaderInfo.m_LastCompilation.m_ErrorMessage.c_str());
-        ImGui::EndChild();
-    }
+        ImGui::EndChild();    }
 
+    /**
+     * @brief Generates human-readable SPIR-V disassembly from binary data
+     * @param spirvData SPIR-V binary data
+     * @return GLSL representation of SPIR-V code for debugging
+     * 
+     * Uses spirv-cross to convert SPIR-V binary back to readable GLSL.
+     * This helps developers understand the compiled shader structure.
+     */
     std::string ShaderDebugger::GenerateSPIRVDisassembly(const std::vector<u8>& spirvData) const
     {
         if (spirvData.empty())
@@ -1526,9 +1527,15 @@ namespace OloEngine
         catch (const std::exception& e)
         {
             return std::string("SPIR-V disassembly failed: ") + e.what();
-        }
-    }
+        }    }
 
+    /**
+     * @brief Analyzes SPIR-V code for optimization opportunities
+     * @param spirvData SPIR-V binary data
+     * 
+     * Examines shader resources and instruction count to suggest performance
+     * optimizations such as reducing uniform buffer bindings or instruction count.
+     */
     void ShaderDebugger::PerformOptimizationAnalysis(const std::vector<u8>& spirvData) const
     {
         if (spirvData.empty())
