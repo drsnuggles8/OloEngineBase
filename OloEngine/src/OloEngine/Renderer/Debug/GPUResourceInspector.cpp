@@ -23,7 +23,9 @@ namespace OloEngine
     {
         m_ResourceCounts.fill(0);
         m_MemoryUsageByType.fill(0);
-    }    GPUResourceInspector::~GPUResourceInspector()
+    }
+	
+	GPUResourceInspector::~GPUResourceInspector()
     {
         if (m_IsInitialized)
         {
@@ -35,7 +37,9 @@ namespace OloEngine
     {
         static GPUResourceInspector instance;
         return instance;
-    }    void GPUResourceInspector::Initialize()
+    }
+	
+	void GPUResourceInspector::Initialize()
     {
         if (m_IsInitialized)
             return;
@@ -68,7 +72,9 @@ namespace OloEngine
         }
 
         m_IsInitialized = false;
-    }    void GPUResourceInspector::RegisterTexture(u32 rendererID, const std::string& name, const std::string& debugName)
+    }
+	
+	void GPUResourceInspector::RegisterTexture(u32 rendererID, const std::string& name, const std::string& debugName)
     {
         if (!m_IsInitialized || rendererID == 0)
             return;
@@ -81,6 +87,7 @@ namespace OloEngine
         textureInfo->m_Name = name;
         textureInfo->m_DebugName = debugName.empty() ? name : debugName;
         textureInfo->m_CreationTime = GetCurrentTimeSeconds();
+
           // Query texture properties immediately
         QueryTextureInfo(*textureInfo);
         
@@ -152,7 +159,9 @@ namespace OloEngine
         }
         
         OLO_CORE_TRACE("Registered texture cubemap: {} (ID: {})", name, rendererID);
-    }    void GPUResourceInspector::RegisterBuffer(u32 rendererID, GLenum target, const std::string& name, const std::string& debugName)
+    }
+	
+	void GPUResourceInspector::RegisterBuffer(u32 rendererID, GLenum target, const std::string& name, const std::string& debugName)
     {
         if (!m_IsInitialized || rendererID == 0)
             return;
@@ -333,7 +342,9 @@ namespace OloEngine
             it->second->m_IsBound = isBound;
             it->second->m_BindingSlot = bindingSlot;
         }
-    }    void GPUResourceInspector::QueryTextureInfo(TextureInfo& info)
+    }
+	
+	void GPUResourceInspector::QueryTextureInfo(TextureInfo& info)
     {
         // Save current texture binding
         glGetIntegerv(GL_TEXTURE_BINDING_2D, &m_PreviousTextureBinding);
@@ -1073,11 +1084,14 @@ namespace OloEngine
         
         // Splitter
         ImGui::SameLine();
-        ImGui::Button("##splitter", ImVec2(8.0f, -1));        if (ImGui::IsItemActive())
+        ImGui::Button("##splitter", ImVec2(8.0f, -1));
+		
+		if (ImGui::IsItemActive())
         {
             leftPaneWidth += ImGui::GetIO().MouseDelta.x;
             leftPaneWidth = std::clamp(leftPaneWidth, 100.0f, ImGui::GetContentRegionAvail().x - 100.0f);
         }
+
         if (ImGui::IsItemHovered())
         {
             ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
@@ -1213,7 +1227,9 @@ namespace OloEngine
         ImGui::Text("Type: %s", GetResourceTypeName(resource->m_Type));
         ImGui::Text("Name: %s", resource->m_Name.c_str());
         if (!resource->m_DebugName.empty() && resource->m_DebugName != resource->m_Name)
+        {
             ImGui::Text("Debug Name: %s", resource->m_DebugName.c_str());
+        }
         ImGui::Text("Memory Usage: %s", FormatMemorySize(resource->m_MemoryUsage).c_str());
         ImGui::Text("Active: %s", resource->m_IsActive ? "Yes" : "No");
         ImGui::Text("Bound: %s", resource->m_IsBound ? "Yes" : "No");
@@ -1237,7 +1253,9 @@ namespace OloEngine
         {
             RenderFramebufferDetails(*static_cast<FramebufferInfo*>(resource));
         }
-    }    void GPUResourceInspector::RenderTexturePreview(TextureInfo& info)
+    }
+	
+	void GPUResourceInspector::RenderTexturePreview(TextureInfo& info)
     {
         ImGui::Text("Texture Properties");
         ImGui::Text("Dimensions: %u x %u", info.m_Width, info.m_Height);
@@ -1292,7 +1310,8 @@ namespace OloEngine
         }
         
         if (info.m_PreviewDataValid && !info.m_PreviewData.empty())
-        {            // Create ImGui texture if not already created
+        {
+			// Create ImGui texture if not already created
             if (info.m_ImGuiTextureID == 0)
             {
                 // This is simplified - in practice, we'd create a proper ImGui texture
@@ -1332,7 +1351,8 @@ namespace OloEngine
             ImGui::Separator();
             ImGui::Text("Preview Info");
             ImGui::Text("Displayed Size: %.0f x %.0f", imageSize.x, imageSize.y);
-            ImGui::Text("Memory Usage: %s", FormatMemorySize(info.m_MemoryUsage).c_str());        }
+            ImGui::Text("Memory Usage: %s", FormatMemorySize(info.m_MemoryUsage).c_str());
+		}
         else
         {
             ImGui::Text("Preview not available");
@@ -1358,7 +1378,9 @@ namespace OloEngine
                 }
             }
         }
-    }void GPUResourceInspector::RenderBufferContent(BufferInfo& info)
+    }
+	
+	void GPUResourceInspector::RenderBufferContent(BufferInfo& info)
     {
         ImGui::Text("Buffer Properties");
         ImGui::Text("Target: 0x%X (%s)", info.m_Target, GetBufferTargetName(info.m_Target));
@@ -1570,7 +1592,9 @@ namespace OloEngine
             // Force refresh of framebuffer info
             QueryFramebufferInfo(info);
         }
-    }    void GPUResourceInspector::RenderResourceStatistics()
+    }
+	
+	void GPUResourceInspector::RenderResourceStatistics()
     {
         ImGui::Text("Statistics");
         ImGui::Separator();
@@ -1635,7 +1659,9 @@ namespace OloEngine
         
         file.close();
         OLO_CORE_INFO("Exported GPU resource information to: {}", filename);
-    }    std::string GPUResourceInspector::FormatTextureFormat(GLenum format) const
+    }
+	
+	std::string GPUResourceInspector::FormatTextureFormat(GLenum format) const
     {
         switch (format)
         {

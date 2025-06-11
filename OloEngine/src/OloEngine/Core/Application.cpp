@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
+#include "OloEngine/Renderer/Debug/ShaderDebugger.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scripting/Lua/LuaScriptEngine.h"
 #include "OloEngine/Utils/PlatformUtils.h"
@@ -29,11 +30,11 @@ namespace OloEngine
 
 		m_Window = Window::Create(WindowProps(m_Specification.Name));
 		m_Window->SetEventCallback(OLO_BIND_EVENT_FN(Application::OnEvent));
-
-		// Initialize GPU Resource Inspector before Renderer to catch all resource creation
+		// Initialize debug tools before Renderer to catch all resource creation
 		#ifdef OLO_DEBUG
 			GPUResourceInspector::GetInstance().Initialize();
-			OLO_CORE_INFO("GPU Resource Inspector initialized before Renderer");
+			ShaderDebugger::GetInstance().Initialize();
+			OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger initialized before Renderer");
 		#endif
 
 		Renderer::Init(m_Specification.PreferredRenderer);
@@ -57,11 +58,11 @@ namespace OloEngine
 		LuaScriptEngine::Shutdown();
 		ScriptEngine::Shutdown();
 		AudioEngine::Shutdown();
-		
-		// Shutdown GPU Resource Inspector before Renderer
+				// Shutdown debug tools before Renderer
 		#ifdef OLO_DEBUG
+			ShaderDebugger::GetInstance().Shutdown();
 			GPUResourceInspector::GetInstance().Shutdown();
-			OLO_CORE_INFO("GPU Resource Inspector shutdown");
+			OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger shutdown");
 		#endif
 		
 		Renderer::Shutdown();

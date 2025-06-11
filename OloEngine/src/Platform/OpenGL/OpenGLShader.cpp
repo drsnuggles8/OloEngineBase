@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Timer.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
+#include "OloEngine/Renderer/Debug/ShaderDebugger.h"
 
 #include <glad/gl.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -131,17 +132,26 @@ namespace OloEngine
 		}
 
 	}
-
 	OpenGLShader::OpenGLShader(const std::string& filepath)
 		: m_FilePath(filepath)
 	{
 		OLO_PROFILE_FUNCTION();
 
 		Utils::CreateCacheDirectoryIfNeeded();
-
 		const std::string source = ReadFile(filepath);
 		const auto shaderSources = PreProcess(source);
 
+		// Store original source code for debugging (after we have shader ID)
+		// This will be called later after CreateProgram when m_RendererID is available
+
+		// Extract shader name from filepath first
+		auto lastSlash = filepath.find_last_of("/\\");
+		const auto lastDot = filepath.rfind('.');
+		lastSlash = lastSlash == std::string::npos ? 0 : (lastSlash + 1);
+		const auto count = lastDot == std::string::npos ? (filepath.size() - lastSlash) : (lastDot - lastSlash);
+		m_Name = filepath.substr(lastSlash, count);
+
+		OLO_SHADER_COMPILATION_START(m_Name, filepath);
 		const Timer timer;
 
 		CompileOrGetVulkanBinaries(shaderSources);
@@ -182,19 +192,12 @@ namespace OloEngine
 			CompileOrGetOpenGLBinaries();
 			CreateProgram();
 		}
+		const f64 compilationTime = timer.ElapsedMillis();
+		OLO_CORE_WARN("Shader creation took {0} ms", compilationTime);
 
-
-		OLO_CORE_WARN("Shader creation took {0} ms", timer.ElapsedMillis());
-
-		// Extract shader name from filepath
-		auto lastSlash = filepath.find_last_of("/\\");
-		const auto lastDot = filepath.rfind('.');
-		lastSlash = lastSlash == std::string::npos ? 0 : (lastSlash + 1);
-		const auto count = lastDot == std::string::npos ? (filepath.size() - lastSlash) : (lastDot - lastSlash);
-
-		m_Name = filepath.substr(lastSlash, count);
+		// Register with shader debugger and report compilation
+		OLO_SHADER_COMPILATION_END(m_RendererID, m_RendererID != 0, "", compilationTime);
 	}
-
 	OpenGLShader::OpenGLShader(std::string name, std::string_view vertexSrc, std::string_view fragmentSrc)
 		: m_Name(std::move(name))
 	{
@@ -203,6 +206,8 @@ namespace OloEngine
 		std::unordered_map<GLenum, std::string> sources;
 		sources[GL_VERTEX_SHADER] = vertexSrc;
 		sources[GL_FRAGMENT_SHADER] = fragmentSrc;
+
+		OLO_SHADER_COMPILATION_START(m_Name, "runtime_source");
 
 		CompileOrGetVulkanBinaries(sources);
 		if (Utils::IsAmdGpu())
@@ -214,10 +219,17 @@ namespace OloEngine
 			CompileOrGetOpenGLBinaries();
 			CreateProgram();
 		}
+		
+		// Register compilation completion
+		OLO_SHADER_COMPILATION_END(m_RendererID, m_RendererID != 0, "", 0.0);
 	}
 	OpenGLShader::~OpenGLShader()
 	{
 		OLO_PROFILE_FUNCTION();
+		
+		// Unregister from shader debugger
+		OLO_SHADER_UNREGISTER(m_RendererID);
+		
 		// Track GPU memory deallocation
 		OLO_TRACK_DEALLOC(this);
 		
@@ -278,10 +290,12 @@ namespace OloEngine
 
 		return shaderSources;
 	}
-
 	void OpenGLShader::CompileOrGetVulkanBinaries(const std::unordered_map<GLenum, std::string>& shaderSources)
 	{
 		glCreateProgram();
+
+		// Store original preprocessed source code for debugging
+		m_OriginalSourceCode = shaderSources;
 
 		const shaderc::Compiler compiler;
 		shaderc::CompileOptions options;
@@ -446,12 +460,38 @@ namespace OloEngine
 			estimatedMemory += spirv.size() * sizeof(u32); // SPIR-V binary size
 		}
 		estimatedMemory += 1024; // Additional overhead for program linking, uniforms, etc.
-		
-		// Track GPU memory allocation
+				// Track GPU memory allocation
 		OLO_TRACK_GPU_ALLOC(this, 
 		                     estimatedMemory, 
-		                     RendererMemoryTracker::ResourceType::Shader, 
+		                     RendererMemoryTracker::ResourceType::Shader,
 		                     m_Name.empty() ? "OpenGL Shader" : m_Name);
+		
+		// Register with shader debugger after program creation
+		OLO_SHADER_REGISTER_MANUAL(m_RendererID, m_Name, m_FilePath);
+		
+		// Store shader source code in debugger
+		for (const auto& [stage, spirv] : m_OpenGLSPIRV)
+		{
+			// Get the generated GLSL from SPIR-V
+			spirv_cross::CompilerGLSL glslCompiler(spirv);
+			const std::string generatedGLSL = glslCompiler.compile();
+					// Get original source from stored preprocessed sources
+			std::string originalSource = "";
+			auto originalIt = m_OriginalSourceCode.find(stage);
+			if (originalIt != m_OriginalSourceCode.end())
+			{
+				originalSource = originalIt->second;
+			}
+			
+			// Store SPIR-V binary as byte vector
+			std::vector<u8> spirvBytes;
+			spirvBytes.reserve(spirv.size() * sizeof(u32));
+			const u8* spirvData = reinterpret_cast<const u8*>(spirv.data());
+			spirvBytes.assign(spirvData, spirvData + spirv.size() * sizeof(u32));
+			
+			OLO_SHADER_SET_SOURCE(m_RendererID, GLStageToShaderStage(stage), 
+			                       originalSource, generatedGLSL, spirvBytes);
+		}
 	}
 
 	static bool VerifyProgramLink(GLenum const& program)
@@ -529,8 +569,7 @@ namespace OloEngine
 					out.flush();
 					out.close();
 				}
-			}
-		for (auto const& id : glShadersIDs)
+			}		for (auto const& id : glShadersIDs)
 		{
 			glDetachShader(program, id);
 		}
@@ -543,14 +582,42 @@ namespace OloEngine
 	for (const auto& [stage, spirv] : m_VulkanSPIRV)
 	{
 		estimatedMemory += spirv.size() * sizeof(u32); // SPIR-V binary size
-	}	estimatedMemory += 1024; // Additional overhead for program linking, uniforms, etc.
+	}
+	estimatedMemory += 1024; // Additional overhead for program linking, uniforms, etc.
 	
 	// Track GPU memory allocation
 	OLO_TRACK_GPU_ALLOC(this, 
 	                     estimatedMemory, 
-	                     RendererMemoryTracker::ResourceType::Shader, 
+	                     RendererMemoryTracker::ResourceType::Shader,
 	                     m_Name.empty() ? "OpenGL Shader" : m_Name);
+	
+	// Register with shader debugger after program creation
+	OLO_SHADER_REGISTER_MANUAL(m_RendererID, m_Name, m_FilePath);
+	
+	// Store shader source code in debugger  
+	for (const auto& [stage, spirv] : m_VulkanSPIRV)
+	{
+		// Get the generated GLSL from SPIR-V
+		spirv_cross::CompilerGLSL glslCompiler(spirv);
+		const std::string generatedGLSL = glslCompiler.compile();
+				// Get original source from stored preprocessed sources
+		std::string originalSource = "";
+		auto originalIt = m_OriginalSourceCode.find(stage);
+		if (originalIt != m_OriginalSourceCode.end())
+		{
+			originalSource = originalIt->second;
+		}
+		
+		// Store SPIR-V binary as byte vector
+		std::vector<u8> spirvBytes;
+		spirvBytes.reserve(spirv.size() * sizeof(u32));
+		const u8* spirvData = reinterpret_cast<const u8*>(spirv.data());
+		spirvBytes.assign(spirvData, spirvData + spirv.size() * sizeof(u32));
+		
+		OLO_SHADER_SET_SOURCE(m_RendererID, GLStageToShaderStage(stage), 
+		                       originalSource, generatedGLSL, spirvBytes);
 	}
+}
 
 	void OpenGLShader::CompileOpenGLBinariesForAmd(GLenum const& program, std::array<u32, 2>& glShadersIDs) const
 	{
@@ -587,7 +654,6 @@ namespace OloEngine
 			glShadersIDs[glShaderIDIndex++] = shader;
 		}
 	}
-
 	void OpenGLShader::Reflect(const GLenum stage, const std::vector<u32>& shaderData)
 	{
 		const spirv_cross::Compiler compiler(shaderData);
@@ -596,6 +662,9 @@ namespace OloEngine
 		OLO_CORE_TRACE("OpenGLShader::Reflect - {0} {1}", Utils::GLShaderStageToString(stage), m_FilePath);
 		OLO_CORE_TRACE("    {0} uniform buffers", resources.uniform_buffers.size());
 		OLO_CORE_TRACE("    {0} resources", resources.sampled_images.size());
+
+		// Pass reflection data to shader debugger
+		ShaderDebugger::GetInstance().UpdateReflectionData(m_RendererID, GLStageToShaderStage(stage), shaderData);
 
 		OLO_CORE_TRACE("Uniform buffers:");
 		for (const auto& resource : resources.uniform_buffers)
@@ -611,23 +680,34 @@ namespace OloEngine
 			OLO_CORE_TRACE("    Members = {0}", memberCount);
 		}
 	}
-
 	void OpenGLShader::Reload()
 	{
+		OLO_SHADER_RELOAD_START(m_RendererID);
+		
 		std::string source = ReadFile(m_FilePath);
 		auto shaderSources = PreProcess(source);
 
-		CompileOrGetVulkanBinaries(shaderSources);
-		if (Utils::IsAmdGpu())
+		bool success = true;
+		try
 		{
-			CreateProgramForAmd();
+			CompileOrGetVulkanBinaries(shaderSources);
+			if (Utils::IsAmdGpu())
+			{
+				CreateProgramForAmd();
+			}
+			else
+			{
+				CompileOrGetOpenGLBinaries();
+				CreateProgram();
+			}
 		}
-		else
+		catch (...)
 		{
-			CompileOrGetOpenGLBinaries();
-			CreateProgram();
+			success = false;
 		}
+				OLO_SHADER_RELOAD_END(m_RendererID, success);
 	}
+
 	void OpenGLShader::Bind() const
 	{
 		OLO_PROFILE_FUNCTION();
@@ -636,6 +716,9 @@ namespace OloEngine
 		
 		// Update profiler counters
 		RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::ShaderBinds, 1);
+		
+		// Track shader binding
+		OLO_SHADER_BIND(m_RendererID);
 	}
 
 	void OpenGLShader::Unbind() const
@@ -644,17 +727,18 @@ namespace OloEngine
 
 		glUseProgram(0);
 	}
-
 	void OpenGLShader::SetInt(const std::string& name, const int value)
 	{
 		OLO_PROFILE_FUNCTION();
 
 		UploadUniformInt(name, value);
+		OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Int);
 	}
 
 	void OpenGLShader::SetIntArray(const std::string& name, int* const values, const u32 count)
 	{
 		UploadUniformIntArray(name, values, count);
+		OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::IntArray);
 	}
 
 	void OpenGLShader::SetFloat(const std::string& name, const f32 value)
@@ -662,6 +746,7 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 
 		UploadUniformFloat(name, value);
+		OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Float);
 	}
 
 	void OpenGLShader::SetFloat2(const std::string& name, const glm::vec2& value)
@@ -669,6 +754,7 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 
 		UploadUniformFloat2(name, value);
+		OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Float2);
 	}
 
 	void OpenGLShader::SetFloat3(const std::string& name, const glm::vec3& value)
@@ -676,6 +762,7 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 
 		UploadUniformFloat3(name, value);
+		OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Float3);
 	}
 
 	void OpenGLShader::SetFloat4(const std::string& name, const glm::vec4& value)
@@ -683,61 +770,69 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 
 		UploadUniformFloat4(name, value);
+		OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Float4);
 	}
-
 	void OpenGLShader::SetMat4(const std::string& name, const glm::mat4& value)
 	{
 		OLO_PROFILE_FUNCTION();
 
 		UploadUniformMat4(name, value);
+		OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Mat4);
 	}
-
 	void OpenGLShader::UploadUniformInt(const std::string& name, const int value) const
 	{
 		const GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniform1i(location, value);
+		OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Int);
 	}
 
 	void OpenGLShader::UploadUniformIntArray(const std::string& name, int const* const values, const u32 count) const
 	{
 		const GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniform1iv(location, count, values);
+		OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::IntArray);
 	}
 
 	void OpenGLShader::UploadUniformFloat(const std::string& name, const f32 value) const
 	{
 		const GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniform1f(location, value);
+		OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Float);
 	}
 
 	void OpenGLShader::UploadUniformFloat2(const std::string& name, const glm::vec2& value) const
 	{
 		const GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniform2f(location, value.x, value.y);
+		OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Float2);
 	}
 
 	void OpenGLShader::UploadUniformFloat3(const std::string& name, const glm::vec3& value) const
 	{
 		const GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniform3f(location, value.x, value.y, value.z);
+		OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Float3);
 	}
 
 	void OpenGLShader::UploadUniformFloat4(const std::string& name, const glm::vec4& value) const
 	{
 		const GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniform4f(location, value.x, value.y, value.z, value.w);
+		OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Float4);
 	}
 
 	void OpenGLShader::UploadUniformMat3(const std::string& name, const glm::mat3& matrix) const
 	{
 		const GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniformMatrix3fv(location, 1, GL_FALSE, glm::value_ptr(matrix));
+		OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Mat3);
 	}
 
 	void OpenGLShader::UploadUniformMat4(const std::string& name, const glm::mat4& matrix) const
 	{
 		const GLint location = glGetUniformLocation(m_RendererID, name.c_str());
 		glUniformMatrix4fv(location, 1, GL_FALSE, glm::value_ptr(matrix));
+		OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Mat4);
 	}
 
 }

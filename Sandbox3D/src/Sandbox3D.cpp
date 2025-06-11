@@ -593,9 +593,7 @@ void Sandbox3D::OnImGuiRender()
         {
             m_RendererProfiler.RenderUI(&m_ShowRendererProfiler);
         }
-    }
-
-    // GPU Resource Inspector
+    }    // GPU Resource Inspector
     if (ImGui::CollapsingHeader("GPU Resource Inspector"))
     {
         ImGui::Checkbox("Show GPU Resources##GPUResourceInspector", &m_ShowGPUResourceInspector);
@@ -608,6 +606,22 @@ void Sandbox3D::OnImGuiRender()
         if (m_ShowGPUResourceInspector)
         {
             m_GPUResourceInspector.RenderDebugView(&m_ShowGPUResourceInspector, "GPU Resource Inspector");
+        }
+    }
+
+    // Shader Debugger
+    if (ImGui::CollapsingHeader("Shader Debugger"))
+    {
+        ImGui::Checkbox("Show Shader Debugger##ShaderDebugger", &m_ShowShaderDebugger);
+        ImGui::SameLine();
+        if (ImGui::Button("Export Report##ShaderDebugger"))
+        {
+            m_ShaderDebugger.ExportReport("shader_debug_report.txt");
+        }
+        
+        if (m_ShowShaderDebugger)
+        {
+            m_ShaderDebugger.RenderDebugView(&m_ShowShaderDebugger, "Shader Debugger");
         }
     }
 
