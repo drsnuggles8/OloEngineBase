@@ -463,7 +463,9 @@ namespace OloEngine
                                         const std::vector<u8>& spirvBinary)
     {
         if (!m_IsInitialized)
-            return;
+            {
+				return;
+			}
 
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
         
@@ -476,7 +478,8 @@ namespace OloEngine
             if (!generatedGLSL.empty())
             {
                 info.m_GeneratedGLSL[stage] = generatedGLSL;
-            }            if (!spirvBinary.empty())
+            }
+            if (!spirvBinary.empty())
             {
                 info.m_SPIRVBinary[stage] = spirvBinary;
                 
@@ -710,7 +713,6 @@ namespace OloEngine
         }
     }
 
-    // UI implementation will be in the next part due to length...
     void ShaderDebugger::RenderDebugView(bool* open, const char* title)
     {
         if (!m_IsInitialized)
