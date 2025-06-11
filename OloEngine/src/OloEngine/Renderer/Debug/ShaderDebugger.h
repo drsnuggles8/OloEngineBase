@@ -285,9 +285,9 @@ namespace OloEngine
         void UpdateActiveTime(ShaderInfo& shaderInfo);
         std::string GetUniformTypeString(UniformType type) const;
         std::string GetShaderStageString(ShaderStage stage) const;
-        ImVec4 GetShaderStageColor(ShaderStage stage) const;        std::string FormatFileSize(size_t bytes) const;
-        std::string FormatDuration(f64 milliseconds) const;
+        ImVec4 GetShaderStageColor(ShaderStage stage) const;        std::string FormatFileSize(size_t bytes) const;        std::string FormatDuration(f64 milliseconds) const;
         void AnalyzeSPIRV(const std::vector<u8>& spirvData, u32& instructionCount) const;
+        void AnalyzeSPIRVFromWords(const std::vector<u32>& spirvWords, u32& instructionCount) const;
         
         // Advanced SPIR-V analysis methods
         std::string GenerateSPIRVDisassembly(const std::vector<u8>& spirvData) const;

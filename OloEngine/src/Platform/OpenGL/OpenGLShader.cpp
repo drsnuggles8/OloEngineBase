@@ -653,8 +653,7 @@ namespace OloEngine
 			glAttachShader(program, shader);
 			glShadersIDs[glShaderIDIndex++] = shader;
 		}
-	}
-	void OpenGLShader::Reflect(const GLenum stage, const std::vector<u32>& shaderData)
+	}	void OpenGLShader::Reflect(const GLenum stage, const std::vector<u32>& shaderData)
 	{
 		const spirv_cross::Compiler compiler(shaderData);
 		const spirv_cross::ShaderResources resources = compiler.get_shader_resources();
@@ -663,8 +662,7 @@ namespace OloEngine
 		OLO_CORE_TRACE("    {0} uniform buffers", resources.uniform_buffers.size());
 		OLO_CORE_TRACE("    {0} resources", resources.sampled_images.size());
 
-		// Pass reflection data to shader debugger
-		ShaderDebugger::GetInstance().UpdateReflectionData(m_RendererID, GLStageToShaderStage(stage), shaderData);
+		// Note: Reflection data is now processed in SetShaderSource after shader registration
 
 		OLO_CORE_TRACE("Uniform buffers:");
 		for (const auto& resource : resources.uniform_buffers)
