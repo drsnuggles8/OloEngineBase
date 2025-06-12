@@ -103,8 +103,8 @@ namespace OloEngine
             std::string m_ErrorMessage;
             f64 m_CompileTimeMs = 0.0;
             std::chrono::steady_clock::time_point m_Timestamp;
-            size_t m_VulkanSPIRVSize = 0;
-            size_t m_OpenGLSPIRVSize = 0;
+            sizet m_VulkanSPIRVSize = 0;
+            sizet m_OpenGLSPIRVSize = 0;
             u32 m_InstructionCount = 0; // Estimated from SPIR-V
         };
 

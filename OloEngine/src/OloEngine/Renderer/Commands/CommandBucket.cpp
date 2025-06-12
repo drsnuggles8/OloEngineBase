@@ -152,12 +152,12 @@ namespace OloEngine
 			m_SortedCommands.push_back(current);
 
 			// Link each group
-			for (size_t groupIdx = 0; groupIdx < dependencyGroups.size(); groupIdx++)
+			for (sizet groupIdx = 0; groupIdx < dependencyGroups.size(); groupIdx++)
 			{
 				const auto& group = dependencyGroups[groupIdx];
 
 				// Link commands within the group
-				for (size_t cmdIdx = (groupIdx == 0 ? 1 : 0); cmdIdx < group.size(); cmdIdx++)
+				for (sizet cmdIdx = (groupIdx == 0 ? 1 : 0); cmdIdx < group.size(); cmdIdx++)
 				{
 					current->SetNext(group[cmdIdx]);
 					current = group[cmdIdx];

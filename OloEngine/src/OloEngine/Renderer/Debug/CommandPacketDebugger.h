@@ -95,9 +95,9 @@ namespace OloEngine
         // Memory usage tracking
         struct MemoryStats
         {
-            size_t m_CommandPacketMemory = 0;
-            size_t m_MetadataMemory = 0;
-            size_t m_AllocatorMemory = 0;
+            sizet m_CommandPacketMemory = 0;
+            sizet m_MetadataMemory = 0;
+            sizet m_AllocatorMemory = 0;
             u32 m_AllocationCount = 0;
             u32 m_DeallocationCount = 0;
             

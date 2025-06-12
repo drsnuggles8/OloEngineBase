@@ -23,7 +23,7 @@ namespace OloEngine
 
 		for (const auto& [plane, row, col] : planeData)
 		{
-			auto idx = static_cast<size_t>(std::to_underlying(plane));
+			auto idx = static_cast<sizet>(std::to_underlying(plane));
 			float sign = (plane == Right || plane == Top || plane == Far) ? -1.0f : 1.0f;
 
 			m_Planes[idx].Normal.x = viewProjection[0][3] + sign * viewProjection[0][col];

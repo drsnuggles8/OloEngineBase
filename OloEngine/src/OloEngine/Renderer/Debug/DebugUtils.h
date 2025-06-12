@@ -19,7 +19,7 @@ namespace OloEngine
          * @param bytes Size in bytes
          * @return Formatted string (e.g., "1.5 MB", "512 KB")
          */
-        std::string FormatMemorySize(size_t bytes);
+        std::string FormatMemorySize(sizet bytes);
 
         /**
          * @brief Format duration in human-readable format

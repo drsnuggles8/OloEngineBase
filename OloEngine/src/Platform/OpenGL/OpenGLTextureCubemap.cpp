@@ -84,7 +84,7 @@ namespace OloEngine
             case ImageFormat::RGBA32F: bytesPerPixel = 16; break;
             case ImageFormat::DEPTH24STENCIL8: bytesPerPixel = 4; break;
         }
-        size_t cubemapMemory = static_cast<size_t>(m_Width) * m_Height * bytesPerPixel * 6; // 6 faces
+        sizet cubemapMemory = static_cast<sizet>(m_Width) * m_Height * bytesPerPixel * 6; // 6 faces
 
         // Track GPU memory allocation
         OLO_TRACK_GPU_ALLOC(this, 
@@ -236,7 +236,7 @@ namespace OloEngine
 
         // Calculate memory usage
         u32 bytesPerPixel = channels; // Use actual channels from loaded images
-        size_t cubemapMemory = static_cast<size_t>(m_Width) * m_Height * bytesPerPixel * 6; // 6 faces
+        sizet cubemapMemory = static_cast<sizet>(m_Width) * m_Height * bytesPerPixel * 6; // 6 faces
 
         // Track GPU memory allocation
         OLO_TRACK_GPU_ALLOC(this, 

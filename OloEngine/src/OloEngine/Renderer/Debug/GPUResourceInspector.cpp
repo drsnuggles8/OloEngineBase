@@ -91,7 +91,7 @@ namespace OloEngine
           // Query texture properties immediately
         QueryTextureInfo(*textureInfo);
         
-        size_t memoryUsage = textureInfo->m_MemoryUsage;
+        sizet memoryUsage = textureInfo->m_MemoryUsage;
         
         // Check for duplicate registration
         auto existingIt = m_Resources.find(rendererID);
@@ -102,17 +102,17 @@ namespace OloEngine
         // Only increment counter for new registrations
         if (!isDuplicate)
         {
-            m_ResourceCounts[static_cast<size_t>(ResourceType::Texture2D)]++;
-            m_MemoryUsageByType[static_cast<size_t>(ResourceType::Texture2D)] += memoryUsage;
+            m_ResourceCounts[static_cast<sizet>(ResourceType::Texture2D)]++;
+            m_MemoryUsageByType[static_cast<sizet>(ResourceType::Texture2D)] += memoryUsage;
             OLO_CORE_TRACE("Registered NEW texture: {} (ID: {})", name, rendererID);
         }
         else
         {
             // For duplicates, update memory tracking but not count
             ResourceType oldType = existingIt->second->m_Type;
-            size_t oldMemory = existingIt->second->m_MemoryUsage;
-            m_MemoryUsageByType[static_cast<size_t>(oldType)] -= oldMemory;
-            m_MemoryUsageByType[static_cast<size_t>(ResourceType::Texture2D)] += memoryUsage;
+            sizet oldMemory = existingIt->second->m_MemoryUsage;
+            m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
+            m_MemoryUsageByType[static_cast<sizet>(ResourceType::Texture2D)] += memoryUsage;
             OLO_CORE_WARN("Registered DUPLICATE texture: {} (ID: {}) - replacing existing", name, rendererID);
         }
     }
@@ -133,7 +133,7 @@ namespace OloEngine
           // Query cubemap properties
         QueryTextureCubemapInfo(*textureInfo);
         
-        size_t memoryUsage = textureInfo->m_MemoryUsage;
+        sizet memoryUsage = textureInfo->m_MemoryUsage;
         
         // Check for duplicate registration
         auto existingIt = m_Resources.find(rendererID);
@@ -144,17 +144,17 @@ namespace OloEngine
         // Only increment counter for new registrations
         if (!isDuplicate)
         {
-            m_ResourceCounts[static_cast<size_t>(ResourceType::TextureCubemap)]++;
-            m_MemoryUsageByType[static_cast<size_t>(ResourceType::TextureCubemap)] += memoryUsage;
+            m_ResourceCounts[static_cast<sizet>(ResourceType::TextureCubemap)]++;
+            m_MemoryUsageByType[static_cast<sizet>(ResourceType::TextureCubemap)] += memoryUsage;
             OLO_CORE_TRACE("Registered NEW cubemap: {} (ID: {})", name, rendererID);
         }
         else
         {
             // For duplicates, update memory tracking but not count
             ResourceType oldType = existingIt->second->m_Type;
-            size_t oldMemory = existingIt->second->m_MemoryUsage;
-            m_MemoryUsageByType[static_cast<size_t>(oldType)] -= oldMemory;
-            m_MemoryUsageByType[static_cast<size_t>(ResourceType::TextureCubemap)] += memoryUsage;
+            sizet oldMemory = existingIt->second->m_MemoryUsage;
+            m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
+            m_MemoryUsageByType[static_cast<sizet>(ResourceType::TextureCubemap)] += memoryUsage;
             OLO_CORE_WARN("Registered DUPLICATE cubemap: {} (ID: {}) - replacing existing", name, rendererID);
         }
         
@@ -194,7 +194,7 @@ namespace OloEngine
         QueryBufferInfo(*bufferInfo);
         
         ResourceType bufferType = bufferInfo->m_Type;
-        size_t memoryUsage = bufferInfo->m_MemoryUsage;
+        sizet memoryUsage = bufferInfo->m_MemoryUsage;
           // Check for duplicate registration
         auto existingIt = m_Resources.find(rendererID);
         bool isDuplicate = (existingIt != m_Resources.end());
@@ -211,17 +211,17 @@ namespace OloEngine
         // Only increment counter for new registrations
         if (!isDuplicate)
         {
-            m_ResourceCounts[static_cast<size_t>(bufferType)]++;
-            m_MemoryUsageByType[static_cast<size_t>(bufferType)] += memoryUsage;
+            m_ResourceCounts[static_cast<sizet>(bufferType)]++;
+            m_MemoryUsageByType[static_cast<sizet>(bufferType)] += memoryUsage;
             OLO_CORE_TRACE("Registered NEW buffer: {} (ID: {}, Target: 0x{:X})", name, rendererID, target);
         }
         else
         {
             // For duplicates, update memory tracking but not count
             ResourceType oldType = existingIt->second->m_Type;
-            size_t oldMemory = existingIt->second->m_MemoryUsage;
-            m_MemoryUsageByType[static_cast<size_t>(oldType)] -= oldMemory;
-            m_MemoryUsageByType[static_cast<size_t>(bufferType)] += memoryUsage;
+            sizet oldMemory = existingIt->second->m_MemoryUsage;
+            m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
+            m_MemoryUsageByType[static_cast<sizet>(bufferType)] += memoryUsage;
             OLO_CORE_WARN("Registered DUPLICATE buffer: {} (ID: {}, Target: 0x{:X}) - replacing existing", name, rendererID, target);
         }
     }
@@ -242,7 +242,7 @@ namespace OloEngine
           // Query framebuffer properties
         QueryFramebufferInfo(*framebufferInfo);
         
-        size_t memoryUsage = framebufferInfo->m_MemoryUsage;
+        sizet memoryUsage = framebufferInfo->m_MemoryUsage;
         
         // Check for duplicate registration
         auto existingIt = m_Resources.find(rendererID);
@@ -253,17 +253,17 @@ namespace OloEngine
         // Only increment counter for new registrations
         if (!isDuplicate)
         {
-            m_ResourceCounts[static_cast<size_t>(ResourceType::Framebuffer)]++;
-            m_MemoryUsageByType[static_cast<size_t>(ResourceType::Framebuffer)] += memoryUsage;
+            m_ResourceCounts[static_cast<sizet>(ResourceType::Framebuffer)]++;
+            m_MemoryUsageByType[static_cast<sizet>(ResourceType::Framebuffer)] += memoryUsage;
             OLO_CORE_TRACE("Registered NEW framebuffer: {} (ID: {})", name, rendererID);
         }
         else
         {
             // For duplicates, update memory tracking but not count
             ResourceType oldType = existingIt->second->m_Type;
-            size_t oldMemory = existingIt->second->m_MemoryUsage;
-            m_MemoryUsageByType[static_cast<size_t>(oldType)] -= oldMemory;
-            m_MemoryUsageByType[static_cast<size_t>(ResourceType::Framebuffer)] += memoryUsage;
+            sizet oldMemory = existingIt->second->m_MemoryUsage;
+            m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
+            m_MemoryUsageByType[static_cast<sizet>(ResourceType::Framebuffer)] += memoryUsage;
             OLO_CORE_WARN("Registered DUPLICATE framebuffer: {} (ID: {}) - replacing existing", name, rendererID);
         }
     }
@@ -279,8 +279,8 @@ namespace OloEngine
         if (it != m_Resources.end())
         {
             ResourceType type = it->second->m_Type;
-            m_ResourceCounts[static_cast<size_t>(type)]--;
-            m_MemoryUsageByType[static_cast<size_t>(type)] -= it->second->m_MemoryUsage;
+            m_ResourceCounts[static_cast<sizet>(type)]--;
+            m_MemoryUsageByType[static_cast<sizet>(type)] -= it->second->m_MemoryUsage;
             m_Resources.erase(it);
             
             OLO_CORE_TRACE("Unregistered resource: ID {}", rendererID);
@@ -518,7 +518,7 @@ namespace OloEngine
                 break;
         }
         
-        info.m_MemoryUsage = static_cast<size_t>(width * height * bytesPerPixel);
+        info.m_MemoryUsage = static_cast<sizet>(width * height * bytesPerPixel);
         
         // Check for mip levels
         GLint maxLevel;
@@ -674,7 +674,7 @@ namespace OloEngine
                 break;
         }
         
-        info.m_MemoryUsage = static_cast<size_t>(width * height * bytesPerPixel * 6); // 6 faces
+        info.m_MemoryUsage = static_cast<sizet>(width * height * bytesPerPixel * 6); // 6 faces
         
         // Check for mip levels
         GLint maxLevel;
@@ -715,7 +715,7 @@ namespace OloEngine
         
         info.m_Size = static_cast<u32>(size);
         info.m_Usage = static_cast<GLenum>(usage);
-        info.m_MemoryUsage = static_cast<size_t>(size);
+        info.m_MemoryUsage = static_cast<sizet>(size);
         
         // Restore previous buffer binding
         glBindBuffer(info.m_Target, previousBinding);
@@ -805,9 +805,9 @@ namespace OloEngine
                 info.m_Height = static_cast<u32>(height);
                 
                 // Estimate memory usage (simplified calculation)
-                info.m_MemoryUsage = static_cast<size_t>(width * height * 4 * info.m_ColorAttachmentCount);
-                if (info.m_HasDepthAttachment) info.m_MemoryUsage += static_cast<size_t>(width * height * 4);
-                if (info.m_HasStencilAttachment) info.m_MemoryUsage += static_cast<size_t>(width * height);
+                info.m_MemoryUsage = static_cast<sizet>(width * height * 4 * info.m_ColorAttachmentCount);
+                if (info.m_HasDepthAttachment) info.m_MemoryUsage += static_cast<sizet>(width * height * 4);
+                if (info.m_HasStencilAttachment) info.m_MemoryUsage += static_cast<sizet>(width * height);
                 
                 glBindTexture(GL_TEXTURE_2D, previousTexBinding);
             }
@@ -861,7 +861,7 @@ namespace OloEngine
         u32 width = std::max(1u, info.m_Width >> mipLevel);
         u32 height = std::max(1u, info.m_Height >> mipLevel);
         u32 bytesPerPixel = (info.m_Format == GL_RGBA) ? 4 : (info.m_Format == GL_RGB) ? 3 : 1;
-        size_t dataSize = width * height * bytesPerPixel;
+        sizet dataSize = width * height * bytesPerPixel;
         
         // Bind PBO and allocate memory
         glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
@@ -1000,16 +1000,16 @@ namespace OloEngine
             glBindBuffer(GL_ARRAY_BUFFER, m_PreviousBufferBinding);
     }
 
-    size_t GPUResourceInspector::GetMemoryUsage(ResourceType type) const
+    sizet GPUResourceInspector::GetMemoryUsage(ResourceType type) const
     {
         std::lock_guard<std::mutex> lock(m_ResourceMutex);
-        return m_MemoryUsageByType[static_cast<size_t>(type)];
+        return m_MemoryUsageByType[static_cast<sizet>(type)];
     }
 
-    size_t GPUResourceInspector::GetTotalMemoryUsage() const
+    sizet GPUResourceInspector::GetTotalMemoryUsage() const
     {
         std::lock_guard<std::mutex> lock(m_ResourceMutex);
-        size_t total = 0;
+        sizet total = 0;
         for (const auto& [id, resource] : m_Resources)
         {
             total += resource->m_MemoryUsage;
@@ -1405,7 +1405,7 @@ namespace OloEngine
                 ImGui::Text("Vertex Data (first 10 vertices):");
                 
                 const u8* data = info.m_ContentPreview.data();
-                size_t size = info.m_ContentPreview.size();
+                sizet size = info.m_ContentPreview.size();
                 u32 vertexCount = std::min(10u, static_cast<u32>(size / info.m_Stride));
                 
                 if (ImGui::BeginTable("VertexData", std::min(info.m_Stride / 4 + 2, 8u), ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
@@ -1450,10 +1450,10 @@ namespace OloEngine
                 // Show first few indices
                 ImGui::Text("Indices (first 20):");
                 const u32* indices = reinterpret_cast<const u32*>(info.m_ContentPreview.data());
-                size_t previewIndices = std::min(20u, static_cast<u32>(info.m_ContentPreview.size() / sizeof(u32)));
+                sizet previewIndices = std::min(20u, static_cast<u32>(info.m_ContentPreview.size() / sizeof(u32)));
                 
                 std::string indexString;
-                for (size_t i = 0; i < previewIndices; ++i)
+                for (sizet i = 0; i < previewIndices; ++i)
                 {
                     if (i > 0) indexString += ", ";
                     indexString += std::to_string(indices[i]);
@@ -1484,16 +1484,16 @@ namespace OloEngine
             
             // Hex dump display
             const u8* data = info.m_ContentPreview.data();
-            size_t size = info.m_ContentPreview.size();
+            sizet size = info.m_ContentPreview.size();
             
-            for (size_t i = 0; i < size; i += 16)
+            for (sizet i = 0; i < size; i += 16)
             {
                 // Address
                 ImGui::Text("%08X: ", static_cast<u32>(info.m_PreviewOffset + i));
                 ImGui::SameLine();
                 
                 // Hex bytes
-                for (size_t j = 0; j < 16 && (i + j) < size; ++j)
+                for (sizet j = 0; j < 16 && (i + j) < size; ++j)
                 {
                     ImGui::SameLine();
                     ImGui::Text("%02X", data[i + j]);
@@ -1502,7 +1502,7 @@ namespace OloEngine
                 // ASCII representation
                 ImGui::SameLine();
                 ImGui::Text("  ");
-                for (size_t j = 0; j < 16 && (i + j) < size; ++j)
+                for (sizet j = 0; j < 16 && (i + j) < size; ++j)
                 {
                     ImGui::SameLine();
                     char c = static_cast<char>(data[i + j]);
@@ -1600,15 +1600,15 @@ namespace OloEngine
         ImGui::Separator();
         
         // Count actual resources in map by type and calculate memory usage
-        std::array<u32, static_cast<size_t>(ResourceType::COUNT)> actualCounts = {};
-        std::array<size_t, static_cast<size_t>(ResourceType::COUNT)> actualMemoryUsage = {};
-        size_t totalMemory = 0;
+        std::array<u32, static_cast<sizet>(ResourceType::COUNT)> actualCounts = {};
+        std::array<sizet, static_cast<sizet>(ResourceType::COUNT)> actualMemoryUsage = {};
+        sizet totalMemory = 0;
         
         {
             std::lock_guard<std::mutex> lock(m_ResourceMutex);
             for (const auto& [id, resource] : m_Resources)
             {
-                size_t typeIndex = static_cast<size_t>(resource->m_Type);
+                sizet typeIndex = static_cast<sizet>(resource->m_Type);
                 actualCounts[typeIndex]++;
                 actualMemoryUsage[typeIndex] += resource->m_MemoryUsage;
                 totalMemory += resource->m_MemoryUsage;
@@ -1625,7 +1625,7 @@ namespace OloEngine
             u32 count = actualCounts[i];
             if (count > 0)
             {
-                size_t memory = actualMemoryUsage[i];
+                sizet memory = actualMemoryUsage[i];
                 ImGui::Text("%s: %u (%s)", GetResourceTypeName(type), count, FormatMemorySize(memory).c_str());
             }
         }
@@ -1766,7 +1766,7 @@ namespace OloEngine
         }
     }
 
-    std::string GPUResourceInspector::FormatMemorySize(size_t bytes) const
+    std::string GPUResourceInspector::FormatMemorySize(sizet bytes) const
     {
         const char* units[] = { "B", "KB", "MB", "GB" };
         int unit = 0;

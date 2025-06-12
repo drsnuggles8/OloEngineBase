@@ -383,7 +383,7 @@ namespace OloEngine
             ImGui::Text("Samples: %d", spec.Samples);
             
             ImGui::Text("Attachments:");
-            for (size_t i = 0; i < spec.Attachments.Attachments.size(); i++)
+            for (sizet i = 0; i < spec.Attachments.Attachments.size(); i++)
             {
                 const auto& format = spec.Attachments.Attachments[i].TextureFormat;
                 ImGui::Text("  [%zu] %s", i, Utils::FormatToString(format).c_str());

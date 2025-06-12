@@ -386,7 +386,7 @@ namespace OloEngine
             for (const auto& resource : resources.uniform_buffers)
             {
                 const auto& bufferType = compiler.get_type(resource.base_type_id);
-                const size_t bufferSize = compiler.get_declared_struct_size(bufferType);
+                const sizet bufferSize = compiler.get_declared_struct_size(bufferType);
                 const u32 binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
 
                 UniformBufferInfo uboInfo;
@@ -575,10 +575,10 @@ namespace OloEngine
         // Simple instruction counting - each SPIR-V instruction is at least 4 bytes
         // This is a rough estimate, actual parsing would be more complex
         const u32* data = reinterpret_cast<const u32*>(spirvData.data());
-        const size_t wordCount = spirvData.size() / 4;
+        const sizet wordCount = spirvData.size() / 4;
         
         // Skip header (5 words)
-        size_t offset = 5;
+        sizet offset = 5;
         while (offset < wordCount)
         {
             if (offset >= wordCount) break;
@@ -608,10 +608,10 @@ namespace OloEngine
         
         // SPIR-V instruction counting
         const u32* data = spirvWords.data();
-        const size_t wordCount = spirvWords.size();
+        const sizet wordCount = spirvWords.size();
         
         // Skip header (5 words: magic, version, generator, bound, schema)
-        size_t offset = 5;
+        sizet offset = 5;
         while (offset < wordCount)
         {
             if (offset >= wordCount) break;
@@ -912,7 +912,7 @@ namespace OloEngine
                 OLO_CORE_INFO("ShaderDebugger: UI displaying instruction count: {0} for shader: {1}", 
                              shaderInfo.m_LastCompilation.m_InstructionCount, shaderInfo.m_Name);
                 
-                const size_t totalSPIRVSize = shaderInfo.m_LastCompilation.m_VulkanSPIRVSize + 
+                const sizet totalSPIRVSize = shaderInfo.m_LastCompilation.m_VulkanSPIRVSize + 
                                              shaderInfo.m_LastCompilation.m_OpenGLSPIRVSize;
                 ImGui::Text("SPIR-V Size: %s", DebugUtils::FormatMemorySize(totalSPIRVSize).c_str());
 
@@ -1025,15 +1025,15 @@ namespace OloEngine
                 
                 // Display as hex dump
                 const u8* data = spirvIt->second.data();
-                const size_t size = spirvIt->second.size();
+                const sizet size = spirvIt->second.size();
                 
-                for (size_t i = 0; i < size; i += 16)
+                for (sizet i = 0; i < size; i += 16)
                 {
                     ImGui::Text("%08zX: ", i);
                     ImGui::SameLine();
                     
                     // Hex bytes
-                    for (size_t j = 0; j < 16 && (i + j) < size; ++j)
+                    for (sizet j = 0; j < 16 && (i + j) < size; ++j)
                     {
                         ImGui::SameLine();
                         ImGui::Text("%02X", data[i + j]);
@@ -1042,7 +1042,7 @@ namespace OloEngine
                     
                     // ASCII representation
                     ImGui::SameLine(0, 20);
-                    for (size_t j = 0; j < 16 && (i + j) < size; ++j)
+                    for (sizet j = 0; j < 16 && (i + j) < size; ++j)
                     {
                         const u8 c = data[i + j];
                         ImGui::SameLine(0, 0);
@@ -1197,7 +1197,7 @@ namespace OloEngine
         ImGui::Text("Instruction Count: %u", shaderInfo.m_LastCompilation.m_InstructionCount);
         OLO_CORE_INFO("ShaderDebugger: UI displaying instruction count (detail view): {0} for shader: {1}", 
                      shaderInfo.m_LastCompilation.m_InstructionCount, shaderInfo.m_Name);
-          const size_t totalSPIRVSize = shaderInfo.m_LastCompilation.m_VulkanSPIRVSize + 
+          const sizet totalSPIRVSize = shaderInfo.m_LastCompilation.m_VulkanSPIRVSize + 
                                      shaderInfo.m_LastCompilation.m_OpenGLSPIRVSize;
         ImGui::Text("Total SPIR-V Size: %s", DebugUtils::FormatMemorySize(totalSPIRVSize).c_str());
         ImGui::Text("Vulkan SPIR-V: %s", DebugUtils::FormatMemorySize(shaderInfo.m_LastCompilation.m_VulkanSPIRVSize).c_str());

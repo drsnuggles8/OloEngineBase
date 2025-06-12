@@ -42,7 +42,7 @@ namespace OloEngine
         struct AllocationInfo
         {
             void* m_Address = nullptr;
-            size_t m_Size = 0;
+            sizet m_Size = 0;
             ResourceType m_Type = ResourceType::Other;
             std::string m_Name;
             std::string m_File;
@@ -54,9 +54,9 @@ namespace OloEngine
         // Memory pool statistics
         struct PoolStats
         {
-            size_t m_TotalSize = 0;
-            size_t m_UsedSize = 0;
-            size_t m_FreeSize = 0;
+            sizet m_TotalSize = 0;
+            sizet m_UsedSize = 0;
+            sizet m_FreeSize = 0;
             u32 m_AllocationCount = 0;
             f32 m_FragmentationPercentage = 0.0f;
         };
@@ -93,7 +93,7 @@ namespace OloEngine
         /**
          * @brief Track a memory allocation
          */
-        void TrackAllocation(void* address, size_t size, ResourceType type, 
+        void TrackAllocation(void* address, sizet size, ResourceType type, 
                            const std::string& name, bool isGPU = false,
                            const char* file = __FILE__, u32 line = __LINE__);
         
@@ -115,12 +115,12 @@ namespace OloEngine
         /**
          * @brief Get current memory usage by type
          */
-        size_t GetMemoryUsage(ResourceType type) const;
+        sizet GetMemoryUsage(ResourceType type) const;
         
         /**
          * @brief Get total memory usage
          */
-        size_t GetTotalMemoryUsage() const;
+        sizet GetTotalMemoryUsage() const;
         
         /**
          * @brief Get allocation count by type
@@ -140,8 +140,7 @@ namespace OloEngine
     private:
         RendererMemoryTracker() = default;
         ~RendererMemoryTracker() = default;
-        
-        // Helper methods
+          // Helper methods
         void RenderOverviewTab();        void RenderDetailedTab();
         void RenderLeakDetectionTab();
         void RenderPoolStatsTab();
@@ -150,12 +149,15 @@ namespace OloEngine
         std::string GetResourceTypeName(ResourceType type) const;
         ImVec4 GetResourceTypeColor(ResourceType type) const;
         
+        // Internal helper (assumes lock is already held)
+        sizet GetTotalMemoryUsageUnlocked() const;
+        
         // Thread safety
         mutable std::mutex m_Mutex;
           // Allocation tracking
         std::unordered_map<void*, AllocationInfo> m_Allocations;
-        std::array<size_t, static_cast<size_t>(ResourceType::COUNT)> m_TypeUsage{};
-        std::array<u32, static_cast<size_t>(ResourceType::COUNT)> m_TypeCounts{};
+        std::array<sizet, static_cast<sizet>(ResourceType::COUNT)> m_TypeUsage{};
+        std::array<u32, static_cast<sizet>(ResourceType::COUNT)> m_TypeCounts{};
         
         // History for graphs
         static constexpr u32 OLO_HISTORY_SIZE = 300; // 5 minutes at 60fps
@@ -179,15 +181,15 @@ namespace OloEngine
         f32 m_RefreshInterval = 1.0f / 60.0f; // 60 FPS
         
         // Statistics
-        size_t m_PeakMemoryUsage = 0;
-        size_t m_TotalAllocatedMemory = 0;
-        size_t m_TotalDeallocatedMemory = 0;
-        size_t m_CurrentMemoryUsage = 0;
-        size_t m_TotalAllocations = 0;
-        size_t m_TotalDeallocations = 0;        size_t m_CurrentAllocations = 0;
-        size_t m_GPUMemoryUsage = 0;
-        size_t m_CPUMemoryUsage = 0;        size_t m_PeakGPUMemory = 0;
-        size_t m_PeakCPUMemory = 0;
+        sizet m_PeakMemoryUsage = 0;
+        sizet m_TotalAllocatedMemory = 0;
+        sizet m_TotalDeallocatedMemory = 0;
+        sizet m_CurrentMemoryUsage = 0;
+        sizet m_TotalAllocations = 0;
+        sizet m_TotalDeallocations = 0;        sizet m_CurrentAllocations = 0;
+        sizet m_GPUMemoryUsage = 0;
+        sizet m_CPUMemoryUsage = 0;        sizet m_PeakGPUMemory = 0;
+        sizet m_PeakCPUMemory = 0;
         f64 m_LastUpdateTime = 0.0;
           // Shutdown tracking
         std::atomic<bool> m_IsShutdown{false};

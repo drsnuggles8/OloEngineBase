@@ -455,7 +455,7 @@ namespace OloEngine
 		m_RendererID = program;
 		
 		// Estimate shader memory usage (basic approximation)
-		size_t estimatedMemory = 0;		for (const auto& [stage, spirv] : m_OpenGLSPIRV)
+		sizet estimatedMemory = 0;		for (const auto& [stage, spirv] : m_OpenGLSPIRV)
 		{
 			estimatedMemory += spirv.size() * sizeof(u32); // SPIR-V binary size
 		}
@@ -578,7 +578,7 @@ namespace OloEngine
 	m_RendererID = program;
 	
 	// Estimate shader memory usage (basic approximation) 
-	size_t estimatedMemory = 0;
+	sizet estimatedMemory = 0;
 	for (const auto& [stage, spirv] : m_VulkanSPIRV)
 	{
 		estimatedMemory += spirv.size() * sizeof(u32); // SPIR-V binary size

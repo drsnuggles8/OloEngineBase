@@ -102,8 +102,8 @@ namespace OloEngine
             u32 m_IndexCount = 0;
             f64 m_CPUTime = 0.0;
             f64 m_GPUTime = 0.0;
-            size_t m_TextureMemory = 0;
-            size_t m_BufferMemory = 0;
+            sizet m_TextureMemory = 0;
+            sizet m_BufferMemory = 0;
             bool m_IsCulled = false;
         };
 
@@ -114,7 +114,7 @@ namespace OloEngine
             f64 m_Duration = 0.0;
             u32 m_DrawCallCount = 0;
             std::vector<DrawCallInfo> m_DrawCalls;
-            size_t m_MemoryUsed = 0;
+            sizet m_MemoryUsed = 0;
         };
 
         struct CapturedFrame

@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Application.h"
 
 #include <algorithm>
+#include <cfloat>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -27,11 +28,11 @@ namespace OloEngine
     void RendererProfiler::Initialize()
     {
         OLO_PROFILE_FUNCTION();
-        
-        // Initialize performance counters
+          // Initialize performance counters
         for (u32 i = 0; i < (u32)MetricType::COUNT; ++i)
         {
             m_Counters[(MetricType)i] = PerformanceCounter{};
+            m_Counters[(MetricType)i].Reset();  // sets m_Min = DBL_MAX etc.
         }
         
         // Initialize frame history
@@ -53,13 +54,15 @@ namespace OloEngine
         
         OLO_CORE_INFO("Renderer Profiler shutdown");
     }
-    
-    void RendererProfiler::Reset()
+      void RendererProfiler::Reset()
     {
         OLO_PROFILE_FUNCTION();
         
-        // Clear all profiling data
-        m_Counters.clear();
+        // Reset all profiling data instead of clearing
+        for (auto& [type, counter] : m_Counters)
+        {
+            counter.Reset();
+        }
         m_CustomTimings.clear();
         m_FrameHistory.clear();
         
@@ -1024,7 +1027,7 @@ namespace OloEngine
         
         // Build frame list for combo boxes
         std::vector<std::string> frameNames;
-        for (size_t i = 0; i < m_CapturedFrames.size(); ++i)
+        for (sizet i = 0; i < m_CapturedFrames.size(); ++i)
         {
             const auto& frame = m_CapturedFrames[i];
             std::string name = "Frame " + std::to_string(frame.m_FrameNumber) + 

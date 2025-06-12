@@ -522,7 +522,7 @@ namespace OloEngine
             // Fall back to traversing the linked list if no sorted commands
             OLO_CORE_INFO("[CommandPacketDebugger] No sorted commands, traversing linked list...");
             CommandPacket* current = head;
-            size_t traversalCount = 0;
+            sizet traversalCount = 0;
             while (current)
             {
                 commands.push_back(current);
@@ -638,7 +638,7 @@ namespace OloEngine
         // Store the material zero count for display
         m_DrawKeyStats.m_MaterialZeroCount = materialZeroCount;
           // Calculate memory usage - this is an approximation
-        size_t totalMemory = commands.size() * sizeof(CommandPacket);
+        sizet totalMemory = commands.size() * sizeof(CommandPacket);
         m_MemoryStats.m_CommandPacketMemory = totalMemory;
         m_MemoryStats.m_MetadataMemory = commands.size() * sizeof(PacketMetadata);
         m_MemoryStats.m_AllocationCount = static_cast<u32>(commands.size());
@@ -790,14 +790,12 @@ namespace OloEngine
                 return ImVec4(0.8f, 0.5f, 0.3f, 1.0f); // Orange for other commands
         }
     }
-    
-    std::string CommandPacketDebugger::GetPacketTypeString(const CommandPacket* packet) const
+      std::string CommandPacketDebugger::GetPacketTypeString(const CommandPacket* packet) const
     {
         if (!packet)
             return "Unknown";
             
-        // TODO: Implement actual type detection based on command data
-        return "Draw";
+        return std::string(packet->GetCommandTypeString());
     }
       bool CommandPacketDebugger::ExportToCSV(const CommandBucket* bucket, const std::string& outputPath) const
     {
@@ -819,7 +817,7 @@ namespace OloEngine
             file << "Index,Type,DrawKey,ViewportID,ViewLayer,RenderMode,MaterialID,ShaderID,Depth,Static,GroupID,DebugName\n";
             
             const auto& commands = bucket->GetSortedCommands();
-            for (size_t i = 0; i < commands.size(); ++i)
+            for (sizet i = 0; i < commands.size(); ++i)
             {
                 const CommandPacket* packet = commands[i];
                 if (!packet) continue;

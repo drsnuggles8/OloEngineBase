@@ -73,7 +73,7 @@ namespace OloEngine
 			case ImageFormat::RGBA32F: bytesPerPixel = 16; break;
 			case ImageFormat::DEPTH24STENCIL8: bytesPerPixel = 4; break;
 		}
-		size_t textureMemory = static_cast<size_t>(m_Width) * m_Height * bytesPerPixel;
+		sizet textureMemory = static_cast<sizet>(m_Width) * m_Height * bytesPerPixel;
 		// Track GPU memory allocation
 		OLO_TRACK_GPU_ALLOC(this, 
 		                     textureMemory, 
@@ -191,7 +191,7 @@ namespace OloEngine
 		glTextureStorage2D(m_RendererID, 1, internalFormat, static_cast<int>(m_Width), static_cast<int>(m_Height));
 
 		// Calculate memory usage based on channels and dimensions
-		size_t textureMemory = static_cast<size_t>(m_Width) * m_Height * channels;
+		sizet textureMemory = static_cast<sizet>(m_Width) * m_Height * channels;
 				// Track GPU memory allocation
 		std::string textureName = "OpenGL Texture2D: " + std::string(path);
 		OLO_TRACK_GPU_ALLOC(reinterpret_cast<void*>(static_cast<uintptr_t>(m_RendererID)), 

@@ -8,7 +8,7 @@ namespace OloEngine
 {
     namespace DebugUtils
     {
-        std::string FormatMemorySize(size_t bytes)
+        std::string FormatMemorySize(sizet bytes)
         {
             constexpr f64 KB = 1024.0;
             constexpr f64 MB = KB * 1024.0;

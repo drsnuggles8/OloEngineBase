@@ -66,7 +66,7 @@ namespace OloEngine
             ResourceType m_Type = ResourceType::Texture2D;
             std::string m_Name;
             std::string m_DebugName;
-            size_t m_MemoryUsage = 0;
+            sizet m_MemoryUsage = 0;
             bool m_IsActive = true;
             f64 m_CreationTime = 0.0;
             u32 m_BindingSlot = 0;
@@ -219,12 +219,12 @@ namespace OloEngine
         /**
          * @brief Get memory usage for a specific resource type
          */
-        size_t GetMemoryUsage(ResourceType type) const;
+        sizet GetMemoryUsage(ResourceType type) const;
 
         /**
          * @brief Get total memory usage of all tracked resources
          */
-        size_t GetTotalMemoryUsage() const;
+        sizet GetTotalMemoryUsage() const;
 
     private:
         void QueryTextureInfo(TextureInfo& info);
@@ -245,7 +245,7 @@ namespace OloEngine
         
         std::string FormatTextureFormat(GLenum format) const;
         std::string FormatBufferUsage(GLenum usage) const;
-        std::string FormatMemorySize(size_t bytes) const;
+        std::string FormatMemorySize(sizet bytes) const;
         const char* GetResourceTypeName(ResourceType type) const;
         const char* GetBufferTargetName(GLenum target) const;
 
@@ -261,8 +261,8 @@ namespace OloEngine
         bool m_AutoUpdatePreviews = true;
         
         // Statistics
-        std::array<u32, static_cast<size_t>(ResourceType::COUNT)> m_ResourceCounts{};
-        std::array<size_t, static_cast<size_t>(ResourceType::COUNT)> m_MemoryUsageByType{};
+        std::array<u32, static_cast<sizet>(ResourceType::COUNT)> m_ResourceCounts{};
+        std::array<sizet, static_cast<sizet>(ResourceType::COUNT)> m_MemoryUsageByType{};
         
         // Threading
         mutable std::mutex m_ResourceMutex;
