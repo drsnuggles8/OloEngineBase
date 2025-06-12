@@ -51,7 +51,8 @@ namespace OloEngine
 
         OLO_CORE_INFO("Shutting down Shader Debugger...");
         
-        std::lock_guard<std::mutex> lock(m_ShaderMutex);        m_Shaders.clear();
+        std::lock_guard<std::mutex> lock(m_ShaderMutex);
+		m_Shaders.clear();
         m_PendingCompilations.clear();
         
         m_IsInitialized = false;
@@ -81,7 +82,8 @@ namespace OloEngine
         }
 
         ShaderInfo info;
-        info.m_RendererID = rendererID;        info.m_Name = name;
+        info.m_RendererID = rendererID;
+		info.m_Name = name;
         info.m_CreationTime = std::chrono::steady_clock::now();
         
         // Initialize compilation result with zero instruction count
@@ -121,7 +123,8 @@ namespace OloEngine
 
         ShaderInfo info;
         info.m_RendererID = rendererID;
-        info.m_Name = name;        info.m_FilePath = filePath;
+        info.m_Name = name;
+        info.m_FilePath = filePath;
         info.m_CreationTime = std::chrono::steady_clock::now();
         
         // Initialize compilation result with zero instruction count
@@ -160,7 +163,9 @@ namespace OloEngine
             }
               m_Shaders.erase(it);
         }
-    }    void ShaderDebugger::OnCompilationStart(const std::string& name, const std::string& filepath)
+    }
+	
+	void ShaderDebugger::OnCompilationStart(const std::string& name, const std::string& filepath)
     {
         if (!m_IsInitialized)
             return;
@@ -190,7 +195,9 @@ namespace OloEngine
         }
         
         OLO_CORE_TRACE("Shader compilation started: {0} ({1})", name, filepath);
-    }    void ShaderDebugger::OnCompilationEnd(u32 rendererID, bool success, const std::string& errorMsg, f64 compileTimeMs)
+    }
+
+    void ShaderDebugger::OnCompilationEnd(u32 rendererID, bool success, const std::string& errorMsg, f64 compileTimeMs)
     {
         if (!m_IsInitialized)
             return;
@@ -470,9 +477,14 @@ namespace OloEngine
                     info.m_LastCompilation.m_VulkanSPIRVSize += spirvBinary.size();
                 else if (stage == ShaderStage::Fragment)
                     info.m_LastCompilation.m_OpenGLSPIRVSize += spirvBinary.size();
+				else if (stage == ShaderStage::Compute)
+					info.m_LastCompilation.m_OpenGLSPIRVSize += spirvBinary.size();
+				else if (stage == ShaderStage::Geometry)
+					info.m_LastCompilation.m_OpenGLSPIRVSize += spirvBinary.size();
                 
                 // Convert SPIR-V binary to u32 vector for analysis
-                std::vector<u32> spirvWords;                spirvWords.resize(spirvBinary.size() / sizeof(u32));
+                std::vector<u32> spirvWords;
+				spirvWords.resize(spirvBinary.size() / sizeof(u32));
                 std::memcpy(spirvWords.data(), spirvBinary.data(), spirvBinary.size());
                 
                 // Perform reflection analysis and update instruction count
@@ -1185,7 +1197,9 @@ namespace OloEngine
             ImGui::Text("Avg. Active Time per Bind: %s", DebugUtils::FormatDuration(avgActiveTime).c_str());
         }
 
-        ImGui::Separator();        // Compilation metrics
+        ImGui::Separator();
+		
+		// Compilation metrics
         ImGui::Text("Compilation Time: %s", DebugUtils::FormatDuration(shaderInfo.m_LastCompilation.m_CompileTimeMs).c_str());
         ImGui::Text("Instruction Count: %u", shaderInfo.m_LastCompilation.m_InstructionCount);
         OLO_CORE_INFO("ShaderDebugger: UI displaying instruction count (detail view): {0} for shader: {1}", 
@@ -1329,7 +1343,8 @@ namespace OloEngine
         {
             ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), 
                              "No SPIR-V data for %s stage", GetShaderStageString(analysisStage).c_str());
-        }        ImGui::Separator();
+        }
+		ImGui::Separator();
 
         // Advanced SPIR-V analysis section
         if (spirvIt != shaderInfo.m_SPIRVBinary.end())
@@ -1440,8 +1455,10 @@ namespace OloEngine
         ImGui::Separator();
 
         ImGui::Text("Error Message:");
-        ImGui::BeginChild("ErrorMessage", ImVec2(0, 0), true);        ImGui::TextWrapped("%s", shaderInfo.m_LastCompilation.m_ErrorMessage.c_str());
-        ImGui::EndChild();    }
+        ImGui::BeginChild("ErrorMessage", ImVec2(0, 0), true);
+        ImGui::TextWrapped("%s", shaderInfo.m_LastCompilation.m_ErrorMessage.c_str());
+        ImGui::EndChild();
+    }
 
     /**
      * @brief Generates human-readable SPIR-V disassembly from binary data

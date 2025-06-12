@@ -41,11 +41,6 @@ namespace OloEngine
         bool isSorted = bucket->IsSorted();
         CommandPacket* head = bucket->GetCommandHead();
         
-#ifdef OLO_DEBUG
-        OLO_CORE_TRACE("CommandPacketDebugger: Bucket has {} total commands, {} sorted commands, isSorted={}, head={}", 
-                       commandCount, sortedCommands.size(), isSorted, (void*)head);
-#endif
-        
         if (!open || *open)
         {
             ImGui::Begin(title, open, ImGuiWindowFlags_MenuBar);
@@ -371,7 +366,8 @@ namespace OloEngine
                 ImGui::TableNextRow();
                 
                 ImGui::TableSetColumnIndex(0);
-                bool isSelected = (m_SelectedPacketIndex == i);                ImGui::PushID(i); // Fix ImGui ID conflicts
+                bool isSelected = (m_SelectedPacketIndex == i);
+				ImGui::PushID(i);
                 if (ImGui::Selectable("##packetRow", isSelected, ImGuiSelectableFlags_SpanAllColumns))
                 {
                     m_SelectedPacketIndex = i;
@@ -497,16 +493,8 @@ namespace OloEngine
         }
         
         // Debug the bucket state in detail
-        sizet totalCommandCount = bucket->GetCommandCount();
-        bool isSorted = bucket->IsSorted();
         CommandPacket* head = bucket->GetCommandHead();
         const auto& sortedCommands = bucket->GetSortedCommands();
-        
-        OLO_CORE_INFO("[CommandPacketDebugger] Detailed bucket analysis:");
-        OLO_CORE_INFO("[CommandPacketDebugger]   - Total command count: {}", totalCommandCount);
-        OLO_CORE_INFO("[CommandPacketDebugger]   - Is sorted: {}", isSorted);
-        OLO_CORE_INFO("[CommandPacketDebugger]   - Command head: {}", static_cast<const void*>(head));
-        OLO_CORE_INFO("[CommandPacketDebugger]   - Sorted commands size: {}", sortedCommands.size());
         
         // Reset analysis data
         m_DrawKeyStats.Reset();
@@ -518,12 +506,11 @@ namespace OloEngine
         if (!sortedCommands.empty())
         {
             commands = sortedCommands;
-            OLO_CORE_INFO("[CommandPacketDebugger] Using {} sorted commands for analysis", commands.size());
         }
         else
         {
             // Fall back to traversing the linked list if no sorted commands
-            OLO_CORE_INFO("[CommandPacketDebugger] No sorted commands, traversing linked list...");
+            OLO_CORE_TRACE("[CommandPacketDebugger] No sorted commands, traversing linked list...");
             CommandPacket* current = head;
             sizet traversalCount = 0;
             while (current)
@@ -541,12 +528,7 @@ namespace OloEngine
                     break;
                 }
             }
-            OLO_CORE_INFO("[CommandPacketDebugger] Traversed linked list, found {} commands for analysis", commands.size());
-        }
-        
-        // Log final command count for debugging
-        OLO_CORE_INFO("[CommandPacketDebugger] Final analysis: {} commands found", commands.size());
-        
+        }        
         // Update current frame stats
         m_CurrentFrameStats.m_TotalPackets = static_cast<u32>(commands.size());
         
@@ -609,7 +591,7 @@ namespace OloEngine
             // Count by layer
             u32 layer = static_cast<u32>(metadata.m_SortKey.GetViewLayer());
             layerCounts[layer]++;
-              // Count by material (include material ID 0 in a separate count)
+            // Count by material (include material ID 0 in a separate count)
             u32 materialId = metadata.m_SortKey.GetMaterialID();
             if (materialId == 0)
             {
