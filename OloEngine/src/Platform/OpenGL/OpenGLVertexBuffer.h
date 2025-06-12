@@ -22,8 +22,9 @@ namespace OloEngine
 
 		[[nodiscard("Store this!")]] const BufferLayout& GetLayout() const override { return m_Layout; }
 		void SetLayout(const BufferLayout& layout) override { m_Layout = layout; }
+		[[nodiscard("Store this!")]] u32 GetBufferHandle() const override { return m_RendererID; }
 
-		[[nodiscard("Store this!")]] u32 GetBufferHandle() const override { return m_RendererID; }	private:
+	private:
 		u32 m_RendererID{};
 		u32 m_Size{}; // Buffer size in bytes for memory tracking
 		BufferLayout m_Layout;

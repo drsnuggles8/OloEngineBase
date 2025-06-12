@@ -68,13 +68,13 @@ namespace OloEngine
         /**
          * @brief Get standard color for UI elements
          */
-        namespace Colors
+		namespace Colors
         {
-            constexpr ImVec4 Good = ImVec4(0.4f, 1.0f, 0.4f, 1.0f);       // Green
-            constexpr ImVec4 Warning = ImVec4(1.0f, 0.8f, 0.0f, 1.0f);    // Yellow
-            constexpr ImVec4 Critical = ImVec4(1.0f, 0.4f, 0.4f, 1.0f);   // Red
-            constexpr ImVec4 Info = ImVec4(0.6f, 0.8f, 1.0f, 1.0f);       // Light blue
-            constexpr ImVec4 Disabled = ImVec4(0.6f, 0.6f, 0.6f, 1.0f);   // Gray
+            inline const ImVec4 Good = ImVec4(0.4f, 1.0f, 0.4f, 1.0f);       // Green
+            inline const ImVec4 Warning = ImVec4(1.0f, 0.8f, 0.0f, 1.0f);    // Yellow
+            inline const ImVec4 Critical = ImVec4(1.0f, 0.4f, 0.4f, 1.0f);   // Red
+            inline const ImVec4 Info = ImVec4(0.6f, 0.8f, 1.0f, 1.0f);       // Light blue
+            inline const ImVec4 Disabled = ImVec4(0.6f, 0.6f, 0.6f, 1.0f);   // Gray
         }
     }
 }

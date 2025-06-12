@@ -353,35 +353,33 @@ void Sandbox3D::OnImGuiRender()
     // Render the RenderGraph debugger window if open
     RenderGraphDebuggerUI();
 
-    ImGui::Begin("Settings & Controls");
-
-    // Render different sections in collapsible headers
-    if (ImGui::CollapsingHeader("Performance & Frame Info", ImGuiTreeNodeFlags_DefaultOpen))
+    ImGui::Begin("Settings & Controls");    // Render different sections in collapsible headers
+    if (ImGui::CollapsingHeader("Performance & Frame Info", ImGuiTreeNodeFlags_None))
     {
         RenderPerformanceInfo();
     }
 
-    if (ImGui::CollapsingHeader("Scene Settings", ImGuiTreeNodeFlags_DefaultOpen))
+    if (ImGui::CollapsingHeader("Scene Settings", ImGuiTreeNodeFlags_None))
     {
         RenderSceneSettings();
     }
 
-    if (ImGui::CollapsingHeader("Lighting Settings", ImGuiTreeNodeFlags_DefaultOpen))
+    if (ImGui::CollapsingHeader("Lighting Settings", ImGuiTreeNodeFlags_None))
     {
         RenderLightingSettings();
     }
 
-    if (ImGui::CollapsingHeader("Material Settings"))
+    if (ImGui::CollapsingHeader("Material Settings", ImGuiTreeNodeFlags_None))
     {
         RenderMaterialSettings();
     }
 
-    if (ImGui::CollapsingHeader("State Management Test"))
+    if (ImGui::CollapsingHeader("State Management Test", ImGuiTreeNodeFlags_None))
     {
         RenderStateTestSettings();
     }
 
-    if (ImGui::CollapsingHeader("Renderer Debugging Tools"))
+    if (ImGui::CollapsingHeader("Renderer Debugging Tools", ImGuiTreeNodeFlags_None))
     {
         RenderDebuggingTools();
     }
@@ -411,8 +409,6 @@ void Sandbox3D::RenderPerformanceInfo()
 
 void Sandbox3D::RenderSceneSettings()
 {
-    // Add scene object selection
-    ImGui::Text("Scene Objects");
     ImGui::Combo("Primitive Types", &m_PrimitiveTypeIndex, m_PrimitiveNames, 3);
     ImGui::Separator();
 
@@ -470,9 +466,7 @@ void Sandbox3D::RenderSceneSettings()
 
 void Sandbox3D::RenderLightingSettings()
 {
-    // Light type selection
-    ImGui::Text("Light Type");
-    if (bool lightTypeChanged = ImGui::Combo("##LightType", &m_LightTypeIndex, m_LightTypeNames, 3); lightTypeChanged)
+    if (bool lightTypeChanged = ImGui::Combo("Light Type", &m_LightTypeIndex, m_LightTypeNames, 3); lightTypeChanged)
     {
         // Update light type
         m_Light.Type = static_cast<OloEngine::LightType>(m_LightTypeIndex);
@@ -484,11 +478,8 @@ void Sandbox3D::RenderLightingSettings()
         }
 
         OloEngine::Renderer3D::SetLight(m_Light);
-    }
-
-    // Show different UI controls based on light type
+    }    // Show different UI controls based on light type
     ImGui::Separator();
-    ImGui::Text("Light Properties");
     
     using enum OloEngine::LightType;
     switch (m_Light.Type)
@@ -513,8 +504,6 @@ void Sandbox3D::RenderLightingSettings()
 
 void Sandbox3D::RenderMaterialSettings()
 {
-    // Material selection
-    ImGui::Text("Material Properties");
     ImGui::Combo("Select Material", &m_SelectedMaterial, m_MaterialNames, 4);
 
     // Get the selected material based on the combo box selection
@@ -567,7 +556,6 @@ void Sandbox3D::RenderMaterialSettings()
 
 void Sandbox3D::RenderStateTestSettings()
 {
-    ImGui::Text("State Management Test");
     ImGui::Checkbox("Enable State Test", &m_EnableStateTest);
     
     if (m_EnableStateTest)
@@ -585,10 +573,8 @@ void Sandbox3D::RenderStateTestSettings()
 
 void Sandbox3D::RenderDebuggingTools()
 {
-    ImGui::Text("Renderer Debugging Tools");
-    
     // Command Packet Debugger
-    if (ImGui::CollapsingHeader("Command Packet Debugger"))
+    if (ImGui::CollapsingHeader("Command Packet Debugger", ImGuiTreeNodeFlags_None))
     {
         ImGui::Checkbox("Show Command Packets##CommandDebugger", &m_ShowCommandPacketDebugger);
         ImGui::SameLine();
@@ -616,7 +602,7 @@ void Sandbox3D::RenderDebuggingTools()
     }
     
     // Memory Tracker
-    if (ImGui::CollapsingHeader("Memory Tracker"))
+    if (ImGui::CollapsingHeader("Memory Tracker", ImGuiTreeNodeFlags_None))
     {
         ImGui::Checkbox("Show Memory Tracker##MemoryTracker", &m_ShowMemoryTracker);
         
@@ -627,7 +613,7 @@ void Sandbox3D::RenderDebuggingTools()
     }
     
     // Renderer Profiler
-    if (ImGui::CollapsingHeader("Renderer Profiler"))
+    if (ImGui::CollapsingHeader("Renderer Profiler", ImGuiTreeNodeFlags_None))
     {
         ImGui::Checkbox("Show Profiler##RendererProfiler", &m_ShowRendererProfiler);
         
@@ -638,7 +624,7 @@ void Sandbox3D::RenderDebuggingTools()
     }
     
     // GPU Resource Inspector
-    if (ImGui::CollapsingHeader("GPU Resource Inspector"))
+    if (ImGui::CollapsingHeader("GPU Resource Inspector", ImGuiTreeNodeFlags_None))
     {
         ImGui::Checkbox("Show GPU Resources##GPUResourceInspector", &m_ShowGPUResourceInspector);
         ImGui::SameLine();
@@ -654,7 +640,7 @@ void Sandbox3D::RenderDebuggingTools()
     }
 
     // Shader Debugger
-    if (ImGui::CollapsingHeader("Shader Debugger"))
+    if (ImGui::CollapsingHeader("Shader Debugger", ImGuiTreeNodeFlags_None))
     {
         ImGui::Checkbox("Show Shader Debugger##ShaderDebugger", &m_ShowShaderDebugger);
         ImGui::SameLine();
@@ -671,8 +657,6 @@ void Sandbox3D::RenderDebuggingTools()
 
 void Sandbox3D::RenderDirectionalLightUI()
 {
-	ImGui::Text("Directional Light");
-	
 	// Direction control
 	if (bool directionChanged = ImGui::DragFloat3("Direction##DirLight", glm::value_ptr(m_Light.Direction), 0.01f); directionChanged)
 	{
@@ -703,8 +687,6 @@ void Sandbox3D::RenderDirectionalLightUI()
 
 void Sandbox3D::RenderPointLightUI()
 {
-	ImGui::Text("Point Light");
-	
 	if (!m_AnimateLight)
 	{
 		// Position control (only if not animating)
@@ -735,8 +717,6 @@ void Sandbox3D::RenderPointLightUI()
 
 void Sandbox3D::RenderSpotlightUI()
 {
-	ImGui::Text("Spotlight");
-	
 	if (!m_AnimateLight)
 	{
 		// Position control (only if not animating)

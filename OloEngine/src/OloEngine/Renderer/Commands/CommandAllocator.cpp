@@ -42,10 +42,14 @@ namespace OloEngine
         }
 
         // Increment allocation count
-		m_AllocationCount.fetch_add(1, std::memory_order_relaxed);        // Get thread-local cache and allocate memory
+		m_AllocationCount.fetch_add(1, std::memory_order_relaxed);
+        
+        // Get thread-local cache and allocate memory
         ThreadLocalCache& cache = GetThreadLocalCache();
         return cache.Allocate(size, COMMAND_ALIGNMENT);
-    }    void CommandAllocator::Reset()
+    }
+
+    void CommandAllocator::Reset()
     {
         OLO_PROFILE_FUNCTION();
 

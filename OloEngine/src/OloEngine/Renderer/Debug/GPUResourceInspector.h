@@ -119,9 +119,11 @@ namespace OloEngine
             u32 m_TextureID = 0;
             u32 m_MipLevel = 0;
             u32 m_PBO = 0;
-            bool m_InProgress = false;
+			bool m_InProgress = false;
             f64 m_RequestTime = 0.0;
-        };        GPUResourceInspector();
+        };
+
+        GPUResourceInspector();
         ~GPUResourceInspector();
 
         // Singleton access

@@ -62,11 +62,13 @@ namespace OloEngine
             }
             else
             {
-                OLO_CORE_ERROR("CommandPacket::Execute: No dispatch function for command type {}", 
+				    OLO_CORE_ERROR("CommandPacket::Execute: No dispatch function for command type {}", 
                     static_cast<int>(m_CommandType));
             }
         }
-    }    bool CommandPacket::operator<(const CommandPacket& other) const
+    }
+
+    bool CommandPacket::operator<(const CommandPacket& other) const
     {
         // Use the packed DrawKey for efficient sorting
         return m_Metadata.m_SortKey < other.m_Metadata.m_SortKey;
