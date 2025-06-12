@@ -285,40 +285,33 @@ namespace OloEngine
             OLO_CORE_TRACE("Shader reload ended: {0} (ID: {1}), Success: {2}", 
                           info.m_Name, rendererID, success);
         }
-    }
-
-    void ShaderDebugger::OnShaderBind(u32 rendererID)
+    }    void ShaderDebugger::OnShaderBind(u32 rendererID)
     {
         if (!m_IsInitialized)
             return;
 
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
         
+        // First, update active time for all currently active shaders and mark them inactive
+        for (auto& [id, shaderInfo] : m_Shaders)
+        {
+            if (shaderInfo.m_IsActive)
+            {
+                UpdateActiveTime(shaderInfo);
+                shaderInfo.m_IsActive = false;
+            }
+        }
+        
+        // Now update and activate the newly bound shader
         auto it = m_Shaders.find(rendererID);
         if (it != m_Shaders.end())
         {
             ShaderInfo& info = it->second;
             
-            // Update active time for previously active shader
-            if (info.m_IsActive)
-            {
-                UpdateActiveTime(info);
-            }
-            
             info.m_BindCount++;
             info.m_LastBindTime = std::chrono::steady_clock::now();
             info.m_LastActivationTime = info.m_LastBindTime;
             info.m_IsActive = true;
-        }
-        
-        // Mark all other shaders as inactive
-        for (auto& [id, shaderInfo] : m_Shaders)
-        {
-            if (id != rendererID && shaderInfo.m_IsActive)
-            {
-                UpdateActiveTime(shaderInfo);
-                shaderInfo.m_IsActive = false;
-            }
         }
     }
 
@@ -489,7 +482,7 @@ namespace OloEngine
                     AnalyzeSPIRVFromWords(spirvWords, instructionCount);
                     info.m_LastCompilation.m_InstructionCount += instructionCount;
                 }
-                catch (const std::exception& e)
+				catch (const std::exception&)
                 {
                     // Silently continue if SPIR-V analysis fails
                 }

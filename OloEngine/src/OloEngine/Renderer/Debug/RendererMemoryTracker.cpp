@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Application.h"
 
 #include <algorithm>
+#include <atomic>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -155,23 +156,27 @@ namespace OloEngine
             }
         }
     }
-    
-    void RendererMemoryTracker::TrackAllocation(void* address, sizet size, ResourceType type, 
+      void RendererMemoryTracker::TrackAllocation(void* address, sizet size, ResourceType type,
                                                const std::string& name, bool isGPU,
                                                const char* file, u32 line)
-    {        if (!address || size == 0)
+    {
+        if (!address || size == 0)
         {
             OLO_CORE_WARN("RendererMemoryTracker: Invalid allocation - address={}, size={}", address, size);
             return;
         }
         
-        OLO_CORE_INFO("RendererMemoryTracker: TrackAllocation called - address={}, size={}, type={}, name={}", 
-                      address, size, (int)type, name);
+#ifdef OLO_DEBUG
+        // Only log in debug builds to avoid performance impact
+        static std::atomic<u32> s_LogThrottle{0};
+        if ((s_LogThrottle++ % 100) == 0) // Log every 100th allocation to reduce spam
+        {
+            OLO_CORE_TRACE("RendererMemoryTracker: Tracking allocation - address={}, size={}, type={}, name={}", 
+                          address, size, (int)type, name);
+        }
+#endif
             
         std::lock_guard<std::mutex> lock(m_Mutex);
-        
-        OLO_CORE_TRACE("RendererMemoryTracker: Tracking allocation - address={}, size={}, type={}, name={}", 
-                      address, size, (int)type, name);
         
         AllocationInfo info;
         info.m_Address = address;

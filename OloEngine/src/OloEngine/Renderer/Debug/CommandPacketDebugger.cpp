@@ -35,15 +35,18 @@ namespace OloEngine
             }
             return;
         }
-        
-        // Debug: Check what data we actually have
+          // Debug: Check what data we actually have
         const auto& sortedCommands = bucket->GetSortedCommands();
         sizet commandCount = bucket->GetCommandCount();
         bool isSorted = bucket->IsSorted();
         CommandPacket* head = bucket->GetCommandHead();
         
-        OLO_CORE_INFO("CommandPacketDebugger: Bucket has {} total commands, {} sorted commands, isSorted={}, head={}", 
-                      commandCount, sortedCommands.size(), isSorted, (void*)head);        if (!open || *open)
+#ifdef OLO_DEBUG
+        OLO_CORE_TRACE("CommandPacketDebugger: Bucket has {} total commands, {} sorted commands, isSorted={}, head={}", 
+                       commandCount, sortedCommands.size(), isSorted, (void*)head);
+#endif
+        
+        if (!open || *open)
         {
             ImGui::Begin(title, open, ImGuiWindowFlags_MenuBar);
             
