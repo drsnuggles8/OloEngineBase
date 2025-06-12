@@ -606,20 +606,15 @@ namespace OloEngine
             // Count by layer
             u32 layer = static_cast<u32>(metadata.m_SortKey.GetViewLayer());
             layerCounts[layer]++;
-            
-            // Count by material (include material ID 0 in a separate count)
+              // Count by material (include material ID 0 in a separate count)
             u32 materialId = metadata.m_SortKey.GetMaterialID();
             if (materialId == 0)
             {
                 materialZeroCount++;
             }
-            else
-            {
-                materialCounts[materialId]++;
-            }
             
-            // Also add material ID 0 to the distribution for graphing
-            materialCounts[materialId]++; // This will include 0s now
+            // Count all materials (including 0) for the distribution histogram
+            materialCounts[materialId]++;
                 
             // Count by depth (group into ranges for better visualization)
             u32 depth = metadata.m_SortKey.GetDepth();

@@ -50,14 +50,18 @@ namespace OloEngine
     void* ThreadLocalCache::Allocate(sizet size, sizet alignment)
     {
         OLO_PROFILE_FUNCTION();
+		if (size == 0)
+            {
+				return nullptr;
+			}
 
-        if (size == 0)
-            return nullptr;
+        // Validate alignment to avoid undefined behavior
+        OLO_CORE_ASSERT(alignment > 0, "Alignment must be greater than 0");
 
         // Calculate aligned address
         auto currentAddr = reinterpret_cast<sizet>(m_CurrentBlock->Data + m_CurrentBlock->Offset);
         sizet alignedAddr = (currentAddr + alignment - 1) & ~(alignment - 1);
-        sizet alignmentPadding = alignedAddr - currentAddr;        
+        sizet alignmentPadding = alignedAddr - currentAddr;
 
         // If not enough space in current block, allocate a new one
         if (sizet alignedSize = size + alignmentPadding; m_CurrentBlock->Offset + alignedSize > m_CurrentBlock->Size)

@@ -197,10 +197,16 @@ namespace OloEngine
 
 // Convenience macros for tracking allocations (defined outside namespace for global use)
 #define OLO_TRACK_GPU_ALLOC(ptr, size, type, name) \
-    OloEngine::RendererMemoryTracker::GetInstance().TrackAllocation(ptr, size, type, name, true, __FILE__, __LINE__)
+    do { \
+        OloEngine::RendererMemoryTracker::GetInstance().TrackAllocation(ptr, size, type, name, true, __FILE__, __LINE__); \
+    } while (0)
 
 #define OLO_TRACK_CPU_ALLOC(ptr, size, type, name) \
-    OloEngine::RendererMemoryTracker::GetInstance().TrackAllocation(ptr, size, type, name, false, __FILE__, __LINE__)
+    do { \
+        OloEngine::RendererMemoryTracker::GetInstance().TrackAllocation(ptr, size, type, name, false, __FILE__, __LINE__); \
+    } while (0)
 
 #define OLO_TRACK_DEALLOC(ptr) \
-    OloEngine::RendererMemoryTracker::GetInstance().TrackDeallocation(ptr)
+    do { \
+        OloEngine::RendererMemoryTracker::GetInstance().TrackDeallocation(ptr); \
+    } while (0)

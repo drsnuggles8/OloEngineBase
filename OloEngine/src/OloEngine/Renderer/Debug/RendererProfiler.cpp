@@ -75,15 +75,13 @@ namespace OloEngine
       void RendererProfiler::BeginFrame()
     {
         OLO_PROFILE_FUNCTION();
-        
         m_FrameStartTime = std::chrono::high_resolution_clock::now();
         m_FrameNumber++;
         
         // Calculate frame time from previous frame
-        auto now = std::chrono::high_resolution_clock::now();
-        auto frameTime = std::chrono::duration<f64, std::milli>(now - m_LastFrameTime).count();
+        auto frameTime = std::chrono::duration<f64, std::milli>(m_FrameStartTime - m_LastFrameTime).count();
         m_CurrentFrame.m_FrameTime = frameTime;
-        m_LastFrameTime = now;
+        m_LastFrameTime = m_FrameStartTime;
         
         // Reset frame counters
         m_CurrentFrame.m_DrawCalls = 0;

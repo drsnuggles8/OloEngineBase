@@ -124,12 +124,15 @@ namespace OloEngine
             static bool s_ShowConfirmation = false;
             static char s_CurrentLabel[256] = "";
 
-            bool resetConfirmed = false;
-
-            if (ImGui::Button(label))
+            bool resetConfirmed = false;            if (ImGui::Button(label))
             {
                 s_ShowConfirmation = true;
+#if defined(_MSC_VER)
                 strcpy_s(s_CurrentLabel, sizeof(s_CurrentLabel), label);
+#else
+                std::strncpy(s_CurrentLabel, label, sizeof(s_CurrentLabel) - 1);
+                s_CurrentLabel[sizeof(s_CurrentLabel) - 1] = '\0';
+#endif
             }
 
             if (s_ShowConfirmation)

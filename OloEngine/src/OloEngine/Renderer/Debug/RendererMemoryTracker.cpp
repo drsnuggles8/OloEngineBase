@@ -358,12 +358,16 @@ namespace OloEngine
     }
       void RendererMemoryTracker::RenderOverviewTab()
     {
-        std::lock_guard<std::mutex> lock(m_Mutex);
-          // Calculate total memory usage inline (avoid double locking)
-        size_t totalMemory = 0;        for (size_t i = 0; i < static_cast<size_t>(ResourceType::COUNT); ++i)
+		std::lock_guard<std::mutex> lock(m_Mutex);
+        
+        // Calculate total memory usage inline (avoid double locking)
+        size_t totalMemory = 0;
+        for (size_t i = 0; i < static_cast<size_t>(ResourceType::COUNT); ++i)
         {
             totalMemory += m_TypeUsage[i];
-        }        // Debug output to see what's in the type usage array
+        }
+        
+        // Debug output to see what's in the type usage array
         size_t nonZeroEntries = 0;
         for (size_t i = 0; i < static_cast<size_t>(ResourceType::COUNT); ++i)
         {
