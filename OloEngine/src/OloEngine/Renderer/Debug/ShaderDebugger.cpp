@@ -51,12 +51,14 @@ namespace OloEngine
 
         OLO_CORE_INFO("Shutting down Shader Debugger...");
         
-        std::lock_guard<std::mutex> lock(m_ShaderMutex);
-        m_Shaders.clear();
+        std::lock_guard<std::mutex> lock(m_ShaderMutex);        m_Shaders.clear();
         m_PendingCompilations.clear();
-          m_IsInitialized = false;
+        
+        m_IsInitialized = false;
         OLO_CORE_INFO("Shader Debugger shutdown complete");
-    }    void ShaderDebugger::RegisterShader(const Ref<Shader>& shader)
+    }
+    
+    void ShaderDebugger::RegisterShader(const Ref<Shader>& shader)
     {
         if (!m_IsInitialized || !shader)
         {
@@ -89,15 +91,16 @@ namespace OloEngine
         info.m_LastCompilation.m_OpenGLSPIRVSize = 0;
         
         m_Shaders[rendererID] = std::move(info);
-        
-        // Auto-select new shader if enabled
+          // Auto-select new shader if enabled
         if (m_AutoSelectNewShaders)
         {
             m_SelectedShaderID = rendererID;
         }
         
         OLO_CORE_TRACE("Registered shader: {0} (ID: {1})", name, rendererID);
-    }    void ShaderDebugger::RegisterShader(u32 rendererID, const std::string& name, const std::string& filePath)
+    }
+    
+    void ShaderDebugger::RegisterShader(u32 rendererID, const std::string& name, const std::string& filePath)
     {
         if (!m_IsInitialized)
         {
@@ -546,33 +549,12 @@ namespace OloEngine
     ImVec4 ShaderDebugger::GetShaderStageColor(ShaderStage stage) const
     {
         switch (stage)
-        {
-            case ShaderStage::Vertex:   return ImVec4(0.3f, 0.8f, 0.3f, 1.0f); // Green
+        {            case ShaderStage::Vertex:   return ImVec4(0.3f, 0.8f, 0.3f, 1.0f); // Green
             case ShaderStage::Fragment: return ImVec4(0.8f, 0.3f, 0.3f, 1.0f); // Red
             case ShaderStage::Geometry: return ImVec4(0.3f, 0.3f, 0.8f, 1.0f); // Blue
             case ShaderStage::Compute:  return ImVec4(0.8f, 0.8f, 0.3f, 1.0f); // Yellow
             default: return ImVec4(0.5f, 0.5f, 0.5f, 1.0f); // Gray
         }
-    }
-
-    std::string ShaderDebugger::FormatFileSize(size_t bytes) const
-    {
-        if (bytes < 1024)
-            return std::to_string(bytes) + " B";
-        else if (bytes < 1024 * 1024)
-            return std::to_string(bytes / 1024) + " KB";
-        else
-            return std::to_string(bytes / (1024 * 1024)) + " MB";
-    }
-
-    std::string ShaderDebugger::FormatDuration(f64 milliseconds) const
-    {
-        if (milliseconds < 1.0)
-            return std::to_string(static_cast<i32>(milliseconds * 1000)) + " μs";
-        else if (milliseconds < 1000.0)
-            return std::to_string(static_cast<i32>(milliseconds)) + " ms";
-        else
-            return std::to_string(static_cast<i32>(milliseconds / 1000)) + " s";
     }
 
     /**
@@ -906,7 +888,7 @@ namespace OloEngine
                 // Basic information
                 ImGui::Text("File Path: %s", shaderInfo.m_FilePath.c_str());
                 ImGui::Text("Bind Count: %u", shaderInfo.m_BindCount);
-                ImGui::Text("Total Active Time: %s", FormatDuration(shaderInfo.m_TotalActiveTimeMs).c_str());
+                ImGui::Text("Total Active Time: %s", DebugUtils::FormatDuration(shaderInfo.m_TotalActiveTimeMs).c_str());
                 
                 const auto now = std::chrono::steady_clock::now();
                 const auto creationTime = std::chrono::duration_cast<std::chrono::seconds>(
@@ -932,7 +914,7 @@ namespace OloEngine
                 
                 const size_t totalSPIRVSize = shaderInfo.m_LastCompilation.m_VulkanSPIRVSize + 
                                              shaderInfo.m_LastCompilation.m_OpenGLSPIRVSize;
-                ImGui::Text("SPIR-V Size: %s", FormatFileSize(totalSPIRVSize).c_str());
+                ImGui::Text("SPIR-V Size: %s", DebugUtils::FormatMemorySize(totalSPIRVSize).c_str());
 
                 ImGui::Separator();
 
@@ -1036,7 +1018,7 @@ namespace OloEngine
             auto spirvIt = shaderInfo.m_SPIRVBinary.find(stage);
             if (spirvIt != shaderInfo.m_SPIRVBinary.end() && ImGui::BeginTabItem("SPIR-V Binary"))
             {
-                ImGui::Text("Size: %s", FormatFileSize(spirvIt->second.size()).c_str());
+                ImGui::Text("Size: %s", DebugUtils::FormatMemorySize(spirvIt->second.size()).c_str());
                 ImGui::Separator();
                 
                 ImGui::BeginChild("SPIRVBinary", ImVec2(0, 0), true);
@@ -1138,7 +1120,7 @@ namespace OloEngine
                 if (ImGui::TreeNode(ubo.m_Name.c_str()))
                 {
                     ImGui::Text("Binding: %u", ubo.m_Binding);
-                    ImGui::Text("Size: %s", FormatFileSize(ubo.m_Size).c_str());
+                    ImGui::Text("Size: %s", DebugUtils::FormatMemorySize(ubo.m_Size).c_str());
                     ImGui::Text("Members (%zu):", ubo.m_Members.size());
                     
                     ImGui::Indent();
@@ -1202,53 +1184,51 @@ namespace OloEngine
 
         // Bind statistics
         ImGui::Text("Bind Count: %u", shaderInfo.m_BindCount);
-        ImGui::Text("Total Active Time: %s", FormatDuration(shaderInfo.m_TotalActiveTimeMs).c_str());
+        ImGui::Text("Total Active Time: %s", DebugUtils::FormatDuration(shaderInfo.m_TotalActiveTimeMs).c_str());
         
         if (shaderInfo.m_BindCount > 0)
         {
             const f64 avgActiveTime = shaderInfo.m_TotalActiveTimeMs / shaderInfo.m_BindCount;
-            ImGui::Text("Avg. Active Time per Bind: %s", FormatDuration(avgActiveTime).c_str());
+            ImGui::Text("Avg. Active Time per Bind: %s", DebugUtils::FormatDuration(avgActiveTime).c_str());
         }
 
         ImGui::Separator();        // Compilation metrics
-        ImGui::Text("Compilation Time: %s", FormatDuration(shaderInfo.m_LastCompilation.m_CompileTimeMs).c_str());
+        ImGui::Text("Compilation Time: %s", DebugUtils::FormatDuration(shaderInfo.m_LastCompilation.m_CompileTimeMs).c_str());
         ImGui::Text("Instruction Count: %u", shaderInfo.m_LastCompilation.m_InstructionCount);
         OLO_CORE_INFO("ShaderDebugger: UI displaying instruction count (detail view): {0} for shader: {1}", 
                      shaderInfo.m_LastCompilation.m_InstructionCount, shaderInfo.m_Name);
-        
-        const size_t totalSPIRVSize = shaderInfo.m_LastCompilation.m_VulkanSPIRVSize + 
+          const size_t totalSPIRVSize = shaderInfo.m_LastCompilation.m_VulkanSPIRVSize + 
                                      shaderInfo.m_LastCompilation.m_OpenGLSPIRVSize;
-        ImGui::Text("Total SPIR-V Size: %s", FormatFileSize(totalSPIRVSize).c_str());
-        ImGui::Text("Vulkan SPIR-V: %s", FormatFileSize(shaderInfo.m_LastCompilation.m_VulkanSPIRVSize).c_str());
-        ImGui::Text("OpenGL SPIR-V: %s", FormatFileSize(shaderInfo.m_LastCompilation.m_OpenGLSPIRVSize).c_str());
+        ImGui::Text("Total SPIR-V Size: %s", DebugUtils::FormatMemorySize(totalSPIRVSize).c_str());
+        ImGui::Text("Vulkan SPIR-V: %s", DebugUtils::FormatMemorySize(shaderInfo.m_LastCompilation.m_VulkanSPIRVSize).c_str());
+        ImGui::Text("OpenGL SPIR-V: %s", DebugUtils::FormatMemorySize(shaderInfo.m_LastCompilation.m_OpenGLSPIRVSize).c_str());
 
         ImGui::Separator();
 
         // Performance indicators
         ImGui::Text("Performance Indicators:");
-        
-        if (shaderInfo.m_LastCompilation.m_CompileTimeMs > 100.0)
+          if (shaderInfo.m_LastCompilation.m_CompileTimeMs > 100.0)
         {
-            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "⚠ Slow compilation (>100ms)");
+            ImGui::TextColored(DebugUtils::Colors::Warning, "⚠ Slow compilation (>100ms)");
         }
         
         if (shaderInfo.m_LastCompilation.m_InstructionCount > 1000)
         {
-            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "⚠ High instruction count (>1000)");
+            ImGui::TextColored(DebugUtils::Colors::Warning, "⚠ High instruction count (>1000)");
         }
         
         if (totalSPIRVSize > 1024 * 50) // 50KB
         {
-            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "⚠ Large SPIR-V binary (>50KB)");
+            ImGui::TextColored(DebugUtils::Colors::Warning, "⚠ Large SPIR-V binary (>50KB)");
         }
         
         if (shaderInfo.m_BindCount == 0)
         {
-            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "ℹ Shader never bound");
+            ImGui::TextColored(DebugUtils::Colors::Disabled, "ℹ Shader never bound");
         }
         else if (shaderInfo.m_BindCount > 1000)
         {
-            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "✓ Frequently used shader");
+            ImGui::TextColored(DebugUtils::Colors::Good, "✓ Frequently used shader");
         }
     }
 
@@ -1317,7 +1297,7 @@ namespace OloEngine
         {
             ImGui::BulletText("%s: %s", 
                             GetShaderStageString(stage).c_str(), 
-                            FormatFileSize(binary.size()).c_str());
+                            DebugUtils::FormatMemorySize(binary.size()).c_str());
         }
 
         ImGui::Separator();
@@ -1335,7 +1315,7 @@ namespace OloEngine
             const auto& binary = spirvIt->second;
             
             ImGui::Text("Stage: %s", GetShaderStageString(analysisStage).c_str());
-            ImGui::Text("Binary Size: %s", FormatFileSize(binary.size()).c_str());
+            ImGui::Text("Binary Size: %s", DebugUtils::FormatMemorySize(binary.size()).c_str());
             
             // Estimate instruction count for this stage
             u32 stageInstructionCount = 0;

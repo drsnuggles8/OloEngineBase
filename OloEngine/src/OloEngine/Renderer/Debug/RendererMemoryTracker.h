@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "DebugUtils.h"
 #include <imgui.h>
 #include <string>
 #include <vector>
@@ -141,13 +142,11 @@ namespace OloEngine
         ~RendererMemoryTracker() = default;
         
         // Helper methods
-        void RenderOverviewTab();
-        void RenderDetailedTab();
+        void RenderOverviewTab();        void RenderDetailedTab();
         void RenderLeakDetectionTab();
         void RenderPoolStatsTab();
         void RenderHistoryGraphs();
         
-        std::string FormatBytes(size_t bytes) const;
         std::string GetResourceTypeName(ResourceType type) const;
         ImVec4 GetResourceTypeColor(ResourceType type) const;
         

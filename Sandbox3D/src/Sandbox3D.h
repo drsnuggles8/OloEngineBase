@@ -27,6 +27,14 @@ public:
 	void OnEvent(OloEngine::Event& e) override;
 
 private:
+	// UI helper functions for different sections
+	void RenderPerformanceInfo();
+	void RenderSceneSettings();
+	void RenderLightingSettings();
+	void RenderMaterialSettings();
+	void RenderStateTestSettings();
+	void RenderDebuggingTools();
+	
 	// UI helper functions for different light types
 	void RenderDirectionalLightUI();
 	void RenderPointLightUI();

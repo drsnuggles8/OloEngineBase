@@ -123,9 +123,10 @@
 		"OloEngine/Renderer/Debug/RendererProfiler.h"
 		"OloEngine/Renderer/Debug/RendererProfiler.cpp"
 		"OloEngine/Renderer/Debug/GPUResourceInspector.h"
-		"OloEngine/Renderer/Debug/GPUResourceInspector.cpp"
-		"OloEngine/Renderer/Debug/ShaderDebugger.h"
+		"OloEngine/Renderer/Debug/GPUResourceInspector.cpp"		"OloEngine/Renderer/Debug/ShaderDebugger.h"
 		"OloEngine/Renderer/Debug/ShaderDebugger.cpp"
+		"OloEngine/Renderer/Debug/DebugUtils.h"
+		"OloEngine/Renderer/Debug/DebugUtils.cpp"
 		
 		"OloEngine/Renderer/Passes/RenderPass.h"
 		"OloEngine/Renderer/Passes/FinalRenderPass.h"

@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Commands/DrawKey.h"
+#include "DebugUtils.h"
 
 #include <imgui.h>
 #include <vector>
@@ -125,13 +126,11 @@ namespace OloEngine
                 m_DepthDistribution.clear();
                 m_TranslucencyDistribution.clear();
                 m_MaterialZeroCount = 0;
-            }
-        };
+            }        };
         
         // Helper methods
         void AnalyzeDrawKeys(const CommandBucket* bucket);
         void RenderDrawKeyHistogram(const std::unordered_map<u32, u32>& distribution, const char* label);
-        std::string FormatMemorySize(size_t bytes) const;
         ImVec4 GetColorForPacketType(const CommandPacket* packet) const;
         std::string GetPacketTypeString(const CommandPacket* packet) const;
         

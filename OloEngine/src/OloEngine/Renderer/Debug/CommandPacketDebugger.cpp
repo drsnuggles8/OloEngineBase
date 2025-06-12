@@ -169,10 +169,9 @@ namespace OloEngine
       void CommandPacketDebugger::RenderMemoryStats()
     {
         OLO_PROFILE_FUNCTION();
-        
-        ImGui::Text("Command Packet Memory: %s", FormatMemorySize(m_MemoryStats.m_CommandPacketMemory).c_str());
-        ImGui::Text("Metadata Memory: %s", FormatMemorySize(m_MemoryStats.m_MetadataMemory).c_str());
-        ImGui::Text("Allocator Memory: %s", FormatMemorySize(m_MemoryStats.m_AllocatorMemory).c_str());
+          ImGui::Text("Command Packet Memory: %s", DebugUtils::FormatMemorySize(m_MemoryStats.m_CommandPacketMemory).c_str());
+        ImGui::Text("Metadata Memory: %s", DebugUtils::FormatMemorySize(m_MemoryStats.m_MetadataMemory).c_str());
+        ImGui::Text("Allocator Memory: %s", DebugUtils::FormatMemorySize(m_MemoryStats.m_AllocatorMemory).c_str());
         
         ImGui::Separator();
         ImGui::Text("Allocations this frame: %u", m_MemoryStats.m_AllocationCount);
@@ -757,27 +756,10 @@ namespace OloEngine
                                0, nullptr, 0.0f, maxValue * 1.1f, ImVec2(300, 80));
             ImGui::Unindent();
         }
-        
-        ImGui::Spacing();
+          ImGui::Spacing();
     }
     
-    std::string CommandPacketDebugger::FormatMemorySize(size_t bytes) const
-    {
-        const char* units[] = { "B", "KB", "MB", "GB" };
-        f32 size = (f32)bytes;
-        i32 unitIndex = 0;
-        
-        while (size >= 1024.0f && unitIndex < 3)
-        {
-            size /= 1024.0f;
-            unitIndex++;
-        }
-        
-        std::stringstream ss;
-        ss << std::fixed << std::setprecision(2) << size << " " << units[unitIndex];
-        return ss.str();
-    }
-      ImVec4 CommandPacketDebugger::GetColorForPacketType(const CommandPacket* packet) const
+    ImVec4 CommandPacketDebugger::GetColorForPacketType(const CommandPacket* packet) const
     {
         if (!packet)
             return ImVec4(0.8f, 0.8f, 0.8f, 1.0f); // Gray for unknown

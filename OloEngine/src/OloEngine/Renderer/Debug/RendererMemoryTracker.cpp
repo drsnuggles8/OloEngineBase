@@ -390,9 +390,8 @@ namespace OloEngine
             OLO_CORE_INFO("RendererMemoryTracker: TypeUsage array has NO active entries!");
         }
         
-        // Summary statistics
-        ImGui::Text("Total Memory Usage: %s", FormatBytes(totalMemory).c_str());
-        ImGui::Text("Peak Memory Usage: %s", FormatBytes(m_PeakMemoryUsage).c_str());
+        // Summary statistics        ImGui::Text("Total Memory Usage: %s", DebugUtils::FormatMemorySize(totalMemory).c_str());
+        ImGui::Text("Peak Memory Usage: %s", DebugUtils::FormatMemorySize(m_PeakMemoryUsage).c_str());
         ImGui::Text("Active Allocations: %zu", m_Allocations.size());
         ImGui::Text("Total Allocations: %zu", m_TotalAllocations);
         ImGui::Text("Total Deallocations: %zu", m_TotalDeallocations);
@@ -412,7 +411,7 @@ namespace OloEngine
                 ImVec4 color = GetResourceTypeColor(type);
                 ImGui::TextColored(color, "%s: %s (%u allocations)", 
                                  GetResourceTypeName(type).c_str(), 
-                                 FormatBytes(usage).c_str(), count);
+                                 DebugUtils::FormatMemorySize(usage).c_str(), count);
             }
         }
         
@@ -478,7 +477,7 @@ namespace OloEngine
                 ImGui::Text("0x%p", address);
                 
                 ImGui::TableSetColumnIndex(1);
-                ImGui::Text("%s", FormatBytes(info.m_Size).c_str());
+                ImGui::Text("%s", DebugUtils::FormatMemorySize(info.m_Size).c_str());
                 
                 ImGui::TableSetColumnIndex(2);
                 ImVec4 typeColor = GetResourceTypeColor(info.m_Type);
@@ -516,7 +515,7 @@ namespace OloEngine
                 const AllocationInfo& info = it->second;
                 
                 ImGui::Text("Address: 0x%p", s_SelectedAllocation);
-                ImGui::Text("Size: %s (%zu bytes)", FormatBytes(info.m_Size).c_str(), info.m_Size);
+                ImGui::Text("Size: %s (%zu bytes)", DebugUtils::FormatMemorySize(info.m_Size).c_str(), info.m_Size);
                 ImGui::Text("Type: %s", GetResourceTypeName(info.m_Type).c_str());
                 ImGui::Text("Location: %s", info.m_IsGPU ? "GPU" : "CPU");
                 ImGui::Text("Name: %s", info.m_Name.c_str());
@@ -607,7 +606,7 @@ namespace OloEngine
                     ImGui::Text("0x%p", leak.m_Allocation.m_Address);
                     
                     ImGui::TableSetColumnIndex(1);
-                    ImGui::Text("%s", FormatBytes(leak.m_Allocation.m_Size).c_str());
+                    ImGui::Text("%s", DebugUtils::FormatMemorySize(leak.m_Allocation.m_Size).c_str());
                     
                     ImGui::TableSetColumnIndex(2);
                     ImVec4 typeColor = GetResourceTypeColor(leak.m_Allocation.m_Type);
@@ -667,16 +666,15 @@ namespace OloEngine
             
             // Count and total memory
             ImGui::Text("Active Allocations: %zu", sizes.size());
-            ImGui::Text("Total Memory: %s", FormatBytes(totalTypeMemory[type]).c_str());
+            ImGui::Text("Total Memory: %s", DebugUtils::FormatMemorySize(totalTypeMemory[type]).c_str());
             
             // Calculate min, max, average
             auto minMax = std::minmax_element(sizes.begin(), sizes.end());
             size_t minSize = *minMax.first;
             size_t maxSize = *minMax.second;
             size_t avgSize = totalTypeMemory[type] / sizes.size();
-            
-            ImGui::Text("Size Range: %s - %s", FormatBytes(minSize).c_str(), FormatBytes(maxSize).c_str());
-            ImGui::Text("Average Size: %s", FormatBytes(avgSize).c_str());
+              ImGui::Text("Size Range: %s - %s", DebugUtils::FormatMemorySize(minSize).c_str(), DebugUtils::FormatMemorySize(maxSize).c_str());
+            ImGui::Text("Average Size: %s", DebugUtils::FormatMemorySize(avgSize).c_str());
             
             // Pool utilization (simple metric based on allocation count vs total memory)
             f32 utilization = sizes.size() > 0 ? static_cast<f32>(totalTypeMemory[type]) / (sizes.size() * maxSize) * 100.0f : 0.0f;
@@ -773,25 +771,7 @@ namespace OloEngine
         
         return leaks;
     }
-    
-    std::string RendererMemoryTracker::FormatBytes(size_t bytes) const
-    {
-        const char* units[] = { "B", "KB", "MB", "GB" };
-        f32 size = (f32)bytes;
-        i32 unitIndex = 0;
-        
-        while (size >= 1024.0f && unitIndex < 3)
-        {
-            size /= 1024.0f;
-            unitIndex++;
-        }
-        
-        std::stringstream ss;
-        ss << std::fixed << std::setprecision(2) << size << " " << units[unitIndex];
-        return ss.str();
-    }
-    
-    std::string RendererMemoryTracker::GetResourceTypeName(ResourceType type) const
+      std::string RendererMemoryTracker::GetResourceTypeName(ResourceType type) const
     {
         switch (type)
         {
@@ -848,9 +828,8 @@ namespace OloEngine
             file << "Generated: " << std::chrono::system_clock::now().time_since_epoch().count() << "\n";
             file << "========================================\n\n";
             
-            file << "Summary:\n";
-            file << "Total Memory Usage: " << FormatBytes(totalMemoryUsage) << "\n";
-            file << "Peak Memory Usage: " << FormatBytes(m_PeakMemoryUsage) << "\n";
+            file << "Summary:\n";            file << "Total Memory Usage: " << DebugUtils::FormatMemorySize(totalMemoryUsage) << "\n";
+            file << "Peak Memory Usage: " << DebugUtils::FormatMemorySize(m_PeakMemoryUsage) << "\n";
             file << "Active Allocations: " << m_Allocations.size() << "\n";
             file << "Total Allocations: " << m_TotalAllocations << "\n";
             file << "Total Deallocations: " << m_TotalDeallocations << "\n\n";
@@ -866,7 +845,7 @@ namespace OloEngine
                 
                 if (usage > 0)
                 {
-                    file << GetResourceTypeName(type) << ": " << FormatBytes(usage) 
+                    file << GetResourceTypeName(type) << ": " << DebugUtils::FormatMemorySize(usage) 
                          << " (" << count << " allocations)\n";
                 }
             }
