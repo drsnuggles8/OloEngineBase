@@ -110,7 +110,7 @@ function(olo_set_link_options target_name)
             # Suppress LNK4099 warnings for missing PDB files from third-party libraries
             # This is common when linking against precompiled libraries (like Mono) that
             # don't include debug information, and there's no way for us to fix it
-            /ignore:4099
+            /IGNORE:4099
         )
     endif()
 endfunction()
