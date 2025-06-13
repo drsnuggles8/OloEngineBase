@@ -111,14 +111,13 @@ namespace OloEngine
             std::vector<GLenum> m_ColorAttachmentFormats;
             GLenum m_DepthAttachmentFormat = GL_NONE;
             GLenum m_StencilAttachmentFormat = GL_NONE;
-        };
-
-        // Async texture download data
+        };        // Async texture download data
         struct TextureDownloadRequest
         {
             u32 m_TextureID = 0;
             u32 m_MipLevel = 0;
             u32 m_PBO = 0;
+            GLsync m_Fence = nullptr; // Modern OpenGL 3.2+ sync object for completion detection
 			bool m_InProgress = false;
             f64 m_RequestTime = 0.0;
         };
@@ -230,9 +229,9 @@ namespace OloEngine
         void QueryTextureInfo(TextureInfo& info);
         void QueryTextureCubemapInfo(TextureInfo& info);
         void QueryBufferInfo(BufferInfo& info);
-        void QueryFramebufferInfo(FramebufferInfo& info);
-        void RequestTextureDownload(TextureInfo& info, u32 mipLevel);
+        void QueryFramebufferInfo(FramebufferInfo& info);        void RequestTextureDownload(TextureInfo& info, u32 mipLevel);
         void ProcessTextureDownloads();
+        void CompleteTextureDownload(TextureInfo& info, const TextureDownloadRequest& request);
         void UpdateTexturePreview(TextureInfo& info);
         void UpdateBufferPreview(BufferInfo& info);
         

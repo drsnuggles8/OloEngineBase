@@ -8,6 +8,8 @@
 #include <sstream>
 #include <iomanip>
 #include <chrono>
+#include <cstring>
+#include <algorithm>
 
 namespace OloEngine
 {
@@ -46,13 +48,16 @@ namespace OloEngine
             return;
 
         OLO_CORE_INFO("Shutting down GPU Resource Inspector");
-        
-        // Clean up any pending texture downloads
+          // Clean up any pending texture downloads
         for (auto& download : m_TextureDownloads)
         {
             if (download.m_PBO != 0)
             {
                 glDeleteBuffers(1, &download.m_PBO);
+            }
+            if (download.m_Fence != nullptr)
+            {
+                glDeleteSync(download.m_Fence);
             }
         }
         m_TextureDownloads.clear();
@@ -185,13 +190,6 @@ namespace OloEngine
           // Check for duplicate registration
         auto existingIt = m_Resources.find(rendererID);
         bool isDuplicate = (existingIt != m_Resources.end());
-        
-        // Debug: Print resource type for uniform buffers BEFORE moving bufferInfo
-        if (target == GL_UNIFORM_BUFFER)
-        {
-            OLO_CORE_INFO("Registered UNIFORM BUFFER: {} (ID: {}, Active: {})", 
-                         name, rendererID, bufferInfo->m_IsActive);
-        }
         
         m_Resources[rendererID] = std::move(bufferInfo);
         
@@ -336,15 +334,6 @@ namespace OloEngine
         // Bind the texture temporarily to query its properties
         glBindTexture(GL_TEXTURE_2D, info.m_RendererID);
         
-        // Check for OpenGL errors after binding
-        GLenum error = glGetError();
-        if (error != GL_NO_ERROR)
-        {
-            OLO_CORE_WARN("OpenGL error in QueryTextureInfo binding: 0x{:X}", error);
-            glBindTexture(GL_TEXTURE_2D, m_PreviousTextureBinding);
-            return;
-        }
-        
         GLint width, height, internalFormat;
         glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &width);
         glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &height);
@@ -353,7 +342,7 @@ namespace OloEngine
         info.m_Width = static_cast<u32>(width);
         info.m_Height = static_cast<u32>(height);
         info.m_InternalFormat = static_cast<GLenum>(internalFormat);
-          // Determine format and type based on internal format
+        // Determine format and type based on internal format
         switch (internalFormat)
         {
             case GL_RGBA8:
@@ -800,24 +789,97 @@ namespace OloEngine
         // Restore previous framebuffer binding
         glBindFramebuffer(GL_FRAMEBUFFER, previousBinding);
     }
-
-    void GPUResourceInspector::ProcessTextureDownloads()
+	    void GPUResourceInspector::ProcessTextureDownloads()
     {
-        // Process async texture downloads (simplified implementation)
-        for (auto& download : m_TextureDownloads)
+        // Process async texture downloads and check for completion using modern sync objects
+        auto it = m_TextureDownloads.begin();
+        while (it != m_TextureDownloads.end())
         {
-            if (download.m_InProgress)
+            if (it->m_InProgress)
             {
-                // Check if download is complete (simplified - should use glMapBuffer in practice)
-                download.m_InProgress = false;
+                bool downloadComplete = false;
                 
-                // Find the corresponding texture and update preview data
-                auto it = m_Resources.find(download.m_TextureID);
-                if (it != m_Resources.end() && it->second->m_Type == ResourceType::Texture2D)
+                // Modern approach: Use sync objects for non-blocking completion detection
+                if (it->m_Fence != nullptr)
                 {
-                    auto* texInfo = static_cast<TextureInfo*>(it->second.get());
-                    UpdateTexturePreview(*texInfo);
+                    // Check fence status without blocking
+                    GLenum result = glClientWaitSync(it->m_Fence, 0, 0); // 0 timeout = non-blocking
+                    
+                    if (result == GL_ALREADY_SIGNALED || result == GL_CONDITION_SATISFIED)
+                    {
+                        // Download is complete!
+                        downloadComplete = true;
+                        OLO_CORE_TRACE("Texture download completed for texture {} (sync object signaled)", it->m_TextureID);
+                    }
+                    else if (result == GL_WAIT_FAILED)
+                    {
+                        // Sync object failed - this shouldn't happen but handle gracefully
+                        OLO_CORE_WARN("Sync object wait failed for texture {}", it->m_TextureID);
+                        downloadComplete = true; // Force completion to avoid hanging
+                    }
+                    // GL_TIMEOUT_EXPIRED means not ready yet - continue to next frame
                 }
+                else
+                {
+                    // Fallback: Use buffer mapping (less optimal but compatible)
+                    glBindBuffer(GL_PIXEL_PACK_BUFFER, it->m_PBO);
+                    void* mappedData = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, 1, GL_MAP_READ_BIT);
+                    
+                    if (mappedData != nullptr)
+                    {
+                        glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+                        downloadComplete = true;
+                        OLO_CORE_TRACE("Texture download completed for texture {} (buffer mapping)", it->m_TextureID);
+                    }
+                    
+                    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+                }
+                
+                if (downloadComplete)
+                {
+                    // Find the corresponding texture and complete the download
+                    auto resourceIt = m_Resources.find(it->m_TextureID);
+                    if (resourceIt != m_Resources.end() && resourceIt->second->m_Type == ResourceType::Texture2D)
+                    {
+                        auto* texInfo = static_cast<TextureInfo*>(resourceIt->second.get());
+                        CompleteTextureDownload(*texInfo, *it);
+                    }
+                    
+                    // Clean up resources
+                    if (it->m_Fence != nullptr)
+                    {
+                        glDeleteSync(it->m_Fence);
+                    }
+                    glDeleteBuffers(1, &it->m_PBO);
+                    
+                    // Remove completed download from queue
+                    it = m_TextureDownloads.erase(it);
+                }
+                else
+                {
+                    // Check for timeout (5 seconds)
+                    f64 currentTime = DebugUtils::GetCurrentTimeSeconds();
+                    if (currentTime - it->m_RequestTime > 5.0)
+                    {
+                        OLO_CORE_WARN("Texture download timeout for texture {}, mip level {}", it->m_TextureID, it->m_MipLevel);
+                        
+                        // Clean up resources
+                        if (it->m_Fence != nullptr)
+                        {
+                            glDeleteSync(it->m_Fence);
+                        }
+                        glDeleteBuffers(1, &it->m_PBO);
+                        it = m_TextureDownloads.erase(it);
+                    }
+                    else
+                    {
+                        ++it;
+                    }
+                }
+            }
+            else
+            {
+                ++it;
             }
         }
     }
@@ -828,10 +890,9 @@ namespace OloEngine
         for (const auto& download : m_TextureDownloads)
         {
             if (download.m_TextureID == info.m_RendererID && download.m_MipLevel == mipLevel)
-                return; // Already downloading
+                return;
         }
         
-        // Create PBO for async download
         GLuint pbo;
         glGenBuffers(1, &pbo);
         
@@ -840,118 +901,106 @@ namespace OloEngine
             OLO_CORE_WARN("Failed to create PBO for texture download");
             return;
         }
-        
-        // Calculate data size for this mip level
+          // Calculate data size for this mip level - use RGBA format for consistency
         u32 width = std::max(1u, info.m_Width >> mipLevel);
         u32 height = std::max(1u, info.m_Height >> mipLevel);
-        u32 bytesPerPixel = (info.m_Format == GL_RGBA) ? 4 : (info.m_Format == GL_RGB) ? 3 : 1;
+        u32 bytesPerPixel = 4; // Always use RGBA format for downloads
         sizet dataSize = width * height * bytesPerPixel;
-        
-        // Bind PBO and allocate memory
+		// Modern OpenGL 4.5+ approach: Use immutable buffer storage + DSA
         glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
-        glBufferData(GL_PIXEL_PACK_BUFFER, dataSize, nullptr, GL_STREAM_READ);
         
-        // Start async download
-        glBindTexture(GL_TEXTURE_2D, info.m_RendererID);
-        glGetTexImage(GL_TEXTURE_2D, mipLevel, info.m_Format, info.m_DataType, nullptr);
+        // Try modern buffer storage first (OpenGL 4.4+)
+        bool useModernStorage = true;
+        glBufferStorage(GL_PIXEL_PACK_BUFFER, dataSize, nullptr, GL_MAP_READ_BIT | GL_DYNAMIC_STORAGE_BIT);
         
-        // Restore bindings
-        glBindTexture(GL_TEXTURE_2D, 0);
+        // Check for errors - fall back to legacy if modern features fail
+        GLenum storageError = glGetError();
+        if (storageError != GL_NO_ERROR)
+        {
+            OLO_CORE_TRACE("glBufferStorage failed (error {}), falling back to glBufferData", storageError);
+            glBufferData(GL_PIXEL_PACK_BUFFER, dataSize, nullptr, GL_STREAM_READ);
+            useModernStorage = false;
+        }
+
+        // Modern OpenGL 4.5+ DSA: Direct texture access without state changes
+        if (useModernStorage)
+        {
+            // Use DSA - no texture binding required!
+            glGetTextureSubImage(info.m_RendererID, mipLevel, 0, 0, 0, width, height, 1, 
+                               GL_RGBA, GL_UNSIGNED_BYTE, static_cast<GLsizei>(dataSize), nullptr);
+        }
+        else
+        {
+            // Fallback to legacy approach for compatibility
+            glBindTexture(GL_TEXTURE_2D, info.m_RendererID);
+            glGetTexImage(GL_TEXTURE_2D, mipLevel, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+            glBindTexture(GL_TEXTURE_2D, 0);
+        }
+        
+        // Unbind PBO
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+          // Check for OpenGL errors from texture download
+        GLenum error = glGetError();
+        if (error != GL_NO_ERROR)
+        {
+            OLO_CORE_WARN("Failed to start texture download: OpenGL error {}", error);
+            glDeleteBuffers(1, &pbo);
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+            return;
+        }
+        
+        // Create modern sync object for better async completion detection (OpenGL 3.2+)
+        GLsync fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+        if (fence == nullptr)
+        {
+            OLO_CORE_WARN("Failed to create sync fence for texture download");
+            glDeleteBuffers(1, &pbo);
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+            return;
+        }
+        
+        // Restore PBO binding
         glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
         
         // Add to download queue
         TextureDownloadRequest request;
         request.m_TextureID = info.m_RendererID;
-        request.m_MipLevel = mipLevel;        request.m_PBO = pbo;
+        request.m_MipLevel = mipLevel;
+        request.m_PBO = pbo;
+        request.m_Fence = fence;
         request.m_InProgress = true;
         request.m_RequestTime = DebugUtils::GetCurrentTimeSeconds();
         
         m_TextureDownloads.push_back(request);
         
         OLO_CORE_TRACE("Requested async texture download for texture {} mip level {}", info.m_RendererID, mipLevel);
-    }    void GPUResourceInspector::UpdateTexturePreview(TextureInfo& info)
+    }
+		void GPUResourceInspector::UpdateTexturePreview(TextureInfo& info)
     {
         if (info.m_PreviewDataValid)
             return;
 
-        // Save current texture binding
-        glGetIntegerv(GL_TEXTURE_BINDING_2D, &m_PreviousTextureBinding);
-        
-        // Bind texture and download data
-        glBindTexture(GL_TEXTURE_2D, info.m_RendererID);
-        
-        // Check if texture is valid
+        // Check if there's already a pending download for this texture and mip level
+        for (const auto& download : m_TextureDownloads)
+        {
+            if (download.m_TextureID == info.m_RendererID && download.m_MipLevel == info.m_SelectedMipLevel)
+            {
+                // Download already in progress, just wait
+                return;
+            }
+        }        // Check if texture is valid using modern OpenGL 4.5+ DSA
         GLint width, height;
-        glGetTexLevelParameteriv(GL_TEXTURE_2D, info.m_SelectedMipLevel, GL_TEXTURE_WIDTH, &width);
-        glGetTexLevelParameteriv(GL_TEXTURE_2D, info.m_SelectedMipLevel, GL_TEXTURE_HEIGHT, &height);
+        glGetTextureLevelParameteriv(info.m_RendererID, info.m_SelectedMipLevel, GL_TEXTURE_WIDTH, &width);
+        glGetTextureLevelParameteriv(info.m_RendererID, info.m_SelectedMipLevel, GL_TEXTURE_HEIGHT, &height);
         
         if (width <= 0 || height <= 0)
         {
             // Invalid mip level or texture
-            glBindTexture(GL_TEXTURE_2D, m_PreviousTextureBinding);
             return;
         }
-        
-        // Calculate preview data size for the actual mip level (limit to reasonable size)
-        u32 previewWidth = std::min(static_cast<u32>(width), 256u);
-        u32 previewHeight = std::min(static_cast<u32>(height), 256u);
-        
-        // Use safe format/type combinations for glGetTexImage
-        GLenum downloadFormat = GL_RGBA;
-        GLenum downloadType = GL_UNSIGNED_BYTE;
-        u32 bytesPerPixel = 4;
-        
-        // Allocate buffer with proper size
-        info.m_PreviewData.resize(previewWidth * previewHeight * bytesPerPixel);
-        
-        // Clear any existing OpenGL errors
-        while (glGetError() != GL_NO_ERROR) {}
-        
-        // Download texture data using safe format (this could cause stalls - should be async in production)
-        if (previewWidth == static_cast<u32>(width) && previewHeight == static_cast<u32>(height))
-        {
-            // Full size download
-            glGetTexImage(GL_TEXTURE_2D, info.m_SelectedMipLevel, downloadFormat, downloadType, info.m_PreviewData.data());
-        }
-        else
-        {
-            // If we need to resize, download full size and resize later
-            // For now, just download what we can
-            std::vector<u8> fullData(width * height * bytesPerPixel);
-            glGetTexImage(GL_TEXTURE_2D, info.m_SelectedMipLevel, downloadFormat, downloadType, fullData.data());
-            
-            // Simple resize by taking every nth pixel (not ideal but safe)
-            for (u32 y = 0; y < previewHeight; ++y)
-            {
-                for (u32 x = 0; x < previewWidth; ++x)
-                {
-                    u32 srcX = (x * width) / previewWidth;
-                    u32 srcY = (y * height) / previewHeight;
-                    u32 srcIndex = (srcY * width + srcX) * bytesPerPixel;
-                    u32 dstIndex = (y * previewWidth + x) * bytesPerPixel;
-                    
-                    for (u32 c = 0; c < bytesPerPixel; ++c)
-                    {
-                        info.m_PreviewData[dstIndex + c] = fullData[srcIndex + c];
-                    }
-                }
-            }
-        }
-        
-        // Check for OpenGL errors
-        GLenum error = glGetError();
-        if (error != GL_NO_ERROR)
-        {
-            OLO_CORE_ERROR("OpenGL error in UpdateTexturePreview: 0x{:X}", error);
-            info.m_PreviewData.clear();
-        }
-        else
-        {
-            info.m_PreviewDataValid = true;
-        }
-        
-        // Restore texture binding
-        glBindTexture(GL_TEXTURE_2D, m_PreviousTextureBinding);
+
+        // Start async download instead of blocking
+        RequestTextureDownload(info, info.m_SelectedMipLevel);
     }
 
     void GPUResourceInspector::UpdateBufferPreview(BufferInfo& info)
@@ -998,12 +1047,13 @@ namespace OloEngine
             total += resource->m_MemoryUsage;
         }
         return total;
-    }
-
-    void GPUResourceInspector::RenderDebugView(bool* open, const char* title)
+    }    void GPUResourceInspector::RenderDebugView(bool* open, const char* title)
     {
         if (!m_IsInitialized)
             return;
+
+        // Process any pending texture downloads to prevent stalls
+        ProcessTextureDownloads();
 
         if (!ImGui::Begin(title, open, ImGuiWindowFlags_MenuBar))
         {
@@ -1798,5 +1848,69 @@ namespace OloEngine
             case GL_DISPATCH_INDIRECT_BUFFER: return "Dispatch Indirect Buffer";
             default: return "Unknown";
         }
+    }
+		void GPUResourceInspector::CompleteTextureDownload(TextureInfo& info, const TextureDownloadRequest& request)
+    {
+        OLO_CORE_TRACE("Completing texture download for texture {} mip level {}", info.m_RendererID, request.m_MipLevel);
+        
+        // Map the PBO to get the downloaded data
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, request.m_PBO);
+          // Calculate data size for this mip level - using RGBA format consistently
+        u32 width = std::max(1u, info.m_Width >> request.m_MipLevel);
+        u32 height = std::max(1u, info.m_Height >> request.m_MipLevel);
+        u32 bytesPerPixel = 4; // RGBA format
+        sizet dataSize = width * height * bytesPerPixel;
+        
+        // Map the buffer to read the data
+        void* data = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, dataSize, GL_MAP_READ_BIT);
+        
+        if (data != nullptr)
+        {
+            // Calculate preview size (limit to reasonable size for UI)
+            u32 previewWidth = std::min(width, 256u);
+            u32 previewHeight = std::min(height, 256u);
+            
+            // Allocate preview buffer
+            info.m_PreviewData.resize(previewWidth * previewHeight * bytesPerPixel);
+            
+            if (previewWidth == width && previewHeight == height)
+            {
+                // Direct copy if no scaling needed
+                std::memcpy(info.m_PreviewData.data(), data, dataSize);
+            }
+            else
+            {
+                // Simple nearest-neighbor downscaling for preview
+                const u8* srcData = static_cast<const u8*>(data);
+                
+                for (u32 y = 0; y < previewHeight; ++y)
+                {
+                    for (u32 x = 0; x < previewWidth; ++x)
+                    {
+                        u32 srcX = (x * width) / previewWidth;
+                        u32 srcY = (y * height) / previewHeight;
+                        u32 srcIndex = (srcY * width + srcX) * bytesPerPixel;
+                        u32 dstIndex = (y * previewWidth + x) * bytesPerPixel;
+                        
+                        for (u32 c = 0; c < bytesPerPixel; ++c)
+                        {
+                            info.m_PreviewData[dstIndex + c] = srcData[srcIndex + c];
+                        }
+                    }
+                }            }
+            
+            // Mark preview as valid
+            info.m_PreviewDataValid = true;
+            
+            OLO_CORE_TRACE("Completed async texture download for texture {} mip level {}", request.m_TextureID, request.m_MipLevel);
+        }
+        else
+        {
+            OLO_CORE_ERROR("Failed to map PBO data for texture {}", request.m_TextureID);
+        }
+        
+        // Unmap and clean up
+        glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
     }
 }
