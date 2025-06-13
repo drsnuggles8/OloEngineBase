@@ -324,20 +324,13 @@ namespace OloEngine
             it->second->m_IsBound = isBound;
             it->second->m_BindingSlot = bindingSlot;
         }
-    }
-	
-	void GPUResourceInspector::QueryTextureInfo(TextureInfo& info)
+    }    void GPUResourceInspector::QueryTextureInfo(TextureInfo& info)
     {
-        // Save current texture binding
-        glGetIntegerv(GL_TEXTURE_BINDING_2D, &m_PreviousTextureBinding);
-        
-        // Bind the texture temporarily to query its properties
-        glBindTexture(GL_TEXTURE_2D, info.m_RendererID);
-        
+        // Modern OpenGL 4.5+ DSA approach - no texture binding required
         GLint width, height, internalFormat;
-        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &width);
-        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &height);
-        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &internalFormat);
+        glGetTextureLevelParameteriv(info.m_RendererID, 0, GL_TEXTURE_WIDTH, &width);
+        glGetTextureLevelParameteriv(info.m_RendererID, 0, GL_TEXTURE_HEIGHT, &height);
+        glGetTextureLevelParameteriv(info.m_RendererID, 0, GL_TEXTURE_INTERNAL_FORMAT, &internalFormat);
         
         info.m_Width = static_cast<u32>(width);
         info.m_Height = static_cast<u32>(height);
@@ -491,31 +484,20 @@ namespace OloEngine
                 break;
         }
         
-        info.m_MemoryUsage = static_cast<sizet>(width * height * bytesPerPixel);
-        
-        // Check for mip levels
+        info.m_MemoryUsage = static_cast<sizet>(width * height * bytesPerPixel);        
+        // Check for mip levels using DSA
         GLint maxLevel;
-        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, &maxLevel);
+        glGetTextureParameteriv(info.m_RendererID, GL_TEXTURE_MAX_LEVEL, &maxLevel);
         info.m_MipLevels = static_cast<u32>(maxLevel + 1);
         info.m_HasMips = maxLevel > 0;
-        
-        // Restore previous texture binding
-        glBindTexture(GL_TEXTURE_2D, m_PreviousTextureBinding);
-    }
-
-    void GPUResourceInspector::QueryTextureCubemapInfo(TextureInfo& info)
+    }    void GPUResourceInspector::QueryTextureCubemapInfo(TextureInfo& info)
     {
-        // Save current texture binding
-        GLint previousBinding;
-        glGetIntegerv(GL_TEXTURE_BINDING_CUBE_MAP, &previousBinding);
-        
-        // Bind the cubemap temporarily to query its properties
-        glBindTexture(GL_TEXTURE_CUBE_MAP, info.m_RendererID);
-        
+        // Modern OpenGL 4.5+ DSA approach - no texture binding required
         GLint width, height, internalFormat;
-        glGetTexLevelParameteriv(GL_TEXTURE_CUBE_MAP_POSITIVE_X, 0, GL_TEXTURE_WIDTH, &width);
-        glGetTexLevelParameteriv(GL_TEXTURE_CUBE_MAP_POSITIVE_X, 0, GL_TEXTURE_HEIGHT, &height);
-        glGetTexLevelParameteriv(GL_TEXTURE_CUBE_MAP_POSITIVE_X, 0, GL_TEXTURE_INTERNAL_FORMAT, &internalFormat);
+        // For cubemaps, query the positive X face (they're all the same size)
+        glGetTextureLevelParameteriv(info.m_RendererID, 0, GL_TEXTURE_WIDTH, &width);
+        glGetTextureLevelParameteriv(info.m_RendererID, 0, GL_TEXTURE_HEIGHT, &height);
+        glGetTextureLevelParameteriv(info.m_RendererID, 0, GL_TEXTURE_INTERNAL_FORMAT, &internalFormat);
         
         info.m_Width = static_cast<u32>(width);
         info.m_Height = static_cast<u32>(height);
@@ -647,16 +629,12 @@ namespace OloEngine
                 break;
         }
         
-        info.m_MemoryUsage = static_cast<sizet>(width * height * bytesPerPixel * 6); // 6 faces
-        
-        // Check for mip levels
+        info.m_MemoryUsage = static_cast<sizet>(width * height * bytesPerPixel * 6); // 6 faces        
+        // Check for mip levels using DSA
         GLint maxLevel;
-        glGetTexParameteriv(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_LEVEL, &maxLevel);
+        glGetTextureParameteriv(info.m_RendererID, GL_TEXTURE_MAX_LEVEL, &maxLevel);
         info.m_MipLevels = static_cast<u32>(maxLevel + 1);
         info.m_HasMips = maxLevel > 0;
-        
-        // Restore previous texture binding
-        glBindTexture(GL_TEXTURE_CUBE_MAP, previousBinding);
     }
 
     void GPUResourceInspector::QueryBufferInfo(BufferInfo& info)
@@ -763,16 +741,12 @@ namespace OloEngine
             GLint textureID;
             glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, 
                                                 GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &textureID);
-            
-            if (textureID != 0)
+              if (textureID != 0)
             {
-                GLint previousTexBinding;
-                glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexBinding);
-                
-                glBindTexture(GL_TEXTURE_2D, textureID);
+                // Modern OpenGL 4.5+ DSA approach - no texture binding required
                 GLint width, height;
-                glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &width);
-                glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &height);
+                glGetTextureLevelParameteriv(textureID, 0, GL_TEXTURE_WIDTH, &width);
+                glGetTextureLevelParameteriv(textureID, 0, GL_TEXTURE_HEIGHT, &height);
                 
                 info.m_Width = static_cast<u32>(width);
                 info.m_Height = static_cast<u32>(height);
@@ -781,8 +755,6 @@ namespace OloEngine
                 info.m_MemoryUsage = static_cast<sizet>(width * height * 4 * info.m_ColorAttachmentCount);
                 if (info.m_HasDepthAttachment) info.m_MemoryUsage += static_cast<sizet>(width * height * 4);
                 if (info.m_HasStencilAttachment) info.m_MemoryUsage += static_cast<sizet>(width * height);
-                
-                glBindTexture(GL_TEXTURE_2D, previousTexBinding);
             }
         }
         
@@ -798,8 +770,7 @@ namespace OloEngine
             if (it->m_InProgress)
             {
                 bool downloadComplete = false;
-                
-                // Modern approach: Use sync objects for non-blocking completion detection
+                  // Modern OpenGL 4.5+ approach: Use sync objects for non-blocking completion detection
                 if (it->m_Fence != nullptr)
                 {
                     // Check fence status without blocking
@@ -821,18 +792,9 @@ namespace OloEngine
                 }
                 else
                 {
-                    // Fallback: Use buffer mapping (less optimal but compatible)
-                    glBindBuffer(GL_PIXEL_PACK_BUFFER, it->m_PBO);
-                    void* mappedData = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, 1, GL_MAP_READ_BIT);
-                    
-                    if (mappedData != nullptr)
-                    {
-                        glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
-                        downloadComplete = true;
-                        OLO_CORE_TRACE("Texture download completed for texture {} (buffer mapping)", it->m_TextureID);
-                    }
-                    
-                    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+                    // No sync object available - this shouldn't happen with modern approach
+                    OLO_CORE_WARN("No sync fence available for texture download {}", it->m_TextureID);
+                    downloadComplete = true; // Force completion to avoid hanging
                 }
                 
                 if (downloadComplete)
@@ -905,49 +867,19 @@ namespace OloEngine
         u32 width = std::max(1u, info.m_Width >> mipLevel);
         u32 height = std::max(1u, info.m_Height >> mipLevel);
         u32 bytesPerPixel = 4; // Always use RGBA format for downloads
-        sizet dataSize = width * height * bytesPerPixel;
-		// Modern OpenGL 4.5+ approach: Use immutable buffer storage + DSA
+        sizet dataSize = width * height * bytesPerPixel;		// Modern OpenGL 4.5+ approach: Use immutable buffer storage + DSA
         glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
         
-        // Try modern buffer storage first (OpenGL 4.4+)
-        bool useModernStorage = true;
+        // Use modern immutable buffer storage (OpenGL 4.4+)
         glBufferStorage(GL_PIXEL_PACK_BUFFER, dataSize, nullptr, GL_MAP_READ_BIT | GL_DYNAMIC_STORAGE_BIT);
-        
-        // Check for errors - fall back to legacy if modern features fail
-        GLenum storageError = glGetError();
-        if (storageError != GL_NO_ERROR)
-        {
-            OLO_CORE_TRACE("glBufferStorage failed (error {}), falling back to glBufferData", storageError);
-            glBufferData(GL_PIXEL_PACK_BUFFER, dataSize, nullptr, GL_STREAM_READ);
-            useModernStorage = false;
-        }
 
         // Modern OpenGL 4.5+ DSA: Direct texture access without state changes
-        if (useModernStorage)
-        {
-            // Use DSA - no texture binding required!
-            glGetTextureSubImage(info.m_RendererID, mipLevel, 0, 0, 0, width, height, 1, 
-                               GL_RGBA, GL_UNSIGNED_BYTE, static_cast<GLsizei>(dataSize), nullptr);
-        }
-        else
-        {
-            // Fallback to legacy approach for compatibility
-            glBindTexture(GL_TEXTURE_2D, info.m_RendererID);
-            glGetTexImage(GL_TEXTURE_2D, mipLevel, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-            glBindTexture(GL_TEXTURE_2D, 0);
-        }
+        // Use DSA - no texture binding required!
+        glGetTextureSubImage(info.m_RendererID, mipLevel, 0, 0, 0, width, height, 1, 
+                           GL_RGBA, GL_UNSIGNED_BYTE, static_cast<GLsizei>(dataSize), nullptr);
         
         // Unbind PBO
         glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-          // Check for OpenGL errors from texture download
-        GLenum error = glGetError();
-        if (error != GL_NO_ERROR)
-        {
-            OLO_CORE_WARN("Failed to start texture download: OpenGL error {}", error);
-            glDeleteBuffers(1, &pbo);
-            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-            return;
-        }
         
         // Create modern sync object for better async completion detection (OpenGL 3.2+)
         GLsync fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);

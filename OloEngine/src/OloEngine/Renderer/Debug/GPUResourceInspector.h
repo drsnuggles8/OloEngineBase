@@ -262,12 +262,10 @@ namespace OloEngine
         // Statistics
         std::array<u32, static_cast<sizet>(ResourceType::COUNT)> m_ResourceCounts{};
         std::array<sizet, static_cast<sizet>(ResourceType::COUNT)> m_MemoryUsageByType{};
-        
-        // Threading
+          // Threading
         mutable std::mutex m_ResourceMutex;
         
-        // OpenGL state backup
-        GLint m_PreviousTextureBinding = 0;
+        // OpenGL state backup (only needed for buffer operations)
         GLint m_PreviousBufferBinding = 0;
         
         bool m_IsInitialized = false;
