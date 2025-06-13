@@ -172,8 +172,6 @@ namespace OloEngine
 
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
         
-        OLO_CORE_INFO("ShaderDebugger: Compilation started for '{0}' from '{1}'", name, filepath);
-        
         PendingCompilation pending;
         pending.m_Name = name;
         pending.m_FilePath = filepath;
@@ -183,17 +181,15 @@ namespace OloEngine
         
         // Find and reset instruction count for this shader if it already exists
         for (auto& [id, shaderInfo] : m_Shaders)
-        {            if (shaderInfo.m_Name == name)
-            {                OLO_CORE_INFO("ShaderDebugger: RESET instruction count to 0 for existing shader: {0}", name);
+        {
+            if (shaderInfo.m_Name == name)
+            {
                 shaderInfo.m_LastCompilation.m_InstructionCount = 0;
                 shaderInfo.m_LastCompilation.m_VertexGeometrySPIRVSize = 0;
                 shaderInfo.m_LastCompilation.m_FragmentComputeSPIRVSize = 0;
-                OLO_CORE_TRACE("Reset instruction count for existing shader: {0}", name);
                 break;
             }
         }
-        
-        OLO_CORE_TRACE("Shader compilation started: {0} ({1})", name, filepath);
     }
 
     void ShaderDebugger::OnCompilationEnd(u32 rendererID, bool success, const std::string& errorMsg, f64 compileTimeMs)
@@ -465,8 +461,9 @@ namespace OloEngine
                 info.m_GeneratedGLSL[stage] = generatedGLSL;
             }
             if (!spirvBinary.empty())
-            {                info.m_SPIRVBinary[stage] = spirvBinary;
-                  // Update SPIR-V size in compilation result
+            {
+                info.m_SPIRVBinary[stage] = spirvBinary;
+                // Update SPIR-V size in compilation result
                 // Categorize by pipeline stage type: geometry (Vertex+Geometry) vs pixel/compute (Fragment+Compute)
                 if (stage == ShaderStage::Vertex || stage == ShaderStage::Geometry)
                     info.m_LastCompilation.m_VertexGeometrySPIRVSize += spirvBinary.size();
@@ -475,7 +472,7 @@ namespace OloEngine
                 
                 // Convert SPIR-V binary to u32 vector for analysis
                 std::vector<u32> spirvWords;
-				spirvWords.resize(spirvBinary.size() / sizeof(u32));
+                spirvWords.resize(spirvBinary.size() / sizeof(u32));
                 std::memcpy(spirvWords.data(), spirvBinary.data(), spirvBinary.size());
                 
                 // Perform reflection analysis and update instruction count
@@ -485,7 +482,7 @@ namespace OloEngine
                     AnalyzeSPIRVFromWords(spirvWords, instructionCount);
                     info.m_LastCompilation.m_InstructionCount += instructionCount;
                 }
-				catch (const std::exception&)
+                catch (const std::exception&)
                 {
                     // Silently continue if SPIR-V analysis fails
                 }
@@ -545,7 +542,8 @@ namespace OloEngine
     ImVec4 ShaderDebugger::GetShaderStageColor(ShaderStage stage) const
     {
         switch (stage)
-        {            case ShaderStage::Vertex:   return ImVec4(0.3f, 0.8f, 0.3f, 1.0f); // Green
+        {
+            case ShaderStage::Vertex:   return ImVec4(0.3f, 0.8f, 0.3f, 1.0f); // Green
             case ShaderStage::Fragment: return ImVec4(0.8f, 0.3f, 0.3f, 1.0f); // Red
             case ShaderStage::Geometry: return ImVec4(0.3f, 0.3f, 0.8f, 1.0f); // Blue
             case ShaderStage::Compute:  return ImVec4(0.8f, 0.8f, 0.3f, 1.0f); // Yellow
@@ -587,7 +585,9 @@ namespace OloEngine
             instructionCount++;
             offset += length;
         }
-    }    /**
+    } 
+	
+	/**
      * @brief Analyzes SPIR-V word data to count instructions
      * @param spirvWords SPIR-V data as 32-bit words
      * @param instructionCount Output parameter for instruction count
@@ -620,7 +620,8 @@ namespace OloEngine
             
             instructionCount++;
             offset += length;
-        }    }
+        }
+	}
 
     /**
      * @brief Exports a comprehensive shader debugging report to file
@@ -727,7 +728,8 @@ namespace OloEngine
             // Left panel: Shader list
             RenderShaderList();
 
-            ImGui::NextColumn();            // Right panel: Shader details
+            ImGui::NextColumn();
+			// Right panel: Shader details
             ShaderInfo shaderInfoCopy; // Local copy to render without holding the mutex
             bool hasShaderToRender = false;
             
@@ -873,7 +875,8 @@ namespace OloEngine
         if (shaderInfo.m_HasErrors)
         {
             ImGui::SameLine();
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "[ERROR]");        }
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "[ERROR]");
+        }
         if (shaderInfo.m_IsReloading)
         {
             ImGui::SameLine();
@@ -985,7 +988,8 @@ namespace OloEngine
 
         // Source type tabs
         if (ImGui::BeginTabBar("SourceTabs"))
-        {            // Original source
+        {
+            // Original source
             auto originalIt = shaderInfo.m_OriginalSource.find(stage);
             if (originalIt != shaderInfo.m_OriginalSource.end() && ImGui::BeginTabItem("Original"))
             {
@@ -1507,7 +1511,8 @@ namespace OloEngine
         catch (const std::exception& e)
         {
             return std::string("SPIR-V disassembly failed: ") + e.what();
-        }    }
+        }
+	}
 
     /**
      * @brief Analyzes SPIR-V code for optimization opportunities

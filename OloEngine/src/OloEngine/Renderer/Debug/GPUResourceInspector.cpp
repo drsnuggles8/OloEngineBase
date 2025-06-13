@@ -1755,7 +1755,11 @@ namespace OloEngine
             case GL_SRGB8_ALPHA8: return "sRGBA8";
             
             default: 
-                return "Unknown (0x" + std::to_string(format) + ")";
+                {
+                std::stringstream ss;
+                ss << "Unknown (0x" << std::uppercase << std::hex << format << ")";
+                return ss.str();
+            	}
         }
     }
 

@@ -229,7 +229,8 @@ namespace OloEngine
         void QueryTextureInfo(TextureInfo& info);
         void QueryTextureCubemapInfo(TextureInfo& info);
         void QueryBufferInfo(BufferInfo& info);
-        void QueryFramebufferInfo(FramebufferInfo& info);        void RequestTextureDownload(TextureInfo& info, u32 mipLevel);
+        void QueryFramebufferInfo(FramebufferInfo& info);
+		void RequestTextureDownload(TextureInfo& info, u32 mipLevel);
         void ProcessTextureDownloads();
         void CompleteTextureDownload(TextureInfo& info, const TextureDownloadRequest& request);
         void UpdateTexturePreview(TextureInfo& info);
@@ -265,7 +266,8 @@ namespace OloEngine
         u32 m_SelectedResourceID = 0;
         ResourceType m_FilterType = ResourceType::COUNT; // No filter by default
         std::string m_SearchFilter;
-        bool m_ShowInactiveResources = true;        bool m_AutoUpdatePreviews = true;
+        bool m_ShowInactiveResources = true;
+		bool m_AutoUpdatePreviews = true;
         
         // Statistics
         std::array<u32, static_cast<sizet>(ResourceType::COUNT)> m_ResourceCounts{};
