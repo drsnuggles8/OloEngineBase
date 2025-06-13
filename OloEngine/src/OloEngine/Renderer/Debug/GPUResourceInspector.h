@@ -256,17 +256,13 @@ namespace OloEngine
         u32 m_SelectedResourceID = 0;
         ResourceType m_FilterType = ResourceType::COUNT; // No filter by default
         std::string m_SearchFilter;
-        bool m_ShowInactiveResources = true;
-        bool m_AutoUpdatePreviews = true;
+        bool m_ShowInactiveResources = true;        bool m_AutoUpdatePreviews = true;
         
         // Statistics
         std::array<u32, static_cast<sizet>(ResourceType::COUNT)> m_ResourceCounts{};
         std::array<sizet, static_cast<sizet>(ResourceType::COUNT)> m_MemoryUsageByType{};
           // Threading
         mutable std::mutex m_ResourceMutex;
-        
-        // OpenGL state backup (only needed for buffer operations)
-        GLint m_PreviousBufferBinding = 0;
         
         bool m_IsInitialized = false;
     };

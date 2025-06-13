@@ -94,8 +94,7 @@ namespace OloEngine
         bool isDuplicate = (existingIt != m_Resources.end());
         
         m_Resources[rendererID] = std::move(textureInfo);
-        
-        // Only increment counter for new registrations
+          // Handle resource counting for new registrations and type changes
         if (!isDuplicate)
         {
             m_ResourceCounts[static_cast<sizet>(ResourceType::Texture2D)]++;
@@ -103,11 +102,18 @@ namespace OloEngine
         }
         else
         {
-            // For duplicates, update memory tracking but not count
+            // For duplicates, update memory tracking and handle type changes
             ResourceType oldType = existingIt->second->m_Type;
             sizet oldMemory = existingIt->second->m_MemoryUsage;
             m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
             m_MemoryUsageByType[static_cast<sizet>(ResourceType::Texture2D)] += memoryUsage;
+            
+            // Handle resource count changes when type differs
+            if (oldType != ResourceType::Texture2D)
+            {
+                m_ResourceCounts[static_cast<sizet>(oldType)]--;
+                m_ResourceCounts[static_cast<sizet>(ResourceType::Texture2D)]++;
+            }
             OLO_CORE_WARN("Registered DUPLICATE texture: {} (ID: {}) - replacing existing", name, rendererID);
         }
     }
@@ -134,8 +140,7 @@ namespace OloEngine
         bool isDuplicate = (existingIt != m_Resources.end());
         
         m_Resources[rendererID] = std::move(textureInfo);
-        
-        // Only increment counter for new registrations
+          // Handle resource counting for new registrations and type changes
         if (!isDuplicate)
         {
             m_ResourceCounts[static_cast<sizet>(ResourceType::TextureCubemap)]++;
@@ -143,11 +148,18 @@ namespace OloEngine
         }
         else
         {
-            // For duplicates, update memory tracking but not count
+            // For duplicates, update memory tracking and handle type changes
             ResourceType oldType = existingIt->second->m_Type;
             sizet oldMemory = existingIt->second->m_MemoryUsage;
             m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
             m_MemoryUsageByType[static_cast<sizet>(ResourceType::TextureCubemap)] += memoryUsage;
+            
+            // Handle resource count changes when type differs
+            if (oldType != ResourceType::TextureCubemap)
+            {
+                m_ResourceCounts[static_cast<sizet>(oldType)]--;
+                m_ResourceCounts[static_cast<sizet>(ResourceType::TextureCubemap)]++;
+            }
             OLO_CORE_WARN("Registered DUPLICATE cubemap: {} (ID: {}) - replacing existing", name, rendererID);
         }
         
@@ -192,8 +204,7 @@ namespace OloEngine
         bool isDuplicate = (existingIt != m_Resources.end());
         
         m_Resources[rendererID] = std::move(bufferInfo);
-        
-        // Only increment counter for new registrations
+          // Handle resource counting for new registrations and type changes
         if (!isDuplicate)
         {
             m_ResourceCounts[static_cast<sizet>(bufferType)]++;
@@ -201,11 +212,18 @@ namespace OloEngine
         }
         else
         {
-            // For duplicates, update memory tracking but not count
+            // For duplicates, update memory tracking and handle type changes
             ResourceType oldType = existingIt->second->m_Type;
             sizet oldMemory = existingIt->second->m_MemoryUsage;
             m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
             m_MemoryUsageByType[static_cast<sizet>(bufferType)] += memoryUsage;
+            
+            // Handle resource count changes when type differs
+            if (oldType != bufferType)
+            {
+                m_ResourceCounts[static_cast<sizet>(oldType)]--;
+                m_ResourceCounts[static_cast<sizet>(bufferType)]++;
+            }
             OLO_CORE_WARN("Registered DUPLICATE buffer: {} (ID: {}, Target: 0x{:X}) - replacing existing", name, rendererID, target);
         }
     }
@@ -232,8 +250,7 @@ namespace OloEngine
         bool isDuplicate = (existingIt != m_Resources.end());
         
         m_Resources[rendererID] = std::move(framebufferInfo);
-        
-        // Only increment counter for new registrations
+          // Handle resource counting for new registrations and type changes
         if (!isDuplicate)
         {
             m_ResourceCounts[static_cast<sizet>(ResourceType::Framebuffer)]++;
@@ -241,11 +258,18 @@ namespace OloEngine
         }
         else
         {
-            // For duplicates, update memory tracking but not count
+            // For duplicates, update memory tracking and handle type changes
             ResourceType oldType = existingIt->second->m_Type;
             sizet oldMemory = existingIt->second->m_MemoryUsage;
             m_MemoryUsageByType[static_cast<sizet>(oldType)] -= oldMemory;
             m_MemoryUsageByType[static_cast<sizet>(ResourceType::Framebuffer)] += memoryUsage;
+            
+            // Handle resource count changes when type differs
+            if (oldType != ResourceType::Framebuffer)
+            {
+                m_ResourceCounts[static_cast<sizet>(oldType)]--;
+                m_ResourceCounts[static_cast<sizet>(ResourceType::Framebuffer)]++;
+            }
             OLO_CORE_WARN("Registered DUPLICATE framebuffer: {} (ID: {}) - replacing existing", name, rendererID);
         }
     }
@@ -934,15 +958,29 @@ namespace OloEngine
         // Start async download instead of blocking
         RequestTextureDownload(info, info.m_SelectedMipLevel);
     }
-
-    void GPUResourceInspector::UpdateBufferPreview(BufferInfo& info)
+	
+	void GPUResourceInspector::UpdateBufferPreview(BufferInfo& info)
     {
         if (info.m_ContentPreviewValid)
             return;
 
-        // Save current buffer binding
-        if (info.m_Target == GL_ARRAY_BUFFER)
-            glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &m_PreviousBufferBinding);
+        // Save current buffer binding based on target
+        GLint previousBinding = 0;
+        switch (info.m_Target)
+        {
+            case GL_ARRAY_BUFFER:
+                glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &previousBinding);
+                break;
+            case GL_ELEMENT_ARRAY_BUFFER:
+                glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &previousBinding);
+                break;
+            case GL_UNIFORM_BUFFER:
+                glGetIntegerv(GL_UNIFORM_BUFFER_BINDING, &previousBinding);
+                break;
+            default:
+                glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &previousBinding);
+                break;
+        }
         
         // Bind buffer and map data
         glBindBuffer(info.m_Target, info.m_RendererID);
@@ -959,9 +997,8 @@ namespace OloEngine
             info.m_ContentPreviewValid = true;
         }
         
-        // Restore buffer binding
-        if (info.m_Target == GL_ARRAY_BUFFER)
-            glBindBuffer(GL_ARRAY_BUFFER, m_PreviousBufferBinding);
+        // Restore previous buffer binding
+        glBindBuffer(info.m_Target, previousBinding);
     }
 
     sizet GPUResourceInspector::GetMemoryUsage(ResourceType type) const

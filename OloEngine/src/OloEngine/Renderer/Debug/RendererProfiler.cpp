@@ -50,13 +50,14 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         
-        // Reset all profiling data instead of clearing
         for (auto& [type, counter] : m_Counters)
         {
             counter.Reset();
         }
         m_CustomTimings.clear();
         m_FrameHistory.clear();
+        m_FrameHistory.resize(OLO_FRAME_HISTORY_SIZE);
+        m_HistoryIndex = 0;
         
         // Reset current frame data
         m_CurrentFrame = {};

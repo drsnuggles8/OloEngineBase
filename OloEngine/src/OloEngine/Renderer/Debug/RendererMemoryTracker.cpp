@@ -194,11 +194,7 @@ namespace OloEngine
         
 
         // Calculate total usage inline (avoid double locking)
-        sizet totalUsage = 0;
-        for (sizet i = 0; i < static_cast<sizet>(ResourceType::COUNT); ++i)
-        {
-            totalUsage += m_TypeUsage[i];
-        }
+        const sizet totalUsage = GetTotalMemoryUsageUnlocked();
         
         if (totalUsage > m_PeakMemoryUsage)
         {
