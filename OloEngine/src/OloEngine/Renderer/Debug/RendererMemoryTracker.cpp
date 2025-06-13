@@ -192,21 +192,16 @@ namespace OloEngine
         if (m_Allocations.find(address) != m_Allocations.end())
         {
             OLO_CORE_WARN("Double allocation detected at address {0}", address);
-        }        m_Allocations[address] = info;
-          OLO_CORE_TRACE("RendererMemoryTracker: Before TypeUsage update - TypeUsage[{}]={}", 
-                      (int)type, m_TypeUsage[static_cast<sizet>(type)]);
-        
+        }
+
+		m_Allocations[address] = info;        
         m_TypeUsage[static_cast<sizet>(type)] += size;
-        
-        OLO_CORE_TRACE("RendererMemoryTracker: After TypeUsage update - TypeUsage[{}]={}", 
-                      (int)type, m_TypeUsage[static_cast<sizet>(type)]);
         
         m_TypeCounts[static_cast<sizet>(type)]++;
         m_TotalAllocations++;
         
-        OLO_CORE_TRACE("RendererMemoryTracker: After allocation - TypeUsage[{}]={}, TotalAllocations={}", 
-                      (int)type, m_TypeUsage[static_cast<sizet>(type)], m_TotalAllocations);
-          // Calculate total usage inline (avoid double locking)
+
+        // Calculate total usage inline (avoid double locking)
         sizet totalUsage = 0;
         for (sizet i = 0; i < static_cast<sizet>(ResourceType::COUNT); ++i)
         {
@@ -219,7 +214,9 @@ namespace OloEngine
         {
             m_PeakMemoryUsage = totalUsage;
         }
-    }    void RendererMemoryTracker::TrackDeallocation(void* address)
+    }
+
+    void RendererMemoryTracker::TrackDeallocation(void* address)
     {
         if (!address || m_IsShutdown)
             return;

@@ -292,7 +292,9 @@ namespace OloEngine
             OLO_CORE_TRACE("Shader reload ended: {0} (ID: {1}), Success: {2}", 
                           info.m_Name, rendererID, success);
         }
-    }    void ShaderDebugger::OnShaderBind(u32 rendererID)
+    }
+	
+	void ShaderDebugger::OnShaderBind(u32 rendererID)
     {
         if (!m_IsInitialized)
             return;
@@ -452,9 +454,7 @@ namespace OloEngine
                                         const std::vector<u8>& spirvBinary)
     {
         if (!m_IsInitialized)
-            {
-				return;
-			}
+			return;
 
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
         
@@ -735,14 +735,23 @@ namespace OloEngine
             // Left panel: Shader list
             RenderShaderList();
 
-            ImGui::NextColumn();
-
-            // Right panel: Shader details
-            std::lock_guard<std::mutex> lock(m_ShaderMutex);
-            auto it = m_Shaders.find(m_SelectedShaderID);
-            if (it != m_Shaders.end())
+            ImGui::NextColumn();            // Right panel: Shader details
+            ShaderInfo shaderInfoCopy; // Local copy to render without holding the mutex
+            bool hasShaderToRender = false;
+            
             {
-                RenderShaderDetails(it->second);
+                std::lock_guard<std::mutex> lock(m_ShaderMutex);
+                auto it = m_Shaders.find(m_SelectedShaderID);
+                if (it != m_Shaders.end())
+                {
+                    shaderInfoCopy = it->second; // Copy the shader info
+                    hasShaderToRender = true;
+                }
+            } // Mutex unlocked here
+            
+            if (hasShaderToRender)
+            {
+                RenderShaderDetails(shaderInfoCopy);
             }
             else
             {
@@ -859,7 +868,7 @@ namespace OloEngine
         }
     }
 
-    void ShaderDebugger::RenderShaderDetails(ShaderInfo& shaderInfo)
+    void ShaderDebugger::RenderShaderDetails(const ShaderInfo& shaderInfo)
     {
         ImGui::Text("Shader: %s (ID: %u)", shaderInfo.m_Name.c_str(), shaderInfo.m_RendererID);
         
@@ -872,16 +881,12 @@ namespace OloEngine
         if (shaderInfo.m_HasErrors)
         {
             ImGui::SameLine();
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "[ERROR]");
-        }
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "[ERROR]");        }
         if (shaderInfo.m_IsReloading)
         {
             ImGui::SameLine();
             ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.4f, 1.0f), "[RELOADING]");
         }
-
-        // Update active time
-        UpdateActiveTime(shaderInfo);
 
         ImGui::Separator();
 
@@ -914,8 +919,6 @@ namespace OloEngine
                            shaderInfo.m_LastCompilation.m_Success ? "Success" : "Failed");
                 ImGui::Text("Compile Time: %.2fms", shaderInfo.m_LastCompilation.m_CompileTimeMs);
                 ImGui::Text("Instruction Count: %u", shaderInfo.m_LastCompilation.m_InstructionCount);
-                OLO_CORE_INFO("ShaderDebugger: UI displaying instruction count: {0} for shader: {1}", 
-                             shaderInfo.m_LastCompilation.m_InstructionCount, shaderInfo.m_Name);
                 
                 const sizet totalSPIRVSize = shaderInfo.m_LastCompilation.m_VulkanSPIRVSize + 
                                              shaderInfo.m_LastCompilation.m_OpenGLSPIRVSize;
@@ -1202,10 +1205,7 @@ namespace OloEngine
 		// Compilation metrics
         ImGui::Text("Compilation Time: %s", DebugUtils::FormatDuration(shaderInfo.m_LastCompilation.m_CompileTimeMs).c_str());
         ImGui::Text("Instruction Count: %u", shaderInfo.m_LastCompilation.m_InstructionCount);
-        OLO_CORE_INFO("ShaderDebugger: UI displaying instruction count (detail view): {0} for shader: {1}", 
-                     shaderInfo.m_LastCompilation.m_InstructionCount, shaderInfo.m_Name);
-          const sizet totalSPIRVSize = shaderInfo.m_LastCompilation.m_VulkanSPIRVSize + 
-                                     shaderInfo.m_LastCompilation.m_OpenGLSPIRVSize;
+        const sizet totalSPIRVSize = shaderInfo.m_LastCompilation.m_VulkanSPIRVSize + shaderInfo.m_LastCompilation.m_OpenGLSPIRVSize;
         ImGui::Text("Total SPIR-V Size: %s", DebugUtils::FormatMemorySize(totalSPIRVSize).c_str());
         ImGui::Text("Vulkan SPIR-V: %s", DebugUtils::FormatMemorySize(shaderInfo.m_LastCompilation.m_VulkanSPIRVSize).c_str());
         ImGui::Text("OpenGL SPIR-V: %s", DebugUtils::FormatMemorySize(shaderInfo.m_LastCompilation.m_OpenGLSPIRVSize).c_str());

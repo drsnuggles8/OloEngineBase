@@ -104,7 +104,6 @@ namespace OloEngine
         {
             m_ResourceCounts[static_cast<sizet>(ResourceType::Texture2D)]++;
             m_MemoryUsageByType[static_cast<sizet>(ResourceType::Texture2D)] += memoryUsage;
-            OLO_CORE_TRACE("Registered NEW texture: {} (ID: {})", name, rendererID);
         }
         else
         {
@@ -146,7 +145,6 @@ namespace OloEngine
         {
             m_ResourceCounts[static_cast<sizet>(ResourceType::TextureCubemap)]++;
             m_MemoryUsageByType[static_cast<sizet>(ResourceType::TextureCubemap)] += memoryUsage;
-            OLO_CORE_TRACE("Registered NEW cubemap: {} (ID: {})", name, rendererID);
         }
         else
         {
@@ -213,7 +211,6 @@ namespace OloEngine
         {
             m_ResourceCounts[static_cast<sizet>(bufferType)]++;
             m_MemoryUsageByType[static_cast<sizet>(bufferType)] += memoryUsage;
-            OLO_CORE_TRACE("Registered NEW buffer: {} (ID: {}, Target: 0x{:X})", name, rendererID, target);
         }
         else
         {
@@ -255,7 +252,6 @@ namespace OloEngine
         {
             m_ResourceCounts[static_cast<sizet>(ResourceType::Framebuffer)]++;
             m_MemoryUsageByType[static_cast<sizet>(ResourceType::Framebuffer)] += memoryUsage;
-            OLO_CORE_TRACE("Registered NEW framebuffer: {} (ID: {})", name, rendererID);
         }
         else
         {

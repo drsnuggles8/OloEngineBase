@@ -270,11 +270,9 @@ namespace OloEngine
 
         // Non-copyable
         ShaderDebugger(const ShaderDebugger&) = delete;
-        ShaderDebugger& operator=(const ShaderDebugger&) = delete;
-
-        // UI rendering methods
+        ShaderDebugger& operator=(const ShaderDebugger&) = delete;        // UI rendering methods
         void RenderShaderList();
-        void RenderShaderDetails(ShaderInfo& shaderInfo);
+        void RenderShaderDetails(const ShaderInfo& shaderInfo);
         void RenderSourceCode(const ShaderInfo& shaderInfo);
         void RenderUniforms(const ShaderInfo& shaderInfo);
         void RenderPerformanceMetrics(const ShaderInfo& shaderInfo);
