@@ -714,8 +714,7 @@ namespace OloEngine
         f32 currentFPS = CalculateFrameRate();
         return currentFPS >= (targetFPS * 0.95f); // 5% tolerance
     }
-    
-    // PerformanceCounter implementation
+
     void RendererProfiler::PerformanceCounter::AddSample(f64 value)
     {
         m_Value = value;
@@ -729,15 +728,21 @@ namespace OloEngine
         // Update running average
         m_Average = ((m_Average * (m_SampleCount - 1)) + value) / m_SampleCount;
         
-        // Add to history
-        if (m_History.size() >= 120) // Keep last 2 seconds at 60fps
+        // Initialize history buffer on first use
+        if (m_History.empty())
         {
-            m_History.erase(m_History.begin());
+            m_History.resize(OLO_HISTORY_SIZE, 0.0f);
         }
-        m_History.push_back((f32)value);
+        
+        // Add to ring buffer history - O(1) operation
+        m_History[m_HistoryIndex] = (f32)value;
+        m_HistoryIndex = (m_HistoryIndex + 1) % OLO_HISTORY_SIZE;
+        
+        // Track how many valid samples we have (up to buffer size)
+        if (m_HistoryCount < OLO_HISTORY_SIZE)
+            m_HistoryCount++;
     }
-    
-    void RendererProfiler::PerformanceCounter::Reset()
+      void RendererProfiler::PerformanceCounter::Reset()
     {
         m_Value = 0.0;
         m_Min = DBL_MAX;
@@ -745,6 +750,36 @@ namespace OloEngine
         m_Average = 0.0;
         m_SampleCount = 0;
         m_History.clear();
+        m_HistoryIndex = 0;
+        m_HistoryCount = 0;
+    }
+    
+    void RendererProfiler::PerformanceCounter::GetHistoryInOrder(std::vector<f32>& outHistory) const
+    {
+        if (m_HistoryCount == 0)
+        {
+            outHistory.clear();
+            return;
+        }
+        
+        outHistory.resize(m_HistoryCount);
+        
+        // Copy data in chronological order (oldest to newest)
+        for (u32 i = 0; i < m_HistoryCount; ++i)
+        {
+            u32 sourceIndex;
+            if (m_HistoryCount < OLO_HISTORY_SIZE)
+            {
+                // Buffer not yet full, data starts from index 0
+                sourceIndex = i;
+            }
+            else
+            {
+                // Buffer is full, start from the oldest sample
+                sourceIndex = (m_HistoryIndex + i) % OLO_HISTORY_SIZE;
+            }
+            outHistory[i] = m_History[sourceIndex];
+        }
     }
     
     void RendererProfiler::FrameData::Reset()
@@ -955,9 +990,9 @@ namespace OloEngine
                     
                     ImGui::TableSetColumnIndex(1);
                     // Color code frame times
-                    if (frame.m_FrameData.m_FrameTime > 16.67f) // > 60 FPS
+                    if (frame.m_FrameData.m_FrameTime > 16.67f) // < 60 FPS
                         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%.2fms", frame.m_FrameData.m_FrameTime);
-                    else if (frame.m_FrameData.m_FrameTime > 11.11f) // > 90 FPS
+                    else if (frame.m_FrameData.m_FrameTime > 11.11f) // < 90 FPS
                         ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1.0f), "%.2fms", frame.m_FrameData.m_FrameTime);
                     else
                         ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%.2fms", frame.m_FrameData.m_FrameTime);

@@ -597,7 +597,8 @@ namespace OloEngine
      */
     void ShaderDebugger::AnalyzeSPIRVFromWords(const std::vector<u32>& spirvWords, u32& instructionCount) const
     {
-        instructionCount = 0;        if (spirvWords.size() < 5) // Minimum SPIR-V header size (5 words)
+        instructionCount = 0;
+		if (spirvWords.size() < 5) // Minimum SPIR-V header size (5 words)
         {
             return;
         }

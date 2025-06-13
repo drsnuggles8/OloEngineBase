@@ -247,6 +247,15 @@ namespace OloEngine
         std::string FormatMemorySize(sizet bytes) const;
         const char* GetResourceTypeName(ResourceType type) const;
         const char* GetBufferTargetName(GLenum target) const;
+        
+        // Texture memory calculation utilities
+        sizet CalculateAccurateTextureMemoryUsage(u32 textureId, GLenum target, GLenum internalFormat, 
+                                                 u32 width, u32 height, u32 mipLevels) const;
+        sizet CalculateCompressedTextureMemory(u32 textureId, GLenum target, GLenum internalFormat, 
+                                              u32 width, u32 height, u32 mipLevels) const;
+        sizet CalculateUncompressedTextureMemory(u32 width, u32 height, u32 bytesPerPixel, u32 mipLevels) const;
+        u32 GetUncompressedBytesPerPixel(GLenum internalFormat) const;
+        u32 GetCompressedBlockSize(GLenum internalFormat) const;
 
     private:
         std::unordered_map<u32, std::unique_ptr<ResourceInfo>> m_Resources;

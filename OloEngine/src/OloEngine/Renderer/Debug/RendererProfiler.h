@@ -49,8 +49,7 @@ namespace OloEngine
             MetricType m_Type;
             std::chrono::high_resolution_clock::time_point m_StartTime;
         };
-        
-        // Performance counter for custom metrics
+          // Performance counter for custom metrics
         struct PerformanceCounter
         {
             f64 m_Value = 0.0;
@@ -58,10 +57,19 @@ namespace OloEngine
             f64 m_Max = 0.0;
             f64 m_Average = 0.0;
             u32 m_SampleCount = 0;
+            
+            // Ring buffer for history (2 seconds at 60fps)
+            static constexpr u32 OLO_HISTORY_SIZE = 120;
             std::vector<f32> m_History;
+            u32 m_HistoryIndex = 0;
+            u32 m_HistoryCount = 0; // Tracks how many valid samples we have
             
             void AddSample(f64 value);
             void Reset();
+            
+            // Helper method to get history in chronological order (oldest to newest)
+            // Useful for display purposes like ImGui::PlotLines
+            void GetHistoryInOrder(std::vector<f32>& outHistory) const;
         };
         
         // Frame performance data

@@ -247,13 +247,13 @@ namespace OloEngine
     }      void RendererMemoryTracker::UpdateStats()
     {
         OLO_PROFILE_FUNCTION();        
-        f64 currentTime = DebugUtils::GetCurrentTimeSeconds();        if (currentTime - m_LastUpdateTime < m_RefreshInterval)
+        f64 currentTime = DebugUtils::GetCurrentTimeSeconds();
+		if (currentTime - m_LastUpdateTime < m_RefreshInterval)
             return;
-              std::lock_guard<std::mutex> lock(m_Mutex);
-        
-        // Use existing method to avoid code duplication
-        sizet totalMemory = GetTotalMemoryUsageUnlocked();
-        
+
+        std::lock_guard<std::mutex> lock(m_Mutex);
+
+        sizet totalMemory = GetTotalMemoryUsageUnlocked();        
         sizet gpuMemory = 0;
         sizet cpuMemory = 0;
         

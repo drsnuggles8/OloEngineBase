@@ -506,15 +506,20 @@ namespace OloEngine
             case GL_RGBA32UI:
                 bytesPerPixel = 16;
                 break;
-        }
+		}
         
-        info.m_MemoryUsage = static_cast<sizet>(width * height * bytesPerPixel);        
         // Check for mip levels using DSA
         GLint maxLevel;
         glGetTextureParameteriv(info.m_RendererID, GL_TEXTURE_MAX_LEVEL, &maxLevel);
         info.m_MipLevels = static_cast<u32>(maxLevel + 1);
         info.m_HasMips = maxLevel > 0;
-    }    void GPUResourceInspector::QueryTextureCubemapInfo(TextureInfo& info)
+        
+        // Calculate accurate memory usage including compression and mip levels
+        info.m_MemoryUsage = CalculateAccurateTextureMemoryUsage(info.m_RendererID, GL_TEXTURE_2D, 
+                                                               info.m_InternalFormat, 
+                                                               info.m_Width, info.m_Height, 
+                                                               info.m_MipLevels);
+    }void GPUResourceInspector::QueryTextureCubemapInfo(TextureInfo& info)
     {
         // Modern OpenGL 4.5+ DSA approach - no texture binding required
         GLint width, height, internalFormat;
@@ -650,15 +655,18 @@ namespace OloEngine
             case GL_RGBA32I:
             case GL_RGBA32UI:
                 bytesPerPixel = 16;
-                break;
-        }
+                break;        }
         
-        info.m_MemoryUsage = static_cast<sizet>(width * height * bytesPerPixel * 6); // 6 faces        
         // Check for mip levels using DSA
         GLint maxLevel;
         glGetTextureParameteriv(info.m_RendererID, GL_TEXTURE_MAX_LEVEL, &maxLevel);
         info.m_MipLevels = static_cast<u32>(maxLevel + 1);
         info.m_HasMips = maxLevel > 0;
+          // Calculate accurate memory usage for cubemap (6 faces) including compression and mip levels
+        info.m_MemoryUsage = CalculateAccurateTextureMemoryUsage(info.m_RendererID, GL_TEXTURE_CUBE_MAP, 
+                                                               info.m_InternalFormat, 
+                                                               info.m_Width, info.m_Height, 
+                                                               info.m_MipLevels);
     }
 
     void GPUResourceInspector::QueryBufferInfo(BufferInfo& info)
@@ -1876,10 +1884,266 @@ namespace OloEngine
         else
         {
             OLO_CORE_ERROR("Failed to map PBO data for texture {}", request.m_TextureID);
-        }
-        
+        }        
         // Unmap and clean up
         glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
         glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    }    sizet GPUResourceInspector::CalculateAccurateTextureMemoryUsage(u32 textureId, GLenum target, 
+                                                                   GLenum internalFormat, u32 width, 
+                                                                   u32 height, u32 mipLevels) const
+    {
+        sizet totalMemory = 0;
+        
+        // Check if format is compressed
+        GLint isCompressed = GL_FALSE;
+        glGetInternalformativ(target, internalFormat, GL_TEXTURE_COMPRESSED, 1, &isCompressed);
+        
+        if (isCompressed == GL_TRUE)
+        {
+            // Handle compressed textures - calculate based on block sizes
+            totalMemory = CalculateCompressedTextureMemory(textureId, target, internalFormat, width, height, mipLevels);
+        }
+        else
+        {
+            // Handle uncompressed textures - calculate based on bytes per pixel
+            u32 bytesPerPixel = GetUncompressedBytesPerPixel(internalFormat);
+            totalMemory = CalculateUncompressedTextureMemory(width, height, bytesPerPixel, mipLevels);
+            
+            // For cubemaps, multiply by 6 faces
+            if (target == GL_TEXTURE_CUBE_MAP)
+            {
+                totalMemory *= 6;
+            }
+        }
+        
+        return totalMemory;
+    }    sizet GPUResourceInspector::CalculateCompressedTextureMemory(u32 textureId, GLenum target, 
+                                                               GLenum internalFormat, u32 width, 
+                                                               u32 height, u32 mipLevels) const
+    {
+        sizet totalMemory = 0;
+        u32 blockSize = GetCompressedBlockSize(internalFormat);
+        
+        // Determine number of faces
+        u32 faceCount = (target == GL_TEXTURE_CUBE_MAP) ? 6 : 1;
+        
+        for (u32 face = 0; face < faceCount; ++face)
+        {
+            for (u32 level = 0; level < mipLevels; ++level)
+            {
+                // Get actual dimensions for this mip level and face
+                GLint levelWidth, levelHeight, compressedSize;
+                
+                if (target == GL_TEXTURE_CUBE_MAP)
+                {
+                    // Query each face of the cubemap (GL_TEXTURE_CUBE_MAP_POSITIVE_X + face)
+                    GLenum faceTarget = GL_TEXTURE_CUBE_MAP_POSITIVE_X + face;
+                    glGetTextureLevelParameteriv(textureId, level, GL_TEXTURE_WIDTH, &levelWidth);
+                    glGetTextureLevelParameteriv(textureId, level, GL_TEXTURE_HEIGHT, &levelHeight);
+                    glGetTextureLevelParameteriv(textureId, level, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &compressedSize);
+                }
+                else
+                {
+                    glGetTextureLevelParameteriv(textureId, level, GL_TEXTURE_WIDTH, &levelWidth);
+                    glGetTextureLevelParameteriv(textureId, level, GL_TEXTURE_HEIGHT, &levelHeight);
+                    glGetTextureLevelParameteriv(textureId, level, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &compressedSize);
+                }
+                
+                if (levelWidth > 0 && levelHeight > 0)
+                {
+                    // Use actual compressed size if available, otherwise calculate
+                    if (compressedSize > 0)
+                    {
+                        totalMemory += static_cast<sizet>(compressedSize);
+                    }
+                    else
+                    {
+                        // Calculate based on block compression
+                        u32 blocksX = (static_cast<u32>(levelWidth) + 3) / 4;
+                        u32 blocksY = (static_cast<u32>(levelHeight) + 3) / 4;
+                        totalMemory += static_cast<sizet>(blocksX * blocksY * blockSize);
+                    }
+                }
+            }
+        }
+        
+        return totalMemory;
+    }
+
+    sizet GPUResourceInspector::CalculateUncompressedTextureMemory(u32 width, u32 height, 
+                                                                  u32 bytesPerPixel, u32 mipLevels) const
+    {
+        sizet totalMemory = 0;
+        u32 currentWidth = width;
+        u32 currentHeight = height;
+        
+        for (u32 level = 0; level < mipLevels; ++level)
+        {
+            totalMemory += static_cast<sizet>(currentWidth * currentHeight * bytesPerPixel);
+            
+            // Calculate next mip level dimensions
+            currentWidth = std::max(1u, currentWidth / 2);
+            currentHeight = std::max(1u, currentHeight / 2);
+        }
+        
+        return totalMemory;
+    }
+
+    u32 GPUResourceInspector::GetUncompressedBytesPerPixel(GLenum internalFormat) const
+    {
+        switch (internalFormat)
+        {
+            // 8-bit single channel
+            case GL_R8:
+            case GL_R8_SNORM:
+            case GL_R8I:
+            case GL_R8UI:
+                return 1;
+                
+            // 16-bit single channel or 8-bit dual channel
+            case GL_RG8:
+            case GL_RG8_SNORM:
+            case GL_RG8I:
+            case GL_RG8UI:
+            case GL_R16:
+            case GL_R16F:
+            case GL_R16I:
+            case GL_R16UI:
+            case GL_DEPTH_COMPONENT16:
+                return 2;
+                
+            // 24-bit RGB
+            case GL_RGB8:
+            case GL_RGB8_SNORM:
+            case GL_RGB8I:
+            case GL_RGB8UI:
+            case GL_SRGB8:
+            case GL_DEPTH_COMPONENT24:
+                return 3;
+                
+            // 32-bit formats (RGBA8, RG16, R32, depth32)
+            case GL_RGBA8:
+            case GL_RGBA8_SNORM:
+            case GL_RGBA8I:
+            case GL_RGBA8UI:
+            case GL_SRGB8_ALPHA8:
+            case GL_RG16:
+            case GL_RG16F:
+            case GL_RG16I:
+            case GL_RG16UI:
+            case GL_R32F:
+            case GL_R32I:
+            case GL_R32UI:
+            case GL_DEPTH_COMPONENT32:
+            case GL_DEPTH_COMPONENT32F:
+            case GL_DEPTH24_STENCIL8:
+                return 4;
+                
+            // 48-bit RGB16
+            case GL_RGB16:
+            case GL_RGB16F:
+            case GL_RGB16I:
+            case GL_RGB16UI:
+                return 6;
+                
+            // 64-bit formats (RGBA16, RG32, depth32f+stencil8)
+            case GL_RGBA16:
+            case GL_RGBA16F:
+            case GL_RGBA16I:
+            case GL_RGBA16UI:
+            case GL_RG32F:
+            case GL_RG32I:
+            case GL_RG32UI:
+            case GL_DEPTH32F_STENCIL8:
+                return 8;
+                
+            // 96-bit RGB32
+            case GL_RGB32F:
+            case GL_RGB32I:
+            case GL_RGB32UI:
+                return 12;
+                
+            // 128-bit RGBA32
+            case GL_RGBA32F:
+            case GL_RGBA32I:
+            case GL_RGBA32UI:
+                return 16;
+                
+            default:
+                OLO_CORE_WARN("GPUResourceInspector: Unknown texture format 0x{:X}, assuming 4 bytes per pixel", internalFormat);
+                return 4;
+        }
+    }
+
+    u32 GPUResourceInspector::GetCompressedBlockSize(GLenum internalFormat) const
+    {
+        switch (internalFormat)
+        {
+            // DXT1/BC1 - 4x4 blocks, 8 bytes per block (RGB or RGBA with 1-bit alpha)
+            case GL_COMPRESSED_RGB_S3TC_DXT1_EXT:
+            case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT:
+            case GL_COMPRESSED_SRGB_S3TC_DXT1_EXT:
+            case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT:
+                return 8;
+                
+            // DXT3/BC2 - 4x4 blocks, 16 bytes per block (RGBA with explicit alpha)
+            case GL_COMPRESSED_RGBA_S3TC_DXT3_EXT:
+            case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT:
+                return 16;
+                
+            // DXT5/BC3 - 4x4 blocks, 16 bytes per block (RGBA with interpolated alpha)
+            case GL_COMPRESSED_RGBA_S3TC_DXT5_EXT:
+            case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT:
+                return 16;
+                
+            // BC4/ATI1 - 4x4 blocks, 8 bytes per block (single channel)
+            case GL_COMPRESSED_RED_RGTC1:
+            case GL_COMPRESSED_SIGNED_RED_RGTC1:
+                return 8;
+                
+            // BC5/ATI2 - 4x4 blocks, 16 bytes per block (dual channel)
+            case GL_COMPRESSED_RG_RGTC2:
+            case GL_COMPRESSED_SIGNED_RG_RGTC2:
+                return 16;
+                
+            // BC6H - 4x4 blocks, 16 bytes per block (HDR RGB)
+            case GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT:
+            case GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT:
+                return 16;
+                
+            // BC7 - 4x4 blocks, 16 bytes per block (high quality RGBA)
+            case GL_COMPRESSED_RGBA_BPTC_UNORM:
+            case GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM:
+                return 16;
+                
+            // ETC2 formats - 4x4 blocks
+            case GL_COMPRESSED_RGB8_ETC2:
+            case GL_COMPRESSED_SRGB8_ETC2:
+            case GL_COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_ETC2:
+            case GL_COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2:
+                return 8;
+                
+            case GL_COMPRESSED_RGBA8_ETC2_EAC:
+            case GL_COMPRESSED_SRGB8_ALPHA8_ETC2_EAC:
+                return 16;
+                
+            // EAC formats - 4x4 blocks
+            case GL_COMPRESSED_R11_EAC:
+            case GL_COMPRESSED_SIGNED_R11_EAC:
+                return 8;
+                
+            case GL_COMPRESSED_RG11_EAC:
+            case GL_COMPRESSED_SIGNED_RG11_EAC:
+                return 16;
+                
+            // ASTC formats - variable block sizes (using 4x4 as most common)
+            case GL_COMPRESSED_RGBA_ASTC_4x4_KHR:
+            case GL_COMPRESSED_SRGB8_ALPHA8_ASTC_4x4_KHR:
+                return 16;
+                
+            default:
+                OLO_CORE_WARN("GPUResourceInspector: Unknown compressed format 0x{:X}, assuming 16 bytes per block", internalFormat);
+                return 16;
+        }
     }
 }
