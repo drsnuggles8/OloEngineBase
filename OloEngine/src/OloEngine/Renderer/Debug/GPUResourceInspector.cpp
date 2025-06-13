@@ -1,4 +1,5 @@
 #include "GPUResourceInspector.h"
+#include "DebugUtils.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Utils/PlatformUtils.h"
@@ -7,15 +8,6 @@
 #include <sstream>
 #include <iomanip>
 #include <chrono>
-
-namespace
-{
-    // Helper function to get current time as seconds since epoch
-    f64 GetCurrentTimeSeconds()
-    {
-        return std::chrono::duration<f64>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-    }
-}
 
 namespace OloEngine
 {
@@ -82,11 +74,10 @@ namespace OloEngine
         std::lock_guard<std::mutex> lock(m_ResourceMutex);
         
         auto textureInfo = CreateScope<TextureInfo>();
-        textureInfo->m_RendererID = rendererID;
-        textureInfo->m_Type = ResourceType::Texture2D;
+        textureInfo->m_RendererID = rendererID;        textureInfo->m_Type = ResourceType::Texture2D;
         textureInfo->m_Name = name;
         textureInfo->m_DebugName = debugName.empty() ? name : debugName;
-        textureInfo->m_CreationTime = GetCurrentTimeSeconds();
+        textureInfo->m_CreationTime = DebugUtils::GetCurrentTimeSeconds();
 
           // Query texture properties immediately
         QueryTextureInfo(*textureInfo);
@@ -124,11 +115,10 @@ namespace OloEngine
         std::lock_guard<std::mutex> lock(m_ResourceMutex);
         
         auto textureInfo = CreateScope<TextureInfo>();
-        textureInfo->m_RendererID = rendererID;
-        textureInfo->m_Type = ResourceType::TextureCubemap;
+        textureInfo->m_RendererID = rendererID;        textureInfo->m_Type = ResourceType::TextureCubemap;
         textureInfo->m_Name = name;
         textureInfo->m_DebugName = debugName.empty() ? name : debugName;
-        textureInfo->m_CreationTime = GetCurrentTimeSeconds();
+        textureInfo->m_CreationTime = DebugUtils::GetCurrentTimeSeconds();
           // Query cubemap properties
         QueryTextureCubemapInfo(*textureInfo);
         
@@ -167,11 +157,10 @@ namespace OloEngine
         std::lock_guard<std::mutex> lock(m_ResourceMutex);
         
         auto bufferInfo = CreateScope<BufferInfo>();
-        bufferInfo->m_RendererID = rendererID;
-        bufferInfo->m_Target = target;
+        bufferInfo->m_RendererID = rendererID;        bufferInfo->m_Target = target;
         bufferInfo->m_Name = name;
         bufferInfo->m_DebugName = debugName.empty() ? name : debugName;
-        bufferInfo->m_CreationTime = GetCurrentTimeSeconds();
+        bufferInfo->m_CreationTime = DebugUtils::GetCurrentTimeSeconds();
         
         // Determine resource type based on target
         switch (target)
@@ -231,11 +220,10 @@ namespace OloEngine
         std::lock_guard<std::mutex> lock(m_ResourceMutex);
         
         auto framebufferInfo = CreateScope<FramebufferInfo>();
-        framebufferInfo->m_RendererID = rendererID;
-        framebufferInfo->m_Type = ResourceType::Framebuffer;
+        framebufferInfo->m_RendererID = rendererID;        framebufferInfo->m_Type = ResourceType::Framebuffer;
         framebufferInfo->m_Name = name;
         framebufferInfo->m_DebugName = debugName.empty() ? name : debugName;
-        framebufferInfo->m_CreationTime = GetCurrentTimeSeconds();
+        framebufferInfo->m_CreationTime = DebugUtils::GetCurrentTimeSeconds();
           // Query framebuffer properties
         QueryFramebufferInfo(*framebufferInfo);
         
@@ -874,10 +862,9 @@ namespace OloEngine
         // Add to download queue
         TextureDownloadRequest request;
         request.m_TextureID = info.m_RendererID;
-        request.m_MipLevel = mipLevel;
-        request.m_PBO = pbo;
+        request.m_MipLevel = mipLevel;        request.m_PBO = pbo;
         request.m_InProgress = true;
-        request.m_RequestTime = GetCurrentTimeSeconds();
+        request.m_RequestTime = DebugUtils::GetCurrentTimeSeconds();
         
         m_TextureDownloads.push_back(request);
         

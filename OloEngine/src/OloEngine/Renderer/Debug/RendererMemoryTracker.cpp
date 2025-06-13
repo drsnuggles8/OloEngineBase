@@ -1,4 +1,5 @@
 #include "RendererMemoryTracker.h"
+#include "DebugUtils.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Application.h"
 
@@ -10,17 +11,8 @@
 #include <chrono>
 #include <cmath>
 
-namespace
-{
-    // Helper function to get current time as seconds since epoch
-    f64 GetCurrentTimeSeconds()
-    {
-        return std::chrono::duration<f64>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-    }
-}
-
 namespace OloEngine
-{    RendererMemoryTracker& RendererMemoryTracker::GetInstance()
+{RendererMemoryTracker& RendererMemoryTracker::GetInstance()
     {
         static RendererMemoryTracker s_Instance;
         return s_Instance;
@@ -122,7 +114,7 @@ namespace OloEngine
         std::fill(m_CPUMemoryHistory.begin(), m_CPUMemoryHistory.end(), 0.0f);
         
         m_HistoryIndex = 0;
-        m_LastUpdateTime = GetCurrentTimeSeconds();
+        m_LastUpdateTime = DebugUtils::GetCurrentTimeSeconds();
         
         // Reset initialization flag so Initialize() can be called again
         m_IsInitialized.store(false);
@@ -185,7 +177,7 @@ namespace OloEngine
         info.m_Name = name;
         info.m_File = file ? file : "Unknown";
         info.m_Line = line;
-        info.m_Timestamp = GetCurrentTimeSeconds();
+        info.m_Timestamp = DebugUtils::GetCurrentTimeSeconds();
         info.m_IsGPU = isGPU;
         
         // Check for double allocation
@@ -256,11 +248,10 @@ namespace OloEngine
             // Catch any exceptions during shutdown
             OLO_CORE_ERROR("RendererMemoryTracker: Exception during deallocation tracking, possibly during shutdown");
         }
-    }
-      void RendererMemoryTracker::UpdateStats()
+    }      void RendererMemoryTracker::UpdateStats()
     {
         OLO_PROFILE_FUNCTION();        
-        f64 currentTime = GetCurrentTimeSeconds();        if (currentTime - m_LastUpdateTime < m_RefreshInterval)
+        f64 currentTime = DebugUtils::GetCurrentTimeSeconds();        if (currentTime - m_LastUpdateTime < m_RefreshInterval)
             return;
               std::lock_guard<std::mutex> lock(m_Mutex);
         
@@ -440,11 +431,10 @@ namespace OloEngine
             ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 80.0f);
             ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 100.0f);
             ImGui::TableSetupColumn("Location", ImGuiTableColumnFlags_WidthFixed, 60.0f);
-            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("File", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);            ImGui::TableSetupColumn("File", ImGuiTableColumnFlags_WidthFixed, 150.0f);
             ImGui::TableSetupColumn("Age", ImGuiTableColumnFlags_WidthFixed, 80.0f);            ImGui::TableHeadersRow();
             
-            f64 currentTime = GetCurrentTimeSeconds();
+            f64 currentTime = DebugUtils::GetCurrentTimeSeconds();
             for (const auto& [address, info] : m_Allocations)
             {
                 // Apply filters - fix the type filter mapping
@@ -516,10 +506,9 @@ namespace OloEngine
                 ImGui::Text("Size: %s (%zu bytes)", DebugUtils::FormatMemorySize(info.m_Size).c_str(), info.m_Size);
                 ImGui::Text("Type: %s", GetResourceTypeName(info.m_Type).c_str());
                 ImGui::Text("Location: %s", info.m_IsGPU ? "GPU" : "CPU");
-                ImGui::Text("Name: %s", info.m_Name.c_str());
-                ImGui::Text("Source: %s:%u", info.m_File.c_str(), info.m_Line);
+                ImGui::Text("Name: %s", info.m_Name.c_str());                ImGui::Text("Source: %s:%u", info.m_File.c_str(), info.m_Line);
                 
-                f64 currentTime2 = GetCurrentTimeSeconds();
+                f64 currentTime2 = DebugUtils::GetCurrentTimeSeconds();
                 f64 age = currentTime2 - info.m_Timestamp;
                 ImGui::Text("Age: %.2f seconds", age);
                 ImGui::Text("Allocated at: %.6f", info.m_Timestamp);
@@ -553,16 +542,15 @@ namespace OloEngine
         {
             m_LeakDetectionThreshold = static_cast<f64>(threshold);
         }
-        
-        if (ImGui::Button("Scan for Leaks"))
+          if (ImGui::Button("Scan for Leaks"))
         {
-            m_LastLeakCheck = GetCurrentTimeSeconds();
+            m_LastLeakCheck = DebugUtils::GetCurrentTimeSeconds();
         }
           ImGui::Separator();
         
         // Detect and display potential leaks inline (avoid double locking)
         std::vector<LeakInfo> leaks;
-        f64 currentTime = GetCurrentTimeSeconds();
+        f64 currentTime = DebugUtils::GetCurrentTimeSeconds();
         
         for (const auto& [address, info] : m_Allocations)
         {
@@ -756,9 +744,8 @@ namespace OloEngine
     
     std::vector<RendererMemoryTracker::LeakInfo> RendererMemoryTracker::DetectLeaks() const
     {
-        std::lock_guard<std::mutex> lock(m_Mutex);
-          std::vector<LeakInfo> leaks;
-        f64 currentTime = GetCurrentTimeSeconds();
+        std::lock_guard<std::mutex> lock(m_Mutex);          std::vector<LeakInfo> leaks;
+        f64 currentTime = DebugUtils::GetCurrentTimeSeconds();
         
         for (const auto& [address, info] : m_Allocations)
         {
@@ -854,9 +841,8 @@ namespace OloEngine
                 }
             }
             
-            file << "\nDetailed Allocations:\n";            file << "Address,Size,Type,Location,Name,File,Line,Age\n";
-            
-            f64 currentTime = GetCurrentTimeSeconds();
+            file << "\nDetailed Allocations:\n";            file << "Address,Size,Type,Location,Name,File,Line,Age\n";            
+            f64 currentTime = DebugUtils::GetCurrentTimeSeconds();
             for (const auto& [address, info] : m_Allocations)
             {
                 f64 age = currentTime - info.m_Timestamp;

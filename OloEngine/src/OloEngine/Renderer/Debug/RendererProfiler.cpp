@@ -1,4 +1,5 @@
 #include "RendererProfiler.h"
+#include "DebugUtils.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Application.h"
 
@@ -7,15 +8,6 @@
 #include <fstream>
 #include <iomanip>
 #include <sstream>
-
-namespace
-{
-    // Helper function to get current time as seconds since epoch
-    f64 GetCurrentTimeSeconds()
-    {
-        return std::chrono::duration<f64>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-    }
-}
 
 namespace OloEngine
 {
@@ -38,7 +30,7 @@ namespace OloEngine
         // Initialize frame history
         m_FrameHistory.resize(OLO_FRAME_HISTORY_SIZE);
         
-        m_LastUpdateTime = GetCurrentTimeSeconds();
+        m_LastUpdateTime = DebugUtils::GetCurrentTimeSeconds();
         m_LastFrameTime = std::chrono::high_resolution_clock::now();
         
         OLO_CORE_INFO("Renderer Profiler initialized");

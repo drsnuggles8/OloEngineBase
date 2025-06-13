@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include <imgui.h>
 #include <string>
+#include <chrono>
 
 namespace OloEngine
 {
@@ -62,8 +63,17 @@ namespace OloEngine
          * @param label Button label
          * @param confirmationText Confirmation dialog text
          * @return True if reset was confirmed
+         */ 
+		bool RenderResetButton(const char* label, const char* confirmationText = "Are you sure you want to reset all data?");
+
+        /**
+         * @brief Get current time as seconds since epoch
+         * @return Time in seconds as floating point
          */
-        bool RenderResetButton(const char* label, const char* confirmationText = "Are you sure you want to reset all data?");
+        inline f64 GetCurrentTimeSeconds()
+        {
+            return std::chrono::duration<f64>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+        }
 
         /**
          * @brief Get standard color for UI elements

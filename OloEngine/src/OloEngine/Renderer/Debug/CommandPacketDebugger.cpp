@@ -1,4 +1,5 @@
 #include "CommandPacketDebugger.h"
+#include "DebugUtils.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Renderer/Commands/DrawKey.h"
@@ -7,15 +8,6 @@
 #include <fstream>
 #include <iomanip>
 #include <sstream>
-
-namespace
-{
-    // Helper function to get current time as seconds since epoch
-    f64 GetCurrentTimeSeconds()
-    {
-        return std::chrono::duration<f64>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-    }
-}
 
 namespace OloEngine
 {
@@ -84,12 +76,11 @@ namespace OloEngine
                 }
                 ImGui::EndMenuBar();
             }
-            
-            // Update frame stats if auto-refresh is enabled
+              // Update frame stats if auto-refresh is enabled
             if (m_AutoRefresh)
             {
                 static f32 s_LastUpdate = 0.0f;
-                f32 currentTime = (f32)GetCurrentTimeSeconds();
+                f32 currentTime = (f32)DebugUtils::GetCurrentTimeSeconds();
                 if (currentTime - s_LastUpdate >= (1.0f / m_RefreshRate))
                 {
                     UpdateFrameStats();

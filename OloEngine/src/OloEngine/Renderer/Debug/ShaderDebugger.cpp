@@ -372,13 +372,12 @@ namespace OloEngine
             return;
         }
 
-        ShaderInfo& info = it->second;        try
+        ShaderInfo& info = it->second;
+		try
         {
             spirv_cross::Compiler compiler(spirvData);
             const spirv_cross::ShaderResources resources = compiler.get_shader_resources();
 
-            // Clear existing reflection data unconditionally (all stages contribute to shared collections)
-            // This prevents duplicate entries during hot-reloads when stages are compiled separately
             info.m_UniformBuffers.clear();
             info.m_Samplers.clear();
 
