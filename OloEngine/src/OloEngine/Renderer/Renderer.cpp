@@ -3,6 +3,7 @@
 
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 
 
 namespace OloEngine
@@ -26,7 +27,6 @@ namespace OloEngine
 				break;
 		}
 	}
-
 	void Renderer::Shutdown()
 	{
 		switch (s_RendererType)
@@ -38,6 +38,9 @@ namespace OloEngine
 				Renderer3D::Shutdown();
 				break;
 		}
+		
+		// Shutdown memory tracker after all renderers are shut down
+		RendererMemoryTracker::GetInstance().Shutdown();
 	}
 
 	void Renderer::OnWindowResize(const u32 width, const u32 height)

@@ -2,14 +2,17 @@
 #include "OloEngine/Renderer/ShaderLibrary.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Renderer.h"
+#include "OloEngine/Renderer/Debug/ShaderDebugger.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 
 namespace OloEngine
-{
-	void ShaderLibrary::Add(const std::string& name, const Ref<Shader>& shader)
+{	void ShaderLibrary::Add(const std::string& name, const Ref<Shader>& shader)
 	{
 		OLO_CORE_ASSERT(!Exists(name), "Shader already exists!");
 		m_Shaders[name] = shader;
+		
+		// Register with shader debugger
+		OLO_SHADER_REGISTER(shader);
 	}
 
 	void ShaderLibrary::Add(const Ref<Shader>& shader)

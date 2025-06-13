@@ -49,10 +49,10 @@ namespace OloEngine
 		// UI Panels
 		void UI_MenuBar();
 		void UI_Toolbar();
-		void UI_Viewport();
-		void UI_Gizmos() const;
+		void UI_Viewport();		void UI_Gizmos() const;
 		void UI_RendererStats();
 		void UI_Settings();
+		void UI_DebugTools();
 		void UI_ChildPanels();
 
 		void SetEditorScene(const Ref<Scene>& scene);
@@ -89,8 +89,11 @@ namespace OloEngine
 		glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
 
 		int m_GizmoType = -1;
-
 		bool m_ShowPhysicsColliders = false;
+
+		// Debug windows
+		bool m_ShowShaderDebugger = false;
+		bool m_ShowGPUResourceInspector = false;
 
 		enum class SceneState
 		{

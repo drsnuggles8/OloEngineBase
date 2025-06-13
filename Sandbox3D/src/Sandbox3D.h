@@ -8,6 +8,11 @@
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugger.h"
+#include "OloEngine/Renderer/Debug/CommandPacketDebugger.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
+#include "OloEngine/Renderer/Debug/RendererProfiler.h"
+#include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
+#include "OloEngine/Renderer/Debug/ShaderDebugger.h"
 
 class Sandbox3D : public OloEngine::Layer
 {
@@ -22,11 +27,20 @@ public:
 	void OnEvent(OloEngine::Event& e) override;
 
 private:
+	// UI helper functions for different sections
+	void RenderPerformanceInfo();
+	void RenderSceneSettings();
+	void RenderLightingSettings();
+	void RenderMaterialSettings();
+	void RenderStateTestSettings();
+	void RenderDebuggingTools();
+	
 	// UI helper functions for different light types
 	void RenderDirectionalLightUI();
 	void RenderPointLightUI();
 	void RenderSpotlightUI();
     void RenderGraphDebuggerUI();
+    void RenderDebuggingUI();
     void RenderStateTestObjects(f32 rotationAngle);
 
 private:
@@ -81,15 +95,27 @@ private:
 	// Object type selection
 	int m_PrimitiveTypeIndex = 0;
 	const char* m_PrimitiveNames[3] = { "Cubes", "Spheres", "Mixed" };
-
 	// FPS
 	f32 m_FrameTime = 0.0f;
 	f32 m_FPS = 0.0f;
-    
-    // Render Graph Debugger
+	
+	// Render Graph Debugger
     OloEngine::RenderGraphDebugger m_RenderGraphDebugger;
     bool m_RenderGraphDebuggerOpen = false;
-
+    
+    // Debugging Tools
+    OloEngine::CommandPacketDebugger m_CommandPacketDebugger;
+    OloEngine::RendererMemoryTracker& m_MemoryTracker = OloEngine::RendererMemoryTracker::GetInstance();
+    OloEngine::RendererProfiler& m_RendererProfiler = OloEngine::RendererProfiler::GetInstance();
+    OloEngine::GPUResourceInspector& m_GPUResourceInspector = OloEngine::GPUResourceInspector::GetInstance();
+    OloEngine::ShaderDebugger& m_ShaderDebugger = OloEngine::ShaderDebugger::GetInstance();
+    
+    bool m_ShowCommandPacketDebugger = false;
+    bool m_ShowMemoryTracker = false;
+    bool m_ShowRendererProfiler = false;
+    bool m_ShowGPUResourceInspector = false;
+    bool m_ShowShaderDebugger = false;
+    
     // State testing settings
     bool m_EnableStateTest = true;
     i32 m_StateTestMode = 0;

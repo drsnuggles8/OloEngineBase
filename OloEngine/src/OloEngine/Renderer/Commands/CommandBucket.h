@@ -110,6 +110,12 @@ namespace OloEngine
 		// Get command count
 		sizet GetCommandCount() const { return m_CommandCount; }
 
+		// Debugging methods to access commands for analysis
+		const std::vector<CommandPacket*>& GetSortedCommands() const { return m_SortedCommands; }
+		CommandPacket* GetCommandHead() const { return m_Head; }
+		bool IsSorted() const { return m_IsSorted; }
+		bool IsBatched() const { return m_IsBatched; }
+
 		template<typename T>
 		CommandPacket* CreateDrawCall()
 		{

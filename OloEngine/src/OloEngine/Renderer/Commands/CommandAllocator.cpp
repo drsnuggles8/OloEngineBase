@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "CommandAllocator.h"
 #include "ThreadLocalCache.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include <cstdlib>
 #include <algorithm>
 
@@ -42,7 +43,7 @@ namespace OloEngine
 
         // Increment allocation count
 		m_AllocationCount.fetch_add(1, std::memory_order_relaxed);
-
+        
         // Get thread-local cache and allocate memory
         ThreadLocalCache& cache = GetThreadLocalCache();
         return cache.Allocate(size, COMMAND_ALIGNMENT);
@@ -56,10 +57,10 @@ namespace OloEngine
         std::scoped_lock<std::mutex> lock(m_CachesLock);
 
         // Reset all thread caches
-		for (auto& [threadId, cache] : m_ThreadCaches)
-		{
-			cache.Reset();
-		}
+        for (auto& [threadId, cache] : m_ThreadCaches)
+        {
+            cache.Reset();
+        }
 
         // Reset allocation counter
         m_AllocationCount.store(0);

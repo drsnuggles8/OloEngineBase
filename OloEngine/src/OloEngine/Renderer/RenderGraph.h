@@ -23,9 +23,8 @@ namespace OloEngine
         
         // Only support RenderPass
         void AddPass(const Ref<RenderPass>& pass);
-        
-        // Connect two passes in the graph
-        void ConnectPass(const std::string& outputPass, const std::string& inputPass, u32 outputAttachment = 0);
+          // Connect two passes in the graph
+        void ConnectPass(const std::string& outputPass, const std::string& inputPass);
         
         // Execute all passes in the correct order
         void Execute();

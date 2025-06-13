@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLVertexArray.h"
+#include "OloEngine/Renderer/Debug/RendererProfiler.h"
 
 #include <glad/gl.h>
 
@@ -53,12 +54,12 @@ namespace OloEngine
 
 		glDeleteVertexArrays(1, &m_RendererID);
 	}
-
 	void OpenGLVertexArray::Bind() const
 	{
 		OLO_PROFILE_FUNCTION();
 
 		glBindVertexArray(m_RendererID);
+		RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::BufferBinds, 1);
 	}
 
 	void OpenGLVertexArray::Unbind() const

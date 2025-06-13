@@ -4,6 +4,8 @@
 #include "EditorLayer.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Font.h"
+#include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
+#include "OloEngine/Renderer/Debug/ShaderDebugger.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Scene/SceneSerializer.h"
@@ -198,12 +200,12 @@ namespace OloEngine
 		}
 
 		style.WindowMinSize.x = minWinSizeX;
-
 		UI_MenuBar();
 		UI_Toolbar();
 		UI_Viewport();
 		UI_RendererStats();
 		UI_Settings();
+		UI_DebugTools();
 		UI_ChildPanels();
 
 		ImGui::End();
@@ -272,7 +274,6 @@ namespace OloEngine
 
 			ImGui::EndMenu();
 		}
-
 		if (ImGui::BeginMenu("Shaders"))
 		{
 			if (ImGui::MenuItem("Reload shader", "Ctrl+Shift+R"))
@@ -281,6 +282,14 @@ namespace OloEngine
 				Renderer2D::GetShaderLibrary().ReloadShaders();
 				OLO_INFO("Shaders reloaded!");
 			}
+
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("Debug"))
+		{
+			ImGui::MenuItem("Shader Debugger", nullptr, &m_ShowShaderDebugger);
+			ImGui::MenuItem("GPU Resource Inspector", nullptr, &m_ShowGPUResourceInspector);
 
 			ImGui::EndMenu();
 		}
@@ -519,10 +528,25 @@ namespace OloEngine
 		ImGui::Text("Draw Calls: %d", stats.DrawCalls);
 		ImGui::Text("Quads: %d", stats.QuadCount);
 		ImGui::Text("Vertices: %d", stats.GetTotalVertexCount());
-		ImGui::Text("Indices: %d", stats.GetTotalIndexCount());
-		ImGui::Text("Frame Rate: %.1f FPS", ImGui::GetIO().Framerate);
+		ImGui::Text("Indices: %d", stats.GetTotalIndexCount());		ImGui::Text("Frame Rate: %.1f FPS", ImGui::GetIO().Framerate);
 		ImGui::Text("Frame Time: %.3f ms", 1000.0f / ImGui::GetIO().Framerate);
 		ImGui::End();
+	}
+
+	void EditorLayer::UI_DebugTools()
+	{
+		// Render debug tool windows if enabled
+		#ifdef OLO_DEBUG
+		if (m_ShowShaderDebugger)
+		{
+			ShaderDebugger::GetInstance().RenderDebugView(&m_ShowShaderDebugger, "Shader Debugger");
+		}
+
+		if (m_ShowGPUResourceInspector)
+		{
+			GPUResourceInspector::GetInstance().RenderDebugView(&m_ShowGPUResourceInspector, "GPU Resource Inspector");
+		}
+		#endif
 	}
 
 	void EditorLayer::OnEvent(Event& e)

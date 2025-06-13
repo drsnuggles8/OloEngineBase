@@ -99,14 +99,18 @@ function(olo_set_common_definitions target_name)
     )
 endfunction()
 
-# Configure optimized link options for release builds
-function(olo_set_release_link_options target_name)
+# Configure link options for all builds
+function(olo_set_link_options target_name)
     if(MSVC)
         target_link_options(${target_name} PRIVATE
             $<$<CONFIG:Release>:/INCREMENTAL:NO>
             $<$<CONFIG:Release>:/DEBUG>
             $<$<CONFIG:Release>:/OPT:REF> # Remove unreferenced functions and data
             $<$<CONFIG:Release>:/OPT:ICF> # Identical COMDAT folding
+            # Suppress LNK4099 warnings for missing PDB files from third-party libraries
+            # This is common when linking against precompiled libraries (like Mono) that
+            # don't include debug information, and there's no way for us to fix it
+            /IGNORE:4099
         )
     endif()
 endfunction()
@@ -114,13 +118,12 @@ endfunction()
 # Complete setup for an application target (combines all the above)
 function(olo_configure_app target_name)
     cmake_parse_arguments(PARSE_ARGV 1 ARG "NO_PCH" "PCH_HEADER" "")
-    
-    olo_set_output_directories(${target_name})
+      olo_set_output_directories(${target_name})
     olo_set_debugger_directory(${target_name})
     olo_enable_lto(${target_name})
     olo_set_compiler_options(${target_name})
     olo_set_common_definitions(${target_name})
-    olo_set_release_link_options(${target_name})
+    olo_set_link_options(${target_name})
     
     if(NOT ARG_NO_PCH AND DEFINED ARG_PCH_HEADER)
         olo_enable_pch(${target_name} ${ARG_PCH_HEADER})

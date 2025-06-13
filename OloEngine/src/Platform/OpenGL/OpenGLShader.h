@@ -53,11 +53,11 @@ namespace OloEngine
 		u32 m_RendererID{};
 		std::string m_FilePath;
 		std::string m_Name;
-
 		std::unordered_map<GLenum, std::vector<u32>> m_VulkanSPIRV;
 		std::unordered_map<GLenum, std::vector<u32>> m_OpenGLSPIRV;
 
 		std::unordered_map<GLenum, std::string> m_OpenGLSourceCode;
+		std::unordered_map<GLenum, std::string> m_OriginalSourceCode; // Store original preprocessed source
 	};
 
 }
