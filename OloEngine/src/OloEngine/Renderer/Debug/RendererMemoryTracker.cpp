@@ -208,8 +208,6 @@ namespace OloEngine
             totalUsage += m_TypeUsage[i];
         }
         
-        OLO_CORE_TRACE("RendererMemoryTracker: Current total usage: {} bytes", totalUsage);
-        
         if (totalUsage > m_PeakMemoryUsage)
         {
             m_PeakMemoryUsage = totalUsage;

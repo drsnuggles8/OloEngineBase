@@ -150,10 +150,11 @@ namespace OloEngine
             return;
 
         std::lock_guard<std::mutex> lock(m_ShaderMutex);
-        
         auto it = m_Shaders.find(rendererID);
         if (it != m_Shaders.end())
         {
+            UpdateActiveTime(it->second);
+            
             OLO_CORE_TRACE("Unregistered shader: {0} (ID: {1})", it->second.m_Name, rendererID);
             
             // Clear selection if this shader was selected
@@ -161,7 +162,8 @@ namespace OloEngine
             {
                 m_SelectedShaderID = 0;
             }
-              m_Shaders.erase(it);
+            
+            m_Shaders.erase(it);
         }
     }
 	
@@ -370,19 +372,15 @@ namespace OloEngine
             return;
         }
 
-        ShaderInfo& info = it->second;
-
-        try
+        ShaderInfo& info = it->second;        try
         {
             spirv_cross::Compiler compiler(spirvData);
             const spirv_cross::ShaderResources resources = compiler.get_shader_resources();
 
-            // Clear existing reflection data for this stage (we'll rebuild it)
-            if (stage == ShaderStage::Vertex)
-            {
-                info.m_UniformBuffers.clear();
-                info.m_Samplers.clear();
-            }
+            // Clear existing reflection data unconditionally (all stages contribute to shared collections)
+            // This prevents duplicate entries during hot-reloads when stages are compiled separately
+            info.m_UniformBuffers.clear();
+            info.m_Samplers.clear();
 
             // Process uniform buffers
             for (const auto& resource : resources.uniform_buffers)
