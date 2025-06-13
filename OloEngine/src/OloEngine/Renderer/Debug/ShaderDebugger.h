@@ -95,16 +95,14 @@ namespace OloEngine
             u32 m_Binding = 0;
             u32 m_TextureUnit = 0;
             std::string m_Type; // "sampler2D", "samplerCube", etc.
-        };
-
-        struct CompilationResult
+        };        struct CompilationResult
         {
             bool m_Success = false;
             std::string m_ErrorMessage;
             f64 m_CompileTimeMs = 0.0;
             std::chrono::steady_clock::time_point m_Timestamp;
-            sizet m_VulkanSPIRVSize = 0;
-            sizet m_OpenGLSPIRVSize = 0;
+            sizet m_VertexGeometrySPIRVSize = 0; // Vertex + Geometry stages
+            sizet m_FragmentComputeSPIRVSize = 0; // Fragment + Compute stages
             u32 m_InstructionCount = 0; // Estimated from SPIR-V
         };
 
@@ -219,10 +217,9 @@ namespace OloEngine
         /**
          * @brief Update shader reflection data
          * @param rendererID OpenGL shader program ID
-         * @param stage Shader stage
          * @param spirvData SPIR-V binary data
          */
-        void UpdateReflectionData(u32 rendererID, ShaderStage stage, const std::vector<u32>& spirvData);
+        void UpdateReflectionData(u32 rendererID, const std::vector<u32>& spirvData);
 
         /**
          * @brief Set shader source code

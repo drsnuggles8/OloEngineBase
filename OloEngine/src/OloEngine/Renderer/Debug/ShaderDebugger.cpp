@@ -85,12 +85,11 @@ namespace OloEngine
         info.m_RendererID = rendererID;
 		info.m_Name = name;
         info.m_CreationTime = std::chrono::steady_clock::now();
-        
-        // Initialize compilation result with zero instruction count
+          // Initialize compilation result with zero instruction count
         OLO_CORE_INFO("ShaderDebugger: RESET instruction count to 0 in OnCompilationStart (new shader): {0}", name);
         info.m_LastCompilation.m_InstructionCount = 0;
-        info.m_LastCompilation.m_VulkanSPIRVSize = 0;
-        info.m_LastCompilation.m_OpenGLSPIRVSize = 0;
+        info.m_LastCompilation.m_VertexGeometrySPIRVSize = 0;
+        info.m_LastCompilation.m_FragmentComputeSPIRVSize = 0;
         
         m_Shaders[rendererID] = std::move(info);
           // Auto-select new shader if enabled
@@ -126,12 +125,11 @@ namespace OloEngine
         info.m_Name = name;
         info.m_FilePath = filePath;
         info.m_CreationTime = std::chrono::steady_clock::now();
-        
-        // Initialize compilation result with zero instruction count
+          // Initialize compilation result with zero instruction count
         OLO_CORE_INFO("ShaderDebugger: RESET instruction count to 0 in OnCompilationStart (file-based shader): {0}", name);
         info.m_LastCompilation.m_InstructionCount = 0;
-        info.m_LastCompilation.m_VulkanSPIRVSize = 0;
-        info.m_LastCompilation.m_OpenGLSPIRVSize = 0;
+        info.m_LastCompilation.m_VertexGeometrySPIRVSize = 0;
+        info.m_LastCompilation.m_FragmentComputeSPIRVSize = 0;
         
         m_Shaders[rendererID] = std::move(info);
         
@@ -186,11 +184,10 @@ namespace OloEngine
         // Find and reset instruction count for this shader if it already exists
         for (auto& [id, shaderInfo] : m_Shaders)
         {            if (shaderInfo.m_Name == name)
-            {
-                OLO_CORE_INFO("ShaderDebugger: RESET instruction count to 0 for existing shader: {0}", name);
+            {                OLO_CORE_INFO("ShaderDebugger: RESET instruction count to 0 for existing shader: {0}", name);
                 shaderInfo.m_LastCompilation.m_InstructionCount = 0;
-                shaderInfo.m_LastCompilation.m_VulkanSPIRVSize = 0;
-                shaderInfo.m_LastCompilation.m_OpenGLSPIRVSize = 0;
+                shaderInfo.m_LastCompilation.m_VertexGeometrySPIRVSize = 0;
+                shaderInfo.m_LastCompilation.m_FragmentComputeSPIRVSize = 0;
                 OLO_CORE_TRACE("Reset instruction count for existing shader: {0}", name);
                 break;
             }
@@ -358,7 +355,9 @@ namespace OloEngine
                 info.m_Uniforms.push_back(uniform);
             }
         }
-    }    void ShaderDebugger::UpdateReflectionData(u32 rendererID, ShaderStage stage, const std::vector<u32>& spirvData)
+    }
+	
+	void ShaderDebugger::UpdateReflectionData(u32 rendererID, const std::vector<u32>& spirvData)
     {
         if (!m_IsInitialized || spirvData.empty())
             return;
@@ -466,18 +465,13 @@ namespace OloEngine
                 info.m_GeneratedGLSL[stage] = generatedGLSL;
             }
             if (!spirvBinary.empty())
-            {
-                info.m_SPIRVBinary[stage] = spirvBinary;
-                
-                // Update SPIR-V size in compilation result
-                if (stage == ShaderStage::Vertex)
-                    info.m_LastCompilation.m_VulkanSPIRVSize += spirvBinary.size();
-                else if (stage == ShaderStage::Fragment)
-                    info.m_LastCompilation.m_OpenGLSPIRVSize += spirvBinary.size();
-				else if (stage == ShaderStage::Compute)
-					info.m_LastCompilation.m_OpenGLSPIRVSize += spirvBinary.size();
-				else if (stage == ShaderStage::Geometry)
-					info.m_LastCompilation.m_OpenGLSPIRVSize += spirvBinary.size();
+            {                info.m_SPIRVBinary[stage] = spirvBinary;
+                  // Update SPIR-V size in compilation result
+                // Categorize by pipeline stage type: geometry (Vertex+Geometry) vs pixel/compute (Fragment+Compute)
+                if (stage == ShaderStage::Vertex || stage == ShaderStage::Geometry)
+                    info.m_LastCompilation.m_VertexGeometrySPIRVSize += spirvBinary.size();
+                else if (stage == ShaderStage::Fragment || stage == ShaderStage::Compute)
+                    info.m_LastCompilation.m_FragmentComputeSPIRVSize += spirvBinary.size();
                 
                 // Convert SPIR-V binary to u32 vector for analysis
                 std::vector<u32> spirvWords;
@@ -669,7 +663,7 @@ namespace OloEngine
                 file << "  Last Compilation: " << (info.m_LastCompilation.m_Success ? "Success" : "Failed") << "\n";
                 file << "  Compilation Time: " << info.m_LastCompilation.m_CompileTimeMs << "ms\n";
                 file << "  Instruction Count: " << info.m_LastCompilation.m_InstructionCount << "\n";
-                file << "  SPIR-V Size: " << (info.m_LastCompilation.m_VulkanSPIRVSize + info.m_LastCompilation.m_OpenGLSPIRVSize) << " bytes\n";
+                file << "  SPIR-V Size: " << (info.m_LastCompilation.m_VertexGeometrySPIRVSize + info.m_LastCompilation.m_FragmentComputeSPIRVSize) << " bytes\n";
                 file << "  Uniforms: " << info.m_Uniforms.size() << "\n";
                 file << "  Uniform Buffers: " << info.m_UniformBuffers.size() << "\n";
                 file << "  Samplers: " << info.m_Samplers.size() << "\n";
@@ -916,9 +910,8 @@ namespace OloEngine
                            shaderInfo.m_LastCompilation.m_Success ? "Success" : "Failed");
                 ImGui::Text("Compile Time: %.2fms", shaderInfo.m_LastCompilation.m_CompileTimeMs);
                 ImGui::Text("Instruction Count: %u", shaderInfo.m_LastCompilation.m_InstructionCount);
-                
-                const sizet totalSPIRVSize = shaderInfo.m_LastCompilation.m_VulkanSPIRVSize + 
-                                             shaderInfo.m_LastCompilation.m_OpenGLSPIRVSize;
+                  const sizet totalSPIRVSize = shaderInfo.m_LastCompilation.m_VertexGeometrySPIRVSize + 
+                                             shaderInfo.m_LastCompilation.m_FragmentComputeSPIRVSize;
                 ImGui::Text("SPIR-V Size: %s", DebugUtils::FormatMemorySize(totalSPIRVSize).c_str());
 
                 ImGui::Separator();
@@ -1201,11 +1194,10 @@ namespace OloEngine
 		
 		// Compilation metrics
         ImGui::Text("Compilation Time: %s", DebugUtils::FormatDuration(shaderInfo.m_LastCompilation.m_CompileTimeMs).c_str());
-        ImGui::Text("Instruction Count: %u", shaderInfo.m_LastCompilation.m_InstructionCount);
-        const sizet totalSPIRVSize = shaderInfo.m_LastCompilation.m_VulkanSPIRVSize + shaderInfo.m_LastCompilation.m_OpenGLSPIRVSize;
+        ImGui::Text("Instruction Count: %u", shaderInfo.m_LastCompilation.m_InstructionCount);        const sizet totalSPIRVSize = shaderInfo.m_LastCompilation.m_VertexGeometrySPIRVSize + shaderInfo.m_LastCompilation.m_FragmentComputeSPIRVSize;
         ImGui::Text("Total SPIR-V Size: %s", DebugUtils::FormatMemorySize(totalSPIRVSize).c_str());
-        ImGui::Text("Vulkan SPIR-V: %s", DebugUtils::FormatMemorySize(shaderInfo.m_LastCompilation.m_VulkanSPIRVSize).c_str());
-        ImGui::Text("OpenGL SPIR-V: %s", DebugUtils::FormatMemorySize(shaderInfo.m_LastCompilation.m_OpenGLSPIRVSize).c_str());
+        ImGui::Text("Vertex+Geometry SPIR-V: %s", DebugUtils::FormatMemorySize(shaderInfo.m_LastCompilation.m_VertexGeometrySPIRVSize).c_str());
+        ImGui::Text("Fragment+Compute SPIR-V: %s", DebugUtils::FormatMemorySize(shaderInfo.m_LastCompilation.m_FragmentComputeSPIRVSize).c_str());
 
         ImGui::Separator();
 
