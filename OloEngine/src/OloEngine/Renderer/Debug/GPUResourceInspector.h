@@ -15,19 +15,19 @@
 // Convenience macros for resource registration (only in debug builds)
 #ifdef OLO_DEBUG
     #define OLO_GPU_REGISTER_TEXTURE(id, name, debugName) \
-        OloEngine::GPUResourceInspector::GetInstance().RegisterTexture(id, name, debugName)
+        do { OloEngine::GPUResourceInspector::GetInstance().RegisterTexture(id, name, debugName); } while(false)
     #define OLO_GPU_REGISTER_TEXTURE_CUBEMAP(id, name, debugName) \
-        OloEngine::GPUResourceInspector::GetInstance().RegisterTextureCubemap(id, name, debugName)
+        do { OloEngine::GPUResourceInspector::GetInstance().RegisterTextureCubemap(id, name, debugName); } while(false)
     #define OLO_GPU_REGISTER_BUFFER(id, target, name, debugName) \
-        OloEngine::GPUResourceInspector::GetInstance().RegisterBuffer(id, target, name, debugName)
+        do { OloEngine::GPUResourceInspector::GetInstance().RegisterBuffer(id, target, name, debugName); } while(false)
     #define OLO_GPU_REGISTER_FRAMEBUFFER(id, name, debugName) \
-        OloEngine::GPUResourceInspector::GetInstance().RegisterFramebuffer(id, name, debugName)
+        do { OloEngine::GPUResourceInspector::GetInstance().RegisterFramebuffer(id, name, debugName); } while(false)
     #define OLO_GPU_UNREGISTER_RESOURCE(id) \
-        OloEngine::GPUResourceInspector::GetInstance().UnregisterResource(id)
+        do { OloEngine::GPUResourceInspector::GetInstance().UnregisterResource(id); } while(false)
     #define OLO_GPU_UPDATE_BINDING(id, bound, slot) \
-        OloEngine::GPUResourceInspector::GetInstance().UpdateResourceBinding(id, bound, slot)
+        do { OloEngine::GPUResourceInspector::GetInstance().UpdateResourceBinding(id, bound, slot); } while(false)
     #define OLO_GPU_UPDATE_ACTIVE(id, active) \
-        OloEngine::GPUResourceInspector::GetInstance().UpdateResourceActiveState(id, active)
+        do { OloEngine::GPUResourceInspector::GetInstance().UpdateResourceActiveState(id, active); } while(false)
 #else
     #define OLO_GPU_REGISTER_TEXTURE(id, name, debugName)
     #define OLO_GPU_REGISTER_TEXTURE_CUBEMAP(id, name, debugName)
@@ -118,7 +118,7 @@ namespace OloEngine
             u32 m_MipLevel = 0;
             u32 m_PBO = 0;
             GLsync m_Fence = nullptr; // Modern OpenGL 3.2+ sync object for completion detection
-			bool m_InProgress = false;
+            bool m_InProgress = false;
             f64 m_RequestTime = 0.0;
         };
 
@@ -230,7 +230,7 @@ namespace OloEngine
         void QueryTextureCubemapInfo(TextureInfo& info);
         void QueryBufferInfo(BufferInfo& info);
         void QueryFramebufferInfo(FramebufferInfo& info);
-		void RequestTextureDownload(TextureInfo& info, u32 mipLevel);
+        void RequestTextureDownload(TextureInfo& info, u32 mipLevel);
         void ProcessTextureDownloads();
         void CompleteTextureDownload(TextureInfo& info, const TextureDownloadRequest& request);
         void UpdateTexturePreview(TextureInfo& info);
@@ -253,10 +253,13 @@ namespace OloEngine
         sizet CalculateAccurateTextureMemoryUsage(u32 textureId, GLenum target, GLenum internalFormat, 
                                                  u32 width, u32 height, u32 mipLevels) const;
         sizet CalculateCompressedTextureMemory(u32 textureId, GLenum target, GLenum internalFormat, 
-                                              u32 width, u32 height, u32 mipLevels) const;
+                                              u32 /*width*/, u32 /*height*/, u32 mipLevels) const;
         sizet CalculateUncompressedTextureMemory(u32 width, u32 height, u32 bytesPerPixel, u32 mipLevels) const;
         u32 GetUncompressedBytesPerPixel(GLenum internalFormat) const;
         u32 GetCompressedBlockSize(GLenum internalFormat) const;
+
+        // Buffer binding utility
+        static GLenum GetBufferBindingQuery(GLenum target);
 
     private:
         std::unordered_map<u32, std::unique_ptr<ResourceInfo>> m_Resources;
@@ -267,7 +270,7 @@ namespace OloEngine
         ResourceType m_FilterType = ResourceType::COUNT; // No filter by default
         std::string m_SearchFilter;
         bool m_ShowInactiveResources = true;
-		bool m_AutoUpdatePreviews = true;
+        bool m_AutoUpdatePreviews = true;
         
         // Statistics
         std::array<u32, static_cast<sizet>(ResourceType::COUNT)> m_ResourceCounts{};

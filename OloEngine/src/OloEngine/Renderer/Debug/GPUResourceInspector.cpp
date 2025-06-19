@@ -18,8 +18,8 @@ namespace OloEngine
         m_ResourceCounts.fill(0);
         m_MemoryUsageByType.fill(0);
     }
-	
-	GPUResourceInspector::~GPUResourceInspector()
+    
+    GPUResourceInspector::~GPUResourceInspector()
     {
         if (m_IsInitialized)
         {
@@ -32,8 +32,8 @@ namespace OloEngine
         static GPUResourceInspector instance;
         return instance;
     }
-	
-	void GPUResourceInspector::Initialize()
+    
+    void GPUResourceInspector::Initialize()
     {
         if (m_IsInitialized)
             return;
@@ -70,8 +70,8 @@ namespace OloEngine
 
         m_IsInitialized = false;
     }
-	
-	void GPUResourceInspector::RegisterTexture(u32 rendererID, const std::string& name, const std::string& debugName)
+    
+    void GPUResourceInspector::RegisterTexture(u32 rendererID, const std::string& name, const std::string& debugName)
     {
         if (!m_IsInitialized || rendererID == 0)
             return;
@@ -165,8 +165,8 @@ namespace OloEngine
         
         OLO_CORE_TRACE("Registered texture cubemap: {} (ID: {})", name, rendererID);
     }
-	
-	void GPUResourceInspector::RegisterBuffer(u32 rendererID, GLenum target, const std::string& name, const std::string& debugName)
+    
+    void GPUResourceInspector::RegisterBuffer(u32 rendererID, GLenum target, const std::string& name, const std::string& debugName)
     {
         if (!m_IsInitialized || rendererID == 0)
             return;
@@ -348,7 +348,9 @@ namespace OloEngine
             it->second->m_IsBound = isBound;
             it->second->m_BindingSlot = bindingSlot;
         }
-    }    void GPUResourceInspector::QueryTextureInfo(TextureInfo& info)
+    }
+
+    void GPUResourceInspector::QueryTextureInfo(TextureInfo& info)
     {
         // Modern OpenGL 4.5+ DSA approach - no texture binding required
         GLint width, height, internalFormat;
@@ -436,77 +438,7 @@ namespace OloEngine
                 break;
         }
         
-        // Calculate memory usage with more accurate byte calculation
-        u32 bytesPerPixel = 4; // Default RGBA
-        switch (internalFormat)
-        {
-            case GL_R8:
-            case GL_R8_SNORM:
-            case GL_R8I:
-            case GL_R8UI:
-                bytesPerPixel = 1;
-                break;
-            case GL_RG8:
-            case GL_RG8_SNORM:
-            case GL_RG8I:
-            case GL_RG8UI:
-            case GL_R16:
-            case GL_R16F:
-            case GL_R16I:
-            case GL_R16UI:
-                bytesPerPixel = 2;
-                break;
-            case GL_RGB8:
-            case GL_RGB8_SNORM:
-            case GL_RGB8I:
-            case GL_RGB8UI:
-            case GL_SRGB8:
-                bytesPerPixel = 3;
-                break;
-            case GL_RGBA8:
-            case GL_RGBA8_SNORM:
-            case GL_RGBA8I:
-            case GL_RGBA8UI:
-            case GL_SRGB8_ALPHA8:
-            case GL_RG16:
-            case GL_RG16F:
-            case GL_RG16I:
-            case GL_RG16UI:
-            case GL_R32F:
-            case GL_R32I:
-            case GL_R32UI:
-            case GL_DEPTH_COMPONENT32:
-            case GL_DEPTH_COMPONENT32F:
-            case GL_DEPTH24_STENCIL8:
-                bytesPerPixel = 4;
-                break;
-            case GL_RGB16:
-            case GL_RGB16F:
-            case GL_RGB16I:
-            case GL_RGB16UI:
-                bytesPerPixel = 6;
-                break;
-            case GL_RGBA16:
-            case GL_RGBA16F:
-            case GL_RGBA16I:
-            case GL_RGBA16UI:
-            case GL_RG32F:
-            case GL_RG32I:
-            case GL_RG32UI:
-            case GL_DEPTH32F_STENCIL8:
-                bytesPerPixel = 8;
-                break;
-            case GL_RGB32F:
-            case GL_RGB32I:
-            case GL_RGB32UI:
-                bytesPerPixel = 12;
-                break;
-            case GL_RGBA32F:
-            case GL_RGBA32I:
-            case GL_RGBA32UI:
-                bytesPerPixel = 16;
-                break;
-		}
+        // bytesPerPixel and switch-case removed (now unused)
         
         // Check for mip levels using DSA
         GLint maxLevel;
@@ -519,7 +451,9 @@ namespace OloEngine
                                                                info.m_InternalFormat, 
                                                                info.m_Width, info.m_Height, 
                                                                info.m_MipLevels);
-    }void GPUResourceInspector::QueryTextureCubemapInfo(TextureInfo& info)
+    }
+    
+    void GPUResourceInspector::QueryTextureCubemapInfo(TextureInfo& info)
     {
         // Modern OpenGL 4.5+ DSA approach - no texture binding required
         GLint width, height, internalFormat;
@@ -590,72 +524,7 @@ namespace OloEngine
                 break;
         }
         
-        // Calculate memory usage (6 faces for cubemap) with accurate byte calculation
-        u32 bytesPerPixel = 4; // Default RGBA
-        switch (internalFormat)
-        {
-            case GL_R8:
-            case GL_R8_SNORM:
-            case GL_R8I:
-            case GL_R8UI:
-                bytesPerPixel = 1;
-                break;
-            case GL_RG8:
-            case GL_RG8_SNORM:
-            case GL_RG8I:
-            case GL_RG8UI:
-            case GL_R16:
-            case GL_R16F:
-            case GL_R16I:
-            case GL_R16UI:
-                bytesPerPixel = 2;
-                break;
-            case GL_RGB8:
-            case GL_RGB8_SNORM:
-            case GL_RGB8I:
-            case GL_RGB8UI:
-            case GL_SRGB8:
-                bytesPerPixel = 3;
-                break;
-            case GL_RGBA8:
-            case GL_RGBA8_SNORM:
-            case GL_RGBA8I:
-            case GL_RGBA8UI:
-            case GL_SRGB8_ALPHA8:
-            case GL_RG16:
-            case GL_RG16F:
-            case GL_RG16I:
-            case GL_RG16UI:
-            case GL_R32F:
-            case GL_R32I:
-            case GL_R32UI:
-                bytesPerPixel = 4;
-                break;
-            case GL_RGB16:
-            case GL_RGB16F:
-            case GL_RGB16I:
-            case GL_RGB16UI:
-                bytesPerPixel = 6;
-                break;
-            case GL_RGBA16:
-            case GL_RGBA16F:
-            case GL_RGBA16I:
-            case GL_RGBA16UI:
-            case GL_RG32F:
-            case GL_RG32I:
-            case GL_RG32UI:
-                bytesPerPixel = 8;
-                break;
-            case GL_RGB32F:
-            case GL_RGB32I:
-            case GL_RGB32UI:
-                bytesPerPixel = 12;
-                break;
-            case GL_RGBA32F:
-            case GL_RGBA32I:
-            case GL_RGBA32UI:
-                bytesPerPixel = 16;
-                break;        }
+        // bytesPerPixel and switch-case removed (now unused)
         
         // Check for mip levels using DSA
         GLint maxLevel;
@@ -669,37 +538,48 @@ namespace OloEngine
                                                                info.m_MipLevels);
     }
 
+    GLenum GPUResourceInspector::GetBufferBindingQuery(GLenum target)
+    {
+        switch (target)
+        {
+            case GL_ARRAY_BUFFER: return GL_ARRAY_BUFFER_BINDING;
+            case GL_ELEMENT_ARRAY_BUFFER: return GL_ELEMENT_ARRAY_BUFFER_BINDING;
+            case GL_UNIFORM_BUFFER: return GL_UNIFORM_BUFFER_BINDING;
+            case GL_SHADER_STORAGE_BUFFER: return GL_SHADER_STORAGE_BUFFER_BINDING;
+            case GL_TRANSFORM_FEEDBACK_BUFFER: return GL_TRANSFORM_FEEDBACK_BUFFER_BINDING;
+            case GL_ATOMIC_COUNTER_BUFFER: return GL_ATOMIC_COUNTER_BUFFER_BINDING;
+            case GL_COPY_READ_BUFFER: return GL_COPY_READ_BUFFER_BINDING;
+            case GL_COPY_WRITE_BUFFER: return GL_COPY_WRITE_BUFFER_BINDING;
+            case GL_DISPATCH_INDIRECT_BUFFER: return GL_DISPATCH_INDIRECT_BUFFER_BINDING;
+            case GL_DRAW_INDIRECT_BUFFER: return GL_DRAW_INDIRECT_BUFFER_BINDING;
+            case GL_PIXEL_PACK_BUFFER: return GL_PIXEL_PACK_BUFFER_BINDING;
+            case GL_PIXEL_UNPACK_BUFFER: return GL_PIXEL_UNPACK_BUFFER_BINDING;
+            case GL_QUERY_BUFFER: return GL_QUERY_BUFFER_BINDING;
+            case GL_TEXTURE_BUFFER: return GL_TEXTURE_BUFFER_BINDING;
+            default:
+                OLO_CORE_WARN("Unknown buffer target 0x{0:X}, falling back to GL_ARRAY_BUFFER_BINDING", target);
+                return GL_ARRAY_BUFFER_BINDING;
+        }
+    }
+
     void GPUResourceInspector::QueryBufferInfo(BufferInfo& info)
     {
-        // Save current buffer binding based on target
+        // Save current buffer binding for this target
         GLint previousBinding = 0;
-        switch (info.m_Target)
-        {
-            case GL_ARRAY_BUFFER:
-                glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &previousBinding);
-                break;
-            case GL_ELEMENT_ARRAY_BUFFER:
-                glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &previousBinding);
-                break;
-            case GL_UNIFORM_BUFFER:
-                glGetIntegerv(GL_UNIFORM_BUFFER_BINDING, &previousBinding);
-                break;
-            default:
-                glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &previousBinding);
-                break;
-        }
-        
+        GLenum bindingQuery = GPUResourceInspector::GetBufferBindingQuery(info.m_Target);
+        glGetIntegerv(bindingQuery, &previousBinding);
+
         // Bind the buffer temporarily to query its properties
         glBindBuffer(info.m_Target, info.m_RendererID);
-        
+
         GLint size, usage;
         glGetBufferParameteriv(info.m_Target, GL_BUFFER_SIZE, &size);
         glGetBufferParameteriv(info.m_Target, GL_BUFFER_USAGE, &usage);
-        
+
         info.m_Size = static_cast<u32>(size);
         info.m_Usage = static_cast<GLenum>(usage);
         info.m_MemoryUsage = static_cast<sizet>(size);
-        
+
         // Restore previous buffer binding
         glBindBuffer(info.m_Target, previousBinding);
     }
@@ -720,7 +600,7 @@ namespace OloEngine
         info.m_ColorAttachmentCount = 0;
         info.m_ColorAttachmentFormats.clear();
         
-        for (u32 i = 0; i < 8; ++i) // Most systems support at least 8 color attachments
+        for (u32 i = 0; i < 8; ++i) 
         {
             GLint attachmentType;
             glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, 
@@ -730,7 +610,6 @@ namespace OloEngine
             {
                 info.m_ColorAttachmentCount++;
                 
-                // Try to get the internal format
                 GLint internalFormat;
                 glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, 
                                                     GL_FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE, &internalFormat);
@@ -775,7 +654,6 @@ namespace OloEngine
                                                 GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &textureID);
               if (textureID != 0)
             {
-                // Modern OpenGL 4.5+ DSA approach - no texture binding required
                 GLint width, height;
                 glGetTextureLevelParameteriv(textureID, 0, GL_TEXTURE_WIDTH, &width);
                 glGetTextureLevelParameteriv(textureID, 0, GL_TEXTURE_HEIGHT, &height);
@@ -793,7 +671,7 @@ namespace OloEngine
         // Restore previous framebuffer binding
         glBindFramebuffer(GL_FRAMEBUFFER, previousBinding);
     }
-	    void GPUResourceInspector::ProcessTextureDownloads()
+        void GPUResourceInspector::ProcessTextureDownloads()
     {
         // Process async texture downloads and check for completion using modern sync objects
         auto it = m_TextureDownloads.begin();
@@ -939,7 +817,7 @@ namespace OloEngine
         
         OLO_CORE_TRACE("Requested async texture download for texture {} mip level {}", info.m_RendererID, mipLevel);
     }
-		void GPUResourceInspector::UpdateTexturePreview(TextureInfo& info)
+        void GPUResourceInspector::UpdateTexturePreview(TextureInfo& info)
     {
         if (info.m_PreviewDataValid)
             return;
@@ -966,36 +844,23 @@ namespace OloEngine
         // Start async download instead of blocking
         RequestTextureDownload(info, info.m_SelectedMipLevel);
     }
-	
-	void GPUResourceInspector::UpdateBufferPreview(BufferInfo& info)
+    
+    void GPUResourceInspector::UpdateBufferPreview(BufferInfo& info)
     {
         if (info.m_ContentPreviewValid)
             return;
 
-        // Save current buffer binding based on target
+        // Save current buffer binding for this target
         GLint previousBinding = 0;
-        switch (info.m_Target)
-        {
-            case GL_ARRAY_BUFFER:
-                glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &previousBinding);
-                break;
-            case GL_ELEMENT_ARRAY_BUFFER:
-                glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &previousBinding);
-                break;
-            case GL_UNIFORM_BUFFER:
-                glGetIntegerv(GL_UNIFORM_BUFFER_BINDING, &previousBinding);
-                break;
-            default:
-                glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &previousBinding);
-                break;
-        }
-        
+        GLenum bindingQuery = GPUResourceInspector::GetBufferBindingQuery(info.m_Target);
+        glGetIntegerv(bindingQuery, &previousBinding);
+
         // Bind buffer and map data
         glBindBuffer(info.m_Target, info.m_RendererID);
-        
+
         u32 previewSize = std::min(info.m_Size, info.m_PreviewSize);
         info.m_ContentPreview.resize(previewSize);
-        
+
         // Map buffer and copy data
         void* data = glMapBuffer(info.m_Target, GL_READ_ONLY);
         if (data)
@@ -1004,7 +869,7 @@ namespace OloEngine
             glUnmapBuffer(info.m_Target);
             info.m_ContentPreviewValid = true;
         }
-        
+
         // Restore previous buffer binding
         glBindBuffer(info.m_Target, previousBinding);
     }
@@ -1095,8 +960,8 @@ namespace OloEngine
         // Splitter
         ImGui::SameLine();
         ImGui::Button("##splitter", ImVec2(8.0f, -1));
-		
-		if (ImGui::IsItemActive())
+        
+        if (ImGui::IsItemActive())
         {
             leftPaneWidth += ImGui::GetIO().MouseDelta.x;
             leftPaneWidth = std::clamp(leftPaneWidth, 100.0f, ImGui::GetContentRegionAvail().x - 100.0f);
@@ -1264,8 +1129,8 @@ namespace OloEngine
             RenderFramebufferDetails(*static_cast<FramebufferInfo*>(resource));
         }
     }
-	
-	void GPUResourceInspector::RenderTexturePreview(TextureInfo& info)
+    
+    void GPUResourceInspector::RenderTexturePreview(TextureInfo& info)
     {
         ImGui::Text("Texture Properties");
         ImGui::Text("Dimensions: %u x %u", info.m_Width, info.m_Height);
@@ -1321,7 +1186,7 @@ namespace OloEngine
         
         if (info.m_PreviewDataValid && !info.m_PreviewData.empty())
         {
-			// Create ImGui texture if not already created
+            // Create ImGui texture if not already created
             if (info.m_ImGuiTextureID == 0)
             {
                 // This is simplified - in practice, we'd create a proper ImGui texture
@@ -1362,7 +1227,7 @@ namespace OloEngine
             ImGui::Text("Preview Info");
             ImGui::Text("Displayed Size: %.0f x %.0f", imageSize.x, imageSize.y);
             ImGui::Text("Memory Usage: %s", FormatMemorySize(info.m_MemoryUsage).c_str());
-		}
+        }
         else
         {
             ImGui::Text("Preview not available");
@@ -1389,8 +1254,8 @@ namespace OloEngine
             }
         }
     }
-	
-	void GPUResourceInspector::RenderBufferContent(BufferInfo& info)
+    
+    void GPUResourceInspector::RenderBufferContent(BufferInfo& info)
     {
         ImGui::Text("Buffer Properties");
         ImGui::Text("Target: 0x%X (%s)", info.m_Target, GetBufferTargetName(info.m_Target));
@@ -1603,8 +1468,8 @@ namespace OloEngine
             QueryFramebufferInfo(info);
         }
     }
-	
-	void GPUResourceInspector::RenderResourceStatistics()
+    
+    void GPUResourceInspector::RenderResourceStatistics()
     {
         ImGui::Text("Statistics");
         ImGui::Separator();
@@ -1670,8 +1535,8 @@ namespace OloEngine
         file.close();
         OLO_CORE_INFO("Exported GPU resource information to: {}", filename);
     }
-	
-	std::string GPUResourceInspector::FormatTextureFormat(GLenum format) const
+    
+    std::string GPUResourceInspector::FormatTextureFormat(GLenum format) const
     {
         switch (format)
         {
@@ -1759,7 +1624,7 @@ namespace OloEngine
                 std::stringstream ss;
                 ss << "Unknown (0x" << std::uppercase << std::hex << format << ")";
                 return ss.str();
-            	}
+                }
         }
     }
 
@@ -1776,7 +1641,12 @@ namespace OloEngine
             case GL_STATIC_COPY: return "STATIC_COPY";
             case GL_DYNAMIC_COPY: return "DYNAMIC_COPY";
             case GL_STREAM_COPY: return "STREAM_COPY";
-            default: return "Unknown (0x" + std::to_string(usage) + ")";
+            default:
+            {
+                std::stringstream ss;
+                ss << "Unknown (0x" << std::hex << usage << ")";
+                return ss.str();
+            }
         }
     }
 
@@ -1830,7 +1700,7 @@ namespace OloEngine
             default: return "Unknown";
         }
     }
-		void GPUResourceInspector::CompleteTextureDownload(TextureInfo& info, const TextureDownloadRequest& request)
+        void GPUResourceInspector::CompleteTextureDownload(TextureInfo& info, const TextureDownloadRequest& request)
     {
         OLO_CORE_TRACE("Completing texture download for texture {} mip level {}", info.m_RendererID, request.m_MipLevel);
         
@@ -1921,9 +1791,11 @@ namespace OloEngine
         }
         
         return totalMemory;
-    }    sizet GPUResourceInspector::CalculateCompressedTextureMemory(u32 textureId, GLenum target, 
-                                                               GLenum internalFormat, u32 width, 
-                                                               u32 height, u32 mipLevels) const
+    }
+
+    sizet GPUResourceInspector::CalculateCompressedTextureMemory(u32 textureId, GLenum target, 
+                                                               GLenum internalFormat, u32 /*width*/, 
+                                                               u32 /*height*/, u32 mipLevels) const
     {
         sizet totalMemory = 0;
         u32 blockSize = GetCompressedBlockSize(internalFormat);
@@ -1941,7 +1813,7 @@ namespace OloEngine
                 if (target == GL_TEXTURE_CUBE_MAP)
                 {
                     // Query each face of the cubemap (GL_TEXTURE_CUBE_MAP_POSITIVE_X + face)
-                    GLenum faceTarget = GL_TEXTURE_CUBE_MAP_POSITIVE_X + face;
+                    // (faceTarget variable removed as it was unused)
                     glGetTextureLevelParameteriv(textureId, level, GL_TEXTURE_WIDTH, &levelWidth);
                     glGetTextureLevelParameteriv(textureId, level, GL_TEXTURE_HEIGHT, &levelHeight);
                     glGetTextureLevelParameteriv(textureId, level, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &compressedSize);
