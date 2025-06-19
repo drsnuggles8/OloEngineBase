@@ -51,9 +51,11 @@ jobs:
         shell: bash
         run: |
           cmake -B build \
-            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
-            -DCMAKE_PREFIX_PATH="$VULKAN_SDK" \
-            "${{ github.workspace }}"
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_PREFIX_PATH="$VULKAN_SDK" \
+          -DCMAKE_INCLUDE_PATH="$VULKAN_SDK/Include" \
+          -DCMAKE_LIBRARY_PATH="$VULKAN_SDK/Lib" \
+          "${{ github.workspace }}"
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
