@@ -103,15 +103,9 @@ namespace OloEngine
 		glm::vec3 materialDiffuse(0.8f);
 		glm::vec3 materialSpecular(1.0f);
 		float materialShininess = 32.0f;
-
 		// Try to read from MaterialUBO if it exists
 		if (s_Data.MaterialUBO)
 		{
-			MaterialData materialData;
-			// Read the current material data from UBO - this is a simplification
-			// In a full implementation, you would need a proper way to read back from UBOs
-			// or maintain a CPU-side copy of the last material data
-			
 			// For now, relying on the material values set by UpdateMaterialUBO
 			// which should be called before UpdateLightPropertiesUBO
 			
@@ -286,9 +280,9 @@ namespace OloEngine
         
         // Higher-level commands
         OLO_CORE_INFO("Registering DrawMesh at index {}", static_cast<sizet>(CommandType::DrawMesh));
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawMesh)] = CommandDispatch::DrawMesh;        
+        s_DispatchTable[static_cast<sizet>(CommandType::DrawMesh)] = CommandDispatch::DrawMesh;
         OLO_CORE_INFO("Registering DrawMeshInstanced at index {}", static_cast<sizet>(CommandType::DrawMeshInstanced));
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawMeshInstanced)] = CommandDispatch::DrawMeshInstanced;        
+        s_DispatchTable[static_cast<sizet>(CommandType::DrawMeshInstanced)] = CommandDispatch::DrawMeshInstanced;
         OLO_CORE_INFO("Registering DrawQuad at index {}", static_cast<sizet>(CommandType::DrawQuad));
         s_DispatchTable[static_cast<sizet>(CommandType::DrawQuad)] = CommandDispatch::DrawQuad;
         
@@ -329,7 +323,7 @@ namespace OloEngine
             api.Clear();
     }
     
-    void CommandDispatch::ClearStencil(const void* data, RendererAPI& api)
+    void CommandDispatch::ClearStencil(const void* /*data*/, RendererAPI& api)
     {
         api.ClearStencil();
     }
@@ -464,7 +458,7 @@ namespace OloEngine
     }
     
     // Draw commands dispatch functions
-    void CommandDispatch::BindDefaultFramebuffer(const void* data, RendererAPI& api)
+    void CommandDispatch::BindDefaultFramebuffer(const void* /*data*/, RendererAPI& api)
     {
         api.BindDefaultFramebuffer();
     }

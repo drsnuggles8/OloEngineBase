@@ -225,7 +225,7 @@ namespace OloEngine
 			// Physics
 			{
 				const i32 velocityIterations = 6;
-				const i32 positionIterations = 2;
+				// const i32 positionIterations = 2; // TODO: Use this parameter when implementing position iterations
 				b2World_Step(m_PhysicsWorld, ts.GetSeconds(), velocityIterations);
 
 				// Retrieve transform from Box2D
@@ -327,13 +327,12 @@ namespace OloEngine
 
 	void Scene::OnUpdateSimulation(const Timestep ts, EditorCamera const& camera)
 	{
-		if (!m_IsPaused || m_StepFrames-- > 0)
-		{
+		if (!m_IsPaused || m_StepFrames-- > 0)		{
 
 			// Physics
 			{
 				const i32 velocityIterations = 6;
-				const i32 positionIterations = 2;
+				// const i32 positionIterations = 2; // TODO: Use this parameter when implementing position iterations
 				b2World_Step(m_PhysicsWorld, ts.GetSeconds(), velocityIterations);
 
 				// Retrieve transform from Box2D

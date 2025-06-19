@@ -40,12 +40,56 @@ namespace OloEngine
 			case GL_DEBUG_TYPE_OTHER:               typeStr = "OTHER"; break;
 			case GL_DEBUG_TYPE_MARKER:              typeStr = "MARKER"; break;
 		}
-		switch (severity)
+		// Map severity and type to appropriate log levels
+		// Performance and portability messages should generally be less severe
+		if (type == GL_DEBUG_TYPE_PERFORMANCE)
 		{
-			case GL_DEBUG_SEVERITY_HIGH:         OLO_CORE_CRITICAL("OpenGL debug message (source: {0}, type: {1}, id: {2}): {3}", sourceStr, typeStr, id, message); return;
-			case GL_DEBUG_SEVERITY_MEDIUM:       OLO_CORE_ERROR("OpenGL debug message (source: {0}, type: {1}, id: {2}): {3}", sourceStr, typeStr, id, message); return;
-			case GL_DEBUG_SEVERITY_LOW:          OLO_CORE_WARN("OpenGL debug message (source: {0}, type: {1}, id: {2}): {3}", sourceStr, typeStr, id, message); return;
-			case GL_DEBUG_SEVERITY_NOTIFICATION: OLO_CORE_TRACE("OpenGL debug message (source: {0}, type: {1}, id: {2}): {3}", sourceStr, typeStr, id, message); return;
+			// Performance messages are usually informational, not errors
+			switch (severity)
+			{
+				case GL_DEBUG_SEVERITY_HIGH:
+					OLO_CORE_ERROR("OpenGL performance issue (source: {0}, id: {1}): {2}", sourceStr, id, message);
+					return;
+				case GL_DEBUG_SEVERITY_MEDIUM:
+				case GL_DEBUG_SEVERITY_LOW:
+					OLO_CORE_WARN("OpenGL performance warning (source: {0}, id: {1}): {2}", sourceStr, id, message);
+					return;
+				case GL_DEBUG_SEVERITY_NOTIFICATION:
+					OLO_CORE_TRACE("OpenGL performance hint (source: {0}, id: {1}): {2}", sourceStr, id, message);
+					return;
+			}
+		}
+		else if (type == GL_DEBUG_TYPE_PORTABILITY)
+		{
+			// Portability issues are usually warnings
+			switch (severity)
+			{
+				case GL_DEBUG_SEVERITY_HIGH:
+					OLO_CORE_WARN("OpenGL portability issue (source: {0}, id: {1}): {2}", sourceStr, id, message);
+					return;
+				default:
+					OLO_CORE_INFO("OpenGL portability note (source: {0}, id: {1}): {2}", sourceStr, id, message);
+					return;
+			}
+		}
+		else
+		{
+			// For errors, deprecated behavior, undefined behavior, etc. - use full severity
+			switch (severity)
+			{
+				case GL_DEBUG_SEVERITY_HIGH:
+					OLO_CORE_CRITICAL("OpenGL debug message (source: {0}, type: {1}, id: {2}): {3}", sourceStr, typeStr, id, message);
+					return;
+				case GL_DEBUG_SEVERITY_MEDIUM:
+					OLO_CORE_ERROR("OpenGL debug message (source: {0}, type: {1}, id: {2}): {3}", sourceStr, typeStr, id, message);
+					return;
+				case GL_DEBUG_SEVERITY_LOW:
+					OLO_CORE_WARN("OpenGL debug message (source: {0}, type: {1}, id: {2}): {3}", sourceStr, typeStr, id, message);
+					return;
+				case GL_DEBUG_SEVERITY_NOTIFICATION:
+					OLO_CORE_INFO("OpenGL debug message (source: {0}, type: {1}, id: {2}): {3}", sourceStr, typeStr, id, message);
+					return;
+			}
 		}
 
 		OLO_CORE_ASSERT(false, "Unknown severity level!");

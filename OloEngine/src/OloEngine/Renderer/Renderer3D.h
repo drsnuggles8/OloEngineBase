@@ -18,6 +18,7 @@ namespace OloEngine {
     class UniformBuffer;
     class SceneRenderPass;
     class FinalRenderPass;
+    class CommandBucket;
 }
 
 namespace OloEngine
@@ -67,6 +68,9 @@ namespace OloEngine
 		// Statistics and debug methods
 		static Statistics GetStats();
 		static void ResetStats();
+		
+		// Debug access to command bucket for debugging tools
+		static const CommandBucket* GetCommandBucket() { return s_Data.ScenePass ? &s_Data.ScenePass->GetCommandBucket() : nullptr; }
 		
 		// Window resize handling
 		static void OnWindowResize(u32 width, u32 height);

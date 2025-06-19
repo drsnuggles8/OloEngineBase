@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLRendererAPI.h"
 #include "Platform/OpenGL/OpenGLDebug.h"
+#include "OloEngine/Renderer/Debug/RendererProfiler.h"
 
 #include <glad/gl.h>
 
@@ -29,12 +30,12 @@ namespace OloEngine
 		SetStencilFunc(GL_ALWAYS, 1, 0xFF);
 		SetStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
 	}
-
 	void OpenGLRendererAPI::SetViewport(const u32 x, const u32 y, const u32 width, const u32 height)
 	{
 		OLO_PROFILE_FUNCTION();
 
 		glViewport(static_cast<GLint>(x), static_cast<GLint>(y), static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+		RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
 	}
 
 	void OpenGLRendererAPI::SetClearColor(const glm::vec4& color)
@@ -67,32 +68,41 @@ namespace OloEngine
 
 		vertexArray->Bind();
 		glDrawArrays(GL_TRIANGLE_FAN, 0, static_cast<GLsizei>(vertexCount));
-	}
-
-	void OpenGLRendererAPI::DrawIndexed(const Ref<VertexArray>& vertexArray, const u32 indexCount)
+	}	void OpenGLRendererAPI::DrawIndexed(const Ref<VertexArray>& vertexArray, const u32 indexCount)
 	{
 		OLO_PROFILE_FUNCTION();
 
 		vertexArray->Bind();
 		const u32 count = indexCount ? indexCount : vertexArray->GetIndexBuffer()->GetCount();
 		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(count), GL_UNSIGNED_INT, nullptr);
-	}
-
-	void OpenGLRendererAPI::DrawIndexedInstanced(const Ref<VertexArray>& vertexArray, const u32 indexCount, const u32 instanceCount)
+		
+		// Update profiler counters
+		RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
+		RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::TrianglesRendered, count / 3);
+		RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::VerticesRendered, count);
+	}	void OpenGLRendererAPI::DrawIndexedInstanced(const Ref<VertexArray>& vertexArray, const u32 indexCount, const u32 instanceCount)
 	{
 		OLO_PROFILE_FUNCTION();
 
 		vertexArray->Bind();
 		const u32 count = indexCount ? indexCount : vertexArray->GetIndexBuffer()->GetCount();
 		glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(count), GL_UNSIGNED_INT, nullptr, static_cast<GLsizei>(instanceCount));
+		
+		// Update profiler counters
+		RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
+		RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::TrianglesRendered, (count / 3) * instanceCount);
+		RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::VerticesRendered, count * instanceCount);
 	}
-
 	void OpenGLRendererAPI::DrawLines(const Ref<VertexArray>& vertexArray, const u32 vertexCount)
 	{
 		OLO_PROFILE_FUNCTION();
 
 		vertexArray->Bind();
 		glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(vertexCount));
+		
+		// Update profiler counters
+		RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
+		RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::VerticesRendered, vertexCount);
 	}
 
 	void OpenGLRendererAPI::SetLineWidth(const f32 width)
@@ -142,12 +152,16 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 
 		glDepthMask(value);
-	}
-
-	void OpenGLRendererAPI::SetDepthTest(bool value)
+	}	void OpenGLRendererAPI::SetDepthTest(bool value)
 	{
 		OLO_PROFILE_FUNCTION();
 
+		// Only track state change if the value actually changes
+		if (m_DepthTestEnabled != value)
+		{
+			RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
+		}
+		
 		m_DepthTestEnabled = value;
 
 		if (value)
@@ -158,13 +172,12 @@ namespace OloEngine
 		{
 			glDisable(GL_DEPTH_TEST);
 		}
-	}
-
-	void OpenGLRendererAPI::SetDepthFunc(GLenum func)
+	}void OpenGLRendererAPI::SetDepthFunc(GLenum func)
 	{
 		OLO_PROFILE_FUNCTION();
 
 		glDepthFunc(func);
+		// Don't track this as state change - it's just parameter setting
 	}
 
 	void OpenGLRendererAPI::SetStencilMask(GLuint mask)
@@ -179,11 +192,17 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 
 		glClear(GL_STENCIL_BUFFER_BIT);
-	}
-
-	void OpenGLRendererAPI::SetBlendState(bool value)
+	}	void OpenGLRendererAPI::SetBlendState(bool value)
 	{
 		OLO_PROFILE_FUNCTION();
+
+		// Only track state change if the value actually changes
+		static bool s_BlendEnabled = false;
+		if (s_BlendEnabled != value)
+		{
+			RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
+			s_BlendEnabled = value;
+		}
 
 		if (value)
 		{
@@ -193,76 +212,97 @@ namespace OloEngine
 		{
 			glDisable(GL_BLEND);
 		}
-	}
-
-	void OpenGLRendererAPI::SetBlendFunc(GLenum sfactor, GLenum dfactor)
+	}void OpenGLRendererAPI::SetBlendFunc(GLenum sfactor, GLenum dfactor)
 	{
 		OLO_PROFILE_FUNCTION();
 
 		glBlendFunc(sfactor, dfactor);
+		// Don't track this as state change - it's just parameter setting
 	}
 
 	void OpenGLRendererAPI::SetBlendEquation(GLenum mode)
 	{
 		glBlendEquation(mode);
-	}
-
-	void OpenGLRendererAPI::EnableStencilTest()
+	}	void OpenGLRendererAPI::EnableStencilTest()
 	{
 		OLO_PROFILE_FUNCTION();
 
+		// Only track state change if not already enabled
+		if (!m_StencilTestEnabled)
+		{
+			RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
+		}
+		
 		m_StencilTestEnabled = true;
 		glEnable(GL_STENCIL_TEST);
-	}
-
-	void OpenGLRendererAPI::DisableStencilTest()
+	}	void OpenGLRendererAPI::DisableStencilTest()
 	{
 		OLO_PROFILE_FUNCTION();
 
+		// Only track state change if currently enabled
+		if (m_StencilTestEnabled)
+		{
+			RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
+		}
+		
 		m_StencilTestEnabled = false;
 		glDisable(GL_STENCIL_TEST);
-	}
-
-	void OpenGLRendererAPI::SetStencilFunc(GLenum func, GLint ref, GLuint mask)
+	}void OpenGLRendererAPI::SetStencilFunc(GLenum func, GLint ref, GLuint mask)
 	{
 		OLO_PROFILE_FUNCTION();
 
 		glStencilFunc(func, ref, mask);
-	}
-
-	void OpenGLRendererAPI::SetStencilOp(GLenum sfail, GLenum dpfail, GLenum dppass)
+		// Don't track this as state change - it's just parameter setting
+	}	void OpenGLRendererAPI::SetStencilOp(GLenum sfail, GLenum dpfail, GLenum dppass)
 	{
 		OLO_PROFILE_FUNCTION();
 
 		glStencilOp(sfail, dpfail, dppass);
-	}
-
-	void OpenGLRendererAPI::SetPolygonMode(GLenum face, GLenum mode)
+		// Don't track this as state change - it's just parameter setting
+	}	void OpenGLRendererAPI::SetPolygonMode(GLenum face, GLenum mode)
 	{
 		OLO_PROFILE_FUNCTION();
 
 		glPolygonMode(face, mode);
-	}
-
-	void OpenGLRendererAPI::EnableScissorTest()
+		// Only track as state change if switching to/from wireframe mode
+		static GLenum s_LastMode = GL_FILL;
+		if (mode != s_LastMode)
+		{
+			RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
+			s_LastMode = mode;
+		}
+	}	void OpenGLRendererAPI::EnableScissorTest()
 	{
 		OLO_PROFILE_FUNCTION();
 
+		// Only track state change if not already enabled
+		static bool s_ScissorEnabled = false;
+		if (!s_ScissorEnabled)
+		{
+			RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
+			s_ScissorEnabled = true;
+		}
+		
 		glEnable(GL_SCISSOR_TEST);
-	}
-
-	void OpenGLRendererAPI::DisableScissorTest()
+	}	void OpenGLRendererAPI::DisableScissorTest()
 	{
 		OLO_PROFILE_FUNCTION();
 
+		// Only track state change if currently enabled
+		static bool s_ScissorEnabled = false;
+		if (s_ScissorEnabled)
+		{
+			RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
+			s_ScissorEnabled = false;
+		}
+		
 		glDisable(GL_SCISSOR_TEST);
-	}
-
-	void OpenGLRendererAPI::SetScissorBox(GLint x, GLint y, GLsizei width, GLsizei height)
+	}void OpenGLRendererAPI::SetScissorBox(GLint x, GLint y, GLsizei width, GLsizei height)
 	{
 		OLO_PROFILE_FUNCTION();
 
 		glScissor(x, y, width, height);
+		// Don't track this as state change - it's just parameter setting
 	}
 
 	void OpenGLRendererAPI::BindDefaultFramebuffer()

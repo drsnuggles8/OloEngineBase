@@ -62,7 +62,7 @@ namespace OloEngine
             }
             else
             {
-                OLO_CORE_ERROR("CommandPacket::Execute: No dispatch function for command type {}", 
+				    OLO_CORE_ERROR("CommandPacket::Execute: No dispatch function for command type {}", 
                     static_cast<int>(m_CommandType));
             }
         }
@@ -70,24 +70,8 @@ namespace OloEngine
 
     bool CommandPacket::operator<(const CommandPacket& other) const
     {
-        // First compare shader keys
-        if (m_Metadata.shaderKey != other.m_Metadata.shaderKey)
-            return m_Metadata.shaderKey < other.m_Metadata.shaderKey;
-            
-        // Then compare material keys
-        if (m_Metadata.materialKey != other.m_Metadata.materialKey)
-            return m_Metadata.materialKey < other.m_Metadata.materialKey;
-            
-        // Then compare texture keys
-        if (m_Metadata.textureKey != other.m_Metadata.textureKey)
-            return m_Metadata.textureKey < other.m_Metadata.textureKey;
-            
-        // Then compare state change keys
-        if (m_Metadata.stateChangeKey != other.m_Metadata.stateChangeKey)
-            return m_Metadata.stateChangeKey < other.m_Metadata.stateChangeKey;
-            
-        // Finally, maintain original execution order
-        return m_Metadata.executionOrder < other.m_Metadata.executionOrder;
+        // Use the packed DrawKey for efficient sorting
+        return m_Metadata.m_SortKey < other.m_Metadata.m_SortKey;
     }
 
     bool CommandPacket::CanBatchWith(const CommandPacket& other) const
@@ -95,13 +79,12 @@ namespace OloEngine
 		// Different command types can't be batched
 		if (m_CommandType != other.m_CommandType)
 			return false;
-			
-		// Commands that depend on previous commands can't be batched
-		if (m_Metadata.dependsOnPrevious || other.m_Metadata.dependsOnPrevious)
+					// Commands that depend on previous commands can't be batched
+		if (m_Metadata.m_DependsOnPrevious || other.m_Metadata.m_DependsOnPrevious)
 			return false;
 			
 		// Commands with different group IDs can't be batched
-		if (m_Metadata.groupId != other.m_Metadata.groupId && m_Metadata.groupId != 0 && other.m_Metadata.groupId != 0)
+		if (m_Metadata.m_GroupID != other.m_Metadata.m_GroupID && m_Metadata.m_GroupID != 0 && other.m_Metadata.m_GroupID != 0)
 			return false;
 			
 		// Specific batching logic based on command type

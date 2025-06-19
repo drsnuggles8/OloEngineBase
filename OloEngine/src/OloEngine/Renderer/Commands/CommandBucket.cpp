@@ -106,12 +106,11 @@ namespace OloEngine
 		// First, group commands by dependency chains
 		std::vector<std::vector<CommandPacket*>> dependencyGroups;
 		std::vector<CommandPacket*> currentGroup;
-
 		CommandPacket* current = m_Head;
 		while (current)
 		{
 			// Start a new group if this is the first command or if it depends on previous
-			if (currentGroup.empty() || current->GetMetadata().dependsOnPrevious)
+			if (currentGroup.empty() || current->GetMetadata().m_DependsOnPrevious)
 			{
 				// If we have an existing group, finalize it
 				if (!currentGroup.empty())
@@ -153,12 +152,12 @@ namespace OloEngine
 			m_SortedCommands.push_back(current);
 
 			// Link each group
-			for (size_t groupIdx = 0; groupIdx < dependencyGroups.size(); groupIdx++)
+			for (sizet groupIdx = 0; groupIdx < dependencyGroups.size(); groupIdx++)
 			{
 				const auto& group = dependencyGroups[groupIdx];
 
 				// Link commands within the group
-				for (size_t cmdIdx = (groupIdx == 0 ? 1 : 0); cmdIdx < group.size(); cmdIdx++)
+				for (sizet cmdIdx = (groupIdx == 0 ? 1 : 0); cmdIdx < group.size(); cmdIdx++)
 				{
 					current->SetNext(group[cmdIdx]);
 					current = group[cmdIdx];
@@ -244,7 +243,7 @@ namespace OloEngine
 			return false;
 
 		// Handle batching based on command type
-		CommandType targetType = target->GetCommandType();        
+		CommandType targetType = target->GetCommandType();
 
 		// We can have a few different scenarios:
 		// 1. Both are DrawMeshCommand - Convert to DrawMeshInstancedCommand
@@ -281,7 +280,7 @@ namespace OloEngine
 				m_Tail = instancedPacket;
 
 			// Now add source transform to the new instanced command
-			auto const* sourceCmd = source->GetCommandData<DrawMeshCommand>();            
+			auto const* sourceCmd = source->GetCommandData<DrawMeshCommand>();
 
 			if (auto* instancedCmd = instancedPacket->GetCommandData<DrawMeshInstancedCommand>();
 				instancedCmd && sourceCmd && instancedCmd->instanceCount < instancedCmd->transforms.size())
@@ -328,12 +327,10 @@ namespace OloEngine
 		while (current)
 		{
 			CommandPacket* next = current->GetNext();
-
 			// Try to merge with subsequent compatible commands
 			while (next && TryMergeCommands(current, next, allocator))
 			{
 				// Merging succeeded, remove the next command from the list
-				CommandPacket* merged = next;
 				next = next->GetNext();
 				current->SetNext(next);
 

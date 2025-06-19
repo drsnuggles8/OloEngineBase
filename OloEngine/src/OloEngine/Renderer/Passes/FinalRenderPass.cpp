@@ -99,7 +99,7 @@ namespace OloEngine
         m_BlitShader->Bind();
         
         // Bind the color attachment from the input framebuffer as a texture
-        u32 colorAttachmentID = m_InputFramebuffer->GetColorAttachmentRendererID(0);       
+        u32 colorAttachmentID = m_InputFramebuffer->GetColorAttachmentRendererID(0);
         RenderCommand::BindTexture(0, colorAttachmentID);
         m_BlitShader->SetInt("u_Texture", 0);
         

@@ -1,5 +1,8 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLTexture.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
+#include "OloEngine/Renderer/Debug/RendererProfiler.h"
+#include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image/stb_image.h>
@@ -54,9 +57,31 @@ namespace OloEngine
 
 		m_InternalFormat = Utils::OloEngineImageFormatToGLInternalFormat(m_Specification.Format);
 		m_DataFormat = Utils::OloEngineImageFormatToGLDataFormat(m_Specification.Format);
-
 		glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
 		glTextureStorage2D(m_RendererID, 1, m_InternalFormat, static_cast<int>(m_Width), static_cast<int>(m_Height));
+
+		// Calculate memory usage based on format and dimensions
+		u32 bytesPerPixel = 4; // Default to RGBA
+		switch (m_Specification.Format)
+		{
+			case ImageFormat::R8: bytesPerPixel = 1; break;
+			case ImageFormat::RGB8: bytesPerPixel = 3; break;
+			case ImageFormat::RGBA8: bytesPerPixel = 4; break;
+			case ImageFormat::R32F: bytesPerPixel = 4; break;
+			case ImageFormat::RG32F: bytesPerPixel = 8; break;
+			case ImageFormat::RGB32F: bytesPerPixel = 12; break;
+			case ImageFormat::RGBA32F: bytesPerPixel = 16; break;
+			case ImageFormat::DEPTH24STENCIL8: bytesPerPixel = 4; break;
+		}
+		sizet textureMemory = static_cast<sizet>(m_Width) * m_Height * bytesPerPixel;
+		// Track GPU memory allocation
+		OLO_TRACK_GPU_ALLOC(this, 
+		                     textureMemory, 
+		                     RendererMemoryTracker::ResourceType::Texture2D, 
+		                     "OpenGL Texture2D (spec)");
+
+		// Register with GPU Resource Inspector
+		GPUResourceInspector::GetInstance().RegisterTexture(m_RendererID, "Texture2D (spec)", "Texture2D");
 
 		// NOTE: Texture Wrapping
 		glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
@@ -91,12 +116,15 @@ namespace OloEngine
 		InvalidateImpl(path, static_cast<u32>(width), static_cast<u32>(height), data, static_cast<u32>(channels));
 
 		::stbi_image_free(data);
-	}
-
-	OpenGLTexture2D::~OpenGLTexture2D()
+	}	OpenGLTexture2D::~OpenGLTexture2D()
 	{
 		OLO_PROFILE_FUNCTION();
-
+		// Track GPU memory deallocation
+		OLO_TRACK_DEALLOC(this);
+		
+		// Unregister from GPU Resource Inspector
+		GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
+		
 		glDeleteTextures(1, &m_RendererID);
 	}
 
@@ -159,9 +187,20 @@ namespace OloEngine
 		m_DataFormat = dataFormat;
 
 		OLO_CORE_ASSERT(internalFormat & dataFormat, "Format not supported!");
-
 		glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
 		glTextureStorage2D(m_RendererID, 1, internalFormat, static_cast<int>(m_Width), static_cast<int>(m_Height));
+
+		// Calculate memory usage based on channels and dimensions
+		sizet textureMemory = static_cast<sizet>(m_Width) * m_Height * channels;
+				// Track GPU memory allocation
+		std::string textureName = "OpenGL Texture2D: " + std::string(path);
+		OLO_TRACK_GPU_ALLOC(reinterpret_cast<void*>(static_cast<uintptr_t>(m_RendererID)), 
+		                     textureMemory, 
+		                     RendererMemoryTracker::ResourceType::Texture2D, 
+		                     textureName);
+
+		// Register with GPU Resource Inspector
+		GPUResourceInspector::GetInstance().RegisterTexture(m_RendererID, std::string(path), textureName);
 
 		// NOTE: Texture Wrapping
 		glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
@@ -174,11 +213,13 @@ namespace OloEngine
 		glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<int>(m_Width), static_cast<int>(m_Height), dataFormat, GL_UNSIGNED_BYTE, data);
 		glGenerateTextureMipmap(m_RendererID);
 	}
-
 	void OpenGLTexture2D::Bind(const u32 slot) const
 	{
 		OLO_PROFILE_FUNCTION();
 
 		glBindTextureUnit(slot, m_RendererID);
+		
+		// Update profiler counters
+		RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::TextureBinds, 1);
 	}
 }

@@ -30,9 +30,6 @@ namespace OloEngine
         [[nodiscard]] Ref<Framebuffer> GetInputFramebuffer() const;
 
     private:
-        void CreateFullscreenTriangle();
-
-    private:
         Ref<Framebuffer> m_InputFramebuffer;         // The framebuffer to render to the screen
         Ref<Shader> m_BlitShader;                    // Shader for blitting the framebuffer to the screen
         Ref<VertexArray> m_FullscreenTriangleVA;     // Vertex array for the fullscreen triangle

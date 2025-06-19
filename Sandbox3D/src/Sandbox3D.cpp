@@ -61,6 +61,11 @@ void Sandbox3D::OnAttach()
 {
     OLO_PROFILE_FUNCTION();
     
+    // Initialize debugging tools FIRST before creating any resources
+    OloEngine::RendererMemoryTracker::GetInstance().Initialize();
+    OloEngine::RendererProfiler::GetInstance().Initialize();
+    // Note: GPUResourceInspector is now initialized in Application constructor
+    
     // Create 3D meshes
     m_CubeMesh = OloEngine::Mesh::CreateCube();
     m_SphereMesh = OloEngine::Mesh::CreateSphere();
@@ -76,15 +81,16 @@ void Sandbox3D::OnAttach()
     
     // Assign textures to the material
     m_TexturedMaterial.DiffuseMap = m_DiffuseMap;
-    m_TexturedMaterial.SpecularMap = m_SpecularMap;
- 
-    // Set initial lighting parameters
+    m_TexturedMaterial.SpecularMap = m_SpecularMap;    // Set initial lighting parameters
     OloEngine::Renderer3D::SetLight(m_Light);
 }
 
 void Sandbox3D::OnDetach()
-{
-	OLO_PROFILE_FUNCTION();
+{	OLO_PROFILE_FUNCTION();
+		// Shutdown debugging tools
+	OloEngine::RendererMemoryTracker::GetInstance().Shutdown();
+	OloEngine::RendererProfiler::GetInstance().Shutdown();
+	// Note: GPUResourceInspector is now shutdown in Application destructor
 }
 
 void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
@@ -93,6 +99,9 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 
 	m_FrameTime = ts.GetMilliseconds();
 	m_FPS = 1.0f / ts.GetSeconds();
+		// Update debugging tools
+	OloEngine::RendererMemoryTracker::GetInstance().UpdateStats();
+	// Note: RendererProfiler doesn't have UpdateStats method
 
 	// Update camera only if camera movement is enabled
 	if (m_CameraMovementEnabled)
@@ -344,13 +353,47 @@ void Sandbox3D::OnImGuiRender()
     // Render the RenderGraph debugger window if open
     RenderGraphDebuggerUI();
 
-    ImGui::Begin("Lighting Settings");
+    ImGui::Begin("Settings & Controls");    // Render different sections in collapsible headers
+    if (ImGui::CollapsingHeader("Performance & Frame Info", ImGuiTreeNodeFlags_None))
+    {
+        RenderPerformanceInfo();
+    }
 
+    if (ImGui::CollapsingHeader("Scene Settings", ImGuiTreeNodeFlags_None))
+    {
+        RenderSceneSettings();
+    }
+
+    if (ImGui::CollapsingHeader("Lighting Settings", ImGuiTreeNodeFlags_None))
+    {
+        RenderLightingSettings();
+    }
+
+    if (ImGui::CollapsingHeader("Material Settings", ImGuiTreeNodeFlags_None))
+    {
+        RenderMaterialSettings();
+    }
+
+    if (ImGui::CollapsingHeader("State Management Test", ImGuiTreeNodeFlags_None))
+    {
+        RenderStateTestSettings();
+    }
+
+    if (ImGui::CollapsingHeader("Renderer Debugging Tools", ImGuiTreeNodeFlags_None))
+    {
+        RenderDebuggingTools();
+    }
+
+    ImGui::End();
+}
+
+void Sandbox3D::RenderPerformanceInfo()
+{
     // Display frametime and FPS
     ImGui::Text("Frametime: %.2f ms", m_FrameTime);
     ImGui::Text("FPS: %.2f", m_FPS);
     
-    // Add render graph button at the top
+    // Add render graph button
     if (ImGui::Button("Show Render Graph"))
     {
         m_RenderGraphDebuggerOpen = true;
@@ -361,183 +404,260 @@ void Sandbox3D::OnImGuiRender()
     {
         ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Camera Movement: DISABLED");
         ImGui::Text("Press TAB to re-enable camera movement");
-        ImGui::Separator();
     }
-	
-	// Add scene object selection
-	ImGui::Text("Scene Objects");
-	ImGui::Combo("Primitive Types", &m_PrimitiveTypeIndex, m_PrimitiveNames, 3);
-	ImGui::Separator();
+}
 
-	// Add a section for frustum culling settings
-	ImGui::Separator();
-	ImGui::Text("Frustum Culling");
-	ImGui::Indent();
-	
-	bool frustumCullingEnabled = OloEngine::Renderer3D::IsFrustumCullingEnabled();
-	if (ImGui::Checkbox("Enable Frustum Culling", &frustumCullingEnabled))
-	{
-		OloEngine::Renderer3D::EnableFrustumCulling(frustumCullingEnabled);
-	}
-	ImGui::SameLine();
-	ImGui::TextDisabled("(?)");
-	if (ImGui::IsItemHovered())
-	{
-		ImGui::BeginTooltip();
-		ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
-		ImGui::TextUnformatted("Enables frustum culling to skip rendering objects outside the camera view.");
-		ImGui::PopTextWrapPos();
-		ImGui::EndTooltip();
-	}
-	
-	bool dynamicCullingEnabled = OloEngine::Renderer3D::IsDynamicCullingEnabled();
-	if (ImGui::Checkbox("Cull Dynamic Objects", &dynamicCullingEnabled))
-	{
-		OloEngine::Renderer3D::EnableDynamicCulling(dynamicCullingEnabled);
-	}
-	ImGui::SameLine();
-	ImGui::TextDisabled("(?)");
-	if (ImGui::IsItemHovered())
-	{
-		ImGui::BeginTooltip();
-		ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
-		ImGui::TextUnformatted("Warning: Enabling this may cause visual glitches with rotating objects.");
-		ImGui::PopTextWrapPos();
-		ImGui::EndTooltip();
-	}
-	
-	if (ImGui::Button("Reset to Defaults"))
-	{
-		OloEngine::Renderer3D::EnableFrustumCulling(true);
-		OloEngine::Renderer3D::EnableDynamicCulling(false);
-	}
-	
-	ImGui::Text("Meshes: Total %d, Culled %d (%.1f%%)", 
-		OloEngine::Renderer3D::GetStats().TotalMeshes, 
-		OloEngine::Renderer3D::GetStats().CulledMeshes,
-		OloEngine::Renderer3D::GetStats().TotalMeshes > 0 
-			? 100.0f * OloEngine::Renderer3D::GetStats().CulledMeshes / OloEngine::Renderer3D::GetStats().TotalMeshes 
-			: 0.0f);
-	
-	ImGui::Unindent();
-	ImGui::Separator();
+void Sandbox3D::RenderSceneSettings()
+{
+    ImGui::Combo("Primitive Types", &m_PrimitiveTypeIndex, m_PrimitiveNames, 3);
+    ImGui::Separator();
 
-	// Light type selection
-	ImGui::Text("Light Type");
-	if (bool lightTypeChanged = ImGui::Combo("##LightType", &m_LightTypeIndex, m_LightTypeNames, 3); lightTypeChanged)
-	{
-		// Update light type
-		m_Light.Type = static_cast<OloEngine::LightType>(m_LightTypeIndex);
+    // Add a section for frustum culling settings
+    ImGui::Text("Frustum Culling");
+    ImGui::Indent();
+    
+    bool frustumCullingEnabled = OloEngine::Renderer3D::IsFrustumCullingEnabled();
+    if (ImGui::Checkbox("Enable Frustum Culling", &frustumCullingEnabled))
+    {
+        OloEngine::Renderer3D::EnableFrustumCulling(frustumCullingEnabled);
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::BeginTooltip();
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+        ImGui::TextUnformatted("Enables frustum culling to skip rendering objects outside the camera view.");
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
+    
+    bool dynamicCullingEnabled = OloEngine::Renderer3D::IsDynamicCullingEnabled();
+    if (ImGui::Checkbox("Cull Dynamic Objects", &dynamicCullingEnabled))
+    {
+        OloEngine::Renderer3D::EnableDynamicCulling(dynamicCullingEnabled);
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::BeginTooltip();
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+        ImGui::TextUnformatted("Warning: Enabling this may cause visual glitches with rotating objects.");
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
+    
+    if (ImGui::Button("Reset to Defaults"))
+    {
+        OloEngine::Renderer3D::EnableFrustumCulling(true);
+        OloEngine::Renderer3D::EnableDynamicCulling(false);
+    }
+    
+    ImGui::Text("Meshes: Total %d, Culled %d (%.1f%%)", 
+        OloEngine::Renderer3D::GetStats().TotalMeshes, 
+        OloEngine::Renderer3D::GetStats().CulledMeshes,
+        OloEngine::Renderer3D::GetStats().TotalMeshes > 0 
+            ? 100.0f * OloEngine::Renderer3D::GetStats().CulledMeshes / OloEngine::Renderer3D::GetStats().TotalMeshes 
+            : 0.0f);
+    
+    ImGui::Unindent();
+}
 
-		// Disable animation for directional lights
-		if (m_Light.Type == OloEngine::LightType::Directional && m_AnimateLight)
-		{
-			m_AnimateLight = false;
-		}
+void Sandbox3D::RenderLightingSettings()
+{
+    if (bool lightTypeChanged = ImGui::Combo("Light Type", &m_LightTypeIndex, m_LightTypeNames, 3); lightTypeChanged)
+    {
+        // Update light type
+        m_Light.Type = static_cast<OloEngine::LightType>(m_LightTypeIndex);
 
-		OloEngine::Renderer3D::SetLight(m_Light);
-	}
+        // Disable animation for directional lights
+        if (m_Light.Type == OloEngine::LightType::Directional && m_AnimateLight)
+        {
+            m_AnimateLight = false;
+        }
 
-	// Show different UI controls based on light type
-	ImGui::Separator();
-	ImGui::Text("Light Properties");
-	
-	using enum OloEngine::LightType;
-	switch (m_Light.Type)
-	{
-		case Directional:
-			RenderDirectionalLightUI();
-			break;
+        OloEngine::Renderer3D::SetLight(m_Light);
+    }    // Show different UI controls based on light type
+    ImGui::Separator();
+    
+    using enum OloEngine::LightType;
+    switch (m_Light.Type)
+    {
+        case Directional:
+            RenderDirectionalLightUI();
+            break;
 
-		case Point:
-			// Only show animation toggle for positional lights
-			ImGui::Checkbox("Animate Light", &m_AnimateLight);
-			RenderPointLightUI();
-			break;
+        case Point:
+            // Only show animation toggle for positional lights
+            ImGui::Checkbox("Animate Light", &m_AnimateLight);
+            RenderPointLightUI();
+            break;
 
-		case Spot:
-			// Only show animation toggle for positional lights
-			ImGui::Checkbox("Animate Light", &m_AnimateLight);
-			RenderSpotlightUI();
-			break;
-	}
+        case Spot:
+            // Only show animation toggle for positional lights
+            ImGui::Checkbox("Animate Light", &m_AnimateLight);
+            RenderSpotlightUI();
+            break;
+    }
+}
 
-	// Material selection
-	ImGui::Separator();
-	ImGui::Text("Material Properties");
-	ImGui::Combo("Select Material", &m_SelectedMaterial, m_MaterialNames, 4);
+void Sandbox3D::RenderMaterialSettings()
+{
+    ImGui::Combo("Select Material", &m_SelectedMaterial, m_MaterialNames, 4);
 
-	// Get the selected material based on the combo box selection
-	OloEngine::Material* currentMaterial;
-	switch (m_SelectedMaterial)
-	{
-		case 0:
-			currentMaterial = &m_GoldMaterial;
-			break;
-		case 1:
-			currentMaterial = &m_SilverMaterial;
-			break;
-		case 2:
-			currentMaterial = &m_ChromeMaterial;
-			break;
-		case 3:
-			currentMaterial = &m_TexturedMaterial;
-			break;
-		default:
-			currentMaterial = &m_GoldMaterial;
-	}
+    // Get the selected material based on the combo box selection
+    OloEngine::Material* currentMaterial;
+    switch (m_SelectedMaterial)
+    {
+        case 0:
+            currentMaterial = &m_GoldMaterial;
+            break;
+        case 1:
+            currentMaterial = &m_SilverMaterial;
+            break;
+        case 2:
+            currentMaterial = &m_ChromeMaterial;
+            break;
+        case 3:
+            currentMaterial = &m_TexturedMaterial;
+            break;
+        default:
+            currentMaterial = &m_GoldMaterial;
+    }
 
-	// Edit the selected material
-	if (m_SelectedMaterial == 3) // Textured material
-	{
-		// For textured material, show the texture map toggle
-		ImGui::Checkbox("Use Texture Maps", &currentMaterial->UseTextureMaps);
-		ImGui::Text("Shininess");
-		ImGui::SliderFloat("##TexturedShininess", &currentMaterial->Shininess, 1.0f, 128.0f);
-		
-		if (m_DiffuseMap)
-			ImGui::Text("Diffuse Map: Loaded");
-		else
-			ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Diffuse Map: Not Found!");
-		
-		if (m_SpecularMap)
-			ImGui::Text("Specular Map: Loaded");
-		else 
-			ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Specular Map: Not Found!");
-	}
-	else
-	{
-		// For solid color materials, show the color controls
-		ImGui::ColorEdit3(std::format("Ambient##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Ambient));
-		ImGui::ColorEdit3(std::format("Diffuse##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Diffuse));
-		ImGui::ColorEdit3(std::format("Specular##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Specular));
-		ImGui::SliderFloat(std::format("Shininess##Material{}", m_SelectedMaterial).c_str(), &currentMaterial->Shininess, 1.0f, 128.0f);
-	}
+    // Edit the selected material
+    if (m_SelectedMaterial == 3) // Textured material
+    {
+        // For textured material, show the texture map toggle
+        ImGui::Checkbox("Use Texture Maps", &currentMaterial->UseTextureMaps);
+        ImGui::Text("Shininess");
+        ImGui::SliderFloat("##TexturedShininess", &currentMaterial->Shininess, 1.0f, 128.0f);
+        
+        if (m_DiffuseMap)
+            ImGui::Text("Diffuse Map: Loaded");
+        else
+            ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Diffuse Map: Not Found!");
+        
+        if (m_SpecularMap)
+            ImGui::Text("Specular Map: Loaded");
+        else 
+            ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Specular Map: Not Found!");
+    }
+    else
+    {
+        // For solid color materials, show the color controls
+        ImGui::ColorEdit3(std::format("Ambient##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Ambient));
+        ImGui::ColorEdit3(std::format("Diffuse##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Diffuse));
+        ImGui::ColorEdit3(std::format("Specular##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Specular));
+        ImGui::SliderFloat(std::format("Shininess##Material{}", m_SelectedMaterial).c_str(), &currentMaterial->Shininess, 1.0f, 128.0f);
+    }
+}
 
-	ImGui::Separator();
-	ImGui::Text("State Management Test");
-	ImGui::Checkbox("Enable State Test", &m_EnableStateTest);
-	
-	if (m_EnableStateTest)
-	{
-		ImGui::Combo("Test Mode", &m_StateTestMode, m_StateTestModes, 4);
-		
-		ImGui::Checkbox("Use Queued State Changes", &m_UseQueuedStateChanges);
-		if (ImGui::IsItemHovered())
-		{
-			ImGui::BeginTooltip();
-			ImGui::Text("This option doesn't do anything yet - we're always using the queue now");
-			ImGui::EndTooltip();
-		}
-	}
+void Sandbox3D::RenderStateTestSettings()
+{
+    ImGui::Checkbox("Enable State Test", &m_EnableStateTest);
+    
+    if (m_EnableStateTest)
+    {
+        ImGui::Combo("Test Mode", &m_StateTestMode, m_StateTestModes, 4);
+        ImGui::Checkbox("Use Queued State Changes", &m_UseQueuedStateChanges);
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::BeginTooltip();
+            ImGui::Text("This option doesn't do anything yet - we're always using the queue now");
+            ImGui::EndTooltip();
+        }
+    }
+}
 
-	ImGui::End();
+void Sandbox3D::RenderDebuggingTools()
+{
+    // Command Packet Debugger
+    if (ImGui::CollapsingHeader("Command Packet Debugger", ImGuiTreeNodeFlags_None))
+    {
+        ImGui::Checkbox("Show Command Packets##CommandDebugger", &m_ShowCommandPacketDebugger);
+        ImGui::SameLine();
+        if (ImGui::Button("Export to CSV##CommandDebugger"))
+        {
+            const auto* commandBucket = OloEngine::Renderer3D::GetCommandBucket();
+            if (commandBucket)
+            {
+                m_CommandPacketDebugger.ExportToCSV(commandBucket, "command_packets.csv");
+            }
+        }
+        
+        if (m_ShowCommandPacketDebugger)
+        {
+            const auto* commandBucket = OloEngine::Renderer3D::GetCommandBucket();
+            if (commandBucket)
+            {
+                m_CommandPacketDebugger.RenderDebugView(commandBucket, &m_ShowCommandPacketDebugger, "Command Packets");
+            }
+            else
+            {
+                ImGui::Text("Command bucket not available");
+            }
+        }
+    }
+    
+    // Memory Tracker
+    if (ImGui::CollapsingHeader("Memory Tracker", ImGuiTreeNodeFlags_None))
+    {
+        ImGui::Checkbox("Show Memory Tracker##MemoryTracker", &m_ShowMemoryTracker);
+        
+        if (m_ShowMemoryTracker)
+        {
+            m_MemoryTracker.RenderUI(&m_ShowMemoryTracker);
+        }
+    }
+    
+    // Renderer Profiler
+    if (ImGui::CollapsingHeader("Renderer Profiler", ImGuiTreeNodeFlags_None))
+    {
+        ImGui::Checkbox("Show Profiler##RendererProfiler", &m_ShowRendererProfiler);
+        
+        if (m_ShowRendererProfiler)
+        {
+            m_RendererProfiler.RenderUI(&m_ShowRendererProfiler);
+        }
+    }
+    
+    // GPU Resource Inspector
+    if (ImGui::CollapsingHeader("GPU Resource Inspector", ImGuiTreeNodeFlags_None))
+    {
+        ImGui::Checkbox("Show GPU Resources##GPUResourceInspector", &m_ShowGPUResourceInspector);
+        ImGui::SameLine();
+        if (ImGui::Button("Export to CSV##GPUResourceInspector"))
+        {
+            m_GPUResourceInspector.ExportToCSV("gpu_resources.csv");
+        }
+        
+        if (m_ShowGPUResourceInspector)
+        {
+            m_GPUResourceInspector.RenderDebugView(&m_ShowGPUResourceInspector, "GPU Resource Inspector");
+        }
+    }
+
+    // Shader Debugger
+    if (ImGui::CollapsingHeader("Shader Debugger", ImGuiTreeNodeFlags_None))
+    {
+        ImGui::Checkbox("Show Shader Debugger##ShaderDebugger", &m_ShowShaderDebugger);
+        ImGui::SameLine();
+        if (ImGui::Button("Export Report##ShaderDebugger"))
+        {
+            m_ShaderDebugger.ExportReport("shader_debug_report.txt");
+        }
+        
+        if (m_ShowShaderDebugger)
+        {
+            m_ShaderDebugger.RenderDebugView(&m_ShowShaderDebugger, "Shader Debugger");
+        }
+    }
 }
 
 void Sandbox3D::RenderDirectionalLightUI()
 {
-	ImGui::Text("Directional Light");
-	
 	// Direction control
 	if (bool directionChanged = ImGui::DragFloat3("Direction##DirLight", glm::value_ptr(m_Light.Direction), 0.01f); directionChanged)
 	{
@@ -568,8 +688,6 @@ void Sandbox3D::RenderDirectionalLightUI()
 
 void Sandbox3D::RenderPointLightUI()
 {
-	ImGui::Text("Point Light");
-	
 	if (!m_AnimateLight)
 	{
 		// Position control (only if not animating)
@@ -600,8 +718,6 @@ void Sandbox3D::RenderPointLightUI()
 
 void Sandbox3D::RenderSpotlightUI()
 {
-	ImGui::Text("Spotlight");
-	
 	if (!m_AnimateLight)
 	{
 		// Position control (only if not animating)
