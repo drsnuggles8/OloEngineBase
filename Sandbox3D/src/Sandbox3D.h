@@ -1,3 +1,4 @@
+
 #pragma once
 
 #include "OloEngine.h"
@@ -27,6 +28,10 @@ public:
 	void OnEvent(OloEngine::Event& e) override;
 
 private:
+	// Animated mesh ECS test (step 1)
+	OloEngine::Ref<OloEngine::Mesh> m_AnimatedTestMesh;
+	OloEngine::Ref<OloEngine::Skeleton> m_AnimatedTestSkeleton;
+	OloEngine::AnimationStateComponent m_AnimatedTestAnimState;
 	// UI helper functions for different sections
 	void RenderPerformanceInfo();
 	void RenderSceneSettings();
@@ -39,9 +44,9 @@ private:
 	void RenderDirectionalLightUI();
 	void RenderPointLightUI();
 	void RenderSpotlightUI();
-    void RenderGraphDebuggerUI();
-    void RenderDebuggingUI();
-    void RenderStateTestObjects(f32 rotationAngle);
+	void RenderGraphDebuggerUI();
+	void RenderDebuggingUI();
+	void RenderStateTestObjects(f32 rotationAngle);
 
 private:
 	OloEngine::PerspectiveCameraController m_CameraController;
@@ -100,25 +105,25 @@ private:
 	f32 m_FPS = 0.0f;
 	
 	// Render Graph Debugger
-    OloEngine::RenderGraphDebugger m_RenderGraphDebugger;
-    bool m_RenderGraphDebuggerOpen = false;
-    
-    // Debugging Tools
-    OloEngine::CommandPacketDebugger m_CommandPacketDebugger;
-    OloEngine::RendererMemoryTracker& m_MemoryTracker = OloEngine::RendererMemoryTracker::GetInstance();
-    OloEngine::RendererProfiler& m_RendererProfiler = OloEngine::RendererProfiler::GetInstance();
-    OloEngine::GPUResourceInspector& m_GPUResourceInspector = OloEngine::GPUResourceInspector::GetInstance();
-    OloEngine::ShaderDebugger& m_ShaderDebugger = OloEngine::ShaderDebugger::GetInstance();
-    
-    bool m_ShowCommandPacketDebugger = false;
-    bool m_ShowMemoryTracker = false;
-    bool m_ShowRendererProfiler = false;
-    bool m_ShowGPUResourceInspector = false;
-    bool m_ShowShaderDebugger = false;
-    
-    // State testing settings
-    bool m_EnableStateTest = true;
-    i32 m_StateTestMode = 0;
-    const char* m_StateTestModes[4] = { "Wireframe", "Alpha Blend", "Polygon Offset", "All Effects" };
-    bool m_UseQueuedStateChanges = true;
+	OloEngine::RenderGraphDebugger m_RenderGraphDebugger;
+	bool m_RenderGraphDebuggerOpen = false;
+	
+	// Debugging Tools
+	OloEngine::CommandPacketDebugger m_CommandPacketDebugger;
+	OloEngine::RendererMemoryTracker& m_MemoryTracker = OloEngine::RendererMemoryTracker::GetInstance();
+	OloEngine::RendererProfiler& m_RendererProfiler = OloEngine::RendererProfiler::GetInstance();
+	OloEngine::GPUResourceInspector& m_GPUResourceInspector = OloEngine::GPUResourceInspector::GetInstance();
+	OloEngine::ShaderDebugger& m_ShaderDebugger = OloEngine::ShaderDebugger::GetInstance();
+	
+	bool m_ShowCommandPacketDebugger = false;
+	bool m_ShowMemoryTracker = false;
+	bool m_ShowRendererProfiler = false;
+	bool m_ShowGPUResourceInspector = false;
+	bool m_ShowShaderDebugger = false;
+	
+	// State testing settings
+	bool m_EnableStateTest = true;
+	i32 m_StateTestMode = 0;
+	const char* m_StateTestModes[4] = { "Wireframe", "Alpha Blend", "Polygon Offset", "All Effects" };
+	bool m_UseQueuedStateChanges = true;
 };

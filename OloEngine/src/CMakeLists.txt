@@ -2,6 +2,9 @@
 		"OloEngine.h"
 		"OloEnginePCH.cpp"
 		"OloEnginePCH.h"
+
+		"OloEngine/Animation/Skeleton.h"
+		"OloEngine/Animation/AnimatedMeshComponents.h"
 		
 		"OloEngine/Audio/AudioEngine.cpp"
 		"OloEngine/Audio/AudioEngine.h"
