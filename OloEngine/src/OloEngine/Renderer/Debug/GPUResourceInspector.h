@@ -111,7 +111,9 @@ namespace OloEngine
             std::vector<GLenum> m_ColorAttachmentFormats;
             GLenum m_DepthAttachmentFormat = GL_NONE;
             GLenum m_StencilAttachmentFormat = GL_NONE;
-        };        // Async texture download data
+        };
+		
+		// Async texture download data
         struct TextureDownloadRequest
         {
             u32 m_TextureID = 0;

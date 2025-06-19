@@ -869,6 +869,11 @@ namespace OloEngine
             glUnmapBuffer(info.m_Target);
             info.m_ContentPreviewValid = true;
         }
+		else
+		{
+			OLO_CORE_WARN("Failed to map buffer for preview: ID {}", info.m_RendererID);
+			info.m_ContentPreviewValid = false;
+		}
 
         // Restore previous buffer binding
         glBindBuffer(info.m_Target, previousBinding);
