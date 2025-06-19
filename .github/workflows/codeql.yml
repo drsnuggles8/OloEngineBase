@@ -40,6 +40,12 @@ jobs:
         version: latest
         cache: true
 
+    - name: Set CMake Vulkan hints
+      run: |
+        echo "CMAKE_PREFIX_PATH=${{ steps.vulkan.outputs.vulkan_sdk_path }}" >> $GITHUB_ENV
+        echo "CMAKE_LIBRARY_PATH=${{ steps.vulkan.outputs.vulkan_sdk_path }}/Lib" >> $GITHUB_ENV
+        echo "CMAKE_INCLUDE_PATH=${{ steps.vulkan.outputs.vulkan_sdk_path }}/Include" >> $GITHUB_ENV
+
     - name: Set up Vulkan environment variables
       run: |
         echo "VULKAN_SDK=${{ steps.vulkan.outputs.vulkan_sdk_path }}" >> $GITHUB_ENV
@@ -47,6 +53,10 @@ jobs:
       shell: bash
       env:
         VULKAN_SDK: ${{ steps.vulkan.outputs.vulkan_sdk_path }}
+
+    - name: Debug Vulkan SDK install
+      run: |
+        ls -R "${{ steps.vulkan.outputs.vulkan_sdk_path }}"
 
     - name: Configure CMake
       run: cmake -B ${{github.workspace}}/build
