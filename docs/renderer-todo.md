@@ -27,6 +27,7 @@ Introduce new ECS components for animated mesh rendering and animation state.
 
 ---
 
+
 ### 2. Animation System & State Machine
 **Priority:** High 
 **Dependencies:** Animation data, ECS components
@@ -35,15 +36,18 @@ Introduce new ECS components for animated mesh rendering and animation state.
 Implement a modular animation system that updates entity animation states and computes bone transforms each frame.
 
 **Key Steps:**
-- [ ] Implement animation update system (per-entity, per-frame)
-- [ ] Support multiple animation clips and blending
-- [ ] Add animation state machine logic (idle, walk, run, etc.)
-- [ ] Store final bone matrices in a cache for rendering
+- [x] Implement animation update system (per-entity, per-frame)
+- [x] Support multiple animation clips and blending
+- [x] Add animation state machine logic (idle, walk, run, etc.)
+- [x] Store final bone matrices in a cache for rendering
 
 **Implementation Notes:**
 - Optimize for minimal dynamic allocation (pre-allocate bone matrix buffers)
 - Use SIMD where possible for matrix operations
 - Integrate with ImGui for debugging animation state
+
+**Note:**
+Basic automatic state machine logic is implemented: the test entity switches between Idle and Bounce every 2 seconds. This can be extended for more complex transitions.
 
 ---
 

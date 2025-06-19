@@ -5,6 +5,10 @@
 
 		"OloEngine/Animation/Skeleton.h"
 		"OloEngine/Animation/AnimatedMeshComponents.h"
+		"OloEngine/Animation/AnimationSystem.h"
+		"OloEngine/Animation/AnimationSystem.cpp"
+		"OloEngine/Animation/AnimationClip.h"
+		"OloEngine/Animation/AnimationClip.cpp"
 		
 		"OloEngine/Audio/AudioEngine.cpp"
 		"OloEngine/Audio/AudioEngine.h"

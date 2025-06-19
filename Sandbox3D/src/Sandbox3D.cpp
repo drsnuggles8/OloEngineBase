@@ -12,7 +12,9 @@
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 
+
 #include "OloEngine/Animation/Skeleton.h"
+#include "OloEngine/Animation/AnimationSystem.h"
 
 Sandbox3D::Sandbox3D()
     : Layer("Sandbox3D"),
@@ -97,8 +99,32 @@ void Sandbox3D::OnAttach()
     m_AnimatedTestSkeleton->m_LocalTransforms = { glm::mat4(1.0f) };
     m_AnimatedTestSkeleton->m_GlobalTransforms = { glm::mat4(1.0f) };
     m_AnimatedTestSkeleton->m_FinalBoneMatrices = { glm::mat4(1.0f) };
-    // Animation state (no real animation yet)
-    m_AnimatedTestAnimState = OloEngine::AnimationStateComponent{};
+
+    // --- Dummy Animation Clips (Idle and Bounce) ---
+    using namespace OloEngine;
+    // Idle: root bone stays at y=0
+    m_IdleClip = CreateRef<AnimationClip>();
+    m_IdleClip->Name = "Idle";
+    m_IdleClip->Duration = 2.0f;
+    BoneAnimation idleAnim;
+    idleAnim.BoneName = "Root";
+    idleAnim.Keyframes.push_back({ 0.0f, glm::vec3(0.0f, 0.0f, 0.0f), glm::quat(1,0,0,0), glm::vec3(1.0f) });
+    idleAnim.Keyframes.push_back({ 2.0f, glm::vec3(0.0f, 0.0f, 0.0f), glm::quat(1,0,0,0), glm::vec3(1.0f) });
+    m_IdleClip->BoneAnimations.push_back(idleAnim);
+
+    // Bounce: root bone moves up and down
+    m_BounceClip = CreateRef<AnimationClip>();
+    m_BounceClip->Name = "Bounce";
+    m_BounceClip->Duration = 2.0f;
+    BoneAnimation bounceAnim;
+    bounceAnim.BoneName = "Root";
+    bounceAnim.Keyframes.push_back({ 0.0f, glm::vec3(0.0f, 0.0f, 0.0f), glm::quat(1,0,0,0), glm::vec3(1.0f) });
+    bounceAnim.Keyframes.push_back({ 1.0f, glm::vec3(0.0f, 1.0f, 0.0f), glm::quat(1,0,0,0), glm::vec3(1.0f) });
+    bounceAnim.Keyframes.push_back({ 2.0f, glm::vec3(0.0f, 0.0f, 0.0f), glm::quat(1,0,0,0), glm::vec3(1.0f) });
+    m_BounceClip->BoneAnimations.push_back(bounceAnim);
+
+    // Animation state: start with Idle
+    m_AnimatedTestAnimState = AnimationStateComponent{ m_IdleClip };
 }
 
 void Sandbox3D::OnDetach()
@@ -157,6 +183,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
         if (m_RotationAngleX > 360.0f)  m_RotationAngleX -= 360.0f;
     }
 
+
     // Animate the light position in a circular pattern (only for point and spot lights)
     if (m_AnimateLight && m_Light.Type != OloEngine::LightType::Directional)
     {
@@ -172,6 +199,25 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
         }
 
         OloEngine::Renderer3D::SetLight(m_Light);
+    }
+
+    // --- Basic Animation State Machine: auto-switch Idle <-> Bounce every 2 seconds ---
+    static float animStateTimer = 0.0f;
+    animStateTimer += ts.GetSeconds();
+    if (!m_AnimatedTestAnimState.Blending && m_AnimatedTestAnimState.m_CurrentClip)
+    {
+        float switchInterval = 2.0f;
+        if (animStateTimer >= switchInterval)
+        {
+            auto requestedClip = (m_AnimatedTestAnimState.m_CurrentClip == m_IdleClip) ? m_BounceClip : m_IdleClip;
+            m_AnimatedTestAnimState.m_NextClip = requestedClip;
+            m_AnimatedTestAnimState.NextTime = 0.0f;
+            m_AnimatedTestAnimState.Blending = true;
+            m_AnimatedTestAnimState.BlendTime = 0.0f;
+            m_AnimatedTestAnimState.BlendFactor = 0.0f;
+            m_AnimatedTestAnimState.m_State = (requestedClip == m_IdleClip) ? OloEngine::AnimationStateComponent::State::Idle : OloEngine::AnimationStateComponent::State::Bounce;
+            animStateTimer = 0.0f;
+        }
     }
 
     {
@@ -215,17 +261,33 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
             }
         }
 
-        // --- Animated Mesh ECS Test Draw ---
-        // For now, just draw the test mesh at a fixed position, simulating ECS-driven rendering
+    // --- Animated Mesh ECS Test Draw ---
+    // Update animation state and skeleton for the test entity
+    {
+        // Advance animation and compute bone transforms
+        OloEngine::Animation::AnimationSystem::Update(
+            m_AnimatedTestAnimState,
+            *m_AnimatedTestSkeleton,
+            ts.GetSeconds()
+        );
+
+        // Use the root bone's global transform to move the mesh
+        // Start with a translation to move the animated mesh away from the origin
+        glm::mat4 animTestMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(3.0f, 0.0f, 2.0f));
+        if (!m_AnimatedTestSkeleton->m_GlobalTransforms.empty())
         {
-            auto animTestMatrix = glm::mat4(1.0f);
-            animTestMatrix = glm::translate(animTestMatrix, glm::vec3(0.0f, 1.0f, 2.0f));
-            animTestMatrix = glm::scale(animTestMatrix, glm::vec3(0.7f));
-            OloEngine::Material animTestMaterial = m_GoldMaterial;
-            // TODO: In future, pass bone matrices to shader for skinning
-            auto* animTestPacket = OloEngine::Renderer3D::DrawMesh(m_AnimatedTestMesh, animTestMatrix, animTestMaterial);
-            if (animTestPacket) OloEngine::Renderer3D::SubmitPacket(animTestPacket);
+            animTestMatrix *= m_AnimatedTestSkeleton->m_GlobalTransforms[0];
         }
+        // Apply scale
+        animTestMatrix = glm::scale(animTestMatrix, glm::vec3(0.7f));
+        OloEngine::Material animTestMaterial = m_GoldMaterial;
+        // TODO: In future, pass bone matrices to shader for skinning
+        auto* animTestPacket = OloEngine::Renderer3D::DrawMesh(m_AnimatedTestMesh, animTestMatrix, animTestMaterial);
+        if (animTestPacket)
+            {
+                OloEngine::Renderer3D::SubmitPacket(animTestPacket);
+            }
+    }
 
         // Draw cubes with stencil testing
         {
@@ -402,6 +464,13 @@ void Sandbox3D::OnImGuiRender()
         RenderMaterialSettings();
     }
 
+
+
+    if (ImGui::CollapsingHeader("Animation Debug", ImGuiTreeNodeFlags_None))
+    {
+        RenderAnimationDebugPanel();
+    }
+
     if (ImGui::CollapsingHeader("State Management Test", ImGuiTreeNodeFlags_None))
     {
         RenderStateTestSettings();
@@ -413,6 +482,57 @@ void Sandbox3D::OnImGuiRender()
     }
 
     ImGui::End();
+}
+
+// Animation Debug Panel (must be at file scope, not inside another function)
+void Sandbox3D::RenderAnimationDebugPanel()
+{
+    static const char* animNames[] = { "Idle", "Bounce" };
+    int prevIndex = m_AnimClipIndex;
+    ImGui::Text("Current State: %s", m_AnimatedTestAnimState.m_State == OloEngine::AnimationStateComponent::State::Idle ? "Idle" : "Bounce");
+    ImGui::Text("Current Clip: %s", m_AnimatedTestAnimState.m_CurrentClip ? m_AnimatedTestAnimState.m_CurrentClip->Name.c_str() : "None");
+    ImGui::Text("Time: %.2f", m_AnimatedTestAnimState.CurrentTime);
+    ImGui::Text("Blending: %s", m_AnimatedTestAnimState.Blending ? "Yes" : "No");
+    if (m_AnimatedTestAnimState.Blending)
+    {
+        ImGui::Text("Blend Factor: %.2f", m_AnimatedTestAnimState.BlendFactor);
+        ImGui::Text("Next Clip: %s", m_AnimatedTestAnimState.m_NextClip ? m_AnimatedTestAnimState.m_NextClip->Name.c_str() : "None");
+    }
+    ImGui::Separator();
+    ImGui::Text("Switch Animation State:");
+    ImGui::RadioButton("Idle", &m_AnimClipIndex, 0); ImGui::SameLine();
+    ImGui::RadioButton("Bounce", &m_AnimClipIndex, 1);
+    if (prevIndex != m_AnimClipIndex)
+    {
+        m_AnimBlendRequested = true;
+    }
+    if (ImGui::Button("Blend Now") || m_AnimBlendRequested)
+    {
+        // Only trigger blend if not already blending and the requested state is different
+        auto requestedClip = (m_AnimClipIndex == 0) ? m_IdleClip : m_BounceClip;
+        if (!m_AnimatedTestAnimState.Blending && m_AnimatedTestAnimState.m_CurrentClip != requestedClip)
+        {
+            m_AnimatedTestAnimState.m_NextClip = requestedClip;
+            m_AnimatedTestAnimState.NextTime = 0.0f;
+            m_AnimatedTestAnimState.Blending = true;
+            m_AnimatedTestAnimState.BlendTime = 0.0f;
+            m_AnimatedTestAnimState.BlendFactor = 0.0f;
+            m_AnimatedTestAnimState.m_State = (m_AnimClipIndex == 0) ? OloEngine::AnimationStateComponent::State::Idle : OloEngine::AnimationStateComponent::State::Bounce;
+        }
+        m_AnimBlendRequested = false;
+    }
+
+    // Sync UI state with animation state after blending completes
+    if (!m_AnimatedTestAnimState.Blending)
+    {
+        if (m_AnimatedTestAnimState.m_CurrentClip == m_IdleClip)
+            m_AnimClipIndex = 0;
+        else if (m_AnimatedTestAnimState.m_CurrentClip == m_BounceClip)
+            m_AnimClipIndex = 1;
+    }
+    ImGui::Separator();
+
+    ImGui::Text("(TODO: Add automatic state machine transitions)");
 }
 
 void Sandbox3D::RenderPerformanceInfo()

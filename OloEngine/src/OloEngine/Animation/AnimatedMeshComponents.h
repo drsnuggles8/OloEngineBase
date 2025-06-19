@@ -1,10 +1,12 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+
 #include <vector>
 #include <string>
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include "OloEngine/Animation/AnimationClip.h"
 
 namespace OloEngine
 {
@@ -26,16 +28,31 @@ namespace OloEngine
 	};
 
 	// Holds current animation state (clip, time, blend info)
+
+
 	struct AnimationStateComponent
 	{
+		// Animation state machine (expand as needed)
+		enum class State
+		{
+			Idle,
+			Bounce,
+			Custom
+		};
+
+		State m_State = State::Idle;
 		Ref<AnimationClip> m_CurrentClip;
-		float m_CurrentTime = 0.0f;
-		float m_BlendFactor = 0.0f;
-		// TODO: Add blend target, state machine info, etc.
+		Ref<AnimationClip> m_NextClip; // For blending
+		float CurrentTime = 0.0f;
+		float NextTime = 0.0f;
+		float BlendFactor = 0.0f; // 0 = current, 1 = next
+		bool Blending = false;
+		float BlendDuration = 0.3f; // seconds
+		float BlendTime = 0.0f;
 
 		AnimationStateComponent() = default;
 		AnimationStateComponent(const Ref<AnimationClip>& clip, float time = 0.0f)
-			: m_CurrentClip(clip), m_CurrentTime(time) {}
+			: m_CurrentClip(clip), CurrentTime(time) {}
 	};
 
 	// Holds bone hierarchy and transforms for an entity

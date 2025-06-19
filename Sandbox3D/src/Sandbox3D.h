@@ -27,11 +27,19 @@ public:
 	void OnImGuiRender() override;
 	void OnEvent(OloEngine::Event& e) override;
 
+
 private:
 	// Animated mesh ECS test (step 1)
 	OloEngine::Ref<OloEngine::Mesh> m_AnimatedTestMesh;
 	OloEngine::Ref<OloEngine::Skeleton> m_AnimatedTestSkeleton;
 	OloEngine::AnimationStateComponent m_AnimatedTestAnimState;
+	// Dummy animation clips for testing
+	OloEngine::Ref<OloEngine::AnimationClip> m_IdleClip;
+	OloEngine::Ref<OloEngine::AnimationClip> m_BounceClip;
+	// Animation debug UI state
+	int m_AnimClipIndex = 0;
+	bool m_AnimBlendRequested = false;
+	void RenderAnimationDebugPanel();
 	// UI helper functions for different sections
 	void RenderPerformanceInfo();
 	void RenderSceneSettings();
