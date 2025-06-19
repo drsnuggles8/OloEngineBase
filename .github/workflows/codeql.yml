@@ -40,11 +40,12 @@ jobs:
         version: latest
         cache: true
 
-    - name: Check VULKAN_SDK environment variable
+    - name: Check VULKAN_SDK environment variable (Bash)
+      shell: bash
       run: |
-        echo "VULKAN_SDK=$VULKAN_SDK"
-        echo "steps.vulkan.outputs.vulkan_sdk_path=${{ steps.vulkan.outputs.vulkan_sdk_path }}"
-      shell: pwsh
+        echo "VULKAN_SDK                = $VULKAN_SDK"
+        echo "VULKAN_SDK_VERSION        = $VULKAN_SDK_VERSION"
+        echo "VULKAN_SDK_PLATFORM       = $VULKAN_SDK_PLATFORM"
 
     - name: Configure CMake
       run: cmake -B ${{github.workspace}}/build
