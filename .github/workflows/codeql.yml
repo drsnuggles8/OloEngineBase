@@ -34,10 +34,19 @@ jobs:
       run: pip install jinja2
       
     - name: Install Vulkan SDK
+      id: vulkan
       uses: humbletim/install-vulkan-sdk@v1.2
       with:
         version: latest
         cache: true
+
+    - name: Set up Vulkan environment variables
+      run: |
+        echo "VULKAN_SDK=${{ steps.vulkan.outputs.vulkan_sdk_path }}" >> $GITHUB_ENV
+        echo "${{ steps.vulkan.outputs.vulkan_sdk_path }}/Bin" >> $GITHUB_PATH
+      shell: bash
+      env:
+        VULKAN_SDK: ${{ steps.vulkan.outputs.vulkan_sdk_path }}
 
     - name: Configure CMake
       run: cmake -B ${{github.workspace}}/build
