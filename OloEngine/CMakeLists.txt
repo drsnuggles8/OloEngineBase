@@ -27,7 +27,7 @@ if(BUILD_TESTS)
 endif()
 
 # Vulkan stuff
-find_package(Vulkan REQUIRED)
+find_package(Vulkan REQUIRED COMPONENTS glslc glslang SPIRV-Tools)
 
 # Configure the OloEngine target using our common properties
 olo_set_output_directories(OloEngine)
