@@ -40,19 +40,11 @@ jobs:
         version: latest
         cache: true
 
-    - name: Set up Vulkan environment variables
-      shell: pwsh
+    - name: Check VULKAN_SDK environment variable
       run: |
-        echo "VULKAN_SDK=${{ steps.vulkan.outputs.vulkan_sdk_path }}" | Out-File -FilePath $env:GITHUB_ENV -Append
-        echo "CMAKE_PREFIX_PATH=${{ steps.vulkan.outputs.vulkan_sdk_path }}" | Out-File -FilePath $env:GITHUB_ENV -Append
-        echo "CMAKE_LIBRARY_PATH=${{ steps.vulkan.outputs.vulkan_sdk_path }}\Lib" | Out-File -FilePath $env:GITHUB_ENV -Append
-        echo "CMAKE_INCLUDE_PATH=${{ steps.vulkan.outputs.vulkan_sdk_path }}\Include" | Out-File -FilePath $env:GITHUB_ENV -Append
-        echo "${{ steps.vulkan.outputs.vulkan_sdk_path }}\Bin" | Out-File -FilePath $env:GITHUB_PATH -Append
-
-    - name: Debug Vulkan SDK install
+        echo "VULKAN_SDK=$VULKAN_SDK"
+        echo "steps.vulkan.outputs.vulkan_sdk_path=${{ steps.vulkan.outputs.vulkan_sdk_path }}"
       shell: pwsh
-      run: |
-        Get-ChildItem -Recurse "${{ steps.vulkan.outputs.vulkan_sdk_path }}"
 
     - name: Configure CMake
       run: cmake -B ${{github.workspace}}/build
