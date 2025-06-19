@@ -11,54 +11,70 @@ env:
 
 jobs:
   analyze:
-    name: Analyze
     runs-on: windows-latest
-
     strategy:
       fail-fast: false
       matrix:
-        language: [ 'cpp', 'csharp' ]
-        compiler:
-          - msvc
-          - llvm
-          
+        include:
+          - language: cpp
+            compiler: msvc
+          - language: cpp
+            compiler: llvm
+          - language: csharp
+            dotnet: '7.x'
+
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Python 3.10
-      uses: actions/setup-python@v5
-      with:
-       python-version: '3.10'
+      - uses: actions/checkout@v4
 
-    - name: Install python dependencies
-      run: pip install jinja2
-      
-    - name: Install Vulkan SDK
-      id: vulkan
-      uses: humbletim/install-vulkan-sdk@v1.2
-      with:
-        version: latest
-        cache: true
+      - name: Install Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
 
-    - name: Check VULKAN_SDK environment variable (Bash)
-      shell: bash
-      run: |
-        echo "VULKAN_SDK                = $VULKAN_SDK"
-        echo "VULKAN_SDK_VERSION        = $VULKAN_SDK_VERSION"
-        echo "VULKAN_SDK_PLATFORM       = $VULKAN_SDK_PLATFORM"
+      - name: Install python dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install jinja2
 
-    - name: Configure CMake
-      run: cmake -B ${{github.workspace}}/build
-        
-    # Initializes the CodeQL tools for scanning.
-    - name: Initialize CodeQL
-      uses: github/codeql-action/init@v3
-      with:
-        languages: ${{ matrix.language }}
+      # C++ path
+      - if: matrix.language == 'cpp'
+        name: Install Vulkan SDK
+        id: vulkan
+        uses: humbletim/install-vulkan-sdk@v1.2
+        with:
+          version: latest
+          cache: true
 
-    - name: Build with CMake
-      # Build your program with the given configuration
-      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+      - if: matrix.language == 'cpp'
+        name: Configure CMake
+        shell: bash
+        run: |
+          cmake -B "${{ github.workspace }}/build" \
+            -DCMAKE_PREFIX_PATH="$VULKAN_SDK" \
+            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+            "${{ github.workspace }}"
 
-    - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v3
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+
+      # Build steps
+      - name: Build C++ with CMake
+        if: matrix.language == 'cpp'
+        run: cmake --build "${{ github.workspace }}/build" --config ${{ env.BUILD_TYPE }}
+
+      - name: Setup .NET SDK
+        if: matrix.language == 'csharp'
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: ${{ matrix.dotnet }}
+
+      - name: Build C# project
+        if: matrix.language == 'csharp'
+        run: dotnet build MySolution.sln --configuration ${{ env.BUILD_TYPE }}
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
