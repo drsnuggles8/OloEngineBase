@@ -77,7 +77,7 @@ namespace OloEngine
         // Higher-level commands
         static void DrawMesh(const void* data, RendererAPI& api);
         static void DrawMeshInstanced(const void* data, RendererAPI& api);
-        static void DrawQuad(const void* data, RendererAPI& api);       
+        static void DrawQuad(const void* data, RendererAPI& api);
 		
 		static Statistics& GetStatistics();
 

@@ -243,7 +243,7 @@ namespace OloEngine
 			return false;
 
 		// Handle batching based on command type
-		CommandType targetType = target->GetCommandType();        
+		CommandType targetType = target->GetCommandType();
 
 		// We can have a few different scenarios:
 		// 1. Both are DrawMeshCommand - Convert to DrawMeshInstancedCommand
@@ -280,7 +280,7 @@ namespace OloEngine
 				m_Tail = instancedPacket;
 
 			// Now add source transform to the new instanced command
-			auto const* sourceCmd = source->GetCommandData<DrawMeshCommand>();            
+			auto const* sourceCmd = source->GetCommandData<DrawMeshCommand>();
 
 			if (auto* instancedCmd = instancedPacket->GetCommandData<DrawMeshInstancedCommand>();
 				instancedCmd && sourceCmd && instancedCmd->instanceCount < instancedCmd->transforms.size())

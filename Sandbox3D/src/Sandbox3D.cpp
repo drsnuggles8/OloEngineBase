@@ -651,7 +651,8 @@ void Sandbox3D::RenderDebuggingTools()
         
         if (m_ShowShaderDebugger)
         {
-            m_ShaderDebugger.RenderDebugView(&m_ShowShaderDebugger, "Shader Debugger");        }
+            m_ShaderDebugger.RenderDebugView(&m_ShowShaderDebugger, "Shader Debugger");
+        }
     }
 }
 

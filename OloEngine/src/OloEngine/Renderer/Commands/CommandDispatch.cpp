@@ -280,9 +280,9 @@ namespace OloEngine
         
         // Higher-level commands
         OLO_CORE_INFO("Registering DrawMesh at index {}", static_cast<sizet>(CommandType::DrawMesh));
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawMesh)] = CommandDispatch::DrawMesh;        
+        s_DispatchTable[static_cast<sizet>(CommandType::DrawMesh)] = CommandDispatch::DrawMesh;
         OLO_CORE_INFO("Registering DrawMeshInstanced at index {}", static_cast<sizet>(CommandType::DrawMeshInstanced));
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawMeshInstanced)] = CommandDispatch::DrawMeshInstanced;        
+        s_DispatchTable[static_cast<sizet>(CommandType::DrawMeshInstanced)] = CommandDispatch::DrawMeshInstanced;
         OLO_CORE_INFO("Registering DrawQuad at index {}", static_cast<sizet>(CommandType::DrawQuad));
         s_DispatchTable[static_cast<sizet>(CommandType::DrawQuad)] = CommandDispatch::DrawQuad;
         

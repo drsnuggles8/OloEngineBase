@@ -73,7 +73,7 @@ namespace OloEngine
 		s_Data.Stats.Reset();
 		
 		// Initialize the render graph with command-based render passes
-		Window& window = Application::Get().GetWindow();        
+		Window& window = Application::Get().GetWindow();
 		s_Data.RGraph = CreateRef<RenderGraph>();
 		SetupRenderGraph(window.GetFramebufferWidth(), window.GetFramebufferHeight());
 		

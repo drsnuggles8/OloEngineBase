@@ -79,7 +79,8 @@ namespace OloEngine
         std::lock_guard<std::mutex> lock(m_ResourceMutex);
         
         auto textureInfo = CreateScope<TextureInfo>();
-        textureInfo->m_RendererID = rendererID;        textureInfo->m_Type = ResourceType::Texture2D;
+        textureInfo->m_RendererID = rendererID;
+		textureInfo->m_Type = ResourceType::Texture2D;
         textureInfo->m_Name = name;
         textureInfo->m_DebugName = debugName.empty() ? name : debugName;
         textureInfo->m_CreationTime = DebugUtils::GetCurrentTimeSeconds();
@@ -126,7 +127,8 @@ namespace OloEngine
         std::lock_guard<std::mutex> lock(m_ResourceMutex);
         
         auto textureInfo = CreateScope<TextureInfo>();
-        textureInfo->m_RendererID = rendererID;        textureInfo->m_Type = ResourceType::TextureCubemap;
+        textureInfo->m_RendererID = rendererID;
+		textureInfo->m_Type = ResourceType::TextureCubemap;
         textureInfo->m_Name = name;
         textureInfo->m_DebugName = debugName.empty() ? name : debugName;
         textureInfo->m_CreationTime = DebugUtils::GetCurrentTimeSeconds();
@@ -174,7 +176,8 @@ namespace OloEngine
         std::lock_guard<std::mutex> lock(m_ResourceMutex);
         
         auto bufferInfo = CreateScope<BufferInfo>();
-        bufferInfo->m_RendererID = rendererID;        bufferInfo->m_Target = target;
+        bufferInfo->m_RendererID = rendererID;
+		bufferInfo->m_Target = target;
         bufferInfo->m_Name = name;
         bufferInfo->m_DebugName = debugName.empty() ? name : debugName;
         bufferInfo->m_CreationTime = DebugUtils::GetCurrentTimeSeconds();
@@ -194,7 +197,9 @@ namespace OloEngine
             default:
                 bufferInfo->m_Type = ResourceType::VertexBuffer; // Default fallback
                 break;
-        }        // Query buffer properties immediately
+        }
+		
+		// Query buffer properties immediately
         QueryBufferInfo(*bufferInfo);
         
         ResourceType bufferType = bufferInfo->m_Type;
@@ -236,7 +241,8 @@ namespace OloEngine
         std::lock_guard<std::mutex> lock(m_ResourceMutex);
         
         auto framebufferInfo = CreateScope<FramebufferInfo>();
-        framebufferInfo->m_RendererID = rendererID;        framebufferInfo->m_Type = ResourceType::Framebuffer;
+        framebufferInfo->m_RendererID = rendererID;
+		framebufferInfo->m_Type = ResourceType::Framebuffer;
         framebufferInfo->m_Name = name;
         framebufferInfo->m_DebugName = debugName.empty() ? name : debugName;
         framebufferInfo->m_CreationTime = DebugUtils::GetCurrentTimeSeconds();
@@ -777,7 +783,8 @@ namespace OloEngine
         u32 width = std::max(1u, info.m_Width >> mipLevel);
         u32 height = std::max(1u, info.m_Height >> mipLevel);
         u32 bytesPerPixel = 4; // Always use RGBA format for downloads
-        sizet dataSize = width * height * bytesPerPixel;		// Modern OpenGL 4.5+ approach: Use immutable buffer storage + DSA
+        sizet dataSize = width * height * bytesPerPixel;
+        // Modern OpenGL 4.5+ approach: Use immutable buffer storage + DSA
         glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
         
         // Use modern immutable buffer storage (OpenGL 4.4+)
@@ -1753,7 +1760,8 @@ namespace OloEngine
                             info.m_PreviewData[dstIndex + c] = srcData[srcIndex + c];
                         }
                     }
-                }            }
+                }
+			}
             
             // Mark preview as valid
             info.m_PreviewDataValid = true;

@@ -95,7 +95,9 @@ namespace OloEngine
             u32 m_Binding = 0;
             u32 m_TextureUnit = 0;
             std::string m_Type; // "sampler2D", "samplerCube", etc.
-        };        struct CompilationResult
+        };
+        
+        struct CompilationResult
         {
             bool m_Success = false;
             std::string m_ErrorMessage;
@@ -278,7 +280,8 @@ namespace OloEngine
         void RenderCompilationErrors(const ShaderInfo& shaderInfo);
 
         // Helper methods
-        void UpdateActiveTime(ShaderInfo& shaderInfo);        std::string GetUniformTypeString(UniformType type) const;
+        void UpdateActiveTime(ShaderInfo& shaderInfo);
+        std::string GetUniformTypeString(UniformType type) const;
         std::string GetShaderStageString(ShaderStage stage) const;
         ImVec4 GetShaderStageColor(ShaderStage stage) const;
         void AnalyzeSPIRV(const std::vector<u8>& spirvData, u32& instructionCount) const;

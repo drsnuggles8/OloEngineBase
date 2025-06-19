@@ -141,7 +141,8 @@ namespace OloEngine
         RendererMemoryTracker() = default;
         ~RendererMemoryTracker() = default;
           // Helper methods
-        void RenderOverviewTab();        void RenderDetailedTab();
+        void RenderOverviewTab();
+        void RenderDetailedTab();
         void RenderLeakDetectionTab();
         void RenderPoolStatsTab();
         void RenderHistoryGraphs();
@@ -186,9 +187,11 @@ namespace OloEngine
         sizet m_TotalDeallocatedMemory = 0;
         sizet m_CurrentMemoryUsage = 0;
         sizet m_TotalAllocations = 0;
-        sizet m_TotalDeallocations = 0;        sizet m_CurrentAllocations = 0;
+        sizet m_TotalDeallocations = 0;
+        sizet m_CurrentAllocations = 0;
         sizet m_GPUMemoryUsage = 0;
-        sizet m_CPUMemoryUsage = 0;        sizet m_PeakGPUMemory = 0;
+        sizet m_CPUMemoryUsage = 0;
+        sizet m_PeakGPUMemory = 0;
         sizet m_PeakCPUMemory = 0;
         f64 m_LastUpdateTime = 0.0;
           // Shutdown tracking

@@ -186,7 +186,7 @@ namespace OloEngine
             OLO_CORE_WARN("Double allocation detected at address {0}", address);
         }
 
-		m_Allocations[address] = info;        
+		m_Allocations[address] = info;
         m_TypeUsage[static_cast<sizet>(type)] += size;
         
         m_TypeCounts[static_cast<sizet>(type)]++;
@@ -244,16 +244,18 @@ namespace OloEngine
             // Catch any exceptions during shutdown
             OLO_CORE_ERROR("RendererMemoryTracker: Exception during deallocation tracking, possibly during shutdown");
         }
-    }      void RendererMemoryTracker::UpdateStats()
+    }
+	
+	void RendererMemoryTracker::UpdateStats()
     {
-        OLO_PROFILE_FUNCTION();        
+        OLO_PROFILE_FUNCTION();
         f64 currentTime = DebugUtils::GetCurrentTimeSeconds();
 		if (currentTime - m_LastUpdateTime < m_RefreshInterval)
             return;
 
         std::lock_guard<std::mutex> lock(m_Mutex);
 
-        sizet totalMemory = GetTotalMemoryUsageUnlocked();        
+        sizet totalMemory = GetTotalMemoryUsageUnlocked();
         sizet gpuMemory = 0;
         sizet cpuMemory = 0;
         
@@ -427,8 +429,10 @@ namespace OloEngine
             ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 80.0f);
             ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 100.0f);
             ImGui::TableSetupColumn("Location", ImGuiTableColumnFlags_WidthFixed, 60.0f);
-            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);            ImGui::TableSetupColumn("File", ImGuiTableColumnFlags_WidthFixed, 150.0f);
-            ImGui::TableSetupColumn("Age", ImGuiTableColumnFlags_WidthFixed, 80.0f);            ImGui::TableHeadersRow();
+            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
+			ImGui::TableSetupColumn("File", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+            ImGui::TableSetupColumn("Age", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+			ImGui::TableHeadersRow();
             
             f64 currentTime = DebugUtils::GetCurrentTimeSeconds();
             for (const auto& [address, info] : m_Allocations)
@@ -441,8 +445,10 @@ namespace OloEngine
                 if (s_ShowGPUOnly && !info.m_IsGPU)
                     continue;
                 if (s_ShowCPUOnly && info.m_IsGPU)
-                    continue;                ImGui::TableNextRow();
-                
+                    continue;
+					
+                ImGui::TableNextRow();
+
                 // Check if this row is clicked for selection
                 bool isSelected = (s_SelectedAllocation == address);
                 if (isSelected)
@@ -502,7 +508,8 @@ namespace OloEngine
                 ImGui::Text("Size: %s (%zu bytes)", DebugUtils::FormatMemorySize(info.m_Size).c_str(), info.m_Size);
                 ImGui::Text("Type: %s", GetResourceTypeName(info.m_Type).c_str());
                 ImGui::Text("Location: %s", info.m_IsGPU ? "GPU" : "CPU");
-                ImGui::Text("Name: %s", info.m_Name.c_str());                ImGui::Text("Source: %s:%u", info.m_File.c_str(), info.m_Line);
+                ImGui::Text("Name: %s", info.m_Name.c_str());
+				ImGui::Text("Source: %s:%u", info.m_File.c_str(), info.m_Line);
                 
                 f64 currentTime2 = DebugUtils::GetCurrentTimeSeconds();
                 f64 age = currentTime2 - info.m_Timestamp;
@@ -740,7 +747,8 @@ namespace OloEngine
     
     std::vector<RendererMemoryTracker::LeakInfo> RendererMemoryTracker::DetectLeaks() const
     {
-        std::lock_guard<std::mutex> lock(m_Mutex);          std::vector<LeakInfo> leaks;
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        std::vector<LeakInfo> leaks;
         f64 currentTime = DebugUtils::GetCurrentTimeSeconds();
         
         for (const auto& [address, info] : m_Allocations)
