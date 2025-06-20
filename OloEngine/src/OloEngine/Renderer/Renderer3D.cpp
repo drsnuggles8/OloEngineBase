@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Buffer.h"
 #include "OloEngine/Renderer/Mesh.h"
+#include "OloEngine/Renderer/SkinnedMesh.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Material.h"
@@ -34,32 +35,38 @@ namespace OloEngine
 		OLO_CORE_INFO("CommandDispatch system initialized.");
 
 		s_Data.CubeMesh = Mesh::CreateCube();
-		s_Data.QuadMesh = Mesh::CreatePlane(1.0f, 1.0f);
-		m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
+		s_Data.QuadMesh = Mesh::CreatePlane(1.0f, 1.0f);		m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
 		m_ShaderLibrary.Load("assets/shaders/Lighting3D.glsl");
-		m_ShaderLibrary.Load("assets/shaders/SkinnedLighting3D.glsl");
-		m_ShaderLibrary.Load("assets/shaders/Renderer3D_Quad.glsl");
-
-		s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
+		m_ShaderLibrary.Load("assets/shaders/SkinnedLighting3D_Simple.glsl");
+		m_ShaderLibrary.Load("assets/shaders/Renderer3D_Quad.glsl");		s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
 		s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
-		s_Data.SkinnedLightingShader = m_ShaderLibrary.Get("SkinnedLighting3D");
+		s_Data.SkinnedLightingShader = m_ShaderLibrary.Get("SkinnedLighting3D_Simple");
 		s_Data.QuadShader = m_ShaderLibrary.Get("Renderer3D_Quad");
+		
+		if (!s_Data.SkinnedLightingShader)
+		{
+			OLO_CORE_ERROR("Failed to load SkinnedLighting3D shader!");
+		}
+		else
+		{
+			OLO_CORE_INFO("SkinnedLighting3D shader loaded successfully with ID: {}", s_Data.SkinnedLightingShader->GetRendererID());
+		}
 		// Create all necessary UBOs
 		s_Data.TransformUBO = UniformBuffer::Create(sizeof(glm::mat4) * 2, 0);  // Model + VP matrices
 		s_Data.MaterialUBO = UniformBuffer::Create(sizeof(glm::vec4) * 4, 1);   // Material properties
 		s_Data.TextureFlagUBO = UniformBuffer::Create(sizeof(int), 2);          // Texture flags
-		s_Data.CameraMatricesBuffer = UniformBuffer::Create(sizeof(glm::mat4) * 2, 3); // View and projection matrices
-		s_Data.LightPropertiesUBO = UniformBuffer::Create(sizeof(glm::vec4) * 12, 1); // Binding point 1, not 4
+		s_Data.CameraMatricesBuffer = UniformBuffer::Create(sizeof(glm::mat4) * 2, 3); // View and projection matrices		s_Data.LightPropertiesUBO = UniformBuffer::Create(sizeof(glm::vec4) * 12, 1); // Binding point 1, not 4
 		s_Data.BoneMatricesUBO = UniformBuffer::Create(sizeof(glm::mat4) * 100, 5); // Bone matrices (up to 100 bones), binding point 5
-		
-		// Share UBOs with CommandDispatch
+		s_Data.ModelMatrixUBO = UniformBuffer::Create(sizeof(glm::mat4), 6); // Model matrix, binding point 6
+				// Share UBOs with CommandDispatch
 		CommandDispatch::SetSharedUBOs(
 			s_Data.TransformUBO,
 			s_Data.MaterialUBO, 
 			s_Data.TextureFlagUBO,
 			s_Data.CameraMatricesBuffer,
 			s_Data.LightPropertiesUBO,
-			s_Data.BoneMatricesUBO
+			s_Data.BoneMatricesUBO,
+			s_Data.ModelMatrixUBO
 		);
 		
 		OLO_CORE_INFO("Shared UBOs with CommandDispatch");
@@ -108,10 +115,13 @@ namespace OloEngine
 
 		CommandAllocator* frameAllocator = CommandMemoryManager::GetFrameAllocator();
 		s_Data.ScenePass->GetCommandBucket().SetAllocator(frameAllocator);
-
 		s_Data.ViewMatrix = camera.GetView();
 		s_Data.ProjectionMatrix = camera.GetProjection();
 		s_Data.ViewProjectionMatrix = camera.GetViewProjection();
+
+		// Update CommandDispatch with matrices
+		CommandDispatch::SetViewProjectionMatrix(s_Data.ViewProjectionMatrix);
+		CommandDispatch::SetViewMatrix(s_Data.ViewMatrix);
 
 		// Update the view frustum for culling
 		s_Data.ViewFrustum.Update(s_Data.ViewProjectionMatrix);
@@ -284,6 +294,17 @@ namespace OloEngine
 		return s_Data.ViewFrustum.IsBoundingSphereVisible(sphere);
 	}
 	
+	bool Renderer3D::IsVisibleInFrustum(const Ref<SkinnedMesh>& mesh, const glm::mat4& transform)
+	{
+		if (!s_Data.FrustumCullingEnabled)
+			return true;
+		
+		BoundingSphere sphere = mesh->GetTransformedBoundingSphere(transform);
+		sphere.Radius *= 1.3f; // Safety margin to prevent popping
+		
+		return s_Data.ViewFrustum.IsBoundingSphereVisible(sphere);
+	}
+
 	bool Renderer3D::IsVisibleInFrustum(const BoundingSphere& sphere)
 	{
 		if (!s_Data.FrustumCullingEnabled)
@@ -554,9 +575,11 @@ namespace OloEngine
 		}
 	}
 
-	CommandPacket* Renderer3D::DrawSkinnedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic)
+	CommandPacket* Renderer3D::DrawSkinnedMesh(const Ref<SkinnedMesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic)
 	{
 		OLO_PROFILE_FUNCTION();
+		
+		OLO_CORE_INFO("DrawSkinnedMesh called with mesh: {}", (void*)mesh.get());
 		
 		if (!s_Data.ScenePass)
 		{
@@ -572,6 +595,7 @@ namespace OloEngine
 			if (!IsVisibleInFrustum(mesh, modelMatrix))
 			{
 				s_Data.Stats.CulledMeshes++;
+				OLO_CORE_INFO("DrawSkinnedMesh: Mesh culled by frustum");
 				return nullptr;
 			}
 		}
@@ -579,10 +603,15 @@ namespace OloEngine
 		// Validate input parameters
 		if (!mesh || !mesh->GetVertexArray())
 		{
-			OLO_CORE_ERROR("Renderer3D::DrawSkinnedMesh: Invalid mesh or vertex array!");
+			OLO_CORE_ERROR("Renderer3D::DrawSkinnedMesh: Invalid mesh ({}) or vertex array ({})!", 
+							(void*)mesh.get(), 
+							mesh ? (void*)mesh->GetVertexArray().get() : nullptr);
 			return nullptr;
 		}
-				// For skinned meshes, we prefer a skinned shader but fall back to lighting shader
+		
+		OLO_CORE_INFO("DrawSkinnedMesh: Mesh and vertex array are valid");
+		
+		// For skinned meshes, we prefer a skinned shader but fall back to lighting shader
 		Ref<Shader> shaderToUse = material.Shader ? material.Shader : s_Data.SkinnedLightingShader;
 		if (!shaderToUse)
 		{

@@ -2,6 +2,7 @@
 		"OloEngine.h"
 		"OloEnginePCH.cpp"
 		"OloEnginePCH.h"
+
 		"OloEngine/Animation/Skeleton.h"
 		"OloEngine/Animation/AnimatedMeshComponents.h"
 		"OloEngine/Animation/AnimatedMeshRenderSystem.h"
@@ -81,6 +82,8 @@
 		"OloEngine/Renderer/Material.h"
 		"OloEngine/Renderer/Mesh.cpp"
 		"OloEngine/Renderer/Mesh.h"
+		"OloEngine/Renderer/SkinnedMesh.cpp"
+		"OloEngine/Renderer/SkinnedMesh.h"
 		"OloEngine/Renderer/Model.cpp"
 		"OloEngine/Renderer/Model.h"
 		"OloEngine/Renderer/MSDFData.h"

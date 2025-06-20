@@ -4,6 +4,7 @@
 #include "OloEngine.h"
 #include "OloEngine/Renderer/Camera/PerspectiveCameraController.h"
 #include "OloEngine/Renderer/Mesh.h"
+#include "OloEngine/Renderer/SkinnedMesh.h"
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Light.h"
@@ -36,7 +37,7 @@ private:
 	OloEngine::Entity m_AnimatedMeshEntity;
 
 	// Animated mesh ECS test (step 1)
-	OloEngine::Ref<OloEngine::Mesh> m_AnimatedTestMesh;
+	OloEngine::Ref<OloEngine::SkinnedMesh> m_AnimatedTestMesh;
 	OloEngine::Ref<OloEngine::Skeleton> m_AnimatedTestSkeleton;
 	OloEngine::AnimationStateComponent m_AnimatedTestAnimState;
 	// Dummy animation clips for testing
@@ -44,9 +45,10 @@ private:
 	OloEngine::Ref<OloEngine::AnimationClip> m_BounceClip;
 	// Animation debug UI state
 	int m_AnimClipIndex = 0;
-	bool m_AnimBlendRequested = false;
-	void RenderAnimationDebugPanel();
+	bool m_AnimBlendRequested = false;	void RenderAnimationDebugPanel();
 	void RenderECSAnimatedMeshPanel();
+		// Helper function to create a cube mesh with skinning data for testing
+	OloEngine::Ref<OloEngine::SkinnedMesh> CreateSkinnedCubeMesh();
 	// UI helper functions for different sections
 	void RenderPerformanceInfo();
 	void RenderSceneSettings();

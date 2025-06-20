@@ -2,6 +2,7 @@
 #include "OloEngine/Animation/AnimatedMeshRenderSystem.h"
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/SkinnedMesh.h"
 #include "OloEngine/Core/Log.h"
 
 namespace OloEngine

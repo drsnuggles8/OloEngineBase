@@ -81,32 +81,33 @@ void Sandbox3D::OnAttach()
     // Load textures
     m_DiffuseMap = OloEngine::Texture2D::Create("assets/textures/container2.png");
     m_SpecularMap = OloEngine::Texture2D::Create("assets/textures/container2_specular.png");
-    m_GrassTexture = OloEngine::Texture2D::Create("assets/textures/grass.png");    // Assign textures to the material
+    m_GrassTexture = OloEngine::Texture2D::Create("assets/textures/grass.png");
+    
+    // Temporarily disable frustum culling for debugging skinned mesh
+    OloEngine::Renderer3D::EnableFrustumCulling(false);
+
+    // Assign textures to the material
     m_TexturedMaterial.DiffuseMap = m_DiffuseMap;
     m_TexturedMaterial.SpecularMap = m_SpecularMap;    // Set initial lighting parameters
-    OloEngine::Renderer3D::SetLight(m_Light);
-
-    // Create ECS test scene for animated mesh rendering
+    OloEngine::Renderer3D::SetLight(m_Light);    // Create ECS test scene for animated mesh rendering
     m_TestScene = OloEngine::CreateRef<OloEngine::Scene>();
-    m_AnimatedMeshEntity = m_TestScene->CreateEntity("AnimatedTestMesh");
-
-    // --- ECS Animated Mesh Test Entity ---
+    m_TestScene->OnRuntimeStart(); // Initialize physics world and other runtime systems
+    m_AnimatedMeshEntity = m_TestScene->CreateEntity("AnimatedTestMesh");    // --- ECS Animated Mesh Test Entity ---
     // This is a minimal test: create a dummy entity with animated mesh components
-    // In a real ECS, this would be managed by a Scene, but for now, we just test component construction and rendering
-    // Dummy mesh and skeleton for test (reuse cube mesh, create trivial skeleton)
-    m_AnimatedTestMesh = m_CubeMesh;
+    // In a real ECS, this would be managed by a Scene, but for now, we just test component construction and rendering    // Create a simple skinned cube for testing (with bone data)
+    m_AnimatedTestMesh = CreateSkinnedCubeMesh();
     m_AnimatedTestSkeleton = OloEngine::CreateRef<OloEngine::Skeleton>();
     m_AnimatedTestSkeleton->m_BoneNames = { "Root" };
     m_AnimatedTestSkeleton->m_ParentIndices = { -1 };
     m_AnimatedTestSkeleton->m_LocalTransforms = { glm::mat4(1.0f) };
     m_AnimatedTestSkeleton->m_GlobalTransforms = { glm::mat4(1.0f) };
-    m_AnimatedTestSkeleton->m_FinalBoneMatrices = { glm::mat4(1.0f) };    // Add components to ECS entity
+    m_AnimatedTestSkeleton->m_FinalBoneMatrices = { glm::mat4(1.0f) };// Add components to ECS entity
     auto& animMeshComp = m_AnimatedMeshEntity.AddComponent<OloEngine::AnimatedMeshComponent>();
     animMeshComp.m_Mesh = m_AnimatedTestMesh;
     // Note: m_Skeleton will be set separately via SkeletonComponent
     
-    // Add transform component with position and scale
-    auto& transformComp = m_AnimatedMeshEntity.AddComponent<OloEngine::TransformComponent>();
+    // Get the existing transform component (automatically added by CreateEntity) and configure it
+    auto& transformComp = m_AnimatedMeshEntity.GetComponent<OloEngine::TransformComponent>();
     transformComp.Translation = glm::vec3(3.0f, 0.0f, 2.0f);
     transformComp.Scale = glm::vec3(0.7f);
     
@@ -259,16 +260,21 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
             skeletonComp.m_FinalBoneMatrices = m_AnimatedTestSkeleton->m_FinalBoneMatrices;
             skeletonComp.m_GlobalTransforms = m_AnimatedTestSkeleton->m_GlobalTransforms;
         }
-    }// Update ECS scene and animated mesh render system
+    }    // Update ECS scene (but not rendering - that happens in render scope)
     if (m_TestScene)
     {
         m_TestScene->OnUpdateRuntime(ts);
-        OloEngine::AnimatedMeshRenderSystem::RenderAnimatedMeshes(m_TestScene, m_GoldMaterial);
     }
 
     {
         OLO_PROFILE_SCOPE("Renderer Draw");
         OloEngine::Renderer3D::BeginScene(m_CameraController.GetCamera());
+
+        // Render ECS animated meshes first (requires BeginScene to be called)
+        if (m_TestScene)
+        {
+            OloEngine::AnimatedMeshRenderSystem::RenderAnimatedMeshes(m_TestScene, m_GoldMaterial);
+        }
 
         // Draw ground plane
         {
@@ -1202,4 +1208,73 @@ void Sandbox3D::RenderECSAnimatedMeshPanel()
     ImGui::Separator();
     ImGui::Text("Render System Status: Active");
     ImGui::Text("This entity is rendered via AnimatedMeshRenderSystem");
+}
+
+OloEngine::Ref<OloEngine::SkinnedMesh> Sandbox3D::CreateSkinnedCubeMesh()
+{
+    // Simple cube vertices with bone indices and weights (all affected by bone 0)
+    std::vector<OloEngine::SkinnedVertex> skinnedVertices = {
+        // Front face
+        {{-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}},
+        {{ 0.5f, -0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}},
+        {{ 0.5f,  0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}},
+        {{-0.5f,  0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}},
+
+        // Back face
+        {{-0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}},
+        {{ 0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {0.0f, 0.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}},
+        {{ 0.5f,  0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}},
+        {{-0.5f,  0.5f, -0.5f}, {0.0f, 0.0f, -1.0f}, {1.0f, 1.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}},
+
+        // Left face  
+        {{-0.5f, -0.5f, -0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}},
+        {{-0.5f, -0.5f,  0.5f}, {-1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}},
+        {{-0.5f,  0.5f,  0.5f}, {-1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}},
+        {{-0.5f,  0.5f, -0.5f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}},
+
+        // Right face
+        {{ 0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}},
+        {{ 0.5f, -0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}},
+        {{ 0.5f,  0.5f,  0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}},
+        {{ 0.5f,  0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}},
+
+        // Top face
+        {{-0.5f,  0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}},
+        {{ 0.5f,  0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 1.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}},
+        {{ 0.5f,  0.5f,  0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}},
+        {{-0.5f,  0.5f,  0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}},
+
+        // Bottom face
+        {{-0.5f, -0.5f, -0.5f}, {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}},
+        {{ 0.5f, -0.5f, -0.5f}, {0.0f, -1.0f, 0.0f}, {1.0f, 0.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}},
+        {{ 0.5f, -0.5f,  0.5f}, {0.0f, -1.0f, 0.0f}, {1.0f, 1.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}},
+        {{-0.5f, -0.5f,  0.5f}, {0.0f, -1.0f, 0.0f}, {0.0f, 1.0f}, {0, -1, -1, -1}, {1.0f, 0.0f, 0.0f, 0.0f}}
+    };    // Cube indices (same as regular cube)
+    std::vector<u32> indices = {
+        // Front face
+        0, 1, 2, 2, 3, 0,
+        // Back face
+        4, 5, 6, 6, 7, 4,
+        // Left face
+        8, 9, 10, 10, 11, 8,
+        // Right face
+        12, 13, 14, 14, 15, 12,
+        // Top face
+        16, 17, 18, 18, 19, 16,
+        // Bottom face
+        20, 21, 22, 22, 23, 20
+    };
+
+    // Convert SkinnedVertex to regular Vertex for the Mesh class
+    // The skinning will be handled by the DrawSkinnedMesh command and shader
+    std::vector<OloEngine::Vertex> vertices;
+    vertices.reserve(skinnedVertices.size());
+    
+    for (const auto& skinnedVert : skinnedVertices)
+    {
+        vertices.emplace_back(skinnedVert.Position, skinnedVert.Normal, skinnedVert.TexCoord);
+    }
+      // Create mesh using regular vertex data
+    // Note: Bone data will be handled through uniform bone matrices in the shader
+    return OloEngine::CreateRef<OloEngine::SkinnedMesh>(skinnedVertices, indices);
 }

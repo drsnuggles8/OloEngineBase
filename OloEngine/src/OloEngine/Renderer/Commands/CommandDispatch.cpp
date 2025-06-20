@@ -14,13 +14,13 @@ namespace OloEngine
 		// Existing UBO references
 		Ref<UniformBuffer> TransformUBO = nullptr;
 		Ref<UniformBuffer> MaterialUBO = nullptr;
-		Ref<UniformBuffer> TextureFlagUBO = nullptr;
-		Ref<UniformBuffer> CameraUBO = nullptr;
+		Ref<UniformBuffer> TextureFlagUBO = nullptr;		Ref<UniformBuffer> CameraUBO = nullptr;
 		Ref<UniformBuffer> LightUBO = nullptr;
 		Ref<UniformBuffer> BoneMatricesUBO = nullptr;  // New UBO for bone matrices
-		
-		// Cached matrices and light data
+		Ref<UniformBuffer> ModelMatrixUBO = nullptr;  // Model matrix UBO
+				// Cached matrices and light data
 		glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
+		glm::mat4 ViewMatrix = glm::mat4(1.0f);
 		Light SceneLight;
 		glm::vec3 ViewPos = glm::vec3(0.0f);
 		
@@ -32,15 +32,15 @@ namespace OloEngine
 		CommandDispatch::Statistics Stats;
 	};
 
-	static CommandDispatchData s_Data;
-	// Add this to SetSharedUBOs function
+	static CommandDispatchData s_Data;	// Add this to SetSharedUBOs function
 	void CommandDispatch::SetSharedUBOs(
 		const Ref<UniformBuffer>& transformUBO,
 		const Ref<UniformBuffer>& materialUBO,
 		const Ref<UniformBuffer>& textureFlagUBO,
 		const Ref<UniformBuffer>& cameraUBO,
 		const Ref<UniformBuffer>& lightUBO,
-		const Ref<UniformBuffer>& boneMatricesUBO)
+		const Ref<UniformBuffer>& boneMatricesUBO,
+		const Ref<UniformBuffer>& modelMatrixUBO)
 	{
 		s_Data.TransformUBO = transformUBO;
 		s_Data.MaterialUBO = materialUBO;
@@ -48,8 +48,9 @@ namespace OloEngine
 		s_Data.CameraUBO = cameraUBO;
 		s_Data.LightUBO = lightUBO;
 		s_Data.BoneMatricesUBO = boneMatricesUBO;
+		s_Data.ModelMatrixUBO = modelMatrixUBO;
 		
-		OLO_CORE_INFO("CommandDispatch: Shared UBOs configured (including bone matrices)");
+		OLO_CORE_INFO("CommandDispatch: Shared UBOs configured (including bone and model matrices)");
 	}
 
 	void CommandDispatch::SetSceneLight(const Light& light)
@@ -158,6 +159,11 @@ namespace OloEngine
 	void CommandDispatch::SetViewProjectionMatrix(const glm::mat4& viewProjection)
     {
         s_Data.ViewProjectionMatrix = viewProjection;
+    }
+
+	void CommandDispatch::SetViewMatrix(const glm::mat4& view)
+    {
+        s_Data.ViewMatrix = view;
     }
 
 	// UBO update methods that use the shared UBOs
@@ -879,21 +885,25 @@ namespace OloEngine
 			s_Data.CurrentBoundShaderID = shaderID;
 			s_Data.Stats.ShaderBinds++;
 		}
-		
-		// Update transform UBO (same as regular mesh)
-		struct TransformMatrices
+				// Update camera matrices UBO (ViewProjection and View at binding 0)
+		struct CameraMatrices
 		{
 			glm::mat4 ViewProjection;
-			glm::mat4 Model;
+			glm::mat4 View;
 		};
-
-		TransformMatrices matrices;
-		matrices.ViewProjection = s_Data.ViewProjectionMatrix;
-		matrices.Model = cmd->modelMatrix;
+		CameraMatrices cameraMatrices;
+		cameraMatrices.ViewProjection = s_Data.ViewProjectionMatrix;
+		cameraMatrices.View = s_Data.ViewMatrix;
 		
-		if (s_Data.TransformUBO)
+		if (s_Data.CameraUBO)
 		{
-			s_Data.TransformUBO->SetData(&matrices, sizeof(TransformMatrices));
+			s_Data.CameraUBO->SetData(&cameraMatrices, sizeof(CameraMatrices));
+		}
+		
+		// Update model matrix UBO (binding 6)
+		if (s_Data.ModelMatrixUBO)
+		{
+			s_Data.ModelMatrixUBO->SetData(&cmd->modelMatrix, sizeof(glm::mat4));
 		}
 		
 		// Update material properties (same as regular mesh)

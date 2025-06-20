@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/Camera/PerspectiveCamera.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Mesh.h"
+#include "OloEngine/Renderer/SkinnedMesh.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
@@ -13,6 +14,7 @@
 // Forward declarations
 namespace OloEngine {
     class Mesh;
+    class SkinnedMesh;
     class Texture2D;
     class RenderCommand;
     class UniformBuffer;
@@ -46,7 +48,7 @@ namespace OloEngine
 		static void BeginScene(const PerspectiveCamera& camera);
 		static void EndScene();
 		static CommandPacket* DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
-		static CommandPacket* DrawSkinnedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic = true);
+		static CommandPacket* DrawSkinnedMesh(const Ref<SkinnedMesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic = true);
 		static CommandPacket* DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
 		static CommandPacket* DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true);
 		static CommandPacket* DrawLightCube(const glm::mat4& modelMatrix);
@@ -57,11 +59,11 @@ namespace OloEngine
 		
 		// Culling methods
 		static void EnableFrustumCulling(bool enable);
-		static bool IsFrustumCullingEnabled();
-		static void EnableDynamicCulling(bool enable);
+		static bool IsFrustumCullingEnabled();		static void EnableDynamicCulling(bool enable);
 		static bool IsDynamicCullingEnabled();
 		static const Frustum& GetViewFrustum();
 		static bool IsVisibleInFrustum(const Ref<Mesh>& mesh, const glm::mat4& transform);
+		static bool IsVisibleInFrustum(const Ref<SkinnedMesh>& mesh, const glm::mat4& transform);
 		static bool IsVisibleInFrustum(const BoundingSphere& sphere);
 		static bool IsVisibleInFrustum(const BoundingBox& box);
 		
@@ -108,10 +110,10 @@ namespace OloEngine
 			Ref<Shader> QuadShader;
 					Ref<UniformBuffer> TransformUBO;
 			Ref<UniformBuffer> MaterialUBO;
-			Ref<UniformBuffer> TextureFlagUBO;
-			Ref<UniformBuffer> CameraMatricesBuffer;
+			Ref<UniformBuffer> TextureFlagUBO;			Ref<UniformBuffer> CameraMatricesBuffer;
 			Ref<UniformBuffer> LightPropertiesUBO;
 			Ref<UniformBuffer> BoneMatricesUBO;
+			Ref<UniformBuffer> ModelMatrixUBO;
 
 			glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
 			glm::mat4 ViewMatrix = glm::mat4(1.0f);

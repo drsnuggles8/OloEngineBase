@@ -30,16 +30,17 @@ namespace OloEngine
 		static void Initialize();
         
         // Get the dispatch function for a command type
-        static CommandDispatchFn GetDispatchFunction(CommandType type);
-				static void SetSharedUBOs(
+        static CommandDispatchFn GetDispatchFunction(CommandType type);				static void SetSharedUBOs(
             const Ref<UniformBuffer>& transformUBO,
             const Ref<UniformBuffer>& materialUBO,
             const Ref<UniformBuffer>& textureFlagUBO,
             const Ref<UniformBuffer>& cameraUBO,
 			const Ref<UniformBuffer>& lightUBO,
-			const Ref<UniformBuffer>& boneMatricesUBO);
+			const Ref<UniformBuffer>& boneMatricesUBO,
+			const Ref<UniformBuffer>& modelMatrixUBO);
 
 		static void SetViewProjectionMatrix(const glm::mat4& viewProjection);
+		static void SetViewMatrix(const glm::mat4& view);
 
         // State management dispatch functions
         static void SetViewport(const void* data, RendererAPI& api);

@@ -7,9 +7,9 @@ layout(location = 2) in vec2 a_TexCoord;
 layout(location = 3) in ivec4 a_BoneIndices;  // Bone indices (up to 4 per vertex)
 layout(location = 4) in vec4 a_BoneWeights;   // Bone weights (must sum to 1.0)
 
-layout(std140, binding = 0) uniform UniformBufferObject {
+layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_ViewProjection;
-    mat4 u_Model;
+    mat4 u_View;
 };
 
 // Bone matrices UBO (up to 100 bones)
@@ -17,6 +17,12 @@ layout(std140, binding = 5) uniform BoneMatrices {
     mat4 u_BoneMatrices[100];
 };
 
+// Model matrix uniform block
+layout(std140, binding = 6) uniform ModelMatrix {
+    mat4 u_Model;
+};
+
+// Outputs to fragment shader
 layout(location = 0) out vec3 v_Normal;
 layout(location = 1) out vec3 v_FragPos;
 layout(location = 2) out vec2 v_TexCoord;
@@ -47,24 +53,25 @@ void main()
     
     // Transform vertex position and normal by the blended bone matrix
     vec4 skinnedPosition = boneTransform * vec4(a_Position, 1.0);
-    vec3 skinnedNormal = mat3(boneTransform) * a_Normal;
-    
-    // Transform to world space using model matrix
-    v_FragPos = vec3(u_Model * skinnedPosition);
-    v_Normal = mat3(transpose(inverse(u_Model))) * skinnedNormal;
+    vec3 skinnedNormal = mat3(boneTransform) * a_Normal;    // Transform to world space using model matrix
+    vec4 worldPosition = u_Model * skinnedPosition;
+    v_FragPos = worldPosition.xyz;
+    v_Normal = normalize(mat3(u_Model) * skinnedNormal);
     v_TexCoord = a_TexCoord;
     
     // Final vertex position in clip space
-    gl_Position = u_ViewProjection * u_Model * skinnedPosition;
+    gl_Position = u_ViewProjection * worldPosition;
 }
 
 #type fragment
 #version 450 core
 
+// Input from vertex shader
 layout(location = 0) in vec3 v_Normal;
 layout(location = 1) in vec3 v_FragPos;
 layout(location = 2) in vec2 v_TexCoord;
 
+// Output
 layout(location = 0) out vec4 FragColor;
 
 const int DIRECTIONAL_LIGHT = 0;
@@ -92,8 +99,8 @@ layout(std140, binding = 2) uniform TextureFlags {
     int u_UseTextureMaps;
 };
 
-uniform sampler2D u_DiffuseMap;
-uniform sampler2D u_SpecularMap;
+layout(binding = 3) uniform sampler2D u_DiffuseMap;
+layout(binding = 4) uniform sampler2D u_SpecularMap;
 
 vec3 CalculateDirectionalLight();
 vec3 CalculatePointLight();
@@ -117,8 +124,7 @@ void main()
 }
 
 vec3 CalculateDirectionalLight()
-{
-    vec3 lightDir = normalize(-u_LightDirection.xyz);
+{    vec3 lightDir = normalize(-u_LightDirection.xyz);
     vec3 norm = normalize(v_Normal);
     vec3 viewDir = normalize(u_ViewPosAndLightType.xyz - v_FragPos);
     vec3 reflectDir = reflect(-lightDir, norm);
@@ -171,8 +177,7 @@ vec3 CalculatePointLight()
         vec3 diffuseTexColor = texture(u_DiffuseMap, v_TexCoord).rgb;
         vec3 specularTexColor = texture(u_SpecularMap, v_TexCoord).rgb;
         diffuse *= diffuseTexColor;
-        specular *= specularTexColor;
-    }
+        specular *= specularTexColor;    }
     
     // Attenuation
     float distance = length(u_LightPosition.xyz - v_FragPos);
@@ -216,8 +221,7 @@ vec3 CalculateSpotLight()
         vec3 diffuseTexColor = texture(u_DiffuseMap, v_TexCoord).rgb;
         vec3 specularTexColor = texture(u_SpecularMap, v_TexCoord).rgb;
         diffuse *= diffuseTexColor;
-        specular *= specularTexColor;
-    }
+        specular *= specularTexColor;    }
     
     // Attenuation
     float distance = length(u_LightPosition.xyz - v_FragPos);
