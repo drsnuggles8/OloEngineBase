@@ -13,9 +13,7 @@
 namespace OloEngine
 {
     // Forward declarations
-    class RendererAPI;
-
-    // Command type enum for dispatching
+    class RendererAPI;    // Command type enum for dispatching
     enum class CommandType : u8
     {
         Invalid = 0,
@@ -27,6 +25,7 @@ namespace OloEngine
         DrawLines,
         DrawMesh,
         DrawMeshInstanced,
+        DrawSkinnedMesh,
         DrawQuad,
         BindDefaultFramebuffer,
         BindTexture,
@@ -268,9 +267,7 @@ namespace OloEngine
         CommandHeader header;
         Ref<VertexArray> vertexArray; // Changed from rendererID to vertexArray
         u32 vertexCount;
-    };
-
-    // Higher-level commands combine multiple lower-level commands
+    };    // Higher-level commands combine multiple lower-level commands
 	struct DrawMeshCommand
 	{
 		CommandHeader header;
@@ -291,8 +288,10 @@ namespace OloEngine
 		Ref<Shader> shader;
 		// Per-draw-call render state
 		Ref<RenderState> renderState;
+		// Skinning support for animated meshes
+		bool isSkinnedMesh = false;
+		std::vector<glm::mat4> boneMatrices;  // Final bone matrices for GPU skinning
 	};
-
 	struct DrawMeshInstancedCommand
 	{
 		CommandHeader header;
@@ -314,6 +313,10 @@ namespace OloEngine
 		Ref<Shader> shader;
 		// Per-draw-call render state
 		Ref<RenderState> renderState;
+		// Skinning support for animated meshes
+		bool isSkinnedMesh = false;
+		// For instanced skinned meshes, each instance has its own set of bone matrices
+		std::vector<std::vector<glm::mat4>> instanceBoneMatrices;
 	};
 
 	struct DrawQuadCommand
@@ -327,6 +330,27 @@ namespace OloEngine
 		Ref<RenderState> renderState;
 	};
 
-    // Maximum command size for allocation purposes
-    constexpr sizet MAX_COMMAND_SIZE = 256;
+	struct DrawSkinnedMeshCommand
+	{
+		CommandHeader header;
+		Ref<VertexArray> vertexArray;
+		u32 indexCount;
+		glm::mat4 modelMatrix;
+		// Material properties
+		glm::vec3 ambient;
+		glm::vec3 diffuse;
+		glm::vec3 specular;
+		f32 shininess;
+		bool useTextureMaps;
+		// Actual texture references
+		Ref<Texture2D> diffuseMap;
+		Ref<Texture2D> specularMap;
+		// Actual shader for skinned rendering
+		Ref<Shader> shader;
+		// Per-draw-call render state
+		Ref<RenderState> renderState;
+		// Bone matrices for GPU skinning (up to 100 bones)
+		std::vector<glm::mat4> boneMatrices;
+	};    // Maximum command size for allocation purposes - increased for bone matrices
+    constexpr sizet MAX_COMMAND_SIZE = 512;
 }

@@ -35,21 +35,22 @@ namespace OloEngine
 
 		s_Data.CubeMesh = Mesh::CreateCube();
 		s_Data.QuadMesh = Mesh::CreatePlane(1.0f, 1.0f);
-
 		m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
 		m_ShaderLibrary.Load("assets/shaders/Lighting3D.glsl");
+		m_ShaderLibrary.Load("assets/shaders/SkinnedLighting3D.glsl");
 		m_ShaderLibrary.Load("assets/shaders/Renderer3D_Quad.glsl");
 
 		s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
 		s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
+		s_Data.SkinnedLightingShader = m_ShaderLibrary.Get("SkinnedLighting3D");
 		s_Data.QuadShader = m_ShaderLibrary.Get("Renderer3D_Quad");
-
 		// Create all necessary UBOs
 		s_Data.TransformUBO = UniformBuffer::Create(sizeof(glm::mat4) * 2, 0);  // Model + VP matrices
 		s_Data.MaterialUBO = UniformBuffer::Create(sizeof(glm::vec4) * 4, 1);   // Material properties
 		s_Data.TextureFlagUBO = UniformBuffer::Create(sizeof(int), 2);          // Texture flags
 		s_Data.CameraMatricesBuffer = UniformBuffer::Create(sizeof(glm::mat4) * 2, 3); // View and projection matrices
 		s_Data.LightPropertiesUBO = UniformBuffer::Create(sizeof(glm::vec4) * 12, 1); // Binding point 1, not 4
+		s_Data.BoneMatricesUBO = UniformBuffer::Create(sizeof(glm::mat4) * 100, 5); // Bone matrices (up to 100 bones), binding point 5
 		
 		// Share UBOs with CommandDispatch
 		CommandDispatch::SetSharedUBOs(
@@ -57,7 +58,8 @@ namespace OloEngine
 			s_Data.MaterialUBO, 
 			s_Data.TextureFlagUBO,
 			s_Data.CameraMatricesBuffer,
-			s_Data.LightPropertiesUBO
+			s_Data.LightPropertiesUBO,
+			s_Data.BoneMatricesUBO
 		);
 		
 		OLO_CORE_INFO("Shared UBOs with CommandDispatch");
@@ -550,5 +552,87 @@ namespace OloEngine
 		{
 			OLO_CORE_WARN("Renderer3D::OnWindowResize: No render graph available!");
 		}
+	}
+
+	CommandPacket* Renderer3D::DrawSkinnedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("Renderer3D::DrawSkinnedMesh: ScenePass is null!");
+			return nullptr;
+		}
+		
+		s_Data.Stats.TotalMeshes++;
+		
+		// Apply frustum culling if enabled (same as regular mesh)
+		if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
+		{
+			if (!IsVisibleInFrustum(mesh, modelMatrix))
+			{
+				s_Data.Stats.CulledMeshes++;
+				return nullptr;
+			}
+		}
+		
+		// Validate input parameters
+		if (!mesh || !mesh->GetVertexArray())
+		{
+			OLO_CORE_ERROR("Renderer3D::DrawSkinnedMesh: Invalid mesh or vertex array!");
+			return nullptr;
+		}
+				// For skinned meshes, we prefer a skinned shader but fall back to lighting shader
+		Ref<Shader> shaderToUse = material.Shader ? material.Shader : s_Data.SkinnedLightingShader;
+		if (!shaderToUse)
+		{
+			OLO_CORE_WARN("Renderer3D::DrawSkinnedMesh: SkinnedLighting shader not available, falling back to Lighting3D");
+			shaderToUse = s_Data.LightingShader;
+		}
+		if (!shaderToUse)
+		{
+			OLO_CORE_ERROR("Renderer3D::DrawSkinnedMesh: No shader available!");
+			return nullptr;
+		}
+		
+		// Validate bone matrices
+		if (boneMatrices.empty())
+		{
+			OLO_CORE_WARN("Renderer3D::DrawSkinnedMesh: No bone matrices provided, using identity matrices");
+		}
+		
+		// Create and configure the command packet
+		CommandPacket* packet = CreateDrawCall<DrawSkinnedMeshCommand>();
+		auto* cmd = packet->GetCommandData<DrawSkinnedMeshCommand>();
+		
+		// Set command header
+		cmd->header.type = CommandType::DrawSkinnedMesh;
+		
+		// Set mesh data
+		cmd->vertexArray = mesh->GetVertexArray();
+		cmd->indexCount = mesh->GetIndexCount();
+		cmd->modelMatrix = modelMatrix;
+		
+		// Set material properties
+		cmd->ambient = material.Ambient;
+		cmd->diffuse = material.Diffuse;
+		cmd->specular = material.Specular;
+		cmd->shininess = material.Shininess;
+		cmd->useTextureMaps = material.UseTextureMaps;
+		cmd->diffuseMap = material.DiffuseMap;
+		cmd->specularMap = material.SpecularMap;
+		
+		// Set shader and render state
+		cmd->shader = shaderToUse;
+		cmd->renderState = CreateRef<RenderState>();
+		
+		// **NEW: Set bone matrices for GPU skinning**
+		cmd->boneMatrices = boneMatrices;
+		
+		// Configure packet dispatch
+		packet->SetCommandType(cmd->header.type);
+		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+		
+		return packet;
 	}
 }

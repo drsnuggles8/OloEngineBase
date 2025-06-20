@@ -2,9 +2,10 @@
 		"OloEngine.h"
 		"OloEnginePCH.cpp"
 		"OloEnginePCH.h"
-
 		"OloEngine/Animation/Skeleton.h"
 		"OloEngine/Animation/AnimatedMeshComponents.h"
+		"OloEngine/Animation/AnimatedMeshRenderSystem.h"
+		"OloEngine/Animation/AnimatedMeshRenderSystem.cpp"
 		"OloEngine/Animation/AnimationSystem.h"
 		"OloEngine/Animation/AnimationSystem.cpp"
 		"OloEngine/Animation/AnimationClip.h"

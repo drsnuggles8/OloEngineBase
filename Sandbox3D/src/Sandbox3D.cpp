@@ -81,12 +81,14 @@ void Sandbox3D::OnAttach()
     // Load textures
     m_DiffuseMap = OloEngine::Texture2D::Create("assets/textures/container2.png");
     m_SpecularMap = OloEngine::Texture2D::Create("assets/textures/container2_specular.png");
-    m_GrassTexture = OloEngine::Texture2D::Create("assets/textures/grass.png");
-
-    // Assign textures to the material
+    m_GrassTexture = OloEngine::Texture2D::Create("assets/textures/grass.png");    // Assign textures to the material
     m_TexturedMaterial.DiffuseMap = m_DiffuseMap;
     m_TexturedMaterial.SpecularMap = m_SpecularMap;    // Set initial lighting parameters
     OloEngine::Renderer3D::SetLight(m_Light);
+
+    // Create ECS test scene for animated mesh rendering
+    m_TestScene = OloEngine::CreateRef<OloEngine::Scene>();
+    m_AnimatedMeshEntity = m_TestScene->CreateEntity("AnimatedTestMesh");
 
     // --- ECS Animated Mesh Test Entity ---
     // This is a minimal test: create a dummy entity with animated mesh components
@@ -98,7 +100,23 @@ void Sandbox3D::OnAttach()
     m_AnimatedTestSkeleton->m_ParentIndices = { -1 };
     m_AnimatedTestSkeleton->m_LocalTransforms = { glm::mat4(1.0f) };
     m_AnimatedTestSkeleton->m_GlobalTransforms = { glm::mat4(1.0f) };
-    m_AnimatedTestSkeleton->m_FinalBoneMatrices = { glm::mat4(1.0f) };
+    m_AnimatedTestSkeleton->m_FinalBoneMatrices = { glm::mat4(1.0f) };    // Add components to ECS entity
+    auto& animMeshComp = m_AnimatedMeshEntity.AddComponent<OloEngine::AnimatedMeshComponent>();
+    animMeshComp.m_Mesh = m_AnimatedTestMesh;
+    // Note: m_Skeleton will be set separately via SkeletonComponent
+    
+    // Add transform component with position and scale
+    auto& transformComp = m_AnimatedMeshEntity.AddComponent<OloEngine::TransformComponent>();
+    transformComp.Translation = glm::vec3(3.0f, 0.0f, 2.0f);
+    transformComp.Scale = glm::vec3(0.7f);
+    
+    auto& skeletonComp = m_AnimatedMeshEntity.AddComponent<OloEngine::SkeletonComponent>();
+    // Copy skeleton data to component
+    skeletonComp.m_ParentIndices = m_AnimatedTestSkeleton->m_ParentIndices;
+    skeletonComp.m_BoneNames = m_AnimatedTestSkeleton->m_BoneNames;
+    skeletonComp.m_LocalTransforms = m_AnimatedTestSkeleton->m_LocalTransforms;
+    skeletonComp.m_GlobalTransforms = m_AnimatedTestSkeleton->m_GlobalTransforms;
+    skeletonComp.m_FinalBoneMatrices = m_AnimatedTestSkeleton->m_FinalBoneMatrices;
 
     // --- Dummy Animation Clips (Idle and Bounce) ---
     using namespace OloEngine;
@@ -125,6 +143,10 @@ void Sandbox3D::OnAttach()
 
     // Animation state: start with Idle
     m_AnimatedTestAnimState = AnimationStateComponent{ m_IdleClip };
+    
+    // Add animation state component to ECS entity
+    auto& animStateComp = m_AnimatedMeshEntity.AddComponent<OloEngine::AnimationStateComponent>();
+    animStateComp = m_AnimatedTestAnimState;
 }
 
 void Sandbox3D::OnDetach()
@@ -199,9 +221,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
         }
 
         OloEngine::Renderer3D::SetLight(m_Light);
-    }
-
-    // --- Basic Animation State Machine: auto-switch Idle <-> Bounce every 2 seconds ---
+    }    // --- Basic Animation State Machine: auto-switch Idle <-> Bounce every 2 seconds ---
     static float animStateTimer = 0.0f;
     animStateTimer += ts.GetSeconds();
     if (!m_AnimatedTestAnimState.Blending && m_AnimatedTestAnimState.m_CurrentClip)
@@ -217,7 +237,33 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
             m_AnimatedTestAnimState.BlendFactor = 0.0f;
             m_AnimatedTestAnimState.m_State = (requestedClip == m_IdleClip) ? OloEngine::AnimationStateComponent::State::Idle : OloEngine::AnimationStateComponent::State::Bounce;
             animStateTimer = 0.0f;
+              // Update ECS entity animation state as well
+            auto& ecsAnimState = m_AnimatedMeshEntity.GetComponent<OloEngine::AnimationStateComponent>();
+            ecsAnimState = m_AnimatedTestAnimState;
         }
+    }
+
+    // Update animation and skeleton for both manual and ECS animated meshes
+    {
+        // Advance animation and compute bone transforms
+        OloEngine::Animation::AnimationSystem::Update(
+            m_AnimatedTestAnimState,
+            *m_AnimatedTestSkeleton,
+            ts.GetSeconds()
+        );
+        
+        // Update ECS entity's skeleton component with computed bone matrices
+        if (m_AnimatedMeshEntity.HasComponent<OloEngine::SkeletonComponent>())
+        {
+            auto& skeletonComp = m_AnimatedMeshEntity.GetComponent<OloEngine::SkeletonComponent>();
+            skeletonComp.m_FinalBoneMatrices = m_AnimatedTestSkeleton->m_FinalBoneMatrices;
+            skeletonComp.m_GlobalTransforms = m_AnimatedTestSkeleton->m_GlobalTransforms;
+        }
+    }// Update ECS scene and animated mesh render system
+    if (m_TestScene)
+    {
+        m_TestScene->OnUpdateRuntime(ts);
+        OloEngine::AnimatedMeshRenderSystem::RenderAnimatedMeshes(m_TestScene, m_GoldMaterial);
     }
 
     {
@@ -269,24 +315,25 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
             m_AnimatedTestAnimState,
             *m_AnimatedTestSkeleton,
             ts.GetSeconds()
-        );
-
-        // Use the root bone's global transform to move the mesh
+        );        // Use skinned mesh rendering with bone matrices
         // Start with a translation to move the animated mesh away from the origin
         glm::mat4 animTestMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(3.0f, 0.0f, 2.0f));
-        if (!m_AnimatedTestSkeleton->m_GlobalTransforms.empty())
-        {
-            animTestMatrix *= m_AnimatedTestSkeleton->m_GlobalTransforms[0];
-        }
-        // Apply scale
+        // Apply scale (don't use root bone transform for positioning, let GPU skinning handle bones)
         animTestMatrix = glm::scale(animTestMatrix, glm::vec3(0.7f));
+        
         OloEngine::Material animTestMaterial = m_GoldMaterial;
-        // TODO: In future, pass bone matrices to shader for skinning
-        auto* animTestPacket = OloEngine::Renderer3D::DrawMesh(m_AnimatedTestMesh, animTestMatrix, animTestMaterial);
+        
+        // **NEW: Use DrawSkinnedMesh with bone matrices for GPU skinning**
+        auto* animTestPacket = OloEngine::Renderer3D::DrawSkinnedMesh(
+            m_AnimatedTestMesh, 
+            animTestMatrix, 
+            animTestMaterial, 
+            m_AnimatedTestSkeleton->m_FinalBoneMatrices
+        );
         if (animTestPacket)
-            {
-                OloEngine::Renderer3D::SubmitPacket(animTestPacket);
-            }
+        {
+            OloEngine::Renderer3D::SubmitPacket(animTestPacket);
+        }
     }
 
         // Draw cubes with stencil testing
@@ -464,11 +511,14 @@ void Sandbox3D::OnImGuiRender()
         RenderMaterialSettings();
     }
 
-
-
     if (ImGui::CollapsingHeader("Animation Debug", ImGuiTreeNodeFlags_None))
     {
         RenderAnimationDebugPanel();
+    }
+
+    if (ImGui::CollapsingHeader("ECS Animated Mesh", ImGuiTreeNodeFlags_None))
+    {
+        RenderECSAnimatedMeshPanel();
     }
 
     if (ImGui::CollapsingHeader("State Management Test", ImGuiTreeNodeFlags_None))
@@ -1100,4 +1150,56 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
             break;
         }
     }
+}
+
+void Sandbox3D::RenderECSAnimatedMeshPanel()
+{
+    if (!m_TestScene || !m_AnimatedMeshEntity)
+    {
+        ImGui::Text("No ECS test scene available");
+        return;
+    }
+
+    ImGui::Text("ECS Animated Mesh Demo");
+    ImGui::Separator();
+      // Entity info
+    ImGui::Text("Entity ID: %d", static_cast<i32>(static_cast<u32>(m_AnimatedMeshEntity)));
+    
+    // Check if entity has all required components
+    bool hasAnimMesh = m_AnimatedMeshEntity.HasComponent<OloEngine::AnimatedMeshComponent>();
+    bool hasSkeleton = m_AnimatedMeshEntity.HasComponent<OloEngine::SkeletonComponent>();
+    bool hasAnimState = m_AnimatedMeshEntity.HasComponent<OloEngine::AnimationStateComponent>();
+    
+    ImGui::Text("Components:");
+    ImGui::Text("  AnimatedMeshComponent: %s", hasAnimMesh ? "✓" : "✗");
+    ImGui::Text("  SkeletonComponent: %s", hasSkeleton ? "✓" : "✗");
+    ImGui::Text("  AnimationStateComponent: %s", hasAnimState ? "✓" : "✗");
+    
+    if (hasAnimState)
+    {
+        ImGui::Separator();
+        auto& animState = m_AnimatedMeshEntity.GetComponent<OloEngine::AnimationStateComponent>();
+        ImGui::Text("Animation State:");
+        ImGui::Text("  Current Clip: %s", animState.m_CurrentClip ? animState.m_CurrentClip->Name.c_str() : "None");
+        ImGui::Text("  Time: %.2f", animState.CurrentTime);
+        ImGui::Text("  Blending: %s", animState.Blending ? "Yes" : "No");
+        if (animState.Blending)
+        {
+            ImGui::Text("  Blend Factor: %.2f", animState.BlendFactor);
+            ImGui::Text("  Next Clip: %s", animState.m_NextClip ? animState.m_NextClip->Name.c_str() : "None");
+        }
+    }
+      if (hasSkeleton)
+    {
+        ImGui::Separator();
+        auto& skeleton = m_AnimatedMeshEntity.GetComponent<OloEngine::SkeletonComponent>();
+        ImGui::Text("Skeleton Info:");
+        ImGui::Text("  Bone Count: %zu", skeleton.m_BoneNames.size());
+        ImGui::Text("  Root Bone: %s", 
+            skeleton.m_BoneNames.empty() ? "None" : skeleton.m_BoneNames[0].c_str());
+    }
+    
+    ImGui::Separator();
+    ImGui::Text("Render System Status: Active");
+    ImGui::Text("This entity is rendered via AnimatedMeshRenderSystem");
 }

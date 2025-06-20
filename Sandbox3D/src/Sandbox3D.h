@@ -14,6 +14,8 @@
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
+#include "OloEngine/Animation/AnimatedMeshRenderSystem.h"
+#include "OloEngine/Scene/Components.h"
 
 class Sandbox3D : public OloEngine::Layer
 {
@@ -29,6 +31,10 @@ public:
 
 
 private:
+	// ECS Scene for animated mesh testing
+	OloEngine::Ref<OloEngine::Scene> m_TestScene;
+	OloEngine::Entity m_AnimatedMeshEntity;
+
 	// Animated mesh ECS test (step 1)
 	OloEngine::Ref<OloEngine::Mesh> m_AnimatedTestMesh;
 	OloEngine::Ref<OloEngine::Skeleton> m_AnimatedTestSkeleton;
@@ -40,6 +46,7 @@ private:
 	int m_AnimClipIndex = 0;
 	bool m_AnimBlendRequested = false;
 	void RenderAnimationDebugPanel();
+	void RenderECSAnimatedMeshPanel();
 	// UI helper functions for different sections
 	void RenderPerformanceInfo();
 	void RenderSceneSettings();

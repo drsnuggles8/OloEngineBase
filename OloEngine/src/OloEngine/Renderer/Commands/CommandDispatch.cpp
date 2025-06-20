@@ -9,8 +9,7 @@
 #include "OloEngine/Renderer/Light.h"
 
 namespace OloEngine
-{
-	struct CommandDispatchData
+{	struct CommandDispatchData
 	{
 		// Existing UBO references
 		Ref<UniformBuffer> TransformUBO = nullptr;
@@ -18,6 +17,7 @@ namespace OloEngine
 		Ref<UniformBuffer> TextureFlagUBO = nullptr;
 		Ref<UniformBuffer> CameraUBO = nullptr;
 		Ref<UniformBuffer> LightUBO = nullptr;
+		Ref<UniformBuffer> BoneMatricesUBO = nullptr;  // New UBO for bone matrices
 		
 		// Cached matrices and light data
 		glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
@@ -33,22 +33,23 @@ namespace OloEngine
 	};
 
 	static CommandDispatchData s_Data;
-
 	// Add this to SetSharedUBOs function
 	void CommandDispatch::SetSharedUBOs(
 		const Ref<UniformBuffer>& transformUBO,
 		const Ref<UniformBuffer>& materialUBO,
 		const Ref<UniformBuffer>& textureFlagUBO,
 		const Ref<UniformBuffer>& cameraUBO,
-		const Ref<UniformBuffer>& lightUBO)
+		const Ref<UniformBuffer>& lightUBO,
+		const Ref<UniformBuffer>& boneMatricesUBO)
 	{
 		s_Data.TransformUBO = transformUBO;
 		s_Data.MaterialUBO = materialUBO;
 		s_Data.TextureFlagUBO = textureFlagUBO;
 		s_Data.CameraUBO = cameraUBO;
 		s_Data.LightUBO = lightUBO;
+		s_Data.BoneMatricesUBO = boneMatricesUBO;
 		
-		OLO_CORE_INFO("CommandDispatch: Shared UBOs configured");
+		OLO_CORE_INFO("CommandDispatch: Shared UBOs configured (including bone matrices)");
 	}
 
 	void CommandDispatch::SetSceneLight(const Light& light)
@@ -277,12 +278,13 @@ namespace OloEngine
         s_DispatchTable[static_cast<sizet>(CommandType::DrawIndexedInstanced)] = CommandDispatch::DrawIndexedInstanced;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawArrays)] = CommandDispatch::DrawArrays;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawLines)] = CommandDispatch::DrawLines;
-        
-        // Higher-level commands
+          // Higher-level commands
         OLO_CORE_INFO("Registering DrawMesh at index {}", static_cast<sizet>(CommandType::DrawMesh));
         s_DispatchTable[static_cast<sizet>(CommandType::DrawMesh)] = CommandDispatch::DrawMesh;
         OLO_CORE_INFO("Registering DrawMeshInstanced at index {}", static_cast<sizet>(CommandType::DrawMeshInstanced));
         s_DispatchTable[static_cast<sizet>(CommandType::DrawMeshInstanced)] = CommandDispatch::DrawMeshInstanced;
+        OLO_CORE_INFO("Registering DrawSkinnedMesh at index {}", static_cast<sizet>(CommandType::DrawSkinnedMesh));
+        s_DispatchTable[static_cast<sizet>(CommandType::DrawSkinnedMesh)] = CommandDispatch::DrawSkinnedMesh;
         OLO_CORE_INFO("Registering DrawQuad at index {}", static_cast<sizet>(CommandType::DrawQuad));
         s_DispatchTable[static_cast<sizet>(CommandType::DrawQuad)] = CommandDispatch::DrawQuad;
         
@@ -697,7 +699,7 @@ namespace OloEngine
 					cmd->specularMap->Bind(1);
 					cmd->shader->SetInt("u_SpecularMap", 1);  // Explicitly set the uniform
 					s_Data.BoundTextureIDs[1] = texID;
-					s_Data.Stats.TextureBinds++;
+				 s_Data.Stats.TextureBinds++;
 				}
 			}
 		}
@@ -830,11 +832,197 @@ namespace OloEngine
 		
 		// Track draw calls for statistics
 		s_Data.Stats.DrawCalls++;
-		
-		// Draw the instanced mesh
+				// Draw the instanced mesh
 		api.DrawIndexedInstanced(cmd->vertexArray, indexCount, static_cast<u32>(instanceCount));
 	}	   
 	
+	void CommandDispatch::DrawSkinnedMesh(const void* data, RendererAPI& api)
+	{
+		OLO_PROFILE_FUNCTION();
+		auto const* cmd = static_cast<const DrawSkinnedMeshCommand*>(data);
+		
+		if (!cmd->vertexArray || !cmd->shader)
+		{
+			OLO_CORE_ERROR("CommandDispatch::DrawSkinnedMesh: Invalid vertex array or shader");
+			return;
+		}
+
+		// Apply render state if provided (same as regular mesh)
+		if (cmd->renderState)
+		{
+			const RenderState& state = *cmd->renderState;
+			api.SetBlendState(state.Blend.Enabled);
+			api.SetBlendFunc(state.Blend.SrcFactor, state.Blend.DstFactor);
+			api.SetBlendEquation(state.Blend.Equation);
+			api.SetDepthTest(state.Depth.TestEnabled);
+			api.SetDepthFunc(state.Depth.Function);
+			api.SetDepthMask(state.Depth.WriteMask);
+			if (state.Stencil.Enabled) api.EnableStencilTest(); else api.DisableStencilTest();
+			api.SetStencilFunc(state.Stencil.Function, state.Stencil.Reference, state.Stencil.ReadMask);
+			api.SetStencilMask(state.Stencil.WriteMask);
+			api.SetStencilOp(state.Stencil.StencilFail, state.Stencil.DepthFail, state.Stencil.DepthPass);
+			if (state.Culling.Enabled) api.EnableCulling(); else api.DisableCulling();
+			api.SetCullFace(state.Culling.Face);
+			api.SetLineWidth(state.LineWidth.Width);
+			api.SetPolygonMode(state.PolygonMode.Face, state.PolygonMode.Mode);
+			if (state.Scissor.Enabled) api.EnableScissorTest(); else api.DisableScissorTest();
+			api.SetScissorBox(state.Scissor.X, state.Scissor.Y, state.Scissor.Width, state.Scissor.Height);
+			api.SetColorMask(state.ColorMask.Red, state.ColorMask.Green, state.ColorMask.Blue, state.ColorMask.Alpha);
+			api.SetPolygonOffset(state.PolygonOffset.Enabled ? state.PolygonOffset.Factor : 0.0f, state.PolygonOffset.Enabled ? state.PolygonOffset.Units : 0.0f);
+			if (state.Multisampling.Enabled) api.EnableMultisampling(); else api.DisableMultisampling();
+		}
+		
+		// Bind shader (same pattern as regular mesh)
+		if (u32 shaderID = cmd->shader->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
+		{
+			cmd->shader->Bind();
+			s_Data.CurrentBoundShaderID = shaderID;
+			s_Data.Stats.ShaderBinds++;
+		}
+		
+		// Update transform UBO (same as regular mesh)
+		struct TransformMatrices
+		{
+			glm::mat4 ViewProjection;
+			glm::mat4 Model;
+		};
+
+		TransformMatrices matrices;
+		matrices.ViewProjection = s_Data.ViewProjectionMatrix;
+		matrices.Model = cmd->modelMatrix;
+		
+		if (s_Data.TransformUBO)
+		{
+			s_Data.TransformUBO->SetData(&matrices, sizeof(TransformMatrices));
+		}
+		
+		// Update material properties (same as regular mesh)
+		struct MaterialData
+		{
+			glm::vec4 Ambient;
+			glm::vec4 Diffuse;
+			glm::vec4 Specular;
+			float Shininess;
+			float _pad[3];
+		};
+		
+		MaterialData materialData{
+			glm::vec4(cmd->ambient, 1.0f),
+			glm::vec4(cmd->diffuse, 1.0f),
+			glm::vec4(cmd->specular, 1.0f),
+			cmd->shininess,
+			{0.0f, 0.0f, 0.0f}
+		};
+		
+		if (s_Data.MaterialUBO)
+		{
+			s_Data.MaterialUBO->SetData(&materialData, sizeof(MaterialData));
+		}
+		
+		// Update texture flag
+		int useTextureMaps = cmd->useTextureMaps ? 1 : 0;
+		if (s_Data.TextureFlagUBO)
+		{
+			s_Data.TextureFlagUBO->SetData(&useTextureMaps, sizeof(int));
+		}
+		
+		// **NEW: Update bone matrices UBO for GPU skinning**
+		if (s_Data.BoneMatricesUBO && !cmd->boneMatrices.empty())
+		{
+			// Ensure we don't exceed max bone count (typically 100 bones)
+			constexpr sizet MAX_BONES = 100;
+			sizet boneCount = glm::min(cmd->boneMatrices.size(), MAX_BONES);
+			
+			// Upload bone matrices to GPU
+			s_Data.BoneMatricesUBO->SetData(cmd->boneMatrices.data(), boneCount * sizeof(glm::mat4));
+		}
+		
+		// Update light properties (same pattern as regular mesh)
+		struct LightPropertiesData
+		{
+			glm::vec4 MaterialAmbient;
+			glm::vec4 MaterialDiffuse;
+			glm::vec4 MaterialSpecular;
+			glm::vec4 Padding1;
+
+			glm::vec4 LightPosition;
+			glm::vec4 LightDirection;
+			glm::vec4 LightAmbient;
+			glm::vec4 LightDiffuse;
+			glm::vec4 LightSpecular;
+			glm::vec4 LightAttParams;
+			glm::vec4 LightSpotParams;
+
+			glm::vec4 ViewPosAndLightType;
+		};
+
+		LightPropertiesData lightData;
+		lightData.MaterialAmbient = glm::vec4(cmd->ambient, 0.0f);
+		lightData.MaterialDiffuse = glm::vec4(cmd->diffuse, 0.0f);
+		lightData.MaterialSpecular = glm::vec4(cmd->specular, cmd->shininess);
+		lightData.Padding1 = glm::vec4(0.0f);
+
+		const Light& light = s_Data.SceneLight;
+		auto lightType = std::to_underlying(light.Type);
+		lightData.LightPosition = glm::vec4(light.Position, 1.0f);
+		lightData.LightDirection = glm::vec4(light.Direction, 0.0f);
+		lightData.LightAmbient = glm::vec4(light.Ambient, 0.0f);
+		lightData.LightDiffuse = glm::vec4(light.Diffuse, 0.0f);
+		lightData.LightSpecular = glm::vec4(light.Specular, 0.0f);
+		lightData.LightAttParams = glm::vec4(light.Constant, light.Linear, light.Quadratic, 0.0f);
+		lightData.LightSpotParams = glm::vec4(light.CutOff, light.OuterCutOff, 0.0f, 0.0f);
+		lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<f32>(lightType));
+
+		if (s_Data.LightUBO)
+		{
+			s_Data.LightUBO->SetData(&lightData, sizeof(LightPropertiesData));
+		}
+		
+		// Bind textures (same as regular mesh)
+		if (cmd->useTextureMaps)
+		{
+			if (cmd->diffuseMap)
+			{
+				u32 texID = cmd->diffuseMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[0] != texID)
+				{
+					cmd->diffuseMap->Bind(0);
+					cmd->shader->SetInt("u_DiffuseMap", 0);
+					s_Data.BoundTextureIDs[0] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
+			}
+			
+			if (cmd->specularMap)
+			{
+				u32 texID = cmd->specularMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[1] != texID)
+				{
+					cmd->specularMap->Bind(1);
+					cmd->shader->SetInt("u_SpecularMap", 1);
+					s_Data.BoundTextureIDs[1] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
+			}
+		}
+		
+		// Get index count
+		u32 indexCount = cmd->indexCount > 0 ? cmd->indexCount : 
+			cmd->vertexArray->GetIndexBuffer() ? cmd->vertexArray->GetIndexBuffer()->GetCount() : 0;
+		
+		if (indexCount == 0)
+		{
+			OLO_CORE_ERROR("CommandDispatch::DrawSkinnedMesh: No indices to draw");
+			return;
+		}
+		
+		// Track statistics
+		s_Data.Stats.DrawCalls++;
+		
+		// Issue the draw call (same as regular indexed mesh)
+		api.DrawIndexed(cmd->vertexArray, indexCount);
+	}
+
 	void CommandDispatch::DrawQuad(const void* data, RendererAPI& api)
 	{
 		OLO_PROFILE_FUNCTION();

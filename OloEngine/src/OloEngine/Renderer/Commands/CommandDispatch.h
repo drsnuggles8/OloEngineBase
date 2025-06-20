@@ -31,13 +31,13 @@ namespace OloEngine
         
         // Get the dispatch function for a command type
         static CommandDispatchFn GetDispatchFunction(CommandType type);
-		
-		static void SetSharedUBOs(
+				static void SetSharedUBOs(
             const Ref<UniformBuffer>& transformUBO,
             const Ref<UniformBuffer>& materialUBO,
             const Ref<UniformBuffer>& textureFlagUBO,
             const Ref<UniformBuffer>& cameraUBO,
-			const Ref<UniformBuffer>& lightUBO);
+			const Ref<UniformBuffer>& lightUBO,
+			const Ref<UniformBuffer>& boneMatricesUBO);
 
 		static void SetViewProjectionMatrix(const glm::mat4& viewProjection);
 
@@ -73,10 +73,10 @@ namespace OloEngine
         static void DrawIndexedInstanced(const void* data, RendererAPI& api);
         static void DrawArrays(const void* data, RendererAPI& api);
         static void DrawLines(const void* data, RendererAPI& api);
-        
-        // Higher-level commands
+          // Higher-level commands
         static void DrawMesh(const void* data, RendererAPI& api);
         static void DrawMeshInstanced(const void* data, RendererAPI& api);
+        static void DrawSkinnedMesh(const void* data, RendererAPI& api);
         static void DrawQuad(const void* data, RendererAPI& api);
 		
 		static Statistics& GetStatistics();

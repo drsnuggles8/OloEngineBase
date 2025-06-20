@@ -307,10 +307,10 @@ namespace OloEngine
                 {
                     bool matchesTypeFilter = false;
                     switch (m_TypeFilter)
-                    {
-                        case 0: // Draw
+                    {                        case 0: // Draw
                             matchesTypeFilter = (commandType == CommandType::DrawMesh || 
                                                commandType == CommandType::DrawMeshInstanced ||
+                                               commandType == CommandType::DrawSkinnedMesh ||
                                                commandType == CommandType::DrawQuad ||
                                                commandType == CommandType::DrawIndexed ||
                                                commandType == CommandType::DrawArrays);
@@ -328,10 +328,10 @@ namespace OloEngine
                         case 3: // Compute
                             // No compute commands yet
                             matchesTypeFilter = false;
-                            break;
-                        case 4: // Other
+                            break;                        case 4: // Other
                             matchesTypeFilter = !((commandType == CommandType::DrawMesh || 
                                                  commandType == CommandType::DrawMeshInstanced ||
+                                                 commandType == CommandType::DrawSkinnedMesh ||
                                                  commandType == CommandType::DrawQuad ||
                                                  commandType == CommandType::DrawIndexed ||
                                                  commandType == CommandType::DrawArrays ||
