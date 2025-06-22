@@ -62,8 +62,86 @@ layout(location = 2) in vec2 v_TexCoord;
 
 layout(location = 0) out vec4 FragColor;
 
+const int DIRECTIONAL_LIGHT = 0;
+const int POINT_LIGHT = 1;
+const int SPOT_LIGHT = 2;
+
+layout(std140, binding = 1) uniform LightProperties {
+    vec4 u_MaterialAmbient;
+    vec4 u_MaterialDiffuse;
+    vec4 u_MaterialSpecular; // (x,y,z = specular, w = shininess)
+    vec4 u_Padding1;
+
+    vec4 u_LightPosition;
+    vec4 u_LightDirection;
+    vec4 u_LightAmbient;
+    vec4 u_LightDiffuse;
+    vec4 u_LightSpecular;
+    vec4 u_LightAttParams;    // (x = constant, y = linear, z = quadratic)
+    vec4 u_LightSpotParams;   // (x = cutOff, y = outerCutOff)
+
+    vec4 u_ViewPosAndLightType; // (x,y,z = viewPos, w = lightType)
+};
+
+layout(std140, binding = 2) uniform TextureFlags {
+    int u_UseTextureMaps;
+};
+
+layout(binding = 3) uniform sampler2D u_DiffuseMap;
+layout(binding = 4) uniform sampler2D u_SpecularMap;
+
+vec3 CalculateDirectionalLight();
+
 void main()
+{   
+    // Apply lighting calculations
+    vec3 result;
+    int lightType = int(u_ViewPosAndLightType.w);
+
+    if (lightType == DIRECTIONAL_LIGHT)
+        result = CalculateDirectionalLight();
+    else if (lightType == POINT_LIGHT)
+        result = CalculateDirectionalLight(); // Use directional for simplicity
+    else if (lightType == SPOT_LIGHT)
+        result = CalculateDirectionalLight(); // Use directional for simplicity
+    else
+        result = vec3(1.0, 0.0, 1.0); // Magenta for error
+
+    FragColor = vec4(result, 1.0);
+}
+
+vec3 CalculateDirectionalLight()
 {
-    // Simple test color
-    FragColor = vec4(1.0, 0.0, 1.0, 1.0); // Magenta
+    vec3 lightDir = normalize(-u_LightDirection.xyz);
+    vec3 norm = normalize(v_Normal);
+    vec3 viewDir = normalize(u_ViewPosAndLightType.xyz - v_FragPos);
+    vec3 reflectDir = reflect(-lightDir, norm);
+    
+    // Get material properties
+    vec3 ambient = u_MaterialAmbient.xyz;
+    vec3 diffuse = u_MaterialDiffuse.xyz;
+    vec3 specular = u_MaterialSpecular.xyz;
+    float shininess = u_MaterialSpecular.w;
+    
+    // Apply textures if enabled
+    if (u_UseTextureMaps == 1)
+    {
+        vec3 diffuseTexColor = texture(u_DiffuseMap, v_TexCoord).rgb;
+        vec3 specularTexColor = texture(u_SpecularMap, v_TexCoord).rgb;
+        diffuse *= diffuseTexColor;
+        specular *= specularTexColor;
+    }
+    
+    // Ambient
+    vec3 ambientResult = u_LightAmbient.xyz * ambient;
+    
+    // Diffuse
+    float diff = max(dot(norm, lightDir), 0.0);
+    vec3 diffuseResult = u_LightDiffuse.xyz * diff * diffuse;
+    
+    // Specular
+    float spec = pow(max(dot(viewDir, reflectDir), 0.0), shininess);
+    vec3 specularResult = u_LightSpecular.xyz * spec * specular;
+    
+    return ambientResult + diffuseResult + specularResult;
 }

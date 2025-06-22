@@ -93,7 +93,7 @@ private:
 
 	// Light properties
 	OloEngine::Light m_Light;
-	int m_LightTypeIndex = 1; // Default to point light
+	int m_LightTypeIndex = 0; // Default to directional light
 	const char* m_LightTypeNames[3] = { "Directional Light", "Point Light", "Spotlight" };
 	
 	// Material editor selection state

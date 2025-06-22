@@ -35,10 +35,12 @@ namespace OloEngine
 		OLO_CORE_INFO("CommandDispatch system initialized.");
 
 		s_Data.CubeMesh = Mesh::CreateCube();
-		s_Data.QuadMesh = Mesh::CreatePlane(1.0f, 1.0f);		m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
+		s_Data.QuadMesh = Mesh::CreatePlane(1.0f, 1.0f);
+		m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
 		m_ShaderLibrary.Load("assets/shaders/Lighting3D.glsl");
 		m_ShaderLibrary.Load("assets/shaders/SkinnedLighting3D_Simple.glsl");
-		m_ShaderLibrary.Load("assets/shaders/Renderer3D_Quad.glsl");		s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
+		m_ShaderLibrary.Load("assets/shaders/Renderer3D_Quad.glsl");
+		s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
 		s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
 		s_Data.SkinnedLightingShader = m_ShaderLibrary.Get("SkinnedLighting3D_Simple");
 		s_Data.QuadShader = m_ShaderLibrary.Get("Renderer3D_Quad");
@@ -58,7 +60,7 @@ namespace OloEngine
 		s_Data.CameraMatricesBuffer = UniformBuffer::Create(sizeof(glm::mat4) * 2, 3); // View and projection matrices		s_Data.LightPropertiesUBO = UniformBuffer::Create(sizeof(glm::vec4) * 12, 1); // Binding point 1, not 4
 		s_Data.BoneMatricesUBO = UniformBuffer::Create(sizeof(glm::mat4) * 100, 5); // Bone matrices (up to 100 bones), binding point 5
 		s_Data.ModelMatrixUBO = UniformBuffer::Create(sizeof(glm::mat4), 6); // Model matrix, binding point 6
-				// Share UBOs with CommandDispatch
+		// Share UBOs with CommandDispatch
 		CommandDispatch::SetSharedUBOs(
 			s_Data.TransformUBO,
 			s_Data.MaterialUBO, 
@@ -70,12 +72,16 @@ namespace OloEngine
 		);
 		
 		OLO_CORE_INFO("Shared UBOs with CommandDispatch");
-
 		// Initialize the default light
+		s_Data.SceneLight.Type = LightType::Directional;
 		s_Data.SceneLight.Position = glm::vec3(1.2f, 1.0f, 2.0f);
+		s_Data.SceneLight.Direction = glm::vec3(-0.2f, -1.0f, -0.3f); // Directional light direction
 		s_Data.SceneLight.Ambient = glm::vec3(0.2f, 0.2f, 0.2f);
 		s_Data.SceneLight.Diffuse = glm::vec3(0.5f, 0.5f, 0.5f);
 		s_Data.SceneLight.Specular = glm::vec3(1.0f, 1.0f, 1.0f);
+		s_Data.SceneLight.Constant = 1.0f;
+		s_Data.SceneLight.Linear = 0.09f;
+		s_Data.SceneLight.Quadratic = 0.032f;
 
 		s_Data.ViewPos = glm::vec3(0.0f, 0.0f, 3.0f);
 		
@@ -579,8 +585,6 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
 		
-		OLO_CORE_INFO("DrawSkinnedMesh called with mesh: {}", (void*)mesh.get());
-		
 		if (!s_Data.ScenePass)
 		{
 			OLO_CORE_ERROR("Renderer3D::DrawSkinnedMesh: ScenePass is null!");
@@ -608,8 +612,7 @@ namespace OloEngine
 							mesh ? (void*)mesh->GetVertexArray().get() : nullptr);
 			return nullptr;
 		}
-		
-		OLO_CORE_INFO("DrawSkinnedMesh: Mesh and vertex array are valid");
+
 		
 		// For skinned meshes, we prefer a skinned shader but fall back to lighting shader
 		Ref<Shader> shaderToUse = material.Shader ? material.Shader : s_Data.SkinnedLightingShader;

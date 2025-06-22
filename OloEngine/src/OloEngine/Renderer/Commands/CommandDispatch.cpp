@@ -14,11 +14,12 @@ namespace OloEngine
 		// Existing UBO references
 		Ref<UniformBuffer> TransformUBO = nullptr;
 		Ref<UniformBuffer> MaterialUBO = nullptr;
-		Ref<UniformBuffer> TextureFlagUBO = nullptr;		Ref<UniformBuffer> CameraUBO = nullptr;
+		Ref<UniformBuffer> TextureFlagUBO = nullptr;
+		Ref<UniformBuffer> CameraUBO = nullptr;
 		Ref<UniformBuffer> LightUBO = nullptr;
-		Ref<UniformBuffer> BoneMatricesUBO = nullptr;  // New UBO for bone matrices
-		Ref<UniformBuffer> ModelMatrixUBO = nullptr;  // Model matrix UBO
-				// Cached matrices and light data
+		Ref<UniformBuffer> BoneMatricesUBO = nullptr;
+		Ref<UniformBuffer> ModelMatrixUBO = nullptr;
+		// Cached matrices and light data
 		glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
 		glm::mat4 ViewMatrix = glm::mat4(1.0f);
 		Light SceneLight;
@@ -192,8 +193,7 @@ namespace OloEngine
         s_Data.TransformUBO->SetData(&data, sizeof(TransformData));
     }
     
-    void CommandDispatch::UpdateMaterialUBO(const glm::vec3& ambient, const glm::vec3& diffuse, 
-                                           const glm::vec3& specular, f32 shininess)
+    void CommandDispatch::UpdateMaterialUBO(const glm::vec3& ambient, const glm::vec3& diffuse, const glm::vec3& specular, f32 shininess)
     {
         OLO_PROFILE_FUNCTION();
         
@@ -853,6 +853,10 @@ namespace OloEngine
 			return;
 		}
 
+		// DEBUG: Log mesh transform position
+		glm::vec3 meshPosition = glm::vec3(cmd->modelMatrix[3]);
+		OLO_CORE_INFO("DrawSkinnedMesh - Mesh position: ({:.2f}, {:.2f}, {:.2f})", meshPosition.x, meshPosition.y, meshPosition.z);
+
 		// Apply render state if provided (same as regular mesh)
 		if (cmd->renderState)
 		{
@@ -885,7 +889,8 @@ namespace OloEngine
 			s_Data.CurrentBoundShaderID = shaderID;
 			s_Data.Stats.ShaderBinds++;
 		}
-				// Update camera matrices UBO (ViewProjection and View at binding 0)
+		// Update camera matrices UBO (ViewProjection and View at binding 0)
+		// Note: Skinned shader expects binding 0 to have ViewProjection + View, not ViewProjection + Model
 		struct CameraMatrices
 		{
 			glm::mat4 ViewProjection;
@@ -895,9 +900,11 @@ namespace OloEngine
 		cameraMatrices.ViewProjection = s_Data.ViewProjectionMatrix;
 		cameraMatrices.View = s_Data.ViewMatrix;
 		
-		if (s_Data.CameraUBO)
+		// Use TransformUBO (binding 0) instead of CameraUBO (binding 3) for skinned meshes
+		// This ensures the skinned shader gets the right data at binding 0
+		if (s_Data.TransformUBO)
 		{
-			s_Data.CameraUBO->SetData(&cameraMatrices, sizeof(CameraMatrices));
+			s_Data.TransformUBO->SetData(&cameraMatrices, sizeof(CameraMatrices));
 		}
 		
 		// Update model matrix UBO (binding 6)
@@ -978,10 +985,19 @@ namespace OloEngine
 		lightData.LightDirection = glm::vec4(light.Direction, 0.0f);
 		lightData.LightAmbient = glm::vec4(light.Ambient, 0.0f);
 		lightData.LightDiffuse = glm::vec4(light.Diffuse, 0.0f);
-		lightData.LightSpecular = glm::vec4(light.Specular, 0.0f);
-		lightData.LightAttParams = glm::vec4(light.Constant, light.Linear, light.Quadratic, 0.0f);
+		lightData.LightSpecular = glm::vec4(light.Specular, 0.0f);		lightData.LightAttParams = glm::vec4(light.Constant, light.Linear, light.Quadratic, 0.0f);
 		lightData.LightSpotParams = glm::vec4(light.CutOff, light.OuterCutOff, 0.0f, 0.0f);
 		lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<f32>(lightType));
+
+		// DEBUG: Log lighting values for skinned mesh
+		OLO_CORE_INFO("DrawSkinnedMesh - Light Debug:");
+		OLO_CORE_INFO("  Material Ambient: ({:.2f}, {:.2f}, {:.2f})", lightData.MaterialAmbient.x, lightData.MaterialAmbient.y, lightData.MaterialAmbient.z);
+		OLO_CORE_INFO("  Material Diffuse: ({:.2f}, {:.2f}, {:.2f})", lightData.MaterialDiffuse.x, lightData.MaterialDiffuse.y, lightData.MaterialDiffuse.z);
+		OLO_CORE_INFO("  Light Ambient: ({:.2f}, {:.2f}, {:.2f})", lightData.LightAmbient.x, lightData.LightAmbient.y, lightData.LightAmbient.z);
+		OLO_CORE_INFO("  Light Diffuse: ({:.2f}, {:.2f}, {:.2f})", lightData.LightDiffuse.x, lightData.LightDiffuse.y, lightData.LightDiffuse.z);
+		OLO_CORE_INFO("  Light Direction: ({:.2f}, {:.2f}, {:.2f})", lightData.LightDirection.x, lightData.LightDirection.y, lightData.LightDirection.z);
+		OLO_CORE_INFO("  View Position: ({:.2f}, {:.2f}, {:.2f})", lightData.ViewPosAndLightType.x, lightData.ViewPosAndLightType.y, lightData.ViewPosAndLightType.z);
+		OLO_CORE_INFO("  Light Type: {}", lightData.ViewPosAndLightType.w);
 
 		if (s_Data.LightUBO)
 		{
@@ -1026,11 +1042,17 @@ namespace OloEngine
 			return;
 		}
 		
+		// DEBUG: Log before GPU draw call
+		OLO_CORE_INFO("DrawSkinnedMesh - About to call GPU DrawIndexed with {} indices", indexCount);
+		
 		// Track statistics
 		s_Data.Stats.DrawCalls++;
 		
 		// Issue the draw call (same as regular indexed mesh)
 		api.DrawIndexed(cmd->vertexArray, indexCount);
+		
+		// DEBUG: Log after GPU draw call
+		OLO_CORE_INFO("DrawSkinnedMesh - GPU DrawIndexed call completed");
 	}
 
 	void CommandDispatch::DrawQuad(const void* data, RendererAPI& api)

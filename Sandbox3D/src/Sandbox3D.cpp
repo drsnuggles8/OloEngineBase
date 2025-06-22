@@ -41,14 +41,12 @@ Sandbox3D::Sandbox3D()
     m_TexturedMaterial.Diffuse = glm::vec3(1.0f);
     m_TexturedMaterial.Specular = glm::vec3(1.0f);
     m_TexturedMaterial.Shininess = 64.0f;
-    m_TexturedMaterial.UseTextureMaps = true;              // Enable texture mapping
-
-    // Initialize light with default values
-    m_Light.Type = OloEngine::LightType::Point;
+    m_TexturedMaterial.UseTextureMaps = true;              // Enable texture mapping    // Initialize light with default values
+    m_Light.Type = OloEngine::LightType::Directional;
     m_Light.Position = glm::vec3(1.2f, 1.0f, 2.0f);
-    m_Light.Direction = glm::vec3(0.0f, -1.0f, 0.0f); // Points downward
+    m_Light.Direction = glm::vec3(-0.2f, -1.0f, -0.3f); // Directional light direction
     m_Light.Ambient = glm::vec3(0.2f);
-    m_Light.Diffuse = glm::vec3(0.5f);
+    m_Light.Diffuse = glm::vec3(0.8f);  // Increased diffuse for better visibility
     m_Light.Specular = glm::vec3(1.0f);
     
     // Point light attenuation defaults
@@ -82,9 +80,9 @@ void Sandbox3D::OnAttach()
     m_DiffuseMap = OloEngine::Texture2D::Create("assets/textures/container2.png");
     m_SpecularMap = OloEngine::Texture2D::Create("assets/textures/container2_specular.png");
     m_GrassTexture = OloEngine::Texture2D::Create("assets/textures/grass.png");
-    
-    // Temporarily disable frustum culling for debugging skinned mesh
+      // Temporarily disable frustum culling for debugging skinned mesh
     OloEngine::Renderer3D::EnableFrustumCulling(false);
+    OLO_INFO("Sandbox3D: Frustum culling disabled for debugging");
 
     // Assign textures to the material
     m_TexturedMaterial.DiffuseMap = m_DiffuseMap;
@@ -105,11 +103,10 @@ void Sandbox3D::OnAttach()
     auto& animMeshComp = m_AnimatedMeshEntity.AddComponent<OloEngine::AnimatedMeshComponent>();
     animMeshComp.m_Mesh = m_AnimatedTestMesh;
     // Note: m_Skeleton will be set separately via SkeletonComponent
-    
-    // Get the existing transform component (automatically added by CreateEntity) and configure it
+      // Get the existing transform component (automatically added by CreateEntity) and configure it
     auto& transformComp = m_AnimatedMeshEntity.GetComponent<OloEngine::TransformComponent>();
-    transformComp.Translation = glm::vec3(3.0f, 0.0f, 2.0f);
-    transformComp.Scale = glm::vec3(0.7f);
+    transformComp.Translation = glm::vec3(0.0f, 0.0f, 0.0f); // Move to center, directly in front of camera
+    transformComp.Scale = glm::vec3(1.0f); // Make it full size for visibility
     
     auto& skeletonComp = m_AnimatedMeshEntity.AddComponent<OloEngine::SkeletonComponent>();
     // Copy skeleton data to component
@@ -268,13 +265,11 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 
     {
         OLO_PROFILE_SCOPE("Renderer Draw");
-        OloEngine::Renderer3D::BeginScene(m_CameraController.GetCamera());
-
-        // Render ECS animated meshes first (requires BeginScene to be called)
-        if (m_TestScene)
-        {
-            OloEngine::AnimatedMeshRenderSystem::RenderAnimatedMeshes(m_TestScene, m_GoldMaterial);
-        }
+        OloEngine::Renderer3D::BeginScene(m_CameraController.GetCamera());        // Render ECS animated meshes first (requires BeginScene to be called)
+        // if (m_TestScene)
+        // {
+        //     OloEngine::AnimatedMeshRenderSystem::RenderAnimatedMeshes(m_TestScene, m_GoldMaterial);
+        // }
 
         // Draw ground plane
         {
@@ -321,15 +316,19 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
             m_AnimatedTestAnimState,
             *m_AnimatedTestSkeleton,
             ts.GetSeconds()
-        );        // Use skinned mesh rendering with bone matrices
-        // Start with a translation to move the animated mesh away from the origin
-        glm::mat4 animTestMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(3.0f, 0.0f, 2.0f));
-        // Apply scale (don't use root bone transform for positioning, let GPU skinning handle bones)
-        animTestMatrix = glm::scale(animTestMatrix, glm::vec3(0.7f));
+        );
+		// Use skinned mesh rendering with bone matrices
+        // Start with a translation to move the animated mesh closer to camera for debugging
+        glm::mat4 animTestMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)); // Move to origin
+        // Apply scale (make it bigger for visibility)
+        animTestMatrix = glm::scale(animTestMatrix, glm::vec3(2.0f)); // Make it bigger
         
         OloEngine::Material animTestMaterial = m_GoldMaterial;
-        
-        // **NEW: Use DrawSkinnedMesh with bone matrices for GPU skinning**
+        // Make the material much brighter for debugging
+        animTestMaterial.Ambient = glm::vec3(0.5f, 0.4f, 0.1f);   // Much brighter ambient
+        animTestMaterial.Diffuse = glm::vec3(1.0f, 0.8f, 0.3f);   // Much brighter diffuse
+        animTestMaterial.Specular = glm::vec3(1.0f, 1.0f, 1.0f);  // Bright specular
+          // **NEW: Use DrawSkinnedMesh with bone matrices for GPU skinning**
         auto* animTestPacket = OloEngine::Renderer3D::DrawSkinnedMesh(
             m_AnimatedTestMesh, 
             animTestMatrix, 
@@ -338,7 +337,13 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
         );
         if (animTestPacket)
         {
+            OLO_CORE_INFO("Sandbox3D: Successfully created skinned mesh packet, submitting...");
             OloEngine::Renderer3D::SubmitPacket(animTestPacket);
+            OLO_CORE_INFO("Sandbox3D: Skinned mesh packet submitted");
+        }
+        else
+        {
+            OLO_CORE_ERROR("Sandbox3D: Failed to create skinned mesh packet!");
         }
     }
 

@@ -108,6 +108,7 @@ vec3 CalculateSpotLight();
 
 void main()
 {
+    // Apply lighting calculations
     vec3 result;
     int lightType = int(u_ViewPosAndLightType.w);
 
