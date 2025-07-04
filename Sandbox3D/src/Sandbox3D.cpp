@@ -41,7 +41,8 @@ Sandbox3D::Sandbox3D()
     m_TexturedMaterial.Diffuse = glm::vec3(1.0f);
     m_TexturedMaterial.Specular = glm::vec3(1.0f);
     m_TexturedMaterial.Shininess = 64.0f;
-    m_TexturedMaterial.UseTextureMaps = true;              // Enable texture mapping    // Initialize light with default values
+    m_TexturedMaterial.UseTextureMaps = true;              // Enable texture mapping
+	// Initialize light with default values
     m_Light.Type = OloEngine::LightType::Directional;
     m_Light.Position = glm::vec3(1.2f, 1.0f, 2.0f);
     m_Light.Direction = glm::vec3(-0.2f, -1.0f, -0.3f); // Directional light direction
@@ -90,7 +91,8 @@ void Sandbox3D::OnAttach()
     OloEngine::Renderer3D::SetLight(m_Light);    // Create ECS test scene for animated mesh rendering
     m_TestScene = OloEngine::CreateRef<OloEngine::Scene>();
     m_TestScene->OnRuntimeStart(); // Initialize physics world and other runtime systems
-    m_AnimatedMeshEntity = m_TestScene->CreateEntity("AnimatedTestMesh");    // --- ECS Animated Mesh Test Entity ---
+    m_AnimatedMeshEntity = m_TestScene->CreateEntity("AnimatedTestMesh");
+	// --- ECS Animated Mesh Test Entity ---
     // This is a minimal test: create a dummy entity with animated mesh components
     // In a real ECS, this would be managed by a Scene, but for now, we just test component construction and rendering    // Create a simple skinned cube for testing (with bone data)
     m_AnimatedTestMesh = CreateSkinnedCubeMesh();
@@ -99,11 +101,12 @@ void Sandbox3D::OnAttach()
     m_AnimatedTestSkeleton->m_ParentIndices = { -1 };
     m_AnimatedTestSkeleton->m_LocalTransforms = { glm::mat4(1.0f) };
     m_AnimatedTestSkeleton->m_GlobalTransforms = { glm::mat4(1.0f) };
-    m_AnimatedTestSkeleton->m_FinalBoneMatrices = { glm::mat4(1.0f) };// Add components to ECS entity
+    m_AnimatedTestSkeleton->m_FinalBoneMatrices = { glm::mat4(1.0f) };
+	// Add components to ECS entity
     auto& animMeshComp = m_AnimatedMeshEntity.AddComponent<OloEngine::AnimatedMeshComponent>();
     animMeshComp.m_Mesh = m_AnimatedTestMesh;
     // Note: m_Skeleton will be set separately via SkeletonComponent
-      // Get the existing transform component (automatically added by CreateEntity) and configure it
+     // Get the existing transform component (automatically added by CreateEntity) and configure it
     auto& transformComp = m_AnimatedMeshEntity.GetComponent<OloEngine::TransformComponent>();
     transformComp.Translation = glm::vec3(0.0f, 0.0f, 0.0f); // Move to center, directly in front of camera
     transformComp.Scale = glm::vec3(1.0f); // Make it full size for visibility
@@ -161,7 +164,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 
     m_FrameTime = ts.GetMilliseconds();
     m_FPS = 1.0f / ts.GetSeconds();
-        // Update debugging tools
+    // Update debugging tools
     OloEngine::RendererMemoryTracker::GetInstance().UpdateStats();
     // Note: RendererProfiler doesn't have UpdateStats method
 
@@ -203,7 +206,6 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
         if (m_RotationAngleX > 360.0f)  m_RotationAngleX -= 360.0f;
     }
 
-
     // Animate the light position in a circular pattern (only for point and spot lights)
     if (m_AnimateLight && m_Light.Type != OloEngine::LightType::Directional)
     {
@@ -219,7 +221,9 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
         }
 
         OloEngine::Renderer3D::SetLight(m_Light);
-    }    // --- Basic Animation State Machine: auto-switch Idle <-> Bounce every 2 seconds ---
+    }
+	
+	// --- Basic Animation State Machine: auto-switch Idle <-> Bounce every 2 seconds ---
     static float animStateTimer = 0.0f;
     animStateTimer += ts.GetSeconds();
     if (!m_AnimatedTestAnimState.Blending && m_AnimatedTestAnimState.m_CurrentClip)
@@ -257,7 +261,9 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
             skeletonComp.m_FinalBoneMatrices = m_AnimatedTestSkeleton->m_FinalBoneMatrices;
             skeletonComp.m_GlobalTransforms = m_AnimatedTestSkeleton->m_GlobalTransforms;
         }
-    }    // Update ECS scene (but not rendering - that happens in render scope)
+    }
+	
+	// Update ECS scene (but not rendering - that happens in render scope)
     if (m_TestScene)
     {
         m_TestScene->OnUpdateRuntime(ts);
@@ -265,11 +271,18 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 
     {
         OLO_PROFILE_SCOPE("Renderer Draw");
-        OloEngine::Renderer3D::BeginScene(m_CameraController.GetCamera());        // Render ECS animated meshes first (requires BeginScene to be called)
-        // if (m_TestScene)
-        // {
-        //     OloEngine::AnimatedMeshRenderSystem::RenderAnimatedMeshes(m_TestScene, m_GoldMaterial);
-        // }
+		OloEngine::Renderer3D::BeginScene(m_CameraController.GetCamera());
+        
+        // === ECS-DRIVEN ANIMATED MESH TEST ===
+        if (m_TestScene)
+        {
+            // Update ECS entity transform to position it on the left side
+            auto& ecsTransformComp = m_AnimatedMeshEntity.GetComponent<OloEngine::TransformComponent>();
+            ecsTransformComp.Translation = glm::vec3(-3.0f, 0.0f, 0.0f); // Left side
+            ecsTransformComp.Scale = glm::vec3(1.5f); // Make it visible
+            
+            OloEngine::AnimatedMeshRenderSystem::RenderAnimatedMeshes(m_TestScene, m_GoldMaterial);
+        }
 
         // Draw ground plane
         {
@@ -305,49 +318,76 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
             for (auto* drawCmd : backpackDrawCommands)
             {
                 OloEngine::Renderer3D::SubmitPacket(drawCmd);
+            }        }
+
+        // === MANUAL ANIMATED MESH TEST ===
+        {
+            // Update animation state and skeleton for the manual test
+            OloEngine::Animation::AnimationSystem::Update(
+                m_AnimatedTestAnimState,
+                *m_AnimatedTestSkeleton,
+                ts.GetSeconds()
+            );
+
+            // Position the manual test on the right side for easy comparison
+            glm::mat4 manualAnimTestMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(3.0f, 0.0f, 0.0f));
+            manualAnimTestMatrix = glm::scale(manualAnimTestMatrix, glm::vec3(1.5f));
+            
+            OloEngine::Material manualAnimTestMaterial = m_SilverMaterial;
+
+            // Use DrawSkinnedMesh with bone matrices for GPU skinning
+            auto* manualAnimTestPacket = OloEngine::Renderer3D::DrawSkinnedMesh(
+                m_AnimatedTestMesh, 
+                manualAnimTestMatrix, 
+                manualAnimTestMaterial, 
+                m_AnimatedTestSkeleton->m_FinalBoneMatrices
+            );
+
+            if (manualAnimTestPacket)
+            {
+                OloEngine::Renderer3D::SubmitPacket(manualAnimTestPacket);
+            }
+        }
+		
+		// === STATIC SCENE OBJECTS ===        
+        // Draw ground plane
+        {
+            auto planeMatrix = glm::mat4(1.0f);
+            planeMatrix = glm::translate(planeMatrix, glm::vec3(0.0f, -1.0f, 0.0f));
+            OloEngine::Material planeMaterial;
+            planeMaterial.Ambient = glm::vec3(0.1f);
+            planeMaterial.Diffuse = glm::vec3(0.3f);
+            planeMaterial.Specular = glm::vec3(0.2f);
+            planeMaterial.Shininess = 8.0f;
+            auto* planePacket = OloEngine::Renderer3D::DrawMesh(m_PlaneMesh, planeMatrix, planeMaterial, true);
+            if (planePacket) OloEngine::Renderer3D::SubmitPacket(planePacket);
+        }
+
+        // Draw a grass quad
+        {
+            auto grassMatrix = glm::mat4(1.0f);
+            grassMatrix = glm::translate(grassMatrix, glm::vec3(0.0f, 0.5f, -1.0f));
+            grassMatrix = glm::rotate(grassMatrix, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+            auto* grassPacket = OloEngine::Renderer3D::DrawQuad(grassMatrix, m_GrassTexture);
+            if (grassPacket) OloEngine::Renderer3D::SubmitPacket(grassPacket);
+        }
+
+        // Draw backpack model using command-based renderer
+        {
+            auto modelMatrix = glm::mat4(1.0f);
+            modelMatrix = glm::translate(modelMatrix, glm::vec3(0.0f, 1.0f, -2.0f));
+            modelMatrix = glm::scale(modelMatrix, glm::vec3(0.5f));
+            modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
+            std::vector<OloEngine::CommandPacket*> backpackDrawCommands;
+            m_BackpackModel->GetDrawCommands(modelMatrix, m_TexturedMaterial, backpackDrawCommands);
+            for (auto* drawCmd : backpackDrawCommands)
+            {
+                OloEngine::Renderer3D::SubmitPacket(drawCmd);
             }
         }
 
-    // --- Animated Mesh ECS Test Draw ---
-    // Update animation state and skeleton for the test entity
-    {
-        // Advance animation and compute bone transforms
-        OloEngine::Animation::AnimationSystem::Update(
-            m_AnimatedTestAnimState,
-            *m_AnimatedTestSkeleton,
-            ts.GetSeconds()
-        );
-		// Use skinned mesh rendering with bone matrices
-        // Start with a translation to move the animated mesh closer to camera for debugging
-        glm::mat4 animTestMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)); // Move to origin
-        // Apply scale (make it bigger for visibility)
-        animTestMatrix = glm::scale(animTestMatrix, glm::vec3(2.0f)); // Make it bigger
-        
-        OloEngine::Material animTestMaterial = m_GoldMaterial;
-        // Make the material much brighter for debugging
-        animTestMaterial.Ambient = glm::vec3(0.5f, 0.4f, 0.1f);   // Much brighter ambient
-        animTestMaterial.Diffuse = glm::vec3(1.0f, 0.8f, 0.3f);   // Much brighter diffuse
-        animTestMaterial.Specular = glm::vec3(1.0f, 1.0f, 1.0f);  // Bright specular
-          // **NEW: Use DrawSkinnedMesh with bone matrices for GPU skinning**
-        auto* animTestPacket = OloEngine::Renderer3D::DrawSkinnedMesh(
-            m_AnimatedTestMesh, 
-            animTestMatrix, 
-            animTestMaterial, 
-            m_AnimatedTestSkeleton->m_FinalBoneMatrices
-        );
-        if (animTestPacket)
-        {
-            OLO_CORE_INFO("Sandbox3D: Successfully created skinned mesh packet, submitting...");
-            OloEngine::Renderer3D::SubmitPacket(animTestPacket);
-            OLO_CORE_INFO("Sandbox3D: Skinned mesh packet submitted");
-        }
-        else
-        {
-            OLO_CORE_ERROR("Sandbox3D: Failed to create skinned mesh packet!");
-        }
-    }
-
-        // Draw cubes with stencil testing
+        // === ROTATING ANIMATED OBJECTS ===        
+        // Center rotating cube with wireframe overlay
         {
             auto modelMatrix = glm::mat4(1.0f);
             modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX), glm::vec3(1.0f, 0.0f, 0.0f));
@@ -520,15 +560,17 @@ void Sandbox3D::OnImGuiRender()
     if (ImGui::CollapsingHeader("Material Settings", ImGuiTreeNodeFlags_None))
     {
         RenderMaterialSettings();
-    }
-
-    if (ImGui::CollapsingHeader("Animation Debug", ImGuiTreeNodeFlags_None))
+    }    if (ImGui::CollapsingHeader("Animation Debug", ImGuiTreeNodeFlags_None))
     {
+        ImGui::TextWrapped("Manual Animation System: Controls the silver cube on the right side using direct DrawSkinnedMesh calls.");
+        ImGui::Separator();
         RenderAnimationDebugPanel();
     }
 
     if (ImGui::CollapsingHeader("ECS Animated Mesh", ImGuiTreeNodeFlags_None))
     {
+        ImGui::TextWrapped("ECS Animation System: Controls the gold cube on the left side using AnimatedMeshRenderSystem and ECS components.");
+        ImGui::Separator();
         RenderECSAnimatedMeshPanel();
     }
 

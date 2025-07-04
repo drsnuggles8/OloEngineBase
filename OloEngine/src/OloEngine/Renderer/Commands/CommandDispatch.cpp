@@ -985,7 +985,8 @@ namespace OloEngine
 		lightData.LightDirection = glm::vec4(light.Direction, 0.0f);
 		lightData.LightAmbient = glm::vec4(light.Ambient, 0.0f);
 		lightData.LightDiffuse = glm::vec4(light.Diffuse, 0.0f);
-		lightData.LightSpecular = glm::vec4(light.Specular, 0.0f);		lightData.LightAttParams = glm::vec4(light.Constant, light.Linear, light.Quadratic, 0.0f);
+		lightData.LightSpecular = glm::vec4(light.Specular, 0.0f);
+		lightData.LightAttParams = glm::vec4(light.Constant, light.Linear, light.Quadratic, 0.0f);
 		lightData.LightSpotParams = glm::vec4(light.CutOff, light.OuterCutOff, 0.0f, 0.0f);
 		lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<f32>(lightType));
 

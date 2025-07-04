@@ -24,6 +24,7 @@ namespace OloEngine
 {
 	Renderer3D::Renderer3DData Renderer3D::s_Data;
 	ShaderLibrary Renderer3D::m_ShaderLibrary;
+	
 	void Renderer3D::Init()
 	{
 		OLO_PROFILE_FUNCTION();
@@ -45,21 +46,14 @@ namespace OloEngine
 		s_Data.SkinnedLightingShader = m_ShaderLibrary.Get("SkinnedLighting3D_Simple");
 		s_Data.QuadShader = m_ShaderLibrary.Get("Renderer3D_Quad");
 		
-		if (!s_Data.SkinnedLightingShader)
-		{
-			OLO_CORE_ERROR("Failed to load SkinnedLighting3D shader!");
-		}
-		else
-		{
-			OLO_CORE_INFO("SkinnedLighting3D shader loaded successfully with ID: {}", s_Data.SkinnedLightingShader->GetRendererID());
-		}
 		// Create all necessary UBOs
-		s_Data.TransformUBO = UniformBuffer::Create(sizeof(glm::mat4) * 2, 0);  // Model + VP matrices
-		s_Data.MaterialUBO = UniformBuffer::Create(sizeof(glm::vec4) * 4, 1);   // Material properties
-		s_Data.TextureFlagUBO = UniformBuffer::Create(sizeof(int), 2);          // Texture flags
-		s_Data.CameraMatricesBuffer = UniformBuffer::Create(sizeof(glm::mat4) * 2, 3); // View and projection matrices		s_Data.LightPropertiesUBO = UniformBuffer::Create(sizeof(glm::vec4) * 12, 1); // Binding point 1, not 4
-		s_Data.BoneMatricesUBO = UniformBuffer::Create(sizeof(glm::mat4) * 100, 5); // Bone matrices (up to 100 bones), binding point 5
-		s_Data.ModelMatrixUBO = UniformBuffer::Create(sizeof(glm::mat4), 6); // Model matrix, binding point 6
+		s_Data.TransformUBO = UniformBuffer::Create(sizeof(glm::mat4) * 2, 0);  // CameraMatrices
+		s_Data.LightPropertiesUBO = UniformBuffer::Create(sizeof(glm::vec4) * 12, 1); // LightProperties
+		s_Data.TextureFlagUBO = UniformBuffer::Create(sizeof(int), 2);          // TextureFlags  
+		s_Data.CameraMatricesBuffer = UniformBuffer::Create(sizeof(glm::mat4) * 2, 3); // View and projection matrices
+		s_Data.MaterialUBO = UniformBuffer::Create(sizeof(glm::vec4) * 4, 4);   // Material properties
+		s_Data.BoneMatricesUBO = UniformBuffer::Create(sizeof(glm::mat4) * 100, 5); // BoneMatrices
+		s_Data.ModelMatrixUBO = UniformBuffer::Create(sizeof(glm::mat4), 6); // ModelMatrix
 		// Share UBOs with CommandDispatch
 		CommandDispatch::SetSharedUBOs(
 			s_Data.TransformUBO,
@@ -106,6 +100,7 @@ namespace OloEngine
 		
 		OLO_CORE_INFO("Renderer3D shutdown complete.");
 	}
+
 	void Renderer3D::BeginScene(const PerspectiveCamera& camera)
 	{
 		OLO_PROFILE_FUNCTION();
@@ -441,8 +436,7 @@ namespace OloEngine
 		}
 
 		CommandPacket* packet = CreateDrawCall<DrawMeshInstancedCommand>();
-		auto* cmd = packet->GetCommandData<DrawMeshInstancedCommand>();
-		
+		auto* cmd = packet->GetCommandData<DrawMeshInstancedCommand>();		
 		cmd->header.type = CommandType::DrawMeshInstanced;
 		cmd->mesh = mesh;
 		cmd->vertexArray = mesh->GetVertexArray();
