@@ -94,18 +94,30 @@ vec3 CalculateDirectionalLight();
 
 void main()
 {   
-    // Apply lighting calculations
     vec3 result;
     int lightType = int(u_ViewPosAndLightType.w);
-
+    
     if (lightType == DIRECTIONAL_LIGHT)
+    {
         result = CalculateDirectionalLight();
+    }
     else if (lightType == POINT_LIGHT)
-        result = CalculateDirectionalLight(); // Use directional for simplicity
+    {
+        // For now, use directional light calculation
+        // TODO: Implement proper point light calculation
+        result = CalculateDirectionalLight();
+    }
     else if (lightType == SPOT_LIGHT)
-        result = CalculateDirectionalLight(); // Use directional for simplicity
+    {
+        // For now, use directional light calculation
+        // TODO: Implement proper spot light calculation
+        result = CalculateDirectionalLight();
+    }
     else
+    {
+        // Error case - unknown light type
         result = vec3(1.0, 0.0, 1.0); // Magenta for error
+    }
 
     FragColor = vec4(result, 1.0);
 }

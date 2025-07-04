@@ -1005,30 +1005,35 @@ namespace OloEngine
 			s_Data.LightUBO->SetData(&lightData, sizeof(LightPropertiesData));
 		}
 		
-		// Bind textures (same as regular mesh)
+		// Bind textures for skinned mesh (using correct binding points)
 		if (cmd->useTextureMaps)
 		{
+			OLO_CORE_INFO("DrawSkinnedMesh - Binding textures for skinned mesh");
 			if (cmd->diffuseMap)
 			{
 				u32 texID = cmd->diffuseMap->GetRendererID();
-				if (s_Data.BoundTextureIDs[0] != texID)
+				// Skinned shader expects diffuse at binding 3
+				if (s_Data.BoundTextureIDs[3] != texID)
 				{
-					cmd->diffuseMap->Bind(0);
-					cmd->shader->SetInt("u_DiffuseMap", 0);
-					s_Data.BoundTextureIDs[0] = texID;
+					cmd->diffuseMap->Bind(3);
+					// Don't set uniform - shader uses layout(binding = 3)
+					s_Data.BoundTextureIDs[3] = texID;
 					s_Data.Stats.TextureBinds++;
+					OLO_CORE_INFO("DrawSkinnedMesh - Bound diffuse texture {} to slot 3", texID);
 				}
 			}
 			
 			if (cmd->specularMap)
 			{
 				u32 texID = cmd->specularMap->GetRendererID();
-				if (s_Data.BoundTextureIDs[1] != texID)
+				// Skinned shader expects specular at binding 4
+				if (s_Data.BoundTextureIDs[4] != texID)
 				{
-					cmd->specularMap->Bind(1);
-					cmd->shader->SetInt("u_SpecularMap", 1);
-					s_Data.BoundTextureIDs[1] = texID;
+					cmd->specularMap->Bind(4);
+					// Don't set uniform - shader uses layout(binding = 4)
+					s_Data.BoundTextureIDs[4] = texID;
 					s_Data.Stats.TextureBinds++;
+					OLO_CORE_INFO("DrawSkinnedMesh - Bound specular texture {} to slot 4", texID);
 				}
 			}
 		}
