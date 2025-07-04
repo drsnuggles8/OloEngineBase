@@ -148,6 +148,12 @@ void Sandbox3D::OnAttach()
     // Add animation state component to ECS entity
     auto& animStateComp = m_AnimatedMeshEntity.AddComponent<OloEngine::AnimationStateComponent>();
     animStateComp = m_AnimatedTestAnimState;
+
+    // Create multi-bone test entity for complex animation testing
+    CreateMultiBoneTestEntity();
+    
+    // Create placeholder for imported animated model
+    LoadTestAnimatedModel();
 }
 
 void Sandbox3D::OnDetach()
@@ -261,6 +267,40 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
             skeletonComp.m_FinalBoneMatrices = m_AnimatedTestSkeleton->m_FinalBoneMatrices;
             skeletonComp.m_GlobalTransforms = m_AnimatedTestSkeleton->m_GlobalTransforms;
         }
+        
+        // Update multi-bone test entity animation
+        if (m_MultiBoneTestEntity.HasComponent<OloEngine::AnimationStateComponent>())
+        {
+            auto& multiBoneAnimStateComp = m_MultiBoneTestEntity.GetComponent<OloEngine::AnimationStateComponent>();
+            
+            // Advance multi-bone animation
+            OloEngine::Animation::AnimationSystem::Update(
+                multiBoneAnimStateComp,
+                *m_MultiBoneTestSkeleton,
+                ts.GetSeconds() * m_AnimationSpeed
+            );
+            
+            // Update skeleton component
+            if (m_MultiBoneTestEntity.HasComponent<OloEngine::SkeletonComponent>())
+            {
+                auto& multiBoneSkeletonComp = m_MultiBoneTestEntity.GetComponent<OloEngine::SkeletonComponent>();
+                multiBoneSkeletonComp.m_FinalBoneMatrices = m_MultiBoneTestSkeleton->m_FinalBoneMatrices;
+                multiBoneSkeletonComp.m_GlobalTransforms = m_MultiBoneTestSkeleton->m_GlobalTransforms;
+            }
+        }
+        
+        // Update imported model animation (if loaded)
+        if (m_ImportedModelEntity.HasComponent<OloEngine::AnimationStateComponent>())
+        {
+            auto& importedAnimStateComp = m_ImportedModelEntity.GetComponent<OloEngine::AnimationStateComponent>();
+            // For now, use the same animation as the basic test since it's a placeholder
+            // TODO: Replace with actual imported model animations
+            OloEngine::Animation::AnimationSystem::Update(
+                importedAnimStateComp,
+                *m_AnimatedTestSkeleton, // Placeholder skeleton
+                ts.GetSeconds() * m_AnimationSpeed
+            );
+        }
     }
 	
 	// Update ECS scene (but not rendering - that happens in render scope)
@@ -276,12 +316,35 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
         // === ECS-DRIVEN ANIMATED MESH TEST ===
         if (m_TestScene)
         {
-            // Update ECS entity transform to position it on the left side
-            auto& ecsTransformComp = m_AnimatedMeshEntity.GetComponent<OloEngine::TransformComponent>();
-            ecsTransformComp.Translation = glm::vec3(-3.0f, 0.0f, 0.0f); // Left side
-            ecsTransformComp.Scale = glm::vec3(1.5f); // Make it visible
+            // Control entity visibility based on test settings
+            if (m_AnimatedMeshEntity.HasComponent<OloEngine::AnimatedMeshComponent>())
+            {
+                if (m_ShowSingleBoneTest)
+                {
+                    // Update ECS entity transform to position it on the left side
+                    auto& ecsTransformComp = m_AnimatedMeshEntity.GetComponent<OloEngine::TransformComponent>();
+                    ecsTransformComp.Translation = glm::vec3(-3.0f, 0.0f, 0.0f); // Left side
+                    ecsTransformComp.Scale = glm::vec3(1.5f); // Make it visible
+                }
+            }
             
-            OloEngine::AnimatedMeshRenderSystem::RenderAnimatedMeshes(m_TestScene, m_GoldMaterial);
+            // Control multi-bone test entity visibility
+            if (m_MultiBoneTestEntity.HasComponent<OloEngine::AnimatedMeshComponent>())
+            {
+                if (m_ShowMultiBoneTest)
+                {
+                    auto& multiBoneTransformComp = m_MultiBoneTestEntity.GetComponent<OloEngine::TransformComponent>();
+                    multiBoneTransformComp.Translation = glm::vec3(3.0f, 0.0f, 0.0f); // Right side for multi-bone
+                    multiBoneTransformComp.Scale = glm::vec3(1.0f);
+                }
+            }
+            
+            // Render all active animated entities in the scene
+            // This will render entities that have the required components and are enabled
+            if (m_ShowSingleBoneTest || m_ShowMultiBoneTest)
+            {
+                OloEngine::AnimatedMeshRenderSystem::RenderAnimatedMeshes(m_TestScene, m_GoldMaterial);
+            }
         }
 
         // Draw ground plane
@@ -321,6 +384,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
             }        }
 
         // === MANUAL ANIMATED MESH TEST ===
+        if (m_ShowSingleBoneTest)
         {
             // Update animation state and skeleton for the manual test
             OloEngine::Animation::AnimationSystem::Update(
@@ -577,6 +641,46 @@ void Sandbox3D::OnImGuiRender()
     if (ImGui::CollapsingHeader("State Management Test", ImGuiTreeNodeFlags_None))
     {
         RenderStateTestSettings();
+    }
+
+    if (ImGui::CollapsingHeader("Enhanced Animation Tests", ImGuiTreeNodeFlags_None))
+    {
+        ImGui::TextWrapped("Advanced testing for multi-bone animations and model imports.");
+        ImGui::Separator();
+        
+        // Test visibility controls
+        ImGui::Checkbox("Show Single Bone Test", &m_ShowSingleBoneTest);
+        ImGui::SameLine();
+        ImGui::Checkbox("Show Multi-Bone Test", &m_ShowMultiBoneTest);
+        
+        ImGui::SliderFloat("Animation Speed", &m_AnimationSpeed, 0.1f, 3.0f, "%.1f");
+        
+        ImGui::Separator();
+        
+        // Multi-bone test info
+        if (m_MultiBoneTestEntity.HasComponent<OloEngine::AnimationStateComponent>())
+        {
+            auto& animState = m_MultiBoneTestEntity.GetComponent<OloEngine::AnimationStateComponent>();
+            ImGui::Text("Multi-Bone Animation:");
+            ImGui::Text("  Clip: %s", animState.m_CurrentClip ? animState.m_CurrentClip->Name.c_str() : "None");
+            ImGui::Text("  Time: %.2f / %.2f", animState.CurrentTime, 
+                       animState.m_CurrentClip ? animState.m_CurrentClip->Duration : 0.0f);
+            ImGui::Text("  Bones: 4 (hierarchical)");
+        }
+        
+        ImGui::Separator();
+        
+        // Model import section
+        ImGui::Text("Model Import (Assimp):");
+        if (ImGui::Button("Load Test Model"))
+        {
+            LoadTestAnimatedModel();
+        }
+        ImGui::SameLine();
+        ImGui::Text("Status: %s", m_ImportedModelEntity.HasComponent<OloEngine::AnimatedMeshComponent>() 
+                   ? "Placeholder Loaded" : "Not Loaded");
+                   
+        ImGui::TextWrapped("Note: Model import is placeholder implementation. Full assimp integration TODO.");
     }
 
     if (ImGui::CollapsingHeader("Renderer Debugging Tools", ImGuiTreeNodeFlags_None))
@@ -1324,4 +1428,115 @@ OloEngine::Ref<OloEngine::SkinnedMesh> Sandbox3D::CreateSkinnedCubeMesh()
       // Create mesh using regular vertex data
     // Note: Bone data will be handled through uniform bone matrices in the shader
     return OloEngine::CreateRef<OloEngine::SkinnedMesh>(skinnedVertices, indices);
+}
+
+void Sandbox3D::CreateMultiBoneTestEntity()
+{
+    OLO_PROFILE_FUNCTION();
+    
+    // Create multi-bone test entity
+    m_MultiBoneTestEntity = m_TestScene->CreateEntity("MultiBoneTestMesh");
+    
+    // Create a multi-bone cube mesh for advanced animation testing
+    m_MultiBoneTestMesh = OloEngine::SkinnedMesh::CreateMultiBoneCube();
+    
+    // Create multi-bone skeleton with hierarchical bone structure
+    m_MultiBoneTestSkeleton = OloEngine::CreateRef<OloEngine::Skeleton>();
+    m_MultiBoneTestSkeleton->m_BoneNames = { "Root", "Child1", "Child2", "Child3" };
+    m_MultiBoneTestSkeleton->m_ParentIndices = { -1, 0, 0, 1 }; // Root->Child1->Child3, Root->Child2
+    
+    // Initialize transforms
+    m_MultiBoneTestSkeleton->m_LocalTransforms = {
+        glm::mat4(1.0f), // Root
+        glm::translate(glm::mat4(1.0f), glm::vec3(0.5f, 0.0f, 0.0f)), // Child1
+        glm::translate(glm::mat4(1.0f), glm::vec3(-0.5f, 0.0f, 0.0f)), // Child2
+        glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.5f, 0.0f))  // Child3
+    };
+    m_MultiBoneTestSkeleton->m_GlobalTransforms = { 
+        glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f) 
+    };
+    m_MultiBoneTestSkeleton->m_FinalBoneMatrices = { 
+        glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f) 
+    };
+    
+    // Add components to ECS entity
+    auto& animMeshComp = m_MultiBoneTestEntity.AddComponent<OloEngine::AnimatedMeshComponent>();
+    animMeshComp.m_Mesh = m_MultiBoneTestMesh;
+    
+    // Position the multi-bone test entity to the side of the main test
+    auto& transformComp = m_MultiBoneTestEntity.GetComponent<OloEngine::TransformComponent>();
+    transformComp.Translation = glm::vec3(3.0f, 0.0f, 0.0f); // Move to the side
+    transformComp.Scale = glm::vec3(1.0f);
+    
+    auto& skeletonComp = m_MultiBoneTestEntity.AddComponent<OloEngine::SkeletonComponent>();
+    // Copy skeleton data to component
+    skeletonComp.m_ParentIndices = m_MultiBoneTestSkeleton->m_ParentIndices;
+    skeletonComp.m_BoneNames = m_MultiBoneTestSkeleton->m_BoneNames;
+    skeletonComp.m_LocalTransforms = m_MultiBoneTestSkeleton->m_LocalTransforms;
+    skeletonComp.m_GlobalTransforms = m_MultiBoneTestSkeleton->m_GlobalTransforms;
+    skeletonComp.m_FinalBoneMatrices = m_MultiBoneTestSkeleton->m_FinalBoneMatrices;
+    
+    // Create multi-bone animation clips with complex animations
+    m_MultiBoneIdleClip = OloEngine::CreateRef<OloEngine::AnimationClip>();
+    m_MultiBoneIdleClip->Name = "MultiBoneIdle";
+    m_MultiBoneIdleClip->Duration = 3.0f;
+    
+    // Create animations for each bone
+    for (i32 boneIndex = 0; boneIndex < 4; ++boneIndex)
+    {
+        OloEngine::BoneAnimation boneAnim;
+        boneAnim.BoneName = m_MultiBoneTestSkeleton->m_BoneNames[boneIndex];
+        
+        // Create rotation keyframes with different timing for each bone
+        f32 rotationSpeed = 1.0f + (boneIndex * 0.5f);
+        for (i32 i = 0; i <= 10; ++i)
+        {
+            f32 time = (i / 10.0f) * m_MultiBoneIdleClip->Duration;
+            f32 angle = time * rotationSpeed;
+            
+            OloEngine::BoneKeyframe keyframe;
+            keyframe.Time = time;
+            keyframe.Translation = glm::vec3(0.0f);
+            keyframe.Rotation = glm::angleAxis(angle, glm::vec3(0.0f, 1.0f, 0.0f));
+            keyframe.Scale = glm::vec3(1.0f);
+            boneAnim.Keyframes.push_back(keyframe);
+        }
+        
+        m_MultiBoneIdleClip->BoneAnimations.push_back(boneAnim);
+    }
+    
+    // Add animation state component
+    auto& animStateComp = m_MultiBoneTestEntity.AddComponent<OloEngine::AnimationStateComponent>();
+    animStateComp.m_CurrentClip = m_MultiBoneIdleClip;
+    animStateComp.m_State = OloEngine::AnimationStateComponent::State::Idle;
+    animStateComp.CurrentTime = 0.0f;
+}
+
+void Sandbox3D::LoadTestAnimatedModel()
+{
+    OLO_PROFILE_FUNCTION();
+    
+    // TODO: Implement assimp-based model loading
+    // For now, create a placeholder entity that will be replaced with real model loading
+    m_ImportedModelEntity = m_TestScene->CreateEntity("ImportedAnimatedModel");
+    
+    // Position for imported model (different from test entities)
+    auto& transformComp = m_ImportedModelEntity.GetComponent<OloEngine::TransformComponent>();
+    transformComp.Translation = glm::vec3(-3.0f, 0.0f, 0.0f); // Position to the left
+    transformComp.Scale = glm::vec3(1.0f);
+    
+    // For now, use the same mesh as the simple test but mark it for future replacement
+    auto& animMeshComp = m_ImportedModelEntity.AddComponent<OloEngine::AnimatedMeshComponent>();
+    animMeshComp.m_Mesh = m_AnimatedTestMesh; // Temporary placeholder
+    
+    auto& skeletonComp = m_ImportedModelEntity.AddComponent<OloEngine::SkeletonComponent>();
+    skeletonComp = m_AnimatedMeshEntity.GetComponent<OloEngine::SkeletonComponent>(); // Copy from main test entity
+    
+    auto& animStateComp = m_ImportedModelEntity.AddComponent<OloEngine::AnimationStateComponent>();
+    animStateComp.m_CurrentClip = m_IdleClip; // Temporary placeholder
+    animStateComp.m_State = OloEngine::AnimationStateComponent::State::Idle;
+    animStateComp.CurrentTime = 0.0f;
+    
+    OLO_INFO("Sandbox3D: Imported model entity created (placeholder implementation)");
+    OLO_INFO("TODO: Implement assimp-based skeletal animation import");
 }

@@ -40,15 +40,36 @@ private:
 	OloEngine::Ref<OloEngine::SkinnedMesh> m_AnimatedTestMesh;
 	OloEngine::Ref<OloEngine::Skeleton> m_AnimatedTestSkeleton;
 	OloEngine::AnimationStateComponent m_AnimatedTestAnimState;
+	
+	// Enhanced animation testing
+	OloEngine::Entity m_MultiBoneTestEntity;      // Multi-bone cube test
+	OloEngine::Entity m_ImportedModelEntity;      // For testing imported models
+	
 	// Dummy animation clips for testing
 	OloEngine::Ref<OloEngine::AnimationClip> m_IdleClip;
 	OloEngine::Ref<OloEngine::AnimationClip> m_BounceClip;
+	
+	// Multi-bone test animation data
+	OloEngine::Ref<OloEngine::SkinnedMesh> m_MultiBoneTestMesh;
+	OloEngine::Ref<OloEngine::Skeleton> m_MultiBoneTestSkeleton;
+	OloEngine::Ref<OloEngine::AnimationClip> m_MultiBoneIdleClip;
+	
 	// Animation debug UI state
 	int m_AnimClipIndex = 0;
-	bool m_AnimBlendRequested = false;	void RenderAnimationDebugPanel();
+	bool m_AnimBlendRequested = false;
+	
+	// Animation test settings
+	bool m_ShowSingleBoneTest = true;
+	bool m_ShowMultiBoneTest = true;
+	bool m_ShowImportedModel = false;
+	float m_AnimationSpeed = 1.0f;	void RenderAnimationDebugPanel();
 	void RenderECSAnimatedMeshPanel();
-		// Helper function to create a cube mesh with skinning data for testing
+	void RenderAnimationTestingPanel(); // New comprehensive animation testing UI
+	
+	// Helper functions for creating test objects
 	OloEngine::Ref<OloEngine::SkinnedMesh> CreateSkinnedCubeMesh();
+	void CreateMultiBoneTestEntity();
+	void LoadTestAnimatedModel();
 	// UI helper functions for different sections
 	void RenderPerformanceInfo();
 	void RenderSceneSettings();
