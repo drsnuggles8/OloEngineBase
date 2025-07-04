@@ -125,7 +125,18 @@ namespace OloEngine::Animation
                 skeleton.m_GlobalTransforms[i] = skeleton.m_LocalTransforms[i];
         }
 
-        // For now, set final bone matrices = global transforms (no offset yet)
-        skeleton.m_FinalBoneMatrices = skeleton.m_GlobalTransforms;
+        // Compute final bone matrices for GPU skinning (GlobalTransform * InverseBindPose)
+        for (size_t i = 0; i < skeleton.m_GlobalTransforms.size(); ++i)
+        {
+            if (i < skeleton.m_InverseBindPoses.size())
+            {
+                skeleton.m_FinalBoneMatrices[i] = skeleton.m_GlobalTransforms[i] * skeleton.m_InverseBindPoses[i];
+            }
+            else
+            {
+                // Fallback if no bind pose data available
+                skeleton.m_FinalBoneMatrices[i] = skeleton.m_GlobalTransforms[i];
+            }
+        }
     }
 }

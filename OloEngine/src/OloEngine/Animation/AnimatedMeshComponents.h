@@ -67,6 +67,10 @@ namespace OloEngine
 		std::vector<glm::mat4> m_GlobalTransforms;
 		// Final matrices for skinning (to be sent to GPU)
 		std::vector<glm::mat4> m_FinalBoneMatrices;
+		
+		// Bind pose data for proper skinning
+		std::vector<glm::mat4> m_BindPoseMatrices;      // Original bind pose global transforms
+		std::vector<glm::mat4> m_InverseBindPoses;      // Inverse bind pose matrices for skinning
 
 		SkeletonComponent() = default;
 		SkeletonComponent(size_t boneCount)
@@ -76,6 +80,18 @@ namespace OloEngine
 			m_LocalTransforms.resize(boneCount, glm::mat4(1.0f));
 			m_GlobalTransforms.resize(boneCount, glm::mat4(1.0f));
 			m_FinalBoneMatrices.resize(boneCount, glm::mat4(1.0f));
+			m_BindPoseMatrices.resize(boneCount, glm::mat4(1.0f));
+			m_InverseBindPoses.resize(boneCount, glm::mat4(1.0f));
+		}
+		
+		// Initialize bind pose from current global transforms
+		void SetBindPose()
+		{
+			for (size_t i = 0; i < m_GlobalTransforms.size(); ++i)
+			{
+				m_BindPoseMatrices[i] = m_GlobalTransforms[i];
+				m_InverseBindPoses[i] = glm::inverse(m_GlobalTransforms[i]);
+			}
 		}
 	};
 

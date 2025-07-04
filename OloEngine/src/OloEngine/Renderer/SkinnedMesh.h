@@ -28,6 +28,7 @@ namespace OloEngine
 
         // Create primitive skinned meshes
         static Ref<SkinnedMesh> CreateCube();
+        static Ref<SkinnedMesh> CreateMultiBoneCube(); // Cube with multiple bone influences
 
         // Draw the mesh
         void Draw() const;

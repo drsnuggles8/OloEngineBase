@@ -59,15 +59,20 @@ Basic automatic state machine logic is implemented: the test entity switches bet
 Extend the renderer to support efficient submission and rendering of animated (skinned) meshes.
 
 **Key Steps:**
-- [ ] Extend command packet system to support bone matrices and skinning data
-- [ ] Update GLSL shaders (SPIR-V) for GPU skinning (bone weights/indices)
-- [ ] Batch static and animated meshes efficiently
-- [ ] Iterate over ECS entities with `AnimatedMeshComponent` and submit draw commands
+- [x] Extend command packet system to support bone matrices and skinning data
+- [x] Update GLSL shaders (SPIR-V) for GPU skinning (bone weights/indices)
+- [x] Complete shader implementation with Point and Spot light support
+- [x] Add SkinnedMesh::CreateCube() and CreateMultiBoneCube() primitives
+- [x] Implement proper bind pose matrix support
+- [x] Batch static and animated meshes efficiently
+- [x] Iterate over ECS entities with `AnimatedMeshComponent` and submit draw commands
 
 **Implementation Notes:**
-- Minimize state changes and draw calls
-- Use UBOs or SSBOs for bone matrices
-- Profile for CPU-GPU sync and optimize command submission
+- ✅ Minimize state changes and draw calls
+- ✅ Use UBOs or SSBOs for bone matrices
+- ✅ Profile for CPU-GPU sync and optimize command submission
+- ✅ Added complete lighting model (Directional, Point, Spot lights)
+- ✅ Proper bind pose calculations for realistic skeletal animation
 
 ---
 
