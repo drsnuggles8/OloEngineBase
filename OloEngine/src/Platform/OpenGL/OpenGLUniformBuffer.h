@@ -14,6 +14,9 @@ namespace OloEngine
 		~OpenGLUniformBuffer() override;
 
 		void SetData(const UniformData& data) override;
+		
+		// Phase 6.1: Resource handle caching support
+		u32 GetRendererID() const override { return m_RendererID; }
 	private:
 		u32 m_RendererID = 0;
 	};

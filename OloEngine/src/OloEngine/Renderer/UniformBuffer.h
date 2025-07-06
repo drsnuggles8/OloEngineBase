@@ -1,7 +1,7 @@
+#pragma once
+
 #include <utility>
 #include "OloEngine/Renderer/Buffer.h"
-
-#pragma once
 
 namespace OloEngine
 {
@@ -22,6 +22,10 @@ namespace OloEngine
 		
 		// Original method using UniformData struct
 		virtual void SetData(const UniformData& data) = 0;
+		
+		// Phase 6.1: Resource handle caching support
+		virtual u32 GetRendererID() const = 0;
+		virtual u32 GetSize() const { return m_Size; }
 		
 		// New convenience method to set data directly
 		virtual void SetData(const void* data, u32 size, u32 offset = 0)

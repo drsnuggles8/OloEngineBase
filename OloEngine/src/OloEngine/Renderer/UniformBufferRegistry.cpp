@@ -1,5 +1,7 @@
 #include "OloEnginePCH.h"
 #include "UniformBufferRegistry.h"
+#include "ResourceHandleCache.h"
+#include "EnhancedResourceGetter.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
@@ -16,6 +18,10 @@ namespace OloEngine
         : m_Shader(shader), m_Specification(UniformBufferRegistrySpecification::GetPreset(RegistryConfiguration::Development))
     {
         OLO_CORE_ASSERT(shader, "Shader cannot be null when creating UniformBufferRegistry");
+        
+        // Phase 6.1: Initialize handle cache
+        m_HandleCache = new ResourceHandleCache();
+        
         ApplySpecificationSettings();
     }
 
@@ -28,6 +34,10 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(shader, "Shader cannot be null when creating UniformBufferRegistry");
         OLO_CORE_ASSERT(spec.Validate(), "Invalid registry specification provided");
+        
+        // Phase 6.1: Initialize handle cache
+        m_HandleCache = new ResourceHandleCache();
+        
         ApplySpecificationSettings();
         
         // Phase 3.1: Initialize descriptor sets if multi-set management is enabled
@@ -49,6 +59,13 @@ namespace OloEngine
         m_BoundResources.clear();
         m_DirtyBindings.clear();
         m_BindingPointUsage.clear();
+
+        // Phase 6.1: Initialize handle cache if not already done
+        if (!m_HandleCache)
+        {
+            m_HandleCache = new ResourceHandleCache();
+        }
+        m_HandleCache->SetCachingEnabled(m_HandleCachingEnabled);
         
         // Phase 1.2: Clear two-phase update data structures
         m_PendingResources.clear();
@@ -105,6 +122,14 @@ namespace OloEngine
 
         OLO_CORE_TRACE("UniformBufferRegistry initialized for shader: {0} (spec: {1})", 
                       m_Shader ? m_Shader->GetName() : "Template", m_Specification.Name);
+    }
+
+    UniformBufferRegistry::~UniformBufferRegistry()
+    {
+        // Destructor implementation
+        // Clean up the ResourceHandleCache
+        delete m_HandleCache;
+        m_HandleCache = nullptr;
     }
 
     void UniformBufferRegistry::Shutdown()
@@ -358,6 +383,9 @@ namespace OloEngine
         binding.MarkDirty();
         MarkBindingDirty(name);
 
+        // Phase 6.1: Invalidate cached handle when resource changes
+        InvalidateCachedHandle(name);
+
         // Remove from invalidated set if present
         m_InvalidatedResources.erase(name);
 
@@ -608,10 +636,18 @@ namespace OloEngine
                                                    const ShaderResourceBinding& binding, 
                                                    const ShaderResource& resource)
     {
-        // Phase 1.1: Helper lambda to extract and store GPU handle
-        auto extractAndStoreGPUHandle = [](ShaderResourceBinding& binding, u32 handle) {
+        // Phase 1.1 + 6.1: Helper lambda to extract and store GPU handle + cache it
+        auto extractAndStoreGPUHandle = [this](ShaderResourceBinding& binding, u32 handle, 
+                                              ShaderResourceType type, u32 memorySize = 0) {
             binding.SetOpenGLHandle(handle);
-            OLO_CORE_TRACE("Stored GPU handle {0} for resource '{1}'", handle, binding.Name);
+            
+            // Phase 6.1: Cache the handle for fast access
+            if (m_HandleCache && m_HandleCachingEnabled)
+            {
+                m_HandleCache->CacheHandle(binding.Name, handle, type, memorySize);
+            }
+            
+            OLO_CORE_TRACE("Stored and cached GPU handle {0} for resource '{1}'", handle, binding.Name);
         };
         
         // Get mutable reference to binding for GPU handle tracking
@@ -634,8 +670,9 @@ namespace OloEngine
                     {
                         // Note: UniformBuffers are automatically bound to their binding point when created
                         // No explicit bind call is needed here
-                        // Phase 1.1: Store GPU handle for tracking (if accessible)
-                        // extractAndStoreGPUHandle(mutableBinding, buffer->GetRendererID()); // Uncomment if method exists
+                        // Phase 1.1 + 6.1: Store GPU handle and cache it
+                        extractAndStoreGPUHandle(mutableBinding, buffer->GetRendererID(), 
+                                               ShaderResourceType::UniformBuffer, buffer->GetSize());
                         OLO_CORE_TRACE("Applied uniform buffer '{0}' to binding point {1}", name, binding.BindingPoint);
                     }
                 }
@@ -649,8 +686,9 @@ namespace OloEngine
                     if (buffer)
                     {
                         buffer->Bind(binding.BindingPoint);
-                        // Phase 1.1: Store GPU handle for tracking (if accessible)
-                        // extractAndStoreGPUHandle(mutableBinding, buffer->GetRendererID()); // Uncomment if method exists
+                        // Phase 1.1 + 6.1: Store GPU handle and cache it
+                        extractAndStoreGPUHandle(mutableBinding, buffer->GetRendererID(), 
+                                               ShaderResourceType::StorageBuffer, buffer->GetSize());
                         OLO_CORE_TRACE("Applied storage buffer '{0}' to binding point {1}", name, binding.BindingPoint);
                     }
                 }
@@ -664,8 +702,9 @@ namespace OloEngine
                     if (texture)
                     {
                         texture->Bind(binding.BindingPoint);
-                        // Phase 1.1: Store GPU handle for tracking
-                        extractAndStoreGPUHandle(mutableBinding, texture->GetRendererID());
+                        // Phase 1.1 + 6.1: Store GPU handle and cache it
+                        extractAndStoreGPUHandle(mutableBinding, texture->GetRendererID(), 
+                                               ShaderResourceType::Texture2D);
                         OLO_CORE_TRACE("Applied texture2D '{0}' to binding point {1}", name, binding.BindingPoint);
                     }
                 }
@@ -679,8 +718,9 @@ namespace OloEngine
                     if (texture)
                     {
                         texture->Bind(binding.BindingPoint);
-                        // Phase 1.1: Store GPU handle for tracking
-                        extractAndStoreGPUHandle(mutableBinding, texture->GetRendererID());
+                        // Phase 1.1 + 6.1: Store GPU handle and cache it
+                        extractAndStoreGPUHandle(mutableBinding, texture->GetRendererID(), 
+                                               ShaderResourceType::TextureCube);
                         OLO_CORE_TRACE("Applied textureCube '{0}' to binding point {1}", name, binding.BindingPoint);
                     }
                 }
@@ -2978,5 +3018,292 @@ namespace OloEngine
         }
 
         return issues;
+    }
+
+    // ================================================================================================
+    // Phase 6: Performance and Usability Implementation
+    // ================================================================================================
+
+    // Phase 6.1: Resource Handle Caching Implementation
+
+    u32 UniformBufferRegistry::GetCachedHandle(const std::string& name) const
+    {
+        if (!m_HandleCache || !m_HandleCachingEnabled)
+            return 0;
+
+        auto* cachedHandle = m_HandleCache->GetCachedHandle(name);
+        if (cachedHandle && cachedHandle->IsValid)
+        {
+            return cachedHandle->Handle;
+        }
+
+        // Try to cache handle from bound resource
+        auto it = m_BoundResources.find(name);
+        if (it != m_BoundResources.end())
+        {
+            u32 handle = 0;
+            ShaderResourceType type = ShaderResourceType::None;
+            sizet memorySize = 0;
+
+            // Extract handle based on resource type
+            if (std::holds_alternative<Ref<UniformBuffer>>(it->second))
+            {
+                auto buffer = std::get<Ref<UniformBuffer>>(it->second);
+                if (buffer)
+                {
+                    handle = buffer->GetRendererID();
+                    type = ShaderResourceType::UniformBuffer;
+                    memorySize = buffer->GetSize();
+                }
+            }
+            else if (std::holds_alternative<Ref<StorageBuffer>>(it->second))
+            {
+                auto buffer = std::get<Ref<StorageBuffer>>(it->second);
+                if (buffer)
+                {
+                    handle = buffer->GetRendererID();
+                    type = ShaderResourceType::StorageBuffer;
+                    memorySize = buffer->GetSize();
+                }
+            }
+            else if (std::holds_alternative<Ref<Texture2D>>(it->second))
+            {
+                auto texture = std::get<Ref<Texture2D>>(it->second);
+                if (texture)
+                {
+                    handle = texture->GetRendererID();
+                    type = ShaderResourceType::Texture2D;
+                    // Texture memory size calculation would require additional API
+                }
+            }
+            else if (std::holds_alternative<Ref<TextureCubemap>>(it->second))
+            {
+                auto texture = std::get<Ref<TextureCubemap>>(it->second);
+                if (texture)
+                {
+                    handle = texture->GetRendererID();
+                    type = ShaderResourceType::TextureCube;
+                }
+            }
+
+            if (handle > 0)
+            {
+                // Cache the handle for future access
+                auto* newCachedHandle = m_HandleCache->CacheHandle(name, handle, type, memorySize);
+                return newCachedHandle ? newCachedHandle->Handle : handle;
+            }
+        }
+
+        return 0;
+    }
+
+    void UniformBufferRegistry::InvalidateCachedHandle(const std::string& name)
+    {
+        if (m_HandleCache)
+        {
+            m_HandleCache->InvalidateHandle(name);
+        }
+    }
+
+    void UniformBufferRegistry::SetHandleCachingEnabled(bool enabled)
+    {
+        m_HandleCachingEnabled = enabled;
+        if (m_HandleCache)
+        {
+            m_HandleCache->SetCachingEnabled(enabled);
+        }
+    }
+
+    const ShaderResourceBinding* UniformBufferRegistry::GetResourceBinding(const std::string& name) const
+    {
+        auto it = m_ResourceBindings.find(name);
+        return (it != m_ResourceBindings.end()) ? &it->second : nullptr;
+    }
+
+    // Phase 6.2: Enhanced Template Getter Implementation (Template methods defined in header)
+
+    // Template specializations for GetResourceEnhanced
+    template<>
+    ResourceAccessResult<UniformBuffer> UniformBufferRegistry::GetResourceEnhanced<UniformBuffer>(const std::string& name) const
+    {
+        return EnhancedResourceGetter::GetResource<UniformBuffer>(*this, name);
+    }
+
+    template<>
+    ResourceAccessResult<StorageBuffer> UniformBufferRegistry::GetResourceEnhanced<StorageBuffer>(const std::string& name) const
+    {
+        return EnhancedResourceGetter::GetResource<StorageBuffer>(*this, name);
+    }
+
+    template<>
+    ResourceAccessResult<Texture2D> UniformBufferRegistry::GetResourceEnhanced<Texture2D>(const std::string& name) const
+    {
+        return EnhancedResourceGetter::GetResource<Texture2D>(*this, name);
+    }
+
+    template<>
+    ResourceAccessResult<TextureCubemap> UniformBufferRegistry::GetResourceEnhanced<TextureCubemap>(const std::string& name) const
+    {
+        return EnhancedResourceGetter::GetResource<TextureCubemap>(*this, name);
+    }
+
+    template<>
+    ResourceAccessResult<UniformBufferArray> UniformBufferRegistry::GetResourceEnhanced<UniformBufferArray>(const std::string& name) const
+    {
+        return EnhancedResourceGetter::GetResource<UniformBufferArray>(*this, name);
+    }
+
+    template<>
+    ResourceAccessResult<StorageBufferArray> UniformBufferRegistry::GetResourceEnhanced<StorageBufferArray>(const std::string& name) const
+    {
+        return EnhancedResourceGetter::GetResource<StorageBufferArray>(*this, name);
+    }
+
+    template<>
+    ResourceAccessResult<Texture2DArray> UniformBufferRegistry::GetResourceEnhanced<Texture2DArray>(const std::string& name) const
+    {
+        return EnhancedResourceGetter::GetResource<Texture2DArray>(*this, name);
+    }
+
+    template<>
+    ResourceAccessResult<TextureCubemapArray> UniformBufferRegistry::GetResourceEnhanced<TextureCubemapArray>(const std::string& name) const
+    {
+        return EnhancedResourceGetter::GetResource<TextureCubemapArray>(*this, name);
+    }
+
+    // Template specializations for GetResourceOrFallback
+    template<>
+    Ref<UniformBuffer> UniformBufferRegistry::GetResourceOrFallback<UniformBuffer>(const std::string& name, Ref<UniformBuffer> fallback) const
+    {
+        return EnhancedResourceGetter::GetResourceOrFallback<UniformBuffer>(*this, name, fallback);
+    }
+
+    template<>
+    Ref<StorageBuffer> UniformBufferRegistry::GetResourceOrFallback<StorageBuffer>(const std::string& name, Ref<StorageBuffer> fallback) const
+    {
+        return EnhancedResourceGetter::GetResourceOrFallback<StorageBuffer>(*this, name, fallback);
+    }
+
+    template<>
+    Ref<Texture2D> UniformBufferRegistry::GetResourceOrFallback<Texture2D>(const std::string& name, Ref<Texture2D> fallback) const
+    {
+        return EnhancedResourceGetter::GetResourceOrFallback<Texture2D>(*this, name, fallback);
+    }
+
+    template<>
+    Ref<TextureCubemap> UniformBufferRegistry::GetResourceOrFallback<TextureCubemap>(const std::string& name, Ref<TextureCubemap> fallback) const
+    {
+        return EnhancedResourceGetter::GetResourceOrFallback<TextureCubemap>(*this, name, fallback);
+    }
+
+    // Template specializations for GetOrCreateResource
+    template<>
+    Ref<UniformBuffer> UniformBufferRegistry::GetOrCreateResource<UniformBuffer>(const std::string& name, std::function<Ref<UniformBuffer>()> factory)
+    {
+        return EnhancedResourceGetter::GetOrCreateResource<UniformBuffer>(*this, name, factory);
+    }
+
+    template<>
+    Ref<StorageBuffer> UniformBufferRegistry::GetOrCreateResource<StorageBuffer>(const std::string& name, std::function<Ref<StorageBuffer>()> factory)
+    {
+        return EnhancedResourceGetter::GetOrCreateResource<StorageBuffer>(*this, name, factory);
+    }
+
+    template<>
+    Ref<Texture2D> UniformBufferRegistry::GetOrCreateResource<Texture2D>(const std::string& name, std::function<Ref<Texture2D>()> factory)
+    {
+        return EnhancedResourceGetter::GetOrCreateResource<Texture2D>(*this, name, factory);
+    }
+
+    template<>
+    Ref<TextureCubemap> UniformBufferRegistry::GetOrCreateResource<TextureCubemap>(const std::string& name, std::function<Ref<TextureCubemap>()> factory)
+    {
+        return EnhancedResourceGetter::GetOrCreateResource<TextureCubemap>(*this, name, factory);
+    }
+
+    // Template specializations for IsResourceReady
+    template<>
+    bool UniformBufferRegistry::IsResourceReady<UniformBuffer>(const std::string& name) const
+    {
+        return EnhancedResourceGetter::IsResourceReady<UniformBuffer>(*this, name);
+    }
+
+    template<>
+    bool UniformBufferRegistry::IsResourceReady<StorageBuffer>(const std::string& name) const
+    {
+        return EnhancedResourceGetter::IsResourceReady<StorageBuffer>(*this, name);
+    }
+
+    template<>
+    bool UniformBufferRegistry::IsResourceReady<Texture2D>(const std::string& name) const
+    {
+        return EnhancedResourceGetter::IsResourceReady<Texture2D>(*this, name);
+    }
+
+    template<>
+    bool UniformBufferRegistry::IsResourceReady<TextureCubemap>(const std::string& name) const
+    {
+        return EnhancedResourceGetter::IsResourceReady<TextureCubemap>(*this, name);
+    }
+
+    // Handle pool template specializations
+    template<>
+    void* UniformBufferRegistry::GetHandlePool<UniformBuffer>()
+    {
+        return m_HandleCache ? m_HandleCache->GetHandlePool<UniformBuffer>() : nullptr;
+    }
+
+    template<>
+    void* UniformBufferRegistry::GetHandlePool<StorageBuffer>()
+    {
+        return m_HandleCache ? m_HandleCache->GetHandlePool<StorageBuffer>() : nullptr;
+    }
+
+    template<>
+    void* UniformBufferRegistry::GetHandlePool<Texture2D>()
+    {
+        return m_HandleCache ? m_HandleCache->GetHandlePool<Texture2D>() : nullptr;
+    }
+
+    template<>
+    void* UniformBufferRegistry::GetHandlePool<TextureCubemap>()
+    {
+        return m_HandleCache ? m_HandleCache->GetHandlePool<TextureCubemap>() : nullptr;
+    }
+
+    template<>
+    void UniformBufferRegistry::CreateHandlePool<UniformBuffer>(u32 maxSize, std::function<Ref<UniformBuffer>()> factory)
+    {
+        if (m_HandleCache)
+        {
+            m_HandleCache->CreateHandlePool<UniformBuffer>(maxSize, std::move(factory));
+        }
+    }
+
+    template<>
+    void UniformBufferRegistry::CreateHandlePool<StorageBuffer>(u32 maxSize, std::function<Ref<StorageBuffer>()> factory)
+    {
+        if (m_HandleCache)
+        {
+            m_HandleCache->CreateHandlePool<StorageBuffer>(maxSize, std::move(factory));
+        }
+    }
+
+    template<>
+    void UniformBufferRegistry::CreateHandlePool<Texture2D>(u32 maxSize, std::function<Ref<Texture2D>()> factory)
+    {
+        if (m_HandleCache)
+        {
+            m_HandleCache->CreateHandlePool<Texture2D>(maxSize, std::move(factory));
+        }
+    }
+
+    template<>
+    void UniformBufferRegistry::CreateHandlePool<TextureCubemap>(u32 maxSize, std::function<Ref<TextureCubemap>()> factory)
+    {
+        if (m_HandleCache)
+        {
+            m_HandleCache->CreateHandlePool<TextureCubemap>(maxSize, std::move(factory));
+        }
     }
 }

@@ -17,6 +17,9 @@ namespace OloEngine
         void Bind(u32 bindingPoint) override;
         void Unbind() override;
         
+        // Phase 6.1: Resource handle caching support
+        u32 GetRendererID() const override { return m_RendererID; }
+        
     private:
         u32 m_RendererID = 0;
         GLenum GetOpenGLUsage(BufferUsage usage) const;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/ShaderResourceTypes.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
@@ -18,28 +19,18 @@
 
 #include <glad/gl.h>
 
+// Forward declarations for Phase 6 improvements
+namespace OloEngine
+{
+    class ResourceHandleCache;
+    template<typename T> struct ResourceAccessResult;
+    class EnhancedResourceGetter;
+}
+
 namespace OloEngine
 {
     // Forward declarations
     class Shader;
-
-    /**
-     * @brief Enum defining all supported shader resource types
-     */
-    enum class ShaderResourceType : u8
-    {
-        None = 0,
-        UniformBuffer,
-        StorageBuffer,
-        Texture2D,
-        TextureCube,
-        Image2D,
-        // Array resource types (Phase 1.2)
-        UniformBufferArray,
-        StorageBufferArray,
-        Texture2DArray,
-        TextureCubeArray
-    };
 
     /**
      * @brief Phase 3.1: Descriptor set priority levels for resource organization
@@ -576,7 +567,7 @@ namespace OloEngine
         // Phase 2.2: Specification-based constructor
         explicit UniformBufferRegistry(const Ref<Shader>& shader, const UniformBufferRegistrySpecification& spec);
         
-        ~UniformBufferRegistry() = default;
+        ~UniformBufferRegistry();
 
         // No copy semantics - registries are tied to specific shaders
         UniformBufferRegistry(const UniformBufferRegistry&) = delete;
@@ -861,7 +852,7 @@ namespace OloEngine
         }
 
         /**
-         * @brief Get a bound resource by name
+         * @brief Get a bound resource by name (legacy method)
          * @tparam T Expected resource type
          * @param name Resource name as defined in shader
          * @return Resource reference if found and type matches, nullptr otherwise
@@ -878,6 +869,133 @@ namespace OloEngine
 
             return nullptr;
         }
+
+        // ==========================================
+        // Phase 6: Enhanced Resource Access
+        // ==========================================
+
+        /**
+         * @brief Enhanced resource getter with comprehensive error handling and smart conversions
+         * @tparam T Expected resource type
+         * @param name Resource name as defined in shader
+         * @return Resource access result with detailed error information
+         */
+        template<typename T>
+        ResourceAccessResult<T> GetResourceEnhanced(const std::string& name) const;
+
+        /**
+         * @brief Get resource with automatic fallback
+         * @tparam T Expected resource type
+         * @param name Resource name
+         * @param fallback Fallback resource if not found or invalid
+         * @return Resource or fallback
+         */
+        template<typename T>
+        Ref<T> GetResourceOrFallback(const std::string& name, Ref<T> fallback) const;
+
+        /**
+         * @brief Get resource with factory function for missing resources
+         * @tparam T Expected resource type
+         * @param name Resource name
+         * @param factory Factory function to create resource if missing
+         * @return Resource (existing or newly created)
+         */
+        template<typename T>
+        Ref<T> GetOrCreateResource(const std::string& name, std::function<Ref<T>()> factory);
+
+        /**
+         * @brief Check if resource is available and ready to use
+         * @tparam T Expected resource type
+         * @param name Resource name
+         * @return True if resource is available and valid
+         */
+        template<typename T>
+        bool IsResourceReady(const std::string& name) const;
+
+        /**
+         * @brief Get cached GPU handle for a resource
+         * @param name Resource name
+         * @return GPU handle or 0 if not cached/found
+         */
+        u32 GetCachedHandle(const std::string& name) const;
+
+        /**
+         * @brief Invalidate cached handle when resource changes
+         * @param name Resource name
+         */
+        void InvalidateCachedHandle(const std::string& name);
+
+        /**
+         * @brief Get handle pool for temporary resources
+         * @tparam T Resource type
+         * @return Handle pool or nullptr if not available
+         */
+        template<typename T>
+        void* GetHandlePool();
+
+        /**
+         * @brief Create handle pool for a resource type
+         * @tparam T Resource type
+         * @param maxSize Maximum pool size
+         * @param factory Factory function for creating resources
+         */
+        template<typename T>
+        void CreateHandlePool(u32 maxSize, std::function<Ref<T>()> factory);
+
+        /**
+         * @brief Enable/disable resource handle caching
+         * @param enabled Whether to enable handle caching
+         */
+        void SetHandleCachingEnabled(bool enabled);
+
+        /**
+         * @brief Get resource binding information (const access)
+         * @param name Resource name
+         * @return Resource binding or nullptr if not found
+         */
+        const ShaderResourceBinding* GetResourceBinding(const std::string& name) const;
+
+        // Explicit template method declarations for Phase 6.2 enhanced getters
+        // These methods provide the enhanced functionality with better error handling
+
+        // Enhanced resource access with error information
+        template<> ResourceAccessResult<UniformBuffer> GetResourceEnhanced<UniformBuffer>(const std::string& name) const;
+        template<> ResourceAccessResult<StorageBuffer> GetResourceEnhanced<StorageBuffer>(const std::string& name) const;
+        template<> ResourceAccessResult<Texture2D> GetResourceEnhanced<Texture2D>(const std::string& name) const;
+        template<> ResourceAccessResult<TextureCubemap> GetResourceEnhanced<TextureCubemap>(const std::string& name) const;
+        template<> ResourceAccessResult<UniformBufferArray> GetResourceEnhanced<UniformBufferArray>(const std::string& name) const;
+        template<> ResourceAccessResult<StorageBufferArray> GetResourceEnhanced<StorageBufferArray>(const std::string& name) const;
+        template<> ResourceAccessResult<Texture2DArray> GetResourceEnhanced<Texture2DArray>(const std::string& name) const;
+        template<> ResourceAccessResult<TextureCubemapArray> GetResourceEnhanced<TextureCubemapArray>(const std::string& name) const;
+
+        // Resource access with fallback
+        template<> Ref<UniformBuffer> GetResourceOrFallback<UniformBuffer>(const std::string& name, Ref<UniformBuffer> fallback) const;
+        template<> Ref<StorageBuffer> GetResourceOrFallback<StorageBuffer>(const std::string& name, Ref<StorageBuffer> fallback) const;
+        template<> Ref<Texture2D> GetResourceOrFallback<Texture2D>(const std::string& name, Ref<Texture2D> fallback) const;
+        template<> Ref<TextureCubemap> GetResourceOrFallback<TextureCubemap>(const std::string& name, Ref<TextureCubemap> fallback) const;
+
+        // Resource creation with factory
+        template<> Ref<UniformBuffer> GetOrCreateResource<UniformBuffer>(const std::string& name, std::function<Ref<UniformBuffer>()> factory);
+        template<> Ref<StorageBuffer> GetOrCreateResource<StorageBuffer>(const std::string& name, std::function<Ref<StorageBuffer>()> factory);
+        template<> Ref<Texture2D> GetOrCreateResource<Texture2D>(const std::string& name, std::function<Ref<Texture2D>()> factory);
+        template<> Ref<TextureCubemap> GetOrCreateResource<TextureCubemap>(const std::string& name, std::function<Ref<TextureCubemap>()> factory);
+
+        // Resource readiness checking
+        template<> bool IsResourceReady<UniformBuffer>(const std::string& name) const;
+        template<> bool IsResourceReady<StorageBuffer>(const std::string& name) const;
+        template<> bool IsResourceReady<Texture2D>(const std::string& name) const;
+        template<> bool IsResourceReady<TextureCubemap>(const std::string& name) const;
+
+        // Handle pool management
+        template<> void* GetHandlePool<UniformBuffer>();
+        template<> void* GetHandlePool<StorageBuffer>();
+        template<> void* GetHandlePool<Texture2D>();
+        template<> void* GetHandlePool<TextureCubemap>();
+
+        template<> void CreateHandlePool<UniformBuffer>(u32 maxSize, std::function<Ref<UniformBuffer>()> factory);
+        template<> void CreateHandlePool<StorageBuffer>(u32 maxSize, std::function<Ref<StorageBuffer>()> factory);
+        template<> void CreateHandlePool<Texture2D>(u32 maxSize, std::function<Ref<Texture2D>()> factory);
+        template<> void CreateHandlePool<TextureCubemap>(u32 maxSize, std::function<Ref<TextureCubemap>()> factory);
 
         /**
          * @brief Apply all bound resources to OpenGL state
@@ -1391,6 +1509,16 @@ namespace OloEngine
         // Frame-in-flight support (Phase 1.3)
         std::unique_ptr<FrameInFlightManager> m_FrameInFlightManager = nullptr;
         bool m_FrameInFlightEnabled = false;
+
+        // ==========================================
+        // Phase 6: Performance and Usability
+        // ==========================================
+
+        // Phase 6.1: Resource Handle Caching
+        ResourceHandleCache* m_HandleCache = nullptr;
+        bool m_HandleCachingEnabled = true;
+
+        // Phase 6.2: Enhanced Template Getter (no additional members needed, uses existing infrastructure)
 
         // Phase 2.1: Template and clone support methods
         

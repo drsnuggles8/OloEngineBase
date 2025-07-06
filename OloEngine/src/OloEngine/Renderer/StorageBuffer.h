@@ -101,6 +101,11 @@ namespace OloEngine
         u32 GetSize() const { return m_Size; }
         
         /**
+         * @brief Phase 6.1: Get renderer ID for handle caching
+         */
+        virtual u32 GetRendererID() const = 0;
+        
+        /**
          * @brief Get the current binding point
          */
         u32 GetBindingPoint() const { return m_BindingPoint; }
