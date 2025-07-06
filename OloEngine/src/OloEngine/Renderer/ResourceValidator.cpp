@@ -752,7 +752,7 @@ namespace OloEngine
         {
             CompatibilityRule rule("TextureBindingValidation", ValidationSeverity::Error,
                                  "Texture resources must use appropriate binding points");
-            rule.ValidatorFunction = [](const ResourceNode& node, const ValidationContext& context) -> bool {
+            rule.ValidatorFunction = [](const ResourceNode& node, const ValidationContext& /*context*/) -> bool {
                 if (node.Type == ShaderResourceType::Texture2D || node.Type == ShaderResourceType::TextureCube)
                 {
                     return node.BindingPoint < 32; // Most GPUs support at least 32 texture units
@@ -766,7 +766,7 @@ namespace OloEngine
         {
             CompatibilityRule rule("BufferSizeValidation", ValidationSeverity::Warning,
                                  "Large buffers may impact performance");
-            rule.ValidatorFunction = [](const ResourceNode& node, const ValidationContext& context) -> bool {
+            rule.ValidatorFunction = [](const ResourceNode& node, const ValidationContext& /*context*/) -> bool {
                 if (node.Type == ShaderResourceType::UniformBuffer)
                 {
                     // UBOs larger than 64KB might be inefficient
@@ -872,6 +872,10 @@ namespace OloEngine
         const std::unordered_map<std::string, u32>& bindings,
         const std::string& resourceType)
     {
+        // Log validation details for debugging
+        OLO_CORE_TRACE("Validating binding point usage for resource type: {0} ({1} bindings)", 
+                      resourceType, bindings.size());
+        
         return ValidateBindingConflicts(bindings);
     }
 

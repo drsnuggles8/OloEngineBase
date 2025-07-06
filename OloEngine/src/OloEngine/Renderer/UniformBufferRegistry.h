@@ -15,6 +15,8 @@
 #include <variant>
 #include <memory>
 
+#include <glad/gl.h>
+
 namespace OloEngine
 {
     // Forward declarations
@@ -39,6 +41,189 @@ namespace OloEngine
     };
 
     /**
+     * @brief Phase 3.1: Descriptor set priority levels for resource organization
+     */
+    enum class DescriptorSetPriority : u8
+    {
+        System = 0,      // Engine-level resources (view/projection matrices, time, etc.)
+        Global = 1,      // Scene-level resources (lighting, environment maps, etc.)
+        Material = 2,    // Material-specific resources (diffuse/normal textures, material properties)
+        Instance = 3,    // Per-instance resources (model matrices, instance data)
+        Custom = 4       // User-defined sets for special cases
+    };
+
+    /**
+     * @brief Phase 3.1: Descriptor set configuration for multi-set resource management
+     */
+    struct DescriptorSetInfo
+    {
+        u32 SetIndex;
+        DescriptorSetPriority Priority;
+        std::string Name;
+        std::vector<std::string> ResourceNames;
+        bool IsActive = true;
+        u32 BindFrequency = 0;  // How often this set gets bound (for optimization)
+        
+        DescriptorSetInfo() = default;
+        DescriptorSetInfo(u32 index, DescriptorSetPriority priority, const std::string& name)
+            : SetIndex(index), Priority(priority), Name(name) {}
+    };
+
+    /**
+     * @brief Phase 2.2: Configuration presets for different use cases
+     */
+    enum class RegistryConfiguration : u8
+    {
+        Debug = 0,        // Maximum validation, detailed logging
+        Release,          // Optimized with basic validation
+        Performance,      // Minimal overhead, validation disabled
+        Development       // Balanced validation and performance
+    };
+
+    /**
+     * @brief Phase 2.2: Specification for UniformBufferRegistry creation and configuration
+     */
+    struct UniformBufferRegistrySpecification
+    {
+        // Core configuration
+        std::string Name = "UniformBufferRegistry";
+        RegistryConfiguration Configuration = RegistryConfiguration::Development;
+        
+        // Phase 3.1: Multi-set management (NOW ENABLED BY DEFAULT)
+        u32 StartSet = 0;                      // Starting descriptor set number
+        u32 EndSet = 4;                        // Ending descriptor set number (covers System->Custom)
+        bool UseSetPriority = true;            // Enable set-based priority system (DEFAULT: true)
+        bool EnableSetOptimization = true;     // Optimize binding order based on set priority (DEFAULT: true)
+        bool AutoAssignSets = true;            // Automatically assign resources to appropriate sets (DEFAULT: true)
+        
+        // Phase 3.2: Default resources (NOW ENABLED BY DEFAULT)
+        bool EnableDefaultResources = true;    // Auto-populate common resources (DEFAULT: true)
+        bool UseResourceTemplates = true;      // Use template library for common patterns (DEFAULT: true)
+        bool AutoDetectShaderPattern = true;   // Smart defaults based on shader reflection (DEFAULT: true)
+        bool CreateSystemDefaults = true;      // Create default system resources (DEFAULT: true)
+        
+        // Validation settings
+        bool EnableValidation = true;          // Enable resource validation
+        bool EnableConflictDetection = true;   // Check for binding conflicts
+        bool EnableSizeValidation = true;      // Validate resource sizes
+        bool EnableLifecycleTracking = true;   // Track resource lifecycle
+        bool EnableSetValidation = true;       // Validate descriptor set assignments (NEW)
+        
+        // Performance settings
+        bool EnableCaching = true;             // Cache frequently accessed handles
+        bool EnableBatching = true;            // Batch resource updates
+        bool EnableFrameInFlight = false;     // Enable frame-in-flight management
+        u32 FramesInFlight = 3;               // Number of frames in flight
+        bool EnableSetBatching = true;        // Batch operations by descriptor set (NEW)
+        
+        // Debug settings
+        bool EnableDebugInterface = true;      // ImGui debug interface
+        bool EnablePerformanceMetrics = true; // Track performance statistics
+        bool EnableResourceProfiling = true;  // Profile resource usage
+        bool EnableSetVisualization = true;   // Visualize descriptor set organization (NEW)
+        
+        // Advanced features
+        bool EnableInvalidationTracking = true; // Granular invalidation tracking
+        bool EnableDependencyTracking = true;   // Track resource dependencies
+        bool EnableAutoOptimization = true;     // Automatic optimization based on usage
+        bool EnableSetPriorityOptimization = true; // Optimize based on set priorities (NEW)
+        
+        // Template and cloning support (Phase 2.1)
+        bool AllowTemplateCreation = true;     // Allow creating templates from this registry
+        bool AllowCloning = true;              // Allow cloning this registry
+        std::string TemplateSource;            // Source template name (for cloned registries)
+        
+        /**
+         * @brief Validate the specification settings
+         */
+        bool Validate() const
+        {
+            if (StartSet > EndSet)
+            {
+                OLO_CORE_ERROR("RegistrySpec: StartSet ({0}) cannot be greater than EndSet ({1})", StartSet, EndSet);
+                return false;
+            }
+            
+            if (FramesInFlight == 0 && EnableFrameInFlight)
+            {
+                OLO_CORE_ERROR("RegistrySpec: FramesInFlight cannot be 0 when EnableFrameInFlight is true");
+                return false;
+            }
+            
+            if (FramesInFlight > 10)
+            {
+                OLO_CORE_WARN("RegistrySpec: FramesInFlight ({0}) is unusually high, consider reducing for memory efficiency", FramesInFlight);
+            }
+            
+            return true;
+        }
+        
+        /**
+         * @brief Get configuration preset
+         */
+        static UniformBufferRegistrySpecification GetPreset(RegistryConfiguration config)
+        {
+            UniformBufferRegistrySpecification spec;
+            spec.Configuration = config;
+            
+            switch (config)
+            {
+                case RegistryConfiguration::Debug:
+                    spec.EnableValidation = true;
+                    spec.EnableConflictDetection = true;
+                    spec.EnableSizeValidation = true;
+                    spec.EnableLifecycleTracking = true;
+                    spec.EnableDebugInterface = true;
+                    spec.EnablePerformanceMetrics = true;
+                    spec.EnableResourceProfiling = true;
+                    spec.EnableInvalidationTracking = true;
+                    spec.EnableDependencyTracking = true;
+                    break;
+                    
+                case RegistryConfiguration::Release:
+                    spec.EnableValidation = true;
+                    spec.EnableConflictDetection = false;
+                    spec.EnableSizeValidation = false;
+                    spec.EnableLifecycleTracking = false;
+                    spec.EnableDebugInterface = false;
+                    spec.EnablePerformanceMetrics = false;
+                    spec.EnableResourceProfiling = false;
+                    spec.EnableInvalidationTracking = true;
+                    spec.EnableDependencyTracking = false;
+                    break;
+                    
+                case RegistryConfiguration::Performance:
+                    spec.EnableValidation = false;
+                    spec.EnableConflictDetection = false;
+                    spec.EnableSizeValidation = false;
+                    spec.EnableLifecycleTracking = false;
+                    spec.EnableDebugInterface = false;
+                    spec.EnablePerformanceMetrics = false;
+                    spec.EnableResourceProfiling = false;
+                    spec.EnableInvalidationTracking = false;
+                    spec.EnableDependencyTracking = false;
+                    spec.EnableAutoOptimization = true;
+                    break;
+                    
+                case RegistryConfiguration::Development:
+                default:
+                    spec.EnableValidation = true;
+                    spec.EnableConflictDetection = true;
+                    spec.EnableSizeValidation = true;
+                    spec.EnableLifecycleTracking = true;
+                    spec.EnableDebugInterface = true;
+                    spec.EnablePerformanceMetrics = true;
+                    spec.EnableResourceProfiling = false;
+                    spec.EnableInvalidationTracking = true;
+                    spec.EnableDependencyTracking = true;
+                    break;
+            }
+            
+            return spec;
+        }
+    };
+
+    /**
      * @brief Information about a shader resource binding discovered through SPIR-V reflection
      */
     struct ShaderResourceBinding
@@ -47,27 +232,46 @@ namespace OloEngine
         u32 BindingPoint = 0;       // OpenGL binding point
         u32 Set = 0;                // Vulkan descriptor set (for future compatibility)
         std::string Name;           // Resource name in shader
-        sizet Size = 0;             // Size for buffers, 0 for textures
+        size_t Size = 0;             // Size for buffers, 0 for textures
         bool IsActive = false;      // Whether this resource is currently bound
         
         // Array support (Phase 1.2)
         bool IsArray = false;       // Whether this is an array resource
         u32 ArraySize = 0;          // Number of elements in the array (0 if not array)
         u32 BaseBindingPoint = 0;   // Base binding point for arrays
+        
+        // Phase 1.1: Resource Handle Tracking
+        void* GPUHandle = nullptr;  // OpenGL buffer/texture ID cast to void*
+        u32 LastBindFrame = 0;      // Frame number when last bound (for debugging)
+        bool IsDirty = true;        // Resource needs rebinding optimization
+        
+        // Phase 3.1: Multi-set management - use existing Set field for descriptor set index
 
         ShaderResourceBinding() = default;
         ShaderResourceBinding(ShaderResourceType type, u32 bindingPoint, u32 set, 
-                            const std::string& name, sizet size = 0)
+                            const std::string& name, size_t size = 0)
             : Type(type), BindingPoint(bindingPoint), Set(set), Name(name), Size(size), IsActive(false)
         {}
         
         // Constructor for array resources
         ShaderResourceBinding(ShaderResourceType type, u32 baseBindingPoint, u32 set, 
-                            const std::string& name, u32 arraySize, sizet elementSize = 0)
+                            const std::string& name, u32 arraySize, size_t elementSize = 0)
             : Type(type), BindingPoint(baseBindingPoint), Set(set), Name(name), 
               Size(elementSize), IsActive(false), IsArray(true), ArraySize(arraySize), 
               BaseBindingPoint(baseBindingPoint)
         {}
+        
+        // Phase 1.1: Helper methods for GPU handle management
+        u32 GetOpenGLHandle() const { return static_cast<u32>(reinterpret_cast<uintptr_t>(GPUHandle)); }
+        void SetOpenGLHandle(u32 handle) { GPUHandle = reinterpret_cast<void*>(static_cast<uintptr_t>(handle)); }
+        
+        // Dirty state management
+        void MarkDirty() { IsDirty = true; }
+        void MarkClean() { IsDirty = false; }
+        bool IsDirtyState() const { return IsDirty; }
+        
+        // Frame tracking for debugging
+        void UpdateBindFrame(u32 frameNumber) { LastBindFrame = frameNumber; IsActive = true; MarkClean(); }
     };
 
     /**
@@ -125,6 +329,24 @@ namespace OloEngine
     };
 
     /**
+     * @brief Phase 3.2: Information structure for default resource creation
+     */
+    struct ShaderResourceInfo
+    {
+        std::string Name;
+        ShaderResourceType Type = ShaderResourceType::None;
+        u32 Size = 0;              // Size in bytes (for buffers)
+        u32 Binding = UINT32_MAX;  // Binding point
+        u32 Set = UINT32_MAX;      // Descriptor set index (Phase 3.1)
+        bool IsArray = false;      // Whether this is an array resource
+        u32 ArraySize = 1;         // Array size if IsArray is true
+        
+        ShaderResourceInfo() = default;
+        ShaderResourceInfo(const std::string& name, ShaderResourceType type, u32 binding)
+            : Name(name), Type(type), Binding(binding) {}
+    };
+
+    /**
      * @brief Registry for managing shader resources with automatic discovery and binding
      * 
      * This class provides a centralized system for managing shader resources similar to
@@ -136,6 +358,10 @@ namespace OloEngine
     public:
         UniformBufferRegistry() = default;
         explicit UniformBufferRegistry(const Ref<Shader>& shader);
+        
+        // Phase 2.2: Specification-based constructor
+        explicit UniformBufferRegistry(const Ref<Shader>& shader, const UniformBufferRegistrySpecification& spec);
+        
         ~UniformBufferRegistry() = default;
 
         // No copy semantics - registries are tied to specific shaders
@@ -145,6 +371,165 @@ namespace OloEngine
         // Move semantics
         UniformBufferRegistry(UniformBufferRegistry&&) = default;
         UniformBufferRegistry& operator=(UniformBufferRegistry&&) = default;
+
+        // Phase 2.1: Template and Clone Support
+        
+        /**
+         * @brief Create a template registry from an existing registry configuration
+         * @param templateRegistry Source registry to create template from
+         * @param templateName Name for the template
+         * @return Unique pointer to template registry
+         */
+        static Scope<UniformBufferRegistry> CreateTemplate(const UniformBufferRegistry& templateRegistry, 
+                                                          const std::string& templateName = "");
+
+        /**
+         * @brief Clone this registry for use with a different shader
+         * @param targetShader Shader to associate with the cloned registry
+         * @param cloneName Optional name for the cloned registry
+         * @return Unique pointer to cloned registry
+         */
+        Scope<UniformBufferRegistry> Clone(const Ref<Shader>& targetShader, 
+                                         const std::string& cloneName = "") const;
+
+        /**
+         * @brief Create a registry instance from a template
+         * @param templateRegistry Template registry to clone from
+         * @param targetShader Shader to associate with the new registry
+         * @param instanceName Name for the instance
+         * @return Unique pointer to registry instance
+         */
+        static Scope<UniformBufferRegistry> CreateFromTemplate(const UniformBufferRegistry& templateRegistry,
+                                                              const Ref<Shader>& targetShader,
+                                                              const std::string& instanceName = "");
+
+        /**
+         * @brief Validate template compatibility with target shader
+         * @param targetShader Shader to validate compatibility with
+         * @return true if template is compatible, false otherwise
+         */
+        bool ValidateTemplateCompatibility(const Ref<Shader>& targetShader) const;
+
+        /**
+         * @brief Get the specification used to create this registry
+         * @return Current registry specification
+         */
+        const UniformBufferRegistrySpecification& GetSpecification() const { return m_Specification; }
+
+        /**
+         * @brief Update registry specification (some settings require reinitialization)
+         * @param newSpec New specification to apply
+         * @param reinitialize Whether to reinitialize the registry with new settings
+         */
+        void UpdateSpecification(const UniformBufferRegistrySpecification& newSpec, bool reinitialize = false);
+
+        // Phase 3.1: Multi-Set Management
+        
+        /**
+         * @brief Configure descriptor set for a specific priority level
+         * @param priority Priority level for the descriptor set
+         * @param setIndex Set index to assign to this priority
+         * @param name Optional name for the descriptor set
+         */
+        void ConfigureDescriptorSet(DescriptorSetPriority priority, u32 setIndex, const std::string& name = "");
+
+        /**
+         * @brief Assign a resource to a specific descriptor set
+         * @param resourceName Name of the resource to assign
+         * @param setIndex Descriptor set index to assign to
+         * @return true if assignment was successful
+         */
+        bool AssignResourceToSet(const std::string& resourceName, u32 setIndex);
+
+        /**
+         * @brief Automatically assign resources to appropriate descriptor sets based on priority
+         * @param useHeuristics Whether to use smart heuristics for assignment
+         */
+        void AutoAssignResourceSets(bool useHeuristics = true);
+
+        /**
+         * @brief Get descriptor set information for a specific set index
+         * @param setIndex Index of the descriptor set
+         * @return Pointer to descriptor set info, or nullptr if not found
+         */
+        const DescriptorSetInfo* GetDescriptorSetInfo(u32 setIndex) const;
+
+        /**
+         * @brief Get all configured descriptor sets
+         * @return Map of set index to descriptor set info
+         */
+        const std::unordered_map<u32, DescriptorSetInfo>& GetDescriptorSets() const { return m_DescriptorSets; }
+
+        /**
+         * @brief Get the descriptor set index for a resource
+         * @param resourceName Name of the resource
+         * @return Set index, or UINT32_MAX if not assigned
+         */
+        u32 GetResourceSetIndex(const std::string& resourceName) const;
+
+        /**
+         * @brief Bind resources for a specific descriptor set only
+         * @param setIndex Descriptor set index to bind
+         */
+        void BindDescriptorSet(u32 setIndex);
+
+        /**
+         * @brief Bind all descriptor sets in priority order
+         */
+        void BindAllSets();
+
+        /**
+         * @brief Get binding order based on set priorities
+         * @return Vector of set indices in optimal binding order
+         */
+        const std::vector<u32>& GetSetBindingOrder() const { return m_SetBindingOrder; }
+
+        // Phase 3.2: Default Resource System
+        
+        /**
+         * @brief Initialize default resources based on common shader patterns
+         * @param forceReinitialize Whether to reinitialize if already initialized
+         */
+        void InitializeDefaultResources(bool forceReinitialize = false);
+
+        /**
+         * @brief Add a default resource template
+         * @param resourceName Name of the default resource
+         * @param resourceInfo Information about the default resource
+         */
+        void AddDefaultResource(const std::string& resourceName, const ShaderResourceInfo& resourceInfo);
+
+        /**
+         * @brief Create common system resources (view/projection matrices, time, etc.)
+         */
+        void CreateSystemDefaults();
+
+        /**
+         * @brief Create common material resources based on detected shader pattern
+         */
+        void CreateMaterialDefaults();
+
+        /**
+         * @brief Get default resource template library
+         * @return Map of template names to registry specifications
+         */
+        const std::unordered_map<std::string, UniformBufferRegistrySpecification>& GetResourceTemplates() const 
+        { 
+            return m_ResourceTemplates; 
+        }
+
+        /**
+         * @brief Apply a resource template to this registry
+         * @param templateName Name of the template to apply
+         * @return true if template was found and applied successfully
+         */
+        bool ApplyResourceTemplate(const std::string& templateName);
+
+        /**
+         * @brief Detect shader pattern and suggest appropriate defaults
+         * @return Suggested resource template name, or empty string if no pattern detected
+         */
+        std::string DetectShaderPattern() const;
 
         /**
          * @brief Initialize the registry and discover resources from associated shader
@@ -456,6 +841,41 @@ namespace OloEngine
          */
         void MarkBindingDirty(const std::string& name);
 
+        // Phase 1.2: Two-Phase Resource Updates
+        /**
+         * @brief Invalidate a resource, marking it for pending update
+         * @param name Resource name to invalidate
+         */
+        void InvalidateResource(const std::string& name);
+
+        /**
+         * @brief Commit all pending resource updates in an optimized batch
+         */
+        void CommitPendingUpdates();
+
+        /**
+         * @brief Check if a resource is currently invalidated and pending update
+         * @param name Resource name to check
+         * @return true if resource is invalidated, false otherwise
+         */
+        bool IsResourceInvalidated(const std::string& name) const;
+
+        // Phase 1.3: Enhanced Resource Compatibility System
+        /**
+         * @brief Check if a resource input is compatible with a binding
+         * @param binding Shader resource binding information
+         * @param input Resource input to validate
+         * @return true if resource is compatible, false otherwise
+         */
+        bool IsCompatibleResource(const ShaderResourceBinding& binding, const ShaderResourceInput& input) const;
+
+        /**
+         * @brief Map ShaderResourceType to OpenGL resource type for validation
+         * @param type Shader resource type
+         * @return OpenGL resource type enum
+         */
+        GLenum MapToOpenGLResourceType(ShaderResourceType type) const;
+
     private:
         // Associated shader
         Ref<Shader> m_Shader = nullptr;
@@ -465,6 +885,32 @@ namespace OloEngine
 
         // Currently bound resources
         std::unordered_map<std::string, ShaderResource> m_BoundResources;
+
+        // Phase 2.1/2.2: Specification and template support
+        UniformBufferRegistrySpecification m_Specification;
+        bool m_IsTemplate = false;                    // Whether this registry is a template
+        bool m_IsClone = false;                       // Whether this registry is a clone
+        std::string m_TemplateName;                   // Template name (if this is a template)
+        std::string m_SourceTemplateName;             // Source template name (if this is a clone)
+        std::unordered_map<std::string, std::string> m_CloneMapping; // Mapping for cloned resource names
+
+        // Phase 3.1: Multi-set management
+        std::unordered_map<u32, DescriptorSetInfo> m_DescriptorSets;
+        std::unordered_map<DescriptorSetPriority, u32> m_PriorityToSetMap;
+        std::vector<u32> m_SetBindingOrder;
+        bool m_UseSetPriority = true;
+        bool m_AutoAssignSets = true;
+        u32 m_StartSet = 0;
+        u32 m_EndSet = 4;
+        
+        // Phase 3.2: Default resource system
+        std::unordered_map<std::string, ShaderResourceInfo> m_DefaultResources;
+        std::unordered_map<std::string, UniformBufferRegistrySpecification> m_ResourceTemplates;
+        bool m_DefaultResourcesInitialized = false;
+
+        // Phase 1.2: Two-Phase Resource Updates - Pending resources awaiting commit
+        std::unordered_map<std::string, ShaderResource> m_PendingResources;
+        std::unordered_set<std::string> m_InvalidatedResources;
 
         // Bindings that need to be applied (dirty tracking)
         std::unordered_set<std::string> m_DirtyBindings;
@@ -478,5 +924,151 @@ namespace OloEngine
         // Frame-in-flight support (Phase 1.3)
         std::unique_ptr<FrameInFlightManager> m_FrameInFlightManager = nullptr;
         bool m_FrameInFlightEnabled = false;
+
+        // Phase 2.1: Template and clone support methods
+        
+        /**
+         * @brief Copy resource bindings from another registry (for templates/clones)
+         * @param source Source registry to copy from
+         * @param includeResources Whether to copy bound resources or just bindings
+         */
+        void CopyBindingsFrom(const UniformBufferRegistry& source, bool includeResources = false);
+
+        /**
+         * @brief Validate cloned registry against target shader
+         * @param targetShader Shader to validate against
+         * @return true if compatible, false otherwise
+         */
+        bool ValidateCloneCompatibility(const Ref<Shader>& targetShader) const;
+
+        /**
+         * @brief Apply specification settings to registry configuration
+         */
+        void ApplySpecificationSettings();
+
+        /**
+         * @brief Set up resource templates based on shader pattern detection
+         */
+        void SetupResourceTemplates();
+
+        // Phase 3.1: Multi-set management private methods
+        
+        /**
+         * @brief Initialize descriptor sets based on configuration
+         */
+        void InitializeDescriptorSets();
+
+        /**
+         * @brief Update set binding order based on priorities
+         */
+        void UpdateSetBindingOrder();
+
+        /**
+         * @brief Determine appropriate descriptor set for a resource based on heuristics
+         * @param resourceName Name of the resource
+         * @param resourceInfo Resource binding information
+         * @return Suggested descriptor set priority
+         */
+        DescriptorSetPriority DetermineResourceSetPriority(const std::string& resourceName, 
+                                                          const ShaderResourceBinding& resourceInfo) const;
+
+        /**
+         * @brief Validate descriptor set assignments
+         * @return true if all assignments are valid
+         */
+        bool ValidateSetAssignments() const;
+
+        // Phase 3.2: Default resource system private methods
+        
+        /**
+         * @brief Initialize built-in resource templates
+         */
+        void InitializeBuiltinTemplates();
+
+        /**
+         * @brief Create default system uniform buffer (view/projection matrices, time, etc.)
+         */
+        void CreateDefaultSystemBuffer();
+
+        /**
+         * @brief Create default material uniform buffer based on shader uniforms
+         */
+        void CreateDefaultMaterialBuffer();
+
+        /**
+         * @brief Create default lighting uniform buffer
+         */
+        void CreateDefaultLightingBuffer();
+
+        /**
+         * @brief Analyze shader uniforms to detect common patterns
+         * @return Detected shader pattern type
+         */
+        std::string AnalyzeShaderPattern() const;
+
+        /**
+         * @brief Set up default texture bindings based on shader samplers
+         */
+        void SetupDefaultTextures();
     };
+
+    /**
+     * @brief Phase 3 Advanced Usage Examples:
+     * 
+     * // Example 1: Modern PBR material with automatic set assignment
+     * auto pbrSpec = UniformBufferRegistrySpecification{};
+     * pbrSpec.Name = "PBRMaterial";
+     * pbrSpec.Configuration = RegistryConfiguration::Performance;
+     * pbrSpec.UseSetPriority = true;           // Enable multi-set management (DEFAULT)
+     * pbrSpec.AutoAssignSets = true;           // Smart resource assignment (DEFAULT)
+     * pbrSpec.EnableDefaultResources = true;   // Auto-populate common resources (DEFAULT)
+     * pbrSpec.AutoDetectShaderPattern = true;  // Smart defaults based on shader (DEFAULT)
+     * 
+     * auto registry = CreateScope<UniformBufferRegistry>(pbrShader, pbrSpec);
+     * registry->Initialize(); // Auto-creates SystemUniforms, MaterialUniforms, LightingUniforms
+     * 
+     * // Resources are automatically assigned to appropriate descriptor sets:
+     * // Set 0 (System): ViewMatrix, ProjectionMatrix, CameraPosition, Time
+     * // Set 1 (Global): LightingData, EnvironmentMap, ShadowMaps
+     * // Set 2 (Material): DiffuseTexture, NormalTexture, MetallicRoughnessTexture
+     * // Set 3 (Instance): ModelMatrix, InstanceData
+     * 
+     * // Binding is now optimized by set priority:
+     * registry->BindAllSets(); // Binds in optimal order: System -> Global -> Material -> Instance
+     * 
+     * // Example 2: Integration with ResourceBindingGroup for batch operations
+     * auto manager = CreateScope<ResourceBindingGroupManager>();
+     * manager->SetRegistry(registry.get());
+     * 
+     * auto* materialGroup = manager->CreateGroup("PBRMaterialGroup");
+     * materialGroup->SetBindingStrategy(BindingStrategy::Batched);
+     * materialGroup->AddResource("DiffuseTexture", 0, diffuseTexture);
+     * materialGroup->AddResource("NormalTexture", 1, normalTexture);
+     * materialGroup->AddResource("MaterialProperties", 1, materialBuffer);
+     * 
+     * // Binding now uses Phase 3 multi-set optimization automatically:
+     * materialGroup->Bind(); // Groups by descriptor set, binds in priority order
+     * 
+     * // Example 3: Template-based workflow for multiple similar materials
+     * auto templateRegistry = UniformBufferRegistry::CreateTemplate(*registry, "PBRTemplate");
+     * 
+     * // Create instances for different materials using the template:
+     * auto metalMaterial = UniformBufferRegistry::CreateFromTemplate(*templateRegistry, metalShader, "MetalMaterial");
+     * auto fabricMaterial = UniformBufferRegistry::CreateFromTemplate(*templateRegistry, fabricShader, "FabricMaterial");
+     * 
+     * // All instances inherit the optimized set configuration and default resources
+     * 
+     * // Example 4: Advanced set-specific binding for performance
+     * // Only bind system resources once per frame:
+     * registry->BindDescriptorSet(0); // System set - view/projection matrices
+     * 
+     * // Bind global resources once per scene:
+     * registry->BindDescriptorSet(1); // Global set - lighting, environment
+     * 
+     * // Bind material resources per material:
+     * registry->BindDescriptorSet(2); // Material set - textures, material properties
+     * 
+     * // Bind instance resources per object:
+     * registry->BindDescriptorSet(3); // Instance set - model matrix, instance data
+     */
 }

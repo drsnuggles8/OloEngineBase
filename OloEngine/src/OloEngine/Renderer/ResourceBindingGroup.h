@@ -196,26 +196,35 @@ namespace OloEngine
         }
 
         /**
-         * @brief Bind all resources in the group
+         * @brief Bind all resources in the group using Phase 3 multi-set optimization
          */
         void Bind()
         {
             auto startTime = std::chrono::high_resolution_clock::now();
             
-            switch (m_Strategy)
+            // Phase 3 Integration: Use registry's multi-set binding if available
+            if (m_Registry && m_Registry->GetSpecification().UseSetPriority)
             {
-                case BindingStrategy::Immediate:
-                    BindImmediate();
-                    break;
-                case BindingStrategy::Lazy:
-                    BindLazy();
-                    break;
-                case BindingStrategy::Batched:
-                    BindBatched();
-                    break;
-                case BindingStrategy::StateTracked:
-                    BindStateTracked();
-                    break;
+                BindWithMultiSetOptimization();
+            }
+            else
+            {
+                // Fall back to traditional binding strategies
+                switch (m_Strategy)
+                {
+                    case BindingStrategy::Immediate:
+                        BindImmediate();
+                        break;
+                    case BindingStrategy::Lazy:
+                        BindLazy();
+                        break;
+                    case BindingStrategy::Batched:
+                        BindBatched();
+                        break;
+                    case BindingStrategy::StateTracked:
+                        BindStateTracked();
+                        break;
+                }
             }
             
             auto endTime = std::chrono::high_resolution_clock::now();
@@ -588,6 +597,69 @@ namespace OloEngine
                 if (binding.IsDirty)
                     m_Stats.DirtyBindings++;
             }
+        }
+
+        /**
+         * @brief Phase 3 Integration: Bind resources using multi-set optimization
+         */
+        void BindWithMultiSetOptimization()
+        {
+            if (!m_Registry)
+            {
+                BindLazy(); // Fallback
+                return;
+            }
+
+            // Group resources by descriptor set for optimal binding order
+            std::map<u32, std::vector<std::string>> setGroups;
+            
+            for (const auto& [name, binding] : m_Bindings)
+            {
+                if (binding.IsDirty)
+                {
+                    u32 setIndex = m_Registry->GetResourceSetIndex(name);
+                    if (setIndex != UINT32_MAX)
+                    {
+                        setGroups[setIndex].push_back(name);
+                    }
+                    else
+                    {
+                        // Resource not assigned to a set, bind individually
+                        auto& resourceBinding = m_Bindings[name];
+                        BindSingleResource(resourceBinding);
+                        resourceBinding.IsDirty = false;
+                        m_Stats.ActiveBindings++;
+                    }
+                }
+            }
+
+            // Bind resources in set priority order
+            const auto& setBindingOrder = m_Registry->GetSetBindingOrder();
+            for (u32 setIndex : setBindingOrder)
+            {
+                auto setIt = setGroups.find(setIndex);
+                if (setIt != setGroups.end())
+                {
+                    // Set up state for this descriptor set
+                    const auto* setInfo = m_Registry->GetDescriptorSetInfo(setIndex);
+                    if (setInfo)
+                    {
+                        OLO_CORE_TRACE("ResourceBindingGroup '{0}': Binding set {1} '{2}' ({3} resources)", 
+                                      m_Name, setIndex, setInfo->Name, setIt->second.size());
+                    }
+
+                    // Bind all resources in this set
+                    for (const std::string& resourceName : setIt->second)
+                    {
+                        auto& resourceBinding = m_Bindings[resourceName];
+                        BindSingleResource(resourceBinding);
+                        resourceBinding.IsDirty = false;
+                        m_Stats.ActiveBindings++;
+                    }
+                }
+            }
+
+            m_Stats.TotalBindOperations += m_Stats.ActiveBindings;
         }
     };
 
