@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/UniformBufferRegistry.h"
 #include "DebugUtils.h"
 
 #include <imgui.h>
@@ -108,6 +109,14 @@ namespace OloEngine
             u32 m_InstructionCount = 0; // Estimated from SPIR-V
         };
 
+        struct ResourceBindingInfo
+        {
+            std::string m_Name;
+            ShaderResourceType m_Type = ShaderResourceType::None;
+            u32 m_BindingPoint = 0;
+            bool m_IsBound = false;
+        };
+
         struct ReloadEvent
         {
             std::chrono::steady_clock::time_point m_Timestamp;
@@ -130,6 +139,9 @@ namespace OloEngine
             std::vector<UniformInfo> m_Uniforms;
             std::vector<UniformBufferInfo> m_UniformBuffers;
             std::vector<SamplerInfo> m_Samplers;
+            
+            // Resource binding information from UniformBufferRegistry
+            std::vector<ResourceBindingInfo> m_ResourceBindings;
             
             // Performance and usage tracking
             CompilationResult m_LastCompilation;
@@ -263,6 +275,20 @@ namespace OloEngine
          */
         bool ExportReport(const std::string& filePath) const;
 
+        /**
+         * @brief Update resource binding information for a shader
+         * @param rendererID OpenGL shader program ID
+         * @param resourceName Name of the resource
+         * @param bindingInfo String description of the binding
+         */
+        void UpdateResourceBinding(u32 rendererID, const std::string& resourceName, ShaderResourceType type, u32 bindingPoint, bool isBound);
+
+        /**
+         * @brief Clear all resource bindings for a shader
+         * @param rendererID OpenGL shader program ID
+         */
+        void ClearResourceBindings(u32 rendererID);
+
     private:
         ShaderDebugger() = default;
         ~ShaderDebugger() = default;
@@ -274,6 +300,7 @@ namespace OloEngine
         void RenderShaderDetails(const ShaderInfo& shaderInfo);
         void RenderSourceCode(const ShaderInfo& shaderInfo);
         void RenderUniforms(const ShaderInfo& shaderInfo);
+        void RenderResourceBindings(const ShaderInfo& shaderInfo);
         void RenderPerformanceMetrics(const ShaderInfo& shaderInfo);
         void RenderReloadHistory(const ShaderInfo& shaderInfo);
         void RenderSPIRVAnalysis(const ShaderInfo& shaderInfo);

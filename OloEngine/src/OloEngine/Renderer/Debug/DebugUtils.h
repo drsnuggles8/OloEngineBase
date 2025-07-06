@@ -81,6 +81,7 @@ namespace OloEngine
 		namespace Colors
         {
             inline const ImVec4 Good = ImVec4(0.4f, 1.0f, 0.4f, 1.0f);       // Green
+            inline const ImVec4 Success = ImVec4(0.4f, 1.0f, 0.4f, 1.0f);    // Green
             inline const ImVec4 Warning = ImVec4(1.0f, 0.8f, 0.0f, 1.0f);    // Yellow
             inline const ImVec4 Critical = ImVec4(1.0f, 0.4f, 0.4f, 1.0f);   // Red
             inline const ImVec4 Info = ImVec4(0.6f, 0.8f, 1.0f, 1.0f);       // Light blue

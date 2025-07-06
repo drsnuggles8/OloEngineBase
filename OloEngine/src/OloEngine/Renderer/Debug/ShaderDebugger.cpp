@@ -687,6 +687,51 @@ namespace OloEngine
         }
     }
 
+    void ShaderDebugger::UpdateResourceBinding(u32 rendererID, const std::string& resourceName, ShaderResourceType type, u32 bindingPoint, bool isBound)
+    {
+        std::lock_guard<std::mutex> lock(m_ShaderMutex);
+        
+        auto it = m_Shaders.find(rendererID);
+        if (it != m_Shaders.end())
+        {
+            // Find existing binding or create new one
+            auto& bindings = it->second.m_ResourceBindings;
+            auto bindingIt = std::find_if(bindings.begin(), bindings.end(),
+                [&resourceName](const ResourceBindingInfo& binding) {
+                    return binding.m_Name == resourceName;
+                });
+            
+            if (bindingIt != bindings.end())
+            {
+                // Update existing binding
+                bindingIt->m_Type = type;
+                bindingIt->m_BindingPoint = bindingPoint;
+                bindingIt->m_IsBound = isBound;
+            }
+            else
+            {
+                // Create new binding
+                ResourceBindingInfo newBinding;
+                newBinding.m_Name = resourceName;
+                newBinding.m_Type = type;
+                newBinding.m_BindingPoint = bindingPoint;
+                newBinding.m_IsBound = isBound;
+                bindings.push_back(newBinding);
+            }
+        }
+    }
+
+    void ShaderDebugger::ClearResourceBindings(u32 rendererID)
+    {
+        std::lock_guard<std::mutex> lock(m_ShaderMutex);
+        
+        auto it = m_Shaders.find(rendererID);
+        if (it != m_Shaders.end())
+        {
+            it->second.m_ResourceBindings.clear();
+        }
+    }
+
     void ShaderDebugger::RenderDebugView(bool* open, const char* title)
     {
         if (!m_IsInitialized)
@@ -941,6 +986,12 @@ namespace OloEngine
                 ImGui::EndTabItem();
             }
 
+            if (ImGui::BeginTabItem("Resource Bindings"))
+            {
+                RenderResourceBindings(shaderInfo);
+                ImGui::EndTabItem();
+            }
+
             if (ImGui::BeginTabItem("Performance"))
             {
                 RenderPerformanceMetrics(shaderInfo);
@@ -1177,6 +1228,67 @@ namespace OloEngine
         if (shaderInfo.m_Uniforms.empty() && shaderInfo.m_UniformBuffers.empty() && shaderInfo.m_Samplers.empty())
         {
             ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "No uniform information available");
+        }
+    }
+
+    void ShaderDebugger::RenderResourceBindings(const ShaderInfo& shaderInfo)
+    {
+        ImGui::Text("Resource Bindings");
+        ImGui::Separator();
+        
+        if (!shaderInfo.m_ResourceBindings.empty())
+        {
+            if (ImGui::BeginTable("ResourceBindingsTable", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
+            {
+                ImGui::TableSetupColumn("Resource Name");
+                ImGui::TableSetupColumn("Type");
+                ImGui::TableSetupColumn("Binding Point");
+                ImGui::TableSetupColumn("Status");
+                ImGui::TableHeadersRow();
+
+                for (const auto& binding : shaderInfo.m_ResourceBindings)
+                {
+                    ImGui::TableNextRow();
+                    
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::Text("%s", binding.m_Name.c_str());
+                    
+                    ImGui::TableSetColumnIndex(1);
+                    const char* typeStr = "Unknown";
+                    switch (binding.m_Type)
+                    {
+                        case OloEngine::ShaderResourceType::UniformBuffer: 
+                            typeStr = "Uniform Buffer"; 
+                            break;
+                        case OloEngine::ShaderResourceType::Texture2D: 
+                            typeStr = "Texture 2D"; 
+                            break;
+                        case OloEngine::ShaderResourceType::TextureCube: 
+                            typeStr = "Texture Cube"; 
+                            break;
+                    }
+                    ImGui::Text("%s", typeStr);
+                    
+                    ImGui::TableSetColumnIndex(2);
+                    ImGui::Text("%u", binding.m_BindingPoint);
+                    
+                    ImGui::TableSetColumnIndex(3);
+                    if (binding.m_IsBound)
+                    {
+                        ImGui::TextColored(DebugUtils::Colors::Success, "Bound");
+                    }
+                    else
+                    {
+                        ImGui::TextColored(DebugUtils::Colors::Warning, "Unbound");
+                    }
+                }
+                
+                ImGui::EndTable();
+            }
+        }
+        else
+        {
+            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "No resource binding information available");
         }
     }
 

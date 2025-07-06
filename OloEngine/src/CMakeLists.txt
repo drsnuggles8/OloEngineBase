@@ -109,6 +109,8 @@
 		"OloEngine/Renderer/TextureCubemap.h"
 		"OloEngine/Renderer/UniformBuffer.cpp"
 		"OloEngine/Renderer/UniformBuffer.h"
+		"OloEngine/Renderer/UniformBufferRegistry.cpp"
+		"OloEngine/Renderer/UniformBufferRegistry.h"
 		"OloEngine/Renderer/Vertex.h"
 		"OloEngine/Renderer/VertexArray.cpp"
 		"OloEngine/Renderer/VertexArray.h"		

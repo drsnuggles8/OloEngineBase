@@ -177,5 +177,3 @@ OLO_CORE_INFO("  Textures: Diffuse->slot {}, Specular->slot {}", diffuseSlot, sp
 ## Conclusion
 
 Effective shader debugging requires a systematic approach combining visual confirmation, comprehensive logging, and awareness of common pitfalls like caching issues. The key is to verify assumptions at every level of the rendering pipeline and use obvious visual indicators to confirm when fixes take effect.
-
-Remember: **When in doubt, make it bright white!** 🔆

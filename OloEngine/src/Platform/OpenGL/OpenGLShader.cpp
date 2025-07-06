@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
 
 #include <glad/gl.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -227,6 +228,15 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
 		
+		// Unregister the resource registry from CommandDispatch
+		if (m_RendererID != 0)
+		{
+			OloEngine::CommandDispatch::UnregisterShaderRegistry(m_RendererID);
+		}
+		
+		// Shutdown the resource registry
+		m_ResourceRegistry.Shutdown();
+		
 		// Unregister from shader debugger
 		OLO_SHADER_UNREGISTER(m_RendererID);
 		
@@ -234,6 +244,13 @@ namespace OloEngine
 		OLO_TRACK_DEALLOC(this);
 		
 		glDeleteProgram(m_RendererID);
+	}
+
+	void OpenGLShader::InitializeResourceRegistry(const Ref<Shader>& shaderRef)
+	{
+		m_ResourceRegistry.SetShader(shaderRef);
+		m_ResourceRegistry.Initialize();
+		OLO_CORE_TRACE("OpenGLShader: Initialized resource registry for shader '{0}'", m_Name);
 	}
 
 	std::string OpenGLShader::ReadFile(const std::string& filepath)
@@ -454,6 +471,10 @@ namespace OloEngine
 
 		m_RendererID = program;
 		
+		// Initialize resource registry now that shader is fully created
+		// Note: We can't use shared_from_this() here as the object isn't fully constructed yet
+		// The registry will be properly set up when the shader is first used
+		
 		// Estimate shader memory usage (basic approximation)
 		sizet estimatedMemory = 0;		for (const auto& [stage, spirv] : m_OpenGLSPIRV)
 		{
@@ -468,6 +489,9 @@ namespace OloEngine
 		
 		// Register with shader debugger after program creation
 		OLO_SHADER_REGISTER_MANUAL(m_RendererID, m_Name, m_FilePath);
+		
+		// Register the resource registry with CommandDispatch
+		OloEngine::CommandDispatch::RegisterShaderRegistry(m_RendererID, &m_ResourceRegistry);
 		
 		// Store shader source code in debugger
 		for (const auto& [stage, spirv] : m_OpenGLSPIRV)
@@ -577,6 +601,10 @@ namespace OloEngine
 
 	m_RendererID = program;
 	
+	// Initialize resource registry now that shader is fully created
+	// Note: We can't use shared_from_this() here as the object isn't fully constructed yet
+	// The registry will be properly set up when the shader is first used
+	
 	// Estimate shader memory usage (basic approximation) 
 	sizet estimatedMemory = 0;
 	for (const auto& [stage, spirv] : m_VulkanSPIRV)
@@ -593,6 +621,9 @@ namespace OloEngine
 	
 	// Register with shader debugger after program creation
 	OLO_SHADER_REGISTER_MANUAL(m_RendererID, m_Name, m_FilePath);
+	
+	// Register the resource registry with CommandDispatch
+	OloEngine::CommandDispatch::RegisterShaderRegistry(m_RendererID, &m_ResourceRegistry);
 	
 	// Store shader source code in debugger  
 	for (const auto& [stage, spirv] : m_VulkanSPIRV)
@@ -662,8 +693,10 @@ namespace OloEngine
 		OLO_CORE_TRACE("    {0} uniform buffers", resources.uniform_buffers.size());
 		OLO_CORE_TRACE("    {0} resources", resources.sampled_images.size());
 
-		// Note: Reflection data is now processed in SetShaderSource after shader registration
+		// Integrate with the resource registry for automatic resource discovery
+		m_ResourceRegistry.DiscoverResources(stage, shaderData);
 
+		// Keep existing debug logging for compatibility
 		OLO_CORE_TRACE("Uniform buffers:");
 		for (const auto& resource : resources.uniform_buffers)
 		{

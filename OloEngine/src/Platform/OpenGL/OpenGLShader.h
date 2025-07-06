@@ -1,5 +1,6 @@
 #pragma once
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/UniformBufferRegistry.h"
 #include <glm/glm.hpp>
 
 namespace OloEngine
@@ -37,6 +38,25 @@ namespace OloEngine
 
 		void UploadUniformMat3(const std::string& name, const glm::mat3& matrix) const;
 		void UploadUniformMat4(const std::string& name, const glm::mat4& matrix) const;
+
+		// Resource registry access
+		UniformBufferRegistry& GetResourceRegistry() { return m_ResourceRegistry; }
+		const UniformBufferRegistry& GetResourceRegistry() const { return m_ResourceRegistry; }
+
+		// Initialize resource registry (called after shader is fully constructed)
+		void InitializeResourceRegistry(const Ref<Shader>& shaderRef);
+
+		// Convenience methods for setting shader resources
+		template<typename T>
+		bool SetShaderResource(const std::string& name, const Ref<T>& resource)
+		{
+			return m_ResourceRegistry.SetResource(name, resource);
+		}
+
+		bool SetShaderResource(const std::string& name, const ShaderResourceInput& input)
+		{
+			return m_ResourceRegistry.SetResource(name, input);
+		}
 	private:
 		static std::string ReadFile(const std::string& filepath);
 		static std::unordered_map<GLenum, std::string> PreProcess(std::string_view source);
@@ -58,6 +78,9 @@ namespace OloEngine
 
 		std::unordered_map<GLenum, std::string> m_OpenGLSourceCode;
 		std::unordered_map<GLenum, std::string> m_OriginalSourceCode; // Store original preprocessed source
+
+		// Resource registry for automatic resource management
+		UniformBufferRegistry m_ResourceRegistry;
 	};
 
 }

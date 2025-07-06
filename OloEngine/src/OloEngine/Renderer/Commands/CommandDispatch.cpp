@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/UniformBufferRegistry.h"
 #include "OloEngine/Renderer/Light.h"
 
 namespace OloEngine
@@ -28,6 +29,9 @@ namespace OloEngine
 		// State tracking for optimizations
 		u32 CurrentBoundShaderID = 0;
 		std::array<u32, 32> BoundTextureIDs = { 0 };
+		
+		// Registry tracking for shader resources
+		std::unordered_map<u32, UniformBufferRegistry*> ShaderRegistries;
 		
 		// Statistics for performance monitoring
 		CommandDispatch::Statistics Stats;
@@ -280,6 +284,7 @@ namespace OloEngine
         // Draw commands dispatch functions
         s_DispatchTable[static_cast<sizet>(CommandType::BindDefaultFramebuffer)] = CommandDispatch::BindDefaultFramebuffer;
         s_DispatchTable[static_cast<sizet>(CommandType::BindTexture)] = CommandDispatch::BindTexture;
+        s_DispatchTable[static_cast<sizet>(CommandType::SetShaderResource)] = CommandDispatch::SetShaderResource;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawIndexed)] = CommandDispatch::DrawIndexed;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawIndexedInstanced)] = CommandDispatch::DrawIndexedInstanced;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawArrays)] = CommandDispatch::DrawArrays;
@@ -475,6 +480,27 @@ namespace OloEngine
     {
         auto const* cmd = static_cast<const BindTextureCommand*>(data);
         api.BindTexture(cmd->slot, cmd->textureID);
+    }
+    
+    void CommandDispatch::SetShaderResource(const void* data, RendererAPI& /*api*/)
+    {
+        auto const* cmd = static_cast<const SetShaderResourceCommand*>(data);
+        
+        auto* registry = GetShaderRegistry(cmd->shaderID);
+        if (registry)
+        {
+            bool success = registry->SetResource(cmd->resourceName, cmd->resourceInput);
+            if (!success)
+            {
+                OLO_CORE_WARN("Failed to set shader resource '{0}' for shader ID {1}", 
+                              cmd->resourceName, cmd->shaderID);
+            }
+        }
+        else
+        {
+            OLO_CORE_WARN("No registry found for shader ID {0} when setting resource '{1}'", 
+                          cmd->shaderID, cmd->resourceName);
+        }
     }
     
     void CommandDispatch::DrawIndexed(const void* data, RendererAPI& api)
@@ -1156,5 +1182,45 @@ namespace OloEngine
 		s_Data.CurrentBoundShaderID = 0;
         std::ranges::fill(s_Data.BoundTextureIDs, 0);
 		s_Data.Stats.Reset();
+	}
+
+	// Registry management for shader resources
+	UniformBufferRegistry* CommandDispatch::GetShaderRegistry(u32 shaderID)
+	{
+		auto it = s_Data.ShaderRegistries.find(shaderID);
+		return it != s_Data.ShaderRegistries.end() ? it->second : nullptr;
+	}
+
+	void CommandDispatch::RegisterShaderRegistry(u32 shaderID, UniformBufferRegistry* registry)
+	{
+		if (registry)
+		{
+			s_Data.ShaderRegistries[shaderID] = registry;
+			OLO_CORE_TRACE("Registered shader registry for shader ID: {0}", shaderID);
+		}
+	}
+
+	void CommandDispatch::UnregisterShaderRegistry(u32 shaderID)
+	{
+		auto it = s_Data.ShaderRegistries.find(shaderID);
+		if (it != s_Data.ShaderRegistries.end())
+		{
+			s_Data.ShaderRegistries.erase(it);
+			OLO_CORE_TRACE("Unregistered shader registry for shader ID: {0}", shaderID);
+		}
+	}
+
+	const std::unordered_map<u32, UniformBufferRegistry*>& CommandDispatch::GetShaderRegistries()
+	{
+		return s_Data.ShaderRegistries;
+	}
+
+	void CommandDispatch::ApplyResourceBindings(u32 shaderID)
+	{
+		auto* registry = GetShaderRegistry(shaderID);
+		if (registry)
+		{
+			registry->ApplyBindings();
+		}
 	}
 }

@@ -6,6 +6,8 @@
 #include <glm/gtx/hash.hpp>
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/UniformBufferRegistry.h"
+#include "Platform/OpenGL/OpenGLShader.h"
 
 namespace OloEngine
 {
@@ -21,6 +23,109 @@ namespace OloEngine
 		Ref<Shader> Shader;
 		glm::vec3 LightPosition = {0.0f, 0.0f, 0.0f};
    		glm::vec3 ViewPosition = {0.0f, 0.0f, 0.0f};
+
+		/**
+		 * @brief Template method for setting shader resources with automatic type deduction
+		 * @tparam T Resource type (UniformBuffer, Texture2D, etc.)
+		 * @param name Resource name as defined in shader
+		 * @param resource Resource to bind
+		 * @return true if resource was set successfully, false otherwise
+		 */
+		template<typename T>
+		bool SetResource(const std::string& name, const Ref<T>& resource)
+		{
+			if (!Shader)
+			{
+				OLO_CORE_WARN("Material::SetResource: No shader associated with material");
+				return false;
+			}
+
+			// Try to get the shader registry (for OpenGL shaders)
+			if (auto* openglShader = dynamic_cast<OpenGLShader*>(Shader.get()))
+			{
+				return openglShader->SetShaderResource(name, resource);
+			}
+			
+			OLO_CORE_WARN("Material::SetResource: Shader type does not support resource registry");
+			return false;
+		}
+
+		/**
+		 * @brief Set a shader resource by name with type-safe input
+		 * @param name Resource name as defined in shader
+		 * @param input Type-safe resource input
+		 * @return true if resource was set successfully, false otherwise
+		 */
+		bool SetResource(const std::string& name, const ShaderResourceInput& input)
+		{
+			if (!Shader)
+			{
+				OLO_CORE_WARN("Material::SetResource: No shader associated with material");
+				return false;
+			}
+
+			// Try to get the shader registry (for OpenGL shaders)
+			if (auto* openglShader = dynamic_cast<OpenGLShader*>(Shader.get()))
+			{
+				return openglShader->SetShaderResource(name, input);
+			}
+			
+			OLO_CORE_WARN("Material::SetResource: Shader type does not support resource registry");
+			return false;
+		}
+
+		/**
+		 * @brief Apply all bound resources to the shader's registry
+		 * This should be called before rendering with this material
+		 */
+		void ApplyToShader()
+		{
+			if (!Shader)
+			{
+				OLO_CORE_WARN("Material::ApplyToShader: No shader associated with material");
+				return;
+			}
+
+			// Try to get the shader registry (for OpenGL shaders)
+			if (auto* openglShader = dynamic_cast<OpenGLShader*>(Shader.get()))
+			{
+				openglShader->GetResourceRegistry().ApplyBindings();
+			}
+		}
+
+		/**
+		 * @brief Get the resource registry associated with this material's shader
+		 * @return Pointer to registry if available, nullptr otherwise
+		 */
+		UniformBufferRegistry* GetResourceRegistry()
+		{
+			if (!Shader)
+				return nullptr;
+
+			if (auto* openglShader = dynamic_cast<OpenGLShader*>(Shader.get()))
+			{
+				return &openglShader->GetResourceRegistry();
+			}
+			
+			return nullptr;
+		}
+
+		/**
+		 * @brief Get the resource registry associated with this material's shader (const version)
+		 * @return Pointer to registry if available, nullptr otherwise
+		 */
+		const UniformBufferRegistry* GetResourceRegistry() const
+		{
+			if (!Shader)
+				return nullptr;
+
+			if (auto* openglShader = dynamic_cast<const OpenGLShader*>(Shader.get()))
+			{
+				return &openglShader->GetResourceRegistry();
+			}
+			
+			return nullptr;
+		}
 
 		bool operator==(const Material& other) const
 		{

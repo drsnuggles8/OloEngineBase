@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Core/Timestep.h"
+#include "OloEngine/Renderer/UniformBufferRegistry.h"
 
 // Forward declarations
 namespace OloEngine {
@@ -71,6 +72,15 @@ namespace OloEngine
 		static Statistics GetStats();
 		static void ResetStats();
 		
+		// Global resource management for scene-wide resources
+		static UniformBufferRegistry& GetGlobalResourceRegistry() { return s_Data.GlobalResourceRegistry; }
+		template<typename T>
+		static bool SetGlobalResource(const std::string& name, const Ref<T>& resource)
+		{
+			return s_Data.GlobalResourceRegistry.SetResource(name, resource);
+		}
+		static void ApplyGlobalResources();
+		
 		// Debug access to command bucket for debugging tools
 		static const CommandBucket* GetCommandBucket() { return s_Data.ScenePass ? &s_Data.ScenePass->GetCommandBucket() : nullptr; }
 		
@@ -128,6 +138,9 @@ namespace OloEngine
 			
 			Statistics Stats;
 			u32 CommandCounter = 0;
+			
+			// Global resource registry for scene-wide resources like environment maps, shadows, etc.
+			UniformBufferRegistry GlobalResourceRegistry;
 			
 			Ref<RenderGraph> RGraph;
 			Ref<SceneRenderPass> ScenePass;

@@ -7,6 +7,7 @@ namespace OloEngine
 {
 	class UniformBuffer;
 	class Light;
+	class UniformBufferRegistry;
 
     // Command dispatch functions that take POD command data and execute it
     class CommandDispatch
@@ -42,6 +43,26 @@ namespace OloEngine
 		static void SetViewProjectionMatrix(const glm::mat4& viewProjection);
 		static void SetViewMatrix(const glm::mat4& view);
 
+        // Registry management for shader resources
+        static UniformBufferRegistry* GetShaderRegistry(u32 shaderID);
+        static void RegisterShaderRegistry(u32 shaderID, UniformBufferRegistry* registry);
+        static void UnregisterShaderRegistry(u32 shaderID);
+        static const std::unordered_map<u32, UniformBufferRegistry*>& GetShaderRegistries();
+        
+        // High-level resource setting methods
+        template<typename T>
+        static bool SetShaderResource(u32 shaderID, const std::string& name, const Ref<T>& resource)
+        {
+            auto* registry = GetShaderRegistry(shaderID);
+            if (registry)
+            {
+                return registry->SetResource(name, resource);
+            }
+            return false;
+        }
+        
+        static void ApplyResourceBindings(u32 shaderID);
+
         // State management dispatch functions
         static void SetViewport(const void* data, RendererAPI& api);
         static void SetClearColor(const void* data, RendererAPI& api);
@@ -70,6 +91,7 @@ namespace OloEngine
         // Draw commands dispatch functions
         static void BindDefaultFramebuffer(const void* data, RendererAPI& api);
         static void BindTexture(const void* data, RendererAPI& api);
+        static void SetShaderResource(const void* data, RendererAPI& api);
         static void DrawIndexed(const void* data, RendererAPI& api);
         static void DrawIndexedInstanced(const void* data, RendererAPI& api);
         static void DrawArrays(const void* data, RendererAPI& api);

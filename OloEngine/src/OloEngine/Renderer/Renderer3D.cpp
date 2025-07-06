@@ -11,6 +11,7 @@
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
+#include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
@@ -85,6 +86,9 @@ namespace OloEngine
 		Window& window = Application::Get().GetWindow();
 		s_Data.RGraph = CreateRef<RenderGraph>();
 		SetupRenderGraph(window.GetFramebufferWidth(), window.GetFramebufferHeight());
+		
+		// Initialize global resource registry
+		OLO_CORE_INFO("Renderer3D: Initialized global resource registry");
 		
 		OLO_CORE_INFO("Renderer3D initialization complete.");
 	}
@@ -220,13 +224,16 @@ namespace OloEngine
         {
             s_Data.FinalPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
         }
-          // Update profiler with command bucket statistics
+        // Update profiler with command bucket statistics
         auto& profiler = RendererProfiler::GetInstance();
         if (s_Data.ScenePass)
         {
             const auto& commandBucket = s_Data.ScenePass->GetCommandBucket();
             profiler.IncrementCounter(RendererProfiler::MetricType::CommandPackets, static_cast<u32>(commandBucket.GetCommandCount()));
         }
+        
+        // Apply global resources to all active shader registries
+        ApplyGlobalResources();
         
 		// Execute the render graph (which will execute all passes in order)
 		s_Data.RGraph->Execute();
@@ -660,5 +667,49 @@ namespace OloEngine
 		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
 		
 		return packet;
+	}
+
+	void Renderer3D::ApplyGlobalResources()
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		// Get all shader registries from CommandDispatch
+		const auto& shaderRegistries = CommandDispatch::GetShaderRegistries();
+		
+		// Apply global resources to each shader's registry
+		for (const auto& [shaderID, registry] : shaderRegistries)
+		{
+			if (registry)
+			{
+				// Copy global resources to each shader's registry
+				const auto& globalResources = s_Data.GlobalResourceRegistry.GetBoundResources();
+				for (const auto& [resourceName, resource] : globalResources)
+				{
+					// Apply the resource if the shader registry has a binding for it
+					if (registry->GetBindingInfo(resourceName) != nullptr)
+					{
+						// Convert the ShaderResource variant to ShaderResourceInput and set it
+						ShaderResourceInput input;
+						if (std::holds_alternative<Ref<UniformBuffer>>(resource))
+						{
+							input = ShaderResourceInput(std::get<Ref<UniformBuffer>>(resource));
+						}
+						else if (std::holds_alternative<Ref<Texture2D>>(resource))
+						{
+							input = ShaderResourceInput(std::get<Ref<Texture2D>>(resource));
+						}
+						else if (std::holds_alternative<Ref<TextureCubemap>>(resource))
+						{
+							input = ShaderResourceInput(std::get<Ref<TextureCubemap>>(resource));
+						}
+						
+						if (input.Type != ShaderResourceType::None)
+						{
+							registry->SetResource(resourceName, input);
+						}
+					}
+				}
+			}
+		}
 	}
 }

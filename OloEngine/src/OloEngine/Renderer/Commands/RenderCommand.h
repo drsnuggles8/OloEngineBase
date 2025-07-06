@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/RenderState.h"
+#include "OloEngine/Renderer/UniformBufferRegistry.h"
 #include <glad/gl.h>
 #include <glm/glm.hpp>
 
@@ -29,6 +30,7 @@ namespace OloEngine
         DrawQuad,
         BindDefaultFramebuffer,
         BindTexture,
+        SetShaderResource,
         SetViewport,
         SetClearColor,
         SetBlendState,
@@ -235,6 +237,14 @@ namespace OloEngine
         CommandHeader header;
         u32 slot;
         u32 textureID;
+    };
+
+    struct SetShaderResourceCommand
+    {
+        CommandHeader header;
+        u32 shaderID;
+        std::string resourceName;
+        ShaderResourceInput resourceInput;
     };
 
     struct DrawIndexedCommand
