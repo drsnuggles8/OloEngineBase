@@ -3,7 +3,10 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
+#include "OloEngine/Renderer/ArrayResource.h"
+#include "OloEngine/Renderer/FrameInFlightManager.h"
 
 #include <string>
 #include <vector>
@@ -27,7 +30,12 @@ namespace OloEngine
         StorageBuffer,
         Texture2D,
         TextureCube,
-        Image2D
+        Image2D,
+        // Array resource types (Phase 1.2)
+        UniformBufferArray,
+        StorageBufferArray,
+        Texture2DArray,
+        TextureCubeArray
     };
 
     /**
@@ -41,11 +49,24 @@ namespace OloEngine
         std::string Name;           // Resource name in shader
         sizet Size = 0;             // Size for buffers, 0 for textures
         bool IsActive = false;      // Whether this resource is currently bound
+        
+        // Array support (Phase 1.2)
+        bool IsArray = false;       // Whether this is an array resource
+        u32 ArraySize = 0;          // Number of elements in the array (0 if not array)
+        u32 BaseBindingPoint = 0;   // Base binding point for arrays
 
         ShaderResourceBinding() = default;
         ShaderResourceBinding(ShaderResourceType type, u32 bindingPoint, u32 set, 
                             const std::string& name, sizet size = 0)
             : Type(type), BindingPoint(bindingPoint), Set(set), Name(name), Size(size), IsActive(false)
+        {}
+        
+        // Constructor for array resources
+        ShaderResourceBinding(ShaderResourceType type, u32 baseBindingPoint, u32 set, 
+                            const std::string& name, u32 arraySize, sizet elementSize = 0)
+            : Type(type), BindingPoint(baseBindingPoint), Set(set), Name(name), 
+              Size(elementSize), IsActive(false), IsArray(true), ArraySize(arraySize), 
+              BaseBindingPoint(baseBindingPoint)
         {}
     };
 
@@ -53,11 +74,17 @@ namespace OloEngine
      * @brief Variant type holding different shader resource types
      */
     using ShaderResource = std::variant<
-        std::monostate,          // Empty state
-        Ref<UniformBuffer>,      // Uniform buffer
-        Ref<Texture2D>,          // 2D texture
-        Ref<TextureCubemap>      // Cubemap texture
-        // Note: StorageBuffer and Image2D will be added in future updates
+        std::monostate,                         // Empty state
+        Ref<UniformBuffer>,                     // Uniform buffer
+        Ref<StorageBuffer>,                     // Storage buffer (SSBO)
+        Ref<Texture2D>,                         // 2D texture
+        Ref<TextureCubemap>,                    // Cubemap texture
+        // Array resource types (Phase 1.2)
+        Ref<UniformBufferArray>,                // Array of uniform buffers
+        Ref<StorageBufferArray>,                // Array of storage buffers
+        Ref<Texture2DArray>,                    // Array of 2D textures
+        Ref<TextureCubemapArray>                // Array of cubemap textures
+        // Note: Image2D will be added in future updates
     >;
 
     /**
@@ -74,11 +101,27 @@ namespace OloEngine
         explicit ShaderResourceInput(const Ref<UniformBuffer>& buffer)
             : Type(ShaderResourceType::UniformBuffer), Resource(buffer) {}
 
+        explicit ShaderResourceInput(const Ref<StorageBuffer>& buffer)
+            : Type(ShaderResourceType::StorageBuffer), Resource(buffer) {}
+
         explicit ShaderResourceInput(const Ref<Texture2D>& texture)
             : Type(ShaderResourceType::Texture2D), Resource(texture) {}
 
         explicit ShaderResourceInput(const Ref<TextureCubemap>& texture)
             : Type(ShaderResourceType::TextureCube), Resource(texture) {}
+
+        // Array resource constructors (Phase 1.2)
+        explicit ShaderResourceInput(const Ref<UniformBufferArray>& array)
+            : Type(ShaderResourceType::UniformBufferArray), Resource(array) {}
+
+        explicit ShaderResourceInput(const Ref<StorageBufferArray>& array)
+            : Type(ShaderResourceType::StorageBufferArray), Resource(array) {}
+
+        explicit ShaderResourceInput(const Ref<Texture2DArray>& array)
+            : Type(ShaderResourceType::Texture2DArray), Resource(array) {}
+
+        explicit ShaderResourceInput(const Ref<TextureCubemapArray>& array)
+            : Type(ShaderResourceType::TextureCubeArray), Resource(array) {}
     };
 
     /**
@@ -148,6 +191,77 @@ namespace OloEngine
         }
 
         /**
+         * @brief Create and bind an array resource
+         * @tparam T Base resource type (StorageBuffer, Texture2D, etc.)
+         * @param name Array resource name as defined in shader
+         * @param baseBindingPoint Starting binding point for the array
+         * @param maxSize Maximum number of resources in the array
+         * @return Shared pointer to the created array resource
+         */
+        template<typename T>
+        Ref<ArrayResource<T>> CreateArrayResource(const std::string& name, u32 baseBindingPoint, u32 maxSize = 32)
+        {
+            auto arrayResource = CreateRef<ArrayResource<T>>(name, baseBindingPoint, maxSize);
+            
+            // Create the appropriate variant type and bind it
+            if constexpr (std::is_same_v<T, StorageBuffer>)
+            {
+                SetResource(name, ShaderResourceInput(std::static_pointer_cast<StorageBufferArray>(arrayResource)));
+            }
+            else if constexpr (std::is_same_v<T, UniformBuffer>)
+            {
+                SetResource(name, ShaderResourceInput(std::static_pointer_cast<UniformBufferArray>(arrayResource)));
+            }
+            else if constexpr (std::is_same_v<T, Texture2D>)
+            {
+                SetResource(name, ShaderResourceInput(std::static_pointer_cast<Texture2DArray>(arrayResource)));
+            }
+            else if constexpr (std::is_same_v<T, TextureCubemap>)
+            {
+                SetResource(name, ShaderResourceInput(std::static_pointer_cast<TextureCubemapArray>(arrayResource)));
+            }
+            
+            return arrayResource;
+        }
+
+        /**
+         * @brief Get an array resource by name
+         * @tparam T Base resource type (StorageBuffer, Texture2D, etc.)
+         * @param name Array resource name
+         * @return Array resource if found and type matches, nullptr otherwise
+         */
+        template<typename T>
+        Ref<ArrayResource<T>> GetArrayResource(const std::string& name) const
+        {
+            auto it = m_BoundResources.find(name);
+            if (it == m_BoundResources.end())
+                return nullptr;
+
+            if constexpr (std::is_same_v<T, StorageBuffer>)
+            {
+                if (std::holds_alternative<Ref<StorageBufferArray>>(it->second))
+                    return std::get<Ref<StorageBufferArray>>(it->second);
+            }
+            else if constexpr (std::is_same_v<T, UniformBuffer>)
+            {
+                if (std::holds_alternative<Ref<UniformBufferArray>>(it->second))
+                    return std::get<Ref<UniformBufferArray>>(it->second);
+            }
+            else if constexpr (std::is_same_v<T, Texture2D>)
+            {
+                if (std::holds_alternative<Ref<Texture2DArray>>(it->second))
+                    return std::get<Ref<Texture2DArray>>(it->second);
+            }
+            else if constexpr (std::is_same_v<T, TextureCubemap>)
+            {
+                if (std::holds_alternative<Ref<TextureCubemapArray>>(it->second))
+                    return std::get<Ref<TextureCubemapArray>>(it->second);
+            }
+
+            return nullptr;
+        }
+
+        /**
          * @brief Get a bound resource by name
          * @tparam T Expected resource type
          * @param name Resource name as defined in shader
@@ -209,6 +323,78 @@ namespace OloEngine
          * @return Shader reference
          */
         Ref<Shader> GetShader() const { return m_Shader; }
+
+        // Frame-in-flight management (Phase 1.3)
+        
+        /**
+         * @brief Enable frame-in-flight resource management
+         * @param framesInFlight Number of frames to keep in flight (default: 3)
+         */
+        void EnableFrameInFlight(u32 framesInFlight = 3);
+
+        /**
+         * @brief Disable frame-in-flight resource management
+         */
+        void DisableFrameInFlight();
+
+        /**
+         * @brief Check if frame-in-flight is enabled
+         */
+        bool IsFrameInFlightEnabled() const { return m_FrameInFlightEnabled; }
+
+        /**
+         * @brief Register a resource for frame-in-flight management
+         * @param name Resource name
+         * @param size Resource size (for buffers)
+         * @param usage Buffer usage pattern
+         * @param arraySize Array size (for array resources, 0 for single resources)
+         * @param baseBindingPoint Base binding point (for array resources)
+         */
+        void RegisterFrameInFlightResource(const std::string& name, ShaderResourceType type, u32 size = 0, 
+                                         BufferUsage usage = BufferUsage::Dynamic, u32 arraySize = 0, u32 baseBindingPoint = 0);
+
+        /**
+         * @brief Advance to the next frame (call at the beginning of each frame)
+         */
+        void NextFrame();
+
+        /**
+         * @brief Get current frame's resource
+         * @tparam T Resource type
+         * @param name Resource name
+         * @return Current frame's resource
+         */
+        template<typename T>
+        Ref<T> GetCurrentFrameResource(const std::string& name) const
+        {
+            if (!m_FrameInFlightEnabled || !m_FrameInFlightManager)
+                return GetResource<T>(name);
+
+            if constexpr (std::is_same_v<T, UniformBuffer>)
+            {
+                return m_FrameInFlightManager->GetCurrentUniformBuffer(name);
+            }
+            else if constexpr (std::is_same_v<T, StorageBuffer>)
+            {
+                return m_FrameInFlightManager->GetCurrentStorageBuffer(name);
+            }
+            else if constexpr (std::is_same_v<T, UniformBufferArray>)
+            {
+                return m_FrameInFlightManager->GetCurrentUniformBufferArray(name);
+            }
+            else if constexpr (std::is_same_v<T, StorageBufferArray>)
+            {
+                return m_FrameInFlightManager->GetCurrentStorageBufferArray(name);
+            }
+
+            // Fallback to regular resource
+            return GetResource<T>(name);
+        }
+
+        /**
+         * @brief Get frame-in-flight manager statistics
+         */
+        FrameInFlightManager::Statistics GetFrameInFlightStatistics() const;
 
         /**
          * @brief Clear all bound resources but keep binding information
@@ -288,5 +474,9 @@ namespace OloEngine
 
         // Initialization state
         bool m_Initialized = false;
+
+        // Frame-in-flight support (Phase 1.3)
+        std::unique_ptr<FrameInFlightManager> m_FrameInFlightManager = nullptr;
+        bool m_FrameInFlightEnabled = false;
     };
 }

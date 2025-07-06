@@ -4,6 +4,15 @@
 
 namespace OloEngine
 {
+	/**
+	 * @brief Buffer usage patterns for optimization hints
+	 */
+	enum class BufferUsage
+	{
+		Static = 0,  // Data will be modified once and used many times
+		Dynamic,     // Data will be modified repeatedly and used many times
+		Stream       // Data will be modified once and used at most a few times
+	};
 
 	enum class ShaderDataType
 	{

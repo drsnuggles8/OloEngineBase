@@ -108,6 +108,38 @@ namespace OloEngine
                               resource.name, binding, bufferSize);
             }
 
+            // Discover storage buffers (SSBOs)
+            for (const auto& resource : resources.storage_buffers)
+            {
+                const auto& bufferType = compiler.get_type(resource.base_type_id);
+                sizet bufferSize = compiler.get_declared_struct_size(bufferType);
+                u32 binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
+                u32 set = 0; // OpenGL doesn't use descriptor sets, default to 0
+
+                // Check if binding point is already used
+                auto it = m_BindingPointUsage.find(binding);
+                if (it != m_BindingPointUsage.end())
+                {
+                    OLO_CORE_WARN("Binding point {0} already used by resource '{1}', skipping '{2}'", 
+                                  binding, it->second, resource.name);
+                    continue;
+                }
+
+                ShaderResourceBinding bindingInfo(
+                    ShaderResourceType::StorageBuffer,
+                    binding,
+                    set,
+                    resource.name,
+                    bufferSize
+                );
+
+                m_ResourceBindings[resource.name] = bindingInfo;
+                m_BindingPointUsage[binding] = resource.name;
+
+                OLO_CORE_TRACE("Discovered storage buffer: {0} (binding={1}, size={2})", 
+                              resource.name, binding, bufferSize);
+            }
+
             // Discover sampled images (textures)
             for (const auto& resource : resources.sampled_images)
             {
@@ -126,28 +158,59 @@ namespace OloEngine
                 // Determine texture type based on the SPIR-V type
                 const auto& imageType = compiler.get_type(resource.type_id);
                 ShaderResourceType resourceType = ShaderResourceType::Texture2D; // Default to 2D
+                bool isArray = false;
+                u32 arraySize = 0;
 
-                if (imageType.image.dim == spv::DimCube)
+                // Check if this is an array texture
+                if (imageType.array.size() > 0)
                 {
-                    resourceType = ShaderResourceType::TextureCube;
+                    isArray = true;
+                    arraySize = imageType.array[0]; // Get array size
+                    
+                    if (imageType.image.dim == spv::DimCube)
+                    {
+                        resourceType = ShaderResourceType::TextureCubeArray;
+                    }
+                    else if (imageType.image.dim == spv::Dim2D)
+                    {
+                        resourceType = ShaderResourceType::Texture2DArray;
+                    }
                 }
-                else if (imageType.image.dim == spv::Dim2D)
+                else
                 {
-                    resourceType = ShaderResourceType::Texture2D;
+                    if (imageType.image.dim == spv::DimCube)
+                    {
+                        resourceType = ShaderResourceType::TextureCube;
+                    }
+                    else if (imageType.image.dim == spv::Dim2D)
+                    {
+                        resourceType = ShaderResourceType::Texture2D;
+                    }
                 }
 
-                ShaderResourceBinding bindingInfo(
-                    resourceType,
-                    binding,
-                    set,
-                    resource.name
-                );
+                ShaderResourceBinding bindingInfo;
+                if (isArray)
+                {
+                    bindingInfo = ShaderResourceBinding(resourceType, binding, set, resource.name, arraySize);
+                }
+                else
+                {
+                    bindingInfo = ShaderResourceBinding(resourceType, binding, set, resource.name);
+                }
 
                 m_ResourceBindings[resource.name] = bindingInfo;
                 m_BindingPointUsage[binding] = resource.name;
 
-                OLO_CORE_TRACE("Discovered texture: {0} (binding={1}, type={2})", 
-                              resource.name, binding, static_cast<u32>(resourceType));
+                if (isArray)
+                {
+                    OLO_CORE_TRACE("Discovered texture array: {0} (binding={1}, type={2}, size={3})", 
+                                  resource.name, binding, static_cast<u32>(resourceType), arraySize);
+                }
+                else
+                {
+                    OLO_CORE_TRACE("Discovered texture: {0} (binding={1}, type={2})", 
+                                  resource.name, binding, static_cast<u32>(resourceType));
+                }
             }
 
             // Discover storage images (for future Image2D support)
@@ -477,6 +540,19 @@ namespace OloEngine
                 }
                 break;
             }
+            case ShaderResourceType::StorageBuffer:
+            {
+                if (std::holds_alternative<Ref<StorageBuffer>>(resource))
+                {
+                    auto buffer = std::get<Ref<StorageBuffer>>(resource);
+                    if (buffer)
+                    {
+                        buffer->Bind(binding.BindingPoint);
+                        OLO_CORE_TRACE("Applied storage buffer '{0}' to binding point {1}", name, binding.BindingPoint);
+                    }
+                }
+                break;
+            }
             case ShaderResourceType::Texture2D:
             {
                 if (std::holds_alternative<Ref<Texture2D>>(resource))
@@ -503,6 +579,59 @@ namespace OloEngine
                 }
                 break;
             }
+            // Array resource types (Phase 1.2)
+            case ShaderResourceType::UniformBufferArray:
+            {
+                if (std::holds_alternative<Ref<UniformBufferArray>>(resource))
+                {
+                    auto bufferArray = std::get<Ref<UniformBufferArray>>(resource);
+                    if (bufferArray)
+                    {
+                        bufferArray->BindArray();
+                        OLO_CORE_TRACE("Applied uniform buffer array '{0}' starting at binding point {1}", name, binding.BindingPoint);
+                    }
+                }
+                break;
+            }
+            case ShaderResourceType::StorageBufferArray:
+            {
+                if (std::holds_alternative<Ref<StorageBufferArray>>(resource))
+                {
+                    auto bufferArray = std::get<Ref<StorageBufferArray>>(resource);
+                    if (bufferArray)
+                    {
+                        bufferArray->BindArray();
+                        OLO_CORE_TRACE("Applied storage buffer array '{0}' starting at binding point {1}", name, binding.BindingPoint);
+                    }
+                }
+                break;
+            }
+            case ShaderResourceType::Texture2DArray:
+            {
+                if (std::holds_alternative<Ref<Texture2DArray>>(resource))
+                {
+                    auto textureArray = std::get<Ref<Texture2DArray>>(resource);
+                    if (textureArray)
+                    {
+                        textureArray->BindArray();
+                        OLO_CORE_TRACE("Applied texture2D array '{0}' starting at binding point {1}", name, binding.BindingPoint);
+                    }
+                }
+                break;
+            }
+            case ShaderResourceType::TextureCubeArray:
+            {
+                if (std::holds_alternative<Ref<TextureCubemapArray>>(resource))
+                {
+                    auto textureArray = std::get<Ref<TextureCubemapArray>>(resource);
+                    if (textureArray)
+                    {
+                        textureArray->BindArray();
+                        OLO_CORE_TRACE("Applied textureCube array '{0}' starting at binding point {1}", name, binding.BindingPoint);
+                    }
+                }
+                break;
+            }
             default:
                 OLO_CORE_WARN("Unsupported resource type {0} for resource '{1}'", 
                              static_cast<u32>(binding.Type), name);
@@ -513,5 +642,89 @@ namespace OloEngine
     void UniformBufferRegistry::MarkBindingDirty(const std::string& name)
     {
         m_DirtyBindings.insert(name);
+    }
+
+    // Frame-in-flight implementation (Phase 1.3)
+
+    void UniformBufferRegistry::EnableFrameInFlight(u32 framesInFlight)
+    {
+        if (m_FrameInFlightEnabled)
+        {
+            OLO_CORE_WARN("Frame-in-flight already enabled for UniformBufferRegistry");
+            return;
+        }
+
+        m_FrameInFlightManager = std::make_unique<FrameInFlightManager>(framesInFlight);
+        m_FrameInFlightEnabled = true;
+
+        OLO_CORE_INFO("Frame-in-flight enabled for UniformBufferRegistry with {0} frames", framesInFlight);
+    }
+
+    void UniformBufferRegistry::DisableFrameInFlight()
+    {
+        if (!m_FrameInFlightEnabled)
+        {
+            OLO_CORE_WARN("Frame-in-flight not enabled for UniformBufferRegistry");
+            return;
+        }
+
+        m_FrameInFlightManager.reset();
+        m_FrameInFlightEnabled = false;
+
+        OLO_CORE_INFO("Frame-in-flight disabled for UniformBufferRegistry");
+    }
+
+    void UniformBufferRegistry::RegisterFrameInFlightResource(const std::string& name, ShaderResourceType type, u32 size, 
+                                                            BufferUsage usage, u32 arraySize, u32 baseBindingPoint)
+    {
+        if (!m_FrameInFlightEnabled || !m_FrameInFlightManager)
+        {
+            OLO_CORE_ERROR("Frame-in-flight not enabled. Call EnableFrameInFlight() first.");
+            return;
+        }
+
+        switch (type)
+        {
+            case ShaderResourceType::UniformBuffer:
+                m_FrameInFlightManager->RegisterUniformBuffer(name, size, baseBindingPoint, usage);
+                break;
+
+            case ShaderResourceType::StorageBuffer:
+                m_FrameInFlightManager->RegisterStorageBuffer(name, size, usage);
+                break;
+
+            case ShaderResourceType::UniformBufferArray:
+                m_FrameInFlightManager->RegisterUniformBufferArray(name, baseBindingPoint, arraySize, size, usage);
+                break;
+
+            case ShaderResourceType::StorageBufferArray:
+                m_FrameInFlightManager->RegisterStorageBufferArray(name, baseBindingPoint, arraySize, size, usage);
+                break;
+
+            default:
+                OLO_CORE_WARN("Unsupported resource type {0} for frame-in-flight: '{1}'", 
+                             static_cast<u32>(type), name);
+                break;
+        }
+
+        OLO_CORE_TRACE("Registered frame-in-flight resource: '{0}' (type: {1})", name, static_cast<u32>(type));
+    }
+
+    void UniformBufferRegistry::NextFrame()
+    {
+        if (m_FrameInFlightEnabled && m_FrameInFlightManager)
+        {
+            m_FrameInFlightManager->NextFrame();
+        }
+    }
+
+    FrameInFlightManager::Statistics UniformBufferRegistry::GetFrameInFlightStatistics() const
+    {
+        if (m_FrameInFlightEnabled && m_FrameInFlightManager)
+        {
+            return m_FrameInFlightManager->GetStatistics();
+        }
+
+        return {}; // Return empty statistics if not enabled
     }
 }
