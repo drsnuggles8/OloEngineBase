@@ -14,6 +14,7 @@
 #include <unordered_set>
 #include <variant>
 #include <memory>
+#include <chrono>
 
 #include <glad/gl.h>
 
@@ -50,6 +51,60 @@ namespace OloEngine
         Material = 2,    // Material-specific resources (diffuse/normal textures, material properties)
         Instance = 3,    // Per-instance resources (model matrices, instance data)
         Custom = 4       // User-defined sets for special cases
+    };
+
+    /**
+     * @brief Phase 4.1: Invalidation reasons for debugging and dependency tracking
+     */
+    enum class InvalidationReason : u8
+    {
+        Unknown = 0,
+        UserRequested,       // Explicitly invalidated by user
+        DependencyChanged,   // Invalidated because a dependency changed
+        ResourceUpdated,     // Resource content was updated
+        ShaderChanged,       // Shader was recompiled/changed
+        FrameInFlightSwap,   // Frame-in-flight buffer swap
+        SizeChanged,         // Resource size changed
+        FormatChanged,       // Resource format changed
+        OptimizationPass     // Invalidated during optimization
+    };
+
+    /**
+     * @brief Phase 4.2: Update priority levels for batch processing
+     */
+    enum class UpdatePriority : u8
+    {
+        Immediate = 0,   // Must be updated immediately
+        High = 1,        // Update in next batch
+        Normal = 2,      // Standard priority
+        Low = 3,         // Can be deferred
+        Background = 4   // Update when convenient
+    };
+
+    /**
+     * @brief Phase 5.1: Resource usage tracking for analytics and optimization
+     */
+    enum class ResourceUsagePattern : u8
+    {
+        Unknown = 0,
+        StaticWrite,     // Written once, read many times (e.g., uniform buffers)
+        DynamicWrite,    // Frequently updated (e.g., per-frame uniforms)
+        Streaming,       // Continuous updates (e.g., animation data)
+        ReadOnly,        // Only read from (e.g., static textures)
+        ReadWrite,       // Both read and written (e.g., SSBOs)
+        Compute,         // Used in compute shaders
+        Temporal         // Changes over time predictably
+    };
+
+    /**
+     * @brief Phase 5.2: Validation severity levels for graduated error handling
+     */
+    enum class RegistryValidationSeverity : u8
+    {
+        Info = 0,        // Informational messages
+        Warning = 1,     // Potential issues that don't break functionality
+        Error = 2,       // Issues that may cause rendering problems
+        Critical = 3     // Severe issues that will cause crashes or corruption
     };
 
     /**
@@ -344,6 +399,165 @@ namespace OloEngine
         ShaderResourceInfo() = default;
         ShaderResourceInfo(const std::string& name, ShaderResourceType type, u32 binding)
             : Name(name), Type(type), Binding(binding) {}
+    };
+
+    /**
+     * @brief Phase 4.1: Detailed invalidation tracking information
+     */
+    struct InvalidationInfo
+    {
+        std::string ResourceName;
+        InvalidationReason Reason = InvalidationReason::Unknown;
+        u32 BindingPoint = UINT32_MAX;
+        u32 FrameInvalidated = 0;
+        std::chrono::steady_clock::time_point Timestamp;
+        std::vector<std::string> Dependencies;  // Resources that depend on this one
+        std::vector<std::string> Dependents;    // Resources this one depends on
+        
+        InvalidationInfo() = default;
+        InvalidationInfo(const std::string& name, InvalidationReason reason, u32 binding)
+            : ResourceName(name), Reason(reason), BindingPoint(binding), 
+              Timestamp(std::chrono::steady_clock::now()) {}
+    };
+
+    /**
+     * @brief Phase 4.2: Update batch information for efficient processing
+     */
+    struct UpdateBatch
+    {
+        ShaderResourceType ResourceType;
+        UpdatePriority Priority = UpdatePriority::Normal;
+        std::vector<std::string> ResourceNames;
+        u32 FrameScheduled = 0;
+        u32 EstimatedCost = 0;  // Estimated GPU state change cost
+        bool IsProcessed = false;
+        
+        UpdateBatch() = default;
+        UpdateBatch(ShaderResourceType type, UpdatePriority priority)
+            : ResourceType(type), Priority(priority) {}
+    };
+
+    /**
+     * @brief Phase 4.2: Update statistics for profiling and optimization
+     */
+    struct UpdateStatistics
+    {
+        u32 TotalUpdates = 0;
+        u32 BatchedUpdates = 0;
+        u32 ImmediateUpdates = 0;
+        u32 DeferredUpdates = 0;
+        f32 AverageUpdateTime = 0.0f;
+        f32 AverageBatchSize = 0.0f;
+        u32 StateChangeSavings = 0;  // Number of state changes saved through batching
+        
+        void Reset()
+        {
+            TotalUpdates = BatchedUpdates = ImmediateUpdates = DeferredUpdates = 0;
+            AverageUpdateTime = AverageBatchSize = 0.0f;
+            StateChangeSavings = 0;
+        }
+    };
+
+    /**
+     * @brief Phase 5.1: Comprehensive resource declaration similar to Hazel's RenderPassInputDeclaration
+     */
+    struct ResourceDeclaration
+    {
+        std::string Name;
+        ShaderResourceType Type = ShaderResourceType::None;
+        u32 BindingPoint = UINT32_MAX;
+        u32 Set = UINT32_MAX;
+        u32 Size = 0;                    // Size in bytes for buffers
+        u32 ArraySize = 1;               // Array size (1 for non-arrays)
+        bool IsArray = false;
+        bool IsOptional = false;         // Whether this resource is optional
+        bool IsWritable = false;         // Whether resource can be written to
+        ResourceUsagePattern UsagePattern = ResourceUsagePattern::Unknown;
+        
+        // SPIR-V reflection metadata
+        struct SPIRVMetadata
+        {
+            u32 TypeID = 0;              // SPIR-V type ID
+            u32 BaseTypeID = 0;          // Base type ID for structs
+            std::vector<u32> MemberTypes; // Member type IDs for structs
+            std::vector<std::string> MemberNames; // Member names for structs
+            std::vector<u32> MemberOffsets; // Member offsets in bytes
+            u32 Stride = 0;              // Stride for arrays/matrices
+            bool HasDecorations = false;  // Whether type has decorations
+        } SPIRVInfo;
+        
+        // Usage statistics
+        struct UsageStatistics
+        {
+            u32 ReadCount = 0;           // Number of times read
+            u32 WriteCount = 0;          // Number of times written
+            u32 BindCount = 0;           // Number of times bound
+            f32 AverageUpdateFrequency = 0.0f; // Updates per frame
+            std::chrono::steady_clock::time_point LastAccessed;
+            std::chrono::steady_clock::time_point FirstAccessed;
+            u64 TotalSizeTransferred = 0; // Total bytes transferred
+        } Statistics;
+        
+        ResourceDeclaration() = default;
+        ResourceDeclaration(const std::string& name, ShaderResourceType type, u32 binding)
+            : Name(name), Type(type), BindingPoint(binding) {}
+    };
+
+    /**
+     * @brief Phase 5.2: Validation issue tracking with severity levels
+     */
+    struct RegistryValidationIssue
+    {
+        RegistryValidationSeverity Severity = RegistryValidationSeverity::Warning;
+        std::string Category;         // e.g., "BindingConflict", "SizeAlignment", "Lifecycle"
+        std::string ResourceName;     // Resource that caused the issue
+        std::string Message;          // Human-readable description
+        std::string Suggestion;       // Suggested fix
+        u32 BindingPoint = UINT32_MAX; // Relevant binding point
+        u32 Line = 0;                 // Source line (if available)
+        std::chrono::steady_clock::time_point Timestamp;
+        
+        RegistryValidationIssue() = default;
+        RegistryValidationIssue(RegistryValidationSeverity severity, const std::string& category, 
+                               const std::string& resource, const std::string& message)
+            : Severity(severity), Category(category), ResourceName(resource), 
+              Message(message), Timestamp(std::chrono::steady_clock::now()) {}
+    };
+
+    /**
+     * @brief Phase 5.2: Resource lifecycle state tracking
+     */
+    enum class ResourceLifecycleState : u8
+    {
+        Unknown = 0,
+        Declared,        // Resource discovered through reflection
+        Allocated,       // Resource memory allocated
+        Bound,           // Resource bound to pipeline
+        Active,          // Resource actively being used
+        Stale,           // Resource outdated but still bound
+        Unbound,         // Resource unbound from pipeline
+        Deallocated,     // Resource memory freed
+        Destroyed        // Resource completely destroyed
+    };
+
+    /**
+     * @brief Phase 5.2: Enhanced lifecycle tracking information
+     */
+    struct ResourceLifecycleInfo
+    {
+        ResourceLifecycleState State = ResourceLifecycleState::Unknown;
+        std::chrono::steady_clock::time_point StateChanged;
+        std::chrono::steady_clock::time_point Created;
+        std::chrono::steady_clock::time_point LastBound;
+        std::chrono::steady_clock::time_point LastUnbound;
+        u32 BindCount = 0;
+        u32 UnbindCount = 0;
+        bool IsValid = true;         // Whether resource is in valid state
+        std::string LastError;       // Last error message if any
+        
+        ResourceLifecycleInfo() 
+            : StateChanged(std::chrono::steady_clock::now()),
+              Created(std::chrono::steady_clock::now()) {}
     };
 
     /**
@@ -860,6 +1074,232 @@ namespace OloEngine
          */
         bool IsResourceInvalidated(const std::string& name) const;
 
+        // ==========================================
+        // Phase 4: Advanced Invalidation System
+        // ==========================================
+
+        // Phase 4.1: Granular Invalidation Tracking
+        /**
+         * @brief Invalidate a resource with detailed reason tracking and dependency propagation
+         * @param name Resource name to invalidate
+         * @param reason Reason for invalidation (for debugging and analytics)
+         * @param propagateToDependents Whether to invalidate dependent resources
+         */
+        void InvalidateResourceWithReason(const std::string& name, InvalidationReason reason, bool propagateToDependents = true);
+
+        /**
+         * @brief Check if a specific binding point is invalidated
+         * @param bindingPoint Binding point to check
+         * @return true if any resource at that binding point is invalidated
+         */
+        bool IsBindingPointInvalidated(u32 bindingPoint) const;
+
+        /**
+         * @brief Get detailed invalidation information for a resource
+         * @param name Resource name
+         * @return Invalidation info or nullptr if not invalidated
+         */
+        const InvalidationInfo* GetInvalidationInfo(const std::string& name) const;
+
+        /**
+         * @brief Add a dependency relationship between two resources
+         * @param dependentResource Resource that depends on the dependency
+         * @param dependencyResource Resource that the dependent relies on
+         */
+        void AddResourceDependency(const std::string& dependentResource, const std::string& dependencyResource);
+
+        /**
+         * @brief Remove a dependency relationship
+         * @param dependentResource Resource that depends on the dependency
+         * @param dependencyResource Resource that the dependent relied on
+         */
+        void RemoveResourceDependency(const std::string& dependentResource, const std::string& dependencyResource);
+
+        /**
+         * @brief Get all resources that depend on the specified resource
+         * @param name Resource name
+         * @return Vector of dependent resource names
+         */
+        std::vector<std::string> GetResourceDependents(const std::string& name) const;
+
+        /**
+         * @brief Get all resources that the specified resource depends on
+         * @param name Resource name
+         * @return Vector of dependency resource names
+         */
+        std::vector<std::string> GetResourceDependencies(const std::string& name) const;
+
+        // Phase 4.2: Batch Update Optimization
+        /**
+         * @brief Schedule updates for efficient batch processing
+         * @param maxBatchSize Maximum number of resources per batch (0 = unlimited)
+         * @param priorityThreshold Only process batches at or above this priority
+         */
+        void ScheduleBatchUpdates(u32 maxBatchSize = 0, UpdatePriority priorityThreshold = UpdatePriority::Low);
+
+        /**
+         * @brief Process all scheduled update batches
+         * @param frameNumber Current frame number for scheduling
+         * @return Number of batches processed
+         */
+        u32 ProcessUpdateBatches(u32 frameNumber);
+
+        /**
+         * @brief Set update priority for a resource type
+         * @param resourceType Type of resource
+         * @param priority Priority level for updates
+         */
+        void SetResourceTypePriority(ShaderResourceType resourceType, UpdatePriority priority);
+
+        /**
+         * @brief Set update priority for a specific resource
+         * @param name Resource name
+         * @param priority Priority level for updates
+         */
+        void SetResourcePriority(const std::string& name, UpdatePriority priority);
+
+        /**
+         * @brief Get current update statistics
+         * @return Statistics about update operations
+         */
+        const UpdateStatistics& GetUpdateStatistics() const { return m_UpdateStats; }
+
+        /**
+         * @brief Reset update statistics
+         */
+        void ResetUpdateStatistics() { m_UpdateStats.Reset(); }
+
+        /**
+         * @brief Enable or disable frame-based batching
+         * @param enabled Whether to enable frame-based batching
+         * @param maxFrameDelay Maximum frames to defer low-priority updates
+         */
+        void EnableFrameBasedBatching(bool enabled, u32 maxFrameDelay = 3);
+
+        /**
+         * @brief Force immediate processing of all pending updates (bypasses batching)
+         */
+        void FlushAllUpdates();
+
+        // ==========================================
+        // Phase 5: Enhanced Debug and Validation System
+        // ==========================================
+
+        // Phase 5.1: Resource Declaration System
+        /**
+         * @brief Get comprehensive resource declaration with SPIR-V metadata
+         * @param name Resource name
+         * @return Resource declaration or nullptr if not found
+         */
+        const ResourceDeclaration* GetResourceDeclaration(const std::string& name) const;
+
+        /**
+         * @brief Get all resource declarations
+         * @return Map of resource name to declaration
+         */
+        const std::unordered_map<std::string, ResourceDeclaration>& GetResourceDeclarations() const;
+
+        /**
+         * @brief Update usage statistics for a resource
+         * @param name Resource name
+         * @param wasRead Whether resource was read from
+         * @param wasWritten Whether resource was written to
+         * @param bytesTransferred Number of bytes transferred
+         */
+        void UpdateResourceUsageStatistics(const std::string& name, bool wasRead, bool wasWritten, u64 bytesTransferred = 0);
+
+        /**
+         * @brief Set usage pattern for a resource (for optimization hints)
+         * @param name Resource name
+         * @param pattern Usage pattern
+         */
+        void SetResourceUsagePattern(const std::string& name, ResourceUsagePattern pattern);
+
+        /**
+         * @brief Get resource usage statistics
+         * @param name Resource name
+         * @return Usage statistics or nullptr if not found
+         */
+        const ResourceDeclaration::UsageStatistics* GetResourceUsageStatistics(const std::string& name) const;
+
+        /**
+         * @brief Detect binding point conflicts across all resources
+         * @return Vector of validation issues
+         */
+        std::vector<RegistryValidationIssue> DetectBindingConflicts() const;
+
+        // Phase 5.2: Advanced Validation
+        /**
+         * @brief Perform comprehensive resource validation
+         * @param enableLifecycleValidation Whether to validate resource lifecycles
+         * @param enableSizeValidation Whether to validate resource sizes and alignment
+         * @param enableConflictDetection Whether to detect binding conflicts
+         * @return Vector of validation issues found
+         */
+        std::vector<RegistryValidationIssue> ValidateResources(bool enableLifecycleValidation = true, 
+                                                              bool enableSizeValidation = true, 
+                                                              bool enableConflictDetection = true) const;
+
+        /**
+         * @brief Validate resource lifecycle state
+         * @param name Resource name
+         * @return Validation issues related to lifecycle
+         */
+        std::vector<RegistryValidationIssue> ValidateResourceLifecycle(const std::string& name) const;
+
+        /**
+         * @brief Validate resource size and alignment requirements
+         * @param name Resource name
+         * @return Validation issues related to size/alignment
+         */
+        std::vector<RegistryValidationIssue> ValidateResourceSizeAlignment(const std::string& name) const;
+
+        /**
+         * @brief Get current lifecycle state of a resource
+         * @param name Resource name
+         * @return Lifecycle info or nullptr if not found
+         */
+        const ResourceLifecycleInfo* GetResourceLifecycleInfo(const std::string& name) const;
+
+        /**
+         * @brief Update resource lifecycle state
+         * @param name Resource name
+         * @param newState New lifecycle state
+         * @param errorMessage Optional error message if state change failed
+         */
+        void UpdateResourceLifecycleState(const std::string& name, ResourceLifecycleState newState, 
+                                         const std::string& errorMessage = "");
+
+        /**
+         * @brief Set validation severity filter (only report issues at or above this level)
+         * @param minSeverity Minimum severity to report
+         */
+        void SetValidationSeverityFilter(RegistryValidationSeverity minSeverity);
+
+        /**
+         * @brief Get all validation issues since last clear
+         * @param severityFilter Only return issues at or above this severity
+         * @return Vector of validation issues
+         */
+        std::vector<RegistryValidationIssue> GetValidationIssues(RegistryValidationSeverity severityFilter = RegistryValidationSeverity::Info) const;
+
+        /**
+         * @brief Clear all stored validation issues
+         */
+        void ClearValidationIssues();
+
+        /**
+         * @brief Enable or disable real-time validation
+         * @param enabled Whether to perform validation on each operation
+         */
+        void EnableRealtimeValidation(bool enabled);
+
+        /**
+         * @brief Generate detailed resource usage report
+         * @return String containing formatted usage report
+         */
+        std::string GenerateUsageReport() const;
+
         // Phase 1.3: Enhanced Resource Compatibility System
         /**
          * @brief Check if a resource input is compatible with a binding
@@ -911,6 +1351,33 @@ namespace OloEngine
         // Phase 1.2: Two-Phase Resource Updates - Pending resources awaiting commit
         std::unordered_map<std::string, ShaderResource> m_PendingResources;
         std::unordered_set<std::string> m_InvalidatedResources;
+
+        // ==========================================
+        // Phase 4: Advanced Invalidation System
+        // ==========================================
+
+        // Phase 4.1: Granular invalidation tracking
+        std::unordered_map<std::string, InvalidationInfo> m_InvalidationDetails;
+        std::unordered_map<u32, std::vector<std::string>> m_BindingPointInvalidations; // binding point -> invalidated resources
+        std::unordered_map<std::string, std::vector<std::string>> m_ResourceDependencies; // resource -> dependencies
+        std::unordered_map<std::string, std::vector<std::string>> m_ResourceDependents;   // resource -> dependents
+        u32 m_CurrentFrame = 0;
+
+        // Phase 4.2: Batch update optimization
+        std::vector<UpdateBatch> m_UpdateBatches;
+        std::unordered_map<ShaderResourceType, UpdatePriority> m_ResourceTypePriorities;
+        std::unordered_map<std::string, UpdatePriority> m_ResourcePriorities;
+        UpdateStatistics m_UpdateStats;
+        bool m_FrameBasedBatchingEnabled = false;
+        u32 m_MaxFrameDelay = 3;
+        u32 m_LastBatchFrame = 0;
+
+        // Phase 5: Enhanced Debug and Validation System private members
+        std::unordered_map<std::string, ResourceDeclaration> m_ResourceDeclarations;
+        std::unordered_map<std::string, ResourceLifecycleInfo> m_ResourceLifecycleInfo;
+        std::vector<RegistryValidationIssue> m_ValidationIssues;
+        RegistryValidationSeverity m_ValidationSeverityFilter = RegistryValidationSeverity::Info;
+        bool m_RealtimeValidationEnabled = false;
 
         // Bindings that need to be applied (dirty tracking)
         std::unordered_set<std::string> m_DirtyBindings;
@@ -1010,6 +1477,135 @@ namespace OloEngine
          * @brief Set up default texture bindings based on shader samplers
          */
         void SetupDefaultTextures();
+
+        // ==========================================
+        // Phase 4: Advanced Invalidation System Private Methods
+        // ==========================================
+
+        // Phase 4.1: Granular invalidation tracking helpers
+        /**
+         * @brief Propagate invalidation to dependent resources
+         * @param resourceName Name of the invalidated resource
+         * @param reason Reason for the original invalidation
+         */
+        void PropagateInvalidationToDependents(const std::string& resourceName, InvalidationReason reason);
+
+        /**
+         * @brief Update binding point invalidation tracking
+         * @param bindingPoint Binding point to update
+         * @param resourceName Resource name that was invalidated
+         * @param add Whether to add (true) or remove (false) the invalidation
+         */
+        void UpdateBindingPointInvalidation(u32 bindingPoint, const std::string& resourceName, bool add);
+
+        /**
+         * @brief Validate dependency graph for cycles
+         * @return true if no cycles detected, false otherwise
+         */
+        bool ValidateDependencyGraph() const;
+
+        // Phase 4.2: Batch update optimization helpers
+        /**
+         * @brief Create update batches from invalidated resources
+         */
+        void CreateUpdateBatches();
+
+        /**
+         * @brief Determine update priority for a resource
+         * @param resourceName Name of the resource
+         * @param resourceType Type of the resource
+         * @return Calculated priority level
+         */
+        UpdatePriority DetermineUpdatePriority(const std::string& resourceName, ShaderResourceType resourceType) const;
+
+        /**
+         * @brief Calculate estimated cost for an update batch
+         * @param batch Update batch to analyze
+         * @return Estimated GPU state change cost
+         */
+        u32 CalculateBatchCost(const UpdateBatch& batch) const;
+
+        /**
+         * @brief Sort update batches by priority and cost
+         */
+        void SortUpdateBatches();
+
+        /**
+         * @brief Process a single update batch
+         * @param batch Batch to process
+         * @return true if batch was successfully processed
+         */
+        bool ProcessUpdateBatch(UpdateBatch& batch);
+
+        /**
+         * @brief Check if a batch should be processed in the current frame
+         * @param batch Batch to check
+         * @param currentFrame Current frame number
+         * @return true if batch should be processed
+         */
+        bool ShouldProcessBatch(const UpdateBatch& batch, u32 currentFrame) const;
+
+        // ==========================================
+        // Phase 5: Enhanced Debug and Validation System Private Methods
+        // ==========================================
+
+        // Phase 5.1: Resource Declaration System helpers
+        /**
+         * @brief Initialize resource declaration from resource metadata
+         * @param name Resource name
+         * @param resourceType Resource type
+         */
+        void InitializeResourceDeclaration(const std::string& name, ShaderResourceType resourceType);
+
+        /**
+         * @brief Extract SPIR-V metadata for a resource (if available)
+         * @param name Resource name
+         * @return SPIR-V metadata or empty struct if not available
+         */
+        ResourceDeclaration::SPIRVMetadata ExtractSPIRVMetadata(const std::string& name) const;
+
+        /**
+         * @brief Validate resource usage pattern consistency
+         * @param name Resource name
+         * @param actualPattern Pattern observed in runtime
+         * @param declaredPattern Pattern declared by user
+         * @return Vector of validation issues
+         */
+        std::vector<RegistryValidationIssue> ValidateUsagePatternConsistency(const std::string& name, 
+                                                                            ResourceUsagePattern actualPattern,
+                                                                            ResourceUsagePattern declaredPattern) const;
+
+        // Phase 5.2: Advanced Validation helpers
+        /**
+         * @brief Create validation issue with current context
+         * @param severity Issue severity
+         * @param category Issue category
+         * @param message Issue message
+         * @param resourceName Associated resource name (optional)
+         * @return Created validation issue
+         */
+        RegistryValidationIssue CreateValidationIssue(RegistryValidationSeverity severity, 
+                                                     const std::string& category,
+                                                     const std::string& message,
+                                                     const std::string& resourceName = "") const;
+
+        /**
+         * @brief Check if validation issue should be reported based on severity filter
+         * @param issue Validation issue to check
+         * @return True if issue should be reported
+         */
+        bool ShouldReportValidationIssue(const RegistryValidationIssue& issue) const;
+
+        /**
+         * @brief Perform lifecycle transition validation
+         * @param name Resource name
+         * @param fromState Current state
+         * @param toState Target state
+         * @return Vector of validation issues (empty if valid transition)
+         */
+        std::vector<RegistryValidationIssue> ValidateLifecycleTransition(const std::string& name,
+                                                                        ResourceLifecycleState fromState,
+                                                                        ResourceLifecycleState toState) const;
     };
 
     /**

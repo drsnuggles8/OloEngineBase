@@ -8,6 +8,7 @@
 #include <spirv_cross/spirv_cross.hpp>
 #include <glad/gl.h>
 #include <imgui.h>
+#include <sstream>
 
 namespace OloEngine
 {
@@ -53,6 +54,17 @@ namespace OloEngine
         m_PendingResources.clear();
         m_InvalidatedResources.clear();
 
+        // Phase 4: Clear advanced invalidation system data structures
+        m_InvalidationDetails.clear();
+        m_BindingPointInvalidations.clear();
+        m_ResourceDependencies.clear();
+        m_ResourceDependents.clear();
+        m_UpdateBatches.clear();
+        m_ResourceTypePriorities.clear();
+        m_ResourcePriorities.clear();
+        m_UpdateStats.Reset();
+        m_CurrentFrame = 0;
+
         // Phase 3.1: Initialize descriptor sets if not already done
         if (m_UseSetPriority && m_DescriptorSets.empty())
         {
@@ -75,6 +87,13 @@ namespace OloEngine
         {
             AutoAssignResourceSets(true);
         }
+
+        // Phase 4: Initialize default update priorities
+        m_ResourceTypePriorities[ShaderResourceType::UniformBuffer] = UpdatePriority::High;
+        m_ResourceTypePriorities[ShaderResourceType::Texture2D] = UpdatePriority::Normal;
+        m_ResourceTypePriorities[ShaderResourceType::TextureCube] = UpdatePriority::Normal;
+        m_ResourceTypePriorities[ShaderResourceType::StorageBuffer] = UpdatePriority::Low;
+        m_ResourceTypePriorities[ShaderResourceType::Image2D] = UpdatePriority::Low;
 
         m_Initialized = true;
 
@@ -822,34 +841,8 @@ namespace OloEngine
 
     void UniformBufferRegistry::InvalidateResource(const std::string& name)
     {
-        if (!m_Initialized)
-        {
-            OLO_CORE_WARN("Cannot invalidate resource '{0}' - registry not initialized", name);
-            return;
-        }
-
-        auto bindingIt = m_ResourceBindings.find(name);
-        if (bindingIt == m_ResourceBindings.end())
-        {
-            OLO_CORE_WARN("Cannot invalidate unknown resource: '{0}'", name);
-            return;
-        }
-
-        // Mark binding as dirty for GPU handle tracking
-        bindingIt->second.MarkDirty();
-
-        // Add to invalidated set for two-phase updates
-        m_InvalidatedResources.insert(name);
-
-        // If resource exists in bound resources, move it to pending
-        auto boundIt = m_BoundResources.find(name);
-        if (boundIt != m_BoundResources.end())
-        {
-            m_PendingResources[name] = std::move(boundIt->second);
-            m_BoundResources.erase(boundIt);
-        }
-
-        OLO_CORE_TRACE("Invalidated resource: '{0}'", name);
+        // Delegate to the enhanced invalidation method with default reason
+        InvalidateResourceWithReason(name, InvalidationReason::UserRequested, false);
     }
 
     void UniformBufferRegistry::CommitPendingUpdates()
@@ -1723,5 +1716,1267 @@ namespace OloEngine
         }
 
         OLO_CORE_TRACE("Set up default texture bindings for material resources");
+    }
+
+    // ==========================================
+    // Phase 4: Advanced Invalidation System Implementation
+    // ==========================================
+
+    // Phase 4.1: Granular Invalidation Tracking Implementation
+
+    void UniformBufferRegistry::InvalidateResourceWithReason(const std::string& name, InvalidationReason reason, bool propagateToDependents)
+    {
+        if (!m_Initialized)
+        {
+            OLO_CORE_WARN("Cannot invalidate resource '{0}' - registry not initialized", name);
+            return;
+        }
+
+        auto bindingIt = m_ResourceBindings.find(name);
+        if (bindingIt == m_ResourceBindings.end())
+        {
+            OLO_CORE_WARN("Cannot invalidate unknown resource: '{0}'", name);
+            return;
+        }
+
+        // Create detailed invalidation info
+        InvalidationInfo info(name, reason, bindingIt->second.BindingPoint);
+        info.FrameInvalidated = m_CurrentFrame;
+
+        // Get existing dependencies if any
+        auto depIt = m_ResourceDependencies.find(name);
+        if (depIt != m_ResourceDependencies.end())
+        {
+            info.Dependencies = depIt->second;
+        }
+
+        auto dependentIt = m_ResourceDependents.find(name);
+        if (dependentIt != m_ResourceDependents.end())
+        {
+            info.Dependents = dependentIt->second;
+        }
+
+        // Store invalidation details
+        m_InvalidationDetails[name] = std::move(info);
+
+        // Update binding point invalidation tracking
+        UpdateBindingPointInvalidation(bindingIt->second.BindingPoint, name, true);
+
+        // Call original invalidation method for compatibility
+        InvalidateResource(name);
+
+        // Propagate to dependents if requested
+        if (propagateToDependents && dependentIt != m_ResourceDependents.end())
+        {
+            PropagateInvalidationToDependents(name, reason);
+        }
+
+        OLO_CORE_TRACE("Invalidated resource '{0}' with reason {1} (propagate: {2})", 
+                      name, static_cast<u32>(reason), propagateToDependents);
+    }
+
+    bool UniformBufferRegistry::IsBindingPointInvalidated(u32 bindingPoint) const
+    {
+        auto it = m_BindingPointInvalidations.find(bindingPoint);
+        return it != m_BindingPointInvalidations.end() && !it->second.empty();
+    }
+
+    const InvalidationInfo* UniformBufferRegistry::GetInvalidationInfo(const std::string& name) const
+    {
+        auto it = m_InvalidationDetails.find(name);
+        return (it != m_InvalidationDetails.end()) ? &it->second : nullptr;
+    }
+
+    void UniformBufferRegistry::AddResourceDependency(const std::string& dependentResource, const std::string& dependencyResource)
+    {
+        // Validate both resources exist
+        if (m_ResourceBindings.find(dependentResource) == m_ResourceBindings.end())
+        {
+            OLO_CORE_WARN("Cannot add dependency for unknown dependent resource: '{0}'", dependentResource);
+            return;
+        }
+
+        if (m_ResourceBindings.find(dependencyResource) == m_ResourceBindings.end())
+        {
+            OLO_CORE_WARN("Cannot add dependency for unknown dependency resource: '{0}'", dependencyResource);
+            return;
+        }
+
+        // Add to dependencies map
+        auto& dependencies = m_ResourceDependencies[dependentResource];
+        if (std::find(dependencies.begin(), dependencies.end(), dependencyResource) == dependencies.end())
+        {
+            dependencies.push_back(dependencyResource);
+        }
+
+        // Add to dependents map
+        auto& dependents = m_ResourceDependents[dependencyResource];
+        if (std::find(dependents.begin(), dependents.end(), dependentResource) == dependents.end())
+        {
+            dependents.push_back(dependentResource);
+        }
+
+        // Validate for cycles
+        if (!ValidateDependencyGraph())
+        {
+            OLO_CORE_ERROR("Dependency cycle detected after adding dependency '{0}' -> '{1}'", 
+                          dependentResource, dependencyResource);
+            // Remove the problematic dependency
+            RemoveResourceDependency(dependentResource, dependencyResource);
+            return;
+        }
+
+        OLO_CORE_TRACE("Added dependency: '{0}' depends on '{1}'", dependentResource, dependencyResource);
+    }
+
+    void UniformBufferRegistry::RemoveResourceDependency(const std::string& dependentResource, const std::string& dependencyResource)
+    {
+        // Remove from dependencies map
+        auto depIt = m_ResourceDependencies.find(dependentResource);
+        if (depIt != m_ResourceDependencies.end())
+        {
+            auto& dependencies = depIt->second;
+            dependencies.erase(std::remove(dependencies.begin(), dependencies.end(), dependencyResource), dependencies.end());
+            
+            if (dependencies.empty())
+            {
+                m_ResourceDependencies.erase(depIt);
+            }
+        }
+
+        // Remove from dependents map
+        auto dependentIt = m_ResourceDependents.find(dependencyResource);
+        if (dependentIt != m_ResourceDependents.end())
+        {
+            auto& dependents = dependentIt->second;
+            dependents.erase(std::remove(dependents.begin(), dependents.end(), dependentResource), dependents.end());
+            
+            if (dependents.empty())
+            {
+                m_ResourceDependents.erase(dependentIt);
+            }
+        }
+
+        OLO_CORE_TRACE("Removed dependency: '{0}' no longer depends on '{1}'", dependentResource, dependencyResource);
+    }
+
+    std::vector<std::string> UniformBufferRegistry::GetResourceDependents(const std::string& name) const
+    {
+        auto it = m_ResourceDependents.find(name);
+        return (it != m_ResourceDependents.end()) ? it->second : std::vector<std::string>{};
+    }
+
+    std::vector<std::string> UniformBufferRegistry::GetResourceDependencies(const std::string& name) const
+    {
+        auto it = m_ResourceDependencies.find(name);
+        return (it != m_ResourceDependencies.end()) ? it->second : std::vector<std::string>{};
+    }
+
+    // Phase 4.2: Batch Update Optimization Implementation
+
+    void UniformBufferRegistry::ScheduleBatchUpdates(u32 maxBatchSize, UpdatePriority priorityThreshold)
+    {
+        if (m_InvalidatedResources.empty())
+        {
+            return; // Nothing to schedule
+        }
+
+        // Clear existing batches
+        m_UpdateBatches.clear();
+
+        // Create batches from invalidated resources
+        CreateUpdateBatches();
+
+        // Apply size limits if specified
+        if (maxBatchSize > 0)
+        {
+            std::vector<UpdateBatch> resizedBatches;
+            
+            for (auto& batch : m_UpdateBatches)
+            {
+                if (batch.ResourceNames.size() <= maxBatchSize)
+                {
+                    resizedBatches.push_back(std::move(batch));
+                }
+                else
+                {
+                    // Split large batches
+                    for (size_t i = 0; i < batch.ResourceNames.size(); i += maxBatchSize)
+                    {
+                        UpdateBatch subBatch(batch.ResourceType, batch.Priority);
+                        size_t endIdx = std::min(i + maxBatchSize, batch.ResourceNames.size());
+                        
+                        subBatch.ResourceNames.assign(
+                            batch.ResourceNames.begin() + i,
+                            batch.ResourceNames.begin() + endIdx);
+                        
+                        subBatch.FrameScheduled = batch.FrameScheduled;
+                        subBatch.EstimatedCost = CalculateBatchCost(subBatch);
+                        
+                        resizedBatches.push_back(std::move(subBatch));
+                    }
+                }
+            }
+            
+            m_UpdateBatches = std::move(resizedBatches);
+        }
+
+        // Filter by priority threshold
+        m_UpdateBatches.erase(
+            std::remove_if(m_UpdateBatches.begin(), m_UpdateBatches.end(),
+                [priorityThreshold](const UpdateBatch& batch) {
+                    return batch.Priority > priorityThreshold;
+                }),
+            m_UpdateBatches.end());
+
+        // Sort batches for optimal processing
+        SortUpdateBatches();
+
+        OLO_CORE_TRACE("Scheduled {0} update batches (maxSize: {1}, priorityThreshold: {2})", 
+                      m_UpdateBatches.size(), maxBatchSize, static_cast<u32>(priorityThreshold));
+    }
+
+    u32 UniformBufferRegistry::ProcessUpdateBatches(u32 frameNumber)
+    {
+        m_CurrentFrame = frameNumber;
+        u32 processedCount = 0;
+
+        auto startTime = std::chrono::high_resolution_clock::now();
+
+        for (auto& batch : m_UpdateBatches)
+        {
+            if (!batch.IsProcessed && ShouldProcessBatch(batch, frameNumber))
+            {
+                if (ProcessUpdateBatch(batch))
+                {
+                    batch.IsProcessed = true;
+                    processedCount++;
+                    m_UpdateStats.BatchedUpdates += static_cast<u32>(batch.ResourceNames.size());
+                }
+            }
+        }
+
+        // Remove processed batches
+        m_UpdateBatches.erase(
+            std::remove_if(m_UpdateBatches.begin(), m_UpdateBatches.end(),
+                [](const UpdateBatch& batch) { return batch.IsProcessed; }),
+            m_UpdateBatches.end());
+
+        // Update statistics
+        auto endTime = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime);
+        
+        m_UpdateStats.TotalUpdates += processedCount;
+        if (processedCount > 0)
+        {
+            f32 currentUpdateTime = duration.count() / 1000.0f; // Convert to milliseconds
+            m_UpdateStats.AverageUpdateTime = (m_UpdateStats.AverageUpdateTime + currentUpdateTime) / 2.0f;
+        }
+
+        m_LastBatchFrame = frameNumber;
+
+        OLO_CORE_TRACE("Processed {0} update batches in frame {1} ({2:.2f}ms)", 
+                      processedCount, frameNumber, duration.count() / 1000.0f);
+
+        return processedCount;
+    }
+
+    void UniformBufferRegistry::SetResourceTypePriority(ShaderResourceType resourceType, UpdatePriority priority)
+    {
+        m_ResourceTypePriorities[resourceType] = priority;
+        OLO_CORE_TRACE("Set priority {0} for resource type {1}", 
+                      static_cast<u32>(priority), static_cast<u32>(resourceType));
+    }
+
+    void UniformBufferRegistry::SetResourcePriority(const std::string& name, UpdatePriority priority)
+    {
+        if (m_ResourceBindings.find(name) == m_ResourceBindings.end())
+        {
+            OLO_CORE_WARN("Cannot set priority for unknown resource: '{0}'", name);
+            return;
+        }
+
+        m_ResourcePriorities[name] = priority;
+        OLO_CORE_TRACE("Set priority {0} for resource '{1}'", static_cast<u32>(priority), name);
+    }
+
+    void UniformBufferRegistry::EnableFrameBasedBatching(bool enabled, u32 maxFrameDelay)
+    {
+        m_FrameBasedBatchingEnabled = enabled;
+        m_MaxFrameDelay = maxFrameDelay;
+
+        OLO_CORE_TRACE("Frame-based batching {0} (maxDelay: {1} frames)", 
+                      enabled ? "enabled" : "disabled", maxFrameDelay);
+    }
+
+    void UniformBufferRegistry::FlushAllUpdates()
+    {
+        auto startTime = std::chrono::high_resolution_clock::now();
+        
+        // Process all pending updates immediately
+        u32 immediateUpdates = 0;
+        
+        // Process any existing batches
+        for (auto& batch : m_UpdateBatches)
+        {
+            if (!batch.IsProcessed)
+            {
+                ProcessUpdateBatch(batch);
+                batch.IsProcessed = true;
+                immediateUpdates += static_cast<u32>(batch.ResourceNames.size());
+            }
+        }
+
+        // Clear all batches
+        m_UpdateBatches.clear();
+
+        // Commit any remaining pending updates
+        CommitPendingUpdates();
+
+        // Update statistics
+        auto endTime = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime);
+        
+        m_UpdateStats.ImmediateUpdates += immediateUpdates;
+        m_UpdateStats.TotalUpdates += immediateUpdates;
+
+        OLO_CORE_TRACE("Flushed all updates ({0} resources, {1:.2f}ms)", 
+                      immediateUpdates, duration.count() / 1000.0f);
+    }
+
+    // ==========================================
+    // Phase 4 Private Implementation Methods
+    // ==========================================
+
+    void UniformBufferRegistry::PropagateInvalidationToDependents(const std::string& resourceName, InvalidationReason reason)
+    {
+        auto dependentIt = m_ResourceDependents.find(resourceName);
+        if (dependentIt == m_ResourceDependents.end())
+        {
+            return; // No dependents
+        }
+
+        // Create derived reason for dependent invalidations
+        InvalidationReason dependentReason = InvalidationReason::DependencyChanged;
+
+        for (const std::string& dependent : dependentIt->second)
+        {
+            // Avoid infinite recursion by checking if already invalidated
+            if (m_InvalidatedResources.find(dependent) == m_InvalidatedResources.end())
+            {
+                InvalidateResourceWithReason(dependent, dependentReason, false); // Don't propagate further to avoid cycles
+            }
+        }
+
+        OLO_CORE_TRACE("Propagated invalidation from '{0}' (reason: {1}) to {2} dependents", 
+                      resourceName, static_cast<u32>(reason), dependentIt->second.size());
+    }
+
+    void UniformBufferRegistry::UpdateBindingPointInvalidation(u32 bindingPoint, const std::string& resourceName, bool add)
+    {
+        auto& invalidatedResources = m_BindingPointInvalidations[bindingPoint];
+        
+        if (add)
+        {
+            if (std::find(invalidatedResources.begin(), invalidatedResources.end(), resourceName) == invalidatedResources.end())
+            {
+                invalidatedResources.push_back(resourceName);
+            }
+        }
+        else
+        {
+            invalidatedResources.erase(
+                std::remove(invalidatedResources.begin(), invalidatedResources.end(), resourceName),
+                invalidatedResources.end());
+            
+            if (invalidatedResources.empty())
+            {
+                m_BindingPointInvalidations.erase(bindingPoint);
+            }
+        }
+    }
+
+    bool UniformBufferRegistry::ValidateDependencyGraph() const
+    {
+        // Simple cycle detection using DFS
+        std::unordered_set<std::string> visiting;
+        std::unordered_set<std::string> visited;
+        
+        std::function<bool(const std::string&)> hasCycle = [&](const std::string& resource) -> bool {
+            if (visiting.find(resource) != visiting.end())
+            {
+                return true; // Cycle detected
+            }
+            
+            if (visited.find(resource) != visited.end())
+            {
+                return false; // Already processed
+            }
+            
+            visiting.insert(resource);
+            
+            auto dependenciesIt = m_ResourceDependencies.find(resource);
+            if (dependenciesIt != m_ResourceDependencies.end())
+            {
+                for (const std::string& dependency : dependenciesIt->second)
+                {
+                    if (hasCycle(dependency))
+                    {
+                        return true;
+                    }
+                }
+            }
+            
+            visiting.erase(resource);
+            visited.insert(resource);
+            return false;
+        };
+        
+        // Check all resources for cycles
+        for (const auto& [resourceName, _] : m_ResourceBindings)
+        {
+            if (visited.find(resourceName) == visited.end())
+            {
+                if (hasCycle(resourceName))
+                {
+                    return false;
+                }
+            }
+        }
+        
+        return true;
+    }
+
+    void UniformBufferRegistry::CreateUpdateBatches()
+    {
+        // Group invalidated resources by type
+        std::unordered_map<ShaderResourceType, std::vector<std::string>> resourcesByType;
+        
+        for (const std::string& resourceName : m_InvalidatedResources)
+        {
+            auto bindingIt = m_ResourceBindings.find(resourceName);
+            if (bindingIt != m_ResourceBindings.end())
+            {
+                resourcesByType[bindingIt->second.Type].push_back(resourceName);
+            }
+        }
+
+        // Create batches for each resource type
+        for (auto& [resourceType, resources] : resourcesByType)
+        {
+            if (resources.empty()) continue;
+
+            UpdatePriority priority = DetermineUpdatePriority(resources[0], resourceType);
+            UpdateBatch batch(resourceType, priority);
+            batch.ResourceNames = std::move(resources);
+            batch.FrameScheduled = m_CurrentFrame;
+            batch.EstimatedCost = CalculateBatchCost(batch);
+
+            m_UpdateBatches.push_back(std::move(batch));
+        }
+    }
+
+    UpdatePriority UniformBufferRegistry::DetermineUpdatePriority(const std::string& resourceName, ShaderResourceType resourceType) const
+    {
+        // Check for resource-specific priority first
+        auto resourcePriorityIt = m_ResourcePriorities.find(resourceName);
+        if (resourcePriorityIt != m_ResourcePriorities.end())
+        {
+            return resourcePriorityIt->second;
+        }
+
+        // Check for resource type priority
+        auto typePriorityIt = m_ResourceTypePriorities.find(resourceType);
+        if (typePriorityIt != m_ResourceTypePriorities.end())
+        {
+            return typePriorityIt->second;
+        }
+
+        // Default priority based on resource type characteristics
+        switch (resourceType)
+        {
+            case ShaderResourceType::UniformBuffer:
+                return UpdatePriority::High;    // Uniforms are usually small and frequently updated
+            case ShaderResourceType::Texture2D:
+            case ShaderResourceType::TextureCube:
+                return UpdatePriority::Normal;  // Textures are moderate cost
+            case ShaderResourceType::StorageBuffer:
+                return UpdatePriority::Low;     // Storage buffers can be large
+            case ShaderResourceType::Image2D:
+                return UpdatePriority::Low;     // Images have higher binding cost
+            default:
+                return UpdatePriority::Normal;
+        }
+    }
+
+    u32 UniformBufferRegistry::CalculateBatchCost(const UpdateBatch& batch) const
+    {
+        u32 cost = 0;
+        
+        // Base cost per resource type
+        u32 baseCost = 1;
+        switch (batch.ResourceType)
+        {
+            case ShaderResourceType::UniformBuffer:
+                baseCost = 1;
+                break;
+            case ShaderResourceType::StorageBuffer:
+                baseCost = 2;
+                break;
+            case ShaderResourceType::Texture2D:
+            case ShaderResourceType::TextureCube:
+                baseCost = 3;
+                break;
+            case ShaderResourceType::Image2D:
+                baseCost = 4;
+                break;
+            default:
+                baseCost = 2;
+                break;
+        }
+        
+        // Cost scales with number of resources but with diminishing returns
+        cost = baseCost * static_cast<u32>(batch.ResourceNames.size());
+        
+        // Priority affects cost (higher priority = lower perceived cost)
+        switch (batch.Priority)
+        {
+            case UpdatePriority::Immediate:
+                cost = cost / 4;
+                break;
+            case UpdatePriority::High:
+                cost = cost / 2;
+                break;
+            case UpdatePriority::Normal:
+                // No change
+                break;
+            case UpdatePriority::Low:
+                cost = cost * 2;
+                break;
+            case UpdatePriority::Background:
+                cost = cost * 4;
+                break;
+        }
+        
+        return cost;
+    }
+
+    void UniformBufferRegistry::SortUpdateBatches()
+    {
+        std::sort(m_UpdateBatches.begin(), m_UpdateBatches.end(),
+            [](const UpdateBatch& a, const UpdateBatch& b) {
+                // Sort by priority first (lower value = higher priority)
+                if (a.Priority != b.Priority)
+                {
+                    return a.Priority < b.Priority;
+                }
+                
+                // Then by estimated cost (lower cost first)
+                return a.EstimatedCost < b.EstimatedCost;
+            });
+    }
+
+    bool UniformBufferRegistry::ProcessUpdateBatch(UpdateBatch& batch)
+    {
+        auto startTime = std::chrono::high_resolution_clock::now();
+        
+        for (const std::string& resourceName : batch.ResourceNames)
+        {
+            // Find the resource in pending updates
+            auto pendingIt = m_PendingResources.find(resourceName);
+            if (pendingIt != m_PendingResources.end())
+            {
+                auto bindingIt = m_ResourceBindings.find(resourceName);
+                if (bindingIt != m_ResourceBindings.end())
+                {
+                    // Apply the resource binding
+                    ApplyResourceBinding(resourceName, bindingIt->second, pendingIt->second);
+
+                    // Update frame tracking
+                    bindingIt->second.UpdateBindFrame(m_CurrentFrame);
+
+                    // Move from pending to bound
+                    m_BoundResources[resourceName] = std::move(pendingIt->second);
+                    m_PendingResources.erase(pendingIt);
+                    
+                    // Remove from invalidated set
+                    m_InvalidatedResources.erase(resourceName);
+
+                    // Remove from invalidation details
+                    auto invalidationIt = m_InvalidationDetails.find(resourceName);
+                    if (invalidationIt != m_InvalidationDetails.end())
+                    {
+                        UpdateBindingPointInvalidation(invalidationIt->second.BindingPoint, resourceName, false);
+                        m_InvalidationDetails.erase(invalidationIt);
+                    }
+                }
+            }
+        }
+
+        auto endTime = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime);
+        
+        // Update batch processing statistics
+        f32 batchTime = duration.count() / 1000.0f; // Convert to milliseconds
+        m_UpdateStats.AverageBatchSize = (m_UpdateStats.AverageBatchSize + static_cast<f32>(batch.ResourceNames.size())) / 2.0f;
+        
+        // Estimate state change savings (batching similar resources together)
+        if (batch.ResourceNames.size() > 1)
+        {
+            m_UpdateStats.StateChangeSavings += static_cast<u32>(batch.ResourceNames.size() - 1);
+        }
+
+        OLO_CORE_TRACE("Processed update batch with {0} resources of type {1} ({2:.2f}ms)", 
+                      batch.ResourceNames.size(), static_cast<u32>(batch.ResourceType), batchTime);
+
+        return true;
+    }
+
+    bool UniformBufferRegistry::ShouldProcessBatch(const UpdateBatch& batch, u32 currentFrame) const
+    {
+        // Always process immediate priority batches
+        if (batch.Priority == UpdatePriority::Immediate)
+        {
+            return true;
+        }
+
+        // If frame-based batching is disabled, process all batches
+        if (!m_FrameBasedBatchingEnabled)
+        {
+            return true;
+        }
+
+        // Check if enough frames have passed based on priority
+        u32 framesSinceScheduled = currentFrame - batch.FrameScheduled;
+        
+        switch (batch.Priority)
+        {
+            case UpdatePriority::High:
+                return framesSinceScheduled >= 1; // Process next frame
+            case UpdatePriority::Normal:
+                return framesSinceScheduled >= 2; // Process after 2 frames
+            case UpdatePriority::Low:
+                return framesSinceScheduled >= m_MaxFrameDelay; // Process after max delay
+            case UpdatePriority::Background:
+                return framesSinceScheduled >= m_MaxFrameDelay * 2; // Process after extended delay
+            default:
+                return true;
+        }
+    }
+
+    // ==========================================
+    // Phase 5: Enhanced Debug and Validation System Implementation
+    // ==========================================
+
+    // Phase 5.1: Resource Declaration System
+    const ResourceDeclaration* UniformBufferRegistry::GetResourceDeclaration(const std::string& name) const
+    {
+        auto it = m_ResourceDeclarations.find(name);
+        return (it != m_ResourceDeclarations.end()) ? &it->second : nullptr;
+    }
+
+    const std::unordered_map<std::string, ResourceDeclaration>& UniformBufferRegistry::GetResourceDeclarations() const
+    {
+        return m_ResourceDeclarations;
+    }
+
+    void UniformBufferRegistry::UpdateResourceUsageStatistics(const std::string& name, bool wasRead, bool wasWritten, u64 bytesTransferred)
+    {
+        auto it = m_ResourceDeclarations.find(name);
+        if (it == m_ResourceDeclarations.end())
+        {
+            // Initialize resource declaration if it doesn't exist
+            auto resourceIt = m_ResourceBindings.find(name);
+            if (resourceIt != m_ResourceBindings.end())
+            {
+                InitializeResourceDeclaration(name, resourceIt->second.Type);
+                it = m_ResourceDeclarations.find(name);
+            }
+            else
+            {
+                return; // Resource doesn't exist
+            }
+        }
+
+        auto& stats = it->second.Statistics;
+        auto now = std::chrono::steady_clock::now();
+
+        if (wasRead)
+        {
+            stats.ReadCount++;
+            stats.LastAccessed = now;
+        }
+
+        if (wasWritten)
+        {
+            stats.WriteCount++;
+            stats.LastAccessed = now;
+        }
+
+        stats.TotalSizeTransferred += bytesTransferred;
+        
+        // Set first access time if this is the first access
+        if (stats.ReadCount == 1 && stats.WriteCount == 0)
+        {
+            stats.FirstAccessed = now;
+        }
+        else if (stats.WriteCount == 1 && stats.ReadCount == 0)
+        {
+            stats.FirstAccessed = now;
+        }
+
+        // Detect usage pattern based on access frequency
+        auto timeSinceFirstAccess = std::chrono::duration_cast<std::chrono::milliseconds>(now - stats.FirstAccessed).count();
+        if (timeSinceFirstAccess > 1000) // Only analyze after 1 second
+        {
+            f32 writeFrequency = stats.WriteCount / (timeSinceFirstAccess / 1000.0f);
+            
+            if (writeFrequency > 60.0f) // More than 60 writes per second
+            {
+                it->second.UsagePattern = ResourceUsagePattern::Streaming;
+            }
+            else if (writeFrequency > 10.0f) // More than 10 writes per second
+            {
+                it->second.UsagePattern = ResourceUsagePattern::DynamicWrite;
+            }
+            else if (stats.WriteCount > 0)
+            {
+                it->second.UsagePattern = ResourceUsagePattern::StaticWrite;
+            }
+            else
+            {
+                it->second.UsagePattern = ResourceUsagePattern::ReadOnly;
+            }
+        }
+
+        // Real-time validation if enabled
+        if (m_RealtimeValidationEnabled)
+        {
+            auto issues = ValidateResourceSizeAlignment(name);
+            m_ValidationIssues.insert(m_ValidationIssues.end(), issues.begin(), issues.end());
+        }
+    }
+
+    void UniformBufferRegistry::SetResourceUsagePattern(const std::string& name, ResourceUsagePattern pattern)
+    {
+        auto it = m_ResourceDeclarations.find(name);
+        if (it == m_ResourceDeclarations.end())
+        {
+            auto resourceIt = m_ResourceBindings.find(name);
+            if (resourceIt != m_ResourceBindings.end())
+            {
+                InitializeResourceDeclaration(name, resourceIt->second.Type);
+                it = m_ResourceDeclarations.find(name);
+            }
+            else
+            {
+                if (m_RealtimeValidationEnabled)
+                {                m_ValidationIssues.push_back(CreateValidationIssue(
+                    RegistryValidationSeverity::Warning,
+                    "ResourceDeclaration",
+                    "Attempted to set usage pattern for non-existent resource: " + name,
+                    name
+                ));
+                }
+                return;
+            }
+        }
+
+        // Check for pattern consistency
+        if (it->second.UsagePattern != ResourceUsagePattern::Unknown && 
+            it->second.UsagePattern != pattern)
+        {
+            if (m_RealtimeValidationEnabled)
+            {
+                m_ValidationIssues.push_back(CreateValidationIssue(
+                    RegistryValidationSeverity::Info,
+                    "UsagePattern",
+                    "Usage pattern changed for resource '" + name + "' from " + 
+                    std::to_string(static_cast<i32>(it->second.UsagePattern)) + " to " + 
+                    std::to_string(static_cast<i32>(pattern)),
+                    name
+                ));
+            }
+        }
+
+        it->second.UsagePattern = pattern;
+    }
+
+    const ResourceDeclaration::UsageStatistics* UniformBufferRegistry::GetResourceUsageStatistics(const std::string& name) const
+    {
+        auto it = m_ResourceDeclarations.find(name);
+        return (it != m_ResourceDeclarations.end()) ? &it->second.Statistics : nullptr;
+    }
+
+    std::vector<RegistryValidationIssue> UniformBufferRegistry::DetectBindingConflicts() const
+    {
+        std::vector<RegistryValidationIssue> issues;
+        std::unordered_map<u32, std::vector<std::string>> bindingPointUsage;
+
+        // Collect all binding point usages
+        for (const auto& [name, resource] : m_ResourceBindings)
+        {
+            bindingPointUsage[resource.BindingPoint].push_back(name);
+        }
+
+        // Check for conflicts
+        for (const auto& [bindingPoint, resources] : bindingPointUsage)
+        {
+            if (resources.size() > 1)
+            {
+                std::string resourceList;
+                for (sizet i = 0; i < resources.size(); ++i)
+                {
+                    if (i > 0) resourceList += ", ";
+                    resourceList += resources[i];
+                }
+
+                issues.push_back(CreateValidationIssue(
+                    RegistryValidationSeverity::Error,
+                    "BindingConflict",
+                    "Binding point " + std::to_string(bindingPoint) + " is used by multiple resources: " + resourceList
+                ));
+            }
+        }
+
+        return issues;
+    }
+
+    // Phase 5.2: Advanced Validation
+    std::vector<RegistryValidationIssue> UniformBufferRegistry::ValidateResources(bool enableLifecycleValidation, 
+                                                                                  bool enableSizeValidation, 
+                                                                                  bool enableConflictDetection) const
+    {
+        std::vector<RegistryValidationIssue> allIssues;
+
+        if (enableConflictDetection)
+        {
+            auto conflictIssues = DetectBindingConflicts();
+            allIssues.insert(allIssues.end(), conflictIssues.begin(), conflictIssues.end());
+        }
+
+        for (const auto& [name, resource] : m_ResourceBindings)
+        {
+            if (enableLifecycleValidation)
+            {
+                auto lifecycleIssues = ValidateResourceLifecycle(name);
+                allIssues.insert(allIssues.end(), lifecycleIssues.begin(), lifecycleIssues.end());
+            }
+
+            if (enableSizeValidation)
+            {
+                auto sizeIssues = ValidateResourceSizeAlignment(name);
+                allIssues.insert(allIssues.end(), sizeIssues.begin(), sizeIssues.end());
+            }
+        }
+
+        // Filter by severity
+        std::vector<RegistryValidationIssue> filteredIssues;
+        for (const auto& issue : allIssues)
+        {
+            if (ShouldReportValidationIssue(issue))
+            {
+                filteredIssues.push_back(issue);
+            }
+        }
+
+        return filteredIssues;
+    }
+
+    std::vector<RegistryValidationIssue> UniformBufferRegistry::ValidateResourceLifecycle(const std::string& name) const
+    {
+        std::vector<RegistryValidationIssue> issues;
+        
+        auto lifecycleIt = m_ResourceLifecycleInfo.find(name);
+        if (lifecycleIt == m_ResourceLifecycleInfo.end())
+        {
+            issues.push_back(CreateValidationIssue(
+                RegistryValidationSeverity::Warning,
+                "LifecycleTracking",
+                "Resource '" + name + "' has no lifecycle information",
+                name
+            ));
+            return issues;
+        }
+
+        const auto& lifecycle = lifecycleIt->second;
+        auto now = std::chrono::steady_clock::now();
+
+        // Check for stale resources
+        auto timeSinceAccess = std::chrono::duration_cast<std::chrono::seconds>(now - lifecycle.LastBound).count();
+        if (timeSinceAccess > 300) // 5 minutes
+        {
+            issues.push_back(CreateValidationIssue(
+                RegistryValidationSeverity::Info,
+                "ResourceStale",
+                "Resource '" + name + "' has not been accessed for " + std::to_string(timeSinceAccess) + " seconds",
+                name
+            ));
+        }
+
+        // Check for error states
+        if (lifecycle.State == ResourceLifecycleState::Destroyed)
+        {
+            issues.push_back(CreateValidationIssue(
+                RegistryValidationSeverity::Error,
+                "ResourceError",
+                "Resource '" + name + "' is in destroyed state: " + lifecycle.LastError,
+                name
+            ));
+        }
+
+        return issues;
+    }
+
+    std::vector<RegistryValidationIssue> UniformBufferRegistry::ValidateResourceSizeAlignment(const std::string& name) const
+    {
+        std::vector<RegistryValidationIssue> issues;
+        
+        auto resourceIt = m_ResourceBindings.find(name);
+        if (resourceIt == m_ResourceBindings.end())
+        {
+            return issues;
+        }
+
+        const auto& resource = resourceIt->second;
+
+        // Check uniform buffer alignment (std140 requires 16-byte alignment)
+        if (resource.Type == ShaderResourceType::UniformBuffer)
+        {
+            if (resource.Size % 16 != 0)
+            {
+                issues.push_back(CreateValidationIssue(
+                    RegistryValidationSeverity::Warning,
+                    "Alignment",
+                    "Uniform buffer '" + name + "' size (" + std::to_string(resource.Size) + 
+                    " bytes) is not aligned to 16-byte boundary (std140 requirement)",
+                    name
+                ));
+            }
+
+            // Check for extremely large buffers
+            if (resource.Size > 65536) // 64KB
+            {
+                issues.push_back(CreateValidationIssue(
+                    RegistryValidationSeverity::Warning,
+                    "Performance",
+                    "Uniform buffer '" + name + "' is very large (" + std::to_string(resource.Size) + 
+                    " bytes). Consider using storage buffer for better performance",
+                    name
+                ));
+            }
+        }
+
+        // Check storage buffer alignment (typically requires 4-byte alignment)
+        if (resource.Type == ShaderResourceType::StorageBuffer)
+        {
+            if (resource.Size % 4 != 0)
+            {
+                issues.push_back(CreateValidationIssue(
+                    RegistryValidationSeverity::Error,
+                    "Alignment",
+                    "Storage buffer '" + name + "' size (" + std::to_string(resource.Size) + 
+                    " bytes) is not aligned to 4-byte boundary",
+                    name
+                ));
+            }
+        }
+
+        return issues;
+    }
+
+    const ResourceLifecycleInfo* UniformBufferRegistry::GetResourceLifecycleInfo(const std::string& name) const
+    {
+        auto it = m_ResourceLifecycleInfo.find(name);
+        return (it != m_ResourceLifecycleInfo.end()) ? &it->second : nullptr;
+    }
+
+    void UniformBufferRegistry::UpdateResourceLifecycleState(const std::string& name, ResourceLifecycleState newState, 
+                                                            const std::string& errorMessage)
+    {
+        auto it = m_ResourceLifecycleInfo.find(name);
+        if (it == m_ResourceLifecycleInfo.end())
+        {        // Initialize lifecycle info
+        ResourceLifecycleInfo info{};
+        info.StateChanged = std::chrono::steady_clock::now();
+        info.Created = info.StateChanged;
+        info.State = newState;
+        info.LastError = errorMessage;
+        m_ResourceLifecycleInfo[name] = info;
+            return;
+        }
+
+        auto& lifecycle = it->second;
+        auto oldState = lifecycle.State;
+
+        // Validate transition
+        if (m_RealtimeValidationEnabled)
+        {
+            auto transitionIssues = ValidateLifecycleTransition(name, oldState, newState);
+            m_ValidationIssues.insert(m_ValidationIssues.end(), transitionIssues.begin(), transitionIssues.end());
+        }
+
+        lifecycle.State = newState;
+        lifecycle.StateChanged = std::chrono::steady_clock::now();
+        lifecycle.LastError = errorMessage;
+
+        // Log state change if it's significant
+        if (oldState != newState && (newState == ResourceLifecycleState::Destroyed))
+        {
+            OLO_CORE_WARN("Resource '{}' lifecycle state changed from {} to {}", 
+                         name, static_cast<i32>(oldState), static_cast<i32>(newState));
+        }
+    }
+
+    void UniformBufferRegistry::SetValidationSeverityFilter(RegistryValidationSeverity minSeverity)
+    {
+        m_ValidationSeverityFilter = minSeverity;
+    }
+
+    std::vector<RegistryValidationIssue> UniformBufferRegistry::GetValidationIssues(RegistryValidationSeverity severityFilter) const
+    {
+        std::vector<RegistryValidationIssue> filteredIssues;
+        
+        for (const auto& issue : m_ValidationIssues)
+        {
+            if (static_cast<i32>(issue.Severity) >= static_cast<i32>(severityFilter))
+            {
+                filteredIssues.push_back(issue);
+            }
+        }
+
+        return filteredIssues;
+    }
+
+    void UniformBufferRegistry::ClearValidationIssues()
+    {
+        m_ValidationIssues.clear();
+    }
+
+    void UniformBufferRegistry::EnableRealtimeValidation(bool enabled)
+    {
+        m_RealtimeValidationEnabled = enabled;
+        
+        if (enabled)
+        {
+            OLO_CORE_INFO("Real-time validation enabled for UniformBufferRegistry");
+        }
+        else
+        {
+            OLO_CORE_INFO("Real-time validation disabled for UniformBufferRegistry");
+        }
+    }
+
+    std::string UniformBufferRegistry::GenerateUsageReport() const
+    {
+        std::ostringstream report;
+        report << "=== UniformBufferRegistry Usage Report ===\n";
+        report << "Generated at: " << std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::high_resolution_clock::now().time_since_epoch()).count() << "\n\n";
+
+        report << "Resource Count: " << m_ResourceBindings.size() << "\n";
+        report << "Validation Issues: " << m_ValidationIssues.size() << "\n";
+        report << "Real-time Validation: " << (m_RealtimeValidationEnabled ? "Enabled" : "Disabled") << "\n\n";
+
+        // Resource usage statistics
+        report << "=== Resource Usage Statistics ===\n";
+        for (const auto& [name, declaration] : m_ResourceDeclarations)
+        {
+            const auto& stats = declaration.Statistics;
+            report << "Resource: " << name << "\n";
+            report << "  Type: " << static_cast<i32>(declaration.Type) << "\n";
+            report << "  Usage Pattern: " << static_cast<i32>(declaration.UsagePattern) << "\n";
+            report << "  Read Count: " << stats.ReadCount << "\n";
+            report << "  Write Count: " << stats.WriteCount << "\n";
+            report << "  Bytes Transferred: " << stats.TotalSizeTransferred << "\n";
+            
+            auto now = std::chrono::steady_clock::now();
+            auto timeSinceAccess = std::chrono::duration_cast<std::chrono::seconds>(now - stats.LastAccessed).count();
+            report << "  Last Access: " << timeSinceAccess << " seconds ago\n";
+            report << "\n";
+        }
+
+        // Validation issues summary
+        report << "=== Validation Issues ===\n";
+        std::unordered_map<RegistryValidationSeverity, u32> severityCounts;
+        
+        for (const auto& issue : m_ValidationIssues)
+        {
+            severityCounts[issue.Severity]++;
+        }
+
+        for (const auto& [severity, count] : severityCounts)
+        {
+            report << "  " << static_cast<i32>(severity) << ": " << count << " issues\n";
+        }
+
+        return report.str();
+    }
+
+    // Phase 5 Private Methods
+    void UniformBufferRegistry::InitializeResourceDeclaration(const std::string& name, ShaderResourceType resourceType)
+    {
+        ResourceDeclaration declaration{};
+        declaration.Name = name;
+        declaration.Type = resourceType;
+        declaration.UsagePattern = ResourceUsagePattern::Unknown;
+        
+        // Initialize usage statistics
+        auto now = std::chrono::steady_clock::now();
+        declaration.Statistics.FirstAccessed = now;
+        declaration.Statistics.LastAccessed = now;
+        declaration.Statistics.ReadCount = 0;
+        declaration.Statistics.WriteCount = 0;
+        declaration.Statistics.TotalSizeTransferred = 0;
+
+        // Extract SPIR-V metadata if available
+        declaration.SPIRVInfo = ExtractSPIRVMetadata(name);
+
+        m_ResourceDeclarations[name] = declaration;
+
+        // Initialize lifecycle info
+        ResourceLifecycleInfo lifecycle{};
+        lifecycle.Created = now;
+        lifecycle.StateChanged = now;
+        lifecycle.State = ResourceLifecycleState::Declared;
+        m_ResourceLifecycleInfo[name] = lifecycle;
+    }
+
+    ResourceDeclaration::SPIRVMetadata UniformBufferRegistry::ExtractSPIRVMetadata(const std::string& name) const
+    {
+        ResourceDeclaration::SPIRVMetadata metadata{};
+        
+        // For now, return empty metadata
+        // In a full implementation, this would analyze SPIR-V bytecode to extract:
+        // - Decorations (layout qualifiers)
+        // - Member offsets and types
+        // - Array sizes and strides
+        // - Usage patterns from instructions
+        
+        metadata.HasDecorations = false;
+        
+        return metadata;
+    }
+
+    std::vector<RegistryValidationIssue> UniformBufferRegistry::ValidateUsagePatternConsistency(const std::string& name, 
+                                                                                              ResourceUsagePattern actualPattern,
+                                                                                              ResourceUsagePattern declaredPattern) const
+    {
+        std::vector<RegistryValidationIssue> issues;
+
+        if (declaredPattern == ResourceUsagePattern::Unknown)
+        {
+            return issues; // No declared pattern to compare against
+        }
+
+        if (actualPattern != declaredPattern)
+        {
+            RegistryValidationSeverity severity = RegistryValidationSeverity::Warning;
+            
+            // Determine severity based on pattern mismatch type
+            if ((declaredPattern == ResourceUsagePattern::ReadOnly && actualPattern == ResourceUsagePattern::StaticWrite) ||
+                (declaredPattern == ResourceUsagePattern::StaticWrite && actualPattern == ResourceUsagePattern::DynamicWrite))
+            {
+                severity = RegistryValidationSeverity::Error; // These mismatches can cause performance issues
+            }
+
+            issues.push_back(CreateValidationIssue(
+                severity,
+                "UsagePatternMismatch",
+                "Resource '" + name + "' usage pattern mismatch. Declared: " + 
+                std::to_string(static_cast<i32>(declaredPattern)) + ", Actual: " + 
+                std::to_string(static_cast<i32>(actualPattern)),
+                name
+            ));
+        }
+
+        return issues;
+    }
+
+    RegistryValidationIssue UniformBufferRegistry::CreateValidationIssue(RegistryValidationSeverity severity, 
+                                                                      const std::string& category,
+                                                                      const std::string& message,
+                                                                      const std::string& resourceName) const
+    {
+        RegistryValidationIssue issue{};
+        issue.Severity = severity;
+        issue.Category = category;
+        issue.Message = message;
+        issue.ResourceName = resourceName;
+        issue.Timestamp = std::chrono::steady_clock::now();
+        
+        return issue;
+    }
+
+    bool UniformBufferRegistry::ShouldReportValidationIssue(const RegistryValidationIssue& issue) const
+    {
+        return static_cast<i32>(issue.Severity) >= static_cast<i32>(m_ValidationSeverityFilter);
+    }
+
+    std::vector<RegistryValidationIssue> UniformBufferRegistry::ValidateLifecycleTransition(const std::string& name,
+                                                                                           ResourceLifecycleState fromState,
+                                                                                           ResourceLifecycleState toState) const
+    {
+        std::vector<RegistryValidationIssue> issues;
+
+        // Define valid transitions
+        bool validTransition = false;
+
+        switch (fromState)
+        {
+            case ResourceLifecycleState::Declared:
+                validTransition = (toState == ResourceLifecycleState::Allocated || 
+                                 toState == ResourceLifecycleState::Destroyed);
+                break;
+            case ResourceLifecycleState::Allocated:
+                validTransition = (toState == ResourceLifecycleState::Bound ||
+                                 toState == ResourceLifecycleState::Deallocated ||
+                                 toState == ResourceLifecycleState::Destroyed);
+                break;
+            case ResourceLifecycleState::Bound:
+                validTransition = (toState == ResourceLifecycleState::Active ||
+                                 toState == ResourceLifecycleState::Unbound ||
+                                 toState == ResourceLifecycleState::Destroyed);
+                break;
+            case ResourceLifecycleState::Active:
+                validTransition = (toState == ResourceLifecycleState::Bound ||
+                                 toState == ResourceLifecycleState::Stale ||
+                                 toState == ResourceLifecycleState::Unbound ||
+                                 toState == ResourceLifecycleState::Destroyed);
+                break;
+            case ResourceLifecycleState::Stale:
+                validTransition = (toState == ResourceLifecycleState::Active ||
+                                 toState == ResourceLifecycleState::Unbound ||
+                                 toState == ResourceLifecycleState::Destroyed);
+                break;
+            case ResourceLifecycleState::Unbound:
+                validTransition = (toState == ResourceLifecycleState::Bound ||
+                                 toState == ResourceLifecycleState::Deallocated ||
+                                 toState == ResourceLifecycleState::Destroyed);
+                break;
+            case ResourceLifecycleState::Deallocated:
+                validTransition = (toState == ResourceLifecycleState::Destroyed);
+                break;
+            case ResourceLifecycleState::Destroyed:
+                validTransition = false; // Cannot transition from destroyed state
+                break;
+            default:
+                validTransition = true; // Allow unknown transitions for flexibility
+                break;
+        }
+
+        if (!validTransition)
+        {
+            issues.push_back(CreateValidationIssue(
+                RegistryValidationSeverity::Error,
+                "InvalidLifecycleTransition",
+                "Invalid lifecycle transition for resource '" + name + "' from " + 
+                std::to_string(static_cast<i32>(fromState)) + " to " + 
+                std::to_string(static_cast<i32>(toState)),
+                name
+            ));
+        }
+
+        return issues;
     }
 }
