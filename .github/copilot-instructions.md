@@ -18,4 +18,8 @@ Formatting: Braces on new lines, 4-space indentation, public methods before priv
 Memory Management: Use CreateScope<T> and CreateRef<T> helpers (unique_ptr/shared_ptr).
 Namespaces: All engine code wrapped in the OloEngine namespace.
 Documentation: Provide clear comments for complex functionality; use TODO markers for future improvements.
+
+## VS Code Tasks Usage
+When running or testing any application (e.g., Sandbox3D, OloEditor, Sandbox2D), always use the corresponding VS Code task defined in .vscode/tasks.json (such as 'run-sandbox3d-debug', 'run-oloeditor-release', etc.) instead of launching binaries directly. This ensures the correct working directory and environment are set. Do not use direct binary execution for starting or testing applications in this repository.
+
 Design Patterns: Adopt an interface/implementation split for platform-specific functionality.

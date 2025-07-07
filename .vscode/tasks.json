@@ -2,7 +2,7 @@
     "version": "2.0.0",
     "tasks": [
       {
-        "label": "build-sandbox3d",
+        "label": "build-sandbox3d-debug",
         "type": "shell",
         "command": "cmake",
         "args": [
@@ -20,9 +20,58 @@
         "problemMatcher": [
           "$msCompile"
         ]
-      },
+      },      
+    {
+      "label": "build-sandbox3d-release",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "${workspaceFolder}/build",
+        "--target",
+        "Sandbox3D",
+        "--config",
+        "Release"
+      ],
+      "group": "build",
+      "problemMatcher": [
+        "$msCompile"
+      ]
+    },
+  {
+    "label": "run-sandbox3d-debug",
+    "type": "shell",
+    "command": "${workspaceFolder}/bin/Debug/Sandbox3D/Sandbox3D.exe",
+    "options": {
+      "cwd": "${workspaceFolder}/OloEditor"
+    },
+    "group": "test",
+    "presentation": {
+      "echo": true,
+      "reveal": "always",
+      "focus": false,
+      "panel": "shared"
+    },
+    "problemMatcher": []
+  },
+  {
+    "label": "run-sandbox3d-release",
+    "type": "shell",
+    "command": "${workspaceFolder}/bin/Release/Sandbox3D/Sandbox3D.exe",
+    "options": {
+      "cwd": "${workspaceFolder}/OloEditor"
+    },
+    "group": "test",
+    "presentation": {
+      "echo": true,
+      "reveal": "always",
+      "focus": false,
+      "panel": "shared"
+    },
+    "problemMatcher": []
+  },
       {
-        "label": "build-oloeditor",
+        "label": "build-oloeditor-debug",
         "type": "shell",
         "command": "cmake",
         "args": [
@@ -38,22 +87,120 @@
           "$msCompile"
         ]
       },
-      {
-        "label": "build-sandbox2d",
-        "type": "shell",
-        "command": "cmake",
-        "args": [
-          "--build",
-          "${workspaceFolder}/build",
-          "--target",
-          "Sandbox2D",
-          "--config",
-          "Debug"
-        ],
-        "group": "build",
-        "problemMatcher": [
-          "$msCompile"
-        ]
-      }
+  {
+    "label": "build-sandbox3d-dist",
+    "type": "shell",
+    "command": "cmake",
+    "args": [
+      "--build",
+      "${workspaceFolder}/build",
+      "--target",
+      "Sandbox3D",
+      "--config",
+      "Dist"
+    ],
+    "group": "build",
+    "problemMatcher": [
+      "$msCompile"
+    ]
+  },
+  {
+    "label": "build-oloeditor-release",
+    "type": "shell",
+    "command": "cmake",
+    "args": [
+      "--build",
+      "${workspaceFolder}/build",
+      "--target",
+      "OloEditor",
+      "--config",
+      "Release"
+    ],
+    "group": "build",
+    "problemMatcher": [
+      "$msCompile"
+    ]
+  },
+  {
+    "label": "build-oloeditor-dist",
+    "type": "shell",
+    "command": "cmake",
+    "args": [
+      "--build",
+      "${workspaceFolder}/build",
+      "--target",
+      "OloEditor",
+      "--config",
+      "Dist"
+    ],
+    "group": "build",
+    "problemMatcher": [
+      "$msCompile"
+    ]
+  },
+  {
+    "label": "run-oloeditor-debug",
+    "type": "shell",
+    "command": "${workspaceFolder}/bin/Debug/OloEditor/OloEditor.exe",
+    "options": {
+      "cwd": "${workspaceFolder}/OloEditor"
+    },
+    "group": "test",
+    "presentation": {
+      "echo": true,
+      "reveal": "always",
+      "focus": false,
+      "panel": "shared"
+    },
+    "problemMatcher": []
+  },
+  {
+    "label": "run-oloeditor-release",
+    "type": "shell",
+    "command": "${workspaceFolder}/bin/Release/OloEditor/OloEditor.exe",
+    "options": {
+      "cwd": "${workspaceFolder}/OloEditor"
+    },
+    "group": "test",
+    "presentation": {
+      "echo": true,
+      "reveal": "always",
+      "focus": false,
+      "panel": "shared"
+    },
+    "problemMatcher": []
+  },
+  {
+    "label": "run-oloeditor-dist",
+    "type": "shell",
+    "command": "${workspaceFolder}/bin/Dist/OloEditor/OloEditor.exe",
+    "options": {
+      "cwd": "${workspaceFolder}/OloEditor"
+    },
+    "group": "test",
+    "presentation": {
+      "echo": true,
+      "reveal": "always",
+      "focus": false,
+      "panel": "shared"
+    },
+    "problemMatcher": []
+  },
+  {
+    "label": "run-sandbox3d-dist",
+    "type": "shell",
+    "command": "${workspaceFolder}/bin/Dist/Sandbox3D/Sandbox3D.exe",
+    "options": {
+      "cwd": "${workspaceFolder}/OloEditor"
+    },
+    "group": "test",
+    "presentation": {
+      "echo": true,
+      "reveal": "always",
+      "focus": false,
+      "panel": "shared"
+    },
+    "problemMatcher": []
+  }
     ]
   }
