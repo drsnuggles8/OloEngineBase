@@ -21,7 +21,7 @@ namespace OloEngine
         /**
          * @brief Configuration for multi-bind operations
          */
-        struct MultiBind Config
+        struct Config
         {
             bool EnableTextureBatching = true;    // Batch texture bindings
             bool EnableBufferBatching = true;     // Batch buffer bindings
@@ -96,12 +96,12 @@ namespace OloEngine
 
     public:
         OpenGLMultiBind();
-        explicit OpenGLMultiBind(const MultiBind Config& config);
+        explicit OpenGLMultiBind(const Config& config);
         ~OpenGLMultiBind() = default;
 
         // Configuration
-        void SetConfig(const MultiBind Config& config) { m_Config = config; }
-        const MultiBind Config& GetConfig() const { return m_Config; }
+        void SetConfig(const Config& config) { m_Config = config; }
+        const Config& GetConfig() const { return m_Config; }
 
         // Texture binding operations
         /**
@@ -250,7 +250,7 @@ namespace OloEngine
         void FlushBufferBatchIfNeeded();
 
     private:
-        MultiBind Config m_Config;
+        Config m_Config;
         
         // Current batches
         TextureBatch m_CurrentTextureBatch;

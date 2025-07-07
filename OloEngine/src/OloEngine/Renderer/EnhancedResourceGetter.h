@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "UniformBufferRegistry.h"
+#include "ResourceConverter.h"
 #include <type_traits>
 #include <optional>
 #include <functional>
@@ -10,7 +11,6 @@ namespace OloEngine
 {
     // Forward declarations
     class OpenGLResourceDeclaration;
-    class ResourceConverter;
     template<typename T>
     struct ConversionResult;
 
@@ -195,11 +195,34 @@ namespace OloEngine
     };
 
     /**
-     * @brief Smart resource converter for automatic type conversions
+     * @brief Resource availability checker
      */
-    class ResourceConverter
+    /**
+     * @brief Resource availability checker
+     */
+    class ResourceAvailabilityChecker
     {
     public:
+        enum class AvailabilityStatus
+        {
+            Available,
+            NotBound,
+            TypeMismatch,
+            Invalid,
+            Missing
+        };
+
+        struct AvailabilityInfo
+        {
+            AvailabilityStatus Status = AvailabilityStatus::Missing;
+            std::string Message;
+            ShaderResourceType ExpectedType = ShaderResourceType::None;
+            ShaderResourceType ActualType = ShaderResourceType::None;
+            bool IsArray = false;
+            
+            operator bool() const { return Status == AvailabilityStatus::Available; }
+        };
+
         /**
          * @brief Check if conversion between types is possible
          * @tparam From Source type
@@ -283,33 +306,6 @@ namespace OloEngine
             
             return nullptr;
         }
-    };
-
-    /**
-     * @brief Resource availability checker
-     */
-    class ResourceAvailabilityChecker
-    {
-    public:
-        enum class AvailabilityStatus
-        {
-            Available,
-            NotBound,
-            TypeMismatch,
-            Invalid,
-            Missing
-        };
-
-        struct AvailabilityInfo
-        {
-            AvailabilityStatus Status = AvailabilityStatus::Missing;
-            std::string Message;
-            ShaderResourceType ExpectedType = ShaderResourceType::None;
-            ShaderResourceType ActualType = ShaderResourceType::None;
-            bool IsArray = false;
-            
-            operator bool() const { return Status == AvailabilityStatus::Available; }
-        };
 
         /**
          * @brief Check resource availability in registry
@@ -374,9 +370,26 @@ namespace OloEngine
             return info;
         }
 
+        static const char* GetResourceTypeName(ShaderResourceType type)
+        {
+            switch (type)
+            {
+                case ShaderResourceType::None: return "None";
+                case ShaderResourceType::UniformBuffer: return "UniformBuffer";
+                case ShaderResourceType::StorageBuffer: return "StorageBuffer";
+                case ShaderResourceType::Texture2D: return "Texture2D";
+                case ShaderResourceType::TextureCube: return "TextureCube";
+                case ShaderResourceType::UniformBufferArray: return "UniformBufferArray";
+                case ShaderResourceType::StorageBufferArray: return "StorageBufferArray";
+                case ShaderResourceType::Texture2DArray: return "Texture2DArray";
+                case ShaderResourceType::TextureCubeArray: return "TextureCubeArray";
+                case ShaderResourceType::Image2D: return "Image2D";
+                default: return "Unknown";
+            }
+        }
+
     private:
         static bool IsConvertibleType(ShaderResourceType from, ShaderResourceType to);
-        static const char* GetResourceTypeName(ShaderResourceType type);
     };
 
     /**
@@ -466,7 +479,7 @@ namespace OloEngine
                     return ResourceAccessResult<T>::Error(
                         "Type mismatch in declaration for '" + name + "': expected " + 
                         ResourceTypeTraits<T>::TypeName + ", declared as " + 
-                        GetResourceTypeName(resourceInfo->Type) + 
+                        ResourceAvailabilityChecker::GetResourceTypeName(resourceInfo->Type) + 
                         " (binding=" + std::to_string(resourceInfo->Binding) + 
                         ", set=" + std::to_string(resourceInfo->Set) + ")");
                 }
@@ -594,7 +607,7 @@ namespace OloEngine
             {
                 if (resourceInfo->Size > 0)
                 {
-                    resource = CreateRef<UniformBuffer>(resourceInfo->Size);
+                    resource = UniformBuffer::Create(resourceInfo->Size, resourceInfo->Binding);
                 }
             }
             else if constexpr (std::is_same_v<T, StorageBuffer>)
@@ -603,7 +616,7 @@ namespace OloEngine
                 {
                     BufferUsage usage = (resourceInfo->Access == OpenGLResourceDeclaration::AccessPattern::ReadOnly) 
                                       ? BufferUsage::Static : BufferUsage::Dynamic;
-                    resource = CreateRef<StorageBuffer>(resourceInfo->Size, usage);
+                    resource = StorageBuffer::Create(resourceInfo->Size, nullptr, usage);
                 }
             }
             else if constexpr (std::is_same_v<T, UniformBufferArray>)
@@ -744,8 +757,7 @@ namespace OloEngine
                                 buffer, declarationInfo, false);
                             if (conversionResult.IsSuccessful())
                             {
-                                return ResourceAccessResult<T>::Success(conversionResult.ConvertedResource, 
-                                    "Successfully converted UniformBuffer to UniformBufferArray using intelligent conversion");
+                                return ResourceAccessResult<T>::Success(conversionResult.ConvertedResource);
                             }
                             else
                             {
@@ -767,8 +779,7 @@ namespace OloEngine
                                 buffer, declarationInfo, false);
                             if (conversionResult.IsSuccessful())
                             {
-                                return ResourceAccessResult<T>::Success(conversionResult.ConvertedResource,
-                                    "Successfully converted StorageBuffer to StorageBufferArray using intelligent conversion");
+                                return ResourceAccessResult<T>::Success(conversionResult.ConvertedResource);
                             }
                             else
                             {
@@ -790,8 +801,7 @@ namespace OloEngine
                                 texture, declarationInfo, false);
                             if (conversionResult.IsSuccessful())
                             {
-                                return ResourceAccessResult<T>::Success(conversionResult.ConvertedResource,
-                                    "Successfully converted Texture2D to Texture2DArray using intelligent conversion");
+                                return ResourceAccessResult<T>::Success(conversionResult.ConvertedResource);
                             }
                             else
                             {
@@ -813,8 +823,7 @@ namespace OloEngine
                                 texture, declarationInfo, false);
                             if (conversionResult.IsSuccessful())
                             {
-                                return ResourceAccessResult<T>::Success(conversionResult.ConvertedResource,
-                                    "Successfully converted TextureCubemap to TextureCubemapArray using intelligent conversion");
+                                return ResourceAccessResult<T>::Success(conversionResult.ConvertedResource);
                             }
                             else
                             {
@@ -837,8 +846,7 @@ namespace OloEngine
                                 bufferArray, declarationInfo, true); // Allow lossy conversion for array to single
                             if (conversionResult.IsSuccessful())
                             {
-                                return ResourceAccessResult<T>::Success(conversionResult.ConvertedResource,
-                                    "Successfully extracted UniformBuffer from UniformBufferArray using intelligent conversion");
+                                return ResourceAccessResult<T>::Success(conversionResult.ConvertedResource);
                             }
                             else
                             {
@@ -860,8 +868,7 @@ namespace OloEngine
                                 bufferArray, declarationInfo, true);
                             if (conversionResult.IsSuccessful())
                             {
-                                return ResourceAccessResult<T>::Success(conversionResult.ConvertedResource,
-                                    "Successfully extracted StorageBuffer from StorageBufferArray using intelligent conversion");
+                                return ResourceAccessResult<T>::Success(conversionResult.ConvertedResource);
                             }
                             else
                             {
@@ -883,8 +890,7 @@ namespace OloEngine
                                 textureArray, declarationInfo, true);
                             if (conversionResult.IsSuccessful())
                             {
-                                return ResourceAccessResult<T>::Success(conversionResult.ConvertedResource,
-                                    "Successfully extracted Texture2D from Texture2DArray using intelligent conversion");
+                                return ResourceAccessResult<T>::Success(conversionResult.ConvertedResource);
                             }
                             else
                             {
@@ -906,8 +912,7 @@ namespace OloEngine
                                 textureArray, declarationInfo, true);
                             if (conversionResult.IsSuccessful())
                             {
-                                return ResourceAccessResult<T>::Success(conversionResult.ConvertedResource,
-                                    "Successfully extracted TextureCubemap from TextureCubemapArray using intelligent conversion");
+                                return ResourceAccessResult<T>::Success(conversionResult.ConvertedResource);
                             }
                             else
                             {
@@ -1066,7 +1071,7 @@ namespace OloEngine
             
             return ResourceAccessResult<T>::Error(
                 "No viable conversion found for resource '" + name + "' with declaration context. " +
-                "Declared type: " + GetResourceTypeName(resourceInfo.Type) + 
+                "Declared type: " + ResourceAvailabilityChecker::GetResourceTypeName(resourceInfo.Type) + 
                 ", Requested type: " + ResourceTypeTraits<T>::TypeName +
                 ", Binding: " + std::to_string(resourceInfo.Binding) +
                 ", Set: " + std::to_string(resourceInfo.Set)
@@ -1082,10 +1087,10 @@ namespace OloEngine
                                                const Ref<T>& resource,
                                                const std::string& passName)
         {
-            const auto* declaration = registry.GetOpenGLDeclaration(passName);
+            const OpenGLResourceDeclaration* declaration = &registry.GetOpenGLDeclaration(passName);
             if (declaration)
             {
-                const auto* resourceInfo = declaration->GetResource(name);
+                const OpenGLResourceDeclaration::ResourceInfo* resourceInfo = declaration->GetResource(name);
                 if (resourceInfo)
                 {
                     // Create input with declaration metadata
@@ -1170,9 +1175,10 @@ namespace OloEngine
                         auto buffer = registry.GetResource<UniformBuffer>(name);
                         if (buffer)
                         {
-                            auto converted = ResourceConverter::Convert<UniformBuffer, UniformBufferArray>(buffer);
-                            if (converted)
-                                return ResourceAccessResult<T>::Success(converted);
+                            ResourceConverter converter;
+                            auto converted = converter.ConvertResource<UniformBuffer, UniformBufferArray>(buffer, nullptr, false);
+                            if (converted.ConvertedResource)
+                                return ResourceAccessResult<T>::Success(converted.ConvertedResource);
                         }
                     }
                     break;
@@ -1184,9 +1190,10 @@ namespace OloEngine
                         auto buffer = registry.GetResource<StorageBuffer>(name);
                         if (buffer)
                         {
-                            auto converted = ResourceConverter::Convert<StorageBuffer, StorageBufferArray>(buffer);
-                            if (converted)
-                                return ResourceAccessResult<T>::Success(converted);
+                            ResourceConverter converter;
+                            auto converted = converter.ConvertResource<StorageBuffer, StorageBufferArray>(buffer, nullptr, false);
+                            if (converted.ConvertedResource)
+                                return ResourceAccessResult<T>::Success(converted.ConvertedResource);
                         }
                     }
                     break;
@@ -1198,9 +1205,10 @@ namespace OloEngine
                         auto texture = registry.GetResource<Texture2D>(name);
                         if (texture)
                         {
-                            auto converted = ResourceConverter::Convert<Texture2D, Texture2DArray>(texture);
-                            if (converted)
-                                return ResourceAccessResult<T>::Success(converted);
+                            ResourceConverter converter;
+                            auto converted = converter.ConvertResource<Texture2D, Texture2DArray>(texture, nullptr, false);
+                            if (converted.ConvertedResource)
+                                return ResourceAccessResult<T>::Success(converted.ConvertedResource);
                         }
                     }
                     break;
@@ -1212,9 +1220,10 @@ namespace OloEngine
                         auto texture = registry.GetResource<TextureCubemap>(name);
                         if (texture)
                         {
-                            auto converted = ResourceConverter::Convert<TextureCubemap, TextureCubemapArray>(texture);
-                            if (converted)
-                                return ResourceAccessResult<T>::Success(converted);
+                            ResourceConverter converter;
+                            auto converted = converter.ConvertResource<TextureCubemap, TextureCubemapArray>(texture, nullptr, false);
+                            if (converted.ConvertedResource)
+                                return ResourceAccessResult<T>::Success(converted.ConvertedResource);
                         }
                     }
                     break;

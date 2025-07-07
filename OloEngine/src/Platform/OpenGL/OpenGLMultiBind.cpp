@@ -21,7 +21,7 @@ namespace OloEngine
         QueryCapabilities();
         
         // Set up default configuration
-        m_Config = MultiBind Config{};
+        m_Config = Config{};
         m_Config.EnableTextureBatching = s_MultiBindSupported;
         m_Config.EnableBufferBatching = s_MultiBindSupported;
         m_Config.UseDirectStateAccess = s_DSASupported;
@@ -32,7 +32,7 @@ namespace OloEngine
         m_StateCache.Invalidate();
     }
 
-    OpenGLMultiBind::OpenGLMultiBind(const MultiBind Config& config)
+    OpenGLMultiBind::OpenGLMultiBind(const Config& config)
         : m_Config(config)
     {
         QueryCapabilities();
@@ -210,7 +210,7 @@ namespace OloEngine
 
     void OpenGLMultiBind::SubmitTextureBatch(const TextureBatch& batch)
     {
-        RENDERER_PROFILE_SCOPE("OpenGLMultiBind::SubmitTextureBatch");
+        OLO_PROFILE_SCOPE("OpenGLMultiBind::SubmitTextureBatch");
 
         if (m_Config.EnableTextureBatching && s_MultiBindSupported && batch.Count > 1)
         {
@@ -264,7 +264,7 @@ namespace OloEngine
 
     void OpenGLMultiBind::SubmitBufferBatch(const BufferBatch& batch)
     {
-        RENDERER_PROFILE_SCOPE("OpenGLMultiBind::SubmitBufferBatch");
+        OLO_PROFILE_SCOPE("OpenGLMultiBind::SubmitBufferBatch");
 
         if (m_Config.EnableBufferBatching && s_MultiBindSupported && batch.Count > 1)
         {

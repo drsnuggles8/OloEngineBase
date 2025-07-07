@@ -447,7 +447,7 @@ namespace OloEngine
         if (!m_IsInitialized)
             return 0;
 
-        const auto& bindings = registry.GetResourceBindings();
+        const auto& bindings = registry.GetBindings();
         u32 boundCount = 0;
 
         // Separate bindings by type for potential batching

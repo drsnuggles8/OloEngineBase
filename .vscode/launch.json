@@ -8,7 +8,7 @@
         "args": [],
         "cwd": "${workspaceFolder}/OloEditor",
         "stopAtEntry": false,
-        "preLaunchTask": "build-sandbox3d"
+        "preLaunchTask": "build-sandbox3d-debug"
       },
       {
         "type": "cppvsdbg",
@@ -18,7 +18,7 @@
         "args": [],
         "cwd": "${workspaceFolder}/OloEditor",
         "stopAtEntry": false,
-        "preLaunchTask": "build-oloeditor"
+        "preLaunchTask": "build-oloeditor-debug"
       },
       {
         "type": "cppvsdbg",
@@ -28,7 +28,7 @@
         "args": [],
         "cwd": "${workspaceFolder}/OloEditor",
         "stopAtEntry": false,
-        "preLaunchTask": "build-sandbox2d"
+        "preLaunchTask": "build-sandbox2d-debug"
       }
       ,
       {

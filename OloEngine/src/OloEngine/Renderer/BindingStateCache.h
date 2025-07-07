@@ -1,7 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/RendererTypes.h"
+#include "OloEngine/Renderer/ShaderResourceTypes.h"
 #include <unordered_map>
 #include <vector>
 #include <chrono>

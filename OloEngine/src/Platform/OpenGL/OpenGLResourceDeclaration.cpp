@@ -1,10 +1,10 @@
 #include "Platform/OpenGL/OpenGLResourceDeclaration.h"
-#include "Platform/OpenGL/OpenGLShaderCompiler.h"
 #include "OloEngine/Core/Log.h"
 
 #include <spirv_cross/spirv_cross.hpp>
 #include <spirv_cross/spirv_glsl.hpp>
 #include <algorithm>
+#include <numeric>
 #include <sstream>
 
 namespace OloEngine
@@ -223,13 +223,13 @@ namespace OloEngine
             switch (type.image.dim)
             {
                 case spv::Dim1D:
-                    resourceType = ShaderResourceType::Texture1D;
+                    resourceType = ShaderResourceType::Texture2D; // Map 1D to 2D for compatibility
                     break;
                 case spv::Dim2D:
                     resourceType = ShaderResourceType::Texture2D;
                     break;
                 case spv::Dim3D:
-                    resourceType = ShaderResourceType::Texture3D;
+                    resourceType = ShaderResourceType::Texture2D; // Map 3D to 2D for compatibility
                     break;
                 case spv::DimCube:
                     resourceType = ShaderResourceType::TextureCube;
@@ -267,16 +267,17 @@ namespace OloEngine
     void OpenGLResourceDeclaration::ProcessPushConstants(const spirv_cross::Compiler& compiler, 
                                                          const spirv_cross::ShaderResources& resources)
     {
-        // OpenGL doesn't have push constants, but we can track them for compatibility
-        for (const auto& pc : resources.push_constant_buffers)
+        // OpenGL doesn't typically use push constants (this is a Vulkan concept)
+        // For now, we'll skip processing them. If needed in the future, they can be
+        // mapped to uniform buffers or added as a new resource type.
+        
+        // Note: Push constants are typically small amounts of data that are pushed
+        // directly to the shader pipeline. In OpenGL, this is usually handled through
+        // uniform variables instead.
+        
+        if (!resources.push_constant_buffers.empty())
         {
-            ResourceInfo resourceInfo = CreateResourceFromSPIRV(compiler, pc, ShaderResourceType::PushConstant);
-            
-            const auto& type = compiler.get_type(pc.type_id);
-            resourceInfo.Size = static_cast<u32>(compiler.get_declared_struct_size(type));
-            resourceInfo.IsOptional = true;  // Push constants are optional in OpenGL
-            
-            AddResource(resourceInfo);
+            OLO_CORE_WARN("SPIR-V contains push constants which are not supported in OpenGL. Consider using uniform buffers instead.");
         }
     }
 
@@ -511,12 +512,8 @@ namespace OloEngine
     {
         switch (resourceType)
         {
-            case ShaderResourceType::Texture1D:
-                return GL_TEXTURE_1D;
             case ShaderResourceType::Texture2D:
                 return GL_TEXTURE_2D;
-            case ShaderResourceType::Texture3D:
-                return GL_TEXTURE_3D;
             case ShaderResourceType::TextureCube:
                 return GL_TEXTURE_CUBE_MAP;
             case ShaderResourceType::Image2D:
@@ -575,9 +572,7 @@ namespace OloEngine
                 case ShaderResourceType::StorageBuffer:
                     m_Declaration.TotalStorageBuffers++;
                     break;
-                case ShaderResourceType::Texture1D:
                 case ShaderResourceType::Texture2D:
-                case ShaderResourceType::Texture3D:
                 case ShaderResourceType::TextureCube:
                     m_Declaration.TotalTextures++;
                     break;

@@ -1,7 +1,8 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/RendererTypes.h"
+#include "OloEngine/Renderer/ShaderResourceTypes.h"
+#include "OloEngine/Renderer/ArrayResource.h"
 #include "Platform/OpenGL/OpenGLResourceDeclaration.h"
 #include <functional>
 #include <unordered_map>
@@ -125,9 +126,9 @@ namespace OloEngine
          * @param registry Registry context for additional metadata
          * @return Conversion result
          */
-        template<typename ToType>
+        template<typename FromType, typename ToType>
         ConversionResult<ToType> SmartConvert(
-            const ShaderResource& sourceResource,
+            const Ref<FromType>& sourceResource,
             ShaderResourceType sourceType,
             const OpenGLResourceDeclaration::ResourceInfo& targetDeclaration,
             const UniformBufferRegistry& registry) const;
@@ -229,11 +230,11 @@ namespace OloEngine
         void UpdateStatistics(const std::string& conversionKey, bool success, f32 conversionTime) const;
 
         // Built-in conversion implementations
-        ConversionResult<UniformBufferArray> ConvertToUniformBufferArray(const Ref<UniformBuffer>& source,
-                                                                         const OpenGLResourceDeclaration::ResourceInfo* targetDeclaration) const;
+        Ref<UniformBufferArray> ConvertToUniformBufferArray(const Ref<UniformBuffer>& source,
+                                                            const OpenGLResourceDeclaration::ResourceInfo* targetDeclaration) const;
 
-        ConversionResult<StorageBufferArray> ConvertToStorageBufferArray(const Ref<StorageBuffer>& source,
-                                                                         const OpenGLResourceDeclaration::ResourceInfo* targetDeclaration) const;
+        Ref<StorageBufferArray> ConvertToStorageBufferArray(const Ref<StorageBuffer>& source,
+                                                            const OpenGLResourceDeclaration::ResourceInfo* targetDeclaration) const;
 
         ConversionResult<Texture2DArray> ConvertToTexture2DArray(const Ref<Texture2D>& source,
                                                                  const OpenGLResourceDeclaration::ResourceInfo* targetDeclaration) const;

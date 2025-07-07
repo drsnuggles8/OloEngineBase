@@ -1,8 +1,7 @@
 #include "BindingStateCache.h"
 #include "UniformBufferRegistry.h"
-#include "ShaderResourceBinding.h"
 #include "OloEngine/Core/Log.h"
-#include "OloEngine/Core/Profiler.h"
+#include "OloEngine/Debug/Instrumentor.h"
 #include <algorithm>
 #include <functional>
 
@@ -269,8 +268,8 @@ namespace OloEngine
         u32 currentFrame = m_CurrentFrame;
         
         // Apply each binding from the registry
-        const auto& bindings = registry.GetAllBindings();
-        for (const auto& [bindingPoint, binding] : bindings)
+        const auto& bindings = registry.GetBindings();
+        for (const auto& [resourceName, binding] : bindings)
         {
             if (!binding.IsValid())
             {
@@ -278,7 +277,7 @@ namespace OloEngine
             }
 
             bool shouldBind = forceRebind || 
-                            !IsBindingRedundant(GL_UNIFORM_BUFFER, bindingPoint, 
+                            !IsBindingRedundant(GL_UNIFORM_BUFFER, binding.BindingPoint, 
                                               binding.GetBufferHandle(), 
                                               binding.GetOffset(), 
                                               binding.GetSize());
@@ -286,13 +285,13 @@ namespace OloEngine
             if (shouldBind)
             {
                 // Apply the binding
-                glBindBufferRange(GL_UNIFORM_BUFFER, bindingPoint, 
+                glBindBufferRange(GL_UNIFORM_BUFFER, binding.BindingPoint, 
                                 binding.GetBufferHandle(), 
                                 binding.GetOffset(), 
                                 binding.GetSize());
 
                 // Record in cache
-                RecordBinding(GL_UNIFORM_BUFFER, bindingPoint, binding.GetBufferHandle(), 
+                RecordBinding(GL_UNIFORM_BUFFER, binding.BindingPoint, binding.GetBufferHandle(), 
                             binding.GetResourceType(), binding.GetOffset(), 
                             binding.GetSize(), currentFrame);
                 

@@ -96,7 +96,8 @@
         "xtr1common": "cpp",
         "xtree": "cpp",
         "xutility": "cpp",
-        "execution": "cpp"
+        "execution": "cpp",
+        "typeindex": "cpp"
     },
     "dotnet.defaultSolution": "disable"
 }

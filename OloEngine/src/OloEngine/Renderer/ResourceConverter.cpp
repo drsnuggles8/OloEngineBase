@@ -157,17 +157,13 @@ namespace OloEngine
     }
 
     // Implementation of built-in conversion functions
-    ConversionResult<UniformBufferArray> ResourceConverter::ConvertToUniformBufferArray(
+    Ref<UniformBufferArray> ResourceConverter::ConvertToUniformBufferArray(
         const Ref<UniformBuffer>& source,
         const OpenGLResourceDeclaration::ResourceInfo* targetDeclaration) const
     {
-        ConversionResult<UniformBufferArray> result;
-        
         if (!source)
         {
-            result.ResultStatus = ConversionResult<UniformBufferArray>::Status::Failed;
-            result.ErrorMessage = "Source UniformBuffer is null";
-            return result;
+            return nullptr;
         }
 
         try
@@ -181,37 +177,28 @@ namespace OloEngine
 
             // Create the array with the source buffer as the first element
             auto bufferArray = CreateRef<UniformBufferArray>("ConvertedArray", 0, arraySize);
-            if (bufferArray->SetBuffer(0, source))
+            if (bufferArray->SetResource(0, source))
             {
-                result.ConvertedResource = bufferArray;
-                result.ResultStatus = ConversionResult<UniformBufferArray>::Status::Success;
+                return bufferArray;
             }
             else
             {
-                result.ResultStatus = ConversionResult<UniformBufferArray>::Status::Failed;
-                result.ErrorMessage = "Failed to set buffer in array";
+                return nullptr;
             }
         }
         catch (const std::exception& e)
         {
-            result.ResultStatus = ConversionResult<UniformBufferArray>::Status::Failed;
-            result.ErrorMessage = std::string("Exception during array creation: ") + e.what();
+            return nullptr;
         }
-
-        return result;
     }
 
-    ConversionResult<StorageBufferArray> ResourceConverter::ConvertToStorageBufferArray(
+    Ref<StorageBufferArray> ResourceConverter::ConvertToStorageBufferArray(
         const Ref<StorageBuffer>& source,
         const OpenGLResourceDeclaration::ResourceInfo* targetDeclaration) const
     {
-        ConversionResult<StorageBufferArray> result;
-        
         if (!source)
         {
-            result.ResultStatus = ConversionResult<StorageBufferArray>::Status::Failed;
-            result.ErrorMessage = "Source StorageBuffer is null";
-            return result;
+            return nullptr;
         }
 
         try
@@ -223,24 +210,19 @@ namespace OloEngine
             }
 
             auto bufferArray = CreateRef<StorageBufferArray>("ConvertedArray", 0, arraySize);
-            if (bufferArray->SetBuffer(0, source))
+            if (bufferArray->SetResource(0, source))
             {
-                result.ConvertedResource = bufferArray;
-                result.ResultStatus = ConversionResult<StorageBufferArray>::Status::Success;
+                return bufferArray;
             }
             else
             {
-                result.ResultStatus = ConversionResult<StorageBufferArray>::Status::Failed;
-                result.ErrorMessage = "Failed to set buffer in array";
+                return nullptr;
             }
         }
         catch (const std::exception& e)
         {
-            result.ResultStatus = ConversionResult<StorageBufferArray>::Status::Failed;
-            result.ErrorMessage = std::string("Exception during array creation: ") + e.what();
+            return nullptr;
         }
-
-        return result;
     }
 
     ConversionResult<Texture2DArray> ResourceConverter::ConvertToTexture2DArray(
@@ -265,7 +247,7 @@ namespace OloEngine
             }
 
             auto textureArray = CreateRef<Texture2DArray>("ConvertedArray", 0, arraySize);
-            if (textureArray->SetTexture(0, source))
+            if (textureArray->SetResource(0, source))
             {
                 result.ConvertedResource = textureArray;
                 result.ResultStatus = ConversionResult<Texture2DArray>::Status::Success;
@@ -307,7 +289,7 @@ namespace OloEngine
             }
 
             auto textureArray = CreateRef<TextureCubemapArray>("ConvertedArray", 0, arraySize);
-            if (textureArray->SetTexture(0, source))
+            if (textureArray->SetResource(0, source))
             {
                 result.ConvertedResource = textureArray;
                 result.ResultStatus = ConversionResult<TextureCubemapArray>::Status::Success;
@@ -344,12 +326,12 @@ namespace OloEngine
         try
         {
             // Extract the first buffer from the array
-            auto buffer = source->GetBuffer(0);
+            auto buffer = source->GetResource(0);
             if (buffer)
             {
                 result.ConvertedResource = buffer;
                 result.ResultStatus = ConversionResult<UniformBuffer>::Status::Success;
-                if (source->GetCurrentCount() > 1)
+                if (source->GetResourceCount() > 1)
                 {
                     result.WarningMessage = "Array contains multiple buffers; only the first was extracted";
                 }
@@ -384,12 +366,12 @@ namespace OloEngine
 
         try
         {
-            auto buffer = source->GetBuffer(0);
+            auto buffer = source->GetResource(0);
             if (buffer)
             {
                 result.ConvertedResource = buffer;
                 result.ResultStatus = ConversionResult<StorageBuffer>::Status::Success;
-                if (source->GetCurrentCount() > 1)
+                if (source->GetResourceCount() > 1)
                 {
                     result.WarningMessage = "Array contains multiple buffers; only the first was extracted";
                 }
@@ -424,12 +406,12 @@ namespace OloEngine
 
         try
         {
-            auto texture = source->GetTexture(0);
+            auto texture = source->GetResource(0);
             if (texture)
             {
                 result.ConvertedResource = texture;
                 result.ResultStatus = ConversionResult<Texture2D>::Status::Success;
-                if (source->GetCurrentCount() > 1)
+                if (source->GetResourceCount() > 1)
                 {
                     result.WarningMessage = "Array contains multiple textures; only the first was extracted";
                 }
@@ -464,12 +446,12 @@ namespace OloEngine
 
         try
         {
-            auto texture = source->GetTexture(0);
+            auto texture = source->GetResource(0);
             if (texture)
             {
                 result.ConvertedResource = texture;
                 result.ResultStatus = ConversionResult<TextureCubemap>::Status::Success;
-                if (source->GetCurrentCount() > 1)
+                if (source->GetResourceCount() > 1)
                 {
                     result.WarningMessage = "Array contains multiple textures; only the first was extracted";
                 }
@@ -597,7 +579,7 @@ namespace OloEngine
         std::vector<ShaderResourceType> conversions;
         
         // Check all possible target types
-        for (int i = 0; i < static_cast<int>(ShaderResourceType::PushConstant) + 1; ++i)
+        for (int i = 0; i < static_cast<int>(ShaderResourceType::TextureCubeArray) + 1; ++i)
         {
             ShaderResourceType targetType = static_cast<ShaderResourceType>(i);
             if (IsConversionAvailable(sourceType, targetType))
@@ -637,5 +619,354 @@ namespace OloEngine
         }
         
         return instance;
+    }
+
+    // Explicit template instantiations for missing symbols
+    
+    // ArrayResource -> Single resource conversions (extract first element)
+    template<>
+    ConversionResult<UniformBuffer> ResourceConverter::ConvertResource<ArrayResource<UniformBuffer>, UniformBuffer>(
+        const Ref<ArrayResource<UniformBuffer>>& source,
+        const OpenGLResourceDeclaration::ResourceInfo* targetDeclaration,
+        bool allowLossyConversion) const
+    {
+        auto startTime = std::chrono::high_resolution_clock::now();
+        ConversionResult<UniformBuffer> result;
+        
+        try
+        {
+            if (!source || source->GetResourceCount() == 0)
+            {
+                result.ResultStatus = ConversionResult<UniformBuffer>::Status::Failed;
+                result.ErrorMessage = "Source ArrayResource<UniformBuffer> is null or empty";
+                return result;
+            }
+
+            // Extract the first element
+            auto buffer = source->GetResource(0);
+            if (buffer)
+            {
+                result.ConvertedResource = buffer;
+                result.ResultStatus = ConversionResult<UniformBuffer>::Status::Success;
+                if (source->GetResourceCount() > 1 && !allowLossyConversion)
+                {
+                    result.WarningMessage = "Array contains multiple buffers; only the first was extracted";
+                }
+            }
+            else
+            {
+                result.ResultStatus = ConversionResult<UniformBuffer>::Status::Failed;
+                result.ErrorMessage = "First element in ArrayResource<UniformBuffer> is null";
+            }
+        }
+        catch (const std::exception& e)
+        {
+            result.ResultStatus = ConversionResult<UniformBuffer>::Status::Failed;
+            result.ErrorMessage = std::string("Exception during conversion: ") + e.what();
+        }
+        
+        auto endTime = std::chrono::high_resolution_clock::now();
+        result.ActualConversionTime = std::chrono::duration<f32, std::milli>(endTime - startTime).count();
+        
+        UpdateStatistics("ArrayResource<UniformBuffer>->UniformBuffer", result.IsSuccessful(), result.ActualConversionTime);
+        
+        return result;
+    }
+
+    template<>
+    ConversionResult<StorageBuffer> ResourceConverter::ConvertResource<ArrayResource<StorageBuffer>, StorageBuffer>(
+        const Ref<ArrayResource<StorageBuffer>>& source,
+        const OpenGLResourceDeclaration::ResourceInfo* targetDeclaration,
+        bool allowLossyConversion) const
+    {
+        auto startTime = std::chrono::high_resolution_clock::now();
+        ConversionResult<StorageBuffer> result;
+        
+        try
+        {
+            if (!source || source->GetResourceCount() == 0)
+            {
+                result.ResultStatus = ConversionResult<StorageBuffer>::Status::Failed;
+                result.ErrorMessage = "Source ArrayResource<StorageBuffer> is null or empty";
+                return result;
+            }
+
+            auto buffer = source->GetResource(0);
+            if (buffer)
+            {
+                result.ConvertedResource = buffer;
+                result.ResultStatus = ConversionResult<StorageBuffer>::Status::Success;
+                if (source->GetResourceCount() > 1 && !allowLossyConversion)
+                {
+                    result.WarningMessage = "Array contains multiple buffers; only the first was extracted";
+                }
+            }
+            else
+            {
+                result.ResultStatus = ConversionResult<StorageBuffer>::Status::Failed;
+                result.ErrorMessage = "First element in ArrayResource<StorageBuffer> is null";
+            }
+        }
+        catch (const std::exception& e)
+        {
+            result.ResultStatus = ConversionResult<StorageBuffer>::Status::Failed;
+            result.ErrorMessage = std::string("Exception during conversion: ") + e.what();
+        }
+        
+        auto endTime = std::chrono::high_resolution_clock::now();
+        result.ActualConversionTime = std::chrono::duration<f32, std::milli>(endTime - startTime).count();
+        
+        UpdateStatistics("ArrayResource<StorageBuffer>->StorageBuffer", result.IsSuccessful(), result.ActualConversionTime);
+        
+        return result;
+    }
+
+    template<>
+    ConversionResult<Texture2D> ResourceConverter::ConvertResource<ArrayResource<Texture2D>, Texture2D>(
+        const Ref<ArrayResource<Texture2D>>& source,
+        const OpenGLResourceDeclaration::ResourceInfo* targetDeclaration,
+        bool allowLossyConversion) const
+    {
+        auto startTime = std::chrono::high_resolution_clock::now();
+        ConversionResult<Texture2D> result;
+        
+        try
+        {
+            if (!source || source->GetResourceCount() == 0)
+            {
+                result.ResultStatus = ConversionResult<Texture2D>::Status::Failed;
+                result.ErrorMessage = "Source ArrayResource<Texture2D> is null or empty";
+                return result;
+            }
+
+            auto texture = source->GetResource(0);
+            if (texture)
+            {
+                result.ConvertedResource = texture;
+                result.ResultStatus = ConversionResult<Texture2D>::Status::Success;
+                if (source->GetResourceCount() > 1 && !allowLossyConversion)
+                {
+                    result.WarningMessage = "Array contains multiple textures; only the first was extracted";
+                }
+            }
+            else
+            {
+                result.ResultStatus = ConversionResult<Texture2D>::Status::Failed;
+                result.ErrorMessage = "First element in ArrayResource<Texture2D> is null";
+            }
+        }
+        catch (const std::exception& e)
+        {
+            result.ResultStatus = ConversionResult<Texture2D>::Status::Failed;
+            result.ErrorMessage = std::string("Exception during conversion: ") + e.what();
+        }
+        
+        auto endTime = std::chrono::high_resolution_clock::now();
+        result.ActualConversionTime = std::chrono::duration<f32, std::milli>(endTime - startTime).count();
+        
+        UpdateStatistics("ArrayResource<Texture2D>->Texture2D", result.IsSuccessful(), result.ActualConversionTime);
+        
+        return result;
+    }
+
+    template<>
+    ConversionResult<TextureCubemap> ResourceConverter::ConvertResource<ArrayResource<TextureCubemap>, TextureCubemap>(
+        const Ref<ArrayResource<TextureCubemap>>& source,
+        const OpenGLResourceDeclaration::ResourceInfo* targetDeclaration,
+        bool allowLossyConversion) const
+    {
+        auto startTime = std::chrono::high_resolution_clock::now();
+        ConversionResult<TextureCubemap> result;
+        
+        try
+        {
+            if (!source || source->GetResourceCount() == 0)
+            {
+                result.ResultStatus = ConversionResult<TextureCubemap>::Status::Failed;
+                result.ErrorMessage = "Source ArrayResource<TextureCubemap> is null or empty";
+                return result;
+            }
+
+            auto texture = source->GetResource(0);
+            if (texture)
+            {
+                result.ConvertedResource = texture;
+                result.ResultStatus = ConversionResult<TextureCubemap>::Status::Success;
+                if (source->GetResourceCount() > 1 && !allowLossyConversion)
+                {
+                    result.WarningMessage = "Array contains multiple textures; only the first was extracted";
+                }
+            }
+            else
+            {
+                result.ResultStatus = ConversionResult<TextureCubemap>::Status::Failed;
+                result.ErrorMessage = "First element in ArrayResource<TextureCubemap> is null";
+            }
+        }
+        catch (const std::exception& e)
+        {
+            result.ResultStatus = ConversionResult<TextureCubemap>::Status::Failed;
+            result.ErrorMessage = std::string("Exception during conversion: ") + e.what();
+        }
+        
+        auto endTime = std::chrono::high_resolution_clock::now();
+        result.ActualConversionTime = std::chrono::duration<f32, std::milli>(endTime - startTime).count();
+        
+        UpdateStatistics("ArrayResource<TextureCubemap>->TextureCubemap", result.IsSuccessful(), result.ActualConversionTime);
+        
+        return result;
+    }
+
+    // Single resource -> ArrayResource conversions (wrap in array)
+    template<>
+    ConversionResult<ArrayResource<StorageBuffer>> ResourceConverter::ConvertResource<StorageBuffer, ArrayResource<StorageBuffer>>(
+        const Ref<StorageBuffer>& source,
+        const OpenGLResourceDeclaration::ResourceInfo* targetDeclaration,
+        bool allowLossyConversion) const
+    {
+        auto startTime = std::chrono::high_resolution_clock::now();
+        ConversionResult<ArrayResource<StorageBuffer>> result;
+        
+        try
+        {
+            if (!source)
+            {
+                result.ResultStatus = ConversionResult<ArrayResource<StorageBuffer>>::Status::Failed;
+                result.ErrorMessage = "Source StorageBuffer is null";
+                return result;
+            }
+
+            // Determine array size from declaration or use default
+            u32 arraySize = 1;
+            if (targetDeclaration && targetDeclaration->IsArray)
+            {
+                arraySize = std::max(1u, targetDeclaration->ArraySize);
+            }
+
+            // Create the array with the source buffer as the first element
+            auto bufferArray = CreateRef<ArrayResource<StorageBuffer>>("ConvertedArray", 0, arraySize);
+            if (bufferArray->SetResource(0, source))
+            {
+                result.ConvertedResource = bufferArray;
+                result.ResultStatus = ConversionResult<ArrayResource<StorageBuffer>>::Status::Success;
+            }
+            else
+            {
+                result.ResultStatus = ConversionResult<ArrayResource<StorageBuffer>>::Status::Failed;
+                result.ErrorMessage = "Failed to set source buffer in ArrayResource<StorageBuffer>";
+            }
+        }
+        catch (const std::exception& e)
+        {
+            result.ResultStatus = ConversionResult<ArrayResource<StorageBuffer>>::Status::Failed;
+            result.ErrorMessage = std::string("Exception during conversion: ") + e.what();
+        }
+        
+        auto endTime = std::chrono::high_resolution_clock::now();
+        result.ActualConversionTime = std::chrono::duration<f32, std::milli>(endTime - startTime).count();
+        
+        UpdateStatistics("StorageBuffer->ArrayResource<StorageBuffer>", result.IsSuccessful(), result.ActualConversionTime);
+        
+        return result;
+    }
+
+    template<>
+    ConversionResult<ArrayResource<Texture2D>> ResourceConverter::ConvertResource<Texture2D, ArrayResource<Texture2D>>(
+        const Ref<Texture2D>& source,
+        const OpenGLResourceDeclaration::ResourceInfo* targetDeclaration,
+        bool allowLossyConversion) const
+    {
+        auto startTime = std::chrono::high_resolution_clock::now();
+        ConversionResult<ArrayResource<Texture2D>> result;
+        
+        try
+        {
+            if (!source)
+            {
+                result.ResultStatus = ConversionResult<ArrayResource<Texture2D>>::Status::Failed;
+                result.ErrorMessage = "Source Texture2D is null";
+                return result;
+            }
+
+            u32 arraySize = 1;
+            if (targetDeclaration && targetDeclaration->IsArray)
+            {
+                arraySize = std::max(1u, targetDeclaration->ArraySize);
+            }
+
+            auto textureArray = CreateRef<ArrayResource<Texture2D>>("ConvertedArray", 0, arraySize);
+            if (textureArray->SetResource(0, source))
+            {
+                result.ConvertedResource = textureArray;
+                result.ResultStatus = ConversionResult<ArrayResource<Texture2D>>::Status::Success;
+            }
+            else
+            {
+                result.ResultStatus = ConversionResult<ArrayResource<Texture2D>>::Status::Failed;
+                result.ErrorMessage = "Failed to set source texture in ArrayResource<Texture2D>";
+            }
+        }
+        catch (const std::exception& e)
+        {
+            result.ResultStatus = ConversionResult<ArrayResource<Texture2D>>::Status::Failed;
+            result.ErrorMessage = std::string("Exception during conversion: ") + e.what();
+        }
+        
+        auto endTime = std::chrono::high_resolution_clock::now();
+        result.ActualConversionTime = std::chrono::duration<f32, std::milli>(endTime - startTime).count();
+        
+        UpdateStatistics("Texture2D->ArrayResource<Texture2D>", result.IsSuccessful(), result.ActualConversionTime);
+        
+        return result;
+    }
+
+    template<>
+    ConversionResult<ArrayResource<TextureCubemap>> ResourceConverter::ConvertResource<TextureCubemap, ArrayResource<TextureCubemap>>(
+        const Ref<TextureCubemap>& source,
+        const OpenGLResourceDeclaration::ResourceInfo* targetDeclaration,
+        bool allowLossyConversion) const
+    {
+        auto startTime = std::chrono::high_resolution_clock::now();
+        ConversionResult<ArrayResource<TextureCubemap>> result;
+        
+        try
+        {
+            if (!source)
+            {
+                result.ResultStatus = ConversionResult<ArrayResource<TextureCubemap>>::Status::Failed;
+                result.ErrorMessage = "Source TextureCubemap is null";
+                return result;
+            }
+
+            u32 arraySize = 1;
+            if (targetDeclaration && targetDeclaration->IsArray)
+            {
+                arraySize = std::max(1u, targetDeclaration->ArraySize);
+            }
+
+            auto textureArray = CreateRef<ArrayResource<TextureCubemap>>("ConvertedArray", 0, arraySize);
+            if (textureArray->SetResource(0, source))
+            {
+                result.ConvertedResource = textureArray;
+                result.ResultStatus = ConversionResult<ArrayResource<TextureCubemap>>::Status::Success;
+            }
+            else
+            {
+                result.ResultStatus = ConversionResult<ArrayResource<TextureCubemap>>::Status::Failed;
+                result.ErrorMessage = "Failed to set source texture in ArrayResource<TextureCubemap>";
+            }
+        }
+        catch (const std::exception& e)
+        {
+            result.ResultStatus = ConversionResult<ArrayResource<TextureCubemap>>::Status::Failed;
+            result.ErrorMessage = std::string("Exception during conversion: ") + e.what();
+        }
+        
+        auto endTime = std::chrono::high_resolution_clock::now();
+        result.ActualConversionTime = std::chrono::duration<f32, std::milli>(endTime - startTime).count();
+        
+        UpdateStatistics("TextureCubemap->ArrayResource<TextureCubemap>", result.IsSuccessful(), result.ActualConversionTime);
+        
+        return result;
     }
 }

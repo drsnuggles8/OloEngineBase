@@ -32,27 +32,6 @@ namespace OloEngine
         }
     }
 
-    const char* ResourceAvailabilityChecker::GetResourceTypeName(ShaderResourceType type)
-    {
-        switch (type)
-        {
-            case ShaderResourceType::None: return "None";
-            case ShaderResourceType::UniformBuffer: return "UniformBuffer";
-            case ShaderResourceType::StorageBuffer: return "StorageBuffer";
-            case ShaderResourceType::Texture1D: return "Texture1D";
-            case ShaderResourceType::Texture2D: return "Texture2D";
-            case ShaderResourceType::Texture3D: return "Texture3D";
-            case ShaderResourceType::TextureCube: return "TextureCube";
-            case ShaderResourceType::UniformBufferArray: return "UniformBufferArray";
-            case ShaderResourceType::StorageBufferArray: return "StorageBufferArray";
-            case ShaderResourceType::Texture2DArray: return "Texture2DArray";
-            case ShaderResourceType::TextureCubeArray: return "TextureCubeArray";
-            case ShaderResourceType::Image2D: return "Image2D";
-            case ShaderResourceType::PushConstant: return "PushConstant";
-            default: return "Unknown";
-        }
-    }
-
     bool EnhancedResourceGetter::CanConvertWithDeclaration(
         const OpenGLResourceDeclaration::ResourceInfo& resourceInfo,
         ShaderResourceType targetType)
@@ -205,6 +184,8 @@ namespace OloEngine
         return info;
     }
 
+
+
     std::vector<ResourceValidationIssue> EnhancedResourceGetter::ValidateResourcesAgainstDeclarations(
         const UniformBufferRegistry& registry,
         const std::string& passName)
@@ -288,7 +269,7 @@ namespace OloEngine
         }
         
         // Check for resources in registry that are not in declaration
-        const auto& registryBindings = registry.GetResourceBindings();
+        const auto& registryBindings = registry.GetBindings();
         for (const auto& [name, binding] : registryBindings)
         {
             if (!declaration->HasResource(name))

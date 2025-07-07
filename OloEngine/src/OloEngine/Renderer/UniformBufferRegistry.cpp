@@ -4,9 +4,12 @@
 #include "EnhancedResourceGetter.h"
 #include "BindingStateCache.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/TextureCubemap.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
-#include "OloEngine/Core/Log.h"
 #include "Platform/OpenGL/OpenGLDescriptorSetManager.h"
 #include "Platform/OpenGL/OpenGLMultiBind.h"
 #include "Platform/OpenGL/OpenGLDSABindingManager.h"
@@ -16,204 +19,94 @@
 #include <imgui.h>
 #include <sstream>
 
-namespace OloEngine
-{
-    UniformBufferRegistry::UniformBufferRegistry(const Ref<Shader>& shader)
-        : m_Shader(shader), m_Specification(UniformBufferRegistrySpecification::GetPreset(RegistryConfiguration::Development))
-    {
-        OLO_CORE_ASSERT(shader, "Shader cannot be null when creating UniformBufferRegistry");
-        
-        // Phase 6.1: Initialize handle cache
-        m_HandleCache = new ResourceHandleCache();
-        
-        // Initialize OpenGL descriptor set manager and multi-bind
-        m_DescriptorSetManager = std::make_unique<OpenGLDescriptorSetManager>();
-        m_MultiBind = std::make_unique<OpenGLMultiBind>();
-        m_DescriptorSetManager->SetMultiBindManager(m_MultiBind.get());
-        
-        // Step 11: Initialize DSA binding manager
-        m_DSABindingManager = std::make_unique<DSABindingManager>();
-        if (m_DSABindingManager->Initialize())
-        {
-            OLO_CORE_INFO("DSA binding enabled for enhanced performance");
-        }
-        else
-        {
-            OLO_CORE_WARN("DSA binding not available, falling back to standard bindings");
-            m_DSAEnabled = false;
-        }
-        
-        // Step 12: Initialize binding state cache
-        try
-        {
-            auto& cache = GetBindingStateCache();
-            m_CacheInitialized = cache.Initialize(BindingStateCache::CachePolicy::Balanced,
-                                                 BindingStateCache::InvalidationStrategy::FrameBased);
-            if (m_CacheInitialized)
-            {
-                OLO_CORE_INFO("Binding state cache enabled for optimal performance");
-            }
-            else
-            {
-                OLO_CORE_WARN("Failed to initialize binding state cache");
-                m_CacheEnabled = false;
-            }
-        }
-        catch (const std::exception& e)
-        {
-            OLO_CORE_ERROR("Exception initializing binding state cache: {}", e.what());
-            m_CacheEnabled = false;
-            m_CacheInitialized = false;
-        }
-        
-        ApplySpecificationSettings();
-    }
+namespace OloEngine {
 
     UniformBufferRegistry::UniformBufferRegistry(const Ref<Shader>& shader, const UniformBufferRegistrySpecification& spec)
-        : m_Shader(shader), m_Specification(spec),
-          m_UseSetPriority(spec.UseSetPriority),
-          m_AutoAssignSets(spec.AutoAssignSets),
-          m_StartSet(spec.StartSet),
-          m_EndSet(spec.EndSet)
+        : m_Shader(shader), m_Specification(spec), m_IsTemplate(false), m_IsClone(false),
+          m_UseSetPriority(spec.UseSetPriority), m_AutoAssignSets(spec.AutoAssignSets),
+          m_StartSet(spec.StartSet), m_EndSet(spec.EndSet),
+          m_DefaultResourcesInitialized(false), m_FrameBasedBatchingEnabled(spec.EnableBatching),
+          m_MaxFrameDelay(spec.FramesInFlight), m_ValidationSeverityFilter(RegistryValidationSeverity::Warning),
+          m_RealtimeValidationEnabled(spec.EnableValidation),
+          m_HandleCachingEnabled(spec.EnableCaching), m_Initialized(false)
     {
-        OLO_CORE_ASSERT(shader, "Shader cannot be null when creating UniformBufferRegistry");
-        OLO_CORE_ASSERT(spec.Validate(), "Invalid registry specification provided");
-        
-        // Phase 6.1: Initialize handle cache
+        // Initialize handle cache
         m_HandleCache = new ResourceHandleCache();
-        
+        m_HandleCache->SetCachingEnabled(m_HandleCachingEnabled);
+
         // Initialize OpenGL descriptor set manager and multi-bind
         m_DescriptorSetManager = std::make_unique<OpenGLDescriptorSetManager>();
         m_MultiBind = std::make_unique<OpenGLMultiBind>();
         m_DescriptorSetManager->SetMultiBindManager(m_MultiBind.get());
-        
-        // Step 11: Initialize DSA binding manager
-        m_DSABindingManager = std::make_unique<DSABindingManager>();
-        if (m_DSABindingManager->Initialize())
-        {
-            OLO_CORE_INFO("DSA binding enabled for enhanced performance");
-        }
-        else
-        {
-            OLO_CORE_WARN("DSA binding not available, falling back to standard bindings");
-            m_DSAEnabled = false;
-        }
-        
-        // Step 12: Initialize binding state cache
-        try
-        {
-            auto& cache = GetBindingStateCache();
-            m_CacheInitialized = cache.Initialize(BindingStateCache::CachePolicy::Balanced,
-                                                 BindingStateCache::InvalidationStrategy::FrameBased);
-            if (m_CacheInitialized)
-            {
-                OLO_CORE_INFO("Binding state cache enabled for optimal performance");
-            }
-            else
-            {
-                OLO_CORE_WARN("Failed to initialize binding state cache");
-                m_CacheEnabled = false;
-            }
-        }
-        catch (const std::exception& e)
-        {
-            OLO_CORE_ERROR("Exception initializing binding state cache: {}", e.what());
-            m_CacheEnabled = false;
-            m_CacheInitialized = false;
-        }
-        
-        ApplySpecificationSettings();
-        
-        // Phase 3.1: Initialize descriptor sets if multi-set management is enabled
-        if (m_UseSetPriority)
-        {
-            InitializeDescriptorSets();
-        }
-    }
 
-    void UniformBufferRegistry::Initialize()
-    {
-        if (m_Initialized)
-        {
-            OLO_CORE_WARN("UniformBufferRegistry already initialized");
-            return;
-        }
-
-        m_ResourceBindings.clear();
-        m_BoundResources.clear();
-        m_DirtyBindings.clear();
-        m_BindingPointUsage.clear();
-
-        // Phase 6.1: Initialize handle cache if not already done
-        if (!m_HandleCache)
-        {
-            m_HandleCache = new ResourceHandleCache();
-        }
-        m_HandleCache->SetCachingEnabled(m_HandleCachingEnabled);
-        
-        // Phase 1.2: Clear two-phase update data structures
-        m_PendingResources.clear();
-        m_InvalidatedResources.clear();
-
-        // Phase 4: Clear advanced invalidation system data structures
-        m_InvalidationDetails.clear();
-        m_BindingPointInvalidations.clear();
-        m_ResourceDependencies.clear();
-        m_ResourceDependents.clear();
-        m_UpdateBatches.clear();
-        m_ResourceTypePriorities.clear();
-        m_ResourcePriorities.clear();
-        m_UpdateStats.Reset();
-        m_CurrentFrame = 0;
-
-        // Phase 3.1: Initialize descriptor sets if not already done
-        if (m_UseSetPriority && m_DescriptorSets.empty())
-        {
-            InitializeDescriptorSets();
-        }
-
-        // Phase 2.2/3.2: Initialize based on specification
-        if (m_Specification.EnableDefaultResources)
-        {
-            InitializeDefaultResources();
-        }
-
-        if (m_Specification.UseResourceTemplates && m_Specification.AutoDetectShaderPattern)
-        {
-            SetupResourceTemplates();
-        }
-
-        // Phase 3.1: Auto-assign resources to descriptor sets if enabled
-        if (m_AutoAssignSets && !m_ResourceBindings.empty())
-        {
-            AutoAssignResourceSets(true);
-        }
-
-        // Phase 4: Initialize default update priorities
-        m_ResourceTypePriorities[ShaderResourceType::UniformBuffer] = UpdatePriority::High;
-        m_ResourceTypePriorities[ShaderResourceType::Texture2D] = UpdatePriority::Normal;
-        m_ResourceTypePriorities[ShaderResourceType::TextureCube] = UpdatePriority::Normal;
-        m_ResourceTypePriorities[ShaderResourceType::StorageBuffer] = UpdatePriority::Low;
-        m_ResourceTypePriorities[ShaderResourceType::Image2D] = UpdatePriority::Low;
-
-        m_Initialized = true;
-
-        // Clear debug resource bindings for this shader (only if shader is available)
-        if (m_Shader && m_Specification.EnableDebugInterface)
-        {
-            ShaderDebugger::GetInstance().ClearResourceBindings(m_Shader->GetRendererID());
-        }
-
-        OLO_CORE_TRACE("UniformBufferRegistry initialized for shader: {0} (spec: {1})", 
-                      m_Shader ? m_Shader->GetName() : "Template", m_Specification.Name);
+        OLO_CORE_TRACE("UniformBufferRegistry created with specification '{0}' for shader '{1}'", 
+                      spec.Name, shader ? shader->GetName() : "None");
     }
 
     UniformBufferRegistry::~UniformBufferRegistry()
     {
-        // Destructor implementation
-        // Clean up the ResourceHandleCache
-        delete m_HandleCache;
-        m_HandleCache = nullptr;
+        if (m_HandleCache)
+        {
+            delete m_HandleCache;
+            m_HandleCache = nullptr;
+        }
+    }
+
+    void UniformBufferRegistry::Shutdown()
+    {
+        if (!m_Initialized)
+        {
+            return;
+        }
+
+        // Clear all resources
+        ClearResources();
+        
+        // Clear pending updates
+        m_PendingResources.clear();
+        m_InvalidatedResources.clear();
+        
+        // Reset OpenGL managers
+        if (m_DescriptorSetManager)
+        {
+            m_DescriptorSetManager.reset();
+        }
+        
+        if (m_MultiBind)
+        {
+            m_MultiBind.reset();
+        }
+        
+        // Clear handle cache
+        if (m_HandleCache)
+        {
+            m_HandleCache->CleanupCache(0); // Clean all cached handles
+        }
+        
+        // Reset frame-in-flight manager
+        if (m_FrameInFlightManager)
+        {
+            m_FrameInFlightManager.reset();
+            m_FrameInFlightEnabled = false;
+        }
+        
+        // Clear OpenGL declarations
+        m_OpenGLDeclarations.clear();
+        
+        // Reset state
+        m_ResourceBindings.clear();
+        m_BindingPointUsage.clear();
+        m_DescriptorSets.clear();
+        m_PriorityToSetMap.clear();
+        m_SetBindingOrder.clear();
+        m_DefaultResources.clear();
+        m_ResourceTemplates.clear();
+        m_ResourceTypePriorities.clear();
+        m_ResourceDeclarations.clear();
+        
+        m_Initialized = false;
+
+        OLO_CORE_TRACE("UniformBufferRegistry shutdown complete for specification '{0}'", m_Specification.Name);
     }
 
     UniformBufferRegistry::UniformBufferRegistry(const UniformBufferRegistry& other)
@@ -270,201 +163,99 @@ namespace OloEngine
                       other.m_IsTemplate ? "template" : "registry", m_SourceTemplateName);
     }
 
-    UniformBufferRegistry& UniformBufferRegistry::operator=(const UniformBufferRegistry& other)
+    void UniformBufferRegistry::Initialize()
     {
-        if (this == &other)
-            return *this;
-
-        // Clean up existing resources
-        Shutdown();
-        delete m_HandleCache;
-
-        // Copy configuration and state
-        m_Shader = nullptr; // Will be set separately
-        m_Specification = other.m_Specification;
-        m_IsTemplate = false;
-        m_IsClone = true;
-        m_TemplateName = other.m_IsTemplate ? other.m_TemplateName : "";
-        m_SourceTemplateName = other.m_IsTemplate ? other.m_TemplateName : other.m_SourceTemplateName;
-        m_UseSetPriority = other.m_UseSetPriority;
-        m_AutoAssignSets = other.m_AutoAssignSets;
-        m_StartSet = other.m_StartSet;
-        m_EndSet = other.m_EndSet;
-        m_DefaultResourcesInitialized = false;
-        m_FrameBasedBatchingEnabled = other.m_FrameBasedBatchingEnabled;
-        m_MaxFrameDelay = other.m_MaxFrameDelay;
-        m_ValidationSeverityFilter = other.m_ValidationSeverityFilter;
-        m_RealtimeValidationEnabled = other.m_RealtimeValidationEnabled;
-        m_HandleCachingEnabled = other.m_HandleCachingEnabled;
-        m_Initialized = false;
-
-        // Initialize handle cache
-        m_HandleCache = new ResourceHandleCache();
-        m_HandleCache->SetCachingEnabled(m_HandleCachingEnabled);
-
-        // Copy resource bindings and configuration
-        m_ResourceBindings = other.m_ResourceBindings;
-        m_DescriptorSets = other.m_DescriptorSets;
-        m_PriorityToSetMap = other.m_PriorityToSetMap;
-        m_SetBindingOrder = other.m_SetBindingOrder;
-        m_DefaultResources = other.m_DefaultResources;
-        m_ResourceTemplates = other.m_ResourceTemplates;
-        m_ResourceTypePriorities = other.m_ResourceTypePriorities;
-        m_ResourceDeclarations = other.m_ResourceDeclarations;
-
-        // Reset state
-        m_UpdateStats.Reset();
-        m_CurrentFrame = 0;
-
-        OLO_CORE_TRACE("UniformBufferRegistry assigned from {0} (source template: {1})", 
-                      other.m_IsTemplate ? "template" : "registry", m_SourceTemplateName);
-
-        return *this;
-    }
-
-    void UniformBufferRegistry::Shutdown()
-    {
-        if (!m_Initialized)
+        if (m_Initialized)
+        {
+            OLO_CORE_WARN("UniformBufferRegistry already initialized");
             return;
+        }
 
-        ClearResources();
-        m_ResourceBindings.clear();
-        m_BindingPointUsage.clear();
-        
+        // Phase 3.1: Auto-assign resources to descriptor sets if enabled
+        if (m_AutoAssignSets && !m_ResourceBindings.empty())
+        {
+            AutoAssignResourceSets(true);
+        }
+
+        // Phase 4: Initialize default update priorities
+        m_ResourceTypePriorities[ShaderResourceType::UniformBuffer] = UpdatePriority::High;
+        m_ResourceTypePriorities[ShaderResourceType::Texture2D] = UpdatePriority::Normal;
+        m_ResourceTypePriorities[ShaderResourceType::TextureCube] = UpdatePriority::Normal;
+        m_ResourceTypePriorities[ShaderResourceType::StorageBuffer] = UpdatePriority::Low;
+        m_ResourceTypePriorities[ShaderResourceType::Image2D] = UpdatePriority::Low;
+
+        m_Initialized = true;
+
         // Clear debug resource bindings for this shader (only if shader is available)
-        if (m_Shader)
+        if (m_Shader && m_Specification.EnableDebugInterface)
         {
             ShaderDebugger::GetInstance().ClearResourceBindings(m_Shader->GetRendererID());
         }
-        
-        m_Initialized = false;
 
-        OLO_CORE_TRACE("UniformBufferRegistry shutdown for shader: {0}", 
-                      m_Shader ? m_Shader->GetName() : "Unknown");
-    }
-
-    bool UniformBufferRegistry::DiscoverResourcesEnhanced(u32 stage, const std::vector<u32>& spirvData, const std::string& passName)
-    {
-        OLO_CORE_TRACE("Starting enhanced SPIR-V resource discovery for stage {} with {} bytes", 
-                       stage, spirvData.size() * sizeof(u32));
-
-        try
-        {
-            // Use existing SPIR-V discovery to populate traditional registry
-            DiscoverResources(stage, spirvData);
-
-            // Create or get OpenGL declaration for this pass
-            std::string actualPassName = passName.empty() ? m_DefaultPassName : passName;
-            auto& declaration = GetOpenGLDeclaration(actualPassName);
-
-            // Populate declaration with SPIR-V data
-            if (!declaration.PopulateFromSPIRV(stage, spirvData))
-            {
-                OLO_CORE_ERROR("Failed to populate OpenGL declaration from SPIR-V data");
-                return false;
-            }
-
-            // Synchronize traditional registry with enhanced declaration data
-            if (!SynchronizeWithDeclaration(declaration))
-            {
-                OLO_CORE_WARN("Failed to synchronize registry with OpenGL declaration");
-                // Continue anyway as this isn't critical
-            }
-
-            // Validate the enhanced declaration
-            if (!declaration.Validate())
-            {
-                OLO_CORE_WARN("OpenGL declaration validation failed for pass '{}'", actualPassName);
-                auto report = declaration.GenerateUsageReport();
-                OLO_CORE_WARN("Declaration report:\n{}", report);
-            }
-
-            OLO_CORE_INFO("Enhanced SPIR-V discovery completed. Discovered {} resources for pass '{}'", 
-                         declaration.GetResourceCount(), actualPassName);
-
-            return true;
-        }
-        catch (const std::exception& e)
-        {
-            OLO_CORE_ERROR("Enhanced SPIR-V resource discovery failed: {}", e.what());
-            return false;
-        }
-    }
-
-    OpenGLResourceDeclaration& UniformBufferRegistry::GetOpenGLDeclaration(const std::string& passName)
-    {
-        std::string actualPassName = passName.empty() ? m_DefaultPassName : passName;
-        
-        auto it = m_OpenGLDeclarations.find(actualPassName);
-        if (it != m_OpenGLDeclarations.end())
-        {
-            return *it->second;
-        }
-
-        // Create new declaration
-        auto declaration = std::make_unique<OpenGLResourceDeclaration>(actualPassName);
-        auto* ptr = declaration.get();
-        m_OpenGLDeclarations[actualPassName] = std::move(declaration);
-
-        OLO_CORE_TRACE("Created new OpenGL resource declaration for pass '{}'", actualPassName);
-        return *ptr;
-    }
-
-    const OpenGLResourceDeclaration* UniformBufferRegistry::GetOpenGLDeclaration(const std::string& passName) const
-    {
-        std::string actualPassName = passName.empty() ? m_DefaultPassName : passName;
-        
-        auto it = m_OpenGLDeclarations.find(actualPassName);
-        if (it != m_OpenGLDeclarations.end())
-        {
-            return it->second.get();
-        }
-
-        return nullptr;
+        OLO_CORE_TRACE("UniformBufferRegistry initialized for shader: {0} (spec: {1})", 
+                      m_Shader ? m_Shader->GetName() : "Template", m_Specification.Name);
     }
 
     bool UniformBufferRegistry::SynchronizeWithDeclaration(const OpenGLResourceDeclaration& declaration)
     {
-        bool success = true;
-        const auto& declarationData = declaration.GetDeclaration();
-
-        for (const auto& resource : declarationData.Resources)
+        if (!m_Initialized)
         {
-            // Check if resource exists in traditional registry
-            if (!HasResource(resource.Name))
+            OLO_CORE_ERROR("UniformBufferRegistry not initialized. Call Initialize() first.");
+            return false;
+        }
+
+        bool success = true;
+        const auto& declaredResources = declaration.GetDeclaration().Resources;
+
+        // Check for new resources in the declaration
+        for (const auto& declResource : declaredResources)
+        {
+            if (m_ResourceBindings.find(declResource.Name) == m_ResourceBindings.end())
             {
-                // Resource is in declaration but not in registry - this is expected for new discoveries
-                OLO_CORE_TRACE("Resource '{}' found in declaration but not in traditional registry", resource.Name);
-                continue;
+                // Create new binding from declaration
+                ShaderResourceBinding binding(
+                    declResource.Type,
+                    declResource.Binding,
+                    declResource.Set,
+                    declResource.Name,
+                    declResource.Size
+                );
+
+                if (declResource.IsArray)
+                {
+                    binding.IsArray = true;
+                    binding.ArraySize = declResource.ArraySize;
+                    binding.BaseBindingPoint = declResource.Binding;
+                }
+
+                m_ResourceBindings[declResource.Name] = binding;
+                m_BindingPointUsage[declResource.Binding] = declResource.Name;
+
+                OLO_CORE_TRACE("Added new resource from declaration: {0} (binding={1})", 
+                              declResource.Name, declResource.Binding);
             }
+        }
 
-            // Update resource metadata from declaration
-            auto* existingResource = GetResourceInfo(resource.Name);
-            if (existingResource)
+        // Validate existing bindings against declaration
+        for (const auto& [name, binding] : m_ResourceBindings)
+        {
+            auto declIt = std::find_if(declaredResources.begin(), declaredResources.end(),
+                [&name](const OpenGLResourceDeclaration::ResourceInfo& res) {
+                    return res.Name == name;
+                });
+
+            if (declIt == declaredResources.end())
             {
-                // Synchronize binding information
-                if (resource.Binding != UINT32_MAX && existingResource->Binding != resource.Binding)
+                OLO_CORE_WARN("Resource '{0}' exists in registry but not in declaration", name);
+                success = false;
+            }
+            else
+            {
+                // Check compatibility
+                if (binding.Type != declIt->Type || binding.BindingPoint != declIt->Binding)
                 {
-                    OLO_CORE_TRACE("Updating binding for '{}' from {} to {}", 
-                                  resource.Name, existingResource->Binding, resource.Binding);
-                    existingResource->Binding = resource.Binding;
-                }
-
-                // Synchronize set information
-                if (existingResource->Set != resource.Set)
-                {
-                    OLO_CORE_TRACE("Updating set for '{}' from {} to {}", 
-                                  resource.Name, existingResource->Set, resource.Set);
-                    existingResource->Set = resource.Set;
-                }
-
-                // Synchronize array information
-                if (resource.IsArray && !existingResource->IsArray)
-                {
-                    OLO_CORE_TRACE("Updating array info for '{}': size {}", 
-                                  resource.Name, resource.ArraySize);
-                    existingResource->IsArray = true;
-                    existingResource->ArraySize = resource.ArraySize;
+                    OLO_CORE_ERROR("Resource mismatch detected for: {}", name);
+                    success = false;
                 }
             }
         }
@@ -478,19 +269,19 @@ namespace OloEngine
         OpenGLResourceDeclaration declaration(actualPassName);
 
         // Export all registered resources to declaration format
-        for (const auto& [name, resourceInfo] : m_Resources)
+        for (const auto& [name, resourceBinding] : m_ResourceBindings)
         {
             OpenGLResourceDeclaration::ResourceInfo declResource;
             declResource.Name = name;
-            declResource.Type = resourceInfo.Type;
-            declResource.Set = resourceInfo.Set;
-            declResource.Binding = resourceInfo.Binding;
-            declResource.ArraySize = resourceInfo.ArraySize;
-            declResource.IsArray = resourceInfo.IsArray;
-            declResource.Size = resourceInfo.Size;
+            declResource.Type = resourceBinding.Type;
+            declResource.Set = resourceBinding.Set;
+            declResource.Binding = resourceBinding.BindingPoint;
+            declResource.ArraySize = resourceBinding.ArraySize;
+            declResource.IsArray = resourceBinding.IsArray;
+            declResource.Size = static_cast<u32>(resourceBinding.Size);
 
             // Set access pattern based on resource type
-            switch (resourceInfo.Type)
+            switch (resourceBinding.Type)
             {
                 case ShaderResourceType::UniformBuffer:
                     declResource.Access = OpenGLResourceDeclaration::AccessPattern::ReadOnly;
@@ -526,202 +317,6 @@ namespace OloEngine
 
     void UniformBufferRegistry::DiscoverResources(u32 stage, const std::vector<u32>& spirvData)
     {
-        // Determine stage name for logging
-        const char* stageName = "Unknown";
-        switch (stage)
-        {
-            case 0x8B31: stageName = "Vertex"; break;       // GL_VERTEX_SHADER
-            case 0x8B30: stageName = "Fragment"; break;     // GL_FRAGMENT_SHADER  
-            case 0x8DD9: stageName = "Geometry"; break;     // GL_GEOMETRY_SHADER
-            case 0x8E88: stageName = "TessControl"; break;  // GL_TESS_CONTROL_SHADER
-            case 0x8E87: stageName = "TessEval"; break;     // GL_TESS_EVALUATION_SHADER
-            case 0x91B9: stageName = "Compute"; break;     // GL_COMPUTE_SHADER
-        }
-
-        OLO_CORE_TRACE("Discovering resources for {0} shader stage", stageName);
-
-        try
-        {
-            const spirv_cross::Compiler compiler(spirvData);
-            const spirv_cross::ShaderResources resources = compiler.get_shader_resources();
-
-            // Discover uniform buffers
-            for (const auto& resource : resources.uniform_buffers)
-            {
-                const auto& bufferType = compiler.get_type(resource.base_type_id);
-                sizet bufferSize = compiler.get_declared_struct_size(bufferType);
-                u32 binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
-                u32 set = 0; // OpenGL doesn't use descriptor sets, default to 0
-
-                // Check if binding point is already used
-                auto it = m_BindingPointUsage.find(binding);
-                if (it != m_BindingPointUsage.end())
-                {
-                    OLO_CORE_WARN("Binding point {0} already used by resource '{1}', skipping '{2}'", 
-                                  binding, it->second, resource.name);
-                    continue;
-                }
-
-                ShaderResourceBinding bindingInfo(
-                    ShaderResourceType::UniformBuffer,
-                    binding,
-                    set,
-                    resource.name,
-                    bufferSize
-                );
-
-                m_ResourceBindings[resource.name] = bindingInfo;
-                m_BindingPointUsage[binding] = resource.name;
-
-                OLO_CORE_TRACE("Discovered uniform buffer: {0} (binding={1}, size={2})", 
-                              resource.name, binding, bufferSize);
-            }
-
-            // Discover storage buffers (SSBOs)
-            for (const auto& resource : resources.storage_buffers)
-            {
-                const auto& bufferType = compiler.get_type(resource.base_type_id);
-                sizet bufferSize = compiler.get_declared_struct_size(bufferType);
-                u32 binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
-                u32 set = 0; // OpenGL doesn't use descriptor sets, default to 0
-
-                // Check if binding point is already used
-                auto it = m_BindingPointUsage.find(binding);
-                if (it != m_BindingPointUsage.end())
-                {
-                    OLO_CORE_WARN("Binding point {0} already used by resource '{1}', skipping '{2}'", 
-                                  binding, it->second, resource.name);
-                    continue;
-                }
-
-                ShaderResourceBinding bindingInfo(
-                    ShaderResourceType::StorageBuffer,
-                    binding,
-                    set,
-                    resource.name,
-                    bufferSize
-                );
-
-                m_ResourceBindings[resource.name] = bindingInfo;
-                m_BindingPointUsage[binding] = resource.name;
-
-                OLO_CORE_TRACE("Discovered storage buffer: {0} (binding={1}, size={2})", 
-                              resource.name, binding, bufferSize);
-            }
-
-            // Discover sampled images (textures)
-            for (const auto& resource : resources.sampled_images)
-            {
-                u32 binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
-                u32 set = 0; // OpenGL doesn't use descriptor sets, default to 0
-
-                // Check if binding point is already used
-                auto it = m_BindingPointUsage.find(binding);
-                if (it != m_BindingPointUsage.end())
-                {
-                    OLO_CORE_WARN("Binding point {0} already used by resource '{1}', skipping '{2}'", 
-                                  binding, it->second, resource.name);
-                    continue;
-                }
-
-                // Determine texture type based on the SPIR-V type
-                const auto& imageType = compiler.get_type(resource.type_id);
-                ShaderResourceType resourceType = ShaderResourceType::Texture2D; // Default to 2D
-                bool isArray = false;
-                u32 arraySize = 0;
-
-                // Check if this is an array texture
-                if (imageType.array.size() > 0)
-                {
-                    isArray = true;
-                    arraySize = imageType.array[0]; // Get array size
-                    
-                    if (imageType.image.dim == spv::DimCube)
-                    {
-                        resourceType = ShaderResourceType::TextureCubeArray;
-                    }
-                    else if (imageType.image.dim == spv::Dim2D)
-                    {
-                        resourceType = ShaderResourceType::Texture2DArray;
-                    }
-                }
-                else
-                {
-                    if (imageType.image.dim == spv::DimCube)
-                    {
-                        resourceType = ShaderResourceType::TextureCube;
-                    }
-                    else if (imageType.image.dim == spv::Dim2D)
-                    {
-                        resourceType = ShaderResourceType::Texture2D;
-                    }
-                }
-
-                ShaderResourceBinding bindingInfo;
-                if (isArray)
-                {
-                    bindingInfo = ShaderResourceBinding(resourceType, binding, set, resource.name, arraySize);
-                }
-                else
-                {
-                    bindingInfo = ShaderResourceBinding(resourceType, binding, set, resource.name);
-                }
-
-                m_ResourceBindings[resource.name] = bindingInfo;
-                m_BindingPointUsage[binding] = resource.name;
-
-                if (isArray)
-                {
-                    OLO_CORE_TRACE("Discovered texture array: {0} (binding={1}, type={2}, size={3})", 
-                                  resource.name, binding, static_cast<u32>(resourceType), arraySize);
-                }
-                else
-                {
-                    OLO_CORE_TRACE("Discovered texture: {0} (binding={1}, type={2})", 
-                                  resource.name, binding, static_cast<u32>(resourceType));
-                }
-            }
-
-            // Discover storage images (for future Image2D support)
-            for (const auto& resource : resources.storage_images)
-            {
-                u32 binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
-                u32 set = 0;
-
-                auto it = m_BindingPointUsage.find(binding);
-                if (it != m_BindingPointUsage.end())
-                {
-                    OLO_CORE_WARN("Binding point {0} already used by resource '{1}', skipping '{2}'", 
-                                  binding, it->second, resource.name);
-                    continue;
-                }
-
-                ShaderResourceBinding bindingInfo(
-                    ShaderResourceType::Image2D,
-                    binding,
-                    set,
-                    resource.name
-                );
-
-                m_ResourceBindings[resource.name] = bindingInfo;
-                m_BindingPointUsage[binding] = resource.name;
-
-                OLO_CORE_TRACE("Discovered storage image: {0} (binding={1})", 
-                              resource.name, binding);
-            }
-        }
-        catch (const std::exception& e)
-        {
-            OLO_CORE_ERROR("Failed to reflect shader resources: {0}", e.what());
-        }
-    }
-    {
-        if (!m_Initialized)
-        {
-            OLO_CORE_ERROR("UniformBufferRegistry not initialized. Call Initialize() first.");
-            return;
-        }
-
         // Convert stage to readable string for logging
         std::string stageName = "Unknown";
         switch (stage)
@@ -911,6 +506,8 @@ namespace OloEngine
             OLO_CORE_ERROR("Failed to reflect shader resources: {0}", e.what());
         }
     }
+
+
 
     bool UniformBufferRegistry::SetResource(const std::string& name, const ShaderResourceInput& input)
     {
@@ -1184,6 +781,52 @@ namespace OloEngine
         }
 
         return missing;
+    }
+
+    OpenGLResourceDeclaration& UniformBufferRegistry::GetOpenGLDeclaration(const std::string& passName)
+    {
+        std::string actualPassName = passName.empty() ? m_DefaultPassName : passName;
+        
+        auto it = m_OpenGLDeclarations.find(actualPassName);
+        if (it == m_OpenGLDeclarations.end())
+        {
+            // Create new declaration if it doesn't exist
+            auto declaration = std::make_unique<OpenGLResourceDeclaration>(actualPassName);
+            
+            // Populate with current registry state
+            for (const auto& [name, binding] : m_ResourceBindings)
+            {
+                OpenGLResourceDeclaration::ResourceInfo resourceInfo;
+                resourceInfo.Name = name;
+                resourceInfo.Type = binding.Type;
+                resourceInfo.Set = binding.Set;
+                resourceInfo.Binding = binding.BindingPoint;
+                resourceInfo.Size = static_cast<u32>(binding.Size);
+                resourceInfo.IsArray = binding.IsArray;
+                resourceInfo.ArraySize = binding.ArraySize;
+                
+                declaration->AddResource(resourceInfo);
+            }
+            
+            auto& ref = *declaration;
+            m_OpenGLDeclarations[actualPassName] = std::move(declaration);
+            return ref;
+        }
+        
+        return *it->second;
+    }
+
+    const OpenGLResourceDeclaration* UniformBufferRegistry::GetOpenGLDeclaration(const std::string& passName) const
+    {
+        std::string actualPassName = passName.empty() ? m_DefaultPassName : passName;
+        
+        auto it = m_OpenGLDeclarations.find(actualPassName);
+        if (it == m_OpenGLDeclarations.end())
+        {
+            return nullptr;
+        }
+        
+        return it->second.get();
     }
 
     void UniformBufferRegistry::RenderDebugInterface()
@@ -4198,7 +3841,8 @@ namespace OloEngine
         if (!IsCacheEnabled())
         {
             // Fallback to standard binding without cache
-            return ApplyAllBindings();
+            ApplyBindings();
+            return 0; // ApplyBindings() doesn't return a count
         }
 
         try
@@ -4210,7 +3854,8 @@ namespace OloEngine
         {
             OLO_CORE_ERROR("Exception during cached binding application: {}", e.what());
             // Fallback to standard binding
-            return ApplyAllBindings();
+            ApplyBindings();
+            return 0; // ApplyBindings() doesn't return a count
         }
     }
 
@@ -4219,7 +3864,8 @@ namespace OloEngine
         if (!IsCacheEnabled())
         {
             // Fallback to standard set binding
-            return ApplySetBindings(setIndex);
+            ApplySetBindings(setIndex);
+            return 1; // Return 1 to indicate the set was applied
         }
 
         u32 appliedCount = 0;
@@ -4242,7 +3888,7 @@ namespace OloEngine
             GLenum target = GetOpenGLTargetFromType(binding.Type);
             bool shouldBind = forceRebind || 
                             !cache.IsBindingRedundant(target, binding.BindingPoint, handle, 
-                                                    binding.GetOffset(), binding.GetSize());
+                                                    0, binding.Size);
 
             if (shouldBind)
             {
@@ -4251,11 +3897,11 @@ namespace OloEngine
                 {
                     case ShaderResourceType::UniformBuffer:
                         glBindBufferRange(GL_UNIFORM_BUFFER, binding.BindingPoint, 
-                                        handle, binding.GetOffset(), binding.GetSize());
+                                        handle, 0, binding.Size);
                         break;
                     case ShaderResourceType::StorageBuffer:
                         glBindBufferRange(GL_SHADER_STORAGE_BUFFER, binding.BindingPoint, 
-                                        handle, binding.GetOffset(), binding.GetSize());
+                                        handle, 0, binding.Size);
                         break;
                     case ShaderResourceType::Texture2D:
                         glActiveTexture(GL_TEXTURE0 + binding.BindingPoint);
@@ -4267,8 +3913,8 @@ namespace OloEngine
 
                 // Record in cache
                 cache.RecordBinding(target, binding.BindingPoint, handle, 
-                                  binding.Type, binding.GetOffset(), 
-                                  binding.GetSize(), m_CurrentFrame);
+                                  binding.Type, 0, 
+                                  binding.Size, m_CurrentFrame);
                 
                 appliedCount++;
             }
@@ -4293,9 +3939,10 @@ namespace OloEngine
                 forceRebind = true;
             }
             
-            if (enableBatching && m_DSABindingManager->SupportsBatchBinding())
+            if (enableBatching)
             {
-                appliedCount = m_DSABindingManager->ApplyRegistryBindingsBatch(*this, forceRebind);
+                // Use regular DSA binding (batch methods not yet implemented)
+                appliedCount = ApplyBindingsWithDSA(enableBatching);
             }
             else
             {
@@ -4317,7 +3964,8 @@ namespace OloEngine
         else
         {
             // Standard binding
-            return ApplyAllBindings();
+            ApplyBindings();
+            return 0; // ApplyBindings() doesn't return a count
         }
     }
 
@@ -4417,10 +4065,11 @@ namespace OloEngine
                 return GL_SHADER_STORAGE_BUFFER;
             case ShaderResourceType::Texture2D:
                 return GL_TEXTURE_2D;
-            case ShaderResourceType::TextureCubemap:
+            case ShaderResourceType::TextureCube:
                 return GL_TEXTURE_CUBE_MAP;
             default:
                 return GL_NONE;
         }
     }
+
 }

@@ -8,6 +8,14 @@
 #include <unordered_map>
 #include <glad/gl.h>
 
+// Forward declare SPIR-V Cross types to avoid header dependency
+namespace spirv_cross
+{
+    class Compiler;
+    struct ShaderResources;
+    struct Resource;
+}
+
 namespace OloEngine
 {
     /**
@@ -174,14 +182,16 @@ namespace OloEngine
          * @param set Descriptor set index
          * @param globalBindingOffset Global binding offset for this set
          */
-        void ImportFromHazel(const ShaderResourceDeclaration& hazelDeclaration, u32 set, u32 globalBindingOffset = 0);
+        // TODO: Implement when Hazel integration is needed
+        // void ImportFromHazel(const ShaderResourceDeclaration& hazelDeclaration, u32 set, u32 globalBindingOffset = 0);
 
         /**
          * @brief Export to Hazel-compatible format
          * @param set Descriptor set to export
          * @return Vector of Hazel-compatible declarations
          */
-        std::vector<ShaderResourceDeclaration> ExportToHazel(u32 set) const;
+        // TODO: Implement when Hazel integration is needed
+        // std::vector<ShaderResourceDeclaration> ExportToHazel(u32 set) const;
 
         // Validation and optimization
         /**

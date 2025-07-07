@@ -230,7 +230,7 @@ namespace OloEngine
 
     void OpenGLDescriptorSetManager::BindDescriptorSet(u32 setIndex, bool forceRebind)
     {
-        RENDERER_PROFILE_SCOPE("OpenGLDescriptorSetManager::BindDescriptorSet");
+        OLO_PROFILE_SCOPE("OpenGLDescriptorSetManager::BindDescriptorSet");
 
         auto it = m_DescriptorSets.find(setIndex);
         if (it == m_DescriptorSets.end())

@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/TextureCubemap.h"
 
 namespace OloEngine
 {
