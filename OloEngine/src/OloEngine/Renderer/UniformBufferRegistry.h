@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/ArrayResource.h"
 #include "OloEngine/Renderer/FrameInFlightManager.h"
+#include "Platform/OpenGL/OpenGLResourceDeclaration.h"
 
 #include <string>
 #include <vector>
@@ -19,12 +20,22 @@
 
 #include <glad/gl.h>
 
+namespace OloEngine
+{
+    // Forward declarations to avoid circular dependencies
+    class OpenGLMultiBind;
+    class OpenGLDSABindingManager;
+    class BindingStateCache;
+
 // Forward declarations for Phase 6 improvements
 namespace OloEngine
 {
     class ResourceHandleCache;
     template<typename T> struct ResourceAccessResult;
     class EnhancedResourceGetter;
+    class OpenGLDescriptorSetManager;
+    class OpenGLMultiBind;
+    class DSABindingManager;
 }
 
 namespace OloEngine
@@ -338,13 +349,25 @@ namespace OloEngine
     >;
 
     /**
-     * @brief Input structure for setting shader resources with type safety
+     * @brief Enhanced input structure for setting shader resources with Hazel-style indexed support
      */
     struct ShaderResourceInput
     {
         ShaderResourceType Type;
         ShaderResource Resource;
-
+        
+        // Enhanced features for indexed resources (Hazel-style)
+        u32 Set = 0;                    // Descriptor set index (for organization)
+        u32 Binding = UINT32_MAX;       // Explicit binding point override
+        u32 ArrayIndex = 0;             // Index within array resources
+        bool IsIndexed = false;         // Whether this is an indexed access
+        bool HasExplicitBinding = false; // Whether binding was explicitly set
+        
+        // Resource metadata for advanced features
+        std::string DebugName;          // Optional debug name
+        bool IsOptional = false;        // Whether resource is optional
+        UpdatePriority Priority = UpdatePriority::Normal; // Update priority
+        
         // Constructors for type-safe resource setting
         ShaderResourceInput() : Type(ShaderResourceType::None), Resource(std::monostate{}) {}
 
@@ -372,6 +395,48 @@ namespace OloEngine
 
         explicit ShaderResourceInput(const Ref<TextureCubemapArray>& array)
             : Type(ShaderResourceType::TextureCubeArray), Resource(array) {}
+
+        // Enhanced constructors with indexed access (Hazel-style)
+        ShaderResourceInput(const Ref<UniformBuffer>& buffer, u32 set, u32 binding = UINT32_MAX)
+            : Type(ShaderResourceType::UniformBuffer), Resource(buffer), Set(set), Binding(binding),
+              HasExplicitBinding(binding != UINT32_MAX) {}
+
+        ShaderResourceInput(const Ref<StorageBuffer>& buffer, u32 set, u32 binding = UINT32_MAX)
+            : Type(ShaderResourceType::StorageBuffer), Resource(buffer), Set(set), Binding(binding),
+              HasExplicitBinding(binding != UINT32_MAX) {}
+
+        ShaderResourceInput(const Ref<Texture2D>& texture, u32 set, u32 binding = UINT32_MAX)
+            : Type(ShaderResourceType::Texture2D), Resource(texture), Set(set), Binding(binding),
+              HasExplicitBinding(binding != UINT32_MAX) {}
+
+        ShaderResourceInput(const Ref<TextureCubemap>& texture, u32 set, u32 binding = UINT32_MAX)
+            : Type(ShaderResourceType::TextureCube), Resource(texture), Set(set), Binding(binding),
+              HasExplicitBinding(binding != UINT32_MAX) {}
+
+        // Array resource constructors with indexing
+        ShaderResourceInput(const Ref<UniformBufferArray>& array, u32 set, u32 arrayIndex = 0, u32 binding = UINT32_MAX)
+            : Type(ShaderResourceType::UniformBufferArray), Resource(array), Set(set), Binding(binding),
+              ArrayIndex(arrayIndex), IsIndexed(true), HasExplicitBinding(binding != UINT32_MAX) {}
+
+        ShaderResourceInput(const Ref<StorageBufferArray>& array, u32 set, u32 arrayIndex = 0, u32 binding = UINT32_MAX)
+            : Type(ShaderResourceType::StorageBufferArray), Resource(array), Set(set), Binding(binding),
+              ArrayIndex(arrayIndex), IsIndexed(true), HasExplicitBinding(binding != UINT32_MAX) {}
+
+        ShaderResourceInput(const Ref<Texture2DArray>& array, u32 set, u32 arrayIndex = 0, u32 binding = UINT32_MAX)
+            : Type(ShaderResourceType::Texture2DArray), Resource(array), Set(set), Binding(binding),
+              ArrayIndex(arrayIndex), IsIndexed(true), HasExplicitBinding(binding != UINT32_MAX) {}
+
+        ShaderResourceInput(const Ref<TextureCubemapArray>& array, u32 set, u32 arrayIndex = 0, u32 binding = UINT32_MAX)
+            : Type(ShaderResourceType::TextureCubeArray), Resource(array), Set(set), Binding(binding),
+              ArrayIndex(arrayIndex), IsIndexed(true), HasExplicitBinding(binding != UINT32_MAX) {}
+
+        // Fluent interface for configuration
+        ShaderResourceInput& WithSet(u32 set) { Set = set; return *this; }
+        ShaderResourceInput& WithBinding(u32 binding) { Binding = binding; HasExplicitBinding = true; return *this; }
+        ShaderResourceInput& WithArrayIndex(u32 index) { ArrayIndex = index; IsIndexed = true; return *this; }
+        ShaderResourceInput& WithDebugName(const std::string& name) { DebugName = name; return *this; }
+        ShaderResourceInput& AsOptional(bool optional = true) { IsOptional = optional; return *this; }
+        ShaderResourceInput& WithPriority(UpdatePriority priority) { Priority = priority; return *this; }
     };
 
     /**
@@ -569,9 +634,9 @@ namespace OloEngine
         
         ~UniformBufferRegistry();
 
-        // No copy semantics - registries are tied to specific shaders
-        UniformBufferRegistry(const UniformBufferRegistry&) = delete;
-        UniformBufferRegistry& operator=(const UniformBufferRegistry&) = delete;
+        // Copy semantics for template/cloning support
+        UniformBufferRegistry(const UniformBufferRegistry& other);
+        UniformBufferRegistry& operator=(const UniformBufferRegistry& other);
 
         // Move semantics
         UniformBufferRegistry(UniformBufferRegistry&&) = default;
@@ -758,6 +823,43 @@ namespace OloEngine
          * @param spirvData SPIR-V bytecode for reflection
          */
         void DiscoverResources(u32 stage, const std::vector<u32>& spirvData);
+
+        /**
+         * @brief Enhanced SPIR-V discovery that populates OpenGL declarations
+         * @param stage Shader stage (GL_VERTEX_SHADER, etc.)
+         * @param spirvData SPIR-V bytecode for reflection
+         * @param passName Name of the shader pass for declaration context
+         * @return True if discovery was successful
+         */
+        bool DiscoverResourcesEnhanced(u32 stage, const std::vector<u32>& spirvData, const std::string& passName = "");
+
+        /**
+         * @brief Get or create OpenGL resource declaration for this registry
+         * @param passName Name of the shader pass (auto-generated if empty)
+         * @return Reference to OpenGL resource declaration
+         */
+        OpenGLResourceDeclaration& GetOpenGLDeclaration(const std::string& passName = "");
+
+        /**
+         * @brief Get existing OpenGL resource declaration (const version)
+         * @param passName Name of the shader pass
+         * @return Pointer to declaration or nullptr if not found
+         */
+        const OpenGLResourceDeclaration* GetOpenGLDeclaration(const std::string& passName) const;
+
+        /**
+         * @brief Synchronize traditional registry with OpenGL declarations
+         * @param declaration OpenGL declaration to sync from
+         * @return True if synchronization was successful
+         */
+        bool SynchronizeWithDeclaration(const OpenGLResourceDeclaration& declaration);
+
+        /**
+         * @brief Export registry data to OpenGL declaration format
+         * @param passName Name for the exported declaration
+         * @return OpenGL resource declaration
+         */
+        OpenGLResourceDeclaration ExportToDeclaration(const std::string& passName) const;
 
         /**
          * @brief Set a shader resource by name with type-safe input
@@ -997,11 +1099,169 @@ namespace OloEngine
         template<> void CreateHandlePool<Texture2D>(u32 maxSize, std::function<Ref<Texture2D>()> factory);
         template<> void CreateHandlePool<TextureCubemap>(u32 maxSize, std::function<Ref<TextureCubemap>()> factory);
 
+        // ==========================================
+        // Step 11: Direct State Access (DSA) Integration
+        // ==========================================
+
+        /**
+         * @brief Get the DSA binding manager
+         * @return Reference to the DSA binding manager
+         */
+        DSABindingManager& GetDSABindingManager() { return *m_DSABindingManager; }
+        const DSABindingManager& GetDSABindingManager() const { return *m_DSABindingManager; }
+
+        /**
+         * @brief Check if DSA features are available and enabled
+         * @return True if DSA can be used for efficient binding
+         */
+        bool IsDSAEnabled() const;
+
+        /**
+         * @brief Apply all bound resources using DSA for maximum efficiency
+         * This uses OpenGL 4.5+ Direct State Access features when available
+         * @param enableBatching Whether to use batch binding operations
+         * @return Number of resources successfully bound
+         */
+        u32 ApplyBindingsWithDSA(bool enableBatching = true);
+
+        /**
+         * @brief Apply bindings for a specific descriptor set using DSA
+         * @param setIndex Descriptor set index to apply
+         * @param enableBatching Whether to use batch binding operations
+         * @return Number of resources successfully bound
+         */
+        u32 ApplySetBindingsWithDSA(u32 setIndex, bool enableBatching = true);
+
+        /**
+         * @brief Enable or disable DSA usage (if supported)
+         * @param enabled Whether to use DSA for bindings
+         */
+        void SetDSAEnabled(bool enabled);
+
+        /**
+         * @brief Get DSA binding statistics for performance monitoring
+         * @return DSA statistics structure
+         */
+        struct DSAStatistics GetDSAStatistics() const;
+
+        /**
+         * @brief Reset DSA binding statistics
+         */
+        void ResetDSAStatistics();
+
+        /**
+         * @brief Invalidate all DSA binding state (forces rebind on next application)
+         */
+        void InvalidateDSABindings();
+
+        // ==========================================
+        // Step 12: Binding State Caching Integration
+        // ==========================================
+
+        /**
+         * @brief Check if binding state caching is enabled
+         * @return True if cache is active and functional
+         */
+        bool IsCacheEnabled() const { return m_CacheEnabled && m_CacheInitialized; }
+
+        /**
+         * @brief Enable or disable binding state caching
+         * @param enabled Whether to enable caching
+         * @param policy Cache policy to use
+         * @param strategy Invalidation strategy
+         * @return True if cache state was changed successfully
+         */
+        bool SetCacheEnabled(bool enabled, 
+                           BindingStateCache::CachePolicy policy = BindingStateCache::CachePolicy::Balanced,
+                           BindingStateCache::InvalidationStrategy strategy = BindingStateCache::InvalidationStrategy::FrameBased);
+
+        /**
+         * @brief Apply all bound resources with intelligent caching
+         * This leverages the binding state cache to avoid redundant OpenGL calls
+         * @param forceRebind Whether to force rebinding even if cached
+         * @return Number of resources that were actually bound (not cached)
+         */
+        u32 ApplyBindingsWithCache(bool forceRebind = false);
+
+        /**
+         * @brief Apply bindings for a specific descriptor set with caching
+         * @param setIndex Descriptor set index to apply
+         * @param forceRebind Whether to force rebinding even if cached
+         * @return Number of resources that were actually bound (not cached)
+         */
+        u32 ApplySetBindingsWithCache(u32 setIndex, bool forceRebind = false);
+
+        /**
+         * @brief Apply bindings using both DSA and caching for maximum efficiency
+         * Combines OpenGL 4.5+ DSA features with intelligent binding state caching
+         * @param enableBatching Whether to use DSA batch operations
+         * @param forceRebind Whether to force rebinding even if cached
+         * @return Number of resources that were actually bound
+         */
+        u32 ApplyBindingsOptimal(bool enableBatching = true, bool forceRebind = false);
+
+        /**
+         * @brief Invalidate binding cache for this registry
+         * @param resourceType Optional resource type to invalidate (all if not specified)
+         */
+        void InvalidateCache(ShaderResourceType resourceType = ShaderResourceType::None);
+
+        /**
+         * @brief Update frame counter for frame-based cache invalidation
+         * @param frameNumber Current frame number
+         */
+        void SetCurrentFrame(u32 frameNumber);
+
+        /**
+         * @brief Get binding state cache performance statistics
+         * @return Current cache statistics
+         */
+        BindingCacheStatistics GetCacheStatistics() const;
+
+        /**
+         * @brief Get cache information (size, memory usage, etc.)
+         * @return Cache information structure
+         */
+        BindingStateCache::CacheInfo GetCacheInfo() const;
+
+        /**
+         * @brief Clean up stale cached bindings
+         * @param maxAge Maximum age before considering binding stale
+         * @return Number of stale bindings removed
+         */
+        u32 CleanupStaleCache(std::chrono::milliseconds maxAge = std::chrono::milliseconds(10000));
+
+        /**
+         * @brief Validate cache against actual OpenGL state
+         * @param fullValidation Whether to perform full validation or sampling
+         * @return True if cache is accurate
+         */
+        bool ValidateCache(bool fullValidation = false);
+
+        /**
+         * @brief Synchronize cache with current OpenGL state
+         * Clears cache and rebuilds from actual OpenGL state
+         */
+        void SynchronizeCache();
+
         /**
          * @brief Apply all bound resources to OpenGL state
-         * This performs the actual OpenGL binding calls
+         * This performs the actual OpenGL binding calls using the descriptor set system
          */
         void ApplyBindings();
+
+        /**
+         * @brief Apply bindings for a specific descriptor set only
+         * @param setIndex Descriptor set index to apply
+         */
+        void ApplySetBindings(u32 setIndex);
+
+        /**
+         * @brief Get the OpenGL descriptor set manager
+         * @return Reference to the descriptor set manager
+         */
+        OpenGLDescriptorSetManager& GetDescriptorSetManager() { return *m_DescriptorSetManager; }
+        const OpenGLDescriptorSetManager& GetDescriptorSetManager() const { return *m_DescriptorSetManager; }
 
         /**
          * @brief Validate that all required resources are bound
@@ -1518,6 +1778,21 @@ namespace OloEngine
         ResourceHandleCache* m_HandleCache = nullptr;
         bool m_HandleCachingEnabled = true;
 
+        // OpenGL descriptor set integration
+        std::unique_ptr<OpenGLDescriptorSetManager> m_DescriptorSetManager;
+        std::unique_ptr<OpenGLMultiBind> m_MultiBind;
+        std::unique_ptr<DSABindingManager> m_DSABindingManager;
+        bool m_DSAEnabled = true;                    // Whether to use DSA when available
+
+        // Binding state caching
+        bool m_CacheEnabled = true;                  // Whether caching is enabled
+        bool m_CacheInitialized = false;            // Whether cache has been initialized
+        u32 m_CurrentFrame = 0;                     // Current frame number for frame-based invalidation
+
+        // OpenGL resource declarations for enhanced SPIR-V integration
+        mutable std::unordered_map<std::string, std::unique_ptr<OpenGLResourceDeclaration>> m_OpenGLDeclarations;
+        std::string m_DefaultPassName = "DefaultPass";
+
         // Phase 6.2: Enhanced Template Getter (no additional members needed, uses existing infrastructure)
 
         // Phase 2.1: Template and clone support methods
@@ -1734,6 +2009,17 @@ namespace OloEngine
         std::vector<RegistryValidationIssue> ValidateLifecycleTransition(const std::string& name,
                                                                         ResourceLifecycleState fromState,
                                                                         ResourceLifecycleState toState) const;
+
+        // ==========================================
+        // Step 12: Cache Helper Methods
+        // ==========================================
+
+        /**
+         * @brief Get OpenGL target from shader resource type
+         * @param type Shader resource type
+         * @return Corresponding OpenGL target constant
+         */
+        GLenum GetOpenGLTargetFromType(ShaderResourceType type) const;
     };
 
     /**
