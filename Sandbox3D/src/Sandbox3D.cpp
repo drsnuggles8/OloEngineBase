@@ -26,6 +26,7 @@ Sandbox3D::Sandbox3D()
     m_GoldMaterial.Diffuse = glm::vec3(0.75164f, 0.60648f, 0.22648f);
     m_GoldMaterial.Specular = glm::vec3(0.628281f, 0.555802f, 0.366065f);
     m_GoldMaterial.Shininess = 51.2f;
+    m_GoldMaterial.UseTextureMaps = true;  // Enable texture mapping
 
     m_SilverMaterial.Ambient = glm::vec3(0.19225f, 0.19225f, 0.19225f);
     m_SilverMaterial.Diffuse = glm::vec3(0.50754f, 0.50754f, 0.50754f);
@@ -91,9 +92,13 @@ void Sandbox3D::OnAttach()
     OloEngine::Renderer3D::EnableFrustumCulling(false);
     OLO_INFO("Sandbox3D: Frustum culling disabled for debugging");
 
-    // Assign textures to the material
+    // Assign textures to the materials
     m_TexturedMaterial.DiffuseMap = m_DiffuseMap;
-    m_TexturedMaterial.SpecularMap = m_SpecularMap;    // Set initial lighting parameters
+    m_TexturedMaterial.SpecularMap = m_SpecularMap;
+    
+    // Also assign textures to gold material for the sphere
+    m_GoldMaterial.DiffuseMap = m_DiffuseMap;
+    m_GoldMaterial.SpecularMap = m_SpecularMap;    // Set initial lighting parameters
     OloEngine::Renderer3D::SetLight(m_Light);    // Create ECS test scene for animated mesh rendering
     m_TestScene = OloEngine::CreateRef<OloEngine::Scene>();
     m_TestScene->OnRuntimeStart(); // Initialize physics world and other runtime systems

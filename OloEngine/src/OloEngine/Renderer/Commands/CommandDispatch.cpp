@@ -195,10 +195,6 @@ namespace OloEngine
         i32 flag = useTextures ? 1 : 0;
         u32 offset = static_cast<u32>(offsetof(ShaderBindingLayout::MaterialUBO, UseTextureMaps));
         
-        // Debug logging to check values
-        OLO_CORE_INFO("UpdateMaterialTextureFlag: flag={}, offset={}, sizeof(i32)={}, MaterialUBO size={}",
-                     flag, offset, sizeof(i32), s_Data.MaterialUBO->GetSize());
-        
         s_Data.MaterialUBO->SetData(&flag, sizeof(i32), offset);
     }
     
@@ -568,14 +564,9 @@ namespace OloEngine
 		
 		if (u32 shaderID = cmd->shader->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
 		{
-			OLO_CORE_INFO("DrawMesh - Binding shader with ID: {}", shaderID);
 			cmd->shader->Bind();
 			s_Data.CurrentBoundShaderID = shaderID;
 			s_Data.Stats.ShaderBinds++;
-		}
-		else
-		{
-			OLO_CORE_INFO("DrawMesh - Shader already bound (ID: {})", shaderID);
 		}
 		
 		// Update UBOs according to standardized binding layout
@@ -601,36 +592,22 @@ namespace OloEngine
 		
 		UpdateModelMatrixUBO(cmd->transform);
 		
-		// Update material properties next
-		struct MaterialData
-		{
-			glm::vec4 Ambient;    // vec3 aligned to vec4
-			glm::vec4 Diffuse;    // vec3 aligned to vec4
-			glm::vec4 Specular;   // vec3 aligned to vec4
-			float Shininess;
-			float _pad[3];        // Padding for alignment
-		};
-		
-		MaterialData materialData{
-			glm::vec4(cmd->ambient, 1.0f),
-			glm::vec4(cmd->diffuse, 1.0f),
-			glm::vec4(cmd->specular, 1.0f),
-			cmd->shininess,
-			{0.0f, 0.0f, 0.0f}
-		};
+		// Update material properties using the standardized MaterialUBO structure
+		ShaderBindingLayout::MaterialUBO materialData;
+		materialData.Ambient = glm::vec4(cmd->ambient, 1.0f);
+		materialData.Diffuse = glm::vec4(cmd->diffuse, 1.0f);
+		materialData.Specular = glm::vec4(cmd->specular, cmd->shininess);  // shininess in w component
+		materialData.Emissive = glm::vec4(0.0f);  // Default emissive
+		materialData.UseTextureMaps = cmd->useTextureMaps ? 1 : 0;
+		materialData._padding[0] = materialData._padding[1] = materialData._padding[2] = 0;
 		
 		if (s_Data.MaterialUBO)
 		{
-			s_Data.MaterialUBO->SetData(&materialData, sizeof(MaterialData));
+			constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
+			static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch in DrawMesh");
+			s_Data.MaterialUBO->SetData(&materialData, expectedSize);
 			// Ensure UBO is bound to the correct OpenGL binding point (binding=2 for material)
 			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
-		}
-		
-		// Update texture flag
-		int useTextureMaps = cmd->useTextureMaps ? 1 : 0;
-		if (s_Data.TextureFlagUBO)
-		{
-			s_Data.TextureFlagUBO->SetData(&useTextureMaps, sizeof(int));
 		}
 		
 		// Update light properties with the specific material
@@ -702,9 +679,6 @@ namespace OloEngine
 		
 		// Issue the actual draw call
 		api.DrawIndexed(cmd->vertexArray, indexCount);
-		
-		// DEBUG: Log completion
-		OLO_CORE_INFO("DrawMesh - GPU DrawIndexed call completed");
 	}
     
     void CommandDispatch::DrawMeshInstanced(const void* data, RendererAPI& api)
@@ -895,36 +869,22 @@ namespace OloEngine
 		// Update model matrix UBO using standardized structure
 		UpdateModelMatrixUBO(cmd->modelMatrix);
 		
-		// Update material properties (same as regular mesh)
-		struct MaterialData
-		{
-			glm::vec4 Ambient;
-			glm::vec4 Diffuse;
-			glm::vec4 Specular;
-			float Shininess;
-			float _pad[3];
-		};
-		
-		MaterialData materialData{
-			glm::vec4(cmd->ambient, 1.0f),
-			glm::vec4(cmd->diffuse, 1.0f),
-			glm::vec4(cmd->specular, 1.0f),
-			cmd->shininess,
-			{0.0f, 0.0f, 0.0f}
-		};
+		// Update material properties using the standardized MaterialUBO structure (same as regular mesh)
+		ShaderBindingLayout::MaterialUBO materialData;
+		materialData.Ambient = glm::vec4(cmd->ambient, 1.0f);
+		materialData.Diffuse = glm::vec4(cmd->diffuse, 1.0f);
+		materialData.Specular = glm::vec4(cmd->specular, cmd->shininess);  // shininess in w component
+		materialData.Emissive = glm::vec4(0.0f);  // Default emissive
+		materialData.UseTextureMaps = cmd->useTextureMaps ? 1 : 0;
+		materialData._padding[0] = materialData._padding[1] = materialData._padding[2] = 0;
 		
 		if (s_Data.MaterialUBO)
 		{
-			s_Data.MaterialUBO->SetData(&materialData, sizeof(MaterialData));
+			constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
+			static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch in DrawSkinnedMesh");
+			s_Data.MaterialUBO->SetData(&materialData, expectedSize);
 			// Ensure UBO is bound to the correct OpenGL binding point (binding=2 for material)
 			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
-		}
-		
-		// Update texture flag
-		int useTextureMaps = cmd->useTextureMaps ? 1 : 0;
-		if (s_Data.TextureFlagUBO)
-		{
-			s_Data.TextureFlagUBO->SetData(&useTextureMaps, sizeof(int));
 		}
 		
 		// **NEW: Update bone matrices UBO for GPU skinning**
@@ -957,14 +917,6 @@ namespace OloEngine
 		lightData.LightSpotParams = glm::vec4(light.CutOff, light.OuterCutOff, 0.0f, 0.0f);
 		lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<f32>(lightType));
 
-		// DEBUG: Log lighting values for skinned mesh
-		OLO_CORE_INFO("DrawSkinnedMesh - Light Debug:");
-		OLO_CORE_INFO("  Light Ambient: ({:.2f}, {:.2f}, {:.2f})", lightData.LightAmbient.x, lightData.LightAmbient.y, lightData.LightAmbient.z);
-		OLO_CORE_INFO("  Light Diffuse: ({:.2f}, {:.2f}, {:.2f})", lightData.LightDiffuse.x, lightData.LightDiffuse.y, lightData.LightDiffuse.z);
-		OLO_CORE_INFO("  Light Direction: ({:.2f}, {:.2f}, {:.2f})", lightData.LightDirection.x, lightData.LightDirection.y, lightData.LightDirection.z);
-		OLO_CORE_INFO("  View Position: ({:.2f}, {:.2f}, {:.2f})", lightData.ViewPosAndLightType.x, lightData.ViewPosAndLightType.y, lightData.ViewPosAndLightType.z);
-		OLO_CORE_INFO("  Light Type: {}", lightData.ViewPosAndLightType.w);
-
 		if (s_Data.LightUBO)
 		{
 			constexpr u32 expectedSize = ShaderBindingLayout::LightUBO::GetSize();
@@ -977,32 +929,27 @@ namespace OloEngine
 		// Bind textures for skinned mesh (using correct binding points)
 		if (cmd->useTextureMaps)
 		{
-			OLO_CORE_INFO("DrawSkinnedMesh - Binding textures for skinned mesh");
 			if (cmd->diffuseMap)
 			{
 				u32 texID = cmd->diffuseMap->GetRendererID();
-				// Skinned shader expects diffuse at binding 3
-				if (s_Data.BoundTextureIDs[3] != texID)
+				// Use standardized binding point for diffuse texture (binding=0)
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] != texID)
 				{
-					cmd->diffuseMap->Bind(3);
-					// Don't set uniform - shader uses layout(binding = 3)
-					s_Data.BoundTextureIDs[3] = texID;
+					cmd->diffuseMap->Bind(ShaderBindingLayout::TEX_DIFFUSE);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = texID;
 					s_Data.Stats.TextureBinds++;
-					OLO_CORE_INFO("DrawSkinnedMesh - Bound diffuse texture {} to slot 3", texID);
 				}
 			}
 			
 			if (cmd->specularMap)
 			{
 				u32 texID = cmd->specularMap->GetRendererID();
-				// Skinned shader expects specular at binding 4
-				if (s_Data.BoundTextureIDs[4] != texID)
+				// Use standardized binding point for specular texture (binding=1)
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] != texID)
 				{
-					cmd->specularMap->Bind(4);
-					// Don't set uniform - shader uses layout(binding = 4)
-					s_Data.BoundTextureIDs[4] = texID;
+					cmd->specularMap->Bind(ShaderBindingLayout::TEX_SPECULAR);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] = texID;
 					s_Data.Stats.TextureBinds++;
-					OLO_CORE_INFO("DrawSkinnedMesh - Bound specular texture {} to slot 4", texID);
 				}
 			}
 		}
@@ -1017,17 +964,11 @@ namespace OloEngine
 			return;
 		}
 		
-		// DEBUG: Log before GPU draw call
-		OLO_CORE_INFO("DrawSkinnedMesh - About to call GPU DrawIndexed with {} indices", indexCount);
-		
 		// Track statistics
 		s_Data.Stats.DrawCalls++;
 		
 		// Issue the draw call (same as regular indexed mesh)
 		api.DrawIndexed(cmd->vertexArray, indexCount);
-		
-		// DEBUG: Log after GPU draw call
-		OLO_CORE_INFO("DrawSkinnedMesh - GPU DrawIndexed call completed");
 	}
 
 	void CommandDispatch::DrawQuad(const void* data, RendererAPI& api)
