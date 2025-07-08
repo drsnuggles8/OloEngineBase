@@ -2,7 +2,8 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Shader.h"
-#include "OloEngine/Renderer/UniformBufferRegistry.h"
+#include "OloEngine/Renderer/ShaderResourceRegistry.h"
+#include "OloEngine/Renderer/ShaderResourceTypes.h"
 #include "DebugUtils.h"
 
 #include <imgui.h>

@@ -6,7 +6,7 @@
 #include <glm/gtx/hash.hpp>
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Shader.h"
-#include "OloEngine/Renderer/UniformBufferRegistry.h"
+#include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 
 namespace OloEngine
@@ -97,7 +97,7 @@ namespace OloEngine
 		 * @brief Get the resource registry associated with this material's shader
 		 * @return Pointer to registry if available, nullptr otherwise
 		 */
-		UniformBufferRegistry* GetResourceRegistry()
+		ShaderResourceRegistry* GetResourceRegistry()
 		{
 			if (!Shader)
 				return nullptr;
@@ -114,7 +114,7 @@ namespace OloEngine
 		 * @brief Get the resource registry associated with this material's shader (const version)
 		 * @return Pointer to registry if available, nullptr otherwise
 		 */
-		const UniformBufferRegistry* GetResourceRegistry() const
+		const ShaderResourceRegistry* GetResourceRegistry() const
 		{
 			if (!Shader)
 				return nullptr;

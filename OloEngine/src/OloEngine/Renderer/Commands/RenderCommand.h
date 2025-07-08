@@ -7,7 +7,7 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/RenderState.h"
-#include "OloEngine/Renderer/UniformBufferRegistry.h"
+#include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include <glad/gl.h>
 #include <glm/glm.hpp>
 

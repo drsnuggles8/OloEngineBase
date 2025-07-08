@@ -6,7 +6,7 @@
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
-#include "OloEngine/Renderer/UniformBufferRegistry.h"
+#include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include "OloEngine/Renderer/Light.h"
 
 namespace OloEngine
@@ -31,7 +31,7 @@ namespace OloEngine
 		std::array<u32, 32> BoundTextureIDs = { 0 };
 		
 		// Registry tracking for shader resources
-		std::unordered_map<u32, UniformBufferRegistry*> ShaderRegistries;
+		std::unordered_map<u32, ShaderResourceRegistry*> ShaderRegistries;
 		
 		// Statistics for performance monitoring
 		CommandDispatch::Statistics Stats;
@@ -1185,13 +1185,13 @@ namespace OloEngine
 	}
 
 	// Registry management for shader resources
-	UniformBufferRegistry* CommandDispatch::GetShaderRegistry(u32 shaderID)
+	ShaderResourceRegistry* CommandDispatch::GetShaderRegistry(u32 shaderID)
 	{
 		auto it = s_Data.ShaderRegistries.find(shaderID);
 		return it != s_Data.ShaderRegistries.end() ? it->second : nullptr;
 	}
 
-	void CommandDispatch::RegisterShaderRegistry(u32 shaderID, UniformBufferRegistry* registry)
+	void CommandDispatch::RegisterShaderRegistry(u32 shaderID, ShaderResourceRegistry* registry)
 	{
 		if (registry)
 		{
@@ -1210,7 +1210,7 @@ namespace OloEngine
 		}
 	}
 
-	const std::unordered_map<u32, UniformBufferRegistry*>& CommandDispatch::GetShaderRegistries()
+	const std::unordered_map<u32, ShaderResourceRegistry*>& CommandDispatch::GetShaderRegistries()
 	{
 		return s_Data.ShaderRegistries;
 	}

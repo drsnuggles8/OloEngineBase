@@ -1,6 +1,6 @@
 #pragma once
 #include "OloEngine/Renderer/Shader.h"
-#include "OloEngine/Renderer/UniformBufferRegistry.h"
+#include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include <glm/glm.hpp>
 
 namespace OloEngine
@@ -40,8 +40,8 @@ namespace OloEngine
 		void UploadUniformMat4(const std::string& name, const glm::mat4& matrix) const;
 
 		// Resource registry access
-		UniformBufferRegistry& GetResourceRegistry() { return m_ResourceRegistry; }
-		const UniformBufferRegistry& GetResourceRegistry() const { return m_ResourceRegistry; }
+		ShaderResourceRegistry& GetResourceRegistry() { return m_ResourceRegistry; }
+		const ShaderResourceRegistry& GetResourceRegistry() const { return m_ResourceRegistry; }
 
 		// Initialize resource registry (called after shader is fully constructed)
 		void InitializeResourceRegistry(const Ref<Shader>& shaderRef);
@@ -80,7 +80,7 @@ namespace OloEngine
 		std::unordered_map<GLenum, std::string> m_OriginalSourceCode; // Store original preprocessed source
 
 		// Resource registry for automatic resource management
-		UniformBufferRegistry m_ResourceRegistry;
+		ShaderResourceRegistry m_ResourceRegistry;
 	};
 
 }

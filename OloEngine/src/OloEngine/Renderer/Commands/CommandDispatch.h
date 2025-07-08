@@ -7,7 +7,7 @@ namespace OloEngine
 {
 	class UniformBuffer;
 	class Light;
-	class UniformBufferRegistry;
+	class ShaderResourceRegistry;
 
     // Command dispatch functions that take POD command data and execute it
     class CommandDispatch
@@ -44,10 +44,10 @@ namespace OloEngine
 		static void SetViewMatrix(const glm::mat4& view);
 
         // Registry management for shader resources
-        static UniformBufferRegistry* GetShaderRegistry(u32 shaderID);
-        static void RegisterShaderRegistry(u32 shaderID, UniformBufferRegistry* registry);
+        static ShaderResourceRegistry* GetShaderRegistry(u32 shaderID);
+        static void RegisterShaderRegistry(u32 shaderID, ShaderResourceRegistry* registry);
         static void UnregisterShaderRegistry(u32 shaderID);
-        static const std::unordered_map<u32, UniformBufferRegistry*>& GetShaderRegistries();
+        static const std::unordered_map<u32, ShaderResourceRegistry*>& GetShaderRegistries();
         
         // High-level resource setting methods
         template<typename T>
