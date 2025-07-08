@@ -7,9 +7,7 @@
 #include <unordered_map>
 #include <string>
 
-#ifdef OLO_ENABLE_SPIRV_CROSS
 #include <spirv_cross/spirv_cross.hpp>
-#endif
 
 namespace OloEngine
 {
@@ -105,10 +103,6 @@ namespace OloEngine
         /**
          * @brief Convert SPIR-V type to ShaderDataType
          */
-#ifdef OLO_ENABLE_SPIRV_CROSS
         ShaderDataType ConvertSPIRVType(const spirv_cross::SPIRType& type);
-#else
-        ShaderDataType ConvertSPIRVType(const int type);
-#endif
     };
 }

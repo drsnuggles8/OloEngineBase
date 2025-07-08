@@ -5,9 +5,7 @@
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Core/Log.h"
 
-#ifdef OLO_ENABLE_SPIRV_CROSS
 #include <spirv_cross/spirv_cross.hpp>
-#endif
 
 namespace OloEngine
 {
@@ -47,9 +45,8 @@ namespace OloEngine
         OLO_CORE_TRACE("ShaderResourceRegistry: Shutdown complete");
     }
 
-    void ShaderResourceRegistry::DiscoverResources(u32 stage, const std::vector<u32>& spirvData)
+    void ShaderResourceRegistry::DiscoverResources([[maybe_unused]] u32 stage, const std::vector<u32>& spirvData)
     {
-#ifdef OLO_ENABLE_SPIRV_CROSS
         try
         {
             spirv_cross::Compiler compiler(spirvData);
@@ -81,7 +78,20 @@ namespace OloEngine
                 u32 binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
 
                 ResourceBinding resourceBinding;
-                resourceBinding.Name = resource.name;
+                
+                // Try to get the name from multiple sources
+                std::string name = resource.name;
+                if (name.empty())
+                {
+                    name = compiler.get_name(resource.id);
+                }
+                if (name.empty())
+                {
+                    // Generate a fallback name based on binding point
+                    name = "texture_binding_" + std::to_string(binding);
+                }
+                
+                resourceBinding.Name = name;
                 resourceBinding.BindingPoint = binding;
                 
                 // Determine texture type
@@ -92,21 +102,16 @@ namespace OloEngine
                 else
                     resourceBinding.Type = ShaderResourceType::None;
 
-                m_Bindings[resource.name] = resourceBinding;
+                m_Bindings[name] = resourceBinding;
                 
                 OLO_CORE_TRACE("ShaderResourceRegistry: Discovered texture '{0}' at binding {1}", 
-                              resource.name, binding);
+                              name, binding);
             }
         }
         catch (const std::exception& e)
         {
             OLO_CORE_ERROR("ShaderResourceRegistry: Failed to discover resources - {0}", e.what());
         }
-#else
-        (void)stage; // Suppress unused parameter warning
-        (void)spirvData; // Suppress unused parameter warning
-        OLO_CORE_WARN("ShaderResourceRegistry: Resource discovery disabled (OLO_ENABLE_SPIRV_CROSS not defined)");
-#endif
     }
 
     void ShaderResourceRegistry::RegisterFromReflection(const ShaderReflection& reflection)

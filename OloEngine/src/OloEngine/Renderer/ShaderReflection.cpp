@@ -10,7 +10,6 @@ namespace OloEngine
 {
     bool ShaderReflection::ReflectFromSPIRV(const std::vector<u32>& spirvBytecode)
     {
-#ifdef OLO_ENABLE_SPIRV_CROSS
         try
         {
             spirv_cross::Compiler compiler(spirvBytecode);
@@ -105,11 +104,6 @@ namespace OloEngine
             OLO_CORE_ERROR("ShaderReflection: Failed to reflect SPIR-V - {0}", e.what());
             return false;
         }
-#else
-        (void)spirvBytecode; // Suppress unused parameter warning
-        OLO_CORE_WARN("ShaderReflection: SPIR-V reflection disabled (OLO_ENABLE_SPIRV_CROSS not defined)");
-        return false;
-#endif
     }
 
     const ShaderReflection::UniformBlockInfo* ShaderReflection::GetUniformBlock(const std::string& name) const
@@ -136,7 +130,6 @@ namespace OloEngine
         m_BlockNameToIndex.clear();
     }
 
-#ifdef OLO_ENABLE_SPIRV_CROSS
     ShaderDataType ShaderReflection::ConvertSPIRVType(const spirv_cross::SPIRType& type)
     {
         switch (type.basetype)
@@ -185,12 +178,4 @@ namespace OloEngine
         
         return ShaderDataType::None;
     }
-#else
-    ShaderDataType ShaderReflection::ConvertSPIRVType(const int type)
-    {
-        (void)type; // Suppress unused parameter warning
-        // Fallback when SPIR-V Cross is not available
-        return ShaderDataType::None;
-    }
-#endif
 }
