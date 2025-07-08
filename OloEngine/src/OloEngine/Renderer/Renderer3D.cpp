@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -47,14 +48,16 @@ namespace OloEngine
 		s_Data.SkinnedLightingShader = m_ShaderLibrary.Get("SkinnedLighting3D_Simple");
 		s_Data.QuadShader = m_ShaderLibrary.Get("Renderer3D_Quad");
 		
-		// Create all necessary UBOs
-		s_Data.TransformUBO = UniformBuffer::Create(sizeof(glm::mat4) * 2, 0);  // CameraMatrices
-		s_Data.LightPropertiesUBO = UniformBuffer::Create(sizeof(glm::vec4) * 12, 1); // LightProperties
-		s_Data.TextureFlagUBO = UniformBuffer::Create(sizeof(int), 2);          // TextureFlags  
-		s_Data.CameraMatricesBuffer = UniformBuffer::Create(sizeof(glm::mat4) * 2, 3); // View and projection matrices
-		s_Data.MaterialUBO = UniformBuffer::Create(sizeof(glm::vec4) * 4, 4);   // Material properties
-		s_Data.BoneMatricesUBO = UniformBuffer::Create(sizeof(glm::mat4) * 100, 5); // BoneMatrices
-		s_Data.ModelMatrixUBO = UniformBuffer::Create(sizeof(glm::mat4), 6); // ModelMatrix
+		// Create all necessary UBOs following standardized binding layout
+		s_Data.TransformUBO = UniformBuffer::Create(sizeof(ShaderBindingLayout::CameraUBO), ShaderBindingLayout::UBO_CAMERA);  // CameraMatrices
+		s_Data.LightPropertiesUBO = UniformBuffer::Create(sizeof(ShaderBindingLayout::LightUBO), ShaderBindingLayout::UBO_LIGHTS); // LightProperties
+		s_Data.MaterialUBO = UniformBuffer::Create(sizeof(ShaderBindingLayout::MaterialUBO), ShaderBindingLayout::UBO_MATERIAL); // Material properties
+		s_Data.ModelMatrixUBO = UniformBuffer::Create(sizeof(ShaderBindingLayout::ModelUBO), ShaderBindingLayout::UBO_MODEL); // Model matrices (model + normal)
+		s_Data.BoneMatricesUBO = UniformBuffer::Create(sizeof(ShaderBindingLayout::AnimationUBO), ShaderBindingLayout::UBO_ANIMATION); // BoneMatrices
+		
+		// Legacy UBOs for compatibility (will be phased out)
+		s_Data.TextureFlagUBO = UniformBuffer::Create(sizeof(int), 2);          // TextureFlags (temporary until material UBO is fully used)
+		s_Data.CameraMatricesBuffer = UniformBuffer::Create(sizeof(glm::mat4) * 2, 3); // Legacy camera buffer
 		// Share UBOs with CommandDispatch
 		CommandDispatch::SetSharedUBOs(
 			s_Data.TransformUBO,
@@ -155,34 +158,11 @@ namespace OloEngine
 			// Use a default material for the initial UBO update
 			Material defaultMaterial;
 			
-			// Build light properties data exactly as Renderer3D does
-			struct LightPropertiesData
-			{
-				glm::vec4 MaterialAmbient;
-				glm::vec4 MaterialDiffuse;
-				glm::vec4 MaterialSpecular;
-				glm::vec4 Padding1;
-
-				glm::vec4 LightPosition;
-				glm::vec4 LightDirection;
-				glm::vec4 LightAmbient;
-				glm::vec4 LightDiffuse;
-				glm::vec4 LightSpecular;
-				glm::vec4 LightAttParams;
-				glm::vec4 LightSpotParams;
-
-				glm::vec4 ViewPosAndLightType;
-			};
-
-			LightPropertiesData lightData;
-
-			lightData.MaterialAmbient = glm::vec4(defaultMaterial.Ambient, 0.0f);
-			lightData.MaterialDiffuse = glm::vec4(defaultMaterial.Diffuse, 0.0f);
-			lightData.MaterialSpecular = glm::vec4(defaultMaterial.Specular, defaultMaterial.Shininess);
-			lightData.Padding1 = glm::vec4(0.0f);
+			// Use standardized light UBO structure
+			ShaderBindingLayout::LightUBO lightData;
 
 			auto lightType = std::to_underlying(s_Data.SceneLight.Type);
-			lightData.LightPosition = glm::vec4(s_Data.SceneLight.Position, 1.0f); // Use 1.0 for w to indicate position, not direction
+			lightData.LightPosition = glm::vec4(s_Data.SceneLight.Position, 1.0f);
 			lightData.LightDirection = glm::vec4(s_Data.SceneLight.Direction, 0.0f);
 			lightData.LightAmbient = glm::vec4(s_Data.SceneLight.Ambient, 0.0f);
 			lightData.LightDiffuse = glm::vec4(s_Data.SceneLight.Diffuse, 0.0f);
@@ -205,7 +185,7 @@ namespace OloEngine
 			lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<f32>(lightType));
 
 			// Update the UBO directly
-			s_Data.LightPropertiesUBO->SetData(&lightData, sizeof(LightPropertiesData));
+			s_Data.LightPropertiesUBO->SetData(&lightData, sizeof(ShaderBindingLayout::LightUBO));
 		}
 	}
 	void Renderer3D::EndScene()
@@ -502,17 +482,15 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
         
-		struct CameraMatrices
-		{
-			glm::mat4 Projection;
-			glm::mat4 View;
-		};
+		// Use standardized camera UBO structure
+		ShaderBindingLayout::CameraUBO cameraData;
+		cameraData.ViewProjection = projection * view;
+		cameraData.View = view;
+		cameraData.Projection = projection;
+		cameraData.Position = s_Data.ViewPos;
+		cameraData._padding0 = 0.0f;
 		
-		CameraMatrices matrices;
-		matrices.Projection = projection;
-		matrices.View = view;
-		
-		s_Data.CameraMatricesBuffer->SetData(&matrices, sizeof(CameraMatrices));
+		s_Data.TransformUBO->SetData(&cameraData, sizeof(ShaderBindingLayout::CameraUBO));
 	}
 	
 	void Renderer3D::SetupRenderGraph(u32 width, u32 height)

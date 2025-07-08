@@ -112,6 +112,12 @@ namespace OloEngine
         {
             OLO_CORE_ERROR("ShaderResourceRegistry: Failed to discover resources - {0}", e.what());
         }
+        
+        // Validate discovered bindings against standard layout
+        if (!ValidateStandardBindings())
+        {
+            OLO_CORE_WARN("ShaderResourceRegistry: Shader has non-standard binding layout");
+        }
     }
 
     void ShaderResourceRegistry::RegisterFromReflection(const ShaderReflection& reflection)
@@ -396,5 +402,129 @@ namespace OloEngine
             return texture ? texture->GetRendererID() : 0;
         }
         return 0;
+    }
+
+    // Standardized Binding Layout Validation Implementation
+    bool ShaderResourceRegistry::ValidateStandardBindings() const
+    {
+        bool isValid = true;
+        
+        for (const auto& [name, binding] : m_Bindings)
+        {
+            if (binding.Type == ShaderResourceType::UniformBuffer)
+            {
+                if (!IsStandardUBOBinding(binding.BindingPoint, name))
+                {
+                    OLO_CORE_WARN("Non-standard UBO binding: '{}' at binding {} (expected: '{}')", 
+                                  name, binding.BindingPoint, GetExpectedUBOName(binding.BindingPoint));
+                    isValid = false;
+                }
+            }
+            else if (binding.Type == ShaderResourceType::Texture2D || 
+                     binding.Type == ShaderResourceType::TextureCube)
+            {
+                if (!IsStandardTextureBinding(binding.BindingPoint, name))
+                {
+                    OLO_CORE_WARN("Non-standard texture binding: '{}' at binding {} (expected: '{}')", 
+                                  name, binding.BindingPoint, GetExpectedTextureName(binding.BindingPoint));
+                    isValid = false;
+                }
+            }
+        }
+        
+        return isValid;
+    }
+
+    bool ShaderResourceRegistry::IsStandardUBOBinding(u32 binding, const std::string& name) const
+    {
+        switch (binding)
+        {
+            case ShaderBindingLayout::UBO_CAMERA:
+                return name.find("Camera") != std::string::npos || 
+                       name.find("camera") != std::string::npos;
+                       
+            case ShaderBindingLayout::UBO_LIGHTS:
+                return name.find("Light") != std::string::npos || 
+                       name.find("light") != std::string::npos;
+                       
+            case ShaderBindingLayout::UBO_MATERIAL:
+                return name.find("Material") != std::string::npos || 
+                       name.find("material") != std::string::npos;
+                       
+            case ShaderBindingLayout::UBO_MODEL:
+                return name.find("Model") != std::string::npos || 
+                       name.find("model") != std::string::npos;
+                       
+            case ShaderBindingLayout::UBO_ANIMATION:
+                return name.find("Animation") != std::string::npos || 
+                       name.find("animation") != std::string::npos ||
+                       name.find("Bone") != std::string::npos ||
+                       name.find("bone") != std::string::npos;
+                       
+            default:
+                // User-defined bindings (5-7) are always valid
+                return binding >= ShaderBindingLayout::UBO_USER_0;
+        }
+    }
+
+    bool ShaderResourceRegistry::IsStandardTextureBinding(u32 binding, const std::string& name) const
+    {
+        switch (binding)
+        {
+            case ShaderBindingLayout::TEX_DIFFUSE:
+                return name.find("diffuse") != std::string::npos || 
+                       name.find("Diffuse") != std::string::npos ||
+                       name.find("albedo") != std::string::npos ||
+                       name.find("Albedo") != std::string::npos ||
+                       name == "texture_binding_0";
+                       
+            case ShaderBindingLayout::TEX_SPECULAR:
+                return name.find("specular") != std::string::npos || 
+                       name.find("Specular") != std::string::npos ||
+                       name == "texture_binding_1";
+                       
+            case ShaderBindingLayout::TEX_NORMAL:
+                return name.find("normal") != std::string::npos || 
+                       name.find("Normal") != std::string::npos ||
+                       name == "texture_binding_2";
+                       
+            default:
+                // User-defined texture bindings (10+) are always valid
+                return binding >= ShaderBindingLayout::TEX_USER_0;
+        }
+    }
+
+    std::string ShaderResourceRegistry::GetExpectedUBOName(u32 binding)
+    {
+        switch (binding)
+        {
+            case ShaderBindingLayout::UBO_CAMERA:    return "CameraMatrices";
+            case ShaderBindingLayout::UBO_LIGHTS:    return "LightProperties";
+            case ShaderBindingLayout::UBO_MATERIAL:  return "MaterialProperties";
+            case ShaderBindingLayout::UBO_MODEL:     return "ModelMatrices";
+            case ShaderBindingLayout::UBO_ANIMATION: return "AnimationMatrices";
+            case ShaderBindingLayout::UBO_USER_0:    return "UserUBO0";
+            case ShaderBindingLayout::UBO_USER_1:    return "UserUBO1";
+            case ShaderBindingLayout::UBO_USER_2:    return "UserUBO2";
+            default: return "UnknownUBO";
+        }
+    }
+
+    std::string ShaderResourceRegistry::GetExpectedTextureName(u32 binding)
+    {
+        switch (binding)
+        {
+            case ShaderBindingLayout::TEX_DIFFUSE:     return "u_DiffuseMap";
+            case ShaderBindingLayout::TEX_SPECULAR:    return "u_SpecularMap";
+            case ShaderBindingLayout::TEX_NORMAL:      return "u_NormalMap";
+            case ShaderBindingLayout::TEX_HEIGHT:      return "u_HeightMap";
+            case ShaderBindingLayout::TEX_AMBIENT:     return "u_AmbientMap";
+            case ShaderBindingLayout::TEX_EMISSIVE:    return "u_EmissiveMap";
+            case ShaderBindingLayout::TEX_ROUGHNESS:   return "u_RoughnessMap";
+            case ShaderBindingLayout::TEX_METALLIC:    return "u_MetallicMap";
+            case ShaderBindingLayout::TEX_SHADOW:      return "u_ShadowMap";
+            case ShaderBindingLayout::TEX_ENVIRONMENT: return "u_EnvironmentMap";
+            default: return "u_UserTexture" + std::to_string(binding);
+        }
     }
 }

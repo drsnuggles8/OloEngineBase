@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "CommandDispatch.h"
 #include "RenderCommand.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -77,61 +78,11 @@ namespace OloEngine
 			return;
 		}
 		
-		struct alignas(16) LightPropertiesData
-		{
-			glm::vec4 MaterialAmbient;
-			glm::vec4 MaterialDiffuse;
-			glm::vec4 MaterialSpecular;
-			glm::vec4 Padding1;
-
-			glm::vec4 LightPosition;
-			glm::vec4 LightDirection;
-			glm::vec4 LightAmbient;
-			glm::vec4 LightDiffuse;
-			glm::vec4 LightSpecular;
-			glm::vec4 LightAttParams;
-			glm::vec4 LightSpotParams;
-
-			glm::vec4 ViewPosAndLightType;
-		};
-
-		// Get material properties from the Material UBO
-		struct alignas(16) MaterialData
-		{
-			glm::vec4 Ambient;    // vec3 aligned to vec4
-			glm::vec4 Diffuse;    // vec3 aligned to vec4
-			glm::vec4 Specular;   // vec3 aligned to vec4
-			float Shininess;
-			float _pad[3];        // Padding for alignment
-		};
-
-		// Default material values in case UBO data is not available
-		glm::vec3 materialAmbient(0.2f);
-		glm::vec3 materialDiffuse(0.8f);
-		glm::vec3 materialSpecular(1.0f);
-		float materialShininess = 32.0f;
-		// Try to read from MaterialUBO if it exists
-		if (s_Data.MaterialUBO)
-		{
-			// For now, relying on the material values set by UpdateMaterialUBO
-			// which should be called before UpdateLightPropertiesUBO
-			
-			// This just reads directly from the CPU-side MaterialUBO
-			materialAmbient = glm::vec3(s_Data.MaterialUBO->GetData<MaterialData>().Ambient);
-			materialDiffuse = glm::vec3(s_Data.MaterialUBO->GetData<MaterialData>().Diffuse);
-			materialSpecular = glm::vec3(s_Data.MaterialUBO->GetData<MaterialData>().Specular);
-			materialShininess = s_Data.MaterialUBO->GetData<MaterialData>().Shininess;
-		}
-
-		LightPropertiesData lightData;
-
-		lightData.MaterialAmbient = glm::vec4(materialAmbient, 0.0f);
-		lightData.MaterialDiffuse = glm::vec4(materialDiffuse, 0.0f);
-		lightData.MaterialSpecular = glm::vec4(materialSpecular, materialShininess);
-		lightData.Padding1 = glm::vec4(0.0f);
+		// Use standardized light UBO structure (without material properties)
+		ShaderBindingLayout::LightUBO lightData;
 
 		auto lightType = std::to_underlying(light.Type);
-		lightData.LightPosition = glm::vec4(light.Position, 0.0f);
+		lightData.LightPosition = glm::vec4(light.Position, 1.0f);
 		lightData.LightDirection = glm::vec4(light.Direction, 0.0f);
 		lightData.LightAmbient = glm::vec4(light.Ambient, 0.0f);
 		lightData.LightDiffuse = glm::vec4(light.Diffuse, 0.0f);
@@ -153,7 +104,7 @@ namespace OloEngine
 
 		lightData.ViewPosAndLightType = glm::vec4(viewPos, static_cast<f32>(lightType));
 
-		s_Data.LightUBO->SetData(&lightData, sizeof(LightPropertiesData));
+		s_Data.LightUBO->SetData(&lightData, sizeof(ShaderBindingLayout::LightUBO));
 	}
 
 	CommandDispatch::Statistics& CommandDispatch::GetStatistics()
@@ -171,30 +122,29 @@ namespace OloEngine
         s_Data.ViewMatrix = view;
     }
 
-	// UBO update methods that use the shared UBOs
+	// UBO update methods that use the shared UBOs - Updated for standardized binding layout
     void CommandDispatch::UpdateTransformUBO(const glm::mat4& modelMatrix)
+    {
+        // This function is deprecated - use UpdateModelMatrixUBO instead
+        UpdateModelMatrixUBO(modelMatrix);
+    }
+    
+    void CommandDispatch::UpdateModelMatrixUBO(const glm::mat4& modelMatrix)
     {
         OLO_PROFILE_FUNCTION();
         
-        if (!s_Data.TransformUBO)
+        if (!s_Data.ModelMatrixUBO)
         {
-            OLO_CORE_WARN("CommandDispatch::UpdateTransformUBO: TransformUBO not initialized");
+            OLO_CORE_WARN("CommandDispatch::UpdateModelMatrixUBO: ModelMatrixUBO not initialized");
             return;
         }
         
-        // Using the engine's expected layout for the transform UBO
-        struct alignas(16) TransformData
-        {
-            glm::mat4 Model;
-            glm::mat4 ViewProjection;
-        };
+        // Use standardized model UBO structure
+        ShaderBindingLayout::ModelUBO modelData;
+        modelData.Model = modelMatrix;
+        modelData.Normal = glm::transpose(glm::inverse(modelMatrix));  // Pre-calculate normal matrix
         
-        TransformData data{
-            modelMatrix,
-            s_Data.ViewProjectionMatrix
-        };
-        
-        s_Data.TransformUBO->SetData(&data, sizeof(TransformData));
+        s_Data.ModelMatrixUBO->SetData(&modelData, sizeof(ShaderBindingLayout::ModelUBO));
     }
     
     void CommandDispatch::UpdateMaterialUBO(const glm::vec3& ambient, const glm::vec3& diffuse, const glm::vec3& specular, f32 shininess)
@@ -207,38 +157,38 @@ namespace OloEngine
             return;
         }
         
-        struct alignas(16) MaterialData
+        // Use standardized material UBO structure
+        ShaderBindingLayout::MaterialUBO materialData;
+        materialData.Ambient = glm::vec4(ambient, 1.0f);
+        materialData.Diffuse = glm::vec4(diffuse, 1.0f);
+        materialData.Specular = glm::vec4(specular, shininess);  // shininess in w component
+        materialData.Emissive = glm::vec4(0.0f);  // Default emissive
+        materialData.UseTextureMaps = 0;  // Will be set by UpdateMaterialTextureFlag
+        materialData._padding[0] = materialData._padding[1] = materialData._padding[2] = 0;
+        
+        s_Data.MaterialUBO->SetData(&materialData, sizeof(ShaderBindingLayout::MaterialUBO));
+    }
+    
+    void CommandDispatch::UpdateMaterialTextureFlag(bool useTextures)
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        if (!s_Data.MaterialUBO)
         {
-            glm::vec4 Ambient;    // vec3 aligned to vec4
-            glm::vec4 Diffuse;    // vec3 aligned to vec4
-            glm::vec4 Specular;   // vec3 aligned to vec4
-            float Shininess;
-            float _pad[3];        // Padding for alignment
-        };
+            OLO_CORE_WARN("CommandDispatch::UpdateMaterialTextureFlag: MaterialUBO not initialized");
+            return;
+        }
         
-        MaterialData data{
-            glm::vec4(ambient, 1.0f),
-            glm::vec4(diffuse, 1.0f),
-            glm::vec4(specular, 1.0f),
-            shininess,
-            {0.0f, 0.0f, 0.0f}
-        };
-        
-        s_Data.MaterialUBO->SetData(&data, sizeof(MaterialData));
+        // Update only the UseTextureMaps field in the material UBO
+        i32 flag = useTextures ? 1 : 0;
+        size_t offset = offsetof(ShaderBindingLayout::MaterialUBO, UseTextureMaps);
+        s_Data.MaterialUBO->SetData(&flag, sizeof(i32), static_cast<u32>(offset));
     }
     
     void CommandDispatch::UpdateTextureFlag(bool useTextures)
     {
-        OLO_PROFILE_FUNCTION();
-        
-        if (!s_Data.TextureFlagUBO)
-        {
-            OLO_CORE_WARN("CommandDispatch::UpdateTextureFlag: TextureFlagUBO not initialized");
-            return;
-        }
-        
-        int flag = useTextures ? 1 : 0;
-        s_Data.TextureFlagUBO->SetData(&flag, sizeof(int));
+        // Deprecated - use UpdateMaterialTextureFlag instead
+        UpdateMaterialTextureFlag(useTextures);
     }
 
     // Array of dispatch functions indexed by CommandType
@@ -606,22 +556,8 @@ namespace OloEngine
 			s_Data.Stats.ShaderBinds++;
 		}
 		
-		// Update transform UBO first - critical for correct positioning
-		struct TransformMatrices
-		{
-			glm::mat4 ViewProjection;
-			glm::mat4 Model;
-		};
-
-		TransformMatrices matrices;
-		matrices.ViewProjection = s_Data.ViewProjectionMatrix;
-		matrices.Model = cmd->transform;
-		
-		// Update the transform UBO
-		if (s_Data.TransformUBO)
-		{
-			s_Data.TransformUBO->SetData(&matrices, sizeof(TransformMatrices));
-		}
+		// Update UBOs according to standardized binding layout
+		UpdateModelMatrixUBO(cmd->transform);
 		
 		// Update material properties next
 		struct MaterialData
@@ -711,14 +647,14 @@ namespace OloEngine
 		// Efficiently bind textures if needed
 		if (cmd->useTextureMaps)
 		{
+			// Bind textures to standardized binding points (no SetInt needed with layout bindings)
 			if (cmd->diffuseMap)
 			{
 				u32 texID = cmd->diffuseMap->GetRendererID();
-				if (s_Data.BoundTextureIDs[0] != texID)
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] != texID)
 				{
-					cmd->diffuseMap->Bind(0);
-					cmd->shader->SetInt("u_DiffuseMap", 0);  // Explicitly set the uniform
-					s_Data.BoundTextureIDs[0] = texID;
+					cmd->diffuseMap->Bind(ShaderBindingLayout::TEX_DIFFUSE);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = texID;
 					s_Data.Stats.TextureBinds++;
 				}
 			}
@@ -726,12 +662,11 @@ namespace OloEngine
 			if (cmd->specularMap)
 			{
 				u32 texID = cmd->specularMap->GetRendererID();
-				if (s_Data.BoundTextureIDs[1] != texID)
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] != texID)
 				{
-					cmd->specularMap->Bind(1);
-					cmd->shader->SetInt("u_SpecularMap", 1);  // Explicitly set the uniform
-					s_Data.BoundTextureIDs[1] = texID;
-				 s_Data.Stats.TextureBinds++;
+					cmd->specularMap->Bind(ShaderBindingLayout::TEX_SPECULAR);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] = texID;
+					s_Data.Stats.TextureBinds++;
 				}
 			}
 		}
@@ -805,7 +740,7 @@ namespace OloEngine
 		
 		// Update material UBOs
 		UpdateMaterialUBO(cmd->ambient, cmd->diffuse, cmd->specular, cmd->shininess);
-		UpdateTextureFlag(cmd->useTextureMaps);
+		UpdateMaterialTextureFlag(cmd->useTextureMaps);
 		
 		// For instanced rendering, we'll set model matrices as shader uniforms
 		// A proper implementation would use an instance buffer or SSBO for better performance
@@ -829,13 +764,14 @@ namespace OloEngine
 		// Bind textures with state tracking
 		if (cmd->useTextureMaps)
 		{
+			// Bind textures to standardized binding points
 			if (cmd->diffuseMap)
 			{
 				u32 texID = cmd->diffuseMap->GetRendererID();
-				if (s_Data.BoundTextureIDs[0] != texID)
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] != texID)
 				{
-					cmd->diffuseMap->Bind(0);
-					s_Data.BoundTextureIDs[0] = texID;
+					cmd->diffuseMap->Bind(ShaderBindingLayout::TEX_DIFFUSE);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = texID;
 					s_Data.Stats.TextureBinds++;
 				}
 			}
@@ -843,10 +779,10 @@ namespace OloEngine
 			if (cmd->specularMap)
 			{
 				u32 texID = cmd->specularMap->GetRendererID();
-				if (s_Data.BoundTextureIDs[1] != texID)
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] != texID)
 				{
-					cmd->specularMap->Bind(1);
-					s_Data.BoundTextureIDs[1] = texID;
+					cmd->specularMap->Bind(ShaderBindingLayout::TEX_SPECULAR);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] = texID;
 					s_Data.Stats.TextureBinds++;
 				}
 			}
@@ -933,11 +869,8 @@ namespace OloEngine
 			s_Data.TransformUBO->SetData(&cameraMatrices, sizeof(CameraMatrices));
 		}
 		
-		// Update model matrix UBO (binding 6)
-		if (s_Data.ModelMatrixUBO)
-		{
-			s_Data.ModelMatrixUBO->SetData(&cmd->modelMatrix, sizeof(glm::mat4));
-		}
+		// Update model matrix UBO using standardized structure
+		UpdateModelMatrixUBO(cmd->modelMatrix);
 		
 		// Update material properties (same as regular mesh)
 		struct MaterialData
@@ -1145,26 +1078,12 @@ namespace OloEngine
 			s_Data.Stats.ShaderBinds++;
 		}
 		
-		struct TransformMatrices
-		{
-			glm::mat4 ViewProjection;
-			glm::mat4 Model;
-		};
-
-		TransformMatrices matrices;
-		matrices.ViewProjection = s_Data.ViewProjectionMatrix;
-		matrices.Model = cmd->transform;
+		// Update UBOs according to standardized binding layout
+		UpdateModelMatrixUBO(cmd->transform);
 		
-		// Update the transform UBO directly
-		if (s_Data.TransformUBO)
-		{
-			s_Data.TransformUBO->SetData(&matrices, sizeof(TransformMatrices));
-		}
-		
-		// Always bind texture and set uniform, this is critical for quads
-		cmd->texture->Bind(0);
-		cmd->shader->SetInt("u_Texture", 0);
-		s_Data.BoundTextureIDs[0] = cmd->texture->GetRendererID();
+		// Bind texture to standardized binding point (no SetInt needed with layout binding)
+		cmd->texture->Bind(ShaderBindingLayout::TEX_DIFFUSE);
+		s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = cmd->texture->GetRendererID();
 		s_Data.Stats.TextureBinds++;
 		
 		// Make sure the vertex array is bound

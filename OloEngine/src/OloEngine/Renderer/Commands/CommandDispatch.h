@@ -112,8 +112,10 @@ namespace OloEngine
 
 	private:
         static void UpdateTransformUBO(const glm::mat4& modelMatrix);
+        static void UpdateModelMatrixUBO(const glm::mat4& modelMatrix);
         static void UpdateMaterialUBO(const glm::vec3& ambient, const glm::vec3& diffuse, 
                                      const glm::vec3& specular, f32 shininess);
+        static void UpdateMaterialTextureFlag(bool useTextures);
         static void UpdateTextureFlag(bool useTextures);
     };
 }

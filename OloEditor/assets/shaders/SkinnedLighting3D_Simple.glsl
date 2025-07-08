@@ -10,13 +10,17 @@ layout(location = 4) in vec4 a_BoneWeights;
 layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_ViewProjection;
     mat4 u_View;
+    mat4 u_Projection;
+    vec3 u_CameraPosition;
+    float _padding0;
 };
 
-layout(std140, binding = 6) uniform ModelMatrix {
+layout(std140, binding = 3) uniform ModelMatrices {
     mat4 u_Model;
+    mat4 u_Normal;
 };
 
-layout(std140, binding = 5) uniform BoneMatrices {
+layout(std140, binding = 4) uniform AnimationMatrices {
     mat4 u_BoneMatrices[100];
 };
 
@@ -67,28 +71,27 @@ const int POINT_LIGHT = 1;
 const int SPOT_LIGHT = 2;
 
 layout(std140, binding = 1) uniform LightProperties {
-    vec4 u_MaterialAmbient;
-    vec4 u_MaterialDiffuse;
-    vec4 u_MaterialSpecular; // (x,y,z = specular, w = shininess)
-    vec4 u_Padding1;
-
     vec4 u_LightPosition;
     vec4 u_LightDirection;
     vec4 u_LightAmbient;
     vec4 u_LightDiffuse;
     vec4 u_LightSpecular;
-    vec4 u_LightAttParams;    // (x = constant, y = linear, z = quadratic)
-    vec4 u_LightSpotParams;   // (x = cutOff, y = outerCutOff)
-
-    vec4 u_ViewPosAndLightType; // (x,y,z = viewPos, w = lightType)
+    vec4 u_LightAttParams;      // (constant, linear, quadratic, _)
+    vec4 u_LightSpotParams;     // (cutOff, outerCutOff, _, _)
+    vec4 u_ViewPosAndLightType; // (viewPos.xyz, lightType)
 };
 
-layout(std140, binding = 2) uniform TextureFlags {
+layout(std140, binding = 2) uniform MaterialProperties {
+    vec4 u_MaterialAmbient;
+    vec4 u_MaterialDiffuse;
+    vec4 u_MaterialSpecular;
+    vec4 u_MaterialEmissive;
     int u_UseTextureMaps;
+    int _padding[3];
 };
 
-layout(binding = 3) uniform sampler2D u_DiffuseMap;
-layout(binding = 4) uniform sampler2D u_SpecularMap;
+layout(binding = 0) uniform sampler2D u_DiffuseMap;
+layout(binding = 1) uniform sampler2D u_SpecularMap;
 
 vec3 CalculateDirectionalLight();
 vec3 CalculatePointLight();

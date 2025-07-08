@@ -4,8 +4,11 @@
 layout(location = 0) in vec3 a_Position;
 
 layout(std140, binding = 0) uniform CameraMatrices {
-    mat4 u_Projection;
+    mat4 u_ViewProjection;
     mat4 u_View;
+    mat4 u_Projection;
+    vec3 u_CameraPosition;
+    float _padding0;
 };
 
 layout(location = 0) out vec3 v_TexCoords;
@@ -23,7 +26,7 @@ void main()
 layout(location = 0) in vec3 v_TexCoords;
 layout(location = 0) out vec4 FragColor;
 
-layout(binding = 1) uniform samplerCube u_Skybox;
+layout(binding = 9) uniform samplerCube u_Skybox;
 
 void main()
 {

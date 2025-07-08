@@ -112,6 +112,7 @@
 		"OloEngine/Renderer/ShaderResourceRegistry.cpp"
 		"OloEngine/Renderer/ShaderResourceRegistry.h"
 		"OloEngine/Renderer/ShaderResourceTypes.h"
+		"OloEngine/Renderer/ShaderBindingLayout.h"
 		"OloEngine/Renderer/ShaderReflection.cpp"
 		"OloEngine/Renderer/ShaderReflection.h"
 		"OloEngine/Renderer/InflightFrameManager.cpp"

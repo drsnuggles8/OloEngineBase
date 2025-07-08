@@ -5,9 +5,17 @@ layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec3 a_Normal;
 layout(location = 2) in vec2 a_TexCoord;
 
-layout(std140, binding = 0) uniform UniformBufferObject {
+layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_ViewProjection;
+    mat4 u_View;
+    mat4 u_Projection;
+    vec3 u_CameraPosition;
+    float _padding0;
+};
+
+layout(std140, binding = 3) uniform ModelMatrices {
     mat4 u_Model;
+    mat4 u_Normal;
 };
 
 layout(location = 0) out vec3 v_Normal;
@@ -17,7 +25,7 @@ layout(location = 2) out vec2 v_TexCoord;
 void main()
 {
     v_FragPos = vec3(u_Model * vec4(a_Position, 1.0));
-    v_Normal = mat3(transpose(inverse(u_Model))) * a_Normal;
+    v_Normal = mat3(u_Normal) * a_Normal;
     v_TexCoord = a_TexCoord;
     gl_Position = u_ViewProjection * u_Model * vec4(a_Position, 1.0);
 }
@@ -36,11 +44,6 @@ const int POINT_LIGHT = 1;
 const int SPOT_LIGHT = 2;
 
 layout(std140, binding = 1) uniform LightProperties {
-    vec4 u_MaterialAmbient;
-    vec4 u_MaterialDiffuse;
-    vec4 u_MaterialSpecular; // (x,y,z = specular, w = shininess)
-    vec4 u_Padding1;
-
     vec4 u_LightPosition;
     vec4 u_LightDirection;
     vec4 u_LightAmbient;
@@ -48,15 +51,19 @@ layout(std140, binding = 1) uniform LightProperties {
     vec4 u_LightSpecular;
     vec4 u_LightAttParams;    // (x = constant, y = linear, z = quadratic)
     vec4 u_LightSpotParams;   // (x = cutOff, y = outerCutOff)
-
     vec4 u_ViewPosAndLightType; // (xyz = viewPos, w = lightType)
 };
 
 layout(binding = 0) uniform sampler2D u_DiffuseMap;
 layout(binding = 1) uniform sampler2D u_SpecularMap;
 
-layout(binding = 2) uniform UseTextureBlock {
+layout(std140, binding = 2) uniform MaterialProperties {
+    vec4 u_MaterialAmbient;
+    vec4 u_MaterialDiffuse;
+    vec4 u_MaterialSpecular;
+    vec4 u_MaterialEmissive;
     int u_UseTextureMaps;
+    int _padding[3];
 };
 
 vec3 CalcDirectionalLight(vec3 normal, vec3 viewDir, vec3 diffuseColor, vec3 specularColor)

@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/ShaderResourceTypes.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "ShaderReflection.h"
 #include "InflightFrameManager.h"
 
@@ -222,6 +223,32 @@ namespace OloEngine
          * @brief Get all bindings
          */
         const std::unordered_map<std::string, ResourceBinding>& GetBindings() const { return m_Bindings; }
+
+        // Standardized Binding Layout Validation
+        /**
+         * @brief Validate shader binding layout against standards
+         */
+        bool ValidateStandardBindings() const;
+
+        /**
+         * @brief Check if UBO binding matches standard layout
+         */
+        bool IsStandardUBOBinding(u32 binding, const std::string& name) const;
+
+        /**
+         * @brief Check if texture binding matches standard layout
+         */
+        bool IsStandardTextureBinding(u32 binding, const std::string& name) const;
+
+        /**
+         * @brief Get expected UBO name for a binding point
+         */
+        static std::string GetExpectedUBOName(u32 binding);
+
+        /**
+         * @brief Get expected texture name for a binding point
+         */
+        static std::string GetExpectedTextureName(u32 binding);
 
     private:
         Ref<Shader> m_Shader;
