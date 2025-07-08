@@ -384,7 +384,29 @@ namespace OloEngine
                 const u32 binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
 
                 UniformBufferInfo uboInfo;
-                uboInfo.m_Name = resource.name;
+                
+                // Try to get the name from multiple sources
+                std::string name = resource.name;
+                if (name.empty() || name.find("_") == 0)
+                {
+                    // Try to get name from compiler
+                    name = compiler.get_name(resource.id);
+                }
+                if (name.empty() || name.find("_") == 0)
+                {
+                    // Generate a standardized name based on binding point for better debugging
+                    switch (binding)
+                    {
+                        case 0: name = "CameraMatrices"; break;
+                        case 1: name = "LightProperties"; break;
+                        case 2: name = "MaterialProperties"; break;
+                        case 3: name = "ModelMatrices"; break;
+                        case 4: name = "AnimationMatrices"; break;
+                        default: name = "UniformBuffer_" + std::to_string(binding); break;
+                    }
+                }
+                
+                uboInfo.m_Name = name;
                 uboInfo.m_Binding = binding;
                 uboInfo.m_Size = static_cast<u32>(bufferSize);
 

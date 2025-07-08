@@ -22,10 +22,30 @@ namespace OloEngine
             for (const auto& resource : resources.uniform_buffers)
             {
                 const auto& type = compiler.get_type(resource.type_id);
-                const std::string& name = resource.name;
+                
+                // Try to get the name from multiple sources
+                std::string name = resource.name;
+                if (name.empty() || name.find("_") == 0)
+                {
+                    name = compiler.get_name(resource.id);
+                }
                 
                 // Get binding point
                 u32 binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
+                
+                // If still no good name, generate one based on binding
+                if (name.empty() || name.find("_") == 0)
+                {
+                    switch (binding)
+                    {
+                        case 0: name = "CameraMatrices"; break;
+                        case 1: name = "LightProperties"; break;
+                        case 2: name = "MaterialProperties"; break;
+                        case 3: name = "ModelMatrices"; break;
+                        case 4: name = "AnimationMatrices"; break;
+                        default: name = "UniformBuffer_" + std::to_string(binding); break;
+                    }
+                }
                 
                 // Get buffer size
                 u32 bufferSize = static_cast<u32>(compiler.get_declared_struct_size(type));

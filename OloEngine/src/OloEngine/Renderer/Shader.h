@@ -27,6 +27,7 @@ namespace OloEngine
 		[[nodiscard]] virtual u32 GetRendererID() const = 0;
 
 		[[nodiscard("Store this!")]] virtual const std::string& GetName() const = 0;
+		[[nodiscard("Store this!")]] virtual const std::string& GetFilePath() const = 0;
 
 		virtual void Reload() = 0;
 

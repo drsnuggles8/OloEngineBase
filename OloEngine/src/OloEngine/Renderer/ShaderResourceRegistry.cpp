@@ -6,6 +6,8 @@
 #include "OloEngine/Core/Log.h"
 
 #include <spirv_cross/spirv_cross.hpp>
+#include <regex>
+#include <fstream>
 
 namespace OloEngine
 {
@@ -45,8 +47,10 @@ namespace OloEngine
         OLO_CORE_TRACE("ShaderResourceRegistry: Shutdown complete");
     }
 
-    void ShaderResourceRegistry::DiscoverResources([[maybe_unused]] u32 stage, const std::vector<u32>& spirvData)
+    void ShaderResourceRegistry::DiscoverResources(u32 stage, const std::vector<u32>& spirvData, const std::string& filePath)
     {
+        OLO_CORE_WARN("ShaderResourceRegistry: DiscoverResources called for stage {}", stage);
+        
         try
         {
             spirv_cross::Compiler compiler(spirvData);
@@ -60,15 +64,50 @@ namespace OloEngine
                 u32 bufferSize = static_cast<u32>(compiler.get_declared_struct_size(type));
 
                 ResourceBinding resourceBinding;
-                resourceBinding.Name = resource.name;
+                
+                // Try to get the name from multiple sources
+                std::string name = resource.name;
+                if (name.empty())
+                {
+                    name = compiler.get_name(resource.id);
+                }
+                
+                // Debug: Show what we got from SPIR-V reflection
+                OLO_CORE_TRACE("ShaderResourceRegistry: SPIR-V reflection for binding {}: resource.name='{}', compiler.get_name(id)='{}'", 
+                              binding, resource.name, name);
+                
+                // If we have a SPIR-V generated name (starts with underscore + numbers), 
+                // try to get the real name from GLSL source
+                if (name.empty() || (name.find("_") == 0 && name.length() > 1 && std::isdigit(name[1])))
+                {
+                    std::string glslName = ParseUBONameFromGLSL(binding, filePath);
+                    if (!glslName.empty())
+                    {
+                        if (!name.empty())
+                        {
+                            OLO_CORE_TRACE("ShaderResourceRegistry: Replaced SPIR-V name '{}' with GLSL name '{}' at binding {}", 
+                                          name, glslName, binding);
+                        }
+                        name = glslName;
+                    }
+                }
+                
+                // Final fallback - generate a descriptive name for internal tracking
+                if (name.empty())
+                {
+                    name = "ubo_binding_" + std::to_string(binding);
+                    OLO_CORE_WARN("ShaderResourceRegistry: No name found for UBO at binding {}, using fallback '{}'", binding, name);
+                }
+                
+                resourceBinding.Name = name;
                 resourceBinding.BindingPoint = binding;
                 resourceBinding.Type = ShaderResourceType::UniformBuffer;
                 resourceBinding.Size = bufferSize;
 
-                m_Bindings[resource.name] = resourceBinding;
+                m_Bindings[name] = resourceBinding;
                 
                 OLO_CORE_TRACE("ShaderResourceRegistry: Discovered uniform buffer '{0}' at binding {1}", 
-                              resource.name, binding);
+                              name, binding);
             }
 
             // Discover textures/samplers
@@ -85,10 +124,28 @@ namespace OloEngine
                 {
                     name = compiler.get_name(resource.id);
                 }
+                
+                // If we have a SPIR-V generated name (starts with underscore + numbers), 
+                // try to get the real name from GLSL source
+                if (name.empty() || (name.find("_") == 0 && name.length() > 1 && std::isdigit(name[1])))
+                {
+                    std::string glslName = ParseTextureNameFromGLSL(binding, filePath);
+                    if (!glslName.empty())
+                    {
+                        if (!name.empty())
+                        {
+                            OLO_CORE_TRACE("ShaderResourceRegistry: Replaced SPIR-V texture name '{}' with GLSL name '{}' at binding {}", 
+                                          name, glslName, binding);
+                        }
+                        name = glslName;
+                    }
+                }
+                
+                // Final fallback - generate a descriptive name for internal tracking
                 if (name.empty())
                 {
-                    // Generate a fallback name based on binding point
                     name = "texture_binding_" + std::to_string(binding);
+                    OLO_CORE_WARN("ShaderResourceRegistry: No name found for texture at binding {}, using fallback '{}'", binding, name);
                 }
                 
                 resourceBinding.Name = name;
@@ -415,8 +472,8 @@ namespace OloEngine
             {
                 if (!IsStandardUBOBinding(binding.BindingPoint, name))
                 {
-                    OLO_CORE_WARN("Non-standard UBO binding: '{}' at binding {} (expected: '{}')", 
-                                  name, binding.BindingPoint, GetExpectedUBOName(binding.BindingPoint));
+                    OLO_CORE_WARN("Non-standard UBO binding: '{}' at binding {}", 
+                                  name, binding.BindingPoint);
                     isValid = false;
                 }
             }
@@ -425,8 +482,8 @@ namespace OloEngine
             {
                 if (!IsStandardTextureBinding(binding.BindingPoint, name))
                 {
-                    OLO_CORE_WARN("Non-standard texture binding: '{}' at binding {} (expected: '{}')", 
-                                  name, binding.BindingPoint, GetExpectedTextureName(binding.BindingPoint));
+                    OLO_CORE_WARN("Non-standard texture binding: '{}' at binding {}", 
+                                  name, binding.BindingPoint);
                     isValid = false;
                 }
             }
@@ -437,26 +494,40 @@ namespace OloEngine
 
     bool ShaderResourceRegistry::IsStandardUBOBinding(u32 binding, const std::string& name) const
     {
+        // If the name starts with underscore and numbers, it's likely a SPIR-V generated name
+        // In this case, we only check the binding point
+        if (name.find("_") == 0 && name.length() > 1 && std::isdigit(name[1]))
+        {
+            // SPIR-V generated name - validate only by binding point
+            return binding <= ShaderBindingLayout::UBO_USER_2; // Valid binding range
+        }
+        
+        // Check if this is one of our standardized names
         switch (binding)
         {
             case ShaderBindingLayout::UBO_CAMERA:
-                return name.find("Camera") != std::string::npos || 
+                return name == "CameraMatrices" ||
+                       name.find("Camera") != std::string::npos || 
                        name.find("camera") != std::string::npos;
                        
             case ShaderBindingLayout::UBO_LIGHTS:
-                return name.find("Light") != std::string::npos || 
+                return name == "LightProperties" ||
+                       name.find("Light") != std::string::npos || 
                        name.find("light") != std::string::npos;
                        
             case ShaderBindingLayout::UBO_MATERIAL:
-                return name.find("Material") != std::string::npos || 
+                return name == "MaterialProperties" ||
+                       name.find("Material") != std::string::npos || 
                        name.find("material") != std::string::npos;
                        
             case ShaderBindingLayout::UBO_MODEL:
-                return name.find("Model") != std::string::npos || 
+                return name == "ModelMatrices" ||
+                       name.find("Model") != std::string::npos || 
                        name.find("model") != std::string::npos;
                        
             case ShaderBindingLayout::UBO_ANIMATION:
-                return name.find("Animation") != std::string::npos || 
+                return name == "AnimationMatrices" ||
+                       name.find("Animation") != std::string::npos || 
                        name.find("animation") != std::string::npos ||
                        name.find("Bone") != std::string::npos ||
                        name.find("bone") != std::string::npos;
@@ -469,24 +540,55 @@ namespace OloEngine
 
     bool ShaderResourceRegistry::IsStandardTextureBinding(u32 binding, const std::string& name) const
     {
+        // If the name starts with "texture_binding_", it's our fallback name - validate only by binding
+        if (name.find("texture_binding_") == 0)
+        {
+            return binding <= ShaderBindingLayout::TEX_USER_3; // Valid binding range
+        }
+        
+        // Special case for 2D renderer texture arrays
+        if (binding == ShaderBindingLayout::TEX_DIFFUSE && 
+            (name == "u_Textures" || name.find("Textures") != std::string::npos))
+        {
+            return true;
+        }
+        
+        // Check if this is one of our standardized names first
         switch (binding)
         {
             case ShaderBindingLayout::TEX_DIFFUSE:
-                return name.find("diffuse") != std::string::npos || 
+                return name == "u_DiffuseMap" ||
+                       name.find("diffuse") != std::string::npos || 
                        name.find("Diffuse") != std::string::npos ||
                        name.find("albedo") != std::string::npos ||
                        name.find("Albedo") != std::string::npos ||
-                       name == "texture_binding_0";
+                       name == "u_Texture";  // Common generic texture name
                        
             case ShaderBindingLayout::TEX_SPECULAR:
-                return name.find("specular") != std::string::npos || 
-                       name.find("Specular") != std::string::npos ||
-                       name == "texture_binding_1";
+                return name == "u_SpecularMap" ||
+                       name.find("specular") != std::string::npos || 
+                       name.find("Specular") != std::string::npos;
                        
             case ShaderBindingLayout::TEX_NORMAL:
-                return name.find("normal") != std::string::npos || 
-                       name.find("Normal") != std::string::npos ||
-                       name == "texture_binding_2";
+                return name == "u_NormalMap" ||
+                       name.find("normal") != std::string::npos || 
+                       name.find("Normal") != std::string::npos;
+                       
+            case ShaderBindingLayout::TEX_ENVIRONMENT:
+                return name == "u_EnvironmentMap" ||
+                       name.find("Skybox") != std::string::npos ||
+                       name.find("skybox") != std::string::npos ||
+                       name.find("Environment") != std::string::npos ||
+                       name.find("environment") != std::string::npos ||
+                       name.find("Cubemap") != std::string::npos ||
+                       name == "u_Skybox";
+                       
+            case ShaderBindingLayout::TEX_SHADOW:
+                return name == "u_ShadowMap" ||
+                       name.find("Shadow") != std::string::npos ||
+                       name.find("shadow") != std::string::npos ||
+                       name.find("FontAtlas") != std::string::npos ||
+                       name.find("font") != std::string::npos;
                        
             default:
                 // User-defined texture bindings (10+) are always valid
@@ -494,37 +596,177 @@ namespace OloEngine
         }
     }
 
-    std::string ShaderResourceRegistry::GetExpectedUBOName(u32 binding)
+    // GLSL source parsing fallbacks
+    std::string ShaderResourceRegistry::ParseUBONameFromGLSL(u32 binding) const
     {
-        switch (binding)
+        if (!m_Shader)
         {
-            case ShaderBindingLayout::UBO_CAMERA:    return "CameraMatrices";
-            case ShaderBindingLayout::UBO_LIGHTS:    return "LightProperties";
-            case ShaderBindingLayout::UBO_MATERIAL:  return "MaterialProperties";
-            case ShaderBindingLayout::UBO_MODEL:     return "ModelMatrices";
-            case ShaderBindingLayout::UBO_ANIMATION: return "AnimationMatrices";
-            case ShaderBindingLayout::UBO_USER_0:    return "UserUBO0";
-            case ShaderBindingLayout::UBO_USER_1:    return "UserUBO1";
-            case ShaderBindingLayout::UBO_USER_2:    return "UserUBO2";
-            default: return "UnknownUBO";
+            OLO_CORE_TRACE("ShaderResourceRegistry: No shader available for UBO binding {}", binding);
+            return "";
         }
+
+        // Try to get the original GLSL source from the shader
+        // This would need to be implemented in the Shader class to expose the source
+        // For now, we'll try to read from the file path if available
+        std::string shaderPath = m_Shader->GetFilePath();
+        if (shaderPath.empty())
+        {
+            OLO_CORE_TRACE("ShaderResourceRegistry: ParseUBONameFromGLSL - No shader path available");
+            return "";
+        }
+
+        OLO_CORE_TRACE("ShaderResourceRegistry: ParseUBONameFromGLSL - Trying to read from path: '{}'", shaderPath);
+
+        try
+        {
+            std::ifstream file(shaderPath);
+            if (!file.is_open())
+            {
+                OLO_CORE_TRACE("ShaderResourceRegistry: ParseUBONameFromGLSL - Failed to open file: '{}'", shaderPath);
+                return "";
+            }
+
+            std::string line;
+            std::regex uboRegex(R"(layout\s*\(\s*std140\s*,\s*binding\s*=\s*)" + std::to_string(binding) + R"(\s*\)\s*uniform\s+(\w+))");
+            std::smatch match;
+
+            OLO_CORE_TRACE("ShaderResourceRegistry: ParseUBONameFromGLSL - Looking for binding {} with regex", binding);
+
+            while (std::getline(file, line))
+            {
+                if (std::regex_search(line, match, uboRegex) && match.size() > 1)
+                {
+                    OLO_CORE_TRACE("ShaderResourceRegistry: ParseUBONameFromGLSL - Found match: '{}'", match[1].str());
+                    return match[1].str(); // Return the UBO name
+                }
+            }
+            
+            OLO_CORE_TRACE("ShaderResourceRegistry: ParseUBONameFromGLSL - No matching UBO found for binding {}", binding);
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_WARN("ShaderResourceRegistry: Failed to parse GLSL source for UBO at binding {}: {}", binding, e.what());
+        }
+
+        return "";
     }
 
-    std::string ShaderResourceRegistry::GetExpectedTextureName(u32 binding)
+    std::string ShaderResourceRegistry::ParseTextureNameFromGLSL(u32 binding) const
     {
-        switch (binding)
+        if (!m_Shader)
+            return "";
+
+        std::string shaderPath = m_Shader->GetFilePath();
+        if (shaderPath.empty())
+            return "";
+
+        try
         {
-            case ShaderBindingLayout::TEX_DIFFUSE:     return "u_DiffuseMap";
-            case ShaderBindingLayout::TEX_SPECULAR:    return "u_SpecularMap";
-            case ShaderBindingLayout::TEX_NORMAL:      return "u_NormalMap";
-            case ShaderBindingLayout::TEX_HEIGHT:      return "u_HeightMap";
-            case ShaderBindingLayout::TEX_AMBIENT:     return "u_AmbientMap";
-            case ShaderBindingLayout::TEX_EMISSIVE:    return "u_EmissiveMap";
-            case ShaderBindingLayout::TEX_ROUGHNESS:   return "u_RoughnessMap";
-            case ShaderBindingLayout::TEX_METALLIC:    return "u_MetallicMap";
-            case ShaderBindingLayout::TEX_SHADOW:      return "u_ShadowMap";
-            case ShaderBindingLayout::TEX_ENVIRONMENT: return "u_EnvironmentMap";
-            default: return "u_UserTexture" + std::to_string(binding);
+            std::ifstream file(shaderPath);
+            if (!file.is_open())
+                return "";
+
+            std::string line;
+            std::regex textureRegex(R"(layout\s*\(\s*binding\s*=\s*)" + std::to_string(binding) + R"(\s*\)\s*uniform\s+sampler\w+\s+(\w+))");
+            std::smatch match;
+
+            while (std::getline(file, line))
+            {
+                if (std::regex_search(line, match, textureRegex) && match.size() > 1)
+                {
+                    return match[1].str(); // Return the texture name
+                }
+            }
         }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_WARN("ShaderResourceRegistry: Failed to parse GLSL source for texture at binding {}: {}", binding, e.what());
+        }
+
+        return "";
+    }
+
+    std::string ShaderResourceRegistry::ParseUBONameFromGLSL(u32 binding, const std::string& filePath) const
+    {
+        if (filePath.empty())
+        {
+            OLO_CORE_TRACE("ShaderResourceRegistry: No file path provided for UBO binding {}", binding);
+            return "";
+        }
+
+        OLO_CORE_TRACE("ShaderResourceRegistry: Parsing GLSL file for UBO at binding {}: '{}'", binding, filePath);
+
+        try
+        {
+            std::ifstream file(filePath);
+            if (!file.is_open())
+            {
+                OLO_CORE_TRACE("ShaderResourceRegistry: Failed to open file: '{}'", filePath);
+                return "";
+            }
+
+            std::string line;
+            std::regex uboRegex(R"(layout\s*\(\s*std140\s*,\s*binding\s*=\s*)" + std::to_string(binding) + R"(\s*\)\s*uniform\s+(\w+))");
+            std::smatch match;
+
+            OLO_CORE_TRACE("ShaderResourceRegistry: Looking for UBO at binding {}", binding);
+
+            while (std::getline(file, line))
+            {
+                if (std::regex_search(line, match, uboRegex) && match.size() > 1)
+                {
+                    OLO_CORE_TRACE("ShaderResourceRegistry: Found UBO name '{}' at binding {}", match[1].str(), binding);
+                    return match[1].str(); // Return the UBO name
+                }
+            }
+            
+            OLO_CORE_TRACE("ShaderResourceRegistry: No matching UBO found for binding {}", binding);
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_WARN("ShaderResourceRegistry: Failed to parse GLSL source for UBO at binding {}: {}", binding, e.what());
+        }
+
+        return "";
+    }
+
+    std::string ShaderResourceRegistry::ParseTextureNameFromGLSL(u32 binding, const std::string& filePath) const
+    {
+        if (filePath.empty())
+        {
+            OLO_CORE_TRACE("ShaderResourceRegistry: No file path provided for texture binding {}", binding);
+            return "";
+        }
+
+        try
+        {
+            std::ifstream file(filePath);
+            if (!file.is_open())
+            {
+                OLO_CORE_TRACE("ShaderResourceRegistry: Failed to open file: '{}'", filePath);
+                return "";
+            }
+
+            std::string line;
+            std::regex textureRegex(R"(layout\s*\(\s*binding\s*=\s*)" + std::to_string(binding) + R"(\s*\)\s*uniform\s+sampler\w+\s+(\w+)\s*;)");
+            std::smatch match;
+
+            while (std::getline(file, line))
+            {
+                if (std::regex_search(line, match, textureRegex) && match.size() > 1)
+                {
+                    OLO_CORE_TRACE("ShaderResourceRegistry: Found texture name '{}' at binding {}", match[1].str(), binding);
+                    return match[1].str();
+                }
+            }
+            
+            OLO_CORE_TRACE("ShaderResourceRegistry: No matching texture found for binding {}", binding);
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_WARN("ShaderResourceRegistry: Failed to parse GLSL source for texture at binding {}: {}", binding, e.what());
+        }
+
+        return "";
     }
 }

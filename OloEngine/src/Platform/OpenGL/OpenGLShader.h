@@ -26,6 +26,7 @@ namespace OloEngine
 
 		[[nodiscard]] u32 GetRendererID() const override { return m_RendererID; }
 		[[nodiscard ("Store this!")]] const std::string& GetName() const override { return m_Name; }
+		[[nodiscard ("Store this!")]] const std::string& GetFilePath() const override { return m_FilePath; }
 
 		void Reload() override;
 

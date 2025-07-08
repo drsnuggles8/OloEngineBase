@@ -97,7 +97,7 @@ namespace OloEngine
         /**
          * @brief Discover resources from SPIR-V reflection data
          */
-        void DiscoverResources(u32 stage, const std::vector<u32>& spirvData);
+        void DiscoverResources(u32 stage, const std::vector<u32>& spirvData, const std::string& filePath = "");
 
         /**
          * @brief Register all resources from reflection data
@@ -240,16 +240,6 @@ namespace OloEngine
          */
         bool IsStandardTextureBinding(u32 binding, const std::string& name) const;
 
-        /**
-         * @brief Get expected UBO name for a binding point
-         */
-        static std::string GetExpectedUBOName(u32 binding);
-
-        /**
-         * @brief Get expected texture name for a binding point
-         */
-        static std::string GetExpectedTextureName(u32 binding);
-
     private:
         Ref<Shader> m_Shader;
         std::unordered_map<std::string, ResourceBinding> m_Bindings;
@@ -260,5 +250,11 @@ namespace OloEngine
         // Helper methods
         void BindUniformBuffer(const ResourceBinding& binding);
         void BindTexture(const ResourceBinding& binding);
+        
+        // GLSL source parsing fallbacks
+        std::string ParseUBONameFromGLSL(u32 binding) const;
+        std::string ParseUBONameFromGLSL(u32 binding, const std::string& filePath) const;
+        std::string ParseTextureNameFromGLSL(u32 binding) const;
+        std::string ParseTextureNameFromGLSL(u32 binding, const std::string& filePath) const;
     };
 }

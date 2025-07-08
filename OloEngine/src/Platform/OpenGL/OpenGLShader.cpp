@@ -194,7 +194,7 @@ namespace OloEngine
 			CreateProgram();
 		}
 		const f64 compilationTime = timer.ElapsedMillis();
-		OLO_CORE_WARN("Shader creation took {0} ms", compilationTime);
+		OLO_CORE_INFO("Shader creation took {0} ms", compilationTime);
 
 		// Register with shader debugger and report compilation
 		OLO_SHADER_COMPILATION_END(m_RendererID, m_RendererID != 0, "", compilationTime);
@@ -248,6 +248,7 @@ namespace OloEngine
 
 	void OpenGLShader::InitializeResourceRegistry(const Ref<Shader>& shaderRef)
 	{
+		OLO_CORE_WARN("OpenGLShader: InitializeResourceRegistry called for shader '{0}'", m_Name);
 		m_ResourceRegistry.SetShader(shaderRef);
 		m_ResourceRegistry.Initialize();
 		OLO_CORE_TRACE("OpenGLShader: Initialized resource registry for shader '{0}'", m_Name);
@@ -317,6 +318,9 @@ namespace OloEngine
 		const shaderc::Compiler compiler;
 		shaderc::CompileOptions options;
 		options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_2);
+		options.SetPreserveBindings(true);  // Preserve binding information
+		options.SetAutoBindUniforms(false); // Don't auto-assign bindings
+		options.SetGenerateDebugInfo();     // Generate debug information
 		if (const bool optimize = true)
 		{
 			options.SetOptimizationLevel(shaderc_optimization_level_performance);
@@ -406,6 +410,51 @@ namespace OloEngine
 			else
 			{
 				spirv_cross::CompilerGLSL glslCompiler(spirv);
+				
+				// Configure compiler options to preserve names and bindings
+				spirv_cross::CompilerGLSL::Options options;
+				options.version = 450;
+				options.es = false;
+				options.vulkan_semantics = false;
+				options.separate_shader_objects = false;
+				options.enable_420pack_extension = true;
+				options.emit_uniform_buffer_as_plain_uniforms = false;
+				glslCompiler.set_common_options(options);
+				
+				// Enable interface variable location preservation
+				glslCompiler.require_extension("GL_ARB_separate_shader_objects");
+				
+				// Try to preserve variable names by setting them explicitly
+				auto resources = glslCompiler.get_shader_resources();
+				for (const auto& ubo : resources.uniform_buffers)
+				{
+					// Try to preserve the original name if it exists
+					std::string originalName = ubo.name;
+					if (!originalName.empty() && originalName.find("_") != 0)
+					{
+						glslCompiler.set_name(ubo.id, originalName);
+					}
+				}
+				
+				// Preserve interface variable names (stage inputs/outputs)
+				for (const auto& input : resources.stage_inputs)
+				{
+					std::string originalName = input.name;
+					if (!originalName.empty() && originalName.find("_") != 0)
+					{
+						glslCompiler.set_name(input.id, originalName);
+					}
+				}
+				
+				for (const auto& output : resources.stage_outputs)
+				{
+					std::string originalName = output.name;
+					if (!originalName.empty() && originalName.find("_") != 0)
+					{
+						glslCompiler.set_name(output.id, originalName);
+					}
+				}
+				
 				m_OpenGLSourceCode[stage] = glslCompiler.compile();
 				auto const& source = m_OpenGLSourceCode[stage];
 
@@ -656,6 +705,28 @@ namespace OloEngine
 		for (auto&& [stage, spirv] : m_VulkanSPIRV)
 		{
 			spirv_cross::CompilerGLSL glslCompiler(spirv);
+			
+			// Configure compiler options to preserve names and bindings
+			spirv_cross::CompilerGLSL::Options options;
+			options.version = 450;
+			options.es = false;
+			options.vulkan_semantics = false;
+			options.separate_shader_objects = false;
+			options.enable_420pack_extension = true;
+			glslCompiler.set_common_options(options);
+			
+			// Try to preserve variable names by setting them explicitly
+			auto resources = glslCompiler.get_shader_resources();
+			for (const auto& ubo : resources.uniform_buffers)
+			{
+				// Try to preserve the original name if it exists
+				std::string originalName = ubo.name;
+				if (!originalName.empty() && originalName.find("_") != 0)
+				{
+					glslCompiler.set_name(ubo.id, originalName);
+				}
+			}
+			
 			const auto source = glslCompiler.compile();
 
 			u32 shader = glCreateShader(stage);
@@ -694,7 +765,7 @@ namespace OloEngine
 		OLO_CORE_TRACE("    {0} resources", resources.sampled_images.size());
 
 		// Integrate with the resource registry for automatic resource discovery
-		m_ResourceRegistry.DiscoverResources(stage, shaderData);
+		m_ResourceRegistry.DiscoverResources(stage, shaderData, m_FilePath);
 
 		// Keep existing debug logging for compatibility
 		OLO_CORE_TRACE("Uniform buffers:");
