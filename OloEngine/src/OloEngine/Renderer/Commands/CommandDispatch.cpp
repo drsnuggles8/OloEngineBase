@@ -10,6 +10,8 @@
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include "OloEngine/Renderer/Light.h"
 
+#include <glad/gl.h>
+
 namespace OloEngine
 {	struct CommandDispatchData
 	{
@@ -149,6 +151,8 @@ namespace OloEngine
         static_assert(sizeof(ShaderBindingLayout::ModelUBO) == expectedSize, "ModelUBO size mismatch");
         
         s_Data.ModelMatrixUBO->SetData(&modelData, expectedSize);
+        // Ensure UBO is bound to the correct OpenGL binding point (binding=3 for model)
+        glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
     }
     
     void CommandDispatch::UpdateMaterialUBO(const glm::vec3& ambient, const glm::vec3& diffuse, const glm::vec3& specular, f32 shininess)
@@ -564,12 +568,37 @@ namespace OloEngine
 		
 		if (u32 shaderID = cmd->shader->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
 		{
+			OLO_CORE_INFO("DrawMesh - Binding shader with ID: {}", shaderID);
 			cmd->shader->Bind();
 			s_Data.CurrentBoundShaderID = shaderID;
 			s_Data.Stats.ShaderBinds++;
 		}
+		else
+		{
+			OLO_CORE_INFO("DrawMesh - Shader already bound (ID: {})", shaderID);
+		}
 		
 		// Update UBOs according to standardized binding layout
+		
+		// First, update camera matrices UBO (binding=0)
+		ShaderBindingLayout::CameraUBO cameraData;
+		cameraData.ViewProjection = s_Data.ViewProjectionMatrix;
+		cameraData.View = s_Data.ViewMatrix;
+		// Calculate projection matrix from ViewProjection and View: Projection = ViewProjection * inverse(View)
+		cameraData.Projection = s_Data.ViewProjectionMatrix * glm::inverse(s_Data.ViewMatrix);
+		cameraData.Position = s_Data.ViewPos; // Add camera position
+		cameraData._padding0 = 0.0f; // Initialize padding
+		
+		// Use CameraUBO (binding 0) for regular meshes - camera data goes to binding=0
+		if (s_Data.CameraUBO)
+		{
+			constexpr u32 expectedSize = ShaderBindingLayout::CameraUBO::GetSize();
+			static_assert(sizeof(ShaderBindingLayout::CameraUBO) == expectedSize, "CameraUBO size mismatch in DrawMesh");
+			s_Data.CameraUBO->SetData(&cameraData, expectedSize);
+			// Ensure UBO is bound to the correct OpenGL binding point (binding=0 for camera)
+			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
+		}
+		
 		UpdateModelMatrixUBO(cmd->transform);
 		
 		// Update material properties next
@@ -593,6 +622,8 @@ namespace OloEngine
 		if (s_Data.MaterialUBO)
 		{
 			s_Data.MaterialUBO->SetData(&materialData, sizeof(MaterialData));
+			// Ensure UBO is bound to the correct OpenGL binding point (binding=2 for material)
+			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
 		}
 		
 		// Update texture flag
@@ -625,6 +656,8 @@ namespace OloEngine
 			constexpr u32 expectedSize = ShaderBindingLayout::LightUBO::GetSize();
 			static_assert(sizeof(ShaderBindingLayout::LightUBO) == expectedSize, "LightUBO size mismatch");
 			s_Data.LightUBO->SetData(&lightData, expectedSize);
+			// Ensure UBO is bound to the correct OpenGL binding point (binding=1 for lights)
+			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
 		}
 		
 		// Efficiently bind textures if needed
@@ -669,6 +702,9 @@ namespace OloEngine
 		
 		// Issue the actual draw call
 		api.DrawIndexed(cmd->vertexArray, indexCount);
+		
+		// DEBUG: Log completion
+		OLO_CORE_INFO("DrawMesh - GPU DrawIndexed call completed");
 	}
     
     void CommandDispatch::DrawMeshInstanced(const void* data, RendererAPI& api)
@@ -852,6 +888,8 @@ namespace OloEngine
 			constexpr u32 expectedSize = ShaderBindingLayout::CameraUBO::GetSize();
 			static_assert(sizeof(ShaderBindingLayout::CameraUBO) == expectedSize, "CameraUBO size mismatch in DrawSkinnedMesh");
 			s_Data.TransformUBO->SetData(&cameraData, expectedSize);
+			// Ensure UBO is bound to the correct OpenGL binding point (binding=0 for camera)
+			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_CAMERA, s_Data.TransformUBO->GetRendererID());
 		}
 		
 		// Update model matrix UBO using standardized structure
@@ -878,6 +916,8 @@ namespace OloEngine
 		if (s_Data.MaterialUBO)
 		{
 			s_Data.MaterialUBO->SetData(&materialData, sizeof(MaterialData));
+			// Ensure UBO is bound to the correct OpenGL binding point (binding=2 for material)
+			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
 		}
 		
 		// Update texture flag
@@ -896,6 +936,8 @@ namespace OloEngine
 			
 			// Upload bone matrices to GPU
 			s_Data.BoneMatricesUBO->SetData(cmd->boneMatrices.data(), boneCount * sizeof(glm::mat4));
+			// Ensure UBO is bound to the correct OpenGL binding point (binding=4 for animation)
+			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_ANIMATION, s_Data.BoneMatricesUBO->GetRendererID());
 		}
 		
 		// Update light properties (same pattern as regular mesh)
@@ -928,6 +970,8 @@ namespace OloEngine
 			constexpr u32 expectedSize = ShaderBindingLayout::LightUBO::GetSize();
 			static_assert(sizeof(ShaderBindingLayout::LightUBO) == expectedSize, "LightUBO size mismatch in DrawSkinnedMesh");
 			s_Data.LightUBO->SetData(&lightData, expectedSize);
+			// Ensure UBO is bound to the correct OpenGL binding point (binding=1 for lights)
+			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
 		}
 		
 		// Bind textures for skinned mesh (using correct binding points)

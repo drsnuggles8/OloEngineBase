@@ -52,23 +52,16 @@ namespace OloEngine
 		s_Data.QuadShader = m_ShaderLibrary.Get("Renderer3D_Quad");
 		
 		// Create all necessary UBOs following standardized binding layout
-		s_Data.TransformUBO = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);  // CameraMatrices
-		s_Data.LightPropertiesUBO = UniformBuffer::Create(ShaderBindingLayout::LightUBO::GetSize(), ShaderBindingLayout::UBO_LIGHTS); // LightProperties
-		s_Data.MaterialUBO = UniformBuffer::Create(ShaderBindingLayout::MaterialUBO::GetSize(), ShaderBindingLayout::UBO_MATERIAL); // Material properties
-		s_Data.ModelMatrixUBO = UniformBuffer::Create(ShaderBindingLayout::ModelUBO::GetSize(), ShaderBindingLayout::UBO_MODEL); // Model matrices (model + normal)
-		s_Data.BoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION); // BoneMatrices
+		s_Data.TransformUBO = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+		s_Data.LightPropertiesUBO = UniformBuffer::Create(ShaderBindingLayout::LightUBO::GetSize(), ShaderBindingLayout::UBO_LIGHTS);
+		s_Data.MaterialUBO = UniformBuffer::Create(ShaderBindingLayout::MaterialUBO::GetSize(), ShaderBindingLayout::UBO_MATERIAL);
+		s_Data.ModelMatrixUBO = UniformBuffer::Create(ShaderBindingLayout::ModelUBO::GetSize(), ShaderBindingLayout::UBO_MODEL);
+		s_Data.BoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION);
 		
 		// Legacy UBOs for compatibility (will be phased out)
 		s_Data.TextureFlagUBO = UniformBuffer::Create(sizeof(int), 2);          // TextureFlags (temporary until material UBO is fully used)
 		s_Data.CameraMatricesBuffer = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), 3); // Legacy camera buffer - now properly sized
 		
-		// Debug: Log calculated UBO sizes to verify they're correct
-		OLO_CORE_INFO("UBO Size Verification:");
-		OLO_CORE_INFO("  CameraUBO: {} bytes (sizeof: {})", ShaderBindingLayout::CameraUBO::GetSize(), sizeof(ShaderBindingLayout::CameraUBO));
-		OLO_CORE_INFO("  LightUBO: {} bytes (sizeof: {})", ShaderBindingLayout::LightUBO::GetSize(), sizeof(ShaderBindingLayout::LightUBO));
-		OLO_CORE_INFO("  MaterialUBO: {} bytes (sizeof: {})", ShaderBindingLayout::MaterialUBO::GetSize(), sizeof(ShaderBindingLayout::MaterialUBO));
-		OLO_CORE_INFO("  ModelUBO: {} bytes (sizeof: {})", ShaderBindingLayout::ModelUBO::GetSize(), sizeof(ShaderBindingLayout::ModelUBO));
-		OLO_CORE_INFO("  AnimationUBO: {} bytes (sizeof: {})", ShaderBindingLayout::AnimationUBO::GetSize(), sizeof(ShaderBindingLayout::AnimationUBO));
 		// Share UBOs with CommandDispatch
 		CommandDispatch::SetSharedUBOs(
 			s_Data.TransformUBO,
@@ -80,11 +73,10 @@ namespace OloEngine
 			s_Data.ModelMatrixUBO
 		);
 		
-		OLO_CORE_INFO("Shared UBOs with CommandDispatch");
 		// Initialize the default light
 		s_Data.SceneLight.Type = LightType::Directional;
 		s_Data.SceneLight.Position = glm::vec3(1.2f, 1.0f, 2.0f);
-		s_Data.SceneLight.Direction = glm::vec3(-0.2f, -1.0f, -0.3f); // Directional light direction
+		s_Data.SceneLight.Direction = glm::vec3(-0.2f, -1.0f, -0.3f);
 		s_Data.SceneLight.Ambient = glm::vec3(0.2f, 0.2f, 0.2f);
 		s_Data.SceneLight.Diffuse = glm::vec3(0.5f, 0.5f, 0.5f);
 		s_Data.SceneLight.Specular = glm::vec3(1.0f, 1.0f, 1.0f);
@@ -99,11 +91,7 @@ namespace OloEngine
 		// Initialize the render graph with command-based render passes
 		Window& window = Application::Get().GetWindow();
 		s_Data.RGraph = CreateRef<RenderGraph>();
-		SetupRenderGraph(window.GetFramebufferWidth(), window.GetFramebufferHeight());
-		
-		// Initialize global resource registry
-		OLO_CORE_INFO("Renderer3D: Initialized global resource registry");
-		
+		SetupRenderGraph(window.GetFramebufferWidth(), window.GetFramebufferHeight());		
 		OLO_CORE_INFO("Renderer3D initialization complete.");
 	}
 
@@ -166,7 +154,6 @@ namespace OloEngine
 		// Explicitly update light properties UBO
 		if (s_Data.LightPropertiesUBO)
 		{
-			// Use a default material for the initial UBO update
 			Material defaultMaterial;
 			
 			// Use standardized light UBO structure
@@ -199,6 +186,7 @@ namespace OloEngine
 			s_Data.LightPropertiesUBO->SetData(&lightData, sizeof(ShaderBindingLayout::LightUBO));
 		}
 	}
+	
 	void Renderer3D::EndScene()
 	{
 		OLO_PROFILE_FUNCTION();
@@ -233,7 +221,6 @@ namespace OloEngine
 		CommandMemoryManager::ReturnAllocator(allocator);
 		s_Data.ScenePass->GetCommandBucket().SetAllocator(nullptr);
 		
-		// End profiler frame tracking
 		profiler.EndFrame();
 	}
 

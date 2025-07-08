@@ -55,7 +55,9 @@ namespace OloEngine
         m_IsInitialized.store(true);
         
         OLO_CORE_INFO("Renderer Memory Tracker initialized");
-    }    void RendererMemoryTracker::Shutdown()
+    }
+	
+	void RendererMemoryTracker::Shutdown()
     {
         OLO_PROFILE_FUNCTION();
         
@@ -63,19 +65,7 @@ namespace OloEngine
         
         std::lock_guard<std::mutex> lock(m_Mutex);
         
-        // Check for memory leaks on shutdown
-        if (!m_Allocations.empty())
-        {
-            OLO_CORE_WARN("Memory leaks detected on shutdown! {0} allocations not freed", m_Allocations.size());
-            
-            for (const auto& [address, info] : m_Allocations)
-            {
-                OLO_CORE_WARN("Leaked: {0} bytes ({1}) at {2}:{3} - {4}", 
-                             info.m_Size, GetResourceTypeName(info.m_Type), 
-                             info.m_File, info.m_Line, info.m_Name);
-            }
-        }
-          m_Allocations.clear();
+        m_Allocations.clear();
         m_TypeUsage.fill(0);
         m_TypeCounts.fill(0);
         
@@ -84,7 +74,8 @@ namespace OloEngine
         
         OLO_CORE_INFO("Renderer Memory Tracker shutdown");
     }
-      void RendererMemoryTracker::Reset()
+    
+	void RendererMemoryTracker::Reset()
     {
         OLO_PROFILE_FUNCTION();
         
