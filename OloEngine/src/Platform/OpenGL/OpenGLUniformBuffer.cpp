@@ -48,6 +48,19 @@ namespace OloEngine
 
 	void OpenGLUniformBuffer::SetData(const UniformData& data)
 	{
+		// Debug logging to check OpenGL call parameters
+		OLO_CORE_INFO("OpenGLUniformBuffer::SetData: rendererID={}, offset={}, size={}, data={}",
+		             m_RendererID, data.offset, data.size, static_cast<const void*>(data.data));
+		
 		glNamedBufferSubData(m_RendererID, data.offset, data.size, data.data);
+		
+		// Check for OpenGL errors immediately after the call
+		GLenum error = glGetError();
+		if (error != GL_NO_ERROR)
+		{
+			OLO_CORE_ERROR("OpenGL error in SetData: 0x{:x} ({})", error, 
+			              error == GL_INVALID_VALUE ? "GL_INVALID_VALUE" :
+			              error == GL_INVALID_OPERATION ? "GL_INVALID_OPERATION" : "OTHER");
+		}
 	}
 }

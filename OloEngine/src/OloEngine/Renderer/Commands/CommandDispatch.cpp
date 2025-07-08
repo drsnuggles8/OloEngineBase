@@ -144,7 +144,11 @@ namespace OloEngine
         modelData.Model = modelMatrix;
         modelData.Normal = glm::transpose(glm::inverse(modelMatrix));  // Pre-calculate normal matrix
         
-        s_Data.ModelMatrixUBO->SetData(&modelData, sizeof(ShaderBindingLayout::ModelUBO));
+        // Verify size matches our calculation
+        constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
+        static_assert(sizeof(ShaderBindingLayout::ModelUBO) == expectedSize, "ModelUBO size mismatch");
+        
+        s_Data.ModelMatrixUBO->SetData(&modelData, expectedSize);
     }
     
     void CommandDispatch::UpdateMaterialUBO(const glm::vec3& ambient, const glm::vec3& diffuse, const glm::vec3& specular, f32 shininess)
@@ -166,7 +170,11 @@ namespace OloEngine
         materialData.UseTextureMaps = 0;  // Will be set by UpdateMaterialTextureFlag
         materialData._padding[0] = materialData._padding[1] = materialData._padding[2] = 0;
         
-        s_Data.MaterialUBO->SetData(&materialData, sizeof(ShaderBindingLayout::MaterialUBO));
+        // Verify size matches our calculation
+        constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
+        static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch");
+        
+        s_Data.MaterialUBO->SetData(&materialData, expectedSize);
     }
     
     void CommandDispatch::UpdateMaterialTextureFlag(bool useTextures)
@@ -181,8 +189,13 @@ namespace OloEngine
         
         // Update only the UseTextureMaps field in the material UBO
         i32 flag = useTextures ? 1 : 0;
-        size_t offset = offsetof(ShaderBindingLayout::MaterialUBO, UseTextureMaps);
-        s_Data.MaterialUBO->SetData(&flag, sizeof(i32), static_cast<u32>(offset));
+        u32 offset = static_cast<u32>(offsetof(ShaderBindingLayout::MaterialUBO, UseTextureMaps));
+        
+        // Debug logging to check values
+        OLO_CORE_INFO("UpdateMaterialTextureFlag: flag={}, offset={}, sizeof(i32)={}, MaterialUBO size={}",
+                     flag, offset, sizeof(i32), s_Data.MaterialUBO->GetSize());
+        
+        s_Data.MaterialUBO->SetData(&flag, sizeof(i32), offset);
     }
     
     void CommandDispatch::UpdateTextureFlag(bool useTextures)
@@ -590,58 +603,28 @@ namespace OloEngine
 		}
 		
 		// Update light properties with the specific material
-		struct LightPropertiesData
-		{
-			glm::vec4 MaterialAmbient;
-			glm::vec4 MaterialDiffuse;
-			glm::vec4 MaterialSpecular;
-			glm::vec4 Padding1;
-
-			glm::vec4 LightPosition;
-			glm::vec4 LightDirection;
-			glm::vec4 LightAmbient;
-			glm::vec4 LightDiffuse;
-			glm::vec4 LightSpecular;
-			glm::vec4 LightAttParams;
-			glm::vec4 LightSpotParams;
-
-			glm::vec4 ViewPosAndLightType;
-		};
-
-		LightPropertiesData lightData;
-
-		lightData.MaterialAmbient = glm::vec4(cmd->ambient, 0.0f);
-		lightData.MaterialDiffuse = glm::vec4(cmd->diffuse, 0.0f);
-		lightData.MaterialSpecular = glm::vec4(cmd->specular, cmd->shininess);
-		lightData.Padding1 = glm::vec4(0.0f);
-
+		// Material properties go to MaterialUBO (already handled above)
+		// Light properties go to LightUBO using standardized structure
 		const Light& light = s_Data.SceneLight;
 		auto lightType = std::to_underlying(light.Type);
-		lightData.LightPosition = glm::vec4(light.Position, 1.0f); // Use 1.0 for w to indicate position
+		
+
+		// Use standardized LightUBO structure (128 bytes) - material properties go to MaterialUBO
+		ShaderBindingLayout::LightUBO lightData;
+		lightData.LightPosition = glm::vec4(light.Position, 1.0f);
 		lightData.LightDirection = glm::vec4(light.Direction, 0.0f);
 		lightData.LightAmbient = glm::vec4(light.Ambient, 0.0f);
 		lightData.LightDiffuse = glm::vec4(light.Diffuse, 0.0f);
 		lightData.LightSpecular = glm::vec4(light.Specular, 0.0f);
-
-		lightData.LightAttParams = glm::vec4(
-			s_Data.SceneLight.Constant,
-			s_Data.SceneLight.Linear,
-			s_Data.SceneLight.Quadratic,
-			0.0f
-		);
-
-		lightData.LightSpotParams = glm::vec4(
-			s_Data.SceneLight.CutOff,
-			s_Data.SceneLight.OuterCutOff,
-			0.0f,
-			0.0f
-		);
-
+		lightData.LightAttParams = glm::vec4(light.Constant, light.Linear, light.Quadratic, 0.0f);
+		lightData.LightSpotParams = glm::vec4(light.CutOff, light.OuterCutOff, 0.0f, 0.0f);
 		lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<f32>(lightType));
 
 		if (s_Data.LightUBO)
 		{
-			s_Data.LightUBO->SetData(&lightData, sizeof(LightPropertiesData));
+			constexpr u32 expectedSize = ShaderBindingLayout::LightUBO::GetSize();
+			static_assert(sizeof(ShaderBindingLayout::LightUBO) == expectedSize, "LightUBO size mismatch");
+			s_Data.LightUBO->SetData(&lightData, expectedSize);
 		}
 		
 		// Efficiently bind textures if needed
@@ -853,20 +836,22 @@ namespace OloEngine
 		}
 		// Update camera matrices UBO (ViewProjection and View at binding 0)
 		// Note: Skinned shader expects binding 0 to have ViewProjection + View, not ViewProjection + Model
-		struct CameraMatrices
-		{
-			glm::mat4 ViewProjection;
-			glm::mat4 View;
-		};
-		CameraMatrices cameraMatrices;
-		cameraMatrices.ViewProjection = s_Data.ViewProjectionMatrix;
-		cameraMatrices.View = s_Data.ViewMatrix;
+		// Use standardized CameraUBO structure to match buffer allocation size
+		ShaderBindingLayout::CameraUBO cameraData;
+		cameraData.ViewProjection = s_Data.ViewProjectionMatrix;
+		cameraData.View = s_Data.ViewMatrix;
+		// Calculate projection matrix from ViewProjection and View: Projection = ViewProjection * inverse(View)
+		cameraData.Projection = s_Data.ViewProjectionMatrix * glm::inverse(s_Data.ViewMatrix);
+		cameraData.Position = s_Data.ViewPos; // Add camera position
+		cameraData._padding0 = 0.0f; // Initialize padding
 		
 		// Use TransformUBO (binding 0) instead of CameraUBO (binding 3) for skinned meshes
 		// This ensures the skinned shader gets the right data at binding 0
 		if (s_Data.TransformUBO)
 		{
-			s_Data.TransformUBO->SetData(&cameraMatrices, sizeof(CameraMatrices));
+			constexpr u32 expectedSize = ShaderBindingLayout::CameraUBO::GetSize();
+			static_assert(sizeof(ShaderBindingLayout::CameraUBO) == expectedSize, "CameraUBO size mismatch in DrawSkinnedMesh");
+			s_Data.TransformUBO->SetData(&cameraData, expectedSize);
 		}
 		
 		// Update model matrix UBO using standardized structure
@@ -914,32 +899,13 @@ namespace OloEngine
 		}
 		
 		// Update light properties (same pattern as regular mesh)
-		struct LightPropertiesData
-		{
-			glm::vec4 MaterialAmbient;
-			glm::vec4 MaterialDiffuse;
-			glm::vec4 MaterialSpecular;
-			glm::vec4 Padding1;
-
-			glm::vec4 LightPosition;
-			glm::vec4 LightDirection;
-			glm::vec4 LightAmbient;
-			glm::vec4 LightDiffuse;
-			glm::vec4 LightSpecular;
-			glm::vec4 LightAttParams;
-			glm::vec4 LightSpotParams;
-
-			glm::vec4 ViewPosAndLightType;
-		};
-
-		LightPropertiesData lightData;
-		lightData.MaterialAmbient = glm::vec4(cmd->ambient, 0.0f);
-		lightData.MaterialDiffuse = glm::vec4(cmd->diffuse, 0.0f);
-		lightData.MaterialSpecular = glm::vec4(cmd->specular, cmd->shininess);
-		lightData.Padding1 = glm::vec4(0.0f);
-
+		// Material properties go to MaterialUBO (already handled above)
+		// Light properties go to LightUBO using standardized structure
 		const Light& light = s_Data.SceneLight;
 		auto lightType = std::to_underlying(light.Type);
+		
+		// Use standardized LightUBO structure (128 bytes) - material properties go to MaterialUBO
+		ShaderBindingLayout::LightUBO lightData;
 		lightData.LightPosition = glm::vec4(light.Position, 1.0f);
 		lightData.LightDirection = glm::vec4(light.Direction, 0.0f);
 		lightData.LightAmbient = glm::vec4(light.Ambient, 0.0f);
@@ -951,8 +917,6 @@ namespace OloEngine
 
 		// DEBUG: Log lighting values for skinned mesh
 		OLO_CORE_INFO("DrawSkinnedMesh - Light Debug:");
-		OLO_CORE_INFO("  Material Ambient: ({:.2f}, {:.2f}, {:.2f})", lightData.MaterialAmbient.x, lightData.MaterialAmbient.y, lightData.MaterialAmbient.z);
-		OLO_CORE_INFO("  Material Diffuse: ({:.2f}, {:.2f}, {:.2f})", lightData.MaterialDiffuse.x, lightData.MaterialDiffuse.y, lightData.MaterialDiffuse.z);
 		OLO_CORE_INFO("  Light Ambient: ({:.2f}, {:.2f}, {:.2f})", lightData.LightAmbient.x, lightData.LightAmbient.y, lightData.LightAmbient.z);
 		OLO_CORE_INFO("  Light Diffuse: ({:.2f}, {:.2f}, {:.2f})", lightData.LightDiffuse.x, lightData.LightDiffuse.y, lightData.LightDiffuse.z);
 		OLO_CORE_INFO("  Light Direction: ({:.2f}, {:.2f}, {:.2f})", lightData.LightDirection.x, lightData.LightDirection.y, lightData.LightDirection.z);
@@ -961,7 +925,9 @@ namespace OloEngine
 
 		if (s_Data.LightUBO)
 		{
-			s_Data.LightUBO->SetData(&lightData, sizeof(LightPropertiesData));
+			constexpr u32 expectedSize = ShaderBindingLayout::LightUBO::GetSize();
+			static_assert(sizeof(ShaderBindingLayout::LightUBO) == expectedSize, "LightUBO size mismatch in DrawSkinnedMesh");
+			s_Data.LightUBO->SetData(&lightData, expectedSize);
 		}
 		
 		// Bind textures for skinned mesh (using correct binding points)

@@ -52,15 +52,23 @@ namespace OloEngine
 		s_Data.QuadShader = m_ShaderLibrary.Get("Renderer3D_Quad");
 		
 		// Create all necessary UBOs following standardized binding layout
-		s_Data.TransformUBO = UniformBuffer::Create(sizeof(ShaderBindingLayout::CameraUBO), ShaderBindingLayout::UBO_CAMERA);  // CameraMatrices
-		s_Data.LightPropertiesUBO = UniformBuffer::Create(sizeof(ShaderBindingLayout::LightUBO), ShaderBindingLayout::UBO_LIGHTS); // LightProperties
-		s_Data.MaterialUBO = UniformBuffer::Create(sizeof(ShaderBindingLayout::MaterialUBO), ShaderBindingLayout::UBO_MATERIAL); // Material properties
-		s_Data.ModelMatrixUBO = UniformBuffer::Create(sizeof(ShaderBindingLayout::ModelUBO), ShaderBindingLayout::UBO_MODEL); // Model matrices (model + normal)
-		s_Data.BoneMatricesUBO = UniformBuffer::Create(sizeof(ShaderBindingLayout::AnimationUBO), ShaderBindingLayout::UBO_ANIMATION); // BoneMatrices
+		s_Data.TransformUBO = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);  // CameraMatrices
+		s_Data.LightPropertiesUBO = UniformBuffer::Create(ShaderBindingLayout::LightUBO::GetSize(), ShaderBindingLayout::UBO_LIGHTS); // LightProperties
+		s_Data.MaterialUBO = UniformBuffer::Create(ShaderBindingLayout::MaterialUBO::GetSize(), ShaderBindingLayout::UBO_MATERIAL); // Material properties
+		s_Data.ModelMatrixUBO = UniformBuffer::Create(ShaderBindingLayout::ModelUBO::GetSize(), ShaderBindingLayout::UBO_MODEL); // Model matrices (model + normal)
+		s_Data.BoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION); // BoneMatrices
 		
 		// Legacy UBOs for compatibility (will be phased out)
 		s_Data.TextureFlagUBO = UniformBuffer::Create(sizeof(int), 2);          // TextureFlags (temporary until material UBO is fully used)
-		s_Data.CameraMatricesBuffer = UniformBuffer::Create(sizeof(glm::mat4) * 2, 3); // Legacy camera buffer
+		s_Data.CameraMatricesBuffer = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), 3); // Legacy camera buffer - now properly sized
+		
+		// Debug: Log calculated UBO sizes to verify they're correct
+		OLO_CORE_INFO("UBO Size Verification:");
+		OLO_CORE_INFO("  CameraUBO: {} bytes (sizeof: {})", ShaderBindingLayout::CameraUBO::GetSize(), sizeof(ShaderBindingLayout::CameraUBO));
+		OLO_CORE_INFO("  LightUBO: {} bytes (sizeof: {})", ShaderBindingLayout::LightUBO::GetSize(), sizeof(ShaderBindingLayout::LightUBO));
+		OLO_CORE_INFO("  MaterialUBO: {} bytes (sizeof: {})", ShaderBindingLayout::MaterialUBO::GetSize(), sizeof(ShaderBindingLayout::MaterialUBO));
+		OLO_CORE_INFO("  ModelUBO: {} bytes (sizeof: {})", ShaderBindingLayout::ModelUBO::GetSize(), sizeof(ShaderBindingLayout::ModelUBO));
+		OLO_CORE_INFO("  AnimationUBO: {} bytes (sizeof: {})", ShaderBindingLayout::AnimationUBO::GetSize(), sizeof(ShaderBindingLayout::AnimationUBO));
 		// Share UBOs with CommandDispatch
 		CommandDispatch::SetSharedUBOs(
 			s_Data.TransformUBO,
@@ -511,7 +519,11 @@ namespace OloEngine
 		cameraData.Position = s_Data.ViewPos;
 		cameraData._padding0 = 0.0f;
 		
-		s_Data.TransformUBO->SetData(&cameraData, sizeof(ShaderBindingLayout::CameraUBO));
+		// Verify size matches our calculation
+		constexpr u32 expectedSize = ShaderBindingLayout::CameraUBO::GetSize();
+		static_assert(sizeof(ShaderBindingLayout::CameraUBO) == expectedSize, "CameraUBO size mismatch");
+		
+		s_Data.TransformUBO->SetData(&cameraData, expectedSize);
 	}
 	
 	void Renderer3D::SetupRenderGraph(u32 width, u32 height)

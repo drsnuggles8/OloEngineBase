@@ -56,6 +56,8 @@ namespace OloEngine
             glm::mat4 Projection;
             glm::vec3 Position;
             f32 _padding0;
+            
+            static constexpr u32 GetSize() { return sizeof(CameraUBO); }
         };
         
         struct LightUBO
@@ -68,6 +70,8 @@ namespace OloEngine
             glm::vec4 LightAttParams;      // (constant, linear, quadratic, _)
             glm::vec4 LightSpotParams;     // (cutOff, outerCutOff, _, _)
             glm::vec4 ViewPosAndLightType; // (viewPos.xyz, lightType)
+            
+            static constexpr u32 GetSize() { return sizeof(LightUBO); }
         };
         
         struct MaterialUBO
@@ -78,18 +82,24 @@ namespace OloEngine
             glm::vec4 Emissive;
             i32 UseTextureMaps;
             i32 _padding[3];
+            
+            static constexpr u32 GetSize() { return sizeof(MaterialUBO); }
         };
         
         struct ModelUBO
         {
             glm::mat4 Model;
             glm::mat4 Normal;              // transpose(inverse(model))
+            
+            static constexpr u32 GetSize() { return sizeof(ModelUBO); }
         };
         
         struct AnimationUBO
         {
             static constexpr u32 MAX_BONES = 100;
             glm::mat4 BoneMatrices[MAX_BONES];
+            
+            static constexpr u32 GetSize() { return sizeof(AnimationUBO); }
         };
         
         // =============================================================================
