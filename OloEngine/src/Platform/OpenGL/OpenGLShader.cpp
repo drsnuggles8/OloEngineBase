@@ -21,6 +21,18 @@ namespace OloEngine
 {
 	namespace Utils
 	{
+		static bool s_DisableShaderCache = false; // Debug flag to disable shader caching
+
+		// Debug API to control shader cache (exposed for external use)
+		void SetDisableShaderCache(bool disable)
+		{
+			s_DisableShaderCache = disable;
+		}
+		bool IsShaderCacheDisabled()
+		{
+			return s_DisableShaderCache;
+		}
+
 		static GLenum ShaderTypeFromString(std::string_view type)
 		{
 			if (type == "vertex")
@@ -327,6 +339,7 @@ namespace OloEngine
 		}
 
 		const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
+		bool disableCache = Utils::IsShaderCacheDisabled();
 
 		auto& shaderData = m_VulkanSPIRV;
 		shaderData.clear();
@@ -336,7 +349,7 @@ namespace OloEngine
 			const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + Utils::GLShaderStageCachedVulkanFileExtension(stage));
 
 			std::ifstream in(cachedPath, std::ios::in | std::ios::binary);
-			if (in.is_open())
+			if (in.is_open() && !disableCache)
 			{
 				in.seekg(0, std::ios::end);
 				const auto size = in.tellg();
@@ -363,13 +376,17 @@ namespace OloEngine
 
 			shaderData[stage] = std::vector<u32>(spirvModule.cbegin(), spirvModule.cend());
 
-			std::ofstream out(cachedPath, std::ios::out | std::ios::binary);
-			if (out.is_open())
+			// Only write to cache if caching is enabled
+			if (!disableCache)
 			{
-				auto& data = shaderData[stage];
-				out.write(reinterpret_cast<char*>(data.data()), data.size() * sizeof(u32));
-				out.flush();
-				out.close();
+				std::ofstream out(cachedPath, std::ios::out | std::ios::binary);
+				if (out.is_open())
+				{
+					auto& data = shaderData[stage];
+					out.write(reinterpret_cast<char*>(data.data()), data.size() * sizeof(u32));
+					out.flush();
+					out.close();
+				}
 			}
 		}
 

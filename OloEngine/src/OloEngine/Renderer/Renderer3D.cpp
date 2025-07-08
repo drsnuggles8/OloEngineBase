@@ -24,6 +24,9 @@
 
 namespace OloEngine
 {
+	// Debug flag to forcibly disable all culling
+	static bool s_ForceDisableCulling = false;
+
 	Renderer3D::Renderer3DData Renderer3D::s_Data;
 	ShaderLibrary Renderer3D::m_ShaderLibrary;
 	
@@ -243,6 +246,7 @@ namespace OloEngine
 	
 	bool Renderer3D::IsFrustumCullingEnabled()
 	{
+		if (s_ForceDisableCulling) return false;
 		return s_Data.FrustumCullingEnabled;
 	}
 	
@@ -253,12 +257,29 @@ namespace OloEngine
 	
 	bool Renderer3D::IsDynamicCullingEnabled()
 	{
+		if (s_ForceDisableCulling) return false;
 		return s_Data.DynamicCullingEnabled;
 	}
 	
 	const Frustum& Renderer3D::GetViewFrustum()
 	{
 		return s_Data.ViewFrustum;
+	}
+	
+	void Renderer3D::SetForceDisableCulling(bool disable)
+	{
+		s_ForceDisableCulling = disable;
+		if (disable)
+		{
+			EnableFrustumCulling(false);
+			EnableDynamicCulling(false);
+			OLO_CORE_WARN("Renderer3D: All culling forcibly disabled for debugging!");
+		}
+	}
+
+	bool Renderer3D::IsForceDisableCulling()
+	{
+		return s_ForceDisableCulling;
 	}
 	
 	Renderer3D::Statistics Renderer3D::GetStats()

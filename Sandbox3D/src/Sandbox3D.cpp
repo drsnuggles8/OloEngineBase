@@ -11,6 +11,7 @@
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/ShaderDebugUtils.h"
 
 
 #include "OloEngine/Animation/Skeleton.h"
@@ -68,6 +69,11 @@ void Sandbox3D::OnAttach()
     OloEngine::RendererMemoryTracker::GetInstance().Initialize();
     OloEngine::RendererProfiler::GetInstance().Initialize();
     // Note: GPUResourceInspector is now initialized in Application constructor
+
+    // === DEBUG: Force disable shader cache and culling for troubleshooting ===
+    // To always recompile shaders and render all objects, enable below:
+    OloEngine::ShaderDebugUtils::SetDisableShaderCache(true);
+    OloEngine::Renderer3D::SetForceDisableCulling(true);
     
     // Create 3D meshes
     m_CubeMesh = OloEngine::Mesh::CreateCube();

@@ -115,6 +115,8 @@
 		"OloEngine/Renderer/ShaderBindingLayout.h"
 		"OloEngine/Renderer/ShaderReflection.cpp"
 		"OloEngine/Renderer/ShaderReflection.h"
+		"OloEngine/Renderer/ShaderDebugUtils.cpp"
+		"OloEngine/Renderer/ShaderDebugUtils.h"
 		"OloEngine/Renderer/InflightFrameManager.cpp"
 		"OloEngine/Renderer/InflightFrameManager.h"
 		"OloEngine/Renderer/Vertex.h"

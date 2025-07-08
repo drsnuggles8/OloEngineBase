@@ -68,6 +68,10 @@ namespace OloEngine
 		static bool IsVisibleInFrustum(const BoundingSphere& sphere);
 		static bool IsVisibleInFrustum(const BoundingBox& box);
 		
+		// Debug culling methods
+		static void SetForceDisableCulling(bool disable);
+		static bool IsForceDisableCulling();
+		
 		// Statistics and debug methods
 		static Statistics GetStats();
 		static void ResetStats();
