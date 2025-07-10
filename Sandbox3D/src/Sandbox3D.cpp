@@ -69,12 +69,7 @@ void Sandbox3D::OnAttach()
     // Initialize debugging tools FIRST before creating any resources
     OloEngine::RendererMemoryTracker::GetInstance().Initialize();
     OloEngine::RendererProfiler::GetInstance().Initialize();
-    // Note: GPUResourceInspector is now initialized in Application constructor
-
-    // === DEBUG: Force disable shader cache and culling for troubleshooting ===
-    // To always recompile shaders and render all objects, enable below:
-    OloEngine::ShaderDebugUtils::SetDisableShaderCache(true);
-    OloEngine::Renderer3D::SetForceDisableCulling(true);
+    // Note: GPUResourceInspector is initialized in Application constructor
     
     // Create 3D meshes
     m_CubeMesh = OloEngine::Mesh::CreateCube();
@@ -88,9 +83,6 @@ void Sandbox3D::OnAttach()
     m_DiffuseMap = OloEngine::Texture2D::Create("assets/textures/container2.png");
     m_SpecularMap = OloEngine::Texture2D::Create("assets/textures/container2_specular.png");
     m_GrassTexture = OloEngine::Texture2D::Create("assets/textures/grass.png");
-      // Temporarily disable frustum culling for debugging skinned mesh
-    OloEngine::Renderer3D::EnableFrustumCulling(false);
-    OLO_INFO("Sandbox3D: Frustum culling disabled for debugging");
 
     // Assign textures to the materials
     m_TexturedMaterial.DiffuseMap = m_DiffuseMap;
@@ -98,14 +90,17 @@ void Sandbox3D::OnAttach()
     
     // Also assign textures to gold material for the sphere
     m_GoldMaterial.DiffuseMap = m_DiffuseMap;
-    m_GoldMaterial.SpecularMap = m_SpecularMap;    // Set initial lighting parameters
-    OloEngine::Renderer3D::SetLight(m_Light);    // Create ECS test scene for animated mesh rendering
+    m_GoldMaterial.SpecularMap = m_SpecularMap;
+    OloEngine::Renderer3D::SetLight(m_Light);
+	
+	// Create ECS test scene for animated mesh rendering
     m_TestScene = OloEngine::CreateRef<OloEngine::Scene>();
     m_TestScene->OnRuntimeStart(); // Initialize physics world and other runtime systems
     m_AnimatedMeshEntity = m_TestScene->CreateEntity("AnimatedTestMesh");
 	// --- ECS Animated Mesh Test Entity ---
     // This is a minimal test: create a dummy entity with animated mesh components
-    // In a real ECS, this would be managed by a Scene, but for now, we just test component construction and rendering    // Create a simple skinned cube for testing (with bone data)
+    // In a real ECS, this would be managed by a Scene, but for now, we just test component construction and rendering
+	// Create a simple skinned cube for testing (with bone data)
     m_AnimatedTestMesh = CreateSkinnedCubeMesh();
     m_AnimatedTestSkeleton = OloEngine::CreateRef<OloEngine::Skeleton>();
     m_AnimatedTestSkeleton->m_BoneNames = { "Root" };
@@ -119,8 +114,8 @@ void Sandbox3D::OnAttach()
     // Note: m_Skeleton will be set separately via SkeletonComponent
      // Get the existing transform component (automatically added by CreateEntity) and configure it
     auto& transformComp = m_AnimatedMeshEntity.GetComponent<OloEngine::TransformComponent>();
-    transformComp.Translation = glm::vec3(0.0f, 0.0f, 0.0f); // Move to center, directly in front of camera
-    transformComp.Scale = glm::vec3(1.0f); // Make it full size for visibility
+    transformComp.Translation = glm::vec3(2.0f, 0.0f, 0.0f); // Move to the right
+    transformComp.Scale = glm::vec3(1.0f);
     
     auto& skeletonComp = m_AnimatedMeshEntity.AddComponent<OloEngine::SkeletonComponent>();
     // Copy skeleton data to component
@@ -168,11 +163,11 @@ void Sandbox3D::OnAttach()
 }
 
 void Sandbox3D::OnDetach()
-{	OLO_PROFILE_FUNCTION();
-        // Shutdown debugging tools
+{
+	OLO_PROFILE_FUNCTION();
     OloEngine::RendererMemoryTracker::GetInstance().Shutdown();
     OloEngine::RendererProfiler::GetInstance().Shutdown();
-    // Note: GPUResourceInspector is now shutdown in Application destructor
+    // Note: GPUResourceInspector is shutdown in Application destructor
 }
 
 void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
@@ -203,7 +198,6 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
     }
     m_WasTabPressed = tabPressed;
 
-    // Update view position for specular highlights
     OloEngine::Renderer3D::SetViewPosition(m_CameraController.GetCamera().GetPosition());
 
     // Toggle rotation on spacebar press
@@ -215,8 +209,8 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
     // Rotate only if enabled
     if (m_RotationEnabled)
     {
-        m_RotationAngleY += ts * 45.0f; // 45 deg/s around Y
-        m_RotationAngleX += ts * 30.0f; // 30 deg/s around X
+        m_RotationAngleY += ts * 45.0f;
+        m_RotationAngleX += ts * 30.0f;
 
         // Keep angles in [0, 360)
         if (m_RotationAngleY > 360.0f)  m_RotationAngleY -= 360.0f;
@@ -264,14 +258,12 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 
     // Update animation and skeleton for both manual and ECS animated meshes
     {
-        // Advance animation and compute bone transforms
         OloEngine::Animation::AnimationSystem::Update(
             m_AnimatedTestAnimState,
             *m_AnimatedTestSkeleton,
             ts.GetSeconds()
         );
         
-        // Update ECS entity's skeleton component with computed bone matrices
         if (m_AnimatedMeshEntity.HasComponent<OloEngine::SkeletonComponent>())
         {
             auto& skeletonComp = m_AnimatedMeshEntity.GetComponent<OloEngine::SkeletonComponent>();
@@ -279,19 +271,16 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
             skeletonComp.m_GlobalTransforms = m_AnimatedTestSkeleton->m_GlobalTransforms;
         }
         
-        // Update multi-bone test entity animation
         if (m_MultiBoneTestEntity.HasComponent<OloEngine::AnimationStateComponent>())
         {
             auto& multiBoneAnimStateComp = m_MultiBoneTestEntity.GetComponent<OloEngine::AnimationStateComponent>();
             
-            // Advance multi-bone animation
             OloEngine::Animation::AnimationSystem::Update(
                 multiBoneAnimStateComp,
                 *m_MultiBoneTestSkeleton,
                 ts.GetSeconds() * m_AnimationSpeed
             );
             
-            // Update skeleton component
             if (m_MultiBoneTestEntity.HasComponent<OloEngine::SkeletonComponent>())
             {
                 auto& multiBoneSkeletonComp = m_MultiBoneTestEntity.GetComponent<OloEngine::SkeletonComponent>();
@@ -300,7 +289,6 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
             }
         }
         
-        // Update imported model animation (if loaded)
         if (m_ImportedModelEntity.HasComponent<OloEngine::AnimationStateComponent>())
         {
             auto& importedAnimStateComp = m_ImportedModelEntity.GetComponent<OloEngine::AnimationStateComponent>();
@@ -334,18 +322,17 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
                 {
                     // Update ECS entity transform to position it on the left side
                     auto& ecsTransformComp = m_AnimatedMeshEntity.GetComponent<OloEngine::TransformComponent>();
-                    ecsTransformComp.Translation = glm::vec3(-3.0f, 0.0f, 0.0f); // Left side
-                    ecsTransformComp.Scale = glm::vec3(1.5f); // Make it visible
+                    ecsTransformComp.Translation = glm::vec3(-4.0f, 0.0f, 2.0f);
+                    ecsTransformComp.Scale = glm::vec3(1.0f);
                 }
             }
             
-            // Control multi-bone test entity visibility
             if (m_MultiBoneTestEntity.HasComponent<OloEngine::AnimatedMeshComponent>())
             {
                 if (m_ShowMultiBoneTest)
                 {
                     auto& multiBoneTransformComp = m_MultiBoneTestEntity.GetComponent<OloEngine::TransformComponent>();
-                    multiBoneTransformComp.Translation = glm::vec3(3.0f, 0.0f, 0.0f); // Right side for multi-bone
+                    multiBoneTransformComp.Translation = glm::vec3(4.0f, 0.0f, 2.0f);
                     multiBoneTransformComp.Scale = glm::vec3(1.0f);
                 }
             }

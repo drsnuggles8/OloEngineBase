@@ -1,8 +1,7 @@
 #include "OloEnginePCH.h"
-#include "CommandDispatch.h"
-#include "RenderCommand.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
-
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/VertexArray.h"
@@ -15,7 +14,6 @@
 namespace OloEngine
 {	struct CommandDispatchData
 	{
-		// Existing UBO references
 		Ref<UniformBuffer> TransformUBO = nullptr;
 		Ref<UniformBuffer> MaterialUBO = nullptr;
 		Ref<UniformBuffer> TextureFlagUBO = nullptr;
@@ -23,24 +21,20 @@ namespace OloEngine
 		Ref<UniformBuffer> LightUBO = nullptr;
 		Ref<UniformBuffer> BoneMatricesUBO = nullptr;
 		Ref<UniformBuffer> ModelMatrixUBO = nullptr;
-		// Cached matrices and light data
 		glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
 		glm::mat4 ViewMatrix = glm::mat4(1.0f);
 		Light SceneLight;
 		glm::vec3 ViewPos = glm::vec3(0.0f);
 		
-		// State tracking for optimizations
 		u32 CurrentBoundShaderID = 0;
 		std::array<u32, 32> BoundTextureIDs = { 0 };
 		
-		// Registry tracking for shader resources
 		std::unordered_map<u32, ShaderResourceRegistry*> ShaderRegistries;
 		
-		// Statistics for performance monitoring
 		CommandDispatch::Statistics Stats;
 	};
 
-	static CommandDispatchData s_Data;	// Add this to SetSharedUBOs function
+	static CommandDispatchData s_Data;
 	void CommandDispatch::SetSharedUBOs(
 		const Ref<UniformBuffer>& transformUBO,
 		const Ref<UniformBuffer>& materialUBO,
@@ -58,7 +52,7 @@ namespace OloEngine
 		s_Data.BoneMatricesUBO = boneMatricesUBO;
 		s_Data.ModelMatrixUBO = modelMatrixUBO;
 		
-		OLO_CORE_INFO("CommandDispatch: Shared UBOs configured (including bone and model matrices)");
+		OLO_CORE_INFO("CommandDispatch: Shared UBOs configured.");
 	}
 
 	void CommandDispatch::SetSceneLight(const Light& light)
@@ -78,9 +72,7 @@ namespace OloEngine
 		{
 			OLO_CORE_WARN("CommandDispatch::UpdateLightPropertiesUBO: LightUBO not initialized");
 			return;
-		}
-		
-		// Use standardized light UBO structure (without material properties)
+		}		
 		ShaderBindingLayout::LightUBO lightData;
 
 		auto lightType = std::to_underlying(light.Type);
@@ -89,7 +81,6 @@ namespace OloEngine
 		lightData.LightAmbient = glm::vec4(light.Ambient, 0.0f);
 		lightData.LightDiffuse = glm::vec4(light.Diffuse, 0.0f);
 		lightData.LightSpecular = glm::vec4(light.Specular, 0.0f);
-
 		lightData.LightAttParams = glm::vec4(
 			light.Constant,
 			light.Linear,
@@ -123,13 +114,6 @@ namespace OloEngine
     {
         s_Data.ViewMatrix = view;
     }
-
-	// UBO update methods that use the shared UBOs - Updated for standardized binding layout
-    void CommandDispatch::UpdateTransformUBO(const glm::mat4& modelMatrix)
-    {
-        // This function is deprecated - use UpdateModelMatrixUBO instead
-        UpdateModelMatrixUBO(modelMatrix);
-    }
     
     void CommandDispatch::UpdateModelMatrixUBO(const glm::mat4& modelMatrix)
     {
@@ -141,17 +125,14 @@ namespace OloEngine
             return;
         }
         
-        // Use standardized model UBO structure
         ShaderBindingLayout::ModelUBO modelData;
         modelData.Model = modelMatrix;
-        modelData.Normal = glm::transpose(glm::inverse(modelMatrix));  // Pre-calculate normal matrix
+        modelData.Normal = glm::transpose(glm::inverse(modelMatrix));
         
-        // Verify size matches our calculation
         constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
         static_assert(sizeof(ShaderBindingLayout::ModelUBO) == expectedSize, "ModelUBO size mismatch");
         
         s_Data.ModelMatrixUBO->SetData(&modelData, expectedSize);
-        // Ensure UBO is bound to the correct OpenGL binding point (binding=3 for model)
         glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
     }
     
@@ -165,16 +146,14 @@ namespace OloEngine
             return;
         }
         
-        // Use standardized material UBO structure
         ShaderBindingLayout::MaterialUBO materialData;
         materialData.Ambient = glm::vec4(ambient, 1.0f);
         materialData.Diffuse = glm::vec4(diffuse, 1.0f);
-        materialData.Specular = glm::vec4(specular, shininess);  // shininess in w component
-        materialData.Emissive = glm::vec4(0.0f);  // Default emissive
+        materialData.Specular = glm::vec4(specular, shininess);
+        materialData.Emissive = glm::vec4(0.0f);
         materialData.UseTextureMaps = 0;  // Will be set by UpdateMaterialTextureFlag
         materialData._padding[0] = materialData._padding[1] = materialData._padding[2] = 0;
         
-        // Verify size matches our calculation
         constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
         static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch");
         
@@ -197,21 +176,13 @@ namespace OloEngine
         
         s_Data.MaterialUBO->SetData(&flag, sizeof(i32), offset);
     }
-    
-    void CommandDispatch::UpdateTextureFlag(bool useTextures)
-    {
-        // Deprecated - use UpdateMaterialTextureFlag instead
-        UpdateMaterialTextureFlag(useTextures);
-    }
 
     // Array of dispatch functions indexed by CommandType
     static CommandDispatchFn s_DispatchTable[static_cast<sizet>(CommandType::SetMultisampling) + 1] = { nullptr };
 
-      // Initialize all command dispatch functions
     void CommandDispatch::Initialize()
     {
         OLO_PROFILE_FUNCTION();
-        OLO_CORE_INFO("Initializing CommandDispatch system.");
 
 		s_Data.CurrentBoundShaderID = 0;
 		std::fill(s_Data.BoundTextureIDs.begin(), s_Data.BoundTextureIDs.end(), 0);
@@ -252,20 +223,13 @@ namespace OloEngine
         s_DispatchTable[static_cast<sizet>(CommandType::DrawIndexedInstanced)] = CommandDispatch::DrawIndexedInstanced;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawArrays)] = CommandDispatch::DrawArrays;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawLines)] = CommandDispatch::DrawLines;
-          // Higher-level commands
-        OLO_CORE_INFO("Registering DrawMesh at index {}", static_cast<sizet>(CommandType::DrawMesh));
+        // Higher-level commands
         s_DispatchTable[static_cast<sizet>(CommandType::DrawMesh)] = CommandDispatch::DrawMesh;
-        OLO_CORE_INFO("Registering DrawMeshInstanced at index {}", static_cast<sizet>(CommandType::DrawMeshInstanced));
         s_DispatchTable[static_cast<sizet>(CommandType::DrawMeshInstanced)] = CommandDispatch::DrawMeshInstanced;
-        OLO_CORE_INFO("Registering DrawSkinnedMesh at index {}", static_cast<sizet>(CommandType::DrawSkinnedMesh));
         s_DispatchTable[static_cast<sizet>(CommandType::DrawSkinnedMesh)] = CommandDispatch::DrawSkinnedMesh;
-        OLO_CORE_INFO("Registering DrawQuad at index {}", static_cast<sizet>(CommandType::DrawQuad));
         s_DispatchTable[static_cast<sizet>(CommandType::DrawQuad)] = CommandDispatch::DrawQuad;
-        
-        OLO_CORE_INFO("CommandDispatch system initialized with {} dispatch functions", static_cast<sizet>(CommandType::SetMultisampling) + 1);
     }
     
-    // Get the dispatch function for a command type
     CommandDispatchFn CommandDispatch::GetDispatchFunction(CommandType type)
     {
         if (type == CommandType::Invalid || static_cast<sizet>(type) >= sizeof(s_DispatchTable) / sizeof(CommandDispatchFn))
@@ -277,7 +241,6 @@ namespace OloEngine
         return s_DispatchTable[static_cast<sizet>(type)];
     }
     
-    // State management dispatch functions
     void CommandDispatch::SetViewport(const void* data, RendererAPI& api)
     {
         auto const* cmd = static_cast<const SetViewportCommand*>(data);
@@ -293,8 +256,7 @@ namespace OloEngine
     void CommandDispatch::Clear(const void* data, RendererAPI& api)
     {
         auto const* cmd = static_cast<const ClearCommand*>(data);
-        // We only have a Clear() method which clears both color and depth
-        // In a full implementation, you'd have separate methods for partial clears
+        // TODO(olbu): Have separate methods for partial clears
         if (cmd->clearColor || cmd->clearDepth)
             api.Clear();
     }
@@ -433,7 +395,6 @@ namespace OloEngine
             api.DisableMultisampling();
     }
     
-    // Draw commands dispatch functions
     void CommandDispatch::BindDefaultFramebuffer(const void* /*data*/, RendererAPI& api)
     {
         api.BindDefaultFramebuffer();
@@ -515,9 +476,9 @@ namespace OloEngine
 			return;
 		}
 		
-		api.DrawLines(cmd->vertexArray, cmd->vertexCount);	}
+		api.DrawLines(cmd->vertexArray, cmd->vertexCount);
+	}
     
-    // Higher-level commands
     void CommandDispatch::DrawMesh(const void* data, RendererAPI& api)
     {
         OLO_PROFILE_FUNCTION();
@@ -569,9 +530,6 @@ namespace OloEngine
 			s_Data.Stats.ShaderBinds++;
 		}
 		
-		// Update UBOs according to standardized binding layout
-		
-		// First, update camera matrices UBO (binding=0)
 		ShaderBindingLayout::CameraUBO cameraData;
 		cameraData.ViewProjection = s_Data.ViewProjectionMatrix;
 		cameraData.View = s_Data.ViewMatrix;
@@ -580,24 +538,21 @@ namespace OloEngine
 		cameraData.Position = s_Data.ViewPos; // Add camera position
 		cameraData._padding0 = 0.0f; // Initialize padding
 		
-		// Use CameraUBO (binding 0) for regular meshes - camera data goes to binding=0
 		if (s_Data.CameraUBO)
 		{
 			constexpr u32 expectedSize = ShaderBindingLayout::CameraUBO::GetSize();
 			static_assert(sizeof(ShaderBindingLayout::CameraUBO) == expectedSize, "CameraUBO size mismatch in DrawMesh");
 			s_Data.CameraUBO->SetData(&cameraData, expectedSize);
-			// Ensure UBO is bound to the correct OpenGL binding point (binding=0 for camera)
 			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
 		}
 		
 		UpdateModelMatrixUBO(cmd->transform);
 		
-		// Update material properties using the standardized MaterialUBO structure
 		ShaderBindingLayout::MaterialUBO materialData;
 		materialData.Ambient = glm::vec4(cmd->ambient, 1.0f);
 		materialData.Diffuse = glm::vec4(cmd->diffuse, 1.0f);
-		materialData.Specular = glm::vec4(cmd->specular, cmd->shininess);  // shininess in w component
-		materialData.Emissive = glm::vec4(0.0f);  // Default emissive
+		materialData.Specular = glm::vec4(cmd->specular, cmd->shininess);
+		materialData.Emissive = glm::vec4(0.0f);
 		materialData.UseTextureMaps = cmd->useTextureMaps ? 1 : 0;
 		materialData._padding[0] = materialData._padding[1] = materialData._padding[2] = 0;
 		
@@ -606,18 +561,12 @@ namespace OloEngine
 			constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
 			static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch in DrawMesh");
 			s_Data.MaterialUBO->SetData(&materialData, expectedSize);
-			// Ensure UBO is bound to the correct OpenGL binding point (binding=2 for material)
 			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
 		}
 		
-		// Update light properties with the specific material
-		// Material properties go to MaterialUBO (already handled above)
-		// Light properties go to LightUBO using standardized structure
 		const Light& light = s_Data.SceneLight;
 		auto lightType = std::to_underlying(light.Type);
 		
-
-		// Use standardized LightUBO structure (128 bytes) - material properties go to MaterialUBO
 		ShaderBindingLayout::LightUBO lightData;
 		lightData.LightPosition = glm::vec4(light.Position, 1.0f);
 		lightData.LightDirection = glm::vec4(light.Direction, 0.0f);
@@ -633,14 +582,11 @@ namespace OloEngine
 			constexpr u32 expectedSize = ShaderBindingLayout::LightUBO::GetSize();
 			static_assert(sizeof(ShaderBindingLayout::LightUBO) == expectedSize, "LightUBO size mismatch");
 			s_Data.LightUBO->SetData(&lightData, expectedSize);
-			// Ensure UBO is bound to the correct OpenGL binding point (binding=1 for lights)
 			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
 		}
 		
-		// Efficiently bind textures if needed
 		if (cmd->useTextureMaps)
 		{
-			// Bind textures to standardized binding points (no SetInt needed with layout bindings)
 			if (cmd->diffuseMap)
 			{
 				u32 texID = cmd->diffuseMap->GetRendererID();
@@ -664,7 +610,6 @@ namespace OloEngine
 			}
 		}
 		
-		// Get index count efficiently
 		u32 indexCount = cmd->indexCount > 0 ? cmd->indexCount : 
 			cmd->vertexArray->GetIndexBuffer() ? cmd->vertexArray->GetIndexBuffer()->GetCount() : 0;
 		
@@ -674,10 +619,8 @@ namespace OloEngine
 			return;
 		}
 		
-		// Track draw calls for statistics
 		s_Data.Stats.DrawCalls++;
 		
-		// Issue the actual draw call
 		api.DrawIndexed(cmd->vertexArray, indexCount);
 	}
     
@@ -731,14 +674,13 @@ namespace OloEngine
 			s_Data.Stats.ShaderBinds++;
 		}
 		
-		// Update material UBOs
 		UpdateMaterialUBO(cmd->ambient, cmd->diffuse, cmd->specular, cmd->shininess);
 		UpdateMaterialTextureFlag(cmd->useTextureMaps);
 		
 		// For instanced rendering, we'll set model matrices as shader uniforms
 		// A proper implementation would use an instance buffer or SSBO for better performance
 		// This is a simplified approach for now
-		const sizet maxInstances = 100; // Limit for uniform-based instancing
+		const sizet maxInstances = 100;
 		if (cmd->transforms.size() > maxInstances)
 		{
 			OLO_CORE_WARN("CommandDispatch::DrawMeshInstanced: Too many instances ({}). Only first {} will be rendered.",
@@ -754,10 +696,8 @@ namespace OloEngine
 		}
 		cmd->shader->SetInt("u_InstanceCount", static_cast<int>(instanceCount));
 		
-		// Bind textures with state tracking
 		if (cmd->useTextureMaps)
 		{
-			// Bind textures to standardized binding points
 			if (cmd->diffuseMap)
 			{
 				u32 texID = cmd->diffuseMap->GetRendererID();
@@ -781,7 +721,6 @@ namespace OloEngine
 			}
 		}
 		
-		// Get index count efficiently
 		u32 indexCount = cmd->indexCount > 0 ? cmd->indexCount : 
 			cmd->vertexArray->GetIndexBuffer() ? cmd->vertexArray->GetIndexBuffer()->GetCount() : 0;
 		
@@ -791,9 +730,7 @@ namespace OloEngine
 			return;
 		}
 		
-		// Track draw calls for statistics
 		s_Data.Stats.DrawCalls++;
-				// Draw the instanced mesh
 		api.DrawIndexedInstanced(cmd->vertexArray, indexCount, static_cast<u32>(instanceCount));
 	}	   
 	
@@ -808,11 +745,6 @@ namespace OloEngine
 			return;
 		}
 
-		// DEBUG: Log mesh transform position
-		glm::vec3 meshPosition = glm::vec3(cmd->modelMatrix[3]);
-		OLO_CORE_INFO("DrawSkinnedMesh - Mesh position: ({:.2f}, {:.2f}, {:.2f})", meshPosition.x, meshPosition.y, meshPosition.z);
-
-		// Apply render state if provided (same as regular mesh)
 		if (cmd->renderState)
 		{
 			const RenderState& state = *cmd->renderState;
@@ -837,44 +769,37 @@ namespace OloEngine
 			if (state.Multisampling.Enabled) api.EnableMultisampling(); else api.DisableMultisampling();
 		}
 		
-		// Bind shader (same pattern as regular mesh)
 		if (u32 shaderID = cmd->shader->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
 		{
 			cmd->shader->Bind();
 			s_Data.CurrentBoundShaderID = shaderID;
 			s_Data.Stats.ShaderBinds++;
 		}
-		// Update camera matrices UBO (ViewProjection and View at binding 0)
 		// Note: Skinned shader expects binding 0 to have ViewProjection + View, not ViewProjection + Model
-		// Use standardized CameraUBO structure to match buffer allocation size
 		ShaderBindingLayout::CameraUBO cameraData;
 		cameraData.ViewProjection = s_Data.ViewProjectionMatrix;
 		cameraData.View = s_Data.ViewMatrix;
 		// Calculate projection matrix from ViewProjection and View: Projection = ViewProjection * inverse(View)
 		cameraData.Projection = s_Data.ViewProjectionMatrix * glm::inverse(s_Data.ViewMatrix);
-		cameraData.Position = s_Data.ViewPos; // Add camera position
-		cameraData._padding0 = 0.0f; // Initialize padding
+		cameraData.Position = s_Data.ViewPos;
+		cameraData._padding0 = 0.0f;
 		
-		// Use TransformUBO (binding 0) instead of CameraUBO (binding 3) for skinned meshes
-		// This ensures the skinned shader gets the right data at binding 0
 		if (s_Data.TransformUBO)
 		{
 			constexpr u32 expectedSize = ShaderBindingLayout::CameraUBO::GetSize();
 			static_assert(sizeof(ShaderBindingLayout::CameraUBO) == expectedSize, "CameraUBO size mismatch in DrawSkinnedMesh");
 			s_Data.TransformUBO->SetData(&cameraData, expectedSize);
-			// Ensure UBO is bound to the correct OpenGL binding point (binding=0 for camera)
 			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_CAMERA, s_Data.TransformUBO->GetRendererID());
 		}
 		
-		// Update model matrix UBO using standardized structure
 		UpdateModelMatrixUBO(cmd->modelMatrix);
 		
-		// Update material properties using the standardized MaterialUBO structure (same as regular mesh)
+
 		ShaderBindingLayout::MaterialUBO materialData;
 		materialData.Ambient = glm::vec4(cmd->ambient, 1.0f);
 		materialData.Diffuse = glm::vec4(cmd->diffuse, 1.0f);
-		materialData.Specular = glm::vec4(cmd->specular, cmd->shininess);  // shininess in w component
-		materialData.Emissive = glm::vec4(0.0f);  // Default emissive
+		materialData.Specular = glm::vec4(cmd->specular, cmd->shininess);
+		materialData.Emissive = glm::vec4(0.0f);
 		materialData.UseTextureMaps = cmd->useTextureMaps ? 1 : 0;
 		materialData._padding[0] = materialData._padding[1] = materialData._padding[2] = 0;
 		
@@ -883,30 +808,21 @@ namespace OloEngine
 			constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
 			static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch in DrawSkinnedMesh");
 			s_Data.MaterialUBO->SetData(&materialData, expectedSize);
-			// Ensure UBO is bound to the correct OpenGL binding point (binding=2 for material)
 			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
 		}
 		
-		// **NEW: Update bone matrices UBO for GPU skinning**
 		if (s_Data.BoneMatricesUBO && !cmd->boneMatrices.empty())
 		{
-			// Ensure we don't exceed max bone count (typically 100 bones)
 			constexpr sizet MAX_BONES = 100;
 			sizet boneCount = glm::min(cmd->boneMatrices.size(), MAX_BONES);
 			
-			// Upload bone matrices to GPU
 			s_Data.BoneMatricesUBO->SetData(cmd->boneMatrices.data(), boneCount * sizeof(glm::mat4));
-			// Ensure UBO is bound to the correct OpenGL binding point (binding=4 for animation)
 			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_ANIMATION, s_Data.BoneMatricesUBO->GetRendererID());
 		}
-		
-		// Update light properties (same pattern as regular mesh)
-		// Material properties go to MaterialUBO (already handled above)
-		// Light properties go to LightUBO using standardized structure
+
 		const Light& light = s_Data.SceneLight;
 		auto lightType = std::to_underlying(light.Type);
 		
-		// Use standardized LightUBO structure (128 bytes) - material properties go to MaterialUBO
 		ShaderBindingLayout::LightUBO lightData;
 		lightData.LightPosition = glm::vec4(light.Position, 1.0f);
 		lightData.LightDirection = glm::vec4(light.Direction, 0.0f);
@@ -922,17 +838,14 @@ namespace OloEngine
 			constexpr u32 expectedSize = ShaderBindingLayout::LightUBO::GetSize();
 			static_assert(sizeof(ShaderBindingLayout::LightUBO) == expectedSize, "LightUBO size mismatch in DrawSkinnedMesh");
 			s_Data.LightUBO->SetData(&lightData, expectedSize);
-			// Ensure UBO is bound to the correct OpenGL binding point (binding=1 for lights)
 			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
 		}
 		
-		// Bind textures for skinned mesh (using correct binding points)
 		if (cmd->useTextureMaps)
 		{
 			if (cmd->diffuseMap)
 			{
 				u32 texID = cmd->diffuseMap->GetRendererID();
-				// Use standardized binding point for diffuse texture (binding=0)
 				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] != texID)
 				{
 					cmd->diffuseMap->Bind(ShaderBindingLayout::TEX_DIFFUSE);
@@ -944,7 +857,6 @@ namespace OloEngine
 			if (cmd->specularMap)
 			{
 				u32 texID = cmd->specularMap->GetRendererID();
-				// Use standardized binding point for specular texture (binding=1)
 				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] != texID)
 				{
 					cmd->specularMap->Bind(ShaderBindingLayout::TEX_SPECULAR);
@@ -954,7 +866,6 @@ namespace OloEngine
 			}
 		}
 		
-		// Get index count
 		u32 indexCount = cmd->indexCount > 0 ? cmd->indexCount : 
 			cmd->vertexArray->GetIndexBuffer() ? cmd->vertexArray->GetIndexBuffer()->GetCount() : 0;
 		
@@ -964,10 +875,8 @@ namespace OloEngine
 			return;
 		}
 		
-		// Track statistics
 		s_Data.Stats.DrawCalls++;
 		
-		// Issue the draw call (same as regular indexed mesh)
 		api.DrawIndexed(cmd->vertexArray, indexCount);
 	}
 
@@ -1029,21 +938,16 @@ namespace OloEngine
 			s_Data.Stats.ShaderBinds++;
 		}
 		
-		// Update UBOs according to standardized binding layout
 		UpdateModelMatrixUBO(cmd->transform);
 		
-		// Bind texture to standardized binding point (no SetInt needed with layout binding)
 		cmd->texture->Bind(ShaderBindingLayout::TEX_DIFFUSE);
 		s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = cmd->texture->GetRendererID();
 		s_Data.Stats.TextureBinds++;
 		
-		// Make sure the vertex array is bound
 		cmd->quadVA->Bind();
 		
-		// Track draw calls for statistics
 		s_Data.Stats.DrawCalls++;
 		
-		// Draw the quad with explicit 6 indices (two triangles)
 		api.DrawIndexed(cmd->quadVA, 6);
 	}
 
@@ -1054,7 +958,6 @@ namespace OloEngine
 		s_Data.Stats.Reset();
 	}
 
-	// Registry management for shader resources
 	ShaderResourceRegistry* CommandDispatch::GetShaderRegistry(u32 shaderID)
 	{
 		auto it = s_Data.ShaderRegistries.find(shaderID);

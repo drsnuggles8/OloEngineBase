@@ -1,25 +1,18 @@
-Stick to core OpenGL (4.5+) with GLSL shaders, using SPIR-V.
-Minimize state changes and efficiently manage shader programs.
-Optimize the rendering loop to reduce draw calls.
-Manage resources efficiently.
-Use C++ RAII patterns (e.g., smart pointers).
-Focus on real-time performance.
-Keep GPU–CPU sync minimal and avoid unnecessary stall.
+Only add comments if the code is not self-explanatory.
+Avoid feature creep, stick to adding only the requested functionality.
+Keep it simple and focused at the task at hand.
+Use modern C++ features (C++17 and later, ideally C++20/C++23).
+User modern OpenGL (4.5+) with Direct State Access (DSA) for better performance and cleaner code.
+Use RAII principles for resource management (e.g., OpenGL resources, file handles).
 Favor STL containers (e.g., std::vector) for contiguous memory and cache friendliness. Pre-allocate or reuse memory to reduce dynamic allocation overhead.
-Use custom allocators for frequent small allocations and ensure proper alignment for SIMD optimizations.
 
 # Code Style Guidelines
 Naming: PascalCase for classes, m_PascalCase for member variables, s_PascalCase for static variables.
-Constants/Macros: UPPER_CASE with OLO prefix (OLO_ASSERT, OLO_CORE_ERROR).
 Types: Custom typedefs for primitives (u8, i16, i32, f32, sizet, etc.).
 Header Files: Use pragma once, not include guards.
-Error Handling: Use OLO_ASSERT, OLO_CORE_ASSERT for validation and logging macros for info/warnings.
 Formatting: Braces on new lines, 4-space indentation, public methods before private.
 Memory Management: Use CreateScope<T> and CreateRef<T> helpers (unique_ptr/shared_ptr).
 Namespaces: All engine code wrapped in the OloEngine namespace.
-Documentation: Provide clear comments for complex functionality; use TODO markers for future improvements.
 
 ## VS Code Tasks Usage
 When running or testing any application (e.g., Sandbox3D, OloEditor, Sandbox2D), always use the corresponding VS Code task defined in .vscode/tasks.json (such as 'run-sandbox3d-debug', 'run-oloeditor-release', etc.) instead of launching binaries directly. This ensures the correct working directory and environment are set. Do not use direct binary execution for starting or testing applications in this repository.
-
-Design Patterns: Adopt an interface/implementation split for platform-specific functionality.

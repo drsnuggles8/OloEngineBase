@@ -13,7 +13,6 @@ namespace OloEngine
         MemoryBlock* Next = nullptr;
     };
 
-    // Thread-local memory cache for command allocations
     class ThreadLocalCache
     {
     public:

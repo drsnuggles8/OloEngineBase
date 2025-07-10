@@ -9,10 +9,8 @@
 
 namespace OloEngine
 {
-    // Forward declarations
     class RendererAPI;
 
-    // Command Memory Manager - manages all command memory allocations and provides a central interface
     class CommandMemoryManager
     {
     public:
@@ -28,10 +26,7 @@ namespace OloEngine
         static void Init();
         static void Shutdown();
 
-        // Get a fresh allocator for a new frame
         static CommandAllocator* GetFrameAllocator();
-
-        // Return an allocator to the pool after use
         static void ReturnAllocator(CommandAllocator* allocator);
 
         // Create a command packet using the current allocator
@@ -61,14 +56,10 @@ namespace OloEngine
         // Release a command packet (doesn't actually free memory, just marks it as available for reuse)
         static void ReleaseCommandPacket(CommandPacket* packet);
 
-        // Reset all allocators for a new frame
         static void ResetAllocators();
-
-        // Get statistics
         static Statistics GetStatistics();
 
     private:
-        // Get the allocator for the current thread
         static CommandAllocator* GetCurrentThreadAllocator();
 
         static std::vector<std::unique_ptr<CommandAllocator>> s_AllocatorPool;

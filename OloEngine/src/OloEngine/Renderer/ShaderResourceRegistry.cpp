@@ -56,7 +56,6 @@ namespace OloEngine
             spirv_cross::Compiler compiler(spirvData);
             spirv_cross::ShaderResources resources = compiler.get_shader_resources();
 
-            // Discover uniform buffers
             for (const auto& resource : resources.uniform_buffers)
             {
                 const auto& type = compiler.get_type(resource.type_id);
@@ -65,34 +64,21 @@ namespace OloEngine
 
                 ResourceBinding resourceBinding;
                 
-                // Try to get the name from multiple sources
                 std::string name = resource.name;
                 if (name.empty())
                 {
                     name = compiler.get_name(resource.id);
                 }
                 
-                // Debug: Show what we got from SPIR-V reflection
-                OLO_CORE_TRACE("ShaderResourceRegistry: SPIR-V reflection for binding {}: resource.name='{}', compiler.get_name(id)='{}'", 
-                              binding, resource.name, name);
-                
-                // If we have a SPIR-V generated name (starts with underscore + numbers), 
-                // try to get the real name from GLSL source
                 if (name.empty() || (name.find("_") == 0 && name.length() > 1 && std::isdigit(name[1])))
                 {
                     std::string glslName = ParseUBONameFromGLSL(binding, filePath);
                     if (!glslName.empty())
                     {
-                        if (!name.empty())
-                        {
-                            OLO_CORE_TRACE("ShaderResourceRegistry: Replaced SPIR-V name '{}' with GLSL name '{}' at binding {}", 
-                                          name, glslName, binding);
-                        }
                         name = glslName;
                     }
                 }
                 
-                // Final fallback - generate a descriptive name for internal tracking
                 if (name.empty())
                 {
                     name = "ubo_binding_" + std::to_string(binding);
@@ -103,45 +89,30 @@ namespace OloEngine
                 resourceBinding.BindingPoint = binding;
                 resourceBinding.Type = ShaderResourceType::UniformBuffer;
                 resourceBinding.Size = bufferSize;
-
                 m_Bindings[name] = resourceBinding;
-                
-                OLO_CORE_TRACE("ShaderResourceRegistry: Discovered uniform buffer '{0}' at binding {1}", 
-                              name, binding);
             }
 
-            // Discover textures/samplers
             for (const auto& resource : resources.sampled_images)
             {
                 const auto& type = compiler.get_type(resource.type_id);
                 u32 binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
-
                 ResourceBinding resourceBinding;
                 
-                // Try to get the name from multiple sources
                 std::string name = resource.name;
                 if (name.empty())
                 {
                     name = compiler.get_name(resource.id);
                 }
                 
-                // If we have a SPIR-V generated name (starts with underscore + numbers), 
-                // try to get the real name from GLSL source
                 if (name.empty() || (name.find("_") == 0 && name.length() > 1 && std::isdigit(name[1])))
                 {
                     std::string glslName = ParseTextureNameFromGLSL(binding, filePath);
                     if (!glslName.empty())
                     {
-                        if (!name.empty())
-                        {
-                            OLO_CORE_TRACE("ShaderResourceRegistry: Replaced SPIR-V texture name '{}' with GLSL name '{}' at binding {}", 
-                                          name, glslName, binding);
-                        }
                         name = glslName;
                     }
                 }
                 
-                // Final fallback - generate a descriptive name for internal tracking
                 if (name.empty())
                 {
                     name = "texture_binding_" + std::to_string(binding);
@@ -160,9 +131,6 @@ namespace OloEngine
                     resourceBinding.Type = ShaderResourceType::None;
 
                 m_Bindings[name] = resourceBinding;
-                
-                OLO_CORE_TRACE("ShaderResourceRegistry: Discovered texture '{0}' at binding {1}", 
-                              name, binding);
             }
         }
         catch (const std::exception& e)
@@ -170,7 +138,6 @@ namespace OloEngine
             OLO_CORE_ERROR("ShaderResourceRegistry: Failed to discover resources - {0}", e.what());
         }
         
-        // Validate discovered bindings against standard layout
         if (!ValidateStandardBindings())
         {
             OLO_CORE_WARN("ShaderResourceRegistry: Shader has non-standard binding layout");
@@ -179,7 +146,6 @@ namespace OloEngine
 
     void ShaderResourceRegistry::RegisterFromReflection(const ShaderReflection& reflection)
     {
-        // Register uniform blocks
         for (const auto& block : reflection.GetUniformBlocks())
         {
             ResourceBinding binding;
@@ -191,7 +157,6 @@ namespace OloEngine
             m_Bindings[block.Name] = binding;
         }
 
-        // Register textures
         for (const auto& texture : reflection.GetTextures())
         {
             ResourceBinding binding;

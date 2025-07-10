@@ -61,7 +61,6 @@ namespace OloEngine
 		//m_CommandBucket.SortCommands();
 		m_CommandBucket.Execute(rendererAPI);
 
-
         m_Target->Unbind();
     }
 

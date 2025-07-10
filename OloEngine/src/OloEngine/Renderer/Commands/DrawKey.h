@@ -20,6 +20,7 @@ namespace OloEngine
         Additive,           // Additive blending
         Subtractive         // Subtractive blending
     };
+
 	/// @brief Sorting key for render commands to minimize state changes and optimize rendering order.
     /// Uses a packed 64-bit integer for fast comparison and sorting.
     class DrawKey
@@ -232,4 +233,4 @@ namespace OloEngine
         }
     }
 
-} // namespace OloEngine
+}

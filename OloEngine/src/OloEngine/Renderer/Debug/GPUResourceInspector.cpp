@@ -1205,13 +1205,11 @@ namespace OloEngine
                 info.m_ImGuiTextureID = static_cast<ImTextureID>(static_cast<uintptr_t>(info.m_RendererID));
             }
             
-            // Display texture preview with zoom controls
             static float zoom = 1.0f;
             ImGui::SliderFloat("Zoom", &zoom, 0.1f, 4.0f);
             
             ImVec2 imageSize(256 * zoom, 256 * zoom);
             
-            // Ensure the image fits in the available space
             ImVec2 availableSize = ImGui::GetContentRegionAvail();
             if (imageSize.x > availableSize.x)
             {

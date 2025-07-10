@@ -9,7 +9,6 @@ namespace OloEngine
 	class Light;
 	class ShaderResourceRegistry;
 
-    // Command dispatch functions that take POD command data and execute it
     class CommandDispatch
     {
 	public:
@@ -30,8 +29,8 @@ namespace OloEngine
 		// Initialize all command dispatch functions
 		static void Initialize();
         
-        // Get the dispatch function for a command type
-        static CommandDispatchFn GetDispatchFunction(CommandType type);				static void SetSharedUBOs(
+        static CommandDispatchFn GetDispatchFunction(CommandType type);	
+		static void SetSharedUBOs(
             const Ref<UniformBuffer>& transformUBO,
             const Ref<UniformBuffer>& materialUBO,
             const Ref<UniformBuffer>& textureFlagUBO,
@@ -96,7 +95,6 @@ namespace OloEngine
         static void DrawIndexedInstanced(const void* data, RendererAPI& api);
         static void DrawArrays(const void* data, RendererAPI& api);
         static void DrawLines(const void* data, RendererAPI& api);
-          // Higher-level commands
         static void DrawMesh(const void* data, RendererAPI& api);
         static void DrawMeshInstanced(const void* data, RendererAPI& api);
         static void DrawSkinnedMesh(const void* data, RendererAPI& api);
@@ -105,17 +103,14 @@ namespace OloEngine
 		static Statistics& GetStatistics();
 
 		static void ResetState();
-		// Add these functions to CommandDispatch class declaration:
 		static void SetSceneLight(const Light& light);
 		static void SetViewPosition(const glm::vec3& viewPos);
 		static void UpdateLightPropertiesUBO(const Light& light, const glm::vec3& viewPos);
 
 	private:
-        static void UpdateTransformUBO(const glm::mat4& modelMatrix);
         static void UpdateModelMatrixUBO(const glm::mat4& modelMatrix);
         static void UpdateMaterialUBO(const glm::vec3& ambient, const glm::vec3& diffuse, 
                                      const glm::vec3& specular, f32 shininess);
         static void UpdateMaterialTextureFlag(bool useTextures);
-        static void UpdateTextureFlag(bool useTextures);
     };
 }
