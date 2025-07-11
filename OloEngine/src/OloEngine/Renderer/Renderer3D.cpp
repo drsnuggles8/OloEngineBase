@@ -54,21 +54,15 @@ namespace OloEngine
 		s_Data.SkinnedLightingShader = m_ShaderLibrary.Get("SkinnedLighting3D_Simple");
 		s_Data.QuadShader = m_ShaderLibrary.Get("Renderer3D_Quad");
 		
-		s_Data.TransformUBO = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+		s_Data.CameraUBO = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
 		s_Data.LightPropertiesUBO = UniformBuffer::Create(ShaderBindingLayout::LightUBO::GetSize(), ShaderBindingLayout::UBO_LIGHTS);
 		s_Data.MaterialUBO = UniformBuffer::Create(ShaderBindingLayout::MaterialUBO::GetSize(), ShaderBindingLayout::UBO_MATERIAL);
 		s_Data.ModelMatrixUBO = UniformBuffer::Create(ShaderBindingLayout::ModelUBO::GetSize(), ShaderBindingLayout::UBO_MODEL);
 		s_Data.BoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION);
 		
-		s_Data.TextureFlagUBO = UniformBuffer::Create(sizeof(int), 2);
-		s_Data.CameraMatricesBuffer = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), 3);
-		
-		// Share UBOs with CommandDispatch
 		CommandDispatch::SetSharedUBOs(
-			s_Data.TransformUBO,
+			s_Data.CameraUBO,
 			s_Data.MaterialUBO, 
-			s_Data.TextureFlagUBO,
-			s_Data.CameraMatricesBuffer,
 			s_Data.LightPropertiesUBO,
 			s_Data.BoneMatricesUBO,
 			s_Data.ModelMatrixUBO
@@ -133,7 +127,6 @@ namespace OloEngine
 		
 		UpdateCameraMatricesUBO(s_Data.ViewMatrix, s_Data.ProjectionMatrix);
 		
-		CommandDispatch::SetViewProjectionMatrix(s_Data.ViewProjectionMatrix);
 		CommandDispatch::SetSceneLight(s_Data.SceneLight);
     	CommandDispatch::SetViewPosition(s_Data.ViewPos);
 		
@@ -143,8 +136,6 @@ namespace OloEngine
 		
 		if (s_Data.LightPropertiesUBO)
 		{
-			Material defaultMaterial;
-			
 			ShaderBindingLayout::LightUBO lightData;
 
 			auto lightType = std::to_underlying(s_Data.SceneLight.Type);
@@ -490,7 +481,7 @@ namespace OloEngine
 		constexpr u32 expectedSize = ShaderBindingLayout::CameraUBO::GetSize();
 		static_assert(sizeof(ShaderBindingLayout::CameraUBO) == expectedSize, "CameraUBO size mismatch");
 		
-		s_Data.TransformUBO->SetData(&cameraData, expectedSize);
+		s_Data.CameraUBO->SetData(&cameraData, expectedSize);
 	}
 	
 	void Renderer3D::SetupRenderGraph(u32 width, u32 height)

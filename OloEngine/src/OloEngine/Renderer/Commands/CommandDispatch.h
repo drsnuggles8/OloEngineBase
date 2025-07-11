@@ -31,10 +31,8 @@ namespace OloEngine
         
         static CommandDispatchFn GetDispatchFunction(CommandType type);	
 		static void SetSharedUBOs(
-            const Ref<UniformBuffer>& transformUBO,
-            const Ref<UniformBuffer>& materialUBO,
-            const Ref<UniformBuffer>& textureFlagUBO,
             const Ref<UniformBuffer>& cameraUBO,
+            const Ref<UniformBuffer>& materialUBO,
 			const Ref<UniformBuffer>& lightUBO,
 			const Ref<UniformBuffer>& boneMatricesUBO,
 			const Ref<UniformBuffer>& modelMatrixUBO);

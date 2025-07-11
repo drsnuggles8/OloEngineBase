@@ -14,13 +14,9 @@
 
 // Forward declarations
 namespace OloEngine {
-    class Mesh;
-    class SkinnedMesh;
     class Texture2D;
     class RenderCommand;
     class UniformBuffer;
-    class SceneRenderPass;
-    class FinalRenderPass;
     class CommandBucket;
     class Scene;
     class Entity;
@@ -141,9 +137,8 @@ namespace OloEngine
 			Ref<Shader> LightingShader;
 			Ref<Shader> SkinnedLightingShader;
 			Ref<Shader> QuadShader;
-					Ref<UniformBuffer> TransformUBO;
+					Ref<UniformBuffer> CameraUBO;
 			Ref<UniformBuffer> MaterialUBO;
-			Ref<UniformBuffer> TextureFlagUBO;			Ref<UniformBuffer> CameraMatricesBuffer;
 			Ref<UniformBuffer> LightPropertiesUBO;
 			Ref<UniformBuffer> BoneMatricesUBO;
 			Ref<UniformBuffer> ModelMatrixUBO;

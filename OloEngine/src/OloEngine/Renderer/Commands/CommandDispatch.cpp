@@ -14,10 +14,8 @@
 namespace OloEngine
 {	struct CommandDispatchData
 	{
-		Ref<UniformBuffer> TransformUBO = nullptr;
-		Ref<UniformBuffer> MaterialUBO = nullptr;
-		Ref<UniformBuffer> TextureFlagUBO = nullptr;
 		Ref<UniformBuffer> CameraUBO = nullptr;
+		Ref<UniformBuffer> MaterialUBO = nullptr;
 		Ref<UniformBuffer> LightUBO = nullptr;
 		Ref<UniformBuffer> BoneMatricesUBO = nullptr;
 		Ref<UniformBuffer> ModelMatrixUBO = nullptr;
@@ -36,18 +34,14 @@ namespace OloEngine
 
 	static CommandDispatchData s_Data;
 	void CommandDispatch::SetSharedUBOs(
-		const Ref<UniformBuffer>& transformUBO,
-		const Ref<UniformBuffer>& materialUBO,
-		const Ref<UniformBuffer>& textureFlagUBO,
 		const Ref<UniformBuffer>& cameraUBO,
+		const Ref<UniformBuffer>& materialUBO,
 		const Ref<UniformBuffer>& lightUBO,
 		const Ref<UniformBuffer>& boneMatricesUBO,
 		const Ref<UniformBuffer>& modelMatrixUBO)
 	{
-		s_Data.TransformUBO = transformUBO;
-		s_Data.MaterialUBO = materialUBO;
-		s_Data.TextureFlagUBO = textureFlagUBO;
 		s_Data.CameraUBO = cameraUBO;
+		s_Data.MaterialUBO = materialUBO;
 		s_Data.LightUBO = lightUBO;
 		s_Data.BoneMatricesUBO = boneMatricesUBO;
 		s_Data.ModelMatrixUBO = modelMatrixUBO;
@@ -784,12 +778,12 @@ namespace OloEngine
 		cameraData.Position = s_Data.ViewPos;
 		cameraData._padding0 = 0.0f;
 		
-		if (s_Data.TransformUBO)
+		if (s_Data.CameraUBO)
 		{
 			constexpr u32 expectedSize = ShaderBindingLayout::CameraUBO::GetSize();
 			static_assert(sizeof(ShaderBindingLayout::CameraUBO) == expectedSize, "CameraUBO size mismatch in DrawSkinnedMesh");
-			s_Data.TransformUBO->SetData(&cameraData, expectedSize);
-			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_CAMERA, s_Data.TransformUBO->GetRendererID());
+			s_Data.CameraUBO->SetData(&cameraData, expectedSize);
+			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
 		}
 		
 		UpdateModelMatrixUBO(cmd->modelMatrix);
@@ -816,7 +810,7 @@ namespace OloEngine
 			constexpr sizet MAX_BONES = 100;
 			sizet boneCount = glm::min(cmd->boneMatrices.size(), MAX_BONES);
 			
-			s_Data.BoneMatricesUBO->SetData(cmd->boneMatrices.data(), boneCount * sizeof(glm::mat4));
+			s_Data.BoneMatricesUBO->SetData(cmd->boneMatrices.data(), static_cast<u32>(boneCount * sizeof(glm::mat4)));
 			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_ANIMATION, s_Data.BoneMatricesUBO->GetRendererID());
 		}
 
