@@ -18,13 +18,16 @@
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Core/Application.h"
+#include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Scene/Components.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
 namespace OloEngine
 {
-	// Debug flag to forcibly disable all culling
 	static bool s_ForceDisableCulling = false;
 
 	Renderer3D::Renderer3DData Renderer3D::s_Data;
@@ -51,16 +54,14 @@ namespace OloEngine
 		s_Data.SkinnedLightingShader = m_ShaderLibrary.Get("SkinnedLighting3D_Simple");
 		s_Data.QuadShader = m_ShaderLibrary.Get("Renderer3D_Quad");
 		
-		// Create all necessary UBOs following standardized binding layout
 		s_Data.TransformUBO = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
 		s_Data.LightPropertiesUBO = UniformBuffer::Create(ShaderBindingLayout::LightUBO::GetSize(), ShaderBindingLayout::UBO_LIGHTS);
 		s_Data.MaterialUBO = UniformBuffer::Create(ShaderBindingLayout::MaterialUBO::GetSize(), ShaderBindingLayout::UBO_MATERIAL);
 		s_Data.ModelMatrixUBO = UniformBuffer::Create(ShaderBindingLayout::ModelUBO::GetSize(), ShaderBindingLayout::UBO_MODEL);
 		s_Data.BoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION);
 		
-		// Legacy UBOs for compatibility (will be phased out)
-		s_Data.TextureFlagUBO = UniformBuffer::Create(sizeof(int), 2);          // TextureFlags (temporary until material UBO is fully used)
-		s_Data.CameraMatricesBuffer = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), 3); // Legacy camera buffer - now properly sized
+		s_Data.TextureFlagUBO = UniformBuffer::Create(sizeof(int), 2);
+		s_Data.CameraMatricesBuffer = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), 3);
 		
 		// Share UBOs with CommandDispatch
 		CommandDispatch::SetSharedUBOs(
@@ -73,7 +74,6 @@ namespace OloEngine
 			s_Data.ModelMatrixUBO
 		);
 		
-		// Initialize the default light
 		s_Data.SceneLight.Type = LightType::Directional;
 		s_Data.SceneLight.Position = glm::vec3(1.2f, 1.0f, 2.0f);
 		s_Data.SceneLight.Direction = glm::vec3(-0.2f, -1.0f, -0.3f);
@@ -88,7 +88,6 @@ namespace OloEngine
 		
 		s_Data.Stats.Reset();
 		
-		// Initialize the render graph with command-based render passes
 		Window& window = Application::Get().GetWindow();
 		s_Data.RGraph = CreateRef<RenderGraph>();
 		SetupRenderGraph(window.GetFramebufferWidth(), window.GetFramebufferHeight());		
@@ -100,7 +99,6 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 		OLO_CORE_INFO("Shutting down Renderer3D.");
 		
-		// Shutdown the render graph
 		if (s_Data.RGraph)
 			s_Data.RGraph->Shutdown();
 		
@@ -111,7 +109,6 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
 		
-		// Begin profiler frame tracking
 		RendererProfiler::GetInstance().BeginFrame();
 		
 		if (!s_Data.ScenePass)
@@ -126,37 +123,28 @@ namespace OloEngine
 		s_Data.ProjectionMatrix = camera.GetProjection();
 		s_Data.ViewProjectionMatrix = camera.GetViewProjection();
 
-		// Update CommandDispatch with matrices
 		CommandDispatch::SetViewProjectionMatrix(s_Data.ViewProjectionMatrix);
 		CommandDispatch::SetViewMatrix(s_Data.ViewMatrix);
 
-		// Update the view frustum for culling
 		s_Data.ViewFrustum.Update(s_Data.ViewProjectionMatrix);
 		
-		// Reset statistics for this frame
 		s_Data.Stats.Reset();
 		s_Data.CommandCounter = 0;
 		
-		// Update the camera matrices UBO
 		UpdateCameraMatricesUBO(s_Data.ViewMatrix, s_Data.ProjectionMatrix);
 		
-		// Share the view-projection matrix with CommandDispatch
 		CommandDispatch::SetViewProjectionMatrix(s_Data.ViewProjectionMatrix);
 		CommandDispatch::SetSceneLight(s_Data.SceneLight);
     	CommandDispatch::SetViewPosition(s_Data.ViewPos);
 		
-		// Reset the command bucket for this frame
 		s_Data.ScenePass->ResetCommandBucket();
 		
-		// Reset CommandDispatch state tracking
 		CommandDispatch::ResetState();
 		
-		// Explicitly update light properties UBO
 		if (s_Data.LightPropertiesUBO)
 		{
 			Material defaultMaterial;
 			
-			// Use standardized light UBO structure
 			ShaderBindingLayout::LightUBO lightData;
 
 			auto lightType = std::to_underlying(s_Data.SceneLight.Type);
@@ -182,7 +170,6 @@ namespace OloEngine
 
 			lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<f32>(lightType));
 
-			// Update the UBO directly
 			s_Data.LightPropertiesUBO->SetData(&lightData, sizeof(ShaderBindingLayout::LightUBO));
 		}
 	}
@@ -191,19 +178,16 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
         
-        // Make sure we have a valid render graph
         if (!s_Data.RGraph)
         {
             OLO_CORE_ERROR("Renderer3D::EndScene: Render graph is null!");
             return;
         }
         
-        // Ensure the final pass has the scene pass's framebuffer as input
         if (s_Data.ScenePass && s_Data.FinalPass)
         {
             s_Data.FinalPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
         }
-        // Update profiler with command bucket statistics
         auto& profiler = RendererProfiler::GetInstance();
         if (s_Data.ScenePass)
         {
@@ -211,10 +195,8 @@ namespace OloEngine
             profiler.IncrementCounter(RendererProfiler::MetricType::CommandPackets, static_cast<u32>(commandBucket.GetCommandCount()));
         }
         
-        // Apply global resources to all active shader registries
         ApplyGlobalResources();
         
-		// Execute the render graph (which will execute all passes in order)
 		s_Data.RGraph->Execute();
 
 		CommandAllocator* allocator = s_Data.ScenePass->GetCommandBucket().GetAllocator();
@@ -293,7 +275,7 @@ namespace OloEngine
 			return true;
 		
 		BoundingSphere sphere = mesh->GetTransformedBoundingSphere(transform);
-		sphere.Radius *= 1.3f; // Safety margin to prevent popping
+		sphere.Radius *= 1.3f;
 		
 		return s_Data.ViewFrustum.IsBoundingSphereVisible(sphere);
 	}
@@ -304,7 +286,7 @@ namespace OloEngine
 			return true;
 		
 		BoundingSphere sphere = mesh->GetTransformedBoundingSphere(transform);
-		sphere.Radius *= 1.3f; // Safety margin to prevent popping
+		sphere.Radius *= 1.3f;
 		
 		return s_Data.ViewFrustum.IsBoundingSphereVisible(sphere);
 	}
@@ -315,7 +297,7 @@ namespace OloEngine
 			return true;
 		
 		BoundingSphere expandedSphere = sphere;
-		expandedSphere.Radius *= 1.3f; // Safety margin to prevent popping
+		expandedSphere.Radius *= 1.3f;
 		
 		return s_Data.ViewFrustum.IsBoundingSphereVisible(expandedSphere);
 	}
@@ -498,7 +480,6 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
         
-		// Use standardized camera UBO structure
 		ShaderBindingLayout::CameraUBO cameraData;
 		cameraData.ViewProjection = projection * view;
 		cameraData.View = view;
@@ -506,7 +487,6 @@ namespace OloEngine
 		cameraData.Position = s_Data.ViewPos;
 		cameraData._padding0 = 0.0f;
 		
-		// Verify size matches our calculation
 		constexpr u32 expectedSize = ShaderBindingLayout::CameraUBO::GetSize();
 		static_assert(sizeof(ShaderBindingLayout::CameraUBO) == expectedSize, "CameraUBO size mismatch");
 		
@@ -526,22 +506,19 @@ namespace OloEngine
 		
 		s_Data.RGraph->Init(width, height);
 		
-		// Create the framebuffer specification for our scene pass
 		FramebufferSpecification scenePassSpec;
 		scenePassSpec.Width = width;
 		scenePassSpec.Height = height;
 		scenePassSpec.Samples = 1;
 		scenePassSpec.Attachments = {
-			FramebufferTextureFormat::RGBA8,       // Color attachment
-			FramebufferTextureFormat::Depth        // Depth attachment
+			FramebufferTextureFormat::RGBA8,
+			FramebufferTextureFormat::Depth
 		};
 		
-		// Create the final pass spec
 		FramebufferSpecification finalPassSpec;
 		finalPassSpec.Width = width;
 		finalPassSpec.Height = height;
 		
-		// Create the command-based passes
 		s_Data.ScenePass = CreateRef<SceneRenderPass>();
 		s_Data.ScenePass->SetName("ScenePass");
 		s_Data.ScenePass->Init(scenePassSpec);
@@ -550,18 +527,14 @@ namespace OloEngine
 		s_Data.FinalPass->SetName("FinalPass");
 		s_Data.FinalPass->Init(finalPassSpec);
 		
-		// Add passes to the render graph
 		s_Data.RGraph->AddPass(s_Data.ScenePass);
 		s_Data.RGraph->AddPass(s_Data.FinalPass);
 		
-		// Connect passes (scene pass output -> final pass input)
 		s_Data.RGraph->ConnectPass("ScenePass", "FinalPass");
 		
-		 // Explicitly set the input framebuffer for the final pass
 		s_Data.FinalPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
 		OLO_CORE_INFO("Renderer3D: Connected scene pass framebuffer to final pass input");
 		
-		// Set the final pass
 		s_Data.RGraph->SetFinalPass("FinalPass");
 	}
 	
@@ -592,7 +565,6 @@ namespace OloEngine
 		
 		s_Data.Stats.TotalMeshes++;
 		
-		// Apply frustum culling if enabled (same as regular mesh)
 		if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
 		{
 			if (!IsVisibleInFrustum(mesh, modelMatrix))
@@ -603,7 +575,6 @@ namespace OloEngine
 			}
 		}
 		
-		// Validate input parameters
 		if (!mesh || !mesh->GetVertexArray())
 		{
 			OLO_CORE_ERROR("Renderer3D::DrawSkinnedMesh: Invalid mesh ({}) or vertex array ({})!", 
@@ -613,7 +584,6 @@ namespace OloEngine
 		}
 
 		
-		// For skinned meshes, we prefer a skinned shader but fall back to lighting shader
 		Ref<Shader> shaderToUse = material.Shader ? material.Shader : s_Data.SkinnedLightingShader;
 		if (!shaderToUse)
 		{
@@ -626,25 +596,20 @@ namespace OloEngine
 			return nullptr;
 		}
 		
-		// Validate bone matrices
 		if (boneMatrices.empty())
 		{
 			OLO_CORE_WARN("Renderer3D::DrawSkinnedMesh: No bone matrices provided, using identity matrices");
 		}
 		
-		// Create and configure the command packet
 		CommandPacket* packet = CreateDrawCall<DrawSkinnedMeshCommand>();
 		auto* cmd = packet->GetCommandData<DrawSkinnedMeshCommand>();
 		
-		// Set command header
 		cmd->header.type = CommandType::DrawSkinnedMesh;
 		
-		// Set mesh data
 		cmd->vertexArray = mesh->GetVertexArray();
 		cmd->indexCount = mesh->GetIndexCount();
 		cmd->modelMatrix = modelMatrix;
 		
-		// Set material properties
 		cmd->ambient = material.Ambient;
 		cmd->diffuse = material.Diffuse;
 		cmd->specular = material.Specular;
@@ -653,14 +618,11 @@ namespace OloEngine
 		cmd->diffuseMap = material.DiffuseMap;
 		cmd->specularMap = material.SpecularMap;
 		
-		// Set shader and render state
 		cmd->shader = shaderToUse;
 		cmd->renderState = CreateRef<RenderState>();
 		
-		// **NEW: Set bone matrices for GPU skinning**
 		cmd->boneMatrices = boneMatrices;
 		
-		// Configure packet dispatch
 		packet->SetCommandType(cmd->header.type);
 		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
 		
@@ -671,22 +633,17 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
 		
-		// Get all shader registries from CommandDispatch
 		const auto& shaderRegistries = CommandDispatch::GetShaderRegistries();
 		
-		// Apply global resources to each shader's registry
 		for (const auto& [shaderID, registry] : shaderRegistries)
 		{
 			if (registry)
 			{
-				// Copy global resources to each shader's registry
 				const auto& globalResources = s_Data.GlobalResourceRegistry.GetBoundResources();
 				for (const auto& [resourceName, resource] : globalResources)
 				{
-					// Apply the resource if the shader registry has a binding for it
 					if (registry->GetBindingInfo(resourceName) != nullptr)
 					{
-						// Convert the ShaderResource variant to ShaderResourceInput and set it
 						ShaderResourceInput input;
 						if (std::holds_alternative<Ref<UniformBuffer>>(resource))
 						{
@@ -708,6 +665,72 @@ namespace OloEngine
 					}
 				}
 			}
+		}
+	}
+
+	void Renderer3D::RenderAnimatedMeshes(const Ref<Scene>& scene, const Material& defaultMaterial)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		if (!scene)
+		{
+			OLO_CORE_WARN("Renderer3D::RenderAnimatedMeshes: Scene is null");
+			return;
+		}
+
+		auto view = scene->GetAllEntitiesWith<AnimatedMeshComponent, SkeletonComponent, TransformComponent>();
+
+		for (auto entityID : view)
+		{
+			Entity entity = { entityID, scene.get() };
+			s_Data.Stats.TotalAnimatedMeshes++;
+
+			RenderAnimatedMesh(entity, defaultMaterial);
+		}
+	}
+
+	void Renderer3D::RenderAnimatedMesh(Entity entity, const Material& defaultMaterial)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		if (!entity.HasComponent<AnimatedMeshComponent>() || 
+			!entity.HasComponent<SkeletonComponent>() ||
+			!entity.HasComponent<TransformComponent>())
+		{
+			s_Data.Stats.SkippedAnimatedMeshes++;
+			return;
+		}
+
+		auto& animatedMeshComp = entity.GetComponent<AnimatedMeshComponent>();
+		auto& skeletonComp = entity.GetComponent<SkeletonComponent>();
+		auto& transformComp = entity.GetComponent<TransformComponent>();
+
+		if (!animatedMeshComp.m_Mesh)
+		{
+			OLO_CORE_WARN("Renderer3D::RenderAnimatedMesh: Entity {} has invalid mesh", 
+						 entity.GetComponent<TagComponent>().Tag);
+			s_Data.Stats.SkippedAnimatedMeshes++;
+			return;
+		}
+
+		glm::mat4 worldTransform = transformComp.GetTransform();
+
+		Material material = defaultMaterial;
+
+		const std::vector<glm::mat4>& boneMatrices = skeletonComp.m_FinalBoneMatrices;
+
+		auto* packet = DrawSkinnedMesh(
+			animatedMeshComp.m_Mesh,
+			worldTransform,
+			material,
+			boneMatrices,
+			false
+		);
+
+		if (packet)
+		{
+			SubmitPacket(packet);
+			s_Data.Stats.RenderedAnimatedMeshes++;
 		}
 	}
 }

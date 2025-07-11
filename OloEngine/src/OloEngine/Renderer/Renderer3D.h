@@ -22,6 +22,8 @@ namespace OloEngine {
     class SceneRenderPass;
     class FinalRenderPass;
     class CommandBucket;
+    class Scene;
+    class Entity;
 }
 
 namespace OloEngine
@@ -38,8 +40,21 @@ namespace OloEngine
 			u32 DrawCalls = 0;
 			u32 ShaderBinds = 0;
 			u32 TextureBinds = 0;
+			u32 TotalAnimatedMeshes = 0;
+			u32 RenderedAnimatedMeshes = 0;
+			u32 SkippedAnimatedMeshes = 0;
 			
-			void Reset() { TotalMeshes = 0; CulledMeshes = 0; DrawCalls = 0; ShaderBinds = 0; TextureBinds = 0; }
+			void Reset() 
+			{ 
+				TotalMeshes = 0; 
+				CulledMeshes = 0; 
+				DrawCalls = 0; 
+				ShaderBinds = 0; 
+				TextureBinds = 0; 
+				TotalAnimatedMeshes = 0; 
+				RenderedAnimatedMeshes = 0; 
+				SkippedAnimatedMeshes = 0; 
+			}
 		};
 
 	public:
@@ -54,6 +69,10 @@ namespace OloEngine
 		static CommandPacket* DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true);
 		static CommandPacket* DrawLightCube(const glm::mat4& modelMatrix);
 		static CommandPacket* DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
+		
+		// ECS Animated Mesh Rendering
+		static void RenderAnimatedMeshes(const Ref<Scene>& scene, const Material& defaultMaterial);
+		static void RenderAnimatedMesh(Entity entity, const Material& defaultMaterial);
 	
 		static void SetLight(const Light& light);
 		static void SetViewPosition(const glm::vec3& position);

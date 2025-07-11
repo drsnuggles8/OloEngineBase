@@ -15,7 +15,6 @@
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
-#include "OloEngine/Animation/AnimatedMeshRenderSystem.h"
 #include "OloEngine/Scene/Components.h"
 
 class Sandbox3D : public OloEngine::Layer

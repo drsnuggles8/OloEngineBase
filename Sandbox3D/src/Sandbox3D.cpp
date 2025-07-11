@@ -43,7 +43,7 @@ Sandbox3D::Sandbox3D()
     m_TexturedMaterial.Diffuse = glm::vec3(1.0f);
     m_TexturedMaterial.Specular = glm::vec3(1.0f);
     m_TexturedMaterial.Shininess = 64.0f;
-    m_TexturedMaterial.UseTextureMaps = true;              // Enable texture mapping
+    m_TexturedMaterial.UseTextureMaps = true;
 	// Initialize light with default values
     m_Light.Type = OloEngine::LightType::Directional;
     m_Light.Position = glm::vec3(1.2f, 1.0f, 2.0f);
@@ -341,7 +341,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
             // This will render entities that have the required components and are enabled
             if (m_ShowSingleBoneTest || m_ShowMultiBoneTest)
             {
-                OloEngine::AnimatedMeshRenderSystem::RenderAnimatedMeshes(m_TestScene, m_GoldMaterial);
+                OloEngine::Renderer3D::RenderAnimatedMeshes(m_TestScene, m_GoldMaterial);
             }
         }
 
@@ -631,7 +631,7 @@ void Sandbox3D::OnImGuiRender()
 
     if (ImGui::CollapsingHeader("ECS Animated Mesh", ImGuiTreeNodeFlags_None))
     {
-        ImGui::TextWrapped("ECS Animation System: Controls the gold cube on the left side using AnimatedMeshRenderSystem and ECS components.");
+        ImGui::TextWrapped("ECS Animation System: Controls the gold cube on the left side using integrated Renderer3D animated mesh rendering and ECS components.");
         ImGui::Separator();
         RenderECSAnimatedMeshPanel();
     }
@@ -1356,7 +1356,7 @@ void Sandbox3D::RenderECSAnimatedMeshPanel()
     
     ImGui::Separator();
     ImGui::Text("Render System Status: Active");
-    ImGui::Text("This entity is rendered via AnimatedMeshRenderSystem");
+    ImGui::Text("This entity is rendered via integrated Renderer3D animated mesh rendering");
 }
 
 OloEngine::Ref<OloEngine::SkinnedMesh> Sandbox3D::CreateSkinnedCubeMesh()
