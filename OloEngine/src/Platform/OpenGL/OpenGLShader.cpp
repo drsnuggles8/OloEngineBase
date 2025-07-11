@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 
 #include <glad/gl.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -240,10 +241,10 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
 		
-		// Unregister the resource registry from CommandDispatch
+		// Unregister the resource registry from Renderer3D
 		if (m_RendererID != 0)
 		{
-			OloEngine::CommandDispatch::UnregisterShaderRegistry(m_RendererID);
+			OloEngine::Renderer3D::UnregisterShaderRegistry(m_RendererID);
 		}
 		
 		// Shutdown the resource registry
@@ -557,7 +558,7 @@ namespace OloEngine
 		OLO_SHADER_REGISTER_MANUAL(m_RendererID, m_Name, m_FilePath);
 		
 		// Register the resource registry with CommandDispatch
-		OloEngine::CommandDispatch::RegisterShaderRegistry(m_RendererID, &m_ResourceRegistry);
+		OloEngine::Renderer3D::RegisterShaderRegistry(m_RendererID, &m_ResourceRegistry);
 		
 		// Store shader source code in debugger
 		for (const auto& [stage, spirv] : m_OpenGLSPIRV)
@@ -689,7 +690,7 @@ namespace OloEngine
 	OLO_SHADER_REGISTER_MANUAL(m_RendererID, m_Name, m_FilePath);
 	
 	// Register the resource registry with CommandDispatch
-	OloEngine::CommandDispatch::RegisterShaderRegistry(m_RendererID, &m_ResourceRegistry);
+	OloEngine::Renderer3D::RegisterShaderRegistry(m_RendererID, &m_ResourceRegistry);
 	
 	// Store shader source code in debugger  
 	for (const auto& [stage, spirv] : m_VulkanSPIRV)

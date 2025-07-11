@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include "OloEngine/Renderer/Light.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 
 #include <glad/gl.h>
 
@@ -26,8 +27,6 @@ namespace OloEngine
 		
 		u32 CurrentBoundShaderID = 0;
 		std::array<u32, 32> BoundTextureIDs = { 0 };
-		
-		std::unordered_map<u32, ShaderResourceRegistry*> ShaderRegistries;
 		
 		CommandDispatch::Statistics Stats;
 	};
@@ -343,7 +342,7 @@ namespace OloEngine
     {
         auto const* cmd = static_cast<const SetShaderResourceCommand*>(data);
         
-        auto* registry = GetShaderRegistry(cmd->shaderID);
+        auto* registry = Renderer3D::GetShaderRegistry(cmd->shaderID);
         if (registry)
         {
             bool success = registry->SetResource(cmd->resourceName, cmd->resourceInput);
@@ -934,44 +933,5 @@ namespace OloEngine
 		s_Data.Stats.DrawCalls++;
 		
 		api.DrawIndexed(cmd->quadVA, 6);
-	}
-
-	ShaderResourceRegistry* CommandDispatch::GetShaderRegistry(u32 shaderID)
-	{
-		auto it = s_Data.ShaderRegistries.find(shaderID);
-		return it != s_Data.ShaderRegistries.end() ? it->second : nullptr;
-	}
-
-	void CommandDispatch::RegisterShaderRegistry(u32 shaderID, ShaderResourceRegistry* registry)
-	{
-		if (registry)
-		{
-			s_Data.ShaderRegistries[shaderID] = registry;
-			OLO_CORE_TRACE("Registered shader registry for shader ID: {0}", shaderID);
-		}
-	}
-
-	void CommandDispatch::UnregisterShaderRegistry(u32 shaderID)
-	{
-		auto it = s_Data.ShaderRegistries.find(shaderID);
-		if (it != s_Data.ShaderRegistries.end())
-		{
-			s_Data.ShaderRegistries.erase(it);
-			OLO_CORE_TRACE("Unregistered shader registry for shader ID: {0}", shaderID);
-		}
-	}
-
-	const std::unordered_map<u32, ShaderResourceRegistry*>& CommandDispatch::GetShaderRegistries()
-	{
-		return s_Data.ShaderRegistries;
-	}
-
-	void CommandDispatch::ApplyResourceBindings(u32 shaderID)
-	{
-		auto* registry = GetShaderRegistry(shaderID);
-		if (registry)
-		{
-			registry->ApplyBindings();
-		}
 	}
 }

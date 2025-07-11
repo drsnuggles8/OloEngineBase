@@ -93,8 +93,11 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 		OLO_CORE_INFO("Shutting down Renderer3D.");
 		
+		// Clear shader registries
+		s_Data.ShaderRegistries.clear();
+		
 		if (s_Data.RGraph)
-			s_Data.RGraph->Shutdown();
+		 s_Data.RGraph->Shutdown();
 		
 		OLO_CORE_INFO("Renderer3D shutdown complete.");
 	}
@@ -564,7 +567,6 @@ namespace OloEngine
 			if (!IsVisibleInFrustum(mesh, modelMatrix))
 			{
 				s_Data.Stats.CulledMeshes++;
-				OLO_CORE_INFO("DrawSkinnedMesh: Mesh culled by frustum");
 				return nullptr;
 			}
 		}
@@ -627,7 +629,7 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
 		
-		const auto& shaderRegistries = CommandDispatch::GetShaderRegistries();
+		const auto& shaderRegistries = s_Data.ShaderRegistries;
 		
 		for (const auto& [shaderID, registry] : shaderRegistries)
 		{
@@ -725,6 +727,46 @@ namespace OloEngine
 		{
 			SubmitPacket(packet);
 			s_Data.Stats.RenderedAnimatedMeshes++;
+		}
+	}
+
+	// Shader registry management methods
+	ShaderResourceRegistry* Renderer3D::GetShaderRegistry(u32 shaderID)
+	{
+		auto it = s_Data.ShaderRegistries.find(shaderID);
+		return it != s_Data.ShaderRegistries.end() ? it->second : nullptr;
+	}
+
+	void Renderer3D::RegisterShaderRegistry(u32 shaderID, ShaderResourceRegistry* registry)
+	{
+		if (registry)
+		{
+			s_Data.ShaderRegistries[shaderID] = registry;
+			OLO_CORE_TRACE("Renderer3D: Registered shader registry for shader ID: {0}", shaderID);
+		}
+	}
+
+	void Renderer3D::UnregisterShaderRegistry(u32 shaderID)
+	{
+		auto it = s_Data.ShaderRegistries.find(shaderID);
+		if (it != s_Data.ShaderRegistries.end())
+		{
+			s_Data.ShaderRegistries.erase(it);
+			OLO_CORE_TRACE("Renderer3D: Unregistered shader registry for shader ID: {0}", shaderID);
+		}
+	}
+
+	const std::unordered_map<u32, ShaderResourceRegistry*>& Renderer3D::GetShaderRegistries()
+	{
+		return s_Data.ShaderRegistries;
+	}
+
+	void Renderer3D::ApplyResourceBindings(u32 shaderID)
+	{
+		auto* registry = GetShaderRegistry(shaderID);
+		if (registry)
+		{
+			registry->ApplyBindings();
 		}
 	}
 }

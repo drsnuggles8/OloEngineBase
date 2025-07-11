@@ -100,6 +100,25 @@ namespace OloEngine
 		}
 		static void ApplyGlobalResources();
 		
+		// Shader registry management
+		static ShaderResourceRegistry* GetShaderRegistry(u32 shaderID);
+		static void RegisterShaderRegistry(u32 shaderID, ShaderResourceRegistry* registry);
+		static void UnregisterShaderRegistry(u32 shaderID);
+		static const std::unordered_map<u32, ShaderResourceRegistry*>& GetShaderRegistries();
+		
+		// High-level resource setting methods
+		template<typename T>
+		static bool SetShaderResource(u32 shaderID, const std::string& name, const Ref<T>& resource)
+		{
+			auto* registry = GetShaderRegistry(shaderID);
+			if (registry)
+			{
+				return registry->SetResource(name, resource);
+			}
+			return false;
+		}
+		static void ApplyResourceBindings(u32 shaderID);
+		
 		// Debug access to command bucket for debugging tools
 		static const CommandBucket* GetCommandBucket() { return s_Data.ScenePass ? &s_Data.ScenePass->GetCommandBucket() : nullptr; }
 		
@@ -160,6 +179,9 @@ namespace OloEngine
 			
 			// Global resource registry for scene-wide resources like environment maps, shadows, etc.
 			ShaderResourceRegistry GlobalResourceRegistry;
+			
+			// Shader registry management
+			std::unordered_map<u32, ShaderResourceRegistry*> ShaderRegistries;
 			
 			Ref<RenderGraph> RGraph;
 			Ref<SceneRenderPass> ScenePass;

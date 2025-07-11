@@ -47,26 +47,6 @@ namespace OloEngine
 			const Ref<UniformBuffer>& modelMatrixUBO
 		);
 
-        // Registry management for shader resources
-        static ShaderResourceRegistry* GetShaderRegistry(u32 shaderID);
-        static void RegisterShaderRegistry(u32 shaderID, ShaderResourceRegistry* registry);
-        static void UnregisterShaderRegistry(u32 shaderID);
-        static const std::unordered_map<u32, ShaderResourceRegistry*>& GetShaderRegistries();
-        
-        // High-level resource setting methods
-        template<typename T>
-        static bool SetShaderResource(u32 shaderID, const std::string& name, const Ref<T>& resource)
-        {
-            auto* registry = GetShaderRegistry(shaderID);
-            if (registry)
-            {
-                return registry->SetResource(name, resource);
-            }
-            return false;
-        }
-        
-        static void ApplyResourceBindings(u32 shaderID);
-
         // State management dispatch functions
         static void SetViewport(const void* data, RendererAPI& api);
         static void SetClearColor(const void* data, RendererAPI& api);
