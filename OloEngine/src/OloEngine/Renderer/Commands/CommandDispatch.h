@@ -26,19 +26,26 @@ namespace OloEngine
             }
         };
 
-		// Initialize all command dispatch functions
 		static void Initialize();
+        static void Shutdown();
         
         static CommandDispatchFn GetDispatchFunction(CommandType type);	
-		static void SetSharedUBOs(
-            const Ref<UniformBuffer>& cameraUBO,
-            const Ref<UniformBuffer>& materialUBO,
+		
+		// State tracking for current frame rendering
+		static void ResetState();
+		static void SetViewProjectionMatrix(const glm::mat4& vp);
+		static void SetViewMatrix(const glm::mat4& view);
+		static void SetSceneLight(const Light& light);
+		static void SetViewPosition(const glm::vec3& viewPos);
+		
+		// UBO access - Renderer3D provides these, CommandDispatch uses them
+		static void SetUBOReferences(
+			const Ref<UniformBuffer>& cameraUBO,
+			const Ref<UniformBuffer>& materialUBO,
 			const Ref<UniformBuffer>& lightUBO,
 			const Ref<UniformBuffer>& boneMatricesUBO,
-			const Ref<UniformBuffer>& modelMatrixUBO);
-
-		static void SetViewProjectionMatrix(const glm::mat4& viewProjection);
-		static void SetViewMatrix(const glm::mat4& view);
+			const Ref<UniformBuffer>& modelMatrixUBO
+		);
 
         // Registry management for shader resources
         static ShaderResourceRegistry* GetShaderRegistry(u32 shaderID);
@@ -100,15 +107,7 @@ namespace OloEngine
 		
 		static Statistics& GetStatistics();
 
-		static void ResetState();
-		static void SetSceneLight(const Light& light);
-		static void SetViewPosition(const glm::vec3& viewPos);
-		static void UpdateLightPropertiesUBO(const Light& light, const glm::vec3& viewPos);
-
 	private:
-        static void UpdateModelMatrixUBO(const glm::mat4& modelMatrix);
-        static void UpdateMaterialUBO(const glm::vec3& ambient, const glm::vec3& diffuse, 
-                                     const glm::vec3& specular, f32 shininess);
         static void UpdateMaterialTextureFlag(bool useTextures);
     };
 }

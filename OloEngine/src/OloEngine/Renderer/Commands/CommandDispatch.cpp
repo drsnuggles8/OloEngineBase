@@ -33,156 +33,16 @@ namespace OloEngine
 	};
 
 	static CommandDispatchData s_Data;
-	void CommandDispatch::SetSharedUBOs(
-		const Ref<UniformBuffer>& cameraUBO,
-		const Ref<UniformBuffer>& materialUBO,
-		const Ref<UniformBuffer>& lightUBO,
-		const Ref<UniformBuffer>& boneMatricesUBO,
-		const Ref<UniformBuffer>& modelMatrixUBO)
-	{
-		s_Data.CameraUBO = cameraUBO;
-		s_Data.MaterialUBO = materialUBO;
-		s_Data.LightUBO = lightUBO;
-		s_Data.BoneMatricesUBO = boneMatricesUBO;
-		s_Data.ModelMatrixUBO = modelMatrixUBO;
-		
-		OLO_CORE_INFO("CommandDispatch: Shared UBOs configured.");
-	}
-
-	void CommandDispatch::SetSceneLight(const Light& light)
-	{
-		s_Data.SceneLight = light;
-	}
-
-	void CommandDispatch::SetViewPosition(const glm::vec3& viewPos)
-	{
-		s_Data.ViewPos = viewPos;
-	}
-	void CommandDispatch::UpdateLightPropertiesUBO(const Light& light, const glm::vec3& viewPos)
+	
+	// Array of dispatch functions indexed by CommandType
+	static CommandDispatchFn s_DispatchTable[static_cast<sizet>(CommandType::SetMultisampling) + 1];
+	
+	void CommandDispatch::Initialize()
 	{
 		OLO_PROFILE_FUNCTION();
 		
-		if (!s_Data.LightUBO)
-		{
-			OLO_CORE_WARN("CommandDispatch::UpdateLightPropertiesUBO: LightUBO not initialized");
-			return;
-		}		
-		ShaderBindingLayout::LightUBO lightData;
-
-		auto lightType = std::to_underlying(light.Type);
-		lightData.LightPosition = glm::vec4(light.Position, 1.0f);
-		lightData.LightDirection = glm::vec4(light.Direction, 0.0f);
-		lightData.LightAmbient = glm::vec4(light.Ambient, 0.0f);
-		lightData.LightDiffuse = glm::vec4(light.Diffuse, 0.0f);
-		lightData.LightSpecular = glm::vec4(light.Specular, 0.0f);
-		lightData.LightAttParams = glm::vec4(
-			light.Constant,
-			light.Linear,
-			light.Quadratic,
-			0.0f
-		);
-
-		lightData.LightSpotParams = glm::vec4(
-			light.CutOff,
-			light.OuterCutOff,
-			0.0f,
-			0.0f
-		);
-
-		lightData.ViewPosAndLightType = glm::vec4(viewPos, static_cast<f32>(lightType));
-
-		s_Data.LightUBO->SetData(&lightData, sizeof(ShaderBindingLayout::LightUBO));
-	}
-
-	CommandDispatch::Statistics& CommandDispatch::GetStatistics()
-	{
-		return s_Data.Stats;
-	}
-
-	void CommandDispatch::SetViewProjectionMatrix(const glm::mat4& viewProjection)
-    {
-        s_Data.ViewProjectionMatrix = viewProjection;
-    }
-
-	void CommandDispatch::SetViewMatrix(const glm::mat4& view)
-    {
-        s_Data.ViewMatrix = view;
-    }
-    
-    void CommandDispatch::UpdateModelMatrixUBO(const glm::mat4& modelMatrix)
-    {
-        OLO_PROFILE_FUNCTION();
-        
-        if (!s_Data.ModelMatrixUBO)
-        {
-            OLO_CORE_WARN("CommandDispatch::UpdateModelMatrixUBO: ModelMatrixUBO not initialized");
-            return;
-        }
-        
-        ShaderBindingLayout::ModelUBO modelData;
-        modelData.Model = modelMatrix;
-        modelData.Normal = glm::transpose(glm::inverse(modelMatrix));
-        
-        constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
-        static_assert(sizeof(ShaderBindingLayout::ModelUBO) == expectedSize, "ModelUBO size mismatch");
-        
-        s_Data.ModelMatrixUBO->SetData(&modelData, expectedSize);
-        glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
-    }
-    
-    void CommandDispatch::UpdateMaterialUBO(const glm::vec3& ambient, const glm::vec3& diffuse, const glm::vec3& specular, f32 shininess)
-    {
-        OLO_PROFILE_FUNCTION();
-        
-        if (!s_Data.MaterialUBO)
-        {
-            OLO_CORE_WARN("CommandDispatch::UpdateMaterialUBO: MaterialUBO not initialized");
-            return;
-        }
-        
-        ShaderBindingLayout::MaterialUBO materialData;
-        materialData.Ambient = glm::vec4(ambient, 1.0f);
-        materialData.Diffuse = glm::vec4(diffuse, 1.0f);
-        materialData.Specular = glm::vec4(specular, shininess);
-        materialData.Emissive = glm::vec4(0.0f);
-        materialData.UseTextureMaps = 0;  // Will be set by UpdateMaterialTextureFlag
-        materialData._padding[0] = materialData._padding[1] = materialData._padding[2] = 0;
-        
-        constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
-        static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch");
-        
-        s_Data.MaterialUBO->SetData(&materialData, expectedSize);
-    }
-    
-    void CommandDispatch::UpdateMaterialTextureFlag(bool useTextures)
-    {
-        OLO_PROFILE_FUNCTION();
-        
-        if (!s_Data.MaterialUBO)
-        {
-            OLO_CORE_WARN("CommandDispatch::UpdateMaterialTextureFlag: MaterialUBO not initialized");
-            return;
-        }
-        
-        // Update only the UseTextureMaps field in the material UBO
-        i32 flag = useTextures ? 1 : 0;
-        u32 offset = static_cast<u32>(offsetof(ShaderBindingLayout::MaterialUBO, UseTextureMaps));
-        
-        s_Data.MaterialUBO->SetData(&flag, sizeof(i32), offset);
-    }
-
-    // Array of dispatch functions indexed by CommandType
-    static CommandDispatchFn s_DispatchTable[static_cast<sizet>(CommandType::SetMultisampling) + 1] = { nullptr };
-
-    void CommandDispatch::Initialize()
-    {
-        OLO_PROFILE_FUNCTION();
-
-		s_Data.CurrentBoundShaderID = 0;
-		std::fill(s_Data.BoundTextureIDs.begin(), s_Data.BoundTextureIDs.end(), 0);
-		s_Data.Stats.Reset();
-        
-       	std::ranges::fill(s_DispatchTable, nullptr);
+		// Initialize dispatch table
+		std::ranges::fill(s_DispatchTable, nullptr);
         
         // State management dispatch functions
         s_DispatchTable[static_cast<sizet>(CommandType::SetViewport)] = CommandDispatch::SetViewport;
@@ -222,8 +82,87 @@ namespace OloEngine
         s_DispatchTable[static_cast<sizet>(CommandType::DrawMeshInstanced)] = CommandDispatch::DrawMeshInstanced;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawSkinnedMesh)] = CommandDispatch::DrawSkinnedMesh;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawQuad)] = CommandDispatch::DrawQuad;
+		
+		s_Data.CurrentBoundShaderID = 0;
+		std::fill(s_Data.BoundTextureIDs.begin(), s_Data.BoundTextureIDs.end(), 0);
+		s_Data.Stats.Reset();
+		
+		OLO_CORE_INFO("CommandDispatch: Initialized (UBOs managed by Renderer3D)");
+	}
+	
+	void CommandDispatch::Shutdown()
+	{
+		OLO_PROFILE_FUNCTION();
+		s_Data.CameraUBO.reset();
+		s_Data.MaterialUBO.reset();
+		s_Data.LightUBO.reset();
+		s_Data.BoneMatricesUBO.reset();
+		s_Data.ModelMatrixUBO.reset();
+	}
+
+	void CommandDispatch::SetUBOReferences(
+		const Ref<UniformBuffer>& cameraUBO,
+		const Ref<UniformBuffer>& materialUBO,
+		const Ref<UniformBuffer>& lightUBO,
+		const Ref<UniformBuffer>& boneMatricesUBO,
+		const Ref<UniformBuffer>& modelMatrixUBO)
+	{
+		s_Data.CameraUBO = cameraUBO;
+		s_Data.MaterialUBO = materialUBO;
+		s_Data.LightUBO = lightUBO;
+		s_Data.BoneMatricesUBO = boneMatricesUBO;
+		s_Data.ModelMatrixUBO = modelMatrixUBO;
+	}
+
+	void CommandDispatch::ResetState()
+	{
+		s_Data.CurrentBoundShaderID = 0;
+		s_Data.BoundTextureIDs.fill(0);
+		s_Data.Stats.Reset();
+	}
+
+	void CommandDispatch::SetViewProjectionMatrix(const glm::mat4& vp)
+	{
+		s_Data.ViewProjectionMatrix = vp;
+	}
+
+	void CommandDispatch::SetViewMatrix(const glm::mat4& view)
+	{
+		s_Data.ViewMatrix = view;
+	}
+
+	void CommandDispatch::SetSceneLight(const Light& light)
+	{
+		s_Data.SceneLight = light;
+	}
+
+	void CommandDispatch::SetViewPosition(const glm::vec3& viewPos)
+	{
+		s_Data.ViewPos = viewPos;
+	}
+
+	CommandDispatch::Statistics& CommandDispatch::GetStatistics()
+	{
+		return s_Data.Stats;
+	}
+
+    void CommandDispatch::UpdateMaterialTextureFlag(bool useTextures)
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        if (!s_Data.MaterialUBO)
+        {
+            OLO_CORE_WARN("CommandDispatch::UpdateMaterialTextureFlag: MaterialUBO not initialized");
+            return;
+        }
+        
+        // Update only the UseTextureMaps field in the material UBO
+        i32 flag = useTextures ? 1 : 0;
+        u32 offset = static_cast<u32>(offsetof(ShaderBindingLayout::MaterialUBO, UseTextureMaps));
+        
+        s_Data.MaterialUBO->SetData(&flag, sizeof(i32), offset);
     }
-    
+
     CommandDispatchFn CommandDispatch::GetDispatchFunction(CommandType type)
     {
         if (type == CommandType::Invalid || static_cast<sizet>(type) >= sizeof(s_DispatchTable) / sizeof(CommandDispatchFn))
@@ -540,7 +479,19 @@ namespace OloEngine
 			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
 		}
 		
-		UpdateModelMatrixUBO(cmd->transform);
+		// Update model matrix UBO
+		if (s_Data.ModelMatrixUBO)
+		{
+			ShaderBindingLayout::ModelUBO modelData;
+			modelData.Model = cmd->transform;
+			modelData.Normal = glm::transpose(glm::inverse(cmd->transform));
+			
+			constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
+			static_assert(sizeof(ShaderBindingLayout::ModelUBO) == expectedSize, "ModelUBO size mismatch");
+			
+			s_Data.ModelMatrixUBO->SetData(&modelData, expectedSize);
+			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+		}
 		
 		ShaderBindingLayout::MaterialUBO materialData;
 		materialData.Ambient = glm::vec4(cmd->ambient, 1.0f);
@@ -668,7 +619,23 @@ namespace OloEngine
 			s_Data.Stats.ShaderBinds++;
 		}
 		
-		UpdateMaterialUBO(cmd->ambient, cmd->diffuse, cmd->specular, cmd->shininess);
+		// Update material UBO
+		ShaderBindingLayout::MaterialUBO materialData;
+		materialData.Ambient = glm::vec4(cmd->ambient, 1.0f);
+		materialData.Diffuse = glm::vec4(cmd->diffuse, 1.0f);
+		materialData.Specular = glm::vec4(cmd->specular, cmd->shininess);
+		materialData.Emissive = glm::vec4(0.0f);
+		materialData.UseTextureMaps = cmd->useTextureMaps ? 1 : 0;
+		materialData._padding[0] = materialData._padding[1] = materialData._padding[2] = 0;
+		
+		if (s_Data.MaterialUBO)
+		{
+			constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
+			static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch");
+			
+			s_Data.MaterialUBO->SetData(&materialData, expectedSize);
+		}
+		
 		UpdateMaterialTextureFlag(cmd->useTextureMaps);
 		
 		// For instanced rendering, we'll set model matrices as shader uniforms
@@ -786,7 +753,19 @@ namespace OloEngine
 			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
 		}
 		
-		UpdateModelMatrixUBO(cmd->modelMatrix);
+		// Update model matrix UBO
+		if (s_Data.ModelMatrixUBO)
+		{
+			ShaderBindingLayout::ModelUBO modelData;
+			modelData.Model = cmd->modelMatrix;
+			modelData.Normal = glm::transpose(glm::inverse(cmd->modelMatrix));
+			
+			constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
+			static_assert(sizeof(ShaderBindingLayout::ModelUBO) == expectedSize, "ModelUBO size mismatch");
+			
+			s_Data.ModelMatrixUBO->SetData(&modelData, expectedSize);
+			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+		}
 		
 
 		ShaderBindingLayout::MaterialUBO materialData;
@@ -932,7 +911,19 @@ namespace OloEngine
 			s_Data.Stats.ShaderBinds++;
 		}
 		
-		UpdateModelMatrixUBO(cmd->transform);
+		// Update model matrix UBO
+		if (s_Data.ModelMatrixUBO)
+		{
+			ShaderBindingLayout::ModelUBO modelData;
+			modelData.Model = cmd->transform;
+			modelData.Normal = glm::transpose(glm::inverse(cmd->transform));
+			
+			constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
+			static_assert(sizeof(ShaderBindingLayout::ModelUBO) == expectedSize, "ModelUBO size mismatch");
+			
+			s_Data.ModelMatrixUBO->SetData(&modelData, expectedSize);
+			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
+		}
 		
 		cmd->texture->Bind(ShaderBindingLayout::TEX_DIFFUSE);
 		s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = cmd->texture->GetRendererID();
@@ -943,13 +934,6 @@ namespace OloEngine
 		s_Data.Stats.DrawCalls++;
 		
 		api.DrawIndexed(cmd->quadVA, 6);
-	}
-
-	void CommandDispatch::ResetState()
-	{
-		s_Data.CurrentBoundShaderID = 0;
-        std::ranges::fill(s_Data.BoundTextureIDs, 0);
-		s_Data.Stats.Reset();
 	}
 
 	ShaderResourceRegistry* CommandDispatch::GetShaderRegistry(u32 shaderID)

@@ -60,7 +60,7 @@ namespace OloEngine
 		s_Data.ModelMatrixUBO = UniformBuffer::Create(ShaderBindingLayout::ModelUBO::GetSize(), ShaderBindingLayout::UBO_MODEL);
 		s_Data.BoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION);
 		
-		CommandDispatch::SetSharedUBOs(
+		CommandDispatch::SetUBOReferences(
 			s_Data.CameraUBO,
 			s_Data.MaterialUBO, 
 			s_Data.LightPropertiesUBO,
@@ -126,6 +126,7 @@ namespace OloEngine
 		s_Data.CommandCounter = 0;
 		
 		UpdateCameraMatricesUBO(s_Data.ViewMatrix, s_Data.ProjectionMatrix);
+		UpdateLightPropertiesUBO();
 		
 		CommandDispatch::SetSceneLight(s_Data.SceneLight);
     	CommandDispatch::SetViewPosition(s_Data.ViewPos);
@@ -133,36 +134,6 @@ namespace OloEngine
 		s_Data.ScenePass->ResetCommandBucket();
 		
 		CommandDispatch::ResetState();
-		
-		if (s_Data.LightPropertiesUBO)
-		{
-			ShaderBindingLayout::LightUBO lightData;
-
-			auto lightType = std::to_underlying(s_Data.SceneLight.Type);
-			lightData.LightPosition = glm::vec4(s_Data.SceneLight.Position, 1.0f);
-			lightData.LightDirection = glm::vec4(s_Data.SceneLight.Direction, 0.0f);
-			lightData.LightAmbient = glm::vec4(s_Data.SceneLight.Ambient, 0.0f);
-			lightData.LightDiffuse = glm::vec4(s_Data.SceneLight.Diffuse, 0.0f);
-			lightData.LightSpecular = glm::vec4(s_Data.SceneLight.Specular, 0.0f);
-
-			lightData.LightAttParams = glm::vec4(
-				s_Data.SceneLight.Constant,
-				s_Data.SceneLight.Linear,
-				s_Data.SceneLight.Quadratic,
-				0.0f
-			);
-
-			lightData.LightSpotParams = glm::vec4(
-				s_Data.SceneLight.CutOff,
-				s_Data.SceneLight.OuterCutOff,
-				0.0f,
-				0.0f
-			);
-
-			lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<f32>(lightType));
-
-			s_Data.LightPropertiesUBO->SetData(&lightData, sizeof(ShaderBindingLayout::LightUBO));
-		}
 	}
 	
 	void Renderer3D::EndScene()
@@ -482,6 +453,38 @@ namespace OloEngine
 		static_assert(sizeof(ShaderBindingLayout::CameraUBO) == expectedSize, "CameraUBO size mismatch");
 		
 		s_Data.CameraUBO->SetData(&cameraData, expectedSize);
+	}
+	
+	void Renderer3D::UpdateLightPropertiesUBO()
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (s_Data.LightPropertiesUBO)
+		{
+			ShaderBindingLayout::LightUBO lightData;
+			auto lightType = std::to_underlying(s_Data.SceneLight.Type);
+			
+			lightData.LightPosition = glm::vec4(s_Data.SceneLight.Position, 1.0f);
+			lightData.LightDirection = glm::vec4(s_Data.SceneLight.Direction, 0.0f);
+			lightData.LightAmbient = glm::vec4(s_Data.SceneLight.Ambient, 0.0f);
+			lightData.LightDiffuse = glm::vec4(s_Data.SceneLight.Diffuse, 0.0f);
+			lightData.LightSpecular = glm::vec4(s_Data.SceneLight.Specular, 0.0f);
+			lightData.LightAttParams = glm::vec4(
+				s_Data.SceneLight.Constant,
+				s_Data.SceneLight.Linear,
+				s_Data.SceneLight.Quadratic,
+				0.0f
+			);
+			lightData.LightSpotParams = glm::vec4(
+				s_Data.SceneLight.CutOff,
+				s_Data.SceneLight.OuterCutOff,
+				0.0f,
+				0.0f
+			);
+			lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<f32>(lightType));
+			
+			s_Data.LightPropertiesUBO->SetData(&lightData, sizeof(ShaderBindingLayout::LightUBO));
+		}
 	}
 	
 	void Renderer3D::SetupRenderGraph(u32 width, u32 height)

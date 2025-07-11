@@ -127,6 +127,7 @@ namespace OloEngine
 
 	private:
 		static void UpdateCameraMatricesUBO(const glm::mat4& view, const glm::mat4& projection);
+		static void UpdateLightPropertiesUBO();
 		static void SetupRenderGraph(u32 width, u32 height);
 
 	private:		struct Renderer3DData
