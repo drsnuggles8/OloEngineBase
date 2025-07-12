@@ -29,8 +29,42 @@ public:
 	void OnImGuiRender() override;
 	void OnEvent(OloEngine::Event& e) override;
 
+	// Scene types for organized testing
+	enum class SceneType
+	{
+		MaterialTesting = 0,
+		AnimationTesting = 1,
+		LightingTesting = 2,
+		StateTesting = 3,
+		ModelLoading = 4
+	};
+
 
 private:
+	// Scene management
+	SceneType m_CurrentScene = SceneType::MaterialTesting;
+	const char* m_SceneNames[5] = { 
+		"Material Testing", 
+		"Animation Testing", 
+		"Lighting Testing", 
+		"State Testing", 
+		"Model Loading"
+	};
+	
+	// Scene rendering methods
+	void RenderMaterialTestingScene();
+	void RenderAnimationTestingScene();
+	void RenderLightingTestingScene();
+	void RenderStateTestingScene();
+	void RenderModelLoadingScene();
+	
+	// Scene UI methods
+	void RenderMaterialTestingUI();
+	void RenderAnimationTestingUI();
+	void RenderLightingTestingUI();
+	void RenderStateTestingUI();
+	void RenderModelLoadingUI();
+
 	// ECS Scene for animated mesh testing
 	OloEngine::Ref<OloEngine::Scene> m_TestScene;
 	OloEngine::Entity m_AnimatedMeshEntity;
@@ -61,7 +95,9 @@ private:
 	bool m_ShowSingleBoneTest = true;
 	bool m_ShowMultiBoneTest = true;
 	bool m_ShowImportedModel = false;
-	float m_AnimationSpeed = 1.0f;	void RenderAnimationDebugPanel();
+	float m_AnimationSpeed = 1.0f;
+	
+	void RenderAnimationDebugPanel();
 	void RenderECSAnimatedMeshPanel();
 	void RenderAnimationTestingPanel(); // New comprehensive animation testing UI
 	
@@ -69,8 +105,13 @@ private:
 	OloEngine::Ref<OloEngine::SkinnedMesh> CreateSkinnedCubeMesh();
 	void CreateMultiBoneTestEntity();
 	void LoadTestAnimatedModel();
+	
+	// Scene lighting management
+	void InitializeSceneLighting();
+	void ApplySceneLighting(SceneType sceneType);
+	void UpdateCurrentSceneLighting();
+	
 	// UI helper functions for different sections
-	void RenderPerformanceInfo();
 	void RenderSceneSettings();
 	void RenderLightingSettings();
 	void RenderMaterialSettings();
@@ -111,10 +152,13 @@ private:
 	OloEngine::Material m_ChromeMaterial;
 	OloEngine::Material m_TexturedMaterial;
 
-	// Light properties
+	// Light properties (global for lighting test scene)
 	OloEngine::Light m_Light;
 	int m_LightTypeIndex = 0; // Default to directional light
 	const char* m_LightTypeNames[3] = { "Directional Light", "Point Light", "Spotlight" };
+	
+	// Per-scene lighting configurations
+	OloEngine::Light m_SceneLights[5]; // One for each scene type
 	
 	// Material editor selection state
 	int m_SelectedMaterial = 0;
@@ -163,4 +207,9 @@ private:
 	i32 m_StateTestMode = 0;
 	const char* m_StateTestModes[4] = { "Wireframe", "Alpha Blend", "Polygon Offset", "All Effects" };
 	bool m_UseQueuedStateChanges = true;
+	
+	// Common scene elements (shared across scenes)
+	void RenderGroundPlane();
+	void RenderGrassQuad();
+	void RenderPerformanceInfo();
 };

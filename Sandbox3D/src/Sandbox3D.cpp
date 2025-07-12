@@ -60,6 +60,9 @@ Sandbox3D::Sandbox3D()
     // Spotlight defaults
     m_Light.CutOff = glm::cos(glm::radians(m_SpotlightInnerAngle));
     m_Light.OuterCutOff = glm::cos(glm::radians(m_SpotlightOuterAngle));
+    
+    // Initialize per-scene lighting
+    InitializeSceneLighting();
 }
 
 void Sandbox3D::OnAttach()
@@ -217,8 +220,8 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
         if (m_RotationAngleX > 360.0f)  m_RotationAngleX -= 360.0f;
     }
 
-    // Animate the light position in a circular pattern (only for point and spot lights)
-    if (m_AnimateLight && m_Light.Type != OloEngine::LightType::Directional)
+    // Animate the light position in a circular pattern (only for point and spot lights in lighting test scene)
+    if (m_AnimateLight && m_Light.Type != OloEngine::LightType::Directional && m_CurrentScene == SceneType::LightingTesting)
     {
         m_LightAnimTime += ts;
         f32 radius = 3.0f;
@@ -231,7 +234,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
             m_Light.Direction = -glm::normalize(m_Light.Position);
         }
 
-        OloEngine::Renderer3D::SetLight(m_Light);
+        UpdateCurrentSceneLighting();
     }
 	
 	// --- Basic Animation State Machine: auto-switch Idle <-> Bounce every 2 seconds ---
@@ -310,267 +313,36 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 
     {
         OLO_PROFILE_SCOPE("Renderer Draw");
-		OloEngine::Renderer3D::BeginScene(m_CameraController.GetCamera());
+        OloEngine::Renderer3D::BeginScene(m_CameraController.GetCamera());
         
-        // === ECS-DRIVEN ANIMATED MESH TEST ===
-        if (m_TestScene)
+        // Apply appropriate lighting for current scene
+        ApplySceneLighting(m_CurrentScene);
+        
+        // Render shared elements first
+        RenderGroundPlane();
+        
+        // Render current scene
+        switch (m_CurrentScene)
         {
-            // Control entity visibility based on test settings
-            if (m_AnimatedMeshEntity.HasComponent<OloEngine::AnimatedMeshComponent>())
-            {
-                if (m_ShowSingleBoneTest)
-                {
-                    // Update ECS entity transform to position it on the left side
-                    auto& ecsTransformComp = m_AnimatedMeshEntity.GetComponent<OloEngine::TransformComponent>();
-                    ecsTransformComp.Translation = glm::vec3(-4.0f, 0.0f, 2.0f);
-                    ecsTransformComp.Scale = glm::vec3(1.0f);
-                }
-            }
-            
-            if (m_MultiBoneTestEntity.HasComponent<OloEngine::AnimatedMeshComponent>())
-            {
-                if (m_ShowMultiBoneTest)
-                {
-                    auto& multiBoneTransformComp = m_MultiBoneTestEntity.GetComponent<OloEngine::TransformComponent>();
-                    multiBoneTransformComp.Translation = glm::vec3(4.0f, 0.0f, 2.0f);
-                    multiBoneTransformComp.Scale = glm::vec3(1.0f);
-                }
-            }
-            
-            // Render all active animated entities in the scene
-            // This will render entities that have the required components and are enabled
-            if (m_ShowSingleBoneTest || m_ShowMultiBoneTest)
-            {
-                OloEngine::Renderer3D::RenderAnimatedMeshes(m_TestScene, m_GoldMaterial);
-            }
+            case SceneType::MaterialTesting:
+                RenderMaterialTestingScene();
+                break;
+            case SceneType::AnimationTesting:
+                RenderAnimationTestingScene();
+                break;
+            case SceneType::LightingTesting:
+                RenderLightingTestingScene();
+                break;
+            case SceneType::StateTesting:
+                RenderStateTestingScene();
+                break;
+            case SceneType::ModelLoading:
+                RenderModelLoadingScene();
+                break;
         }
-
-        // Draw ground plane
-        {
-            auto planeMatrix = glm::mat4(1.0f);
-            planeMatrix = glm::translate(planeMatrix, glm::vec3(0.0f, -1.0f, 0.0f));
-            OloEngine::Material planeMaterial;
-            planeMaterial.Ambient = glm::vec3(0.1f);
-            planeMaterial.Diffuse = glm::vec3(0.3f);
-            planeMaterial.Specular = glm::vec3(0.2f);
-            planeMaterial.Shininess = 8.0f;
-            auto* planePacket = OloEngine::Renderer3D::DrawMesh(m_PlaneMesh, planeMatrix, planeMaterial, true);
-            if (planePacket) OloEngine::Renderer3D::SubmitPacket(planePacket);
-        }
-
-        // Draw a grass quad
-        {
-            auto grassMatrix = glm::mat4(1.0f);
-            grassMatrix = glm::translate(grassMatrix, glm::vec3(0.0f, 0.5f, -1.0f));
-            // Make it face the camera by rotating around X axis
-            grassMatrix = glm::rotate(grassMatrix, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-            auto* grassPacket = OloEngine::Renderer3D::DrawQuad(grassMatrix, m_GrassTexture);
-            if (grassPacket) OloEngine::Renderer3D::SubmitPacket(grassPacket);
-        }
-
-        // Draw backpack model using command-based renderer
-        {
-            auto modelMatrix = glm::mat4(1.0f);
-            modelMatrix = glm::translate(modelMatrix, glm::vec3(0.0f, 1.0f, -2.0f)); // Raise it up and move it back
-            modelMatrix = glm::scale(modelMatrix, glm::vec3(0.5f)); // Scale down to reasonable size
-            modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
-            std::vector<OloEngine::CommandPacket*> backpackDrawCommands;
-            m_BackpackModel->GetDrawCommands(modelMatrix, m_TexturedMaterial, backpackDrawCommands);
-            for (auto* drawCmd : backpackDrawCommands)
-            {
-                OloEngine::Renderer3D::SubmitPacket(drawCmd);
-            }        }
-
-        // === MANUAL ANIMATED MESH TEST ===
-        if (m_ShowSingleBoneTest)
-        {
-            // Update animation state and skeleton for the manual test
-            OloEngine::Animation::AnimationSystem::Update(
-                m_AnimatedTestAnimState,
-                *m_AnimatedTestSkeleton,
-                ts.GetSeconds()
-            );
-
-            // Position the manual test on the right side for easy comparison
-            glm::mat4 manualAnimTestMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(3.0f, 0.0f, 0.0f));
-            manualAnimTestMatrix = glm::scale(manualAnimTestMatrix, glm::vec3(1.5f));
-            
-            OloEngine::Material manualAnimTestMaterial = m_SilverMaterial;
-
-            // Use DrawSkinnedMesh with bone matrices for GPU skinning
-            auto* manualAnimTestPacket = OloEngine::Renderer3D::DrawSkinnedMesh(
-                m_AnimatedTestMesh, 
-                manualAnimTestMatrix, 
-                manualAnimTestMaterial, 
-                m_AnimatedTestSkeleton->m_FinalBoneMatrices
-            );
-
-            if (manualAnimTestPacket)
-            {
-                OloEngine::Renderer3D::SubmitPacket(manualAnimTestPacket);
-            }
-        }
-		
-		// === STATIC SCENE OBJECTS ===        
-        // Draw ground plane
-        {
-            auto planeMatrix = glm::mat4(1.0f);
-            planeMatrix = glm::translate(planeMatrix, glm::vec3(0.0f, -1.0f, 0.0f));
-            OloEngine::Material planeMaterial;
-            planeMaterial.Ambient = glm::vec3(0.1f);
-            planeMaterial.Diffuse = glm::vec3(0.3f);
-            planeMaterial.Specular = glm::vec3(0.2f);
-            planeMaterial.Shininess = 8.0f;
-            auto* planePacket = OloEngine::Renderer3D::DrawMesh(m_PlaneMesh, planeMatrix, planeMaterial, true);
-            if (planePacket) OloEngine::Renderer3D::SubmitPacket(planePacket);
-        }
-
-        // Draw a grass quad
-        {
-            auto grassMatrix = glm::mat4(1.0f);
-            grassMatrix = glm::translate(grassMatrix, glm::vec3(0.0f, 0.5f, -1.0f));
-            grassMatrix = glm::rotate(grassMatrix, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-            auto* grassPacket = OloEngine::Renderer3D::DrawQuad(grassMatrix, m_GrassTexture);
-            if (grassPacket) OloEngine::Renderer3D::SubmitPacket(grassPacket);
-        }
-
-        // Draw backpack model using command-based renderer
-        {
-            auto modelMatrix = glm::mat4(1.0f);
-            modelMatrix = glm::translate(modelMatrix, glm::vec3(0.0f, 1.0f, -2.0f));
-            modelMatrix = glm::scale(modelMatrix, glm::vec3(0.5f));
-            modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
-            std::vector<OloEngine::CommandPacket*> backpackDrawCommands;
-            m_BackpackModel->GetDrawCommands(modelMatrix, m_TexturedMaterial, backpackDrawCommands);
-            for (auto* drawCmd : backpackDrawCommands)
-            {
-                OloEngine::Renderer3D::SubmitPacket(drawCmd);
-            }
-        }
-
-        // === ROTATING ANIMATED OBJECTS ===        
-        // Center rotating cube with wireframe overlay
-        {
-            auto modelMatrix = glm::mat4(1.0f);
-            modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX), glm::vec3(1.0f, 0.0f, 0.0f));
-            modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
-            // Draw filled mesh (normal)
-            auto* solidPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, m_GoldMaterial);
-            if (solidPacket) OloEngine::Renderer3D::SubmitPacket(solidPacket);
-            // Overlay wireframe
-            OloEngine::Material wireMaterial;
-            wireMaterial.Ambient = glm::vec3(0.0f);
-            wireMaterial.Diffuse = glm::vec3(0.0f, 0.0f, 0.0f);
-            wireMaterial.Specular = glm::vec3(0.0f);
-            wireMaterial.Shininess = 1.0f;
-            auto* wirePacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, wireMaterial);
-            if (wirePacket)
-            {
-                auto* drawCmd = wirePacket->GetCommandData<OloEngine::DrawMeshCommand>();
-                drawCmd->renderState->PolygonMode.Mode = GL_LINE;
-                drawCmd->renderState->LineWidth.Width = 2.5f; // Thicker line
-                drawCmd->renderState->PolygonOffset.Enabled = true;
-                drawCmd->renderState->PolygonOffset.Factor = -1.0f;
-                drawCmd->renderState->PolygonOffset.Units = -1.0f;
-                OloEngine::Renderer3D::SubmitPacket(wirePacket);
-            }
-        }
-
-        // Draw other objects
-        switch (m_PrimitiveTypeIndex)
-        {
-            case 0: // Cubes
-                // Draw right silver cube
-            {
-                auto silverCubeMatrix = glm::mat4(1.0f);
-                silverCubeMatrix = glm::translate(silverCubeMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
-                silverCubeMatrix = glm::rotate(silverCubeMatrix, glm::radians(m_RotationAngleY * 1.5f), glm::vec3(0.0f, 1.0f, 0.0f));
-                auto* silverPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, silverCubeMatrix, m_SilverMaterial);
-                if (silverPacket) OloEngine::Renderer3D::SubmitPacket(silverPacket);
-            }
-
-            // Draw left chrome cube
-            {
-                auto chromeCubeMatrix = glm::mat4(1.0f);
-                chromeCubeMatrix = glm::translate(chromeCubeMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
-                chromeCubeMatrix = glm::rotate(chromeCubeMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
-                auto* chromePacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, chromeCubeMatrix, m_ChromeMaterial);
-                if (chromePacket) OloEngine::Renderer3D::SubmitPacket(chromePacket);
-            }
-            break;
-
-            case 1: // Spheres
-                // Draw center gold sphere
-            {
-                auto modelMatrix = glm::mat4(1.0f);
-                auto* goldPacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, modelMatrix, m_GoldMaterial);
-                if (goldPacket) OloEngine::Renderer3D::SubmitPacket(goldPacket);
-            }
-
-            // Draw right silver sphere
-            {
-                auto silverSphereMatrix = glm::mat4(1.0f);
-                silverSphereMatrix = glm::translate(silverSphereMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
-                auto* silverPacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, silverSphereMatrix, m_SilverMaterial);
-                if (silverPacket) OloEngine::Renderer3D::SubmitPacket(silverPacket);
-            }
-
-            // Draw left chrome sphere
-            {
-                auto chromeSphereMatrix = glm::mat4(1.0f);
-                chromeSphereMatrix = glm::translate(chromeSphereMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
-                auto* chromePacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, chromeSphereMatrix, m_ChromeMaterial);
-                if (chromePacket) OloEngine::Renderer3D::SubmitPacket(chromePacket);
-            }
-            break;
-
-            case 2: // Mixed
-            default:
-            {
-                // Draw right silver sphere
-                auto silverSphereMatrix = glm::mat4(1.0f);
-                silverSphereMatrix = glm::translate(silverSphereMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
-                auto* silverPacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, silverSphereMatrix, m_SilverMaterial);
-                if (silverPacket) OloEngine::Renderer3D::SubmitPacket(silverPacket);
-
-                // Draw left chrome cube
-                auto chromeCubeMatrix = glm::mat4(1.0f);
-                chromeCubeMatrix = glm::translate(chromeCubeMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
-                chromeCubeMatrix = glm::rotate(chromeCubeMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
-                auto* chromePacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, chromeCubeMatrix, m_ChromeMaterial);
-                if (chromePacket) OloEngine::Renderer3D::SubmitPacket(chromePacket);
-            }
-            break;
-        }
-
-        // Textured sphere (shared across all modes)
-        {
-            auto sphereMatrix = glm::mat4(1.0f);
-            sphereMatrix = glm::translate(sphereMatrix, glm::vec3(0.0f, 2.0f, 0.0f));
-            sphereMatrix = glm::rotate(sphereMatrix, glm::radians(m_RotationAngleX * 0.8f), glm::vec3(1.0f, 0.0f, 0.0f));
-            sphereMatrix = glm::rotate(sphereMatrix, glm::radians(m_RotationAngleY * 0.8f), glm::vec3(0.0f, 1.0f, 0.0f));
-            auto* texturedPacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, m_TexturedMaterial);
-            if (texturedPacket) OloEngine::Renderer3D::SubmitPacket(texturedPacket);
-        }
-
-        // Light cube (only for point and spot lights)
-        if (m_Light.Type != OloEngine::LightType::Directional)
-        {
-            auto lightCubeModelMatrix = glm::mat4(1.0f);
-            lightCubeModelMatrix = glm::translate(lightCubeModelMatrix, m_Light.Position);
-            lightCubeModelMatrix = glm::scale(lightCubeModelMatrix, glm::vec3(0.2f));
-            auto* lightCubePacket = OloEngine::Renderer3D::DrawLightCube(lightCubeModelMatrix);
-            if (lightCubePacket) OloEngine::Renderer3D::SubmitPacket(lightCubePacket);
-        }
-
-        // Draw our state test objects to demonstrate the new state system
-        if (m_EnableStateTest)
-        {
-            RenderStateTestObjects(m_RotationAngleY);
-        }
+        
+        OloEngine::Renderer3D::EndScene();
     }
-
-    OloEngine::Renderer3D::EndScene();
 }
 
 void Sandbox3D::RenderGraphDebuggerUI()
@@ -603,85 +375,56 @@ void Sandbox3D::OnImGuiRender()
     // Render the RenderGraph debugger window if open
     RenderGraphDebuggerUI();
 
-    ImGui::Begin("Settings & Controls");    // Render different sections in collapsible headers
+    ImGui::Begin("Settings & Controls");
+    
+    // Scene selector at the top
+    if (ImGui::CollapsingHeader("Scene Selection", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        int currentSceneIndex = static_cast<int>(m_CurrentScene);
+        if (ImGui::Combo("Active Scene", &currentSceneIndex, m_SceneNames, 5))
+        {
+            SceneType newScene = static_cast<SceneType>(currentSceneIndex);
+            
+            // If switching to lighting test scene, load its saved light settings
+            if (newScene == SceneType::LightingTesting)
+            {
+                m_Light = m_SceneLights[static_cast<int>(SceneType::LightingTesting)];
+                m_LightTypeIndex = static_cast<int>(m_Light.Type);
+            }
+            
+            m_CurrentScene = newScene;
+        }
+        ImGui::Separator();
+    }
+    
+    // Performance info (always shown)
     if (ImGui::CollapsingHeader("Performance & Frame Info", ImGuiTreeNodeFlags_None))
     {
         RenderPerformanceInfo();
     }
-
-    if (ImGui::CollapsingHeader("Scene Settings", ImGuiTreeNodeFlags_None))
+    
+    // Render scene-specific UI
+    switch (m_CurrentScene)
     {
-        RenderSceneSettings();
+        case SceneType::MaterialTesting:
+            RenderMaterialTestingUI();
+            break;
+        case SceneType::AnimationTesting:
+            RenderAnimationTestingUI();
+            break;
+        case SceneType::LightingTesting:
+            RenderLightingTestingUI();
+            break;
+        case SceneType::StateTesting:
+            RenderStateTestingUI();
+            break;
+        case SceneType::ModelLoading:
+            RenderModelLoadingUI();
+            break;
     }
-
-    if (ImGui::CollapsingHeader("Lighting Settings", ImGuiTreeNodeFlags_None))
-    {
-        RenderLightingSettings();
-    }
-
-    if (ImGui::CollapsingHeader("Material Settings", ImGuiTreeNodeFlags_None))
-    {
-        RenderMaterialSettings();
-    }    if (ImGui::CollapsingHeader("Animation Debug", ImGuiTreeNodeFlags_None))
-    {
-        ImGui::TextWrapped("Manual Animation System: Controls the silver cube on the right side using direct DrawSkinnedMesh calls.");
-        ImGui::Separator();
-        RenderAnimationDebugPanel();
-    }
-
-    if (ImGui::CollapsingHeader("ECS Animated Mesh", ImGuiTreeNodeFlags_None))
-    {
-        ImGui::TextWrapped("ECS Animation System: Controls the gold cube on the left side using integrated Renderer3D animated mesh rendering and ECS components.");
-        ImGui::Separator();
-        RenderECSAnimatedMeshPanel();
-    }
-
-    if (ImGui::CollapsingHeader("State Management Test", ImGuiTreeNodeFlags_None))
-    {
-        RenderStateTestSettings();
-    }
-
-    if (ImGui::CollapsingHeader("Enhanced Animation Tests", ImGuiTreeNodeFlags_None))
-    {
-        ImGui::TextWrapped("Advanced testing for multi-bone animations and model imports.");
-        ImGui::Separator();
-        
-        // Test visibility controls
-        ImGui::Checkbox("Show Single Bone Test", &m_ShowSingleBoneTest);
-        ImGui::SameLine();
-        ImGui::Checkbox("Show Multi-Bone Test", &m_ShowMultiBoneTest);
-        
-        ImGui::SliderFloat("Animation Speed", &m_AnimationSpeed, 0.1f, 3.0f, "%.1f");
-        
-        ImGui::Separator();
-        
-        // Multi-bone test info
-        if (m_MultiBoneTestEntity.HasComponent<OloEngine::AnimationStateComponent>())
-        {
-            auto& animState = m_MultiBoneTestEntity.GetComponent<OloEngine::AnimationStateComponent>();
-            ImGui::Text("Multi-Bone Animation:");
-            ImGui::Text("  Clip: %s", animState.m_CurrentClip ? animState.m_CurrentClip->Name.c_str() : "None");
-            ImGui::Text("  Time: %.2f / %.2f", animState.CurrentTime, 
-                       animState.m_CurrentClip ? animState.m_CurrentClip->Duration : 0.0f);
-            ImGui::Text("  Bones: 4 (hierarchical)");
-        }
-        
-        ImGui::Separator();
-        
-        // Model import section
-        ImGui::Text("Model Import (Assimp):");
-        if (ImGui::Button("Load Test Model"))
-        {
-            LoadTestAnimatedModel();
-        }
-        ImGui::SameLine();
-        ImGui::Text("Status: %s", m_ImportedModelEntity.HasComponent<OloEngine::AnimatedMeshComponent>() 
-                   ? "Placeholder Loaded" : "Not Loaded");
-                   
-        ImGui::TextWrapped("Note: Model import is placeholder implementation. Full assimp integration TODO.");
-    }
-
-    if (ImGui::CollapsingHeader("Renderer Debugging Tools", ImGuiTreeNodeFlags_None))
+    
+    // Debugging tools available for all scenes
+    if (ImGui::CollapsingHeader("Debugging Tools", ImGuiTreeNodeFlags_None))
     {
         RenderDebuggingTools();
     }
@@ -760,251 +503,349 @@ void Sandbox3D::RenderPerformanceInfo()
     }
 }
 
-void Sandbox3D::RenderSceneSettings()
+void Sandbox3D::RenderGroundPlane()
 {
-    ImGui::Combo("Primitive Types", &m_PrimitiveTypeIndex, m_PrimitiveNames, 3);
-    ImGui::Separator();
-
-    // Add a section for frustum culling settings
-    ImGui::Text("Frustum Culling");
-    ImGui::Indent();
-    
-    bool frustumCullingEnabled = OloEngine::Renderer3D::IsFrustumCullingEnabled();
-    if (ImGui::Checkbox("Enable Frustum Culling", &frustumCullingEnabled))
-    {
-        OloEngine::Renderer3D::EnableFrustumCulling(frustumCullingEnabled);
-    }
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    if (ImGui::IsItemHovered())
-    {
-        ImGui::BeginTooltip();
-        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
-        ImGui::TextUnformatted("Enables frustum culling to skip rendering objects outside the camera view.");
-        ImGui::PopTextWrapPos();
-        ImGui::EndTooltip();
-    }
-    
-    bool dynamicCullingEnabled = OloEngine::Renderer3D::IsDynamicCullingEnabled();
-    if (ImGui::Checkbox("Cull Dynamic Objects", &dynamicCullingEnabled))
-    {
-        OloEngine::Renderer3D::EnableDynamicCulling(dynamicCullingEnabled);
-    }
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    if (ImGui::IsItemHovered())
-    {
-        ImGui::BeginTooltip();
-        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
-        ImGui::TextUnformatted("Warning: Enabling this may cause visual glitches with rotating objects.");
-        ImGui::PopTextWrapPos();
-        ImGui::EndTooltip();
-    }
-    
-    if (ImGui::Button("Reset to Defaults"))
-    {
-        OloEngine::Renderer3D::EnableFrustumCulling(true);
-        OloEngine::Renderer3D::EnableDynamicCulling(false);
-    }
-    
-    ImGui::Text("Meshes: Total %d, Culled %d (%.1f%%)", 
-        OloEngine::Renderer3D::GetStats().TotalMeshes, 
-        OloEngine::Renderer3D::GetStats().CulledMeshes,
-        OloEngine::Renderer3D::GetStats().TotalMeshes > 0 
-            ? 100.0f * OloEngine::Renderer3D::GetStats().CulledMeshes / OloEngine::Renderer3D::GetStats().TotalMeshes 
-            : 0.0f);
-    
-    ImGui::Unindent();
+    // Draw ground plane (always visible)
+    auto planeMatrix = glm::mat4(1.0f);
+    planeMatrix = glm::translate(planeMatrix, glm::vec3(0.0f, -1.0f, 0.0f));
+    OloEngine::Material planeMaterial;
+    planeMaterial.Ambient = glm::vec3(0.1f);
+    planeMaterial.Diffuse = glm::vec3(0.3f);
+    planeMaterial.Specular = glm::vec3(0.2f);
+    planeMaterial.Shininess = 8.0f;
+    auto* planePacket = OloEngine::Renderer3D::DrawMesh(m_PlaneMesh, planeMatrix, planeMaterial, true);
+    if (planePacket) OloEngine::Renderer3D::SubmitPacket(planePacket);
 }
 
-void Sandbox3D::RenderLightingSettings()
+void Sandbox3D::RenderGrassQuad()
 {
-    if (bool lightTypeChanged = ImGui::Combo("Light Type", &m_LightTypeIndex, m_LightTypeNames, 3); lightTypeChanged)
-    {
-        // Update light type
-        m_Light.Type = static_cast<OloEngine::LightType>(m_LightTypeIndex);
+    // Draw a grass quad (only in certain scenes)
+    auto grassMatrix = glm::mat4(1.0f);
+    grassMatrix = glm::translate(grassMatrix, glm::vec3(0.0f, 0.5f, -1.0f));
+    grassMatrix = glm::rotate(grassMatrix, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+    auto* grassPacket = OloEngine::Renderer3D::DrawQuad(grassMatrix, m_GrassTexture);
+    if (grassPacket) OloEngine::Renderer3D::SubmitPacket(grassPacket);
+}
 
-        // Disable animation for directional lights
-        if (m_Light.Type == OloEngine::LightType::Directional && m_AnimateLight)
+// === SCENE RENDERING METHODS ===
+
+void Sandbox3D::RenderMaterialTestingScene()
+{
+    // Center rotating cube with wireframe overlay
+    auto modelMatrix = glm::mat4(1.0f);
+    modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX), glm::vec3(1.0f, 0.0f, 0.0f));
+    modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
+    
+    // Draw filled mesh (normal)
+    auto* solidPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, m_GoldMaterial);
+    if (solidPacket) OloEngine::Renderer3D::SubmitPacket(solidPacket);
+    
+    // Overlay wireframe
+    OloEngine::Material wireMaterial;
+    wireMaterial.Ambient = glm::vec3(0.0f);
+    wireMaterial.Diffuse = glm::vec3(0.0f, 0.0f, 0.0f);
+    wireMaterial.Specular = glm::vec3(0.0f);
+    wireMaterial.Shininess = 1.0f;
+    auto* wirePacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, wireMaterial);
+    if (wirePacket)
+    {
+        auto* drawCmd = wirePacket->GetCommandData<OloEngine::DrawMeshCommand>();
+        drawCmd->renderState->PolygonMode.Mode = GL_LINE;
+        drawCmd->renderState->LineWidth.Width = 2.5f;
+        drawCmd->renderState->PolygonOffset.Enabled = true;
+        drawCmd->renderState->PolygonOffset.Factor = -1.0f;
+        drawCmd->renderState->PolygonOffset.Units = -1.0f;
+        OloEngine::Renderer3D::SubmitPacket(wirePacket);
+    }
+
+    // Draw objects based on primitive type
+    switch (m_PrimitiveTypeIndex)
+    {
+        case 0: // Cubes
         {
-            m_AnimateLight = false;
+            auto silverCubeMatrix = glm::mat4(1.0f);
+            silverCubeMatrix = glm::translate(silverCubeMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
+            silverCubeMatrix = glm::rotate(silverCubeMatrix, glm::radians(m_RotationAngleY * 1.5f), glm::vec3(0.0f, 1.0f, 0.0f));
+            auto* silverPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, silverCubeMatrix, m_SilverMaterial);
+            if (silverPacket) OloEngine::Renderer3D::SubmitPacket(silverPacket);
+
+            auto chromeCubeMatrix = glm::mat4(1.0f);
+            chromeCubeMatrix = glm::translate(chromeCubeMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
+            chromeCubeMatrix = glm::rotate(chromeCubeMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
+            auto* chromePacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, chromeCubeMatrix, m_ChromeMaterial);
+            if (chromePacket) OloEngine::Renderer3D::SubmitPacket(chromePacket);
+            break;
         }
 
-        OloEngine::Renderer3D::SetLight(m_Light);
-    }    // Show different UI controls based on light type
-    ImGui::Separator();
-    
-    using enum OloEngine::LightType;
-    switch (m_Light.Type)
-    {
-        case Directional:
-            RenderDirectionalLightUI();
-            break;
+        case 1: // Spheres
+        {
+            auto centerGoldMatrix = glm::mat4(1.0f);
+            auto* goldPacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, centerGoldMatrix, m_GoldMaterial);
+            if (goldPacket) OloEngine::Renderer3D::SubmitPacket(goldPacket);
 
-        case Point:
-            // Only show animation toggle for positional lights
-            ImGui::Checkbox("Animate Light", &m_AnimateLight);
-            RenderPointLightUI();
-            break;
+            auto silverSphereMatrix = glm::mat4(1.0f);
+            silverSphereMatrix = glm::translate(silverSphereMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
+            auto* silverPacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, silverSphereMatrix, m_SilverMaterial);
+            if (silverPacket) OloEngine::Renderer3D::SubmitPacket(silverPacket);
 
-        case Spot:
-            // Only show animation toggle for positional lights
-            ImGui::Checkbox("Animate Light", &m_AnimateLight);
-            RenderSpotlightUI();
+            auto chromeSphereMatrix = glm::mat4(1.0f);
+            chromeSphereMatrix = glm::translate(chromeSphereMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
+            auto* chromePacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, chromeSphereMatrix, m_ChromeMaterial);
+            if (chromePacket) OloEngine::Renderer3D::SubmitPacket(chromePacket);
             break;
-    }
-}
+        }
 
-void Sandbox3D::RenderMaterialSettings()
-{
-    ImGui::Combo("Select Material", &m_SelectedMaterial, m_MaterialNames, 4);
-
-    // Get the selected material based on the combo box selection
-    OloEngine::Material* currentMaterial;
-    switch (m_SelectedMaterial)
-    {
-        case 0:
-            currentMaterial = &m_GoldMaterial;
-            break;
-        case 1:
-            currentMaterial = &m_SilverMaterial;
-            break;
-        case 2:
-            currentMaterial = &m_ChromeMaterial;
-            break;
-        case 3:
-            currentMaterial = &m_TexturedMaterial;
-            break;
+        case 2: // Mixed
         default:
-            currentMaterial = &m_GoldMaterial;
+        {
+            auto silverSphereMatrix = glm::mat4(1.0f);
+            silverSphereMatrix = glm::translate(silverSphereMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
+            auto* silverPacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, silverSphereMatrix, m_SilverMaterial);
+            if (silverPacket) OloEngine::Renderer3D::SubmitPacket(silverPacket);
+
+            auto chromeCubeMatrix = glm::mat4(1.0f);
+            chromeCubeMatrix = glm::translate(chromeCubeMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
+            chromeCubeMatrix = glm::rotate(chromeCubeMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
+            auto* chromePacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, chromeCubeMatrix, m_ChromeMaterial);
+            if (chromePacket) OloEngine::Renderer3D::SubmitPacket(chromePacket);
+            break;
+        }
     }
 
-    // Edit the selected material
-    if (m_SelectedMaterial == 3) // Textured material
+    // Textured sphere (shared across all modes)
+    auto sphereMatrix = glm::mat4(1.0f);
+    sphereMatrix = glm::translate(sphereMatrix, glm::vec3(0.0f, 2.0f, 0.0f));
+    sphereMatrix = glm::rotate(sphereMatrix, glm::radians(m_RotationAngleX * 0.8f), glm::vec3(1.0f, 0.0f, 0.0f));
+    sphereMatrix = glm::rotate(sphereMatrix, glm::radians(m_RotationAngleY * 0.8f), glm::vec3(0.0f, 1.0f, 0.0f));
+    auto* texturedPacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, m_TexturedMaterial);
+    if (texturedPacket) OloEngine::Renderer3D::SubmitPacket(texturedPacket);
+    
+    // Add grass quad to demonstrate texture rendering
+    RenderGrassQuad();
+}
+
+void Sandbox3D::RenderAnimationTestingScene()
+{
+    // ECS-driven animated mesh test
+    if (m_TestScene)
     {
-        // For textured material, show the texture map toggle
-        ImGui::Checkbox("Use Texture Maps", &currentMaterial->UseTextureMaps);
-        ImGui::Text("Shininess");
-        ImGui::SliderFloat("##TexturedShininess", &currentMaterial->Shininess, 1.0f, 128.0f);
+        if (m_AnimatedMeshEntity.HasComponent<OloEngine::AnimatedMeshComponent>())
+        {
+            if (m_ShowSingleBoneTest)
+            {
+                auto& ecsTransformComp = m_AnimatedMeshEntity.GetComponent<OloEngine::TransformComponent>();
+                ecsTransformComp.Translation = glm::vec3(-4.0f, 0.0f, 2.0f);
+                ecsTransformComp.Scale = glm::vec3(1.0f);
+            }
+        }
         
-        if (m_DiffuseMap)
-            ImGui::Text("Diffuse Map: Loaded");
-        else
-            ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Diffuse Map: Not Found!");
+        if (m_MultiBoneTestEntity.HasComponent<OloEngine::AnimatedMeshComponent>())
+        {
+            if (m_ShowMultiBoneTest)
+            {
+                auto& multiBoneTransformComp = m_MultiBoneTestEntity.GetComponent<OloEngine::TransformComponent>();
+                multiBoneTransformComp.Translation = glm::vec3(4.0f, 0.0f, 2.0f);
+                multiBoneTransformComp.Scale = glm::vec3(1.0f);
+            }
+        }
         
-        if (m_SpecularMap)
-            ImGui::Text("Specular Map: Loaded");
-        else 
-            ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Specular Map: Not Found!");
+        if (m_ShowSingleBoneTest || m_ShowMultiBoneTest)
+        {
+            OloEngine::Renderer3D::RenderAnimatedMeshes(m_TestScene, m_GoldMaterial);
+        }
     }
-    else
+
+    // Manual animated mesh test
+    if (m_ShowSingleBoneTest)
     {
-        // For solid color materials, show the color controls
-        ImGui::ColorEdit3(std::format("Ambient##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Ambient));
-        ImGui::ColorEdit3(std::format("Diffuse##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Diffuse));
-        ImGui::ColorEdit3(std::format("Specular##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Specular));
-        ImGui::SliderFloat(std::format("Shininess##Material{}", m_SelectedMaterial).c_str(), &currentMaterial->Shininess, 1.0f, 128.0f);
+        glm::mat4 manualAnimTestMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(3.0f, 0.0f, 0.0f));
+        manualAnimTestMatrix = glm::scale(manualAnimTestMatrix, glm::vec3(1.5f));
+        
+        OloEngine::Material manualAnimTestMaterial = m_SilverMaterial;
+        auto* manualAnimTestPacket = OloEngine::Renderer3D::DrawSkinnedMesh(
+            m_AnimatedTestMesh, 
+            manualAnimTestMatrix, 
+            manualAnimTestMaterial, 
+            m_AnimatedTestSkeleton->m_FinalBoneMatrices
+        );
+
+        if (manualAnimTestPacket)
+        {
+            OloEngine::Renderer3D::SubmitPacket(manualAnimTestPacket);
+        }
     }
 }
 
-void Sandbox3D::RenderStateTestSettings()
+void Sandbox3D::RenderLightingTestingScene()
 {
-    ImGui::Checkbox("Enable State Test", &m_EnableStateTest);
+    // Simple objects to demonstrate lighting
+    auto cubeMatrix = glm::mat4(1.0f);
+    cubeMatrix = glm::rotate(cubeMatrix, glm::radians(m_RotationAngleY * 0.5f), glm::vec3(0.0f, 1.0f, 0.0f));
+    auto* cubePacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, cubeMatrix, m_GoldMaterial);
+    if (cubePacket) OloEngine::Renderer3D::SubmitPacket(cubePacket);
     
+    auto sphereMatrix = glm::mat4(1.0f);
+    sphereMatrix = glm::translate(sphereMatrix, glm::vec3(3.0f, 0.0f, 0.0f));
+    auto* spherePacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, m_SilverMaterial);
+    if (spherePacket) OloEngine::Renderer3D::SubmitPacket(spherePacket);
+    
+    auto texturedSphereMatrix = glm::mat4(1.0f);
+    texturedSphereMatrix = glm::translate(texturedSphereMatrix, glm::vec3(-3.0f, 0.0f, 0.0f));
+    auto* texturedSpherePacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, texturedSphereMatrix, m_TexturedMaterial);
+    if (texturedSpherePacket) OloEngine::Renderer3D::SubmitPacket(texturedSpherePacket);
+
+    // Light cube (only for point and spot lights)
+    if (m_Light.Type != OloEngine::LightType::Directional)
+    {
+        auto lightCubeModelMatrix = glm::mat4(1.0f);
+        lightCubeModelMatrix = glm::translate(lightCubeModelMatrix, m_Light.Position);
+        lightCubeModelMatrix = glm::scale(lightCubeModelMatrix, glm::vec3(0.2f));
+        auto* lightCubePacket = OloEngine::Renderer3D::DrawLightCube(lightCubeModelMatrix);
+        if (lightCubePacket) OloEngine::Renderer3D::SubmitPacket(lightCubePacket);
+    }
+}
+
+void Sandbox3D::RenderStateTestingScene()
+{
     if (m_EnableStateTest)
     {
-        ImGui::Combo("Test Mode", &m_StateTestMode, m_StateTestModes, 4);
-        ImGui::Checkbox("Use Queued State Changes", &m_UseQueuedStateChanges);
-        if (ImGui::IsItemHovered())
-        {
-            ImGui::BeginTooltip();
-            ImGui::Text("This option doesn't do anything yet - we're always using the queue now");
-            ImGui::EndTooltip();
-        }
+        RenderStateTestObjects(m_RotationAngleY);
     }
 }
 
-void Sandbox3D::RenderDebuggingTools()
+void Sandbox3D::RenderModelLoadingScene()
 {
-    // Command Packet Debugger
-    if (ImGui::CollapsingHeader("Command Packet Debugger", ImGuiTreeNodeFlags_None))
+    // Draw backpack model
+    auto modelMatrix = glm::mat4(1.0f);
+    modelMatrix = glm::translate(modelMatrix, glm::vec3(0.0f, 1.0f, -2.0f));
+    modelMatrix = glm::scale(modelMatrix, glm::vec3(0.5f));
+    modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
+    std::vector<OloEngine::CommandPacket*> backpackDrawCommands;
+    m_BackpackModel->GetDrawCommands(modelMatrix, m_TexturedMaterial, backpackDrawCommands);
+    for (auto* drawCmd : backpackDrawCommands)
     {
-        ImGui::Checkbox("Show Command Packets##CommandDebugger", &m_ShowCommandPacketDebugger);
-        ImGui::SameLine();
-        if (ImGui::Button("Export to CSV##CommandDebugger"))
-        {
-            const auto* commandBucket = OloEngine::Renderer3D::GetCommandBucket();
-            if (commandBucket)
-            {
-                m_CommandPacketDebugger.ExportToCSV(commandBucket, "command_packets.csv");
-            }
-        }
-        
-        if (m_ShowCommandPacketDebugger)
-        {
-            const auto* commandBucket = OloEngine::Renderer3D::GetCommandBucket();
-            if (commandBucket)
-            {
-                m_CommandPacketDebugger.RenderDebugView(commandBucket, &m_ShowCommandPacketDebugger, "Command Packets");
-            }
-            else
-            {
-                ImGui::Text("Command bucket not available");
-            }
-        }
+        OloEngine::Renderer3D::SubmitPacket(drawCmd);
     }
-    
-    // Memory Tracker
-    if (ImGui::CollapsingHeader("Memory Tracker", ImGuiTreeNodeFlags_None))
+}
+
+// === SCENE UI METHODS ===
+
+void Sandbox3D::RenderMaterialTestingUI()
+{
+    if (ImGui::CollapsingHeader("Scene Settings", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        ImGui::Checkbox("Show Memory Tracker##MemoryTracker", &m_ShowMemoryTracker);
+        ImGui::Combo("Primitive Types", &m_PrimitiveTypeIndex, m_PrimitiveNames, 3);
+        ImGui::Separator();
         
-        if (m_ShowMemoryTracker)
-        {
-            m_MemoryTracker.RenderUI(&m_ShowMemoryTracker);
-        }
-    }
-    
-    // Renderer Profiler
-    if (ImGui::CollapsingHeader("Renderer Profiler", ImGuiTreeNodeFlags_None))
-    {
-        ImGui::Checkbox("Show Profiler##RendererProfiler", &m_ShowRendererProfiler);
+        ImGui::Text("Frustum Culling");
+        ImGui::Indent();
         
-        if (m_ShowRendererProfiler)
+        bool frustumCullingEnabled = OloEngine::Renderer3D::IsFrustumCullingEnabled();
+        if (ImGui::Checkbox("Enable Frustum Culling", &frustumCullingEnabled))
         {
-            m_RendererProfiler.RenderUI(&m_ShowRendererProfiler);
-        }
-    }
-    
-    // GPU Resource Inspector
-    if (ImGui::CollapsingHeader("GPU Resource Inspector", ImGuiTreeNodeFlags_None))
-    {
-        ImGui::Checkbox("Show GPU Resources##GPUResourceInspector", &m_ShowGPUResourceInspector);
-        ImGui::SameLine();
-        if (ImGui::Button("Export to CSV##GPUResourceInspector"))
-        {
-            m_GPUResourceInspector.ExportToCSV("gpu_resources.csv");
+            OloEngine::Renderer3D::EnableFrustumCulling(frustumCullingEnabled);
         }
         
-        if (m_ShowGPUResourceInspector)
+        bool dynamicCullingEnabled = OloEngine::Renderer3D::IsDynamicCullingEnabled();
+        if (ImGui::Checkbox("Cull Dynamic Objects", &dynamicCullingEnabled))
         {
-            m_GPUResourceInspector.RenderDebugView(&m_ShowGPUResourceInspector, "GPU Resource Inspector");
+            OloEngine::Renderer3D::EnableDynamicCulling(dynamicCullingEnabled);
         }
+        
+        ImGui::Unindent();
     }
 
-    // Shader Debugger
-    if (ImGui::CollapsingHeader("Shader Debugger", ImGuiTreeNodeFlags_None))
+    if (ImGui::CollapsingHeader("Material Settings", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        ImGui::Checkbox("Show Shader Debugger##ShaderDebugger", &m_ShowShaderDebugger);
+        RenderMaterialSettings();
+    }
+}
+
+void Sandbox3D::RenderAnimationTestingUI()
+{
+    if (ImGui::CollapsingHeader("Animation Controls", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::TextWrapped("Manual Animation System: Controls the silver cube on the right side using direct DrawSkinnedMesh calls.");
+        ImGui::Separator();
+        RenderAnimationDebugPanel();
+    }
+
+    if (ImGui::CollapsingHeader("ECS Animated Mesh", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::TextWrapped("ECS Animation System: Controls the gold cube on the left side using integrated Renderer3D animated mesh rendering and ECS components.");
+        ImGui::Separator();
+        RenderECSAnimatedMeshPanel();
+    }
+
+    if (ImGui::CollapsingHeader("Enhanced Animation Tests", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::TextWrapped("Advanced testing for multi-bone animations and model imports.");
+        ImGui::Separator();
+        
+        ImGui::Checkbox("Show Single Bone Test", &m_ShowSingleBoneTest);
         ImGui::SameLine();
-        if (ImGui::Button("Export Report##ShaderDebugger"))
+        ImGui::Checkbox("Show Multi-Bone Test", &m_ShowMultiBoneTest);
+        
+        ImGui::SliderFloat("Animation Speed", &m_AnimationSpeed, 0.1f, 3.0f, "%.1f");
+        
+        ImGui::Separator();
+        
+        if (m_MultiBoneTestEntity.HasComponent<OloEngine::AnimationStateComponent>())
         {
-            m_ShaderDebugger.ExportReport("shader_debug_report.txt");
+            auto& animState = m_MultiBoneTestEntity.GetComponent<OloEngine::AnimationStateComponent>();
+            ImGui::Text("Multi-Bone Animation:");
+            ImGui::Text("  Clip: %s", animState.m_CurrentClip ? animState.m_CurrentClip->Name.c_str() : "None");
+            ImGui::Text("  Time: %.2f / %.2f", animState.CurrentTime, 
+                       animState.m_CurrentClip ? animState.m_CurrentClip->Duration : 0.0f);
+            ImGui::Text("  Bones: 4 (hierarchical)");
         }
         
-        if (m_ShowShaderDebugger)
+        ImGui::Separator();
+        
+        ImGui::Text("Model Import (Assimp):");
+        if (ImGui::Button("Load Test Model"))
         {
-            m_ShaderDebugger.RenderDebugView(&m_ShowShaderDebugger, "Shader Debugger");
+            LoadTestAnimatedModel();
+        }
+        ImGui::SameLine();
+        ImGui::Text("Status: %s", m_ImportedModelEntity.HasComponent<OloEngine::AnimatedMeshComponent>() 
+                   ? "Placeholder Loaded" : "Not Loaded");
+                   
+        ImGui::TextWrapped("Note: Model import is placeholder implementation. Full assimp integration TODO.");
+    }
+}
+
+void Sandbox3D::RenderLightingTestingUI()
+{
+    if (ImGui::CollapsingHeader("Lighting Settings", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        RenderLightingSettings();
+    }
+}
+
+void Sandbox3D::RenderStateTestingUI()
+{
+    if (ImGui::CollapsingHeader("State Management Test", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        RenderStateTestSettings();
+    }
+}
+
+void Sandbox3D::RenderModelLoadingUI()
+{
+    if (ImGui::CollapsingHeader("Model Loading", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::TextWrapped("This scene demonstrates loading and rendering 3D models.");
+        ImGui::Separator();
+        
+        ImGui::Text("Current Model: Backpack");
+        ImGui::Text("Model loaded: %s", m_BackpackModel ? "Yes" : "No");
+        
+        ImGui::Separator();
+        
+        if (ImGui::Button("Reload Model"))
+        {
+            m_BackpackModel = OloEngine::CreateRef<OloEngine::Model>("assets/backpack/backpack.obj");
         }
     }
 }
@@ -1025,6 +866,7 @@ void Sandbox3D::RenderDirectionalLightUI()
         }
 
         OloEngine::Renderer3D::SetLight(m_Light);
+        UpdateCurrentSceneLighting();
     }
     
     // Light colors
@@ -1035,7 +877,7 @@ void Sandbox3D::RenderDirectionalLightUI()
 
     if (lightChanged)
     {
-        OloEngine::Renderer3D::SetLight(m_Light);
+        UpdateCurrentSceneLighting();
     }
 }
 
@@ -1047,7 +889,7 @@ void Sandbox3D::RenderPointLightUI()
         bool positionChanged = ImGui::DragFloat3("Position##PointLight", glm::value_ptr(m_Light.Position), 0.1f);
         if (positionChanged)
         {
-            OloEngine::Renderer3D::SetLight(m_Light);
+            UpdateCurrentSceneLighting();
         }
     }
     
@@ -1065,7 +907,7 @@ void Sandbox3D::RenderPointLightUI()
 
     if (lightChanged)
     {
-        OloEngine::Renderer3D::SetLight(m_Light);
+        UpdateCurrentSceneLighting();
     }
 }
 
@@ -1076,7 +918,7 @@ void Sandbox3D::RenderSpotlightUI()
         // Position control (only if not animating)
         if (bool positionChanged = ImGui::DragFloat3("Position##Spotlight", glm::value_ptr(m_Light.Position), 0.1f); positionChanged)
         {
-            OloEngine::Renderer3D::SetLight(m_Light);
+            UpdateCurrentSceneLighting();
         }
         
         // Direction control (only if not animating)
@@ -1092,7 +934,7 @@ void Sandbox3D::RenderSpotlightUI()
                 m_Light.Direction = glm::vec3(0.0f, -1.0f, 0.0f);
             }
 
-            OloEngine::Renderer3D::SetLight(m_Light);
+            UpdateCurrentSceneLighting();
         }
     }
     else
@@ -1132,7 +974,7 @@ void Sandbox3D::RenderSpotlightUI()
 
     if (lightChanged)
     {
-        OloEngine::Renderer3D::SetLight(m_Light);
+        UpdateCurrentSceneLighting();
     }
 }
 
@@ -1407,7 +1249,7 @@ OloEngine::Ref<OloEngine::SkinnedMesh> Sandbox3D::CreateSkinnedCubeMesh()
         // Left face
         8, 9, 10, 10, 11, 8,
         // Right face
-        12, 13, 14, 14, 15, 12,
+        12, 13, 14, 14,  15, 12,
         // Top face
         16, 17, 18, 18, 19, 16,
         // Bottom face
@@ -1537,4 +1379,254 @@ void Sandbox3D::LoadTestAnimatedModel()
     
     OLO_INFO("Sandbox3D: Imported model entity created (placeholder implementation)");
     OLO_INFO("TODO: Implement assimp-based skeletal animation import");
+}
+
+void Sandbox3D::RenderMaterialSettings()
+{
+    ImGui::Combo("Select Material", &m_SelectedMaterial, m_MaterialNames, 4);
+
+    // Get the selected material based on the combo box selection
+    OloEngine::Material* currentMaterial;
+    switch (m_SelectedMaterial)
+    {
+        case 0:
+            currentMaterial = &m_GoldMaterial;
+            break;
+        case 1:
+            currentMaterial = &m_SilverMaterial;
+            break;
+        case 2:
+            currentMaterial = &m_ChromeMaterial;
+            break;
+        case 3:
+            currentMaterial = &m_TexturedMaterial;
+            break;
+        default:
+            currentMaterial = &m_GoldMaterial;
+    }
+
+    // Edit the selected material
+    if (m_SelectedMaterial == 3)
+    {
+        ImGui::Text("Textured Material Properties");
+        ImGui::SliderFloat("Shininess", &currentMaterial->Shininess, 1.0f, 128.0f);
+        
+        if (m_DiffuseMap)
+            ImGui::Text("Diffuse Map: Loaded");
+        else
+            ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Diffuse Map: Not Found!");
+        
+        if (m_SpecularMap)
+            ImGui::Text("Specular Map: Loaded");
+        else 
+            ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Specular Map: Not Found!");
+    }
+    else
+    {
+        // For solid color materials, show the color controls
+        ImGui::ColorEdit3(std::format("Ambient##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Ambient));
+        ImGui::ColorEdit3(std::format("Diffuse##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Diffuse));
+        ImGui::ColorEdit3(std::format("Specular##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Specular));
+        ImGui::SliderFloat(std::format("Shininess##Material{}", m_SelectedMaterial).c_str(), &currentMaterial->Shininess, 1.0f, 128.0f);
+    }
+}
+
+void Sandbox3D::RenderLightingSettings()
+{
+    if (bool lightTypeChanged = ImGui::Combo("Light Type", &m_LightTypeIndex, m_LightTypeNames, 3); lightTypeChanged)
+    {
+        // Update light type
+        m_Light.Type = static_cast<OloEngine::LightType>(m_LightTypeIndex);
+
+        // Disable animation for directional lights
+        if (m_Light.Type == OloEngine::LightType::Directional && m_AnimateLight)
+        {
+            m_AnimateLight = false;
+        }
+
+        UpdateCurrentSceneLighting();
+    }
+    
+    // Show different UI controls based on light type
+    ImGui::Separator();
+    
+    using enum OloEngine::LightType;
+    switch (m_Light.Type)
+    {
+        case Directional:
+            RenderDirectionalLightUI();
+            break;
+
+        case Point:
+            // Only show animation toggle for positional lights
+            ImGui::Checkbox("Animate Light", &m_AnimateLight);
+            RenderPointLightUI();
+            break;
+
+        case Spot:
+            // Only show animation toggle for positional lights
+            ImGui::Checkbox("Animate Light", &m_AnimateLight);
+            RenderSpotlightUI();
+            break;
+    }
+}
+
+void Sandbox3D::RenderStateTestSettings()
+{
+    ImGui::Checkbox("Enable State Test", &m_EnableStateTest);
+    
+    if (m_EnableStateTest)
+    {
+        ImGui::Combo("Test Mode", &m_StateTestMode, m_StateTestModes, 4);
+        ImGui::Checkbox("Use Queued State Changes", &m_UseQueuedStateChanges);
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::BeginTooltip();
+            ImGui::Text("This option doesn't do anything yet - we're always using the queue now");
+            ImGui::EndTooltip();
+        }
+    }
+}
+
+void Sandbox3D::RenderDebuggingTools()
+{
+    // Command Packet Debugger
+    if (ImGui::CollapsingHeader("Command Packet Debugger", ImGuiTreeNodeFlags_None))
+    {
+        ImGui::Checkbox("Show Command Packets##CommandDebugger", &m_ShowCommandPacketDebugger);
+        ImGui::SameLine();
+        if (ImGui::Button("Export to CSV##CommandDebugger"))
+        {
+            const auto* commandBucket = OloEngine::Renderer3D::GetCommandBucket();
+            if (commandBucket)
+            {
+                m_CommandPacketDebugger.ExportToCSV(commandBucket, "command_packets.csv");
+            }
+        }
+        
+        if (m_ShowCommandPacketDebugger)
+        {
+            const auto* commandBucket = OloEngine::Renderer3D::GetCommandBucket();
+            if (commandBucket)
+            {
+                m_CommandPacketDebugger.RenderDebugView(commandBucket, &m_ShowCommandPacketDebugger, "Command Packets");
+            }
+        }
+    }
+    
+    // Memory Tracker
+    if (ImGui::CollapsingHeader("Memory Tracker", ImGuiTreeNodeFlags_None))
+    {
+        ImGui::Checkbox("Show Memory Stats##MemoryTracker", &m_ShowMemoryTracker);
+        ImGui::SameLine();
+        if (ImGui::Button("Reset Stats##MemoryTracker"))
+        {
+            m_MemoryTracker.Reset();
+        }
+        
+        if (m_ShowMemoryTracker)
+        {
+            m_MemoryTracker.RenderUI(&m_ShowMemoryTracker);
+        }
+    }
+    
+    // Renderer Profiler
+    if (ImGui::CollapsingHeader("Renderer Profiler", ImGuiTreeNodeFlags_None))
+    {
+        ImGui::Checkbox("Show Profiler##RendererProfiler", &m_ShowRendererProfiler);
+        ImGui::SameLine();
+        if (ImGui::Button("Reset Profiler##RendererProfiler"))
+        {
+            m_RendererProfiler.Reset();
+        }
+        
+        if (m_ShowRendererProfiler)
+        {
+            m_RendererProfiler.RenderUI(&m_ShowRendererProfiler);
+        }
+    }
+    
+    // GPU Resource Inspector
+    if (ImGui::CollapsingHeader("GPU Resource Inspector", ImGuiTreeNodeFlags_None))
+    {
+        ImGui::Checkbox("Show GPU Resources##GPUResourceInspector", &m_ShowGPUResourceInspector);
+        
+        if (m_ShowGPUResourceInspector)
+        {
+            m_GPUResourceInspector.RenderDebugView(&m_ShowGPUResourceInspector, "GPU Resource Inspector");
+        }
+    }
+
+    // Shader Debugger
+    if (ImGui::CollapsingHeader("Shader Debugger", ImGuiTreeNodeFlags_None))
+    {
+        ImGui::Checkbox("Show Shader Debugger##ShaderDebugger", &m_ShowShaderDebugger);
+        
+        if (m_ShowShaderDebugger)
+        {
+            m_ShaderDebugger.RenderDebugView(&m_ShowShaderDebugger, "Shader Debugger");
+        }
+    }
+}
+
+// === SCENE LIGHTING MANAGEMENT ===
+
+void Sandbox3D::InitializeSceneLighting()
+{
+    // Material Testing Scene - Simple directional light for material showcase
+    m_SceneLights[static_cast<int>(SceneType::MaterialTesting)].Type = OloEngine::LightType::Directional;
+    m_SceneLights[static_cast<int>(SceneType::MaterialTesting)].Direction = glm::vec3(-0.2f, -1.0f, -0.3f);
+    m_SceneLights[static_cast<int>(SceneType::MaterialTesting)].Ambient = glm::vec3(0.2f);
+    m_SceneLights[static_cast<int>(SceneType::MaterialTesting)].Diffuse = glm::vec3(0.8f);
+    m_SceneLights[static_cast<int>(SceneType::MaterialTesting)].Specular = glm::vec3(1.0f);
+    
+    // Animation Testing Scene - Bright directional light for clear animation visibility
+    m_SceneLights[static_cast<int>(SceneType::AnimationTesting)].Type = OloEngine::LightType::Directional;
+    m_SceneLights[static_cast<int>(SceneType::AnimationTesting)].Direction = glm::vec3(-0.3f, -1.0f, -0.2f);
+    m_SceneLights[static_cast<int>(SceneType::AnimationTesting)].Ambient = glm::vec3(0.3f);
+    m_SceneLights[static_cast<int>(SceneType::AnimationTesting)].Diffuse = glm::vec3(0.9f);
+    m_SceneLights[static_cast<int>(SceneType::AnimationTesting)].Specular = glm::vec3(0.8f);
+    
+    // Lighting Testing Scene - Uses current m_Light (user-configurable)
+    m_SceneLights[static_cast<int>(SceneType::LightingTesting)] = m_Light;
+    
+    // State Testing Scene - Simple lighting to focus on rendering states
+    m_SceneLights[static_cast<int>(SceneType::StateTesting)].Type = OloEngine::LightType::Directional;
+    m_SceneLights[static_cast<int>(SceneType::StateTesting)].Direction = glm::vec3(0.0f, -1.0f, 0.0f);
+    m_SceneLights[static_cast<int>(SceneType::StateTesting)].Ambient = glm::vec3(0.25f);
+    m_SceneLights[static_cast<int>(SceneType::StateTesting)].Diffuse = glm::vec3(0.7f);
+    m_SceneLights[static_cast<int>(SceneType::StateTesting)].Specular = glm::vec3(0.6f);
+    
+    // Model Loading Scene - Point light to showcase 3D model details
+    m_SceneLights[static_cast<int>(SceneType::ModelLoading)].Type = OloEngine::LightType::Point;
+    m_SceneLights[static_cast<int>(SceneType::ModelLoading)].Position = glm::vec3(2.0f, 3.0f, 2.0f);
+    m_SceneLights[static_cast<int>(SceneType::ModelLoading)].Ambient = glm::vec3(0.2f);
+    m_SceneLights[static_cast<int>(SceneType::ModelLoading)].Diffuse = glm::vec3(0.8f);
+    m_SceneLights[static_cast<int>(SceneType::ModelLoading)].Specular = glm::vec3(1.0f);
+    m_SceneLights[static_cast<int>(SceneType::ModelLoading)].Constant = 1.0f;
+    m_SceneLights[static_cast<int>(SceneType::ModelLoading)].Linear = 0.09f;
+    m_SceneLights[static_cast<int>(SceneType::ModelLoading)].Quadratic = 0.032f;
+}
+
+void Sandbox3D::ApplySceneLighting(SceneType sceneType)
+{
+    if (sceneType == SceneType::LightingTesting)
+    {
+        // For lighting testing scene, use the configurable light
+        OloEngine::Renderer3D::SetLight(m_Light);
+    }
+    else
+    {
+        // For other scenes, use their predefined lighting
+        OloEngine::Renderer3D::SetLight(m_SceneLights[static_cast<int>(sceneType)]);
+    }
+}
+
+void Sandbox3D::UpdateCurrentSceneLighting()
+{
+    // Update the lighting testing scene's saved state when user makes changes
+    if (m_CurrentScene == SceneType::LightingTesting)
+    {
+        m_SceneLights[static_cast<int>(SceneType::LightingTesting)] = m_Light;
+    }
 }
