@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/RenderState.h"
@@ -285,15 +286,38 @@ namespace OloEngine
 		Ref<VertexArray> vertexArray; // Store the actual vertex array
 		u32 indexCount;
 		glm::mat4 transform;
-		// Material properties
+		
+		// Legacy material properties (for backward compatibility)
 		glm::vec3 ambient;
 		glm::vec3 diffuse;
 		glm::vec3 specular;
 		f32 shininess;
 		bool useTextureMaps;
-		// Actual texture references instead of IDs
+		// Legacy texture references
 		Ref<Texture2D> diffuseMap;
 		Ref<Texture2D> specularMap;
+		
+		// PBR material properties
+		bool enablePBR = false;
+		glm::vec4 baseColorFactor = glm::vec4(1.0f);
+		glm::vec4 emissiveFactor = glm::vec4(0.0f);
+		f32 metallicFactor = 0.0f;
+		f32 roughnessFactor = 1.0f;
+		f32 normalScale = 1.0f;
+		f32 occlusionStrength = 1.0f;
+		bool enableIBL = false;
+		
+		// PBR texture references
+		Ref<Texture2D> albedoMap;
+		Ref<Texture2D> metallicRoughnessMap;
+		Ref<Texture2D> normalMap;
+		Ref<Texture2D> aoMap;
+		Ref<Texture2D> emissiveMap;
+		Ref<TextureCubemap> environmentMap;
+		Ref<TextureCubemap> irradianceMap;
+		Ref<TextureCubemap> prefilterMap;
+		Ref<Texture2D> brdfLutMap;
+		
 		// Actual shader instead of ID
 		Ref<Shader> shader;
 		// Per-draw-call render state
@@ -310,15 +334,38 @@ namespace OloEngine
 		u32 indexCount;
 		u32 instanceCount;
 		std::vector<glm::mat4> transforms; // Store the actual transform data
-		// Material properties (same for all instances)
+		
+		// Legacy material properties (same for all instances)
 		glm::vec3 ambient;
 		glm::vec3 diffuse;
 		glm::vec3 specular;
 		f32 shininess;
 		bool useTextureMaps;
-		// Actual texture references instead of IDs
+		// Legacy texture references
 		Ref<Texture2D> diffuseMap;
 		Ref<Texture2D> specularMap;
+		
+		// PBR material properties
+		bool enablePBR = false;
+		glm::vec4 baseColorFactor = glm::vec4(1.0f);
+		glm::vec4 emissiveFactor = glm::vec4(0.0f);
+		f32 metallicFactor = 0.0f;
+		f32 roughnessFactor = 1.0f;
+		f32 normalScale = 1.0f;
+		f32 occlusionStrength = 1.0f;
+		bool enableIBL = false;
+		
+		// PBR texture references
+		Ref<Texture2D> albedoMap;
+		Ref<Texture2D> metallicRoughnessMap;
+		Ref<Texture2D> normalMap;
+		Ref<Texture2D> aoMap;
+		Ref<Texture2D> emissiveMap;
+		Ref<TextureCubemap> environmentMap;
+		Ref<TextureCubemap> irradianceMap;
+		Ref<TextureCubemap> prefilterMap;
+		Ref<Texture2D> brdfLutMap;
+		
 		// Actual shader instead of ID
 		Ref<Shader> shader;
 		// Per-draw-call render state
@@ -346,21 +393,44 @@ namespace OloEngine
 		Ref<VertexArray> vertexArray;
 		u32 indexCount;
 		glm::mat4 modelMatrix;
-		// Material properties
+		
+		// Legacy material properties (for backward compatibility)
 		glm::vec3 ambient;
 		glm::vec3 diffuse;
 		glm::vec3 specular;
 		f32 shininess;
 		bool useTextureMaps;
-		// Actual texture references
+		// Legacy texture references
 		Ref<Texture2D> diffuseMap;
 		Ref<Texture2D> specularMap;
+		
+		// PBR material properties
+		bool enablePBR = false;
+		glm::vec4 baseColorFactor = glm::vec4(1.0f);
+		glm::vec4 emissiveFactor = glm::vec4(0.0f);
+		f32 metallicFactor = 0.0f;
+		f32 roughnessFactor = 1.0f;
+		f32 normalScale = 1.0f;
+		f32 occlusionStrength = 1.0f;
+		bool enableIBL = false;
+		
+		// PBR texture references
+		Ref<Texture2D> albedoMap;
+		Ref<Texture2D> metallicRoughnessMap;
+		Ref<Texture2D> normalMap;
+		Ref<Texture2D> aoMap;
+		Ref<Texture2D> emissiveMap;
+		Ref<TextureCubemap> environmentMap;
+		Ref<TextureCubemap> irradianceMap;
+		Ref<TextureCubemap> prefilterMap;
+		Ref<Texture2D> brdfLutMap;
+		
 		// Actual shader for skinned rendering
 		Ref<Shader> shader;
 		// Per-draw-call render state
 		Ref<RenderState> renderState;
 		// Bone matrices for GPU skinning (up to 100 bones)
 		std::vector<glm::mat4> boneMatrices;
-	};    // Maximum command size for allocation purposes - increased for bone matrices
-    constexpr sizet MAX_COMMAND_SIZE = 512;
+	};    // Maximum command size for allocation purposes - increased for PBR and bone matrices
+    constexpr sizet MAX_COMMAND_SIZE = 1024;
 }

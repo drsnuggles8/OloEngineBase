@@ -49,10 +49,15 @@ namespace OloEngine
 		m_ShaderLibrary.Load("assets/shaders/Lighting3D.glsl");
 		m_ShaderLibrary.Load("assets/shaders/SkinnedLighting3D_Simple.glsl");
 		m_ShaderLibrary.Load("assets/shaders/Renderer3D_Quad.glsl");
+		m_ShaderLibrary.Load("assets/shaders/PBR.glsl");
+		m_ShaderLibrary.Load("assets/shaders/PBR_Skinned.glsl");
+		
 		s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
 		s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
 		s_Data.SkinnedLightingShader = m_ShaderLibrary.Get("SkinnedLighting3D_Simple");
 		s_Data.QuadShader = m_ShaderLibrary.Get("Renderer3D_Quad");
+		s_Data.PBRShader = m_ShaderLibrary.Get("PBR");
+		s_Data.PBRSkinnedShader = m_ShaderLibrary.Get("PBR_Skinned");
 		
 		s_Data.CameraUBO = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
 		s_Data.LightPropertiesUBO = UniformBuffer::Create(ShaderBindingLayout::LightUBO::GetSize(), ShaderBindingLayout::UBO_LIGHTS);
@@ -297,7 +302,25 @@ namespace OloEngine
 			OLO_CORE_ERROR("Renderer3D::DrawMesh: Invalid mesh or vertex array!");
 			return nullptr;
 		}
-		Ref<Shader> shaderToUse = material.Shader ? material.Shader : s_Data.LightingShader;
+		
+		// Choose shader based on material type
+		Ref<Shader> shaderToUse;
+		if (material.Shader)
+		{
+			// Use explicitly set shader
+			shaderToUse = material.Shader;
+		}
+		else if (material.EnablePBR)
+		{
+			// Use PBR shader for PBR materials
+			shaderToUse = s_Data.PBRShader;
+		}
+		else
+		{
+			// Use legacy lighting shader for non-PBR materials
+			shaderToUse = s_Data.LightingShader;
+		}
+		
 		if (!shaderToUse)
 		{
 			OLO_CORE_ERROR("Renderer3D::DrawMesh: No shader available!");
@@ -310,6 +333,8 @@ namespace OloEngine
 		cmd->vertexArray = mesh->GetVertexArray();
 		cmd->indexCount = mesh->GetIndexCount();
 		cmd->transform = glm::mat4(modelMatrix);
+		
+		// Legacy material properties (for backward compatibility)
 		cmd->ambient = material.Ambient;
 		cmd->diffuse = material.Diffuse;
 		cmd->specular = material.Specular;
@@ -317,6 +342,28 @@ namespace OloEngine
 		cmd->useTextureMaps = material.UseTextureMaps;
 		cmd->diffuseMap = material.DiffuseMap;
 		cmd->specularMap = material.SpecularMap;
+		
+		// PBR material properties
+		cmd->enablePBR = material.EnablePBR;
+		cmd->baseColorFactor = material.BaseColorFactor;
+		cmd->emissiveFactor = material.EmissiveFactor;
+		cmd->metallicFactor = material.MetallicFactor;
+		cmd->roughnessFactor = material.RoughnessFactor;
+		cmd->normalScale = material.NormalScale;
+		cmd->occlusionStrength = material.OcclusionStrength;
+		cmd->enableIBL = material.EnableIBL;
+		
+		// PBR texture references
+		cmd->albedoMap = material.AlbedoMap;
+		cmd->metallicRoughnessMap = material.MetallicRoughnessMap;
+		cmd->normalMap = material.NormalMap;
+		cmd->aoMap = material.AOMap;
+		cmd->emissiveMap = material.EmissiveMap;
+		cmd->environmentMap = material.EnvironmentMap;
+		cmd->irradianceMap = material.IrradianceMap;
+		cmd->prefilterMap = material.PrefilterMap;
+		cmd->brdfLutMap = material.BRDFLutMap;
+		
 		cmd->shader = shaderToUse;
 		cmd->renderState = CreateRef<RenderState>();
 		packet->SetCommandType(cmd->header.type);
@@ -393,6 +440,8 @@ namespace OloEngine
 		cmd->indexCount = mesh->GetIndexCount();
 		cmd->instanceCount = static_cast<u32>(transforms.size());
 		cmd->transforms = transforms;
+		
+		// Legacy material properties (for backward compatibility)
 		cmd->ambient = material.Ambient;
 		cmd->diffuse = material.Diffuse;
 		cmd->specular = material.Specular;
@@ -400,6 +449,28 @@ namespace OloEngine
 		cmd->useTextureMaps = material.UseTextureMaps;
 		cmd->diffuseMap = material.DiffuseMap;
 		cmd->specularMap = material.SpecularMap;
+		
+		// PBR material properties
+		cmd->enablePBR = material.EnablePBR;
+		cmd->baseColorFactor = material.BaseColorFactor;
+		cmd->emissiveFactor = material.EmissiveFactor;
+		cmd->metallicFactor = material.MetallicFactor;
+		cmd->roughnessFactor = material.RoughnessFactor;
+		cmd->normalScale = material.NormalScale;
+		cmd->occlusionStrength = material.OcclusionStrength;
+		cmd->enableIBL = material.EnableIBL;
+		
+		// PBR texture references
+		cmd->albedoMap = material.AlbedoMap;
+		cmd->metallicRoughnessMap = material.MetallicRoughnessMap;
+		cmd->normalMap = material.NormalMap;
+		cmd->aoMap = material.AOMap;
+		cmd->emissiveMap = material.EmissiveMap;
+		cmd->environmentMap = material.EnvironmentMap;
+		cmd->irradianceMap = material.IrradianceMap;
+		cmd->prefilterMap = material.PrefilterMap;
+		cmd->brdfLutMap = material.BRDFLutMap;
+		
 		cmd->shader = material.Shader ? material.Shader : s_Data.LightingShader;
 		cmd->renderState = CreateRef<RenderState>();
 		packet->SetCommandType(cmd->header.type);
@@ -423,6 +494,8 @@ namespace OloEngine
 		cmd->indexCount = s_Data.CubeMesh->GetIndexCount();
 		cmd->transform = modelMatrix;
 		cmd->shader = s_Data.LightCubeShader;
+		
+		// Legacy material properties
 		cmd->ambient = glm::vec3(1.0f);
 		cmd->diffuse = glm::vec3(1.0f);
 		cmd->specular = glm::vec3(1.0f);
@@ -430,6 +503,26 @@ namespace OloEngine
 		cmd->useTextureMaps = false;
 		cmd->diffuseMap = nullptr;
 		cmd->specularMap = nullptr;
+		
+		// PBR material properties (default values for light cube)
+		cmd->enablePBR = false;
+		cmd->baseColorFactor = glm::vec4(1.0f);
+		cmd->emissiveFactor = glm::vec4(0.0f);
+		cmd->metallicFactor = 0.0f;
+		cmd->roughnessFactor = 1.0f;
+		cmd->normalScale = 1.0f;
+		cmd->occlusionStrength = 1.0f;
+		cmd->enableIBL = false;
+		cmd->albedoMap = nullptr;
+		cmd->metallicRoughnessMap = nullptr;
+		cmd->normalMap = nullptr;
+		cmd->aoMap = nullptr;
+		cmd->emissiveMap = nullptr;
+		cmd->environmentMap = nullptr;
+		cmd->irradianceMap = nullptr;
+		cmd->prefilterMap = nullptr;
+		cmd->brdfLutMap = nullptr;
+		
 		cmd->renderState = CreateRef<RenderState>();
 		packet->SetCommandType(cmd->header.type);
 		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
@@ -579,11 +672,27 @@ namespace OloEngine
 			return nullptr;
 		}
 
+		// Choose shader based on material type
+		Ref<Shader> shaderToUse;
+		if (material.Shader)
+		{
+			// Use explicitly set shader
+			shaderToUse = material.Shader;
+		}
+		else if (material.EnablePBR)
+		{
+			// Use PBR skinned shader for PBR materials
+			shaderToUse = s_Data.PBRSkinnedShader;
+		}
+		else
+		{
+			// Use legacy skinned lighting shader for non-PBR materials
+			shaderToUse = s_Data.SkinnedLightingShader;
+		}
 		
-		Ref<Shader> shaderToUse = material.Shader ? material.Shader : s_Data.SkinnedLightingShader;
 		if (!shaderToUse)
 		{
-			OLO_CORE_WARN("Renderer3D::DrawSkinnedMesh: SkinnedLighting shader not available, falling back to Lighting3D");
+			OLO_CORE_WARN("Renderer3D::DrawSkinnedMesh: Preferred shader not available, falling back to Lighting3D");
 			shaderToUse = s_Data.LightingShader;
 		}
 		if (!shaderToUse)
@@ -606,6 +715,7 @@ namespace OloEngine
 		cmd->indexCount = mesh->GetIndexCount();
 		cmd->modelMatrix = modelMatrix;
 		
+		// Legacy material properties (for backward compatibility)
 		cmd->ambient = material.Ambient;
 		cmd->diffuse = material.Diffuse;
 		cmd->specular = material.Specular;
@@ -613,6 +723,27 @@ namespace OloEngine
 		cmd->useTextureMaps = material.UseTextureMaps;
 		cmd->diffuseMap = material.DiffuseMap;
 		cmd->specularMap = material.SpecularMap;
+		
+		// PBR material properties
+		cmd->enablePBR = material.EnablePBR;
+		cmd->baseColorFactor = material.BaseColorFactor;
+		cmd->emissiveFactor = material.EmissiveFactor;
+		cmd->metallicFactor = material.MetallicFactor;
+		cmd->roughnessFactor = material.RoughnessFactor;
+		cmd->normalScale = material.NormalScale;
+		cmd->occlusionStrength = material.OcclusionStrength;
+		cmd->enableIBL = material.EnableIBL;
+		
+		// PBR texture references
+		cmd->albedoMap = material.AlbedoMap;
+		cmd->metallicRoughnessMap = material.MetallicRoughnessMap;
+		cmd->normalMap = material.NormalMap;
+		cmd->aoMap = material.AOMap;
+		cmd->emissiveMap = material.EmissiveMap;
+		cmd->environmentMap = material.EnvironmentMap;
+		cmd->irradianceMap = material.IrradianceMap;
+		cmd->prefilterMap = material.PrefilterMap;
+		cmd->brdfLutMap = material.BRDFLutMap;
 		
 		cmd->shader = shaderToUse;
 		cmd->renderState = CreateRef<RenderState>();

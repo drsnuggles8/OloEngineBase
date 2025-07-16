@@ -15,6 +15,7 @@
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
+#include "OloEngine/Renderer/PBRMaterialHelper.h"
 #include "OloEngine/Scene/Components.h"
 
 class Sandbox3D : public OloEngine::Layer
@@ -152,6 +153,17 @@ private:
 	OloEngine::Material m_ChromeMaterial;
 	OloEngine::Material m_TexturedMaterial;
 
+	// PBR Materials for testing
+	OloEngine::Material m_PBRGoldMaterial;
+	OloEngine::Material m_PBRSilverMaterial;
+	OloEngine::Material m_PBRCopperMaterial;
+	OloEngine::Material m_PBRPlasticMaterial;
+	OloEngine::Material m_PBRRoughMaterial;
+	OloEngine::Material m_PBRSmoothMaterial;
+	
+	// Environment map for IBL
+	OloEngine::Ref<OloEngine::TextureCubemap> m_EnvironmentMap;
+
 	// Light properties (global for lighting test scene)
 	OloEngine::Light m_Light;
 	int m_LightTypeIndex = 0; // Default to directional light
@@ -163,6 +175,11 @@ private:
 	// Material editor selection state
 	int m_SelectedMaterial = 0;
 	const char* m_MaterialNames[4] = { "Gold", "Silver", "Chrome", "Textured" };
+
+	// PBR testing controls
+	bool m_UsePBRMaterials = false;
+	int m_PBRMaterialType = 0;
+	const char* m_PBRMaterialNames[6] = { "PBR Gold", "PBR Silver", "PBR Copper", "PBR Plastic", "PBR Rough", "PBR Smooth" };
 
 	// Light animation state
 	f32 m_LightAnimTime = 0.0f;

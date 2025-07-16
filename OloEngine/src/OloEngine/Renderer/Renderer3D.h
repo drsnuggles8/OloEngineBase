@@ -157,6 +157,8 @@ namespace OloEngine
 			Ref<Shader> LightingShader;
 			Ref<Shader> SkinnedLightingShader;
 			Ref<Shader> QuadShader;
+			Ref<Shader> PBRShader;
+			Ref<Shader> PBRSkinnedShader;
 					Ref<UniformBuffer> CameraUBO;
 			Ref<UniformBuffer> MaterialUBO;
 			Ref<UniformBuffer> LightPropertiesUBO;

@@ -44,6 +44,23 @@ Sandbox3D::Sandbox3D()
     m_TexturedMaterial.Specular = glm::vec3(1.0f);
     m_TexturedMaterial.Shininess = 64.0f;
     m_TexturedMaterial.UseTextureMaps = true;
+    
+    // Initialize PBR materials with default values
+    // These will be properly configured in OnAttach after textures are loaded
+    m_PBRGoldMaterial = OloEngine::Material();
+    m_PBRSilverMaterial = OloEngine::Material();
+    m_PBRCopperMaterial = OloEngine::Material();
+    m_PBRPlasticMaterial = OloEngine::Material();
+    m_PBRRoughMaterial = OloEngine::Material();
+    m_PBRSmoothMaterial = OloEngine::Material();
+    
+    // Enable PBR for all PBR materials
+    m_PBRGoldMaterial.EnablePBR = true;
+    m_PBRSilverMaterial.EnablePBR = true;
+    m_PBRCopperMaterial.EnablePBR = true;
+    m_PBRPlasticMaterial.EnablePBR = true;
+    m_PBRRoughMaterial.EnablePBR = true;
+    m_PBRSmoothMaterial.EnablePBR = true;
 	// Initialize light with default values
     m_Light.Type = OloEngine::LightType::Directional;
     m_Light.Position = glm::vec3(1.2f, 1.0f, 2.0f);
@@ -94,6 +111,33 @@ void Sandbox3D::OnAttach()
     // Also assign textures to gold material for the sphere
     m_GoldMaterial.DiffuseMap = m_DiffuseMap;
     m_GoldMaterial.SpecularMap = m_SpecularMap;
+    
+    // Initialize PBR materials using the helper
+    m_PBRGoldMaterial = OloEngine::PBRMaterialHelper::CreateGoldMaterial();
+    m_PBRSilverMaterial = OloEngine::PBRMaterialHelper::CreateSilverMaterial();
+    m_PBRCopperMaterial = OloEngine::PBRMaterialHelper::CreateCopperMaterial();
+    m_PBRPlasticMaterial = OloEngine::PBRMaterialHelper::CreateBasicPBRMaterial(
+        glm::vec3(0.1f, 0.1f, 0.8f), // Blue base color
+        0.0f, // Non-metallic
+        0.3f  // Fairly smooth
+    );
+    m_PBRRoughMaterial = OloEngine::PBRMaterialHelper::CreateBasicPBRMaterial(
+        glm::vec3(0.8f, 0.2f, 0.2f), // Red base color
+        0.0f, // Non-metallic
+        0.9f  // Very rough
+    );
+    m_PBRSmoothMaterial = OloEngine::PBRMaterialHelper::CreateBasicPBRMaterial(
+        glm::vec3(0.2f, 0.8f, 0.2f), // Green base color
+        0.0f, // Non-metallic
+        0.1f  // Very smooth
+    );
+    
+    // TODO: Load environment map for IBL
+    // m_EnvironmentMap = OloEngine::TextureCubemap::Create("assets/skybox/");
+    
+    // Configure IBL for PBR materials (for now, without environment map)
+    // OloEngine::PBRMaterialHelper::ConfigureIBL(m_EnvironmentMap);
+    
     OloEngine::Renderer3D::SetLight(m_Light);
 	
 	// Create ECS test scene for animated mesh rendering
@@ -536,26 +580,32 @@ void Sandbox3D::RenderMaterialTestingScene()
     modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleX), glm::vec3(1.0f, 0.0f, 0.0f));
     modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
     
+    // Choose material based on PBR toggle
+    OloEngine::Material* centerMaterial = m_UsePBRMaterials ? &m_PBRGoldMaterial : &m_GoldMaterial;
+    
     // Draw filled mesh (normal)
-    auto* solidPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, m_GoldMaterial);
+    auto* solidPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, *centerMaterial);
     if (solidPacket) OloEngine::Renderer3D::SubmitPacket(solidPacket);
     
-    // Overlay wireframe
-    OloEngine::Material wireMaterial;
-    wireMaterial.Ambient = glm::vec3(0.0f);
-    wireMaterial.Diffuse = glm::vec3(0.0f, 0.0f, 0.0f);
-    wireMaterial.Specular = glm::vec3(0.0f);
-    wireMaterial.Shininess = 1.0f;
-    auto* wirePacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, wireMaterial);
-    if (wirePacket)
+    // Overlay wireframe (only if not using PBR for clarity)
+    if (!m_UsePBRMaterials)
     {
-        auto* drawCmd = wirePacket->GetCommandData<OloEngine::DrawMeshCommand>();
-        drawCmd->renderState->PolygonMode.Mode = GL_LINE;
-        drawCmd->renderState->LineWidth.Width = 2.5f;
-        drawCmd->renderState->PolygonOffset.Enabled = true;
-        drawCmd->renderState->PolygonOffset.Factor = -1.0f;
-        drawCmd->renderState->PolygonOffset.Units = -1.0f;
-        OloEngine::Renderer3D::SubmitPacket(wirePacket);
+        OloEngine::Material wireMaterial;
+        wireMaterial.Ambient = glm::vec3(0.0f);
+        wireMaterial.Diffuse = glm::vec3(0.0f, 0.0f, 0.0f);
+        wireMaterial.Specular = glm::vec3(0.0f);
+        wireMaterial.Shininess = 1.0f;
+        auto* wirePacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, wireMaterial);
+        if (wirePacket)
+        {
+            auto* drawCmd = wirePacket->GetCommandData<OloEngine::DrawMeshCommand>();
+            drawCmd->renderState->PolygonMode.Mode = GL_LINE;
+            drawCmd->renderState->LineWidth.Width = 2.5f;
+            drawCmd->renderState->PolygonOffset.Enabled = true;
+            drawCmd->renderState->PolygonOffset.Factor = -1.0f;
+            drawCmd->renderState->PolygonOffset.Units = -1.0f;
+            OloEngine::Renderer3D::SubmitPacket(wirePacket);
+        }
     }
 
     // Draw objects based on primitive type
@@ -563,35 +613,76 @@ void Sandbox3D::RenderMaterialTestingScene()
     {
         case 0: // Cubes
         {
+            // Choose materials based on PBR toggle
+            OloEngine::Material* silverMat = m_UsePBRMaterials ? &m_PBRSilverMaterial : &m_SilverMaterial;
+            OloEngine::Material* chromeMat = m_UsePBRMaterials ? &m_PBRCopperMaterial : &m_ChromeMaterial;
+            
             auto silverCubeMatrix = glm::mat4(1.0f);
             silverCubeMatrix = glm::translate(silverCubeMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
             silverCubeMatrix = glm::rotate(silverCubeMatrix, glm::radians(m_RotationAngleY * 1.5f), glm::vec3(0.0f, 1.0f, 0.0f));
-            auto* silverPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, silverCubeMatrix, m_SilverMaterial);
+            auto* silverPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, silverCubeMatrix, *silverMat);
             if (silverPacket) OloEngine::Renderer3D::SubmitPacket(silverPacket);
 
             auto chromeCubeMatrix = glm::mat4(1.0f);
             chromeCubeMatrix = glm::translate(chromeCubeMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
             chromeCubeMatrix = glm::rotate(chromeCubeMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
-            auto* chromePacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, chromeCubeMatrix, m_ChromeMaterial);
+            auto* chromePacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, chromeCubeMatrix, *chromeMat);
             if (chromePacket) OloEngine::Renderer3D::SubmitPacket(chromePacket);
             break;
         }
 
         case 1: // Spheres
         {
-            auto centerGoldMatrix = glm::mat4(1.0f);
-            auto* goldPacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, centerGoldMatrix, m_GoldMaterial);
-            if (goldPacket) OloEngine::Renderer3D::SubmitPacket(goldPacket);
+            // PBR materials showcase on spheres
+            if (m_UsePBRMaterials)
+            {
+                // Show different PBR materials
+                OloEngine::Material* materials[] = {
+                    &m_PBRGoldMaterial,
+                    &m_PBRSilverMaterial,
+                    &m_PBRCopperMaterial,
+                    &m_PBRPlasticMaterial,
+                    &m_PBRRoughMaterial,
+                    &m_PBRSmoothMaterial
+                };
+                
+                float radius = 3.0f;
+                int materialCount = sizeof(materials) / sizeof(materials[0]);
+                
+                for (int i = 0; i < materialCount; ++i)
+                {
+                    float angle = (float)i / materialCount * 2.0f * glm::pi<float>();
+                    glm::vec3 position = glm::vec3(
+                        cos(angle) * radius,
+                        0.0f,
+                        sin(angle) * radius
+                    );
+                    
+                    auto sphereMatrix = glm::mat4(1.0f);
+                    sphereMatrix = glm::translate(sphereMatrix, position);
+                    sphereMatrix = glm::scale(sphereMatrix, glm::vec3(0.8f)); // Make them slightly smaller
+                    
+                    auto* packet = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, *materials[i]);
+                    if (packet) OloEngine::Renderer3D::SubmitPacket(packet);
+                }
+            }
+            else
+            {
+                // Original sphere arrangement
+                auto centerGoldMatrix = glm::mat4(1.0f);
+                auto* goldPacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, centerGoldMatrix, m_GoldMaterial);
+                if (goldPacket) OloEngine::Renderer3D::SubmitPacket(goldPacket);
 
-            auto silverSphereMatrix = glm::mat4(1.0f);
-            silverSphereMatrix = glm::translate(silverSphereMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
-            auto* silverPacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, silverSphereMatrix, m_SilverMaterial);
-            if (silverPacket) OloEngine::Renderer3D::SubmitPacket(silverPacket);
+                auto silverSphereMatrix = glm::mat4(1.0f);
+                silverSphereMatrix = glm::translate(silverSphereMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
+                auto* silverPacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, silverSphereMatrix, m_SilverMaterial);
+                if (silverPacket) OloEngine::Renderer3D::SubmitPacket(silverPacket);
 
-            auto chromeSphereMatrix = glm::mat4(1.0f);
-            chromeSphereMatrix = glm::translate(chromeSphereMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
-            auto* chromePacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, chromeSphereMatrix, m_ChromeMaterial);
-            if (chromePacket) OloEngine::Renderer3D::SubmitPacket(chromePacket);
+                auto chromeSphereMatrix = glm::mat4(1.0f);
+                chromeSphereMatrix = glm::translate(chromeSphereMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
+                auto* chromePacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, chromeSphereMatrix, m_ChromeMaterial);
+                if (chromePacket) OloEngine::Renderer3D::SubmitPacket(chromePacket);
+            }
             break;
         }
 
@@ -1383,51 +1474,118 @@ void Sandbox3D::LoadTestAnimatedModel()
 
 void Sandbox3D::RenderMaterialSettings()
 {
-    ImGui::Combo("Select Material", &m_SelectedMaterial, m_MaterialNames, 4);
-
-    // Get the selected material based on the combo box selection
-    OloEngine::Material* currentMaterial;
-    switch (m_SelectedMaterial)
+    // PBR Toggle
+    if (ImGui::Checkbox("Use PBR Materials", &m_UsePBRMaterials))
     {
-        case 0:
-            currentMaterial = &m_GoldMaterial;
-            break;
-        case 1:
-            currentMaterial = &m_SilverMaterial;
-            break;
-        case 2:
-            currentMaterial = &m_ChromeMaterial;
-            break;
-        case 3:
-            currentMaterial = &m_TexturedMaterial;
-            break;
-        default:
-            currentMaterial = &m_GoldMaterial;
+        // When switching to PBR, switch to spheres for better material showcase
+        if (m_UsePBRMaterials)
+        {
+            m_PrimitiveTypeIndex = 1; // Spheres
+        }
     }
-
-    // Edit the selected material
-    if (m_SelectedMaterial == 3)
+    
+    ImGui::Separator();
+    
+    if (m_UsePBRMaterials)
     {
-        ImGui::Text("Textured Material Properties");
-        ImGui::SliderFloat("Shininess", &currentMaterial->Shininess, 1.0f, 128.0f);
+        ImGui::Text("PBR Material Showcase");
+        ImGui::TextWrapped("Switch to 'Spheres' mode to see all PBR materials arranged in a circle:");
         
-        if (m_DiffuseMap)
-            ImGui::Text("Diffuse Map: Loaded");
+        // PBR Material information
+        ImGui::Text("Available PBR Materials:");
+        for (int i = 0; i < 6; ++i)
+        {
+            ImGui::BulletText("%s", m_PBRMaterialNames[i]);
+        }
+        
+        ImGui::Separator();
+        
+        // PBR Material editor (basic version)
+        ImGui::Text("PBR Material Properties:");
+        ImGui::Combo("Select PBR Material", &m_PBRMaterialType, m_PBRMaterialNames, 6);
+        
+        // Get the selected PBR material
+        OloEngine::Material* currentPBRMaterial;
+        switch (m_PBRMaterialType)
+        {
+            case 0: currentPBRMaterial = &m_PBRGoldMaterial; break;
+            case 1: currentPBRMaterial = &m_PBRSilverMaterial; break;
+            case 2: currentPBRMaterial = &m_PBRCopperMaterial; break;
+            case 3: currentPBRMaterial = &m_PBRPlasticMaterial; break;
+            case 4: currentPBRMaterial = &m_PBRRoughMaterial; break;
+            case 5: currentPBRMaterial = &m_PBRSmoothMaterial; break;
+            default: currentPBRMaterial = &m_PBRGoldMaterial; break;
+        }
+        
+        // Edit PBR properties
+        ImGui::ColorEdit3("Base Color", glm::value_ptr(currentPBRMaterial->BaseColorFactor));
+        ImGui::SliderFloat("Metallic", &currentPBRMaterial->MetallicFactor, 0.0f, 1.0f);
+        ImGui::SliderFloat("Roughness", &currentPBRMaterial->RoughnessFactor, 0.01f, 1.0f);
+        ImGui::SliderFloat("Normal Scale", &currentPBRMaterial->NormalScale, 0.0f, 2.0f);
+        ImGui::SliderFloat("Occlusion Strength", &currentPBRMaterial->OcclusionStrength, 0.0f, 1.0f);
+        ImGui::ColorEdit3("Emissive", glm::value_ptr(currentPBRMaterial->EmissiveFactor));
+        
+        ImGui::Separator();
+        ImGui::Text("Environment Mapping:");
+        if (m_EnvironmentMap)
+        {
+            ImGui::Text("Status: Loaded");
+        }
         else
-            ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Diffuse Map: Not Found!");
-        
-        if (m_SpecularMap)
-            ImGui::Text("Specular Map: Loaded");
-        else 
-            ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Specular Map: Not Found!");
+        {
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Status: Not loaded (IBL disabled)");
+            ImGui::TextWrapped("Load an environment map to enable realistic reflections and ambient lighting.");
+        }
     }
     else
     {
-        // For solid color materials, show the color controls
-        ImGui::ColorEdit3(std::format("Ambient##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Ambient));
-        ImGui::ColorEdit3(std::format("Diffuse##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Diffuse));
-        ImGui::ColorEdit3(std::format("Specular##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Specular));
-        ImGui::SliderFloat(std::format("Shininess##Material{}", m_SelectedMaterial).c_str(), &currentMaterial->Shininess, 1.0f, 128.0f);
+        // Original material settings
+        ImGui::Combo("Select Material", &m_SelectedMaterial, m_MaterialNames, 4);
+
+        // Get the selected material based on the combo box selection
+        OloEngine::Material* currentMaterial;
+        switch (m_SelectedMaterial)
+        {
+            case 0:
+                currentMaterial = &m_GoldMaterial;
+                break;
+            case 1:
+                currentMaterial = &m_SilverMaterial;
+                break;
+            case 2:
+                currentMaterial = &m_ChromeMaterial;
+                break;
+            case 3:
+                currentMaterial = &m_TexturedMaterial;
+                break;
+            default:
+                currentMaterial = &m_GoldMaterial;
+        }
+
+        // Edit the selected material
+        if (m_SelectedMaterial == 3)
+        {
+            ImGui::Text("Textured Material Properties");
+            ImGui::SliderFloat("Shininess", &currentMaterial->Shininess, 1.0f, 128.0f);
+            
+            if (m_DiffuseMap)
+                ImGui::Text("Diffuse Map: Loaded");
+            else
+                ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Diffuse Map: Not Found!");
+            
+            if (m_SpecularMap)
+                ImGui::Text("Specular Map: Loaded");
+            else 
+                ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Specular Map: Not Found!");
+        }
+        else
+        {
+            // For solid color materials, show the color controls
+            ImGui::ColorEdit3(std::format("Ambient##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Ambient));
+            ImGui::ColorEdit3(std::format("Diffuse##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Diffuse));
+            ImGui::ColorEdit3(std::format("Specular##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Specular));
+            ImGui::SliderFloat(std::format("Shininess##Material{}", m_SelectedMaterial).c_str(), &currentMaterial->Shininess, 1.0f, 128.0f);
+        }
     }
 }
 

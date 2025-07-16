@@ -492,20 +492,49 @@ namespace OloEngine
 			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
 		}
 		
-		ShaderBindingLayout::MaterialUBO materialData;
-		materialData.Ambient = glm::vec4(cmd->ambient, 1.0f);
-		materialData.Diffuse = glm::vec4(cmd->diffuse, 1.0f);
-		materialData.Specular = glm::vec4(cmd->specular, cmd->shininess);
-		materialData.Emissive = glm::vec4(0.0f);
-		materialData.UseTextureMaps = cmd->useTextureMaps ? 1 : 0;
-		materialData._padding[0] = materialData._padding[1] = materialData._padding[2] = 0;
-		
-		if (s_Data.MaterialUBO)
+		// Update material UBO - use PBR if enabled, otherwise use legacy
+		if (cmd->enablePBR)
 		{
-			constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
-			static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch in DrawMesh");
-			s_Data.MaterialUBO->SetData(&materialData, expectedSize);
-			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
+			ShaderBindingLayout::PBRMaterialUBO pbrMaterialData;
+			pbrMaterialData.BaseColorFactor = cmd->baseColorFactor;
+			pbrMaterialData.EmissiveFactor = cmd->emissiveFactor;
+			pbrMaterialData.MetallicFactor = cmd->metallicFactor;
+			pbrMaterialData.RoughnessFactor = cmd->roughnessFactor;
+			pbrMaterialData.NormalScale = cmd->normalScale;
+			pbrMaterialData.OcclusionStrength = cmd->occlusionStrength;
+			pbrMaterialData.UseAlbedoMap = cmd->albedoMap ? 1 : 0;
+			pbrMaterialData.UseNormalMap = cmd->normalMap ? 1 : 0;
+			pbrMaterialData.UseMetallicRoughnessMap = cmd->metallicRoughnessMap ? 1 : 0;
+			pbrMaterialData.UseAOMap = cmd->aoMap ? 1 : 0;
+			pbrMaterialData.UseEmissiveMap = cmd->emissiveMap ? 1 : 0;
+			pbrMaterialData.EnableIBL = cmd->enableIBL ? 1 : 0;
+			pbrMaterialData._padding[0] = pbrMaterialData._padding[1] = 0;
+			
+			if (s_Data.MaterialUBO)
+			{
+				constexpr u32 expectedSize = ShaderBindingLayout::PBRMaterialUBO::GetSize();
+				static_assert(sizeof(ShaderBindingLayout::PBRMaterialUBO) == expectedSize, "PBRMaterialUBO size mismatch in DrawMesh");
+				s_Data.MaterialUBO->SetData(&pbrMaterialData, expectedSize);
+				glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
+			}
+		}
+		else
+		{
+			ShaderBindingLayout::MaterialUBO materialData;
+			materialData.Ambient = glm::vec4(cmd->ambient, 1.0f);
+			materialData.Diffuse = glm::vec4(cmd->diffuse, 1.0f);
+			materialData.Specular = glm::vec4(cmd->specular, cmd->shininess);
+			materialData.Emissive = glm::vec4(0.0f);
+			materialData.UseTextureMaps = cmd->useTextureMaps ? 1 : 0;
+			materialData._padding[0] = materialData._padding[1] = materialData._padding[2] = 0;
+			
+			if (s_Data.MaterialUBO)
+			{
+				constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
+				static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch in DrawMesh");
+				s_Data.MaterialUBO->SetData(&materialData, expectedSize);
+				glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
+			}
 		}
 		
 		const Light& light = s_Data.SceneLight;
@@ -529,8 +558,112 @@ namespace OloEngine
 			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
 		}
 		
-		if (cmd->useTextureMaps)
+		// Bind textures based on material type
+		if (cmd->enablePBR)
 		{
+			// PBR texture binding
+			if (cmd->albedoMap)
+			{
+				u32 texID = cmd->albedoMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] != texID)
+				{
+					cmd->albedoMap->Bind(ShaderBindingLayout::TEX_DIFFUSE);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
+			}
+			
+			if (cmd->metallicRoughnessMap)
+			{
+				u32 texID = cmd->metallicRoughnessMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] != texID)
+				{
+					cmd->metallicRoughnessMap->Bind(ShaderBindingLayout::TEX_SPECULAR);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
+			}
+			
+			if (cmd->normalMap)
+			{
+				u32 texID = cmd->normalMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_NORMAL] != texID)
+				{
+					cmd->normalMap->Bind(ShaderBindingLayout::TEX_NORMAL);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_NORMAL] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
+			}
+			
+			if (cmd->aoMap)
+			{
+				u32 texID = cmd->aoMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_AMBIENT] != texID)
+				{
+					cmd->aoMap->Bind(ShaderBindingLayout::TEX_AMBIENT);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_AMBIENT] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
+			}
+			
+			if (cmd->emissiveMap)
+			{
+				u32 texID = cmd->emissiveMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_EMISSIVE] != texID)
+				{
+					cmd->emissiveMap->Bind(ShaderBindingLayout::TEX_EMISSIVE);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_EMISSIVE] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
+			}
+			
+			if (cmd->environmentMap)
+			{
+				u32 texID = cmd->environmentMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_ENVIRONMENT] != texID)
+				{
+					cmd->environmentMap->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_ENVIRONMENT] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
+			}
+			
+			if (cmd->irradianceMap)
+			{
+				u32 texID = cmd->irradianceMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_0] != texID)
+				{
+					cmd->irradianceMap->Bind(ShaderBindingLayout::TEX_USER_0);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_0] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
+			}
+			
+			if (cmd->prefilterMap)
+			{
+				u32 texID = cmd->prefilterMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_1] != texID)
+				{
+					cmd->prefilterMap->Bind(ShaderBindingLayout::TEX_USER_1);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_1] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
+			}
+			
+			if (cmd->brdfLutMap)
+			{
+				u32 texID = cmd->brdfLutMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_2] != texID)
+				{
+					cmd->brdfLutMap->Bind(ShaderBindingLayout::TEX_USER_2);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_2] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
+			}
+		}
+		else if (cmd->useTextureMaps)
+		{
+			// Legacy texture binding
 			if (cmd->diffuseMap)
 			{
 				u32 texID = cmd->diffuseMap->GetRendererID();
@@ -767,20 +900,49 @@ namespace OloEngine
 		}
 		
 
-		ShaderBindingLayout::MaterialUBO materialData;
-		materialData.Ambient = glm::vec4(cmd->ambient, 1.0f);
-		materialData.Diffuse = glm::vec4(cmd->diffuse, 1.0f);
-		materialData.Specular = glm::vec4(cmd->specular, cmd->shininess);
-		materialData.Emissive = glm::vec4(0.0f);
-		materialData.UseTextureMaps = cmd->useTextureMaps ? 1 : 0;
-		materialData._padding[0] = materialData._padding[1] = materialData._padding[2] = 0;
-		
-		if (s_Data.MaterialUBO)
+		// Update material UBO - use PBR if enabled, otherwise use legacy
+		if (cmd->enablePBR)
 		{
-			constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
-			static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch in DrawSkinnedMesh");
-			s_Data.MaterialUBO->SetData(&materialData, expectedSize);
-			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
+			ShaderBindingLayout::PBRMaterialUBO pbrMaterialData;
+			pbrMaterialData.BaseColorFactor = cmd->baseColorFactor;
+			pbrMaterialData.EmissiveFactor = cmd->emissiveFactor;
+			pbrMaterialData.MetallicFactor = cmd->metallicFactor;
+			pbrMaterialData.RoughnessFactor = cmd->roughnessFactor;
+			pbrMaterialData.NormalScale = cmd->normalScale;
+			pbrMaterialData.OcclusionStrength = cmd->occlusionStrength;
+			pbrMaterialData.UseAlbedoMap = cmd->albedoMap ? 1 : 0;
+			pbrMaterialData.UseNormalMap = cmd->normalMap ? 1 : 0;
+			pbrMaterialData.UseMetallicRoughnessMap = cmd->metallicRoughnessMap ? 1 : 0;
+			pbrMaterialData.UseAOMap = cmd->aoMap ? 1 : 0;
+			pbrMaterialData.UseEmissiveMap = cmd->emissiveMap ? 1 : 0;
+			pbrMaterialData.EnableIBL = cmd->enableIBL ? 1 : 0;
+			pbrMaterialData._padding[0] = pbrMaterialData._padding[1] = 0;
+			
+			if (s_Data.MaterialUBO)
+			{
+				constexpr u32 expectedSize = ShaderBindingLayout::PBRMaterialUBO::GetSize();
+				static_assert(sizeof(ShaderBindingLayout::PBRMaterialUBO) == expectedSize, "PBRMaterialUBO size mismatch in DrawSkinnedMesh");
+				s_Data.MaterialUBO->SetData(&pbrMaterialData, expectedSize);
+				glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
+			}
+		}
+		else
+		{
+			ShaderBindingLayout::MaterialUBO materialData;
+			materialData.Ambient = glm::vec4(cmd->ambient, 1.0f);
+			materialData.Diffuse = glm::vec4(cmd->diffuse, 1.0f);
+			materialData.Specular = glm::vec4(cmd->specular, cmd->shininess);
+			materialData.Emissive = glm::vec4(0.0f);
+			materialData.UseTextureMaps = cmd->useTextureMaps ? 1 : 0;
+			materialData._padding[0] = materialData._padding[1] = materialData._padding[2] = 0;
+			
+			if (s_Data.MaterialUBO)
+			{
+				constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
+				static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch in DrawSkinnedMesh");
+				s_Data.MaterialUBO->SetData(&materialData, expectedSize);
+				glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
+			}
 		}
 		
 		if (s_Data.BoneMatricesUBO && !cmd->boneMatrices.empty())
@@ -813,8 +975,112 @@ namespace OloEngine
 			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
 		}
 		
-		if (cmd->useTextureMaps)
+		// Bind textures based on material type
+		if (cmd->enablePBR)
 		{
+			// PBR texture binding
+			if (cmd->albedoMap)
+			{
+				u32 texID = cmd->albedoMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] != texID)
+				{
+					cmd->albedoMap->Bind(ShaderBindingLayout::TEX_DIFFUSE);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
+			}
+			
+			if (cmd->metallicRoughnessMap)
+			{
+				u32 texID = cmd->metallicRoughnessMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] != texID)
+				{
+					cmd->metallicRoughnessMap->Bind(ShaderBindingLayout::TEX_SPECULAR);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
+			}
+			
+			if (cmd->normalMap)
+			{
+				u32 texID = cmd->normalMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_NORMAL] != texID)
+				{
+					cmd->normalMap->Bind(ShaderBindingLayout::TEX_NORMAL);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_NORMAL] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
+			}
+			
+			if (cmd->aoMap)
+			{
+				u32 texID = cmd->aoMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_AMBIENT] != texID)
+				{
+					cmd->aoMap->Bind(ShaderBindingLayout::TEX_AMBIENT);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_AMBIENT] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
+			}
+			
+			if (cmd->emissiveMap)
+			{
+				u32 texID = cmd->emissiveMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_EMISSIVE] != texID)
+				{
+					cmd->emissiveMap->Bind(ShaderBindingLayout::TEX_EMISSIVE);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_EMISSIVE] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
+			}
+			
+			if (cmd->environmentMap)
+			{
+				u32 texID = cmd->environmentMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_ENVIRONMENT] != texID)
+				{
+					cmd->environmentMap->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_ENVIRONMENT] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
+			}
+			
+			if (cmd->irradianceMap)
+			{
+				u32 texID = cmd->irradianceMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_0] != texID)
+				{
+					cmd->irradianceMap->Bind(ShaderBindingLayout::TEX_USER_0);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_0] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
+			}
+			
+			if (cmd->prefilterMap)
+			{
+				u32 texID = cmd->prefilterMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_1] != texID)
+				{
+					cmd->prefilterMap->Bind(ShaderBindingLayout::TEX_USER_1);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_1] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
+			}
+			
+			if (cmd->brdfLutMap)
+			{
+				u32 texID = cmd->brdfLutMap->GetRendererID();
+				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_2] != texID)
+				{
+					cmd->brdfLutMap->Bind(ShaderBindingLayout::TEX_USER_2);
+					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_2] = texID;
+					s_Data.Stats.TextureBinds++;
+				}
+			}
+		}
+		else if (cmd->useTextureMaps)
+		{
+			// Legacy texture binding
 			if (cmd->diffuseMap)
 			{
 				u32 texID = cmd->diffuseMap->GetRendererID();

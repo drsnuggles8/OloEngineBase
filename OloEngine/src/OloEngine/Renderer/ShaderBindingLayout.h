@@ -86,6 +86,25 @@ namespace OloEngine
             static constexpr u32 GetSize() { return sizeof(MaterialUBO); }
         };
         
+        struct PBRMaterialUBO
+        {
+            glm::vec4 BaseColorFactor;     // Base color (albedo) with alpha
+            glm::vec4 EmissiveFactor;      // Emissive color
+            f32 MetallicFactor;            // Metallic factor
+            f32 RoughnessFactor;           // Roughness factor
+            f32 NormalScale;               // Normal map scale
+            f32 OcclusionStrength;         // AO strength
+            i32 UseAlbedoMap;              // Use albedo texture
+            i32 UseNormalMap;              // Use normal map
+            i32 UseMetallicRoughnessMap;   // Use metallic-roughness texture
+            i32 UseAOMap;                  // Use ambient occlusion map
+            i32 UseEmissiveMap;            // Use emissive map
+            i32 EnableIBL;                 // Enable IBL
+            i32 _padding[2];
+            
+            static constexpr u32 GetSize() { return sizeof(PBRMaterialUBO); }
+        };
+        
         struct ModelUBO
         {
             glm::mat4 Model;
@@ -146,6 +165,26 @@ layout(std140, binding = 2) uniform MaterialProperties {
 };)";
         }
         
+        static const char* GetPBRMaterialUBOLayout()
+        {
+            return R"(
+layout(std140, binding = 2) uniform PBRMaterialProperties {
+    vec4 u_BaseColorFactor;
+    vec4 u_EmissiveFactor;
+    float u_MetallicFactor;
+    float u_RoughnessFactor;
+    float u_NormalScale;
+    float u_OcclusionStrength;
+    int u_UseAlbedoMap;
+    int u_UseNormalMap;
+    int u_UseMetallicRoughnessMap;
+    int u_UseAOMap;
+    int u_UseEmissiveMap;
+    int u_EnableIBL;
+    int _padding[2];
+};)";
+        }
+        
         static const char* GetModelUBOLayout()
         {
             return R"(
@@ -174,6 +213,20 @@ layout(binding = 4) uniform sampler2D u_AmbientMap;
 layout(binding = 5) uniform sampler2D u_EmissiveMap;
 layout(binding = 6) uniform sampler2D u_RoughnessMap;
 layout(binding = 7) uniform sampler2D u_MetallicMap;)";
+        }
+        
+        static const char* GetPBRTextureBindings()
+        {
+            return R"(
+layout(binding = 0) uniform sampler2D u_AlbedoMap;
+layout(binding = 1) uniform sampler2D u_MetallicRoughnessMap;
+layout(binding = 2) uniform sampler2D u_NormalMap;
+layout(binding = 4) uniform sampler2D u_AOMap;
+layout(binding = 5) uniform sampler2D u_EmissiveMap;
+layout(binding = 9) uniform samplerCube u_EnvironmentMap;
+layout(binding = 10) uniform samplerCube u_IrradianceMap;
+layout(binding = 11) uniform samplerCube u_PrefilterMap;
+layout(binding = 12) uniform sampler2D u_BRDFLutMap;)";
         }
     };
 }
