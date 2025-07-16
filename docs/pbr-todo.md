@@ -5,14 +5,10 @@ This document outlines the implementation plan for adding PBR support to OloEngi
 
 ---
 
-## 🔴 HIGH PRIORITY
-
 ### 1. PBR Shader Development
-**Priority:** High
 **Dependencies:** Shader system, SPIR-V compiler
 
-**Description:**  
-Create comprehensive PBR shaders supporting metallic-roughness workflow (glTF 2.0 standard).
+**Description:**  Create comprehensive PBR shaders supporting metallic-roughness workflow (glTF 2.0 standard).
 
 **Key Steps:**
 - [ ] Create base PBR vertex shader with proper vertex attributes
@@ -22,25 +18,22 @@ Create comprehensive PBR shaders supporting metallic-roughness workflow (glTF 2.
 - [ ] Implement proper gamma correction and tone mapping
 
 **Files to Create:**
-- `OloEngine/assets/shaders/PBR.glsl` (main PBR shader)
-- `OloEngine/assets/shaders/PBR_Skinned.glsl` (PBR with skeletal animation)
-- `OloEngine/assets/shaders/includes/BRDF.glsl` (BRDF functions)
-- `OloEngine/assets/shaders/includes/IBL.glsl` (IBL calculations)
+- `OloEditor/assets/shaders/PBR.glsl` (main PBR shader)
+- `OloEditor/assets/shaders/PBR_Skinned.glsl` (PBR with skeletal animation)
+- `OloEditor/assets/shaders/includes/BRDF.glsl` (BRDF functions)
+- `OloEditor/assets/shaders/includes/IBL.glsl` (IBL calculations)
 
 **Implementation Notes:**
 - Use Cook-Torrance BRDF model
 - Support both punctual lights and IBL
 - Ensure compatibility with existing lighting system
+- Ensure compatibility with existing shader binding layout & renderer3d class 
 - Compile to SPIR-V for optimal performance
 
----
-
 ### 2. PBR Material System
-**Priority:** High
 **Dependencies:** Material class, texture system
 
-**Description:**  
-Extend the material system to support PBR properties and texture maps.
+**Description:**  Extend the material system to support PBR properties and texture maps.
 
 **Key Steps:**
 - [ ] Extend Material class with PBR properties (metallic, roughness, AO)
@@ -53,18 +46,14 @@ Extend the material system to support PBR properties and texture maps.
 - `OloEngine/src/OloEngine/Renderer/Material.cpp` (implement PBR logic)
 
 **Files to Create:**
-- `OloEngine/src/OloEngine/Renderer/PBRMaterial.h` (specialized PBR material)
-- `OloEngine/src/OloEngine/Renderer/PBRMaterial.cpp`
+- `OloEngine/src/OloEngine/Renderer/PBRMaterial.h` (specialized PBR material) - not sure if it's actually needed
+- `OloEngine/src/OloEngine/Renderer/PBRMaterial.cpp` - not sure if it's actually needed
 
 **Implementation Notes:**
-- Support packed metallic-roughness textures (glTF standard)
+- Support packed metallic-roughness textures (glTF 2.0 standard)
 - Implement proper default values for missing textures
-- Ensure backward compatibility with existing materials
-
----
 
 ### 3. Environment Mapping & IBL System
-**Priority:** High
 **Dependencies:** Texture system, framebuffer
 
 **Description:**  
@@ -82,25 +71,19 @@ Implement environment mapping and IBL for realistic reflections and ambient ligh
 - `OloEngine/src/OloEngine/Renderer/EnvironmentMap.cpp`
 - `OloEngine/src/OloEngine/Renderer/IBLPrecompute.h`
 - `OloEngine/src/OloEngine/Renderer/IBLPrecompute.cpp`
-- `OloEngine/assets/shaders/Skybox.glsl`
-- `OloEngine/assets/shaders/IBLPrefilter.glsl`
-- `OloEngine/assets/shaders/IrradianceConvolution.glsl`
+- `OloEditors/assets/shaders/Skybox.glsl`
+- `OloEditors/assets/shaders/IBLPrefilter.glsl`
+- `OloEditors/assets/shaders/IrradianceConvolution.glsl`
 
 **Implementation Notes:**
 - Use OpenGL 4.5+ texture views for efficiency
 - Precompute IBL textures at startup or on-demand
 - Support both HDR and LDR environment maps
 
----
-
-## 🟡 MEDIUM PRIORITY
-
 ### 4. Renderer Pipeline Updates
-**Priority:** Medium
 **Dependencies:** Command buffer system, uniform buffers
 
-**Description:**  
-Update the rendering pipeline to efficiently handle PBR materials and lighting.
+**Description:**  Update the rendering pipeline to efficiently handle PBR materials and lighting.
 
 **Key Steps:**
 - [ ] Extend RenderCommand3D to support PBR material parameters
@@ -118,14 +101,10 @@ Update the rendering pipeline to efficiently handle PBR materials and lighting.
 - Use instancing for objects with same PBR material
 - Profile and optimize uniform buffer updates
 
----
-
 ### 5. Texture Asset Pipeline Enhancement
-**Priority:** Medium
 **Dependencies:** Asset system, texture importer
 
-**Description:**  
-Enhance texture loading to support PBR workflow requirements.
+**Description:**  Enhance texture loading to support PBR workflow requirements.
 
 **Key Steps:**
 - [ ] Add HDR texture format support (e.g., .hdr, .exr)
@@ -142,36 +121,7 @@ Enhance texture loading to support PBR workflow requirements.
 - Implement texture streaming for large PBR texture sets
 - Add texture validation for PBR requirements
 
----
-
-### 6. Debug Visualization Tools
-**Priority:** Medium
-**Dependencies:** ImGui, debug renderer
-
-**Description:**  
-Add debugging tools for PBR material authoring and visualization.
-
-**Key Steps:**
-- [ ] Create ImGui PBR material editor
-- [ ] Add debug visualization modes (albedo, normal, metallic, roughness, AO)
-- [ ] Implement real-time IBL probe visualization
-- [ ] Add BRDF preview sphere/ball
-
-**Files to Create:**
-- `OloEngine/src/OloEngine/ImGui/PBRDebugPanel.h`
-- `OloEngine/src/OloEngine/ImGui/PBRDebugPanel.cpp`
-
-**Implementation Notes:**
-- Allow real-time material property tweaking
-- Provide texture channel isolation views
-- Show performance metrics for PBR rendering
-
----
-
-## 🟢 LOW PRIORITY
-
-### 7. Advanced PBR Features
-**Priority:** Low
+### 6. Advanced PBR Features
 **Dependencies:** Basic PBR implementation
 
 **Description:**  
@@ -188,28 +138,7 @@ Implement advanced PBR features for enhanced quality.
 - Ensure minimal performance impact when unused
 - Follow glTF extensions where applicable
 
----
-
-### 8. Performance Optimizations
-**Priority:** Low
-**Dependencies:** Complete PBR implementation
-
-**Description:**  
-Optimize PBR rendering for maximum performance.
-
-**Key Steps:**
-- [ ] Implement clustered forward rendering
-- [ ] Add LOD system for PBR materials
-- [ ] Optimize shader variants and uber-shader approach
-- [ ] Implement temporal caching for IBL
-
-**Implementation Notes:**
-- Profile on various hardware configurations
-- Consider mobile/low-end GPU optimizations
-- Maintain quality vs performance options
-
----
-
+--- 
 ## Technical Considerations
 
 ### Shader Architecture
@@ -236,8 +165,6 @@ Optimize PBR rendering for maximum performance.
 - Efficient IBL with minimal texture bandwidth
 - Scalable quality settings (low/medium/high)
 
----
-
 ## Success Metrics
 
 - **Visual Quality:** Achieve industry-standard PBR rendering quality
@@ -246,16 +173,6 @@ Optimize PBR rendering for maximum performance.
 - **Usability:** Intuitive material authoring workflow
 - **Compatibility:** Seamless integration with existing renderer
 - **Extensibility:** Easy to add new PBR features
-
----
-
-## Implementation Order
-
-1. **Phase 1:** Basic PBR shader and material system
-2. **Phase 2:** IBL and environment mapping
-3. **Phase 3:** Renderer pipeline integration
-4. **Phase 4:** Debug tools and visualization
-5. **Phase 5:** Advanced features and optimizations
 
 ---
 
