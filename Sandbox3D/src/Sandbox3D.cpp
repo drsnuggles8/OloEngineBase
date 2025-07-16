@@ -581,7 +581,7 @@ void Sandbox3D::RenderMaterialTestingScene()
     modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
     
     // Choose material based on PBR toggle
-    OloEngine::Material* centerMaterial = m_UsePBRMaterials ? &m_PBRGoldMaterial : &m_GoldMaterial;
+    OloEngine::Material* centerMaterial = m_UsePBRMaterials ? GetCurrentPBRMaterial() : &m_GoldMaterial;
     
     // Draw filled mesh (normal)
     auto* solidPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, *centerMaterial);
@@ -1066,6 +1066,20 @@ void Sandbox3D::RenderSpotlightUI()
     if (lightChanged)
     {
         UpdateCurrentSceneLighting();
+    }
+}
+
+OloEngine::Material* Sandbox3D::GetCurrentPBRMaterial()
+{
+    switch (m_PBRMaterialType)
+    {
+        case 0: return &m_PBRGoldMaterial;
+        case 1: return &m_PBRSilverMaterial;
+        case 2: return &m_PBRCopperMaterial;
+        case 3: return &m_PBRPlasticMaterial;
+        case 4: return &m_PBRRoughMaterial;
+        case 5: return &m_PBRSmoothMaterial;
+        default: return &m_PBRGoldMaterial;
     }
 }
 

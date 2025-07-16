@@ -65,6 +65,9 @@ private:
 	void RenderLightingTestingUI();
 	void RenderStateTestingUI();
 	void RenderModelLoadingUI();
+	
+	// Helper methods
+	OloEngine::Material* GetCurrentPBRMaterial();
 
 	// ECS Scene for animated mesh testing
 	OloEngine::Ref<OloEngine::Scene> m_TestScene;

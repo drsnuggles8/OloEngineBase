@@ -238,13 +238,14 @@ layout(binding = 9) uniform samplerCube u_EnvironmentMap;   // TEX_ENVIRONMENT
 // IBL textures (if available)
 layout(binding = 10) uniform samplerCube u_IrradianceMap;   // TEX_USER_0
 layout(binding = 11) uniform samplerCube u_PrefilterMap;    // TEX_USER_1
-layout(binding = 12) uniform sampler2D u_BRDFLutMap;        // TEX_USER_2
+layout(binding = 12) uniform sampler2D u_BRDFLutMap;        // TEX_USER_2    // Normal mapping function
 
-// Normal mapping function
 vec3 getNormalFromMap()
 {
     if (u_UseNormalMap == 0)
+    {
         return normalize(v_Normal);
+    }
         
     vec3 tangentNormal = texture(u_NormalMap, v_TexCoord).xyz * 2.0 - 1.0;
     tangentNormal.xy *= u_NormalScale;
@@ -325,7 +326,8 @@ void main()
     }
     
     float ao = 1.0;
-    if (u_UseAOMap == 1) {
+    if (u_UseAOMap == 1)
+    {
         ao = texture(u_AOMap, v_TexCoord).r;
         ao = mix(1.0, ao, u_OcclusionStrength);
     }
