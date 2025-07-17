@@ -1,16 +1,25 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
+#include "OloEngine/Renderer/IBLPrecompute.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Mesh.h"
-#include "OloEngine/Renderer/MeshFactory.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
+#include "OloEngine/Renderer/ShaderLibrary.h"
 
 #include <stb_image/stb_image.h>
 
 namespace OloEngine
 {
+    // Static member definition
+    ShaderLibrary* EnvironmentMap::s_ShaderLibrary = nullptr;
+    void EnvironmentMap::InitializeIBLSystem(ShaderLibrary& shaderLibrary)
+    {
+        s_ShaderLibrary = &shaderLibrary;
+        OLO_CORE_INFO("EnvironmentMap: IBL system initialized with shader library");
+    }
+
     EnvironmentMap::EnvironmentMap(const EnvironmentMapSpecification& spec)
         : m_Specification(spec)
     {
@@ -98,8 +107,15 @@ namespace OloEngine
         
         m_IrradianceMap = TextureCubemap::Create(irradianceSpec);
         
-        // TODO: Implement actual irradiance convolution using compute shaders or render-to-texture
-        // For now, this is a placeholder that would be filled with proper rendering code
+        // Use IBLPrecompute to generate the irradiance map
+        if (s_ShaderLibrary)
+        {
+            IBLPrecompute::GenerateIrradianceMap(m_EnvironmentMap, m_IrradianceMap, *s_ShaderLibrary);
+        }
+        else
+        {
+            OLO_CORE_ERROR("EnvironmentMap: IBL system not initialized! Call InitializeIBLSystem() first.");
+        }
         
         OLO_CORE_INFO("Irradiance map generated (32x32)");
     }
@@ -117,8 +133,15 @@ namespace OloEngine
         
         m_PrefilterMap = TextureCubemap::Create(prefilterSpec);
         
-        // TODO: Implement actual prefiltering using compute shaders or render-to-texture
-        // For now, this is a placeholder that would be filled with proper rendering code
+        // Use IBLPrecompute to generate the prefiltered environment map
+        if (s_ShaderLibrary)
+        {
+            IBLPrecompute::GeneratePrefilterMap(m_EnvironmentMap, m_PrefilterMap, *s_ShaderLibrary);
+        }
+        else
+        {
+            OLO_CORE_ERROR("EnvironmentMap: IBL system not initialized! Call InitializeIBLSystem() first.");
+        }
         
         OLO_CORE_INFO("Prefilter map generated (128x128) with mipmaps");
     }
@@ -136,8 +159,15 @@ namespace OloEngine
         
         m_BRDFLutMap = Texture2D::Create(brdfSpec);
         
-        // TODO: Implement actual BRDF LUT generation using compute shaders or render-to-texture
-        // For now, this is a placeholder that would be filled with proper rendering code
+        // Use IBLPrecompute to generate the BRDF lookup table
+        if (s_ShaderLibrary)
+        {
+            IBLPrecompute::GenerateBRDFLut(m_BRDFLutMap, *s_ShaderLibrary);
+        }
+        else
+        {
+            OLO_CORE_ERROR("EnvironmentMap: IBL system not initialized! Call InitializeIBLSystem() first.");
+        }
         
         OLO_CORE_INFO("BRDF LUT generated (512x512)");
     }
@@ -146,37 +176,15 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         
-        // Load HDR image
-        stbi_set_flip_vertically_on_load(true);
-        
-        int width, height, channels;
-        float* data = stbi_loadf(filePath.c_str(), &width, &height, &channels, 0);
-        
-        if (!data)
+        // Use IBLPrecompute to handle the conversion
+        if (s_ShaderLibrary)
         {
-            OLO_CORE_ERROR("Failed to load HDR image: {0}", filePath);
+            return IBLPrecompute::ConvertEquirectangularToCubemap(filePath, *s_ShaderLibrary, m_Specification.Resolution);
+        }
+        else
+        {
+            OLO_CORE_ERROR("EnvironmentMap: IBL system not initialized! Call InitializeIBLSystem() first.");
             return nullptr;
         }
-        
-        // For now, create a simple cubemap specification
-        // In a full implementation, this would involve proper equirectangular to cubemap conversion
-        CubemapSpecification spec;
-        spec.Width = m_Specification.Resolution;
-        spec.Height = m_Specification.Resolution;
-        spec.Format = m_Specification.Format;
-        spec.GenerateMips = m_Specification.GenerateMipmaps;
-        
-        auto cubemap = TextureCubemap::Create(spec);
-        
-        // TODO: Implement actual equirectangular to cubemap conversion
-        // This would typically involve:
-        // 1. Creating a framebuffer with cubemap faces as render targets
-        // 2. Using a shader to sample the equirectangular texture
-        // 3. Rendering a cube for each face with appropriate view matrices
-        
-        stbi_image_free(data);
-        
-        OLO_CORE_INFO("Converted equirectangular image to cubemap: {0}", filePath);
-        return cubemap;
     }
 }

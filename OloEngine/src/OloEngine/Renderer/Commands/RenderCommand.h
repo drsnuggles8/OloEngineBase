@@ -28,6 +28,7 @@ namespace OloEngine
         DrawMesh,
         DrawMeshInstanced,
         DrawSkinnedMesh,
+        DrawSkybox,
         DrawQuad,
         BindDefaultFramebuffer,
         BindTexture,
@@ -374,6 +375,18 @@ namespace OloEngine
 		bool isSkinnedMesh = false;
 		// For instanced skinned meshes, each instance has its own set of bone matrices
 		std::vector<std::vector<glm::mat4>> instanceBoneMatrices;
+	};
+
+	struct DrawSkyboxCommand
+	{
+		CommandHeader header;
+		Ref<Mesh> mesh;              // Skybox mesh (special cube)
+		Ref<VertexArray> vertexArray; // Store the actual vertex array
+		u32 indexCount;
+		glm::mat4 transform;         // Usually identity matrix
+		Ref<Shader> shader;          // Skybox shader
+		Ref<TextureCubemap> skyboxTexture; // The skybox cubemap texture
+		Ref<RenderState> renderState; // Skybox-specific render state
 	};
 
 	struct DrawQuadCommand

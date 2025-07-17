@@ -80,6 +80,7 @@ namespace OloEngine
         s_DispatchTable[static_cast<sizet>(CommandType::DrawMesh)] = CommandDispatch::DrawMesh;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawMeshInstanced)] = CommandDispatch::DrawMeshInstanced;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawSkinnedMesh)] = CommandDispatch::DrawSkinnedMesh;
+        s_DispatchTable[static_cast<sizet>(CommandType::DrawSkybox)] = CommandDispatch::DrawSkybox;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawQuad)] = CommandDispatch::DrawQuad;
 		
 		s_Data.CurrentBoundShaderID = 0;
@@ -1116,6 +1117,46 @@ namespace OloEngine
 		s_Data.Stats.DrawCalls++;
 		
 		api.DrawIndexed(cmd->vertexArray, indexCount);
+	}
+
+	void CommandDispatch::DrawSkybox(const void* data, RendererAPI& api)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		auto const* cmd = static_cast<const DrawSkyboxCommand*>(data);
+		
+		if (!cmd->vertexArray || !cmd->shader || !cmd->skyboxTexture)
+		{
+			OLO_CORE_ERROR("CommandDispatch::DrawSkybox: Invalid vertex array, shader, or skybox texture");
+			return;
+		}
+
+		// Apply skybox-specific render state manually
+		api.SetDepthTest(true);
+		api.SetDepthFunc(GL_LEQUAL); // Important for skybox
+		api.SetDepthMask(false); // Don't write to depth buffer
+		api.DisableCulling(); // Don't cull faces for skybox
+
+		// Bind skybox shader
+		cmd->shader->Bind();
+		s_Data.CurrentBoundShaderID = cmd->shader->GetRendererID();
+
+		// Bind skybox texture to the correct slot
+		cmd->skyboxTexture->Bind(9); // TEX_ENVIRONMENT slot
+
+		// Bind vertex array
+		cmd->vertexArray->Bind();
+
+		// Draw skybox
+		api.DrawIndexed(cmd->vertexArray, cmd->indexCount);
+
+		// Restore default render state
+		api.SetDepthFunc(GL_LESS);
+		api.SetDepthMask(true);
+		api.EnableCulling();
+
+		// Update statistics
+		s_Data.Stats.DrawCalls++;
 	}
 
 	void CommandDispatch::DrawQuad(const void* data, RendererAPI& api)

@@ -33,7 +33,12 @@ layout(location = 0) out vec4 o_Color;
 
 layout(binding = 9) uniform samplerCube u_EnvironmentMap;
 
-uniform float u_Roughness;
+layout(std140, binding = 5) uniform IBLParameters {
+    float u_Roughness;
+    float _padding0;
+    float _padding1;
+    float _padding2;
+};
 
 const float PI = 3.14159265359;
 

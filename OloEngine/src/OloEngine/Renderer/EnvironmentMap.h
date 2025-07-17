@@ -9,6 +9,9 @@
 
 namespace OloEngine
 {
+    // Forward declaration
+    class ShaderLibrary;
+    
     struct EnvironmentMapSpecification
     {
         std::string FilePath;
@@ -23,6 +26,9 @@ namespace OloEngine
     public:
         EnvironmentMap(const EnvironmentMapSpecification& spec);
         ~EnvironmentMap() = default;
+
+        // Initialize IBL system with shader library (call once at engine startup)
+        static void InitializeIBLSystem(ShaderLibrary& shaderLibrary);
 
         // Load environment map from HDR file
         static Ref<EnvironmentMap> Create(const EnvironmentMapSpecification& spec);
@@ -55,5 +61,8 @@ namespace OloEngine
         Ref<TextureCubemap> m_IrradianceMap;
         Ref<TextureCubemap> m_PrefilterMap;
         Ref<Texture2D> m_BRDFLutMap;
+        
+        // Static shader library for IBL operations
+        static ShaderLibrary* s_ShaderLibrary;
     };
 }

@@ -83,6 +83,7 @@ namespace OloEngine
         static void DrawMesh(const void* data, RendererAPI& api);
         static void DrawMeshInstanced(const void* data, RendererAPI& api);
         static void DrawSkinnedMesh(const void* data, RendererAPI& api);
+        static void DrawSkybox(const void* data, RendererAPI& api);
         static void DrawQuad(const void* data, RendererAPI& api);
 		
 		static Statistics& GetStatistics();

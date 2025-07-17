@@ -12,6 +12,7 @@
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderDebugUtils.h"
+#include "OloEngine/Renderer/EnvironmentMap.h"
 
 
 #include "OloEngine/Animation/Skeleton.h"
@@ -132,11 +133,58 @@ void Sandbox3D::OnAttach()
         0.1f  // Very smooth
     );
     
-    // TODO: Load environment map for IBL
-    // m_EnvironmentMap = OloEngine::TextureCubemap::Create("assets/skybox/");
+    // Load environment map for IBL - using cubemap faces from OloEditor assets
+    std::vector<std::string> skyboxFaces = {
+        "assets/textures/Skybox/right.jpg",
+        "assets/textures/Skybox/left.jpg", 
+        "assets/textures/Skybox/top.jpg",
+        "assets/textures/Skybox/bottom.jpg",
+        "assets/textures/Skybox/front.jpg",
+        "assets/textures/Skybox/back.jpg"
+    };
     
-    // Configure IBL for PBR materials (for now, without environment map)
-    // OloEngine::PBRMaterialHelper::ConfigureIBL(m_EnvironmentMap);
+    auto skyboxCubemap = OloEngine::TextureCubemap::Create(skyboxFaces);
+    m_EnvironmentMap = OloEngine::EnvironmentMap::CreateFromCubemap(skyboxCubemap);
+    
+    // Configure IBL for all PBR materials
+    if (m_EnvironmentMap && m_EnvironmentMap->HasIBL())
+    {
+        OloEngine::PBRMaterialHelper::ConfigureIBL(m_PBRGoldMaterial, 
+            m_EnvironmentMap->GetEnvironmentMap(),
+            m_EnvironmentMap->GetIrradianceMap(),
+            m_EnvironmentMap->GetPrefilterMap(),
+            m_EnvironmentMap->GetBRDFLutMap());
+            
+        OloEngine::PBRMaterialHelper::ConfigureIBL(m_PBRSilverMaterial,
+            m_EnvironmentMap->GetEnvironmentMap(),
+            m_EnvironmentMap->GetIrradianceMap(), 
+            m_EnvironmentMap->GetPrefilterMap(),
+            m_EnvironmentMap->GetBRDFLutMap());
+            
+        OloEngine::PBRMaterialHelper::ConfigureIBL(m_PBRCopperMaterial,
+            m_EnvironmentMap->GetEnvironmentMap(),
+            m_EnvironmentMap->GetIrradianceMap(),
+            m_EnvironmentMap->GetPrefilterMap(), 
+            m_EnvironmentMap->GetBRDFLutMap());
+            
+        OloEngine::PBRMaterialHelper::ConfigureIBL(m_PBRPlasticMaterial,
+            m_EnvironmentMap->GetEnvironmentMap(),
+            m_EnvironmentMap->GetIrradianceMap(),
+            m_EnvironmentMap->GetPrefilterMap(),
+            m_EnvironmentMap->GetBRDFLutMap());
+            
+        OloEngine::PBRMaterialHelper::ConfigureIBL(m_PBRRoughMaterial,
+            m_EnvironmentMap->GetEnvironmentMap(),
+            m_EnvironmentMap->GetIrradianceMap(), 
+            m_EnvironmentMap->GetPrefilterMap(),
+            m_EnvironmentMap->GetBRDFLutMap());
+            
+        OloEngine::PBRMaterialHelper::ConfigureIBL(m_PBRSmoothMaterial,
+            m_EnvironmentMap->GetEnvironmentMap(),
+            m_EnvironmentMap->GetIrradianceMap(),
+            m_EnvironmentMap->GetPrefilterMap(),
+            m_EnvironmentMap->GetBRDFLutMap());
+    }
     
     OloEngine::Renderer3D::SetLight(m_Light);
 	
@@ -358,6 +406,16 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
     {
         OLO_PROFILE_SCOPE("Renderer Draw");
         OloEngine::Renderer3D::BeginScene(m_CameraController.GetCamera());
+        
+        // Render skybox first (background)
+        if (m_EnvironmentMap && m_EnvironmentMap->GetEnvironmentMap())
+        {
+            auto* skyboxPacket = OloEngine::Renderer3D::DrawSkybox(m_EnvironmentMap->GetEnvironmentMap());
+            if (skyboxPacket) 
+            {
+                OloEngine::Renderer3D::SubmitPacket(skyboxPacket);
+            }
+        }
         
         // Apply appropriate lighting for current scene
         ApplySceneLighting(m_CurrentScene);
@@ -631,44 +689,80 @@ void Sandbox3D::RenderMaterialTestingScene()
             break;
         }
 
-        case 1: // Spheres
+        case 1: // Spheres - PBR Material Showcase
         {
-            // PBR materials showcase on spheres
+            // PBR materials showcase on spheres (LearnOpenGL style)
             if (m_UsePBRMaterials)
             {
-                // Show different PBR materials
-                OloEngine::Material* materials[] = {
-                    &m_PBRGoldMaterial,
-                    &m_PBRSilverMaterial,
-                    &m_PBRCopperMaterial,
-                    &m_PBRPlasticMaterial,
-                    &m_PBRRoughMaterial,
-                    &m_PBRSmoothMaterial
+                // Create a grid of spheres with varying metallic and roughness values
+                int rows = 7;    // Different roughness values
+                int cols = 7;    // Different metallic values
+                float spacing = 2.5f;
+                float startX = -(cols - 1) * spacing * 0.5f;
+                float startZ = -(rows - 1) * spacing * 0.5f;
+                
+                for (int row = 0; row < rows; ++row)
+                {
+                    for (int col = 0; col < cols; ++col)
+                    {
+                        glm::vec3 position = glm::vec3(
+                            startX + col * spacing,
+                            0.0f,
+                            startZ + row * spacing
+                        );
+                        
+                        // Create material with varying metallic and roughness
+                        float metallic = static_cast<float>(col) / static_cast<float>(cols - 1);
+                        float roughness = static_cast<float>(row) / static_cast<float>(rows - 1);
+                        roughness = glm::clamp(roughness, 0.05f, 1.0f); // Prevent completely smooth
+                        
+                        // Create dynamic material
+                        OloEngine::Material dynamicMaterial = OloEngine::PBRMaterialHelper::CreateBasicPBRMaterial(
+                            glm::vec3(0.5f, 0.0f, 0.0f), // Red base color
+                            metallic,
+                            roughness
+                        );
+                        
+                        // Configure IBL if available
+                        if (m_EnvironmentMap && m_EnvironmentMap->HasIBL())
+                        {
+                            OloEngine::PBRMaterialHelper::ConfigureIBL(dynamicMaterial,
+                                m_EnvironmentMap->GetEnvironmentMap(),
+                                m_EnvironmentMap->GetIrradianceMap(),
+                                m_EnvironmentMap->GetPrefilterMap(),
+                                m_EnvironmentMap->GetBRDFLutMap());
+                        }
+                        
+                        auto sphereMatrix = glm::mat4(1.0f);
+                        sphereMatrix = glm::translate(sphereMatrix, position);
+                        sphereMatrix = glm::scale(sphereMatrix, glm::vec3(0.8f));
+                        
+                        auto* packet = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, dynamicMaterial);
+                        if (packet) OloEngine::Renderer3D::SubmitPacket(packet);
+                    }
+                }
+                
+                // Add some preset material spheres around the edges for comparison
+                std::vector<std::pair<OloEngine::Material*, glm::vec3>> presetMaterials = {
+                    { &m_PBRGoldMaterial, glm::vec3(-12.0f, 2.0f, 0.0f) },
+                    { &m_PBRSilverMaterial, glm::vec3(12.0f, 2.0f, 0.0f) },
+                    { &m_PBRCopperMaterial, glm::vec3(0.0f, 2.0f, -12.0f) },
+                    { &m_PBRPlasticMaterial, glm::vec3(0.0f, 2.0f, 12.0f) }
                 };
                 
-                float radius = 3.0f;
-                int materialCount = sizeof(materials) / sizeof(materials[0]);
-                
-                for (int i = 0; i < materialCount; ++i)
+                for (const auto& preset : presetMaterials)
                 {
-                    float angle = (float)i / materialCount * 2.0f * glm::pi<float>();
-                    glm::vec3 position = glm::vec3(
-                        cos(angle) * radius,
-                        0.0f,
-                        sin(angle) * radius
-                    );
-                    
                     auto sphereMatrix = glm::mat4(1.0f);
-                    sphereMatrix = glm::translate(sphereMatrix, position);
-                    sphereMatrix = glm::scale(sphereMatrix, glm::vec3(0.8f)); // Make them slightly smaller
+                    sphereMatrix = glm::translate(sphereMatrix, preset.second);
+                    sphereMatrix = glm::scale(sphereMatrix, glm::vec3(1.2f)); // Slightly larger
                     
-                    auto* packet = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, *materials[i]);
+                    auto* packet = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, *preset.first);
                     if (packet) OloEngine::Renderer3D::SubmitPacket(packet);
                 }
             }
             else
             {
-                // Original sphere arrangement
+                // Original sphere arrangement for non-PBR materials
                 auto centerGoldMatrix = glm::mat4(1.0f);
                 auto* goldPacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, centerGoldMatrix, m_GoldMaterial);
                 if (goldPacket) OloEngine::Renderer3D::SubmitPacket(goldPacket);
@@ -1540,10 +1634,28 @@ void Sandbox3D::RenderMaterialSettings()
         ImGui::ColorEdit3("Emissive", glm::value_ptr(currentPBRMaterial->EmissiveFactor));
         
         ImGui::Separator();
-        ImGui::Text("Environment Mapping:");
+        ImGui::Text("Environment Mapping (IBL):");
         if (m_EnvironmentMap)
         {
-            ImGui::Text("Status: Loaded");
+            ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Status: Loaded & Active");
+            if (m_EnvironmentMap->HasIBL())
+            {
+                ImGui::BulletText("Environment Map: Loaded");
+                ImGui::BulletText("Irradiance Map: Generated");
+                ImGui::BulletText("Prefilter Map: Generated");
+                ImGui::BulletText("BRDF LUT: Generated");
+            }
+            
+            // Show IBL status for current material
+            OloEngine::Material* materialForIBLCheck = GetCurrentPBRMaterial();
+            if (materialForIBLCheck && materialForIBLCheck->EnableIBL)
+            {
+                ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "IBL: Enabled for current material");
+            }
+            else
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "IBL: Disabled for current material");
+            }
         }
         else
         {

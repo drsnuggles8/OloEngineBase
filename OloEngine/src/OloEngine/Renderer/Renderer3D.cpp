@@ -13,6 +13,7 @@
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
@@ -45,6 +46,7 @@ namespace OloEngine
 
 		s_Data.CubeMesh = Mesh::CreateCube();
 		s_Data.QuadMesh = Mesh::CreatePlane(1.0f, 1.0f);
+		s_Data.SkyboxMesh = Mesh::CreateSkyboxCube();
 		m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
 		m_ShaderLibrary.Load("assets/shaders/Lighting3D.glsl");
 		m_ShaderLibrary.Load("assets/shaders/SkinnedLighting3D_Simple.glsl");
@@ -52,12 +54,20 @@ namespace OloEngine
 		m_ShaderLibrary.Load("assets/shaders/PBR.glsl");
 		m_ShaderLibrary.Load("assets/shaders/PBR_Skinned.glsl");
 		
+		// Load IBL shaders for environment mapping
+		m_ShaderLibrary.Load("assets/shaders/EquirectangularToCubemap.glsl");
+		m_ShaderLibrary.Load("assets/shaders/IrradianceConvolution.glsl");
+		m_ShaderLibrary.Load("assets/shaders/IBLPrefilter.glsl");
+		m_ShaderLibrary.Load("assets/shaders/BRDFLutGeneration.glsl");
+		m_ShaderLibrary.Load("assets/shaders/Skybox.glsl");
+		
 		s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
 		s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
 		s_Data.SkinnedLightingShader = m_ShaderLibrary.Get("SkinnedLighting3D_Simple");
 		s_Data.QuadShader = m_ShaderLibrary.Get("Renderer3D_Quad");
 		s_Data.PBRShader = m_ShaderLibrary.Get("PBR");
 		s_Data.PBRSkinnedShader = m_ShaderLibrary.Get("PBR_Skinned");
+		s_Data.SkyboxShader = m_ShaderLibrary.Get("Skybox");
 		
 		s_Data.CameraUBO = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
 		s_Data.LightPropertiesUBO = UniformBuffer::Create(ShaderBindingLayout::LightUBO::GetSize(), ShaderBindingLayout::UBO_LIGHTS);
@@ -72,6 +82,10 @@ namespace OloEngine
 			s_Data.BoneMatricesUBO,
 			s_Data.ModelMatrixUBO
 		);
+		
+		// Initialize IBL system for environment mapping
+		EnvironmentMap::InitializeIBLSystem(m_ShaderLibrary);
+		OLO_CORE_INFO("IBL system initialized.");
 		
 		s_Data.SceneLight.Type = LightType::Directional;
 		s_Data.SceneLight.Position = glm::vec3(1.2f, 1.0f, 2.0f);
@@ -899,5 +913,47 @@ namespace OloEngine
 		{
 			registry->ApplyBindings();
 		}
+	}
+
+	CommandPacket* Renderer3D::DrawSkybox(const Ref<TextureCubemap>& skyboxTexture)
+	{
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("Renderer3D::DrawSkybox: ScenePass is null!");
+			return nullptr;
+		}
+
+		if (!skyboxTexture)
+		{
+			OLO_CORE_ERROR("Renderer3D::DrawSkybox: Skybox texture is null!");
+			return nullptr;
+		}
+
+		if (!s_Data.SkyboxMesh || !s_Data.SkyboxShader)
+		{
+			OLO_CORE_ERROR("Renderer3D::DrawSkybox: Skybox mesh or shader not initialized!");
+			return nullptr;
+		}
+
+		CommandPacket* packet = CreateDrawCall<DrawSkyboxCommand>();
+		auto* cmd = packet->GetCommandData<DrawSkyboxCommand>();
+		cmd->header.type = CommandType::DrawSkybox;
+		cmd->mesh = s_Data.SkyboxMesh;
+		cmd->vertexArray = s_Data.SkyboxMesh->GetVertexArray();
+		cmd->indexCount = s_Data.SkyboxMesh->GetIndexCount();
+		cmd->transform = glm::mat4(1.0f); // Identity matrix for skybox
+		cmd->shader = s_Data.SkyboxShader;
+		cmd->skyboxTexture = skyboxTexture;
+		
+		cmd->renderState = CreateRef<RenderState>();
+		cmd->renderState->Depth.TestEnabled = true;
+		cmd->renderState->Depth.Function = GL_LEQUAL; // Important for skybox
+		cmd->renderState->Depth.WriteMask = false; // Don't write to depth buffer
+		cmd->renderState->Culling.Enabled = false; // Don't cull faces for skybox
+		
+		packet->SetCommandType(cmd->header.type);
+		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+		
+		return packet;
 	}
 }

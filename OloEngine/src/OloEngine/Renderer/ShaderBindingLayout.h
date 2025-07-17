@@ -121,6 +121,16 @@ namespace OloEngine
             static constexpr u32 GetSize() { return sizeof(AnimationUBO); }
         };
         
+        struct IBLParametersUBO
+        {
+            f32 Roughness;
+            f32 _padding0;
+            f32 _padding1;
+            f32 _padding2;
+            
+            static constexpr u32 GetSize() { return sizeof(IBLParametersUBO); }
+        };
+        
         // =============================================================================
         // GLSL LAYOUT STRINGS FOR CODE GENERATION
         // =============================================================================

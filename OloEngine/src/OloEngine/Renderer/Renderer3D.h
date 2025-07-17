@@ -65,6 +65,7 @@ namespace OloEngine
 		static CommandPacket* DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true);
 		static CommandPacket* DrawLightCube(const glm::mat4& modelMatrix);
 		static CommandPacket* DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
+		static CommandPacket* DrawSkybox(const Ref<TextureCubemap>& skyboxTexture);
 		
 		// ECS Animated Mesh Rendering
 		static void RenderAnimatedMeshes(const Ref<Scene>& scene, const Material& defaultMaterial);
@@ -153,12 +154,14 @@ namespace OloEngine
 		{
 			Ref<Mesh> CubeMesh;
 			Ref<Mesh> QuadMesh;
+			Ref<Mesh> SkyboxMesh;
 			Ref<Shader> LightCubeShader;
 			Ref<Shader> LightingShader;
 			Ref<Shader> SkinnedLightingShader;
 			Ref<Shader> QuadShader;
 			Ref<Shader> PBRShader;
 			Ref<Shader> PBRSkinnedShader;
+			Ref<Shader> SkyboxShader;
 					Ref<UniformBuffer> CameraUBO;
 			Ref<UniformBuffer> MaterialUBO;
 			Ref<UniformBuffer> LightPropertiesUBO;

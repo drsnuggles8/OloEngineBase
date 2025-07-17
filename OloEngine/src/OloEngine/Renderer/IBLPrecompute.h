@@ -9,16 +9,18 @@
 
 namespace OloEngine
 {
+    class ShaderLibrary;
+    
     class IBLPrecompute
     {
     public:
         // Precompute IBL textures from environment map
-        static void GenerateIrradianceMap(const Ref<TextureCubemap>& environmentMap, const Ref<TextureCubemap>& irradianceMap);
-        static void GeneratePrefilterMap(const Ref<TextureCubemap>& environmentMap, const Ref<TextureCubemap>& prefilterMap);
-        static void GenerateBRDFLut(const Ref<Texture2D>& brdfLutMap);
+        static void GenerateIrradianceMap(const Ref<TextureCubemap>& environmentMap, const Ref<TextureCubemap>& irradianceMap, ShaderLibrary& shaderLibrary);
+        static void GeneratePrefilterMap(const Ref<TextureCubemap>& environmentMap, const Ref<TextureCubemap>& prefilterMap, ShaderLibrary& shaderLibrary);
+        static void GenerateBRDFLut(const Ref<Texture2D>& brdfLutMap, ShaderLibrary& shaderLibrary);
         
         // Convert equirectangular HDR to cubemap
-        static Ref<TextureCubemap> ConvertEquirectangularToCubemap(const std::string& filePath, u32 resolution = 512);
+        static Ref<TextureCubemap> ConvertEquirectangularToCubemap(const std::string& filePath, ShaderLibrary& shaderLibrary, u32 resolution = 512);
         
         // Utility to create cubemap from 6 face images
         static Ref<TextureCubemap> CreateCubemapFromFaces(const std::vector<std::string>& facePaths);

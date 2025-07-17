@@ -9,6 +9,7 @@
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
+#include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugger.h"
 #include "OloEngine/Renderer/Debug/CommandPacketDebugger.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
@@ -165,7 +166,7 @@ private:
 	OloEngine::Material m_PBRSmoothMaterial;
 	
 	// Environment map for IBL
-	OloEngine::Ref<OloEngine::TextureCubemap> m_EnvironmentMap;
+	OloEngine::Ref<OloEngine::EnvironmentMap> m_EnvironmentMap;
 
 	// Light properties (global for lighting test scene)
 	OloEngine::Light m_Light;
