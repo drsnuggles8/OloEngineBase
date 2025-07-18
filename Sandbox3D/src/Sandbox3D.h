@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/SkinnedMesh.h"
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/Material.h"
+#include "OloEngine/Renderer/PBRMaterial.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
@@ -68,7 +69,7 @@ private:
 	void RenderModelLoadingUI();
 	
 	// Helper methods
-	OloEngine::Material* GetCurrentPBRMaterial();
+	OloEngine::Ref<OloEngine::PBRMaterial> GetCurrentPBRMaterial();
 
 	// ECS Scene for animated mesh testing
 	OloEngine::Ref<OloEngine::Scene> m_TestScene;
@@ -157,13 +158,13 @@ private:
 	OloEngine::Material m_ChromeMaterial;
 	OloEngine::Material m_TexturedMaterial;
 
-	// PBR Materials for testing
-	OloEngine::Material m_PBRGoldMaterial;
-	OloEngine::Material m_PBRSilverMaterial;
-	OloEngine::Material m_PBRCopperMaterial;
-	OloEngine::Material m_PBRPlasticMaterial;
-	OloEngine::Material m_PBRRoughMaterial;
-	OloEngine::Material m_PBRSmoothMaterial;
+	// PBR Materials for testing  
+	OloEngine::Ref<OloEngine::PBRMaterial> m_PBRGoldMaterial;
+	OloEngine::Ref<OloEngine::PBRMaterial> m_PBRSilverMaterial;
+	OloEngine::Ref<OloEngine::PBRMaterial> m_PBRCopperMaterial;
+	OloEngine::Ref<OloEngine::PBRMaterial> m_PBRPlasticMaterial;
+	OloEngine::Ref<OloEngine::PBRMaterial> m_PBRRoughMaterial;
+	OloEngine::Ref<OloEngine::PBRMaterial> m_PBRSmoothMaterial;
 	
 	// Environment map for IBL
 	OloEngine::Ref<OloEngine::EnvironmentMap> m_EnvironmentMap;

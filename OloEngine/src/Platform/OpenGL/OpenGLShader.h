@@ -30,6 +30,10 @@ namespace OloEngine
 
 		void Reload() override;
 
+		// Resource registry access (override base class virtual methods)
+		ShaderResourceRegistry* GetResourceRegistry() override { return &m_ResourceRegistry; }
+		const ShaderResourceRegistry* GetResourceRegistry() const override { return &m_ResourceRegistry; }
+
 		void UploadUniformInt(const std::string& name, int value) const;
 		void UploadUniformIntArray(const std::string& name, int const* values, u32 count) const;
 		void UploadUniformFloat(const std::string& name, f32 value) const;
@@ -39,10 +43,6 @@ namespace OloEngine
 
 		void UploadUniformMat3(const std::string& name, const glm::mat3& matrix) const;
 		void UploadUniformMat4(const std::string& name, const glm::mat4& matrix) const;
-
-		// Resource registry access
-		ShaderResourceRegistry& GetResourceRegistry() { return m_ResourceRegistry; }
-		const ShaderResourceRegistry& GetResourceRegistry() const { return m_ResourceRegistry; }
 
 		// Initialize resource registry (called after shader is fully constructed)
 		void InitializeResourceRegistry(const Ref<Shader>& shaderRef);

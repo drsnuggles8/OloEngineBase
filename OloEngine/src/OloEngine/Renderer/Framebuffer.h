@@ -11,6 +11,12 @@ namespace OloEngine
 
 		// Color formats
 		RGBA8,
+		RGBA16F,
+		RGBA32F,
+		RGB16F,
+		RGB32F,
+		RG16F,
+		RG32F,
 		RED_INTEGER,
 
 		// Depth/stencil formats

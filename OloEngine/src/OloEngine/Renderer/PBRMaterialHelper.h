@@ -1,7 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/Material.h"
+#include "OloEngine/Renderer/PBRMaterial.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include <glm/glm.hpp>
@@ -22,30 +22,20 @@ namespace OloEngine
 		 * @param baseColor Base color (albedo) of the material
 		 * @param metallic Metallic factor (0.0 = dielectric, 1.0 = metallic)
 		 * @param roughness Roughness factor (0.0 = mirror, 1.0 = completely rough)
-		 * @return Configured Material with PBR properties
+		 * @return Configured PBRMaterial with PBR properties
 		 */
-		static Material CreateBasicPBRMaterial(const glm::vec3& baseColor, float metallic = 0.0f, float roughness = 0.5f)
+		static Ref<PBRMaterial> CreateBasicPBRMaterial(const glm::vec3& baseColor, float metallic = 0.0f, float roughness = 0.5f)
 		{
-			Material material;
-			
-			// Enable PBR
-			material.EnablePBR = true;
-			material.EnableIBL = false; // Can be enabled if IBL textures are available
+			auto material = CreateRef<PBRMaterial>();
 			
 			// Set PBR properties
-			material.BaseColorFactor = glm::vec4(baseColor, 1.0f);
-			material.MetallicFactor = glm::clamp(metallic, 0.0f, 1.0f);
-			material.RoughnessFactor = glm::clamp(roughness, 0.0f, 1.0f);
-			material.NormalScale = 1.0f;
-			material.OcclusionStrength = 1.0f;
-			material.EmissiveFactor = glm::vec4(0.0f);
-			
-			// Set legacy properties for backward compatibility
-			material.Ambient = baseColor * 0.1f;
-			material.Diffuse = baseColor;
-			material.Specular = glm::mix(glm::vec3(0.04f), baseColor, metallic);
-			material.Shininess = (1.0f - roughness) * 128.0f;
-			material.UseTextureMaps = false;
+			material->BaseColorFactor = glm::vec4(baseColor, 1.0f);
+			material->MetallicFactor = glm::clamp(metallic, 0.0f, 1.0f);
+			material->RoughnessFactor = glm::clamp(roughness, 0.0f, 1.0f);
+			material->NormalScale = 1.0f;
+			material->OcclusionStrength = 1.0f;
+			material->EmissiveFactor = glm::vec4(0.0f);
+			material->EnableIBL = false; // Can be enabled if IBL textures are available
 			
 			return material;
 		}
@@ -60,7 +50,7 @@ namespace OloEngine
 		 * @param normalMap Normal map texture (optional)
 		 * @return Configured Material with PBR textures
 		 */
-		static Material CreateTexturedPBRMaterial(
+		static Ref<PBRMaterial> CreateTexturedPBRMaterial(
 			const glm::vec3& baseColor,
 			float metallic,
 			float roughness,
@@ -68,12 +58,12 @@ namespace OloEngine
 			const Ref<Texture2D>& metallicRoughnessMap = nullptr,
 			const Ref<Texture2D>& normalMap = nullptr)
 		{
-			Material material = CreateBasicPBRMaterial(baseColor, metallic, roughness);
+			auto material = CreateBasicPBRMaterial(baseColor, metallic, roughness);
 			
 			// Set textures
-			material.AlbedoMap = albedoMap;
-			material.MetallicRoughnessMap = metallicRoughnessMap;
-			material.NormalMap = normalMap;
+			material->AlbedoMap = albedoMap;
+			material->MetallicRoughnessMap = metallicRoughnessMap;
+			material->NormalMap = normalMap;
 			
 			return material;
 		}
@@ -84,7 +74,7 @@ namespace OloEngine
 		 * @param roughness Surface roughness
 		 * @return Configured metallic Material
 		 */
-		static Material CreateMetalMaterial(const glm::vec3& baseColor, float roughness = 0.1f)
+		static Ref<PBRMaterial> CreateMetalMaterial(const glm::vec3& baseColor, float roughness = 0.1f)
 		{
 			return CreateBasicPBRMaterial(baseColor, 1.0f, roughness);
 		}
@@ -95,7 +85,7 @@ namespace OloEngine
 		 * @param roughness Surface roughness
 		 * @return Configured dielectric Material
 		 */
-		static Material CreateDielectricMaterial(const glm::vec3& baseColor, float roughness = 0.5f)
+		static Ref<PBRMaterial> CreateDielectricMaterial(const glm::vec3& baseColor, float roughness = 0.5f)
 		{
 			return CreateBasicPBRMaterial(baseColor, 0.0f, roughness);
 		}
@@ -103,27 +93,27 @@ namespace OloEngine
 		/**
 		 * @brief Create common material presets
 		 */
-		static Material CreateGoldMaterial()
+		static Ref<PBRMaterial> CreateGoldMaterial()
 		{
 			return CreateMetalMaterial(glm::vec3(1.0f, 0.765f, 0.336f), 0.1f);
 		}
 		
-		static Material CreateSilverMaterial()
+		static Ref<PBRMaterial> CreateSilverMaterial()
 		{
 			return CreateMetalMaterial(glm::vec3(0.972f, 0.960f, 0.915f), 0.1f);
 		}
 		
-		static Material CreateCopperMaterial()
+		static Ref<PBRMaterial> CreateCopperMaterial()
 		{
 			return CreateMetalMaterial(glm::vec3(0.955f, 0.637f, 0.538f), 0.1f);
 		}
 		
-		static Material CreatePlasticMaterial(const glm::vec3& color)
+		static Ref<PBRMaterial> CreatePlasticMaterial(const glm::vec3& color)
 		{
 			return CreateDielectricMaterial(color, 0.5f);
 		}
 		
-		static Material CreateRubberMaterial(const glm::vec3& color)
+		static Ref<PBRMaterial> CreateRubberMaterial(const glm::vec3& color)
 		{
 			return CreateDielectricMaterial(color, 0.9f);
 		}
@@ -136,7 +126,69 @@ namespace OloEngine
 		 * @param prefilterMap Prefiltered environment map
 		 * @param brdfLutMap BRDF lookup table
 		 */
-		static void ConfigureIBL(Material& material, 
+		static void ConfigureIBL(Ref<PBRMaterial>& material, 
+			const Ref<TextureCubemap>& environmentMap,
+			const Ref<TextureCubemap>& irradianceMap = nullptr,
+			const Ref<TextureCubemap>& prefilterMap = nullptr,
+			const Ref<Texture2D>& brdfLutMap = nullptr)
+		{
+			material->EnableIBL = true;
+			material->EnvironmentMap = environmentMap;
+			material->IrradianceMap = irradianceMap;
+			material->PrefilterMap = prefilterMap;
+			material->BRDFLutMap = brdfLutMap;
+		}
+
+		// Backward compatibility methods that return Material structs
+		static Material CreateBasicPBRMaterialLegacy(const glm::vec3& baseColor, float metallic = 0.0f, float roughness = 0.5f)
+		{
+			auto pbrMaterial = CreateBasicPBRMaterial(baseColor, metallic, roughness);
+			return pbrMaterial->ToMaterial();
+		}
+
+		static Material CreateMetalMaterialLegacy(const glm::vec3& baseColor, float roughness = 0.1f)
+		{
+			auto pbrMaterial = CreateMetalMaterial(baseColor, roughness);
+			return pbrMaterial->ToMaterial();
+		}
+
+		static Material CreateDielectricMaterialLegacy(const glm::vec3& baseColor, float roughness = 0.5f)
+		{
+			auto pbrMaterial = CreateDielectricMaterial(baseColor, roughness);
+			return pbrMaterial->ToMaterial();
+		}
+
+		static Material CreateGoldMaterialLegacy()
+		{
+			auto pbrMaterial = CreateGoldMaterial();
+			return pbrMaterial->ToMaterial();
+		}
+
+		static Material CreateSilverMaterialLegacy()
+		{
+			auto pbrMaterial = CreateSilverMaterial();
+			return pbrMaterial->ToMaterial();
+		}
+
+		static Material CreateCopperMaterialLegacy()
+		{
+			auto pbrMaterial = CreateCopperMaterial();
+			return pbrMaterial->ToMaterial();
+		}
+
+		static Material CreatePlasticMaterialLegacy(const glm::vec3& color)
+		{
+			auto pbrMaterial = CreatePlasticMaterial(color);
+			return pbrMaterial->ToMaterial();
+		}
+
+		static Material CreateRubberMaterialLegacy(const glm::vec3& color)
+		{
+			auto pbrMaterial = CreateRubberMaterial(color);
+			return pbrMaterial->ToMaterial();
+		}
+
+		static void ConfigureIBLLegacy(Material& material, 
 			const Ref<TextureCubemap>& environmentMap,
 			const Ref<TextureCubemap>& irradianceMap = nullptr,
 			const Ref<TextureCubemap>& prefilterMap = nullptr,

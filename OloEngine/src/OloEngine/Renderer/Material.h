@@ -113,8 +113,70 @@ namespace OloEngine
 			// Try to get the shader registry (for OpenGL shaders)
 			if (auto* openglShader = dynamic_cast<OpenGLShader*>(Shader.get()))
 			{
-				openglShader->GetResourceRegistry().ApplyBindings();
+				openglShader->GetResourceRegistry()->ApplyBindings();
 			}
+		}
+
+		/**
+		 * @brief Validate the material configuration
+		 * @return true if material is valid and ready for rendering
+		 */
+		bool Validate() const
+		{
+			// Check if shader is available
+			if (!Shader)
+			{
+				OLO_CORE_WARN("Material validation failed: No shader associated with material");
+				return false;
+			}
+
+			// Validate PBR properties if PBR is enabled
+			if (EnablePBR)
+			{
+				// Check factor ranges
+				if (MetallicFactor < 0.0f || MetallicFactor > 1.0f)
+				{
+					OLO_CORE_WARN("Material validation failed: MetallicFactor out of range [0,1]: {}", MetallicFactor);
+					return false;
+				}
+				
+				if (RoughnessFactor < 0.0f || RoughnessFactor > 1.0f)
+				{
+					OLO_CORE_WARN("Material validation failed: RoughnessFactor out of range [0,1]: {}", RoughnessFactor);
+					return false;
+				}
+				
+				if (NormalScale < 0.0f)
+				{
+					OLO_CORE_WARN("Material validation failed: NormalScale cannot be negative: {}", NormalScale);
+					return false;
+				}
+				
+				if (OcclusionStrength < 0.0f || OcclusionStrength > 1.0f)
+				{
+					OLO_CORE_WARN("Material validation failed: OcclusionStrength out of range [0,1]: {}", OcclusionStrength);
+					return false;
+				}
+
+				// Validate IBL setup if enabled
+				if (EnableIBL)
+				{
+					if (!IrradianceMap || !PrefilterMap || !BRDFLutMap)
+					{
+						OLO_CORE_WARN("Material validation failed: IBL enabled but missing required IBL textures");
+						return false;
+					}
+				}
+			}
+
+			// Validate legacy material properties
+			if (Shininess < 0.0f)
+			{
+				OLO_CORE_WARN("Material validation failed: Shininess cannot be negative: {}", Shininess);
+				return false;
+			}
+
+			return true;
 		}
 
 		/**
@@ -129,31 +191,33 @@ namespace OloEngine
 				return;
 			}
 
-			// Try to get the shader registry (for OpenGL shaders)
-			if (auto* openglShader = dynamic_cast<OpenGLShader*>(Shader.get()))
+			// Use the shader's resource registry directly (safer approach)
+			auto* registry = GetResourceRegistry();
+			if (!registry)
 			{
-				auto& registry = openglShader->GetResourceRegistry();
-				
-				// Bind PBR textures using standard binding layout
-				if (AlbedoMap)
-					registry.SetTexture("u_AlbedoMap", AlbedoMap);
-				if (MetallicRoughnessMap)
-					registry.SetTexture("u_MetallicRoughnessMap", MetallicRoughnessMap);
-				if (NormalMap)
-					registry.SetTexture("u_NormalMap", NormalMap);
-				if (AOMap)
-					registry.SetTexture("u_AOMap", AOMap);
-				if (EmissiveMap)
-					registry.SetTexture("u_EmissiveMap", EmissiveMap);
-				if (EnvironmentMap)
-					registry.SetTexture("u_EnvironmentMap", EnvironmentMap);
-				if (IrradianceMap)
-					registry.SetTexture("u_IrradianceMap", IrradianceMap);
-				if (PrefilterMap)
-					registry.SetTexture("u_PrefilterMap", PrefilterMap);
-				if (BRDFLutMap)
-					registry.SetTexture("u_BRDFLutMap", BRDFLutMap);
+				OLO_CORE_WARN("Material::ConfigurePBRTextures: No resource registry available for shader");
+				return;
 			}
+			
+			// Bind textures individually due to type differences (Texture2D vs TextureCubemap)
+			if (AlbedoMap)
+				registry->SetTexture("u_AlbedoMap", AlbedoMap);
+			if (MetallicRoughnessMap)
+				registry->SetTexture("u_MetallicRoughnessMap", MetallicRoughnessMap);
+			if (NormalMap)
+				registry->SetTexture("u_NormalMap", NormalMap);
+			if (AOMap)
+				registry->SetTexture("u_AOMap", AOMap);
+			if (EmissiveMap)
+				registry->SetTexture("u_EmissiveMap", EmissiveMap);
+			if (EnvironmentMap)
+				registry->SetTexture("u_EnvironmentMap", EnvironmentMap);
+			if (IrradianceMap)
+				registry->SetTexture("u_IrradianceMap", IrradianceMap);
+			if (PrefilterMap)
+				registry->SetTexture("u_PrefilterMap", PrefilterMap);
+			if (BRDFLutMap)
+				registry->SetTexture("u_BRDFLutMap", BRDFLutMap);
 		}
 
 		/**
@@ -162,15 +226,7 @@ namespace OloEngine
 		 */
 		ShaderResourceRegistry* GetResourceRegistry()
 		{
-			if (!Shader)
-				return nullptr;
-
-			if (auto* openglShader = dynamic_cast<OpenGLShader*>(Shader.get()))
-			{
-				return &openglShader->GetResourceRegistry();
-			}
-			
-			return nullptr;
+			return Shader ? Shader->GetResourceRegistry() : nullptr;
 		}
 
 		/**
@@ -179,15 +235,7 @@ namespace OloEngine
 		 */
 		const ShaderResourceRegistry* GetResourceRegistry() const
 		{
-			if (!Shader)
-				return nullptr;
-
-			if (auto* openglShader = dynamic_cast<const OpenGLShader*>(Shader.get()))
-			{
-				return &openglShader->GetResourceRegistry();
-			}
-			
-			return nullptr;
+			return Shader ? Shader->GetResourceRegistry() : nullptr;
 		}
 
 		bool operator==(const Material& other) const

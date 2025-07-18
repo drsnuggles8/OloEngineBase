@@ -47,21 +47,8 @@ Sandbox3D::Sandbox3D()
     m_TexturedMaterial.UseTextureMaps = true;
     
     // Initialize PBR materials with default values
-    // These will be properly configured in OnAttach after textures are loaded
-    m_PBRGoldMaterial = OloEngine::Material();
-    m_PBRSilverMaterial = OloEngine::Material();
-    m_PBRCopperMaterial = OloEngine::Material();
-    m_PBRPlasticMaterial = OloEngine::Material();
-    m_PBRRoughMaterial = OloEngine::Material();
-    m_PBRSmoothMaterial = OloEngine::Material();
-    
-    // Enable PBR for all PBR materials
-    m_PBRGoldMaterial.EnablePBR = true;
-    m_PBRSilverMaterial.EnablePBR = true;
-    m_PBRCopperMaterial.EnablePBR = true;
-    m_PBRPlasticMaterial.EnablePBR = true;
-    m_PBRRoughMaterial.EnablePBR = true;
-    m_PBRSmoothMaterial.EnablePBR = true;
+    // These will be properly configured in OnAttach with PBRMaterialHelper
+    // PBR Materials will be initialized as nullptr and created in OnAttach()
 	// Initialize light with default values
     m_Light.Type = OloEngine::LightType::Directional;
     m_Light.Position = glm::vec3(1.2f, 1.0f, 2.0f);
@@ -639,11 +626,18 @@ void Sandbox3D::RenderMaterialTestingScene()
     modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
     
     // Choose material based on PBR toggle
-    OloEngine::Material* centerMaterial = m_UsePBRMaterials ? GetCurrentPBRMaterial() : &m_GoldMaterial;
-    
-    // Draw filled mesh (normal)
-    auto* solidPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, *centerMaterial);
-    if (solidPacket) OloEngine::Renderer3D::SubmitPacket(solidPacket);
+    if (m_UsePBRMaterials) {
+        auto pbrMaterial = GetCurrentPBRMaterial();
+        OloEngine::Material centerMaterial = pbrMaterial->ToMaterial();
+        
+        // Draw filled mesh (normal)
+        auto* solidPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, centerMaterial);
+        if (solidPacket) OloEngine::Renderer3D::SubmitPacket(solidPacket);
+    } else {
+        // Draw filled mesh (normal)
+        auto* solidPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, m_GoldMaterial);
+        if (solidPacket) OloEngine::Renderer3D::SubmitPacket(solidPacket);
+    }
     
     // Overlay wireframe (only if not using PBR for clarity)
     if (!m_UsePBRMaterials)
@@ -672,20 +666,34 @@ void Sandbox3D::RenderMaterialTestingScene()
         case 0: // Cubes
         {
             // Choose materials based on PBR toggle
-            OloEngine::Material* silverMat = m_UsePBRMaterials ? &m_PBRSilverMaterial : &m_SilverMaterial;
-            OloEngine::Material* chromeMat = m_UsePBRMaterials ? &m_PBRCopperMaterial : &m_ChromeMaterial;
-            
-            auto silverCubeMatrix = glm::mat4(1.0f);
-            silverCubeMatrix = glm::translate(silverCubeMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
-            silverCubeMatrix = glm::rotate(silverCubeMatrix, glm::radians(m_RotationAngleY * 1.5f), glm::vec3(0.0f, 1.0f, 0.0f));
-            auto* silverPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, silverCubeMatrix, *silverMat);
-            if (silverPacket) OloEngine::Renderer3D::SubmitPacket(silverPacket);
+            if (m_UsePBRMaterials) {
+                OloEngine::Material silverMat = m_PBRSilverMaterial->ToMaterial();
+                OloEngine::Material chromeMat = m_PBRCopperMaterial->ToMaterial();
+                
+                auto silverCubeMatrix = glm::mat4(1.0f);
+                silverCubeMatrix = glm::translate(silverCubeMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
+                silverCubeMatrix = glm::rotate(silverCubeMatrix, glm::radians(m_RotationAngleY * 1.5f), glm::vec3(0.0f, 1.0f, 0.0f));
+                auto* silverPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, silverCubeMatrix, silverMat);
+                if (silverPacket) OloEngine::Renderer3D::SubmitPacket(silverPacket);
 
-            auto chromeCubeMatrix = glm::mat4(1.0f);
-            chromeCubeMatrix = glm::translate(chromeCubeMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
-            chromeCubeMatrix = glm::rotate(chromeCubeMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
-            auto* chromePacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, chromeCubeMatrix, *chromeMat);
-            if (chromePacket) OloEngine::Renderer3D::SubmitPacket(chromePacket);
+                auto chromeCubeMatrix = glm::mat4(1.0f);
+                chromeCubeMatrix = glm::translate(chromeCubeMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
+                chromeCubeMatrix = glm::rotate(chromeCubeMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
+                auto* chromePacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, chromeCubeMatrix, chromeMat);
+                if (chromePacket) OloEngine::Renderer3D::SubmitPacket(chromePacket);
+            } else {
+                auto silverCubeMatrix = glm::mat4(1.0f);
+                silverCubeMatrix = glm::translate(silverCubeMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
+                silverCubeMatrix = glm::rotate(silverCubeMatrix, glm::radians(m_RotationAngleY * 1.5f), glm::vec3(0.0f, 1.0f, 0.0f));
+                auto* silverPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, silverCubeMatrix, m_SilverMaterial);
+                if (silverPacket) OloEngine::Renderer3D::SubmitPacket(silverPacket);
+
+                auto chromeCubeMatrix = glm::mat4(1.0f);
+                chromeCubeMatrix = glm::translate(chromeCubeMatrix, glm::vec3(-2.0f, 0.0f, 0.0f));
+                chromeCubeMatrix = glm::rotate(chromeCubeMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
+                auto* chromePacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, chromeCubeMatrix, m_ChromeMaterial);
+                if (chromePacket) OloEngine::Renderer3D::SubmitPacket(chromePacket);
+            }
             break;
         }
 
@@ -717,7 +725,7 @@ void Sandbox3D::RenderMaterialTestingScene()
                         roughness = glm::clamp(roughness, 0.05f, 1.0f); // Prevent completely smooth
                         
                         // Create dynamic material
-                        OloEngine::Material dynamicMaterial = OloEngine::PBRMaterialHelper::CreateBasicPBRMaterial(
+                        OloEngine::Material dynamicMaterial = OloEngine::PBRMaterialHelper::CreateBasicPBRMaterialLegacy(
                             glm::vec3(0.5f, 0.0f, 0.0f), // Red base color
                             metallic,
                             roughness
@@ -726,7 +734,7 @@ void Sandbox3D::RenderMaterialTestingScene()
                         // Configure IBL if available
                         if (m_EnvironmentMap && m_EnvironmentMap->HasIBL())
                         {
-                            OloEngine::PBRMaterialHelper::ConfigureIBL(dynamicMaterial,
+                            OloEngine::PBRMaterialHelper::ConfigureIBLLegacy(dynamicMaterial,
                                 m_EnvironmentMap->GetEnvironmentMap(),
                                 m_EnvironmentMap->GetIrradianceMap(),
                                 m_EnvironmentMap->GetPrefilterMap(),
@@ -743,11 +751,11 @@ void Sandbox3D::RenderMaterialTestingScene()
                 }
                 
                 // Add some preset material spheres around the edges for comparison
-                std::vector<std::pair<OloEngine::Material*, glm::vec3>> presetMaterials = {
-                    { &m_PBRGoldMaterial, glm::vec3(-12.0f, 2.0f, 0.0f) },
-                    { &m_PBRSilverMaterial, glm::vec3(12.0f, 2.0f, 0.0f) },
-                    { &m_PBRCopperMaterial, glm::vec3(0.0f, 2.0f, -12.0f) },
-                    { &m_PBRPlasticMaterial, glm::vec3(0.0f, 2.0f, 12.0f) }
+                std::vector<std::pair<OloEngine::Material, glm::vec3>> presetMaterials = {
+                    { m_PBRGoldMaterial->ToMaterial(), glm::vec3(-12.0f, 2.0f, 0.0f) },
+                    { m_PBRSilverMaterial->ToMaterial(), glm::vec3(12.0f, 2.0f, 0.0f) },
+                    { m_PBRCopperMaterial->ToMaterial(), glm::vec3(0.0f, 2.0f, -12.0f) },
+                    { m_PBRPlasticMaterial->ToMaterial(), glm::vec3(0.0f, 2.0f, 12.0f) }
                 };
                 
                 for (const auto& preset : presetMaterials)
@@ -756,7 +764,7 @@ void Sandbox3D::RenderMaterialTestingScene()
                     sphereMatrix = glm::translate(sphereMatrix, preset.second);
                     sphereMatrix = glm::scale(sphereMatrix, glm::vec3(1.2f)); // Slightly larger
                     
-                    auto* packet = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, *preset.first);
+                    auto* packet = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, preset.first);
                     if (packet) OloEngine::Renderer3D::SubmitPacket(packet);
                 }
             }
@@ -1163,17 +1171,17 @@ void Sandbox3D::RenderSpotlightUI()
     }
 }
 
-OloEngine::Material* Sandbox3D::GetCurrentPBRMaterial()
+OloEngine::Ref<OloEngine::PBRMaterial> Sandbox3D::GetCurrentPBRMaterial()
 {
     switch (m_PBRMaterialType)
     {
-        case 0: return &m_PBRGoldMaterial;
-        case 1: return &m_PBRSilverMaterial;
-        case 2: return &m_PBRCopperMaterial;
-        case 3: return &m_PBRPlasticMaterial;
-        case 4: return &m_PBRRoughMaterial;
-        case 5: return &m_PBRSmoothMaterial;
-        default: return &m_PBRGoldMaterial;
+        case 0: return m_PBRGoldMaterial;
+        case 1: return m_PBRSilverMaterial;
+        case 2: return m_PBRCopperMaterial;
+        case 3: return m_PBRPlasticMaterial;
+        case 4: return m_PBRRoughMaterial;
+        case 5: return m_PBRSmoothMaterial;
+        default: return m_PBRGoldMaterial;
     }
 }
 
@@ -1613,17 +1621,7 @@ void Sandbox3D::RenderMaterialSettings()
         ImGui::Combo("Select PBR Material", &m_PBRMaterialType, m_PBRMaterialNames, 6);
         
         // Get the selected PBR material
-        OloEngine::Material* currentPBRMaterial;
-        switch (m_PBRMaterialType)
-        {
-            case 0: currentPBRMaterial = &m_PBRGoldMaterial; break;
-            case 1: currentPBRMaterial = &m_PBRSilverMaterial; break;
-            case 2: currentPBRMaterial = &m_PBRCopperMaterial; break;
-            case 3: currentPBRMaterial = &m_PBRPlasticMaterial; break;
-            case 4: currentPBRMaterial = &m_PBRRoughMaterial; break;
-            case 5: currentPBRMaterial = &m_PBRSmoothMaterial; break;
-            default: currentPBRMaterial = &m_PBRGoldMaterial; break;
-        }
+        OloEngine::Ref<OloEngine::PBRMaterial> currentPBRMaterial = GetCurrentPBRMaterial();
         
         // Edit PBR properties
         ImGui::ColorEdit3("Base Color", glm::value_ptr(currentPBRMaterial->BaseColorFactor));
@@ -1647,7 +1645,7 @@ void Sandbox3D::RenderMaterialSettings()
             }
             
             // Show IBL status for current material
-            OloEngine::Material* materialForIBLCheck = GetCurrentPBRMaterial();
+            auto materialForIBLCheck = GetCurrentPBRMaterial();
             if (materialForIBLCheck && materialForIBLCheck->EnableIBL)
             {
                 ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "IBL: Enabled for current material");

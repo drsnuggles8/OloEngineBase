@@ -87,89 +87,191 @@ namespace OloEngine
             return;
         }
 
-        GenerateIrradianceMap();
-        GeneratePrefilterMap();
-        GenerateBRDFLut();
+        // Check if we can load from cache first
+        std::string cacheKey = GenerateCacheKey();
+        if (m_Specification.IBLConfig.CacheToFile && LoadFromCache(cacheKey))
+        {
+            OLO_CORE_INFO("IBL textures loaded from cache for key: {}", cacheKey);
+            return;
+        }
+
+        // Generate IBL textures with enhanced configuration
+        GenerateIBLWithConfig(m_Specification.IBLConfig);
+        
+        // Save to cache if enabled
+        if (m_Specification.IBLConfig.CacheToFile)
+        {
+            SaveToCache(cacheKey);
+        }
         
         OLO_CORE_INFO("IBL textures generated successfully");
     }
 
     void EnvironmentMap::GenerateIrradianceMap()
     {
+        GenerateIrradianceMapWithConfig(m_Specification.IBLConfig);
+    }
+
+    void EnvironmentMap::GeneratePrefilterMap()
+    {
+        GeneratePrefilterMapWithConfig(m_Specification.IBLConfig);
+    }
+
+    void EnvironmentMap::GenerateBRDFLut()
+    {
+        GenerateBRDFLutWithConfig(m_Specification.IBLConfig);
+    }
+
+    // Enhanced IBL generation methods
+    void EnvironmentMap::GenerateIBLWithConfig(const IBLConfiguration& config)
+    {
         OLO_PROFILE_FUNCTION();
         
-        // Create irradiance map specification
+        OLO_CORE_INFO("Generating IBL textures with quality: {}, importance sampling: {}", 
+                     static_cast<int>(config.Quality), config.UseImportanceSampling);
+        
+        GenerateIrradianceMapWithConfig(config);
+        GeneratePrefilterMapWithConfig(config);
+        GenerateBRDFLutWithConfig(config);
+    }
+
+    void EnvironmentMap::GenerateIrradianceMapWithConfig(const IBLConfiguration& config)
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        // Create irradiance map specification with configurable resolution
         CubemapSpecification irradianceSpec;
-        irradianceSpec.Width = 32;
-        irradianceSpec.Height = 32;
+        irradianceSpec.Width = config.IrradianceResolution;
+        irradianceSpec.Height = config.IrradianceResolution;
         irradianceSpec.Format = ImageFormat::RGB32F;
         irradianceSpec.GenerateMips = false;
         
         m_IrradianceMap = TextureCubemap::Create(irradianceSpec);
         
-        // Use IBLPrecompute to generate the irradiance map
+        // Use IBLPrecompute to generate the irradiance map with enhanced settings
         if (s_ShaderLibrary)
         {
-            IBLPrecompute::GenerateIrradianceMap(m_EnvironmentMap, m_IrradianceMap, *s_ShaderLibrary);
+            if (config.UseSphericalHarmonics)
+            {
+                // TODO: Implement spherical harmonics alternative
+                OLO_CORE_INFO("Spherical harmonics not yet implemented, falling back to cubemap");
+            }
+            
+            IBLPrecompute::GenerateIrradianceMapAdvanced(m_EnvironmentMap, m_IrradianceMap, 
+                                                       *s_ShaderLibrary, config);
         }
         else
         {
             OLO_CORE_ERROR("EnvironmentMap: IBL system not initialized! Call InitializeIBLSystem() first.");
         }
         
-        OLO_CORE_INFO("Irradiance map generated (32x32)");
+        OLO_CORE_INFO("Enhanced irradiance map generated ({}x{}) with {} samples", 
+                     config.IrradianceResolution, config.IrradianceResolution, config.IrradianceSamples);
     }
 
-    void EnvironmentMap::GeneratePrefilterMap()
+    void EnvironmentMap::GeneratePrefilterMapWithConfig(const IBLConfiguration& config)
     {
         OLO_PROFILE_FUNCTION();
         
-        // Create prefilter map specification
+        // Create prefilter map specification with configurable resolution
         CubemapSpecification prefilterSpec;
-        prefilterSpec.Width = 128;
-        prefilterSpec.Height = 128;
+        prefilterSpec.Width = config.PrefilterResolution;
+        prefilterSpec.Height = config.PrefilterResolution;
         prefilterSpec.Format = ImageFormat::RGB32F;
         prefilterSpec.GenerateMips = true;
         
         m_PrefilterMap = TextureCubemap::Create(prefilterSpec);
         
-        // Use IBLPrecompute to generate the prefiltered environment map
+        // Use IBLPrecompute to generate the prefiltered environment map with enhanced settings
         if (s_ShaderLibrary)
         {
-            IBLPrecompute::GeneratePrefilterMap(m_EnvironmentMap, m_PrefilterMap, *s_ShaderLibrary);
+            IBLPrecompute::GeneratePrefilterMapAdvanced(m_EnvironmentMap, m_PrefilterMap, 
+                                                      *s_ShaderLibrary, config);
         }
         else
         {
             OLO_CORE_ERROR("EnvironmentMap: IBL system not initialized! Call InitializeIBLSystem() first.");
         }
         
-        OLO_CORE_INFO("Prefilter map generated (128x128) with mipmaps");
+        OLO_CORE_INFO("Enhanced prefilter map generated ({}x{}) with {} samples and importance sampling: {}", 
+                     config.PrefilterResolution, config.PrefilterResolution, 
+                     config.PrefilterSamples, config.UseImportanceSampling);
     }
 
-    void EnvironmentMap::GenerateBRDFLut()
+    void EnvironmentMap::GenerateBRDFLutWithConfig(const IBLConfiguration& config)
     {
         OLO_PROFILE_FUNCTION();
         
-        // Create BRDF LUT specification
+        // Create BRDF LUT specification with configurable resolution
         TextureSpecification brdfSpec;
-        brdfSpec.Width = 512;
-        brdfSpec.Height = 512;
+        brdfSpec.Width = config.BRDFLutResolution;
+        brdfSpec.Height = config.BRDFLutResolution;
         brdfSpec.Format = ImageFormat::RG32F;
         brdfSpec.GenerateMips = false;
         
         m_BRDFLutMap = Texture2D::Create(brdfSpec);
         
-        // Use IBLPrecompute to generate the BRDF lookup table
+        // Use IBLPrecompute to generate the BRDF lookup table with enhanced settings
         if (s_ShaderLibrary)
         {
-            IBLPrecompute::GenerateBRDFLut(m_BRDFLutMap, *s_ShaderLibrary);
+            IBLPrecompute::GenerateBRDFLutAdvanced(m_BRDFLutMap, *s_ShaderLibrary, config);
         }
         else
         {
             OLO_CORE_ERROR("EnvironmentMap: IBL system not initialized! Call InitializeIBLSystem() first.");
         }
         
-        OLO_CORE_INFO("BRDF LUT generated (512x512)");
+        OLO_CORE_INFO("Enhanced BRDF LUT generated ({}x{})", 
+                     config.BRDFLutResolution, config.BRDFLutResolution);
+    }
+
+    // Configuration management
+    void EnvironmentMap::SetIBLConfiguration(const IBLConfiguration& config)
+    {
+        m_Specification.IBLConfig = config;
+    }
+
+    void EnvironmentMap::RegenerateIBL(const IBLConfiguration& config)
+    {
+        m_Specification.IBLConfig = config;
+        GenerateIBLWithConfig(config);
+    }
+
+    // Cache management
+    std::string EnvironmentMap::GenerateCacheKey() const
+    {
+        const auto& config = m_Specification.IBLConfig;
+        
+        // Create a hash from configuration parameters
+        std::string key = m_Specification.FilePath + "_" +
+                         std::to_string(static_cast<int>(config.Quality)) + "_" +
+                         std::to_string(config.IrradianceResolution) + "_" +
+                         std::to_string(config.PrefilterResolution) + "_" +
+                         std::to_string(config.BRDFLutResolution) + "_" +
+                         std::to_string(config.IrradianceSamples) + "_" +
+                         std::to_string(config.PrefilterSamples) + "_" +
+                         (config.UseImportanceSampling ? "1" : "0") + "_" +
+                         (config.UseSphericalHarmonics ? "1" : "0");
+        
+        // Simple hash function for cache key
+        std::hash<std::string> hasher;
+        return std::to_string(hasher(key));
+    }
+
+    bool EnvironmentMap::LoadFromCache(const std::string& cacheKey)
+    {
+        // TODO: Implement cache loading from disk
+        // This would load pre-computed IBL textures from a cache directory
+        // For now, return false to always regenerate
+        return false;
+    }
+
+    void EnvironmentMap::SaveToCache(const std::string& cacheKey) const
+    {
+        // TODO: Implement cache saving to disk
+        // This would save the generated IBL textures to a cache directory
+        // for faster loading in future runs
+        OLO_CORE_INFO("Cache saving not yet implemented for key: {}", cacheKey);
     }
 
     Ref<TextureCubemap> EnvironmentMap::ConvertEquirectangularToCubemap(const std::string& filePath)

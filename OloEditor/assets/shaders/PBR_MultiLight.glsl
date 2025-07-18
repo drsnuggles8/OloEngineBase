@@ -1,13 +1,13 @@
 // =============================================================================
-// PBR.glsl - Physically Based Rendering Shader
-// Part of OloEngine PBR System
-// Supports metallic-roughness workflow (glTF 2.0 standard)
+// PBR_MultiLight.glsl - Physically Based Rendering Shader with Multi-Light Support
+// Part of OloEngine Enhanced PBR System
+// Supports metallic-roughness workflow (glTF 2.0 standard) with multiple lights
 // =============================================================================
 
 #type vertex
 #version 460 core
 
-// Include shared constants
+// Include shared constants from ShaderConstants.h
 #define DIRECTIONAL_LIGHT 0
 #define POINT_LIGHT 1
 #define SPOT_LIGHT 2
@@ -16,6 +16,7 @@
 #define DEFAULT_DIELECTRIC_F0 0.04
 #define MAX_REFLECTION_LOD 4.0
 #define GAMMA 2.2
+#define MAX_LIGHTS 32
 
 layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec3 a_Normal;
@@ -62,9 +63,88 @@ void main()
 #define DEFAULT_DIELECTRIC_F0 0.04
 #define MAX_REFLECTION_LOD 4.0
 #define GAMMA 2.2
+#define MAX_LIGHTS 32
 
 // =============================================================================
-// BRDF Functions (inlined to avoid include issues)
+// LIGHT DATA STRUCTURE
+// =============================================================================
+
+struct LightData {
+    vec4 position;         // Position in world space (w = light type)
+    vec4 direction;        // Direction for directional/spot lights
+    vec4 color;            // Light color and intensity (w = intensity)
+    vec4 attenuationParams; // (constant, linear, quadratic, range)
+    vec4 spotParams;       // (inner_cutoff, outer_cutoff, falloff, enabled)
+};
+
+// =============================================================================
+// UNIFORM BUFFER OBJECTS
+// =============================================================================
+
+// Camera UBO (binding 0) - for view position
+layout(std140, binding = 0) uniform CameraMatrices {
+    mat4 u_ViewProjection;
+    mat4 u_View;
+    mat4 u_Projection;
+    vec3 u_CameraPosition;
+    float _padding0;
+};
+
+// Multi-Light UBO (binding 5)
+layout(std140, binding = 5) uniform MultiLightBuffer {
+    int u_LightCount;
+    int _padding[3];
+    LightData u_Lights[MAX_LIGHTS];
+};
+
+// PBR Material UBO (binding 2)
+layout(std140, binding = 2) uniform PBRMaterialProperties {
+    vec4 u_BaseColorFactor;     // Base color (albedo) with alpha
+    vec4 u_EmissiveFactor;      // Emissive color
+    float u_MetallicFactor;     // Metallic factor
+    float u_RoughnessFactor;    // Roughness factor
+    float u_NormalScale;        // Normal map scale
+    float u_OcclusionStrength;  // AO strength
+    int u_UseAlbedoMap;         // Use albedo texture
+    int u_UseNormalMap;         // Use normal map
+    int u_UseMetallicRoughnessMap; // Use metallic-roughness texture
+    int u_UseAOMap;             // Use ambient occlusion map
+    int u_UseEmissiveMap;       // Use emissive map
+    int u_EnableIBL;            // Enable IBL
+    int _padding2[2];
+};
+
+// =============================================================================
+// TEXTURE BINDINGS
+// =============================================================================
+
+// Texture bindings following ShaderBindingLayout
+layout(binding = 0) uniform sampler2D u_AlbedoMap;          // TEX_DIFFUSE
+layout(binding = 1) uniform sampler2D u_MetallicRoughnessMap; // TEX_SPECULAR (repurposed)
+layout(binding = 2) uniform sampler2D u_NormalMap;          // TEX_NORMAL
+layout(binding = 4) uniform sampler2D u_AOMap;              // TEX_AMBIENT
+layout(binding = 5) uniform sampler2D u_EmissiveMap;        // TEX_EMISSIVE
+layout(binding = 9) uniform samplerCube u_EnvironmentMap;   // TEX_ENVIRONMENT
+
+// IBL textures (if available)
+layout(binding = 10) uniform samplerCube u_IrradianceMap;   // TEX_USER_0
+layout(binding = 11) uniform samplerCube u_PrefilterMap;    // TEX_USER_1
+layout(binding = 12) uniform sampler2D u_BRDFLutMap;        // TEX_USER_2
+
+// =============================================================================
+// INPUT/OUTPUT
+// =============================================================================
+
+// Input from vertex shader
+layout(location = 0) in vec3 v_WorldPos;
+layout(location = 1) in vec3 v_Normal;
+layout(location = 2) in vec2 v_TexCoord;
+
+// Output
+layout(location = 0) out vec4 o_Color;
+
+// =============================================================================
+// BRDF FUNCTIONS
 // =============================================================================
 
 // Schlick-Fresnel approximation for F0
@@ -145,16 +225,8 @@ vec3 cookTorranceBRDF(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float
 }
 
 // =============================================================================
-// IBL Functions (inlined to avoid include issues)
+// IBL FUNCTIONS
 // =============================================================================
-
-// Sample environment map for IBL
-vec3 sampleEnvironmentMap(samplerCube envMap, vec3 direction, float roughness)
-{
-    // For now, simple sampling without importance sampling
-    // In a full implementation, this would use importance sampling based on roughness
-    return texture(envMap, direction).rgb;
-}
 
 // Calculate ambient lighting using IBL
 vec3 calculateIBL(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness, 
@@ -190,67 +262,8 @@ vec3 calculateSimpleAmbient(vec3 albedo, float metallic, float ao)
 }
 
 // =============================================================================
-// Main PBR Shader
+// NORMAL MAPPING
 // =============================================================================
-
-// Input from vertex shader
-layout(location = 0) in vec3 v_WorldPos;
-layout(location = 1) in vec3 v_Normal;
-layout(location = 2) in vec2 v_TexCoord;
-
-// Output
-layout(location = 0) out vec4 o_Color;
-
-// Light UBO (binding 1)
-layout(std140, binding = 1) uniform LightProperties {
-    vec4 u_LightPosition;
-    vec4 u_LightDirection;
-    vec4 u_LightAmbient;
-    vec4 u_LightDiffuse;
-    vec4 u_LightSpecular;
-    vec4 u_LightAttParams;      // (constant, linear, quadratic, _)
-    vec4 u_LightSpotParams;     // (cutOff, outerCutOff, _, _)
-    vec4 u_ViewPosAndLightType; // (viewPos.xyz, lightType)
-};
-
-// Camera UBO (binding 0) - for view position
-layout(std140, binding = 0) uniform CameraMatrices {
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-};
-
-// PBR Material UBO (binding 2)
-layout(std140, binding = 2) uniform PBRMaterialProperties {
-    vec4 u_BaseColorFactor;     // Base color (albedo) with alpha
-    vec4 u_EmissiveFactor;      // Emissive color
-    float u_MetallicFactor;     // Metallic factor
-    float u_RoughnessFactor;    // Roughness factor
-    float u_NormalScale;        // Normal map scale
-    float u_OcclusionStrength;  // AO strength
-    int u_UseAlbedoMap;         // Use albedo texture
-    int u_UseNormalMap;         // Use normal map
-    int u_UseMetallicRoughnessMap; // Use metallic-roughness texture
-    int u_UseAOMap;             // Use ambient occlusion map
-    int u_UseEmissiveMap;       // Use emissive map
-    int u_EnableIBL;            // Enable IBL
-    int _padding[2];
-};
-
-// Texture bindings following ShaderBindingLayout
-layout(binding = 0) uniform sampler2D u_AlbedoMap;          // TEX_DIFFUSE
-layout(binding = 1) uniform sampler2D u_MetallicRoughnessMap; // TEX_SPECULAR (repurposed)
-layout(binding = 2) uniform sampler2D u_NormalMap;          // TEX_NORMAL
-layout(binding = 4) uniform sampler2D u_AOMap;              // TEX_AMBIENT
-layout(binding = 5) uniform sampler2D u_EmissiveMap;        // TEX_EMISSIVE
-layout(binding = 9) uniform samplerCube u_EnvironmentMap;   // TEX_ENVIRONMENT
-
-// IBL textures (if available)
-layout(binding = 10) uniform samplerCube u_IrradianceMap;   // TEX_USER_0
-layout(binding = 11) uniform samplerCube u_PrefilterMap;    // TEX_USER_1
-layout(binding = 12) uniform sampler2D u_BRDFLutMap;        // TEX_USER_2    // Normal mapping function
 
 vec3 getNormalFromMap()
 {
@@ -258,7 +271,7 @@ vec3 getNormalFromMap()
     {
         return normalize(v_Normal);
     }
-        
+    
     vec3 tangentNormal = texture(u_NormalMap, v_TexCoord).xyz * 2.0 - 1.0;
     tangentNormal.xy *= u_NormalScale;
     
@@ -275,51 +288,84 @@ vec3 getNormalFromMap()
     return normalize(TBN * tangentNormal);
 }
 
-// Calculate directional light contribution
-vec3 calculateDirectionalLight(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness)
+// =============================================================================
+// MULTI-LIGHT CALCULATIONS
+// =============================================================================
+
+// Calculate attenuation for point and spot lights
+float calculateAttenuation(vec3 lightPos, vec3 fragPos, vec4 attenuationParams)
 {
-    vec3 L = normalize(-u_LightDirection.xyz);
-    vec3 radiance = u_LightDiffuse.rgb;
+    float distance = length(lightPos - fragPos);
+    float range = attenuationParams.w;
+    
+    if (distance > range) return 0.0;
+    
+    float constant = attenuationParams.x;
+    float linear = attenuationParams.y;
+    float quadratic = attenuationParams.z;
+    
+    return 1.0 / (constant + linear * distance + quadratic * (distance * distance));
+}
+
+// Calculate spot light intensity
+float calculateSpotIntensity(vec3 lightDir, vec3 spotDir, vec4 spotParams)
+{
+    float innerCutoff = spotParams.x;
+    float outerCutoff = spotParams.y;
+    
+    float theta = dot(lightDir, normalize(-spotDir));
+    float epsilon = innerCutoff - outerCutoff;
+    float intensity = clamp((theta - outerCutoff) / epsilon, 0.0, 1.0);
+    
+    return intensity;
+}
+
+// Calculate contribution from a single light
+vec3 calculateLightContribution(LightData light, vec3 N, vec3 V, vec3 albedo, float metallic, float roughness, vec3 worldPos)
+{
+    int lightType = int(light.position.w);
+    vec3 lightColor = light.color.rgb;
+    float lightIntensity = light.color.w;
+    
+    vec3 L;
+    float attenuation = 1.0;
+    
+    if (lightType == DIRECTIONAL_LIGHT)
+    {
+        L = normalize(-light.direction.xyz);
+    }
+    else if (lightType == POINT_LIGHT)
+    {
+        L = normalize(light.position.xyz - worldPos);
+        attenuation = calculateAttenuation(light.position.xyz, worldPos, light.attenuationParams);
+    }
+    else if (lightType == SPOT_LIGHT)
+    {
+        L = normalize(light.position.xyz - worldPos);
+        attenuation = calculateAttenuation(light.position.xyz, worldPos, light.attenuationParams);
+        float spotIntensity = calculateSpotIntensity(L, light.direction.xyz, light.spotParams);
+        attenuation *= spotIntensity;
+    }
+    else
+    {
+        return vec3(0.0); // Unknown light type
+    }
+    
+    // Early exit if light has no contribution
+    if (attenuation <= EPSILON) return vec3(0.0);
     
     float NdotL = max(dot(N, L), 0.0);
+    if (NdotL <= EPSILON) return vec3(0.0);
+    
+    vec3 radiance = lightColor * lightIntensity * attenuation;
     vec3 brdf = cookTorranceBRDF(N, V, L, albedo, metallic, roughness);
     
     return brdf * radiance * NdotL;
 }
 
-// Calculate point light contribution
-vec3 calculatePointLight(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness)
-{
-    vec3 L = normalize(u_LightPosition.xyz - v_WorldPos);
-    float distance = length(u_LightPosition.xyz - v_WorldPos);
-    float attenuation = 1.0 / (u_LightAttParams.x + u_LightAttParams.y * distance + u_LightAttParams.z * distance * distance);
-    vec3 radiance = u_LightDiffuse.rgb * attenuation;
-    
-    float NdotL = max(dot(N, L), 0.0);
-    vec3 brdf = cookTorranceBRDF(N, V, L, albedo, metallic, roughness);
-    
-    return brdf * radiance * NdotL;
-}
-
-// Calculate spot light contribution
-vec3 calculateSpotLight(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness)
-{
-    vec3 L = normalize(u_LightPosition.xyz - v_WorldPos);
-    float distance = length(u_LightPosition.xyz - v_WorldPos);
-    float attenuation = 1.0 / (u_LightAttParams.x + u_LightAttParams.y * distance + u_LightAttParams.z * distance * distance);
-    
-    // Spot light calculation
-    float theta = dot(L, normalize(-u_LightDirection.xyz));
-    float epsilon = u_LightSpotParams.x - u_LightSpotParams.y;
-    float intensity = clamp((theta - u_LightSpotParams.y) / epsilon, 0.0, 1.0);
-    
-    vec3 radiance = u_LightDiffuse.rgb * attenuation * intensity;
-    
-    float NdotL = max(dot(N, L), 0.0);
-    vec3 brdf = cookTorranceBRDF(N, V, L, albedo, metallic, roughness);
-    
-    return brdf * radiance * NdotL;
-}
+// =============================================================================
+// MAIN FRAGMENT SHADER
+// =============================================================================
 
 void main()
 {
@@ -353,16 +399,11 @@ void main()
     vec3 N = getNormalFromMap();
     vec3 V = normalize(u_CameraPosition - v_WorldPos);
     
-    // Calculate direct lighting
+    // Calculate direct lighting from all lights
     vec3 Lo = vec3(0.0);
-    int lightType = int(u_ViewPosAndLightType.w);
-    
-    if (lightType == DIRECTIONAL_LIGHT) {
-        Lo = calculateDirectionalLight(N, V, albedo, metallic, roughness);
-    } else if (lightType == POINT_LIGHT) {
-        Lo = calculatePointLight(N, V, albedo, metallic, roughness);
-    } else if (lightType == SPOT_LIGHT) {
-        Lo = calculateSpotLight(N, V, albedo, metallic, roughness);
+    for (int i = 0; i < min(u_LightCount, MAX_LIGHTS); ++i)
+    {
+        Lo += calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, v_WorldPos);
     }
     
     // Calculate ambient lighting

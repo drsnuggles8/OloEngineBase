@@ -8,6 +8,9 @@
 
 namespace OloEngine
 {
+	// Forward declaration
+	class ShaderResourceRegistry;
+
 	class Shader
 	{
 	public:
@@ -30,6 +33,10 @@ namespace OloEngine
 		[[nodiscard("Store this!")]] virtual const std::string& GetFilePath() const = 0;
 
 		virtual void Reload() = 0;
+
+		// Resource registry access (safe interface)
+		virtual ShaderResourceRegistry* GetResourceRegistry() = 0;
+		virtual const ShaderResourceRegistry* GetResourceRegistry() const = 0;
 
 		static Ref<Shader> Create(const std::string& filepath);
 		static Ref<Shader> Create(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc);
