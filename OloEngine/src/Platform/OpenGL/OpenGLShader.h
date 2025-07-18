@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include <glm/glm.hpp>
+#include <unordered_set>
 
 namespace OloEngine
 {
@@ -60,6 +61,8 @@ namespace OloEngine
 		}
 	private:
 		static std::string ReadFile(const std::string& filepath);
+		static std::string ProcessIncludes(const std::string& source, const std::string& directory = "");
+		static std::string ProcessIncludesInternal(const std::string& source, const std::string& directory, std::unordered_set<std::string>& includedFiles);
 		static std::unordered_map<GLenum, std::string> PreProcess(std::string_view source);
 
 		void CompileOrGetVulkanBinaries(const std::unordered_map<GLenum, std::string>& shaderSources);

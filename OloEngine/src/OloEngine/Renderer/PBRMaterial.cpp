@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/PBRMaterial.h"
 #include "OloEngine/Renderer/PBRValidation.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 
 namespace OloEngine
@@ -351,5 +352,41 @@ namespace OloEngine
         material.UseTextureMaps = HasAlbedoMap() || HasNormalMap() || HasMetallicRoughnessMap();
         
         return material;
+    }
+
+    Ref<Shader> PBRMaterial::SelectOptimalShader(int lightCount, bool isSkinnedMesh)
+    {
+        // Performance monitoring
+        PBRPerformanceMonitor::RecordShaderSwitch();
+        
+        // Shader selection logic based on lighting conditions
+        if (lightCount <= 1)
+        {
+            // Single light or no lights - use basic PBR shader
+            if (isSkinnedMesh)
+            {
+                // Use PBR_Skinned shader for single light with skinning
+                return Renderer3D::GetShaderLibrary().Get("PBR_Skinned");
+            }
+            else
+            {
+                // Use basic PBR shader for single light without skinning
+                return Renderer3D::GetShaderLibrary().Get("PBR");
+            }
+        }
+        else
+        {
+            // Multiple lights - use multi-light PBR shader
+            if (isSkinnedMesh)
+            {
+                // Use PBR_MultiLight_Skinned shader for multiple lights with skinning
+                return Renderer3D::GetShaderLibrary().Get("PBR_MultiLight_Skinned");
+            }
+            else
+            {
+                // Use PBR_MultiLight shader for multiple lights without skinning
+                return Renderer3D::GetShaderLibrary().Get("PBR_MultiLight");
+            }
+        }
     }
 }

@@ -16,6 +16,8 @@
 #include <fstream>
 #include <utility>
 #include <filesystem>
+#include <sstream>
+#include <unordered_set>
 #include <chrono>
 
 namespace OloEngine
@@ -46,6 +48,7 @@ namespace OloEngine
 				return GL_FRAGMENT_SHADER;
 			}
 
+			OLO_CORE_ERROR("Unknown shader type: '{0}' (length: {1})", std::string(type), type.length());
 			OLO_CORE_ASSERT(false, "Unknown shader type!");
 			return 0;
 		}
@@ -298,28 +301,127 @@ namespace OloEngine
 		return result;
 	}
 
+	std::string OpenGLShader::ProcessIncludes(const std::string& source, const std::string& directory)
+	{
+		std::unordered_set<std::string> includedFiles;
+		return ProcessIncludesInternal(source, directory, includedFiles);
+	}
+
+	std::string OpenGLShader::ProcessIncludesInternal(const std::string& source, const std::string& directory, std::unordered_set<std::string>& includedFiles)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		std::stringstream result;
+		std::istringstream stream(source);
+		std::string line;
+
+		while (std::getline(stream, line))
+		{
+			// Check for #include directive
+			const std::string includeToken = "#include";
+			const auto pos = line.find(includeToken);
+			
+			if (pos != std::string::npos)
+			{
+				// Extract the include file path
+				const auto start = line.find_first_of("\"<", pos + includeToken.length());
+				const auto end = line.find_first_of("\">", start + 1);
+				
+				if (start != std::string::npos && end != std::string::npos)
+				{
+					const std::string includePath = line.substr(start + 1, end - start - 1);
+					
+					// Resolve the full path
+					std::filesystem::path fullPath;
+					if (directory.empty())
+					{
+						// Try relative to shader assets directory
+						fullPath = std::filesystem::path("assets/shaders") / includePath;
+					}
+					else
+					{
+						fullPath = std::filesystem::path(directory) / includePath;
+					}
+					
+					const std::string fullPathStr = fullPath.string();
+					
+					// Check for circular includes
+					if (includedFiles.find(fullPathStr) != includedFiles.end())
+					{
+						OLO_CORE_WARN("Circular include detected for: {0}", fullPathStr);
+						result << "// Circular include: " << includePath << "\n";
+						continue;
+					}
+					
+					// Add to included files set
+					includedFiles.insert(fullPathStr);
+					
+					// Read and recursively process the included file
+					const std::string includeContent = ReadFile(fullPathStr);
+					if (!includeContent.empty())
+					{
+						const std::string includeDir = fullPath.parent_path().string();
+						const std::string processedInclude = ProcessIncludesInternal(includeContent, includeDir, includedFiles);
+						result << processedInclude << "\n";
+					}
+					else
+					{
+						OLO_CORE_ERROR("Failed to read include file: {0}", fullPathStr);
+						result << "// Failed to include: " << includePath << "\n";
+					}
+				}
+				else
+				{
+					OLO_CORE_WARN("Invalid include syntax: {0}", line);
+					result << line << "\n";
+				}
+			}
+			else
+			{
+				result << line << "\n";
+			}
+		}
+
+		return result.str();
+	}
+
 	std::unordered_map<GLenum, std::string> OpenGLShader::PreProcess(std::string_view source)
 	{
 		OLO_PROFILE_FUNCTION();
+
+		std::string processedSource = ProcessIncludes(std::string(source));
 
 		std::unordered_map<GLenum, std::string> shaderSources;
 
 		const char* const typeToken = "#type";
 		const sizet typeTokenLength = std::strlen(typeToken);
-		sizet pos = source.find(typeToken, 0); //Start of shader type declaration line
+		sizet pos = processedSource.find(typeToken, 0);
 		while (pos != std::string::npos)
 		{
-			const sizet eol = source.find_first_of("\r\n", pos); //End of shader type declaration line
+			const sizet eol = processedSource.find_first_of("\r\n", pos);
 			OLO_CORE_ASSERT(eol != std::string::npos, "Syntax error");
-			const sizet begin = pos + typeTokenLength + 1; //Start of shader type name (after "#type " keyword)
-			std::string_view type = source.substr(begin, eol - begin);
-			OLO_CORE_ASSERT(Utils::ShaderTypeFromString(type), "Invalid shader type specified");
+			
+			sizet typeStart = pos + typeTokenLength;
+			while (typeStart < eol && (processedSource[typeStart] == ' ' || processedSource[typeStart] == '\t'))
+			{
+				typeStart++;
+			}
+			
+			sizet typeEnd = typeStart;
+			while (typeEnd < eol && processedSource[typeEnd] != ' ' && processedSource[typeEnd] != '\t' && processedSource[typeEnd] != '\r' && processedSource[typeEnd] != '\n')
+			{
+				typeEnd++;
+			}
+			
+			std::string typeStr = processedSource.substr(typeStart, typeEnd - typeStart);
+			GLenum shaderType = Utils::ShaderTypeFromString(typeStr);
+			OLO_CORE_ASSERT(shaderType != 0, "Invalid shader type specified");
 
-			const sizet nextLinePos = source.find_first_not_of("\r\n", eol); //Start of shader code after shader type declaration line
+			const sizet nextLinePos = processedSource.find_first_not_of("\r\n", eol);
 			OLO_CORE_ASSERT(nextLinePos != std::string::npos, "Syntax error");
-			pos = source.find(typeToken, nextLinePos); //Start of next shader type declaration line
+			pos = processedSource.find(typeToken, nextLinePos);
 
-			shaderSources[Utils::ShaderTypeFromString(type)] = (pos == std::string::npos) ? source.substr(nextLinePos) : source.substr(nextLinePos, pos - nextLinePos);
+			shaderSources[shaderType] = (pos == std::string::npos) ? processedSource.substr(nextLinePos) : processedSource.substr(nextLinePos, pos - nextLinePos);
 		}
 
 		return shaderSources;

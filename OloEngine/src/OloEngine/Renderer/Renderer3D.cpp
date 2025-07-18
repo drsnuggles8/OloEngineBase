@@ -53,8 +53,8 @@ namespace OloEngine
 		m_ShaderLibrary.Load("assets/shaders/Renderer3D_Quad.glsl");
 		m_ShaderLibrary.Load("assets/shaders/PBR.glsl");
 		m_ShaderLibrary.Load("assets/shaders/PBR_Skinned.glsl");
-		
-		// Load IBL shaders for environment mapping
+		m_ShaderLibrary.Load("assets/shaders/PBR_MultiLight.glsl");
+		m_ShaderLibrary.Load("assets/shaders/PBR_MultiLight_Skinned.glsl");
 		m_ShaderLibrary.Load("assets/shaders/EquirectangularToCubemap.glsl");
 		m_ShaderLibrary.Load("assets/shaders/IrradianceConvolution.glsl");
 		m_ShaderLibrary.Load("assets/shaders/IBLPrefilter.glsl");
@@ -67,11 +67,14 @@ namespace OloEngine
 		s_Data.QuadShader = m_ShaderLibrary.Get("Renderer3D_Quad");
 		s_Data.PBRShader = m_ShaderLibrary.Get("PBR");
 		s_Data.PBRSkinnedShader = m_ShaderLibrary.Get("PBR_Skinned");
+		s_Data.PBRMultiLightShader = m_ShaderLibrary.Get("PBR_MultiLight");
+		s_Data.PBRMultiLightSkinnedShader = m_ShaderLibrary.Get("PBR_MultiLight_Skinned");
 		s_Data.SkyboxShader = m_ShaderLibrary.Get("Skybox");
 		
 		s_Data.CameraUBO = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
 		s_Data.LightPropertiesUBO = UniformBuffer::Create(ShaderBindingLayout::LightUBO::GetSize(), ShaderBindingLayout::UBO_LIGHTS);
 		s_Data.MaterialUBO = UniformBuffer::Create(ShaderBindingLayout::MaterialUBO::GetSize(), ShaderBindingLayout::UBO_MATERIAL);
+		s_Data.MultiLightBuffer = UniformBuffer::Create(ShaderBindingLayout::MultiLightUBO::GetSize(), ShaderBindingLayout::UBO_MULTI_LIGHTS);
 		s_Data.ModelMatrixUBO = UniformBuffer::Create(ShaderBindingLayout::ModelUBO::GetSize(), ShaderBindingLayout::UBO_MODEL);
 		s_Data.BoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION);
 		
@@ -83,7 +86,6 @@ namespace OloEngine
 			s_Data.ModelMatrixUBO
 		);
 		
-		// Initialize IBL system for environment mapping
 		EnvironmentMap::InitializeIBLSystem(m_ShaderLibrary);
 		OLO_CORE_INFO("IBL system initialized.");
 		
@@ -317,21 +319,17 @@ namespace OloEngine
 			return nullptr;
 		}
 		
-		// Choose shader based on material type
 		Ref<Shader> shaderToUse;
 		if (material.Shader)
 		{
-			// Use explicitly set shader
 			shaderToUse = material.Shader;
 		}
 		else if (material.EnablePBR)
 		{
-			// Use PBR shader for PBR materials
 			shaderToUse = s_Data.PBRShader;
 		}
 		else
 		{
-			// Use legacy lighting shader for non-PBR materials
 			shaderToUse = s_Data.LightingShader;
 		}
 		
@@ -686,21 +684,17 @@ namespace OloEngine
 			return nullptr;
 		}
 
-		// Choose shader based on material type
 		Ref<Shader> shaderToUse;
 		if (material.Shader)
 		{
-			// Use explicitly set shader
 			shaderToUse = material.Shader;
 		}
 		else if (material.EnablePBR)
 		{
-			// Use PBR skinned shader for PBR materials
 			shaderToUse = s_Data.PBRSkinnedShader;
 		}
 		else
 		{
-			// Use legacy skinned lighting shader for non-PBR materials
 			shaderToUse = s_Data.SkinnedLightingShader;
 		}
 		
@@ -875,7 +869,6 @@ namespace OloEngine
 		}
 	}
 
-	// Shader registry management methods
 	ShaderResourceRegistry* Renderer3D::GetShaderRegistry(u32 shaderID)
 	{
 		auto it = s_Data.ShaderRegistries.find(shaderID);
@@ -913,6 +906,11 @@ namespace OloEngine
 		{
 			registry->ApplyBindings();
 		}
+	}
+
+	ShaderLibrary& Renderer3D::GetShaderLibrary()
+	{
+		return m_ShaderLibrary;
 	}
 
 	CommandPacket* Renderer3D::DrawSkybox(const Ref<TextureCubemap>& skyboxTexture)

@@ -127,6 +127,9 @@ namespace OloEngine
 		static void OnWindowResize(u32 width, u32 height);
 		static const Ref<RenderGraph>& GetRenderGraph() { return s_Data.RGraph; }
 
+		// Shader library access for PBR material shader selection
+		static ShaderLibrary& GetShaderLibrary();
+
 		template<typename T>
 		static CommandPacket* CreateDrawCall()
 		{
@@ -161,10 +164,13 @@ namespace OloEngine
 			Ref<Shader> QuadShader;
 			Ref<Shader> PBRShader;
 			Ref<Shader> PBRSkinnedShader;
+			Ref<Shader> PBRMultiLightShader;
+			Ref<Shader> PBRMultiLightSkinnedShader;
 			Ref<Shader> SkyboxShader;
 					Ref<UniformBuffer> CameraUBO;
 			Ref<UniformBuffer> MaterialUBO;
 			Ref<UniformBuffer> LightPropertiesUBO;
+			Ref<UniformBuffer> MultiLightBuffer;
 			Ref<UniformBuffer> BoneMatricesUBO;
 			Ref<UniformBuffer> ModelMatrixUBO;
 

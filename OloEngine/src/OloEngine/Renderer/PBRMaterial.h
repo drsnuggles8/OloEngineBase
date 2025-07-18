@@ -107,6 +107,14 @@ namespace OloEngine
          */
         Material ToMaterial() const;
 
+        /**
+         * @brief Intelligently select appropriate shader based on lighting conditions
+         * @param lightCount Number of active lights in the scene
+         * @param isSkinnedMesh Whether this material is being used for a skinned mesh
+         * @return Best shader for current conditions
+         */
+        static Ref<Shader> SelectOptimalShader(int lightCount, bool isSkinnedMesh = false);
+
     private:
         std::string m_Name = "PBRMaterial";
         Ref<Shader> m_Shader;
