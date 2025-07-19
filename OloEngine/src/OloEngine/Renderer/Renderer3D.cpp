@@ -305,6 +305,7 @@ namespace OloEngine
 			return nullptr;
 		}
 		s_Data.Stats.TotalMeshes++;
+		
 		if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
 		{
 			if (!IsVisibleInFrustum(mesh, modelMatrix))
@@ -435,6 +436,7 @@ namespace OloEngine
 			return nullptr;
 		}
 		s_Data.Stats.TotalMeshes += static_cast<u32>(transforms.size());
+		
 		if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
 		{
 			if (!IsVisibleInFrustum(mesh, transforms[0]))
