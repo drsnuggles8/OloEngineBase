@@ -57,7 +57,7 @@ namespace OloEngine
     {
     public:
         // Material validation
-        static PBRValidationResult ValidateMaterial(const class PBRMaterial& material, 
+        static PBRValidationResult ValidateMaterial(const class Material& material, 
                                                    PBRValidationLevel level = PBRValidationLevel::Standard);
         
         // Texture validation
@@ -85,7 +85,7 @@ namespace OloEngine
                                                     PBRValidationLevel level = PBRValidationLevel::Standard);
         
         // Performance analysis
-        static void AnalyzePerformance(const class PBRMaterial& material);
+        static void AnalyzePerformance(const class Material& material);
         
     private:
         // Helper methods
@@ -110,7 +110,7 @@ namespace OloEngine
         static Ref<TextureCubemap> GetFallbackEnvironmentMap();
         
         // Material recovery
-        static void RecoverMaterial(class PBRMaterial& material);
+        static void RecoverMaterial(class Material& material);
         
         // Create safe default values
         static glm::vec3 GetSafeBaseColor(const glm::vec3& input);
@@ -158,7 +158,7 @@ namespace OloEngine
         static void RecordTextureBinding();
         static void RecordShaderSwitch();
         
-        static MaterialStats AnalyzeMaterial(const class PBRMaterial& material);
+        static MaterialStats AnalyzeMaterial(const class Material& material);
         static const RenderStats& GetCurrentFrameStats();
         static void LogPerformanceReport();
         

@@ -38,8 +38,6 @@ namespace OloEngine
         
         // Performance optimization
         bool EnableMultithreading = true;   // Use multiple threads for generation
-        bool CacheToFile = true;            // Cache generated IBL textures to disk
-        std::string CacheDirectory = "cache/ibl/";
     };
 
     struct EnvironmentMapSpecification
@@ -84,11 +82,6 @@ namespace OloEngine
         
         // Generate IBL with custom settings
         void RegenerateIBL(const IBLConfiguration& config);
-        
-        // Cache management
-        bool LoadFromCache(const std::string& cacheKey);
-        void SaveToCache(const std::string& cacheKey) const;
-        std::string GenerateCacheKey() const;
 
     private:
         void GenerateIBLTextures();

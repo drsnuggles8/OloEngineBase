@@ -11,7 +11,7 @@ namespace OloEngine
         m_Batches.reserve(32);           // Reserve space for typical batch count
     }
 
-    void MaterialBatcher::AddMaterial(const Ref<PBRMaterial>& material, int lightCount, bool isSkinnedMesh)
+    void MaterialBatcher::AddMaterial(const Material* material, int lightCount, bool isSkinnedMesh)
     {
         if (!material)
         {
@@ -20,7 +20,7 @@ namespace OloEngine
         }
 
         // Select optimal shader for this material based on lighting conditions
-        Ref<Shader> optimalShader = PBRMaterial::SelectOptimalShader(lightCount, isSkinnedMesh);
+        Ref<Shader> optimalShader = Material::SelectOptimalShader(lightCount, isSkinnedMesh);
         if (!optimalShader)
         {
             OLO_CORE_ERROR("MaterialBatcher::AddMaterial: Failed to select optimal shader for material");
@@ -68,7 +68,7 @@ namespace OloEngine
         m_Stats = BatchingStats{};
     }
 
-    bool MaterialBatcher::AreCompatible(const Ref<PBRMaterial>& mat1, const Ref<PBRMaterial>& mat2)
+    bool MaterialBatcher::AreCompatible(const Material* mat1, const Material* mat2)
     {
         if (!mat1 || !mat2)
             return false;
@@ -186,7 +186,7 @@ namespace OloEngine
         return materialsProcessed;
     }
 
-    u32 MaterialBatcher::CalculateCompatibilityScore(const Ref<PBRMaterial>& mat1, const Ref<PBRMaterial>& mat2)
+    u32 MaterialBatcher::CalculateCompatibilityScore(const Ref<Material>& mat1, const Ref<Material>& mat2)
     {
         u32 score = 0;
 

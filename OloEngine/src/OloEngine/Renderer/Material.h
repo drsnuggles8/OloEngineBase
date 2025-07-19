@@ -11,8 +11,18 @@
 
 namespace OloEngine
 {
+	enum class MaterialType
+	{
+		Legacy = 0,		// Legacy Phong-style material
+		PBR = 1			// Physically Based Rendering material
+	};
+
 	struct Material
 	{
+		// Material type and identification
+		MaterialType Type = MaterialType::Legacy;
+		std::string Name = "Material";
+
 		// Legacy material properties (for backward compatibility)
 		glm::vec3 Ambient;
 		glm::vec3 Diffuse;
@@ -29,7 +39,6 @@ namespace OloEngine
 		f32 RoughnessFactor = 1.0f;                      // Roughness factor
 		f32 NormalScale = 1.0f;                          // Normal map scale
 		f32 OcclusionStrength = 1.0f;                    // AO strength
-		bool EnablePBR = false;                          // Enable PBR rendering
 		bool EnableIBL = false;                          // Enable IBL
 		
 		// PBR texture maps
@@ -117,6 +126,50 @@ namespace OloEngine
 			}
 		}
 
+		// PBR-specific convenience methods
+		/**
+		 * @brief Set base color (albedo) for PBR materials
+		 */
+		void SetBaseColor(const glm::vec3& color) 
+		{ 
+			BaseColorFactor = glm::vec4(color, BaseColorFactor.a); 
+			Type = MaterialType::PBR;
+		}
+		void SetBaseColor(const glm::vec4& color) 
+		{ 
+			BaseColorFactor = color; 
+			Type = MaterialType::PBR;
+		}
+
+		/**
+		 * @brief Set metallic and roughness factors for PBR materials
+		 */
+		void SetMetallicRoughness(float metallic, float roughness) 
+		{ 
+			MetallicFactor = metallic; 
+			RoughnessFactor = roughness; 
+			Type = MaterialType::PBR;
+		}
+
+		/**
+		 * @brief Set emissive color for PBR materials
+		 */
+		void SetEmissive(const glm::vec3& emissive) 
+		{ 
+			EmissiveFactor = glm::vec4(emissive, 0.0f); 
+			Type = MaterialType::PBR;
+		}
+
+		/**
+		 * @brief Check if texture maps are available
+		 */
+		bool HasAlbedoMap() const { return AlbedoMap != nullptr; }
+		bool HasMetallicRoughnessMap() const { return MetallicRoughnessMap != nullptr; }
+		bool HasNormalMap() const { return NormalMap != nullptr; }
+		bool HasAOMap() const { return AOMap != nullptr; }
+		bool HasEmissiveMap() const { return EmissiveMap != nullptr; }
+		bool HasIBLMaps() const { return IrradianceMap != nullptr && PrefilterMap != nullptr && BRDFLutMap != nullptr; }
+
 		/**
 		 * @brief Validate the material configuration
 		 * @return true if material is valid and ready for rendering
@@ -130,10 +183,10 @@ namespace OloEngine
 				return false;
 			}
 
-			// Validate PBR properties if PBR is enabled
-			if (EnablePBR)
+			// Validate based on material type
+			if (Type == MaterialType::PBR)
 			{
-				// Check factor ranges
+				// Check factor ranges for PBR materials
 				if (MetallicFactor < 0.0f || MetallicFactor > 1.0f)
 				{
 					OLO_CORE_WARN("Material validation failed: MetallicFactor out of range [0,1]: {}", MetallicFactor);
@@ -168,12 +221,14 @@ namespace OloEngine
 					}
 				}
 			}
-
-			// Validate legacy material properties
-			if (Shininess < 0.0f)
+			else // Legacy material validation
 			{
-				OLO_CORE_WARN("Material validation failed: Shininess cannot be negative: {}", Shininess);
-				return false;
+				// Validate legacy material properties
+				if (Shininess < 0.0f)
+				{
+					OLO_CORE_WARN("Material validation failed: Shininess cannot be negative: {}", Shininess);
+					return false;
+				}
 			}
 
 			return true;
@@ -238,8 +293,32 @@ namespace OloEngine
 			return Shader ? Shader->GetResourceRegistry() : nullptr;
 		}
 
+		/**
+		 * @brief Get the material name
+		 * @return Material name string
+		 */
+		const std::string& GetName() const
+		{
+			return Name;
+		}
+
+		/**
+		 * @brief Get the shader associated with this material
+		 * @return Shader reference, or nullptr if no shader is set
+		 */
+		Ref<OloEngine::Shader> GetShader() const
+		{
+			return Shader;
+		}
+
 		bool operator==(const Material& other) const
 		{
+			// Compare material type first
+			if (Type != other.Type || Name != other.Name)
+			{
+				return false;
+			}
+
 			// Compare basic legacy properties
 			if (Ambient != other.Ambient ||
 				Diffuse != other.Diffuse ||
@@ -250,17 +329,19 @@ namespace OloEngine
 				return false;
 			}
 			
-			// Compare PBR properties
-			if (EnablePBR != other.EnablePBR ||
-				BaseColorFactor != other.BaseColorFactor ||
-				EmissiveFactor != other.EmissiveFactor ||
-				MetallicFactor != other.MetallicFactor ||
-				RoughnessFactor != other.RoughnessFactor ||
-				NormalScale != other.NormalScale ||
-				OcclusionStrength != other.OcclusionStrength ||
-				EnableIBL != other.EnableIBL)
+			// Compare PBR properties if this is a PBR material
+			if (Type == MaterialType::PBR)
 			{
-				return false;
+				if (BaseColorFactor != other.BaseColorFactor ||
+					EmissiveFactor != other.EmissiveFactor ||
+					MetallicFactor != other.MetallicFactor ||
+					RoughnessFactor != other.RoughnessFactor ||
+					NormalScale != other.NormalScale ||
+					OcclusionStrength != other.OcclusionStrength ||
+					EnableIBL != other.EnableIBL)
+				{
+					return false;
+				}
 			}
 
 			// Compare texture maps if they are used
@@ -287,8 +368,8 @@ namespace OloEngine
 				}
 			}
 			
-			// Compare PBR texture maps if PBR is enabled
-			if (EnablePBR)
+			// Compare PBR texture maps if this is a PBR material
+			if (Type == MaterialType::PBR)
 			{
 				// Compare all PBR texture maps
 				if ((AlbedoMap && other.AlbedoMap && *AlbedoMap != *other.AlbedoMap) ||
@@ -318,6 +399,11 @@ namespace OloEngine
 		[[nodiscard]] u64 CalculateKey() const
 		{
 			u64 key = 0;
+			
+			// Include material type and name
+			HashCombine(key, static_cast<u32>(Type));
+			HashCombine(key, std::hash<std::string>()(Name));
+			
 			// Simple hash combination of material properties
 			HashCombine(key, std::hash<glm::vec3>()(Ambient));
 			HashCombine(key, std::hash<glm::vec3>()(Diffuse));
@@ -325,9 +411,8 @@ namespace OloEngine
 			HashCombine(key, std::hash<float>()(Shininess));
 			HashCombine(key, std::hash<bool>()(UseTextureMaps));
 			
-			// Include PBR properties
-			HashCombine(key, std::hash<bool>()(EnablePBR));
-			if (EnablePBR)
+			// Include PBR properties if this is a PBR material
+			if (Type == MaterialType::PBR)
 			{
 				HashCombine(key, std::hash<glm::vec4>()(BaseColorFactor));
 				HashCombine(key, std::hash<glm::vec4>()(EmissiveFactor));
@@ -351,8 +436,8 @@ namespace OloEngine
 					HashCombine(key, SpecularMap->GetRendererID());
 			}
 			
-			// Include PBR texture IDs if PBR is enabled
-			if (EnablePBR)
+			// Include PBR texture IDs if this is a PBR material
+			if (Type == MaterialType::PBR)
 			{
 				if (AlbedoMap)
 					HashCombine(key, AlbedoMap->GetRendererID());
@@ -367,6 +452,83 @@ namespace OloEngine
 			}
 			
 			return key;
+		}
+
+		// Static factory methods
+		/**
+		 * @brief Create a PBR material with specified properties
+		 */
+		static Material CreatePBR(const std::string& name, const glm::vec3& baseColor, float metallic = 0.0f, float roughness = 0.5f)
+		{
+			Material material;
+			material.Type = MaterialType::PBR;
+			material.Name = name;
+			material.BaseColorFactor = glm::vec4(baseColor, 1.0f);
+			material.MetallicFactor = metallic;
+			material.RoughnessFactor = roughness;
+			material.NormalScale = 1.0f;
+			material.OcclusionStrength = 1.0f;
+			material.EmissiveFactor = glm::vec4(0.0f);
+			material.EnableIBL = false;
+			return material;
+		}
+
+		/**
+		 * @brief Create a legacy Phong material with specified properties
+		 */
+		static Material CreateLegacy(const std::string& name, const glm::vec3& ambient, const glm::vec3& diffuse, const glm::vec3& specular, float shininess = 32.0f)
+		{
+			Material material;
+			material.Type = MaterialType::Legacy;
+			material.Name = name;
+			material.Ambient = ambient;
+			material.Diffuse = diffuse;
+			material.Specular = specular;
+			material.Shininess = shininess;
+			material.UseTextureMaps = false;
+			material.EnableIBL = false;
+			return material;
+		}
+
+		// PBR preset materials
+		static Material CreateGoldMaterial(const std::string& name = "Gold")
+		{
+			return CreatePBR(name, glm::vec3(1.0f, 0.765557f, 0.336057f), 1.0f, 0.1f);
+		}
+
+		static Material CreateSilverMaterial(const std::string& name = "Silver")
+		{
+			return CreatePBR(name, glm::vec3(0.950f, 0.930f, 0.880f), 1.0f, 0.05f);
+		}
+
+		static Material CreateCopperMaterial(const std::string& name = "Copper")
+		{
+			return CreatePBR(name, glm::vec3(0.95f, 0.64f, 0.54f), 1.0f, 0.15f);
+		}
+
+		static Material CreatePlasticMaterial(const std::string& name, const glm::vec3& color)
+		{
+			return CreatePBR(name, color, 0.0f, 0.5f);
+		}
+
+		static Material CreateMetalMaterial(const std::string& name, const glm::vec3& color, float roughness = 0.1f)
+		{
+			return CreatePBR(name, color, 1.0f, roughness);
+		}
+
+		/**
+		 * @brief Configure IBL (Image-Based Lighting) for this material
+		 */
+		void ConfigureIBL(const Ref<TextureCubemap>& environmentMap,
+			const Ref<TextureCubemap>& irradianceMap = nullptr,
+			const Ref<TextureCubemap>& prefilterMap = nullptr,
+			const Ref<Texture2D>& brdfLutMap = nullptr)
+		{
+			EnableIBL = true;
+			EnvironmentMap = environmentMap;
+			IrradianceMap = irradianceMap;
+			PrefilterMap = prefilterMap;
+			BRDFLutMap = brdfLutMap;
 		}
 
 		private:

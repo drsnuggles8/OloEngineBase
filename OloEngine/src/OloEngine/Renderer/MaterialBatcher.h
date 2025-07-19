@@ -2,7 +2,6 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Material.h"
-#include "OloEngine/Renderer/PBRMaterial.h"
 #include "OloEngine/Renderer/Texture.h"
 #include <unordered_map>
 #include <vector>
@@ -22,7 +21,7 @@ namespace OloEngine
         {
             Ref<Shader> Shader;
             std::vector<Ref<Texture2D>> Textures;  // Batched textures
-            std::vector<Ref<PBRMaterial>> Materials; // Materials in this batch
+            std::vector<Material*> Materials; // Materials in this batch
             u32 MaterialCount = 0;
             bool IsCompatible = true;
         };
@@ -42,11 +41,11 @@ namespace OloEngine
 
         /**
          * @brief Add a material to the batching system
-         * @param material PBR material to batch
+         * @param material Material to batch
          * @param lightCount Current light count for shader selection
          * @param isSkinnedMesh Whether this is for a skinned mesh
          */
-        void AddMaterial(const Ref<PBRMaterial>& material, int lightCount, bool isSkinnedMesh = false);
+        void AddMaterial(const Material* material, int lightCount, bool isSkinnedMesh = false);
 
         /**
          * @brief Process all added materials and create optimized batches
@@ -82,12 +81,12 @@ namespace OloEngine
          * @param mat2 Second material
          * @return True if materials are compatible for batching
          */
-        static bool AreCompatible(const Ref<PBRMaterial>& mat1, const Ref<PBRMaterial>& mat2);
+        static bool AreCompatible(const Material* mat1, const Material* mat2);
 
     private:
         struct MaterialEntry
         {
-            Ref<PBRMaterial> Material;
+            const Material* Material;
             Ref<Shader> OptimalShader;
             u64 MaterialKey;
             int LightCount;
@@ -112,7 +111,7 @@ namespace OloEngine
          * @param mat2 Second material
          * @return Compatibility score (higher = more compatible)
          */
-        u32 CalculateCompatibilityScore(const Ref<PBRMaterial>& mat1, const Ref<PBRMaterial>& mat2);
+        u32 CalculateCompatibilityScore(const Ref<Material>& mat1, const Ref<Material>& mat2);
 
         /**
          * @brief Sort pending materials for optimal batching

@@ -324,7 +324,7 @@ namespace OloEngine
 		{
 			shaderToUse = material.Shader;
 		}
-		else if (material.EnablePBR)
+		else if (material.Type == MaterialType::PBR)
 		{
 			shaderToUse = s_Data.PBRShader;
 		}
@@ -356,7 +356,7 @@ namespace OloEngine
 		cmd->specularMap = material.SpecularMap;
 		
 		// PBR material properties
-		cmd->enablePBR = material.EnablePBR;
+		cmd->enablePBR = (material.Type == MaterialType::PBR);
 		cmd->baseColorFactor = material.BaseColorFactor;
 		cmd->emissiveFactor = material.EmissiveFactor;
 		cmd->metallicFactor = material.MetallicFactor;
@@ -463,7 +463,7 @@ namespace OloEngine
 		cmd->specularMap = material.SpecularMap;
 		
 		// PBR material properties
-		cmd->enablePBR = material.EnablePBR;
+		cmd->enablePBR = (material.Type == MaterialType::PBR);
 		cmd->baseColorFactor = material.BaseColorFactor;
 		cmd->emissiveFactor = material.EmissiveFactor;
 		cmd->metallicFactor = material.MetallicFactor;
@@ -689,7 +689,7 @@ namespace OloEngine
 		{
 			shaderToUse = material.Shader;
 		}
-		else if (material.EnablePBR)
+		else if ((material.Type == MaterialType::PBR))
 		{
 			shaderToUse = s_Data.PBRSkinnedShader;
 		}
@@ -733,7 +733,7 @@ namespace OloEngine
 		cmd->specularMap = material.SpecularMap;
 		
 		// PBR material properties
-		cmd->enablePBR = material.EnablePBR;
+		cmd->enablePBR = (material.Type == MaterialType::PBR);
 		cmd->baseColorFactor = material.BaseColorFactor;
 		cmd->emissiveFactor = material.EmissiveFactor;
 		cmd->metallicFactor = material.MetallicFactor;

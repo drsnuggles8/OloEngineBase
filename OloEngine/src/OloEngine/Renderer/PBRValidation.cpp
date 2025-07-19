@@ -5,7 +5,7 @@
 
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/PBRValidation.h"
-#include "OloEngine/Renderer/PBRMaterial.h"
+#include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -31,7 +31,7 @@ namespace OloEngine
     // PBRValidator Implementation
     // =============================================================================
 
-    PBRValidationResult PBRValidator::ValidateMaterial(const PBRMaterial& material, PBRValidationLevel level)
+    PBRValidationResult PBRValidator::ValidateMaterial(const Material& material, PBRValidationLevel level)
     {
         OLO_PROFILE_FUNCTION();
         
@@ -316,7 +316,7 @@ namespace OloEngine
         return result;
     }
 
-    void PBRValidator::AnalyzePerformance(const PBRMaterial& material)
+    void PBRValidator::AnalyzePerformance(const Material& material)
     {
         auto stats = PBRPerformanceMonitor::AnalyzeMaterial(material);
         
@@ -493,7 +493,7 @@ namespace OloEngine
         return s_FallbackEnvironment;
     }
 
-    void PBRErrorRecovery::RecoverMaterial(PBRMaterial& material)
+    void PBRErrorRecovery::RecoverMaterial(Material& material)
     {
         OLO_CORE_WARN("Recovering PBR material: {}", material.GetName());
         
@@ -584,7 +584,7 @@ namespace OloEngine
         s_CurrentFrameStats.ShaderSwitches++;
     }
 
-    PBRPerformanceMonitor::MaterialStats PBRPerformanceMonitor::AnalyzeMaterial(const PBRMaterial& material)
+    PBRPerformanceMonitor::MaterialStats PBRPerformanceMonitor::AnalyzeMaterial(const Material& material)
     {
         MaterialStats stats;
         

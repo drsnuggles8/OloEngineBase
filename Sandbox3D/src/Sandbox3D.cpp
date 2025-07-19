@@ -47,7 +47,7 @@ Sandbox3D::Sandbox3D()
     m_TexturedMaterial.UseTextureMaps = true;
     
     // Initialize PBR materials with default values
-    // These will be properly configured in OnAttach with PBRMaterialHelper
+    // These will be properly configured in OnAttach with Material factory methods
     // PBR Materials will be initialized as nullptr and created in OnAttach()
 	// Initialize light with default values
     m_Light.Type = OloEngine::LightType::Directional;
@@ -100,25 +100,13 @@ void Sandbox3D::OnAttach()
     m_GoldMaterial.DiffuseMap = m_DiffuseMap;
     m_GoldMaterial.SpecularMap = m_SpecularMap;
     
-    // Initialize PBR materials using the helper
-    m_PBRGoldMaterial = OloEngine::PBRMaterialHelper::CreateGoldMaterial();
-    m_PBRSilverMaterial = OloEngine::PBRMaterialHelper::CreateSilverMaterial();
-    m_PBRCopperMaterial = OloEngine::PBRMaterialHelper::CreateCopperMaterial();
-    m_PBRPlasticMaterial = OloEngine::PBRMaterialHelper::CreateBasicPBRMaterial(
-        glm::vec3(0.1f, 0.1f, 0.8f), // Blue base color
-        0.0f, // Non-metallic
-        0.3f  // Fairly smooth
-    );
-    m_PBRRoughMaterial = OloEngine::PBRMaterialHelper::CreateBasicPBRMaterial(
-        glm::vec3(0.8f, 0.2f, 0.2f), // Red base color
-        0.0f, // Non-metallic
-        0.9f  // Very rough
-    );
-    m_PBRSmoothMaterial = OloEngine::PBRMaterialHelper::CreateBasicPBRMaterial(
-        glm::vec3(0.2f, 0.8f, 0.2f), // Green base color
-        0.0f, // Non-metallic
-        0.1f  // Very smooth
-    );
+    // Initialize PBR materials using the simplified Material struct
+    m_PBRGoldMaterial = OloEngine::Material::CreateGoldMaterial();
+    m_PBRSilverMaterial = OloEngine::Material::CreateSilverMaterial();
+    m_PBRCopperMaterial = OloEngine::Material::CreateCopperMaterial();
+    m_PBRPlasticMaterial = OloEngine::Material::CreatePlasticMaterial("Blue Plastic", glm::vec3(0.1f, 0.1f, 0.8f));
+    m_PBRRoughMaterial = OloEngine::Material::CreatePBR("Rough Red", glm::vec3(0.8f, 0.2f, 0.2f), 0.0f, 0.9f);
+    m_PBRSmoothMaterial = OloEngine::Material::CreatePBR("Smooth Green", glm::vec3(0.2f, 0.8f, 0.2f), 0.0f, 0.1f);
     
     // Load environment map for IBL - using cubemap faces from OloEditor assets
     std::vector<std::string> skyboxFaces = {
@@ -136,37 +124,37 @@ void Sandbox3D::OnAttach()
     // Configure IBL for all PBR materials
     if (m_EnvironmentMap && m_EnvironmentMap->HasIBL())
     {
-        OloEngine::PBRMaterialHelper::ConfigureIBL(m_PBRGoldMaterial, 
+        m_PBRGoldMaterial.ConfigureIBL(
             m_EnvironmentMap->GetEnvironmentMap(),
             m_EnvironmentMap->GetIrradianceMap(),
             m_EnvironmentMap->GetPrefilterMap(),
             m_EnvironmentMap->GetBRDFLutMap());
             
-        OloEngine::PBRMaterialHelper::ConfigureIBL(m_PBRSilverMaterial,
+        m_PBRSilverMaterial.ConfigureIBL(
             m_EnvironmentMap->GetEnvironmentMap(),
             m_EnvironmentMap->GetIrradianceMap(), 
             m_EnvironmentMap->GetPrefilterMap(),
             m_EnvironmentMap->GetBRDFLutMap());
             
-        OloEngine::PBRMaterialHelper::ConfigureIBL(m_PBRCopperMaterial,
+        m_PBRCopperMaterial.ConfigureIBL(
             m_EnvironmentMap->GetEnvironmentMap(),
             m_EnvironmentMap->GetIrradianceMap(),
             m_EnvironmentMap->GetPrefilterMap(), 
             m_EnvironmentMap->GetBRDFLutMap());
             
-        OloEngine::PBRMaterialHelper::ConfigureIBL(m_PBRPlasticMaterial,
+        m_PBRPlasticMaterial.ConfigureIBL(
             m_EnvironmentMap->GetEnvironmentMap(),
             m_EnvironmentMap->GetIrradianceMap(),
             m_EnvironmentMap->GetPrefilterMap(),
             m_EnvironmentMap->GetBRDFLutMap());
             
-        OloEngine::PBRMaterialHelper::ConfigureIBL(m_PBRRoughMaterial,
+        m_PBRRoughMaterial.ConfigureIBL(
             m_EnvironmentMap->GetEnvironmentMap(),
             m_EnvironmentMap->GetIrradianceMap(), 
             m_EnvironmentMap->GetPrefilterMap(),
             m_EnvironmentMap->GetBRDFLutMap());
             
-        OloEngine::PBRMaterialHelper::ConfigureIBL(m_PBRSmoothMaterial,
+        m_PBRSmoothMaterial.ConfigureIBL(
             m_EnvironmentMap->GetEnvironmentMap(),
             m_EnvironmentMap->GetIrradianceMap(),
             m_EnvironmentMap->GetPrefilterMap(),
@@ -627,11 +615,10 @@ void Sandbox3D::RenderMaterialTestingScene()
     
     // Choose material based on PBR toggle
     if (m_UsePBRMaterials) {
-        auto pbrMaterial = GetCurrentPBRMaterial();
-        OloEngine::Material centerMaterial = pbrMaterial->ToMaterial();
+        auto& pbrMaterial = GetCurrentPBRMaterial();
         
         // Draw filled mesh (normal)
-        auto* solidPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, centerMaterial);
+        auto* solidPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, pbrMaterial);
         if (solidPacket) OloEngine::Renderer3D::SubmitPacket(solidPacket);
     } else {
         // Draw filled mesh (normal)
@@ -667,8 +654,8 @@ void Sandbox3D::RenderMaterialTestingScene()
         {
             // Choose materials based on PBR toggle
             if (m_UsePBRMaterials) {
-                OloEngine::Material silverMat = m_PBRSilverMaterial->ToMaterial();
-                OloEngine::Material chromeMat = m_PBRCopperMaterial->ToMaterial();
+                OloEngine::Material silverMat = m_PBRSilverMaterial;
+                OloEngine::Material chromeMat = m_PBRCopperMaterial;
                 
                 auto silverCubeMatrix = glm::mat4(1.0f);
                 silverCubeMatrix = glm::translate(silverCubeMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
@@ -725,7 +712,8 @@ void Sandbox3D::RenderMaterialTestingScene()
                         roughness = glm::clamp(roughness, 0.05f, 1.0f); // Prevent completely smooth
                         
                         // Create dynamic material
-                        OloEngine::Material dynamicMaterial = OloEngine::PBRMaterialHelper::CreateBasicPBRMaterialLegacy(
+                        OloEngine::Material dynamicMaterial = OloEngine::Material::CreatePBR(
+                            "Dynamic PBR",
                             glm::vec3(0.5f, 0.0f, 0.0f), // Red base color
                             metallic,
                             roughness
@@ -734,7 +722,7 @@ void Sandbox3D::RenderMaterialTestingScene()
                         // Configure IBL if available
                         if (m_EnvironmentMap && m_EnvironmentMap->HasIBL())
                         {
-                            OloEngine::PBRMaterialHelper::ConfigureIBLLegacy(dynamicMaterial,
+                            dynamicMaterial.ConfigureIBL(
                                 m_EnvironmentMap->GetEnvironmentMap(),
                                 m_EnvironmentMap->GetIrradianceMap(),
                                 m_EnvironmentMap->GetPrefilterMap(),
@@ -752,10 +740,10 @@ void Sandbox3D::RenderMaterialTestingScene()
                 
                 // Add some preset material spheres around the edges for comparison
                 std::vector<std::pair<OloEngine::Material, glm::vec3>> presetMaterials = {
-                    { m_PBRGoldMaterial->ToMaterial(), glm::vec3(-12.0f, 2.0f, 0.0f) },
-                    { m_PBRSilverMaterial->ToMaterial(), glm::vec3(12.0f, 2.0f, 0.0f) },
-                    { m_PBRCopperMaterial->ToMaterial(), glm::vec3(0.0f, 2.0f, -12.0f) },
-                    { m_PBRPlasticMaterial->ToMaterial(), glm::vec3(0.0f, 2.0f, 12.0f) }
+                    { m_PBRGoldMaterial, glm::vec3(-12.0f, 2.0f, 0.0f) },
+                    { m_PBRSilverMaterial, glm::vec3(12.0f, 2.0f, 0.0f) },
+                    { m_PBRCopperMaterial, glm::vec3(0.0f, 2.0f, -12.0f) },
+                    { m_PBRPlasticMaterial, glm::vec3(0.0f, 2.0f, 12.0f) }
                 };
                 
                 for (const auto& preset : presetMaterials)
@@ -1171,7 +1159,7 @@ void Sandbox3D::RenderSpotlightUI()
     }
 }
 
-OloEngine::Ref<OloEngine::PBRMaterial> Sandbox3D::GetCurrentPBRMaterial()
+OloEngine::Material& Sandbox3D::GetCurrentPBRMaterial()
 {
     switch (m_PBRMaterialType)
     {
@@ -1621,15 +1609,15 @@ void Sandbox3D::RenderMaterialSettings()
         ImGui::Combo("Select PBR Material", &m_PBRMaterialType, m_PBRMaterialNames, 6);
         
         // Get the selected PBR material
-        OloEngine::Ref<OloEngine::PBRMaterial> currentPBRMaterial = GetCurrentPBRMaterial();
+        auto& currentPBRMaterial = GetCurrentPBRMaterial();
         
         // Edit PBR properties
-        ImGui::ColorEdit3("Base Color", glm::value_ptr(currentPBRMaterial->BaseColorFactor));
-        ImGui::SliderFloat("Metallic", &currentPBRMaterial->MetallicFactor, 0.0f, 1.0f);
-        ImGui::SliderFloat("Roughness", &currentPBRMaterial->RoughnessFactor, 0.01f, 1.0f);
-        ImGui::SliderFloat("Normal Scale", &currentPBRMaterial->NormalScale, 0.0f, 2.0f);
-        ImGui::SliderFloat("Occlusion Strength", &currentPBRMaterial->OcclusionStrength, 0.0f, 1.0f);
-        ImGui::ColorEdit3("Emissive", glm::value_ptr(currentPBRMaterial->EmissiveFactor));
+        ImGui::ColorEdit3("Base Color", glm::value_ptr(currentPBRMaterial.BaseColorFactor));
+        ImGui::SliderFloat("Metallic", &currentPBRMaterial.MetallicFactor, 0.0f, 1.0f);
+        ImGui::SliderFloat("Roughness", &currentPBRMaterial.RoughnessFactor, 0.01f, 1.0f);
+        ImGui::SliderFloat("Normal Scale", &currentPBRMaterial.NormalScale, 0.0f, 2.0f);
+        ImGui::SliderFloat("Occlusion Strength", &currentPBRMaterial.OcclusionStrength, 0.0f, 1.0f);
+        ImGui::ColorEdit3("Emissive", glm::value_ptr(currentPBRMaterial.EmissiveFactor));
         
         ImGui::Separator();
         ImGui::Text("Environment Mapping (IBL):");
@@ -1645,8 +1633,8 @@ void Sandbox3D::RenderMaterialSettings()
             }
             
             // Show IBL status for current material
-            auto materialForIBLCheck = GetCurrentPBRMaterial();
-            if (materialForIBLCheck && materialForIBLCheck->EnableIBL)
+            auto& materialForIBLCheck = GetCurrentPBRMaterial();
+            if (materialForIBLCheck.EnableIBL)
             {
                 ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "IBL: Enabled for current material");
             }

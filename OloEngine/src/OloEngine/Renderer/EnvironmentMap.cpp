@@ -9,9 +9,6 @@
 #include "OloEngine/Renderer/ShaderLibrary.h"
 
 #include <stb_image/stb_image.h>
-#include <filesystem>
-#include <fstream>
-#include <ctime>
 
 namespace OloEngine
 {
@@ -90,22 +87,8 @@ namespace OloEngine
             return;
         }
 
-        // Check if we can load from cache first
-        std::string cacheKey = GenerateCacheKey();
-        if (m_Specification.IBLConfig.CacheToFile && LoadFromCache(cacheKey))
-        {
-            OLO_CORE_INFO("IBL textures loaded from cache for key: {}", cacheKey);
-            return;
-        }
-
         // Generate IBL textures with enhanced configuration
         GenerateIBLWithConfig(m_Specification.IBLConfig);
-        
-        // Save to cache if enabled
-        if (m_Specification.IBLConfig.CacheToFile)
-        {
-            SaveToCache(cacheKey);
-        }
         
         OLO_CORE_INFO("IBL textures generated successfully");
     }
@@ -238,133 +221,6 @@ namespace OloEngine
     {
         m_Specification.IBLConfig = config;
         GenerateIBLWithConfig(config);
-    }
-
-    // Cache management
-    std::string EnvironmentMap::GenerateCacheKey() const
-    {
-        const auto& config = m_Specification.IBLConfig;
-        
-        // Create a hash from configuration parameters
-        std::string key = m_Specification.FilePath + "_" +
-                         std::to_string(static_cast<int>(config.Quality)) + "_" +
-                         std::to_string(config.IrradianceResolution) + "_" +
-                         std::to_string(config.PrefilterResolution) + "_" +
-                         std::to_string(config.BRDFLutResolution) + "_" +
-                         std::to_string(config.IrradianceSamples) + "_" +
-                         std::to_string(config.PrefilterSamples) + "_" +
-                         (config.UseImportanceSampling ? "1" : "0") + "_" +
-                         (config.UseSphericalHarmonics ? "1" : "0");
-        
-        // Simple hash function for cache key
-        std::hash<std::string> hasher;
-        return std::to_string(hasher(key));
-    }
-
-    bool EnvironmentMap::LoadFromCache(const std::string& cacheKey)
-    {
-        OLO_PROFILE_FUNCTION();
-        
-        const auto& config = m_Specification.IBLConfig;
-        if (!config.CacheToFile)
-        {
-            return false;
-        }
-        
-        // Create cache directory path
-        std::filesystem::path cacheDir = config.CacheDirectory;
-        if (!std::filesystem::exists(cacheDir))
-        {
-            return false;
-        }
-        
-        std::filesystem::path cachePath = cacheDir / cacheKey;
-        
-        try
-        {
-            // Check if all required cache files exist
-            std::filesystem::path irradiancePath = cachePath / "irradiance.hdr";
-            std::filesystem::path prefilterPath = cachePath / "prefilter.hdr";
-            std::filesystem::path brdfPath = cachePath / "brdf.png";
-            
-            if (!std::filesystem::exists(irradiancePath) || 
-                !std::filesystem::exists(prefilterPath) || 
-                !std::filesystem::exists(brdfPath))
-            {
-                return false;
-            }
-            
-            // TODO: Load the cached textures from files
-            // For now, we would need to implement texture loading from HDR/PNG files
-            // This would involve:
-            // 1. Loading irradiance cubemap from irradiance.hdr
-            // 2. Loading prefilter cubemap from prefilter.hdr  
-            // 3. Loading BRDF LUT from brdf.png
-            // 4. Setting m_IrradianceMap, m_PrefilterMap, m_BRDFLutMap
-            
-            OLO_CORE_INFO("EnvironmentMap: Found cache files for key '{}', but loading not yet implemented", cacheKey);
-            return false; // Return false until loading is implemented
-        }
-        catch (const std::filesystem::filesystem_error& e)
-        {
-            OLO_CORE_ERROR("EnvironmentMap: Cache loading failed: {}", e.what());
-            return false;
-        }
-    }
-
-    void EnvironmentMap::SaveToCache(const std::string& cacheKey) const
-    {
-        OLO_PROFILE_FUNCTION();
-        
-        const auto& config = m_Specification.IBLConfig;
-        if (!config.CacheToFile)
-        {
-            return;
-        }
-        
-        // Don't cache if IBL textures are not available
-        if (!HasIBL())
-        {
-            OLO_CORE_WARN("EnvironmentMap: Cannot cache IBL textures - they are not generated");
-            return;
-        }
-        
-        // Create cache directory path
-        std::filesystem::path cacheDir = config.CacheDirectory;
-        std::filesystem::path cachePath = cacheDir / cacheKey;
-        
-        try
-        {
-            // Create cache directories if they don't exist
-            std::filesystem::create_directories(cachePath);
-            
-            // TODO: Save the IBL textures to cache files
-            // This would involve:
-            // 1. Saving irradiance cubemap as HDR files (6 faces)
-            // 2. Saving prefilter cubemap as HDR files (6 faces, multiple mip levels)
-            // 3. Saving BRDF LUT as PNG file
-            // Implementation requires texture data extraction from GPU and file writing
-            
-            OLO_CORE_INFO("EnvironmentMap: Created cache directory for key '{}', but saving not yet implemented", cacheKey);
-            
-            // Create a metadata file to track what's cached
-            std::filesystem::path metadataPath = cachePath / "metadata.txt";
-            std::ofstream metadataFile(metadataPath);
-            if (metadataFile.is_open())
-            {
-                metadataFile << "Cache Key: " << cacheKey << std::endl;
-                metadataFile << "Generated: " << std::time(nullptr) << std::endl;
-                metadataFile << "Irradiance Resolution: " << config.IrradianceResolution << std::endl;
-                metadataFile << "Prefilter Resolution: " << config.PrefilterResolution << std::endl;
-                metadataFile << "BRDF LUT Resolution: " << config.BRDFLutResolution << std::endl;
-                metadataFile << "Quality: " << static_cast<int>(config.Quality) << std::endl;
-                metadataFile.close();
-            }
-        }
-        catch (const std::filesystem::filesystem_error& e)
-        {
-            OLO_CORE_ERROR("EnvironmentMap: Cache saving failed: {}", e.what());
-        }
     }
 
     Ref<TextureCubemap> EnvironmentMap::ConvertEquirectangularToCubemap(const std::string& filePath)
