@@ -78,8 +78,6 @@
 		"OloEngine/Renderer/IndexBuffer.h"
 		"OloEngine/Renderer/Light.h"
 		"OloEngine/Renderer/Material.h"
-		"OloEngine/Renderer/PBRValidation.h"
-		"OloEngine/Renderer/PBRValidation.cpp"
 		"OloEngine/Renderer/Mesh.cpp"
 		"OloEngine/Renderer/Mesh.h"
 		"OloEngine/Renderer/SkinnedMesh.cpp"
