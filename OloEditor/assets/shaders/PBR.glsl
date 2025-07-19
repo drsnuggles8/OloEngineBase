@@ -104,93 +104,23 @@ layout(binding = 10) uniform samplerCube u_IrradianceMap;   // TEX_USER_0
 layout(binding = 11) uniform samplerCube u_PrefilterMap;    // TEX_USER_1
 layout(binding = 12) uniform sampler2D u_BRDFLutMap;        // TEX_USER_2
 
-// Normal mapping function
-vec3 getNormalFromMapLocal()
-{
-    if (u_UseNormalMap == 0)
-    {
-        return normalize(v_Normal);
-    }
-    
-    return getNormalFromMap(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale);
-}
-
-// Calculate directional light contribution
-vec3 calculateDirectionalLight(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness)
-{
-    vec3 L = normalize(-u_LightDirection.xyz);
-    vec3 radiance = u_LightDiffuse.rgb;
-    
-    float NdotL = max(dot(N, L), 0.0);
-    vec3 brdf = cookTorranceBRDF(N, V, L, albedo, metallic, roughness);
-    
-    return brdf * radiance * NdotL;
-}
-
-// Calculate point light contribution
-vec3 calculatePointLight(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness)
-{
-    vec3 L = normalize(u_LightPosition.xyz - v_WorldPos);
-    float distance = length(u_LightPosition.xyz - v_WorldPos);
-    float attenuation = 1.0 / (u_LightAttParams.x + u_LightAttParams.y * distance + u_LightAttParams.z * distance * distance);
-    vec3 radiance = u_LightDiffuse.rgb * attenuation;
-    
-    float NdotL = max(dot(N, L), 0.0);
-    vec3 brdf = cookTorranceBRDF(N, V, L, albedo, metallic, roughness);
-    
-    return brdf * radiance * NdotL;
-}
-
-// Calculate spot light contribution
-vec3 calculateSpotLight(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness)
-{
-    vec3 L = normalize(u_LightPosition.xyz - v_WorldPos);
-    float distance = length(u_LightPosition.xyz - v_WorldPos);
-    float attenuation = 1.0 / (u_LightAttParams.x + u_LightAttParams.y * distance + u_LightAttParams.z * distance * distance);
-    
-    // Spot light calculation
-    float theta = dot(L, normalize(-u_LightDirection.xyz));
-    float epsilon = u_LightSpotParams.x - u_LightSpotParams.y;
-    float intensity = clamp((theta - u_LightSpotParams.y) / epsilon, 0.0, 1.0);
-    
-    vec3 radiance = u_LightDiffuse.rgb * attenuation * intensity;
-    
-    float NdotL = max(dot(N, L), 0.0);
-    vec3 brdf = cookTorranceBRDF(N, V, L, albedo, metallic, roughness);
-    
-    return brdf * radiance * NdotL;
-}
-
 void main()
 {
     // Sample material properties
-    vec3 albedo = u_BaseColorFactor.rgb;
-    if (u_UseAlbedoMap == 1) {
-        albedo *= texture(u_AlbedoMap, v_TexCoord).rgb;
-    }
-    
-    float metallic = u_MetallicFactor;
-    float roughness = u_RoughnessFactor;
-    if (u_UseMetallicRoughnessMap == 1) {
-        vec3 metallicRoughness = texture(u_MetallicRoughnessMap, v_TexCoord).rgb;
-        metallic *= metallicRoughness.b;  // Blue channel = metallic
-        roughness *= metallicRoughness.g; // Green channel = roughness
-    }
-    
-    float ao = 1.0;
-    if (u_UseAOMap == 1)
-    {
-        ao = texture(u_AOMap, v_TexCoord).r;
-        ao = mix(1.0, ao, u_OcclusionStrength);
-    }
-    
-    vec3 emissive = u_EmissiveFactor.rgb;
-    if (u_UseEmissiveMap == 1) {
-        emissive *= texture(u_EmissiveMap, v_TexCoord).rgb;
-    }
+    vec3 albedo = sampleAlbedo(u_AlbedoMap, v_TexCoord, u_BaseColorFactor.rgb, u_UseAlbedoMap == 1);
+    vec2 metallicRoughness = sampleMetallicRoughness(u_MetallicRoughnessMap, v_TexCoord, 
+                                                     u_MetallicFactor, u_RoughnessFactor, 
+                                                     u_UseMetallicRoughnessMap == 1);
+    float metallic = metallicRoughness.x;
+    float roughness = metallicRoughness.y;
+    float ao = sampleAO(u_AOMap, v_TexCoord, u_OcclusionStrength, u_UseAOMap == 1);
+    vec3 emissive = sampleEmissive(u_EmissiveMap, v_TexCoord, u_EmissiveFactor.rgb, u_UseEmissiveMap == 1);
     
     // Calculate normal
-    vec3 N = getNormalFromMapLocal();
+    vec3 N = normalize(v_Normal);
+    if (u_UseNormalMap == 1) {
+        N = getNormalFromMap(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale);
+    }
     vec3 V = normalize(u_CameraPosition - v_WorldPos);
     
     // Calculate direct lighting
@@ -198,11 +128,15 @@ void main()
     int lightType = int(u_ViewPosAndLightType.w);
     
     if (lightType == DIRECTIONAL_LIGHT) {
-        Lo = calculateDirectionalLight(N, V, albedo, metallic, roughness);
+        Lo = calculateDirectionalLightUniform(N, V, albedo, metallic, roughness, 
+                                             u_LightDirection.xyz, u_LightDiffuse.rgb);
     } else if (lightType == POINT_LIGHT) {
-        Lo = calculatePointLight(N, V, albedo, metallic, roughness);
+        Lo = calculatePointLightUniform(N, V, albedo, metallic, roughness, v_WorldPos,
+                                       u_LightPosition.xyz, u_LightDiffuse.rgb, u_LightAttParams);
     } else if (lightType == SPOT_LIGHT) {
-        Lo = calculateSpotLight(N, V, albedo, metallic, roughness);
+        Lo = calculateSpotLightUniform(N, V, albedo, metallic, roughness, v_WorldPos,
+                                      u_LightPosition.xyz, u_LightDirection.xyz, 
+                                      u_LightDiffuse.rgb, u_LightAttParams, u_LightSpotParams);
     }
     
     // Calculate ambient lighting
@@ -215,14 +149,10 @@ void main()
     
     // Combine lighting
     vec3 color = ambient + Lo + emissive;
-    
-    // Apply ambient occlusion to ambient lighting only
     color = mix(color, color * ao, 0.5);
     
-    // HDR tonemapping
+    // HDR tonemapping and gamma correction
     color = reinhardToneMapping(color);
-    
-    // Gamma correction
     color = linearToSRGB(color);
     
     o_Color = vec4(color, u_BaseColorFactor.a);

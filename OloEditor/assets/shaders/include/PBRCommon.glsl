@@ -649,4 +649,107 @@ vec3 calculateIBLImportanceSampled(vec3 N, vec3 V, vec3 albedo, float metallic, 
     return color / max(totalWeight, EPSILON);
 }
 
+// =============================================================================
+// SHADER-SPECIFIC LIGHT CALCULATIONS
+// =============================================================================
+
+// Calculate directional light contribution using shader uniform
+vec3 calculateDirectionalLightUniform(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness, 
+                                     vec3 lightDirection, vec3 lightDiffuse)
+{
+    vec3 L = normalize(-lightDirection);
+    vec3 radiance = lightDiffuse;
+    
+    float NdotL = max(dot(N, L), 0.0);
+    vec3 brdf = cookTorranceBRDF(N, V, L, albedo, metallic, roughness);
+    
+    return brdf * radiance * NdotL;
+}
+
+// Calculate point light contribution using shader uniform
+vec3 calculatePointLightUniform(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness,
+                               vec3 worldPos, vec3 lightPosition, vec3 lightDiffuse, vec4 attParams)
+{
+    vec3 L = normalize(lightPosition - worldPos);
+    float distance = length(lightPosition - worldPos);
+    float attenuation = 1.0 / (attParams.x + attParams.y * distance + attParams.z * distance * distance);
+    vec3 radiance = lightDiffuse * attenuation;
+    
+    float NdotL = max(dot(N, L), 0.0);
+    vec3 brdf = cookTorranceBRDF(N, V, L, albedo, metallic, roughness);
+    
+    return brdf * radiance * NdotL;
+}
+
+// Calculate spot light contribution using shader uniform
+vec3 calculateSpotLightUniform(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness,
+                              vec3 worldPos, vec3 lightPosition, vec3 lightDirection, 
+                              vec3 lightDiffuse, vec4 attParams, vec4 spotParams)
+{
+    vec3 L = normalize(lightPosition - worldPos);
+    float distance = length(lightPosition - worldPos);
+    float attenuation = 1.0 / (attParams.x + attParams.y * distance + attParams.z * distance * distance);
+    
+    float theta = dot(L, normalize(-lightDirection));
+    float epsilon = spotParams.x - spotParams.y;
+    float intensity = clamp((theta - spotParams.y) / epsilon, 0.0, 1.0);
+    
+    vec3 radiance = lightDiffuse * attenuation * intensity;
+    
+    float NdotL = max(dot(N, L), 0.0);
+    vec3 brdf = cookTorranceBRDF(N, V, L, albedo, metallic, roughness);
+    
+    return brdf * radiance * NdotL;
+}
+
+// =============================================================================
+// MATERIAL SAMPLING FUNCTIONS
+// =============================================================================
+
+// Sample base color/albedo
+vec3 sampleAlbedo(sampler2D albedoMap, vec2 texCoord, vec3 baseColorFactor, bool useMap)
+{
+    vec3 albedo = baseColorFactor.rgb;
+    if (useMap)
+    {
+        albedo *= texture(albedoMap, texCoord).rgb;
+    }
+    return albedo;
+}
+
+// Sample metallic and roughness
+vec2 sampleMetallicRoughness(sampler2D metallicRoughnessMap, vec2 texCoord, 
+                             float metallicFactor, float roughnessFactor, bool useMap)
+{
+    float metallic = metallicFactor;
+    float roughness = roughnessFactor;
+    if (useMap) {
+        vec3 metallicRoughness = texture(metallicRoughnessMap, texCoord).rgb;
+        metallic *= metallicRoughness.b;  // Blue channel = metallic
+        roughness *= metallicRoughness.g; // Green channel = roughness
+    }
+    return vec2(metallic, roughness);
+}
+
+// Sample ambient occlusion
+float sampleAO(sampler2D aoMap, vec2 texCoord, float occlusionStrength, bool useMap)
+{
+    float ao = 1.0;
+    if (useMap) {
+        ao = texture(aoMap, texCoord).r;
+        ao = mix(1.0, ao, occlusionStrength);
+    }
+    return ao;
+}
+
+// Sample emissive
+vec3 sampleEmissive(sampler2D emissiveMap, vec2 texCoord, vec3 emissiveFactor, bool useMap)
+{
+    vec3 emissive = emissiveFactor;
+    if (useMap) {
+        emissive *= texture(emissiveMap, texCoord).rgb;
+    }
+    return emissive;
+}
+
 #endif // PBR_GLSL
