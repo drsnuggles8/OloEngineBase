@@ -135,53 +135,27 @@ layout(location = 2) in vec2 v_TexCoord;
 layout(location = 0) out vec4 o_Color;
 
 // =============================================================================
-// NORMAL MAPPING
-// =============================================================================
-
-vec3 getNormalFromMapLocal()
-{
-    if (u_UseNormalMap == 0)
-    {
-        return normalize(v_Normal);
-    }
-    
-    return getNormalFromMap(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale);
-}
-
-// =============================================================================
 // MAIN FRAGMENT SHADER
 // =============================================================================
 
 void main()
 {
-    // Sample material properties
-    vec3 albedo = u_BaseColorFactor.rgb;
-    if (u_UseAlbedoMap == 1) {
-        albedo *= texture(u_AlbedoMap, v_TexCoord).rgb;
-    }
+    vec3 albedo = sampleAlbedo(u_AlbedoMap, v_TexCoord, u_BaseColorFactor.rgb, bool(u_UseAlbedoMap));
+    vec2 metallicRoughness = sampleMetallicRoughness(u_MetallicRoughnessMap, v_TexCoord, 
+                                                     u_MetallicFactor, u_RoughnessFactor, 
+                                                     bool(u_UseMetallicRoughnessMap));
+    float metallic = metallicRoughness.x;
+    float roughness = metallicRoughness.y;
     
-    float metallic = u_MetallicFactor;
-    float roughness = u_RoughnessFactor;
-    if (u_UseMetallicRoughnessMap == 1) {
-        vec3 metallicRoughness = texture(u_MetallicRoughnessMap, v_TexCoord).rgb;
-        metallic *= metallicRoughness.b;  // Blue channel = metallic
-        roughness *= metallicRoughness.g; // Green channel = roughness
-    }
-    
-    float ao = 1.0;
-    if (u_UseAOMap == 1)
-    {
-        ao = texture(u_AOMap, v_TexCoord).r;
-        ao = mix(1.0, ao, u_OcclusionStrength);
-    }
-    
-    vec3 emissive = u_EmissiveFactor.rgb;
-    if (u_UseEmissiveMap == 1) {
-        emissive *= texture(u_EmissiveMap, v_TexCoord).rgb;
-    }
+    float ao = sampleAO(u_AOMap, v_TexCoord, u_OcclusionStrength, bool(u_UseAOMap));
+    vec3 emissive = sampleEmissive(u_EmissiveMap, v_TexCoord, u_EmissiveFactor.rgb, bool(u_UseEmissiveMap));
     
     // Calculate normal
-    vec3 N = getNormalFromMapLocal();
+    vec3 N = normalize(v_Normal);
+    if (u_UseNormalMap == 1)
+    {
+        N = getNormalFromMap(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale);
+    }
     vec3 V = normalize(u_CameraPosition - v_WorldPos);
     
     // Calculate direct lighting from all lights
@@ -193,9 +167,12 @@ void main()
     
     // Calculate ambient lighting
     vec3 ambient = vec3(0.0);
-    if (u_EnableIBL == 1) {
+    if (u_EnableIBL == 1)
+    {
         ambient = calculateIBL(N, V, albedo, metallic, roughness, u_IrradianceMap, u_PrefilterMap, u_BRDFLutMap);
-    } else {
+    }
+    else
+    {
         ambient = calculateSimpleAmbient(albedo, metallic, ao);
     }
     

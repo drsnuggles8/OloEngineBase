@@ -107,12 +107,13 @@ layout(binding = 12) uniform sampler2D u_BRDFLutMap;        // TEX_USER_2
 void main()
 {
     // Sample material properties
-    vec3 albedo = sampleAlbedo(u_AlbedoMap, v_TexCoord, u_BaseColorFactor.rgb, u_UseAlbedoMap == 1);
+    vec3 albedo = sampleAlbedo(u_AlbedoMap, v_TexCoord, u_BaseColorFactor.rgb, bool(u_UseAlbedoMap));
     vec2 metallicRoughness = sampleMetallicRoughness(u_MetallicRoughnessMap, v_TexCoord, 
                                                      u_MetallicFactor, u_RoughnessFactor, 
-                                                     u_UseMetallicRoughnessMap == 1);
+                                                     bool(u_UseMetallicRoughnessMap));
     float metallic = metallicRoughness.x;
     float roughness = metallicRoughness.y;
+
     float ao = sampleAO(u_AOMap, v_TexCoord, u_OcclusionStrength, u_UseAOMap == 1);
     vec3 emissive = sampleEmissive(u_EmissiveMap, v_TexCoord, u_EmissiveFactor.rgb, u_UseEmissiveMap == 1);
     
@@ -127,13 +128,18 @@ void main()
     vec3 Lo = vec3(0.0);
     int lightType = int(u_ViewPosAndLightType.w);
     
-    if (lightType == DIRECTIONAL_LIGHT) {
+    if (lightType == DIRECTIONAL_LIGHT)
+    {
         Lo = calculateDirectionalLightUniform(N, V, albedo, metallic, roughness, 
                                              u_LightDirection.xyz, u_LightDiffuse.rgb);
-    } else if (lightType == POINT_LIGHT) {
+    }
+    else if (lightType == POINT_LIGHT)
+    {
         Lo = calculatePointLightUniform(N, V, albedo, metallic, roughness, v_WorldPos,
                                        u_LightPosition.xyz, u_LightDiffuse.rgb, u_LightAttParams);
-    } else if (lightType == SPOT_LIGHT) {
+    }
+    else if (lightType == SPOT_LIGHT)
+    {
         Lo = calculateSpotLightUniform(N, V, albedo, metallic, roughness, v_WorldPos,
                                       u_LightPosition.xyz, u_LightDirection.xyz, 
                                       u_LightDiffuse.rgb, u_LightAttParams, u_LightSpotParams);
@@ -141,9 +147,12 @@ void main()
     
     // Calculate ambient lighting
     vec3 ambient = vec3(0.0);
-    if (u_EnableIBL == 1) {
+    if (u_EnableIBL == 1)
+    {
         ambient = calculateIBL(N, V, albedo, metallic, roughness, u_IrradianceMap, u_PrefilterMap, u_BRDFLutMap);
-    } else {
+    }
+    else
+    {
         ambient = calculateSimpleAmbient(albedo, metallic, ao);
     }
     
