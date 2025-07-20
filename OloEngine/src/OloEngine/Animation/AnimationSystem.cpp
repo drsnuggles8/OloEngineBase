@@ -1,5 +1,6 @@
 
 #include "OloEngine/Animation/AnimationSystem.h"
+#include "OloEngine/Animation/AnimationClip.h"
 #include "OloEngine/Core/Log.h"
 #include <glm/gtx/matrix_decompose.hpp>
 
@@ -102,16 +103,8 @@ namespace OloEngine::Animation
             }
             else
             {
-                // No animation: oscillate root bone for demo
-                if (i == 0)
-                {
-                    float phase = std::sin(animState.CurrentTime * 2.0f) * 0.5f;
-                    skeleton.m_LocalTransforms[i] = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, phase, 0.0f));
-                }
-                else
-                {
-                    skeleton.m_LocalTransforms[i] = glm::mat4(1.0f);
-                }
+                // No animation: use identity transform
+                skeleton.m_LocalTransforms[i] = glm::mat4(1.0f);
             }
         }
 

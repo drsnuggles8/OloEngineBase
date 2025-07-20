@@ -20,21 +20,23 @@
 #include <unordered_set>
 #include <chrono>
 
+#include <atomic>
+
 namespace OloEngine
 {
 	namespace Utils
 	{
-		static bool s_DisableShaderCache = false; // Debug flag to disable shader caching
+		static std::atomic<bool> s_DisableShaderCache{false}; // Debug flag to disable shader caching
 
 		// Debug API to control shader cache (exposed for external use)
 		void SetDisableShaderCache(bool disable)
 		{
-			s_DisableShaderCache = disable;
+			s_DisableShaderCache.store(disable, std::memory_order_relaxed);
 		}
 
 		bool IsShaderCacheDisabled()
 		{
-			return s_DisableShaderCache;
+			return s_DisableShaderCache.load(std::memory_order_relaxed);
 		}
 
 		static GLenum ShaderTypeFromString(std::string_view type)
@@ -267,7 +269,7 @@ namespace OloEngine
 
 	void OpenGLShader::InitializeResourceRegistry(const Ref<Shader>& shaderRef)
 	{
-		OLO_CORE_WARN("OpenGLShader: InitializeResourceRegistry called for shader '{0}'", m_Name);
+		OLO_CORE_TRACE("OpenGLShader: InitializeResourceRegistry called for shader '{0}'", m_Name);
 		m_ResourceRegistry.SetShader(shaderRef);
 		m_ResourceRegistry.Initialize();
 		OLO_CORE_TRACE("OpenGLShader: Initialized resource registry for shader '{0}'", m_Name);
@@ -561,36 +563,22 @@ namespace OloEngine
 			// Enable interface variable location preservation
 			glslCompiler.require_extension("GL_ARB_separate_shader_objects");
 			
-			// Try to preserve variable names by setting them explicitly
+			// Preserve original names for better reflection
 			auto resources = glslCompiler.get_shader_resources();
-			for (const auto& ubo : resources.uniform_buffers)
-			{
-				// Try to preserve the original name if it exists
-				std::string originalName = ubo.name;
-				if (!originalName.empty() && originalName.find("_") != 0)
+			auto preserveResourceNames = [&glslCompiler](const auto& resources) {
+				for (const auto& resource : resources)
 				{
-					glslCompiler.set_name(ubo.id, originalName);
+					std::string originalName = resource.name;
+					if (!originalName.empty() && originalName.find("_") != 0)
+					{
+						glslCompiler.set_name(resource.id, originalName);
+					}
 				}
-			}
+			};
 			
-			// Preserve interface variable names (stage inputs/outputs)
-			for (const auto& input : resources.stage_inputs)
-			{
-				std::string originalName = input.name;
-				if (!originalName.empty() && originalName.find("_") != 0)
-				{
-					glslCompiler.set_name(input.id, originalName);
-				}
-			}
-			
-			for (const auto& output : resources.stage_outputs)
-			{
-				std::string originalName = output.name;
-				if (!originalName.empty() && originalName.find("_") != 0)
-				{
-					glslCompiler.set_name(output.id, originalName);
-				}
-			}
+			preserveResourceNames(resources.uniform_buffers);
+			preserveResourceNames(resources.stage_inputs);
+			preserveResourceNames(resources.stage_outputs);
 			
 			m_OpenGLSourceCode[stage] = glslCompiler.compile();
 			auto const& source = m_OpenGLSourceCode[stage];

@@ -854,7 +854,7 @@ namespace OloEngine
 
 		Material material = defaultMaterial;
 
-		const std::vector<glm::mat4>& boneMatrices = skeletonComp.m_FinalBoneMatrices;
+		const std::vector<glm::mat4>& boneMatrices = skeletonComp.skeleton.m_FinalBoneMatrices;
 
 		auto* packet = DrawSkinnedMesh(
 			animatedMeshComp.m_Mesh,

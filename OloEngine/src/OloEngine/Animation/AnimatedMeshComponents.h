@@ -1,12 +1,12 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "SkeletonData.h"
 
 #include <vector>
 #include <string>
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
-#include "OloEngine/Animation/AnimationClip.h"
 
 namespace OloEngine
 {
@@ -59,41 +59,32 @@ namespace OloEngine
 	// Holds bone hierarchy and transforms for an entity
 	struct SkeletonComponent
 	{
-		// Bone hierarchy (indices, parent indices, names)
-		std::vector<int> m_ParentIndices;
-		std::vector<std::string> m_BoneNames;
-		// Local and global transforms for each bone
-		std::vector<glm::mat4> m_LocalTransforms;
-		std::vector<glm::mat4> m_GlobalTransforms;
-		// Final matrices for skinning (to be sent to GPU)
-		std::vector<glm::mat4> m_FinalBoneMatrices;
+		SkeletonData skeleton; // Shared skeleton data structure
 		
-		// Bind pose data for proper skinning
-		std::vector<glm::mat4> m_BindPoseMatrices;      // Original bind pose global transforms
-		std::vector<glm::mat4> m_InverseBindPoses;      // Inverse bind pose matrices for skinning
-
 		SkeletonComponent() = default;
-		SkeletonComponent(size_t boneCount)
-		{
-			m_ParentIndices.resize(boneCount);
-			m_BoneNames.resize(boneCount);
-			m_LocalTransforms.resize(boneCount, glm::mat4(1.0f));
-			m_GlobalTransforms.resize(boneCount, glm::mat4(1.0f));
-			m_FinalBoneMatrices.resize(boneCount, glm::mat4(1.0f));
-			m_BindPoseMatrices.resize(boneCount, glm::mat4(1.0f));
-			m_InverseBindPoses.resize(boneCount, glm::mat4(1.0f));
-		}
-		
-		// Initialize bind pose from current global transforms
-		void SetBindPose()
-		{
-			for (size_t i = 0; i < m_GlobalTransforms.size(); ++i)
-			{
-				m_BindPoseMatrices[i] = m_GlobalTransforms[i];
-				m_InverseBindPoses[i] = glm::inverse(m_GlobalTransforms[i]);
-			}
-		}
+		SkeletonComponent(size_t boneCount) : skeleton(boneCount) {}
 	};
 
-	// TODO: Document usage and integration with ECS/asset pipeline
+	/**
+	 * @brief Animation Components Usage and Integration Guide
+	 * 
+	 * These components are designed to work together within the ECS architecture:
+	 * 
+	 * AnimatedMeshComponent: Contains the mesh and skeleton references
+	 * - Add to entities that need skeletal animation
+	 * - Links to skinned mesh assets loaded through the asset pipeline
+	 * 
+	 * AnimationStateComponent: Manages animation playback state
+	 * - Handles current animation, blending, and state machine logic
+	 * - Updated by AnimationSystem each frame
+	 * 
+	 * SkeletonComponent: Stores bone hierarchy and transform data
+	 * - Contains bone names, transforms, and skinning matrices
+	 * - Updated by animation sampling and forwarded to GPU
+	 * 
+	 * Integration with Asset Pipeline:
+	 * - Load skeletal meshes and animations through AssetManager
+	 * - Attach components to entities during scene creation
+	 * - Use AnimationSystem to update all animated entities
+	 */
 }

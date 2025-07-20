@@ -149,8 +149,8 @@ namespace OloEngine
             }
             else
             {
-                OLO_CORE_WARN("ShaderResourceRegistry::SetResource: Unsupported resource type for '{0}'", name);
-                return false;
+                static_assert(sizeof(T) == 0, "Unsupported resource type for ShaderResourceRegistry::SetResource");
+                return false; // Unreachable, but satisfies return type
             }
         }
 

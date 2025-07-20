@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <string>
+#include <unordered_map>
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include "OloEngine/Core/Base.h"
@@ -34,5 +35,13 @@ namespace OloEngine
 
         // Finds the animation for a given bone name
         const BoneAnimation* FindBoneAnimation(const std::string& boneName) const;
+        
+        // Initialize the bone lookup cache for performance
+        void InitializeBoneCache();
+        
+    private:
+        // Cache for O(1) bone animation lookups
+        mutable std::unordered_map<std::string, const BoneAnimation*> m_BoneCache;
+        mutable bool m_CacheInitialized = false;
     };
 }

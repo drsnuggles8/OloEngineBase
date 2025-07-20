@@ -245,7 +245,7 @@ namespace OloEngine
     {
         CommandHeader header;
         u32 shaderID;
-        std::string resourceName;
+        const char* resourceName;  // Changed from std::string to const char* for POD compliance
         ShaderResourceInput resourceInput;
     };
 

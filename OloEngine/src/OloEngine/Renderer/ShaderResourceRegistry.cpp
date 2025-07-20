@@ -230,8 +230,17 @@ namespace OloEngine
 
     bool ShaderResourceRegistry::SetResource(const std::string& name, const ShaderResourceInput& input)
     {
-        SetResource(name, input.Resource);
-        return true;
+        auto it = m_Bindings.find(name);
+        if (it != m_Bindings.end())
+        {
+            it->second.Resource = input.Resource;
+            return true;
+        }
+        else
+        {
+            OLO_CORE_WARN("ShaderResourceRegistry: Resource '{0}' not found in bindings", name);
+            return false;
+        }
     }
 
     Ref<UniformBuffer> ShaderResourceRegistry::GetUniformBuffer(const std::string& name) const

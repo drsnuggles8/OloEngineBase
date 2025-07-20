@@ -153,7 +153,8 @@ namespace OloEngine
 		static void UpdateLightPropertiesUBO();
 		static void SetupRenderGraph(u32 width, u32 height);
 
-	private:		struct Renderer3DData
+	private:
+		struct Renderer3DData
 		{
 			Ref<Mesh> CubeMesh;
 			Ref<Mesh> QuadMesh;

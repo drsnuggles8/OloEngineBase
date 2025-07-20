@@ -17,6 +17,7 @@
 
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Animation/AnimationSystem.h"
+#include "OloEngine/Animation/AnimationClip.h"
 
 Sandbox3D::Sandbox3D()
     : Layer("Sandbox3D"),
@@ -189,11 +190,11 @@ void Sandbox3D::OnAttach()
     
     auto& skeletonComp = m_AnimatedMeshEntity.AddComponent<OloEngine::SkeletonComponent>();
     // Copy skeleton data to component
-    skeletonComp.m_ParentIndices = m_AnimatedTestSkeleton->m_ParentIndices;
-    skeletonComp.m_BoneNames = m_AnimatedTestSkeleton->m_BoneNames;
-    skeletonComp.m_LocalTransforms = m_AnimatedTestSkeleton->m_LocalTransforms;
-    skeletonComp.m_GlobalTransforms = m_AnimatedTestSkeleton->m_GlobalTransforms;
-    skeletonComp.m_FinalBoneMatrices = m_AnimatedTestSkeleton->m_FinalBoneMatrices;
+    skeletonComp.skeleton.m_ParentIndices = m_AnimatedTestSkeleton->m_ParentIndices;
+    skeletonComp.skeleton.m_BoneNames = m_AnimatedTestSkeleton->m_BoneNames;
+    skeletonComp.skeleton.m_LocalTransforms = m_AnimatedTestSkeleton->m_LocalTransforms;
+    skeletonComp.skeleton.m_GlobalTransforms = m_AnimatedTestSkeleton->m_GlobalTransforms;
+    skeletonComp.skeleton.m_FinalBoneMatrices = m_AnimatedTestSkeleton->m_FinalBoneMatrices;
 
     // --- Dummy Animation Clips (Idle and Bounce) ---
     using namespace OloEngine;
@@ -337,8 +338,8 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
         if (m_AnimatedMeshEntity.HasComponent<OloEngine::SkeletonComponent>())
         {
             auto& skeletonComp = m_AnimatedMeshEntity.GetComponent<OloEngine::SkeletonComponent>();
-            skeletonComp.m_FinalBoneMatrices = m_AnimatedTestSkeleton->m_FinalBoneMatrices;
-            skeletonComp.m_GlobalTransforms = m_AnimatedTestSkeleton->m_GlobalTransforms;
+            skeletonComp.skeleton.m_FinalBoneMatrices = m_AnimatedTestSkeleton->m_FinalBoneMatrices;
+            skeletonComp.skeleton.m_GlobalTransforms = m_AnimatedTestSkeleton->m_GlobalTransforms;
         }
         
         if (m_MultiBoneTestEntity.HasComponent<OloEngine::AnimationStateComponent>())
@@ -354,8 +355,8 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
             if (m_MultiBoneTestEntity.HasComponent<OloEngine::SkeletonComponent>())
             {
                 auto& multiBoneSkeletonComp = m_MultiBoneTestEntity.GetComponent<OloEngine::SkeletonComponent>();
-                multiBoneSkeletonComp.m_FinalBoneMatrices = m_MultiBoneTestSkeleton->m_FinalBoneMatrices;
-                multiBoneSkeletonComp.m_GlobalTransforms = m_MultiBoneTestSkeleton->m_GlobalTransforms;
+                multiBoneSkeletonComp.skeleton.m_FinalBoneMatrices = m_MultiBoneTestSkeleton->m_FinalBoneMatrices;
+                multiBoneSkeletonComp.skeleton.m_GlobalTransforms = m_MultiBoneTestSkeleton->m_GlobalTransforms;
             }
         }
         
@@ -1384,11 +1385,11 @@ void Sandbox3D::RenderECSAnimatedMeshPanel()
       if (hasSkeleton)
     {
         ImGui::Separator();
-        auto& skeleton = m_AnimatedMeshEntity.GetComponent<OloEngine::SkeletonComponent>();
+        auto& skeletonComp = m_AnimatedMeshEntity.GetComponent<OloEngine::SkeletonComponent>();
         ImGui::Text("Skeleton Info:");
-        ImGui::Text("  Bone Count: %zu", skeleton.m_BoneNames.size());
+        ImGui::Text("  Bone Count: %zu", skeletonComp.skeleton.m_BoneNames.size());
         ImGui::Text("  Root Bone: %s", 
-            skeleton.m_BoneNames.empty() ? "None" : skeleton.m_BoneNames[0].c_str());
+            skeletonComp.skeleton.m_BoneNames.empty() ? "None" : skeletonComp.skeleton.m_BoneNames[0].c_str());
     }
     
     ImGui::Separator();
@@ -1505,11 +1506,11 @@ void Sandbox3D::CreateMultiBoneTestEntity()
     
     auto& skeletonComp = m_MultiBoneTestEntity.AddComponent<OloEngine::SkeletonComponent>();
     // Copy skeleton data to component
-    skeletonComp.m_ParentIndices = m_MultiBoneTestSkeleton->m_ParentIndices;
-    skeletonComp.m_BoneNames = m_MultiBoneTestSkeleton->m_BoneNames;
-    skeletonComp.m_LocalTransforms = m_MultiBoneTestSkeleton->m_LocalTransforms;
-    skeletonComp.m_GlobalTransforms = m_MultiBoneTestSkeleton->m_GlobalTransforms;
-    skeletonComp.m_FinalBoneMatrices = m_MultiBoneTestSkeleton->m_FinalBoneMatrices;
+    skeletonComp.skeleton.m_ParentIndices = m_MultiBoneTestSkeleton->m_ParentIndices;
+    skeletonComp.skeleton.m_BoneNames = m_MultiBoneTestSkeleton->m_BoneNames;
+    skeletonComp.skeleton.m_LocalTransforms = m_MultiBoneTestSkeleton->m_LocalTransforms;
+    skeletonComp.skeleton.m_GlobalTransforms = m_MultiBoneTestSkeleton->m_GlobalTransforms;
+    skeletonComp.skeleton.m_FinalBoneMatrices = m_MultiBoneTestSkeleton->m_FinalBoneMatrices;
     
     // Create multi-bone animation clips with complex animations
     m_MultiBoneIdleClip = OloEngine::CreateRef<OloEngine::AnimationClip>();

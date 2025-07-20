@@ -77,25 +77,28 @@ namespace OloEngine
 
         /**
          * @brief Multi-light UBO structure for advanced lighting scenarios
+         * Aligned with LightBuffer::LightData for consistency
          */
         struct MultiLightData
         {
-            glm::vec4 Position;         // Position in world space (w = light type)
+            glm::vec4 Position;         // Position in world space (w = 1.0 for point/spot, 0.0 for directional)
             glm::vec4 Direction;        // Direction for directional/spot lights
             glm::vec4 Color;            // Light color and intensity (w = intensity)
             glm::vec4 AttenuationParams; // (constant, linear, quadratic, range)
-            glm::vec4 SpotParams;       // (inner_cutoff, outer_cutoff, falloff, enabled)
+            glm::vec4 SpotParams;       // (inner_cutoff, outer_cutoff, falloff, type)
             
             static constexpr u32 GetSize() { return sizeof(MultiLightData); }
         };
 
         struct MultiLightUBO
         {
+            static constexpr u32 MAX_LIGHTS = 32;                    // Maximum supported lights in the array
+            
             i32 LightCount;                                           // Number of active lights
-            i32 MaxLights;                                            // Maximum supported lights (repurposed from padding)
-            i32 ShadowCasterCount;                                    // Number of shadow-casting lights (repurposed from padding)
-            i32 _padding;                                             // Only 4 bytes padding needed for 16-byte alignment
-            MultiLightData Lights[32];                               // Array of light data (MAX_LIGHTS)
+            i32 MaxLights;                                            // Maximum supported lights
+            i32 ShadowCasterCount;                                    // Number of shadow-casting lights
+            i32 Reserved;                                             // Reserved for future use (16-byte alignment)
+            MultiLightData Lights[MAX_LIGHTS];                       // Array of light data
             
             static constexpr u32 GetSize() { return sizeof(MultiLightUBO); }
         };
@@ -144,7 +147,7 @@ namespace OloEngine
         
         struct AnimationUBO
         {
-            static constexpr u32 MAX_BONES = 100;
+            static constexpr u32 MAX_BONES = 100;                    // Typical character rigs use 50-70 bones
             glm::mat4 BoneMatrices[MAX_BONES];
             
             static constexpr u32 GetSize() { return sizeof(AnimationUBO); }

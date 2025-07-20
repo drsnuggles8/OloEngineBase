@@ -1150,7 +1150,7 @@ namespace OloEngine
 		s_Data.CurrentBoundShaderID = cmd->shader->GetRendererID();
 
 		// Bind skybox texture to the correct slot
-		cmd->skyboxTexture->Bind(9); // TEX_ENVIRONMENT slot
+		cmd->skyboxTexture->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
 
 		// Bind vertex array
 		cmd->vertexArray->Bind();
