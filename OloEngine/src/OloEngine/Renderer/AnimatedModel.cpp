@@ -1,0 +1,534 @@
+#include "OloEnginePCH.h"
+#include "AnimatedModel.h"
+#include "OloEngine/Core/Log.h"
+#include <filesystem>
+
+namespace OloEngine
+{
+    AnimatedModel::AnimatedModel(const std::string& path)
+    {
+        LoadModel(path);
+    }
+
+    void AnimatedModel::LoadModel(const std::string& path)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        OLO_CORE_INFO("AnimatedModel::LoadModel: Loading animated model from {}", path);
+
+        // Create an instance of the Importer class
+        Assimp::Importer importer;
+
+        // Set import flags for skeletal animation
+        u32 importFlags = 
+            aiProcess_Triangulate |           // Make sure we get triangles
+            aiProcess_GenNormals |           // Create normals if not present
+            aiProcess_CalcTangentSpace |     // Calculate tangents and bitangents
+            aiProcess_FlipUVs |             // Flip texture coordinates
+            aiProcess_ValidateDataStructure | // Validate the imported data structure
+            aiProcess_LimitBoneWeights |     // Limit bone weights to 4 per vertex
+            aiProcess_GlobalScale;           // Apply global scale
+
+        // Read the file
+        const aiScene* scene = importer.ReadFile(path, importFlags);
+
+        // Check for errors
+        if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
+        {
+            OLO_CORE_ERROR("AnimatedModel::LoadModel: ASSIMP Error: {}", importer.GetErrorString());
+            return;
+        }
+
+        // Store the directory path
+        m_Directory = std::filesystem::path(path).parent_path().string();
+
+        OLO_CORE_INFO("AnimatedModel::LoadModel: Scene loaded - Meshes: {}, Materials: {}, Animations: {}", 
+                     scene->mNumMeshes, scene->mNumMaterials, scene->mNumAnimations);
+
+        // Process skeleton first if available
+        ProcessSkeleton(scene);
+
+        // Process all meshes
+        ProcessNode(scene->mRootNode, scene);
+
+        // Process animations
+        ProcessAnimations(scene);
+
+        // Calculate bounding volumes for the entire model
+        CalculateBounds();
+
+        OLO_CORE_INFO("AnimatedModel::LoadModel: Successfully loaded animated model with {} meshes, {} animations", 
+                     m_Meshes.size(), m_Animations.size());
+    }
+
+    void AnimatedModel::ProcessNode(const aiNode* node, const aiScene* scene)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Process all the node's meshes
+        for (u32 i = 0; i < node->mNumMeshes; i++)
+        {
+            aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
+            auto skinnedMesh = ProcessMesh(mesh, scene);
+            if (skinnedMesh)
+            {
+                m_Meshes.push_back(skinnedMesh);
+                
+                // Process the material for this mesh
+                Material material;
+                if (mesh->mMaterialIndex >= 0 && mesh->mMaterialIndex < scene->mNumMaterials)
+                {
+                    material = ProcessMaterial(scene->mMaterials[mesh->mMaterialIndex]);
+                }
+                else
+                {
+                    // Create default material if no material is found
+                    material = Material::CreatePBR("Default Animated Material", glm::vec3(0.8f), 0.0f, 0.5f);
+                }
+                m_Materials.push_back(material);
+            }
+        }
+
+        // Process all the node's children
+        for (u32 i = 0; i < node->mNumChildren; i++)
+        {
+            ProcessNode(node->mChildren[i], scene);
+        }
+    }
+
+    Ref<SkinnedMesh> AnimatedModel::ProcessMesh(const aiMesh* mesh, const aiScene* scene)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        std::vector<SkinnedVertex> vertices;
+        std::vector<u32> indices;
+
+        OLO_CORE_TRACE("AnimatedModel::ProcessMesh: Processing mesh with {} vertices, {} faces, {} bones", 
+                       mesh->mNumVertices, mesh->mNumFaces, mesh->mNumBones);
+
+        // Process vertices
+        for (u32 i = 0; i < mesh->mNumVertices; i++)
+        {
+            SkinnedVertex vertex;
+
+            // Position
+            vertex.Position = glm::vec3(
+                mesh->mVertices[i].x,
+                mesh->mVertices[i].y,
+                mesh->mVertices[i].z
+            );
+
+            // Normal
+            if (mesh->HasNormals())
+            {
+                vertex.Normal = glm::vec3(
+                    mesh->mNormals[i].x,
+                    mesh->mNormals[i].y,
+                    mesh->mNormals[i].z
+                );
+            }
+            else
+            {
+                vertex.Normal = glm::vec3(0.0f, 1.0f, 0.0f);
+            }
+
+            // Texture coordinates
+            if (mesh->mTextureCoords[0])
+            {
+                vertex.TexCoord = glm::vec2(
+                    mesh->mTextureCoords[0][i].x,
+                    mesh->mTextureCoords[0][i].y
+                );
+            }
+            else
+            {
+                vertex.TexCoord = glm::vec2(0.0f);
+            }
+
+            // Initialize bone data (will be filled by ProcessBones)
+            vertex.BoneIndices = glm::ivec4(-1);
+            vertex.BoneWeights = glm::vec4(0.0f);
+
+            vertices.push_back(vertex);
+        }
+
+        // Process bone data if available
+        if (mesh->mNumBones > 0)
+        {
+            ProcessBones(mesh, vertices);
+        }
+
+        // Process indices
+        for (u32 i = 0; i < mesh->mNumFaces; i++)
+        {
+            const aiFace& face = mesh->mFaces[i];
+            for (u32 j = 0; j < face.mNumIndices; j++)
+            {
+                indices.push_back(face.mIndices[j]);
+            }
+        }
+
+        // Create and return the skinned mesh
+        auto skinnedMesh = CreateRef<SkinnedMesh>(std::move(vertices), std::move(indices));
+        skinnedMesh->Build();
+
+        return skinnedMesh;
+    }
+
+    void AnimatedModel::ProcessBones(const aiMesh* mesh, std::vector<SkinnedVertex>& vertices)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        for (u32 boneIndex = 0; boneIndex < mesh->mNumBones; ++boneIndex)
+        {
+            u32 boneId = 0;
+            std::string boneName = mesh->mBones[boneIndex]->mName.data;
+
+            if (m_BoneInfoMap.find(boneName) == m_BoneInfoMap.end())
+            {
+                BoneInfo newBoneInfo;
+                newBoneInfo.Id = m_BoneCounter;
+                newBoneInfo.Offset = AssimpMatrixToGLM(mesh->mBones[boneIndex]->mOffsetMatrix);
+                m_BoneInfoMap[boneName] = newBoneInfo;
+                boneId = m_BoneCounter;
+                m_BoneCounter++;
+            }
+            else
+            {
+                boneId = m_BoneInfoMap[boneName].Id;
+            }
+
+            auto weights = mesh->mBones[boneIndex]->mWeights;
+            u32 numWeights = mesh->mBones[boneIndex]->mNumWeights;
+
+            for (u32 weightIndex = 0; weightIndex < numWeights; ++weightIndex)
+            {
+                u32 vertexId = weights[weightIndex].mVertexId;
+                f32 weight = weights[weightIndex].mWeight;
+
+                if (vertexId >= vertices.size())
+                {
+                    OLO_CORE_WARN("AnimatedModel::ProcessBones: Invalid vertex ID: {}", vertexId);
+                    continue;
+                }
+
+                // Find an empty slot in the bone data
+                for (u32 i = 0; i < 4; ++i)
+                {
+                    if (vertices[vertexId].BoneIndices[i] == -1)
+                    {
+                        vertices[vertexId].BoneIndices[i] = static_cast<i32>(boneId);
+                        vertices[vertexId].BoneWeights[i] = weight;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Normalize bone weights
+        for (auto& vertex : vertices)
+        {
+            f32 totalWeight = vertex.BoneWeights.x + vertex.BoneWeights.y + 
+                             vertex.BoneWeights.z + vertex.BoneWeights.w;
+            if (totalWeight > 0.0f)
+            {
+                vertex.BoneWeights /= totalWeight;
+            }
+            else
+            {
+                // If no bone weights, assign to bone 0 with full weight
+                vertex.BoneIndices = glm::ivec4(0, -1, -1, -1);
+                vertex.BoneWeights = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+            }
+        }
+    }
+
+    void AnimatedModel::ProcessSkeleton(const aiScene* scene)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!scene->mRootNode)
+        {
+            OLO_CORE_WARN("AnimatedModel::ProcessSkeleton: No root node found");
+            return;
+        }
+
+        // Count total bones across all meshes to determine skeleton size
+        std::unordered_set<std::string> uniqueBoneNames;
+        for (u32 i = 0; i < scene->mNumMeshes; ++i)
+        {
+            const aiMesh* mesh = scene->mMeshes[i];
+            for (u32 j = 0; j < mesh->mNumBones; ++j)
+            {
+                uniqueBoneNames.insert(mesh->mBones[j]->mName.data);
+            }
+        }
+
+        if (uniqueBoneNames.empty())
+        {
+            OLO_CORE_INFO("AnimatedModel::ProcessSkeleton: No bones found, creating default skeleton");
+            m_Skeleton = CreateRef<Skeleton>(1);
+            m_Skeleton->m_BoneNames = { "Root" };
+            m_Skeleton->m_ParentIndices = { -1 };
+            m_Skeleton->m_LocalTransforms = { glm::mat4(1.0f) };
+            m_Skeleton->m_GlobalTransforms = { glm::mat4(1.0f) };
+            m_Skeleton->m_FinalBoneMatrices = { glm::mat4(1.0f) };
+            m_Skeleton->m_BindPoseMatrices = { glm::mat4(1.0f) };
+            m_Skeleton->m_InverseBindPoses = { glm::mat4(1.0f) };
+            return;
+        }
+
+        OLO_CORE_INFO("AnimatedModel::ProcessSkeleton: Found {} unique bones", uniqueBoneNames.size());
+
+        // Create skeleton with the correct number of bones
+        m_Skeleton = CreateRef<Skeleton>(uniqueBoneNames.size());
+
+        // For now, create a simple flat hierarchy
+        // TODO: Implement proper bone hierarchy traversal
+        u32 boneIndex = 0;
+        for (const auto& boneName : uniqueBoneNames)
+        {
+            m_Skeleton->m_BoneNames[boneIndex] = boneName;
+            m_Skeleton->m_ParentIndices[boneIndex] = (boneIndex == 0) ? -1 : 0; // All bones parent to root
+            m_Skeleton->m_LocalTransforms[boneIndex] = glm::mat4(1.0f);
+            m_Skeleton->m_GlobalTransforms[boneIndex] = glm::mat4(1.0f);
+            m_Skeleton->m_FinalBoneMatrices[boneIndex] = glm::mat4(1.0f);
+            boneIndex++;
+        }
+
+        // Set bind pose from current transforms
+        m_Skeleton->SetBindPose();
+
+        OLO_CORE_INFO("AnimatedModel::ProcessSkeleton: Created skeleton with {} bones", m_Skeleton->m_BoneNames.size());
+    }
+
+    void AnimatedModel::ProcessAnimations(const aiScene* scene)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        for (u32 i = 0; i < scene->mNumAnimations; ++i)
+        {
+            const aiAnimation* anim = scene->mAnimations[i];
+            
+            auto animClip = CreateRef<AnimationClip>();
+            animClip->Name = anim->mName.data;
+            animClip->Duration = static_cast<f32>(anim->mDuration / anim->mTicksPerSecond);
+
+            OLO_CORE_INFO("AnimatedModel::ProcessAnimations: Processing animation '{}' - Duration: {:.2f}s, Channels: {}", 
+                         animClip->Name, animClip->Duration, anim->mNumChannels);
+
+            // Process animation channels (bone animations)
+            for (u32 j = 0; j < anim->mNumChannels; ++j)
+            {
+                const aiNodeAnim* nodeAnim = anim->mChannels[j];
+                
+                BoneAnimation boneAnim;
+                boneAnim.BoneName = nodeAnim->mNodeName.data;
+
+                // Process position keyframes
+                for (u32 k = 0; k < nodeAnim->mNumPositionKeys; ++k)
+                {
+                    BoneKeyframe keyframe;
+                    keyframe.Time = static_cast<f32>(nodeAnim->mPositionKeys[k].mTime / anim->mTicksPerSecond);
+                    
+                    const aiVector3D& pos = nodeAnim->mPositionKeys[k].mValue;
+                    keyframe.Translation = glm::vec3(pos.x, pos.y, pos.z);
+                    
+                    // Find corresponding rotation and scale
+                    keyframe.Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f); // Default
+                    keyframe.Scale = glm::vec3(1.0f); // Default
+                    
+                    // Find closest rotation keyframe
+                    if (nodeAnim->mNumRotationKeys > 0)
+                    {
+                        u32 rotIndex = 0;
+                        for (u32 r = 0; r < nodeAnim->mNumRotationKeys - 1; ++r)
+                        {
+                            if (nodeAnim->mRotationKeys[r + 1].mTime > nodeAnim->mPositionKeys[k].mTime)
+                                break;
+                            rotIndex = r + 1;
+                        }
+                        
+                        const aiQuaternion& rot = nodeAnim->mRotationKeys[rotIndex].mValue;
+                        keyframe.Rotation = glm::quat(rot.w, rot.x, rot.y, rot.z);
+                    }
+                    
+                    // Find closest scale keyframe
+                    if (nodeAnim->mNumScalingKeys > 0)
+                    {
+                        u32 scaleIndex = 0;
+                        for (u32 s = 0; s < nodeAnim->mNumScalingKeys - 1; ++s)
+                        {
+                            if (nodeAnim->mScalingKeys[s + 1].mTime > nodeAnim->mPositionKeys[k].mTime)
+                                break;
+                            scaleIndex = s + 1;
+                        }
+                        
+                        const aiVector3D& scale = nodeAnim->mScalingKeys[scaleIndex].mValue;
+                        keyframe.Scale = glm::vec3(scale.x, scale.y, scale.z);
+                    }
+                    
+                    boneAnim.Keyframes.push_back(keyframe);
+                }
+
+                animClip->BoneAnimations.push_back(boneAnim);
+            }
+
+            m_Animations.push_back(animClip);
+        }
+
+        OLO_CORE_INFO("AnimatedModel::ProcessAnimations: Successfully processed {} animations", m_Animations.size());
+    }
+
+    std::vector<Ref<Texture2D>> AnimatedModel::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type)
+    {
+        std::vector<Ref<Texture2D>> textures;
+        
+        for (u32 i = 0; i < mat->GetTextureCount(type); i++)
+        {
+            aiString str;
+            mat->GetTexture(type, i, &str);
+            
+            std::string filename = str.C_Str();
+            std::string path = m_Directory + "/" + filename;
+            
+            // Check if texture was loaded before
+            if (m_LoadedTextures.find(path) != m_LoadedTextures.end())
+            {
+                textures.push_back(m_LoadedTextures[path]);
+            }
+            else
+            {
+                auto texture = Texture2D::Create(path);
+                if (texture)
+                {
+                    textures.push_back(texture);
+                    m_LoadedTextures[path] = texture;
+                }
+                else
+                {
+                    OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: Failed to load texture: {}", path);
+                }
+            }
+        }
+        
+        return textures;
+    }
+
+    Material AnimatedModel::ProcessMaterial(const aiMaterial* mat)
+    {
+        // Get material name
+        aiString name;
+        mat->Get(AI_MATKEY_NAME, name);
+        std::string materialName = name.length > 0 ? name.C_Str() : "Animated Model Material";
+        
+        // Get base color factor
+        aiColor3D baseColor(1.0f, 1.0f, 1.0f);
+        mat->Get(AI_MATKEY_COLOR_DIFFUSE, baseColor);
+        
+        // Get metallic and roughness factors
+        float metallic = 0.0f;
+        float roughness = 0.5f;
+        mat->Get(AI_MATKEY_METALLIC_FACTOR, metallic);
+        mat->Get(AI_MATKEY_ROUGHNESS_FACTOR, roughness);
+        
+        // Create material with extracted properties
+        Material material = Material::CreatePBR(
+            materialName, 
+            glm::vec3(baseColor.r, baseColor.g, baseColor.b), 
+            metallic, 
+            roughness
+        );
+        
+        // Load PBR textures
+        auto albedoMaps = LoadMaterialTextures(mat, aiTextureType_DIFFUSE);
+        if (!albedoMaps.empty())
+        {
+            material.AlbedoMap = albedoMaps[0];
+        }
+        
+        auto metallicRoughnessMaps = LoadMaterialTextures(mat, aiTextureType_METALNESS);
+        if (!metallicRoughnessMaps.empty())
+        {
+            material.MetallicRoughnessMap = metallicRoughnessMaps[0];
+        }
+        
+        auto normalMaps = LoadMaterialTextures(mat, aiTextureType_NORMALS);
+        if (!normalMaps.empty())
+        {
+            material.NormalMap = normalMaps[0];
+        }
+        
+        auto aoMaps = LoadMaterialTextures(mat, aiTextureType_AMBIENT_OCCLUSION);
+        if (!aoMaps.empty())
+        {
+            material.AOMap = aoMaps[0];
+        }
+        
+        auto emissiveMaps = LoadMaterialTextures(mat, aiTextureType_EMISSIVE);
+        if (!emissiveMaps.empty())
+        {
+            material.EmissiveMap = emissiveMaps[0];
+        }
+        
+        return material;
+    }
+
+    void AnimatedModel::CalculateBounds()
+    {
+        if (m_Meshes.empty())
+        {
+            m_BoundingBox = BoundingBox();
+            m_BoundingSphere = BoundingSphere();
+            return;
+        }
+
+        // Start with the first mesh bounds
+        m_BoundingBox = m_Meshes[0]->GetBoundingBox();
+        
+        // Expand to include all meshes
+        for (sizet i = 1; i < m_Meshes.size(); ++i)
+        {
+            m_BoundingBox = m_BoundingBox.Union(m_Meshes[i]->GetBoundingBox());
+        }
+
+        // Calculate bounding sphere from bounding box
+        const glm::vec3 center = (m_BoundingBox.Min + m_BoundingBox.Max) * 0.5f;
+        const f32 radius = glm::length(m_BoundingBox.Max - center);
+        m_BoundingSphere = BoundingSphere(center, radius);
+    }
+
+    Ref<AnimationClip> AnimatedModel::GetAnimation(const std::string& name) const
+    {
+        for (const auto& animation : m_Animations)
+        {
+            if (animation->Name == name)
+            {
+                return animation;
+            }
+        }
+        return nullptr;
+    }
+
+    glm::mat4 AnimatedModel::AssimpMatrixToGLM(const aiMatrix4x4& from)
+    {
+        glm::mat4 to;
+        
+        to[0][0] = from.a1; to[1][0] = from.a2; to[2][0] = from.a3; to[3][0] = from.a4;
+        to[0][1] = from.b1; to[1][1] = from.b2; to[2][1] = from.b3; to[3][1] = from.b4;
+        to[0][2] = from.c1; to[1][2] = from.c2; to[2][2] = from.c3; to[3][2] = from.c4;
+        to[0][3] = from.d1; to[1][3] = from.d2; to[2][3] = from.d3; to[3][3] = from.d4;
+        
+        return to;
+    }
+
+    u32 AnimatedModel::FindBoneIndex(const std::string& boneName)
+    {
+        auto it = m_BoneInfoMap.find(boneName);
+        if (it != m_BoneInfoMap.end())
+        {
+            return it->second.Id;
+        }
+        return 0; // Default to first bone if not found
+    }
+}

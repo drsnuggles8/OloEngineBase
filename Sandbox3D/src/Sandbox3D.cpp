@@ -831,9 +831,21 @@ void Sandbox3D::RenderAnimationTestingScene()
             }
         }
         
-        if (m_ShowSingleBoneTest || m_ShowMultiBoneTest)
+        if (m_ImportedModelEntity.HasComponent<OloEngine::AnimatedMeshComponent>())
         {
-            OloEngine::Renderer3D::RenderAnimatedMeshes(m_TestScene, m_GoldMaterial);
+            if (m_ShowImportedModel)
+            {
+                auto& importedTransformComp = m_ImportedModelEntity.GetComponent<OloEngine::TransformComponent>();
+                importedTransformComp.Translation = glm::vec3(0.0f, 0.0f, 2.0f);
+                importedTransformComp.Scale = glm::vec3(1.0f);
+            }
+        }
+        
+        if (m_ShowSingleBoneTest || m_ShowMultiBoneTest || m_ShowImportedModel)
+        {
+            // Use a simple default material - entities with MaterialComponent will use their own materials
+            OloEngine::Material defaultMaterial = OloEngine::Material::CreatePBR("Default", glm::vec3(0.7f), 0.0f, 0.5f);
+            OloEngine::Renderer3D::RenderAnimatedMeshes(m_TestScene, defaultMaterial);
         }
     }
 
@@ -967,6 +979,8 @@ void Sandbox3D::RenderAnimationTestingUI()
         ImGui::Checkbox("Show Single Bone Test", &m_ShowSingleBoneTest);
         ImGui::SameLine();
         ImGui::Checkbox("Show Multi-Bone Test", &m_ShowMultiBoneTest);
+        ImGui::SameLine();
+        ImGui::Checkbox("Show Imported Model", &m_ShowImportedModel);
         
         ImGui::SliderFloat("Animation Speed", &m_AnimationSpeed, 0.1f, 3.0f, "%.1f");
         
@@ -984,16 +998,76 @@ void Sandbox3D::RenderAnimationTestingUI()
         
         ImGui::Separator();
         
-        ImGui::Text("Model Import (Assimp):");
-        if (ImGui::Button("Load Test Model"))
+        ImGui::Text("Animated Model Loading:");
+        
+        // Model selection dropdown
+        if (ImGui::Combo("Select Model", &m_SelectedModelIndex, 
+                        [](void* data, int idx, const char** out_text) {
+                            auto* names = static_cast<std::vector<std::string>*>(data);
+                            if (idx >= 0 && idx < static_cast<int>(names->size())) {
+                                *out_text = (*names)[idx].c_str();
+                                return true;
+                            }
+                            return false;
+                        }, &m_ModelDisplayNames, static_cast<int>(m_ModelDisplayNames.size())))
+        {
+            // Model selection changed, reload if needed
+        }
+        
+        if (ImGui::Button("Load Selected Model"))
         {
             LoadTestAnimatedModel();
         }
         ImGui::SameLine();
-        ImGui::Text("Status: %s", m_ImportedModelEntity.HasComponent<OloEngine::AnimatedMeshComponent>() 
-                   ? "Placeholder Loaded" : "Not Loaded");
-                   
-        ImGui::TextWrapped("Note: Model import is placeholder implementation. Full assimp integration TODO.");
+        
+        ImGui::Separator();
+        
+        // Show information about the loaded model and its materials
+        if (m_CesiumManModel)
+        {
+            ImGui::Text("Status: Loaded - %s", m_ModelDisplayNames[m_SelectedModelIndex].c_str());
+            ImGui::Text("Meshes: %zu, Animations: %zu", 
+                       m_CesiumManModel->GetMeshes().size(), 
+                       m_CesiumManModel->GetAnimations().size());
+            ImGui::Text("Materials: %zu", m_CesiumManModel->GetMaterials().size());
+            
+            // Show material information
+            if (!m_CesiumManModel->GetMaterials().empty())
+            {
+                ImGui::Separator();
+                ImGui::Text("Model Materials:");
+                for (size_t i = 0; i < m_CesiumManModel->GetMaterials().size(); ++i)
+                {
+                    const auto& material = m_CesiumManModel->GetMaterials()[i];
+                    ImGui::Text("  [%zu] %s", i, material.Name.c_str());
+                    ImGui::Text("    Base Color: (%.2f, %.2f, %.2f)", 
+                               material.BaseColorFactor.r, material.BaseColorFactor.g, material.BaseColorFactor.b);
+                    ImGui::Text("    Metallic: %.2f, Roughness: %.2f", 
+                               material.MetallicFactor, material.RoughnessFactor);
+                    if (material.AlbedoMap)
+                        ImGui::Text("    Has Albedo Map");
+                    if (material.NormalMap)
+                        ImGui::Text("    Has Normal Map");
+                    if (material.MetallicRoughnessMap)
+                        ImGui::Text("    Has Metallic-Roughness Map");
+                }
+            }
+                       
+            if (m_ImportedModelEntity.HasComponent<OloEngine::AnimationStateComponent>())
+            {
+                auto& animState = m_ImportedModelEntity.GetComponent<OloEngine::AnimationStateComponent>();
+                ImGui::Separator();
+                ImGui::Text("Animation: %s", animState.m_CurrentClip ? animState.m_CurrentClip->Name.c_str() : "None");
+                ImGui::Text("Time: %.2f / %.2f", animState.m_CurrentTime, 
+                           animState.m_CurrentClip ? animState.m_CurrentClip->Duration : 0.0f);
+            }
+        }
+        else
+        {
+            ImGui::Text("Status: Not Loaded");
+        }
+        
+        ImGui::TextWrapped("These are glTF test models with skeletal animation demonstrating PBR + Animation integration.");
     }
 }
 
@@ -1171,6 +1245,20 @@ OloEngine::Material& Sandbox3D::GetCurrentPBRMaterial()
         case 4: return m_PBRRoughMaterial;
         case 5: return m_PBRSmoothMaterial;
         default: return m_PBRGoldMaterial;
+    }
+}
+
+OloEngine::Material& Sandbox3D::GetCurrentAnimatedModelMaterial()
+{
+    switch (m_AnimatedModelMaterialType)
+    {
+        case 0: return m_PBRSilverMaterial;   // Default: Silver for good contrast
+        case 1: return m_PBRGoldMaterial;
+        case 2: return m_PBRCopperMaterial;
+        case 3: return m_PBRPlasticMaterial;
+        case 4: return m_PBRRoughMaterial;
+        case 5: return m_PBRSmoothMaterial;
+        default: return m_PBRSilverMaterial;
     }
 }
 
@@ -1552,29 +1640,121 @@ void Sandbox3D::LoadTestAnimatedModel()
 {
     OLO_PROFILE_FUNCTION();
     
-    // TODO: Implement assimp-based model loading
-    // For now, create a placeholder entity that will be replaced with real model loading
-    m_ImportedModelEntity = m_TestScene->CreateEntity("ImportedAnimatedModel");
+    // Get the selected model path
+    std::string modelPath = "assets/models/" + m_AvailableModels[m_SelectedModelIndex];
+    std::string modelName = m_ModelDisplayNames[m_SelectedModelIndex];
     
-    // Position for imported model (different from test entities)
-    auto& transformComp = m_ImportedModelEntity.GetComponent<OloEngine::TransformComponent>();
-    transformComp.Translation = glm::vec3(-3.0f, 0.0f, 0.0f); // Position to the left
-    transformComp.Scale = glm::vec3(1.0f);
+    OLO_INFO("Sandbox3D: Loading animated model: {}", modelName);
     
-    // For now, use the same mesh as the simple test but mark it for future replacement
-    auto& animMeshComp = m_ImportedModelEntity.AddComponent<OloEngine::AnimatedMeshComponent>();
-    animMeshComp.m_Mesh = m_AnimatedTestMesh; // Temporary placeholder
-    
-    auto& skeletonComp = m_ImportedModelEntity.AddComponent<OloEngine::SkeletonComponent>();
-    skeletonComp = m_AnimatedMeshEntity.GetComponent<OloEngine::SkeletonComponent>(); // Copy from main test entity
-    
-    auto& animStateComp = m_ImportedModelEntity.AddComponent<OloEngine::AnimationStateComponent>();
-    animStateComp.m_CurrentClip = m_IdleClip; // Temporary placeholder
-    animStateComp.m_State = OloEngine::AnimationStateComponent::State::Idle;
-    animStateComp.m_CurrentTime = 0.0f;
-    
-    OLO_INFO("Sandbox3D: Imported model entity created (placeholder implementation)");
-    OLO_INFO("TODO: Implement assimp-based skeletal animation import");
+    // Load the selected model using our AnimatedModel loader
+    try 
+    {
+        m_CesiumManModel = OloEngine::CreateRef<OloEngine::AnimatedModel>(modelPath);
+        
+        if (!m_CesiumManModel->HasSkeleton())
+        {
+            OLO_CORE_WARN("{} model does not have a skeleton, using default", modelName);
+        }
+        
+        if (!m_CesiumManModel->HasAnimations())
+        {
+            OLO_CORE_WARN("{} model does not have animations", modelName);
+        }
+        
+        // Create entity for the loaded model
+        m_ImportedModelEntity = m_TestScene->CreateEntity(modelName);
+        
+        // Position the model
+        auto& transformComp = m_ImportedModelEntity.GetComponent<OloEngine::TransformComponent>();
+        transformComp.Translation = glm::vec3(-3.0f, 0.0f, 0.0f); // Position to the left
+        transformComp.Scale = glm::vec3(1.0f);
+        
+        // Add animated mesh component - use the first mesh from the model
+        auto& animMeshComp = m_ImportedModelEntity.AddComponent<OloEngine::AnimatedMeshComponent>();
+        if (!m_CesiumManModel->GetMeshes().empty())
+        {
+            animMeshComp.m_Mesh = m_CesiumManModel->GetMeshes()[0];
+        }
+        else
+        {
+            OLO_CORE_ERROR("{} model has no meshes!", modelName);
+            return;
+        }
+        
+        // Add material component with the model's original material
+        auto& materialComp = m_ImportedModelEntity.AddComponent<OloEngine::MaterialComponent>();
+        if (!m_CesiumManModel->GetMaterials().empty())
+        {
+            // Use the first material from the model (corresponds to first mesh)
+            materialComp.m_Material = m_CesiumManModel->GetMaterials()[0];
+            OLO_INFO("Using original material: {}", materialComp.m_Material.Name);
+        }
+        else
+        {
+            // Fallback to a default material
+            materialComp.m_Material = OloEngine::Material::CreatePBR("Default Material", glm::vec3(0.8f), 0.0f, 0.5f);
+            OLO_WARN("No materials found in model, using default material");
+        }
+        
+        // Add skeleton component
+        auto& skeletonComp = m_ImportedModelEntity.AddComponent<OloEngine::SkeletonComponent>();
+        if (m_CesiumManModel->HasSkeleton())
+        {
+            // Copy skeleton data from loaded model
+            skeletonComp.m_Skeleton = *m_CesiumManModel->GetSkeleton();
+        }
+        else
+        {
+            // Use default skeleton
+            skeletonComp.m_Skeleton = OloEngine::SkeletonData(1);
+            skeletonComp.m_Skeleton.m_BoneNames = { "Root" };
+            skeletonComp.m_Skeleton.m_ParentIndices = { -1 };
+            skeletonComp.m_Skeleton.m_LocalTransforms = { glm::mat4(1.0f) };
+            skeletonComp.m_Skeleton.m_GlobalTransforms = { glm::mat4(1.0f) };
+            skeletonComp.m_Skeleton.m_FinalBoneMatrices = { glm::mat4(1.0f) };
+            skeletonComp.m_Skeleton.SetBindPose();
+        }
+        
+        // Add animation state component
+        auto& animStateComp = m_ImportedModelEntity.AddComponent<OloEngine::AnimationStateComponent>();
+        if (m_CesiumManModel->HasAnimations())
+        {
+            // Use the first animation from the loaded model
+            animStateComp.m_CurrentClip = m_CesiumManModel->GetAnimations()[0];
+            OLO_INFO("Using animation: {}", animStateComp.m_CurrentClip->Name);
+        }
+        else
+        {
+            // Fall back to test animation
+            animStateComp.m_CurrentClip = m_IdleClip;
+        }
+        animStateComp.m_State = OloEngine::AnimationStateComponent::State::Idle;
+        animStateComp.m_CurrentTime = 0.0f;
+        
+        OLO_INFO("Sandbox3D: Successfully loaded {} model with {} meshes, {} animations", 
+                 modelName, m_CesiumManModel->GetMeshes().size(), m_CesiumManModel->GetAnimations().size());
+    }
+    catch (const std::exception& e)
+    {
+        OLO_CORE_ERROR("Failed to load {} model: {}", modelName, e.what());
+        
+        // Create a fallback entity using test data
+        m_ImportedModelEntity = m_TestScene->CreateEntity(modelName + " (Fallback)");
+        auto& transformComp = m_ImportedModelEntity.GetComponent<OloEngine::TransformComponent>();
+        transformComp.Translation = glm::vec3(-3.0f, 0.0f, 0.0f);
+        transformComp.Scale = glm::vec3(1.0f);
+        
+        auto& animMeshComp = m_ImportedModelEntity.AddComponent<OloEngine::AnimatedMeshComponent>();
+        animMeshComp.m_Mesh = m_AnimatedTestMesh;
+        
+        auto& skeletonComp = m_ImportedModelEntity.AddComponent<OloEngine::SkeletonComponent>();
+        skeletonComp = m_AnimatedMeshEntity.GetComponent<OloEngine::SkeletonComponent>();
+        
+        auto& animStateComp = m_ImportedModelEntity.AddComponent<OloEngine::AnimationStateComponent>();
+        animStateComp.m_CurrentClip = m_IdleClip;
+        animStateComp.m_State = OloEngine::AnimationStateComponent::State::Idle;
+        animStateComp.m_CurrentTime = 0.0f;
+    }
 }
 
 void Sandbox3D::RenderMaterialSettings()

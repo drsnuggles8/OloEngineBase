@@ -84,6 +84,8 @@
 		"OloEngine/Renderer/SkinnedMesh.h"
 		"OloEngine/Renderer/Model.cpp"
 		"OloEngine/Renderer/Model.h"
+		"OloEngine/Renderer/AnimatedModel.cpp"
+		"OloEngine/Renderer/AnimatedModel.h"
 		"OloEngine/Renderer/MSDFData.h"
 		"OloEngine/Renderer/RenderCommand.cpp"
 		"OloEngine/Renderer/RenderCommand.h"

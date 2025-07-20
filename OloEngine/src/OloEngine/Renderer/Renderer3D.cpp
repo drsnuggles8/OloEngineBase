@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Scene/Components.h"
 
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -853,7 +854,12 @@ namespace OloEngine
 
 		glm::mat4 worldTransform = transformComp.GetTransform();
 
+		// Use MaterialComponent if available, otherwise use default material
 		Material material = defaultMaterial;
+		if (entity.HasComponent<MaterialComponent>())
+		{
+			material = entity.GetComponent<MaterialComponent>().m_Material;
+		}
 
 		const std::vector<glm::mat4>& boneMatrices = skeletonComp.m_Skeleton.m_FinalBoneMatrices;
 

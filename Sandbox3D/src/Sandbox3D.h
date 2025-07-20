@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/SkinnedMesh.h"
 #include "OloEngine/Renderer/Model.h"
+#include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
@@ -68,6 +69,7 @@ private:
 	
 	// Helper methods
 	OloEngine::Material& GetCurrentPBRMaterial();
+	OloEngine::Material& GetCurrentAnimatedModelMaterial();
 
 	// ECS Scene for animated mesh testing
 	OloEngine::Ref<OloEngine::Scene> m_TestScene;
@@ -98,8 +100,26 @@ private:
 	// Animation test settings
 	bool m_ShowSingleBoneTest = true;
 	bool m_ShowMultiBoneTest = true;
-	bool m_ShowImportedModel = false;
+	bool m_ShowImportedModel = true;
 	float m_AnimationSpeed = 1.0f;
+	
+	// Model selection
+	int m_SelectedModelIndex = 0;
+	int m_AnimatedModelMaterialType = 0; // For PBR material selection
+	std::vector<std::string> m_AvailableModels = {
+		"CesiumMan/CesiumMan.gltf",
+		"Fox/Fox.gltf", 
+		"RiggedSimple/RiggedSimple.gltf",
+		"RiggedFigure/RiggedFigure.gltf",
+		"SimpleSkin/SimpleSkin.gltf"
+	};
+	std::vector<std::string> m_ModelDisplayNames = {
+		"CesiumMan (Test Character)",
+		"Fox (Animated Animal)",
+		"RiggedSimple (Basic)",
+		"RiggedFigure (Complex)",
+		"SimpleSkin (Minimal)"
+	};
 	
 	void RenderAnimationDebugPanel();
 	void RenderECSAnimatedMeshPanel();
@@ -138,8 +158,9 @@ private:
 	OloEngine::Ref<OloEngine::Mesh> m_SphereMesh;
 	OloEngine::Ref<OloEngine::Mesh> m_PlaneMesh;
 	
-	// Model object
+	// Model objects
 	OloEngine::Ref<OloEngine::Model> m_BackpackModel;
+	OloEngine::Ref<OloEngine::AnimatedModel> m_CesiumManModel;
 	
 	// Texture resources
 	OloEngine::Ref<OloEngine::Texture2D> m_DiffuseMap;
