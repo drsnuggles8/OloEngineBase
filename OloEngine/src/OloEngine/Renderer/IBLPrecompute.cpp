@@ -59,7 +59,7 @@ namespace OloEngine
         auto shader = shaderLibrary.Get("IrradianceConvolution");
 
         // Bind environment map
-        environmentMap->Bind(9);
+        environmentMap->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
         
         // Use the render to cubemap helper
         RenderToCubemap(irradianceMap, shader, GetCubeMesh());
@@ -81,7 +81,7 @@ namespace OloEngine
         auto shader = shaderLibrary.Get("IBLPrefilter");
 
         // Bind environment map
-        environmentMap->Bind(9);
+        environmentMap->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
         
         // Create IBL parameters uniform buffer
         auto iblParamsUBO = UniformBuffer::Create(ShaderBindingLayout::IBLParametersUBO::GetSize(), ShaderBindingLayout::UBO_USER_0);
@@ -97,9 +97,9 @@ namespace OloEngine
             // Update IBL parameters with sample count for importance sampling
             ShaderBindingLayout::IBLParametersUBO iblParams;
             iblParams.Roughness = roughness;
-            iblParams._padding0 = static_cast<f32>(sampleCounts[mip]); // Use padding for sample count
-            iblParams._padding1 = 0.0f;
-            iblParams._padding2 = 0.0f;
+            iblParams.ExposureAdjustment = static_cast<f32>(sampleCounts[mip]); // Use exposure for sample count
+            iblParams.IBLIntensity = 1.0f;        // Default IBL intensity
+            iblParams.IBLRotation = 0.0f;         // Default rotation
             
             iblParamsUBO->SetData(&iblParams, sizeof(iblParams));
             
@@ -405,7 +405,7 @@ namespace OloEngine
         }
 
         // Bind environment map
-        environmentMap->Bind(9);
+        environmentMap->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
         
         // Use enhanced rendering with configuration
         RenderToCubemapAdvanced(irradianceMap, shader, GetCubeMesh(), config);
@@ -442,7 +442,7 @@ namespace OloEngine
         }
 
         // Bind environment map
-        environmentMap->Bind(9);
+        environmentMap->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
         
         // Generate mipmaps with varying roughness values and sample counts
         const u32 maxMipLevels = 5;
@@ -455,7 +455,7 @@ namespace OloEngine
             sampleCount = std::max(sampleCount, 32u); // Minimum sample count
             
             shader->Bind();
-            shader->SetInt("u_EnvironmentMap", 9);
+            shader->SetInt("u_EnvironmentMap", ShaderBindingLayout::TEX_ENVIRONMENT);
             shader->SetFloat("u_Roughness", roughness);
             shader->SetInt("u_SampleCount", sampleCount);
             shader->SetInt("u_UseImportanceSampling", config.UseImportanceSampling ? 1 : 0);

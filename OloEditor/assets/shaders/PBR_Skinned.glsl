@@ -106,7 +106,8 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int u_UseAOMap;             // Use ambient occlusion map
     int u_UseEmissiveMap;       // Use emissive map
     int u_EnableIBL;            // Enable IBL
-    int _padding[2];
+    int u_ApplyGammaCorrection; // Apply gamma correction in this pass
+    int u_AlphaCutoff;          // Alpha cutoff for transparency
 };
 
 // Texture bindings following ShaderBindingLayout
@@ -181,11 +182,8 @@ void main()
     // Apply ambient occlusion to ambient lighting only
     color = mix(color, color * ao, 0.5);
     
-    // HDR tonemapping
-    color = reinhardToneMapping(color);
-    
-    // Gamma correction
-    color = linearToSRGB(color);
+    // Unified post-processing: tone mapping + gamma correction in one pass
+    color = postProcessColor(color, TONEMAP_REINHARD, u_ApplyGammaCorrection == 1);
     
     o_Color = vec4(color, u_BaseColorFactor.a);
 }

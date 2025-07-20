@@ -92,7 +92,9 @@ namespace OloEngine
         struct MultiLightUBO
         {
             i32 LightCount;                                           // Number of active lights
-            i32 _padding[3];                                          // Padding for alignment
+            i32 MaxLights;                                            // Maximum supported lights (repurposed from padding)
+            i32 ShadowCasterCount;                                    // Number of shadow-casting lights (repurposed from padding)
+            i32 _padding;                                             // Only 4 bytes padding needed for 16-byte alignment
             MultiLightData Lights[32];                               // Array of light data (MAX_LIGHTS)
             
             static constexpr u32 GetSize() { return sizeof(MultiLightUBO); }
@@ -105,7 +107,9 @@ namespace OloEngine
             glm::vec4 Specular;            // w = shininess
             glm::vec4 Emissive;
             i32 UseTextureMaps;
-            i32 _padding[3];
+            i32 AlphaMode;                 // Alpha blending mode (repurposed from padding)
+            i32 DoubleSided;               // Double-sided rendering flag (repurposed from padding)
+            i32 _padding;                  // Only 4 bytes padding needed for 16-byte alignment
             
             static constexpr u32 GetSize() { return sizeof(MaterialUBO); }
         };
@@ -124,7 +128,8 @@ namespace OloEngine
             i32 UseAOMap;                  // Use ambient occlusion map
             i32 UseEmissiveMap;            // Use emissive map
             i32 EnableIBL;                 // Enable IBL
-            i32 _padding[2];
+            i32 ApplyGammaCorrection;      // Whether to apply gamma correction in this pass
+            i32 AlphaCutoff;               // Alpha cutoff for transparency (repurposed from padding)
             
             static constexpr u32 GetSize() { return sizeof(PBRMaterialUBO); }
         };
@@ -148,9 +153,9 @@ namespace OloEngine
         struct IBLParametersUBO
         {
             f32 Roughness;
-            f32 _padding0;
-            f32 _padding1;
-            f32 _padding2;
+            f32 ExposureAdjustment;        // Renamed from _padding0 to serve actual purpose
+            f32 IBLIntensity;              // Renamed from _padding1 to serve actual purpose  
+            f32 IBLRotation;               // Environment rotation angle (repurposed from padding)
             
             static constexpr u32 GetSize() { return sizeof(IBLParametersUBO); }
         };
@@ -199,7 +204,9 @@ struct LightData {
 
 layout(std140, binding = 5) uniform MultiLightBuffer {
     int u_LightCount;
-    int _padding[3];
+    int u_MaxLights;
+    int u_ShadowCasterCount;
+    int _padding;
     LightData u_Lights[32];
 };)";
         }
@@ -213,7 +220,9 @@ layout(std140, binding = 2) uniform MaterialProperties {
     vec4 u_MaterialSpecular;
     vec4 u_MaterialEmissive;
     int u_UseTextureMaps;
-    int _padding[3];
+    int u_AlphaMode;
+    int u_DoubleSided;
+    int _padding;
 };)";
         }
         
@@ -233,7 +242,8 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int u_UseAOMap;
     int u_UseEmissiveMap;
     int u_EnableIBL;
-    int _padding[2];
+    int u_ApplyGammaCorrection;
+    int u_AlphaCutoff;
 };)";
         }
         

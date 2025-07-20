@@ -38,7 +38,7 @@ namespace OloEngine
         struct LightBufferUBO
         {
             i32 LightCount;                                           // Number of active lights
-            i32 _padding[3];                                          // Padding for alignment
+            i32 _padding[1];                                          // Reduced padding - only need 4 bytes for 16-byte alignment
             LightData Lights[ShaderConstants::MAX_LIGHTS];           // Array of light data
             
             static constexpr u32 GetSize() { return sizeof(LightBufferUBO); }

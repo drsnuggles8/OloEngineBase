@@ -509,7 +509,8 @@ namespace OloEngine
 			pbrMaterialData.UseAOMap = cmd->aoMap ? 1 : 0;
 			pbrMaterialData.UseEmissiveMap = cmd->emissiveMap ? 1 : 0;
 			pbrMaterialData.EnableIBL = cmd->enableIBL ? 1 : 0;
-			pbrMaterialData._padding[0] = pbrMaterialData._padding[1] = 0;
+			pbrMaterialData.ApplyGammaCorrection = 1;  // Enable gamma correction by default
+			pbrMaterialData.AlphaCutoff = 0;           // Default alpha cutoff
 			
 			if (s_Data.MaterialUBO)
 			{
@@ -527,7 +528,9 @@ namespace OloEngine
 			materialData.Specular = glm::vec4(cmd->specular, cmd->shininess);
 			materialData.Emissive = glm::vec4(0.0f);
 			materialData.UseTextureMaps = cmd->useTextureMaps ? 1 : 0;
-			materialData._padding[0] = materialData._padding[1] = materialData._padding[2] = 0;
+			materialData.AlphaMode = 0;                // Default alpha mode
+			materialData.DoubleSided = 0;              // Default double-sided
+			materialData._padding = 0;                 // Clear remaining padding
 			
 			if (s_Data.MaterialUBO)
 			{
@@ -759,7 +762,9 @@ namespace OloEngine
 		materialData.Specular = glm::vec4(cmd->specular, cmd->shininess);
 		materialData.Emissive = glm::vec4(0.0f);
 		materialData.UseTextureMaps = cmd->useTextureMaps ? 1 : 0;
-		materialData._padding[0] = materialData._padding[1] = materialData._padding[2] = 0;
+		materialData.AlphaMode = 0;                // Default alpha mode
+		materialData.DoubleSided = 0;              // Default double-sided
+		materialData._padding = 0;                 // Clear remaining padding
 		
 		if (s_Data.MaterialUBO)
 		{
@@ -917,7 +922,8 @@ namespace OloEngine
 			pbrMaterialData.UseAOMap = cmd->aoMap ? 1 : 0;
 			pbrMaterialData.UseEmissiveMap = cmd->emissiveMap ? 1 : 0;
 			pbrMaterialData.EnableIBL = cmd->enableIBL ? 1 : 0;
-			pbrMaterialData._padding[0] = pbrMaterialData._padding[1] = 0;
+			pbrMaterialData.ApplyGammaCorrection = 1;  // Enable gamma correction by default
+			pbrMaterialData.AlphaCutoff = 0;           // Default alpha cutoff
 			
 			if (s_Data.MaterialUBO)
 			{
@@ -935,7 +941,9 @@ namespace OloEngine
 			materialData.Specular = glm::vec4(cmd->specular, cmd->shininess);
 			materialData.Emissive = glm::vec4(0.0f);
 			materialData.UseTextureMaps = cmd->useTextureMaps ? 1 : 0;
-			materialData._padding[0] = materialData._padding[1] = materialData._padding[2] = 0;
+			materialData.AlphaMode = 0;                // Default alpha mode
+			materialData.DoubleSided = 0;              // Default double-sided
+			materialData._padding = 0;                 // Clear remaining padding
 			
 			if (s_Data.MaterialUBO)
 			{

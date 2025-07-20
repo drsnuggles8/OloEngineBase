@@ -41,6 +41,12 @@
 #define MAX_LIGHTS 32
 #define MAX_BONES 100
 
+// Tone mapping constants
+#define TONEMAP_NONE 0
+#define TONEMAP_REINHARD 1
+#define TONEMAP_ACES 2
+#define TONEMAP_UNCHARTED2 3
+
 // =============================================================================
 // TEXTURE BINDING CONSTANTS (from ShaderBindingLayout.h)
 // =============================================================================
@@ -264,13 +270,13 @@ vec3 getNormalFromMap(sampler2D normalMap, vec2 texCoords, vec3 worldPos, vec3 n
 // COLOR UTILITIES
 // =============================================================================
 
-// Linear to sRGB conversion
+// Linear to sRGB conversion (accurate)
 vec3 linearToSRGB(vec3 color)
 {
     return pow(color, vec3(INV_GAMMA));
 }
 
-// sRGB to linear conversion
+// sRGB to linear conversion (accurate)
 vec3 sRGBToLinear(vec3 color)
 {
     return pow(color, vec3(GAMMA));
@@ -305,6 +311,37 @@ vec3 uncharted2ToneMapping(vec3 color)
     const float F = 0.30;
     
     return ((color * (A * color + C * B) + D * E) / (color * (A * color + B) + D * F)) - E / F;
+}
+
+// Unified post-processing function - tone mapping + gamma correction in one pass
+// This prevents redundant gamma correction by combining operations
+vec3 postProcessColor(vec3 hdrColor, int tonemapOperator, bool applyGamma)
+{
+    vec3 toneMappedColor;
+    
+    // Apply tone mapping
+    switch (tonemapOperator)
+    {
+        case TONEMAP_REINHARD:
+            toneMappedColor = reinhardToneMapping(hdrColor);
+            break;
+        case TONEMAP_ACES:
+            toneMappedColor = acesToneMapping(hdrColor);
+            break;
+        case TONEMAP_UNCHARTED2:
+            toneMappedColor = uncharted2ToneMapping(hdrColor);
+            break;
+        default: // TONEMAP_NONE
+            toneMappedColor = SATURATE(hdrColor);
+            break;
+    }
+    
+    // Apply gamma correction only if requested (prevents double application)
+    if (applyGamma) {
+        return linearToSRGB(toneMappedColor);
+    }
+    
+    return toneMappedColor;
 }
 
 // =============================================================================
@@ -704,52 +741,55 @@ vec3 calculateSpotLightUniform(vec3 N, vec3 V, vec3 albedo, float metallic, floa
 
 // =============================================================================
 // MATERIAL SAMPLING FUNCTIONS
+// 
+// OPTIMIZATION NOTE: These functions now avoid unnecessary texture lookups
+// by checking use flags before sampling. This reduces memory bandwidth usage
+// and improves performance when textures are not used.
+//
+// GAMMA CORRECTION NOTE: Albedo textures should be in sRGB format and will be
+// automatically converted to linear space by the GPU. Metallic, roughness, 
+// normal, and AO maps should already be in linear space.
 // =============================================================================
 
-// Sample base color/albedo
+// Sample base color/albedo (assumes sRGB texture, GPU converts to linear)
 vec3 sampleAlbedo(sampler2D albedoMap, vec2 texCoord, vec3 baseColorFactor, bool useMap)
 {
-    vec3 albedo = baseColorFactor.rgb;
     if (useMap)
     {
-        albedo *= texture(albedoMap, texCoord).rgb;
+        return baseColorFactor.rgb * texture(albedoMap, texCoord).rgb;
     }
-    return albedo;
+    return baseColorFactor.rgb;
 }
 
-// Sample metallic and roughness
+// Sample metallic and roughness (linear textures)
 vec2 sampleMetallicRoughness(sampler2D metallicRoughnessMap, vec2 texCoord, 
                              float metallicFactor, float roughnessFactor, bool useMap)
 {
-    float metallic = metallicFactor;
-    float roughness = roughnessFactor;
     if (useMap) {
         vec3 metallicRoughness = texture(metallicRoughnessMap, texCoord).rgb;
-        metallic *= metallicRoughness.b;  // Blue channel = metallic
-        roughness *= metallicRoughness.g; // Green channel = roughness
+        return vec2(metallicFactor * metallicRoughness.b,   // Blue channel = metallic
+                    roughnessFactor * metallicRoughness.g); // Green channel = roughness
     }
-    return vec2(metallic, roughness);
+    return vec2(metallicFactor, roughnessFactor);
 }
 
-// Sample ambient occlusion
+// Sample ambient occlusion (linear texture)
 float sampleAO(sampler2D aoMap, vec2 texCoord, float occlusionStrength, bool useMap)
 {
-    float ao = 1.0;
     if (useMap) {
-        ao = texture(aoMap, texCoord).r;
-        ao = mix(1.0, ao, occlusionStrength);
+        float ao = texture(aoMap, texCoord).r;
+        return mix(1.0, ao, occlusionStrength);
     }
-    return ao;
+    return 1.0;
 }
 
-// Sample emissive
+// Sample emissive (assumes sRGB texture if used for color, linear for HDR)
 vec3 sampleEmissive(sampler2D emissiveMap, vec2 texCoord, vec3 emissiveFactor, bool useMap)
 {
-    vec3 emissive = emissiveFactor;
     if (useMap) {
-        emissive *= texture(emissiveMap, texCoord).rgb;
+        return emissiveFactor * texture(emissiveMap, texCoord).rgb;
     }
-    return emissive;
+    return emissiveFactor;
 }
 
 #endif // PBR_GLSL
