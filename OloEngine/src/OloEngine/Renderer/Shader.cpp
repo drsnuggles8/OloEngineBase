@@ -17,7 +17,10 @@ namespace OloEngine
 			}
 			case RendererAPI::API::OpenGL:
 			{
-				return CreateRef<OpenGLShader>(filepath);
+				auto shader = CreateRef<OpenGLShader>(filepath);
+				// Initialize the resource registry after construction
+				static_cast<OpenGLShader*>(shader.get())->InitializeResourceRegistry(shader);
+				return shader;
 			}
 		}
 
@@ -36,7 +39,10 @@ namespace OloEngine
 			}
 			case RendererAPI::API::OpenGL:
 			{
-				return CreateRef<OpenGLShader>(name, vertexSrc, fragmentSrc);
+				auto shader = CreateRef<OpenGLShader>(name, vertexSrc, fragmentSrc);
+				// Initialize the resource registry after construction
+				static_cast<OpenGLShader*>(shader.get())->InitializeResourceRegistry(shader);
+				return shader;
 			}
 		}
 

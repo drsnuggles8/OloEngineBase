@@ -4,25 +4,34 @@
 #include "OloEngine/Renderer/Camera/PerspectiveCamera.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Mesh.h"
+#include "OloEngine/Renderer/SkinnedMesh.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Core/Timestep.h"
+#include "OloEngine/Renderer/ShaderResourceRegistry.h"
 
 // Forward declarations
 namespace OloEngine {
-    class Mesh;
     class Texture2D;
     class RenderCommand;
     class UniformBuffer;
-    class SceneRenderPass;
-    class FinalRenderPass;
     class CommandBucket;
+    class Scene;
+    class Entity;
 }
 
 namespace OloEngine
 {
+    /**
+     * @brief High-level 3D rendering API with scene and material management
+     * 
+     * @warning Thread Safety: This class is NOT thread-safe. All methods should be called
+     * from the main rendering thread only. The static data members (s_Data, m_ShaderLibrary)
+     * are accessed without synchronization and concurrent access will lead to undefined behavior.
+     * If multi-threaded rendering is required, external synchronization must be provided.
+     */
 	class ShaderLibrary;
 
 	class Renderer3D
@@ -35,8 +44,21 @@ namespace OloEngine
 			u32 DrawCalls = 0;
 			u32 ShaderBinds = 0;
 			u32 TextureBinds = 0;
+			u32 TotalAnimatedMeshes = 0;
+			u32 RenderedAnimatedMeshes = 0;
+			u32 SkippedAnimatedMeshes = 0;
 			
-			void Reset() { TotalMeshes = 0; CulledMeshes = 0; DrawCalls = 0; ShaderBinds = 0; TextureBinds = 0; }
+			void Reset() 
+			{ 
+				TotalMeshes = 0; 
+				CulledMeshes = 0; 
+				DrawCalls = 0; 
+				ShaderBinds = 0; 
+				TextureBinds = 0; 
+				TotalAnimatedMeshes = 0; 
+				RenderedAnimatedMeshes = 0; 
+				SkippedAnimatedMeshes = 0; 
+			}
 		};
 
 	public:
@@ -45,29 +67,66 @@ namespace OloEngine
 
 		static void BeginScene(const PerspectiveCamera& camera);
 		static void EndScene();
-
 		static CommandPacket* DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
+		static CommandPacket* DrawSkinnedMesh(const Ref<SkinnedMesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic = true);
 		static CommandPacket* DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
 		static CommandPacket* DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true);
 		static CommandPacket* DrawLightCube(const glm::mat4& modelMatrix);
 		static CommandPacket* DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
+		static CommandPacket* DrawSkybox(const Ref<TextureCubemap>& skyboxTexture);
+		
+		// ECS Animated Mesh Rendering
+		static void RenderAnimatedMeshes(const Ref<Scene>& scene, const Material& defaultMaterial);
+		static void RenderAnimatedMesh(Entity entity, const Material& defaultMaterial);
 	
 		static void SetLight(const Light& light);
 		static void SetViewPosition(const glm::vec3& position);
 		
 		// Culling methods
 		static void EnableFrustumCulling(bool enable);
-		static bool IsFrustumCullingEnabled();
-		static void EnableDynamicCulling(bool enable);
+		static bool IsFrustumCullingEnabled();		static void EnableDynamicCulling(bool enable);
 		static bool IsDynamicCullingEnabled();
 		static const Frustum& GetViewFrustum();
 		static bool IsVisibleInFrustum(const Ref<Mesh>& mesh, const glm::mat4& transform);
+		static bool IsVisibleInFrustum(const Ref<SkinnedMesh>& mesh, const glm::mat4& transform);
 		static bool IsVisibleInFrustum(const BoundingSphere& sphere);
 		static bool IsVisibleInFrustum(const BoundingBox& box);
+		
+		// Debug culling methods
+		static void SetForceDisableCulling(bool disable);
+		static bool IsForceDisableCulling();
 		
 		// Statistics and debug methods
 		static Statistics GetStats();
 		static void ResetStats();
+		
+		// Global resource management for scene-wide resources
+		static ShaderResourceRegistry& GetGlobalResourceRegistry() { return s_Data.GlobalResourceRegistry; }
+		template<typename T>
+		static bool SetGlobalResource(const std::string& name, const Ref<T>& resource)
+		{
+			return s_Data.GlobalResourceRegistry.SetResource(name, resource);
+		}
+		static void ApplyGlobalResources();
+		
+		// Shader registry management
+		static ShaderResourceRegistry* GetShaderRegistry(u32 shaderID);
+		static void RegisterShaderRegistry(u32 shaderID, ShaderResourceRegistry* registry);
+		static void UnregisterShaderRegistry(u32 shaderID);
+		static const std::unordered_map<u32, ShaderResourceRegistry*>& GetShaderRegistries();
+		
+		// High-level resource setting methods
+		template<typename T>
+		static bool SetShaderResource(u32 shaderID, const std::string& name, const Ref<T>& resource)
+		{
+			auto* registry = GetShaderRegistry(shaderID);
+			if (registry)
+			{
+				return registry->SetResource(name, resource);
+			}
+			return false;
+		}
+		static void ApplyResourceBindings(u32 shaderID);
 		
 		// Debug access to command bucket for debugging tools
 		static const CommandBucket* GetCommandBucket() { return s_Data.ScenePass ? &s_Data.ScenePass->GetCommandBucket() : nullptr; }
@@ -75,6 +134,9 @@ namespace OloEngine
 		// Window resize handling
 		static void OnWindowResize(u32 width, u32 height);
 		static const Ref<RenderGraph>& GetRenderGraph() { return s_Data.RGraph; }
+
+		// Shader library access for PBR material shader selection
+		static ShaderLibrary& GetShaderLibrary();
 
 		template<typename T>
 		static CommandPacket* CreateDrawCall()
@@ -96,6 +158,7 @@ namespace OloEngine
 
 	private:
 		static void UpdateCameraMatricesUBO(const glm::mat4& view, const glm::mat4& projection);
+		static void UpdateLightPropertiesUBO();
 		static void SetupRenderGraph(u32 width, u32 height);
 
 	private:
@@ -103,15 +166,22 @@ namespace OloEngine
 		{
 			Ref<Mesh> CubeMesh;
 			Ref<Mesh> QuadMesh;
+			Ref<Mesh> SkyboxMesh;
 			Ref<Shader> LightCubeShader;
 			Ref<Shader> LightingShader;
+			Ref<Shader> SkinnedLightingShader;
 			Ref<Shader> QuadShader;
-			
-			Ref<UniformBuffer> TransformUBO;
+			Ref<Shader> PBRShader;
+			Ref<Shader> PBRSkinnedShader;
+			Ref<Shader> PBRMultiLightShader;
+			Ref<Shader> PBRMultiLightSkinnedShader;
+			Ref<Shader> SkyboxShader;
+					Ref<UniformBuffer> CameraUBO;
 			Ref<UniformBuffer> MaterialUBO;
-			Ref<UniformBuffer> TextureFlagUBO;
-			Ref<UniformBuffer> CameraMatricesBuffer;
 			Ref<UniformBuffer> LightPropertiesUBO;
+			Ref<UniformBuffer> MultiLightBuffer;
+			Ref<UniformBuffer> BoneMatricesUBO;
+			Ref<UniformBuffer> ModelMatrixUBO;
 
 			glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
 			glm::mat4 ViewMatrix = glm::mat4(1.0f);
@@ -126,6 +196,12 @@ namespace OloEngine
 			
 			Statistics Stats;
 			u32 CommandCounter = 0;
+			
+			// Global resource registry for scene-wide resources like environment maps, shadows, etc.
+			ShaderResourceRegistry GlobalResourceRegistry;
+			
+			// Shader registry management
+			std::unordered_map<u32, ShaderResourceRegistry*> ShaderRegistries;
 			
 			Ref<RenderGraph> RGraph;
 			Ref<SceneRenderPass> ScenePass;

@@ -7,8 +7,8 @@ namespace OloEngine
 {
 	class UniformBuffer;
 	class Light;
+	class ShaderResourceRegistry;
 
-    // Command dispatch functions that take POD command data and execute it
     class CommandDispatch
     {
 	public:
@@ -26,20 +26,27 @@ namespace OloEngine
             }
         };
 
-		// Initialize all command dispatch functions
 		static void Initialize();
+        static void Shutdown();
         
-        // Get the dispatch function for a command type
-        static CommandDispatchFn GetDispatchFunction(CommandType type);
+        static CommandDispatchFn GetDispatchFunction(CommandType type);	
 		
-		static void SetSharedUBOs(
-            const Ref<UniformBuffer>& transformUBO,
-            const Ref<UniformBuffer>& materialUBO,
-            const Ref<UniformBuffer>& textureFlagUBO,
-            const Ref<UniformBuffer>& cameraUBO,
-			const Ref<UniformBuffer>& lightUBO);
-
-		static void SetViewProjectionMatrix(const glm::mat4& viewProjection);
+		// State tracking for current frame rendering
+		static void ResetState();
+		static void SetViewProjectionMatrix(const glm::mat4& vp);
+		static void SetViewMatrix(const glm::mat4& view);
+		static void SetProjectionMatrix(const glm::mat4& projection);
+		static void SetSceneLight(const Light& light);
+		static void SetViewPosition(const glm::vec3& viewPos);
+		
+		// UBO access - Renderer3D provides these, CommandDispatch uses them
+		static void SetUBOReferences(
+			const Ref<UniformBuffer>& cameraUBO,
+			const Ref<UniformBuffer>& materialUBO,
+			const Ref<UniformBuffer>& lightUBO,
+			const Ref<UniformBuffer>& boneMatricesUBO,
+			const Ref<UniformBuffer>& modelMatrixUBO
+		);
 
         // State management dispatch functions
         static void SetViewport(const void* data, RendererAPI& api);
@@ -69,28 +76,20 @@ namespace OloEngine
         // Draw commands dispatch functions
         static void BindDefaultFramebuffer(const void* data, RendererAPI& api);
         static void BindTexture(const void* data, RendererAPI& api);
+        static void SetShaderResource(const void* data, RendererAPI& api);
         static void DrawIndexed(const void* data, RendererAPI& api);
         static void DrawIndexedInstanced(const void* data, RendererAPI& api);
         static void DrawArrays(const void* data, RendererAPI& api);
         static void DrawLines(const void* data, RendererAPI& api);
-        
-        // Higher-level commands
         static void DrawMesh(const void* data, RendererAPI& api);
         static void DrawMeshInstanced(const void* data, RendererAPI& api);
+        static void DrawSkinnedMesh(const void* data, RendererAPI& api);
+        static void DrawSkybox(const void* data, RendererAPI& api);
         static void DrawQuad(const void* data, RendererAPI& api);
 		
 		static Statistics& GetStatistics();
 
-		static void ResetState();
-		// Add these functions to CommandDispatch class declaration:
-		static void SetSceneLight(const Light& light);
-		static void SetViewPosition(const glm::vec3& viewPos);
-		static void UpdateLightPropertiesUBO(const Light& light, const glm::vec3& viewPos);
-
 	private:
-        static void UpdateTransformUBO(const glm::mat4& modelMatrix);
-        static void UpdateMaterialUBO(const glm::vec3& ambient, const glm::vec3& diffuse, 
-                                     const glm::vec3& specular, f32 shininess);
-        static void UpdateTextureFlag(bool useTextures);
+        static void UpdateMaterialTextureFlag(bool useTextures);
     };
 }

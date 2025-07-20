@@ -28,6 +28,7 @@ namespace OloEngine
             VertexBuffer = 0,
             IndexBuffer,
             UniformBuffer,
+            StorageBuffer,
             Texture2D,
             TextureCubemap,
             Framebuffer,

@@ -2,36 +2,19 @@
 
 #pragma once
 
+#include "ShaderDataTypes.h"
+
 namespace OloEngine
 {
-
-	enum class ShaderDataType
+	/**
+	 * @brief Buffer usage patterns for optimization hints
+	 */
+	enum class BufferUsage
 	{
-		None = 0, Float, Float2, Float3, Float4, Mat3, Mat4, Int, Int2, Int3, Int4, Bool
+		Static = 0,  // Data will be modified once and used many times
+		Dynamic,     // Data will be modified repeatedly and used many times
+		Stream       // Data will be modified once and used at most a few times
 	};
-
-	[[nodiscard("Store this!")]] static u32 ShaderDataTypeSize(ShaderDataType const type)
-	{
-		switch (type)
-		{
-			using enum OloEngine::ShaderDataType;
-			case Float:    return 4;
-			case Float2:   return 4 * 2;
-			case Float3:   return 4 * 3;
-			case Float4:   return 4 * 4;
-			case Mat3:     return 4 * 3 * 3;
-			case Mat4:     return 4 * 4 * 4;
-			case Int:      return 4;
-			case Int2:     return 4 * 2;
-			case Int3:     return 4 * 3;
-			case Int4:     return 4 * 4;
-			case Bool:     return 1;
-			case None:     break;
-		}
-
-		OLO_CORE_ASSERT(false, "Unknown ShaderDataType!");
-		return 0;
-	}
 
 	struct BufferElement
 	{
@@ -44,7 +27,7 @@ namespace OloEngine
 		BufferElement() = default;
 
 		BufferElement(ShaderDataType const type, const std::string& name, const bool normalized = false)
-			: name(name), dataType(type), size(ShaderDataTypeSize(type)), offset(0), normalized(normalized)
+			: name(name), dataType(type), size(ShaderUniformDeclaration::ShaderDataTypeSize(type)), offset(0), normalized(normalized)
 		{
 		}
 

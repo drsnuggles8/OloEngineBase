@@ -1,28 +1,39 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Buffer.h"
 #include "OloEngine/Renderer/Mesh.h"
+#include "OloEngine/Renderer/SkinnedMesh.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
+#include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Core/Application.h"
+#include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Scene/Components.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
 namespace OloEngine
 {
+	static bool s_ForceDisableCulling = false;
+
 	Renderer3D::Renderer3DData Renderer3D::s_Data;
 	ShaderLibrary Renderer3D::m_ShaderLibrary;
+	
 	void Renderer3D::Init()
 	{
 		OLO_PROFILE_FUNCTION();
@@ -35,48 +46,66 @@ namespace OloEngine
 
 		s_Data.CubeMesh = Mesh::CreateCube();
 		s_Data.QuadMesh = Mesh::CreatePlane(1.0f, 1.0f);
-
+		s_Data.SkyboxMesh = Mesh::CreateSkyboxCube();
 		m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
 		m_ShaderLibrary.Load("assets/shaders/Lighting3D.glsl");
+		m_ShaderLibrary.Load("assets/shaders/SkinnedLighting3D_Simple.glsl");
 		m_ShaderLibrary.Load("assets/shaders/Renderer3D_Quad.glsl");
-
+		m_ShaderLibrary.Load("assets/shaders/PBR.glsl");
+		m_ShaderLibrary.Load("assets/shaders/PBR_Skinned.glsl");
+		m_ShaderLibrary.Load("assets/shaders/PBR_MultiLight.glsl");
+		m_ShaderLibrary.Load("assets/shaders/PBR_MultiLight_Skinned.glsl");
+		m_ShaderLibrary.Load("assets/shaders/EquirectangularToCubemap.glsl");
+		m_ShaderLibrary.Load("assets/shaders/IrradianceConvolution.glsl");
+		m_ShaderLibrary.Load("assets/shaders/IBLPrefilter.glsl");
+		m_ShaderLibrary.Load("assets/shaders/BRDFLutGeneration.glsl");
+		m_ShaderLibrary.Load("assets/shaders/Skybox.glsl");
+		
 		s_Data.LightCubeShader = m_ShaderLibrary.Get("LightCube");
 		s_Data.LightingShader = m_ShaderLibrary.Get("Lighting3D");
+		s_Data.SkinnedLightingShader = m_ShaderLibrary.Get("SkinnedLighting3D_Simple");
 		s_Data.QuadShader = m_ShaderLibrary.Get("Renderer3D_Quad");
-
-		// Create all necessary UBOs
-		s_Data.TransformUBO = UniformBuffer::Create(sizeof(glm::mat4) * 2, 0);  // Model + VP matrices
-		s_Data.MaterialUBO = UniformBuffer::Create(sizeof(glm::vec4) * 4, 1);   // Material properties
-		s_Data.TextureFlagUBO = UniformBuffer::Create(sizeof(int), 2);          // Texture flags
-		s_Data.CameraMatricesBuffer = UniformBuffer::Create(sizeof(glm::mat4) * 2, 3); // View and projection matrices
-		s_Data.LightPropertiesUBO = UniformBuffer::Create(sizeof(glm::vec4) * 12, 1); // Binding point 1, not 4
+		s_Data.PBRShader = m_ShaderLibrary.Get("PBR");
+		s_Data.PBRSkinnedShader = m_ShaderLibrary.Get("PBR_Skinned");
+		s_Data.PBRMultiLightShader = m_ShaderLibrary.Get("PBR_MultiLight");
+		s_Data.PBRMultiLightSkinnedShader = m_ShaderLibrary.Get("PBR_MultiLight_Skinned");
+		s_Data.SkyboxShader = m_ShaderLibrary.Get("Skybox");
 		
-		// Share UBOs with CommandDispatch
-		CommandDispatch::SetSharedUBOs(
-			s_Data.TransformUBO,
+		s_Data.CameraUBO = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+		s_Data.LightPropertiesUBO = UniformBuffer::Create(ShaderBindingLayout::LightUBO::GetSize(), ShaderBindingLayout::UBO_LIGHTS);
+		s_Data.MaterialUBO = UniformBuffer::Create(ShaderBindingLayout::MaterialUBO::GetSize(), ShaderBindingLayout::UBO_MATERIAL);
+		s_Data.MultiLightBuffer = UniformBuffer::Create(ShaderBindingLayout::MultiLightUBO::GetSize(), ShaderBindingLayout::UBO_MULTI_LIGHTS);
+		s_Data.ModelMatrixUBO = UniformBuffer::Create(ShaderBindingLayout::ModelUBO::GetSize(), ShaderBindingLayout::UBO_MODEL);
+		s_Data.BoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION);
+		
+		CommandDispatch::SetUBOReferences(
+			s_Data.CameraUBO,
 			s_Data.MaterialUBO, 
-			s_Data.TextureFlagUBO,
-			s_Data.CameraMatricesBuffer,
-			s_Data.LightPropertiesUBO
+			s_Data.LightPropertiesUBO,
+			s_Data.BoneMatricesUBO,
+			s_Data.ModelMatrixUBO
 		);
 		
-		OLO_CORE_INFO("Shared UBOs with CommandDispatch");
-
-		// Initialize the default light
+		EnvironmentMap::InitializeIBLSystem(m_ShaderLibrary);
+		OLO_CORE_INFO("IBL system initialized.");
+		
+		s_Data.SceneLight.Type = LightType::Directional;
 		s_Data.SceneLight.Position = glm::vec3(1.2f, 1.0f, 2.0f);
+		s_Data.SceneLight.Direction = glm::vec3(-0.2f, -1.0f, -0.3f);
 		s_Data.SceneLight.Ambient = glm::vec3(0.2f, 0.2f, 0.2f);
 		s_Data.SceneLight.Diffuse = glm::vec3(0.5f, 0.5f, 0.5f);
 		s_Data.SceneLight.Specular = glm::vec3(1.0f, 1.0f, 1.0f);
+		s_Data.SceneLight.Constant = 1.0f;
+		s_Data.SceneLight.Linear = 0.09f;
+		s_Data.SceneLight.Quadratic = 0.032f;
 
 		s_Data.ViewPos = glm::vec3(0.0f, 0.0f, 3.0f);
 		
 		s_Data.Stats.Reset();
 		
-		// Initialize the render graph with command-based render passes
 		Window& window = Application::Get().GetWindow();
 		s_Data.RGraph = CreateRef<RenderGraph>();
-		SetupRenderGraph(window.GetFramebufferWidth(), window.GetFramebufferHeight());
-		
+		SetupRenderGraph(window.GetFramebufferWidth(), window.GetFramebufferHeight());		
 		OLO_CORE_INFO("Renderer3D initialization complete.");
 	}
 
@@ -85,17 +114,19 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 		OLO_CORE_INFO("Shutting down Renderer3D.");
 		
-		// Shutdown the render graph
+		// Clear shader registries
+		s_Data.ShaderRegistries.clear();
+		
 		if (s_Data.RGraph)
-			s_Data.RGraph->Shutdown();
+		 s_Data.RGraph->Shutdown();
 		
 		OLO_CORE_INFO("Renderer3D shutdown complete.");
 	}
+
 	void Renderer3D::BeginScene(const PerspectiveCamera& camera)
 	{
 		OLO_PROFILE_FUNCTION();
 		
-		// Begin profiler frame tracking
 		RendererProfiler::GetInstance().BeginFrame();
 		
 		if (!s_Data.ScenePass)
@@ -106,108 +137,44 @@ namespace OloEngine
 
 		CommandAllocator* frameAllocator = CommandMemoryManager::GetFrameAllocator();
 		s_Data.ScenePass->GetCommandBucket().SetAllocator(frameAllocator);
-
 		s_Data.ViewMatrix = camera.GetView();
 		s_Data.ProjectionMatrix = camera.GetProjection();
 		s_Data.ViewProjectionMatrix = camera.GetViewProjection();
 
-		// Update the view frustum for culling
+		CommandDispatch::SetViewProjectionMatrix(s_Data.ViewProjectionMatrix);
+		CommandDispatch::SetViewMatrix(s_Data.ViewMatrix);
+		CommandDispatch::SetProjectionMatrix(s_Data.ProjectionMatrix);
+
 		s_Data.ViewFrustum.Update(s_Data.ViewProjectionMatrix);
 		
-		// Reset statistics for this frame
 		s_Data.Stats.Reset();
 		s_Data.CommandCounter = 0;
 		
-		// Update the camera matrices UBO
 		UpdateCameraMatricesUBO(s_Data.ViewMatrix, s_Data.ProjectionMatrix);
+		UpdateLightPropertiesUBO();
 		
-		// Share the view-projection matrix with CommandDispatch
-		CommandDispatch::SetViewProjectionMatrix(s_Data.ViewProjectionMatrix);
 		CommandDispatch::SetSceneLight(s_Data.SceneLight);
     	CommandDispatch::SetViewPosition(s_Data.ViewPos);
 		
-		// Reset the command bucket for this frame
 		s_Data.ScenePass->ResetCommandBucket();
 		
-		// Reset CommandDispatch state tracking
 		CommandDispatch::ResetState();
-		
-		// Explicitly update light properties UBO
-		if (s_Data.LightPropertiesUBO)
-		{
-			// Use a default material for the initial UBO update
-			Material defaultMaterial;
-			
-			// Build light properties data exactly as Renderer3D does
-			struct LightPropertiesData
-			{
-				glm::vec4 MaterialAmbient;
-				glm::vec4 MaterialDiffuse;
-				glm::vec4 MaterialSpecular;
-				glm::vec4 Padding1;
-
-				glm::vec4 LightPosition;
-				glm::vec4 LightDirection;
-				glm::vec4 LightAmbient;
-				glm::vec4 LightDiffuse;
-				glm::vec4 LightSpecular;
-				glm::vec4 LightAttParams;
-				glm::vec4 LightSpotParams;
-
-				glm::vec4 ViewPosAndLightType;
-			};
-
-			LightPropertiesData lightData;
-
-			lightData.MaterialAmbient = glm::vec4(defaultMaterial.Ambient, 0.0f);
-			lightData.MaterialDiffuse = glm::vec4(defaultMaterial.Diffuse, 0.0f);
-			lightData.MaterialSpecular = glm::vec4(defaultMaterial.Specular, defaultMaterial.Shininess);
-			lightData.Padding1 = glm::vec4(0.0f);
-
-			auto lightType = std::to_underlying(s_Data.SceneLight.Type);
-			lightData.LightPosition = glm::vec4(s_Data.SceneLight.Position, 1.0f); // Use 1.0 for w to indicate position, not direction
-			lightData.LightDirection = glm::vec4(s_Data.SceneLight.Direction, 0.0f);
-			lightData.LightAmbient = glm::vec4(s_Data.SceneLight.Ambient, 0.0f);
-			lightData.LightDiffuse = glm::vec4(s_Data.SceneLight.Diffuse, 0.0f);
-			lightData.LightSpecular = glm::vec4(s_Data.SceneLight.Specular, 0.0f);
-
-			lightData.LightAttParams = glm::vec4(
-				s_Data.SceneLight.Constant,
-				s_Data.SceneLight.Linear,
-				s_Data.SceneLight.Quadratic,
-				0.0f
-			);
-
-			lightData.LightSpotParams = glm::vec4(
-				s_Data.SceneLight.CutOff,
-				s_Data.SceneLight.OuterCutOff,
-				0.0f,
-				0.0f
-			);
-
-			lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<f32>(lightType));
-
-			// Update the UBO directly
-			s_Data.LightPropertiesUBO->SetData(&lightData, sizeof(LightPropertiesData));
-		}
 	}
+	
 	void Renderer3D::EndScene()
 	{
 		OLO_PROFILE_FUNCTION();
         
-        // Make sure we have a valid render graph
         if (!s_Data.RGraph)
         {
             OLO_CORE_ERROR("Renderer3D::EndScene: Render graph is null!");
             return;
         }
         
-        // Ensure the final pass has the scene pass's framebuffer as input
         if (s_Data.ScenePass && s_Data.FinalPass)
         {
             s_Data.FinalPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
         }
-          // Update profiler with command bucket statistics
         auto& profiler = RendererProfiler::GetInstance();
         if (s_Data.ScenePass)
         {
@@ -215,14 +182,14 @@ namespace OloEngine
             profiler.IncrementCounter(RendererProfiler::MetricType::CommandPackets, static_cast<u32>(commandBucket.GetCommandCount()));
         }
         
-		// Execute the render graph (which will execute all passes in order)
+        ApplyGlobalResources();
+        
 		s_Data.RGraph->Execute();
 
 		CommandAllocator* allocator = s_Data.ScenePass->GetCommandBucket().GetAllocator();
 		CommandMemoryManager::ReturnAllocator(allocator);
 		s_Data.ScenePass->GetCommandBucket().SetAllocator(nullptr);
 		
-		// End profiler frame tracking
 		profiler.EndFrame();
 	}
 
@@ -243,6 +210,7 @@ namespace OloEngine
 	
 	bool Renderer3D::IsFrustumCullingEnabled()
 	{
+		if (s_ForceDisableCulling) return false;
 		return s_Data.FrustumCullingEnabled;
 	}
 	
@@ -253,12 +221,29 @@ namespace OloEngine
 	
 	bool Renderer3D::IsDynamicCullingEnabled()
 	{
+		if (s_ForceDisableCulling) return false;
 		return s_Data.DynamicCullingEnabled;
 	}
 	
 	const Frustum& Renderer3D::GetViewFrustum()
 	{
 		return s_Data.ViewFrustum;
+	}
+	
+	void Renderer3D::SetForceDisableCulling(bool disable)
+	{
+		s_ForceDisableCulling = disable;
+		if (disable)
+		{
+			EnableFrustumCulling(false);
+			EnableDynamicCulling(false);
+			OLO_CORE_WARN("Renderer3D: All culling forcibly disabled for debugging!");
+		}
+	}
+
+	bool Renderer3D::IsForceDisableCulling()
+	{
+		return s_ForceDisableCulling;
 	}
 	
 	Renderer3D::Statistics Renderer3D::GetStats()
@@ -277,18 +262,29 @@ namespace OloEngine
 			return true;
 		
 		BoundingSphere sphere = mesh->GetTransformedBoundingSphere(transform);
-		sphere.Radius *= 1.3f; // Safety margin to prevent popping
+		sphere.Radius *= 1.3f;
 		
 		return s_Data.ViewFrustum.IsBoundingSphereVisible(sphere);
 	}
 	
+	bool Renderer3D::IsVisibleInFrustum(const Ref<SkinnedMesh>& mesh, const glm::mat4& transform)
+	{
+		if (!s_Data.FrustumCullingEnabled)
+			return true;
+		
+		BoundingSphere sphere = mesh->GetTransformedBoundingSphere(transform);
+		sphere.Radius *= 1.3f;
+		
+		return s_Data.ViewFrustum.IsBoundingSphereVisible(sphere);
+	}
+
 	bool Renderer3D::IsVisibleInFrustum(const BoundingSphere& sphere)
 	{
 		if (!s_Data.FrustumCullingEnabled)
 			return true;
 		
 		BoundingSphere expandedSphere = sphere;
-		expandedSphere.Radius *= 1.3f; // Safety margin to prevent popping
+		expandedSphere.Radius *= 1.3f;
 		
 		return s_Data.ViewFrustum.IsBoundingSphereVisible(expandedSphere);
 	}
@@ -310,6 +306,7 @@ namespace OloEngine
 			return nullptr;
 		}
 		s_Data.Stats.TotalMeshes++;
+		
 		if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
 		{
 			if (!IsVisibleInFrustum(mesh, modelMatrix))
@@ -323,7 +320,21 @@ namespace OloEngine
 			OLO_CORE_ERROR("Renderer3D::DrawMesh: Invalid mesh or vertex array!");
 			return nullptr;
 		}
-		Ref<Shader> shaderToUse = material.Shader ? material.Shader : s_Data.LightingShader;
+		
+		Ref<Shader> shaderToUse;
+		if (material.Shader)
+		{
+			shaderToUse = material.Shader;
+		}
+		else if (material.Type == MaterialType::PBR)
+		{
+			shaderToUse = s_Data.PBRShader;
+		}
+		else
+		{
+			shaderToUse = s_Data.LightingShader;
+		}
+		
 		if (!shaderToUse)
 		{
 			OLO_CORE_ERROR("Renderer3D::DrawMesh: No shader available!");
@@ -336,6 +347,8 @@ namespace OloEngine
 		cmd->vertexArray = mesh->GetVertexArray();
 		cmd->indexCount = mesh->GetIndexCount();
 		cmd->transform = glm::mat4(modelMatrix);
+		
+		// Legacy material properties (for backward compatibility)
 		cmd->ambient = material.Ambient;
 		cmd->diffuse = material.Diffuse;
 		cmd->specular = material.Specular;
@@ -343,6 +356,28 @@ namespace OloEngine
 		cmd->useTextureMaps = material.UseTextureMaps;
 		cmd->diffuseMap = material.DiffuseMap;
 		cmd->specularMap = material.SpecularMap;
+		
+		// PBR material properties
+		cmd->enablePBR = (material.Type == MaterialType::PBR);
+		cmd->baseColorFactor = material.BaseColorFactor;
+		cmd->emissiveFactor = material.EmissiveFactor;
+		cmd->metallicFactor = material.MetallicFactor;
+		cmd->roughnessFactor = material.RoughnessFactor;
+		cmd->normalScale = material.NormalScale;
+		cmd->occlusionStrength = material.OcclusionStrength;
+		cmd->enableIBL = material.EnableIBL;
+		
+		// PBR texture references
+		cmd->albedoMap = material.AlbedoMap;
+		cmd->metallicRoughnessMap = material.MetallicRoughnessMap;
+		cmd->normalMap = material.NormalMap;
+		cmd->aoMap = material.AOMap;
+		cmd->emissiveMap = material.EmissiveMap;
+		cmd->environmentMap = material.EnvironmentMap;
+		cmd->irradianceMap = material.IrradianceMap;
+		cmd->prefilterMap = material.PrefilterMap;
+		cmd->brdfLutMap = material.BRDFLutMap;
+		
 		cmd->shader = shaderToUse;
 		cmd->renderState = CreateRef<RenderState>();
 		packet->SetCommandType(cmd->header.type);
@@ -402,6 +437,7 @@ namespace OloEngine
 			return nullptr;
 		}
 		s_Data.Stats.TotalMeshes += static_cast<u32>(transforms.size());
+		
 		if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
 		{
 			if (!IsVisibleInFrustum(mesh, transforms[0]))
@@ -412,14 +448,15 @@ namespace OloEngine
 		}
 
 		CommandPacket* packet = CreateDrawCall<DrawMeshInstancedCommand>();
-		auto* cmd = packet->GetCommandData<DrawMeshInstancedCommand>();
-		
+		auto* cmd = packet->GetCommandData<DrawMeshInstancedCommand>();		
 		cmd->header.type = CommandType::DrawMeshInstanced;
 		cmd->mesh = mesh;
 		cmd->vertexArray = mesh->GetVertexArray();
 		cmd->indexCount = mesh->GetIndexCount();
 		cmd->instanceCount = static_cast<u32>(transforms.size());
 		cmd->transforms = transforms;
+		
+		// Legacy material properties (for backward compatibility)
 		cmd->ambient = material.Ambient;
 		cmd->diffuse = material.Diffuse;
 		cmd->specular = material.Specular;
@@ -427,6 +464,28 @@ namespace OloEngine
 		cmd->useTextureMaps = material.UseTextureMaps;
 		cmd->diffuseMap = material.DiffuseMap;
 		cmd->specularMap = material.SpecularMap;
+		
+		// PBR material properties
+		cmd->enablePBR = (material.Type == MaterialType::PBR);
+		cmd->baseColorFactor = material.BaseColorFactor;
+		cmd->emissiveFactor = material.EmissiveFactor;
+		cmd->metallicFactor = material.MetallicFactor;
+		cmd->roughnessFactor = material.RoughnessFactor;
+		cmd->normalScale = material.NormalScale;
+		cmd->occlusionStrength = material.OcclusionStrength;
+		cmd->enableIBL = material.EnableIBL;
+		
+		// PBR texture references
+		cmd->albedoMap = material.AlbedoMap;
+		cmd->metallicRoughnessMap = material.MetallicRoughnessMap;
+		cmd->normalMap = material.NormalMap;
+		cmd->aoMap = material.AOMap;
+		cmd->emissiveMap = material.EmissiveMap;
+		cmd->environmentMap = material.EnvironmentMap;
+		cmd->irradianceMap = material.IrradianceMap;
+		cmd->prefilterMap = material.PrefilterMap;
+		cmd->brdfLutMap = material.BRDFLutMap;
+		
 		cmd->shader = material.Shader ? material.Shader : s_Data.LightingShader;
 		cmd->renderState = CreateRef<RenderState>();
 		packet->SetCommandType(cmd->header.type);
@@ -450,6 +509,8 @@ namespace OloEngine
 		cmd->indexCount = s_Data.CubeMesh->GetIndexCount();
 		cmd->transform = modelMatrix;
 		cmd->shader = s_Data.LightCubeShader;
+		
+		// Legacy material properties
 		cmd->ambient = glm::vec3(1.0f);
 		cmd->diffuse = glm::vec3(1.0f);
 		cmd->specular = glm::vec3(1.0f);
@@ -457,6 +518,26 @@ namespace OloEngine
 		cmd->useTextureMaps = false;
 		cmd->diffuseMap = nullptr;
 		cmd->specularMap = nullptr;
+		
+		// PBR material properties (default values for light cube)
+		cmd->enablePBR = false;
+		cmd->baseColorFactor = glm::vec4(1.0f);
+		cmd->emissiveFactor = glm::vec4(0.0f);
+		cmd->metallicFactor = 0.0f;
+		cmd->roughnessFactor = 1.0f;
+		cmd->normalScale = 1.0f;
+		cmd->occlusionStrength = 1.0f;
+		cmd->enableIBL = false;
+		cmd->albedoMap = nullptr;
+		cmd->metallicRoughnessMap = nullptr;
+		cmd->normalMap = nullptr;
+		cmd->aoMap = nullptr;
+		cmd->emissiveMap = nullptr;
+		cmd->environmentMap = nullptr;
+		cmd->irradianceMap = nullptr;
+		cmd->prefilterMap = nullptr;
+		cmd->brdfLutMap = nullptr;
+		
 		cmd->renderState = CreateRef<RenderState>();
 		packet->SetCommandType(cmd->header.type);
 		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
@@ -472,17 +553,49 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
         
-		struct CameraMatrices
+		ShaderBindingLayout::CameraUBO cameraData;
+		cameraData.ViewProjection = projection * view;
+		cameraData.View = view;
+		cameraData.Projection = projection;
+		cameraData.Position = s_Data.ViewPos;
+		cameraData._padding0 = 0.0f;
+		
+		constexpr u32 expectedSize = ShaderBindingLayout::CameraUBO::GetSize();
+		static_assert(sizeof(ShaderBindingLayout::CameraUBO) == expectedSize, "CameraUBO size mismatch");
+		
+		s_Data.CameraUBO->SetData(&cameraData, expectedSize);
+	}
+	
+	void Renderer3D::UpdateLightPropertiesUBO()
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (s_Data.LightPropertiesUBO)
 		{
-			glm::mat4 Projection;
-			glm::mat4 View;
-		};
-		
-		CameraMatrices matrices;
-		matrices.Projection = projection;
-		matrices.View = view;
-		
-		s_Data.CameraMatricesBuffer->SetData(&matrices, sizeof(CameraMatrices));
+			ShaderBindingLayout::LightUBO lightData;
+			auto lightType = std::to_underlying(s_Data.SceneLight.Type);
+			
+			lightData.LightPosition = glm::vec4(s_Data.SceneLight.Position, 1.0f);
+			lightData.LightDirection = glm::vec4(s_Data.SceneLight.Direction, 0.0f);
+			lightData.LightAmbient = glm::vec4(s_Data.SceneLight.Ambient, 0.0f);
+			lightData.LightDiffuse = glm::vec4(s_Data.SceneLight.Diffuse, 0.0f);
+			lightData.LightSpecular = glm::vec4(s_Data.SceneLight.Specular, 0.0f);
+			lightData.LightAttParams = glm::vec4(
+				s_Data.SceneLight.Constant,
+				s_Data.SceneLight.Linear,
+				s_Data.SceneLight.Quadratic,
+				0.0f
+			);
+			lightData.LightSpotParams = glm::vec4(
+				s_Data.SceneLight.CutOff,
+				s_Data.SceneLight.OuterCutOff,
+				0.0f,
+				0.0f
+			);
+			lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<f32>(lightType));
+			
+			s_Data.LightPropertiesUBO->SetData(&lightData, sizeof(ShaderBindingLayout::LightUBO));
+		}
 	}
 	
 	void Renderer3D::SetupRenderGraph(u32 width, u32 height)
@@ -498,22 +611,19 @@ namespace OloEngine
 		
 		s_Data.RGraph->Init(width, height);
 		
-		// Create the framebuffer specification for our scene pass
 		FramebufferSpecification scenePassSpec;
 		scenePassSpec.Width = width;
 		scenePassSpec.Height = height;
 		scenePassSpec.Samples = 1;
 		scenePassSpec.Attachments = {
-			FramebufferTextureFormat::RGBA8,       // Color attachment
-			FramebufferTextureFormat::Depth        // Depth attachment
+			FramebufferTextureFormat::RGBA8,
+			FramebufferTextureFormat::Depth
 		};
 		
-		// Create the final pass spec
 		FramebufferSpecification finalPassSpec;
 		finalPassSpec.Width = width;
 		finalPassSpec.Height = height;
 		
-		// Create the command-based passes
 		s_Data.ScenePass = CreateRef<SceneRenderPass>();
 		s_Data.ScenePass->SetName("ScenePass");
 		s_Data.ScenePass->Init(scenePassSpec);
@@ -522,18 +632,14 @@ namespace OloEngine
 		s_Data.FinalPass->SetName("FinalPass");
 		s_Data.FinalPass->Init(finalPassSpec);
 		
-		// Add passes to the render graph
 		s_Data.RGraph->AddPass(s_Data.ScenePass);
 		s_Data.RGraph->AddPass(s_Data.FinalPass);
 		
-		// Connect passes (scene pass output -> final pass input)
 		s_Data.RGraph->ConnectPass("ScenePass", "FinalPass");
 		
-		 // Explicitly set the input framebuffer for the final pass
 		s_Data.FinalPass->SetInputFramebuffer(s_Data.ScenePass->GetTarget());
 		OLO_CORE_INFO("Renderer3D: Connected scene pass framebuffer to final pass input");
 		
-		// Set the final pass
 		s_Data.RGraph->SetFinalPass("FinalPass");
 	}
 	
@@ -550,5 +656,305 @@ namespace OloEngine
 		{
 			OLO_CORE_WARN("Renderer3D::OnWindowResize: No render graph available!");
 		}
+	}
+
+	CommandPacket* Renderer3D::DrawSkinnedMesh(const Ref<SkinnedMesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic)
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("Renderer3D::DrawSkinnedMesh: ScenePass is null!");
+			return nullptr;
+		}
+		
+		s_Data.Stats.TotalMeshes++;
+		
+		if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
+		{
+			if (!IsVisibleInFrustum(mesh, modelMatrix))
+			{
+				s_Data.Stats.CulledMeshes++;
+				return nullptr;
+			}
+		}
+		
+		if (!mesh || !mesh->GetVertexArray())
+		{
+			OLO_CORE_ERROR("Renderer3D::DrawSkinnedMesh: Invalid mesh ({}) or vertex array ({})!", 
+							(void*)mesh.get(), 
+							mesh ? (void*)mesh->GetVertexArray().get() : nullptr);
+			return nullptr;
+		}
+
+		Ref<Shader> shaderToUse;
+		if (material.Shader)
+		{
+			shaderToUse = material.Shader;
+		}
+		else if ((material.Type == MaterialType::PBR))
+		{
+			shaderToUse = s_Data.PBRSkinnedShader;
+		}
+		else
+		{
+			shaderToUse = s_Data.SkinnedLightingShader;
+		}
+		
+		if (!shaderToUse)
+		{
+			OLO_CORE_WARN("Renderer3D::DrawSkinnedMesh: Preferred shader not available, falling back to Lighting3D");
+			shaderToUse = s_Data.LightingShader;
+		}
+		if (!shaderToUse)
+		{
+			OLO_CORE_ERROR("Renderer3D::DrawSkinnedMesh: No shader available!");
+			return nullptr;
+		}
+		
+		if (boneMatrices.empty())
+		{
+			OLO_CORE_WARN("Renderer3D::DrawSkinnedMesh: No bone matrices provided, using identity matrices");
+		}
+		
+		CommandPacket* packet = CreateDrawCall<DrawSkinnedMeshCommand>();
+		auto* cmd = packet->GetCommandData<DrawSkinnedMeshCommand>();
+		
+		cmd->header.type = CommandType::DrawSkinnedMesh;
+		
+		cmd->vertexArray = mesh->GetVertexArray();
+		cmd->indexCount = mesh->GetIndexCount();
+		cmd->modelMatrix = modelMatrix;
+		
+		// Legacy material properties (for backward compatibility)
+		cmd->ambient = material.Ambient;
+		cmd->diffuse = material.Diffuse;
+		cmd->specular = material.Specular;
+		cmd->shininess = material.Shininess;
+		cmd->useTextureMaps = material.UseTextureMaps;
+		cmd->diffuseMap = material.DiffuseMap;
+		cmd->specularMap = material.SpecularMap;
+		
+		// PBR material properties
+		cmd->enablePBR = (material.Type == MaterialType::PBR);
+		cmd->baseColorFactor = material.BaseColorFactor;
+		cmd->emissiveFactor = material.EmissiveFactor;
+		cmd->metallicFactor = material.MetallicFactor;
+		cmd->roughnessFactor = material.RoughnessFactor;
+		cmd->normalScale = material.NormalScale;
+		cmd->occlusionStrength = material.OcclusionStrength;
+		cmd->enableIBL = material.EnableIBL;
+		
+		// PBR texture references
+		cmd->albedoMap = material.AlbedoMap;
+		cmd->metallicRoughnessMap = material.MetallicRoughnessMap;
+		cmd->normalMap = material.NormalMap;
+		cmd->aoMap = material.AOMap;
+		cmd->emissiveMap = material.EmissiveMap;
+		cmd->environmentMap = material.EnvironmentMap;
+		cmd->irradianceMap = material.IrradianceMap;
+		cmd->prefilterMap = material.PrefilterMap;
+		cmd->brdfLutMap = material.BRDFLutMap;
+		
+		cmd->shader = shaderToUse;
+		cmd->renderState = CreateRef<RenderState>();
+		
+		cmd->boneMatrices = boneMatrices;
+		
+		packet->SetCommandType(cmd->header.type);
+		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+		
+		return packet;
+	}
+
+	void Renderer3D::ApplyGlobalResources()
+	{
+		OLO_PROFILE_FUNCTION();
+		
+		const auto& shaderRegistries = s_Data.ShaderRegistries;
+		
+		for (const auto& [shaderID, registry] : shaderRegistries)
+		{
+			if (registry)
+			{
+				const auto& globalResources = s_Data.GlobalResourceRegistry.GetBoundResources();
+				for (const auto& [resourceName, resource] : globalResources)
+				{
+					if (registry->GetBindingInfo(resourceName) != nullptr)
+					{
+						ShaderResourceInput input;
+						if (std::holds_alternative<Ref<UniformBuffer>>(resource))
+						{
+							input = ShaderResourceInput(std::get<Ref<UniformBuffer>>(resource));
+						}
+						else if (std::holds_alternative<Ref<Texture2D>>(resource))
+						{
+							input = ShaderResourceInput(std::get<Ref<Texture2D>>(resource));
+						}
+						else if (std::holds_alternative<Ref<TextureCubemap>>(resource))
+						{
+							input = ShaderResourceInput(std::get<Ref<TextureCubemap>>(resource));
+						}
+						
+						if (input.Type != ShaderResourceType::None)
+						{
+							registry->SetResource(resourceName, input);
+						}
+					}
+				}
+			}
+		}
+	}
+
+	void Renderer3D::RenderAnimatedMeshes(const Ref<Scene>& scene, const Material& defaultMaterial)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		if (!scene)
+		{
+			OLO_CORE_WARN("Renderer3D::RenderAnimatedMeshes: Scene is null");
+			return;
+		}
+
+		auto view = scene->GetAllEntitiesWith<AnimatedMeshComponent, SkeletonComponent, TransformComponent>();
+
+		for (auto entityID : view)
+		{
+			Entity entity = { entityID, scene.get() };
+			s_Data.Stats.TotalAnimatedMeshes++;
+
+			RenderAnimatedMesh(entity, defaultMaterial);
+		}
+	}
+
+	void Renderer3D::RenderAnimatedMesh(Entity entity, const Material& defaultMaterial)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		if (!entity.HasComponent<AnimatedMeshComponent>() || 
+			!entity.HasComponent<SkeletonComponent>() ||
+			!entity.HasComponent<TransformComponent>())
+		{
+			s_Data.Stats.SkippedAnimatedMeshes++;
+			return;
+		}
+
+		auto& animatedMeshComp = entity.GetComponent<AnimatedMeshComponent>();
+		auto& skeletonComp = entity.GetComponent<SkeletonComponent>();
+		auto& transformComp = entity.GetComponent<TransformComponent>();
+
+		if (!animatedMeshComp.m_Mesh)
+		{
+			OLO_CORE_WARN("Renderer3D::RenderAnimatedMesh: Entity {} has invalid mesh", 
+						 entity.GetComponent<TagComponent>().Tag);
+			s_Data.Stats.SkippedAnimatedMeshes++;
+			return;
+		}
+
+		glm::mat4 worldTransform = transformComp.GetTransform();
+
+		Material material = defaultMaterial;
+
+		const std::vector<glm::mat4>& boneMatrices = skeletonComp.m_Skeleton.m_FinalBoneMatrices;
+
+		auto* packet = DrawSkinnedMesh(
+			animatedMeshComp.m_Mesh,
+			worldTransform,
+			material,
+			boneMatrices,
+			false
+		);
+
+		if (packet)
+		{
+			SubmitPacket(packet);
+			s_Data.Stats.RenderedAnimatedMeshes++;
+		}
+	}
+
+	ShaderResourceRegistry* Renderer3D::GetShaderRegistry(u32 shaderID)
+	{
+		auto it = s_Data.ShaderRegistries.find(shaderID);
+		return it != s_Data.ShaderRegistries.end() ? it->second : nullptr;
+	}
+
+	void Renderer3D::RegisterShaderRegistry(u32 shaderID, ShaderResourceRegistry* registry)
+	{
+		if (registry)
+		{
+			s_Data.ShaderRegistries[shaderID] = registry;
+			OLO_CORE_TRACE("Renderer3D: Registered shader registry for shader ID: {0}", shaderID);
+		}
+	}
+
+	void Renderer3D::UnregisterShaderRegistry(u32 shaderID)
+	{
+		auto it = s_Data.ShaderRegistries.find(shaderID);
+		if (it != s_Data.ShaderRegistries.end())
+		{
+			s_Data.ShaderRegistries.erase(it);
+			OLO_CORE_TRACE("Renderer3D: Unregistered shader registry for shader ID: {0}", shaderID);
+		}
+	}
+
+	const std::unordered_map<u32, ShaderResourceRegistry*>& Renderer3D::GetShaderRegistries()
+	{
+		return s_Data.ShaderRegistries;
+	}
+
+	void Renderer3D::ApplyResourceBindings(u32 shaderID)
+	{
+		auto* registry = GetShaderRegistry(shaderID);
+		if (registry)
+		{
+			registry->ApplyBindings();
+		}
+	}
+
+	ShaderLibrary& Renderer3D::GetShaderLibrary()
+	{
+		return m_ShaderLibrary;
+	}
+
+	CommandPacket* Renderer3D::DrawSkybox(const Ref<TextureCubemap>& skyboxTexture)
+	{
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("Renderer3D::DrawSkybox: ScenePass is null!");
+			return nullptr;
+		}
+
+		if (!skyboxTexture)
+		{
+			OLO_CORE_ERROR("Renderer3D::DrawSkybox: Skybox texture is null!");
+			return nullptr;
+		}
+
+		if (!s_Data.SkyboxMesh || !s_Data.SkyboxShader)
+		{
+			OLO_CORE_ERROR("Renderer3D::DrawSkybox: Skybox mesh or shader not initialized!");
+			return nullptr;
+		}
+
+		CommandPacket* packet = CreateDrawCall<DrawSkyboxCommand>();
+		auto* cmd = packet->GetCommandData<DrawSkyboxCommand>();
+		cmd->header.type = CommandType::DrawSkybox;
+		cmd->mesh = s_Data.SkyboxMesh;
+		cmd->vertexArray = s_Data.SkyboxMesh->GetVertexArray();
+		cmd->indexCount = s_Data.SkyboxMesh->GetIndexCount();
+		cmd->transform = glm::mat4(1.0f); // Identity matrix for skybox
+		cmd->shader = s_Data.SkyboxShader;
+		cmd->skyboxTexture = skyboxTexture;
+		
+		cmd->renderState = CreateRef<RenderState>();
+		cmd->renderState->Depth.TestEnabled = true;
+		cmd->renderState->Depth.Function = GL_LEQUAL; // Important for skybox
+		cmd->renderState->Depth.WriteMask = false; // Don't write to depth buffer
+		cmd->renderState->Culling.Enabled = false; // Don't cull faces for skybox
+		
+		packet->SetCommandType(cmd->header.type);
+		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+		
+		return packet;
 	}
 }

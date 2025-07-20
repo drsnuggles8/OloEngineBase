@@ -412,11 +412,17 @@ namespace OloEngine
 		return {};
 	}
 
-	template<typename T>
-	void Scene::OnComponentAdded(Entity entity, T& component)
-	{
-		static_assert(0 == sizeof(T));
-	}
+
+// Animation/ECS explicit specializations
+template<>
+void Scene::OnComponentAdded<AnimatedMeshComponent>(Entity, AnimatedMeshComponent&) {}
+template<>
+void Scene::OnComponentAdded<AnimationStateComponent>(Entity, AnimationStateComponent&) {}
+template<>
+void Scene::OnComponentAdded<Skeleton>(Entity, Skeleton&) {}
+// If you use SkeletonComponent as a struct, add this too:
+template<>
+void Scene::OnComponentAdded<SkeletonComponent>(Entity, SkeletonComponent&) {}
 
 	Entity Scene::FindEntityByName(std::string_view name)
 	{

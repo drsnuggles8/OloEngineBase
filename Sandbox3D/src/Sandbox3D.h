@@ -1,18 +1,22 @@
+
 #pragma once
 
 #include "OloEngine.h"
 #include "OloEngine/Renderer/Camera/PerspectiveCameraController.h"
 #include "OloEngine/Renderer/Mesh.h"
+#include "OloEngine/Renderer/SkinnedMesh.h"
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
+#include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugger.h"
 #include "OloEngine/Renderer/Debug/CommandPacketDebugger.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
+#include "OloEngine/Scene/Components.h"
 
 class Sandbox3D : public OloEngine::Layer
 {
@@ -26,9 +30,92 @@ public:
 	void OnImGuiRender() override;
 	void OnEvent(OloEngine::Event& e) override;
 
+	// Scene types for organized testing
+	enum class SceneType
+	{
+		MaterialTesting = 0,
+		AnimationTesting = 1,
+		LightingTesting = 2,
+		StateTesting = 3,
+		ModelLoading = 4
+	};
+
+
 private:
+	// Scene management
+	SceneType m_CurrentScene = SceneType::MaterialTesting;
+	const char* m_SceneNames[5] = { 
+		"Material Testing", 
+		"Animation Testing", 
+		"Lighting Testing", 
+		"State Testing", 
+		"Model Loading"
+	};
+	
+	// Scene rendering methods
+	void RenderMaterialTestingScene();
+	void RenderAnimationTestingScene();
+	void RenderLightingTestingScene();
+	void RenderStateTestingScene();
+	void RenderModelLoadingScene();
+	
+	// Scene UI methods
+	void RenderMaterialTestingUI();
+	void RenderAnimationTestingUI();
+	void RenderLightingTestingUI();
+	void RenderStateTestingUI();
+	void RenderModelLoadingUI();
+	
+	// Helper methods
+	OloEngine::Material& GetCurrentPBRMaterial();
+
+	// ECS Scene for animated mesh testing
+	OloEngine::Ref<OloEngine::Scene> m_TestScene;
+	OloEngine::Entity m_AnimatedMeshEntity;
+
+	// Animated mesh ECS test (step 1)
+	OloEngine::Ref<OloEngine::SkinnedMesh> m_AnimatedTestMesh;
+	OloEngine::Ref<OloEngine::Skeleton> m_AnimatedTestSkeleton;
+	OloEngine::AnimationStateComponent m_AnimatedTestAnimState;
+	
+	// Enhanced animation testing
+	OloEngine::Entity m_MultiBoneTestEntity;      // Multi-bone cube test
+	OloEngine::Entity m_ImportedModelEntity;      // For testing imported models
+	
+	// Dummy animation clips for testing
+	OloEngine::Ref<OloEngine::AnimationClip> m_IdleClip;
+	OloEngine::Ref<OloEngine::AnimationClip> m_BounceClip;
+	
+	// Multi-bone test animation data
+	OloEngine::Ref<OloEngine::SkinnedMesh> m_MultiBoneTestMesh;
+	OloEngine::Ref<OloEngine::Skeleton> m_MultiBoneTestSkeleton;
+	OloEngine::Ref<OloEngine::AnimationClip> m_MultiBoneIdleClip;
+	
+	// Animation debug UI state
+	int m_AnimClipIndex = 0;
+	bool m_AnimBlendRequested = false;
+	
+	// Animation test settings
+	bool m_ShowSingleBoneTest = true;
+	bool m_ShowMultiBoneTest = true;
+	bool m_ShowImportedModel = false;
+	float m_AnimationSpeed = 1.0f;
+	
+	void RenderAnimationDebugPanel();
+	void RenderECSAnimatedMeshPanel();
+	void RenderAnimationTestingPanel(); // New comprehensive animation testing UI
+	
+	// Helper functions for creating test objects
+	OloEngine::Ref<OloEngine::SkinnedMesh> CreateSkinnedCubeMesh();
+	void CreateMultiBoneTestEntity();
+	void LoadTestAnimatedModel();
+	
+	// Scene lighting management
+	void InitializeSceneLighting();
+	void ApplySceneLighting(SceneType sceneType);
+	void UpdateCurrentSceneLighting();
+	
 	// UI helper functions for different sections
-	void RenderPerformanceInfo();
 	void RenderSceneSettings();
 	void RenderLightingSettings();
 	void RenderMaterialSettings();
@@ -39,9 +126,9 @@ private:
 	void RenderDirectionalLightUI();
 	void RenderPointLightUI();
 	void RenderSpotlightUI();
-    void RenderGraphDebuggerUI();
-    void RenderDebuggingUI();
-    void RenderStateTestObjects(f32 rotationAngle);
+	void RenderGraphDebuggerUI();
+	void RenderDebuggingUI();
+	void RenderStateTestObjects(f32 rotationAngle);
 
 private:
 	OloEngine::PerspectiveCameraController m_CameraController;
@@ -69,14 +156,33 @@ private:
 	OloEngine::Material m_ChromeMaterial;
 	OloEngine::Material m_TexturedMaterial;
 
-	// Light properties
+	// PBR Materials for testing  
+	OloEngine::Material m_PBRGoldMaterial;
+	OloEngine::Material m_PBRSilverMaterial;
+	OloEngine::Material m_PBRCopperMaterial;
+	OloEngine::Material m_PBRPlasticMaterial;
+	OloEngine::Material m_PBRRoughMaterial;
+	OloEngine::Material m_PBRSmoothMaterial;
+	
+	// Environment map for IBL
+	OloEngine::Ref<OloEngine::EnvironmentMap> m_EnvironmentMap;
+
+	// Light properties (global for lighting test scene)
 	OloEngine::Light m_Light;
-	int m_LightTypeIndex = 1; // Default to point light
+	int m_LightTypeIndex = 0; // Default to directional light
 	const char* m_LightTypeNames[3] = { "Directional Light", "Point Light", "Spotlight" };
+	
+	// Per-scene lighting configurations
+	OloEngine::Light m_SceneLights[5]; // One for each scene type
 	
 	// Material editor selection state
 	int m_SelectedMaterial = 0;
 	const char* m_MaterialNames[4] = { "Gold", "Silver", "Chrome", "Textured" };
+
+	// PBR testing controls
+	bool m_UsePBRMaterials = false;
+	int m_PBRMaterialType = 0;
+	const char* m_PBRMaterialNames[6] = { "PBR Gold", "PBR Silver", "PBR Copper", "PBR Plastic", "PBR Rough", "PBR Smooth" };
 
 	// Light animation state
 	f32 m_LightAnimTime = 0.0f;
@@ -100,25 +206,30 @@ private:
 	f32 m_FPS = 0.0f;
 	
 	// Render Graph Debugger
-    OloEngine::RenderGraphDebugger m_RenderGraphDebugger;
-    bool m_RenderGraphDebuggerOpen = false;
-    
-    // Debugging Tools
-    OloEngine::CommandPacketDebugger m_CommandPacketDebugger;
-    OloEngine::RendererMemoryTracker& m_MemoryTracker = OloEngine::RendererMemoryTracker::GetInstance();
-    OloEngine::RendererProfiler& m_RendererProfiler = OloEngine::RendererProfiler::GetInstance();
-    OloEngine::GPUResourceInspector& m_GPUResourceInspector = OloEngine::GPUResourceInspector::GetInstance();
-    OloEngine::ShaderDebugger& m_ShaderDebugger = OloEngine::ShaderDebugger::GetInstance();
-    
-    bool m_ShowCommandPacketDebugger = false;
-    bool m_ShowMemoryTracker = false;
-    bool m_ShowRendererProfiler = false;
-    bool m_ShowGPUResourceInspector = false;
-    bool m_ShowShaderDebugger = false;
-    
-    // State testing settings
-    bool m_EnableStateTest = true;
-    i32 m_StateTestMode = 0;
-    const char* m_StateTestModes[4] = { "Wireframe", "Alpha Blend", "Polygon Offset", "All Effects" };
-    bool m_UseQueuedStateChanges = true;
+	OloEngine::RenderGraphDebugger m_RenderGraphDebugger;
+	bool m_RenderGraphDebuggerOpen = false;
+	
+	// Debugging Tools
+	OloEngine::CommandPacketDebugger m_CommandPacketDebugger;
+	OloEngine::RendererMemoryTracker& m_MemoryTracker = OloEngine::RendererMemoryTracker::GetInstance();
+	OloEngine::RendererProfiler& m_RendererProfiler = OloEngine::RendererProfiler::GetInstance();
+	OloEngine::GPUResourceInspector& m_GPUResourceInspector = OloEngine::GPUResourceInspector::GetInstance();
+	OloEngine::ShaderDebugger& m_ShaderDebugger = OloEngine::ShaderDebugger::GetInstance();
+	
+	bool m_ShowCommandPacketDebugger = false;
+	bool m_ShowMemoryTracker = false;
+	bool m_ShowRendererProfiler = false;
+	bool m_ShowGPUResourceInspector = false;
+	bool m_ShowShaderDebugger = false;
+	
+	// State testing settings
+	bool m_EnableStateTest = true;
+	i32 m_StateTestMode = 0;
+	const char* m_StateTestModes[4] = { "Wireframe", "Alpha Blend", "Polygon Offset", "All Effects" };
+	bool m_UseQueuedStateChanges = true;
+	
+	// Common scene elements (shared across scenes)
+	void RenderGroundPlane();
+	void RenderGrassQuad();
+	void RenderPerformanceInfo();
 };

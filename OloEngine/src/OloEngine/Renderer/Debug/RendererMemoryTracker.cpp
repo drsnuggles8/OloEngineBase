@@ -55,7 +55,9 @@ namespace OloEngine
         m_IsInitialized.store(true);
         
         OLO_CORE_INFO("Renderer Memory Tracker initialized");
-    }    void RendererMemoryTracker::Shutdown()
+    }
+	
+	void RendererMemoryTracker::Shutdown()
     {
         OLO_PROFILE_FUNCTION();
         
@@ -63,19 +65,7 @@ namespace OloEngine
         
         std::lock_guard<std::mutex> lock(m_Mutex);
         
-        // Check for memory leaks on shutdown
-        if (!m_Allocations.empty())
-        {
-            OLO_CORE_WARN("Memory leaks detected on shutdown! {0} allocations not freed", m_Allocations.size());
-            
-            for (const auto& [address, info] : m_Allocations)
-            {
-                OLO_CORE_WARN("Leaked: {0} bytes ({1}) at {2}:{3} - {4}", 
-                             info.m_Size, GetResourceTypeName(info.m_Type), 
-                             info.m_File, info.m_Line, info.m_Name);
-            }
-        }
-          m_Allocations.clear();
+        m_Allocations.clear();
         m_TypeUsage.fill(0);
         m_TypeCounts.fill(0);
         
@@ -84,7 +74,8 @@ namespace OloEngine
         
         OLO_CORE_INFO("Renderer Memory Tracker shutdown");
     }
-      void RendererMemoryTracker::Reset()
+    
+	void RendererMemoryTracker::Reset()
     {
         OLO_PROFILE_FUNCTION();
         
@@ -773,6 +764,7 @@ namespace OloEngine
             case ResourceType::VertexBuffer:    return "Vertex Buffer";
             case ResourceType::IndexBuffer:     return "Index Buffer";
             case ResourceType::UniformBuffer:   return "Uniform Buffer";
+            case ResourceType::StorageBuffer:   return "Storage Buffer";
             case ResourceType::Texture2D:       return "Texture 2D";
             case ResourceType::TextureCubemap:  return "Texture Cubemap";
             case ResourceType::Framebuffer:     return "Framebuffer";
@@ -791,6 +783,7 @@ namespace OloEngine
             case ResourceType::VertexBuffer:    return ImVec4(0.2f, 0.8f, 0.2f, 1.0f); // Green
             case ResourceType::IndexBuffer:     return ImVec4(0.2f, 0.6f, 0.8f, 1.0f); // Blue
             case ResourceType::UniformBuffer:   return ImVec4(0.8f, 0.6f, 0.2f, 1.0f); // Orange
+            case ResourceType::StorageBuffer:   return ImVec4(0.9f, 0.4f, 0.1f, 1.0f); // Dark Orange
             case ResourceType::Texture2D:       return ImVec4(0.8f, 0.2f, 0.8f, 1.0f); // Magenta
             case ResourceType::TextureCubemap:  return ImVec4(0.6f, 0.2f, 0.8f, 1.0f); // Purple
             case ResourceType::Framebuffer:     return ImVec4(0.8f, 0.2f, 0.2f, 1.0f); // Red

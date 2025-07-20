@@ -1,6 +1,8 @@
 #pragma once
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include <glm/glm.hpp>
+#include <unordered_set>
 
 namespace OloEngine
 {
@@ -25,8 +27,13 @@ namespace OloEngine
 
 		[[nodiscard]] u32 GetRendererID() const override { return m_RendererID; }
 		[[nodiscard ("Store this!")]] const std::string& GetName() const override { return m_Name; }
+		[[nodiscard ("Store this!")]] const std::string& GetFilePath() const override { return m_FilePath; }
 
 		void Reload() override;
+
+		// Resource registry access (override base class virtual methods)
+		ShaderResourceRegistry* GetResourceRegistry() override { return &m_ResourceRegistry; }
+		const ShaderResourceRegistry* GetResourceRegistry() const override { return &m_ResourceRegistry; }
 
 		void UploadUniformInt(const std::string& name, int value) const;
 		void UploadUniformIntArray(const std::string& name, int const* values, u32 count) const;
@@ -37,8 +44,25 @@ namespace OloEngine
 
 		void UploadUniformMat3(const std::string& name, const glm::mat3& matrix) const;
 		void UploadUniformMat4(const std::string& name, const glm::mat4& matrix) const;
+
+		// Initialize resource registry (called after shader is fully constructed)
+		void InitializeResourceRegistry(const Ref<Shader>& shaderRef);
+
+		// Convenience methods for setting shader resources
+		template<typename T>
+		bool SetShaderResource(const std::string& name, const Ref<T>& resource)
+		{
+			return m_ResourceRegistry.SetResource(name, resource);
+		}
+
+		bool SetShaderResource(const std::string& name, const ShaderResourceInput& input)
+		{
+			return m_ResourceRegistry.SetResource(name, input);
+		}
 	private:
 		static std::string ReadFile(const std::string& filepath);
+		static std::string ProcessIncludes(const std::string& source, const std::string& directory = "");
+		static std::string ProcessIncludesInternal(const std::string& source, const std::string& directory, std::unordered_set<std::string>& includedFiles);
 		static std::unordered_map<GLenum, std::string> PreProcess(std::string_view source);
 
 		void CompileOrGetVulkanBinaries(const std::unordered_map<GLenum, std::string>& shaderSources);
@@ -58,6 +82,9 @@ namespace OloEngine
 
 		std::unordered_map<GLenum, std::string> m_OpenGLSourceCode;
 		std::unordered_map<GLenum, std::string> m_OriginalSourceCode; // Store original preprocessed source
+
+		// Resource registry for automatic resource management
+		ShaderResourceRegistry m_ResourceRegistry;
 	};
 
 }

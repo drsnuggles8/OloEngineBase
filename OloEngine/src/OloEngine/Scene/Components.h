@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Audio/AudioSource.h"
 #include "OloEngine/Audio/AudioListener.h"
+#include "OloEngine/Animation/AnimatedMeshComponents.h"
 
 #include "box2d/box2d.h"
 
@@ -184,6 +185,10 @@ namespace OloEngine
 		AudioListenerComponent(const AudioListenerComponent&) = default;
 	};
 
+	struct AnimatedMeshComponent;
+	struct AnimationStateComponent;
+	struct SkeletonComponent;
+
 	template<typename... Component>
 	struct ComponentGroup
 	{
@@ -200,7 +205,10 @@ namespace OloEngine
 		TextComponent,
 		ScriptComponent,
 		AudioSourceComponent,
-		AudioListenerComponent
+		AudioListenerComponent,
+		AnimatedMeshComponent,
+		AnimationStateComponent,
+		SkeletonComponent
 	>;
 
 }

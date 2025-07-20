@@ -43,10 +43,7 @@ namespace OloEngine
             ImGui::Text("Command Head: %s", head ? "Valid" : "Null");
             ImGui::Separator();
             
-            // Analyze the current bucket data
-            AnalyzeDrawKeys(bucket);
-            
-            // Update frame statistics to ensure graphs are populated
+            AnalyzeDrawKeys(bucket);            
             UpdateFrameStats();
             
             // Menu bar with configuration options
@@ -209,13 +206,11 @@ namespace OloEngine
         const u32 historySize = static_cast<u32>(m_PacketCountHistory.size());
         if (historySize > 0)
         {
-            // Find min/max values for better scaling
             f32 minPackets = *std::min_element(m_PacketCountHistory.begin(), m_PacketCountHistory.end());
             f32 maxPackets = *std::max_element(m_PacketCountHistory.begin(), m_PacketCountHistory.end());
             f32 minSortTime = *std::min_element(m_SortingTimeHistory.begin(), m_SortingTimeHistory.end());
             f32 maxSortTime = *std::max_element(m_SortingTimeHistory.begin(), m_SortingTimeHistory.end());
             
-            // Ensure reasonable scaling
             if (maxPackets - minPackets < 1.0f) maxPackets = minPackets + 10.0f;
             if (maxSortTime - minSortTime < 0.1f) maxSortTime = minSortTime + 1.0f;
             
@@ -307,10 +302,10 @@ namespace OloEngine
                 {
                     bool matchesTypeFilter = false;
                     switch (m_TypeFilter)
-                    {
-                        case 0: // Draw
+                    {                        case 0: // Draw
                             matchesTypeFilter = (commandType == CommandType::DrawMesh || 
                                                commandType == CommandType::DrawMeshInstanced ||
+                                               commandType == CommandType::DrawSkinnedMesh ||
                                                commandType == CommandType::DrawQuad ||
                                                commandType == CommandType::DrawIndexed ||
                                                commandType == CommandType::DrawArrays);
@@ -328,10 +323,10 @@ namespace OloEngine
                         case 3: // Compute
                             // No compute commands yet
                             matchesTypeFilter = false;
-                            break;
-                        case 4: // Other
+                            break;                        case 4: // Other
                             matchesTypeFilter = !((commandType == CommandType::DrawMesh || 
                                                  commandType == CommandType::DrawMeshInstanced ||
+                                                 commandType == CommandType::DrawSkinnedMesh ||
                                                  commandType == CommandType::DrawQuad ||
                                                  commandType == CommandType::DrawIndexed ||
                                                  commandType == CommandType::DrawArrays ||
