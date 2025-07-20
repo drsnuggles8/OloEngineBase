@@ -181,21 +181,37 @@ namespace OloEngine
 
         for (u32 boneIndex = 0; boneIndex < mesh->mNumBones; ++boneIndex)
         {
-            u32 boneId = 0;
             std::string boneName = mesh->mBones[boneIndex]->mName.data;
+            
+            // Find the bone index in the skeleton
+            u32 skeletonBoneId = 0;
+            bool foundBone = false;
+            if (m_Skeleton)
+            {
+                for (size_t i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
+                {
+                    if (m_Skeleton->m_BoneNames[i] == boneName)
+                    {
+                        skeletonBoneId = static_cast<u32>(i);
+                        foundBone = true;
+                        break;
+                    }
+                }
+            }
+            
+            if (!foundBone)
+            {
+                OLO_CORE_WARN("AnimatedModel::ProcessBones: Bone '{}' not found in skeleton", boneName);
+                continue;
+            }
 
+            // Update the bone info map with the correct skeleton index
             if (m_BoneInfoMap.find(boneName) == m_BoneInfoMap.end())
             {
                 BoneInfo newBoneInfo;
-                newBoneInfo.Id = m_BoneCounter;
+                newBoneInfo.Id = skeletonBoneId;
                 newBoneInfo.Offset = AssimpMatrixToGLM(mesh->mBones[boneIndex]->mOffsetMatrix);
                 m_BoneInfoMap[boneName] = newBoneInfo;
-                boneId = m_BoneCounter;
-                m_BoneCounter++;
-            }
-            else
-            {
-                boneId = m_BoneInfoMap[boneName].Id;
             }
 
             auto weights = mesh->mBones[boneIndex]->mWeights;
@@ -217,7 +233,7 @@ namespace OloEngine
                 {
                     if (vertices[vertexId].BoneIndices[i] == -1)
                     {
-                        vertices[vertexId].BoneIndices[i] = static_cast<i32>(boneId);
+                        vertices[vertexId].BoneIndices[i] = static_cast<i32>(skeletonBoneId);
                         vertices[vertexId].BoneWeights[i] = weight;
                         break;
                     }
@@ -253,14 +269,19 @@ namespace OloEngine
             return;
         }
 
-        // Count total bones across all meshes to determine skeleton size
+        // Count total bones across all meshes and collect bone info
         std::unordered_set<std::string> uniqueBoneNames;
+        std::unordered_map<std::string, glm::mat4> boneOffsetMatrices;
+        
         for (u32 i = 0; i < scene->mNumMeshes; ++i)
         {
             const aiMesh* mesh = scene->mMeshes[i];
             for (u32 j = 0; j < mesh->mNumBones; ++j)
             {
-                uniqueBoneNames.insert(mesh->mBones[j]->mName.data);
+                std::string boneName = mesh->mBones[j]->mName.data;
+                uniqueBoneNames.insert(boneName);
+                // Store the offset matrix for this bone
+                boneOffsetMatrices[boneName] = AssimpMatrixToGLM(mesh->mBones[j]->mOffsetMatrix);
             }
         }
 
@@ -283,21 +304,74 @@ namespace OloEngine
         // Create skeleton with the correct number of bones
         m_Skeleton = CreateRef<Skeleton>(uniqueBoneNames.size());
 
-        // For now, create a simple flat hierarchy
-        // TODO: Implement proper bone hierarchy traversal
-        u32 boneIndex = 0;
-        for (const auto& boneName : uniqueBoneNames)
+        // Create ordered list of bone names and build name-to-index mapping
+        std::vector<std::string> orderedBoneNames(uniqueBoneNames.begin(), uniqueBoneNames.end());
+        std::unordered_map<std::string, u32> boneNameToIndex;
+        for (u32 i = 0; i < orderedBoneNames.size(); ++i)
         {
-            m_Skeleton->m_BoneNames[boneIndex] = boneName;
-            m_Skeleton->m_ParentIndices[boneIndex] = (boneIndex == 0) ? -1 : 0; // All bones parent to root
-            m_Skeleton->m_LocalTransforms[boneIndex] = glm::mat4(1.0f);
-            m_Skeleton->m_GlobalTransforms[boneIndex] = glm::mat4(1.0f);
-            m_Skeleton->m_FinalBoneMatrices[boneIndex] = glm::mat4(1.0f);
-            boneIndex++;
+            boneNameToIndex[orderedBoneNames[i]] = i;
+            m_Skeleton->m_BoneNames[i] = orderedBoneNames[i];
+            m_Skeleton->m_ParentIndices[i] = -1; // Initialize to no parent
+            m_Skeleton->m_LocalTransforms[i] = glm::mat4(1.0f);
+            m_Skeleton->m_GlobalTransforms[i] = glm::mat4(1.0f);
+            m_Skeleton->m_FinalBoneMatrices[i] = glm::mat4(1.0f);
         }
 
-        // Set bind pose from current transforms
-        m_Skeleton->SetBindPose();
+        // Build proper bone hierarchy by traversing the node tree
+        std::function<void(const aiNode*, i32)> traverseNode = [&](const aiNode* node, i32 parentBoneIndex)
+        {
+            std::string nodeName = node->mName.data;
+            
+            // Check if this node is a bone
+            auto it = boneNameToIndex.find(nodeName);
+            i32 currentBoneIndex = -1;
+            if (it != boneNameToIndex.end())
+            {
+                currentBoneIndex = static_cast<i32>(it->second);
+                m_Skeleton->m_ParentIndices[currentBoneIndex] = parentBoneIndex;
+                
+                // Set the node's transformation as the local transform
+                m_Skeleton->m_LocalTransforms[currentBoneIndex] = AssimpMatrixToGLM(node->mTransformation);
+            }
+
+            // Recursively process children
+            for (u32 i = 0; i < node->mNumChildren; ++i)
+            {
+                traverseNode(node->mChildren[i], (currentBoneIndex != -1) ? currentBoneIndex : parentBoneIndex);
+            }
+        };
+
+        // Start traversal from root node
+        traverseNode(scene->mRootNode, -1);
+
+        // Compute initial global transforms based on hierarchy
+        for (size_t i = 0; i < m_Skeleton->m_LocalTransforms.size(); ++i)
+        {
+            i32 parent = m_Skeleton->m_ParentIndices[i];
+            if (parent >= 0)
+                m_Skeleton->m_GlobalTransforms[i] = m_Skeleton->m_GlobalTransforms[parent] * m_Skeleton->m_LocalTransforms[i];
+            else
+                m_Skeleton->m_GlobalTransforms[i] = m_Skeleton->m_LocalTransforms[i];
+        }
+
+        // Set up inverse bind poses from bone offset matrices
+        for (size_t i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
+        {
+            const std::string& boneName = m_Skeleton->m_BoneNames[i];
+            auto it = boneOffsetMatrices.find(boneName);
+            if (it != boneOffsetMatrices.end())
+            {
+                // Use the offset matrix from the mesh bone as the inverse bind pose
+                m_Skeleton->m_InverseBindPoses[i] = it->second;
+                m_Skeleton->m_BindPoseMatrices[i] = glm::inverse(it->second);
+            }
+            else
+            {
+                // Fallback: calculate from current global transform
+                m_Skeleton->m_BindPoseMatrices[i] = m_Skeleton->m_GlobalTransforms[i];
+                m_Skeleton->m_InverseBindPoses[i] = glm::inverse(m_Skeleton->m_GlobalTransforms[i]);
+            }
+        }
 
         OLO_CORE_INFO("AnimatedModel::ProcessSkeleton: Created skeleton with {} bones", m_Skeleton->m_BoneNames.size());
     }

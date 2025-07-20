@@ -363,11 +363,12 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
         if (m_ImportedModelEntity.HasComponent<OloEngine::AnimationStateComponent>())
         {
             auto& importedAnimStateComp = m_ImportedModelEntity.GetComponent<OloEngine::AnimationStateComponent>();
-            // For now, use the same animation as the basic test since it's a placeholder
-            // TODO: Replace with actual imported model animations
+            auto& importedSkeletonComp = m_ImportedModelEntity.GetComponent<OloEngine::SkeletonComponent>();
+            
+            // Use the imported model's own skeleton for animation
             OloEngine::Animation::AnimationSystem::Update(
                 importedAnimStateComp,
-                *m_AnimatedTestSkeleton, // Placeholder skeleton
+                importedSkeletonComp.m_Skeleton,
                 ts.GetSeconds() * m_AnimationSpeed
             );
         }
@@ -1700,13 +1701,13 @@ void Sandbox3D::LoadTestAnimatedModel()
         auto& skeletonComp = m_ImportedModelEntity.AddComponent<OloEngine::SkeletonComponent>();
         if (m_CesiumManModel->HasSkeleton())
         {
-            // Copy skeleton data from loaded model
+            // Reference the model's skeleton directly
             skeletonComp.m_Skeleton = *m_CesiumManModel->GetSkeleton();
         }
         else
         {
             // Use default skeleton
-            skeletonComp.m_Skeleton = OloEngine::SkeletonData(1);
+            skeletonComp.m_Skeleton = OloEngine::Skeleton(1);
             skeletonComp.m_Skeleton.m_BoneNames = { "Root" };
             skeletonComp.m_Skeleton.m_ParentIndices = { -1 };
             skeletonComp.m_Skeleton.m_LocalTransforms = { glm::mat4(1.0f) };
