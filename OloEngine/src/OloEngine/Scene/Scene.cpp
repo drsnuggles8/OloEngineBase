@@ -129,8 +129,12 @@ namespace OloEngine
 
 	void Scene::DestroyEntity(Entity entity)
 	{
+		if (!entity || !entity.HasComponent<IDComponent>())
+			return;
+			
+		UUID entityUUID = entity.GetUUID();
 		m_Registry.destroy(entity);
-		m_EntityMap.erase(entity.GetUUID());
+		m_EntityMap.erase(entityUUID);
 	}
 
 	void Scene::OnRuntimeStart()

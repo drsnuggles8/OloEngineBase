@@ -322,8 +322,11 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
             m_AnimatedTestAnimState.m_State = (requestedClip == m_IdleClip) ? OloEngine::AnimationStateComponent::State::Idle : OloEngine::AnimationStateComponent::State::Bounce;
             animStateTimer = 0.0f;
               // Update ECS entity animation state as well
-            auto& ecsAnimState = m_AnimatedMeshEntity.GetComponent<OloEngine::AnimationStateComponent>();
-            ecsAnimState = m_AnimatedTestAnimState;
+            if (m_AnimatedMeshEntity && m_AnimatedMeshEntity.HasComponent<OloEngine::AnimationStateComponent>())
+            {
+                auto& ecsAnimState = m_AnimatedMeshEntity.GetComponent<OloEngine::AnimationStateComponent>();
+                ecsAnimState = m_AnimatedTestAnimState;
+            }
         }
     }
 
@@ -335,14 +338,14 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
             ts.GetSeconds()
         );
         
-        if (m_AnimatedMeshEntity.HasComponent<OloEngine::SkeletonComponent>())
+        if (m_AnimatedMeshEntity && m_AnimatedMeshEntity.HasComponent<OloEngine::SkeletonComponent>())
         {
             auto& skeletonComp = m_AnimatedMeshEntity.GetComponent<OloEngine::SkeletonComponent>();
             skeletonComp.m_Skeleton.m_FinalBoneMatrices = m_AnimatedTestSkeleton->m_FinalBoneMatrices;
             skeletonComp.m_Skeleton.m_GlobalTransforms = m_AnimatedTestSkeleton->m_GlobalTransforms;
         }
         
-        if (m_MultiBoneTestEntity.HasComponent<OloEngine::AnimationStateComponent>())
+        if (m_MultiBoneTestEntity && m_MultiBoneTestEntity.HasComponent<OloEngine::AnimationStateComponent>())
         {
             auto& multiBoneAnimStateComp = m_MultiBoneTestEntity.GetComponent<OloEngine::AnimationStateComponent>();
             
@@ -812,7 +815,7 @@ void Sandbox3D::RenderAnimationTestingScene()
     // ECS-driven animated mesh test
     if (m_TestScene)
     {
-        if (m_AnimatedMeshEntity.HasComponent<OloEngine::AnimatedMeshComponent>())
+        if (m_AnimatedMeshEntity && m_AnimatedMeshEntity.HasComponent<OloEngine::AnimatedMeshComponent>())
         {
             if (m_ShowSingleBoneTest)
             {
@@ -822,7 +825,7 @@ void Sandbox3D::RenderAnimationTestingScene()
             }
         }
         
-        if (m_MultiBoneTestEntity.HasComponent<OloEngine::AnimatedMeshComponent>())
+        if (m_MultiBoneTestEntity && m_MultiBoneTestEntity.HasComponent<OloEngine::AnimatedMeshComponent>())
         {
             if (m_ShowMultiBoneTest)
             {
@@ -832,7 +835,7 @@ void Sandbox3D::RenderAnimationTestingScene()
             }
         }
         
-        if (m_ImportedModelEntity.HasComponent<OloEngine::AnimatedMeshComponent>())
+        if (m_ImportedModelEntity && m_ImportedModelEntity.HasComponent<OloEngine::AnimatedMeshComponent>())
         {
             if (m_ShowImportedModel)
             {
@@ -1640,6 +1643,26 @@ void Sandbox3D::CreateMultiBoneTestEntity()
 void Sandbox3D::LoadTestAnimatedModel()
 {
     OLO_PROFILE_FUNCTION();
+    
+    // Clean up existing entities before loading new model
+    if (m_ImportedModelEntity)
+    {
+        m_TestScene->DestroyEntity(m_ImportedModelEntity);
+        m_ImportedModelEntity = {};
+    }
+    
+    // Also remove the test cube mesh entities when loading real models
+    if (m_AnimatedMeshEntity)
+    {
+        m_TestScene->DestroyEntity(m_AnimatedMeshEntity);
+        m_AnimatedMeshEntity = {};
+    }
+    
+    if (m_MultiBoneTestEntity)
+    {
+        m_TestScene->DestroyEntity(m_MultiBoneTestEntity);
+        m_MultiBoneTestEntity = {};
+    }
     
     // Get the selected model path
     std::string modelPath = "assets/models/" + m_AvailableModels[m_SelectedModelIndex];

@@ -53,25 +53,25 @@ namespace OloEngine
 		template<typename T>
 		bool HasComponent()
 		{
-			return m_Scene->m_Registry.all_of<T>(m_EntityHandle);
+			return m_Scene && m_Scene->m_Registry.all_of<T>(m_EntityHandle);
 		}
 
 		template<typename T>
 		[[nodiscard("Store this!")]] bool HasComponent() const
 		{
-			return m_Scene->m_Registry.all_of<T>(m_EntityHandle);
+			return m_Scene && m_Scene->m_Registry.all_of<T>(m_EntityHandle);
 		}
 
 		template<typename...T>
 		bool HasAny()
 		{
-			return m_Scene->m_Registry.any_of<T...>(m_EntityHandle);
+			return m_Scene && m_Scene->m_Registry.any_of<T...>(m_EntityHandle);
 		}
 
 		template<typename...T>
 		[[nodiscard("Store this!")]] bool HasAny() const
 		{
-			return m_Scene->m_Registry.any_of<T...>(m_EntityHandle);
+			return m_Scene && m_Scene->m_Registry.any_of<T...>(m_EntityHandle);
 		}
 
 		template<typename T>
