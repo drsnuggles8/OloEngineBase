@@ -841,7 +841,8 @@ void Sandbox3D::RenderAnimationTestingScene()
             {
                 auto& importedTransformComp = m_ImportedModelEntity.GetComponent<OloEngine::TransformComponent>();
                 importedTransformComp.Translation = glm::vec3(0.0f, 0.0f, 2.0f);
-                importedTransformComp.Scale = glm::vec3(1.0f);
+                // Don't reset scale here - preserve the model-specific scaling set during loading
+                // importedTransformComp.Scale = glm::vec3(1.0f); // REMOVED - this was overriding our model-specific scaling!
             }
         }
         
@@ -1688,10 +1689,38 @@ void Sandbox3D::LoadTestAnimatedModel()
         // Create entity for the loaded model
         m_ImportedModelEntity = m_TestScene->CreateEntity(modelName);
         
-        // Position the model
+        // Position the model with model-specific scaling adjustments
         auto& transformComp = m_ImportedModelEntity.GetComponent<OloEngine::TransformComponent>();
         transformComp.Translation = glm::vec3(-3.0f, 0.0f, 0.0f); // Position to the left
-        transformComp.Scale = glm::vec3(1.0f);
+        
+        // Apply model-specific scaling corrections
+        glm::vec3 modelScale = glm::vec3(1.0f);
+        OLO_INFO("Model name for scaling: '{}'", modelName);
+        
+        if (modelName.find("Fox") != std::string::npos)
+        {
+            // Fox model is typically much larger, scale it down
+            modelScale = glm::vec3(0.01f); // Scale down to 1% of original size
+            transformComp.Translation.y = 0.0f; // Keep it on the ground
+            OLO_INFO("Applied Fox scaling: {}, {}, {}", modelScale.x, modelScale.y, modelScale.z);
+        }
+        else if (modelName.find("CesiumMan") != std::string::npos)
+        {
+            // CesiumMan is at a good default scale
+            modelScale = glm::vec3(1.0f);
+            OLO_INFO("Applied CesiumMan scaling: {}, {}, {}", modelScale.x, modelScale.y, modelScale.z);
+        }
+        else if (modelName.find("RiggedSimple") != std::string::npos || 
+                 modelName.find("RiggedFigure") != std::string::npos || 
+                 modelName.find("SimpleSkin") != std::string::npos)
+        {
+            // These models are typically smaller, might need slight scaling up
+            modelScale = glm::vec3(1.0f);
+            OLO_INFO("Applied default scaling for other models: {}, {}, {}", modelScale.x, modelScale.y, modelScale.z);
+        }
+        
+        transformComp.Scale = modelScale;
+        OLO_INFO("Final transform scale set to: {}, {}, {}", transformComp.Scale.x, transformComp.Scale.y, transformComp.Scale.z);
         
         // Add animated mesh component - use the first mesh from the model
         auto& animMeshComp = m_ImportedModelEntity.AddComponent<OloEngine::AnimatedMeshComponent>();
