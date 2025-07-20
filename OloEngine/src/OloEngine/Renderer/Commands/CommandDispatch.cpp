@@ -22,6 +22,7 @@ namespace OloEngine
 		Ref<UniformBuffer> ModelMatrixUBO = nullptr;
 		glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
 		glm::mat4 ViewMatrix = glm::mat4(1.0f);
+		glm::mat4 ProjectionMatrix = glm::mat4(1.0f);
 		Light SceneLight;
 		glm::vec3 ViewPos = glm::vec3(0.0f);
 		
@@ -129,6 +130,11 @@ namespace OloEngine
 	void CommandDispatch::SetViewMatrix(const glm::mat4& view)
 	{
 		s_Data.ViewMatrix = view;
+	}
+
+	void CommandDispatch::SetProjectionMatrix(const glm::mat4& projection)
+	{
+		s_Data.ProjectionMatrix = projection;
 	}
 
 	void CommandDispatch::SetSceneLight(const Light& light)

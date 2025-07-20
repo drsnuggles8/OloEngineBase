@@ -143,6 +143,7 @@ namespace OloEngine
 
 		CommandDispatch::SetViewProjectionMatrix(s_Data.ViewProjectionMatrix);
 		CommandDispatch::SetViewMatrix(s_Data.ViewMatrix);
+		CommandDispatch::SetProjectionMatrix(s_Data.ProjectionMatrix);
 
 		s_Data.ViewFrustum.Update(s_Data.ViewProjectionMatrix);
 		
@@ -854,7 +855,7 @@ namespace OloEngine
 
 		Material material = defaultMaterial;
 
-		const std::vector<glm::mat4>& boneMatrices = skeletonComp.skeleton.m_FinalBoneMatrices;
+		const std::vector<glm::mat4>& boneMatrices = skeletonComp.m_Skeleton.m_FinalBoneMatrices;
 
 		auto* packet = DrawSkinnedMesh(
 			animatedMeshComp.m_Mesh,

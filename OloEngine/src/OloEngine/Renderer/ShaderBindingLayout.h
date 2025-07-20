@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include <glm/glm.hpp>
+#include <string>
 
 namespace OloEngine
 {
@@ -217,9 +218,9 @@ layout(std140, binding = 1) uniform LightProperties {
 };)";
         }
 
-        static const char* GetMultiLightUBOLayout()
+        static std::string GetMultiLightUBOLayout()
         {
-            return R"(
+            return std::string(R"(
 struct LightData {
     vec4 position;         // Position in world space (w = light type)
     vec4 direction;        // Direction for directional/spot lights
@@ -233,7 +234,7 @@ layout(std140, binding = 5) uniform MultiLightBuffer {
     int u_MaxLights;
     int u_ShadowCasterCount;
     int _padding;
-    LightData u_Lights[32];
+    LightData u_Lights[)") + std::to_string(UBOStructures::MultiLightUBO::MAX_LIGHTS) + R"(];
 };)";
         }
         

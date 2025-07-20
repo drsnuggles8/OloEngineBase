@@ -190,11 +190,11 @@ void Sandbox3D::OnAttach()
     
     auto& skeletonComp = m_AnimatedMeshEntity.AddComponent<OloEngine::SkeletonComponent>();
     // Copy skeleton data to component
-    skeletonComp.skeleton.m_ParentIndices = m_AnimatedTestSkeleton->m_ParentIndices;
-    skeletonComp.skeleton.m_BoneNames = m_AnimatedTestSkeleton->m_BoneNames;
-    skeletonComp.skeleton.m_LocalTransforms = m_AnimatedTestSkeleton->m_LocalTransforms;
-    skeletonComp.skeleton.m_GlobalTransforms = m_AnimatedTestSkeleton->m_GlobalTransforms;
-    skeletonComp.skeleton.m_FinalBoneMatrices = m_AnimatedTestSkeleton->m_FinalBoneMatrices;
+    skeletonComp.m_Skeleton.m_ParentIndices = m_AnimatedTestSkeleton->m_ParentIndices;
+    skeletonComp.m_Skeleton.m_BoneNames = m_AnimatedTestSkeleton->m_BoneNames;
+    skeletonComp.m_Skeleton.m_LocalTransforms = m_AnimatedTestSkeleton->m_LocalTransforms;
+    skeletonComp.m_Skeleton.m_GlobalTransforms = m_AnimatedTestSkeleton->m_GlobalTransforms;
+    skeletonComp.m_Skeleton.m_FinalBoneMatrices = m_AnimatedTestSkeleton->m_FinalBoneMatrices;
 
     // --- Dummy Animation Clips (Idle and Bounce) ---
     using namespace OloEngine;
@@ -308,17 +308,17 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 	// --- Basic Animation State Machine: auto-switch Idle <-> Bounce every 2 seconds ---
     static float animStateTimer = 0.0f;
     animStateTimer += ts.GetSeconds();
-    if (!m_AnimatedTestAnimState.Blending && m_AnimatedTestAnimState.m_CurrentClip)
+    if (!m_AnimatedTestAnimState.m_Blending && m_AnimatedTestAnimState.m_CurrentClip)
     {
         float switchInterval = 2.0f;
         if (animStateTimer >= switchInterval)
         {
             auto requestedClip = (m_AnimatedTestAnimState.m_CurrentClip == m_IdleClip) ? m_BounceClip : m_IdleClip;
             m_AnimatedTestAnimState.m_NextClip = requestedClip;
-            m_AnimatedTestAnimState.NextTime = 0.0f;
-            m_AnimatedTestAnimState.Blending = true;
-            m_AnimatedTestAnimState.BlendTime = 0.0f;
-            m_AnimatedTestAnimState.BlendFactor = 0.0f;
+            m_AnimatedTestAnimState.m_NextTime = 0.0f;
+            m_AnimatedTestAnimState.m_Blending = true;
+            m_AnimatedTestAnimState.m_BlendTime = 0.0f;
+            m_AnimatedTestAnimState.m_BlendFactor = 0.0f;
             m_AnimatedTestAnimState.m_State = (requestedClip == m_IdleClip) ? OloEngine::AnimationStateComponent::State::Idle : OloEngine::AnimationStateComponent::State::Bounce;
             animStateTimer = 0.0f;
               // Update ECS entity animation state as well
@@ -338,8 +338,8 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
         if (m_AnimatedMeshEntity.HasComponent<OloEngine::SkeletonComponent>())
         {
             auto& skeletonComp = m_AnimatedMeshEntity.GetComponent<OloEngine::SkeletonComponent>();
-            skeletonComp.skeleton.m_FinalBoneMatrices = m_AnimatedTestSkeleton->m_FinalBoneMatrices;
-            skeletonComp.skeleton.m_GlobalTransforms = m_AnimatedTestSkeleton->m_GlobalTransforms;
+            skeletonComp.m_Skeleton.m_FinalBoneMatrices = m_AnimatedTestSkeleton->m_FinalBoneMatrices;
+            skeletonComp.m_Skeleton.m_GlobalTransforms = m_AnimatedTestSkeleton->m_GlobalTransforms;
         }
         
         if (m_MultiBoneTestEntity.HasComponent<OloEngine::AnimationStateComponent>())
@@ -355,8 +355,8 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
             if (m_MultiBoneTestEntity.HasComponent<OloEngine::SkeletonComponent>())
             {
                 auto& multiBoneSkeletonComp = m_MultiBoneTestEntity.GetComponent<OloEngine::SkeletonComponent>();
-                multiBoneSkeletonComp.skeleton.m_FinalBoneMatrices = m_MultiBoneTestSkeleton->m_FinalBoneMatrices;
-                multiBoneSkeletonComp.skeleton.m_GlobalTransforms = m_MultiBoneTestSkeleton->m_GlobalTransforms;
+                multiBoneSkeletonComp.m_Skeleton.m_FinalBoneMatrices = m_MultiBoneTestSkeleton->m_FinalBoneMatrices;
+                multiBoneSkeletonComp.m_Skeleton.m_GlobalTransforms = m_MultiBoneTestSkeleton->m_GlobalTransforms;
             }
         }
         
@@ -517,11 +517,11 @@ void Sandbox3D::RenderAnimationDebugPanel()
     int prevIndex = m_AnimClipIndex;
     ImGui::Text("Current State: %s", m_AnimatedTestAnimState.m_State == OloEngine::AnimationStateComponent::State::Idle ? "Idle" : "Bounce");
     ImGui::Text("Current Clip: %s", m_AnimatedTestAnimState.m_CurrentClip ? m_AnimatedTestAnimState.m_CurrentClip->Name.c_str() : "None");
-    ImGui::Text("Time: %.2f", m_AnimatedTestAnimState.CurrentTime);
-    ImGui::Text("Blending: %s", m_AnimatedTestAnimState.Blending ? "Yes" : "No");
-    if (m_AnimatedTestAnimState.Blending)
+    ImGui::Text("Time: %.2f", m_AnimatedTestAnimState.m_CurrentTime);
+    ImGui::Text("Blending: %s", m_AnimatedTestAnimState.m_Blending ? "Yes" : "No");
+    if (m_AnimatedTestAnimState.m_Blending)
     {
-        ImGui::Text("Blend Factor: %.2f", m_AnimatedTestAnimState.BlendFactor);
+        ImGui::Text("Blend Factor: %.2f", m_AnimatedTestAnimState.m_BlendFactor);
         ImGui::Text("Next Clip: %s", m_AnimatedTestAnimState.m_NextClip ? m_AnimatedTestAnimState.m_NextClip->Name.c_str() : "None");
     }
     ImGui::Separator();
@@ -536,20 +536,20 @@ void Sandbox3D::RenderAnimationDebugPanel()
     {
         // Only trigger blend if not already blending and the requested state is different
         auto requestedClip = (m_AnimClipIndex == 0) ? m_IdleClip : m_BounceClip;
-        if (!m_AnimatedTestAnimState.Blending && m_AnimatedTestAnimState.m_CurrentClip != requestedClip)
+        if (!m_AnimatedTestAnimState.m_Blending && m_AnimatedTestAnimState.m_CurrentClip != requestedClip)
         {
             m_AnimatedTestAnimState.m_NextClip = requestedClip;
-            m_AnimatedTestAnimState.NextTime = 0.0f;
-            m_AnimatedTestAnimState.Blending = true;
-            m_AnimatedTestAnimState.BlendTime = 0.0f;
-            m_AnimatedTestAnimState.BlendFactor = 0.0f;
+            m_AnimatedTestAnimState.m_NextTime = 0.0f;
+            m_AnimatedTestAnimState.m_Blending = true;
+            m_AnimatedTestAnimState.m_BlendTime = 0.0f;
+            m_AnimatedTestAnimState.m_BlendFactor = 0.0f;
             m_AnimatedTestAnimState.m_State = (m_AnimClipIndex == 0) ? OloEngine::AnimationStateComponent::State::Idle : OloEngine::AnimationStateComponent::State::Bounce;
         }
         m_AnimBlendRequested = false;
     }
 
     // Sync UI state with animation state after blending completes
-    if (!m_AnimatedTestAnimState.Blending)
+    if (!m_AnimatedTestAnimState.m_Blending)
     {
         if (m_AnimatedTestAnimState.m_CurrentClip == m_IdleClip)
             m_AnimClipIndex = 0;
@@ -977,7 +977,7 @@ void Sandbox3D::RenderAnimationTestingUI()
             auto& animState = m_MultiBoneTestEntity.GetComponent<OloEngine::AnimationStateComponent>();
             ImGui::Text("Multi-Bone Animation:");
             ImGui::Text("  Clip: %s", animState.m_CurrentClip ? animState.m_CurrentClip->Name.c_str() : "None");
-            ImGui::Text("  Time: %.2f / %.2f", animState.CurrentTime, 
+            ImGui::Text("  Time: %.2f / %.2f", animState.m_CurrentTime, 
                        animState.m_CurrentClip ? animState.m_CurrentClip->Duration : 0.0f);
             ImGui::Text("  Bones: 4 (hierarchical)");
         }
@@ -1374,11 +1374,11 @@ void Sandbox3D::RenderECSAnimatedMeshPanel()
         auto& animState = m_AnimatedMeshEntity.GetComponent<OloEngine::AnimationStateComponent>();
         ImGui::Text("Animation State:");
         ImGui::Text("  Current Clip: %s", animState.m_CurrentClip ? animState.m_CurrentClip->Name.c_str() : "None");
-        ImGui::Text("  Time: %.2f", animState.CurrentTime);
-        ImGui::Text("  Blending: %s", animState.Blending ? "Yes" : "No");
-        if (animState.Blending)
+        ImGui::Text("  Time: %.2f", animState.m_CurrentTime);
+        ImGui::Text("  Blending: %s", animState.m_Blending ? "Yes" : "No");
+        if (animState.m_Blending)
         {
-            ImGui::Text("  Blend Factor: %.2f", animState.BlendFactor);
+            ImGui::Text("  Blend Factor: %.2f", animState.m_BlendFactor);
             ImGui::Text("  Next Clip: %s", animState.m_NextClip ? animState.m_NextClip->Name.c_str() : "None");
         }
     }
@@ -1387,9 +1387,9 @@ void Sandbox3D::RenderECSAnimatedMeshPanel()
         ImGui::Separator();
         auto& skeletonComp = m_AnimatedMeshEntity.GetComponent<OloEngine::SkeletonComponent>();
         ImGui::Text("Skeleton Info:");
-        ImGui::Text("  Bone Count: %zu", skeletonComp.skeleton.m_BoneNames.size());
+        ImGui::Text("  Bone Count: %zu", skeletonComp.m_Skeleton.m_BoneNames.size());
         ImGui::Text("  Root Bone: %s", 
-            skeletonComp.skeleton.m_BoneNames.empty() ? "None" : skeletonComp.skeleton.m_BoneNames[0].c_str());
+            skeletonComp.m_Skeleton.m_BoneNames.empty() ? "None" : skeletonComp.m_Skeleton.m_BoneNames[0].c_str());
     }
     
     ImGui::Separator();
@@ -1506,11 +1506,11 @@ void Sandbox3D::CreateMultiBoneTestEntity()
     
     auto& skeletonComp = m_MultiBoneTestEntity.AddComponent<OloEngine::SkeletonComponent>();
     // Copy skeleton data to component
-    skeletonComp.skeleton.m_ParentIndices = m_MultiBoneTestSkeleton->m_ParentIndices;
-    skeletonComp.skeleton.m_BoneNames = m_MultiBoneTestSkeleton->m_BoneNames;
-    skeletonComp.skeleton.m_LocalTransforms = m_MultiBoneTestSkeleton->m_LocalTransforms;
-    skeletonComp.skeleton.m_GlobalTransforms = m_MultiBoneTestSkeleton->m_GlobalTransforms;
-    skeletonComp.skeleton.m_FinalBoneMatrices = m_MultiBoneTestSkeleton->m_FinalBoneMatrices;
+    skeletonComp.m_Skeleton.m_ParentIndices = m_MultiBoneTestSkeleton->m_ParentIndices;
+    skeletonComp.m_Skeleton.m_BoneNames = m_MultiBoneTestSkeleton->m_BoneNames;
+    skeletonComp.m_Skeleton.m_LocalTransforms = m_MultiBoneTestSkeleton->m_LocalTransforms;
+    skeletonComp.m_Skeleton.m_GlobalTransforms = m_MultiBoneTestSkeleton->m_GlobalTransforms;
+    skeletonComp.m_Skeleton.m_FinalBoneMatrices = m_MultiBoneTestSkeleton->m_FinalBoneMatrices;
     
     // Create multi-bone animation clips with complex animations
     m_MultiBoneIdleClip = OloEngine::CreateRef<OloEngine::AnimationClip>();
@@ -1545,7 +1545,7 @@ void Sandbox3D::CreateMultiBoneTestEntity()
     auto& animStateComp = m_MultiBoneTestEntity.AddComponent<OloEngine::AnimationStateComponent>();
     animStateComp.m_CurrentClip = m_MultiBoneIdleClip;
     animStateComp.m_State = OloEngine::AnimationStateComponent::State::Idle;
-    animStateComp.CurrentTime = 0.0f;
+    animStateComp.m_CurrentTime = 0.0f;
 }
 
 void Sandbox3D::LoadTestAnimatedModel()
@@ -1571,7 +1571,7 @@ void Sandbox3D::LoadTestAnimatedModel()
     auto& animStateComp = m_ImportedModelEntity.AddComponent<OloEngine::AnimationStateComponent>();
     animStateComp.m_CurrentClip = m_IdleClip; // Temporary placeholder
     animStateComp.m_State = OloEngine::AnimationStateComponent::State::Idle;
-    animStateComp.CurrentTime = 0.0f;
+    animStateComp.m_CurrentTime = 0.0f;
     
     OLO_INFO("Sandbox3D: Imported model entity created (placeholder implementation)");
     OLO_INFO("TODO: Implement assimp-based skeletal animation import");

@@ -39,25 +39,25 @@ namespace OloEngine
 		State m_State = State::Idle;
 		Ref<AnimationClip> m_CurrentClip;
 		Ref<AnimationClip> m_NextClip; // For blending
-		float CurrentTime = 0.0f;
-		float NextTime = 0.0f;
-		float BlendFactor = 0.0f; // 0 = current, 1 = next
-		bool Blending = false;
-		float BlendDuration = 0.3f; // seconds
-		float BlendTime = 0.0f;
+		float m_CurrentTime = 0.0f;
+		float m_NextTime = 0.0f;
+		float m_BlendFactor = 0.0f; // 0 = current, 1 = next
+		bool m_Blending = false;
+		float m_BlendDuration = 0.3f; // seconds
+		float m_BlendTime = 0.0f;
 
 		AnimationStateComponent() = default;
 		AnimationStateComponent(const Ref<AnimationClip>& clip, float time = 0.0f)
-			: m_CurrentClip(clip), CurrentTime(time) {}
+			: m_CurrentClip(clip), m_CurrentTime(time) {}
 	};
 
 	// Holds bone hierarchy and transforms for an entity
 	struct SkeletonComponent
 	{
-		SkeletonData skeleton; // Shared skeleton data structure
+		SkeletonData m_Skeleton; // Shared skeleton data structure
 		
 		SkeletonComponent() = default;
-		SkeletonComponent(size_t boneCount) : skeleton(boneCount) {}
+		SkeletonComponent(size_t boneCount) : m_Skeleton(boneCount) {}
 	};
 
 	/**

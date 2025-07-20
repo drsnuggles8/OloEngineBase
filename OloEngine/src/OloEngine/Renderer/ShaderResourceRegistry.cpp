@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Core/Log.h"
 
+#include <glad/gl.h>
 #include <spirv_cross/spirv_cross.hpp>
 #include <regex>
 #include <fstream>

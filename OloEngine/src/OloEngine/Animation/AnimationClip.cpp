@@ -7,14 +7,14 @@ namespace OloEngine
         // Initialize cache if not already done
         if (!m_CacheInitialized)
         {
-            const_cast<AnimationClip*>(this)->InitializeBoneCache();
+            InitializeBoneCache();
         }
         
         auto it = m_BoneCache.find(boneName);
         return (it != m_BoneCache.end()) ? it->second : nullptr;
     }
     
-    void AnimationClip::InitializeBoneCache()
+    void AnimationClip::InitializeBoneCache() const
     {
         m_BoneCache.clear();
         for (const auto& anim : BoneAnimations)
@@ -22,5 +22,11 @@ namespace OloEngine
             m_BoneCache[anim.BoneName] = &anim;
         }
         m_CacheInitialized = true;
+    }
+    
+    void AnimationClip::InvalidateBoneCache()
+    {
+        m_BoneCache.clear();
+        m_CacheInitialized = false;
     }
 }

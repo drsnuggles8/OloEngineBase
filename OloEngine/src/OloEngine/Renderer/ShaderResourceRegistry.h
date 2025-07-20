@@ -4,15 +4,13 @@
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/ShaderResourceTypes.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
-#include "ShaderReflection.h"
-#include "InflightFrameManager.h"
+#include "OloEngine/Renderer/ShaderReflection.h"
+#include "OloEngine/Renderer/InflightFrameManager.h"
 
 #include <string>
 #include <unordered_map>
 #include <memory>
 #include <variant>
-
-#include <glad/gl.h>
 
 namespace OloEngine
 {

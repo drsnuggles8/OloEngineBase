@@ -35,6 +35,7 @@ namespace OloEngine
 		static void ResetState();
 		static void SetViewProjectionMatrix(const glm::mat4& vp);
 		static void SetViewMatrix(const glm::mat4& view);
+		static void SetProjectionMatrix(const glm::mat4& projection);
 		static void SetSceneLight(const Light& light);
 		static void SetViewPosition(const glm::vec3& viewPos);
 		

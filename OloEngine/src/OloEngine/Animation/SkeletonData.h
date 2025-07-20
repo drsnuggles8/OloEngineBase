@@ -33,7 +33,7 @@ namespace OloEngine
         
         SkeletonData(size_t boneCount)
         {
-            m_ParentIndices.resize(boneCount);
+            m_ParentIndices.resize(boneCount, -1); // Initialize with -1 to indicate root bones
             m_BoneNames.resize(boneCount);
             m_LocalTransforms.resize(boneCount, glm::mat4(1.0f));
             m_GlobalTransforms.resize(boneCount, glm::mat4(1.0f));

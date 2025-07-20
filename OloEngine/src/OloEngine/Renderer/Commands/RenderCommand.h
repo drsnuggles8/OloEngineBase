@@ -325,7 +325,7 @@ namespace OloEngine
 		Ref<RenderState> renderState;
 		// Skinning support for animated meshes
 		bool isSkinnedMesh = false;
-		std::vector<glm::mat4> boneMatrices;  // Final bone matrices for GPU skinning
+		u32 boneMatricesBufferID = 0;  // ID to external bone matrices buffer instead of vector
 	};
 	struct DrawMeshInstancedCommand
 	{

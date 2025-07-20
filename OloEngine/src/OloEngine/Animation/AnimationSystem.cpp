@@ -2,6 +2,7 @@
 #include "OloEngine/Animation/AnimationSystem.h"
 #include "OloEngine/Animation/AnimationClip.h"
 #include "OloEngine/Core/Log.h"
+#include <algorithm>
 
 namespace OloEngine::Animation
 {
@@ -22,25 +23,25 @@ namespace OloEngine::Animation
             return t;
         };
 
-        animState.CurrentTime += deltaTime;
-        animState.CurrentTime = LoopTime(animState.CurrentTime, animState.m_CurrentClip);
+        animState.m_CurrentTime += deltaTime;
+        animState.m_CurrentTime = LoopTime(animState.m_CurrentTime, animState.m_CurrentClip);
 
-        if (animState.Blending && animState.m_NextClip)
+        if (animState.m_Blending && animState.m_NextClip)
         {
-            animState.BlendTime += deltaTime;
-            animState.NextTime += deltaTime;
-            animState.NextTime = LoopTime(animState.NextTime, animState.m_NextClip);
-            float blendAlpha = glm::clamp(animState.BlendTime / animState.BlendDuration, 0.0f, 1.0f);
-            animState.BlendFactor = blendAlpha;
+            animState.m_BlendTime += deltaTime;
+            animState.m_NextTime += deltaTime;
+            animState.m_NextTime = LoopTime(animState.m_NextTime, animState.m_NextClip);
+            float blendAlpha = glm::clamp(animState.m_BlendTime / animState.m_BlendDuration, 0.0f, 1.0f);
+            animState.m_BlendFactor = blendAlpha;
             if (blendAlpha >= 1.0f)
             {
                 // Finish blend
                 animState.m_CurrentClip = animState.m_NextClip;
-                animState.CurrentTime = animState.NextTime;
+                animState.m_CurrentTime = animState.m_NextTime;
                 animState.m_NextClip = nullptr;
-                animState.Blending = false;
-                animState.BlendTime = 0.0f;
-                animState.BlendFactor = 0.0f;
+                animState.m_Blending = false;
+                animState.m_BlendTime = 0.0f;
+                animState.m_BlendFactor = 0.0f;
             }
         }
 
@@ -60,16 +61,28 @@ namespace OloEngine::Animation
             {
                 const auto& keyframes = boneAnim->Keyframes;
                 size_t k0 = 0, k1 = 0;
-                for (size_t k = 0; k < keyframes.size(); ++k)
+                
+                // Use binary search for better performance with large keyframe arrays
+                auto it = std::lower_bound(keyframes.begin(), keyframes.end(), time,
+                    [](const BoneKeyframe& keyframe, float t) { return keyframe.Time < t; });
+                
+                if (it == keyframes.end())
                 {
-                    if (keyframes[k].Time > time)
-                    {
-                        k1 = k;
-                        k0 = (k == 0) ? 0 : k - 1;
-                        break;
-                    }
+                    // Time is beyond all keyframes, use last keyframe
+                    k0 = k1 = keyframes.size() - 1;
                 }
-                if (k1 == 0) k1 = keyframes.size() - 1;
+                else if (it == keyframes.begin())
+                {
+                    // Time is before all keyframes, use first keyframe
+                    k0 = k1 = 0;
+                }
+                else
+                {
+                    // Found the interval
+                    k1 = std::distance(keyframes.begin(), it);
+                    k0 = k1 - 1;
+                }
+                
                 const auto& frame0 = keyframes[k0];
                 const auto& frame1 = keyframes[k1];
                 float t = 0.0f;
@@ -94,22 +107,22 @@ namespace OloEngine::Animation
         for (size_t i = 0; i < skeleton.m_BoneNames.size(); ++i)
         {
             const std::string& boneName = skeleton.m_BoneNames[i];
-            if (animState.Blending && animState.m_NextClip)
+            if (animState.m_Blending && animState.m_NextClip)
             {
                 // Sample both clips and blend at TRS level (more efficient than matrix decomposition)
-                TRSFrame trsA = SampleClipTRS(animState.m_CurrentClip, animState.CurrentTime, boneName);
-                TRSFrame trsB = SampleClipTRS(animState.m_NextClip, animState.NextTime, boneName);
+                TRSFrame trsA = SampleClipTRS(animState.m_CurrentClip, animState.m_CurrentTime, boneName);
+                TRSFrame trsB = SampleClipTRS(animState.m_NextClip, animState.m_NextTime, boneName);
                 
                 TRSFrame blendedTRS;
-                blendedTRS.translation = glm::mix(trsA.translation, trsB.translation, animState.BlendFactor);
-                blendedTRS.rotation = glm::slerp(trsA.rotation, trsB.rotation, animState.BlendFactor);
-                blendedTRS.scale = glm::mix(trsA.scale, trsB.scale, animState.BlendFactor);
+                blendedTRS.translation = glm::mix(trsA.translation, trsB.translation, animState.m_BlendFactor);
+                blendedTRS.rotation = glm::slerp(trsA.rotation, trsB.rotation, animState.m_BlendFactor);
+                blendedTRS.scale = glm::mix(trsA.scale, trsB.scale, animState.m_BlendFactor);
                 
                 skeleton.m_LocalTransforms[i] = TRSToMatrix(blendedTRS);
             }
             else if (animState.m_CurrentClip)
             {
-                TRSFrame trs = SampleClipTRS(animState.m_CurrentClip, animState.CurrentTime, boneName);
+                TRSFrame trs = SampleClipTRS(animState.m_CurrentClip, animState.m_CurrentTime, boneName);
                 skeleton.m_LocalTransforms[i] = TRSToMatrix(trs);
             }
             else
