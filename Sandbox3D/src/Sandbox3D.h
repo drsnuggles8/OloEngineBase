@@ -71,38 +71,10 @@ private:
 	OloEngine::Material& GetCurrentPBRMaterial();
 	OloEngine::Material& GetCurrentAnimatedModelMaterial();
 
-	// ECS Scene for animated mesh testing
+	// ECS Scene for model testing
 	OloEngine::Ref<OloEngine::Scene> m_TestScene;
-	OloEngine::Entity m_AnimatedMeshEntity;
+	OloEngine::Entity m_ImportedModelEntity; // For loaded models
 
-	// Animated mesh ECS test (step 1)
-	OloEngine::Ref<OloEngine::SkinnedMesh> m_AnimatedTestMesh;
-	OloEngine::Ref<OloEngine::Skeleton> m_AnimatedTestSkeleton;
-	OloEngine::AnimationStateComponent m_AnimatedTestAnimState;
-	
-	// Enhanced animation testing
-	OloEngine::Entity m_MultiBoneTestEntity;      // Multi-bone cube test
-	OloEngine::Entity m_ImportedModelEntity;      // For testing imported models
-	
-	// Dummy animation clips for testing
-	OloEngine::Ref<OloEngine::AnimationClip> m_IdleClip;
-	OloEngine::Ref<OloEngine::AnimationClip> m_BounceClip;
-	
-	// Multi-bone test animation data
-	OloEngine::Ref<OloEngine::SkinnedMesh> m_MultiBoneTestMesh;
-	OloEngine::Ref<OloEngine::Skeleton> m_MultiBoneTestSkeleton;
-	OloEngine::Ref<OloEngine::AnimationClip> m_MultiBoneIdleClip;
-	
-	// Animation debug UI state
-	int m_AnimClipIndex = 0;
-	bool m_AnimBlendRequested = false;
-	
-	// Animation test settings
-	bool m_ShowSingleBoneTest = true;
-	bool m_ShowMultiBoneTest = true;
-	bool m_ShowImportedModel = true;
-	float m_AnimationSpeed = 1.0f;
-	
 	// Model selection
 	int m_SelectedModelIndex = 0;
 	int m_AnimatedModelMaterialType = 0; // For PBR material selection
@@ -121,13 +93,11 @@ private:
 		"SimpleSkin (Minimal)"
 	};
 	
-	void RenderAnimationDebugPanel();
-	void RenderECSAnimatedMeshPanel();
+	float m_AnimationSpeed = 1.0f;
+	
 	void RenderAnimationTestingPanel(); // New comprehensive animation testing UI
 	
-	// Helper functions for creating test objects
-	OloEngine::Ref<OloEngine::SkinnedMesh> CreateSkinnedCubeMesh();
-	void CreateMultiBoneTestEntity();
+	// Helper functions
 	void LoadTestAnimatedModel();
 	
 	// Scene lighting management
