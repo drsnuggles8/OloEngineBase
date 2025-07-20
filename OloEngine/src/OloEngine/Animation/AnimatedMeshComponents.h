@@ -3,11 +3,6 @@
 #include "OloEngine/Core/Base.h"
 #include "SkeletonData.h"
 
-#include <vector>
-#include <string>
-#include <glm/glm.hpp>
-#include <glm/gtc/quaternion.hpp>
-
 namespace OloEngine
 {
 	// Forward declarations

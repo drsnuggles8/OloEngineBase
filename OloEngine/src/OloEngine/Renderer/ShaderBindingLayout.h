@@ -5,51 +5,18 @@
 
 namespace OloEngine
 {
+    // =============================================================================
+    // UNIFORM BUFFER OBJECT STRUCTURES
+    // =============================================================================
+    
     /**
-     * Standardized shader binding layout for consistent resource sharing
-     * across all shaders in the engine. This ensures efficient data sharing
-     * and eliminates binding conflicts.
+     * @brief Namespace containing all UBO structure definitions for shader binding
+     * 
+     * These structures define the exact memory layout expected by shaders and must
+     * match the corresponding GLSL uniform block layouts for proper data binding.
      */
-    class ShaderBindingLayout
+    namespace UBOStructures
     {
-    public:
-        // =============================================================================
-        // UNIFORM BUFFER OBJECT (UBO) BINDINGS
-        // =============================================================================
-        
-        static constexpr u32 UBO_CAMERA        = 0;  // Camera matrices (view, projection, etc.)
-        static constexpr u32 UBO_LIGHTS        = 1;  // Lighting properties and data
-        static constexpr u32 UBO_MATERIAL      = 2;  // Material properties
-        static constexpr u32 UBO_MODEL         = 3;  // Model/transform matrices
-        static constexpr u32 UBO_ANIMATION     = 4;  // Animation/bone matrices
-        static constexpr u32 UBO_MULTI_LIGHTS  = 5;  // Multi-light buffer for advanced lighting
-        static constexpr u32 UBO_USER_0        = 6;  // User-defined buffer 0
-        static constexpr u32 UBO_USER_1        = 7;  // User-defined buffer 1
-        static constexpr u32 UBO_USER_2        = 8;  // User-defined buffer 2
-        
-        // =============================================================================
-        // TEXTURE SAMPLER BINDINGS
-        // =============================================================================
-        
-        static constexpr u32 TEX_DIFFUSE       = 0;  // Primary diffuse/albedo texture
-        static constexpr u32 TEX_SPECULAR      = 1;  // Specular/metallic texture
-        static constexpr u32 TEX_NORMAL        = 2;  // Normal map
-        static constexpr u32 TEX_HEIGHT        = 3;  // Height/displacement map
-        static constexpr u32 TEX_AMBIENT       = 4;  // Ambient occlusion
-        static constexpr u32 TEX_EMISSIVE      = 5;  // Emissive map
-        static constexpr u32 TEX_ROUGHNESS     = 6;  // Roughness map
-        static constexpr u32 TEX_METALLIC      = 7;  // Metallic map
-        static constexpr u32 TEX_SHADOW        = 8;  // Shadow map
-        static constexpr u32 TEX_ENVIRONMENT   = 9;  // Environment/skybox
-        static constexpr u32 TEX_USER_0        = 10; // User-defined texture 0
-        static constexpr u32 TEX_USER_1        = 11; // User-defined texture 1
-        static constexpr u32 TEX_USER_2        = 12; // User-defined texture 2
-        static constexpr u32 TEX_USER_3        = 13; // User-defined texture 3
-        
-        // =============================================================================
-        // BUFFER STRUCTURE DEFINITIONS
-        // =============================================================================
-        
         struct CameraUBO
         {
             glm::mat4 ViewProjection;
@@ -162,6 +129,62 @@ namespace OloEngine
             
             static constexpr u32 GetSize() { return sizeof(IBLParametersUBO); }
         };
+    }
+
+    /**
+     * Standardized shader binding layout for consistent resource sharing
+     * across all shaders in the engine. This ensures efficient data sharing
+     * and eliminates binding conflicts.
+     */
+    class ShaderBindingLayout
+    {
+    public:
+        // =============================================================================
+        // UNIFORM BUFFER OBJECT (UBO) BINDINGS
+        // =============================================================================
+        
+        static constexpr u32 UBO_CAMERA        = 0;  // Camera matrices (view, projection, etc.)
+        static constexpr u32 UBO_LIGHTS        = 1;  // Lighting properties and data
+        static constexpr u32 UBO_MATERIAL      = 2;  // Material properties
+        static constexpr u32 UBO_MODEL         = 3;  // Model/transform matrices
+        static constexpr u32 UBO_ANIMATION     = 4;  // Animation/bone matrices
+        static constexpr u32 UBO_MULTI_LIGHTS  = 5;  // Multi-light buffer for advanced lighting
+        static constexpr u32 UBO_USER_0        = 6;  // User-defined buffer 0
+        static constexpr u32 UBO_USER_1        = 7;  // User-defined buffer 1
+        static constexpr u32 UBO_USER_2        = 8;  // User-defined buffer 2
+        
+        // =============================================================================
+        // TEXTURE SAMPLER BINDINGS
+        // =============================================================================
+        
+        static constexpr u32 TEX_DIFFUSE       = 0;  // Primary diffuse/albedo texture
+        static constexpr u32 TEX_SPECULAR      = 1;  // Specular/metallic texture
+        static constexpr u32 TEX_NORMAL        = 2;  // Normal map
+        static constexpr u32 TEX_HEIGHT        = 3;  // Height/displacement map
+        static constexpr u32 TEX_AMBIENT       = 4;  // Ambient occlusion
+        static constexpr u32 TEX_EMISSIVE      = 5;  // Emissive map
+        static constexpr u32 TEX_ROUGHNESS     = 6;  // Roughness map
+        static constexpr u32 TEX_METALLIC      = 7;  // Metallic map
+        static constexpr u32 TEX_SHADOW        = 8;  // Shadow map
+        static constexpr u32 TEX_ENVIRONMENT   = 9;  // Environment/skybox
+        static constexpr u32 TEX_USER_0        = 10; // User-defined texture 0
+        static constexpr u32 TEX_USER_1        = 11; // User-defined texture 1
+        static constexpr u32 TEX_USER_2        = 12; // User-defined texture 2
+        static constexpr u32 TEX_USER_3        = 13; // User-defined texture 3
+        
+        // =============================================================================
+        // TYPE ALIASES FOR CONVENIENCE
+        // =============================================================================
+        
+        using CameraUBO = UBOStructures::CameraUBO;
+        using LightUBO = UBOStructures::LightUBO;
+        using MultiLightData = UBOStructures::MultiLightData;
+        using MultiLightUBO = UBOStructures::MultiLightUBO;
+        using MaterialUBO = UBOStructures::MaterialUBO;
+        using PBRMaterialUBO = UBOStructures::PBRMaterialUBO;
+        using ModelUBO = UBOStructures::ModelUBO;
+        using AnimationUBO = UBOStructures::AnimationUBO;
+        using IBLParametersUBO = UBOStructures::IBLParametersUBO;
         
         // =============================================================================
         // GLSL LAYOUT STRINGS FOR CODE GENERATION

@@ -551,14 +551,14 @@ namespace OloEngine
 			spirv_cross::CompilerGLSL glslCompiler(spirv);
 			
 			// Configure compiler options to preserve names and bindings
-			spirv_cross::CompilerGLSL::Options options;
-			options.version = 450;
-			options.es = false;
-			options.vulkan_semantics = false;
-			options.separate_shader_objects = false;
-			options.enable_420pack_extension = true;
-			options.emit_uniform_buffer_as_plain_uniforms = false;
-			glslCompiler.set_common_options(options);
+			spirv_cross::CompilerGLSL::Options glslOptions;
+			glslOptions.version = 450;
+			glslOptions.es = false;
+			glslOptions.vulkan_semantics = false;
+			glslOptions.separate_shader_objects = false;
+			glslOptions.enable_420pack_extension = true;
+			glslOptions.emit_uniform_buffer_as_plain_uniforms = false;
+			glslCompiler.set_common_options(glslOptions);
 			
 			// Enable interface variable location preservation
 			glslCompiler.require_extension("GL_ARB_separate_shader_objects");

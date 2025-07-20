@@ -2,7 +2,6 @@
 #include "OloEngine/Animation/AnimationSystem.h"
 #include "OloEngine/Animation/AnimationClip.h"
 #include "OloEngine/Core/Log.h"
-#include <glm/gtx/matrix_decompose.hpp>
 
 namespace OloEngine::Animation
 {
@@ -45,9 +44,17 @@ namespace OloEngine::Animation
             }
         }
 
-        // Helper lambda to sample a clip at a given time
-        auto SampleClip = [](const Ref<AnimationClip>& clip, float time, const std::string& boneName) -> glm::mat4 {
-            if (!clip) return glm::mat4(1.0f);
+        // Helper structure to hold TRS components
+        struct TRSFrame {
+            glm::vec3 translation;
+            glm::quat rotation;
+            glm::vec3 scale;
+        };
+
+        // Helper lambda to sample a clip at a given time and return TRS components
+        auto SampleClipTRS = [](const Ref<AnimationClip>& clip, float time, const std::string& boneName) -> TRSFrame {
+            TRSFrame result = { glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f) };
+            if (!clip) return result;
             const auto* boneAnim = clip->FindBoneAnimation(boneName);
             if (boneAnim && !boneAnim->Keyframes.empty())
             {
@@ -69,12 +76,18 @@ namespace OloEngine::Animation
                 float dt = frame1.Time - frame0.Time;
                 if (dt > 0.0f)
                     t = (time - frame0.Time) / dt;
-                glm::vec3 trans = glm::mix(frame0.Translation, frame1.Translation, t);
-                glm::quat rot = glm::slerp(frame0.Rotation, frame1.Rotation, t);
-                glm::vec3 scale = glm::mix(frame0.Scale, frame1.Scale, t);
-                return glm::translate(glm::mat4(1.0f), trans) * glm::mat4_cast(rot) * glm::scale(glm::mat4(1.0f), scale);
+                result.translation = glm::mix(frame0.Translation, frame1.Translation, t);
+                result.rotation = glm::slerp(frame0.Rotation, frame1.Rotation, t);
+                result.scale = glm::mix(frame0.Scale, frame1.Scale, t);
             }
-            return glm::mat4(1.0f);
+            return result;
+        };
+
+        // Helper lambda to convert TRS to matrix
+        auto TRSToMatrix = [](const TRSFrame& trs) -> glm::mat4 {
+            return glm::translate(glm::mat4(1.0f), trs.translation) * 
+                   glm::mat4_cast(trs.rotation) * 
+                   glm::scale(glm::mat4(1.0f), trs.scale);
         };
 
         // For each bone, sample and blend if needed
@@ -83,23 +96,21 @@ namespace OloEngine::Animation
             const std::string& boneName = skeleton.m_BoneNames[i];
             if (animState.Blending && animState.m_NextClip)
             {
-                glm::mat4 localA = SampleClip(animState.m_CurrentClip, animState.CurrentTime, boneName);
-                glm::mat4 localB = SampleClip(animState.m_NextClip, animState.NextTime, boneName);
-                // Decompose, blend, and recompose
-                glm::vec3 tA, tB, sA, sB;
-                glm::quat rA, rB;
-                glm::vec3 skew;
-                glm::vec4 persp;
-                glm::decompose(localA, sA, rA, tA, skew, persp);
-                glm::decompose(localB, sB, rB, tB, skew, persp);
-                glm::vec3 t = glm::mix(tA, tB, animState.BlendFactor);
-                glm::quat r = glm::slerp(rA, rB, animState.BlendFactor);
-                glm::vec3 s = glm::mix(sA, sB, animState.BlendFactor);
-                skeleton.m_LocalTransforms[i] = glm::translate(glm::mat4(1.0f), t) * glm::mat4_cast(r) * glm::scale(glm::mat4(1.0f), s);
+                // Sample both clips and blend at TRS level (more efficient than matrix decomposition)
+                TRSFrame trsA = SampleClipTRS(animState.m_CurrentClip, animState.CurrentTime, boneName);
+                TRSFrame trsB = SampleClipTRS(animState.m_NextClip, animState.NextTime, boneName);
+                
+                TRSFrame blendedTRS;
+                blendedTRS.translation = glm::mix(trsA.translation, trsB.translation, animState.BlendFactor);
+                blendedTRS.rotation = glm::slerp(trsA.rotation, trsB.rotation, animState.BlendFactor);
+                blendedTRS.scale = glm::mix(trsA.scale, trsB.scale, animState.BlendFactor);
+                
+                skeleton.m_LocalTransforms[i] = TRSToMatrix(blendedTRS);
             }
             else if (animState.m_CurrentClip)
             {
-                skeleton.m_LocalTransforms[i] = SampleClip(animState.m_CurrentClip, animState.CurrentTime, boneName);
+                TRSFrame trs = SampleClipTRS(animState.m_CurrentClip, animState.CurrentTime, boneName);
+                skeleton.m_LocalTransforms[i] = TRSToMatrix(trs);
             }
             else
             {
