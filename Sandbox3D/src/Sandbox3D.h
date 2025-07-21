@@ -96,6 +96,14 @@ private:
 	
 	float m_AnimationSpeed = 1.0f;
 	
+	// Skeleton visualization settings
+	bool m_ShowSkeleton = false;
+	bool m_ShowBones = true;
+	bool m_ShowJoints = true;
+	float m_JointSize = 0.05f;      // Increased from 0.02f
+	float m_BoneThickness = 3.0f;   // Increased from 2.0f
+	bool m_ModelWireframeMode = false; // Show model in wireframe to see skeleton through
+	
 	void RenderAnimationTestingPanel(); // New comprehensive animation testing UI
 	
 	// Helper functions

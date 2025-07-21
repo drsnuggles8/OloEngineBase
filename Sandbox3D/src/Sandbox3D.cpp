@@ -7,6 +7,7 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtx/quaternion.hpp>
 
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Light.h"
@@ -671,7 +672,43 @@ void Sandbox3D::RenderAnimationTestingScene()
     {
         // Use a simple default material - entities with MaterialComponent will use their own materials
         OloEngine::Material defaultMaterial = OloEngine::Material::CreatePBR("Default", glm::vec3(0.7f), 0.0f, 0.5f);
+        
+        // For now, just render normally - wireframe mode would need deeper renderer integration
         OloEngine::Renderer3D::RenderAnimatedMeshes(m_TestScene, defaultMaterial);
+        
+        // Render skeleton visualization if enabled
+        if (m_ShowSkeleton && m_ImportedModelEntity.HasComponent<OloEngine::SkeletonComponent>())
+        {
+            auto& skeletonComp = m_ImportedModelEntity.GetComponent<OloEngine::SkeletonComponent>();
+            auto& transformComp = m_ImportedModelEntity.GetComponent<OloEngine::TransformComponent>();
+            
+            // Debug: Log skeleton data and rendering attempt
+            static int debugFrameCount = 0;
+            if (debugFrameCount % 60 == 0) // Log every 60 frames (once per second at 60fps)
+            {
+                OLO_INFO("=== SKELETON DEBUG (Frame {}) ===", debugFrameCount);
+                OLO_INFO("  Show Skeleton: {}, Show Bones: {}, Show Joints: {}", m_ShowSkeleton, m_ShowBones, m_ShowJoints);
+                OLO_INFO("  Skeleton Bones: {}, GlobalTransforms: {}, ParentIndices: {}", 
+                         skeletonComp.m_Skeleton.m_GlobalTransforms.size(),
+                         skeletonComp.m_Skeleton.m_GlobalTransforms.size(),
+                         skeletonComp.m_Skeleton.m_ParentIndices.size());
+                OLO_INFO("  Joint Size: {}, Bone Thickness: {}", m_JointSize, m_BoneThickness);
+                OLO_INFO("  Model Position: ({:.2f}, {:.2f}, {:.2f})", 
+                         transformComp.Translation.x, transformComp.Translation.y, transformComp.Translation.z);
+                OLO_INFO("  CALLING DrawSkeleton NOW!");
+            }
+            debugFrameCount++;
+            
+            // Create model matrix from transform component
+            glm::mat4 modelMatrix = glm::translate(glm::mat4(1.0f), transformComp.Translation)
+                                  * glm::toMat4(glm::quat(transformComp.Rotation))
+                                  * glm::scale(glm::mat4(1.0f), transformComp.Scale);
+            
+            // Draw the skeleton using the skeleton component data - this should now be visible on top!
+            OloEngine::Renderer3D::DrawSkeleton(skeletonComp.m_Skeleton, modelMatrix, 
+                                               m_ShowBones, m_ShowJoints, 
+                                               m_JointSize, m_BoneThickness);
+        }
     }
 }
 
@@ -845,6 +882,34 @@ void Sandbox3D::RenderAnimationTestingUI()
                             m_AnimationSpeed = (m_AnimationSpeed > 0.0f) ? 0.0f : 1.0f;
                         }
                     }
+                }
+            }
+            
+            // Skeleton visualization controls
+            if (m_ImportedModelEntity.HasComponent<OloEngine::SkeletonComponent>())
+            {
+                ImGui::Separator();
+                ImGui::Text("Skeleton Visualization:");
+                
+                ImGui::Checkbox("Show Skeleton", &m_ShowSkeleton);
+                
+                if (m_ShowSkeleton)
+                {
+                    ImGui::Indent();
+                    ImGui::Checkbox("Show Bones", &m_ShowBones);
+                    ImGui::Checkbox("Show Joints", &m_ShowJoints);
+                    ImGui::SliderFloat("Joint Size", &m_JointSize, 0.005f, 0.1f, "%.3f");
+                    ImGui::SliderFloat("Bone Thickness", &m_BoneThickness, 0.5f, 5.0f, "%.1f");
+                    ImGui::Separator();
+                    ImGui::Text("Visibility Options:");
+                    ImGui::Checkbox("Wireframe Model", &m_ModelWireframeMode);
+                    ImGui::SameLine();
+                    if (ImGui::Button("?"))
+                    {
+                        ImGui::SetTooltip("Show model in wireframe to see skeleton through the mesh");
+                    }
+                    ImGui::TextWrapped("Note: Skeleton now renders on top with disabled depth testing for maximum visibility!");
+                    ImGui::Unindent();
                 }
             }
             
@@ -1352,6 +1417,10 @@ void Sandbox3D::LoadTestAnimatedModel()
         {
             // Reference the model's skeleton directly
             skeletonComp.m_Skeleton = *m_CesiumManModel->GetSkeleton();
+            OLO_INFO("Skeleton loaded: {} bones, {} parents, {} transforms", 
+                     skeletonComp.m_Skeleton.m_BoneNames.size(),
+                     skeletonComp.m_Skeleton.m_ParentIndices.size(),
+                     skeletonComp.m_Skeleton.m_GlobalTransforms.size());
         }
         else
         {
@@ -1363,6 +1432,7 @@ void Sandbox3D::LoadTestAnimatedModel()
             skeletonComp.m_Skeleton.m_GlobalTransforms = { glm::mat4(1.0f) };
             skeletonComp.m_Skeleton.m_FinalBoneMatrices = { glm::mat4(1.0f) };
             skeletonComp.m_Skeleton.SetBindPose();
+            OLO_INFO("Using default skeleton with 1 bone");
         }
         
         // Add animation state component
