@@ -250,6 +250,29 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
         auto& importedAnimStateComp = m_ImportedModelEntity.GetComponent<OloEngine::AnimationStateComponent>();
         auto& importedSkeletonComp = m_ImportedModelEntity.GetComponent<OloEngine::SkeletonComponent>();
         
+        // Check if we need to switch animations
+        if (m_CesiumManModel)
+        {
+            const auto& animations = m_CesiumManModel->GetAnimations();
+            if (!animations.empty() && 
+                m_CurrentAnimationIndex >= 0 && 
+                m_CurrentAnimationIndex < static_cast<int>(animations.size()))
+            {
+                std::string targetAnimation = animations[m_CurrentAnimationIndex]->Name;
+                if (!importedAnimStateComp.m_CurrentClip || 
+                    importedAnimStateComp.m_CurrentClip->Name != targetAnimation)
+                {
+                    // Find and set the new animation clip
+                    auto newClip = m_CesiumManModel->GetAnimation(targetAnimation);
+                    if (newClip)
+                    {
+                        importedAnimStateComp.m_CurrentClip = newClip;
+                        importedAnimStateComp.m_CurrentTime = 0.0f;  // Reset timeline when switching animations
+                    }
+                }
+            }
+        }
+        
         // Use the imported model's own skeleton for animation
         OloEngine::Animation::AnimationSystem::Update(
             importedAnimStateComp,
@@ -777,6 +800,54 @@ void Sandbox3D::RenderAnimationTestingUI()
                        m_CesiumManModel->GetAnimations().size());
             ImGui::Text("Materials: %zu", m_CesiumManModel->GetMaterials().size());
             
+            // Dynamic animation switching - only show if model has multiple animations
+            const auto& animations = m_CesiumManModel->GetAnimations();
+            if (animations.size() > 1)
+            {
+                ImGui::Separator();
+                ImGui::Text("Animation Controls:");
+                
+                // Create dropdown items for animations
+                std::vector<const char*> animationNames;
+                for (const auto& anim : animations)
+                {
+                    animationNames.push_back(anim->Name.c_str());
+                }
+                
+                if (ImGui::Combo("Select Animation", &m_CurrentAnimationIndex, 
+                                animationNames.data(), static_cast<int>(animationNames.size())))
+                {
+                    // Animation selection changed - the OnUpdate method will handle the actual switching
+                }
+                
+                // Show current animation info
+                if (m_CurrentAnimationIndex >= 0 && m_CurrentAnimationIndex < static_cast<int>(animations.size()))
+                {
+                    const auto& currentAnim = animations[m_CurrentAnimationIndex];
+                    ImGui::Text("Duration: %.2f seconds", currentAnim->Duration);
+                    
+                    if (m_ImportedModelEntity.HasComponent<OloEngine::AnimationStateComponent>())
+                    {
+                        auto& animState = m_ImportedModelEntity.GetComponent<OloEngine::AnimationStateComponent>();
+                        ImGui::Text("Progress: %.2f / %.2f", animState.m_CurrentTime, currentAnim->Duration);
+                        
+                        // Reset button
+                        if (ImGui::Button("Reset Animation"))
+                        {
+                            animState.m_CurrentTime = 0.0f;
+                        }
+                        ImGui::SameLine();
+                        
+                        // Play/Pause toggle
+                        const char* playPauseText = (m_AnimationSpeed > 0.0f) ? "Pause" : "Play";
+                        if (ImGui::Button(playPauseText))
+                        {
+                            m_AnimationSpeed = (m_AnimationSpeed > 0.0f) ? 0.0f : 1.0f;
+                        }
+                    }
+                }
+            }
+            
             // Show material information
             if (!m_CesiumManModel->GetMaterials().empty())
             {
@@ -1108,9 +1179,8 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
             solidMaterial.Specular = glm::vec3(0.5f);
             solidMaterial.Shininess = 32.0f;
             auto* solidPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, cubeMatrix, solidMaterial);
-            if (solidPacket) {
-                OloEngine::Renderer3D::SubmitPacket(solidPacket);
-            }
+			OloEngine::Renderer3D::SubmitPacket(solidPacket);
+
             // Overlay wireframe
             OloEngine::Material wireMaterial;
             wireMaterial.Ambient = glm::vec3(0.0f);
@@ -1179,12 +1249,6 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
     }
 }
 
-
-
-
-
-
-
 void Sandbox3D::LoadTestAnimatedModel()
 {
     OLO_PROFILE_FUNCTION();
@@ -1199,6 +1263,9 @@ void Sandbox3D::LoadTestAnimatedModel()
     // Get the selected model path
     std::string modelPath = "assets/models/" + m_AvailableModels[m_SelectedModelIndex];
     std::string modelName = m_ModelDisplayNames[m_SelectedModelIndex];
+    
+    // Reset animation index when loading a new model
+    m_CurrentAnimationIndex = 0;
     
     OLO_INFO("Sandbox3D: Loading animated model: {}", modelName);
     
@@ -1231,7 +1298,7 @@ void Sandbox3D::LoadTestAnimatedModel()
         if (modelName.find("Fox") != std::string::npos)
         {
             // Fox model is typically much larger, scale it down
-            modelScale = glm::vec3(0.01f); // Scale down to 1% of original size
+            modelScale = glm::vec3(0.01f);
             transformComp.Translation.y = 0.0f; // Keep it on the ground
             OLO_INFO("Applied Fox scaling: {}, {}, {}", modelScale.x, modelScale.y, modelScale.z);
         }
@@ -1245,7 +1312,6 @@ void Sandbox3D::LoadTestAnimatedModel()
                  modelName.find("RiggedFigure") != std::string::npos || 
                  modelName.find("SimpleSkin") != std::string::npos)
         {
-            // These models are typically smaller, might need slight scaling up
             modelScale = glm::vec3(1.0f);
             OLO_INFO("Applied default scaling for other models: {}, {}, {}", modelScale.x, modelScale.y, modelScale.z);
         }

@@ -73,11 +73,12 @@ private:
 
 	// ECS Scene for model testing
 	OloEngine::Ref<OloEngine::Scene> m_TestScene;
-	OloEngine::Entity m_ImportedModelEntity; // For loaded models
+	OloEngine::Entity m_ImportedModelEntity;
 
 	// Model selection
 	int m_SelectedModelIndex = 0;
-	int m_AnimatedModelMaterialType = 0; // For PBR material selection
+	int m_AnimatedModelMaterialType = 0;
+	int m_CurrentAnimationIndex = 0; // For tracking current animation in multi-animation models
 	std::vector<std::string> m_AvailableModels = {
 		"CesiumMan/CesiumMan.gltf",
 		"Fox/Fox.gltf", 
