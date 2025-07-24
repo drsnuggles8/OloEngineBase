@@ -385,6 +385,68 @@ namespace OloEngine
         OLO_CORE_INFO("AnimatedModel::ProcessSkeleton: Created skeleton with {} bones", m_Skeleton->m_BoneNames.size());
     }
 
+    // Binary search helper function template for finding keyframe indices
+    template<typename KeyType>
+    u32 FindKeyframeIndex(f64 time, u32 numKeys, const KeyType* keys)
+    {
+        if (numKeys == 0) return 0;
+        if (numKeys == 1) return 0;
+        
+        u32 left = 0;
+        u32 right = numKeys - 1;
+        
+        // Handle time beyond last keyframe
+        if (time >= keys[right].mTime)
+            return right - 1;
+        
+        // Handle time before first keyframe
+        if (time <= keys[0].mTime)
+            return 0;
+        
+        // Binary search for the correct interval
+        while (left < right)
+        {
+            u32 mid = left + (right - left) / 2;
+            if (keys[mid + 1].mTime <= time)
+                left = mid + 1;
+            else
+                right = mid;
+        }
+        
+        return left;
+    }
+
+    // Specialized template for new keyframe structures that use .Time instead of .mTime
+    template<typename KeyType>
+    u32 FindKeyframeIndexForBoneKeys(f64 time, u32 numKeys, const KeyType* keys)
+    {
+        if (numKeys == 0) return 0;
+        if (numKeys == 1) return 0;
+        
+        u32 left = 0;
+        u32 right = numKeys - 1;
+        
+        // Handle time beyond last keyframe
+        if (time >= keys[right].Time)
+            return right - 1;
+        
+        // Handle time before first keyframe
+        if (time <= keys[0].Time)
+            return 0;
+        
+        // Binary search for the correct interval
+        while (left < right)
+        {
+            u32 mid = left + (right - left) / 2;
+            if (keys[mid + 1].Time <= time)
+                left = mid + 1;
+            else
+                right = mid;
+        }
+        
+        return left;
+    }
+
     // Helper functions for sampling animation data
     glm::vec3 AnimatedModel::SamplePosition(const aiNodeAnim* nodeAnim, f64 time)
     {
@@ -397,25 +459,25 @@ namespace OloEngine
             return glm::vec3(pos.x, pos.y, pos.z);
         }
 
-        // Find the two keyframes to interpolate between
-        for (u32 i = 0; i < nodeAnim->mNumPositionKeys - 1; ++i)
+        // Find the keyframe index using binary search
+        u32 keyIndex = FindKeyframeIndex(time, nodeAnim->mNumPositionKeys, nodeAnim->mPositionKeys);
+        
+        // Handle edge case where we're at or beyond the last keyframe
+        if (keyIndex >= nodeAnim->mNumPositionKeys - 1)
         {
-            if (time >= nodeAnim->mPositionKeys[i].mTime && time <= nodeAnim->mPositionKeys[i + 1].mTime)
-            {
-                f64 t = (time - nodeAnim->mPositionKeys[i].mTime) / 
-                       (nodeAnim->mPositionKeys[i + 1].mTime - nodeAnim->mPositionKeys[i].mTime);
-                
-                const aiVector3D& pos1 = nodeAnim->mPositionKeys[i].mValue;
-                const aiVector3D& pos2 = nodeAnim->mPositionKeys[i + 1].mValue;
-                
-                return glm::mix(glm::vec3(pos1.x, pos1.y, pos1.z), 
-                               glm::vec3(pos2.x, pos2.y, pos2.z), (f32)t);
-            }
+            const aiVector3D& pos = nodeAnim->mPositionKeys[nodeAnim->mNumPositionKeys - 1].mValue;
+            return glm::vec3(pos.x, pos.y, pos.z);
         }
-
-        // If time is beyond the last keyframe, return the last position
-        const aiVector3D& pos = nodeAnim->mPositionKeys[nodeAnim->mNumPositionKeys - 1].mValue;
-        return glm::vec3(pos.x, pos.y, pos.z);
+        
+        // Interpolate between the found keyframes
+        f64 t = (time - nodeAnim->mPositionKeys[keyIndex].mTime) / 
+               (nodeAnim->mPositionKeys[keyIndex + 1].mTime - nodeAnim->mPositionKeys[keyIndex].mTime);
+        
+        const aiVector3D& pos1 = nodeAnim->mPositionKeys[keyIndex].mValue;
+        const aiVector3D& pos2 = nodeAnim->mPositionKeys[keyIndex + 1].mValue;
+        
+        return glm::mix(glm::vec3(pos1.x, pos1.y, pos1.z), 
+                       glm::vec3(pos2.x, pos2.y, pos2.z), (f32)t);
     }
 
     glm::quat AnimatedModel::SampleRotation(const aiNodeAnim* nodeAnim, f64 time)
@@ -429,26 +491,26 @@ namespace OloEngine
             return glm::quat(rot.w, rot.x, rot.y, rot.z);
         }
 
-        // Find the two keyframes to interpolate between
-        for (u32 i = 0; i < nodeAnim->mNumRotationKeys - 1; ++i)
+        // Find the keyframe index using binary search
+        u32 keyIndex = FindKeyframeIndex(time, nodeAnim->mNumRotationKeys, nodeAnim->mRotationKeys);
+        
+        // Handle edge case where we're at or beyond the last keyframe
+        if (keyIndex >= nodeAnim->mNumRotationKeys - 1)
         {
-            if (time >= nodeAnim->mRotationKeys[i].mTime && time <= nodeAnim->mRotationKeys[i + 1].mTime)
-            {
-                f64 t = (time - nodeAnim->mRotationKeys[i].mTime) / 
-                       (nodeAnim->mRotationKeys[i + 1].mTime - nodeAnim->mRotationKeys[i].mTime);
-                
-                const aiQuaternion& rot1 = nodeAnim->mRotationKeys[i].mValue;
-                const aiQuaternion& rot2 = nodeAnim->mRotationKeys[i + 1].mValue;
-                
-                aiQuaternion result;
-                aiQuaternion::Interpolate(result, rot1, rot2, (f32)t);
-                return glm::quat(result.w, result.x, result.y, result.z);
-            }
+            const aiQuaternion& rot = nodeAnim->mRotationKeys[nodeAnim->mNumRotationKeys - 1].mValue;
+            return glm::quat(rot.w, rot.x, rot.y, rot.z);
         }
-
-        // If time is beyond the last keyframe, return the last rotation
-        const aiQuaternion& rot = nodeAnim->mRotationKeys[nodeAnim->mNumRotationKeys - 1].mValue;
-        return glm::quat(rot.w, rot.x, rot.y, rot.z);
+        
+        // Interpolate between the found keyframes
+        f64 t = (time - nodeAnim->mRotationKeys[keyIndex].mTime) / 
+               (nodeAnim->mRotationKeys[keyIndex + 1].mTime - nodeAnim->mRotationKeys[keyIndex].mTime);
+        
+        const aiQuaternion& rot1 = nodeAnim->mRotationKeys[keyIndex].mValue;
+        const aiQuaternion& rot2 = nodeAnim->mRotationKeys[keyIndex + 1].mValue;
+        
+        aiQuaternion result;
+        aiQuaternion::Interpolate(result, rot1, rot2, (f32)t);
+        return glm::quat(result.w, result.x, result.y, result.z);
     }
 
     glm::vec3 AnimatedModel::SampleScale(const aiNodeAnim* nodeAnim, f64 time)
@@ -462,25 +524,25 @@ namespace OloEngine
             return glm::vec3(scale.x, scale.y, scale.z);
         }
 
-        // Find the two keyframes to interpolate between
-        for (u32 i = 0; i < nodeAnim->mNumScalingKeys - 1; ++i)
+        // Find the keyframe index using binary search
+        u32 keyIndex = FindKeyframeIndex(time, nodeAnim->mNumScalingKeys, nodeAnim->mScalingKeys);
+        
+        // Handle edge case where we're at or beyond the last keyframe
+        if (keyIndex >= nodeAnim->mNumScalingKeys - 1)
         {
-            if (time >= nodeAnim->mScalingKeys[i].mTime && time <= nodeAnim->mScalingKeys[i + 1].mTime)
-            {
-                f64 t = (time - nodeAnim->mScalingKeys[i].mTime) / 
-                       (nodeAnim->mScalingKeys[i + 1].mTime - nodeAnim->mScalingKeys[i].mTime);
-                
-                const aiVector3D& scale1 = nodeAnim->mScalingKeys[i].mValue;
-                const aiVector3D& scale2 = nodeAnim->mScalingKeys[i + 1].mValue;
-                
-                return glm::mix(glm::vec3(scale1.x, scale1.y, scale1.z), 
-                               glm::vec3(scale2.x, scale2.y, scale2.z), (f32)t);
-            }
+            const aiVector3D& scale = nodeAnim->mScalingKeys[nodeAnim->mNumScalingKeys - 1].mValue;
+            return glm::vec3(scale.x, scale.y, scale.z);
         }
-
-        // If time is beyond the last keyframe, return the last scale
-        const aiVector3D& scale = nodeAnim->mScalingKeys[nodeAnim->mNumScalingKeys - 1].mValue;
-        return glm::vec3(scale.x, scale.y, scale.z);
+        
+        // Interpolate between the found keyframes
+        f64 t = (time - nodeAnim->mScalingKeys[keyIndex].mTime) / 
+               (nodeAnim->mScalingKeys[keyIndex + 1].mTime - nodeAnim->mScalingKeys[keyIndex].mTime);
+        
+        const aiVector3D& scale1 = nodeAnim->mScalingKeys[keyIndex].mValue;
+        const aiVector3D& scale2 = nodeAnim->mScalingKeys[keyIndex + 1].mValue;
+        
+        return glm::mix(glm::vec3(scale1.x, scale1.y, scale1.z), 
+                       glm::vec3(scale2.x, scale2.y, scale2.z), (f32)t);
     }
 
     void AnimatedModel::ProcessAnimations(const aiScene* scene)
@@ -506,30 +568,37 @@ namespace OloEngine
                 BoneAnimation boneAnim;
                 boneAnim.BoneName = nodeAnim->mNodeName.data;
 
-                // Collect all unique timestamps from all key types
-                std::set<f64> timeStamps;
-                
+                // Store position keyframes directly without merging timestamps
+                boneAnim.PositionKeys.reserve(nodeAnim->mNumPositionKeys);
                 for (u32 k = 0; k < nodeAnim->mNumPositionKeys; ++k)
-                    timeStamps.insert(nodeAnim->mPositionKeys[k].mTime);
-                
-                for (u32 k = 0; k < nodeAnim->mNumRotationKeys; ++k)
-                    timeStamps.insert(nodeAnim->mRotationKeys[k].mTime);
-                
-                for (u32 k = 0; k < nodeAnim->mNumScalingKeys; ++k)
-                    timeStamps.insert(nodeAnim->mScalingKeys[k].mTime);
-
-                // Create keyframes for each unique timestamp
-                for (f64 time : timeStamps)
                 {
-                    BoneKeyframe keyframe;
-                    keyframe.Time = static_cast<f32>(time / anim->mTicksPerSecond);
-                    
-                    // Sample position at this time
-                    keyframe.Translation = SamplePosition(nodeAnim, time);
-                    keyframe.Rotation = SampleRotation(nodeAnim, time);
-                    keyframe.Scale = SampleScale(nodeAnim, time);
-                    
-                    boneAnim.Keyframes.push_back(keyframe);
+                    BonePositionKey posKey;
+                    posKey.Time = static_cast<f64>(nodeAnim->mPositionKeys[k].mTime / anim->mTicksPerSecond);
+                    const aiVector3D& pos = nodeAnim->mPositionKeys[k].mValue;
+                    posKey.Position = glm::vec3(pos.x, pos.y, pos.z);
+                    boneAnim.PositionKeys.push_back(posKey);
+                }
+
+                // Store rotation keyframes directly
+                boneAnim.RotationKeys.reserve(nodeAnim->mNumRotationKeys);
+                for (u32 k = 0; k < nodeAnim->mNumRotationKeys; ++k)
+                {
+                    BoneRotationKey rotKey;
+                    rotKey.Time = static_cast<f64>(nodeAnim->mRotationKeys[k].mTime / anim->mTicksPerSecond);
+                    const aiQuaternion& rot = nodeAnim->mRotationKeys[k].mValue;
+                    rotKey.Rotation = glm::quat(rot.w, rot.x, rot.y, rot.z);
+                    boneAnim.RotationKeys.push_back(rotKey);
+                }
+
+                // Store scale keyframes directly
+                boneAnim.ScaleKeys.reserve(nodeAnim->mNumScalingKeys);
+                for (u32 k = 0; k < nodeAnim->mNumScalingKeys; ++k)
+                {
+                    BoneScaleKey scaleKey;
+                    scaleKey.Time = static_cast<f64>(nodeAnim->mScalingKeys[k].mTime / anim->mTicksPerSecond);
+                    const aiVector3D& scale = nodeAnim->mScalingKeys[k].mValue;
+                    scaleKey.Scale = glm::vec3(scale.x, scale.y, scale.z);
+                    boneAnim.ScaleKeys.push_back(scaleKey);
                 }
 
                 animClip->BoneAnimations.push_back(boneAnim);
@@ -539,6 +608,82 @@ namespace OloEngine
         }
 
         OLO_CORE_INFO("AnimatedModel::ProcessAnimations: Successfully processed {} animations", m_Animations.size());
+    }
+
+    // New optimized sampling functions for separate keyframe channels
+    glm::vec3 AnimatedModel::SampleBonePosition(const std::vector<BonePositionKey>& keys, f32 time)
+    {
+        if (keys.empty())
+            return glm::vec3(0.0f);
+        
+        if (keys.size() == 1)
+            return keys[0].Position;
+
+        // Convert time to double for precision during search
+        f64 searchTime = static_cast<f64>(time);
+        
+        // Find the keyframe index using binary search
+        u32 keyIndex = FindKeyframeIndexForBoneKeys(searchTime, static_cast<u32>(keys.size()), keys.data());
+        
+        // Handle edge case where we're at or beyond the last keyframe
+        if (keyIndex >= keys.size() - 1)
+            return keys[keys.size() - 1].Position;
+        
+        // Interpolate between the found keyframes
+        f64 t = (searchTime - keys[keyIndex].Time) / 
+               (keys[keyIndex + 1].Time - keys[keyIndex].Time);
+        
+        return glm::mix(keys[keyIndex].Position, keys[keyIndex + 1].Position, static_cast<f32>(t));
+    }
+
+    glm::quat AnimatedModel::SampleBoneRotation(const std::vector<BoneRotationKey>& keys, f32 time)
+    {
+        if (keys.empty())
+            return glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+        
+        if (keys.size() == 1)
+            return keys[0].Rotation;
+
+        // Convert time to double for precision during search
+        f64 searchTime = static_cast<f64>(time);
+        
+        // Find the keyframe index using binary search
+        u32 keyIndex = FindKeyframeIndexForBoneKeys(searchTime, static_cast<u32>(keys.size()), keys.data());
+        
+        // Handle edge case where we're at or beyond the last keyframe
+        if (keyIndex >= keys.size() - 1)
+            return keys[keys.size() - 1].Rotation;
+        
+        // Interpolate between the found keyframes using slerp
+        f64 t = (searchTime - keys[keyIndex].Time) / 
+               (keys[keyIndex + 1].Time - keys[keyIndex].Time);
+        
+        return glm::slerp(keys[keyIndex].Rotation, keys[keyIndex + 1].Rotation, static_cast<f32>(t));
+    }
+
+    glm::vec3 AnimatedModel::SampleBoneScale(const std::vector<BoneScaleKey>& keys, f32 time)
+    {
+        if (keys.empty())
+            return glm::vec3(1.0f);
+        
+        if (keys.size() == 1)
+            return keys[0].Scale;
+
+        // Convert time to double for precision during search
+        f64 searchTime = static_cast<f64>(time);
+        
+        // Find the keyframe index using binary search
+        u32 keyIndex = FindKeyframeIndexForBoneKeys(searchTime, static_cast<u32>(keys.size()), keys.data());
+        
+        // Handle edge case where we're at or beyond the last keyframe
+        if (keyIndex >= keys.size() - 1)
+            return keys[keys.size() - 1].Scale;
+        
+        // Interpolate between the found keyframes
+        f64 t = (searchTime - keys[keyIndex].Time) / 
+               (keys[keyIndex + 1].Time - keys[keyIndex].Time);
+        
+        return glm::mix(keys[keyIndex].Scale, keys[keyIndex + 1].Scale, static_cast<f32>(t));
     }
 
     std::vector<Ref<Texture2D>> AnimatedModel::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type)

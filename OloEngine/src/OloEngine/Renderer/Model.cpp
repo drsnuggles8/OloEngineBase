@@ -10,31 +10,11 @@
 
 namespace OloEngine
 {
-	Model::Model(const std::string& path)
-	{
-		LoadModel(path);
-	}
-
-	Model::Model(const std::string& path, const TextureOverride& textureOverride)
-		: m_TextureOverride(textureOverride)
-	{
-		LoadModel(path, textureOverride);
-	}
-
 	Model::Model(const std::string& path, const TextureOverride& textureOverride, bool flipUV)
-		: m_TextureOverride(textureOverride), m_FlipUV(flipUV)
+		: m_TextureOverride(textureOverride.HasAnyTexture() ? std::optional<TextureOverride>(textureOverride) : std::nullopt), 
+		  m_FlipUV(flipUV)
 	{
 		LoadModel(path, textureOverride, flipUV);
-	}
-
-	void Model::LoadModel(const std::string& path)
-	{
-		LoadModel(path, {});
-	}
-
-	void Model::LoadModel(const std::string& path, const TextureOverride& textureOverride)
-	{
-		LoadModel(path, textureOverride, false);
 	}
 
 	void Model::LoadModel(const std::string& path, const TextureOverride& textureOverride, bool flipUV)

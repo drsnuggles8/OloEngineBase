@@ -9,20 +9,32 @@
 
 namespace OloEngine
 {
-    // Represents a single keyframe for a bone
-    struct BoneKeyframe
+    // Represents separate keyframe channels for efficient storage
+    struct BonePositionKey
     {
-        float Time; // Time in seconds
-        glm::vec3 Translation;
+        f64 Time;
+        glm::vec3 Position;
+    };
+
+    struct BoneRotationKey
+    {
+        f64 Time;
         glm::quat Rotation;
+    };
+
+    struct BoneScaleKey
+    {
+        f64 Time;
         glm::vec3 Scale;
     };
 
-    // Animation data for a single bone
+    // Animation data for a single bone - stores original keyframes separately
     struct BoneAnimation
     {
         std::string BoneName;
-        std::vector<BoneKeyframe> Keyframes;
+        std::vector<BonePositionKey> PositionKeys;
+        std::vector<BoneRotationKey> RotationKeys;
+        std::vector<BoneScaleKey> ScaleKeys;
     };
 
     // AnimationClip: a set of bone animations and duration

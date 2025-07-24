@@ -1967,23 +1967,7 @@ void Sandbox3D::LoadTestPBRModel()
             return;
         }
         
-        // Load Cerberus with UV flip enabled to match reference implementation
         m_CerberusModel = OloEngine::CreateRef<OloEngine::Model>(assetPath, cerberusTextures, true);
-        m_BackpackModel.reset(); // Clear other model
-        
-        OLO_INFO("Cerberus model loaded with texture overrides:");
-        OLO_INFO("  Albedo: {}", cerberusTextures.AlbedoPath);
-        OLO_INFO("  Metallic: {}", cerberusTextures.MetallicPath);
-        OLO_INFO("  Normal: {}", cerberusTextures.NormalPath);
-        OLO_INFO("  Roughness: {}", cerberusTextures.RoughnessPath);
-        OLO_INFO("  AO: {}", cerberusTextures.AOPath);;
-        OLO_INFO("  Roughness: {}", cerberusTextures.RoughnessPath);
-        OLO_INFO("  AO: {}", cerberusTextures.AOPath);
-        
-        // Configure IBL for Cerberus materials if available
-        if (m_CerberusModel && m_EnvironmentMap && m_EnvironmentMap->HasIBL())
-        {
-            OLO_INFO("IBL environment available for Cerberus PBR rendering");
-        }
+        m_BackpackModel.reset();
     }
 }

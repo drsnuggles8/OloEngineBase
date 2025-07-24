@@ -51,6 +51,11 @@ namespace OloEngine
         [[nodiscard]] bool HasAnimations() const { return !m_Animations.empty(); }
         [[nodiscard]] bool HasSkeleton() const { return m_Skeleton != nullptr; }
 
+        // Static dynamic sampling methods for optimized keyframe storage (public for AnimationSystem)
+        static glm::vec3 SampleBonePosition(const std::vector<BonePositionKey>& keys, f32 time);
+        static glm::quat SampleBoneRotation(const std::vector<BoneRotationKey>& keys, f32 time);
+        static glm::vec3 SampleBoneScale(const std::vector<BoneScaleKey>& keys, f32 time);
+
     private:
         // Model processing
         void ProcessNode(const aiNode* node, const aiScene* scene);

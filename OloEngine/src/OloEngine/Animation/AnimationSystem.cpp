@@ -1,6 +1,7 @@
 
 #include "OloEngine/Animation/AnimationSystem.h"
 #include "OloEngine/Animation/AnimationClip.h"
+#include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Core/Log.h"
 #include <algorithm>
 
@@ -57,41 +58,12 @@ namespace OloEngine::Animation
             TRSFrame result = { glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f) };
             if (!clip) return result;
             const auto* boneAnim = clip->FindBoneAnimation(boneName);
-            if (boneAnim && !boneAnim->Keyframes.empty())
+            if (boneAnim)
             {
-                const auto& keyframes = boneAnim->Keyframes;
-                size_t k0 = 0, k1 = 0;
-                
-                // Use binary search for better performance with large keyframe arrays
-                auto it = std::lower_bound(keyframes.begin(), keyframes.end(), time,
-                    [](const BoneKeyframe& keyframe, float t) { return keyframe.Time < t; });
-                
-                if (it == keyframes.end())
-                {
-                    // Time is beyond all keyframes, use last keyframe
-                    k0 = k1 = keyframes.size() - 1;
-                }
-                else if (it == keyframes.begin())
-                {
-                    // Time is before all keyframes, use first keyframe
-                    k0 = k1 = 0;
-                }
-                else
-                {
-                    // Found the interval
-                    k1 = std::distance(keyframes.begin(), it);
-                    k0 = k1 - 1;
-                }
-                
-                const auto& frame0 = keyframes[k0];
-                const auto& frame1 = keyframes[k1];
-                float t = 0.0f;
-                float dt = frame1.Time - frame0.Time;
-                if (dt > 0.0f)
-                    t = (time - frame0.Time) / dt;
-                result.translation = glm::mix(frame0.Translation, frame1.Translation, t);
-                result.rotation = glm::slerp(frame0.Rotation, frame1.Rotation, t);
-                result.scale = glm::mix(frame0.Scale, frame1.Scale, t);
+                // Sample each channel separately using the new optimized functions
+                result.translation = AnimatedModel::SampleBonePosition(boneAnim->PositionKeys, time);
+                result.rotation = AnimatedModel::SampleBoneRotation(boneAnim->RotationKeys, time);
+                result.scale = AnimatedModel::SampleBoneScale(boneAnim->ScaleKeys, time);
             }
             return result;
         };

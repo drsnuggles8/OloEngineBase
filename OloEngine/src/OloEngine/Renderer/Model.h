@@ -39,14 +39,10 @@ namespace OloEngine
 	{
 	public:
 		Model() = default;
-		explicit Model(const std::string& path);
-		Model(const std::string& path, const TextureOverride& textureOverride);
-		Model(const std::string& path, const TextureOverride& textureOverride, bool flipUV);
+		explicit Model(const std::string& path, const TextureOverride& textureOverride = {}, bool flipUV = false);
 		~Model() = default;
 
-		void LoadModel(const std::string& path);
-		void LoadModel(const std::string& path, const TextureOverride& textureOverride);
-		void LoadModel(const std::string& path, const TextureOverride& textureOverride, bool flipUV);
+		void LoadModel(const std::string& path, const TextureOverride& textureOverride = {}, bool flipUV = false);
 		void Draw(const glm::mat4& transform, const Material& material) const;
 
 		void GetDrawCommands(const glm::mat4& transform, const Material& material, std::vector<CommandPacket*>& outCommands) const;
