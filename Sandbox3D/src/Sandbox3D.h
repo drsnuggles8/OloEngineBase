@@ -190,7 +190,7 @@ private:
 	const char* m_LightTypeNames[3] = { "Directional Light", "Point Light", "Spotlight" };
 	
 	// Per-scene lighting configurations
-	OloEngine::Light m_SceneLights[5]; // One for each scene type
+	OloEngine::Light m_SceneLights[6]; // One for each scene type (6 total: MaterialTesting=0 through PBRModelTesting=5)
 	
 	// Material editor selection state
 	int m_SelectedMaterial = 0;

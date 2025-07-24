@@ -371,7 +371,16 @@ void Sandbox3D::OnImGuiRender()
     if (ImGui::CollapsingHeader("Scene Selection", ImGuiTreeNodeFlags_DefaultOpen))
     {
         int currentSceneIndex = static_cast<int>(m_CurrentScene);
-        if (ImGui::Combo("Active Scene", &currentSceneIndex, m_SceneNames, 5))
+        
+        // Ensure scene index is within valid bounds
+        const int sceneCount = static_cast<int>(sizeof(m_SceneNames) / sizeof(m_SceneNames[0]));
+        if (currentSceneIndex < 0 || currentSceneIndex >= sceneCount)
+        {
+            currentSceneIndex = 0;
+            m_CurrentScene = static_cast<SceneType>(currentSceneIndex);
+        }
+        
+        if (ImGui::Combo("Active Scene", &currentSceneIndex, m_SceneNames, sceneCount))
         {
             SceneType newScene = static_cast<SceneType>(currentSceneIndex);
             
@@ -1441,13 +1450,11 @@ void Sandbox3D::LoadTestAnimatedModel()
 
 void Sandbox3D::RenderMaterialSettings()
 {
-    // PBR Toggle
     if (ImGui::Checkbox("Use PBR Materials", &m_UsePBRMaterials))
     {
-        // When switching to PBR, switch to spheres for better material showcase
         if (m_UsePBRMaterials)
         {
-            m_PrimitiveTypeIndex = 1; // Spheres
+            m_PrimitiveTypeIndex = 1;
         }
     }
     
@@ -1460,16 +1467,22 @@ void Sandbox3D::RenderMaterialSettings()
         
         // PBR Material information
         ImGui::Text("Available PBR Materials:");
-        for (int i = 0; i < 6; ++i)
+        const size_t materialCount = sizeof(m_PBRMaterialNames) / sizeof(m_PBRMaterialNames[0]);
+        for (size_t i = 0; i < materialCount; ++i)
         {
             ImGui::BulletText("%s", m_PBRMaterialNames[i]);
         }
         
         ImGui::Separator();
         
-        // PBR Material editor (basic version)
         ImGui::Text("PBR Material Properties:");
-        ImGui::Combo("Select PBR Material", &m_PBRMaterialType, m_PBRMaterialNames, 6);
+        
+        // Ensure PBR material type is within valid bounds
+        const int pbrMaterialCount = static_cast<int>(sizeof(m_PBRMaterialNames) / sizeof(m_PBRMaterialNames[0]));
+        if (m_PBRMaterialType < 0 || m_PBRMaterialType >= pbrMaterialCount)
+            m_PBRMaterialType = 0;
+            
+        ImGui::Combo("Select PBR Material", &m_PBRMaterialType, m_PBRMaterialNames, pbrMaterialCount);
         
         // Get the selected PBR material
         auto& currentPBRMaterial = GetCurrentPBRMaterial();
