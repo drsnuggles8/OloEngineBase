@@ -294,8 +294,6 @@ namespace OloEngine
             m_ResourceCounts[static_cast<sizet>(type)]--;
             m_MemoryUsageByType[static_cast<sizet>(type)] -= it->second->m_MemoryUsage;
             m_Resources.erase(it);
-            
-            OLO_CORE_TRACE("Unregistered resource: ID {}", rendererID);
         }
     }
 

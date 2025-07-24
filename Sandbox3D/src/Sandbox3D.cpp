@@ -169,6 +169,7 @@ void Sandbox3D::OnAttach()
     m_TestScene->OnRuntimeStart();
     
     LoadTestAnimatedModel();
+    LoadTestPBRModel();
 }
 
 void Sandbox3D::OnDetach()
@@ -325,6 +326,9 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
             case SceneType::ModelLoading:
                 RenderModelLoadingScene();
                 break;
+            case SceneType::PBRModelTesting:
+                RenderPBRModelTestingScene();
+                break;
         }
         
         OloEngine::Renderer3D::EndScene();
@@ -406,6 +410,9 @@ void Sandbox3D::OnImGuiRender()
             break;
         case SceneType::ModelLoading:
             RenderModelLoadingUI();
+            break;
+        case SceneType::PBRModelTesting:
+            RenderPBRModelTestingUI();
             break;
     }
     
@@ -1339,27 +1346,17 @@ void Sandbox3D::LoadTestAnimatedModel()
         
         if (modelName.find("Fox") != std::string::npos)
         {
-            // Fox model is typically much larger, scale it down
             modelScale = glm::vec3(0.01f);
-            transformComp.Translation.y = 0.0f; // Keep it on the ground
+            transformComp.Translation.y = 0.0f;
             OLO_INFO("Applied Fox scaling: {}, {}, {}", modelScale.x, modelScale.y, modelScale.z);
         }
-        else if (modelName.find("CesiumMan") != std::string::npos)
-        {
-            // CesiumMan is at a good default scale
-            modelScale = glm::vec3(1.0f);
-            OLO_INFO("Applied CesiumMan scaling: {}, {}, {}", modelScale.x, modelScale.y, modelScale.z);
-        }
-        else if (modelName.find("RiggedSimple") != std::string::npos || 
-                 modelName.find("RiggedFigure") != std::string::npos || 
-                 modelName.find("SimpleSkin") != std::string::npos)
-        {
+        else
+		{
             modelScale = glm::vec3(1.0f);
             OLO_INFO("Applied default scaling for other models: {}, {}, {}", modelScale.x, modelScale.y, modelScale.z);
         }
         
         transformComp.Scale = modelScale;
-        OLO_INFO("Final transform scale set to: {}, {}, {}", transformComp.Scale.x, transformComp.Scale.y, transformComp.Scale.z);
         
         auto& animMeshComp = m_ImportedModelEntity.AddComponent<OloEngine::AnimatedMeshComponent>();
         if (!m_CesiumManModel->GetMeshes().empty())
@@ -1742,6 +1739,13 @@ void Sandbox3D::InitializeSceneLighting()
     m_SceneLights[static_cast<int>(SceneType::ModelLoading)].Constant = 1.0f;
     m_SceneLights[static_cast<int>(SceneType::ModelLoading)].Linear = 0.09f;
     m_SceneLights[static_cast<int>(SceneType::ModelLoading)].Quadratic = 0.032f;
+    
+    // PBR Model Testing Scene - Directional light optimized for PBR materials
+    m_SceneLights[static_cast<int>(SceneType::PBRModelTesting)].Type = OloEngine::LightType::Directional;
+    m_SceneLights[static_cast<int>(SceneType::PBRModelTesting)].Direction = glm::vec3(-0.4f, -1.0f, -0.3f);
+    m_SceneLights[static_cast<int>(SceneType::PBRModelTesting)].Ambient = glm::vec3(0.3f);
+    m_SceneLights[static_cast<int>(SceneType::PBRModelTesting)].Diffuse = glm::vec3(1.0f);
+    m_SceneLights[static_cast<int>(SceneType::PBRModelTesting)].Specular = glm::vec3(1.0f);
 }
 
 void Sandbox3D::ApplySceneLighting(SceneType sceneType)
@@ -1764,5 +1768,174 @@ void Sandbox3D::UpdateCurrentSceneLighting()
     if (m_CurrentScene == SceneType::LightingTesting)
     {
         m_SceneLights[static_cast<int>(SceneType::LightingTesting)] = m_Light;
+    }
+}
+
+void Sandbox3D::RenderPBRModelTestingScene()
+{
+    // Render the selected PBR model
+    if (m_SelectedPBRModelIndex == 0 && m_BackpackModel)
+    {
+        // Render Backpack model using its own materials
+        auto modelMatrix = glm::mat4(1.0f);
+        
+        // Position the model above the ground plane to prevent intersection
+        modelMatrix = glm::translate(modelMatrix, glm::vec3(0.0f, 1.5f, 0.0f));
+        
+        modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
+        
+        std::vector<OloEngine::CommandPacket*> drawCommands;
+        m_BackpackModel->GetDrawCommands(modelMatrix, drawCommands);
+        
+        for (auto* cmd : drawCommands)
+        {
+            if (cmd) OloEngine::Renderer3D::SubmitPacket(cmd);
+        }
+    }
+    else if (m_SelectedPBRModelIndex == 1 && m_CerberusModel)
+    {
+        // Render Cerberus model using its own materials
+        auto modelMatrix = glm::mat4(1.0f);
+        
+        // Position the model above the ground plane
+        modelMatrix = glm::translate(modelMatrix, glm::vec3(0.0f, 1.0f, 0.0f));
+        
+        // Apply user rotation
+        modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
+        
+        // Add initial rotation to orient the model properly (many FBX models need this)
+        modelMatrix = glm::rotate(modelMatrix, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f)); // Rotate around X-axis
+        
+        // Scale the model to appropriate size
+        modelMatrix = glm::scale(modelMatrix, glm::vec3(0.02f));
+        
+        std::vector<OloEngine::CommandPacket*> drawCommands;
+        m_CerberusModel->GetDrawCommands(modelMatrix, drawCommands);
+        
+        for (auto* cmd : drawCommands)
+        {
+            if (cmd) OloEngine::Renderer3D::SubmitPacket(cmd);
+        }
+    }
+}
+
+void Sandbox3D::RenderPBRModelTestingUI()
+{
+    ImGui::Text("PBR Model Testing");
+    ImGui::Separator();
+    
+    // Model selection - convert std::vector<std::string> to const char* array
+    std::vector<const char*> modelNames;
+    for (const auto& name : m_PBRModelDisplayNames)
+    {
+        modelNames.push_back(name.c_str());
+    }
+    
+    if (ImGui::Combo("Select PBR Model", &m_SelectedPBRModelIndex, 
+                     modelNames.data(), static_cast<int>(modelNames.size())))
+    {
+        LoadTestPBRModel();
+    }
+    
+    ImGui::Separator();
+    
+    // Model information
+    if (m_SelectedPBRModelIndex == 0)
+    {
+        ImGui::Text("Model: Backpack (OBJ format)");
+        ImGui::Text("Type: Static mesh with basic materials");
+        ImGui::Text("Loaded: %s", m_BackpackModel ? "Yes" : "No");
+    }
+    else if (m_SelectedPBRModelIndex == 1)
+    {
+        ImGui::Text("Model: Cerberus (FBX format)");
+        ImGui::Text("Type: PBR model with full texture set");
+        ImGui::Text("Loaded: %s", m_CerberusModel ? "Yes" : "No");
+        
+        if (m_CerberusModel)
+        {
+            const auto& materials = m_CerberusModel->GetMaterials();
+            ImGui::Text("Materials: %d", static_cast<int>(materials.size()));
+            
+            for (size_t i = 0; i < materials.size(); i++)
+            {
+                ImGui::Text("  Material %d: %s", static_cast<int>(i), materials[i].Name.c_str());
+                ImGui::Text("    Base Color: (%.2f, %.2f, %.2f)", 
+                           materials[i].BaseColorFactor.r, materials[i].BaseColorFactor.g, materials[i].BaseColorFactor.b);
+                ImGui::Text("    Metallic: %.2f, Roughness: %.2f", 
+                           materials[i].MetallicFactor, materials[i].RoughnessFactor);
+                ImGui::Text("    Albedo: Has texture: %s", materials[i].AlbedoMap ? "Yes" : "No");
+                ImGui::Text("    Normal: Has texture: %s", materials[i].NormalMap ? "Yes" : "No");
+                ImGui::Text("    Metallic: Has texture: %s", materials[i].MetallicRoughnessMap ? "Yes" : "No");
+                ImGui::Text("    AO: Has texture: %s", materials[i].AOMap ? "Yes" : "No");
+                ImGui::Text("    IBL: Environment: %s, Irradiance: %s", 
+                           materials[i].EnvironmentMap ? "Yes" : "No",
+                           materials[i].IrradianceMap ? "Yes" : "No");
+            }
+            
+            ImGui::Separator();
+            ImGui::Text("Rendering Info:");
+            ImGui::Text("IBL Available: %s", (m_EnvironmentMap && m_EnvironmentMap->HasIBL()) ? "Yes" : "No");
+            ImGui::Text("Position: Above ground plane (Y=1.0)");
+            ImGui::Text("Orientation: Rotated -90° on X-axis for proper upright display");
+            ImGui::Text("Scale: 0.02x (properly sized - model should be fully visible)");
+            ImGui::Text("Tip: Use WASDQE to move camera, mouse to look around");
+        }
+    }
+    
+    ImGui::Separator();
+    
+    // Rotation controls
+    if (ImGui::SliderFloat("Model Rotation", &m_RotationAngleY, 0.0f, 360.0f))
+    {
+        // Rotation updated
+    }
+    
+    if (ImGui::Button("Reset Rotation"))
+    {
+        m_RotationAngleY = 0.0f;
+    }
+}
+
+void Sandbox3D::LoadTestPBRModel()
+{
+    std::string assetPath = "assets/" + m_AvailablePBRModels[m_SelectedPBRModelIndex];
+    
+    if (m_SelectedPBRModelIndex == 0)
+    {
+        // Load Backpack
+        OLO_INFO("Loading Backpack model from: {}", assetPath);
+        m_BackpackModel = OloEngine::CreateRef<OloEngine::Model>(assetPath);
+        m_CerberusModel.reset(); // Clear other model
+    }
+    else if (m_SelectedPBRModelIndex == 1)
+    {
+        // Load Cerberus with texture overrides
+        OLO_INFO("Loading Cerberus model from: {}", assetPath);
+        
+        // Create texture override configuration for Cerberus
+        OloEngine::TextureOverride cerberusTextures;
+        cerberusTextures.AlbedoPath = "assets/models/Cerberus/cerberus_A.png";
+        cerberusTextures.MetallicPath = "assets/models/Cerberus/cerberus_M.png";
+        cerberusTextures.NormalPath = "assets/models/Cerberus/cerberus_N.png";
+        cerberusTextures.RoughnessPath = "assets/models/Cerberus/cerberus_R.png";
+        cerberusTextures.AOPath = "assets/models/Cerberus/cerberus_R.png"; // Use same texture for AO
+        
+        // Load Cerberus with UV flip enabled to match reference implementation
+        m_CerberusModel = OloEngine::CreateRef<OloEngine::Model>(assetPath, cerberusTextures, true);
+        m_BackpackModel.reset(); // Clear other model
+        
+        OLO_INFO("Cerberus model loaded with texture overrides:");
+        OLO_INFO("  Albedo: {}", cerberusTextures.AlbedoPath);
+        OLO_INFO("  Metallic: {}", cerberusTextures.MetallicPath);
+        OLO_INFO("  Normal: {}", cerberusTextures.NormalPath);
+        OLO_INFO("  Roughness: {}", cerberusTextures.RoughnessPath);
+        OLO_INFO("  AO: {}", cerberusTextures.AOPath);
+        
+        // Configure IBL for Cerberus materials if available
+        if (m_CerberusModel && m_EnvironmentMap && m_EnvironmentMap->HasIBL())
+        {
+            OLO_INFO("IBL environment available for Cerberus PBR rendering");
+        }
     }
 }

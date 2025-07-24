@@ -84,7 +84,7 @@ namespace OloEngine
 
         // Data members
         std::vector<Ref<SkinnedMesh>> m_Meshes;
-        std::vector<Material> m_Materials;  // Materials corresponding to each mesh
+        std::vector<Material> m_Materials;
         std::vector<Ref<AnimationClip>> m_Animations;
         Ref<Skeleton> m_Skeleton;
         

@@ -38,19 +38,21 @@ public:
 		AnimationTesting = 1,
 		LightingTesting = 2,
 		StateTesting = 3,
-		ModelLoading = 4
+		ModelLoading = 4,
+		PBRModelTesting = 5
 	};
 
 
 private:
 	// Scene management
-	SceneType m_CurrentScene = SceneType::AnimationTesting; // Start with animation testing to debug Fox
-	const char* m_SceneNames[5] = { 
+	SceneType m_CurrentScene = SceneType::PBRModelTesting; // Start with PBR model testing
+	const char* m_SceneNames[6] = { 
 		"Material Testing", 
 		"Animation Testing", 
 		"Lighting Testing", 
 		"State Testing", 
-		"Model Loading"
+		"Model Loading",
+		"PBR Model Testing"
 	};
 	
 	// Scene rendering methods
@@ -59,6 +61,7 @@ private:
 	void RenderLightingTestingScene();
 	void RenderStateTestingScene();
 	void RenderModelLoadingScene();
+	void RenderPBRModelTestingScene();
 	
 	// Scene UI methods
 	void RenderMaterialTestingUI();
@@ -66,6 +69,7 @@ private:
 	void RenderLightingTestingUI();
 	void RenderStateTestingUI();
 	void RenderModelLoadingUI();
+	void RenderPBRModelTestingUI();
 	
 	// Helper methods
 	OloEngine::Material& GetCurrentPBRMaterial();
@@ -96,6 +100,17 @@ private:
 	
 	float m_AnimationSpeed = 1.0f;
 	
+	// PBR Model selection for PBR Model Testing scene
+	int m_SelectedPBRModelIndex = 0;
+	std::vector<std::string> m_AvailablePBRModels = {
+		"backpack/backpack.obj",
+		"models/Cerberus/cerberus.fbx"
+	};
+	std::vector<std::string> m_PBRModelDisplayNames = {
+		"Backpack (OBJ)",
+		"Cerberus (FBX PBR)"
+	};
+	
 	// Skeleton visualization settings
 	bool m_ShowSkeleton = false;
 	bool m_ShowBones = true;
@@ -108,6 +123,7 @@ private:
 	
 	// Helper functions
 	void LoadTestAnimatedModel();
+	void LoadTestPBRModel();
 	
 	// Scene lighting management
 	void InitializeSceneLighting();
@@ -140,6 +156,7 @@ private:
 	// Model objects
 	OloEngine::Ref<OloEngine::Model> m_BackpackModel;
 	OloEngine::Ref<OloEngine::AnimatedModel> m_CesiumManModel;
+	OloEngine::Ref<OloEngine::Model> m_CerberusModel;
 	
 	// Texture resources
 	OloEngine::Ref<OloEngine::Texture2D> m_DiffuseMap;

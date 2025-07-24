@@ -49,8 +49,6 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        OLO_CORE_INFO("SkinnedMesh::Build() called with {} vertices, {} indices", m_Vertices.size(), m_Indices.size());
-
         if (m_Vertices.empty() || m_Indices.empty())
         {
             OLO_CORE_WARN("SkinnedMesh::Build: Attempting to build a mesh with no vertices or indices!");
@@ -58,14 +56,11 @@ namespace OloEngine
         }
 
         m_VertexArray = VertexArray::Create();
-        OLO_CORE_INFO("SkinnedMesh::Build: Created vertex array: {}", (void*)m_VertexArray.get());
 
         m_VertexBuffer = VertexBuffer::Create(
             reinterpret_cast<f32*>(m_Vertices.data()),
             static_cast<u32>(m_Vertices.size() * sizeof(SkinnedVertex))
         );
-        
-        OLO_CORE_INFO("SkinnedMesh::Build: Created vertex buffer: {}", (void*)m_VertexBuffer.get());
         
         m_VertexBuffer->SetLayout(SkinnedVertex::GetLayout());
         m_VertexArray->AddVertexBuffer(m_VertexBuffer);
@@ -75,16 +70,11 @@ namespace OloEngine
             static_cast<u32>(m_Indices.size())
         );
 
-        OLO_CORE_INFO("SkinnedMesh::Build: Created index buffer: {}", (void*)m_IndexBuffer.get());
-
         m_VertexArray->SetIndexBuffer(m_IndexBuffer);
         
-        // Calculate bounding volumes
         CalculateBounds();
         
         m_Built = true;
-        
-        OLO_CORE_INFO("SkinnedMesh::Build: Build completed successfully");
     }
 
     void SkinnedMesh::CalculateBounds()
@@ -109,7 +99,6 @@ namespace OloEngine
 
         m_BoundingBox = BoundingBox(minBounds, maxBounds);
 
-        // Calculate bounding sphere
         const glm::vec3 center = (minBounds + maxBounds) * 0.5f;
         f32 maxDistanceSquared = 0.0f;        for (const auto& vertex : m_Vertices)
         {
