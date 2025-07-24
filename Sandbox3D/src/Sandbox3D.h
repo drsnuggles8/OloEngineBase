@@ -39,14 +39,15 @@ public:
 		LightingTesting = 2,
 		StateTesting = 3,
 		ModelLoading = 4,
-		PBRModelTesting = 5
+		PBRModelTesting = 5,
+		Count // Used for compile-time array bounds checking
 	};
 
 
 private:
 	// Scene management
 	SceneType m_CurrentScene = SceneType::PBRModelTesting; // Start with PBR model testing
-	const char* m_SceneNames[6] = { 
+	const char* m_SceneNames[static_cast<int>(SceneType::Count)] = { 
 		"Material Testing", 
 		"Animation Testing", 
 		"Lighting Testing", 
@@ -190,7 +191,7 @@ private:
 	const char* m_LightTypeNames[3] = { "Directional Light", "Point Light", "Spotlight" };
 	
 	// Per-scene lighting configurations
-	OloEngine::Light m_SceneLights[6]; // One for each scene type (6 total: MaterialTesting=0 through PBRModelTesting=5)
+	OloEngine::Light m_SceneLights[static_cast<int>(SceneType::Count)]; // One for each scene type
 	
 	// Material editor selection state
 	int m_SelectedMaterial = 0;

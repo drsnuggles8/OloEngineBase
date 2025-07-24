@@ -254,8 +254,16 @@ namespace OloEngine
             else
             {
                 // If no bone weights, assign to bone 0 with full weight
-                vertex.BoneIndices = glm::ivec4(0, -1, -1, -1);
-                vertex.BoneWeights = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+                if (m_Skeleton && !m_Skeleton->m_BoneNames.empty())
+                {
+                    vertex.BoneIndices = glm::ivec4(0, -1, -1, -1);
+                    vertex.BoneWeights = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+                }
+                else
+                {
+                    // Keep default values (-1 indices, 0 weights)
+                    OLO_CORE_WARN("No skeleton available for skinning vertex without bone weights");
+                }
             }
         }
     }
@@ -378,7 +386,7 @@ namespace OloEngine
     }
 
     // Helper functions for sampling animation data
-    glm::vec3 AnimatedModel::SamplePosition(const aiNodeAnim* nodeAnim, const std::set<f64>& timestamps, f64 time)
+    glm::vec3 AnimatedModel::SamplePosition(const aiNodeAnim* nodeAnim, f64 time)
     {
         if (nodeAnim->mNumPositionKeys == 0)
             return glm::vec3(0.0f);
@@ -410,7 +418,7 @@ namespace OloEngine
         return glm::vec3(pos.x, pos.y, pos.z);
     }
 
-    glm::quat AnimatedModel::SampleRotation(const aiNodeAnim* nodeAnim, const std::set<f64>& timestamps, f64 time)
+    glm::quat AnimatedModel::SampleRotation(const aiNodeAnim* nodeAnim, f64 time)
     {
         if (nodeAnim->mNumRotationKeys == 0)
             return glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
@@ -443,7 +451,7 @@ namespace OloEngine
         return glm::quat(rot.w, rot.x, rot.y, rot.z);
     }
 
-    glm::vec3 AnimatedModel::SampleScale(const aiNodeAnim* nodeAnim, const std::set<f64>& timestamps, f64 time)
+    glm::vec3 AnimatedModel::SampleScale(const aiNodeAnim* nodeAnim, f64 time)
     {
         if (nodeAnim->mNumScalingKeys == 0)
             return glm::vec3(1.0f);
@@ -517,9 +525,9 @@ namespace OloEngine
                     keyframe.Time = static_cast<f32>(time / anim->mTicksPerSecond);
                     
                     // Sample position at this time
-                    keyframe.Translation = SamplePosition(nodeAnim, timeStamps, time);
-                    keyframe.Rotation = SampleRotation(nodeAnim, timeStamps, time);
-                    keyframe.Scale = SampleScale(nodeAnim, timeStamps, time);
+                    keyframe.Translation = SamplePosition(nodeAnim, time);
+                    keyframe.Rotation = SampleRotation(nodeAnim, time);
+                    keyframe.Scale = SampleScale(nodeAnim, time);
                     
                     boneAnim.Keyframes.push_back(keyframe);
                 }
@@ -646,9 +654,7 @@ namespace OloEngine
         }
 
         // Calculate bounding sphere from bounding box
-        const glm::vec3 center = (m_BoundingBox.Min + m_BoundingBox.Max) * 0.5f;
-        const f32 radius = glm::length(m_BoundingBox.Max - center);
-        m_BoundingSphere = BoundingSphere(center, radius);
+        m_BoundingSphere = BoundingSphere(m_BoundingBox);
     }
 
     Ref<AnimationClip> AnimatedModel::GetAnimation(const std::string& name) const

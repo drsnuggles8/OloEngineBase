@@ -10,7 +10,7 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
-#include "OloEngine/Renderer/Renderer3D.h" // For DrawMeshCommand
+#include "OloEngine/Renderer/Renderer3D.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -34,7 +34,7 @@ namespace OloEngine
 			       !RoughnessPath.empty() || !AOPath.empty() || !EmissivePath.empty();
 		}
 	};
-	};
+}
 
 namespace OloEngine
 {

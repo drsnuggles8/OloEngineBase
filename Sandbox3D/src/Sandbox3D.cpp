@@ -373,7 +373,9 @@ void Sandbox3D::OnImGuiRender()
         int currentSceneIndex = static_cast<int>(m_CurrentScene);
         
         // Ensure scene index is within valid bounds
-        const int sceneCount = static_cast<int>(sizeof(m_SceneNames) / sizeof(m_SceneNames[0]));
+        constexpr int sceneCount = static_cast<int>(SceneType::Count);
+        static_assert(sizeof(m_SceneNames) / sizeof(m_SceneNames[0]) == sceneCount,
+                      "Scene names array size must match SceneType::Count");
         if (currentSceneIndex < 0 || currentSceneIndex >= sceneCount)
         {
             currentSceneIndex = 0;
@@ -1242,7 +1244,7 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
             solidMaterial.Specular = glm::vec3(0.5f);
             solidMaterial.Shininess = 32.0f;
             auto* solidPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, cubeMatrix, solidMaterial);
-			OloEngine::Renderer3D::SubmitPacket(solidPacket);
+            if (solidPacket) OloEngine::Renderer3D::SubmitPacket(solidPacket);
 
             // Overlay wireframe
             OloEngine::Material wireMaterial;
@@ -1478,7 +1480,9 @@ void Sandbox3D::RenderMaterialSettings()
         ImGui::Text("PBR Material Properties:");
         
         // Ensure PBR material type is within valid bounds
-        const int pbrMaterialCount = static_cast<int>(sizeof(m_PBRMaterialNames) / sizeof(m_PBRMaterialNames[0]));
+        constexpr int pbrMaterialCount = 6; // Should match array size
+        static_assert(sizeof(m_PBRMaterialNames) / sizeof(m_PBRMaterialNames[0]) == pbrMaterialCount,
+                      "PBR material names array size mismatch");
         if (m_PBRMaterialType < 0 || m_PBRMaterialType >= pbrMaterialCount)
             m_PBRMaterialType = 0;
             

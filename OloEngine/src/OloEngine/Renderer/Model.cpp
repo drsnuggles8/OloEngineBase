@@ -176,22 +176,23 @@ namespace OloEngine
 			aiString str;
 			mat->GetTexture(type, i, &str);
 
-			std::string relativePath = str.C_Str();
-			std::string texturePath = m_Directory + "/" + relativePath;
+			std::filesystem::path relativePath = str.C_Str();
+			std::filesystem::path texturePath = std::filesystem::path(m_Directory) / relativePath;
+			std::string texturePathStr = texturePath.string();
 			
-			if (!m_LoadedTextures.contains(texturePath))
+			if (!m_LoadedTextures.contains(texturePathStr))
 			{
-				Ref<Texture2D> texture = Texture2D::Create(texturePath);
+				Ref<Texture2D> texture = Texture2D::Create(texturePathStr);
 				
 				if (texture && texture->IsLoaded())
 				{
-					m_LoadedTextures[texturePath] = texture;
+					m_LoadedTextures[texturePathStr] = texture;
 					textures.push_back(texture);
 				}
 			}
 			else
 			{
-				textures.push_back(m_LoadedTextures[texturePath]);
+				textures.push_back(m_LoadedTextures[texturePathStr]);
 			}
 		}
 
@@ -334,7 +335,9 @@ namespace OloEngine
 			{
 				material.AOMap = aoMaps[0];
 			}
-		}		// Emissive textures
+		}
+		
+		// Emissive textures
 		if (m_TextureOverride && !m_TextureOverride->EmissivePath.empty())
 		{
 			auto overrideTexture = Texture2D::Create(m_TextureOverride->EmissivePath);

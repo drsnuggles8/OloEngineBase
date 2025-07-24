@@ -71,9 +71,9 @@ namespace OloEngine
         u32 FindBoneIndex(const std::string& boneName);
         
         // Animation sampling helpers
-        glm::vec3 SamplePosition(const aiNodeAnim* nodeAnim, const std::set<f64>& timestamps, f64 time);
-        glm::quat SampleRotation(const aiNodeAnim* nodeAnim, const std::set<f64>& timestamps, f64 time);
-        glm::vec3 SampleScale(const aiNodeAnim* nodeAnim, const std::set<f64>& timestamps, f64 time);
+        glm::vec3 SamplePosition(const aiNodeAnim* nodeAnim, f64 time);
+        glm::quat SampleRotation(const aiNodeAnim* nodeAnim, f64 time);
+        glm::vec3 SampleScale(const aiNodeAnim* nodeAnim, f64 time);
         
         // Bone mapping structure
         struct BoneInfo
