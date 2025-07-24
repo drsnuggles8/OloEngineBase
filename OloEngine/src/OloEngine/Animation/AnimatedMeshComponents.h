@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "SkeletonData.h"
+#include "Skeleton.h"
 
 namespace OloEngine
 {
@@ -54,7 +55,7 @@ namespace OloEngine
 	// Holds bone hierarchy and transforms for an entity
 	struct SkeletonComponent
 	{
-		SkeletonData m_Skeleton; // Shared skeleton data structure
+		Skeleton m_Skeleton; // Shared skeleton data structure
 		
 		SkeletonComponent() = default;
 		SkeletonComponent(size_t boneCount) : m_Skeleton(boneCount) {}

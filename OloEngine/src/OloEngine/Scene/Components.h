@@ -2,6 +2,7 @@
 #include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Audio/AudioSource.h"
 #include "OloEngine/Audio/AudioListener.h"
@@ -189,6 +190,16 @@ namespace OloEngine
 	struct AnimationStateComponent;
 	struct SkeletonComponent;
 
+	// Material component for storing PBR material data
+	struct MaterialComponent
+	{
+		Material m_Material;
+		
+		MaterialComponent() = default;
+		MaterialComponent(const Material& material) : m_Material(material) {}
+		MaterialComponent(const MaterialComponent&) = default;
+	};
+
 	template<typename... Component>
 	struct ComponentGroup
 	{
@@ -208,7 +219,8 @@ namespace OloEngine
 		AudioListenerComponent,
 		AnimatedMeshComponent,
 		AnimationStateComponent,
-		SkeletonComponent
+		SkeletonComponent,
+		MaterialComponent
 	>;
 
 }

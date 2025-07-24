@@ -129,8 +129,12 @@ namespace OloEngine
 
 	void Scene::DestroyEntity(Entity entity)
 	{
+		if (!entity || !entity.HasComponent<IDComponent>())
+			return;
+			
+		UUID entityUUID = entity.GetUUID();
 		m_Registry.destroy(entity);
-		m_EntityMap.erase(entity.GetUUID());
+		m_EntityMap.erase(entityUUID);
 	}
 
 	void Scene::OnRuntimeStart()
@@ -423,6 +427,8 @@ void Scene::OnComponentAdded<Skeleton>(Entity, Skeleton&) {}
 // If you use SkeletonComponent as a struct, add this too:
 template<>
 void Scene::OnComponentAdded<SkeletonComponent>(Entity, SkeletonComponent&) {}
+template<>
+void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 
 	Entity Scene::FindEntityByName(std::string_view name)
 	{

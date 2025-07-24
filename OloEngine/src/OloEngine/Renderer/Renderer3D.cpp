@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Scene/Components.h"
 
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -22,6 +23,7 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Scene/Components.h"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -853,7 +855,12 @@ namespace OloEngine
 
 		glm::mat4 worldTransform = transformComp.GetTransform();
 
+		// Use MaterialComponent if available, otherwise use default material
 		Material material = defaultMaterial;
+		if (entity.HasComponent<MaterialComponent>())
+		{
+			material = entity.GetComponent<MaterialComponent>().m_Material;
+		}
 
 		const std::vector<glm::mat4>& boneMatrices = skeletonComp.m_Skeleton.m_FinalBoneMatrices;
 
@@ -956,5 +963,211 @@ namespace OloEngine
 		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
 		
 		return packet;
+	}
+
+	CommandPacket* Renderer3D::DrawLine(const glm::vec3& start, const glm::vec3& end, const glm::vec3& color, f32 thickness)
+	{
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("Renderer3D::DrawLine: ScenePass is null!");
+			return nullptr;
+		}
+
+		// For now, we'll draw lines as thin quads oriented towards the camera
+		// This is a simple implementation that could be optimized later
+		glm::vec3 direction = glm::normalize(end - start);
+		glm::vec3 right = glm::normalize(glm::cross(direction, glm::vec3(0.0f, 1.0f, 0.0f)));
+		glm::vec3 up = glm::cross(right, direction);
+		
+		// Scale thickness to reasonable bone width (UI range is 0.5-5.0)
+		f32 actualThickness = thickness * 0.005f; // Very thin bones for skeleton visualization
+		f32 halfThickness = actualThickness * 0.5f;
+		
+		// Create a simple line quad (we could use a dedicated line mesh later)
+		std::vector<Vertex> vertices = {
+			Vertex(start - right * halfThickness, glm::vec3(0.0f), glm::vec2(0.0f, 0.0f)),
+			Vertex(start + right * halfThickness, glm::vec3(0.0f), glm::vec2(1.0f, 0.0f)),
+			Vertex(end + right * halfThickness,   glm::vec3(0.0f), glm::vec2(1.0f, 1.0f)),
+			Vertex(end - right * halfThickness,   glm::vec3(0.0f), glm::vec2(0.0f, 1.0f))
+		};
+		
+		std::vector<u32> indices = { 0, 1, 2, 2, 3, 0 };
+		
+		// Create temporary mesh for the line
+		auto lineMesh = CreateRef<Mesh>(vertices, indices);
+		
+		// Use a highly emissive material for skeleton visualization
+		Material material{};
+		material.Type = MaterialType::PBR;
+		material.BaseColorFactor = glm::vec4(color, 1.0f);
+		material.MetallicFactor = 0.0f;
+		material.RoughnessFactor = 1.0f;
+		material.EmissiveFactor = glm::vec4(color * 5.0f, 1.0f); // Very bright emissive for visibility through surfaces
+		
+		auto* packet = DrawMesh(lineMesh, glm::mat4(1.0f), material);
+		
+		// Modify render state to ensure skeleton visibility
+		if (packet)
+		{
+			auto* drawCmd = packet->GetCommandData<DrawMeshCommand>();
+			if (drawCmd && drawCmd->renderState)
+			{
+				// Disable depth test so skeleton always shows on top
+				drawCmd->renderState->Depth.TestEnabled = false;
+				// Add some polygon offset to push skeleton forward
+				drawCmd->renderState->PolygonOffset.Enabled = true;
+				drawCmd->renderState->PolygonOffset.Factor = -2.0f;
+				drawCmd->renderState->PolygonOffset.Units = -2.0f;
+			}
+		}
+		
+		return packet;
+	}
+
+	CommandPacket* Renderer3D::DrawSphere(const glm::vec3& position, f32 radius, const glm::vec3& color)
+	{
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("Renderer3D::DrawSphere: ScenePass is null!");
+			return nullptr;
+		}
+
+		// Create transform matrix for the sphere
+		glm::mat4 transform = glm::translate(glm::mat4(1.0f), position) * glm::scale(glm::mat4(1.0f), glm::vec3(radius));
+		
+		// Use a highly emissive material for skeleton joints
+		Material material{};
+		material.Type = MaterialType::PBR;
+		material.BaseColorFactor = glm::vec4(color, 1.0f);
+		material.MetallicFactor = 0.0f;
+		material.RoughnessFactor = 0.8f;
+		material.EmissiveFactor = glm::vec4(color * 3.0f, 1.0f); // Very bright emission for visibility through surfaces
+		
+		CommandPacket* packet = nullptr;
+		
+		// For now, use the skybox mesh as a simple sphere approximation
+		// TODO: Create a proper sphere mesh in the renderer data
+		if (s_Data.SkyboxMesh)
+		{
+			packet = DrawMesh(s_Data.SkyboxMesh, transform, material);
+		}
+		else
+		{
+			OLO_CORE_WARN("Renderer3D::DrawSphere: No sphere mesh available, using fallback");
+			return nullptr;
+		}
+		
+		// Modify render state to ensure skeleton joint visibility
+		if (packet)
+		{
+			auto* drawCmd = packet->GetCommandData<DrawMeshCommand>();
+			if (drawCmd && drawCmd->renderState)
+			{
+				// Disable depth test so skeleton joints always show on top
+				drawCmd->renderState->Depth.TestEnabled = false;
+				// Add polygon offset to push joints forward
+				drawCmd->renderState->PolygonOffset.Enabled = true;
+				drawCmd->renderState->PolygonOffset.Factor = -2.0f;
+				drawCmd->renderState->PolygonOffset.Units = -2.0f;
+			}
+		}
+		
+		return packet;
+	}
+
+	void Renderer3D::DrawSkeleton(const Skeleton& skeleton, const glm::mat4& modelMatrix, 
+								  bool showBones, bool showJoints, f32 jointSize, f32 boneThickness)
+	{
+		if (!s_Data.ScenePass)
+		{
+			OLO_CORE_ERROR("Renderer3D::DrawSkeleton: ScenePass is null!");
+			return;
+		}
+
+		if (skeleton.m_GlobalTransforms.empty() || skeleton.m_ParentIndices.empty())
+		{
+			OLO_CORE_WARN("Renderer3D::DrawSkeleton: Empty skeleton data");
+			return;
+		}
+
+		if (skeleton.m_GlobalTransforms.size() != skeleton.m_ParentIndices.size())
+		{
+			OLO_CORE_ERROR("Renderer3D::DrawSkeleton: Skeleton transforms and parents size mismatch");
+			return;
+		}
+
+		// Colors for visualization
+		const glm::vec3 boneColor(1.0f, 0.5f, 0.0f);  // Bright orange for bones
+		const glm::vec3 jointColor(0.0f, 1.0f, 0.0f); // Bright green for joints
+
+		// Debug: Log skeleton rendering attempt
+		static int debugCount = 0;
+		if (debugCount < 5) // Only log first 5 attempts to avoid spam
+		{
+			OLO_CORE_INFO("DrawSkeleton Debug #{}: showJoints={}, showBones={}, jointSize={}, boneThickness={}", 
+						  debugCount, showJoints, showBones, jointSize, boneThickness);
+			OLO_CORE_INFO("  Skeleton size: {}, SkyboxMesh available: {}", 
+						  skeleton.m_GlobalTransforms.size(), (s_Data.SkyboxMesh != nullptr));
+			debugCount++;
+		}
+
+		// Draw joints
+		if (showJoints)
+		{
+			for (sizet i = 0; i < skeleton.m_GlobalTransforms.size(); ++i)
+			{
+				glm::vec3 jointPosition = glm::vec3(modelMatrix * skeleton.m_GlobalTransforms[i] * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+				
+				// Debug: Log first few joint positions
+				if (debugCount <= 5 && i < 3)
+				{
+					OLO_CORE_INFO("  Joint {}: world position ({:.2f}, {:.2f}, {:.2f})", 
+								  i, jointPosition.x, jointPosition.y, jointPosition.z);
+				}
+				
+				auto* spherePacket = DrawSphere(jointPosition, jointSize, jointColor);
+				if (spherePacket)
+				{
+					SubmitPacket(spherePacket);
+					if (debugCount <= 5 && i < 3)
+					{
+						OLO_CORE_INFO("  Joint {} sphere packet submitted successfully", i);
+					}
+				}
+				else if (debugCount <= 5 && i < 3)
+				{
+					OLO_CORE_WARN("  Joint {} sphere packet failed to create", i);
+				}
+			}
+		}
+
+		// Draw bones (connections between joints)
+		if (showBones)
+		{
+			for (sizet i = 0; i < skeleton.m_GlobalTransforms.size(); ++i)
+			{
+				i32 parentIndex = skeleton.m_ParentIndices[i];
+				if (parentIndex >= 0 && parentIndex < static_cast<i32>(skeleton.m_GlobalTransforms.size()))
+				{
+					glm::vec3 childPosition = glm::vec3(modelMatrix * skeleton.m_GlobalTransforms[i] * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+					glm::vec3 parentPosition = glm::vec3(modelMatrix * skeleton.m_GlobalTransforms[parentIndex] * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+					
+					// Calculate bone length to filter out unreasonable connections
+					f32 boneLength = glm::length(childPosition - parentPosition);
+					
+					// Only draw bones that are reasonable length (filter out very long connections)
+					// For a human-sized model, bones longer than 2 units are probably incorrect connections
+					const f32 maxReasonableBoneLength = 2.0f;
+					if (boneLength > 0.001f && boneLength < maxReasonableBoneLength)
+					{
+						auto* linePacket = DrawLine(parentPosition, childPosition, boneColor, boneThickness);
+						if (linePacket)
+						{
+							SubmitPacket(linePacket);
+						}
+					}
+				}
+			}
+		}
 	}
 }

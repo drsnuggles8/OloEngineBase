@@ -10,14 +10,20 @@
 
 namespace OloEngine
 {
-	Model::Model(const std::string& path)
+	Model::Model(const std::string& path, const TextureOverride& textureOverride, bool flipUV)
+		: m_TextureOverride(textureOverride.HasAnyTexture() ? std::optional<TextureOverride>(textureOverride) : std::nullopt), 
+		  m_FlipUV(flipUV)
 	{
-		LoadModel(path);
+		LoadModel(path, textureOverride, flipUV);
 	}
 
-	void Model::LoadModel(const std::string& path)
+	void Model::LoadModel(const std::string& path, const TextureOverride& textureOverride, bool flipUV)
 	{
 		OLO_PROFILE_FUNCTION();
+
+		// Store texture override and UV flip setting for use in material processing
+		m_TextureOverride = textureOverride.HasAnyTexture() ? std::optional<TextureOverride>(textureOverride) : std::nullopt;
+		m_FlipUV = flipUV;
 
 		// Create an instance of the Importer class
 		Assimp::Importer importer;
@@ -40,12 +46,16 @@ namespace OloEngine
 
 		// Store the directory path
 		m_Directory = std::filesystem::path(path).parent_path().string();
+		
+		OLO_CORE_INFO("Loading model: {0} ({1} meshes, {2} materials)", path, scene->mNumMeshes, scene->mNumMaterials);
 
 		// Process all the nodes recursively
 		ProcessNode(scene->mRootNode, scene);
 		
 		// Calculate bounding volumes for the entire model
 		CalculateBounds();
+		
+		OLO_CORE_INFO("Model loaded successfully: {0} meshes processed", m_Meshes.size());
 	}
 
 	void Model::ProcessNode(const aiNode* node, const aiScene* scene)
@@ -72,7 +82,6 @@ namespace OloEngine
 
 		std::vector<Vertex> vertices;
 		std::vector<u32> indices;
-		std::vector<Ref<Texture2D>> textures;
 
 		// Process vertices
 		for (u32 i = 0; i < mesh->mNumVertices; i++)
@@ -101,6 +110,11 @@ namespace OloEngine
 					mesh->mTextureCoords[0][i].x,
 					mesh->mTextureCoords[0][i].y
 				);
+				
+				if (m_FlipUV)
+				{
+					vertex.TexCoord.y = 1.0f - vertex.TexCoord.y;
+				}
 			}
 			else
 			{
@@ -110,7 +124,6 @@ namespace OloEngine
 			vertices.push_back(vertex);
 		}
 
-		// Process indices
 		for (u32 i = 0; i < mesh->mNumFaces; i++)
 		{
 			const aiFace face = mesh->mFaces[i];
@@ -120,16 +133,13 @@ namespace OloEngine
 			}
 		}
 
-		// Process material
 		if (mesh->mMaterialIndex < scene->mNumMaterials)
 		{
 			const aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
-
-			std::vector<Ref<Texture2D>> diffuseMaps = LoadMaterialTextures(material, aiTextureType_DIFFUSE);
-			textures.insert(textures.end(), diffuseMaps.begin(), diffuseMaps.end());
-
-			std::vector<Ref<Texture2D>> specularMaps = LoadMaterialTextures(material, aiTextureType_SPECULAR);
-			textures.insert(textures.end(), specularMaps.begin(), specularMaps.end());
+			
+			Material pbrMaterial = ProcessMaterial(material);
+			
+			m_Materials.push_back(pbrMaterial);
 		}
 
 		return CreateRef<Mesh>(vertices, indices);
@@ -146,31 +156,187 @@ namespace OloEngine
 			aiString str;
 			mat->GetTexture(type, i, &str);
 
-			// Check if texture was loaded before
-			std::string texturePath = m_Directory + "/" + str.C_Str();
-			if (!m_LoadedTextures.contains(texturePath))
+			std::filesystem::path relativePath = str.C_Str();
+			std::filesystem::path texturePath = std::filesystem::path(m_Directory) / relativePath;
+			std::string texturePathStr = texturePath.string();
+			
+			if (!m_LoadedTextures.contains(texturePathStr))
 			{
-				// Texture not loaded yet - load it
-				Ref<Texture2D> texture = Texture2D::Create(texturePath);
+				Ref<Texture2D> texture = Texture2D::Create(texturePathStr);
 				
 				if (texture && texture->IsLoaded())
 				{
-					m_LoadedTextures[texturePath] = texture;
+					m_LoadedTextures[texturePathStr] = texture;
 					textures.push_back(texture);
-				}
-				else
-				{
-					OLO_CORE_WARN("Failed to load texture at path: {0}", texturePath);
 				}
 			}
 			else
 			{
-				// Texture already loaded - reuse it
-				textures.push_back(m_LoadedTextures[texturePath]);
+				textures.push_back(m_LoadedTextures[texturePathStr]);
 			}
 		}
 
 		return textures;
+	}
+
+	Material Model::ProcessMaterial(const aiMaterial* mat)
+	{
+		aiString name;
+		mat->Get(AI_MATKEY_NAME, name);
+		std::string materialName = name.length > 0 ? name.C_Str() : "PBR Model Material";
+		
+		// Get base color factor
+		aiColor3D baseColor(1.0f, 1.0f, 1.0f);
+		mat->Get(AI_MATKEY_COLOR_DIFFUSE, baseColor);
+		
+		// Get metallic and roughness factors
+		float metallic = 0.0f;
+		float roughness = 0.5f;
+		mat->Get(AI_MATKEY_METALLIC_FACTOR, metallic);
+		mat->Get(AI_MATKEY_ROUGHNESS_FACTOR, roughness);
+		
+		// If texture overrides are used, set base color to white so texture colors come through properly
+		glm::vec3 finalBaseColor = glm::vec3(baseColor.r, baseColor.g, baseColor.b);
+		if (m_TextureOverride && !m_TextureOverride->AlbedoPath.empty())
+		{
+			finalBaseColor = glm::vec3(1.0f, 1.0f, 1.0f);
+		}
+		
+		Material material = Material::CreatePBR(
+			materialName, 
+			finalBaseColor, 
+			metallic, 
+			roughness
+		);
+		
+		// Load PBR textures - prioritize overrides if provided
+		
+		// Albedo/Diffuse textures
+		if (m_TextureOverride && !m_TextureOverride->AlbedoPath.empty())
+		{
+			auto overrideTexture = Texture2D::Create(m_TextureOverride->AlbedoPath);
+			if (overrideTexture && overrideTexture->IsLoaded())
+			{
+				material.AlbedoMap = overrideTexture;
+			}
+		}
+		else
+		{
+			// Fall back to FBX textures
+			auto albedoMaps = LoadMaterialTextures(mat, aiTextureType_DIFFUSE);
+			if (albedoMaps.empty())
+			{
+				// Try base color for newer PBR materials
+				albedoMaps = LoadMaterialTextures(mat, aiTextureType_BASE_COLOR);
+			}
+			if (!albedoMaps.empty())
+			{
+				material.AlbedoMap = albedoMaps[0];
+			}
+		}
+		
+		// Metallic/Roughness textures
+		if (m_TextureOverride && !m_TextureOverride->MetallicPath.empty())
+		{
+			auto overrideTexture = Texture2D::Create(m_TextureOverride->MetallicPath);
+			if (overrideTexture && overrideTexture->IsLoaded())
+			{
+				material.MetallicRoughnessMap = overrideTexture;
+			}
+		}
+		else
+		{
+			// Fall back to FBX textures
+			auto metallicRoughnessMaps = LoadMaterialTextures(mat, aiTextureType_METALNESS);
+			if (metallicRoughnessMaps.empty())
+			{
+				// Try alternative metallic texture types
+				metallicRoughnessMaps = LoadMaterialTextures(mat, aiTextureType_REFLECTION);
+			}
+			if (!metallicRoughnessMaps.empty())
+			{
+				material.MetallicRoughnessMap = metallicRoughnessMaps[0];
+			}
+		}
+		
+		// Normal textures
+		if (m_TextureOverride && !m_TextureOverride->NormalPath.empty())
+		{
+			auto overrideTexture = Texture2D::Create(m_TextureOverride->NormalPath);
+			if (overrideTexture && overrideTexture->IsLoaded())
+			{
+				material.NormalMap = overrideTexture;
+			}
+		}
+		else
+		{
+			// Fall back to FBX textures
+			auto normalMaps = LoadMaterialTextures(mat, aiTextureType_NORMALS);
+			if (normalMaps.empty())
+			{
+				// Try height maps as normal maps
+				normalMaps = LoadMaterialTextures(mat, aiTextureType_HEIGHT);
+			}
+			if (!normalMaps.empty())
+			{
+				material.NormalMap = normalMaps[0];
+			}
+		}
+		
+
+		// AO textures
+		if (m_TextureOverride && !m_TextureOverride->AOPath.empty())
+		{
+			auto overrideTexture = Texture2D::Create(m_TextureOverride->AOPath);
+			if (overrideTexture && overrideTexture->IsLoaded())
+			{
+				material.AOMap = overrideTexture;
+			}
+		}
+		else if (m_TextureOverride && !m_TextureOverride->RoughnessPath.empty())
+		{
+			// Use roughness texture as AO if no dedicated AO texture (common for Cerberus-style models)
+			auto overrideTexture = Texture2D::Create(m_TextureOverride->RoughnessPath);
+			if (overrideTexture && overrideTexture->IsLoaded())
+			{
+				material.AOMap = overrideTexture;
+			}
+		}
+		else
+		{
+			// Fall back to FBX textures
+			auto aoMaps = LoadMaterialTextures(mat, aiTextureType_AMBIENT_OCCLUSION);
+			if (aoMaps.empty())
+			{
+				// Try lightmap as AO
+				aoMaps = LoadMaterialTextures(mat, aiTextureType_LIGHTMAP);
+			}
+			if (!aoMaps.empty())
+			{
+				material.AOMap = aoMaps[0];
+			}
+		}
+		
+		// Emissive textures
+		if (m_TextureOverride && !m_TextureOverride->EmissivePath.empty())
+		{
+			auto overrideTexture = Texture2D::Create(m_TextureOverride->EmissivePath);
+			if (overrideTexture && overrideTexture->IsLoaded())
+			{
+				material.EmissiveMap = overrideTexture;
+			}
+		}
+		else
+		{
+			// Fall back to FBX textures
+			auto emissiveMaps = LoadMaterialTextures(mat, aiTextureType_EMISSIVE);
+			if (!emissiveMaps.empty())
+			{
+				material.EmissiveMap = emissiveMaps[0];
+			}
+		}
+		
+		return material;
 	}
 
 	void Model::CalculateBounds()
@@ -214,9 +380,39 @@ namespace OloEngine
 		OLO_PROFILE_FUNCTION();
 		outCommands.clear();
 		outCommands.reserve(m_Meshes.size());
-		for (const auto& mesh : m_Meshes)
+		
+		for (size_t i = 0; i < m_Meshes.size(); i++)
 		{
-			CommandPacket* cmd = OloEngine::Renderer3D::DrawMesh(mesh, transform, material);
+			// Use the mesh's own material if available, otherwise use the provided material
+			const Material& meshMaterial = (i < m_Materials.size()) ? m_Materials[i] : material;
+			
+			CommandPacket* cmd = OloEngine::Renderer3D::DrawMesh(m_Meshes[i], transform, meshMaterial);
+			if (cmd)
+				outCommands.push_back(cmd);
+		}
+	}
+
+	void Model::GetDrawCommands(const glm::mat4& transform, std::vector<CommandPacket*>& outCommands) const
+	{
+		OLO_PROFILE_FUNCTION();
+		outCommands.clear();
+		outCommands.reserve(m_Meshes.size());
+		
+		for (size_t i = 0; i < m_Meshes.size(); i++)
+		{
+			// Use the mesh's own material if available, otherwise use a default PBR material
+			Material meshMaterial;
+			if (i < m_Materials.size())
+			{
+				meshMaterial = m_Materials[i];
+			}
+			else
+			{
+				// Create a default PBR material as fallback
+				meshMaterial = Material::CreatePBR("Default PBR", glm::vec3(0.8f), 0.0f, 0.5f);
+			}
+			
+			CommandPacket* cmd = OloEngine::Renderer3D::DrawMesh(m_Meshes[i], transform, meshMaterial);
 			if (cmd)
 				outCommands.push_back(cmd);
 		}

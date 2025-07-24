@@ -75,6 +75,15 @@ namespace OloEngine
 		static CommandPacket* DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
 		static CommandPacket* DrawSkybox(const Ref<TextureCubemap>& skyboxTexture);
 		
+		// Skeleton visualization
+		static void DrawSkeleton(const Skeleton& skeleton, const glm::mat4& modelMatrix, 
+								 bool showBones = true, bool showJoints = true, 
+								 f32 jointSize = 0.02f, f32 boneThickness = 2.0f);
+		static CommandPacket* DrawLine(const glm::vec3& start, const glm::vec3& end, 
+									   const glm::vec3& color = glm::vec3(1.0f), f32 thickness = 1.0f);
+		static CommandPacket* DrawSphere(const glm::vec3& position, f32 radius, 
+										  const glm::vec3& color = glm::vec3(1.0f));
+		
 		// ECS Animated Mesh Rendering
 		static void RenderAnimatedMeshes(const Ref<Scene>& scene, const Material& defaultMaterial);
 		static void RenderAnimatedMesh(Entity entity, const Material& defaultMaterial);

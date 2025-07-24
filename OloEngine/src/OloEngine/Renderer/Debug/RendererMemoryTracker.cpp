@@ -148,16 +148,6 @@ namespace OloEngine
             OLO_CORE_WARN("RendererMemoryTracker: Invalid allocation - address={}, size={}", address, size);
             return;
         }
-        
-#ifdef OLO_DEBUG
-        // Only log in debug builds to avoid performance impact
-        static std::atomic<u32> s_LogThrottle{0};
-        if ((s_LogThrottle++ % 100) == 0) // Log every 100th allocation to reduce spam
-        {
-            OLO_CORE_TRACE("RendererMemoryTracker: Tracking allocation - address={}, size={}, type={}, name={}", 
-                          address, size, (int)type, name);
-        }
-#endif
             
         std::lock_guard<std::mutex> lock(m_Mutex);
         
@@ -213,7 +203,8 @@ namespace OloEngine
         
         // Check if the allocations map is still valid
         try
-        {            auto it = m_Allocations.find(address);
+        { 
+			auto it = m_Allocations.find(address);
             if (it != m_Allocations.end())
             {
                 const AllocationInfo& info = it->second;
@@ -221,9 +212,7 @@ namespace OloEngine
                 m_TypeCounts[static_cast<sizet>(info.m_Type)]--;
                 m_Allocations.erase(it);
                 m_TotalDeallocations++;
-                
-                OLO_CORE_TRACE("RendererMemoryTracker: Tracked deallocation - address={}, size={}, type={}", 
-                              address, info.m_Size, (int)info.m_Type);
+
             }
             else
             {

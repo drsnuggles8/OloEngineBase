@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/SkinnedMesh.h"
 #include "OloEngine/Renderer/Model.h"
+#include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
@@ -37,19 +38,31 @@ public:
 		AnimationTesting = 1,
 		LightingTesting = 2,
 		StateTesting = 3,
-		ModelLoading = 4
+		ModelLoading = 4,
+		PBRModelTesting = 5,
+		Count // Used for compile-time array bounds checking
 	};
+
+private:
+	// Configuration constants
+	static constexpr int DEFAULT_SELECTED_MODEL_INDEX = 1; // Start with Fox to see its bone debugging first
+	static constexpr float DEFAULT_JOINT_SIZE = 0.05f; // Increased from 0.02f for better visibility
+	static constexpr float DEFAULT_BONE_THICKNESS = 3.0f; // Increased from 2.0f for better visibility
+	static constexpr int DEFAULT_ANIMATED_MODEL_MATERIAL_TYPE = 0; // Silver for good contrast
+	static constexpr int DEFAULT_CURRENT_ANIMATION_INDEX = 0;
+	static constexpr int DEFAULT_SELECTED_PBR_MODEL_INDEX = 0;
 
 
 private:
 	// Scene management
-	SceneType m_CurrentScene = SceneType::MaterialTesting;
-	const char* m_SceneNames[5] = { 
+	SceneType m_CurrentScene = SceneType::PBRModelTesting; // Start with PBR model testing
+	const char* m_SceneNames[static_cast<int>(SceneType::Count)] = { 
 		"Material Testing", 
 		"Animation Testing", 
 		"Lighting Testing", 
 		"State Testing", 
-		"Model Loading"
+		"Model Loading",
+		"PBR Model Testing"
 	};
 	
 	// Scene rendering methods
@@ -58,6 +71,7 @@ private:
 	void RenderLightingTestingScene();
 	void RenderStateTestingScene();
 	void RenderModelLoadingScene();
+	void RenderPBRModelTestingScene();
 	
 	// Scene UI methods
 	void RenderMaterialTestingUI();
@@ -65,50 +79,61 @@ private:
 	void RenderLightingTestingUI();
 	void RenderStateTestingUI();
 	void RenderModelLoadingUI();
+	void RenderPBRModelTestingUI();
 	
 	// Helper methods
 	OloEngine::Material& GetCurrentPBRMaterial();
+	OloEngine::Material& GetCurrentAnimatedModelMaterial();
 
-	// ECS Scene for animated mesh testing
+	// ECS Scene for model testing
 	OloEngine::Ref<OloEngine::Scene> m_TestScene;
-	OloEngine::Entity m_AnimatedMeshEntity;
+	OloEngine::Entity m_ImportedModelEntity;
 
-	// Animated mesh ECS test (step 1)
-	OloEngine::Ref<OloEngine::SkinnedMesh> m_AnimatedTestMesh;
-	OloEngine::Ref<OloEngine::Skeleton> m_AnimatedTestSkeleton;
-	OloEngine::AnimationStateComponent m_AnimatedTestAnimState;
+	// Model selection
+	int m_SelectedModelIndex = DEFAULT_SELECTED_MODEL_INDEX;
+	int m_AnimatedModelMaterialType = DEFAULT_ANIMATED_MODEL_MATERIAL_TYPE;
+	int m_CurrentAnimationIndex = DEFAULT_CURRENT_ANIMATION_INDEX;
+	std::vector<std::string> m_AvailableModels = {
+		"CesiumMan/CesiumMan.gltf",
+		"Fox/Fox.gltf", 
+		"RiggedSimple/RiggedSimple.gltf",
+		"RiggedFigure/RiggedFigure.gltf",
+		"SimpleSkin/SimpleSkin.gltf"
+	};
+	std::vector<std::string> m_ModelDisplayNames = {
+		"CesiumMan (Test Character)",
+		"Fox (Animated Animal)",
+		"RiggedSimple (Basic)",
+		"RiggedFigure (Complex)",
+		"SimpleSkin (Minimal)"
+	};
 	
-	// Enhanced animation testing
-	OloEngine::Entity m_MultiBoneTestEntity;      // Multi-bone cube test
-	OloEngine::Entity m_ImportedModelEntity;      // For testing imported models
-	
-	// Dummy animation clips for testing
-	OloEngine::Ref<OloEngine::AnimationClip> m_IdleClip;
-	OloEngine::Ref<OloEngine::AnimationClip> m_BounceClip;
-	
-	// Multi-bone test animation data
-	OloEngine::Ref<OloEngine::SkinnedMesh> m_MultiBoneTestMesh;
-	OloEngine::Ref<OloEngine::Skeleton> m_MultiBoneTestSkeleton;
-	OloEngine::Ref<OloEngine::AnimationClip> m_MultiBoneIdleClip;
-	
-	// Animation debug UI state
-	int m_AnimClipIndex = 0;
-	bool m_AnimBlendRequested = false;
-	
-	// Animation test settings
-	bool m_ShowSingleBoneTest = true;
-	bool m_ShowMultiBoneTest = true;
-	bool m_ShowImportedModel = false;
 	float m_AnimationSpeed = 1.0f;
 	
-	void RenderAnimationDebugPanel();
-	void RenderECSAnimatedMeshPanel();
+	// PBR Model selection for PBR Model Testing scene
+	int m_SelectedPBRModelIndex = DEFAULT_SELECTED_PBR_MODEL_INDEX;
+	std::vector<std::string> m_AvailablePBRModels = {
+		"backpack/backpack.obj",
+		"models/Cerberus/cerberus.fbx"
+	};
+	std::vector<std::string> m_PBRModelDisplayNames = {
+		"Backpack (OBJ)",
+		"Cerberus (FBX PBR)"
+	};
+	
+	// Skeleton visualization settings
+	bool m_ShowSkeleton = false;
+	bool m_ShowBones = true;
+	bool m_ShowJoints = true;
+	float m_JointSize = DEFAULT_JOINT_SIZE;
+	float m_BoneThickness = DEFAULT_BONE_THICKNESS;
+	bool m_ModelWireframeMode = false; // Show model in wireframe to see skeleton through
+	
 	void RenderAnimationTestingPanel(); // New comprehensive animation testing UI
 	
-	// Helper functions for creating test objects
-	OloEngine::Ref<OloEngine::SkinnedMesh> CreateSkinnedCubeMesh();
-	void CreateMultiBoneTestEntity();
+	// Helper functions
 	void LoadTestAnimatedModel();
+	void LoadTestPBRModel();
 	
 	// Scene lighting management
 	void InitializeSceneLighting();
@@ -138,8 +163,10 @@ private:
 	OloEngine::Ref<OloEngine::Mesh> m_SphereMesh;
 	OloEngine::Ref<OloEngine::Mesh> m_PlaneMesh;
 	
-	// Model object
+	// Model objects
 	OloEngine::Ref<OloEngine::Model> m_BackpackModel;
+	OloEngine::Ref<OloEngine::AnimatedModel> m_CesiumManModel;
+	OloEngine::Ref<OloEngine::Model> m_CerberusModel;
 	
 	// Texture resources
 	OloEngine::Ref<OloEngine::Texture2D> m_DiffuseMap;
@@ -173,7 +200,7 @@ private:
 	const char* m_LightTypeNames[3] = { "Directional Light", "Point Light", "Spotlight" };
 	
 	// Per-scene lighting configurations
-	OloEngine::Light m_SceneLights[5]; // One for each scene type
+	OloEngine::Light m_SceneLights[static_cast<int>(SceneType::Count)]; // One for each scene type
 	
 	// Material editor selection state
 	int m_SelectedMaterial = 0;

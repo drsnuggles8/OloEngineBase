@@ -55,6 +55,15 @@ namespace OloEngine
             return GetSize() * 0.5f;
         }
         
+        // Union (combine) this bounding box with another
+        [[nodiscard]] BoundingBox Union(const BoundingBox& other) const
+        {
+            return BoundingBox(
+                glm::min(Min, other.Min),
+                glm::max(Max, other.Max)
+            );
+        }
+        
         // Transform the bounding box by a matrix
         [[nodiscard]] BoundingBox Transform(const glm::mat4& transform) const
         {
