@@ -551,24 +551,24 @@ namespace OloEngine
             mat->GetTexture(type, i, &str);
             
             std::string filename = str.C_Str();
-            std::string path = m_Directory + "/" + filename;
+            std::filesystem::path path = std::filesystem::path(m_Directory) / filename;
             
             // Check if texture was loaded before
-            if (m_LoadedTextures.find(path) != m_LoadedTextures.end())
+            if (m_LoadedTextures.find(path.string()) != m_LoadedTextures.end())
             {
-                textures.push_back(m_LoadedTextures[path]);
+                textures.push_back(m_LoadedTextures[path.string()]);
             }
             else
             {
-                auto texture = Texture2D::Create(path);
+                auto texture = Texture2D::Create(path.string());
                 if (texture)
                 {
                     textures.push_back(texture);
-                    m_LoadedTextures[path] = texture;
+                    m_LoadedTextures[path.string()] = texture;
                 }
                 else
                 {
-                    OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: Failed to load texture: {}", path);
+                    OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: Failed to load texture: {}", path.string());
                 }
             }
         }

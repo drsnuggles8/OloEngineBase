@@ -34,10 +34,7 @@ namespace OloEngine
 			       !RoughnessPath.empty() || !AOPath.empty() || !EmissivePath.empty();
 		}
 	};
-}
 
-namespace OloEngine
-{
 	class Model
 	{
 	public:

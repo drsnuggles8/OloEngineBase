@@ -254,7 +254,10 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
             auto& skeletonComp = entity.GetComponent<OloEngine::SkeletonComponent>();
             
             // For the current imported model entity, handle animation switching
-            if (entity == m_ImportedModelEntity && m_CesiumManModel)
+            if (entity.HasComponent<OloEngine::TagComponent>() && 
+                m_ImportedModelEntity.HasComponent<OloEngine::TagComponent>() &&
+                entity.GetName() == m_ImportedModelEntity.GetName() && 
+                m_CesiumManModel)
             {
                 const auto& animations = m_CesiumManModel->GetAnimations();
                 if (!animations.empty() && 
@@ -1936,7 +1939,33 @@ void Sandbox3D::LoadTestPBRModel()
         cerberusTextures.MetallicPath = "assets/models/Cerberus/cerberus_M.png";
         cerberusTextures.NormalPath = "assets/models/Cerberus/cerberus_N.png";
         cerberusTextures.RoughnessPath = "assets/models/Cerberus/cerberus_R.png";
-        cerberusTextures.AOPath = "assets/models/Cerberus/cerberus_R.png"; // Use same texture for AO
+        cerberusTextures.AOPath = "assets/models/Cerberus/cerberus_R.png";
+        
+        // Validate texture loading before proceeding with model loading
+        bool texturesValid = true;
+        std::vector<std::pair<std::string, std::string>> textureChecks = {
+            {"Albedo", cerberusTextures.AlbedoPath},
+            {"Metallic", cerberusTextures.MetallicPath},
+            {"Normal", cerberusTextures.NormalPath},
+            {"Roughness", cerberusTextures.RoughnessPath},
+            {"AO", cerberusTextures.AOPath}
+        };
+        
+        for (const auto& [textureName, texturePath] : textureChecks)
+        {
+            auto testTexture = OloEngine::Texture2D::Create(texturePath);
+            if (!testTexture || !testTexture->IsLoaded())
+            {
+                OLO_ERROR("Failed to load {} texture: {}", textureName, texturePath);
+                texturesValid = false;
+            }
+        }
+        
+        if (!texturesValid)
+        {
+            OLO_ERROR("Some Cerberus textures failed to load. Model loading aborted.");
+            return;
+        }
         
         // Load Cerberus with UV flip enabled to match reference implementation
         m_CerberusModel = OloEngine::CreateRef<OloEngine::Model>(assetPath, cerberusTextures, true);
@@ -1946,6 +1975,8 @@ void Sandbox3D::LoadTestPBRModel()
         OLO_INFO("  Albedo: {}", cerberusTextures.AlbedoPath);
         OLO_INFO("  Metallic: {}", cerberusTextures.MetallicPath);
         OLO_INFO("  Normal: {}", cerberusTextures.NormalPath);
+        OLO_INFO("  Roughness: {}", cerberusTextures.RoughnessPath);
+        OLO_INFO("  AO: {}", cerberusTextures.AOPath);;
         OLO_INFO("  Roughness: {}", cerberusTextures.RoughnessPath);
         OLO_INFO("  AO: {}", cerberusTextures.AOPath);
         

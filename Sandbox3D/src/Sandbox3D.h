@@ -43,6 +43,15 @@ public:
 		Count // Used for compile-time array bounds checking
 	};
 
+private:
+	// Configuration constants
+	static constexpr int DEFAULT_SELECTED_MODEL_INDEX = 1; // Start with Fox to see its bone debugging first
+	static constexpr float DEFAULT_JOINT_SIZE = 0.05f; // Increased from 0.02f for better visibility
+	static constexpr float DEFAULT_BONE_THICKNESS = 3.0f; // Increased from 2.0f for better visibility
+	static constexpr int DEFAULT_ANIMATED_MODEL_MATERIAL_TYPE = 0; // Silver for good contrast
+	static constexpr int DEFAULT_CURRENT_ANIMATION_INDEX = 0;
+	static constexpr int DEFAULT_SELECTED_PBR_MODEL_INDEX = 0;
+
 
 private:
 	// Scene management
@@ -81,9 +90,9 @@ private:
 	OloEngine::Entity m_ImportedModelEntity;
 
 	// Model selection
-	int m_SelectedModelIndex = 1; // Start with Fox to see its bone debugging first
-	int m_AnimatedModelMaterialType = 0;
-	int m_CurrentAnimationIndex = 0; // For tracking current animation in multi-animation models
+	int m_SelectedModelIndex = DEFAULT_SELECTED_MODEL_INDEX;
+	int m_AnimatedModelMaterialType = DEFAULT_ANIMATED_MODEL_MATERIAL_TYPE;
+	int m_CurrentAnimationIndex = DEFAULT_CURRENT_ANIMATION_INDEX;
 	std::vector<std::string> m_AvailableModels = {
 		"CesiumMan/CesiumMan.gltf",
 		"Fox/Fox.gltf", 
@@ -102,7 +111,7 @@ private:
 	float m_AnimationSpeed = 1.0f;
 	
 	// PBR Model selection for PBR Model Testing scene
-	int m_SelectedPBRModelIndex = 0;
+	int m_SelectedPBRModelIndex = DEFAULT_SELECTED_PBR_MODEL_INDEX;
 	std::vector<std::string> m_AvailablePBRModels = {
 		"backpack/backpack.obj",
 		"models/Cerberus/cerberus.fbx"
@@ -116,8 +125,8 @@ private:
 	bool m_ShowSkeleton = false;
 	bool m_ShowBones = true;
 	bool m_ShowJoints = true;
-	float m_JointSize = 0.05f;      // Increased from 0.02f
-	float m_BoneThickness = 3.0f;   // Increased from 2.0f
+	float m_JointSize = DEFAULT_JOINT_SIZE;
+	float m_BoneThickness = DEFAULT_BONE_THICKNESS;
 	bool m_ModelWireframeMode = false; // Show model in wireframe to see skeleton through
 	
 	void RenderAnimationTestingPanel(); // New comprehensive animation testing UI
