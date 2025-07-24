@@ -165,11 +165,9 @@ void Sandbox3D::OnAttach()
     
     OloEngine::Renderer3D::SetLight(m_Light);
 	
-    // Create ECS test scene for animated mesh rendering
     m_TestScene = OloEngine::CreateRef<OloEngine::Scene>();
-    m_TestScene->OnRuntimeStart(); // Initialize physics world and other runtime systems
+    m_TestScene->OnRuntimeStart();
     
-    // Load the initial animated model
     LoadTestAnimatedModel();
 }
 
@@ -187,9 +185,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
 
     m_FrameTime = ts.GetMilliseconds();
     m_FPS = 1.0f / ts.GetSeconds();
-    // Update debugging tools
     OloEngine::RendererMemoryTracker::GetInstance().UpdateStats();
-    // Note: RendererProfiler doesn't have UpdateStats method
 
     // Update camera only if camera movement is enabled
     if (m_CameraMovementEnabled)
@@ -245,44 +241,50 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
         UpdateCurrentSceneLighting();
     }
 	
-    // Update animation for the imported model entity
-    if (m_ImportedModelEntity.HasComponent<OloEngine::AnimationStateComponent>())
+    // Update animation for ALL animated entities in the scene
+    if (m_TestScene)
     {
-        auto& importedAnimStateComp = m_ImportedModelEntity.GetComponent<OloEngine::AnimationStateComponent>();
-        auto& importedSkeletonComp = m_ImportedModelEntity.GetComponent<OloEngine::SkeletonComponent>();
+        auto animatedView = m_TestScene->GetAllEntitiesWith<OloEngine::AnimationStateComponent, OloEngine::SkeletonComponent>();
         
-        // Check if we need to switch animations
-        if (m_CesiumManModel)
+        for (auto entityID : animatedView)
         {
-            const auto& animations = m_CesiumManModel->GetAnimations();
-            if (!animations.empty() && 
-                m_CurrentAnimationIndex >= 0 && 
-                m_CurrentAnimationIndex < static_cast<int>(animations.size()))
+            OloEngine::Entity entity = { entityID, m_TestScene.get() };
+            auto& animStateComp = entity.GetComponent<OloEngine::AnimationStateComponent>();
+            auto& skeletonComp = entity.GetComponent<OloEngine::SkeletonComponent>();
+            
+            // For the current imported model entity, handle animation switching
+            if (entity == m_ImportedModelEntity && m_CesiumManModel)
             {
-                std::string targetAnimation = animations[m_CurrentAnimationIndex]->Name;
-                if (!importedAnimStateComp.m_CurrentClip || 
-                    importedAnimStateComp.m_CurrentClip->Name != targetAnimation)
+                const auto& animations = m_CesiumManModel->GetAnimations();
+                if (!animations.empty() && 
+                    m_CurrentAnimationIndex >= 0 && 
+                    m_CurrentAnimationIndex < static_cast<int>(animations.size()))
                 {
-                    // Find and set the new animation clip
-                    auto newClip = m_CesiumManModel->GetAnimation(targetAnimation);
-                    if (newClip)
+                    std::string targetAnimation = animations[m_CurrentAnimationIndex]->Name;
+                    if (!animStateComp.m_CurrentClip || 
+                        animStateComp.m_CurrentClip->Name != targetAnimation)
                     {
-                        importedAnimStateComp.m_CurrentClip = newClip;
-                        importedAnimStateComp.m_CurrentTime = 0.0f;  // Reset timeline when switching animations
+                        auto newClip = m_CesiumManModel->GetAnimation(targetAnimation);
+                        if (newClip)
+                        {
+                            animStateComp.m_CurrentClip = newClip;
+                            animStateComp.m_CurrentTime = 0.0f;  // Reset timeline when switching animations
+                        }
                     }
                 }
             }
+            
+            if (animStateComp.m_CurrentClip)
+            {
+                OloEngine::Animation::AnimationSystem::Update(
+                    animStateComp,
+                    skeletonComp.m_Skeleton,
+                    ts.GetSeconds() * m_AnimationSpeed
+                );
+            }
         }
-        
-        // Use the imported model's own skeleton for animation
-        OloEngine::Animation::AnimationSystem::Update(
-            importedAnimStateComp,
-            importedSkeletonComp.m_Skeleton,
-            ts.GetSeconds() * m_AnimationSpeed
-        );
     }
 	
-	// Update ECS scene (but not rendering - that happens in render scope)
     if (m_TestScene)
     {
         m_TestScene->OnUpdateRuntime(ts);
@@ -302,13 +304,10 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
             }
         }
         
-        // Apply appropriate lighting for current scene
         ApplySceneLighting(m_CurrentScene);
         
-        // Render shared elements first
         RenderGroundPlane();
         
-        // Render current scene
         switch (m_CurrentScene)
         {
             case SceneType::MaterialTesting:
@@ -682,29 +681,12 @@ void Sandbox3D::RenderAnimationTestingScene()
             auto& skeletonComp = m_ImportedModelEntity.GetComponent<OloEngine::SkeletonComponent>();
             auto& transformComp = m_ImportedModelEntity.GetComponent<OloEngine::TransformComponent>();
             
-            // Debug: Log skeleton data and rendering attempt
-            static int debugFrameCount = 0;
-            if (debugFrameCount % 60 == 0) // Log every 60 frames (once per second at 60fps)
-            {
-                OLO_INFO("=== SKELETON DEBUG (Frame {}) ===", debugFrameCount);
-                OLO_INFO("  Show Skeleton: {}, Show Bones: {}, Show Joints: {}", m_ShowSkeleton, m_ShowBones, m_ShowJoints);
-                OLO_INFO("  Skeleton Bones: {}, GlobalTransforms: {}, ParentIndices: {}", 
-                         skeletonComp.m_Skeleton.m_GlobalTransforms.size(),
-                         skeletonComp.m_Skeleton.m_GlobalTransforms.size(),
-                         skeletonComp.m_Skeleton.m_ParentIndices.size());
-                OLO_INFO("  Joint Size: {}, Bone Thickness: {}", m_JointSize, m_BoneThickness);
-                OLO_INFO("  Model Position: ({:.2f}, {:.2f}, {:.2f})", 
-                         transformComp.Translation.x, transformComp.Translation.y, transformComp.Translation.z);
-                OLO_INFO("  CALLING DrawSkeleton NOW!");
-            }
-            debugFrameCount++;
-            
             // Create model matrix from transform component
             glm::mat4 modelMatrix = glm::translate(glm::mat4(1.0f), transformComp.Translation)
                                   * glm::toMat4(glm::quat(transformComp.Rotation))
                                   * glm::scale(glm::mat4(1.0f), transformComp.Scale);
             
-            // Draw the skeleton using the skeleton component data - this should now be visible on top!
+            // Draw the skeleton using the skeleton component data
             OloEngine::Renderer3D::DrawSkeleton(skeletonComp.m_Skeleton, modelMatrix, 
                                                m_ShowBones, m_ShowJoints, 
                                                m_JointSize, m_BoneThickness);
@@ -1318,43 +1300,38 @@ void Sandbox3D::LoadTestAnimatedModel()
 {
     OLO_PROFILE_FUNCTION();
     
-    // Clean up existing entities before loading new model
     if (m_ImportedModelEntity)
     {
         m_TestScene->DestroyEntity(m_ImportedModelEntity);
         m_ImportedModelEntity = {};
     }
     
-    // Get the selected model path
     std::string modelPath = "assets/models/" + m_AvailableModels[m_SelectedModelIndex];
     std::string modelName = m_ModelDisplayNames[m_SelectedModelIndex];
     
-    // Reset animation index when loading a new model
     m_CurrentAnimationIndex = 0;
     
     OLO_INFO("Sandbox3D: Loading animated model: {}", modelName);
     
-    // Load the selected model using our AnimatedModel loader
     try 
     {
         m_CesiumManModel = OloEngine::CreateRef<OloEngine::AnimatedModel>(modelPath);
         
         if (!m_CesiumManModel->HasSkeleton())
         {
-            OLO_CORE_WARN("{} model does not have a skeleton, using default", modelName);
+            OLO_WARN("{} model does not have a skeleton, using default", modelName);
         }
         
         if (!m_CesiumManModel->HasAnimations())
         {
-            OLO_CORE_WARN("{} model does not have animations", modelName);
+            OLO_WARN("{} model does not have animations", modelName);
         }
         
-        // Create entity for the loaded model
         m_ImportedModelEntity = m_TestScene->CreateEntity(modelName);
         
         // Position the model with model-specific scaling adjustments
         auto& transformComp = m_ImportedModelEntity.GetComponent<OloEngine::TransformComponent>();
-        transformComp.Translation = glm::vec3(0.0f, 0.0f, 0.0f); // Center position
+        transformComp.Translation = glm::vec3(0.0f, 0.0f, 0.0f);
         
         // Apply model-specific scaling corrections
         glm::vec3 modelScale = glm::vec3(1.0f);
@@ -1384,7 +1361,6 @@ void Sandbox3D::LoadTestAnimatedModel()
         transformComp.Scale = modelScale;
         OLO_INFO("Final transform scale set to: {}, {}, {}", transformComp.Scale.x, transformComp.Scale.y, transformComp.Scale.z);
         
-        // Add animated mesh component - use the first mesh from the model
         auto& animMeshComp = m_ImportedModelEntity.AddComponent<OloEngine::AnimatedMeshComponent>();
         if (!m_CesiumManModel->GetMeshes().empty())
         {
@@ -1392,11 +1368,10 @@ void Sandbox3D::LoadTestAnimatedModel()
         }
         else
         {
-            OLO_CORE_ERROR("{} model has no meshes!", modelName);
+            OLO_ERROR("{} model has no meshes!", modelName);
             return;
         }
         
-        // Add material component with the model's original material
         auto& materialComp = m_ImportedModelEntity.AddComponent<OloEngine::MaterialComponent>();
         if (!m_CesiumManModel->GetMaterials().empty())
         {
@@ -1411,45 +1386,40 @@ void Sandbox3D::LoadTestAnimatedModel()
             OLO_WARN("No materials found in model, using default material");
         }
         
-        // Add skeleton component
         auto& skeletonComp = m_ImportedModelEntity.AddComponent<OloEngine::SkeletonComponent>();
         if (m_CesiumManModel->HasSkeleton())
         {
-            // Reference the model's skeleton directly
             skeletonComp.m_Skeleton = *m_CesiumManModel->GetSkeleton();
             OLO_INFO("Skeleton loaded: {} bones, {} parents, {} transforms", 
                      skeletonComp.m_Skeleton.m_BoneNames.size(),
                      skeletonComp.m_Skeleton.m_ParentIndices.size(),
                      skeletonComp.m_Skeleton.m_GlobalTransforms.size());
         }
-        else
-        {
-            // Use default skeleton
-            skeletonComp.m_Skeleton = OloEngine::Skeleton(1);
-            skeletonComp.m_Skeleton.m_BoneNames = { "Root" };
-            skeletonComp.m_Skeleton.m_ParentIndices = { -1 };
-            skeletonComp.m_Skeleton.m_LocalTransforms = { glm::mat4(1.0f) };
-            skeletonComp.m_Skeleton.m_GlobalTransforms = { glm::mat4(1.0f) };
-            skeletonComp.m_Skeleton.m_FinalBoneMatrices = { glm::mat4(1.0f) };
-            skeletonComp.m_Skeleton.SetBindPose();
-            OLO_INFO("Using default skeleton with 1 bone");
-        }
         
         // Add animation state component
         auto& animStateComp = m_ImportedModelEntity.AddComponent<OloEngine::AnimationStateComponent>();
         if (m_CesiumManModel->HasAnimations())
         {
-            // Use the first animation from the loaded model
-            animStateComp.m_CurrentClip = m_CesiumManModel->GetAnimations()[0];
-            OLO_INFO("Using animation: {}", animStateComp.m_CurrentClip->Name);
-        }
-        else
-        {
-            // Create a simple default animation
-            auto defaultClip = OloEngine::CreateRef<OloEngine::AnimationClip>();
-            defaultClip->Name = "Default";
-            defaultClip->Duration = 1.0f;
-            animStateComp.m_CurrentClip = defaultClip;
+            // Debug: List all animations available
+            OLO_INFO("Available animations for {}:", modelName);
+            for (sizet i = 0; i < m_CesiumManModel->GetAnimations().size(); i++)
+            {
+                auto& anim = m_CesiumManModel->GetAnimations()[i];
+                OLO_INFO("  Animation [{}]: '{}' - Duration: {:.2f}s", i, anim->Name, anim->Duration);
+            }
+            
+            // For Fox, use the "Run" animation which should have proper keyframes for movement
+            int animIndex = 0;
+            if (modelName.find("Fox") != std::string::npos && m_CesiumManModel->GetAnimations().size() > 2)
+            {
+                animIndex = 2; // Use "Run" animation for Fox
+                OLO_INFO("Using Fox Run animation (index {}) instead of Survey", animIndex);
+            }
+            
+            animStateComp.m_CurrentClip = m_CesiumManModel->GetAnimations()[animIndex];
+            OLO_INFO("Selected animation: {}", animStateComp.m_CurrentClip->Name);
+
+			m_CurrentAnimationIndex = animIndex;
         }
         animStateComp.m_State = OloEngine::AnimationStateComponent::State::Idle;
         animStateComp.m_CurrentTime = 0.0f;
@@ -1459,7 +1429,7 @@ void Sandbox3D::LoadTestAnimatedModel()
     }
     catch (const std::exception& e)
     {
-        OLO_CORE_ERROR("Failed to load {} model: {}", modelName, e.what());
+        OLO_ERROR("Failed to load {} model: {}", modelName, e.what());
         
         // Create a simple fallback entity
         m_ImportedModelEntity = m_TestScene->CreateEntity(modelName + " (Fallback)");

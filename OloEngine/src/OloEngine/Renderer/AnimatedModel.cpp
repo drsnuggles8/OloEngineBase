@@ -2,6 +2,7 @@
 #include "AnimatedModel.h"
 #include "OloEngine/Core/Log.h"
 #include <filesystem>
+#include <set>
 
 namespace OloEngine
 {
@@ -376,6 +377,104 @@ namespace OloEngine
         OLO_CORE_INFO("AnimatedModel::ProcessSkeleton: Created skeleton with {} bones", m_Skeleton->m_BoneNames.size());
     }
 
+    // Helper functions for sampling animation data
+    glm::vec3 AnimatedModel::SamplePosition(const aiNodeAnim* nodeAnim, const std::set<f64>& timestamps, f64 time)
+    {
+        if (nodeAnim->mNumPositionKeys == 0)
+            return glm::vec3(0.0f);
+        
+        if (nodeAnim->mNumPositionKeys == 1)
+        {
+            const aiVector3D& pos = nodeAnim->mPositionKeys[0].mValue;
+            return glm::vec3(pos.x, pos.y, pos.z);
+        }
+
+        // Find the two keyframes to interpolate between
+        for (u32 i = 0; i < nodeAnim->mNumPositionKeys - 1; ++i)
+        {
+            if (time >= nodeAnim->mPositionKeys[i].mTime && time <= nodeAnim->mPositionKeys[i + 1].mTime)
+            {
+                f64 t = (time - nodeAnim->mPositionKeys[i].mTime) / 
+                       (nodeAnim->mPositionKeys[i + 1].mTime - nodeAnim->mPositionKeys[i].mTime);
+                
+                const aiVector3D& pos1 = nodeAnim->mPositionKeys[i].mValue;
+                const aiVector3D& pos2 = nodeAnim->mPositionKeys[i + 1].mValue;
+                
+                return glm::mix(glm::vec3(pos1.x, pos1.y, pos1.z), 
+                               glm::vec3(pos2.x, pos2.y, pos2.z), (f32)t);
+            }
+        }
+
+        // If time is beyond the last keyframe, return the last position
+        const aiVector3D& pos = nodeAnim->mPositionKeys[nodeAnim->mNumPositionKeys - 1].mValue;
+        return glm::vec3(pos.x, pos.y, pos.z);
+    }
+
+    glm::quat AnimatedModel::SampleRotation(const aiNodeAnim* nodeAnim, const std::set<f64>& timestamps, f64 time)
+    {
+        if (nodeAnim->mNumRotationKeys == 0)
+            return glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+        
+        if (nodeAnim->mNumRotationKeys == 1)
+        {
+            const aiQuaternion& rot = nodeAnim->mRotationKeys[0].mValue;
+            return glm::quat(rot.w, rot.x, rot.y, rot.z);
+        }
+
+        // Find the two keyframes to interpolate between
+        for (u32 i = 0; i < nodeAnim->mNumRotationKeys - 1; ++i)
+        {
+            if (time >= nodeAnim->mRotationKeys[i].mTime && time <= nodeAnim->mRotationKeys[i + 1].mTime)
+            {
+                f64 t = (time - nodeAnim->mRotationKeys[i].mTime) / 
+                       (nodeAnim->mRotationKeys[i + 1].mTime - nodeAnim->mRotationKeys[i].mTime);
+                
+                const aiQuaternion& rot1 = nodeAnim->mRotationKeys[i].mValue;
+                const aiQuaternion& rot2 = nodeAnim->mRotationKeys[i + 1].mValue;
+                
+                aiQuaternion result;
+                aiQuaternion::Interpolate(result, rot1, rot2, (f32)t);
+                return glm::quat(result.w, result.x, result.y, result.z);
+            }
+        }
+
+        // If time is beyond the last keyframe, return the last rotation
+        const aiQuaternion& rot = nodeAnim->mRotationKeys[nodeAnim->mNumRotationKeys - 1].mValue;
+        return glm::quat(rot.w, rot.x, rot.y, rot.z);
+    }
+
+    glm::vec3 AnimatedModel::SampleScale(const aiNodeAnim* nodeAnim, const std::set<f64>& timestamps, f64 time)
+    {
+        if (nodeAnim->mNumScalingKeys == 0)
+            return glm::vec3(1.0f);
+        
+        if (nodeAnim->mNumScalingKeys == 1)
+        {
+            const aiVector3D& scale = nodeAnim->mScalingKeys[0].mValue;
+            return glm::vec3(scale.x, scale.y, scale.z);
+        }
+
+        // Find the two keyframes to interpolate between
+        for (u32 i = 0; i < nodeAnim->mNumScalingKeys - 1; ++i)
+        {
+            if (time >= nodeAnim->mScalingKeys[i].mTime && time <= nodeAnim->mScalingKeys[i + 1].mTime)
+            {
+                f64 t = (time - nodeAnim->mScalingKeys[i].mTime) / 
+                       (nodeAnim->mScalingKeys[i + 1].mTime - nodeAnim->mScalingKeys[i].mTime);
+                
+                const aiVector3D& scale1 = nodeAnim->mScalingKeys[i].mValue;
+                const aiVector3D& scale2 = nodeAnim->mScalingKeys[i + 1].mValue;
+                
+                return glm::mix(glm::vec3(scale1.x, scale1.y, scale1.z), 
+                               glm::vec3(scale2.x, scale2.y, scale2.z), (f32)t);
+            }
+        }
+
+        // If time is beyond the last keyframe, return the last scale
+        const aiVector3D& scale = nodeAnim->mScalingKeys[nodeAnim->mNumScalingKeys - 1].mValue;
+        return glm::vec3(scale.x, scale.y, scale.z);
+    }
+
     void AnimatedModel::ProcessAnimations(const aiScene* scene)
     {
         OLO_PROFILE_FUNCTION();
@@ -399,48 +498,28 @@ namespace OloEngine
                 BoneAnimation boneAnim;
                 boneAnim.BoneName = nodeAnim->mNodeName.data;
 
-                // Process position keyframes
+                // Collect all unique timestamps from all key types
+                std::set<f64> timeStamps;
+                
                 for (u32 k = 0; k < nodeAnim->mNumPositionKeys; ++k)
+                    timeStamps.insert(nodeAnim->mPositionKeys[k].mTime);
+                
+                for (u32 k = 0; k < nodeAnim->mNumRotationKeys; ++k)
+                    timeStamps.insert(nodeAnim->mRotationKeys[k].mTime);
+                
+                for (u32 k = 0; k < nodeAnim->mNumScalingKeys; ++k)
+                    timeStamps.insert(nodeAnim->mScalingKeys[k].mTime);
+
+                // Create keyframes for each unique timestamp
+                for (f64 time : timeStamps)
                 {
                     BoneKeyframe keyframe;
-                    keyframe.Time = static_cast<f32>(nodeAnim->mPositionKeys[k].mTime / anim->mTicksPerSecond);
+                    keyframe.Time = static_cast<f32>(time / anim->mTicksPerSecond);
                     
-                    const aiVector3D& pos = nodeAnim->mPositionKeys[k].mValue;
-                    keyframe.Translation = glm::vec3(pos.x, pos.y, pos.z);
-                    
-                    // Find corresponding rotation and scale
-                    keyframe.Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f); // Default
-                    keyframe.Scale = glm::vec3(1.0f); // Default
-                    
-                    // Find closest rotation keyframe
-                    if (nodeAnim->mNumRotationKeys > 0)
-                    {
-                        u32 rotIndex = 0;
-                        for (u32 r = 0; r < nodeAnim->mNumRotationKeys - 1; ++r)
-                        {
-                            if (nodeAnim->mRotationKeys[r + 1].mTime > nodeAnim->mPositionKeys[k].mTime)
-                                break;
-                            rotIndex = r + 1;
-                        }
-                        
-                        const aiQuaternion& rot = nodeAnim->mRotationKeys[rotIndex].mValue;
-                        keyframe.Rotation = glm::quat(rot.w, rot.x, rot.y, rot.z);
-                    }
-                    
-                    // Find closest scale keyframe
-                    if (nodeAnim->mNumScalingKeys > 0)
-                    {
-                        u32 scaleIndex = 0;
-                        for (u32 s = 0; s < nodeAnim->mNumScalingKeys - 1; ++s)
-                        {
-                            if (nodeAnim->mScalingKeys[s + 1].mTime > nodeAnim->mPositionKeys[k].mTime)
-                                break;
-                            scaleIndex = s + 1;
-                        }
-                        
-                        const aiVector3D& scale = nodeAnim->mScalingKeys[scaleIndex].mValue;
-                        keyframe.Scale = glm::vec3(scale.x, scale.y, scale.z);
-                    }
+                    // Sample position at this time
+                    keyframe.Translation = SamplePosition(nodeAnim, timeStamps, time);
+                    keyframe.Rotation = SampleRotation(nodeAnim, timeStamps, time);
+                    keyframe.Scale = SampleScale(nodeAnim, timeStamps, time);
                     
                     boneAnim.Keyframes.push_back(keyframe);
                 }

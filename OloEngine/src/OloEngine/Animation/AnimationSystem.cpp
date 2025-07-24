@@ -107,6 +107,7 @@ namespace OloEngine::Animation
         for (size_t i = 0; i < skeleton.m_BoneNames.size(); ++i)
         {
             const std::string& boneName = skeleton.m_BoneNames[i];
+            
             if (animState.m_Blending && animState.m_NextClip)
             {
                 // Sample both clips and blend at TRS level (more efficient than matrix decomposition)

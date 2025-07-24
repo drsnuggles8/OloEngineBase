@@ -44,7 +44,7 @@ public:
 
 private:
 	// Scene management
-	SceneType m_CurrentScene = SceneType::MaterialTesting;
+	SceneType m_CurrentScene = SceneType::AnimationTesting; // Start with animation testing to debug Fox
 	const char* m_SceneNames[5] = { 
 		"Material Testing", 
 		"Animation Testing", 
@@ -76,7 +76,7 @@ private:
 	OloEngine::Entity m_ImportedModelEntity;
 
 	// Model selection
-	int m_SelectedModelIndex = 0;
+	int m_SelectedModelIndex = 1; // Start with Fox to see its bone debugging first
 	int m_AnimatedModelMaterialType = 0;
 	int m_CurrentAnimationIndex = 0; // For tracking current animation in multi-animation models
 	std::vector<std::string> m_AvailableModels = {

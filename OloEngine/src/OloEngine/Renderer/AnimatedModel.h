@@ -3,7 +3,9 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <set>
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/SkinnedMesh.h"
 #include "OloEngine/Renderer/Material.h"
@@ -67,6 +69,11 @@ namespace OloEngine
         void CalculateBounds();
         glm::mat4 AssimpMatrixToGLM(const aiMatrix4x4& from);
         u32 FindBoneIndex(const std::string& boneName);
+        
+        // Animation sampling helpers
+        glm::vec3 SamplePosition(const aiNodeAnim* nodeAnim, const std::set<f64>& timestamps, f64 time);
+        glm::quat SampleRotation(const aiNodeAnim* nodeAnim, const std::set<f64>& timestamps, f64 time);
+        glm::vec3 SampleScale(const aiNodeAnim* nodeAnim, const std::set<f64>& timestamps, f64 time);
         
         // Bone mapping structure
         struct BoneInfo
