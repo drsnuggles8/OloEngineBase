@@ -64,11 +64,11 @@ namespace OloEngine
 
 	private:
 		void ProcessNode(const aiNode* node, const aiScene* scene);
-		Ref<Mesh> ProcessMesh(const aiMesh* mesh, const aiScene* scene);
+		AssetRef<Mesh> ProcessMesh(const aiMesh* mesh, const aiScene* scene);
 		std::vector<Ref<Texture2D>> LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type);
 		Material ProcessMaterial(const aiMaterial* mat);
 
-		std::vector<Ref<Mesh>> m_Meshes;
+		std::vector<AssetRef<Mesh>> m_Meshes;
 		std::vector<Material> m_Materials;  // Materials corresponding to each mesh
 		std::string m_Directory;
 		std::unordered_map<std::string, Ref<Texture2D>> m_LoadedTextures;

@@ -67,10 +67,10 @@ namespace OloEngine
 
 		static void BeginScene(const PerspectiveCamera& camera);
 		static void EndScene();
-		static CommandPacket* DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
+		static CommandPacket* DrawMesh(const AssetRef<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
 		static CommandPacket* DrawSkinnedMesh(const Ref<SkinnedMesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic = true);
 		static CommandPacket* DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
-		static CommandPacket* DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true);
+		static CommandPacket* DrawMeshInstanced(const AssetRef<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true);
 		static CommandPacket* DrawLightCube(const glm::mat4& modelMatrix);
 		static CommandPacket* DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
 		static CommandPacket* DrawSkybox(const Ref<TextureCubemap>& skyboxTexture);
@@ -96,7 +96,7 @@ namespace OloEngine
 		static bool IsFrustumCullingEnabled();		static void EnableDynamicCulling(bool enable);
 		static bool IsDynamicCullingEnabled();
 		static const Frustum& GetViewFrustum();
-		static bool IsVisibleInFrustum(const Ref<Mesh>& mesh, const glm::mat4& transform);
+		static bool IsVisibleInFrustum(const AssetRef<Mesh>& mesh, const glm::mat4& transform);
 		static bool IsVisibleInFrustum(const Ref<SkinnedMesh>& mesh, const glm::mat4& transform);
 		static bool IsVisibleInFrustum(const BoundingSphere& sphere);
 		static bool IsVisibleInFrustum(const BoundingBox& box);
@@ -173,7 +173,7 @@ namespace OloEngine
 	private:
 		struct Renderer3DData
 		{
-			Ref<Mesh> CubeMesh;
+			AssetRef<Mesh> CubeMesh;
 			Ref<Mesh> QuadMesh;
 			Ref<Mesh> SkyboxMesh;
 			Ref<Shader> LightCubeShader;

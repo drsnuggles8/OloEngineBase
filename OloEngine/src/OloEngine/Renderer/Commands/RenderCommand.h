@@ -283,7 +283,7 @@ namespace OloEngine
 	struct DrawMeshCommand
 	{
 		CommandHeader header;
-		Ref<Mesh> mesh;              // Store the actual mesh reference
+		AssetRef<Mesh> mesh;              // Store the actual mesh reference
 		Ref<VertexArray> vertexArray; // Store the actual vertex array
 		u32 indexCount;
 		glm::mat4 transform;
@@ -330,7 +330,7 @@ namespace OloEngine
 	struct DrawMeshInstancedCommand
 	{
 		CommandHeader header;
-		Ref<Mesh> mesh;              // Store the actual mesh reference
+		AssetRef<Mesh> mesh;              // Store the actual mesh reference
 		Ref<VertexArray> vertexArray; // Store the actual vertex array
 		u32 indexCount;
 		u32 instanceCount;

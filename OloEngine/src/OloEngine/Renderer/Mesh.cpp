@@ -117,7 +117,7 @@ namespace OloEngine
         RenderCommand::DrawIndexed(m_VertexArray);
     }
 
-    Ref<Mesh> Mesh::CreateCube()
+    AssetRef<Mesh> Mesh::CreateCube()
     {
         OLO_PROFILE_FUNCTION();
 
@@ -174,10 +174,10 @@ namespace OloEngine
             20, 21, 23, 21, 22, 23
         };
 
-        return CreateRef<Mesh>(vertices, indices);
+        return AssetRef<Mesh>::Create(vertices, indices);
     }
 
-    Ref<Mesh> Mesh::CreateSphere(f32 radius, u32 segments)
+    AssetRef<Mesh> Mesh::CreateSphere(f32 radius, u32 segments)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -240,7 +240,7 @@ namespace OloEngine
             indices.push_back((r + 1) * sectors + (sectors - 1));
         }
 
-        return CreateRef<Mesh>(vertices, indices);
+        return AssetRef<Mesh>::Create(vertices, indices);
     }
 
     Ref<Mesh> Mesh::CreatePlane(f32 width, f32 length)

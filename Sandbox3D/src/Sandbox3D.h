@@ -159,9 +159,9 @@ private:
 	OloEngine::PerspectiveCameraController m_CameraController;
 
 	// Mesh objects
-	OloEngine::Ref<OloEngine::Mesh> m_CubeMesh;
-	OloEngine::Ref<OloEngine::Mesh> m_SphereMesh;
-	OloEngine::Ref<OloEngine::Mesh> m_PlaneMesh;
+	OloEngine::AssetRef<OloEngine::Mesh> m_CubeMesh;
+	OloEngine::AssetRef<OloEngine::Mesh> m_SphereMesh;
+	OloEngine::AssetRef<OloEngine::Mesh> m_PlaneMesh;
 	
 	// Model objects
 	OloEngine::Ref<OloEngine::Model> m_BackpackModel;

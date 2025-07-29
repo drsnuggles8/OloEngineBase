@@ -76,7 +76,7 @@ namespace OloEngine
 		}
 	}
 
-	Ref<Mesh> Model::ProcessMesh(const aiMesh* mesh, const aiScene* scene)
+	AssetRef<Mesh> Model::ProcessMesh(const aiMesh* mesh, const aiScene* scene)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -142,7 +142,7 @@ namespace OloEngine
 			m_Materials.push_back(pbrMaterial);
 		}
 
-		return CreateRef<Mesh>(vertices, indices);
+		return AssetRef<Mesh>::Create(vertices, indices);
 	}
 
 	std::vector<Ref<Texture2D>> Model::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type)

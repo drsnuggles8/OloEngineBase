@@ -236,7 +236,7 @@ namespace OloEngine
     public:
         WeakAssetRef() = default;
 
-        WeakAssetRef(const AssetRef<T>& ref) : m_Instance(ref.Raw()) {}
+        WeakAssetRef(const AssetRef<T>& ref) : m_Instance(const_cast<T*>(ref.Raw())) {}
 
         explicit WeakAssetRef(T* instance) : m_Instance(instance) {}
 

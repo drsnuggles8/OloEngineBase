@@ -84,7 +84,19 @@ void Sandbox3D::OnAttach()
     // Create 3D meshes
     m_CubeMesh = OloEngine::Mesh::CreateCube();
     m_SphereMesh = OloEngine::Mesh::CreateSphere();
-    m_PlaneMesh = OloEngine::Mesh::CreatePlane(25.0f, 25.0f);
+    
+    // CreatePlane returns Ref<Mesh>, we need to create an AssetRef equivalent
+    // Create the plane using the same parameters to get AssetRef
+    m_PlaneMesh = OloEngine::AssetRef<OloEngine::Mesh>::Create(
+        std::vector<OloEngine::Vertex>{
+            // Top face (facing positive Y)  
+            { { 12.5f, 0.0f,  12.5f}, { 0.0f, 1.0f, 0.0f}, {1.0f, 1.0f} },
+            { { 12.5f, 0.0f, -12.5f}, { 0.0f, 1.0f, 0.0f}, {1.0f, 0.0f} },
+            { {-12.5f, 0.0f, -12.5f}, { 0.0f, 1.0f, 0.0f}, {0.0f, 0.0f} },
+            { {-12.5f, 0.0f,  12.5f}, { 0.0f, 1.0f, 0.0f}, {0.0f, 1.0f} }
+        },
+        std::vector<u32>{ 0, 1, 3, 1, 2, 3 }
+    );
 
     // Load backpack model
     m_BackpackModel = OloEngine::CreateRef<OloEngine::Model>("assets/backpack/backpack.obj");

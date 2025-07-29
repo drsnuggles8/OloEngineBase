@@ -258,7 +258,7 @@ namespace OloEngine
 		s_Data.Stats.Reset();
 	}
 
-	bool Renderer3D::IsVisibleInFrustum(const Ref<Mesh>& mesh, const glm::mat4& transform)
+	bool Renderer3D::IsVisibleInFrustum(const AssetRef<Mesh>& mesh, const glm::mat4& transform)
 	{
 		if (!s_Data.FrustumCullingEnabled)
 			return true;
@@ -299,7 +299,7 @@ namespace OloEngine
 		return s_Data.ViewFrustum.IsBoundingBoxVisible(box);
 	}
 
-	CommandPacket* Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic)
+	CommandPacket* Renderer3D::DrawMesh(const AssetRef<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic)
 	{
 		OLO_PROFILE_FUNCTION();
 		if (!s_Data.ScenePass)
@@ -425,7 +425,7 @@ namespace OloEngine
 		return packet;
 	}
 
-	CommandPacket* Renderer3D::DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic)
+	CommandPacket* Renderer3D::DrawMeshInstanced(const AssetRef<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic)
 	{
 		OLO_PROFILE_FUNCTION();
 		if (!s_Data.ScenePass)
@@ -994,7 +994,7 @@ namespace OloEngine
 		std::vector<u32> indices = { 0, 1, 2, 2, 3, 0 };
 		
 		// Create temporary mesh for the line
-		auto lineMesh = CreateRef<Mesh>(vertices, indices);
+		auto lineMesh = AssetRef<Mesh>::Create(vertices, indices);
 		
 		// Use a highly emissive material for skeleton visualization
 		Material material{};
@@ -1045,11 +1045,11 @@ namespace OloEngine
 		
 		CommandPacket* packet = nullptr;
 		
-		// For now, use the skybox mesh as a simple sphere approximation
+		// Use the cube mesh as a simple sphere approximation for now
 		// TODO: Create a proper sphere mesh in the renderer data
-		if (s_Data.SkyboxMesh)
+		if (s_Data.CubeMesh)
 		{
-			packet = DrawMesh(s_Data.SkyboxMesh, transform, material);
+			packet = DrawMesh(s_Data.CubeMesh, transform, material);
 		}
 		else
 		{
