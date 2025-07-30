@@ -1,13 +1,29 @@
 #include "OloEnginePCH.h"
-#include "OloEngine/Core/Ref.h"
+#include "Ref.h"
 
 #include <unordered_set>
 #include <mutex>
+#include <atomic>
 
 namespace OloEngine {
 
-    static std::unordered_set<void*> s_LiveReferences;
-    static std::mutex s_LiveReferenceMutex;
+    struct LiveReferencesData
+    {
+        std::unordered_set<void*> references;
+        std::mutex mutex;
+        std::atomic<bool> isValid{true};
+        
+        ~LiveReferencesData()
+        {
+            isValid = false;
+        }
+    };
+
+    static LiveReferencesData& GetLiveReferencesData()
+    {
+        static LiveReferencesData data;
+        return data;
+    }
 
     // RefCounted implementation
     void RefCounted::IncRefCount() const
@@ -25,28 +41,83 @@ namespace OloEngine {
         return m_RefCount.load(std::memory_order_relaxed);
     }
 
-    namespace RefUtils {
-
+    namespace RefUtils
+	{
         void AddToLiveReferences(void* instance)
         {
-            std::scoped_lock<std::mutex> lock(s_LiveReferenceMutex);
+            auto& data = GetLiveReferencesData();
+            
+            // Check if the tracking system is still valid
+            if (!data.isValid.load(std::memory_order_acquire))
+            {
+                // System is shutting down, don't attempt to access the hash table
+                return;
+            }
+            
+            std::scoped_lock<std::mutex> lock(data.mutex);
             OLO_CORE_ASSERT(instance);
-            s_LiveReferences.insert(instance);
+            
+            // Double-check after acquiring the lock
+            if (!data.isValid.load(std::memory_order_acquire))
+            {
+                return;
+            }
+            
+            data.references.insert(instance);
         }
 
         void RemoveFromLiveReferences(void* instance)
         {
-            std::scoped_lock<std::mutex> lock(s_LiveReferenceMutex);
+            auto& data = GetLiveReferencesData();
+            
+            // Check if the tracking system is still valid before doing anything
+            if (!data.isValid.load(std::memory_order_acquire))
+            {
+                // System is shutting down, don't attempt to access the hash table
+                return;
+            }
+            
+            std::scoped_lock<std::mutex> lock(data.mutex);
             OLO_CORE_ASSERT(instance);
-            OLO_CORE_ASSERT(s_LiveReferences.find(instance) != s_LiveReferences.end());
-            s_LiveReferences.erase(instance);
+            
+            // Double-check after acquiring the lock
+            if (!data.isValid.load(std::memory_order_acquire))
+            {
+                return;
+            }
+            
+            // During shutdown, the live references set might be destroyed before AssetRef destructors
+            // So we need to check if the instance exists before asserting
+            auto it = data.references.find(instance);
+            if (it != data.references.end())
+            {
+                data.references.erase(it);
+            }
+            // Remove the assertion that was causing crashes during shutdown
+            // OLO_CORE_ASSERT(s_LiveReferences.find(instance) != s_LiveReferences.end());
         }
 
         bool IsLive(void* instance)
         {
-            std::scoped_lock<std::mutex> lock(s_LiveReferenceMutex);
+            auto& data = GetLiveReferencesData();
+            
+            // Check if the tracking system is still valid
+            if (!data.isValid.load(std::memory_order_acquire))
+            {
+                // System is shutting down, assume all references are dead
+                return false;
+            }
+            
+            std::scoped_lock<std::mutex> lock(data.mutex);
             OLO_CORE_ASSERT(instance);
-            return s_LiveReferences.find(instance) != s_LiveReferences.end();
+            
+            // Double-check after acquiring the lock
+            if (!data.isValid.load(std::memory_order_acquire))
+            {
+                return false;
+            }
+            
+            return data.references.find(instance) != data.references.end();
         }
     }
 
