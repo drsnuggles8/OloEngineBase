@@ -106,7 +106,7 @@ namespace OloEngine
 		s_Data.Stats.Reset();
 		
 		Window& window = Application::Get().GetWindow();
-		s_Data.RGraph = CreateRef<RenderGraph>();
+		s_Data.RGraph = AssetRef<RenderGraph>::Create();
 		SetupRenderGraph(window.GetFramebufferWidth(), window.GetFramebufferHeight());		
 		OLO_CORE_INFO("Renderer3D initialization complete.");
 	}
@@ -269,7 +269,7 @@ namespace OloEngine
 		return s_Data.ViewFrustum.IsBoundingSphereVisible(sphere);
 	}
 	
-	bool Renderer3D::IsVisibleInFrustum(const Ref<SkinnedMesh>& mesh, const glm::mat4& transform)
+	bool Renderer3D::IsVisibleInFrustum(const AssetRef<SkinnedMesh>& mesh, const glm::mat4& transform)
 	{
 		if (!s_Data.FrustumCullingEnabled)
 			return true;
@@ -660,7 +660,7 @@ namespace OloEngine
 		}
 	}
 
-	CommandPacket* Renderer3D::DrawSkinnedMesh(const Ref<SkinnedMesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic)
+	CommandPacket* Renderer3D::DrawSkinnedMesh(const AssetRef<SkinnedMesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic)
 	{
 		OLO_PROFILE_FUNCTION();
 		
@@ -684,7 +684,7 @@ namespace OloEngine
 		if (!mesh || !mesh->GetVertexArray())
 		{
 			OLO_CORE_ERROR("Renderer3D::DrawSkinnedMesh: Invalid mesh ({}) or vertex array ({})!", 
-							(void*)mesh.get(), 
+							(void*)mesh.Raw(), 
 							mesh ? (void*)mesh->GetVertexArray().get() : nullptr);
 			return nullptr;
 		}
@@ -808,7 +808,7 @@ namespace OloEngine
 		}
 	}
 
-	void Renderer3D::RenderAnimatedMeshes(const Ref<Scene>& scene, const Material& defaultMaterial)
+	void Renderer3D::RenderAnimatedMeshes(AssetRef<Scene>& scene, const Material& defaultMaterial)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -822,7 +822,7 @@ namespace OloEngine
 
 		for (auto entityID : view)
 		{
-			Entity entity = { entityID, scene.get() };
+			Entity entity = { entityID, scene.Raw() };
 			s_Data.Stats.TotalAnimatedMeshes++;
 
 			RenderAnimatedMesh(entity, defaultMaterial);

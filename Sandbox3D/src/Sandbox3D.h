@@ -86,7 +86,7 @@ private:
 	OloEngine::Material& GetCurrentAnimatedModelMaterial();
 
 	// ECS Scene for model testing
-	OloEngine::Ref<OloEngine::Scene> m_TestScene;
+	OloEngine::AssetRef<OloEngine::Scene> m_TestScene;
 	OloEngine::Entity m_ImportedModelEntity;
 
 	// Model selection
@@ -164,9 +164,9 @@ private:
 	OloEngine::AssetRef<OloEngine::Mesh> m_PlaneMesh;
 	
 	// Model objects
-	OloEngine::Ref<OloEngine::Model> m_BackpackModel;
-	OloEngine::Ref<OloEngine::AnimatedModel> m_CesiumManModel;
-	OloEngine::Ref<OloEngine::Model> m_CerberusModel;
+	OloEngine::AssetRef<OloEngine::Model> m_BackpackModel;
+	OloEngine::AssetRef<OloEngine::AnimatedModel> m_CesiumManModel;
+	OloEngine::AssetRef<OloEngine::Model> m_CerberusModel;
 	
 	// Texture resources
 	OloEngine::Ref<OloEngine::Texture2D> m_DiffuseMap;

@@ -830,7 +830,7 @@ namespace OloEngine
 			return;
 		}
 
-		Ref<Scene> newScene = CreateRef<Scene>();
+		Ref<Scene> newScene = AssetRef<Scene>::Create();
 		SetEditorScene(newScene);
 		m_EditorScenePath = std::filesystem::path();
 	}
@@ -857,7 +857,7 @@ namespace OloEngine
 			return false;
 		}
 
-		Ref<Scene> const newScene = CreateRef<Scene>();
+		Ref<Scene> const newScene = AssetRef<Scene>::Create();
 		if (SceneSerializer const serializer(newScene); !serializer.Deserialize(path.string()))
 		{
 			return false;

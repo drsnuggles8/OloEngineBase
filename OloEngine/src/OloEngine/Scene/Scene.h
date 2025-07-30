@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Core/UUID.h"
+#include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 
 #include "box2d/box2d.h" // Include Box2D header
@@ -18,13 +19,13 @@ namespace OloEngine
 
 	class Entity;
 
-	class Scene
+	class Scene : public RefCounted
 	{
 	public:
 		Scene();
 		~Scene();
 
-		static Ref<Scene> Copy(const Ref<Scene>& other);
+		static AssetRef<Scene> Copy(const AssetRef<Scene>& other);
 
 		Entity CreateEntity(const std::string& name = std::string());
 		Entity CreateEntityWithUUID(UUID uuid, const std::string& name = std::string());

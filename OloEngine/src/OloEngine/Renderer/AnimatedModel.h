@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/SkinnedMesh.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Texture.h"
@@ -26,7 +27,7 @@ namespace OloEngine
      * This class handles loading of skeletal animated models from various formats (glTF, FBX, etc.)
      * using Assimp. It creates SkinnedMesh objects, Skeleton data, and AnimationClip objects.
      */
-    class AnimatedModel
+    class AnimatedModel : public RefCounted
     {
     public:
         AnimatedModel() = default;
@@ -36,7 +37,7 @@ namespace OloEngine
         void LoadModel(const std::string& path);
         
         // Accessors
-        [[nodiscard]] const std::vector<Ref<SkinnedMesh>>& GetMeshes() const { return m_Meshes; }
+        [[nodiscard]] const std::vector<AssetRef<SkinnedMesh>>& GetMeshes() const { return m_Meshes; }
         [[nodiscard]] const std::vector<Material>& GetMaterials() const { return m_Materials; }
         [[nodiscard]] const Ref<Skeleton>& GetSkeleton() const { return m_Skeleton; }
         [[nodiscard]] const std::vector<Ref<AnimationClip>>& GetAnimations() const { return m_Animations; }
@@ -59,7 +60,7 @@ namespace OloEngine
     private:
         // Model processing
         void ProcessNode(const aiNode* node, const aiScene* scene);
-        Ref<SkinnedMesh> ProcessMesh(const aiMesh* mesh, const aiScene* scene);
+        AssetRef<SkinnedMesh> ProcessMesh(const aiMesh* mesh, const aiScene* scene);
         
         // Material and texture loading
         std::vector<Ref<Texture2D>> LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type);
@@ -88,7 +89,7 @@ namespace OloEngine
         };
 
         // Data members
-        std::vector<Ref<SkinnedMesh>> m_Meshes;
+        std::vector<AssetRef<SkinnedMesh>> m_Meshes;
         std::vector<Material> m_Materials;
         std::vector<Ref<AnimationClip>> m_Animations;
         Ref<Skeleton> m_Skeleton;

@@ -8,12 +8,12 @@ namespace OloEngine
 	class ProjectSerializer
 	{
 	public:
-		ProjectSerializer(Ref<Project> project);
+		ProjectSerializer(AssetRef<Project> project);
 
 		bool Serialize(const std::filesystem::path& filepath);
 		bool Deserialize(const std::filesystem::path& filepath);
 	private:
-		Ref<Project> m_Project;
+		AssetRef<Project> m_Project;
 	};
 
 }

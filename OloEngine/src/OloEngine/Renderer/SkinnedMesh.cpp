@@ -119,7 +119,7 @@ namespace OloEngine
         RenderCommand::DrawIndexed(m_VertexArray);
     }
 
-    Ref<SkinnedMesh> SkinnedMesh::CreateCube()
+    AssetRef<SkinnedMesh> SkinnedMesh::CreateCube()
     {
         OLO_PROFILE_FUNCTION();
 
@@ -177,10 +177,10 @@ namespace OloEngine
             20, 21, 22, 22, 23, 20
         };
 
-        return CreateRef<SkinnedMesh>(std::move(vertices), std::move(indices));
+        return AssetRef<SkinnedMesh>::Create(std::move(vertices), std::move(indices));
     }
 
-    Ref<SkinnedMesh> SkinnedMesh::CreateMultiBoneCube()
+    AssetRef<SkinnedMesh> SkinnedMesh::CreateMultiBoneCube()
     {
         OLO_PROFILE_FUNCTION();
 
@@ -239,6 +239,6 @@ namespace OloEngine
             20, 21, 22, 22, 23, 20
         };
 
-        return CreateRef<SkinnedMesh>(std::move(vertices), std::move(indices));
+        return AssetRef<SkinnedMesh>::Create(std::move(vertices), std::move(indices));
     }
 }

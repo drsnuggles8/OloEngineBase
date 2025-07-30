@@ -97,7 +97,7 @@ namespace OloEngine
         }
     }
 
-    Ref<SkinnedMesh> AnimatedModel::ProcessMesh(const aiMesh* mesh, const aiScene* scene)
+    AssetRef<SkinnedMesh> AnimatedModel::ProcessMesh(const aiMesh* mesh, const aiScene* scene)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -170,7 +170,7 @@ namespace OloEngine
         }
 
         // Create and return the skinned mesh
-        auto skinnedMesh = CreateRef<SkinnedMesh>(std::move(vertices), std::move(indices));
+        auto skinnedMesh = AssetRef<SkinnedMesh>::Create(std::move(vertices), std::move(indices));
         skinnedMesh->Build();
 
         return skinnedMesh;

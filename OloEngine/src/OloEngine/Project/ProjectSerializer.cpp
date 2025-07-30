@@ -8,7 +8,7 @@
 namespace OloEngine
 {
 
-	ProjectSerializer::ProjectSerializer(Ref<Project> project)
+	ProjectSerializer::ProjectSerializer(AssetRef<Project> project)
 		: m_Project(project)
 	{
 	}

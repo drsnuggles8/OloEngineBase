@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
 #include <vector>
 #include <unordered_map>
@@ -12,7 +13,7 @@ namespace OloEngine
     /**
      * @brief Manages a graph of render passes forming a complete rendering pipeline.
      */
-    class RenderGraph
+    class RenderGraph : public RefCounted
     {
     public:
         RenderGraph() = default;

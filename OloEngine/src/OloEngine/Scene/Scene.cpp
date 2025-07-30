@@ -80,14 +80,14 @@ namespace OloEngine
 		CopyComponentIfExists<Component...>(dst, src);
 	}
 
-	Ref<Scene> Scene::Copy(Ref<Scene> const& other)
+	AssetRef<Scene> Scene::Copy(AssetRef<Scene> const& other)
 	{
-		Ref<Scene> newScene = CreateRef<Scene>();
+		AssetRef<Scene> newScene = AssetRef<Scene>::Create();
 
 		newScene->m_ViewportWidth = other->m_ViewportWidth;
 		newScene->m_ViewportHeight = other->m_ViewportHeight;
 
-		auto& srcSceneRegistry = other->m_Registry;
+		auto& srcSceneRegistry = const_cast<entt::registry&>(other->m_Registry);
 		auto& dstSceneRegistry = newScene->m_Registry;
 		std::unordered_map<UUID, entt::entity> enttMap;
 

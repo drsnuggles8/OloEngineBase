@@ -1,6 +1,8 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/Ref.h"
+#include "OloEngine/Renderer/SkinnedMesh.h"
 #include "SkeletonData.h"
 #include "Skeleton.h"
 
@@ -8,19 +10,18 @@ namespace OloEngine
 {
 	// Forward declarations
 	class Mesh;
-	class SkinnedMesh;
 	class Skeleton;
 	class AnimationClip;
 
 	// Holds mesh, skeleton, and skinning data for an entity
 	struct AnimatedMeshComponent
 	{
-		Ref<SkinnedMesh> m_Mesh;
+		AssetRef<SkinnedMesh> m_Mesh;
 		Ref<Skeleton> m_Skeleton;
 		// Skinning data (bone weights/indices) is part of SkinnedMesh
 
 		AnimatedMeshComponent() = default;
-		AnimatedMeshComponent(const Ref<SkinnedMesh>& mesh, const Ref<Skeleton>& skeleton)
+		AnimatedMeshComponent(const AssetRef<SkinnedMesh>& mesh, const Ref<Skeleton>& skeleton)
 			: m_Mesh(mesh), m_Skeleton(skeleton) {}
 	};
 

@@ -28,7 +28,7 @@ namespace OloEngine
          * @param open Pointer to a boolean that controls the visibility of the window
          * @param title The title of the ImGui window
          */
-        void RenderDebugView(const Ref<RenderGraph>& graph, bool* open = nullptr, const char* title = "Render Graph Debugger");
+        void RenderDebugView(const AssetRef<RenderGraph>& graph, bool* open = nullptr, const char* title = "Render Graph Debugger");
         
         /**
          * @brief Exports the render graph visualization to a DOT file for GraphViz
@@ -37,12 +37,12 @@ namespace OloEngine
          * @param outputPath The file path to save the DOT file
          * @return True if the export was successful, false otherwise
          */
-        bool ExportGraphViz(const Ref<RenderGraph>& graph, const std::string& outputPath) const;
+        bool ExportGraphViz(const AssetRef<RenderGraph>& graph, const std::string& outputPath) const;
         
     private:
         // Helper methods for visualization
         void DrawNode(const Ref<RenderPass>& pass, ImDrawList* drawList, const ImVec2& offset, f32& maxWidth);
-        void DrawConnections(const Ref<RenderGraph>& graph, ImDrawList* drawList, const ImVec2& offset);
+        void DrawConnections(const AssetRef<RenderGraph>& graph, ImDrawList* drawList, const ImVec2& offset);
         void DrawTooltip(const Ref<RenderPass>& pass) const;
         
         // Cache for node positions and sizes
@@ -77,6 +77,6 @@ namespace OloEngine
         bool m_NeedsLayout = true;
         
         // Layout algorithm
-        void CalculateLayout(const Ref<RenderGraph>& graph);
+        void CalculateLayout(const AssetRef<RenderGraph>& graph);
     };
 }

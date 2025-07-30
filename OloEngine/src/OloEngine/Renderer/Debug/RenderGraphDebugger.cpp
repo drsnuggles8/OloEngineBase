@@ -28,7 +28,7 @@ namespace OloEngine
         }
     }
 
-    void RenderGraphDebugger::RenderDebugView(const Ref<RenderGraph>& graph, bool* open, const char* title)
+    void RenderGraphDebugger::RenderDebugView(const AssetRef<RenderGraph>& graph, bool* open, const char* title)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -177,7 +177,7 @@ namespace OloEngine
         ImGui::End();
     }
     
-    bool RenderGraphDebugger::ExportGraphViz(const Ref<RenderGraph>& graph, const std::string& outputPath) const
+    bool RenderGraphDebugger::ExportGraphViz(const AssetRef<RenderGraph>& graph, const std::string& outputPath) const
     {
         if (!graph)
         {
@@ -316,7 +316,7 @@ namespace OloEngine
         }
     }
     
-    void RenderGraphDebugger::DrawConnections(const Ref<RenderGraph>& graph, ImDrawList* drawList, const ImVec2& offset)
+    void RenderGraphDebugger::DrawConnections(const AssetRef<RenderGraph>& graph, ImDrawList* drawList, const ImVec2& offset)
     {   
         const auto& connections = graph->GetConnections();
 		for (const auto& connection : connections)
@@ -397,7 +397,7 @@ namespace OloEngine
         ImGui::EndTooltip();
     }
     
-    void RenderGraphDebugger::CalculateLayout(const Ref<RenderGraph>& graph)
+    void RenderGraphDebugger::CalculateLayout(const AssetRef<RenderGraph>& graph)
 	{
 		OLO_PROFILE_FUNCTION();
 		

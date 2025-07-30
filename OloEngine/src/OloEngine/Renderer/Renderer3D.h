@@ -68,7 +68,7 @@ namespace OloEngine
 		static void BeginScene(const PerspectiveCamera& camera);
 		static void EndScene();
 		static CommandPacket* DrawMesh(const AssetRef<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
-		static CommandPacket* DrawSkinnedMesh(const Ref<SkinnedMesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic = true);
+		static CommandPacket* DrawSkinnedMesh(const AssetRef<SkinnedMesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic = true);
 		static CommandPacket* DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
 		static CommandPacket* DrawMeshInstanced(const AssetRef<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true);
 		static CommandPacket* DrawLightCube(const glm::mat4& modelMatrix);
@@ -85,7 +85,7 @@ namespace OloEngine
 										  const glm::vec3& color = glm::vec3(1.0f));
 		
 		// ECS Animated Mesh Rendering
-		static void RenderAnimatedMeshes(const Ref<Scene>& scene, const Material& defaultMaterial);
+		static void RenderAnimatedMeshes(AssetRef<Scene>& scene, const Material& defaultMaterial);
 		static void RenderAnimatedMesh(Entity entity, const Material& defaultMaterial);
 	
 		static void SetLight(const Light& light);
@@ -97,7 +97,7 @@ namespace OloEngine
 		static bool IsDynamicCullingEnabled();
 		static const Frustum& GetViewFrustum();
 		static bool IsVisibleInFrustum(const AssetRef<Mesh>& mesh, const glm::mat4& transform);
-		static bool IsVisibleInFrustum(const Ref<SkinnedMesh>& mesh, const glm::mat4& transform);
+		static bool IsVisibleInFrustum(const AssetRef<SkinnedMesh>& mesh, const glm::mat4& transform);
 		static bool IsVisibleInFrustum(const BoundingSphere& sphere);
 		static bool IsVisibleInFrustum(const BoundingBox& box);
 		
@@ -142,7 +142,7 @@ namespace OloEngine
 		
 		// Window resize handling
 		static void OnWindowResize(u32 width, u32 height);
-		static const Ref<RenderGraph>& GetRenderGraph() { return s_Data.RGraph; }
+		static const AssetRef<RenderGraph>& GetRenderGraph() { return s_Data.RGraph; }
 
 		// Shader library access for PBR material shader selection
 		static ShaderLibrary& GetShaderLibrary();
@@ -212,7 +212,7 @@ namespace OloEngine
 			// Shader registry management
 			std::unordered_map<u32, ShaderResourceRegistry*> ShaderRegistries;
 			
-			Ref<RenderGraph> RGraph;
+			AssetRef<RenderGraph> RGraph;
 			Ref<SceneRenderPass> ScenePass;
             Ref<FinalRenderPass> FinalPass;
 		};

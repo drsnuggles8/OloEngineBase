@@ -6,15 +6,15 @@
 namespace OloEngine
 {
 
-	Ref<Project> Project::New()
+	AssetRef<Project> Project::New()
 	{
-		s_ActiveProject = CreateRef<Project>();
+		s_ActiveProject = AssetRef<Project>::Create();
 		return s_ActiveProject;
 	}
 
-	Ref<Project> Project::Load(const std::filesystem::path& path)
+	AssetRef<Project> Project::Load(const std::filesystem::path& path)
 	{
-		Ref<Project> project = CreateRef<Project>();
+		AssetRef<Project> project = AssetRef<Project>::Create();
 
 		if (ProjectSerializer serializer(project); serializer.Deserialize(path))
 		{
