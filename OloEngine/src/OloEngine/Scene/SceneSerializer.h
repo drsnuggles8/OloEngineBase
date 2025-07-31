@@ -10,15 +10,15 @@ namespace OloEngine
 	class SceneSerializer
 	{
 	public:
-		explicit SceneSerializer(const Ref<Scene>& scene);
+		explicit SceneSerializer(const AssetRef<Scene>& scene);
 
 		void Serialize(const std::filesystem::path& filepath) const;
 		[[maybe_unused]] void SerializeRuntime(const std::filesystem::path& filepath) const;
 
-        [[nodiscard("Store this!")]] bool Deserialize(const std::filesystem::path& filepath) const;
-        [[nodiscard("Store this!")]][[maybe_unused]] bool DeserializeRuntime(const std::filesystem::path& filepath) const;
+        [[nodiscard("Store this!")]] bool Deserialize(const std::filesystem::path& filepath);
+        [[nodiscard("Store this!")]][[maybe_unused]] bool DeserializeRuntime(const std::filesystem::path& filepath);
 	private:
-		Ref<Scene> m_Scene;
+		AssetRef<Scene> m_Scene;
 	};
 
 }

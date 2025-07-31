@@ -14,12 +14,12 @@
 
 namespace OloEngine
 {
-	SceneHierarchyPanel::SceneHierarchyPanel(const Ref<Scene>& context)
+	SceneHierarchyPanel::SceneHierarchyPanel(const AssetRef<Scene>& context)
 	{
 		SetContext(context);
 	}
 
-	void SceneHierarchyPanel::SetContext(const Ref<Scene>& context)
+	void SceneHierarchyPanel::SetContext(const AssetRef<Scene>& context)
 	{
 		m_Context = context;
 		m_SelectionContext = {};

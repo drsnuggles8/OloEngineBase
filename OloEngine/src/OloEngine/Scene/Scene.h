@@ -25,6 +25,7 @@ namespace OloEngine
 		Scene();
 		~Scene();
 
+		static AssetRef<Scene> Create();
 		static AssetRef<Scene> Copy(const AssetRef<Scene>& other);
 
 		Entity CreateEntity(const std::string& name = std::string());

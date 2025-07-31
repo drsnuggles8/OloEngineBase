@@ -37,7 +37,7 @@ namespace OloEngine
 		void SaveScene();
 		void SaveSceneAs();
 
-		void SerializeScene(Ref<Scene> const scene, const std::filesystem::path& path) const;
+		void SerializeScene(AssetRef<Scene> const scene, const std::filesystem::path& path) const;
 
 		void OnScenePlay();
 		void OnSceneSimulate();
@@ -56,7 +56,7 @@ namespace OloEngine
 		void UI_DebugTools();
 		void UI_ChildPanels();
 
-		void SetEditorScene(const Ref<Scene>& scene);
+		void SetEditorScene(const AssetRef<Scene>& scene);
 		void SyncWindowTitle() const;
 	private:
 		OloEngine::OrthographicCameraController m_CameraController;
@@ -66,8 +66,8 @@ namespace OloEngine
 		Ref<Shader> m_FlatColorShader;
 		Ref<Framebuffer> m_Framebuffer;
 
-		Ref<Scene> m_ActiveScene;
-		Ref<Scene> m_EditorScene;
+		AssetRef<Scene> m_ActiveScene;
+		AssetRef<Scene> m_EditorScene;
 		std::filesystem::path m_EditorScenePath;
 		Entity m_SquareEntity;
 		Entity m_CameraEntity;

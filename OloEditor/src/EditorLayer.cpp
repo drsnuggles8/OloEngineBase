@@ -830,7 +830,7 @@ namespace OloEngine
 			return;
 		}
 
-		Ref<Scene> newScene = AssetRef<Scene>::Create();
+		AssetRef<Scene> newScene = AssetRef<Scene>::Create();
 		SetEditorScene(newScene);
 		m_EditorScenePath = std::filesystem::path();
 	}
@@ -857,7 +857,7 @@ namespace OloEngine
 			return false;
 		}
 
-		Ref<Scene> const newScene = AssetRef<Scene>::Create();
+		AssetRef<Scene> const newScene = AssetRef<Scene>::Create();
 		if (SceneSerializer const serializer(newScene); !serializer.Deserialize(path.string()))
 		{
 			return false;
@@ -892,7 +892,7 @@ namespace OloEngine
 		}
 	}
 
-	void EditorLayer::SerializeScene(Ref<Scene> const scene, const std::filesystem::path& path) const
+	void EditorLayer::SerializeScene(AssetRef<Scene> const scene, const std::filesystem::path& path) const
 	{
 		const SceneSerializer serializer(scene);
 		serializer.Serialize(path);
@@ -950,7 +950,7 @@ namespace OloEngine
 		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
 	}
 
-	void EditorLayer::SetEditorScene(const Ref<Scene>& scene)
+	void EditorLayer::SetEditorScene(const AssetRef<Scene>& scene)
 	{
 		OLO_CORE_ASSERT(scene, "EditorLayer ActiveScene cannot be null");
 

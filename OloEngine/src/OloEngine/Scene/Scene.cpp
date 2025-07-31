@@ -31,6 +31,11 @@ namespace OloEngine
 	Scene::Scene()
 	= default;
 
+	AssetRef<Scene> Scene::Create()
+	{
+		return AssetRef<Scene>(new Scene());
+	}
+
 	Scene::~Scene()
 	{
 		if (b2World_IsValid(m_PhysicsWorld))
