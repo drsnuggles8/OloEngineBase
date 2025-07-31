@@ -124,9 +124,9 @@ namespace OloEngine
 		std::filesystem::path CoreAssemblyFilepath;
 		std::filesystem::path AppAssemblyFilepath;
 
-		ScriptClass EntityClass;
+		AssetRef<ScriptClass> EntityClass;
 
-		std::unordered_map<std::string, Ref<ScriptClass>> EntityClasses;
+		std::unordered_map<std::string, AssetRef<ScriptClass>> EntityClasses;
 		std::unordered_map<UUID, Ref<ScriptInstance>> EntityInstances;
 		std::unordered_map<UUID, ScriptFieldMap> EntityScriptFields;
 
@@ -181,7 +181,7 @@ namespace OloEngine
 		ScriptGlue::RegisterComponents();
 
 		// Retrieve and instantiate class
-		s_Data->EntityClass = ScriptClass("OloEngine", "Entity", true);
+		s_Data->EntityClass = AssetRef<ScriptClass>::Create("OloEngine", "Entity", true);
 	}
 
 	void ScriptEngine::Shutdown()
@@ -281,7 +281,7 @@ namespace OloEngine
 		ScriptGlue::RegisterComponents();
 
 		// Retrieve and instantiate class
-		s_Data->EntityClass = ScriptClass("OloEgine", "Entity", true);
+		s_Data->EntityClass = AssetRef<ScriptClass>::Create("OloEngine", "Entity", true);
 	}
 
 	void ScriptEngine::OnRuntimeStart(Scene* scene)
@@ -349,7 +349,7 @@ namespace OloEngine
 		return it->second;
 	}
 
-	Ref<ScriptClass> ScriptEngine::GetEntityClass(const std::string& name)
+	AssetRef<ScriptClass> ScriptEngine::GetEntityClass(const std::string& name)
 	{
 		if (!s_Data->EntityClasses.contains(name))
 		{
@@ -374,7 +374,7 @@ namespace OloEngine
 		return s_Data->EntityScriptFields[entityID];
 	}
 
-	std::unordered_map<std::string, Ref<ScriptClass>> ScriptEngine::GetEntityClasses()
+	std::unordered_map<std::string, AssetRef<ScriptClass>> ScriptEngine::GetEntityClasses()
 	{
 		return s_Data->EntityClasses;
 	}
@@ -414,7 +414,7 @@ namespace OloEngine
 			if (bool isEntity = ::mono_class_is_subclass_of(monoClass, entityClass, false); !isEntity)
 				continue;
 
-			Ref<ScriptClass> scriptClass = CreateRef<ScriptClass>(nameSpace, className);
+			AssetRef<ScriptClass> scriptClass = AssetRef<ScriptClass>::Create(nameSpace, className);
 			s_Data->EntityClasses[fullName] = scriptClass;
 
 
@@ -490,14 +490,14 @@ namespace OloEngine
 		return ::mono_runtime_invoke(method, instance, params, &exception);
 	}
 
-	ScriptInstance::ScriptInstance(const Ref<ScriptClass>& scriptClass, Entity entity)
+	ScriptInstance::ScriptInstance(const AssetRef<ScriptClass>& scriptClass, Entity entity)
 		: m_ScriptClass(scriptClass)
 	{
-		m_Instance = scriptClass->Instantiate();
+		m_Instance = const_cast<ScriptClass*>(scriptClass.Raw())->Instantiate();
 
-		m_Constructor = s_Data->EntityClass.GetMethod(".ctor", 1);
-		m_OnCreateMethod = scriptClass->GetMethod("OnCreate", 0);
-		m_OnUpdateMethod = scriptClass->GetMethod("OnUpdate", 1);
+		m_Constructor = s_Data->EntityClass->GetMethod(".ctor", 1);
+		m_OnCreateMethod = const_cast<ScriptClass*>(scriptClass.Raw())->GetMethod("OnCreate", 0);
+		m_OnUpdateMethod = const_cast<ScriptClass*>(scriptClass.Raw())->GetMethod("OnUpdate", 1);
 
 		// Call Entity constructor
 		{
