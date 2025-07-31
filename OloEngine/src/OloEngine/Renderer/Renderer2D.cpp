@@ -75,24 +75,24 @@ namespace OloEngine
 		static constexpr u32 MaxTextureSlots = 32;
 
 		AssetRef<VertexArray> QuadVertexArray;
-		Ref<VertexBuffer> QuadVertexBuffer;
+		AssetRef<VertexBuffer> QuadVertexBuffer;
 		Ref<Shader> QuadShader;
 		Ref<Texture2D> WhiteTexture;
 
 		AssetRef<VertexArray> PolygonVertexArray;
-		Ref<VertexBuffer> PolygonVertexBuffer;
+		AssetRef<VertexBuffer> PolygonVertexBuffer;
 		Ref<Shader> PolygonShader;
 
 		AssetRef<VertexArray> CircleVertexArray;
-		Ref<VertexBuffer> CircleVertexBuffer;
+		AssetRef<VertexBuffer> CircleVertexBuffer;
 		Ref<Shader> CircleShader;
 
 		AssetRef<VertexArray> LineVertexArray;
-		Ref<VertexBuffer> LineVertexBuffer;
+		AssetRef<VertexBuffer> LineVertexBuffer;
 		Ref<Shader> LineShader;
 
 		AssetRef<VertexArray> TextVertexArray;
-		Ref<VertexBuffer> TextVertexBuffer;
+		AssetRef<VertexBuffer> TextVertexBuffer;
 		Ref<Shader> TextShader;
 
 		u32 QuadIndexCount = 0;
@@ -431,7 +431,7 @@ namespace OloEngine
 			VertexData data = { drawCall.VertexBufferBase, drawCall.VertexBufferSize };
 			for (const auto& vertexBuffer : drawCall.VertexArray->GetVertexBuffers())
 			{
-				vertexBuffer->SetData(data);
+				const_cast<AssetRef<VertexBuffer>&>(vertexBuffer).Raw()->SetData(data);
 			}
 
 			if (drawCall.VertexArray == s_Data.QuadVertexArray || drawCall.VertexArray == s_Data.CircleVertexArray || drawCall.VertexArray == s_Data.TextVertexArray)

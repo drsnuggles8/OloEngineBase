@@ -69,7 +69,7 @@ namespace OloEngine
 		glBindVertexArray(0);
 	}
 
-	void OpenGLVertexArray::AddVertexBuffer(const Ref<VertexBuffer>& vertexBuffer)
+	void OpenGLVertexArray::AddVertexBuffer(const AssetRef<VertexBuffer>& vertexBuffer)
 	{
 		OLO_PROFILE_FUNCTION();
 

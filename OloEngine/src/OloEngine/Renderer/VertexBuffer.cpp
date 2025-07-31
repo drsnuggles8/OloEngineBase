@@ -6,7 +6,7 @@
 namespace OloEngine
 {
 
-	Ref<VertexBuffer> VertexBuffer::Create(u32 size)
+	AssetRef<VertexBuffer> VertexBuffer::Create(u32 size)
 	{
 		switch (Renderer::GetAPI())
 		{
@@ -17,7 +17,7 @@ namespace OloEngine
 			}
 			case RendererAPI::API::OpenGL:
 			{
-				return CreateRef<OpenGLVertexBuffer>(size);
+				return AssetRef<VertexBuffer>(new OpenGLVertexBuffer(size));
 			}
 		}
 
@@ -25,7 +25,7 @@ namespace OloEngine
 		return nullptr;
 	}
 
-	Ref<VertexBuffer> VertexBuffer::Create(f32* vertices, u32 size)
+	AssetRef<VertexBuffer> VertexBuffer::Create(f32* vertices, u32 size)
 	{
 		switch (Renderer::GetAPI())
 		{
@@ -36,7 +36,7 @@ namespace OloEngine
 			}
 			case RendererAPI::API::OpenGL:
 			{
-				return CreateRef<OpenGLVertexBuffer>(vertices, size);
+				return AssetRef<VertexBuffer>(new OpenGLVertexBuffer(vertices, size));
 			}
 		}
 

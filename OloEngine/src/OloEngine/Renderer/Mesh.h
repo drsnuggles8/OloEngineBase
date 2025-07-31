@@ -57,7 +57,7 @@ namespace OloEngine
         std::vector<u32> m_Indices;
         
         AssetRef<VertexArray> m_VertexArray;
-        Ref<VertexBuffer> m_VertexBuffer;
+        AssetRef<VertexBuffer> m_VertexBuffer;
         AssetRef<IndexBuffer> m_IndexBuffer;
         
         BoundingBox m_BoundingBox;
