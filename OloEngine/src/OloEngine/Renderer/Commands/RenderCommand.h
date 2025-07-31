@@ -252,7 +252,7 @@ namespace OloEngine
     struct DrawIndexedCommand
     {
         CommandHeader header;
-        Ref<VertexArray> vertexArray;
+        AssetRef<VertexArray> vertexArray;
         u32 indexCount;
         GLenum indexType;
     };
@@ -260,7 +260,7 @@ namespace OloEngine
     struct DrawIndexedInstancedCommand
     {
         CommandHeader header;
-        Ref<VertexArray> vertexArray; // Changed from rendererID to vertexArray
+        AssetRef<VertexArray> vertexArray; // Changed from rendererID to vertexArray
         u32 indexCount;
         u32 instanceCount;
         GLenum indexType;
@@ -269,7 +269,7 @@ namespace OloEngine
     struct DrawArraysCommand
     {
         CommandHeader header;
-        Ref<VertexArray> vertexArray; // Changed from rendererID to vertexArray
+        AssetRef<VertexArray> vertexArray; // Changed from rendererID to vertexArray
         u32 vertexCount;
         GLenum primitiveType;
     };
@@ -277,14 +277,14 @@ namespace OloEngine
     struct DrawLinesCommand
     {
         CommandHeader header;
-        Ref<VertexArray> vertexArray; // Changed from rendererID to vertexArray
+        AssetRef<VertexArray> vertexArray; // Changed from rendererID to vertexArray
         u32 vertexCount;
     };    // Higher-level commands combine multiple lower-level commands
 	struct DrawMeshCommand
 	{
 		CommandHeader header;
 		AssetRef<Mesh> mesh;              // Store the actual mesh reference
-		Ref<VertexArray> vertexArray; // Store the actual vertex array
+		AssetRef<VertexArray> vertexArray; // Store the actual vertex array
 		u32 indexCount;
 		glm::mat4 transform;
 		
@@ -331,7 +331,7 @@ namespace OloEngine
 	{
 		CommandHeader header;
 		AssetRef<Mesh> mesh;              // Store the actual mesh reference
-		Ref<VertexArray> vertexArray; // Store the actual vertex array
+		AssetRef<VertexArray> vertexArray; // Store the actual vertex array
 		u32 indexCount;
 		u32 instanceCount;
 		std::vector<glm::mat4> transforms; // Store the actual transform data
@@ -381,7 +381,7 @@ namespace OloEngine
 	{
 		CommandHeader header;
 		Ref<Mesh> mesh;              // Skybox mesh (special cube)
-		Ref<VertexArray> vertexArray; // Store the actual vertex array
+		AssetRef<VertexArray> vertexArray; // Store the actual vertex array
 		u32 indexCount;
 		glm::mat4 transform;         // Usually identity matrix
 		Ref<Shader> shader;          // Skybox shader
@@ -395,7 +395,7 @@ namespace OloEngine
 		glm::mat4 transform;
 		Ref<Texture2D> texture;   // Store the actual texture
 		Ref<Shader> shader;       // Store the actual shader
-		Ref<VertexArray> quadVA;  // Store the quad vertex array
+		AssetRef<VertexArray> quadVA;  // Store the quad vertex array
 		// Per-draw-call render state
 		Ref<RenderState> renderState;
 	};
@@ -403,7 +403,7 @@ namespace OloEngine
 	struct DrawSkinnedMeshCommand
 	{
 		CommandHeader header;
-		Ref<VertexArray> vertexArray;
+		AssetRef<VertexArray> vertexArray;
 		u32 indexCount;
 		glm::mat4 modelMatrix;
 		

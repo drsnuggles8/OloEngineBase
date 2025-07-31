@@ -74,24 +74,24 @@ namespace OloEngine
 		static constexpr u32 MaxIndices = MaxQuads * 6;
 		static constexpr u32 MaxTextureSlots = 32;
 
-		Ref<VertexArray> QuadVertexArray;
+		AssetRef<VertexArray> QuadVertexArray;
 		Ref<VertexBuffer> QuadVertexBuffer;
 		Ref<Shader> QuadShader;
 		Ref<Texture2D> WhiteTexture;
 
-		Ref<VertexArray> PolygonVertexArray;
+		AssetRef<VertexArray> PolygonVertexArray;
 		Ref<VertexBuffer> PolygonVertexBuffer;
 		Ref<Shader> PolygonShader;
 
-		Ref<VertexArray> CircleVertexArray;
+		AssetRef<VertexArray> CircleVertexArray;
 		Ref<VertexBuffer> CircleVertexBuffer;
 		Ref<Shader> CircleShader;
 
-		Ref<VertexArray> LineVertexArray;
+		AssetRef<VertexArray> LineVertexArray;
 		Ref<VertexBuffer> LineVertexBuffer;
 		Ref<Shader> LineShader;
 
-		Ref<VertexArray> TextVertexArray;
+		AssetRef<VertexArray> TextVertexArray;
 		Ref<VertexBuffer> TextVertexBuffer;
 		Ref<Shader> TextShader;
 
@@ -341,7 +341,7 @@ namespace OloEngine
 			u32 IndexCount = 0;
 			void* VertexBufferBase = nullptr;
 			u32 VertexBufferSize = 0;
-			Ref<VertexArray> VertexArray;
+			AssetRef<VertexArray> VertexArray;
 		};
 
 		std::vector<DrawCall> drawCalls;

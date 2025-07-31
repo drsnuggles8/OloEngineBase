@@ -685,7 +685,7 @@ namespace OloEngine
 		{
 			OLO_CORE_ERROR("Renderer3D::DrawSkinnedMesh: Invalid mesh ({}) or vertex array ({})!", 
 							(void*)mesh.Raw(), 
-							mesh ? (void*)mesh->GetVertexArray().get() : nullptr);
+							mesh ? (void*)mesh->GetVertexArray().Raw() : nullptr);
 			return nullptr;
 		}
 

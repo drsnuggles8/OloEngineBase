@@ -38,7 +38,7 @@ namespace OloEngine
 
         [[nodiscard]] const std::vector<Vertex>& GetVertices() const { return m_Vertices; }
         [[nodiscard]] const std::vector<u32>& GetIndices() const { return m_Indices; }
-        [[nodiscard]] const Ref<VertexArray>& GetVertexArray() const { return m_VertexArray; }
+        [[nodiscard]] const AssetRef<VertexArray>& GetVertexArray() const { return m_VertexArray; }
         
         // Bounding volume accessors
         [[nodiscard]] const BoundingBox& GetBoundingBox() const { return m_BoundingBox; }
@@ -56,7 +56,7 @@ namespace OloEngine
         std::vector<Vertex> m_Vertices;
         std::vector<u32> m_Indices;
         
-        Ref<VertexArray> m_VertexArray;
+        AssetRef<VertexArray> m_VertexArray;
         Ref<VertexBuffer> m_VertexBuffer;
         Ref<IndexBuffer> m_IndexBuffer;
         

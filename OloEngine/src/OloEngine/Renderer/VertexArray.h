@@ -2,12 +2,13 @@
 
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
+#include "OloEngine/Core/Ref.h"
 
 #include <memory>
 
 namespace OloEngine
 {
-	class VertexArray
+	class VertexArray : public RefCounted
 	{
 	public:
 		virtual ~VertexArray() = default;
@@ -21,7 +22,7 @@ namespace OloEngine
 		[[nodiscard("Store this!")]] virtual const std::vector<Ref<VertexBuffer>>& GetVertexBuffers() const = 0;
 		[[nodiscard("Store this!")]] virtual const Ref<IndexBuffer>& GetIndexBuffer() const = 0;
 
-		static Ref<VertexArray> Create();
+		static AssetRef<VertexArray> Create();
 
 		[[nodiscard]] virtual u32 GetRendererID() const = 0;
 	};

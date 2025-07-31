@@ -6,7 +6,7 @@
 
 namespace OloEngine
 {
-	Ref<VertexArray> VertexArray::Create()
+	AssetRef<VertexArray> VertexArray::Create()
 	{
 		switch (Renderer::GetAPI())
 		{
@@ -17,7 +17,7 @@ namespace OloEngine
 			}
 			case RendererAPI::API::OpenGL:
 			{
-				return CreateRef<OpenGLVertexArray>();
+				return AssetRef<VertexArray>(new OpenGLVertexArray());
 			}
 		}
 
