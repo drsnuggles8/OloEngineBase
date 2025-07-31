@@ -54,7 +54,7 @@ namespace OloEngine
             { ShaderDataType::Float2, "a_TexCoord" }
         });
         
-        Ref<IndexBuffer> indexBuffer = IndexBuffer::Create(indices, 3);
+        AssetRef<IndexBuffer> indexBuffer = IndexBuffer::Create(indices, 3);
         
         m_FullscreenTriangleVA->AddVertexBuffer(vertexBuffer);
         m_FullscreenTriangleVA->SetIndexBuffer(indexBuffer);

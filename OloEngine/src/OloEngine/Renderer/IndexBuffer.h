@@ -1,11 +1,12 @@
 #include <utility>
+#include "OloEngine/Core/Ref.h"
 
 #pragma once
 
 namespace OloEngine
 {
 	// Currently OloEngine only supports 32-bit index buffers
-	class IndexBuffer
+	class IndexBuffer : public RefCounted
 	{
 	public:
 		virtual ~IndexBuffer() = default;
@@ -16,6 +17,6 @@ namespace OloEngine
 		[[nodiscard("Store this!")]] virtual u32 GetCount() const = 0;
         [[nodiscard("Store this!")]] virtual u32 GetBufferHandle() const = 0;
 
-		static Ref<IndexBuffer> Create(u32* indices, u32 size);
+		static AssetRef<IndexBuffer> Create(u32* indices, u32 size);
 	};
 }

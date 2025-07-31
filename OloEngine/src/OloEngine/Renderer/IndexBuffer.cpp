@@ -5,7 +5,7 @@
 
 namespace OloEngine
 {
-	Ref<IndexBuffer> IndexBuffer::Create(u32* indices, u32 size)
+	AssetRef<IndexBuffer> IndexBuffer::Create(u32* indices, u32 size)
 	{
 		switch (Renderer::GetAPI())
 		{
@@ -16,7 +16,7 @@ namespace OloEngine
 			}
 			case RendererAPI::API::OpenGL:
 			{
-				return CreateRef<OpenGLIndexBuffer>(indices, size);
+				return AssetRef<IndexBuffer>(new OpenGLIndexBuffer(indices, size));
 			}
 		}
 

@@ -124,7 +124,7 @@ namespace OloEngine
 		m_VertexBuffers.push_back(vertexBuffer);
 	}
 
-	void OpenGLVertexArray::SetIndexBuffer(const Ref<IndexBuffer>& indexBuffer)
+	void OpenGLVertexArray::SetIndexBuffer(const AssetRef<IndexBuffer>& indexBuffer)
 	{
 		OLO_PROFILE_FUNCTION();
 

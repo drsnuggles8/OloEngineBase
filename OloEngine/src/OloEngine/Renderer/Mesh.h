@@ -58,7 +58,7 @@ namespace OloEngine
         
         AssetRef<VertexArray> m_VertexArray;
         Ref<VertexBuffer> m_VertexBuffer;
-        Ref<IndexBuffer> m_IndexBuffer;
+        AssetRef<IndexBuffer> m_IndexBuffer;
         
         BoundingBox m_BoundingBox;
         BoundingSphere m_BoundingSphere;

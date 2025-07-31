@@ -174,7 +174,7 @@ namespace OloEngine
 			offset += 4;
 		}
 
-		Ref<IndexBuffer> const quadIB = IndexBuffer::Create(quadIndices, OloEngine::Renderer2DData::MaxIndices);
+		AssetRef<IndexBuffer> const quadIB = IndexBuffer::Create(quadIndices, OloEngine::Renderer2DData::MaxIndices);
 		s_Data.QuadVertexArray->SetIndexBuffer(quadIB);
 		delete[] quadIndices;
 
