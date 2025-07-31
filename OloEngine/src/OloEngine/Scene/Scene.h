@@ -50,6 +50,11 @@ namespace OloEngine
 
 		Entity GetPrimaryCameraEntity();
 
+		Entity FindEntityByName(std::string_view name) const;
+		Entity GetEntityByUUID(UUID uuid) const;
+
+		Entity GetPrimaryCameraEntity() const;
+
 		[[nodiscard("Store this!")]] bool IsRunning() const { return m_IsRunning; }
         [[nodiscard("Store this!")]] bool IsPaused() const { return m_IsPaused; }
 
@@ -62,6 +67,12 @@ namespace OloEngine
 
 		template<typename... Components>
 		auto GetAllEntitiesWith()
+		{
+			return m_Registry.view<Components...>();
+		}
+
+		template<typename... Components>
+		auto GetAllEntitiesWith() const
 		{
 			return m_Registry.view<Components...>();
 		}

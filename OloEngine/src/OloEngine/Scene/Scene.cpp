@@ -454,6 +454,37 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 		return { m_EntityMap.at(uuid), this };
 	}
 
+	Entity Scene::FindEntityByName(std::string_view name) const
+	{
+		for (auto view = m_Registry.view<TagComponent>(); auto entity : view)
+		{
+			const TagComponent& tc = view.get<TagComponent>(entity);
+			if (tc.Tag == name)
+			{
+				return Entity{ entity, const_cast<Scene*>(this) };
+			}
+		}
+		return {};
+	}
+
+	Entity Scene::GetEntityByUUID(UUID uuid) const
+	{
+		OLO_CORE_ASSERT(m_EntityMap.contains(uuid));
+		return { m_EntityMap.at(uuid), const_cast<Scene*>(this) };
+	}
+
+	Entity Scene::GetPrimaryCameraEntity() const
+	{
+		for (const auto view = m_Registry.view<CameraComponent>(); auto const entity : view)
+		{
+			if (const auto& camera = view.get<CameraComponent>(entity); camera.Primary)
+			{
+				return Entity{ entity, const_cast<Scene*>(this) };
+			}
+		}
+		return {};
+	}
+
 	void Scene::OnPhysics2DStart()
 	{
 		b2WorldDef worldDef = b2DefaultWorldDef();

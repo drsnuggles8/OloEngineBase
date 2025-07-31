@@ -42,9 +42,9 @@ namespace OloEngine
 		void OnScenePlay();
 		void OnSceneSimulate();
 		void OnSceneStop();
-		void OnScenePause() const;
+		void OnScenePause();
 
-		void OnDuplicateEntity() const;
+		void OnDuplicateEntity();
 
 		// UI Panels
 		void UI_MenuBar();

@@ -131,7 +131,7 @@ namespace OloEngine
 		if (const auto mouseY = static_cast<int>(my); (mouseX >= 0) && (mouseY >= 0) && (mouseX < static_cast<int>(viewportSize.x)) && (mouseY < static_cast<int>(viewportSize.y)))
 		{
 			const int pixelData = m_Framebuffer->ReadPixel(1, mouseX, mouseY);
-			m_HoveredEntity = pixelData == -1 ? Entity() : Entity(static_cast<entt::entity>(pixelData), m_ActiveScene.get());
+			m_HoveredEntity = pixelData == -1 ? Entity() : Entity(static_cast<entt::entity>(pixelData), m_ActiveScene.Raw());
 		}
 
 		OnOverlayRender();
@@ -858,7 +858,7 @@ namespace OloEngine
 		}
 
 		AssetRef<Scene> const newScene = AssetRef<Scene>::Create();
-		if (SceneSerializer const serializer(newScene); !serializer.Deserialize(path.string()))
+		if (SceneSerializer serializer(newScene); !serializer.Deserialize(path.string()))
 		{
 			return false;
 		}
@@ -969,7 +969,7 @@ namespace OloEngine
 		Application::Get().GetWindow().SetTitle(title);
 	}
 
-	void EditorLayer::OnScenePause() const
+	void EditorLayer::OnScenePause()
 	{
 		if (m_SceneState == SceneState::Edit)
 		{
@@ -979,7 +979,7 @@ namespace OloEngine
 		m_ActiveScene->SetPaused(true);
 	}
 
-	void EditorLayer::OnDuplicateEntity() const
+	void EditorLayer::OnDuplicateEntity()
 	{
 		if (m_SceneState != SceneState::Edit)
 		{
