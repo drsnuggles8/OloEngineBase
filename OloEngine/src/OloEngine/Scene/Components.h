@@ -151,7 +151,7 @@ namespace OloEngine
 	struct TextComponent
 	{
 		std::string TextString;
-		Ref<Font> FontAsset = Font::GetDefault();
+		AssetRef<Font> FontAsset = Font::GetDefault();
 		glm::vec4 Color{ 1.0f };
 		f32 Kerning = 0.0f;
 		f32 LineSpacing = 0.0f;

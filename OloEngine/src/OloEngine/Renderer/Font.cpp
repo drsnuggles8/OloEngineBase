@@ -130,16 +130,21 @@ namespace OloEngine
 		delete m_Data;
 	}
 
-	Ref<Font> Font::GetDefault()
+	AssetRef<Font> Font::GetDefault()
 	{
-		static Ref<Font> DefaultFont;
+		static AssetRef<Font> DefaultFont;
 		if (!DefaultFont)
 		{
-			DefaultFont = CreateRef<Font>("C:/Windows/Fonts/arial.ttf");
-			//DefaultFont = CreateRef<Font>("assets/fonts/opensans/OpenSans-Regular.ttf");
+			DefaultFont = Font::Create("C:/Windows/Fonts/arial.ttf");
+			//DefaultFont = Font::Create("assets/fonts/opensans/OpenSans-Regular.ttf");
 		}
 
 		return DefaultFont;
+	}
+
+	AssetRef<Font> Font::Create(const std::filesystem::path& font)
+	{
+		return AssetRef<Font>(new Font(font));
 	}
 
 

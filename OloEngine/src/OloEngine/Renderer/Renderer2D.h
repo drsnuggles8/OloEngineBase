@@ -52,7 +52,7 @@ namespace OloEngine
 			f32 Kerning = 0.0f;
 			f32 LineSpacing = 0.0f;
 		};
-		static void DrawString(const std::string& string, Ref<Font> font, const glm::mat4& transform, const TextParams& textParams, int entityID = -1);
+		static void DrawString(const std::string& string, AssetRef<Font> font, const glm::mat4& transform, const TextParams& textParams, int entityID = -1);
 		static void DrawString(const std::string& string, const glm::mat4& transform, const TextComponent& component, int entityID = -1);
 
 		[[nodiscard("Store this!")]] static f32 GetLineWidth();
