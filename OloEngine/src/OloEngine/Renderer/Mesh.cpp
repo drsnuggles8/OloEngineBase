@@ -243,7 +243,7 @@ namespace OloEngine
         return AssetRef<Mesh>::Create(vertices, indices);
     }
 
-    Ref<Mesh> Mesh::CreatePlane(f32 width, f32 length)
+    AssetRef<Mesh> Mesh::CreatePlane(f32 width, f32 length)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -262,10 +262,10 @@ namespace OloEngine
             0, 1, 3, 1, 2, 3 // Top face
         };
 
-        return CreateRef<Mesh>(vertices, indices);
+        return AssetRef<Mesh>::Create(vertices, indices);
     }
 
-    Ref<Mesh> Mesh::CreateSkyboxCube()
+    AssetRef<Mesh> Mesh::CreateSkyboxCube()
     {
         OLO_PROFILE_FUNCTION();
 
@@ -323,6 +323,6 @@ namespace OloEngine
             20, 21, 22, 22, 23, 20
         };
 
-        return CreateRef<Mesh>(vertices, indices);
+        return AssetRef<Mesh>::Create(vertices, indices);
     }
 }

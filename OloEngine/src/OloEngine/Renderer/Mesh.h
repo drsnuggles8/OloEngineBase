@@ -29,9 +29,9 @@ namespace OloEngine
 
         // Create primitive meshes - these return newly created meshes
         static AssetRef<Mesh> CreateCube();
-        static Ref<Mesh> CreateSkyboxCube(); // Special cube for skybox rendering
+        static AssetRef<Mesh> CreateSkyboxCube(); // Special cube for skybox rendering
         static AssetRef<Mesh> CreateSphere(f32 radius = 1.0f, u32 segments = 16);
-        static Ref<Mesh> CreatePlane(f32 width = 1.0f, f32 length = 1.0f);
+        static AssetRef<Mesh> CreatePlane(f32 width = 1.0f, f32 length = 1.0f);
 
         // Draw the mesh
         void Draw() const;

@@ -174,8 +174,8 @@ namespace OloEngine
 		struct Renderer3DData
 		{
 			AssetRef<Mesh> CubeMesh;
-			Ref<Mesh> QuadMesh;
-			Ref<Mesh> SkyboxMesh;
+			AssetRef<Mesh> QuadMesh;
+			AssetRef<Mesh> SkyboxMesh;
 			Ref<Shader> LightCubeShader;
 			Ref<Shader> LightingShader;
 			Ref<Shader> SkinnedLightingShader;

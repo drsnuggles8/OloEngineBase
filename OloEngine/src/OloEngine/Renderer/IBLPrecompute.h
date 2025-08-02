@@ -44,26 +44,26 @@ namespace OloEngine
     private:
         // Enhanced rendering methods
         static void RenderToCubemapAdvanced(const Ref<TextureCubemap>& cubemap, const Ref<Shader>& shader, 
-                                          const Ref<Mesh>& cubeMesh, const IBLConfiguration& config, u32 mipLevel = 0);
+                                          const AssetRef<Mesh>& cubeMesh, const IBLConfiguration& config, u32 mipLevel = 0);
         
         // Render to cubemap helper
         static void RenderToCubemap(const Ref<TextureCubemap>& cubemap, const Ref<Shader>& shader, 
-                                   const Ref<Mesh>& cubeMesh, u32 mipLevel = 0);
+                                   const AssetRef<Mesh>& cubeMesh, u32 mipLevel = 0);
         
         // Render to texture helper
         static void RenderToTexture(const Ref<Texture2D>& texture, const Ref<Shader>& shader, 
-                                   const Ref<Mesh>& quadMesh);
+                                   const AssetRef<Mesh>& quadMesh);
         
         // Render to texture with advanced configuration
         static void RenderToTextureAdvanced(const Ref<Texture2D>& texture, const Ref<Shader>& shader, 
-                                          const Ref<Mesh>& quadMesh, const IBLConfiguration& config);
+                                          const AssetRef<Mesh>& quadMesh, const IBLConfiguration& config);
         
         // Get cube mesh for rendering
-        static const Ref<Mesh>& GetCubeMesh();
-        static const Ref<Mesh>& GetQuadMesh();
+        static const AssetRef<Mesh>& GetCubeMesh();
+        static const AssetRef<Mesh>& GetQuadMesh();
         
         // Cached meshes
-        static Ref<Mesh> s_CubeMesh;
-        static Ref<Mesh> s_QuadMesh;
+        static AssetRef<Mesh> s_CubeMesh;
+        static AssetRef<Mesh> s_QuadMesh;
     };
 }

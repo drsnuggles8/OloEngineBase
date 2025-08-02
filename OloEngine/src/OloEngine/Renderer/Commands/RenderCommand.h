@@ -380,7 +380,7 @@ namespace OloEngine
 	struct DrawSkyboxCommand
 	{
 		CommandHeader header;
-		Ref<Mesh> mesh;              // Skybox mesh (special cube)
+		AssetRef<Mesh> mesh;              // Skybox mesh (special cube)
 		AssetRef<VertexArray> vertexArray; // Store the actual vertex array
 		u32 indexCount;
 		glm::mat4 transform;         // Usually identity matrix

@@ -17,8 +17,8 @@
 namespace OloEngine
 {
     // Static member definitions
-    Ref<Mesh> IBLPrecompute::s_CubeMesh = nullptr;
-    Ref<Mesh> IBLPrecompute::s_QuadMesh = nullptr;
+    AssetRef<Mesh> IBLPrecompute::s_CubeMesh = nullptr;
+    AssetRef<Mesh> IBLPrecompute::s_QuadMesh = nullptr;
 
     // Helper method to update camera matrices UBO for IBL rendering
     static void UpdateIBLCameraUBO(const glm::mat4& view, const glm::mat4& projection)
@@ -200,7 +200,7 @@ namespace OloEngine
     }
 
     void IBLPrecompute::RenderToCubemap(const Ref<TextureCubemap>& cubemap, const Ref<Shader>& shader, 
-                                       const Ref<Mesh>& cubeMesh, u32 mipLevel)
+                                       const AssetRef<Mesh>& cubeMesh, u32 mipLevel)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -287,7 +287,7 @@ namespace OloEngine
     }
 
     void IBLPrecompute::RenderToTexture(const Ref<Texture2D>& texture, const Ref<Shader>& shader, 
-                                       const Ref<Mesh>& quadMesh)
+                                       const AssetRef<Mesh>& quadMesh)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -338,7 +338,7 @@ namespace OloEngine
             glEnable(GL_STENCIL_TEST);
     }
 
-    const Ref<Mesh>& IBLPrecompute::GetCubeMesh()
+    const AssetRef<Mesh>& IBLPrecompute::GetCubeMesh()
     {
         if (!s_CubeMesh)
         {
@@ -347,7 +347,7 @@ namespace OloEngine
         return s_CubeMesh;
     }
 
-    const Ref<Mesh>& IBLPrecompute::GetQuadMesh()
+    const AssetRef<Mesh>& IBLPrecompute::GetQuadMesh()
     {
         if (!s_QuadMesh)
         {
@@ -535,7 +535,7 @@ namespace OloEngine
 
     // Enhanced rendering methods
     void IBLPrecompute::RenderToCubemapAdvanced(const Ref<TextureCubemap>& cubemap, const Ref<Shader>& shader, 
-                                              const Ref<Mesh>& cubeMesh, const IBLConfiguration& config, u32 mipLevel)
+                                              const AssetRef<Mesh>& cubeMesh, const IBLConfiguration& config, u32 mipLevel)
     {
         // Use standard render method for now - can be enhanced with parallel rendering if needed
         RenderToCubemap(cubemap, shader, cubeMesh, mipLevel);
@@ -544,7 +544,7 @@ namespace OloEngine
     }
 
     void IBLPrecompute::RenderToTextureAdvanced(const Ref<Texture2D>& texture, const Ref<Shader>& shader, 
-                                              const Ref<Mesh>& quadMesh, const IBLConfiguration& config)
+                                              const AssetRef<Mesh>& quadMesh, const IBLConfiguration& config)
     {
         // Use standard render method for now - can be enhanced with additional quality parameters
         RenderToTexture(texture, shader, quadMesh);
