@@ -83,7 +83,7 @@ namespace OloEngine
         for (const auto& [outputPass, inputPasses] : m_DependentPasses)
         {
             auto& outputPassRef = m_PassLookup[outputPass];
-            Ref<Framebuffer> outputFramebuffer;
+            AssetRef<Framebuffer> outputFramebuffer;
 
             // Get output framebuffer from output pass
             outputFramebuffer = outputPassRef->GetTarget();

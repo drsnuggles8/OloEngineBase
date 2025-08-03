@@ -64,7 +64,7 @@ namespace OloEngine
         m_Target->Unbind();
     }
 
-    Ref<Framebuffer> SceneRenderPass::GetTarget() const
+    AssetRef<Framebuffer> SceneRenderPass::GetTarget() const
     {
         return m_Target;
     }

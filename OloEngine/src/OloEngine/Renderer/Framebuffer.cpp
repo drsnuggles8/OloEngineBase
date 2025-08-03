@@ -5,7 +5,7 @@
 
 namespace OloEngine
 {
-	Ref<Framebuffer> Framebuffer::Create(const FramebufferSpecification& spec)
+	AssetRef<Framebuffer> Framebuffer::Create(const FramebufferSpecification& spec)
 	{
 		switch (Renderer::GetAPI())
 		{
@@ -16,7 +16,7 @@ namespace OloEngine
 			}
 			case RendererAPI::API::OpenGL:
 			{
-				return CreateRef<OpenGLFramebuffer>(spec);
+				return AssetRef<OpenGLFramebuffer>::Create(spec);
 			}
 		}
 

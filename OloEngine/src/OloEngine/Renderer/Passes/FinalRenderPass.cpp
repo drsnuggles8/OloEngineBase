@@ -68,7 +68,7 @@ namespace OloEngine
 				m_FramebufferSpec.Width, m_FramebufferSpec.Height);
     }
 
-    void FinalRenderPass::SetInputFramebuffer(const Ref<Framebuffer>& input) 
+    void FinalRenderPass::SetInputFramebuffer(const AssetRef<Framebuffer>& input) 
     { 
         m_InputFramebuffer = input; 
     }
@@ -107,12 +107,12 @@ namespace OloEngine
         RenderCommand::DrawIndexed(m_FullscreenTriangleVA);
     }
 
-    Ref<Framebuffer> FinalRenderPass::GetTarget() const
+    AssetRef<Framebuffer> FinalRenderPass::GetTarget() const
     {
         return m_Target;
     }
 
-    Ref<Framebuffer> FinalRenderPass::GetInputFramebuffer() const
+    AssetRef<Framebuffer> FinalRenderPass::GetInputFramebuffer() const
     {
         return m_InputFramebuffer;
     }
