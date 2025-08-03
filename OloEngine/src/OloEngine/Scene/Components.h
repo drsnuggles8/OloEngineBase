@@ -180,7 +180,7 @@ namespace OloEngine
 		bool Active = true;
 		AudioListenerConfig Config;
 
-		Ref<AudioListener> Listener;
+		AssetRef<AudioListener> Listener;
 
 		AudioListenerComponent() = default;
 		AudioListenerComponent(const AudioListenerComponent&) = default;

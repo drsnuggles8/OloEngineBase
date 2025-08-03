@@ -151,7 +151,7 @@ namespace OloEngine
 
 		for (auto listenerView = m_Registry.group<AudioListenerComponent>(entt::get<TransformComponent>); auto&& [e, ac, tc] : listenerView.each())
 		{
-			ac.Listener = CreateRef<AudioListener>();
+			ac.Listener = AssetRef<AudioListener>::Create();
 			if (ac.Active)
 			{
 				const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());
