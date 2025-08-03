@@ -405,12 +405,11 @@ namespace OloEngine
 			}
 			else
 			{
-				if (scriptClassExists)
-				{
-					Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(component.ClassName);
-					const auto& fields = entityClass->GetFields();
-
-					auto& entityFields = ScriptEngine::GetScriptFieldMap(entity);
+			if (scriptClassExists)
+			{
+				auto entityClassAsset = ScriptEngine::GetEntityClass(component.ClassName);
+				Ref<ScriptClass> entityClass = std::shared_ptr<ScriptClass>(entityClassAsset.Raw(), [](ScriptClass*) {}); // Temporary fix - don't delete, AssetRef manages it
+				const auto& fields = entityClass->GetFields();					auto& entityFields = ScriptEngine::GetScriptFieldMap(entity);
 					for (const auto& [name, field] : fields)
 					{
 						// Field has been set in editor

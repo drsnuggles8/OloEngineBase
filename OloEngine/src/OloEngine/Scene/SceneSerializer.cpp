@@ -617,7 +617,7 @@ namespace OloEngine
 					{
 						std::filesystem::path path = audioFilepath.c_str();
 						path = Project::GetAssetFileSystemPath(path);
-						src.Source = CreateRef<AudioSource>(path.string().c_str());
+						src.Source = AssetRef<AudioSource>::Create(path.string().c_str());
 					}
 				}
 

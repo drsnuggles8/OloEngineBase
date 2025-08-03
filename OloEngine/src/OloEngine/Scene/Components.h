@@ -169,7 +169,7 @@ namespace OloEngine
 	{
 		AudioSourceConfig Config;
 
-		Ref<AudioSource> Source = nullptr;
+		AssetRef<AudioSource> Source = nullptr;
 
 		AudioSourceComponent() = default;
 		AudioSourceComponent(const AudioSourceComponent&) = default;
