@@ -90,7 +90,7 @@ namespace OloEngine
 		friend class ScriptEngine;
 	};
 
-	class ScriptInstance
+	class ScriptInstance : public RefCounted
 	{
 	public:
 		ScriptInstance(const AssetRef<ScriptClass>& scriptClass, Entity entity);
@@ -158,7 +158,7 @@ namespace OloEngine
 		static void OnUpdateEntity(Entity entity, Timestep ts);
 
 		[[nodiscard("Store this!")]] static Scene* GetSceneContext();
-		[[nodiscard("Store this!")]] static Ref<ScriptInstance> GetEntityScriptInstance(UUID entityID);
+		[[nodiscard("Store this!")]] static AssetRef<ScriptInstance> GetEntityScriptInstance(UUID entityID);
 		[[nodiscard("Store this!")]] static AssetRef<ScriptClass> GetEntityClass(const std::string& name);
 		[[nodiscard("Store this!")]] static std::unordered_map<std::string, AssetRef<ScriptClass>> GetEntityClasses();
 		[[nodiscard("Store this!")]] static ScriptFieldMap& GetScriptFieldMap(Entity entity);

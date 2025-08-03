@@ -389,7 +389,7 @@ namespace OloEngine
 			
 			if (bool sceneRunning = scene->IsRunning(); sceneRunning)
 			{
-				if (Ref<ScriptInstance> scriptInstance = ScriptEngine::GetEntityScriptInstance(entity.GetUUID()); scriptInstance)
+				if (AssetRef<ScriptInstance> scriptInstance = ScriptEngine::GetEntityScriptInstance(entity.GetUUID()); scriptInstance)
 				{					
 					for (const auto& fields = scriptInstance->GetScriptClass()->GetFields(); const auto& [name, field] : fields)
 					{

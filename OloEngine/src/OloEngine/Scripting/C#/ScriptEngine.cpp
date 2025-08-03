@@ -127,7 +127,7 @@ namespace OloEngine
 		AssetRef<ScriptClass> EntityClass;
 
 		std::unordered_map<std::string, AssetRef<ScriptClass>> EntityClasses;
-		std::unordered_map<UUID, Ref<ScriptInstance>> EntityInstances;
+		std::unordered_map<UUID, AssetRef<ScriptInstance>> EntityInstances;
 		std::unordered_map<UUID, ScriptFieldMap> EntityScriptFields;
 
 		Scope<filewatch::FileWatch<std::string>> AppAssemblyFileWatcher;
@@ -301,7 +301,7 @@ namespace OloEngine
 		{
 			UUID entityID = entity.GetUUID();
 
-			Ref<ScriptInstance> instance = CreateRef<ScriptInstance>(s_Data->EntityClasses[sc.ClassName], entity);
+			AssetRef<ScriptInstance> instance = AssetRef<ScriptInstance>::Create(s_Data->EntityClasses[sc.ClassName], entity);
 			s_Data->EntityInstances[entityID] = instance;
 
 			// Copy field values
@@ -324,7 +324,7 @@ namespace OloEngine
 
 		if (s_Data->EntityInstances.contains(entityUUID))
 		{
-			Ref<ScriptInstance> instance = s_Data->EntityInstances[entityUUID];
+			AssetRef<ScriptInstance> instance = s_Data->EntityInstances[entityUUID];
 			instance->InvokeOnUpdate(static_cast<f32>(ts));
 		}
 		else
@@ -338,7 +338,7 @@ namespace OloEngine
 		return s_Data->SceneContext;
 	}
 
-	Ref<ScriptInstance> ScriptEngine::GetEntityScriptInstance(UUID entityID)
+	AssetRef<ScriptInstance> ScriptEngine::GetEntityScriptInstance(UUID entityID)
 	{
 		if (!s_Data->EntityInstances.contains(entityID))
 		{
