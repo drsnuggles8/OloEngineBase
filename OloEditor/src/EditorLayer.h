@@ -62,7 +62,7 @@ namespace OloEngine
 		OloEngine::OrthographicCameraController m_CameraController;
 
 		// Temp
-		Ref<VertexArray> m_SquareVA;
+		AssetRef<VertexArray> m_SquareVA;
 		Ref<Shader> m_FlatColorShader;
 		AssetRef<Framebuffer> m_Framebuffer;
 
