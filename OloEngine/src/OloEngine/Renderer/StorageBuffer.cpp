@@ -6,7 +6,7 @@
 
 namespace OloEngine
 {
-    Ref<StorageBuffer> StorageBuffer::Create(u32 size, const void* data, BufferUsage usage)
+    AssetRef<StorageBuffer> StorageBuffer::Create(u32 size, const void* data, BufferUsage usage)
     {
         switch (Renderer::GetAPI())
         {
@@ -17,7 +17,7 @@ namespace OloEngine
             }
             case RendererAPI::API::OpenGL:
             {
-                return CreateRef<OpenGLStorageBuffer>(size, data, usage);
+                return AssetRef<StorageBuffer>(new OpenGLStorageBuffer(size, data, usage));
             }
         }
 

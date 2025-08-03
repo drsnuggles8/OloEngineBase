@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Buffer.h"
+#include "OloEngine/Core/Ref.h"
 
 namespace OloEngine
 {
@@ -12,7 +13,7 @@ namespace OloEngine
      * from shaders. Unlike uniform buffers, they can be much larger and support
      * dynamic indexing and atomic operations.
      */
-    class StorageBuffer
+    class StorageBuffer : public RefCounted
     {
     protected:
         // CPU-side cache of the buffer data to allow reading
@@ -121,13 +122,13 @@ namespace OloEngine
          * @param data Initial data (optional)
          * @param usage Buffer usage pattern
          */
-        static Ref<StorageBuffer> Create(u32 size, const void* data = nullptr, BufferUsage usage = BufferUsage::Dynamic);
+        static AssetRef<StorageBuffer> Create(u32 size, const void* data = nullptr, BufferUsage usage = BufferUsage::Dynamic);
         
         /**
          * @brief Create a storage buffer with typed data
          */
         template<typename T>
-        static Ref<StorageBuffer> Create(const T& data, BufferUsage usage = BufferUsage::Dynamic)
+        static AssetRef<StorageBuffer> Create(const T& data, BufferUsage usage = BufferUsage::Dynamic)
         {
             return Create(sizeof(T), &data, usage);
         }
@@ -136,7 +137,7 @@ namespace OloEngine
          * @brief Create a storage buffer with array data
          */
         template<typename T>
-        static Ref<StorageBuffer> Create(const std::vector<T>& data, BufferUsage usage = BufferUsage::Dynamic)
+        static AssetRef<StorageBuffer> Create(const std::vector<T>& data, BufferUsage usage = BufferUsage::Dynamic)
         {
             return Create(static_cast<u32>(data.size() * sizeof(T)), data.data(), usage);
         }
