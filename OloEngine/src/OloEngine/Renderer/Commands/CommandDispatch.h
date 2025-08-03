@@ -41,11 +41,11 @@ namespace OloEngine
 		
 		// UBO access - Renderer3D provides these, CommandDispatch uses them
 		static void SetUBOReferences(
-			const Ref<UniformBuffer>& cameraUBO,
-			const Ref<UniformBuffer>& materialUBO,
-			const Ref<UniformBuffer>& lightUBO,
-			const Ref<UniformBuffer>& boneMatricesUBO,
-			const Ref<UniformBuffer>& modelMatrixUBO
+			const AssetRef<UniformBuffer>& cameraUBO,
+			const AssetRef<UniformBuffer>& materialUBO,
+			const AssetRef<UniformBuffer>& lightUBO,
+			const AssetRef<UniformBuffer>& boneMatricesUBO,
+			const AssetRef<UniformBuffer>& modelMatrixUBO
 		);
 
         // State management dispatch functions

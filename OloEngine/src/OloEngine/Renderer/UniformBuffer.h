@@ -2,11 +2,12 @@
 
 #include <utility>
 #include "OloEngine/Renderer/Buffer.h"
+#include "OloEngine/Core/Ref.h"
 
 namespace OloEngine
 {
 	// TODO(olbu): Add Create() functions for the new constructors of OpenGLUniformBuffer
-	class UniformBuffer
+	class UniformBuffer : public RefCounted
 	{
 	protected:
 		// CPU-side cache of the buffer data to allow reading
@@ -63,6 +64,6 @@ namespace OloEngine
 			return result;
 		}
 
-		static Ref<UniformBuffer> Create(u32 size, u32 binding);
+		static AssetRef<UniformBuffer> Create(u32 size, u32 binding);
 	};
 }

@@ -15,11 +15,11 @@
 namespace OloEngine
 {	struct CommandDispatchData
 	{
-		Ref<UniformBuffer> CameraUBO = nullptr;
-		Ref<UniformBuffer> MaterialUBO = nullptr;
-		Ref<UniformBuffer> LightUBO = nullptr;
-		Ref<UniformBuffer> BoneMatricesUBO = nullptr;
-		Ref<UniformBuffer> ModelMatrixUBO = nullptr;
+		AssetRef<UniformBuffer> CameraUBO = nullptr;
+		AssetRef<UniformBuffer> MaterialUBO = nullptr;
+		AssetRef<UniformBuffer> LightUBO = nullptr;
+		AssetRef<UniformBuffer> BoneMatricesUBO = nullptr;
+		AssetRef<UniformBuffer> ModelMatrixUBO = nullptr;
 		glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
 		glm::mat4 ViewMatrix = glm::mat4(1.0f);
 		glm::mat4 ProjectionMatrix = glm::mat4(1.0f);
@@ -94,19 +94,19 @@ namespace OloEngine
 	void CommandDispatch::Shutdown()
 	{
 		OLO_PROFILE_FUNCTION();
-		s_Data.CameraUBO.reset();
-		s_Data.MaterialUBO.reset();
-		s_Data.LightUBO.reset();
-		s_Data.BoneMatricesUBO.reset();
-		s_Data.ModelMatrixUBO.reset();
+		s_Data.CameraUBO.Reset();
+		s_Data.MaterialUBO.Reset();
+		s_Data.LightUBO.Reset();
+		s_Data.BoneMatricesUBO.Reset();
+		s_Data.ModelMatrixUBO.Reset();
 	}
 
 	void CommandDispatch::SetUBOReferences(
-		const Ref<UniformBuffer>& cameraUBO,
-		const Ref<UniformBuffer>& materialUBO,
-		const Ref<UniformBuffer>& lightUBO,
-		const Ref<UniformBuffer>& boneMatricesUBO,
-		const Ref<UniformBuffer>& modelMatrixUBO)
+		const AssetRef<UniformBuffer>& cameraUBO,
+		const AssetRef<UniformBuffer>& materialUBO,
+		const AssetRef<UniformBuffer>& lightUBO,
+		const AssetRef<UniformBuffer>& boneMatricesUBO,
+		const AssetRef<UniformBuffer>& modelMatrixUBO)
 	{
 		s_Data.CameraUBO = cameraUBO;
 		s_Data.MaterialUBO = materialUBO;

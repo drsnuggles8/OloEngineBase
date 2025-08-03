@@ -24,7 +24,7 @@ namespace OloEngine
     static void UpdateIBLCameraUBO(const glm::mat4& view, const glm::mat4& projection)
     {
         // Create or get static UBO for IBL camera matrices
-        static Ref<UniformBuffer> s_IBLCameraUBO = nullptr;
+        static AssetRef<UniformBuffer> s_IBLCameraUBO = nullptr;
         if (!s_IBLCameraUBO)
         {
             s_IBLCameraUBO = UniformBuffer::Create(

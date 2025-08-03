@@ -22,7 +22,7 @@ namespace OloEngine
          */
         struct FrameData
         {
-            std::vector<Ref<UniformBuffer>> UniformBuffers;
+            std::vector<AssetRef<UniformBuffer>> UniformBuffers;
             std::unordered_map<std::string, u32> BufferAllocations;
             bool IsComplete = false;
             std::chrono::steady_clock::time_point StartTime;
@@ -49,7 +49,7 @@ namespace OloEngine
         /**
          * @brief Get uniform buffer for current frame
          */
-        Ref<UniformBuffer> GetFrameUniformBuffer(const std::string& name, u32 size);
+        AssetRef<UniformBuffer> GetFrameUniformBuffer(const std::string& name, u32 size);
 
         /**
          * @brief Release buffers for a specific frame

@@ -185,12 +185,12 @@ namespace OloEngine
 			Ref<Shader> PBRMultiLightShader;
 			Ref<Shader> PBRMultiLightSkinnedShader;
 			Ref<Shader> SkyboxShader;
-					Ref<UniformBuffer> CameraUBO;
-			Ref<UniformBuffer> MaterialUBO;
-			Ref<UniformBuffer> LightPropertiesUBO;
-			Ref<UniformBuffer> MultiLightBuffer;
-			Ref<UniformBuffer> BoneMatricesUBO;
-			Ref<UniformBuffer> ModelMatrixUBO;
+					AssetRef<UniformBuffer> CameraUBO;
+			AssetRef<UniformBuffer> MaterialUBO;
+			AssetRef<UniformBuffer> LightPropertiesUBO;
+			AssetRef<UniformBuffer> MultiLightBuffer;
+			AssetRef<UniformBuffer> BoneMatricesUBO;
+			AssetRef<UniformBuffer> ModelMatrixUBO;
 
 			glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
 			glm::mat4 ViewMatrix = glm::mat4(1.0f);

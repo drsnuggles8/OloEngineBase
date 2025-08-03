@@ -132,7 +132,7 @@ namespace OloEngine
 			glm::mat4 ViewProjection;
 		};
 		CameraData CameraBuffer{};
-		Ref<UniformBuffer> CameraUniformBuffer;
+		AssetRef<UniformBuffer> CameraUniformBuffer;
 	};
 
 	static Renderer2DData s_Data;

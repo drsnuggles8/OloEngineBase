@@ -785,9 +785,9 @@ namespace OloEngine
 					if (registry->GetBindingInfo(resourceName) != nullptr)
 					{
 						ShaderResourceInput input;
-						if (std::holds_alternative<Ref<UniformBuffer>>(resource))
+						if (std::holds_alternative<AssetRef<UniformBuffer>>(resource))
 						{
-							input = ShaderResourceInput(std::get<Ref<UniformBuffer>>(resource));
+							input = ShaderResourceInput(std::get<AssetRef<UniformBuffer>>(resource));
 						}
 						else if (std::holds_alternative<Ref<Texture2D>>(resource))
 						{

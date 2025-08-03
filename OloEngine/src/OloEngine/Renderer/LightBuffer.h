@@ -96,7 +96,7 @@ namespace OloEngine
         /**
          * @brief Get the uniform buffer object
          */
-        const Ref<UniformBuffer>& GetUBO() const { return m_UBO; }
+        const AssetRef<UniformBuffer>& GetUBO() const { return m_UBO; }
 
         /**
          * @brief Get light data at index
@@ -116,7 +116,7 @@ namespace OloEngine
     private:
         u32 m_LightCount = 0;
         LightBufferUBO m_BufferData;
-        Ref<UniformBuffer> m_UBO;
+        AssetRef<UniformBuffer> m_UBO;
         glm::vec3 m_AmbientLight = glm::vec3(0.03f);
 
         /**

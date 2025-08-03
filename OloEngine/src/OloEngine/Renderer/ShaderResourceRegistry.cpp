@@ -173,7 +173,7 @@ namespace OloEngine
                       reflection.GetUniformBlocks().size(), reflection.GetTextures().size());
     }
 
-    void ShaderResourceRegistry::SetUniformBuffer(const std::string& name, Ref<UniformBuffer> buffer)
+    void ShaderResourceRegistry::SetUniformBuffer(const std::string& name, AssetRef<UniformBuffer> buffer)
     {
         auto it = m_Bindings.find(name);
         if (it != m_Bindings.end())
@@ -244,14 +244,14 @@ namespace OloEngine
         }
     }
 
-    Ref<UniformBuffer> ShaderResourceRegistry::GetUniformBuffer(const std::string& name) const
+    AssetRef<UniformBuffer> ShaderResourceRegistry::GetUniformBuffer(const std::string& name) const
     {
         auto it = m_Bindings.find(name);
         if (it != m_Bindings.end())
         {
-            if (std::holds_alternative<Ref<UniformBuffer>>(it->second.Resource))
+            if (std::holds_alternative<AssetRef<UniformBuffer>>(it->second.Resource))
             {
-                return std::get<Ref<UniformBuffer>>(it->second.Resource);
+                return std::get<AssetRef<UniformBuffer>>(it->second.Resource);
             }
         }
         return nullptr;
@@ -380,9 +380,9 @@ namespace OloEngine
     // Helper methods
     void ShaderResourceRegistry::BindUniformBuffer(const ResourceBinding& binding)
     {
-        if (std::holds_alternative<Ref<UniformBuffer>>(binding.Resource))
+        if (std::holds_alternative<AssetRef<UniformBuffer>>(binding.Resource))
         {
-            auto buffer = std::get<Ref<UniformBuffer>>(binding.Resource);
+            auto buffer = std::get<AssetRef<UniformBuffer>>(binding.Resource);
             if (buffer)
             {
                 glBindBufferBase(GL_UNIFORM_BUFFER, binding.BindingPoint, buffer->GetRendererID());
@@ -418,9 +418,9 @@ namespace OloEngine
 
     u32 ResourceBinding::GetHandle() const
     {
-        if (std::holds_alternative<Ref<UniformBuffer>>(Resource))
+        if (std::holds_alternative<AssetRef<UniformBuffer>>(Resource))
         {
-            auto buffer = std::get<Ref<UniformBuffer>>(Resource);
+            auto buffer = std::get<AssetRef<UniformBuffer>>(Resource);
             return buffer ? buffer->GetRendererID() : 0;
         }
         else if (std::holds_alternative<Ref<Texture2D>>(Resource))
