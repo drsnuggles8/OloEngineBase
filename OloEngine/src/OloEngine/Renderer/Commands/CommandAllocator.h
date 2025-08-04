@@ -12,7 +12,7 @@
 namespace OloEngine
 {
     // Command allocator for efficient command packet memory management
-    class CommandAllocator : public RefCounted
+    class CommandAllocator
     {
     public:
         static const sizet DEFAULT_BLOCK_SIZE = 64 * 1024; // 64KB blocks

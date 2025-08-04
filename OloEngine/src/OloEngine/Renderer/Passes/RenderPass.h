@@ -20,8 +20,8 @@ namespace OloEngine
         RenderPass()
         {
             // Create owned allocator with default block size
-            m_OwnedAllocator = AssetRef<CommandAllocator>::Create();
-            m_Allocator = m_OwnedAllocator.Raw();
+            m_OwnedAllocator = CreateScope<CommandAllocator>();
+            m_Allocator = m_OwnedAllocator.get();
         }
         
         virtual ~RenderPass() = default;
@@ -45,7 +45,7 @@ namespace OloEngine
 
         void SetCommandAllocator(CommandAllocator* allocator) 
         { 
-            m_Allocator = allocator ? allocator : m_OwnedAllocator.Raw(); 
+            m_Allocator = allocator ? allocator : m_OwnedAllocator.get(); 
         }
 
         void SubmitPacket(CommandPacket* packet)
@@ -59,7 +59,7 @@ namespace OloEngine
         AssetRef<Framebuffer> m_Target;
         FramebufferSpecification m_FramebufferSpec;
         CommandBucket m_CommandBucket;
-        AssetRef<CommandAllocator> m_OwnedAllocator;
+        Scope<CommandAllocator> m_OwnedAllocator;
         CommandAllocator* m_Allocator = nullptr;
     };
 }

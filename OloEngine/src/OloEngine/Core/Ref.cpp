@@ -86,15 +86,11 @@ namespace OloEngine {
                 return;
             }
             
-            // During shutdown, the live references set might be destroyed before AssetRef destructors
-            // So we need to check if the instance exists before asserting
             auto it = data.references.find(instance);
             if (it != data.references.end())
             {
                 data.references.erase(it);
             }
-            // Remove the assertion that was causing crashes during shutdown
-            // OLO_CORE_ASSERT(s_LiveReferences.find(instance) != s_LiveReferences.end());
         }
 
         bool IsLive(void* instance)
