@@ -199,7 +199,7 @@ namespace OloEngine
         /**
          * @brief Set frame-in-flight manager for multi-frame buffering
          */
-        void SetInflightFrameManager(Ref<InflightFrameManager> manager);
+        void SetInflightFrameManager(AssetRef<InflightFrameManager> manager);
 
         /**
          * @brief Called at the beginning of each frame
@@ -241,7 +241,7 @@ namespace OloEngine
     private:
         AssetRef<Shader> m_Shader;
         std::unordered_map<std::string, ResourceBinding> m_Bindings;
-        Ref<InflightFrameManager> m_FrameManager;
+        AssetRef<InflightFrameManager> m_FrameManager;
         u32 m_CurrentFrame = 0;
         bool m_Initialized = false;
 

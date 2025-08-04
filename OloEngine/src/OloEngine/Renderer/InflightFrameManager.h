@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include <array>
 #include <vector>
@@ -12,7 +13,7 @@ namespace OloEngine
     /**
      * @brief Manages multiple frames in flight to prevent GPU stalls
      */
-    class InflightFrameManager
+    class InflightFrameManager : public RefCounted
     {
     public:
         static constexpr u32 MAX_FRAMES_IN_FLIGHT = 3;

@@ -63,7 +63,7 @@ namespace OloEngine
 
 		// Temp
 		AssetRef<VertexArray> m_SquareVA;
-		Ref<Shader> m_FlatColorShader;
+		AssetRef<Shader> m_FlatColorShader;
 		AssetRef<Framebuffer> m_Framebuffer;
 
 		AssetRef<Scene> m_ActiveScene;

@@ -85,8 +85,7 @@ void Sandbox3D::OnAttach()
     m_CubeMesh = OloEngine::Mesh::CreateCube();
     m_SphereMesh = OloEngine::Mesh::CreateSphere();
     
-    // CreatePlane returns Ref<Mesh>, we need to create an AssetRef equivalent
-    // Create the plane using the same parameters to get AssetRef
+    // Create a plane mesh with the desired geometry
     m_PlaneMesh = OloEngine::AssetRef<OloEngine::Mesh>::Create(
         std::vector<OloEngine::Vertex>{
             // Top face (facing positive Y)  

@@ -2,6 +2,7 @@
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/string_cast.hpp>
+#include <memory>
 
 #include "OloEngine/Core/Base.h"
 
@@ -19,11 +20,11 @@ namespace OloEngine
 	public:
 		static void Init();
 
-		[[nodiscard("Store this!")]] static Ref<spdlog::logger>& GetCoreLogger() { return s_CoreLogger; }
-		[[nodiscard("Store this!")]] static Ref<spdlog::logger>& GetClientLogger() { return s_ClientLogger; }
+		[[nodiscard("Store this!")]] static std::shared_ptr<spdlog::logger>& GetCoreLogger() { return s_CoreLogger; }
+		[[nodiscard("Store this!")]] static std::shared_ptr<spdlog::logger>& GetClientLogger() { return s_ClientLogger; }
 	private:
-		static Ref<spdlog::logger> s_CoreLogger;
-		static Ref<spdlog::logger> s_ClientLogger;
+		static std::shared_ptr<spdlog::logger> s_CoreLogger;
+		static std::shared_ptr<spdlog::logger> s_ClientLogger;
 	};
 }
 

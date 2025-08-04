@@ -66,7 +66,7 @@ namespace OloEngine
 		 * @return true if resource was set successfully, false otherwise
 		 */
 		template<typename T>
-		bool SetResource(const std::string& name, const Ref<T>& resource)
+		bool SetResource(const std::string& name, const AssetRef<T>& resource)
 		{
 			if (!Shader)
 			{

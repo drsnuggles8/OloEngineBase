@@ -112,7 +112,7 @@ namespace OloEngine
 		// Global resource management for scene-wide resources
 		static ShaderResourceRegistry& GetGlobalResourceRegistry() { return s_Data.GlobalResourceRegistry; }
 		template<typename T>
-		static bool SetGlobalResource(const std::string& name, const Ref<T>& resource)
+		static bool SetGlobalResource(const std::string& name, const AssetRef<T>& resource)
 		{
 			return s_Data.GlobalResourceRegistry.SetResource(name, resource);
 		}
@@ -126,7 +126,7 @@ namespace OloEngine
 		
 		// High-level resource setting methods
 		template<typename T>
-		static bool SetShaderResource(u32 shaderID, const std::string& name, const Ref<T>& resource)
+		static bool SetShaderResource(u32 shaderID, const std::string& name, const AssetRef<T>& resource)
 		{
 			auto* registry = GetShaderRegistry(shaderID);
 			if (registry)

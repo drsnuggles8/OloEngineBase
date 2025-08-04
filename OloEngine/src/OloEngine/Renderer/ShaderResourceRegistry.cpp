@@ -42,7 +42,7 @@ namespace OloEngine
         m_Bindings.clear();
         
         // Reset frame manager
-        m_FrameManager.reset();
+        m_FrameManager.Reset();
         
         m_Initialized = false;
         OLO_CORE_TRACE("ShaderResourceRegistry: Shutdown complete");
@@ -344,7 +344,7 @@ namespace OloEngine
         return it != m_Bindings.end() ? &it->second : nullptr;
     }
 
-    void ShaderResourceRegistry::SetInflightFrameManager(Ref<InflightFrameManager> manager)
+    void ShaderResourceRegistry::SetInflightFrameManager(AssetRef<InflightFrameManager> manager)
     {
         m_FrameManager = manager;
     }

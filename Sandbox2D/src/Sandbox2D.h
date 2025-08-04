@@ -18,7 +18,7 @@ private:
 	OloEngine::OrthographicCameraController m_CameraController;
 
 	OloEngine::AssetRef<OloEngine::VertexArray> m_SquareVA;
-	OloEngine::Ref<OloEngine::Shader> m_FlatColorShader;
+	OloEngine::AssetRef<OloEngine::Shader> m_FlatColorShader;
 
 	OloEngine::AssetRef<OloEngine::Texture2D> m_CheckerboardTexture;
 	OloEngine::AssetRef<OloEngine::Texture2D> m_OtterTexture;
