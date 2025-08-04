@@ -74,26 +74,26 @@ namespace OloEngine
 		static constexpr u32 MaxIndices = MaxQuads * 6;
 		static constexpr u32 MaxTextureSlots = 32;
 
-		AssetRef<VertexArray> QuadVertexArray;
-		AssetRef<VertexBuffer> QuadVertexBuffer;
-		AssetRef<Shader> QuadShader;
-		AssetRef<Texture2D> WhiteTexture;
+		Ref<VertexArray> QuadVertexArray;
+		Ref<VertexBuffer> QuadVertexBuffer;
+		Ref<Shader> QuadShader;
+		Ref<Texture2D> WhiteTexture;
 
-		AssetRef<VertexArray> PolygonVertexArray;
-		AssetRef<VertexBuffer> PolygonVertexBuffer;
-		AssetRef<Shader> PolygonShader;
+		Ref<VertexArray> PolygonVertexArray;
+		Ref<VertexBuffer> PolygonVertexBuffer;
+		Ref<Shader> PolygonShader;
 
-		AssetRef<VertexArray> CircleVertexArray;
-		AssetRef<VertexBuffer> CircleVertexBuffer;
-		AssetRef<Shader> CircleShader;
+		Ref<VertexArray> CircleVertexArray;
+		Ref<VertexBuffer> CircleVertexBuffer;
+		Ref<Shader> CircleShader;
 
-		AssetRef<VertexArray> LineVertexArray;
-		AssetRef<VertexBuffer> LineVertexBuffer;
-		AssetRef<Shader> LineShader;
+		Ref<VertexArray> LineVertexArray;
+		Ref<VertexBuffer> LineVertexBuffer;
+		Ref<Shader> LineShader;
 
-		AssetRef<VertexArray> TextVertexArray;
-		AssetRef<VertexBuffer> TextVertexBuffer;
-		AssetRef<Shader> TextShader;
+		Ref<VertexArray> TextVertexArray;
+		Ref<VertexBuffer> TextVertexBuffer;
+		Ref<Shader> TextShader;
 
 		u32 QuadIndexCount = 0;
 		QuadVertex* QuadVertexBufferBase = nullptr;
@@ -117,11 +117,11 @@ namespace OloEngine
 
 		f32 LineWidth = 2.0f;
 
-		std::array<AssetRef<Texture2D>, MaxTextureSlots> TextureSlots;
+		std::array<Ref<Texture2D>, MaxTextureSlots> TextureSlots;
 		// 0 = white texture
 		u32 TextureSlotIndex = 1;
 
-		AssetRef<Texture2D> FontAtlasTexture;
+		Ref<Texture2D> FontAtlasTexture;
 
 		glm::vec4 QuadVertexPositions[4]{};
 
@@ -132,7 +132,7 @@ namespace OloEngine
 			glm::mat4 ViewProjection;
 		};
 		CameraData CameraBuffer{};
-		AssetRef<UniformBuffer> CameraUniformBuffer;
+		Ref<UniformBuffer> CameraUniformBuffer;
 	};
 
 	static Renderer2DData s_Data;
@@ -174,7 +174,7 @@ namespace OloEngine
 			offset += 4;
 		}
 
-		AssetRef<IndexBuffer> const quadIB = IndexBuffer::Create(quadIndices, OloEngine::Renderer2DData::MaxIndices);
+		Ref<IndexBuffer> const quadIB = IndexBuffer::Create(quadIndices, OloEngine::Renderer2DData::MaxIndices);
 		s_Data.QuadVertexArray->SetIndexBuffer(quadIB);
 		delete[] quadIndices;
 
@@ -336,12 +336,12 @@ namespace OloEngine
 	{
 		struct DrawCall
 		{
-			AssetRef<Shader> Shader;
-			std::vector<AssetRef<Texture2D>> Textures;
+			Ref<Shader> Shader;
+			std::vector<Ref<Texture2D>> Textures;
 			u32 IndexCount = 0;
 			void* VertexBufferBase = nullptr;
 			u32 VertexBufferSize = 0;
-			AssetRef<VertexArray> VertexArray;
+			Ref<VertexArray> VertexArray;
 		};
 
 		std::vector<DrawCall> drawCalls;
@@ -478,12 +478,12 @@ namespace OloEngine
 		DrawQuad(transform, color);
 	}
 
-	void Renderer2D::DrawQuad(const glm::vec2& position, const glm::vec2& size, const AssetRef<Texture2D>& texture, const f32 tilingFactor, const glm::vec4& tintColor)
+	void Renderer2D::DrawQuad(const glm::vec2& position, const glm::vec2& size, const Ref<Texture2D>& texture, const f32 tilingFactor, const glm::vec4& tintColor)
 	{
 		DrawQuad({ position.x, position.y, 0.0f }, size, texture, tilingFactor, tintColor);
 	}
 
-	void Renderer2D::DrawQuad(const glm::vec3& position, const glm::vec2& size, const AssetRef<Texture2D>& texture, const f32 tilingFactor, const glm::vec4& tintColor)
+	void Renderer2D::DrawQuad(const glm::vec3& position, const glm::vec2& size, const Ref<Texture2D>& texture, const f32 tilingFactor, const glm::vec4& tintColor)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -523,7 +523,7 @@ namespace OloEngine
 		++s_Data.Stats.QuadCount;
 	}
 
-	void Renderer2D::DrawQuad(const glm::mat4& transform, const AssetRef<Texture2D>& texture, const f32 tilingFactor, const glm::vec4& tintColor, const int entityID)
+	void Renderer2D::DrawQuad(const glm::mat4& transform, const Ref<Texture2D>& texture, const f32 tilingFactor, const glm::vec4& tintColor, const int entityID)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -616,12 +616,12 @@ namespace OloEngine
 		DrawQuad(transform, color);
 	}
 
-	void Renderer2D::DrawRotatedQuad(const glm::vec2& position, const glm::vec2& size, const f32 rotation, const AssetRef<Texture2D>& texture, const f32 tilingFactor, const glm::vec4& tintColor)
+	void Renderer2D::DrawRotatedQuad(const glm::vec2& position, const glm::vec2& size, const f32 rotation, const Ref<Texture2D>& texture, const f32 tilingFactor, const glm::vec4& tintColor)
 	{
 		DrawRotatedQuad({ position.x, position.y, 0.0f }, size, rotation, texture, tilingFactor, tintColor);
 	}
 
-	void Renderer2D::DrawRotatedQuad(const glm::vec3& position, const glm::vec2& size, const f32 rotation, const AssetRef<Texture2D>& texture, const f32 tilingFactor, const glm::vec4& tintColor)
+	void Renderer2D::DrawRotatedQuad(const glm::vec3& position, const glm::vec2& size, const f32 rotation, const Ref<Texture2D>& texture, const f32 tilingFactor, const glm::vec4& tintColor)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -711,11 +711,11 @@ namespace OloEngine
 		}
 	}
 
-	void Renderer2D::DrawString(const std::string& string, AssetRef<Font> font, const glm::mat4& transform, const TextParams& textParams, int entityID)
+	void Renderer2D::DrawString(const std::string& string, Ref<Font> font, const glm::mat4& transform, const TextParams& textParams, int entityID)
 	{
 		const auto& fontGeometry = font->GetMSDFData()->FontGeometry;
 		const auto& metrics = fontGeometry.getMetrics();
-		AssetRef<Texture2D> fontAtlas = font->GetAtlasTexture();
+		Ref<Texture2D> fontAtlas = font->GetAtlasTexture();
 
 		s_Data.FontAtlasTexture = fontAtlas;
 

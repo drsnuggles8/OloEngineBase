@@ -48,16 +48,15 @@ namespace OloEngine
 
 		ProjectConfig& GetConfig() { return m_Config; }
 
-		static AssetRef<Project> GetActive() { return s_ActiveProject; }
+		static Ref<Project> GetActive() { return s_ActiveProject; }
 
-		static AssetRef<Project> New();
-		static AssetRef<Project> Load(const std::filesystem::path& path);
+		static Ref<Project> New();
+		static Ref<Project> Load(const std::filesystem::path& path);
 		static bool SaveActive(const std::filesystem::path& path);
 	private:
 		ProjectConfig m_Config;
 		std::filesystem::path m_ProjectDirectory;
 
-		inline static AssetRef<Project> s_ActiveProject;
+		inline static Ref<Project> s_ActiveProject;
 	};
-
 }

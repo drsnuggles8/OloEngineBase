@@ -29,4 +29,3 @@ namespace OloEngine
 		s_ClientLogger->flush_on(spdlog::level::trace);
 	}
 }
-

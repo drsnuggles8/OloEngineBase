@@ -8,7 +8,7 @@
 namespace OloEngine
 {
 
-	ProjectSerializer::ProjectSerializer(AssetRef<Project> project)
+	ProjectSerializer::ProjectSerializer(Ref<Project> project)
 		: m_Project(project)
 	{
 	}
@@ -63,5 +63,4 @@ namespace OloEngine
 		config.ScriptModulePath = projectNode["ScriptModulePath"].as<std::string>();
 		return true;
 	}
-
 }

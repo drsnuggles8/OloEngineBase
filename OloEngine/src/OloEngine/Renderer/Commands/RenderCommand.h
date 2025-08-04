@@ -253,7 +253,7 @@ namespace OloEngine
     struct DrawIndexedCommand
     {
         CommandHeader header;
-        AssetRef<VertexArray> vertexArray;
+        Ref<VertexArray> vertexArray;
         u32 indexCount;
         GLenum indexType;
     };
@@ -261,7 +261,7 @@ namespace OloEngine
     struct DrawIndexedInstancedCommand
     {
         CommandHeader header;
-        AssetRef<VertexArray> vertexArray; // Changed from rendererID to vertexArray
+        Ref<VertexArray> vertexArray; // Changed from rendererID to vertexArray
         u32 indexCount;
         u32 instanceCount;
         GLenum indexType;
@@ -270,7 +270,7 @@ namespace OloEngine
     struct DrawArraysCommand
     {
         CommandHeader header;
-        AssetRef<VertexArray> vertexArray; // Changed from rendererID to vertexArray
+        Ref<VertexArray> vertexArray; // Changed from rendererID to vertexArray
         u32 vertexCount;
         GLenum primitiveType;
     };
@@ -278,14 +278,14 @@ namespace OloEngine
     struct DrawLinesCommand
     {
         CommandHeader header;
-        AssetRef<VertexArray> vertexArray; // Changed from rendererID to vertexArray
+        Ref<VertexArray> vertexArray; // Changed from rendererID to vertexArray
         u32 vertexCount;
     };    // Higher-level commands combine multiple lower-level commands
 	struct DrawMeshCommand
 	{
 		CommandHeader header;
-		AssetRef<Mesh> mesh;              // Store the actual mesh reference
-		AssetRef<VertexArray> vertexArray; // Store the actual vertex array
+		Ref<Mesh> mesh;              // Store the actual mesh reference
+		Ref<VertexArray> vertexArray; // Store the actual vertex array
 		u32 indexCount;
 		glm::mat4 transform;
 		
@@ -296,8 +296,8 @@ namespace OloEngine
 		f32 shininess;
 		bool useTextureMaps;
 		// Legacy texture references
-		AssetRef<Texture2D> diffuseMap;
-		AssetRef<Texture2D> specularMap;
+		Ref<Texture2D> diffuseMap;
+		Ref<Texture2D> specularMap;
 		
 		// PBR material properties
 		bool enablePBR = false;
@@ -310,20 +310,20 @@ namespace OloEngine
 		bool enableIBL = false;
 		
 		// PBR texture references
-		AssetRef<Texture2D> albedoMap;
-		AssetRef<Texture2D> metallicRoughnessMap;
-		AssetRef<Texture2D> normalMap;
-		AssetRef<Texture2D> aoMap;
-		AssetRef<Texture2D> emissiveMap;
-		AssetRef<TextureCubemap> environmentMap;
-		AssetRef<TextureCubemap> irradianceMap;
-		AssetRef<TextureCubemap> prefilterMap;
-		AssetRef<Texture2D> brdfLutMap;
+		Ref<Texture2D> albedoMap;
+		Ref<Texture2D> metallicRoughnessMap;
+		Ref<Texture2D> normalMap;
+		Ref<Texture2D> aoMap;
+		Ref<Texture2D> emissiveMap;
+		Ref<TextureCubemap> environmentMap;
+		Ref<TextureCubemap> irradianceMap;
+		Ref<TextureCubemap> prefilterMap;
+		Ref<Texture2D> brdfLutMap;
 		
 		// Actual shader instead of ID
-		AssetRef<Shader> shader;
+		Ref<Shader> shader;
 		// Per-draw-call render state
-		AssetRef<RenderState> renderState;
+		Ref<RenderState> renderState;
 		// Skinning support for animated meshes
 		bool isSkinnedMesh = false;
 		u32 boneMatricesBufferID = 0;  // ID to external bone matrices buffer instead of vector
@@ -331,8 +331,8 @@ namespace OloEngine
 	struct DrawMeshInstancedCommand
 	{
 		CommandHeader header;
-		AssetRef<Mesh> mesh;              // Store the actual mesh reference
-		AssetRef<VertexArray> vertexArray; // Store the actual vertex array
+		Ref<Mesh> mesh;              // Store the actual mesh reference
+		Ref<VertexArray> vertexArray; // Store the actual vertex array
 		u32 indexCount;
 		u32 instanceCount;
 		std::vector<glm::mat4> transforms; // Store the actual transform data
@@ -344,8 +344,8 @@ namespace OloEngine
 		f32 shininess;
 		bool useTextureMaps;
 		// Legacy texture references
-		AssetRef<Texture2D> diffuseMap;
-		AssetRef<Texture2D> specularMap;
+		Ref<Texture2D> diffuseMap;
+		Ref<Texture2D> specularMap;
 		
 		// PBR material properties
 		bool enablePBR = false;
@@ -358,20 +358,20 @@ namespace OloEngine
 		bool enableIBL = false;
 		
 		// PBR texture references
-		AssetRef<Texture2D> albedoMap;
-		AssetRef<Texture2D> metallicRoughnessMap;
-		AssetRef<Texture2D> normalMap;
-		AssetRef<Texture2D> aoMap;
-		AssetRef<Texture2D> emissiveMap;
-		AssetRef<TextureCubemap> environmentMap;
-		AssetRef<TextureCubemap> irradianceMap;
-		AssetRef<TextureCubemap> prefilterMap;
-		AssetRef<Texture2D> brdfLutMap;
+		Ref<Texture2D> albedoMap;
+		Ref<Texture2D> metallicRoughnessMap;
+		Ref<Texture2D> normalMap;
+		Ref<Texture2D> aoMap;
+		Ref<Texture2D> emissiveMap;
+		Ref<TextureCubemap> environmentMap;
+		Ref<TextureCubemap> irradianceMap;
+		Ref<TextureCubemap> prefilterMap;
+		Ref<Texture2D> brdfLutMap;
 		
 		// Actual shader instead of ID
-		AssetRef<Shader> shader;
+		Ref<Shader> shader;
 		// Per-draw-call render state
-		AssetRef<RenderState> renderState;
+		Ref<RenderState> renderState;
 		// Skinning support for animated meshes
 		bool isSkinnedMesh = false;
 		// For instanced skinned meshes, each instance has its own set of bone matrices
@@ -381,30 +381,30 @@ namespace OloEngine
 	struct DrawSkyboxCommand
 	{
 		CommandHeader header;
-		AssetRef<Mesh> mesh;              // Skybox mesh (special cube)
-		AssetRef<VertexArray> vertexArray; // Store the actual vertex array
+		Ref<Mesh> mesh;              // Skybox mesh (special cube)
+		Ref<VertexArray> vertexArray; // Store the actual vertex array
 		u32 indexCount;
 		glm::mat4 transform;         // Usually identity matrix
-		AssetRef<Shader> shader;          // Skybox shader
-		AssetRef<TextureCubemap> skyboxTexture; // The skybox cubemap texture
-		AssetRef<RenderState> renderState; // Skybox-specific render state
+		Ref<Shader> shader;          // Skybox shader
+		Ref<TextureCubemap> skyboxTexture; // The skybox cubemap texture
+		Ref<RenderState> renderState; // Skybox-specific render state
 	};
 
 	struct DrawQuadCommand
 	{
 		CommandHeader header;
 		glm::mat4 transform;
-		AssetRef<Texture2D> texture;   // Store the actual texture
-		AssetRef<Shader> shader;       // Store the actual shader
-		AssetRef<VertexArray> quadVA;  // Store the quad vertex array
+		Ref<Texture2D> texture;   // Store the actual texture
+		Ref<Shader> shader;       // Store the actual shader
+		Ref<VertexArray> quadVA;  // Store the quad vertex array
 		// Per-draw-call render state
-		AssetRef<RenderState> renderState;
+		Ref<RenderState> renderState;
 	};
 
 	struct DrawSkinnedMeshCommand
 	{
 		CommandHeader header;
-		AssetRef<VertexArray> vertexArray;
+		Ref<VertexArray> vertexArray;
 		u32 indexCount;
 		glm::mat4 modelMatrix;
 		
@@ -415,8 +415,8 @@ namespace OloEngine
 		f32 shininess;
 		bool useTextureMaps;
 		// Legacy texture references
-		AssetRef<Texture2D> diffuseMap;
-		AssetRef<Texture2D> specularMap;
+		Ref<Texture2D> diffuseMap;
+		Ref<Texture2D> specularMap;
 		
 		// PBR material properties
 		bool enablePBR = false;
@@ -429,20 +429,20 @@ namespace OloEngine
 		bool enableIBL = false;
 		
 		// PBR texture references
-		AssetRef<Texture2D> albedoMap;
-		AssetRef<Texture2D> metallicRoughnessMap;
-		AssetRef<Texture2D> normalMap;
-		AssetRef<Texture2D> aoMap;
-		AssetRef<Texture2D> emissiveMap;
-		AssetRef<TextureCubemap> environmentMap;
-		AssetRef<TextureCubemap> irradianceMap;
-		AssetRef<TextureCubemap> prefilterMap;
-		AssetRef<Texture2D> brdfLutMap;
+		Ref<Texture2D> albedoMap;
+		Ref<Texture2D> metallicRoughnessMap;
+		Ref<Texture2D> normalMap;
+		Ref<Texture2D> aoMap;
+		Ref<Texture2D> emissiveMap;
+		Ref<TextureCubemap> environmentMap;
+		Ref<TextureCubemap> irradianceMap;
+		Ref<TextureCubemap> prefilterMap;
+		Ref<Texture2D> brdfLutMap;
 		
 		// Actual shader for skinned rendering
-		AssetRef<Shader> shader;
+		Ref<Shader> shader;
 		// Per-draw-call render state
-		AssetRef<RenderState> renderState;
+		Ref<RenderState> renderState;
 		// Bone matrices for GPU skinning (up to 100 bones)
 		std::vector<glm::mat4> boneMatrices;
 	};    // Maximum command size for allocation purposes - increased for PBR and bone matrices

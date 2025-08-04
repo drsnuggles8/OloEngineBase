@@ -106,7 +106,7 @@ namespace OloEngine
 		s_Data.Stats.Reset();
 		
 		Window& window = Application::Get().GetWindow();
-		s_Data.RGraph = AssetRef<RenderGraph>::Create();
+		s_Data.RGraph = Ref<RenderGraph>::Create();
 		SetupRenderGraph(window.GetFramebufferWidth(), window.GetFramebufferHeight());		
 		OLO_CORE_INFO("Renderer3D initialization complete.");
 	}
@@ -258,7 +258,7 @@ namespace OloEngine
 		s_Data.Stats.Reset();
 	}
 
-	bool Renderer3D::IsVisibleInFrustum(const AssetRef<Mesh>& mesh, const glm::mat4& transform)
+	bool Renderer3D::IsVisibleInFrustum(const Ref<Mesh>& mesh, const glm::mat4& transform)
 	{
 		if (!s_Data.FrustumCullingEnabled)
 			return true;
@@ -269,7 +269,7 @@ namespace OloEngine
 		return s_Data.ViewFrustum.IsBoundingSphereVisible(sphere);
 	}
 	
-	bool Renderer3D::IsVisibleInFrustum(const AssetRef<SkinnedMesh>& mesh, const glm::mat4& transform)
+	bool Renderer3D::IsVisibleInFrustum(const Ref<SkinnedMesh>& mesh, const glm::mat4& transform)
 	{
 		if (!s_Data.FrustumCullingEnabled)
 			return true;
@@ -299,7 +299,7 @@ namespace OloEngine
 		return s_Data.ViewFrustum.IsBoundingBoxVisible(box);
 	}
 
-	CommandPacket* Renderer3D::DrawMesh(const AssetRef<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic)
+	CommandPacket* Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic)
 	{
 		OLO_PROFILE_FUNCTION();
 		if (!s_Data.ScenePass)
@@ -323,7 +323,7 @@ namespace OloEngine
 			return nullptr;
 		}
 		
-		AssetRef<Shader> shaderToUse;
+		Ref<Shader> shaderToUse;
 		if (material.Shader)
 		{
 			shaderToUse = material.Shader;
@@ -381,13 +381,13 @@ namespace OloEngine
 		cmd->brdfLutMap = material.BRDFLutMap;
 		
 		cmd->shader = shaderToUse;
-		cmd->renderState = AssetRef<RenderState>::Create();
+		cmd->renderState = Ref<RenderState>::Create();
 		packet->SetCommandType(cmd->header.type);
 		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
 		return packet;
 	}
 
-	CommandPacket* Renderer3D::DrawQuad(const glm::mat4& modelMatrix, const AssetRef<Texture2D>& texture)
+	CommandPacket* Renderer3D::DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture)
 	{
 		OLO_PROFILE_FUNCTION();
 		if (!s_Data.ScenePass)
@@ -419,13 +419,13 @@ namespace OloEngine
 		cmd->texture = texture;
 		cmd->shader = s_Data.QuadShader;
 		cmd->quadVA = s_Data.QuadMesh->GetVertexArray();
-		cmd->renderState = AssetRef<RenderState>::Create();
+		cmd->renderState = Ref<RenderState>::Create();
 		packet->SetCommandType(cmd->header.type);
 		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
 		return packet;
 	}
 
-	CommandPacket* Renderer3D::DrawMeshInstanced(const AssetRef<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic)
+	CommandPacket* Renderer3D::DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic)
 	{
 		OLO_PROFILE_FUNCTION();
 		if (!s_Data.ScenePass)
@@ -489,7 +489,7 @@ namespace OloEngine
 		cmd->brdfLutMap = material.BRDFLutMap;
 		
 		cmd->shader = material.Shader ? material.Shader : s_Data.LightingShader;
-		cmd->renderState = AssetRef<RenderState>::Create();
+		cmd->renderState = Ref<RenderState>::Create();
 		packet->SetCommandType(cmd->header.type);
 		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
 		return packet;
@@ -540,7 +540,7 @@ namespace OloEngine
 		cmd->prefilterMap = nullptr;
 		cmd->brdfLutMap = nullptr;
 		
-		cmd->renderState = AssetRef<RenderState>::Create();
+		cmd->renderState = Ref<RenderState>::Create();
 		packet->SetCommandType(cmd->header.type);
 		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
 		return packet;
@@ -626,11 +626,11 @@ namespace OloEngine
 		finalPassSpec.Width = width;
 		finalPassSpec.Height = height;
 		
-		s_Data.ScenePass = AssetRef<SceneRenderPass>::Create();
+		s_Data.ScenePass = Ref<SceneRenderPass>::Create();
 		s_Data.ScenePass->SetName("ScenePass");
 		s_Data.ScenePass->Init(scenePassSpec);
 		
-		s_Data.FinalPass = AssetRef<FinalRenderPass>::Create();
+		s_Data.FinalPass = Ref<FinalRenderPass>::Create();
 		s_Data.FinalPass->SetName("FinalPass");
 		s_Data.FinalPass->Init(finalPassSpec);
 		
@@ -660,7 +660,7 @@ namespace OloEngine
 		}
 	}
 
-	CommandPacket* Renderer3D::DrawSkinnedMesh(const AssetRef<SkinnedMesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic)
+	CommandPacket* Renderer3D::DrawSkinnedMesh(const Ref<SkinnedMesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic)
 	{
 		OLO_PROFILE_FUNCTION();
 		
@@ -689,7 +689,7 @@ namespace OloEngine
 			return nullptr;
 		}
 
-		AssetRef<Shader> shaderToUse;
+		Ref<Shader> shaderToUse;
 		if (material.Shader)
 		{
 			shaderToUse = material.Shader;
@@ -759,7 +759,7 @@ namespace OloEngine
 		cmd->brdfLutMap = material.BRDFLutMap;
 		
 		cmd->shader = shaderToUse;
-		cmd->renderState = AssetRef<RenderState>::Create();
+		cmd->renderState = Ref<RenderState>::Create();
 		
 		cmd->boneMatrices = boneMatrices;
 		
@@ -785,17 +785,17 @@ namespace OloEngine
 					if (registry->GetBindingInfo(resourceName) != nullptr)
 					{
 						ShaderResourceInput input;
-						if (std::holds_alternative<AssetRef<UniformBuffer>>(resource))
+						if (std::holds_alternative<Ref<UniformBuffer>>(resource))
 						{
-							input = ShaderResourceInput(std::get<AssetRef<UniformBuffer>>(resource));
+							input = ShaderResourceInput(std::get<Ref<UniformBuffer>>(resource));
 						}
-						else if (std::holds_alternative<AssetRef<Texture2D>>(resource))
+						else if (std::holds_alternative<Ref<Texture2D>>(resource))
 						{
-							input = ShaderResourceInput(std::get<AssetRef<Texture2D>>(resource));
+							input = ShaderResourceInput(std::get<Ref<Texture2D>>(resource));
 						}
-						else if (std::holds_alternative<AssetRef<TextureCubemap>>(resource))
+						else if (std::holds_alternative<Ref<TextureCubemap>>(resource))
 						{
-							input = ShaderResourceInput(std::get<AssetRef<TextureCubemap>>(resource));
+							input = ShaderResourceInput(std::get<Ref<TextureCubemap>>(resource));
 						}
 						
 						if (input.Type != ShaderResourceType::None)
@@ -808,7 +808,7 @@ namespace OloEngine
 		}
 	}
 
-	void Renderer3D::RenderAnimatedMeshes(AssetRef<Scene>& scene, const Material& defaultMaterial)
+	void Renderer3D::RenderAnimatedMeshes(Ref<Scene>& scene, const Material& defaultMaterial)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -923,7 +923,7 @@ namespace OloEngine
 		return m_ShaderLibrary;
 	}
 
-	CommandPacket* Renderer3D::DrawSkybox(const AssetRef<TextureCubemap>& skyboxTexture)
+	CommandPacket* Renderer3D::DrawSkybox(const Ref<TextureCubemap>& skyboxTexture)
 	{
 		if (!s_Data.ScenePass)
 		{
@@ -953,7 +953,7 @@ namespace OloEngine
 		cmd->shader = s_Data.SkyboxShader;
 		cmd->skyboxTexture = skyboxTexture;
 		
-		cmd->renderState = AssetRef<RenderState>::Create();
+		cmd->renderState = Ref<RenderState>::Create();
 		cmd->renderState->Depth.TestEnabled = true;
 		cmd->renderState->Depth.Function = GL_LEQUAL; // Important for skybox
 		cmd->renderState->Depth.WriteMask = false; // Don't write to depth buffer
@@ -994,7 +994,7 @@ namespace OloEngine
 		std::vector<u32> indices = { 0, 1, 2, 2, 3, 0 };
 		
 		// Create temporary mesh for the line
-		auto lineMesh = AssetRef<Mesh>::Create(vertices, indices);
+		auto lineMesh = Ref<Mesh>::Create(vertices, indices);
 		
 		// Use a highly emissive material for skeleton visualization
 		Material material{};

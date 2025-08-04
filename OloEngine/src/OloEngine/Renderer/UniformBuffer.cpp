@@ -5,7 +5,7 @@
 
 namespace OloEngine
 {
-	AssetRef<UniformBuffer> UniformBuffer::Create(u32 size, u32 binding)
+	Ref<UniformBuffer> UniformBuffer::Create(u32 size, u32 binding)
 	{
 		switch (Renderer::GetAPI())
 		{
@@ -16,12 +16,11 @@ namespace OloEngine
 			}
 			case RendererAPI::API::OpenGL:
 			{
-				return AssetRef<UniformBuffer>(new OpenGLUniformBuffer(size, binding));
+				return Ref<UniformBuffer>(new OpenGLUniformBuffer(size, binding));
 			}
 		}
 
 		OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
 		return nullptr;
 	}
-
 }

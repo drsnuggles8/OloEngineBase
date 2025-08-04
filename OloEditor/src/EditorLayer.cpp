@@ -330,7 +330,7 @@ namespace OloEngine
 				}
 				else if (((path.extension() == ".png") || (path.extension() == ".jpeg")) && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
 				{
-					const AssetRef<Texture2D> texture = Texture2D::Create(path.string());
+					const Ref<Texture2D> texture = Texture2D::Create(path.string());
 					if (texture->IsLoaded())
 					{
 						m_HoveredEntity.GetComponent<SpriteRendererComponent>().Texture = texture;
@@ -432,7 +432,7 @@ namespace OloEngine
 		if (hasPlayButton)
 		{
 			using enum OloEngine::EditorLayer::SceneState;
-			AssetRef<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Simulate)) ? m_IconPlay : m_IconStop;
+			Ref<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Simulate)) ? m_IconPlay : m_IconStop;
 			if (ImGui::ImageButton("##play_stop_icon", (u64)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
 			{
 				if ((m_SceneState == Edit) || (m_SceneState == Simulate))
@@ -452,7 +452,7 @@ namespace OloEngine
 				ImGui::SameLine();
 			}
 
-			AssetRef<Texture2D> icon = ((m_SceneState == SceneState::Edit) || (m_SceneState == SceneState::Play)) ? m_IconSimulate : m_IconStop;
+			Ref<Texture2D> icon = ((m_SceneState == SceneState::Edit) || (m_SceneState == SceneState::Play)) ? m_IconSimulate : m_IconStop;
 			if (ImGui::ImageButton("##simulate_stop_icon", (u64)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
 			{
 				using enum OloEngine::EditorLayer::SceneState;
@@ -830,7 +830,7 @@ namespace OloEngine
 			return;
 		}
 
-		AssetRef<Scene> newScene = AssetRef<Scene>::Create();
+		Ref<Scene> newScene = Ref<Scene>::Create();
 		SetEditorScene(newScene);
 		m_EditorScenePath = std::filesystem::path();
 	}
@@ -857,7 +857,7 @@ namespace OloEngine
 			return false;
 		}
 
-		AssetRef<Scene> const newScene = AssetRef<Scene>::Create();
+		Ref<Scene> const newScene = Ref<Scene>::Create();
 		if (SceneSerializer serializer(newScene); !serializer.Deserialize(path.string()))
 		{
 			return false;
@@ -892,7 +892,7 @@ namespace OloEngine
 		}
 	}
 
-	void EditorLayer::SerializeScene(AssetRef<Scene> const scene, const std::filesystem::path& path) const
+	void EditorLayer::SerializeScene(Ref<Scene> const scene, const std::filesystem::path& path) const
 	{
 		const SceneSerializer serializer(scene);
 		serializer.Serialize(path);
@@ -950,7 +950,7 @@ namespace OloEngine
 		m_SceneHierarchyPanel.SetContext(m_ActiveScene);
 	}
 
-	void EditorLayer::SetEditorScene(const AssetRef<Scene>& scene)
+	void EditorLayer::SetEditorScene(const Ref<Scene>& scene)
 	{
 		OLO_CORE_ASSERT(scene, "EditorLayer ActiveScene cannot be null");
 

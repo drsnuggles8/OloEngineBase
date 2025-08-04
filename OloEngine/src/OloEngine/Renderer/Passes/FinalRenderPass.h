@@ -22,16 +22,16 @@ namespace OloEngine
 
         void Init(const FramebufferSpecification& spec) override;
         void Execute() override;
-        [[nodiscard]] AssetRef<Framebuffer> GetTarget() const override;
+        [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
-        void SetInputFramebuffer(const AssetRef<Framebuffer>& input);
-        [[nodiscard]] AssetRef<Framebuffer> GetInputFramebuffer() const;
+        void SetInputFramebuffer(const Ref<Framebuffer>& input);
+        [[nodiscard]] Ref<Framebuffer> GetInputFramebuffer() const;
 
     private:
-        AssetRef<Framebuffer> m_InputFramebuffer;         // The framebuffer to render to the screen
-        AssetRef<Shader> m_BlitShader;                    // Shader for blitting the framebuffer to the screen
-        AssetRef<VertexArray> m_FullscreenTriangleVA;     // Vertex array for the fullscreen triangle
+        Ref<Framebuffer> m_InputFramebuffer;         // The framebuffer to render to the screen
+        Ref<Shader> m_BlitShader;                    // Shader for blitting the framebuffer to the screen
+        Ref<VertexArray> m_FullscreenTriangleVA;     // Vertex array for the fullscreen triangle
     };
 }

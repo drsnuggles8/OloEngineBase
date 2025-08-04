@@ -42,19 +42,19 @@ namespace OloEngine
                            "Environment Map");
     }
 
-    AssetRef<EnvironmentMap> EnvironmentMap::Create(const EnvironmentMapSpecification& spec)
+    Ref<EnvironmentMap> EnvironmentMap::Create(const EnvironmentMapSpecification& spec)
     {
-        return AssetRef<EnvironmentMap>::Create(spec);
+        return Ref<EnvironmentMap>::Create(spec);
     }
 
-    AssetRef<EnvironmentMap> EnvironmentMap::CreateFromCubemap(const AssetRef<TextureCubemap>& cubemap)
+    Ref<EnvironmentMap> EnvironmentMap::CreateFromCubemap(const Ref<TextureCubemap>& cubemap)
     {
         EnvironmentMapSpecification spec;
         spec.Resolution = cubemap->GetWidth();
         spec.Format = ImageFormat::RGB32F;
         spec.GenerateIBL = true;
         
-        auto envMap = AssetRef<EnvironmentMap>::Create(spec);
+        auto envMap = Ref<EnvironmentMap>::Create(spec);
         envMap->m_EnvironmentMap = cubemap;
         
         if (spec.GenerateIBL)
@@ -65,7 +65,7 @@ namespace OloEngine
         return envMap;
     }
 
-    AssetRef<EnvironmentMap> EnvironmentMap::CreateFromEquirectangular(const std::string& filePath)
+    Ref<EnvironmentMap> EnvironmentMap::CreateFromEquirectangular(const std::string& filePath)
     {
         EnvironmentMapSpecification spec;
         spec.FilePath = filePath;
@@ -223,7 +223,7 @@ namespace OloEngine
         GenerateIBLWithConfig(config);
     }
 
-    AssetRef<TextureCubemap> EnvironmentMap::ConvertEquirectangularToCubemap(const std::string& filePath)
+    Ref<TextureCubemap> EnvironmentMap::ConvertEquirectangularToCubemap(const std::string& filePath)
     {
         OLO_PROFILE_FUNCTION();
         

@@ -33,7 +33,7 @@ namespace OloEngine
         // This gives GPU time to process the commands
     }
 
-    AssetRef<UniformBuffer> InflightFrameManager::GetFrameUniformBuffer(const std::string& name, u32 size)
+    Ref<UniformBuffer> InflightFrameManager::GetFrameUniformBuffer(const std::string& name, u32 size)
     {
         auto& currentFrame = m_Frames[m_CurrentFrameIndex];
         

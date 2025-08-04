@@ -24,9 +24,9 @@ namespace OloEngine
      */
     using ShaderResource = std::variant<
         std::monostate,  // Represents "no resource"
-        AssetRef<UniformBuffer>,
-        AssetRef<Texture2D>,
-        AssetRef<TextureCubemap>
+        Ref<UniformBuffer>,
+        Ref<Texture2D>,
+        Ref<TextureCubemap>
     >;
 
     /**
@@ -40,11 +40,11 @@ namespace OloEngine
         
         // Legacy constructors for backward compatibility
         ShaderResourceInput() = default;
-        explicit ShaderResourceInput(AssetRef<UniformBuffer> buffer) 
+        explicit ShaderResourceInput(Ref<UniformBuffer> buffer) 
             : Type(ShaderResourceType::UniformBuffer), Resource(buffer) {}
-        explicit ShaderResourceInput(AssetRef<Texture2D> texture) 
+        explicit ShaderResourceInput(Ref<Texture2D> texture) 
             : Type(ShaderResourceType::Texture2D), Resource(texture) {}
-        explicit ShaderResourceInput(AssetRef<TextureCubemap> texture) 
+        explicit ShaderResourceInput(Ref<TextureCubemap> texture) 
             : Type(ShaderResourceType::TextureCube), Resource(texture) {}
     };
 
@@ -74,7 +74,7 @@ namespace OloEngine
     {
     public:
         ShaderResourceRegistry() = default;
-        explicit ShaderResourceRegistry(const AssetRef<Shader>& shader);
+        explicit ShaderResourceRegistry(const Ref<Shader>& shader);
         ~ShaderResourceRegistry() = default;
 
         // Core functionality
@@ -84,12 +84,12 @@ namespace OloEngine
         /**
          * @brief Set the associated shader for this registry
          */
-        void SetShader(const AssetRef<Shader>& shader) { m_Shader = shader; }
+        void SetShader(const Ref<Shader>& shader) { m_Shader = shader; }
 
         /**
          * @brief Get the associated shader
          */
-        AssetRef<Shader> GetShader() const { return m_Shader; }
+        Ref<Shader> GetShader() const { return m_Shader; }
 
         // Resource discovery from reflection
         /**
@@ -106,13 +106,13 @@ namespace OloEngine
         /**
          * @brief Set a uniform buffer
          */
-        void SetUniformBuffer(const std::string& name, AssetRef<UniformBuffer> buffer);
+        void SetUniformBuffer(const std::string& name, Ref<UniformBuffer> buffer);
 
         /**
          * @brief Set a texture resource
          */
-        void SetTexture(const std::string& name, AssetRef<Texture2D> texture);
-        void SetTexture(const std::string& name, AssetRef<TextureCubemap> texture);
+        void SetTexture(const std::string& name, Ref<Texture2D> texture);
+        void SetTexture(const std::string& name, Ref<TextureCubemap> texture);
 
         /**
          * @brief Generic resource setter (using variant)
@@ -128,7 +128,7 @@ namespace OloEngine
          * @brief Template method for type-safe resource setting
          */
         template<typename T>
-        bool SetResource(const std::string& name, const AssetRef<T>& resource)
+        bool SetResource(const std::string& name, const Ref<T>& resource)
         {
             if constexpr (std::is_same_v<T, UniformBuffer>)
             {
@@ -156,7 +156,7 @@ namespace OloEngine
         /**
          * @brief Get uniform buffer by name
          */
-        AssetRef<UniformBuffer> GetUniformBuffer(const std::string& name) const;
+        Ref<UniformBuffer> GetUniformBuffer(const std::string& name) const;
 
         /**
          * @brief Get texture by name (returns as variant)
@@ -199,7 +199,7 @@ namespace OloEngine
         /**
          * @brief Set frame-in-flight manager for multi-frame buffering
          */
-        void SetInflightFrameManager(AssetRef<InflightFrameManager> manager);
+        void SetInflightFrameManager(Ref<InflightFrameManager> manager);
 
         /**
          * @brief Called at the beginning of each frame
@@ -239,9 +239,9 @@ namespace OloEngine
         bool IsStandardTextureBinding(u32 binding, const std::string& name) const;
 
     private:
-        AssetRef<Shader> m_Shader;
+        Ref<Shader> m_Shader;
         std::unordered_map<std::string, ResourceBinding> m_Bindings;
-        AssetRef<InflightFrameManager> m_FrameManager;
+        Ref<InflightFrameManager> m_FrameManager;
         u32 m_CurrentFrame = 0;
         bool m_Initialized = false;
 

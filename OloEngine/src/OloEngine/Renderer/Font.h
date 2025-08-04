@@ -17,13 +17,12 @@ namespace OloEngine
 		~Font();
 
 		[[nodiscard("Store this!")]] const MSDFData* GetMSDFData() const { return m_Data; }
-		AssetRef<Texture2D> GetAtlasTexture() const { return m_AtlasTexture; }
+		Ref<Texture2D> GetAtlasTexture() const { return m_AtlasTexture; }
 
-		static AssetRef<Font> GetDefault();
-		static AssetRef<Font> Create(const std::filesystem::path& font);
+		static Ref<Font> GetDefault();
+		static Ref<Font> Create(const std::filesystem::path& font);
 	private:
 		MSDFData* m_Data;
-		AssetRef<Texture2D> m_AtlasTexture;
-
+		Ref<Texture2D> m_AtlasTexture;
 	};
 }

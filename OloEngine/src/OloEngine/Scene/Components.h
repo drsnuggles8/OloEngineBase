@@ -67,7 +67,7 @@ namespace OloEngine
 	struct SpriteRendererComponent
 	{
 		glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
-		AssetRef<Texture2D> Texture = nullptr;
+		Ref<Texture2D> Texture = nullptr;
 		f32 TilingFactor = 1.0f;
 
 		SpriteRendererComponent() = default;
@@ -151,7 +151,7 @@ namespace OloEngine
 	struct TextComponent
 	{
 		std::string TextString;
-		AssetRef<Font> FontAsset = Font::GetDefault();
+		Ref<Font> FontAsset = Font::GetDefault();
 		glm::vec4 Color{ 1.0f };
 		f32 Kerning = 0.0f;
 		f32 LineSpacing = 0.0f;
@@ -169,7 +169,7 @@ namespace OloEngine
 	{
 		AudioSourceConfig Config;
 
-		AssetRef<AudioSource> Source = nullptr;
+		Ref<AudioSource> Source = nullptr;
 
 		AudioSourceComponent() = default;
 		AudioSourceComponent(const AudioSourceComponent&) = default;
@@ -180,7 +180,7 @@ namespace OloEngine
 		bool Active = true;
 		AudioListenerConfig Config;
 
-		AssetRef<AudioListener> Listener;
+		Ref<AudioListener> Listener;
 
 		AudioListenerComponent() = default;
 		AudioListenerComponent(const AudioListenerComponent&) = default;
@@ -222,5 +222,4 @@ namespace OloEngine
 		SkeletonComponent,
 		MaterialComponent
 	>;
-
 }

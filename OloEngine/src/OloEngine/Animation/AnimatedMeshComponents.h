@@ -16,12 +16,12 @@ namespace OloEngine
 	// Holds mesh, skeleton, and skinning data for an entity
 	struct AnimatedMeshComponent
 	{
-		AssetRef<SkinnedMesh> m_Mesh;
-		AssetRef<Skeleton> m_Skeleton;
+		Ref<SkinnedMesh> m_Mesh;
+		Ref<Skeleton> m_Skeleton;
 		// Skinning data (bone weights/indices) is part of SkinnedMesh
 
 		AnimatedMeshComponent() = default;
-		AnimatedMeshComponent(const AssetRef<SkinnedMesh>& mesh, const AssetRef<Skeleton>& skeleton)
+		AnimatedMeshComponent(const Ref<SkinnedMesh>& mesh, const Ref<Skeleton>& skeleton)
 			: m_Mesh(mesh), m_Skeleton(skeleton) {}
 	};
 
@@ -39,8 +39,8 @@ namespace OloEngine
 		};
 
 		State m_State = State::Idle;
-		AssetRef<AnimationClip> m_CurrentClip;
-		AssetRef<AnimationClip> m_NextClip; // For blending
+		Ref<AnimationClip> m_CurrentClip;
+		Ref<AnimationClip> m_NextClip; // For blending
 		float m_CurrentTime = 0.0f;
 		float m_NextTime = 0.0f;
 		float m_BlendFactor = 0.0f; // 0 = current, 1 = next
@@ -49,17 +49,17 @@ namespace OloEngine
 		float m_BlendTime = 0.0f;
 
 		AnimationStateComponent() = default;
-		AnimationStateComponent(const AssetRef<AnimationClip>& clip, float time = 0.0f)
+		AnimationStateComponent(const Ref<AnimationClip>& clip, float time = 0.0f)
 			: m_CurrentClip(clip), m_CurrentTime(time) {}
 	};
 
 	// Holds bone hierarchy and transforms for an entity
 	struct SkeletonComponent
 	{
-		AssetRef<Skeleton> m_Skeleton; // Shared skeleton reference
+		Ref<Skeleton> m_Skeleton; // Shared skeleton reference
 		
 		SkeletonComponent() = default;
-		SkeletonComponent(const AssetRef<Skeleton>& skeleton) : m_Skeleton(skeleton) {}
+		SkeletonComponent(const Ref<Skeleton>& skeleton) : m_Skeleton(skeleton) {}
 	};
 
 	/**

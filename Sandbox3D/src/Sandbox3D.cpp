@@ -86,7 +86,7 @@ void Sandbox3D::OnAttach()
     m_SphereMesh = OloEngine::Mesh::CreateSphere();
     
     // Create a plane mesh with the desired geometry
-    m_PlaneMesh = OloEngine::AssetRef<OloEngine::Mesh>::Create(
+    m_PlaneMesh = OloEngine::Ref<OloEngine::Mesh>::Create(
         std::vector<OloEngine::Vertex>{
             // Top face (facing positive Y)  
             { { 12.5f, 0.0f,  12.5f}, { 0.0f, 1.0f, 0.0f}, {1.0f, 1.0f} },
@@ -98,7 +98,7 @@ void Sandbox3D::OnAttach()
     );
 
     // Load backpack model
-    m_BackpackModel = OloEngine::AssetRef<OloEngine::Model>::Create("assets/backpack/backpack.obj");
+    m_BackpackModel = OloEngine::Ref<OloEngine::Model>::Create("assets/backpack/backpack.obj");
 
     // Load textures
     m_DiffuseMap = OloEngine::Texture2D::Create("assets/textures/container2.png");
@@ -176,7 +176,7 @@ void Sandbox3D::OnAttach()
     
     OloEngine::Renderer3D::SetLight(m_Light);
 	
-    m_TestScene = OloEngine::AssetRef<OloEngine::Scene>::Create();
+    m_TestScene = OloEngine::Ref<OloEngine::Scene>::Create();
     m_TestScene->OnRuntimeStart();
     
     LoadTestAnimatedModel();
@@ -997,7 +997,7 @@ void Sandbox3D::RenderModelLoadingUI()
         
         if (ImGui::Button("Reload Model"))
         {
-            m_BackpackModel = OloEngine::AssetRef<OloEngine::Model>::Create("assets/backpack/backpack.obj");
+            m_BackpackModel = OloEngine::Ref<OloEngine::Model>::Create("assets/backpack/backpack.obj");
         }
     }
 }
@@ -1347,7 +1347,7 @@ void Sandbox3D::LoadTestAnimatedModel()
     
     try 
     {
-        m_CesiumManModel = OloEngine::AssetRef<OloEngine::AnimatedModel>::Create(modelPath);
+        m_CesiumManModel = OloEngine::Ref<OloEngine::AnimatedModel>::Create(modelPath);
         
         if (!m_CesiumManModel->HasSkeleton())
         {
@@ -1936,7 +1936,7 @@ void Sandbox3D::LoadTestPBRModel()
     {
         // Load Backpack
         OLO_INFO("Loading Backpack model from: {}", assetPath);
-        m_BackpackModel = OloEngine::AssetRef<OloEngine::Model>::Create(assetPath);
+        m_BackpackModel = OloEngine::Ref<OloEngine::Model>::Create(assetPath);
         m_CerberusModel.Reset(); // Clear other model
     }
     else if (m_SelectedPBRModelIndex == 1)
@@ -1978,7 +1978,7 @@ void Sandbox3D::LoadTestPBRModel()
             return;
         }
         
-        m_CerberusModel = OloEngine::AssetRef<OloEngine::Model>::Create(assetPath, cerberusTextures, true);
+        m_CerberusModel = OloEngine::Ref<OloEngine::Model>::Create(assetPath, cerberusTextures, true);
         m_BackpackModel.Reset();
     }
 }

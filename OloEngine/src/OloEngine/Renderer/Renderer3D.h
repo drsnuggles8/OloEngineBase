@@ -67,13 +67,13 @@ namespace OloEngine
 
 		static void BeginScene(const PerspectiveCamera& camera);
 		static void EndScene();
-		static CommandPacket* DrawMesh(const AssetRef<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
-		static CommandPacket* DrawSkinnedMesh(const AssetRef<SkinnedMesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic = true);
-		static CommandPacket* DrawQuad(const glm::mat4& modelMatrix, const AssetRef<Texture2D>& texture);
-		static CommandPacket* DrawMeshInstanced(const AssetRef<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true);
+		static CommandPacket* DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
+		static CommandPacket* DrawSkinnedMesh(const Ref<SkinnedMesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic = true);
+		static CommandPacket* DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
+		static CommandPacket* DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true);
 		static CommandPacket* DrawLightCube(const glm::mat4& modelMatrix);
 		static CommandPacket* DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
-		static CommandPacket* DrawSkybox(const AssetRef<TextureCubemap>& skyboxTexture);
+		static CommandPacket* DrawSkybox(const Ref<TextureCubemap>& skyboxTexture);
 		
 		// Skeleton visualization
 		static void DrawSkeleton(const Skeleton& skeleton, const glm::mat4& modelMatrix, 
@@ -85,7 +85,7 @@ namespace OloEngine
 										  const glm::vec3& color = glm::vec3(1.0f));
 		
 		// ECS Animated Mesh Rendering
-		static void RenderAnimatedMeshes(AssetRef<Scene>& scene, const Material& defaultMaterial);
+		static void RenderAnimatedMeshes(Ref<Scene>& scene, const Material& defaultMaterial);
 		static void RenderAnimatedMesh(Entity entity, const Material& defaultMaterial);
 	
 		static void SetLight(const Light& light);
@@ -96,8 +96,8 @@ namespace OloEngine
 		static bool IsFrustumCullingEnabled();		static void EnableDynamicCulling(bool enable);
 		static bool IsDynamicCullingEnabled();
 		static const Frustum& GetViewFrustum();
-		static bool IsVisibleInFrustum(const AssetRef<Mesh>& mesh, const glm::mat4& transform);
-		static bool IsVisibleInFrustum(const AssetRef<SkinnedMesh>& mesh, const glm::mat4& transform);
+		static bool IsVisibleInFrustum(const Ref<Mesh>& mesh, const glm::mat4& transform);
+		static bool IsVisibleInFrustum(const Ref<SkinnedMesh>& mesh, const glm::mat4& transform);
 		static bool IsVisibleInFrustum(const BoundingSphere& sphere);
 		static bool IsVisibleInFrustum(const BoundingBox& box);
 		
@@ -112,7 +112,7 @@ namespace OloEngine
 		// Global resource management for scene-wide resources
 		static ShaderResourceRegistry& GetGlobalResourceRegistry() { return s_Data.GlobalResourceRegistry; }
 		template<typename T>
-		static bool SetGlobalResource(const std::string& name, const AssetRef<T>& resource)
+		static bool SetGlobalResource(const std::string& name, const Ref<T>& resource)
 		{
 			return s_Data.GlobalResourceRegistry.SetResource(name, resource);
 		}
@@ -126,7 +126,7 @@ namespace OloEngine
 		
 		// High-level resource setting methods
 		template<typename T>
-		static bool SetShaderResource(u32 shaderID, const std::string& name, const AssetRef<T>& resource)
+		static bool SetShaderResource(u32 shaderID, const std::string& name, const Ref<T>& resource)
 		{
 			auto* registry = GetShaderRegistry(shaderID);
 			if (registry)
@@ -142,7 +142,7 @@ namespace OloEngine
 		
 		// Window resize handling
 		static void OnWindowResize(u32 width, u32 height);
-		static const AssetRef<RenderGraph>& GetRenderGraph() { return s_Data.RGraph; }
+		static const Ref<RenderGraph>& GetRenderGraph() { return s_Data.RGraph; }
 
 		// Shader library access for PBR material shader selection
 		static ShaderLibrary& GetShaderLibrary();
@@ -173,24 +173,24 @@ namespace OloEngine
 	private:
 		struct Renderer3DData
 		{
-			AssetRef<Mesh> CubeMesh;
-			AssetRef<Mesh> QuadMesh;
-			AssetRef<Mesh> SkyboxMesh;
-			AssetRef<Shader> LightCubeShader;
-			AssetRef<Shader> LightingShader;
-			AssetRef<Shader> SkinnedLightingShader;
-			AssetRef<Shader> QuadShader;
-			AssetRef<Shader> PBRShader;
-			AssetRef<Shader> PBRSkinnedShader;
-			AssetRef<Shader> PBRMultiLightShader;
-			AssetRef<Shader> PBRMultiLightSkinnedShader;
-			AssetRef<Shader> SkyboxShader;
-					AssetRef<UniformBuffer> CameraUBO;
-			AssetRef<UniformBuffer> MaterialUBO;
-			AssetRef<UniformBuffer> LightPropertiesUBO;
-			AssetRef<UniformBuffer> MultiLightBuffer;
-			AssetRef<UniformBuffer> BoneMatricesUBO;
-			AssetRef<UniformBuffer> ModelMatrixUBO;
+			Ref<Mesh> CubeMesh;
+			Ref<Mesh> QuadMesh;
+			Ref<Mesh> SkyboxMesh;
+			Ref<Shader> LightCubeShader;
+			Ref<Shader> LightingShader;
+			Ref<Shader> SkinnedLightingShader;
+			Ref<Shader> QuadShader;
+			Ref<Shader> PBRShader;
+			Ref<Shader> PBRSkinnedShader;
+			Ref<Shader> PBRMultiLightShader;
+			Ref<Shader> PBRMultiLightSkinnedShader;
+			Ref<Shader> SkyboxShader;
+					Ref<UniformBuffer> CameraUBO;
+			Ref<UniformBuffer> MaterialUBO;
+			Ref<UniformBuffer> LightPropertiesUBO;
+			Ref<UniformBuffer> MultiLightBuffer;
+			Ref<UniformBuffer> BoneMatricesUBO;
+			Ref<UniformBuffer> ModelMatrixUBO;
 
 			glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
 			glm::mat4 ViewMatrix = glm::mat4(1.0f);
@@ -212,9 +212,9 @@ namespace OloEngine
 			// Shader registry management
 			std::unordered_map<u32, ShaderResourceRegistry*> ShaderRegistries;
 			
-			AssetRef<RenderGraph> RGraph;
-			AssetRef<SceneRenderPass> ScenePass;
-            AssetRef<FinalRenderPass> FinalPass;
+			Ref<RenderGraph> RGraph;
+			Ref<SceneRenderPass> ScenePass;
+            Ref<FinalRenderPass> FinalPass;
 		};
 
 		static Renderer3DData s_Data;

@@ -28,17 +28,17 @@ namespace OloEngine
         void CalculateBounds();
 
         // Create primitive meshes - these return newly created meshes
-        static AssetRef<Mesh> CreateCube();
-        static AssetRef<Mesh> CreateSkyboxCube(); // Special cube for skybox rendering
-        static AssetRef<Mesh> CreateSphere(f32 radius = 1.0f, u32 segments = 16);
-        static AssetRef<Mesh> CreatePlane(f32 width = 1.0f, f32 length = 1.0f);
+        static Ref<Mesh> CreateCube();
+        static Ref<Mesh> CreateSkyboxCube(); // Special cube for skybox rendering
+        static Ref<Mesh> CreateSphere(f32 radius = 1.0f, u32 segments = 16);
+        static Ref<Mesh> CreatePlane(f32 width = 1.0f, f32 length = 1.0f);
 
         // Draw the mesh
         void Draw() const;
 
         [[nodiscard]] const std::vector<Vertex>& GetVertices() const { return m_Vertices; }
         [[nodiscard]] const std::vector<u32>& GetIndices() const { return m_Indices; }
-        [[nodiscard]] const AssetRef<VertexArray>& GetVertexArray() const { return m_VertexArray; }
+        [[nodiscard]] const Ref<VertexArray>& GetVertexArray() const { return m_VertexArray; }
         
         // Bounding volume accessors
         [[nodiscard]] const BoundingBox& GetBoundingBox() const { return m_BoundingBox; }
@@ -56,9 +56,9 @@ namespace OloEngine
         std::vector<Vertex> m_Vertices;
         std::vector<u32> m_Indices;
         
-        AssetRef<VertexArray> m_VertexArray;
-        AssetRef<VertexBuffer> m_VertexBuffer;
-        AssetRef<IndexBuffer> m_IndexBuffer;
+        Ref<VertexArray> m_VertexArray;
+        Ref<VertexBuffer> m_VertexBuffer;
+        Ref<IndexBuffer> m_IndexBuffer;
         
         BoundingBox m_BoundingBox;
         BoundingSphere m_BoundingSphere;

@@ -30,8 +30,8 @@ namespace OloEngine
 		glm::vec3 Specular;
 		f32 Shininess;
 		bool UseTextureMaps = false;
-		AssetRef<Texture2D> DiffuseMap;
-		AssetRef<Texture2D> SpecularMap;
+		Ref<Texture2D> DiffuseMap;
+		Ref<Texture2D> SpecularMap;
 		
 		// PBR material properties
 		glm::vec4 BaseColorFactor = glm::vec4(1.0f);     // Base color (albedo) with alpha
@@ -43,18 +43,18 @@ namespace OloEngine
 		bool EnableIBL = false;                          // Enable IBL
 		
 		// PBR texture maps
-		AssetRef<Texture2D> AlbedoMap;                        // Base color texture
-		AssetRef<Texture2D> MetallicRoughnessMap;             // Metallic-roughness texture (glTF format)
-		AssetRef<Texture2D> NormalMap;                        // Normal map
-		AssetRef<Texture2D> AOMap;                            // Ambient occlusion map
-		AssetRef<Texture2D> EmissiveMap;                      // Emissive map
-		AssetRef<TextureCubemap> EnvironmentMap;              // Environment cubemap
-		AssetRef<TextureCubemap> IrradianceMap;               // Irradiance cubemap
-		AssetRef<TextureCubemap> PrefilterMap;                // Prefiltered environment map
-		AssetRef<Texture2D> BRDFLutMap;                       // BRDF lookup table
+		Ref<Texture2D> AlbedoMap;                        // Base color texture
+		Ref<Texture2D> MetallicRoughnessMap;             // Metallic-roughness texture (glTF format)
+		Ref<Texture2D> NormalMap;                        // Normal map
+		Ref<Texture2D> AOMap;                            // Ambient occlusion map
+		Ref<Texture2D> EmissiveMap;                      // Emissive map
+		Ref<TextureCubemap> EnvironmentMap;              // Environment cubemap
+		Ref<TextureCubemap> IrradianceMap;               // Irradiance cubemap
+		Ref<TextureCubemap> PrefilterMap;                // Prefiltered environment map
+		Ref<Texture2D> BRDFLutMap;                       // BRDF lookup table
 		
 		// General material properties
-		AssetRef<Shader> Shader;
+		Ref<Shader> Shader;
 		glm::vec3 LightPosition = {0.0f, 0.0f, 0.0f};
    		glm::vec3 ViewPosition = {0.0f, 0.0f, 0.0f};
 
@@ -66,7 +66,7 @@ namespace OloEngine
 		 * @return true if resource was set successfully, false otherwise
 		 */
 		template<typename T>
-		bool SetResource(const std::string& name, const AssetRef<T>& resource)
+		bool SetResource(const std::string& name, const Ref<T>& resource)
 		{
 			if (!Shader)
 			{
@@ -307,7 +307,7 @@ namespace OloEngine
 		 * @brief Get the shader associated with this material
 		 * @return Shader reference, or nullptr if no shader is set
 		 */
-		AssetRef<OloEngine::Shader> GetShader() const
+		Ref<OloEngine::Shader> GetShader() const
 		{
 			return Shader;
 		}
@@ -520,10 +520,10 @@ namespace OloEngine
 		/**
 		 * @brief Configure IBL (Image-Based Lighting) for this material
 		 */
-		void ConfigureIBL(const AssetRef<TextureCubemap>& environmentMap,
-			const AssetRef<TextureCubemap>& irradianceMap = nullptr,
-			const AssetRef<TextureCubemap>& prefilterMap = nullptr,
-			const AssetRef<Texture2D>& brdfLutMap = nullptr)
+		void ConfigureIBL(const Ref<TextureCubemap>& environmentMap,
+			const Ref<TextureCubemap>& irradianceMap = nullptr,
+			const Ref<TextureCubemap>& prefilterMap = nullptr,
+			const Ref<Texture2D>& brdfLutMap = nullptr)
 		{
 			EnableIBL = true;
 			EnvironmentMap = environmentMap;

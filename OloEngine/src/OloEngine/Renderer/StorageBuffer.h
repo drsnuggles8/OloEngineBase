@@ -122,13 +122,13 @@ namespace OloEngine
          * @param data Initial data (optional)
          * @param usage Buffer usage pattern
          */
-        static AssetRef<StorageBuffer> Create(u32 size, const void* data = nullptr, BufferUsage usage = BufferUsage::Dynamic);
+        static Ref<StorageBuffer> Create(u32 size, const void* data = nullptr, BufferUsage usage = BufferUsage::Dynamic);
         
         /**
          * @brief Create a storage buffer with typed data
          */
         template<typename T>
-        static AssetRef<StorageBuffer> Create(const T& data, BufferUsage usage = BufferUsage::Dynamic)
+        static Ref<StorageBuffer> Create(const T& data, BufferUsage usage = BufferUsage::Dynamic)
         {
             return Create(sizeof(T), &data, usage);
         }
@@ -137,7 +137,7 @@ namespace OloEngine
          * @brief Create a storage buffer with array data
          */
         template<typename T>
-        static AssetRef<StorageBuffer> Create(const std::vector<T>& data, BufferUsage usage = BufferUsage::Dynamic)
+        static Ref<StorageBuffer> Create(const std::vector<T>& data, BufferUsage usage = BufferUsage::Dynamic)
         {
             return Create(static_cast<u32>(data.size() * sizeof(T)), data.data(), usage);
         }

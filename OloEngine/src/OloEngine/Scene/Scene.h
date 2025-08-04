@@ -25,8 +25,8 @@ namespace OloEngine
 		Scene();
 		~Scene();
 
-		static AssetRef<Scene> Create();
-		static AssetRef<Scene> Copy(const AssetRef<Scene>& other);
+		static Ref<Scene> Create();
+		static Ref<Scene> Copy(const Ref<Scene>& other);
 
 		Entity CreateEntity(const std::string& name = std::string());
 		Entity CreateEntityWithUUID(UUID uuid, const std::string& name = std::string());
@@ -102,5 +102,4 @@ namespace OloEngine
 		friend class SceneSerializer;
 		friend class SceneHierarchyPanel;
 	};
-
 }

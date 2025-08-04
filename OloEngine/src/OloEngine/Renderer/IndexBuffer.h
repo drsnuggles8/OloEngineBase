@@ -17,6 +17,6 @@ namespace OloEngine
 		[[nodiscard("Store this!")]] virtual u32 GetCount() const = 0;
         [[nodiscard("Store this!")]] virtual u32 GetBufferHandle() const = 0;
 
-		static AssetRef<IndexBuffer> Create(u32* indices, u32 size);
+		static Ref<IndexBuffer> Create(u32* indices, u32 size);
 	};
 }

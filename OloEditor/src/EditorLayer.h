@@ -37,7 +37,7 @@ namespace OloEngine
 		void SaveScene();
 		void SaveSceneAs();
 
-		void SerializeScene(AssetRef<Scene> const scene, const std::filesystem::path& path) const;
+		void SerializeScene(Ref<Scene> const scene, const std::filesystem::path& path) const;
 
 		void OnScenePlay();
 		void OnSceneSimulate();
@@ -56,18 +56,18 @@ namespace OloEngine
 		void UI_DebugTools();
 		void UI_ChildPanels();
 
-		void SetEditorScene(const AssetRef<Scene>& scene);
+		void SetEditorScene(const Ref<Scene>& scene);
 		void SyncWindowTitle() const;
 	private:
 		OloEngine::OrthographicCameraController m_CameraController;
 
 		// Temp
-		AssetRef<VertexArray> m_SquareVA;
-		AssetRef<Shader> m_FlatColorShader;
-		AssetRef<Framebuffer> m_Framebuffer;
+		Ref<VertexArray> m_SquareVA;
+		Ref<Shader> m_FlatColorShader;
+		Ref<Framebuffer> m_Framebuffer;
 
-		AssetRef<Scene> m_ActiveScene;
-		AssetRef<Scene> m_EditorScene;
+		Ref<Scene> m_ActiveScene;
+		Ref<Scene> m_EditorScene;
 		std::filesystem::path m_EditorScenePath;
 		Entity m_SquareEntity;
 		Entity m_CameraEntity;
@@ -79,7 +79,7 @@ namespace OloEngine
 
 		EditorCamera m_EditorCamera;
 
-		AssetRef<Texture2D> m_CheckerboardTexture;
+		Ref<Texture2D> m_CheckerboardTexture;
 
 		bool m_ViewportFocused = false;
 		bool m_ViewportHovered = false;
@@ -107,11 +107,11 @@ namespace OloEngine
 		Scope<ContentBrowserPanel> m_ContentBrowserPanel;
 
 		// Editor resources
-		AssetRef<Texture2D> m_IconPlay;
-		AssetRef<Texture2D> m_IconPause;
-		AssetRef<Texture2D> m_IconSimulate;
-		AssetRef<Texture2D> m_IconStep;
-		AssetRef<Texture2D> m_IconStop;
+		Ref<Texture2D> m_IconPlay;
+		Ref<Texture2D> m_IconPause;
+		Ref<Texture2D> m_IconSimulate;
+		Ref<Texture2D> m_IconStep;
+		Ref<Texture2D> m_IconStop;
 	};
 
 }

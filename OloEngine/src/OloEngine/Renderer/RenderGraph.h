@@ -23,7 +23,7 @@ namespace OloEngine
         void Shutdown();
         
         // Only support RenderPass
-        void AddPass(const AssetRef<RenderPass>& pass);
+        void AddPass(const Ref<RenderPass>& pass);
           // Connect two passes in the graph
         void ConnectPass(const std::string& outputPass, const std::string& inputPass);
         
@@ -40,11 +40,11 @@ namespace OloEngine
          * @brief Get all render passes in the graph for debugging or inspection.
          * @return Vector of render passes in the execution order
          */
-        [[nodiscard]] std::vector<AssetRef<RenderPass>> GetAllPasses() const;
+        [[nodiscard]] std::vector<Ref<RenderPass>> GetAllPasses() const;
         
         // Get a pass by name and cast to the requested type
         template<typename T>
-        AssetRef<T> GetPass(const std::string& name)
+        Ref<T> GetPass(const std::string& name)
         {
             if (m_PassLookup.find(name) != m_PassLookup.end())
             {
@@ -68,7 +68,7 @@ namespace OloEngine
         void UpdateDependencyGraph();
         void ResolveFinalPass();
         
-        std::unordered_map<std::string, AssetRef<RenderPass>> m_PassLookup;
+        std::unordered_map<std::string, Ref<RenderPass>> m_PassLookup;
         std::unordered_map<std::string, std::vector<std::string>> m_Dependencies;
         std::unordered_map<std::string, std::vector<std::string>> m_DependentPasses;
         std::vector<std::string> m_PassOrder;

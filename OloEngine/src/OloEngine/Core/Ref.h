@@ -28,59 +28,59 @@ namespace OloEngine
     }
 
     template<typename T>
-    class AssetRef
+    class Ref
     {
     public:
         using element_type = T;
 
         // Constructors
-        AssetRef() : m_Instance(nullptr) {}
+        Ref() : m_Instance(nullptr) {}
         
-        AssetRef(std::nullptr_t) : m_Instance(nullptr) {}
+        Ref(std::nullptr_t) : m_Instance(nullptr) {}
 
-        explicit AssetRef(T* instance) : m_Instance(instance)
+        explicit Ref(T* instance) : m_Instance(instance)
         {
             static_assert(std::is_base_of_v<RefCounted, T>, "Class is not RefCounted!");
             IncRef();
         }
 
-        AssetRef(const AssetRef<T>& other) : m_Instance(other.m_Instance)
+        Ref(const Ref<T>& other) : m_Instance(other.m_Instance)
         {
             IncRef();
         }
 
-        AssetRef(AssetRef<T>&& other) noexcept : m_Instance(other.m_Instance)
+        Ref(Ref<T>&& other) noexcept : m_Instance(other.m_Instance)
         {
             other.m_Instance = nullptr;
         }
 
         template<typename T2>
-        AssetRef(const AssetRef<T2>& other) : m_Instance(static_cast<T*>(other.m_Instance))
+        Ref(const Ref<T2>& other) : m_Instance(static_cast<T*>(other.m_Instance))
         {
             static_assert(std::is_convertible_v<T2*, T*>, "T2* must be convertible to T*");
             IncRef();
         }
 
         template<typename T2>
-        AssetRef(AssetRef<T2>&& other) noexcept : m_Instance(static_cast<T*>(other.m_Instance))
+        Ref(Ref<T2>&& other) noexcept : m_Instance(static_cast<T*>(other.m_Instance))
         {
             static_assert(std::is_convertible_v<T2*, T*>, "T2* must be convertible to T*");
             other.m_Instance = nullptr;
         }
 
-        ~AssetRef()
+        ~Ref()
         {
             DecRef();
         }
 
         // Assignment operators
-        AssetRef& operator=(std::nullptr_t)
+        Ref& operator=(std::nullptr_t)
         {
             Reset();
             return *this;
         }
 
-        AssetRef& operator=(const AssetRef<T>& other)
+        Ref& operator=(const Ref<T>& other)
         {
             if (this != &other)
             {
@@ -102,7 +102,7 @@ namespace OloEngine
             return *this;
         }
 
-        AssetRef& operator=(AssetRef<T>&& other) noexcept
+        Ref& operator=(Ref<T>&& other) noexcept
         {
             if (this != &other)
             {
@@ -114,7 +114,7 @@ namespace OloEngine
         }
 
         template<typename T2>
-        AssetRef& operator=(const AssetRef<T2>& other)
+        Ref& operator=(const Ref<T2>& other)
         {
             static_assert(std::is_convertible_v<T2*, T*>, "T2* must be convertible to T*");
             T* oldInstance = m_Instance;
@@ -133,7 +133,7 @@ namespace OloEngine
         }
 
         template<typename T2>
-        AssetRef& operator=(AssetRef<T2>&& other) noexcept
+        Ref& operator=(Ref<T2>&& other) noexcept
         {
             static_assert(std::is_convertible_v<T2*, T*>, "T2* must be convertible to T*");
             DecRef();
@@ -164,34 +164,34 @@ namespace OloEngine
 
         // Casting
         template<typename T2>
-        AssetRef<T2> As() const
+        Ref<T2> As() const
         {
-            return AssetRef<T2>(*this);
+            return Ref<T2>(*this);
         }
 
         // Factory
         template<typename... Args>
-        static AssetRef<T> Create(Args&&... args)
+        static Ref<T> Create(Args&&... args)
         {
 #if OLO_TRACK_MEMORY && defined(OLO_PLATFORM_WINDOWS)
-            return AssetRef<T>(new(typeid(T).name()) T(std::forward<Args>(args)...));
+            return Ref<T>(new(typeid(T).name()) T(std::forward<Args>(args)...));
 #else
-            return AssetRef<T>(new T(std::forward<Args>(args)...));
+            return Ref<T>(new T(std::forward<Args>(args)...));
 #endif
         }
 
         // Comparison
-        bool operator==(const AssetRef<T>& other) const
+        bool operator==(const Ref<T>& other) const
         {
             return m_Instance == other.m_Instance;
         }
 
-        bool operator!=(const AssetRef<T>& other) const
+        bool operator!=(const Ref<T>& other) const
         {
             return !(*this == other);
         }
 
-        bool EqualsObject(const AssetRef<T>& other)
+        bool EqualsObject(const Ref<T>& other)
         {
             if (!m_Instance || !other.m_Instance)
                 return false;
@@ -225,20 +225,20 @@ namespace OloEngine
         }
 
         template<class T2>
-        friend class AssetRef;
+        friend class Ref;
         
         mutable T* m_Instance;
     };
     
     template<typename T>
-    class WeakAssetRef
+    class WeakRef
     {
     public:
-        WeakAssetRef() = default;
+        WeakRef() = default;
 
-        WeakAssetRef(const AssetRef<T>& ref) : m_Instance(const_cast<T*>(ref.Raw())) {}
+        WeakRef(const Ref<T>& ref) : m_Instance(const_cast<T*>(ref.Raw())) {}
 
-        explicit WeakAssetRef(T* instance) : m_Instance(instance) {}
+        explicit WeakRef(T* instance) : m_Instance(instance) {}
 
         T* operator->() { return m_Instance; }
         const T* operator->() const { return m_Instance; }
@@ -249,28 +249,35 @@ namespace OloEngine
         bool IsValid() const { return m_Instance ? RefUtils::IsLive(m_Instance) : false; }
         operator bool() const { return IsValid(); }
 
-        AssetRef<T> Lock() const
+        Ref<T> Lock() const
         {
             if (IsValid())
-                return AssetRef<T>(m_Instance);
+                return Ref<T>(m_Instance);
             return nullptr;
         }
 
         template<typename T2>
-        WeakAssetRef<T2> As() const
+        WeakRef<T2> As() const
         {
-            return WeakAssetRef<T2>(dynamic_cast<T2*>(m_Instance));
+            return WeakRef<T2>(dynamic_cast<T2*>(m_Instance));
         }
 
     private:
         T* m_Instance = nullptr;
     };
 
-    // Convenience aliases for when you eventually want to transition
+    // Convenience aliases for backward compatibility
     template<typename T>
-    using AssetPtr = AssetRef<T>;
+    using AssetRef = Ref<T>;
     
     template<typename T>
-    using WeakAssetPtr = WeakAssetRef<T>;
+    using WeakAssetRef = WeakRef<T>;
+
+    // Additional aliases
+    template<typename T>
+    using AssetPtr = Ref<T>;
+    
+    template<typename T>
+    using WeakAssetPtr = WeakRef<T>;
 
 }

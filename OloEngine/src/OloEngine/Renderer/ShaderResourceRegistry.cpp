@@ -12,7 +12,7 @@
 
 namespace OloEngine
 {
-    ShaderResourceRegistry::ShaderResourceRegistry(const AssetRef<Shader>& shader)
+    ShaderResourceRegistry::ShaderResourceRegistry(const Ref<Shader>& shader)
         : m_Shader(shader)
     {
     }
@@ -173,7 +173,7 @@ namespace OloEngine
                       reflection.GetUniformBlocks().size(), reflection.GetTextures().size());
     }
 
-    void ShaderResourceRegistry::SetUniformBuffer(const std::string& name, AssetRef<UniformBuffer> buffer)
+    void ShaderResourceRegistry::SetUniformBuffer(const std::string& name, Ref<UniformBuffer> buffer)
     {
         auto it = m_Bindings.find(name);
         if (it != m_Bindings.end())
@@ -187,7 +187,7 @@ namespace OloEngine
         }
     }
 
-    void ShaderResourceRegistry::SetTexture(const std::string& name, AssetRef<Texture2D> texture)
+    void ShaderResourceRegistry::SetTexture(const std::string& name, Ref<Texture2D> texture)
     {
         auto it = m_Bindings.find(name);
         if (it != m_Bindings.end())
@@ -201,7 +201,7 @@ namespace OloEngine
         }
     }
 
-    void ShaderResourceRegistry::SetTexture(const std::string& name, AssetRef<TextureCubemap> texture)
+    void ShaderResourceRegistry::SetTexture(const std::string& name, Ref<TextureCubemap> texture)
     {
         auto it = m_Bindings.find(name);
         if (it != m_Bindings.end())
@@ -244,14 +244,14 @@ namespace OloEngine
         }
     }
 
-    AssetRef<UniformBuffer> ShaderResourceRegistry::GetUniformBuffer(const std::string& name) const
+    Ref<UniformBuffer> ShaderResourceRegistry::GetUniformBuffer(const std::string& name) const
     {
         auto it = m_Bindings.find(name);
         if (it != m_Bindings.end())
         {
-            if (std::holds_alternative<AssetRef<UniformBuffer>>(it->second.Resource))
+            if (std::holds_alternative<Ref<UniformBuffer>>(it->second.Resource))
             {
-                return std::get<AssetRef<UniformBuffer>>(it->second.Resource);
+                return std::get<Ref<UniformBuffer>>(it->second.Resource);
             }
         }
         return nullptr;
@@ -344,7 +344,7 @@ namespace OloEngine
         return it != m_Bindings.end() ? &it->second : nullptr;
     }
 
-    void ShaderResourceRegistry::SetInflightFrameManager(AssetRef<InflightFrameManager> manager)
+    void ShaderResourceRegistry::SetInflightFrameManager(Ref<InflightFrameManager> manager)
     {
         m_FrameManager = manager;
     }
@@ -380,9 +380,9 @@ namespace OloEngine
     // Helper methods
     void ShaderResourceRegistry::BindUniformBuffer(const ResourceBinding& binding)
     {
-        if (std::holds_alternative<AssetRef<UniformBuffer>>(binding.Resource))
+        if (std::holds_alternative<Ref<UniformBuffer>>(binding.Resource))
         {
-            auto buffer = std::get<AssetRef<UniformBuffer>>(binding.Resource);
+            auto buffer = std::get<Ref<UniformBuffer>>(binding.Resource);
             if (buffer)
             {
                 glBindBufferBase(GL_UNIFORM_BUFFER, binding.BindingPoint, buffer->GetRendererID());
@@ -392,17 +392,17 @@ namespace OloEngine
 
     void ShaderResourceRegistry::BindTexture(const ResourceBinding& binding)
     {
-        if (std::holds_alternative<AssetRef<Texture2D>>(binding.Resource))
+        if (std::holds_alternative<Ref<Texture2D>>(binding.Resource))
         {
-            auto texture = std::get<AssetRef<Texture2D>>(binding.Resource);
+            auto texture = std::get<Ref<Texture2D>>(binding.Resource);
             if (texture)
             {
                 texture->Bind(binding.BindingPoint);
             }
         }
-        else if (std::holds_alternative<AssetRef<TextureCubemap>>(binding.Resource))
+        else if (std::holds_alternative<Ref<TextureCubemap>>(binding.Resource))
         {
-            auto texture = std::get<AssetRef<TextureCubemap>>(binding.Resource);
+            auto texture = std::get<Ref<TextureCubemap>>(binding.Resource);
             if (texture)
             {
                 texture->Bind(binding.BindingPoint);
@@ -418,19 +418,19 @@ namespace OloEngine
 
     u32 ResourceBinding::GetHandle() const
     {
-        if (std::holds_alternative<AssetRef<UniformBuffer>>(Resource))
+        if (std::holds_alternative<Ref<UniformBuffer>>(Resource))
         {
-            auto buffer = std::get<AssetRef<UniformBuffer>>(Resource);
+            auto buffer = std::get<Ref<UniformBuffer>>(Resource);
             return buffer ? buffer->GetRendererID() : 0;
         }
-        else if (std::holds_alternative<AssetRef<Texture2D>>(Resource))
+        else if (std::holds_alternative<Ref<Texture2D>>(Resource))
         {
-            auto texture = std::get<AssetRef<Texture2D>>(Resource);
+            auto texture = std::get<Ref<Texture2D>>(Resource);
             return texture ? texture->GetRendererID() : 0;
         }
-        else if (std::holds_alternative<AssetRef<TextureCubemap>>(Resource))
+        else if (std::holds_alternative<Ref<TextureCubemap>>(Resource))
         {
-            auto texture = std::get<AssetRef<TextureCubemap>>(Resource);
+            auto texture = std::get<Ref<TextureCubemap>>(Resource);
             return texture ? texture->GetRendererID() : 0;
         }
         return 0;

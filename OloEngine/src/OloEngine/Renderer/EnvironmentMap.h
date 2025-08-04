@@ -61,15 +61,15 @@ namespace OloEngine
         static void InitializeIBLSystem(ShaderLibrary& shaderLibrary);
 
         // Load environment map from HDR file
-        static AssetRef<EnvironmentMap> Create(const EnvironmentMapSpecification& spec);
-        static AssetRef<EnvironmentMap> CreateFromCubemap(const AssetRef<TextureCubemap>& cubemap);
-        static AssetRef<EnvironmentMap> CreateFromEquirectangular(const std::string& filePath);
+        static Ref<EnvironmentMap> Create(const EnvironmentMapSpecification& spec);
+        static Ref<EnvironmentMap> CreateFromCubemap(const Ref<TextureCubemap>& cubemap);
+        static Ref<EnvironmentMap> CreateFromEquirectangular(const std::string& filePath);
 
         // Get textures
-        const AssetRef<TextureCubemap>& GetEnvironmentMap() const { return m_EnvironmentMap; }
-        const AssetRef<TextureCubemap>& GetIrradianceMap() const { return m_IrradianceMap; }
-        const AssetRef<TextureCubemap>& GetPrefilterMap() const { return m_PrefilterMap; }
-        const AssetRef<Texture2D>& GetBRDFLutMap() const { return m_BRDFLutMap; }
+        const Ref<TextureCubemap>& GetEnvironmentMap() const { return m_EnvironmentMap; }
+        const Ref<TextureCubemap>& GetIrradianceMap() const { return m_IrradianceMap; }
+        const Ref<TextureCubemap>& GetPrefilterMap() const { return m_PrefilterMap; }
+        const Ref<Texture2D>& GetBRDFLutMap() const { return m_BRDFLutMap; }
 
         // Check if IBL is available
         bool HasIBL() const { return m_IrradianceMap && m_PrefilterMap && m_BRDFLutMap; }
@@ -96,14 +96,14 @@ namespace OloEngine
         void GeneratePrefilterMapWithConfig(const IBLConfiguration& config);
         void GenerateBRDFLutWithConfig(const IBLConfiguration& config);
 
-        AssetRef<TextureCubemap> ConvertEquirectangularToCubemap(const std::string& filePath);
+        Ref<TextureCubemap> ConvertEquirectangularToCubemap(const std::string& filePath);
 
     private:
         EnvironmentMapSpecification m_Specification;
-        AssetRef<TextureCubemap> m_EnvironmentMap;
-        AssetRef<TextureCubemap> m_IrradianceMap;
-        AssetRef<TextureCubemap> m_PrefilterMap;
-        AssetRef<Texture2D> m_BRDFLutMap;
+        Ref<TextureCubemap> m_EnvironmentMap;
+        Ref<TextureCubemap> m_IrradianceMap;
+        Ref<TextureCubemap> m_PrefilterMap;
+        Ref<Texture2D> m_BRDFLutMap;
         
         // Static shader library for IBL operations
         static ShaderLibrary* s_ShaderLibrary;

@@ -26,7 +26,7 @@ namespace OloEngine
 
         void Init(const FramebufferSpecification& spec) override;
         void Execute() override;
-        [[nodiscard]] AssetRef<Framebuffer> GetTarget() const override;
+        [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;

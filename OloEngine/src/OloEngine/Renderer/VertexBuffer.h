@@ -22,7 +22,7 @@ namespace OloEngine
 
 		[[nodiscard("Store this!")]] virtual u32 GetBufferHandle() const = 0;
 
-		static AssetRef<VertexBuffer> Create(u32 size);
-		static AssetRef<VertexBuffer> Create(f32* vertices, u32 size);
+		static Ref<VertexBuffer> Create(u32 size);
+		static Ref<VertexBuffer> Create(f32* vertices, u32 size);
 	};
 }

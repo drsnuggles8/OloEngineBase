@@ -42,6 +42,6 @@ namespace OloEngine
 		// Post-processing resources
 		u32 m_PostProcessVAO = 0;
 		u32 m_PostProcessVBO = 0;
-		AssetRef<class Shader> m_PostProcessShader;
+		Ref<class Shader> m_PostProcessShader;
 	};
 }

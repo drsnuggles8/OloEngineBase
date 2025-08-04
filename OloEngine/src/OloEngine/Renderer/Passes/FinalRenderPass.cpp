@@ -44,7 +44,7 @@ namespace OloEngine
         // Create vertex array
         m_FullscreenTriangleVA = VertexArray::Create();
         
-        AssetRef<VertexBuffer> vertexBuffer = VertexBuffer::Create(
+        Ref<VertexBuffer> vertexBuffer = VertexBuffer::Create(
             reinterpret_cast<f32*>(vertices), 
             static_cast<u32>(sizeof(vertices))
         );
@@ -54,7 +54,7 @@ namespace OloEngine
             { ShaderDataType::Float2, "a_TexCoord" }
         });
         
-        AssetRef<IndexBuffer> indexBuffer = IndexBuffer::Create(indices, 3);
+        Ref<IndexBuffer> indexBuffer = IndexBuffer::Create(indices, 3);
         
         m_FullscreenTriangleVA->AddVertexBuffer(vertexBuffer);
         m_FullscreenTriangleVA->SetIndexBuffer(indexBuffer);
@@ -68,7 +68,7 @@ namespace OloEngine
 				m_FramebufferSpec.Width, m_FramebufferSpec.Height);
     }
 
-    void FinalRenderPass::SetInputFramebuffer(const AssetRef<Framebuffer>& input) 
+    void FinalRenderPass::SetInputFramebuffer(const Ref<Framebuffer>& input) 
     { 
         m_InputFramebuffer = input; 
     }
@@ -107,12 +107,12 @@ namespace OloEngine
         RenderCommand::DrawIndexed(m_FullscreenTriangleVA);
     }
 
-    AssetRef<Framebuffer> FinalRenderPass::GetTarget() const
+    Ref<Framebuffer> FinalRenderPass::GetTarget() const
     {
         return m_Target;
     }
 
-    AssetRef<Framebuffer> FinalRenderPass::GetInputFramebuffer() const
+    Ref<Framebuffer> FinalRenderPass::GetInputFramebuffer() const
     {
         return m_InputFramebuffer;
     }
@@ -149,6 +149,5 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         
         // TODO: Recreate the fullscreen triangle and shader if needed
-    }
-        
+    }        
 }

@@ -28,7 +28,7 @@ namespace OloEngine
 
         virtual void Init(const FramebufferSpecification& spec) = 0;
         virtual void Execute() = 0;
-        [[nodiscard]] virtual AssetRef<Framebuffer> GetTarget() const = 0;
+        [[nodiscard]] virtual Ref<Framebuffer> GetTarget() const = 0;
 
         void SetName(std::string_view name) { m_Name = name; }
         [[nodiscard]] const std::string& GetName() const { return m_Name; }
@@ -56,7 +56,7 @@ namespace OloEngine
         CommandBucket& GetCommandBucket() { return m_CommandBucket; }
     protected:
         std::string m_Name = "RenderPass";
-        AssetRef<Framebuffer> m_Target;
+        Ref<Framebuffer> m_Target;
         FramebufferSpecification m_FramebufferSpec;
         CommandBucket m_CommandBucket;
         Scope<CommandAllocator> m_OwnedAllocator;

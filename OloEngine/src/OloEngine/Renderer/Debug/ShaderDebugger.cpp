@@ -59,7 +59,7 @@ namespace OloEngine
         OLO_CORE_INFO("Shader Debugger shutdown complete");
     }
     
-    void ShaderDebugger::RegisterShader(const AssetRef<Shader>& shader)
+    void ShaderDebugger::RegisterShader(const Ref<Shader>& shader)
     {
         if (!m_IsInitialized || !shader)
         {

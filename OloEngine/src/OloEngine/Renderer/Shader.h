@@ -39,7 +39,7 @@ namespace OloEngine
 		virtual ShaderResourceRegistry* GetResourceRegistry() = 0;
 		virtual const ShaderResourceRegistry* GetResourceRegistry() const = 0;
 
-		static AssetRef<Shader> Create(const std::string& filepath);
-		static AssetRef<Shader> Create(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc);
+		static Ref<Shader> Create(const std::string& filepath);
+		static Ref<Shader> Create(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc);
 	};
 }

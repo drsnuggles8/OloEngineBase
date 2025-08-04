@@ -6,7 +6,7 @@
 
 namespace OloEngine
 {
-	AssetRef<Shader> Shader::Create(const std::string& filepath)
+	Ref<Shader> Shader::Create(const std::string& filepath)
 	{
 		switch (Renderer::GetAPI())
 		{
@@ -17,7 +17,7 @@ namespace OloEngine
 			}
 			case RendererAPI::API::OpenGL:
 			{
-				auto shader = AssetRef<OpenGLShader>::Create(filepath);
+				auto shader = Ref<OpenGLShader>::Create(filepath);
 				// Initialize the resource registry after construction
 				static_cast<OpenGLShader*>(shader.Raw())->InitializeResourceRegistry(shader);
 				return shader;
@@ -28,7 +28,7 @@ namespace OloEngine
 		return nullptr;
 	}
 
-	AssetRef<Shader> Shader::Create(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc)
+	Ref<Shader> Shader::Create(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc)
 	{
 		switch (Renderer::GetAPI())
 		{
@@ -39,7 +39,7 @@ namespace OloEngine
 			}
 			case RendererAPI::API::OpenGL:
 			{
-				auto shader = AssetRef<OpenGLShader>::Create(name, vertexSrc, fragmentSrc);
+				auto shader = Ref<OpenGLShader>::Create(name, vertexSrc, fragmentSrc);
 				// Initialize the resource registry after construction
 				static_cast<OpenGLShader*>(shader.Raw())->InitializeResourceRegistry(shader);
 				return shader;

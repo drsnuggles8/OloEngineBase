@@ -86,7 +86,7 @@ private:
 	OloEngine::Material& GetCurrentAnimatedModelMaterial();
 
 	// ECS Scene for model testing
-	OloEngine::AssetRef<OloEngine::Scene> m_TestScene;
+	OloEngine::Ref<OloEngine::Scene> m_TestScene;
 	OloEngine::Entity m_ImportedModelEntity;
 
 	// Model selection
@@ -159,19 +159,19 @@ private:
 	OloEngine::PerspectiveCameraController m_CameraController;
 
 	// Mesh objects
-	OloEngine::AssetRef<OloEngine::Mesh> m_CubeMesh;
-	OloEngine::AssetRef<OloEngine::Mesh> m_SphereMesh;
-	OloEngine::AssetRef<OloEngine::Mesh> m_PlaneMesh;
+	OloEngine::Ref<OloEngine::Mesh> m_CubeMesh;
+	OloEngine::Ref<OloEngine::Mesh> m_SphereMesh;
+	OloEngine::Ref<OloEngine::Mesh> m_PlaneMesh;
 	
 	// Model objects
-	OloEngine::AssetRef<OloEngine::Model> m_BackpackModel;
-	OloEngine::AssetRef<OloEngine::AnimatedModel> m_CesiumManModel;
-	OloEngine::AssetRef<OloEngine::Model> m_CerberusModel;
+	OloEngine::Ref<OloEngine::Model> m_BackpackModel;
+	OloEngine::Ref<OloEngine::AnimatedModel> m_CesiumManModel;
+	OloEngine::Ref<OloEngine::Model> m_CerberusModel;
 	
 	// Texture resources
-	OloEngine::AssetRef<OloEngine::Texture2D> m_DiffuseMap;
-	OloEngine::AssetRef<OloEngine::Texture2D> m_SpecularMap;
-	OloEngine::AssetRef<OloEngine::Texture2D> m_GrassTexture;
+	OloEngine::Ref<OloEngine::Texture2D> m_DiffuseMap;
+	OloEngine::Ref<OloEngine::Texture2D> m_SpecularMap;
+	OloEngine::Ref<OloEngine::Texture2D> m_GrassTexture;
 
 	// Rotation animation state
 	f32 m_RotationAngleY = 0.0f;
@@ -192,7 +192,7 @@ private:
 	OloEngine::Material m_PBRSmoothMaterial;
 	
 	// Environment map for IBL
-	OloEngine::AssetRef<OloEngine::EnvironmentMap> m_EnvironmentMap;
+	OloEngine::Ref<OloEngine::EnvironmentMap> m_EnvironmentMap;
 
 	// Light properties (global for lighting test scene)
 	OloEngine::Light m_Light;

@@ -31,9 +31,9 @@ namespace OloEngine
 	Scene::Scene()
 	= default;
 
-	AssetRef<Scene> Scene::Create()
+	Ref<Scene> Scene::Create()
 	{
-		return AssetRef<Scene>(new Scene());
+		return Ref<Scene>(new Scene());
 	}
 
 	Scene::~Scene()
@@ -85,9 +85,9 @@ namespace OloEngine
 		CopyComponentIfExists<Component...>(dst, src);
 	}
 
-	AssetRef<Scene> Scene::Copy(AssetRef<Scene> const& other)
+	Ref<Scene> Scene::Copy(Ref<Scene> const& other)
 	{
-		AssetRef<Scene> newScene = AssetRef<Scene>::Create();
+		Ref<Scene> newScene = Ref<Scene>::Create();
 
 		newScene->m_ViewportWidth = other->m_ViewportWidth;
 		newScene->m_ViewportHeight = other->m_ViewportHeight;
@@ -151,7 +151,7 @@ namespace OloEngine
 
 		for (auto listenerView = m_Registry.group<AudioListenerComponent>(entt::get<TransformComponent>); auto&& [e, ac, tc] : listenerView.each())
 		{
-			ac.Listener = AssetRef<AudioListener>::Create();
+			ac.Listener = Ref<AudioListener>::Create();
 			if (ac.Active)
 			{
 				const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());

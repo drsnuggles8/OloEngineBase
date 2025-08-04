@@ -10,7 +10,7 @@
 
 namespace OloEngine
 {	template<typename T, typename S, int N, msdf_atlas::GeneratorFunction<S, N> GenFunc>
-	static AssetRef<Texture2D> CreateAndCacheAtlas(const std::string_view /*fontName*/, f32 /*fontSize*/, const std::vector<msdf_atlas::GlyphGeometry>& glyphs,
+	static Ref<Texture2D> CreateAndCacheAtlas(const std::string_view /*fontName*/, f32 /*fontSize*/, const std::vector<msdf_atlas::GlyphGeometry>& glyphs,
 		const msdf_atlas::FontGeometry& /*fontGeometry*/, u32 width, u32 height)
 	{
 		msdf_atlas::GeneratorAttributes attributes;
@@ -29,7 +29,7 @@ namespace OloEngine
 		spec.Format = ImageFormat::RGB8;
 		spec.GenerateMips = false;
 
-		AssetRef<Texture2D> texture = Texture2D::Create(spec);
+		Ref<Texture2D> texture = Texture2D::Create(spec);
 		texture->SetData((void*)bitmap.pixels, bitmap.width * bitmap.height * 3);
 		return texture;
 	}
@@ -130,9 +130,9 @@ namespace OloEngine
 		delete m_Data;
 	}
 
-	AssetRef<Font> Font::GetDefault()
+	Ref<Font> Font::GetDefault()
 	{
-		static AssetRef<Font> DefaultFont;
+		static Ref<Font> DefaultFont;
 		if (!DefaultFont)
 		{
 			DefaultFont = Font::Create("C:/Windows/Fonts/arial.ttf");
@@ -142,10 +142,8 @@ namespace OloEngine
 		return DefaultFont;
 	}
 
-	AssetRef<Font> Font::Create(const std::filesystem::path& font)
+	Ref<Font> Font::Create(const std::filesystem::path& font)
 	{
-		return AssetRef<Font>(new Font(font));
+		return Ref<Font>(new Font(font));
 	}
-
-
 }

@@ -47,5 +47,4 @@ namespace OloEngine
 
 		f32 m_AspectRatio = 0.0f;
 	};
-
 }

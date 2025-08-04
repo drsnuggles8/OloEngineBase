@@ -29,22 +29,22 @@ namespace OloEngine
             s_RendererAPI->Clear();
         }
 
-        static void DrawArrays(const AssetRef<VertexArray>& vertexArray, u32 vertexCount)
+        static void DrawArrays(const Ref<VertexArray>& vertexArray, u32 vertexCount)
         {
             s_RendererAPI->DrawArrays(vertexArray, vertexCount);
         }
 
-        static void DrawIndexed(const AssetRef<VertexArray>& vertexArray, const u32 indexCount = 0)
+        static void DrawIndexed(const Ref<VertexArray>& vertexArray, const u32 indexCount = 0)
         {
             s_RendererAPI->DrawIndexed(vertexArray, indexCount);
         }
 
-        static void DrawIndexedInstanced(const AssetRef<VertexArray>& vertexArray, const u32 indexCount = 0, const u32 instanceCount = 1)
+        static void DrawIndexedInstanced(const Ref<VertexArray>& vertexArray, const u32 indexCount = 0, const u32 instanceCount = 1)
         {
             s_RendererAPI->DrawIndexedInstanced(vertexArray, indexCount, instanceCount);
         }
 
-        static void DrawLines(const AssetRef<VertexArray>& vertexArray, const u32 vertexCount)
+        static void DrawLines(const Ref<VertexArray>& vertexArray, const u32 vertexCount)
         {
             s_RendererAPI->DrawLines(vertexArray, vertexCount);
         }

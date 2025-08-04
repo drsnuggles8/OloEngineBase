@@ -81,4 +81,4 @@ namespace OloEngine
     {
         return IsBoxVisible(box.Min, box.Max);
     }
-} 
+}

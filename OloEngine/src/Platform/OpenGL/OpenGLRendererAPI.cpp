@@ -62,13 +62,13 @@ namespace OloEngine
 		glClear(clearFlags);
 	}
 
-	void OpenGLRendererAPI::DrawArrays(const AssetRef<VertexArray>& vertexArray, u32 vertexCount)
+	void OpenGLRendererAPI::DrawArrays(const Ref<VertexArray>& vertexArray, u32 vertexCount)
 	{
 		OLO_PROFILE_FUNCTION();
 
 		vertexArray->Bind();
 		glDrawArrays(GL_TRIANGLE_FAN, 0, static_cast<GLsizei>(vertexCount));
-	}	void OpenGLRendererAPI::DrawIndexed(const AssetRef<VertexArray>& vertexArray, const u32 indexCount)
+	}	void OpenGLRendererAPI::DrawIndexed(const Ref<VertexArray>& vertexArray, const u32 indexCount)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -80,7 +80,7 @@ namespace OloEngine
 		RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
 		RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::TrianglesRendered, count / 3);
 		RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::VerticesRendered, count);
-	}	void OpenGLRendererAPI::DrawIndexedInstanced(const AssetRef<VertexArray>& vertexArray, const u32 indexCount, const u32 instanceCount)
+	}	void OpenGLRendererAPI::DrawIndexedInstanced(const Ref<VertexArray>& vertexArray, const u32 indexCount, const u32 instanceCount)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -93,7 +93,7 @@ namespace OloEngine
 		RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::TrianglesRendered, (count / 3) * instanceCount);
 		RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::VerticesRendered, count * instanceCount);
 	}
-	void OpenGLRendererAPI::DrawLines(const AssetRef<VertexArray>& vertexArray, const u32 vertexCount)
+	void OpenGLRendererAPI::DrawLines(const Ref<VertexArray>& vertexArray, const u32 vertexCount)
 	{
 		OLO_PROFILE_FUNCTION();
 

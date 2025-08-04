@@ -64,6 +64,6 @@ namespace OloEngine
 			return result;
 		}
 
-		static AssetRef<UniformBuffer> Create(u32 size, u32 binding);
+		static Ref<UniformBuffer> Create(u32 size, u32 binding);
 	};
 }

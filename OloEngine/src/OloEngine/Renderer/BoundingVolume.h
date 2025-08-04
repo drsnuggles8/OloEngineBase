@@ -153,4 +153,4 @@ namespace OloEngine
             return BoundingSphere(newCenter, newRadius);
         }
     };
-} 
+}

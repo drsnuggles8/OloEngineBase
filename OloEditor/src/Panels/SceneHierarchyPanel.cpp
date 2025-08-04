@@ -12,12 +12,12 @@
 
 namespace OloEngine
 {
-	SceneHierarchyPanel::SceneHierarchyPanel(const AssetRef<Scene>& context)
+	SceneHierarchyPanel::SceneHierarchyPanel(const Ref<Scene>& context)
 	{
 		SetContext(context);
 	}
 
-	void SceneHierarchyPanel::SetContext(const AssetRef<Scene>& context)
+	void SceneHierarchyPanel::SetContext(const Ref<Scene>& context)
 	{
 		m_Context = context;
 		m_SelectionContext = {};
@@ -387,7 +387,7 @@ namespace OloEngine
 			
 			if (bool sceneRunning = scene->IsRunning(); sceneRunning)
 			{
-				if (AssetRef<ScriptInstance> scriptInstance = ScriptEngine::GetEntityScriptInstance(entity.GetUUID()); scriptInstance)
+				if (Ref<ScriptInstance> scriptInstance = ScriptEngine::GetEntityScriptInstance(entity.GetUUID()); scriptInstance)
 				{					
 					for (const auto& fields = scriptInstance->GetScriptClass()->GetFields(); const auto& [name, field] : fields)
 					{
@@ -405,7 +405,7 @@ namespace OloEngine
 			{
 			if (scriptClassExists)
 			{
-				AssetRef<ScriptClass> entityClass = ScriptEngine::GetEntityClass(component.ClassName);
+				Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(component.ClassName);
 				const auto& fields = entityClass->GetFields();
 				auto& entityFields = ScriptEngine::GetScriptFieldMap(entity);
 					for (const auto& [name, field] : fields)
@@ -451,7 +451,7 @@ namespace OloEngine
 				{
 					auto* const path = static_cast<wchar_t*>(payload->Data);
 					std::filesystem::path texturePath(path);
-					AssetRef<Texture2D> const texture = Texture2D::Create(texturePath.string());
+					Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
 					if (texture->IsLoaded())
 					{
 						component.Texture = texture;

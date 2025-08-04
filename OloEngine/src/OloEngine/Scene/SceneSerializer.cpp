@@ -194,7 +194,7 @@ namespace OloEngine
 		return Static;
 	}
 
-	SceneSerializer::SceneSerializer(const AssetRef<Scene>& scene)
+	SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
 		: m_Scene(scene)
 	{
 	}
@@ -264,7 +264,7 @@ namespace OloEngine
 			out << YAML::Key << "ClassName" << YAML::Value << scriptComponent.ClassName;
 
 			// Fields
-			AssetRef<ScriptClass> entityClass = ScriptEngine::GetEntityClass(scriptComponent.ClassName);
+			Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(scriptComponent.ClassName);
 			if (const auto& fields = entityClass->GetFields(); !fields.empty())
 			{
 				out << YAML::Key << "ScriptFields" << YAML::Value;
@@ -546,7 +546,7 @@ namespace OloEngine
 
 					if (auto scriptFields = scriptComponent["ScriptFields"]; scriptFields)
 					{
-						if (AssetRef<ScriptClass> entityClass = ScriptEngine::GetEntityClass(sc.ClassName))
+						if (Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(sc.ClassName))
 						{
 							const auto& fields = entityClass->GetFields();
 							auto& entityFields = ScriptEngine::GetScriptFieldMap(deserializedEntity);
@@ -617,7 +617,7 @@ namespace OloEngine
 					{
 						std::filesystem::path path = audioFilepath.c_str();
 						path = Project::GetAssetFileSystemPath(path);
-						src.Source = AssetRef<AudioSource>::Create(path.string().c_str());
+						src.Source = Ref<AudioSource>::Create(path.string().c_str());
 					}
 				}
 

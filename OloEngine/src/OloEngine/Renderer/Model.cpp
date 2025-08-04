@@ -76,7 +76,7 @@ namespace OloEngine
 		}
 	}
 
-	AssetRef<Mesh> Model::ProcessMesh(const aiMesh* mesh, const aiScene* scene)
+	Ref<Mesh> Model::ProcessMesh(const aiMesh* mesh, const aiScene* scene)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -142,14 +142,14 @@ namespace OloEngine
 			m_Materials.push_back(pbrMaterial);
 		}
 
-		return AssetRef<Mesh>::Create(vertices, indices);
+		return Ref<Mesh>::Create(vertices, indices);
 	}
 
-	std::vector<AssetRef<Texture2D>> Model::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type)
+	std::vector<Ref<Texture2D>> Model::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type)
 	{
 		OLO_PROFILE_FUNCTION();
 
-		std::vector<AssetRef<Texture2D>> textures;
+		std::vector<Ref<Texture2D>> textures;
 
 		for (u32 i = 0; i < mat->GetTextureCount(type); i++)
 		{
@@ -162,7 +162,7 @@ namespace OloEngine
 			
 			if (!m_LoadedTextures.contains(texturePathStr))
 			{
-				AssetRef<Texture2D> texture = Texture2D::Create(texturePathStr);
+				Ref<Texture2D> texture = Texture2D::Create(texturePathStr);
 				
 				if (texture && texture->IsLoaded())
 				{

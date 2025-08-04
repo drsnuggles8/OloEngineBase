@@ -17,11 +17,11 @@ public:
 private:
 	OloEngine::OrthographicCameraController m_CameraController;
 
-	OloEngine::AssetRef<OloEngine::VertexArray> m_SquareVA;
-	OloEngine::AssetRef<OloEngine::Shader> m_FlatColorShader;
+	OloEngine::Ref<OloEngine::VertexArray> m_SquareVA;
+	OloEngine::Ref<OloEngine::Shader> m_FlatColorShader;
 
-	OloEngine::AssetRef<OloEngine::Texture2D> m_CheckerboardTexture;
-	OloEngine::AssetRef<OloEngine::Texture2D> m_OtterTexture;
+	OloEngine::Ref<OloEngine::Texture2D> m_CheckerboardTexture;
+	OloEngine::Ref<OloEngine::Texture2D> m_OtterTexture;
 
 	glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
 

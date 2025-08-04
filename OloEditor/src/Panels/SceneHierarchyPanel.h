@@ -10,9 +10,9 @@ namespace OloEngine
 	{
 	public:
 		SceneHierarchyPanel() = default;
-		SceneHierarchyPanel(const AssetRef<Scene>& context);
+		SceneHierarchyPanel(const Ref<Scene>& context);
 
-		void SetContext(const AssetRef<Scene>& context);
+		void SetContext(const Ref<Scene>& context);
 
 		void OnImGuiRender();
 
@@ -25,7 +25,7 @@ namespace OloEngine
 		void DrawEntityNode(Entity entity);
 		void DrawComponents(Entity entity);
 	private:
-		AssetRef<Scene> m_Context;
+		Ref<Scene> m_Context;
 		Entity m_SelectionContext;
 	};
 }

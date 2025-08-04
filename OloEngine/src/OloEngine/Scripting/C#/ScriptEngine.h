@@ -93,12 +93,12 @@ namespace OloEngine
 	class ScriptInstance : public RefCounted
 	{
 	public:
-		ScriptInstance(const AssetRef<ScriptClass>& scriptClass, Entity entity);
+		ScriptInstance(const Ref<ScriptClass>& scriptClass, Entity entity);
 
 		void InvokeOnCreate();
 		void InvokeOnUpdate(f32 ts);
 
-        [[nodiscard("Store this!")]] AssetRef<ScriptClass> GetScriptClass() const { return m_ScriptClass; }
+        [[nodiscard("Store this!")]] Ref<ScriptClass> GetScriptClass() const { return m_ScriptClass; }
 
 		template<typename T>
 		T GetFieldValue(const std::string& name)
@@ -126,7 +126,7 @@ namespace OloEngine
 		bool GetFieldValueInternal(const std::string& name, void* buffer);
 		bool SetFieldValueInternal(const std::string& name, const void* value);
 	private:
-		AssetRef<ScriptClass> m_ScriptClass;
+		Ref<ScriptClass> m_ScriptClass;
 
 		MonoObject* m_Instance = nullptr;
 		MonoMethod* m_Constructor = nullptr;
@@ -158,9 +158,9 @@ namespace OloEngine
 		static void OnUpdateEntity(Entity entity, Timestep ts);
 
 		[[nodiscard("Store this!")]] static Scene* GetSceneContext();
-		[[nodiscard("Store this!")]] static AssetRef<ScriptInstance> GetEntityScriptInstance(UUID entityID);
-		[[nodiscard("Store this!")]] static AssetRef<ScriptClass> GetEntityClass(const std::string& name);
-		[[nodiscard("Store this!")]] static std::unordered_map<std::string, AssetRef<ScriptClass>> GetEntityClasses();
+		[[nodiscard("Store this!")]] static Ref<ScriptInstance> GetEntityScriptInstance(UUID entityID);
+		[[nodiscard("Store this!")]] static Ref<ScriptClass> GetEntityClass(const std::string& name);
+		[[nodiscard("Store this!")]] static std::unordered_map<std::string, Ref<ScriptClass>> GetEntityClasses();
 		[[nodiscard("Store this!")]] static ScriptFieldMap& GetScriptFieldMap(Entity entity);
 
 		[[nodiscard("Store this!")]] static MonoImage* GetCoreAssemblyImage();
@@ -232,7 +232,5 @@ namespace OloEngine
 			OLO_CORE_ASSERT(false, "Unknown ScriptFieldType");
 			return None;
 		}
-
 	}
-
 }

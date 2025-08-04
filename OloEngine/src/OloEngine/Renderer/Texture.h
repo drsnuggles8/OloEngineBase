@@ -55,7 +55,7 @@ namespace OloEngine
 	class Texture2D : public Texture
 	{
 	public:
-		static AssetRef<Texture2D> Create(const TextureSpecification& specification);
-		static AssetRef<Texture2D> Create(const std::string& path);
+		static Ref<Texture2D> Create(const TextureSpecification& specification);
+		static Ref<Texture2D> Create(const std::string& path);
 	};
 }

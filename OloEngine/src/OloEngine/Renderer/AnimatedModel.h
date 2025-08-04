@@ -37,16 +37,16 @@ namespace OloEngine
         void LoadModel(const std::string& path);
         
         // Accessors
-        [[nodiscard]] const std::vector<AssetRef<SkinnedMesh>>& GetMeshes() const { return m_Meshes; }
+        [[nodiscard]] const std::vector<Ref<SkinnedMesh>>& GetMeshes() const { return m_Meshes; }
         [[nodiscard]] const std::vector<Material>& GetMaterials() const { return m_Materials; }
-        [[nodiscard]] const AssetRef<Skeleton>& GetSkeleton() const { return m_Skeleton; }
-        [[nodiscard]] const std::vector<AssetRef<AnimationClip>>& GetAnimations() const { return m_Animations; }
+        [[nodiscard]] const Ref<Skeleton>& GetSkeleton() const { return m_Skeleton; }
+        [[nodiscard]] const std::vector<Ref<AnimationClip>>& GetAnimations() const { return m_Animations; }
         [[nodiscard]] const BoundingBox& GetBoundingBox() const { return m_BoundingBox; }
         [[nodiscard]] const BoundingSphere& GetBoundingSphere() const { return m_BoundingSphere; }
         [[nodiscard]] const std::string& GetDirectory() const { return m_Directory; }
         
         // Get animation by name
-        [[nodiscard]] AssetRef<AnimationClip> GetAnimation(const std::string& name) const;
+        [[nodiscard]] Ref<AnimationClip> GetAnimation(const std::string& name) const;
         
         // Utility methods
         [[nodiscard]] bool HasAnimations() const { return !m_Animations.empty(); }
@@ -60,10 +60,10 @@ namespace OloEngine
     private:
         // Model processing
         void ProcessNode(const aiNode* node, const aiScene* scene);
-        AssetRef<SkinnedMesh> ProcessMesh(const aiMesh* mesh, const aiScene* scene);
+        Ref<SkinnedMesh> ProcessMesh(const aiMesh* mesh, const aiScene* scene);
         
         // Material and texture loading
-        std::vector<AssetRef<Texture2D>> LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type);
+        std::vector<Ref<Texture2D>> LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type);
         Material ProcessMaterial(const aiMaterial* mat);
         
         // Skeleton and animation processing
@@ -89,13 +89,13 @@ namespace OloEngine
         };
 
         // Data members
-        std::vector<AssetRef<SkinnedMesh>> m_Meshes;
+        std::vector<Ref<SkinnedMesh>> m_Meshes;
         std::vector<Material> m_Materials;
-        std::vector<AssetRef<AnimationClip>> m_Animations;
-        AssetRef<Skeleton> m_Skeleton;
+        std::vector<Ref<AnimationClip>> m_Animations;
+        Ref<Skeleton> m_Skeleton;
         
         std::string m_Directory;
-        std::unordered_map<std::string, AssetRef<Texture2D>> m_LoadedTextures;
+        std::unordered_map<std::string, Ref<Texture2D>> m_LoadedTextures;
         std::unordered_map<std::string, BoneInfo> m_BoneInfoMap;
         
         BoundingBox m_BoundingBox;
