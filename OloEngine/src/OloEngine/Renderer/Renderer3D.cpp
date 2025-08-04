@@ -626,11 +626,11 @@ namespace OloEngine
 		finalPassSpec.Width = width;
 		finalPassSpec.Height = height;
 		
-		s_Data.ScenePass = CreateRef<SceneRenderPass>();
+		s_Data.ScenePass = AssetRef<SceneRenderPass>::Create();
 		s_Data.ScenePass->SetName("ScenePass");
 		s_Data.ScenePass->Init(scenePassSpec);
 		
-		s_Data.FinalPass = CreateRef<FinalRenderPass>();
+		s_Data.FinalPass = AssetRef<FinalRenderPass>::Create();
 		s_Data.FinalPass->SetName("FinalPass");
 		s_Data.FinalPass->Init(finalPassSpec);
 		

@@ -41,9 +41,9 @@ namespace OloEngine
         
     private:
         // Helper methods for visualization
-        void DrawNode(const Ref<RenderPass>& pass, ImDrawList* drawList, const ImVec2& offset, f32& maxWidth);
+        void DrawNode(const AssetRef<RenderPass>& pass, ImDrawList* drawList, const ImVec2& offset, f32& maxWidth);
         void DrawConnections(const AssetRef<RenderGraph>& graph, ImDrawList* drawList, const ImVec2& offset);
-        void DrawTooltip(const Ref<RenderPass>& pass) const;
+        void DrawTooltip(const AssetRef<RenderPass>& pass) const;
         
         // Cache for node positions and sizes
         struct NodeData

@@ -31,7 +31,7 @@ namespace OloEngine
         m_FinalPassName.clear();
     }
     
-    void RenderGraph::AddPass(const Ref<RenderPass>& pass)
+    void RenderGraph::AddPass(const AssetRef<RenderPass>& pass)
     {
         OLO_PROFILE_FUNCTION();
         
@@ -95,7 +95,7 @@ namespace OloEngine
                 {
                     auto& inputPassRef = m_PassLookup[inputPass];
                     // Handle RenderPass (like FinalRenderPass)
-                    if (auto* finalPass = dynamic_cast<FinalRenderPass*>(inputPassRef.get()))
+                    if (auto* finalPass = dynamic_cast<FinalRenderPass*>(inputPassRef.Raw()))
                     {
                         finalPass->SetInputFramebuffer(outputFramebuffer);
                     }
@@ -129,9 +129,9 @@ namespace OloEngine
         m_FinalPassName = passName;
     }
     
-    std::vector<Ref<RenderPass>> RenderGraph::GetAllPasses() const
+    std::vector<AssetRef<RenderPass>> RenderGraph::GetAllPasses() const
     {
-        std::vector<Ref<RenderPass>> result;
+        std::vector<AssetRef<RenderPass>> result;
         result.reserve(m_PassLookup.size());
         for (const auto& [name, pass] : m_PassLookup)
         {

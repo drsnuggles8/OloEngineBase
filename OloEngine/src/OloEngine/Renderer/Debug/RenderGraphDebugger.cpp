@@ -246,7 +246,7 @@ namespace OloEngine
 		return true;
     }
     
-    void RenderGraphDebugger::DrawNode(const Ref<RenderPass>& pass, ImDrawList* drawList, const ImVec2& offset, f32& maxWidth)
+    void RenderGraphDebugger::DrawNode(const AssetRef<RenderPass>& pass, ImDrawList* drawList, const ImVec2& offset, f32& maxWidth)
     {
         const std::string& passName = pass->GetName();
         
@@ -371,7 +371,7 @@ namespace OloEngine
         }
     }
     
-    void RenderGraphDebugger::DrawTooltip(const Ref<RenderPass>& pass) const
+    void RenderGraphDebugger::DrawTooltip(const AssetRef<RenderPass>& pass) const
     {
         ImGui::BeginTooltip();
         ImGui::Text("Pass: %s", pass->GetName().c_str());

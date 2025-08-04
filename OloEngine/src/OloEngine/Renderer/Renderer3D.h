@@ -213,8 +213,8 @@ namespace OloEngine
 			std::unordered_map<u32, ShaderResourceRegistry*> ShaderRegistries;
 			
 			AssetRef<RenderGraph> RGraph;
-			Ref<SceneRenderPass> ScenePass;
-            Ref<FinalRenderPass> FinalPass;
+			AssetRef<SceneRenderPass> ScenePass;
+            AssetRef<FinalRenderPass> FinalPass;
 		};
 
 		static Renderer3DData s_Data;
