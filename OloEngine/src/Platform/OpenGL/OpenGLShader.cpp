@@ -1002,7 +1002,7 @@ namespace OloEngine
 
 		glUseProgram(0);
 	}
-	void OpenGLShader::SetInt(const std::string& name, const int value)
+	void OpenGLShader::SetInt(const std::string& name, const int value) const
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -1010,13 +1010,13 @@ namespace OloEngine
 		OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Int);
 	}
 
-	void OpenGLShader::SetIntArray(const std::string& name, int* const values, const u32 count)
+	void OpenGLShader::SetIntArray(const std::string& name, int* const values, const u32 count) const
 	{
 		UploadUniformIntArray(name, values, count);
 		OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::IntArray);
 	}
 
-	void OpenGLShader::SetFloat(const std::string& name, const f32 value)
+	void OpenGLShader::SetFloat(const std::string& name, const f32 value) const
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -1024,7 +1024,7 @@ namespace OloEngine
 		OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Float);
 	}
 
-	void OpenGLShader::SetFloat2(const std::string& name, const glm::vec2& value)
+	void OpenGLShader::SetFloat2(const std::string& name, const glm::vec2& value) const
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -1032,7 +1032,7 @@ namespace OloEngine
 		OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Float2);
 	}
 
-	void OpenGLShader::SetFloat3(const std::string& name, const glm::vec3& value)
+	void OpenGLShader::SetFloat3(const std::string& name, const glm::vec3& value) const
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -1040,7 +1040,7 @@ namespace OloEngine
 		OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Float3);
 	}
 
-	void OpenGLShader::SetFloat4(const std::string& name, const glm::vec4& value)
+	void OpenGLShader::SetFloat4(const std::string& name, const glm::vec4& value) const
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -1048,7 +1048,7 @@ namespace OloEngine
 		OLO_SHADER_UNIFORM_SET(m_RendererID, name, ShaderDebugger::UniformType::Float4);
 	}
 
-	void OpenGLShader::SetMat4(const std::string& name, const glm::mat4& value)
+	void OpenGLShader::SetMat4(const std::string& name, const glm::mat4& value) const
 	{
 		OLO_PROFILE_FUNCTION();
 

@@ -73,9 +73,9 @@ namespace OloEngine
 
 	void Renderer::Submit(const AssetRef<Shader>& shader, const AssetRef<VertexArray>& vertexArray, const glm::mat4& transform)
 	{
-		const_cast<AssetRef<Shader>&>(shader).Raw()->Bind();
-		const_cast<AssetRef<Shader>&>(shader).Raw()->SetMat4("u_ViewProjection", s_SceneData->ViewProjectionMatrix);
-		const_cast<AssetRef<Shader>&>(shader).Raw()->SetMat4("u_Transform", transform);
+		shader->Bind();
+		shader->SetMat4("u_ViewProjection", s_SceneData->ViewProjectionMatrix);
+		shader->SetMat4("u_Transform", transform);
 
 		vertexArray->Bind();
 		RenderCommand::DrawIndexed(vertexArray);

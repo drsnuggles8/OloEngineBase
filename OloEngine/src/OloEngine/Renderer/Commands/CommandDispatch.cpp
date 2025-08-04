@@ -797,9 +797,9 @@ namespace OloEngine
 		for (sizet i = 0; i < instanceCount; i++)
 		{
 			std::string uniformName = "u_ModelMatrices[" + std::to_string(i) + "]";
-			const_cast<AssetRef<Shader>&>(cmd->shader).Raw()->SetMat4(uniformName, cmd->transforms[i]);
+			cmd->shader->SetMat4(uniformName, cmd->transforms[i]);
 		}
-		const_cast<AssetRef<Shader>&>(cmd->shader).Raw()->SetInt("u_InstanceCount", static_cast<int>(instanceCount));
+		cmd->shader->SetInt("u_InstanceCount", static_cast<int>(instanceCount));
 		
 		if (cmd->useTextureMaps)
 		{

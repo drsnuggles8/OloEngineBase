@@ -429,9 +429,9 @@ namespace OloEngine
 			}
 
 			VertexData data = { drawCall.VertexBufferBase, drawCall.VertexBufferSize };
-			for (const auto& vertexBuffer : drawCall.VertexArray->GetVertexBuffers())
+			for (auto vertexBuffer : drawCall.VertexArray->GetVertexBuffers())
 			{
-				const_cast<AssetRef<VertexBuffer>&>(vertexBuffer).Raw()->SetData(data);
+				vertexBuffer->SetData(data);
 			}
 
 			if (drawCall.VertexArray == s_Data.QuadVertexArray || drawCall.VertexArray == s_Data.CircleVertexArray || drawCall.VertexArray == s_Data.TextVertexArray)
