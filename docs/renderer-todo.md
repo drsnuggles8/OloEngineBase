@@ -21,7 +21,7 @@ Introduce new ECS components for animated mesh rendering and animation state.
 - [ ] Update asset pipeline to import and assign these components to entities *(TODO: See note in Renderer/Model.cpp)*
 
 **Implementation Notes:**
-- Use CreateRef/CreateScope for resource management
+- Use AssetRef<T> for asset objects and CreateScope<T> for non-asset objects
 - Ensure components are cache-friendly (favor contiguous storage)
 - Document component structure and usage
 
@@ -142,7 +142,7 @@ Implement advanced features for future extensibility.
 - Minimize CPU-GPU sync and avoid unnecessary stalls
 - All engine code should be wrapped in the `OloEngine` namespace
 - Use the existing OLO_... macros for error handling
-- Follow CreateScope/CreateRef patterns for memory management
+- Follow AssetRef<T> for assets and CreateScope<T> patterns for memory management
 
 ---
 
