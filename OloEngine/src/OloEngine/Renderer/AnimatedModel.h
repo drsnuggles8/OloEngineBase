@@ -40,13 +40,13 @@ namespace OloEngine
         [[nodiscard]] const std::vector<AssetRef<SkinnedMesh>>& GetMeshes() const { return m_Meshes; }
         [[nodiscard]] const std::vector<Material>& GetMaterials() const { return m_Materials; }
         [[nodiscard]] const Ref<Skeleton>& GetSkeleton() const { return m_Skeleton; }
-        [[nodiscard]] const std::vector<Ref<AnimationClip>>& GetAnimations() const { return m_Animations; }
+        [[nodiscard]] const std::vector<AssetRef<AnimationClip>>& GetAnimations() const { return m_Animations; }
         [[nodiscard]] const BoundingBox& GetBoundingBox() const { return m_BoundingBox; }
         [[nodiscard]] const BoundingSphere& GetBoundingSphere() const { return m_BoundingSphere; }
         [[nodiscard]] const std::string& GetDirectory() const { return m_Directory; }
         
         // Get animation by name
-        [[nodiscard]] Ref<AnimationClip> GetAnimation(const std::string& name) const;
+        [[nodiscard]] AssetRef<AnimationClip> GetAnimation(const std::string& name) const;
         
         // Utility methods
         [[nodiscard]] bool HasAnimations() const { return !m_Animations.empty(); }
@@ -91,7 +91,7 @@ namespace OloEngine
         // Data members
         std::vector<AssetRef<SkinnedMesh>> m_Meshes;
         std::vector<Material> m_Materials;
-        std::vector<Ref<AnimationClip>> m_Animations;
+        std::vector<AssetRef<AnimationClip>> m_Animations;
         Ref<Skeleton> m_Skeleton;
         
         std::string m_Directory;

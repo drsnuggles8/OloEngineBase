@@ -15,7 +15,7 @@ namespace OloEngine::Animation
     {
 
         // Advance and loop animation time for current and next clips
-        auto LoopTime = [](float t, const Ref<AnimationClip>& clip) -> float {
+        auto LoopTime = [](float t, const AssetRef<AnimationClip>& clip) -> float {
             if (clip && clip->Duration > 0.0f)
             {
                 while (t >= clip->Duration) t -= clip->Duration;
@@ -54,7 +54,7 @@ namespace OloEngine::Animation
         };
 
         // Helper lambda to sample a clip at a given time and return TRS components
-        auto SampleClipTRS = [](const Ref<AnimationClip>& clip, float time, const std::string& boneName) -> TRSFrame {
+        auto SampleClipTRS = [](const AssetRef<AnimationClip>& clip, float time, const std::string& boneName) -> TRSFrame {
             TRSFrame result = { glm::vec3(0.0f), glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f) };
             if (!clip) return result;
             const auto* boneAnim = clip->FindBoneAnimation(boneName);

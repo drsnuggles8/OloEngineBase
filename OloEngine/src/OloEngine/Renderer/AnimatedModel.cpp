@@ -553,7 +553,7 @@ namespace OloEngine
         {
             const aiAnimation* anim = scene->mAnimations[i];
             
-            auto animClip = CreateRef<AnimationClip>();
+            auto animClip = AssetRef<AnimationClip>::Create();
             animClip->Name = anim->mName.data;
             animClip->Duration = static_cast<f32>(anim->mDuration / anim->mTicksPerSecond);
 
@@ -802,7 +802,7 @@ namespace OloEngine
         m_BoundingSphere = BoundingSphere(m_BoundingBox);
     }
 
-    Ref<AnimationClip> AnimatedModel::GetAnimation(const std::string& name) const
+    AssetRef<AnimationClip> AnimatedModel::GetAnimation(const std::string& name) const
     {
         for (const auto& animation : m_Animations)
         {

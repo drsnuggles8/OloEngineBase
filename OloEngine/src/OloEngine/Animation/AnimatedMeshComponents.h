@@ -5,13 +5,13 @@
 #include "OloEngine/Renderer/SkinnedMesh.h"
 #include "SkeletonData.h"
 #include "Skeleton.h"
+#include "AnimationClip.h"
 
 namespace OloEngine
 {
 	// Forward declarations
 	class Mesh;
 	class Skeleton;
-	class AnimationClip;
 
 	// Holds mesh, skeleton, and skinning data for an entity
 	struct AnimatedMeshComponent
@@ -39,8 +39,8 @@ namespace OloEngine
 		};
 
 		State m_State = State::Idle;
-		Ref<AnimationClip> m_CurrentClip;
-		Ref<AnimationClip> m_NextClip; // For blending
+		AssetRef<AnimationClip> m_CurrentClip;
+		AssetRef<AnimationClip> m_NextClip; // For blending
 		float m_CurrentTime = 0.0f;
 		float m_NextTime = 0.0f;
 		float m_BlendFactor = 0.0f; // 0 = current, 1 = next
@@ -49,7 +49,7 @@ namespace OloEngine
 		float m_BlendTime = 0.0f;
 
 		AnimationStateComponent() = default;
-		AnimationStateComponent(const Ref<AnimationClip>& clip, float time = 0.0f)
+		AnimationStateComponent(const AssetRef<AnimationClip>& clip, float time = 0.0f)
 			: m_CurrentClip(clip), m_CurrentTime(time) {}
 	};
 
