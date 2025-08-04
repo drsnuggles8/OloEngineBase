@@ -43,9 +43,9 @@ namespace OloEngine
 
 	void ShaderLibrary::ReloadShaders()
 	{
-		for (auto const& [name, shader] : m_Shaders)
+		for (auto& [name, shader] : m_Shaders)
 		{
-			const_cast<AssetRef<Shader>&>(shader).Raw()->Reload();
+			shader->Reload();
 		}
 	}
 

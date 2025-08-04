@@ -452,7 +452,7 @@ namespace OloEngine
 		out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
 		m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
 			{
-				Entity const entity = { entityID, const_cast<Scene*>(m_Scene.Raw()) };
+				Entity const entity = { entityID, m_Scene.Raw() };
 				if (!entity)
 				{
 					return;
