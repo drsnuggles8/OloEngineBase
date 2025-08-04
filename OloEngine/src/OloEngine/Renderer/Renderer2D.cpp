@@ -76,24 +76,24 @@ namespace OloEngine
 
 		AssetRef<VertexArray> QuadVertexArray;
 		AssetRef<VertexBuffer> QuadVertexBuffer;
-		Ref<Shader> QuadShader;
+		AssetRef<Shader> QuadShader;
 		Ref<Texture2D> WhiteTexture;
 
 		AssetRef<VertexArray> PolygonVertexArray;
 		AssetRef<VertexBuffer> PolygonVertexBuffer;
-		Ref<Shader> PolygonShader;
+		AssetRef<Shader> PolygonShader;
 
 		AssetRef<VertexArray> CircleVertexArray;
 		AssetRef<VertexBuffer> CircleVertexBuffer;
-		Ref<Shader> CircleShader;
+		AssetRef<Shader> CircleShader;
 
 		AssetRef<VertexArray> LineVertexArray;
 		AssetRef<VertexBuffer> LineVertexBuffer;
-		Ref<Shader> LineShader;
+		AssetRef<Shader> LineShader;
 
 		AssetRef<VertexArray> TextVertexArray;
 		AssetRef<VertexBuffer> TextVertexBuffer;
-		Ref<Shader> TextShader;
+		AssetRef<Shader> TextShader;
 
 		u32 QuadIndexCount = 0;
 		QuadVertex* QuadVertexBufferBase = nullptr;
@@ -336,7 +336,7 @@ namespace OloEngine
 	{
 		struct DrawCall
 		{
-			Ref<Shader> Shader;
+			AssetRef<Shader> Shader;
 			std::vector<Ref<Texture2D>> Textures;
 			u32 IndexCount = 0;
 			void* VertexBufferBase = nullptr;

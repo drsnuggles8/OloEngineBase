@@ -199,7 +199,7 @@ namespace OloEngine
         return TextureCubemap::Create(facePaths);
     }
 
-    void IBLPrecompute::RenderToCubemap(const Ref<TextureCubemap>& cubemap, const Ref<Shader>& shader, 
+    void IBLPrecompute::RenderToCubemap(const Ref<TextureCubemap>& cubemap, const AssetRef<Shader>& shader, 
                                        const AssetRef<Mesh>& cubeMesh, u32 mipLevel)
     {
         OLO_PROFILE_FUNCTION();
@@ -286,7 +286,7 @@ namespace OloEngine
             glEnable(GL_STENCIL_TEST);
     }
 
-    void IBLPrecompute::RenderToTexture(const Ref<Texture2D>& texture, const Ref<Shader>& shader, 
+    void IBLPrecompute::RenderToTexture(const Ref<Texture2D>& texture, const AssetRef<Shader>& shader, 
                                        const AssetRef<Mesh>& quadMesh)
     {
         OLO_PROFILE_FUNCTION();
@@ -365,7 +365,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Generating enhanced irradiance map with {} samples", config.IrradianceSamples);
 
-        Ref<Shader> shader = nullptr;
+        AssetRef<Shader> shader = nullptr;
         if (shaderLibrary.Exists("IrradianceConvolutionAdvanced"))
         {
             shader = shaderLibrary.Get("IrradianceConvolutionAdvanced");
@@ -422,7 +422,7 @@ namespace OloEngine
         OLO_CORE_INFO("Generating enhanced prefilter map with {} samples and importance sampling: {}", 
                      config.PrefilterSamples, config.UseImportanceSampling);
 
-        Ref<Shader> shader = nullptr;
+        AssetRef<Shader> shader = nullptr;
         const std::string preferredShader = config.UseImportanceSampling ? "IBLPrefilterImportance" : "IBLPrefilter";
         
         if (shaderLibrary.Exists(preferredShader))
@@ -490,7 +490,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Generating enhanced BRDF LUT");
 
-        Ref<Shader> shader = nullptr;
+        AssetRef<Shader> shader = nullptr;
         if (shaderLibrary.Exists("BRDFIntegrationAdvanced"))
         {
             shader = shaderLibrary.Get("BRDFIntegrationAdvanced");
@@ -534,7 +534,7 @@ namespace OloEngine
     }
 
     // Enhanced rendering methods
-    void IBLPrecompute::RenderToCubemapAdvanced(const Ref<TextureCubemap>& cubemap, const Ref<Shader>& shader, 
+    void IBLPrecompute::RenderToCubemapAdvanced(const Ref<TextureCubemap>& cubemap, const AssetRef<Shader>& shader, 
                                               const AssetRef<Mesh>& cubeMesh, const IBLConfiguration& config, u32 mipLevel)
     {
         // Use standard render method for now - can be enhanced with parallel rendering if needed
@@ -543,7 +543,7 @@ namespace OloEngine
         // Future enhancement: implement parallel face rendering if config.EnableMultithreading is true
     }
 
-    void IBLPrecompute::RenderToTextureAdvanced(const Ref<Texture2D>& texture, const Ref<Shader>& shader, 
+    void IBLPrecompute::RenderToTextureAdvanced(const Ref<Texture2D>& texture, const AssetRef<Shader>& shader, 
                                               const AssetRef<Mesh>& quadMesh, const IBLConfiguration& config)
     {
         // Use standard render method for now - can be enhanced with additional quality parameters

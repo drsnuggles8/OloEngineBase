@@ -46,11 +46,11 @@ namespace OloEngine
 		void UploadUniformMat4(const std::string& name, const glm::mat4& matrix) const;
 
 		// Initialize resource registry (called after shader is fully constructed)
-		void InitializeResourceRegistry(const Ref<Shader>& shaderRef);
+		void InitializeResourceRegistry(const AssetRef<Shader>& shaderRef);
 
 		// Convenience methods for setting shader resources
 		template<typename T>
-		bool SetShaderResource(const std::string& name, const Ref<T>& resource)
+		bool SetShaderResource(const std::string& name, const AssetRef<T>& resource)
 		{
 			return m_ResourceRegistry.SetResource(name, resource);
 		}

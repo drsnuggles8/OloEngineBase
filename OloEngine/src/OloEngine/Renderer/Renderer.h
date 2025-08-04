@@ -24,7 +24,7 @@ namespace OloEngine
 		static void BeginScene(OrthographicCamera const& camera);
 		static void EndScene();
 
-		static void Submit(const Ref<Shader>& shader, const AssetRef<VertexArray>& vertexArray, const glm::mat4& transform = glm::mat4(1.0f));
+		static void Submit(const AssetRef<Shader>& shader, const AssetRef<VertexArray>& vertexArray, const glm::mat4& transform = glm::mat4(1.0f));
 
 		[[nodiscard("Store this!")]] static RendererAPI::API GetAPI() { return RendererAPI::GetAPI(); }
 	private:

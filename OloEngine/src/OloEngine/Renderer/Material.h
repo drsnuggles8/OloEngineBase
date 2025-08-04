@@ -53,7 +53,7 @@ namespace OloEngine
 		Ref<Texture2D> BRDFLutMap;                       // BRDF lookup table
 		
 		// General material properties
-		Ref<Shader> Shader;
+		AssetRef<Shader> Shader;
 		glm::vec3 LightPosition = {0.0f, 0.0f, 0.0f};
    		glm::vec3 ViewPosition = {0.0f, 0.0f, 0.0f};
 
@@ -74,7 +74,7 @@ namespace OloEngine
 			}
 
 			// Try to get the shader registry (for OpenGL shaders)
-			if (auto* openglShader = dynamic_cast<OpenGLShader*>(Shader.get()))
+			if (auto* openglShader = dynamic_cast<OpenGLShader*>(Shader.Raw()))
 			{
 				return openglShader->SetShaderResource(name, resource);
 			}
@@ -98,7 +98,7 @@ namespace OloEngine
 			}
 
 			// Try to get the shader registry (for OpenGL shaders)
-			if (auto* openglShader = dynamic_cast<OpenGLShader*>(Shader.get()))
+			if (auto* openglShader = dynamic_cast<OpenGLShader*>(Shader.Raw()))
 			{
 				return openglShader->SetShaderResource(name, input);
 			}
@@ -120,7 +120,7 @@ namespace OloEngine
 			}
 
 			// Try to get the shader registry (for OpenGL shaders)
-			if (auto* openglShader = dynamic_cast<OpenGLShader*>(Shader.get()))
+			if (auto* openglShader = dynamic_cast<OpenGLShader*>(Shader.Raw()))
 			{
 				openglShader->GetResourceRegistry()->ApplyBindings();
 			}
@@ -306,7 +306,7 @@ namespace OloEngine
 		 * @brief Get the shader associated with this material
 		 * @return Shader reference, or nullptr if no shader is set
 		 */
-		Ref<OloEngine::Shader> GetShader() const
+		AssetRef<OloEngine::Shader> GetShader() const
 		{
 			return Shader;
 		}

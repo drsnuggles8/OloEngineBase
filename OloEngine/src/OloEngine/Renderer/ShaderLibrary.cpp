@@ -6,7 +6,7 @@
 #include "Platform/OpenGL/OpenGLShader.h"
 
 namespace OloEngine
-{	void ShaderLibrary::Add(const std::string& name, const Ref<Shader>& shader)
+{	void ShaderLibrary::Add(const std::string& name, const AssetRef<Shader>& shader)
 	{
 		OLO_CORE_ASSERT(!Exists(name), "Shader already exists!");
 		m_Shaders[name] = shader;
@@ -15,37 +15,37 @@ namespace OloEngine
 		OLO_SHADER_REGISTER(shader);
 	}
 
-	void ShaderLibrary::Add(const Ref<Shader>& shader)
+	void ShaderLibrary::Add(const AssetRef<Shader>& shader)
 	{
 		auto& name = shader->GetName();
 		Add(name, shader);
 	}
 
-	Ref<Shader> ShaderLibrary::Load(const std::string& filepath)
+	AssetRef<Shader> ShaderLibrary::Load(const std::string& filepath)
 	{
 		auto shader = Shader::Create(filepath);
 		Add(shader);
 		return shader;
 	}
 
-	Ref<Shader> ShaderLibrary::Load(const std::string& name, const std::string& filepath)
+	AssetRef<Shader> ShaderLibrary::Load(const std::string& name, const std::string& filepath)
 	{
 		auto shader = Shader::Create(filepath);
 		Add(name, shader);
 		return shader;
 	}
 
-	Ref<Shader> ShaderLibrary::Get(const std::string& name)
+	AssetRef<Shader> ShaderLibrary::Get(const std::string& name)
 	{
 		OLO_CORE_ASSERT(Exists(name), "Shader not found!");
 		return m_Shaders[name];
 	}
 
-	void ShaderLibrary::ReloadShaders() const
+	void ShaderLibrary::ReloadShaders()
 	{
 		for (auto const& [name, shader] : m_Shaders)
 		{
-			shader->Reload();
+			const_cast<AssetRef<Shader>&>(shader).Raw()->Reload();
 		}
 	}
 

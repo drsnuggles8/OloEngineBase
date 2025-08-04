@@ -176,9 +176,9 @@ namespace OloEngine
 
         /**
          * @brief Register a shader for debugging
-         * @param shader Shared pointer to the shader
+         * @param shader Asset reference to the shader
          */
-        void RegisterShader(const Ref<Shader>& shader);
+        void RegisterShader(const AssetRef<Shader>& shader);
         void RegisterShader(u32 rendererID, const std::string& name, const std::string& filePath = "");
         /**
          * @brief Unregister a shader when it's destroyed

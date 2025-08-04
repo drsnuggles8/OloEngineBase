@@ -323,7 +323,7 @@ namespace OloEngine
 			return nullptr;
 		}
 		
-		Ref<Shader> shaderToUse;
+		AssetRef<Shader> shaderToUse;
 		if (material.Shader)
 		{
 			shaderToUse = material.Shader;
@@ -689,7 +689,7 @@ namespace OloEngine
 			return nullptr;
 		}
 
-		Ref<Shader> shaderToUse;
+		AssetRef<Shader> shaderToUse;
 		if (material.Shader)
 		{
 			shaderToUse = material.Shader;

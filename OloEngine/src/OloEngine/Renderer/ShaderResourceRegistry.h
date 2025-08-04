@@ -74,7 +74,7 @@ namespace OloEngine
     {
     public:
         ShaderResourceRegistry() = default;
-        explicit ShaderResourceRegistry(const Ref<Shader>& shader);
+        explicit ShaderResourceRegistry(const AssetRef<Shader>& shader);
         ~ShaderResourceRegistry() = default;
 
         // Core functionality
@@ -84,12 +84,12 @@ namespace OloEngine
         /**
          * @brief Set the associated shader for this registry
          */
-        void SetShader(const Ref<Shader>& shader) { m_Shader = shader; }
+        void SetShader(const AssetRef<Shader>& shader) { m_Shader = shader; }
 
         /**
          * @brief Get the associated shader
          */
-        Ref<Shader> GetShader() const { return m_Shader; }
+        AssetRef<Shader> GetShader() const { return m_Shader; }
 
         // Resource discovery from reflection
         /**
@@ -252,7 +252,7 @@ namespace OloEngine
         bool IsStandardTextureBinding(u32 binding, const std::string& name) const;
 
     private:
-        Ref<Shader> m_Shader;
+        AssetRef<Shader> m_Shader;
         std::unordered_map<std::string, ResourceBinding> m_Bindings;
         Ref<InflightFrameManager> m_FrameManager;
         u32 m_CurrentFrame = 0;

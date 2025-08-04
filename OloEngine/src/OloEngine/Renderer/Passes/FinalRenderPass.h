@@ -31,7 +31,7 @@ namespace OloEngine
 
     private:
         AssetRef<Framebuffer> m_InputFramebuffer;         // The framebuffer to render to the screen
-        Ref<Shader> m_BlitShader;                    // Shader for blitting the framebuffer to the screen
+        AssetRef<Shader> m_BlitShader;                    // Shader for blitting the framebuffer to the screen
         AssetRef<VertexArray> m_FullscreenTriangleVA;     // Vertex array for the fullscreen triangle
     };
 }

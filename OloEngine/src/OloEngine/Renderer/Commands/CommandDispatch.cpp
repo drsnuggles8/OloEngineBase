@@ -462,9 +462,9 @@ namespace OloEngine
             if (state.Multisampling.Enabled) api.EnableMultisampling(); else api.DisableMultisampling();
         }
 		
-		if (u32 shaderID = cmd->shader->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
+		if (u32 shaderID = cmd->shader.Raw()->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
 		{
-			cmd->shader->Bind();
+			cmd->shader.Raw()->Bind();
 			s_Data.CurrentBoundShaderID = shaderID;
 			s_Data.Stats.ShaderBinds++;
 		}
@@ -754,9 +754,9 @@ namespace OloEngine
             if (state.Multisampling.Enabled) api.EnableMultisampling(); else api.DisableMultisampling();
         }
         	
-		if (u32 shaderID = cmd->shader->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
+		if (u32 shaderID = cmd->shader.Raw()->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
 		{
-			cmd->shader->Bind();
+			cmd->shader.Raw()->Bind();
 			s_Data.CurrentBoundShaderID = shaderID;
 			s_Data.Stats.ShaderBinds++;
 		}
@@ -797,9 +797,9 @@ namespace OloEngine
 		for (sizet i = 0; i < instanceCount; i++)
 		{
 			std::string uniformName = "u_ModelMatrices[" + std::to_string(i) + "]";
-			cmd->shader->SetMat4(uniformName, cmd->transforms[i]);
+			const_cast<AssetRef<Shader>&>(cmd->shader).Raw()->SetMat4(uniformName, cmd->transforms[i]);
 		}
-		cmd->shader->SetInt("u_InstanceCount", static_cast<int>(instanceCount));
+		const_cast<AssetRef<Shader>&>(cmd->shader).Raw()->SetInt("u_InstanceCount", static_cast<int>(instanceCount));
 		
 		if (cmd->useTextureMaps)
 		{
@@ -874,9 +874,9 @@ namespace OloEngine
 			if (state.Multisampling.Enabled) api.EnableMultisampling(); else api.DisableMultisampling();
 		}
 		
-		if (u32 shaderID = cmd->shader->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
+		if (u32 shaderID = cmd->shader.Raw()->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
 		{
-			cmd->shader->Bind();
+			cmd->shader.Raw()->Bind();
 			s_Data.CurrentBoundShaderID = shaderID;
 			s_Data.Stats.ShaderBinds++;
 		}
@@ -1152,8 +1152,8 @@ namespace OloEngine
 		api.DisableCulling(); // Don't cull faces for skybox
 
 		// Bind skybox shader
-		cmd->shader->Bind();
-		s_Data.CurrentBoundShaderID = cmd->shader->GetRendererID();
+		cmd->shader.Raw()->Bind();
+		s_Data.CurrentBoundShaderID = cmd->shader.Raw()->GetRendererID();
 
 		// Bind skybox texture to the correct slot
 		cmd->skyboxTexture->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
@@ -1224,9 +1224,9 @@ namespace OloEngine
 			if (state.Multisampling.Enabled) api.EnableMultisampling(); else api.DisableMultisampling();
 		}
 		
-		if (u32 shaderID = cmd->shader->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
+		if (u32 shaderID = cmd->shader.Raw()->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
 		{
-			cmd->shader->Bind();
+			cmd->shader.Raw()->Bind();
 			s_Data.CurrentBoundShaderID = shaderID;
 			s_Data.Stats.ShaderBinds++;
 		}

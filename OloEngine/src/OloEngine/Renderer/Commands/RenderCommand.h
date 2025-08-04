@@ -321,7 +321,7 @@ namespace OloEngine
 		Ref<Texture2D> brdfLutMap;
 		
 		// Actual shader instead of ID
-		Ref<Shader> shader;
+		AssetRef<Shader> shader;
 		// Per-draw-call render state
 		AssetRef<RenderState> renderState;
 		// Skinning support for animated meshes
@@ -369,7 +369,7 @@ namespace OloEngine
 		Ref<Texture2D> brdfLutMap;
 		
 		// Actual shader instead of ID
-		Ref<Shader> shader;
+		AssetRef<Shader> shader;
 		// Per-draw-call render state
 		AssetRef<RenderState> renderState;
 		// Skinning support for animated meshes
@@ -385,7 +385,7 @@ namespace OloEngine
 		AssetRef<VertexArray> vertexArray; // Store the actual vertex array
 		u32 indexCount;
 		glm::mat4 transform;         // Usually identity matrix
-		Ref<Shader> shader;          // Skybox shader
+		AssetRef<Shader> shader;          // Skybox shader
 		Ref<TextureCubemap> skyboxTexture; // The skybox cubemap texture
 		AssetRef<RenderState> renderState; // Skybox-specific render state
 	};
@@ -395,7 +395,7 @@ namespace OloEngine
 		CommandHeader header;
 		glm::mat4 transform;
 		Ref<Texture2D> texture;   // Store the actual texture
-		Ref<Shader> shader;       // Store the actual shader
+		AssetRef<Shader> shader;       // Store the actual shader
 		AssetRef<VertexArray> quadVA;  // Store the quad vertex array
 		// Per-draw-call render state
 		AssetRef<RenderState> renderState;
@@ -440,7 +440,7 @@ namespace OloEngine
 		Ref<Texture2D> brdfLutMap;
 		
 		// Actual shader for skinned rendering
-		Ref<Shader> shader;
+		AssetRef<Shader> shader;
 		// Per-draw-call render state
 		AssetRef<RenderState> renderState;
 		// Bone matrices for GPU skinning (up to 100 bones)

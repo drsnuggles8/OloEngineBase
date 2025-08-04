@@ -4,6 +4,7 @@
 #include <unordered_map>
 
 #include <glm/glm.hpp>
+#include "OloEngine/Core/Ref.h"
 #include "ShaderLibrary.h" // Include the new ShaderLibrary header
 
 namespace OloEngine
@@ -11,7 +12,7 @@ namespace OloEngine
 	// Forward declaration
 	class ShaderResourceRegistry;
 
-	class Shader
+	class Shader : public RefCounted
 	{
 	public:
 		virtual ~Shader() = default;
@@ -38,7 +39,7 @@ namespace OloEngine
 		virtual ShaderResourceRegistry* GetResourceRegistry() = 0;
 		virtual const ShaderResourceRegistry* GetResourceRegistry() const = 0;
 
-		static Ref<Shader> Create(const std::string& filepath);
-		static Ref<Shader> Create(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc);
+		static AssetRef<Shader> Create(const std::string& filepath);
+		static AssetRef<Shader> Create(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc);
 	};
 }

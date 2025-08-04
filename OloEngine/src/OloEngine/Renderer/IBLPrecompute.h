@@ -43,19 +43,19 @@ namespace OloEngine
         
     private:
         // Enhanced rendering methods
-        static void RenderToCubemapAdvanced(const Ref<TextureCubemap>& cubemap, const Ref<Shader>& shader, 
+        static void RenderToCubemapAdvanced(const Ref<TextureCubemap>& cubemap, const AssetRef<Shader>& shader, 
                                           const AssetRef<Mesh>& cubeMesh, const IBLConfiguration& config, u32 mipLevel = 0);
         
         // Render to cubemap helper
-        static void RenderToCubemap(const Ref<TextureCubemap>& cubemap, const Ref<Shader>& shader, 
+        static void RenderToCubemap(const Ref<TextureCubemap>& cubemap, const AssetRef<Shader>& shader, 
                                    const AssetRef<Mesh>& cubeMesh, u32 mipLevel = 0);
         
         // Render to texture helper
-        static void RenderToTexture(const Ref<Texture2D>& texture, const Ref<Shader>& shader, 
+        static void RenderToTexture(const Ref<Texture2D>& texture, const AssetRef<Shader>& shader, 
                                    const AssetRef<Mesh>& quadMesh);
         
         // Render to texture with advanced configuration
-        static void RenderToTextureAdvanced(const Ref<Texture2D>& texture, const Ref<Shader>& shader, 
+        static void RenderToTextureAdvanced(const Ref<Texture2D>& texture, const AssetRef<Shader>& shader, 
                                           const AssetRef<Mesh>& quadMesh, const IBLConfiguration& config);
         
         // Get cube mesh for rendering

@@ -12,7 +12,7 @@
 
 namespace OloEngine
 {
-    ShaderResourceRegistry::ShaderResourceRegistry(const Ref<Shader>& shader)
+    ShaderResourceRegistry::ShaderResourceRegistry(const AssetRef<Shader>& shader)
         : m_Shader(shader)
     {
     }

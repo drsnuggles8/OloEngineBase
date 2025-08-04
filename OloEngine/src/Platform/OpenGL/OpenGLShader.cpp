@@ -267,7 +267,7 @@ namespace OloEngine
 		glDeleteProgram(m_RendererID);
 	}
 
-	void OpenGLShader::InitializeResourceRegistry(const Ref<Shader>& shaderRef)
+	void OpenGLShader::InitializeResourceRegistry(const AssetRef<Shader>& shaderRef)
 	{
 		OLO_CORE_TRACE("OpenGLShader: InitializeResourceRegistry called for shader '{0}'", m_Name);
 		m_ResourceRegistry.SetShader(shaderRef);
