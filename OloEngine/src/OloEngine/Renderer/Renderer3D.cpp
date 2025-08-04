@@ -342,6 +342,14 @@ namespace OloEngine
 			OLO_CORE_ERROR("Renderer3D::DrawMesh: No shader available!");
 			return nullptr;
 		}
+		
+		// TODO: Asset Management Integration
+		// This entire command creation section needs to be updated once we have
+		// a proper asset management system. All Ref<T> assignments should be
+		// converted to asset ID assignments using asset handles.
+		// Example: cmd->shaderID = shaderToUse->GetAssetHandle();
+		// instead of: cmd->shader = shaderToUse;
+		
 		CommandPacket* packet = CreateDrawCall<DrawMeshCommand>();
 		auto* cmd = packet->GetCommandData<DrawMeshCommand>();
 		cmd->header.type = CommandType::DrawMesh;

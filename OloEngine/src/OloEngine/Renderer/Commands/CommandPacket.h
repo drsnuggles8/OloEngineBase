@@ -6,6 +6,17 @@
 #include "OloEngine/Core/Base.h"
 #include <glm/glm.hpp>
 
+/*
+ * TODO: CommandPacket Asset Management Integration
+ * 
+ * The Initialize() method has been updated to work with ID-based commands,
+ * but needs further updates once asset management system is complete:
+ * 
+ * - Sort key generation should use proper asset handles
+ * - Material ID generation should be based on asset system, not texture IDs
+ * - Consider caching resolved asset pointers for performance
+ */
+
 namespace OloEngine
 {
     // Forward declarations
