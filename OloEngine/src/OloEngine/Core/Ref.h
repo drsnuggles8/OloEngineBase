@@ -27,6 +27,11 @@ namespace OloEngine
         bool IsLive(void* instance);
     }
 
+    /// Thread-safe smart pointer for RefCounted objects.
+    /// The underlying RefCounted object uses atomic reference counting,
+    /// making it safe for multiple Ref instances to reference the same
+    /// object from different threads. However, individual Ref instances
+    /// are not thread-safe and should not be modified concurrently.
     template<typename T>
     class Ref
     {
@@ -219,7 +224,9 @@ namespace OloEngine
                 {
                     RefUtils::RemoveFromLiveReferences(m_Instance);
                     delete m_Instance;
-                    m_Instance = nullptr;
+                    // Note: m_Instance is not set to nullptr here to avoid race conditions.
+                    // Each Ref instance manages its own pointer lifetime through 
+                    // constructors, destructors, and assignment operators.
                 }
             }
         }

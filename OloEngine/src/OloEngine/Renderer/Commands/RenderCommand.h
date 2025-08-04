@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/VertexArray.h"
@@ -16,7 +18,8 @@
 namespace OloEngine
 {
     // Forward declarations
-    class RendererAPI;    // Command type enum for dispatching
+    class RendererAPI;
+	// Command type enum for dispatching
     enum class CommandType : u8
     {
         Invalid = 0,
@@ -69,8 +72,7 @@ namespace OloEngine
 
     /*
      * Render state commands - POD structures
-     */
-
+    */
     struct SetViewportCommand
     {
         CommandHeader header;
@@ -228,8 +230,7 @@ namespace OloEngine
 
     /*
      * Draw commands - POD structures
-     */
-
+    */
     struct BindDefaultFramebufferCommand
     {
         CommandHeader header;
@@ -280,7 +281,9 @@ namespace OloEngine
         CommandHeader header;
         Ref<VertexArray> vertexArray; // Changed from rendererID to vertexArray
         u32 vertexCount;
-    };    // Higher-level commands combine multiple lower-level commands
+    };
+	
+	// Higher-level commands combine multiple lower-level commands
 	struct DrawMeshCommand
 	{
 		CommandHeader header;
@@ -328,6 +331,7 @@ namespace OloEngine
 		bool isSkinnedMesh = false;
 		u32 boneMatricesBufferID = 0;  // ID to external bone matrices buffer instead of vector
 	};
+
 	struct DrawMeshInstancedCommand
 	{
 		CommandHeader header;
