@@ -6,7 +6,7 @@
 
 namespace OloEngine
 {
-	Ref<Texture2D> Texture2D::Create(const TextureSpecification& specification)
+	AssetRef<Texture2D> Texture2D::Create(const TextureSpecification& specification)
 	{
 		switch (Renderer::GetAPI())
 		{
@@ -17,7 +17,8 @@ namespace OloEngine
 			}
 			case RendererAPI::API::OpenGL:
 			{
-				return CreateRef<OpenGLTexture2D>(specification);
+				auto texture = AssetRef<OpenGLTexture2D>::Create(specification);
+				return texture.As<Texture2D>();
 			}
 		}
 
@@ -25,7 +26,7 @@ namespace OloEngine
 		return nullptr;
 	}
 
-	Ref<Texture2D> Texture2D::Create(const std::string& path)
+	AssetRef<Texture2D> Texture2D::Create(const std::string& path)
 	{
 		switch (Renderer::GetAPI())
 		{
@@ -36,7 +37,8 @@ namespace OloEngine
 			}
 			case RendererAPI::API::OpenGL:
 			{
-				return CreateRef<OpenGLTexture2D>(path);
+				auto texture = AssetRef<OpenGLTexture2D>::Create(path);
+				return texture.As<Texture2D>();
 			}
 		}
 

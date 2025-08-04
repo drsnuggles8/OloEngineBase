@@ -10,7 +10,7 @@
 
 namespace OloEngine
 {	template<typename T, typename S, int N, msdf_atlas::GeneratorFunction<S, N> GenFunc>
-	static Ref<Texture2D> CreateAndCacheAtlas(const std::string_view /*fontName*/, f32 /*fontSize*/, const std::vector<msdf_atlas::GlyphGeometry>& glyphs,
+	static AssetRef<Texture2D> CreateAndCacheAtlas(const std::string_view /*fontName*/, f32 /*fontSize*/, const std::vector<msdf_atlas::GlyphGeometry>& glyphs,
 		const msdf_atlas::FontGeometry& /*fontGeometry*/, u32 width, u32 height)
 	{
 		msdf_atlas::GeneratorAttributes attributes;
@@ -29,7 +29,7 @@ namespace OloEngine
 		spec.Format = ImageFormat::RGB8;
 		spec.GenerateMips = false;
 
-		Ref<Texture2D> texture = Texture2D::Create(spec);
+		AssetRef<Texture2D> texture = Texture2D::Create(spec);
 		texture->SetData((void*)bitmap.pixels, bitmap.width * bitmap.height * 3);
 		return texture;
 	}

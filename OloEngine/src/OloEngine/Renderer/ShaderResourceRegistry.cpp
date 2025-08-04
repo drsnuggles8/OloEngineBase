@@ -187,7 +187,7 @@ namespace OloEngine
         }
     }
 
-    void ShaderResourceRegistry::SetTexture(const std::string& name, Ref<Texture2D> texture)
+    void ShaderResourceRegistry::SetTexture(const std::string& name, AssetRef<Texture2D> texture)
     {
         auto it = m_Bindings.find(name);
         if (it != m_Bindings.end())
@@ -201,7 +201,7 @@ namespace OloEngine
         }
     }
 
-    void ShaderResourceRegistry::SetTexture(const std::string& name, Ref<TextureCubemap> texture)
+    void ShaderResourceRegistry::SetTexture(const std::string& name, AssetRef<TextureCubemap> texture)
     {
         auto it = m_Bindings.find(name);
         if (it != m_Bindings.end())
@@ -392,17 +392,17 @@ namespace OloEngine
 
     void ShaderResourceRegistry::BindTexture(const ResourceBinding& binding)
     {
-        if (std::holds_alternative<Ref<Texture2D>>(binding.Resource))
+        if (std::holds_alternative<AssetRef<Texture2D>>(binding.Resource))
         {
-            auto texture = std::get<Ref<Texture2D>>(binding.Resource);
+            auto texture = std::get<AssetRef<Texture2D>>(binding.Resource);
             if (texture)
             {
                 texture->Bind(binding.BindingPoint);
             }
         }
-        else if (std::holds_alternative<Ref<TextureCubemap>>(binding.Resource))
+        else if (std::holds_alternative<AssetRef<TextureCubemap>>(binding.Resource))
         {
-            auto texture = std::get<Ref<TextureCubemap>>(binding.Resource);
+            auto texture = std::get<AssetRef<TextureCubemap>>(binding.Resource);
             if (texture)
             {
                 texture->Bind(binding.BindingPoint);
@@ -423,14 +423,14 @@ namespace OloEngine
             auto buffer = std::get<AssetRef<UniformBuffer>>(Resource);
             return buffer ? buffer->GetRendererID() : 0;
         }
-        else if (std::holds_alternative<Ref<Texture2D>>(Resource))
+        else if (std::holds_alternative<AssetRef<Texture2D>>(Resource))
         {
-            auto texture = std::get<Ref<Texture2D>>(Resource);
+            auto texture = std::get<AssetRef<Texture2D>>(Resource);
             return texture ? texture->GetRendererID() : 0;
         }
-        else if (std::holds_alternative<Ref<TextureCubemap>>(Resource))
+        else if (std::holds_alternative<AssetRef<TextureCubemap>>(Resource))
         {
-            auto texture = std::get<Ref<TextureCubemap>>(Resource);
+            auto texture = std::get<AssetRef<TextureCubemap>>(Resource);
             return texture ? texture->GetRendererID() : 0;
         }
         return 0;

@@ -145,11 +145,11 @@ namespace OloEngine
 		return AssetRef<Mesh>::Create(vertices, indices);
 	}
 
-	std::vector<Ref<Texture2D>> Model::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type)
+	std::vector<AssetRef<Texture2D>> Model::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type)
 	{
 		OLO_PROFILE_FUNCTION();
 
-		std::vector<Ref<Texture2D>> textures;
+		std::vector<AssetRef<Texture2D>> textures;
 
 		for (u32 i = 0; i < mat->GetTextureCount(type); i++)
 		{
@@ -162,7 +162,7 @@ namespace OloEngine
 			
 			if (!m_LoadedTextures.contains(texturePathStr))
 			{
-				Ref<Texture2D> texture = Texture2D::Create(texturePathStr);
+				AssetRef<Texture2D> texture = Texture2D::Create(texturePathStr);
 				
 				if (texture && texture->IsLoaded())
 				{

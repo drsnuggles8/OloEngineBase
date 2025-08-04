@@ -41,7 +41,7 @@ namespace OloEngine
 			const std::string filenameString = path.filename().string();
 
 			ImGui::PushID(filenameString.c_str());
-			const Ref<Texture2D> icon = directoryEntry.is_directory() ? m_DirectoryIcon : GetFileIcon(directoryEntry.path());
+			const AssetRef<Texture2D> icon = directoryEntry.is_directory() ? m_DirectoryIcon : GetFileIcon(directoryEntry.path());
 			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
 			ImGui::ImageButton(filenameString.c_str(), (ImTextureID)(icon->GetRendererID()), { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
 
@@ -101,7 +101,7 @@ namespace OloEngine
 		ImGui::End();
 	}
 
-	Ref<Texture2D>& ContentBrowserPanel::GetFileIcon(const std::filesystem::path& filepath)
+	AssetRef<Texture2D>& ContentBrowserPanel::GetFileIcon(const std::filesystem::path& filepath)
 	{
 		if (m_ImageIcons.contains(filepath))
 		{

@@ -63,7 +63,7 @@ namespace OloEngine
         AssetRef<SkinnedMesh> ProcessMesh(const aiMesh* mesh, const aiScene* scene);
         
         // Material and texture loading
-        std::vector<Ref<Texture2D>> LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type);
+        std::vector<AssetRef<Texture2D>> LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type);
         Material ProcessMaterial(const aiMaterial* mat);
         
         // Skeleton and animation processing
@@ -95,7 +95,7 @@ namespace OloEngine
         AssetRef<Skeleton> m_Skeleton;
         
         std::string m_Directory;
-        std::unordered_map<std::string, Ref<Texture2D>> m_LoadedTextures;
+        std::unordered_map<std::string, AssetRef<Texture2D>> m_LoadedTextures;
         std::unordered_map<std::string, BoneInfo> m_BoneInfoMap;
         
         BoundingBox m_BoundingBox;

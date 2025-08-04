@@ -387,7 +387,7 @@ namespace OloEngine
 		return packet;
 	}
 
-	CommandPacket* Renderer3D::DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture)
+	CommandPacket* Renderer3D::DrawQuad(const glm::mat4& modelMatrix, const AssetRef<Texture2D>& texture)
 	{
 		OLO_PROFILE_FUNCTION();
 		if (!s_Data.ScenePass)
@@ -789,13 +789,13 @@ namespace OloEngine
 						{
 							input = ShaderResourceInput(std::get<AssetRef<UniformBuffer>>(resource));
 						}
-						else if (std::holds_alternative<Ref<Texture2D>>(resource))
+						else if (std::holds_alternative<AssetRef<Texture2D>>(resource))
 						{
-							input = ShaderResourceInput(std::get<Ref<Texture2D>>(resource));
+							input = ShaderResourceInput(std::get<AssetRef<Texture2D>>(resource));
 						}
-						else if (std::holds_alternative<Ref<TextureCubemap>>(resource))
+						else if (std::holds_alternative<AssetRef<TextureCubemap>>(resource))
 						{
-							input = ShaderResourceInput(std::get<Ref<TextureCubemap>>(resource));
+							input = ShaderResourceInput(std::get<AssetRef<TextureCubemap>>(resource));
 						}
 						
 						if (input.Type != ShaderResourceType::None)
@@ -923,7 +923,7 @@ namespace OloEngine
 		return m_ShaderLibrary;
 	}
 
-	CommandPacket* Renderer3D::DrawSkybox(const Ref<TextureCubemap>& skyboxTexture)
+	CommandPacket* Renderer3D::DrawSkybox(const AssetRef<TextureCubemap>& skyboxTexture)
 	{
 		if (!s_Data.ScenePass)
 		{

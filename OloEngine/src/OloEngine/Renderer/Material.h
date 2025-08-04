@@ -5,6 +5,7 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/hash.hpp>
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include "Platform/OpenGL/OpenGLShader.h"
@@ -29,8 +30,8 @@ namespace OloEngine
 		glm::vec3 Specular;
 		f32 Shininess;
 		bool UseTextureMaps = false;
-		Ref<Texture2D> DiffuseMap;
-		Ref<Texture2D> SpecularMap;
+		AssetRef<Texture2D> DiffuseMap;
+		AssetRef<Texture2D> SpecularMap;
 		
 		// PBR material properties
 		glm::vec4 BaseColorFactor = glm::vec4(1.0f);     // Base color (albedo) with alpha
@@ -42,15 +43,15 @@ namespace OloEngine
 		bool EnableIBL = false;                          // Enable IBL
 		
 		// PBR texture maps
-		Ref<Texture2D> AlbedoMap;                        // Base color texture
-		Ref<Texture2D> MetallicRoughnessMap;             // Metallic-roughness texture (glTF format)
-		Ref<Texture2D> NormalMap;                        // Normal map
-		Ref<Texture2D> AOMap;                            // Ambient occlusion map
-		Ref<Texture2D> EmissiveMap;                      // Emissive map
-		Ref<TextureCubemap> EnvironmentMap;              // Environment cubemap
-		Ref<TextureCubemap> IrradianceMap;               // Irradiance cubemap
-		Ref<TextureCubemap> PrefilterMap;                // Prefiltered environment map
-		Ref<Texture2D> BRDFLutMap;                       // BRDF lookup table
+		AssetRef<Texture2D> AlbedoMap;                        // Base color texture
+		AssetRef<Texture2D> MetallicRoughnessMap;             // Metallic-roughness texture (glTF format)
+		AssetRef<Texture2D> NormalMap;                        // Normal map
+		AssetRef<Texture2D> AOMap;                            // Ambient occlusion map
+		AssetRef<Texture2D> EmissiveMap;                      // Emissive map
+		AssetRef<TextureCubemap> EnvironmentMap;              // Environment cubemap
+		AssetRef<TextureCubemap> IrradianceMap;               // Irradiance cubemap
+		AssetRef<TextureCubemap> PrefilterMap;                // Prefiltered environment map
+		AssetRef<Texture2D> BRDFLutMap;                       // BRDF lookup table
 		
 		// General material properties
 		AssetRef<Shader> Shader;
@@ -519,10 +520,10 @@ namespace OloEngine
 		/**
 		 * @brief Configure IBL (Image-Based Lighting) for this material
 		 */
-		void ConfigureIBL(const Ref<TextureCubemap>& environmentMap,
-			const Ref<TextureCubemap>& irradianceMap = nullptr,
-			const Ref<TextureCubemap>& prefilterMap = nullptr,
-			const Ref<Texture2D>& brdfLutMap = nullptr)
+		void ConfigureIBL(const AssetRef<TextureCubemap>& environmentMap,
+			const AssetRef<TextureCubemap>& irradianceMap = nullptr,
+			const AssetRef<TextureCubemap>& prefilterMap = nullptr,
+			const AssetRef<Texture2D>& brdfLutMap = nullptr)
 		{
 			EnableIBL = true;
 			EnvironmentMap = environmentMap;

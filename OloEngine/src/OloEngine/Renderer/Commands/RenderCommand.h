@@ -296,8 +296,8 @@ namespace OloEngine
 		f32 shininess;
 		bool useTextureMaps;
 		// Legacy texture references
-		Ref<Texture2D> diffuseMap;
-		Ref<Texture2D> specularMap;
+		AssetRef<Texture2D> diffuseMap;
+		AssetRef<Texture2D> specularMap;
 		
 		// PBR material properties
 		bool enablePBR = false;
@@ -310,15 +310,15 @@ namespace OloEngine
 		bool enableIBL = false;
 		
 		// PBR texture references
-		Ref<Texture2D> albedoMap;
-		Ref<Texture2D> metallicRoughnessMap;
-		Ref<Texture2D> normalMap;
-		Ref<Texture2D> aoMap;
-		Ref<Texture2D> emissiveMap;
-		Ref<TextureCubemap> environmentMap;
-		Ref<TextureCubemap> irradianceMap;
-		Ref<TextureCubemap> prefilterMap;
-		Ref<Texture2D> brdfLutMap;
+		AssetRef<Texture2D> albedoMap;
+		AssetRef<Texture2D> metallicRoughnessMap;
+		AssetRef<Texture2D> normalMap;
+		AssetRef<Texture2D> aoMap;
+		AssetRef<Texture2D> emissiveMap;
+		AssetRef<TextureCubemap> environmentMap;
+		AssetRef<TextureCubemap> irradianceMap;
+		AssetRef<TextureCubemap> prefilterMap;
+		AssetRef<Texture2D> brdfLutMap;
 		
 		// Actual shader instead of ID
 		AssetRef<Shader> shader;
@@ -344,8 +344,8 @@ namespace OloEngine
 		f32 shininess;
 		bool useTextureMaps;
 		// Legacy texture references
-		Ref<Texture2D> diffuseMap;
-		Ref<Texture2D> specularMap;
+		AssetRef<Texture2D> diffuseMap;
+		AssetRef<Texture2D> specularMap;
 		
 		// PBR material properties
 		bool enablePBR = false;
@@ -358,15 +358,15 @@ namespace OloEngine
 		bool enableIBL = false;
 		
 		// PBR texture references
-		Ref<Texture2D> albedoMap;
-		Ref<Texture2D> metallicRoughnessMap;
-		Ref<Texture2D> normalMap;
-		Ref<Texture2D> aoMap;
-		Ref<Texture2D> emissiveMap;
-		Ref<TextureCubemap> environmentMap;
-		Ref<TextureCubemap> irradianceMap;
-		Ref<TextureCubemap> prefilterMap;
-		Ref<Texture2D> brdfLutMap;
+		AssetRef<Texture2D> albedoMap;
+		AssetRef<Texture2D> metallicRoughnessMap;
+		AssetRef<Texture2D> normalMap;
+		AssetRef<Texture2D> aoMap;
+		AssetRef<Texture2D> emissiveMap;
+		AssetRef<TextureCubemap> environmentMap;
+		AssetRef<TextureCubemap> irradianceMap;
+		AssetRef<TextureCubemap> prefilterMap;
+		AssetRef<Texture2D> brdfLutMap;
 		
 		// Actual shader instead of ID
 		AssetRef<Shader> shader;
@@ -386,7 +386,7 @@ namespace OloEngine
 		u32 indexCount;
 		glm::mat4 transform;         // Usually identity matrix
 		AssetRef<Shader> shader;          // Skybox shader
-		Ref<TextureCubemap> skyboxTexture; // The skybox cubemap texture
+		AssetRef<TextureCubemap> skyboxTexture; // The skybox cubemap texture
 		AssetRef<RenderState> renderState; // Skybox-specific render state
 	};
 
@@ -394,7 +394,7 @@ namespace OloEngine
 	{
 		CommandHeader header;
 		glm::mat4 transform;
-		Ref<Texture2D> texture;   // Store the actual texture
+		AssetRef<Texture2D> texture;   // Store the actual texture
 		AssetRef<Shader> shader;       // Store the actual shader
 		AssetRef<VertexArray> quadVA;  // Store the quad vertex array
 		// Per-draw-call render state
@@ -415,8 +415,8 @@ namespace OloEngine
 		f32 shininess;
 		bool useTextureMaps;
 		// Legacy texture references
-		Ref<Texture2D> diffuseMap;
-		Ref<Texture2D> specularMap;
+		AssetRef<Texture2D> diffuseMap;
+		AssetRef<Texture2D> specularMap;
 		
 		// PBR material properties
 		bool enablePBR = false;
@@ -429,15 +429,15 @@ namespace OloEngine
 		bool enableIBL = false;
 		
 		// PBR texture references
-		Ref<Texture2D> albedoMap;
-		Ref<Texture2D> metallicRoughnessMap;
-		Ref<Texture2D> normalMap;
-		Ref<Texture2D> aoMap;
-		Ref<Texture2D> emissiveMap;
-		Ref<TextureCubemap> environmentMap;
-		Ref<TextureCubemap> irradianceMap;
-		Ref<TextureCubemap> prefilterMap;
-		Ref<Texture2D> brdfLutMap;
+		AssetRef<Texture2D> albedoMap;
+		AssetRef<Texture2D> metallicRoughnessMap;
+		AssetRef<Texture2D> normalMap;
+		AssetRef<Texture2D> aoMap;
+		AssetRef<Texture2D> emissiveMap;
+		AssetRef<TextureCubemap> environmentMap;
+		AssetRef<TextureCubemap> irradianceMap;
+		AssetRef<TextureCubemap> prefilterMap;
+		AssetRef<Texture2D> brdfLutMap;
 		
 		// Actual shader for skinned rendering
 		AssetRef<Shader> shader;

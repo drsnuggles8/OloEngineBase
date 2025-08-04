@@ -6,7 +6,7 @@
 
 namespace OloEngine
 {
-    Ref<TextureCubemap> TextureCubemap::Create(const std::vector<std::string>& facePaths)
+    AssetRef<TextureCubemap> TextureCubemap::Create(const std::vector<std::string>& facePaths)
     {
         OLO_CORE_ASSERT(facePaths.size() == 6, "Cubemap requires exactly 6 face textures!");
         
@@ -19,7 +19,8 @@ namespace OloEngine
             }
             case RendererAPI::API::OpenGL:
             {
-                return CreateRef<OpenGLTextureCubemap>(facePaths);
+                auto texture = AssetRef<OpenGLTextureCubemap>::Create(facePaths);
+                return texture.As<TextureCubemap>();
             }
         }
 
@@ -27,7 +28,7 @@ namespace OloEngine
         return nullptr;
     }
 
-    Ref<TextureCubemap> TextureCubemap::Create(const CubemapSpecification& specification)
+    AssetRef<TextureCubemap> TextureCubemap::Create(const CubemapSpecification& specification)
     {
         switch (Renderer::GetAPI())
         {
@@ -38,7 +39,8 @@ namespace OloEngine
             }
             case RendererAPI::API::OpenGL:
             {
-                return CreateRef<OpenGLTextureCubemap>(specification);
+                auto texture = AssetRef<OpenGLTextureCubemap>::Create(specification);
+                return texture.As<TextureCubemap>();
             }
         }
 

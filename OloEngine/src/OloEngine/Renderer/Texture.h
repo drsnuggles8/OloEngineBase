@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/Ref.h"
 
 #include <string>
 
@@ -27,7 +28,7 @@ namespace OloEngine
 		bool GenerateMips = true;
 	};
 
-	class Texture
+	class Texture : public RefCounted
 	{
 	public:
 		virtual ~Texture() = default;
@@ -54,7 +55,7 @@ namespace OloEngine
 	class Texture2D : public Texture
 	{
 	public:
-		static Ref<Texture2D> Create(const TextureSpecification& specification);
-		static Ref<Texture2D> Create(const std::string& path);
+		static AssetRef<Texture2D> Create(const TextureSpecification& specification);
+		static AssetRef<Texture2D> Create(const std::string& path);
 	};
 }

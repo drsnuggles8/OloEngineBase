@@ -2,6 +2,8 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/ShaderResourceTypes.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/ShaderReflection.h"
@@ -16,8 +18,6 @@ namespace OloEngine
 {
     // Forward declarations
     class Shader;
-    class Texture2D;
-    class TextureCubemap;
 
     /**
      * @brief Shader resource variant - supports all bindable resource types
@@ -25,8 +25,8 @@ namespace OloEngine
     using ShaderResource = std::variant<
         std::monostate,  // Represents "no resource"
         AssetRef<UniformBuffer>,
-        Ref<Texture2D>,
-        Ref<TextureCubemap>
+        AssetRef<Texture2D>,
+        AssetRef<TextureCubemap>
     >;
 
     /**
@@ -42,9 +42,9 @@ namespace OloEngine
         ShaderResourceInput() = default;
         explicit ShaderResourceInput(AssetRef<UniformBuffer> buffer) 
             : Type(ShaderResourceType::UniformBuffer), Resource(buffer) {}
-        explicit ShaderResourceInput(Ref<Texture2D> texture) 
+        explicit ShaderResourceInput(AssetRef<Texture2D> texture) 
             : Type(ShaderResourceType::Texture2D), Resource(texture) {}
-        explicit ShaderResourceInput(Ref<TextureCubemap> texture) 
+        explicit ShaderResourceInput(AssetRef<TextureCubemap> texture) 
             : Type(ShaderResourceType::TextureCube), Resource(texture) {}
     };
 
@@ -111,8 +111,8 @@ namespace OloEngine
         /**
          * @brief Set a texture resource
          */
-        void SetTexture(const std::string& name, Ref<Texture2D> texture);
-        void SetTexture(const std::string& name, Ref<TextureCubemap> texture);
+        void SetTexture(const std::string& name, AssetRef<Texture2D> texture);
+        void SetTexture(const std::string& name, AssetRef<TextureCubemap> texture);
 
         /**
          * @brief Generic resource setter (using variant)
@@ -135,20 +135,7 @@ namespace OloEngine
                 SetUniformBuffer(name, resource);
                 return true;
             }
-            else
-            {
-                static_assert(sizeof(T) == 0, "Unsupported resource type for ShaderResourceRegistry::SetResource");
-                return false; // Unreachable, but satisfies return type
-            }
-        }
-
-        /**
-         * @brief Template method for type-safe resource setting (old Ref compatibility)
-         */
-        template<typename T>
-        bool SetResource(const std::string& name, const Ref<T>& resource)
-        {
-            if constexpr (std::is_same_v<T, Texture2D>)
+            else if constexpr (std::is_same_v<T, Texture2D>)
             {
                 SetTexture(name, resource);
                 return true;

@@ -169,9 +169,9 @@ private:
 	OloEngine::AssetRef<OloEngine::Model> m_CerberusModel;
 	
 	// Texture resources
-	OloEngine::Ref<OloEngine::Texture2D> m_DiffuseMap;
-	OloEngine::Ref<OloEngine::Texture2D> m_SpecularMap;
-	OloEngine::Ref<OloEngine::Texture2D> m_GrassTexture;
+	OloEngine::AssetRef<OloEngine::Texture2D> m_DiffuseMap;
+	OloEngine::AssetRef<OloEngine::Texture2D> m_SpecularMap;
+	OloEngine::AssetRef<OloEngine::Texture2D> m_GrassTexture;
 
 	// Rotation animation state
 	f32 m_RotationAngleY = 0.0f;

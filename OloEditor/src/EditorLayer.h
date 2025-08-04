@@ -79,7 +79,7 @@ namespace OloEngine
 
 		EditorCamera m_EditorCamera;
 
-		Ref<Texture2D> m_CheckerboardTexture;
+		AssetRef<Texture2D> m_CheckerboardTexture;
 
 		bool m_ViewportFocused = false;
 		bool m_ViewportHovered = false;
@@ -107,11 +107,11 @@ namespace OloEngine
 		Scope<ContentBrowserPanel> m_ContentBrowserPanel;
 
 		// Editor resources
-		Ref<Texture2D> m_IconPlay;
-		Ref<Texture2D> m_IconPause;
-		Ref<Texture2D> m_IconSimulate;
-		Ref<Texture2D> m_IconStep;
-		Ref<Texture2D> m_IconStop;
+		AssetRef<Texture2D> m_IconPlay;
+		AssetRef<Texture2D> m_IconPause;
+		AssetRef<Texture2D> m_IconSimulate;
+		AssetRef<Texture2D> m_IconStep;
+		AssetRef<Texture2D> m_IconStop;
 	};
 
 }

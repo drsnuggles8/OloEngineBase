@@ -451,7 +451,7 @@ namespace OloEngine
 				{
 					auto* const path = static_cast<wchar_t*>(payload->Data);
 					std::filesystem::path texturePath(path);
-					Ref<Texture2D> const texture = Texture2D::Create(texturePath.string());
+					AssetRef<Texture2D> const texture = Texture2D::Create(texturePath.string());
 					if (texture->IsLoaded())
 					{
 						component.Texture = texture;

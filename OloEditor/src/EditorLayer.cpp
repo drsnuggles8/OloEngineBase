@@ -330,7 +330,7 @@ namespace OloEngine
 				}
 				else if (((path.extension() == ".png") || (path.extension() == ".jpeg")) && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
 				{
-					const Ref<Texture2D> texture = Texture2D::Create(path.string());
+					const AssetRef<Texture2D> texture = Texture2D::Create(path.string());
 					if (texture->IsLoaded())
 					{
 						m_HoveredEntity.GetComponent<SpriteRendererComponent>().Texture = texture;
@@ -432,7 +432,7 @@ namespace OloEngine
 		if (hasPlayButton)
 		{
 			using enum OloEngine::EditorLayer::SceneState;
-			Ref<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Simulate)) ? m_IconPlay : m_IconStop;
+			AssetRef<Texture2D> const icon = ((m_SceneState == Edit) || (m_SceneState == Simulate)) ? m_IconPlay : m_IconStop;
 			if (ImGui::ImageButton("##play_stop_icon", (u64)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
 			{
 				if ((m_SceneState == Edit) || (m_SceneState == Simulate))
@@ -452,7 +452,7 @@ namespace OloEngine
 				ImGui::SameLine();
 			}
 
-			Ref<Texture2D> icon = ((m_SceneState == SceneState::Edit) || (m_SceneState == SceneState::Play)) ? m_IconSimulate : m_IconStop;
+			AssetRef<Texture2D> icon = ((m_SceneState == SceneState::Edit) || (m_SceneState == SceneState::Play)) ? m_IconSimulate : m_IconStop;
 			if (ImGui::ImageButton("##simulate_stop_icon", (u64)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), ImVec4(0.0f, 0.0f, 0.0f, 0.0f), tintColor) && toolbarEnabled)
 			{
 				using enum OloEngine::EditorLayer::SceneState;

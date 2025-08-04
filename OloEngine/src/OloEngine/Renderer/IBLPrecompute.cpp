@@ -45,7 +45,7 @@ namespace OloEngine
         s_IBLCameraUBO->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
     }
 
-    void IBLPrecompute::GenerateIrradianceMap(const Ref<TextureCubemap>& environmentMap, const Ref<TextureCubemap>& irradianceMap, ShaderLibrary& shaderLibrary)
+    void IBLPrecompute::GenerateIrradianceMap(const AssetRef<TextureCubemap>& environmentMap, const AssetRef<TextureCubemap>& irradianceMap, ShaderLibrary& shaderLibrary)
     {
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Generating irradiance map from environment map");
@@ -67,7 +67,7 @@ namespace OloEngine
         OLO_CORE_INFO("Irradiance map generation complete");
     }
 
-    void IBLPrecompute::GeneratePrefilterMap(const Ref<TextureCubemap>& environmentMap, const Ref<TextureCubemap>& prefilterMap, ShaderLibrary& shaderLibrary)
+    void IBLPrecompute::GeneratePrefilterMap(const AssetRef<TextureCubemap>& environmentMap, const AssetRef<TextureCubemap>& prefilterMap, ShaderLibrary& shaderLibrary)
     {
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Generating prefiltered environment map");
@@ -111,7 +111,7 @@ namespace OloEngine
         OLO_CORE_INFO("Prefiltered environment map generation complete");
     }
 
-    void IBLPrecompute::GenerateBRDFLut(const Ref<Texture2D>& brdfLutMap, ShaderLibrary& shaderLibrary)
+    void IBLPrecompute::GenerateBRDFLut(const AssetRef<Texture2D>& brdfLutMap, ShaderLibrary& shaderLibrary)
     {
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Generating BRDF lookup table");
@@ -129,7 +129,7 @@ namespace OloEngine
         OLO_CORE_INFO("BRDF lookup table generation complete");
     }
 
-    Ref<TextureCubemap> IBLPrecompute::ConvertEquirectangularToCubemap(const std::string& filePath, ShaderLibrary& shaderLibrary, u32 resolution)
+    AssetRef<TextureCubemap> IBLPrecompute::ConvertEquirectangularToCubemap(const std::string& filePath, ShaderLibrary& shaderLibrary, u32 resolution)
     {
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Converting equirectangular HDR to cubemap: {}", filePath);
@@ -186,7 +186,7 @@ namespace OloEngine
         return cubemap;
     }
 
-    Ref<TextureCubemap> IBLPrecompute::CreateCubemapFromFaces(const std::vector<std::string>& facePaths)
+    AssetRef<TextureCubemap> IBLPrecompute::CreateCubemapFromFaces(const std::vector<std::string>& facePaths)
     {
         OLO_PROFILE_FUNCTION();
         
@@ -199,7 +199,7 @@ namespace OloEngine
         return TextureCubemap::Create(facePaths);
     }
 
-    void IBLPrecompute::RenderToCubemap(const Ref<TextureCubemap>& cubemap, const AssetRef<Shader>& shader, 
+    void IBLPrecompute::RenderToCubemap(const AssetRef<TextureCubemap>& cubemap, const AssetRef<Shader>& shader, 
                                        const AssetRef<Mesh>& cubeMesh, u32 mipLevel)
     {
         OLO_PROFILE_FUNCTION();
@@ -286,7 +286,7 @@ namespace OloEngine
             glEnable(GL_STENCIL_TEST);
     }
 
-    void IBLPrecompute::RenderToTexture(const Ref<Texture2D>& texture, const AssetRef<Shader>& shader, 
+    void IBLPrecompute::RenderToTexture(const AssetRef<Texture2D>& texture, const AssetRef<Shader>& shader, 
                                        const AssetRef<Mesh>& quadMesh)
     {
         OLO_PROFILE_FUNCTION();
@@ -357,8 +357,8 @@ namespace OloEngine
     }
 
     // Enhanced IBL generation methods implementation
-    void IBLPrecompute::GenerateIrradianceMapAdvanced(const Ref<TextureCubemap>& environmentMap, 
-                                                     const Ref<TextureCubemap>& irradianceMap, 
+    void IBLPrecompute::GenerateIrradianceMapAdvanced(const AssetRef<TextureCubemap>& environmentMap, 
+                                                     const AssetRef<TextureCubemap>& irradianceMap, 
                                                      ShaderLibrary& shaderLibrary, 
                                                      const IBLConfiguration& config)
     {
@@ -413,8 +413,8 @@ namespace OloEngine
         OLO_CORE_INFO("Enhanced irradiance map generation complete");
     }
 
-    void IBLPrecompute::GeneratePrefilterMapAdvanced(const Ref<TextureCubemap>& environmentMap, 
-                                                    const Ref<TextureCubemap>& prefilterMap, 
+    void IBLPrecompute::GeneratePrefilterMapAdvanced(const AssetRef<TextureCubemap>& environmentMap, 
+                                                    const AssetRef<TextureCubemap>& prefilterMap, 
                                                     ShaderLibrary& shaderLibrary, 
                                                     const IBLConfiguration& config)
     {
@@ -483,7 +483,7 @@ namespace OloEngine
         OLO_CORE_INFO("Enhanced prefilter map generation complete");
     }
 
-    void IBLPrecompute::GenerateBRDFLutAdvanced(const Ref<Texture2D>& brdfLutMap, 
+    void IBLPrecompute::GenerateBRDFLutAdvanced(const AssetRef<Texture2D>& brdfLutMap, 
                                               ShaderLibrary& shaderLibrary, 
                                               const IBLConfiguration& config)
     {
@@ -534,7 +534,7 @@ namespace OloEngine
     }
 
     // Enhanced rendering methods
-    void IBLPrecompute::RenderToCubemapAdvanced(const Ref<TextureCubemap>& cubemap, const AssetRef<Shader>& shader, 
+    void IBLPrecompute::RenderToCubemapAdvanced(const AssetRef<TextureCubemap>& cubemap, const AssetRef<Shader>& shader, 
                                               const AssetRef<Mesh>& cubeMesh, const IBLConfiguration& config, u32 mipLevel)
     {
         // Use standard render method for now - can be enhanced with parallel rendering if needed
@@ -543,7 +543,7 @@ namespace OloEngine
         // Future enhancement: implement parallel face rendering if config.EnableMultithreading is true
     }
 
-    void IBLPrecompute::RenderToTextureAdvanced(const Ref<Texture2D>& texture, const AssetRef<Shader>& shader, 
+    void IBLPrecompute::RenderToTextureAdvanced(const AssetRef<Texture2D>& texture, const AssetRef<Shader>& shader, 
                                               const AssetRef<Mesh>& quadMesh, const IBLConfiguration& config)
     {
         // Use standard render method for now - can be enhanced with additional quality parameters

@@ -686,9 +686,9 @@ namespace OloEngine
         return glm::mix(keys[keyIndex].Scale, keys[keyIndex + 1].Scale, static_cast<f32>(t));
     }
 
-    std::vector<Ref<Texture2D>> AnimatedModel::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type)
+    std::vector<AssetRef<Texture2D>> AnimatedModel::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type)
     {
-        std::vector<Ref<Texture2D>> textures;
+        std::vector<AssetRef<Texture2D>> textures;
         
         for (u32 i = 0; i < mat->GetTextureCount(type); i++)
         {

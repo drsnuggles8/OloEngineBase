@@ -22,10 +22,10 @@ namespace OloEngine
         virtual ~TextureCubemap() = default;
         
         // Create from 6 individual face images
-        static Ref<TextureCubemap> Create(const std::vector<std::string>& facePaths);
+        static AssetRef<TextureCubemap> Create(const std::vector<std::string>& facePaths);
         
         // Create empty cubemap with specification
-        static Ref<TextureCubemap> Create(const CubemapSpecification& specification);
+        static AssetRef<TextureCubemap> Create(const CubemapSpecification& specification);
         
         // Set data for a specific face
         virtual void SetFaceData(u32 faceIndex, void* data, u32 size) = 0;

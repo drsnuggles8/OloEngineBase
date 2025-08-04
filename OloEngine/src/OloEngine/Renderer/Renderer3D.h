@@ -69,11 +69,11 @@ namespace OloEngine
 		static void EndScene();
 		static CommandPacket* DrawMesh(const AssetRef<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
 		static CommandPacket* DrawSkinnedMesh(const AssetRef<SkinnedMesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic = true);
-		static CommandPacket* DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
+		static CommandPacket* DrawQuad(const glm::mat4& modelMatrix, const AssetRef<Texture2D>& texture);
 		static CommandPacket* DrawMeshInstanced(const AssetRef<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true);
 		static CommandPacket* DrawLightCube(const glm::mat4& modelMatrix);
 		static CommandPacket* DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
-		static CommandPacket* DrawSkybox(const Ref<TextureCubemap>& skyboxTexture);
+		static CommandPacket* DrawSkybox(const AssetRef<TextureCubemap>& skyboxTexture);
 		
 		// Skeleton visualization
 		static void DrawSkeleton(const Skeleton& skeleton, const glm::mat4& modelMatrix, 

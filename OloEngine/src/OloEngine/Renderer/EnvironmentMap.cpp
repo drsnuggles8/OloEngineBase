@@ -47,7 +47,7 @@ namespace OloEngine
         return AssetRef<EnvironmentMap>::Create(spec);
     }
 
-    AssetRef<EnvironmentMap> EnvironmentMap::CreateFromCubemap(const Ref<TextureCubemap>& cubemap)
+    AssetRef<EnvironmentMap> EnvironmentMap::CreateFromCubemap(const AssetRef<TextureCubemap>& cubemap)
     {
         EnvironmentMapSpecification spec;
         spec.Resolution = cubemap->GetWidth();
@@ -223,7 +223,7 @@ namespace OloEngine
         GenerateIBLWithConfig(config);
     }
 
-    Ref<TextureCubemap> EnvironmentMap::ConvertEquirectangularToCubemap(const std::string& filePath)
+    AssetRef<TextureCubemap> EnvironmentMap::ConvertEquirectangularToCubemap(const std::string& filePath)
     {
         OLO_PROFILE_FUNCTION();
         
