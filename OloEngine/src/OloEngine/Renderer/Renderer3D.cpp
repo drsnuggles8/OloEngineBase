@@ -381,7 +381,7 @@ namespace OloEngine
 		cmd->brdfLutMap = material.BRDFLutMap;
 		
 		cmd->shader = shaderToUse;
-		cmd->renderState = CreateRef<RenderState>();
+		cmd->renderState = AssetRef<RenderState>::Create();
 		packet->SetCommandType(cmd->header.type);
 		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
 		return packet;
@@ -419,7 +419,7 @@ namespace OloEngine
 		cmd->texture = texture;
 		cmd->shader = s_Data.QuadShader;
 		cmd->quadVA = s_Data.QuadMesh->GetVertexArray();
-		cmd->renderState = CreateRef<RenderState>();
+		cmd->renderState = AssetRef<RenderState>::Create();
 		packet->SetCommandType(cmd->header.type);
 		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
 		return packet;
@@ -489,7 +489,7 @@ namespace OloEngine
 		cmd->brdfLutMap = material.BRDFLutMap;
 		
 		cmd->shader = material.Shader ? material.Shader : s_Data.LightingShader;
-		cmd->renderState = CreateRef<RenderState>();
+		cmd->renderState = AssetRef<RenderState>::Create();
 		packet->SetCommandType(cmd->header.type);
 		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
 		return packet;
@@ -540,7 +540,7 @@ namespace OloEngine
 		cmd->prefilterMap = nullptr;
 		cmd->brdfLutMap = nullptr;
 		
-		cmd->renderState = CreateRef<RenderState>();
+		cmd->renderState = AssetRef<RenderState>::Create();
 		packet->SetCommandType(cmd->header.type);
 		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
 		return packet;
@@ -759,7 +759,7 @@ namespace OloEngine
 		cmd->brdfLutMap = material.BRDFLutMap;
 		
 		cmd->shader = shaderToUse;
-		cmd->renderState = CreateRef<RenderState>();
+		cmd->renderState = AssetRef<RenderState>::Create();
 		
 		cmd->boneMatrices = boneMatrices;
 		
@@ -953,7 +953,7 @@ namespace OloEngine
 		cmd->shader = s_Data.SkyboxShader;
 		cmd->skyboxTexture = skyboxTexture;
 		
-		cmd->renderState = CreateRef<RenderState>();
+		cmd->renderState = AssetRef<RenderState>::Create();
 		cmd->renderState->Depth.TestEnabled = true;
 		cmd->renderState->Depth.Function = GL_LEQUAL; // Important for skybox
 		cmd->renderState->Depth.WriteMask = false; // Don't write to depth buffer

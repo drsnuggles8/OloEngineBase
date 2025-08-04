@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Texture.h"
@@ -322,7 +323,7 @@ namespace OloEngine
 		// Actual shader instead of ID
 		Ref<Shader> shader;
 		// Per-draw-call render state
-		Ref<RenderState> renderState;
+		AssetRef<RenderState> renderState;
 		// Skinning support for animated meshes
 		bool isSkinnedMesh = false;
 		u32 boneMatricesBufferID = 0;  // ID to external bone matrices buffer instead of vector
@@ -370,7 +371,7 @@ namespace OloEngine
 		// Actual shader instead of ID
 		Ref<Shader> shader;
 		// Per-draw-call render state
-		Ref<RenderState> renderState;
+		AssetRef<RenderState> renderState;
 		// Skinning support for animated meshes
 		bool isSkinnedMesh = false;
 		// For instanced skinned meshes, each instance has its own set of bone matrices
@@ -386,7 +387,7 @@ namespace OloEngine
 		glm::mat4 transform;         // Usually identity matrix
 		Ref<Shader> shader;          // Skybox shader
 		Ref<TextureCubemap> skyboxTexture; // The skybox cubemap texture
-		Ref<RenderState> renderState; // Skybox-specific render state
+		AssetRef<RenderState> renderState; // Skybox-specific render state
 	};
 
 	struct DrawQuadCommand
@@ -397,7 +398,7 @@ namespace OloEngine
 		Ref<Shader> shader;       // Store the actual shader
 		AssetRef<VertexArray> quadVA;  // Store the quad vertex array
 		// Per-draw-call render state
-		Ref<RenderState> renderState;
+		AssetRef<RenderState> renderState;
 	};
 
 	struct DrawSkinnedMeshCommand
@@ -441,7 +442,7 @@ namespace OloEngine
 		// Actual shader for skinned rendering
 		Ref<Shader> shader;
 		// Per-draw-call render state
-		Ref<RenderState> renderState;
+		AssetRef<RenderState> renderState;
 		// Bone matrices for GPU skinning (up to 100 bones)
 		std::vector<glm::mat4> boneMatrices;
 	};    // Maximum command size for allocation purposes - increased for PBR and bone matrices
