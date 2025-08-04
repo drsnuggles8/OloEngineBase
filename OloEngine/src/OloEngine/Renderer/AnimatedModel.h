@@ -39,7 +39,7 @@ namespace OloEngine
         // Accessors
         [[nodiscard]] const std::vector<AssetRef<SkinnedMesh>>& GetMeshes() const { return m_Meshes; }
         [[nodiscard]] const std::vector<Material>& GetMaterials() const { return m_Materials; }
-        [[nodiscard]] const Ref<Skeleton>& GetSkeleton() const { return m_Skeleton; }
+        [[nodiscard]] const AssetRef<Skeleton>& GetSkeleton() const { return m_Skeleton; }
         [[nodiscard]] const std::vector<AssetRef<AnimationClip>>& GetAnimations() const { return m_Animations; }
         [[nodiscard]] const BoundingBox& GetBoundingBox() const { return m_BoundingBox; }
         [[nodiscard]] const BoundingSphere& GetBoundingSphere() const { return m_BoundingSphere; }
@@ -92,7 +92,7 @@ namespace OloEngine
         std::vector<AssetRef<SkinnedMesh>> m_Meshes;
         std::vector<Material> m_Materials;
         std::vector<AssetRef<AnimationClip>> m_Animations;
-        Ref<Skeleton> m_Skeleton;
+        AssetRef<Skeleton> m_Skeleton;
         
         std::string m_Directory;
         std::unordered_map<std::string, Ref<Texture2D>> m_LoadedTextures;

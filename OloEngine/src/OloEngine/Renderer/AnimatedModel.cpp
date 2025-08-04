@@ -297,7 +297,7 @@ namespace OloEngine
         if (uniqueBoneNames.empty())
         {
             OLO_CORE_INFO("AnimatedModel::ProcessSkeleton: No bones found, creating default skeleton");
-            m_Skeleton = CreateRef<Skeleton>(1);
+            m_Skeleton = AssetRef<Skeleton>::Create(1);
             m_Skeleton->m_BoneNames = { "Root" };
             m_Skeleton->m_ParentIndices = { -1 };
             m_Skeleton->m_LocalTransforms = { glm::mat4(1.0f) };
@@ -311,7 +311,7 @@ namespace OloEngine
         OLO_CORE_INFO("AnimatedModel::ProcessSkeleton: Found {} unique bones", uniqueBoneNames.size());
 
         // Create skeleton with the correct number of bones
-        m_Skeleton = CreateRef<Skeleton>(uniqueBoneNames.size());
+        m_Skeleton = AssetRef<Skeleton>::Create(uniqueBoneNames.size());
 
         // Create ordered list of bone names and build name-to-index mapping
         std::vector<std::string> orderedBoneNames(uniqueBoneNames.begin(), uniqueBoneNames.end());

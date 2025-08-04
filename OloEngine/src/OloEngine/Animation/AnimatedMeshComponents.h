@@ -17,11 +17,11 @@ namespace OloEngine
 	struct AnimatedMeshComponent
 	{
 		AssetRef<SkinnedMesh> m_Mesh;
-		Ref<Skeleton> m_Skeleton;
+		AssetRef<Skeleton> m_Skeleton;
 		// Skinning data (bone weights/indices) is part of SkinnedMesh
 
 		AnimatedMeshComponent() = default;
-		AnimatedMeshComponent(const AssetRef<SkinnedMesh>& mesh, const Ref<Skeleton>& skeleton)
+		AnimatedMeshComponent(const AssetRef<SkinnedMesh>& mesh, const AssetRef<Skeleton>& skeleton)
 			: m_Mesh(mesh), m_Skeleton(skeleton) {}
 	};
 
@@ -56,10 +56,10 @@ namespace OloEngine
 	// Holds bone hierarchy and transforms for an entity
 	struct SkeletonComponent
 	{
-		Skeleton m_Skeleton; // Shared skeleton data structure
+		AssetRef<Skeleton> m_Skeleton; // Shared skeleton reference
 		
 		SkeletonComponent() = default;
-		SkeletonComponent(size_t boneCount) : m_Skeleton(boneCount) {}
+		SkeletonComponent(const AssetRef<Skeleton>& skeleton) : m_Skeleton(skeleton) {}
 	};
 
 	/**

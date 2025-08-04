@@ -862,7 +862,7 @@ namespace OloEngine
 			material = entity.GetComponent<MaterialComponent>().m_Material;
 		}
 
-		const std::vector<glm::mat4>& boneMatrices = skeletonComp.m_Skeleton.m_FinalBoneMatrices;
+		const std::vector<glm::mat4>& boneMatrices = skeletonComp.m_Skeleton->m_FinalBoneMatrices;
 
 		auto* packet = DrawSkinnedMesh(
 			animatedMeshComp.m_Mesh,

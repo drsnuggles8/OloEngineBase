@@ -294,7 +294,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
             {
                 OloEngine::Animation::AnimationSystem::Update(
                     animStateComp,
-                    skeletonComp.m_Skeleton,
+                    *skeletonComp.m_Skeleton,
                     ts.GetSeconds() * m_AnimationSpeed
                 );
             }
@@ -720,7 +720,7 @@ void Sandbox3D::RenderAnimationTestingScene()
                                   * glm::scale(glm::mat4(1.0f), transformComp.Scale);
             
             // Draw the skeleton using the skeleton component data
-            OloEngine::Renderer3D::DrawSkeleton(skeletonComp.m_Skeleton, modelMatrix, 
+            OloEngine::Renderer3D::DrawSkeleton(*skeletonComp.m_Skeleton, modelMatrix, 
                                                m_ShowBones, m_ShowJoints, 
                                                m_JointSize, m_BoneThickness);
         }
@@ -1412,11 +1412,11 @@ void Sandbox3D::LoadTestAnimatedModel()
         auto& skeletonComp = m_ImportedModelEntity.AddComponent<OloEngine::SkeletonComponent>();
         if (m_CesiumManModel->HasSkeleton())
         {
-            skeletonComp.m_Skeleton = *m_CesiumManModel->GetSkeleton();
+            skeletonComp.m_Skeleton = m_CesiumManModel->GetSkeleton();
             OLO_INFO("Skeleton loaded: {} bones, {} parents, {} transforms", 
-                     skeletonComp.m_Skeleton.m_BoneNames.size(),
-                     skeletonComp.m_Skeleton.m_ParentIndices.size(),
-                     skeletonComp.m_Skeleton.m_GlobalTransforms.size());
+                     skeletonComp.m_Skeleton->m_BoneNames.size(),
+                     skeletonComp.m_Skeleton->m_ParentIndices.size(),
+                     skeletonComp.m_Skeleton->m_GlobalTransforms.size());
         }
         
         // Add animation state component
