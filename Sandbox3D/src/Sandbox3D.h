@@ -192,7 +192,7 @@ private:
 	OloEngine::Material m_PBRSmoothMaterial;
 	
 	// Environment map for IBL
-	OloEngine::Ref<OloEngine::EnvironmentMap> m_EnvironmentMap;
+	OloEngine::AssetRef<OloEngine::EnvironmentMap> m_EnvironmentMap;
 
 	// Light properties (global for lighting test scene)
 	OloEngine::Light m_Light;

@@ -42,19 +42,19 @@ namespace OloEngine
                            "Environment Map");
     }
 
-    Ref<EnvironmentMap> EnvironmentMap::Create(const EnvironmentMapSpecification& spec)
+    AssetRef<EnvironmentMap> EnvironmentMap::Create(const EnvironmentMapSpecification& spec)
     {
-        return CreateRef<EnvironmentMap>(spec);
+        return AssetRef<EnvironmentMap>::Create(spec);
     }
 
-    Ref<EnvironmentMap> EnvironmentMap::CreateFromCubemap(const Ref<TextureCubemap>& cubemap)
+    AssetRef<EnvironmentMap> EnvironmentMap::CreateFromCubemap(const Ref<TextureCubemap>& cubemap)
     {
         EnvironmentMapSpecification spec;
         spec.Resolution = cubemap->GetWidth();
         spec.Format = ImageFormat::RGB32F;
         spec.GenerateIBL = true;
         
-        auto envMap = CreateRef<EnvironmentMap>(spec);
+        auto envMap = AssetRef<EnvironmentMap>::Create(spec);
         envMap->m_EnvironmentMap = cubemap;
         
         if (spec.GenerateIBL)
@@ -65,7 +65,7 @@ namespace OloEngine
         return envMap;
     }
 
-    Ref<EnvironmentMap> EnvironmentMap::CreateFromEquirectangular(const std::string& filePath)
+    AssetRef<EnvironmentMap> EnvironmentMap::CreateFromEquirectangular(const std::string& filePath)
     {
         EnvironmentMapSpecification spec;
         spec.FilePath = filePath;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -50,7 +51,7 @@ namespace OloEngine
         IBLConfiguration IBLConfig;         // Enhanced IBL configuration
     };
 
-    class EnvironmentMap
+    class EnvironmentMap : public RefCounted
     {
     public:
         EnvironmentMap(const EnvironmentMapSpecification& spec);
@@ -60,9 +61,9 @@ namespace OloEngine
         static void InitializeIBLSystem(ShaderLibrary& shaderLibrary);
 
         // Load environment map from HDR file
-        static Ref<EnvironmentMap> Create(const EnvironmentMapSpecification& spec);
-        static Ref<EnvironmentMap> CreateFromCubemap(const Ref<TextureCubemap>& cubemap);
-        static Ref<EnvironmentMap> CreateFromEquirectangular(const std::string& filePath);
+        static AssetRef<EnvironmentMap> Create(const EnvironmentMapSpecification& spec);
+        static AssetRef<EnvironmentMap> CreateFromCubemap(const Ref<TextureCubemap>& cubemap);
+        static AssetRef<EnvironmentMap> CreateFromEquirectangular(const std::string& filePath);
 
         // Get textures
         const Ref<TextureCubemap>& GetEnvironmentMap() const { return m_EnvironmentMap; }
