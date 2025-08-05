@@ -1,4 +1,4 @@
-#include "olopch.h"
+#include "OloEnginePCH.h"
 #include "AssetSerializer.h"
 #include "MeshColliderAsset.h"
 
@@ -26,7 +26,8 @@
 
 namespace OloEngine
 {
-    ///////////////////////////////////    bool TextureSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
+    ///////////////////////////////////
+	bool TextureSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
         std::filesystem::path path = Project::GetAssetDirectory() / metadata.FilePath;
         
@@ -71,7 +72,8 @@ namespace OloEngine
         
         OLO_CORE_TRACE("TextureSerializer::TryLoadData - Successfully loaded texture: {}", path.string());
         return true;
-    }/////////////////////////////////////////
+    }
+    //////////////////////////////////////////
     // TextureSerializer
     //////////////////////////////////////////////////////////////////////////////////
 

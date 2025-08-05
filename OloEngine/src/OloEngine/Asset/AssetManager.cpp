@@ -4,7 +4,7 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Renderer.h"
-#include "OloEngine/Renderer/UI/Font.h"
+#include "OloEngine/Renderer/Font.h"
 
 namespace OloEngine
 {
