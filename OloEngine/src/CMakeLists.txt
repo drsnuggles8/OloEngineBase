@@ -121,6 +121,7 @@
 		"OloEngine/Renderer/IndexBuffer.cpp"
 		"OloEngine/Renderer/IndexBuffer.h"
 		"OloEngine/Renderer/Light.h"
+		"OloEngine/Renderer/Material.cpp"
 		"OloEngine/Renderer/Material.h"
 		"OloEngine/Renderer/Mesh.cpp"
 		"OloEngine/Renderer/Mesh.h"

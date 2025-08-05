@@ -2,6 +2,7 @@
 
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Renderer/Material.h"
+#include "OloEngine/Core/Assert.h"
 
 #include <map>
 

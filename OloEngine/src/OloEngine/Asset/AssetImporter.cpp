@@ -4,6 +4,8 @@
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Project/Project.h"
 
 namespace OloEngine
 {
@@ -45,7 +47,8 @@ namespace OloEngine
     void AssetImporter::Serialize(const Ref<Asset>& asset)
     {
         // Get metadata from editor asset manager
-        auto editorAssetManager = std::dynamic_pointer_cast<EditorAssetManager>(Project::GetAssetManager());
+        auto assetManagerBase = Project::GetAssetManager();
+        auto editorAssetManager = std::dynamic_pointer_cast<EditorAssetManager>(assetManagerBase);
         if (!editorAssetManager)
         {
             OLO_CORE_WARN("Editor asset manager not available");
