@@ -692,8 +692,8 @@ namespace OloEngine
 		if (!mesh || !mesh->GetVertexArray())
 		{
 			OLO_CORE_ERROR("Renderer3D::DrawSkinnedMesh: Invalid mesh ({}) or vertex array ({})!", 
-							(void*)mesh.Raw(), 
-							mesh ? (void*)mesh->GetVertexArray().Raw() : nullptr);
+							(void*)mesh.get(), 
+							mesh ? (void*)mesh->GetVertexArray().get() : nullptr);
 			return nullptr;
 		}
 
@@ -830,7 +830,7 @@ namespace OloEngine
 
 		for (auto entityID : view)
 		{
-			Entity entity = { entityID, scene.Raw() };
+			Entity entity = { entityID, scene.get() };
 			s_Data.Stats.TotalAnimatedMeshes++;
 
 			RenderAnimatedMesh(entity, defaultMaterial);

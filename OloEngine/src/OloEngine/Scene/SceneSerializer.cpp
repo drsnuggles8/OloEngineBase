@@ -454,7 +454,7 @@ namespace OloEngine
 			{
 				// SAFETY: m_Scene is const Ref<Scene>, but Entity requires non-const Scene*
 				// This is safe because serialization only reads entity data
-				Entity const entity = { entityID, const_cast<Scene*>(m_Scene.Raw()) };
+				Entity const entity = { entityID, const_cast<Scene*>(m_Scene.get()) };
 				if (!entity)
 				{
 					return;

@@ -142,6 +142,10 @@ namespace OloEngine
 
         T* Raw() { return m_Instance; }
         const T* Raw() const { return m_Instance; }
+        
+        // Standard smart pointer interface compatibility
+        T* get() { return m_Instance; }
+        const T* get() const { return m_Instance; }
 
         // Modifiers
         void Reset(T* instance = nullptr)
@@ -249,7 +253,7 @@ namespace OloEngine
     public:
         WeakRef() = default;
 
-        WeakRef(const Ref<T>& ref) : m_Instance(const_cast<T*>(ref.Raw())) {}
+        WeakRef(const Ref<T>& ref) : m_Instance(const_cast<T*>(ref.get())) {}
 
         explicit WeakRef(T* instance) : m_Instance(instance) {}
 

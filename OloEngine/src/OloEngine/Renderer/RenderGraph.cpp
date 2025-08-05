@@ -95,7 +95,7 @@ namespace OloEngine
                 {
                     auto& inputPassRef = m_PassLookup[inputPass];
                     // Handle RenderPass (like FinalRenderPass)
-                    if (auto* finalPass = dynamic_cast<FinalRenderPass*>(inputPassRef.Raw()))
+                    if (auto* finalPass = dynamic_cast<FinalRenderPass*>(inputPassRef.get()))
                     {
                         finalPass->SetInputFramebuffer(outputFramebuffer);
                     }

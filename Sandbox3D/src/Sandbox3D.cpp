@@ -260,7 +260,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
         
         for (auto entityID : animatedView)
         {
-            OloEngine::Entity entity = { entityID, m_TestScene.Raw() };
+            OloEngine::Entity entity = { entityID, m_TestScene.get() };
             auto& animStateComp = entity.GetComponent<OloEngine::AnimationStateComponent>();
             auto& skeletonComp = entity.GetComponent<OloEngine::SkeletonComponent>();
             

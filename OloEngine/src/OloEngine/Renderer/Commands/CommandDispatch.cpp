@@ -485,9 +485,9 @@ namespace OloEngine
             if (state.Multisampling.Enabled) api.EnableMultisampling(); else api.DisableMultisampling();
         }
 		
-		if (u32 shaderID = cmd->shader.Raw()->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
+		if (u32 shaderID = cmd->shader.get()->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
 		{
-			cmd->shader.Raw()->Bind();
+			cmd->shader.get()->Bind();
 			s_Data.CurrentBoundShaderID = shaderID;
 			s_Data.Stats.ShaderBinds++;
 		}
@@ -777,9 +777,9 @@ namespace OloEngine
             if (state.Multisampling.Enabled) api.EnableMultisampling(); else api.DisableMultisampling();
         }
         	
-		if (u32 shaderID = cmd->shader.Raw()->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
+		if (u32 shaderID = cmd->shader.get()->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
 		{
-			cmd->shader.Raw()->Bind();
+			cmd->shader.get()->Bind();
 			s_Data.CurrentBoundShaderID = shaderID;
 			s_Data.Stats.ShaderBinds++;
 		}
@@ -897,9 +897,9 @@ namespace OloEngine
 			if (state.Multisampling.Enabled) api.EnableMultisampling(); else api.DisableMultisampling();
 		}
 		
-		if (u32 shaderID = cmd->shader.Raw()->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
+		if (u32 shaderID = cmd->shader.get()->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
 		{
-			cmd->shader.Raw()->Bind();
+			cmd->shader.get()->Bind();
 			s_Data.CurrentBoundShaderID = shaderID;
 			s_Data.Stats.ShaderBinds++;
 		}
@@ -1175,8 +1175,8 @@ namespace OloEngine
 		api.DisableCulling(); // Don't cull faces for skybox
 
 		// Bind skybox shader
-		cmd->shader.Raw()->Bind();
-		s_Data.CurrentBoundShaderID = cmd->shader.Raw()->GetRendererID();
+		cmd->shader.get()->Bind();
+		s_Data.CurrentBoundShaderID = cmd->shader.get()->GetRendererID();
 
 		// Bind skybox texture to the correct slot
 		cmd->skyboxTexture->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
@@ -1247,9 +1247,9 @@ namespace OloEngine
 			if (state.Multisampling.Enabled) api.EnableMultisampling(); else api.DisableMultisampling();
 		}
 		
-		if (u32 shaderID = cmd->shader.Raw()->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
+		if (u32 shaderID = cmd->shader.get()->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
 		{
-			cmd->shader.Raw()->Bind();
+			cmd->shader.get()->Bind();
 			s_Data.CurrentBoundShaderID = shaderID;
 			s_Data.Stats.ShaderBinds++;
 		}

@@ -19,7 +19,7 @@ namespace OloEngine
 			{
 				auto shader = Ref<OpenGLShader>::Create(filepath);
 				// Initialize the resource registry after construction
-				static_cast<OpenGLShader*>(shader.Raw())->InitializeResourceRegistry(shader);
+				static_cast<OpenGLShader*>(shader.get())->InitializeResourceRegistry(shader);
 				return shader;
 			}
 		}
@@ -41,7 +41,7 @@ namespace OloEngine
 			{
 				auto shader = Ref<OpenGLShader>::Create(name, vertexSrc, fragmentSrc);
 				// Initialize the resource registry after construction
-				static_cast<OpenGLShader*>(shader.Raw())->InitializeResourceRegistry(shader);
+				static_cast<OpenGLShader*>(shader.get())->InitializeResourceRegistry(shader);
 				return shader;
 			}
 		}

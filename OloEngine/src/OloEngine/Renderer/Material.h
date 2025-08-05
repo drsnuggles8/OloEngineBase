@@ -74,13 +74,11 @@ namespace OloEngine
 				return false;
 			}
 
-			// Try to get the shader registry (for OpenGL shaders)
-			if (auto* openglShader = dynamic_cast<OpenGLShader*>(Shader.Raw()))
-			{
-				return openglShader->SetShaderResource(name, resource);
-			}
-			
-			OLO_CORE_WARN("Material::SetResource: Shader type does not support resource registry");
+		// Try to get the shader registry (for OpenGL shaders)
+		if (auto* openglShader = dynamic_cast<OpenGLShader*>(Shader.get()))
+		{
+			return openglShader->SetShaderResource(name, resource);
+		}			OLO_CORE_WARN("Material::SetResource: Shader type does not support resource registry");
 			return false;
 		}
 
@@ -98,13 +96,11 @@ namespace OloEngine
 				return false;
 			}
 
-			// Try to get the shader registry (for OpenGL shaders)
-			if (auto* openglShader = dynamic_cast<OpenGLShader*>(Shader.Raw()))
-			{
-				return openglShader->SetShaderResource(name, input);
-			}
-			
-			OLO_CORE_WARN("Material::SetResource: Shader type does not support resource registry");
+		// Try to get the shader registry (for OpenGL shaders)
+		if (auto* openglShader = dynamic_cast<OpenGLShader*>(Shader.get()))
+		{
+			return openglShader->SetShaderResource(name, input);
+		}			OLO_CORE_WARN("Material::SetResource: Shader type does not support resource registry");
 			return false;
 		}
 
@@ -121,7 +117,7 @@ namespace OloEngine
 			}
 
 			// Try to get the shader registry (for OpenGL shaders)
-			if (auto* openglShader = dynamic_cast<OpenGLShader*>(Shader.Raw()))
+			if (auto* openglShader = dynamic_cast<OpenGLShader*>(Shader.get()))
 			{
 				openglShader->GetResourceRegistry()->ApplyBindings();
 			}
