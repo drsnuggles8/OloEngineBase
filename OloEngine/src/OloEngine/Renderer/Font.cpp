@@ -144,6 +144,6 @@ namespace OloEngine
 
 	Ref<Font> Font::Create(const std::filesystem::path& font)
 	{
-		return Ref<Font>(new Font(font));
+		return Ref<Font>::Create(font);
 	}
 }

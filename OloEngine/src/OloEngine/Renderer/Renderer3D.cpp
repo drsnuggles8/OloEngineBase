@@ -830,9 +830,7 @@ namespace OloEngine
 
 		for (auto entityID : view)
 		{
-			// SAFETY: Although scene is const, Entity creation requires non-const Scene*
-			// This is safe because RenderAnimatedMeshes only reads entity data
-			Entity entity = { entityID, const_cast<Scene*>(scene.Raw()) };
+			Entity entity = { entityID, scene.Raw() };
 			s_Data.Stats.TotalAnimatedMeshes++;
 
 			RenderAnimatedMesh(entity, defaultMaterial);
