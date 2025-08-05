@@ -26,7 +26,7 @@ namespace OloEngine
     class AssetPack : public RefCounted
     {
     public:
-        static Ref<AssetPack> Create() { return CreateRef<AssetPack>(); }
+        static Ref<AssetPack> Create() { return Ref<AssetPack>::Create(); }
         
         /**
          * @brief Load an asset pack from file

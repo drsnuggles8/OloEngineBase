@@ -4,10 +4,10 @@
 
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Core/FileSystem.h"
-#include "OloEngine/Core/Project.h"
+#include "OloEngine/Project/Project.h"
 #include "OloEngine/Core/Buffer.h"
 #include "OloEngine/Renderer/Texture.h"
-#include "OloEngine/Renderer/UI/Font.h"
+#include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Renderer/MaterialAsset.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Shader.h"
