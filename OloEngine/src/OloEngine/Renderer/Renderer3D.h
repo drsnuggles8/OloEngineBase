@@ -85,7 +85,7 @@ namespace OloEngine
 										  const glm::vec3& color = glm::vec3(1.0f));
 		
 		// ECS Animated Mesh Rendering
-		static void RenderAnimatedMeshes(Ref<Scene>& scene, const Material& defaultMaterial);
+		static void RenderAnimatedMeshes(const Ref<Scene>& scene, const Material& defaultMaterial);
 		static void RenderAnimatedMesh(Entity entity, const Material& defaultMaterial);
 	
 		static void SetLight(const Light& light);

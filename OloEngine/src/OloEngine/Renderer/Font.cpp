@@ -9,7 +9,8 @@
 #include "MSDFData.h"
 
 namespace OloEngine
-{	template<typename T, typename S, int N, msdf_atlas::GeneratorFunction<S, N> GenFunc>
+{
+	template<typename T, typename S, int N, msdf_atlas::GeneratorFunction<S, N> GenFunc>
 	static Ref<Texture2D> CreateAndCacheAtlas(const std::string_view /*fontName*/, f32 /*fontSize*/, const std::vector<msdf_atlas::GlyphGeometry>& glyphs,
 		const msdf_atlas::FontGeometry& /*fontGeometry*/, u32 width, u32 height)
 	{
@@ -135,8 +136,7 @@ namespace OloEngine
 		static Ref<Font> DefaultFont;
 		if (!DefaultFont)
 		{
-			DefaultFont = Font::Create("C:/Windows/Fonts/arial.ttf");
-			//DefaultFont = Font::Create("assets/fonts/opensans/OpenSans-Regular.ttf");
+			DefaultFont = Font::Create("assets/fonts/opensans/OpenSans-Regular.ttf");
 		}
 
 		return DefaultFont;

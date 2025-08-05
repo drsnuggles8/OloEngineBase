@@ -93,16 +93,8 @@ namespace OloEngine
                 T* oldInstance = m_Instance;
                 m_Instance = other.m_Instance;
                 IncRef();
-                // Now decrement the old reference
-                if (oldInstance)
-                {
-                    oldInstance->DecRefCount();
-                    if (oldInstance->GetRefCount() == 0)
-                    {
-                        RefUtils::RemoveFromLiveReferences(oldInstance);
-                        delete oldInstance;
-                    }
-                }
+                // Now safely decrement the old reference
+                SafeDecRefAndDelete(oldInstance);
             }
             return *this;
         }
@@ -125,15 +117,7 @@ namespace OloEngine
             T* oldInstance = m_Instance;
             m_Instance = static_cast<T*>(other.m_Instance);
             IncRef();
-            if (oldInstance)
-            {
-                oldInstance->DecRefCount();
-                if (oldInstance->GetRefCount() == 0)
-                {
-                    RefUtils::RemoveFromLiveReferences(oldInstance);
-                    delete oldInstance;
-                }
-            }
+            SafeDecRefAndDelete(oldInstance);
             return *this;
         }
 
@@ -196,8 +180,16 @@ namespace OloEngine
             return !(*this == other);
         }
 
-        bool EqualsObject(const Ref<T>& other)
+        /// Compare the actual objects pointed to by the references.
+        /// Requires that type T has operator== defined.
+        /// Both references must be valid (non-null) for comparison to occur.
+        /// @param other The other Ref to compare against
+        /// @return true if both references are valid and their objects are equal, false otherwise
+        bool EqualsObject(const Ref<T>& other) const
         {
+            static_assert(std::is_same_v<decltype(std::declval<T>() == std::declval<T>()), bool>, 
+                         "Type T must support operator== that returns bool");
+            
             if (!m_Instance || !other.m_Instance)
                 return false;
             
@@ -231,6 +223,20 @@ namespace OloEngine
             }
         }
 
+        // Helper method to safely decrement and potentially delete an old instance
+        void SafeDecRefAndDelete(T* oldInstance) const
+        {
+            if (oldInstance)
+            {
+                oldInstance->DecRefCount();
+                if (oldInstance->GetRefCount() == 0)
+                {
+                    RefUtils::RemoveFromLiveReferences(oldInstance);
+                    delete oldInstance;
+                }
+            }
+        }
+
         template<class T2>
         friend class Ref;
         
@@ -247,11 +253,41 @@ namespace OloEngine
 
         explicit WeakRef(T* instance) : m_Instance(instance) {}
 
-        T* operator->() { return m_Instance; }
-        const T* operator->() const { return m_Instance; }
+        /// Access the object via pointer. 
+        /// WARNING: This does not check if the object is still alive! 
+        /// Call IsValid() first or use Lock() for safe access.
+        T* operator->() 
+        { 
+            OLO_CORE_ASSERT(IsValid(), "WeakRef: Accessing invalid/deleted object! Call IsValid() first.");
+            return m_Instance; 
+        }
+        
+        /// Access the object via pointer (const version).
+        /// WARNING: This does not check if the object is still alive! 
+        /// Call IsValid() first or use Lock() for safe access.
+        const T* operator->() const 
+        { 
+            OLO_CORE_ASSERT(IsValid(), "WeakRef: Accessing invalid/deleted object! Call IsValid() first.");
+            return m_Instance; 
+        }
 
-        T& operator*() { return *m_Instance; }
-        const T& operator*() const { return *m_Instance; }
+        /// Dereference the object.
+        /// WARNING: This does not check if the object is still alive! 
+        /// Call IsValid() first or use Lock() for safe access.
+        T& operator*() 
+        { 
+            OLO_CORE_ASSERT(IsValid(), "WeakRef: Dereferencing invalid/deleted object! Call IsValid() first.");
+            return *m_Instance; 
+        }
+        
+        /// Dereference the object (const version).
+        /// WARNING: This does not check if the object is still alive! 
+        /// Call IsValid() first or use Lock() for safe access.
+        const T& operator*() const 
+        { 
+            OLO_CORE_ASSERT(IsValid(), "WeakRef: Dereferencing invalid/deleted object! Call IsValid() first.");
+            return *m_Instance; 
+        }
 
         bool IsValid() const { return m_Instance ? RefUtils::IsLive(m_Instance) : false; }
         operator bool() const { return IsValid(); }

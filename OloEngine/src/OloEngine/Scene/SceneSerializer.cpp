@@ -452,7 +452,9 @@ namespace OloEngine
 		out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
 		m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
 			{
-				Entity const entity = { entityID, m_Scene.Raw() };
+				// SAFETY: m_Scene is const Ref<Scene>, but Entity requires non-const Scene*
+				// This is safe because serialization only reads entity data
+				Entity const entity = { entityID, const_cast<Scene*>(m_Scene.Raw()) };
 				if (!entity)
 				{
 					return;

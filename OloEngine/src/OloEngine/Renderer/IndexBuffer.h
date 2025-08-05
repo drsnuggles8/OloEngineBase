@@ -1,7 +1,7 @@
+#pragma once
+
 #include <utility>
 #include "OloEngine/Core/Ref.h"
-
-#pragma once
 
 namespace OloEngine
 {

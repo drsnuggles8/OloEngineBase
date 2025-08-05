@@ -474,12 +474,12 @@ namespace OloEngine
 		m_MonoClass = ::mono_class_from_name(isCore ? s_Data->CoreAssemblyImage : s_Data->AppAssemblyImage, classNamespace.c_str(), className.c_str());
 	}
 
-	MonoObject* ScriptClass::Instantiate()
+	MonoObject* ScriptClass::Instantiate() const
 	{
 		return ScriptEngine::InstantiateClass(m_MonoClass);
 	}
 
-	MonoMethod* ScriptClass::GetMethod(const std::string& name, int parameterCount)
+	MonoMethod* ScriptClass::GetMethod(const std::string& name, int parameterCount) const
 	{
 		return ::mono_class_get_method_from_name(m_MonoClass, name.c_str(), parameterCount);
 	}
@@ -493,11 +493,11 @@ namespace OloEngine
 	ScriptInstance::ScriptInstance(const Ref<ScriptClass>& scriptClass, Entity entity)
 		: m_ScriptClass(scriptClass)
 	{
-		m_Instance = const_cast<ScriptClass*>(scriptClass.Raw())->Instantiate();
+		m_Instance = scriptClass->Instantiate();
 
 		m_Constructor = s_Data->EntityClass->GetMethod(".ctor", 1);
-		m_OnCreateMethod = const_cast<ScriptClass*>(scriptClass.Raw())->GetMethod("OnCreate", 0);
-		m_OnUpdateMethod = const_cast<ScriptClass*>(scriptClass.Raw())->GetMethod("OnUpdate", 1);
+		m_OnCreateMethod = scriptClass->GetMethod("OnCreate", 0);
+		m_OnUpdateMethod = scriptClass->GetMethod("OnUpdate", 1);
 
 		// Call Entity constructor
 		{

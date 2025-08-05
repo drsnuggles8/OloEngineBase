@@ -26,7 +26,7 @@ namespace OloEngine
 		~Scene();
 
 		static Ref<Scene> Create();
-		static Ref<Scene> Copy(const Ref<Scene>& other);
+		static Ref<Scene> Copy(Ref<Scene>& other);
 
 		Entity CreateEntity(const std::string& name = std::string());
 		Entity CreateEntityWithUUID(UUID uuid, const std::string& name = std::string());

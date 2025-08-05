@@ -1,7 +1,6 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -12,6 +11,7 @@ namespace OloEngine
 {
     // Forward declaration
     class ShaderLibrary;
+	class RefCounted;
     
     enum class IBLQuality
     {

@@ -711,17 +711,22 @@ void Sandbox3D::RenderAnimationTestingScene()
         if (m_ShowSkeleton && m_ImportedModelEntity.HasComponent<OloEngine::SkeletonComponent>())
         {
             auto& skeletonComp = m_ImportedModelEntity.GetComponent<OloEngine::SkeletonComponent>();
-            auto& transformComp = m_ImportedModelEntity.GetComponent<OloEngine::TransformComponent>();
             
-            // Create model matrix from transform component
-            glm::mat4 modelMatrix = glm::translate(glm::mat4(1.0f), transformComp.Translation)
-                                  * glm::toMat4(glm::quat(transformComp.Rotation))
-                                  * glm::scale(glm::mat4(1.0f), transformComp.Scale);
-            
-            // Draw the skeleton using the skeleton component data
-            OloEngine::Renderer3D::DrawSkeleton(*skeletonComp.m_Skeleton, modelMatrix, 
-                                               m_ShowBones, m_ShowJoints, 
-                                               m_JointSize, m_BoneThickness);
+            // Check if skeleton pointer is valid before dereferencing
+            if (skeletonComp.m_Skeleton)
+            {
+                auto& transformComp = m_ImportedModelEntity.GetComponent<OloEngine::TransformComponent>();
+                
+                // Create model matrix from transform component
+                glm::mat4 modelMatrix = glm::translate(glm::mat4(1.0f), transformComp.Translation)
+                                      * glm::toMat4(glm::quat(transformComp.Rotation))
+                                      * glm::scale(glm::mat4(1.0f), transformComp.Scale);
+                
+                // Draw the skeleton using the skeleton component data
+                OloEngine::Renderer3D::DrawSkeleton(*skeletonComp.m_Skeleton, modelMatrix, 
+                                                   m_ShowBones, m_ShowJoints, 
+                                                   m_JointSize, m_BoneThickness);
+            }
         }
     }
 }

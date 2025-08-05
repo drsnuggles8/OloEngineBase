@@ -85,14 +85,14 @@ namespace OloEngine
 		CopyComponentIfExists<Component...>(dst, src);
 	}
 
-	Ref<Scene> Scene::Copy(Ref<Scene> const& other)
+	Ref<Scene> Scene::Copy(Ref<Scene>& other)
 	{
 		Ref<Scene> newScene = Ref<Scene>::Create();
 
 		newScene->m_ViewportWidth = other->m_ViewportWidth;
 		newScene->m_ViewportHeight = other->m_ViewportHeight;
 
-		auto& srcSceneRegistry = const_cast<entt::registry&>(other->m_Registry);
+		auto& srcSceneRegistry = other->m_Registry;
 		auto& dstSceneRegistry = newScene->m_Registry;
 		std::unordered_map<UUID, entt::entity> enttMap;
 
@@ -461,7 +461,9 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 			const TagComponent& tc = view.get<TagComponent>(entity);
 			if (tc.Tag == name)
 			{
-				return Entity{ entity, this };
+				// SAFETY: this is const Scene*, but Entity requires non-const Scene*
+				// This is safe because name search only reads entity data
+				return Entity{ entity, const_cast<Scene*>(this) };
 			}
 		}
 		return {};
@@ -470,7 +472,9 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 	Entity Scene::GetEntityByUUID(UUID uuid) const
 	{
 		OLO_CORE_ASSERT(m_EntityMap.contains(uuid));
-		return { m_EntityMap.at(uuid), this };
+		// SAFETY: this is const Scene*, but Entity requires non-const Scene*
+		// This is safe because Entity lookup only reads entity data
+		return { m_EntityMap.at(uuid), const_cast<Scene*>(this) };
 	}
 
 	Entity Scene::GetPrimaryCameraEntity() const
@@ -479,7 +483,9 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 		{
 			if (const auto& camera = view.get<CameraComponent>(entity); camera.Primary)
 			{
-				return Entity{ entity, this };
+				// SAFETY: this is const Scene*, but Entity requires non-const Scene*
+				// This is safe because camera lookup only reads entity data
+				return Entity{ entity, const_cast<Scene*>(this) };
 			}
 		}
 		return {};

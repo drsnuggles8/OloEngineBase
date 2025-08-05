@@ -816,7 +816,7 @@ namespace OloEngine
 		}
 	}
 
-	void Renderer3D::RenderAnimatedMeshes(Ref<Scene>& scene, const Material& defaultMaterial)
+	void Renderer3D::RenderAnimatedMeshes(const Ref<Scene>& scene, const Material& defaultMaterial)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -830,7 +830,9 @@ namespace OloEngine
 
 		for (auto entityID : view)
 		{
-			Entity entity = { entityID, scene.Raw() };
+			// SAFETY: Although scene is const, Entity creation requires non-const Scene*
+			// This is safe because RenderAnimatedMeshes only reads entity data
+			Entity entity = { entityID, const_cast<Scene*>(scene.Raw()) };
 			s_Data.Stats.TotalAnimatedMeshes++;
 
 			RenderAnimatedMesh(entity, defaultMaterial);

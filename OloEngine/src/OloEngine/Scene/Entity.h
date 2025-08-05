@@ -17,8 +17,6 @@ namespace OloEngine
 		Entity() = default;
 		Entity(entt::entity handle, Scene& scene);
 		Entity(entt::entity handle, Scene* scene);
-		Entity(entt::entity handle, const Scene& scene);
-		Entity(entt::entity handle, const Scene* scene);
 		~Entity() = default;
 
 		template<typename T, typename... Args>
