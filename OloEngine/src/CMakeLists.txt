@@ -10,6 +10,25 @@
 		"OloEngine/Animation/AnimationClip.h"
 		"OloEngine/Animation/AnimationClip.cpp"
 		
+		"OloEngine/Asset/Asset.h"
+		"OloEngine/Asset/AssetExtensions.h"
+		"OloEngine/Asset/AssetExtensions.cpp"
+		"OloEngine/Asset/AssetImporter.h"
+		"OloEngine/Asset/AssetImporter.cpp"
+		"OloEngine/Asset/AssetMetadata.h"
+		"OloEngine/Asset/AssetRegistry.h"
+		"OloEngine/Asset/AssetRegistry.cpp"
+		"OloEngine/Asset/AssetTypes.h"
+		"OloEngine/Asset/AssetManager.h"
+		"OloEngine/Asset/AssetManager.cpp"
+		"OloEngine/Asset/AssetManager/AssetManagerBase.h"
+		"OloEngine/Asset/AssetManager/RuntimeAssetManager.h"
+		"OloEngine/Asset/AssetManager/RuntimeAssetManager.cpp"
+		"OloEngine/Asset/AssetManager/EditorAssetManager.h"
+		"OloEngine/Asset/AssetSystem/EditorAssetSystem.h"
+		"OloEngine/Serialization/AssetPack.h"
+		"OloEngine/Core/Events/EditorEvents.h"
+		
 		"OloEngine/Audio/AudioEngine.cpp"
 		"OloEngine/Audio/AudioEngine.h"
 		"OloEngine/Audio/AudioListener.cpp"
@@ -46,6 +65,7 @@
 		"OloEngine/Core/Window.h"
 
 		"OloEngine/Debug/Instrumentor.h"
+		"OloEngine/Debug/Profiler.h"
 
 		"OloEngine/Events/ApplicationEvent.h"
 		"OloEngine/Events/Event.cpp"

@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/UUID.h"
+#include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Asset/AssetTypes.h"
 #include <string>
 #include <filesystem>

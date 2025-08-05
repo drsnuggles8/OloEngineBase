@@ -2,13 +2,13 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Asset/AssetManager/AssetManagerBase.h"
 
 #include <string>
 #include <filesystem>
 
 namespace OloEngine
 {
-
 	struct ProjectConfig
 	{
 		std::string Name = "Untitled";
@@ -50,6 +50,18 @@ namespace OloEngine
 
 		static Ref<Project> GetActive() { return s_ActiveProject; }
 
+		/**
+		 * @brief Get the current project's asset manager
+		 * @return Reference to the active asset manager
+		 */
+		static Ref<AssetManagerBase> GetAssetManager() { return s_AssetManager; }
+
+		/**
+		 * @brief Set the active asset manager for the project
+		 * @param assetManager Asset manager to set as active
+		 */
+		static void SetAssetManager(Ref<AssetManagerBase> assetManager) { s_AssetManager = assetManager; }
+
 		static Ref<Project> New();
 		static Ref<Project> Load(const std::filesystem::path& path);
 		static bool SaveActive(const std::filesystem::path& path);
@@ -58,5 +70,6 @@ namespace OloEngine
 		std::filesystem::path m_ProjectDirectory;
 
 		inline static Ref<Project> s_ActiveProject;
+		inline static Ref<AssetManagerBase> s_AssetManager;
 	};
 }
