@@ -7,6 +7,8 @@
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Project/Project.h"
 
+#include <memory>
+
 namespace OloEngine
 {
     std::unordered_map<AssetType, Scope<AssetSerializer>> AssetImporter::s_Serializers;

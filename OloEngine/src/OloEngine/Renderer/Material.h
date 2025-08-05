@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/TextureCubemap.h"
 
 namespace OloEngine {
 
@@ -15,11 +16,49 @@ namespace OloEngine {
 		DisableShadowCasting = 1 << 4
 	};
 
+	enum class MaterialType
+	{
+		Legacy = 0,		// Legacy Phong-style material
+		PBR = 1			// Physically Based Rendering material
+	};
+
+	/**
+	 * TODO: REFACTOR MATERIAL CLASS ARCHITECTURE
+	 * 
+	 * This class currently uses a hybrid approach with both:
+	 * 1. RefCounted class-based interface for asset management
+	 * 2. Public member variables for legacy struct-like access
+	 * 
+	 * This is TECHNICAL DEBT and should be refactored to use a consistent approach:
+	 * - Either make it a proper class with encapsulated properties and methods
+	 * - Or convert Model.cpp and Renderer3D.cpp to use the class-based interface
+	 * 
+	 * Current compatibility requirements:
+	 * - MaterialAsset.cpp expects Set/Get/TryGet methods and uniform system
+	 * - Model.cpp expects struct-like public members (AlbedoMap, etc.)
+	 * - Renderer3D.cpp expects all PBR/legacy properties as public members
+	 * 
+	 * Recommended solution: Update Model.cpp and Renderer3D.cpp to use proper
+	 * getter/setter methods and remove all public member variables.
+	 */
 	class Material : public RefCounted
 	{
 	public:
-		static Ref<Material> Create(const Ref<Shader>& shader, const std::string& name = "");
+		// Default constructor for struct-like usage
+		Material();
+		
+		// Copy constructor for value semantics (Model.cpp uses Material as value type)
+		Material(const Material& other);
+		
+		// Assignment operator for value semantics
+		Material& operator=(const Material& other);
+		
+		static Ref<Material> Create(const Ref<OloEngine::Shader>& shader, const std::string& name = "");
 		static Ref<Material> Copy(const Ref<Material>& other, const std::string& name = "");
+		
+		// Static factory method for PBR materials (for Model.cpp compatibility)
+		static Material CreatePBR(const std::string& name, const glm::vec3& baseColor, float metallic = 0.0f, float roughness = 0.5f);
+		
 		virtual ~Material() = default;
 
 		virtual void Invalidate() {}
@@ -41,7 +80,7 @@ namespace OloEngine {
 
 		virtual void Set(const std::string& name, const Ref<Texture2D>& texture);
 		virtual void Set(const std::string& name, const Ref<Texture2D>& texture, uint32_t arrayIndex);
-		virtual void Set(const std::string& name, const Ref<TextureCube>& texture);
+		virtual void Set(const std::string& name, const Ref<TextureCubemap>& texture);
 
 		virtual float& GetFloat(const std::string& name);
 		virtual int32_t& GetInt(const std::string& name);
@@ -54,10 +93,10 @@ namespace OloEngine {
 		virtual glm::mat4& GetMatrix4(const std::string& name);
 
 		virtual Ref<Texture2D> GetTexture2D(const std::string& name);
-		virtual Ref<TextureCube> GetTextureCube(const std::string& name);
+		virtual Ref<TextureCubemap> GetTextureCube(const std::string& name);
 
 		virtual Ref<Texture2D> TryGetTexture2D(const std::string& name);
-		virtual Ref<TextureCube> TryGetTextureCube(const std::string& name);
+		virtual Ref<TextureCubemap> TryGetTextureCube(const std::string& name);
 
 		virtual uint32_t GetFlags() const { return m_MaterialFlags; }
 		virtual void SetFlags(uint32_t flags) { m_MaterialFlags = flags; }
@@ -65,14 +104,52 @@ namespace OloEngine {
 		virtual bool GetFlag(MaterialFlag flag) const { return (static_cast<uint32_t>(flag) & m_MaterialFlags) != 0; }
 		virtual void SetFlag(MaterialFlag flag, bool value = true);
 
-		virtual Ref<Shader> GetShader() { return m_Shader; }
+		virtual Ref<OloEngine::Shader> GetShader() { return m_Shader; }
 		virtual const std::string& GetName() const { return m_Name; }
 
-	protected:
-		Material(const Ref<Shader>& shader, const std::string& name = "");
+		// TODO: REMOVE ALL PUBLIC MEMBERS BELOW - TECHNICAL DEBT
+		// These public member variables exist only for compatibility with Model.cpp and Renderer3D.cpp
+		// They should be replaced with proper getter/setter methods once those files are refactored
+		// Public member variables for compatibility with Model.cpp and Renderer3D.cpp (struct-like access)
+		
+		// Material type and shader
+		MaterialType Type = MaterialType::PBR;
+		Ref<OloEngine::Shader> Shader;
+		
+		// Legacy material properties (for backward compatibility)
+		glm::vec3 Ambient = glm::vec3(0.2f);
+		glm::vec3 Diffuse = glm::vec3(0.8f);
+		glm::vec3 Specular = glm::vec3(1.0f);
+		float Shininess = 32.0f;
+		bool UseTextureMaps = false;
+		Ref<Texture2D> DiffuseMap;
+		Ref<Texture2D> SpecularMap;
+		
+		// PBR material properties
+		glm::vec4 BaseColorFactor = glm::vec4(1.0f);     // Base color (albedo) with alpha
+		glm::vec4 EmissiveFactor = glm::vec4(0.0f);      // Emissive color
+		float MetallicFactor = 0.0f;                     // Metallic factor
+		float RoughnessFactor = 1.0f;                    // Roughness factor
+		float NormalScale = 1.0f;                        // Normal map scale
+		float OcclusionStrength = 1.0f;                  // AO strength
+		bool EnableIBL = false;                          // Enable IBL
+		
+		// PBR texture maps
+		Ref<Texture2D> AlbedoMap;                        // Base color texture
+		Ref<Texture2D> MetallicRoughnessMap;             // Metallic-roughness texture (glTF format)
+		Ref<Texture2D> NormalMap;                        // Normal map
+		Ref<Texture2D> AOMap;                            // Ambient occlusion map
+		Ref<Texture2D> EmissiveMap;                      // Emissive map
+		Ref<TextureCubemap> EnvironmentMap;              // Environment cubemap
+		Ref<TextureCubemap> IrradianceMap;               // Irradiance cubemap
+		Ref<TextureCubemap> PrefilterMap;                // Prefiltered environment map
+		Ref<Texture2D> BRDFLutMap;                       // BRDF lookup table
 
 	protected:
-		Ref<Shader> m_Shader;
+		Material(const Ref<OloEngine::Shader>& shader, const std::string& name = "");
+
+	protected:
+		Ref<OloEngine::Shader> m_Shader;
 		std::string m_Name;
 		uint32_t m_MaterialFlags = static_cast<uint32_t>(MaterialFlag::DepthTest);
 
@@ -87,7 +164,7 @@ namespace OloEngine {
 		std::unordered_map<std::string, glm::mat3> m_Mat3Uniforms;
 		std::unordered_map<std::string, glm::mat4> m_Mat4Uniforms;
 		std::unordered_map<std::string, Ref<Texture2D>> m_Texture2DUniforms;
-		std::unordered_map<std::string, Ref<TextureCube>> m_TextureCubeUniforms;
+		std::unordered_map<std::string, Ref<TextureCubemap>> m_TextureCubeUniforms;
 	};
 
 }

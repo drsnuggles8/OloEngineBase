@@ -1,14 +1,93 @@
 #include "OloEnginePCH.h"
 #include "Material.h"
 
+// TODO: REFACTOR MATERIAL IMPLEMENTATION
+// This implementation currently maintains both uniform storage AND public member variables
+// which is redundant and confusing. Once Model.cpp and Renderer3D.cpp are updated to use
+// proper getter/setter methods, remove all the public member handling from copy constructor,
+// assignment operator, and CreatePBR method.
+
 namespace OloEngine {
 
-	Material::Material(const Ref<Shader>& shader, const std::string& name)
-		: m_Shader(shader), m_Name(name)
+	Material::Material()
+		: m_Shader(nullptr), m_Name("Material"), Type(MaterialType::PBR)
 	{
 	}
 
-	Ref<Material> Material::Create(const Ref<Shader>& shader, const std::string& name)
+	Material::Material(const Ref<OloEngine::Shader>& shader, const std::string& name)
+		: m_Shader(shader), m_Name(name), Type(MaterialType::PBR)
+	{
+	}
+
+	Material::Material(const Material& other)
+		: RefCounted(), m_Shader(other.m_Shader), m_Name(other.m_Name), m_MaterialFlags(other.m_MaterialFlags),
+		  m_FloatUniforms(other.m_FloatUniforms), m_IntUniforms(other.m_IntUniforms), m_UIntUniforms(other.m_UIntUniforms),
+		  m_BoolUniforms(other.m_BoolUniforms), m_Vec2Uniforms(other.m_Vec2Uniforms), m_Vec3Uniforms(other.m_Vec3Uniforms),
+		  m_Vec4Uniforms(other.m_Vec4Uniforms), m_Mat3Uniforms(other.m_Mat3Uniforms), m_Mat4Uniforms(other.m_Mat4Uniforms),
+		  m_Texture2DUniforms(other.m_Texture2DUniforms), m_TextureCubeUniforms(other.m_TextureCubeUniforms),
+		  // Copy all public members
+		  Type(other.Type), Shader(other.Shader),
+		  Ambient(other.Ambient), Diffuse(other.Diffuse), Specular(other.Specular), Shininess(other.Shininess),
+		  UseTextureMaps(other.UseTextureMaps), DiffuseMap(other.DiffuseMap), SpecularMap(other.SpecularMap),
+		  BaseColorFactor(other.BaseColorFactor), EmissiveFactor(other.EmissiveFactor), 
+		  MetallicFactor(other.MetallicFactor), RoughnessFactor(other.RoughnessFactor), 
+		  NormalScale(other.NormalScale), OcclusionStrength(other.OcclusionStrength), EnableIBL(other.EnableIBL),
+		  AlbedoMap(other.AlbedoMap), MetallicRoughnessMap(other.MetallicRoughnessMap), NormalMap(other.NormalMap),
+		  AOMap(other.AOMap), EmissiveMap(other.EmissiveMap), EnvironmentMap(other.EnvironmentMap),
+		  IrradianceMap(other.IrradianceMap), PrefilterMap(other.PrefilterMap), BRDFLutMap(other.BRDFLutMap)
+	{
+	}
+
+	Material& Material::operator=(const Material& other)
+	{
+		if (this != &other)
+		{
+			m_Shader = other.m_Shader;
+			m_Name = other.m_Name;
+			m_MaterialFlags = other.m_MaterialFlags;
+			m_FloatUniforms = other.m_FloatUniforms;
+			m_IntUniforms = other.m_IntUniforms;
+			m_UIntUniforms = other.m_UIntUniforms;
+			m_BoolUniforms = other.m_BoolUniforms;
+			m_Vec2Uniforms = other.m_Vec2Uniforms;
+			m_Vec3Uniforms = other.m_Vec3Uniforms;
+			m_Vec4Uniforms = other.m_Vec4Uniforms;
+			m_Mat3Uniforms = other.m_Mat3Uniforms;
+			m_Mat4Uniforms = other.m_Mat4Uniforms;
+			m_Texture2DUniforms = other.m_Texture2DUniforms;
+			m_TextureCubeUniforms = other.m_TextureCubeUniforms;
+			
+			// Copy all public members
+			Type = other.Type;
+			Shader = other.Shader;
+			Ambient = other.Ambient;
+			Diffuse = other.Diffuse;
+			Specular = other.Specular;
+			Shininess = other.Shininess;
+			UseTextureMaps = other.UseTextureMaps;
+			DiffuseMap = other.DiffuseMap;
+			SpecularMap = other.SpecularMap;
+			BaseColorFactor = other.BaseColorFactor;
+			EmissiveFactor = other.EmissiveFactor;
+			MetallicFactor = other.MetallicFactor;
+			RoughnessFactor = other.RoughnessFactor;
+			NormalScale = other.NormalScale;
+			OcclusionStrength = other.OcclusionStrength;
+			EnableIBL = other.EnableIBL;
+			AlbedoMap = other.AlbedoMap;
+			MetallicRoughnessMap = other.MetallicRoughnessMap;
+			NormalMap = other.NormalMap;
+			AOMap = other.AOMap;
+			EmissiveMap = other.EmissiveMap;
+			EnvironmentMap = other.EnvironmentMap;
+			IrradianceMap = other.IrradianceMap;
+			PrefilterMap = other.PrefilterMap;
+			BRDFLutMap = other.BRDFLutMap;
+		}
+		return *this;
+	}
+
+	Ref<Material> Material::Create(const Ref<OloEngine::Shader>& shader, const std::string& name)
 	{
 		return Ref<Material>(new Material(shader, name));
 	}
@@ -30,6 +109,40 @@ namespace OloEngine {
 		material->m_Mat4Uniforms = other->m_Mat4Uniforms;
 		material->m_Texture2DUniforms = other->m_Texture2DUniforms;
 		material->m_TextureCubeUniforms = other->m_TextureCubeUniforms;
+		
+		// Copy public texture maps
+		material->AlbedoMap = other->AlbedoMap;
+		material->MetallicRoughnessMap = other->MetallicRoughnessMap;
+		material->NormalMap = other->NormalMap;
+		material->AOMap = other->AOMap;
+		material->EmissiveMap = other->EmissiveMap;
+		
+		return material;
+	}
+
+	Material Material::CreatePBR(const std::string& name, const glm::vec3& baseColor, float metallic, float roughness)
+	{
+		Material material;
+		material.m_Name = name;
+		material.Type = MaterialType::PBR;
+		material.m_MaterialFlags = static_cast<uint32_t>(MaterialFlag::DepthTest);
+		
+		// Set PBR properties using the uniform system
+		material.Set("u_MaterialUniforms.AlbedoColor", baseColor);
+		material.Set("u_MaterialUniforms.Metalness", metallic);
+		material.Set("u_MaterialUniforms.Roughness", roughness);
+		material.Set("u_MaterialUniforms.Emission", 0.0f);
+		
+		// TODO: REMOVE - TECHNICAL DEBT
+		// Also set the public PBR members for direct access (compatibility with Renderer3D.cpp)
+		// This should be removed once Renderer3D.cpp uses proper getter methods
+		material.BaseColorFactor = glm::vec4(baseColor, 1.0f);
+		material.MetallicFactor = metallic;
+		material.RoughnessFactor = roughness;
+		material.EmissiveFactor = glm::vec4(0.0f);
+		material.NormalScale = 1.0f;
+		material.OcclusionStrength = 1.0f;
+		material.EnableIBL = false;
 		
 		return material;
 	}
@@ -108,7 +221,7 @@ namespace OloEngine {
 		m_Texture2DUniforms[name] = texture;
 	}
 
-	void Material::Set(const std::string& name, const Ref<TextureCube>& texture)
+	void Material::Set(const std::string& name, const Ref<TextureCubemap>& texture)
 	{
 		m_TextureCubeUniforms[name] = texture;
 	}
@@ -204,7 +317,7 @@ namespace OloEngine {
 		return nullptr;
 	}
 
-	Ref<TextureCube> Material::GetTextureCube(const std::string& name)
+	Ref<TextureCubemap> Material::GetTextureCube(const std::string& name)
 	{
 		auto it = m_TextureCubeUniforms.find(name);
 		if (it != m_TextureCubeUniforms.end())
@@ -218,7 +331,7 @@ namespace OloEngine {
 		return GetTexture2D(name);
 	}
 
-	Ref<TextureCube> Material::TryGetTextureCube(const std::string& name)
+	Ref<TextureCubemap> Material::TryGetTextureCube(const std::string& name)
 	{
 		return GetTextureCube(name);
 	}

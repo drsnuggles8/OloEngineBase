@@ -46,6 +46,12 @@ namespace OloEngine
 			return std::filesystem::relative(path, GetAssetDirectory());
 		}
 
+		static std::filesystem::path GetAssetRegistryPath()
+		{
+			OLO_CORE_ASSERT(s_ActiveProject);
+			return GetProjectDirectory() / "AssetRegistry.oar";
+		}
+
 		ProjectConfig& GetConfig() { return m_Config; }
 
 		static Ref<Project> GetActive() { return s_ActiveProject; }

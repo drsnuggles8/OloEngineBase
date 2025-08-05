@@ -7,14 +7,15 @@
 #include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/FileSystem.h"
+#include "OloEngine/Project/Project.h"
 
 #include <algorithm>
 #include <future>
+#include <filesystem>
 
 namespace OloEngine
 {
     EditorAssetManager::EditorAssetManager()
-        : m_AssetRegistry(Ref<AssetRegistry>::Create())
     {
 #if OLO_ASYNC_ASSETS
         m_AssetThread = Ref<EditorAssetSystem>::Create();
@@ -34,13 +35,12 @@ namespace OloEngine
         OLO_CORE_INFO("EditorAssetManager initialized");
         
         // Load asset registry if it exists
-        const auto& project = Application::Get().GetProject();
-        if (project)
+        if (Project::GetActive())
         {
-            auto registryPath = project->GetAssetRegistryPath();
+            auto registryPath = Project::GetAssetRegistryPath();
             if (std::filesystem::exists(registryPath))
             {
-                m_AssetRegistry->Deserialize(registryPath);
+                m_AssetRegistry.Deserialize(registryPath);
                 OLO_CORE_INFO("Loaded asset registry from {}", registryPath.string());
             }
         }
@@ -71,23 +71,22 @@ namespace OloEngine
 #endif
 
         // Save asset registry
-        const auto& project = Application::Get().GetProject();
-        if (project && m_AssetRegistry)
+        if (Project::GetActive())
         {
-            auto registryPath = project->GetAssetRegistryPath();
-            m_AssetRegistry->Serialize(registryPath);
+            auto registryPath = Project::GetAssetRegistryPath();
+            m_AssetRegistry.Serialize(registryPath);
             OLO_CORE_INFO("Saved asset registry to {}", registryPath.string());
         }
 
         // Clear all loaded assets
         {
-            std::unique_lock lock(m_LoadedAssetsMutex);
+            std::unique_lock<std::shared_mutex> lock(m_AssetsMutex);
             m_LoadedAssets.clear();
         }
 
         // Clear memory assets
         {
-            std::unique_lock lock(m_MemoryAssetsMutex);
+            std::unique_lock<std::shared_mutex> lock(m_AssetsMutex);
             m_MemoryAssets.clear();
         }
     }
@@ -97,7 +96,11 @@ namespace OloEngine
         if (!IsAssetHandleValid(assetHandle))
             return AssetType::None;
 
-        return m_AssetRegistry->GetAssetType(assetHandle);
+        auto metadata = m_AssetRegistry.GetMetadata(assetHandle);
+        if (!metadata.IsValid())
+            return AssetType::None;
+
+        return metadata.Type;
     }
 
     Ref<Asset> EditorAssetManager::GetAsset(AssetHandle assetHandle)
@@ -106,7 +109,7 @@ namespace OloEngine
 
         // Check if it's a memory asset first
         {
-            std::shared_lock lock(m_MemoryAssetsMutex);
+            std::shared_lock<std::shared_mutex> lock(m_AssetsMutex);
             auto it = m_MemoryAssets.find(assetHandle);
             if (it != m_MemoryAssets.end())
                 return it->second;
@@ -114,14 +117,18 @@ namespace OloEngine
 
         // Check if already loaded
         {
-            std::shared_lock lock(m_LoadedAssetsMutex);
+            std::shared_lock<std::shared_mutex> lock(m_AssetsMutex);
             auto it = m_LoadedAssets.find(assetHandle);
             if (it != m_LoadedAssets.end())
                 return it->second;
         }
 
         // Load from file
-        return LoadAsset(assetHandle);
+        auto metadata = m_AssetRegistry.GetMetadata(assetHandle);
+        if (!metadata.IsValid())
+            return nullptr;
+        
+        return LoadAssetFromFile(metadata);
     }
 
     AsyncAssetResult<Asset> EditorAssetManager::GetAssetAsync(AssetHandle assetHandle)
@@ -137,17 +144,17 @@ namespace OloEngine
         if (!asset)
             return;
 
-        std::unique_lock lock(m_MemoryAssetsMutex);
-        m_MemoryAssets[asset->GetHandle()] = asset;
-        
-        OLO_CORE_TRACE("Added memory asset: {}", (uint64_t)asset->GetHandle());
+        std::unique_lock<std::shared_mutex> lock(m_AssetsMutex);
+        m_MemoryAssets[asset->Handle] = asset;
+
+        OLO_CORE_TRACE("Added memory asset: {}", (uint64_t)asset->Handle);
     }
 
     bool EditorAssetManager::ReloadData(AssetHandle assetHandle)
     {
         OLO_PROFILER_SCOPE("EditorAssetManager::ReloadData");
 
-        auto metadata = m_AssetRegistry->GetAssetMetadata(assetHandle);
+        auto metadata = m_AssetRegistry.GetMetadata(assetHandle);
         if (!metadata.IsValid())
         {
             OLO_CORE_ERROR("Cannot reload asset {}: metadata not found", (uint64_t)assetHandle);
@@ -156,12 +163,12 @@ namespace OloEngine
 
         // Remove from cache to force reload
         {
-            std::unique_lock lock(m_LoadedAssetsMutex);
+            std::unique_lock<std::shared_mutex> lock(m_AssetsMutex);
             m_LoadedAssets.erase(assetHandle);
         }
 
         // Reload asset
-        auto asset = LoadAsset(assetHandle);
+        auto asset = LoadAssetFromFile(metadata);
         if (!asset)
         {
             OLO_CORE_ERROR("Failed to reload asset: {}", metadata.FilePath.string());
@@ -184,12 +191,12 @@ namespace OloEngine
 
     bool EditorAssetManager::EnsureCurrent(AssetHandle assetHandle)
     {
-        auto metadata = m_AssetRegistry->GetAssetMetadata(assetHandle);
+        auto metadata = m_AssetRegistry.GetMetadata(assetHandle);
         if (!metadata.IsValid())
             return false;
 
         // Check if file has been modified
-        if (FileSystem::GetLastWriteTime(metadata.FilePath) > metadata.LastModified)
+        if (std::filesystem::last_write_time(metadata.FilePath) > metadata.LastWriteTime)
         {
             return ReloadData(assetHandle);
         }
@@ -199,7 +206,7 @@ namespace OloEngine
 
     bool EditorAssetManager::EnsureAllLoadedCurrent()
     {
-        std::shared_lock lock(m_LoadedAssetsMutex);
+        std::shared_lock<std::shared_mutex> lock(m_AssetsMutex);
         bool allCurrent = true;
 
         for (const auto& [handle, asset] : m_LoadedAssets)
@@ -213,19 +220,19 @@ namespace OloEngine
 
     bool EditorAssetManager::IsAssetHandleValid(AssetHandle assetHandle)
     {
-        return m_AssetRegistry->Contains(assetHandle);
+        return m_AssetRegistry.Exists(assetHandle);
     }
 
     Ref<Asset> EditorAssetManager::GetMemoryAsset(AssetHandle handle)
     {
-        std::shared_lock lock(m_MemoryAssetsMutex);
+        std::shared_lock<std::shared_mutex> lock(m_AssetsMutex);
         auto it = m_MemoryAssets.find(handle);
         return (it != m_MemoryAssets.end()) ? it->second : nullptr;
     }
 
     bool EditorAssetManager::IsAssetLoaded(AssetHandle handle)
     {
-        std::shared_lock lock(m_LoadedAssetsMutex);
+        std::shared_lock<std::shared_mutex> lock(m_AssetsMutex);
         return m_LoadedAssets.find(handle) != m_LoadedAssets.end();
     }
 
@@ -236,7 +243,7 @@ namespace OloEngine
 
     bool EditorAssetManager::IsAssetMissing(AssetHandle handle)
     {
-        auto metadata = m_AssetRegistry->GetAssetMetadata(handle);
+        auto metadata = m_AssetRegistry.GetMetadata(handle);
         if (!metadata.IsValid())
             return true;
 
@@ -245,7 +252,7 @@ namespace OloEngine
 
     bool EditorAssetManager::IsMemoryAsset(AssetHandle handle)
     {
-        std::shared_lock lock(m_MemoryAssetsMutex);
+        std::shared_lock<std::shared_mutex> lock(m_AssetsMutex);
         return m_MemoryAssets.find(handle) != m_MemoryAssets.end();
     }
 
@@ -257,17 +264,17 @@ namespace OloEngine
     void EditorAssetManager::RemoveAsset(AssetHandle handle)
     {
         // Remove from registry
-        m_AssetRegistry->Remove(handle);
+        m_AssetRegistry.RemoveAsset(handle);
 
         // Remove from loaded assets
         {
-            std::unique_lock lock(m_LoadedAssetsMutex);
+            std::unique_lock<std::shared_mutex> lock(m_AssetsMutex);
             m_LoadedAssets.erase(handle);
         }
 
         // Remove from memory assets
         {
-            std::unique_lock lock(m_MemoryAssetsMutex);
+            std::unique_lock<std::shared_mutex> lock(m_AssetsMutex);
             m_MemoryAssets.erase(handle);
         }
 
@@ -279,51 +286,45 @@ namespace OloEngine
 
     void EditorAssetManager::RegisterDependency(AssetHandle dependency, AssetHandle handle)
     {
-        std::unique_lock lock(m_DependenciesMutex);
-        m_Dependencies[dependency].insert(handle);
+        std::unique_lock<std::shared_mutex> lock(m_DependenciesMutex);
+        m_AssetDependencies[dependency].insert(handle);
     }
 
     void EditorAssetManager::DeregisterDependency(AssetHandle dependency, AssetHandle handle)
     {
-        std::unique_lock lock(m_DependenciesMutex);
-        auto it = m_Dependencies.find(dependency);
-        if (it != m_Dependencies.end())
+        std::unique_lock<std::shared_mutex> lock(m_DependenciesMutex);
+        auto it = m_AssetDependencies.find(dependency);
+        if (it != m_AssetDependencies.end())
         {
             it->second.erase(handle);
             if (it->second.empty())
-                m_Dependencies.erase(it);
+                m_AssetDependencies.erase(it);
         }
     }
 
     void EditorAssetManager::DeregisterDependencies(AssetHandle handle)
     {
-        std::unique_lock lock(m_DependenciesMutex);
+        std::unique_lock<std::shared_mutex> lock(m_DependenciesMutex);
         
         // Remove this asset from all dependency lists
-        for (auto it = m_Dependencies.begin(); it != m_Dependencies.end();)
+        for (auto it = m_AssetDependencies.begin(); it != m_AssetDependencies.end();)
         {
             it->second.erase(handle);
             if (it->second.empty())
-                it = m_Dependencies.erase(it);
+                it = m_AssetDependencies.erase(it);
             else
                 ++it;
         }
 
         // Remove dependencies of this asset
-        m_Dependencies.erase(handle);
+        m_AssetDependencies.erase(handle);
     }
 
     std::unordered_set<AssetHandle> EditorAssetManager::GetDependencies(AssetHandle handle)
     {
-        std::shared_lock lock(m_DependenciesMutex);
-        auto it = m_Dependencies.find(handle);
-        return (it != m_Dependencies.end()) ? it->second : std::unordered_set<AssetHandle>{};
-    }
-
-    std::unordered_map<AssetHandle, Ref<Asset>> EditorAssetManager::GetLoadedAssets()
-    {
-        std::shared_lock lock(m_LoadedAssetsMutex);
-        return m_LoadedAssets;
+        std::shared_lock<std::shared_mutex> lock(m_DependenciesMutex);
+        auto it = m_AssetDependencies.find(handle);
+        return (it != m_AssetDependencies.end()) ? it->second : std::unordered_set<AssetHandle>{};
     }
 
     AssetHandle EditorAssetManager::ImportAsset(const std::filesystem::path& filepath)
@@ -344,7 +345,7 @@ namespace OloEngine
         }
 
         // Check if already imported
-        AssetHandle existingHandle = m_AssetRegistry->GetAssetHandle(filepath);
+        AssetHandle existingHandle = m_AssetRegistry.GetAssetHandle(filepath);
         if (existingHandle != 0)
         {
             OLO_CORE_WARN("Asset already imported: {}", filepath.string());
@@ -353,13 +354,13 @@ namespace OloEngine
 
         // Create metadata
         AssetMetadata metadata;
-        metadata.Handle = AssetHandle::Create();
+        metadata.Handle = AssetHandle{};
         metadata.FilePath = filepath;
         metadata.Type = type;
-        metadata.LastModified = FileSystem::GetLastWriteTime(filepath);
+        metadata.LastWriteTime = std::filesystem::last_write_time(filepath);
 
         // Register in registry
-        m_AssetRegistry->RegisterAsset(metadata);
+        m_AssetRegistry.AddAsset(metadata);
 
         OLO_CORE_INFO("Imported asset: {} -> {}", filepath.string(), (uint64_t)metadata.Handle);
         return metadata.Handle;
@@ -371,11 +372,11 @@ namespace OloEngine
         // This is a no-op for compatibility
     }
 
-    Ref<Asset> EditorAssetManager::LoadAsset(AssetHandle handle)
+    Ref<Asset> EditorAssetManager::LoadAssetFromFile(AssetHandle handle)
     {
         OLO_PROFILER_SCOPE("EditorAssetManager::LoadAsset");
 
-        auto metadata = m_AssetRegistry->GetAssetMetadata(handle);
+        auto metadata = m_AssetRegistry.GetMetadata(handle);
         if (!metadata.IsValid())
         {
             OLO_CORE_ERROR("Cannot load asset: metadata not found for handle {}", (uint64_t)handle);
@@ -398,7 +399,7 @@ namespace OloEngine
 
         // Cache the loaded asset
         {
-            std::unique_lock lock(m_LoadedAssetsMutex);
+            std::unique_lock<std::shared_mutex> lock(m_AssetsMutex);
             m_LoadedAssets[handle] = asset;
         }
 
@@ -408,9 +409,9 @@ namespace OloEngine
 
     void EditorAssetManager::UpdateDependencies(AssetHandle handle)
     {
-        std::shared_lock lock(m_DependenciesMutex);
-        auto it = m_Dependencies.find(handle);
-        if (it != m_Dependencies.end())
+        std::shared_lock<std::shared_mutex> lock(m_DependenciesMutex);
+        auto it = m_AssetDependencies.find(handle);
+        if (it != m_AssetDependencies.end())
         {
             for (AssetHandle dependent : it->second)
             {

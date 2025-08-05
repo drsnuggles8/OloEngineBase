@@ -37,6 +37,7 @@ namespace OloEngine
         virtual ~EditorAssetManager();
 
         // AssetManagerBase interface implementation
+        virtual void Initialize();
         virtual void Shutdown() override;
 
         virtual AssetType GetAssetType(AssetHandle assetHandle) override;

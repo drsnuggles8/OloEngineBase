@@ -97,7 +97,8 @@
         "xtree": "cpp",
         "xutility": "cpp",
         "execution": "cpp",
-        "typeindex": "cpp"
+        "typeindex": "cpp",
+        "resumable": "cpp"
     },
     "dotnet.defaultSolution": "disable"
 }
