@@ -14,15 +14,6 @@
 namespace OloEngine
 {
     /**
-     * @brief Response structure for editor asset loading
-     */
-    struct EditorAssetLoadResponse
-    {
-        AssetMetadata RequestMetadata;
-        Ref<Asset> Asset;
-    };
-
-    /**
      * @brief Editor asset system for handling async asset loading
      * 
      * The EditorAssetSystem provides dedicated asset loading thread for editor builds.

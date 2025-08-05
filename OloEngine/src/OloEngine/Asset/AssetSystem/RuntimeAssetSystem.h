@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Asset/Asset.h"
+#include "OloEngine/Asset/AssetMetadata.h"
 #include "OloEngine/Core/Thread.h"
 
 #include <queue>
@@ -12,17 +13,6 @@
 
 namespace OloEngine
 {
-    /**
-     * @brief Asset load request for runtime system
-     */
-    struct RuntimeAssetLoadRequest
-    {
-        AssetHandle Handle;
-        
-        RuntimeAssetLoadRequest() = default;
-        RuntimeAssetLoadRequest(AssetHandle handle) : Handle(handle) {}
-    };
-
     /**
      * @brief Runtime asset system for optimized async loading
      * 
