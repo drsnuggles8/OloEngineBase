@@ -295,22 +295,6 @@ namespace OloEngine
         bool IsFileModified(const AssetMetadata& metadata) const;
 
         /**
-         * @brief Load asset registry from disk
-         */
-        void LoadAssetRegistry();
-
-        /**
-         * @brief Scan directory for assets and update registry
-         * @param directory Directory to scan
-         */
-        void ProcessDirectory(const std::filesystem::path& directoryPath);
-
-        /**
-         * @brief Reload all assets by scanning asset directory
-         */
-        void ReloadAssets();
-
-        /**
          * @brief Scan directory for assets and update registry
          * @param directory Directory to scan
          */

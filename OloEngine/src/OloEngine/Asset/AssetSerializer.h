@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AssetMetadata.h"
+#include "MeshColliderAsset.h"
 
 #include "OloEngine/Serialization/FileStream.h"
 #include "OloEngine/Serialization/AssetPackFile.h"

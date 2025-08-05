@@ -22,12 +22,6 @@ namespace OloEngine
 
         AssetImporter::Init();
         OLO_CORE_INFO("Initializing EditorAssetManager");
-        
-        // Load asset registry if it exists
-        LoadAssetRegistry();
-        
-        // Reload/scan assets from filesystem
-        ReloadAssets();
     }
 
     EditorAssetManager::~EditorAssetManager()
@@ -428,114 +422,6 @@ namespace OloEngine
                 }
             }
         }
-    }
-
-    void EditorAssetManager::LoadAssetRegistry()
-    {
-        const auto& project = Application::Get().GetProject();
-        if (!project)
-        {
-            OLO_CORE_WARN("No project loaded, cannot load asset registry");
-            return;
-        }
-
-        auto registryPath = project->GetAssetRegistryPath();
-        if (std::filesystem::exists(registryPath))
-        {
-            m_AssetRegistry->Deserialize(registryPath);
-            OLO_CORE_INFO("Loaded asset registry from {}", registryPath.string());
-        }
-        else
-        {
-            OLO_CORE_INFO("No existing asset registry found, starting with empty registry");
-        }
-    }
-
-    bool EditorAssetManager::WriteRegistryToFile()
-    {
-        const auto& project = Application::Get().GetProject();
-        if (project && m_AssetRegistry)
-        {
-            auto registryPath = project->GetAssetRegistryPath();
-            m_AssetRegistry->Serialize(registryPath);
-            OLO_CORE_TRACE("Saved asset registry to {}", registryPath.string());
-            return true;
-        }
-        return false;
-    }
-
-    void EditorAssetManager::ReloadAssets()
-    {
-        const auto& project = Application::Get().GetProject();
-        if (!project)
-        {
-            OLO_CORE_WARN("No project loaded, cannot reload assets");
-            return;
-        }
-
-        auto assetsPath = project->GetAssetDirectory();
-        if (std::filesystem::exists(assetsPath))
-        {
-            ProcessDirectory(assetsPath);
-            WriteRegistryToFile();
-            OLO_CORE_INFO("Reloaded assets from {}", assetsPath.string());
-        }
-        else
-        {
-            OLO_CORE_WARN("Assets directory does not exist: {}", assetsPath.string());
-        }
-    }
-
-    void EditorAssetManager::ProcessDirectory(const std::filesystem::path& directoryPath)
-    {
-        if (!std::filesystem::exists(directoryPath) || !std::filesystem::is_directory(directoryPath))
-            return;
-
-        for (const auto& entry : std::filesystem::recursive_directory_iterator(directoryPath))
-        {
-            if (!entry.is_regular_file())
-                continue;
-
-            const auto& path = entry.path();
-            auto relativePath = GetRelativePath(path);
-
-            // Skip if already in registry and not modified
-            if (m_AssetRegistry->Exists(relativePath))
-            {
-                auto handle = m_AssetRegistry->GetHandleFromPath(relativePath);
-                auto metadata = m_AssetRegistry->GetAssetMetadata(handle);
-                
-                // Check if file has been modified
-                auto lastWriteTime = std::filesystem::last_write_time(path);
-                if (metadata.LastModifiedTime == lastWriteTime)
-                    continue; // File hasn't changed
-            }
-
-            // Determine asset type from extension
-            AssetType assetType = AssetExtensions::GetAssetTypeFromExtension(path.extension().string());
-            if (assetType == AssetType::None)
-                continue; // Unknown file type
-
-            // Create or update metadata
-            AssetMetadata metadata;
-            metadata.Handle = m_AssetRegistry->GenerateHandle();
-            metadata.FilePath = relativePath;
-            metadata.Type = assetType;
-            metadata.LastModifiedTime = std::filesystem::last_write_time(path);
-
-            m_AssetRegistry->AddAsset(metadata);
-            OLO_CORE_TRACE("Processed asset: {} ({})", relativePath.string(), AssetUtils::AssetTypeToString(assetType));
-        }
-    }
-
-    std::filesystem::path EditorAssetManager::GetRelativePath(const std::filesystem::path& absolutePath)
-    {
-        const auto& project = Application::Get().GetProject();
-        if (!project)
-            return absolutePath;
-
-        auto assetsPath = project->GetAssetDirectory();
-        return std::filesystem::relative(absolutePath, assetsPath);
     }
 
 #if OLO_ASYNC_ASSETS

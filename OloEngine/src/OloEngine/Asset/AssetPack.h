@@ -3,7 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Asset/AssetTypes.h"
-#include "OloEngine/Serialization/AssetPackFile.h"
+#include "AssetPackFile.h"
 #include <filesystem>
 #include <optional>
 #include <vector>
@@ -26,7 +26,7 @@ namespace OloEngine
     class AssetPack : public RefCounted
     {
     public:
-        static Ref<AssetPack> Create() { return Ref<AssetPack>::Create(); }
+        static Ref<AssetPack> Create() { return CreateRef<AssetPack>(); }
         
         /**
          * @brief Load an asset pack from file

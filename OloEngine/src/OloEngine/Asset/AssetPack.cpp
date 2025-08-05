@@ -25,56 +25,73 @@ namespace OloEngine
         }
 
         // Read file header
-        if (!stream.ReadRaw(m_AssetPackFile.FileHeader))
-        {
-            OLO_CORE_ERROR("AssetPack::Load - Failed to read file header");
-            return false;
-        }
+        stream.ReadRaw(m_AssetPackFile.Header.MagicNumber);
+        stream.ReadRaw(m_AssetPackFile.Header.Version);
+        stream.ReadRaw(m_AssetPackFile.Header.BuildVersion);
+        stream.ReadRaw(m_AssetPackFile.Header.IndexOffset);
 
         // Validate magic number
-        if (m_AssetPackFile.FileHeader.MagicNumber != AssetPackFile::MagicNumber)
+        if (m_AssetPackFile.Header.MagicNumber != AssetPackFile::MagicNumber)
         {
-            OLO_CORE_ERROR("AssetPack::Load - Invalid magic number: {:#x}", m_AssetPackFile.FileHeader.MagicNumber);
+            OLO_CORE_ERROR("AssetPack::Load - Invalid magic number: {:#x}", m_AssetPackFile.Header.MagicNumber);
             return false;
         }
 
         // Validate version
-        if (m_AssetPackFile.FileHeader.Version != AssetPackFile::Version)
+        if (m_AssetPackFile.Header.Version != AssetPackFile::Version)
         {
             OLO_CORE_WARN("AssetPack::Load - Version mismatch. Expected: {}, Got: {}", 
-                         AssetPackFile::Version, m_AssetPackFile.FileHeader.Version);
+                         AssetPackFile::Version, m_AssetPackFile.Header.Version);
             // Continue loading - might be compatible
         }
 
         // Seek to index table
-        stream.SetStreamPosition(m_AssetPackFile.FileHeader.IndexOffset);
+        stream.SetStreamPosition(m_AssetPackFile.Header.IndexOffset);
 
         // Read index table header
-        if (!stream.ReadRaw(m_AssetPackFile.Index))
-        {
-            OLO_CORE_ERROR("AssetPack::Load - Failed to read index table");
-            return false;
-        }
+        stream.ReadRaw(m_AssetPackFile.Index.AssetCount);
+        stream.ReadRaw(m_AssetPackFile.Index.SceneCount);
+        stream.ReadRaw(m_AssetPackFile.Index.PackedAppBinaryOffset);
+        stream.ReadRaw(m_AssetPackFile.Index.PackedAppBinarySize);
 
         // Read asset infos
         m_AssetPackFile.AssetInfos.resize(m_AssetPackFile.Index.AssetCount);
         for (uint32_t i = 0; i < m_AssetPackFile.Index.AssetCount; i++)
         {
-            if (!stream.ReadRaw(m_AssetPackFile.AssetInfos[i]))
-            {
-                OLO_CORE_ERROR("AssetPack::Load - Failed to read asset info {}", i);
-                return false;
-            }
+            auto& assetInfo = m_AssetPackFile.AssetInfos[i];
+            stream.ReadRaw(assetInfo.Handle);
+            stream.ReadRaw(assetInfo.PackedOffset);
+            stream.ReadRaw(assetInfo.PackedSize);
+            stream.ReadRaw(assetInfo.Type);
+            stream.ReadRaw(assetInfo.Flags);
         }
 
         // Read scene infos
         m_AssetPackFile.SceneInfos.resize(m_AssetPackFile.Index.SceneCount);
         for (uint32_t i = 0; i < m_AssetPackFile.Index.SceneCount; i++)
         {
-            if (!stream.ReadRaw(m_AssetPackFile.SceneInfos[i]))
+            auto& sceneInfo = m_AssetPackFile.SceneInfos[i];
+            stream.ReadRaw(sceneInfo.Handle);
+            stream.ReadRaw(sceneInfo.PackedOffset);
+            stream.ReadRaw(sceneInfo.PackedSize);
+            stream.ReadRaw(sceneInfo.Flags);
+            
+            // Read scene assets map
+            uint32_t assetCount;
+            stream.ReadRaw(assetCount);
+            for (uint32_t j = 0; j < assetCount; j++)
             {
-                OLO_CORE_ERROR("AssetPack::Load - Failed to read scene info {}", i);
-                return false;
+                AssetHandle assetHandle;
+                AssetPackFile::AssetInfo assetInfo;
+                
+                stream.ReadRaw(assetHandle);
+                stream.ReadRaw(assetInfo.Handle);
+                stream.ReadRaw(assetInfo.PackedOffset);
+                stream.ReadRaw(assetInfo.PackedSize);
+                stream.ReadRaw(assetInfo.Type);
+                stream.ReadRaw(assetInfo.Flags);
+                
+                sceneInfo.Assets[assetHandle] = assetInfo;
             }
         }
 
