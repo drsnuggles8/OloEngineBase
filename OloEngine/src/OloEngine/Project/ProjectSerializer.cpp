@@ -63,5 +63,4 @@ namespace OloEngine
 		config.ScriptModulePath = projectNode["ScriptModulePath"].as<std::string>();
 		return true;
 	}
-
 }

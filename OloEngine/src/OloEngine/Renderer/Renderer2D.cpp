@@ -429,7 +429,7 @@ namespace OloEngine
 			}
 
 			VertexData data = { drawCall.VertexBufferBase, drawCall.VertexBufferSize };
-			for (const auto& vertexBuffer : drawCall.VertexArray->GetVertexBuffers())
+			for (auto vertexBuffer : drawCall.VertexArray->GetVertexBuffers())
 			{
 				vertexBuffer->SetData(data);
 			}

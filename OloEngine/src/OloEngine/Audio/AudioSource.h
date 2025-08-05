@@ -1,6 +1,7 @@
 #pragma once
 
 #include <glm/vec3.hpp>
+#include "OloEngine/Core/Ref.h"
 
 struct ma_sound;
 
@@ -36,7 +37,7 @@ namespace OloEngine
 		f32 DopplerFactor = 1.0f;
 	};
 
-	class AudioSource
+	class AudioSource : public RefCounted
 	{
 	public:
 		AudioSource(const char* filepath);

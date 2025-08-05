@@ -16,7 +16,7 @@ namespace OloEngine
 			}
 			case RendererAPI::API::OpenGL:
 			{
-				return CreateRef<OpenGLFramebuffer>(spec);
+				return Ref<OpenGLFramebuffer>::Create(spec);
 			}
 		}
 

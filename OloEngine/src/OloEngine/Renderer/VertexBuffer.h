@@ -1,12 +1,13 @@
+#pragma once
+
 #include <utility>
 #include "OloEngine/Renderer/Buffer.h"
-
-#pragma once
+#include "OloEngine/Core/Ref.h"
 
 namespace OloEngine
 {
 	// TODO(olbu): Add Create() functions for the new constructors of OpenGLVertexBuffer
-	class VertexBuffer
+	class VertexBuffer : public RefCounted
 	{
 	public:
 		virtual ~VertexBuffer() = default;

@@ -174,7 +174,7 @@ namespace OloEngine
             20, 21, 23, 21, 22, 23
         };
 
-        return CreateRef<Mesh>(vertices, indices);
+        return Ref<Mesh>::Create(vertices, indices);
     }
 
     Ref<Mesh> Mesh::CreateSphere(f32 radius, u32 segments)
@@ -240,7 +240,7 @@ namespace OloEngine
             indices.push_back((r + 1) * sectors + (sectors - 1));
         }
 
-        return CreateRef<Mesh>(vertices, indices);
+        return Ref<Mesh>::Create(vertices, indices);
     }
 
     Ref<Mesh> Mesh::CreatePlane(f32 width, f32 length)
@@ -262,7 +262,7 @@ namespace OloEngine
             0, 1, 3, 1, 2, 3 // Top face
         };
 
-        return CreateRef<Mesh>(vertices, indices);
+        return Ref<Mesh>::Create(vertices, indices);
     }
 
     Ref<Mesh> Mesh::CreateSkyboxCube()
@@ -323,6 +323,6 @@ namespace OloEngine
             20, 21, 22, 22, 23, 20
         };
 
-        return CreateRef<Mesh>(vertices, indices);
+        return Ref<Mesh>::Create(vertices, indices);
     }
 }

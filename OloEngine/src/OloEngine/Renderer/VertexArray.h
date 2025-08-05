@@ -2,12 +2,13 @@
 
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
+#include "OloEngine/Core/Ref.h"
 
 #include <memory>
 
 namespace OloEngine
 {
-	class VertexArray
+	class VertexArray : public RefCounted
 	{
 	public:
 		virtual ~VertexArray() = default;

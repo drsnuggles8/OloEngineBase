@@ -12,7 +12,7 @@
 - Header Files: Use #pragma once for include guards
 - Error Handling: Use OLO_ASSERT, OLO_CORE_ASSERT for validation, logging macros for info/warnings
 - Formatting: Braces on new lines, 4-space indentation, public methods before private
-- Memory Management: Use CreateScope<T> and CreateRef<T> helpers (unique_ptr/shared_ptr)
+- Memory Management: Use AssetRef<T> for asset objects and CreateScope<T> for non-asset objects
 - Namespaces: All engine code wrapped in OloEngine namespace
 - Documentation: Clear comments for complex functionality, TODO markers for future work
 - Design Patterns: Interface/Implementation for platform-specific functionality

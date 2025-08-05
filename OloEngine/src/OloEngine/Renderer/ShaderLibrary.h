@@ -2,6 +2,7 @@
 
 #include <string>
 #include <unordered_map>
+#include "OloEngine/Core/Ref.h"
 
 namespace OloEngine
 {
@@ -18,7 +19,7 @@ namespace OloEngine
 
 		Ref<Shader> Get(const std::string& name);
 
-		void ReloadShaders() const;
+		void ReloadShaders();
 
 		[[nodiscard("Store this!")]] bool Exists(const std::string& name) const;
 	private:

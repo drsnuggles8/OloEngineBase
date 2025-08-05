@@ -101,7 +101,7 @@ skeleton.m_FinalBoneMatrices[i] = skeleton.m_GlobalTransforms[i] * skeleton.m_In
 - Error handling with magenta fallback for invalid light types
 
 ### **Memory Management** ✅
-- Proper RAII with CreateRef<> patterns
+- Proper RAII with AssetRef<> patterns for assets
 - Vector pre-allocation for bone data
 - No memory leaks or unnecessary allocations
 

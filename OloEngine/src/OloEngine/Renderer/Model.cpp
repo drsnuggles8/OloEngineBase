@@ -142,7 +142,7 @@ namespace OloEngine
 			m_Materials.push_back(pbrMaterial);
 		}
 
-		return CreateRef<Mesh>(vertices, indices);
+		return Ref<Mesh>::Create(vertices, indices);
 	}
 
 	std::vector<Ref<Texture2D>> Model::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type)

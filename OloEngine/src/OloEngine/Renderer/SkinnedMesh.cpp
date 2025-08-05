@@ -177,7 +177,7 @@ namespace OloEngine
             20, 21, 22, 22, 23, 20
         };
 
-        return CreateRef<SkinnedMesh>(std::move(vertices), std::move(indices));
+        return Ref<SkinnedMesh>::Create(std::move(vertices), std::move(indices));
     }
 
     Ref<SkinnedMesh> SkinnedMesh::CreateMultiBoneCube()
@@ -239,6 +239,6 @@ namespace OloEngine
             20, 21, 22, 22, 23, 20
         };
 
-        return CreateRef<SkinnedMesh>(std::move(vertices), std::move(indices));
+        return Ref<SkinnedMesh>::Create(std::move(vertices), std::move(indices));
     }
 }

@@ -11,6 +11,7 @@ namespace OloEngine
 {
     // Forward declaration
     class ShaderLibrary;
+	class RefCounted;
     
     enum class IBLQuality
     {
@@ -50,7 +51,7 @@ namespace OloEngine
         IBLConfiguration IBLConfig;         // Enhanced IBL configuration
     };
 
-    class EnvironmentMap
+    class EnvironmentMap : public RefCounted
     {
     public:
         EnvironmentMap(const EnvironmentMapSpecification& spec);

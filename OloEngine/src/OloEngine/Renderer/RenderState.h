@@ -6,6 +6,7 @@
 #include <vector>
 #include <cstdint>
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/Ref.h"
 
 namespace OloEngine
 {
@@ -173,8 +174,9 @@ namespace OloEngine
     };
 
     // Composite state for a draw call
-    struct RenderState
+    class RenderState : public RefCounted
     {
+    public:
         BlendState Blend;
         DepthState Depth;
         StencilState Stencil;

@@ -12,5 +12,4 @@ namespace OloEngine
 
 		static Scope<GraphicsContext> Create(void* window);
 	};
-
 }

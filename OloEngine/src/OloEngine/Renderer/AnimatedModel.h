@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/SkinnedMesh.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Texture.h"
@@ -26,7 +27,7 @@ namespace OloEngine
      * This class handles loading of skeletal animated models from various formats (glTF, FBX, etc.)
      * using Assimp. It creates SkinnedMesh objects, Skeleton data, and AnimationClip objects.
      */
-    class AnimatedModel
+    class AnimatedModel : public RefCounted
     {
     public:
         AnimatedModel() = default;

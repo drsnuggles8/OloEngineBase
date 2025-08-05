@@ -41,9 +41,9 @@ namespace OloEngine
 		return m_Shaders[name];
 	}
 
-	void ShaderLibrary::ReloadShaders() const
+	void ShaderLibrary::ReloadShaders()
 	{
-		for (auto const& [name, shader] : m_Shaders)
+		for (auto& [name, shader] : m_Shaders)
 		{
 			shader->Reload();
 		}

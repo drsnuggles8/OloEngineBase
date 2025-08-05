@@ -1,11 +1,12 @@
-#include <utility>
-
 #pragma once
+
+#include <utility>
+#include "OloEngine/Core/Ref.h"
 
 namespace OloEngine
 {
 	// Currently OloEngine only supports 32-bit index buffers
-	class IndexBuffer
+	class IndexBuffer : public RefCounted
 	{
 	public:
 		virtual ~IndexBuffer() = default;

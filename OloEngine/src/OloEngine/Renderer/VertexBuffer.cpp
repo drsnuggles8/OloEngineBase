@@ -17,7 +17,7 @@ namespace OloEngine
 			}
 			case RendererAPI::API::OpenGL:
 			{
-				return CreateRef<OpenGLVertexBuffer>(size);
+				return Ref<VertexBuffer>(new OpenGLVertexBuffer(size));
 			}
 		}
 
@@ -36,12 +36,11 @@ namespace OloEngine
 			}
 			case RendererAPI::API::OpenGL:
 			{
-				return CreateRef<OpenGLVertexBuffer>(vertices, size);
+				return Ref<VertexBuffer>(new OpenGLVertexBuffer(vertices, size));
 			}
 		}
 
 		OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
 		return nullptr;
 	}
-
 }

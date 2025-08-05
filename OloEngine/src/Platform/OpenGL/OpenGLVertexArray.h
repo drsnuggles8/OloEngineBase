@@ -4,7 +4,6 @@
 
 namespace OloEngine
 {
-
 	class OpenGLVertexArray : public VertexArray
 	{
 	public:
@@ -27,5 +26,4 @@ namespace OloEngine
 		std::vector<Ref<VertexBuffer>> m_VertexBuffers;
 		Ref<IndexBuffer> m_IndexBuffer;
 	};
-
 }

@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
@@ -35,7 +36,7 @@ namespace OloEngine
 		}
 	};
 
-	class Model
+	class Model : public RefCounted
 	{
 	public:
 		Model() = default;

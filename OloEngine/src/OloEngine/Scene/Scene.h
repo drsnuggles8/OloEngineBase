@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Core/UUID.h"
+#include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 
 #include "box2d/box2d.h" // Include Box2D header
@@ -18,13 +19,14 @@ namespace OloEngine
 
 	class Entity;
 
-	class Scene
+	class Scene : public RefCounted
 	{
 	public:
 		Scene();
 		~Scene();
 
-		static Ref<Scene> Copy(const Ref<Scene>& other);
+		static Ref<Scene> Create();
+		static Ref<Scene> Copy(Ref<Scene>& other);
 
 		Entity CreateEntity(const std::string& name = std::string());
 		Entity CreateEntityWithUUID(UUID uuid, const std::string& name = std::string());
@@ -48,6 +50,11 @@ namespace OloEngine
 
 		Entity GetPrimaryCameraEntity();
 
+		Entity FindEntityByName(std::string_view name) const;
+		Entity GetEntityByUUID(UUID uuid) const;
+
+		Entity GetPrimaryCameraEntity() const;
+
 		[[nodiscard("Store this!")]] bool IsRunning() const { return m_IsRunning; }
         [[nodiscard("Store this!")]] bool IsPaused() const { return m_IsPaused; }
 
@@ -60,6 +67,12 @@ namespace OloEngine
 
 		template<typename... Components>
 		auto GetAllEntitiesWith()
+		{
+			return m_Registry.view<Components...>();
+		}
+
+		template<typename... Components>
+		auto GetAllEntitiesWith() const
 		{
 			return m_Registry.view<Components...>();
 		}
@@ -89,5 +102,4 @@ namespace OloEngine
 		friend class SceneSerializer;
 		friend class SceneHierarchyPanel;
 	};
-
 }

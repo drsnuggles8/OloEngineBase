@@ -68,14 +68,14 @@ namespace OloEngine
 
 	using ScriptFieldMap = std::unordered_map<std::string, ScriptFieldInstance>;
 
-	class ScriptClass
+	class ScriptClass : public RefCounted
 	{
 	public:
 		ScriptClass() = default;
 		ScriptClass(const std::string& classNamespace, const std::string& className, bool isCore = false);
 
-		MonoObject* Instantiate();
-		MonoMethod* GetMethod(const std::string& name, int parameterCount);
+		MonoObject* Instantiate() const;
+		MonoMethod* GetMethod(const std::string& name, int parameterCount) const;
 		MonoObject* InvokeMethod(MonoObject* instance, MonoMethod* method, void** params = nullptr);
 
         [[nodiscard("Store this!")]] const std::map<std::string, ScriptField>& GetFields() const { return m_Fields; }
@@ -90,7 +90,7 @@ namespace OloEngine
 		friend class ScriptEngine;
 	};
 
-	class ScriptInstance
+	class ScriptInstance : public RefCounted
 	{
 	public:
 		ScriptInstance(const Ref<ScriptClass>& scriptClass, Entity entity);
@@ -232,7 +232,5 @@ namespace OloEngine
 			OLO_CORE_ASSERT(false, "Unknown ScriptFieldType");
 			return None;
 		}
-
 	}
-
 }

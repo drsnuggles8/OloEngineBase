@@ -84,10 +84,21 @@ void Sandbox3D::OnAttach()
     // Create 3D meshes
     m_CubeMesh = OloEngine::Mesh::CreateCube();
     m_SphereMesh = OloEngine::Mesh::CreateSphere();
-    m_PlaneMesh = OloEngine::Mesh::CreatePlane(25.0f, 25.0f);
+    
+    // Create a plane mesh with the desired geometry
+    m_PlaneMesh = OloEngine::Ref<OloEngine::Mesh>::Create(
+        std::vector<OloEngine::Vertex>{
+            // Top face (facing positive Y)  
+            { { 12.5f, 0.0f,  12.5f}, { 0.0f, 1.0f, 0.0f}, {1.0f, 1.0f} },
+            { { 12.5f, 0.0f, -12.5f}, { 0.0f, 1.0f, 0.0f}, {1.0f, 0.0f} },
+            { {-12.5f, 0.0f, -12.5f}, { 0.0f, 1.0f, 0.0f}, {0.0f, 0.0f} },
+            { {-12.5f, 0.0f,  12.5f}, { 0.0f, 1.0f, 0.0f}, {0.0f, 1.0f} }
+        },
+        std::vector<u32>{ 0, 1, 3, 1, 2, 3 }
+    );
 
     // Load backpack model
-    m_BackpackModel = OloEngine::CreateRef<OloEngine::Model>("assets/backpack/backpack.obj");
+    m_BackpackModel = OloEngine::Ref<OloEngine::Model>::Create("assets/backpack/backpack.obj");
 
     // Load textures
     m_DiffuseMap = OloEngine::Texture2D::Create("assets/textures/container2.png");
@@ -165,7 +176,7 @@ void Sandbox3D::OnAttach()
     
     OloEngine::Renderer3D::SetLight(m_Light);
 	
-    m_TestScene = OloEngine::CreateRef<OloEngine::Scene>();
+    m_TestScene = OloEngine::Ref<OloEngine::Scene>::Create();
     m_TestScene->OnRuntimeStart();
     
     LoadTestAnimatedModel();
@@ -282,7 +293,7 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
             {
                 OloEngine::Animation::AnimationSystem::Update(
                     animStateComp,
-                    skeletonComp.m_Skeleton,
+                    *skeletonComp.m_Skeleton,
                     ts.GetSeconds() * m_AnimationSpeed
                 );
             }
@@ -700,17 +711,22 @@ void Sandbox3D::RenderAnimationTestingScene()
         if (m_ShowSkeleton && m_ImportedModelEntity.HasComponent<OloEngine::SkeletonComponent>())
         {
             auto& skeletonComp = m_ImportedModelEntity.GetComponent<OloEngine::SkeletonComponent>();
-            auto& transformComp = m_ImportedModelEntity.GetComponent<OloEngine::TransformComponent>();
             
-            // Create model matrix from transform component
-            glm::mat4 modelMatrix = glm::translate(glm::mat4(1.0f), transformComp.Translation)
-                                  * glm::toMat4(glm::quat(transformComp.Rotation))
-                                  * glm::scale(glm::mat4(1.0f), transformComp.Scale);
-            
-            // Draw the skeleton using the skeleton component data
-            OloEngine::Renderer3D::DrawSkeleton(skeletonComp.m_Skeleton, modelMatrix, 
-                                               m_ShowBones, m_ShowJoints, 
-                                               m_JointSize, m_BoneThickness);
+            // Check if skeleton pointer is valid before dereferencing
+            if (skeletonComp.m_Skeleton)
+            {
+                auto& transformComp = m_ImportedModelEntity.GetComponent<OloEngine::TransformComponent>();
+                
+                // Create model matrix from transform component
+                glm::mat4 modelMatrix = glm::translate(glm::mat4(1.0f), transformComp.Translation)
+                                      * glm::toMat4(glm::quat(transformComp.Rotation))
+                                      * glm::scale(glm::mat4(1.0f), transformComp.Scale);
+                
+                // Draw the skeleton using the skeleton component data
+                OloEngine::Renderer3D::DrawSkeleton(*skeletonComp.m_Skeleton, modelMatrix, 
+                                                   m_ShowBones, m_ShowJoints, 
+                                                   m_JointSize, m_BoneThickness);
+            }
         }
     }
 }
@@ -986,7 +1002,7 @@ void Sandbox3D::RenderModelLoadingUI()
         
         if (ImGui::Button("Reload Model"))
         {
-            m_BackpackModel = OloEngine::CreateRef<OloEngine::Model>("assets/backpack/backpack.obj");
+            m_BackpackModel = OloEngine::Ref<OloEngine::Model>::Create("assets/backpack/backpack.obj");
         }
     }
 }
@@ -1336,7 +1352,7 @@ void Sandbox3D::LoadTestAnimatedModel()
     
     try 
     {
-        m_CesiumManModel = OloEngine::CreateRef<OloEngine::AnimatedModel>(modelPath);
+        m_CesiumManModel = OloEngine::Ref<OloEngine::AnimatedModel>::Create(modelPath);
         
         if (!m_CesiumManModel->HasSkeleton())
         {
@@ -1400,11 +1416,11 @@ void Sandbox3D::LoadTestAnimatedModel()
         auto& skeletonComp = m_ImportedModelEntity.AddComponent<OloEngine::SkeletonComponent>();
         if (m_CesiumManModel->HasSkeleton())
         {
-            skeletonComp.m_Skeleton = *m_CesiumManModel->GetSkeleton();
+            skeletonComp.m_Skeleton = m_CesiumManModel->GetSkeleton();
             OLO_INFO("Skeleton loaded: {} bones, {} parents, {} transforms", 
-                     skeletonComp.m_Skeleton.m_BoneNames.size(),
-                     skeletonComp.m_Skeleton.m_ParentIndices.size(),
-                     skeletonComp.m_Skeleton.m_GlobalTransforms.size());
+                     skeletonComp.m_Skeleton->m_BoneNames.size(),
+                     skeletonComp.m_Skeleton->m_ParentIndices.size(),
+                     skeletonComp.m_Skeleton->m_GlobalTransforms.size());
         }
         
         // Add animation state component
@@ -1925,8 +1941,8 @@ void Sandbox3D::LoadTestPBRModel()
     {
         // Load Backpack
         OLO_INFO("Loading Backpack model from: {}", assetPath);
-        m_BackpackModel = OloEngine::CreateRef<OloEngine::Model>(assetPath);
-        m_CerberusModel.reset(); // Clear other model
+        m_BackpackModel = OloEngine::Ref<OloEngine::Model>::Create(assetPath);
+        m_CerberusModel.Reset(); // Clear other model
     }
     else if (m_SelectedPBRModelIndex == 1)
     {
@@ -1967,7 +1983,7 @@ void Sandbox3D::LoadTestPBRModel()
             return;
         }
         
-        m_CerberusModel = OloEngine::CreateRef<OloEngine::Model>(assetPath, cerberusTextures, true);
-        m_BackpackModel.reset();
+        m_CerberusModel = OloEngine::Ref<OloEngine::Model>::Create(assetPath, cerberusTextures, true);
+        m_BackpackModel.Reset();
     }
 }

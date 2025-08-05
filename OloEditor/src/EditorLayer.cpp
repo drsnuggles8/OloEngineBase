@@ -830,7 +830,7 @@ namespace OloEngine
 			return;
 		}
 
-		Ref<Scene> newScene = CreateRef<Scene>();
+		Ref<Scene> newScene = Ref<Scene>::Create();
 		SetEditorScene(newScene);
 		m_EditorScenePath = std::filesystem::path();
 	}
@@ -857,8 +857,8 @@ namespace OloEngine
 			return false;
 		}
 
-		Ref<Scene> const newScene = CreateRef<Scene>();
-		if (SceneSerializer const serializer(newScene); !serializer.Deserialize(path.string()))
+		Ref<Scene> const newScene = Ref<Scene>::Create();
+		if (SceneSerializer serializer(newScene); !serializer.Deserialize(path.string()))
 		{
 			return false;
 		}
@@ -969,7 +969,7 @@ namespace OloEngine
 		Application::Get().GetWindow().SetTitle(title);
 	}
 
-	void EditorLayer::OnScenePause() const
+	void EditorLayer::OnScenePause()
 	{
 		if (m_SceneState == SceneState::Edit)
 		{
@@ -979,7 +979,7 @@ namespace OloEngine
 		m_ActiveScene->SetPaused(true);
 	}
 
-	void EditorLayer::OnDuplicateEntity() const
+	void EditorLayer::OnDuplicateEntity()
 	{
 		if (m_SceneState != SceneState::Edit)
 		{

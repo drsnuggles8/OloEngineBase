@@ -17,7 +17,8 @@ namespace OloEngine
 			}
 			case RendererAPI::API::OpenGL:
 			{
-				return CreateRef<OpenGLTexture2D>(specification);
+				auto texture = Ref<OpenGLTexture2D>::Create(specification);
+				return texture.As<Texture2D>();
 			}
 		}
 
@@ -36,7 +37,8 @@ namespace OloEngine
 			}
 			case RendererAPI::API::OpenGL:
 			{
-				return CreateRef<OpenGLTexture2D>(path);
+				auto texture = Ref<OpenGLTexture2D>::Create(path);
+				return texture.As<Texture2D>();
 			}
 		}
 

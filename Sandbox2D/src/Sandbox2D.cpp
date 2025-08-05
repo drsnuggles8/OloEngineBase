@@ -142,7 +142,3 @@ void Sandbox2D::OnEvent(OloEngine::Event& e)
 {
 	m_CameraController.OnEvent(e);
 }
-
-
-
-

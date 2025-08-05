@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Commands/CommandMemoryManager.h"
@@ -13,13 +14,13 @@ namespace OloEngine
      * This class integrates with the command bucket system,
      * allowing render passes to efficiently build and execute rendering commands.
      */
-    class RenderPass
+    class RenderPass : public RefCounted
     {
     public:
         RenderPass()
         {
             // Create owned allocator with default block size
-            m_OwnedAllocator = CreateRef<CommandAllocator>();
+            m_OwnedAllocator = CreateScope<CommandAllocator>();
             m_Allocator = m_OwnedAllocator.get();
         }
         
@@ -58,7 +59,7 @@ namespace OloEngine
         Ref<Framebuffer> m_Target;
         FramebufferSpecification m_FramebufferSpec;
         CommandBucket m_CommandBucket;
-        Ref<CommandAllocator> m_OwnedAllocator;
+        Scope<CommandAllocator> m_OwnedAllocator;
         CommandAllocator* m_Allocator = nullptr;
     };
 }

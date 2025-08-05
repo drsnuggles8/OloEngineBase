@@ -6,8 +6,8 @@
 
 namespace OloEngine
 {
-	Ref<spdlog::logger> Log::s_CoreLogger;
-	Ref<spdlog::logger> Log::s_ClientLogger;
+	std::shared_ptr<spdlog::logger> Log::s_CoreLogger;
+	std::shared_ptr<spdlog::logger> Log::s_ClientLogger;
 
 	void Log::Init()
 	{
@@ -29,4 +29,3 @@ namespace OloEngine
 		s_ClientLogger->flush_on(spdlog::level::trace);
 	}
 }
-

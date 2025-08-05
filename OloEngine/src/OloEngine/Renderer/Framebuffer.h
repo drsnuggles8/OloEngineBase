@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/Ref.h"
 
 namespace OloEngine
 {
@@ -63,7 +64,7 @@ namespace OloEngine
 		bool SwapChainTarget = false;
 	};
 
-	class Framebuffer
+	class Framebuffer : public RefCounted
 	{
 	public:
 		virtual ~Framebuffer() = default;
@@ -84,6 +85,4 @@ namespace OloEngine
 
 		static Ref<Framebuffer> Create(const FramebufferSpecification& spec);
 	};
-
-
 }

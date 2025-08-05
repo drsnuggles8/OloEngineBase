@@ -106,7 +106,7 @@ namespace OloEngine
 		s_Data.Stats.Reset();
 		
 		Window& window = Application::Get().GetWindow();
-		s_Data.RGraph = CreateRef<RenderGraph>();
+		s_Data.RGraph = Ref<RenderGraph>::Create();
 		SetupRenderGraph(window.GetFramebufferWidth(), window.GetFramebufferHeight());		
 		OLO_CORE_INFO("Renderer3D initialization complete.");
 	}
@@ -342,6 +342,14 @@ namespace OloEngine
 			OLO_CORE_ERROR("Renderer3D::DrawMesh: No shader available!");
 			return nullptr;
 		}
+		
+		// TODO: Asset Management Integration
+		// This entire command creation section needs to be updated once we have
+		// a proper asset management system. All Ref<T> assignments should be
+		// converted to asset ID assignments using asset handles.
+		// Example: cmd->shaderID = shaderToUse->GetAssetHandle();
+		// instead of: cmd->shader = shaderToUse;
+		
 		CommandPacket* packet = CreateDrawCall<DrawMeshCommand>();
 		auto* cmd = packet->GetCommandData<DrawMeshCommand>();
 		cmd->header.type = CommandType::DrawMesh;
@@ -381,7 +389,7 @@ namespace OloEngine
 		cmd->brdfLutMap = material.BRDFLutMap;
 		
 		cmd->shader = shaderToUse;
-		cmd->renderState = CreateRef<RenderState>();
+		cmd->renderState = Ref<RenderState>::Create();
 		packet->SetCommandType(cmd->header.type);
 		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
 		return packet;
@@ -419,7 +427,7 @@ namespace OloEngine
 		cmd->texture = texture;
 		cmd->shader = s_Data.QuadShader;
 		cmd->quadVA = s_Data.QuadMesh->GetVertexArray();
-		cmd->renderState = CreateRef<RenderState>();
+		cmd->renderState = Ref<RenderState>::Create();
 		packet->SetCommandType(cmd->header.type);
 		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
 		return packet;
@@ -489,7 +497,7 @@ namespace OloEngine
 		cmd->brdfLutMap = material.BRDFLutMap;
 		
 		cmd->shader = material.Shader ? material.Shader : s_Data.LightingShader;
-		cmd->renderState = CreateRef<RenderState>();
+		cmd->renderState = Ref<RenderState>::Create();
 		packet->SetCommandType(cmd->header.type);
 		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
 		return packet;
@@ -540,7 +548,7 @@ namespace OloEngine
 		cmd->prefilterMap = nullptr;
 		cmd->brdfLutMap = nullptr;
 		
-		cmd->renderState = CreateRef<RenderState>();
+		cmd->renderState = Ref<RenderState>::Create();
 		packet->SetCommandType(cmd->header.type);
 		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
 		return packet;
@@ -626,11 +634,11 @@ namespace OloEngine
 		finalPassSpec.Width = width;
 		finalPassSpec.Height = height;
 		
-		s_Data.ScenePass = CreateRef<SceneRenderPass>();
+		s_Data.ScenePass = Ref<SceneRenderPass>::Create();
 		s_Data.ScenePass->SetName("ScenePass");
 		s_Data.ScenePass->Init(scenePassSpec);
 		
-		s_Data.FinalPass = CreateRef<FinalRenderPass>();
+		s_Data.FinalPass = Ref<FinalRenderPass>::Create();
 		s_Data.FinalPass->SetName("FinalPass");
 		s_Data.FinalPass->Init(finalPassSpec);
 		
@@ -759,7 +767,7 @@ namespace OloEngine
 		cmd->brdfLutMap = material.BRDFLutMap;
 		
 		cmd->shader = shaderToUse;
-		cmd->renderState = CreateRef<RenderState>();
+		cmd->renderState = Ref<RenderState>::Create();
 		
 		cmd->boneMatrices = boneMatrices;
 		
@@ -862,7 +870,7 @@ namespace OloEngine
 			material = entity.GetComponent<MaterialComponent>().m_Material;
 		}
 
-		const std::vector<glm::mat4>& boneMatrices = skeletonComp.m_Skeleton.m_FinalBoneMatrices;
+		const std::vector<glm::mat4>& boneMatrices = skeletonComp.m_Skeleton->m_FinalBoneMatrices;
 
 		auto* packet = DrawSkinnedMesh(
 			animatedMeshComp.m_Mesh,
@@ -953,7 +961,7 @@ namespace OloEngine
 		cmd->shader = s_Data.SkyboxShader;
 		cmd->skyboxTexture = skyboxTexture;
 		
-		cmd->renderState = CreateRef<RenderState>();
+		cmd->renderState = Ref<RenderState>::Create();
 		cmd->renderState->Depth.TestEnabled = true;
 		cmd->renderState->Depth.Function = GL_LEQUAL; // Important for skybox
 		cmd->renderState->Depth.WriteMask = false; // Don't write to depth buffer
@@ -994,7 +1002,7 @@ namespace OloEngine
 		std::vector<u32> indices = { 0, 1, 2, 2, 3, 0 };
 		
 		// Create temporary mesh for the line
-		auto lineMesh = CreateRef<Mesh>(vertices, indices);
+		auto lineMesh = Ref<Mesh>::Create(vertices, indices);
 		
 		// Use a highly emissive material for skeleton visualization
 		Material material{};
@@ -1045,11 +1053,11 @@ namespace OloEngine
 		
 		CommandPacket* packet = nullptr;
 		
-		// For now, use the skybox mesh as a simple sphere approximation
+		// Use the cube mesh as a simple sphere approximation for now
 		// TODO: Create a proper sphere mesh in the renderer data
-		if (s_Data.SkyboxMesh)
+		if (s_Data.CubeMesh)
 		{
-			packet = DrawMesh(s_Data.SkyboxMesh, transform, material);
+			packet = DrawMesh(s_Data.CubeMesh, transform, material);
 		}
 		else
 		{

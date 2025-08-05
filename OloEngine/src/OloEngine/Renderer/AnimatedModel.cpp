@@ -170,7 +170,7 @@ namespace OloEngine
         }
 
         // Create and return the skinned mesh
-        auto skinnedMesh = CreateRef<SkinnedMesh>(std::move(vertices), std::move(indices));
+        auto skinnedMesh = Ref<SkinnedMesh>::Create(std::move(vertices), std::move(indices));
         skinnedMesh->Build();
 
         return skinnedMesh;
@@ -297,7 +297,7 @@ namespace OloEngine
         if (uniqueBoneNames.empty())
         {
             OLO_CORE_INFO("AnimatedModel::ProcessSkeleton: No bones found, creating default skeleton");
-            m_Skeleton = CreateRef<Skeleton>(1);
+            m_Skeleton = Ref<Skeleton>::Create(1);
             m_Skeleton->m_BoneNames = { "Root" };
             m_Skeleton->m_ParentIndices = { -1 };
             m_Skeleton->m_LocalTransforms = { glm::mat4(1.0f) };
@@ -311,7 +311,7 @@ namespace OloEngine
         OLO_CORE_INFO("AnimatedModel::ProcessSkeleton: Found {} unique bones", uniqueBoneNames.size());
 
         // Create skeleton with the correct number of bones
-        m_Skeleton = CreateRef<Skeleton>(uniqueBoneNames.size());
+        m_Skeleton = Ref<Skeleton>::Create(uniqueBoneNames.size());
 
         // Create ordered list of bone names and build name-to-index mapping
         std::vector<std::string> orderedBoneNames(uniqueBoneNames.begin(), uniqueBoneNames.end());
@@ -553,7 +553,7 @@ namespace OloEngine
         {
             const aiAnimation* anim = scene->mAnimations[i];
             
-            auto animClip = CreateRef<AnimationClip>();
+            auto animClip = Ref<AnimationClip>::Create();
             animClip->Name = anim->mName.data;
             animClip->Duration = static_cast<f32>(anim->mDuration / anim->mTicksPerSecond);
 

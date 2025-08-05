@@ -12,6 +12,29 @@
 
 #include <glad/gl.h>
 
+/*
+ * TODO: Command Dispatch System Asset Resolution
+ * 
+ * CRITICAL: This file contains dispatch functions that were converted from using
+ * Ref<T> objects to using asset IDs, but the asset resolution is not yet implemented.
+ * 
+ * FUNCTIONS THAT NEED ASSET RESOLUTION:
+ * - DispatchDrawMeshCommand: Resolve shaderID, textureIDs, renderStateID
+ * - DispatchDrawSkinnedMeshCommand: Resolve shaderID, textureIDs, renderStateID  
+ * - DispatchDrawSkyboxCommand: Resolve shaderID, textureIDs, renderStateID
+ * - DispatchDrawQuadCommand: Resolve shaderID, textureID, renderStateID
+ * - DispatchDrawIndexedCommand: Resolve vertexArrayID
+ * - DispatchDrawArraysCommand: Resolve vertexArrayID
+ * 
+ * REQUIRED CHANGES:
+ * 1. Add AssetManager::GetAsset<T>(assetID) calls for all asset ID fields
+ * 2. Add proper error handling for missing/invalid assets
+ * 3. Update asset binding code to work with resolved objects
+ * 4. Handle external buffer resolution (transformsBufferID, boneMatricesBufferID)
+ * 
+ * CURRENT STATE: Will not compile due to missing asset resolution
+ */
+
 namespace OloEngine
 {	struct CommandDispatchData
 	{
@@ -94,11 +117,11 @@ namespace OloEngine
 	void CommandDispatch::Shutdown()
 	{
 		OLO_PROFILE_FUNCTION();
-		s_Data.CameraUBO.reset();
-		s_Data.MaterialUBO.reset();
-		s_Data.LightUBO.reset();
-		s_Data.BoneMatricesUBO.reset();
-		s_Data.ModelMatrixUBO.reset();
+		s_Data.CameraUBO.Reset();
+		s_Data.MaterialUBO.Reset();
+		s_Data.LightUBO.Reset();
+		s_Data.BoneMatricesUBO.Reset();
+		s_Data.ModelMatrixUBO.Reset();
 	}
 
 	void CommandDispatch::SetUBOReferences(
@@ -462,9 +485,9 @@ namespace OloEngine
             if (state.Multisampling.Enabled) api.EnableMultisampling(); else api.DisableMultisampling();
         }
 		
-		if (u32 shaderID = cmd->shader->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
+		if (u32 shaderID = cmd->shader.get()->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
 		{
-			cmd->shader->Bind();
+			cmd->shader.get()->Bind();
 			s_Data.CurrentBoundShaderID = shaderID;
 			s_Data.Stats.ShaderBinds++;
 		}
@@ -754,9 +777,9 @@ namespace OloEngine
             if (state.Multisampling.Enabled) api.EnableMultisampling(); else api.DisableMultisampling();
         }
         	
-		if (u32 shaderID = cmd->shader->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
+		if (u32 shaderID = cmd->shader.get()->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
 		{
-			cmd->shader->Bind();
+			cmd->shader.get()->Bind();
 			s_Data.CurrentBoundShaderID = shaderID;
 			s_Data.Stats.ShaderBinds++;
 		}
@@ -874,9 +897,9 @@ namespace OloEngine
 			if (state.Multisampling.Enabled) api.EnableMultisampling(); else api.DisableMultisampling();
 		}
 		
-		if (u32 shaderID = cmd->shader->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
+		if (u32 shaderID = cmd->shader.get()->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
 		{
-			cmd->shader->Bind();
+			cmd->shader.get()->Bind();
 			s_Data.CurrentBoundShaderID = shaderID;
 			s_Data.Stats.ShaderBinds++;
 		}
@@ -1152,8 +1175,8 @@ namespace OloEngine
 		api.DisableCulling(); // Don't cull faces for skybox
 
 		// Bind skybox shader
-		cmd->shader->Bind();
-		s_Data.CurrentBoundShaderID = cmd->shader->GetRendererID();
+		cmd->shader.get()->Bind();
+		s_Data.CurrentBoundShaderID = cmd->shader.get()->GetRendererID();
 
 		// Bind skybox texture to the correct slot
 		cmd->skyboxTexture->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
@@ -1224,9 +1247,9 @@ namespace OloEngine
 			if (state.Multisampling.Enabled) api.EnableMultisampling(); else api.DisableMultisampling();
 		}
 		
-		if (u32 shaderID = cmd->shader->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
+		if (u32 shaderID = cmd->shader.get()->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
 		{
-			cmd->shader->Bind();
+			cmd->shader.get()->Bind();
 			s_Data.CurrentBoundShaderID = shaderID;
 			s_Data.Stats.ShaderBinds++;
 		}

@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/IBLPrecompute.h"
 #include "OloEngine/Renderer/Renderer.h"
@@ -44,7 +45,7 @@ namespace OloEngine
 
     Ref<EnvironmentMap> EnvironmentMap::Create(const EnvironmentMapSpecification& spec)
     {
-        return CreateRef<EnvironmentMap>(spec);
+        return Ref<EnvironmentMap>::Create(spec);
     }
 
     Ref<EnvironmentMap> EnvironmentMap::CreateFromCubemap(const Ref<TextureCubemap>& cubemap)
@@ -54,7 +55,7 @@ namespace OloEngine
         spec.Format = ImageFormat::RGB32F;
         spec.GenerateIBL = true;
         
-        auto envMap = CreateRef<EnvironmentMap>(spec);
+        auto envMap = Ref<EnvironmentMap>::Create(spec);
         envMap->m_EnvironmentMap = cubemap;
         
         if (spec.GenerateIBL)

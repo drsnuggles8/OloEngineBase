@@ -149,6 +149,5 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         
         // TODO: Recreate the fullscreen triangle and shader if needed
-    }
-        
+    }        
 }

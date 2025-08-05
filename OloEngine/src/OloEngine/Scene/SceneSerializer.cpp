@@ -452,7 +452,9 @@ namespace OloEngine
 		out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
 		m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
 			{
-				Entity const entity = { entityID, m_Scene.get() };
+				// SAFETY: m_Scene is const Ref<Scene>, but Entity requires non-const Scene*
+				// This is safe because serialization only reads entity data
+				Entity const entity = { entityID, const_cast<Scene*>(m_Scene.get()) };
 				if (!entity)
 				{
 					return;
@@ -473,7 +475,7 @@ namespace OloEngine
 		OLO_CORE_ASSERT(false);
 	}
 
-	bool SceneSerializer::Deserialize(const std::filesystem::path& filepath) const
+	bool SceneSerializer::Deserialize(const std::filesystem::path& filepath)
 	{
 		YAML::Node data;
 		try
@@ -617,7 +619,7 @@ namespace OloEngine
 					{
 						std::filesystem::path path = audioFilepath.c_str();
 						path = Project::GetAssetFileSystemPath(path);
-						src.Source = CreateRef<AudioSource>(path.string().c_str());
+						src.Source = Ref<AudioSource>::Create(path.string().c_str());
 					}
 				}
 
@@ -698,7 +700,7 @@ namespace OloEngine
 		return true;
 	}
 
-	[[nodiscard("Store this!")]] [[maybe_unused]] bool SceneSerializer::DeserializeRuntime([[maybe_unused]] const std::filesystem::path& filepath) const
+	[[nodiscard("Store this!")]] [[maybe_unused]] bool SceneSerializer::DeserializeRuntime([[maybe_unused]] const std::filesystem::path& filepath)
 	{
 		// Not implemented
 		OLO_CORE_ASSERT(false);

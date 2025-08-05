@@ -8,13 +8,13 @@ namespace OloEngine
 
 	Ref<Project> Project::New()
 	{
-		s_ActiveProject = CreateRef<Project>();
+		s_ActiveProject = Ref<Project>::Create();
 		return s_ActiveProject;
 	}
 
 	Ref<Project> Project::Load(const std::filesystem::path& path)
 	{
-		Ref<Project> project = CreateRef<Project>();
+		Ref<Project> project = Ref<Project>::Create();
 
 		if (ProjectSerializer serializer(project); serializer.Deserialize(path))
 		{
@@ -36,5 +36,4 @@ namespace OloEngine
 
 		return false;
 	}
-
 }

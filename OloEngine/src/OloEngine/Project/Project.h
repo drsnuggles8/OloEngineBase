@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/Ref.h"
 
 #include <string>
 #include <filesystem>
@@ -18,7 +19,7 @@ namespace OloEngine
 		std::filesystem::path ScriptModulePath;
 	};
 
-	class Project
+	class Project : public RefCounted
 	{
 	public:
 		static const std::filesystem::path& GetProjectDirectory()
@@ -58,5 +59,4 @@ namespace OloEngine
 
 		inline static Ref<Project> s_ActiveProject;
 	};
-
 }

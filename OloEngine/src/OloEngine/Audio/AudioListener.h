@@ -1,6 +1,7 @@
 #pragma once
 
 #include <glm/vec3.hpp>
+#include "OloEngine/Core/Ref.h"
 
 namespace OloEngine
 {
@@ -11,7 +12,7 @@ namespace OloEngine
 		f32 ConeOuterGain = 0.0f;
 	};
 
-	class AudioListener
+	class AudioListener : public RefCounted
 	{
 	public:
 		AudioListener() = default;

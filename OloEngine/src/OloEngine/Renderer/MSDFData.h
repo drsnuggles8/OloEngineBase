@@ -7,12 +7,9 @@
 
 namespace OloEngine
 {
-
 	struct MSDFData
 	{
 		std::vector<msdf_atlas::GlyphGeometry> Glyphs;
 		msdf_atlas::FontGeometry FontGeometry;
 	};
-
-
 }

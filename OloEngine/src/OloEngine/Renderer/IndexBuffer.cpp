@@ -16,12 +16,11 @@ namespace OloEngine
 			}
 			case RendererAPI::API::OpenGL:
 			{
-				return CreateRef<OpenGLIndexBuffer>(indices, size);
+				return Ref<IndexBuffer>(new OpenGLIndexBuffer(indices, size));
 			}
 		}
 
 		OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
 		return nullptr;
 	}
-
 }

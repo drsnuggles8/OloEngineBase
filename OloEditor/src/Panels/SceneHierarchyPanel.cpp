@@ -1,5 +1,3 @@
-// This is an independent project of an individual developer. Dear PVS-Studio, please check it.
-// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "SceneHierarchyPanel.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
@@ -405,12 +403,11 @@ namespace OloEngine
 			}
 			else
 			{
-				if (scriptClassExists)
-				{
-					Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(component.ClassName);
-					const auto& fields = entityClass->GetFields();
-
-					auto& entityFields = ScriptEngine::GetScriptFieldMap(entity);
+			if (scriptClassExists)
+			{
+				Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(component.ClassName);
+				const auto& fields = entityClass->GetFields();
+				auto& entityFields = ScriptEngine::GetScriptFieldMap(entity);
 					for (const auto& [name, field] : fields)
 					{
 						// Field has been set in editor
@@ -418,7 +415,6 @@ namespace OloEngine
 						{
 							ScriptFieldInstance& scriptField = entityFields.at(name);
 
-							// Display control to set it maybe
 							if (field.Type == ScriptFieldType::Float)
 							{
 								f32 data = scriptField.GetValue<f32>();
@@ -428,7 +424,6 @@ namespace OloEngine
 						}
 						else
 						{
-							// Display control to set it maybe
 							if (field.Type == ScriptFieldType::Float)
 							{
 								f32 data = 0.0f;

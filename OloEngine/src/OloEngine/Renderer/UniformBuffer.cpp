@@ -16,12 +16,11 @@ namespace OloEngine
 			}
 			case RendererAPI::API::OpenGL:
 			{
-				return CreateRef<OpenGLUniformBuffer>(size, binding);
+				return Ref<UniformBuffer>(new OpenGLUniformBuffer(size, binding));
 			}
 		}
 
 		OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
 		return nullptr;
 	}
-
 }

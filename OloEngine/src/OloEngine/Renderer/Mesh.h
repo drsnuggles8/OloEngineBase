@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Vertex.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
@@ -10,7 +11,7 @@
 
 namespace OloEngine 
 {
-    class Mesh 
+    class Mesh : public RefCounted
     {
     public:
         Mesh() = default;

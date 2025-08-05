@@ -81,9 +81,6 @@ namespace OloEngine::Math {
 			rotation.x = std::atan2(-Row[2][0], Row[1][1]);
 			rotation.z = 0;
 		}
-
-
 		return true;
 	}
-
 }

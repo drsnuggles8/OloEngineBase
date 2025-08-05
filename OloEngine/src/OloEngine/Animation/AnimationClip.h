@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/Ref.h"
 
 namespace OloEngine
 {
@@ -38,7 +39,7 @@ namespace OloEngine
     };
 
     // AnimationClip: a set of bone animations and duration
-    class AnimationClip
+    class AnimationClip : public RefCounted
     {
     public:
         std::string Name;

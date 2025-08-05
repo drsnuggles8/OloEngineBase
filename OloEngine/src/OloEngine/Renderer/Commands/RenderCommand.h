@@ -1,6 +1,9 @@
 #pragma once
 
+#include <vector>
+
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Texture.h"
@@ -12,10 +15,49 @@
 #include <glad/gl.h>
 #include <glm/glm.hpp>
 
+/*
+ * TODO: Asset Management System Integration
+ * 
+ * This file was converted from Ref<T>-based commands to ID-based commands for POD compliance,
+ * but the implementation is incomplete pending a proper asset management system.
+ * 
+ * REQUIRED CHANGES once Asset Management System is implemented:
+ * 
+ * 1. COMMAND CREATION (Renderer3D.cpp, Renderer2D.cpp, etc.):
+ *    - Update all code that creates DrawMeshCommand, DrawSkinnedMeshCommand, etc.
+ *    - Convert from storing Ref<T> objects to storing their asset handles/IDs
+ *    - Example: cmd->shaderID = shader->GetAssetHandle(); instead of cmd->shader = shader;
+ * 
+ * 2. COMMAND DISPATCH (CommandDispatch.cpp):
+ *    - Add asset resolution during dispatch phase
+ *    - Example: auto shader = AssetManager::GetAsset<Shader>(cmd->shaderID);
+ *    - Update all dispatch functions to resolve IDs back to objects
+ *    - Ensure proper error handling for missing/invalid assets
+ * 
+ * 3. ASSET LIFETIME MANAGEMENT:
+ *    - Ensure assets remain alive from command creation until dispatch
+ *    - Consider implementing asset reference counting at the renderer level
+ *    - Handle cases where assets are deleted while commands are queued
+ * 
+ * 4. BUFFER MANAGEMENT for non-POD data:
+ *    - Implement external buffer system for transforms (transformsBufferID)
+ *    - Implement external buffer system for bone matrices (boneMatricesBufferID)
+ *    - These should be managed by CommandAllocator or separate buffer pools
+ * 
+ * 5. PERFORMANCE CONSIDERATIONS:
+ *    - Asset lookup during dispatch should be fast (hash maps, etc.)
+ *    - Consider caching resolved assets to avoid repeated lookups
+ *    - Batch asset resolution where possible
+ * 
+ * CURRENT STATE: POD-compliant command structures but incomplete dispatch system
+ * NEXT STEPS: Complete asset management system, then revisit this implementation
+ */
+
 namespace OloEngine
 {
     // Forward declarations
-    class RendererAPI;    // Command type enum for dispatching
+    class RendererAPI;
+	// Command type enum for dispatching
     enum class CommandType : u8
     {
         Invalid = 0,
@@ -68,8 +110,7 @@ namespace OloEngine
 
     /*
      * Render state commands - POD structures
-     */
-
+    */
     struct SetViewportCommand
     {
         CommandHeader header;
@@ -227,8 +268,7 @@ namespace OloEngine
 
     /*
      * Draw commands - POD structures
-     */
-
+    */
     struct BindDefaultFramebufferCommand
     {
         CommandHeader header;
@@ -279,7 +319,9 @@ namespace OloEngine
         CommandHeader header;
         Ref<VertexArray> vertexArray; // Changed from rendererID to vertexArray
         u32 vertexCount;
-    };    // Higher-level commands combine multiple lower-level commands
+    };
+	
+	// Higher-level commands combine multiple lower-level commands
 	struct DrawMeshCommand
 	{
 		CommandHeader header;
@@ -327,6 +369,7 @@ namespace OloEngine
 		bool isSkinnedMesh = false;
 		u32 boneMatricesBufferID = 0;  // ID to external bone matrices buffer instead of vector
 	};
+
 	struct DrawMeshInstancedCommand
 	{
 		CommandHeader header;

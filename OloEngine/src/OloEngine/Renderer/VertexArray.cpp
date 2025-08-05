@@ -17,7 +17,7 @@ namespace OloEngine
 			}
 			case RendererAPI::API::OpenGL:
 			{
-				return CreateRef<OpenGLVertexArray>();
+				return Ref<VertexArray>(new OpenGLVertexArray());
 			}
 		}
 

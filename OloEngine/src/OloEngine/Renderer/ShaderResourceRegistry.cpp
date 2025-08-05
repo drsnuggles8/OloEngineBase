@@ -42,7 +42,7 @@ namespace OloEngine
         m_Bindings.clear();
         
         // Reset frame manager
-        m_FrameManager.reset();
+        m_FrameManager.Reset();
         
         m_Initialized = false;
         OLO_CORE_TRACE("ShaderResourceRegistry: Shutdown complete");

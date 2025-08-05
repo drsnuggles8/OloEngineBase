@@ -222,5 +222,4 @@ namespace OloEngine
 		SkeletonComponent,
 		MaterialComponent
 	>;
-
 }

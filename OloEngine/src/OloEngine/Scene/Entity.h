@@ -17,6 +17,8 @@ namespace OloEngine
 		Entity() = default;
 		Entity(entt::entity handle, Scene& scene);
 		Entity(entt::entity handle, Scene* scene);
+		Entity(entt::entity handle, const Scene& scene);
+		Entity(entt::entity handle, const Scene* scene);
 		~Entity() = default;
 
 		template<typename T, typename... Args>
@@ -106,5 +108,4 @@ namespace OloEngine
 		entt::entity m_EntityHandle{ entt::null };
 		Scene* m_Scene = nullptr;
 	};
-
 }

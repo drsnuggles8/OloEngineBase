@@ -2,6 +2,8 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/ShaderResourceTypes.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/ShaderReflection.h"
@@ -16,8 +18,6 @@ namespace OloEngine
 {
     // Forward declarations
     class Shader;
-    class Texture2D;
-    class TextureCubemap;
 
     /**
      * @brief Shader resource variant - supports all bindable resource types

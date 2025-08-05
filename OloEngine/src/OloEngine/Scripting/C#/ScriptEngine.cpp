@@ -124,7 +124,7 @@ namespace OloEngine
 		std::filesystem::path CoreAssemblyFilepath;
 		std::filesystem::path AppAssemblyFilepath;
 
-		ScriptClass EntityClass;
+		Ref<ScriptClass> EntityClass;
 
 		std::unordered_map<std::string, Ref<ScriptClass>> EntityClasses;
 		std::unordered_map<UUID, Ref<ScriptInstance>> EntityInstances;
@@ -181,7 +181,7 @@ namespace OloEngine
 		ScriptGlue::RegisterComponents();
 
 		// Retrieve and instantiate class
-		s_Data->EntityClass = ScriptClass("OloEngine", "Entity", true);
+		s_Data->EntityClass = Ref<ScriptClass>::Create("OloEngine", "Entity", true);
 	}
 
 	void ScriptEngine::Shutdown()
@@ -281,7 +281,7 @@ namespace OloEngine
 		ScriptGlue::RegisterComponents();
 
 		// Retrieve and instantiate class
-		s_Data->EntityClass = ScriptClass("OloEgine", "Entity", true);
+		s_Data->EntityClass = Ref<ScriptClass>::Create("OloEngine", "Entity", true);
 	}
 
 	void ScriptEngine::OnRuntimeStart(Scene* scene)
@@ -301,7 +301,7 @@ namespace OloEngine
 		{
 			UUID entityID = entity.GetUUID();
 
-			Ref<ScriptInstance> instance = CreateRef<ScriptInstance>(s_Data->EntityClasses[sc.ClassName], entity);
+			Ref<ScriptInstance> instance = Ref<ScriptInstance>::Create(s_Data->EntityClasses[sc.ClassName], entity);
 			s_Data->EntityInstances[entityID] = instance;
 
 			// Copy field values
@@ -414,7 +414,7 @@ namespace OloEngine
 			if (bool isEntity = ::mono_class_is_subclass_of(monoClass, entityClass, false); !isEntity)
 				continue;
 
-			Ref<ScriptClass> scriptClass = CreateRef<ScriptClass>(nameSpace, className);
+			Ref<ScriptClass> scriptClass = Ref<ScriptClass>::Create(nameSpace, className);
 			s_Data->EntityClasses[fullName] = scriptClass;
 
 
@@ -474,12 +474,12 @@ namespace OloEngine
 		m_MonoClass = ::mono_class_from_name(isCore ? s_Data->CoreAssemblyImage : s_Data->AppAssemblyImage, classNamespace.c_str(), className.c_str());
 	}
 
-	MonoObject* ScriptClass::Instantiate()
+	MonoObject* ScriptClass::Instantiate() const
 	{
 		return ScriptEngine::InstantiateClass(m_MonoClass);
 	}
 
-	MonoMethod* ScriptClass::GetMethod(const std::string& name, int parameterCount)
+	MonoMethod* ScriptClass::GetMethod(const std::string& name, int parameterCount) const
 	{
 		return ::mono_class_get_method_from_name(m_MonoClass, name.c_str(), parameterCount);
 	}
@@ -495,7 +495,7 @@ namespace OloEngine
 	{
 		m_Instance = scriptClass->Instantiate();
 
-		m_Constructor = s_Data->EntityClass.GetMethod(".ctor", 1);
+		m_Constructor = s_Data->EntityClass->GetMethod(".ctor", 1);
 		m_OnCreateMethod = scriptClass->GetMethod("OnCreate", 0);
 		m_OnUpdateMethod = scriptClass->GetMethod("OnUpdate", 1);
 
@@ -551,5 +551,4 @@ namespace OloEngine
 		::mono_field_set_value(m_Instance, field.ClassField, (void*)value);
 		return true;
 	}
-
 }

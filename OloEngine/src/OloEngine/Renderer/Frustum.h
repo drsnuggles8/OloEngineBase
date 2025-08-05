@@ -72,4 +72,4 @@ namespace OloEngine
     private:
         std::array<Plane, static_cast<sizet>(Planes::Count)> m_Planes;
     };
-} 
+}

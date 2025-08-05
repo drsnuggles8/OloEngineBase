@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Passes/RenderPass.h"
 #include <vector>
 #include <unordered_map>
@@ -12,7 +13,7 @@ namespace OloEngine
     /**
      * @brief Manages a graph of render passes forming a complete rendering pipeline.
      */
-    class RenderGraph
+    class RenderGraph : public RefCounted
     {
     public:
         RenderGraph() = default;
@@ -47,7 +48,7 @@ namespace OloEngine
         {
             if (m_PassLookup.find(name) != m_PassLookup.end())
             {
-                return std::dynamic_pointer_cast<T>(m_PassLookup.at(name));
+                return m_PassLookup.at(name).As<T>();
             }
             return nullptr;
         }
