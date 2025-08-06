@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/RendererResource.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
@@ -41,7 +42,7 @@ namespace OloEngine {
 	 * Recommended solution: Update Model.cpp and Renderer3D.cpp to use proper
 	 * getter/setter methods and remove all public member variables.
 	 */
-	class Material : public RefCounted
+	class Material : public RendererResource
 	{
 	public:
 		// Default constructor for struct-like usage
@@ -144,6 +145,16 @@ namespace OloEngine {
 		Ref<TextureCubemap> IrradianceMap;               // Irradiance cubemap
 		Ref<TextureCubemap> PrefilterMap;                // Prefiltered environment map
 		Ref<Texture2D> BRDFLutMap;                       // BRDF lookup table
+
+		// RendererResource interface
+		virtual ResourceDescriptorInfo GetDescriptorInfo() const override 
+		{ 
+			return reinterpret_cast<ResourceDescriptorInfo>(m_Shader ? m_Shader->GetRendererID() : 0); 
+		}
+
+		// Asset interface
+		static AssetType GetStaticType() { return AssetType::Material; }
+		virtual AssetType GetAssetType() const override { return GetStaticType(); }
 
 	protected:
 		Material(const Ref<OloEngine::Shader>& shader, const std::string& name = "");

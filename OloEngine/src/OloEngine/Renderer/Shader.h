@@ -5,6 +5,7 @@
 
 #include <glm/glm.hpp>
 #include "OloEngine/Core/Ref.h"
+#include "RendererResource.h"
 #include "ShaderLibrary.h" // Include the new ShaderLibrary header
 
 namespace OloEngine
@@ -12,7 +13,7 @@ namespace OloEngine
 	// Forward declaration
 	class ShaderResourceRegistry;
 
-	class Shader : public RefCounted
+	class Shader : public RendererResource
 	{
 	public:
 		virtual ~Shader() = default;
@@ -38,6 +39,16 @@ namespace OloEngine
 		// Resource registry access (safe interface)
 		virtual ShaderResourceRegistry* GetResourceRegistry() = 0;
 		virtual const ShaderResourceRegistry* GetResourceRegistry() const = 0;
+
+		// RendererResource interface
+		virtual ResourceDescriptorInfo GetDescriptorInfo() const override 
+		{ 
+			return reinterpret_cast<ResourceDescriptorInfo>(GetRendererID()); 
+		}
+
+		// Asset interface
+		static AssetType GetStaticType() { return AssetType::Shader; }
+		virtual AssetType GetAssetType() const override { return GetStaticType(); }
 
 		static Ref<Shader> Create(const std::string& filepath);
 		static Ref<Shader> Create(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/RendererResource.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -51,7 +52,7 @@ namespace OloEngine
         IBLConfiguration IBLConfig;         // Enhanced IBL configuration
     };
 
-    class EnvironmentMap : public RefCounted
+    class EnvironmentMap : public RendererResource
     {
     public:
         EnvironmentMap(const EnvironmentMapSpecification& spec);
@@ -97,6 +98,16 @@ namespace OloEngine
         void GenerateBRDFLutWithConfig(const IBLConfiguration& config);
 
         Ref<TextureCubemap> ConvertEquirectangularToCubemap(const std::string& filePath);
+
+        // RendererResource interface
+        virtual ResourceDescriptorInfo GetDescriptorInfo() const override 
+        { 
+            return reinterpret_cast<ResourceDescriptorInfo>(m_EnvironmentMap ? m_EnvironmentMap->GetRendererID() : 0); 
+        }
+
+        // Asset interface
+        static AssetType GetStaticType() { return AssetType::EnvMap; }
+        virtual AssetType GetAssetType() const override { return GetStaticType(); }
 
     private:
         EnvironmentMapSpecification m_Specification;

@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Renderer/RendererResource.h"
 #include "OloEngine/Renderer/Vertex.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
@@ -11,7 +12,7 @@
 
 namespace OloEngine 
 {
-    class Mesh : public RefCounted
+    class Mesh : public RendererResource
     {
     public:
         Mesh() = default;
@@ -51,6 +52,16 @@ namespace OloEngine
 		// Add to Mesh.h in the public section
 		[[nodiscard]] u32 GetRendererID() const { return m_VertexArray ? m_VertexArray->GetRendererID() : 0; }
 		[[nodiscard]] u32 GetIndexCount() const { return static_cast<u32>(m_Indices.size()); }
+
+		// RendererResource interface
+		virtual ResourceDescriptorInfo GetDescriptorInfo() const override 
+		{ 
+			return reinterpret_cast<ResourceDescriptorInfo>(GetRendererID()); 
+		}
+
+		// Asset interface
+		static AssetType GetStaticType() { return AssetType::Mesh; }
+		virtual AssetType GetAssetType() const override { return GetStaticType(); }
 
     private:
         std::vector<Vertex> m_Vertices;

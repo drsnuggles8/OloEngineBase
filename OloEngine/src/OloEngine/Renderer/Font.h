@@ -4,13 +4,14 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/RendererResource.h"
 #include "OloEngine/Core/Ref.h"
 
 namespace OloEngine
 {
 	struct MSDFData;
 
-	class Font : public RefCounted
+	class Font : public RendererResource
 	{
 	public:
 		explicit Font(const std::filesystem::path& font);
@@ -18,6 +19,16 @@ namespace OloEngine
 
 		[[nodiscard("Store this!")]] const MSDFData* GetMSDFData() const { return m_Data; }
 		Ref<Texture2D> GetAtlasTexture() const { return m_AtlasTexture; }
+
+		// RendererResource interface
+		virtual ResourceDescriptorInfo GetDescriptorInfo() const override 
+		{ 
+			return reinterpret_cast<ResourceDescriptorInfo>(m_AtlasTexture->GetRendererID()); 
+		}
+
+		// Asset interface
+		static AssetType GetStaticType() { return AssetType::Font; }
+		virtual AssetType GetAssetType() const override { return GetStaticType(); }
 
 		static Ref<Font> GetDefault();
 		static Ref<Font> Create(const std::filesystem::path& font);

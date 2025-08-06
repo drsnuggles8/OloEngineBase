@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Renderer/RendererResource.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
@@ -36,7 +37,7 @@ namespace OloEngine
 		}
 	};
 
-	class Model : public RefCounted
+	class Model : public RendererResource
 	{
 	public:
 		Model() = default;
@@ -62,6 +63,16 @@ namespace OloEngine
 		
 		// Accessors for materials
 		[[nodiscard]] const std::vector<Material>& GetMaterials() const { return m_Materials; }
+
+		// RendererResource interface
+		virtual ResourceDescriptorInfo GetDescriptorInfo() const override 
+		{ 
+			return reinterpret_cast<ResourceDescriptorInfo>(m_Meshes.empty() ? 0 : m_Meshes[0]->GetRendererID()); 
+		}
+
+		// Asset interface
+		static AssetType GetStaticType() { return AssetType::Model; }
+		virtual AssetType GetAssetType() const override { return GetStaticType(); }
 
 	private:
 		void ProcessNode(const aiNode* node, const aiScene* scene);
