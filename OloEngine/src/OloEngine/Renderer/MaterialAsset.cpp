@@ -21,7 +21,7 @@ namespace OloEngine {
 	MaterialAsset::MaterialAsset(bool transparent)
 		: m_Transparent(transparent)
 	{
-		Handle = {};
+		m_Handle = {};
 		
 		if (transparent)
 			m_Material = Material::Create(Renderer::GetShaderLibrary()->Get("DefaultPBR_Transparent"));
@@ -33,7 +33,7 @@ namespace OloEngine {
 
 	MaterialAsset::MaterialAsset(Ref<Material> material)
 	{
-		Handle = {};
+		m_Handle = {};
 		m_Material = Material::Copy(material);
 	}
 
@@ -110,10 +110,10 @@ namespace OloEngine {
 		auto texture = m_Material->TryGetTexture2D(s_AlbedoMapUniform);
 		if (!texture.EqualsObject(Renderer::GetWhiteTexture()))
 		{
-			if (texture->Handle)
+			if (texture->m_Handle)
 			{
 				// Return sRGB version of the albedo texture, which is at Handle-1  (see SetAlbedoMap())
-				texture = AssetManager::GetAsset<Texture2D>(texture->Handle - 1);
+				texture = AssetManager::GetAsset<Texture2D>(texture->m_Handle - 1);
 				OLO_CORE_ASSERT(texture);
 			}
 		}
@@ -134,7 +134,7 @@ namespace OloEngine {
 				if (textureSRGB)
 				{
 					texture = Texture2D::CreateFromSRGB(textureSRGB);
-					texture->Handle = handle + 1;
+					texture->m_Handle = handle + 1;
 					AssetManager::AddMemoryOnlyAsset(texture);
 				}
 			}

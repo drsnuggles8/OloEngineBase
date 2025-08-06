@@ -212,13 +212,13 @@ namespace OloEngine
             static_assert(std::is_base_of<Asset, TAsset>::value, 
                          "AddMemoryOnlyAsset only works for types derived from Asset");
             
-            if (!asset->Handle)
+            if (!asset->m_Handle)
             {
-                asset->Handle = AssetHandle(); // Generate new handle
+                asset->m_Handle = AssetHandle(); // Generate new handle
             }
             
             GetActiveManager()->AddMemoryOnlyAsset(asset);
-            return asset->Handle;
+            return asset->m_Handle;
         }
 
         /**

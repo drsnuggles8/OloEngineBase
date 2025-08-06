@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Asset/AssetTypes.h"
+#include "OloEngine/Asset/AssetMetadata.h"
 
 #include <unordered_set>
 #include <unordered_map>
@@ -55,6 +56,15 @@ namespace OloEngine
          * @return AsyncAssetResult containing the asset and ready state
          */
         virtual AsyncAssetResult<Asset> GetAssetAsync(AssetHandle assetHandle) = 0;
+
+        /**
+         * @brief Get asset metadata by handle
+         * @param handle Handle of the asset
+         * @return AssetMetadata for the asset, or empty metadata if not found
+         * 
+         * Note: Runtime asset managers may return limited metadata compared to editor managers
+         */
+        virtual AssetMetadata GetAssetMetadata(AssetHandle handle) const = 0;
 
         /**
          * @brief Add a memory-only asset (no backing file)

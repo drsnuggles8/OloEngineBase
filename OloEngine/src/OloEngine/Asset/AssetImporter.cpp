@@ -49,7 +49,7 @@ namespace OloEngine
 
     void AssetImporter::Serialize(const Ref<Asset>& asset)
     {
-        // Get metadata from editor asset manager
+        // Get metadata from asset manager
         auto assetManagerBase = Project::GetAssetManager();
         if (!assetManagerBase)
         {
@@ -57,15 +57,7 @@ namespace OloEngine
             return;
         }
         
-        // Cast to EditorAssetManager
-        EditorAssetManager* editorAssetManager = dynamic_cast<EditorAssetManager*>(assetManagerBase.get());
-        if (!editorAssetManager)
-        {
-            OLO_CORE_WARN("Editor asset manager not available");
-            return;
-        }
-        
-        AssetMetadata metadata = editorAssetManager->GetMetadata(asset->Handle);
+        AssetMetadata metadata = assetManagerBase->GetAssetMetadata(asset->m_Handle);
         Serialize(metadata, asset);
     }
 
@@ -127,7 +119,7 @@ namespace OloEngine
 
     Ref<Scene> AssetImporter::DeserializeSceneFromAssetPack(FileStreamReader& stream, const AssetPackFile::SceneInfo& assetInfo)
     {
-        auto sceneSerializer = dynamic_cast<SceneAssetSerializer*>(s_Serializers[AssetType::Scene].get());
+        auto sceneSerializer = s_Serializers[AssetType::Scene].get();
         if (!sceneSerializer)
         {
             OLO_CORE_WARN("Scene serializer not available");

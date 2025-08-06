@@ -19,8 +19,8 @@ namespace OloEngine
     class Asset : public RefCounted
     {
     public:
-        AssetHandle Handle = 0;
-        u16 Flags = (u16)AssetFlag::None;
+        AssetHandle m_Handle = 0;
+        u16 m_Flags = (u16)AssetFlag::None;
 
         Asset() = default;
         virtual ~Asset() = default;
@@ -36,7 +36,7 @@ namespace OloEngine
 
         bool operator==(const Asset& other) const
         {
-            return Handle == other.Handle;
+            return m_Handle == other.m_Handle;
         }
 
         bool operator!=(const Asset& other) const
@@ -55,15 +55,15 @@ namespace OloEngine
         friend class AssimpMeshImporter;
         friend class TextureSerializer;
 
-        bool IsValid() const { return ((Flags & (u16)AssetFlag::Missing) | (Flags & (u16)AssetFlag::Invalid)) == 0; }
+        bool IsValid() const { return ((m_Flags & (u16)AssetFlag::Missing) | (m_Flags & (u16)AssetFlag::Invalid)) == 0; }
 
-        bool IsFlagSet(AssetFlag flag) const { return (u16)flag & Flags; }
+        bool IsFlagSet(AssetFlag flag) const { return (u16)flag & m_Flags; }
         void SetFlag(AssetFlag flag, bool value = true)
         {
             if (value)
-                Flags |= (u16)flag;
+                m_Flags |= (u16)flag;
             else
-                Flags &= ~(u16)flag;
+                m_Flags &= ~(u16)flag;
         }
     };
 

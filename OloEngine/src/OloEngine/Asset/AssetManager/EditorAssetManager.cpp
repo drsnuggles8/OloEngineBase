@@ -146,9 +146,9 @@ namespace OloEngine
             return;
 
         std::unique_lock<std::shared_mutex> lock(m_AssetsMutex);
-        m_MemoryAssets[asset->Handle] = asset;
+        m_MemoryAssets[asset->m_Handle] = asset;
 
-        OLO_CORE_TRACE("Added memory asset: {}", (uint64_t)asset->Handle);
+        OLO_CORE_TRACE("Added memory asset: {}", (uint64_t)asset->m_Handle);
     }
 
     bool EditorAssetManager::ReloadData(AssetHandle assetHandle)

@@ -127,7 +127,7 @@ namespace OloEngine
             Ref<Asset> asset;
             if (AssetImporter::TryLoadData(metadata, asset))
             {
-                asset->Handle = metadata.Handle;
+                asset->m_Handle = metadata.Handle;
                 OLO_CORE_TRACE("EditorAssetSystem: Successfully loaded asset: {} ({})",
                               metadata.FilePath.string(), static_cast<uint32_t>(metadata.Type));
             }

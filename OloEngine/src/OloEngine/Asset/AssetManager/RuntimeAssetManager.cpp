@@ -78,6 +78,20 @@ namespace OloEngine
         return GetAssetTypeFromPacks(assetHandle);
     }
 
+    AssetMetadata RuntimeAssetManager::GetAssetMetadata(AssetHandle handle) const
+    {
+        // Runtime asset manager has limited metadata compared to editor
+        // Create basic metadata with what we can determine
+        AssetMetadata metadata;
+        metadata.Handle = handle;
+        metadata.Type = const_cast<RuntimeAssetManager*>(this)->GetAssetType(handle); // Safe const_cast for read operation
+        
+        // Runtime managers don't track file paths or modification times
+        // These are only available in editor asset managers
+        
+        return metadata;
+    }
+
     Ref<Asset> RuntimeAssetManager::GetAsset(AssetHandle assetHandle)
     {
         if (assetHandle == 0)
@@ -121,11 +135,11 @@ namespace OloEngine
 
     void RuntimeAssetManager::AddMemoryOnlyAsset(Ref<Asset> asset)
     {
-        if (!asset || asset->Handle == 0)
+        if (!asset || asset->m_Handle == 0)
             return;
 
         std::unique_lock lock(m_AssetsMutex);
-        m_MemoryAssets[asset->Handle] = asset;
+        m_MemoryAssets[asset->m_Handle] = asset;
     }
 
     bool RuntimeAssetManager::ReloadData(AssetHandle assetHandle)
@@ -402,7 +416,7 @@ namespace OloEngine
                 Ref<Asset> asset = AssetImporter::DeserializeFromAssetPack(*stream, assetInfo.value());
                 if (asset)
                 {
-                    asset->Handle = handle;
+                    asset->m_Handle = handle;
                     OLO_CORE_TRACE("RuntimeAssetManager::LoadAssetFromPack - Successfully loaded asset from pack: {}", handle);
                     return asset;
                 }

@@ -33,6 +33,9 @@ namespace OloEngine
 
         virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const = 0;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const = 0;
+        
+        // Virtual method for scene-specific deserialization, returns nullptr by default
+        virtual Ref<Scene> DeserializeSceneFromAssetPack(FileStreamReader& stream, const AssetPackFile::SceneInfo& sceneInfo) const { return nullptr; }
     };
 
     class TextureSerializer : public AssetSerializer
@@ -122,7 +125,7 @@ namespace OloEngine
 
         virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const;
-        Ref<Scene> DeserializeSceneFromAssetPack(FileStreamReader& stream, const AssetPackFile::SceneInfo& sceneInfo) const;
+        virtual Ref<Scene> DeserializeSceneFromAssetPack(FileStreamReader& stream, const AssetPackFile::SceneInfo& sceneInfo) const override;
     };
         
     class MeshColliderSerializer : public AssetSerializer
@@ -152,7 +155,7 @@ namespace OloEngine
     class MeshSourceSerializer : public AssetSerializer
     {
     public:
-        virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override {}
+        virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override { (void)metadata; (void)asset; }
         virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const;

@@ -42,6 +42,7 @@ namespace OloEngine
         virtual AssetType GetAssetType(AssetHandle assetHandle) override;
         virtual Ref<Asset> GetAsset(AssetHandle assetHandle) override;
         virtual AsyncAssetResult<Asset> GetAssetAsync(AssetHandle assetHandle) override;
+        virtual AssetMetadata GetAssetMetadata(AssetHandle handle) const override;
 
         virtual void AddMemoryOnlyAsset(Ref<Asset> asset) override;
         virtual bool ReloadData(AssetHandle assetHandle) override;

@@ -60,7 +60,7 @@ namespace OloEngine
             return false;
         }
         
-        texture->Handle = metadata.Handle;
+        texture->m_Handle = metadata.Handle;
         bool result = texture->IsLoaded();
         if (!result)
         {
@@ -107,7 +107,7 @@ namespace OloEngine
     bool FontSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
         asset = Font::Create(metadata.FilePath);
-        asset->Handle = metadata.Handle;
+        asset->m_Handle = metadata.Handle;
 
         // Note: Font loading validation could be added here if needed
         // bool result = asset.As<Font>()->Loaded();
@@ -243,24 +243,24 @@ namespace OloEngine
                 out << YAML::Key << "Textures" << YAML::Value << YAML::BeginMap;
                 
                 // Serialize PBR texture maps
-                if (material->AlbedoMap && material->AlbedoMap->Handle != 0)
-                    out << YAML::Key << "AlbedoMap" << YAML::Value << material->AlbedoMap->Handle;
-                if (material->MetallicRoughnessMap && material->MetallicRoughnessMap->Handle != 0)
-                    out << YAML::Key << "MetallicRoughnessMap" << YAML::Value << material->MetallicRoughnessMap->Handle;
-                if (material->NormalMap && material->NormalMap->Handle != 0)
-                    out << YAML::Key << "NormalMap" << YAML::Value << material->NormalMap->Handle;
-                if (material->AOMap && material->AOMap->Handle != 0)
-                    out << YAML::Key << "AOMap" << YAML::Value << material->AOMap->Handle;
-                if (material->EmissiveMap && material->EmissiveMap->Handle != 0)
-                    out << YAML::Key << "EmissiveMap" << YAML::Value << material->EmissiveMap->Handle;
+                if (material->AlbedoMap && material->AlbedoMap->m_Handle != 0)
+                    out << YAML::Key << "AlbedoMap" << YAML::Value << material->AlbedoMap->m_Handle;
+                if (material->MetallicRoughnessMap && material->MetallicRoughnessMap->m_Handle != 0)
+                    out << YAML::Key << "MetallicRoughnessMap" << YAML::Value << material->MetallicRoughnessMap->m_Handle;
+                if (material->NormalMap && material->NormalMap->m_Handle != 0)
+                    out << YAML::Key << "NormalMap" << YAML::Value << material->NormalMap->m_Handle;
+                if (material->AOMap && material->AOMap->m_Handle != 0)
+                    out << YAML::Key << "AOMap" << YAML::Value << material->AOMap->m_Handle;
+                if (material->EmissiveMap && material->EmissiveMap->m_Handle != 0)
+                    out << YAML::Key << "EmissiveMap" << YAML::Value << material->EmissiveMap->m_Handle;
                 
                 // Serialize dynamic texture uniforms
                 const auto& texture2DUniforms = material->GetTexture2DUniforms();
                 for (const auto& [name, texture] : texture2DUniforms)
                 {
-                    if (texture && texture->Handle != 0)
+                    if (texture && texture->m_Handle != 0)
                     {
-                        out << YAML::Key << name << YAML::Value << texture->Handle;
+                        out << YAML::Key << name << YAML::Value << texture->m_Handle;
                     }
                 }
                 out << YAML::EndMap;
@@ -370,7 +370,7 @@ namespace OloEngine
 
         auto material = Material::Create(shader);
         targetMaterialAsset = Ref<MaterialAsset>(new MaterialAsset(material));
-        targetMaterialAsset->Handle = handle;
+        targetMaterialAsset->m_Handle = handle;
 
         // Load textures
         if (materialNode["Textures"])
@@ -435,7 +435,7 @@ namespace OloEngine
             return false;
         }
 
-        environment->Handle = metadata.Handle;
+        environment->m_Handle = metadata.Handle;
         asset = environment;
         
         OLO_CORE_TRACE("EnvironmentSerializer::TryLoadData - Successfully loaded environment: {}", path.string());
@@ -585,7 +585,7 @@ namespace OloEngine
         
         if (serializer.Deserialize(metadata.FilePath))
         {
-            scene->Handle = metadata.Handle;
+            scene->m_Handle = metadata.Handle;
             asset = Ref<Asset>(scene);
             return true;
         }
@@ -645,8 +645,8 @@ namespace OloEngine
         //     return nullptr;
         // }
         
-        // scene->Handle = assetInfo.Handle; // TODO: Scene doesn't have Handle member
-        scene->Handle = assetInfo.Handle;
+        // scene->m_Handle = assetInfo.Handle; // TODO: Scene doesn't have Handle member
+        scene->m_Handle = assetInfo.Handle;
         
         OLO_CORE_TRACE("SceneAssetSerializer::DeserializeFromAssetPack - Deserialized scene from pack");
         return Ref<Asset>(scene);
@@ -1009,7 +1009,7 @@ namespace OloEngine
         //     mesh->SetMaterials(materials);
         // }
 
-        mesh->Handle = metadata.Handle;
+        mesh->m_Handle = metadata.Handle;
         asset = mesh;
         
         OLO_CORE_TRACE("MeshSerializer::TryLoadData - Successfully loaded mesh: {}", path.string());
