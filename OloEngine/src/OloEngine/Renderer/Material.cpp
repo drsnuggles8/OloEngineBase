@@ -20,13 +20,13 @@ namespace OloEngine {
 	}
 
 	Material::Material(const Material& other)
-		: RefCounted(), m_Shader(other.m_Shader), m_Name(other.m_Name), m_MaterialFlags(other.m_MaterialFlags),
+		: RendererResource(), m_Shader(other.m_Shader), m_Name(other.m_Name), m_MaterialFlags(other.m_MaterialFlags),
 		  m_FloatUniforms(other.m_FloatUniforms), m_IntUniforms(other.m_IntUniforms), m_UIntUniforms(other.m_UIntUniforms),
 		  m_BoolUniforms(other.m_BoolUniforms), m_Vec2Uniforms(other.m_Vec2Uniforms), m_Vec3Uniforms(other.m_Vec3Uniforms),
 		  m_Vec4Uniforms(other.m_Vec4Uniforms), m_Mat3Uniforms(other.m_Mat3Uniforms), m_Mat4Uniforms(other.m_Mat4Uniforms),
 		  m_Texture2DUniforms(other.m_Texture2DUniforms), m_TextureCubeUniforms(other.m_TextureCubeUniforms),
 		  // Copy all public members
-		  Type(other.Type), Shader(other.Shader),
+		  Name(other.Name), Type(other.Type), Shader(other.Shader),
 		  Ambient(other.Ambient), Diffuse(other.Diffuse), Specular(other.Specular), Shininess(other.Shininess),
 		  UseTextureMaps(other.UseTextureMaps), DiffuseMap(other.DiffuseMap), SpecularMap(other.SpecularMap),
 		  BaseColorFactor(other.BaseColorFactor), EmissiveFactor(other.EmissiveFactor), 
@@ -58,6 +58,7 @@ namespace OloEngine {
 			m_TextureCubeUniforms = other.m_TextureCubeUniforms;
 			
 			// Copy all public members
+			Name = other.Name;
 			Type = other.Type;
 			Shader = other.Shader;
 			Ambient = other.Ambient;
@@ -145,6 +146,47 @@ namespace OloEngine {
 		material.EnableIBL = false;
 		
 		return material;
+	}
+
+	Material Material::CreateGoldMaterial(const std::string& name)
+	{
+		Material material = CreatePBR(name, glm::vec3(1.0f, 0.765f, 0.336f), 1.0f, 0.1f);
+		// Also set legacy properties for backward compatibility
+		material.Name = name;
+		return material;
+	}
+
+	Material Material::CreateSilverMaterial(const std::string& name)
+	{
+		Material material = CreatePBR(name, glm::vec3(0.972f, 0.960f, 0.915f), 1.0f, 0.1f);
+		material.Name = name;
+		return material;
+	}
+
+	Material Material::CreateCopperMaterial(const std::string& name)
+	{
+		Material material = CreatePBR(name, glm::vec3(0.955f, 0.637f, 0.538f), 1.0f, 0.1f);
+		material.Name = name;
+		return material;
+	}
+
+	Material Material::CreatePlasticMaterial(const std::string& name, const glm::vec3& color)
+	{
+		Material material = CreatePBR(name, color, 0.0f, 0.5f);
+		material.Name = name;
+		return material;
+	}
+
+	void Material::ConfigureIBL(const Ref<TextureCubemap>& environmentMap, 
+	                            const Ref<TextureCubemap>& irradianceMap,
+	                            const Ref<TextureCubemap>& prefilterMap,
+	                            const Ref<Texture2D>& brdfLutMap)
+	{
+		EnvironmentMap = environmentMap;
+		IrradianceMap = irradianceMap;
+		PrefilterMap = prefilterMap;
+		BRDFLutMap = brdfLutMap;
+		EnableIBL = true;
 	}
 
 	void Material::Set(const std::string& name, float value)

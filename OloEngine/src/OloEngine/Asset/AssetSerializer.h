@@ -134,8 +134,8 @@ namespace OloEngine
         virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const;
     private:
-        std::string SerializeToYAML(Ref<MeshColliderAsset> meshCollider) const;
-        bool DeserializeFromYAML(const std::string& yamlString, Ref<MeshColliderAsset> targetMeshCollider) const;
+        // std::string SerializeToYAML(Ref<MeshColliderAsset> meshCollider) const;
+        // bool DeserializeFromYAML(const std::string& yamlString, Ref<MeshColliderAsset> targetMeshCollider) const;
     };
 
     class ScriptFileSerializer : public AssetSerializer

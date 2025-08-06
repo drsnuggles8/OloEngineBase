@@ -60,6 +60,12 @@ namespace OloEngine {
 		// Static factory method for PBR materials (for Model.cpp compatibility)
 		static Material CreatePBR(const std::string& name, const glm::vec3& baseColor, float metallic = 0.0f, float roughness = 0.5f);
 		
+		// Static factory methods for common materials (for Sandbox3D compatibility)
+		static Material CreateGoldMaterial(const std::string& name = "Gold");
+		static Material CreateSilverMaterial(const std::string& name = "Silver");
+		static Material CreateCopperMaterial(const std::string& name = "Copper");
+		static Material CreatePlasticMaterial(const std::string& name = "Plastic", const glm::vec3& color = glm::vec3(0.1f, 0.1f, 0.8f));
+		
 		virtual ~Material() = default;
 
 		virtual void Invalidate() {}
@@ -107,11 +113,20 @@ namespace OloEngine {
 
 		virtual Ref<OloEngine::Shader> GetShader() { return m_Shader; }
 		virtual const std::string& GetName() const { return m_Name; }
+		
+		// IBL configuration method (for Sandbox3D compatibility)
+		void ConfigureIBL(const Ref<TextureCubemap>& environmentMap, 
+		                  const Ref<TextureCubemap>& irradianceMap,
+		                  const Ref<TextureCubemap>& prefilterMap,
+		                  const Ref<Texture2D>& brdfLutMap);
 
 		// TODO: REMOVE ALL PUBLIC MEMBERS BELOW - TECHNICAL DEBT
 		// These public member variables exist only for compatibility with Model.cpp and Renderer3D.cpp
 		// They should be replaced with proper getter/setter methods once those files are refactored
 		// Public member variables for compatibility with Model.cpp and Renderer3D.cpp (struct-like access)
+		
+		// Material identification
+		std::string Name = "Material";
 		
 		// Material type and shader
 		MaterialType Type = MaterialType::PBR;
@@ -155,6 +170,14 @@ namespace OloEngine {
 		// Asset interface
 		static AssetType GetStaticType() { return AssetType::Material; }
 		virtual AssetType GetAssetType() const override { return GetStaticType(); }
+
+		// Accessors for serialization
+		const std::unordered_map<std::string, Ref<Texture2D>>& GetTexture2DUniforms() const { return m_Texture2DUniforms; }
+		const std::unordered_map<std::string, Ref<TextureCubemap>>& GetTextureCubeUniforms() const { return m_TextureCubeUniforms; }
+		const std::unordered_map<std::string, float>& GetFloatUniforms() const { return m_FloatUniforms; }
+		const std::unordered_map<std::string, int>& GetIntUniforms() const { return m_IntUniforms; }
+		const std::unordered_map<std::string, glm::vec3>& GetVec3Uniforms() const { return m_Vec3Uniforms; }
+		const std::unordered_map<std::string, glm::vec4>& GetVec4Uniforms() const { return m_Vec4Uniforms; }
 
 	protected:
 		Material(const Ref<OloEngine::Shader>& shader, const std::string& name = "");

@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 
 #include "box2d/box2d.h" // Include Box2D header
@@ -19,7 +20,7 @@ namespace OloEngine
 
 	class Entity;
 
-	class Scene : public RefCounted
+	class Scene : public Asset
 	{
 	public:
 		Scene();
@@ -76,6 +77,11 @@ namespace OloEngine
 		{
 			return m_Registry.view<Components...>();
 		}
+
+		// Asset interface
+		static AssetType GetStaticType() { return AssetType::Scene; }
+		virtual AssetType GetAssetType() const override { return GetStaticType(); }
+
 	private:
 		template<typename T>
 		void OnComponentAdded(Entity entity, T& component);
