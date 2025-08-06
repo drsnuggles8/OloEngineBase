@@ -124,16 +124,17 @@ namespace OloEngine
         try
         {
             // Load the asset using the asset importer
-            Ref<Asset> asset = AssetImporter::ImportAsset(metadata.Handle, metadata);
-            if (asset)
+            Ref<Asset> asset;
+            if (AssetImporter::TryLoadData(metadata, asset))
             {
-                asset->SetHandle(metadata.Handle);
+                asset->Handle = metadata.Handle;
                 OLO_CORE_TRACE("EditorAssetSystem: Successfully loaded asset: {} ({})",
                               metadata.FilePath.string(), static_cast<uint32_t>(metadata.Type));
             }
             else
             {
                 OLO_CORE_ERROR("EditorAssetSystem: Failed to load asset: {}", metadata.FilePath.string());
+                return nullptr;
             }
             return asset;
         }

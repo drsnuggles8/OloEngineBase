@@ -1,6 +1,7 @@
 #include "EditorAssetManager.h"
 
 #include "OloEngine/Asset/AssetImporter.h"
+#include "OloEngine/Asset/AssetExtensions.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Timer.h"
 #include "OloEngine/Core/Ref.h"
@@ -337,7 +338,7 @@ namespace OloEngine
             return 0;
         }
 
-        AssetType type = AssetExtensions::GetAssetTypeFromPath(filepath);
+        AssetType type = AssetExtensions::GetAssetTypeFromPath(filepath.string());
         if (type == AssetType::None)
         {
             OLO_CORE_ERROR("Cannot import asset: unsupported file type: {}", filepath.string());
@@ -345,7 +346,7 @@ namespace OloEngine
         }
 
         // Check if already imported
-        AssetHandle existingHandle = m_AssetRegistry.GetAssetHandle(filepath);
+        AssetHandle existingHandle = m_AssetRegistry.GetHandleFromPath(filepath);
         if (existingHandle != 0)
         {
             OLO_CORE_WARN("Asset already imported: {}", filepath.string());
@@ -372,14 +373,13 @@ namespace OloEngine
         // This is a no-op for compatibility
     }
 
-    Ref<Asset> EditorAssetManager::LoadAssetFromFile(AssetHandle handle)
+    Ref<Asset> EditorAssetManager::LoadAssetFromFile(const AssetMetadata& metadata)
     {
         OLO_PROFILER_SCOPE("EditorAssetManager::LoadAsset");
 
-        auto metadata = m_AssetRegistry.GetMetadata(handle);
         if (!metadata.IsValid())
         {
-            OLO_CORE_ERROR("Cannot load asset: metadata not found for handle {}", (uint64_t)handle);
+            OLO_CORE_ERROR("Cannot load asset: invalid metadata");
             return nullptr;
         }
 
@@ -390,8 +390,8 @@ namespace OloEngine
         }
 
         // Load asset using importer
-        auto asset = AssetImporter::ImportAsset(handle, metadata);
-        if (!asset)
+        Ref<Asset> asset;
+        if (!AssetImporter::TryLoadData(metadata, asset))
         {
             OLO_CORE_ERROR("Failed to load asset: {}", metadata.FilePath.string());
             return nullptr;
@@ -400,7 +400,7 @@ namespace OloEngine
         // Cache the loaded asset
         {
             std::unique_lock<std::shared_mutex> lock(m_AssetsMutex);
-            m_LoadedAssets[handle] = asset;
+            m_LoadedAssets[metadata.Handle] = asset;
         }
 
         OLO_CORE_TRACE("Loaded asset: {}", metadata.FilePath.string());

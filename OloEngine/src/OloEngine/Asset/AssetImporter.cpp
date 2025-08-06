@@ -50,14 +50,21 @@ namespace OloEngine
     {
         // Get metadata from editor asset manager
         auto assetManagerBase = Project::GetAssetManager();
-        auto editorAssetManager = std::dynamic_pointer_cast<EditorAssetManager>(assetManagerBase);
+        if (!assetManagerBase)
+        {
+            OLO_CORE_WARN("Asset manager not available");
+            return;
+        }
+        
+        // Cast to EditorAssetManager
+        EditorAssetManager* editorAssetManager = dynamic_cast<EditorAssetManager*>(assetManagerBase.get());
         if (!editorAssetManager)
         {
             OLO_CORE_WARN("Editor asset manager not available");
             return;
         }
         
-        const AssetMetadata& metadata = editorAssetManager->GetMetadata(asset->Handle);
+        AssetMetadata metadata = editorAssetManager->GetMetadata(asset->Handle);
         Serialize(metadata, asset);
     }
 

@@ -37,14 +37,6 @@ namespace OloEngine
         if (it != s_AssetPlaceholderTable.end())
             return it->second();
 
-        // Fallback: try to create using AssetImporter
-        Ref<Asset> placeholder = AssetImporter::CreateDefaultAsset(type);
-        if (placeholder)
-        {
-            placeholder->Handle = AssetHandle(); // Generate handle for placeholder
-            return placeholder;
-        }
-
         OLO_CORE_WARN("No placeholder asset available for type: {}", AssetUtils::AssetTypeToString(type));
         return nullptr;
     }
