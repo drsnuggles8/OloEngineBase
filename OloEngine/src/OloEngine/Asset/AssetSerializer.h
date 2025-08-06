@@ -203,7 +203,7 @@ namespace OloEngine
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const;
     };
 
-    class SoundGraphGraphSerializer : public AssetSerializer
+    class SoundGraphSoundSerializer : public AssetSerializer
     {
     public:
         virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;

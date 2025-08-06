@@ -10,7 +10,7 @@ namespace OloEngine {
 
 	enum class MaterialFlag
 	{
-		None       = 1 << 0,
+		None       = 0,
 		DepthTest  = 1 << 1,
 		Blend      = 1 << 2,
 		TwoSided   = 1 << 3,
@@ -89,15 +89,15 @@ namespace OloEngine {
 		virtual void Set(const std::string& name, const Ref<Texture2D>& texture, uint32_t arrayIndex);
 		virtual void Set(const std::string& name, const Ref<TextureCubemap>& texture);
 
-		virtual float& GetFloat(const std::string& name);
-		virtual int32_t& GetInt(const std::string& name);
-		virtual uint32_t& GetUInt(const std::string& name);
-		virtual bool& GetBool(const std::string& name);
-		virtual glm::vec2& GetVector2(const std::string& name);
-		virtual glm::vec3& GetVector3(const std::string& name);
-		virtual glm::vec4& GetVector4(const std::string& name);
-		virtual glm::mat3& GetMatrix3(const std::string& name);
-		virtual glm::mat4& GetMatrix4(const std::string& name);
+		virtual float GetFloat(const std::string& name) const;
+		virtual int32_t GetInt(const std::string& name) const;
+		virtual uint32_t GetUInt(const std::string& name) const;
+		virtual bool GetBool(const std::string& name) const;
+		virtual const glm::vec2& GetVector2(const std::string& name) const;
+		virtual const glm::vec3& GetVector3(const std::string& name) const;
+		virtual const glm::vec4& GetVector4(const std::string& name) const;
+		virtual const glm::mat3& GetMatrix3(const std::string& name) const;
+		virtual const glm::mat4& GetMatrix4(const std::string& name) const;
 
 		virtual Ref<Texture2D> GetTexture2D(const std::string& name);
 		virtual Ref<TextureCubemap> GetTextureCube(const std::string& name);

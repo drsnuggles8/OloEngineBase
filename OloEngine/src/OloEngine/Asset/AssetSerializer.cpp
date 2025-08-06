@@ -1186,33 +1186,33 @@ namespace OloEngine
     }
 
     //////////////////////////////////////////////////////////////////////////////////
-    // SoundGraphGraphSerializer
+    // SoundGraphSoundSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    void SoundGraphGraphSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    void SoundGraphSoundSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         // TODO: Implement sound graph serialization
-        OLO_CORE_WARN("SoundGraphGraphSerializer::Serialize not yet implemented");
+        OLO_CORE_WARN("SoundGraphSoundSerializer::Serialize not yet implemented");
     }
 
-    bool SoundGraphGraphSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
+    bool SoundGraphSoundSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
         // TODO: Implement sound graph loading
-        OLO_CORE_WARN("SoundGraphGraphSerializer::TryLoadData not yet implemented");
+        OLO_CORE_WARN("SoundGraphSoundSerializer::TryLoadData not yet implemented");
         return false;
     }
 
-    bool SoundGraphGraphSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
+    bool SoundGraphSoundSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
         // TODO: Implement sound graph pack serialization
-        OLO_CORE_WARN("SoundGraphGraphSerializer::SerializeToAssetPack not yet implemented");
+        OLO_CORE_WARN("SoundGraphSoundSerializer::SerializeToAssetPack not yet implemented");
         return false;
     }
 
-    Ref<Asset> SoundGraphGraphSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
+    Ref<Asset> SoundGraphSoundSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
         // TODO: Implement sound graph pack deserialization
-        OLO_CORE_WARN("SoundGraphGraphSerializer::DeserializeFromAssetPack not yet implemented");
+        OLO_CORE_WARN("SoundGraphSoundSerializer::DeserializeFromAssetPack not yet implemented");
         return nullptr;
     }
 

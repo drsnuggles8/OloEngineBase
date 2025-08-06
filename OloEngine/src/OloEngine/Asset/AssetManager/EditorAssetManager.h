@@ -203,7 +203,7 @@ namespace OloEngine
 
             // Read serialized timestamp
             auto absolutePath = GetFileSystemPath(metadata);
-            metadata.FileLastWriteTime = FileSystem::GetLastWriteTime(absolutePath);
+            metadata.LastWriteTime = std::filesystem::last_write_time(absolutePath);
             SetMetadata(metadata.Handle, metadata);
 
             if (replaceAsset)

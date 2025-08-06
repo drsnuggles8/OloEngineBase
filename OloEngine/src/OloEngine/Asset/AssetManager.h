@@ -39,7 +39,7 @@ namespace OloEngine
          */
         static bool IsAssetHandleValid(AssetHandle assetHandle) 
         { 
-            return Project::GetAssetManager()->IsAssetHandleValid(assetHandle); 
+            return GetActiveManager()->IsAssetHandleValid(assetHandle); 
         }
 
         /**
@@ -54,7 +54,7 @@ namespace OloEngine
          */
         static bool IsAssetValid(AssetHandle assetHandle) 
         { 
-            return Project::GetAssetManager()->IsAssetValid(assetHandle); 
+            return GetActiveManager()->IsAssetValid(assetHandle); 
         }
 
         /**
@@ -67,7 +67,7 @@ namespace OloEngine
          */
         static bool IsAssetMissing(AssetHandle assetHandle) 
         { 
-            return Project::GetAssetManager()->IsAssetMissing(assetHandle); 
+            return GetActiveManager()->IsAssetMissing(assetHandle); 
         }
 
         /**
@@ -77,7 +77,7 @@ namespace OloEngine
          */
         static bool IsMemoryAsset(AssetHandle handle) 
         { 
-            return Project::GetAssetManager()->IsMemoryAsset(handle); 
+            return GetActiveManager()->IsMemoryAsset(handle); 
         }
 
         /**
@@ -87,7 +87,7 @@ namespace OloEngine
          */
         static bool IsPhysicalAsset(AssetHandle handle) 
         { 
-            return Project::GetAssetManager()->IsPhysicalAsset(handle); 
+            return GetActiveManager()->IsPhysicalAsset(handle); 
         }
 
         /**
@@ -97,7 +97,7 @@ namespace OloEngine
          */
         static bool ReloadData(AssetHandle assetHandle) 
         { 
-            return Project::GetAssetManager()->ReloadData(assetHandle); 
+            return GetActiveManager()->ReloadData(assetHandle); 
         }
 
         /**
@@ -107,7 +107,7 @@ namespace OloEngine
          */
         static bool EnsureCurrent(AssetHandle assetHandle) 
         { 
-            return Project::GetAssetManager()->EnsureCurrent(assetHandle); 
+            return GetActiveManager()->EnsureCurrent(assetHandle); 
         }
 
         /**
@@ -116,7 +116,7 @@ namespace OloEngine
          */
         static bool EnsureAllLoadedCurrent() 
         { 
-            return Project::GetAssetManager()->EnsureAllLoadedCurrent(); 
+            return GetActiveManager()->EnsureAllLoadedCurrent(); 
         }
 
         /**
@@ -126,7 +126,7 @@ namespace OloEngine
          */
         static AssetType GetAssetType(AssetHandle assetHandle) 
         { 
-            return Project::GetAssetManager()->GetAssetType(assetHandle); 
+            return GetActiveManager()->GetAssetType(assetHandle); 
         }
 
         /**
@@ -136,7 +136,7 @@ namespace OloEngine
          */
         static void SyncWithAssetThread() 
         { 
-            return Project::GetAssetManager()->SyncWithAssetThread(); 
+            return GetActiveManager()->SyncWithAssetThread(); 
         }
 
         /**
@@ -155,7 +155,7 @@ namespace OloEngine
         template<typename T>
         static Ref<T> GetAsset(AssetHandle assetHandle)
         {
-            Ref<Asset> asset = Project::GetAssetManager()->GetAsset(assetHandle);
+            Ref<Asset> asset = GetActiveManager()->GetAsset(assetHandle);
             return asset.As<T>();
         }
 
@@ -169,7 +169,7 @@ namespace OloEngine
         static AsyncAssetResult<T> GetAssetAsync(AssetHandle assetHandle)
         {
 #if OLO_ASYNC_ASSETS
-            AsyncAssetResult<Asset> result = Project::GetAssetManager()->GetAssetAsync(assetHandle);
+            AsyncAssetResult<Asset> result = GetActiveManager()->GetAssetAsync(assetHandle);
             return AsyncAssetResult<T>(result);
 #else
             return { GetAsset<T>(assetHandle), true };
@@ -184,7 +184,7 @@ namespace OloEngine
         template<typename T>
         static std::unordered_set<AssetHandle> GetAllAssetsWithType()
         {
-            return Project::GetAssetManager()->GetAllAssetsWithType(T::GetStaticType());
+            return GetActiveManager()->GetAllAssetsWithType(T::GetStaticType());
         }
 
         /**
@@ -193,7 +193,7 @@ namespace OloEngine
          */
         static const std::unordered_map<AssetHandle, Ref<Asset>>& GetLoadedAssets() 
         { 
-            return Project::GetAssetManager()->GetLoadedAssets(); 
+            return GetActiveManager()->GetLoadedAssets(); 
         }
 
         /**
@@ -217,7 +217,7 @@ namespace OloEngine
                 asset->Handle = AssetHandle(); // Generate new handle
             }
             
-            Project::GetAssetManager()->AddMemoryOnlyAsset(asset);
+            GetActiveManager()->AddMemoryOnlyAsset(asset);
             return asset->Handle;
         }
 
@@ -228,7 +228,7 @@ namespace OloEngine
          */
         static Ref<Asset> GetMemoryAsset(AssetHandle handle) 
         { 
-            return Project::GetAssetManager()->GetMemoryAsset(handle); 
+            return GetActiveManager()->GetMemoryAsset(handle); 
         }
 
         /**
@@ -240,7 +240,7 @@ namespace OloEngine
          */
         static void RegisterDependency(AssetHandle dependency, AssetHandle handle) 
         { 
-            return Project::GetAssetManager()->RegisterDependency(dependency, handle); 
+            return GetActiveManager()->RegisterDependency(dependency, handle); 
         }
 
         /**
@@ -250,7 +250,7 @@ namespace OloEngine
          */
         static void DeregisterDependency(AssetHandle dependency, AssetHandle handle) 
         { 
-            return Project::GetAssetManager()->DeregisterDependency(dependency, handle); 
+            return GetActiveManager()->DeregisterDependency(dependency, handle); 
         }
 
         /**
@@ -259,7 +259,7 @@ namespace OloEngine
          */
         static void DeregisterDependencies(AssetHandle handle) 
         { 
-            return Project::GetAssetManager()->DeregisterDependencies(handle); 
+            return GetActiveManager()->DeregisterDependencies(handle); 
         }
 
         /**
@@ -268,7 +268,15 @@ namespace OloEngine
          */
         static void RemoveAsset(AssetHandle handle)
         {
-            Project::GetAssetManager()->RemoveAsset(handle);
+            GetActiveManager()->RemoveAsset(handle);
+        }
+
+    private:
+        static Ref<AssetManagerBase> GetActiveManager()
+        {
+            auto manager = Project::GetAssetManager();
+            OLO_CORE_ASSERT(manager, "Asset manager not initialized");
+            return manager;
         }
     };
 

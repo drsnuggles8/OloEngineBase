@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Asset/AssetTypes.h"
+#include <type_traits>
 
 namespace OloEngine
 {
@@ -75,15 +76,15 @@ namespace OloEngine
     class AudioFile : public Asset
     {
     public:
-        double Duration;
-        u32 SamplingRate;
-        u16 BitDepth;
-        u16 NumChannels;
-        u64 FileSize;
+        double m_Duration;
+        u32 m_SamplingRate;
+        u16 m_BitDepth;
+        u16 m_NumChannels;
+        u64 m_FileSize;
 
-        AudioFile() = default;
+        AudioFile() : m_Duration(0.0), m_SamplingRate(0), m_BitDepth(0), m_NumChannels(0), m_FileSize(0) {}
         AudioFile(double duration, u32 samplingRate, u16 bitDepth, u16 numChannels, u64 fileSize)
-            : Duration(duration), SamplingRate(samplingRate), BitDepth(bitDepth), NumChannels(numChannels), FileSize(fileSize)
+            : m_Duration(duration), m_SamplingRate(samplingRate), m_BitDepth(bitDepth), m_NumChannels(numChannels), m_FileSize(fileSize)
         {
         }
 
@@ -111,7 +112,10 @@ namespace OloEngine
         AsyncAssetResult(Ref<T> asset, bool isReady = false)
             : Asset(asset), IsReady(isReady) {}
 
-        template<typename T2>
+        template<typename T2, typename = std::enable_if_t<
+            std::is_base_of_v<::OloEngine::Asset, T2> && 
+            std::is_base_of_v<::OloEngine::Asset, T>
+        >>
         AsyncAssetResult(const AsyncAssetResult<T2>& other)
             : Asset(other.Asset.template As<T>()), IsReady(other.IsReady) {}
 

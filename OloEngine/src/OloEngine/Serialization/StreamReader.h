@@ -27,7 +27,7 @@ namespace OloEngine
         template<typename T>
         void ReadRaw(T& type)
         {
-            bool success = ReadData((char*)&type, sizeof(T));
+            bool success = ReadData(reinterpret_cast<char*>(&type), sizeof(T));
             OLO_CORE_ASSERT(success);
         }
 
@@ -46,12 +46,12 @@ namespace OloEngine
             for (uint32_t i = 0; i < size; i++)
             {
                 Key key;
-                if constexpr (std::is_trivial<Key>())
+                if constexpr (std::is_trivially_copyable_v<Key>)
                     ReadRaw<Key>(key);
                 else
                     ReadObject<Key>(key);
 
-                if constexpr (std::is_trivial<Value>())
+                if constexpr (std::is_trivially_copyable_v<Value>)
                     ReadRaw<Value>(map[key]);
                 else
                     ReadObject<Value>(map[key]);
@@ -67,12 +67,12 @@ namespace OloEngine
             for (uint32_t i = 0; i < size; i++)
             {
                 Key key;
-                if constexpr (std::is_trivial<Key>())
+                if constexpr (std::is_trivially_copyable_v<Key>)
                     ReadRaw<Key>(key);
                 else
                     ReadObject<Key>(key);
 
-                if constexpr (std::is_trivial<Value>())
+                if constexpr (std::is_trivially_copyable_v<Value>)
                     ReadRaw<Value>(map[key]);
                 else
                     ReadObject<Value>(map[key]);
@@ -90,7 +90,7 @@ namespace OloEngine
                 std::string key;
                 ReadString(key);
 
-                if constexpr (std::is_trivial<Value>())
+                if constexpr (std::is_trivially_copyable_v<Value>)
                     ReadRaw<Value>(map[key]);
                 else
                     ReadObject<Value>(map[key]);
@@ -107,7 +107,7 @@ namespace OloEngine
 
             for (uint32_t i = 0; i < size; i++)
             {
-                if constexpr (std::is_trivial<T>())
+                if constexpr (std::is_trivially_copyable_v<T>)
                     ReadRaw<T>(array[i]);
                 else
                     ReadObject<T>(array[i]);

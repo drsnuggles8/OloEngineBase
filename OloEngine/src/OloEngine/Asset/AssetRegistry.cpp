@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Asset/AssetExtensions.h"
 #include <fstream>
+#include <filesystem>
 
 namespace OloEngine
 {
@@ -207,7 +208,7 @@ namespace OloEngine
                 file.write(reinterpret_cast<const char*>(&metadata.Handle), sizeof(metadata.Handle));
                 file.write(reinterpret_cast<const char*>(&metadata.Type), sizeof(metadata.Type));
                 file.write(reinterpret_cast<const char*>(&metadata.Status), sizeof(metadata.Status));
-                file.write(reinterpret_cast<const char*>(&metadata.FileLastWriteTime), sizeof(metadata.FileLastWriteTime));
+                // Note: LastWriteTime serialization temporarily skipped - std::filesystem::file_time_type is complex to serialize
                 
                 // Write path string
                 const std::string pathStr = metadata.FilePath.string();
@@ -265,7 +266,7 @@ namespace OloEngine
                 file.read(reinterpret_cast<char*>(&metadata.Handle), sizeof(metadata.Handle));
                 file.read(reinterpret_cast<char*>(&metadata.Type), sizeof(metadata.Type));
                 file.read(reinterpret_cast<char*>(&metadata.Status), sizeof(metadata.Status));
-                file.read(reinterpret_cast<char*>(&metadata.FileLastWriteTime), sizeof(metadata.FileLastWriteTime));
+                // Note: LastWriteTime deserialization temporarily skipped - will be refreshed from filesystem
                 
                 // Read path string
                 u32 pathLength;
@@ -274,6 +275,12 @@ namespace OloEngine
                 std::string pathStr(pathLength, '\0');
                 file.read(pathStr.data(), pathLength);
                 metadata.FilePath = pathStr;
+
+                // Refresh LastWriteTime from filesystem if file exists
+                if (std::filesystem::exists(metadata.FilePath))
+                {
+                    metadata.LastWriteTime = std::filesystem::last_write_time(metadata.FilePath);
+                }
 
                 // Add to registry
                 m_AssetMetadata[metadata.Handle] = metadata;

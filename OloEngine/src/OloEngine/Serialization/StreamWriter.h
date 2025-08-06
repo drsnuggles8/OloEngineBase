@@ -28,13 +28,16 @@ namespace OloEngine
         template<typename T>
         void WriteRaw(const T& type)
         {
-            bool success = WriteData((char*)&type, sizeof(T));
+            bool success = WriteData(reinterpret_cast<const char*>(&type), sizeof(T));
             OLO_CORE_ASSERT(success);
         }
 
         template<typename T>
         void WriteObject(const T& obj)
         {
+            static_assert(std::is_class_v<T>, "WriteObject requires a class type");
+            // Note: Compile-time validation of Serialize method existence would require concepts (C++20)
+            // For C++17 compatibility, we rely on template instantiation errors
             T::Serialize(this, obj);
         }
 
@@ -46,12 +49,12 @@ namespace OloEngine
 
             for (const auto& [key, value] : map)
             {
-                if constexpr (std::is_trivial<Key>())
+                if constexpr (std::is_trivially_copyable_v<Key>)
                     WriteRaw<Key>(key);
                 else
                     WriteObject<Key>(key);
 
-                if constexpr (std::is_trivial<Value>())
+                if constexpr (std::is_trivially_copyable_v<Value>)
                     WriteRaw<Value>(value);
                 else
                     WriteObject<Value>(value);
@@ -66,12 +69,12 @@ namespace OloEngine
 
             for (const auto& [key, value] : map)
             {
-                if constexpr (std::is_trivial<Key>())
+                if constexpr (std::is_trivially_copyable_v<Key>)
                     WriteRaw<Key>(key);
                 else
                     WriteObject<Key>(key);
 
-                if constexpr (std::is_trivial<Value>())
+                if constexpr (std::is_trivially_copyable_v<Value>)
                     WriteRaw<Value>(value);
                 else
                     WriteObject<Value>(value);
@@ -88,7 +91,7 @@ namespace OloEngine
             {
                 WriteString(key);
 
-                if constexpr (std::is_trivial<Value>())
+                if constexpr (std::is_trivially_copyable_v<Value>)
                     WriteRaw<Value>(value);
                 else
                     WriteObject<Value>(value);
@@ -103,7 +106,7 @@ namespace OloEngine
 
             for (const auto& element : array)
             {
-                if constexpr (std::is_trivial<T>())
+                if constexpr (std::is_trivially_copyable_v<T>)
                     WriteRaw<T>(element);
                 else
                     WriteObject<T>(element);

@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Log.h"
 #include <algorithm>
 #include <cctype>
+#include <unordered_set>
 
 namespace OloEngine
 {
@@ -46,26 +47,22 @@ namespace OloEngine
         if (!s_Initialized)
             InitializeExtensionMap();
 
-        std::vector<std::string> extensions;
+        std::unordered_set<std::string> extensionSet;
 
         for (const auto& [ext, assetType] : s_ExtensionMap)
         {
             if (assetType == type)
-                extensions.push_back("." + ext);
+                extensionSet.insert("." + ext);
         }
 
         // Also check static map
         for (const auto& [ext, assetType] : s_AssetExtensionMap)
         {
             if (assetType == type)
-            {
-                // Avoid duplicates
-                if (std::find(extensions.begin(), extensions.end(), ext) == extensions.end())
-                    extensions.push_back(ext);
-            }
+                extensionSet.insert(ext);
         }
 
-        return extensions;
+        return std::vector<std::string>(extensionSet.begin(), extensionSet.end());
     }
 
     std::vector<std::string> AssetExtensions::GetAllSupportedExtensions()
@@ -73,22 +70,20 @@ namespace OloEngine
         if (!s_Initialized)
             InitializeExtensionMap();
 
-        std::vector<std::string> extensions;
+        std::unordered_set<std::string> extensionSet;
 
         for (const auto& [ext, type] : s_ExtensionMap)
         {
-            extensions.push_back("." + ext);
+            extensionSet.insert("." + ext);
         }
 
         // Add extensions from static map
         for (const auto& [ext, type] : s_AssetExtensionMap)
         {
-            // Avoid duplicates
-            if (std::find(extensions.begin(), extensions.end(), ext) == extensions.end())
-                extensions.push_back(ext);
+            extensionSet.insert(ext);
         }
 
-        return extensions;
+        return std::vector<std::string>(extensionSet.begin(), extensionSet.end());
     }
 
     const std::unordered_map<std::string, AssetType>& AssetExtensions::GetExtensionMap()

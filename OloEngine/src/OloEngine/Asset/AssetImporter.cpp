@@ -5,6 +5,7 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Asset/AssetTypes.h"
 #include "OloEngine/Project/Project.h"
 
 #include <memory>
@@ -29,7 +30,7 @@ namespace OloEngine
         s_Serializers[AssetType::Scene] = CreateScope<SceneAssetSerializer>();
         s_Serializers[AssetType::Font] = CreateScope<FontSerializer>();
         s_Serializers[AssetType::MeshCollider] = CreateScope<MeshColliderSerializer>();
-        s_Serializers[AssetType::SoundGraphSound] = CreateScope<SoundGraphGraphSerializer>();
+        s_Serializers[AssetType::SoundGraphSound] = CreateScope<SoundGraphSoundSerializer>();
         s_Serializers[AssetType::AnimationClip] = CreateScope<AnimationAssetSerializer>();
         s_Serializers[AssetType::AnimationGraph] = CreateScope<AnimationGraphAssetSerializer>();
         s_Serializers[AssetType::ScriptFile] = CreateScope<ScriptFileSerializer>();
@@ -39,7 +40,7 @@ namespace OloEngine
     {
         if (s_Serializers.find(metadata.Type) == s_Serializers.end())
         {
-            OLO_CORE_WARN("No serializer available for asset type");
+            OLO_CORE_WARN("No serializer available for asset type: {}", AssetUtils::AssetTypeToString(metadata.Type));
             return;
         }
 
@@ -72,7 +73,7 @@ namespace OloEngine
     {
         if (s_Serializers.find(metadata.Type) == s_Serializers.end())
         {
-            OLO_CORE_WARN("No serializer available for asset type");
+            OLO_CORE_WARN("No serializer available for asset type: {}", AssetUtils::AssetTypeToString(metadata.Type));
             return false;
         }
 
@@ -83,7 +84,7 @@ namespace OloEngine
     {
         if (s_Serializers.find(metadata.Type) == s_Serializers.end())
         {
-            OLO_CORE_WARN("No serializer available for asset type");
+            OLO_CORE_WARN("No serializer available for asset type: {}", AssetUtils::AssetTypeToString(metadata.Type));
             return;
         }
 
@@ -106,7 +107,7 @@ namespace OloEngine
         AssetType type = AssetManager::GetAssetType(handle);
         if (s_Serializers.find(type) == s_Serializers.end())
         {
-            OLO_CORE_WARN("There's currently no serializer for assets of type");
+            OLO_CORE_WARN("There's currently no serializer for assets of type: {}", AssetUtils::AssetTypeToString(type));
             return false;
         }
 
@@ -117,7 +118,7 @@ namespace OloEngine
     {
         if (s_Serializers.find(assetInfo.Type) == s_Serializers.end())
         {
-            OLO_CORE_WARN("No serializer available for asset type");
+            OLO_CORE_WARN("No serializer available for asset type: {}", AssetUtils::AssetTypeToString(assetInfo.Type));
             return nullptr;
         }
 

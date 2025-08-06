@@ -35,7 +35,6 @@ namespace OloEngine
         AssetStatus Status = AssetStatus::None;
         
         // File modification tracking for hot-reload
-        u64 FileLastWriteTime = 0; // TODO: this is the last write time of the file WE LOADED
         std::filesystem::file_time_type LastWriteTime;
         
         bool IsDataLoaded = false;

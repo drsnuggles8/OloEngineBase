@@ -268,86 +268,95 @@ namespace OloEngine {
 		m_TextureCubeUniforms[name] = texture;
 	}
 
-	float& Material::GetFloat(const std::string& name)
+	float Material::GetFloat(const std::string& name) const
 	{
 		auto it = m_FloatUniforms.find(name);
 		if (it != m_FloatUniforms.end())
 			return it->second;
 		
-		// Return a reference to a new entry
-		return m_FloatUniforms[name];
+		// Return default value if not found
+		static const float defaultValue = 0.0f;
+		return defaultValue;
 	}
 
-	int32_t& Material::GetInt(const std::string& name)
+	int32_t Material::GetInt(const std::string& name) const
 	{
 		auto it = m_IntUniforms.find(name);
 		if (it != m_IntUniforms.end())
 			return it->second;
 		
-		return m_IntUniforms[name];
+		static const int32_t defaultValue = 0;
+		return defaultValue;
 	}
 
-	uint32_t& Material::GetUInt(const std::string& name)
+	uint32_t Material::GetUInt(const std::string& name) const
 	{
 		auto it = m_UIntUniforms.find(name);
 		if (it != m_UIntUniforms.end())
 			return it->second;
 		
-		return m_UIntUniforms[name];
+		static const uint32_t defaultValue = 0u;
+		return defaultValue;
 	}
 
-	bool& Material::GetBool(const std::string& name)
+	bool Material::GetBool(const std::string& name) const
 	{
 		auto it = m_BoolUniforms.find(name);
 		if (it != m_BoolUniforms.end())
 			return it->second;
 		
-		return m_BoolUniforms[name];
+		static const bool defaultValue = false;
+		return defaultValue;
 	}
 
-	glm::vec2& Material::GetVector2(const std::string& name)
+	const glm::vec2& Material::GetVector2(const std::string& name) const
 	{
 		auto it = m_Vec2Uniforms.find(name);
 		if (it != m_Vec2Uniforms.end())
 			return it->second;
 		
-		return m_Vec2Uniforms[name];
+		static const glm::vec2 defaultValue = glm::vec2(0.0f);
+		return defaultValue;
 	}
 
-	glm::vec3& Material::GetVector3(const std::string& name)
+	const glm::vec3& Material::GetVector3(const std::string& name) const
 	{
 		auto it = m_Vec3Uniforms.find(name);
 		if (it != m_Vec3Uniforms.end())
 			return it->second;
 		
-		return m_Vec3Uniforms[name];
+		static const glm::vec3 defaultValue = glm::vec3(0.0f);
+		return defaultValue;
 	}
 
-	glm::vec4& Material::GetVector4(const std::string& name)
+	const glm::vec4& Material::GetVector4(const std::string& name) const
 	{
 		auto it = m_Vec4Uniforms.find(name);
 		if (it != m_Vec4Uniforms.end())
 			return it->second;
 		
-		return m_Vec4Uniforms[name];
+		static const glm::vec4 defaultValue = glm::vec4(0.0f);
+		return defaultValue;
 	}
 
-	glm::mat3& Material::GetMatrix3(const std::string& name)
+	const glm::mat3& Material::GetMatrix3(const std::string& name) const
 	{
 		auto it = m_Mat3Uniforms.find(name);
 		if (it != m_Mat3Uniforms.end())
 			return it->second;
 		
-		return m_Mat3Uniforms[name];
+		static const glm::mat3 defaultValue = glm::mat3(1.0f);
+		return defaultValue;
 	}
 
-	glm::mat4& Material::GetMatrix4(const std::string& name)
+	const glm::mat4& Material::GetMatrix4(const std::string& name) const
 	{
 		auto it = m_Mat4Uniforms.find(name);
 		if (it != m_Mat4Uniforms.end())
 			return it->second;
 		
-		return m_Mat4Uniforms[name];
+		static const glm::mat4 defaultValue = glm::mat4(1.0f);
+		return defaultValue;
 	}
 
 	Ref<Texture2D> Material::GetTexture2D(const std::string& name)

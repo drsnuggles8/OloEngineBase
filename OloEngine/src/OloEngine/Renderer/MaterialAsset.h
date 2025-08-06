@@ -6,7 +6,8 @@
 
 #include <map>
 
-namespace OloEngine {
+namespace OloEngine
+{
 
 	class MaterialAsset : public Asset
 	{
@@ -52,7 +53,7 @@ namespace OloEngine {
 		void SetTransparency(float transparency);
 
 		bool IsShadowCasting() const { return !m_Material->GetFlag(MaterialFlag::DisableShadowCasting); }
-		void SetShadowCasting(bool castsShadows) { return m_Material->SetFlag(MaterialFlag::DisableShadowCasting, !castsShadows); }
+		void SetShadowCasting(bool castsShadows) { m_Material->SetFlag(MaterialFlag::DisableShadowCasting, !castsShadows); }
 
 		static AssetType GetStaticType() { return AssetType::Material; }
 		virtual AssetType GetAssetType() const override { return GetStaticType(); }
