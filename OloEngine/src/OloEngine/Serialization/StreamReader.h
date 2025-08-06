@@ -34,6 +34,9 @@ namespace OloEngine
         template<typename T>
         void ReadObject(T& obj)
         {
+            static_assert(std::is_class_v<T>, "ReadObject requires a class type");
+            // Note: Compile-time validation of Deserialize method existence would require concepts (C++20)
+            // For C++17 compatibility, we rely on template instantiation errors
             T::Deserialize(this, obj);
         }
 

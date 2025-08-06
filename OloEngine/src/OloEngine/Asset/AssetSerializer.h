@@ -10,7 +10,6 @@ namespace OloEngine
 {
     // Forward declarations
     class MaterialAsset;
-    class MeshColliderAsset;
     class PhysicsMaterial;
     class Prefab;
     class Scene;

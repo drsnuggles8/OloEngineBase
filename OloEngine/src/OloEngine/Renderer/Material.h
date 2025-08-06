@@ -39,8 +39,11 @@ namespace OloEngine {
 	 * - Model.cpp expects struct-like public members (AlbedoMap, etc.)
 	 * - Renderer3D.cpp expects all PBR/legacy properties as public members
 	 * 
-	 * Recommended solution: Update Model.cpp and Renderer3D.cpp to use proper
-	 * getter/setter methods and remove all public member variables.
+	 * PLANNED REFACTORING SOLUTION:
+	 * 1. Update Model.cpp and Renderer3D.cpp to use proper getter/setter methods
+	 * 2. Remove all public member variables to enforce encapsulation
+	 * 3. Maintain only the class-based interface for consistency
+	 * 4. This will improve maintainability and reduce coupling
 	 */
 	class Material : public RendererResource
 	{
