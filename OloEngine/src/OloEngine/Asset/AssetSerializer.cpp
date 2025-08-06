@@ -42,6 +42,153 @@ namespace YAML {
 			return true;
 		}
 	};
+
+	template<>
+	struct convert<glm::vec2>
+	{
+		static Node encode(const glm::vec2& rhs)
+		{
+			Node node;
+			node.push_back(rhs.x);
+			node.push_back(rhs.y);
+			node.SetStyle(EmitterStyle::Flow);
+			return node;
+		}
+
+		static bool decode(const Node& node, glm::vec2& rhs)
+		{
+			if ((!node.IsSequence()) || (node.size() != 2))
+			{
+				return false;
+			}
+
+			rhs.x = node[0].as<float>();
+			rhs.y = node[1].as<float>();
+			return true;
+		}
+	};
+
+	template<>
+	struct convert<glm::vec3>
+	{
+		static Node encode(const glm::vec3& rhs)
+		{
+			Node node;
+			node.push_back(rhs.x);
+			node.push_back(rhs.y);
+			node.push_back(rhs.z);
+			node.SetStyle(EmitterStyle::Flow);
+			return node;
+		}
+
+		static bool decode(const Node& node, glm::vec3& rhs)
+		{
+			if ((!node.IsSequence()) || (node.size() != 3))
+			{
+				return false;
+			}
+
+			rhs.x = node[0].as<float>();
+			rhs.y = node[1].as<float>();
+			rhs.z = node[2].as<float>();
+			return true;
+		}
+	};
+
+	template<>
+	struct convert<glm::vec4>
+	{
+		static Node encode(const glm::vec4& rhs)
+		{
+			Node node;
+			node.push_back(rhs.x);
+			node.push_back(rhs.y);
+			node.push_back(rhs.z);
+			node.push_back(rhs.w);
+			node.SetStyle(EmitterStyle::Flow);
+			return node;
+		}
+
+		static bool decode(const Node& node, glm::vec4& rhs)
+		{
+			if ((!node.IsSequence()) || (node.size() != 4))
+			{
+				return false;
+			}
+
+			rhs.x = node[0].as<float>();
+			rhs.y = node[1].as<float>();
+			rhs.z = node[2].as<float>();
+			rhs.w = node[3].as<float>();
+			return true;
+		}
+	};
+
+	template<>
+	struct convert<glm::mat3>
+	{
+		static Node encode(const glm::mat3& rhs)
+		{
+			Node node;
+			node.SetStyle(EmitterStyle::Flow);
+			for (int i = 0; i < 3; ++i)
+			{
+				for (int j = 0; j < 3; ++j)
+				{
+					node.push_back(rhs[i][j]);
+				}
+			}
+			return node;
+		}
+
+		static bool decode(const Node& node, glm::mat3& rhs)
+		{
+			if (!node.IsSequence() || node.size() != 9)
+				return false;
+
+			for (int i = 0; i < 3; ++i)
+			{
+				for (int j = 0; j < 3; ++j)
+				{
+					rhs[i][j] = node[i * 3 + j].as<float>();
+				}
+			}
+			return true;
+		}
+	};
+
+	template<>
+	struct convert<glm::mat4>
+	{
+		static Node encode(const glm::mat4& rhs)
+		{
+			Node node;
+			node.SetStyle(EmitterStyle::Flow);
+			for (int i = 0; i < 4; ++i)
+			{
+				for (int j = 0; j < 4; ++j)
+				{
+					node.push_back(rhs[i][j]);
+				}
+			}
+			return node;
+		}
+
+		static bool decode(const Node& node, glm::mat4& rhs)
+		{
+			if (!node.IsSequence() || node.size() != 16)
+				return false;
+
+			for (int i = 0; i < 4; ++i)
+			{
+				for (int j = 0; j < 4; ++j)
+				{
+					rhs[i][j] = node[i * 4 + j].as<float>();
+				}
+			}
+			return true;
+		}
+	};
 }
 
 
@@ -397,9 +544,61 @@ namespace OloEngine
             for (const auto& propNode : materialNode["Properties"])
             {
                 std::string propName = propNode.first.as<std::string>();
-                // Set material properties based on shader uniform types
-                // This would need to be expanded based on the actual uniform system
-                // For now, we'll skip this as it requires more complex type handling
+                const auto& valueNode = propNode.second;
+                
+                // Determine the type and set the appropriate material property
+                if (valueNode["type"])
+                {
+                    std::string type = valueNode["type"].as<std::string>();
+                    
+                    if (type == "float")
+                    {
+                        material->Set(propName, valueNode["value"].as<float>());
+                    }
+                    else if (type == "int")
+                    {
+                        material->Set(propName, valueNode["value"].as<int>());
+                    }
+                    else if (type == "uint")
+                    {
+                        material->Set(propName, valueNode["value"].as<uint32_t>());
+                    }
+                    else if (type == "bool")
+                    {
+                        material->Set(propName, valueNode["value"].as<bool>());
+                    }
+                    else if (type == "vec2")
+                    {
+                        material->Set(propName, valueNode["value"].as<glm::vec2>());
+                    }
+                    else if (type == "vec3")
+                    {
+                        material->Set(propName, valueNode["value"].as<glm::vec3>());
+                    }
+                    else if (type == "vec4")
+                    {
+                        material->Set(propName, valueNode["value"].as<glm::vec4>());
+                    }
+                    else if (type == "mat3")
+                    {
+                        material->Set(propName, valueNode["value"].as<glm::mat3>());
+                    }
+                    else if (type == "mat4")
+                    {
+                        material->Set(propName, valueNode["value"].as<glm::mat4>());
+                    }
+                    // Texture properties would be handled separately with asset handles
+                    else if (type == "texture2d")
+                    {
+                        AssetHandle textureHandle = valueNode["value"].as<AssetHandle>(0);
+                        if (textureHandle != 0)
+                        {
+                            auto texture = AssetManager::GetAsset<Texture2D>(textureHandle);
+                            if (texture)
+                                material->Set(propName, texture);
+                        }
+                    }
+                }
             }
         }
 
@@ -606,14 +805,12 @@ namespace OloEngine
         
         // Serialize scene to YAML string first
         SceneSerializer serializer(scene);
-        // TODO: SceneSerializer needs SerializeToString method
-        std::string yamlData = ""; // serializer.SerializeToString();
+        std::string yamlData = SerializeToString(scene);
         
         // Write YAML data size and content
         uint32_t dataSize = (uint32_t)yamlData.size();
         stream.WriteRaw(dataSize);
-        // TODO: Fix buffer writing - WriteBuffer expects Buffer object
-        // stream.WriteBuffer((void*)yamlData.c_str(), dataSize);
+        stream.WriteData(yamlData.c_str(), dataSize);
         
         outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
         
@@ -630,20 +827,17 @@ namespace OloEngine
         stream.ReadRaw(dataSize);
         
         std::vector<char> yamlData(dataSize + 1);
-        // TODO: Fix buffer reading - ReadBuffer expects Buffer reference
-        // stream.ReadBuffer(yamlData.data(), dataSize);
+        stream.ReadData(yamlData.data(), dataSize);
         yamlData[dataSize] = '\0'; // Null terminate
         
         // Create scene and deserialize from YAML
         auto scene = Ref<Scene>(new Scene());
-        SceneSerializer serializer(scene);
         
-        // TODO: SceneSerializer needs DeserializeFromString method
-        // if (!serializer.DeserializeFromString(yamlData.data()))
-        // {
-        //     OLO_CORE_ERROR("SceneAssetSerializer::DeserializeFromAssetPack - Failed to deserialize scene from YAML");
-        //     return nullptr;
-        // }
+        if (!DeserializeFromString(yamlData.data(), scene))
+        {
+            OLO_CORE_ERROR("SceneAssetSerializer::DeserializeFromAssetPack - Failed to deserialize scene from YAML");
+            return nullptr;
+        }
         
         // scene->m_Handle = assetInfo.Handle; // TODO: Scene doesn't have Handle member
         scene->m_Handle = assetInfo.Handle;
@@ -657,6 +851,35 @@ namespace OloEngine
         // TODO: Implement scene pack deserialization
         OLO_CORE_WARN("SceneAssetSerializer::DeserializeSceneFromAssetPack not yet implemented");
         return nullptr;
+    }
+
+    std::string SceneAssetSerializer::SerializeToString(const Ref<Scene>& scene) const
+    {
+        if (!scene)
+        {
+            OLO_CORE_ERROR("SceneAssetSerializer::SerializeToString - Scene is null");
+            return "";
+        }
+
+        SceneSerializer serializer(scene);
+        return serializer.SerializeToYAML();
+    }
+
+    bool SceneAssetSerializer::DeserializeFromString(const std::string& yamlString, Ref<Scene>& scene) const
+    {
+        if (yamlString.empty())
+        {
+            OLO_CORE_ERROR("SceneAssetSerializer::DeserializeFromString - YAML string is empty");
+            return false;
+        }
+
+        if (!scene)
+        {
+            scene = Ref<Scene>::Create();
+        }
+
+        SceneSerializer serializer(scene);
+        return serializer.DeserializeFromYAML(yamlString);
     }
 
     //////////////////////////////////////////////////////////////////////////////////

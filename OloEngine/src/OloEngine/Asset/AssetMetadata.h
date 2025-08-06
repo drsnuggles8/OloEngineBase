@@ -10,8 +10,6 @@
 
 namespace OloEngine
 {
-    using AssetHandle = UUID;
-
     enum class AssetStatus : u8
     {
         None = 0,
@@ -50,9 +48,6 @@ namespace OloEngine
         bool IsLoading() const { return Status == AssetStatus::Loading; }
         bool IsInvalid() const { return Status == AssetStatus::Invalid; }
     };
-
-    // Forward declaration
-    class Asset;
 
     /**
      * @brief Editor load response structure for asset loading operations

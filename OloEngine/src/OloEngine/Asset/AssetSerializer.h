@@ -126,6 +126,10 @@ namespace OloEngine
         virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const;
         virtual Ref<Scene> DeserializeSceneFromAssetPack(FileStreamReader& stream, const AssetPackFile::SceneInfo& sceneInfo) const override;
+        
+        // String serialization methods for asset pack support
+        std::string SerializeToString(const Ref<Scene>& scene) const;
+        bool DeserializeFromString(const std::string& yamlString, Ref<Scene>& scene) const;
     };
         
     class MeshColliderSerializer : public AssetSerializer
