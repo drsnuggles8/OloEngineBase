@@ -99,12 +99,6 @@ namespace OloEngine
 
         Ref<TextureCubemap> ConvertEquirectangularToCubemap(const std::string& filePath);
 
-        // RendererResource interface
-        virtual ResourceDescriptorInfo GetDescriptorInfo() const override 
-        { 
-            return reinterpret_cast<ResourceDescriptorInfo>(m_EnvironmentMap ? m_EnvironmentMap->GetRendererID() : 0); 
-        }
-
         // Asset interface
         static AssetType GetStaticType() { return AssetType::EnvMap; }
         virtual AssetType GetAssetType() const override { return GetStaticType(); }

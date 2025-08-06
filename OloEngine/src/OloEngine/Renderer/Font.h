@@ -20,12 +20,6 @@ namespace OloEngine
 		[[nodiscard("Store this!")]] const MSDFData* GetMSDFData() const { return m_Data; }
 		Ref<Texture2D> GetAtlasTexture() const { return m_AtlasTexture; }
 
-		// RendererResource interface
-		virtual ResourceDescriptorInfo GetDescriptorInfo() const override 
-		{ 
-			return reinterpret_cast<ResourceDescriptorInfo>(m_AtlasTexture->GetRendererID()); 
-		}
-
 		// Asset interface
 		static AssetType GetStaticType() { return AssetType::Font; }
 		virtual AssetType GetAssetType() const override { return GetStaticType(); }

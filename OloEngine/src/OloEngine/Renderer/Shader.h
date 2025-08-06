@@ -40,12 +40,6 @@ namespace OloEngine
 		virtual ShaderResourceRegistry* GetResourceRegistry() = 0;
 		virtual const ShaderResourceRegistry* GetResourceRegistry() const = 0;
 
-		// RendererResource interface
-		virtual ResourceDescriptorInfo GetDescriptorInfo() const override 
-		{ 
-			return reinterpret_cast<ResourceDescriptorInfo>(GetRendererID()); 
-		}
-
 		// Asset interface
 		static AssetType GetStaticType() { return AssetType::Shader; }
 		virtual AssetType GetAssetType() const override { return GetStaticType(); }

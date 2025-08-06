@@ -161,12 +161,6 @@ namespace OloEngine {
 		Ref<TextureCubemap> PrefilterMap;                // Prefiltered environment map
 		Ref<Texture2D> BRDFLutMap;                       // BRDF lookup table
 
-		// RendererResource interface
-		virtual ResourceDescriptorInfo GetDescriptorInfo() const override 
-		{ 
-			return reinterpret_cast<ResourceDescriptorInfo>(m_Shader ? m_Shader->GetRendererID() : 0); 
-		}
-
 		// Asset interface
 		static AssetType GetStaticType() { return AssetType::Material; }
 		virtual AssetType GetAssetType() const override { return GetStaticType(); }

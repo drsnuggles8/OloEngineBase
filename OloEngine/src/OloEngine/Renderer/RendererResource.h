@@ -4,7 +4,6 @@
 
 namespace OloEngine
 {
-    using ResourceDescriptorInfo = void*;
 
     /**
      * @brief Base class for all renderer resources that are also assets
@@ -18,12 +17,6 @@ namespace OloEngine
     public:
         RendererResource() = default;
         virtual ~RendererResource() = default;
-
-        /**
-         * @brief Get descriptor information for this resource
-         * @return Descriptor info for binding to graphics APIs
-         */
-        virtual ResourceDescriptorInfo GetDescriptorInfo() const = 0;
 
         static AssetType GetStaticType() { return AssetType::None; }
         virtual AssetType GetAssetType() const override { return AssetType::None; }

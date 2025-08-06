@@ -53,12 +53,6 @@ namespace OloEngine
 		[[nodiscard]] u32 GetRendererID() const { return m_VertexArray ? m_VertexArray->GetRendererID() : 0; }
 		[[nodiscard]] u32 GetIndexCount() const { return static_cast<u32>(m_Indices.size()); }
 
-		// RendererResource interface
-		virtual ResourceDescriptorInfo GetDescriptorInfo() const override 
-		{ 
-			return reinterpret_cast<ResourceDescriptorInfo>(GetRendererID()); 
-		}
-
 		// Asset interface
 		static AssetType GetStaticType() { return AssetType::Mesh; }
 		virtual AssetType GetAssetType() const override { return GetStaticType(); }

@@ -64,12 +64,6 @@ namespace OloEngine
 		// Accessors for materials
 		[[nodiscard]] const std::vector<Material>& GetMaterials() const { return m_Materials; }
 
-		// RendererResource interface
-		virtual ResourceDescriptorInfo GetDescriptorInfo() const override 
-		{ 
-			return reinterpret_cast<ResourceDescriptorInfo>(m_Meshes.empty() ? 0 : m_Meshes[0]->GetRendererID()); 
-		}
-
 		// Asset interface
 		static AssetType GetStaticType() { return AssetType::Model; }
 		virtual AssetType GetAssetType() const override { return GetStaticType(); }

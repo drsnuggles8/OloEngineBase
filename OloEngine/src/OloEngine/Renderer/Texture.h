@@ -52,12 +52,6 @@ namespace OloEngine
 
 		bool operator==(const Texture& other) const { return GetRendererID() == other.GetRendererID(); }
 
-		// RendererResource interface
-		virtual ResourceDescriptorInfo GetDescriptorInfo() const override 
-		{ 
-			return reinterpret_cast<ResourceDescriptorInfo>(GetRendererID()); 
-		}
-
 		// Asset interface
 		static AssetType GetStaticType() { return AssetType::None; }
 		virtual AssetType GetAssetType() const override { return AssetType::None; }
