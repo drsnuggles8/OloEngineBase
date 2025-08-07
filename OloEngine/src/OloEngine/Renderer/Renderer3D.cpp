@@ -835,11 +835,11 @@ namespace OloEngine
 			Entity entity = { entityID, scene.get() };
 			s_Data.Stats.TotalAnimatedMeshes++;
 
-			RenderAnimatedMesh(entity, defaultMaterial);
+			RenderAnimatedMesh(entity, defaultMaterial, scene.get());
 		}
 	}
 
-	void Renderer3D::RenderAnimatedMesh(Entity entity, const Material& defaultMaterial)
+	void Renderer3D::RenderAnimatedMesh(Entity entity, const Material& defaultMaterial, const Scene* scene)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -852,7 +852,6 @@ namespace OloEngine
 		}
 
 		auto& meshComp = entity.GetComponent<MeshComponent>();
-		auto& skeletonComp = entity.GetComponent<SkeletonComponent>();
 		auto& transformComp = entity.GetComponent<TransformComponent>();
 
 		if (!meshComp.MeshSource)
@@ -872,22 +871,64 @@ namespace OloEngine
 			material = entity.GetComponent<MaterialComponent>().m_Material;
 		}
 
-		const std::vector<glm::mat4>& boneMatrices = skeletonComp.m_Skeleton->m_FinalBoneMatrices;
-
-		// For now, create a Mesh from the first submesh of MeshSource
-		// TODO: Properly iterate through SubmeshComponents and use proper skinned rendering
-		auto mesh = Ref<Mesh>::Create(meshComp.MeshSource, 0);
-
-		auto* packet = DrawMesh(
-			mesh,
-			worldTransform,
-			material,
-			false
-		);
-
-		if (packet)
+		// Find and render all child entities with SubmeshComponent
+		bool renderedAnySubmesh = false;
+		auto view = scene->GetAllEntitiesWith<SubmeshComponent>();
+		for (auto enttEntity : view)
 		{
-			SubmitPacket(packet);
+			Entity submeshEntity = { enttEntity, const_cast<Scene*>(scene) };
+			auto& relationshipComponent = submeshEntity.GetComponent<RelationshipComponent>();
+			
+			// Check if this submesh entity is a child of our animated mesh entity
+			if (relationshipComponent.m_ParentHandle == entity.GetUUID())
+			{
+				auto& submeshComponent = submeshEntity.GetComponent<SubmeshComponent>();
+				if (submeshComponent.Mesh && submeshComponent.Visible)
+				{
+					// Use MaterialComponent if available on submesh, otherwise use the parent's material
+					Material submeshMaterial = material;
+					if (submeshEntity.HasComponent<MaterialComponent>())
+					{
+						submeshMaterial = submeshEntity.GetComponent<MaterialComponent>().m_Material;
+					}
+
+					auto* packet = DrawMesh(
+						submeshComponent.Mesh,
+						worldTransform,
+						submeshMaterial,
+						false
+					);
+
+					if (packet)
+					{
+						SubmitPacket(packet);
+						renderedAnySubmesh = true;
+					}
+				}
+			}
+		}
+
+		// Fallback: if no submesh entities found, create a Mesh from the first submesh of MeshSource
+		if (!renderedAnySubmesh)
+		{
+			auto mesh = Ref<Mesh>::Create(meshComp.MeshSource, 0);
+
+			auto* packet = DrawMesh(
+				mesh,
+				worldTransform,
+				material,
+				false
+			);
+
+			if (packet)
+			{
+				SubmitPacket(packet);
+				renderedAnySubmesh = true;
+			}
+		}
+
+		if (renderedAnySubmesh)
+		{
 			s_Data.Stats.RenderedAnimatedMeshes++;
 		}
 	}

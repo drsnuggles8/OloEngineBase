@@ -105,7 +105,7 @@ namespace OloEngine
 			if (!HasComponent<RelationshipComponent>())
 				return {};
 			
-			UUID parentID = GetComponent<RelationshipComponent>().ParentHandle;
+			UUID parentID = GetComponent<RelationshipComponent>().m_ParentHandle;
 			if (parentID == 0) // null UUID
 				return {};
 			
@@ -130,7 +130,7 @@ namespace OloEngine
 				auto& parentChildren = parent.Children();
 				UUID uuid = GetUUID();
 				if (std::find(parentChildren.begin(), parentChildren.end(), uuid) == parentChildren.end())
-					parentChildren.emplace_back(GetUUID());
+					parentChildren.emplace_back(uuid);
 			}
 		}
 
@@ -138,21 +138,21 @@ namespace OloEngine
 		{ 
 			if (!HasComponent<RelationshipComponent>())
 				AddComponent<RelationshipComponent>();
-			GetComponent<RelationshipComponent>().ParentHandle = parent; 
+			GetComponent<RelationshipComponent>().m_ParentHandle = parent; 
 		}
 
 		UUID GetParentUUID() const 
 		{ 
 			if (!HasComponent<RelationshipComponent>())
 				return UUID(0);
-			return GetComponent<RelationshipComponent>().ParentHandle; 
+			return GetComponent<RelationshipComponent>().m_ParentHandle; 
 		}
 
 		std::vector<UUID>& Children() 
 		{ 
 			if (!HasComponent<RelationshipComponent>())
 				AddComponent<RelationshipComponent>();
-			return GetComponent<RelationshipComponent>().Children; 
+			return GetComponent<RelationshipComponent>().m_Children; 
 		}
 
 		const std::vector<UUID>& Children() const 
@@ -162,7 +162,7 @@ namespace OloEngine
 				static std::vector<UUID> emptyChildren;
 				return emptyChildren;
 			}
-			return GetComponent<RelationshipComponent>().Children; 
+			return GetComponent<RelationshipComponent>().m_Children; 
 		}
 
 		bool RemoveChild(Entity child)

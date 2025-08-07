@@ -10,7 +10,7 @@
 namespace OloEngine
 {
     /**
-     * @brief Helper utilities for managing bone entities in Hazel-style animation
+     * @brief Helper utilities for managing bone entities
      * 
      * These utilities help with creating and managing the bone entity hierarchies
      * that represent skeleton bones as actual scene entities.
@@ -33,7 +33,7 @@ namespace OloEngine
         static std::vector<glm::mat4> GetModelSpaceBoneTransforms(
             const std::vector<UUID>& boneEntityIds, 
             MeshSource* meshSource,
-            class Scene* scene);
+            const class Scene* scene);
 
         /**
          * @brief Find bone entities by traversing the entity hierarchy
@@ -49,7 +49,7 @@ namespace OloEngine
         static std::vector<UUID> FindBoneEntityIds(
             Entity rootEntity,
             const Skeleton* skeleton,
-            class Scene* scene);
+            const class Scene* scene);
 
         /**
          * @brief Calculate the transform of the root bone relative to the entity
@@ -65,7 +65,7 @@ namespace OloEngine
         static glm::mat3 FindRootBoneTransform(
             Entity entity,
             const std::vector<UUID>& boneEntityIds,
-            class Scene* scene);
+            const class Scene* scene);
 
         /**
          * @brief Build bone entity IDs for all submeshes in a hierarchy
@@ -77,7 +77,7 @@ namespace OloEngine
          * @param rootEntity The root entity for bone searching
          * @param scene The scene containing the entities
          */
-        static void BuildMeshBoneEntityIds(Entity entity, Entity rootEntity, class Scene* scene);
+        static void BuildMeshBoneEntityIds(Entity entity, Entity rootEntity, const class Scene* scene);
 
         /**
          * @brief Build bone entity IDs for animation components
@@ -89,7 +89,7 @@ namespace OloEngine
          * @param rootEntity The root entity for bone searching
          * @param scene The scene containing the entities
          */
-        static void BuildAnimationBoneEntityIds(Entity entity, Entity rootEntity, class Scene* scene);
+        static void BuildAnimationBoneEntityIds(Entity entity, Entity rootEntity, const class Scene* scene);
 
     private:
         /**
@@ -100,6 +100,6 @@ namespace OloEngine
          * @param scene The scene containing the entities
          * @return The found entity or an invalid entity if not found
          */
-        static Entity FindEntityWithTag(Entity entity, const std::string& tag, class Scene* scene);
+        static Entity FindEntityWithTag(Entity entity, const std::string& tag, const class Scene* scene);
     };
 }

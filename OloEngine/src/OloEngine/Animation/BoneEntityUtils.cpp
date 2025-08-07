@@ -10,7 +10,7 @@ namespace OloEngine
     std::vector<glm::mat4> BoneEntityUtils::GetModelSpaceBoneTransforms(
         const std::vector<UUID>& boneEntityIds, 
         MeshSource* meshSource,
-        Scene* scene)
+        const Scene* scene)
     {
         std::vector<glm::mat4> boneTransforms(boneEntityIds.size());
         
@@ -21,7 +21,7 @@ namespace OloEngine
         if (!skeleton)
             return boneTransforms;
 
-        // Calculate hierarchical bone transforms (similar to Hazel's approach)
+        // Calculate hierarchical bone transforms
         for (u32 i = 0; i < std::min(static_cast<u32>(skeleton->m_BoneNames.size()), static_cast<u32>(boneEntityIds.size())); ++i)
         {
             Entity boneEntity = scene->TryGetEntityWithUUID(boneEntityIds[i]);
@@ -56,7 +56,7 @@ namespace OloEngine
     std::vector<UUID> BoneEntityUtils::FindBoneEntityIds(
         Entity rootEntity,
         const Skeleton* skeleton,
-        Scene* scene)
+        const Scene* scene)
     {
         std::vector<UUID> boneEntityIds;
 
@@ -93,7 +93,7 @@ namespace OloEngine
     glm::mat3 BoneEntityUtils::FindRootBoneTransform(
         Entity entity,
         const std::vector<UUID>& boneEntityIds,
-        Scene* scene)
+        const Scene* scene)
     {
         if (boneEntityIds.empty() || !scene)
             return glm::mat3(1.0f);
@@ -118,7 +118,7 @@ namespace OloEngine
         return glm::mat3(transform);
     }
 
-    void BoneEntityUtils::BuildMeshBoneEntityIds(Entity entity, Entity rootEntity, Scene* scene)
+    void BoneEntityUtils::BuildMeshBoneEntityIds(Entity entity, Entity rootEntity, const Scene* scene)
     {
         if (!scene)
             return;
@@ -145,7 +145,7 @@ namespace OloEngine
         }
     }
 
-    void BoneEntityUtils::BuildAnimationBoneEntityIds(Entity entity, Entity rootEntity, Scene* scene)
+    void BoneEntityUtils::BuildAnimationBoneEntityIds(Entity entity, Entity rootEntity, const Scene* scene)
     {
         if (!scene)
             return;
@@ -171,7 +171,7 @@ namespace OloEngine
         }
     }
 
-    Entity BoneEntityUtils::FindEntityWithTag(Entity entity, const std::string& tag, Scene* scene)
+    Entity BoneEntityUtils::FindEntityWithTag(Entity entity, const std::string& tag, const Scene* scene)
     {
         if (!entity || !scene)
             return Entity();

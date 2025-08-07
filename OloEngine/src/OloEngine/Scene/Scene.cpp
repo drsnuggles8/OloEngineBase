@@ -125,7 +125,8 @@ namespace OloEngine
 		idComponent.ID = uuid;
 
 		entity.AddComponent<TransformComponent>();
-		entity.AddComponent<RelationshipComponent>();
+		// RelationshipComponent will be added on-demand when needed
+		// entity.AddComponent<RelationshipComponent>();
 
 		auto& tag = entity.AddComponent<TagComponent>();
 		tag.Tag = name.empty() ? "Entity" : name;
@@ -506,18 +507,18 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 
 	std::vector<UUID> Scene::FindBoneEntityIds(Entity entity, Entity rootEntity, const Skeleton* skeleton) const
 	{
-		return BoneEntityUtils::FindBoneEntityIds(rootEntity, skeleton, const_cast<Scene*>(this));
+		return BoneEntityUtils::FindBoneEntityIds(entity, skeleton, this);
 	}
 
 	glm::mat3 Scene::FindRootBoneTransform(Entity entity, const std::vector<UUID>& boneEntityIds) const
 	{
-		return BoneEntityUtils::FindRootBoneTransform(entity, boneEntityIds, const_cast<Scene*>(this));
+		return BoneEntityUtils::FindRootBoneTransform(entity, boneEntityIds, this);
 	}
 
 	void Scene::BuildBoneEntityIds(Entity entity)
 	{
-		// This method doesn't exist in BoneEntityUtils, so we'll implement it here
-		// For now, just call BuildMeshBoneEntityIds with the entity as both parameters
+		// Build bone entity IDs for the given entity, using itself as the root entity
+		// This is useful when the entity is both the mesh and the root of the bone hierarchy
 		BuildMeshBoneEntityIds(entity, entity);
 	}
 
@@ -533,9 +534,10 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 
 	Entity Scene::TryGetEntityWithUUID(UUID id) const
 	{
-		if (m_EntityMap.find(id) != m_EntityMap.end())
+		auto it = m_EntityMap.find(id);
+		if (it != m_EntityMap.end())
 		{
-			return Entity{ m_EntityMap.at(id), const_cast<Scene*>(this) };
+			return Entity{ it->second, const_cast<Scene*>(this) };
 		}
 		return {};
 	}

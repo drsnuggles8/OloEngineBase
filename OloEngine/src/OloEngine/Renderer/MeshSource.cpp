@@ -9,14 +9,12 @@ namespace OloEngine
     MeshSource::MeshSource(const std::vector<Vertex>& vertices, const std::vector<u32>& indices)
         : m_Vertices(vertices), m_Indices(indices)
     {
-        Build();
         CalculateBounds();
     }
 
     MeshSource::MeshSource(std::vector<Vertex>&& vertices, std::vector<u32>&& indices)
         : m_Vertices(std::move(vertices)), m_Indices(std::move(indices))
     {
-        Build();
         CalculateBounds();
     }
 

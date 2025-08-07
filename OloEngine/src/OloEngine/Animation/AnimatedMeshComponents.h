@@ -21,27 +21,25 @@ namespace OloEngine
 	/**
 	 * @brief Component for entities that represent individual submeshes
 	 * 
-	 * Similar to Hazel's SubmeshComponent, this component is attached to entities
-	 * that represent individual submeshes within a mesh hierarchy. For rigged meshes,
-	 * the BoneEntityIds field maps skeleton bones to scene entities.
+	 * This component is attached to entities that represent individual submeshes within a mesh hierarchy.
+	 * For rigged meshes, the BoneEntityIds field maps skeleton bones to scene entities.
 	 */
 	struct SubmeshComponent
 	{
 		Ref<Mesh> Mesh;
-		std::vector<UUID> BoneEntityIds; // Maps skeleton bones to scene entities (Hazel-style)
+		std::vector<UUID> BoneEntityIds; // Maps skeleton bones to scene entities
 		u32 SubmeshIndex = 0;
 		bool Visible = true;
 
 		SubmeshComponent() = default;
 		SubmeshComponent(const SubmeshComponent& other) = default;
-		explicit SubmeshComponent(Ref<OloEngine::Mesh> mesh, u32 submeshIndex = 0)
-			: Mesh(mesh), SubmeshIndex(submeshIndex) {}
+		explicit SubmeshComponent(Ref<OloEngine::Mesh> mesh, u32 submeshIndex = 0) : Mesh(mesh), SubmeshIndex(submeshIndex) {}
 	};
 
 	/**
 	 * @brief Component for the root entity of a dynamic mesh
 	 * 
-	 * Similar to Hazel's MeshComponent, this tags the root entity of a mesh hierarchy.
+	 * This tags the root entity of a mesh hierarchy.
 	 * Child entities with SubmeshComponent represent the individual submeshes.
 	 */
 	struct MeshComponent
@@ -78,7 +76,7 @@ namespace OloEngine
 		float m_BlendDuration = 0.3f; // seconds
 		float m_BlendTime = 0.0f;
 		
-		// Bone entity management (Hazel-style)
+		// Bone entity management
 		std::vector<UUID> BoneEntityIds; // Maps skeleton bones to scene entities
 		glm::mat3 RootBoneTransform = glm::mat3(1.0f); // Transform of animated root bone relative to entity
 
@@ -103,9 +101,7 @@ namespace OloEngine
 	};
 
 	/**
-	 * @brief Component Usage Guide for Hazel-Style Animation
-	 * 
-	 * The refactored animation system follows Hazel's entity-based approach:
+	 * @brief Component Usage Guide for Animation
 	 * 
 	 * MeshComponent: Root entity that holds the MeshSource
 	 * - Attached to the main entity representing the entire mesh

@@ -9,6 +9,7 @@
 
 #include <vector>
 #include <memory>
+#include <stdexcept>
 
 namespace OloEngine 
 {
@@ -106,7 +107,11 @@ namespace OloEngine
         
         const BoneInfo& GetBoneInfo(u32 index) const 
         { 
-            OLO_CORE_ASSERT(index < m_BoneInfo.size(), "Bone info index out of range!");
+            if (index >= m_BoneInfo.size())
+            {
+                OLO_CORE_ERROR("Bone info index {} out of range (size: {})", index, m_BoneInfo.size());
+                throw std::out_of_range("Bone info index out of range");
+            }
             return m_BoneInfo[index]; 
         }
 
@@ -120,10 +125,32 @@ namespace OloEngine
         void CalculateSubmeshBounds(); // Calculate individual submesh bounds
         void Build(); // Build GPU resources
         
-        // GPU resource accessors
-        const Ref<VertexArray>& GetVertexArray() const { return m_VertexArray; }
-        const Ref<VertexBuffer>& GetVertexBuffer() const { return m_VertexBuffer; }
-        const Ref<IndexBuffer>& GetIndexBuffer() const { return m_IndexBuffer; }
+        // GPU resource accessors (with lazy initialization)
+        const Ref<VertexArray>& GetVertexArray() const 
+        { 
+            if (!m_Built) 
+            {
+                // Lazy initialization - build GPU resources on first access
+                const_cast<MeshSource*>(this)->Build();
+            }
+            return m_VertexArray; 
+        }
+        const Ref<VertexBuffer>& GetVertexBuffer() const 
+        { 
+            if (!m_Built) 
+            {
+                const_cast<MeshSource*>(this)->Build();
+            }
+            return m_VertexBuffer; 
+        }
+        const Ref<IndexBuffer>& GetIndexBuffer() const 
+        { 
+            if (!m_Built) 
+            {
+                const_cast<MeshSource*>(this)->Build();
+            }
+            return m_IndexBuffer; 
+        }
         
         // Bounding volume accessors
         const BoundingBox& GetBoundingBox() const { return m_BoundingBox; }

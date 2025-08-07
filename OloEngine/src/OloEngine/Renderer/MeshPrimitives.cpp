@@ -502,12 +502,61 @@ namespace OloEngine {
 			vertex.Position = glm::normalize(vertex.Position) * radius;
 			vertex.Normal = glm::normalize(vertex.Position);
 			
-			// Spherical UV mapping
+			// Spherical UV mapping - improved to handle seams
 			vertex.TexCoord.x = atan2(vertex.Normal.z, vertex.Normal.x) / (2.0f * glm::pi<f32>()) + 0.5f;
 			vertex.TexCoord.y = asin(vertex.Normal.y) / glm::pi<f32>() + 0.5f;
 		}
 
-		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		// Fix UV seam artifacts by detecting triangles that cross the seam and duplicating vertices
+		std::vector<Vertex> finalVertices = vertices;
+		std::vector<u32> finalIndices;
+		finalIndices.reserve(indices.size());
+
+		for (size_t i = 0; i < indices.size(); i += 3)
+		{
+			u32 v1 = indices[i];
+			u32 v2 = indices[i + 1];
+			u32 v3 = indices[i + 2];
+
+			f32 u1 = vertices[v1].TexCoord.x;
+			f32 u2 = vertices[v2].TexCoord.x;
+			f32 u3 = vertices[v3].TexCoord.x;
+
+			// Check if triangle crosses UV seam (large difference in U coordinates)
+			const f32 seamThreshold = 0.75f; // If U coordinates differ by more than this, we're crossing the seam
+			bool crossesSeam = (abs(u1 - u2) > seamThreshold) || (abs(u2 - u3) > seamThreshold) || (abs(u1 - u3) > seamThreshold);
+
+			if (crossesSeam)
+			{
+				// Duplicate vertices and adjust UV coordinates to ensure continuity
+				std::array<u32, 3> newIndices;
+				std::array<f32, 3> originalU = {u1, u2, u3};
+				std::array<u32, 3> originalIndices = {v1, v2, v3};
+
+				for (int j = 0; j < 3; j++)
+				{
+					Vertex newVertex = vertices[originalIndices[j]];
+					
+					// If this vertex has U < 0.25 and triangle contains vertices with U > 0.75, wrap U to > 1.0
+					if (originalU[j] < 0.25f && (originalU[(j+1)%3] > 0.75f || originalU[(j+2)%3] > 0.75f))
+					{
+						newVertex.TexCoord.x += 1.0f;
+					}
+					
+					finalVertices.push_back(newVertex);
+					newIndices[j] = static_cast<u32>(finalVertices.size() - 1);
+				}
+
+				finalIndices.insert(finalIndices.end(), {newIndices[0], newIndices[1], newIndices[2]});
+			}
+			else
+			{
+				// No seam crossing, use original indices
+				finalIndices.insert(finalIndices.end(), {v1, v2, v3});
+			}
+		}
+
+		auto meshSource = Ref<MeshSource>::Create(finalVertices, finalIndices);
 		
 		// Create a default submesh for the entire mesh
 		Submesh submesh;
@@ -641,16 +690,18 @@ namespace OloEngine {
 	{
 		OLO_PROFILE_FUNCTION();
 
+		// Note: Normals are set to (0,0,1) as a default since wireframe rendering 
+		// typically doesn't use normals for lighting calculations
 		std::vector<Vertex> vertices = {
 			// 8 vertices of a cube
-			{ {-0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f} },
-			{ { 0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f} },
-			{ { 0.5f,  0.5f, -0.5f}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f} },
-			{ {-0.5f,  0.5f, -0.5f}, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f} },
-			{ {-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f} },
-			{ { 0.5f, -0.5f,  0.5f}, {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f} },
-			{ { 0.5f,  0.5f,  0.5f}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f} },
-			{ {-0.5f,  0.5f,  0.5f}, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f} }
+			{ {-0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f} },
+			{ { 0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f} },
+			{ { 0.5f,  0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f} },
+			{ {-0.5f,  0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f} },
+			{ {-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f} },
+			{ { 0.5f, -0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f} },
+			{ { 0.5f,  0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f} },
+			{ {-0.5f,  0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f} }
 		};
 
 		std::vector<u32> indices = {
@@ -683,6 +734,12 @@ namespace OloEngine {
 	{
 		OLO_PROFILE_FUNCTION();
 
+		// NOTE: In this function, the Normal attribute is repurposed to store axis colors 
+		// instead of actual surface normals. This is used for debugging and visualization:
+		// - X-axis: Red (1, 0, 0)
+		// - Y-axis: Green (0, 1, 0) 
+		// - Z-axis: Blue (0, 0, 1)
+		// The shader can interpret these "normals" as color values for axis rendering.
 		std::vector<Vertex> vertices = {
 			// X-axis (red)
 			{ {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f} },
