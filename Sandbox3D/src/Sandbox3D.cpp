@@ -11,6 +11,7 @@
 
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/MaterialPresets.h"
+#include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderDebugUtils.h"
@@ -87,8 +88,8 @@ void Sandbox3D::OnAttach()
     // Note: GPUResourceInspector is initialized in Application constructor
     
     // Create 3D meshes
-    m_CubeMesh = OloEngine::Mesh::CreateCube();
-    m_SphereMesh = OloEngine::Mesh::CreateSphere();
+    m_CubeMesh = OloEngine::MeshPrimitives::CreateCube();
+    m_SphereMesh = OloEngine::MeshPrimitives::CreateSphere();
     
     // Create a plane mesh with the desired geometry
     m_PlaneMesh = OloEngine::Ref<OloEngine::Mesh>::Create(

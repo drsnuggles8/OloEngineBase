@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Buffer.h"
 #include "OloEngine/Renderer/Mesh.h"
+#include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/SkinnedMesh.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
@@ -46,9 +47,9 @@ namespace OloEngine
 		CommandDispatch::Initialize();
 		OLO_CORE_INFO("CommandDispatch system initialized.");
 
-		s_Data.CubeMesh = Mesh::CreateCube();
-		s_Data.QuadMesh = Mesh::CreatePlane(1.0f, 1.0f);
-		s_Data.SkyboxMesh = Mesh::CreateSkyboxCube();
+		s_Data.CubeMesh = MeshPrimitives::CreateCube();
+		s_Data.QuadMesh = MeshPrimitives::CreatePlane(1.0f, 1.0f);
+		s_Data.SkyboxMesh = MeshPrimitives::CreateSkyboxCube();
 		m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
 		m_ShaderLibrary.Load("assets/shaders/Lighting3D.glsl");
 		m_ShaderLibrary.Load("assets/shaders/SkinnedLighting3D_Simple.glsl");
@@ -416,7 +417,7 @@ namespace OloEngine
 		if (!s_Data.QuadMesh || !s_Data.QuadMesh->GetVertexArray())
 		{
 			OLO_CORE_ERROR("Renderer3D::DrawQuad: Quad mesh or its vertex array is invalid!");
-			s_Data.QuadMesh = Mesh::CreatePlane(1.0f, 1.0f);
+			s_Data.QuadMesh = MeshPrimitives::CreatePlane(1.0f, 1.0f);
 			if (!s_Data.QuadMesh || !s_Data.QuadMesh->GetVertexArray())
 				return nullptr;
 		}

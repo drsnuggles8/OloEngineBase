@@ -127,6 +127,8 @@
 		"OloEngine/Renderer/MaterialPresets.h"
 		"OloEngine/Renderer/Mesh.cpp"
 		"OloEngine/Renderer/Mesh.h"
+		"OloEngine/Renderer/MeshPrimitives.cpp"
+		"OloEngine/Renderer/MeshPrimitives.h"
 		"OloEngine/Renderer/SkinnedMesh.cpp"
 		"OloEngine/Renderer/SkinnedMesh.h"
 		"OloEngine/Renderer/Model.cpp"
