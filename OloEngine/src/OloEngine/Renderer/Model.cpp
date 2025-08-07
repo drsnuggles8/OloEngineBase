@@ -144,6 +144,18 @@ namespace OloEngine
 		}
 
 		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		
+		// Create a default submesh for the entire mesh
+		Submesh submesh;
+		submesh.BaseVertex = 0;
+		submesh.BaseIndex = 0;
+		submesh.IndexCount = static_cast<u32>(indices.size());
+		submesh.VertexCount = static_cast<u32>(vertices.size());
+		submesh.MaterialIndex = 0;
+		submesh.IsRigged = false;
+		submesh.NodeName = mesh->mName.C_Str();
+		meshSource->AddSubmesh(submesh);
+		
 		meshSource->Build();
 		return Ref<Mesh>::Create(meshSource, 0);
 	}

@@ -429,6 +429,10 @@ namespace OloEngine
 template<>
 void Scene::OnComponentAdded<AnimatedMeshComponent>(Entity, AnimatedMeshComponent&) {}
 template<>
+void Scene::OnComponentAdded<MeshComponent>(Entity, MeshComponent&) {}
+template<>
+void Scene::OnComponentAdded<SubmeshComponent>(Entity, SubmeshComponent&) {}
+template<>
 void Scene::OnComponentAdded<AnimationStateComponent>(Entity, AnimationStateComponent&) {}
 template<>
 void Scene::OnComponentAdded<Skeleton>(Entity, Skeleton&) {}

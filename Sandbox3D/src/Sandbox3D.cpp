@@ -87,21 +87,10 @@ void Sandbox3D::OnAttach()
     OloEngine::RendererProfiler::GetInstance().Initialize();
     // Note: GPUResourceInspector is initialized in Application constructor
     
-    // Create 3D meshes
+    // Create 3D meshes using MeshPrimitives for consistency
     m_CubeMesh = OloEngine::MeshPrimitives::CreateCube();
     m_SphereMesh = OloEngine::MeshPrimitives::CreateSphere();
-    
-    // Create a plane mesh with the desired geometry
-    m_PlaneMesh = OloEngine::Ref<OloEngine::Mesh>::Create(
-        std::vector<OloEngine::Vertex>{
-            // Top face (facing positive Y)  
-            { { 12.5f, 0.0f,  12.5f}, { 0.0f, 1.0f, 0.0f}, {1.0f, 1.0f} },
-            { { 12.5f, 0.0f, -12.5f}, { 0.0f, 1.0f, 0.0f}, {1.0f, 0.0f} },
-            { {-12.5f, 0.0f, -12.5f}, { 0.0f, 1.0f, 0.0f}, {0.0f, 0.0f} },
-            { {-12.5f, 0.0f,  12.5f}, { 0.0f, 1.0f, 0.0f}, {0.0f, 1.0f} }
-        },
-        std::vector<u32>{ 0, 1, 3, 1, 2, 3 }
-    );
+    m_PlaneMesh = OloEngine::MeshPrimitives::CreatePlane(25.0f, 25.0f);
 
     // Load backpack model
     m_BackpackModel = OloEngine::Ref<OloEngine::Model>::Create("assets/backpack/backpack.obj");
@@ -713,37 +702,9 @@ void Sandbox3D::RenderMaterialTestingScene()
 
 void Sandbox3D::RenderAnimationTestingScene()
 {
-    // Render the imported animated model using ECS
-    if (m_TestScene && m_ImportedModelEntity.HasComponent<OloEngine::AnimatedMeshComponent>())
-    {
-        // Use a simple default material - entities with MaterialComponent will use their own materials
-        OloEngine::Material defaultMaterial = *OloEngine::Material::CreatePBR("Default", glm::vec3(0.7f), 0.0f, 0.5f);
-        
-        // For now, just render normally - wireframe mode would need deeper renderer integration
-        OloEngine::Renderer3D::RenderAnimatedMeshes(m_TestScene, defaultMaterial);
-        
-        // Render skeleton visualization if enabled
-        if (m_ShowSkeleton && m_ImportedModelEntity.HasComponent<OloEngine::SkeletonComponent>())
-        {
-            auto& skeletonComp = m_ImportedModelEntity.GetComponent<OloEngine::SkeletonComponent>();
-            
-            // Check if skeleton pointer is valid before dereferencing
-            if (skeletonComp.m_Skeleton)
-            {
-                auto& transformComp = m_ImportedModelEntity.GetComponent<OloEngine::TransformComponent>();
-                
-                // Create model matrix from transform component
-                glm::mat4 modelMatrix = glm::translate(glm::mat4(1.0f), transformComp.Translation)
-                                      * glm::toMat4(glm::quat(transformComp.Rotation))
-                                      * glm::scale(glm::mat4(1.0f), transformComp.Scale);
-                
-                // Draw the skeleton using the skeleton component data
-                OloEngine::Renderer3D::DrawSkeleton(*skeletonComp.m_Skeleton, modelMatrix, 
-                                                   m_ShowBones, m_ShowJoints, 
-                                                   m_JointSize, m_BoneThickness);
-            }
-        }
-    }
+    // TODO: Update AnimatedModel system to work with new MeshSource architecture
+    // For now, skip rendering until AnimatedModel is updated to use MeshComponent/SubmeshComponent
+    // The AnimatedModel class still uses legacy SkinnedMesh and needs refactoring
 }
 
 void Sandbox3D::RenderLightingTestingScene()
@@ -1403,16 +1364,24 @@ void Sandbox3D::LoadTestAnimatedModel()
         
         transformComp.Scale = modelScale;
         
-        auto& animMeshComp = m_ImportedModelEntity.AddComponent<OloEngine::AnimatedMeshComponent>();
+        // TODO: Update AnimatedModel to work with new MeshSource system
+        // The AnimatedModel still uses the legacy SkinnedMesh system and needs to be updated
+        // to work with the new MeshSource/MeshComponent architecture
+        /*
+        auto& meshComp = m_ImportedModelEntity.AddComponent<OloEngine::MeshComponent>();
         if (!m_CesiumManModel->GetMeshes().empty())
         {
-            animMeshComp.m_Mesh = m_CesiumManModel->GetMeshes()[0];
+            // The new system requires MeshSource instead of individual meshes
+            // For now, get the mesh source from the first mesh
+            auto firstMesh = m_CesiumManModel->GetMeshes()[0];
+            meshComp.MeshSource = firstMesh->GetMeshSource();
         }
         else
         {
             OLO_ERROR("{} model has no meshes!", modelName);
             return;
         }
+        */
         
         auto& materialComp = m_ImportedModelEntity.AddComponent<OloEngine::MaterialComponent>();
         if (!m_CesiumManModel->GetMaterials().empty())

@@ -4,7 +4,6 @@
 #include "OloEngine.h"
 #include "OloEngine/Renderer/Camera/PerspectiveCameraController.h"
 #include "OloEngine/Renderer/Mesh.h"
-#include "OloEngine/Renderer/SkinnedMesh.h"
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Renderer/Material.h"

@@ -62,6 +62,18 @@ namespace OloEngine {
 		};
 
 		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		
+		// Create a default submesh for the entire mesh
+		Submesh submesh;
+		submesh.BaseVertex = 0;
+		submesh.BaseIndex = 0;
+		submesh.IndexCount = static_cast<u32>(indices.size());
+		submesh.VertexCount = static_cast<u32>(vertices.size());
+		submesh.MaterialIndex = 0;
+		submesh.IsRigged = false;
+		submesh.NodeName = "Cube";
+		meshSource->AddSubmesh(submesh);
+		
 		meshSource->Build();
 		return Ref<Mesh>::Create(meshSource, 0);
 	}
@@ -122,6 +134,18 @@ namespace OloEngine {
 		}
 
 		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		
+		// Create a default submesh for the entire mesh
+		Submesh submesh;
+		submesh.BaseVertex = 0;
+		submesh.BaseIndex = 0;
+		submesh.IndexCount = static_cast<u32>(indices.size());
+		submesh.VertexCount = static_cast<u32>(vertices.size());
+		submesh.MaterialIndex = 0;
+		submesh.IsRigged = false;
+		submesh.NodeName = "Sphere";
+		meshSource->AddSubmesh(submesh);
+		
 		meshSource->Build();
 		return Ref<Mesh>::Create(meshSource, 0);
 	}
@@ -146,6 +170,18 @@ namespace OloEngine {
 		};
 
 		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		
+		// Create a default submesh for the entire mesh
+		Submesh submesh;
+		submesh.BaseVertex = 0;
+		submesh.BaseIndex = 0;
+		submesh.IndexCount = static_cast<u32>(indices.size());
+		submesh.VertexCount = static_cast<u32>(vertices.size());
+		submesh.MaterialIndex = 0;
+		submesh.IsRigged = false;
+		submesh.NodeName = "Plane";
+		meshSource->AddSubmesh(submesh);
+		
 		meshSource->Build();
 		return Ref<Mesh>::Create(meshSource, 0);
 	}
@@ -576,6 +612,8 @@ namespace OloEngine {
 		return Ref<Mesh>::Create(meshSource, 0);
 	}
 
+	// TODO: Update these methods to work with new MeshSource bone influence system
+	/*
 	Ref<SkinnedMesh> MeshPrimitives::CreateSkinnedCube()
 	{
 		OLO_PROFILE_FUNCTION();
@@ -636,7 +674,10 @@ namespace OloEngine {
 
 		return Ref<SkinnedMesh>::Create(std::move(vertices), std::move(indices));
 	}
+	*/
 
+	// TODO: Update this method to work with new MeshSource bone influence system
+	/*
 	Ref<SkinnedMesh> MeshPrimitives::CreateMultiBoneSkinnedCube()
 	{
 		OLO_PROFILE_FUNCTION();
@@ -697,5 +738,6 @@ namespace OloEngine {
 
 		return Ref<SkinnedMesh>::Create(std::move(vertices), std::move(indices));
 	}
+	*/
 
 }

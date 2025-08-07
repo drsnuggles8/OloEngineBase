@@ -3,7 +3,6 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Mesh.h"
-#include "OloEngine/Renderer/SkinnedMesh.h"
 
 namespace OloEngine {
 
@@ -11,7 +10,7 @@ namespace OloEngine {
 	 * @brief Mesh primitives utility class for common geometric shapes
 	 * 
 	 * This class provides factory methods for creating commonly used mesh primitives
-	 * without cluttering the core Mesh and SkinnedMesh classes. These are essentially
+	 * without cluttering the core Mesh classes. These are essentially
 	 * convenience generators that create standard geometric shapes with proper
 	 * vertex data, normals, and texture coordinates.
 	 */
@@ -122,20 +121,12 @@ namespace OloEngine {
 		static Ref<Mesh> CreateCoordinateAxes(f32 length = 1.0f);
 		
 		// =============================================================================
-		// SKINNED MESH PRIMITIVES
+		// ANIMATED MESH PRIMITIVES (TODO: Update for new MeshSource system)
 		// =============================================================================
 		
-		/**
-		 * @brief Create a skinned cube mesh
-		 * @return SkinnedMesh cube with single bone influence
-		 */
-		static Ref<SkinnedMesh> CreateSkinnedCube();
-		
-		/**
-		 * @brief Create a multi-bone skinned cube mesh
-		 * @return SkinnedMesh cube with multiple bone influences for testing
-		 */
-		static Ref<SkinnedMesh> CreateMultiBoneSkinnedCube();
+		// TODO: Update these methods to work with new MeshSource bone influence system
+		// static Ref<Mesh> CreateSkinnedCube();
+		// static Ref<Mesh> CreateMultiBoneSkinnedCube();
 	};
 
 }
