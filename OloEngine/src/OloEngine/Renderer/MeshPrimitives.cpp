@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "MeshPrimitives.h"
+#include "MeshSource.h"
 
 namespace OloEngine {
 
@@ -60,7 +61,9 @@ namespace OloEngine {
 			20, 21, 23, 21, 22, 23
 		};
 
-		return Ref<Mesh>::Create(vertices, indices);
+		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		meshSource->Build();
+		return Ref<Mesh>::Create(meshSource, 0);
 	}
 
 	Ref<Mesh> MeshPrimitives::CreateSphere(f32 radius, u32 segments)
@@ -118,7 +121,9 @@ namespace OloEngine {
 			}
 		}
 
-		return Ref<Mesh>::Create(vertices, indices);
+		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		meshSource->Build();
+		return Ref<Mesh>::Create(meshSource, 0);
 	}
 
 	Ref<Mesh> MeshPrimitives::CreatePlane(f32 width, f32 length)
@@ -140,7 +145,9 @@ namespace OloEngine {
 			0, 1, 3, 1, 2, 3 // Top face
 		};
 
-		return Ref<Mesh>::Create(vertices, indices);
+		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		meshSource->Build();
+		return Ref<Mesh>::Create(meshSource, 0);
 	}
 
 	Ref<Mesh> MeshPrimitives::CreateCylinder(f32 radius, f32 height, u32 segments)
@@ -209,7 +216,9 @@ namespace OloEngine {
 			indices.push_back(nextSideTop);
 		}
 
-		return Ref<Mesh>::Create(vertices, indices);
+		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		meshSource->Build();
+		return Ref<Mesh>::Create(meshSource, 0);
 	}
 
 	Ref<Mesh> MeshPrimitives::CreateCone(f32 radius, f32 height, u32 segments)
@@ -259,7 +268,9 @@ namespace OloEngine {
 			indices.push_back(2 + next * 2 + 1);
 		}
 
-		return Ref<Mesh>::Create(vertices, indices);
+		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		meshSource->Build();
+		return Ref<Mesh>::Create(meshSource, 0);
 	}
 
 	Ref<Mesh> MeshPrimitives::CreateSkyboxCube()
@@ -320,7 +331,9 @@ namespace OloEngine {
 			20, 21, 22, 22, 23, 20
 		};
 
-		return Ref<Mesh>::Create(vertices, indices);
+		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		meshSource->Build();
+		return Ref<Mesh>::Create(meshSource, 0);
 	}
 
 	Ref<Mesh> MeshPrimitives::CreateFullscreenQuad()
@@ -338,7 +351,9 @@ namespace OloEngine {
 			0, 1, 2, 2, 3, 0
 		};
 
-		return Ref<Mesh>::Create(vertices, indices);
+		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		meshSource->Build();
+		return Ref<Mesh>::Create(meshSource, 0);
 	}
 
 	Ref<Mesh> MeshPrimitives::CreateIcosphere(f32 radius, u32 subdivisions)
@@ -408,7 +423,9 @@ namespace OloEngine {
 			vertex.TexCoord.y = asin(vertex.Normal.y) / glm::pi<f32>() + 0.5f;
 		}
 
-		return Ref<Mesh>::Create(vertices, indices);
+		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		meshSource->Build();
+		return Ref<Mesh>::Create(meshSource, 0);
 	}
 
 	Ref<Mesh> MeshPrimitives::CreateTorus(f32 majorRadius, f32 minorRadius, u32 majorSegments, u32 minorSegments)
@@ -459,7 +476,9 @@ namespace OloEngine {
 			}
 		}
 
-		return Ref<Mesh>::Create(vertices, indices);
+		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		meshSource->Build();
+		return Ref<Mesh>::Create(meshSource, 0);
 	}
 
 	Ref<Mesh> MeshPrimitives::CreateGrid(f32 size, u32 divisions)
@@ -493,7 +512,9 @@ namespace OloEngine {
 			indices.push_back(i + 1);
 		}
 
-		return Ref<Mesh>::Create(vertices, indices);
+		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		meshSource->Build();
+		return Ref<Mesh>::Create(meshSource, 0);
 	}
 
 	Ref<Mesh> MeshPrimitives::CreateWireframeCube()
@@ -521,7 +542,9 @@ namespace OloEngine {
 			0, 4, 1, 5, 2, 6, 3, 7
 		};
 
-		return Ref<Mesh>::Create(vertices, indices);
+		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		meshSource->Build();
+		return Ref<Mesh>::Create(meshSource, 0);
 	}
 
 	Ref<Mesh> MeshPrimitives::CreateCoordinateAxes(f32 length)
@@ -548,7 +571,9 @@ namespace OloEngine {
 			4, 5   // Z-axis line
 		};
 
-		return Ref<Mesh>::Create(vertices, indices);
+		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		meshSource->Build();
+		return Ref<Mesh>::Create(meshSource, 0);
 	}
 
 	Ref<SkinnedMesh> MeshPrimitives::CreateSkinnedCube()

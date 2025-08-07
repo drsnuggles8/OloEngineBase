@@ -186,7 +186,9 @@ namespace OloEngine
 		AudioListenerComponent(const AudioListenerComponent&) = default;
 	};
 
-	struct AnimatedMeshComponent;
+	struct AnimatedMeshComponent;  // DEPRECATED: Use SubmeshComponent instead
+	struct SubmeshComponent;       // NEW: Individual submesh representation
+	struct MeshComponent;          // NEW: Root mesh entity component
 	struct AnimationStateComponent;
 	struct SkeletonComponent;
 
@@ -198,6 +200,17 @@ namespace OloEngine
 		MaterialComponent() = default;
 		MaterialComponent(const Material& material) : m_Material(material) {}
 		MaterialComponent(const MaterialComponent&) = default;
+	};
+
+	// Entity relationship component for parent-child hierarchies (Hazel-style)
+	struct RelationshipComponent
+	{
+		UUID ParentHandle = 0;
+		std::vector<UUID> Children;
+
+		RelationshipComponent() = default;
+		RelationshipComponent(const RelationshipComponent&) = default;
+		RelationshipComponent(UUID parent) : ParentHandle(parent) {}
 	};
 
 	template<typename... Component>
@@ -217,9 +230,12 @@ namespace OloEngine
 		ScriptComponent,
 		AudioSourceComponent,
 		AudioListenerComponent,
-		AnimatedMeshComponent,
+		// AnimatedMeshComponent removed - deprecated
+		SubmeshComponent,         // NEW
+		MeshComponent,            // NEW
 		AnimationStateComponent,
 		SkeletonComponent,
-		MaterialComponent
+		MaterialComponent,
+		RelationshipComponent
 	>;
 }

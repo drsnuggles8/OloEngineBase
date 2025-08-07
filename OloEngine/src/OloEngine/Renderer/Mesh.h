@@ -2,66 +2,58 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
-#include "OloEngine/Renderer/RendererResource.h"
-#include "OloEngine/Renderer/Vertex.h"
-#include "OloEngine/Renderer/VertexArray.h"
-#include "OloEngine/Renderer/BoundingVolume.h"
-
-#include <vector>
-#include <memory>
+#include "OloEngine/Asset/Asset.h"
+#include "MeshSource.h"
 
 namespace OloEngine 
 {
-    class Mesh : public RendererResource
+    /**
+     * @brief Mesh asset that references a MeshSource and specifies a submesh index
+     * 
+     * Similar to Hazel's Mesh class, this acts as a lightweight reference to a specific
+     * submesh within a MeshSource. Multiple Mesh assets can reference the same MeshSource
+     * but different submeshes.
+     */
+    class Mesh : public Asset
     {
     public:
         Mesh() = default;
-        Mesh(const std::vector<Vertex>& vertices, const std::vector<u32>& indices);
-        Mesh(std::vector<Vertex>&& vertices, std::vector<u32>&& indices);
-        ~Mesh() = default;
+        Mesh(Ref<MeshSource> meshSource, u32 submeshIndex = 0);
+        virtual ~Mesh() = default;
 
-        void SetVertices(const std::vector<Vertex>& vertices);
-        void SetVertices(std::vector<Vertex>&& vertices);
-        void SetIndices(const std::vector<u32>& indices);
-        void SetIndices(std::vector<u32>&& indices);
-
-        void Build();
-        void CalculateBounds();
-
-        // Draw the mesh
-        void Draw() const;
-
-        [[nodiscard]] const std::vector<Vertex>& GetVertices() const { return m_Vertices; }
-        [[nodiscard]] const std::vector<u32>& GetIndices() const { return m_Indices; }
-        [[nodiscard]] const Ref<VertexArray>& GetVertexArray() const { return m_VertexArray; }
+        // MeshSource and submesh access
+        Ref<MeshSource> GetMeshSource() const { return m_MeshSource; }
+        void SetMeshSource(Ref<MeshSource> meshSource) { m_MeshSource = meshSource; }
         
-        // Bounding volume accessors
-        [[nodiscard]] const BoundingBox& GetBoundingBox() const { return m_BoundingBox; }
-        [[nodiscard]] const BoundingSphere& GetBoundingSphere() const { return m_BoundingSphere; }
+        u32 GetSubmeshIndex() const { return m_SubmeshIndex; }
+        void SetSubmeshIndex(u32 submeshIndex) { m_SubmeshIndex = submeshIndex; }
+
+        // Convenience accessors that delegate to MeshSource
+        const std::vector<Vertex>& GetVertices() const;
+        const std::vector<u32>& GetIndices() const;
+        const Ref<VertexArray>& GetVertexArray() const;
+        
+        // Submesh-specific data
+        const Submesh& GetSubmesh() const;
+        bool IsRigged() const;
+        
+        // Bounding volume accessors for this specific submesh
+        BoundingBox GetBoundingBox() const;
+        BoundingSphere GetBoundingSphere() const;
         
         // Get transformed bounding volumes
-        [[nodiscard]] BoundingBox GetTransformedBoundingBox(const glm::mat4& transform) const { return m_BoundingBox.Transform(transform); }
-        [[nodiscard]] BoundingSphere GetTransformedBoundingSphere(const glm::mat4& transform) const { return m_BoundingSphere.Transform(transform); }
+        BoundingBox GetTransformedBoundingBox(const glm::mat4& transform) const;
+        BoundingSphere GetTransformedBoundingSphere(const glm::mat4& transform) const;
+        
+        u32 GetRendererID() const;
+        u32 GetIndexCount() const;
 
-		// Add to Mesh.h in the public section
-		[[nodiscard]] u32 GetRendererID() const { return m_VertexArray ? m_VertexArray->GetRendererID() : 0; }
-		[[nodiscard]] u32 GetIndexCount() const { return static_cast<u32>(m_Indices.size()); }
-
-		// Asset interface
-		static AssetType GetStaticType() { return AssetType::Mesh; }
-		virtual AssetType GetAssetType() const override { return GetStaticType(); }
+        // Asset interface
+        static AssetType GetStaticType() { return AssetType::Mesh; }
+        AssetType GetAssetType() const override { return GetStaticType(); }
 
     private:
-        std::vector<Vertex> m_Vertices;
-        std::vector<u32> m_Indices;
-        
-        Ref<VertexArray> m_VertexArray;
-        Ref<VertexBuffer> m_VertexBuffer;
-        Ref<IndexBuffer> m_IndexBuffer;
-        
-        BoundingBox m_BoundingBox;
-        BoundingSphere m_BoundingSphere;
-        
-        bool m_Built = false;
+        Ref<MeshSource> m_MeshSource;
+        u32 m_SubmeshIndex = 0;
     };
 }

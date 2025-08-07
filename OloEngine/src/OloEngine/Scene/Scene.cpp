@@ -5,6 +5,8 @@
 #include "Components.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
+#include "OloEngine/Animation/BoneEntityUtils.h"
+#include "OloEngine/Renderer/MeshSource.h"
 
 #include <glm/glm.hpp>
 #include <ranges>
@@ -51,11 +53,11 @@ namespace OloEngine
 		([&]()
 		{
 			auto view = srcRegistry.view<Component>();
-			for (auto it = view.rbegin(); it != view.rend(); it++)
+			for (auto entity : view)
 			{
-				entt::entity dstEntity = enttMap.at(srcRegistry.get<IDComponent>(*it).ID);
+				entt::entity dstEntity = enttMap.at(srcRegistry.get<IDComponent>(entity).ID);
 
-				const auto& srcComponent = srcRegistry.get<Component>(*it);
+				const auto& srcComponent = srcRegistry.get<Component>(entity);
 				dstRegistry.emplace_or_replace<Component>(dstEntity, srcComponent);
 			}
 		}(), ...);
@@ -123,6 +125,7 @@ namespace OloEngine
 		idComponent.ID = uuid;
 
 		entity.AddComponent<TransformComponent>();
+		entity.AddComponent<RelationshipComponent>();
 
 		auto& tag = entity.AddComponent<TagComponent>();
 		tag.Tag = name.empty() ? "Entity" : name;
@@ -491,6 +494,54 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 		return {};
 	}
 
+	// Bone entity management methods (Hazel-style)
+	std::vector<glm::mat4> Scene::GetModelSpaceBoneTransforms(const std::vector<UUID>& boneEntityIds, Ref<MeshSource> meshSource)
+	{
+		return BoneEntityUtils::GetModelSpaceBoneTransforms(boneEntityIds, meshSource, this);
+	}
+
+	std::vector<UUID> Scene::FindBoneEntityIds(Entity entity, Entity rootEntity, const Skeleton* skeleton) const
+	{
+		return BoneEntityUtils::FindBoneEntityIds(rootEntity, skeleton, const_cast<Scene*>(this));
+	}
+
+	glm::mat3 Scene::FindRootBoneTransform(Entity entity, const std::vector<UUID>& boneEntityIds) const
+	{
+		return BoneEntityUtils::FindRootBoneTransform(entity, boneEntityIds, const_cast<Scene*>(this));
+	}
+
+	void Scene::BuildBoneEntityIds(Entity entity)
+	{
+		// This method doesn't exist in BoneEntityUtils, so we'll implement it here
+		// For now, just call BuildMeshBoneEntityIds with the entity as both parameters
+		BuildMeshBoneEntityIds(entity, entity);
+	}
+
+	void Scene::BuildMeshBoneEntityIds(Entity entity, Entity rootEntity)
+	{
+		BoneEntityUtils::BuildMeshBoneEntityIds(entity, rootEntity, this);
+	}
+
+	void Scene::BuildAnimationBoneEntityIds(Entity entity, Entity rootEntity)
+	{
+		BoneEntityUtils::BuildAnimationBoneEntityIds(entity, rootEntity, this);
+	}
+
+	Entity Scene::TryGetEntityWithUUID(UUID id) const
+	{
+		if (m_EntityMap.find(id) != m_EntityMap.end())
+		{
+			return Entity{ m_EntityMap.at(id), const_cast<Scene*>(this) };
+		}
+		return {};
+	}
+
+	Entity Scene::GetEntityWithUUID(UUID id) const
+	{
+		OLO_CORE_ASSERT(m_EntityMap.contains(id), "Entity with UUID not found");
+		return Entity{ m_EntityMap.at(id), const_cast<Scene*>(this) };
+	}
+
 	void Scene::OnPhysics2DStart()
 	{
 		b2WorldDef worldDef = b2DefaultWorldDef();
@@ -651,6 +702,11 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 
 	template<>
 	void Scene::OnComponentAdded<AudioListenerComponent>(Entity, AudioListenerComponent&)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<RelationshipComponent>(Entity, RelationshipComponent&)
 	{
 	}
 }

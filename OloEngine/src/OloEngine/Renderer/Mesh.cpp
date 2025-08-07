@@ -1,120 +1,90 @@
 #include "OloEnginePCH.h"
-#include "OloEngine/Renderer/Mesh.h"
-#include "OloEngine/Renderer/RenderCommand.h"
-
-#include <glm/gtc/constants.hpp>
+#include "Mesh.h"
+#include "VertexArray.h"
 
 namespace OloEngine
 {
-    Mesh::Mesh(const std::vector<Vertex>& vertices, const std::vector<u32>& indices)
-        : m_Vertices(vertices), m_Indices(indices)
+    Mesh::Mesh(Ref<MeshSource> meshSource, u32 submeshIndex)
+        : m_MeshSource(meshSource), m_SubmeshIndex(submeshIndex)
     {
-        Build();
+        OLO_CORE_ASSERT(m_MeshSource, "MeshSource is null!");
+        OLO_CORE_ASSERT(m_SubmeshIndex < m_MeshSource->GetSubmeshes().size(), "Submesh index out of range!");
     }
 
-    Mesh::Mesh(std::vector<Vertex>&& vertices, std::vector<u32>&& indices)
-        : m_Vertices(std::move(vertices)), m_Indices(std::move(indices))
+    const std::vector<Vertex>& Mesh::GetVertices() const
     {
-        Build();
+        OLO_CORE_ASSERT(m_MeshSource, "MeshSource is null!");
+        return m_MeshSource->GetVertices();
     }
 
-    void Mesh::SetVertices(const std::vector<Vertex>& vertices)
+    const std::vector<u32>& Mesh::GetIndices() const
     {
-        m_Vertices = vertices;
-        m_Built = false;
+        OLO_CORE_ASSERT(m_MeshSource, "MeshSource is null!");
+        return m_MeshSource->GetIndices();
     }
 
-    void Mesh::SetVertices(std::vector<Vertex>&& vertices)
+    const Ref<VertexArray>& Mesh::GetVertexArray() const
     {
-        m_Vertices = std::move(vertices);
-        m_Built = false;
+        OLO_CORE_ASSERT(m_MeshSource, "MeshSource is null!");
+        return m_MeshSource->GetVertexArray();
     }
 
-    void Mesh::SetIndices(const std::vector<u32>& indices)
+    const Submesh& Mesh::GetSubmesh() const
     {
-        m_Indices = indices;
-        m_Built = false;
+        OLO_CORE_ASSERT(m_MeshSource, "MeshSource is null!");
+        OLO_CORE_ASSERT(m_SubmeshIndex < m_MeshSource->GetSubmeshes().size(), "Submesh index out of range!");
+        return m_MeshSource->GetSubmeshes()[m_SubmeshIndex];
     }
 
-    void Mesh::SetIndices(std::vector<u32>&& indices)
+    bool Mesh::IsRigged() const
     {
-        m_Indices = std::move(indices);
-        m_Built = false;
+        return m_MeshSource && m_MeshSource->IsSubmeshRigged(m_SubmeshIndex);
     }
 
-    void Mesh::Build()
+    BoundingBox Mesh::GetBoundingBox() const
     {
-        OLO_PROFILE_FUNCTION();
-
-        if (m_Vertices.empty() || m_Indices.empty())
-        {
-            OLO_CORE_WARN("Mesh::Build: Attempting to build a mesh with no vertices or indices!");
-            return;
-        }
-
-        m_VertexArray = VertexArray::Create();
-
-        m_VertexBuffer = VertexBuffer::Create(
-            reinterpret_cast<f32*>(m_Vertices.data()),
-            static_cast<u32>(m_Vertices.size() * sizeof(Vertex))
-        );
+        if (!m_MeshSource)
+            return BoundingBox();
         
-        m_VertexBuffer->SetLayout(Vertex::GetLayout());
-        m_VertexArray->AddVertexBuffer(m_VertexBuffer);
-
-        m_IndexBuffer = IndexBuffer::Create(
-            m_Indices.data(),
-            static_cast<u32>(m_Indices.size())
-        );
-
-        m_VertexArray->SetIndexBuffer(m_IndexBuffer);
-        
-        // Calculate bounding volumes
-        CalculateBounds();
-        
-        m_Built = true;
+        const auto& submesh = GetSubmesh();
+        return submesh.BoundingBox;
     }
 
-    void Mesh::CalculateBounds()
+    BoundingSphere Mesh::GetBoundingSphere() const
     {
-        OLO_PROFILE_FUNCTION();
+        if (!m_MeshSource)
+            return BoundingSphere();
         
-        if (m_Vertices.empty())
-        {
-            // Default to a unit cube around the origin if no vertices
-            m_BoundingBox = BoundingBox(glm::vec3(-0.5f), glm::vec3(0.5f));
-            m_BoundingSphere = BoundingSphere(glm::vec3(0.0f), 0.5f);
-            return;
-        }
-        
-        // Extract positions from vertices for bounding volume calculation
-        std::vector<glm::vec3> positions;
-        positions.reserve(m_Vertices.size());
-        
-        for (const auto& vertex : m_Vertices)
-        {
-            positions.push_back(vertex.Position);
-        }
-        
-        // Create bounding box from positions
-        m_BoundingBox = BoundingBox(positions.data(), positions.size());
-        
-        // Create bounding sphere from bounding box (more efficient than from points)
-        m_BoundingSphere = BoundingSphere(m_BoundingBox);
+        // Calculate sphere from submesh bounding box
+        const auto& boundingBox = GetBoundingBox();
+        glm::vec3 center = (boundingBox.Min + boundingBox.Max) * 0.5f;
+        f32 radius = glm::length(boundingBox.Max - center);
+        return BoundingSphere(center, radius);
     }
 
-    void Mesh::Draw() const
+    BoundingBox Mesh::GetTransformedBoundingBox(const glm::mat4& transform) const
     {
-        OLO_PROFILE_FUNCTION();
-
-        if (!m_Built)
-        {
-            OLO_CORE_WARN("Mesh::Draw: Attempting to draw a mesh that hasn't been built!");
-            return;
-        }
-
-        m_VertexArray->Bind();
-        RenderCommand::DrawIndexed(m_VertexArray);
+        return GetBoundingBox().Transform(transform);
     }
 
+    BoundingSphere Mesh::GetTransformedBoundingSphere(const glm::mat4& transform) const
+    {
+        return GetBoundingSphere().Transform(transform);
+    }
+
+    u32 Mesh::GetRendererID() const
+    {
+        if (!m_MeshSource)
+            return 0;
+        return m_MeshSource->GetVertexArray() ? m_MeshSource->GetVertexArray()->GetRendererID() : 0;
+    }
+
+    u32 Mesh::GetIndexCount() const
+    {
+        if (!m_MeshSource)
+            return 0;
+        
+        const auto& submesh = GetSubmesh();
+        return submesh.IndexCount;
+    }
 }

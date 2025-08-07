@@ -7,6 +7,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/MeshSource.h"
 
 namespace OloEngine
 {
@@ -142,7 +143,9 @@ namespace OloEngine
 			m_Materials.push_back(pbrMaterial);
 		}
 
-		return Ref<Mesh>::Create(vertices, indices);
+		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		meshSource->Build();
+		return Ref<Mesh>::Create(meshSource, 0);
 	}
 
 	std::vector<Ref<Texture2D>> Model::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type)

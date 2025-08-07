@@ -9,6 +9,8 @@
 		"OloEngine/Animation/AnimationSystem.cpp"
 		"OloEngine/Animation/AnimationClip.h"
 		"OloEngine/Animation/AnimationClip.cpp"
+		"OloEngine/Animation/BoneEntityUtils.h"
+		"OloEngine/Animation/BoneEntityUtils.cpp"
 		
 		"OloEngine/Asset/Asset.h"
 		"OloEngine/Asset/AssetExtensions.h"
@@ -127,6 +129,8 @@
 		"OloEngine/Renderer/MaterialPresets.h"
 		"OloEngine/Renderer/Mesh.cpp"
 		"OloEngine/Renderer/Mesh.h"
+		"OloEngine/Renderer/MeshSource.cpp"
+		"OloEngine/Renderer/MeshSource.h"
 		"OloEngine/Renderer/MeshPrimitives.cpp"
 		"OloEngine/Renderer/MeshPrimitives.h"
 		"OloEngine/Renderer/SkinnedMesh.cpp"

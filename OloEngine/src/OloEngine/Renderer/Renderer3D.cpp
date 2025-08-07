@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Buffer.h"
 #include "OloEngine/Renderer/Mesh.h"
+#include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/SkinnedMesh.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -827,7 +828,7 @@ namespace OloEngine
 			return;
 		}
 
-		auto view = scene->GetAllEntitiesWith<AnimatedMeshComponent, SkeletonComponent, TransformComponent>();
+		auto view = scene->GetAllEntitiesWith<MeshComponent, SkeletonComponent, TransformComponent>();
 
 		for (auto entityID : view)
 		{
@@ -842,7 +843,7 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
 
-		if (!entity.HasComponent<AnimatedMeshComponent>() || 
+		if (!entity.HasComponent<MeshComponent>() || 
 			!entity.HasComponent<SkeletonComponent>() ||
 			!entity.HasComponent<TransformComponent>())
 		{
@@ -850,11 +851,11 @@ namespace OloEngine
 			return;
 		}
 
-		auto& animatedMeshComp = entity.GetComponent<AnimatedMeshComponent>();
+		auto& meshComp = entity.GetComponent<MeshComponent>();
 		auto& skeletonComp = entity.GetComponent<SkeletonComponent>();
 		auto& transformComp = entity.GetComponent<TransformComponent>();
 
-		if (!animatedMeshComp.m_Mesh)
+		if (!meshComp.MeshSource)
 		{
 			OLO_CORE_WARN("Renderer3D::RenderAnimatedMesh: Entity {} has invalid mesh", 
 						 entity.GetComponent<TagComponent>().Tag);
@@ -873,11 +874,14 @@ namespace OloEngine
 
 		const std::vector<glm::mat4>& boneMatrices = skeletonComp.m_Skeleton->m_FinalBoneMatrices;
 
-		auto* packet = DrawSkinnedMesh(
-			animatedMeshComp.m_Mesh,
+		// For now, create a Mesh from the first submesh of MeshSource
+		// TODO: Properly iterate through SubmeshComponents and use proper skinned rendering
+		auto mesh = Ref<Mesh>::Create(meshComp.MeshSource, 0);
+
+		auto* packet = DrawMesh(
+			mesh,
 			worldTransform,
 			material,
-			boneMatrices,
 			false
 		);
 
@@ -1003,7 +1007,9 @@ namespace OloEngine
 		std::vector<u32> indices = { 0, 1, 2, 2, 3, 0 };
 		
 		// Create temporary mesh for the line
-		auto lineMesh = Ref<Mesh>::Create(vertices, indices);
+		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		meshSource->Build();
+		auto lineMesh = Ref<Mesh>::Create(meshSource, 0);
 		
 		// Use a highly emissive material for skeleton visualization
 		Material material{};

@@ -99,6 +99,88 @@ namespace OloEngine
 		[[nodiscard("Store this!")]] UUID GetUUID() const { return GetComponent<IDComponent>().ID; }
 		const std::string& GetName() { return GetComponent<TagComponent>().Tag; }
 
+		// Parent-child hierarchy methods (Hazel-style)
+		Entity GetParent() const
+		{
+			if (!HasComponent<RelationshipComponent>())
+				return {};
+			
+			UUID parentID = GetComponent<RelationshipComponent>().ParentHandle;
+			if (parentID == 0) // null UUID
+				return {};
+			
+			return m_Scene->TryGetEntityWithUUID(parentID);
+		}
+
+		void SetParent(Entity parent)
+		{
+			Entity currentParent = GetParent();
+			if (currentParent == parent)
+				return;
+
+			// If changing parent, remove child from existing parent
+			if (currentParent)
+				currentParent.RemoveChild(*this);
+
+			// Setting to null is okay
+			SetParentUUID(parent.GetUUID());
+
+			if (parent)
+			{
+				auto& parentChildren = parent.Children();
+				UUID uuid = GetUUID();
+				if (std::find(parentChildren.begin(), parentChildren.end(), uuid) == parentChildren.end())
+					parentChildren.emplace_back(GetUUID());
+			}
+		}
+
+		void SetParentUUID(UUID parent) 
+		{ 
+			if (!HasComponent<RelationshipComponent>())
+				AddComponent<RelationshipComponent>();
+			GetComponent<RelationshipComponent>().ParentHandle = parent; 
+		}
+
+		UUID GetParentUUID() const 
+		{ 
+			if (!HasComponent<RelationshipComponent>())
+				return UUID(0);
+			return GetComponent<RelationshipComponent>().ParentHandle; 
+		}
+
+		std::vector<UUID>& Children() 
+		{ 
+			if (!HasComponent<RelationshipComponent>())
+				AddComponent<RelationshipComponent>();
+			return GetComponent<RelationshipComponent>().Children; 
+		}
+
+		const std::vector<UUID>& Children() const 
+		{ 
+			if (!HasComponent<RelationshipComponent>())
+			{
+				static std::vector<UUID> emptyChildren;
+				return emptyChildren;
+			}
+			return GetComponent<RelationshipComponent>().Children; 
+		}
+
+		bool RemoveChild(Entity child)
+		{
+			if (!HasComponent<RelationshipComponent>())
+				return false;
+				
+			UUID childId = child.GetUUID();
+			std::vector<UUID>& children = Children();
+			auto it = std::find(children.begin(), children.end(), childId);
+			if (it != children.end())
+			{
+				children.erase(it);
+				return true;
+			}
+			return false;
+		}
+
 		bool operator==(const Entity& other) const
 		{
 			return (m_EntityHandle == other.m_EntityHandle) && (m_Scene == other.m_Scene);

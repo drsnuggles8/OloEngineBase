@@ -2,32 +2,62 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
-#include "OloEngine/Renderer/SkinnedMesh.h"
+#include "OloEngine/Core/UUID.h"
+#include "OloEngine/Renderer/Mesh.h"
+#include "OloEngine/Renderer/MeshSource.h"
 #include "SkeletonData.h"
 #include "Skeleton.h"
 #include "AnimationClip.h"
+
+#include <vector>
 
 namespace OloEngine
 {
 	// Forward declarations
 	class Mesh;
+	class MeshSource;
 	class Skeleton;
 
-	// Holds mesh, skeleton, and skinning data for an entity
-	struct AnimatedMeshComponent
+	/**
+	 * @brief Component for entities that represent individual submeshes
+	 * 
+	 * Similar to Hazel's SubmeshComponent, this component is attached to entities
+	 * that represent individual submeshes within a mesh hierarchy. For rigged meshes,
+	 * the BoneEntityIds field maps skeleton bones to scene entities.
+	 */
+	struct SubmeshComponent
 	{
-		Ref<SkinnedMesh> m_Mesh;
-		Ref<Skeleton> m_Skeleton;
-		// Skinning data (bone weights/indices) is part of SkinnedMesh
+		Ref<Mesh> Mesh;
+		std::vector<UUID> BoneEntityIds; // Maps skeleton bones to scene entities (Hazel-style)
+		u32 SubmeshIndex = 0;
+		bool Visible = true;
 
-		AnimatedMeshComponent() = default;
-		AnimatedMeshComponent(const Ref<SkinnedMesh>& mesh, const Ref<Skeleton>& skeleton)
-			: m_Mesh(mesh), m_Skeleton(skeleton) {}
+		SubmeshComponent() = default;
+		SubmeshComponent(const SubmeshComponent& other) = default;
+		SubmeshComponent(Ref<OloEngine::Mesh> mesh, u32 submeshIndex = 0)
+			: Mesh(mesh), SubmeshIndex(submeshIndex) {}
 	};
 
-	// Holds current animation state (clip, time, blend info)
+	/**
+	 * @brief Component for the root entity of a dynamic mesh
+	 * 
+	 * Similar to Hazel's MeshComponent, this tags the root entity of a mesh hierarchy.
+	 * Child entities with SubmeshComponent represent the individual submeshes.
+	 */
+	struct MeshComponent
+	{
+		Ref<MeshSource> MeshSource;
+		
+		MeshComponent() = default;
+		MeshComponent(Ref<OloEngine::MeshSource> meshSource) : MeshSource(meshSource) {}
+	};
 
-
+	/**
+	 * @brief Animation state component for managing animation playback
+	 * 
+	 * This component manages the current animation state, including blending
+	 * between animations and the animation state machine.
+	 */
 	struct AnimationStateComponent
 	{
 		// Animation state machine (expand as needed)
@@ -47,13 +77,23 @@ namespace OloEngine
 		bool m_Blending = false;
 		float m_BlendDuration = 0.3f; // seconds
 		float m_BlendTime = 0.0f;
+		
+		// Bone entity management (Hazel-style)
+		std::vector<UUID> BoneEntityIds; // Maps skeleton bones to scene entities
+		glm::mat3 RootBoneTransform = glm::mat3(1.0f); // Transform of animated root bone relative to entity
 
 		AnimationStateComponent() = default;
 		AnimationStateComponent(const Ref<AnimationClip>& clip, float time = 0.0f)
 			: m_CurrentClip(clip), m_CurrentTime(time) {}
 	};
 
-	// Holds bone hierarchy and transforms for an entity
+	/**
+	 * @brief Component that holds skeleton reference for an entity
+	 * 
+	 * This component links an entity to a skeleton. Unlike the old approach where
+	 * the skeleton was part of the mesh, this allows for skeleton sharing and
+	 * better entity-based bone management.
+	 */
 	struct SkeletonComponent
 	{
 		Ref<Skeleton> m_Skeleton; // Shared skeleton reference
@@ -63,25 +103,41 @@ namespace OloEngine
 	};
 
 	/**
-	 * @brief Animation Components Usage and Integration Guide
+	 * @brief Component Usage Guide for Hazel-Style Animation
 	 * 
-	 * These components are designed to work together within the ECS architecture:
+	 * The refactored animation system follows Hazel's entity-based approach:
 	 * 
-	 * AnimatedMeshComponent: Contains the mesh and skeleton references
-	 * - Add to entities that need skeletal animation
-	 * - Links to skinned mesh assets loaded through the asset pipeline
+	 * MeshComponent: Root entity that holds the MeshSource
+	 * - Attached to the main entity representing the entire mesh
+	 * - References the MeshSource that contains all submeshes and skeleton data
 	 * 
-	 * AnimationStateComponent: Manages animation playback state
-	 * - Handles current animation, blending, and state machine logic
-	 * - Updated by AnimationSystem each frame
+	 * SubmeshComponent: Individual submesh entities
+	 * - Child entities have this component to represent individual submeshes
+	 * - For rigged meshes, BoneEntityIds maps skeleton bones to scene entities
+	 * - This allows direct manipulation of bones as scene entities
 	 * 
-	 * SkeletonComponent: Stores bone hierarchy and transform data
-	 * - Contains bone names, transforms, and skinning matrices
-	 * - Updated by animation sampling and forwarded to GPU
+	 * AnimationStateComponent: Animation playback and state
+	 * - Manages current animation clip, blending, and timing
+	 * - Also contains BoneEntityIds for cases where animation affects multiple submeshes
 	 * 
-	 * Integration with Asset Pipeline:
-	 * - Load skeletal meshes and animations through AssetManager
-	 * - Attach components to entities during scene creation
-	 * - Use AnimationSystem to update all animated entities
+	 * SkeletonComponent: Skeleton reference
+	 * - Links an entity to its skeleton
+	 * - Allows for skeleton sharing between entities
+	 * 
+	 * Entity Hierarchy Example:
+	 * CharacterEntity (AnimationStateComponent, SkeletonComponent, MeshComponent)
+	 *   ├── Body (SubmeshComponent with BoneEntityIds)
+	 *   ├── Head (SubmeshComponent with BoneEntityIds)
+	 *   └── BoneRoot
+	 *       ├── Spine (TransformComponent - represents bone)
+	 *       ├── LeftArm (TransformComponent - represents bone)
+	 *       └── RightArm (TransformComponent - represents bone)
+	 * 
+	 * Key Benefits:
+	 * - Bones are real scene entities that can be manipulated directly
+	 * - Editor integration: bones appear in scene hierarchy
+	 * - Flexible material and rendering system
+	 * - Same rendering pipeline for static and animated content
+	 * - Easy bone visualization and debugging
 	 */
 }
