@@ -156,7 +156,15 @@ namespace OloEngine
         static Ref<T> GetAsset(AssetHandle assetHandle)
         {
             Ref<Asset> asset = GetActiveManager()->GetAsset(assetHandle);
-            return asset.As<T>();
+            if (!asset)
+                return nullptr;
+                
+            Ref<T> castedAsset = asset.As<T>();
+            if (!castedAsset)
+            {
+                OLO_CORE_WARN("AssetManager::GetAsset - Failed to cast asset {} to requested type", assetHandle);
+            }
+            return castedAsset;
         }
 
         /**

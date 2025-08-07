@@ -190,9 +190,8 @@ namespace OloEngine {
 		void SetBRDFLutMap(const Ref<Texture2D>& texture) { m_BRDFLutMap = texture; }
 
 		// =====================================================================
-		// DEPRECATED: These public member variables are for legacy compatibility
+		// LEGACY COMPATIBILITY: Public reference aliases to private members
 		// =====================================================================
-		// TODO: Remove these after all client code is updated to use the accessors above
 		// These properties provide reference access to private members for compatibility
 		
 		// Material identification (aliases to private members)

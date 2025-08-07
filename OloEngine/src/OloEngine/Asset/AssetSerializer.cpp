@@ -12,6 +12,7 @@
 #include "OloEngine/Renderer/MaterialAsset.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Renderer.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Audio/AudioSource.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
@@ -45,7 +46,7 @@ namespace OloEngine
             OLO_CORE_ERROR("TextureSerializer::TryLoadData - Failed to load texture: {}", metadata.FilePath.string());
         }
         
-        asset = Ref<Asset>(texture); // Explicit conversion to help compiler
+        asset = texture; // Direct assignment - Ref<Texture2D> should convert to Ref<Asset>
         return result;
     }
 
@@ -152,7 +153,7 @@ namespace OloEngine
         }
         
         // Write font name and data
-        stream.WriteString("Font"); // TODO: Store font name in Font class or get from metadata
+        stream.WriteString(font->GetName());
         
         // TODO: Read font file data and write to stream
         // This should read the original font file and write its contents
@@ -383,9 +384,17 @@ namespace OloEngine
 
         // Load shader
         std::string shaderName = materialNode["Shader"].as<std::string>("DefaultPBR");
-        // TODO: Fix shader loading - Renderer::GetShaderLibrary() doesn't exist
-        // auto shader = Renderer::GetShaderLibrary()->Get(shaderName);
-        auto shader = Shader::Create("assets/shaders/DefaultPBR.glsl"); // Temporary fallback
+        auto shader = Renderer3D::GetShaderLibrary().Get(shaderName);
+        if (!shader)
+        {
+            // Fallback to loading from file if not in library
+            shader = Shader::Create("assets/shaders/" + shaderName + ".glsl");
+            if (shader)
+            {
+                // Add to library for future use
+                Renderer3D::GetShaderLibrary().Add(shaderName, shader);
+            }
+        }
         if (!shader)
         {
             OLO_CORE_ERROR("MaterialAssetSerializer::DeserializeFromYAML - Shader not found: {}", shaderName);
@@ -662,7 +671,7 @@ namespace OloEngine
         if (serializer.Deserialize(metadata.FilePath))
         {
             scene->m_Handle = metadata.Handle;
-            asset = Ref<Asset>(scene);
+            asset = scene; // Direct assignment - Ref<Scene> should convert to Ref<Asset>
             return true;
         }
         
@@ -720,7 +729,7 @@ namespace OloEngine
         scene->m_Handle = assetInfo.Handle;
         
         OLO_CORE_TRACE("SceneAssetSerializer::DeserializeFromAssetPack - Deserialized scene from pack");
-        return Ref<Asset>(scene);
+        return scene; // Direct return - Ref<Scene> should convert to Ref<Asset>
     }
 
     Ref<Scene> SceneAssetSerializer::DeserializeSceneFromAssetPack(FileStreamReader& stream, const AssetPackFile::SceneInfo& sceneInfo) const
