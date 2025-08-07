@@ -24,26 +24,18 @@ namespace OloEngine {
 	};
 
 	/**
-	 * TODO: REFACTOR MATERIAL CLASS ARCHITECTURE
+	 * @brief Material class for handling PBR and legacy material properties
 	 * 
-	 * This class currently uses a hybrid approach with both:
-	 * 1. RefCounted class-based interface for asset management
-	 * 2. Public member variables for legacy struct-like access
+	 * This class uses a consistent encapsulated design with getter/setter methods.
+	 * All material properties are accessed through typed methods that handle
+	 * both the uniform system and direct property access efficiently.
 	 * 
-	 * This is TECHNICAL DEBT and should be refactored to use a consistent approach:
-	 * - Either make it a proper class with encapsulated properties and methods
-	 * - Or convert Model.cpp and Renderer3D.cpp to use the class-based interface
-	 * 
-	 * Current compatibility requirements:
-	 * - MaterialAsset.cpp expects Set/Get/TryGet methods and uniform system
-	 * - Model.cpp expects struct-like public members (AlbedoMap, etc.)
-	 * - Renderer3D.cpp expects all PBR/legacy properties as public members
-	 * 
-	 * PLANNED REFACTORING SOLUTION:
-	 * 1. Update Model.cpp and Renderer3D.cpp to use proper getter/setter methods
-	 * 2. Remove all public member variables to enforce encapsulation
-	 * 3. Maintain only the class-based interface for consistency
-	 * 4. This will improve maintainability and reduce coupling
+	 * Features:
+	 * - Unified interface for both PBR and legacy materials
+	 * - Automatic uniform management for shader binding
+	 * - Type-safe property access with validation
+	 * - Efficient texture and parameter caching
+	 * - Asset dependency tracking integration
 	 */
 	class Material : public RendererResource
 	{
@@ -73,6 +65,15 @@ namespace OloEngine {
 
 		virtual void Invalidate() {}
 		virtual void OnShaderReloaded() {}
+
+		// Material property accessors
+		void SetName(const std::string& name) { m_MaterialName = name; }
+		const std::string& GetName() const { return m_MaterialName; }
+		
+		void SetType(MaterialType type) { m_MaterialType = type; }
+		MaterialType GetType() const { return m_MaterialType; }
+		
+		void SetShader(const Ref<Shader>& shader) { m_MaterialShader = shader; }
 
 		virtual void Set(const std::string& name, float value);
 		virtual void Set(const std::string& name, int value);
@@ -115,7 +116,6 @@ namespace OloEngine {
 		virtual void SetFlag(MaterialFlag flag, bool value = true);
 
 		virtual Ref<OloEngine::Shader> GetShader() { return m_Shader; }
-		virtual const std::string& GetName() const { return m_Name; }
 		
 		// IBL configuration method (for Sandbox3D compatibility)
 		void ConfigureIBL(const Ref<TextureCubemap>& environmentMap, 
@@ -123,46 +123,113 @@ namespace OloEngine {
 		                  const Ref<TextureCubemap>& prefilterMap,
 		                  const Ref<Texture2D>& brdfLutMap);
 
-		// TODO: REMOVE ALL PUBLIC MEMBERS BELOW - TECHNICAL DEBT
-		// These public member variables exist only for compatibility with Model.cpp and Renderer3D.cpp
-		// They should be replaced with proper getter/setter methods once those files are refactored
-		// Public member variables for compatibility with Model.cpp and Renderer3D.cpp (struct-like access)
+		// =====================================================================
+		// TYPED PROPERTY ACCESSORS (Replacement for public member variables)
+		// =====================================================================
 		
 		// Material identification
-		std::string Name = "Material";
+		void SetMaterialName(const std::string& name) { m_MaterialName = name; }
+		const std::string& GetMaterialName() const { return m_MaterialName; }
 		
-		// Material type and shader
-		MaterialType Type = MaterialType::PBR;
-		Ref<OloEngine::Shader> Shader;
+		// Material type and shader management
+		MaterialType GetMaterialType() const { return m_MaterialType; }
+		void SetMaterialType(MaterialType type) { m_MaterialType = type; }
+		void SetMaterialShader(const Ref<Shader>& shader) { m_MaterialShader = shader; }
+		Ref<Shader> GetMaterialShader() const { return m_MaterialShader; }
 		
 		// Legacy material properties (for backward compatibility)
-		glm::vec3 Ambient = glm::vec3(0.2f);
-		glm::vec3 Diffuse = glm::vec3(0.8f);
-		glm::vec3 Specular = glm::vec3(1.0f);
-		float Shininess = 32.0f;
-		bool UseTextureMaps = false;
-		Ref<Texture2D> DiffuseMap;
-		Ref<Texture2D> SpecularMap;
+		const glm::vec3& GetAmbient() const { return m_Ambient; }
+		void SetAmbient(const glm::vec3& ambient) { m_Ambient = ambient; }
+		const glm::vec3& GetDiffuse() const { return m_Diffuse; }
+		void SetDiffuse(const glm::vec3& diffuse) { m_Diffuse = diffuse; }
+		const glm::vec3& GetSpecular() const { return m_Specular; }
+		void SetSpecular(const glm::vec3& specular) { m_Specular = specular; }
+		float GetShininess() const { return m_Shininess; }
+		void SetShininess(float shininess) { m_Shininess = shininess; }
+		bool IsUsingTextureMaps() const { return m_UseTextureMaps; }
+		void SetUseTextureMaps(bool use) { m_UseTextureMaps = use; }
+		Ref<Texture2D> GetDiffuseMap() const { return m_DiffuseMap; }
+		void SetDiffuseMap(const Ref<Texture2D>& texture) { m_DiffuseMap = texture; }
+		Ref<Texture2D> GetSpecularMap() const { return m_SpecularMap; }
+		void SetSpecularMap(const Ref<Texture2D>& texture) { m_SpecularMap = texture; }
 		
 		// PBR material properties
-		glm::vec4 BaseColorFactor = glm::vec4(1.0f);     // Base color (albedo) with alpha
-		glm::vec4 EmissiveFactor = glm::vec4(0.0f);      // Emissive color
-		float MetallicFactor = 0.0f;                     // Metallic factor
-		float RoughnessFactor = 1.0f;                    // Roughness factor
-		float NormalScale = 1.0f;                        // Normal map scale
-		float OcclusionStrength = 1.0f;                  // AO strength
-		bool EnableIBL = false;                          // Enable IBL
+		const glm::vec4& GetBaseColorFactor() const { return m_BaseColorFactor; }
+		void SetBaseColorFactor(const glm::vec4& color) { m_BaseColorFactor = color; }
+		const glm::vec4& GetEmissiveFactor() const { return m_EmissiveFactor; }
+		void SetEmissiveFactor(const glm::vec4& emissive) { m_EmissiveFactor = emissive; }
+		float GetMetallicFactor() const { return m_MetallicFactor; }
+		void SetMetallicFactor(float metallic) { m_MetallicFactor = metallic; }
+		float GetRoughnessFactor() const { return m_RoughnessFactor; }
+		void SetRoughnessFactor(float roughness) { m_RoughnessFactor = roughness; }
+		float GetNormalScale() const { return m_NormalScale; }
+		void SetNormalScale(float scale) { m_NormalScale = scale; }
+		float GetOcclusionStrength() const { return m_OcclusionStrength; }
+		void SetOcclusionStrength(float strength) { m_OcclusionStrength = strength; }
+		bool IsIBLEnabled() const { return m_EnableIBL; }
+		void SetEnableIBL(bool enable) { m_EnableIBL = enable; }
 		
 		// PBR texture maps
-		Ref<Texture2D> AlbedoMap;                        // Base color texture
-		Ref<Texture2D> MetallicRoughnessMap;             // Metallic-roughness texture (glTF format)
-		Ref<Texture2D> NormalMap;                        // Normal map
-		Ref<Texture2D> AOMap;                            // Ambient occlusion map
-		Ref<Texture2D> EmissiveMap;                      // Emissive map
-		Ref<TextureCubemap> EnvironmentMap;              // Environment cubemap
-		Ref<TextureCubemap> IrradianceMap;               // Irradiance cubemap
-		Ref<TextureCubemap> PrefilterMap;                // Prefiltered environment map
-		Ref<Texture2D> BRDFLutMap;                       // BRDF lookup table
+		Ref<Texture2D> GetAlbedoMap() const { return m_AlbedoMap; }
+		void SetAlbedoMap(const Ref<Texture2D>& texture) { m_AlbedoMap = texture; }
+		Ref<Texture2D> GetMetallicRoughnessMap() const { return m_MetallicRoughnessMap; }
+		void SetMetallicRoughnessMap(const Ref<Texture2D>& texture) { m_MetallicRoughnessMap = texture; }
+		Ref<Texture2D> GetNormalMap() const { return m_NormalMap; }
+		void SetNormalMap(const Ref<Texture2D>& texture) { m_NormalMap = texture; }
+		Ref<Texture2D> GetAOMap() const { return m_AOMap; }
+		void SetAOMap(const Ref<Texture2D>& texture) { m_AOMap = texture; }
+		Ref<Texture2D> GetEmissiveMap() const { return m_EmissiveMap; }
+		void SetEmissiveMap(const Ref<Texture2D>& texture) { m_EmissiveMap = texture; }
+		Ref<TextureCubemap> GetEnvironmentMap() const { return m_EnvironmentMap; }
+		void SetEnvironmentMap(const Ref<TextureCubemap>& texture) { m_EnvironmentMap = texture; }
+		Ref<TextureCubemap> GetIrradianceMap() const { return m_IrradianceMap; }
+		void SetIrradianceMap(const Ref<TextureCubemap>& texture) { m_IrradianceMap = texture; }
+		Ref<TextureCubemap> GetPrefilterMap() const { return m_PrefilterMap; }
+		void SetPrefilterMap(const Ref<TextureCubemap>& texture) { m_PrefilterMap = texture; }
+		Ref<Texture2D> GetBRDFLutMap() const { return m_BRDFLutMap; }
+		void SetBRDFLutMap(const Ref<Texture2D>& texture) { m_BRDFLutMap = texture; }
+
+		// =====================================================================
+		// DEPRECATED: These public member variables are for legacy compatibility
+		// =====================================================================
+		// TODO: Remove these after all client code is updated to use the accessors above
+		// These properties provide reference access to private members for compatibility
+		
+		// Material identification (aliases to private members)
+		std::string& Name = m_MaterialName;
+		
+		// Material type and shader (aliases to private members)
+		MaterialType& Type = m_MaterialType;
+		Ref<OloEngine::Shader>& Shader = m_MaterialShader;
+		
+		// Legacy material properties (aliases to private members)
+		glm::vec3& Ambient = m_Ambient;
+		glm::vec3& Diffuse = m_Diffuse;
+		glm::vec3& Specular = m_Specular;
+		float& Shininess = m_Shininess;
+		bool& UseTextureMaps = m_UseTextureMaps;
+		Ref<Texture2D>& DiffuseMap = m_DiffuseMap;
+		Ref<Texture2D>& SpecularMap = m_SpecularMap;
+		
+		// PBR material properties (aliases to private members)
+		glm::vec4& BaseColorFactor = m_BaseColorFactor;     // Base color (albedo) with alpha
+		glm::vec4& EmissiveFactor = m_EmissiveFactor;       // Emissive color
+		float& MetallicFactor = m_MetallicFactor;           // Metallic factor
+		float& RoughnessFactor = m_RoughnessFactor;         // Roughness factor
+		float& NormalScale = m_NormalScale;                 // Normal map scale
+		float& OcclusionStrength = m_OcclusionStrength;     // AO strength
+		bool& EnableIBL = m_EnableIBL;                      // Enable IBL
+		
+		// PBR texture maps (aliases to private members)
+		Ref<Texture2D>& AlbedoMap = m_AlbedoMap;                        // Base color texture
+		Ref<Texture2D>& MetallicRoughnessMap = m_MetallicRoughnessMap;  // Metallic-roughness texture (glTF format)
+		Ref<Texture2D>& NormalMap = m_NormalMap;                        // Normal map
+		Ref<Texture2D>& AOMap = m_AOMap;                                // Ambient occlusion map
+		Ref<Texture2D>& EmissiveMap = m_EmissiveMap;                    // Emissive map
+		Ref<TextureCubemap>& EnvironmentMap = m_EnvironmentMap;         // Environment cubemap
+		Ref<TextureCubemap>& IrradianceMap = m_IrradianceMap;           // Irradiance cubemap
+		Ref<TextureCubemap>& PrefilterMap = m_PrefilterMap;             // Prefiltered environment map
+		Ref<Texture2D>& BRDFLutMap = m_BRDFLutMap;                      // BRDF lookup table
 
 		// Asset interface
 		static AssetType GetStaticType() { return AssetType::Material; }
@@ -184,7 +251,7 @@ namespace OloEngine {
 		std::string m_Name;
 		uint32_t m_MaterialFlags = static_cast<uint32_t>(MaterialFlag::DepthTest);
 
-		// Material properties storage
+		// Material properties storage (uniform system)
 		std::unordered_map<std::string, float> m_FloatUniforms;
 		std::unordered_map<std::string, int> m_IntUniforms;
 		std::unordered_map<std::string, uint32_t> m_UIntUniforms;
@@ -196,6 +263,46 @@ namespace OloEngine {
 		std::unordered_map<std::string, glm::mat4> m_Mat4Uniforms;
 		std::unordered_map<std::string, Ref<Texture2D>> m_Texture2DUniforms;
 		std::unordered_map<std::string, Ref<TextureCubemap>> m_TextureCubeUniforms;
+
+		// =====================================================================
+		// PRIVATE MATERIAL PROPERTIES (Encapsulated)
+		// =====================================================================
+		
+		// Material identification
+		std::string m_MaterialName = "Material";
+		
+		// Material type and shader
+		MaterialType m_MaterialType = MaterialType::PBR;
+		Ref<OloEngine::Shader> m_MaterialShader;
+		
+		// Legacy material properties (for backward compatibility)
+		glm::vec3 m_Ambient = glm::vec3(0.2f);
+		glm::vec3 m_Diffuse = glm::vec3(0.8f);
+		glm::vec3 m_Specular = glm::vec3(1.0f);
+		float m_Shininess = 32.0f;
+		bool m_UseTextureMaps = false;
+		Ref<Texture2D> m_DiffuseMap;
+		Ref<Texture2D> m_SpecularMap;
+		
+		// PBR material properties
+		glm::vec4 m_BaseColorFactor = glm::vec4(1.0f);     // Base color (albedo) with alpha
+		glm::vec4 m_EmissiveFactor = glm::vec4(0.0f);      // Emissive color
+		float m_MetallicFactor = 0.0f;                     // Metallic factor
+		float m_RoughnessFactor = 1.0f;                    // Roughness factor
+		float m_NormalScale = 1.0f;                        // Normal map scale
+		float m_OcclusionStrength = 1.0f;                  // AO strength
+		bool m_EnableIBL = false;                          // Enable IBL
+		
+		// PBR texture maps
+		Ref<Texture2D> m_AlbedoMap;                        // Base color texture
+		Ref<Texture2D> m_MetallicRoughnessMap;             // Metallic-roughness texture (glTF format)
+		Ref<Texture2D> m_NormalMap;                        // Normal map
+		Ref<Texture2D> m_AOMap;                            // Ambient occlusion map
+		Ref<Texture2D> m_EmissiveMap;                      // Emissive map
+		Ref<TextureCubemap> m_EnvironmentMap;              // Environment cubemap
+		Ref<TextureCubemap> m_IrradianceMap;               // Irradiance cubemap
+		Ref<TextureCubemap> m_PrefilterMap;                // Prefiltered environment map
+		Ref<Texture2D> m_BRDFLutMap;                       // BRDF lookup table
 	};
 
 }

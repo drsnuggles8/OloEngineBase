@@ -1,40 +1,35 @@
 #include "OloEnginePCH.h"
 #include "Material.h"
 
-// TODO: REFACTOR MATERIAL IMPLEMENTATION
-// This implementation currently maintains both uniform storage AND public member variables
-// which is redundant and confusing. Once Model.cpp and Renderer3D.cpp are updated to use
-// proper getter/setter methods, remove all the public member handling from copy constructor,
-// assignment operator, and CreatePBR method.
-
 namespace OloEngine {
 
 	Material::Material()
-		: m_Shader(nullptr), m_Name("Material"), Type(MaterialType::PBR)
+		: m_Shader(nullptr), m_Name("Material"), m_MaterialType(MaterialType::PBR)
 	{
 	}
 
 	Material::Material(const Ref<OloEngine::Shader>& shader, const std::string& name)
-		: m_Shader(shader), m_Name(name), Type(MaterialType::PBR)
+		: m_Shader(shader), m_Name(name), m_MaterialType(MaterialType::PBR), m_MaterialShader(shader), m_MaterialName(name)
 	{
 	}
 
 	Material::Material(const Material& other)
-		: RendererResource(), m_Shader(other.m_Shader), m_Name(other.m_Name), m_MaterialFlags(other.m_MaterialFlags),
+		: RendererResource(), 
+		  m_Shader(other.m_Shader), m_Name(other.m_Name), m_MaterialFlags(other.m_MaterialFlags),
 		  m_FloatUniforms(other.m_FloatUniforms), m_IntUniforms(other.m_IntUniforms), m_UIntUniforms(other.m_UIntUniforms),
 		  m_BoolUniforms(other.m_BoolUniforms), m_Vec2Uniforms(other.m_Vec2Uniforms), m_Vec3Uniforms(other.m_Vec3Uniforms),
 		  m_Vec4Uniforms(other.m_Vec4Uniforms), m_Mat3Uniforms(other.m_Mat3Uniforms), m_Mat4Uniforms(other.m_Mat4Uniforms),
 		  m_Texture2DUniforms(other.m_Texture2DUniforms), m_TextureCubeUniforms(other.m_TextureCubeUniforms),
-		  // Copy all public members
-		  Name(other.Name), Type(other.Type), Shader(other.Shader),
-		  Ambient(other.Ambient), Diffuse(other.Diffuse), Specular(other.Specular), Shininess(other.Shininess),
-		  UseTextureMaps(other.UseTextureMaps), DiffuseMap(other.DiffuseMap), SpecularMap(other.SpecularMap),
-		  BaseColorFactor(other.BaseColorFactor), EmissiveFactor(other.EmissiveFactor), 
-		  MetallicFactor(other.MetallicFactor), RoughnessFactor(other.RoughnessFactor), 
-		  NormalScale(other.NormalScale), OcclusionStrength(other.OcclusionStrength), EnableIBL(other.EnableIBL),
-		  AlbedoMap(other.AlbedoMap), MetallicRoughnessMap(other.MetallicRoughnessMap), NormalMap(other.NormalMap),
-		  AOMap(other.AOMap), EmissiveMap(other.EmissiveMap), EnvironmentMap(other.EnvironmentMap),
-		  IrradianceMap(other.IrradianceMap), PrefilterMap(other.PrefilterMap), BRDFLutMap(other.BRDFLutMap)
+		  // Copy all private members
+		  m_MaterialName(other.m_MaterialName), m_MaterialType(other.m_MaterialType), m_MaterialShader(other.m_MaterialShader),
+		  m_Ambient(other.m_Ambient), m_Diffuse(other.m_Diffuse), m_Specular(other.m_Specular), m_Shininess(other.m_Shininess),
+		  m_UseTextureMaps(other.m_UseTextureMaps), m_DiffuseMap(other.m_DiffuseMap), m_SpecularMap(other.m_SpecularMap),
+		  m_BaseColorFactor(other.m_BaseColorFactor), m_EmissiveFactor(other.m_EmissiveFactor), 
+		  m_MetallicFactor(other.m_MetallicFactor), m_RoughnessFactor(other.m_RoughnessFactor), 
+		  m_NormalScale(other.m_NormalScale), m_OcclusionStrength(other.m_OcclusionStrength), m_EnableIBL(other.m_EnableIBL),
+		  m_AlbedoMap(other.m_AlbedoMap), m_MetallicRoughnessMap(other.m_MetallicRoughnessMap), m_NormalMap(other.m_NormalMap),
+		  m_AOMap(other.m_AOMap), m_EmissiveMap(other.m_EmissiveMap), m_EnvironmentMap(other.m_EnvironmentMap),
+		  m_IrradianceMap(other.m_IrradianceMap), m_PrefilterMap(other.m_PrefilterMap), m_BRDFLutMap(other.m_BRDFLutMap)
 	{
 	}
 
@@ -57,33 +52,33 @@ namespace OloEngine {
 			m_Texture2DUniforms = other.m_Texture2DUniforms;
 			m_TextureCubeUniforms = other.m_TextureCubeUniforms;
 			
-			// Copy all public members
-			Name = other.Name;
-			Type = other.Type;
-			Shader = other.Shader;
-			Ambient = other.Ambient;
-			Diffuse = other.Diffuse;
-			Specular = other.Specular;
-			Shininess = other.Shininess;
-			UseTextureMaps = other.UseTextureMaps;
-			DiffuseMap = other.DiffuseMap;
-			SpecularMap = other.SpecularMap;
-			BaseColorFactor = other.BaseColorFactor;
-			EmissiveFactor = other.EmissiveFactor;
-			MetallicFactor = other.MetallicFactor;
-			RoughnessFactor = other.RoughnessFactor;
-			NormalScale = other.NormalScale;
-			OcclusionStrength = other.OcclusionStrength;
-			EnableIBL = other.EnableIBL;
-			AlbedoMap = other.AlbedoMap;
-			MetallicRoughnessMap = other.MetallicRoughnessMap;
-			NormalMap = other.NormalMap;
-			AOMap = other.AOMap;
-			EmissiveMap = other.EmissiveMap;
-			EnvironmentMap = other.EnvironmentMap;
-			IrradianceMap = other.IrradianceMap;
-			PrefilterMap = other.PrefilterMap;
-			BRDFLutMap = other.BRDFLutMap;
+			// Copy all private members
+			m_MaterialName = other.m_MaterialName;
+			m_MaterialType = other.m_MaterialType;
+			m_MaterialShader = other.m_MaterialShader;
+			m_Ambient = other.m_Ambient;
+			m_Diffuse = other.m_Diffuse;
+			m_Specular = other.m_Specular;
+			m_Shininess = other.m_Shininess;
+			m_UseTextureMaps = other.m_UseTextureMaps;
+			m_DiffuseMap = other.m_DiffuseMap;
+			m_SpecularMap = other.m_SpecularMap;
+			m_BaseColorFactor = other.m_BaseColorFactor;
+			m_EmissiveFactor = other.m_EmissiveFactor;
+			m_MetallicFactor = other.m_MetallicFactor;
+			m_RoughnessFactor = other.m_RoughnessFactor;
+			m_NormalScale = other.m_NormalScale;
+			m_OcclusionStrength = other.m_OcclusionStrength;
+			m_EnableIBL = other.m_EnableIBL;
+			m_AlbedoMap = other.m_AlbedoMap;
+			m_MetallicRoughnessMap = other.m_MetallicRoughnessMap;
+			m_NormalMap = other.m_NormalMap;
+			m_AOMap = other.m_AOMap;
+			m_EmissiveMap = other.m_EmissiveMap;
+			m_EnvironmentMap = other.m_EnvironmentMap;
+			m_IrradianceMap = other.m_IrradianceMap;
+			m_PrefilterMap = other.m_PrefilterMap;
+			m_BRDFLutMap = other.m_BRDFLutMap;
 		}
 		return *this;
 	}
@@ -111,12 +106,12 @@ namespace OloEngine {
 		material->m_Texture2DUniforms = other->m_Texture2DUniforms;
 		material->m_TextureCubeUniforms = other->m_TextureCubeUniforms;
 		
-		// Copy public texture maps
-		material->AlbedoMap = other->AlbedoMap;
-		material->MetallicRoughnessMap = other->MetallicRoughnessMap;
-		material->NormalMap = other->NormalMap;
-		material->AOMap = other->AOMap;
-		material->EmissiveMap = other->EmissiveMap;
+		// Copy private material properties
+		material->m_AlbedoMap = other->m_AlbedoMap;
+		material->m_MetallicRoughnessMap = other->m_MetallicRoughnessMap;
+		material->m_NormalMap = other->m_NormalMap;
+		material->m_AOMap = other->m_AOMap;
+		material->m_EmissiveMap = other->m_EmissiveMap;
 		
 		return material;
 	}
@@ -125,7 +120,7 @@ namespace OloEngine {
 	{
 		auto material = Ref<Material>(new Material());
 		material->m_Name = name;
-		material->Type = MaterialType::PBR;
+		material->m_MaterialType = MaterialType::PBR;
 		material->m_MaterialFlags = static_cast<uint32_t>(MaterialFlag::DepthTest);
 		
 		// Set PBR properties using the uniform system
@@ -134,16 +129,14 @@ namespace OloEngine {
 		material->Set("u_MaterialUniforms.Roughness", roughness);
 		material->Set("u_MaterialUniforms.Emission", 0.0f);
 		
-		// TODO: REMOVE - TECHNICAL DEBT
-		// Also set the public PBR members for direct access (compatibility with Renderer3D.cpp)
-		// This should be removed once Renderer3D.cpp uses proper getter methods
-		material->BaseColorFactor = glm::vec4(baseColor, 1.0f);
-		material->MetallicFactor = metallic;
-		material->RoughnessFactor = roughness;
-		material->EmissiveFactor = glm::vec4(0.0f);
-		material->NormalScale = 1.0f;
-		material->OcclusionStrength = 1.0f;
-		material->EnableIBL = false;
+		// Set the private PBR members
+		material->m_BaseColorFactor = glm::vec4(baseColor, 1.0f);
+		material->m_MetallicFactor = metallic;
+		material->m_RoughnessFactor = roughness;
+		material->m_EmissiveFactor = glm::vec4(0.0f);
+		material->m_NormalScale = 1.0f;
+		material->m_OcclusionStrength = 1.0f;
+		material->m_EnableIBL = false;
 		
 		return material;
 	}
@@ -152,7 +145,7 @@ namespace OloEngine {
 	{
 		auto materialRef = CreatePBR(name, glm::vec3(1.0f, 0.765f, 0.336f), 1.0f, 0.1f);
 		Material material = *materialRef; // Copy to value type for backward compatibility
-		material.Name = name;
+		material.SetName(name);
 		return material;
 	}
 
@@ -160,7 +153,7 @@ namespace OloEngine {
 	{
 		auto materialRef = CreatePBR(name, glm::vec3(0.972f, 0.960f, 0.915f), 1.0f, 0.1f);
 		Material material = *materialRef; // Copy to value type for backward compatibility
-		material.Name = name;
+		material.SetName(name);
 		return material;
 	}
 
@@ -168,7 +161,7 @@ namespace OloEngine {
 	{
 		auto materialRef = CreatePBR(name, glm::vec3(0.955f, 0.637f, 0.538f), 1.0f, 0.1f);
 		Material material = *materialRef; // Copy to value type for backward compatibility
-		material.Name = name;
+		material.SetName(name);
 		return material;
 	}
 
@@ -176,7 +169,7 @@ namespace OloEngine {
 	{
 		auto materialRef = CreatePBR(name, color, 0.0f, 0.5f);
 		Material material = *materialRef; // Copy to value type for backward compatibility
-		material.Name = name;
+		material.SetName(name);
 		return material;
 	}
 
@@ -185,11 +178,11 @@ namespace OloEngine {
 	                            const Ref<TextureCubemap>& prefilterMap,
 	                            const Ref<Texture2D>& brdfLutMap)
 	{
-		EnvironmentMap = environmentMap;
-		IrradianceMap = irradianceMap;
-		PrefilterMap = prefilterMap;
-		BRDFLutMap = brdfLutMap;
-		EnableIBL = true;
+		m_EnvironmentMap = environmentMap;
+		m_IrradianceMap = irradianceMap;
+		m_PrefilterMap = prefilterMap;
+		m_BRDFLutMap = brdfLutMap;
+		m_EnableIBL = true;
 	}
 
 	void Material::Set(const std::string& name, float value)
