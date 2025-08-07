@@ -136,7 +136,7 @@ namespace OloEngine
          */
         static void SyncWithAssetThread() 
         { 
-            return GetActiveManager()->SyncWithAssetThread(); 
+            GetActiveManager()->SyncWithAssetThread(); 
         }
 
         /**
@@ -240,7 +240,7 @@ namespace OloEngine
          */
         static void RegisterDependency(AssetHandle dependency, AssetHandle handle) 
         { 
-            return GetActiveManager()->RegisterDependency(dependency, handle); 
+            GetActiveManager()->RegisterDependency(dependency, handle); 
         }
 
         /**
@@ -250,7 +250,7 @@ namespace OloEngine
          */
         static void DeregisterDependency(AssetHandle dependency, AssetHandle handle) 
         { 
-            return GetActiveManager()->DeregisterDependency(dependency, handle); 
+            GetActiveManager()->DeregisterDependency(dependency, handle); 
         }
 
         /**
@@ -259,7 +259,7 @@ namespace OloEngine
          */
         static void DeregisterDependencies(AssetHandle handle) 
         { 
-            return GetActiveManager()->DeregisterDependencies(handle); 
+            GetActiveManager()->DeregisterDependencies(handle); 
         }
 
         /**

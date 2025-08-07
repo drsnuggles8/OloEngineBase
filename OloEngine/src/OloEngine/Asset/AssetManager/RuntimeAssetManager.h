@@ -88,11 +88,11 @@ namespace OloEngine
         void UnloadAssetPack(const std::filesystem::path& packPath);
 
         /**
-         * @brief Get asset metadata from loaded packs
+         * @brief Get asset metadata from loaded packs (runtime-specific version)
          * @param handle Asset handle
          * @return Asset metadata if found
          */
-        AssetMetadata GetAssetMetadata(AssetHandle handle);
+        AssetMetadata GetAssetMetadataFromPacks(AssetHandle handle);
 
         /**
          * @brief Update dependencies when an asset changes

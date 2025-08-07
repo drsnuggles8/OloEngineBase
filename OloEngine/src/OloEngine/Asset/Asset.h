@@ -32,7 +32,7 @@ namespace OloEngine
          * @brief Called when a dependency of this asset is updated
          * @param handle Handle of the updated dependency
          */
-        virtual void OnDependencyUpdated(AssetHandle handle) {}
+        virtual void OnDependencyUpdated(AssetHandle handle) { (void)handle; }
 
         bool operator==(const Asset& other) const
         {

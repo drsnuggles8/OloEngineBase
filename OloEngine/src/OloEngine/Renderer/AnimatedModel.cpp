@@ -84,7 +84,8 @@ namespace OloEngine
                 else
                 {
                     // Create default material if no material is found
-                    material = Material::CreatePBR("Default Animated Material", glm::vec3(0.8f), 0.0f, 0.5f);
+                    auto defaultMaterialRef = Material::CreatePBR("Default Animated Material", glm::vec3(0.8f), 0.0f, 0.5f);
+                    material = *defaultMaterialRef; // Copy to value type for struct-like access
                 }
                 m_Materials.push_back(material);
             }
@@ -739,12 +740,13 @@ namespace OloEngine
         mat->Get(AI_MATKEY_ROUGHNESS_FACTOR, roughness);
         
         // Create material with extracted properties
-        Material material = Material::CreatePBR(
+        auto materialRef = Material::CreatePBR(
             materialName, 
             glm::vec3(baseColor.r, baseColor.g, baseColor.b), 
             metallic, 
             roughness
         );
+        Material material = *materialRef; // Copy to value type for struct-like access
         
         // Load PBR textures
         auto albedoMaps = LoadMaterialTextures(mat, aiTextureType_DIFFUSE);

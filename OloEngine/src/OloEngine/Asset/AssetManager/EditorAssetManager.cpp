@@ -39,10 +39,15 @@ namespace OloEngine
         if (Project::GetActive())
         {
             auto registryPath = Project::GetAssetRegistryPath();
-            if (std::filesystem::exists(registryPath))
+            std::error_code ec;
+            if (std::filesystem::exists(registryPath, ec) && !ec)
             {
                 m_AssetRegistry.Deserialize(registryPath);
                 OLO_CORE_INFO("Loaded asset registry from {}", registryPath.string());
+            }
+            else if (ec)
+            {
+                OLO_CORE_WARN("Failed to check asset registry existence: {}", ec.message());
             }
         }
 
@@ -195,6 +200,13 @@ namespace OloEngine
         auto metadata = m_AssetRegistry.GetMetadata(assetHandle);
         if (!metadata.IsValid())
             return false;
+
+        // Check if file exists before checking modification time
+        if (!std::filesystem::exists(metadata.FilePath))
+        {
+            OLO_CORE_WARN("Asset file does not exist: {}", metadata.FilePath.string());
+            return false;
+        }
 
         // Check if file has been modified
         if (std::filesystem::last_write_time(metadata.FilePath) > metadata.LastWriteTime)

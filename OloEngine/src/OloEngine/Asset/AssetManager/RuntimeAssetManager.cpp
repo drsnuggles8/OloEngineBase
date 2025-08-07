@@ -21,7 +21,23 @@ namespace OloEngine
         OLO_CORE_INFO("RuntimeAssetManager initialized");
         
         // Load default asset pack if it exists
-        LoadAssetPack("Assets/AssetPack.olopack");
+        const std::string assetPackPath = "Assets/AssetPack.olopack";
+        std::error_code ec;
+        if (std::filesystem::exists(assetPackPath, ec) && !ec)
+        {
+            if (!LoadAssetPack(assetPackPath))
+            {
+                OLO_CORE_WARN("Failed to load default asset pack: {}", assetPackPath);
+            }
+        }
+        else if (ec)
+        {
+            OLO_CORE_WARN("Failed to check asset pack existence: {}", ec.message());
+        }
+        else
+        {
+            OLO_CORE_INFO("Default asset pack not found: {}", assetPackPath);
+        }
     }
 
     RuntimeAssetManager::~RuntimeAssetManager()
@@ -84,7 +100,7 @@ namespace OloEngine
         // Create basic metadata with what we can determine
         AssetMetadata metadata;
         metadata.Handle = handle;
-        metadata.Type = const_cast<RuntimeAssetManager*>(this)->GetAssetType(handle); // Safe const_cast for read operation
+        metadata.Type = GetAssetTypeFromPacks(handle);
         
         // Runtime managers don't track file paths or modification times
         // These are only available in editor asset managers
@@ -363,7 +379,7 @@ namespace OloEngine
         }
     }
 
-    AssetMetadata RuntimeAssetManager::GetAssetMetadata(AssetHandle handle)
+    AssetMetadata RuntimeAssetManager::GetAssetMetadataFromPacks(AssetHandle handle)
     {
         auto it = m_AssetMetadata.find(handle);
         return (it != m_AssetMetadata.end()) ? it->second : AssetMetadata{};

@@ -202,12 +202,13 @@ namespace OloEngine
 			finalBaseColor = glm::vec3(1.0f, 1.0f, 1.0f);
 		}
 		
-		Material material = Material::CreatePBR(
+		auto materialRef = Material::CreatePBR(
 			materialName, 
 			finalBaseColor, 
 			metallic, 
 			roughness
 		);
+		Material material = *materialRef; // Copy to value type for struct-like access
 		
 		// Load PBR textures - prioritize overrides if provided
 		
@@ -409,7 +410,10 @@ namespace OloEngine
 			else
 			{
 				// Create a default PBR material as fallback
-				meshMaterial = Material::CreatePBR("Default PBR", glm::vec3(0.8f), 0.0f, 0.5f);
+							{
+				auto defaultMaterialRef = Material::CreatePBR("Default PBR", glm::vec3(0.8f), 0.0f, 0.5f);
+				meshMaterial = *defaultMaterialRef; // Copy to value type for struct-like access
+			}
 			}
 			
 			CommandPacket* cmd = OloEngine::Renderer3D::DrawMesh(m_Meshes[i], transform, meshMaterial);

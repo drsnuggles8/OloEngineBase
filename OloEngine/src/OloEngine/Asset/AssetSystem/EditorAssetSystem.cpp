@@ -79,7 +79,7 @@ namespace OloEngine
                 {
                     EditorAssetLoadResponse response;
                     response.Metadata = metadata;
-                    response.Asset = asset;
+                    response.AssetRef = asset;
 
                     std::scoped_lock<std::mutex> lock(m_ReadyAssetsMutex);
                     m_ReadyAssets.push(response);

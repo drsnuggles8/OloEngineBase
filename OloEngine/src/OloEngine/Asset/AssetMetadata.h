@@ -55,11 +55,11 @@ namespace OloEngine
     struct EditorAssetLoadResponse
     {
         AssetMetadata Metadata;
-        Ref<Asset> Asset;
+        Ref<Asset> AssetRef;
         
         EditorAssetLoadResponse() = default;
-        EditorAssetLoadResponse(const AssetMetadata& metadata, Ref<OloEngine::Asset> asset = nullptr)
-            : Metadata(metadata), Asset(asset) {}
+        EditorAssetLoadResponse(const AssetMetadata& metadata, Ref<Asset> asset = nullptr)
+            : Metadata(metadata), AssetRef(asset) {}
     };
 
     /**

@@ -1,0 +1,19 @@
+name: 'Setup Vulkan SDK'
+description: 'Install Vulkan SDK with centralized version management'
+inputs:
+  version:
+    description: 'Vulkan SDK version'
+    required: false
+    default: '1.4.321.0'
+  cache:
+    description: 'Enable caching'
+    required: false
+    default: 'true'
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Vulkan SDK
+      uses: humbletim/install-vulkan-sdk@033219e2d69dd4d3e873e217eb385fdd4b4438f4
+      with:
+        version: ${{ inputs.version }}
+        cache: ${{ inputs.cache }}

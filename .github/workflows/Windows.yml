@@ -29,11 +29,8 @@ jobs:
     - name: Install python dependencies
       run: pip install jinja2
     
-    - name: Install Vulkan SDK
-      uses: humbletim/install-vulkan-sdk@033219e2d69dd4d3e873e217eb385fdd4b4438f4
-      with:
-        version: 1.4.321.0
-        cache: true
+    - name: Setup Vulkan SDK
+      uses: ./.github/actions/setup-vulkan
   
     - name: Configure CMake
       # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.

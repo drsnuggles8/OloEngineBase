@@ -122,8 +122,8 @@ void Sandbox3D::OnAttach()
     m_PBRSilverMaterial = OloEngine::Material::CreateSilverMaterial();
     m_PBRCopperMaterial = OloEngine::Material::CreateCopperMaterial();
     m_PBRPlasticMaterial = OloEngine::Material::CreatePlasticMaterial("Blue Plastic", glm::vec3(0.1f, 0.1f, 0.8f));
-    m_PBRRoughMaterial = OloEngine::Material::CreatePBR("Rough Red", glm::vec3(0.8f, 0.2f, 0.2f), 0.0f, 0.9f);
-    m_PBRSmoothMaterial = OloEngine::Material::CreatePBR("Smooth Green", glm::vec3(0.2f, 0.8f, 0.2f), 0.0f, 0.1f);
+    m_PBRRoughMaterial = *OloEngine::Material::CreatePBR("Rough Red", glm::vec3(0.8f, 0.2f, 0.2f), 0.0f, 0.9f);
+    m_PBRSmoothMaterial = *OloEngine::Material::CreatePBR("Smooth Green", glm::vec3(0.2f, 0.8f, 0.2f), 0.0f, 0.1f);
     
     // Load environment map for IBL - using cubemap faces from OloEditor assets
     std::vector<std::string> skyboxFaces = {
@@ -612,7 +612,7 @@ void Sandbox3D::RenderMaterialTestingScene()
                         roughness = glm::clamp(roughness, 0.05f, 1.0f); // Prevent completely smooth
                         
                         // Create dynamic material
-                        OloEngine::Material dynamicMaterial = OloEngine::Material::CreatePBR(
+                        OloEngine::Material dynamicMaterial = *OloEngine::Material::CreatePBR(
                             "Dynamic PBR",
                             glm::vec3(0.5f, 0.0f, 0.0f), // Red base color
                             metallic,
@@ -715,7 +715,7 @@ void Sandbox3D::RenderAnimationTestingScene()
     if (m_TestScene && m_ImportedModelEntity.HasComponent<OloEngine::AnimatedMeshComponent>())
     {
         // Use a simple default material - entities with MaterialComponent will use their own materials
-        OloEngine::Material defaultMaterial = OloEngine::Material::CreatePBR("Default", glm::vec3(0.7f), 0.0f, 0.5f);
+        OloEngine::Material defaultMaterial = *OloEngine::Material::CreatePBR("Default", glm::vec3(0.7f), 0.0f, 0.5f);
         
         // For now, just render normally - wireframe mode would need deeper renderer integration
         OloEngine::Renderer3D::RenderAnimatedMeshes(m_TestScene, defaultMaterial);
@@ -1422,7 +1422,7 @@ void Sandbox3D::LoadTestAnimatedModel()
         else
         {
             // Fallback to a default material
-            materialComp.m_Material = OloEngine::Material::CreatePBR("Default Material", glm::vec3(0.8f), 0.0f, 0.5f);
+            materialComp.m_Material = *OloEngine::Material::CreatePBR("Default Material", glm::vec3(0.8f), 0.0f, 0.5f);
             OLO_WARN("No materials found in model, using default material");
         }
         

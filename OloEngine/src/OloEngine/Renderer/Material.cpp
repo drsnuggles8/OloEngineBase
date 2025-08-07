@@ -121,58 +121,61 @@ namespace OloEngine {
 		return material;
 	}
 
-	Material Material::CreatePBR(const std::string& name, const glm::vec3& baseColor, float metallic, float roughness)
+	Ref<Material> Material::CreatePBR(const std::string& name, const glm::vec3& baseColor, float metallic, float roughness)
 	{
-		Material material;
-		material.m_Name = name;
-		material.Type = MaterialType::PBR;
-		material.m_MaterialFlags = static_cast<uint32_t>(MaterialFlag::DepthTest);
+		auto material = Ref<Material>(new Material());
+		material->m_Name = name;
+		material->Type = MaterialType::PBR;
+		material->m_MaterialFlags = static_cast<uint32_t>(MaterialFlag::DepthTest);
 		
 		// Set PBR properties using the uniform system
-		material.Set("u_MaterialUniforms.AlbedoColor", baseColor);
-		material.Set("u_MaterialUniforms.Metalness", metallic);
-		material.Set("u_MaterialUniforms.Roughness", roughness);
-		material.Set("u_MaterialUniforms.Emission", 0.0f);
+		material->Set("u_MaterialUniforms.AlbedoColor", baseColor);
+		material->Set("u_MaterialUniforms.Metalness", metallic);
+		material->Set("u_MaterialUniforms.Roughness", roughness);
+		material->Set("u_MaterialUniforms.Emission", 0.0f);
 		
 		// TODO: REMOVE - TECHNICAL DEBT
 		// Also set the public PBR members for direct access (compatibility with Renderer3D.cpp)
 		// This should be removed once Renderer3D.cpp uses proper getter methods
-		material.BaseColorFactor = glm::vec4(baseColor, 1.0f);
-		material.MetallicFactor = metallic;
-		material.RoughnessFactor = roughness;
-		material.EmissiveFactor = glm::vec4(0.0f);
-		material.NormalScale = 1.0f;
-		material.OcclusionStrength = 1.0f;
-		material.EnableIBL = false;
+		material->BaseColorFactor = glm::vec4(baseColor, 1.0f);
+		material->MetallicFactor = metallic;
+		material->RoughnessFactor = roughness;
+		material->EmissiveFactor = glm::vec4(0.0f);
+		material->NormalScale = 1.0f;
+		material->OcclusionStrength = 1.0f;
+		material->EnableIBL = false;
 		
 		return material;
 	}
 
 	Material Material::CreateGoldMaterial(const std::string& name)
 	{
-		Material material = CreatePBR(name, glm::vec3(1.0f, 0.765f, 0.336f), 1.0f, 0.1f);
-		// Also set legacy properties for backward compatibility
+		auto materialRef = CreatePBR(name, glm::vec3(1.0f, 0.765f, 0.336f), 1.0f, 0.1f);
+		Material material = *materialRef; // Copy to value type for backward compatibility
 		material.Name = name;
 		return material;
 	}
 
 	Material Material::CreateSilverMaterial(const std::string& name)
 	{
-		Material material = CreatePBR(name, glm::vec3(0.972f, 0.960f, 0.915f), 1.0f, 0.1f);
+		auto materialRef = CreatePBR(name, glm::vec3(0.972f, 0.960f, 0.915f), 1.0f, 0.1f);
+		Material material = *materialRef; // Copy to value type for backward compatibility
 		material.Name = name;
 		return material;
 	}
 
 	Material Material::CreateCopperMaterial(const std::string& name)
 	{
-		Material material = CreatePBR(name, glm::vec3(0.955f, 0.637f, 0.538f), 1.0f, 0.1f);
+		auto materialRef = CreatePBR(name, glm::vec3(0.955f, 0.637f, 0.538f), 1.0f, 0.1f);
+		Material material = *materialRef; // Copy to value type for backward compatibility
 		material.Name = name;
 		return material;
 	}
 
 	Material Material::CreatePlasticMaterial(const std::string& name, const glm::vec3& color)
 	{
-		Material material = CreatePBR(name, color, 0.0f, 0.5f);
+		auto materialRef = CreatePBR(name, color, 0.0f, 0.5f);
+		Material material = *materialRef; // Copy to value type for backward compatibility
 		material.Name = name;
 		return material;
 	}
