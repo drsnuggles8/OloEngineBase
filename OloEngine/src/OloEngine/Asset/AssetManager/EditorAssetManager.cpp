@@ -436,7 +436,7 @@ namespace OloEngine
         {
             // TODO: Implement file watching logic using FileWatch library
             // For now, just sleep and check periodically
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            std::this_thread::sleep_for(std::chrono::seconds(1));
         }
 
         OLO_CORE_INFO("File watcher thread stopped");

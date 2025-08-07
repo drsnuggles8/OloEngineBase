@@ -8,11 +8,11 @@ inputs:
   cache:
     description: 'Enable caching'
     required: false
-    default: 'true'
+    default: true
 outputs:
   install-dir:
     description: 'Vulkan SDK installation directory path'
-    value: ${{ steps.install-vulkan.outputs.VULKAN_SDK }}
+    value: ${{ steps.install-vulkan.outputs.vulkan-sdk-root }}
 runs:
   using: 'composite'
   steps:

@@ -110,9 +110,9 @@ namespace YAML {
     {
         Node node;
         node.SetStyle(EmitterStyle::Flow);
-        for (int i = 0; i < 3; ++i)
+        for (i32 i = 0; i < 3; ++i)
         {
-            for (int j = 0; j < 3; ++j)
+            for (i32 j = 0; j < 3; ++j)
             {
                 node.push_back(rhs[i][j]);
             }
@@ -125,9 +125,9 @@ namespace YAML {
         if (!node.IsSequence() || node.size() != 9)
             return false;
 
-        for (int i = 0; i < 3; ++i)
+        for (i32 i = 0; i < 3; ++i)
         {
-            for (int j = 0; j < 3; ++j)
+            for (i32 j = 0; j < 3; ++j)
             {
                 rhs[i][j] = node[i * 3 + j].as<f32>();
             }
@@ -140,9 +140,9 @@ namespace YAML {
     {
         Node node;
         node.SetStyle(EmitterStyle::Flow);
-        for (int i = 0; i < 4; ++i)
+        for (i32 i = 0; i < 4; ++i)
         {
-            for (int j = 0; j < 4; ++j)
+            for (i32 j = 0; j < 4; ++j)
             {
                 node.push_back(rhs[i][j]);
             }
@@ -155,9 +155,9 @@ namespace YAML {
         if (!node.IsSequence() || node.size() != 16)
             return false;
 
-        for (int i = 0; i < 4; ++i)
+        for (i32 i = 0; i < 4; ++i)
         {
-            for (int j = 0; j < 4; ++j)
+            for (i32 j = 0; j < 4; ++j)
             {
                 rhs[i][j] = node[i * 4 + j].as<f32>();
             }
