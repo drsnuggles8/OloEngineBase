@@ -55,12 +55,6 @@ namespace OloEngine {
 		// Static factory method for PBR materials - returns Ref<Material> for consistency
 		static Ref<Material> CreatePBR(const std::string& name, const glm::vec3& baseColor, float metallic = 0.0f, float roughness = 0.5f);
 		
-		// Static factory methods for common materials (for Sandbox3D compatibility)
-		static Material CreateGoldMaterial(const std::string& name = "Gold");
-		static Material CreateSilverMaterial(const std::string& name = "Silver");
-		static Material CreateCopperMaterial(const std::string& name = "Copper");
-		static Material CreatePlasticMaterial(const std::string& name = "Plastic", const glm::vec3& color = glm::vec3(0.1f, 0.1f, 0.8f));
-		
 		virtual ~Material() = default;
 
 		virtual void Invalidate() {}

@@ -123,6 +123,8 @@
 		"OloEngine/Renderer/Light.h"
 		"OloEngine/Renderer/Material.cpp"
 		"OloEngine/Renderer/Material.h"
+		"OloEngine/Renderer/MaterialPresets.cpp"
+		"OloEngine/Renderer/MaterialPresets.h"
 		"OloEngine/Renderer/Mesh.cpp"
 		"OloEngine/Renderer/Mesh.h"
 		"OloEngine/Renderer/SkinnedMesh.cpp"

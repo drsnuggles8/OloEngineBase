@@ -10,6 +10,7 @@
 #include <glm/gtx/quaternion.hpp>
 
 #include "OloEngine/Renderer/Material.h"
+#include "OloEngine/Renderer/MaterialPresets.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderDebugUtils.h"
@@ -117,11 +118,11 @@ void Sandbox3D::OnAttach()
     // Also assign textures to gold material for the sphere
     m_GoldMaterial.DiffuseMap = m_DiffuseMap;
     m_GoldMaterial.SpecularMap = m_SpecularMap;
-    // Initialize PBR materials using the simplified Material struct
-    m_PBRGoldMaterial = OloEngine::Material::CreateGoldMaterial();
-    m_PBRSilverMaterial = OloEngine::Material::CreateSilverMaterial();
-    m_PBRCopperMaterial = OloEngine::Material::CreateCopperMaterial();
-    m_PBRPlasticMaterial = OloEngine::Material::CreatePlasticMaterial("Blue Plastic", glm::vec3(0.1f, 0.1f, 0.8f));
+    // Initialize PBR materials using the new MaterialPresets utility
+    m_PBRGoldMaterial = OloEngine::MaterialPresets::CreateGold("Gold Material");
+    m_PBRSilverMaterial = OloEngine::MaterialPresets::CreateSilver("Silver Material");
+    m_PBRCopperMaterial = OloEngine::MaterialPresets::CreateCopper("Copper Material");
+    m_PBRPlasticMaterial = OloEngine::MaterialPresets::CreatePlastic("Blue Plastic", glm::vec3(0.1f, 0.1f, 0.8f));
     m_PBRRoughMaterial = *OloEngine::Material::CreatePBR("Rough Red", glm::vec3(0.8f, 0.2f, 0.2f), 0.0f, 0.9f);
     m_PBRSmoothMaterial = *OloEngine::Material::CreatePBR("Smooth Green", glm::vec3(0.2f, 0.8f, 0.2f), 0.0f, 0.1f);
     

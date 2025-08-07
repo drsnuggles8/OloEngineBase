@@ -141,38 +141,6 @@ namespace OloEngine {
 		return material;
 	}
 
-	Material Material::CreateGoldMaterial(const std::string& name)
-	{
-		auto materialRef = CreatePBR(name, glm::vec3(1.0f, 0.765f, 0.336f), 1.0f, 0.1f);
-		Material material = *materialRef; // Copy to value type for backward compatibility
-		material.SetName(name);
-		return material;
-	}
-
-	Material Material::CreateSilverMaterial(const std::string& name)
-	{
-		auto materialRef = CreatePBR(name, glm::vec3(0.972f, 0.960f, 0.915f), 1.0f, 0.1f);
-		Material material = *materialRef; // Copy to value type for backward compatibility
-		material.SetName(name);
-		return material;
-	}
-
-	Material Material::CreateCopperMaterial(const std::string& name)
-	{
-		auto materialRef = CreatePBR(name, glm::vec3(0.955f, 0.637f, 0.538f), 1.0f, 0.1f);
-		Material material = *materialRef; // Copy to value type for backward compatibility
-		material.SetName(name);
-		return material;
-	}
-
-	Material Material::CreatePlasticMaterial(const std::string& name, const glm::vec3& color)
-	{
-		auto materialRef = CreatePBR(name, color, 0.0f, 0.5f);
-		Material material = *materialRef; // Copy to value type for backward compatibility
-		material.SetName(name);
-		return material;
-	}
-
 	void Material::ConfigureIBL(const Ref<TextureCubemap>& environmentMap, 
 	                            const Ref<TextureCubemap>& irradianceMap,
 	                            const Ref<TextureCubemap>& prefilterMap,
