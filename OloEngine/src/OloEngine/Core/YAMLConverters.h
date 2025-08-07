@@ -14,13 +14,13 @@ namespace OloEngine::YAMLUtils {
     inline YAML::Node EncodeUUID(const UUID& uuid)
     {
         YAML::Node node;
-        node.push_back(static_cast<uint64_t>(uuid));
+        node.push_back(static_cast<u64>(uuid));
         return node;
     }
 
     inline bool DecodeUUID(const YAML::Node& node, UUID& uuid)
     {
-        uuid = node.as<uint64_t>();
+        uuid = node.as<u64>();
         return true;
     }
 
@@ -41,8 +41,8 @@ namespace OloEngine::YAMLUtils {
         if ((!node.IsSequence()) || (node.size() != 2))
             return false;
 
-        v.x = node[0].as<float>();
-        v.y = node[1].as<float>();
+        v.x = node[0].as<f32>();
+        v.y = node[1].as<f32>();
         return true;
     }
 
@@ -62,9 +62,9 @@ namespace OloEngine::YAMLUtils {
         if ((!node.IsSequence()) || (node.size() != 3))
             return false;
 
-        v.x = node[0].as<float>();
-        v.y = node[1].as<float>();
-        v.z = node[2].as<float>();
+        v.x = node[0].as<f32>();
+        v.y = node[1].as<f32>();
+        v.z = node[2].as<f32>();
         return true;
     }
 
@@ -85,10 +85,10 @@ namespace OloEngine::YAMLUtils {
         if ((!node.IsSequence()) || (node.size() != 4))
             return false;
 
-        v.x = node[0].as<float>();
-        v.y = node[1].as<float>();
-        v.z = node[2].as<float>();
-        v.w = node[3].as<float>();
+        v.x = node[0].as<f32>();
+        v.y = node[1].as<f32>();
+        v.z = node[2].as<f32>();
+        v.w = node[3].as<f32>();
         return true;
     }
 
@@ -116,7 +116,7 @@ namespace OloEngine::YAMLUtils {
         {
             for (int j = 0; j < 3; ++j)
             {
-                m[i][j] = node[i * 3 + j].as<float>();
+                m[i][j] = node[i * 3 + j].as<f32>();
             }
         }
         return true;
@@ -146,7 +146,7 @@ namespace OloEngine::YAMLUtils {
         {
             for (int j = 0; j < 4; ++j)
             {
-                m[i][j] = node[i * 4 + j].as<float>();
+                m[i][j] = node[i * 4 + j].as<f32>();
             }
         }
         return true;

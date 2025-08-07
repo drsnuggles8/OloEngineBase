@@ -60,8 +60,19 @@ namespace OloEngine
 
         outInfo.Offset = stream.GetStreamPosition();
         
-        // Write texture data (implementation needed based on OloEngine's texture format)
-        // TODO: Implement actual texture serialization to asset pack
+        // Write texture metadata
+        const auto& spec = texture->GetSpecification();
+        stream.WriteRaw<u32>(spec.Width);
+        stream.WriteRaw<u32>(spec.Height);
+        stream.WriteRaw<u32>(static_cast<u32>(spec.Format));
+        stream.WriteRaw<bool>(spec.GenerateMips);
+        
+        // Write texture path for reference
+        const std::string& path = texture->GetPath();
+        stream.WriteString(path);
+        
+        // TODO: Implement pixel data serialization when GPU data access API is available
+        // For now, we serialize metadata and rely on path-based loading
         
         outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
         return true;
@@ -71,10 +82,46 @@ namespace OloEngine
     {
         stream.SetStreamPosition(assetInfo.PackedOffset);
         
-        // TODO: Implement actual texture deserialization from asset pack
-        // This should read the texture data and create a Texture2D
+        // Read texture metadata
+        u32 width;
+        u32 height;
+        u32 formatInt;
+        bool generateMips;
         
-        return nullptr;
+        stream.ReadRaw(width);
+        stream.ReadRaw(height);
+        stream.ReadRaw(formatInt);
+        stream.ReadRaw(generateMips);
+        
+        ImageFormat format = static_cast<ImageFormat>(formatInt);
+        std::string path;
+        stream.ReadString(path);
+        
+        // Create texture specification
+        TextureSpecification spec;
+        spec.Width = width;
+        spec.Height = height;
+        spec.Format = format;
+        spec.GenerateMips = generateMips;
+        
+        // Create texture from path if available, otherwise from specification
+        Ref<Texture2D> texture;
+        if (!path.empty())
+        {
+            texture = Texture2D::Create(path);
+        }
+        else
+        {
+            texture = Texture2D::Create(spec);
+        }
+        
+        if (!texture)
+        {
+            OLO_CORE_ERROR("TextureSerializer::DeserializeFromAssetPack - Failed to create texture");
+            return nullptr;
+        }
+        
+        return texture;
     }
 
     //////////////////////////////////////////////////////////////////////////////////

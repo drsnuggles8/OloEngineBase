@@ -9,10 +9,15 @@ inputs:
     description: 'Enable caching'
     required: false
     default: 'true'
+outputs:
+  install-dir:
+    description: 'Vulkan SDK installation directory path'
+    value: ${{ steps.install-vulkan.outputs.VULKAN_SDK }}
 runs:
   using: 'composite'
   steps:
     - name: Install Vulkan SDK
+      id: install-vulkan
       uses: humbletim/install-vulkan-sdk@033219e2d69dd4d3e873e217eb385fdd4b4438f4
       with:
         version: ${{ inputs.version }}

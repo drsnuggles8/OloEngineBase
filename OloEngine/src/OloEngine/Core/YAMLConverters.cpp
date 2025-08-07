@@ -6,13 +6,13 @@ namespace YAML {
     Node convert<OloEngine::UUID>::encode(const OloEngine::UUID& uuid)
     {
         Node node;
-        node.push_back(static_cast<uint64_t>(uuid));
+        node.push_back(static_cast<u64>(uuid));
         return node;
     }
 
     bool convert<OloEngine::UUID>::decode(const Node& node, OloEngine::UUID& uuid)
     {
-        uuid = node.as<uint64_t>();
+        uuid = node.as<u64>();
         return true;
     }
 
@@ -20,7 +20,7 @@ namespace YAML {
     Node convert<OloEngine::AssetHandle>::encode(const OloEngine::AssetHandle& rhs)
     {
         Node node;
-        node.push_back(static_cast<uint64_t>(rhs));
+        node.push_back(static_cast<u64>(rhs));
         return node;
     }
 
@@ -29,7 +29,7 @@ namespace YAML {
         if (!node.IsScalar())
             return false;
 
-        rhs = node.as<uint64_t>();
+        rhs = node.as<u64>();
         return true;
     }
 
@@ -50,8 +50,8 @@ namespace YAML {
             return false;
         }
 
-        rhs.x = node[0].as<float>();
-        rhs.y = node[1].as<float>();
+        rhs.x = node[0].as<f32>();
+        rhs.y = node[1].as<f32>();
         return true;
     }
 
@@ -73,9 +73,9 @@ namespace YAML {
             return false;
         }
 
-        rhs.x = node[0].as<float>();
-        rhs.y = node[1].as<float>();
-        rhs.z = node[2].as<float>();
+        rhs.x = node[0].as<f32>();
+        rhs.y = node[1].as<f32>();
+        rhs.z = node[2].as<f32>();
         return true;
     }
 
@@ -98,10 +98,10 @@ namespace YAML {
             return false;
         }
 
-        rhs.x = node[0].as<float>();
-        rhs.y = node[1].as<float>();
-        rhs.z = node[2].as<float>();
-        rhs.w = node[3].as<float>();
+        rhs.x = node[0].as<f32>();
+        rhs.y = node[1].as<f32>();
+        rhs.z = node[2].as<f32>();
+        rhs.w = node[3].as<f32>();
         return true;
     }
 
@@ -129,7 +129,7 @@ namespace YAML {
         {
             for (int j = 0; j < 3; ++j)
             {
-                rhs[i][j] = node[i * 3 + j].as<float>();
+                rhs[i][j] = node[i * 3 + j].as<f32>();
             }
         }
         return true;
@@ -159,7 +159,7 @@ namespace YAML {
         {
             for (int j = 0; j < 4; ++j)
             {
-                rhs[i][j] = node[i * 4 + j].as<float>();
+                rhs[i][j] = node[i * 4 + j].as<f32>();
             }
         }
         return true;

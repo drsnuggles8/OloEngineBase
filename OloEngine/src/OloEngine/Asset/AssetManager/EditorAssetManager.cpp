@@ -84,15 +84,10 @@ namespace OloEngine
             OLO_CORE_INFO("Saved asset registry to {}", registryPath.string());
         }
 
-        // Clear all loaded assets
+        // Clear all loaded assets and memory assets
         {
             std::unique_lock<std::shared_mutex> lock(m_AssetsMutex);
             m_LoadedAssets.clear();
-        }
-
-        // Clear memory assets
-        {
-            std::unique_lock<std::shared_mutex> lock(m_AssetsMutex);
             m_MemoryAssets.clear();
         }
     }
@@ -279,15 +274,10 @@ namespace OloEngine
         // Remove from registry
         m_AssetRegistry.RemoveAsset(handle);
 
-        // Remove from loaded assets
+        // Remove from loaded assets and memory assets
         {
             std::unique_lock<std::shared_mutex> lock(m_AssetsMutex);
             m_LoadedAssets.erase(handle);
-        }
-
-        // Remove from memory assets
-        {
-            std::unique_lock<std::shared_mutex> lock(m_AssetsMutex);
             m_MemoryAssets.erase(handle);
         }
 
