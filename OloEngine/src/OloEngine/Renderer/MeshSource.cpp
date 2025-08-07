@@ -49,8 +49,8 @@ namespace OloEngine
         if (m_Vertices.empty())
             return;
 
-        m_VertexBuffer = VertexBuffer::Create(reinterpret_cast<f32*>(m_Vertices.data()), 
-                                             static_cast<u32>(m_Vertices.size() * sizeof(Vertex)));
+    m_VertexBuffer = VertexBuffer::Create(static_cast<const void*>(m_Vertices.data()),
+                          static_cast<u32>(m_Vertices.size() * sizeof(Vertex)));
         m_VertexBuffer->SetLayout(Vertex::GetLayout());
     }
 
@@ -99,19 +99,19 @@ namespace OloEngine
     {
         for (auto& submesh : m_Submeshes)
         {
-            if (submesh.VertexCount == 0 || submesh.BaseVertex >= m_Vertices.size())
+            if (submesh.m_VertexCount == 0 || submesh.m_BaseVertex >= m_Vertices.size())
             {
-                submesh.BoundingBox = BoundingBox();
+                submesh.m_BoundingBox = BoundingBox();
                 continue;
             }
 
             // Calculate bounds for this specific submesh
-            u32 startVertex = submesh.BaseVertex;
-            u32 endVertex = std::min(startVertex + submesh.VertexCount, static_cast<u32>(m_Vertices.size()));
+            u32 startVertex = submesh.m_BaseVertex;
+            u32 endVertex = std::min(startVertex + submesh.m_VertexCount, static_cast<u32>(m_Vertices.size()));
 
             if (startVertex >= endVertex)
             {
-                submesh.BoundingBox = BoundingBox();
+                submesh.m_BoundingBox = BoundingBox();
                 continue;
             }
 
@@ -124,7 +124,7 @@ namespace OloEngine
                 max = glm::max(max, m_Vertices[i].Position);
             }
 
-            submesh.BoundingBox = BoundingBox(min, max);
+            submesh.m_BoundingBox = BoundingBox(min, max);
         }
     }
 }

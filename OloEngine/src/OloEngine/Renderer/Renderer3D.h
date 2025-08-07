@@ -176,6 +176,7 @@ namespace OloEngine
 			Ref<Mesh> CubeMesh;
 			Ref<Mesh> QuadMesh;
 			Ref<Mesh> SkyboxMesh;
+			Ref<Mesh> LineQuadMesh; // Cached unit-length quad for debug lines
 			Ref<Shader> LightCubeShader;
 			Ref<Shader> LightingShader;
 			Ref<Shader> SkinnedLightingShader;

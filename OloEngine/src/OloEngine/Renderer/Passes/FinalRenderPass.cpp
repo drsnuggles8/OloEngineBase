@@ -45,7 +45,7 @@ namespace OloEngine
         m_FullscreenTriangleVA = VertexArray::Create();
         
         Ref<VertexBuffer> vertexBuffer = VertexBuffer::Create(
-            reinterpret_cast<f32*>(vertices), 
+            static_cast<const void*>(vertices), 
             static_cast<u32>(sizeof(vertices))
         );
         

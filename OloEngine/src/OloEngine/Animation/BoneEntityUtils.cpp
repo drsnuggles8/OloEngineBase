@@ -21,8 +21,10 @@ namespace OloEngine
         if (!skeleton)
             return boneTransforms;
 
-        // Calculate hierarchical bone transforms
-        for (u32 i = 0; i < std::min(static_cast<u32>(skeleton->m_BoneNames.size()), static_cast<u32>(boneEntityIds.size())); ++i)
+    // Calculate hierarchical bone transforms
+    // Use size_t to avoid narrowing issues if sizes exceed u32 range
+    const size_t count = std::min(skeleton->m_BoneNames.size(), boneEntityIds.size());
+    for (size_t i = 0; i < count; ++i)
         {
             Entity boneEntity = scene->TryGetEntityWithUUID(boneEntityIds[i]);
             

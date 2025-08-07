@@ -24,12 +24,12 @@ namespace OloEngine
      */
     struct BoneInfo
     {
-        glm::mat4 InverseBindPose;  // Inverse bind pose matrix for skinning
-        u32 BoneIndex;              // Index into the skeleton
+        glm::mat4 m_InverseBindPose;  // Inverse bind pose matrix for skinning
+        u32 m_BoneIndex;              // Index into the skeleton
         
         BoneInfo() = default;
         BoneInfo(const glm::mat4& inverseBindPose, u32 boneIndex)
-            : InverseBindPose(inverseBindPose), BoneIndex(boneIndex) {}
+            : m_InverseBindPose(inverseBindPose), m_BoneIndex(boneIndex) {}
     };
 
     /**
@@ -50,19 +50,19 @@ namespace OloEngine
      */
     struct Submesh
     {
-        u32 BaseVertex = 0;
-        u32 BaseIndex = 0;
-        u32 MaterialIndex = 0;
-        u32 IndexCount = 0;
-        u32 VertexCount = 0;
+    u32 m_BaseVertex = 0;
+    u32 m_BaseIndex = 0;
+    u32 m_MaterialIndex = 0;
+    u32 m_IndexCount = 0;
+    u32 m_VertexCount = 0;
         
-        glm::mat4 Transform = glm::mat4(1.0f);
-        BoundingBox BoundingBox;
-        std::string NodeName;
+    glm::mat4 m_Transform = glm::mat4(1.0f);
+    BoundingBox m_BoundingBox;
+    std::string m_NodeName;
         
-        // Rigging information
-        bool IsRigged = false;
-        std::vector<u32> BoneIndices;  // Indices of bones that affect this submesh
+    // Rigging information
+    bool m_IsRigged = false;
+    std::vector<u32> m_BoneIndices;  // Indices of bones that affect this submesh
         
         Submesh() = default;
     };
@@ -98,7 +98,7 @@ namespace OloEngine
         
         bool IsSubmeshRigged(u32 submeshIndex) const 
         { 
-            return submeshIndex < m_Submeshes.size() && m_Submeshes[submeshIndex].IsRigged; 
+            return submeshIndex < m_Submeshes.size() && m_Submeshes[submeshIndex].m_IsRigged; 
         }
 
         // Bone information for skinning
@@ -126,31 +126,9 @@ namespace OloEngine
         void Build(); // Build GPU resources
         
         // GPU resource accessors (with lazy initialization)
-        const Ref<VertexArray>& GetVertexArray() const 
-        { 
-            if (!m_Built) 
-            {
-                // Lazy initialization - build GPU resources on first access
-                const_cast<MeshSource*>(this)->Build();
-            }
-            return m_VertexArray; 
-        }
-        const Ref<VertexBuffer>& GetVertexBuffer() const 
-        { 
-            if (!m_Built) 
-            {
-                const_cast<MeshSource*>(this)->Build();
-            }
-            return m_VertexBuffer; 
-        }
-        const Ref<IndexBuffer>& GetIndexBuffer() const 
-        { 
-            if (!m_Built) 
-            {
-                const_cast<MeshSource*>(this)->Build();
-            }
-            return m_IndexBuffer; 
-        }
+    const Ref<VertexArray>& GetVertexArray() const { return m_VertexArray; }
+    const Ref<VertexBuffer>& GetVertexBuffer() const { return m_VertexBuffer; }
+    const Ref<IndexBuffer>& GetIndexBuffer() const { return m_IndexBuffer; }
         
         // Bounding volume accessors
         const BoundingBox& GetBoundingBox() const { return m_BoundingBox; }
@@ -176,14 +154,14 @@ namespace OloEngine
         std::vector<std::vector<BoneInfluence>> m_BoneInfluences; // Per-bone vertex influences
         
         // GPU resources (similar to current Mesh class)
-        Ref<VertexArray> m_VertexArray;
-        Ref<VertexBuffer> m_VertexBuffer;
-        Ref<IndexBuffer> m_IndexBuffer;
+    Ref<VertexArray> m_VertexArray;
+    Ref<VertexBuffer> m_VertexBuffer;
+    Ref<IndexBuffer> m_IndexBuffer;
         
         // Bounding volumes
-        BoundingBox m_BoundingBox;
-        BoundingSphere m_BoundingSphere;
+    BoundingBox m_BoundingBox;
+    BoundingSphere m_BoundingSphere;
         
-        bool m_Built = false;
+    bool m_Built = false;
     };
 }

@@ -51,6 +51,27 @@ namespace OloEngine
 		s_Data.CubeMesh = MeshPrimitives::CreateCube();
 		s_Data.QuadMesh = MeshPrimitives::CreatePlane(1.0f, 1.0f);
 		s_Data.SkyboxMesh = MeshPrimitives::CreateSkyboxCube();
+		// Cached unit line quad (length 1 along +X, centered on X with half-thickness of 0.5 on Y)
+		// We'll scale/rotate/translate this via a transform in DrawLine.
+		{
+			std::vector<Vertex> verts;
+			verts.reserve(4);
+			// Define a unit line along +X from 0 to 1, quad thickness 1 in Y (will be scaled by desired thickness)
+			verts.emplace_back(glm::vec3(0.0f, -0.5f, 0.0f), glm::vec3(0.0f), glm::vec2(0.0f));
+			verts.emplace_back(glm::vec3(0.0f,  0.5f, 0.0f), glm::vec3(0.0f), glm::vec2(1.0f, 0.0f));
+			verts.emplace_back(glm::vec3(1.0f,  0.5f, 0.0f), glm::vec3(0.0f), glm::vec2(1.0f));
+			verts.emplace_back(glm::vec3(1.0f, -0.5f, 0.0f), glm::vec3(0.0f), glm::vec2(0.0f, 1.0f));
+
+			std::vector<u32> inds = { 0, 1, 2, 2, 3, 0 };
+
+			auto src = Ref<MeshSource>::Create(verts, inds);
+			Submesh sm;
+			sm.m_BaseVertex = 0; sm.m_BaseIndex = 0; sm.m_IndexCount = (u32)inds.size(); sm.m_VertexCount = (u32)verts.size();
+			sm.m_MaterialIndex = 0; sm.m_IsRigged = false; sm.m_NodeName = "LineQuad";
+			src->AddSubmesh(sm);
+			src->Build();
+			s_Data.LineQuadMesh = Ref<Mesh>::Create(src, 0);
+		}
 		m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
 		m_ShaderLibrary.Load("assets/shaders/Lighting3D.glsl");
 		m_ShaderLibrary.Load("assets/shaders/SkinnedLighting3D_Simple.glsl");
@@ -1027,43 +1048,6 @@ namespace OloEngine
 			return nullptr;
 		}
 
-		// For now, we'll draw lines as thin quads oriented towards the camera
-		// This is a simple implementation that could be optimized later
-		glm::vec3 direction = glm::normalize(end - start);
-		glm::vec3 right = glm::normalize(glm::cross(direction, glm::vec3(0.0f, 1.0f, 0.0f)));
-		glm::vec3 up = glm::cross(right, direction);
-		
-		// Scale thickness to reasonable bone width (UI range is 0.5-5.0)
-		f32 actualThickness = thickness * 0.005f; // Very thin bones for skeleton visualization
-		f32 halfThickness = actualThickness * 0.5f;
-		
-		// Create a simple line quad (we could use a dedicated line mesh later)
-		std::vector<Vertex> vertices = {
-			Vertex(start - right * halfThickness, glm::vec3(0.0f), glm::vec2(0.0f, 0.0f)),
-			Vertex(start + right * halfThickness, glm::vec3(0.0f), glm::vec2(1.0f, 0.0f)),
-			Vertex(end + right * halfThickness,   glm::vec3(0.0f), glm::vec2(1.0f, 1.0f)),
-			Vertex(end - right * halfThickness,   glm::vec3(0.0f), glm::vec2(0.0f, 1.0f))
-		};
-		
-		std::vector<u32> indices = { 0, 1, 2, 2, 3, 0 };
-		
-		// Create temporary mesh for the line
-		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
-		
-		// Create a default submesh for the entire mesh
-		Submesh submesh;
-		submesh.BaseVertex = 0;
-		submesh.BaseIndex = 0;
-		submesh.IndexCount = static_cast<u32>(indices.size());
-		submesh.VertexCount = static_cast<u32>(vertices.size());
-		submesh.MaterialIndex = 0;
-		submesh.IsRigged = false;
-		submesh.NodeName = "DebugLine";
-		meshSource->AddSubmesh(submesh);
-		
-		meshSource->Build();
-		auto lineMesh = Ref<Mesh>::Create(meshSource, 0);
-		
 		// Use a highly emissive material for skeleton visualization
 		Material material{};
 		material.Type = MaterialType::PBR;
@@ -1071,8 +1055,38 @@ namespace OloEngine
 		material.MetallicFactor = 0.0f;
 		material.RoughnessFactor = 1.0f;
 		material.EmissiveFactor = glm::vec4(color * 5.0f, 1.0f); // Very bright emissive for visibility through surfaces
-		
-		auto* packet = DrawMesh(lineMesh, glm::mat4(1.0f), material);
+        
+		if (!s_Data.LineQuadMesh)
+		{
+			OLO_CORE_WARN("Renderer3D::DrawLine: LineQuadMesh not initialized");
+			return nullptr;
+		}
+
+		// Build transform: translate to start, rotate to align +X with (end-start), scale X to length and Y to thickness
+		const glm::vec3 seg = end - start;
+		const float length = glm::length(seg);
+		if (length <= 0.0001f)
+			return nullptr;
+
+		// Convert UI thickness to world thickness
+		const float worldThickness = thickness * 0.005f; // matches previous visual scale
+
+		// Compute rotation from +X axis to segment direction
+		const glm::vec3 dir = seg / length;
+		const glm::vec3 xAxis = glm::vec3(1,0,0);
+		glm::mat4 rot(1.0f);
+		const float dot = glm::clamp(glm::dot(xAxis, dir), -1.0f, 1.0f);
+		if (dot < 0.9999f)
+		{
+			glm::vec3 axis = glm::normalize(glm::cross(xAxis, dir));
+			float angle = acosf(dot);
+			rot = glm::rotate(glm::mat4(1.0f), angle, axis);
+		}
+		// Scale: X=length, Y=worldThickness, Z=1
+		glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(length, worldThickness, 1.0f));
+		glm::mat4 transform = glm::translate(glm::mat4(1.0f), start) * rot * scale;
+
+		auto* packet = DrawMesh(s_Data.LineQuadMesh, transform, material);
 		
 		// Modify render state to ensure skeleton visibility
 		if (packet)

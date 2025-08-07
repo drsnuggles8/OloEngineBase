@@ -702,9 +702,13 @@ void Sandbox3D::RenderMaterialTestingScene()
 
 void Sandbox3D::RenderAnimationTestingScene()
 {
-    // TODO: Update AnimatedModel system to work with new MeshSource architecture
-    // For now, skip rendering until AnimatedModel is updated to use MeshComponent/SubmeshComponent
-    // The AnimatedModel class still uses legacy SkinnedMesh and needs refactoring
+    // Render animated entities using the new ECS animation system
+    if (m_TestScene)
+    {
+        // Use the new animation rendering system that handles MeshComponent + SkeletonComponent entities
+        OloEngine::Material defaultMaterial = *OloEngine::Material::CreatePBR("Default Animation", glm::vec3(0.8f), 0.0f, 0.5f);
+        OloEngine::Renderer3D::RenderAnimatedMeshes(m_TestScene, defaultMaterial);
+    }
 }
 
 void Sandbox3D::RenderLightingTestingScene()
@@ -1364,24 +1368,62 @@ void Sandbox3D::LoadTestAnimatedModel()
         
         transformComp.Scale = modelScale;
         
-        // TODO: Update AnimatedModel to work with new MeshSource system
-        // The AnimatedModel still uses the legacy SkinnedMesh system and needs to be updated
-        // to work with the new MeshSource/MeshComponent architecture
-        /*
+        // Create MeshComponent from AnimatedModel data
         auto& meshComp = m_ImportedModelEntity.AddComponent<OloEngine::MeshComponent>();
         if (!m_CesiumManModel->GetMeshes().empty())
         {
-            // The new system requires MeshSource instead of individual meshes
-            // For now, get the mesh source from the first mesh
-            auto firstMesh = m_CesiumManModel->GetMeshes()[0];
-            meshComp.MeshSource = firstMesh->GetMeshSource();
+            // Convert the first SkinnedMesh to a MeshSource
+            auto firstSkinnedMesh = m_CesiumManModel->GetMeshes()[0];
+            const auto& skinnedVertices = firstSkinnedMesh->GetVertices();
+            const auto& indices = firstSkinnedMesh->GetIndices();
+            
+            // Convert SkinnedVertex to Vertex (losing bone weights for now)
+            std::vector<OloEngine::Vertex> vertices;
+            vertices.reserve(skinnedVertices.size());
+            for (const auto& skinnedVert : skinnedVertices)
+            {
+                vertices.emplace_back(skinnedVert.Position, skinnedVert.Normal, skinnedVert.TexCoord);
+            }
+            
+            // Create MeshSource
+            auto meshSource = OloEngine::Ref<OloEngine::MeshSource>::Create(vertices, indices);
+            
+            // Create a single submesh for the entire mesh
+            OloEngine::Submesh submesh;
+            submesh.m_BaseVertex = 0;
+            submesh.m_BaseIndex = 0;
+            submesh.m_IndexCount = static_cast<u32>(indices.size());
+            submesh.m_VertexCount = static_cast<u32>(vertices.size());
+            submesh.m_MaterialIndex = 0;
+            submesh.m_IsRigged = true; // This is an animated mesh
+            submesh.m_NodeName = modelName;
+            meshSource->AddSubmesh(submesh);
+            
+            // Build the GPU buffers
+            meshSource->Build();
+            meshComp.MeshSource = meshSource;
+            
+            // Create a child entity with SubmeshComponent for rendering
+            auto submeshEntity = m_TestScene->CreateEntity(modelName + "_Submesh_0");
+            auto& submeshComp = submeshEntity.AddComponent<OloEngine::SubmeshComponent>();
+            
+            // Create a regular Mesh from the MeshSource for the SubmeshComponent
+            auto mesh = OloEngine::Ref<OloEngine::Mesh>::Create(meshSource, 0);
+            submeshComp.Mesh = mesh;
+            submeshComp.SubmeshIndex = 0;
+            submeshComp.Visible = true;
+            
+            // Set up parent-child relationship
+            auto& relationshipComp = submeshEntity.AddComponent<OloEngine::RelationshipComponent>();
+            relationshipComp.m_ParentHandle = m_ImportedModelEntity.GetUUID();
+            
+            OLO_INFO("Created MeshSource with {} vertices and {} indices", vertices.size(), indices.size());
         }
         else
         {
             OLO_ERROR("{} model has no meshes!", modelName);
             return;
         }
-        */
         
         auto& materialComp = m_ImportedModelEntity.AddComponent<OloEngine::MaterialComponent>();
         if (!m_CesiumManModel->GetMaterials().empty())

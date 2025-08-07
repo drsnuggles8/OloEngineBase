@@ -55,7 +55,7 @@ namespace OloEngine
         const auto& submeshes = m_MeshSource->GetSubmeshes();
         if (m_SubmeshIndex < submeshes.size())
         {
-            return submeshes[m_SubmeshIndex].BoundingBox;
+                return submeshes[m_SubmeshIndex].m_BoundingBox;
         }
         
         // Fallback to overall MeshSource bounds
@@ -97,7 +97,7 @@ namespace OloEngine
         if (!m_MeshSource)
             return 0;
         
-        const auto& submesh = GetSubmesh();
-        return submesh.IndexCount;
+    const auto& submesh = GetSubmesh();
+    return submesh.m_IndexCount;
     }
 }

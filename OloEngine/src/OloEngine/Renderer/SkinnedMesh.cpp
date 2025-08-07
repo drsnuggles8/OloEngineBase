@@ -58,7 +58,7 @@ namespace OloEngine
         m_VertexArray = VertexArray::Create();
 
         m_VertexBuffer = VertexBuffer::Create(
-            reinterpret_cast<f32*>(m_Vertices.data()),
+            static_cast<const void*>(m_Vertices.data()),
             static_cast<u32>(m_Vertices.size() * sizeof(SkinnedVertex))
         );
         
