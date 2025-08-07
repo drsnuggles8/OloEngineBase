@@ -46,8 +46,9 @@ namespace OloEngine
         if (!m_MeshSource)
             return BoundingBox();
         
-        const auto& submesh = GetSubmesh();
-        return submesh.BoundingBox;
+        // For now, return the MeshSource's overall bounding box
+        // In the future, this could be optimized to return submesh-specific bounds
+        return m_MeshSource->GetBoundingBox();
     }
 
     BoundingSphere Mesh::GetBoundingSphere() const

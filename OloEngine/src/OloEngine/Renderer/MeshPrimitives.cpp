@@ -253,6 +253,18 @@ namespace OloEngine {
 		}
 
 		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		
+		// Create a default submesh for the entire mesh
+		Submesh submesh;
+		submesh.BaseVertex = 0;
+		submesh.BaseIndex = 0;
+		submesh.IndexCount = static_cast<u32>(indices.size());
+		submesh.VertexCount = static_cast<u32>(vertices.size());
+		submesh.MaterialIndex = 0;
+		submesh.IsRigged = false;
+		submesh.NodeName = "Cylinder";
+		meshSource->AddSubmesh(submesh);
+		
 		meshSource->Build();
 		return Ref<Mesh>::Create(meshSource, 0);
 	}
@@ -305,6 +317,18 @@ namespace OloEngine {
 		}
 
 		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		
+		// Create a default submesh for the entire mesh
+		Submesh submesh;
+		submesh.BaseVertex = 0;
+		submesh.BaseIndex = 0;
+		submesh.IndexCount = static_cast<u32>(indices.size());
+		submesh.VertexCount = static_cast<u32>(vertices.size());
+		submesh.MaterialIndex = 0;
+		submesh.IsRigged = false;
+		submesh.NodeName = "Cone";
+		meshSource->AddSubmesh(submesh);
+		
 		meshSource->Build();
 		return Ref<Mesh>::Create(meshSource, 0);
 	}
@@ -368,6 +392,18 @@ namespace OloEngine {
 		};
 
 		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		
+		// Create a default submesh for the entire mesh
+		Submesh submesh;
+		submesh.BaseVertex = 0;
+		submesh.BaseIndex = 0;
+		submesh.IndexCount = static_cast<u32>(indices.size());
+		submesh.VertexCount = static_cast<u32>(vertices.size());
+		submesh.MaterialIndex = 0;
+		submesh.IsRigged = false;
+		submesh.NodeName = "SkyboxCube";
+		meshSource->AddSubmesh(submesh);
+		
 		meshSource->Build();
 		return Ref<Mesh>::Create(meshSource, 0);
 	}
@@ -388,6 +424,18 @@ namespace OloEngine {
 		};
 
 		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		
+		// Create a default submesh for the entire mesh
+		Submesh submesh;
+		submesh.BaseVertex = 0;
+		submesh.BaseIndex = 0;
+		submesh.IndexCount = static_cast<u32>(indices.size());
+		submesh.VertexCount = static_cast<u32>(vertices.size());
+		submesh.MaterialIndex = 0;
+		submesh.IsRigged = false;
+		submesh.NodeName = "FullscreenQuad";
+		meshSource->AddSubmesh(submesh);
+		
 		meshSource->Build();
 		return Ref<Mesh>::Create(meshSource, 0);
 	}
@@ -460,6 +508,18 @@ namespace OloEngine {
 		}
 
 		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		
+		// Create a default submesh for the entire mesh
+		Submesh submesh;
+		submesh.BaseVertex = 0;
+		submesh.BaseIndex = 0;
+		submesh.IndexCount = static_cast<u32>(indices.size());
+		submesh.VertexCount = static_cast<u32>(vertices.size());
+		submesh.MaterialIndex = 0;
+		submesh.IsRigged = false;
+		submesh.NodeName = "Icosphere";
+		meshSource->AddSubmesh(submesh);
+		
 		meshSource->Build();
 		return Ref<Mesh>::Create(meshSource, 0);
 	}
@@ -513,6 +573,18 @@ namespace OloEngine {
 		}
 
 		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		
+		// Create a default submesh for the entire mesh
+		Submesh submesh;
+		submesh.BaseVertex = 0;
+		submesh.BaseIndex = 0;
+		submesh.IndexCount = static_cast<u32>(indices.size());
+		submesh.VertexCount = static_cast<u32>(vertices.size());
+		submesh.MaterialIndex = 0;
+		submesh.IsRigged = false;
+		submesh.NodeName = "Torus";
+		meshSource->AddSubmesh(submesh);
+		
 		meshSource->Build();
 		return Ref<Mesh>::Create(meshSource, 0);
 	}
@@ -549,6 +621,18 @@ namespace OloEngine {
 		}
 
 		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		
+		// Create a default submesh for the entire mesh
+		Submesh submesh;
+		submesh.BaseVertex = 0;
+		submesh.BaseIndex = 0;
+		submesh.IndexCount = static_cast<u32>(indices.size());
+		submesh.VertexCount = static_cast<u32>(vertices.size());
+		submesh.MaterialIndex = 0;
+		submesh.IsRigged = false;
+		submesh.NodeName = "Grid";
+		meshSource->AddSubmesh(submesh);
+		
 		meshSource->Build();
 		return Ref<Mesh>::Create(meshSource, 0);
 	}
@@ -579,6 +663,18 @@ namespace OloEngine {
 		};
 
 		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		
+		// Create a default submesh for the entire mesh
+		Submesh submesh;
+		submesh.BaseVertex = 0;
+		submesh.BaseIndex = 0;
+		submesh.IndexCount = static_cast<u32>(indices.size());
+		submesh.VertexCount = static_cast<u32>(vertices.size());
+		submesh.MaterialIndex = 0;
+		submesh.IsRigged = false;
+		submesh.NodeName = "WireframeCube";
+		meshSource->AddSubmesh(submesh);
+		
 		meshSource->Build();
 		return Ref<Mesh>::Create(meshSource, 0);
 	}
@@ -608,6 +704,18 @@ namespace OloEngine {
 		};
 
 		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		
+		// Create a default submesh for the entire mesh
+		Submesh submesh;
+		submesh.BaseVertex = 0;
+		submesh.BaseIndex = 0;
+		submesh.IndexCount = static_cast<u32>(indices.size());
+		submesh.VertexCount = static_cast<u32>(vertices.size());
+		submesh.MaterialIndex = 0;
+		submesh.IsRigged = false;
+		submesh.NodeName = "CoordinateAxes";
+		meshSource->AddSubmesh(submesh);
+		
 		meshSource->Build();
 		return Ref<Mesh>::Create(meshSource, 0);
 	}

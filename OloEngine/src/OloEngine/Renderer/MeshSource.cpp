@@ -25,6 +25,9 @@ namespace OloEngine
         if (m_Built)
             return;
 
+        // Ensure bounds are calculated before building GPU resources
+        CalculateBounds();
+
         BuildVertexBuffer();
         BuildIndexBuffer();
         

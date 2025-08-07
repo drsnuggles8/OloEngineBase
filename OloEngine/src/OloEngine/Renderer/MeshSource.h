@@ -124,6 +124,10 @@ namespace OloEngine
         const Ref<VertexBuffer>& GetVertexBuffer() const { return m_VertexBuffer; }
         const Ref<IndexBuffer>& GetIndexBuffer() const { return m_IndexBuffer; }
         
+        // Bounding volume accessors
+        const BoundingBox& GetBoundingBox() const { return m_BoundingBox; }
+        const BoundingSphere& GetBoundingSphere() const { return m_BoundingSphere; }
+        
         // Asset interface
         static AssetType GetStaticType() { return AssetType::MeshSource; }
         AssetType GetAssetType() const override { return GetStaticType(); }
