@@ -25,23 +25,27 @@ Sandbox3D::Sandbox3D()
     m_CameraController(45.0f, 1280.0f / 720.0f, 0.1f, 1000.0f)
 {
     // Initialize materials with metallic properties
+    m_GoldMaterial.Type = OloEngine::MaterialType::Legacy;  // Use legacy rendering path
     m_GoldMaterial.Ambient = glm::vec3(0.24725f, 0.1995f, 0.0745f);
     m_GoldMaterial.Diffuse = glm::vec3(0.75164f, 0.60648f, 0.22648f);
     m_GoldMaterial.Specular = glm::vec3(0.628281f, 0.555802f, 0.366065f);
     m_GoldMaterial.Shininess = 51.2f;
     m_GoldMaterial.UseTextureMaps = true;  // Enable texture mapping
 
+    m_SilverMaterial.Type = OloEngine::MaterialType::Legacy;  // Use legacy rendering path
     m_SilverMaterial.Ambient = glm::vec3(0.19225f, 0.19225f, 0.19225f);
     m_SilverMaterial.Diffuse = glm::vec3(0.50754f, 0.50754f, 0.50754f);
     m_SilverMaterial.Specular = glm::vec3(0.508273f, 0.508273f, 0.508273f);
     m_SilverMaterial.Shininess = 76.8f;
 
+    m_ChromeMaterial.Type = OloEngine::MaterialType::Legacy;  // Use legacy rendering path
     m_ChromeMaterial.Ambient = glm::vec3(0.25f, 0.25f, 0.25f);
     m_ChromeMaterial.Diffuse = glm::vec3(0.4f, 0.4f, 0.4f);
     m_ChromeMaterial.Specular = glm::vec3(0.774597f, 0.774597f, 0.774597f);
     m_ChromeMaterial.Shininess = 96.0f;
 
     // Initialize textured material
+    m_TexturedMaterial.Type = OloEngine::MaterialType::Legacy;  // Use legacy rendering path
     m_TexturedMaterial.Ambient = glm::vec3(0.1f);
     m_TexturedMaterial.Diffuse = glm::vec3(1.0f);
     m_TexturedMaterial.Specular = glm::vec3(1.0f);
@@ -101,6 +105,7 @@ void Sandbox3D::OnAttach()
     m_BackpackModel = OloEngine::Ref<OloEngine::Model>::Create("assets/backpack/backpack.obj");
 
     // Load textures
+    OLO_CORE_INFO("Sandbox3D: Loading textures...");
     m_DiffuseMap = OloEngine::Texture2D::Create("assets/textures/container2.png");
     m_SpecularMap = OloEngine::Texture2D::Create("assets/textures/container2_specular.png");
     m_GrassTexture = OloEngine::Texture2D::Create("assets/textures/grass.png");
@@ -112,7 +117,6 @@ void Sandbox3D::OnAttach()
     // Also assign textures to gold material for the sphere
     m_GoldMaterial.DiffuseMap = m_DiffuseMap;
     m_GoldMaterial.SpecularMap = m_SpecularMap;
-    
     // Initialize PBR materials using the simplified Material struct
     m_PBRGoldMaterial = OloEngine::Material::CreateGoldMaterial();
     m_PBRSilverMaterial = OloEngine::Material::CreateSilverMaterial();
@@ -399,7 +403,6 @@ void Sandbox3D::OnImGuiRender()
         if (ImGui::Combo("Active Scene", &currentSceneIndex, m_SceneNames, sceneCount))
         {
             SceneType newScene = static_cast<SceneType>(currentSceneIndex);
-            
             // If switching to lighting test scene, load its saved light settings
             if (newScene == SceneType::LightingTesting)
             {
@@ -505,13 +508,16 @@ void Sandbox3D::RenderMaterialTestingScene()
     modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
     
     // Choose material based on PBR toggle
-    if (m_UsePBRMaterials) {
+    if (m_UsePBRMaterials)
+	{
         auto& pbrMaterial = GetCurrentPBRMaterial();
         
         // Draw filled mesh (normal)
         auto* solidPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, pbrMaterial);
         if (solidPacket) OloEngine::Renderer3D::SubmitPacket(solidPacket);
-    } else {
+    }
+	else
+	{
         // Draw filled mesh (normal)
         auto* solidPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, m_GoldMaterial);
         if (solidPacket) OloEngine::Renderer3D::SubmitPacket(solidPacket);
@@ -544,7 +550,8 @@ void Sandbox3D::RenderMaterialTestingScene()
         case 0: // Cubes
         {
             // Choose materials based on PBR toggle
-            if (m_UsePBRMaterials) {
+            if (m_UsePBRMaterials)
+			{
                 OloEngine::Material silverMat = m_PBRSilverMaterial;
                 OloEngine::Material chromeMat = m_PBRCopperMaterial;
                 
@@ -559,7 +566,9 @@ void Sandbox3D::RenderMaterialTestingScene()
                 chromeCubeMatrix = glm::rotate(chromeCubeMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
                 auto* chromePacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, chromeCubeMatrix, chromeMat);
                 if (chromePacket) OloEngine::Renderer3D::SubmitPacket(chromePacket);
-            } else {
+            }
+			else
+			{
                 auto silverCubeMatrix = glm::mat4(1.0f);
                 silverCubeMatrix = glm::translate(silverCubeMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
                 silverCubeMatrix = glm::rotate(silverCubeMatrix, glm::radians(m_RotationAngleY * 1.5f), glm::vec3(0.0f, 1.0f, 0.0f));
@@ -690,7 +699,11 @@ void Sandbox3D::RenderMaterialTestingScene()
     sphereMatrix = glm::rotate(sphereMatrix, glm::radians(m_RotationAngleX * 0.8f), glm::vec3(1.0f, 0.0f, 0.0f));
     sphereMatrix = glm::rotate(sphereMatrix, glm::radians(m_RotationAngleY * 0.8f), glm::vec3(0.0f, 1.0f, 0.0f));
     auto* texturedPacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, m_TexturedMaterial);
-    if (texturedPacket) OloEngine::Renderer3D::SubmitPacket(texturedPacket);
+    if (texturedPacket)
+	{
+		OloEngine::Renderer3D::SubmitPacket(texturedPacket);
+	}
+		
     
     // Add grass quad to demonstrate texture rendering
     RenderGrassQuad();

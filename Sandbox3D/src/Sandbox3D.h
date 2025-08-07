@@ -55,7 +55,7 @@ private:
 
 private:
 	// Scene management
-	SceneType m_CurrentScene = SceneType::PBRModelTesting; // Start with PBR model testing
+	SceneType m_CurrentScene = SceneType::MaterialTesting; // Start with Material Testing scene
 	const char* m_SceneNames[static_cast<int>(SceneType::Count)] = { 
 		"Material Testing", 
 		"Animation Testing", 
