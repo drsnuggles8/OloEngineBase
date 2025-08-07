@@ -499,7 +499,7 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 	}
 
 	// Bone entity management methods (Hazel-style)
-	std::vector<glm::mat4> Scene::GetModelSpaceBoneTransforms(const std::vector<UUID>& boneEntityIds, Ref<MeshSource> meshSource)
+	std::vector<glm::mat4> Scene::GetModelSpaceBoneTransforms(const std::vector<UUID>& boneEntityIds, MeshSource* meshSource)
 	{
 		return BoneEntityUtils::GetModelSpaceBoneTransforms(boneEntityIds, meshSource, this);
 	}

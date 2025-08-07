@@ -27,6 +27,7 @@ namespace OloEngine
 
         // Ensure bounds are calculated before building GPU resources
         CalculateBounds();
+        CalculateSubmeshBounds();
 
         BuildVertexBuffer();
         BuildIndexBuffer();
@@ -94,5 +95,38 @@ namespace OloEngine
         }
         
         m_BoundingSphere = BoundingSphere(center, radius);
+    }
+
+    void MeshSource::CalculateSubmeshBounds()
+    {
+        for (auto& submesh : m_Submeshes)
+        {
+            if (submesh.VertexCount == 0 || submesh.BaseVertex >= m_Vertices.size())
+            {
+                submesh.BoundingBox = BoundingBox();
+                continue;
+            }
+
+            // Calculate bounds for this specific submesh
+            u32 startVertex = submesh.BaseVertex;
+            u32 endVertex = std::min(startVertex + submesh.VertexCount, static_cast<u32>(m_Vertices.size()));
+
+            if (startVertex >= endVertex)
+            {
+                submesh.BoundingBox = BoundingBox();
+                continue;
+            }
+
+            glm::vec3 min = m_Vertices[startVertex].Position;
+            glm::vec3 max = m_Vertices[startVertex].Position;
+
+            for (u32 i = startVertex; i < endVertex; i++)
+            {
+                min = glm::min(min, m_Vertices[i].Position);
+                max = glm::max(max, m_Vertices[i].Position);
+            }
+
+            submesh.BoundingBox = BoundingBox(min, max);
+        }
     }
 }

@@ -9,7 +9,7 @@ namespace OloEngine
 {
     std::vector<glm::mat4> BoneEntityUtils::GetModelSpaceBoneTransforms(
         const std::vector<UUID>& boneEntityIds, 
-        Ref<MeshSource> meshSource,
+        MeshSource* meshSource,
         Scene* scene)
     {
         std::vector<glm::mat4> boneTransforms(boneEntityIds.size());
@@ -132,7 +132,7 @@ namespace OloEngine
                 const Skeleton* skeleton = submeshComponent.Mesh->GetMeshSource()->GetSkeleton();
                 if (skeleton)
                 {
-                    submeshComponent.BoneEntityIds = FindBoneEntityIds(entity, skeleton, scene);
+                    submeshComponent.BoneEntityIds = FindBoneEntityIds(rootEntity, skeleton, scene);
                 }
             }
         }
@@ -158,7 +158,7 @@ namespace OloEngine
             
             if (skeletonComponent.m_Skeleton)
             {
-                animComponent.BoneEntityIds = FindBoneEntityIds(entity, skeletonComponent.m_Skeleton.get(), scene);
+                animComponent.BoneEntityIds = FindBoneEntityIds(rootEntity, skeletonComponent.m_Skeleton.get(), scene);
                 animComponent.RootBoneTransform = FindRootBoneTransform(entity, animComponent.BoneEntityIds, scene);
             }
         }

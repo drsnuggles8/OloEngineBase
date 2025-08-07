@@ -34,7 +34,7 @@ namespace OloEngine
 
 		SubmeshComponent() = default;
 		SubmeshComponent(const SubmeshComponent& other) = default;
-		SubmeshComponent(Ref<OloEngine::Mesh> mesh, u32 submeshIndex = 0)
+		explicit SubmeshComponent(Ref<OloEngine::Mesh> mesh, u32 submeshIndex = 0)
 			: Mesh(mesh), SubmeshIndex(submeshIndex) {}
 	};
 

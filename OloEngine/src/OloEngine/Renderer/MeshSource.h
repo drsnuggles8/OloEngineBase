@@ -117,6 +117,7 @@ namespace OloEngine
         // Utility methods
         void AddSubmesh(const Submesh& submesh) { m_Submeshes.push_back(submesh); }
         void CalculateBounds();
+        void CalculateSubmeshBounds(); // Calculate individual submesh bounds
         void Build(); // Build GPU resources
         
         // GPU resource accessors

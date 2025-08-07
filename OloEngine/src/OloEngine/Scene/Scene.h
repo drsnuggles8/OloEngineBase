@@ -57,7 +57,7 @@ namespace OloEngine
 		Entity GetPrimaryCameraEntity() const;
 
 		// Bone entity management (Hazel-style)
-		std::vector<glm::mat4> GetModelSpaceBoneTransforms(const std::vector<UUID>& boneEntityIds, Ref<class MeshSource> meshSource);
+		std::vector<glm::mat4> GetModelSpaceBoneTransforms(const std::vector<UUID>& boneEntityIds, class MeshSource* meshSource);
 		std::vector<UUID> FindBoneEntityIds(Entity entity, Entity rootEntity, const class Skeleton* skeleton) const;
 		glm::mat3 FindRootBoneTransform(Entity entity, const std::vector<UUID>& boneEntityIds) const;
 		void BuildBoneEntityIds(Entity entity);

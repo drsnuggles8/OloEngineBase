@@ -115,7 +115,7 @@ namespace OloEngine {
 		}
 
 		// Generate indices
-		indices.reserve((rings - 1) * (sectors) * 6);
+		indices.reserve((rings - 1) * (sectors - 1) * 6);
 		for (u32 r = 0; r < rings - 1; r++)
 		{
 			for (u32 s = 0; s < sectors - 1; s++)
