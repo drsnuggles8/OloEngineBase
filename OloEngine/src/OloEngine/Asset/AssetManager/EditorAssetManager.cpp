@@ -108,20 +108,19 @@ namespace OloEngine
     {
         OLO_PROFILER_SCOPE("EditorAssetManager::GetAsset");
 
-        // Check if it's a memory asset first
+        // Check both memory assets and loaded assets under a single lock
         {
             std::shared_lock<std::shared_mutex> lock(m_AssetsMutex);
-            auto it = m_MemoryAssets.find(assetHandle);
-            if (it != m_MemoryAssets.end())
-                return it->second;
-        }
+            
+            // Check if it's a memory asset first
+            auto memoryIt = m_MemoryAssets.find(assetHandle);
+            if (memoryIt != m_MemoryAssets.end())
+                return memoryIt->second;
 
-        // Check if already loaded
-        {
-            std::shared_lock<std::shared_mutex> lock(m_AssetsMutex);
-            auto it = m_LoadedAssets.find(assetHandle);
-            if (it != m_LoadedAssets.end())
-                return it->second;
+            // Check if already loaded
+            auto loadedIt = m_LoadedAssets.find(assetHandle);
+            if (loadedIt != m_LoadedAssets.end())
+                return loadedIt->second;
         }
 
         // Load from file

@@ -20,6 +20,9 @@ namespace OloEngine::YAMLUtils {
 
     inline bool DecodeUUID(const YAML::Node& node, UUID& uuid)
     {
+        if (!node.IsScalar())
+            return false;
+            
         uuid = node.as<u64>();
         return true;
     }
