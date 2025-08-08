@@ -5,7 +5,6 @@
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshSource.h"
-#include "OloEngine/Renderer/SkinnedMesh.h"
 #include "SkeletonData.h"
 #include "Skeleton.h"
 #include "AnimationClip.h"
@@ -51,19 +50,6 @@ namespace OloEngine
 		MeshComponent(Ref<OloEngine::MeshSource> meshSource) : MeshSource(meshSource) {}
 	};
 
-	/**
-	 * @brief Component that stores original SkinnedMesh data for animated models
-	 * 
-	 * This component preserves the original SkinnedVertex data with proper bone weights
-	 * to avoid the conversion pipeline that loses bone information.
-	 */
-	struct SkinnedMeshComponent
-	{
-		std::vector<Ref<SkinnedMesh>> SkinnedMeshes; // Original SkinnedMesh data with bone weights
-		
-		SkinnedMeshComponent() = default;
-		SkinnedMeshComponent(std::vector<Ref<SkinnedMesh>> skinnedMeshes) : SkinnedMeshes(std::move(skinnedMeshes)) {}
-	};
 
 	/**
 	 * @brief Animation state component for managing animation playback

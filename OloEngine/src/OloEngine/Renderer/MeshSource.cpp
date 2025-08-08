@@ -9,12 +9,16 @@ namespace OloEngine
     MeshSource::MeshSource(const std::vector<Vertex>& vertices, const std::vector<u32>& indices)
         : m_Vertices(vertices), m_Indices(indices)
     {
+        // Initialize bone influences with same size as vertices (all zeroed)
+        m_BoneInfluences.resize(vertices.size());
         CalculateBounds();
     }
 
     MeshSource::MeshSource(std::vector<Vertex>&& vertices, std::vector<u32>&& indices)
         : m_Vertices(std::move(vertices)), m_Indices(std::move(indices))
     {
+        // Initialize bone influences with same size as vertices (all zeroed)
+        m_BoneInfluences.resize(m_Vertices.size());
         CalculateBounds();
     }
 
@@ -30,11 +34,24 @@ namespace OloEngine
         BuildVertexBuffer();
         BuildIndexBuffer();
         
+        // Build bone influence buffer if we have rigged data
+        if (HasSkeleton() && !m_BoneInfluences.empty())
+        {
+            BuildBoneInfluenceBuffer();
+        }
+        
         m_VertexArray = VertexArray::Create();
         m_VertexArray->Bind();
         
         m_VertexBuffer->Bind();
         m_VertexArray->AddVertexBuffer(m_VertexBuffer);
+        
+        // Add bone influence buffer as second vertex buffer if available
+        if (m_BoneInfluenceBuffer)
+        {
+            m_BoneInfluenceBuffer->Bind();
+            m_VertexArray->AddVertexBuffer(m_BoneInfluenceBuffer);
+        }
         
         m_IndexBuffer->Bind();
         m_VertexArray->SetIndexBuffer(m_IndexBuffer);
@@ -61,6 +78,22 @@ namespace OloEngine
 
         m_IndexBuffer = IndexBuffer::Create(m_Indices.data(), 
                                            static_cast<u32>(m_Indices.size()));
+    }
+
+    void MeshSource::BuildBoneInfluenceBuffer()
+    {
+        if (m_BoneInfluences.empty())
+            return;
+
+        // Create buffer layout for bone influences
+        BufferLayout boneInfluenceLayout = {
+            { ShaderDataType::Int4,   "a_BoneIDs" },     // 4 bone IDs
+            { ShaderDataType::Float4, "a_BoneWeights" }  // 4 bone weights
+        };
+
+        m_BoneInfluenceBuffer = VertexBuffer::Create(static_cast<const void*>(m_BoneInfluences.data()),
+                                                    static_cast<u32>(m_BoneInfluences.size() * sizeof(BoneInfluence)));
+        m_BoneInfluenceBuffer->SetLayout(boneInfluenceLayout);
     }
 
     void MeshSource::CalculateBounds()

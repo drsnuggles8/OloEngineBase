@@ -10,7 +10,6 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
-#include "OloEngine/Renderer/SkinnedMesh.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Material.h"
@@ -283,17 +282,6 @@ namespace OloEngine
 	}
 
 	bool Renderer3D::IsVisibleInFrustum(const Ref<Mesh>& mesh, const glm::mat4& transform)
-	{
-		if (!s_Data.FrustumCullingEnabled)
-			return true;
-		
-		BoundingSphere sphere = mesh->GetTransformedBoundingSphere(transform);
-		sphere.Radius *= 1.3f;
-		
-		return s_Data.ViewFrustum.IsBoundingSphereVisible(sphere);
-	}
-	
-	bool Renderer3D::IsVisibleInFrustum(const Ref<SkinnedMesh>& mesh, const glm::mat4& transform)
 	{
 		if (!s_Data.FrustumCullingEnabled)
 			return true;
@@ -692,13 +680,13 @@ namespace OloEngine
 		}
 	}
 
-	CommandPacket* Renderer3D::DrawSkinnedMesh(const Ref<SkinnedMesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic)
+	CommandPacket* Renderer3D::DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic)
 	{
 		OLO_PROFILE_FUNCTION();
 		
 		if (!s_Data.ScenePass)
 		{
-			OLO_CORE_ERROR("Renderer3D::DrawSkinnedMesh: ScenePass is null!");
+			OLO_CORE_ERROR("Renderer3D::DrawAnimatedMesh: ScenePass is null!");
 			return nullptr;
 		}
 		
@@ -713,12 +701,17 @@ namespace OloEngine
 			}
 		}
 		
-		if (!mesh || !mesh->GetVertexArray())
+		if (!mesh || !mesh->GetMeshSource())
 		{
-			OLO_CORE_ERROR("Renderer3D::DrawSkinnedMesh: Invalid mesh ({}) or vertex array ({})!", 
-							(void*)mesh.get(), 
-							mesh ? (void*)mesh->GetVertexArray().get() : nullptr);
+			OLO_CORE_ERROR("Renderer3D::DrawAnimatedMesh: Invalid mesh or mesh source!");
 			return nullptr;
+		}
+
+		auto meshSource = mesh->GetMeshSource();
+		if (!meshSource->HasBoneInfluences())
+		{
+			OLO_CORE_WARN("Renderer3D::DrawAnimatedMesh: Mesh has no bone influences, falling back to regular mesh rendering");
+			return DrawMesh(mesh, modelMatrix, material, isStatic);
 		}
 
 		Ref<Shader> shaderToUse;
@@ -726,7 +719,7 @@ namespace OloEngine
 		{
 			shaderToUse = material.Shader;
 		}
-		else if ((material.Type == MaterialType::PBR))
+		else if (material.Type == MaterialType::PBR)
 		{
 			shaderToUse = s_Data.PBRSkinnedShader;
 		}
@@ -737,28 +730,30 @@ namespace OloEngine
 		
 		if (!shaderToUse)
 		{
-			OLO_CORE_WARN("Renderer3D::DrawSkinnedMesh: Preferred shader not available, falling back to Lighting3D");
+			OLO_CORE_WARN("Renderer3D::DrawAnimatedMesh: Preferred shader not available, falling back to Lighting3D");
 			shaderToUse = s_Data.LightingShader;
 		}
 		if (!shaderToUse)
 		{
-			OLO_CORE_ERROR("Renderer3D::DrawSkinnedMesh: No shader available!");
+			OLO_CORE_ERROR("Renderer3D::DrawAnimatedMesh: No shader available!");
 			return nullptr;
 		}
 		
 		if (boneMatrices.empty())
 		{
-			OLO_CORE_WARN("Renderer3D::DrawSkinnedMesh: No bone matrices provided, using identity matrices");
+			OLO_CORE_WARN("Renderer3D::DrawAnimatedMesh: No bone matrices provided, using identity matrices");
 		}
 		
-		CommandPacket* packet = CreateDrawCall<DrawSkinnedMeshCommand>();
-		auto* cmd = packet->GetCommandData<DrawSkinnedMeshCommand>();
+		// For now, use DrawMeshCommand but with bone matrices
+		// In the future, we might need a specialized DrawAnimatedMeshCommand
+		CommandPacket* packet = CreateDrawCall<DrawMeshCommand>();
+		auto* cmd = packet->GetCommandData<DrawMeshCommand>();
 		
-		cmd->header.type = CommandType::DrawSkinnedMesh;
+		cmd->header.type = CommandType::DrawMesh;
 		
 		cmd->vertexArray = mesh->GetVertexArray();
 		cmd->indexCount = mesh->GetIndexCount();
-		cmd->modelMatrix = modelMatrix;
+		cmd->transform = modelMatrix;
 		
 		// Legacy material properties (for backward compatibility)
 		cmd->ambient = material.Ambient;
@@ -793,7 +788,9 @@ namespace OloEngine
 		cmd->shader = shaderToUse;
 		cmd->renderState = Ref<RenderState>::Create();
 		
-		cmd->boneMatrices = boneMatrices;
+		// Store bone matrices in a way that the command dispatcher can access them
+		// TODO: This needs to be implemented properly in the command system
+		// For now, we'll use a global storage or pass through shader uniforms
 		
 		packet->SetCommandType(cmd->header.type);
 		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
@@ -890,9 +887,6 @@ namespace OloEngine
 		// Get bone matrices from the skeleton
 		const auto& boneMatrices = skeletonComp.m_Skeleton->m_FinalBoneMatrices;
 
-		// Check if entity has SkinnedMeshComponent with original bone weight data
-		bool hasOriginalSkinnedMeshes = entity.HasComponent<SkinnedMeshComponent>();
-
 		// Use MaterialComponent if available, otherwise use default material
 		Material material = defaultMaterial;
 		if (entity.HasComponent<MaterialComponent>())
@@ -921,70 +915,33 @@ namespace OloEngine
 						submeshMaterial = submeshEntity.GetComponent<MaterialComponent>().m_Material;
 					}
 
-					// Use original SkinnedMesh with proper bone weights if available
-					Ref<SkinnedMesh> skinnedMesh;
-					if (hasOriginalSkinnedMeshes)
-					{
-						auto& skinnedMeshComp = entity.GetComponent<SkinnedMeshComponent>();
-						// For submesh entities, we need to match the submesh index to the correct SkinnedMesh
-						u32 submeshIndex = submeshComponent.SubmeshIndex;
-						if (submeshIndex < skinnedMeshComp.SkinnedMeshes.size())
-						{
-							skinnedMesh = skinnedMeshComp.SkinnedMeshes[submeshIndex];
-						}
-					}
-					
-					// Fallback to conversion if no original SkinnedMesh available
-					if (!skinnedMesh)
-					{
-						skinnedMesh = CreateSkinnedMeshFromMesh(submeshComponent.Mesh);
-					}
-					if (skinnedMesh)
-					{
-						auto* packet = DrawSkinnedMesh(
-							skinnedMesh,
-							worldTransform,
-							submeshMaterial,
-							boneMatrices,
-							false
-						);
+					// Use the new MeshSource with bone influences directly
+					auto* packet = DrawAnimatedMesh(
+						submeshComponent.Mesh,
+						worldTransform,
+						submeshMaterial,
+						boneMatrices,
+						false
+					);
 
-						if (packet)
-						{
-							SubmitPacket(packet);
-							renderedAnySubmesh = true;
-						}
+					if (packet)
+					{
+						SubmitPacket(packet);
+						renderedAnySubmesh = true;
 					}
 				}
 			}
 		}
 
-		// Fallback: if no submesh entities found, use original SkinnedMesh or create from MeshSource
+		// Fallback: if no submesh entities found, create a mesh from the first submesh
 		if (!renderedAnySubmesh)
 		{
-			Ref<SkinnedMesh> skinnedMesh;
-			
-			// Prefer original SkinnedMesh with proper bone weights
-			if (hasOriginalSkinnedMeshes)
-			{
-				auto& skinnedMeshComp = entity.GetComponent<SkinnedMeshComponent>();
-				if (!skinnedMeshComp.SkinnedMeshes.empty())
-				{
-					skinnedMesh = skinnedMeshComp.SkinnedMeshes[0]; // Use first mesh as fallback
-				}
-			}
-			
-			// Fallback to conversion if no original SkinnedMesh available
-			if (!skinnedMesh)
+			if (meshComp.MeshSource->GetSubmeshes().size() > 0)
 			{
 				auto mesh = Ref<Mesh>::Create(meshComp.MeshSource, 0);
-				skinnedMesh = CreateSkinnedMeshFromMesh(mesh);
-			}
-			
-			if (skinnedMesh)
-			{
-				auto* packet = DrawSkinnedMesh(
-					skinnedMesh,
+				
+				auto* packet = DrawAnimatedMesh(
+					mesh,
 					worldTransform,
 					material,
 					boneMatrices,
@@ -1302,33 +1259,5 @@ namespace OloEngine
 				}
 			}
 		}
-	}
-
-	Ref<SkinnedMesh> Renderer3D::CreateSkinnedMeshFromMesh(const Ref<Mesh>& mesh)
-	{
-		if (!mesh || !mesh->GetMeshSource())
-		{
-			return nullptr;
-		}
-
-		auto meshSource = mesh->GetMeshSource();
-		const auto& vertices = meshSource->GetVertices();
-		const auto& indices = meshSource->GetIndices();
-		u32 submeshIndex = mesh->GetSubmeshIndex();
-
-		// Convert regular Vertex to SkinnedVertex
-		std::vector<SkinnedVertex> skinnedVertices;
-		skinnedVertices.reserve(vertices.size());
-
-		for (const auto& vertex : vertices)
-		{
-			// Create SkinnedVertex from regular Vertex (this will set bone data to default values)
-			skinnedVertices.emplace_back(vertex);
-		}
-
-		// For now, create a simple SkinnedMesh with default bone weights
-		// In a proper implementation, we would need to preserve the original SkinnedVertex data
-		// or reconstruct it from the mesh source bone influence data
-		return Ref<SkinnedMesh>::Create(std::move(skinnedVertices), indices);
 	}
 }

@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Vertex.h"
+#include "OloEngine/Renderer/VertexBuffer.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Asset/Asset.h"
@@ -33,16 +34,43 @@ namespace OloEngine
     };
 
     /**
-     * @brief Bone influence structure for vertex skinning data
+     * @brief Bone influence structure for vertex skinning data (Hazel-style)
+     * This stores bone IDs and weights separately from vertex data
      */
     struct BoneInfluence
     {
-        u32 VertexIndex;
-        f32 Weight;
+        u32 BoneIDs[4] = { 0, 0, 0, 0 };     // Up to 4 bone IDs affecting this vertex
+        f32 Weights[4] = { 0.0f, 0.0f, 0.0f, 0.0f }; // Corresponding weights (should sum to 1.0)
         
         BoneInfluence() = default;
-        BoneInfluence(u32 vertexIndex, f32 weight) 
-            : VertexIndex(vertexIndex), Weight(weight) {}
+        BoneInfluence(const glm::ivec4& boneIds, const glm::vec4& weights)
+        {
+            for (int i = 0; i < 4; ++i)
+            {
+                BoneIDs[i] = boneIds[i];
+                Weights[i] = weights[i];
+            }
+        }
+        
+        // Helper methods for easier access
+        void SetBoneData(u32 index, u32 boneId, f32 weight)
+        {
+            if (index < 4)
+            {
+                BoneIDs[index] = boneId;
+                Weights[index] = weight;
+            }
+        }
+        
+        void Normalize()
+        {
+            f32 totalWeight = Weights[0] + Weights[1] + Weights[2] + Weights[3];
+            if (totalWeight > 0.0f)
+            {
+                for (int i = 0; i < 4; ++i)
+                    Weights[i] /= totalWeight;
+            }
+        }
     };
 
     /**
@@ -115,9 +143,26 @@ namespace OloEngine
             return m_BoneInfo[index]; 
         }
 
-        // Bone influences for vertices
-        const std::vector<std::vector<BoneInfluence>>& GetBoneInfluences() const { return m_BoneInfluences; }
-        std::vector<std::vector<BoneInfluence>>& GetBoneInfluences() { return m_BoneInfluences; }
+        // Bone influences for vertices (Hazel-style: one per vertex, separate from vertex data)
+        const std::vector<BoneInfluence>& GetBoneInfluences() const { return m_BoneInfluences; }
+        std::vector<BoneInfluence>& GetBoneInfluences() { return m_BoneInfluences; }
+        
+        // Add bone influence for a specific vertex
+        void SetVertexBoneData(u32 vertexIndex, const BoneInfluence& influence)
+        {
+            if (vertexIndex < m_BoneInfluences.size())
+                m_BoneInfluences[vertexIndex] = influence;
+        }
+        
+        // Get bone influence for a specific vertex
+        const BoneInfluence& GetVertexBoneData(u32 vertexIndex) const
+        {
+            static const BoneInfluence defaultInfluence{};
+            return vertexIndex < m_BoneInfluences.size() ? m_BoneInfluences[vertexIndex] : defaultInfluence;
+        }
+
+        // Check if this mesh has bone influences for animation
+        bool HasBoneInfluences() const { return !m_BoneInfluences.empty(); }
 
         // Utility methods
         void AddSubmesh(const Submesh& submesh) { m_Submeshes.push_back(submesh); }
@@ -126,11 +171,13 @@ namespace OloEngine
         void Build(); // Build GPU resources
         
         // GPU resource accessors (with lazy initialization)
-    const Ref<VertexArray>& GetVertexArray() const { return m_VertexArray; }
-    const Ref<VertexBuffer>& GetVertexBuffer() const { return m_VertexBuffer; }
-    const Ref<IndexBuffer>& GetIndexBuffer() const { return m_IndexBuffer; }
+        const Ref<VertexArray>& GetVertexArray() const { return m_VertexArray; }
+        const Ref<VertexBuffer>& GetVertexBuffer() const { return m_VertexBuffer; }
+        const Ref<IndexBuffer>& GetIndexBuffer() const { return m_IndexBuffer; }
         
-        // Bounding volume accessors
+        // Bone influence buffer for rigged meshes (Hazel-style)
+        const Ref<VertexBuffer>& GetBoneInfluenceBuffer() const { return m_BoneInfluenceBuffer; }
+        bool HasBoneInfluenceBuffer() const { return m_BoneInfluenceBuffer != nullptr; }        // Bounding volume accessors
         const BoundingBox& GetBoundingBox() const { return m_BoundingBox; }
         const BoundingSphere& GetBoundingSphere() const { return m_BoundingSphere; }
         
@@ -141,6 +188,7 @@ namespace OloEngine
     private:
         void BuildVertexBuffer();
         void BuildIndexBuffer();
+        void BuildBoneInfluenceBuffer(); // New: build separate bone influence buffer
 
     private:
         // Core mesh data
@@ -148,17 +196,16 @@ namespace OloEngine
         std::vector<u32> m_Indices;
         std::vector<Submesh> m_Submeshes;
         
-        // Rigging data
+        // Rigging data (Hazel-style: separated from vertex data)
         Ref<Skeleton> m_Skeleton;
         std::vector<BoneInfo> m_BoneInfo;
-        std::vector<std::vector<BoneInfluence>> m_BoneInfluences; // Per-bone vertex influences
+        std::vector<BoneInfluence> m_BoneInfluences; // One per vertex, separate from vertex data
         
         // GPU resources (similar to current Mesh class)
-    Ref<VertexArray> m_VertexArray;
-    Ref<VertexBuffer> m_VertexBuffer;
-    Ref<IndexBuffer> m_IndexBuffer;
-        
-        // Bounding volumes
+        Ref<VertexArray> m_VertexArray;
+        Ref<VertexBuffer> m_VertexBuffer;
+        Ref<IndexBuffer> m_IndexBuffer;
+        Ref<VertexBuffer> m_BoneInfluenceBuffer; // New: separate buffer for bone influences        // Bounding volumes
     BoundingBox m_BoundingBox;
     BoundingSphere m_BoundingSphere;
         

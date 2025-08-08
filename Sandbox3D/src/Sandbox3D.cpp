@@ -1389,48 +1389,21 @@ void Sandbox3D::LoadTestAnimatedModel()
         
         transformComp.Scale = modelScale;
         
-        // Create MeshComponent from AnimatedModel data
+        // Create MeshComponent from AnimatedModel data (now uses MeshSource with separated bone influences)
         auto& meshComp = m_ImportedModelEntity.AddComponent<OloEngine::MeshComponent>();
         if (!m_CesiumManModel->GetMeshes().empty())
         {
-            // Get the first SkinnedMesh - preserve the original SkinnedVertex data with bone weights
-            auto firstSkinnedMesh = m_CesiumManModel->GetMeshes()[0];
-            const auto& skinnedVertices = firstSkinnedMesh->GetVertices();
-            const auto& indices = firstSkinnedMesh->GetIndices();
-            
-            // Convert SkinnedVertex to regular Vertex for compatibility with existing MeshSource system
-            // TODO: Extend MeshSource to support SkinnedVertex directly to avoid this conversion
-            std::vector<OloEngine::Vertex> vertices;
-            vertices.reserve(skinnedVertices.size());
-            for (const auto& skinnedVert : skinnedVertices)
-            {
-                vertices.emplace_back(skinnedVert.Position, skinnedVert.Normal, skinnedVert.TexCoord);
-            }
-            
-            // Create MeshSource
-            auto meshSource = OloEngine::Ref<OloEngine::MeshSource>::Create(vertices, indices);
-            
-            // Create a single submesh for the entire mesh
-            OloEngine::Submesh submesh;
-            submesh.m_BaseVertex = 0;
-            submesh.m_BaseIndex = 0;
-            submesh.m_IndexCount = static_cast<u32>(indices.size());
-            submesh.m_VertexCount = static_cast<u32>(vertices.size());
-            submesh.m_MaterialIndex = 0;
-            submesh.m_IsRigged = true; // This is an animated mesh
-            submesh.m_NodeName = modelName;
-            meshSource->AddSubmesh(submesh);
-            
-            // Build the GPU buffers
-            meshSource->Build();
-            meshComp.MeshSource = meshSource;
+            // Get the first MeshSource with separated bone influences (Hazel approach)
+            meshComp.MeshSource = m_CesiumManModel->GetMeshes()[0];
+            OLO_INFO("MeshComponent created with MeshSource containing {} submeshes and separated bone influences", 
+                     meshComp.MeshSource->GetSubmeshes().size());
             
             // Create a child entity with SubmeshComponent for rendering
             auto submeshEntity = m_TestScene->CreateEntity(modelName + "_Submesh_0");
             auto& submeshComp = submeshEntity.AddComponent<OloEngine::SubmeshComponent>();
             
             // Create a regular Mesh from the MeshSource for the SubmeshComponent
-            auto mesh = OloEngine::Ref<OloEngine::Mesh>::Create(meshSource, 0);
+            auto mesh = OloEngine::Ref<OloEngine::Mesh>::Create(meshComp.MeshSource, 0);
             submeshComp.Mesh = mesh;
             submeshComp.SubmeshIndex = 0;
             submeshComp.Visible = true;
@@ -1439,7 +1412,7 @@ void Sandbox3D::LoadTestAnimatedModel()
             auto& relationshipComp = submeshEntity.AddComponent<OloEngine::RelationshipComponent>();
             relationshipComp.m_ParentHandle = m_ImportedModelEntity.GetUUID();
             
-            OLO_INFO("Created MeshSource with {} vertices and {} indices", vertices.size(), indices.size());
+            OLO_INFO("Successfully created SubmeshComponent using MeshSource with separated bone influences");
         }
         else
         {
@@ -1471,11 +1444,6 @@ void Sandbox3D::LoadTestAnimatedModel()
                      skeletonComp.m_Skeleton->m_GlobalTransforms.size());
         }
 
-        // Add SkinnedMeshComponent with original SkinnedMesh data (preserves bone weights)
-        auto& skinnedMeshComp = m_ImportedModelEntity.AddComponent<OloEngine::SkinnedMeshComponent>();
-        skinnedMeshComp.SkinnedMeshes = m_CesiumManModel->GetMeshes();
-        OLO_INFO("Added SkinnedMeshComponent with {} meshes preserving bone weights", skinnedMeshComp.SkinnedMeshes.size());
-        
         // Add animation state component
         auto& animStateComp = m_ImportedModelEntity.AddComponent<OloEngine::AnimationStateComponent>();
         if (m_CesiumManModel->HasAnimations())
