@@ -169,6 +169,7 @@ namespace OloEngine
 		static void UpdateCameraMatricesUBO(const glm::mat4& view, const glm::mat4& projection);
 		static void UpdateLightPropertiesUBO();
 		static void SetupRenderGraph(u32 width, u32 height);
+		static Ref<SkinnedMesh> CreateSkinnedMeshFromMesh(const Ref<Mesh>& mesh);
 
 	private:
 		struct Renderer3DData

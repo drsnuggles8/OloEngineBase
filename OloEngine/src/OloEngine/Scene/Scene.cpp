@@ -434,6 +434,8 @@ void Scene::OnComponentAdded<MeshComponent>(Entity, MeshComponent&) {}
 template<>
 void Scene::OnComponentAdded<SubmeshComponent>(Entity, SubmeshComponent&) {}
 template<>
+void Scene::OnComponentAdded<SkinnedMeshComponent>(Entity, SkinnedMeshComponent&) {}
+template<>
 void Scene::OnComponentAdded<AnimationStateComponent>(Entity, AnimationStateComponent&) {}
 template<>
 void Scene::OnComponentAdded<Skeleton>(Entity, Skeleton&) {}

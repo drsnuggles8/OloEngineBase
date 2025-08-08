@@ -21,6 +21,7 @@
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Animation/AnimationSystem.h"
 #include "OloEngine/Animation/AnimationClip.h"
+#include "OloEngine/Animation/AnimatedMeshComponents.h"
 
 Sandbox3D::Sandbox3D()
     : Layer("Sandbox3D"),
@@ -708,6 +709,26 @@ void Sandbox3D::RenderAnimationTestingScene()
         // Use the new animation rendering system that handles MeshComponent + SkeletonComponent entities
         OloEngine::Material defaultMaterial = *OloEngine::Material::CreatePBR("Default Animation", glm::vec3(0.8f), 0.0f, 0.5f);
         OloEngine::Renderer3D::RenderAnimatedMeshes(m_TestScene, defaultMaterial);
+        
+        // Render skeleton visualization if enabled
+        if (m_ShowSkeleton && m_ImportedModelEntity.HasComponent<OloEngine::SkeletonComponent>())
+        {
+            auto& skeletonComp = m_ImportedModelEntity.GetComponent<OloEngine::SkeletonComponent>();
+            auto& transformComp = m_ImportedModelEntity.GetComponent<OloEngine::TransformComponent>();
+            
+            if (skeletonComp.m_Skeleton)
+            {
+                glm::mat4 modelMatrix = transformComp.GetTransform();
+                OloEngine::Renderer3D::DrawSkeleton(
+                    *skeletonComp.m_Skeleton, 
+                    modelMatrix,
+                    m_ShowBones, 
+                    m_ShowJoints, 
+                    m_JointSize, 
+                    m_BoneThickness
+                );
+            }
+        }
     }
 }
 
@@ -1372,12 +1393,13 @@ void Sandbox3D::LoadTestAnimatedModel()
         auto& meshComp = m_ImportedModelEntity.AddComponent<OloEngine::MeshComponent>();
         if (!m_CesiumManModel->GetMeshes().empty())
         {
-            // Convert the first SkinnedMesh to a MeshSource
+            // Get the first SkinnedMesh - preserve the original SkinnedVertex data with bone weights
             auto firstSkinnedMesh = m_CesiumManModel->GetMeshes()[0];
             const auto& skinnedVertices = firstSkinnedMesh->GetVertices();
             const auto& indices = firstSkinnedMesh->GetIndices();
             
-            // Convert SkinnedVertex to Vertex (losing bone weights for now)
+            // Convert SkinnedVertex to regular Vertex for compatibility with existing MeshSource system
+            // TODO: Extend MeshSource to support SkinnedVertex directly to avoid this conversion
             std::vector<OloEngine::Vertex> vertices;
             vertices.reserve(skinnedVertices.size());
             for (const auto& skinnedVert : skinnedVertices)
@@ -1448,6 +1470,11 @@ void Sandbox3D::LoadTestAnimatedModel()
                      skeletonComp.m_Skeleton->m_ParentIndices.size(),
                      skeletonComp.m_Skeleton->m_GlobalTransforms.size());
         }
+
+        // Add SkinnedMeshComponent with original SkinnedMesh data (preserves bone weights)
+        auto& skinnedMeshComp = m_ImportedModelEntity.AddComponent<OloEngine::SkinnedMeshComponent>();
+        skinnedMeshComp.SkinnedMeshes = m_CesiumManModel->GetMeshes();
+        OLO_INFO("Added SkinnedMeshComponent with {} meshes preserving bone weights", skinnedMeshComp.SkinnedMeshes.size());
         
         // Add animation state component
         auto& animStateComp = m_ImportedModelEntity.AddComponent<OloEngine::AnimationStateComponent>();
