@@ -186,8 +186,7 @@ namespace OloEngine
 		AudioListenerComponent(const AudioListenerComponent&) = default;
 	};
 
-	struct [[deprecated("Use SubmeshComponent instead")]] AnimatedMeshComponent;  
-	// Note: AnimatedMeshComponent, SubmeshComponent, MeshComponent, AnimationStateComponent, 
+	// Note: SubmeshComponent, MeshComponent, AnimationStateComponent, 
 	// and SkeletonComponent are now defined in OloEngine/Animation/AnimatedMeshComponents.h
 	// which is already included above
 

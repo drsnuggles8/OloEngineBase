@@ -428,8 +428,6 @@ namespace OloEngine
 
 // Animation/ECS explicit specializations
 template<>
-void Scene::OnComponentAdded<AnimatedMeshComponent>(Entity, AnimatedMeshComponent&) {}
-template<>
 void Scene::OnComponentAdded<MeshComponent>(Entity, MeshComponent&) {}
 template<>
 void Scene::OnComponentAdded<SubmeshComponent>(Entity, SubmeshComponent&) {}

@@ -96,11 +96,11 @@ namespace OloEngine
     };
 
     /**
-     * @brief Unified mesh source that can handle both static and rigged meshes
+     * @brief Unified mesh source that can handle both static and animated meshes
      * 
-     * This class replaces the separate Mesh/SkinnedMesh distinction with a unified
+     * This class replaces the previous separate Mesh/animated mesh distinction with a unified
      * approach similar to Hazel's MeshSource. It can contain skeleton data for
-     * rigged meshes but also works perfectly for static meshes.
+     * animated meshes but also works perfectly for static meshes.
      */
     class MeshSource : public Asset
     {

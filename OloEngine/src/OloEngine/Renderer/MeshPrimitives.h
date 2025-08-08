@@ -125,8 +125,8 @@ namespace OloEngine {
 		// =============================================================================
 		
 		// TODO: Update these methods to work with new MeshSource bone influence system
-		// static Ref<Mesh> CreateSkinnedCube();
-		// static Ref<Mesh> CreateMultiBoneSkinnedCube();
+		// static Ref<Mesh> CreateAnimatedCube();
+		// static Ref<Mesh> CreateMultiBoneAnimatedCube();
 	};
 
 }

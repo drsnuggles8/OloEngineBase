@@ -708,9 +708,18 @@ namespace OloEngine
 		}
 
 		auto meshSource = mesh->GetMeshSource();
+		
+		static bool s_FirstRun = true;
+		if (s_FirstRun)
+		{
+			OLO_CORE_INFO("Renderer3D::DrawAnimatedMesh: First animated mesh with {} bone influences", meshSource->GetBoneInfluences().size());
+			s_FirstRun = false;
+		}
+		
 		if (!meshSource->HasBoneInfluences())
 		{
-			OLO_CORE_WARN("Renderer3D::DrawAnimatedMesh: Mesh has no bone influences, falling back to regular mesh rendering");
+			OLO_CORE_WARN("Renderer3D::DrawAnimatedMesh: Mesh has no bone influences (size: {}), falling back to regular mesh rendering", 
+						   meshSource->GetBoneInfluences().size());
 			return DrawMesh(mesh, modelMatrix, material, isStatic);
 		}
 
@@ -744,13 +753,14 @@ namespace OloEngine
 			OLO_CORE_WARN("Renderer3D::DrawAnimatedMesh: No bone matrices provided, using identity matrices");
 		}
 		
-		// For now, use DrawMeshCommand but with bone matrices
-		// In the future, we might need a specialized DrawAnimatedMeshCommand
+		// Use unified DrawMeshCommand for bone matrix handling
 		CommandPacket* packet = CreateDrawCall<DrawMeshCommand>();
 		auto* cmd = packet->GetCommandData<DrawMeshCommand>();
 		
 		cmd->header.type = CommandType::DrawMesh;
+		cmd->isAnimatedMesh = true;
 		
+		cmd->mesh = mesh;
 		cmd->vertexArray = mesh->GetVertexArray();
 		cmd->indexCount = mesh->GetIndexCount();
 		cmd->transform = modelMatrix;
@@ -788,9 +798,15 @@ namespace OloEngine
 		cmd->shader = shaderToUse;
 		cmd->renderState = Ref<RenderState>::Create();
 		
-		// Store bone matrices in a way that the command dispatcher can access them
-		// TODO: This needs to be implemented properly in the command system
-		// For now, we'll use a global storage or pass through shader uniforms
+		// Set bone matrices for GPU skinning
+		cmd->boneMatrices = boneMatrices;
+		
+		static bool s_LoggedBoneMatrices = false;
+		if (!s_LoggedBoneMatrices && !boneMatrices.empty())
+		{
+			OLO_CORE_INFO("DrawAnimatedMesh: Setting {} bone matrices for GPU skinning", boneMatrices.size());
+			s_LoggedBoneMatrices = true;
+		}
 		
 		packet->SetCommandType(cmd->header.type);
 		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
@@ -841,13 +857,35 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
 
+		static bool s_FirstRun = true;
+		if (s_FirstRun)
+		{
+			OLO_CORE_INFO("Renderer3D::RenderAnimatedMeshes: Starting animated mesh rendering");
+			s_FirstRun = false;
+		}
+
 		if (!scene)
 		{
 			OLO_CORE_WARN("Renderer3D::RenderAnimatedMeshes: Scene is null");
 			return;
 		}
-
+		
+		// Count animated entities using the scene's API
 		auto view = scene->GetAllEntitiesWith<MeshComponent, SkeletonComponent, TransformComponent>();
+		static sizet s_EntityCount = 0;
+		sizet currentEntityCount = 0;
+		for (auto entityID : view)
+		{
+			currentEntityCount++;
+		}
+		
+		static bool loggedStats = false;
+		if (!loggedStats || currentEntityCount != s_EntityCount)
+		{
+			OLO_CORE_INFO("RenderAnimatedMeshes: Found {} animated entities", currentEntityCount);
+			loggedStats = true;
+			s_EntityCount = currentEntityCount;
+		}
 
 		for (auto entityID : view)
 		{

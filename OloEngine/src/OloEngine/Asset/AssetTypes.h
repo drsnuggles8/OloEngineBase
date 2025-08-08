@@ -13,7 +13,6 @@ namespace OloEngine
         Prefab,
         Mesh,
         StaticMesh,
-        SkinnedMesh,
         MeshSource,
         Material,
         Texture2D,
@@ -60,7 +59,6 @@ namespace OloEngine
                 case AssetType::Prefab:              return "Prefab";
                 case AssetType::Mesh:                return "Mesh";
                 case AssetType::StaticMesh:          return "StaticMesh";
-                case AssetType::SkinnedMesh:         return "SkinnedMesh";
                 case AssetType::MeshSource:          return "MeshSource";
                 case AssetType::Material:            return "Material";
                 case AssetType::Texture2D:           return "Texture2D";
@@ -97,7 +95,6 @@ namespace OloEngine
             if (assetType == "Prefab")              return AssetType::Prefab;
             if (assetType == "Mesh")                return AssetType::Mesh;
             if (assetType == "StaticMesh")          return AssetType::StaticMesh;
-            if (assetType == "SkinnedMesh")         return AssetType::SkinnedMesh;
             if (assetType == "MeshAsset")           return AssetType::MeshSource; // DEPRECATED
             if (assetType == "MeshSource")          return AssetType::MeshSource;
             if (assetType == "Material")            return AssetType::Material;

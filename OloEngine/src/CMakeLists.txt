@@ -133,8 +133,6 @@
 		"OloEngine/Renderer/MeshSource.h"
 		"OloEngine/Renderer/MeshPrimitives.cpp"
 		"OloEngine/Renderer/MeshPrimitives.h"
-		"OloEngine/Renderer/SkinnedMesh.cpp"
-		"OloEngine/Renderer/SkinnedMesh.h"
 		"OloEngine/Renderer/Model.cpp"
 		"OloEngine/Renderer/Model.h"
 		"OloEngine/Renderer/AnimatedModel.cpp"

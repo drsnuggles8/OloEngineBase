@@ -102,7 +102,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<Vertex> vertices; // Use regular Vertex instead of SkinnedVertex
+        std::vector<Vertex> vertices; // Use regular Vertex instead of specialized vertex types
         std::vector<u32> indices;
         std::vector<BoneInfluence> boneInfluences; // Separate bone data
 
@@ -181,6 +181,8 @@ namespace OloEngine
         
         // Copy bone influences
         meshSource->GetBoneInfluences() = std::move(boneInfluences);
+        
+        OLO_CORE_TRACE("AnimatedModel::ProcessMesh: Set {} bone influences on MeshSource", meshSource->GetBoneInfluences().size());
         
         // Copy bone info
         for (const auto& [boneName, boneInfo] : m_BoneInfoMap)

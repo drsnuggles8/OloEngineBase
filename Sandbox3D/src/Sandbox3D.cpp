@@ -1377,7 +1377,7 @@ void Sandbox3D::LoadTestAnimatedModel()
         
         if (modelName.find("Fox") != std::string::npos)
         {
-            modelScale = glm::vec3(0.01f);
+            modelScale = glm::vec3(1.0f);  // Use normal scale for Fox model
             transformComp.Translation.y = 0.0f;
             OLO_INFO("Applied Fox scaling: {}, {}, {}", modelScale.x, modelScale.y, modelScale.z);
         }

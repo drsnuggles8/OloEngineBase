@@ -305,7 +305,6 @@ namespace OloEngine
                     {                        case 0: // Draw
                             matchesTypeFilter = (commandType == CommandType::DrawMesh || 
                                                commandType == CommandType::DrawMeshInstanced ||
-                                               commandType == CommandType::DrawSkinnedMesh ||
                                                commandType == CommandType::DrawQuad ||
                                                commandType == CommandType::DrawIndexed ||
                                                commandType == CommandType::DrawArrays);
@@ -326,7 +325,6 @@ namespace OloEngine
                             break;                        case 4: // Other
                             matchesTypeFilter = !((commandType == CommandType::DrawMesh || 
                                                  commandType == CommandType::DrawMeshInstanced ||
-                                                 commandType == CommandType::DrawSkinnedMesh ||
                                                  commandType == CommandType::DrawQuad ||
                                                  commandType == CommandType::DrawIndexed ||
                                                  commandType == CommandType::DrawArrays ||

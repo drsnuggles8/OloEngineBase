@@ -19,8 +19,7 @@
  * Ref<T> objects to using asset IDs, but the asset resolution is not yet implemented.
  * 
  * FUNCTIONS THAT NEED ASSET RESOLUTION:
- * - DispatchDrawMeshCommand: Resolve shaderID, textureIDs, renderStateID
- * - DispatchDrawSkinnedMeshCommand: Resolve shaderID, textureIDs, renderStateID  
+ * - DispatchDrawMeshCommand: Resolve shaderID, textureIDs, renderStateID  
  * - DispatchDrawSkyboxCommand: Resolve shaderID, textureIDs, renderStateID
  * - DispatchDrawQuadCommand: Resolve shaderID, textureID, renderStateID
  * - DispatchDrawIndexedCommand: Resolve vertexArrayID
@@ -103,7 +102,6 @@ namespace OloEngine
         // Higher-level commands
         s_DispatchTable[static_cast<sizet>(CommandType::DrawMesh)] = CommandDispatch::DrawMesh;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawMeshInstanced)] = CommandDispatch::DrawMeshInstanced;
-        s_DispatchTable[static_cast<sizet>(CommandType::DrawSkinnedMesh)] = CommandDispatch::DrawSkinnedMesh;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawSkybox)] = CommandDispatch::DrawSkybox;
         s_DispatchTable[static_cast<sizet>(CommandType::DrawQuad)] = CommandDispatch::DrawQuad;
 		
@@ -720,6 +718,16 @@ namespace OloEngine
 			}
 		}
 		
+		// Handle bone matrices for animated meshes
+		if (cmd->isAnimatedMesh && s_Data.BoneMatricesUBO && !cmd->boneMatrices.empty())
+		{
+			constexpr sizet MAX_BONES = 100;
+			sizet boneCount = glm::min(cmd->boneMatrices.size(), MAX_BONES);
+			
+			s_Data.BoneMatricesUBO->SetData(cmd->boneMatrices.data(), static_cast<u32>(boneCount * sizeof(glm::mat4)));
+			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_ANIMATION, s_Data.BoneMatricesUBO->GetRendererID());
+		}
+		
 		u32 indexCount = cmd->indexCount > 0 ? cmd->indexCount : 
 			cmd->vertexArray->GetIndexBuffer() ? cmd->vertexArray->GetIndexBuffer()->GetCount() : 0;
 		
@@ -862,300 +870,6 @@ namespace OloEngine
 		api.DrawIndexedInstanced(cmd->vertexArray, indexCount, static_cast<u32>(instanceCount));
 	}	   
 	
-	void CommandDispatch::DrawSkinnedMesh(const void* data, RendererAPI& api)
-	{
-		OLO_PROFILE_FUNCTION();
-		auto const* cmd = static_cast<const DrawSkinnedMeshCommand*>(data);
-		
-		if (!cmd->vertexArray || !cmd->shader)
-		{
-			OLO_CORE_ERROR("CommandDispatch::DrawSkinnedMesh: Invalid vertex array or shader");
-			return;
-		}
-
-		if (cmd->renderState)
-		{
-			const RenderState& state = *cmd->renderState;
-			api.SetBlendState(state.Blend.Enabled);
-			api.SetBlendFunc(state.Blend.SrcFactor, state.Blend.DstFactor);
-			api.SetBlendEquation(state.Blend.Equation);
-			api.SetDepthTest(state.Depth.TestEnabled);
-			api.SetDepthFunc(state.Depth.Function);
-			api.SetDepthMask(state.Depth.WriteMask);
-			if (state.Stencil.Enabled) api.EnableStencilTest(); else api.DisableStencilTest();
-			api.SetStencilFunc(state.Stencil.Function, state.Stencil.Reference, state.Stencil.ReadMask);
-			api.SetStencilMask(state.Stencil.WriteMask);
-			api.SetStencilOp(state.Stencil.StencilFail, state.Stencil.DepthFail, state.Stencil.DepthPass);
-			if (state.Culling.Enabled) api.EnableCulling(); else api.DisableCulling();
-			api.SetCullFace(state.Culling.Face);
-			api.SetLineWidth(state.LineWidth.Width);
-			api.SetPolygonMode(state.PolygonMode.Face, state.PolygonMode.Mode);
-			if (state.Scissor.Enabled) api.EnableScissorTest(); else api.DisableScissorTest();
-			api.SetScissorBox(state.Scissor.X, state.Scissor.Y, state.Scissor.Width, state.Scissor.Height);
-			api.SetColorMask(state.ColorMask.Red, state.ColorMask.Green, state.ColorMask.Blue, state.ColorMask.Alpha);
-			api.SetPolygonOffset(state.PolygonOffset.Enabled ? state.PolygonOffset.Factor : 0.0f, state.PolygonOffset.Enabled ? state.PolygonOffset.Units : 0.0f);
-			if (state.Multisampling.Enabled) api.EnableMultisampling(); else api.DisableMultisampling();
-		}
-		
-		if (u32 shaderID = cmd->shader.get()->GetRendererID(); s_Data.CurrentBoundShaderID != shaderID)
-		{
-			cmd->shader.get()->Bind();
-			s_Data.CurrentBoundShaderID = shaderID;
-			s_Data.Stats.ShaderBinds++;
-		}
-		// Note: Skinned shader expects binding 0 to have ViewProjection + View, not ViewProjection + Model
-		ShaderBindingLayout::CameraUBO cameraData;
-		cameraData.ViewProjection = s_Data.ViewProjectionMatrix;
-		cameraData.View = s_Data.ViewMatrix;
-		// Calculate projection matrix from ViewProjection and View: Projection = ViewProjection * inverse(View)
-		cameraData.Projection = s_Data.ViewProjectionMatrix * glm::inverse(s_Data.ViewMatrix);
-		cameraData.Position = s_Data.ViewPos;
-		cameraData._padding0 = 0.0f;
-		
-		if (s_Data.CameraUBO)
-		{
-			constexpr u32 expectedSize = ShaderBindingLayout::CameraUBO::GetSize();
-			static_assert(sizeof(ShaderBindingLayout::CameraUBO) == expectedSize, "CameraUBO size mismatch in DrawSkinnedMesh");
-			s_Data.CameraUBO->SetData(&cameraData, expectedSize);
-			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
-		}
-		
-		// Update model matrix UBO
-		if (s_Data.ModelMatrixUBO)
-		{
-			ShaderBindingLayout::ModelUBO modelData;
-			modelData.Model = cmd->modelMatrix;
-			modelData.Normal = glm::transpose(glm::inverse(cmd->modelMatrix));
-			
-			constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
-			static_assert(sizeof(ShaderBindingLayout::ModelUBO) == expectedSize, "ModelUBO size mismatch");
-			
-			s_Data.ModelMatrixUBO->SetData(&modelData, expectedSize);
-			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MODEL, s_Data.ModelMatrixUBO->GetRendererID());
-		}
-		
-
-		// Update material UBO - use PBR if enabled, otherwise use legacy
-		if (cmd->enablePBR)
-		{
-			ShaderBindingLayout::PBRMaterialUBO pbrMaterialData;
-			pbrMaterialData.BaseColorFactor = cmd->baseColorFactor;
-			pbrMaterialData.EmissiveFactor = cmd->emissiveFactor;
-			pbrMaterialData.MetallicFactor = cmd->metallicFactor;
-			pbrMaterialData.RoughnessFactor = cmd->roughnessFactor;
-			pbrMaterialData.NormalScale = cmd->normalScale;
-			pbrMaterialData.OcclusionStrength = cmd->occlusionStrength;
-			pbrMaterialData.UseAlbedoMap = cmd->albedoMap ? 1 : 0;
-			pbrMaterialData.UseNormalMap = cmd->normalMap ? 1 : 0;
-			pbrMaterialData.UseMetallicRoughnessMap = cmd->metallicRoughnessMap ? 1 : 0;
-			pbrMaterialData.UseAOMap = cmd->aoMap ? 1 : 0;
-			pbrMaterialData.UseEmissiveMap = cmd->emissiveMap ? 1 : 0;
-			pbrMaterialData.EnableIBL = cmd->enableIBL ? 1 : 0;
-			pbrMaterialData.ApplyGammaCorrection = 1;  // Enable gamma correction by default
-			pbrMaterialData.AlphaCutoff = 0;           // Default alpha cutoff
-			
-			if (s_Data.MaterialUBO)
-			{
-				constexpr u32 expectedSize = ShaderBindingLayout::PBRMaterialUBO::GetSize();
-				static_assert(sizeof(ShaderBindingLayout::PBRMaterialUBO) == expectedSize, "PBRMaterialUBO size mismatch in DrawSkinnedMesh");
-				s_Data.MaterialUBO->SetData(&pbrMaterialData, expectedSize);
-				glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
-			}
-		}
-		else
-		{
-			ShaderBindingLayout::MaterialUBO materialData;
-			materialData.Ambient = glm::vec4(cmd->ambient, 1.0f);
-			materialData.Diffuse = glm::vec4(cmd->diffuse, 1.0f);
-			materialData.Specular = glm::vec4(cmd->specular, cmd->shininess);
-			materialData.Emissive = glm::vec4(0.0f);
-			materialData.UseTextureMaps = cmd->useTextureMaps ? 1 : 0;
-			materialData.AlphaMode = 0;                // Default alpha mode
-			materialData.DoubleSided = 0;              // Default double-sided
-			materialData._padding = 0;                 // Clear remaining padding
-			
-			if (s_Data.MaterialUBO)
-			{
-				constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
-				static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch in DrawSkinnedMesh");
-				s_Data.MaterialUBO->SetData(&materialData, expectedSize);
-				glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRendererID());
-			}
-		}
-		
-		if (s_Data.BoneMatricesUBO && !cmd->boneMatrices.empty())
-		{
-			constexpr sizet MAX_BONES = 100;
-			sizet boneCount = glm::min(cmd->boneMatrices.size(), MAX_BONES);
-			
-			s_Data.BoneMatricesUBO->SetData(cmd->boneMatrices.data(), static_cast<u32>(boneCount * sizeof(glm::mat4)));
-			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_ANIMATION, s_Data.BoneMatricesUBO->GetRendererID());
-		}
-
-		const Light& light = s_Data.SceneLight;
-		auto lightType = std::to_underlying(light.Type);
-		
-		ShaderBindingLayout::LightUBO lightData;
-		lightData.LightPosition = glm::vec4(light.Position, 1.0f);
-		lightData.LightDirection = glm::vec4(light.Direction, 0.0f);
-		lightData.LightAmbient = glm::vec4(light.Ambient, 0.0f);
-		lightData.LightDiffuse = glm::vec4(light.Diffuse, 0.0f);
-		lightData.LightSpecular = glm::vec4(light.Specular, 0.0f);
-		lightData.LightAttParams = glm::vec4(light.Constant, light.Linear, light.Quadratic, 0.0f);
-		lightData.LightSpotParams = glm::vec4(light.CutOff, light.OuterCutOff, 0.0f, 0.0f);
-		lightData.ViewPosAndLightType = glm::vec4(s_Data.ViewPos, static_cast<f32>(lightType));
-
-		if (s_Data.LightUBO)
-		{
-			constexpr u32 expectedSize = ShaderBindingLayout::LightUBO::GetSize();
-			static_assert(sizeof(ShaderBindingLayout::LightUBO) == expectedSize, "LightUBO size mismatch in DrawSkinnedMesh");
-			s_Data.LightUBO->SetData(&lightData, expectedSize);
-			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_LIGHTS, s_Data.LightUBO->GetRendererID());
-		}
-		
-		// Bind textures based on material type
-		if (cmd->enablePBR)
-		{
-			// PBR texture binding
-			if (cmd->albedoMap)
-			{
-				u32 texID = cmd->albedoMap->GetRendererID();
-				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] != texID)
-				{
-					cmd->albedoMap->Bind(ShaderBindingLayout::TEX_DIFFUSE);
-					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = texID;
-					s_Data.Stats.TextureBinds++;
-				}
-			}
-			
-			if (cmd->metallicRoughnessMap)
-			{
-				u32 texID = cmd->metallicRoughnessMap->GetRendererID();
-				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] != texID)
-				{
-					cmd->metallicRoughnessMap->Bind(ShaderBindingLayout::TEX_SPECULAR);
-					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] = texID;
-					s_Data.Stats.TextureBinds++;
-				}
-			}
-			
-			if (cmd->normalMap)
-			{
-				u32 texID = cmd->normalMap->GetRendererID();
-				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_NORMAL] != texID)
-				{
-					cmd->normalMap->Bind(ShaderBindingLayout::TEX_NORMAL);
-					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_NORMAL] = texID;
-					s_Data.Stats.TextureBinds++;
-				}
-			}
-			
-			if (cmd->aoMap)
-			{
-				u32 texID = cmd->aoMap->GetRendererID();
-				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_AMBIENT] != texID)
-				{
-					cmd->aoMap->Bind(ShaderBindingLayout::TEX_AMBIENT);
-					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_AMBIENT] = texID;
-					s_Data.Stats.TextureBinds++;
-				}
-			}
-			
-			if (cmd->emissiveMap)
-			{
-				u32 texID = cmd->emissiveMap->GetRendererID();
-				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_EMISSIVE] != texID)
-				{
-					cmd->emissiveMap->Bind(ShaderBindingLayout::TEX_EMISSIVE);
-					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_EMISSIVE] = texID;
-					s_Data.Stats.TextureBinds++;
-				}
-			}
-			
-			if (cmd->environmentMap)
-			{
-				u32 texID = cmd->environmentMap->GetRendererID();
-				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_ENVIRONMENT] != texID)
-				{
-					cmd->environmentMap->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
-					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_ENVIRONMENT] = texID;
-					s_Data.Stats.TextureBinds++;
-				}
-			}
-			
-			if (cmd->irradianceMap)
-			{
-				u32 texID = cmd->irradianceMap->GetRendererID();
-				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_0] != texID)
-				{
-					cmd->irradianceMap->Bind(ShaderBindingLayout::TEX_USER_0);
-					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_0] = texID;
-					s_Data.Stats.TextureBinds++;
-				}
-			}
-			
-			if (cmd->prefilterMap)
-			{
-				u32 texID = cmd->prefilterMap->GetRendererID();
-				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_1] != texID)
-				{
-					cmd->prefilterMap->Bind(ShaderBindingLayout::TEX_USER_1);
-					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_1] = texID;
-					s_Data.Stats.TextureBinds++;
-				}
-			}
-			
-			if (cmd->brdfLutMap)
-			{
-				u32 texID = cmd->brdfLutMap->GetRendererID();
-				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_2] != texID)
-				{
-					cmd->brdfLutMap->Bind(ShaderBindingLayout::TEX_USER_2);
-					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_2] = texID;
-					s_Data.Stats.TextureBinds++;
-				}
-			}
-		}
-		else if (cmd->useTextureMaps)
-		{
-			// Legacy texture binding
-			if (cmd->diffuseMap)
-			{
-				u32 texID = cmd->diffuseMap->GetRendererID();
-				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] != texID)
-				{
-					cmd->diffuseMap->Bind(ShaderBindingLayout::TEX_DIFFUSE);
-					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = texID;
-					s_Data.Stats.TextureBinds++;
-				}
-			}
-			
-			if (cmd->specularMap)
-			{
-				u32 texID = cmd->specularMap->GetRendererID();
-				if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] != texID)
-				{
-					cmd->specularMap->Bind(ShaderBindingLayout::TEX_SPECULAR);
-					s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_SPECULAR] = texID;
-					s_Data.Stats.TextureBinds++;
-				}
-			}
-		}
-		
-		u32 indexCount = cmd->indexCount > 0 ? cmd->indexCount : 
-			cmd->vertexArray->GetIndexBuffer() ? cmd->vertexArray->GetIndexBuffer()->GetCount() : 0;
-		
-		if (indexCount == 0)
-		{
-			OLO_CORE_ERROR("CommandDispatch::DrawSkinnedMesh: No indices to draw");
-			return;
-		}
-		
-		s_Data.Stats.DrawCalls++;
-		
-		api.DrawIndexed(cmd->vertexArray, indexCount);
-	}
-
 	void CommandDispatch::DrawSkybox(const void* data, RendererAPI& api)
 	{
 		OLO_PROFILE_FUNCTION();

@@ -54,7 +54,7 @@ private:
 
 private:
 	// Scene management
-	SceneType m_CurrentScene = SceneType::MaterialTesting; // Start with Material Testing scene
+	SceneType m_CurrentScene = SceneType::AnimationTesting; // Start with Animation Testing scene for faster troubleshooting
 	const char* m_SceneNames[static_cast<int>(SceneType::Count)] = { 
 		"Material Testing", 
 		"Animation Testing", 
