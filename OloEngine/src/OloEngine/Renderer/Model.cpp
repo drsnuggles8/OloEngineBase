@@ -50,6 +50,10 @@ namespace OloEngine
 		
 		OLO_CORE_INFO("Loading model: {0} ({1} meshes, {2} materials)", path, scene->mNumMeshes, scene->mNumMaterials);
 
+		// Reserve space for expected number of meshes and materials to reduce allocations
+		m_Meshes.reserve(scene->mNumMeshes);
+		m_Materials.reserve(scene->mNumMaterials);
+
 		// Process all the nodes recursively
 		ProcessNode(scene->mRootNode, scene);
 		
@@ -83,6 +87,10 @@ namespace OloEngine
 
 		std::vector<Vertex> vertices;
 		std::vector<u32> indices;
+		
+		// Reserve space to reduce allocations during mesh processing
+		vertices.reserve(mesh->mNumVertices);
+		indices.reserve(mesh->mNumFaces * 3); // Assuming triangulated mesh
 
 		// Process vertices
 		for (u32 i = 0; i < mesh->mNumVertices; i++)
@@ -140,7 +148,7 @@ namespace OloEngine
 			
 			Material pbrMaterial = ProcessMaterial(material);
 			
-			m_Materials.push_back(pbrMaterial);
+			m_Materials.push_back(Ref<Material>::Create(pbrMaterial));
 		}
 
 		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
@@ -400,7 +408,15 @@ namespace OloEngine
 		for (size_t i = 0; i < m_Meshes.size(); i++)
 		{
 			// Use the mesh's own material if available, otherwise use the provided material
-			const Material& meshMaterial = (i < m_Materials.size()) ? m_Materials[i] : material;
+			Material meshMaterial;
+			if (i < m_Materials.size())
+			{
+				meshMaterial = *m_Materials[i];
+			}
+			else
+			{
+				meshMaterial = material;
+			}
 			
 			CommandPacket* cmd = OloEngine::Renderer3D::DrawMesh(m_Meshes[i], transform, meshMaterial);
 			if (cmd)
@@ -420,15 +436,13 @@ namespace OloEngine
 			Material meshMaterial;
 			if (i < m_Materials.size())
 			{
-				meshMaterial = m_Materials[i];
+				meshMaterial = *m_Materials[i];
 			}
 			else
 			{
 				// Create a default PBR material as fallback
-							{
 				auto defaultMaterialRef = Material::CreatePBR("Default PBR", glm::vec3(0.8f), 0.0f, 0.5f);
 				meshMaterial = *defaultMaterialRef; // Copy to value type for struct-like access
-			}
 			}
 			
 			CommandPacket* cmd = OloEngine::Renderer3D::DrawMesh(m_Meshes[i], transform, meshMaterial);

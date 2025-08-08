@@ -366,6 +366,8 @@ namespace OloEngine
 		Ref<RenderState> renderState;
 		// Animation support for animated meshes
 		bool isAnimatedMesh = false;
+		// TODO: Replace with pooled buffer reference to reduce command size and heap allocations
+		// Consider storing bone data offset/ID into external pooled buffer instead of std::vector
 		std::vector<glm::mat4> boneMatrices;  // Bone matrices for GPU animation (unified approach)
 	};
 
@@ -415,7 +417,8 @@ namespace OloEngine
 		Ref<RenderState> renderState;
 		// Animation support for animated meshes
 		bool isAnimatedMesh = false;
-		// For instanced animated meshes, each instance has its own set of bone matrices
+		// TODO: Replace nested vector with flat contiguous buffer or SSBO for better memory efficiency
+		// Consider single flat buffer with instance offsets instead of vector<vector<glm::mat4>>
 		std::vector<std::vector<glm::mat4>> instanceBoneMatrices;
 	};
 

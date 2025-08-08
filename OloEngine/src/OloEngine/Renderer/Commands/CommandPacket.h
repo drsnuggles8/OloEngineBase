@@ -76,19 +76,26 @@ namespace OloEngine
 			m_Metadata = metadata;			// Set default keys if not specified in metadata
 			if (m_Metadata.m_SortKey.GetShaderID() == 0 && m_CommandType == CommandType::DrawMesh)
 			{
-				auto const* cmd = reinterpret_cast<DrawMeshCommand*>(m_CommandData);
+				const auto* cmd = reinterpret_cast<const DrawMeshCommand*>(m_CommandData);
 				if (cmd->shader)
 					m_Metadata.m_SortKey.SetShaderID(cmd->shader->GetRendererID());
 			}
 			
 			if (m_Metadata.m_SortKey.GetMaterialID() == 0 && m_CommandType == CommandType::DrawMesh)
 			{
-				auto const* cmd = reinterpret_cast<DrawMeshCommand*>(m_CommandData);
+				const auto* cmd = reinterpret_cast<const DrawMeshCommand*>(m_CommandData);
 				if (cmd->useTextureMaps)
 				{
+					// TODO: Replace with stable material asset handle ID when available
+					// For now, use improved 64-bit mixing to reduce hash collisions
 					u64 diffuseID = cmd->diffuseMap ? cmd->diffuseMap->GetRendererID() : 0;
 					u64 specularID = cmd->specularMap ? cmd->specularMap->GetRendererID() : 0;
-					u32 materialID = static_cast<u32>(diffuseID ^ (specularID << 16));
+					
+					// Improved 64-bit mixing using FNV-like hash before folding to 32 bits
+					u64 hash = diffuseID;
+					hash ^= specularID + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+					u32 materialID = static_cast<u32>(hash ^ (hash >> 32));
+					
 					m_Metadata.m_SortKey.SetMaterialID(materialID);
 				}
 			}

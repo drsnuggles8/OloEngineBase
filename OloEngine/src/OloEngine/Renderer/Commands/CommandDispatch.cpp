@@ -721,8 +721,17 @@ namespace OloEngine
 		// Handle bone matrices for animated meshes
 		if (cmd->isAnimatedMesh && s_Data.BoneMatricesUBO && !cmd->boneMatrices.empty())
 		{
-			constexpr sizet MAX_BONES = 100;
-			sizet boneCount = glm::min(cmd->boneMatrices.size(), MAX_BONES);
+			using namespace UBOStructures;
+			constexpr sizet MAX_BONES = AnimationConstants::MAX_BONES;
+			sizet requestedBones = cmd->boneMatrices.size();
+			sizet boneCount = glm::min(requestedBones, MAX_BONES);
+			
+			// Runtime check for bone limit exceeded
+			if (requestedBones > MAX_BONES)
+			{
+				OLO_CORE_WARN("Animated mesh has {} bones, exceeding limit of {}. Bone matrices will be truncated, causing potential skinning artifacts.", 
+					requestedBones, MAX_BONES);
+			}
 			
 			s_Data.BoneMatricesUBO->SetData(cmd->boneMatrices.data(), static_cast<u32>(boneCount * sizeof(glm::mat4)));
 			glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_ANIMATION, s_Data.BoneMatricesUBO->GetRendererID());

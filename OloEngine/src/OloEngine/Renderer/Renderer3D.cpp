@@ -870,29 +870,28 @@ namespace OloEngine
 			return;
 		}
 		
-		// Count animated entities using the scene's API
+		// Get view and optimize with single loop to avoid unnecessary iteration
 		auto view = scene->GetAllEntitiesWith<MeshComponent, SkeletonComponent, TransformComponent>();
 		static sizet s_EntityCount = 0;
 		sizet currentEntityCount = 0;
+		
+		// Single loop optimization: count and process entities together
 		for (auto entityID : view)
 		{
+			Entity entity = { entityID, scene.get() };
+			s_Data.Stats.TotalAnimatedMeshes++;
 			currentEntityCount++;
+
+			RenderAnimatedMesh(entity, defaultMaterial, scene.get());
 		}
 		
+		// Log stats only when count changes to reduce logging overhead
 		static bool loggedStats = false;
 		if (!loggedStats || currentEntityCount != s_EntityCount)
 		{
 			OLO_CORE_INFO("RenderAnimatedMeshes: Found {} animated entities", currentEntityCount);
 			loggedStats = true;
 			s_EntityCount = currentEntityCount;
-		}
-
-		for (auto entityID : view)
-		{
-			Entity entity = { entityID, scene.get() };
-			s_Data.Stats.TotalAnimatedMeshes++;
-
-			RenderAnimatedMesh(entity, defaultMaterial, scene.get());
 		}
 	}
 
@@ -944,7 +943,7 @@ namespace OloEngine
 			if (relationshipComponent.m_ParentHandle == entity.GetUUID())
 			{
 				auto& submeshComponent = submeshEntity.GetComponent<SubmeshComponent>();
-				if (submeshComponent.Mesh && submeshComponent.Visible)
+				if (submeshComponent.m_Mesh && submeshComponent.m_Visible)
 				{
 					// Use MaterialComponent if available on submesh, otherwise use the parent's material
 					Material submeshMaterial = material;
@@ -955,7 +954,7 @@ namespace OloEngine
 
 					// Use the new MeshSource with bone influences directly
 					auto* packet = DrawAnimatedMesh(
-						submeshComponent.Mesh,
+						submeshComponent.m_Mesh,
 						worldTransform,
 						submeshMaterial,
 						boneMatrices,

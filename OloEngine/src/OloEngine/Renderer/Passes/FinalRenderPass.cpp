@@ -33,6 +33,10 @@ namespace OloEngine
             glm::vec2 TexCoord;
         };
         
+        // Compile-time verification that vertex structure is correctly sized
+        static_assert(sizeof(FullscreenVertex) == sizeof(f32) * 5, 
+                      "FullscreenVertex must be exactly 5 floats (3 position + 2 texcoord)");
+        
         FullscreenVertex vertices[3] = {
             { { -1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f } }, // Bottom left
             { {  3.0f, -1.0f, 0.0f }, { 2.0f, 0.0f } }, // Bottom right (extended)

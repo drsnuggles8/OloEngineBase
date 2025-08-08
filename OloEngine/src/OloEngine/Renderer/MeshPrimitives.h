@@ -25,7 +25,7 @@ namespace OloEngine {
 		 * @brief Create a unit cube mesh
 		 * @return Mesh with vertices from -0.5 to 0.5 on all axes
 		 */
-		static Ref<Mesh> CreateCube();
+		[[nodiscard]] static Ref<Mesh> CreateCube();
 		
 		/**
 		 * @brief Create a sphere mesh
@@ -33,7 +33,7 @@ namespace OloEngine {
 		 * @param segments Number of horizontal and vertical segments
 		 * @return Sphere mesh with proper UV mapping
 		 */
-		static Ref<Mesh> CreateSphere(f32 radius = 1.0f, u32 segments = 16);
+		[[nodiscard]] static Ref<Mesh> CreateSphere(f32 radius = 1.0f, u32 segments = 16);
 		
 		/**
 		 * @brief Create a plane mesh
@@ -41,7 +41,7 @@ namespace OloEngine {
 		 * @param length Plane length (Z-axis)
 		 * @return Plane mesh facing up (positive Y normal)
 		 */
-		static Ref<Mesh> CreatePlane(f32 width = 1.0f, f32 length = 1.0f);
+		[[nodiscard]] static Ref<Mesh> CreatePlane(f32 width = 1.0f, f32 length = 1.0f);
 		
 		/**
 		 * @brief Create a cylinder mesh

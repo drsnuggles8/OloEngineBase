@@ -26,14 +26,14 @@ namespace OloEngine
 	 */
 	struct SubmeshComponent
 	{
-		Ref<Mesh> Mesh;
-		std::vector<UUID> BoneEntityIds; // Maps skeleton bones to scene entities
-		u32 SubmeshIndex = 0;
-		bool Visible = true;
+		Ref<Mesh> m_Mesh;
+		std::vector<UUID> m_BoneEntityIds; // Maps skeleton bones to scene entities
+		u32 m_SubmeshIndex = 0;
+		bool m_Visible = true;
 
 		SubmeshComponent() = default;
 		SubmeshComponent(const SubmeshComponent& other) = default;
-		explicit SubmeshComponent(Ref<OloEngine::Mesh> mesh, u32 submeshIndex = 0) : Mesh(mesh), SubmeshIndex(submeshIndex) {}
+		explicit SubmeshComponent(Ref<OloEngine::Mesh> mesh, u32 submeshIndex = 0) : m_Mesh(mesh), m_SubmeshIndex(submeshIndex) {}
 	};
 
 	/**
@@ -78,8 +78,8 @@ namespace OloEngine
 		float m_BlendTime = 0.0f;
 		
 		// Bone entity management
-		std::vector<UUID> BoneEntityIds; // Maps skeleton bones to scene entities
-		glm::mat3 RootBoneTransform = glm::mat3(1.0f); // Transform of animated root bone relative to entity
+		std::vector<UUID> m_BoneEntityIds; // Maps skeleton bones to scene entities
+		glm::mat3 m_RootBoneTransform = glm::mat3(1.0f); // Transform of animated root bone relative to entity
 
 		AnimationStateComponent() = default;
 		AnimationStateComponent(const Ref<AnimationClip>& clip, float time = 0.0f)

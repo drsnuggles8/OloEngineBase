@@ -12,14 +12,13 @@ namespace OloEngine
         MeshSource* meshSource,
         const Scene* scene)
     {
-        std::vector<glm::mat4> boneTransforms(boneEntityIds.size());
+        OLO_CORE_ASSERT(meshSource, "MeshSource pointer cannot be null");
+        OLO_CORE_ASSERT(scene, "Scene pointer cannot be null");
         
-        if (!meshSource || !scene)
-            return boneTransforms;
+        std::vector<glm::mat4> boneTransforms(boneEntityIds.size());
 
         const Skeleton* skeleton = meshSource->GetSkeleton();
-        if (!skeleton)
-            return boneTransforms;
+        OLO_CORE_ASSERT(skeleton, "Skeleton pointer cannot be null");
 
     // Calculate hierarchical bone transforms
     // Use size_t to avoid narrowing issues if sizes exceed u32 range
@@ -79,7 +78,7 @@ namespace OloEngine
             }
             else
             {
-                boneEntityIds.emplace_back(UUID(0)); // Invalid UUID as placeholder
+                boneEntityIds.emplace_back(UUID{}); // Invalid/null UUID as placeholder
             }
         }
 
@@ -129,12 +128,12 @@ namespace OloEngine
         if (entity.HasComponent<SubmeshComponent>())
         {
             auto& submeshComponent = entity.GetComponent<SubmeshComponent>();
-            if (submeshComponent.Mesh && submeshComponent.Mesh->GetMeshSource())
+            if (submeshComponent.m_Mesh && submeshComponent.m_Mesh->GetMeshSource())
             {
-                const Skeleton* skeleton = submeshComponent.Mesh->GetMeshSource()->GetSkeleton();
+                const Skeleton* skeleton = submeshComponent.m_Mesh->GetMeshSource()->GetSkeleton();
                 if (skeleton)
                 {
-                    submeshComponent.BoneEntityIds = FindBoneEntityIds(rootEntity, skeleton, scene);
+                    submeshComponent.m_BoneEntityIds = FindBoneEntityIds(rootEntity, skeleton, scene);
                 }
             }
         }
@@ -143,7 +142,10 @@ namespace OloEngine
         for (auto childId : entity.Children())
         {
             Entity child = scene->GetEntityWithUUID(childId);
-            BuildMeshBoneEntityIds(child, rootEntity, scene);
+            if (child) // Check if entity is valid before recursive call
+            {
+                BuildMeshBoneEntityIds(child, rootEntity, scene);
+            }
         }
     }
 
@@ -160,8 +162,8 @@ namespace OloEngine
             
             if (skeletonComponent.m_Skeleton)
             {
-                animComponent.BoneEntityIds = FindBoneEntityIds(rootEntity, skeletonComponent.m_Skeleton.get(), scene);
-                animComponent.RootBoneTransform = FindRootBoneTransform(entity, animComponent.BoneEntityIds, scene);
+                animComponent.m_BoneEntityIds = FindBoneEntityIds(rootEntity, skeletonComponent.m_Skeleton.get(), scene);
+                animComponent.m_RootBoneTransform = FindRootBoneTransform(entity, animComponent.m_BoneEntityIds, scene);
             }
         }
 
@@ -169,7 +171,10 @@ namespace OloEngine
         for (auto childId : entity.Children())
         {
             Entity child = scene->GetEntityWithUUID(childId);
-            BuildAnimationBoneEntityIds(child, rootEntity, scene);
+            if (child) // Check if entity is valid before recursive call
+            {
+                BuildAnimationBoneEntityIds(child, rootEntity, scene);
+            }
         }
     }
 
@@ -190,9 +195,12 @@ namespace OloEngine
         for (auto childId : entity.Children())
         {
             Entity child = scene->GetEntityWithUUID(childId);
-            Entity found = FindEntityWithTag(child, tag, scene);
-            if (found)
-                return found;
+            if (child) // Check if entity is valid before recursive call
+            {
+                Entity found = FindEntityWithTag(child, tag, scene);
+                if (found)
+                    return found;
+            }
         }
 
         return Entity(); // Not found

@@ -203,7 +203,7 @@ namespace OloEngine
                 replaceAsset = true;
             }
 
-            Ref<T> asset = CreateRef<T>(std::forward<Args>(args)...);
+            Ref<T> asset = Ref<T>::Create(std::forward<Args>(args)...);
             asset->Handle = metadata.Handle;
             m_LoadedAssets[asset->Handle] = asset;
             AssetImporter::Serialize(metadata, asset);

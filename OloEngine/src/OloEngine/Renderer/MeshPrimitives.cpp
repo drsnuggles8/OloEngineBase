@@ -524,7 +524,7 @@ namespace OloEngine {
 
 			// Check if triangle crosses UV seam (large difference in U coordinates)
 			const f32 seamThreshold = 0.75f; // If U coordinates differ by more than this, we're crossing the seam
-			bool crossesSeam = (abs(u1 - u2) > seamThreshold) || (abs(u2 - u3) > seamThreshold) || (abs(u1 - u3) > seamThreshold);
+			bool crossesSeam = (std::fabs(u1 - u2) > seamThreshold) || (std::fabs(u2 - u3) > seamThreshold) || (std::fabs(u1 - u3) > seamThreshold);
 
 			if (crossesSeam)
 			{

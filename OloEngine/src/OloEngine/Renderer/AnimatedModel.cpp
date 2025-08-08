@@ -263,7 +263,7 @@ namespace OloEngine
                 bool slotFound = false;
                 for (u32 i = 0; i < 4; ++i)
                 {
-                    if (boneInfluences[vertexId].Weights[i] == 0.0f)
+                    if (boneInfluences[vertexId].m_Weights[i] == 0.0f)
                     {
                         boneInfluences[vertexId].SetBoneData(i, skeletonBoneId, weight);
                         slotFound = true;

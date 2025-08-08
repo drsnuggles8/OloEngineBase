@@ -1404,9 +1404,9 @@ void Sandbox3D::LoadTestAnimatedModel()
             
             // Create a regular Mesh from the MeshSource for the SubmeshComponent
             auto mesh = OloEngine::Ref<OloEngine::Mesh>::Create(meshComp.MeshSource, 0);
-            submeshComp.Mesh = mesh;
-            submeshComp.SubmeshIndex = 0;
-            submeshComp.Visible = true;
+            submeshComp.m_Mesh = mesh;
+            submeshComp.m_SubmeshIndex = 0;
+            submeshComp.m_Visible = true;
             
             // Set up parent-child relationship
             auto& relationshipComp = submeshEntity.AddComponent<OloEngine::RelationshipComponent>();
@@ -1916,18 +1916,18 @@ void Sandbox3D::RenderPBRModelTestingUI()
             
             for (size_t i = 0; i < materials.size(); i++)
             {
-                ImGui::Text("  Material %d: %s", static_cast<int>(i), materials[i].Name.c_str());
+                ImGui::Text("  Material %d: %s", static_cast<int>(i), materials[i]->Name.c_str());
                 ImGui::Text("    Base Color: (%.2f, %.2f, %.2f)", 
-                           materials[i].BaseColorFactor.r, materials[i].BaseColorFactor.g, materials[i].BaseColorFactor.b);
+                           materials[i]->BaseColorFactor.r, materials[i]->BaseColorFactor.g, materials[i]->BaseColorFactor.b);
                 ImGui::Text("    Metallic: %.2f, Roughness: %.2f", 
-                           materials[i].MetallicFactor, materials[i].RoughnessFactor);
-                ImGui::Text("    Albedo: Has texture: %s", materials[i].AlbedoMap ? "Yes" : "No");
-                ImGui::Text("    Normal: Has texture: %s", materials[i].NormalMap ? "Yes" : "No");
-                ImGui::Text("    Metallic: Has texture: %s", materials[i].MetallicRoughnessMap ? "Yes" : "No");
-                ImGui::Text("    AO: Has texture: %s", materials[i].AOMap ? "Yes" : "No");
+                           materials[i]->MetallicFactor, materials[i]->RoughnessFactor);
+                ImGui::Text("    Albedo: Has texture: %s", materials[i]->AlbedoMap ? "Yes" : "No");
+                ImGui::Text("    Normal: Has texture: %s", materials[i]->NormalMap ? "Yes" : "No");
+                ImGui::Text("    Metallic: Has texture: %s", materials[i]->MetallicRoughnessMap ? "Yes" : "No");
+                ImGui::Text("    AO: Has texture: %s", materials[i]->AOMap ? "Yes" : "No");
                 ImGui::Text("    IBL: Environment: %s, Irradiance: %s", 
-                           materials[i].EnvironmentMap ? "Yes" : "No",
-                           materials[i].IrradianceMap ? "Yes" : "No");
+                           materials[i]->EnvironmentMap ? "Yes" : "No",
+                           materials[i]->IrradianceMap ? "Yes" : "No");
             }
             
             ImGui::Separator();

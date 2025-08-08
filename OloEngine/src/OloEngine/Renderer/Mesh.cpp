@@ -46,21 +46,20 @@ namespace OloEngine
         if (!m_MeshSource)
             return BoundingBox();
         
-        // Temporarily use overall MeshSource bounds to debug frustum culling issue
+        #ifdef OLO_DEBUG_FRUSTUM_CULLING
+        // Debug mode: use overall MeshSource bounds to debug frustum culling issue
         return m_MeshSource->GetBoundingBox();
-        
-        // TODO: Re-enable submesh-specific bounds once debugging is complete
-        /*
-        // Return submesh-specific bounding box if available
+        #else
+        // Production mode: use submesh-specific bounding box
         const auto& submeshes = m_MeshSource->GetSubmeshes();
         if (m_SubmeshIndex < submeshes.size())
         {
-                return submeshes[m_SubmeshIndex].m_BoundingBox;
+            return submeshes[m_SubmeshIndex].m_BoundingBox;
         }
         
         // Fallback to overall MeshSource bounds
         return m_MeshSource->GetBoundingBox();
-        */
+        #endif
     }
 
     BoundingSphere Mesh::GetBoundingSphere() const

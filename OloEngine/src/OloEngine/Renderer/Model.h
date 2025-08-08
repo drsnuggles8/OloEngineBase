@@ -62,7 +62,7 @@ namespace OloEngine
 		[[nodiscard]] BoundingSphere GetTransformedBoundingSphere(const glm::mat4& transform) const { return m_BoundingSphere.Transform(transform); }
 		
 		// Accessors for materials
-		[[nodiscard]] const std::vector<Material>& GetMaterials() const { return m_Materials; }
+		[[nodiscard]] const std::vector<Ref<Material>>& GetMaterials() const { return m_Materials; }
 
 		// Asset interface
 		static AssetType GetStaticType() { return AssetType::Model; }
@@ -75,7 +75,7 @@ namespace OloEngine
 		Material ProcessMaterial(const aiMaterial* mat);
 
 		std::vector<Ref<Mesh>> m_Meshes;
-		std::vector<Material> m_Materials;  // Materials corresponding to each mesh
+		std::vector<Ref<Material>> m_Materials;  // Materials corresponding to each mesh
 		std::string m_Directory;
 		std::unordered_map<std::string, Ref<Texture2D>> m_LoadedTextures;
 		std::optional<TextureOverride> m_TextureOverride;

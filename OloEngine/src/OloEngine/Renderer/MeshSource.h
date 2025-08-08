@@ -39,36 +39,39 @@ namespace OloEngine
      */
     struct BoneInfluence
     {
-        u32 BoneIDs[4] = { 0, 0, 0, 0 };     // Up to 4 bone IDs affecting this vertex
-        f32 Weights[4] = { 0.0f, 0.0f, 0.0f, 0.0f }; // Corresponding weights (should sum to 1.0)
+        u32 m_BoneIDs[4] = { 0, 0, 0, 0 };     // Up to 4 bone IDs affecting this vertex
+        f32 m_Weights[4] = { 0.0f, 0.0f, 0.0f, 0.0f }; // Corresponding weights (should sum to 1.0)
         
         BoneInfluence() = default;
         BoneInfluence(const glm::ivec4& boneIds, const glm::vec4& weights)
         {
             for (int i = 0; i < 4; ++i)
             {
-                BoneIDs[i] = boneIds[i];
-                Weights[i] = weights[i];
+                m_BoneIDs[i] = boneIds[i];
+                m_Weights[i] = weights[i];
             }
         }
         
         // Helper methods for easier access
         void SetBoneData(u32 index, u32 boneId, f32 weight)
         {
-            if (index < 4)
+            if (index >= 4)
             {
-                BoneIDs[index] = boneId;
-                Weights[index] = weight;
+                OLO_CORE_ERROR("SetVertexBoneData: index out of bounds (index: {0}, max: 3)", index);
+                return;
             }
+            
+            m_BoneIDs[index] = boneId;
+            m_Weights[index] = weight;
         }
         
         void Normalize()
         {
-            f32 totalWeight = Weights[0] + Weights[1] + Weights[2] + Weights[3];
+            f32 totalWeight = m_Weights[0] + m_Weights[1] + m_Weights[2] + m_Weights[3];
             if (totalWeight > 0.0f)
             {
                 for (int i = 0; i < 4; ++i)
-                    Weights[i] /= totalWeight;
+                    m_Weights[i] /= totalWeight;
             }
         }
     };
@@ -150,8 +153,12 @@ namespace OloEngine
         // Add bone influence for a specific vertex
         void SetVertexBoneData(u32 vertexIndex, const BoneInfluence& influence)
         {
-            if (vertexIndex < m_BoneInfluences.size())
-                m_BoneInfluences[vertexIndex] = influence;
+            if (vertexIndex >= m_BoneInfluences.size())
+            {
+                OLO_CORE_ERROR("SetVertexBoneData: vertex index out of bounds (index: {0}, size: {1})", vertexIndex, m_BoneInfluences.size());
+                return;
+            }
+            m_BoneInfluences[vertexIndex] = influence;
         }
         
         // Get bone influence for a specific vertex
@@ -171,12 +178,28 @@ namespace OloEngine
         void Build(); // Build GPU resources
         
         // GPU resource accessors (with lazy initialization)
-        const Ref<VertexArray>& GetVertexArray() const { return m_VertexArray; }
-        const Ref<VertexBuffer>& GetVertexBuffer() const { return m_VertexBuffer; }
-        const Ref<IndexBuffer>& GetIndexBuffer() const { return m_IndexBuffer; }
+        const Ref<VertexArray>& GetVertexArray() const 
+        { 
+            OLO_CORE_ASSERT(m_VertexArray, "VertexArray not initialized. Call Build() first.");
+            return m_VertexArray; 
+        }
+        const Ref<VertexBuffer>& GetVertexBuffer() const 
+        { 
+            OLO_CORE_ASSERT(m_VertexBuffer, "VertexBuffer not initialized. Call Build() first.");
+            return m_VertexBuffer; 
+        }
+        const Ref<IndexBuffer>& GetIndexBuffer() const 
+        { 
+            OLO_CORE_ASSERT(m_IndexBuffer, "IndexBuffer not initialized. Call Build() first.");
+            return m_IndexBuffer; 
+        }
         
         // Bone influence buffer for rigged meshes (Hazel-style)
-        const Ref<VertexBuffer>& GetBoneInfluenceBuffer() const { return m_BoneInfluenceBuffer; }
+        const Ref<VertexBuffer>& GetBoneInfluenceBuffer() const 
+        { 
+            OLO_CORE_ASSERT(m_BoneInfluenceBuffer, "BoneInfluenceBuffer not initialized or not rigged. Call Build() first.");
+            return m_BoneInfluenceBuffer; 
+        }
         bool HasBoneInfluenceBuffer() const { return m_BoneInfluenceBuffer != nullptr; }        // Bounding volume accessors
         const BoundingBox& GetBoundingBox() const { return m_BoundingBox; }
         const BoundingSphere& GetBoundingSphere() const { return m_BoundingSphere; }
