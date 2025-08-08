@@ -46,8 +46,10 @@ namespace OloEngine
 
 		void LoadModel(const std::string& path, const TextureOverride& textureOverride = {}, bool flipUV = false);
 		void Draw(const glm::mat4& transform, const Material& material) const;
+		void Draw(const glm::mat4& transform, const Ref<Material>& material) const;
 
 		void GetDrawCommands(const glm::mat4& transform, const Material& material, std::vector<CommandPacket*>& outCommands) const;
+		void GetDrawCommands(const glm::mat4& transform, const Ref<Material>& material, std::vector<CommandPacket*>& outCommands) const;
 		void GetDrawCommands(const glm::mat4& transform, std::vector<CommandPacket*>& outCommands) const;
 		
 		// Calculate bounding volumes for the entire model

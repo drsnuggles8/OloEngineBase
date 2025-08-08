@@ -442,4 +442,10 @@ namespace OloEngine
     }
 #endif
 
+    std::unordered_map<AssetHandle, Ref<Asset>> EditorAssetManager::GetLoadedAssetsCopy() const
+    {
+        std::shared_lock<std::shared_mutex> lock(m_AssetsMutex);
+        return m_LoadedAssets;
+    }
+
 } // namespace OloEngine

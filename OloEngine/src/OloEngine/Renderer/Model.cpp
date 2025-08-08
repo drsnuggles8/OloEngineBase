@@ -148,7 +148,7 @@ namespace OloEngine
 			
 			Material pbrMaterial = ProcessMaterial(material);
 			
-			m_Materials.push_back(Ref<Material>::Create(pbrMaterial));
+			m_Materials.push_back(Ref<Material>::Create(std::move(pbrMaterial)));
 		}
 
 		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
@@ -448,6 +448,37 @@ namespace OloEngine
 			CommandPacket* cmd = OloEngine::Renderer3D::DrawMesh(m_Meshes[i], transform, meshMaterial);
 			if (cmd)
 				outCommands.push_back(cmd);
+		}
+	}
+
+	void Model::Draw(const glm::mat4& transform, const Material& material) const
+	{
+		std::vector<CommandPacket*> commands;
+		GetDrawCommands(transform, material, commands);
+		for (auto* cmd : commands)
+		{
+			OloEngine::Renderer3D::SubmitPacket(cmd);
+		}
+	}
+
+	void Model::Draw(const glm::mat4& transform, const Ref<Material>& material) const
+	{
+		if (material)
+		{
+			Draw(transform, *material);
+		}
+	}
+
+	void Model::GetDrawCommands(const glm::mat4& transform, const Ref<Material>& material, std::vector<CommandPacket*>& outCommands) const
+	{
+		if (material)
+		{
+			GetDrawCommands(transform, *material, outCommands);
+		}
+		else
+		{
+			// Fallback to default material handling
+			GetDrawCommands(transform, outCommands);
 		}
 	}
 }

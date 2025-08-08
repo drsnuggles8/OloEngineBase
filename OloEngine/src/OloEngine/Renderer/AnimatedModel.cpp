@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Log.h"
 #include <filesystem>
 #include <set>
+#include <unordered_map>
 
 namespace OloEngine
 {
@@ -210,31 +211,29 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Create bone name to index map for O(1) lookups
+        std::unordered_map<std::string, u32> boneNameToIndex;
+        if (m_Skeleton)
+        {
+            for (size_t i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
+            {
+                boneNameToIndex[m_Skeleton->m_BoneNames[i]] = static_cast<u32>(i);
+            }
+        }
+
         for (u32 boneIndex = 0; boneIndex < mesh->mNumBones; ++boneIndex)
         {
             std::string boneName = mesh->mBones[boneIndex]->mName.data;
             
-            // Find the bone index in the skeleton
-            u32 skeletonBoneId = 0;
-            bool foundBone = false;
-            if (m_Skeleton)
-            {
-                for (size_t i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
-                {
-                    if (m_Skeleton->m_BoneNames[i] == boneName)
-                    {
-                        skeletonBoneId = static_cast<u32>(i);
-                        foundBone = true;
-                        break;
-                    }
-                }
-            }
-            
-            if (!foundBone)
+            // Find the bone index in the skeleton using O(1) lookup
+            auto it = boneNameToIndex.find(boneName);
+            if (it == boneNameToIndex.end())
             {
                 OLO_CORE_WARN("AnimatedModel::ProcessBones: Bone '{}' not found in skeleton", boneName);
                 continue;
             }
+            
+            u32 skeletonBoneId = it->second;
 
             // Update the bone info map with the correct skeleton index
             if (m_BoneInfoMap.find(boneName) == m_BoneInfoMap.end())

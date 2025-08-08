@@ -82,6 +82,8 @@ namespace OloEngine {
 	{
 		OLO_PROFILE_FUNCTION();
 
+		OLO_CORE_ASSERT(segments >= 2, "CreateSphere requires segments >= 2");
+
 		std::vector<Vertex> vertices;
 		std::vector<u32> indices;
 

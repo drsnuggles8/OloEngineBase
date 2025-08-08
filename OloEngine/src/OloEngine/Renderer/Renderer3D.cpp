@@ -911,7 +911,7 @@ namespace OloEngine
 		auto& skeletonComp = entity.GetComponent<SkeletonComponent>();
 		auto& transformComp = entity.GetComponent<TransformComponent>();
 
-		if (!meshComp.MeshSource || !skeletonComp.m_Skeleton)
+		if (!meshComp.m_MeshSource || !skeletonComp.m_Skeleton)
 		{
 			OLO_CORE_WARN("Renderer3D::RenderAnimatedMesh: Entity {} has invalid mesh or skeleton", 
 						 entity.GetComponent<TagComponent>().Tag);
@@ -973,9 +973,9 @@ namespace OloEngine
 		// Fallback: if no submesh entities found, create a mesh from the first submesh
 		if (!renderedAnySubmesh)
 		{
-			if (meshComp.MeshSource->GetSubmeshes().size() > 0)
+			if (meshComp.m_MeshSource->GetSubmeshes().size() > 0)
 			{
-				auto mesh = Ref<Mesh>::Create(meshComp.MeshSource, 0);
+				auto mesh = Ref<Mesh>::Create(meshComp.m_MeshSource, 0);
 				
 				auto* packet = DrawAnimatedMesh(
 					mesh,

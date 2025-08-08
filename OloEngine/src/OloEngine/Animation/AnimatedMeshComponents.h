@@ -44,10 +44,10 @@ namespace OloEngine
 	 */
 	struct MeshComponent
 	{
-		Ref<MeshSource> MeshSource;
+		Ref<MeshSource> m_MeshSource;
 		
 		MeshComponent() = default;
-		MeshComponent(Ref<OloEngine::MeshSource> meshSource) : MeshSource(meshSource) {}
+		MeshComponent(Ref<OloEngine::MeshSource> meshSource) : m_MeshSource(meshSource) {}
 	};
 
 

@@ -32,7 +32,7 @@ namespace OloEngine
          */
         static std::vector<glm::mat4> GetModelSpaceBoneTransforms(
             const std::vector<UUID>& boneEntityIds, 
-            MeshSource* meshSource,
+            const MeshSource* meshSource,
             const class Scene* scene);
 
         /**

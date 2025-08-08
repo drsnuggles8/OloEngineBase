@@ -10,6 +10,9 @@
 
 #include <shared_mutex>
 #include <filesystem>
+#include <unordered_map>
+#include <unordered_set>
+#include <string>
 
 namespace OloEngine
 {
@@ -67,18 +70,24 @@ namespace OloEngine
         virtual void SyncWithAssetThread() override;
 
         virtual std::unordered_set<AssetHandle> GetAllAssetsWithType(AssetType type) override;
+        
+        /**
+         * @warning Thread safety: The returned reference to m_LoadedAssets requires external synchronization
+         * in multithreaded contexts. Callers must ensure proper locking when iterating over the map.
+         * Consider using GetLoadedAssetsCopy() for safer iteration in multithreaded scenarios.
+         */
         virtual const std::unordered_map<AssetHandle, Ref<Asset>>& GetLoadedAssets() override 
         { 
             return m_LoadedAssets; 
         }
 
-        // Editor-specific methods
-
         /**
-         * @brief Get the asset registry (deprecated - use specific methods instead)
-         * @return Reference to an empty map (AssetRegistry internal map not exposed)
+         * @brief Get a copy of loaded assets for safe iteration in multithreaded contexts
+         * @return Copy of the loaded assets map
          */
-        const std::unordered_map<AssetHandle, AssetMetadata>& GetAssetRegistry() const;
+        std::unordered_map<AssetHandle, Ref<Asset>> GetLoadedAssetsCopy() const;
+
+        // Editor-specific methods
 
         /**
          * @brief Get asset metadata by handle

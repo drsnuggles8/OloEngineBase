@@ -4,18 +4,19 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Renderer/MeshSource.h"
+#include <unordered_map>
 
 namespace OloEngine
 {
     std::vector<glm::mat4> BoneEntityUtils::GetModelSpaceBoneTransforms(
         const std::vector<UUID>& boneEntityIds, 
-        MeshSource* meshSource,
+        const MeshSource* meshSource,
         const Scene* scene)
     {
         OLO_CORE_ASSERT(meshSource, "MeshSource pointer cannot be null");
         OLO_CORE_ASSERT(scene, "Scene pointer cannot be null");
         
-        std::vector<glm::mat4> boneTransforms(boneEntityIds.size());
+        std::vector<glm::mat4> boneTransforms(boneEntityIds.size(), glm::mat4(1.0f));
 
         const Skeleton* skeleton = meshSource->GetSkeleton();
         OLO_CORE_ASSERT(skeleton, "Skeleton pointer cannot be null");
@@ -54,6 +55,30 @@ namespace OloEngine
         return boneTransforms;
     }
 
+    // Helper function to build a tag-to-entity map for O(1) lookups
+    static void BuildTagEntityMap(Entity entity, const Scene* scene, std::unordered_map<std::string, Entity>& tagMap)
+    {
+        if (!entity || !scene)
+            return;
+
+        // Check current entity
+        if (entity.HasComponent<TagComponent>())
+        {
+            const auto& tagComponent = entity.GetComponent<TagComponent>();
+            tagMap[tagComponent.Tag] = entity;
+        }
+
+        // Recursively process children
+        for (const auto& childId : entity.Children())
+        {
+            Entity child = scene->TryGetEntityWithUUID(childId);
+            if (child)
+            {
+                BuildTagEntityMap(child, scene, tagMap);
+            }
+        }
+    }
+
     std::vector<UUID> BoneEntityUtils::FindBoneEntityIds(
         Entity rootEntity,
         const Skeleton* skeleton,
@@ -67,13 +92,17 @@ namespace OloEngine
         const auto& boneNames = skeleton->m_BoneNames;
         boneEntityIds.reserve(boneNames.size());
 
+        // Build tag-to-entity map once for O(1) lookups
+        std::unordered_map<std::string, Entity> tagEntityMap;
+        BuildTagEntityMap(rootEntity, scene, tagEntityMap);
+
         bool foundAtLeastOne = false;
         for (const auto& boneName : boneNames)
         {
-            Entity boneEntity = FindEntityWithTag(rootEntity, boneName, scene);
-            if (boneEntity)
+            auto it = tagEntityMap.find(boneName);
+            if (it != tagEntityMap.end() && it->second)
             {
-                boneEntityIds.emplace_back(boneEntity.GetUUID());
+                boneEntityIds.emplace_back(it->second.GetUUID());
                 foundAtLeastOne = true;
             }
             else
@@ -139,9 +168,9 @@ namespace OloEngine
         }
 
         // Recursively process children
-        for (auto childId : entity.Children())
+        for (const auto& childId : entity.Children())
         {
-            Entity child = scene->GetEntityWithUUID(childId);
+            Entity child = scene->TryGetEntityWithUUID(childId);
             if (child) // Check if entity is valid before recursive call
             {
                 BuildMeshBoneEntityIds(child, rootEntity, scene);
@@ -168,9 +197,9 @@ namespace OloEngine
         }
 
         // Recursively process children
-        for (auto childId : entity.Children())
+        for (const auto& childId : entity.Children())
         {
-            Entity child = scene->GetEntityWithUUID(childId);
+            Entity child = scene->TryGetEntityWithUUID(childId);
             if (child) // Check if entity is valid before recursive call
             {
                 BuildAnimationBoneEntityIds(child, rootEntity, scene);
@@ -192,9 +221,9 @@ namespace OloEngine
         }
 
         // Recursively search children
-        for (auto childId : entity.Children())
+        for (const auto& childId : entity.Children())
         {
-            Entity child = scene->GetEntityWithUUID(childId);
+            Entity child = scene->TryGetEntityWithUUID(childId);
             if (child) // Check if entity is valid before recursive call
             {
                 Entity found = FindEntityWithTag(child, tag, scene);
