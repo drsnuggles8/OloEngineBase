@@ -185,10 +185,11 @@ namespace OloEngine
         
         OLO_CORE_TRACE("AnimatedModel::ProcessMesh: Set {} bone influences on MeshSource", meshSource->GetBoneInfluences().size());
         
-        // Copy bone info
+        // Copy bone info in correct skeleton order
+        meshSource->GetBoneInfo().resize(m_Skeleton->m_BoneNames.size());
         for (const auto& [boneName, boneInfo] : m_BoneInfoMap)
         {
-            meshSource->GetBoneInfo().emplace_back(boneInfo.Offset, boneInfo.Id);
+            meshSource->GetBoneInfo()[boneInfo.Id] = {boneInfo.Offset, boneInfo.Id};
         }
 
         // Create a submesh for the entire mesh

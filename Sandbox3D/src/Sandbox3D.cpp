@@ -1372,19 +1372,13 @@ void Sandbox3D::LoadTestAnimatedModel()
         transformComp.Translation = glm::vec3(0.0f, 0.0f, 0.0f);
         
         // Apply model-specific scaling corrections
+        // Apply scaling based on the model
         glm::vec3 modelScale = glm::vec3(1.0f);
-        OLO_INFO("Model name for scaling: '{}'", modelName);
         
+        // Special scaling for Fox model
         if (modelName.find("Fox") != std::string::npos)
         {
-            modelScale = glm::vec3(1.0f);  // Use normal scale for Fox model
-            transformComp.Translation.y = 0.0f;
-            OLO_INFO("Applied Fox scaling: {}, {}, {}", modelScale.x, modelScale.y, modelScale.z);
-        }
-        else
-		{
-            modelScale = glm::vec3(1.0f);
-            OLO_INFO("Applied default scaling for other models: {}, {}, {}", modelScale.x, modelScale.y, modelScale.z);
+            modelScale = glm::vec3(0.01f);
         }
         
         transformComp.Scale = modelScale;
@@ -1410,7 +1404,7 @@ void Sandbox3D::LoadTestAnimatedModel()
             
             // Set up parent-child relationship
             auto& relationshipComp = submeshEntity.AddComponent<OloEngine::RelationshipComponent>();
-            relationshipComp.m_ParentHandle = m_ImportedModelEntity.GetUUID();
+            submeshEntity.SetParent(m_ImportedModelEntity);
             
             OLO_INFO("Successfully created SubmeshComponent using MeshSource with separated bone influences");
         }
@@ -1456,13 +1450,8 @@ void Sandbox3D::LoadTestAnimatedModel()
                 OLO_INFO("  Animation [{}]: '{}' - Duration: {:.2f}s", i, anim->Name, anim->Duration);
             }
             
-            // For Fox, use the "Run" animation which should have proper keyframes for movement
+            // Use the first animation by default
             int animIndex = 0;
-            if (modelName.find("Fox") != std::string::npos && m_CesiumManModel->GetAnimations().size() > 2)
-            {
-                animIndex = 2; // Use "Run" animation for Fox
-                OLO_INFO("Using Fox Run animation (index {}) instead of Survey", animIndex);
-            }
             
             animStateComp.m_CurrentClip = m_CesiumManModel->GetAnimations()[animIndex];
             OLO_INFO("Selected animation: {}", animStateComp.m_CurrentClip->Name);
@@ -1916,6 +1905,8 @@ void Sandbox3D::RenderPBRModelTestingUI()
             
             for (size_t i = 0; i < materials.size(); i++)
             {
+                if (!materials[i]) continue;
+                
                 ImGui::Text("  Material %d: %s", static_cast<int>(i), materials[i]->Name.c_str());
                 ImGui::Text("    Base Color: (%.2f, %.2f, %.2f)", 
                            materials[i]->BaseColorFactor.r, materials[i]->BaseColorFactor.g, materials[i]->BaseColorFactor.b);

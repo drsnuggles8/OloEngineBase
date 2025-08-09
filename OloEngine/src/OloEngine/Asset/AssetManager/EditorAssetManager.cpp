@@ -410,18 +410,25 @@ namespace OloEngine
 
     void EditorAssetManager::UpdateDependencies(AssetHandle handle)
     {
-        std::shared_lock<std::shared_mutex> lock(m_DependenciesMutex);
-        auto it = m_AssetDependencies.find(handle);
-        if (it != m_AssetDependencies.end())
+        // First, gather the dependent handles while holding the dependency lock
+        std::unordered_set<AssetHandle> dependents;
         {
-            for (AssetHandle dependent : it->second)
+            std::shared_lock<std::shared_mutex> lock(m_DependenciesMutex);
+            auto it = m_AssetDependencies.find(handle);
+            if (it != m_AssetDependencies.end())
             {
-                // Notify dependent assets that this asset has changed
-                auto asset = GetAsset(dependent);
-                if (asset)
-                {
-                    asset->OnDependencyUpdated(handle);
-                }
+                dependents = it->second;
+            }
+        }
+        
+        // Then iterate over dependents without holding any locks to prevent deadlock
+        for (AssetHandle dependent : dependents)
+        {
+            // Notify dependent assets that this asset has changed
+            auto asset = GetAsset(dependent);
+            if (asset)
+            {
+                asset->OnDependencyUpdated(handle);
             }
         }
     }

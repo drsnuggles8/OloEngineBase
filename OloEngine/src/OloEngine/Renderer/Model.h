@@ -67,7 +67,7 @@ namespace OloEngine
 		[[nodiscard]] const std::vector<Ref<Material>>& GetMaterials() const { return m_Materials; }
 
 		// Asset interface
-		static AssetType GetStaticType() { return AssetType::Model; }
+		constexpr static AssetType GetStaticType() { return AssetType::Model; }
 		virtual AssetType GetAssetType() const override { return GetStaticType(); }
 
 	private:

@@ -13,6 +13,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <string>
+#include <type_traits>
+#include <utility>
 
 namespace OloEngine
 {
@@ -200,7 +202,7 @@ namespace OloEngine
             bool replaceAsset = false;
             if (metadata.Handle == 0)
             {
-                metadata.Handle = {};
+                metadata.Handle = AssetHandle(); // Generate a fresh unique handle
                 metadata.FilePath = relativePath;
                 metadata.Type = T::GetStaticType();
                 metadata.IsDataLoaded = true;

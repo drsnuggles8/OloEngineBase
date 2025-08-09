@@ -79,6 +79,30 @@ namespace OloEngine
         }
     }
 
+    // Helper function to build a tag-to-entity UUID map for O(1) lookups
+    static void BuildTagEntityMap(Entity entity, const Scene* scene, std::unordered_map<std::string, UUID>& tagMap)
+    {
+        if (!entity || !scene)
+            return;
+
+        // Check current entity
+        if (entity.HasComponent<TagComponent>())
+        {
+            const auto& tagComponent = entity.GetComponent<TagComponent>();
+            tagMap[tagComponent.Tag] = entity.GetUUID();
+        }
+
+        // Recursively process children
+        for (const auto& childId : entity.Children())
+        {
+            Entity child = scene->TryGetEntityWithUUID(childId);
+            if (child)
+            {
+                BuildTagEntityMap(child, scene, tagMap);
+            }
+        }
+    }
+
     std::vector<UUID> BoneEntityUtils::FindBoneEntityIds(
         Entity rootEntity,
         const Skeleton* skeleton,
@@ -93,16 +117,16 @@ namespace OloEngine
         boneEntityIds.reserve(boneNames.size());
 
         // Build tag-to-entity map once for O(1) lookups
-        std::unordered_map<std::string, Entity> tagEntityMap;
+        std::unordered_map<std::string, UUID> tagEntityMap;
         BuildTagEntityMap(rootEntity, scene, tagEntityMap);
 
         bool foundAtLeastOne = false;
         for (const auto& boneName : boneNames)
         {
             auto it = tagEntityMap.find(boneName);
-            if (it != tagEntityMap.end() && it->second)
+            if (it != tagEntityMap.end() && it->second != UUID(0))
             {
-                boneEntityIds.emplace_back(it->second.GetUUID());
+                boneEntityIds.emplace_back(it->second);
                 foundAtLeastOne = true;
             }
             else
@@ -115,6 +139,46 @@ namespace OloEngine
         if (!foundAtLeastOne)
         {
             boneEntityIds.clear();
+        }
+
+        return boneEntityIds;
+    }
+
+    std::vector<UUID> BoneEntityUtils::FindBoneEntityIds(
+        Entity rootEntity,
+        const SkeletonComponent& skeletonComponent,
+        const Scene* scene)
+    {
+        std::vector<UUID> boneEntityIds;
+
+        if (!skeletonComponent.m_Skeleton || !scene || !rootEntity)
+            return boneEntityIds;
+
+        const auto& boneNames = skeletonComponent.m_Skeleton->m_BoneNames;
+        boneEntityIds.reserve(boneNames.size());
+
+        // Check if cache is valid, if not rebuild it
+        if (!skeletonComponent.m_CacheValid)
+        {
+            skeletonComponent.m_TagEntityCache.clear();
+            BuildTagEntityMap(rootEntity, scene, skeletonComponent.m_TagEntityCache);
+            skeletonComponent.m_CacheValid = true;
+        }
+
+        // Use cached map for O(1) lookups
+        bool foundAtLeastOne = false;
+        for (const auto& boneName : boneNames)
+        {
+            auto it = skeletonComponent.m_TagEntityCache.find(boneName);
+            if (it != skeletonComponent.m_TagEntityCache.end() && it->second != UUID(0))
+            {
+                boneEntityIds.emplace_back(it->second);
+                foundAtLeastOne = true;
+            }
+            else
+            {
+                boneEntityIds.emplace_back(UUID(0));
+            }
         }
 
         return boneEntityIds;
@@ -187,11 +251,12 @@ namespace OloEngine
         if (entity.HasComponent<AnimationStateComponent>() && entity.HasComponent<SkeletonComponent>())
         {
             auto& animComponent = entity.GetComponent<AnimationStateComponent>();
-            auto& skeletonComponent = entity.GetComponent<SkeletonComponent>();
+            const auto& skeletonComponent = entity.GetComponent<SkeletonComponent>();
             
             if (skeletonComponent.m_Skeleton)
             {
-                animComponent.m_BoneEntityIds = FindBoneEntityIds(rootEntity, skeletonComponent.m_Skeleton.get(), scene);
+                // Use cached version to avoid repeated hierarchy walks
+                animComponent.m_BoneEntityIds = FindBoneEntityIds(rootEntity, skeletonComponent, scene);
                 animComponent.m_RootBoneTransform = FindRootBoneTransform(entity, animComponent.m_BoneEntityIds, scene);
             }
         }

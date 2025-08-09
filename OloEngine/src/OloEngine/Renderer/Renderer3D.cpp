@@ -933,14 +933,11 @@ namespace OloEngine
 
 		// Find and render all child entities with SubmeshComponent
 		bool renderedAnySubmesh = false;
-		auto view = scene->GetAllEntitiesWith<SubmeshComponent>();
-		for (auto enttEntity : view)
+		const auto& relationshipComponent = entity.GetComponent<RelationshipComponent>();
+		for (const UUID& childUUID : relationshipComponent.m_Children)
 		{
-			Entity submeshEntity = { enttEntity, const_cast<Scene*>(scene) };
-			auto& relationshipComponent = submeshEntity.GetComponent<RelationshipComponent>();
-			
-			// Check if this submesh entity is a child of our animated mesh entity
-			if (relationshipComponent.m_ParentHandle == entity.GetUUID())
+			Entity submeshEntity = scene->TryGetEntityWithUUID(childUUID);
+			if (submeshEntity && submeshEntity.HasComponent<SubmeshComponent>())
 			{
 				auto& submeshComponent = submeshEntity.GetComponent<SubmeshComponent>();
 				if (submeshComponent.m_Mesh && submeshComponent.m_Visible)

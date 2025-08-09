@@ -5,11 +5,14 @@
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshSource.h"
+
+#include <glm/glm.hpp>
 #include "SkeletonData.h"
 #include "Skeleton.h"
 #include "AnimationClip.h"
 
 #include <vector>
+#include <unordered_map>
 
 namespace OloEngine
 {
@@ -96,9 +99,14 @@ namespace OloEngine
 	struct SkeletonComponent
 	{
 		Ref<Skeleton> m_Skeleton; // Shared skeleton reference
+		mutable std::unordered_map<std::string, UUID> m_TagEntityCache; // Cache for tag-to-entity UUID mapping
+		mutable bool m_CacheValid = false; // Whether the cache is still valid
 		
 		SkeletonComponent() = default;
 		SkeletonComponent(const Ref<Skeleton>& skeleton) : m_Skeleton(skeleton) {}
+		
+		// Invalidate cache when skeleton changes
+		void InvalidateCache() const { m_CacheValid = false; }
 	};
 
 	/**

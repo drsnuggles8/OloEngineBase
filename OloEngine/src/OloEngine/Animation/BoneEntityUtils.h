@@ -9,6 +9,9 @@
 
 namespace OloEngine
 {
+    // Forward declarations
+    class MeshSource;
+    class Scene;
     /**
      * @brief Helper utilities for managing bone entities
      * 
@@ -49,6 +52,22 @@ namespace OloEngine
         static std::vector<UUID> FindBoneEntityIds(
             Entity rootEntity,
             const Skeleton* skeleton,
+            const class Scene* scene);
+
+        /**
+         * @brief Find bone entities with caching support via SkeletonComponent
+         * 
+         * This overload uses the SkeletonComponent's cache to avoid repeated
+         * hierarchy traversals when called multiple times for the same skeleton.
+         * 
+         * @param rootEntity The root entity to start searching from
+         * @param skeletonComponent Component containing skeleton and cache
+         * @param scene The scene containing the entities
+         * @return Vector of entity UUIDs matching the skeleton bones
+         */
+        static std::vector<UUID> FindBoneEntityIds(
+            Entity rootEntity,
+            const struct SkeletonComponent& skeletonComponent,
             const class Scene* scene);
 
         /**

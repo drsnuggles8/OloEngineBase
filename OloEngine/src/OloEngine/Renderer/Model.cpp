@@ -146,9 +146,7 @@ namespace OloEngine
 		{
 			const aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
 			
-			Material pbrMaterial = ProcessMaterial(material);
-			
-			m_Materials.push_back(Ref<Material>::Create(std::move(pbrMaterial)));
+			m_Materials.push_back(Ref<Material>::Create(ProcessMaterial(material)));
 		}
 
 		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
@@ -453,6 +451,7 @@ namespace OloEngine
 
 	void Model::Draw(const glm::mat4& transform, const Material& material) const
 	{
+		OLO_CORE_ASSERT(&material, "Null material");
 		std::vector<CommandPacket*> commands;
 		GetDrawCommands(transform, material, commands);
 		for (auto* cmd : commands)
