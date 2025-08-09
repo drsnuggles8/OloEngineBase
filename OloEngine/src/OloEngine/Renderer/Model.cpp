@@ -416,11 +416,14 @@ namespace OloEngine
 		
 		for (size_t i = 0; i < m_Meshes.size(); i++)
 		{
-			// Use the mesh's own material if available, otherwise use the provided material
+			// Get the submesh to access its material index
+			const Submesh& submesh = m_Meshes[i]->GetSubmesh();
+			
+			// Use the submesh's material index to look up the correct material
 			Material meshMaterial;
-			if (i < m_Materials.size() && m_Materials[i]) // Check if Ref<Material> is valid
+			if (submesh.m_MaterialIndex < m_Materials.size() && m_Materials[submesh.m_MaterialIndex])
 			{
-				meshMaterial = *m_Materials[i];
+				meshMaterial = *m_Materials[submesh.m_MaterialIndex];
 			}
 			else
 			{
@@ -441,11 +444,14 @@ namespace OloEngine
 		
 		for (size_t i = 0; i < m_Meshes.size(); i++)
 		{
-			// Use the mesh's own material if available, otherwise use a default PBR material
+			// Get the submesh to access its material index
+			const Submesh& submesh = m_Meshes[i]->GetSubmesh();
+			
+			// Use the submesh's material index to look up the correct material
 			Material meshMaterial;
-			if (i < m_Materials.size() && m_Materials[i]) // Check if Ref<Material> is valid
+			if (submesh.m_MaterialIndex < m_Materials.size() && m_Materials[submesh.m_MaterialIndex])
 			{
-				meshMaterial = *m_Materials[i];
+				meshMaterial = *m_Materials[submesh.m_MaterialIndex];
 			}
 			else
 			{
