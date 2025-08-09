@@ -761,7 +761,16 @@ namespace OloEngine
 		cmd->isAnimatedMesh = true;
 		
 		cmd->mesh = mesh;
-		cmd->vertexArray = mesh->GetVertexArray();
+		
+		// Check if VAO is valid before proceeding
+		auto vertexArray = mesh->GetVertexArray();
+		if (!vertexArray)
+		{
+			OLO_CORE_ERROR("Renderer3D::DrawAnimatedMesh: Mesh has null VAO (Vertex Array Object)!");
+			return nullptr;
+		}
+		cmd->vertexArray = vertexArray;
+		
 		cmd->indexCount = mesh->GetIndexCount();
 		cmd->transform = modelMatrix;
 		
@@ -1120,9 +1129,17 @@ namespace OloEngine
 		const float dot = glm::clamp(glm::dot(xAxis, dir), -1.0f, 1.0f);
 		if (dot < 0.9999f)
 		{
-			glm::vec3 axis = glm::normalize(glm::cross(xAxis, dir));
-			float angle = acosf(dot);
-			rot = glm::rotate(glm::mat4(1.0f), angle, axis);
+			if (dot < -0.9999f) // Direction is opposite to +X axis (antiparallel)
+			{
+				// Use Y axis for 180-degree rotation to avoid zero cross product
+				rot = glm::rotate(glm::mat4(1.0f), glm::pi<float>(), glm::vec3(0,1,0));
+			}
+			else
+			{
+				glm::vec3 axis = glm::normalize(glm::cross(xAxis, dir));
+				float angle = acosf(dot);
+				rot = glm::rotate(glm::mat4(1.0f), angle, axis);
+			}
 		}
 		// Scale: X=length, Y=worldThickness, Z=1
 		glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(length, worldThickness, 1.0f));

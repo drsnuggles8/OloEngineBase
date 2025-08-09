@@ -16,6 +16,11 @@
 #include <type_traits>
 #include <utility>
 
+#if OLO_ASYNC_ASSETS
+#include <thread>
+#include <atomic>
+#endif
+
 namespace OloEngine
 {
     /**
@@ -339,6 +344,12 @@ namespace OloEngine
         mutable std::shared_mutex m_AssetsMutex;
         mutable std::shared_mutex m_RegistryMutex;
         mutable std::shared_mutex m_DependenciesMutex;
+        
+#if OLO_ASYNC_ASSETS
+        // File watching thread and control
+        std::thread m_FileWatcherThread;
+        std::atomic<bool> m_ShouldTerminate{false};
+#endif
         
         // Project path for asset scanning
         std::filesystem::path m_ProjectPath;

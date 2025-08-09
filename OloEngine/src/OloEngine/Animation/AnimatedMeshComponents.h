@@ -50,7 +50,7 @@ namespace OloEngine
 		Ref<MeshSource> m_MeshSource;
 		
 		MeshComponent() = default;
-		MeshComponent(Ref<OloEngine::MeshSource> meshSource) : m_MeshSource(meshSource) {}
+		explicit MeshComponent(Ref<OloEngine::MeshSource> meshSource) : m_MeshSource(meshSource) {}
 	};
 
 
@@ -106,7 +106,10 @@ namespace OloEngine
 		SkeletonComponent(const Ref<Skeleton>& skeleton) : m_Skeleton(skeleton) {}
 		
 		// Invalidate cache when skeleton changes
-		void InvalidateCache() const { m_CacheValid = false; }
+		void InvalidateCache() const { 
+			m_CacheValid = false; 
+			m_TagEntityCache.clear(); 
+		}
 	};
 
 	/**

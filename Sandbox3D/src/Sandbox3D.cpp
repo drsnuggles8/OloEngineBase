@@ -1403,7 +1403,6 @@ void Sandbox3D::LoadTestAnimatedModel()
             submeshComp.m_Visible = true;
             
             // Set up parent-child relationship
-            auto& relationshipComp = submeshEntity.AddComponent<OloEngine::RelationshipComponent>();
             submeshEntity.SetParent(m_ImportedModelEntity);
             
             OLO_INFO("Successfully created SubmeshComponent using MeshSource with separated bone influences");
@@ -1424,7 +1423,15 @@ void Sandbox3D::LoadTestAnimatedModel()
         else
         {
             // Fallback to a default material
-            materialComp.m_Material = *OloEngine::Material::CreatePBR("Default Material", glm::vec3(0.8f), 0.0f, 0.5f);
+            auto defaultMaterialRef = OloEngine::Material::CreatePBR("Default Material", glm::vec3(0.8f), 0.0f, 0.5f);
+            if (defaultMaterialRef)
+            {
+                materialComp.m_Material = *defaultMaterialRef;
+            }
+            else
+            {
+                OLO_ERROR("Failed to create default PBR material, material component will be invalid");
+            }
             OLO_WARN("No materials found in model, using default material");
         }
         

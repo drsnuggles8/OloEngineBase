@@ -157,7 +157,7 @@ namespace OloEngine
 	submesh.m_BaseIndex = 0;
 	submesh.m_IndexCount = static_cast<u32>(indices.size());
 	submesh.m_VertexCount = static_cast<u32>(vertices.size());
-	submesh.m_MaterialIndex = 0;
+	submesh.m_MaterialIndex = mesh->mMaterialIndex; // Use actual material index from Assimp
 	submesh.m_IsRigged = false;
 	submesh.m_NodeName = mesh->mName.C_Str();
 		meshSource->AddSubmesh(submesh);
@@ -229,7 +229,6 @@ namespace OloEngine
 			metallic, 
 			roughness
 		);
-		Material material = *materialRef; // Copy to value type for struct-like access
 		
 		// Load PBR textures - prioritize overrides if provided
 		
@@ -239,7 +238,7 @@ namespace OloEngine
 			auto overrideTexture = Texture2D::Create(m_TextureOverride->AlbedoPath);
 			if (overrideTexture && overrideTexture->IsLoaded())
 			{
-				material.AlbedoMap = overrideTexture;
+				materialRef->AlbedoMap = overrideTexture;
 			}
 		}
 		else
@@ -253,7 +252,7 @@ namespace OloEngine
 			}
 			if (!albedoMaps.empty())
 			{
-				material.AlbedoMap = albedoMaps[0];
+				materialRef->AlbedoMap = albedoMaps[0];
 			}
 		}
 		
@@ -263,7 +262,7 @@ namespace OloEngine
 			auto overrideTexture = Texture2D::Create(m_TextureOverride->MetallicPath);
 			if (overrideTexture && overrideTexture->IsLoaded())
 			{
-				material.MetallicRoughnessMap = overrideTexture;
+				materialRef->MetallicRoughnessMap = overrideTexture;
 			}
 		}
 		else
@@ -277,7 +276,7 @@ namespace OloEngine
 			}
 			if (!metallicRoughnessMaps.empty())
 			{
-				material.MetallicRoughnessMap = metallicRoughnessMaps[0];
+				materialRef->MetallicRoughnessMap = metallicRoughnessMaps[0];
 			}
 		}
 		
@@ -287,7 +286,7 @@ namespace OloEngine
 			auto overrideTexture = Texture2D::Create(m_TextureOverride->NormalPath);
 			if (overrideTexture && overrideTexture->IsLoaded())
 			{
-				material.NormalMap = overrideTexture;
+				materialRef->NormalMap = overrideTexture;
 			}
 		}
 		else
@@ -301,7 +300,7 @@ namespace OloEngine
 			}
 			if (!normalMaps.empty())
 			{
-				material.NormalMap = normalMaps[0];
+				materialRef->NormalMap = normalMaps[0];
 			}
 		}
 		
@@ -312,7 +311,7 @@ namespace OloEngine
 			auto overrideTexture = Texture2D::Create(m_TextureOverride->AOPath);
 			if (overrideTexture && overrideTexture->IsLoaded())
 			{
-				material.AOMap = overrideTexture;
+				materialRef->AOMap = overrideTexture;
 			}
 		}
 		else if (m_TextureOverride && !m_TextureOverride->RoughnessPath.empty())
@@ -321,7 +320,7 @@ namespace OloEngine
 			auto overrideTexture = Texture2D::Create(m_TextureOverride->RoughnessPath);
 			if (overrideTexture && overrideTexture->IsLoaded())
 			{
-				material.AOMap = overrideTexture;
+				materialRef->AOMap = overrideTexture;
 			}
 		}
 		else
@@ -335,7 +334,7 @@ namespace OloEngine
 			}
 			if (!aoMaps.empty())
 			{
-				material.AOMap = aoMaps[0];
+				materialRef->AOMap = aoMaps[0];
 			}
 		}
 		
@@ -345,7 +344,7 @@ namespace OloEngine
 			auto overrideTexture = Texture2D::Create(m_TextureOverride->EmissivePath);
 			if (overrideTexture && overrideTexture->IsLoaded())
 			{
-				material.EmissiveMap = overrideTexture;
+				materialRef->EmissiveMap = overrideTexture;
 			}
 		}
 		else
@@ -354,11 +353,11 @@ namespace OloEngine
 			auto emissiveMaps = LoadMaterialTextures(mat, aiTextureType_EMISSIVE);
 			if (!emissiveMaps.empty())
 			{
-				material.EmissiveMap = emissiveMaps[0];
+				materialRef->EmissiveMap = emissiveMaps[0];
 			}
 		}
 		
-		return material;
+		return *materialRef;
 	}
 
 	void Model::CalculateBounds()
@@ -407,7 +406,7 @@ namespace OloEngine
 		{
 			// Use the mesh's own material if available, otherwise use the provided material
 			Material meshMaterial;
-			if (i < m_Materials.size())
+			if (i < m_Materials.size() && m_Materials[i]) // Check if Ref<Material> is valid
 			{
 				meshMaterial = *m_Materials[i];
 			}
@@ -432,7 +431,7 @@ namespace OloEngine
 		{
 			// Use the mesh's own material if available, otherwise use a default PBR material
 			Material meshMaterial;
-			if (i < m_Materials.size())
+			if (i < m_Materials.size() && m_Materials[i]) // Check if Ref<Material> is valid
 			{
 				meshMaterial = *m_Materials[i];
 			}
@@ -451,7 +450,7 @@ namespace OloEngine
 
 	void Model::Draw(const glm::mat4& transform, const Material& material) const
 	{
-		OLO_CORE_ASSERT(&material, "Null material");
+		// Material reference is always valid since it's passed by reference
 		std::vector<CommandPacket*> commands;
 		GetDrawCommands(transform, material, commands);
 		for (auto* cmd : commands)
@@ -476,7 +475,8 @@ namespace OloEngine
 		}
 		else
 		{
-			// Fallback to default material handling
+			// Log when a null Ref<Material> is received for diagnostics
+			OLO_CORE_WARN("GetDrawCommands received null Ref<Material>, falling back to default material handling");
 			GetDrawCommands(transform, outCommands);
 		}
 	}

@@ -107,6 +107,11 @@ namespace OloEngine
         std::vector<u32> indices;
         std::vector<BoneInfluence> boneInfluences; // Separate bone data
 
+        // Reserve space to reduce allocations during mesh processing
+        vertices.reserve(mesh->mNumVertices);
+        indices.reserve(mesh->mNumFaces * 3); // Assuming triangulated mesh
+        boneInfluences.reserve(mesh->mNumVertices); // One per vertex for bone influences
+
         OLO_CORE_TRACE("AnimatedModel::ProcessMesh: Processing mesh with {} vertices, {} faces, {} bones", 
                        mesh->mNumVertices, mesh->mNumFaces, mesh->mNumBones);
 
@@ -198,7 +203,7 @@ namespace OloEngine
         submesh.m_BaseIndex = 0;
         submesh.m_IndexCount = static_cast<u32>(indices.size());
         submesh.m_VertexCount = static_cast<u32>(vertices.size());
-        submesh.m_MaterialIndex = 0;
+        submesh.m_MaterialIndex = mesh->mMaterialIndex; // Use actual material index from Assimp
         submesh.m_IsRigged = mesh->mNumBones > 0; // Set rigged flag based on bone presence
         submesh.m_NodeName = mesh->mName.C_Str();
         meshSource->AddSubmesh(submesh);

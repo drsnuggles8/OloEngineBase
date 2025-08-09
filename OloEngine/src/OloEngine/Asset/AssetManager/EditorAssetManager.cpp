@@ -213,10 +213,20 @@ namespace OloEngine
 
     bool EditorAssetManager::EnsureAllLoadedCurrent()
     {
-        std::shared_lock<std::shared_mutex> lock(m_AssetsMutex);
-        bool allCurrent = true;
+        // First, collect all asset handles to check
+        std::vector<AssetHandle> assetHandles;
+        {
+            std::shared_lock<std::shared_mutex> lock(m_AssetsMutex);
+            assetHandles.reserve(m_LoadedAssets.size());
+            for (const auto& [handle, asset] : m_LoadedAssets)
+            {
+                assetHandles.push_back(handle);
+            }
+        }
 
-        for (const auto& [handle, asset] : m_LoadedAssets)
+        // Now check each asset without holding the mutex
+        bool allCurrent = true;
+        for (const auto& handle : assetHandles)
         {
             if (!EnsureCurrent(handle))
                 allCurrent = false;
@@ -329,6 +339,37 @@ namespace OloEngine
         return (it != m_AssetDependencies.end()) ? it->second : std::unordered_set<AssetHandle>{};
     }
 
+    std::unordered_set<AssetHandle> EditorAssetManager::GetAllAssetsWithType(AssetType type)
+    {
+        std::unordered_set<AssetHandle> result;
+        
+        // Check loaded assets
+        {
+            std::shared_lock<std::shared_mutex> lock(m_AssetsMutex);
+            for (const auto& [handle, asset] : m_LoadedAssets)
+            {
+                if (asset && asset->GetAssetType() == type)
+                    result.insert(handle);
+            }
+            
+            // Check memory assets
+            for (const auto& [handle, asset] : m_MemoryAssets)
+            {
+                if (asset && asset->GetAssetType() == type)
+                    result.insert(handle);
+            }
+        }
+        
+        // Check asset registry metadata
+        {
+            std::shared_lock<std::shared_mutex> lock(m_RegistryMutex);
+            auto registryHandles = m_AssetRegistry.GetAssetHandlesOfType(type);
+            result.insert(registryHandles.begin(), registryHandles.end());
+        }
+        
+        return result;
+    }
+
     AssetHandle EditorAssetManager::ImportAsset(const std::filesystem::path& filepath)
     {
         OLO_PROFILER_SCOPE("EditorAssetManager::ImportAsset");
@@ -346,18 +387,21 @@ namespace OloEngine
             return 0;
         }
 
+        // Convert to project-relative path
+        std::filesystem::path relativePath = GetRelativePath(filepath);
+
         // Check if already imported
-        AssetHandle existingHandle = m_AssetRegistry.GetHandleFromPath(filepath);
+        AssetHandle existingHandle = m_AssetRegistry.GetHandleFromPath(relativePath);
         if (existingHandle != 0)
         {
-            OLO_CORE_WARN("Asset already imported: {}", filepath.string());
+            OLO_CORE_WARN("Asset already imported: {}", relativePath.string());
             return existingHandle;
         }
 
         // Create metadata
         AssetMetadata metadata;
         metadata.Handle = AssetHandle{};
-        metadata.FilePath = filepath;
+        metadata.FilePath = relativePath;
         metadata.Type = type;
         metadata.LastWriteTime = std::filesystem::last_write_time(filepath);
 
@@ -440,14 +484,66 @@ namespace OloEngine
 
         while (!m_ShouldTerminate)
         {
-            // TODO: Implement file watching logic using FileWatch library
-            // For now, just sleep and check periodically
+            try
+            {
+                // Perform periodic modification time scan over registry entries
+                std::vector<AssetHandle> modifiedAssets;
+                
+                {
+                    std::shared_lock<std::shared_mutex> registryLock(m_RegistryMutex);
+                    auto allAssets = m_AssetRegistry.GetAllAssets();
+                    for (const auto& metadata : allAssets)
+                    {
+                        if (!metadata.IsValid())
+                            continue;
+                            
+                        // Convert relative path back to absolute for filesystem operations
+                        std::filesystem::path absolutePath = m_ProjectPath / metadata.FilePath;
+                        
+                        if (std::filesystem::exists(absolutePath))
+                        {
+                            auto currentWriteTime = std::filesystem::last_write_time(absolutePath);
+                            if (currentWriteTime > metadata.LastWriteTime)
+                            {
+                                modifiedAssets.push_back(metadata.Handle);
+                            }
+                        }
+                    }
+                }
+                
+                // Reload modified assets (outside of registry lock to avoid deadlock)
+                for (AssetHandle handle : modifiedAssets)
+                {
+                    OLO_CORE_INFO("Detected file modification, reloading asset: {}", (uint64_t)handle);
+                    ReloadDataAsync(handle);
+                }
+            }
+            catch (const std::exception& e)
+            {
+                OLO_CORE_ERROR("Error in file watcher thread: {}", e.what());
+            }
+            
+            // Sleep for 1 second between scans
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
 
         OLO_CORE_INFO("File watcher thread stopped");
     }
 #endif
+
+    std::filesystem::path EditorAssetManager::GetRelativePath(const std::filesystem::path& filepath)
+    {
+        // If the project path is empty, return the filepath as-is
+        if (m_ProjectPath.empty())
+            return filepath;
+            
+        // Convert to absolute paths for reliable comparison
+        auto absoluteFile = std::filesystem::absolute(filepath);
+        auto absoluteProject = std::filesystem::absolute(m_ProjectPath);
+        
+        // Return relative path from project root
+        return std::filesystem::relative(absoluteFile, absoluteProject);
+    }
 
     std::unordered_map<AssetHandle, Ref<Asset>> EditorAssetManager::GetLoadedAssetsCopy() const
     {

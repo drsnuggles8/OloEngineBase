@@ -124,7 +124,7 @@ namespace OloEngine
         for (const auto& boneName : boneNames)
         {
             auto it = tagEntityMap.find(boneName);
-            if (it != tagEntityMap.end() && it->second != UUID(0))
+            if (it != tagEntityMap.end() && it->second != UUID{})
             {
                 boneEntityIds.emplace_back(it->second);
                 foundAtLeastOne = true;
@@ -170,15 +170,21 @@ namespace OloEngine
         for (const auto& boneName : boneNames)
         {
             auto it = skeletonComponent.m_TagEntityCache.find(boneName);
-            if (it != skeletonComponent.m_TagEntityCache.end() && it->second != UUID(0))
+            if (it != skeletonComponent.m_TagEntityCache.end() && it->second != UUID{})
             {
                 boneEntityIds.emplace_back(it->second);
                 foundAtLeastOne = true;
             }
             else
             {
-                boneEntityIds.emplace_back(UUID(0));
+                boneEntityIds.emplace_back(UUID{}); // Invalid/null UUID as placeholder
             }
+        }
+
+        // If no bones were found, clear the array (consistent with other overload)
+        if (!foundAtLeastOne)
+        {
+            boneEntityIds.clear();
         }
 
         return boneEntityIds;
