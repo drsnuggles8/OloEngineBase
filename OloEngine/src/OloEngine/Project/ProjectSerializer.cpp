@@ -55,12 +55,41 @@ namespace OloEngine
 
 		auto projectNode = data["Project"];
 		if (!projectNode)
+		{
+			OLO_CORE_ERROR("Failed to load project file '{0}' - missing 'Project' node", filepath);
 			return false;
+		}
 
-		config.Name = projectNode["Name"].as<std::string>();
-		config.StartScene = projectNode["StartScene"].as<std::string>();
-		config.AssetDirectory = projectNode["AssetDirectory"].as<std::string>();
-		config.ScriptModulePath = projectNode["ScriptModulePath"].as<std::string>();
-		return true;
+		// Helper lambda for safe string extraction with validation
+		auto safeGetString = [&](const YAML::Node& node, const char* key, std::string& output) -> bool
+		{
+			auto childNode = node[key];
+			if (!childNode || !childNode.IsScalar())
+			{
+				OLO_CORE_ERROR("Failed to load project file '{0}' - missing or invalid '{1}' field", filepath, key);
+				return false;
+			}
+			output = childNode.as<std::string>();
+			return true;
+		};
+
+		// Helper lambda for safe filesystem path extraction with validation
+		auto safeGetPath = [&](const YAML::Node& node, const char* key, std::filesystem::path& output) -> bool
+		{
+			auto childNode = node[key];
+			if (!childNode || !childNode.IsScalar())
+			{
+				OLO_CORE_ERROR("Failed to load project file '{0}' - missing or invalid '{1}' field", filepath, key);
+				return false;
+			}
+			output = childNode.as<std::string>();
+			return true;
+		};
+
+		// Extract project configuration with proper validation
+		return safeGetString(projectNode, "Name", config.Name) &&
+		       safeGetPath(projectNode, "StartScene", config.StartScene) &&
+		       safeGetPath(projectNode, "AssetDirectory", config.AssetDirectory) &&
+		       safeGetPath(projectNode, "ScriptModulePath", config.ScriptModulePath);
 	}
 }

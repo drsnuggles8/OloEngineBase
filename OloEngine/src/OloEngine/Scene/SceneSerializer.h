@@ -16,6 +16,10 @@ namespace OloEngine
 
         [[nodiscard("Store this!")]] bool Deserialize(const std::filesystem::path& filepath);
         [[nodiscard("Store this!")]][[maybe_unused]] bool DeserializeRuntime(const std::filesystem::path& filepath);
+        
+        // String-based serialization methods for asset pack support
+        std::string SerializeToYAML() const;
+        bool DeserializeFromYAML(const std::string& yamlString);
 	private:
 		Ref<Scene> m_Scene;
 	};

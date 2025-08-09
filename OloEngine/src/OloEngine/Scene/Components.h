@@ -186,9 +186,9 @@ namespace OloEngine
 		AudioListenerComponent(const AudioListenerComponent&) = default;
 	};
 
-	struct AnimatedMeshComponent;
-	struct AnimationStateComponent;
-	struct SkeletonComponent;
+	// Note: SubmeshComponent, MeshComponent, AnimationStateComponent, 
+	// and SkeletonComponent are now defined in OloEngine/Animation/AnimatedMeshComponents.h
+	// which is already included above
 
 	// Material component for storing PBR material data
 	struct MaterialComponent
@@ -198,6 +198,17 @@ namespace OloEngine
 		MaterialComponent() = default;
 		MaterialComponent(const Material& material) : m_Material(material) {}
 		MaterialComponent(const MaterialComponent&) = default;
+	};
+
+	// Entity relationship component for parent-child hierarchies (Hazel-style)
+	struct RelationshipComponent
+	{
+		UUID m_ParentHandle = 0;
+		std::vector<UUID> m_Children;
+
+		RelationshipComponent() = default;
+		RelationshipComponent(const RelationshipComponent&) = default;
+		RelationshipComponent(UUID parent) : m_ParentHandle(parent) {}
 	};
 
 	template<typename... Component>
@@ -217,9 +228,12 @@ namespace OloEngine
 		ScriptComponent,
 		AudioSourceComponent,
 		AudioListenerComponent,
-		AnimatedMeshComponent,
+		// AnimatedMeshComponent removed - deprecated
+		SubmeshComponent,         // NEW
+		MeshComponent,            // NEW
 		AnimationStateComponent,
 		SkeletonComponent,
-		MaterialComponent
+		MaterialComponent,
+		RelationshipComponent
 	>;
 }

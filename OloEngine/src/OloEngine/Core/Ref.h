@@ -159,7 +159,15 @@ namespace OloEngine
         template<typename T2>
         Ref<T2> As() const
         {
-            return Ref<T2>(*this);
+            T2* cast_result = dynamic_cast<T2*>(m_Instance);
+            if (cast_result)
+            {
+                Ref<T2> result;
+                result.m_Instance = cast_result;
+                result.IncRef();
+                return result;
+            }
+            return nullptr;
         }
 
         // Factory

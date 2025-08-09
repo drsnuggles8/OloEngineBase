@@ -13,6 +13,8 @@ namespace OloEngine
 		OpenGLVertexBuffer(const u32 size, const GLenum usage);
 		OpenGLVertexBuffer(const f32* vertices, u32 size);
 		OpenGLVertexBuffer(const f32* vertices, u32 size, GLenum usage);
+		OpenGLVertexBuffer(const void* data, u32 size);
+		OpenGLVertexBuffer(const void* data, u32 size, GLenum usage);
 		~OpenGLVertexBuffer() override;
 
 		void Bind() const override;

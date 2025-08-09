@@ -8,7 +8,7 @@
 #include <glm/gtc/quaternion.hpp>
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
-#include "OloEngine/Renderer/SkinnedMesh.h"
+#include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
@@ -25,7 +25,7 @@ namespace OloEngine
      * @brief AnimatedModel class for loading and managing skeletal animated models
      * 
      * This class handles loading of skeletal animated models from various formats (glTF, FBX, etc.)
-     * using Assimp. It creates SkinnedMesh objects, Skeleton data, and AnimationClip objects.
+     * using Assimp. It creates MeshSource objects with separated bone influences, Skeleton data, and AnimationClip objects.
      */
     class AnimatedModel : public RefCounted
     {
@@ -37,7 +37,7 @@ namespace OloEngine
         void LoadModel(const std::string& path);
         
         // Accessors
-        [[nodiscard]] const std::vector<Ref<SkinnedMesh>>& GetMeshes() const { return m_Meshes; }
+        [[nodiscard]] const std::vector<Ref<MeshSource>>& GetMeshes() const { return m_Meshes; }
         [[nodiscard]] const std::vector<Material>& GetMaterials() const { return m_Materials; }
         [[nodiscard]] const Ref<Skeleton>& GetSkeleton() const { return m_Skeleton; }
         [[nodiscard]] const std::vector<Ref<AnimationClip>>& GetAnimations() const { return m_Animations; }
@@ -60,7 +60,7 @@ namespace OloEngine
     private:
         // Model processing
         void ProcessNode(const aiNode* node, const aiScene* scene);
-        Ref<SkinnedMesh> ProcessMesh(const aiMesh* mesh, const aiScene* scene);
+        Ref<MeshSource> ProcessMesh(const aiMesh* mesh, const aiScene* scene);
         
         // Material and texture loading
         std::vector<Ref<Texture2D>> LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type);
@@ -69,7 +69,7 @@ namespace OloEngine
         // Skeleton and animation processing
         void ProcessSkeleton(const aiScene* scene);
         void ProcessAnimations(const aiScene* scene);
-        void ProcessBones(const aiMesh* mesh, std::vector<SkinnedVertex>& vertices);
+        void ProcessBones(const aiMesh* mesh, std::vector<BoneInfluence>& boneInfluences);
         
         // Helper methods
         void CalculateBounds();
@@ -89,7 +89,7 @@ namespace OloEngine
         };
 
         // Data members
-        std::vector<Ref<SkinnedMesh>> m_Meshes;
+        std::vector<Ref<MeshSource>> m_Meshes;
         std::vector<Material> m_Materials;
         std::vector<Ref<AnimationClip>> m_Animations;
         Ref<Skeleton> m_Skeleton;

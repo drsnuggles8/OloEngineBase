@@ -278,3 +278,12 @@ namespace OloEngine
 	#define OLO_PROFILE_GPU_COLOR(name, color)
 	#define OLO_PROFILE_GPU_COLLECT()
 #endif
+
+// Additional profiler macros for compatibility
+#if OLO_PROFILE && TRACY_ENABLE
+	#define OLO_PROFILER_THREAD(name) // tracy::SetThreadName(name) - TODO: Implement when Tracy SetThreadName is available
+	#define OLO_PROFILER_SCOPE(name) OLO_PROFILE_SCOPE(name)
+#else
+	#define OLO_PROFILER_THREAD(name)
+	#define OLO_PROFILER_SCOPE(name)
+#endif

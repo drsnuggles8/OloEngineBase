@@ -50,7 +50,9 @@ namespace OloEngine
 #define EVENT_CLASS_TYPE(type) static EventType GetStaticType() { return EventType::type; }\
 								EventType GetEventType() const override { return GetStaticType(); }\
 								const char* GetName() const override { return #type; }
-// TODO(olbu): Refactor these with functions instead of macros
+
+// NOTE: These macros provide boilerplate code for event classes.
+// Future refactoring could use CRTP (Curiously Recurring Template Pattern) to eliminate macros
 #define EVENT_CLASS_CATEGORY(category) EventCategory GetCategoryFlags() const override { return (category); }
 
 	class Event

@@ -4,7 +4,6 @@
 #include "OloEngine.h"
 #include "OloEngine/Renderer/Camera/PerspectiveCameraController.h"
 #include "OloEngine/Renderer/Mesh.h"
-#include "OloEngine/Renderer/SkinnedMesh.h"
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Renderer/Material.h"
@@ -55,7 +54,7 @@ private:
 
 private:
 	// Scene management
-	SceneType m_CurrentScene = SceneType::PBRModelTesting; // Start with PBR model testing
+	SceneType m_CurrentScene = SceneType::AnimationTesting; // Start with Animation Testing scene for faster troubleshooting
 	const char* m_SceneNames[static_cast<int>(SceneType::Count)] = { 
 		"Material Testing", 
 		"Animation Testing", 

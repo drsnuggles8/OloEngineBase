@@ -38,6 +38,10 @@ namespace OloEngine
 	Font::Font(const std::filesystem::path& filepath)
 		: m_Data(new MSDFData())
 	{
+		// Extract font name from filepath
+		m_Name = filepath.filename().stem().string();
+		m_Path = filepath.string();
+		
 		msdfgen::FreetypeHandle* ft = msdfgen::initializeFreetype();
 		OLO_CORE_ASSERT(ft);
 

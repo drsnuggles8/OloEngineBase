@@ -66,7 +66,41 @@ namespace OloEngine
 
 		// Register with GPU Resource Inspector
 		GPUResourceInspector::GetInstance().RegisterBuffer(m_RendererID, GL_ARRAY_BUFFER, "VertexBuffer (static storage)");
-	}	OpenGLVertexBuffer::~OpenGLVertexBuffer()
+	}
+
+	OpenGLVertexBuffer::OpenGLVertexBuffer(const void* data, const u32 size) : m_Size(size)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glCreateBuffers(1, &m_RendererID);
+		glNamedBufferData(m_RendererID, size, data, GL_STATIC_DRAW);
+		// Track GPU memory allocation
+		OLO_TRACK_GPU_ALLOC(this,
+						 size,
+						 RendererMemoryTracker::ResourceType::VertexBuffer,
+						 "OpenGL VertexBuffer (static, raw)");
+
+		// Register with GPU Resource Inspector
+		GPUResourceInspector::GetInstance().RegisterBuffer(m_RendererID, GL_ARRAY_BUFFER, "VertexBuffer (static, raw)");
+	}
+
+	OpenGLVertexBuffer::OpenGLVertexBuffer(const void* data, const u32 size, const GLenum usage) : m_Size(size)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		glCreateBuffers(1, &m_RendererID);
+		glNamedBufferStorage(m_RendererID, size, data, usage);
+		// Track GPU memory allocation
+		OLO_TRACK_GPU_ALLOC(this,
+						 size,
+						 RendererMemoryTracker::ResourceType::VertexBuffer,
+						 "OpenGL VertexBuffer (raw storage)");
+
+		// Register with GPU Resource Inspector
+		GPUResourceInspector::GetInstance().RegisterBuffer(m_RendererID, GL_ARRAY_BUFFER, "VertexBuffer (raw storage)");
+	}
+
+	OpenGLVertexBuffer::~OpenGLVertexBuffer()
 	{
 		OLO_PROFILE_FUNCTION();
 		// Track GPU memory deallocation

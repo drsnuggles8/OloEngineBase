@@ -31,5 +31,9 @@ namespace OloEngine
         virtual void SetFaceData(u32 faceIndex, void* data, u32 size) = 0;
         
         virtual const CubemapSpecification& GetCubemapSpecification() const = 0;
+
+        // Asset interface
+        static AssetType GetStaticType() { return AssetType::TextureCube; }
+        virtual AssetType GetAssetType() const override { return GetStaticType(); }
     };
 }

@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Renderer/RendererResource.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
@@ -36,7 +37,7 @@ namespace OloEngine
 		}
 	};
 
-	class Model : public RefCounted
+	class Model : public RendererResource
 	{
 	public:
 		Model() = default;
@@ -45,8 +46,10 @@ namespace OloEngine
 
 		void LoadModel(const std::string& path, const TextureOverride& textureOverride = {}, bool flipUV = false);
 		void Draw(const glm::mat4& transform, const Material& material) const;
+		void Draw(const glm::mat4& transform, const Ref<Material>& material) const;
 
 		void GetDrawCommands(const glm::mat4& transform, const Material& material, std::vector<CommandPacket*>& outCommands) const;
+		void GetDrawCommands(const glm::mat4& transform, const Ref<Material>& material, std::vector<CommandPacket*>& outCommands) const;
 		void GetDrawCommands(const glm::mat4& transform, std::vector<CommandPacket*>& outCommands) const;
 		
 		// Calculate bounding volumes for the entire model
@@ -61,7 +64,11 @@ namespace OloEngine
 		[[nodiscard]] BoundingSphere GetTransformedBoundingSphere(const glm::mat4& transform) const { return m_BoundingSphere.Transform(transform); }
 		
 		// Accessors for materials
-		[[nodiscard]] const std::vector<Material>& GetMaterials() const { return m_Materials; }
+		[[nodiscard]] const std::vector<Ref<Material>>& GetMaterials() const { return m_Materials; }
+
+		// Asset interface
+		constexpr static AssetType GetStaticType() { return AssetType::Model; }
+		virtual AssetType GetAssetType() const override { return GetStaticType(); }
 
 	private:
 		void ProcessNode(const aiNode* node, const aiScene* scene);
@@ -70,7 +77,8 @@ namespace OloEngine
 		Material ProcessMaterial(const aiMaterial* mat);
 
 		std::vector<Ref<Mesh>> m_Meshes;
-		std::vector<Material> m_Materials;  // Materials corresponding to each mesh
+		std::vector<Ref<Material>> m_Materials;  // Materials corresponding to each mesh
+		std::unordered_map<u32, u32> m_MaterialIndexMap; // Maps Assimp material indices to m_Materials indices
 		std::string m_Directory;
 		std::unordered_map<std::string, Ref<Texture2D>> m_LoadedTextures;
 		std::optional<TextureOverride> m_TextureOverride;

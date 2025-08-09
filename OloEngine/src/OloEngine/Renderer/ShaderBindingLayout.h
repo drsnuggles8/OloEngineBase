@@ -70,6 +70,15 @@ namespace OloEngine
             
             static constexpr u32 GetSize() { return sizeof(MultiLightUBO); }
         };
+
+        /**
+         * @brief Animation limits and constants for bone matrix uploads
+         * Must match the corresponding GLSL shader array sizes
+         */
+        struct AnimationConstants
+        {
+            static constexpr u32 MAX_BONES = 100;                    // Maximum bone matrices per animated mesh
+        };
         
         struct MaterialUBO
         {
