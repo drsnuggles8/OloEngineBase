@@ -19,9 +19,9 @@ namespace OloEngine
         virtual ~FileStreamWriter();
 
         bool IsStreamGood() const final { return m_Stream.good(); }
-        uint64_t GetStreamPosition() final { return m_Stream.tellp(); }
-        void SetStreamPosition(uint64_t position) final { m_Stream.seekp(position); }
-        bool WriteData(const char* data, size_t size) final;
+        u64 GetStreamPosition() final { return m_Stream.tellp(); }
+        void SetStreamPosition(u64 position) final { m_Stream.seekp(position); }
+        bool WriteData(const char* data, sizet size) final;
 
     private:
         std::filesystem::path m_Path;
@@ -40,9 +40,9 @@ namespace OloEngine
         const std::filesystem::path& GetFilePath() const { return m_Path; }
 
         bool IsStreamGood() const final { return m_Stream.good(); }
-        uint64_t GetStreamPosition() override { return m_Stream.tellg(); }
-        void SetStreamPosition(uint64_t position) override { m_Stream.seekg(position); }
-        bool ReadData(char* destination, size_t size) override;
+        u64 GetStreamPosition() override { return m_Stream.tellg(); }
+        void SetStreamPosition(u64 position) override { m_Stream.seekg(position); }
+        bool ReadData(char* destination, sizet size) override;
 
     private:
         std::filesystem::path m_Path;

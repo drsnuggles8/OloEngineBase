@@ -15,14 +15,14 @@ namespace OloEngine
         virtual ~StreamWriter() = default;
 
         virtual bool IsStreamGood() const = 0;
-        virtual uint64_t GetStreamPosition() = 0;
-        virtual void SetStreamPosition(uint64_t position) = 0;
-        virtual bool WriteData(const char* data, size_t size) = 0;
+        virtual u64 GetStreamPosition() = 0;
+        virtual void SetStreamPosition(u64 position) = 0;
+        virtual bool WriteData(const char* data, sizet size) = 0;
         
         operator bool() const { return IsStreamGood(); }
 
         void WriteBuffer(Buffer buffer, bool writeSize = true);
-        void WriteZero(uint64_t size);
+        void WriteZero(u64 size);
         void WriteString(const std::string& string);
 
         template<typename T>
@@ -45,7 +45,7 @@ namespace OloEngine
         void WriteMap(const std::map<Key, Value>& map, bool writeSize = true)
         {
             if (writeSize)
-                WriteRaw<uint32_t>((uint32_t)map.size());
+                WriteRaw<u32>((u32)map.size());
 
             for (const auto& [key, value] : map)
             {
@@ -65,7 +65,7 @@ namespace OloEngine
         void WriteMap(const std::unordered_map<Key, Value>& map, bool writeSize = true)
         {
             if (writeSize)
-                WriteRaw<uint32_t>((uint32_t)map.size());
+                WriteRaw<u32>((u32)map.size());
 
             for (const auto& [key, value] : map)
             {
@@ -85,7 +85,7 @@ namespace OloEngine
         void WriteMap(const std::unordered_map<std::string, Value>& map, bool writeSize = true)
         {
             if (writeSize)
-                WriteRaw<uint32_t>((uint32_t)map.size());
+                WriteRaw<u32>((u32)map.size());
 
             for (const auto& [key, value] : map)
             {
@@ -102,7 +102,7 @@ namespace OloEngine
         void WriteArray(const std::vector<T>& array, bool writeSize = true)
         {
             if (writeSize)
-                WriteRaw<uint32_t>((uint32_t)array.size());
+                WriteRaw<u32>((u32)array.size());
 
             for (const auto& element : array)
             {
@@ -118,7 +118,7 @@ namespace OloEngine
     inline void StreamWriter::WriteArray(const std::vector<std::string>& array, bool writeSize)
     {
         if (writeSize)
-            WriteRaw<uint32_t>((uint32_t)array.size());
+            WriteRaw<u32>((u32)array.size());
 
         for (const auto& element : array)
             WriteString(element);

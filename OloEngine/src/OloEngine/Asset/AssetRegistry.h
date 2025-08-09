@@ -104,7 +104,7 @@ namespace OloEngine
          * @brief Get the total number of assets in the registry
          * @return Number of assets
          */
-        size_t GetAssetCount() const;
+        sizet GetAssetCount() const;
 
         /**
          * @brief Clear all assets from the registry

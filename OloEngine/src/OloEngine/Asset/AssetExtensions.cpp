@@ -29,7 +29,7 @@ namespace OloEngine
 
     AssetType AssetExtensions::GetAssetTypeFromPath(const std::string& filepath)
     {
-        size_t dotPos = filepath.find_last_of('.');
+        sizet dotPos = filepath.find_last_of('.');
         if (dotPos == std::string::npos)
             return AssetType::None;
 

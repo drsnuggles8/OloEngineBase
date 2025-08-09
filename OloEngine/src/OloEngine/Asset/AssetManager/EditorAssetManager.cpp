@@ -161,7 +161,7 @@ namespace OloEngine
         std::unique_lock<std::shared_mutex> lock(m_AssetsMutex);
         m_MemoryAssets[asset->m_Handle] = asset;
 
-        OLO_CORE_TRACE("Added memory asset: {}", (uint64_t)asset->m_Handle);
+        OLO_CORE_TRACE("Added memory asset: {}", (u64)asset->m_Handle);
     }
 
     bool EditorAssetManager::ReloadData(AssetHandle assetHandle)
@@ -171,7 +171,7 @@ namespace OloEngine
         auto metadata = m_AssetRegistry.GetMetadata(assetHandle);
         if (!metadata.IsValid())
         {
-            OLO_CORE_ERROR("Cannot reload asset {}: metadata not found", (uint64_t)assetHandle);
+            OLO_CORE_ERROR("Cannot reload asset {}: metadata not found", (u64)assetHandle);
             return false;
         }
 
@@ -196,7 +196,8 @@ namespace OloEngine
             metadata.LastWriteTime = std::filesystem::last_write_time(absolutePath, ec);
             if (!ec)
             {
-                // Update the metadata in the registry
+                // Thread-safe update of the metadata in the registry
+                std::lock_guard<std::shared_mutex> lock(m_RegistryMutex);
                 m_AssetRegistry.UpdateMetadata(assetHandle, metadata);
                 SerializeAssetRegistry(); // Persist the updated timestamp
             }
@@ -226,8 +227,8 @@ namespace OloEngine
         if (!metadata.IsValid())
             return false;
 
-        // Convert to absolute path before checking existence
-        std::filesystem::path absolutePath = m_ProjectPath / metadata.FilePath;
+        // Convert to absolute path before checking existence, handling already-absolute paths
+        std::filesystem::path absolutePath = metadata.FilePath.is_absolute() ? metadata.FilePath : (m_ProjectPath / metadata.FilePath);
         
         // Check if file exists before checking modification time using error_code to avoid exceptions
         std::error_code ec;
@@ -355,7 +356,7 @@ namespace OloEngine
         // Remove dependencies
         DeregisterDependencies(handle);
 
-        OLO_CORE_TRACE("Removed asset: {}", (uint64_t)handle);
+        OLO_CORE_TRACE("Removed asset: {}", (u64)handle);
     }
 
     void EditorAssetManager::RegisterDependency(AssetHandle dependency, AssetHandle handle)
@@ -477,12 +478,19 @@ namespace OloEngine
         metadata.Handle = m_AssetRegistry.GenerateHandle(); // Generate a valid handle
         metadata.FilePath = relativePath;
         metadata.Type = type;
-        metadata.LastWriteTime = std::filesystem::last_write_time(filepath);
+        
+        // Use error_code overload to avoid exceptions (reuse existing ec variable)
+        metadata.LastWriteTime = std::filesystem::last_write_time(filepath, ec);
+        if (ec)
+        {
+            OLO_CORE_WARN("Failed to get last write time for asset {}: {}", filepath.string(), ec.message());
+            metadata.LastWriteTime = std::filesystem::file_time_type{}; // Default/empty timestamp
+        }
 
         // Register in registry
         m_AssetRegistry.AddAsset(metadata);
 
-        OLO_CORE_INFO("Imported asset: {} -> {}", filepath.string(), (uint64_t)metadata.Handle);
+        OLO_CORE_INFO("Imported asset: {} -> {}", filepath.string(), (u64)metadata.Handle);
         return metadata.Handle;
     }
 
@@ -571,16 +579,26 @@ namespace OloEngine
                         if (!metadata.IsValid())
                             continue;
                             
-                        // Convert relative path back to absolute for filesystem operations
-                        std::filesystem::path absolutePath = m_ProjectPath / metadata.FilePath;
+                        // Convert relative path back to absolute for filesystem operations, handling already-absolute paths
+                        std::filesystem::path absolutePath = metadata.FilePath.is_absolute() ? metadata.FilePath : (m_ProjectPath / metadata.FilePath);
                         
-                        if (std::filesystem::exists(absolutePath))
+                        // Use error_code overloads to avoid exceptions that could terminate the background thread
+                        std::error_code ec;
+                        if (std::filesystem::exists(absolutePath, ec) && !ec)
                         {
-                            auto currentWriteTime = std::filesystem::last_write_time(absolutePath);
-                            if (currentWriteTime > metadata.LastWriteTime)
+                            auto currentWriteTime = std::filesystem::last_write_time(absolutePath, ec);
+                            if (!ec && currentWriteTime > metadata.LastWriteTime)
                             {
                                 modifiedAssets.push_back(metadata.Handle);
                             }
+                            else if (ec)
+                            {
+                                OLO_CORE_WARN("Failed to get last write time for asset {}: {}", absolutePath.string(), ec.message());
+                            }
+                        }
+                        else if (ec)
+                        {
+                            OLO_CORE_WARN("Error checking asset file existence for {}: {}", absolutePath.string(), ec.message());
                         }
                     }
                 }
@@ -588,7 +606,7 @@ namespace OloEngine
                 // Reload modified assets (outside of registry lock to avoid deadlock)
                 for (AssetHandle handle : modifiedAssets)
                 {
-                    OLO_CORE_INFO("Detected file modification, reloading asset: {}", (uint64_t)handle);
+                    OLO_CORE_INFO("Detected file modification, reloading asset: {}", (u64)handle);
                     ReloadDataAsync(handle);
                 }
             }

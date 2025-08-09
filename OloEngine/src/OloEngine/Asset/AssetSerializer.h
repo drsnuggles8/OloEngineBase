@@ -19,8 +19,8 @@ namespace OloEngine
 
     struct AssetSerializationInfo
     {
-        uint64_t Offset = 0;
-        uint64_t Size = 0;
+        u64 Offset = 0;
+        u64 Size = 0;
     };
 
     class AssetSerializer

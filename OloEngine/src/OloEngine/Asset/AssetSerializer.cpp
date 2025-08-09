@@ -447,7 +447,7 @@ namespace OloEngine
                     }
                     else if (type == "uint")
                     {
-                        material->Set(propName, valueNode["value"].as<uint32_t>());
+                        material->Set(propName, valueNode["value"].as<u32>());
                     }
                     else if (type == "bool")
                     {
@@ -491,7 +491,7 @@ namespace OloEngine
         // Load material flags
         if (materialNode["MaterialFlags"])
         {
-            uint32_t flags = materialNode["MaterialFlags"].as<uint32_t>(0);
+            u32 flags = materialNode["MaterialFlags"].as<u32>(0);
             material->SetFlags(flags);
         }
 
@@ -694,7 +694,7 @@ namespace OloEngine
         std::string yamlData = SerializeToString(scene);
         
         // Write YAML data size and content
-        uint32_t dataSize = (uint32_t)yamlData.size();
+        u32 dataSize = (u32)yamlData.size();
         stream.WriteRaw(dataSize);
         stream.WriteData(yamlData.c_str(), dataSize);
         
@@ -709,7 +709,7 @@ namespace OloEngine
         stream.SetStreamPosition(assetInfo.PackedOffset);
         
         // Read YAML data size and content
-        uint32_t dataSize;
+        u32 dataSize;
         stream.ReadRaw(dataSize);
         
         std::vector<char> yamlData(dataSize + 1);
@@ -1081,11 +1081,11 @@ namespace OloEngine
         //     for (const auto& submeshNode : meshNode["Submeshes"])
         //     {
         //         Submesh submesh{};
-        //         submesh.BaseVertex = submeshNode["BaseVertex"].as<uint32_t>();
-        //         submesh.BaseIndex = submeshNode["BaseIndex"].as<uint32_t>();
-        //         submesh.IndexCount = submeshNode["IndexCount"].as<uint32_t>();
-        //         submesh.VertexCount = submeshNode["VertexCount"].as<uint32_t>();
-        //         submesh.MaterialIndex = submeshNode["MaterialIndex"].as<uint32_t>();
+        //         submesh.BaseVertex = submeshNode["BaseVertex"].as<u32>();
+        //         submesh.BaseIndex = submeshNode["BaseIndex"].as<u32>();
+        //         submesh.IndexCount = submeshNode["IndexCount"].as<u32>();
+        //         submesh.VertexCount = submeshNode["VertexCount"].as<u32>();
+        //         submesh.MaterialIndex = submeshNode["MaterialIndex"].as<u32>();
         //         submesh.Transform = submeshNode["Transform"].as<glm::mat4>();
         //         
         //         // Load bounding box

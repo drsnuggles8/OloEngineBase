@@ -15,13 +15,13 @@ namespace OloEngine
         virtual ~StreamReader() = default;
 
         virtual bool IsStreamGood() const = 0;
-        virtual uint64_t GetStreamPosition() = 0;
-        virtual void SetStreamPosition(uint64_t position) = 0;
-        virtual bool ReadData(char* destination, size_t size) = 0;
+        virtual u64 GetStreamPosition() = 0;
+        virtual void SetStreamPosition(u64 position) = 0;
+        virtual bool ReadData(char* destination, sizet size) = 0;
 
         operator bool() const { return IsStreamGood(); }
 
-        void ReadBuffer(Buffer& buffer, uint32_t size = 0);
+        void ReadBuffer(Buffer& buffer, u32 size = 0);
         void ReadString(std::string& string);
 
         template<typename T>
@@ -41,12 +41,12 @@ namespace OloEngine
         }
 
         template<typename Key, typename Value>
-        void ReadMap(std::map<Key, Value>& map, uint32_t size = 0)
+        void ReadMap(std::map<Key, Value>& map, u32 size = 0)
         {
             if (size == 0)
-                ReadRaw<uint32_t>(size);
+                ReadRaw<u32>(size);
 
-            for (uint32_t i = 0; i < size; i++)
+            for (u32 i = 0; i < size; i++)
             {
                 Key key;
                 if constexpr (std::is_trivially_copyable_v<Key>)
@@ -62,12 +62,12 @@ namespace OloEngine
         }
 
         template<typename Key, typename Value>
-        void ReadMap(std::unordered_map<Key, Value>& map, uint32_t size = 0)
+        void ReadMap(std::unordered_map<Key, Value>& map, u32 size = 0)
         {
             if (size == 0)
-                ReadRaw<uint32_t>(size);
+                ReadRaw<u32>(size);
 
-            for (uint32_t i = 0; i < size; i++)
+            for (u32 i = 0; i < size; i++)
             {
                 Key key;
                 if constexpr (std::is_trivially_copyable_v<Key>)
@@ -83,12 +83,12 @@ namespace OloEngine
         }
 
         template<typename Value>
-        void ReadMap(std::unordered_map<std::string, Value>& map, uint32_t size = 0)
+        void ReadMap(std::unordered_map<std::string, Value>& map, u32 size = 0)
         {
             if (size == 0)
-                ReadRaw<uint32_t>(size);
+                ReadRaw<u32>(size);
 
-            for (uint32_t i = 0; i < size; i++)
+            for (u32 i = 0; i < size; i++)
             {
                 std::string key;
                 ReadString(key);
@@ -101,14 +101,14 @@ namespace OloEngine
         }
 
         template<typename T>
-        void ReadArray(std::vector<T>& array, uint32_t size = 0)
+        void ReadArray(std::vector<T>& array, u32 size = 0)
         {
             if (size == 0)
-                ReadRaw<uint32_t>(size);
+                ReadRaw<u32>(size);
 
             array.resize(size);
 
-            for (uint32_t i = 0; i < size; i++)
+            for (u32 i = 0; i < size; i++)
             {
                 if constexpr (std::is_trivially_copyable_v<T>)
                     ReadRaw<T>(array[i]);
@@ -119,14 +119,14 @@ namespace OloEngine
     };
 
     template<>
-    inline void StreamReader::ReadArray(std::vector<std::string>& array, uint32_t size)
+    inline void StreamReader::ReadArray(std::vector<std::string>& array, u32 size)
     {
         if (size == 0)
-            ReadRaw<uint32_t>(size);
+            ReadRaw<u32>(size);
 
         array.resize(size);
 
-        for (uint32_t i = 0; i < size; i++)
+        for (u32 i = 0; i < size; i++)
             ReadString(array[i]);
     }
 

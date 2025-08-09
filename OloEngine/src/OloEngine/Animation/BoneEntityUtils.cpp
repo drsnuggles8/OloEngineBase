@@ -22,9 +22,9 @@ namespace OloEngine
         OLO_CORE_ASSERT(skeleton, "Skeleton pointer cannot be null");
 
     // Calculate hierarchical bone transforms
-    // Use size_t to avoid narrowing issues if sizes exceed u32 range
-    const size_t count = std::min(skeleton->m_BoneNames.size(), boneEntityIds.size());
-    for (size_t i = 0; i < count; ++i)
+    // Use sizet to avoid narrowing issues if sizes exceed u32 range
+    const sizet count = std::min(skeleton->m_BoneNames.size(), boneEntityIds.size());
+    for (sizet i = 0; i < count; ++i)
         {
             Entity boneEntity = scene->TryGetEntityWithUUID(boneEntityIds[i]);
             
@@ -157,21 +157,20 @@ namespace OloEngine
         const auto& boneNames = skeletonComponent.m_Skeleton->m_BoneNames;
         boneEntityIds.reserve(boneNames.size());
 
-        // Check if cache is valid, if not rebuild it (with thread-safe access)
+        // Single lock for cache validation, potential rebuild, and reading to ensure atomicity
+        bool foundAtLeastOne = false;
         {
             std::lock_guard<std::mutex> lock(skeletonComponent.m_CacheMutex);
+            
+            // Check if cache is valid, if not rebuild it
             if (!skeletonComponent.m_CacheValid)
             {
                 skeletonComponent.m_TagEntityCache.clear();
                 BuildTagEntityMap(rootEntity, scene, skeletonComponent.m_TagEntityCache);
                 skeletonComponent.m_CacheValid = true;
             }
-        }
-
-        // Use cached map for O(1) lookups (with thread-safe access)
-        bool foundAtLeastOne = false;
-        {
-            std::lock_guard<std::mutex> lock(skeletonComponent.m_CacheMutex);
+            
+            // Use cached map for O(1) lookups
             for (const auto& boneName : boneNames)
             {
                 auto it = skeletonComponent.m_TagEntityCache.find(boneName);

@@ -221,7 +221,7 @@ namespace OloEngine
         std::unordered_map<std::string, u32> boneNameToIndex;
         if (m_Skeleton)
         {
-            for (size_t i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
+            for (sizet i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
             {
                 boneNameToIndex[m_Skeleton->m_BoneNames[i]] = static_cast<u32>(i);
             }
@@ -376,7 +376,7 @@ namespace OloEngine
         traverseNode(scene->mRootNode, -1);
 
         // Compute initial global transforms based on hierarchy
-        for (size_t i = 0; i < m_Skeleton->m_LocalTransforms.size(); ++i)
+        for (sizet i = 0; i < m_Skeleton->m_LocalTransforms.size(); ++i)
         {
             i32 parent = m_Skeleton->m_ParentIndices[i];
             if (parent >= 0)
@@ -386,7 +386,7 @@ namespace OloEngine
         }
 
         // Set up inverse bind poses from bone offset matrices
-        for (size_t i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
+        for (sizet i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
         {
             const std::string& boneName = m_Skeleton->m_BoneNames[i];
             auto it = boneOffsetMatrices.find(boneName);

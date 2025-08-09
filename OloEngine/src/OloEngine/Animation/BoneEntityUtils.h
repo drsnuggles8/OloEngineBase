@@ -122,7 +122,7 @@ namespace OloEngine
         static Entity FindBoneEntity(
             Entity rootEntity,
             const std::string& boneName,
-            size_t boneIndex,
+            sizet boneIndex,
             const class Scene* scene);
 
         /**

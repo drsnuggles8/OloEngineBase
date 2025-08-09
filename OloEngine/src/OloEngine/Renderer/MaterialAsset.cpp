@@ -281,7 +281,7 @@ namespace OloEngine {
 		}
 	}
 
-	MaterialTable::MaterialTable(uint32_t materialCount)
+	MaterialTable::MaterialTable(u32 materialCount)
 		: m_MaterialCount(materialCount)
 	{
 	}
@@ -294,14 +294,14 @@ namespace OloEngine {
 			SetMaterial(index, materialAsset);
 	}
 
-	void MaterialTable::SetMaterial(uint32_t index, AssetHandle material)
+	void MaterialTable::SetMaterial(u32 index, AssetHandle material)
 	{
 		m_Materials[index] = material;
 		if (index >= m_MaterialCount)
 			m_MaterialCount = index + 1;
 	}
 
-	void MaterialTable::ClearMaterial(uint32_t index)
+	void MaterialTable::ClearMaterial(u32 index)
 	{
 		OLO_CORE_ASSERT(HasMaterial(index));
 		m_Materials.erase(index);

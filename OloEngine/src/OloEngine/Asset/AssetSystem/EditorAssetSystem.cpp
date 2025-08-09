@@ -129,7 +129,7 @@ namespace OloEngine
             {
                 asset->m_Handle = metadata.Handle;
                 OLO_CORE_TRACE("EditorAssetSystem: Successfully loaded asset: {} ({})",
-                              metadata.FilePath.string(), static_cast<uint32_t>(metadata.Type));
+                              metadata.FilePath.string(), static_cast<u32>(metadata.Type));
             }
             else
             {

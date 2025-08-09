@@ -503,7 +503,7 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 		return BoneEntityUtils::GetModelSpaceBoneTransforms(boneEntityIds, meshSource, this);
 	}
 
-	std::vector<UUID> Scene::FindBoneEntityIds(Entity entity, Entity rootEntity, const Skeleton* skeleton) const
+	std::vector<UUID> Scene::FindBoneEntityIds(Entity rootEntity, const Skeleton* skeleton) const
 	{
 		return BoneEntityUtils::FindBoneEntityIds(rootEntity, skeleton, this);
 	}
@@ -535,6 +535,9 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 		auto it = m_EntityMap.find(id);
 		if (it != m_EntityMap.end())
 		{
+			// FIXME: const_cast usage should be minimized. Consider updating Entity class
+			// to accept const Scene* for read-only operations or create a const-Entity view.
+			// This cast is currently necessary as Entity requires non-const Scene* for API consistency.
 			return Entity{ it->second, const_cast<Scene*>(this) };
 		}
 		return {};
@@ -543,6 +546,9 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 	Entity Scene::GetEntityWithUUID(UUID id) const
 	{
 		OLO_CORE_ASSERT(m_EntityMap.contains(id), "Entity with UUID not found");
+		// FIXME: const_cast usage should be minimized. Consider updating Entity class
+		// to accept const Scene* for read-only operations or create a const-Entity view.
+		// This cast is currently necessary as Entity requires non-const Scene* for API consistency.
 		return Entity{ m_EntityMap.at(id), const_cast<Scene*>(this) };
 	}
 

@@ -128,12 +128,12 @@ namespace OloEngine
             
             if (asset)
             {
-                OLO_CORE_TRACE("RuntimeAssetSystem: Asset loaded and ready: {}", static_cast<uint64_t>(handle));
+                OLO_CORE_TRACE("RuntimeAssetSystem: Asset loaded and ready: {}", static_cast<u64>(handle));
                 // TODO: Notify RuntimeAssetManager of loaded asset
             }
             else
             {
-                OLO_CORE_ERROR("RuntimeAssetSystem: Failed to load asset: {}", static_cast<uint64_t>(handle));
+                OLO_CORE_ERROR("RuntimeAssetSystem: Failed to load asset: {}", static_cast<u64>(handle));
             }
         }
     }
@@ -144,7 +144,7 @@ namespace OloEngine
         return m_PendingAssets.find(handle) != m_PendingAssets.end();
     }
 
-    size_t RuntimeAssetSystem::GetPendingAssetCount() const
+    sizet RuntimeAssetSystem::GetPendingAssetCount() const
     {
         std::scoped_lock<std::mutex> lock(m_PendingAssetsMutex);
         return m_PendingAssets.size();

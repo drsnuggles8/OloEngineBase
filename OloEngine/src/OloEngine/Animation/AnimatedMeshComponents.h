@@ -151,6 +151,33 @@ namespace OloEngine
 			}
 			return *this;
 		}
+
+		// Move constructor - transfer ownership efficiently
+		SkeletonComponent(SkeletonComponent&& other) noexcept
+			: m_Skeleton(std::move(other.m_Skeleton))
+		{
+			// Transfer cache data under lock from the source
+			std::lock_guard<std::mutex> lock(other.m_CacheMutex);
+			m_TagEntityCache = std::move(other.m_TagEntityCache);
+			m_CacheValid = other.m_CacheValid;
+			other.m_CacheValid = false; // Invalidate source cache
+			// Note: mutex is not moved - each component gets its own mutex
+		}
+
+		// Move assignment operator - transfer ownership efficiently
+		SkeletonComponent& operator=(SkeletonComponent&& other) noexcept
+		{
+			if (this != &other)
+			{
+				// Lock both mutexes to ensure thread safety during move
+				std::scoped_lock lock(m_CacheMutex, other.m_CacheMutex);
+				m_Skeleton = std::move(other.m_Skeleton);
+				m_TagEntityCache = std::move(other.m_TagEntityCache);
+				m_CacheValid = other.m_CacheValid;
+				other.m_CacheValid = false; // Invalidate source cache
+			}
+			return *this;
+		}
 		
 		// Invalidate cache when skeleton changes
 		void InvalidateCache() const noexcept { 

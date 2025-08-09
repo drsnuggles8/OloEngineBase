@@ -470,7 +470,7 @@ namespace OloEngine {
 			std::vector<u32> newIndices;
 			newIndices.reserve(indices.size() * 4);
 
-			for (size_t i = 0; i < indices.size(); i += 3)
+			for (sizet i = 0; i < indices.size(); i += 3)
 			{
 				u32 v1 = indices[i];
 				u32 v2 = indices[i + 1];
@@ -514,7 +514,7 @@ namespace OloEngine {
 		std::vector<u32> finalIndices;
 		finalIndices.reserve(indices.size());
 
-		for (size_t i = 0; i < indices.size(); i += 3)
+		for (sizet i = 0; i < indices.size(); i += 3)
 		{
 			u32 v1 = indices[i];
 			u32 v2 = indices[i + 1];

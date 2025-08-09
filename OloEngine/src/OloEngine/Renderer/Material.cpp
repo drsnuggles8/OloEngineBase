@@ -121,7 +121,7 @@ namespace OloEngine {
 		auto material = Ref<Material>(new Material());
 		material->m_Name = name;
 		material->m_MaterialType = MaterialType::PBR;
-		material->m_MaterialFlags = static_cast<uint32_t>(MaterialFlag::DepthTest);
+		material->m_MaterialFlags = static_cast<u32>(MaterialFlag::DepthTest);
 		
 		// Set PBR properties using the uniform system
 		material->Set("u_MaterialUniforms.AlbedoColor", baseColor);
@@ -163,7 +163,7 @@ namespace OloEngine {
 		m_IntUniforms[name] = value;
 	}
 
-	void Material::Set(const std::string& name, uint32_t value)
+	void Material::Set(const std::string& name, u32 value)
 	{
 		m_UIntUniforms[name] = value;
 	}
@@ -221,7 +221,7 @@ namespace OloEngine {
 		m_Texture2DUniforms[name] = texture;
 	}
 
-	void Material::Set(const std::string& name, const Ref<Texture2D>& texture, uint32_t arrayIndex)
+	void Material::Set(const std::string& name, const Ref<Texture2D>& texture, u32 arrayIndex)
 	{
 		// For now, just store the texture - array indexing can be handled later
 		m_Texture2DUniforms[name] = texture;
@@ -243,23 +243,23 @@ namespace OloEngine {
 		return defaultValue;
 	}
 
-	int32_t Material::GetInt(const std::string& name) const
+	i32 Material::GetInt(const std::string& name) const
 	{
 		auto it = m_IntUniforms.find(name);
 		if (it != m_IntUniforms.end())
 			return it->second;
 		
-		static const int32_t defaultValue = 0;
+		static const i32 defaultValue = 0;
 		return defaultValue;
 	}
 
-	uint32_t Material::GetUInt(const std::string& name) const
+	u32 Material::GetUInt(const std::string& name) const
 	{
 		auto it = m_UIntUniforms.find(name);
 		if (it != m_UIntUniforms.end())
 			return it->second;
 		
-		static const uint32_t defaultValue = 0u;
+		static const u32 defaultValue = 0u;
 		return defaultValue;
 	}
 
@@ -354,9 +354,9 @@ namespace OloEngine {
 	void Material::SetFlag(MaterialFlag flag, bool value)
 	{
 		if (value)
-			m_MaterialFlags |= static_cast<uint32_t>(flag);
+			m_MaterialFlags |= static_cast<u32>(flag);
 		else
-			m_MaterialFlags &= ~static_cast<uint32_t>(flag);
+			m_MaterialFlags &= ~static_cast<u32>(flag);
 	}
 
 }

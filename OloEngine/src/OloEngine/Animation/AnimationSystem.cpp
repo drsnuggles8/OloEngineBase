@@ -76,7 +76,7 @@ namespace OloEngine::Animation
         };
 
         // For each bone, sample and blend if needed
-        for (size_t i = 0; i < skeleton.m_BoneNames.size(); ++i)
+        for (sizet i = 0; i < skeleton.m_BoneNames.size(); ++i)
         {
             const std::string& boneName = skeleton.m_BoneNames[i];
             
@@ -106,7 +106,7 @@ namespace OloEngine::Animation
         }
 
         // Compute global transforms
-        for (size_t i = 0; i < skeleton.m_LocalTransforms.size(); ++i)
+        for (sizet i = 0; i < skeleton.m_LocalTransforms.size(); ++i)
         {
             int parent = skeleton.m_ParentIndices[i];
             if (parent >= 0)
@@ -116,7 +116,7 @@ namespace OloEngine::Animation
         }
 
         // Compute final bone matrices for GPU skinning (GlobalTransform * InverseBindPose)
-        for (size_t i = 0; i < skeleton.m_GlobalTransforms.size(); ++i)
+        for (sizet i = 0; i < skeleton.m_GlobalTransforms.size(); ++i)
         {
             if (i < skeleton.m_InverseBindPoses.size())
             {

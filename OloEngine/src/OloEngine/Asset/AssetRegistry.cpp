@@ -132,7 +132,7 @@ namespace OloEngine
         return result;
     }
 
-    size_t AssetRegistry::GetAssetCount() const
+    sizet AssetRegistry::GetAssetCount() const
     {
         std::shared_lock lock(m_Mutex);
         return m_AssetMetadata.size();

@@ -71,7 +71,7 @@ namespace OloEngine {
 
 		virtual void Set(const std::string& name, float value);
 		virtual void Set(const std::string& name, int value);
-		virtual void Set(const std::string& name, uint32_t value);
+		virtual void Set(const std::string& name, u32 value);
 		virtual void Set(const std::string& name, bool value);
 		virtual void Set(const std::string& name, const glm::vec2& value);
 		virtual void Set(const std::string& name, const glm::vec3& value);
@@ -84,12 +84,12 @@ namespace OloEngine {
 		virtual void Set(const std::string& name, const glm::mat4& value);
 
 		virtual void Set(const std::string& name, const Ref<Texture2D>& texture);
-		virtual void Set(const std::string& name, const Ref<Texture2D>& texture, uint32_t arrayIndex);
+		virtual void Set(const std::string& name, const Ref<Texture2D>& texture, u32 arrayIndex);
 		virtual void Set(const std::string& name, const Ref<TextureCubemap>& texture);
 
 		virtual float GetFloat(const std::string& name) const;
-		virtual int32_t GetInt(const std::string& name) const;
-		virtual uint32_t GetUInt(const std::string& name) const;
+		virtual i32 GetInt(const std::string& name) const;
+		virtual u32 GetUInt(const std::string& name) const;
 		virtual bool GetBool(const std::string& name) const;
 		virtual const glm::vec2& GetVector2(const std::string& name) const;
 		virtual const glm::vec3& GetVector3(const std::string& name) const;
@@ -103,10 +103,10 @@ namespace OloEngine {
 		virtual Ref<Texture2D> TryGetTexture2D(const std::string& name);
 		virtual Ref<TextureCubemap> TryGetTextureCube(const std::string& name);
 
-		virtual uint32_t GetFlags() const { return m_MaterialFlags; }
-		virtual void SetFlags(uint32_t flags) { m_MaterialFlags = flags; }
+		virtual u32 GetFlags() const { return m_MaterialFlags; }
+		virtual void SetFlags(u32 flags) { m_MaterialFlags = flags; }
 
-		virtual bool GetFlag(MaterialFlag flag) const { return (static_cast<uint32_t>(flag) & m_MaterialFlags) != 0; }
+		virtual bool GetFlag(MaterialFlag flag) const { return (static_cast<u32>(flag) & m_MaterialFlags) != 0; }
 		virtual void SetFlag(MaterialFlag flag, bool value = true);
 
 		virtual Ref<OloEngine::Shader> GetShader() { return m_Shader; }
@@ -242,12 +242,12 @@ namespace OloEngine {
 	protected:
 		Ref<OloEngine::Shader> m_Shader;
 		std::string m_Name;
-		uint32_t m_MaterialFlags = static_cast<uint32_t>(MaterialFlag::DepthTest);
+		u32 m_MaterialFlags = static_cast<u32>(MaterialFlag::DepthTest);
 
 		// Material properties storage (uniform system)
 		std::unordered_map<std::string, float> m_FloatUniforms;
 		std::unordered_map<std::string, int> m_IntUniforms;
-		std::unordered_map<std::string, uint32_t> m_UIntUniforms;
+		std::unordered_map<std::string, u32> m_UIntUniforms;
 		std::unordered_map<std::string, bool> m_BoolUniforms;
 		std::unordered_map<std::string, glm::vec2> m_Vec2Uniforms;
 		std::unordered_map<std::string, glm::vec3> m_Vec3Uniforms;

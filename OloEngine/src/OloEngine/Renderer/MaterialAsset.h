@@ -83,29 +83,29 @@ namespace OloEngine
 	class MaterialTable : public RefCounted
 	{
 	public:
-		MaterialTable(uint32_t materialCount = 1);
+		MaterialTable(u32 materialCount = 1);
 		MaterialTable(Ref<MaterialTable> other);
 		~MaterialTable() = default;
 
-		bool HasMaterial(uint32_t materialIndex) const { return m_Materials.find(materialIndex) != m_Materials.end(); }
-		void SetMaterial(uint32_t index, AssetHandle material);
-		void ClearMaterial(uint32_t index);
+		bool HasMaterial(u32 materialIndex) const { return m_Materials.find(materialIndex) != m_Materials.end(); }
+		void SetMaterial(u32 index, AssetHandle material);
+		void ClearMaterial(u32 index);
 
-		AssetHandle GetMaterial(uint32_t materialIndex) const
+		AssetHandle GetMaterial(u32 materialIndex) const
 		{
 			OLO_CORE_VERIFY(HasMaterial(materialIndex));
 			return m_Materials.at(materialIndex);
 		}
-		std::map<uint32_t, AssetHandle>& GetMaterials() { return m_Materials; }
-		const std::map<uint32_t, AssetHandle>& GetMaterials() const { return m_Materials; }
+		std::map<u32, AssetHandle>& GetMaterials() { return m_Materials; }
+		const std::map<u32, AssetHandle>& GetMaterials() const { return m_Materials; }
 
-		uint32_t GetMaterialCount() const { return m_MaterialCount; }
-		void SetMaterialCount(uint32_t materialCount) { m_MaterialCount = materialCount; }
+		u32 GetMaterialCount() const { return m_MaterialCount; }
+		void SetMaterialCount(u32 materialCount) { m_MaterialCount = materialCount; }
 
 		void Clear();
 	private:
-		std::map<uint32_t, AssetHandle> m_Materials;
-		uint32_t m_MaterialCount;
+		std::map<u32, AssetHandle> m_Materials;
+		u32 m_MaterialCount;
 	};
 
 }

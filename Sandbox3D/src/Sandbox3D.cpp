@@ -582,15 +582,15 @@ void Sandbox3D::RenderMaterialTestingScene()
             if (m_UsePBRMaterials)
             {
                 // Create a grid of spheres with varying metallic and roughness values
-                int rows = 7;    // Different roughness values
-                int cols = 7;    // Different metallic values
-                float spacing = 2.5f;
-                float startX = -(cols - 1) * spacing * 0.5f;
-                float startZ = -(rows - 1) * spacing * 0.5f;
-                
-                for (int row = 0; row < rows; ++row)
+                i32 rows = 7;    // Different roughness values
+                i32 cols = 7;    // Different metallic values
+                f32 spacing = 2.5f;
+                f32 startX = -(cols - 1) * spacing * 0.5f;
+                f32 startZ = -(rows - 1) * spacing * 0.5f;
+
+                for (i32 row = 0; row < rows; ++row)
                 {
-                    for (int col = 0; col < cols; ++col)
+                    for (i32 col = 0; col < cols; ++col)
                     {
                         glm::vec3 position = glm::vec3(
                             startX + col * spacing,
@@ -599,8 +599,8 @@ void Sandbox3D::RenderMaterialTestingScene()
                         );
                         
                         // Create material with varying metallic and roughness
-                        float metallic = static_cast<float>(col) / static_cast<float>(cols - 1);
-                        float roughness = static_cast<float>(row) / static_cast<float>(rows - 1);
+                        f32 metallic = static_cast<f32>(col) / static_cast<f32>(cols - 1);
+                        f32 roughness = static_cast<f32>(row) / static_cast<f32>(rows - 1);
                         roughness = glm::clamp(roughness, 0.05f, 1.0f); // Prevent completely smooth
                         
                         // Create dynamic material
@@ -938,7 +938,7 @@ void Sandbox3D::RenderAnimationTestingUI()
             {
                 ImGui::Separator();
                 ImGui::Text("Model Materials:");
-                for (size_t i = 0; i < m_CesiumManModel->GetMaterials().size(); ++i)
+                for (sizet i = 0; i < m_CesiumManModel->GetMaterials().size(); ++i)
                 {
                     const auto& material = m_CesiumManModel->GetMaterials()[i];
                     ImGui::Text("  [%zu] %s", i, material.Name.c_str());
@@ -1505,8 +1505,8 @@ void Sandbox3D::RenderMaterialSettings()
         
         // PBR Material information
         ImGui::Text("Available PBR Materials:");
-        const size_t materialCount = sizeof(m_PBRMaterialNames) / sizeof(m_PBRMaterialNames[0]);
-        for (size_t i = 0; i < materialCount; ++i)
+        const sizet materialCount = sizeof(m_PBRMaterialNames) / sizeof(m_PBRMaterialNames[0]);
+        for (sizet i = 0; i < materialCount; ++i)
         {
             ImGui::BulletText("%s", m_PBRMaterialNames[i]);
         }
@@ -1910,7 +1910,7 @@ void Sandbox3D::RenderPBRModelTestingUI()
             const auto& materials = m_CerberusModel->GetMaterials();
             ImGui::Text("Materials: %d", static_cast<int>(materials.size()));
             
-            for (size_t i = 0; i < materials.size(); i++)
+            for (sizet i = 0; i < materials.size(); i++)
             {
                 if (!materials[i]) continue;
                 

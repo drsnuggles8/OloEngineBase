@@ -21,8 +21,8 @@ namespace OloEngine
             spec.Height = 1;
             spec.Format = ImageFormat::RGBA8;
             auto whiteTexture = Texture2D::Create(spec);
-            uint32_t whitePixel = 0xFFFFFFFF;
-            whiteTexture->SetData(&whitePixel, sizeof(uint32_t));
+            u32 whitePixel = 0xFFFFFFFF;
+            whiteTexture->SetData(&whitePixel, sizeof(u32));
             return whiteTexture;
         }},
         { AssetType::Font, []() -> Ref<Asset> {

@@ -14,10 +14,10 @@ namespace OloEngine
 
         void IncRefCount() const;
         void DecRefCount() const;
-        uint32_t GetRefCount() const;
+        u32 GetRefCount() const;
 
     private:
-        mutable std::atomic<uint32_t> m_RefCount = 0;
+        mutable std::atomic<u32> m_RefCount = 0;
     };
 
     namespace RefUtils

@@ -20,14 +20,14 @@ struct fmt::formatter<std::filesystem::path> : formatter<std::string>
 
 // Custom formatter for OloEngine::UUID for spdlog/fmt
 template<>
-struct fmt::formatter<OloEngine::UUID> : formatter<uint64_t> 
+struct fmt::formatter<OloEngine::UUID> : formatter<u64> 
 {
-    // Parse is inherited from formatter<uint64_t>
+    // Parse is inherited from formatter<u64>
     
     // Format UUID using the provided context
     template<typename FormatContext>
     auto format(const OloEngine::UUID& uuid, FormatContext& ctx) const 
     {
-        return formatter<uint64_t>::format(static_cast<uint64_t>(uuid), ctx);
+        return formatter<u64>::format(static_cast<u64>(uuid), ctx);
     }
 };

@@ -414,7 +414,7 @@ namespace OloEngine
 		outCommands.clear();
 		outCommands.reserve(m_Meshes.size());
 		
-		for (size_t i = 0; i < m_Meshes.size(); i++)
+		for (sizet i = 0; i < m_Meshes.size(); i++)
 		{
 			// Get the submesh to access its material index
 			const Submesh& submesh = m_Meshes[i]->GetSubmesh();
@@ -442,7 +442,7 @@ namespace OloEngine
 		outCommands.clear();
 		outCommands.reserve(m_Meshes.size());
 		
-		for (size_t i = 0; i < m_Meshes.size(); i++)
+		for (sizet i = 0; i < m_Meshes.size(); i++)
 		{
 			// Get the submesh to access its material index
 			const Submesh& submesh = m_Meshes[i]->GetSubmesh();
