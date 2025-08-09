@@ -63,8 +63,11 @@ namespace OloEngine
         }
 
 #if OLO_ASYNC_ASSETS
-        // Start file watcher thread
-        m_FileWatcherThread = std::thread([this]() { FileWatcherThreadFunction(); });
+        // Start file watcher thread only if we have a valid project path
+        if (!m_ProjectPath.empty())
+        {
+            m_FileWatcherThread = std::thread([this]() { FileWatcherThreadFunction(); });
+        }
 #endif
     }
 
@@ -186,6 +189,23 @@ namespace OloEngine
             return false;
         }
 
+        // Update LastWriteTime to prevent continuous reloads
+        {
+            std::error_code ec;
+            auto absolutePath = m_ProjectPath / metadata.FilePath;
+            metadata.LastWriteTime = std::filesystem::last_write_time(absolutePath, ec);
+            if (!ec)
+            {
+                // Update the metadata in the registry
+                m_AssetRegistry.UpdateMetadata(assetHandle, metadata);
+                SerializeAssetRegistry(); // Persist the updated timestamp
+            }
+            else
+            {
+                OLO_CORE_WARN("Failed to update LastWriteTime for asset {}: {}", metadata.FilePath.string(), ec.message());
+            }
+        }
+
         // Update dependencies
         UpdateDependencies(assetHandle);
 
@@ -206,15 +226,33 @@ namespace OloEngine
         if (!metadata.IsValid())
             return false;
 
-        // Check if file exists before checking modification time
-        if (!std::filesystem::exists(metadata.FilePath))
+        // Convert to absolute path before checking existence
+        std::filesystem::path absolutePath = m_ProjectPath / metadata.FilePath;
+        
+        // Check if file exists before checking modification time using error_code to avoid exceptions
+        std::error_code ec;
+        if (!std::filesystem::exists(absolutePath, ec))
         {
-            OLO_CORE_WARN("Asset file does not exist: {}", metadata.FilePath.string());
+            if (ec)
+            {
+                OLO_CORE_WARN("Error checking asset file existence for {}: {}", metadata.FilePath.string(), ec.message());
+            }
+            else
+            {
+                OLO_CORE_WARN("Asset file does not exist: {}", absolutePath.string());
+            }
             return false;
         }
 
-        // Check if file has been modified
-        if (std::filesystem::last_write_time(metadata.FilePath) > metadata.LastWriteTime)
+        // Check if file has been modified using error_code to avoid exceptions
+        auto lastWriteTime = std::filesystem::last_write_time(absolutePath, ec);
+        if (ec)
+        {
+            OLO_CORE_WARN("Error getting last write time for {}: {}", absolutePath.string(), ec.message());
+            return false;
+        }
+        
+        if (lastWriteTime > metadata.LastWriteTime)
         {
             return ReloadData(assetHandle);
         }
@@ -275,7 +313,20 @@ namespace OloEngine
         if (!metadata.IsValid())
             return true;
 
-        return !std::filesystem::exists(metadata.FilePath);
+        // Resolve file path to absolute path relative to project root
+        std::filesystem::path absolutePath = m_ProjectPath / metadata.FilePath;
+        
+        // Use error_code overload to safely check existence without throwing exceptions
+        std::error_code ec;
+        bool exists = std::filesystem::exists(absolutePath, ec);
+        
+        if (ec)
+        {
+            OLO_CORE_WARN("Error checking asset existence for {}: {}", absolutePath.string(), ec.message());
+            return true; // Assume missing if we can't check
+        }
+        
+        return !exists;
     }
 
     bool EditorAssetManager::IsMemoryAsset(AssetHandle handle)
@@ -385,9 +436,21 @@ namespace OloEngine
     {
         OLO_PROFILER_SCOPE("EditorAssetManager::ImportAsset");
 
-        if (!std::filesystem::exists(filepath))
+        // Normalize to absolute project path before checking existence
+        std::filesystem::path absolutePath = std::filesystem::absolute(filepath);
+        
+        // Use error_code overload to handle filesystem errors gracefully
+        std::error_code ec;
+        if (!std::filesystem::exists(absolutePath, ec))
         {
-            OLO_CORE_ERROR("Cannot import asset: file does not exist: {}", filepath.string());
+            if (ec)
+            {
+                OLO_CORE_ERROR("Error checking file existence for {}: {}", filepath.string(), ec.message());
+            }
+            else
+            {
+                OLO_CORE_ERROR("Cannot import asset: file does not exist: {}", filepath.string());
+            }
             return 0;
         }
 
@@ -411,7 +474,7 @@ namespace OloEngine
 
         // Create metadata
         AssetMetadata metadata;
-        metadata.Handle = AssetHandle{};
+        metadata.Handle = m_AssetRegistry.GenerateHandle(); // Generate a valid handle
         metadata.FilePath = relativePath;
         metadata.Type = type;
         metadata.LastWriteTime = std::filesystem::last_write_time(filepath);
@@ -548,12 +611,12 @@ namespace OloEngine
         if (m_ProjectPath.empty())
             return filepath;
             
-        // Convert to absolute paths for reliable comparison
-        auto absoluteFile = std::filesystem::absolute(filepath);
-        auto absoluteProject = std::filesystem::absolute(m_ProjectPath);
+        // Use weakly_canonical for robust path resolution with symlinks and ".." components
+        auto canonicalFile = std::filesystem::weakly_canonical(filepath);
+        auto canonicalProject = std::filesystem::weakly_canonical(m_ProjectPath);
         
         // Return relative path from project root
-        return std::filesystem::relative(absoluteFile, absoluteProject);
+        return std::filesystem::relative(canonicalFile, canonicalProject);
     }
 
     std::unordered_map<AssetHandle, Ref<Asset>> EditorAssetManager::GetLoadedAssetsCopy() const

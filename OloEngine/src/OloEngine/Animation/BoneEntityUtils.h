@@ -4,7 +4,9 @@
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Animation/Skeleton.h"
+#include "OloEngine/Scene/Components.h"
 #include <vector>
+#include <string>
 #include <glm/glm.hpp>
 
 namespace OloEngine
@@ -12,6 +14,7 @@ namespace OloEngine
     // Forward declarations
     class MeshSource;
     class Scene;
+
     /**
      * @brief Helper utilities for managing bone entities
      * 
@@ -28,26 +31,26 @@ namespace OloEngine
          * a list of bone entity IDs and calculates their model-space transforms
          * for use in skeletal animation.
          * 
-         * @param boneEntityIds List of entity UUIDs representing bones
-         * @param meshSource The mesh source containing skeleton data
+         * @param boneEntityIds The list of bone entity IDs
+         * @param meshSource The mesh source containing bone info
          * @param scene The scene containing the entities
-         * @return Vector of model-space bone transform matrices
+         * @return Vector of model-space transforms for each bone
          */
         static std::vector<glm::mat4> GetModelSpaceBoneTransforms(
-            const std::vector<UUID>& boneEntityIds, 
+            const std::vector<UUID>& boneEntityIds,
             const MeshSource* meshSource,
             const class Scene* scene);
 
         /**
-         * @brief Find bone entities by traversing the entity hierarchy
+         * @brief Find all bone entity IDs for a given root entity
          * 
-         * Similar to Hazel's FindBoneEntityIds, this function searches the entity
-         * hierarchy to find entities with tags that match the skeleton bone names.
+         * This function traverses the hierarchy starting from the root entity
+         * and collects all bone entity IDs that are part of the skeleton.
          * 
          * @param rootEntity The root entity to start searching from
-         * @param skeleton The skeleton containing bone names to search for
+         * @param skeleton The skeleton data to match against
          * @param scene The scene containing the entities
-         * @return Vector of entity UUIDs matching the skeleton bones
+         * @return Vector of bone entity UUIDs
          */
         static std::vector<UUID> FindBoneEntityIds(
             Entity rootEntity,
@@ -55,23 +58,20 @@ namespace OloEngine
             const class Scene* scene);
 
         /**
-         * @brief Find bone entities with caching support via SkeletonComponent
-         * 
-         * This overload uses the SkeletonComponent's cache to avoid repeated
-         * hierarchy traversals when called multiple times for the same skeleton.
+         * @brief Find all bone entity IDs for a given root entity with skeleton component
          * 
          * @param rootEntity The root entity to start searching from
-         * @param skeletonComponent Component containing skeleton and cache
+         * @param skeletonComponent The skeleton component data to match against
          * @param scene The scene containing the entities
-         * @return Vector of entity UUIDs matching the skeleton bones
+         * @return Vector of bone entity UUIDs
          */
         static std::vector<UUID> FindBoneEntityIds(
             Entity rootEntity,
-            const struct SkeletonComponent& skeletonComponent,
+            const SkeletonComponent& skeletonComponent,
             const class Scene* scene);
 
         /**
-         * @brief Calculate the transform of the root bone relative to the entity
+         * @brief Calculate the root bone transform for an animated entity
          * 
          * Similar to Hazel's FindRootBoneTransform, this calculates the transform
          * of the animated root bone relative to the entity that owns the animation component.
@@ -79,9 +79,9 @@ namespace OloEngine
          * @param entity The entity owning the animation component
          * @param boneEntityIds The bone entity IDs
          * @param scene The scene containing the entities
-         * @return 3x3 matrix representing rotation and scale of root bone
+         * @return 4x4 matrix representing the full transform of root bone
          */
-        static glm::mat3 FindRootBoneTransform(
+        static glm::mat4 FindRootBoneTransform(
             Entity entity,
             const std::vector<UUID>& boneEntityIds,
             const class Scene* scene);
@@ -89,36 +89,65 @@ namespace OloEngine
         /**
          * @brief Build bone entity IDs for all submeshes in a hierarchy
          * 
-         * Recursively traverses an entity hierarchy and builds bone entity mappings
-         * for all SubmeshComponents found. Similar to Hazel's BuildMeshBoneEntityIds.
-         * 
-         * @param entity The root entity to start from
-         * @param rootEntity The root entity for bone searching
+         * @param entity The entity containing the mesh component
+         * @param rootEntity The root entity of the model hierarchy
          * @param scene The scene containing the entities
          */
-        static void BuildMeshBoneEntityIds(Entity entity, Entity rootEntity, const class Scene* scene);
+        static void BuildMeshBoneEntityIds(
+            Entity entity,
+            Entity rootEntity,
+            const class Scene* scene);
 
         /**
-         * @brief Build bone entity IDs for animation components
+         * @brief Build bone entity IDs for an animation
          * 
-         * Recursively traverses an entity hierarchy and builds bone entity mappings
-         * for all AnimationStateComponents found. Similar to Hazel's BuildAnimationBoneEntityIds.
-         * 
-         * @param entity The root entity to start from
-         * @param rootEntity The root entity for bone searching
+         * @param entity The entity containing the animation component
+         * @param rootEntity The root entity of the model hierarchy
          * @param scene The scene containing the entities
          */
-        static void BuildAnimationBoneEntityIds(Entity entity, Entity rootEntity, const class Scene* scene);
+        static void BuildAnimationBoneEntityIds(
+            Entity entity,
+            Entity rootEntity,
+            const class Scene* scene);
 
-    private:
         /**
-         * @brief Helper function to search for entities with specific tags
+         * @brief Find the entity with a specific bone name and index
          * 
-         * @param entity The entity to search within
+         * @param rootEntity The root entity to search from
+         * @param boneName The name of the bone to find
+         * @param boneIndex The index of the bone to find
+         * @param scene The scene containing the entities
+         * @return The entity containing the bone, or null entity if not found
+         */
+        static Entity FindBoneEntity(
+            Entity rootEntity,
+            const std::string& boneName,
+            size_t boneIndex,
+            const class Scene* scene);
+
+        /**
+         * @brief Create bone entities for a skeleton hierarchy
+         * 
+         * @param rootEntity The root entity to create bone entities under
+         * @param skeleton The skeleton data to create entities from
+         * @param scene The scene to create entities in
+         */
+        static void CreateBoneEntities(
+            Entity rootEntity,
+            const Skeleton* skeleton,
+            class Scene* scene);
+
+        /**
+         * @brief Find an entity with a specific tag in the hierarchy
+         * 
+         * @param entity The entity to start searching from
          * @param tag The tag to search for
          * @param scene The scene containing the entities
-         * @return The found entity or an invalid entity if not found
+         * @return The entity with the tag, or null entity if not found
          */
-        static Entity FindEntityWithTag(Entity entity, const std::string& tag, const class Scene* scene);
+        static Entity FindEntityWithTag(
+            Entity entity,
+            const std::string& tag,
+            const class Scene* scene);
     };
 }

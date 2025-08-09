@@ -807,6 +807,8 @@ namespace OloEngine
 		cmd->renderState = Ref<RenderState>::Create();
 		
 		// Set bone matrices reference for GPU skinning (avoid copying large data)
+		// WARNING: The caller MUST ensure the boneMatrices vector remains valid
+		// until after rendering completes. The std::span only holds a pointer and size.
 		if (!boneMatrices.empty())
 		{
 			cmd->boneMatrices = std::span<const glm::mat4>(boneMatrices.data(), boneMatrices.size());
@@ -948,6 +950,14 @@ namespace OloEngine
 
 		// Find and render all child entities with SubmeshComponent
 		bool renderedAnySubmesh = false;
+		
+		// Check if entity has RelationshipComponent before accessing it
+		if (!entity.HasComponent<RelationshipComponent>())
+		{
+			OLO_CORE_WARN("DrawAnimatedMesh: Entity does not have RelationshipComponent, cannot render submeshes");
+			return;
+		}
+		
 		const auto& relationshipComponent = entity.GetComponent<RelationshipComponent>();
 		for (const UUID& childUUID : relationshipComponent.m_Children)
 		{

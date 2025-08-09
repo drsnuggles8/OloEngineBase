@@ -196,13 +196,13 @@ namespace OloEngine
         return boneEntityIds;
     }
 
-    glm::mat3 BoneEntityUtils::FindRootBoneTransform(
+    glm::mat4 BoneEntityUtils::FindRootBoneTransform(
         Entity entity,
         const std::vector<UUID>& boneEntityIds,
         const Scene* scene)
     {
         if (boneEntityIds.empty() || !scene)
-            return glm::mat3(1.0f);
+            return glm::mat4(1.0f);
 
         glm::mat4 transform = glm::mat4(1.0f);
         Entity rootBoneEntity = scene->TryGetEntityWithUUID(boneEntityIds.front());
@@ -220,8 +220,8 @@ namespace OloEngine
             }
         }
 
-        // Return only rotation and scale components
-        return glm::mat3(transform);
+        // Return full 4x4 transform matrix
+        return transform;
     }
 
     void BoneEntityUtils::BuildMeshBoneEntityIds(Entity entity, Entity rootEntity, const Scene* scene)

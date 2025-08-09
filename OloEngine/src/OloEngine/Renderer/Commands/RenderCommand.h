@@ -369,6 +369,9 @@ namespace OloEngine
 		bool isAnimatedMesh = false;
 		// TODO: Replace with pooled buffer reference to reduce command size and heap allocations
 		// Bone matrices reference for GPU animation - avoid copying large data
+		// WARNING: The referenced bone matrix storage MUST outlive this command instance!
+		// The caller is responsible for ensuring the bone matrices remain valid until
+		// after GPU consumption during command dispatch.
 		std::span<const glm::mat4> boneMatrices;  // Reference to external bone matrices data
 	};
 

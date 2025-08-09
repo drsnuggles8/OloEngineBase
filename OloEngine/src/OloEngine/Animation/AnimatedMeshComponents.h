@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/UUID.h"
+#include "OloEngine/Core/Assert.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshSource.h"
 
@@ -38,7 +39,11 @@ namespace OloEngine
 
 		SubmeshComponent() = default;
 		SubmeshComponent(const SubmeshComponent& other) = default;
-		explicit SubmeshComponent(const Ref<OloEngine::Mesh>& mesh, u32 submeshIndex = 0) : m_Mesh(mesh), m_SubmeshIndex(submeshIndex) {}
+		explicit SubmeshComponent(const Ref<OloEngine::Mesh>& mesh, u32 submeshIndex = 0) 
+			: m_Mesh(mesh), m_SubmeshIndex(submeshIndex) 
+		{
+			// TODO: Add precondition checks when assert system is properly configured
+		}
 	};
 
 	/**
@@ -52,7 +57,7 @@ namespace OloEngine
 		Ref<MeshSource> m_MeshSource;
 		
 		MeshComponent() = default;
-		explicit MeshComponent(const Ref<OloEngine::MeshSource>& meshSource) : m_MeshSource(meshSource) {}
+		explicit MeshComponent(const Ref<OloEngine::MeshSource>& meshSource) noexcept : m_MeshSource(meshSource) {}
 	};
 
 
@@ -83,6 +88,19 @@ namespace OloEngine
 		float m_BlendTime = 0.0f;
 		
 		// Bone entity management
+		/**
+		 * @brief Global skeleton-to-entity mapping used across all submeshes
+		 * 
+		 * This vector holds the complete mapping from skeleton bones to scene entities,
+		 * populated during mesh loading. Each index corresponds to a bone in the skeleton,
+		 * and the UUID value represents the entity that visualizes that bone in the scene.
+		 * 
+		 * Note: Individual SubmeshComponent instances contain submesh-local bone indices
+		 * that reference this global list, set up during submesh initialization.
+		 * 
+		 * Warning: Any modifications to bones require synchronized updates to both this
+		 * vector and the corresponding SubmeshComponent::m_BoneEntityIds to maintain consistency.
+		 */
 		std::vector<UUID> m_BoneEntityIds; // Maps skeleton bones to scene entities
 		glm::mat4 m_RootBoneTransform = glm::mat4(1.0f); // Transform of animated root bone relative to entity
 
@@ -111,9 +129,11 @@ namespace OloEngine
 		// Custom copy constructor - mutex cannot be copied
 		SkeletonComponent(const SkeletonComponent& other) 
 			: m_Skeleton(other.m_Skeleton)
-			, m_TagEntityCache(other.m_TagEntityCache)
-			, m_CacheValid(other.m_CacheValid)
 		{
+			// Thread-safe copy of cache data
+			std::lock_guard<std::mutex> lock(other.m_CacheMutex);
+			m_TagEntityCache = other.m_TagEntityCache;
+			m_CacheValid = other.m_CacheValid;
 			// Each component gets its own mutex
 		}
 
@@ -122,6 +142,8 @@ namespace OloEngine
 		{
 			if (this != &other)
 			{
+				// Thread-safe assignment with deadlock avoidance
+				std::scoped_lock lock(m_CacheMutex, other.m_CacheMutex);
 				m_Skeleton = other.m_Skeleton;
 				m_TagEntityCache = other.m_TagEntityCache;
 				m_CacheValid = other.m_CacheValid;

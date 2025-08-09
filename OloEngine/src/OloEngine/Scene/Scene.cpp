@@ -505,10 +505,10 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 
 	std::vector<UUID> Scene::FindBoneEntityIds(Entity entity, Entity rootEntity, const Skeleton* skeleton) const
 	{
-		return BoneEntityUtils::FindBoneEntityIds(entity, skeleton, this);
+		return BoneEntityUtils::FindBoneEntityIds(rootEntity, skeleton, this);
 	}
 
-	glm::mat3 Scene::FindRootBoneTransform(Entity entity, const std::vector<UUID>& boneEntityIds) const
+	glm::mat4 Scene::FindRootBoneTransform(Entity entity, const std::vector<UUID>& boneEntityIds) const
 	{
 		return BoneEntityUtils::FindRootBoneTransform(entity, boneEntityIds, this);
 	}
