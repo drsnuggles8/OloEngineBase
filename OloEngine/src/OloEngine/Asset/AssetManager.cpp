@@ -1,5 +1,6 @@
 #include "AssetManager.h"
 
+#include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Ref.h"

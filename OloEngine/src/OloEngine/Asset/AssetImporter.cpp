@@ -90,13 +90,14 @@ namespace OloEngine
         if (!AssetManager::IsAssetHandleValid(handle))
             return false;
 
-        if (auto asset = AssetManager::GetAsset<Asset>(handle); !asset)
+        auto asset = AssetManager::GetAsset<Asset>(handle);
+        if (!asset)
         {
             OLO_CORE_WARN("Failed to get asset with handle {0}", handle);
             return false;
         }
 
-        AssetType type = AssetManager::GetAssetType(handle);
+        AssetType type = asset->GetAssetType();
         if (s_Serializers.find(type) == s_Serializers.end())
         {
             OLO_CORE_WARN("There's currently no serializer for assets of type: {}", AssetUtils::AssetTypeToString(type));

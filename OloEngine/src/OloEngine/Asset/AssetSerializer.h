@@ -26,6 +26,8 @@ namespace OloEngine
     class AssetSerializer
     {
     public:
+        virtual ~AssetSerializer() = default;
+        
         virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const = 0;
         virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const = 0;
         virtual void RegisterDependencies(const AssetMetadata& metadata) const {}

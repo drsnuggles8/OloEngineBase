@@ -6,6 +6,9 @@
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 
+#include <string>
+#include <unordered_map>
+
 namespace OloEngine {
 
 	enum class MaterialFlag
@@ -184,45 +187,230 @@ namespace OloEngine {
 		void SetBRDFLutMap(const Ref<Texture2D>& texture) { m_BRDFLutMap = texture; }
 
 		// =====================================================================
-		// LEGACY COMPATIBILITY: Public reference aliases to private members
+		// LEGACY COMPATIBILITY: Deprecated reference aliases - use getters/setters instead
 		// =====================================================================
-		// These properties provide reference access to private members for compatibility
 		
-		// Material identification (aliases to private members)
-		std::string& Name = m_Name;
+		// Material identification accessors
+		[[deprecated("Use GetName()/SetName() instead")]]
+		inline std::string& Name() { return m_Name; }
+		[[deprecated("Use GetName() instead")]]
+		inline const std::string& Name() const { return m_Name; }
 		
-		// Material type and shader (aliases to private members)
-		MaterialType& Type = m_MaterialType;
-		Ref<OloEngine::Shader>& Shader = m_Shader;
+		// Material type and shader accessors
+		[[deprecated("Use GetMaterialType()/SetMaterialType() instead")]]
+		inline MaterialType& Type() { return m_MaterialType; }
+		[[deprecated("Use GetMaterialType() instead")]]
+		inline const MaterialType& Type() const { return m_MaterialType; }
 		
-		// Legacy material properties (aliases to private members)
-		glm::vec3& Ambient = m_Ambient;
-		glm::vec3& Diffuse = m_Diffuse;
-		glm::vec3& Specular = m_Specular;
-		float& Shininess = m_Shininess;
-		bool& UseTextureMaps = m_UseTextureMaps;
-		Ref<Texture2D>& DiffuseMap = m_DiffuseMap;
-		Ref<Texture2D>& SpecularMap = m_SpecularMap;
+		[[deprecated("Use GetShader()/SetShader() instead")]]
+		inline Ref<OloEngine::Shader>& Shader() { return m_Shader; }
+		[[deprecated("Use GetShader() instead")]]
+		inline const Ref<OloEngine::Shader>& Shader() const { return m_Shader; }
 		
-		// PBR material properties (aliases to private members)
-		glm::vec4& BaseColorFactor = m_BaseColorFactor;     // Base color (albedo) with alpha
-		glm::vec4& EmissiveFactor = m_EmissiveFactor;       // Emissive color
-		float& MetallicFactor = m_MetallicFactor;           // Metallic factor
-		float& RoughnessFactor = m_RoughnessFactor;         // Roughness factor
-		float& NormalScale = m_NormalScale;                 // Normal map scale
-		float& OcclusionStrength = m_OcclusionStrength;     // AO strength
-		bool& EnableIBL = m_EnableIBL;                      // Enable IBL
+		// Legacy material property accessors
+		[[deprecated("Use GetAmbient()/SetAmbient() instead")]]
+		inline glm::vec3& Ambient() { return m_Ambient; }
+		[[deprecated("Use GetAmbient() instead")]]
+		inline const glm::vec3& Ambient() const { return m_Ambient; }
 		
-		// PBR texture maps (aliases to private members)
-		Ref<Texture2D>& AlbedoMap = m_AlbedoMap;                        // Base color texture
-		Ref<Texture2D>& MetallicRoughnessMap = m_MetallicRoughnessMap;  // Metallic-roughness texture (glTF format)
-		Ref<Texture2D>& NormalMap = m_NormalMap;                        // Normal map
-		Ref<Texture2D>& AOMap = m_AOMap;                                // Ambient occlusion map
-		Ref<Texture2D>& EmissiveMap = m_EmissiveMap;                    // Emissive map
-		Ref<TextureCubemap>& EnvironmentMap = m_EnvironmentMap;         // Environment cubemap
-		Ref<TextureCubemap>& IrradianceMap = m_IrradianceMap;           // Irradiance cubemap
-		Ref<TextureCubemap>& PrefilterMap = m_PrefilterMap;             // Prefiltered environment map
-		Ref<Texture2D>& BRDFLutMap = m_BRDFLutMap;                      // BRDF lookup table
+		[[deprecated("Use GetDiffuse()/SetDiffuse() instead")]]
+		inline glm::vec3& Diffuse() { return m_Diffuse; }
+		[[deprecated("Use GetDiffuse() instead")]]
+		inline const glm::vec3& Diffuse() const { return m_Diffuse; }
+		
+		[[deprecated("Use GetSpecular()/SetSpecular() instead")]]
+		inline glm::vec3& Specular() { return m_Specular; }
+		[[deprecated("Use GetSpecular() instead")]]
+		inline const glm::vec3& Specular() const { return m_Specular; }
+		
+		[[deprecated("Use GetShininess()/SetShininess() instead")]]
+		inline float& Shininess() { return m_Shininess; }
+		[[deprecated("Use GetShininess() instead")]]
+		inline const float& Shininess() const { return m_Shininess; }
+		
+		[[deprecated("Use GetUseTextureMaps()/SetUseTextureMaps() instead")]]
+		inline bool& UseTextureMaps() { return m_UseTextureMaps; }
+		[[deprecated("Use GetUseTextureMaps() instead")]]
+		inline const bool& UseTextureMaps() const { return m_UseTextureMaps; }
+		
+		[[deprecated("Use GetDiffuseMap()/SetDiffuseMap() instead")]]
+		inline Ref<Texture2D>& DiffuseMap() { return m_DiffuseMap; }
+		[[deprecated("Use GetDiffuseMap() instead")]]
+		inline const Ref<Texture2D>& DiffuseMap() const { return m_DiffuseMap; }
+		
+		[[deprecated("Use GetSpecularMap()/SetSpecularMap() instead")]]
+		inline Ref<Texture2D>& SpecularMap() { return m_SpecularMap; }
+		[[deprecated("Use GetSpecularMap() instead")]]
+		inline const Ref<Texture2D>& SpecularMap() const { return m_SpecularMap; }
+		
+		// PBR material property accessors
+		[[deprecated("Use GetBaseColorFactor()/SetBaseColorFactor() instead")]]
+		inline glm::vec4& BaseColorFactor() { return m_BaseColorFactor; }
+		[[deprecated("Use GetBaseColorFactor() instead")]]
+		inline const glm::vec4& BaseColorFactor() const { return m_BaseColorFactor; }
+		
+		[[deprecated("Use GetEmissiveFactor()/SetEmissiveFactor() instead")]]
+		inline glm::vec4& EmissiveFactor() { return m_EmissiveFactor; }
+		[[deprecated("Use GetEmissiveFactor() instead")]]
+		inline const glm::vec4& EmissiveFactor() const { return m_EmissiveFactor; }
+		
+		[[deprecated("Use GetMetallicFactor()/SetMetallicFactor() instead")]]
+		inline float& MetallicFactor() { return m_MetallicFactor; }
+		[[deprecated("Use GetMetallicFactor() instead")]]
+		inline const float& MetallicFactor() const { return m_MetallicFactor; }
+		
+		[[deprecated("Use GetRoughnessFactor()/SetRoughnessFactor() instead")]]
+		inline float& RoughnessFactor() { return m_RoughnessFactor; }
+		[[deprecated("Use GetRoughnessFactor() instead")]]
+		inline const float& RoughnessFactor() const { return m_RoughnessFactor; }
+		
+		[[deprecated("Use GetNormalScale()/SetNormalScale() instead")]]
+		inline float& NormalScale() { return m_NormalScale; }
+		[[deprecated("Use GetNormalScale() instead")]]
+		inline const float& NormalScale() const { return m_NormalScale; }
+		
+		[[deprecated("Use GetOcclusionStrength()/SetOcclusionStrength() instead")]]
+		inline float& OcclusionStrength() { return m_OcclusionStrength; }
+		[[deprecated("Use GetOcclusionStrength() instead")]]
+		inline const float& OcclusionStrength() const { return m_OcclusionStrength; }
+		
+		[[deprecated("Use GetEnableIBL()/SetEnableIBL() instead")]]
+		inline bool& EnableIBL() { return m_EnableIBL; }
+		[[deprecated("Use GetEnableIBL() instead")]]
+		inline const bool& EnableIBL() const { return m_EnableIBL; }
+		
+		// PBR texture map accessors
+		[[deprecated("Use GetAlbedoMap()/SetAlbedoMap() instead")]]
+		inline Ref<Texture2D>& AlbedoMap() { return m_AlbedoMap; }
+		[[deprecated("Use GetAlbedoMap() instead")]]
+		inline const Ref<Texture2D>& AlbedoMap() const { return m_AlbedoMap; }
+		
+		[[deprecated("Use GetMetallicRoughnessMap()/SetMetallicRoughnessMap() instead")]]
+		inline Ref<Texture2D>& MetallicRoughnessMap() { return m_MetallicRoughnessMap; }
+		[[deprecated("Use GetMetallicRoughnessMap() instead")]]
+		inline const Ref<Texture2D>& MetallicRoughnessMap() const { return m_MetallicRoughnessMap; }
+		
+		[[deprecated("Use GetNormalMap()/SetNormalMap() instead")]]
+		inline Ref<Texture2D>& NormalMap() { return m_NormalMap; }
+		[[deprecated("Use GetNormalMap() instead")]]
+		inline const Ref<Texture2D>& NormalMap() const { return m_NormalMap; }
+		
+		[[deprecated("Use GetAOMap()/SetAOMap() instead")]]
+		inline Ref<Texture2D>& AOMap() { return m_AOMap; }
+		[[deprecated("Use GetAOMap() instead")]]
+		inline const Ref<Texture2D>& AOMap() const { return m_AOMap; }
+		
+		[[deprecated("Use GetEmissiveMap()/SetEmissiveMap() instead")]]
+		inline Ref<Texture2D>& EmissiveMap() { return m_EmissiveMap; }
+		[[deprecated("Use GetEmissiveMap() instead")]]
+		inline const Ref<Texture2D>& EmissiveMap() const { return m_EmissiveMap; }
+		
+		[[deprecated("Use GetEnvironmentMap()/SetEnvironmentMap() instead")]]
+		inline Ref<TextureCubemap>& EnvironmentMap() { return m_EnvironmentMap; }
+		[[deprecated("Use GetEnvironmentMap() instead")]]
+		inline const Ref<TextureCubemap>& EnvironmentMap() const { return m_EnvironmentMap; }
+		
+		[[deprecated("Use GetIrradianceMap()/SetIrradianceMap() instead")]]
+		inline Ref<TextureCubemap>& IrradianceMap() { return m_IrradianceMap; }
+		[[deprecated("Use GetIrradianceMap() instead")]]
+		inline const Ref<TextureCubemap>& IrradianceMap() const { return m_IrradianceMap; }
+		
+		[[deprecated("Use GetPrefilterMap()/SetPrefilterMap() instead")]]
+		inline Ref<TextureCubemap>& PrefilterMap() { return m_PrefilterMap; }
+		[[deprecated("Use GetPrefilterMap() instead")]]
+		inline const Ref<TextureCubemap>& PrefilterMap() const { return m_PrefilterMap; }
+		
+		[[deprecated("Use GetBRDFLutMap()/SetBRDFLutMap() instead")]]
+		inline Ref<Texture2D>& BRDFLutMap() { return m_BRDFLutMap; }
+		[[deprecated("Use GetBRDFLutMap() instead")]]
+		inline const Ref<Texture2D>& BRDFLutMap() const { return m_BRDFLutMap; }
+		
+		// =====================================================================
+		// MODERN ACCESSOR METHODS: Controlled access to material properties
+		// =====================================================================
+		
+		// Material identification accessors
+		inline const std::string& GetName() const { return m_Name; }
+		inline void SetName(const std::string& name) { m_Name = name; }
+		
+		// Material type and shader accessors
+		inline MaterialType GetMaterialType() const { return m_MaterialType; }
+		inline void SetMaterialType(MaterialType type) { m_MaterialType = type; }
+		
+		inline const Ref<OloEngine::Shader>& GetShader() const { return m_Shader; }
+		inline void SetShader(const Ref<OloEngine::Shader>& shader) { m_Shader = shader; }
+		
+		// Legacy material property accessors
+		inline const glm::vec3& GetAmbient() const { return m_Ambient; }
+		inline void SetAmbient(const glm::vec3& ambient) { m_Ambient = ambient; }
+		
+		inline const glm::vec3& GetDiffuse() const { return m_Diffuse; }
+		inline void SetDiffuse(const glm::vec3& diffuse) { m_Diffuse = diffuse; }
+		
+		inline const glm::vec3& GetSpecular() const { return m_Specular; }
+		inline void SetSpecular(const glm::vec3& specular) { m_Specular = specular; }
+		
+		inline float GetShininess() const { return m_Shininess; }
+		inline void SetShininess(float shininess) { m_Shininess = shininess; }
+		
+		inline bool GetUseTextureMaps() const { return m_UseTextureMaps; }
+		inline void SetUseTextureMaps(bool useTextureMaps) { m_UseTextureMaps = useTextureMaps; }
+		
+		inline const Ref<Texture2D>& GetDiffuseMap() const { return m_DiffuseMap; }
+		inline void SetDiffuseMap(const Ref<Texture2D>& diffuseMap) { m_DiffuseMap = diffuseMap; }
+		
+		inline const Ref<Texture2D>& GetSpecularMap() const { return m_SpecularMap; }
+		inline void SetSpecularMap(const Ref<Texture2D>& specularMap) { m_SpecularMap = specularMap; }
+		
+		// PBR material property accessors
+		inline const glm::vec4& GetBaseColorFactor() const { return m_BaseColorFactor; }
+		inline void SetBaseColorFactor(const glm::vec4& baseColorFactor) { m_BaseColorFactor = baseColorFactor; }
+		
+		inline const glm::vec4& GetEmissiveFactor() const { return m_EmissiveFactor; }
+		inline void SetEmissiveFactor(const glm::vec4& emissiveFactor) { m_EmissiveFactor = emissiveFactor; }
+		
+		inline float GetMetallicFactor() const { return m_MetallicFactor; }
+		inline void SetMetallicFactor(float metallicFactor) { m_MetallicFactor = metallicFactor; }
+		
+		inline float GetRoughnessFactor() const { return m_RoughnessFactor; }
+		inline void SetRoughnessFactor(float roughnessFactor) { m_RoughnessFactor = roughnessFactor; }
+		
+		inline float GetNormalScale() const { return m_NormalScale; }
+		inline void SetNormalScale(float normalScale) { m_NormalScale = normalScale; }
+		
+		inline float GetOcclusionStrength() const { return m_OcclusionStrength; }
+		inline void SetOcclusionStrength(float occlusionStrength) { m_OcclusionStrength = occlusionStrength; }
+		
+		inline bool GetEnableIBL() const { return m_EnableIBL; }
+		inline void SetEnableIBL(bool enableIBL) { m_EnableIBL = enableIBL; }
+		
+		// PBR texture map accessors
+		inline const Ref<Texture2D>& GetAlbedoMap() const { return m_AlbedoMap; }
+		inline void SetAlbedoMap(const Ref<Texture2D>& albedoMap) { m_AlbedoMap = albedoMap; }
+		
+		inline const Ref<Texture2D>& GetMetallicRoughnessMap() const { return m_MetallicRoughnessMap; }
+		inline void SetMetallicRoughnessMap(const Ref<Texture2D>& metallicRoughnessMap) { m_MetallicRoughnessMap = metallicRoughnessMap; }
+		
+		inline const Ref<Texture2D>& GetNormalMap() const { return m_NormalMap; }
+		inline void SetNormalMap(const Ref<Texture2D>& normalMap) { m_NormalMap = normalMap; }
+		
+		inline const Ref<Texture2D>& GetAOMap() const { return m_AOMap; }
+		inline void SetAOMap(const Ref<Texture2D>& aoMap) { m_AOMap = aoMap; }
+		
+		inline const Ref<Texture2D>& GetEmissiveMap() const { return m_EmissiveMap; }
+		inline void SetEmissiveMap(const Ref<Texture2D>& emissiveMap) { m_EmissiveMap = emissiveMap; }
+		
+		inline const Ref<TextureCubemap>& GetEnvironmentMap() const { return m_EnvironmentMap; }
+		inline void SetEnvironmentMap(const Ref<TextureCubemap>& environmentMap) { m_EnvironmentMap = environmentMap; }
+		
+		inline const Ref<TextureCubemap>& GetIrradianceMap() const { return m_IrradianceMap; }
+		inline void SetIrradianceMap(const Ref<TextureCubemap>& irradianceMap) { m_IrradianceMap = irradianceMap; }
+		
+		inline const Ref<TextureCubemap>& GetPrefilterMap() const { return m_PrefilterMap; }
+		inline void SetPrefilterMap(const Ref<TextureCubemap>& prefilterMap) { m_PrefilterMap = prefilterMap; }
+		
+		inline const Ref<Texture2D>& GetBRDFLutMap() const { return m_BRDFLutMap; }
+		inline void SetBRDFLutMap(const Ref<Texture2D>& brdfLutMap) { m_BRDFLutMap = brdfLutMap; }
 
 		// Asset interface
 		static AssetType GetStaticType() { return AssetType::Material; }

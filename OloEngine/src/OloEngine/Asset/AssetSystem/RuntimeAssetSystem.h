@@ -10,6 +10,7 @@
 #include <condition_variable>
 #include <atomic>
 #include <unordered_set>
+#include <utility>
 
 namespace OloEngine
 {
@@ -31,6 +32,12 @@ namespace OloEngine
         RuntimeAssetSystem();
         ~RuntimeAssetSystem();
 
+        // Delete copy and move operations
+        RuntimeAssetSystem(const RuntimeAssetSystem&) = delete;
+        RuntimeAssetSystem& operator=(const RuntimeAssetSystem&) = delete;
+        RuntimeAssetSystem(RuntimeAssetSystem&&) = delete;
+        RuntimeAssetSystem& operator=(RuntimeAssetSystem&&) = delete;
+
         /**
          * @brief Stop the asset thread
          */
@@ -45,7 +52,7 @@ namespace OloEngine
          * @brief Queue an asset for loading
          * @param request The asset load request
          */
-        void QueueAssetLoad(const RuntimeAssetLoadRequest& request);
+        void QueueAssetLoad(RuntimeAssetLoadRequest request);
 
         /**
          * @brief Sync with the asset thread (process any completed loads)
@@ -56,7 +63,7 @@ namespace OloEngine
          * @brief Check if the asset thread is running
          * @return True if the thread is active
          */
-        bool IsRunning() const { return m_Running.load(std::memory_order_acquire); }
+        bool IsRunning() const noexcept { return m_Running.load(std::memory_order_acquire); }
 
         /**
          * @brief Check if an asset is in the pending queue

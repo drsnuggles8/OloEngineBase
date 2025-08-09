@@ -22,8 +22,8 @@ namespace OloEngine
 
     void RuntimeAssetSystem::Stop()
     {
-        m_Running = false;
-        m_AssetLoadingQueueCV.notify_one();
+        m_Running.store(false, std::memory_order_release);
+        m_AssetLoadingQueueCV.notify_all();
     }
 
     void RuntimeAssetSystem::StopAndWait()
@@ -82,13 +82,13 @@ namespace OloEngine
             {
                 // Wait for new assets to load or stop signal
                 std::unique_lock<std::mutex> lock(m_AssetLoadingQueueMutex);
-                m_AssetLoadingQueueCV.wait_for(lock, std::chrono::milliseconds(50),
+                m_AssetLoadingQueueCV.wait(lock,
                     [this] { return !m_AssetLoadingQueue.empty() || !m_Running; });
             }
         }
     }
 
-    void RuntimeAssetSystem::QueueAssetLoad(const RuntimeAssetLoadRequest& request)
+    void RuntimeAssetSystem::QueueAssetLoad(RuntimeAssetLoadRequest request)
     {
         if (request.Handle == 0)
         {
@@ -109,7 +109,7 @@ namespace OloEngine
 
         {
             std::scoped_lock<std::mutex> lock(m_AssetLoadingQueueMutex);
-            m_AssetLoadingQueue.push(request);
+            m_AssetLoadingQueue.push(std::move(request));
         }
         m_AssetLoadingQueueCV.notify_one();
     }
