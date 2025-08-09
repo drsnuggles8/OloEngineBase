@@ -24,12 +24,11 @@
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
-#include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Animation/Skeleton.h"
-#include "OloEngine/Scene/Components.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtc/constants.hpp>
 
 namespace OloEngine
 {
@@ -807,8 +806,15 @@ namespace OloEngine
 		cmd->shader = shaderToUse;
 		cmd->renderState = Ref<RenderState>::Create();
 		
-		// Set bone matrices for GPU skinning
-		cmd->boneMatrices = boneMatrices;
+		// Set bone matrices reference for GPU skinning (avoid copying large data)
+		if (!boneMatrices.empty())
+		{
+			cmd->boneMatrices = std::span<const glm::mat4>(boneMatrices.data(), boneMatrices.size());
+		}
+		else
+		{
+			cmd->boneMatrices = std::span<const glm::mat4>();
+		}
 		
 		static bool s_LoggedBoneMatrices = false;
 		if (!s_LoggedBoneMatrices && !boneMatrices.empty())

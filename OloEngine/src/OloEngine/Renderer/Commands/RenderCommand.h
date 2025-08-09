@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <span>
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
@@ -367,8 +368,8 @@ namespace OloEngine
 		// Animation support for animated meshes
 		bool isAnimatedMesh = false;
 		// TODO: Replace with pooled buffer reference to reduce command size and heap allocations
-		// Consider storing bone data offset/ID into external pooled buffer instead of std::vector
-		std::vector<glm::mat4> boneMatrices;  // Bone matrices for GPU animation (unified approach)
+		// Bone matrices reference for GPU animation - avoid copying large data
+		std::span<const glm::mat4> boneMatrices;  // Reference to external bone matrices data
 	};
 
 	struct DrawMeshInstancedCommand

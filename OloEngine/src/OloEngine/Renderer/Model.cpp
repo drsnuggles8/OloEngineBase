@@ -146,7 +146,15 @@ namespace OloEngine
 		{
 			const aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
 			
-			m_Materials.push_back(Ref<Material>::Create(ProcessMaterial(material)));
+			// Check if we already processed this material
+			auto mapIt = m_MaterialIndexMap.find(mesh->mMaterialIndex);
+			if (mapIt == m_MaterialIndexMap.end())
+			{
+				// Add new material and create mapping
+				u32 newMaterialIndex = static_cast<u32>(m_Materials.size());
+				m_Materials.push_back(Ref<Material>::Create(ProcessMaterial(material)));
+				m_MaterialIndexMap[mesh->mMaterialIndex] = newMaterialIndex;
+			}
 		}
 
 		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
@@ -157,7 +165,11 @@ namespace OloEngine
 	submesh.m_BaseIndex = 0;
 	submesh.m_IndexCount = static_cast<u32>(indices.size());
 	submesh.m_VertexCount = static_cast<u32>(vertices.size());
-	submesh.m_MaterialIndex = mesh->mMaterialIndex; // Use actual material index from Assimp
+	
+	// Use mapped material index instead of raw Assimp index
+	auto mapIt = m_MaterialIndexMap.find(mesh->mMaterialIndex);
+	submesh.m_MaterialIndex = (mapIt != m_MaterialIndexMap.end()) ? mapIt->second : 0;
+	
 	submesh.m_IsRigged = false;
 	submesh.m_NodeName = mesh->mName.C_Str();
 		meshSource->AddSubmesh(submesh);

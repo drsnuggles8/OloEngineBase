@@ -35,6 +35,17 @@ namespace OloEngine
     {
         OLO_CORE_INFO("EditorAssetManager initialized");
         
+        // Initialize project path early to ensure proper path resolution
+        if (Project::GetActive())
+        {
+            m_ProjectPath = Project::GetProjectDirectory();
+            OLO_CORE_INFO("EditorAssetManager: Project path initialized to {}", m_ProjectPath.string());
+        }
+        else
+        {
+            OLO_CORE_WARN("EditorAssetManager: No active project found during initialization");
+        }
+        
         // Load asset registry if it exists
         if (Project::GetActive())
         {

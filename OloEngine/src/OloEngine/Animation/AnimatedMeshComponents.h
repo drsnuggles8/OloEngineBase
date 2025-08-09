@@ -11,7 +11,9 @@
 #include "Skeleton.h"
 #include "AnimationClip.h"
 
+#include <string>
 #include <vector>
+#include <mutex>
 #include <unordered_map>
 
 namespace OloEngine
@@ -25,7 +27,7 @@ namespace OloEngine
 	 * @brief Component for entities that represent individual submeshes
 	 * 
 	 * This component is attached to entities that represent individual submeshes within a mesh hierarchy.
-	 * For rigged meshes, the BoneEntityIds field maps skeleton bones to scene entities.
+	 * For rigged meshes, the m_BoneEntityIds field maps skeleton bones to scene entities.
 	 */
 	struct SubmeshComponent
 	{
@@ -36,7 +38,7 @@ namespace OloEngine
 
 		SubmeshComponent() = default;
 		SubmeshComponent(const SubmeshComponent& other) = default;
-		explicit SubmeshComponent(Ref<OloEngine::Mesh> mesh, u32 submeshIndex = 0) : m_Mesh(mesh), m_SubmeshIndex(submeshIndex) {}
+		explicit SubmeshComponent(const Ref<OloEngine::Mesh>& mesh, u32 submeshIndex = 0) : m_Mesh(mesh), m_SubmeshIndex(submeshIndex) {}
 	};
 
 	/**
@@ -50,7 +52,7 @@ namespace OloEngine
 		Ref<MeshSource> m_MeshSource;
 		
 		MeshComponent() = default;
-		explicit MeshComponent(Ref<OloEngine::MeshSource> meshSource) : m_MeshSource(meshSource) {}
+		explicit MeshComponent(const Ref<OloEngine::MeshSource>& meshSource) : m_MeshSource(meshSource) {}
 	};
 
 
@@ -82,7 +84,7 @@ namespace OloEngine
 		
 		// Bone entity management
 		std::vector<UUID> m_BoneEntityIds; // Maps skeleton bones to scene entities
-		glm::mat3 m_RootBoneTransform = glm::mat3(1.0f); // Transform of animated root bone relative to entity
+		glm::mat4 m_RootBoneTransform = glm::mat4(1.0f); // Transform of animated root bone relative to entity
 
 		AnimationStateComponent() = default;
 		AnimationStateComponent(const Ref<AnimationClip>& clip, float time = 0.0f)
@@ -99,14 +101,38 @@ namespace OloEngine
 	struct SkeletonComponent
 	{
 		Ref<Skeleton> m_Skeleton; // Shared skeleton reference
+		mutable std::mutex m_CacheMutex; // Protects cache members from concurrent access
 		mutable std::unordered_map<std::string, UUID> m_TagEntityCache; // Cache for tag-to-entity UUID mapping
 		mutable bool m_CacheValid = false; // Whether the cache is still valid
 		
 		SkeletonComponent() = default;
 		SkeletonComponent(const Ref<Skeleton>& skeleton) : m_Skeleton(skeleton) {}
 		
+		// Custom copy constructor - mutex cannot be copied
+		SkeletonComponent(const SkeletonComponent& other) 
+			: m_Skeleton(other.m_Skeleton)
+			, m_TagEntityCache(other.m_TagEntityCache)
+			, m_CacheValid(other.m_CacheValid)
+		{
+			// Each component gets its own mutex
+		}
+
+		// Custom assignment operator - mutex cannot be assigned
+		SkeletonComponent& operator=(const SkeletonComponent& other)
+		{
+			if (this != &other)
+			{
+				m_Skeleton = other.m_Skeleton;
+				m_TagEntityCache = other.m_TagEntityCache;
+				m_CacheValid = other.m_CacheValid;
+				// Keep existing mutex
+			}
+			return *this;
+		}
+		
 		// Invalidate cache when skeleton changes
-		void InvalidateCache() const { 
+		void InvalidateCache() const noexcept { 
+			std::lock_guard<std::mutex> lock(m_CacheMutex);
 			m_CacheValid = false; 
 			m_TagEntityCache.clear(); 
 		}
@@ -121,12 +147,12 @@ namespace OloEngine
 	 * 
 	 * SubmeshComponent: Individual submesh entities
 	 * - Child entities have this component to represent individual submeshes
-	 * - For rigged meshes, BoneEntityIds maps skeleton bones to scene entities
+	 * - For rigged meshes, m_BoneEntityIds maps skeleton bones to scene entities
 	 * - This allows direct manipulation of bones as scene entities
 	 * 
 	 * AnimationStateComponent: Animation playback and state
 	 * - Manages current animation clip, blending, and timing
-	 * - Also contains BoneEntityIds for cases where animation affects multiple submeshes
+	 * - Also contains m_BoneEntityIds for cases where animation affects multiple submeshes
 	 * 
 	 * SkeletonComponent: Skeleton reference
 	 * - Links an entity to its skeleton
@@ -134,8 +160,8 @@ namespace OloEngine
 	 * 
 	 * Entity Hierarchy Example:
 	 * CharacterEntity (AnimationStateComponent, SkeletonComponent, MeshComponent)
-	 *   ├── Body (SubmeshComponent with BoneEntityIds)
-	 *   ├── Head (SubmeshComponent with BoneEntityIds)
+	 *   ├── Body (SubmeshComponent with m_BoneEntityIds)
+	 *   ├── Head (SubmeshComponent with m_BoneEntityIds)
 	 *   └── BoneRoot
 	 *       ├── Spine (TransformComponent - represents bone)
 	 *       ├── LeftArm (TransformComponent - represents bone)

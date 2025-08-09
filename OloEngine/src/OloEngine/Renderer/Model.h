@@ -78,6 +78,7 @@ namespace OloEngine
 
 		std::vector<Ref<Mesh>> m_Meshes;
 		std::vector<Ref<Material>> m_Materials;  // Materials corresponding to each mesh
+		std::unordered_map<u32, u32> m_MaterialIndexMap; // Maps Assimp material indices to m_Materials indices
 		std::string m_Directory;
 		std::unordered_map<std::string, Ref<Texture2D>> m_LoadedTextures;
 		std::optional<TextureOverride> m_TextureOverride;

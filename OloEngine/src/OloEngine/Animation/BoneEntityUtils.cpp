@@ -157,27 +157,33 @@ namespace OloEngine
         const auto& boneNames = skeletonComponent.m_Skeleton->m_BoneNames;
         boneEntityIds.reserve(boneNames.size());
 
-        // Check if cache is valid, if not rebuild it
-        if (!skeletonComponent.m_CacheValid)
+        // Check if cache is valid, if not rebuild it (with thread-safe access)
         {
-            skeletonComponent.m_TagEntityCache.clear();
-            BuildTagEntityMap(rootEntity, scene, skeletonComponent.m_TagEntityCache);
-            skeletonComponent.m_CacheValid = true;
+            std::lock_guard<std::mutex> lock(skeletonComponent.m_CacheMutex);
+            if (!skeletonComponent.m_CacheValid)
+            {
+                skeletonComponent.m_TagEntityCache.clear();
+                BuildTagEntityMap(rootEntity, scene, skeletonComponent.m_TagEntityCache);
+                skeletonComponent.m_CacheValid = true;
+            }
         }
 
-        // Use cached map for O(1) lookups
+        // Use cached map for O(1) lookups (with thread-safe access)
         bool foundAtLeastOne = false;
-        for (const auto& boneName : boneNames)
         {
-            auto it = skeletonComponent.m_TagEntityCache.find(boneName);
-            if (it != skeletonComponent.m_TagEntityCache.end() && it->second != UUID{})
+            std::lock_guard<std::mutex> lock(skeletonComponent.m_CacheMutex);
+            for (const auto& boneName : boneNames)
             {
-                boneEntityIds.emplace_back(it->second);
-                foundAtLeastOne = true;
-            }
-            else
-            {
-                boneEntityIds.emplace_back(UUID{}); // Invalid/null UUID as placeholder
+                auto it = skeletonComponent.m_TagEntityCache.find(boneName);
+                if (it != skeletonComponent.m_TagEntityCache.end() && it->second != UUID{})
+                {
+                    boneEntityIds.emplace_back(it->second);
+                    foundAtLeastOne = true;
+                }
+                else
+                {
+                    boneEntityIds.emplace_back(UUID{}); // Invalid/null UUID as placeholder
+                }
             }
         }
 
