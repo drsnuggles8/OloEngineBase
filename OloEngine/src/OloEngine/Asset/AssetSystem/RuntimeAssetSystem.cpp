@@ -6,6 +6,7 @@
 #include "OloEngine/Debug/Profiler.h"
 
 #include <chrono>
+#include <optional>
 
 namespace OloEngine
 {
@@ -40,23 +41,24 @@ namespace OloEngine
         {
             OLO_PROFILER_SCOPE("Runtime Asset Thread Queue");
 
-            bool queueEmptyOrStop = false;
-            while (!queueEmptyOrStop)
+            // Process all available requests in the queue
+            while (m_Running.load(std::memory_order_acquire))
             {
-                RuntimeAssetLoadRequest request;
+                // Try to get next request from queue
+                std::optional<RuntimeAssetLoadRequest> requestOpt;
                 {
                     std::scoped_lock<std::mutex> lock(m_AssetLoadingQueueMutex);
-                    if (m_AssetLoadingQueue.empty() || !m_Running.load(std::memory_order_acquire))
+                    if (m_AssetLoadingQueue.empty())
                     {
-                        queueEmptyOrStop = true;
+                        break; // No more work, exit inner loop
                     }
-                    else
-                    {
-                        request = m_AssetLoadingQueue.front();
-                        m_AssetLoadingQueue.pop();
-                    }
+                    
+                    requestOpt = m_AssetLoadingQueue.front();
+                    m_AssetLoadingQueue.pop();
                 }
 
+                // Process the request
+                const auto& request = *requestOpt;
                 if (request.Handle == 0)
                     continue;
 
@@ -93,6 +95,13 @@ namespace OloEngine
         if (request.Handle == 0)
         {
             OLO_CORE_ERROR("RuntimeAssetSystem: Cannot queue asset with invalid handle");
+            return;
+        }
+
+        // Check if system is still running
+        if (!m_Running.load(std::memory_order_acquire))
+        {
+            OLO_CORE_WARN("RuntimeAssetSystem: Cannot queue asset load - system is stopped");
             return;
         }
 

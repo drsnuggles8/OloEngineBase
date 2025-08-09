@@ -157,7 +157,7 @@ namespace OloEngine
 			}
 		}
 
-		auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+		auto meshSource = Ref<MeshSource>::Create(std::move(vertices), std::move(indices));
 		
 		// Create a default submesh for the entire mesh
 	Submesh submesh;
@@ -166,16 +166,44 @@ namespace OloEngine
 	submesh.m_IndexCount = static_cast<u32>(indices.size());
 	submesh.m_VertexCount = static_cast<u32>(vertices.size());
 	
-	// Use mapped material index instead of raw Assimp index
+	// Use mapped material index with bounds checking
 	auto mapIt = m_MaterialIndexMap.find(mesh->mMaterialIndex);
-	submesh.m_MaterialIndex = (mapIt != m_MaterialIndexMap.end()) ? mapIt->second : 0;
+	if (mapIt != m_MaterialIndexMap.end() && mapIt->second < m_Materials.size())
+	{
+		submesh.m_MaterialIndex = mapIt->second;
+	}
+	else
+	{
+		// Fallback to first material or 0 if materials is empty
+		submesh.m_MaterialIndex = m_Materials.empty() ? UINT32_MAX : 0;
+		if (submesh.m_MaterialIndex == UINT32_MAX)
+		{
+			OLO_CORE_WARN("Model: No materials available for mesh '{}'", mesh->mName.C_Str());
+		}
+	}
 	
 	submesh.m_IsRigged = false;
 	submesh.m_NodeName = mesh->mName.C_Str();
 		meshSource->AddSubmesh(submesh);
 		
 		meshSource->Build();
-		return Ref<Mesh>::Create(meshSource, 0);
+		
+		// Create Mesh objects for all submeshes in the MeshSource
+		// Note: Currently each Assimp mesh creates one submesh, but this future-proofs
+		// for cases where a MeshSource might have multiple submeshes
+		const auto& submeshes = meshSource->GetSubmeshes();
+		Ref<Mesh> primaryMesh = Ref<Mesh>::Create(meshSource, 0);
+		
+		// If there are additional submeshes, we should handle them
+		// For now, we'll just return the primary mesh since the current Assimp processing
+		// creates one submesh per Assimp mesh. Future enhancement: modify calling code
+		// to handle multiple meshes per MeshSource
+		if (submeshes.size() > 1)
+		{
+			OLO_CORE_WARN("Model: MeshSource has {} submeshes but only returning first. Consider updating Model loading to handle multiple submeshes per MeshSource.", submeshes.size());
+		}
+		
+		return primaryMesh;
 	}
 
 	std::vector<Ref<Texture2D>> Model::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type)

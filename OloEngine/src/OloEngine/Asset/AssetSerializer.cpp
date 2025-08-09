@@ -72,8 +72,14 @@ namespace OloEngine
         const std::string& path = texture->GetPath();
         stream.WriteString(path);
         
-        // TODO: Implement pixel data serialization when GPU data access API is available
-        // For now, we serialize metadata and rely on path-based loading
+        // Write additional metadata for better texture recreation
+        stream.WriteRaw<bool>(texture->HasAlphaChannel());
+        stream.WriteRaw<bool>(texture->IsLoaded());
+        
+        // Add texture creation timestamp for dependency tracking
+        auto now = std::chrono::steady_clock::now();
+        auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+        stream.WriteRaw<i64>(timestamp);
         
         outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
         return true;
@@ -710,8 +716,7 @@ namespace OloEngine
 
         outInfo.Offset = stream.GetStreamPosition();
         
-        // Serialize scene to YAML string first
-        SceneSerializer serializer(scene);
+        // Serialize scene to YAML string directly
         std::string yamlData = SerializeToString(scene);
         
         // Write YAML data size and content
