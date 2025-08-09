@@ -268,16 +268,16 @@ namespace OloEngine
                 out << YAML::Key << "Textures" << YAML::Value << YAML::BeginMap;
                 
                 // Serialize PBR texture maps
-                if (material->AlbedoMap && material->AlbedoMap->m_Handle != 0)
-                    out << YAML::Key << "AlbedoMap" << YAML::Value << material->AlbedoMap->m_Handle;
-                if (material->MetallicRoughnessMap && material->MetallicRoughnessMap->m_Handle != 0)
-                    out << YAML::Key << "MetallicRoughnessMap" << YAML::Value << material->MetallicRoughnessMap->m_Handle;
-                if (material->NormalMap && material->NormalMap->m_Handle != 0)
-                    out << YAML::Key << "NormalMap" << YAML::Value << material->NormalMap->m_Handle;
-                if (material->AOMap && material->AOMap->m_Handle != 0)
-                    out << YAML::Key << "AOMap" << YAML::Value << material->AOMap->m_Handle;
-                if (material->EmissiveMap && material->EmissiveMap->m_Handle != 0)
-                    out << YAML::Key << "EmissiveMap" << YAML::Value << material->EmissiveMap->m_Handle;
+                if (material->AlbedoMap() && material->AlbedoMap()->m_Handle != 0)
+                    out << YAML::Key << "AlbedoMap" << YAML::Value << material->AlbedoMap()->m_Handle;
+                if (material->MetallicRoughnessMap() && material->MetallicRoughnessMap()->m_Handle != 0)
+                    out << YAML::Key << "MetallicRoughnessMap" << YAML::Value << material->MetallicRoughnessMap()->m_Handle;
+                if (material->NormalMap() && material->NormalMap()->m_Handle != 0)
+                    out << YAML::Key << "NormalMap" << YAML::Value << material->NormalMap()->m_Handle;
+                if (material->AOMap() && material->AOMap()->m_Handle != 0)
+                    out << YAML::Key << "AOMap" << YAML::Value << material->AOMap()->m_Handle;
+                if (material->EmissiveMap() && material->EmissiveMap()->m_Handle != 0)
+                    out << YAML::Key << "EmissiveMap" << YAML::Value << material->EmissiveMap()->m_Handle;
                 
                 // Serialize dynamic texture uniforms
                 const auto& texture2DUniforms = material->GetTexture2DUniforms();
@@ -295,13 +295,13 @@ namespace OloEngine
                 
                 // Serialize PBR properties (using actual public member variables)
                 out << YAML::Key << "BaseColor" << YAML::Value << YAML::Flow << YAML::BeginSeq 
-                    << material->BaseColorFactor.x << material->BaseColorFactor.y 
-                    << material->BaseColorFactor.z << material->BaseColorFactor.w << YAML::EndSeq;
-                out << YAML::Key << "Metallic" << YAML::Value << material->MetallicFactor;
-                out << YAML::Key << "Roughness" << YAML::Value << material->RoughnessFactor;
+                    << material->BaseColorFactor().x << material->BaseColorFactor().y 
+                    << material->BaseColorFactor().z << material->BaseColorFactor().w << YAML::EndSeq;
+                out << YAML::Key << "Metallic" << YAML::Value << material->MetallicFactor();
+                out << YAML::Key << "Roughness" << YAML::Value << material->RoughnessFactor();
                 out << YAML::Key << "Emission" << YAML::Value << YAML::Flow << YAML::BeginSeq 
-                    << material->EmissiveFactor.x << material->EmissiveFactor.y 
-                    << material->EmissiveFactor.z << material->EmissiveFactor.w << YAML::EndSeq;
+                    << material->EmissiveFactor().x << material->EmissiveFactor().y 
+                    << material->EmissiveFactor().z << material->EmissiveFactor().w << YAML::EndSeq;
                 
                 // Serialize dynamic float uniforms
                 const auto& floatUniforms = material->GetFloatUniforms();

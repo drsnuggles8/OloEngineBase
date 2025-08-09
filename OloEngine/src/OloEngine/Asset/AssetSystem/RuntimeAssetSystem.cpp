@@ -146,7 +146,7 @@ namespace OloEngine
         return m_PendingAssets.find(handle) != m_PendingAssets.end();
     }
 
-    sizet RuntimeAssetSystem::GetPendingAssetCount() const
+    sizet RuntimeAssetSystem::GetPendingAssetCount() const noexcept
     {
         std::scoped_lock<std::mutex> lock(m_PendingAssetsMutex);
         return m_PendingAssets.size();

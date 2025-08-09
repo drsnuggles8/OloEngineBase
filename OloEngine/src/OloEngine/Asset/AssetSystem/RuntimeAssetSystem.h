@@ -76,7 +76,7 @@ namespace OloEngine
          * @brief Get the number of pending asset loads
          * @return Number of assets in the loading queue
          */
-        sizet GetPendingAssetCount() const;
+        sizet GetPendingAssetCount() const noexcept;
 
     private:
         /**

@@ -17,6 +17,7 @@ namespace OloEngine
     void AssetImporter::Init()
     {
         s_Serializers.clear();
+        s_Serializers.reserve(17); // Reserve capacity for 17 serializers to avoid rehashing
         s_Serializers[AssetType::Prefab] = CreateScope<PrefabSerializer>();
         s_Serializers[AssetType::Texture2D] = CreateScope<TextureSerializer>();
         s_Serializers[AssetType::TextureCube] = CreateScope<TextureSerializer>();
@@ -38,13 +39,14 @@ namespace OloEngine
 
     void AssetImporter::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset)
     {
-        if (s_Serializers.find(metadata.Type) == s_Serializers.end())
+        auto it = s_Serializers.find(metadata.Type);
+        if (it == s_Serializers.end())
         {
             OLO_CORE_WARN("No serializer available for asset type: {}", AssetUtils::AssetTypeToString(metadata.Type));
             return;
         }
 
-        s_Serializers[metadata.Type]->Serialize(metadata, asset);
+        it->second->Serialize(metadata, asset);
     }
 
     void AssetImporter::Serialize(const Ref<Asset>& asset)
@@ -63,24 +65,26 @@ namespace OloEngine
 
     bool AssetImporter::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset)
     {
-        if (s_Serializers.find(metadata.Type) == s_Serializers.end())
+        auto it = s_Serializers.find(metadata.Type);
+        if (it == s_Serializers.end())
         {
             OLO_CORE_WARN("No serializer available for asset type: {}", AssetUtils::AssetTypeToString(metadata.Type));
             return false;
         }
 
-        return s_Serializers[metadata.Type]->TryLoadData(metadata, asset);
+        return it->second->TryLoadData(metadata, asset);
     }
 
     void AssetImporter::RegisterDependencies(const AssetMetadata& metadata)
     {
-        if (s_Serializers.find(metadata.Type) == s_Serializers.end())
+        auto it = s_Serializers.find(metadata.Type);
+        if (it == s_Serializers.end())
         {
             OLO_CORE_WARN("No serializer available for asset type: {}", AssetUtils::AssetTypeToString(metadata.Type));
             return;
         }
 
-        s_Serializers[metadata.Type]->RegisterDependencies(metadata);
+        it->second->RegisterDependencies(metadata);
     }
 
     bool AssetImporter::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo)
@@ -98,35 +102,38 @@ namespace OloEngine
         }
 
         AssetType type = asset->GetAssetType();
-        if (s_Serializers.find(type) == s_Serializers.end())
+        auto it = s_Serializers.find(type);
+        if (it == s_Serializers.end())
         {
             OLO_CORE_WARN("There's currently no serializer for assets of type: {}", AssetUtils::AssetTypeToString(type));
             return false;
         }
 
-        return s_Serializers[type]->SerializeToAssetPack(handle, stream, outInfo);
+        return it->second->SerializeToAssetPack(handle, stream, outInfo);
     }
 
     Ref<Asset> AssetImporter::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo)
     {
-        if (s_Serializers.find(assetInfo.Type) == s_Serializers.end())
+        auto it = s_Serializers.find(assetInfo.Type);
+        if (it == s_Serializers.end())
         {
             OLO_CORE_WARN("No serializer available for asset type: {}", AssetUtils::AssetTypeToString(assetInfo.Type));
             return nullptr;
         }
 
-        return s_Serializers[assetInfo.Type]->DeserializeFromAssetPack(stream, assetInfo);
+        return it->second->DeserializeFromAssetPack(stream, assetInfo);
     }
 
     Ref<Scene> AssetImporter::DeserializeSceneFromAssetPack(FileStreamReader& stream, const AssetPackFile::SceneInfo& assetInfo)
     {
-        auto sceneSerializer = s_Serializers[AssetType::Scene].get();
-        if (!sceneSerializer)
+        auto it = s_Serializers.find(AssetType::Scene);
+        if (it == s_Serializers.end())
         {
             OLO_CORE_WARN("Scene serializer not available");
             return nullptr;
         }
 
+        auto sceneSerializer = it->second.get();
         return sceneSerializer->DeserializeSceneFromAssetPack(stream, assetInfo);
     }
 

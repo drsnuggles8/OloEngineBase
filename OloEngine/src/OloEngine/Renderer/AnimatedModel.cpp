@@ -194,7 +194,7 @@ namespace OloEngine
         meshSource->GetBoneInfo().resize(m_Skeleton->m_BoneNames.size());
         for (const auto& [boneName, boneInfo] : m_BoneInfoMap)
         {
-            meshSource->GetBoneInfo()[boneInfo.Id] = {boneInfo.Id, boneInfo.Offset};
+            meshSource->GetBoneInfo()[boneInfo.Id] = {boneInfo.Offset, boneInfo.Id};
         }
 
         // Create a submesh for the entire mesh
@@ -772,31 +772,31 @@ namespace OloEngine
         auto albedoMaps = LoadMaterialTextures(mat, aiTextureType_DIFFUSE);
         if (!albedoMaps.empty())
         {
-            material.AlbedoMap = albedoMaps[0];
+            material.AlbedoMap() = albedoMaps[0];
         }
         
         auto metallicRoughnessMaps = LoadMaterialTextures(mat, aiTextureType_METALNESS);
         if (!metallicRoughnessMaps.empty())
         {
-            material.MetallicRoughnessMap = metallicRoughnessMaps[0];
+            material.MetallicRoughnessMap() = metallicRoughnessMaps[0];
         }
         
         auto normalMaps = LoadMaterialTextures(mat, aiTextureType_NORMALS);
         if (!normalMaps.empty())
         {
-            material.NormalMap = normalMaps[0];
+            material.NormalMap() = normalMaps[0];
         }
         
         auto aoMaps = LoadMaterialTextures(mat, aiTextureType_AMBIENT_OCCLUSION);
         if (!aoMaps.empty())
         {
-            material.AOMap = aoMaps[0];
+            material.AOMap() = aoMaps[0];
         }
         
         auto emissiveMaps = LoadMaterialTextures(mat, aiTextureType_EMISSIVE);
         if (!emissiveMaps.empty())
         {
-            material.EmissiveMap = emissiveMaps[0];
+            material.EmissiveMap() = emissiveMaps[0];
         }
         
         return material;

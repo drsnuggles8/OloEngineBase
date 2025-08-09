@@ -112,7 +112,7 @@ namespace OloEngine {
 		virtual bool GetFlag(MaterialFlag flag) const { return (static_cast<u32>(flag) & m_MaterialFlags) != 0; }
 		virtual void SetFlag(MaterialFlag flag, bool value = true);
 
-		virtual Ref<OloEngine::Shader> GetShader() { return m_Shader; }
+		const Ref<OloEngine::Shader>& GetShader() const { return m_Shader; }
 		
 		// IBL configuration method (for Sandbox3D compatibility)
 		void ConfigureIBL(const Ref<TextureCubemap>& environmentMap, 
@@ -123,10 +123,6 @@ namespace OloEngine {
 		// =====================================================================
 		// TYPED PROPERTY ACCESSORS (Replacement for public member variables)
 		// =====================================================================
-		
-		// Material identification
-		void SetMaterialName(const std::string& name) { m_Name = name; }
-		const std::string& GetMaterialName() const { return m_Name; }
 		
 		// Material type and shader management
 		MaterialType GetMaterialType() const { return m_MaterialType; }
@@ -325,93 +321,6 @@ namespace OloEngine {
 		[[deprecated("Use GetBRDFLutMap() instead")]]
 		inline const Ref<Texture2D>& BRDFLutMap() const { return m_BRDFLutMap; }
 		
-		// =====================================================================
-		// MODERN ACCESSOR METHODS: Controlled access to material properties
-		// =====================================================================
-		
-		// Material identification accessors
-		inline const std::string& GetName() const { return m_Name; }
-		inline void SetName(const std::string& name) { m_Name = name; }
-		
-		// Material type and shader accessors
-		inline MaterialType GetMaterialType() const { return m_MaterialType; }
-		inline void SetMaterialType(MaterialType type) { m_MaterialType = type; }
-		
-		inline const Ref<OloEngine::Shader>& GetShader() const { return m_Shader; }
-		inline void SetShader(const Ref<OloEngine::Shader>& shader) { m_Shader = shader; }
-		
-		// Legacy material property accessors
-		inline const glm::vec3& GetAmbient() const { return m_Ambient; }
-		inline void SetAmbient(const glm::vec3& ambient) { m_Ambient = ambient; }
-		
-		inline const glm::vec3& GetDiffuse() const { return m_Diffuse; }
-		inline void SetDiffuse(const glm::vec3& diffuse) { m_Diffuse = diffuse; }
-		
-		inline const glm::vec3& GetSpecular() const { return m_Specular; }
-		inline void SetSpecular(const glm::vec3& specular) { m_Specular = specular; }
-		
-		inline float GetShininess() const { return m_Shininess; }
-		inline void SetShininess(float shininess) { m_Shininess = shininess; }
-		
-		inline bool GetUseTextureMaps() const { return m_UseTextureMaps; }
-		inline void SetUseTextureMaps(bool useTextureMaps) { m_UseTextureMaps = useTextureMaps; }
-		
-		inline const Ref<Texture2D>& GetDiffuseMap() const { return m_DiffuseMap; }
-		inline void SetDiffuseMap(const Ref<Texture2D>& diffuseMap) { m_DiffuseMap = diffuseMap; }
-		
-		inline const Ref<Texture2D>& GetSpecularMap() const { return m_SpecularMap; }
-		inline void SetSpecularMap(const Ref<Texture2D>& specularMap) { m_SpecularMap = specularMap; }
-		
-		// PBR material property accessors
-		inline const glm::vec4& GetBaseColorFactor() const { return m_BaseColorFactor; }
-		inline void SetBaseColorFactor(const glm::vec4& baseColorFactor) { m_BaseColorFactor = baseColorFactor; }
-		
-		inline const glm::vec4& GetEmissiveFactor() const { return m_EmissiveFactor; }
-		inline void SetEmissiveFactor(const glm::vec4& emissiveFactor) { m_EmissiveFactor = emissiveFactor; }
-		
-		inline float GetMetallicFactor() const { return m_MetallicFactor; }
-		inline void SetMetallicFactor(float metallicFactor) { m_MetallicFactor = metallicFactor; }
-		
-		inline float GetRoughnessFactor() const { return m_RoughnessFactor; }
-		inline void SetRoughnessFactor(float roughnessFactor) { m_RoughnessFactor = roughnessFactor; }
-		
-		inline float GetNormalScale() const { return m_NormalScale; }
-		inline void SetNormalScale(float normalScale) { m_NormalScale = normalScale; }
-		
-		inline float GetOcclusionStrength() const { return m_OcclusionStrength; }
-		inline void SetOcclusionStrength(float occlusionStrength) { m_OcclusionStrength = occlusionStrength; }
-		
-		inline bool GetEnableIBL() const { return m_EnableIBL; }
-		inline void SetEnableIBL(bool enableIBL) { m_EnableIBL = enableIBL; }
-		
-		// PBR texture map accessors
-		inline const Ref<Texture2D>& GetAlbedoMap() const { return m_AlbedoMap; }
-		inline void SetAlbedoMap(const Ref<Texture2D>& albedoMap) { m_AlbedoMap = albedoMap; }
-		
-		inline const Ref<Texture2D>& GetMetallicRoughnessMap() const { return m_MetallicRoughnessMap; }
-		inline void SetMetallicRoughnessMap(const Ref<Texture2D>& metallicRoughnessMap) { m_MetallicRoughnessMap = metallicRoughnessMap; }
-		
-		inline const Ref<Texture2D>& GetNormalMap() const { return m_NormalMap; }
-		inline void SetNormalMap(const Ref<Texture2D>& normalMap) { m_NormalMap = normalMap; }
-		
-		inline const Ref<Texture2D>& GetAOMap() const { return m_AOMap; }
-		inline void SetAOMap(const Ref<Texture2D>& aoMap) { m_AOMap = aoMap; }
-		
-		inline const Ref<Texture2D>& GetEmissiveMap() const { return m_EmissiveMap; }
-		inline void SetEmissiveMap(const Ref<Texture2D>& emissiveMap) { m_EmissiveMap = emissiveMap; }
-		
-		inline const Ref<TextureCubemap>& GetEnvironmentMap() const { return m_EnvironmentMap; }
-		inline void SetEnvironmentMap(const Ref<TextureCubemap>& environmentMap) { m_EnvironmentMap = environmentMap; }
-		
-		inline const Ref<TextureCubemap>& GetIrradianceMap() const { return m_IrradianceMap; }
-		inline void SetIrradianceMap(const Ref<TextureCubemap>& irradianceMap) { m_IrradianceMap = irradianceMap; }
-		
-		inline const Ref<TextureCubemap>& GetPrefilterMap() const { return m_PrefilterMap; }
-		inline void SetPrefilterMap(const Ref<TextureCubemap>& prefilterMap) { m_PrefilterMap = prefilterMap; }
-		
-		inline const Ref<Texture2D>& GetBRDFLutMap() const { return m_BRDFLutMap; }
-		inline void SetBRDFLutMap(const Ref<Texture2D>& brdfLutMap) { m_BRDFLutMap = brdfLutMap; }
-
 		// Asset interface
 		static AssetType GetStaticType() { return AssetType::Material; }
 		virtual AssetType GetAssetType() const override { return GetStaticType(); }
