@@ -86,7 +86,16 @@ namespace OloEngine
                 {
                     // Create default material if no material is found
                     auto defaultMaterialRef = Material::CreatePBR("Default Animated Material", glm::vec3(0.8f), 0.0f, 0.5f);
-                    material = *defaultMaterialRef; // Copy to value type for struct-like access
+                    if (defaultMaterialRef)
+                    {
+                        material = *defaultMaterialRef; // Copy to value type for struct-like access
+                    }
+                    else
+                    {
+                        OLO_CORE_ERROR("AnimatedModel: Failed to create default PBR material");
+                        // Use a minimal fallback material or skip this mesh
+                        material = Material{}; // Default constructed material
+                    }
                 }
                 m_Materials.push_back(material);
             }

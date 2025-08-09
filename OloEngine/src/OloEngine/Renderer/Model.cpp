@@ -457,7 +457,16 @@ namespace OloEngine
 			{
 				// Create a default PBR material as fallback
 				auto defaultMaterialRef = Material::CreatePBR("Default PBR", glm::vec3(0.8f), 0.0f, 0.5f);
-				meshMaterial = *defaultMaterialRef; // Copy to value type for struct-like access
+				if (defaultMaterialRef)
+				{
+					meshMaterial = *defaultMaterialRef; // Copy to value type for struct-like access
+				}
+				else
+				{
+					OLO_CORE_ERROR("Model: Failed to create default PBR material");
+					// Use a minimal fallback material or skip this mesh
+					meshMaterial = Material{}; // Default constructed material
+				}
 			}
 			
 			CommandPacket* cmd = OloEngine::Renderer3D::DrawMesh(m_Meshes[i], transform, meshMaterial);

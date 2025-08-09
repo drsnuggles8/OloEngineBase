@@ -293,15 +293,30 @@ namespace OloEngine
                 // Serialize material properties
                 out << YAML::Key << "Properties" << YAML::Value << YAML::BeginMap;
                 
-                // Serialize PBR properties (using actual public member variables)
-                out << YAML::Key << "BaseColor" << YAML::Value << YAML::Flow << YAML::BeginSeq 
+                // Serialize PBR properties with consistent map structure
+                out << YAML::Key << "BaseColor" << YAML::Value << YAML::BeginMap;
+                out << YAML::Key << "type" << YAML::Value << "vec4";
+                out << YAML::Key << "value" << YAML::Value << YAML::Flow << YAML::BeginSeq 
                     << material->BaseColorFactor().x << material->BaseColorFactor().y 
                     << material->BaseColorFactor().z << material->BaseColorFactor().w << YAML::EndSeq;
-                out << YAML::Key << "Metallic" << YAML::Value << material->MetallicFactor();
-                out << YAML::Key << "Roughness" << YAML::Value << material->RoughnessFactor();
-                out << YAML::Key << "Emission" << YAML::Value << YAML::Flow << YAML::BeginSeq 
+                out << YAML::EndMap;
+                
+                out << YAML::Key << "Metallic" << YAML::Value << YAML::BeginMap;
+                out << YAML::Key << "type" << YAML::Value << "float";
+                out << YAML::Key << "value" << YAML::Value << material->MetallicFactor();
+                out << YAML::EndMap;
+                
+                out << YAML::Key << "Roughness" << YAML::Value << YAML::BeginMap;
+                out << YAML::Key << "type" << YAML::Value << "float";
+                out << YAML::Key << "value" << YAML::Value << material->RoughnessFactor();
+                out << YAML::EndMap;
+                
+                out << YAML::Key << "Emission" << YAML::Value << YAML::BeginMap;
+                out << YAML::Key << "type" << YAML::Value << "vec4";
+                out << YAML::Key << "value" << YAML::Value << YAML::Flow << YAML::BeginSeq 
                     << material->EmissiveFactor().x << material->EmissiveFactor().y 
                     << material->EmissiveFactor().z << material->EmissiveFactor().w << YAML::EndSeq;
+                out << YAML::EndMap;
                 
                 // Serialize dynamic float uniforms
                 const auto& floatUniforms = material->GetFloatUniforms();

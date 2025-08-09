@@ -36,7 +36,7 @@ namespace OloEngine
     {
         OLO_PROFILER_THREAD("Runtime Asset Thread");
 
-        while (m_Running)
+        while (m_Running.load(std::memory_order_acquire))
         {
             OLO_PROFILER_SCOPE("Runtime Asset Thread Queue");
 
@@ -46,7 +46,7 @@ namespace OloEngine
                 RuntimeAssetLoadRequest request;
                 {
                     std::scoped_lock<std::mutex> lock(m_AssetLoadingQueueMutex);
-                    if (m_AssetLoadingQueue.empty() || !m_Running)
+                    if (m_AssetLoadingQueue.empty() || !m_Running.load(std::memory_order_acquire))
                     {
                         queueEmptyOrStop = true;
                     }
@@ -78,12 +78,12 @@ namespace OloEngine
                 }
             }
 
-            if (m_Running)
+            if (m_Running.load(std::memory_order_acquire))
             {
                 // Wait for new assets to load or stop signal
                 std::unique_lock<std::mutex> lock(m_AssetLoadingQueueMutex);
                 m_AssetLoadingQueueCV.wait(lock,
-                    [this] { return !m_AssetLoadingQueue.empty() || !m_Running; });
+                    [this] { return !m_AssetLoadingQueue.empty() || !m_Running.load(std::memory_order_acquire); });
             }
         }
     }
@@ -163,7 +163,7 @@ namespace OloEngine
         // 2. Deserialize the asset from binary data
         // 3. Return the loaded asset
         
-        OLO_ASSERT(false, "LoadAssetFromPack not implemented - asset pack loading not yet supported");
+        OLO_CORE_ERROR("LoadAssetFromPack not implemented - asset pack loading not yet supported for handle {0}", handle);
         return nullptr;
     }
 
