@@ -9,10 +9,13 @@
 #include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 
+#include <unordered_map>
+#include <functional>
+
 namespace OloEngine
 {
     // Placeholder asset creation functions - similar to Hazel's approach
-    static std::unordered_map<AssetType, std::function<Ref<Asset>()>> s_AssetPlaceholderTable =
+    static const std::unordered_map<AssetType, std::function<Ref<Asset>()>> s_AssetPlaceholderTable =
     {
         { AssetType::Texture2D, []() -> Ref<Asset> {
             // Create a simple white texture

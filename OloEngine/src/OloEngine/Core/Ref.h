@@ -159,6 +159,7 @@ namespace OloEngine
         template<typename T2>
         Ref<T2> As() const
         {
+            static_assert(std::is_base_of_v<RefCounted, T2>, "T2 must inherit from RefCounted");
             T2* cast_result = dynamic_cast<T2*>(m_Instance);
             if (cast_result)
             {

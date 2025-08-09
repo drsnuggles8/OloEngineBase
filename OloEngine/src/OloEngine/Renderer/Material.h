@@ -61,13 +61,13 @@ namespace OloEngine {
 		virtual void OnShaderReloaded() {}
 
 		// Material property accessors
-		void SetName(const std::string& name) { m_MaterialName = name; }
-		const std::string& GetName() const { return m_MaterialName; }
+		void SetName(const std::string& name) { m_Name = name; }
+		const std::string& GetName() const { return m_Name; }
 		
 		void SetType(MaterialType type) { m_MaterialType = type; }
 		MaterialType GetType() const { return m_MaterialType; }
 		
-		void SetShader(const Ref<Shader>& shader) { m_MaterialShader = shader; }
+		void SetShader(const Ref<Shader>& shader) { m_Shader = shader; }
 
 		virtual void Set(const std::string& name, float value);
 		virtual void Set(const std::string& name, int value);
@@ -122,14 +122,14 @@ namespace OloEngine {
 		// =====================================================================
 		
 		// Material identification
-		void SetMaterialName(const std::string& name) { m_MaterialName = name; }
-		const std::string& GetMaterialName() const { return m_MaterialName; }
+		void SetMaterialName(const std::string& name) { m_Name = name; }
+		const std::string& GetMaterialName() const { return m_Name; }
 		
 		// Material type and shader management
 		MaterialType GetMaterialType() const { return m_MaterialType; }
 		void SetMaterialType(MaterialType type) { m_MaterialType = type; }
-		void SetMaterialShader(const Ref<Shader>& shader) { m_MaterialShader = shader; }
-		Ref<Shader> GetMaterialShader() const { return m_MaterialShader; }
+		void SetMaterialShader(const Ref<Shader>& shader) { m_Shader = shader; }
+		Ref<Shader> GetMaterialShader() const { return m_Shader; }
 		
 		// Legacy material properties (for backward compatibility)
 		const glm::vec3& GetAmbient() const { return m_Ambient; }
@@ -189,11 +189,11 @@ namespace OloEngine {
 		// These properties provide reference access to private members for compatibility
 		
 		// Material identification (aliases to private members)
-		std::string& Name = m_MaterialName;
+		std::string& Name = m_Name;
 		
 		// Material type and shader (aliases to private members)
 		MaterialType& Type = m_MaterialType;
-		Ref<OloEngine::Shader>& Shader = m_MaterialShader;
+		Ref<OloEngine::Shader>& Shader = m_Shader;
 		
 		// Legacy material properties (aliases to private members)
 		glm::vec3& Ambient = m_Ambient;
@@ -261,12 +261,8 @@ namespace OloEngine {
 		// PRIVATE MATERIAL PROPERTIES (Encapsulated)
 		// =====================================================================
 		
-		// Material identification
-		std::string m_MaterialName = "Material";
-		
-		// Material type and shader
+		// Material type
 		MaterialType m_MaterialType = MaterialType::PBR;
-		Ref<OloEngine::Shader> m_MaterialShader;
 		
 		// Legacy material properties (for backward compatibility)
 		glm::vec3 m_Ambient = glm::vec3(0.2f);

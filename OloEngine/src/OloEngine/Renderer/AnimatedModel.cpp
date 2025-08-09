@@ -217,13 +217,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Create bone name to index map for O(1) lookups
-        std::unordered_map<std::string, u32> boneNameToIndex;
-        if (m_Skeleton)
+        // Ensure cached bone name to index map is built
+        if (m_CachedBoneNameToIndex.empty() && m_Skeleton)
         {
             for (sizet i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
             {
-                boneNameToIndex[m_Skeleton->m_BoneNames[i]] = static_cast<u32>(i);
+                m_CachedBoneNameToIndex[m_Skeleton->m_BoneNames[i]] = static_cast<u32>(i);
             }
         }
 
@@ -231,9 +230,9 @@ namespace OloEngine
         {
             std::string boneName = mesh->mBones[boneIndex]->mName.data;
             
-            // Find the bone index in the skeleton using O(1) lookup
-            auto it = boneNameToIndex.find(boneName);
-            if (it == boneNameToIndex.end())
+            // Find the bone index in the skeleton using O(1) lookup from cached map
+            auto it = m_CachedBoneNameToIndex.find(boneName);
+            if (it == m_CachedBoneNameToIndex.end())
             {
                 OLO_CORE_WARN("AnimatedModel::ProcessBones: Bone '{}' not found in skeleton", boneName);
                 continue;

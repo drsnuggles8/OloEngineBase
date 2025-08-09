@@ -30,7 +30,7 @@ namespace OloEngine
         s_Serializers[AssetType::Scene] = CreateScope<SceneAssetSerializer>();
         s_Serializers[AssetType::Font] = CreateScope<FontSerializer>();
         s_Serializers[AssetType::MeshCollider] = CreateScope<MeshColliderSerializer>();
-        s_Serializers[AssetType::SoundGraphSound] = CreateScope<SoundGraphSoundSerializer>();
+        s_Serializers[AssetType::SoundGraphSound] = CreateScope<SoundGraphSerializer>();
         s_Serializers[AssetType::AnimationClip] = CreateScope<AnimationAssetSerializer>();
         s_Serializers[AssetType::AnimationGraph] = CreateScope<AnimationGraphAssetSerializer>();
         s_Serializers[AssetType::ScriptFile] = CreateScope<ScriptFileSerializer>();

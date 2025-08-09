@@ -98,6 +98,9 @@ namespace OloEngine
         std::unordered_map<std::string, Ref<Texture2D>> m_LoadedTextures;
         std::unordered_map<std::string, BoneInfo> m_BoneInfoMap;
         
+        // Cached bone name to index mapping for efficient lookup during mesh processing
+        mutable std::unordered_map<std::string, u32> m_CachedBoneNameToIndex;
+        
         BoundingBox m_BoundingBox;
         BoundingSphere m_BoundingSphere;
         

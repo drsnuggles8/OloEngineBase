@@ -9,7 +9,7 @@ namespace OloEngine {
 	}
 
 	Material::Material(const Ref<OloEngine::Shader>& shader, const std::string& name)
-		: m_Shader(shader), m_Name(name), m_MaterialType(MaterialType::PBR), m_MaterialShader(shader), m_MaterialName(name)
+		: m_Shader(shader), m_Name(name), m_MaterialType(MaterialType::PBR)
 	{
 	}
 
@@ -21,7 +21,7 @@ namespace OloEngine {
 		  m_Vec4Uniforms(other.m_Vec4Uniforms), m_Mat3Uniforms(other.m_Mat3Uniforms), m_Mat4Uniforms(other.m_Mat4Uniforms),
 		  m_Texture2DUniforms(other.m_Texture2DUniforms), m_TextureCubeUniforms(other.m_TextureCubeUniforms),
 		  // Copy all private members
-		  m_MaterialName(other.m_MaterialName), m_MaterialType(other.m_MaterialType), m_MaterialShader(other.m_MaterialShader),
+		  m_MaterialType(other.m_MaterialType),
 		  m_Ambient(other.m_Ambient), m_Diffuse(other.m_Diffuse), m_Specular(other.m_Specular), m_Shininess(other.m_Shininess),
 		  m_UseTextureMaps(other.m_UseTextureMaps), m_DiffuseMap(other.m_DiffuseMap), m_SpecularMap(other.m_SpecularMap),
 		  m_BaseColorFactor(other.m_BaseColorFactor), m_EmissiveFactor(other.m_EmissiveFactor), 
@@ -53,9 +53,7 @@ namespace OloEngine {
 			m_TextureCubeUniforms = other.m_TextureCubeUniforms;
 			
 			// Copy all private members
-			m_MaterialName = other.m_MaterialName;
 			m_MaterialType = other.m_MaterialType;
-			m_MaterialShader = other.m_MaterialShader;
 			m_Ambient = other.m_Ambient;
 			m_Diffuse = other.m_Diffuse;
 			m_Specular = other.m_Specular;

@@ -14,7 +14,7 @@ namespace OloEngine
 	public:
 		explicit MaterialAsset(bool transparent = false);
 		explicit MaterialAsset(Ref<Material> material);
-		~MaterialAsset();
+		virtual ~MaterialAsset() override;
 
 		virtual void OnDependencyUpdated(AssetHandle handle) override;
 

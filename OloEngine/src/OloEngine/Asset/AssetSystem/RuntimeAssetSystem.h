@@ -56,7 +56,7 @@ namespace OloEngine
          * @brief Check if the asset thread is running
          * @return True if the thread is active
          */
-        bool IsRunning() const { return m_Running; }
+        bool IsRunning() const { return m_Running.load(std::memory_order_acquire); }
 
         /**
          * @brief Check if an asset is in the pending queue

@@ -307,15 +307,21 @@ namespace OloEngine
                 const auto& floatUniforms = material->GetFloatUniforms();
                 for (const auto& [name, value] : floatUniforms)
                 {
-                    out << YAML::Key << name << YAML::Value << value;
+                    out << YAML::Key << name << YAML::Value << YAML::BeginMap;
+                    out << YAML::Key << "type" << YAML::Value << "float";
+                    out << YAML::Key << "value" << YAML::Value << value;
+                    out << YAML::EndMap;
                 }
                 
                 // Serialize dynamic vec3 uniforms
                 const auto& vec3Uniforms = material->GetVec3Uniforms();
                 for (const auto& [name, value] : vec3Uniforms)
                 {
-                    out << YAML::Key << name << YAML::Value << YAML::Flow << YAML::BeginSeq 
+                    out << YAML::Key << name << YAML::Value << YAML::BeginMap;
+                    out << YAML::Key << "type" << YAML::Value << "vec3";
+                    out << YAML::Key << "value" << YAML::Value << YAML::Flow << YAML::BeginSeq 
                         << value.x << value.y << value.z << YAML::EndSeq;
+                    out << YAML::EndMap;
                 }
                 
                 out << YAML::EndMap;
@@ -938,7 +944,6 @@ namespace OloEngine
         
         OLO_CORE_WARN("MeshSourceSerializer::TryLoadData - MeshSource class not implemented yet");
         return false;
-        return true;
     }
 
     bool MeshSourceSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
@@ -1295,33 +1300,33 @@ namespace OloEngine
     }
 
     //////////////////////////////////////////////////////////////////////////////////
-    // SoundGraphSoundSerializer
+    // SoundGraphSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    void SoundGraphSoundSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    void SoundGraphSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         // TODO: Implement sound graph serialization
-        OLO_CORE_WARN("SoundGraphSoundSerializer::Serialize not yet implemented");
+        OLO_CORE_WARN("SoundGraphSerializer::Serialize not yet implemented");
     }
 
-    bool SoundGraphSoundSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
+    bool SoundGraphSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
         // TODO: Implement sound graph loading
-        OLO_CORE_WARN("SoundGraphSoundSerializer::TryLoadData not yet implemented");
+        OLO_CORE_WARN("SoundGraphSerializer::TryLoadData not yet implemented");
         return false;
     }
 
-    bool SoundGraphSoundSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
+    bool SoundGraphSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
         // TODO: Implement sound graph pack serialization
-        OLO_CORE_WARN("SoundGraphSoundSerializer::SerializeToAssetPack not yet implemented");
+        OLO_CORE_WARN("SoundGraphSerializer::SerializeToAssetPack not yet implemented");
         return false;
     }
 
-    Ref<Asset> SoundGraphSoundSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
+    Ref<Asset> SoundGraphSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
         // TODO: Implement sound graph pack deserialization
-        OLO_CORE_WARN("SoundGraphSoundSerializer::DeserializeFromAssetPack not yet implemented");
+        OLO_CORE_WARN("SoundGraphSerializer::DeserializeFromAssetPack not yet implemented");
         return nullptr;
     }
 

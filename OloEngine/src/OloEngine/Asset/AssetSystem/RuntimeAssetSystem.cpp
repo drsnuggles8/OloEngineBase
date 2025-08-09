@@ -5,6 +5,8 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Profiler.h"
 
+#include <chrono>
+
 namespace OloEngine
 {
     RuntimeAssetSystem::RuntimeAssetSystem()
@@ -156,14 +158,12 @@ namespace OloEngine
 
         // TODO: Implement actual asset pack loading
         // This would use the AssetPack system to load assets from binary packs
-        OLO_CORE_WARN("RuntimeAssetSystem: Asset pack loading not fully implemented yet");
-        
-        // For now, return nullptr to indicate loading failure
         // In a full implementation, this would:
         // 1. Find the asset in the active asset pack
         // 2. Deserialize the asset from binary data
         // 3. Return the loaded asset
         
+        OLO_ASSERT(false, "LoadAssetFromPack not implemented - asset pack loading not yet supported");
         return nullptr;
     }
 

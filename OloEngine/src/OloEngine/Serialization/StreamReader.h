@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Buffer.h"
+#include "OloEngine/Asset/Asset.h"
 
 #include <map>
 #include <unordered_map>
@@ -35,6 +36,7 @@ namespace OloEngine
         void ReadObject(T& obj)
         {
             static_assert(std::is_class_v<T>, "ReadObject requires a class type");
+            static_assert(std::is_same_v<AssetHandle, T>, "ReadObject can only be used with AssetHandle type");
             // Note: Compile-time validation of Deserialize method existence would require concepts (C++20)
             // For C++17 compatibility, we rely on template instantiation errors
             T::Deserialize(this, obj);
