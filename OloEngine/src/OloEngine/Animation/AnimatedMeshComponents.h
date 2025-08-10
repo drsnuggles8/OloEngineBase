@@ -42,7 +42,11 @@ namespace OloEngine
 		explicit SubmeshComponent(const Ref<OloEngine::Mesh>& mesh, u32 submeshIndex = 0) 
 			: m_Mesh(mesh), m_SubmeshIndex(submeshIndex) 
 		{
-			// TODO: Add precondition checks when assert system is properly configured
+			// Validate mesh reference
+			OLO_CORE_ASSERT(m_Mesh, "Mesh reference cannot be null!");
+			
+			// Validate that mesh has a valid MeshSource
+			OLO_CORE_ASSERT(m_Mesh->GetMeshSource(), "Mesh MeshSource is null!");
 		}
 	};
 

@@ -22,6 +22,12 @@ namespace OloEngine
         Asset() = default;
         virtual ~Asset() = default;
 
+        // Delete copy and move operations to prevent slicing and identity issues
+        Asset(const Asset&) = delete;
+        Asset& operator=(const Asset&) = delete;
+        Asset(Asset&&) = delete;
+        Asset& operator=(Asset&&) = delete;
+
         static AssetType GetStaticType() { return AssetType::None; }
         virtual AssetType GetAssetType() const { return AssetType::None; }
 
