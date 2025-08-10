@@ -57,15 +57,15 @@ namespace OloEngine
         }
 #endif
         
-        std::unique_lock lock(m_AssetsMutex);
+        // Lock all mutexes atomically to prevent race conditions
+        std::scoped_lock lock(m_AssetsMutex, m_PacksMutex, m_DependenciesMutex);
         m_LoadedAssets.clear();
         m_MemoryAssets.clear();
-        
-        std::unique_lock packLock(m_PacksMutex);
         m_LoadedPacks.clear();
-        
-        std::unique_lock depLock(m_DependenciesMutex);
         m_AssetDependencies.clear();
+        
+        // Shutdown AssetImporter to release serializer resources
+        AssetImporter::Shutdown();
     }
 
     AssetType RuntimeAssetManager::GetAssetType(AssetHandle assetHandle) const noexcept
@@ -112,29 +112,57 @@ namespace OloEngine
         if (assetHandle == 0)
             return nullptr;
 
-        // Check if already loaded
+        // First check: acquire shared lock and check if asset is already loaded
         {
             std::shared_lock lock(m_AssetsMutex);
+            
+            // Check loaded assets first
             auto it = m_LoadedAssets.find(assetHandle);
             if (it != m_LoadedAssets.end())
                 return it->second;
+
+            // Check memory assets
+            auto memIt = m_MemoryAssets.find(assetHandle);
+            if (memIt != m_MemoryAssets.end())
+                return memIt->second;
         }
 
-        // Check memory assets
-        {
-            std::shared_lock lock(m_AssetsMutex);
-            auto it = m_MemoryAssets.find(assetHandle);
-            if (it != m_MemoryAssets.end())
-                return it->second;
-        }
-
-        // Try to load from asset pack
-        Ref<Asset> asset = LoadAssetFromPack(assetHandle);
-        if (asset)
+        // Asset not found, need to load it - acquire unique lock for double-checked locking
         {
             std::unique_lock lock(m_AssetsMutex);
-            m_LoadedAssets[assetHandle] = asset;
-            return asset;
+            
+            // Second check: verify asset wasn't loaded by another thread while we waited for the lock
+            auto it = m_LoadedAssets.find(assetHandle);
+            if (it != m_LoadedAssets.end())
+                return it->second;
+
+            // Check memory assets again
+            auto memIt = m_MemoryAssets.find(assetHandle);
+            if (memIt != m_MemoryAssets.end())
+                return memIt->second;
+
+            // Asset still not loaded, safe to load it now
+            // Release the lock temporarily while loading from pack (expensive operation)
+            lock.unlock();
+            Ref<Asset> asset = LoadAssetFromPack(assetHandle);
+            
+            if (asset)
+            {
+                // Re-acquire lock to insert the loaded asset
+                lock.lock();
+                
+                // Final check: ensure no other thread loaded it while we were loading
+                auto finalIt = m_LoadedAssets.find(assetHandle);
+                if (finalIt != m_LoadedAssets.end())
+                {
+                    // Another thread loaded it, return that instance
+                    return finalIt->second;
+                }
+                
+                // Safe to insert our loaded asset
+                m_LoadedAssets[assetHandle] = asset;
+                return asset;
+            }
         }
 
         return nullptr;

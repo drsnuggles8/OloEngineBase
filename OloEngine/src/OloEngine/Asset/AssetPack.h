@@ -7,7 +7,9 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
+#include <memory>
 
 namespace OloEngine
 {
@@ -65,7 +67,7 @@ namespace OloEngine
         AssetPackLoadResult(AssetPackLoadError error, const std::string& message)
             : Success(false), ErrorCode(error), ErrorMessage(message) {}
 
-        operator bool() const { return Success; }
+        explicit operator bool() const noexcept { return Success; }
     };
 
     /**
@@ -85,7 +87,7 @@ namespace OloEngine
      * 
      * ## Load/Unload Semantics
      * - Load() is idempotent: calling it multiple times with the same path
-     *   will unload the current pack and reload from the new path
+     *   will return success immediately without reloading if already loaded
      * - Load() with a different path will automatically unload the current pack first
      * - Unload() can be called safely multiple times without error
      * - IsLoaded() provides current state information
@@ -94,6 +96,7 @@ namespace OloEngine
     {
     public:
         AssetPack() = default;
+        ~AssetPack() { Unload(); }
         
         static Ref<AssetPack> Create() { return Ref<AssetPack>::Create(); }        
         
@@ -119,7 +122,7 @@ namespace OloEngine
          * - AssetPackLoadError::CorruptIndex: Asset index table is damaged
          * - AssetPackLoadError::IOError: General I/O error during reading
          */
-        AssetPackLoadResult Load(const std::filesystem::path& path);
+         [[nodiscard]] AssetPackLoadResult Load(const std::filesystem::path& path);
         
         /**
          * @brief Legacy overload for backward compatibility
@@ -143,7 +146,7 @@ namespace OloEngine
          * 
          * Thread Safety: NOT thread-safe. Caller must ensure external synchronization.
          */
-        void Unload();
+        void Unload() noexcept;
         
         /**
          * @brief Check if the pack is currently loaded
@@ -174,6 +177,13 @@ namespace OloEngine
         
         /**
          * @brief Create a stream reader for reading asset data
+         * 
+         * @warning The returned FileStreamReader pointer may become invalid if Unload() 
+         *          or a subsequent Load() is called, as these operations can close or 
+         *          replace the underlying file. Ensure the asset pack remains loaded 
+         *          for the entire lifetime of the returned stream reader to prevent 
+         *          use-after-close issues.
+         * 
          * @return Stream reader or nullptr if failed
          */
         FileStreamReaderPtr GetAssetStreamReader() const;
@@ -210,6 +220,9 @@ namespace OloEngine
         AssetPackFile m_AssetPackFile;
         std::filesystem::path m_PackPath;
         bool m_IsLoaded = false;
+        
+        // Fast lookup map for O(1) asset queries
+        std::unordered_map<AssetHandle, AssetPackFile::AssetInfo> m_AssetLookupMap;
     };
 
 } // namespace OloEngine

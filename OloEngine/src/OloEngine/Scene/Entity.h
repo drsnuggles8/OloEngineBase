@@ -141,7 +141,17 @@ namespace OloEngine
 
 			Entity currentParent = GetParent();
 			if (currentParent == parent)
+			{
+				// Even if parent is the same, ensure child is in parent's children list for consistency
+				if (parent)
+				{
+					auto& parentChildren = parent.Children();
+					UUID uuid = GetUUID();
+					if (std::find(parentChildren.begin(), parentChildren.end(), uuid) == parentChildren.end())
+						parentChildren.emplace_back(uuid);
+				}
 				return;
+			}
 
 			// If changing parent, remove child from existing parent
 			if (currentParent)
@@ -241,7 +251,10 @@ namespace OloEngine
 		{
 			// Traverse up the hierarchy from the potential parent
 			Entity current = potentialParent;
-			while (current)
+			constexpr u32 maxTraversalDepth = 1000; // Reasonable limit to prevent infinite loops
+			u32 depth = 0;
+			
+			while (current && depth < maxTraversalDepth)
 			{
 				// If we encounter this entity while traversing up from the potential parent,
 				// it means setting the potential parent would create a cycle
@@ -249,7 +262,16 @@ namespace OloEngine
 					return true;
 				
 				current = current.GetParent();
+				++depth;
 			}
+			
+			// If we exceeded max depth, assume corruption and treat as potential cycle
+			if (depth >= maxTraversalDepth)
+			{
+				OLO_CORE_WARN("WouldCreateCycle: Maximum traversal depth exceeded, possible hierarchy corruption detected");
+				return true; // Conservative approach: assume cycle exists
+			}
+			
 			return false;
 		}
 

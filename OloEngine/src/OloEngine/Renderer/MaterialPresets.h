@@ -2,6 +2,10 @@
 
 #include "OloEngine/Renderer/Material.h"
 
+#include <string>
+#include <glm/glm.hpp>
+#include <glm/vec3.hpp>
+
 namespace OloEngine {
 
 	/**

@@ -43,6 +43,14 @@ namespace OloEngine
         });
     }
 
+    void AssetImporter::Shutdown()
+    {
+        std::scoped_lock lock(s_SerializersMutex);
+        const auto serializerCount = s_Serializers.size();
+        s_Serializers.clear();
+        OLO_CORE_TRACE("AssetImporter shutdown - cleared {} serializers", serializerCount);
+    }
+
     void AssetImporter::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset)
     {
         if (!asset)

@@ -35,6 +35,12 @@ namespace OloEngine
         AssetManagerBase() = default;
         virtual ~AssetManagerBase() noexcept = default;
 
+        // Delete copy and move operations to prevent slicing and ownership issues
+        AssetManagerBase(const AssetManagerBase&) = delete;
+        AssetManagerBase& operator=(const AssetManagerBase&) = delete;
+        AssetManagerBase(AssetManagerBase&&) = delete;
+        AssetManagerBase& operator=(AssetManagerBase&&) = delete;
+
         /**
          * @brief Shutdown the asset manager and cleanup resources
          */

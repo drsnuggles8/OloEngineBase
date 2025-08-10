@@ -104,6 +104,9 @@ namespace OloEngine
             m_LoadedAssets.clear();
             m_MemoryAssets.clear();
         }
+        
+        // Shutdown AssetImporter to release serializer resources
+        AssetImporter::Shutdown();
     }
 
     AssetType EditorAssetManager::GetAssetType(AssetHandle assetHandle) const noexcept

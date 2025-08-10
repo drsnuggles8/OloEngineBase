@@ -15,6 +15,7 @@ namespace OloEngine
     {
     public:
         static void Init();
+        static void Shutdown();
         static void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset);
         static void Serialize(const Ref<Asset>& asset);
         [[nodiscard]] static bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset);

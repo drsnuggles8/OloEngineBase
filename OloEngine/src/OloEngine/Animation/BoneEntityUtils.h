@@ -103,7 +103,7 @@ namespace OloEngine
         static void BuildMeshBoneEntityIds(
             Entity entity,
             Entity rootEntity,
-            const Scene* scene);
+            Scene* scene);
 
         /**
          * @brief Build bone entity IDs for an animation
@@ -115,7 +115,7 @@ namespace OloEngine
         static void BuildAnimationBoneEntityIds(
             Entity entity,
             Entity rootEntity,
-            const Scene* scene);
+            Scene* scene);
 
         /**
          * @brief Find the entity with a specific bone name and index

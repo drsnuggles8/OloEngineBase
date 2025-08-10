@@ -5,6 +5,7 @@
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include <unordered_map>
+#include <unordered_set>
 
 namespace OloEngine
 {
@@ -54,53 +55,7 @@ namespace OloEngine
         return boneTransforms;
     }
 
-    // Helper function to build a tag-to-entity map for O(1) lookups
-    static void BuildTagEntityMap(Entity entity, const Scene* scene, std::unordered_map<std::string, Entity>& tagMap)
-    {
-        if (!entity || !scene)
-            return;
 
-        // Check current entity
-        if (entity.HasComponent<TagComponent>())
-        {
-            const auto& tagComponent = entity.GetComponent<TagComponent>();
-            tagMap[tagComponent.Tag] = entity;
-        }
-
-        // Recursively process children
-        for (const auto& childId : entity.Children())
-        {
-            auto childOpt = scene->TryGetEntityWithUUID(childId);
-            if (childOpt)
-            {
-                BuildTagEntityMap(*childOpt, scene, tagMap);
-            }
-        }
-    }
-
-    // Helper function to build a tag-to-entity UUID map for O(1) lookups
-    static void BuildTagEntityMap(Entity entity, const Scene* scene, std::unordered_map<std::string, UUID>& tagMap)
-    {
-        if (!entity || !scene)
-            return;
-
-        // Check current entity
-        if (entity.HasComponent<TagComponent>())
-        {
-            const auto& tagComponent = entity.GetComponent<TagComponent>();
-            tagMap[tagComponent.Tag] = entity.GetUUID();
-        }
-
-        // Recursively process children
-        for (const auto& childId : entity.Children())
-        {
-            auto childOpt = scene->TryGetEntityWithUUID(childId);
-            if (childOpt)
-            {
-                BuildTagEntityMap(*childOpt, scene, tagMap);
-            }
-        }
-    }
 
     std::vector<UUID> BoneEntityUtils::FindBoneEntityIds(
         Entity rootEntity,
@@ -117,7 +72,36 @@ namespace OloEngine
 
         // Build tag-to-entity map once for O(1) lookups
         std::unordered_map<std::string, UUID> tagEntityMap;
-        BuildTagEntityMap(rootEntity, scene, tagEntityMap);
+        std::unordered_set<UUID> visited;
+        
+        // Build tag map with cycle detection
+        std::function<void(Entity)> buildTagMap = [&](Entity entity) {
+            if (!entity || !scene)
+                return;
+
+            UUID entityUUID = entity.GetUUID();
+            if (visited.find(entityUUID) != visited.end())
+                return;
+
+            visited.insert(entityUUID);
+
+            if (entity.HasComponent<TagComponent>())
+            {
+                const auto& tagComponent = entity.GetComponent<TagComponent>();
+                tagEntityMap[tagComponent.Tag] = entity.GetUUID();
+            }
+
+            for (const auto& childId : entity.Children())
+            {
+                auto childOpt = scene->TryGetEntityWithUUID(childId);
+                if (childOpt)
+                {
+                    buildTagMap(*childOpt);
+                }
+            }
+        };
+        
+        buildTagMap(rootEntity);
 
         bool foundAtLeastOne = false;
         for (const auto& boneName : boneNames)
@@ -165,7 +149,36 @@ namespace OloEngine
             if (!skeletonComponent.m_CacheValid)
             {
                 skeletonComponent.m_TagEntityCache.clear();
-                BuildTagEntityMap(rootEntity, scene, skeletonComponent.m_TagEntityCache);
+                std::unordered_set<UUID> visited;
+                
+                // Build tag map with cycle detection
+                std::function<void(Entity)> buildTagMap = [&](Entity entity) {
+                    if (!entity || !scene)
+                        return;
+
+                    UUID entityUUID = entity.GetUUID();
+                    if (visited.find(entityUUID) != visited.end())
+                        return;
+
+                    visited.insert(entityUUID);
+
+                    if (entity.HasComponent<TagComponent>())
+                    {
+                        const auto& tagComponent = entity.GetComponent<TagComponent>();
+                        skeletonComponent.m_TagEntityCache[tagComponent.Tag] = entity.GetUUID();
+                    }
+
+                    for (const auto& childId : entity.Children())
+                    {
+                        auto childOpt = scene->TryGetEntityWithUUID(childId);
+                        if (childOpt)
+                        {
+                            buildTagMap(*childOpt);
+                        }
+                    }
+                };
+                
+                buildTagMap(rootEntity);
                 skeletonComponent.m_CacheValid = true;
             }
             
@@ -207,9 +220,19 @@ namespace OloEngine
         
         if (rootBoneEntityOpt)
         {
+            std::unordered_set<UUID> visitedParents; // Track visited entities to prevent cycles
             Entity parentEntity = rootBoneEntityOpt->GetParent();
+            
             while (parentEntity && parentEntity != entity)
             {
+                // Check for cycles - if this parent was already visited, break to prevent infinite loop
+                UUID parentUUID = parentEntity.GetUUID();
+                if (visitedParents.find(parentUUID) != visitedParents.end())
+                    break;
+                
+                // Mark this parent as visited
+                visitedParents.insert(parentUUID);
+                
                 if (parentEntity.HasComponent<TransformComponent>())
                 {
                     transform = parentEntity.GetComponent<TransformComponent>().GetTransform() * transform;
@@ -222,12 +245,21 @@ namespace OloEngine
         return transform;
     }
 
-    void BoneEntityUtils::BuildMeshBoneEntityIds(Entity entity, Entity rootEntity, const Scene* scene)
+    // Internal helper with cycle detection
+    static void BuildMeshBoneEntityIdsImpl(Entity entity, Entity rootEntity, Scene* scene, std::unordered_set<UUID>& visited)
     {
         if (!scene)
             return;
         if (!entity)
             return;
+
+        // Check for cycles - if this entity was already visited, skip to prevent infinite recursion
+        UUID entityUUID = entity.GetUUID();
+        if (visited.find(entityUUID) != visited.end())
+            return;
+
+        // Mark this entity as visited
+        visited.insert(entityUUID);
 
         // Process current entity if it has a SubmeshComponent
         if (entity.HasComponent<SubmeshComponent>())
@@ -238,7 +270,7 @@ namespace OloEngine
                 const Skeleton* skeleton = submeshComponent.m_Mesh->GetMeshSource()->GetSkeleton();
                 if (skeleton)
                 {
-                    submeshComponent.m_BoneEntityIds = FindBoneEntityIds(rootEntity, skeleton, scene);
+                    submeshComponent.m_BoneEntityIds = BoneEntityUtils::FindBoneEntityIds(rootEntity, skeleton, scene);
                 }
             }
         }
@@ -249,17 +281,32 @@ namespace OloEngine
             auto childOpt = scene->TryGetEntityWithUUID(childId);
             if (childOpt) // Check if entity is valid before recursive call
             {
-                BuildMeshBoneEntityIds(*childOpt, rootEntity, scene);
+                BuildMeshBoneEntityIdsImpl(*childOpt, rootEntity, scene, visited);
             }
         }
     }
 
-    void BoneEntityUtils::BuildAnimationBoneEntityIds(Entity entity, Entity rootEntity, const Scene* scene)
+    void BoneEntityUtils::BuildMeshBoneEntityIds(Entity entity, Entity rootEntity, Scene* scene)
+    {
+        std::unordered_set<UUID> visited;
+        BuildMeshBoneEntityIdsImpl(entity, rootEntity, scene, visited);
+    }
+
+    // Internal helper with cycle detection
+    static void BuildAnimationBoneEntityIdsImpl(Entity entity, Entity rootEntity, Scene* scene, std::unordered_set<UUID>& visited)
     {
         if (!scene)
             return;
         if (!entity)
             return;
+
+        // Check for cycles - if this entity was already visited, skip to prevent infinite recursion
+        UUID entityUUID = entity.GetUUID();
+        if (visited.find(entityUUID) != visited.end())
+            return;
+
+        // Mark this entity as visited
+        visited.insert(entityUUID);
 
         // Process current entity if it has an AnimationStateComponent
         if (entity.HasComponent<AnimationStateComponent>() && entity.HasComponent<SkeletonComponent>())
@@ -270,8 +317,8 @@ namespace OloEngine
             if (skeletonComponent.m_Skeleton)
             {
                 // Use cached version to avoid repeated hierarchy walks
-                animComponent.m_BoneEntityIds = FindBoneEntityIds(rootEntity, skeletonComponent, scene);
-                animComponent.m_RootBoneTransform = FindRootBoneTransform(entity, animComponent.m_BoneEntityIds, scene);
+                animComponent.m_BoneEntityIds = BoneEntityUtils::FindBoneEntityIds(rootEntity, skeletonComponent, scene);
+                animComponent.m_RootBoneTransform = BoneEntityUtils::FindRootBoneTransform(entity, animComponent.m_BoneEntityIds, scene);
             }
         }
 
@@ -281,15 +328,30 @@ namespace OloEngine
             auto childOpt = scene->TryGetEntityWithUUID(childId);
             if (childOpt) // Check if entity is valid before recursive call
             {
-                BuildAnimationBoneEntityIds(*childOpt, rootEntity, scene);
+                BuildAnimationBoneEntityIdsImpl(*childOpt, rootEntity, scene, visited);
             }
         }
     }
 
-    Entity BoneEntityUtils::FindEntityWithTag(Entity entity, const std::string& tag, const Scene* scene)
+    void BoneEntityUtils::BuildAnimationBoneEntityIds(Entity entity, Entity rootEntity, Scene* scene)
+    {
+        std::unordered_set<UUID> visited;
+        BuildAnimationBoneEntityIdsImpl(entity, rootEntity, scene, visited);
+    }
+
+    // Internal helper with cycle detection
+    static Entity FindEntityWithTagImpl(Entity entity, const std::string& tag, const Scene* scene, std::unordered_set<UUID>& visited)
     {
         if (!entity || !scene)
             return Entity();
+
+        // Check for cycles - if this entity was already visited, skip to prevent infinite recursion
+        UUID entityUUID = entity.GetUUID();
+        if (visited.find(entityUUID) != visited.end())
+            return Entity();
+
+        // Mark this entity as visited
+        visited.insert(entityUUID);
 
         // Check current entity
         if (entity.HasComponent<TagComponent>())
@@ -305,12 +367,18 @@ namespace OloEngine
             auto childOpt = scene->TryGetEntityWithUUID(childId);
             if (childOpt) // Check if entity is valid before recursive call
             {
-                Entity found = FindEntityWithTag(*childOpt, tag, scene);
+                Entity found = FindEntityWithTagImpl(*childOpt, tag, scene, visited);
                 if (found)
                     return found;
             }
         }
 
         return Entity(); // Not found
+    }
+
+    Entity BoneEntityUtils::FindEntityWithTag(Entity entity, const std::string& tag, const Scene* scene)
+    {
+        std::unordered_set<UUID> visited;
+        return FindEntityWithTagImpl(entity, tag, scene, visited);
     }
 }

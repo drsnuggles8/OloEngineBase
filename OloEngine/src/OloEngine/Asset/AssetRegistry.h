@@ -8,6 +8,7 @@
 #include <unordered_set>
 #include <vector>
 #include <shared_mutex>
+#include <atomic>
 #include <filesystem>
 
 namespace OloEngine
@@ -31,6 +32,14 @@ namespace OloEngine
     public:
         AssetRegistry() = default;
         ~AssetRegistry() = default;
+
+        // Disable copy operations - AssetRegistry manages stateful resources (mutex, atomic counter)
+        AssetRegistry(const AssetRegistry&) = delete;
+        AssetRegistry& operator=(const AssetRegistry&) = delete;
+
+        // Disable move operations - std::shared_mutex is not movable
+        AssetRegistry(AssetRegistry&&) = delete;
+        AssetRegistry& operator=(AssetRegistry&&) = delete;
 
         /**
          * @brief Add or update asset metadata in the registry
@@ -104,7 +113,7 @@ namespace OloEngine
          * @brief Get the total number of assets in the registry
          * @return Number of assets
          */
-        sizet GetAssetCount() const;
+        sizet GetAssetCount() const noexcept;
 
         /**
          * @brief Clear all assets from the registry
@@ -152,8 +161,11 @@ namespace OloEngine
 
     private:
         /**
-         * @brief Get next available asset handle
+         * @brief Get next available asset handle (thread-safe)
          * @return New unique handle
+         * 
+         * Uses atomic operations internally for thread safety. Can be called
+         * concurrently from multiple threads without external synchronization.
          */
         AssetHandle GetNextHandle();
 
@@ -164,8 +176,8 @@ namespace OloEngine
         // Fast path lookup (path -> handle)
         std::unordered_map<std::filesystem::path, AssetHandle> m_PathToHandle;
         
-        // Handle generation counter
-        u64 m_HandleCounter = 1;
+        // Handle generation counter (thread-safe atomic)
+        std::atomic<u64> m_HandleCounter{1};
         
         // Thread synchronization
         mutable std::shared_mutex m_Mutex;
