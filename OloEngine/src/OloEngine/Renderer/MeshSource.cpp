@@ -114,6 +114,23 @@ namespace OloEngine
             max = glm::max(max, vertex.Position);
         }
 
+        // For animated meshes, expand bounds to account for bone transformations
+        if (HasBoneInfluences())
+        {
+            // Calculate the size of the bounding box
+            glm::vec3 size = max - min;
+            f32 maxDimension = glm::max(glm::max(size.x, size.y), size.z);
+            
+            // Expand by a large percentage for skeletal animation (200% to handle extended limbs)
+            f32 expansionFactor = maxDimension * 2.0f;
+            
+            // Also ensure a substantial minimum expansion for small models
+            expansionFactor = glm::max(expansionFactor, 0.5f);
+            
+            min -= glm::vec3(expansionFactor);
+            max += glm::vec3(expansionFactor);
+        }
+
         m_BoundingBox = BoundingBox(min, max);
         
         glm::vec3 center = (min + max) * 0.5f;
@@ -123,6 +140,12 @@ namespace OloEngine
         {
             f32 distance = glm::length(vertex.Position - center);
             radius = glm::max(radius, distance);
+        }
+        
+        // For animated meshes, also expand the bounding sphere radius
+        if (HasBoneInfluences())
+        {
+            radius *= 1.5f; // 50% expansion for animated models
         }
         
         m_BoundingSphere = BoundingSphere(center, radius);
@@ -155,6 +178,23 @@ namespace OloEngine
             {
                 min = glm::min(min, m_Vertices[i].Position);
                 max = glm::max(max, m_Vertices[i].Position);
+            }
+
+            // For animated meshes, expand submesh bounds to account for bone transformations
+            if (HasBoneInfluences())
+            {
+                // Calculate the size of the submesh bounding box
+                glm::vec3 size = max - min;
+                f32 maxDimension = glm::max(glm::max(size.x, size.y), size.z);
+                
+                // Expand by a large percentage for skeletal animation (200% to handle extended limbs)
+                f32 expansionFactor = maxDimension * 2.0f;
+                
+                // Also ensure a substantial minimum expansion for small submeshes
+                expansionFactor = glm::max(expansionFactor, 0.5f);
+                
+                min -= glm::vec3(expansionFactor);
+                max += glm::vec3(expansionFactor);
             }
 
             submesh.m_BoundingBox = BoundingBox(min, max);
