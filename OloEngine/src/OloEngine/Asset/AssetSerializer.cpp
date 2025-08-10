@@ -104,6 +104,15 @@ namespace OloEngine
         std::string path;
         stream.ReadString(path);
         
+        // Read additional metadata to maintain cursor consistency
+        bool hasAlphaChannel;
+        bool isLoaded;
+        i64 timestamp;
+        
+        stream.ReadRaw(hasAlphaChannel);
+        stream.ReadRaw(isLoaded);
+        stream.ReadRaw(timestamp);
+        
         // Create texture specification
         TextureSpecification spec;
         spec.Width = width;

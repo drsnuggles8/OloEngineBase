@@ -64,12 +64,33 @@ namespace OloEngine
 
                 OLO_PROFILER_SCOPE("Runtime Asset Load");
 
-                // Load asset from pack
-                Ref<Asset> asset = LoadAssetFromPack(request.Handle);
+                // Load asset from pack with exception handling
+                Ref<Asset> asset = nullptr;
+                try
+                {
+                    asset = LoadAssetFromPack(request.Handle);
+                }
+                catch (const std::exception& e)
+                {
+                    OLO_CORE_ERROR("RuntimeAssetSystem: Exception during asset loading for handle {}: {}", request.Handle, e.what());
+                }
+                catch (...)
+                {
+                    OLO_CORE_ERROR("RuntimeAssetSystem: Unknown exception during asset loading for handle {}", request.Handle);
+                }
                 
-                // Move asset to completed queue
+                // Move asset to completed queue with capacity check
                 {
                     std::scoped_lock<std::mutex> lock(m_CompletedAssetsMutex);
+                    
+                    // Implement back-pressure: limit completed queue size
+                    constexpr sizet MAX_COMPLETED_QUEUE_SIZE = 1000;
+                    if (m_CompletedAssets.size() >= MAX_COMPLETED_QUEUE_SIZE)
+                    {
+                        OLO_CORE_WARN("RuntimeAssetSystem: Completed assets queue is full ({} items), dropping oldest asset", m_CompletedAssets.size());
+                        m_CompletedAssets.pop(); // Remove oldest asset
+                    }
+                    
                     m_CompletedAssets.push({request.Handle, asset});
                 }
 

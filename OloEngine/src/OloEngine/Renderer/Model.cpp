@@ -174,12 +174,9 @@ namespace OloEngine
 	}
 	else
 	{
-		// Fallback to first material or 0 if materials is empty
-		submesh.m_MaterialIndex = m_Materials.empty() ? UINT32_MAX : 0;
-		if (submesh.m_MaterialIndex == UINT32_MAX)
-		{
-			OLO_CORE_WARN("Model: No materials available for mesh '{}'", mesh->mName.C_Str());
-		}
+		// Always use sentinel value for missing/invalid materials
+		submesh.m_MaterialIndex = UINT32_MAX;
+		OLO_CORE_WARN("Model: Invalid or missing material mapping for mesh '{}', using fallback", mesh->mName.C_Str());
 	}
 	
 	submesh.m_IsRigged = false;
@@ -475,6 +472,20 @@ namespace OloEngine
 			// Get the submesh to access its material index
 			const Submesh& submesh = m_Meshes[i]->GetSubmesh();
 			
+			// Static default material to avoid repeated allocations
+			static Material s_DefaultMaterial = []() -> Material {
+				auto defaultMaterialRef = Material::CreatePBR("Default PBR", glm::vec3(0.8f), 0.0f, 0.5f);
+				if (defaultMaterialRef)
+				{
+					return *defaultMaterialRef; // Copy to value type for struct-like access
+				}
+				else
+				{
+					OLO_CORE_ERROR("Model: Failed to create default PBR material, using empty material");
+					return Material{}; // Default constructed material
+				}
+			}();
+			
 			// Use the submesh's material index to look up the correct material
 			Material meshMaterial;
 			if (submesh.m_MaterialIndex < m_Materials.size() && m_Materials[submesh.m_MaterialIndex])
@@ -483,18 +494,8 @@ namespace OloEngine
 			}
 			else
 			{
-				// Create a default PBR material as fallback
-				auto defaultMaterialRef = Material::CreatePBR("Default PBR", glm::vec3(0.8f), 0.0f, 0.5f);
-				if (defaultMaterialRef)
-				{
-					meshMaterial = *defaultMaterialRef; // Copy to value type for struct-like access
-				}
-				else
-				{
-					OLO_CORE_ERROR("Model: Failed to create default PBR material");
-					// Use a minimal fallback material or skip this mesh
-					meshMaterial = Material{}; // Default constructed material
-				}
+				// Use the cached static default material
+				meshMaterial = s_DefaultMaterial;
 			}
 			
 			CommandPacket* cmd = OloEngine::Renderer3D::DrawMesh(m_Meshes[i], transform, meshMaterial);
@@ -519,6 +520,16 @@ namespace OloEngine
 		if (material)
 		{
 			Draw(transform, *material);
+		}
+		else
+		{
+			// Fallback to default Draw behavior when material is null
+			std::vector<CommandPacket*> commands;
+			GetDrawCommands(transform, commands);
+			for (auto* cmd : commands)
+			{
+				OloEngine::Renderer3D::SubmitPacket(cmd);
+			}
 		}
 	}
 
