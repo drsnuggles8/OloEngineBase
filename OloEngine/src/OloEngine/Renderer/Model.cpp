@@ -7,6 +7,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/MeshSource.h"
 
 namespace OloEngine
 {
@@ -49,6 +50,13 @@ namespace OloEngine
 		
 		OLO_CORE_INFO("Loading model: {0} ({1} meshes, {2} materials)", path, scene->mNumMeshes, scene->mNumMaterials);
 
+		// Reserve space for expected number of meshes and materials to reduce allocations
+		m_Meshes.reserve(scene->mNumMeshes);
+		m_Materials.reserve(scene->mNumMaterials);
+		
+		// Pre-size the material index map to reduce rehashing overhead
+		m_MaterialIndexMap.reserve(scene->mNumMaterials);
+
 		// Process all the nodes recursively
 		ProcessNode(scene->mRootNode, scene);
 		
@@ -82,6 +90,10 @@ namespace OloEngine
 
 		std::vector<Vertex> vertices;
 		std::vector<u32> indices;
+		
+		// Reserve space to reduce allocations during mesh processing
+		vertices.reserve(mesh->mNumVertices);
+		indices.reserve(mesh->mNumFaces * 3); // Assuming triangulated mesh
 
 		// Process vertices
 		for (u32 i = 0; i < mesh->mNumVertices; i++)
@@ -137,12 +149,86 @@ namespace OloEngine
 		{
 			const aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
 			
-			Material pbrMaterial = ProcessMaterial(material);
-			
-			m_Materials.push_back(pbrMaterial);
+			// Check if we already processed this material
+			auto mapIt = m_MaterialIndexMap.find(mesh->mMaterialIndex);
+			if (mapIt == m_MaterialIndexMap.end())
+			{
+				// Check for potential overflow before casting to u32
+				if (m_Materials.size() >= UINT32_MAX)
+				{
+					OLO_CORE_ERROR("Model: Material count exceeds u32 maximum ({}), cannot add more materials", UINT32_MAX);
+					return nullptr;  // Early return to prevent overflow
+				}
+				
+				// Add new material and create mapping
+				u32 newMaterialIndex = static_cast<u32>(m_Materials.size());
+				m_Materials.push_back(ProcessMaterial(material));
+				m_MaterialIndexMap[mesh->mMaterialIndex] = newMaterialIndex;
+			}
 		}
 
-		return Ref<Mesh>::Create(vertices, indices);
+		// Store sizes before moving to avoid undefined behavior
+		const sizet indexCount = indices.size();
+		const sizet vertexCount = vertices.size();
+
+		// Check for potential overflow before creating meshSource and moving data
+		if (indexCount > UINT32_MAX)
+		{
+			OLO_CORE_ERROR("Model: Index count exceeds u32 maximum ({}), mesh too large", UINT32_MAX);
+			return nullptr;
+		}
+		if (vertexCount > UINT32_MAX)
+		{
+			OLO_CORE_ERROR("Model: Vertex count exceeds u32 maximum ({}), mesh too large", UINT32_MAX);
+			return nullptr;
+		}
+
+		auto meshSource = Ref<MeshSource>::Create(std::move(vertices), std::move(indices));
+		
+		// Create a default submesh for the entire mesh
+	Submesh submesh;
+	submesh.m_BaseVertex = 0;
+	submesh.m_BaseIndex = 0;
+	
+	// Use stored sizes since vectors have been moved
+	submesh.m_IndexCount = static_cast<u32>(indexCount);
+	submesh.m_VertexCount = static_cast<u32>(vertexCount);
+	
+	// Use mapped material index with bounds checking
+	auto mapIt = m_MaterialIndexMap.find(mesh->mMaterialIndex);
+	if (mapIt != m_MaterialIndexMap.end() && mapIt->second < m_Materials.size())
+	{
+		submesh.m_MaterialIndex = mapIt->second;
+	}
+	else
+	{
+		// Always use sentinel value for missing/invalid materials
+		submesh.m_MaterialIndex = UINT32_MAX;
+		OLO_CORE_WARN("Model: Invalid or missing material mapping for mesh '{}', using fallback", mesh->mName.C_Str());
+	}
+	
+	submesh.m_IsRigged = false;
+	submesh.m_NodeName = mesh->mName.C_Str();
+		meshSource->AddSubmesh(submesh);
+		
+		meshSource->Build();
+		
+		// Create Mesh objects for all submeshes in the MeshSource
+		// Note: Currently each Assimp mesh creates one submesh, but this future-proofs
+		// for cases where a MeshSource might have multiple submeshes
+		const auto& submeshes = meshSource->GetSubmeshes();
+		Ref<Mesh> primaryMesh = Ref<Mesh>::Create(meshSource, 0);
+		
+		// If there are additional submeshes, we should handle them
+		// For now, we'll just return the primary mesh since the current Assimp processing
+		// creates one submesh per Assimp mesh. Future enhancement: modify calling code
+		// to handle multiple meshes per MeshSource
+		if (submeshes.size() > 1)
+		{
+			OLO_CORE_WARN("Model: MeshSource has {} submeshes but only returning first. Consider updating Model loading to handle multiple submeshes per MeshSource.", submeshes.size());
+		}
+		
+		return primaryMesh;
 	}
 
 	std::vector<Ref<Texture2D>> Model::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type)
@@ -179,7 +265,7 @@ namespace OloEngine
 		return textures;
 	}
 
-	Material Model::ProcessMaterial(const aiMaterial* mat)
+	Ref<Material> Model::ProcessMaterial(const aiMaterial* mat)
 	{
 		aiString name;
 		mat->Get(AI_MATKEY_NAME, name);
@@ -202,7 +288,7 @@ namespace OloEngine
 			finalBaseColor = glm::vec3(1.0f, 1.0f, 1.0f);
 		}
 		
-		Material material = Material::CreatePBR(
+		auto materialRef = Material::CreatePBR(
 			materialName, 
 			finalBaseColor, 
 			metallic, 
@@ -217,7 +303,7 @@ namespace OloEngine
 			auto overrideTexture = Texture2D::Create(m_TextureOverride->AlbedoPath);
 			if (overrideTexture && overrideTexture->IsLoaded())
 			{
-				material.AlbedoMap = overrideTexture;
+				materialRef->AlbedoMap() = overrideTexture;
 			}
 		}
 		else
@@ -231,7 +317,7 @@ namespace OloEngine
 			}
 			if (!albedoMaps.empty())
 			{
-				material.AlbedoMap = albedoMaps[0];
+				materialRef->AlbedoMap() = albedoMaps[0];
 			}
 		}
 		
@@ -241,7 +327,7 @@ namespace OloEngine
 			auto overrideTexture = Texture2D::Create(m_TextureOverride->MetallicPath);
 			if (overrideTexture && overrideTexture->IsLoaded())
 			{
-				material.MetallicRoughnessMap = overrideTexture;
+				materialRef->MetallicRoughnessMap() = overrideTexture;
 			}
 		}
 		else
@@ -255,7 +341,7 @@ namespace OloEngine
 			}
 			if (!metallicRoughnessMaps.empty())
 			{
-				material.MetallicRoughnessMap = metallicRoughnessMaps[0];
+				materialRef->MetallicRoughnessMap() = metallicRoughnessMaps[0];
 			}
 		}
 		
@@ -265,7 +351,7 @@ namespace OloEngine
 			auto overrideTexture = Texture2D::Create(m_TextureOverride->NormalPath);
 			if (overrideTexture && overrideTexture->IsLoaded())
 			{
-				material.NormalMap = overrideTexture;
+				materialRef->NormalMap() = overrideTexture;
 			}
 		}
 		else
@@ -279,7 +365,7 @@ namespace OloEngine
 			}
 			if (!normalMaps.empty())
 			{
-				material.NormalMap = normalMaps[0];
+				materialRef->NormalMap() = normalMaps[0];
 			}
 		}
 		
@@ -290,7 +376,7 @@ namespace OloEngine
 			auto overrideTexture = Texture2D::Create(m_TextureOverride->AOPath);
 			if (overrideTexture && overrideTexture->IsLoaded())
 			{
-				material.AOMap = overrideTexture;
+				materialRef->AOMap() = overrideTexture;
 			}
 		}
 		else if (m_TextureOverride && !m_TextureOverride->RoughnessPath.empty())
@@ -299,7 +385,7 @@ namespace OloEngine
 			auto overrideTexture = Texture2D::Create(m_TextureOverride->RoughnessPath);
 			if (overrideTexture && overrideTexture->IsLoaded())
 			{
-				material.AOMap = overrideTexture;
+				materialRef->AOMap() = overrideTexture;
 			}
 		}
 		else
@@ -313,7 +399,7 @@ namespace OloEngine
 			}
 			if (!aoMaps.empty())
 			{
-				material.AOMap = aoMaps[0];
+				materialRef->AOMap() = aoMaps[0];
 			}
 		}
 		
@@ -323,7 +409,7 @@ namespace OloEngine
 			auto overrideTexture = Texture2D::Create(m_TextureOverride->EmissivePath);
 			if (overrideTexture && overrideTexture->IsLoaded())
 			{
-				material.EmissiveMap = overrideTexture;
+				materialRef->EmissiveMap() = overrideTexture;
 			}
 		}
 		else
@@ -332,11 +418,11 @@ namespace OloEngine
 			auto emissiveMaps = LoadMaterialTextures(mat, aiTextureType_EMISSIVE);
 			if (!emissiveMaps.empty())
 			{
-				material.EmissiveMap = emissiveMaps[0];
+				materialRef->EmissiveMap() = emissiveMaps[0];
 			}
 		}
 		
-		return material;
+		return materialRef;
 	}
 
 	void Model::CalculateBounds()
@@ -381,10 +467,21 @@ namespace OloEngine
 		outCommands.clear();
 		outCommands.reserve(m_Meshes.size());
 		
-		for (size_t i = 0; i < m_Meshes.size(); i++)
+		for (sizet i = 0; i < m_Meshes.size(); i++)
 		{
-			// Use the mesh's own material if available, otherwise use the provided material
-			const Material& meshMaterial = (i < m_Materials.size()) ? m_Materials[i] : material;
+			// Get the submesh to access its material index
+			const Submesh& submesh = m_Meshes[i]->GetSubmesh();
+			
+			// Use the submesh's material index to look up the correct material
+			Material meshMaterial;
+			if (submesh.m_MaterialIndex < m_Materials.size() && m_Materials[submesh.m_MaterialIndex])
+			{
+				meshMaterial = *m_Materials[submesh.m_MaterialIndex];
+			}
+			else
+			{
+				meshMaterial = material;
+			}
 			
 			CommandPacket* cmd = OloEngine::Renderer3D::DrawMesh(m_Meshes[i], transform, meshMaterial);
 			if (cmd)
@@ -398,23 +495,83 @@ namespace OloEngine
 		outCommands.clear();
 		outCommands.reserve(m_Meshes.size());
 		
-		for (size_t i = 0; i < m_Meshes.size(); i++)
+		for (sizet i = 0; i < m_Meshes.size(); i++)
 		{
-			// Use the mesh's own material if available, otherwise use a default PBR material
+			// Get the submesh to access its material index
+			const Submesh& submesh = m_Meshes[i]->GetSubmesh();
+			
+			// Static default material to avoid repeated allocations
+			static Material s_DefaultMaterial = []() -> Material {
+				auto defaultMaterialRef = Material::CreatePBR("Default PBR", glm::vec3(0.8f), 0.0f, 0.5f);
+				if (defaultMaterialRef)
+				{
+					return *defaultMaterialRef; // Copy to value type for struct-like access
+				}
+				else
+				{
+					OLO_CORE_ERROR("Model: Failed to create default PBR material, using empty material");
+					return Material{}; // Default constructed material
+				}
+			}();
+			
+			// Use the submesh's material index to look up the correct material
 			Material meshMaterial;
-			if (i < m_Materials.size())
+			if (submesh.m_MaterialIndex < m_Materials.size() && m_Materials[submesh.m_MaterialIndex])
 			{
-				meshMaterial = m_Materials[i];
+				meshMaterial = *m_Materials[submesh.m_MaterialIndex];
 			}
 			else
 			{
-				// Create a default PBR material as fallback
-				meshMaterial = Material::CreatePBR("Default PBR", glm::vec3(0.8f), 0.0f, 0.5f);
+				// Use the cached static default material
+				meshMaterial = s_DefaultMaterial;
 			}
 			
 			CommandPacket* cmd = OloEngine::Renderer3D::DrawMesh(m_Meshes[i], transform, meshMaterial);
 			if (cmd)
 				outCommands.push_back(cmd);
+		}
+	}
+
+	void Model::Draw(const glm::mat4& transform, const Material& material) const
+	{
+		// Material reference is always valid since it's passed by reference
+		std::vector<CommandPacket*> commands;
+		GetDrawCommands(transform, material, commands);
+		for (auto* cmd : commands)
+		{
+			OloEngine::Renderer3D::SubmitPacket(cmd);
+		}
+	}
+
+	void Model::Draw(const glm::mat4& transform, const Ref<const Material>& material) const
+	{
+		if (material)
+		{
+			Draw(transform, *material);
+		}
+		else
+		{
+			// Fallback to default Draw behavior when material is null
+			std::vector<CommandPacket*> commands;
+			GetDrawCommands(transform, commands);
+			for (auto* cmd : commands)
+			{
+				OloEngine::Renderer3D::SubmitPacket(cmd);
+			}
+		}
+	}
+
+	void Model::GetDrawCommands(const glm::mat4& transform, const Ref<const Material>& material, std::vector<CommandPacket*>& outCommands) const
+	{
+		if (material)
+		{
+			GetDrawCommands(transform, *material, outCommands);
+		}
+		else
+		{
+			// Log when a null Ref<Material> is received for diagnostics
+			OLO_CORE_WARN("GetDrawCommands received null Ref<Material>, falling back to default material handling");
+			GetDrawCommands(transform, outCommands);
 		}
 	}
 }

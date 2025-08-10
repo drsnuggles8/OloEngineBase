@@ -10,6 +10,8 @@
 #include <glm/gtx/quaternion.hpp>
 
 #include "OloEngine/Renderer/Material.h"
+#include "OloEngine/Renderer/MaterialPresets.h"
+#include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderDebugUtils.h"
@@ -19,34 +21,39 @@
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Animation/AnimationSystem.h"
 #include "OloEngine/Animation/AnimationClip.h"
+#include "OloEngine/Animation/AnimatedMeshComponents.h"
 
 Sandbox3D::Sandbox3D()
     : Layer("Sandbox3D"),
     m_CameraController(45.0f, 1280.0f / 720.0f, 0.1f, 1000.0f)
 {
     // Initialize materials with metallic properties
-    m_GoldMaterial.Ambient = glm::vec3(0.24725f, 0.1995f, 0.0745f);
-    m_GoldMaterial.Diffuse = glm::vec3(0.75164f, 0.60648f, 0.22648f);
-    m_GoldMaterial.Specular = glm::vec3(0.628281f, 0.555802f, 0.366065f);
-    m_GoldMaterial.Shininess = 51.2f;
-    m_GoldMaterial.UseTextureMaps = true;  // Enable texture mapping
+    m_GoldMaterial.Type() = OloEngine::MaterialType::Legacy;  // Use legacy rendering path
+    m_GoldMaterial.Ambient() = glm::vec3(0.24725f, 0.1995f, 0.0745f);
+    m_GoldMaterial.Diffuse() = glm::vec3(0.75164f, 0.60648f, 0.22648f);
+    m_GoldMaterial.Specular() = glm::vec3(0.628281f, 0.555802f, 0.366065f);
+    m_GoldMaterial.Shininess() = 51.2f;
+    m_GoldMaterial.UseTextureMaps() = true;  // Enable texture mapping
 
-    m_SilverMaterial.Ambient = glm::vec3(0.19225f, 0.19225f, 0.19225f);
-    m_SilverMaterial.Diffuse = glm::vec3(0.50754f, 0.50754f, 0.50754f);
-    m_SilverMaterial.Specular = glm::vec3(0.508273f, 0.508273f, 0.508273f);
-    m_SilverMaterial.Shininess = 76.8f;
+    m_SilverMaterial.Type() = OloEngine::MaterialType::Legacy;  // Use legacy rendering path
+    m_SilverMaterial.Ambient() = glm::vec3(0.19225f, 0.19225f, 0.19225f);
+    m_SilverMaterial.Diffuse() = glm::vec3(0.50754f, 0.50754f, 0.50754f);
+    m_SilverMaterial.Specular() = glm::vec3(0.508273f, 0.508273f, 0.508273f);
+    m_SilverMaterial.Shininess() = 76.8f;
 
-    m_ChromeMaterial.Ambient = glm::vec3(0.25f, 0.25f, 0.25f);
-    m_ChromeMaterial.Diffuse = glm::vec3(0.4f, 0.4f, 0.4f);
-    m_ChromeMaterial.Specular = glm::vec3(0.774597f, 0.774597f, 0.774597f);
-    m_ChromeMaterial.Shininess = 96.0f;
+    m_ChromeMaterial.Type() = OloEngine::MaterialType::Legacy;  // Use legacy rendering path
+    m_ChromeMaterial.Ambient() = glm::vec3(0.25f, 0.25f, 0.25f);
+    m_ChromeMaterial.Diffuse() = glm::vec3(0.4f, 0.4f, 0.4f);
+    m_ChromeMaterial.Specular() = glm::vec3(0.774597f, 0.774597f, 0.774597f);
+    m_ChromeMaterial.Shininess() = 96.0f;
 
     // Initialize textured material
-    m_TexturedMaterial.Ambient = glm::vec3(0.1f);
-    m_TexturedMaterial.Diffuse = glm::vec3(1.0f);
-    m_TexturedMaterial.Specular = glm::vec3(1.0f);
-    m_TexturedMaterial.Shininess = 64.0f;
-    m_TexturedMaterial.UseTextureMaps = true;
+    m_TexturedMaterial.Type() = OloEngine::MaterialType::Legacy;  // Use legacy rendering path
+    m_TexturedMaterial.Ambient() = glm::vec3(0.1f);
+    m_TexturedMaterial.Diffuse() = glm::vec3(1.0f);
+    m_TexturedMaterial.Specular() = glm::vec3(1.0f);
+    m_TexturedMaterial.Shininess() = 64.0f;
+    m_TexturedMaterial.UseTextureMaps() = true;
     
     // Initialize PBR materials with default values
     // These will be properly configured in OnAttach with Material factory methods
@@ -81,45 +88,34 @@ void Sandbox3D::OnAttach()
     OloEngine::RendererProfiler::GetInstance().Initialize();
     // Note: GPUResourceInspector is initialized in Application constructor
     
-    // Create 3D meshes
-    m_CubeMesh = OloEngine::Mesh::CreateCube();
-    m_SphereMesh = OloEngine::Mesh::CreateSphere();
-    
-    // Create a plane mesh with the desired geometry
-    m_PlaneMesh = OloEngine::Ref<OloEngine::Mesh>::Create(
-        std::vector<OloEngine::Vertex>{
-            // Top face (facing positive Y)  
-            { { 12.5f, 0.0f,  12.5f}, { 0.0f, 1.0f, 0.0f}, {1.0f, 1.0f} },
-            { { 12.5f, 0.0f, -12.5f}, { 0.0f, 1.0f, 0.0f}, {1.0f, 0.0f} },
-            { {-12.5f, 0.0f, -12.5f}, { 0.0f, 1.0f, 0.0f}, {0.0f, 0.0f} },
-            { {-12.5f, 0.0f,  12.5f}, { 0.0f, 1.0f, 0.0f}, {0.0f, 1.0f} }
-        },
-        std::vector<u32>{ 0, 1, 3, 1, 2, 3 }
-    );
+    // Create 3D meshes using MeshPrimitives for consistency
+    m_CubeMesh = OloEngine::MeshPrimitives::CreateCube();
+    m_SphereMesh = OloEngine::MeshPrimitives::CreateSphere();
+    m_PlaneMesh = OloEngine::MeshPrimitives::CreatePlane(25.0f, 25.0f);
 
     // Load backpack model
     m_BackpackModel = OloEngine::Ref<OloEngine::Model>::Create("assets/backpack/backpack.obj");
 
     // Load textures
+    OLO_CORE_INFO("Sandbox3D: Loading textures...");
     m_DiffuseMap = OloEngine::Texture2D::Create("assets/textures/container2.png");
     m_SpecularMap = OloEngine::Texture2D::Create("assets/textures/container2_specular.png");
     m_GrassTexture = OloEngine::Texture2D::Create("assets/textures/grass.png");
 
     // Assign textures to the materials
-    m_TexturedMaterial.DiffuseMap = m_DiffuseMap;
-    m_TexturedMaterial.SpecularMap = m_SpecularMap;
+    m_TexturedMaterial.DiffuseMap() = m_DiffuseMap;
+    m_TexturedMaterial.SpecularMap() = m_SpecularMap;
     
     // Also assign textures to gold material for the sphere
-    m_GoldMaterial.DiffuseMap = m_DiffuseMap;
-    m_GoldMaterial.SpecularMap = m_SpecularMap;
-    
-    // Initialize PBR materials using the simplified Material struct
-    m_PBRGoldMaterial = OloEngine::Material::CreateGoldMaterial();
-    m_PBRSilverMaterial = OloEngine::Material::CreateSilverMaterial();
-    m_PBRCopperMaterial = OloEngine::Material::CreateCopperMaterial();
-    m_PBRPlasticMaterial = OloEngine::Material::CreatePlasticMaterial("Blue Plastic", glm::vec3(0.1f, 0.1f, 0.8f));
-    m_PBRRoughMaterial = OloEngine::Material::CreatePBR("Rough Red", glm::vec3(0.8f, 0.2f, 0.2f), 0.0f, 0.9f);
-    m_PBRSmoothMaterial = OloEngine::Material::CreatePBR("Smooth Green", glm::vec3(0.2f, 0.8f, 0.2f), 0.0f, 0.1f);
+    m_GoldMaterial.DiffuseMap() = m_DiffuseMap;
+    m_GoldMaterial.SpecularMap() = m_SpecularMap;
+    // Initialize PBR materials using the new MaterialPresets utility
+    m_PBRGoldMaterial = OloEngine::MaterialPresets::CreateGold("Gold Material");
+    m_PBRSilverMaterial = OloEngine::MaterialPresets::CreateSilver("Silver Material");
+    m_PBRCopperMaterial = OloEngine::MaterialPresets::CreateCopper("Copper Material");
+    m_PBRPlasticMaterial = OloEngine::MaterialPresets::CreatePlastic("Blue Plastic", glm::vec3(0.1f, 0.1f, 0.8f));
+    m_PBRRoughMaterial = *OloEngine::Material::CreatePBR("Rough Red", glm::vec3(0.8f, 0.2f, 0.2f), 0.0f, 0.9f);
+    m_PBRSmoothMaterial = *OloEngine::Material::CreatePBR("Smooth Green", glm::vec3(0.2f, 0.8f, 0.2f), 0.0f, 0.1f);
     
     // Load environment map for IBL - using cubemap faces from OloEditor assets
     std::vector<std::string> skyboxFaces = {
@@ -399,7 +395,6 @@ void Sandbox3D::OnImGuiRender()
         if (ImGui::Combo("Active Scene", &currentSceneIndex, m_SceneNames, sceneCount))
         {
             SceneType newScene = static_cast<SceneType>(currentSceneIndex);
-            
             // If switching to lighting test scene, load its saved light settings
             if (newScene == SceneType::LightingTesting)
             {
@@ -477,10 +472,10 @@ void Sandbox3D::RenderGroundPlane()
     auto planeMatrix = glm::mat4(1.0f);
     planeMatrix = glm::translate(planeMatrix, glm::vec3(0.0f, -1.0f, 0.0f));
     OloEngine::Material planeMaterial;
-    planeMaterial.Ambient = glm::vec3(0.1f);
-    planeMaterial.Diffuse = glm::vec3(0.3f);
-    planeMaterial.Specular = glm::vec3(0.2f);
-    planeMaterial.Shininess = 8.0f;
+    planeMaterial.Ambient() = glm::vec3(0.1f);
+    planeMaterial.Diffuse() = glm::vec3(0.3f);
+    planeMaterial.Specular() = glm::vec3(0.2f);
+    planeMaterial.Shininess() = 8.0f;
     auto* planePacket = OloEngine::Renderer3D::DrawMesh(m_PlaneMesh, planeMatrix, planeMaterial, true);
     if (planePacket) OloEngine::Renderer3D::SubmitPacket(planePacket);
 }
@@ -505,13 +500,16 @@ void Sandbox3D::RenderMaterialTestingScene()
     modelMatrix = glm::rotate(modelMatrix, glm::radians(m_RotationAngleY), glm::vec3(0.0f, 1.0f, 0.0f));
     
     // Choose material based on PBR toggle
-    if (m_UsePBRMaterials) {
+    if (m_UsePBRMaterials)
+	{
         auto& pbrMaterial = GetCurrentPBRMaterial();
         
         // Draw filled mesh (normal)
         auto* solidPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, pbrMaterial);
         if (solidPacket) OloEngine::Renderer3D::SubmitPacket(solidPacket);
-    } else {
+    }
+	else
+	{
         // Draw filled mesh (normal)
         auto* solidPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, m_GoldMaterial);
         if (solidPacket) OloEngine::Renderer3D::SubmitPacket(solidPacket);
@@ -521,10 +519,10 @@ void Sandbox3D::RenderMaterialTestingScene()
     if (!m_UsePBRMaterials)
     {
         OloEngine::Material wireMaterial;
-        wireMaterial.Ambient = glm::vec3(0.0f);
-        wireMaterial.Diffuse = glm::vec3(0.0f, 0.0f, 0.0f);
-        wireMaterial.Specular = glm::vec3(0.0f);
-        wireMaterial.Shininess = 1.0f;
+        wireMaterial.Ambient() = glm::vec3(0.0f);
+        wireMaterial.Diffuse() = glm::vec3(0.0f, 0.0f, 0.0f);
+        wireMaterial.Specular() = glm::vec3(0.0f);
+        wireMaterial.Shininess() = 1.0f;
         auto* wirePacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, modelMatrix, wireMaterial);
         if (wirePacket)
         {
@@ -544,7 +542,8 @@ void Sandbox3D::RenderMaterialTestingScene()
         case 0: // Cubes
         {
             // Choose materials based on PBR toggle
-            if (m_UsePBRMaterials) {
+            if (m_UsePBRMaterials)
+			{
                 OloEngine::Material silverMat = m_PBRSilverMaterial;
                 OloEngine::Material chromeMat = m_PBRCopperMaterial;
                 
@@ -559,7 +558,9 @@ void Sandbox3D::RenderMaterialTestingScene()
                 chromeCubeMatrix = glm::rotate(chromeCubeMatrix, glm::radians(m_RotationAngleX * 1.5f), glm::vec3(1.0f, 0.0f, 0.0f));
                 auto* chromePacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, chromeCubeMatrix, chromeMat);
                 if (chromePacket) OloEngine::Renderer3D::SubmitPacket(chromePacket);
-            } else {
+            }
+			else
+			{
                 auto silverCubeMatrix = glm::mat4(1.0f);
                 silverCubeMatrix = glm::translate(silverCubeMatrix, glm::vec3(2.0f, 0.0f, 0.0f));
                 silverCubeMatrix = glm::rotate(silverCubeMatrix, glm::radians(m_RotationAngleY * 1.5f), glm::vec3(0.0f, 1.0f, 0.0f));
@@ -581,15 +582,15 @@ void Sandbox3D::RenderMaterialTestingScene()
             if (m_UsePBRMaterials)
             {
                 // Create a grid of spheres with varying metallic and roughness values
-                int rows = 7;    // Different roughness values
-                int cols = 7;    // Different metallic values
-                float spacing = 2.5f;
-                float startX = -(cols - 1) * spacing * 0.5f;
-                float startZ = -(rows - 1) * spacing * 0.5f;
-                
-                for (int row = 0; row < rows; ++row)
+                i32 rows = 7;    // Different roughness values
+                i32 cols = 7;    // Different metallic values
+                f32 spacing = 2.5f;
+                f32 startX = -(cols - 1) * spacing * 0.5f;
+                f32 startZ = -(rows - 1) * spacing * 0.5f;
+
+                for (i32 row = 0; row < rows; ++row)
                 {
-                    for (int col = 0; col < cols; ++col)
+                    for (i32 col = 0; col < cols; ++col)
                     {
                         glm::vec3 position = glm::vec3(
                             startX + col * spacing,
@@ -598,12 +599,12 @@ void Sandbox3D::RenderMaterialTestingScene()
                         );
                         
                         // Create material with varying metallic and roughness
-                        float metallic = static_cast<float>(col) / static_cast<float>(cols - 1);
-                        float roughness = static_cast<float>(row) / static_cast<float>(rows - 1);
+                        f32 metallic = static_cast<f32>(col) / static_cast<f32>(cols - 1);
+                        f32 roughness = static_cast<f32>(row) / static_cast<f32>(rows - 1);
                         roughness = glm::clamp(roughness, 0.05f, 1.0f); // Prevent completely smooth
                         
                         // Create dynamic material
-                        OloEngine::Material dynamicMaterial = OloEngine::Material::CreatePBR(
+                        OloEngine::Material dynamicMaterial = *OloEngine::Material::CreatePBR(
                             "Dynamic PBR",
                             glm::vec3(0.5f, 0.0f, 0.0f), // Red base color
                             metallic,
@@ -690,7 +691,11 @@ void Sandbox3D::RenderMaterialTestingScene()
     sphereMatrix = glm::rotate(sphereMatrix, glm::radians(m_RotationAngleX * 0.8f), glm::vec3(1.0f, 0.0f, 0.0f));
     sphereMatrix = glm::rotate(sphereMatrix, glm::radians(m_RotationAngleY * 0.8f), glm::vec3(0.0f, 1.0f, 0.0f));
     auto* texturedPacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, m_TexturedMaterial);
-    if (texturedPacket) OloEngine::Renderer3D::SubmitPacket(texturedPacket);
+    if (texturedPacket)
+	{
+		OloEngine::Renderer3D::SubmitPacket(texturedPacket);
+	}
+		
     
     // Add grass quad to demonstrate texture rendering
     RenderGrassQuad();
@@ -698,34 +703,30 @@ void Sandbox3D::RenderMaterialTestingScene()
 
 void Sandbox3D::RenderAnimationTestingScene()
 {
-    // Render the imported animated model using ECS
-    if (m_TestScene && m_ImportedModelEntity.HasComponent<OloEngine::AnimatedMeshComponent>())
+    // Render animated entities using the new ECS animation system
+    if (m_TestScene)
     {
-        // Use a simple default material - entities with MaterialComponent will use their own materials
-        OloEngine::Material defaultMaterial = OloEngine::Material::CreatePBR("Default", glm::vec3(0.7f), 0.0f, 0.5f);
-        
-        // For now, just render normally - wireframe mode would need deeper renderer integration
+        // Use the new animation rendering system that handles MeshComponent + SkeletonComponent entities
+        OloEngine::Material defaultMaterial = *OloEngine::Material::CreatePBR("Default Animation", glm::vec3(0.8f), 0.0f, 0.5f);
         OloEngine::Renderer3D::RenderAnimatedMeshes(m_TestScene, defaultMaterial);
         
         // Render skeleton visualization if enabled
         if (m_ShowSkeleton && m_ImportedModelEntity.HasComponent<OloEngine::SkeletonComponent>())
         {
             auto& skeletonComp = m_ImportedModelEntity.GetComponent<OloEngine::SkeletonComponent>();
+            auto& transformComp = m_ImportedModelEntity.GetComponent<OloEngine::TransformComponent>();
             
-            // Check if skeleton pointer is valid before dereferencing
             if (skeletonComp.m_Skeleton)
             {
-                auto& transformComp = m_ImportedModelEntity.GetComponent<OloEngine::TransformComponent>();
-                
-                // Create model matrix from transform component
-                glm::mat4 modelMatrix = glm::translate(glm::mat4(1.0f), transformComp.Translation)
-                                      * glm::toMat4(glm::quat(transformComp.Rotation))
-                                      * glm::scale(glm::mat4(1.0f), transformComp.Scale);
-                
-                // Draw the skeleton using the skeleton component data
-                OloEngine::Renderer3D::DrawSkeleton(*skeletonComp.m_Skeleton, modelMatrix, 
-                                                   m_ShowBones, m_ShowJoints, 
-                                                   m_JointSize, m_BoneThickness);
+                glm::mat4 modelMatrix = transformComp.GetTransform();
+                OloEngine::Renderer3D::DrawSkeleton(
+                    *skeletonComp.m_Skeleton, 
+                    modelMatrix,
+                    m_ShowBones, 
+                    m_ShowJoints, 
+                    m_JointSize, 
+                    m_BoneThickness
+                );
             }
         }
     }
@@ -937,19 +938,19 @@ void Sandbox3D::RenderAnimationTestingUI()
             {
                 ImGui::Separator();
                 ImGui::Text("Model Materials:");
-                for (size_t i = 0; i < m_CesiumManModel->GetMaterials().size(); ++i)
+                for (sizet i = 0; i < m_CesiumManModel->GetMaterials().size(); ++i)
                 {
                     const auto& material = m_CesiumManModel->GetMaterials()[i];
-                    ImGui::Text("  [%zu] %s", i, material.Name.c_str());
+                    ImGui::Text("  [%zu] %s", i, material.Name().c_str());
                     ImGui::Text("    Base Color: (%.2f, %.2f, %.2f)", 
-                               material.BaseColorFactor.r, material.BaseColorFactor.g, material.BaseColorFactor.b);
+                               material.BaseColorFactor().r, material.BaseColorFactor().g, material.BaseColorFactor().b);
                     ImGui::Text("    Metallic: %.2f, Roughness: %.2f", 
-                               material.MetallicFactor, material.RoughnessFactor);
-                    if (material.AlbedoMap)
+                               material.MetallicFactor(), material.RoughnessFactor());
+                    if (material.AlbedoMap())
                         ImGui::Text("    Has Albedo Map");
-                    if (material.NormalMap)
+                    if (material.NormalMap())
                         ImGui::Text("    Has Normal Map");
-                    if (material.MetallicRoughnessMap)
+                    if (material.MetallicRoughnessMap())
                         ImGui::Text("    Has Metallic-Roughness Map");
                 }
             }
@@ -1191,10 +1192,10 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
         markerMatrix = glm::translate(markerMatrix, stateTestPosition + glm::vec3(0.0f, 1.0f, 0.0f));
         markerMatrix = glm::scale(markerMatrix, glm::vec3(0.2f));
         OloEngine::Material markerMaterial;
-        markerMaterial.Ambient = glm::vec3(1.0f, 0.0f, 0.0f);
-        markerMaterial.Diffuse = glm::vec3(1.0f, 0.0f, 0.0f);
-        markerMaterial.Specular = glm::vec3(1.0f);
-        markerMaterial.Shininess = 32.0f;
+        markerMaterial.Ambient() = glm::vec3(1.0f, 0.0f, 0.0f);
+        markerMaterial.Diffuse() = glm::vec3(1.0f, 0.0f, 0.0f);
+        markerMaterial.Specular() = glm::vec3(1.0f);
+        markerMaterial.Shininess() = 32.0f;
         auto* markerPacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, markerMatrix, markerMaterial);
         if (markerPacket) OloEngine::Renderer3D::SubmitPacket(markerPacket);
     }
@@ -1208,10 +1209,10 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
                 cubeMatrix = glm::translate(cubeMatrix, stateTestPosition + glm::vec3(i - 1, 0.0f, 0.0f));
                 cubeMatrix = glm::rotate(cubeMatrix, glm::radians(rotationAngle), glm::vec3(0.0f, 1.0f, 0.0f));
                 OloEngine::Material cubeMaterial;
-                cubeMaterial.Ambient = glm::vec3(0.1f);
-                cubeMaterial.Diffuse = glm::vec3((i + 1) * 0.25f, 0.5f, 0.7f);
-                cubeMaterial.Specular = glm::vec3(0.5f);
-                cubeMaterial.Shininess = 32.0f;
+                cubeMaterial.Ambient() = glm::vec3(0.1f);
+                cubeMaterial.Diffuse() = glm::vec3((i + 1) * 0.25f, 0.5f, 0.7f);
+                cubeMaterial.Specular() = glm::vec3(0.5f);
+                cubeMaterial.Shininess() = 32.0f;
                 auto* packet = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, cubeMatrix, cubeMaterial);
                 if (packet)
                 {
@@ -1232,14 +1233,14 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
                 sphereMatrix = glm::translate(sphereMatrix, stateTestPosition + glm::vec3((i - 1) * 0.5f, 0.0f, 0.0f));
                 sphereMatrix = glm::scale(sphereMatrix, glm::vec3(0.6f));
                 OloEngine::Material sphereMaterial;
-                sphereMaterial.Ambient = glm::vec3(0.1f);
+                sphereMaterial.Ambient() = glm::vec3(0.1f);
                 switch (i) {
-                    case 0: sphereMaterial.Diffuse = glm::vec3(1.0f, 0.0f, 0.0f); break;
-                    case 1: sphereMaterial.Diffuse = glm::vec3(0.0f, 1.0f, 0.0f); break;
-                    case 2: sphereMaterial.Diffuse = glm::vec3(0.0f, 0.0f, 1.0f); break;
+                    case 0: sphereMaterial.Diffuse() = glm::vec3(1.0f, 0.0f, 0.0f); break;
+                    case 1: sphereMaterial.Diffuse() = glm::vec3(0.0f, 1.0f, 0.0f); break;
+                    case 2: sphereMaterial.Diffuse() = glm::vec3(0.0f, 0.0f, 1.0f); break;
                 }
-                sphereMaterial.Specular = glm::vec3(0.5f);
-                sphereMaterial.Shininess = 32.0f;
+                sphereMaterial.Specular() = glm::vec3(0.5f);
+                sphereMaterial.Shininess() = 32.0f;
                 auto* packet = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, sphereMaterial);
                 if (packet) {
                     auto* drawCmd = packet->GetCommandData<OloEngine::DrawMeshCommand>();
@@ -1258,19 +1259,19 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
             cubeMatrix = glm::rotate(cubeMatrix, glm::radians(rotationAngle), glm::vec3(0.0f, 1.0f, 0.0f));
             cubeMatrix = glm::scale(cubeMatrix, glm::vec3(0.8f));
             OloEngine::Material solidMaterial;
-            solidMaterial.Ambient = glm::vec3(0.1f);
-            solidMaterial.Diffuse = glm::vec3(0.7f, 0.7f, 0.2f);
-            solidMaterial.Specular = glm::vec3(0.5f);
-            solidMaterial.Shininess = 32.0f;
+            solidMaterial.Ambient() = glm::vec3(0.1f);
+            solidMaterial.Diffuse() = glm::vec3(0.7f, 0.7f, 0.2f);
+            solidMaterial.Specular() = glm::vec3(0.5f);
+            solidMaterial.Shininess() = 32.0f;
             auto* solidPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, cubeMatrix, solidMaterial);
             if (solidPacket) OloEngine::Renderer3D::SubmitPacket(solidPacket);
 
             // Overlay wireframe
             OloEngine::Material wireMaterial;
-            wireMaterial.Ambient = glm::vec3(0.0f);
-            wireMaterial.Diffuse = glm::vec3(0.0f, 0.0f, 0.0f);
-            wireMaterial.Specular = glm::vec3(0.0f);
-            wireMaterial.Shininess = 1.0f;
+            wireMaterial.Ambient() = glm::vec3(0.0f);
+            wireMaterial.Diffuse() = glm::vec3(0.0f, 0.0f, 0.0f);
+            wireMaterial.Specular() = glm::vec3(0.0f);
+            wireMaterial.Shininess() = 1.0f;
             auto* wirePacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, cubeMatrix, wireMaterial);
             if (wirePacket) {
                 auto* drawCmd = wirePacket->GetCommandData<OloEngine::DrawMeshCommand>();
@@ -1290,10 +1291,10 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
             sphereMatrix = glm::translate(sphereMatrix, stateTestPosition);
             sphereMatrix = glm::rotate(sphereMatrix, glm::radians(rotationAngle), glm::vec3(0.0f, 1.0f, 0.0f));
             OloEngine::Material wireMaterial;
-            wireMaterial.Ambient = glm::vec3(0.1f);
-            wireMaterial.Diffuse = glm::vec3(1.0f, 1.0f, 0.0f);
-            wireMaterial.Specular = glm::vec3(1.0f);
-            wireMaterial.Shininess = 32.0f;
+            wireMaterial.Ambient() = glm::vec3(0.1f);
+            wireMaterial.Diffuse() = glm::vec3(1.0f, 1.0f, 0.0f);
+            wireMaterial.Specular() = glm::vec3(1.0f);
+            wireMaterial.Shininess() = 32.0f;
             auto* wirePacket = OloEngine::Renderer3D::DrawMesh(m_SphereMesh, sphereMatrix, wireMaterial);
             if (wirePacket) {
                 auto* drawCmd = wirePacket->GetCommandData<OloEngine::DrawMeshCommand>();
@@ -1311,14 +1312,14 @@ void Sandbox3D::RenderStateTestObjects(f32 rotationAngle)
                 cubeMatrix = glm::rotate(cubeMatrix, angle, glm::vec3(0.0f, 1.0f, 0.0f));
                 cubeMatrix = glm::scale(cubeMatrix, glm::vec3(0.4f));
                 OloEngine::Material glassMaterial;
-                glassMaterial.Ambient = glm::vec3(0.1f);
+                glassMaterial.Ambient() = glm::vec3(0.1f);
                 switch (i) {
-                    case 0: glassMaterial.Diffuse = glm::vec3(1.0f, 0.0f, 0.0f); break;
-                    case 1: glassMaterial.Diffuse = glm::vec3(0.0f, 1.0f, 0.0f); break;
-                    case 2: glassMaterial.Diffuse = glm::vec3(0.0f, 0.0f, 1.0f); break;
+                    case 0: glassMaterial.Diffuse() = glm::vec3(1.0f, 0.0f, 0.0f); break;
+                    case 1: glassMaterial.Diffuse() = glm::vec3(0.0f, 1.0f, 0.0f); break;
+                    case 2: glassMaterial.Diffuse() = glm::vec3(0.0f, 0.0f, 1.0f); break;
                 }
-                glassMaterial.Specular = glm::vec3(0.8f);
-                glassMaterial.Shininess = 64.0f;
+                glassMaterial.Specular() = glm::vec3(0.8f);
+                glassMaterial.Shininess() = 64.0f;
                 auto* glassPacket = OloEngine::Renderer3D::DrawMesh(m_CubeMesh, cubeMatrix, glassMaterial);
                 if (glassPacket) {
                     auto* drawCmd = glassPacket->GetCommandData<OloEngine::DrawMeshCommand>();
@@ -1371,27 +1372,40 @@ void Sandbox3D::LoadTestAnimatedModel()
         transformComp.Translation = glm::vec3(0.0f, 0.0f, 0.0f);
         
         // Apply model-specific scaling corrections
+        // Apply scaling based on the model
         glm::vec3 modelScale = glm::vec3(1.0f);
-        OLO_INFO("Model name for scaling: '{}'", modelName);
         
+        // Special scaling for Fox model
         if (modelName.find("Fox") != std::string::npos)
         {
             modelScale = glm::vec3(0.01f);
-            transformComp.Translation.y = 0.0f;
-            OLO_INFO("Applied Fox scaling: {}, {}, {}", modelScale.x, modelScale.y, modelScale.z);
-        }
-        else
-		{
-            modelScale = glm::vec3(1.0f);
-            OLO_INFO("Applied default scaling for other models: {}, {}, {}", modelScale.x, modelScale.y, modelScale.z);
         }
         
         transformComp.Scale = modelScale;
         
-        auto& animMeshComp = m_ImportedModelEntity.AddComponent<OloEngine::AnimatedMeshComponent>();
+        // Create MeshComponent from AnimatedModel data (now uses MeshSource with separated bone influences)
+        auto& meshComp = m_ImportedModelEntity.AddComponent<OloEngine::MeshComponent>();
         if (!m_CesiumManModel->GetMeshes().empty())
         {
-            animMeshComp.m_Mesh = m_CesiumManModel->GetMeshes()[0];
+            // Get the first MeshSource with separated bone influences (Hazel approach)
+            meshComp.m_MeshSource = m_CesiumManModel->GetMeshes()[0];
+            OLO_INFO("MeshComponent created with MeshSource containing {} submeshes and separated bone influences", 
+                     meshComp.m_MeshSource->GetSubmeshes().size());
+            
+            // Create a child entity with SubmeshComponent for rendering
+            auto submeshEntity = m_TestScene->CreateEntity(modelName + "_Submesh_0");
+            auto& submeshComp = submeshEntity.AddComponent<OloEngine::SubmeshComponent>();
+            
+            // Create a regular Mesh from the MeshSource for the SubmeshComponent
+            auto mesh = OloEngine::Ref<OloEngine::Mesh>::Create(meshComp.m_MeshSource, 0);
+            submeshComp.m_Mesh = mesh;
+            submeshComp.m_SubmeshIndex = 0;
+            submeshComp.m_Visible = true;
+            
+            // Set up parent-child relationship
+            submeshEntity.SetParent(m_ImportedModelEntity);
+            
+            OLO_INFO("Successfully created SubmeshComponent using MeshSource with separated bone influences");
         }
         else
         {
@@ -1404,12 +1418,20 @@ void Sandbox3D::LoadTestAnimatedModel()
         {
             // Use the first material from the model (corresponds to first mesh)
             materialComp.m_Material = m_CesiumManModel->GetMaterials()[0];
-            OLO_INFO("Using original material: {}", materialComp.m_Material.Name);
+            OLO_INFO("Using original material: {}", materialComp.m_Material.Name());
         }
         else
         {
             // Fallback to a default material
-            materialComp.m_Material = OloEngine::Material::CreatePBR("Default Material", glm::vec3(0.8f), 0.0f, 0.5f);
+            auto defaultMaterialRef = OloEngine::Material::CreatePBR("Default Material", glm::vec3(0.8f), 0.0f, 0.5f);
+            if (defaultMaterialRef)
+            {
+                materialComp.m_Material = *defaultMaterialRef;
+            }
+            else
+            {
+                OLO_ERROR("Failed to create default PBR material, material component will be invalid");
+            }
             OLO_WARN("No materials found in model, using default material");
         }
         
@@ -1422,7 +1444,7 @@ void Sandbox3D::LoadTestAnimatedModel()
                      skeletonComp.m_Skeleton->m_ParentIndices.size(),
                      skeletonComp.m_Skeleton->m_GlobalTransforms.size());
         }
-        
+
         // Add animation state component
         auto& animStateComp = m_ImportedModelEntity.AddComponent<OloEngine::AnimationStateComponent>();
         if (m_CesiumManModel->HasAnimations())
@@ -1435,13 +1457,8 @@ void Sandbox3D::LoadTestAnimatedModel()
                 OLO_INFO("  Animation [{}]: '{}' - Duration: {:.2f}s", i, anim->Name, anim->Duration);
             }
             
-            // For Fox, use the "Run" animation which should have proper keyframes for movement
+            // Use the first animation by default
             int animIndex = 0;
-            if (modelName.find("Fox") != std::string::npos && m_CesiumManModel->GetAnimations().size() > 2)
-            {
-                animIndex = 2; // Use "Run" animation for Fox
-                OLO_INFO("Using Fox Run animation (index {}) instead of Survey", animIndex);
-            }
             
             animStateComp.m_CurrentClip = m_CesiumManModel->GetAnimations()[animIndex];
             OLO_INFO("Selected animation: {}", animStateComp.m_CurrentClip->Name);
@@ -1488,8 +1505,8 @@ void Sandbox3D::RenderMaterialSettings()
         
         // PBR Material information
         ImGui::Text("Available PBR Materials:");
-        const size_t materialCount = sizeof(m_PBRMaterialNames) / sizeof(m_PBRMaterialNames[0]);
-        for (size_t i = 0; i < materialCount; ++i)
+        const sizet materialCount = sizeof(m_PBRMaterialNames) / sizeof(m_PBRMaterialNames[0]);
+        for (sizet i = 0; i < materialCount; ++i)
         {
             ImGui::BulletText("%s", m_PBRMaterialNames[i]);
         }
@@ -1511,12 +1528,12 @@ void Sandbox3D::RenderMaterialSettings()
         auto& currentPBRMaterial = GetCurrentPBRMaterial();
         
         // Edit PBR properties
-        ImGui::ColorEdit3("Base Color", glm::value_ptr(currentPBRMaterial.BaseColorFactor));
-        ImGui::SliderFloat("Metallic", &currentPBRMaterial.MetallicFactor, 0.0f, 1.0f);
-        ImGui::SliderFloat("Roughness", &currentPBRMaterial.RoughnessFactor, 0.01f, 1.0f);
-        ImGui::SliderFloat("Normal Scale", &currentPBRMaterial.NormalScale, 0.0f, 2.0f);
-        ImGui::SliderFloat("Occlusion Strength", &currentPBRMaterial.OcclusionStrength, 0.0f, 1.0f);
-        ImGui::ColorEdit3("Emissive", glm::value_ptr(currentPBRMaterial.EmissiveFactor));
+        ImGui::ColorEdit3("Base Color", glm::value_ptr(currentPBRMaterial.BaseColorFactor()));
+        ImGui::SliderFloat("Metallic", &currentPBRMaterial.MetallicFactor(), 0.0f, 1.0f);
+        ImGui::SliderFloat("Roughness", &currentPBRMaterial.RoughnessFactor(), 0.01f, 1.0f);
+        ImGui::SliderFloat("Normal Scale", &currentPBRMaterial.NormalScale(), 0.0f, 2.0f);
+        ImGui::SliderFloat("Occlusion Strength", &currentPBRMaterial.OcclusionStrength(), 0.0f, 1.0f);
+        ImGui::ColorEdit3("Emissive", glm::value_ptr(currentPBRMaterial.EmissiveFactor()));
         
         ImGui::Separator();
         ImGui::Text("Environment Mapping (IBL):");
@@ -1533,7 +1550,7 @@ void Sandbox3D::RenderMaterialSettings()
             
             // Show IBL status for current material
             auto& materialForIBLCheck = GetCurrentPBRMaterial();
-            if (materialForIBLCheck.EnableIBL)
+            if (materialForIBLCheck.EnableIBL())
             {
                 ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "IBL: Enabled for current material");
             }
@@ -1577,7 +1594,7 @@ void Sandbox3D::RenderMaterialSettings()
         if (m_SelectedMaterial == 3)
         {
             ImGui::Text("Textured Material Properties");
-            ImGui::SliderFloat("Shininess", &currentMaterial->Shininess, 1.0f, 128.0f);
+            ImGui::SliderFloat("Shininess", &currentMaterial->Shininess(), 1.0f, 128.0f);
             
             if (m_DiffuseMap)
                 ImGui::Text("Diffuse Map: Loaded");
@@ -1592,10 +1609,10 @@ void Sandbox3D::RenderMaterialSettings()
         else
         {
             // For solid color materials, show the color controls
-            ImGui::ColorEdit3(std::format("Ambient##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Ambient));
-            ImGui::ColorEdit3(std::format("Diffuse##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Diffuse));
-            ImGui::ColorEdit3(std::format("Specular##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Specular));
-            ImGui::SliderFloat(std::format("Shininess##Material{}", m_SelectedMaterial).c_str(), &currentMaterial->Shininess, 1.0f, 128.0f);
+            ImGui::ColorEdit3(std::format("Ambient##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Ambient()));
+            ImGui::ColorEdit3(std::format("Diffuse##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Diffuse()));
+            ImGui::ColorEdit3(std::format("Specular##Material{}", m_SelectedMaterial).c_str(), glm::value_ptr(currentMaterial->Specular()));
+            ImGui::SliderFloat(std::format("Shininess##Material{}", m_SelectedMaterial).c_str(), &currentMaterial->Shininess(), 1.0f, 128.0f);
         }
     }
 }
@@ -1893,20 +1910,22 @@ void Sandbox3D::RenderPBRModelTestingUI()
             const auto& materials = m_CerberusModel->GetMaterials();
             ImGui::Text("Materials: %d", static_cast<int>(materials.size()));
             
-            for (size_t i = 0; i < materials.size(); i++)
+            for (sizet i = 0; i < materials.size(); i++)
             {
-                ImGui::Text("  Material %d: %s", static_cast<int>(i), materials[i].Name.c_str());
+                if (!materials[i]) continue;
+                
+                ImGui::Text("  Material %d: %s", static_cast<int>(i), materials[i]->Name().c_str());
                 ImGui::Text("    Base Color: (%.2f, %.2f, %.2f)", 
-                           materials[i].BaseColorFactor.r, materials[i].BaseColorFactor.g, materials[i].BaseColorFactor.b);
+                           materials[i]->BaseColorFactor().r, materials[i]->BaseColorFactor().g, materials[i]->BaseColorFactor().b);
                 ImGui::Text("    Metallic: %.2f, Roughness: %.2f", 
-                           materials[i].MetallicFactor, materials[i].RoughnessFactor);
-                ImGui::Text("    Albedo: Has texture: %s", materials[i].AlbedoMap ? "Yes" : "No");
-                ImGui::Text("    Normal: Has texture: %s", materials[i].NormalMap ? "Yes" : "No");
-                ImGui::Text("    Metallic: Has texture: %s", materials[i].MetallicRoughnessMap ? "Yes" : "No");
-                ImGui::Text("    AO: Has texture: %s", materials[i].AOMap ? "Yes" : "No");
+                           materials[i]->MetallicFactor(), materials[i]->RoughnessFactor());
+                ImGui::Text("    Albedo: Has texture: %s", materials[i]->AlbedoMap() ? "Yes" : "No");
+                ImGui::Text("    Normal: Has texture: %s", materials[i]->NormalMap() ? "Yes" : "No");
+                ImGui::Text("    Metallic: Has texture: %s", materials[i]->MetallicRoughnessMap() ? "Yes" : "No");
+                ImGui::Text("    AO: Has texture: %s", materials[i]->AOMap() ? "Yes" : "No");
                 ImGui::Text("    IBL: Environment: %s, Irradiance: %s", 
-                           materials[i].EnvironmentMap ? "Yes" : "No",
-                           materials[i].IrradianceMap ? "Yes" : "No");
+                           materials[i]->EnvironmentMap() ? "Yes" : "No",
+                           materials[i]->IrradianceMap() ? "Yes" : "No");
             }
             
             ImGui::Separator();

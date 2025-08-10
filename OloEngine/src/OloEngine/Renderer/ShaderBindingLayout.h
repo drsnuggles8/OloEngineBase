@@ -70,6 +70,20 @@ namespace OloEngine
             
             static constexpr u32 GetSize() { return sizeof(MultiLightUBO); }
         };
+
+        /**
+         * @brief Animation limits and constants for bone matrix uploads
+         * Must match the corresponding GLSL shader array sizes
+         */
+        struct AnimationConstants
+        {
+            static constexpr u32 MAX_BONES = 100;                    // Maximum bone matrices per animated mesh
+            
+            // Compile-time validation for reasonable limits
+            static_assert(MAX_BONES > 0, "MAX_BONES must be positive");
+            static_assert(MAX_BONES <= 200, "MAX_BONES exceeds reasonable GPU limits");
+            static_assert(MAX_BONES % 4 == 0, "MAX_BONES should be multiple of 4 for optimal GPU alignment");
+        };
         
         struct MaterialUBO
         {
@@ -115,10 +129,36 @@ namespace OloEngine
         
         struct AnimationUBO
         {
-            static constexpr u32 MAX_BONES = 100;                    // Typical character rigs use 50-70 bones
+            static constexpr u32 MAX_BONES = AnimationConstants::MAX_BONES;  // Use centralized constant
             glm::mat4 BoneMatrices[MAX_BONES];
             
             static constexpr u32 GetSize() { return sizeof(AnimationUBO); }
+            
+            // Compile-time validation to ensure shader compatibility
+            static_assert(MAX_BONES == AnimationConstants::MAX_BONES, "AnimationUBO::MAX_BONES must match AnimationConstants::MAX_BONES");
+            static_assert(sizeof(BoneMatrices) == MAX_BONES * sizeof(glm::mat4), "BoneMatrices array size mismatch");
+        };
+        
+        /**
+         * @brief Shader constant generation utilities
+         * These functions generate GLSL preprocessor defines to inject C++ constants into shaders
+         */
+        struct ShaderConstantGenerator
+        {
+            static std::string GetAnimationDefines()
+            {
+                return std::string("#define MAX_BONES ") + std::to_string(AnimationConstants::MAX_BONES) + "\n";
+            }
+            
+            static std::string GetLightingDefines() 
+            {
+                return std::string("#define MAX_LIGHTS ") + std::to_string(MultiLightUBO::MAX_LIGHTS) + "\n";
+            }
+            
+            static std::string GetAllShaderDefines()
+            {
+                return GetAnimationDefines() + GetLightingDefines();
+            }
         };
         
         struct IBLParametersUBO
@@ -283,13 +323,22 @@ layout(std140, binding = 3) uniform ModelMatrices {
 };)";
         }
         
-        static const char* GetAnimationUBOLayout()
+        static std::string GetAnimationUBOLayout()
         {
-            return R"(
+            // Compile-time validation that GLSL array size matches C++ constant
+            constexpr u32 glsl_max_bones = UBOStructures::AnimationConstants::MAX_BONES;
+            static_assert(glsl_max_bones == UBOStructures::AnimationUBO::MAX_BONES, 
+                         "GLSL MAX_BONES must match C++ AnimationUBO::MAX_BONES");
+            
+            return std::string(R"(
 layout(std140, binding = 4) uniform AnimationMatrices {
-    mat4 u_BoneMatrices[100];
+    mat4 u_BoneMatrices[)") + std::to_string(glsl_max_bones) + R"(];
 };)";
         }
+        
+        // Compile-time validation for shader constant consistency
+        static_assert(UBOStructures::AnimationUBO::MAX_BONES == UBOStructures::AnimationConstants::MAX_BONES, 
+                     "Animation shader constants must be consistent across UBO structures");
         
         static const char* GetStandardTextureBindings()
         {

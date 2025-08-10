@@ -2,12 +2,14 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Animation/AnimatedMeshComponents.h"
 
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Buffer.h"
 #include "OloEngine/Renderer/Mesh.h"
-#include "OloEngine/Renderer/SkinnedMesh.h"
+#include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Material.h"
@@ -22,12 +24,11 @@
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
-#include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Animation/Skeleton.h"
-#include "OloEngine/Scene/Components.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtc/constants.hpp>
 
 namespace OloEngine
 {
@@ -46,9 +47,30 @@ namespace OloEngine
 		CommandDispatch::Initialize();
 		OLO_CORE_INFO("CommandDispatch system initialized.");
 
-		s_Data.CubeMesh = Mesh::CreateCube();
-		s_Data.QuadMesh = Mesh::CreatePlane(1.0f, 1.0f);
-		s_Data.SkyboxMesh = Mesh::CreateSkyboxCube();
+		s_Data.CubeMesh = MeshPrimitives::CreateCube();
+		s_Data.QuadMesh = MeshPrimitives::CreatePlane(1.0f, 1.0f);
+		s_Data.SkyboxMesh = MeshPrimitives::CreateSkyboxCube();
+		// Cached unit line quad (length 1 along +X, centered on X with half-thickness of 0.5 on Y)
+		// We'll scale/rotate/translate this via a transform in DrawLine.
+		{
+			std::vector<Vertex> verts;
+			verts.reserve(4);
+			// Define a unit line along +X from 0 to 1, quad thickness 1 in Y (will be scaled by desired thickness)
+			verts.emplace_back(glm::vec3(0.0f, -0.5f, 0.0f), glm::vec3(0.0f), glm::vec2(0.0f));
+			verts.emplace_back(glm::vec3(0.0f,  0.5f, 0.0f), glm::vec3(0.0f), glm::vec2(1.0f, 0.0f));
+			verts.emplace_back(glm::vec3(1.0f,  0.5f, 0.0f), glm::vec3(0.0f), glm::vec2(1.0f));
+			verts.emplace_back(glm::vec3(1.0f, -0.5f, 0.0f), glm::vec3(0.0f), glm::vec2(0.0f, 1.0f));
+
+			std::vector<u32> inds = { 0, 1, 2, 2, 3, 0 };
+
+			auto src = Ref<MeshSource>::Create(verts, inds);
+			Submesh sm;
+			sm.m_BaseVertex = 0; sm.m_BaseIndex = 0; sm.m_IndexCount = (u32)inds.size(); sm.m_VertexCount = (u32)verts.size();
+			sm.m_MaterialIndex = 0; sm.m_IsRigged = false; sm.m_NodeName = "LineQuad";
+			src->AddSubmesh(sm);
+			src->Build();
+			s_Data.LineQuadMesh = Ref<Mesh>::Create(src, 0);
+		}
 		m_ShaderLibrary.Load("assets/shaders/LightCube.glsl");
 		m_ShaderLibrary.Load("assets/shaders/Lighting3D.glsl");
 		m_ShaderLibrary.Load("assets/shaders/SkinnedLighting3D_Simple.glsl");
@@ -268,17 +290,6 @@ namespace OloEngine
 		
 		return s_Data.ViewFrustum.IsBoundingSphereVisible(sphere);
 	}
-	
-	bool Renderer3D::IsVisibleInFrustum(const Ref<SkinnedMesh>& mesh, const glm::mat4& transform)
-	{
-		if (!s_Data.FrustumCullingEnabled)
-			return true;
-		
-		BoundingSphere sphere = mesh->GetTransformedBoundingSphere(transform);
-		sphere.Radius *= 1.3f;
-		
-		return s_Data.ViewFrustum.IsBoundingSphereVisible(sphere);
-	}
 
 	bool Renderer3D::IsVisibleInFrustum(const BoundingSphere& sphere)
 	{
@@ -324,11 +335,11 @@ namespace OloEngine
 		}
 		
 		Ref<Shader> shaderToUse;
-		if (material.Shader)
+		if (material.Shader())
 		{
-			shaderToUse = material.Shader;
+			shaderToUse = material.Shader();
 		}
-		else if (material.Type == MaterialType::PBR)
+		else if (material.Type() == MaterialType::PBR)
 		{
 			shaderToUse = s_Data.PBRShader;
 		}
@@ -359,34 +370,34 @@ namespace OloEngine
 		cmd->transform = glm::mat4(modelMatrix);
 		
 		// Legacy material properties (for backward compatibility)
-		cmd->ambient = material.Ambient;
-		cmd->diffuse = material.Diffuse;
-		cmd->specular = material.Specular;
-		cmd->shininess = material.Shininess;
-		cmd->useTextureMaps = material.UseTextureMaps;
-		cmd->diffuseMap = material.DiffuseMap;
-		cmd->specularMap = material.SpecularMap;
+		cmd->ambient = material.Ambient();
+		cmd->diffuse = material.Diffuse();
+		cmd->specular = material.Specular();
+		cmd->shininess = material.Shininess();
+		cmd->useTextureMaps = material.UseTextureMaps();
+		cmd->diffuseMap = material.DiffuseMap();
+		cmd->specularMap = material.SpecularMap();
 		
 		// PBR material properties
-		cmd->enablePBR = (material.Type == MaterialType::PBR);
-		cmd->baseColorFactor = material.BaseColorFactor;
-		cmd->emissiveFactor = material.EmissiveFactor;
-		cmd->metallicFactor = material.MetallicFactor;
-		cmd->roughnessFactor = material.RoughnessFactor;
-		cmd->normalScale = material.NormalScale;
-		cmd->occlusionStrength = material.OcclusionStrength;
-		cmd->enableIBL = material.EnableIBL;
+		cmd->enablePBR = (material.Type() == MaterialType::PBR);
+		cmd->baseColorFactor = material.BaseColorFactor();
+		cmd->emissiveFactor = material.EmissiveFactor();
+		cmd->metallicFactor = material.MetallicFactor();
+		cmd->roughnessFactor = material.RoughnessFactor();
+		cmd->normalScale = material.NormalScale();
+		cmd->occlusionStrength = material.OcclusionStrength();
+		cmd->enableIBL = material.EnableIBL();
 		
 		// PBR texture references
-		cmd->albedoMap = material.AlbedoMap;
-		cmd->metallicRoughnessMap = material.MetallicRoughnessMap;
-		cmd->normalMap = material.NormalMap;
-		cmd->aoMap = material.AOMap;
-		cmd->emissiveMap = material.EmissiveMap;
-		cmd->environmentMap = material.EnvironmentMap;
-		cmd->irradianceMap = material.IrradianceMap;
-		cmd->prefilterMap = material.PrefilterMap;
-		cmd->brdfLutMap = material.BRDFLutMap;
+		cmd->albedoMap = material.AlbedoMap();
+		cmd->metallicRoughnessMap = material.MetallicRoughnessMap();
+		cmd->normalMap = material.NormalMap();
+		cmd->aoMap = material.AOMap();
+		cmd->emissiveMap = material.EmissiveMap();
+		cmd->environmentMap = material.EnvironmentMap();
+		cmd->irradianceMap = material.IrradianceMap();
+		cmd->prefilterMap = material.PrefilterMap();
+		cmd->brdfLutMap = material.BRDFLutMap();
 		
 		cmd->shader = shaderToUse;
 		cmd->renderState = Ref<RenderState>::Create();
@@ -416,7 +427,7 @@ namespace OloEngine
 		if (!s_Data.QuadMesh || !s_Data.QuadMesh->GetVertexArray())
 		{
 			OLO_CORE_ERROR("Renderer3D::DrawQuad: Quad mesh or its vertex array is invalid!");
-			s_Data.QuadMesh = Mesh::CreatePlane(1.0f, 1.0f);
+			s_Data.QuadMesh = MeshPrimitives::CreatePlane(1.0f, 1.0f);
 			if (!s_Data.QuadMesh || !s_Data.QuadMesh->GetVertexArray())
 				return nullptr;
 		}
@@ -467,36 +478,36 @@ namespace OloEngine
 		cmd->transforms = transforms;
 		
 		// Legacy material properties (for backward compatibility)
-		cmd->ambient = material.Ambient;
-		cmd->diffuse = material.Diffuse;
-		cmd->specular = material.Specular;
-		cmd->shininess = material.Shininess;
-		cmd->useTextureMaps = material.UseTextureMaps;
-		cmd->diffuseMap = material.DiffuseMap;
-		cmd->specularMap = material.SpecularMap;
+		cmd->ambient = material.Ambient();
+		cmd->diffuse = material.Diffuse();
+		cmd->specular = material.Specular();
+		cmd->shininess = material.Shininess();
+		cmd->useTextureMaps = material.UseTextureMaps();
+		cmd->diffuseMap = material.DiffuseMap();
+		cmd->specularMap = material.SpecularMap();
 		
 		// PBR material properties
-		cmd->enablePBR = (material.Type == MaterialType::PBR);
-		cmd->baseColorFactor = material.BaseColorFactor;
-		cmd->emissiveFactor = material.EmissiveFactor;
-		cmd->metallicFactor = material.MetallicFactor;
-		cmd->roughnessFactor = material.RoughnessFactor;
-		cmd->normalScale = material.NormalScale;
-		cmd->occlusionStrength = material.OcclusionStrength;
-		cmd->enableIBL = material.EnableIBL;
+		cmd->enablePBR = (material.Type() == MaterialType::PBR);
+		cmd->baseColorFactor = material.BaseColorFactor();
+		cmd->emissiveFactor = material.EmissiveFactor();
+		cmd->metallicFactor = material.MetallicFactor();
+		cmd->roughnessFactor = material.RoughnessFactor();
+		cmd->normalScale = material.NormalScale();
+		cmd->occlusionStrength = material.OcclusionStrength();
+		cmd->enableIBL = material.EnableIBL();
 		
 		// PBR texture references
-		cmd->albedoMap = material.AlbedoMap;
-		cmd->metallicRoughnessMap = material.MetallicRoughnessMap;
-		cmd->normalMap = material.NormalMap;
-		cmd->aoMap = material.AOMap;
-		cmd->emissiveMap = material.EmissiveMap;
-		cmd->environmentMap = material.EnvironmentMap;
-		cmd->irradianceMap = material.IrradianceMap;
-		cmd->prefilterMap = material.PrefilterMap;
-		cmd->brdfLutMap = material.BRDFLutMap;
+		cmd->albedoMap = material.AlbedoMap();
+		cmd->metallicRoughnessMap = material.MetallicRoughnessMap();
+		cmd->normalMap = material.NormalMap();
+		cmd->aoMap = material.AOMap();
+		cmd->emissiveMap = material.EmissiveMap();
+		cmd->environmentMap = material.EnvironmentMap();
+		cmd->irradianceMap = material.IrradianceMap();
+		cmd->prefilterMap = material.PrefilterMap();
+		cmd->brdfLutMap = material.BRDFLutMap();
 		
-		cmd->shader = material.Shader ? material.Shader : s_Data.LightingShader;
+		cmd->shader = material.Shader() ? material.Shader() : s_Data.LightingShader;
 		cmd->renderState = Ref<RenderState>::Create();
 		packet->SetCommandType(cmd->header.type);
 		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
@@ -668,41 +679,83 @@ namespace OloEngine
 		}
 	}
 
-	CommandPacket* Renderer3D::DrawSkinnedMesh(const Ref<SkinnedMesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic)
+	CommandPacket* Renderer3D::DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic)
 	{
 		OLO_PROFILE_FUNCTION();
 		
 		if (!s_Data.ScenePass)
 		{
-			OLO_CORE_ERROR("Renderer3D::DrawSkinnedMesh: ScenePass is null!");
+			OLO_CORE_ERROR("Renderer3D::DrawAnimatedMesh: ScenePass is null!");
 			return nullptr;
 		}
 		
 		s_Data.Stats.TotalMeshes++;
 		
+		// For animated meshes, be more conservative with frustum culling
+		// since bone transforms can move vertices significantly beyond rest pose bounds
 		if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
 		{
-			if (!IsVisibleInFrustum(mesh, modelMatrix))
+			// For animated draws, expand the bounding sphere more aggressively to account for skinning deformation
+			if (!mesh || !mesh->GetMeshSource())
+			{
+				OLO_CORE_ERROR("Renderer3D::DrawAnimatedMesh: Invalid mesh or mesh source for frustum culling!");
+				return nullptr;
+			}
+			
+			BoundingSphere animatedSphere = mesh->GetTransformedBoundingSphere(modelMatrix);
+			// Use a larger expansion factor for animated meshes to account for potential deformation
+			animatedSphere.Radius *= 2.0f; // More conservative than the standard 1.3f for static meshes
+			
+			if (!s_Data.ViewFrustum.IsBoundingSphereVisible(animatedSphere))
 			{
 				s_Data.Stats.CulledMeshes++;
 				return nullptr;
 			}
 		}
 		
-		if (!mesh || !mesh->GetVertexArray())
+		if (!mesh || !mesh->GetMeshSource())
 		{
-			OLO_CORE_ERROR("Renderer3D::DrawSkinnedMesh: Invalid mesh ({}) or vertex array ({})!", 
-							(void*)mesh.get(), 
-							mesh ? (void*)mesh->GetVertexArray().get() : nullptr);
+			OLO_CORE_ERROR("Renderer3D::DrawAnimatedMesh: Invalid mesh or mesh source!");
 			return nullptr;
 		}
 
-		Ref<Shader> shaderToUse;
-		if (material.Shader)
+		auto meshSource = mesh->GetMeshSource();
+		
+		// Validate that the mesh supports skinning
+		OLO_CORE_ASSERT(meshSource->HasSkeleton(), "Animated mesh must have a skeleton!");
+		OLO_CORE_ASSERT(!boneMatrices.empty(), "Bone matrices cannot be empty for animated mesh!");
+		
+		const auto* skeleton = meshSource->GetSkeleton();
+		OLO_CORE_ASSERT(skeleton, "Mesh skeleton cannot be null!");
+		
+		// Validate bone matrix count matches skeleton bone count
+		if (boneMatrices.size() != skeleton->m_BoneNames.size())
 		{
-			shaderToUse = material.Shader;
+			OLO_CORE_ERROR("Bone matrices count ({}) must match skeleton bone count ({})", 
+						   boneMatrices.size(), skeleton->m_BoneNames.size());
+			OLO_CORE_ASSERT(false, "Bone matrix count mismatch!");
 		}
-		else if ((material.Type == MaterialType::PBR))
+		
+		static bool s_FirstRun = true;
+		if (s_FirstRun)
+		{
+			OLO_CORE_INFO("Renderer3D::DrawAnimatedMesh: First animated mesh with {} bone influences", meshSource->GetBoneInfluences().size());
+			s_FirstRun = false;
+		}
+		
+		if (!meshSource->HasBoneInfluences())
+		{
+			OLO_CORE_WARN("Renderer3D::DrawAnimatedMesh: Mesh has no bone influences (size: {}), falling back to regular mesh rendering", 
+						   meshSource->GetBoneInfluences().size());
+			return DrawMesh(mesh, modelMatrix, material, isStatic);
+		}
+
+		Ref<Shader> shaderToUse;
+		if (material.Shader())
+		{
+			shaderToUse = material.Shader();
+		}
+		else if (material.Type() == MaterialType::PBR)
 		{
 			shaderToUse = s_Data.PBRSkinnedShader;
 		}
@@ -713,63 +766,92 @@ namespace OloEngine
 		
 		if (!shaderToUse)
 		{
-			OLO_CORE_WARN("Renderer3D::DrawSkinnedMesh: Preferred shader not available, falling back to Lighting3D");
+			OLO_CORE_WARN("Renderer3D::DrawAnimatedMesh: Preferred shader not available, falling back to Lighting3D");
 			shaderToUse = s_Data.LightingShader;
 		}
 		if (!shaderToUse)
 		{
-			OLO_CORE_ERROR("Renderer3D::DrawSkinnedMesh: No shader available!");
+			OLO_CORE_ERROR("Renderer3D::DrawAnimatedMesh: No shader available!");
 			return nullptr;
 		}
 		
 		if (boneMatrices.empty())
 		{
-			OLO_CORE_WARN("Renderer3D::DrawSkinnedMesh: No bone matrices provided, using identity matrices");
+			OLO_CORE_WARN("Renderer3D::DrawAnimatedMesh: No bone matrices provided, using identity matrices");
 		}
 		
-		CommandPacket* packet = CreateDrawCall<DrawSkinnedMeshCommand>();
-		auto* cmd = packet->GetCommandData<DrawSkinnedMeshCommand>();
+		// Use unified DrawMeshCommand for bone matrix handling
+		CommandPacket* packet = CreateDrawCall<DrawMeshCommand>();
+		auto* cmd = packet->GetCommandData<DrawMeshCommand>();
 		
-		cmd->header.type = CommandType::DrawSkinnedMesh;
+		cmd->header.type = CommandType::DrawMesh;
+		cmd->isAnimatedMesh = true;
 		
-		cmd->vertexArray = mesh->GetVertexArray();
+		cmd->mesh = mesh;
+		
+		// Check if VAO is valid before proceeding
+		auto vertexArray = mesh->GetVertexArray();
+		if (!vertexArray)
+		{
+			OLO_CORE_ERROR("Renderer3D::DrawAnimatedMesh: Mesh has null VAO (Vertex Array Object)!");
+			return nullptr;
+		}
+		cmd->vertexArray = vertexArray;
+		
 		cmd->indexCount = mesh->GetIndexCount();
-		cmd->modelMatrix = modelMatrix;
+		cmd->transform = modelMatrix;
 		
 		// Legacy material properties (for backward compatibility)
-		cmd->ambient = material.Ambient;
-		cmd->diffuse = material.Diffuse;
-		cmd->specular = material.Specular;
-		cmd->shininess = material.Shininess;
-		cmd->useTextureMaps = material.UseTextureMaps;
-		cmd->diffuseMap = material.DiffuseMap;
-		cmd->specularMap = material.SpecularMap;
+		cmd->ambient = material.Ambient();
+		cmd->diffuse = material.Diffuse();
+		cmd->specular = material.Specular();
+		cmd->shininess = material.Shininess();
+		cmd->useTextureMaps = material.UseTextureMaps();
+		cmd->diffuseMap = material.DiffuseMap();
+		cmd->specularMap = material.SpecularMap();
 		
 		// PBR material properties
-		cmd->enablePBR = (material.Type == MaterialType::PBR);
-		cmd->baseColorFactor = material.BaseColorFactor;
-		cmd->emissiveFactor = material.EmissiveFactor;
-		cmd->metallicFactor = material.MetallicFactor;
-		cmd->roughnessFactor = material.RoughnessFactor;
-		cmd->normalScale = material.NormalScale;
-		cmd->occlusionStrength = material.OcclusionStrength;
-		cmd->enableIBL = material.EnableIBL;
+		cmd->enablePBR = (material.Type() == MaterialType::PBR);
+		cmd->baseColorFactor = material.BaseColorFactor();
+		cmd->emissiveFactor = material.EmissiveFactor();
+		cmd->metallicFactor = material.MetallicFactor();
+		cmd->roughnessFactor = material.RoughnessFactor();
+		cmd->normalScale = material.NormalScale();
+		cmd->occlusionStrength = material.OcclusionStrength();
+		cmd->enableIBL = material.EnableIBL();
 		
 		// PBR texture references
-		cmd->albedoMap = material.AlbedoMap;
-		cmd->metallicRoughnessMap = material.MetallicRoughnessMap;
-		cmd->normalMap = material.NormalMap;
-		cmd->aoMap = material.AOMap;
-		cmd->emissiveMap = material.EmissiveMap;
-		cmd->environmentMap = material.EnvironmentMap;
-		cmd->irradianceMap = material.IrradianceMap;
-		cmd->prefilterMap = material.PrefilterMap;
-		cmd->brdfLutMap = material.BRDFLutMap;
+		cmd->albedoMap = material.AlbedoMap();
+		cmd->metallicRoughnessMap = material.MetallicRoughnessMap();
+		cmd->normalMap = material.NormalMap();
+		cmd->aoMap = material.AOMap();
+		cmd->emissiveMap = material.EmissiveMap();
+		cmd->environmentMap = material.EnvironmentMap();
+		cmd->irradianceMap = material.IrradianceMap();
+		cmd->prefilterMap = material.PrefilterMap();
+		cmd->brdfLutMap = material.BRDFLutMap();
 		
 		cmd->shader = shaderToUse;
 		cmd->renderState = Ref<RenderState>::Create();
 		
-		cmd->boneMatrices = boneMatrices;
+		// Set bone matrices reference for GPU skinning (avoid copying large data)
+		// WARNING: The caller MUST ensure the boneMatrices vector remains valid
+		// until after rendering completes. The std::span only holds a pointer and size.
+		if (!boneMatrices.empty())
+		{
+			cmd->boneMatrices = std::span<const glm::mat4>(boneMatrices.data(), boneMatrices.size());
+		}
+		else
+		{
+			cmd->boneMatrices = std::span<const glm::mat4>();
+		}
+		
+		static bool s_LoggedBoneMatrices = false;
+		if (!s_LoggedBoneMatrices && !boneMatrices.empty())
+		{
+			OLO_CORE_INFO("DrawAnimatedMesh: Setting {} bone matrices for GPU skinning", boneMatrices.size());
+			s_LoggedBoneMatrices = true;
+		}
 		
 		packet->SetCommandType(cmd->header.type);
 		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
@@ -820,28 +902,49 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
 
+		static bool s_FirstRun = true;
+		if (s_FirstRun)
+		{
+			OLO_CORE_INFO("Renderer3D::RenderAnimatedMeshes: Starting animated mesh rendering");
+			s_FirstRun = false;
+		}
+
 		if (!scene)
 		{
 			OLO_CORE_WARN("Renderer3D::RenderAnimatedMeshes: Scene is null");
 			return;
 		}
-
-		auto view = scene->GetAllEntitiesWith<AnimatedMeshComponent, SkeletonComponent, TransformComponent>();
-
+		
+		// Get view and optimize with single loop to avoid unnecessary iteration
+		auto view = scene->GetAllEntitiesWith<MeshComponent, SkeletonComponent, TransformComponent>();
+		static sizet s_EntityCount = 0;
+		sizet currentEntityCount = 0;
+		
+		// Single loop optimization: count and process entities together
 		for (auto entityID : view)
 		{
 			Entity entity = { entityID, scene.get() };
 			s_Data.Stats.TotalAnimatedMeshes++;
+			currentEntityCount++;
 
-			RenderAnimatedMesh(entity, defaultMaterial);
+			RenderAnimatedMesh(scene, entity, defaultMaterial);
+		}
+		
+		// Log stats only when count changes to reduce logging overhead
+		static bool loggedStats = false;
+		if (!loggedStats || currentEntityCount != s_EntityCount)
+		{
+			OLO_CORE_INFO("RenderAnimatedMeshes: Found {} animated entities", currentEntityCount);
+			loggedStats = true;
+			s_EntityCount = currentEntityCount;
 		}
 	}
 
-	void Renderer3D::RenderAnimatedMesh(Entity entity, const Material& defaultMaterial)
+	void Renderer3D::RenderAnimatedMesh(const Ref<Scene>& scene, Entity entity, const Material& defaultMaterial)
 	{
 		OLO_PROFILE_FUNCTION();
 
-		if (!entity.HasComponent<AnimatedMeshComponent>() || 
+		if (!entity.HasComponent<MeshComponent>() || 
 			!entity.HasComponent<SkeletonComponent>() ||
 			!entity.HasComponent<TransformComponent>())
 		{
@@ -849,19 +952,22 @@ namespace OloEngine
 			return;
 		}
 
-		auto& animatedMeshComp = entity.GetComponent<AnimatedMeshComponent>();
+		auto& meshComp = entity.GetComponent<MeshComponent>();
 		auto& skeletonComp = entity.GetComponent<SkeletonComponent>();
 		auto& transformComp = entity.GetComponent<TransformComponent>();
 
-		if (!animatedMeshComp.m_Mesh)
+		if (!meshComp.m_MeshSource || !skeletonComp.m_Skeleton)
 		{
-			OLO_CORE_WARN("Renderer3D::RenderAnimatedMesh: Entity {} has invalid mesh", 
+			OLO_CORE_WARN("Renderer3D::RenderAnimatedMesh: Entity {} has invalid mesh or skeleton", 
 						 entity.GetComponent<TagComponent>().Tag);
 			s_Data.Stats.SkippedAnimatedMeshes++;
 			return;
 		}
 
 		glm::mat4 worldTransform = transformComp.GetTransform();
+
+		// Get bone matrices from the skeleton
+		const auto& boneMatrices = skeletonComp.m_Skeleton->m_FinalBoneMatrices;
 
 		// Use MaterialComponent if available, otherwise use default material
 		Material material = defaultMaterial;
@@ -870,19 +976,75 @@ namespace OloEngine
 			material = entity.GetComponent<MaterialComponent>().m_Material;
 		}
 
-		const std::vector<glm::mat4>& boneMatrices = skeletonComp.m_Skeleton->m_FinalBoneMatrices;
-
-		auto* packet = DrawSkinnedMesh(
-			animatedMeshComp.m_Mesh,
-			worldTransform,
-			material,
-			boneMatrices,
-			false
-		);
-
-		if (packet)
+		// Find and render all child entities with SubmeshComponent
+		bool renderedAnySubmesh = false;
+		
+		// Check if entity has RelationshipComponent before accessing it
+		if (!entity.HasComponent<RelationshipComponent>())
 		{
-			SubmitPacket(packet);
+			OLO_CORE_WARN("DrawAnimatedMesh: Entity does not have RelationshipComponent, cannot render submeshes");
+			return;
+		}
+		
+		const auto& relationshipComponent = entity.GetComponent<RelationshipComponent>();
+		for (const UUID& childUUID : relationshipComponent.m_Children)
+		{
+			auto submeshEntityOpt = scene->TryGetEntityWithUUID(childUUID);
+			if (submeshEntityOpt && submeshEntityOpt->HasComponent<SubmeshComponent>())
+			{
+				auto& submeshComponent = submeshEntityOpt->GetComponent<SubmeshComponent>();
+				if (submeshComponent.m_Mesh && submeshComponent.m_Visible)
+				{
+					// Use MaterialComponent if available on submesh, otherwise use the parent's material
+					Material submeshMaterial = material;
+					if (submeshEntityOpt->HasComponent<MaterialComponent>())
+					{
+						submeshMaterial = submeshEntityOpt->GetComponent<MaterialComponent>().m_Material;
+					}
+
+					// Use the new MeshSource with bone influences directly
+					auto* packet = DrawAnimatedMesh(
+						submeshComponent.m_Mesh,
+						worldTransform,
+						submeshMaterial,
+						boneMatrices,
+						false
+					);
+
+					if (packet)
+					{
+						SubmitPacket(packet);
+						renderedAnySubmesh = true;
+					}
+				}
+			}
+		}
+
+		// Fallback: if no submesh entities found, create a mesh from the first submesh
+		if (!renderedAnySubmesh)
+		{
+			if (meshComp.m_MeshSource->GetSubmeshes().size() > 0)
+			{
+				auto mesh = Ref<Mesh>::Create(meshComp.m_MeshSource, 0);
+				
+				auto* packet = DrawAnimatedMesh(
+					mesh,
+					worldTransform,
+					material,
+					boneMatrices,
+					false
+				);
+
+				if (packet)
+				{
+					SubmitPacket(packet);
+					renderedAnySubmesh = true;
+				}
+			}
+		}
+
+		if (renderedAnySubmesh)
+		{
 			s_Data.Stats.RenderedAnimatedMeshes++;
 		}
 	}
@@ -981,38 +1143,53 @@ namespace OloEngine
 			return nullptr;
 		}
 
-		// For now, we'll draw lines as thin quads oriented towards the camera
-		// This is a simple implementation that could be optimized later
-		glm::vec3 direction = glm::normalize(end - start);
-		glm::vec3 right = glm::normalize(glm::cross(direction, glm::vec3(0.0f, 1.0f, 0.0f)));
-		glm::vec3 up = glm::cross(right, direction);
-		
-		// Scale thickness to reasonable bone width (UI range is 0.5-5.0)
-		f32 actualThickness = thickness * 0.005f; // Very thin bones for skeleton visualization
-		f32 halfThickness = actualThickness * 0.5f;
-		
-		// Create a simple line quad (we could use a dedicated line mesh later)
-		std::vector<Vertex> vertices = {
-			Vertex(start - right * halfThickness, glm::vec3(0.0f), glm::vec2(0.0f, 0.0f)),
-			Vertex(start + right * halfThickness, glm::vec3(0.0f), glm::vec2(1.0f, 0.0f)),
-			Vertex(end + right * halfThickness,   glm::vec3(0.0f), glm::vec2(1.0f, 1.0f)),
-			Vertex(end - right * halfThickness,   glm::vec3(0.0f), glm::vec2(0.0f, 1.0f))
-		};
-		
-		std::vector<u32> indices = { 0, 1, 2, 2, 3, 0 };
-		
-		// Create temporary mesh for the line
-		auto lineMesh = Ref<Mesh>::Create(vertices, indices);
-		
 		// Use a highly emissive material for skeleton visualization
 		Material material{};
-		material.Type = MaterialType::PBR;
-		material.BaseColorFactor = glm::vec4(color, 1.0f);
-		material.MetallicFactor = 0.0f;
-		material.RoughnessFactor = 1.0f;
-		material.EmissiveFactor = glm::vec4(color * 5.0f, 1.0f); // Very bright emissive for visibility through surfaces
-		
-		auto* packet = DrawMesh(lineMesh, glm::mat4(1.0f), material);
+		material.Type() = MaterialType::PBR;
+		material.BaseColorFactor() = glm::vec4(color, 1.0f);
+		material.MetallicFactor() = 0.0f;
+		material.RoughnessFactor() = 1.0f;
+		material.EmissiveFactor() = glm::vec4(color * 5.0f, 1.0f); // Very bright emissive for visibility through surfaces
+        
+		if (!s_Data.LineQuadMesh)
+		{
+			OLO_CORE_WARN("Renderer3D::DrawLine: LineQuadMesh not initialized");
+			return nullptr;
+		}
+
+		// Build transform: translate to start, rotate to align +X with (end-start), scale X to length and Y to thickness
+		const glm::vec3 seg = end - start;
+		const float length = glm::length(seg);
+		if (length <= 0.0001f)
+			return nullptr;
+
+		// Convert UI thickness to world thickness
+		const float worldThickness = thickness * 0.005f; // matches previous visual scale
+
+		// Compute rotation from +X axis to segment direction
+		const glm::vec3 dir = seg / length;
+		const glm::vec3 xAxis = glm::vec3(1,0,0);
+		glm::mat4 rot(1.0f);
+		const float dot = glm::clamp(glm::dot(xAxis, dir), -1.0f, 1.0f);
+		if (dot < 0.9999f)
+		{
+			if (dot < -0.9999f) // Direction is opposite to +X axis (antiparallel)
+			{
+				// Use Y axis for 180-degree rotation to avoid zero cross product
+				rot = glm::rotate(glm::mat4(1.0f), glm::pi<float>(), glm::vec3(0,1,0));
+			}
+			else
+			{
+				glm::vec3 axis = glm::normalize(glm::cross(xAxis, dir));
+				float angle = acosf(dot);
+				rot = glm::rotate(glm::mat4(1.0f), angle, axis);
+			}
+		}
+		// Scale: X=length, Y=worldThickness, Z=1
+		glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3(length, worldThickness, 1.0f));
+		glm::mat4 transform = glm::translate(glm::mat4(1.0f), start) * rot * scale;
+
+		auto* packet = DrawMesh(s_Data.LineQuadMesh, transform, material);
 		
 		// Modify render state to ensure skeleton visibility
 		if (packet)
@@ -1045,11 +1222,11 @@ namespace OloEngine
 		
 		// Use a highly emissive material for skeleton joints
 		Material material{};
-		material.Type = MaterialType::PBR;
-		material.BaseColorFactor = glm::vec4(color, 1.0f);
-		material.MetallicFactor = 0.0f;
-		material.RoughnessFactor = 0.8f;
-		material.EmissiveFactor = glm::vec4(color * 3.0f, 1.0f); // Very bright emission for visibility through surfaces
+		material.Type() = MaterialType::PBR;
+		material.BaseColorFactor() = glm::vec4(color, 1.0f);
+		material.MetallicFactor() = 0.0f;
+		material.RoughnessFactor() = 0.8f;
+		material.EmissiveFactor() = glm::vec4(color * 3.0f, 1.0f); // Very bright emission for visibility through surfaces
 		
 		CommandPacket* packet = nullptr;
 		

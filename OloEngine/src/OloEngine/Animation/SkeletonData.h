@@ -31,7 +31,7 @@ namespace OloEngine
 
         SkeletonData() = default;
         
-        SkeletonData(size_t boneCount)
+        SkeletonData(sizet boneCount)
         {
             m_ParentIndices.resize(boneCount, -1); // Initialize with -1 to indicate root bones
             m_BoneNames.resize(boneCount);
@@ -47,7 +47,7 @@ namespace OloEngine
          */
         void SetBindPose()
         {
-            for (size_t i = 0; i < m_GlobalTransforms.size(); ++i)
+            for (sizet i = 0; i < m_GlobalTransforms.size(); ++i)
             {
                 m_BindPoseMatrices[i] = m_GlobalTransforms[i];
                 m_InverseBindPoses[i] = glm::inverse(m_GlobalTransforms[i]);

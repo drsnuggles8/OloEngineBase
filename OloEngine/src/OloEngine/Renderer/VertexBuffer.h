@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstddef>
 #include <utility>
+#include <type_traits>
 #include "OloEngine/Renderer/Buffer.h"
 #include "OloEngine/Core/Ref.h"
 
@@ -24,5 +26,11 @@ namespace OloEngine
 
 		static Ref<VertexBuffer> Create(u32 size);
 		static Ref<VertexBuffer> Create(f32* vertices, u32 size);
+		static Ref<VertexBuffer> Create(const f32* vertices, u32 size);
+		static Ref<VertexBuffer> Create(const void* data, u32 size);
+		
+		template<typename T, typename = std::enable_if_t<
+			(std::is_integral_v<T> || std::is_enum_v<T>) && !std::is_same_v<T, u32>>>
+		static Ref<VertexBuffer> Create(T, u32) = delete;
 	};
 }

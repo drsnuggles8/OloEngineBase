@@ -1,5 +1,8 @@
 #pragma once
 
+#include "ShaderBindingLayout.h"
+#include <string>
+
 namespace OloEngine
 {
     /**
@@ -42,8 +45,8 @@ namespace OloEngine
         // Maximum number of lights supported
         constexpr int MAX_LIGHTS = 32;
         
-        // Maximum number of bones for skeletal animation
-        constexpr int MAX_BONES = 100;
+        // Maximum number of bones for skeletal animation - centralized from ShaderBindingLayout
+        constexpr int MAX_BONES = UBOStructures::AnimationConstants::MAX_BONES;
         
         // Shadow mapping constants
         constexpr float SHADOW_BIAS = 0.005f;
@@ -102,7 +105,7 @@ const float MAX_REFLECTION_LOD = 4.0;
 
 // Rendering constants
 const int MAX_LIGHTS = 32;
-const int MAX_BONES = 100;
+const int MAX_BONES = UBOStructures::AnimationConstants::MAX_BONES;
 
 // Shadow mapping constants
 const float SHADOW_BIAS = 0.005;
@@ -127,9 +130,9 @@ const int TONEMAP_UNCHARTED2 = 3;
          * @brief Get GLSL preprocessor defines for constants
          * @return String containing #define statements for all constants
          */
-        static const char* GetGLSLDefines()
+        static std::string GetGLSLDefines()
         {
-            return R"(
+            return std::string(R"(
 #define DIRECTIONAL_LIGHT 0
 #define POINT_LIGHT 1
 #define SPOT_LIGHT 2
@@ -138,7 +141,7 @@ const int TONEMAP_UNCHARTED2 = 3;
 #define DEFAULT_DIELECTRIC_F0 0.04
 #define MAX_REFLECTION_LOD 4.0
 #define MAX_LIGHTS 32
-#define MAX_BONES 100
+#define MAX_BONES )") + std::to_string(UBOStructures::AnimationConstants::MAX_BONES) + R"(
 #define GAMMA 2.2
 #define TONEMAP_NONE 0
 #define TONEMAP_REINHARD 1

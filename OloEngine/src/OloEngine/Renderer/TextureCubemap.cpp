@@ -19,8 +19,7 @@ namespace OloEngine
             }
             case RendererAPI::API::OpenGL:
             {
-                auto texture = Ref<OpenGLTextureCubemap>::Create(facePaths);
-                return texture.As<TextureCubemap>();
+                return Ref<OpenGLTextureCubemap>::Create(facePaths);
             }
         }
 
@@ -39,8 +38,7 @@ namespace OloEngine
             }
             case RendererAPI::API::OpenGL:
             {
-                auto texture = Ref<OpenGLTextureCubemap>::Create(specification);
-                return texture.As<TextureCubemap>();
+                return Ref<OpenGLTextureCubemap>::Create(specification);
             }
         }
 

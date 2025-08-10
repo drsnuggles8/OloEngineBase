@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <span>
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
@@ -24,7 +25,7 @@
  * REQUIRED CHANGES once Asset Management System is implemented:
  * 
  * 1. COMMAND CREATION (Renderer3D.cpp, Renderer2D.cpp, etc.):
- *    - Update all code that creates DrawMeshCommand, DrawSkinnedMeshCommand, etc.
+ *    - Update all code that creates DrawMeshCommand, DrawMeshInstancedCommand, etc.
  *    - Convert from storing Ref<T> objects to storing their asset handles/IDs
  *    - Example: cmd->shaderID = shader->GetAssetHandle(); instead of cmd->shader = shader;
  * 
@@ -69,7 +70,6 @@ namespace OloEngine
         DrawLines,
         DrawMesh,
         DrawMeshInstanced,
-        DrawSkinnedMesh,
         DrawSkybox,
         DrawQuad,
         BindDefaultFramebuffer,
@@ -365,9 +365,14 @@ namespace OloEngine
 		Ref<Shader> shader;
 		// Per-draw-call render state
 		Ref<RenderState> renderState;
-		// Skinning support for animated meshes
-		bool isSkinnedMesh = false;
-		u32 boneMatricesBufferID = 0;  // ID to external bone matrices buffer instead of vector
+		// Animation support for animated meshes
+		bool isAnimatedMesh = false;
+		// TODO: Replace with pooled buffer reference to reduce command size and heap allocations
+		// Bone matrices reference for GPU animation - avoid copying large data
+		// WARNING: The referenced bone matrix storage MUST outlive this command instance!
+		// The caller is responsible for ensuring the bone matrices remain valid until
+		// after GPU consumption during command dispatch.
+		std::span<const glm::mat4> boneMatrices;  // Reference to external bone matrices data
 	};
 
 	struct DrawMeshInstancedCommand
@@ -414,9 +419,10 @@ namespace OloEngine
 		Ref<Shader> shader;
 		// Per-draw-call render state
 		Ref<RenderState> renderState;
-		// Skinning support for animated meshes
-		bool isSkinnedMesh = false;
-		// For instanced skinned meshes, each instance has its own set of bone matrices
+		// Animation support for animated meshes
+		bool isAnimatedMesh = false;
+		// TODO: Replace nested vector with flat contiguous buffer or SSBO for better memory efficiency
+		// Consider single flat buffer with instance offsets instead of vector<vector<glm::mat4>>
 		std::vector<std::vector<glm::mat4>> instanceBoneMatrices;
 	};
 
@@ -443,50 +449,6 @@ namespace OloEngine
 		Ref<RenderState> renderState;
 	};
 
-	struct DrawSkinnedMeshCommand
-	{
-		CommandHeader header;
-		Ref<VertexArray> vertexArray;
-		u32 indexCount;
-		glm::mat4 modelMatrix;
-		
-		// Legacy material properties (for backward compatibility)
-		glm::vec3 ambient;
-		glm::vec3 diffuse;
-		glm::vec3 specular;
-		f32 shininess;
-		bool useTextureMaps;
-		// Legacy texture references
-		Ref<Texture2D> diffuseMap;
-		Ref<Texture2D> specularMap;
-		
-		// PBR material properties
-		bool enablePBR = false;
-		glm::vec4 baseColorFactor = glm::vec4(1.0f);
-		glm::vec4 emissiveFactor = glm::vec4(0.0f);
-		f32 metallicFactor = 0.0f;
-		f32 roughnessFactor = 1.0f;
-		f32 normalScale = 1.0f;
-		f32 occlusionStrength = 1.0f;
-		bool enableIBL = false;
-		
-		// PBR texture references
-		Ref<Texture2D> albedoMap;
-		Ref<Texture2D> metallicRoughnessMap;
-		Ref<Texture2D> normalMap;
-		Ref<Texture2D> aoMap;
-		Ref<Texture2D> emissiveMap;
-		Ref<TextureCubemap> environmentMap;
-		Ref<TextureCubemap> irradianceMap;
-		Ref<TextureCubemap> prefilterMap;
-		Ref<Texture2D> brdfLutMap;
-		
-		// Actual shader for skinned rendering
-		Ref<Shader> shader;
-		// Per-draw-call render state
-		Ref<RenderState> renderState;
-		// Bone matrices for GPU skinning (up to 100 bones)
-		std::vector<glm::mat4> boneMatrices;
-	};    // Maximum command size for allocation purposes - increased for PBR and bone matrices
+    // Maximum command size for allocation purposes - increased for PBR and bone matrices
     constexpr sizet MAX_COMMAND_SIZE = 1024;
 }

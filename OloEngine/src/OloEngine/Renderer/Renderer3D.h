@@ -4,7 +4,6 @@
 #include "OloEngine/Renderer/Camera/PerspectiveCamera.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Mesh.h"
-#include "OloEngine/Renderer/SkinnedMesh.h"
 #include "OloEngine/Renderer/Light.h"
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
@@ -68,7 +67,8 @@ namespace OloEngine
 		static void BeginScene(const PerspectiveCamera& camera);
 		static void EndScene();
 		static CommandPacket* DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
-		static CommandPacket* DrawSkinnedMesh(const Ref<SkinnedMesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic = true);
+		// Animated drawing commands
+        static CommandPacket* DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic = false);
 		static CommandPacket* DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
 		static CommandPacket* DrawMeshInstanced(const Ref<Mesh>& mesh, const std::vector<glm::mat4>& transforms, const Material& material, bool isStatic = true);
 		static CommandPacket* DrawLightCube(const glm::mat4& modelMatrix);
@@ -86,7 +86,7 @@ namespace OloEngine
 		
 		// ECS Animated Mesh Rendering
 		static void RenderAnimatedMeshes(const Ref<Scene>& scene, const Material& defaultMaterial);
-		static void RenderAnimatedMesh(Entity entity, const Material& defaultMaterial);
+		static void RenderAnimatedMesh(const Ref<Scene>& scene, Entity entity, const Material& defaultMaterial);
 	
 		static void SetLight(const Light& light);
 		static void SetViewPosition(const glm::vec3& position);
@@ -97,7 +97,6 @@ namespace OloEngine
 		static bool IsDynamicCullingEnabled();
 		static const Frustum& GetViewFrustum();
 		static bool IsVisibleInFrustum(const Ref<Mesh>& mesh, const glm::mat4& transform);
-		static bool IsVisibleInFrustum(const Ref<SkinnedMesh>& mesh, const glm::mat4& transform);
 		static bool IsVisibleInFrustum(const BoundingSphere& sphere);
 		static bool IsVisibleInFrustum(const BoundingBox& box);
 		
@@ -176,6 +175,7 @@ namespace OloEngine
 			Ref<Mesh> CubeMesh;
 			Ref<Mesh> QuadMesh;
 			Ref<Mesh> SkyboxMesh;
+			Ref<Mesh> LineQuadMesh; // Cached unit-length quad for debug lines
 			Ref<Shader> LightCubeShader;
 			Ref<Shader> LightingShader;
 			Ref<Shader> SkinnedLightingShader;

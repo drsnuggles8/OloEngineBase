@@ -5,6 +5,8 @@
 #include "Components.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
+#include "OloEngine/Animation/BoneEntityUtils.h"
+#include "OloEngine/Renderer/MeshSource.h"
 
 #include <glm/glm.hpp>
 #include <ranges>
@@ -51,11 +53,11 @@ namespace OloEngine
 		([&]()
 		{
 			auto view = srcRegistry.view<Component>();
-			for (auto it = view.rbegin(); it != view.rend(); it++)
+			for (auto entity : view)
 			{
-				entt::entity dstEntity = enttMap.at(srcRegistry.get<IDComponent>(*it).ID);
+				entt::entity dstEntity = enttMap.at(srcRegistry.get<IDComponent>(entity).ID);
 
-				const auto& srcComponent = srcRegistry.get<Component>(*it);
+				const auto& srcComponent = srcRegistry.get<Component>(entity);
 				dstRegistry.emplace_or_replace<Component>(dstEntity, srcComponent);
 			}
 		}(), ...);
@@ -123,6 +125,8 @@ namespace OloEngine
 		idComponent.ID = uuid;
 
 		entity.AddComponent<TransformComponent>();
+		// RelationshipComponent will be added on-demand when needed
+		// entity.AddComponent<RelationshipComponent>();
 
 		auto& tag = entity.AddComponent<TagComponent>();
 		tag.Tag = name.empty() ? "Entity" : name;
@@ -424,7 +428,9 @@ namespace OloEngine
 
 // Animation/ECS explicit specializations
 template<>
-void Scene::OnComponentAdded<AnimatedMeshComponent>(Entity, AnimatedMeshComponent&) {}
+void Scene::OnComponentAdded<MeshComponent>(Entity, MeshComponent&) {}
+template<>
+void Scene::OnComponentAdded<SubmeshComponent>(Entity, SubmeshComponent&) {}
 template<>
 void Scene::OnComponentAdded<AnimationStateComponent>(Entity, AnimationStateComponent&) {}
 template<>
@@ -489,6 +495,52 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 			}
 		}
 		return {};
+	}
+
+	// Bone entity management methods (Hazel-style)
+	std::vector<glm::mat4> Scene::GetModelSpaceBoneTransforms(const std::vector<UUID>& boneEntityIds, const MeshSource& meshSource) const
+	{
+		return BoneEntityUtils::GetModelSpaceBoneTransforms(boneEntityIds, &meshSource, this);
+	}
+
+	std::vector<UUID> Scene::FindBoneEntityIds(Entity rootEntity, const Skeleton& skeleton) const
+	{
+		return BoneEntityUtils::FindBoneEntityIds(rootEntity, &skeleton, this);
+	}
+
+	glm::mat4 Scene::FindRootBoneTransform(Entity entity, const std::vector<UUID>& boneEntityIds) const
+	{
+		return BoneEntityUtils::FindRootBoneTransform(entity, boneEntityIds, this);
+	}
+
+	void Scene::BuildBoneEntityIds(Entity entity)
+	{
+		// Build bone entity IDs for the given entity, using itself as the root entity
+		// This is useful when the entity is both the mesh and the root of the bone hierarchy
+		BuildMeshBoneEntityIds(entity, entity);
+	}
+
+	void Scene::BuildMeshBoneEntityIds(Entity entity, Entity rootEntity)
+	{
+		BoneEntityUtils::BuildMeshBoneEntityIds(entity, rootEntity, this);
+	}
+
+	void Scene::BuildAnimationBoneEntityIds(Entity entity, Entity rootEntity)
+	{
+		BoneEntityUtils::BuildAnimationBoneEntityIds(entity, rootEntity, this);
+	}
+
+	std::optional<Entity> Scene::TryGetEntityWithUUID(UUID id) const
+	{
+		auto it = m_EntityMap.find(id);
+		if (it != m_EntityMap.end())
+		{
+			// FIXME: const_cast usage should be minimized. Consider updating Entity class
+			// to accept const Scene* for read-only operations or create a const-Entity view.
+			// This cast is currently necessary as Entity requires non-const Scene* for API consistency.
+			return Entity{ it->second, const_cast<Scene*>(this) };
+		}
+		return std::nullopt;
 	}
 
 	void Scene::OnPhysics2DStart()
@@ -651,6 +703,11 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 
 	template<>
 	void Scene::OnComponentAdded<AudioListenerComponent>(Entity, AudioListenerComponent&)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<RelationshipComponent>(Entity, RelationshipComponent&)
 	{
 	}
 }

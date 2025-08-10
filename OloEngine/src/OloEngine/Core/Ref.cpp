@@ -36,7 +36,7 @@ namespace OloEngine {
         m_RefCount.fetch_sub(1, std::memory_order_acq_rel);
     }
 
-    uint32_t RefCounted::GetRefCount() const
+    u32 RefCounted::GetRefCount() const
     {
         return m_RefCount.load(std::memory_order_relaxed);
     }

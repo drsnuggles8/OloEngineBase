@@ -36,8 +36,12 @@ namespace OloEngine
 	}
 
 	Font::Font(const std::filesystem::path& filepath)
-		: m_Data(new MSDFData())
+		: m_Data(CreateScope<MSDFData>())
 	{
+		// Extract font name from filepath
+		m_Name = filepath.filename().stem().string();
+		m_Path = filepath.string();
+		
 		msdfgen::FreetypeHandle* ft = msdfgen::initializeFreetype();
 		OLO_CORE_ASSERT(ft);
 
@@ -128,7 +132,7 @@ namespace OloEngine
 
 	Font::~Font()
 	{
-		delete m_Data;
+		// m_Data is automatically cleaned up by Scope<MSDFData> (std::unique_ptr)
 	}
 
 	Ref<Font> Font::GetDefault()

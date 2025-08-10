@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Scene/SceneSerializer.h"
+#include "OloEngine/Core/YAMLConverters.h"
 
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
@@ -10,107 +11,6 @@
 #include <fstream>
 
 #include <yaml-cpp/yaml.h>
-
-namespace YAML {
-
-	template<>
-	struct convert<glm::vec2>
-	{
-		static Node encode(const glm::vec2& rhs)
-		{
-			Node node;
-			node.push_back(rhs.x);
-			node.push_back(rhs.y);
-			node.SetStyle(EmitterStyle::Flow);
-			return node;
-		}
-
-		static bool decode(const Node& node, glm::vec2& rhs)
-		{
-			if ((!node.IsSequence()) || (node.size() != 2))
-			{
-				return false;
-			}
-
-			rhs.x = node[0].as<f32>();
-			rhs.y = node[1].as<f32>();
-			return true;
-		}
-	};
-
-	template<>
-	struct convert<glm::vec3>
-	{
-		static Node encode(const glm::vec3& rhs)
-		{
-			Node node;
-			node.push_back(rhs.x);
-			node.push_back(rhs.y);
-			node.push_back(rhs.z);
-			node.SetStyle(EmitterStyle::Flow);
-			return node;
-		}
-
-		static bool decode(const Node& node, glm::vec3& rhs)
-		{
-			if ((!node.IsSequence()) || (node.size() != 3))
-			{
-				return false;
-			}
-
-			rhs.x = node[0].as<f32>();
-			rhs.y = node[1].as<f32>();
-			rhs.z = node[2].as<f32>();
-			return true;
-		}
-	};
-
-	template<>
-	struct convert<glm::vec4>
-	{
-		static Node encode(const glm::vec4& rhs)
-		{
-			Node node;
-			node.push_back(rhs.x);
-			node.push_back(rhs.y);
-			node.push_back(rhs.z);
-			node.push_back(rhs.w);
-			node.SetStyle(EmitterStyle::Flow);
-			return node;
-		}
-
-		static bool decode(const Node& node, glm::vec4& rhs)
-		{
-			if ((!node.IsSequence()) || (node.size() != 4))
-			{
-				return false;
-			}
-
-			rhs.x = node[0].as<f32>();
-			rhs.y = node[1].as<f32>();
-			rhs.z = node[2].as<f32>();
-			rhs.w = node[3].as<f32>();
-			return true;
-		}
-	};
-
-	template<>
-	struct convert<OloEngine::UUID>
-	{
-		static Node encode(const OloEngine::UUID& uuid)
-		{
-			Node node;
-			node.push_back(static_cast<u64>(uuid));
-			return node;
-		}
-
-		static bool decode(const Node& node, OloEngine::UUID& uuid)
-		{
-			uuid = node.as<u64>();
-			return true;
-		}
-	};
-}
 
 
 namespace OloEngine
@@ -433,7 +333,10 @@ namespace OloEngine
 
 			auto const& textComponent = entity.GetComponent<TextComponent>();
 			out << YAML::Key << "TextString" << YAML::Value << textComponent.TextString;
-			// TODO(olbu): textComponent.FontAsset
+			if (textComponent.FontAsset)
+			{
+				out << YAML::Key << "FontPath" << YAML::Value << textComponent.FontAsset->GetPath();
+			}
 			out << YAML::Key << "Color" << YAML::Value << textComponent.Color;
 			out << YAML::Key << "Kerning" << YAML::Value << textComponent.Kerning;
 			out << YAML::Key << "LineSpacing" << YAML::Value << textComponent.LineSpacing;
@@ -688,7 +591,10 @@ namespace OloEngine
 				{
 					auto& tc = deserializedEntity.AddComponent<TextComponent>();
 					tc.TextString = textComponent["TextString"].as<std::string>();
-					// tc.FontAsset // TODO
+					if (textComponent["FontPath"])
+					{
+						tc.FontAsset = Font::Create(textComponent["FontPath"].as<std::string>());
+					}
 					tc.Color = textComponent["Color"].as<glm::vec4>();
 					tc.Kerning = textComponent["Kerning"].as<float>();
 					tc.LineSpacing = textComponent["LineSpacing"].as<float>();
@@ -705,5 +611,263 @@ namespace OloEngine
 		// Not implemented
 		OLO_CORE_ASSERT(false);
 		return false;
+	}
+
+	std::string SceneSerializer::SerializeToYAML() const
+	{
+		YAML::Emitter out;
+		out << YAML::BeginMap;
+		out << YAML::Key << "Scene" << YAML::Value << m_Scene->GetName();
+		out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
+		m_Scene->m_Registry.view<entt::entity>().each([&](auto entityID)
+			{
+				// SAFETY: m_Scene is const Ref<Scene>, but Entity requires non-const Scene*
+				// This is safe because serialization only reads entity data
+				Entity const entity = { entityID, const_cast<Scene*>(m_Scene.get()) };
+				if (!entity)
+				{
+					return;
+				}
+
+				SerializeEntity(out, entity);
+			});
+		out << YAML::EndSeq;
+		out << YAML::EndMap;
+
+		return std::string(out.c_str());
+	}
+
+	bool SceneSerializer::DeserializeFromYAML(const std::string& yamlString)
+	{
+		YAML::Node data;
+		try
+		{
+			data = YAML::Load(yamlString);
+		}
+		catch (YAML::ParserException& e)
+		{
+			OLO_CORE_ERROR("Failed to load scene...\n     {0}", e.what());
+			return false;
+		}
+		catch (YAML::BadFile&)
+		{
+			OLO_CORE_ERROR("Failed to load scene from string");
+			return false;
+		}
+
+		if (!data["Scene"])
+		{
+			return false;
+		}
+
+		std::string sceneName = data["Scene"].as<std::string>();
+		OLO_CORE_TRACE("Deserializing scene '{0}'", sceneName);
+
+		auto entities = data["Entities"];
+		if (entities)
+		{
+			for (auto entity : entities)
+			{
+				u64 uuid = entity["Entity"].as<u64>();
+
+				std::string name;
+				auto tagComponent = entity["TagComponent"];
+				if (tagComponent)
+				{
+					name = tagComponent["Tag"].as<std::string>();
+				}
+
+				OLO_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
+
+				Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);
+
+				auto transformComponent = entity["TransformComponent"];
+				if (transformComponent)
+				{
+					// Entities always have transforms
+					auto& tc = deserializedEntity.GetComponent<TransformComponent>();
+					tc.Translation = transformComponent["Translation"].as<glm::vec3>();
+					tc.Rotation = transformComponent["Rotation"].as<glm::vec3>();
+					tc.Scale = transformComponent["Scale"].as<glm::vec3>();
+				}
+
+				if (auto cameraComponent = entity["CameraComponent"]; cameraComponent)
+				{
+					auto& cc = deserializedEntity.AddComponent<CameraComponent>();
+
+					auto cameraProps = cameraComponent["Camera"];
+					cc.Camera.SetProjectionType(static_cast<SceneCamera::ProjectionType>(cameraProps["ProjectionType"].as<int>()));
+
+					cc.Camera.SetPerspectiveVerticalFOV(cameraProps["PerspectiveFOV"].as<f32>());
+					cc.Camera.SetPerspectiveNearClip(cameraProps["PerspectiveNear"].as<f32>());
+					cc.Camera.SetPerspectiveFarClip(cameraProps["PerspectiveFar"].as<f32>());
+
+					cc.Camera.SetOrthographicSize(cameraProps["OrthographicSize"].as<f32>());
+					cc.Camera.SetOrthographicNearClip(cameraProps["OrthographicNear"].as<f32>());
+					cc.Camera.SetOrthographicFarClip(cameraProps["OrthographicFar"].as<f32>());
+
+					cc.Primary = cameraComponent["Primary"].as<bool>();
+					cc.FixedAspectRatio = cameraComponent["FixedAspectRatio"].as<bool>();
+				}
+
+				if (auto scriptComponent = entity["ScriptComponent"])
+				{
+					auto& sc = deserializedEntity.AddComponent<ScriptComponent>();
+					sc.ClassName = scriptComponent["ClassName"].as<std::string>();
+
+					if (auto scriptFields = scriptComponent["ScriptFields"]; scriptFields)
+					{
+						if (Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(sc.ClassName))
+						{
+							const auto& fields = entityClass->GetFields();
+							auto& entityFields = ScriptEngine::GetScriptFieldMap(deserializedEntity);
+
+							for (auto scriptField : scriptFields)
+							{
+								std::string fieldName = scriptField["Name"].as<std::string>();
+								auto typeString = scriptField["Type"].as<std::string>();
+								ScriptFieldType type = Utils::ScriptFieldTypeFromString(typeString);
+
+								ScriptFieldInstance& fieldInstance = entityFields[fieldName];
+
+								OLO_CORE_ASSERT(fields.contains(fieldName));
+
+								if (!fields.contains(fieldName))
+								{
+									continue;
+								}
+
+								fieldInstance.Field = fields.at(fieldName);
+
+								switch (type)
+								{
+									READ_SCRIPT_FIELD(Float, f32)
+									READ_SCRIPT_FIELD(Double, f64)
+									READ_SCRIPT_FIELD(Bool, bool)
+									READ_SCRIPT_FIELD(Char, char)
+									READ_SCRIPT_FIELD(Byte, i8)
+									READ_SCRIPT_FIELD(Short, i16)
+									READ_SCRIPT_FIELD(Int, i32)
+									READ_SCRIPT_FIELD(Long, i64)
+									READ_SCRIPT_FIELD(UByte, u8)
+									READ_SCRIPT_FIELD(UShort, u16)
+									READ_SCRIPT_FIELD(UInt, u32)
+									READ_SCRIPT_FIELD(ULong, u64)
+									READ_SCRIPT_FIELD(Vector2, glm::vec2)
+									READ_SCRIPT_FIELD(Vector3, glm::vec3)
+									READ_SCRIPT_FIELD(Vector4, glm::vec4)
+									READ_SCRIPT_FIELD(Entity, UUID)
+								}
+							}
+						}
+					}
+				}
+
+				if (const auto& audioSourceComponent = entity["AudioSourceComponent"])
+				{
+					auto& src = deserializedEntity.AddComponent<AudioSourceComponent>();
+					std::string audioFilepath;
+					TrySet(audioFilepath, audioSourceComponent["Filepath"]);
+					TrySet(src.Config.VolumeMultiplier, audioSourceComponent["VolumeMultiplier"]);
+					TrySet(src.Config.PitchMultiplier, audioSourceComponent["PitchMultiplier"]);
+					TrySet(src.Config.PlayOnAwake, audioSourceComponent["PlayOnAwake"]);
+					TrySet(src.Config.Looping, audioSourceComponent["Looping"]);
+					TrySet(src.Config.Spatialization, audioSourceComponent["Spatialization"]);
+					TrySetEnum(src.Config.AttenuationModel, audioSourceComponent["AttenuationModel"]);
+					TrySet(src.Config.RollOff, audioSourceComponent["RollOff"]);
+					TrySet(src.Config.MinGain, audioSourceComponent["MinGain"]);
+					TrySet(src.Config.MaxGain, audioSourceComponent["MaxGain"]);
+					TrySet(src.Config.MinDistance, audioSourceComponent["MinDistance"]);
+					TrySet(src.Config.MaxDistance, audioSourceComponent["MaxDistance"]);
+					TrySet(src.Config.ConeInnerAngle, audioSourceComponent["ConeInnerAngle"]);
+					TrySet(src.Config.ConeOuterAngle, audioSourceComponent["ConeOuterAngle"]);
+					TrySet(src.Config.ConeOuterGain, audioSourceComponent["ConeOuterGain"]);
+					TrySet(src.Config.DopplerFactor, audioSourceComponent["DopplerFactor"]);
+
+					if (!audioFilepath.empty())
+					{
+						std::filesystem::path path = audioFilepath.c_str();
+						path = Project::GetAssetFileSystemPath(path);
+						src.Source = Ref<AudioSource>::Create(path.string().c_str());
+					}
+				}
+
+				if (const auto& audioListenerComponent = entity["AudioListenerComponent"])
+				{
+					auto& src = deserializedEntity.AddComponent<AudioListenerComponent>();
+					TrySet(src.Active, audioListenerComponent["Active"]);
+					TrySet(src.Config.ConeInnerAngle, audioListenerComponent["ConeInnerAngle"]);
+					TrySet(src.Config.ConeOuterAngle, audioListenerComponent["ConeOuterAngle"]);
+					TrySet(src.Config.ConeOuterGain, audioListenerComponent["ConeOuterGain"]);
+				}
+
+				if (auto spriteRendererComponent = entity["SpriteRendererComponent"]; spriteRendererComponent)
+				{
+					auto& src = deserializedEntity.AddComponent<SpriteRendererComponent>();
+					src.Color = spriteRendererComponent["Color"].as<glm::vec4>();
+					if (spriteRendererComponent["TexturePath"])
+					{
+						src.Texture = Texture2D::Create(spriteRendererComponent["TexturePath"].as<std::string>());
+					}
+
+					if (spriteRendererComponent["TilingFactor"])
+					{
+						src.TilingFactor = spriteRendererComponent["TilingFactor"].as<f32>();
+					}
+				}
+
+				if (auto circleRendererComponent = entity["CircleRendererComponent"]; circleRendererComponent)
+				{
+					auto& crc = deserializedEntity.AddComponent<CircleRendererComponent>();
+					crc.Color = circleRendererComponent["Color"].as<glm::vec4>();
+					crc.Thickness = circleRendererComponent["Thickness"].as<f32>();
+					crc.Fade = circleRendererComponent["Fade"].as<f32>();
+				}
+
+				if (auto rigidbody2DComponent = entity["Rigidbody2DComponent"]; rigidbody2DComponent)
+				{
+					auto& rb2d = deserializedEntity.AddComponent<Rigidbody2DComponent>();
+					rb2d.Type = RigidBody2DBodyTypeFromString(rigidbody2DComponent["BodyType"].as<std::string>());
+					rb2d.FixedRotation = rigidbody2DComponent["FixedRotation"].as<bool>();
+				}
+
+				if (auto boxCollider2DComponent = entity["BoxCollider2DComponent"]; boxCollider2DComponent)
+				{
+					auto& bc2d = deserializedEntity.AddComponent<BoxCollider2DComponent>();
+					bc2d.Offset = boxCollider2DComponent["Offset"].as<glm::vec2>();
+					bc2d.Size = boxCollider2DComponent["Size"].as<glm::vec2>();
+					bc2d.Density = boxCollider2DComponent["Density"].as<f32>();
+					bc2d.Friction = boxCollider2DComponent["Friction"].as<f32>();
+					bc2d.Restitution = boxCollider2DComponent["Restitution"].as<f32>();
+					bc2d.RestitutionThreshold = boxCollider2DComponent["RestitutionThreshold"].as<f32>();
+				}
+
+				if (auto circleCollider2DComponent = entity["CircleCollider2DComponent"]; circleCollider2DComponent)
+				{
+					auto& cc2d = deserializedEntity.AddComponent<CircleCollider2DComponent>();
+					cc2d.Offset = circleCollider2DComponent["Offset"].as<glm::vec2>();
+					cc2d.Radius = circleCollider2DComponent["Radius"].as<f32>();
+					cc2d.Density = circleCollider2DComponent["Density"].as<f32>();
+					cc2d.Friction = circleCollider2DComponent["Friction"].as<f32>();
+					cc2d.Restitution = circleCollider2DComponent["Restitution"].as<f32>();
+					cc2d.RestitutionThreshold = circleCollider2DComponent["RestitutionThreshold"].as<f32>();
+				}
+				
+				if (auto textComponent = entity["TextComponent"]; textComponent)
+				{
+					auto& tc = deserializedEntity.AddComponent<TextComponent>();
+					tc.TextString = textComponent["TextString"].as<std::string>();
+					if (textComponent["FontPath"])
+					{
+						tc.FontAsset = Font::Create(textComponent["FontPath"].as<std::string>());
+					}
+					tc.Color = textComponent["Color"].as<glm::vec4>();
+					tc.Kerning = textComponent["Kerning"].as<float>();
+					tc.LineSpacing = textComponent["LineSpacing"].as<float>();
+				}
+			}
+		}
+
+		return true;
 	}
 }

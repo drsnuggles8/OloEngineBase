@@ -53,6 +53,13 @@ inline OStream& operator<<(OStream& os, glm::qua<T, Q> quaternion)
 #define OLO_CORE_ERROR(...)   ::OloEngine::Log::GetCoreLogger()->error(__VA_ARGS__)
 #define OLO_CORE_CRITICAL(...)::OloEngine::Log::GetCoreLogger()->critical(__VA_ARGS__)
 
+// Tagged logging macros (simplified version - for now just maps to regular logging)
+#define OLO_CORE_TRACE_TAG(tag, ...)   OLO_CORE_TRACE(__VA_ARGS__)
+#define OLO_CORE_INFO_TAG(tag, ...)    OLO_CORE_INFO(__VA_ARGS__)
+#define OLO_CORE_WARN_TAG(tag, ...)    OLO_CORE_WARN(__VA_ARGS__)
+#define OLO_CORE_ERROR_TAG(tag, ...)   OLO_CORE_ERROR(__VA_ARGS__)
+#define OLO_CORE_CRITICAL_TAG(tag, ...)OLO_CORE_CRITICAL(__VA_ARGS__)
+
 // Client log macros
 #define OLO_TRACE(...)        ::OloEngine::Log::GetClientLogger()->trace(__VA_ARGS__)
 #define OLO_INFO(...)		  ::OloEngine::Log::GetClientLogger()->info(__VA_ARGS__)

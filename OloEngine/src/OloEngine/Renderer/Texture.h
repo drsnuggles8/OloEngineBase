@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Renderer/RendererResource.h"
 
 #include <string>
 
@@ -28,7 +29,7 @@ namespace OloEngine
 		bool GenerateMips = true;
 	};
 
-	class Texture : public RefCounted
+	class Texture : public RendererResource
 	{
 	public:
 		virtual ~Texture() = default;
@@ -50,6 +51,10 @@ namespace OloEngine
 		[[nodiscard("Use for transparency")]] virtual bool HasAlphaChannel() const = 0;
 
 		bool operator==(const Texture& other) const { return GetRendererID() == other.GetRendererID(); }
+
+		// Asset interface
+		static constexpr AssetType GetStaticType() noexcept { return AssetType::None; }
+		virtual AssetType GetAssetType() const override = 0;
 	};
 
 	class Texture2D : public Texture
@@ -57,5 +62,9 @@ namespace OloEngine
 	public:
 		static Ref<Texture2D> Create(const TextureSpecification& specification);
 		static Ref<Texture2D> Create(const std::string& path);
+
+		// Asset interface
+		static constexpr AssetType GetStaticType() noexcept { return AssetType::Texture2D; }
+		virtual AssetType GetAssetType() const override { return GetStaticType(); }
 	};
 }

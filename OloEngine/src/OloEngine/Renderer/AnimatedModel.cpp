@@ -3,6 +3,8 @@
 #include "OloEngine/Core/Log.h"
 #include <filesystem>
 #include <set>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace OloEngine
 {
@@ -70,10 +72,10 @@ namespace OloEngine
         for (u32 i = 0; i < node->mNumMeshes; i++)
         {
             aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
-            auto skinnedMesh = ProcessMesh(mesh, scene);
-            if (skinnedMesh)
+            auto meshSource = ProcessMesh(mesh, scene);
+            if (meshSource)
             {
-                m_Meshes.push_back(skinnedMesh);
+                m_Meshes.push_back(meshSource);
                 
                 // Process the material for this mesh
                 Material material;
@@ -84,7 +86,17 @@ namespace OloEngine
                 else
                 {
                     // Create default material if no material is found
-                    material = Material::CreatePBR("Default Animated Material", glm::vec3(0.8f), 0.0f, 0.5f);
+                    auto defaultMaterialRef = Material::CreatePBR("Default Animated Material", glm::vec3(0.8f), 0.0f, 0.5f);
+                    if (defaultMaterialRef)
+                    {
+                        material = *defaultMaterialRef; // Copy to value type for struct-like access
+                    }
+                    else
+                    {
+                        OLO_CORE_ERROR("AnimatedModel: Failed to create default PBR material");
+                        // Use a minimal fallback material or skip this mesh
+                        material = Material{}; // Default constructed material
+                    }
                 }
                 m_Materials.push_back(material);
             }
@@ -97,20 +109,26 @@ namespace OloEngine
         }
     }
 
-    Ref<SkinnedMesh> AnimatedModel::ProcessMesh(const aiMesh* mesh, const aiScene* scene)
+    Ref<MeshSource> AnimatedModel::ProcessMesh(const aiMesh* mesh, const aiScene* scene)
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<SkinnedVertex> vertices;
+        std::vector<Vertex> vertices; // Use regular Vertex instead of specialized vertex types
         std::vector<u32> indices;
+        std::vector<BoneInfluence> boneInfluences; // Separate bone data
+
+        // Reserve space to reduce allocations during mesh processing
+        vertices.reserve(mesh->mNumVertices);
+        indices.reserve(mesh->mNumFaces * 3); // Assuming triangulated mesh
+        boneInfluences.reserve(mesh->mNumVertices); // One per vertex for bone influences
 
         OLO_CORE_TRACE("AnimatedModel::ProcessMesh: Processing mesh with {} vertices, {} faces, {} bones", 
                        mesh->mNumVertices, mesh->mNumFaces, mesh->mNumBones);
 
-        // Process vertices
+        // Process vertices (without bone data)
         for (u32 i = 0; i < mesh->mNumVertices; i++)
         {
-            SkinnedVertex vertex;
+            Vertex vertex;
 
             // Position
             vertex.Position = glm::vec3(
@@ -146,17 +164,16 @@ namespace OloEngine
                 vertex.TexCoord = glm::vec2(0.0f);
             }
 
-            // Initialize bone data (will be filled by ProcessBones)
-            vertex.BoneIndices = glm::ivec4(-1);
-            vertex.BoneWeights = glm::vec4(0.0f);
-
             vertices.push_back(vertex);
         }
+
+        // Initialize bone influences (one per vertex)
+        boneInfluences.resize(vertices.size());
 
         // Process bone data if available
         if (mesh->mNumBones > 0)
         {
-            ProcessBones(mesh, vertices);
+            ProcessBones(mesh, boneInfluences);
         }
 
         // Process indices
@@ -169,14 +186,59 @@ namespace OloEngine
             }
         }
 
-        // Create and return the skinned mesh
-        auto skinnedMesh = Ref<SkinnedMesh>::Create(std::move(vertices), std::move(indices));
-        skinnedMesh->Build();
+        // Store sizes before moving data to avoid use-after-move issues
+        const u32 vertexCount = static_cast<u32>(vertices.size());
+        const u32 indexCount = static_cast<u32>(indices.size());
+        
+        // Create MeshSource with separated data
+        auto meshSource = Ref<MeshSource>::Create(std::move(vertices), std::move(indices));
+        
+        // Set skeleton and bone data
+        if (m_Skeleton)
+        {
+            meshSource->SetSkeleton(m_Skeleton);
+        }
+        
+        // Copy bone influences
+        meshSource->GetBoneInfluences() = std::move(boneInfluences);
+        
+        OLO_CORE_TRACE("AnimatedModel::ProcessMesh: Set {} bone influences on MeshSource", meshSource->GetBoneInfluences().size());
+        
+        // Copy bone info in correct skeleton order
+        meshSource->GetBoneInfo().resize(m_Skeleton->m_BoneNames.size());
+        
+        // Initialize all entries with identity transforms and sequential IDs to ensure no uninitialized data
+        for (u32 i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
+        {
+            meshSource->GetBoneInfo()[i] = {glm::mat4(1.0f), i};
+        }
+        
+        // Overwrite entries with actual bone data from m_BoneInfoMap
+        for (const auto& [boneName, boneInfo] : m_BoneInfoMap)
+        {
+            if (boneInfo.Id < meshSource->GetBoneInfo().size())
+            {
+                meshSource->GetBoneInfo()[boneInfo.Id] = {boneInfo.Offset, boneInfo.Id};
+            }
+        }
 
-        return skinnedMesh;
+        // Create a submesh for the entire mesh
+        Submesh submesh;
+        submesh.m_BaseVertex = 0;
+        submesh.m_BaseIndex = 0;
+        submesh.m_IndexCount = indexCount;
+        submesh.m_VertexCount = vertexCount;
+        submesh.m_MaterialIndex = mesh->mMaterialIndex; // Use actual material index from Assimp
+        submesh.m_IsRigged = mesh->mNumBones > 0; // Set rigged flag based on bone presence
+        submesh.m_NodeName = mesh->mName.C_Str();
+        meshSource->AddSubmesh(submesh);
+
+        meshSource->Build();
+
+        return meshSource;
     }
 
-    void AnimatedModel::ProcessBones(const aiMesh* mesh, std::vector<SkinnedVertex>& vertices)
+    void AnimatedModel::ProcessBones(const aiMesh* mesh, std::vector<BoneInfluence>& outBoneInfluences)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -184,36 +246,15 @@ namespace OloEngine
         {
             std::string boneName = mesh->mBones[boneIndex]->mName.data;
             
-            // Find the bone index in the skeleton
-            u32 skeletonBoneId = 0;
-            bool foundBone = false;
-            if (m_Skeleton)
-            {
-                for (size_t i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
-                {
-                    if (m_Skeleton->m_BoneNames[i] == boneName)
-                    {
-                        skeletonBoneId = static_cast<u32>(i);
-                        foundBone = true;
-                        break;
-                    }
-                }
-            }
-            
-            if (!foundBone)
+            // Find the bone info using direct lookup from bone info map (populated during ProcessSkeleton)
+            auto it = m_BoneInfoMap.find(boneName);
+            if (it == m_BoneInfoMap.end())
             {
                 OLO_CORE_WARN("AnimatedModel::ProcessBones: Bone '{}' not found in skeleton", boneName);
                 continue;
             }
-
-            // Update the bone info map with the correct skeleton index
-            if (m_BoneInfoMap.find(boneName) == m_BoneInfoMap.end())
-            {
-                BoneInfo newBoneInfo;
-                newBoneInfo.Id = skeletonBoneId;
-                newBoneInfo.Offset = AssimpMatrixToGLM(mesh->mBones[boneIndex]->mOffsetMatrix);
-                m_BoneInfoMap[boneName] = newBoneInfo;
-            }
+            
+            u32 skeletonBoneId = it->second.Id;
 
             auto weights = mesh->mBones[boneIndex]->mWeights;
             u32 numWeights = mesh->mBones[boneIndex]->mNumWeights;
@@ -223,48 +264,35 @@ namespace OloEngine
                 u32 vertexId = weights[weightIndex].mVertexId;
                 f32 weight = weights[weightIndex].mWeight;
 
-                if (vertexId >= vertices.size())
+                if (vertexId >= outBoneInfluences.size())
                 {
                     OLO_CORE_WARN("AnimatedModel::ProcessBones: Invalid vertex ID: {}", vertexId);
                     continue;
                 }
 
-                // Find an empty slot in the bone data
+                // Find an empty slot in the bone influence data
+                bool slotFound = false;
                 for (u32 i = 0; i < 4; ++i)
                 {
-                    if (vertices[vertexId].BoneIndices[i] == -1)
+                    if (outBoneInfluences[vertexId].m_Weights[i] == 0.0f)
                     {
-                        vertices[vertexId].BoneIndices[i] = static_cast<i32>(skeletonBoneId);
-                        vertices[vertexId].BoneWeights[i] = weight;
+                        outBoneInfluences[vertexId].SetBoneData(i, skeletonBoneId, weight);
+                        slotFound = true;
                         break;
                     }
+                }
+                
+                if (!slotFound)
+                {
+                    OLO_CORE_WARN("AnimatedModel::ProcessBones: Vertex {} has more than 4 bone influences, ignoring extra bones", vertexId);
                 }
             }
         }
 
-        // Normalize bone weights
-        for (auto& vertex : vertices)
+        // Normalize bone weights for all vertices
+        for (auto& influence : outBoneInfluences)
         {
-            f32 totalWeight = vertex.BoneWeights.x + vertex.BoneWeights.y + 
-                             vertex.BoneWeights.z + vertex.BoneWeights.w;
-            if (totalWeight > 0.0f)
-            {
-                vertex.BoneWeights /= totalWeight;
-            }
-            else
-            {
-                // If no bone weights, assign to bone 0 with full weight
-                if (m_Skeleton && !m_Skeleton->m_BoneNames.empty())
-                {
-                    vertex.BoneIndices = glm::ivec4(0, -1, -1, -1);
-                    vertex.BoneWeights = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
-                }
-                else
-                {
-                    // Keep default values (-1 indices, 0 weights)
-                    OLO_CORE_WARN("No skeleton available for skinning vertex without bone weights");
-                }
-            }
+            influence.Normalize();
         }
     }
 
@@ -354,7 +382,7 @@ namespace OloEngine
         traverseNode(scene->mRootNode, -1);
 
         // Compute initial global transforms based on hierarchy
-        for (size_t i = 0; i < m_Skeleton->m_LocalTransforms.size(); ++i)
+        for (sizet i = 0; i < m_Skeleton->m_LocalTransforms.size(); ++i)
         {
             i32 parent = m_Skeleton->m_ParentIndices[i];
             if (parent >= 0)
@@ -363,23 +391,33 @@ namespace OloEngine
                 m_Skeleton->m_GlobalTransforms[i] = m_Skeleton->m_LocalTransforms[i];
         }
 
-        // Set up inverse bind poses from bone offset matrices
-        for (size_t i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
+        // Set up inverse bind poses and bone info map from bone offset matrices
+        for (sizet i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
         {
             const std::string& boneName = m_Skeleton->m_BoneNames[i];
+            
+            // Initialize BoneInfo for efficient lookup during mesh processing
+            BoneInfo boneInfo;
+            boneInfo.Id = static_cast<u32>(i);
+            
             auto it = boneOffsetMatrices.find(boneName);
             if (it != boneOffsetMatrices.end())
             {
                 // Use the offset matrix from the mesh bone as the inverse bind pose
+                boneInfo.Offset = it->second;
                 m_Skeleton->m_InverseBindPoses[i] = it->second;
                 m_Skeleton->m_BindPoseMatrices[i] = glm::inverse(it->second);
             }
             else
             {
                 // Fallback: calculate from current global transform
+                boneInfo.Offset = glm::inverse(m_Skeleton->m_GlobalTransforms[i]);
                 m_Skeleton->m_BindPoseMatrices[i] = m_Skeleton->m_GlobalTransforms[i];
                 m_Skeleton->m_InverseBindPoses[i] = glm::inverse(m_Skeleton->m_GlobalTransforms[i]);
             }
+            
+            // Store in bone info map for O(1) lookup during mesh processing
+            m_BoneInfoMap[boneName] = boneInfo;
         }
 
         OLO_CORE_INFO("AnimatedModel::ProcessSkeleton: Created skeleton with {} bones", m_Skeleton->m_BoneNames.size());
@@ -739,42 +777,54 @@ namespace OloEngine
         mat->Get(AI_MATKEY_ROUGHNESS_FACTOR, roughness);
         
         // Create material with extracted properties
-        Material material = Material::CreatePBR(
+        auto materialRef = Material::CreatePBR(
             materialName, 
             glm::vec3(baseColor.r, baseColor.g, baseColor.b), 
             metallic, 
             roughness
         );
         
+        Material material;
+        if (materialRef)
+        {
+            material = *materialRef; // Copy to value type for struct-like access
+        }
+        else
+        {
+            OLO_CORE_ERROR("AnimatedModel::ProcessMaterial: Failed to create PBR material '{}'", materialName);
+            // Use default constructed material as fallback
+            material = Material{};
+        }
+        
         // Load PBR textures
         auto albedoMaps = LoadMaterialTextures(mat, aiTextureType_DIFFUSE);
         if (!albedoMaps.empty())
         {
-            material.AlbedoMap = albedoMaps[0];
+            material.AlbedoMap() = albedoMaps[0];
         }
         
         auto metallicRoughnessMaps = LoadMaterialTextures(mat, aiTextureType_METALNESS);
         if (!metallicRoughnessMaps.empty())
         {
-            material.MetallicRoughnessMap = metallicRoughnessMaps[0];
+            material.MetallicRoughnessMap() = metallicRoughnessMaps[0];
         }
         
         auto normalMaps = LoadMaterialTextures(mat, aiTextureType_NORMALS);
         if (!normalMaps.empty())
         {
-            material.NormalMap = normalMaps[0];
+            material.NormalMap() = normalMaps[0];
         }
         
         auto aoMaps = LoadMaterialTextures(mat, aiTextureType_AMBIENT_OCCLUSION);
         if (!aoMaps.empty())
         {
-            material.AOMap = aoMaps[0];
+            material.AOMap() = aoMaps[0];
         }
         
         auto emissiveMaps = LoadMaterialTextures(mat, aiTextureType_EMISSIVE);
         if (!emissiveMaps.empty())
         {
-            material.EmissiveMap = emissiveMaps[0];
+            material.EmissiveMap() = emissiveMaps[0];
         }
         
         return material;

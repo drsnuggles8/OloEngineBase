@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/IBLPrecompute.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"  // For IBLConfiguration
+#include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -342,7 +343,7 @@ namespace OloEngine
     {
         if (!s_CubeMesh)
         {
-            s_CubeMesh = Mesh::CreateSkyboxCube();
+            s_CubeMesh = MeshPrimitives::CreateSkyboxCube();
         }
         return s_CubeMesh;
     }
@@ -351,7 +352,7 @@ namespace OloEngine
     {
         if (!s_QuadMesh)
         {
-            s_QuadMesh = Mesh::CreatePlane(2.0f, 2.0f); // Create a 2x2 quad for fullscreen rendering
+            s_QuadMesh = MeshPrimitives::CreatePlane(2.0f, 2.0f); // Create a 2x2 quad for fullscreen rendering
         }
         return s_QuadMesh;
     }

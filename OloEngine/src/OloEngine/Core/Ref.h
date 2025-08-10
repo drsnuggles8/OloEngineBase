@@ -14,10 +14,10 @@ namespace OloEngine
 
         void IncRefCount() const;
         void DecRefCount() const;
-        uint32_t GetRefCount() const;
+        u32 GetRefCount() const;
 
     private:
-        mutable std::atomic<uint32_t> m_RefCount = 0;
+        mutable std::atomic<u32> m_RefCount = 0;
     };
 
     namespace RefUtils
@@ -159,7 +159,16 @@ namespace OloEngine
         template<typename T2>
         Ref<T2> As() const
         {
-            return Ref<T2>(*this);
+            static_assert(std::is_base_of_v<RefCounted, T2>, "T2 must inherit from RefCounted");
+            T2* cast_result = dynamic_cast<T2*>(m_Instance);
+            if (cast_result)
+            {
+                Ref<T2> result;
+                result.m_Instance = cast_result;
+                result.IncRef();
+                return result;
+            }
+            return nullptr;
         }
 
         // Factory
