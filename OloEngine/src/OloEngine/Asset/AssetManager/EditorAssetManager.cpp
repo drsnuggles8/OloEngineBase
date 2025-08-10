@@ -71,7 +71,7 @@ namespace OloEngine
 #endif
     }
 
-    void EditorAssetManager::Shutdown()
+    void EditorAssetManager::Shutdown() noexcept
     {
         OLO_CORE_INFO("Shutting down EditorAssetManager");
 
@@ -106,7 +106,7 @@ namespace OloEngine
         }
     }
 
-    AssetType EditorAssetManager::GetAssetType(AssetHandle assetHandle)
+    AssetType EditorAssetManager::GetAssetType(AssetHandle assetHandle) const noexcept
     {
         if (!IsAssetHandleValid(assetHandle))
             return AssetType::None;
@@ -285,30 +285,30 @@ namespace OloEngine
         return allCurrent;
     }
 
-    bool EditorAssetManager::IsAssetHandleValid(AssetHandle assetHandle)
+    bool EditorAssetManager::IsAssetHandleValid(AssetHandle assetHandle) const noexcept
     {
         return m_AssetRegistry.Exists(assetHandle);
     }
 
-    Ref<Asset> EditorAssetManager::GetMemoryAsset(AssetHandle handle)
+    Ref<Asset> EditorAssetManager::GetMemoryAsset(AssetHandle handle) const
     {
         std::shared_lock<std::shared_mutex> lock(m_AssetsMutex);
         auto it = m_MemoryAssets.find(handle);
         return (it != m_MemoryAssets.end()) ? it->second : nullptr;
     }
 
-    bool EditorAssetManager::IsAssetLoaded(AssetHandle handle)
+    bool EditorAssetManager::IsAssetLoaded(AssetHandle handle) const noexcept
     {
         std::shared_lock<std::shared_mutex> lock(m_AssetsMutex);
         return m_LoadedAssets.find(handle) != m_LoadedAssets.end();
     }
 
-    bool EditorAssetManager::IsAssetValid(AssetHandle handle)
+    bool EditorAssetManager::IsAssetValid(AssetHandle handle) const noexcept
     {
         return IsAssetHandleValid(handle);
     }
 
-    bool EditorAssetManager::IsAssetMissing(AssetHandle handle)
+    bool EditorAssetManager::IsAssetMissing(AssetHandle handle) const noexcept
     {
         auto metadata = m_AssetRegistry.GetMetadata(handle);
         if (!metadata.IsValid())
@@ -330,13 +330,13 @@ namespace OloEngine
         return !exists;
     }
 
-    bool EditorAssetManager::IsMemoryAsset(AssetHandle handle)
+    bool EditorAssetManager::IsMemoryAsset(AssetHandle handle) const noexcept
     {
         std::shared_lock<std::shared_mutex> lock(m_AssetsMutex);
         return m_MemoryAssets.find(handle) != m_MemoryAssets.end();
     }
 
-    bool EditorAssetManager::IsPhysicalAsset(AssetHandle handle)
+    bool EditorAssetManager::IsPhysicalAsset(AssetHandle handle) const noexcept
     {
         return IsAssetHandleValid(handle) && !IsMemoryAsset(handle);
     }
@@ -395,14 +395,14 @@ namespace OloEngine
         m_AssetDependencies.erase(handle);
     }
 
-    std::unordered_set<AssetHandle> EditorAssetManager::GetDependencies(AssetHandle handle)
+    std::unordered_set<AssetHandle> EditorAssetManager::GetDependencies(AssetHandle handle) const
     {
         std::shared_lock<std::shared_mutex> lock(m_DependenciesMutex);
         auto it = m_AssetDependencies.find(handle);
         return (it != m_AssetDependencies.end()) ? it->second : std::unordered_set<AssetHandle>{};
     }
 
-    std::unordered_set<AssetHandle> EditorAssetManager::GetAllAssetsWithType(AssetType type)
+    std::unordered_set<AssetHandle> EditorAssetManager::GetAllAssetsWithType(AssetType type) const
     {
         std::unordered_set<AssetHandle> result;
         
@@ -494,7 +494,7 @@ namespace OloEngine
         return metadata.Handle;
     }
 
-    void EditorAssetManager::SyncWithAssetThread()
+    void EditorAssetManager::SyncWithAssetThread() noexcept
     {
         // In editor mode, we don't have a separate asset thread
         // This is a no-op for compatibility

@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <vector>
 #include <filesystem>
+#include <mutex>
 
 namespace OloEngine
 {
@@ -73,8 +74,8 @@ namespace OloEngine
         static std::string NormalizeExtension(const std::string& extension);
 
         // Static mapping from file extensions to asset types
-        static std::unordered_map<std::string, AssetType> s_ExtensionMap;
-        static bool s_Initialized;
+        inline static std::unordered_map<std::string, AssetType> s_ExtensionMap;
+        inline static std::once_flag s_InitFlag;
     };
 
     /**
@@ -94,60 +95,5 @@ namespace OloEngine
         constexpr const char* Script = ".oloscript";
         constexpr const char* MeshCollider = ".olomc";
     }
-
-    /**
-     * @brief Static extension map similar to Hazel's approach for direct access
-     * 
-     * This provides the same interface as Hazel while maintaining the class-based
-     * approach for additional functionality.
-     */
-    inline static std::unordered_map<std::string, AssetType> s_AssetExtensionMap =
-    {
-        // OloEngine types
-        { ".oloscene", AssetType::Scene },
-        { ".olomesh", AssetType::Mesh },
-        { ".olosmesh", AssetType::StaticMesh },
-        { ".olomaterial", AssetType::Material },
-        { ".oloanimation", AssetType::AnimationClip },
-        { ".oloanimgraph", AssetType::AnimationGraph },
-        { ".oloprefab", AssetType::Prefab },
-        { ".olosoundc", AssetType::SoundConfig },
-
-        { ".cs", AssetType::ScriptFile },
-
-        // mesh/animation source
-        { ".fbx", AssetType::MeshSource },
-        { ".gltf", AssetType::MeshSource },
-        { ".glb", AssetType::MeshSource },
-        { ".obj", AssetType::MeshSource },
-        { ".dae", AssetType::MeshSource },
-        { ".vrm", AssetType::MeshSource },
-
-        // Textures
-        { ".png", AssetType::Texture2D },
-        { ".jpg", AssetType::Texture2D },
-        { ".jpeg", AssetType::Texture2D },
-        { ".tga", AssetType::Texture2D },
-        { ".bmp", AssetType::Texture2D },
-        { ".hdr", AssetType::EnvMap },
-        { ".exr", AssetType::EnvMap },
-
-        // Audio
-        { ".wav", AssetType::Audio },
-        { ".ogg", AssetType::Audio },
-        { ".mp3", AssetType::Audio },
-        { ".flac", AssetType::Audio },
-
-        // Fonts
-        { ".ttf", AssetType::Font },
-        { ".ttc", AssetType::Font },
-        { ".otf", AssetType::Font },
-        
-        // Mesh Collider
-        { ".olomc", AssetType::MeshCollider },
-
-        // Graphs
-        { ".olosoundgraph", AssetType::SoundGraphSound }
-    };
 
 }

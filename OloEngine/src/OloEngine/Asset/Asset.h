@@ -19,9 +19,6 @@ namespace OloEngine
     class Asset : public RefCounted
     {
     public:
-        AssetHandle m_Handle = 0;
-        u16 m_Flags = (u16)AssetFlag::None;
-
         Asset() = default;
         virtual ~Asset() = default;
 
@@ -34,6 +31,30 @@ namespace OloEngine
          */
         virtual void OnDependencyUpdated(AssetHandle handle) { (void)handle; }
 
+        /**
+         * @brief Get the asset handle
+         * @return The unique UUID handle for this asset
+         */
+        AssetHandle GetHandle() const { return m_Handle; }
+
+        /**
+         * @brief Set the asset handle
+         * @param handle The unique UUID handle for this asset
+         */
+        void SetHandle(AssetHandle handle) { m_Handle = handle; }
+
+        /**
+         * @brief Get the asset flags
+         * @return The current asset flags
+         */
+        u16 GetFlags() const { return m_Flags; }
+
+        /**
+         * @brief Set the asset flags
+         * @param flags The new asset flags
+         */
+        void SetFlags(u16 flags) { m_Flags = flags; }
+
         bool operator==(const Asset& other) const
         {
             return m_Handle == other.m_Handle;
@@ -44,7 +65,20 @@ namespace OloEngine
             return !(*this == other);
         }
 
+        virtual bool operator==(AssetHandle handle) const
+        {
+            return m_Handle == handle;
+        }
+
+        virtual bool operator!=(AssetHandle handle) const
+        {
+            return m_Handle != handle;
+        }
+
     private:
+        AssetHandle m_Handle = 0;
+        u16 m_Flags = (u16)AssetFlag::None;
+
         // If you want to find out whether assets are valid or missing, use AssetManager::IsAssetValid(handle), IsAssetMissing(handle)
         // This cleans up and removes inconsistencies from rest of the code.
         // You simply go AssetManager::GetAsset<Whatever>(handle), and so long as you get a non-null pointer back, you're good to go.
@@ -54,6 +88,24 @@ namespace OloEngine
         friend class RuntimeAssetManager;
         friend class AssimpMeshImporter;
         friend class TextureSerializer;
+        friend class AssetImporter;
+        friend class AssetSerializer;
+        friend class EditorAssetSystem;
+        friend class FontSerializer;
+        friend class MaterialAssetSerializer;
+        friend class EnvironmentSerializer;
+        friend class AudioFileSourceSerializer;
+        friend class SoundConfigSerializer;
+        friend class PrefabSerializer;
+        friend class SceneAssetSerializer;
+        friend class MeshColliderSerializer;
+        friend class ScriptFileSerializer;
+        friend class MeshSourceSerializer;
+        friend class MeshSerializer;
+        friend class StaticMeshSerializer;
+        friend class AnimationAssetSerializer;
+        friend class AnimationGraphAssetSerializer;
+        friend class SoundGraphSerializer;
 
         bool IsValid() const { return ((m_Flags & (u16)AssetFlag::Missing) | (m_Flags & (u16)AssetFlag::Invalid)) == 0; }
 
@@ -75,18 +127,25 @@ namespace OloEngine
      */
     class AudioFile : public Asset
     {
-    public:
+    private:
         double m_Duration;
-        u32 m_SamplingRate;
-        u16 m_BitDepth;
-        u16 m_NumChannels;
-        u64 m_FileSize;
+        u32    m_SamplingRate;
+        u16    m_BitDepth;
+        u16    m_NumChannels;
+        u64    m_FileSize;
 
+    public:
         AudioFile() : m_Duration(0.0), m_SamplingRate(0), m_BitDepth(0), m_NumChannels(0), m_FileSize(0) {}
         AudioFile(double duration, u32 samplingRate, u16 bitDepth, u16 numChannels, u64 fileSize)
             : m_Duration(duration), m_SamplingRate(samplingRate), m_BitDepth(bitDepth), m_NumChannels(numChannels), m_FileSize(fileSize)
         {
         }
+
+        double GetDuration()      const { return m_Duration; }
+        u32    GetSamplingRate()  const { return m_SamplingRate; }
+        u16    GetBitDepth()      const { return m_BitDepth; }
+        u16    GetNumChannels()   const { return m_NumChannels; }
+        u64    GetFileSize()      const { return m_FileSize; }
 
         static AssetType GetStaticType() { return AssetType::Audio; }
         virtual AssetType GetAssetType() const override { return GetStaticType(); }

@@ -13,8 +13,9 @@
 namespace OloEngine
 {
     std::unordered_map<AssetType, Scope<AssetSerializer>> AssetImporter::s_Serializers;
-
-    void AssetImporter::Init()
+    static std::once_flag s_InitFlag;
+	
+	void AssetImporter::Init()
     {
         s_Serializers.clear();
         s_Serializers.reserve(17); // Reserve capacity for 17 serializers to avoid rehashing

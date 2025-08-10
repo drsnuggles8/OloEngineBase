@@ -37,37 +37,37 @@ namespace OloEngine
         virtual ~RuntimeAssetManager();
 
         // AssetManagerBase interface implementation
-        virtual void Shutdown() override;
+        virtual void Shutdown() noexcept override;
 
-        virtual AssetType GetAssetType(AssetHandle assetHandle) override;
+        virtual AssetType GetAssetType(AssetHandle assetHandle) const noexcept override;
         virtual Ref<Asset> GetAsset(AssetHandle assetHandle) override;
         virtual AsyncAssetResult<Asset> GetAssetAsync(AssetHandle assetHandle) override;
-        virtual AssetMetadata GetAssetMetadata(AssetHandle handle) const override;
+        virtual AssetMetadata GetAssetMetadata(AssetHandle handle) const noexcept override;
 
         virtual void AddMemoryOnlyAsset(Ref<Asset> asset) override;
-        virtual bool ReloadData(AssetHandle assetHandle) override;
+        virtual [[nodiscard]] bool ReloadData(AssetHandle assetHandle) override;
         virtual void ReloadDataAsync(AssetHandle assetHandle) override;
-        virtual bool EnsureCurrent(AssetHandle assetHandle) override;
-        virtual bool EnsureAllLoadedCurrent() override;
-        virtual bool IsAssetHandleValid(AssetHandle assetHandle) override;
-        virtual Ref<Asset> GetMemoryAsset(AssetHandle handle) override;
-        virtual bool IsAssetLoaded(AssetHandle handle) override;
-        virtual bool IsAssetValid(AssetHandle handle) override;
-        virtual bool IsAssetMissing(AssetHandle handle) override;
-        virtual bool IsMemoryAsset(AssetHandle handle) override;
-        virtual bool IsPhysicalAsset(AssetHandle handle) override;
+        virtual [[nodiscard]] bool EnsureCurrent(AssetHandle assetHandle) override;
+        virtual [[nodiscard]] bool EnsureAllLoadedCurrent() override;
+        virtual [[nodiscard]] bool IsAssetHandleValid(AssetHandle assetHandle) const noexcept override;
+        virtual Ref<Asset> GetMemoryAsset(AssetHandle handle) const override;
+        virtual [[nodiscard]] bool IsAssetLoaded(AssetHandle handle) const noexcept override;
+        virtual [[nodiscard]] bool IsAssetValid(AssetHandle handle) const noexcept override;
+        virtual [[nodiscard]] bool IsAssetMissing(AssetHandle handle) const noexcept override;
+        virtual [[nodiscard]] bool IsMemoryAsset(AssetHandle handle) const noexcept override;
+        virtual [[nodiscard]] bool IsPhysicalAsset(AssetHandle handle) const noexcept override;
         virtual void RemoveAsset(AssetHandle handle) override;
 
         // Dependency management (simplified for runtime)
         virtual void RegisterDependency(AssetHandle dependency, AssetHandle handle) override;
         virtual void DeregisterDependency(AssetHandle dependency, AssetHandle handle) override;
         virtual void DeregisterDependencies(AssetHandle handle) override;
-        virtual std::unordered_set<AssetHandle> GetDependencies(AssetHandle handle) override;
+        virtual std::unordered_set<AssetHandle> GetDependencies(AssetHandle handle) const override;
 
-        virtual void SyncWithAssetThread() override;
+        virtual void SyncWithAssetThread() noexcept override;
 
-        virtual std::unordered_set<AssetHandle> GetAllAssetsWithType(AssetType type) override;
-        virtual const std::unordered_map<AssetHandle, Ref<Asset>>& GetLoadedAssets() override 
+        virtual std::unordered_set<AssetHandle> GetAllAssetsWithType(AssetType type) const override;
+        virtual const std::unordered_map<AssetHandle, Ref<Asset>>& GetLoadedAssets() const noexcept override 
         { 
             return m_LoadedAssets; 
         }

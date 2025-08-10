@@ -42,15 +42,14 @@ namespace OloEngine
 
             // Calculate model space transform by multiplying with parent
             int parentIndex = skeleton->m_ParentIndices[i];
-            if (parentIndex == -1)
+            if (parentIndex < 0 || static_cast<size_t>(parentIndex) >= boneTransforms.size())
             {
                 boneTransforms[i] = localTransform;
             }
             else
             {
-                boneTransforms[i] = boneTransforms[parentIndex] * localTransform;
-            }
-        }
+                boneTransforms[i] = boneTransforms[static_cast<size_t>(parentIndex)] * localTransform;
+            }        }
 
         return boneTransforms;
     }
@@ -226,6 +225,8 @@ namespace OloEngine
     void BoneEntityUtils::BuildMeshBoneEntityIds(Entity entity, Entity rootEntity, const Scene* scene)
     {
         if (!scene)
+            return;
+        if (!entity)
             return;
 
         // Process current entity if it has a SubmeshComponent

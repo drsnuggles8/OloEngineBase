@@ -45,7 +45,7 @@ namespace OloEngine
         Shutdown();
     }
 
-    void RuntimeAssetManager::Shutdown()
+    void RuntimeAssetManager::Shutdown() noexcept
     {
         OLO_CORE_INFO("Shutting down RuntimeAssetManager");
 
@@ -68,25 +68,24 @@ namespace OloEngine
         m_AssetDependencies.clear();
     }
 
-    AssetType RuntimeAssetManager::GetAssetType(AssetHandle assetHandle)
+    AssetType RuntimeAssetManager::GetAssetType(AssetHandle assetHandle) const noexcept
     {
-        // Check loaded assets first
+        // Check loaded assets and memory assets under a single shared lock
         {
             std::shared_lock lock(m_AssetsMutex);
+            
+            // Check loaded assets first
             auto it = m_LoadedAssets.find(assetHandle);
             if (it != m_LoadedAssets.end() && it->second)
             {
                 return it->second->GetAssetType();
             }
-        }
 
-        // Check memory assets
-        {
-            std::shared_lock lock(m_AssetsMutex);
-            auto it = m_MemoryAssets.find(assetHandle);
-            if (it != m_MemoryAssets.end() && it->second)
+            // Check memory assets
+            auto memIt = m_MemoryAssets.find(assetHandle);
+            if (memIt != m_MemoryAssets.end() && memIt->second)
             {
-                return it->second->GetAssetType();
+                return memIt->second->GetAssetType();
             }
         }
 
@@ -94,7 +93,7 @@ namespace OloEngine
         return GetAssetTypeFromPacks(assetHandle);
     }
 
-    AssetMetadata RuntimeAssetManager::GetAssetMetadata(AssetHandle handle) const
+    AssetMetadata RuntimeAssetManager::GetAssetMetadata(AssetHandle handle) const noexcept
     {
         // Runtime asset manager has limited metadata compared to editor
         // Create basic metadata with what we can determine
@@ -184,7 +183,7 @@ namespace OloEngine
         return true;
     }
 
-    bool RuntimeAssetManager::IsAssetHandleValid(AssetHandle assetHandle)
+    bool RuntimeAssetManager::IsAssetHandleValid(AssetHandle assetHandle) const noexcept
     {
         if (assetHandle == 0)
             return false;
@@ -197,20 +196,20 @@ namespace OloEngine
         return AssetExistsInPacks(assetHandle);
     }
 
-    Ref<Asset> RuntimeAssetManager::GetMemoryAsset(AssetHandle handle)
+    Ref<Asset> RuntimeAssetManager::GetMemoryAsset(AssetHandle handle) const
     {
         std::shared_lock lock(m_AssetsMutex);
         auto it = m_MemoryAssets.find(handle);
         return (it != m_MemoryAssets.end()) ? it->second : nullptr;
     }
 
-    bool RuntimeAssetManager::IsAssetLoaded(AssetHandle handle)
+    bool RuntimeAssetManager::IsAssetLoaded(AssetHandle handle) const noexcept
     {
         std::shared_lock lock(m_AssetsMutex);
         return m_LoadedAssets.find(handle) != m_LoadedAssets.end();
     }
 
-    bool RuntimeAssetManager::IsAssetValid(AssetHandle handle)
+    bool RuntimeAssetManager::IsAssetValid(AssetHandle handle) const noexcept
     {
         // Check if it's loaded and valid
         {
@@ -228,7 +227,7 @@ namespace OloEngine
         return AssetExistsInPacks(handle);
     }
 
-    bool RuntimeAssetManager::IsAssetMissing(AssetHandle handle)
+    bool RuntimeAssetManager::IsAssetMissing(AssetHandle handle) const noexcept
     {
         // Memory assets cannot be missing
         if (IsMemoryAsset(handle))
@@ -238,13 +237,13 @@ namespace OloEngine
         return !AssetExistsInPacks(handle);
     }
 
-    bool RuntimeAssetManager::IsMemoryAsset(AssetHandle handle)
+    bool RuntimeAssetManager::IsMemoryAsset(AssetHandle handle) const noexcept
     {
         std::shared_lock lock(m_AssetsMutex);
         return m_MemoryAssets.find(handle) != m_MemoryAssets.end();
     }
 
-    bool RuntimeAssetManager::IsPhysicalAsset(AssetHandle handle)
+    bool RuntimeAssetManager::IsPhysicalAsset(AssetHandle handle) const noexcept
     {
         return !IsMemoryAsset(handle) && AssetExistsInPacks(handle);
     }
@@ -287,20 +286,20 @@ namespace OloEngine
         m_AssetDependencies.erase(handle);
     }
 
-    std::unordered_set<AssetHandle> RuntimeAssetManager::GetDependencies(AssetHandle handle)
+    std::unordered_set<AssetHandle> RuntimeAssetManager::GetDependencies(AssetHandle handle) const
     {
         std::shared_lock lock(m_DependenciesMutex);
         auto it = m_AssetDependencies.find(handle);
         return (it != m_AssetDependencies.end()) ? it->second : std::unordered_set<AssetHandle>{};
     }
 
-    void RuntimeAssetManager::SyncWithAssetThread()
+    void RuntimeAssetManager::SyncWithAssetThread() noexcept
     {
         // Runtime manager doesn't use separate asset threads
         // All loading is done on the calling thread
     }
 
-    std::unordered_set<AssetHandle> RuntimeAssetManager::GetAllAssetsWithType(AssetType type)
+    std::unordered_set<AssetHandle> RuntimeAssetManager::GetAllAssetsWithType(AssetType type) const
     {
         std::unordered_set<AssetHandle> result;
         

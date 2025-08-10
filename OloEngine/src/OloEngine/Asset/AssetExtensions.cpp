@@ -4,39 +4,29 @@
 #include <algorithm>
 #include <cctype>
 #include <unordered_set>
+#include <mutex>
 
 namespace OloEngine
 {
-    // Static member initialization
-    std::unordered_map<std::string, AssetType> AssetExtensions::s_ExtensionMap;
-    bool AssetExtensions::s_Initialized = false;
-
     AssetType AssetExtensions::GetAssetTypeFromExtension(const std::string& extension)
     {
-        if (!s_Initialized)
-            InitializeExtensionMap();
+        std::call_once(s_InitFlag, InitializeExtensionMap);
 
         std::string normalizedExt = NormalizeExtension(extension);
         
         auto it = s_ExtensionMap.find(normalizedExt);
-        if (it != s_ExtensionMap.end())
-            return it->second;
-
-        // Check the static map for compatibility
-        auto staticIt = s_AssetExtensionMap.find("." + normalizedExt);
-        return (staticIt != s_AssetExtensionMap.end()) ? staticIt->second : AssetType::None;
+        return (it != s_ExtensionMap.end()) ? it->second : AssetType::None;
     }
 
     AssetType AssetExtensions::GetAssetTypeFromPath(const std::string& filepath)
     {
-        sizet dotPos = filepath.find_last_of('.');
+        std::string::size_type dotPos = filepath.find_last_of('.');
         if (dotPos == std::string::npos)
             return AssetType::None;
 
         std::string extension = filepath.substr(dotPos);
         return GetAssetTypeFromExtension(extension);
     }
-
     bool AssetExtensions::IsExtensionSupported(const std::string& extension)
     {
         return GetAssetTypeFromExtension(extension) != AssetType::None;
@@ -44,8 +34,7 @@ namespace OloEngine
 
     std::vector<std::string> AssetExtensions::GetExtensionsForAssetType(AssetType type)
     {
-        if (!s_Initialized)
-            InitializeExtensionMap();
+        std::call_once(s_InitFlag, InitializeExtensionMap);
 
         std::unordered_set<std::string> extensionSet;
 
@@ -55,20 +44,14 @@ namespace OloEngine
                 extensionSet.insert("." + ext);
         }
 
-        // Also check static map
-        for (const auto& [ext, assetType] : s_AssetExtensionMap)
-        {
-            if (assetType == type)
-                extensionSet.insert(ext);
-        }
-
-        return std::vector<std::string>(extensionSet.begin(), extensionSet.end());
+        std::vector<std::string> extensions(extensionSet.begin(), extensionSet.end());
+        std::sort(extensions.begin(), extensions.end());
+        return extensions;
     }
 
     std::vector<std::string> AssetExtensions::GetAllSupportedExtensions()
     {
-        if (!s_Initialized)
-            InitializeExtensionMap();
+        std::call_once(s_InitFlag, InitializeExtensionMap);
 
         std::unordered_set<std::string> extensionSet;
 
@@ -77,28 +60,20 @@ namespace OloEngine
             extensionSet.insert("." + ext);
         }
 
-        // Add extensions from static map
-        for (const auto& [ext, type] : s_AssetExtensionMap)
-        {
-            extensionSet.insert(ext);
-        }
-
-        return std::vector<std::string>(extensionSet.begin(), extensionSet.end());
+        std::vector<std::string> extensions(extensionSet.begin(), extensionSet.end());
+        std::sort(extensions.begin(), extensions.end());
+        return extensions;
     }
 
     const std::unordered_map<std::string, AssetType>& AssetExtensions::GetExtensionMap()
     {
-        if (!s_Initialized)
-            InitializeExtensionMap();
+        std::call_once(s_InitFlag, InitializeExtensionMap);
 
         return s_ExtensionMap;
     }
 
     void AssetExtensions::InitializeExtensionMap()
     {
-        if (s_Initialized)
-            return;
-
         s_ExtensionMap.clear();
 
         // OloEngine types (normalized without dots)
@@ -144,7 +119,6 @@ namespace OloEngine
         s_ExtensionMap["ttc"] = AssetType::Font;
         s_ExtensionMap["otf"] = AssetType::Font;
 
-        s_Initialized = true;
         OLO_CORE_INFO("AssetExtensions initialized with {} supported extensions", s_ExtensionMap.size());
     }
 

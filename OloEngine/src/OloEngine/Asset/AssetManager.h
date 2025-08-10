@@ -8,7 +8,9 @@
 #include "OloEngine/Project/Project.h"
 
 #include <functional>
+#include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 // Asynchronous asset loading can be disabled by setting this to 0
@@ -155,6 +157,9 @@ namespace OloEngine
         template<typename T>
         static Ref<T> GetAsset(AssetHandle assetHandle)
         {
+            static_assert(std::is_base_of<Asset, T>::value, 
+                         "GetAsset only works for types derived from Asset");
+            
             Ref<Asset> asset = GetActiveManager()->GetAsset(assetHandle);
             if (!asset)
                 return nullptr;
@@ -162,7 +167,8 @@ namespace OloEngine
             Ref<T> castedAsset = asset.As<T>();
             if (!castedAsset)
             {
-                OLO_CORE_WARN("AssetManager::GetAsset - Failed to cast asset {} to requested type", assetHandle);
+                OLO_CORE_WARN("AssetManager::GetAsset - Failed to cast asset {} from type {} to requested type {}", 
+                             assetHandle, AssetUtils::AssetTypeToString(asset->GetAssetType()), typeid(T).name());
             }
             return castedAsset;
         }
@@ -192,6 +198,9 @@ namespace OloEngine
         template<typename T>
         static std::unordered_set<AssetHandle> GetAllAssetsWithType()
         {
+            static_assert(std::is_base_of<Asset, T>::value, 
+                         "GetAllAssetsWithType only works for types derived from Asset");
+            
             return GetActiveManager()->GetAllAssetsWithType(T::GetStaticType());
         }
 

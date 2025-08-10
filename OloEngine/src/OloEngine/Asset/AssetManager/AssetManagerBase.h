@@ -29,19 +29,19 @@ namespace OloEngine
     {
     public:
         AssetManagerBase() = default;
-        virtual ~AssetManagerBase() = default;
+        virtual ~AssetManagerBase() noexcept = default;
 
         /**
          * @brief Shutdown the asset manager and cleanup resources
          */
-        virtual void Shutdown() = 0;
+        virtual void Shutdown() noexcept = 0;
 
         /**
          * @brief Get the type of an asset by its handle
          * @param assetHandle Handle of the asset
          * @return AssetType of the asset, or AssetType::None if invalid
          */
-        virtual AssetType GetAssetType(AssetHandle assetHandle) = 0;
+        virtual AssetType GetAssetType(AssetHandle assetHandle) const noexcept = 0;
 
         /**
          * @brief Get an asset synchronously by handle
@@ -64,7 +64,7 @@ namespace OloEngine
          * 
          * Note: Runtime asset managers may return limited metadata compared to editor managers
          */
-        virtual AssetMetadata GetAssetMetadata(AssetHandle handle) const = 0;
+        virtual AssetMetadata GetAssetMetadata(AssetHandle handle) const noexcept = 0;
 
         /**
          * @brief Add a memory-only asset (no backing file)
@@ -77,7 +77,7 @@ namespace OloEngine
          * @param assetHandle Handle of the asset to reload
          * @return True if reload was successful
          */
-        virtual bool ReloadData(AssetHandle assetHandle) = 0;
+        [[nodiscard]] virtual bool ReloadData(AssetHandle assetHandle) = 0;
 
         /**
          * @brief Reload asset data from file asynchronously
@@ -90,62 +90,62 @@ namespace OloEngine
          * @param assetHandle Handle of the asset to check
          * @return True if asset is current or was successfully updated
          */
-        virtual bool EnsureCurrent(AssetHandle assetHandle) = 0;
+        [[nodiscard]] virtual bool EnsureCurrent(AssetHandle assetHandle) = 0;
 
         /**
          * @brief Ensure all loaded assets are current
          * @return True if all assets are current or were successfully updated
          */
-        virtual bool EnsureAllLoadedCurrent() = 0;
+        [[nodiscard]] virtual bool EnsureAllLoadedCurrent() = 0;
 
         /**
          * @brief Check if an asset handle is potentially valid
          * @param assetHandle Handle to validate
          * @return True if the handle could be valid (says nothing about the asset itself)
          */
-        virtual bool IsAssetHandleValid(AssetHandle assetHandle) = 0;
+        [[nodiscard]] virtual bool IsAssetHandleValid(AssetHandle assetHandle) const noexcept = 0;
 
         /**
          * @brief Get memory-only asset if it exists
          * @param handle Handle of the memory asset
          * @return Asset reference if exists in memory only, nullptr otherwise
          */
-        virtual Ref<Asset> GetMemoryAsset(AssetHandle handle) = 0;
+        virtual Ref<Asset> GetMemoryAsset(AssetHandle handle) const = 0;
 
         /**
          * @brief Check if an asset has been loaded from file
          * @param handle Handle of the asset
          * @return True if asset has been loaded (could still be invalid)
          */
-        virtual bool IsAssetLoaded(AssetHandle handle) = 0;
+        [[nodiscard]] virtual bool IsAssetLoaded(AssetHandle handle) const noexcept = 0;
 
         /**
          * @brief Check if an asset is valid (loaded and not corrupted)
          * @param handle Handle of the asset
          * @return True if asset file was loaded and is valid
          */
-        virtual bool IsAssetValid(AssetHandle handle) = 0;
+        [[nodiscard]] virtual bool IsAssetValid(AssetHandle handle) const noexcept = 0;
 
         /**
          * @brief Check if an asset file is missing
          * @param handle Handle of the asset
          * @return True if asset file is missing (memory-only assets cannot be missing)
          */
-        virtual bool IsAssetMissing(AssetHandle handle) = 0;
+        [[nodiscard]] virtual bool IsAssetMissing(AssetHandle handle) const noexcept = 0;
 
         /**
          * @brief Check if an asset exists only in memory
          * @param handle Handle of the asset
          * @return True if asset has no backing file
          */
-        virtual bool IsMemoryAsset(AssetHandle handle) = 0;
+        [[nodiscard]] virtual bool IsMemoryAsset(AssetHandle handle) const noexcept = 0;
 
         /**
          * @brief Check if an asset has a backing file
          * @param handle Handle of the asset
          * @return True if asset has a physical file
          */
-        virtual bool IsPhysicalAsset(AssetHandle handle) = 0;
+        [[nodiscard]] virtual bool IsPhysicalAsset(AssetHandle handle) const noexcept = 0;
 
         /**
          * @brief Remove an asset from the manager
@@ -180,27 +180,27 @@ namespace OloEngine
          * @param handle Handle of the asset
          * @return Set of handles that this asset depends on
          */
-        virtual std::unordered_set<AssetHandle> GetDependencies(AssetHandle handle) = 0;
+        virtual std::unordered_set<AssetHandle> GetDependencies(AssetHandle handle) const = 0;
 
         /**
          * @brief Synchronize with the asset loading thread
          * 
          * Ensures any pending async operations are completed or processed
          */
-        virtual void SyncWithAssetThread() = 0;
+        virtual void SyncWithAssetThread() noexcept = 0;
 
         /**
          * @brief Get all assets of a specific type
          * @param type Asset type to search for
          * @return Set of asset handles of the specified type
          */
-        virtual std::unordered_set<AssetHandle> GetAllAssetsWithType(AssetType type) = 0;
+        virtual std::unordered_set<AssetHandle> GetAllAssetsWithType(AssetType type) const = 0;
 
         /**
          * @brief Get all currently loaded assets
          * @return Map of asset handles to asset references
          */
-        virtual const std::unordered_map<AssetHandle, Ref<Asset>>& GetLoadedAssets() = 0;
+        virtual const std::unordered_map<AssetHandle, Ref<Asset>>& GetLoadedAssets() const noexcept = 0;
     };
 
 }

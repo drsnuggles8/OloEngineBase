@@ -19,15 +19,19 @@ namespace OloEngine
     static const std::unordered_map<AssetType, std::function<Ref<Asset>()>> s_AssetPlaceholderTable =
     {
         { AssetType::Texture2D, []() -> Ref<Asset> {
-            // Create a simple white texture
-            TextureSpecification spec;
-            spec.Width = 1;
-            spec.Height = 1;
-            spec.Format = ImageFormat::RGBA8;
-            auto whiteTexture = Texture2D::Create(spec);
-            u32 whitePixel = 0xFFFFFFFF;
-            whiteTexture->SetData(&whitePixel, sizeof(u32));
-            return whiteTexture;
+            // Cache the white texture to avoid recreating it on every call
+            static Ref<Texture2D> s_WhiteTexture = []() {
+                TextureSpecification spec;
+                spec.Width = 1;
+                spec.Height = 1;
+                spec.Format = ImageFormat::RGBA8;
+                spec.GenerateMips = false;
+                auto texture = Texture2D::Create(spec);
+                u32 whitePixel = 0xFFFFFFFF;
+                texture->SetData(&whitePixel, sizeof(u32));
+                return texture;
+            }();
+            return s_WhiteTexture;
         }},
         { AssetType::Font, []() -> Ref<Asset> {
             return Font::GetDefault();
