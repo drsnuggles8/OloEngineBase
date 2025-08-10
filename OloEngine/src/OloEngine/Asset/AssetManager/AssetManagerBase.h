@@ -8,9 +8,13 @@
 
 #include <unordered_set>
 #include <unordered_map>
+#include <functional>
 
 namespace OloEngine
 {
+    // Forward declaration for AsyncAssetResult template
+    template<typename T> struct AsyncAssetResult;
+
     /**
      * @brief Abstract base class for asset management implementations
      * 
@@ -155,19 +159,19 @@ namespace OloEngine
 
         /**
          * @brief Register that an asset depends on another asset
-         * @param dependency Handle of the dependency asset
          * @param handle Handle of the dependent asset
+         * @param dependency Handle of the dependency asset
          * 
          * Example: A material (handle) depends on a texture (dependency)
          */
-        virtual void RegisterDependency(AssetHandle dependency, AssetHandle handle) = 0;
+        virtual void RegisterDependency(AssetHandle handle, AssetHandle dependency) = 0;
 
         /**
          * @brief Remove a specific dependency relationship
-         * @param dependency Handle of the dependency asset
          * @param handle Handle of the dependent asset
+         * @param dependency Handle of the dependency asset
          */
-        virtual void DeregisterDependency(AssetHandle dependency, AssetHandle handle) = 0;
+        virtual void DeregisterDependency(AssetHandle handle, AssetHandle dependency) = 0;
 
         /**
          * @brief Remove all dependencies of an asset
@@ -197,10 +201,19 @@ namespace OloEngine
         virtual std::unordered_set<AssetHandle> GetAllAssetsWithType(AssetType type) const = 0;
 
         /**
-         * @brief Get all currently loaded assets
-         * @return Map of asset handles to asset references
+         * @brief Get a snapshot copy of all currently loaded assets
+         * @return Map of asset handles to asset references (thread-safe copy)
          */
-        virtual const std::unordered_map<AssetHandle, Ref<Asset>>& GetLoadedAssets() const noexcept = 0;
+        [[nodiscard]] virtual std::unordered_map<AssetHandle, Ref<Asset>> GetLoadedAssets() const = 0;
+
+        /**
+         * @brief Iterate over all loaded assets with a callback function
+         * @param callback Function to call for each loaded asset (handle, asset)
+         * 
+         * Provides thread-safe iteration without exposing internal containers.
+         * The callback should return true to continue iteration, false to stop.
+         */
+        virtual void ForEachLoadedAsset(const std::function<bool(AssetHandle, const Ref<Asset>&)>& callback) const = 0;
     };
 
 }

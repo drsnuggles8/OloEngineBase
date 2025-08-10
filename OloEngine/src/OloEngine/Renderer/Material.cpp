@@ -18,7 +18,8 @@ namespace OloEngine {
 		  m_Shader(other.m_Shader), m_Name(other.m_Name), m_MaterialFlags(other.m_MaterialFlags),
 		  m_FloatUniforms(other.m_FloatUniforms), m_IntUniforms(other.m_IntUniforms), m_UIntUniforms(other.m_UIntUniforms),
 		  m_BoolUniforms(other.m_BoolUniforms), m_Vec2Uniforms(other.m_Vec2Uniforms), m_Vec3Uniforms(other.m_Vec3Uniforms),
-		  m_Vec4Uniforms(other.m_Vec4Uniforms), m_Mat3Uniforms(other.m_Mat3Uniforms), m_Mat4Uniforms(other.m_Mat4Uniforms),
+		  m_Vec4Uniforms(other.m_Vec4Uniforms), m_IVec2Uniforms(other.m_IVec2Uniforms), m_IVec3Uniforms(other.m_IVec3Uniforms),
+		  m_IVec4Uniforms(other.m_IVec4Uniforms), m_Mat3Uniforms(other.m_Mat3Uniforms), m_Mat4Uniforms(other.m_Mat4Uniforms),
 		  m_Texture2DUniforms(other.m_Texture2DUniforms), m_TextureCubeUniforms(other.m_TextureCubeUniforms),
 		  // Copy all private members
 		  m_MaterialType(other.m_MaterialType),
@@ -47,6 +48,9 @@ namespace OloEngine {
 			m_Vec2Uniforms = other.m_Vec2Uniforms;
 			m_Vec3Uniforms = other.m_Vec3Uniforms;
 			m_Vec4Uniforms = other.m_Vec4Uniforms;
+			m_IVec2Uniforms = other.m_IVec2Uniforms;
+			m_IVec3Uniforms = other.m_IVec3Uniforms;
+			m_IVec4Uniforms = other.m_IVec4Uniforms;
 			m_Mat3Uniforms = other.m_Mat3Uniforms;
 			m_Mat4Uniforms = other.m_Mat4Uniforms;
 			m_Texture2DUniforms = other.m_Texture2DUniforms;
@@ -188,20 +192,17 @@ namespace OloEngine {
 
 	void Material::Set(const std::string& name, const glm::ivec2& value)
 	{
-		// Convert to vec2 for storage
-		m_Vec2Uniforms[name] = glm::vec2(value);
+		m_IVec2Uniforms[name] = value;
 	}
 
 	void Material::Set(const std::string& name, const glm::ivec3& value)
 	{
-		// Convert to vec3 for storage
-		m_Vec3Uniforms[name] = glm::vec3(value);
+		m_IVec3Uniforms[name] = value;
 	}
 
 	void Material::Set(const std::string& name, const glm::ivec4& value)
 	{
-		// Convert to vec4 for storage
-		m_Vec4Uniforms[name] = glm::vec4(value);
+		m_IVec4Uniforms[name] = value;
 	}
 
 	void Material::Set(const std::string& name, const glm::mat3& value)
@@ -221,8 +222,9 @@ namespace OloEngine {
 
 	void Material::Set(const std::string& name, const Ref<Texture2D>& texture, u32 arrayIndex)
 	{
-		// For now, just store the texture - array indexing can be handled later
-		m_Texture2DUniforms[name] = texture;
+		// Use composite key to support array indexing
+		std::string key = GenerateArrayKey(name, arrayIndex);
+		m_Texture2DUniforms[key] = texture;
 	}
 
 	void Material::Set(const std::string& name, const Ref<TextureCubemap>& texture)
@@ -301,6 +303,36 @@ namespace OloEngine {
 		return defaultValue;
 	}
 
+	const glm::ivec2& Material::GetIntVector2(const std::string& name) const
+	{
+		auto it = m_IVec2Uniforms.find(name);
+		if (it != m_IVec2Uniforms.end())
+			return it->second;
+		
+		static const glm::ivec2 defaultValue = glm::ivec2(0);
+		return defaultValue;
+	}
+
+	const glm::ivec3& Material::GetIntVector3(const std::string& name) const
+	{
+		auto it = m_IVec3Uniforms.find(name);
+		if (it != m_IVec3Uniforms.end())
+			return it->second;
+		
+		static const glm::ivec3 defaultValue = glm::ivec3(0);
+		return defaultValue;
+	}
+
+	const glm::ivec4& Material::GetIntVector4(const std::string& name) const
+	{
+		auto it = m_IVec4Uniforms.find(name);
+		if (it != m_IVec4Uniforms.end())
+			return it->second;
+		
+		static const glm::ivec4 defaultValue = glm::ivec4(0);
+		return defaultValue;
+	}
+
 	const glm::mat3& Material::GetMatrix3(const std::string& name) const
 	{
 		auto it = m_Mat3Uniforms.find(name);
@@ -330,6 +362,16 @@ namespace OloEngine {
 		return nullptr;
 	}
 
+	Ref<Texture2D> Material::GetTexture2D(const std::string& name, u32 arrayIndex)
+	{
+		std::string key = GenerateArrayKey(name, arrayIndex);
+		auto it = m_Texture2DUniforms.find(key);
+		if (it != m_Texture2DUniforms.end())
+			return it->second;
+		
+		return nullptr;
+	}
+
 	Ref<TextureCubemap> Material::GetTextureCube(const std::string& name)
 	{
 		auto it = m_TextureCubeUniforms.find(name);
@@ -344,6 +386,11 @@ namespace OloEngine {
 		return GetTexture2D(name);
 	}
 
+	Ref<Texture2D> Material::TryGetTexture2D(const std::string& name, u32 arrayIndex)
+	{
+		return GetTexture2D(name, arrayIndex);
+	}
+
 	Ref<TextureCubemap> Material::TryGetTextureCube(const std::string& name)
 	{
 		return GetTextureCube(name);
@@ -355,6 +402,11 @@ namespace OloEngine {
 			m_MaterialFlags |= static_cast<u32>(flag);
 		else
 			m_MaterialFlags &= ~static_cast<u32>(flag);
+	}
+
+	std::string Material::GenerateArrayKey(const std::string& name, u32 arrayIndex)
+	{
+		return name + "[" + std::to_string(arrayIndex) + "]";
 	}
 
 }

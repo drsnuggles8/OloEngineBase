@@ -85,7 +85,7 @@ namespace OloEngine
 		
 		// ECS Animated Mesh Rendering
 		static void RenderAnimatedMeshes(const Ref<Scene>& scene, const Material& defaultMaterial);
-		static void RenderAnimatedMesh(Entity entity, const Material& defaultMaterial, const Scene* scene);
+		static void RenderAnimatedMesh(Entity entity, const Material& defaultMaterial, const Ref<Scene>& scene);
 	
 		static void SetLight(const Light& light);
 		static void SetViewPosition(const glm::vec3& position);

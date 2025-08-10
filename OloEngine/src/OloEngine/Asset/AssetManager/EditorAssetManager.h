@@ -69,8 +69,8 @@ namespace OloEngine
         virtual void RemoveAsset(AssetHandle handle) override;
 
         // Dependency management
-        virtual void RegisterDependency(AssetHandle dependency, AssetHandle handle) override;
-        virtual void DeregisterDependency(AssetHandle dependency, AssetHandle handle) override;
+        virtual void RegisterDependency(AssetHandle handle, AssetHandle dependency) override;
+        virtual void DeregisterDependency(AssetHandle handle, AssetHandle dependency) override;
         virtual void DeregisterDependencies(AssetHandle handle) override;
         virtual std::unordered_set<AssetHandle> GetDependencies(AssetHandle handle) const override;
 
@@ -78,19 +78,13 @@ namespace OloEngine
 
         virtual std::unordered_set<AssetHandle> GetAllAssetsWithType(AssetType type) const override;
         
-        /**
-         * @warning Thread safety: The returned reference to m_LoadedAssets requires external synchronization
-         * in multithreaded contexts. Callers must ensure proper locking when iterating over the map.
-         * Consider using GetLoadedAssetsCopy() for safer iteration in multithreaded scenarios.
-         */
-        virtual const std::unordered_map<AssetHandle, Ref<Asset>>& GetLoadedAssets() const noexcept override 
-        { 
-            return m_LoadedAssets; 
-        }
+        virtual std::unordered_map<AssetHandle, Ref<Asset>> GetLoadedAssets() const override;
+        virtual void ForEachLoadedAsset(const std::function<bool(AssetHandle, const Ref<Asset>&)>& callback) const override;
 
         /**
          * @brief Get a copy of loaded assets for safe iteration in multithreaded contexts
          * @return Copy of the loaded assets map
+         * @deprecated Use GetLoadedAssets() instead, which now returns a safe copy
          */
         std::unordered_map<AssetHandle, Ref<Asset>> GetLoadedAssetsCopy() const;
 

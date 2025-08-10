@@ -10,16 +10,16 @@ namespace OloEngine
      * 
      * This class provides the bridge between the asset management system
      * and renderer resources like textures, shaders, materials, etc.
-     * Similar to Hazel's architecture.
      */
     class RendererResource : public Asset
     {
     public:
+        virtual ~RendererResource() override = default;
+
+        static constexpr AssetType GetStaticType() noexcept { return AssetType::None; }
+        virtual AssetType GetAssetType() const override = 0;
+
+    protected:
         RendererResource() = default;
-        virtual ~RendererResource() = default;
-
-        static AssetType GetStaticType() { return AssetType::None; }
-        virtual AssetType GetAssetType() const override { return AssetType::None; }
     };
-
 }

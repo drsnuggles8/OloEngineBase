@@ -3,8 +3,9 @@
 #include <string>
 #include <unordered_map>
 
-#include <glm/glm.hpp>
 #include "OloEngine/Core/Ref.h"
+#include <glm/glm.hpp>
+#include "OloEngine/Asset/AssetTypes.h"
 #include "RendererResource.h"
 #include "ShaderLibrary.h" // Include the new ShaderLibrary header
 

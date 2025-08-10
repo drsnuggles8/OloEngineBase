@@ -150,6 +150,13 @@ namespace OloEngine
 			auto mapIt = m_MaterialIndexMap.find(mesh->mMaterialIndex);
 			if (mapIt == m_MaterialIndexMap.end())
 			{
+				// Check for potential overflow before casting to u32
+				if (m_Materials.size() >= UINT32_MAX)
+				{
+					OLO_CORE_ERROR("Model: Material count exceeds u32 maximum ({}), cannot add more materials", UINT32_MAX);
+					return nullptr;  // Early return to prevent overflow
+				}
+				
 				// Add new material and create mapping
 				u32 newMaterialIndex = static_cast<u32>(m_Materials.size());
 				m_Materials.push_back(Ref<Material>::Create(ProcessMaterial(material)));
@@ -163,6 +170,19 @@ namespace OloEngine
 	Submesh submesh;
 	submesh.m_BaseVertex = 0;
 	submesh.m_BaseIndex = 0;
+	
+	// Check for potential overflow before casting vertex and index counts to u32
+	if (indices.size() > UINT32_MAX)
+	{
+		OLO_CORE_ERROR("Model: Index count exceeds u32 maximum ({}), mesh too large", UINT32_MAX);
+		return nullptr;
+	}
+	if (vertices.size() > UINT32_MAX)
+	{
+		OLO_CORE_ERROR("Model: Vertex count exceeds u32 maximum ({}), mesh too large", UINT32_MAX);
+		return nullptr;
+	}
+	
 	submesh.m_IndexCount = static_cast<u32>(indices.size());
 	submesh.m_VertexCount = static_cast<u32>(vertices.size());
 	
@@ -515,7 +535,7 @@ namespace OloEngine
 		}
 	}
 
-	void Model::Draw(const glm::mat4& transform, const Ref<Material>& material) const
+	void Model::Draw(const glm::mat4& transform, const Ref<const Material>& material) const
 	{
 		if (material)
 		{
@@ -533,7 +553,7 @@ namespace OloEngine
 		}
 	}
 
-	void Model::GetDrawCommands(const glm::mat4& transform, const Ref<Material>& material, std::vector<CommandPacket*>& outCommands) const
+	void Model::GetDrawCommands(const glm::mat4& transform, const Ref<const Material>& material, std::vector<CommandPacket*>& outCommands) const
 	{
 		if (material)
 		{

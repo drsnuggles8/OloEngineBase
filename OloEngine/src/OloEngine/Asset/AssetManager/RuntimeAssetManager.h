@@ -59,18 +59,16 @@ namespace OloEngine
         virtual void RemoveAsset(AssetHandle handle) override;
 
         // Dependency management (simplified for runtime)
-        virtual void RegisterDependency(AssetHandle dependency, AssetHandle handle) override;
-        virtual void DeregisterDependency(AssetHandle dependency, AssetHandle handle) override;
+        virtual void RegisterDependency(AssetHandle handle, AssetHandle dependency) override;
+        virtual void DeregisterDependency(AssetHandle handle, AssetHandle dependency) override;
         virtual void DeregisterDependencies(AssetHandle handle) override;
         virtual std::unordered_set<AssetHandle> GetDependencies(AssetHandle handle) const override;
 
         virtual void SyncWithAssetThread() noexcept override;
 
         virtual std::unordered_set<AssetHandle> GetAllAssetsWithType(AssetType type) const override;
-        virtual const std::unordered_map<AssetHandle, Ref<Asset>>& GetLoadedAssets() const noexcept override 
-        { 
-            return m_LoadedAssets; 
-        }
+        virtual std::unordered_map<AssetHandle, Ref<Asset>> GetLoadedAssets() const override;
+        virtual void ForEachLoadedAsset(const std::function<bool(AssetHandle, const Ref<Asset>&)>& callback) const override;
 
         // Runtime-specific methods
 

@@ -359,13 +359,13 @@ namespace OloEngine
         OLO_CORE_TRACE("Removed asset: {}", (u64)handle);
     }
 
-    void EditorAssetManager::RegisterDependency(AssetHandle dependency, AssetHandle handle)
+    void EditorAssetManager::RegisterDependency(AssetHandle handle, AssetHandle dependency)
     {
         std::unique_lock<std::shared_mutex> lock(m_DependenciesMutex);
         m_AssetDependencies[dependency].insert(handle);
     }
 
-    void EditorAssetManager::DeregisterDependency(AssetHandle dependency, AssetHandle handle)
+    void EditorAssetManager::DeregisterDependency(AssetHandle handle, AssetHandle dependency)
     {
         std::unique_lock<std::shared_mutex> lock(m_DependenciesMutex);
         auto it = m_AssetDependencies.find(dependency);
@@ -635,6 +635,22 @@ namespace OloEngine
         
         // Return relative path from project root
         return std::filesystem::relative(canonicalFile, canonicalProject);
+    }
+
+    std::unordered_map<AssetHandle, Ref<Asset>> EditorAssetManager::GetLoadedAssets() const
+    {
+        std::shared_lock<std::shared_mutex> lock(m_AssetsMutex);
+        return m_LoadedAssets;
+    }
+
+    void EditorAssetManager::ForEachLoadedAsset(const std::function<bool(AssetHandle, const Ref<Asset>&)>& callback) const
+    {
+        std::shared_lock<std::shared_mutex> lock(m_AssetsMutex);
+        for (const auto& [handle, asset] : m_LoadedAssets)
+        {
+            if (!callback(handle, asset))
+                break;
+        }
     }
 
     std::unordered_map<AssetHandle, Ref<Asset>> EditorAssetManager::GetLoadedAssetsCopy() const

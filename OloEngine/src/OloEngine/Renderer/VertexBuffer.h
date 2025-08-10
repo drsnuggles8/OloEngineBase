@@ -27,6 +27,12 @@ namespace OloEngine
 		static Ref<VertexBuffer> Create(f32* vertices, u32 size);
 		static Ref<VertexBuffer> Create(const f32* vertices, u32 size);
 		static Ref<VertexBuffer> Create(const void* data, u32 size);
+		
+		// Deleted overloads to prevent null-like calls
 		static Ref<VertexBuffer> Create(std::nullptr_t, u32) = delete;
+		static Ref<VertexBuffer> Create(int, u32) = delete;
+		static Ref<VertexBuffer> Create(unsigned int, u32) = delete;
+		static Ref<VertexBuffer> Create(long, u32) = delete;
+		static Ref<VertexBuffer> Create(unsigned long, u32) = delete;
 	};
 }

@@ -258,6 +258,8 @@ namespace OloEngine
     {
         if (!scene)
             return;
+        if (!entity)
+            return;
 
         // Process current entity if it has an AnimationStateComponent
         if (entity.HasComponent<AnimationStateComponent>() && entity.HasComponent<SkeletonComponent>())

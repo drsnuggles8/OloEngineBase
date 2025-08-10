@@ -262,13 +262,13 @@ namespace OloEngine
         DeregisterDependencies(handle);
     }
 
-    void RuntimeAssetManager::RegisterDependency(AssetHandle dependency, AssetHandle handle)
+    void RuntimeAssetManager::RegisterDependency(AssetHandle handle, AssetHandle dependency)
     {
         std::unique_lock lock(m_DependenciesMutex);
         m_AssetDependencies[handle].insert(dependency);
     }
 
-    void RuntimeAssetManager::DeregisterDependency(AssetHandle dependency, AssetHandle handle)
+    void RuntimeAssetManager::DeregisterDependency(AssetHandle handle, AssetHandle dependency)
     {
         std::unique_lock lock(m_DependenciesMutex);
         auto it = m_AssetDependencies.find(handle);
@@ -328,6 +328,22 @@ namespace OloEngine
         }
         
         return result;
+    }
+
+    std::unordered_map<AssetHandle, Ref<Asset>> RuntimeAssetManager::GetLoadedAssets() const
+    {
+        std::shared_lock lock(m_AssetsMutex);
+        return m_LoadedAssets;
+    }
+
+    void RuntimeAssetManager::ForEachLoadedAsset(const std::function<bool(AssetHandle, const Ref<Asset>&)>& callback) const
+    {
+        std::shared_lock lock(m_AssetsMutex);
+        for (const auto& [handle, asset] : m_LoadedAssets)
+        {
+            if (!callback(handle, asset))
+                break;
+        }
     }
 
     bool RuntimeAssetManager::LoadAssetPack(const std::filesystem::path& packPath)

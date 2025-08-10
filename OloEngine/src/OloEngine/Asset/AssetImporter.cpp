@@ -14,6 +14,7 @@
 namespace OloEngine
 {
     std::unordered_map<AssetType, Scope<AssetSerializer>> AssetImporter::s_Serializers;
+    std::mutex AssetImporter::s_SerializersMutex;
     static std::once_flag s_InitFlag;
 	
 	void AssetImporter::Init()
@@ -44,18 +45,41 @@ namespace OloEngine
 
     void AssetImporter::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset)
     {
-        auto it = s_Serializers.find(metadata.Type);
-        if (it == s_Serializers.end())
+        if (!asset)
         {
-            OLO_CORE_WARN("No serializer available for asset type: {}", AssetUtils::AssetTypeToString(metadata.Type));
+            OLO_CORE_ERROR("AssetImporter::Serialize - Asset reference is null for asset type: {}", AssetUtils::AssetTypeToString(metadata.Type));
             return;
         }
 
-        it->second->Serialize(metadata, asset);
+        AssetType actualType = asset->GetAssetType();
+        if (metadata.Type != actualType)
+        {
+            OLO_CORE_WARN("AssetImporter::Serialize - Asset type mismatch: metadata type {} does not match actual asset type {}", 
+                          AssetUtils::AssetTypeToString(metadata.Type), AssetUtils::AssetTypeToString(actualType));
+            return;
+        }
+
+        {
+            std::scoped_lock lock(s_SerializersMutex);
+            auto it = s_Serializers.find(metadata.Type);
+            if (it == s_Serializers.end())
+            {
+                OLO_CORE_WARN("No serializer available for asset type: {}", AssetUtils::AssetTypeToString(metadata.Type));
+                return;
+            }
+
+            it->second->Serialize(metadata, asset);
+        }
     }
 
     void AssetImporter::Serialize(const Ref<Asset>& asset)
     {
+        if (!asset)
+        {
+            OLO_CORE_ERROR("AssetImporter::Serialize - Asset reference is null");
+            return;
+        }
+
         // Get metadata from asset manager
         auto assetManagerBase = Project::GetAssetManager();
         if (!assetManagerBase)
@@ -70,6 +94,7 @@ namespace OloEngine
 
     bool AssetImporter::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset)
     {
+        std::scoped_lock lock(s_SerializersMutex);
         auto it = s_Serializers.find(metadata.Type);
         if (it == s_Serializers.end())
         {
@@ -82,6 +107,7 @@ namespace OloEngine
 
     void AssetImporter::RegisterDependencies(const AssetMetadata& metadata)
     {
+        std::scoped_lock lock(s_SerializersMutex);
         auto it = s_Serializers.find(metadata.Type);
         if (it == s_Serializers.end())
         {
@@ -107,18 +133,22 @@ namespace OloEngine
         }
 
         AssetType type = asset->GetAssetType();
-        auto it = s_Serializers.find(type);
-        if (it == s_Serializers.end())
         {
-            OLO_CORE_WARN("There's currently no serializer for assets of type: {}", AssetUtils::AssetTypeToString(type));
-            return false;
-        }
+            std::scoped_lock lock(s_SerializersMutex);
+            auto it = s_Serializers.find(type);
+            if (it == s_Serializers.end())
+            {
+                OLO_CORE_WARN("There's currently no serializer for assets of type: {}", AssetUtils::AssetTypeToString(type));
+                return false;
+            }
 
-        return it->second->SerializeToAssetPack(handle, stream, outInfo);
+            return it->second->SerializeToAssetPack(handle, stream, outInfo);
+        }
     }
 
     Ref<Asset> AssetImporter::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo)
     {
+        std::scoped_lock lock(s_SerializersMutex);
         auto it = s_Serializers.find(assetInfo.Type);
         if (it == s_Serializers.end())
         {
@@ -131,6 +161,7 @@ namespace OloEngine
 
     Ref<Scene> AssetImporter::DeserializeSceneFromAssetPack(FileStreamReader& stream, const AssetPackFile::SceneInfo& assetInfo)
     {
+        std::scoped_lock lock(s_SerializersMutex);
         auto it = s_Serializers.find(AssetType::Scene);
         if (it == s_Serializers.end())
         {

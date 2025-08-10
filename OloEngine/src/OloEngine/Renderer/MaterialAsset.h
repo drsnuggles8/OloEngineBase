@@ -18,42 +18,42 @@ namespace OloEngine
 
 		virtual void OnDependencyUpdated(AssetHandle handle) override;
 
-		glm::vec3& GetAlbedoColor();
+		const glm::vec3& GetAlbedoColor() const;
 		void SetAlbedoColor(const glm::vec3& color);
 
-		float& GetMetalness();
+		const float& GetMetalness() const;
 		void SetMetalness(float value);
 
-		float& GetRoughness();
+		const float& GetRoughness() const;
 		void SetRoughness(float value);
 
-		float& GetEmission();
+		const float& GetEmission() const;
 		void SetEmission(float value);
 
 		// Textures
-		Ref<Texture2D> GetAlbedoMap();
+		Ref<Texture2D> GetAlbedoMap() const;
 		void SetAlbedoMap(AssetHandle handle);
 		void ClearAlbedoMap();
 
-		Ref<Texture2D> GetNormalMap();
+		Ref<Texture2D> GetNormalMap() const;
 		void SetNormalMap(AssetHandle handle);
-		bool IsUsingNormalMap();
+		bool IsUsingNormalMap() const;
 		void SetUseNormalMap(bool value);
 		void ClearNormalMap();
 
-		Ref<Texture2D> GetMetalnessMap();
+		Ref<Texture2D> GetMetalnessMap() const;
 		void SetMetalnessMap(AssetHandle handle);
 		void ClearMetalnessMap();
 
-		Ref<Texture2D> GetRoughnessMap();
+		Ref<Texture2D> GetRoughnessMap() const;
 		void SetRoughnessMap(AssetHandle handle);
 		void ClearRoughnessMap();
 
-		float& GetTransparency();
+		float GetTransparency() const;
 		void SetTransparency(float transparency);
 
-		bool IsShadowCasting() const { return !m_Material->GetFlag(MaterialFlag::DisableShadowCasting); }
-		void SetShadowCasting(bool castsShadows) { m_Material->SetFlag(MaterialFlag::DisableShadowCasting, !castsShadows); }
+		bool IsShadowCasting() const { return m_Material ? !m_Material->GetFlag(MaterialFlag::DisableShadowCasting) : false; }
+		void SetShadowCasting(bool castsShadows) { if (m_Material) m_Material->SetFlag(MaterialFlag::DisableShadowCasting, !castsShadows); }
 
 		static AssetType GetStaticType() { return AssetType::Material; }
 		virtual AssetType GetAssetType() const override { return GetStaticType(); }
@@ -84,7 +84,7 @@ namespace OloEngine
 	{
 	public:
 		MaterialTable(u32 materialCount = 1);
-		MaterialTable(Ref<MaterialTable> other);
+		MaterialTable(const Ref<MaterialTable>& other);
 		~MaterialTable() = default;
 
 		bool HasMaterial(u32 materialIndex) const { return m_Materials.find(materialIndex) != m_Materials.end(); }
@@ -93,19 +93,19 @@ namespace OloEngine
 
 		AssetHandle GetMaterial(u32 materialIndex) const
 		{
-			OLO_CORE_VERIFY(HasMaterial(materialIndex));
-			return m_Materials.at(materialIndex);
+			auto it = m_Materials.find(materialIndex);
+			OLO_CORE_VERIFY(it != m_Materials.end());
+			return it->second;
 		}
+		
 		std::map<u32, AssetHandle>& GetMaterials() { return m_Materials; }
 		const std::map<u32, AssetHandle>& GetMaterials() const { return m_Materials; }
 
-		u32 GetMaterialCount() const { return m_MaterialCount; }
-		void SetMaterialCount(u32 materialCount) { m_MaterialCount = materialCount; }
+		u32 GetMaterialCount() const { return static_cast<u32>(m_Materials.size()); }
 
 		void Clear();
 	private:
 		std::map<u32, AssetHandle> m_Materials;
-		u32 m_MaterialCount;
 	};
 
 }

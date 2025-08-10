@@ -80,6 +80,8 @@ namespace OloEngine
             static constexpr u32 MAX_BONES = 100;                    // Maximum bone matrices per animated mesh
         };
         
+        static_assert(AnimationConstants::MAX_BONES > 0, "MAX_BONES must be positive");
+        
         struct MaterialUBO
         {
             glm::vec4 Ambient;
@@ -124,11 +126,13 @@ namespace OloEngine
         
         struct AnimationUBO
         {
-            static constexpr u32 MAX_BONES = 100;                    // Typical character rigs use 50-70 bones
+            static constexpr u32 MAX_BONES = AnimationConstants::MAX_BONES;  // Use centralized constant
             glm::mat4 BoneMatrices[MAX_BONES];
             
             static constexpr u32 GetSize() { return sizeof(AnimationUBO); }
         };
+        
+        static_assert(AnimationUBO::MAX_BONES == AnimationConstants::MAX_BONES, "AnimationUBO::MAX_BONES must match AnimationConstants::MAX_BONES");
         
         struct IBLParametersUBO
         {
@@ -292,11 +296,11 @@ layout(std140, binding = 3) uniform ModelMatrices {
 };)";
         }
         
-        static const char* GetAnimationUBOLayout()
+        static std::string GetAnimationUBOLayout()
         {
-            return R"(
+            return std::string(R"(
 layout(std140, binding = 4) uniform AnimationMatrices {
-    mat4 u_BoneMatrices[100];
+    mat4 u_BoneMatrices[)") + std::to_string(UBOStructures::AnimationConstants::MAX_BONES) + R"(];
 };)";
         }
         

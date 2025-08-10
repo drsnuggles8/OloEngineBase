@@ -17,7 +17,9 @@
 // Asynchronous asset loading can be disabled by setting this to 0
 // If you do this, then assets will not be automatically reloaded if/when they are changed by some external tool,
 // and you will have to manually reload them via content browser panel.
+#ifndef OLO_ASYNC_ASSETS
 #define OLO_ASYNC_ASSETS 1
+#endif
 
 namespace OloEngine
 {
@@ -139,7 +141,9 @@ namespace OloEngine
          */
         static void SyncWithAssetThread() 
         { 
+#if OLO_ASYNC_ASSETS
             GetActiveManager()->SyncWithAssetThread(); 
+#endif
         }
 
         /**
@@ -230,9 +234,15 @@ namespace OloEngine
             static_assert(std::is_base_of<Asset, TAsset>::value, 
                          "AddMemoryOnlyAsset only works for types derived from Asset");
             
+            if (!asset)
+            {
+                OLO_CORE_ERROR("AssetManager::AddMemoryOnlyAsset - Attempted to add null asset");
+                return AssetHandle{};
+            }
+            
             if (!asset->m_Handle)
             {
-                asset->m_Handle = AssetHandle(); // Generate new handle
+                asset->SetHandle(AssetHandle()); // Generate new handle using protected setter
             }
             
             GetActiveManager()->AddMemoryOnlyAsset(asset);
@@ -251,24 +261,24 @@ namespace OloEngine
 
         /**
          * @brief Register that an asset depends on another asset
-         * @param dependency Handle of the dependency asset
          * @param handle Handle of the dependent asset
+         * @param dependency Handle of the dependency asset
          * 
          * Example: A material (handle) depends on a texture (dependency)
          */
-        static void RegisterDependency(AssetHandle dependency, AssetHandle handle) 
+        static void RegisterDependency(AssetHandle handle, AssetHandle dependency) 
         { 
-            GetActiveManager()->RegisterDependency(dependency, handle); 
+            GetActiveManager()->RegisterDependency(handle, dependency); 
         }
 
         /**
          * @brief Remove a specific dependency relationship
-         * @param dependency Handle of the dependency asset
          * @param handle Handle of the dependent asset
+         * @param dependency Handle of the dependency asset
          */
-        static void DeregisterDependency(AssetHandle dependency, AssetHandle handle) 
+        static void DeregisterDependency(AssetHandle handle, AssetHandle dependency) 
         { 
-            GetActiveManager()->DeregisterDependency(dependency, handle); 
+            GetActiveManager()->DeregisterDependency(handle, dependency); 
         }
 
         /**

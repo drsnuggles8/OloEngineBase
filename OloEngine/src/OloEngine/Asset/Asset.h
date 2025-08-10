@@ -38,22 +38,25 @@ namespace OloEngine
         AssetHandle GetHandle() const { return m_Handle; }
 
         /**
-         * @brief Set the asset handle
-         * @param handle The unique UUID handle for this asset
-         */
-        void SetHandle(AssetHandle handle) { m_Handle = handle; }
-
-        /**
          * @brief Get the asset flags
          * @return The current asset flags
          */
         u16 GetFlags() const { return m_Flags; }
 
+    protected:
         /**
          * @brief Set the asset flags
          * @param flags The new asset flags
          */
         void SetFlags(u16 flags) { m_Flags = flags; }
+
+        /**
+         * @brief Set the asset handle
+         * @param handle The unique UUID handle for this asset
+         */
+        void SetHandle(AssetHandle handle) { m_Handle = handle; }
+
+    public:
 
         bool operator==(const Asset& other) const
         {
@@ -162,14 +165,14 @@ namespace OloEngine
     template<typename T>
     struct AsyncAssetResult
     {
-        Ref<T> Asset;
+        Ref<T> Ptr;
         bool IsReady = false;
 
         AsyncAssetResult() = default;
         AsyncAssetResult(const AsyncAssetResult<T>& other) = default;
 
         AsyncAssetResult(Ref<T> asset, bool isReady = false)
-            : Asset(asset), IsReady(isReady) {}
+            : Ptr(asset), IsReady(isReady) {}
 
         template<typename T2, typename = std::enable_if_t<
             std::is_base_of_v<::OloEngine::Asset, T2> && 
@@ -177,10 +180,10 @@ namespace OloEngine
             (std::is_base_of_v<T, T2> || std::is_base_of_v<T2, T>)
         >>
         AsyncAssetResult(const AsyncAssetResult<T2>& other)
-            : Asset(other.Asset.template As<T>()), IsReady(other.IsReady) {}
+            : Ptr(other.Ptr.template As<T>()), IsReady(other.IsReady) {}
 
-        operator Ref<T>() const { return Asset; }
-        operator bool() const { return IsReady; }
+        explicit operator Ref<T>() const { return Ptr; }
+        explicit operator bool() const { return IsReady; }
     };
 
 }

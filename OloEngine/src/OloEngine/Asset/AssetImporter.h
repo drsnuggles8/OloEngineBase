@@ -1,6 +1,7 @@
 #pragma once
 
 #include <unordered_map>
+#include <mutex>
 
 #include "AssetSerializer.h"
 
@@ -32,6 +33,7 @@ namespace OloEngine
         
     private:
         static std::unordered_map<AssetType, Scope<AssetSerializer>> s_Serializers;
+        static std::mutex s_SerializersMutex;
     };
 
 } // namespace OloEngine

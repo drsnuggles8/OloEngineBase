@@ -5,6 +5,7 @@
 #include "Components.h"
 
 #include <algorithm>
+#include <vector>
 
 #pragma warning( push )
 #pragma warning( disable : 4996)
@@ -158,13 +159,6 @@ namespace OloEngine
 			}
 		}
 
-		void SetParentUUID(UUID parent) 
-		{ 
-			if (!HasComponent<RelationshipComponent>())
-				AddComponent<RelationshipComponent>();
-			GetComponent<RelationshipComponent>().m_ParentHandle = parent; 
-		}
-
 		UUID GetParentUUID() const 
 		{ 
 			if (!HasComponent<RelationshipComponent>())
@@ -183,7 +177,7 @@ namespace OloEngine
 		{ 
 			if (!HasComponent<RelationshipComponent>())
 			{
-				static std::vector<UUID> emptyChildren;
+				static const std::vector<UUID> emptyChildren{};
 				return emptyChildren;
 			}
 			return GetComponent<RelationshipComponent>().m_Children; 
@@ -202,6 +196,16 @@ namespace OloEngine
 			auto it = std::find(children.begin(), children.end(), childId);
 			if (it != children.end())
 			{
+				// Verify that the child's recorded parent UUID matches this entity's UUID
+				// This prevents mistakenly modifying unrelated entities
+				UUID thisEntityId = GetUUID();
+				UUID childParentId = child.GetParentUUID();
+				if (childParentId != thisEntityId)
+				{
+					OLO_CORE_ASSERT(false, "Child entity's parent UUID does not match this entity's UUID - relationship invariant violated");
+					return false;
+				}
+				
 				children.erase(it);
 				
 				// Clear the child's parent UUID to maintain relationship consistency
@@ -218,6 +222,20 @@ namespace OloEngine
 		}
 
 	private:
+		/// <summary>
+		/// Low-level method to directly set the parent UUID without maintaining hierarchy invariants.
+		/// WARNING: This bypasses cycle checks and does not update the parent's children list.
+		/// Use SetParent(Entity) instead to maintain proper entity hierarchy consistency.
+		/// Only intended for internal use within Entity class methods.
+		/// </summary>
+		/// <param name="parent">The UUID of the parent entity</param>
+		void SetParentUUID(UUID parent) 
+		{ 
+			if (!HasComponent<RelationshipComponent>())
+				AddComponent<RelationshipComponent>();
+			GetComponent<RelationshipComponent>().m_ParentHandle = parent; 
+		}
+
 		// Helper method to check if setting a parent would create a cycle
 		bool WouldCreateCycle(Entity potentialParent) const
 		{

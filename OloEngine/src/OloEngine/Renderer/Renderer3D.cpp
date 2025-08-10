@@ -899,7 +899,7 @@ namespace OloEngine
 			s_Data.Stats.TotalAnimatedMeshes++;
 			currentEntityCount++;
 
-			RenderAnimatedMesh(entity, defaultMaterial, scene.get());
+			RenderAnimatedMesh(entity, defaultMaterial, scene);
 		}
 		
 		// Log stats only when count changes to reduce logging overhead
@@ -912,7 +912,7 @@ namespace OloEngine
 		}
 	}
 
-	void Renderer3D::RenderAnimatedMesh(Entity entity, const Material& defaultMaterial, const Scene* scene)
+	void Renderer3D::RenderAnimatedMesh(Entity entity, const Material& defaultMaterial, const Ref<Scene>& scene)
 	{
 		OLO_PROFILE_FUNCTION();
 

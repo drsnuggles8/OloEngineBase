@@ -185,6 +185,14 @@ namespace OloEngine
 			m_CacheValid = false; 
 			m_TagEntityCache.clear(); 
 		}
+		
+		// Thread-safe setter for skeleton that automatically invalidates cache
+		void SetSkeleton(const Ref<Skeleton>& skeleton) noexcept {
+			std::lock_guard<std::mutex> lock(m_CacheMutex);
+			m_Skeleton = skeleton;
+			m_CacheValid = false;
+			m_TagEntityCache.clear();
+		}
 	};
 
 	/**

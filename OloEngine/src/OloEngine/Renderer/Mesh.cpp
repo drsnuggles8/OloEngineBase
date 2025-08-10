@@ -23,7 +23,7 @@ namespace OloEngine
         return m_MeshSource->GetIndices();
     }
 
-    const Ref<VertexArray>& Mesh::GetVertexArray() const
+    Ref<VertexArray> Mesh::GetVertexArray() const
     {
         OLO_CORE_ASSERT(m_MeshSource, "MeshSource is null!");
         return m_MeshSource->GetVertexArray();

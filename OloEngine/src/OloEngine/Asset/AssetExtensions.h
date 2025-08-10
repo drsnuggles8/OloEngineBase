@@ -25,8 +25,7 @@ namespace OloEngine
          * @param extension File extension (with or without leading dot)
          * @return AssetType corresponding to the extension, or AssetType::None if not found
          */
-        static AssetType GetAssetTypeFromExtension(const std::string& extension);
-
+        [[nodiscard]] static AssetType GetAssetTypeFromExtension(std::string_view extension);
         /**
          * @brief Get asset type from file path
          * @param filepath Full file path

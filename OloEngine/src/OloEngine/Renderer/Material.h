@@ -6,18 +6,20 @@
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <string>
 #include <unordered_map>
 
 namespace OloEngine {
 
-	enum class MaterialFlag
+	enum class MaterialFlag : u32
 	{
 		None       = 0,
-		DepthTest  = 1 << 1,
-		Blend      = 1 << 2,
-		TwoSided   = 1 << 3,
-		DisableShadowCasting = 1 << 4
+		DepthTest  = 1u << 0,
+		Blend      = 1u << 1,
+		TwoSided   = 1u << 2,
+		DisableShadowCasting = 1u << 3
 	};
 
 	enum class MaterialType
@@ -52,6 +54,12 @@ namespace OloEngine {
 		// Assignment operator for value semantics
 		Material& operator=(const Material& other);
 		
+		// Move constructor for efficient transfers
+		Material(Material&& other) = default;
+		
+		// Move assignment operator for efficient transfers
+		Material& operator=(Material&& other) = default;
+		
 		static Ref<Material> Create(const Ref<OloEngine::Shader>& shader, const std::string& name = "");
 		static Ref<Material> Copy(const Ref<Material>& other, const std::string& name = "");
 		
@@ -71,6 +79,7 @@ namespace OloEngine {
 		MaterialType GetType() const { return m_MaterialType; }
 		
 		void SetShader(const Ref<Shader>& shader) { m_Shader = shader; }
+		const Ref<OloEngine::Shader>& GetShader() const { return m_Shader; }
 
 		virtual void Set(const std::string& name, float value);
 		virtual void Set(const std::string& name, int value);
@@ -97,13 +106,18 @@ namespace OloEngine {
 		virtual const glm::vec2& GetVector2(const std::string& name) const;
 		virtual const glm::vec3& GetVector3(const std::string& name) const;
 		virtual const glm::vec4& GetVector4(const std::string& name) const;
+		virtual const glm::ivec2& GetIntVector2(const std::string& name) const;
+		virtual const glm::ivec3& GetIntVector3(const std::string& name) const;
+		virtual const glm::ivec4& GetIntVector4(const std::string& name) const;
 		virtual const glm::mat3& GetMatrix3(const std::string& name) const;
 		virtual const glm::mat4& GetMatrix4(const std::string& name) const;
 
 		virtual Ref<Texture2D> GetTexture2D(const std::string& name);
+		virtual Ref<Texture2D> GetTexture2D(const std::string& name, u32 arrayIndex);
 		virtual Ref<TextureCubemap> GetTextureCube(const std::string& name);
 
 		virtual Ref<Texture2D> TryGetTexture2D(const std::string& name);
+		virtual Ref<Texture2D> TryGetTexture2D(const std::string& name, u32 arrayIndex);
 		virtual Ref<TextureCubemap> TryGetTextureCube(const std::string& name);
 
 		virtual u32 GetFlags() const { return m_MaterialFlags; }
@@ -111,8 +125,6 @@ namespace OloEngine {
 
 		virtual bool GetFlag(MaterialFlag flag) const { return (static_cast<u32>(flag) & m_MaterialFlags) != 0; }
 		virtual void SetFlag(MaterialFlag flag, bool value = true);
-
-		const Ref<OloEngine::Shader>& GetShader() const { return m_Shader; }
 		
 		// IBL configuration method (for Sandbox3D compatibility)
 		void ConfigureIBL(const Ref<TextureCubemap>& environmentMap, 
@@ -124,11 +136,13 @@ namespace OloEngine {
 		// TYPED PROPERTY ACCESSORS (Replacement for public member variables)
 		// =====================================================================
 		
-		// Material type and shader management
-		MaterialType GetMaterialType() const { return m_MaterialType; }
-		void SetMaterialType(MaterialType type) { m_MaterialType = type; }
-		void SetMaterialShader(const Ref<Shader>& shader) { m_Shader = shader; }
-		Ref<Shader> GetMaterialShader() const { return m_Shader; }
+		// Material type and shader management (deprecated wrappers)
+		[[deprecated("Use GetType() instead")]]
+		MaterialType GetMaterialType() const { return GetType(); }
+		[[deprecated("Use SetType() instead")]]
+		void SetMaterialType(MaterialType type) { SetType(type); }
+		[[deprecated("Use GetShader() instead")]]
+		Ref<Shader> GetMaterialShader() const { return GetShader(); }
 		
 		// Legacy material properties (for backward compatibility)
 		const glm::vec3& GetAmbient() const { return m_Ambient; }
@@ -224,9 +238,9 @@ namespace OloEngine {
 		[[deprecated("Use GetShininess() instead")]]
 		inline const float& Shininess() const { return m_Shininess; }
 		
-		[[deprecated("Use GetUseTextureMaps()/SetUseTextureMaps() instead")]]
+		[[deprecated("Use IsUsingTextureMaps()/SetUseTextureMaps() instead")]]
 		inline bool& UseTextureMaps() { return m_UseTextureMaps; }
-		[[deprecated("Use GetUseTextureMaps() instead")]]
+		[[deprecated("Use IsUsingTextureMaps() instead")]]
 		inline const bool& UseTextureMaps() const { return m_UseTextureMaps; }
 		
 		[[deprecated("Use GetDiffuseMap()/SetDiffuseMap() instead")]]
@@ -326,15 +340,26 @@ namespace OloEngine {
 		virtual AssetType GetAssetType() const override { return GetStaticType(); }
 
 		// Accessors for serialization
-		const std::unordered_map<std::string, Ref<Texture2D>>& GetTexture2DUniforms() const { return m_Texture2DUniforms; }
-		const std::unordered_map<std::string, Ref<TextureCubemap>>& GetTextureCubeUniforms() const { return m_TextureCubeUniforms; }
 		const std::unordered_map<std::string, float>& GetFloatUniforms() const { return m_FloatUniforms; }
 		const std::unordered_map<std::string, int>& GetIntUniforms() const { return m_IntUniforms; }
+		const std::unordered_map<std::string, u32>& GetUIntUniforms() const { return m_UIntUniforms; }
+		const std::unordered_map<std::string, bool>& GetBoolUniforms() const { return m_BoolUniforms; }
+		const std::unordered_map<std::string, glm::vec2>& GetVec2Uniforms() const { return m_Vec2Uniforms; }
 		const std::unordered_map<std::string, glm::vec3>& GetVec3Uniforms() const { return m_Vec3Uniforms; }
 		const std::unordered_map<std::string, glm::vec4>& GetVec4Uniforms() const { return m_Vec4Uniforms; }
+		const std::unordered_map<std::string, glm::ivec2>& GetIVec2Uniforms() const { return m_IVec2Uniforms; }
+		const std::unordered_map<std::string, glm::ivec3>& GetIVec3Uniforms() const { return m_IVec3Uniforms; }
+		const std::unordered_map<std::string, glm::ivec4>& GetIVec4Uniforms() const { return m_IVec4Uniforms; }
+		const std::unordered_map<std::string, glm::mat3>& GetMat3Uniforms() const { return m_Mat3Uniforms; }
+		const std::unordered_map<std::string, glm::mat4>& GetMat4Uniforms() const { return m_Mat4Uniforms; }
+		const std::unordered_map<std::string, Ref<Texture2D>>& GetTexture2DUniforms() const { return m_Texture2DUniforms; }
+		const std::unordered_map<std::string, Ref<TextureCubemap>>& GetTextureCubeUniforms() const { return m_TextureCubeUniforms; }
 
 	protected:
 		Material(const Ref<OloEngine::Shader>& shader, const std::string& name = "");
+
+		// Helper method to generate composite keys for array textures
+		static std::string GenerateArrayKey(const std::string& name, u32 arrayIndex);
 
 	protected:
 		Ref<OloEngine::Shader> m_Shader;
@@ -349,6 +374,9 @@ namespace OloEngine {
 		std::unordered_map<std::string, glm::vec2> m_Vec2Uniforms;
 		std::unordered_map<std::string, glm::vec3> m_Vec3Uniforms;
 		std::unordered_map<std::string, glm::vec4> m_Vec4Uniforms;
+		std::unordered_map<std::string, glm::ivec2> m_IVec2Uniforms;
+		std::unordered_map<std::string, glm::ivec3> m_IVec3Uniforms;
+		std::unordered_map<std::string, glm::ivec4> m_IVec4Uniforms;
 		std::unordered_map<std::string, glm::mat3> m_Mat3Uniforms;
 		std::unordered_map<std::string, glm::mat4> m_Mat4Uniforms;
 		std::unordered_map<std::string, Ref<Texture2D>> m_Texture2DUniforms;

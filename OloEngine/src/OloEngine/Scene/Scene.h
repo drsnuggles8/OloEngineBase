@@ -7,8 +7,10 @@
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 
 #include <optional>
+#include <vector>
 
-#include "box2d/box2d.h" // Include Box2D header
+#include <glm/glm.hpp>
+#include "box2d/box2d.h"
 
 #pragma warning( push )
 #pragma warning( disable : 4996)

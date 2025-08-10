@@ -3,14 +3,18 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Vertex.h"
-#include "OloEngine/Renderer/VertexBuffer.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Asset/Asset.h"
+#include "OloEngine/Renderer/VertexBuffer.h"
 
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <vector>
 #include <memory>
 #include <stdexcept>
+#include <string>
+#include <limits>
 
 namespace OloEngine 
 {
@@ -28,7 +32,7 @@ namespace OloEngine
         glm::mat4 m_InverseBindPose;  // Inverse bind pose matrix for skinning
         u32 m_BoneIndex;              // Index into the skeleton
         
-        BoneInfo() = default;
+        BoneInfo() : m_InverseBindPose(1.0f), m_BoneIndex(std::numeric_limits<u32>::max()) {}
         BoneInfo(const glm::mat4& inverseBindPose, u32 boneIndex)
             : m_InverseBindPose(inverseBindPose), m_BoneIndex(boneIndex) {}
     };
@@ -57,7 +61,7 @@ namespace OloEngine
         {
             if (index >= 4)
             {
-                OLO_CORE_ERROR("SetVertexBoneData: index out of bounds (index: {0}, max: 3)", index);
+                OLO_CORE_ERROR("SetBoneData: index out of bounds (index: {0}, max: 3)", index);
                 return;
             }
             
@@ -129,7 +133,12 @@ namespace OloEngine
         
         bool IsSubmeshRigged(u32 submeshIndex) const 
         { 
-            return submeshIndex < m_Submeshes.size() && m_Submeshes[submeshIndex].m_IsRigged; 
+            if (submeshIndex >= m_Submeshes.size())
+            {
+                OLO_CORE_ERROR("IsSubmeshRigged: submesh index {} out of range (size: {})", submeshIndex, m_Submeshes.size());
+                throw std::out_of_range("Submesh index out of range");
+            }
+            return m_Submeshes[submeshIndex].m_IsRigged; 
         }
 
         // Bone information for skinning
@@ -156,7 +165,7 @@ namespace OloEngine
             if (vertexIndex >= m_BoneInfluences.size())
             {
                 OLO_CORE_ERROR("SetVertexBoneData: vertex index out of bounds (index: {0}, size: {1})", vertexIndex, m_BoneInfluences.size());
-                return;
+                throw std::out_of_range("Vertex index out of range");
             }
             m_BoneInfluences[vertexIndex] = influence;
         }
@@ -164,8 +173,12 @@ namespace OloEngine
         // Get bone influence for a specific vertex
         const BoneInfluence& GetVertexBoneData(u32 vertexIndex) const
         {
-            static const BoneInfluence defaultInfluence{};
-            return vertexIndex < m_BoneInfluences.size() ? m_BoneInfluences[vertexIndex] : defaultInfluence;
+            if (vertexIndex >= m_BoneInfluences.size())
+            {
+                OLO_CORE_ERROR("GetVertexBoneData: vertex index out of bounds (index: {0}, size: {1})", vertexIndex, m_BoneInfluences.size());
+                throw std::out_of_range("Vertex index out of range");
+            }
+            return m_BoneInfluences[vertexIndex];
         }
 
         // Check if this mesh has bone influences for animation

@@ -4,6 +4,8 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Asset/Asset.h"
 #include "MeshSource.h"
+#include <vector>
+#include <glm/mat4x4.hpp>
 
 namespace OloEngine 
 {
@@ -31,7 +33,7 @@ namespace OloEngine
         // Convenience accessors that delegate to MeshSource
         const std::vector<Vertex>& GetVertices() const;
         const std::vector<u32>& GetIndices() const;
-        const Ref<VertexArray>& GetVertexArray() const;
+        Ref<VertexArray> GetVertexArray() const;
         
         // Submesh-specific data
         const Submesh& GetSubmesh() const;

@@ -65,6 +65,11 @@ namespace OloEngine
 
 	Ref<VertexBuffer> VertexBuffer::Create(const void* data, u32 size)
 	{
+		// Runtime check: if size > 0, data must not be null
+		// For uninitialized buffer creation, use Create(u32 size) instead
+		OLO_CORE_ASSERT(size == 0 || data != nullptr, 
+			"VertexBuffer::Create(): data cannot be null when size > 0. Use Create(u32 size) for uninitialized buffer creation.");
+
 		switch (Renderer::GetAPI())
 		{
 			case RendererAPI::API::None:

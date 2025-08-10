@@ -8,11 +8,11 @@
 
 namespace OloEngine
 {
-    AssetType AssetExtensions::GetAssetTypeFromExtension(const std::string& extension)
+    AssetType AssetExtensions::GetAssetTypeFromExtension(std::string_view extension)
     {
         std::call_once(s_InitFlag, InitializeExtensionMap);
 
-        std::string normalizedExt = NormalizeExtension(extension);
+        std::string normalizedExt = NormalizeExtension(std::string(extension));
         
         auto it = s_ExtensionMap.find(normalizedExt);
         return (it != s_ExtensionMap.end()) ? it->second : AssetType::None;

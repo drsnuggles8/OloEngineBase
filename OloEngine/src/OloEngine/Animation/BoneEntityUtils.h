@@ -24,6 +24,13 @@ namespace OloEngine
     class BoneEntityUtils
     {
     public:
+        // Delete constructor and copy operations to prevent instantiation
+        BoneEntityUtils() = delete;
+        BoneEntityUtils(const BoneEntityUtils&) = delete;
+        BoneEntityUtils& operator=(const BoneEntityUtils&) = delete;
+        BoneEntityUtils(BoneEntityUtils&&) = delete;
+        BoneEntityUtils& operator=(BoneEntityUtils&&) = delete;
+
         /**
          * @brief Calculate model-space bone transforms from scene entities
          * 
@@ -55,7 +62,7 @@ namespace OloEngine
         static std::vector<UUID> FindBoneEntityIds(
             Entity rootEntity,
             const Skeleton* skeleton,
-            const class Scene* scene);
+            const Scene* scene);
 
         /**
          * @brief Find all bone entity IDs for a given root entity with skeleton component
@@ -68,7 +75,7 @@ namespace OloEngine
         static std::vector<UUID> FindBoneEntityIds(
             Entity rootEntity,
             const SkeletonComponent& skeletonComponent,
-            const class Scene* scene);
+            const Scene* scene);
 
         /**
          * @brief Calculate the root bone transform for an animated entity
@@ -84,7 +91,7 @@ namespace OloEngine
         static glm::mat4 FindRootBoneTransform(
             Entity entity,
             const std::vector<UUID>& boneEntityIds,
-            const class Scene* scene);
+            const Scene* scene);
 
         /**
          * @brief Build bone entity IDs for all submeshes in a hierarchy
@@ -96,7 +103,7 @@ namespace OloEngine
         static void BuildMeshBoneEntityIds(
             Entity entity,
             Entity rootEntity,
-            const class Scene* scene);
+            const Scene* scene);
 
         /**
          * @brief Build bone entity IDs for an animation
@@ -108,7 +115,7 @@ namespace OloEngine
         static void BuildAnimationBoneEntityIds(
             Entity entity,
             Entity rootEntity,
-            const class Scene* scene);
+            const Scene* scene);
 
         /**
          * @brief Find the entity with a specific bone name and index
@@ -123,7 +130,7 @@ namespace OloEngine
             Entity rootEntity,
             const std::string& boneName,
             sizet boneIndex,
-            const class Scene* scene);
+            const Scene* scene);
 
         /**
          * @brief Create bone entities for a skeleton hierarchy
@@ -135,7 +142,7 @@ namespace OloEngine
         static void CreateBoneEntities(
             Entity rootEntity,
             const Skeleton* skeleton,
-            class Scene* scene);
+            Scene* scene);
 
         /**
          * @brief Find an entity with a specific tag in the hierarchy
@@ -148,6 +155,6 @@ namespace OloEngine
         static Entity FindEntityWithTag(
             Entity entity,
             const std::string& tag,
-            const class Scene* scene);
+            const Scene* scene);
     };
 }
