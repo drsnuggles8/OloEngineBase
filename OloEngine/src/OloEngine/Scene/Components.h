@@ -16,6 +16,8 @@
 #include <glm/gtx/quaternion.hpp>
 
 #include <utility>
+#include <vector>
+#include <string>
 
 namespace OloEngine
 {
@@ -203,12 +205,15 @@ namespace OloEngine
 	// Entity relationship component for parent-child hierarchies (Hazel-style)
 	struct RelationshipComponent
 	{
-		UUID m_ParentHandle = 0;
+		UUID m_ParentHandle{};
 		std::vector<UUID> m_Children;
 
 		RelationshipComponent() = default;
 		RelationshipComponent(const RelationshipComponent&) = default;
-		RelationshipComponent(UUID parent) : m_ParentHandle(parent) {}
+		RelationshipComponent(RelationshipComponent&&) = default;
+		RelationshipComponent& operator=(const RelationshipComponent&) = default;
+		RelationshipComponent& operator=(RelationshipComponent&&) = default;
+		explicit RelationshipComponent(UUID parent) : m_ParentHandle(parent) {}
 	};
 
 	template<typename... Component>

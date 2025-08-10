@@ -58,7 +58,7 @@ namespace OloEngine
         Ref<Asset> AssetRef;
         
         EditorAssetLoadResponse() = default;
-        EditorAssetLoadResponse(const AssetMetadata& metadata, Ref<Asset> asset = nullptr)
+        explicit EditorAssetLoadResponse(const AssetMetadata& metadata, Ref<Asset> asset = nullptr)
             : Metadata(metadata), AssetRef(asset) {}
     };
 
@@ -78,18 +78,35 @@ namespace OloEngine
     /**
      * @brief Runtime load response structure for asset loading operations
      */
-    struct RuntimeAssetLoadResponse
+    struct [[nodiscard]] RuntimeAssetLoadResponse
     {
         bool Success = false;
-        AssetHandle Handle;
+        AssetHandle Handle = 0;
         u32 LoadTime = 0; // Load time in milliseconds
         std::string ErrorMessage;
         
+        // Static factory method for successful loads
+        static RuntimeAssetLoadResponse Ok(AssetHandle handle, u32 loadTime = 0)
+        {
+            RuntimeAssetLoadResponse response;
+            response.Success = true;
+            response.Handle = handle;
+            response.LoadTime = loadTime;
+            return response;
+        }
+        
+        // Static factory method for failed loads
+        static RuntimeAssetLoadResponse Failure(const std::string& error)
+        {
+            RuntimeAssetLoadResponse response;
+            response.Success = false;
+            response.ErrorMessage = error;
+            return response;
+        }
+        
+    private:
+        // Private constructors to enforce use of factory methods
         RuntimeAssetLoadResponse() = default;
-        RuntimeAssetLoadResponse(bool success, AssetHandle handle = 0, u32 loadTime = 0)
-            : Success(success), Handle(handle), LoadTime(loadTime) {}
-        RuntimeAssetLoadResponse(bool success, const std::string& error)
-            : Success(success), ErrorMessage(error) {}
     };
 
 }

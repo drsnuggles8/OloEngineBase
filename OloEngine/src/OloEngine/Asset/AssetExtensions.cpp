@@ -36,15 +36,15 @@ namespace OloEngine
     {
         std::call_once(s_InitFlag, InitializeExtensionMap);
 
-        std::unordered_set<std::string> extensionSet;
+        std::vector<std::string> extensions;
+        extensions.reserve(s_ExtensionMap.size()); // Reserve capacity to optimize memory allocation
 
         for (const auto& [ext, assetType] : s_ExtensionMap)
         {
             if (assetType == type)
-                extensionSet.insert("." + ext);
+                extensions.push_back("." + ext);
         }
 
-        std::vector<std::string> extensions(extensionSet.begin(), extensionSet.end());
         std::sort(extensions.begin(), extensions.end());
         return extensions;
     }
@@ -53,14 +53,14 @@ namespace OloEngine
     {
         std::call_once(s_InitFlag, InitializeExtensionMap);
 
-        std::unordered_set<std::string> extensionSet;
+        std::vector<std::string> extensions;
+        extensions.reserve(s_ExtensionMap.size()); // Reserve capacity to optimize memory allocation
 
         for (const auto& [ext, type] : s_ExtensionMap)
         {
-            extensionSet.insert("." + ext);
+            extensions.push_back("." + ext);
         }
 
-        std::vector<std::string> extensions(extensionSet.begin(), extensionSet.end());
         std::sort(extensions.begin(), extensions.end());
         return extensions;
     }

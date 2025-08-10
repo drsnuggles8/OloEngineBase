@@ -961,17 +961,17 @@ namespace OloEngine
 		const auto& relationshipComponent = entity.GetComponent<RelationshipComponent>();
 		for (const UUID& childUUID : relationshipComponent.m_Children)
 		{
-			Entity submeshEntity = scene->TryGetEntityWithUUID(childUUID);
-			if (submeshEntity && submeshEntity.HasComponent<SubmeshComponent>())
+			auto submeshEntityOpt = scene->TryGetEntityWithUUID(childUUID);
+			if (submeshEntityOpt && submeshEntityOpt->HasComponent<SubmeshComponent>())
 			{
-				auto& submeshComponent = submeshEntity.GetComponent<SubmeshComponent>();
+				auto& submeshComponent = submeshEntityOpt->GetComponent<SubmeshComponent>();
 				if (submeshComponent.m_Mesh && submeshComponent.m_Visible)
 				{
 					// Use MaterialComponent if available on submesh, otherwise use the parent's material
 					Material submeshMaterial = material;
-					if (submeshEntity.HasComponent<MaterialComponent>())
+					if (submeshEntityOpt->HasComponent<MaterialComponent>())
 					{
-						submeshMaterial = submeshEntity.GetComponent<MaterialComponent>().m_Material;
+						submeshMaterial = submeshEntityOpt->GetComponent<MaterialComponent>().m_Material;
 					}
 
 					// Use the new MeshSource with bone influences directly

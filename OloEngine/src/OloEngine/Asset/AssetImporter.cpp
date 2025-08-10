@@ -9,6 +9,7 @@
 #include "OloEngine/Project/Project.h"
 
 #include <memory>
+#include <mutex>
 
 namespace OloEngine
 {
@@ -17,25 +18,28 @@ namespace OloEngine
 	
 	void AssetImporter::Init()
     {
-        s_Serializers.clear();
-        s_Serializers.reserve(17); // Reserve capacity for 17 serializers to avoid rehashing
-        s_Serializers[AssetType::Prefab] = CreateScope<PrefabSerializer>();
-        s_Serializers[AssetType::Texture2D] = CreateScope<TextureSerializer>();
-        s_Serializers[AssetType::TextureCube] = CreateScope<TextureSerializer>();
-        s_Serializers[AssetType::Mesh] = CreateScope<MeshSerializer>();
-        s_Serializers[AssetType::StaticMesh] = CreateScope<StaticMeshSerializer>();
-        s_Serializers[AssetType::MeshSource] = CreateScope<MeshSourceSerializer>();
-        s_Serializers[AssetType::Material] = CreateScope<MaterialAssetSerializer>();
-        s_Serializers[AssetType::EnvMap] = CreateScope<EnvironmentSerializer>();
-        s_Serializers[AssetType::Audio] = CreateScope<AudioFileSourceSerializer>();
-        s_Serializers[AssetType::SoundConfig] = CreateScope<SoundConfigSerializer>();
-        s_Serializers[AssetType::Scene] = CreateScope<SceneAssetSerializer>();
-        s_Serializers[AssetType::Font] = CreateScope<FontSerializer>();
-        s_Serializers[AssetType::MeshCollider] = CreateScope<MeshColliderSerializer>();
-        s_Serializers[AssetType::SoundGraphSound] = CreateScope<SoundGraphSerializer>();
-        s_Serializers[AssetType::AnimationClip] = CreateScope<AnimationAssetSerializer>();
-        s_Serializers[AssetType::AnimationGraph] = CreateScope<AnimationGraphAssetSerializer>();
-        s_Serializers[AssetType::ScriptFile] = CreateScope<ScriptFileSerializer>();
+        std::call_once(s_InitFlag, []()
+        {
+            s_Serializers.clear();
+            s_Serializers.reserve(17); // Reserve capacity for 17 serializers to avoid rehashing
+            s_Serializers[AssetType::Prefab] = CreateScope<PrefabSerializer>();
+            s_Serializers[AssetType::Texture2D] = CreateScope<TextureSerializer>();
+            s_Serializers[AssetType::TextureCube] = CreateScope<TextureSerializer>();
+            s_Serializers[AssetType::Mesh] = CreateScope<MeshSerializer>();
+            s_Serializers[AssetType::StaticMesh] = CreateScope<StaticMeshSerializer>();
+            s_Serializers[AssetType::MeshSource] = CreateScope<MeshSourceSerializer>();
+            s_Serializers[AssetType::Material] = CreateScope<MaterialAssetSerializer>();
+            s_Serializers[AssetType::EnvMap] = CreateScope<EnvironmentSerializer>();
+            s_Serializers[AssetType::Audio] = CreateScope<AudioFileSourceSerializer>();
+            s_Serializers[AssetType::SoundConfig] = CreateScope<SoundConfigSerializer>();
+            s_Serializers[AssetType::Scene] = CreateScope<SceneAssetSerializer>();
+            s_Serializers[AssetType::Font] = CreateScope<FontSerializer>();
+            s_Serializers[AssetType::MeshCollider] = CreateScope<MeshColliderSerializer>();
+            s_Serializers[AssetType::SoundGraphSound] = CreateScope<SoundGraphSerializer>();
+            s_Serializers[AssetType::AnimationClip] = CreateScope<AnimationAssetSerializer>();
+            s_Serializers[AssetType::AnimationGraph] = CreateScope<AnimationGraphAssetSerializer>();
+            s_Serializers[AssetType::ScriptFile] = CreateScope<ScriptFileSerializer>();
+        });
     }
 
     void AssetImporter::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset)

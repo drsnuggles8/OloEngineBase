@@ -498,14 +498,14 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 	}
 
 	// Bone entity management methods (Hazel-style)
-	std::vector<glm::mat4> Scene::GetModelSpaceBoneTransforms(const std::vector<UUID>& boneEntityIds, MeshSource* meshSource)
+	std::vector<glm::mat4> Scene::GetModelSpaceBoneTransforms(const std::vector<UUID>& boneEntityIds, const MeshSource& meshSource) const
 	{
-		return BoneEntityUtils::GetModelSpaceBoneTransforms(boneEntityIds, meshSource, this);
+		return BoneEntityUtils::GetModelSpaceBoneTransforms(boneEntityIds, &meshSource, this);
 	}
 
-	std::vector<UUID> Scene::FindBoneEntityIds(Entity rootEntity, const Skeleton* skeleton) const
+	std::vector<UUID> Scene::FindBoneEntityIds(Entity rootEntity, const Skeleton& skeleton) const
 	{
-		return BoneEntityUtils::FindBoneEntityIds(rootEntity, skeleton, this);
+		return BoneEntityUtils::FindBoneEntityIds(rootEntity, &skeleton, this);
 	}
 
 	glm::mat4 Scene::FindRootBoneTransform(Entity entity, const std::vector<UUID>& boneEntityIds) const
@@ -530,7 +530,7 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 		BoneEntityUtils::BuildAnimationBoneEntityIds(entity, rootEntity, this);
 	}
 
-	Entity Scene::TryGetEntityWithUUID(UUID id) const
+	std::optional<Entity> Scene::TryGetEntityWithUUID(UUID id) const
 	{
 		auto it = m_EntityMap.find(id);
 		if (it != m_EntityMap.end())
@@ -540,16 +540,7 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 			// This cast is currently necessary as Entity requires non-const Scene* for API consistency.
 			return Entity{ it->second, const_cast<Scene*>(this) };
 		}
-		return {};
-	}
-
-	Entity Scene::GetEntityWithUUID(UUID id) const
-	{
-		OLO_CORE_ASSERT(m_EntityMap.contains(id), "Entity with UUID not found");
-		// FIXME: const_cast usage should be minimized. Consider updating Entity class
-		// to accept const Scene* for read-only operations or create a const-Entity view.
-		// This cast is currently necessary as Entity requires non-const Scene* for API consistency.
-		return Entity{ m_EntityMap.at(id), const_cast<Scene*>(this) };
+		return std::nullopt;
 	}
 
 	void Scene::OnPhysics2DStart()

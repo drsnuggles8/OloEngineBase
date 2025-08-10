@@ -4,6 +4,8 @@
 #include "Scene.h"
 #include "Components.h"
 
+#include <algorithm>
+
 #pragma warning( push )
 #pragma warning( disable : 4996)
 #include <entt.hpp>
@@ -109,11 +111,33 @@ namespace OloEngine
 			if (parentID == 0) // null UUID
 				return {};
 			
-			return m_Scene->TryGetEntityWithUUID(parentID);
+			auto parentOpt = m_Scene->TryGetEntityWithUUID(parentID);
+			return parentOpt ? *parentOpt : Entity{};
 		}
 
 		void SetParent(Entity parent)
 		{
+			// Guard against self-parenting
+			if (parent && parent == *this)
+			{
+				OLO_CORE_ASSERT(false, "Entity cannot be its own parent");
+				return;
+			}
+
+			// Guard against cross-scene parenting
+			if (parent && parent.m_Scene != m_Scene)
+			{
+				OLO_CORE_ASSERT(false, "Parent entity must belong to the same scene as child");
+				return;
+			}
+
+			// Guard against cyclic relationships
+			if (parent && WouldCreateCycle(parent))
+			{
+				OLO_CORE_ASSERT(false, "Setting parent would create a cyclic relationship");
+				return;
+			}
+
 			Entity currentParent = GetParent();
 			if (currentParent == parent)
 				return;
@@ -122,8 +146,8 @@ namespace OloEngine
 			if (currentParent)
 				currentParent.RemoveChild(*this);
 
-			// Setting to null is okay
-			SetParentUUID(parent.GetUUID());
+			// Setting to null is okay - check if parent is valid before calling GetUUID()
+			SetParentUUID(parent ? parent.GetUUID() : UUID(0));
 
 			if (parent)
 			{
@@ -169,6 +193,9 @@ namespace OloEngine
 		{
 			if (!HasComponent<RelationshipComponent>())
 				return false;
+			
+			// Ensure child belongs to the same scene to prevent cross-scene inconsistencies
+			OLO_CORE_ASSERT(child.m_Scene == m_Scene, "Child entity must belong to the same scene as parent");
 				
 			UUID childId = child.GetUUID();
 			std::vector<UUID>& children = Children();
@@ -176,6 +203,10 @@ namespace OloEngine
 			if (it != children.end())
 			{
 				children.erase(it);
+				
+				// Clear the child's parent UUID to maintain relationship consistency
+				child.SetParentUUID(UUID(0));
+				
 				return true;
 			}
 			return false;
@@ -187,6 +218,23 @@ namespace OloEngine
 		}
 
 	private:
+		// Helper method to check if setting a parent would create a cycle
+		bool WouldCreateCycle(Entity potentialParent) const
+		{
+			// Traverse up the hierarchy from the potential parent
+			Entity current = potentialParent;
+			while (current)
+			{
+				// If we encounter this entity while traversing up from the potential parent,
+				// it means setting the potential parent would create a cycle
+				if (current == *this)
+					return true;
+				
+				current = current.GetParent();
+			}
+			return false;
+		}
+
 		entt::entity m_EntityHandle{ entt::null };
 		Scene* m_Scene = nullptr;
 	};

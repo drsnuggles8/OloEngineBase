@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <utility>
 #include "OloEngine/Renderer/Buffer.h"
 #include "OloEngine/Core/Ref.h"
@@ -24,6 +25,8 @@ namespace OloEngine
 
 		static Ref<VertexBuffer> Create(u32 size);
 		static Ref<VertexBuffer> Create(f32* vertices, u32 size);
+		static Ref<VertexBuffer> Create(const f32* vertices, u32 size);
 		static Ref<VertexBuffer> Create(const void* data, u32 size);
+		static Ref<VertexBuffer> Create(std::nullptr_t, u32) = delete;
 	};
 }

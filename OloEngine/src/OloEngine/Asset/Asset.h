@@ -173,7 +173,8 @@ namespace OloEngine
 
         template<typename T2, typename = std::enable_if_t<
             std::is_base_of_v<::OloEngine::Asset, T2> && 
-            std::is_base_of_v<::OloEngine::Asset, T>
+            std::is_base_of_v<::OloEngine::Asset, T> &&
+            (std::is_base_of_v<T, T2> || std::is_base_of_v<T2, T>)
         >>
         AsyncAssetResult(const AsyncAssetResult<T2>& other)
             : Asset(other.Asset.template As<T>()), IsReady(other.IsReady) {}

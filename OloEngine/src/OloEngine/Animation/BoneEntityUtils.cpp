@@ -26,13 +26,13 @@ namespace OloEngine
     const sizet count = std::min(skeleton->m_BoneNames.size(), boneEntityIds.size());
     for (sizet i = 0; i < count; ++i)
         {
-            Entity boneEntity = scene->TryGetEntityWithUUID(boneEntityIds[i]);
+            auto boneEntityOpt = scene->TryGetEntityWithUUID(boneEntityIds[i]);
             
             // Get transform from entity or use rest pose as fallback
             glm::mat4 localTransform;
-            if (boneEntity && boneEntity.HasComponent<TransformComponent>())
+            if (boneEntityOpt && boneEntityOpt->HasComponent<TransformComponent>())
             {
-                localTransform = boneEntity.GetComponent<TransformComponent>().GetTransform();
+                localTransform = boneEntityOpt->GetComponent<TransformComponent>().GetTransform();
             }
             else
             {
@@ -70,10 +70,10 @@ namespace OloEngine
         // Recursively process children
         for (const auto& childId : entity.Children())
         {
-            Entity child = scene->TryGetEntityWithUUID(childId);
-            if (child)
+            auto childOpt = scene->TryGetEntityWithUUID(childId);
+            if (childOpt)
             {
-                BuildTagEntityMap(child, scene, tagMap);
+                BuildTagEntityMap(*childOpt, scene, tagMap);
             }
         }
     }
@@ -94,10 +94,10 @@ namespace OloEngine
         // Recursively process children
         for (const auto& childId : entity.Children())
         {
-            Entity child = scene->TryGetEntityWithUUID(childId);
-            if (child)
+            auto childOpt = scene->TryGetEntityWithUUID(childId);
+            if (childOpt)
             {
-                BuildTagEntityMap(child, scene, tagMap);
+                BuildTagEntityMap(*childOpt, scene, tagMap);
             }
         }
     }
@@ -203,11 +203,11 @@ namespace OloEngine
             return glm::mat4(1.0f);
 
         glm::mat4 transform = glm::mat4(1.0f);
-        Entity rootBoneEntity = scene->TryGetEntityWithUUID(boneEntityIds.front());
+        auto rootBoneEntityOpt = scene->TryGetEntityWithUUID(boneEntityIds.front());
         
-        if (rootBoneEntity)
+        if (rootBoneEntityOpt)
         {
-            Entity parentEntity = rootBoneEntity.GetParent();
+            Entity parentEntity = rootBoneEntityOpt->GetParent();
             while (parentEntity && parentEntity != entity)
             {
                 if (parentEntity.HasComponent<TransformComponent>())
@@ -246,10 +246,10 @@ namespace OloEngine
         // Recursively process children
         for (const auto& childId : entity.Children())
         {
-            Entity child = scene->TryGetEntityWithUUID(childId);
-            if (child) // Check if entity is valid before recursive call
+            auto childOpt = scene->TryGetEntityWithUUID(childId);
+            if (childOpt) // Check if entity is valid before recursive call
             {
-                BuildMeshBoneEntityIds(child, rootEntity, scene);
+                BuildMeshBoneEntityIds(*childOpt, rootEntity, scene);
             }
         }
     }
@@ -276,10 +276,10 @@ namespace OloEngine
         // Recursively process children
         for (const auto& childId : entity.Children())
         {
-            Entity child = scene->TryGetEntityWithUUID(childId);
-            if (child) // Check if entity is valid before recursive call
+            auto childOpt = scene->TryGetEntityWithUUID(childId);
+            if (childOpt) // Check if entity is valid before recursive call
             {
-                BuildAnimationBoneEntityIds(child, rootEntity, scene);
+                BuildAnimationBoneEntityIds(*childOpt, rootEntity, scene);
             }
         }
     }
@@ -300,10 +300,10 @@ namespace OloEngine
         // Recursively search children
         for (const auto& childId : entity.Children())
         {
-            Entity child = scene->TryGetEntityWithUUID(childId);
-            if (child) // Check if entity is valid before recursive call
+            auto childOpt = scene->TryGetEntityWithUUID(childId);
+            if (childOpt) // Check if entity is valid before recursive call
             {
-                Entity found = FindEntityWithTag(child, tag, scene);
+                Entity found = FindEntityWithTag(*childOpt, tag, scene);
                 if (found)
                     return found;
             }

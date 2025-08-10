@@ -6,6 +6,8 @@
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 
+#include <optional>
+
 #include "box2d/box2d.h" // Include Box2D header
 
 #pragma warning( push )
@@ -17,8 +19,9 @@ class b2World;
 
 namespace OloEngine
 {
-
 	class Entity;
+	class MeshSource;
+	class Skeleton;
 
 	class Scene : public Asset
 	{
@@ -57,16 +60,15 @@ namespace OloEngine
 		Entity GetPrimaryCameraEntity() const;
 
 		// Bone entity management (Hazel-style)
-		std::vector<glm::mat4> GetModelSpaceBoneTransforms(const std::vector<UUID>& boneEntityIds, class MeshSource* meshSource);
-		std::vector<UUID> FindBoneEntityIds(Entity rootEntity, const class Skeleton* skeleton) const;
+		std::vector<glm::mat4> GetModelSpaceBoneTransforms(const std::vector<UUID>& boneEntityIds, const MeshSource& meshSource) const;
+		std::vector<UUID> FindBoneEntityIds(Entity rootEntity, const Skeleton& skeleton) const;
 		glm::mat4 FindRootBoneTransform(Entity entity, const std::vector<UUID>& boneEntityIds) const;
 		void BuildBoneEntityIds(Entity entity);
 		void BuildMeshBoneEntityIds(Entity entity, Entity rootEntity);
 		void BuildAnimationBoneEntityIds(Entity entity, Entity rootEntity);
 
 		// Entity lookup utilities
-		Entity TryGetEntityWithUUID(UUID id) const;
-		Entity GetEntityWithUUID(UUID id) const;
+		std::optional<Entity> TryGetEntityWithUUID(UUID id) const;
 
 		[[nodiscard("Store this!")]] bool IsRunning() const { return m_IsRunning; }
         [[nodiscard("Store this!")]] bool IsPaused() const { return m_IsPaused; }
