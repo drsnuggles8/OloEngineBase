@@ -53,6 +53,9 @@ namespace OloEngine
 		// Reserve space for expected number of meshes and materials to reduce allocations
 		m_Meshes.reserve(scene->mNumMeshes);
 		m_Materials.reserve(scene->mNumMaterials);
+		
+		// Pre-size the material index map to reduce rehashing overhead
+		m_MaterialIndexMap.reserve(scene->mNumMaterials);
 
 		// Process all the nodes recursively
 		ProcessNode(scene->mRootNode, scene);
@@ -159,9 +162,25 @@ namespace OloEngine
 				
 				// Add new material and create mapping
 				u32 newMaterialIndex = static_cast<u32>(m_Materials.size());
-				m_Materials.push_back(Ref<Material>::Create(ProcessMaterial(material)));
+				m_Materials.push_back(ProcessMaterial(material));
 				m_MaterialIndexMap[mesh->mMaterialIndex] = newMaterialIndex;
 			}
+		}
+
+		// Store sizes before moving to avoid undefined behavior
+		const sizet indexCount = indices.size();
+		const sizet vertexCount = vertices.size();
+
+		// Check for potential overflow before creating meshSource and moving data
+		if (indexCount > UINT32_MAX)
+		{
+			OLO_CORE_ERROR("Model: Index count exceeds u32 maximum ({}), mesh too large", UINT32_MAX);
+			return nullptr;
+		}
+		if (vertexCount > UINT32_MAX)
+		{
+			OLO_CORE_ERROR("Model: Vertex count exceeds u32 maximum ({}), mesh too large", UINT32_MAX);
+			return nullptr;
 		}
 
 		auto meshSource = Ref<MeshSource>::Create(std::move(vertices), std::move(indices));
@@ -171,20 +190,9 @@ namespace OloEngine
 	submesh.m_BaseVertex = 0;
 	submesh.m_BaseIndex = 0;
 	
-	// Check for potential overflow before casting vertex and index counts to u32
-	if (indices.size() > UINT32_MAX)
-	{
-		OLO_CORE_ERROR("Model: Index count exceeds u32 maximum ({}), mesh too large", UINT32_MAX);
-		return nullptr;
-	}
-	if (vertices.size() > UINT32_MAX)
-	{
-		OLO_CORE_ERROR("Model: Vertex count exceeds u32 maximum ({}), mesh too large", UINT32_MAX);
-		return nullptr;
-	}
-	
-	submesh.m_IndexCount = static_cast<u32>(indices.size());
-	submesh.m_VertexCount = static_cast<u32>(vertices.size());
+	// Use stored sizes since vectors have been moved
+	submesh.m_IndexCount = static_cast<u32>(indexCount);
+	submesh.m_VertexCount = static_cast<u32>(vertexCount);
 	
 	// Use mapped material index with bounds checking
 	auto mapIt = m_MaterialIndexMap.find(mesh->mMaterialIndex);
@@ -257,7 +265,7 @@ namespace OloEngine
 		return textures;
 	}
 
-	Material Model::ProcessMaterial(const aiMaterial* mat)
+	Ref<Material> Model::ProcessMaterial(const aiMaterial* mat)
 	{
 		aiString name;
 		mat->Get(AI_MATKEY_NAME, name);
@@ -414,7 +422,7 @@ namespace OloEngine
 			}
 		}
 		
-		return *materialRef;
+		return materialRef;
 	}
 
 	void Model::CalculateBounds()

@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include <string>
 #include <chrono>
+#include <filesystem>
 
 namespace OloEngine
 {
@@ -26,8 +27,8 @@ namespace OloEngine
     struct FileSystemEvent
     {
         FileSystemChangeKind ChangeKind = FileSystemChangeKind::Modified;
-        std::string FilePath;           ///< Absolute or relative path to the changed file/directory
-        std::string OldFilePath;        ///< Previous path (only used for Renamed events)
+        std::filesystem::path FilePath;           ///< Absolute or relative path to the changed file/directory
+        std::filesystem::path OldFilePath;        ///< Previous path (only used for Renamed events)
         bool IsDirectory = false;       ///< True if the change affects a directory, false for files
         std::chrono::system_clock::time_point Timestamp; ///< When the file system change occurred
         
@@ -37,7 +38,7 @@ namespace OloEngine
          * @param filePath Path to the affected file or directory
          * @param isDirectory Whether the path refers to a directory
          */
-        FileSystemEvent(FileSystemChangeKind changeKind, const std::string& filePath, bool isDirectory = false)
+        explicit FileSystemEvent(FileSystemChangeKind changeKind, const std::filesystem::path& filePath, bool isDirectory = false)
             : ChangeKind(changeKind), FilePath(filePath), IsDirectory(isDirectory), Timestamp(std::chrono::system_clock::now())
         {
         }
@@ -48,7 +49,7 @@ namespace OloEngine
          * @param newPath New path after rename
          * @param isDirectory Whether the path refers to a directory
          */
-        FileSystemEvent(const std::string& oldPath, const std::string& newPath, bool isDirectory = false)
+        explicit FileSystemEvent(const std::filesystem::path& oldPath, const std::filesystem::path& newPath, bool isDirectory = false)
             : ChangeKind(FileSystemChangeKind::Renamed), FilePath(newPath), OldFilePath(oldPath), IsDirectory(isDirectory), Timestamp(std::chrono::system_clock::now())
         {
         }

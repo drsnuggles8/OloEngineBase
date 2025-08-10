@@ -69,7 +69,7 @@ namespace OloEngine
         // Skeleton and animation processing
         void ProcessSkeleton(const aiScene* scene);
         void ProcessAnimations(const aiScene* scene);
-        void ProcessBones(const aiMesh* mesh, std::vector<BoneInfluence>& boneInfluences);
+        void ProcessBones(const aiMesh* mesh, std::vector<BoneInfluence>& outBoneInfluences);
         
         // Helper methods
         void CalculateBounds();
@@ -96,10 +96,10 @@ namespace OloEngine
         
         std::string m_Directory;
         std::unordered_map<std::string, Ref<Texture2D>> m_LoadedTextures;
-        std::unordered_map<std::string, BoneInfo> m_BoneInfoMap;
         
-        // Cached bone name to index mapping for efficient lookup during mesh processing
-        mutable std::unordered_map<std::string, u32> m_CachedBoneNameToIndex;
+        // Bone name to BoneInfo mapping for O(1) lookup during mesh processing.
+        // Built once during ProcessSkeleton() and used by ProcessBones() for efficient bone index resolution.
+        std::unordered_map<std::string, BoneInfo> m_BoneInfoMap;
         
         BoundingBox m_BoundingBox;
         BoundingSphere m_BoundingSphere;

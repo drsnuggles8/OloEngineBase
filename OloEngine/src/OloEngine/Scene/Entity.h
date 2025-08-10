@@ -145,7 +145,7 @@ namespace OloEngine
 				// Even if parent is the same, ensure child is in parent's children list for consistency
 				if (parent)
 				{
-					auto& parentChildren = parent.Children();
+					auto& parentChildren = parent.GetOrCreateChildren();
 					UUID uuid = GetUUID();
 					if (std::find(parentChildren.begin(), parentChildren.end(), uuid) == parentChildren.end())
 						parentChildren.emplace_back(uuid);
@@ -162,7 +162,7 @@ namespace OloEngine
 
 			if (parent)
 			{
-				auto& parentChildren = parent.Children();
+				auto& parentChildren = parent.GetOrCreateChildren();
 				UUID uuid = GetUUID();
 				if (std::find(parentChildren.begin(), parentChildren.end(), uuid) == parentChildren.end())
 					parentChildren.emplace_back(uuid);
@@ -176,7 +176,7 @@ namespace OloEngine
 			return GetComponent<RelationshipComponent>().m_ParentHandle; 
 		}
 
-		std::vector<UUID>& Children() 
+		std::vector<UUID>& GetOrCreateChildren() 
 		{ 
 			if (!HasComponent<RelationshipComponent>())
 				AddComponent<RelationshipComponent>();
@@ -202,7 +202,7 @@ namespace OloEngine
 			OLO_CORE_ASSERT(child.m_Scene == m_Scene, "Child entity must belong to the same scene as parent");
 				
 			UUID childId = child.GetUUID();
-			std::vector<UUID>& children = Children();
+			std::vector<UUID>& children = GetOrCreateChildren();
 			auto it = std::find(children.begin(), children.end(), childId);
 			if (it != children.end())
 			{

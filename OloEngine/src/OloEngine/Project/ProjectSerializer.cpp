@@ -60,6 +60,12 @@ namespace OloEngine
 			return false;
 		}
 
+		if (!projectNode.IsMap())
+		{
+			OLO_CORE_ERROR("Failed to load project file '{0}' - 'Project' node must be a map, got type {1}", filepath, static_cast<int>(projectNode.Type()));
+			return false;
+		}
+
 		// Helper lambda for safe string extraction with validation
 		auto safeGetString = [&](const YAML::Node& node, const char* key, std::string& output) -> bool
 		{
@@ -82,14 +88,62 @@ namespace OloEngine
 				OLO_CORE_ERROR("Failed to load project file '{0}' - missing or invalid '{1}' field", filepath, key);
 				return false;
 			}
-			output = childNode.as<std::string>();
+			
+			std::filesystem::path extractedPath = childNode.as<std::string>();
+			
+			// Resolve relative paths against the project file's directory
+			if (extractedPath.is_relative())
+			{
+				output = filepath.parent_path() / extractedPath;
+				output = std::filesystem::weakly_canonical(output);
+			}
+			else
+			{
+				output = extractedPath;
+			}
+			
+			// Check if the resolved path exists and log a warning if it doesn't
+			std::error_code ec;
+			if (!std::filesystem::exists(output, ec))
+			{
+				if (ec)
+				{
+					OLO_CORE_WARN("Failed to check existence of '{0}' path '{1}': {2}", key, output.string(), ec.message());
+				}
+				else
+				{
+					OLO_CORE_WARN("Path '{0}' for field '{1}' does not exist: {2}", key, output.string(), "Path not found");
+				}
+			}
+			
 			return true;
 		};
 
 		// Extract project configuration with proper validation
-		return safeGetString(projectNode, "Name", config.Name) &&
-		       safeGetPath(projectNode, "StartScene", config.StartScene) &&
-		       safeGetPath(projectNode, "AssetDirectory", config.AssetDirectory) &&
-		       safeGetPath(projectNode, "ScriptModulePath", config.ScriptModulePath);
+		// First, extract all values into local variables to ensure atomic update
+		std::string name;
+		std::filesystem::path startScene;
+		std::filesystem::path assetDirectory;
+		std::filesystem::path scriptModulePath;
+		
+		// Perform all validations separately to ensure all errors are logged
+		bool nameValid = safeGetString(projectNode, "Name", name);
+		bool startSceneValid = safeGetPath(projectNode, "StartScene", startScene);
+		bool assetDirectoryValid = safeGetPath(projectNode, "AssetDirectory", assetDirectory);
+		bool scriptModulePathValid = safeGetPath(projectNode, "ScriptModulePath", scriptModulePath);
+		
+		// Check if all validations succeeded
+		bool allValid = nameValid && startSceneValid && assetDirectoryValid && scriptModulePathValid;
+		
+		// Only update config if all validations succeeded (atomic update)
+		if (allValid)
+		{
+			config.Name = std::move(name);
+			config.StartScene = std::move(startScene);
+			config.AssetDirectory = std::move(assetDirectory);
+			config.ScriptModulePath = std::move(scriptModulePath);
+		}
+		
+		return allValid;
 	}
 }

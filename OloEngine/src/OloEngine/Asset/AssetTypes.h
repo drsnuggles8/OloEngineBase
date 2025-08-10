@@ -40,6 +40,45 @@ namespace OloEngine
         Invalid = BIT(1)
     };
 
+    // Bitwise operators for AssetFlag to enable flag operations
+    inline AssetFlag operator|(AssetFlag lhs, AssetFlag rhs)
+    {
+        return static_cast<AssetFlag>(static_cast<u16>(lhs) | static_cast<u16>(rhs));
+    }
+
+    inline AssetFlag operator&(AssetFlag lhs, AssetFlag rhs)
+    {
+        return static_cast<AssetFlag>(static_cast<u16>(lhs) & static_cast<u16>(rhs));
+    }
+
+    inline AssetFlag operator^(AssetFlag lhs, AssetFlag rhs)
+    {
+        return static_cast<AssetFlag>(static_cast<u16>(lhs) ^ static_cast<u16>(rhs));
+    }
+
+    inline AssetFlag operator~(AssetFlag flag)
+    {
+        return static_cast<AssetFlag>(~static_cast<u16>(flag));
+    }
+
+    inline AssetFlag& operator|=(AssetFlag& lhs, AssetFlag rhs)
+    {
+        lhs = lhs | rhs;
+        return lhs;
+    }
+
+    inline AssetFlag& operator&=(AssetFlag& lhs, AssetFlag rhs)
+    {
+        lhs = lhs & rhs;
+        return lhs;
+    }
+
+    inline AssetFlag& operator^=(AssetFlag& lhs, AssetFlag rhs)
+    {
+        lhs = lhs ^ rhs;
+        return lhs;
+    }
+
     /**
      * @brief Utility functions for asset type management
      */

@@ -65,6 +65,21 @@ namespace OloEngine
 		
 		// Accessors for materials
 		[[nodiscard]] const std::vector<Ref<Material>>& GetMaterials() const { return m_Materials; }
+		
+		// Index-based material accessors with proper const-correctness
+		[[nodiscard]] Ref<Material> GetMaterial(sizet index) { return index < m_Materials.size() ? m_Materials[index] : nullptr; }
+		[[nodiscard]] const Ref<Material>& GetMaterial(sizet index) const { return index < m_Materials.size() ? m_Materials[index] : GetNullMaterialRef(); }
+		
+		// Get material count for safe iteration
+		[[nodiscard]] sizet GetMaterialCount() const { return m_Materials.size(); }
+
+	private:
+		// Helper method to return a null material reference for const access
+		static const Ref<Material>& GetNullMaterialRef() 
+		{ 
+			static const Ref<Material> nullMaterial = nullptr; 
+			return nullMaterial; 
+		}
 
 		// Asset interface
 		constexpr static AssetType GetStaticType() { return AssetType::Model; }
@@ -74,7 +89,7 @@ namespace OloEngine
 		void ProcessNode(const aiNode* node, const aiScene* scene);
 		Ref<Mesh> ProcessMesh(const aiMesh* mesh, const aiScene* scene);
 		std::vector<Ref<Texture2D>> LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type);
-		Material ProcessMaterial(const aiMaterial* mat);
+		Ref<Material> ProcessMaterial(const aiMaterial* mat);
 
 		std::vector<Ref<Mesh>> m_Meshes;
 		std::vector<Ref<Material>> m_Materials;  // Materials corresponding to each mesh

@@ -691,9 +691,22 @@ namespace OloEngine
 		
 		s_Data.Stats.TotalMeshes++;
 		
+		// For animated meshes, be more conservative with frustum culling
+		// since bone transforms can move vertices significantly beyond rest pose bounds
 		if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
 		{
-			if (!IsVisibleInFrustum(mesh, modelMatrix))
+			// For animated draws, expand the bounding sphere more aggressively to account for skinning deformation
+			if (!mesh || !mesh->GetMeshSource())
+			{
+				OLO_CORE_ERROR("Renderer3D::DrawAnimatedMesh: Invalid mesh or mesh source for frustum culling!");
+				return nullptr;
+			}
+			
+			BoundingSphere animatedSphere = mesh->GetTransformedBoundingSphere(modelMatrix);
+			// Use a larger expansion factor for animated meshes to account for potential deformation
+			animatedSphere.Radius *= 2.0f; // More conservative than the standard 1.3f for static meshes
+			
+			if (!s_Data.ViewFrustum.IsBoundingSphereVisible(animatedSphere))
 			{
 				s_Data.Stats.CulledMeshes++;
 				return nullptr;
@@ -707,6 +720,21 @@ namespace OloEngine
 		}
 
 		auto meshSource = mesh->GetMeshSource();
+		
+		// Validate that the mesh supports skinning
+		OLO_CORE_ASSERT(meshSource->HasSkeleton(), "Animated mesh must have a skeleton!");
+		OLO_CORE_ASSERT(!boneMatrices.empty(), "Bone matrices cannot be empty for animated mesh!");
+		
+		const auto* skeleton = meshSource->GetSkeleton();
+		OLO_CORE_ASSERT(skeleton, "Mesh skeleton cannot be null!");
+		
+		// Validate bone matrix count matches skeleton bone count
+		if (boneMatrices.size() != skeleton->m_BoneNames.size())
+		{
+			OLO_CORE_ERROR("Bone matrices count ({}) must match skeleton bone count ({})", 
+						   boneMatrices.size(), skeleton->m_BoneNames.size());
+			OLO_CORE_ASSERT(false, "Bone matrix count mismatch!");
+		}
 		
 		static bool s_FirstRun = true;
 		if (s_FirstRun)
@@ -899,7 +927,7 @@ namespace OloEngine
 			s_Data.Stats.TotalAnimatedMeshes++;
 			currentEntityCount++;
 
-			RenderAnimatedMesh(entity, defaultMaterial, scene);
+			RenderAnimatedMesh(scene, entity, defaultMaterial);
 		}
 		
 		// Log stats only when count changes to reduce logging overhead
@@ -912,7 +940,7 @@ namespace OloEngine
 		}
 	}
 
-	void Renderer3D::RenderAnimatedMesh(Entity entity, const Material& defaultMaterial, const Ref<Scene>& scene)
+	void Renderer3D::RenderAnimatedMesh(const Ref<Scene>& scene, Entity entity, const Material& defaultMaterial)
 	{
 		OLO_PROFILE_FUNCTION();
 

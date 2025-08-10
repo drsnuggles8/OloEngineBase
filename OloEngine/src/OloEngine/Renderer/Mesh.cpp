@@ -11,6 +11,37 @@ namespace OloEngine
         OLO_CORE_ASSERT(m_SubmeshIndex < m_MeshSource->GetSubmeshes().size(), "Submesh index out of range!");
     }
 
+    void Mesh::SetMeshSource(Ref<MeshSource> meshSource)
+    {
+        OLO_CORE_ASSERT(meshSource, "MeshSource cannot be null!");
+        
+        // If changing to a different MeshSource, validate submesh index is still valid
+        if (meshSource != m_MeshSource)
+        {
+            // Adjust submesh index if it exceeds new meshSource's submesh count
+            if (m_SubmeshIndex >= meshSource->GetSubmeshes().size())
+            {
+                OLO_CORE_WARN("Mesh::SetMeshSource: Submesh index {} exceeds new MeshSource submesh count ({}), resetting to 0",
+                              m_SubmeshIndex, meshSource->GetSubmeshes().size());
+                m_SubmeshIndex = 0;
+            }
+        }
+        
+        m_MeshSource = meshSource;
+    }
+
+    void Mesh::SetSubmeshIndex(u32 submeshIndex)
+    {
+        OLO_CORE_ASSERT(m_MeshSource, "MeshSource is null! Cannot set submesh index on invalid Mesh.");
+        if (submeshIndex >= m_MeshSource->GetSubmeshes().size())
+        {
+            OLO_CORE_ERROR("Submesh index {} out of range! MeshSource has {} submeshes.", 
+                           submeshIndex, m_MeshSource->GetSubmeshes().size());
+            OLO_CORE_ASSERT(false);
+        }
+        m_SubmeshIndex = submeshIndex;
+    }
+
     const std::vector<Vertex>& Mesh::GetVertices() const
     {
         OLO_CORE_ASSERT(m_MeshSource, "MeshSource is null!");
@@ -38,7 +69,14 @@ namespace OloEngine
 
     bool Mesh::IsRigged() const
     {
-        return m_MeshSource && m_MeshSource->IsSubmeshRigged(m_SubmeshIndex);
+        if (!m_MeshSource)
+            return false;
+        
+        const auto& submeshes = m_MeshSource->GetSubmeshes();
+        if (m_SubmeshIndex >= submeshes.size())
+            return false;
+        
+        return m_MeshSource->IsSubmeshRigged(m_SubmeshIndex);
     }
 
     BoundingBox Mesh::GetBoundingBox() const
@@ -96,7 +134,13 @@ namespace OloEngine
         if (!m_MeshSource)
             return 0;
         
-    const auto& submesh = GetSubmesh();
-    return submesh.m_IndexCount;
+        const auto& submeshes = m_MeshSource->GetSubmeshes();
+        if (m_SubmeshIndex < submeshes.size())
+        {
+            return submeshes[m_SubmeshIndex].m_IndexCount;
+        }
+        
+        // Return 0 if submesh index is invalid
+        return 0;
     }
 }

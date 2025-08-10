@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace OloEngine
 {
@@ -185,6 +186,10 @@ namespace OloEngine
             }
         }
 
+        // Store sizes before moving data to avoid use-after-move issues
+        const u32 vertexCount = static_cast<u32>(vertices.size());
+        const u32 indexCount = static_cast<u32>(indices.size());
+        
         // Create MeshSource with separated data
         auto meshSource = Ref<MeshSource>::Create(std::move(vertices), std::move(indices));
         
@@ -201,17 +206,28 @@ namespace OloEngine
         
         // Copy bone info in correct skeleton order
         meshSource->GetBoneInfo().resize(m_Skeleton->m_BoneNames.size());
+        
+        // Initialize all entries with identity transforms and sequential IDs to ensure no uninitialized data
+        for (u32 i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
+        {
+            meshSource->GetBoneInfo()[i] = {glm::mat4(1.0f), i};
+        }
+        
+        // Overwrite entries with actual bone data from m_BoneInfoMap
         for (const auto& [boneName, boneInfo] : m_BoneInfoMap)
         {
-            meshSource->GetBoneInfo()[boneInfo.Id] = {boneInfo.Offset, boneInfo.Id};
+            if (boneInfo.Id < meshSource->GetBoneInfo().size())
+            {
+                meshSource->GetBoneInfo()[boneInfo.Id] = {boneInfo.Offset, boneInfo.Id};
+            }
         }
 
         // Create a submesh for the entire mesh
         Submesh submesh;
         submesh.m_BaseVertex = 0;
         submesh.m_BaseIndex = 0;
-        submesh.m_IndexCount = static_cast<u32>(indices.size());
-        submesh.m_VertexCount = static_cast<u32>(vertices.size());
+        submesh.m_IndexCount = indexCount;
+        submesh.m_VertexCount = vertexCount;
         submesh.m_MaterialIndex = mesh->mMaterialIndex; // Use actual material index from Assimp
         submesh.m_IsRigged = mesh->mNumBones > 0; // Set rigged flag based on bone presence
         submesh.m_NodeName = mesh->mName.C_Str();
@@ -222,41 +238,23 @@ namespace OloEngine
         return meshSource;
     }
 
-    void AnimatedModel::ProcessBones(const aiMesh* mesh, std::vector<BoneInfluence>& boneInfluences)
+    void AnimatedModel::ProcessBones(const aiMesh* mesh, std::vector<BoneInfluence>& outBoneInfluences)
     {
         OLO_PROFILE_FUNCTION();
-
-        // Ensure cached bone name to index map is built
-        if (m_CachedBoneNameToIndex.empty() && m_Skeleton)
-        {
-            for (sizet i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
-            {
-                m_CachedBoneNameToIndex[m_Skeleton->m_BoneNames[i]] = static_cast<u32>(i);
-            }
-        }
 
         for (u32 boneIndex = 0; boneIndex < mesh->mNumBones; ++boneIndex)
         {
             std::string boneName = mesh->mBones[boneIndex]->mName.data;
             
-            // Find the bone index in the skeleton using O(1) lookup from cached map
-            auto it = m_CachedBoneNameToIndex.find(boneName);
-            if (it == m_CachedBoneNameToIndex.end())
+            // Find the bone info using direct lookup from bone info map (populated during ProcessSkeleton)
+            auto it = m_BoneInfoMap.find(boneName);
+            if (it == m_BoneInfoMap.end())
             {
                 OLO_CORE_WARN("AnimatedModel::ProcessBones: Bone '{}' not found in skeleton", boneName);
                 continue;
             }
             
-            u32 skeletonBoneId = it->second;
-
-            // Update the bone info map with the correct skeleton index
-            if (m_BoneInfoMap.find(boneName) == m_BoneInfoMap.end())
-            {
-                BoneInfo newBoneInfo;
-                newBoneInfo.Id = skeletonBoneId;
-                newBoneInfo.Offset = AssimpMatrixToGLM(mesh->mBones[boneIndex]->mOffsetMatrix);
-                m_BoneInfoMap[boneName] = newBoneInfo;
-            }
+            u32 skeletonBoneId = it->second.Id;
 
             auto weights = mesh->mBones[boneIndex]->mWeights;
             u32 numWeights = mesh->mBones[boneIndex]->mNumWeights;
@@ -266,7 +264,7 @@ namespace OloEngine
                 u32 vertexId = weights[weightIndex].mVertexId;
                 f32 weight = weights[weightIndex].mWeight;
 
-                if (vertexId >= boneInfluences.size())
+                if (vertexId >= outBoneInfluences.size())
                 {
                     OLO_CORE_WARN("AnimatedModel::ProcessBones: Invalid vertex ID: {}", vertexId);
                     continue;
@@ -276,9 +274,9 @@ namespace OloEngine
                 bool slotFound = false;
                 for (u32 i = 0; i < 4; ++i)
                 {
-                    if (boneInfluences[vertexId].m_Weights[i] == 0.0f)
+                    if (outBoneInfluences[vertexId].m_Weights[i] == 0.0f)
                     {
-                        boneInfluences[vertexId].SetBoneData(i, skeletonBoneId, weight);
+                        outBoneInfluences[vertexId].SetBoneData(i, skeletonBoneId, weight);
                         slotFound = true;
                         break;
                     }
@@ -292,7 +290,7 @@ namespace OloEngine
         }
 
         // Normalize bone weights for all vertices
-        for (auto& influence : boneInfluences)
+        for (auto& influence : outBoneInfluences)
         {
             influence.Normalize();
         }
@@ -393,23 +391,33 @@ namespace OloEngine
                 m_Skeleton->m_GlobalTransforms[i] = m_Skeleton->m_LocalTransforms[i];
         }
 
-        // Set up inverse bind poses from bone offset matrices
+        // Set up inverse bind poses and bone info map from bone offset matrices
         for (sizet i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
         {
             const std::string& boneName = m_Skeleton->m_BoneNames[i];
+            
+            // Initialize BoneInfo for efficient lookup during mesh processing
+            BoneInfo boneInfo;
+            boneInfo.Id = static_cast<u32>(i);
+            
             auto it = boneOffsetMatrices.find(boneName);
             if (it != boneOffsetMatrices.end())
             {
                 // Use the offset matrix from the mesh bone as the inverse bind pose
+                boneInfo.Offset = it->second;
                 m_Skeleton->m_InverseBindPoses[i] = it->second;
                 m_Skeleton->m_BindPoseMatrices[i] = glm::inverse(it->second);
             }
             else
             {
                 // Fallback: calculate from current global transform
+                boneInfo.Offset = glm::inverse(m_Skeleton->m_GlobalTransforms[i]);
                 m_Skeleton->m_BindPoseMatrices[i] = m_Skeleton->m_GlobalTransforms[i];
                 m_Skeleton->m_InverseBindPoses[i] = glm::inverse(m_Skeleton->m_GlobalTransforms[i]);
             }
+            
+            // Store in bone info map for O(1) lookup during mesh processing
+            m_BoneInfoMap[boneName] = boneInfo;
         }
 
         OLO_CORE_INFO("AnimatedModel::ProcessSkeleton: Created skeleton with {} bones", m_Skeleton->m_BoneNames.size());
@@ -775,7 +783,18 @@ namespace OloEngine
             metallic, 
             roughness
         );
-        Material material = *materialRef; // Copy to value type for struct-like access
+        
+        Material material;
+        if (materialRef)
+        {
+            material = *materialRef; // Copy to value type for struct-like access
+        }
+        else
+        {
+            OLO_CORE_ERROR("AnimatedModel::ProcessMaterial: Failed to create PBR material '{}'", materialName);
+            // Use default constructed material as fallback
+            material = Material{};
+        }
         
         // Load PBR textures
         auto albedoMaps = LoadMaterialTextures(mat, aiTextureType_DIFFUSE);

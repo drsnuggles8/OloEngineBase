@@ -53,8 +53,8 @@ namespace OloEngine
 		bool operator==(const Texture& other) const { return GetRendererID() == other.GetRendererID(); }
 
 		// Asset interface
-		static AssetType GetStaticType() { return AssetType::None; }
-		virtual AssetType GetAssetType() const override { return AssetType::None; }
+		static constexpr AssetType GetStaticType() noexcept { return AssetType::None; }
+		virtual AssetType GetAssetType() const override = 0;
 	};
 
 	class Texture2D : public Texture
@@ -64,7 +64,7 @@ namespace OloEngine
 		static Ref<Texture2D> Create(const std::string& path);
 
 		// Asset interface
-		static AssetType GetStaticType() { return AssetType::Texture2D; }
+		static constexpr AssetType GetStaticType() noexcept { return AssetType::Texture2D; }
 		virtual AssetType GetAssetType() const override { return GetStaticType(); }
 	};
 }

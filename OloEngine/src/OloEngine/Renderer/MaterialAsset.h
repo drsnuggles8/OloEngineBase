@@ -18,16 +18,16 @@ namespace OloEngine
 
 		virtual void OnDependencyUpdated(AssetHandle handle) override;
 
-		const glm::vec3& GetAlbedoColor() const;
+		glm::vec3 GetAlbedoColor() const;
 		void SetAlbedoColor(const glm::vec3& color);
 
-		const float& GetMetalness() const;
+		float GetMetalness() const;
 		void SetMetalness(float value);
 
-		const float& GetRoughness() const;
+		float GetRoughness() const;
 		void SetRoughness(float value);
 
-		const float& GetEmission() const;
+		float GetEmission() const;
 		void SetEmission(float value);
 
 		// Textures
@@ -59,7 +59,7 @@ namespace OloEngine
 		virtual AssetType GetAssetType() const override { return GetStaticType(); }
 
 		Ref<Material> GetMaterial() const { return m_Material; }
-		void SetMaterial(Ref<Material> material) { m_Material = material; }
+		void SetMaterial(Ref<Material> material) { OLO_CORE_ASSERT(material, "Material cannot be null"); m_Material = material; }
 
 		bool IsTransparent() const { return m_Transparent; }
 	private:
@@ -84,7 +84,7 @@ namespace OloEngine
 	{
 	public:
 		MaterialTable(u32 materialCount = 1);
-		MaterialTable(const Ref<MaterialTable>& other);
+		explicit MaterialTable(const Ref<MaterialTable>& other);
 		~MaterialTable() = default;
 
 		bool HasMaterial(u32 materialIndex) const { return m_Materials.find(materialIndex) != m_Materials.end(); }
@@ -94,7 +94,11 @@ namespace OloEngine
 		AssetHandle GetMaterial(u32 materialIndex) const
 		{
 			auto it = m_Materials.find(materialIndex);
-			OLO_CORE_VERIFY(it != m_Materials.end());
+			if (it == m_Materials.end())
+			{
+				OLO_CORE_ERROR("MaterialTable::GetMaterial: Material index {} not found", materialIndex);
+				return 0; // Return invalid handle instead of terminating
+			}
 			return it->second;
 		}
 		

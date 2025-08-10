@@ -20,15 +20,18 @@ namespace OloEngine
     {
     public:
         Mesh() = default;
-        Mesh(Ref<MeshSource> meshSource, u32 submeshIndex = 0);
-        virtual ~Mesh() = default;
+        explicit Mesh(Ref<MeshSource> meshSource, u32 submeshIndex = 0);
+        ~Mesh() override = default;
 
         // MeshSource and submesh access
         Ref<MeshSource> GetMeshSource() const { return m_MeshSource; }
-        void SetMeshSource(Ref<MeshSource> meshSource) { m_MeshSource = meshSource; }
+        void SetMeshSource(Ref<MeshSource> meshSource);
         
         u32 GetSubmeshIndex() const { return m_SubmeshIndex; }
-        void SetSubmeshIndex(u32 submeshIndex) { m_SubmeshIndex = submeshIndex; }
+        void SetSubmeshIndex(u32 submeshIndex);
+        
+        // Validation
+        bool IsValid() const { return m_MeshSource && m_SubmeshIndex < m_MeshSource->GetSubmeshes().size(); }
 
         // Convenience accessors that delegate to MeshSource
         const std::vector<Vertex>& GetVertices() const;

@@ -37,12 +37,20 @@ namespace OloEngine
             }
             else
             {
-                // Fallback to skeleton rest pose
-                localTransform = skeleton->m_LocalTransforms[i];
+                // Fallback to skeleton rest pose - with bounds checking
+                if (i < skeleton->m_LocalTransforms.size())
+                {
+                    localTransform = skeleton->m_LocalTransforms[i];
+                }
+                else
+                {
+                    OLO_CORE_WARN("BoneEntityUtils::GetModelSpaceBoneTransforms: Bone index {} exceeds skeleton local transforms size {}", i, skeleton->m_LocalTransforms.size());
+                    localTransform = glm::mat4(1.0f); // Identity matrix fallback
+                }
             }
 
-            // Calculate model space transform by multiplying with parent
-            int parentIndex = skeleton->m_ParentIndices[i];
+            // Calculate model space transform by multiplying with parent - with bounds checking
+            int parentIndex = (i < skeleton->m_ParentIndices.size()) ? skeleton->m_ParentIndices[i] : -1;
             if (parentIndex < 0 || static_cast<size_t>(parentIndex) >= boneTransforms.size())
             {
                 boneTransforms[i] = localTransform;

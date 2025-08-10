@@ -61,7 +61,7 @@ namespace OloEngine
         {
             if (index >= 4)
             {
-                OLO_CORE_ERROR("SetBoneData: index out of bounds (index: {0}, max: 3)", index);
+                OLO_CORE_ERROR("SetBoneData: index out of bounds (index: {}, max: 3)", index);
                 return;
             }
             
@@ -164,7 +164,7 @@ namespace OloEngine
         {
             if (vertexIndex >= m_BoneInfluences.size())
             {
-                OLO_CORE_ERROR("SetVertexBoneData: vertex index out of bounds (index: {0}, size: {1})", vertexIndex, m_BoneInfluences.size());
+                OLO_CORE_ERROR("SetVertexBoneData: vertex index out of bounds (index: {}, size: {})", vertexIndex, m_BoneInfluences.size());
                 throw std::out_of_range("Vertex index out of range");
             }
             m_BoneInfluences[vertexIndex] = influence;
@@ -175,7 +175,7 @@ namespace OloEngine
         {
             if (vertexIndex >= m_BoneInfluences.size())
             {
-                OLO_CORE_ERROR("GetVertexBoneData: vertex index out of bounds (index: {0}, size: {1})", vertexIndex, m_BoneInfluences.size());
+                OLO_CORE_ERROR("GetVertexBoneData: vertex index out of bounds (index: {}, size: {})", vertexIndex, m_BoneInfluences.size());
                 throw std::out_of_range("Vertex index out of range");
             }
             return m_BoneInfluences[vertexIndex];
@@ -241,9 +241,10 @@ namespace OloEngine
         Ref<VertexArray> m_VertexArray;
         Ref<VertexBuffer> m_VertexBuffer;
         Ref<IndexBuffer> m_IndexBuffer;
-        Ref<VertexBuffer> m_BoneInfluenceBuffer; // New: separate buffer for bone influences        // Bounding volumes
-    BoundingBox m_BoundingBox;
-    BoundingSphere m_BoundingSphere;
+        Ref<VertexBuffer> m_BoneInfluenceBuffer;
+		// Bounding volumes
+		BoundingBox m_BoundingBox;
+		BoundingSphere m_BoundingSphere;
         
     bool m_Built = false;
     };

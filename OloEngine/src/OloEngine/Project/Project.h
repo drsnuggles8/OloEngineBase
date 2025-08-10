@@ -60,13 +60,21 @@ namespace OloEngine
 		 * @brief Get the current project's asset manager
 		 * @return Reference to the active asset manager
 		 */
-		static Ref<AssetManagerBase> GetAssetManager() { return s_AssetManager; }
+		static Ref<AssetManagerBase> GetAssetManager() 
+		{ 
+			OLO_CORE_ASSERT(s_AssetManager);
+			return s_AssetManager; 
+		}
 
 		/**
 		 * @brief Set the active asset manager for the project
 		 * @param assetManager Asset manager to set as active
 		 */
-		static void SetAssetManager(Ref<AssetManagerBase> assetManager) { s_AssetManager = assetManager; }
+		static void SetAssetManager(const Ref<AssetManagerBase>& assetManager) 
+		{ 
+			OLO_CORE_ASSERT(assetManager);
+			s_AssetManager = assetManager; 
+		}
 
 		static Ref<Project> New();
 		static Ref<Project> Load(const std::filesystem::path& path);
