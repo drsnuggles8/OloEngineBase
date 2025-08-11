@@ -4,6 +4,15 @@
 
 #include "OloEngine/Core/PlatformDetection.h"
 
+// Compiler Detection ////////////////////////////////////////////////////
+#if defined(__clang__)
+	#define OLO_COMPILER_CLANG
+#elif defined(__GNUC__) || defined(__GNUG__)
+	#define OLO_COMPILER_GCC
+#elif defined(_MSC_VER)
+	#define OLO_COMPILER_MSVC
+#endif
+
 // Macros ////////////////////////////////////////////////////////////////
 
 #ifdef OLO_DEBUG

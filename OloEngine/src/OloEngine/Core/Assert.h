@@ -4,21 +4,40 @@
 #include "OloEngine/Core/Log.h"
 #include <filesystem>
 
+#ifdef OLO_DEBUG
+	#define OLO_ENABLE_ASSERTS
+#endif
+
+#define OLO_ENABLE_VERIFY
+
 #ifdef OLO_ENABLE_ASSERTS
+	#ifdef OLO_COMPILER_CLANG
+		#define OLO_CORE_ASSERT_MESSAGE_INTERNAL(...)  ::OloEngine::Log::PrintAssertMessage(::OloEngine::Log::Type::Core, "Assertion Failed", ##__VA_ARGS__)
+		#define OLO_ASSERT_MESSAGE_INTERNAL(...)  ::OloEngine::Log::PrintAssertMessage(::OloEngine::Log::Type::Client, "Assertion Failed", ##__VA_ARGS__)
+	#else
+		#define OLO_CORE_ASSERT_MESSAGE_INTERNAL(...)  ::OloEngine::Log::PrintAssertMessage(::OloEngine::Log::Type::Core, "Assertion Failed" __VA_OPT__(,) __VA_ARGS__)
+		#define OLO_ASSERT_MESSAGE_INTERNAL(...)  ::OloEngine::Log::PrintAssertMessage(::OloEngine::Log::Type::Client, "Assertion Failed" __VA_OPT__(,) __VA_ARGS__)
+	#endif
 
-	// Alternatively we could use the same "default" message for both "WITH_MSG" and "NO_MSG" and
-	// provide support for custom formatting by concatenating the formatting string instead of having the format inside the default message
-	#define OLO_INTERNAL_ASSERT_IMPL(type, check, msg, ...) do { if(!(check)) { OLO##type##ERROR(msg, __VA_ARGS__); OLO_DEBUGBREAK(); } } while(0)
-	#define OLO_INTERNAL_ASSERT_WITH_MSG(type, check, ...) OLO_INTERNAL_ASSERT_IMPL(type, check, "Assertion failed: {0}", __VA_ARGS__)
-	#define OLO_INTERNAL_ASSERT_NO_MSG(type, check) OLO_INTERNAL_ASSERT_IMPL(type, check, "Assertion '{0}' failed at {1}:{2}", OLO_STRINGIFY_MACRO(check), std::filesystem::path(__FILE__).filename().string(), __LINE__)
-
-	#define OLO_INTERNAL_ASSERT_GET_MACRO_NAME(arg1, arg2, macro, ...) macro
-	#define OLO_INTERNAL_ASSERT_GET_MACRO(...) OLO_EXPAND_MACRO( OLO_INTERNAL_ASSERT_GET_MACRO_NAME(__VA_ARGS__, OLO_INTERNAL_ASSERT_WITH_MSG, OLO_INTERNAL_ASSERT_NO_MSG) )
-
-	// Currently accepts at least the condition and one additional parameter (the message) being optional
-	#define OLO_ASSERT(...) OLO_EXPAND_MACRO( OLO_INTERNAL_ASSERT_GET_MACRO(__VA_ARGS__)(_, __VA_ARGS__) )
-	#define OLO_CORE_ASSERT(...) OLO_EXPAND_MACRO( OLO_INTERNAL_ASSERT_GET_MACRO(__VA_ARGS__)(_CORE_, __VA_ARGS__) )
+	#define OLO_CORE_ASSERT(condition, ...) do { if(!(condition)) { OLO_CORE_ASSERT_MESSAGE_INTERNAL(__VA_ARGS__); OLO_DEBUGBREAK(); } } while(0)
+	#define OLO_ASSERT(condition, ...) do { if(!(condition)) { OLO_ASSERT_MESSAGE_INTERNAL(__VA_ARGS__); OLO_DEBUGBREAK(); } } while(0)
 #else
-	#define OLO_ASSERT(...)
-	#define OLO_CORE_ASSERT(...)
+	#define OLO_CORE_ASSERT(condition, ...) ((void) (condition))
+	#define OLO_ASSERT(condition, ...) ((void) (condition))
+#endif
+
+#ifdef OLO_ENABLE_VERIFY
+	#ifdef OLO_COMPILER_CLANG
+		#define OLO_CORE_VERIFY_MESSAGE_INTERNAL(...)  ::OloEngine::Log::PrintAssertMessage(::OloEngine::Log::Type::Core, "Verify Failed", ##__VA_ARGS__)
+		#define OLO_VERIFY_MESSAGE_INTERNAL(...)  ::OloEngine::Log::PrintAssertMessage(::OloEngine::Log::Type::Client, "Verify Failed", ##__VA_ARGS__)
+	#else
+		#define OLO_CORE_VERIFY_MESSAGE_INTERNAL(...)  ::OloEngine::Log::PrintAssertMessage(::OloEngine::Log::Type::Core, "Verify Failed" __VA_OPT__(,) __VA_ARGS__)
+		#define OLO_VERIFY_MESSAGE_INTERNAL(...)  ::OloEngine::Log::PrintAssertMessage(::OloEngine::Log::Type::Client, "Verify Failed" __VA_OPT__(,) __VA_ARGS__)
+	#endif
+
+	#define OLO_CORE_VERIFY(condition, ...) do { if(!(condition)) { OLO_CORE_VERIFY_MESSAGE_INTERNAL(__VA_ARGS__); OLO_DEBUGBREAK(); } } while(0)
+	#define OLO_VERIFY(condition, ...) do { if(!(condition)) { OLO_VERIFY_MESSAGE_INTERNAL(__VA_ARGS__); OLO_DEBUGBREAK(); } } while(0)
+#else
+	#define OLO_CORE_VERIFY(condition, ...) ((void) (condition))
+	#define OLO_VERIFY(condition, ...) ((void) (condition))
 #endif
