@@ -126,12 +126,8 @@ namespace OloEngine
 		static std::shared_ptr<spdlog::logger> s_EditorConsoleLogger;
 
 		inline static std::map<std::string, TagDetails> s_EnabledTags;
-		static std::map<std::string, TagDetails> s_DefaultTagDetails;
-		
-		// Cache for efficient tag lookup - avoids repeated string conversions
-		inline static std::unordered_map<std::string_view, const TagDetails*> s_TagCache;
-		
-		// Thread safety for tag containers
+		static std::map<std::string, TagDetails> s_DefaultTagDetails;		
+		inline static std::unordered_map<std::string, const TagDetails*> s_TagCache;
 		inline static std::shared_mutex s_TagMutex;
 	};
 

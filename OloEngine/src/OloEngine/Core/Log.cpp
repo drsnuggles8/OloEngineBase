@@ -48,6 +48,9 @@ namespace OloEngine
 	{
 		std::unique_lock<std::shared_mutex> lock(s_TagMutex);
 		
+		// Reserve cache capacity for better performance (defaults + some runtime tags)
+		s_TagCache.reserve(32);
+		
 		// Default tag for untagged messages
 		s_EnabledTags[""] = { true, Level::Trace };
 		
@@ -72,9 +75,11 @@ namespace OloEngine
 
 	Log::TagDetails Log::GetTagDetails(std::string_view tag)
 	{
+		std::string tag_str(tag); // Convert to string for consistent cache key type
+		
 		{
 			std::shared_lock<std::shared_mutex> shared_lock(s_TagMutex);
-			auto cache_it = s_TagCache.find(tag);
+			auto cache_it = s_TagCache.find(tag_str);
 			if (cache_it != s_TagCache.end())
 			{
 				return *cache_it->second; // Safe copy while holding shared lock
@@ -85,23 +90,23 @@ namespace OloEngine
 		std::unique_lock<std::shared_mutex> exclusive_lock(s_TagMutex);
 		
 		// Double-check cache after acquiring exclusive lock (another thread might have added it)
-		auto cache_it = s_TagCache.find(tag);
+		auto cache_it = s_TagCache.find(tag_str);
 		if (cache_it != s_TagCache.end())
 		{
 			return *cache_it->second; // Safe copy while holding exclusive lock
 		}
 
 		// Not in cache, do map lookup (may require string conversion)
-		auto it = s_EnabledTags.find(std::string(tag));
+		auto it = s_EnabledTags.find(tag_str);
 		if (it == s_EnabledTags.end())
 		{
 			// Tag not found, create with default settings
-			auto [inserted_it, success] = s_EnabledTags.emplace(std::string(tag), TagDetails{});
+			auto [inserted_it, success] = s_EnabledTags.emplace(tag_str, TagDetails{});
 			it = inserted_it;
 		}
 
-		// Cache the result using the stable string from the map as key
-		s_TagCache[std::string_view(it->first)] = &it->second;
+		// Cache the result using owned string copy as key
+		s_TagCache[it->first] = &it->second;
 		return it->second; // Safe copy while holding exclusive lock
 	}
 
