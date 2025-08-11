@@ -67,4 +67,27 @@ namespace OloEngine
 		// Store defaults for potential reset functionality
 		s_DefaultTagDetails = s_EnabledTags;
 	}
+
+	const Log::TagDetails& Log::GetTagDetails(std::string_view tag)
+	{
+		// First check cache for performance
+		auto cache_it = s_TagCache.find(tag);
+		if (cache_it != s_TagCache.end())
+		{
+			return *cache_it->second;
+		}
+
+		// Not in cache, do map lookup (may require string conversion)
+		auto it = s_EnabledTags.find(std::string(tag));
+		if (it == s_EnabledTags.end())
+		{
+			// Tag not found, create with default settings
+			auto [inserted_it, success] = s_EnabledTags.emplace(std::string(tag), TagDetails{});
+			it = inserted_it;
+		}
+
+		// Cache the result using the stable string from the map as key
+		s_TagCache[std::string_view(it->first)] = &it->second;
+		return it->second;
+	}
 }

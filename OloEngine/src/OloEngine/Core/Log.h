@@ -4,6 +4,7 @@
 #include <glm/gtx/string_cast.hpp>
 #include <memory>
 #include <map>
+#include <unordered_map>
 #include <string>
 #include <string_view>
 
@@ -73,6 +74,10 @@ namespace OloEngine
 
 		static void PrintAssertMessage(Log::Type type, std::string_view prefix);
 
+	private:
+		// Efficient tag lookup with caching
+		static const TagDetails& GetTagDetails(std::string_view tag);
+
 	public:
 		// Enum utils
 		static const char* LevelToString(Level level)
@@ -105,6 +110,9 @@ namespace OloEngine
 
 		inline static std::map<std::string, TagDetails> s_EnabledTags;
 		static std::map<std::string, TagDetails> s_DefaultTagDetails;
+		
+		// Cache for efficient tag lookup - avoids repeated string conversions
+		inline static std::unordered_map<std::string_view, const TagDetails*> s_TagCache;
 	};
 
 	// Template implementations
@@ -139,26 +147,34 @@ namespace OloEngine
 	template<typename... Args>
 	void Log::PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, const std::string& format, Args&&... args)
 	{
-		auto detail = s_EnabledTags[std::string(tag)];
+		const auto& detail = GetTagDetails(tag);
 		if (detail.Enabled && detail.LevelFilter <= level)
 		{
 			auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
+			
+			// Precompute the tagged format string once instead of concatenating per case
+			static thread_local std::string tagged_format;
+			tagged_format.clear();
+			tagged_format.reserve(format.size() + 6); // "[{0}] " is 6 chars
+			tagged_format = "[{0}] ";
+			tagged_format += format;
+			
 			switch (level)
 			{
 				case Level::Trace:
-					logger->trace(fmt::runtime("[{0}] " + format), tag, std::forward<Args>(args)...);
+					logger->trace(fmt::runtime(tagged_format), tag, std::forward<Args>(args)...);
 					break;
 				case Level::Info:
-					logger->info(fmt::runtime("[{0}] " + format), tag, std::forward<Args>(args)...);
+					logger->info(fmt::runtime(tagged_format), tag, std::forward<Args>(args)...);
 					break;
 				case Level::Warn:
-					logger->warn(fmt::runtime("[{0}] " + format), tag, std::forward<Args>(args)...);
+					logger->warn(fmt::runtime(tagged_format), tag, std::forward<Args>(args)...);
 					break;
 				case Level::Error:
-					logger->error(fmt::runtime("[{0}] " + format), tag, std::forward<Args>(args)...);
+					logger->error(fmt::runtime(tagged_format), tag, std::forward<Args>(args)...);
 					break;
 				case Level::Fatal:
-					logger->critical(fmt::runtime("[{0}] " + format), tag, std::forward<Args>(args)...);
+					logger->critical(fmt::runtime(tagged_format), tag, std::forward<Args>(args)...);
 					break;
 			}
 		}
@@ -166,10 +182,11 @@ namespace OloEngine
 
 	inline void Log::PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, std::string_view message)
 	{
-		auto detail = s_EnabledTags[std::string(tag)];
+		const auto& detail = GetTagDetails(tag);
 		if (detail.Enabled && detail.LevelFilter <= level)
 		{
 			auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
+			// No string concatenation needed here - spdlog handles the formatting efficiently
 			switch (level)
 			{
 				case Level::Trace:

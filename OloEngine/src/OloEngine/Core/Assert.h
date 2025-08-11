@@ -11,7 +11,7 @@
 #define OLO_ENABLE_VERIFY
 
 #ifdef OLO_ENABLE_ASSERTS
-	#ifdef OLO_COMPILER_CLANG
+	#if OLO_COMPILER_CLANG && !OLO_COMPILER_CLANG_CL
 		#define OLO_CORE_ASSERT_MESSAGE_INTERNAL(...)  ::OloEngine::Log::PrintAssertMessage(::OloEngine::Log::Type::Core, "Assertion Failed", ##__VA_ARGS__)
 		#define OLO_ASSERT_MESSAGE_INTERNAL(...)  ::OloEngine::Log::PrintAssertMessage(::OloEngine::Log::Type::Client, "Assertion Failed", ##__VA_ARGS__)
 	#else
@@ -27,7 +27,7 @@
 #endif
 
 #ifdef OLO_ENABLE_VERIFY
-	#ifdef OLO_COMPILER_CLANG
+	#if OLO_COMPILER_CLANG && !OLO_COMPILER_CLANG_CL
 		#define OLO_CORE_VERIFY_MESSAGE_INTERNAL(...)  ::OloEngine::Log::PrintAssertMessage(::OloEngine::Log::Type::Core, "Verify Failed", ##__VA_ARGS__)
 		#define OLO_VERIFY_MESSAGE_INTERNAL(...)  ::OloEngine::Log::PrintAssertMessage(::OloEngine::Log::Type::Client, "Verify Failed", ##__VA_ARGS__)
 	#else
