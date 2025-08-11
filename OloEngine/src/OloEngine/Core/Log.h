@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <string>
 #include <string_view>
+#include <shared_mutex>
 
 #include "OloEngine/Core/Base.h"
 
@@ -57,8 +58,12 @@ namespace OloEngine
 		[[nodiscard("Store this!")]] static std::shared_ptr<spdlog::logger>& GetClientLogger() { return s_ClientLogger; }
 		[[nodiscard("Store this!")]] static std::shared_ptr<spdlog::logger>& GetEditorConsoleLogger() { return s_EditorConsoleLogger; }
 
-		static bool HasTag(const std::string& tag) { return s_EnabledTags.find(tag) != s_EnabledTags.end(); }
-		static std::map<std::string, TagDetails>& EnabledTags() { return s_EnabledTags; }
+		static bool HasTag(const std::string& tag) 
+		{ 
+			std::shared_lock<std::shared_mutex> lock(s_TagMutex);
+			return s_EnabledTags.find(tag) != s_EnabledTags.end(); 
+		}
+		static std::map<std::string, TagDetails>& EnabledTags() { return s_EnabledTags; } // Note: Caller must handle thread safety
 		static void SetDefaultTagSettings();
 
 		template<typename... Args>
@@ -113,6 +118,9 @@ namespace OloEngine
 		
 		// Cache for efficient tag lookup - avoids repeated string conversions
 		inline static std::unordered_map<std::string_view, const TagDetails*> s_TagCache;
+		
+		// Thread safety for tag containers
+		inline static std::shared_mutex s_TagMutex;
 	};
 
 	// Template implementations

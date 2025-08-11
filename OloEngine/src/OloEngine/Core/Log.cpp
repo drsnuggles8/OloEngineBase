@@ -46,6 +46,8 @@ namespace OloEngine
 
 	void Log::SetDefaultTagSettings()
 	{
+		std::unique_lock<std::shared_mutex> lock(s_TagMutex);
+		
 		// Default tag for untagged messages
 		s_EnabledTags[""] = { true, Level::Trace };
 		
@@ -70,7 +72,19 @@ namespace OloEngine
 
 	const Log::TagDetails& Log::GetTagDetails(std::string_view tag)
 	{
-		// First check cache for performance
+		{
+			std::shared_lock<std::shared_mutex> shared_lock(s_TagMutex);
+			auto cache_it = s_TagCache.find(tag);
+			if (cache_it != s_TagCache.end())
+			{
+				return *cache_it->second;
+			}
+		}
+
+		// Cache miss - need exclusive lock for potential mutations
+		std::unique_lock<std::shared_mutex> exclusive_lock(s_TagMutex);
+		
+		// Double-check cache after acquiring exclusive lock (another thread might have added it)
 		auto cache_it = s_TagCache.find(tag);
 		if (cache_it != s_TagCache.end())
 		{
