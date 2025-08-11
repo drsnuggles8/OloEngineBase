@@ -63,7 +63,19 @@ namespace OloEngine
 			std::shared_lock<std::shared_mutex> lock(s_TagMutex);
 			return s_EnabledTags.find(tag) != s_EnabledTags.end(); 
 		}
-		static std::map<std::string, TagDetails>& EnabledTags() { return s_EnabledTags; } // Note: Caller must handle thread safety
+		
+		// Thread-safe access to enabled tags (returns copy for safety)
+		static std::map<std::string, TagDetails> GetEnabledTags() 
+		{ 
+			std::shared_lock<std::shared_mutex> lock(s_TagMutex);
+			return s_EnabledTags; 
+		}
+		
+		// Thread-safe tag modification methods
+		static void SetTagEnabled(const std::string& tag, bool enabled, Level level = Level::Trace);
+		static void RemoveTag(const std::string& tag);
+		static void ClearAllTags();
+		
 		static void SetDefaultTagSettings();
 
 		template<typename... Args>
@@ -81,7 +93,7 @@ namespace OloEngine
 
 	private:
 		// Efficient tag lookup with caching
-		static const TagDetails& GetTagDetails(std::string_view tag);
+		static TagDetails GetTagDetails(std::string_view tag);
 
 	public:
 		// Enum utils
@@ -127,7 +139,7 @@ namespace OloEngine
 	template<typename... Args>
 	void Log::PrintMessage(Log::Type type, Log::Level level, const std::string& format, Args&&... args)
 	{
-		auto detail = s_EnabledTags[""];
+		auto detail = GetTagDetails("");
 		if (detail.Enabled && detail.LevelFilter <= level)
 		{
 			auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
@@ -155,7 +167,7 @@ namespace OloEngine
 	template<typename... Args>
 	void Log::PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, const std::string& format, Args&&... args)
 	{
-		const auto& detail = GetTagDetails(tag);
+		const auto detail = GetTagDetails(tag);
 		if (detail.Enabled && detail.LevelFilter <= level)
 		{
 			auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
@@ -190,7 +202,7 @@ namespace OloEngine
 
 	inline void Log::PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, std::string_view message)
 	{
-		const auto& detail = GetTagDetails(tag);
+		const auto detail = GetTagDetails(tag);
 		if (detail.Enabled && detail.LevelFilter <= level)
 		{
 			auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
