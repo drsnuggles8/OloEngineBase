@@ -4,6 +4,46 @@
 
 #include "OloEngine/Core/PlatformDetection.h"
 
+// Compiler Detection ////////////////////////////////////////////////////
+// Use explicit 0/1 numeric macros for safer conditional checks
+
+#if defined(__clang__)
+	// Clang (including clang-cl on Windows)
+	#define OLO_COMPILER_CLANG 1
+	#define OLO_COMPILER_GCC 0
+	#if defined(_MSC_VER)
+		// clang-cl: Clang with MSVC-compatible interface
+		#define OLO_COMPILER_MSVC 1
+		#define OLO_COMPILER_CLANG_CL 1
+	#else
+		// Regular clang
+		#define OLO_COMPILER_MSVC 0
+		#define OLO_COMPILER_CLANG_CL 0
+	#endif
+	#define OLO_COMPILER_UNKNOWN 0
+#elif defined(__GNUC__) || defined(__GNUG__)
+	// GCC
+	#define OLO_COMPILER_CLANG 0
+	#define OLO_COMPILER_GCC 1
+	#define OLO_COMPILER_MSVC 0
+	#define OLO_COMPILER_CLANG_CL 0
+	#define OLO_COMPILER_UNKNOWN 0
+#elif defined(_MSC_VER)
+	// MSVC
+	#define OLO_COMPILER_CLANG 0
+	#define OLO_COMPILER_GCC 0
+	#define OLO_COMPILER_MSVC 1
+	#define OLO_COMPILER_CLANG_CL 0
+	#define OLO_COMPILER_UNKNOWN 0
+#else
+	// Unknown compiler - fallback
+	#define OLO_COMPILER_CLANG 0
+	#define OLO_COMPILER_GCC 0
+	#define OLO_COMPILER_MSVC 0
+	#define OLO_COMPILER_CLANG_CL 0
+	#define OLO_COMPILER_UNKNOWN 1
+#endif
+
 // Macros ////////////////////////////////////////////////////////////////
 
 #ifdef OLO_DEBUG
@@ -20,7 +60,7 @@
 	#define OLO_DEBUGBREAK()
 #endif
 
-#if defined (_MSC_VER)
+#if OLO_COMPILER_MSVC
 	#define OLO_INLINE                               inline
 	#define OLO_FINLINE                              __forceinline
 	#define OLO_DISABLE_WARNING(warning_number)      __pragma( warning( disable : warning_number ) )
