@@ -3,11 +3,10 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/string_cast.hpp>
 #include <memory>
-#include <map>
 #include <unordered_map>
 #include <string>
 #include <string_view>
-#include <shared_mutex>
+#include <atomic>
 
 #include "OloEngine/Core/Base.h"
 
@@ -20,290 +19,239 @@
 #pragma warning(pop)
 
 #if !defined(OLO_DIST) && defined(OLO_PLATFORM_WINDOWS)
-	#define OLO_ASSERT_MESSAGE_BOX 1
+    #define OLO_ASSERT_MESSAGE_BOX 1
 #else
-	#define OLO_ASSERT_MESSAGE_BOX 0
+    #define OLO_ASSERT_MESSAGE_BOX 0
 #endif
 
 #if OLO_ASSERT_MESSAGE_BOX
-	#ifdef OLO_PLATFORM_WINDOWS
-		#include <Windows.h>
-	#endif
+    #ifdef OLO_PLATFORM_WINDOWS
+        #include <Windows.h>
+    #endif
 #endif
 
 namespace OloEngine
 {
-	class Log
-	{
-	public:
-		enum class Type : u8
-		{
-			Core = 0, Client = 1
-		};
-		enum class Level : u8
-		{
-			Trace = 0, Info, Warn, Error, Fatal
-		};
-		struct TagDetails
-		{
-			bool Enabled = true;
-			Level LevelFilter = Level::Trace;
-		};
+    class Log
+    {
+    public:
+        enum class Type : u8
+        {
+            Core = 0, Client = 1
+        };
 
-	public:
-		static void Init();
-		static void Shutdown();
+        enum class Level : u8
+        {
+            Trace = 0, Info, Warn, Error, Fatal
+        };
 
-		[[nodiscard("Store this!")]] static std::shared_ptr<spdlog::logger>& GetCoreLogger() { return s_CoreLogger; }
-		[[nodiscard("Store this!")]] static std::shared_ptr<spdlog::logger>& GetClientLogger() { return s_ClientLogger; }
-		[[nodiscard("Store this!")]] static std::shared_ptr<spdlog::logger>& GetEditorConsoleLogger() { return s_EditorConsoleLogger; }
+        struct TagDetails
+        {
+            bool Enabled = true;
+            Level LevelFilter = Level::Trace;
+        };
 
-		static bool HasTag(const std::string& tag) 
-		{ 
-			std::shared_lock<std::shared_mutex> lock(s_TagMutex);
-			return s_EnabledTags.find(tag) != s_EnabledTags.end(); 
-		}
-		
-		// Thread-safe access to enabled tags (returns copy for safety)
-		static std::map<std::string, TagDetails> GetEnabledTags() 
-		{ 
-			std::shared_lock<std::shared_mutex> lock(s_TagMutex);
-			return s_EnabledTags; 
-		}
-		
-		// Thread-safe tag modification methods
-		static void SetTagEnabled(const std::string& tag, bool enabled, Level level = Level::Trace);
-		static void RemoveTag(const std::string& tag);
-		static void ClearAllTags();
-		
-		static void SetDefaultTagSettings();
+    public:
+        static void Init();
+        static void Shutdown();
 
-		template<typename... Args>
-		static void PrintMessage(Log::Type type, Log::Level level, const std::string& format, Args&&... args);
+        [[nodiscard("Store this!")]] static std::shared_ptr<spdlog::logger>& GetCoreLogger() { return s_CoreLogger; }
+        [[nodiscard("Store this!")]] static std::shared_ptr<spdlog::logger>& GetClientLogger() { return s_ClientLogger; }
+        [[nodiscard("Store this!")]] static std::shared_ptr<spdlog::logger>& GetEditorConsoleLogger() { return s_EditorConsoleLogger; }
 
-		template<typename... Args>
-		static void PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, const std::string& format, Args&&... args);
+        // Thread-safe readers: lock-free snapshot
+        static bool HasTag(const std::string& tag);
+        static std::unordered_map<std::string, TagDetails> GetEnabledTags(); // returns copy
 
-		static void PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, std::string_view message);
+        // Writers: apply copy-on-write and atomic swap
+        static void SetTagEnabled(const std::string& tag, bool enabled, Level level = Level::Trace);
+        static void RemoveTag(const std::string& tag);
+        static void ClearAllTags();
 
-		template<typename... Args>
-		static void PrintAssertMessage(Log::Type type, std::string_view prefix, const std::string& message, Args&&... args);
+        static void SetDefaultTagSettings();
 
-		static void PrintAssertMessage(Log::Type type, std::string_view prefix);
+        template<typename... Args>
+        static void PrintMessage(Log::Type type, Log::Level level, const std::string& format, Args&&... args);
 
-	private:
-		// Efficient tag lookup with caching
-		static TagDetails GetTagDetails(std::string_view tag);
+        template<typename... Args>
+        static void PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, const std::string& format, Args&&... args);
 
-	public:
-		// Enum utils
-		static const char* LevelToString(Level level)
-		{
-			switch (level)
-			{
-				case Level::Trace: return "Trace";
-				case Level::Info:  return "Info";
-				case Level::Warn:  return "Warn";
-				case Level::Error: return "Error";
-				case Level::Fatal: return "Fatal";
-			}
-			return "";
-		}
-		static Level LevelFromString(std::string_view string)
-		{
-			if (string == "Trace") return Level::Trace;
-			if (string == "Info")  return Level::Info;
-			if (string == "Warn")  return Level::Warn;
-			if (string == "Error") return Level::Error;
-			if (string == "Fatal") return Level::Fatal;
+        static void PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, std::string_view message);
 
-			return Level::Trace;
-		}
+        template<typename... Args>
+        static void PrintAssertMessage(Log::Type type, std::string_view prefix, const std::string& message, Args&&... args);
 
-	private:
-		// Transparent hash and equality for heterogeneous lookup with string_view
-		struct StringViewHash
-		{
-			using is_transparent = void;
-			
-			size_t operator()(std::string_view sv) const noexcept
-			{
-				return std::hash<std::string_view>{}(sv);
-			}
-			
-			size_t operator()(const std::string& s) const noexcept
-			{
-				return std::hash<std::string>{}(s);
-			}
-		};
-		
-		struct StringViewEqual
-		{
-			using is_transparent = void;
-			
-			bool operator()(std::string_view lhs, std::string_view rhs) const noexcept
-			{
-				return lhs == rhs;
-			}
-			
-			bool operator()(const std::string& lhs, std::string_view rhs) const noexcept
-			{
-				return lhs == rhs;
-			}
-			
-			bool operator()(std::string_view lhs, const std::string& rhs) const noexcept
-			{
-				return lhs == rhs;
-			}
-			
-			bool operator()(const std::string& lhs, const std::string& rhs) const noexcept
-			{
-				return lhs == rhs;
-			}
-		};
+        static void PrintAssertMessage(Log::Type type, std::string_view prefix);
 
-		static std::shared_ptr<spdlog::logger> s_CoreLogger;
-		static std::shared_ptr<spdlog::logger> s_ClientLogger;
-		static std::shared_ptr<spdlog::logger> s_EditorConsoleLogger;
+    private:
+        // lock-free tag map: readers take a snapshot shared_ptr, writers copy-and-swap
+        using TagMap = std::unordered_map<std::string, TagDetails>;
+        static TagDetails GetTagDetails(std::string_view tag);
 
-		inline static std::map<std::string, TagDetails> s_EnabledTags;
-		static std::map<std::string, TagDetails> s_DefaultTagDetails;		
-		// Cache stores TagDetails by value with heterogeneous lookup support
-		inline static std::unordered_map<std::string, TagDetails, StringViewHash, StringViewEqual> s_TagCache;
-		inline static std::shared_mutex s_TagMutex;
-	};
+    public:
+        // Enum utils
+        static const char* LevelToString(Level level)
+        {
+            switch (level)
+            {
+                case Level::Trace: return "Trace";
+                case Level::Info:  return "Info";
+                case Level::Warn:  return "Warn";
+                case Level::Error: return "Error";
+                case Level::Fatal: return "Fatal";
+            }
+            return "";
+        }
+        static Level LevelFromString(std::string_view string)
+        {
+            if (string == "Trace") return Level::Trace;
+            if (string == "Info")  return Level::Info;
+            if (string == "Warn")  return Level::Warn;
+            if (string == "Error") return Level::Error;
+            if (string == "Fatal") return Level::Fatal;
 
-	// Template implementations
-	template<typename... Args>
-	void Log::PrintMessage(Log::Type type, Log::Level level, const std::string& format, Args&&... args)
-	{
-		auto detail = GetTagDetails("");
-		if (detail.Enabled && detail.LevelFilter <= level)
-		{
-			auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
-			switch (level)
-			{
-			case Level::Trace:
-				logger->trace(fmt::runtime(format), std::forward<Args>(args)...);
-				break;
-			case Level::Info:
-				logger->info(fmt::runtime(format), std::forward<Args>(args)...);
-				break;
-			case Level::Warn:
-				logger->warn(fmt::runtime(format), std::forward<Args>(args)...);
-				break;
-			case Level::Error:
-				logger->error(fmt::runtime(format), std::forward<Args>(args)...);
-				break;
-			case Level::Fatal:
-				logger->critical(fmt::runtime(format), std::forward<Args>(args)...);
-				break;
-			}
-		}
-	}
+            return Level::Trace;
+        }
 
-	template<typename... Args>
-	void Log::PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, const std::string& format, Args&&... args)
-	{
-		const auto detail = GetTagDetails(tag);
-		if (detail.Enabled && detail.LevelFilter <= level)
-		{
-			auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
-			
-			// Precompute the tagged format string once instead of concatenating per case
-			static thread_local std::string tagged_format;
-			tagged_format.clear();
-			tagged_format.reserve(format.size() + 6); // "[{0}] " is 6 chars
-			tagged_format = "[{0}] ";
-			tagged_format += format;
-			
-			switch (level)
-			{
-				case Level::Trace:
-					logger->trace(fmt::runtime(tagged_format), tag, std::forward<Args>(args)...);
-					break;
-				case Level::Info:
-					logger->info(fmt::runtime(tagged_format), tag, std::forward<Args>(args)...);
-					break;
-				case Level::Warn:
-					logger->warn(fmt::runtime(tagged_format), tag, std::forward<Args>(args)...);
-					break;
-				case Level::Error:
-					logger->error(fmt::runtime(tagged_format), tag, std::forward<Args>(args)...);
-					break;
-				case Level::Fatal:
-					logger->critical(fmt::runtime(tagged_format), tag, std::forward<Args>(args)...);
-					break;
-			}
-		}
-	}
+    private:
+        static std::shared_ptr<spdlog::logger> s_CoreLogger;
+        static std::shared_ptr<spdlog::logger> s_ClientLogger;
+        static std::shared_ptr<spdlog::logger> s_EditorConsoleLogger;
 
-	inline void Log::PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, std::string_view message)
-	{
-		const auto detail = GetTagDetails(tag);
-		if (detail.Enabled && detail.LevelFilter <= level)
-		{
-			auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
-			// No string concatenation needed here - spdlog handles the formatting efficiently
-			switch (level)
-			{
-				case Level::Trace:
-					logger->trace("[{0}] {1}", tag, message);
-					break;
-				case Level::Info:
-					logger->info("[{0}] {1}", tag, message);
-					break;
-				case Level::Warn:
-					logger->warn("[{0}] {1}", tag, message);
-					break;
-				case Level::Error:
-					logger->error("[{0}] {1}", tag, message);
-					break;
-				case Level::Fatal:
-					logger->critical("[{0}] {1}", tag, message);
-					break;
-			}
-		}
-	}
+        // lock-free storage
+        static std::atomic<std::shared_ptr<TagMap>> s_Tags;
+        // keep a copy of defaults if you need reset functionality
+        static std::unordered_map<std::string, TagDetails> s_DefaultTagDetails;
+    };
 
-	template<typename... Args>
-	void Log::PrintAssertMessage(Log::Type type, std::string_view prefix, const std::string& message, Args&&... args)
-	{
-		auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
-		logger->error(fmt::runtime("{0}: " + message), prefix, std::forward<Args>(args)...);
+    // Template implementations
+    template<typename... Args>
+    void Log::PrintMessage(Log::Type type, Log::Level level, const std::string& format, Args&&... args)
+    {
+        const auto detail = GetTagDetails("");
+        if (detail.Enabled && detail.LevelFilter <= level)
+        {
+            auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
+            switch (level)
+            {
+            case Level::Trace:
+                logger->trace(fmt::runtime(format), std::forward<Args>(args)...);
+                break;
+            case Level::Info:
+                logger->info(fmt::runtime(format), std::forward<Args>(args)...);
+                break;
+            case Level::Warn:
+                logger->warn(fmt::runtime(format), std::forward<Args>(args)...);
+                break;
+            case Level::Error:
+                logger->error(fmt::runtime(format), std::forward<Args>(args)...);
+                break;
+            case Level::Fatal:
+                logger->critical(fmt::runtime(format), std::forward<Args>(args)...);
+                break;
+            }
+        }
+    }
 
-#if OLO_ASSERT_MESSAGE_BOX
-		std::string formatted = spdlog::fmt_lib::format(fmt::runtime(message), std::forward<Args>(args)...);
-		MessageBoxA(nullptr, formatted.c_str(), "OloEngine Assert", MB_OK | MB_ICONERROR);
-#endif
-	}
+    template<typename... Args>
+    void Log::PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, const std::string& format, Args&&... args)
+    {
+        const auto detail = GetTagDetails(tag);
+        if (detail.Enabled && detail.LevelFilter <= level)
+        {
+            auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
 
-	inline void Log::PrintAssertMessage(Log::Type type, std::string_view prefix)
-	{
-		auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
-		logger->error("{0}", prefix);
-#if OLO_ASSERT_MESSAGE_BOX
-		MessageBoxA(nullptr, "No message :(", "OloEngine Assert", MB_OK | MB_ICONERROR);
-#endif
-	}
+            // Build tagged format (simple and clear)
+            const std::string tagged_format = "[{}] " + format;
+
+            switch (level)
+            {
+                case Level::Trace:
+                    logger->trace(fmt::runtime(tagged_format), tag, std::forward<Args>(args)...);
+                    break;
+                case Level::Info:
+                    logger->info(fmt::runtime(tagged_format), tag, std::forward<Args>(args)...);
+                    break;
+                case Level::Warn:
+                    logger->warn(fmt::runtime(tagged_format), tag, std::forward<Args>(args)...);
+                    break;
+                case Level::Error:
+                    logger->error(fmt::runtime(tagged_format), tag, std::forward<Args>(args)...);
+                    break;
+                case Level::Fatal:
+                    logger->critical(fmt::runtime(tagged_format), tag, std::forward<Args>(args)...);
+                    break;
+            }
+        }
+    }
+
+    inline void Log::PrintMessageTag(Log::Type type, Log::Level level, std::string_view tag, std::string_view message)
+    {
+        const auto detail = GetTagDetails(tag);
+        if (detail.Enabled && detail.LevelFilter <= level)
+        {
+            auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
+            switch (level)
+            {
+                case Level::Trace:
+                    logger->trace("[{0}] {1}", tag, message);
+                    break;
+                case Level::Info:
+                    logger->info("[{0}] {1}", tag, message);
+                    break;
+                case Level::Warn:
+                    logger->warn("[{0}] {1}", tag, message);
+                    break;
+                case Level::Error:
+                    logger->error("[{0}] {1}", tag, message);
+                    break;
+                case Level::Fatal:
+                    logger->critical("[{0}] {1}", tag, message);
+                    break;
+            }
+        }
+    }
+
+    template<typename... Args>
+    void Log::PrintAssertMessage(Log::Type type, std::string_view prefix, const std::string& message, Args&&... args)
+    {
+        auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
+        const std::string full_format = "{}: " + message;
+        logger->error(fmt::runtime(full_format), prefix, std::forward<Args>(args)...);
+
+    #if OLO_ASSERT_MESSAGE_BOX
+        std::string formatted = spdlog::fmt_lib::format(fmt::runtime(message), std::forward<Args>(args)...);
+        MessageBoxA(nullptr, formatted.c_str(), "OloEngine Assert", MB_OK | MB_ICONERROR);
+    #endif
+    }
+
+    inline void Log::PrintAssertMessage(Log::Type type, std::string_view prefix)
+    {
+        auto logger = (type == Type::Core) ? GetCoreLogger() : GetClientLogger();
+        logger->error("{0}", prefix);
+    #if OLO_ASSERT_MESSAGE_BOX
+        MessageBoxA(nullptr, "No message :(", "OloEngine Assert", MB_OK | MB_ICONERROR);
+    #endif
+    }
 }
 
+// glm stream operators
 template<typename OStream, glm::length_t L, typename T, glm::qualifier Q>
 inline OStream& operator<<(OStream& os, const glm::vec<L, T, Q>& vector)
 {
-	return os << glm::to_string(vector);
+    return os << glm::to_string(vector);
 }
 
 template<typename OStream, glm::length_t C, glm::length_t R, typename T, glm::qualifier Q>
 inline OStream& operator<<(OStream& os, const glm::mat<C, R, T, Q>& matrix)
 {
-	return os << glm::to_string(matrix);
+    return os << glm::to_string(matrix);
 }
 
 template<typename OStream, typename T, glm::qualifier Q>
 inline OStream& operator<<(OStream& os, glm::qua<T, Q> quaternion)
 {
-	return os << glm::to_string(quaternion);
+    return os << glm::to_string(quaternion);
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
