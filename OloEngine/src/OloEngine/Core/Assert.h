@@ -40,6 +40,6 @@
 	#define OLO_CORE_VERIFY(condition, ...) do { if(!(condition)) { OLO_CORE_VERIFY_MESSAGE_INTERNAL(__VA_ARGS__); OLO_DEBUGBREAK(); } } while(0)
 	#define OLO_VERIFY(condition, ...) do { if(!(condition)) { OLO_VERIFY_MESSAGE_INTERNAL(__VA_ARGS__); OLO_DEBUGBREAK(); } } while(0)
 #else
-	#define OLO_ASSERT(...)
-	#define OLO_CORE_ASSERT(...)
+	#define OLO_CORE_VERIFY(condition, ...) ((void) (condition))
+	#define OLO_VERIFY(condition, ...) ((void) (condition))
 #endif
