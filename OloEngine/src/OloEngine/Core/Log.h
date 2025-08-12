@@ -121,13 +121,55 @@ namespace OloEngine
 		}
 
 	private:
+		// Transparent hash and equality for heterogeneous lookup with string_view
+		struct StringViewHash
+		{
+			using is_transparent = void;
+			
+			size_t operator()(std::string_view sv) const noexcept
+			{
+				return std::hash<std::string_view>{}(sv);
+			}
+			
+			size_t operator()(const std::string& s) const noexcept
+			{
+				return std::hash<std::string>{}(s);
+			}
+		};
+		
+		struct StringViewEqual
+		{
+			using is_transparent = void;
+			
+			bool operator()(std::string_view lhs, std::string_view rhs) const noexcept
+			{
+				return lhs == rhs;
+			}
+			
+			bool operator()(const std::string& lhs, std::string_view rhs) const noexcept
+			{
+				return lhs == rhs;
+			}
+			
+			bool operator()(std::string_view lhs, const std::string& rhs) const noexcept
+			{
+				return lhs == rhs;
+			}
+			
+			bool operator()(const std::string& lhs, const std::string& rhs) const noexcept
+			{
+				return lhs == rhs;
+			}
+		};
+
 		static std::shared_ptr<spdlog::logger> s_CoreLogger;
 		static std::shared_ptr<spdlog::logger> s_ClientLogger;
 		static std::shared_ptr<spdlog::logger> s_EditorConsoleLogger;
 
 		inline static std::map<std::string, TagDetails> s_EnabledTags;
 		static std::map<std::string, TagDetails> s_DefaultTagDetails;		
-		inline static std::unordered_map<std::string, const TagDetails*> s_TagCache;
+		// Cache stores TagDetails by value with heterogeneous lookup support
+		inline static std::unordered_map<std::string, TagDetails, StringViewHash, StringViewEqual> s_TagCache;
 		inline static std::shared_mutex s_TagMutex;
 	};
 

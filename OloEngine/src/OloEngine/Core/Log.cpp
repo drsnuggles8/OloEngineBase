@@ -75,58 +75,53 @@ namespace OloEngine
 
 	Log::TagDetails Log::GetTagDetails(std::string_view tag)
 	{
-		std::string tag_str(tag); // Convert to string for consistent cache key type
+		// Single lock scope for the entire operation to ensure atomicity
+		std::unique_lock<std::shared_mutex> lock(s_TagMutex);
 		
-		{
-			std::shared_lock<std::shared_mutex> shared_lock(s_TagMutex);
-			auto cache_it = s_TagCache.find(tag_str);
-			if (cache_it != s_TagCache.end())
-			{
-				return *cache_it->second; // Safe copy while holding shared lock
-			}
-		}
-
-		// Cache miss - need exclusive lock for potential mutations
-		std::unique_lock<std::shared_mutex> exclusive_lock(s_TagMutex);
-		
-		// Double-check cache after acquiring exclusive lock (another thread might have added it)
-		auto cache_it = s_TagCache.find(tag_str);
+		// Check cache first using heterogeneous lookup (no string allocation)
+		auto cache_it = s_TagCache.find(tag);
 		if (cache_it != s_TagCache.end())
 		{
-			return *cache_it->second; // Safe copy while holding exclusive lock
+			return cache_it->second; // Return copy of cached value
 		}
 
-		// Not in cache, do map lookup (may require string conversion)
+		// Cache miss - do map lookup (requires string conversion for main map)
+		std::string tag_str(tag);
 		auto it = s_EnabledTags.find(tag_str);
 		if (it == s_EnabledTags.end())
 		{
 			// Tag not found, create with default settings
-			auto [inserted_it, success] = s_EnabledTags.emplace(tag_str, TagDetails{});
+			auto [inserted_it, success] = s_EnabledTags.emplace(std::move(tag_str), TagDetails{});
 			it = inserted_it;
 		}
 
-		// Cache the result using owned string copy as key
-		s_TagCache[it->first] = &it->second;
-		return it->second; // Safe copy while holding exclusive lock
+		// Cache the result by copying the value (using string from main map as key)
+		s_TagCache[it->first] = it->second;
+		return it->second; // Return copy
 	}
 
 	void Log::SetTagEnabled(const std::string& tag, bool enabled, Level level)
 	{
 		std::unique_lock<std::shared_mutex> lock(s_TagMutex);
 		
+		TagDetails newDetails = { enabled, level };
+		
 		auto it = s_EnabledTags.find(tag);
 		if (it != s_EnabledTags.end())
 		{
-			it->second.Enabled = enabled;
-			it->second.LevelFilter = level;
+			it->second = newDetails;
 		}
 		else
 		{
-			s_EnabledTags[tag] = { enabled, level };
+			s_EnabledTags[tag] = newDetails;
 		}
 		
-		// Clear cache to ensure consistency
-		s_TagCache.clear();
+		// Update cache entry if it exists
+		auto cache_it = s_TagCache.find(tag);
+		if (cache_it != s_TagCache.end())
+		{
+			cache_it->second = newDetails;
+		}
 	}
 
 	void Log::RemoveTag(const std::string& tag)
@@ -135,8 +130,8 @@ namespace OloEngine
 		
 		s_EnabledTags.erase(tag);
 		
-		// Clear cache to ensure consistency
-		s_TagCache.clear();
+		// Remove cache entry if it exists
+		s_TagCache.erase(tag);
 	}
 
 	void Log::ClearAllTags()
