@@ -12,7 +12,7 @@
 
 #ifdef OLO_ENABLE_ASSERTS
 	// Use __VA_OPT__ only if compiler and C++ standard support it
-	#if (OLO_COMPILER_CLANG && !OLO_COMPILER_CLANG_CL) || (__cplusplus < 202002L)
+	#if __cplusplus < 202002L
 		#define OLO_CORE_ASSERT_MESSAGE_INTERNAL(...)  ::OloEngine::Log::PrintAssertMessage(::OloEngine::Log::Type::Core, "Assertion Failed", ##__VA_ARGS__)
 		#define OLO_ASSERT_MESSAGE_INTERNAL(...)  ::OloEngine::Log::PrintAssertMessage(::OloEngine::Log::Type::Client, "Assertion Failed", ##__VA_ARGS__)
 	#else
@@ -29,7 +29,7 @@
 
 #ifdef OLO_ENABLE_VERIFY
 	// Use __VA_OPT__ only if compiler and C++ standard support it
-	#if (OLO_COMPILER_CLANG && !OLO_COMPILER_CLANG_CL) || (__cplusplus < 202002L)
+	#if __cplusplus < 202002L
 		#define OLO_CORE_VERIFY_MESSAGE_INTERNAL(...)  ::OloEngine::Log::PrintAssertMessage(::OloEngine::Log::Type::Core, "Verify Failed", ##__VA_ARGS__)
 		#define OLO_VERIFY_MESSAGE_INTERNAL(...)  ::OloEngine::Log::PrintAssertMessage(::OloEngine::Log::Type::Client, "Verify Failed", ##__VA_ARGS__)
 	#else
