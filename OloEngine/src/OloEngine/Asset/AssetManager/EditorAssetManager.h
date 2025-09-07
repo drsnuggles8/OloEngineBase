@@ -19,7 +19,10 @@
 #if OLO_ASYNC_ASSETS
 #include <thread>
 #include <atomic>
+#include "FileWatch.hpp"
 #endif
+
+namespace filewatch { enum class Event; }
 
 namespace OloEngine
 {
@@ -343,6 +346,12 @@ namespace OloEngine
         // File watching thread and control
         std::thread m_FileWatcherThread;
         std::atomic<bool> m_ShouldTerminate{false};
+        
+        // Real-time file watching using filewatch library
+        std::unique_ptr<filewatch::FileWatch<std::string>> m_ProjectFileWatcher;
+        
+        // Callback for file system events
+        void OnFileSystemEvent(const std::string& file, const filewatch::Event change_type);
 #endif
         
         // Project path for asset scanning

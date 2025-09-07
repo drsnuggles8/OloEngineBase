@@ -14,6 +14,10 @@
 #include <future>
 #include <filesystem>
 
+#if OLO_ASYNC_ASSETS
+#include "FileWatch.hpp"
+#endif
+
 namespace OloEngine
 {
     EditorAssetManager::EditorAssetManager()
@@ -63,10 +67,26 @@ namespace OloEngine
         }
 
 #if OLO_ASYNC_ASSETS
-        // Start file watcher thread only if we have a valid project path
+        // Start real-time file watcher for the project directory
         if (!m_ProjectPath.empty())
         {
-            m_FileWatcherThread = std::thread([this]() { FileWatcherThreadFunction(); });
+            OLO_CORE_INFO("Starting real-time file watcher for project: {}", m_ProjectPath.string());
+            try 
+            {
+                m_ProjectFileWatcher = std::make_unique<filewatch::FileWatch<std::string>>(
+                    m_ProjectPath.string(), 
+                    [this](const std::string& file, const filewatch::Event change_type) {
+                        OnFileSystemEvent(file, change_type);
+                    }
+                );
+                OLO_CORE_INFO("Real-time file watcher started successfully");
+            }
+            catch (const std::exception& e)
+            {
+                OLO_CORE_ERROR("Failed to start file watcher: {}", e.what());
+                OLO_CORE_INFO("Falling back to polling-based file watching");
+                m_FileWatcherThread = std::thread([this]() { FileWatcherThreadFunction(); });
+            }
         }
 #endif
     }
@@ -82,7 +102,14 @@ namespace OloEngine
             m_AssetThread->StopAndWait();
         }
         
-        // Stop file watcher
+        // Stop real-time file watcher
+        if (m_ProjectFileWatcher)
+        {
+            OLO_CORE_INFO("Stopping real-time file watcher");
+            m_ProjectFileWatcher.reset();
+        }
+        
+        // Stop polling file watcher (fallback)
         m_ShouldTerminate = true;
         if (m_FileWatcherThread.joinable())
         {
@@ -661,5 +688,76 @@ namespace OloEngine
         std::shared_lock<std::shared_mutex> lock(m_AssetsMutex);
         return m_LoadedAssets;
     }
+
+#if OLO_ASYNC_ASSETS
+    void EditorAssetManager::OnFileSystemEvent(const std::string& file, const filewatch::Event change_type)
+    {
+        // Convert to filesystem path for easier manipulation
+        std::filesystem::path filePath(file);
+        
+        // Only handle modification events (ignoring added/removed for now)
+        if (change_type != filewatch::Event::modified)
+            return;
+            
+        // Filter by asset extensions to avoid processing non-asset files
+        auto extension = filePath.extension();
+        if (extension.empty())
+            return;
+            
+        auto assetType = AssetExtensions::GetAssetTypeFromExtension(extension.string());
+        if (assetType == AssetType::None)
+        {
+            OLO_CORE_TRACE("Ignoring file change for non-asset file: {}", filePath.string());
+            return;
+        }
+            
+        OLO_CORE_TRACE("File system event: {} - {} (AssetType: {})", file, (int)change_type, (int)assetType);
+        
+        try
+        {
+            // Convert absolute path to relative for asset registry lookup
+            auto relativePath = GetRelativePath(filePath);
+            
+            // Find the asset handle for this file
+            AssetHandle assetHandle = 0;
+            {
+                std::shared_lock<std::shared_mutex> registryLock(m_RegistryMutex);
+                auto allAssets = m_AssetRegistry.GetAllAssets();
+                for (const auto& metadata : allAssets)
+                {
+                    if (!metadata.IsValid())
+                        continue;
+                        
+                    // Compare normalized paths
+                    std::error_code ec;
+                    if (std::filesystem::equivalent(metadata.FilePath, relativePath, ec) && !ec)
+                    {
+                        assetHandle = metadata.Handle;
+                        break;
+                    }
+                }
+            }
+            
+            // If we found the asset, reload it
+            if (assetHandle != 0)
+            {
+                OLO_CORE_INFO("🔄 Hot-reload triggered for asset: {} (Handle: {}, Type: {})", 
+                             relativePath.string(), (u64)assetHandle, (int)assetType);
+                ReloadDataAsync(assetHandle);
+            }
+            else
+            {
+                // Check if this might be a new asset file
+                OLO_CORE_TRACE("File change detected for untracked file: {} (Type: {})", 
+                              relativePath.string(), (int)assetType);
+                // TODO: In the future, we could auto-import new assets here
+            }
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("Error handling file system event for {}: {}", file, e.what());
+        }
+    }
+#endif
 
 } // namespace OloEngine
