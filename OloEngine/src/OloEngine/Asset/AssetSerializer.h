@@ -117,6 +117,10 @@ namespace OloEngine
 
         virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+    
+    private:
+        std::string SerializeToYAML(Ref<Prefab> prefab) const;
+        bool DeserializeFromYAML(const std::string& yamlString, Ref<Prefab> prefab) const;
     };
 
     class SceneAssetSerializer : public AssetSerializer

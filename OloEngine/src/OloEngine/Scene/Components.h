@@ -44,6 +44,17 @@ namespace OloEngine
 		explicit operator const std::string& () const { return Tag; }
 	};
 
+	struct PrefabComponent
+	{
+		UUID PrefabID = 0;
+		UUID EntityID = 0;
+
+		PrefabComponent() = default;
+		PrefabComponent(const PrefabComponent&) = default;
+		PrefabComponent(UUID prefabID, UUID entityID)
+			: PrefabID(prefabID), EntityID(entityID) {}
+	};
+
 	struct TransformComponent
 	{
 		glm::vec3 Translation = { 0.0f, 0.0f, 0.0f };

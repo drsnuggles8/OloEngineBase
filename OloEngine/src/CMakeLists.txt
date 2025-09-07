@@ -251,6 +251,18 @@
 
 		"OloEngine/Utils/PlatformUtils.h"
 
+		"OloEngine/Scene/Components.h"
+		"OloEngine/Scene/Entity.cpp"
+		"OloEngine/Scene/Entity.h"
+		"OloEngine/Scene/Prefab.cpp"
+		"OloEngine/Scene/Prefab.h"
+		"OloEngine/Scene/Scene.cpp"
+		"OloEngine/Scene/Scene.h"
+		"OloEngine/Scene/SceneCamera.cpp"
+		"OloEngine/Scene/SceneCamera.h"
+		"OloEngine/Scene/SceneSerializer.cpp"
+		"OloEngine/Scene/SceneSerializer.h"
+
 		"Platform/OpenGL/OpenGLContext.cpp"
 		"Platform/OpenGL/OpenGLContext.h"
 		"Platform/OpenGL/OpenGLDebug.cpp"

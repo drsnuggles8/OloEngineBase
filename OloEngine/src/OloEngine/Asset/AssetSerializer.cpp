@@ -17,6 +17,7 @@
 #include "OloEngine/Audio/AudioSource.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scene/Prefab.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Core/YAMLConverters.h"
@@ -652,35 +653,170 @@ namespace OloEngine
     */
 
     //////////////////////////////////////////////////////////////////////////////////
-    // PrefabSerializer - DISABLED (Prefab class not implemented)
+    // PrefabSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    /*
     void PrefabSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
-        // Implementation commented out - Prefab class not available
-        OLO_CORE_WARN("PrefabSerializer::Serialize - Prefab class not implemented");
+        Ref<Prefab> prefab = asset.As<Prefab>();
+        if (!prefab)
+        {
+            OLO_CORE_ERROR("PrefabSerializer::Serialize - Asset is not a Prefab");
+            return;
+        }
+
+        std::string yamlString = SerializeToYAML(prefab);
+
+        std::ofstream fout(metadata.FilePath);
+        if (!fout.is_open())
+        {
+            OLO_CORE_ERROR("PrefabSerializer::Serialize - Failed to open file for writing: {}", metadata.FilePath.string());
+            return;
+        }
+        
+        fout << yamlString;
+        fout.close();
     }
 
     bool PrefabSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
-        // Implementation commented out - Prefab class not available
-        OLO_CORE_WARN("PrefabSerializer::TryLoadData - Prefab class not implemented");
-        return false;
+        std::ifstream stream(metadata.FilePath);
+        if (!stream.is_open())
+        {
+            OLO_CORE_ERROR("PrefabSerializer::TryLoadData - Failed to open file: {}", metadata.FilePath.string());
+            return false;
+        }
+
+        std::stringstream strStream;
+        strStream << stream.rdbuf();
+        stream.close();
+
+        Ref<Prefab> prefab = Ref<Prefab>::Create();
+        bool success = DeserializeFromYAML(strStream.str(), prefab);
+        if (!success)
+        {
+            OLO_CORE_ERROR("PrefabSerializer::TryLoadData - Failed to deserialize prefab from YAML");
+            return false;
+        }
+
+        asset = prefab;
+        asset->m_Handle = metadata.Handle;
+        return true;
     }
 
     bool PrefabSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
-        OLO_CORE_WARN("PrefabSerializer::SerializeToAssetPack - Prefab class not implemented");
-        return false;
+        Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(handle);
+        if (!prefab)
+        {
+            OLO_CORE_ERROR("PrefabSerializer::SerializeToAssetPack - Failed to get prefab asset");
+            return false;
+        }
+
+        std::string yamlString = SerializeToYAML(prefab);
+        outInfo.Offset = stream.GetStreamPosition();
+        stream.WriteString(yamlString);
+        outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
+        return true;
     }
 
     Ref<Asset> PrefabSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
-        OLO_CORE_WARN("PrefabSerializer::DeserializeFromAssetPack - Prefab class not implemented");
-        return nullptr;
+        stream.SetStreamPosition(assetInfo.PackedOffset);
+        std::string yamlString;
+        stream.ReadString(yamlString);
+
+        Ref<Prefab> prefab = Ref<Prefab>::Create();
+        bool result = DeserializeFromYAML(yamlString, prefab);
+        if (!result)
+        {
+            OLO_CORE_ERROR("PrefabSerializer::DeserializeFromAssetPack - Failed to deserialize prefab from YAML");
+            return nullptr;
+        }
+
+        prefab->m_Handle = assetInfo.Handle;
+        return prefab;
     }
-    */
+
+    std::string PrefabSerializer::SerializeToYAML(Ref<Prefab> prefab) const
+    {
+        if (!prefab || !prefab->GetScene())
+        {
+            OLO_CORE_ERROR("PrefabSerializer::SerializeToYAML - Invalid prefab or scene");
+            return "";
+        }
+
+        // Use SceneSerializer to serialize the entire scene
+        SceneSerializer sceneSerializer(prefab->GetScene());
+        std::string sceneYaml = sceneSerializer.SerializeToYAML();
+
+        YAML::Emitter out;
+        out << YAML::BeginMap;
+        out << YAML::Key << "Prefab";
+        out << YAML::Value << YAML::BeginMap;
+        out << YAML::Key << "Handle" << YAML::Value << prefab->GetHandle();
+        out << YAML::Key << "Scene" << YAML::Value << sceneYaml;
+        out << YAML::EndMap;
+        out << YAML::EndMap;
+
+        return std::string(out.c_str());
+    }
+
+    bool PrefabSerializer::DeserializeFromYAML(const std::string& yamlString, Ref<Prefab> prefab) const
+    {
+        YAML::Node data;
+        try
+        {
+            data = YAML::Load(yamlString);
+        }
+        catch (const YAML::ParserException& e)
+        {
+            OLO_CORE_ERROR("PrefabSerializer::DeserializeFromYAML - Failed to parse YAML: {}", e.what());
+            return false;
+        }
+
+        auto prefabNode = data["Prefab"];
+        if (!prefabNode)
+        {
+            OLO_CORE_ERROR("PrefabSerializer::DeserializeFromYAML - Missing Prefab node");
+            return false;
+        }
+
+        // Create a new scene for the prefab
+        Ref<Scene> scene = Scene::Create();
+        if (!scene)
+        {
+            OLO_CORE_ERROR("PrefabSerializer::DeserializeFromYAML - Failed to create scene");
+            return false;
+        }
+
+        // Deserialize the scene content
+        auto sceneNode = prefabNode["Scene"];
+        if (sceneNode)
+        {
+            std::string sceneYamlString = sceneNode.as<std::string>();
+            SceneSerializer sceneSerializer(scene);
+            bool result = sceneSerializer.DeserializeFromYAML(sceneYamlString);
+            if (!result)
+            {
+                OLO_CORE_ERROR("PrefabSerializer::DeserializeFromYAML - Failed to deserialize scene from YAML");
+                return false;
+            }
+        }
+
+        // Set up the prefab with the deserialized scene
+        prefab->m_Scene = scene;
+        
+        // Find the root entity (assuming it's the first entity in the scene)
+        auto entities = scene->GetAllEntitiesWith<IDComponent>();
+        if (!entities.empty())
+        {
+            auto firstEntity = entities.front();
+            prefab->m_Entity = Entity{ firstEntity, scene.get() };
+        }
+
+        return true;
+    }
 
     //////////////////////////////////////////////////////////////////////////////////
     // SceneAssetSerializer

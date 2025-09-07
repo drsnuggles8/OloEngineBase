@@ -24,6 +24,7 @@ namespace OloEngine
 	class Entity;
 	class MeshSource;
 	class Skeleton;
+	class Prefab;
 
 	class Scene : public Asset
 	{
@@ -37,6 +38,10 @@ namespace OloEngine
 		Entity CreateEntity(const std::string& name = std::string());
 		Entity CreateEntityWithUUID(UUID uuid, const std::string& name = std::string());
 		void DestroyEntity(Entity entity);
+
+		// Prefab instantiation
+		Entity Instantiate(AssetHandle prefabHandle);
+		Entity InstantiateWithUUID(AssetHandle prefabHandle, UUID uuid);
 
 		void OnRuntimeStart();
 		void OnRuntimeStop();

@@ -3,6 +3,8 @@
 #include "Entity.h"
 
 #include "Components.h"
+#include "Prefab.h"
+#include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Animation/BoneEntityUtils.h"
@@ -132,6 +134,38 @@ namespace OloEngine
 		tag.Tag = name.empty() ? "Entity" : name;
 
 		m_EntityMap.emplace(uuid, entity);
+
+		return entity;
+	}
+
+	Entity Scene::Instantiate(AssetHandle prefabHandle)
+	{
+		return InstantiateWithUUID(prefabHandle, UUID());
+	}
+
+	Entity Scene::InstantiateWithUUID(AssetHandle prefabHandle, UUID uuid)
+	{
+		Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(prefabHandle);
+		if (!prefab)
+		{
+			OLO_CORE_ERROR("Scene::InstantiateWithUUID - Failed to load prefab with handle {}", prefabHandle);
+			return {};
+		}
+
+		// Generate UUID if not provided
+		if (!uuid)
+			uuid = UUID();
+
+		// Create a new entity from the prefab
+		Entity entity = prefab->Instantiate(*this, uuid);
+		
+		// Add PrefabComponent to track the prefab source
+		if (entity)
+		{
+			auto& prefabComponent = entity.AddComponent<PrefabComponent>();
+			prefabComponent.PrefabID = prefabHandle;
+			prefabComponent.EntityID = uuid;
+		}
 
 		return entity;
 	}
@@ -708,6 +742,11 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 
 	template<>
 	void Scene::OnComponentAdded<RelationshipComponent>(Entity, RelationshipComponent&)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<PrefabComponent>(Entity, PrefabComponent&)
 	{
 	}
 }
