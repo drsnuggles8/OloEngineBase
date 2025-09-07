@@ -1348,8 +1348,54 @@ namespace OloEngine
 
     void StaticMeshSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
-        // TODO: Implement static mesh serialization
-        OLO_CORE_WARN("StaticMeshSerializer::Serialize not yet implemented");
+        Ref<StaticMesh> staticMesh = asset.As<StaticMesh>();
+        if (!staticMesh)
+        {
+            OLO_CORE_ERROR("StaticMeshSerializer::Serialize - Asset is not a valid StaticMesh");
+            return;
+        }
+
+        std::filesystem::path path = Project::GetAssetDirectory() / metadata.FilePath;
+        
+        try
+        {
+            YAML::Emitter out;
+            out << YAML::BeginMap;
+            out << YAML::Key << "StaticMesh" << YAML::Value;
+            out << YAML::BeginMap;
+            
+            // Serialize mesh source handle
+            out << YAML::Key << "MeshSource" << YAML::Value << staticMesh->GetMeshSource();
+            
+            // Serialize collider generation flag
+            out << YAML::Key << "GenerateColliders" << YAML::Value << staticMesh->ShouldGenerateColliders();
+            
+            // Serialize submesh indices if not using all submeshes
+            const auto& submeshIndices = staticMesh->GetSubmeshes();
+            if (!submeshIndices.empty())
+            {
+                out << YAML::Key << "Submeshes" << YAML::Value;
+                out << YAML::BeginSeq;
+                for (u32 index : submeshIndices)
+                {
+                    out << index;
+                }
+                out << YAML::EndSeq;
+            }
+            
+            out << YAML::EndMap;
+            out << YAML::EndMap;
+
+            std::ofstream fout(path);
+            fout << out.c_str();
+            fout.close();
+            
+            OLO_CORE_TRACE("StaticMeshSerializer::Serialize - Successfully serialized static mesh to: {}", path.string());
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("StaticMeshSerializer::Serialize - Error serializing static mesh {}: {}", path.string(), e.what());
+        }
     }
 
     bool StaticMeshSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
@@ -1362,43 +1408,189 @@ namespace OloEngine
             return false;
         }
 
-        // TODO: StaticMesh class doesn't exist yet
-        // Load static mesh (typically from processed mesh files)
-        // auto staticMesh = Ref<StaticMesh>(new StaticMesh(path));
-        // if (!staticMesh->IsValid())
-        // {
-        //     OLO_CORE_ERROR("StaticMeshSerializer::TryLoadData - Failed to load static mesh: {}", path.string());
-        //     return false;
-        // }
-        //
-        // staticMesh->Handle = metadata.Handle;
-        // asset = staticMesh;
-        
-        OLO_CORE_WARN("StaticMeshSerializer::TryLoadData - StaticMesh class not implemented yet");
-        return false;
-        
-        OLO_CORE_TRACE("StaticMeshSerializer::TryLoadData - Successfully loaded static mesh: {}", path.string());
-        return true;
+        try
+        {
+            // Load YAML file with static mesh configuration
+            YAML::Node yamlData = YAML::LoadFile(path.string());
+            
+            if (!yamlData["StaticMesh"])
+            {
+                OLO_CORE_ERROR("StaticMeshSerializer::TryLoadData - Invalid static mesh file (missing StaticMesh node): {}", path.string());
+                return false;
+            }
+
+            YAML::Node meshNode = yamlData["StaticMesh"];
+            
+            // Get the mesh source handle
+            AssetHandle meshSourceHandle = meshNode["MeshSource"].as<u64>(0);
+            if (meshSourceHandle == 0)
+            {
+                OLO_CORE_ERROR("StaticMeshSerializer::TryLoadData - Invalid mesh source handle in: {}", path.string());
+                return false;
+            }
+
+            // Get optional settings
+            bool generateColliders = meshNode["GenerateColliders"].as<bool>(false);
+            
+            // Get submesh indices (optional)
+            std::vector<u32> submeshIndices;
+            if (meshNode["Submeshes"])
+            {
+                for (const auto& submeshNode : meshNode["Submeshes"])
+                {
+                    submeshIndices.push_back(submeshNode.as<u32>());
+                }
+            }
+
+            // Create the static mesh
+            Ref<StaticMesh> staticMesh;
+            if (submeshIndices.empty())
+            {
+                staticMesh = Ref<StaticMesh>::Create(meshSourceHandle, generateColliders);
+            }
+            else
+            {
+                staticMesh = Ref<StaticMesh>::Create(meshSourceHandle, submeshIndices, generateColliders);
+            }
+
+            staticMesh->SetHandle(metadata.Handle);
+            asset = staticMesh;
+            
+            OLO_CORE_TRACE("StaticMeshSerializer::TryLoadData - Successfully loaded static mesh: {}", path.string());
+            return true;
+        }
+        catch (const YAML::Exception& e)
+        {
+            OLO_CORE_ERROR("StaticMeshSerializer::TryLoadData - YAML parsing error in {}: {}", path.string(), e.what());
+            return false;
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("StaticMeshSerializer::TryLoadData - Error loading static mesh {}: {}", path.string(), e.what());
+            return false;
+        }
     }
 
     void StaticMeshSerializer::RegisterDependencies(const AssetMetadata& metadata) const
     {
-        // TODO: Implement dependency registration
-        OLO_CORE_WARN("StaticMeshSerializer::RegisterDependencies not yet implemented");
+        std::filesystem::path path = Project::GetAssetDirectory() / metadata.FilePath;
+        
+        if (!std::filesystem::exists(path))
+        {
+            OLO_CORE_WARN("StaticMeshSerializer::RegisterDependencies - File does not exist: {}", path.string());
+            return;
+        }
+
+        try
+        {
+            YAML::Node yamlData = YAML::LoadFile(path.string());
+            
+            if (!yamlData["StaticMesh"])
+            {
+                OLO_CORE_WARN("StaticMeshSerializer::RegisterDependencies - Invalid static mesh file: {}", path.string());
+                return;
+            }
+
+            YAML::Node meshNode = yamlData["StaticMesh"];
+            
+            // Register mesh source dependency
+            AssetHandle meshSourceHandle = meshNode["MeshSource"].as<u64>(0);
+            if (meshSourceHandle != 0)
+            {
+                Project::GetAssetManager()->RegisterDependency(metadata.Handle, meshSourceHandle);
+            }
+        }
+        catch (const YAML::Exception& e)
+        {
+            OLO_CORE_ERROR("StaticMeshSerializer::RegisterDependencies - YAML parsing error in {}: {}", path.string(), e.what());
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("StaticMeshSerializer::RegisterDependencies - Error in {}: {}", path.string(), e.what());
+        }
     }
 
     bool StaticMeshSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
-        // TODO: Implement static mesh pack serialization
-        OLO_CORE_WARN("StaticMeshSerializer::SerializeToAssetPack not yet implemented");
-        return false;
+        Ref<StaticMesh> staticMesh = AssetManager::GetAsset<StaticMesh>(handle);
+        if (!staticMesh)
+        {
+            OLO_CORE_ERROR("StaticMeshSerializer::SerializeToAssetPack - Failed to load static mesh asset {}", handle);
+            return false;
+        }
+
+        outInfo.Offset = stream.GetStreamPosition();
+        
+        try
+        {
+            // Write mesh source handle
+            stream.WriteRaw<AssetHandle>(staticMesh->GetMeshSource());
+            
+            // Write collider generation flag
+            stream.WriteRaw<bool>(staticMesh->ShouldGenerateColliders());
+            
+            // Write submesh indices
+            const auto& submeshIndices = staticMesh->GetSubmeshes();
+            stream.WriteRaw<u32>(static_cast<u32>(submeshIndices.size()));
+            for (u32 index : submeshIndices)
+            {
+                stream.WriteRaw<u32>(index);
+            }
+
+            outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
+            return true;
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("StaticMeshSerializer::SerializeToAssetPack - Error serializing static mesh {}: {}", handle, e.what());
+            return false;
+        }
     }
 
     Ref<Asset> StaticMeshSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
-        // TODO: Implement static mesh pack deserialization
-        OLO_CORE_WARN("StaticMeshSerializer::DeserializeFromAssetPack not yet implemented");
-        return nullptr;
+        try
+        {
+            // Read mesh source handle
+            AssetHandle meshSourceHandle;
+            stream.ReadRaw(meshSourceHandle);
+            
+            // Read collider generation flag
+            bool generateColliders;
+            stream.ReadRaw(generateColliders);
+            
+            // Read submesh indices
+            u32 submeshCount;
+            stream.ReadRaw(submeshCount);
+            std::vector<u32> submeshIndices;
+            submeshIndices.reserve(submeshCount);
+            
+            for (u32 i = 0; i < submeshCount; ++i)
+            {
+                u32 submeshIndex;
+                stream.ReadRaw(submeshIndex);
+                submeshIndices.push_back(submeshIndex);
+            }
+
+            // Create static mesh
+            Ref<StaticMesh> staticMesh;
+            if (submeshIndices.empty())
+            {
+                staticMesh = Ref<StaticMesh>::Create(meshSourceHandle, generateColliders);
+            }
+            else
+            {
+                staticMesh = Ref<StaticMesh>::Create(meshSourceHandle, submeshIndices, generateColliders);
+            }
+
+            staticMesh->SetHandle(assetInfo.Handle);
+            return staticMesh;
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("StaticMeshSerializer::DeserializeFromAssetPack - Error deserializing static mesh: {}", e.what());
+            return nullptr;
+        }
     }
 
     //////////////////////////////////////////////////////////////////////////////////

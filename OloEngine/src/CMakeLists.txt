@@ -127,6 +127,8 @@
 		"OloEngine/Renderer/Light.h"
 		"OloEngine/Renderer/Material.cpp"
 		"OloEngine/Renderer/Material.h"
+		"OloEngine/Renderer/MaterialAsset.cpp"
+		"OloEngine/Renderer/MaterialAsset.h"
 		"OloEngine/Renderer/MaterialPresets.cpp"
 		"OloEngine/Renderer/MaterialPresets.h"
 		"OloEngine/Renderer/Mesh.cpp"

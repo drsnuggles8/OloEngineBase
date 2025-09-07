@@ -22,6 +22,26 @@ namespace OloEngine
     class VertexArray;
     class VertexBuffer;
     class IndexBuffer;
+    
+    /**
+     * @brief Submesh data structure for organizing mesh geometry
+     * Compatible with Hazel's Submesh class for asset compatibility
+     */
+    struct Submesh
+    {
+        u32 m_BaseVertex = 0;
+        u32 m_BaseIndex = 0;
+        u32 m_MaterialIndex = 0;
+        u32 m_IndexCount = 0;
+        u32 m_VertexCount = 0;
+        
+        glm::mat4 m_Transform{ 1.0f }; // World transform
+        glm::mat4 m_LocalTransform{ 1.0f };
+        BoundingBox m_BoundingBox;
+        
+        std::string m_NodeName, m_MeshName;
+        bool m_IsRigged = false;
+    };
 
     /**
      * @brief Bone info structure for mapping mesh vertices to skeleton bones
@@ -80,27 +100,7 @@ namespace OloEngine
         }
     };
 
-    /**
-     * @brief Submesh information within a MeshSource
-     */
-    struct Submesh
-    {
-    u32 m_BaseVertex = 0;
-    u32 m_BaseIndex = 0;
-    u32 m_MaterialIndex = 0;
-    u32 m_IndexCount = 0;
-    u32 m_VertexCount = 0;
-        
-    glm::mat4 m_Transform = glm::mat4(1.0f);
-    BoundingBox m_BoundingBox;
-    std::string m_NodeName;
-        
-    // Rigging information
-    bool m_IsRigged = false;
-    std::vector<u32> m_BoneIndices;  // Indices of bones that affect this submesh
-        
-        Submesh() = default;
-    };
+
 
     /**
      * @brief Unified mesh source that can handle both static and animated meshes
@@ -125,6 +125,21 @@ namespace OloEngine
         std::vector<Vertex>& GetVertices() { return m_Vertices; }
         std::vector<u32>& GetIndices() { return m_Indices; }
         std::vector<Submesh>& GetSubmeshes() { return m_Submeshes; }
+
+        // Submesh management
+        void AddSubmesh(const Submesh& submesh) { m_Submeshes.push_back(submesh); }
+        void SetSubmeshes(const std::vector<Submesh>& submeshes) { m_Submeshes = submeshes; }
+        
+        // Material management
+        const std::map<u32, AssetHandle>& GetMaterials() const { return m_Materials; }
+        std::map<u32, AssetHandle>& GetMaterials() { return m_Materials; }
+        void SetMaterial(u32 index, AssetHandle material) { m_Materials[index] = material; }
+        bool HasMaterial(u32 index) const { return m_Materials.find(index) != m_Materials.end(); }
+        AssetHandle GetMaterial(u32 index) const 
+        { 
+            auto it = m_Materials.find(index);
+            return (it != m_Materials.end()) ? it->second : AssetHandle(0);
+        }
 
         // Skeleton and rigging
         bool HasSkeleton() const { return m_Skeleton != nullptr; }
@@ -185,7 +200,6 @@ namespace OloEngine
         bool HasBoneInfluences() const { return !m_BoneInfluences.empty(); }
 
         // Utility methods
-        void AddSubmesh(const Submesh& submesh) { m_Submeshes.push_back(submesh); }
         void CalculateBounds();
         void CalculateSubmeshBounds(); // Calculate individual submesh bounds
         void Build(); // Build GPU resources
@@ -213,9 +227,14 @@ namespace OloEngine
             OLO_CORE_ASSERT(m_BoneInfluenceBuffer, "BoneInfluenceBuffer not initialized or not rigged. Call Build() first.");
             return m_BoneInfluenceBuffer; 
         }
-        bool HasBoneInfluenceBuffer() const { return m_BoneInfluenceBuffer != nullptr; }        // Bounding volume accessors
+        bool HasBoneInfluenceBuffer() const { return m_BoneInfluenceBuffer != nullptr; }
+        
+        // Bounding volume accessors
         const BoundingBox& GetBoundingBox() const { return m_BoundingBox; }
         const BoundingSphere& GetBoundingSphere() const { return m_BoundingSphere; }
+        
+        // Utility methods
+        bool IsBuilt() const { return m_Built; }
         
         // Asset interface
         static AssetType GetStaticType() { return AssetType::MeshSource; }
@@ -231,6 +250,7 @@ namespace OloEngine
         std::vector<Vertex> m_Vertices;
         std::vector<u32> m_Indices;
         std::vector<Submesh> m_Submeshes;
+        std::map<u32, AssetHandle> m_Materials; // Material mapping for submeshes
         
         // Rigging data (Hazel-style: separated from vertex data)
         Ref<Skeleton> m_Skeleton;

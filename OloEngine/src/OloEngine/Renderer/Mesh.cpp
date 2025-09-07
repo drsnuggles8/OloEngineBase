@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "Mesh.h"
 #include "VertexArray.h"
+#include "MaterialAsset.h"
+#include "OloEngine/Asset/AssetManager.h"
 
 namespace OloEngine
 {
@@ -142,5 +144,124 @@ namespace OloEngine
         
         // Return 0 if submesh index is invalid
         return 0;
+    }
+
+    ////////////////////////////////////////////////////////
+    // StaticMesh //////////////////////////////////////////
+    ////////////////////////////////////////////////////////
+
+    StaticMesh::StaticMesh(AssetHandle meshSource, bool generateColliders)
+        : m_MeshSource(meshSource), m_GenerateColliders(generateColliders)
+    {
+        SetupStaticMesh();
+    }
+
+    StaticMesh::StaticMesh(AssetHandle meshSource, const std::vector<u32>& submeshes, bool generateColliders)
+        : m_MeshSource(meshSource), m_Submeshes(submeshes), m_GenerateColliders(generateColliders)
+    {
+        SetupStaticMesh();
+    }
+
+    void StaticMesh::OnDependencyUpdated(AssetHandle handle)
+    {
+        if (handle == m_MeshSource)
+        {
+            // Reload mesh when the source asset is updated
+            SetupStaticMesh();
+        }
+    }
+
+    void StaticMesh::SetSubmeshes(const std::vector<u32>& submeshes, Ref<MeshSource> meshSourceAsset)
+    {
+        m_Submeshes = submeshes;
+        
+        // Validate submesh indices against the provided mesh source
+        if (meshSourceAsset)
+        {
+            const auto& sourceMeshes = meshSourceAsset->GetSubmeshes();
+            for (auto it = m_Submeshes.begin(); it != m_Submeshes.end();)
+            {
+                if (*it >= sourceMeshes.size())
+                {
+                    OLO_CORE_WARN("StaticMesh::SetSubmeshes - Invalid submesh index {} (max: {}), removing", *it, sourceMeshes.size() - 1);
+                    it = m_Submeshes.erase(it);
+                }
+                else
+                {
+                    ++it;
+                }
+            }
+        }
+        
+        // Re-setup with new submeshes
+        SetupStaticMesh();
+    }
+
+    void StaticMesh::SetupStaticMesh()
+    {
+        if (m_MeshSource == 0)
+        {
+            OLO_CORE_WARN("StaticMesh::SetupStaticMesh - Invalid mesh source handle");
+            return;
+        }
+
+        // Get the mesh source asset
+        auto meshSourceAsset = AssetManager::GetAsset<MeshSource>(m_MeshSource);
+        if (!meshSourceAsset)
+        {
+            OLO_CORE_WARN("StaticMesh::SetupStaticMesh - Failed to load mesh source asset {}", m_MeshSource);
+            return;
+        }
+
+        // Create material table if it doesn't exist
+        if (!m_Materials)
+        {
+            m_Materials = Ref<MaterialTable>::Create(1);
+        }
+
+        // Copy materials from mesh source
+        const auto& sourceMaterials = meshSourceAsset->GetMaterials();
+        
+        // Copy materials from the mesh source map
+        for (const auto& [materialIndex, materialHandle] : sourceMaterials)
+        {
+            if (materialHandle != 0) // Only set valid material handles
+            {
+                m_Materials->SetMaterial(materialIndex, materialHandle);
+            }
+        }
+
+        // If no specific submeshes were requested, use all submeshes
+        if (m_Submeshes.empty())
+        {
+            const auto& submeshes = meshSourceAsset->GetSubmeshes();
+            m_Submeshes.reserve(submeshes.size());
+            for (sizet i = 0; i < submeshes.size(); ++i)
+            {
+                m_Submeshes.push_back(static_cast<u32>(i));
+            }
+        }
+
+        // Validate submesh indices
+        const auto& submeshes = meshSourceAsset->GetSubmeshes();
+        for (auto it = m_Submeshes.begin(); it != m_Submeshes.end();)
+        {
+            if (*it >= submeshes.size())
+            {
+                OLO_CORE_WARN("StaticMesh::SetupStaticMesh - Invalid submesh index {} (max: {}), removing", *it, submeshes.size() - 1);
+                it = m_Submeshes.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+
+        // TODO: Generate colliders if requested
+        if (m_GenerateColliders)
+        {
+            // Collider generation would go here
+            OLO_CORE_TRACE("StaticMesh::SetupStaticMesh - Collider generation not yet implemented");
+        }
     }
 }

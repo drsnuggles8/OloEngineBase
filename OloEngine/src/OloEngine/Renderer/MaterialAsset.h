@@ -105,11 +105,13 @@ namespace OloEngine
 		std::map<u32, AssetHandle>& GetMaterials() { return m_Materials; }
 		const std::map<u32, AssetHandle>& GetMaterials() const { return m_Materials; }
 
-		u32 GetMaterialCount() const { return static_cast<u32>(m_Materials.size()); }
+		u32 GetMaterialCount() const { return m_MaterialCount; }
+		void SetMaterialCount(u32 materialCount) { m_MaterialCount = materialCount; }
 
 		void Clear();
 	private:
 		std::map<u32, AssetHandle> m_Materials;
+		u32 m_MaterialCount;
 	};
 
 }
