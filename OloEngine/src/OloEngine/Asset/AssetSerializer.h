@@ -7,6 +7,8 @@
 #include "OloEngine/Serialization/FileStream.h"
 #include "OloEngine/Serialization/AssetPackFile.h"
 
+#include <yaml-cpp/yaml.h>
+
 namespace OloEngine
 {
     // Forward declarations
@@ -203,6 +205,11 @@ namespace OloEngine
 
         virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+
+    private:
+        std::string SerializeToYAML(Ref<AnimationAsset> animationAsset) const;
+        bool DeserializeFromYAML(const YAML::Node& data, Ref<AnimationAsset>& animationAsset) const;
+        void RegisterAnimationDependenciesFromYAML(const YAML::Node& data, AssetHandle handle) const;
     };
 
     class AnimationGraphAssetSerializer : public AssetSerializer

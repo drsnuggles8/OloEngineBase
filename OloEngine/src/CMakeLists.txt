@@ -9,6 +9,8 @@
 		"OloEngine/Animation/AnimationSystem.cpp"
 		"OloEngine/Animation/AnimationClip.h"
 		"OloEngine/Animation/AnimationClip.cpp"
+		"OloEngine/Animation/AnimationAsset.h"
+		"OloEngine/Animation/AnimationAsset.cpp"
 		"OloEngine/Animation/BoneEntityUtils.h"
 		"OloEngine/Animation/BoneEntityUtils.cpp"
 		

@@ -20,9 +20,20 @@
 #include "OloEngine/Scene/Prefab.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneSerializer.h"
+#include "OloEngine/Animation/AnimationAsset.h"
 #include "OloEngine/Core/YAMLConverters.h"
 #include <yaml-cpp/yaml.h>
 #include <fstream>
+
+namespace YAML
+{
+	YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec3& v)
+	{
+		out << YAML::Flow;
+		out << YAML::BeginSeq << v.x << v.y << v.z << YAML::EndSeq;
+		return out;
+	}
+}
 
 namespace OloEngine
 {
@@ -1394,37 +1405,195 @@ namespace OloEngine
     // AnimationAssetSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
+    std::string AnimationAssetSerializer::SerializeToYAML(Ref<AnimationAsset> animationAsset) const
+    {
+        YAML::Emitter out;
+        out << YAML::BeginMap;
+        {
+            out << YAML::Key << "Animation" << YAML::Value;
+            out << YAML::BeginMap;
+            {
+                out << YAML::Key << "AnimationSource" << YAML::Value << animationAsset->GetAnimationSource();
+                out << YAML::Key << "Mesh" << YAML::Value << animationAsset->GetMeshHandle();
+                out << YAML::Key << "AnimationName" << YAML::Value << animationAsset->GetAnimationName();
+                out << YAML::Key << "ExtractRootMotion" << YAML::Value << animationAsset->IsExtractRootMotion();
+                out << YAML::Key << "RootBoneIndex" << YAML::Value << animationAsset->RootBoneIndex();
+                out << YAML::Key << "RootTranslationMask" << YAML::Value << animationAsset->GetRootTranslationMask();
+                out << YAML::Key << "RootRotationMask" << YAML::Value << animationAsset->GetRootRotationMask();
+                out << YAML::Key << "DiscardRootMotion" << YAML::Value << animationAsset->IsDiscardRootMotion();
+            }
+            out << YAML::EndMap;
+        }
+        out << YAML::EndMap;
+
+        return std::string(out.c_str());
+    }
+
+    bool AnimationAssetSerializer::DeserializeFromYAML(const YAML::Node& data, Ref<AnimationAsset>& animationAsset) const
+    {
+        auto animationNode = data["Animation"];
+        if (!animationNode)
+            return false;
+
+        AssetHandle animationSource = animationNode["AnimationSource"].as<AssetHandle>();
+        AssetHandle mesh = animationNode["Mesh"].as<AssetHandle>();
+        std::string animationName = animationNode["AnimationName"].as<std::string>();
+        bool extractRootMotion = animationNode["ExtractRootMotion"] ? animationNode["ExtractRootMotion"].as<bool>() : false;
+        u32 rootBoneIndex = animationNode["RootBoneIndex"] ? animationNode["RootBoneIndex"].as<u32>() : 0;
+        
+        glm::vec3 rootTranslationMask = glm::vec3(1.0f);
+        if (animationNode["RootTranslationMask"])
+        {
+            auto maskNode = animationNode["RootTranslationMask"];
+            if (maskNode.IsSequence() && maskNode.size() == 3)
+            {
+                rootTranslationMask.x = maskNode[0].as<float>();
+                rootTranslationMask.y = maskNode[1].as<float>();
+                rootTranslationMask.z = maskNode[2].as<float>();
+            }
+        }
+        
+        glm::vec3 rootRotationMask = glm::vec3(1.0f);
+        if (animationNode["RootRotationMask"])
+        {
+            auto maskNode = animationNode["RootRotationMask"];
+            if (maskNode.IsSequence() && maskNode.size() == 3)
+            {
+                rootRotationMask.x = maskNode[0].as<float>();
+                rootRotationMask.y = maskNode[1].as<float>();
+                rootRotationMask.z = maskNode[2].as<float>();
+            }
+        }
+        
+        bool discardRootMotion = animationNode["DiscardRootMotion"] ? animationNode["DiscardRootMotion"].as<bool>() : false;
+
+        animationAsset = Ref<AnimationAsset>(new AnimationAsset(animationSource, mesh, animationName, 
+                                                              extractRootMotion, rootBoneIndex, 
+                                                              rootTranslationMask, rootRotationMask, 
+                                                              discardRootMotion));
+        return true;
+    }
+
+    void AnimationAssetSerializer::RegisterAnimationDependenciesFromYAML(const YAML::Node& data, AssetHandle handle) const
+    {
+        auto animationNode = data["Animation"];
+        if (!animationNode)
+            return;
+
+        // Register dependencies on animation source and mesh
+        if (animationNode["AnimationSource"])
+        {
+            AssetHandle animationSource = animationNode["AnimationSource"].as<AssetHandle>();
+            if (animationSource != 0)
+                AssetManager::RegisterDependency(handle, animationSource);
+        }
+
+        if (animationNode["Mesh"])
+        {
+            AssetHandle mesh = animationNode["Mesh"].as<AssetHandle>();
+            if (mesh != 0)
+                AssetManager::RegisterDependency(handle, mesh);
+        }
+    }
+
     void AnimationAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
-        // TODO: Implement animation serialization
-        OLO_CORE_WARN("AnimationAssetSerializer::Serialize not yet implemented");
+        Ref<AnimationAsset> animationAsset = asset.As<AnimationAsset>();
+        if (!animationAsset)
+        {
+            OLO_CORE_ERROR("AnimationAssetSerializer::Serialize - Asset is not an AnimationAsset");
+            return;
+        }
+
+        std::ofstream fout(Project::GetAssetDirectory() / metadata.FilePath);
+        if (!fout.good())
+        {
+            OLO_CORE_ERROR("AnimationAssetSerializer::Serialize - Failed to open file for writing: {}", metadata.FilePath.string());
+            return;
+        }
+
+        std::string yamlString = SerializeToYAML(animationAsset);
+        fout << yamlString;
     }
 
     bool AnimationAssetSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
-        // TODO: Implement animation loading
-        OLO_CORE_WARN("AnimationAssetSerializer::TryLoadData not yet implemented");
-        return false;
+        std::ifstream fin(Project::GetAssetDirectory() / metadata.FilePath);
+        if (!fin.good())
+        {
+            OLO_CORE_ERROR("AnimationAssetSerializer::TryLoadData - Failed to open file: {}", metadata.FilePath.string());
+            return false;
+        }
+
+        std::stringstream buffer;
+        buffer << fin.rdbuf();
+        std::string yamlString = buffer.str();
+
+        Ref<AnimationAsset> animationAsset;
+        YAML::Node data = YAML::Load(yamlString);
+        bool result = DeserializeFromYAML(data, animationAsset);
+        if (!result)
+        {
+            OLO_CORE_ERROR("AnimationAssetSerializer::TryLoadData - Failed to deserialize animation asset");
+            return false;
+        }
+
+        asset = animationAsset;
+        asset->m_Handle = metadata.Handle;
+        RegisterAnimationDependenciesFromYAML(data, asset->m_Handle);
+        return true;
     }
 
     void AnimationAssetSerializer::RegisterDependencies(const AssetMetadata& metadata) const
     {
-        // TODO: Implement dependency registration
-        OLO_CORE_WARN("AnimationAssetSerializer::RegisterDependencies not yet implemented");
+        std::ifstream fin(Project::GetAssetDirectory() / metadata.FilePath);
+        if (!fin.good())
+        {
+            OLO_CORE_WARN("AnimationAssetSerializer::RegisterDependencies - Failed to open file: {}", metadata.FilePath.string());
+            return;
+        }
+
+        std::stringstream buffer;
+        buffer << fin.rdbuf();
+        std::string yamlString = buffer.str();
+
+        YAML::Node data = YAML::Load(yamlString);
+        RegisterAnimationDependenciesFromYAML(data, metadata.Handle);
     }
 
     bool AnimationAssetSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
-        // TODO: Implement animation pack serialization
-        OLO_CORE_WARN("AnimationAssetSerializer::SerializeToAssetPack not yet implemented");
-        return false;
+        Ref<AnimationAsset> animationAsset = AssetManager::GetAsset<AnimationAsset>(handle);
+        if (!animationAsset)
+        {
+            OLO_CORE_ERROR("AnimationAssetSerializer::SerializeToAssetPack - Failed to get animation asset");
+            return false;
+        }
+
+        std::string yamlString = SerializeToYAML(animationAsset);
+
+        outInfo.Offset = stream.GetStreamPosition();
+        stream.WriteString(yamlString);
+        outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
+        return true;
     }
 
     Ref<Asset> AnimationAssetSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
-        // TODO: Implement animation pack deserialization
-        OLO_CORE_WARN("AnimationAssetSerializer::DeserializeFromAssetPack not yet implemented");
-        return nullptr;
+        stream.SetStreamPosition(assetInfo.PackedOffset);
+        std::string yamlString;
+        stream.ReadString(yamlString);
+
+        Ref<AnimationAsset> animationAsset;
+        YAML::Node data = YAML::Load(yamlString);
+        bool result = DeserializeFromYAML(data, animationAsset);
+        if (!result)
+        {
+            OLO_CORE_ERROR("AnimationAssetSerializer::DeserializeFromAssetPack - Failed to deserialize animation asset");
+            return nullptr;
+        }
+
+        return animationAsset;
     }
 
     //////////////////////////////////////////////////////////////////////////////////
