@@ -65,6 +65,22 @@ namespace OloEngine
             {
                 OLO_CORE_WARN("Failed to check asset registry existence: {}", ec.message());
             }
+
+            // Scan project assets directory for any new assets that aren't in the registry
+            auto assetDirectory = Project::GetAssetDirectory();
+            if (std::filesystem::exists(assetDirectory, ec) && !ec)
+            {
+                OLO_CORE_INFO("Scanning asset directory for new assets: {}", assetDirectory.string());
+                ScanDirectoryForAssets(assetDirectory);
+                OLO_CORE_INFO("Asset directory scan completed");
+                
+                // Serialize the updated registry to save any newly discovered assets
+                SerializeAssetRegistry();
+            }
+            else if (ec)
+            {
+                OLO_CORE_WARN("Failed to check asset directory existence: {}", ec.message());
+            }
         }
 
 #if OLO_ASYNC_ASSETS
@@ -726,8 +742,12 @@ namespace OloEngine
         
         try
         {
-            // Convert absolute path to relative for asset registry lookup
-            auto relativePath = GetRelativePath(filePath);
+            // The file watcher gives us paths relative to the project root
+            // So we can use the path directly for asset registry lookup
+            std::filesystem::path assetPath = filePath;
+            
+            // Normalize the path separators to match asset registry format
+            std::string pathStr = assetPath.generic_string();
             
             // Find the asset handle for this file
             AssetHandle assetHandle = 0;
@@ -739,9 +759,14 @@ namespace OloEngine
                     if (!metadata.IsValid())
                         continue;
                         
-                    // Compare normalized paths
-                    std::error_code ec;
-                    if (std::filesystem::equivalent(metadata.FilePath, relativePath, ec) && !ec)
+                    // Compare normalized paths as strings (case insensitive for Windows)
+                    std::string registryPath = metadata.FilePath.generic_string();
+                    
+                    // Windows is case-insensitive, so compare lowercase
+                    std::transform(pathStr.begin(), pathStr.end(), pathStr.begin(), ::tolower);
+                    std::transform(registryPath.begin(), registryPath.end(), registryPath.begin(), ::tolower);
+                    
+                    if (pathStr == registryPath)
                     {
                         assetHandle = metadata.Handle;
                         break;
@@ -753,14 +778,14 @@ namespace OloEngine
             if (assetHandle != 0)
             {
                 OLO_CORE_INFO("🔄 Hot-reload triggered for asset: {} (Handle: {}, Type: {})", 
-                             relativePath.string(), (u64)assetHandle, (int)assetType);
+                             pathStr, (u64)assetHandle, (int)assetType);
                 ReloadDataAsync(assetHandle);
             }
             else
             {
                 // Check if this might be a new asset file
                 OLO_CORE_TRACE("File change detected for untracked file: {} (Type: {})", 
-                              relativePath.string(), (int)assetType);
+                              pathStr, (int)assetType);
                 // TODO: In the future, we could auto-import new assets here
             }
         }
@@ -775,6 +800,36 @@ namespace OloEngine
     {
         std::shared_lock lock(m_RegistryMutex);
         return m_AssetRegistry.GetMetadata(handle);
+    }
+
+    void EditorAssetManager::ScanDirectoryForAssets(const std::filesystem::path& directory)
+    {
+        OLO_PROFILER_SCOPE("EditorAssetManager::ScanDirectoryForAssets");
+
+        if (!std::filesystem::exists(directory))
+        {
+            OLO_CORE_WARN("Directory does not exist for asset scanning: {}", directory.string());
+            return;
+        }
+
+        try
+        {
+            for (auto& entry : std::filesystem::recursive_directory_iterator(directory))
+            {
+                if (entry.is_regular_file())
+                {
+                    AssetType type = AssetExtensions::GetAssetTypeFromPath(entry.path().string());
+                    if (type != AssetType::None)
+                    {
+                        ImportAsset(entry.path());
+                    }
+                }
+            }
+        }
+        catch (const std::filesystem::filesystem_error& ex)
+        {
+            OLO_CORE_ERROR("Failed to scan directory for assets: {}", ex.what());
+        }
     }
 
     bool EditorAssetManager::SerializeAssetRegistry()
