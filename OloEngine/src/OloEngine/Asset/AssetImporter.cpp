@@ -16,6 +16,7 @@ namespace OloEngine
     std::unordered_map<AssetType, Scope<AssetSerializer>> AssetImporter::s_Serializers;
     std::mutex AssetImporter::s_SerializersMutex;
     static std::once_flag s_InitFlag;
+    static std::atomic<bool> s_IsShuttingDown{false};
 	
 	void AssetImporter::Init()
     {
@@ -45,10 +46,30 @@ namespace OloEngine
 
     void AssetImporter::Shutdown()
     {
+        // Set shutdown flag to prevent re-entry during static destruction
+        bool expected = false;
+        if (!s_IsShuttingDown.compare_exchange_strong(expected, true))
+        {
+            // Already shutting down, avoid double shutdown
+            return;
+        }
+
         std::scoped_lock lock(s_SerializersMutex);
         const auto serializerCount = s_Serializers.size();
-        s_Serializers.clear();
-        OLO_CORE_TRACE("AssetImporter shutdown - cleared {} serializers", serializerCount);
+        
+        // During static destruction, avoid calling destructors that might access 
+        // already-destroyed static objects. Let the OS clean up the memory.
+        try 
+        {
+            s_Serializers.clear();
+            OLO_CORE_TRACE("AssetImporter shutdown - cleared {} serializers", serializerCount);
+        }
+        catch (...)
+        {
+            // If clear() fails (likely due to static destruction order issues),
+            // just abandon the cleanup and let the OS handle it
+            OLO_CORE_WARN("AssetImporter shutdown - failed to clear serializers safely, letting OS clean up");
+        }
     }
 
     void AssetImporter::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset)

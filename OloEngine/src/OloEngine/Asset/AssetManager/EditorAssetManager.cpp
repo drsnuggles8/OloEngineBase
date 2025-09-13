@@ -110,8 +110,6 @@ namespace OloEngine
 
     void EditorAssetManager::Shutdown() noexcept
     {
-        OLO_CORE_INFO("Shutting down EditorAssetManager");
-
 #if OLO_ASYNC_ASSETS
         // Stop asset thread
         if (m_AssetThread)
@@ -122,7 +120,6 @@ namespace OloEngine
         // Stop real-time file watcher
         if (m_ProjectFileWatcher)
         {
-            OLO_CORE_INFO("Stopping real-time file watcher");
             m_ProjectFileWatcher.reset();
         }
         
@@ -139,7 +136,6 @@ namespace OloEngine
         {
             auto registryPath = Project::GetAssetRegistryPath();
             m_AssetRegistry.Serialize(registryPath);
-            OLO_CORE_INFO("Saved asset registry to {}", registryPath.string());
         }
 
         // Clear all loaded assets and memory assets
@@ -149,7 +145,6 @@ namespace OloEngine
             m_MemoryAssets.clear();
         }
         
-        // Shutdown AssetImporter to release serializer resources
         AssetImporter::Shutdown();
     }
 
