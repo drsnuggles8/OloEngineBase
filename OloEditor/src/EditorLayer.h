@@ -3,6 +3,7 @@
 #include "OloEngine.h"
 #include "Panels/SceneHierarchyPanel.h"
 #include "Panels/ContentBrowserPanel.h"
+#include "Panels/AssetPackBuilderPanel.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 
@@ -100,6 +101,7 @@ namespace OloEngine
 		// Debug windows
 		bool m_ShowShaderDebugger = false;
 		bool m_ShowGPUResourceInspector = false;
+		bool m_ShowAssetPackBuilder = false;
 
 		enum class SceneState
 		{
@@ -110,6 +112,7 @@ namespace OloEngine
 		// Panels
 		SceneHierarchyPanel m_SceneHierarchyPanel;
 		Scope<ContentBrowserPanel> m_ContentBrowserPanel;
+		Scope<AssetPackBuilderPanel> m_AssetPackBuilderPanel;
 
 		// Editor resources
 		Ref<Texture2D> m_IconPlay;

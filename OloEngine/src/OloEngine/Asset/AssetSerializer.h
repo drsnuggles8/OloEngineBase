@@ -98,6 +98,9 @@ namespace OloEngine
 
         virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+    
+    private:
+        bool AnalyzeWavFile(const std::filesystem::path& filePath, double& duration, u32& samplingRate, u16& bitDepth, u16& numChannels) const;
     };
 
     // SoundConfig not implemented yet - commented out to avoid compilation errors

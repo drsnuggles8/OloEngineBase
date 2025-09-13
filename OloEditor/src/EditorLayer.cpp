@@ -301,6 +301,13 @@ namespace OloEngine
 			{
 				BuildAssetPack();
 			}
+			
+			ImGui::Separator();
+			
+			if (ImGui::MenuItem("Asset Pack Builder", nullptr, &m_ShowAssetPackBuilder))
+			{
+				// Toggle panel visibility
+			}
 
 			ImGui::EndMenu();
 		}
@@ -520,6 +527,12 @@ namespace OloEngine
 	{
 		m_SceneHierarchyPanel.OnImGuiRender();
 		m_ContentBrowserPanel->OnImGuiRender();
+		
+		// Asset Pack Builder Panel
+		if (m_ShowAssetPackBuilder && m_AssetPackBuilderPanel)
+		{
+			m_AssetPackBuilderPanel->OnImGuiRender(m_ShowAssetPackBuilder);
+		}
 	}
 
 	void EditorLayer::UI_Settings()
@@ -813,6 +826,7 @@ namespace OloEngine
 		Project::New();
 		NewScene();
 		m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
+		m_AssetPackBuilderPanel = CreateScope<AssetPackBuilderPanel>();
 	}
 
 	bool EditorLayer::OpenProject()
@@ -838,6 +852,7 @@ namespace OloEngine
 			OLO_ASSERT(std::filesystem::exists(startScenePath));
 			OpenScene(startScenePath);
 			m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
+			m_AssetPackBuilderPanel = CreateScope<AssetPackBuilderPanel>();
 			return true;
 		}
 		return false;

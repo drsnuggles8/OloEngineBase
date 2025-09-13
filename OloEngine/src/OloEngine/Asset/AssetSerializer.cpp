@@ -28,6 +28,7 @@
 #include "OloEngine/Core/YAMLConverters.h"
 #include <yaml-cpp/yaml.h>
 #include <fstream>
+#include <algorithm>
 
 namespace YAML
 {
@@ -590,17 +591,28 @@ namespace OloEngine
             return false;
         }
 
-        // For now, serialize the file path from specification
-        const std::string& filePath = environment->GetSpecification().FilePath;
-        stream.WriteString(filePath);
-
-        // TODO: Serialize the actual texture data using a TextureRuntimeSerializer
-        // For future enhancement: serialize the cubemap textures directly
-        // uint64_t size = TextureRuntimeSerializer::SerializeToFile(environment->GetEnvironmentMap(), stream);
-        // size += TextureRuntimeSerializer::SerializeToFile(environment->GetIrradianceMap(), stream);
+        // Serialize environment specification for recreation
+        const auto& spec = environment->GetSpecification();
+        stream.WriteString(spec.FilePath);
+        stream.WriteRaw(spec.Resolution);
+        stream.WriteRaw(static_cast<u32>(spec.Format));
+        stream.WriteRaw(spec.GenerateIBL);
+        stream.WriteRaw(spec.GenerateMipmaps);
+        
+        // Serialize IBL configuration
+        const auto& iblConfig = spec.IBLConfig;
+        stream.WriteRaw(static_cast<u32>(iblConfig.Quality));
+        stream.WriteRaw(iblConfig.UseImportanceSampling);
+        stream.WriteRaw(iblConfig.UseSphericalHarmonics);
+        stream.WriteRaw(iblConfig.IrradianceResolution);
+        stream.WriteRaw(iblConfig.PrefilterResolution);
+        stream.WriteRaw(iblConfig.BRDFLutResolution);
+        stream.WriteRaw(iblConfig.IrradianceSamples);
+        stream.WriteRaw(iblConfig.PrefilterSamples);
+        stream.WriteRaw(iblConfig.EnableMultithreading);
 
         outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
-        OLO_CORE_TRACE("EnvironmentSerializer::SerializeToAssetPack - Serialized environment: {}", filePath);
+        OLO_CORE_TRACE("EnvironmentSerializer::SerializeToAssetPack - Serialized environment: {}", spec.FilePath);
         return true;
     }
 
@@ -608,29 +620,42 @@ namespace OloEngine
     {
         stream.SetStreamPosition(assetInfo.PackedOffset);
         
-        std::string filePath;
-        stream.ReadString(filePath);
-
-        // Create environment map from the file path
+        // Read environment specification
         EnvironmentMapSpecification spec;
-        spec.FilePath = filePath;
-        spec.GenerateIBL = true;
-        spec.GenerateMipmaps = true;
+        stream.ReadString(spec.FilePath);
+        stream.ReadRaw(spec.Resolution);
         
+        u32 formatValue;
+        stream.ReadRaw(formatValue);
+        spec.Format = static_cast<ImageFormat>(formatValue);
+        
+        stream.ReadRaw(spec.GenerateIBL);
+        stream.ReadRaw(spec.GenerateMipmaps);
+        
+        // Read IBL configuration
+        u32 qualityValue;
+        stream.ReadRaw(qualityValue);
+        spec.IBLConfig.Quality = static_cast<IBLQuality>(qualityValue);
+        
+        stream.ReadRaw(spec.IBLConfig.UseImportanceSampling);
+        stream.ReadRaw(spec.IBLConfig.UseSphericalHarmonics);
+        stream.ReadRaw(spec.IBLConfig.IrradianceResolution);
+        stream.ReadRaw(spec.IBLConfig.PrefilterResolution);
+        stream.ReadRaw(spec.IBLConfig.BRDFLutResolution);
+        stream.ReadRaw(spec.IBLConfig.IrradianceSamples);
+        stream.ReadRaw(spec.IBLConfig.PrefilterSamples);
+        stream.ReadRaw(spec.IBLConfig.EnableMultithreading);
+        
+        // Recreate environment map from specification
         auto environment = EnvironmentMap::Create(spec);
         if (!environment)
         {
-            OLO_CORE_ERROR("EnvironmentSerializer::DeserializeFromAssetPack - Failed to create environment from: {}", filePath);
+            OLO_CORE_ERROR("EnvironmentSerializer::DeserializeFromAssetPack - Failed to create environment from: {}", spec.FilePath);
             return nullptr;
         }
 
-        // TODO: Deserialize the actual texture data using a TextureRuntimeSerializer
-        // For future enhancement: deserialize the cubemap textures directly
-        // Ref<TextureCube> radianceMap = TextureRuntimeSerializer::DeserializeTextureCube(stream);
-        // Ref<TextureCube> irradianceMap = TextureRuntimeSerializer::DeserializeTextureCube(stream);
-        // return Ref<EnvironmentMap>::Create(radianceMap, irradianceMap);
-
-        OLO_CORE_TRACE("EnvironmentSerializer::DeserializeFromAssetPack - Deserialized environment: {}", filePath);
+        environment->SetHandle(assetInfo.Handle);
+        OLO_CORE_TRACE("EnvironmentSerializer::DeserializeFromAssetPack - Deserialized environment: {}", spec.FilePath);
         return environment;
     }
 
@@ -648,14 +673,63 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // For AudioFile assets, we create a metadata object based on file analysis
-        // TODO: Implement audio file analysis to extract Duration, SamplingRate, BitDepth, NumChannels, FileSize
-        // For now, create a basic AudioFile asset
+        // Get the file path for analysis
+        std::filesystem::path filePath = Project::GetAssetDirectory() / metadata.FilePath;
         
-        asset = Ref<AudioFile>::Create();
+        // Initialize default values
+        double duration = 0.0;
+        u32 samplingRate = 44100;
+        u16 bitDepth = 16;
+        u16 numChannels = 2;
+        u64 fileSize = 0;
+
+        // Get file size
+        std::error_code ec;
+        if (std::filesystem::exists(filePath, ec) && !ec)
+        {
+            fileSize = std::filesystem::file_size(filePath, ec);
+            if (ec) fileSize = 0;
+        }
+
+        // Basic audio file format detection and analysis
+        std::string extension = filePath.extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+
+        if (extension == ".wav")
+        {
+            // Basic WAV header analysis
+            if (AnalyzeWavFile(filePath, duration, samplingRate, bitDepth, numChannels))
+            {
+                OLO_CORE_TRACE("AudioFileSourceSerializer: Analyzed WAV file - Duration: {:.2f}s, Rate: {}Hz, Depth: {}bit, Channels: {}", 
+                              duration, samplingRate, bitDepth, numChannels);
+            }
+        }
+        else if (extension == ".mp3" || extension == ".ogg" || extension == ".flac")
+        {
+            // For other formats, use estimated values based on file size
+            // These are rough estimates - in the future, proper audio decoding should be implemented
+            if (fileSize > 0)
+            {
+                // Estimate duration based on average bitrate assumptions
+                double estimatedBitrate = 128000.0; // 128 kbps average for compressed audio
+                if (extension == ".flac") estimatedBitrate = 1000000.0; // 1 Mbps for FLAC
+                
+                duration = (fileSize * 8.0) / estimatedBitrate; // Convert bytes to duration
+                samplingRate = 44100; // Standard CD quality
+                bitDepth = 16;        // Standard for compressed formats
+                numChannels = 2;      // Assume stereo
+            }
+            
+            OLO_CORE_TRACE("AudioFileSourceSerializer: Estimated audio properties for {} - Duration: {:.2f}s (estimated)", 
+                          extension, duration);
+        }
+
+        // Create AudioFile asset with extracted/estimated metadata
+        asset = Ref<AudioFile>::Create(duration, samplingRate, bitDepth, numChannels, fileSize);
         asset->SetHandle(metadata.Handle);
         
-        OLO_CORE_TRACE("AudioFileSourceSerializer: Loaded AudioFile asset {0}", metadata.Handle);
+        OLO_CORE_TRACE("AudioFileSourceSerializer: Loaded AudioFile asset {} - {}MB", 
+                      metadata.Handle, fileSize / (1024 * 1024));
         return true;
     }
 
@@ -709,6 +783,104 @@ namespace OloEngine
         OLO_CORE_TRACE("AudioFileSourceSerializer: Deserialized AudioFile from pack - Handle: {0}, Path: {1}", 
                        assetInfo.Handle, filePath);
         return audioFile;
+    }
+
+    bool AudioFileSourceSerializer::AnalyzeWavFile(const std::filesystem::path& filePath, double& duration, u32& samplingRate, u16& bitDepth, u16& numChannels) const
+    {
+        std::ifstream file(filePath, std::ios::binary);
+        if (!file.is_open())
+        {
+            OLO_CORE_WARN("AudioFileSourceSerializer: Failed to open WAV file: {}", filePath.string());
+            return false;
+        }
+
+        // Read RIFF header
+        char riffHeader[4];
+        file.read(riffHeader, 4);
+        if (std::strncmp(riffHeader, "RIFF", 4) != 0)
+        {
+            OLO_CORE_WARN("AudioFileSourceSerializer: Invalid RIFF header in WAV file: {}", filePath.string());
+            return false;
+        }
+
+        // Skip chunk size (4 bytes)
+        file.seekg(4, std::ios::cur);
+
+        // Read WAVE format
+        char waveHeader[4];
+        file.read(waveHeader, 4);
+        if (std::strncmp(waveHeader, "WAVE", 4) != 0)
+        {
+            OLO_CORE_WARN("AudioFileSourceSerializer: Invalid WAVE header in WAV file: {}", filePath.string());
+            return false;
+        }
+
+        // Find fmt chunk
+        bool fmtFound = false;
+        u32 dataSize = 0;
+        
+        while (!file.eof() && (!fmtFound || dataSize == 0))
+        {
+            char chunkId[4];
+            u32 chunkSize;
+            
+            file.read(chunkId, 4);
+            file.read(reinterpret_cast<char*>(&chunkSize), 4);
+            
+            if (std::strncmp(chunkId, "fmt ", 4) == 0)
+            {
+                // Read format chunk
+                u16 audioFormat, channels, blockAlign, bitsPerSample;
+                u32 sampleRate, byteRate;
+                
+                file.read(reinterpret_cast<char*>(&audioFormat), 2);
+                file.read(reinterpret_cast<char*>(&channels), 2);
+                file.read(reinterpret_cast<char*>(&sampleRate), 4);
+                file.read(reinterpret_cast<char*>(&byteRate), 4);
+                file.read(reinterpret_cast<char*>(&blockAlign), 2);
+                file.read(reinterpret_cast<char*>(&bitsPerSample), 2);
+                
+                // Store values
+                numChannels = channels;
+                samplingRate = sampleRate;
+                bitDepth = bitsPerSample;
+                fmtFound = true;
+                
+                // Skip any extra fmt data
+                if (chunkSize > 16)
+                {
+                    file.seekg(chunkSize - 16, std::ios::cur);
+                }
+            }
+            else if (std::strncmp(chunkId, "data", 4) == 0)
+            {
+                dataSize = chunkSize;
+                // Skip the data chunk content
+                file.seekg(chunkSize, std::ios::cur);
+            }
+            else
+            {
+                // Skip unknown chunk
+                file.seekg(chunkSize, std::ios::cur);
+            }
+        }
+
+        if (fmtFound && dataSize > 0)
+        {
+            // Calculate duration: dataSize / (sampleRate * channels * (bitDepth/8))
+            u32 bytesPerSample = (bitDepth / 8) * numChannels;
+            if (bytesPerSample > 0 && samplingRate > 0)
+            {
+                duration = static_cast<double>(dataSize) / (samplingRate * bytesPerSample);
+            }
+            
+            OLO_CORE_TRACE("AudioFileSourceSerializer: WAV analysis complete - {}Hz, {}bit, {} channels, {:.2f}s", 
+                          samplingRate, bitDepth, numChannels, duration);
+            return true;
+        }
+
+        OLO_CORE_WARN("AudioFileSourceSerializer: Failed to find required chunks in WAV file: {}", filePath.string());
+        return false;
     }
 
     //////////////////////////////////////////////////////////////////////////////////
@@ -1718,16 +1890,61 @@ namespace OloEngine
 
     bool MeshSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
-        // TODO: Implement mesh pack serialization
-        OLO_CORE_WARN("MeshSerializer::SerializeToAssetPack not yet implemented");
-        return false;
+        OLO_PROFILE_FUNCTION();
+
+        outInfo.Offset = stream.GetStreamPosition();
+
+        Ref<Mesh> mesh = AssetManager::GetAsset<Mesh>(handle);
+        if (!mesh)
+        {
+            OLO_CORE_ERROR("MeshSerializer: Failed to get Mesh asset for handle {0}", handle);
+            return false;
+        }
+
+        // Serialize mesh properties
+        // For basic Mesh, we store the MeshSource handle and submesh index
+        AssetHandle meshSourceHandle = 0;
+        if (mesh->GetMeshSource())
+        {
+            meshSourceHandle = mesh->GetMeshSource()->GetHandle();
+        }
+        
+        stream.WriteRaw<AssetHandle>(meshSourceHandle);
+        stream.WriteRaw<u32>(mesh->GetSubmeshIndex());
+
+        outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
+        
+        OLO_CORE_TRACE("MeshSerializer: Serialized Mesh to pack - Handle: {0}, MeshSource: {1}, SubmeshIndex: {2}, Size: {3}", 
+                       handle, meshSourceHandle, mesh->GetSubmeshIndex(), outInfo.Size);
+        return true;
     }
 
     Ref<Asset> MeshSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
-        // TODO: Implement mesh pack deserialization
-        OLO_CORE_WARN("MeshSerializer::DeserializeFromAssetPack not yet implemented");
-        return nullptr;
+        OLO_PROFILE_FUNCTION();
+
+        stream.SetStreamPosition(assetInfo.PackedOffset);
+        
+        // Read mesh properties
+        AssetHandle meshSourceHandle;
+        stream.ReadRaw<AssetHandle>(meshSourceHandle);
+        
+        u32 submeshIndex;
+        stream.ReadRaw<u32>(submeshIndex);
+
+        // Create Mesh asset
+        Ref<MeshSource> meshSource = nullptr;
+        if (meshSourceHandle != 0)
+        {
+            meshSource = AssetManager::GetAsset<MeshSource>(meshSourceHandle);
+        }
+
+        Ref<Mesh> mesh = Ref<Mesh>(new Mesh(meshSource, submeshIndex));
+        mesh->SetHandle(assetInfo.Handle);
+
+        OLO_CORE_TRACE("MeshSerializer: Deserialized Mesh from pack - Handle: {0}, MeshSource: {1}, SubmeshIndex: {2}", 
+                       assetInfo.Handle, meshSourceHandle, submeshIndex);
+        return mesh;
     }
 
     //////////////////////////////////////////////////////////////////////////////////

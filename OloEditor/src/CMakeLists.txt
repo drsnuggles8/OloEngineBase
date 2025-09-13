@@ -7,6 +7,8 @@
 		"Panels/ContentBrowserPanel.h"
 		"Panels/SceneHierarchyPanel.cpp"
 		"Panels/SceneHierarchyPanel.h"
+		"Panels/AssetPackBuilderPanel.cpp"
+		"Panels/AssetPackBuilderPanel.h"
 )
 
 file(GLOB_RECURSE GLSL_SOURCE_FILES "../assets/shaders/*.glsl")
