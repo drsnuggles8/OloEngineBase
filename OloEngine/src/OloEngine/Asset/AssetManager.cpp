@@ -9,6 +9,11 @@
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
+#include "OloEngine/Renderer/MaterialAsset.h"
+#include "OloEngine/Renderer/Mesh.h"
+#include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Scene/Prefab.h"
 
 #include <unordered_map>
 #include <functional>
@@ -35,6 +40,45 @@ namespace OloEngine
         }},
         { AssetType::Font, []() -> Ref<Asset> {
             return Font::GetDefault();
+        }},
+        // TODO: Add EnvironmentMap placeholder when proper default creation is available
+        // { AssetType::EnvMap, []() -> Ref<Asset> {
+        //     // EnvironmentMap creation requires file path or complex setup
+        //     return nullptr;
+        // }},
+        { AssetType::Material, []() -> Ref<Asset> {
+            // Cache the default material to avoid recreating it
+            static Ref<MaterialAsset> s_DefaultMaterial = []() {
+                // Create a default non-transparent material
+                return Ref<MaterialAsset>::Create(false);
+            }();
+            return s_DefaultMaterial;
+        }},
+        { AssetType::Mesh, []() -> Ref<Asset> {
+            // Cache the unit cube mesh to avoid recreating it
+            static Ref<Mesh> s_UnitCube = []() {
+                return MeshPrimitives::CreateCube();
+            }();
+            return s_UnitCube;
+        }},
+        { AssetType::StaticMesh, []() -> Ref<Asset> {
+            // Cache the unit cube mesh to avoid recreating it
+            static Ref<Mesh> s_UnitCube = []() {
+                return MeshPrimitives::CreateCube();
+            }();
+            return s_UnitCube;
+        }},
+        { AssetType::Scene, []() -> Ref<Asset> {
+            // Create a new empty scene each time (scenes are typically not shared)
+            return Scene::Create();
+        }},
+        { AssetType::Prefab, []() -> Ref<Asset> {
+            // Create a new empty prefab each time
+            return Ref<Prefab>::Create();
+        }},
+        { AssetType::Audio, []() -> Ref<Asset> {
+            // Create a default silent audio file placeholder
+            return Ref<AudioFile>::Create();
         }},
         // Add more placeholder types as needed
     };
