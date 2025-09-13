@@ -12,6 +12,7 @@
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Core/Events/EditorEvents.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "OloEngine/Asset/AssetManager.h"
 
 #include <imgui.h>
 #include <ImGuizmo.h>
@@ -71,6 +72,9 @@ namespace OloEngine
 	void EditorLayer::OnUpdate(Timestep const ts)
 	{
 		OLO_PROFILE_FUNCTION();
+
+		// Sync with async asset loading thread
+		AssetManager::SyncWithAssetThread();
 
 		m_ActiveScene->OnViewportResize(static_cast<u32>(m_ViewportSize.x), static_cast<u32>(m_ViewportSize.y));
 

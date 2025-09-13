@@ -256,6 +256,9 @@ namespace OloEngine
 
         // Update dependencies
         UpdateDependencies(assetHandle);
+        
+        // Notify dependent assets that this asset has been updated
+        UpdateDependents(assetHandle);
 
         // Notify listeners via engine event system (on main thread)
         {
@@ -419,18 +422,33 @@ namespace OloEngine
     void EditorAssetManager::RegisterDependency(AssetHandle handle, AssetHandle dependency)
     {
         std::unique_lock<std::shared_mutex> lock(m_DependenciesMutex);
-        m_AssetDependencies[dependency].insert(handle);
+        
+        if (dependency != 0)
+        {
+            OLO_CORE_ASSERT(handle != 0, "Cannot register dependency for invalid asset handle");
+            // Asset 'handle' depends on 'dependency'
+            m_AssetDependencies[handle].insert(dependency);
+            // Asset 'dependency' is depended on by 'handle'
+            m_AssetDependents[dependency].insert(handle);
+            return;
+        }
+
+        // Otherwise just make sure there is an entry in m_AssetDependencies for handle
+        if (m_AssetDependencies.find(handle) == m_AssetDependencies.end())
+        {
+            m_AssetDependencies[handle] = {};
+        }
     }
 
     void EditorAssetManager::DeregisterDependency(AssetHandle handle, AssetHandle dependency)
     {
         std::unique_lock<std::shared_mutex> lock(m_DependenciesMutex);
-        auto it = m_AssetDependencies.find(dependency);
-        if (it != m_AssetDependencies.end())
+        if (dependency != 0)
         {
-            it->second.erase(handle);
-            if (it->second.empty())
-                m_AssetDependencies.erase(it);
+            // Remove 'dependency' from what 'handle' depends on
+            m_AssetDependencies[handle].erase(dependency);
+            // Remove 'handle' from what depends on 'dependency'
+            m_AssetDependents[dependency].erase(handle);
         }
     }
 
@@ -438,18 +456,48 @@ namespace OloEngine
     {
         std::unique_lock<std::shared_mutex> lock(m_DependenciesMutex);
         
-        // Remove this asset from all dependency lists
-        for (auto it = m_AssetDependencies.begin(); it != m_AssetDependencies.end();)
+        // Find all dependencies this asset has
+        if (auto it = m_AssetDependencies.find(handle); it != m_AssetDependencies.end())
         {
-            it->second.erase(handle);
-            if (it->second.empty())
-                it = m_AssetDependencies.erase(it);
-            else
-                ++it;
+            // For each dependency, remove this asset from its dependents list
+            for (AssetHandle dependency : it->second)
+            {
+                m_AssetDependents[dependency].erase(handle);
+            }
+            // Remove this asset's dependency list
+            m_AssetDependencies.erase(it);
         }
+        
+        // Also remove this asset from being a dependent of anything
+        // (This handles cases where this asset was incorrectly registered)
+        for (auto& [depHandle, dependents] : m_AssetDependents)
+        {
+            dependents.erase(handle);
+        }
+    }
 
-        // Remove dependencies of this asset
-        m_AssetDependencies.erase(handle);
+    void EditorAssetManager::UpdateDependents(AssetHandle handle)
+    {
+        std::unordered_set<AssetHandle> dependents;
+        {
+            std::shared_lock lock(m_DependenciesMutex);
+            if (auto it = m_AssetDependents.find(handle); it != m_AssetDependents.end())
+                dependents = it->second;
+        }
+        
+        for (AssetHandle dependent : dependents)
+        {
+            if (IsAssetLoaded(dependent))
+            {
+                Ref<Asset> asset = GetAsset(dependent);
+                if (asset)
+                {
+                    OLO_CORE_TRACE("Notifying dependent asset {} of dependency {} update", 
+                                   (u64)dependent, (u64)handle);
+                    asset->OnDependencyUpdated(handle);
+                }
+            }
+        }
     }
 
     std::unordered_set<AssetHandle> EditorAssetManager::GetDependencies(AssetHandle handle) const
@@ -553,8 +601,56 @@ namespace OloEngine
 
     void EditorAssetManager::SyncWithAssetThread() noexcept
     {
-        // In editor mode, we don't have a separate asset thread
-        // This is a no-op for compatibility
+#if OLO_ASYNC_ASSETS
+        if (!m_AssetThread)
+            return;
+
+        OLO_PROFILER_SCOPE("EditorAssetManager::SyncWithAssetThread");
+
+        // Retrieve ready assets from the asset thread
+        std::vector<EditorAssetLoadResponse> freshAssets;
+        if (!m_AssetThread->RetrieveReadyAssets(freshAssets))
+            return; // No new assets
+
+        // Integrate ready assets into the main asset manager
+        {
+            std::unique_lock<std::shared_mutex> lock(m_AssetsMutex);
+            for (const auto& response : freshAssets)
+            {
+                if (response.AssetRef)
+                {
+                    m_LoadedAssets[response.Metadata.Handle] = response.AssetRef;
+                    OLO_CORE_TRACE("SyncWithAssetThread: Integrated asset {} from async load", 
+                                   (u64)response.Metadata.Handle);
+                    
+                    // Update asset status to Ready in registry
+                    {
+                        std::unique_lock<std::shared_mutex> registryLock(m_RegistryMutex);
+                        auto metadata = m_AssetRegistry.GetMetadata(response.Metadata.Handle);
+                        if (metadata.IsValid())
+                        {
+                            metadata.Status = AssetStatus::Ready;
+                            m_AssetRegistry.UpdateMetadata(response.Metadata.Handle, metadata);
+                        }
+                    }
+                    
+                    // TODO: Fire AssetLoadedEvent for listeners
+                }
+            }
+        }
+
+        OLO_CORE_TRACE("SyncWithAssetThread: Integrated {} assets from async loading", freshAssets.size());
+        
+        // Log telemetry information
+        if (freshAssets.size() > 0)
+        {
+            auto [queued, loaded, failed, queueLength] = m_AssetThread->GetTelemetry();
+            OLO_CORE_TRACE("Asset Thread Telemetry - Queued: {}, Loaded: {}, Failed: {}, Queue Length: {}", 
+                           queued, loaded, failed, queueLength);
+        }
+#else
+        // In synchronous mode, this is a no-op
+#endif
     }
 
     Ref<Asset> EditorAssetManager::LoadAssetFromFile(const AssetMetadata& metadata)
@@ -800,6 +896,23 @@ namespace OloEngine
     {
         std::shared_lock lock(m_RegistryMutex);
         return m_AssetRegistry.GetMetadata(handle);
+    }
+
+    void EditorAssetManager::SetMetadata(AssetHandle handle, const AssetMetadata& metadata)
+    {
+        std::unique_lock lock(m_RegistryMutex);
+        m_AssetRegistry.UpdateMetadata(handle, metadata);
+    }
+
+    void EditorAssetManager::SetAssetStatus(AssetHandle handle, AssetStatus status)
+    {
+        std::unique_lock lock(m_RegistryMutex);
+        auto metadata = m_AssetRegistry.GetMetadata(handle);
+        if (metadata.IsValid())
+        {
+            metadata.Status = status;
+            m_AssetRegistry.UpdateMetadata(handle, metadata);
+        }
     }
 
     void EditorAssetManager::ScanDirectoryForAssets(const std::filesystem::path& directory)

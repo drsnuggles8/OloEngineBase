@@ -117,6 +117,13 @@ namespace OloEngine
         void SetMetadata(AssetHandle handle, const AssetMetadata& metadata);
 
         /**
+         * @brief Update asset status (thread-safe)
+         * @param handle Asset handle
+         * @param status New status
+         */
+        void SetAssetStatus(AssetHandle handle, AssetStatus status);
+
+        /**
          * @brief Get asset handle from file path
          * @param filepath File path to look up
          * @return Asset handle or 0 if not found
@@ -302,6 +309,12 @@ namespace OloEngine
          */
         void UpdateDependencies(AssetHandle handle);
 
+        /**
+         * @brief Notify dependent assets when this asset has been updated
+         * @param handle Asset handle that was updated
+         */
+        void UpdateDependents(AssetHandle handle);
+
     private:
         /**
          * @brief Load an asset from file
@@ -341,7 +354,8 @@ namespace OloEngine
         std::unordered_map<AssetHandle, Ref<Asset>> m_MemoryAssets;
         
         // Asset dependencies tracking
-        std::unordered_map<AssetHandle, std::unordered_set<AssetHandle>> m_AssetDependencies;
+        std::unordered_map<AssetHandle, std::unordered_set<AssetHandle>> m_AssetDependencies; // asset handle -> assets that it depends on
+        std::unordered_map<AssetHandle, std::unordered_set<AssetHandle>> m_AssetDependents;   // asset handle -> assets that depend on it
         
         // Async asset loading system
         Ref<EditorAssetSystem> m_AssetThread;
