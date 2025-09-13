@@ -1,10 +1,12 @@
 #include "OloEnginePCH.h"
-#include "AudioFileSerializer.h"
+#include "OloEngine/Asset/AssetSerializer.h"
 
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Debug/Instrumentor.h"
+#include "OloEngine/Core/Base.h"
 
 namespace OloEngine 
 {
@@ -16,14 +18,14 @@ namespace OloEngine
 
     bool AudioFileSourceSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
-        OLO_PROFILE_FUNC();
+        OLO_PROFILE_FUNCTION();
 
         // For AudioFile assets, we create a metadata object based on file analysis
         // TODO: Implement audio file analysis to extract Duration, SamplingRate, BitDepth, NumChannels, FileSize
         // For now, create a basic AudioFile asset
         
-        asset = CreateRef<AudioFile>();
-        asset->Handle = metadata.Handle;
+        asset = Ref<AudioFile>::Create();
+        asset->SetHandle(metadata.Handle);
         
         OLO_CORE_TRACE("AudioFileSourceSerializer: Loaded AudioFile asset {0}", metadata.Handle);
         return true;
@@ -31,7 +33,7 @@ namespace OloEngine
 
     bool AudioFileSourceSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
-        OLO_PROFILE_FUNC();
+        OLO_PROFILE_FUNCTION();
 
         outInfo.Offset = stream.GetStreamPosition();
 
@@ -43,8 +45,8 @@ namespace OloEngine
         }
 
         // Get the file path for this asset
-        auto path = Project::GetEditorAssetManager()->GetFileSystemPath(handle);
-        auto relativePath = std::filesystem::relative(path, Project::GetActiveAssetDirectory());
+        auto path = Project::GetAssetDirectory() / Project::GetAssetManager()->GetAssetMetadata(handle).FilePath;
+        auto relativePath = std::filesystem::relative(path, Project::GetAssetDirectory());
         
         std::string filePath;
         if (relativePath.empty())
@@ -64,7 +66,7 @@ namespace OloEngine
 
     Ref<Asset> AudioFileSourceSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
-        OLO_PROFILE_FUNC();
+        OLO_PROFILE_FUNCTION();
 
         stream.SetStreamPosition(assetInfo.PackedOffset);
         
@@ -73,11 +75,11 @@ namespace OloEngine
 
         // Create AudioFile asset with file path information
         // TODO: In runtime, analyze the audio file to get proper metadata
-        Ref<AudioFile> audioFile = CreateRef<AudioFile>();
-        audioFile->Handle = assetInfo.ID;
+        Ref<AudioFile> audioFile = Ref<AudioFile>::Create();
+        audioFile->SetHandle(assetInfo.Handle);
 
         OLO_CORE_TRACE("AudioFileSourceSerializer: Deserialized AudioFile from pack - Handle: {0}, Path: {1}", 
-                       assetInfo.ID, filePath);
+                       assetInfo.Handle, filePath);
         return audioFile;
     }
 }

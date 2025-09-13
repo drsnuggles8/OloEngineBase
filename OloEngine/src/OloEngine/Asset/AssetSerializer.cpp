@@ -6,6 +6,8 @@
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Core/Buffer.h"
+#include "OloEngine/Core/Base.h"
+#include "OloEngine/Debug/Instrumentor.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Renderer/Material.h"
@@ -644,14 +646,14 @@ namespace OloEngine
 
     bool AudioFileSourceSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
-        OLO_PROFILE_FUNC();
+        OLO_PROFILE_FUNCTION();
 
         // For AudioFile assets, we create a metadata object based on file analysis
         // TODO: Implement audio file analysis to extract Duration, SamplingRate, BitDepth, NumChannels, FileSize
         // For now, create a basic AudioFile asset
         
-        asset = CreateRef<AudioFile>();
-        asset->Handle = metadata.Handle;
+        asset = Ref<AudioFile>::Create();
+        asset->SetHandle(metadata.Handle);
         
         OLO_CORE_TRACE("AudioFileSourceSerializer: Loaded AudioFile asset {0}", metadata.Handle);
         return true;
@@ -659,7 +661,7 @@ namespace OloEngine
 
     bool AudioFileSourceSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
-        OLO_PROFILE_FUNC();
+        OLO_PROFILE_FUNCTION();
 
         outInfo.Offset = stream.GetStreamPosition();
 
@@ -671,8 +673,8 @@ namespace OloEngine
         }
 
         // Get the file path for this asset
-        auto path = Project::GetEditorAssetManager()->GetFileSystemPath(handle);
-        auto relativePath = std::filesystem::relative(path, Project::GetActiveAssetDirectory());
+        auto path = Project::GetAssetDirectory() / Project::GetAssetManager()->GetAssetMetadata(handle).FilePath;
+        auto relativePath = std::filesystem::relative(path, Project::GetAssetDirectory());
         
         std::string filePath;
         if (relativePath.empty())
@@ -692,7 +694,7 @@ namespace OloEngine
 
     Ref<Asset> AudioFileSourceSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
-        OLO_PROFILE_FUNC();
+        OLO_PROFILE_FUNCTION();
 
         stream.SetStreamPosition(assetInfo.PackedOffset);
         
@@ -701,11 +703,11 @@ namespace OloEngine
 
         // Create AudioFile asset with file path information
         // TODO: In runtime, analyze the audio file to get proper metadata
-        Ref<AudioFile> audioFile = CreateRef<AudioFile>();
-        audioFile->Handle = assetInfo.ID;
+        Ref<AudioFile> audioFile = Ref<AudioFile>::Create();
+        audioFile->SetHandle(assetInfo.Handle);
 
         OLO_CORE_TRACE("AudioFileSourceSerializer: Deserialized AudioFile from pack - Handle: {0}, Path: {1}", 
-                       assetInfo.ID, filePath);
+                       assetInfo.Handle, filePath);
         return audioFile;
     }
 
@@ -1088,13 +1090,9 @@ namespace OloEngine
             return false;
         }
 
-        auto meshCollider = CreateRef<MeshColliderAsset>();
+        auto meshCollider = Ref<MeshColliderAsset>::Create();
         
         // Use the YAML deserializer to load the data
-        std::ifstream file(path);
-        std::stringstream strStream;
-        strStream << file.rdbuf();
-        
         bool success = DeserializeFromYAML(strStream.str(), meshCollider);
         if (!success)
         {
@@ -1102,7 +1100,7 @@ namespace OloEngine
             return false;
         }
 
-        meshCollider->Handle = metadata.Handle;
+        meshCollider->SetHandle(metadata.Handle);
         asset = meshCollider;
         
         OLO_CORE_TRACE("MeshColliderSerializer::TryLoadData - Successfully loaded mesh collider: {}", path.string());
@@ -1111,7 +1109,7 @@ namespace OloEngine
 
     bool MeshColliderSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
-        OLO_PROFILE_FUNC();
+        OLO_PROFILE_FUNCTION();
 
         Ref<MeshColliderAsset> meshCollider = AssetManager::GetAsset<MeshColliderAsset>(handle);
         if (!meshCollider)
@@ -1132,24 +1130,24 @@ namespace OloEngine
 
     Ref<Asset> MeshColliderSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
-        OLO_PROFILE_FUNC();
+        OLO_PROFILE_FUNCTION();
 
         stream.SetStreamPosition(assetInfo.PackedOffset);
         
         std::string yamlString;
         stream.ReadString(yamlString);
 
-        Ref<MeshColliderAsset> meshCollider = CreateRef<MeshColliderAsset>();
+        Ref<MeshColliderAsset> meshCollider = Ref<MeshColliderAsset>::Create();
         bool success = DeserializeFromYAML(yamlString, meshCollider);
         
         if (!success)
         {
-            OLO_CORE_ERROR("MeshColliderSerializer: Failed to deserialize MeshCollider from YAML - Handle: {0}", assetInfo.ID);
+            OLO_CORE_ERROR("MeshColliderSerializer: Failed to deserialize MeshCollider from YAML - Handle: {0}", assetInfo.Handle);
             return nullptr;
         }
 
-        meshCollider->Handle = assetInfo.ID;
-        OLO_CORE_TRACE("MeshColliderSerializer: Deserialized MeshCollider from pack - Handle: {0}", assetInfo.ID);
+        meshCollider->SetHandle(assetInfo.Handle);
+        OLO_CORE_TRACE("MeshColliderSerializer: Deserialized MeshCollider from pack - Handle: {0}", assetInfo.Handle);
         return meshCollider;
     }
 
@@ -1162,31 +1160,29 @@ namespace OloEngine
         out << YAML::BeginMap; // Asset Data
         
         // Serialize ColliderMesh asset reference
-        out << YAML::Key << "ColliderMesh" << YAML::Value << meshCollider->GetColliderMesh();
+        out << YAML::Key << "ColliderMesh" << YAML::Value << meshCollider->ColliderMesh;
         
         // Serialize Material properties
         out << YAML::Key << "Material" << YAML::Value;
         out << YAML::BeginMap; // Material
-        out << YAML::Key << "Friction" << YAML::Value << meshCollider->GetMaterial().Friction;
-        out << YAML::Key << "Restitution" << YAML::Value << meshCollider->GetMaterial().Restitution;
+        out << YAML::Key << "Friction" << YAML::Value << meshCollider->Material.Friction;
+        out << YAML::Key << "Restitution" << YAML::Value << meshCollider->Material.Restitution;
         out << YAML::EndMap; // Material
         
         // Serialize other properties
-        out << YAML::Key << "IsKinematicControl" << YAML::Value << meshCollider->GetIsKinematicControl();
-        out << YAML::Key << "IsTrigger" << YAML::Value << meshCollider->GetIsTrigger();
-        out << YAML::Key << "UseSharedShape" << YAML::Value << meshCollider->GetUseSharedShape();
-        out << YAML::Key << "OverrideMaterial" << YAML::Value << meshCollider->GetOverrideMaterial();
-        out << YAML::Key << "IsConvex" << YAML::Value << meshCollider->GetIsConvex();
-        
-        // Serialize vertex welding properties
-        out << YAML::Key << "VertexWeldThreshold" << YAML::Value << meshCollider->GetVertexWeldThreshold();
-        out << YAML::Key << "AreaWeldThreshold" << YAML::Value << meshCollider->GetAreaWeldThreshold();
+        out << YAML::Key << "EnableVertexWelding" << YAML::Value << meshCollider->EnableVertexWelding;
+        out << YAML::Key << "VertexWeldTolerance" << YAML::Value << meshCollider->VertexWeldTolerance;
+        out << YAML::Key << "FlipNormals" << YAML::Value << meshCollider->FlipNormals;
+        out << YAML::Key << "CheckZeroAreaTriangles" << YAML::Value << meshCollider->CheckZeroAreaTriangles;
+        out << YAML::Key << "AreaTestEpsilon" << YAML::Value << meshCollider->AreaTestEpsilon;
+        out << YAML::Key << "ShiftVerticesToOrigin" << YAML::Value << meshCollider->ShiftVerticesToOrigin;
+        out << YAML::Key << "AlwaysShareShape" << YAML::Value << meshCollider->AlwaysShareShape;
         
         // Serialize collision complexity
-        out << YAML::Key << "CollisionComplexity" << YAML::Value << (int)meshCollider->GetCollisionComplexity();
+        out << YAML::Key << "CollisionComplexity" << YAML::Value << (int)meshCollider->CollisionComplexity;
         
         // Serialize scale
-        out << YAML::Key << "Scale" << YAML::Value << meshCollider->GetScale();
+        out << YAML::Key << "ColliderScale" << YAML::Value << meshCollider->ColliderScale;
         
         out << YAML::EndMap; // Asset Data
         out << YAML::EndMap; // MeshCollider
@@ -1209,7 +1205,7 @@ namespace OloEngine
             
             // Deserialize ColliderMesh asset reference
             if (meshColliderNode["ColliderMesh"])
-                targetMeshCollider->SetColliderMesh(meshColliderNode["ColliderMesh"].as<AssetHandle>());
+                targetMeshCollider->ColliderMesh = meshColliderNode["ColliderMesh"].as<AssetHandle>();
             
             // Deserialize Material properties
             if (meshColliderNode["Material"])
@@ -1218,34 +1214,32 @@ namespace OloEngine
                 ColliderMaterial material;
                 material.Friction = materialNode["Friction"].as<float>(0.5f);
                 material.Restitution = materialNode["Restitution"].as<float>(0.15f);
-                targetMeshCollider->SetMaterial(material);
+                targetMeshCollider->Material = material;
             }
             
             // Deserialize other properties
-            if (meshColliderNode["IsKinematicControl"])
-                targetMeshCollider->SetIsKinematicControl(meshColliderNode["IsKinematicControl"].as<bool>());
-            if (meshColliderNode["IsTrigger"])
-                targetMeshCollider->SetIsTrigger(meshColliderNode["IsTrigger"].as<bool>());
-            if (meshColliderNode["UseSharedShape"])
-                targetMeshCollider->SetUseSharedShape(meshColliderNode["UseSharedShape"].as<bool>());
-            if (meshColliderNode["OverrideMaterial"])
-                targetMeshCollider->SetOverrideMaterial(meshColliderNode["OverrideMaterial"].as<bool>());
-            if (meshColliderNode["IsConvex"])
-                targetMeshCollider->SetIsConvex(meshColliderNode["IsConvex"].as<bool>());
-            
-            // Deserialize vertex welding properties
-            if (meshColliderNode["VertexWeldThreshold"])
-                targetMeshCollider->SetVertexWeldThreshold(meshColliderNode["VertexWeldThreshold"].as<float>());
-            if (meshColliderNode["AreaWeldThreshold"])
-                targetMeshCollider->SetAreaWeldThreshold(meshColliderNode["AreaWeldThreshold"].as<float>());
+            if (meshColliderNode["EnableVertexWelding"])
+                targetMeshCollider->EnableVertexWelding = meshColliderNode["EnableVertexWelding"].as<bool>();
+            if (meshColliderNode["VertexWeldTolerance"])
+                targetMeshCollider->VertexWeldTolerance = meshColliderNode["VertexWeldTolerance"].as<float>();
+            if (meshColliderNode["FlipNormals"])
+                targetMeshCollider->FlipNormals = meshColliderNode["FlipNormals"].as<bool>();
+            if (meshColliderNode["CheckZeroAreaTriangles"])
+                targetMeshCollider->CheckZeroAreaTriangles = meshColliderNode["CheckZeroAreaTriangles"].as<bool>();
+            if (meshColliderNode["AreaTestEpsilon"])
+                targetMeshCollider->AreaTestEpsilon = meshColliderNode["AreaTestEpsilon"].as<float>();
+            if (meshColliderNode["ShiftVerticesToOrigin"])
+                targetMeshCollider->ShiftVerticesToOrigin = meshColliderNode["ShiftVerticesToOrigin"].as<bool>();
+            if (meshColliderNode["AlwaysShareShape"])
+                targetMeshCollider->AlwaysShareShape = meshColliderNode["AlwaysShareShape"].as<bool>();
             
             // Deserialize collision complexity
             if (meshColliderNode["CollisionComplexity"])
-                targetMeshCollider->SetCollisionComplexity((ECollisionComplexity)meshColliderNode["CollisionComplexity"].as<int>());
+                targetMeshCollider->CollisionComplexity = (ECollisionComplexity)meshColliderNode["CollisionComplexity"].as<int>();
             
             // Deserialize scale
-            if (meshColliderNode["Scale"])
-                targetMeshCollider->SetScale(meshColliderNode["Scale"].as<glm::vec3>());
+            if (meshColliderNode["ColliderScale"])
+                targetMeshCollider->ColliderScale = meshColliderNode["ColliderScale"].as<glm::vec3>();
             
             return true;
         }
@@ -1253,6 +1247,58 @@ namespace OloEngine
         {
             OLO_CORE_ERROR("MeshColliderSerializer: YAML parsing error: {0}", e.what());
             return false;
+        }
+    }
+
+    void MeshColliderSerializer::RegisterDependencies(const AssetMetadata& metadata) const
+    {
+        std::filesystem::path path = Project::GetAssetDirectory() / metadata.FilePath;
+        if (!std::filesystem::exists(path))
+        {
+            OLO_CORE_WARN("MeshColliderSerializer::RegisterDependencies - File does not exist: {}", path.string());
+            return;
+        }
+
+        std::ifstream fin(path);
+        if (!fin.good())
+        {
+            OLO_CORE_WARN("MeshColliderSerializer::RegisterDependencies - Failed to open file: {}", path.string());
+            return;
+        }
+
+        std::stringstream ss;
+        ss << fin.rdbuf();
+        fin.close();
+
+        RegisterDependenciesFromYAML(ss.str(), metadata.Handle);
+    }
+
+    void MeshColliderSerializer::RegisterDependenciesFromYAML(const std::string& yamlString, AssetHandle handle) const
+    {
+        // Deregister existing dependencies first
+        AssetManager::DeregisterDependencies(handle);
+
+        try
+        {
+            YAML::Node root = YAML::Load(yamlString);
+            YAML::Node meshColliderNode = root["MeshCollider"];
+            if (!meshColliderNode)
+                return;
+
+            // Register ColliderMesh dependency
+            if (meshColliderNode["ColliderMesh"])
+            {
+                AssetHandle colliderMeshHandle = meshColliderNode["ColliderMesh"].as<AssetHandle>(0);
+                if (colliderMeshHandle != 0)
+                {
+                    AssetManager::RegisterDependency(colliderMeshHandle, handle);
+                    OLO_CORE_TRACE("MeshColliderSerializer: Registered dependency - MeshCollider {0} depends on ColliderMesh {1}", handle, colliderMeshHandle);
+                }
+            }
+        }
+        catch (const YAML::Exception& e)
+        {
+            OLO_CORE_ERROR("MeshColliderSerializer::RegisterDependenciesFromYAML - YAML parsing error: {0}", e.what());
         }
     }
 
@@ -1264,12 +1310,12 @@ namespace OloEngine
     
     void ScriptFileSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
-        OLO_PROFILE_FUNC();
+        OLO_PROFILE_FUNCTION();
 
         Ref<ScriptFileAsset> scriptAsset = asset.As<ScriptFileAsset>();
         std::string yamlString = SerializeToYAML(scriptAsset);
 
-        std::ofstream fout(Project::GetEditorAssetManager()->GetFileSystemPath(metadata));
+        std::ofstream fout(Project::GetAssetDirectory() / metadata.FilePath);
         fout << yamlString;
         
         OLO_CORE_TRACE("ScriptFileSerializer: Serialized ScriptFile to YAML - Handle: {0}", metadata.Handle);
@@ -1277,9 +1323,9 @@ namespace OloEngine
 
     bool ScriptFileSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
-        OLO_PROFILE_FUNC();
+        OLO_PROFILE_FUNCTION();
 
-        auto path = Project::GetEditorAssetManager()->GetFileSystemPath(metadata);
+        auto path = Project::GetAssetDirectory() / metadata.FilePath;
         
         if (!std::filesystem::exists(path))
         {
@@ -1297,7 +1343,7 @@ namespace OloEngine
         std::stringstream strStream;
         strStream << file.rdbuf();
         
-        Ref<ScriptFileAsset> scriptAsset = CreateRef<ScriptFileAsset>();
+        Ref<ScriptFileAsset> scriptAsset = Ref<ScriptFileAsset>::Create();
         bool success = DeserializeFromYAML(strStream.str(), scriptAsset);
         
         if (!success)
@@ -1306,7 +1352,7 @@ namespace OloEngine
             return false;
         }
 
-        scriptAsset->Handle = metadata.Handle;
+        scriptAsset->SetHandle(metadata.Handle);
         asset = scriptAsset;
         
         OLO_CORE_TRACE("ScriptFileSerializer::TryLoadData - Successfully loaded script file: {}", path.string());
@@ -1315,7 +1361,7 @@ namespace OloEngine
 
     bool ScriptFileSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
-        OLO_PROFILE_FUNC();
+        OLO_PROFILE_FUNCTION();
 
         Ref<ScriptFileAsset> scriptAsset = AssetManager::GetAsset<ScriptFileAsset>(handle);
         if (!scriptAsset)
@@ -1336,24 +1382,24 @@ namespace OloEngine
 
     Ref<Asset> ScriptFileSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
-        OLO_PROFILE_FUNC();
+        OLO_PROFILE_FUNCTION();
 
         stream.SetStreamPosition(assetInfo.PackedOffset);
         
         std::string yamlString;
         stream.ReadString(yamlString);
 
-        Ref<ScriptFileAsset> scriptAsset = CreateRef<ScriptFileAsset>();
+        Ref<ScriptFileAsset> scriptAsset = Ref<ScriptFileAsset>::Create();
         bool success = DeserializeFromYAML(yamlString, scriptAsset);
         
         if (!success)
         {
-            OLO_CORE_ERROR("ScriptFileSerializer: Failed to deserialize ScriptFile from YAML - Handle: {0}", assetInfo.ID);
+            OLO_CORE_ERROR("ScriptFileSerializer: Failed to deserialize ScriptFile from YAML - Handle: {0}", assetInfo.Handle);
             return nullptr;
         }
 
-        scriptAsset->Handle = assetInfo.ID;
-        OLO_CORE_TRACE("ScriptFileSerializer: Deserialized ScriptFile from pack - Handle: {0}", assetInfo.ID);
+        scriptAsset->SetHandle(assetInfo.Handle);
+        OLO_CORE_TRACE("ScriptFileSerializer: Deserialized ScriptFile from pack - Handle: {0}", assetInfo.Handle);
         return scriptAsset;
     }
 
@@ -1424,7 +1470,7 @@ namespace OloEngine
         //     return false;
         // }
         // 
-        // meshSource->Handle = metadata.Handle;
+        // meshSource->SetHandle(metadata.Handle);
         // asset = meshSource;
         // 
         // OLO_CORE_TRACE("MeshSourceSerializer::TryLoadData - Successfully loaded mesh source: {} ({} submeshes)", 
@@ -1620,24 +1666,54 @@ namespace OloEngine
 
     void MeshSerializer::RegisterDependencies(const AssetMetadata& metadata) const
     {
-        // TODO: Implement dependency registration when mesh materials are supported
-        // // Load the mesh temporarily to extract material dependencies
-        // Ref<Asset> asset;
-        // if (TryLoadData(metadata, asset))
-        // {
-        //     auto mesh = asset.As<Mesh>();
-        //     if (mesh)
-        //     {
-        //         for (const auto& material : mesh->GetMaterials())
-        //         {
-        //             if (material && material->Handle != 0)
-        //             {
-        //                 Project::GetAssetManager()->RegisterDependency(material->Handle, metadata.Handle);
-        //             }
-        //         }
-        //     }
-        // }
-        OLO_CORE_WARN("MeshSerializer::RegisterDependencies - Not implemented yet");
+        // For StaticMesh, register material dependencies from MaterialTable
+        // Note: Regular Mesh assets don't currently have material dependencies in OloEngine
+        // This is mainly for StaticMesh assets that have MaterialTable
+        if (metadata.Type == AssetType::StaticMesh)
+        {
+            Ref<Asset> asset;
+            if (TryLoadData(metadata, asset))
+            {
+                auto staticMesh = asset.As<StaticMesh>();
+                if (staticMesh)
+                {
+                    AssetManager::DeregisterDependencies(metadata.Handle);
+                    
+                    // Register MeshSource dependency
+                    AssetHandle meshSourceHandle = staticMesh->GetMeshSource();
+                    if (meshSourceHandle != 0)
+                    {
+                        AssetManager::RegisterDependency(meshSourceHandle, metadata.Handle);
+                        OLO_CORE_TRACE("MeshSerializer: Registered MeshSource dependency - StaticMesh {0} depends on MeshSource {1}", metadata.Handle, meshSourceHandle);
+                    }
+                    
+                    // Register material dependencies
+                    auto materialTable = staticMesh->GetMaterials();
+                    if (materialTable)
+                    {
+                        const auto& materials = materialTable->GetMaterials();
+                        for (const auto& [index, materialHandle] : materials)
+                        {
+                            if (materialHandle != 0)
+                            {
+                                AssetManager::RegisterDependency(materialHandle, metadata.Handle);
+                                OLO_CORE_TRACE("MeshSerializer: Registered material dependency - StaticMesh {0} depends on Material {1} at index {2}", metadata.Handle, materialHandle, index);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        else if (metadata.Type == AssetType::Mesh)
+        {
+            // Regular Mesh assets in OloEngine don't currently have material dependencies
+            // They only reference the MeshSource, which is handled by the asset loading system
+            OLO_CORE_TRACE("MeshSerializer::RegisterDependencies - Mesh assets don't have material dependencies in current implementation");
+        }
+        else
+        {
+            OLO_CORE_WARN("MeshSerializer::RegisterDependencies - Unexpected asset type: {}", (int)metadata.Type);
+        }
     }
 
     bool MeshSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
@@ -1795,6 +1871,9 @@ namespace OloEngine
 
         try
         {
+            // Deregister existing dependencies first
+            AssetManager::DeregisterDependencies(metadata.Handle);
+            
             YAML::Node yamlData = YAML::LoadFile(path.string());
             
             if (!yamlData["StaticMesh"])
@@ -1809,7 +1888,29 @@ namespace OloEngine
             AssetHandle meshSourceHandle = meshNode["MeshSource"].as<u64>(0);
             if (meshSourceHandle != 0)
             {
-                Project::GetAssetManager()->RegisterDependency(metadata.Handle, meshSourceHandle);
+                AssetManager::RegisterDependency(meshSourceHandle, metadata.Handle);
+                OLO_CORE_TRACE("StaticMeshSerializer: Registered MeshSource dependency - StaticMesh {0} depends on MeshSource {1}", metadata.Handle, meshSourceHandle);
+            }
+            
+            // Register material dependencies from MaterialTable
+            if (meshNode["MaterialTable"])
+            {
+                YAML::Node materialTable = meshNode["MaterialTable"];
+                
+                if (materialTable["Materials"] && materialTable["Materials"].IsMap())
+                {
+                    for (const auto& materialEntry : materialTable["Materials"])
+                    {
+                        u32 materialIndex = materialEntry.first.as<u32>();
+                        AssetHandle materialHandle = materialEntry.second.as<AssetHandle>(0);
+                        
+                        if (materialHandle != 0)
+                        {
+                            AssetManager::RegisterDependency(materialHandle, metadata.Handle);
+                            OLO_CORE_TRACE("StaticMeshSerializer: Registered material dependency - StaticMesh {0} depends on Material {1} at index {2}", metadata.Handle, materialHandle, materialIndex);
+                        }
+                    }
+                }
             }
         }
         catch (const YAML::Exception& e)
