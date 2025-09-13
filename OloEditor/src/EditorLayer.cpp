@@ -10,6 +10,8 @@
 #include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Utils/PlatformUtils.h"
+#include "OloEngine/Core/Events/EditorEvents.h"
+#include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 
 #include <imgui.h>
 #include <ImGuizmo.h>
@@ -560,6 +562,7 @@ namespace OloEngine
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<KeyPressedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
 		dispatcher.Dispatch<MouseButtonPressedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnMouseButtonPressed));
+		dispatcher.Dispatch<AssetReloadedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnAssetReloaded));
 	}
 
 	bool EditorLayer::OnKeyPressed(KeyPressedEvent const& e)
@@ -809,6 +812,11 @@ namespace OloEngine
 	{
 		if (Project::Load(path))
 		{
+			// Create and initialize EditorAssetManager for the project
+			auto editorAssetManager = Ref<EditorAssetManager>::Create();
+			editorAssetManager->Initialize(); // Initialize the asset manager to start file watching
+			Project::SetAssetManager(editorAssetManager);
+			
 			auto startScenePath = Project::GetAssetFileSystemPath(Project::GetActive()->GetConfig().StartScene);
 			OLO_ASSERT(std::filesystem::exists(startScenePath));
 			OpenScene(startScenePath);
@@ -991,6 +999,33 @@ namespace OloEngine
 		{
 			m_EditorScene->DuplicateEntity(selectedEntity);
 		}
+	}
+
+	bool EditorLayer::OnAssetReloaded(AssetReloadedEvent const& e)
+	{
+		OLO_CORE_INFO("🔄 Asset Reloaded Event Received!");
+		OLO_CORE_INFO("   Handle: {}", (u64)e.GetHandle());
+		OLO_CORE_INFO("   Type: {}", (int)e.GetAssetType());
+		OLO_CORE_INFO("   Path: {}", e.GetPath().string());
+		
+		// Here you could add specific handling based on asset type
+		switch (e.GetAssetType())
+		{
+			case AssetType::Texture2D:
+				OLO_CORE_INFO("   → Texture asset reloaded - visual updates may be needed");
+				break;
+			case AssetType::Scene:
+				OLO_CORE_INFO("   → Scene asset reloaded - consider refreshing scene hierarchy");
+				break;
+			case AssetType::Script:
+				OLO_CORE_INFO("   → Script asset reloaded - C# assemblies updated");
+				break;
+			default:
+				OLO_CORE_INFO("   → Asset type {} reloaded", (int)e.GetAssetType());
+				break;
+		}
+		
+		return false; // Don't consume the event, let other listeners handle it too
 	}
 
 }

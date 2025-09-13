@@ -32,7 +32,7 @@ namespace OloEngine
             s_Serializers[AssetType::Material] = CreateScope<MaterialAssetSerializer>();
             s_Serializers[AssetType::EnvMap] = CreateScope<EnvironmentSerializer>();
             s_Serializers[AssetType::Audio] = CreateScope<AudioFileSourceSerializer>();
-            s_Serializers[AssetType::SoundConfig] = CreateScope<SoundConfigSerializer>();
+            // s_Serializers[AssetType::SoundConfig] = CreateScope<SoundConfigSerializer>(); // Disabled - SoundConfig not implemented
             s_Serializers[AssetType::Scene] = CreateScope<SceneAssetSerializer>();
             s_Serializers[AssetType::Font] = CreateScope<FontSerializer>();
             s_Serializers[AssetType::MeshCollider] = CreateScope<MeshColliderSerializer>();

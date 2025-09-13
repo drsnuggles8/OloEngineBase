@@ -1062,7 +1062,7 @@ namespace OloEngine
     // ScriptFileSerializer - DISABLED (ScriptAsset class not implemented)
     //////////////////////////////////////////////////////////////////////////////////
 
-    /*
+    
     void ScriptFileSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         // Implementation commented out - ScriptAsset class not available
@@ -1087,7 +1087,6 @@ namespace OloEngine
         OLO_CORE_WARN("ScriptFileSerializer::DeserializeFromAssetPack - ScriptAsset class not implemented");
         return nullptr;
     }
-    */
 
     //////////////////////////////////////////////////////////////////////////////////
     // MeshSourceSerializer

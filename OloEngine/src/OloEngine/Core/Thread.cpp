@@ -28,8 +28,7 @@ namespace OloEngine {
 
 	ThreadSignal::ThreadSignal(const std::string& name, bool manualReset)
 	{
-		std::wstring str(name.begin(), name.end());
-		m_SignalHandle = CreateEvent(NULL, (BOOL)manualReset, FALSE, str.c_str());
+		m_SignalHandle = CreateEventA(NULL, (BOOL)manualReset, FALSE, name.c_str());
 	}
 
 	void ThreadSignal::Wait()

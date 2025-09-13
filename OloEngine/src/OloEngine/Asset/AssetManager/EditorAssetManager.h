@@ -1,12 +1,14 @@
 #pragma once
 
 #include "AssetManagerBase.h"
+#include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Asset/AssetRegistry.h"
 #include "OloEngine/Asset/AssetImporter.h"
 #include "OloEngine/Asset/AssetSystem/EditorAssetSystem.h"
 #include "OloEngine/Core/Events/EditorEvents.h"
 #include "OloEngine/Core/FileSystem.h"
+#include "OloEngine/Core/Application.h"
 
 #include <shared_mutex>
 #include <filesystem>
@@ -230,7 +232,14 @@ namespace OloEngine
             {
                 OLO_CORE_INFO_TAG("AssetManager", "Replaced asset {}", metadata.FilePath.string());
                 UpdateDependencies(metadata.Handle);
-                // TODO: Dispatch AssetReloadedEvent
+                // Dispatch AssetReloadedEvent on main thread so UI layers can handle it safely
+                auto handle = metadata.Handle;
+                auto type = metadata.Type;
+                auto path = metadata.FilePath;
+                Application::Get().SubmitToMainThread([handle, type, path]() mutable {
+                    AssetReloadedEvent evt(handle, type, path);
+                    Application::Get().OnEvent(evt);
+                });
             }
 
             return asset;
@@ -352,6 +361,9 @@ namespace OloEngine
         
         // Callback for file system events
         void OnFileSystemEvent(const std::string& file, const filewatch::Event change_type);
+        
+        // File watcher thread function
+        void FileWatcherThreadFunction();
 #endif
         
         // Project path for asset scanning

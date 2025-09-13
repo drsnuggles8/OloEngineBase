@@ -9,6 +9,7 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Core/Events/EditorEvents.h"
 
 #include <algorithm>
 #include <future>
@@ -239,6 +240,16 @@ namespace OloEngine
 
         // Update dependencies
         UpdateDependencies(assetHandle);
+
+        // Notify listeners via engine event system (on main thread)
+        {
+            auto type = metadata.Type;
+            auto path = metadata.FilePath;
+            Application::Get().SubmitToMainThread([assetHandle, type, path]() mutable {
+                AssetReloadedEvent evt(assetHandle, type, path);
+                Application::Get().OnEvent(evt);
+            });
+        }
 
         OLO_CORE_INFO("Reloaded asset: {}", metadata.FilePath.string());
         return true;
@@ -759,5 +770,27 @@ namespace OloEngine
         }
     }
 #endif
+
+    AssetMetadata EditorAssetManager::GetMetadata(AssetHandle handle) const
+    {
+        std::shared_lock lock(m_RegistryMutex);
+        return m_AssetRegistry.GetMetadata(handle);
+    }
+
+    bool EditorAssetManager::SerializeAssetRegistry()
+    {
+        try
+        {
+            std::scoped_lock lock(m_RegistryMutex);
+            
+            const std::filesystem::path registryPath = Project::GetAssetRegistryPath();
+            return m_AssetRegistry.Serialize(registryPath);
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("Failed to serialize asset registry: {}", e.what());
+            return false;
+        }
+    }
 
 } // namespace OloEngine

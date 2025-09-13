@@ -16,7 +16,7 @@ namespace OloEngine
     class PhysicsMaterial;
     class Prefab;
     class Scene;
-    struct SoundConfig;
+    // struct SoundConfig;  // Not implemented yet
     class AnimationAsset;
     class AnimationGraphAsset;
 
@@ -98,6 +98,8 @@ namespace OloEngine
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
     };
 
+    // SoundConfig not implemented yet - commented out to avoid compilation errors
+    /*
     class SoundConfigSerializer : public AssetSerializer
     {
     public:
@@ -110,6 +112,7 @@ namespace OloEngine
         std::string SerializeToYAML(Ref<SoundConfig> soundConfig) const;
         bool DeserializeFromYAML(const std::string& yamlString, Ref<SoundConfig> targetSoundConfig) const;
     };
+    */
 
     class PrefabSerializer : public AssetSerializer
     {

@@ -8,6 +8,7 @@
 
 namespace OloEngine
 {
+	class AssetReloadedEvent;
 	class EditorLayer : public Layer
 	{
 	public:
@@ -23,6 +24,7 @@ namespace OloEngine
 	private:
 		bool OnKeyPressed(KeyPressedEvent const& e);
 		bool OnMouseButtonPressed(MouseButtonPressedEvent const& e);
+		bool OnAssetReloaded(AssetReloadedEvent const& e);
 
 		void OnOverlayRender() const;
 

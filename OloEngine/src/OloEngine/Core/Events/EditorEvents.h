@@ -1,6 +1,9 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Events/Event.h"
+#include "OloEngine/Asset/Asset.h"
+#include "OloEngine/Asset/AssetTypes.h"
 #include <string>
 #include <chrono>
 #include <filesystem>
@@ -58,6 +61,40 @@ namespace OloEngine
          * @brief Default constructor
          */
         FileSystemEvent() : Timestamp(std::chrono::system_clock::now()) {}
+    };
+
+    /**
+     * @brief Engine event fired after an asset has been successfully reloaded/replaced
+     *
+     * This integrates with the engine's Event system so editor/runtime layers can
+     * listen for asset changes and react (e.g., refresh inspectors, rebind resources).
+     */
+    class AssetReloadedEvent : public Event
+    {
+    public:
+        AssetReloadedEvent(AssetHandle handle, AssetType type, const std::filesystem::path& path)
+            : m_Handle(handle), m_Type(type), m_Path(path) {}
+
+        // Event API
+        EVENT_CLASS_TYPE(AssetReloaded)
+        EVENT_CLASS_CATEGORY(EventCategory::Application)
+
+        // Payload accessors
+        AssetHandle GetHandle() const { return m_Handle; }
+        AssetType GetAssetType() const { return m_Type; }
+        const std::filesystem::path& GetPath() const { return m_Path; }
+
+        std::string ToString() const override
+        {
+            std::stringstream ss;
+            ss << "AssetReloadedEvent: handle=" << (u64)m_Handle << ", type=" << (int)m_Type << ", path=" << m_Path.string();
+            return ss.str();
+        }
+
+    private:
+        AssetHandle m_Handle = 0;
+        AssetType m_Type = AssetType::None;
+        std::filesystem::path m_Path;
     };
 
 }
