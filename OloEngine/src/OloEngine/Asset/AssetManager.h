@@ -4,6 +4,7 @@
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Asset/AssetTypes.h"
 #include "OloEngine/Asset/AssetManager/AssetManagerBase.h"
+#include "OloEngine/Asset/PlaceholderAsset.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Project/Project.h"
 

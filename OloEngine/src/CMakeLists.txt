@@ -36,6 +36,8 @@
 		"OloEngine/Asset/AssetSystem/RuntimeAssetSystem.cpp"
 		"OloEngine/Asset/AssetSerializer.h"
 		"OloEngine/Asset/AssetSerializer.cpp"
+		"OloEngine/Asset/PlaceholderAsset.h"
+		"OloEngine/Asset/PlaceholderAsset.cpp"
 		"OloEngine/Asset/AssetPack.h"
 		"OloEngine/Asset/AssetPack.cpp"
 		"OloEngine/Asset/AssetPackBuilder.h"

@@ -28,6 +28,7 @@ namespace OloEngine
 #endif
 
         AssetImporter::Init();
+        PlaceholderAssetManager::Initialize();
         OLO_CORE_INFO("Initializing EditorAssetManager");
     }
 
@@ -146,6 +147,7 @@ namespace OloEngine
         }
         
         AssetImporter::Shutdown();
+        PlaceholderAssetManager::Shutdown();
     }
 
     AssetType EditorAssetManager::GetAssetType(AssetHandle assetHandle) const noexcept
@@ -228,6 +230,7 @@ namespace OloEngine
         if (!asset)
         {
             OLO_CORE_ERROR("Failed to reload asset: {}", metadata.FilePath.string());
+            SetAssetStatus(assetHandle, AssetStatus::Failed);
             return false;
         }
 
@@ -618,13 +621,13 @@ namespace OloEngine
                     OLO_CORE_TRACE("SyncWithAssetThread: Integrated asset {} from async load", 
                                    (u64)response.Metadata.Handle);
                     
-                    // Update asset status to Ready in registry
+                    // Update asset status to Loaded in registry
                     {
                         std::unique_lock<std::shared_mutex> registryLock(m_RegistryMutex);
                         auto metadata = m_AssetRegistry.GetMetadata(response.Metadata.Handle);
                         if (metadata.IsValid())
                         {
-                            metadata.Status = AssetStatus::Ready;
+                            metadata.Status = AssetStatus::Loaded;
                             m_AssetRegistry.UpdateMetadata(response.Metadata.Handle, metadata);
                         }
                     }
@@ -655,22 +658,32 @@ namespace OloEngine
         if (!metadata.IsValid())
         {
             OLO_CORE_ERROR("Cannot load asset: invalid metadata");
-            return nullptr;
+            SetAssetStatus(metadata.Handle, AssetStatus::Invalid);
+            return AssetManager::GetPlaceholderAsset(metadata.Type);
         }
 
-        if (!std::filesystem::exists(metadata.FilePath))
+        auto absolutePath = m_ProjectPath / metadata.FilePath;
+        if (!std::filesystem::exists(absolutePath))
         {
             OLO_CORE_ERROR("Cannot load asset: file does not exist: {}", metadata.FilePath.string());
-            return nullptr;
+            SetAssetStatus(metadata.Handle, AssetStatus::Missing);
+            return AssetManager::GetPlaceholderAsset(metadata.Type);
         }
+
+        // Set loading status
+        SetAssetStatus(metadata.Handle, AssetStatus::Loading);
 
         // Load asset using importer
         Ref<Asset> asset;
         if (!AssetImporter::TryLoadData(metadata, asset))
         {
             OLO_CORE_ERROR("Failed to load asset: {}", metadata.FilePath.string());
-            return nullptr;
+            SetAssetStatus(metadata.Handle, AssetStatus::Failed);
+            return AssetManager::GetPlaceholderAsset(metadata.Type);
         }
+
+        // Successfully loaded
+        SetAssetStatus(metadata.Handle, AssetStatus::Loaded);
 
         // Cache the loaded asset
         {
