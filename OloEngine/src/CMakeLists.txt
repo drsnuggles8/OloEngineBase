@@ -38,6 +38,8 @@
 		"OloEngine/Asset/AssetSerializer.cpp"
 		"OloEngine/Asset/AssetPack.h"
 		"OloEngine/Asset/AssetPack.cpp"
+		"OloEngine/Asset/AssetPackBuilder.h"
+		"OloEngine/Asset/AssetPackBuilder.cpp"
 		"OloEngine/Asset/MeshColliderAsset.h"
 		"OloEngine/Asset/Serializers/MaterialSerializer.h"
 		"OloEngine/Asset/Serializers/MaterialSerializer.cpp"

@@ -13,11 +13,14 @@
 #include "OloEngine/Core/Events/EditorEvents.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Asset/AssetPackBuilder.h"
 
 #include <imgui.h>
 #include <ImGuizmo.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+
+#include <thread>
 
 namespace OloEngine
 {
@@ -287,6 +290,16 @@ namespace OloEngine
 				OLO_INFO("Reloading shaders...");
 				Renderer2D::GetShaderLibrary().ReloadShaders();
 				OLO_INFO("Shaders reloaded!");
+			}
+
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("Build"))
+		{
+			if (ImGui::MenuItem("Build Asset Pack..."))
+			{
+				BuildAssetPack();
 			}
 
 			ImGui::EndMenu();
@@ -1030,6 +1043,43 @@ namespace OloEngine
 		}
 		
 		return false; // Don't consume the event, let other listeners handle it too
+	}
+
+	void EditorLayer::BuildAssetPack()
+	{
+		OLO_CORE_INFO("Building Asset Pack...");
+
+		// Configure build settings
+		AssetPackBuilder::BuildSettings settings;
+		settings.OutputPath = "Assets/AssetPack.olopack";
+		settings.CompressAssets = true;
+		settings.IncludeScriptModule = true;
+		settings.ValidateAssets = true;
+
+		// Start async build task
+		static std::atomic<float> buildProgress = 0.0f;
+		buildProgress = 0.0f;
+
+		// Run build in a separate thread to avoid blocking the UI
+		std::thread buildThread([settings]() {
+			auto result = AssetPackBuilder::BuildFromActiveProject(settings, buildProgress);
+			
+			if (result.Success)
+			{
+				OLO_CORE_INFO("Asset Pack built successfully!");
+				OLO_CORE_INFO("  Output: {}", result.OutputPath.string());
+				OLO_CORE_INFO("  Assets: {}", result.AssetCount);
+				OLO_CORE_INFO("  Scenes: {}", result.SceneCount);
+			}
+			else
+			{
+				OLO_CORE_ERROR("Asset Pack build failed: {}", result.ErrorMessage);
+			}
+		});
+
+		buildThread.detach(); // Let it run in background
+
+		OLO_CORE_INFO("Asset Pack build started in background thread...");
 	}
 
 }

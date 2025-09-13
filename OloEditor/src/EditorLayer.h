@@ -48,6 +48,9 @@ namespace OloEngine
 
 		void OnDuplicateEntity();
 
+		// Asset Pack Building
+		void BuildAssetPack();
+
 		// UI Panels
 		void UI_MenuBar();
 		void UI_Toolbar();
