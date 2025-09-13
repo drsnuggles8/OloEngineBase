@@ -21,6 +21,8 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Animation/AnimationAsset.h"
+#include "OloEngine/Asset/MeshColliderAsset.h"
+#include "OloEngine/Physics/ColliderMaterial.h"
 #include "OloEngine/Core/YAMLConverters.h"
 #include <yaml-cpp/yaml.h>
 #include <fstream>
@@ -577,16 +579,57 @@ namespace OloEngine
 
     bool EnvironmentSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
-        // TODO: Implement environment pack serialization
-        OLO_CORE_WARN("EnvironmentSerializer::SerializeToAssetPack not yet implemented");
-        return false;
+        outInfo.Offset = stream.GetStreamPosition();
+
+        Ref<EnvironmentMap> environment = AssetManager::GetAsset<EnvironmentMap>(handle);
+        if (!environment)
+        {
+            OLO_CORE_ERROR("EnvironmentSerializer::SerializeToAssetPack - Failed to get environment asset");
+            return false;
+        }
+
+        // For now, serialize the file path from specification
+        const std::string& filePath = environment->GetSpecification().FilePath;
+        stream.WriteString(filePath);
+
+        // TODO: Serialize the actual texture data using a TextureRuntimeSerializer
+        // For future enhancement: serialize the cubemap textures directly
+        // uint64_t size = TextureRuntimeSerializer::SerializeToFile(environment->GetEnvironmentMap(), stream);
+        // size += TextureRuntimeSerializer::SerializeToFile(environment->GetIrradianceMap(), stream);
+
+        outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
+        OLO_CORE_TRACE("EnvironmentSerializer::SerializeToAssetPack - Serialized environment: {}", filePath);
+        return true;
     }
 
     Ref<Asset> EnvironmentSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
-        // TODO: Implement environment pack deserialization
-        OLO_CORE_WARN("EnvironmentSerializer::DeserializeFromAssetPack not yet implemented");
-        return nullptr;
+        stream.SetStreamPosition(assetInfo.PackedOffset);
+        
+        std::string filePath;
+        stream.ReadString(filePath);
+
+        // Create environment map from the file path
+        EnvironmentMapSpecification spec;
+        spec.FilePath = filePath;
+        spec.GenerateIBL = true;
+        spec.GenerateMipmaps = true;
+        
+        auto environment = EnvironmentMap::Create(spec);
+        if (!environment)
+        {
+            OLO_CORE_ERROR("EnvironmentSerializer::DeserializeFromAssetPack - Failed to create environment from: {}", filePath);
+            return nullptr;
+        }
+
+        // TODO: Deserialize the actual texture data using a TextureRuntimeSerializer
+        // For future enhancement: deserialize the cubemap textures directly
+        // Ref<TextureCube> radianceMap = TextureRuntimeSerializer::DeserializeTextureCube(stream);
+        // Ref<TextureCube> irradianceMap = TextureRuntimeSerializer::DeserializeTextureCube(stream);
+        // return Ref<EnvironmentMap>::Create(radianceMap, irradianceMap);
+
+        OLO_CORE_TRACE("EnvironmentSerializer::DeserializeFromAssetPack - Deserialized environment: {}", filePath);
+        return environment;
     }
 
     //////////////////////////////////////////////////////////////////////////////////
@@ -595,29 +638,75 @@ namespace OloEngine
 
     void AudioFileSourceSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
-        // TODO: Implement audio serialization
-        OLO_CORE_WARN("AudioFileSourceSerializer::Serialize not yet implemented");
+        // AudioFile assets don't require explicit serialization to file
+        // as they're loaded based on metadata analysis of the source file
     }
 
     bool AudioFileSourceSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
-        // TODO: Implement audio loading
-        OLO_CORE_WARN("AudioFileSourceSerializer::TryLoadData not yet implemented");
-        return false;
+        OLO_PROFILE_FUNC();
+
+        // For AudioFile assets, we create a metadata object based on file analysis
+        // TODO: Implement audio file analysis to extract Duration, SamplingRate, BitDepth, NumChannels, FileSize
+        // For now, create a basic AudioFile asset
+        
+        asset = CreateRef<AudioFile>();
+        asset->Handle = metadata.Handle;
+        
+        OLO_CORE_TRACE("AudioFileSourceSerializer: Loaded AudioFile asset {0}", metadata.Handle);
+        return true;
     }
 
     bool AudioFileSourceSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
-        // TODO: Implement audio pack serialization
-        OLO_CORE_WARN("AudioFileSourceSerializer::SerializeToAssetPack not yet implemented");
-        return false;
+        OLO_PROFILE_FUNC();
+
+        outInfo.Offset = stream.GetStreamPosition();
+
+        Ref<AudioFile> audioFile = AssetManager::GetAsset<AudioFile>(handle);
+        if (!audioFile)
+        {
+            OLO_CORE_ERROR("AudioFileSourceSerializer: Failed to get AudioFile asset for handle {0}", handle);
+            return false;
+        }
+
+        // Get the file path for this asset
+        auto path = Project::GetEditorAssetManager()->GetFileSystemPath(handle);
+        auto relativePath = std::filesystem::relative(path, Project::GetActiveAssetDirectory());
+        
+        std::string filePath;
+        if (relativePath.empty())
+            filePath = path.string();
+        else
+            filePath = relativePath.string();
+
+        // Serialize the file path so runtime can load the audio file
+        stream.WriteString(filePath);
+
+        outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
+        
+        OLO_CORE_TRACE("AudioFileSourceSerializer: Serialized AudioFile to pack - Handle: {0}, Path: {1}, Size: {2}", 
+                       handle, filePath, outInfo.Size);
+        return true;
     }
 
     Ref<Asset> AudioFileSourceSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
-        // TODO: Implement audio pack deserialization
-        OLO_CORE_WARN("AudioFileSourceSerializer::DeserializeFromAssetPack not yet implemented");
-        return nullptr;
+        OLO_PROFILE_FUNC();
+
+        stream.SetStreamPosition(assetInfo.PackedOffset);
+        
+        std::string filePath;
+        stream.ReadString(filePath);
+
+        // Create AudioFile asset with file path information
+        // TODO: In runtime, analyze the audio file to get proper metadata
+        Ref<AudioFile> audioFile = CreateRef<AudioFile>();
+        audioFile->Handle = assetInfo.ID;
+
+        OLO_CORE_TRACE("AudioFileSourceSerializer: Deserialized AudioFile from pack - Handle: {0}, Path: {1}", 
+                       assetInfo.ID, filePath);
+        return audioFile;
     }
 
     //////////////////////////////////////////////////////////////////////////////////
@@ -999,34 +1088,22 @@ namespace OloEngine
             return false;
         }
 
-        // TODO: MeshColliderAsset class doesn't exist yet
-        // auto meshCollider = Ref<MeshColliderAsset>(new MeshColliderAsset());
-        // 
-        // // Load associated mesh
-        // if (colliderNode["MeshSource"])
-        // {
-        //     AssetHandle meshHandle = colliderNode["MeshSource"].as<AssetHandle>();
-        //     if (meshHandle != 0)
-        //     {
-        //         auto meshSource = AssetManager::GetAsset<MeshSource>(meshHandle);
-        //         if (meshSource)
-        //         {
-        //             meshCollider->SetMeshSource(meshSource);
-        //         }
-        //     }
-        // }
-        // 
-        // // Load collider properties
-        // if (colliderNode["IsConvex"])
-        // {
-        //     meshCollider->SetConvex(colliderNode["IsConvex"].as<bool>());
-        // }
-        //
-        // meshCollider->Handle = metadata.Handle;
-        // asset = meshCollider;
+        auto meshCollider = CreateRef<MeshColliderAsset>();
         
-        OLO_CORE_WARN("MeshColliderSerializer::TryLoadData - MeshColliderAsset class not implemented yet");
-        return false;
+        // Use the YAML deserializer to load the data
+        std::ifstream file(path);
+        std::stringstream strStream;
+        strStream << file.rdbuf();
+        
+        bool success = DeserializeFromYAML(strStream.str(), meshCollider);
+        if (!success)
+        {
+            OLO_CORE_ERROR("MeshColliderSerializer::TryLoadData - Failed to deserialize from YAML");
+            return false;
+        }
+
+        meshCollider->Handle = metadata.Handle;
+        asset = meshCollider;
         
         OLO_CORE_TRACE("MeshColliderSerializer::TryLoadData - Successfully loaded mesh collider: {}", path.string());
         return true;
@@ -1034,58 +1111,294 @@ namespace OloEngine
 
     bool MeshColliderSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
-        // TODO: Implement mesh collider pack serialization
-        OLO_CORE_WARN("MeshColliderSerializer::SerializeToAssetPack not yet implemented");
-        return false;
+        OLO_PROFILE_FUNC();
+
+        Ref<MeshColliderAsset> meshCollider = AssetManager::GetAsset<MeshColliderAsset>(handle);
+        if (!meshCollider)
+        {
+            OLO_CORE_ERROR("MeshColliderSerializer: Failed to get MeshColliderAsset for handle {0}", handle);
+            return false;
+        }
+
+        std::string yamlString = SerializeToYAML(meshCollider);
+        outInfo.Offset = stream.GetStreamPosition();
+        stream.WriteString(yamlString);
+        outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
+        
+        OLO_CORE_TRACE("MeshColliderSerializer: Serialized MeshCollider to pack - Handle: {0}, Size: {1}", 
+                       handle, outInfo.Size);
+        return true;
     }
 
     Ref<Asset> MeshColliderSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
-        // TODO: Implement mesh collider pack deserialization
-        OLO_CORE_WARN("MeshColliderSerializer::DeserializeFromAssetPack not yet implemented");
-        return nullptr;
+        OLO_PROFILE_FUNC();
+
+        stream.SetStreamPosition(assetInfo.PackedOffset);
+        
+        std::string yamlString;
+        stream.ReadString(yamlString);
+
+        Ref<MeshColliderAsset> meshCollider = CreateRef<MeshColliderAsset>();
+        bool success = DeserializeFromYAML(yamlString, meshCollider);
+        
+        if (!success)
+        {
+            OLO_CORE_ERROR("MeshColliderSerializer: Failed to deserialize MeshCollider from YAML - Handle: {0}", assetInfo.ID);
+            return nullptr;
+        }
+
+        meshCollider->Handle = assetInfo.ID;
+        OLO_CORE_TRACE("MeshColliderSerializer: Deserialized MeshCollider from pack - Handle: {0}", assetInfo.ID);
+        return meshCollider;
     }
 
-    // std::string MeshColliderSerializer::SerializeToYAML(Ref<MeshColliderAsset> meshCollider) const
-    // {
-    //     // TODO: Implement YAML serialization
-    //     return "";
-    // }
+    std::string MeshColliderSerializer::SerializeToYAML(Ref<MeshColliderAsset> meshCollider) const
+    {
+        YAML::Emitter out;
+        out << YAML::BeginMap; // MeshCollider
+        
+        out << YAML::Key << "MeshCollider" << YAML::Value;
+        out << YAML::BeginMap; // Asset Data
+        
+        // Serialize ColliderMesh asset reference
+        out << YAML::Key << "ColliderMesh" << YAML::Value << meshCollider->GetColliderMesh();
+        
+        // Serialize Material properties
+        out << YAML::Key << "Material" << YAML::Value;
+        out << YAML::BeginMap; // Material
+        out << YAML::Key << "Friction" << YAML::Value << meshCollider->GetMaterial().Friction;
+        out << YAML::Key << "Restitution" << YAML::Value << meshCollider->GetMaterial().Restitution;
+        out << YAML::EndMap; // Material
+        
+        // Serialize other properties
+        out << YAML::Key << "IsKinematicControl" << YAML::Value << meshCollider->GetIsKinematicControl();
+        out << YAML::Key << "IsTrigger" << YAML::Value << meshCollider->GetIsTrigger();
+        out << YAML::Key << "UseSharedShape" << YAML::Value << meshCollider->GetUseSharedShape();
+        out << YAML::Key << "OverrideMaterial" << YAML::Value << meshCollider->GetOverrideMaterial();
+        out << YAML::Key << "IsConvex" << YAML::Value << meshCollider->GetIsConvex();
+        
+        // Serialize vertex welding properties
+        out << YAML::Key << "VertexWeldThreshold" << YAML::Value << meshCollider->GetVertexWeldThreshold();
+        out << YAML::Key << "AreaWeldThreshold" << YAML::Value << meshCollider->GetAreaWeldThreshold();
+        
+        // Serialize collision complexity
+        out << YAML::Key << "CollisionComplexity" << YAML::Value << (int)meshCollider->GetCollisionComplexity();
+        
+        // Serialize scale
+        out << YAML::Key << "Scale" << YAML::Value << meshCollider->GetScale();
+        
+        out << YAML::EndMap; // Asset Data
+        out << YAML::EndMap; // MeshCollider
+        
+        return std::string(out.c_str());
+    }
 
-    // bool MeshColliderSerializer::DeserializeFromYAML(const std::string& yamlString, Ref<MeshColliderAsset> targetMeshCollider) const
-    // {
-    //     // TODO: Implement YAML deserialization
-    //     return false;
-    // }
+    bool MeshColliderSerializer::DeserializeFromYAML(const std::string& yamlString, Ref<MeshColliderAsset> targetMeshCollider) const
+    {
+        try
+        {
+            YAML::Node data = YAML::Load(yamlString);
+            if (!data["MeshCollider"])
+            {
+                OLO_CORE_ERROR("MeshColliderSerializer: No MeshCollider node found in YAML");
+                return false;
+            }
+            
+            YAML::Node meshColliderNode = data["MeshCollider"];
+            
+            // Deserialize ColliderMesh asset reference
+            if (meshColliderNode["ColliderMesh"])
+                targetMeshCollider->SetColliderMesh(meshColliderNode["ColliderMesh"].as<AssetHandle>());
+            
+            // Deserialize Material properties
+            if (meshColliderNode["Material"])
+            {
+                YAML::Node materialNode = meshColliderNode["Material"];
+                ColliderMaterial material;
+                material.Friction = materialNode["Friction"].as<float>(0.5f);
+                material.Restitution = materialNode["Restitution"].as<float>(0.15f);
+                targetMeshCollider->SetMaterial(material);
+            }
+            
+            // Deserialize other properties
+            if (meshColliderNode["IsKinematicControl"])
+                targetMeshCollider->SetIsKinematicControl(meshColliderNode["IsKinematicControl"].as<bool>());
+            if (meshColliderNode["IsTrigger"])
+                targetMeshCollider->SetIsTrigger(meshColliderNode["IsTrigger"].as<bool>());
+            if (meshColliderNode["UseSharedShape"])
+                targetMeshCollider->SetUseSharedShape(meshColliderNode["UseSharedShape"].as<bool>());
+            if (meshColliderNode["OverrideMaterial"])
+                targetMeshCollider->SetOverrideMaterial(meshColliderNode["OverrideMaterial"].as<bool>());
+            if (meshColliderNode["IsConvex"])
+                targetMeshCollider->SetIsConvex(meshColliderNode["IsConvex"].as<bool>());
+            
+            // Deserialize vertex welding properties
+            if (meshColliderNode["VertexWeldThreshold"])
+                targetMeshCollider->SetVertexWeldThreshold(meshColliderNode["VertexWeldThreshold"].as<float>());
+            if (meshColliderNode["AreaWeldThreshold"])
+                targetMeshCollider->SetAreaWeldThreshold(meshColliderNode["AreaWeldThreshold"].as<float>());
+            
+            // Deserialize collision complexity
+            if (meshColliderNode["CollisionComplexity"])
+                targetMeshCollider->SetCollisionComplexity((ECollisionComplexity)meshColliderNode["CollisionComplexity"].as<int>());
+            
+            // Deserialize scale
+            if (meshColliderNode["Scale"])
+                targetMeshCollider->SetScale(meshColliderNode["Scale"].as<glm::vec3>());
+            
+            return true;
+        }
+        catch (const YAML::Exception& e)
+        {
+            OLO_CORE_ERROR("MeshColliderSerializer: YAML parsing error: {0}", e.what());
+            return false;
+        }
+    }
 
     //////////////////////////////////////////////////////////////////////////////////
-    // ScriptFileSerializer - DISABLED (ScriptAsset class not implemented)
+    //////////////////////////////////////////////////////////////////////////////////
+    // ScriptFileSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
     
     void ScriptFileSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
-        // Implementation commented out - ScriptAsset class not available
-        OLO_CORE_WARN("ScriptFileSerializer::Serialize - ScriptAsset class not implemented");
+        OLO_PROFILE_FUNC();
+
+        Ref<ScriptFileAsset> scriptAsset = asset.As<ScriptFileAsset>();
+        std::string yamlString = SerializeToYAML(scriptAsset);
+
+        std::ofstream fout(Project::GetEditorAssetManager()->GetFileSystemPath(metadata));
+        fout << yamlString;
+        
+        OLO_CORE_TRACE("ScriptFileSerializer: Serialized ScriptFile to YAML - Handle: {0}", metadata.Handle);
     }
 
     bool ScriptFileSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
-        // Implementation commented out - ScriptAsset class not available
-        OLO_CORE_WARN("ScriptFileSerializer::TryLoadData - ScriptAsset class not implemented");
-        return false;
+        OLO_PROFILE_FUNC();
+
+        auto path = Project::GetEditorAssetManager()->GetFileSystemPath(metadata);
+        
+        if (!std::filesystem::exists(path))
+        {
+            OLO_CORE_ERROR("ScriptFileSerializer::TryLoadData - File does not exist: {}", path.string());
+            return false;
+        }
+
+        std::ifstream file(path);
+        if (!file.is_open())
+        {
+            OLO_CORE_ERROR("ScriptFileSerializer::TryLoadData - Failed to open file: {}", path.string());
+            return false;
+        }
+
+        std::stringstream strStream;
+        strStream << file.rdbuf();
+        
+        Ref<ScriptFileAsset> scriptAsset = CreateRef<ScriptFileAsset>();
+        bool success = DeserializeFromYAML(strStream.str(), scriptAsset);
+        
+        if (!success)
+        {
+            OLO_CORE_ERROR("ScriptFileSerializer::TryLoadData - Failed to deserialize from YAML");
+            return false;
+        }
+
+        scriptAsset->Handle = metadata.Handle;
+        asset = scriptAsset;
+        
+        OLO_CORE_TRACE("ScriptFileSerializer::TryLoadData - Successfully loaded script file: {}", path.string());
+        return true;
     }
 
     bool ScriptFileSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
-        OLO_CORE_WARN("ScriptFileSerializer::SerializeToAssetPack - ScriptAsset class not implemented");
-        return false;
+        OLO_PROFILE_FUNC();
+
+        Ref<ScriptFileAsset> scriptAsset = AssetManager::GetAsset<ScriptFileAsset>(handle);
+        if (!scriptAsset)
+        {
+            OLO_CORE_ERROR("ScriptFileSerializer: Failed to get ScriptFileAsset for handle {0}", handle);
+            return false;
+        }
+
+        std::string yamlString = SerializeToYAML(scriptAsset);
+        outInfo.Offset = stream.GetStreamPosition();
+        stream.WriteString(yamlString);
+        outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
+        
+        OLO_CORE_TRACE("ScriptFileSerializer: Serialized ScriptFile to pack - Handle: {0}, Size: {1}", 
+                       handle, outInfo.Size);
+        return true;
     }
 
     Ref<Asset> ScriptFileSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
-        OLO_CORE_WARN("ScriptFileSerializer::DeserializeFromAssetPack - ScriptAsset class not implemented");
-        return nullptr;
+        OLO_PROFILE_FUNC();
+
+        stream.SetStreamPosition(assetInfo.PackedOffset);
+        
+        std::string yamlString;
+        stream.ReadString(yamlString);
+
+        Ref<ScriptFileAsset> scriptAsset = CreateRef<ScriptFileAsset>();
+        bool success = DeserializeFromYAML(yamlString, scriptAsset);
+        
+        if (!success)
+        {
+            OLO_CORE_ERROR("ScriptFileSerializer: Failed to deserialize ScriptFile from YAML - Handle: {0}", assetInfo.ID);
+            return nullptr;
+        }
+
+        scriptAsset->Handle = assetInfo.ID;
+        OLO_CORE_TRACE("ScriptFileSerializer: Deserialized ScriptFile from pack - Handle: {0}", assetInfo.ID);
+        return scriptAsset;
+    }
+
+    std::string ScriptFileSerializer::SerializeToYAML(Ref<ScriptFileAsset> scriptAsset) const
+    {
+        YAML::Emitter out;
+        out << YAML::BeginMap; // ScriptFile
+        
+        out << YAML::Key << "ScriptFile" << YAML::Value;
+        out << YAML::BeginMap; // Asset Data
+        
+        out << YAML::Key << "ClassNamespace" << YAML::Value << scriptAsset->GetClassNamespace();
+        out << YAML::Key << "ClassName" << YAML::Value << scriptAsset->GetClassName();
+        
+        out << YAML::EndMap; // Asset Data
+        out << YAML::EndMap; // ScriptFile
+        
+        return std::string(out.c_str());
+    }
+
+    bool ScriptFileSerializer::DeserializeFromYAML(const std::string& yamlString, Ref<ScriptFileAsset> targetScriptAsset) const
+    {
+        try
+        {
+            YAML::Node data = YAML::Load(yamlString);
+            if (!data["ScriptFile"])
+            {
+                OLO_CORE_ERROR("ScriptFileSerializer: No ScriptFile node found in YAML");
+                return false;
+            }
+            
+            YAML::Node scriptNode = data["ScriptFile"];
+            
+            if (scriptNode["ClassNamespace"])
+                targetScriptAsset->SetClassNamespace(scriptNode["ClassNamespace"].as<std::string>());
+            if (scriptNode["ClassName"])
+                targetScriptAsset->SetClassName(scriptNode["ClassName"].as<std::string>());
+            
+            return true;
+        }
+        catch (const YAML::Exception& e)
+        {
+            OLO_CORE_ERROR("ScriptFileSerializer: YAML parsing error: {0}", e.what());
+            return false;
+        }
     }
 
     //////////////////////////////////////////////////////////////////////////////////

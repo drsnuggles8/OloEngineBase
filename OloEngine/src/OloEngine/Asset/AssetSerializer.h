@@ -13,9 +13,11 @@ namespace OloEngine
 {
     // Forward declarations
     class MaterialAsset;
+    class MeshColliderAsset;
     class PhysicsMaterial;
     class Prefab;
     class Scene;
+    class ScriptFileAsset;
     // struct SoundConfig;  // Not implemented yet
     class AnimationAsset;
     class AnimationGraphAsset;
@@ -152,8 +154,8 @@ namespace OloEngine
         virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
     private:
-        // std::string SerializeToYAML(Ref<MeshColliderAsset> meshCollider) const;
-        // bool DeserializeFromYAML(const std::string& yamlString, Ref<MeshColliderAsset> targetMeshCollider) const;
+        std::string SerializeToYAML(Ref<MeshColliderAsset> meshCollider) const;
+        bool DeserializeFromYAML(const std::string& yamlString, Ref<MeshColliderAsset> targetMeshCollider) const;
     };
 
     class ScriptFileSerializer : public AssetSerializer
@@ -164,6 +166,9 @@ namespace OloEngine
 
         virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+    private:
+        std::string SerializeToYAML(Ref<ScriptFileAsset> scriptAsset) const;
+        bool DeserializeFromYAML(const std::string& yamlString, Ref<ScriptFileAsset> targetScriptAsset) const;
     };
 
     // Missing serializers that Hazel has

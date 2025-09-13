@@ -39,14 +39,15 @@ This plan outlines concrete steps to bring OloEngine's asset management system t
 **Acceptance criteria:** ✅ PASSED
 - ✅ File change triggers reload; dependent materials/textures get notified; an editor layer can subscribe to `AssetReloadedEvent`.
 
-### Phase 2 — Async Flow & File Watchers
+### Phase 2 — Async Flow & File Watchers ✅ COMPLETE
 
-- Review async queue semantics to match Hazel: prevent duplicate queueing, set `AssetStatus::Loading`, clear on completion.
-- Validate file watcher startup, error handling, and fallback thread loop cadence; add telemetry counters (loads per minute, queue length) to aid debugging.
-- Add `SyncWithAssetThread()` no-op in runtime and full sync in editor (exists but verify lifecycle, called at editor tick).
+✅ **COMPLETED:**
+- ✅ Review async queue semantics to match Hazel: prevent duplicate queueing, set `AssetStatus::Loading`, clear on completion.
+- ✅ Validate file watcher startup, error handling, and fallback thread loop cadence; add telemetry counters (loads per minute, queue length) to aid debugging.
+- ✅ Add `SyncWithAssetThread()` no-op in runtime and full sync in editor (exists but verify lifecycle, called at editor tick).
 
-Acceptance criteria:
-- Continuous changes to files reliably trigger single queued reload and settle to `Ready`.
+**Acceptance criteria:** ✅ PASSED
+- ✅ Continuous changes to files reliably trigger single queued reload and settle to `Ready`.
 
 ### Phase 3 — Serializer Coverage & Pack Parity
 

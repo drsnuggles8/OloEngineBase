@@ -161,6 +161,35 @@ namespace OloEngine
     };
 
     /**
+     * @brief Script file asset containing metadata about script files
+     * 
+     * Stores script class namespace and name information for C# script assets
+     * to enable proper script component instantiation and management.
+     */
+    class ScriptFileAsset : public Asset
+    {
+    private:
+        std::string m_ClassNamespace;
+        std::string m_ClassName;
+
+    public:
+        ScriptFileAsset() = default;
+        ScriptFileAsset(const std::string& classNamespace, const std::string& className)
+            : m_ClassNamespace(classNamespace), m_ClassName(className)
+        {
+        }
+
+        const std::string& GetClassNamespace() const { return m_ClassNamespace; }
+        const std::string& GetClassName() const { return m_ClassName; }
+
+        void SetClassNamespace(const std::string& classNamespace) { m_ClassNamespace = classNamespace; }
+        void SetClassName(const std::string& className) { m_ClassName = className; }
+
+        static AssetType GetStaticType() { return AssetType::ScriptFile; }
+        virtual AssetType GetAssetType() const override { return GetStaticType(); }
+    };
+
+    /**
      * @brief Asynchronous asset loading result container
      * 
      * Used for async asset loading operations, contains the loaded asset
