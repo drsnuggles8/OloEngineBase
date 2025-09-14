@@ -197,10 +197,6 @@ namespace OloEngine {
 		void SetPrefilterMap(const Ref<TextureCubemap>& texture) { m_PrefilterMap = texture; }
 		Ref<Texture2D> GetBRDFLutMap() const { return m_BRDFLutMap; }
 		void SetBRDFLutMap(const Ref<Texture2D>& texture) { m_BRDFLutMap = texture; }
-		
-		// Material type
-		MaterialType GetMaterialType() const { return m_MaterialType; }
-		void SetMaterialType(MaterialType type) { m_MaterialType = type; }
 
 		// =====================================================================
 		// Asset interface

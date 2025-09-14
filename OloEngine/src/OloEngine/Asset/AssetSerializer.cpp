@@ -1002,7 +1002,7 @@ namespace OloEngine
         return prefab;
     }
 
-    std::string PrefabSerializer::SerializeToYAML(Ref<Prefab> prefab) const
+    std::string PrefabSerializer::SerializeToYAML(const Ref<Prefab>& prefab) const
     {
         if (!prefab || !prefab->GetScene())
         {
@@ -1026,7 +1026,7 @@ namespace OloEngine
         return std::string(out.c_str());
     }
 
-    bool PrefabSerializer::DeserializeFromYAML(const std::string& yamlString, Ref<Prefab> prefab) const
+    bool PrefabSerializer::DeserializeFromYAML(const std::string& yamlString, Ref<Prefab>& prefab) const
     {
         YAML::Node data;
         try

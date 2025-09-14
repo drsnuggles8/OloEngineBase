@@ -10,6 +10,9 @@
 #include <chrono>
 #include <thread>
 #include <cstring>
+#include <filesystem>
+#include <regex>
+#include <fstream>
 
 namespace OloEngine
 {
@@ -17,9 +20,10 @@ namespace OloEngine
     {
         // Initialize output path buffer with default value
         const char* defaultPath = "Assets/AssetPack.olopack";
-        std::strncpy(m_OutputPathBuffer.data(), defaultPath, m_OutputPathBuffer.size() - 1);
-        m_OutputPathBuffer[m_OutputPathBuffer.size() - 1] = '\0';  // Ensure null termination
-    }
+        sizet len = std::strlen(defaultPath);
+        sizet copyLen = std::min(len, m_OutputPathBuffer.size() - 1);
+        std::memcpy(m_OutputPathBuffer.data(), defaultPath, copyLen);
+        m_OutputPathBuffer[copyLen] = '\0';    }
 
     AssetPackBuilderPanel::~AssetPackBuilderPanel()
     {
@@ -102,9 +106,39 @@ namespace OloEngine
             // Output path
             ImGui::Text("Output Path:");
             ImGui::SameLine();
-            if (ImGui::InputText("##OutputPath", m_OutputPathBuffer.data(), m_OutputPathBuffer.size()))
+            bool pathChanged = ImGui::InputText("##OutputPath", m_OutputPathBuffer.data(), m_OutputPathBuffer.size());
+            
+            // Validate path on change
+            if (pathChanged)
             {
-                m_BuildSettings.m_OutputPath = std::filesystem::path(m_OutputPathBuffer.data());
+                std::string inputPath = m_OutputPathBuffer.data();
+                
+                // Automatically append .olopack extension if missing
+                std::filesystem::path fsPath(inputPath);
+                if (fsPath.extension() != ".olopack")
+                {
+                    inputPath += ".olopack";
+                    // Update buffer with corrected path
+                    sizet len = std::min(inputPath.length(), m_OutputPathBuffer.size() - 1);
+                    std::memcpy(m_OutputPathBuffer.data(), inputPath.c_str(), len);
+                    m_OutputPathBuffer[len] = '\0';
+                }
+                
+                // Validate the path
+                if (ValidateOutputPath(inputPath, m_OutputPathError))
+                {
+                    // Path is valid, update settings
+                    m_BuildSettings.m_OutputPath = std::filesystem::path(inputPath);
+                }
+                // If invalid, don't update m_OutputPath but keep the error message for display
+            }
+            
+            // Display validation error if any
+            if (!m_OutputPathError.empty())
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.3f, 1.0f)); // Red text
+                ImGui::TextWrapped("Error: %s", m_OutputPathError.c_str());
+                ImGui::PopStyleColor();
             }
             ImGui::SameLine();
             if (ImGui::Button("Browse"))
@@ -162,7 +196,7 @@ namespace OloEngine
             }
 
             // Build button
-            bool canBuild = !m_IsBuildInProgress.load() && hasActiveProject;
+            bool canBuild = !m_IsBuildInProgress.load() && hasActiveProject && m_OutputPathError.empty();
             if (!canBuild)
             {
                 ImGui::BeginDisabled();
@@ -345,5 +379,60 @@ namespace OloEngine
         
         // Note: The actual build may continue in the background until completion
         // The destructor will wait() on the future to ensure proper cleanup
+    }
+
+    bool AssetPackBuilderPanel::ValidateOutputPath(const std::string& path, std::string& errorMessage) const
+    {
+        if (path.empty())
+        {
+            errorMessage = "Output path cannot be empty";
+            return false;
+        }
+
+        // Check for invalid filename characters (Windows and Unix common restrictions)
+        std::regex invalidChars(R"([<>:"|?*\x00-\x1f])");
+        if (std::regex_search(path, invalidChars))
+        {
+            errorMessage = "Path contains invalid characters (< > : \" | ? * or control characters)";
+            return false;
+        }
+
+        // Ensure .olopack extension
+        std::filesystem::path fsPath(path);
+        if (fsPath.extension() != ".olopack")
+        {
+            errorMessage = "Path must end with .olopack extension";
+            return false;
+        }
+
+        // Check if parent directory exists
+        std::filesystem::path parentDir = fsPath.parent_path();
+        if (!parentDir.empty() && !std::filesystem::exists(parentDir))
+        {
+            errorMessage = "Parent directory does not exist: " + parentDir.string();
+            return false;
+        }
+
+        // Test if directory is writable by attempting to create a temporary file
+        try
+        {
+            std::filesystem::path testFile = parentDir / "test_write_permissions.tmp";
+            std::ofstream testStream(testFile);
+            if (!testStream.is_open())
+            {
+                errorMessage = "Cannot write to directory: " + parentDir.string();
+                return false;
+            }
+            testStream.close();
+            std::filesystem::remove(testFile);  // Clean up test file
+        }
+        catch (const std::exception& e)
+        {
+            errorMessage = "Directory write test failed: " + std::string(e.what());
+            return false;
+        }
+
+        errorMessage.clear();
+        return true;
     }
 }

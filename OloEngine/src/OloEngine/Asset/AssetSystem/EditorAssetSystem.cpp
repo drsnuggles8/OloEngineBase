@@ -93,16 +93,24 @@ namespace OloEngine
                     // Update telemetry
                     m_LoadedAssetsCount.fetch_add(1, std::memory_order_relaxed);
                     
+                    // Capture atomic values for consistent logging
+                    u64 loadedCount = m_LoadedAssetsCount.load(std::memory_order_relaxed);
+                    u64 failedCount = m_FailedAssetsCount.load(std::memory_order_relaxed);
+                    
                     OLO_CORE_TRACE("EditorAssetSystem: Asset loaded | handle={} | stats={{loaded={}, failed={}}}", 
-                                   (u64)metadata.Handle, m_LoadedAssetsCount.load(std::memory_order_relaxed), m_FailedAssetsCount.load(std::memory_order_relaxed));
+                                   (u64)metadata.Handle, loadedCount, failedCount);
                 }
                 else
                 {
                     // Update telemetry for failed loads
                     m_FailedAssetsCount.fetch_add(1, std::memory_order_relaxed);
                     
+                    // Capture atomic values for consistent logging
+                    u64 loadedCount = m_LoadedAssetsCount.load(std::memory_order_relaxed);
+                    u64 failedCount = m_FailedAssetsCount.load(std::memory_order_relaxed);
+                    
                     OLO_CORE_ERROR("EditorAssetSystem: Failed to load asset {} (loaded: {}, failed: {})", 
-                                   (u64)metadata.Handle, m_LoadedAssetsCount.load(std::memory_order_relaxed), m_FailedAssetsCount.load(std::memory_order_relaxed));
+                                   (u64)metadata.Handle, loadedCount, failedCount);
                 }
             }
 

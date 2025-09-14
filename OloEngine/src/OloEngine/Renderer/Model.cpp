@@ -1,7 +1,6 @@
-
 // TODO(OloEngine): When implementing the asset pipeline for animated models, ensure that
 // AnimatedMeshComponent, AnimationStateComponent, and SkeletonComponent are assigned to entities
-// upon import. This is required for ECS-driven animated mesh support (see renderer-todo.md).
+// upon import. This is required for ECS-driven animated mesh support.
 #include <filesystem>
 
 #include "OloEnginePCH.h"

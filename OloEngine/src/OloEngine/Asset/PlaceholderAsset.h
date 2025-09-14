@@ -149,7 +149,11 @@ namespace OloEngine
         /**
          * @brief Get statistics about placeholder usage
          */
-        static sizet GetPlaceholderCount() { return s_PlaceholderAssets.size(); }
+        static sizet GetPlaceholderCount() 
+        { 
+            std::lock_guard<std::mutex> lock(s_PlaceholderMutex);
+            return s_PlaceholderAssets.size(); 
+        }
 
     private:
         static std::unordered_map<AssetType, Ref<Asset>> s_PlaceholderAssets;

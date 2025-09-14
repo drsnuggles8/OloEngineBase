@@ -35,13 +35,13 @@ namespace OloEngine
 		static Ref<Scene> Create();
 		static Ref<Scene> Copy(Ref<Scene>& other);
 
-		[[nodiscard]] Entity CreateEntity(const std::string& name = std::string());
-		[[nodiscard]] Entity CreateEntityWithUUID(UUID uuid, const std::string& name = std::string());
+		[[nodiscard("Store this!")]] Entity CreateEntity(const std::string& name = std::string());
+		[[nodiscard("Store this!")]] Entity CreateEntityWithUUID(UUID uuid, const std::string& name = std::string());
 		void DestroyEntity(Entity entity);
 
 		// Prefab instantiation
-		[[nodiscard]] Entity Instantiate(AssetHandle prefabHandle);
-		[[nodiscard]] Entity InstantiateWithUUID(AssetHandle prefabHandle, UUID uuid);
+		[[nodiscard("Store this!")]] Entity Instantiate(AssetHandle prefabHandle);
+		[[nodiscard("Store this!")]] Entity InstantiateWithUUID(AssetHandle prefabHandle, UUID uuid);
 
 		void OnRuntimeStart();
 		void OnRuntimeStop();
@@ -56,15 +56,15 @@ namespace OloEngine
 
 		void DuplicateEntity(Entity entity);
 
-		[[nodiscard]] Entity FindEntityByName(std::string_view name);
-		[[nodiscard]] Entity GetEntityByUUID(UUID uuid);
+		[[nodiscard("Store this!")]] Entity FindEntityByName(std::string_view name);
+		[[nodiscard("Store this!")]] Entity GetEntityByUUID(UUID uuid);
 
-		[[nodiscard]] Entity GetPrimaryCameraEntity();
+		[[nodiscard("Store this!")]] Entity GetPrimaryCameraEntity();
 
-		[[nodiscard]] Entity FindEntityByName(std::string_view name) const;
-		[[nodiscard]] Entity GetEntityByUUID(UUID uuid) const;
+		[[nodiscard("Store this!")]] Entity FindEntityByName(std::string_view name) const;
+		[[nodiscard("Store this!")]] Entity GetEntityByUUID(UUID uuid) const;
 
-		[[nodiscard]] Entity GetPrimaryCameraEntity() const;
+		[[nodiscard("Store this!")]] Entity GetPrimaryCameraEntity() const;
 
 		// Bone entity management (Hazel-style)
 		std::vector<glm::mat4> GetModelSpaceBoneTransforms(const std::vector<UUID>& boneEntityIds, const MeshSource& meshSource) const;
@@ -75,7 +75,7 @@ namespace OloEngine
 		void BuildAnimationBoneEntityIds(Entity entity, Entity rootEntity);
 
 		// Entity lookup utilities
-		[[nodiscard]] std::optional<Entity> TryGetEntityWithUUID(UUID id) const;
+		[[nodiscard("Store this!")]] std::optional<Entity> TryGetEntityWithUUID(UUID id) const;
 
 		[[nodiscard("Store this!")]] bool IsRunning() const { return m_IsRunning; }
         [[nodiscard("Store this!")]] bool IsPaused() const { return m_IsPaused; }

@@ -50,7 +50,7 @@ namespace OloEngine
 			// Get the result to properly clean up the future
 			try
 			{
-				m_BuildFuture.get();
+				(void)m_BuildFuture.get();
 			}
 			catch (...)
 			{
@@ -1140,11 +1140,13 @@ namespace OloEngine
 			{
 				m_BuildInProgress.store(false);
 				OLO_CORE_ERROR("Asset Pack build exception: {}", ex.what());
-				AssetPackBuilder::BuildResult errorResult;
+				AssetPackBuilder::BuildResult errorResult{};
 				errorResult.m_Success = false;
 				errorResult.m_ErrorMessage = ex.what();
-				return errorResult;
-			}
+				errorResult.m_OutputPath.clear();
+				errorResult.m_AssetCount = 0;
+				errorResult.m_SceneCount = 0;
+				return errorResult;			}
 		});
 
 		OLO_CORE_INFO("Asset Pack build started asynchronously...");

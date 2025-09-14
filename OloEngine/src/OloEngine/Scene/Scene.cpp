@@ -166,10 +166,11 @@ namespace OloEngine
 				OLO_CORE_WARN("Scene::InstantiateWithUUID - UUID collision detected! UUID {} already exists, generating new UUID", static_cast<u64>(uuid));
 				
 				// Generate new unique UUID
-				do {
+				do
+				{
 					uuid = UUID();
 				} while (m_EntityMap.contains(uuid));
-				
+
 				OLO_CORE_WARN("Scene::InstantiateWithUUID - Resolved collision: original UUID {} replaced with new UUID {}", static_cast<u64>(originalUuid), static_cast<u64>(uuid));
 			#endif
 		}

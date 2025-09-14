@@ -339,7 +339,7 @@ namespace OloEngine
 		{
 			shaderToUse = material.GetShader();
 		}
-		else if (material.GetMaterialType() == MaterialType::PBR)
+		else if (material.GetType() == MaterialType::PBR)
 		{
 			shaderToUse = s_Data.PBRShader;
 		}
@@ -379,7 +379,7 @@ namespace OloEngine
 		cmd->specularMap = material.GetSpecularMap();
 		
 		// PBR material properties
-		cmd->enablePBR = (material.GetMaterialType() == MaterialType::PBR);
+		cmd->enablePBR = (material.GetType() == MaterialType::PBR);
 		cmd->baseColorFactor = material.GetBaseColorFactor();
 		cmd->emissiveFactor = material.GetEmissiveFactor();
 		cmd->metallicFactor = material.GetMetallicFactor();
@@ -487,7 +487,7 @@ namespace OloEngine
 		cmd->specularMap = material.GetSpecularMap();
 		
 		// PBR material properties
-		cmd->enablePBR = (material.GetMaterialType() == MaterialType::PBR);
+		cmd->enablePBR = (material.GetType() == MaterialType::PBR);
 		cmd->baseColorFactor = material.GetBaseColorFactor();
 		cmd->emissiveFactor = material.GetEmissiveFactor();
 		cmd->metallicFactor = material.GetMetallicFactor();
@@ -755,7 +755,7 @@ namespace OloEngine
 		{
 			shaderToUse = material.GetShader();
 		}
-		else if (material.GetMaterialType() == MaterialType::PBR)
+		else if (material.GetType() == MaterialType::PBR)
 		{
 			shaderToUse = s_Data.PBRSkinnedShader;
 		}
@@ -811,7 +811,7 @@ namespace OloEngine
 		cmd->specularMap = material.GetSpecularMap();
 		
 		// PBR material properties
-		cmd->enablePBR = (material.GetMaterialType() == MaterialType::PBR);
+		cmd->enablePBR = (material.GetType() == MaterialType::PBR);
 		cmd->baseColorFactor = material.GetBaseColorFactor();
 		cmd->emissiveFactor = material.GetEmissiveFactor();
 		cmd->metallicFactor = material.GetMetallicFactor();
@@ -1145,7 +1145,7 @@ namespace OloEngine
 
 		// Use a highly emissive material for skeleton visualization
 		Material material{};
-		material.SetMaterialType(MaterialType::PBR);
+		material.SetType(MaterialType::PBR);
 		material.SetBaseColorFactor(glm::vec4(color, 1.0f));
 		material.SetMetallicFactor(0.0f);
 		material.SetRoughnessFactor(1.0f);
@@ -1222,7 +1222,7 @@ namespace OloEngine
 		
 		// Use a highly emissive material for skeleton joints
 		Material material{};
-		material.SetMaterialType(MaterialType::PBR);
+		material.SetType(MaterialType::PBR);
 		material.SetBaseColorFactor(glm::vec4(color, 1.0f));
 		material.SetMetallicFactor(0.0f);
 		material.SetRoughnessFactor(0.8f);

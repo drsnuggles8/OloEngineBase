@@ -8,7 +8,6 @@
 #include <atomic>
 #include <thread>
 #include <mutex>
-#include <chrono>
 
 namespace OloEngine
 {
@@ -74,6 +73,14 @@ namespace OloEngine
          */
         void SyncUIFromSettings();
 
+        /**
+         * @brief Validate output path for asset pack
+         * @param path Path to validate
+         * @param errorMessage Output parameter for error message if validation fails
+         * @return True if path is valid, false otherwise
+         */
+        bool ValidateOutputPath(const std::string& path, std::string& errorMessage) const;
+
     private:
         // Build settings
         AssetPackBuilder::BuildSettings m_BuildSettings;
@@ -91,5 +98,6 @@ namespace OloEngine
         // UI state
         std::array<char, 512> m_OutputPathBuffer{};
         bool m_ShowAdvancedSettings = false;
+        std::string m_OutputPathError{};  // Error message for invalid output path
     };
 }

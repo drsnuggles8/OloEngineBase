@@ -134,11 +134,6 @@ namespace OloEngine
 
             // Use the existing BuildImpl with the temporary asset manager
             // The progress will start from 0.3 (30% for loading) and go to 1.0
-            std::atomic<f32> buildProgress = 0.3f;
-            auto buildProgressCallback = [&progress, &buildProgress](f32 p) {
-                buildProgress = 0.3f + (p * 0.7f); // Scale remaining 70% progress
-                progress = buildProgress.load();
-            };
 
             // Create a wrapper to update our main progress from BuildImpl's progress
             std::atomic<f32> internalProgress = 0.0f;
@@ -386,7 +381,7 @@ namespace OloEngine
         }
     }
 
-    bool AssetPackBuilder::SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, std::atomic<f32>& progress, const std::atomic<bool>* cancelToken)
+    [[nodiscard]] bool AssetPackBuilder::SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, std::atomic<f32>& progress, const std::atomic<bool>* cancelToken)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -556,7 +551,7 @@ namespace OloEngine
         return true;
     }
 
-    bool AssetPackBuilder::ValidateAssets(Ref<AssetManagerBase> assetManager)
+    [[nodiscard]] bool AssetPackBuilder::ValidateAssets(Ref<AssetManagerBase> assetManager)
     {
         OLO_PROFILE_FUNCTION();
 

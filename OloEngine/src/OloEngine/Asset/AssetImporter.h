@@ -1,8 +1,5 @@
 #pragma once
 
-#include <unordered_map>
-#include <mutex>
-
 #include "AssetSerializer.h"
 
 #include "OloEngine/Serialization/FileStream.h"

@@ -158,8 +158,8 @@ namespace OloEngine {
 		if (texture)
 			return texture;
 		
-		// Fall back to placeholder texture when no texture is set
-		return AssetManager::GetAsset<Texture2D>(AssetManager::GetPlaceholderAsset(AssetType::Texture2D)->GetHandle());
+		// Fall back to placeholder using centralized helper logic
+		return GetTextureOrPlaceholder(AssetHandle{});
 	}
 
 	void MaterialAsset::SetAlbedoMap(AssetHandle handle)
@@ -176,8 +176,8 @@ namespace OloEngine {
 		if (texture)
 			return texture;
 		
-		// Fall back to placeholder texture when no texture is set
-		return AssetManager::GetAsset<Texture2D>(AssetManager::GetPlaceholderAsset(AssetType::Texture2D)->GetHandle());
+		// Fall back to placeholder using centralized helper logic
+		return GetTextureOrPlaceholder(AssetHandle{});
 	}
 
 	void MaterialAsset::SetNormalMap(AssetHandle handle)
@@ -227,8 +227,8 @@ namespace OloEngine {
 		if (texture)
 			return texture;
 		
-		// Fall back to placeholder texture when no texture is set
-		return AssetManager::GetAsset<Texture2D>(AssetManager::GetPlaceholderAsset(AssetType::Texture2D)->GetHandle());
+		// Fall back to placeholder using centralized helper logic
+		return GetTextureOrPlaceholder(AssetHandle{});
 	}
 
 	void MaterialAsset::SetMetalnessMap(AssetHandle handle)
@@ -245,8 +245,8 @@ namespace OloEngine {
 		if (texture)
 			return texture;
 		
-		// Fall back to placeholder texture when no texture is set
-		return AssetManager::GetAsset<Texture2D>(AssetManager::GetPlaceholderAsset(AssetType::Texture2D)->GetHandle());
+		// Fall back to placeholder using centralized helper logic
+		return GetTextureOrPlaceholder(AssetHandle{});
 	}
 
 	void MaterialAsset::SetRoughnessMap(AssetHandle handle)

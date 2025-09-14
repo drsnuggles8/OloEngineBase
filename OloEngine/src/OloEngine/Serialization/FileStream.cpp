@@ -1,32 +1,19 @@
 #include "OloEnginePCH.h"
 #include "FileStream.h"
 #include <stdexcept>
+#include <cstring>
 
 namespace OloEngine
 {
 	//==============================================================================
 	/// FileStreamWriter
 	FileStreamWriter::FileStreamWriter(const std::filesystem::path& path)
-		: m_Path(path), m_Stream(path, std::ofstream::out | std::ofstream::binary)
+		: m_Path(path), m_Stream(path, std::ofstream::out | std::ofstream::binary | std::ofstream::trunc)
 	{
 		if (!m_Stream.is_open() || m_Stream.fail())
 		{
+			OLO_CORE_ERROR("Failed to open file for writing: {} (error: {})", path.string(), std::strerror(errno));
 			throw std::runtime_error("Failed to open file for writing: " + path.string());
-		}
-	}
-
-	FileStreamWriter::~FileStreamWriter() noexcept
-	{
-		try
-		{
-			if (m_Stream.is_open())
-			{
-				m_Stream.close();
-			}
-		}
-		catch (...)
-		{
-			// Swallow any exceptions to ensure destructor is noexcept
 		}
 	}
 
@@ -54,22 +41,8 @@ namespace OloEngine
 	{
 		if (!m_Stream.is_open() || m_Stream.fail())
 		{
+			OLO_CORE_ERROR("Failed to open file for reading: {} (error: {})", path.string(), std::strerror(errno));
 			throw std::runtime_error("Failed to open file for reading: " + path.string());
-		}
-	}
-
-	FileStreamReader::~FileStreamReader() noexcept
-	{
-		try
-		{
-			if (m_Stream.is_open())
-			{
-				m_Stream.close();
-			}
-		}
-		catch (...)
-		{
-			// Swallow any exceptions to ensure destructor is noexcept
 		}
 	}
 

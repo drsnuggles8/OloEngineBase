@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <vector>
 #include <string>
+#include <span>
 
 namespace OloEngine
 {
@@ -19,10 +20,18 @@ namespace OloEngine
         virtual u64 GetStreamPosition() = 0;
         virtual void SetStreamPosition(u64 position) = 0;
         virtual bool ReadData(char* destination, sizet size) = 0;
+        
+        /// @brief Safe ReadData overload using std::span<std::byte> for type safety
+        /// @param destination Span of bytes to read data into
+        /// @return true if the full amount was read successfully
+        bool ReadData(std::span<std::byte> destination);
 
         operator bool() const { return IsStreamGood(); }
 
         void ReadBuffer(Buffer& buffer, u32 size = 0);
+        
+        /// @brief Reads a string with u64 length prefix in little-endian format
+        /// @note Compatible with StreamWriter::WriteString which writes u64 length
         void ReadString(std::string& string);
 
         template<typename T>

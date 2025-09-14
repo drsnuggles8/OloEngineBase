@@ -2,9 +2,18 @@
 #include "StreamReader.h"
 
 #include <limits>
+#include <span>
 
 namespace OloEngine
 {
+	constexpr size_t OLO_MAX_BUFFER_SIZE = 1024ull * 1024ull * 1024ull; // 1GB
+	constexpr size_t OLO_MAX_STRING_SIZE = 256ull * 1024ull * 1024ull;  // 256MB
+	bool StreamReader::ReadData(std::span<std::byte> destination)
+	{
+		// Convert std::span<std::byte> to char* and size for the virtual method
+		return ReadData(reinterpret_cast<char*>(destination.data()), destination.size());
+	}
+
 	void StreamReader::ReadBuffer(Buffer& buffer, u32 size)
 	{
 		u64 bufferSize = size;
@@ -22,10 +31,9 @@ namespace OloEngine
 			}
 			
 			// Check for reasonable maximum (1GB limit to prevent excessive allocations)
-			constexpr u64 MaxBufferSize = 1024ULL * 1024ULL * 1024ULL; // 1GB
-			if (bufferSize > MaxBufferSize)
+			if (bufferSize > OLO_MAX_BUFFER_SIZE)
 			{
-				OLO_CORE_ERROR("Buffer size {} exceeds maximum allowed size of {} bytes", bufferSize, MaxBufferSize);
+				OLO_CORE_ERROR("Buffer size {} exceeds maximum allowed size of {} bytes", bufferSize, OLO_MAX_BUFFER_SIZE);
 				return;
 			}
 		}
@@ -49,15 +57,17 @@ namespace OloEngine
 		}
 		
 		// Check for reasonable maximum (256MB limit for strings)
-		constexpr u64 MaxStringSize = 256ULL * 1024ULL * 1024ULL; // 256MB
-		if (size > MaxStringSize)
+		if (size > OLO_MAX_STRING_SIZE)
 		{
-			OLO_CORE_ERROR("String size {} exceeds maximum allowed size of {} bytes", size, MaxStringSize);
+			OLO_CORE_ERROR("String size {} exceeds maximum allowed size of {} bytes", size, OLO_MAX_STRING_SIZE);
 			return;
 		}
 
 		string.resize(static_cast<size_t>(size));
-		ReadData(reinterpret_cast<char*>(string.data()), static_cast<size_t>(size));
+		
+		// Use safe ReadData overload with std::span to avoid reinterpret_cast
+		auto stringBytes = std::as_writable_bytes(std::span<char>(string.data(), string.size()));
+		ReadData(stringBytes);
 	}
 
 } // namespace OloEngine

@@ -4,6 +4,9 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Renderer/MeshSource.h"
+#include <algorithm>
+#include <functional>
+#include <mutex>
 #include <unordered_map>
 #include <unordered_set>
 

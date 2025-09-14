@@ -23,6 +23,9 @@ namespace OloEngine
 
         void WriteBuffer(Buffer buffer, bool writeSize = true);
         void WriteZero(u64 size);
+        
+        /// @brief Writes a string with u64 length prefix in little-endian format
+        /// @note Compatible with StreamReader::ReadString which expects u64 length
         void WriteString(const std::string& string);
 
         template<typename T>
