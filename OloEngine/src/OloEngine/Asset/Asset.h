@@ -178,12 +178,18 @@ namespace OloEngine
             : m_ClassNamespace(classNamespace), m_ClassName(className)
         {
         }
+        ScriptFileAsset(std::string&& classNamespace, std::string&& className)
+            : m_ClassNamespace(std::move(classNamespace)), m_ClassName(std::move(className))
+        {
+        }
 
         const std::string& GetClassNamespace() const { return m_ClassNamespace; }
         const std::string& GetClassName() const { return m_ClassName; }
 
         void SetClassNamespace(const std::string& classNamespace) { m_ClassNamespace = classNamespace; }
+        void SetClassNamespace(std::string&& classNamespace) noexcept { m_ClassNamespace = std::move(classNamespace); }
         void SetClassName(const std::string& className) { m_ClassName = className; }
+        void SetClassName(std::string&& className) noexcept { m_ClassName = std::move(className); }
 
         static AssetType GetStaticType() { return AssetType::ScriptFile; }
         virtual AssetType GetAssetType() const override { return GetStaticType(); }

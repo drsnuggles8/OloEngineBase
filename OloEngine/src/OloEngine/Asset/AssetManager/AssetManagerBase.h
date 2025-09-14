@@ -14,10 +14,7 @@
 namespace OloEngine
 {
 	// Forward declarations
-	class Asset;
-	class AssetMetadata;
 	template<typename T> struct AsyncAssetResult;
-
 	/**
      * @brief Abstract base class for asset management implementations
      * 

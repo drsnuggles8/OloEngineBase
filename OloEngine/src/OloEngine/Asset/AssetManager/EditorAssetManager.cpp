@@ -242,8 +242,35 @@ namespace OloEngine
         if (!asset)
         {
             OLO_CORE_ERROR("Failed to reload asset: {}", path.string());
-            SetAssetStatus(assetHandle, AssetStatus::Failed);
-            return false;
+            
+            // Load a safe placeholder asset instead of failing completely
+            auto placeholderAsset = AssetManager::GetPlaceholderAsset(type);
+            if (placeholderAsset)
+            {
+                // Set the placeholder's handle to match the original asset handle
+                placeholderAsset->SetHandle(assetHandle);
+                
+                // Cache the placeholder asset so callers get a valid asset reference
+                {
+                    std::unique_lock<std::shared_mutex> lock(m_AssetsMutex);
+                    m_LoadedAssets[assetHandle] = placeholderAsset;
+                }
+                
+                // Set status to Failed (we could add a new FailedWithPlaceholder status in the future)
+                SetAssetStatus(assetHandle, AssetStatus::Failed);
+                
+                OLO_CORE_WARN("Asset reload failed, substituted with placeholder: {} -> {} (Type: {})", 
+                              path.string(), (u64)assetHandle, AssetUtils::AssetTypeToString(type));
+                
+                // Continue with normal workflow even with placeholder
+                asset = placeholderAsset;
+            }
+            else
+            {
+                OLO_CORE_ERROR("Failed to create placeholder asset for type: {}", AssetUtils::AssetTypeToString(type));
+                SetAssetStatus(assetHandle, AssetStatus::Failed);
+                return false;
+            }
         }
 
         // Update LastWriteTime to prevent continuous reloads

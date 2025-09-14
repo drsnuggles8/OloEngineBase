@@ -24,8 +24,6 @@
 #include "FileWatch.hpp"
 #endif
 
-namespace filewatch { enum class Event; }
-
 namespace OloEngine
 {
     /**

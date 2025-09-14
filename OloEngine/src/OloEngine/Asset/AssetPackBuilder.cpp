@@ -1,6 +1,6 @@
 #include "OloEnginePCH.h"
-#include "AssetPackBuilder.h"
 
+#include <OloEngine/Asset/AssetPackBuilder.h>
 #include "OloEngine/Asset/AssetImporter.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
@@ -24,7 +24,6 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Ensure we have an active project
         auto project = Project::GetActive();
         if (!project)
         {

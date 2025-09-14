@@ -91,18 +91,17 @@ namespace OloEngine
                     m_ReadyAssets.push(response);
                     
                     // Update telemetry
-                    m_LoadedAssetsCount++;
+                    m_LoadedAssetsCount.fetch_add(1, std::memory_order_relaxed);
                     
-                    OLO_CORE_TRACE("EditorAssetSystem: Asset {} loaded and ready (loaded: {}, failed: {})", 
-                                   (u64)metadata.Handle, m_LoadedAssetsCount.load(), m_FailedAssetsCount.load());
-                }
+                    OLO_CORE_TRACE("EditorAssetSystem: Asset loaded | handle={} | stats={{loaded={}, failed={}}}", 
+                                   (u64)metadata.Handle, m_LoadedAssetsCount.load(std::memory_order_relaxed), m_FailedAssetsCount.load(std::memory_order_relaxed));                }
                 else
                 {
                     // Update telemetry for failed loads
-                    m_FailedAssetsCount++;
+                    m_FailedAssetsCount.fetch_add(1, std::memory_order_relaxed);
                     
                     OLO_CORE_ERROR("EditorAssetSystem: Failed to load asset {} (loaded: {}, failed: {})", 
-                                   (u64)metadata.Handle, m_LoadedAssetsCount.load(), m_FailedAssetsCount.load());
+                                   (u64)metadata.Handle, m_LoadedAssetsCount.load(std::memory_order_relaxed), m_FailedAssetsCount.load(std::memory_order_relaxed));
                 }
             }
 
@@ -135,17 +134,19 @@ namespace OloEngine
             m_PendingAssets.insert(metadata.Handle);
         }
 
+        sizet queueSize;
         {
             std::scoped_lock<std::mutex> lock(m_AssetLoadingQueueMutex);
             m_AssetLoadingQueue.push(metadata);
+            queueSize = m_AssetLoadingQueue.size();
         }
         m_AssetLoadingQueueCV.notify_one();
         
         // Update telemetry
-        m_QueuedAssetsCount++;
+        m_QueuedAssetsCount.fetch_add(1, std::memory_order_relaxed);
         
         OLO_CORE_TRACE("EditorAssetSystem: Queued asset {} for loading (queue size: {})", 
-                       (u64)metadata.Handle, GetQueueLength());
+                       (u64)metadata.Handle, queueSize);
     }
 
     Ref<Asset> EditorAssetSystem::GetAsset(const AssetMetadata& metadata)
@@ -229,9 +230,9 @@ namespace OloEngine
     {
         std::scoped_lock<std::mutex> lock(m_AssetLoadingQueueMutex);
         return std::make_tuple(
-            m_QueuedAssetsCount.load(),
-            m_LoadedAssetsCount.load(), 
-            m_FailedAssetsCount.load(),
+            m_QueuedAssetsCount.load(std::memory_order_acquire),
+            m_LoadedAssetsCount.load(std::memory_order_acquire), 
+            m_FailedAssetsCount.load(std::memory_order_acquire),
             m_AssetLoadingQueue.size()
         );
     }

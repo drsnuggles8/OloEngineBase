@@ -7,6 +7,9 @@
 #include "OloEngine/Asset/AssetTypes.h"
 #include <string>
 #include <filesystem>
+#include <array>
+#include <algorithm>
+#include <cctype>
 
 namespace OloEngine
 {
@@ -121,30 +124,35 @@ namespace OloEngine
      */
     namespace AssetStatusUtils
     {
-        inline const char* AssetStatusToString(AssetStatus status)
+        inline constexpr const char* AssetStatusToString(AssetStatus status) noexcept
         {
-            switch (status)
-            {
-                case AssetStatus::None:      return "None";
-                case AssetStatus::NotLoaded: return "Not Loaded";
-                case AssetStatus::Loading:   return "Loading";
-                case AssetStatus::Loaded:    return "Loaded";
-                case AssetStatus::Failed:    return "Failed";
-                case AssetStatus::Missing:   return "Missing";
-                case AssetStatus::Invalid:   return "Invalid";
-                default:                     return "Unknown";
-            }
+            static constexpr std::array<const char*, 7> statusStrings = {
+                "None",         // AssetStatus::None = 0
+                "Not Loaded",   // AssetStatus::NotLoaded = 1
+                "Loading",      // AssetStatus::Loading = 2
+                "Loaded",       // AssetStatus::Loaded = 3
+                "Failed",       // AssetStatus::Failed = 4
+                "Missing",      // AssetStatus::Missing = 5
+                "Invalid"       // AssetStatus::Invalid = 6
+            };
+            
+            const auto index = static_cast<std::size_t>(status);
+            return (index < statusStrings.size()) ? statusStrings[index] : "Unknown";
         }
 
         inline AssetStatus AssetStatusFromString(const std::string& statusStr)
         {
-            if (statusStr == "None") return AssetStatus::None;
-            if (statusStr == "Not Loaded" || statusStr == "NotLoaded") return AssetStatus::NotLoaded;
-            if (statusStr == "Loading") return AssetStatus::Loading;
-            if (statusStr == "Loaded") return AssetStatus::Loaded;
-            if (statusStr == "Failed") return AssetStatus::Failed;
-            if (statusStr == "Missing") return AssetStatus::Missing;
-            if (statusStr == "Invalid") return AssetStatus::Invalid;
+            std::string lowerStr = statusStr;
+            std::transform(lowerStr.begin(), lowerStr.end(), lowerStr.begin(), 
+                          [](unsigned char c) { return std::tolower(c); });
+            
+            if (lowerStr == "none") return AssetStatus::None;
+            if (lowerStr == "not loaded" || lowerStr == "notloaded") return AssetStatus::NotLoaded;
+            if (lowerStr == "loading") return AssetStatus::Loading;
+            if (lowerStr == "loaded") return AssetStatus::Loaded;
+            if (lowerStr == "failed") return AssetStatus::Failed;
+            if (lowerStr == "missing") return AssetStatus::Missing;
+            if (lowerStr == "invalid") return AssetStatus::Invalid;
             return AssetStatus::None;
         }
 

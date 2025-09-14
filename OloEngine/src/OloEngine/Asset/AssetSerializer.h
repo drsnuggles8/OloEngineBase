@@ -13,12 +13,11 @@ namespace OloEngine
 {
     // Forward declarations
     class MaterialAsset;
-    class MeshColliderAsset;
     class PhysicsMaterial;
     class Prefab;
     class Scene;
     class ScriptFileAsset;
-    // struct SoundConfig;  // Not implemented yet
+    // struct SoundConfig;  // TODO(olbu): Implement once soundconfig exists
     class AnimationAsset;
     class AnimationGraphAsset;
 
@@ -100,7 +99,7 @@ namespace OloEngine
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
     
     private:
-        bool AnalyzeWavFile(const std::filesystem::path& filePath, double& duration, u32& samplingRate, u16& bitDepth, u16& numChannels) const;
+        bool GetWavFileInfo(const std::filesystem::path& filePath, double& duration, u32& samplingRate, u16& bitDepth, u16& numChannels) const;
     };
 
     // SoundConfig not implemented yet - commented out to avoid compilation errors
@@ -221,8 +220,9 @@ namespace OloEngine
 
     private:
         std::string SerializeToYAML(Ref<AnimationAsset> animationAsset) const;
-        bool DeserializeFromYAML(const YAML::Node& data, Ref<AnimationAsset>& animationAsset) const;
-        void RegisterAnimationDependenciesFromYAML(const YAML::Node& data, AssetHandle handle) const;
+        bool DeserializeFromYAML(const std::string& yamlString, Ref<AnimationAsset>& animationAsset) const;
+        bool DeserializeFromYAML(const YAML::Node& data, Ref<AnimationAsset>& animationAsset) const; // For pre-parsed YAML nodes
+        void RegisterDependenciesFromYAML(const std::string& yamlString, AssetHandle handle) const;
     };
 
     class AnimationGraphAssetSerializer : public AssetSerializer

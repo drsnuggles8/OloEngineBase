@@ -18,7 +18,7 @@ namespace OloEngine
      * all assets into a single pack file for runtime distribution.
      * Inspired by Hazel's AssetPack::CreateFromActiveProject implementation.
      */
-    class AssetPackBuilder
+    class AssetPackBuilder final
     {
     public:
         /**
@@ -28,8 +28,8 @@ namespace OloEngine
         {
             bool Success = false;
             std::string ErrorMessage;
-            size_t AssetCount = 0;
-            size_t SceneCount = 0;
+            sizet AssetCount = 0;
+            sizet SceneCount = 0;
             std::filesystem::path OutputPath;
         };
 
@@ -45,6 +45,9 @@ namespace OloEngine
         };
 
     public:
+        // Prevent instantiation - this is a static utility class
+        AssetPackBuilder() = delete;
+        
         /**
          * @brief Create asset pack from active project
          * @param settings Build settings for the pack

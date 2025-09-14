@@ -698,7 +698,7 @@ namespace OloEngine
         if (extension == ".wav")
         {
             // Basic WAV header analysis
-            if (AnalyzeWavFile(filePath, duration, samplingRate, bitDepth, numChannels))
+            if (GetWavFileInfo(filePath, duration, samplingRate, bitDepth, numChannels))
             {
                 OLO_CORE_TRACE("AudioFileSourceSerializer: Analyzed WAV file - Duration: {:.2f}s, Rate: {}Hz, Depth: {}bit, Channels: {}", 
                               duration, samplingRate, bitDepth, numChannels);
@@ -785,7 +785,7 @@ namespace OloEngine
         return audioFile;
     }
 
-    bool AudioFileSourceSerializer::AnalyzeWavFile(const std::filesystem::path& filePath, double& duration, u32& samplingRate, u16& bitDepth, u16& numChannels) const
+    bool AudioFileSourceSerializer::GetWavFileInfo(const std::filesystem::path& filePath, double& duration, u32& samplingRate, u16& bitDepth, u16& numChannels) const
     {
         std::ifstream file(filePath, std::ios::binary);
         if (!file.is_open())
@@ -797,7 +797,7 @@ namespace OloEngine
         // Read RIFF header
         char riffHeader[4];
         file.read(riffHeader, 4);
-        if (std::strncmp(riffHeader, "RIFF", 4) != 0)
+        if (std::memcmp(riffHeader, "RIFF", 4) != 0)
         {
             OLO_CORE_WARN("AudioFileSourceSerializer: Invalid RIFF header in WAV file: {}", filePath.string());
             return false;
@@ -809,7 +809,7 @@ namespace OloEngine
         // Read WAVE format
         char waveHeader[4];
         file.read(waveHeader, 4);
-        if (std::strncmp(waveHeader, "WAVE", 4) != 0)
+        if (std::memcmp(waveHeader, "WAVE", 4) != 0)
         {
             OLO_CORE_WARN("AudioFileSourceSerializer: Invalid WAVE header in WAV file: {}", filePath.string());
             return false;
@@ -2251,6 +2251,12 @@ namespace OloEngine
         return std::string(out.c_str());
     }
 
+    bool AnimationAssetSerializer::DeserializeFromYAML(const std::string& yamlString, Ref<AnimationAsset>& animationAsset) const
+    {
+        YAML::Node data = YAML::Load(yamlString);
+        return DeserializeFromYAML(data, animationAsset);
+    }
+
     bool AnimationAssetSerializer::DeserializeFromYAML(const YAML::Node& data, Ref<AnimationAsset>& animationAsset) const
     {
         auto animationNode = data["Animation"];
@@ -2296,8 +2302,9 @@ namespace OloEngine
         return true;
     }
 
-    void AnimationAssetSerializer::RegisterAnimationDependenciesFromYAML(const YAML::Node& data, AssetHandle handle) const
+    void AnimationAssetSerializer::RegisterDependenciesFromYAML(const std::string& yamlString, AssetHandle handle) const
     {
+        YAML::Node data = YAML::Load(yamlString);
         auto animationNode = data["Animation"];
         if (!animationNode)
             return;
@@ -2307,14 +2314,14 @@ namespace OloEngine
         {
             AssetHandle animationSource = animationNode["AnimationSource"].as<AssetHandle>();
             if (animationSource != 0)
-                AssetManager::RegisterDependency(handle, animationSource);
+                AssetManager::RegisterDependency(animationSource, handle);
         }
 
         if (animationNode["Mesh"])
         {
             AssetHandle mesh = animationNode["Mesh"].as<AssetHandle>();
             if (mesh != 0)
-                AssetManager::RegisterDependency(handle, mesh);
+                AssetManager::RegisterDependency(mesh, handle);
         }
     }
 
@@ -2352,8 +2359,7 @@ namespace OloEngine
         std::string yamlString = buffer.str();
 
         Ref<AnimationAsset> animationAsset;
-        YAML::Node data = YAML::Load(yamlString);
-        bool result = DeserializeFromYAML(data, animationAsset);
+        bool result = DeserializeFromYAML(yamlString, animationAsset);
         if (!result)
         {
             OLO_CORE_ERROR("AnimationAssetSerializer::TryLoadData - Failed to deserialize animation asset");
@@ -2362,7 +2368,7 @@ namespace OloEngine
 
         asset = animationAsset;
         asset->m_Handle = metadata.Handle;
-        RegisterAnimationDependenciesFromYAML(data, asset->m_Handle);
+        RegisterDependenciesFromYAML(yamlString, asset->m_Handle);
         return true;
     }
 
@@ -2379,8 +2385,7 @@ namespace OloEngine
         buffer << fin.rdbuf();
         std::string yamlString = buffer.str();
 
-        YAML::Node data = YAML::Load(yamlString);
-        RegisterAnimationDependenciesFromYAML(data, metadata.Handle);
+        RegisterDependenciesFromYAML(yamlString, metadata.Handle);
     }
 
     bool AnimationAssetSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
@@ -2407,8 +2412,7 @@ namespace OloEngine
         stream.ReadString(yamlString);
 
         Ref<AnimationAsset> animationAsset;
-        YAML::Node data = YAML::Load(yamlString);
-        bool result = DeserializeFromYAML(data, animationAsset);
+        bool result = DeserializeFromYAML(yamlString, animationAsset);
         if (!result)
         {
             OLO_CORE_ERROR("AnimationAssetSerializer::DeserializeFromAssetPack - Failed to deserialize animation asset");

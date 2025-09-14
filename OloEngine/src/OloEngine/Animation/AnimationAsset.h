@@ -20,7 +20,7 @@ namespace OloEngine
     {
     public:
         AnimationAsset() = default;
-        AnimationAsset(AssetHandle animationSource, AssetHandle mesh, const std::string& animationName, 
+        explicit AnimationAsset(AssetHandle animationSource, AssetHandle mesh, const std::string& animationName, 
                       bool extractRootMotion = false, u32 rootBoneIndex = 0,
                       const glm::vec3& rootTranslationMask = glm::vec3(1.0f),
                       const glm::vec3& rootRotationMask = glm::vec3(1.0f),
