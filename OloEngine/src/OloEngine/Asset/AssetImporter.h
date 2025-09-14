@@ -31,10 +31,6 @@ namespace OloEngine
         AssetImporter(AssetImporter&&) = delete;
         AssetImporter& operator=(const AssetImporter&) = delete;
         AssetImporter& operator=(AssetImporter&&) = delete;
-        
-    private:
-        static std::unordered_map<AssetType, Scope<AssetSerializer>> s_Serializers;
-        static std::mutex s_SerializersMutex;
     };
 
 } // namespace OloEngine
