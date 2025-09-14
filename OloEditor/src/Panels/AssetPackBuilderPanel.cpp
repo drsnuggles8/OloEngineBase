@@ -7,29 +7,32 @@
 
 #include <imgui.h>
 #include <future>
+#include <thread>
+#include <cstring>
 
 namespace OloEngine
 {
-    AssetPackBuilderPanel::~AssetPackBuilderPanel()
+    void AssetPackBuilderPanel::SyncUIFromSettings()
     {
-        // Check if a build is in progress (with acquire ordering for synchronization)
-        if (m_IsBuildInProgress.load(std::memory_order_acquire))
-        {
-            // Signal cancellation cooperatively
-            CancelBuild();
-        }
+        // Synchronize output path buffer from settings
+        std::string pathStr = m_BuildSettings.OutputPath.string();
         
-        // Drain the future to prevent resource leaks and ensure cleanup
-        if (m_BuildFuture.valid())
-        {
-            // Wait for the background work to complete
-            // This ensures proper cleanup before destruction
-            m_BuildFuture.wait();
-        }
+        // Safely copy to buffer with bounds checking
+        sizet copyLength = std::min(pathStr.length(), sizeof(m_OutputPathBuffer) - 1);
+        std::memcpy(m_OutputPathBuffer, pathStr.c_str(), copyLength);
+        m_OutputPathBuffer[copyLength] = '\0';  // Ensure null termination
     }
 
     void AssetPackBuilderPanel::OnImGuiRender(bool& isOpen)
     {
+        // One-time initialization of UI buffers from settings
+        static bool s_UIInitialized = false;
+        if (!s_UIInitialized)
+        {
+            SyncUIFromSettings();
+            s_UIInitialized = true;
+        }
+
         if (ImGui::Begin("Asset Pack Builder", &isOpen))
         {
             // Check if build is complete
@@ -39,7 +42,7 @@ namespace OloEngine
                 m_LastBuildResult = m_BuildFuture.get();
                 m_HasBuildResult.store(true);
                 m_IsBuildInProgress.store(false);
-                m_BuildProgress.store(1.0f);
+                m_BuildProgressPermille.store(1000);  // 100% in permille
                 
                 if (m_LastBuildResult.Success)
                 {
@@ -183,7 +186,8 @@ namespace OloEngine
         {
             ImGui::Indent();
 
-            float progress = m_BuildProgress.load();
+            i32 permilleProgress = m_BuildProgressPermille.load();
+            f32 progress = static_cast<f32>(permilleProgress) / 10.0f; // Convert permille to percentage
             ImGui::Text("Building asset pack...");
             ImGui::ProgressBar(progress, ImVec2(-1.0f, 0.0f), nullptr);
             ImGui::Text("Progress: %.1f%%", progress * 100.0f);
@@ -254,7 +258,7 @@ namespace OloEngine
         m_BuildSettings.OutputPath = std::filesystem::path(m_OutputPathBuffer);
 
         // Reset progress and results
-        m_BuildProgress.store(0.0f);
+        m_BuildProgressPermille.store(0);
         m_HasBuildResult.store(false);
         m_LastBuildResult = {};
         m_CancelRequested.store(false);
@@ -262,7 +266,32 @@ namespace OloEngine
         // Start async build
         m_IsBuildInProgress.store(true);
         m_BuildFuture = std::async(std::launch::async, [this]() {
-            return AssetPackBuilder::BuildFromActiveProject(m_BuildSettings, m_BuildProgress, &m_CancelRequested);
+            // Create a float progress tracker for the AssetPackBuilder API
+            std::atomic<f32> floatProgress{0.0f};
+            
+            // Launch a progress monitoring thread to convert float to permille
+            std::thread progressMonitor([this, &floatProgress]() {
+                while (m_IsBuildInProgress.load() && !m_CancelRequested.load()) {
+                    f32 progress = floatProgress.load();
+                    i32 permille = static_cast<i32>(progress * 1000.0f);
+                    m_BuildProgressPermille.store(permille);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                }
+            });
+            
+            auto result = AssetPackBuilder::BuildFromActiveProject(m_BuildSettings, floatProgress, &m_CancelRequested);
+            
+            // Final progress update
+            if (result.Success && !m_CancelRequested.load()) {
+                m_BuildProgressPermille.store(1000); // 100%
+            }
+            
+            // Wait for progress monitor to finish
+            if (progressMonitor.joinable()) {
+                progressMonitor.join();
+            }
+            
+            return result;
         });
 
         OLO_CORE_INFO("Started asset pack build to: {}", m_BuildSettings.OutputPath.string());
@@ -280,7 +309,7 @@ namespace OloEngine
         
         // Update UI state immediately for responsive feedback
         m_IsBuildInProgress.store(false, std::memory_order_release);
-        m_BuildProgress.store(0.0f);
+        m_BuildProgressPermille.store(0);
         
         OLO_CORE_INFO("Asset pack build cancellation requested");
         

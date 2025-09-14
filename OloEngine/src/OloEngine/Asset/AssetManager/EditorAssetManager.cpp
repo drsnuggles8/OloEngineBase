@@ -2,6 +2,7 @@
 
 #include "OloEngine/Asset/AssetImporter.h"
 #include "OloEngine/Asset/AssetExtensions.h"
+#include "OloEngine/Asset/PlaceholderAsset.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Timer.h"
 #include "OloEngine/Core/Ref.h"

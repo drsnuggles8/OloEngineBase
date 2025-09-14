@@ -1,7 +1,6 @@
-// This is an independent project of an individual developer. Dear PVS-Studio, please check it.
-// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "OloEnginePCH.h"
 #include "EditorLayer.h"
+#include "Panels/AssetPackBuilderPanel.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
@@ -10,10 +9,10 @@
 #include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Utils/PlatformUtils.h"
-#include "OloEngine/Core/Events/EditorEvents.h"
-#include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
+#include "OloEngine/Core/Events/EditorEvents.h"
 
 #include <imgui.h>
 #include <ImGuizmo.h>
@@ -30,6 +29,34 @@ namespace OloEngine
 		: Layer("EditorLayer"), m_CameraController(1280.0f / 720.0f), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
 	{
 		s_Font = new Font("C:/Windows/Fonts/arial.ttf");
+	}
+
+	EditorLayer::~EditorLayer()
+	{
+		// Cancel any ongoing build
+		m_BuildCancelRequested.store(true);
+		
+		// Wait for build to complete if running
+		if (m_BuildFuture.valid())
+		{
+			// Wait for completion with timeout to avoid indefinite blocking
+			using namespace std::chrono_literals;
+			while (m_BuildFuture.wait_for(100ms) != std::future_status::ready)
+			{
+				// Keep requesting cancellation during wait
+				m_BuildCancelRequested.store(true);
+			}
+			
+			// Get the result to properly clean up the future
+			try
+			{
+				m_BuildFuture.get();
+			}
+			catch (...)
+			{
+				// Ignore exceptions during destruction
+			}
+		}
 	}
 
 	void EditorLayer::OnAttach()
@@ -843,9 +870,8 @@ namespace OloEngine
 	{
 		if (Project::Load(path))
 		{
-			// Create and initialize EditorAssetManager for the project
 			auto editorAssetManager = Ref<EditorAssetManager>::Create();
-			editorAssetManager->Initialize(); // Initialize the asset manager to start file watching
+			editorAssetManager->Initialize();
 			Project::SetAssetManager(editorAssetManager);
 			
 			auto startScenePath = Project::GetAssetFileSystemPath(Project::GetActive()->GetConfig().StartScene);
@@ -1035,25 +1061,25 @@ namespace OloEngine
 
 	bool EditorLayer::OnAssetReloaded(AssetReloadedEvent const& e)
 	{
-		OLO_CORE_INFO("🔄 Asset Reloaded Event Received!");
-		OLO_CORE_INFO("   Handle: {}", (u64)e.GetHandle());
-		OLO_CORE_INFO("   Type: {}", (int)e.GetAssetType());
-		OLO_CORE_INFO("   Path: {}", e.GetPath().string());
+		OLO_TRACE("🔄 Asset Reloaded Event Received!");
+		OLO_TRACE("   Handle: {}", static_cast<u64>(e.GetHandle()));
+		OLO_TRACE("   Type: {}", (int)e.GetAssetType());
+		OLO_TRACE("   Path: {}", e.GetPath().string());
 		
-		// Here you could add specific handling based on asset type
+		// TODO(olbu) Add specific handling based on asset type
 		switch (e.GetAssetType())
 		{
 			case AssetType::Texture2D:
-				OLO_CORE_INFO("   → Texture asset reloaded - visual updates may be needed");
+				OLO_TRACE("   → Texture asset reloaded - visual updates may be needed");
 				break;
 			case AssetType::Scene:
-				OLO_CORE_INFO("   → Scene asset reloaded - consider refreshing scene hierarchy");
+				OLO_TRACE("   → Scene asset reloaded - consider refreshing scene hierarchy");
 				break;
 			case AssetType::Script:
-				OLO_CORE_INFO("   → Script asset reloaded - C# assemblies updated");
+				OLO_TRACE("   → Script asset reloaded - C# assemblies updated");
 				break;
 			default:
-				OLO_CORE_INFO("   → Asset type {} reloaded", (int)e.GetAssetType());
+				OLO_TRACE("   → Asset type {} reloaded", (int)e.GetAssetType());
 				break;
 		}
 		
@@ -1062,6 +1088,13 @@ namespace OloEngine
 
 	void EditorLayer::BuildAssetPack()
 	{
+		// Prevent concurrent builds
+		if (m_BuildInProgress.load())
+		{
+			OLO_CORE_WARN("Asset Pack build already in progress, ignoring request");
+			return;
+		}
+
 		OLO_CORE_INFO("Building Asset Pack...");
 
 		// Configure build settings
@@ -1071,30 +1104,50 @@ namespace OloEngine
 		settings.IncludeScriptModule = true;
 		settings.ValidateAssets = true;
 
-		// Start async build task
-		static std::atomic<float> buildProgress = 0.0f;
-		buildProgress = 0.0f;
+		// Reset progress and flags
+		m_BuildProgress.store(0.0f);
+		m_BuildCancelRequested.store(false);
+		m_BuildInProgress.store(true);
 
-		// Run build in a separate thread to avoid blocking the UI
-		std::thread buildThread([settings]() {
-			auto result = AssetPackBuilder::BuildFromActiveProject(settings, buildProgress);
-			
-			if (result.Success)
+		// Start async build task using std::async
+		m_BuildFuture = std::async(std::launch::async, [this, settings]() -> AssetPackBuilder::BuildResult {
+			try
 			{
-				OLO_CORE_INFO("Asset Pack built successfully!");
-				OLO_CORE_INFO("  Output: {}", result.OutputPath.string());
-				OLO_CORE_INFO("  Assets: {}", result.AssetCount);
-				OLO_CORE_INFO("  Scenes: {}", result.SceneCount);
+				auto result = AssetPackBuilder::BuildFromActiveProject(settings, m_BuildProgress, &m_BuildCancelRequested);
+				
+				// Mark build as complete
+				m_BuildInProgress.store(false);
+				
+				if (result.Success && !m_BuildCancelRequested.load())
+				{
+					OLO_CORE_INFO("Asset Pack built successfully!");
+					OLO_CORE_INFO("  Output: {}", result.OutputPath.string());
+					OLO_CORE_INFO("  Assets: {}", result.AssetCount);
+					OLO_CORE_INFO("  Scenes: {}", result.SceneCount);
+				}
+				else if (m_BuildCancelRequested.load())
+				{
+					OLO_CORE_INFO("Asset Pack build was cancelled");
+				}
+				else
+				{
+					OLO_CORE_ERROR("Asset Pack build failed: {}", result.ErrorMessage);
+				}
+				
+				return result;
 			}
-			else
+			catch (const std::exception& ex)
 			{
-				OLO_CORE_ERROR("Asset Pack build failed: {}", result.ErrorMessage);
+				m_BuildInProgress.store(false);
+				OLO_CORE_ERROR("Asset Pack build exception: {}", ex.what());
+				AssetPackBuilder::BuildResult errorResult;
+				errorResult.Success = false;
+				errorResult.ErrorMessage = ex.what();
+				return errorResult;
 			}
 		});
 
-		buildThread.detach(); // Let it run in background
-
-		OLO_CORE_INFO("Asset Pack build started in background thread...");
+		OLO_CORE_INFO("Asset Pack build started asynchronously...");
 	}
 
 }
