@@ -1,28 +1,37 @@
 #include "OloEnginePCH.h"
 #include "StreamWriter.h"
 
+#include <array>
+
 namespace OloEngine
 {
 	void StreamWriter::WriteBuffer(Buffer buffer, bool writeSize)
 	{
 		if (writeSize)
-			WriteData((char*)&buffer.Size, sizeof(u64));
+			WriteData(reinterpret_cast<const char*>(&buffer.Size), sizeof(u64));
 
-		WriteData((char*)buffer.Data, buffer.Size);
+		WriteData(reinterpret_cast<const char*>(buffer.Data), buffer.Size);
 	}
 
 	void StreamWriter::WriteZero(u64 size)
 	{
-		char zero = 0;
-		for (u64 i = 0; i < size; i++)
-			WriteData(&zero, 1);
+		constexpr sizet ChunkSize = 1024;
+		std::array<char, ChunkSize> zeros{};
+		
+		u64 remaining = size;
+		while (remaining > 0)
+		{
+			sizet chunk = std::min(remaining, static_cast<u64>(ChunkSize));
+			WriteData(zeros.data(), chunk);
+			remaining -= chunk;
+		}
 	}
 
 	void StreamWriter::WriteString(const std::string& string)
 	{
-		sizet size = string.size();
-		WriteData((char*)&size, sizeof(sizet));
-		WriteData((char*)string.data(), sizeof(char) * string.size());
+		u64 size = string.size();
+		WriteData(reinterpret_cast<const char*>(&size), sizeof(u64));
+		WriteData(reinterpret_cast<const char*>(string.data()), string.size());
 	}
 
 } // namespace OloEngine

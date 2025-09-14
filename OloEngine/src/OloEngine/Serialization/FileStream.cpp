@@ -1,44 +1,95 @@
 #include "OloEnginePCH.h"
 #include "FileStream.h"
+#include <stdexcept>
 
 namespace OloEngine
 {
 	//==============================================================================
 	/// FileStreamWriter
 	FileStreamWriter::FileStreamWriter(const std::filesystem::path& path)
-		: m_Path(path)
+		: m_Path(path), m_Stream(path, std::ofstream::out | std::ofstream::binary)
 	{
-		m_Stream = std::ofstream(path, std::ofstream::out | std::ofstream::binary);
+		if (!m_Stream.is_open() || m_Stream.fail())
+		{
+			throw std::runtime_error("Failed to open file for writing: " + path.string());
+		}
 	}
 
-	FileStreamWriter::~FileStreamWriter()
+	FileStreamWriter::~FileStreamWriter() noexcept
 	{
-		m_Stream.close();
+		try
+		{
+			if (m_Stream.is_open())
+			{
+				m_Stream.close();
+			}
+		}
+		catch (...)
+		{
+			// Swallow any exceptions to ensure destructor is noexcept
+		}
 	}
 
 	bool FileStreamWriter::WriteData(const char* data, sizet size)
 	{
 		m_Stream.write(data, size);
-		return true;
+		
+		// Check for immediate write failure
+		if (m_Stream.fail())
+		{
+			return false;
+		}
+		
+		// Flush to ensure data is committed to disk
+		m_Stream.flush();
+		
+		// Final state check after flush
+		return m_Stream.good();
 	}
 
 	//==============================================================================
 	/// FileStreamReader
 	FileStreamReader::FileStreamReader(const std::filesystem::path& path)
-		: m_Path(path)
+		: m_Path(path), m_Stream(path, std::ifstream::in | std::ifstream::binary)
 	{
-		m_Stream = std::ifstream(path, std::ifstream::in | std::ifstream::binary);
+		if (!m_Stream.is_open() || m_Stream.fail())
+		{
+			throw std::runtime_error("Failed to open file for reading: " + path.string());
+		}
 	}
 
-	FileStreamReader::~FileStreamReader()
+	FileStreamReader::~FileStreamReader() noexcept
 	{
-		m_Stream.close();
+		try
+		{
+			if (m_Stream.is_open())
+			{
+				m_Stream.close();
+			}
+		}
+		catch (...)
+		{
+			// Swallow any exceptions to ensure destructor is noexcept
+		}
 	}
 
 	bool FileStreamReader::ReadData(char* destination, sizet size)
 	{
 		m_Stream.read(destination, size);
-		return true;
+		
+		// Check if the full amount was read
+		if (m_Stream.gcount() != static_cast<std::streamsize>(size))
+		{
+			return false; // Short read
+		}
+		
+		// Check for stream errors (but allow EOF after successful full read)
+		if (m_Stream.fail() && !m_Stream.eof())
+		{
+			return false; // I/O error occurred
+		}
+		
+		return true; // Full read successful
 	}
 
 } // namespace OloEngine

@@ -115,12 +115,12 @@ namespace OloEngine
 		return newScene;
 	}
 
-	Entity Scene::CreateEntity(const std::string& name)
+	[[nodiscard]] Entity Scene::CreateEntity(const std::string& name)
 	{
 		return CreateEntityWithUUID(UUID(), name);
 	}
 
-	Entity Scene::CreateEntityWithUUID(const UUID uuid, const std::string & name)
+	[[nodiscard]] Entity Scene::CreateEntityWithUUID(const UUID uuid, const std::string & name)
 	{
 		auto entity = Entity { m_Registry.create(), this };
 		auto& idComponent = entity.AddComponent<IDComponent>();
@@ -138,12 +138,12 @@ namespace OloEngine
 		return entity;
 	}
 
-	Entity Scene::Instantiate(AssetHandle prefabHandle)
+	[[nodiscard]] Entity Scene::Instantiate(AssetHandle prefabHandle)
 	{
 		return InstantiateWithUUID(prefabHandle, UUID());
 	}
 
-	Entity Scene::InstantiateWithUUID(AssetHandle prefabHandle, UUID uuid)
+	[[nodiscard]] Entity Scene::InstantiateWithUUID(AssetHandle prefabHandle, UUID uuid)
 	{
 		Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(prefabHandle);
 		if (!prefab)
@@ -155,6 +155,24 @@ namespace OloEngine
 		// Generate UUID if not provided
 		if (!uuid)
 			uuid = UUID();
+
+		// Check for UUID collision and resolve if necessary
+		if (m_EntityMap.contains(uuid))
+		{
+			UUID originalUuid = uuid;
+			#ifdef OLO_DEBUG
+				OLO_CORE_ASSERT(false, "Scene::InstantiateWithUUID - UUID collision detected! UUID {} already exists in scene", static_cast<u64>(uuid));
+			#else
+				OLO_CORE_WARN("Scene::InstantiateWithUUID - UUID collision detected! UUID {} already exists, generating new UUID", static_cast<u64>(uuid));
+				
+				// Generate new unique UUID
+				do {
+					uuid = UUID();
+				} while (m_EntityMap.contains(uuid));
+				
+				OLO_CORE_WARN("Scene::InstantiateWithUUID - Resolved collision: original UUID {} replaced with new UUID {}", static_cast<u64>(originalUuid), static_cast<u64>(uuid));
+			#endif
+		}
 
 		// Create a new entity from the prefab
 		Entity entity = prefab->Instantiate(*this, uuid);
@@ -447,7 +465,7 @@ namespace OloEngine
 		m_Name = name;
 	}
 
-	Entity Scene::GetPrimaryCameraEntity()
+	[[nodiscard]] Entity Scene::GetPrimaryCameraEntity()
 	{
 		for (const auto view = m_Registry.view<CameraComponent>(); auto const entity : view)
 		{
@@ -475,7 +493,7 @@ void Scene::OnComponentAdded<SkeletonComponent>(Entity, SkeletonComponent&) {}
 template<>
 void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 
-	Entity Scene::FindEntityByName(std::string_view name)
+	[[nodiscard]] Entity Scene::FindEntityByName(std::string_view name)
 	{
 		for (auto view = m_Registry.view<TagComponent>(); auto entity : view)
 		{
@@ -488,13 +506,13 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 		return {};
 	}
 
-	Entity Scene::GetEntityByUUID(UUID uuid)
+	[[nodiscard]] Entity Scene::GetEntityByUUID(UUID uuid)
 	{
 		OLO_CORE_ASSERT(m_EntityMap.contains(uuid));
 		return { m_EntityMap.at(uuid), this };
 	}
 
-	Entity Scene::FindEntityByName(std::string_view name) const
+	[[nodiscard]] Entity Scene::FindEntityByName(std::string_view name) const
 	{
 		for (auto view = m_Registry.view<TagComponent>(); auto entity : view)
 		{
@@ -509,7 +527,7 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 		return {};
 	}
 
-	Entity Scene::GetEntityByUUID(UUID uuid) const
+	[[nodiscard]] Entity Scene::GetEntityByUUID(UUID uuid) const
 	{
 		OLO_CORE_ASSERT(m_EntityMap.contains(uuid));
 		// SAFETY: this is const Scene*, but Entity requires non-const Scene*
@@ -517,7 +535,7 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 		return { m_EntityMap.at(uuid), const_cast<Scene*>(this) };
 	}
 
-	Entity Scene::GetPrimaryCameraEntity() const
+	[[nodiscard]] Entity Scene::GetPrimaryCameraEntity() const
 	{
 		for (const auto view = m_Registry.view<CameraComponent>(); auto const entity : view)
 		{
@@ -564,7 +582,7 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 		BoneEntityUtils::BuildAnimationBoneEntityIds(entity, rootEntity, this);
 	}
 
-	std::optional<Entity> Scene::TryGetEntityWithUUID(UUID id) const
+	[[nodiscard]] std::optional<Entity> Scene::TryGetEntityWithUUID(UUID id) const
 	{
 		auto it = m_EntityMap.find(id);
 		if (it != m_EntityMap.end())

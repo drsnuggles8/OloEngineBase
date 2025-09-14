@@ -5,6 +5,7 @@
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Asset/AssetTypes.h"
 #include <type_traits>
+#include <string>
 
 namespace OloEngine
 {
@@ -168,31 +169,32 @@ namespace OloEngine
      */
     class ScriptFileAsset : public Asset
     {
-    private:
-        std::string m_ClassNamespace;
-        std::string m_ClassName;
-
     public:
         ScriptFileAsset() = default;
-        ScriptFileAsset(const std::string& classNamespace, const std::string& className)
-            : m_ClassNamespace(classNamespace), m_ClassName(className)
-        {
-        }
-        ScriptFileAsset(std::string&& classNamespace, std::string&& className)
+        ScriptFileAsset(std::string classNamespace, std::string className)
             : m_ClassNamespace(std::move(classNamespace)), m_ClassName(std::move(className))
         {
         }
 
-        const std::string& GetClassNamespace() const { return m_ClassNamespace; }
-        const std::string& GetClassName() const { return m_ClassName; }
+        const std::string& GetClassNamespace() const noexcept { return m_ClassNamespace; }
+        const std::string& GetClassName() const noexcept { return m_ClassName; }
 
-        void SetClassNamespace(const std::string& classNamespace) { m_ClassNamespace = classNamespace; }
-        void SetClassNamespace(std::string&& classNamespace) noexcept { m_ClassNamespace = std::move(classNamespace); }
-        void SetClassName(const std::string& className) { m_ClassName = className; }
-        void SetClassName(std::string&& className) noexcept { m_ClassName = std::move(className); }
+        std::string GetFullyQualifiedClassName() const
+        {
+            if (m_ClassNamespace.empty())
+                return m_ClassName;
+            return m_ClassNamespace + "." + m_ClassName;
+        }
+
+        void SetClassNamespace(std::string classNamespace) noexcept { m_ClassNamespace = std::move(classNamespace); }
+        void SetClassName(std::string className) noexcept { m_ClassName = std::move(className); }
 
         static AssetType GetStaticType() { return AssetType::ScriptFile; }
         virtual AssetType GetAssetType() const override { return GetStaticType(); }
+
+    private:
+        std::string m_ClassNamespace;
+        std::string m_ClassName;
     };
 
     /**

@@ -25,13 +25,13 @@ void AnimationAsset::OnDependencyUpdated(AssetHandle handle)
     // Thread-safe dependency update handling
     try
     {
-        OLO_CORE_TRACE("AnimationAsset dependency updated: {}", (u64)handle);
+        OLO_CORE_TRACE("AnimationAsset dependency updated: {}", static_cast<u64>(handle));
         
         // Ensure we're working with valid handles
         if (handle == 0 || GetHandle() == 0)
         {
             OLO_CORE_WARN("AnimationAsset::OnDependencyUpdated - Invalid handle(s): dependency={}, self={}", 
-                          (u64)handle, (u64)GetHandle());
+                          static_cast<u64>(handle), static_cast<u64>(GetHandle()));
             return;
         }
 
@@ -40,7 +40,7 @@ void AnimationAsset::OnDependencyUpdated(AssetHandle handle)
         if (!isRelevantDependency)
         {
             OLO_CORE_TRACE("AnimationAsset dependency {} not relevant to animation asset {}", 
-                          (u64)handle, (u64)GetHandle());
+                          static_cast<u64>(handle), static_cast<u64>(GetHandle()));
             return;
         }
 
@@ -51,7 +51,7 @@ void AnimationAsset::OnDependencyUpdated(AssetHandle handle)
 
         // Dispatch async reload to the main thread to avoid blocking
         // This ensures thread-safe reload and proper synchronization
-        Application::Get().SubmitToMainThread([selfHandle, dependencyHandle = handle, animationSource, mesh]() mutable {
+        Application::Get().SubmitToMainThread([selfHandle, dependencyHandle = handle, animationSource, mesh]() {
             try
             {
                 // Deregister existing dependencies before reload
@@ -62,34 +62,52 @@ void AnimationAsset::OnDependencyUpdated(AssetHandle handle)
                 // So we use the synchronous version which is thread-safe when called from main thread
                 bool reloadSuccess = AssetManager::ReloadData(selfHandle);
                 
+                // Always re-register dependencies regardless of reload success to preserve dependency graph
+                if (animationSource != 0)
+                {
+                    AssetManager::RegisterDependency(selfHandle, animationSource);
+                }
+                if (mesh != 0)
+                {
+                    AssetManager::RegisterDependency(selfHandle, mesh);
+                }
+                
                 if (reloadSuccess)
                 {
-                    // Re-register dependencies after successful reload
-                    if (animationSource != 0)
-                    {
-                        AssetManager::RegisterDependency(selfHandle, animationSource);
-                    }
-                    if (mesh != 0)
-                    {
-                        AssetManager::RegisterDependency(selfHandle, mesh);
-                    }
-                    
                     OLO_CORE_INFO("AnimationAsset {} reload successful due to dependency {} update", 
-                                 (u64)selfHandle, (u64)dependencyHandle);
+                                 static_cast<u64>(selfHandle), static_cast<u64>(dependencyHandle));
                 }
                 else
                 {
                     OLO_CORE_ERROR("AnimationAsset {} reload failed due to dependency {} update", 
-                                  (u64)selfHandle, (u64)dependencyHandle);
+                                  static_cast<u64>(selfHandle), static_cast<u64>(dependencyHandle));
                 }
             }
             catch (const std::exception& e)
             {
+                // Re-register dependencies even in exception paths to preserve dependency graph
+                if (animationSource != 0)
+                {
+                    AssetManager::RegisterDependency(selfHandle, animationSource);
+                }
+                if (mesh != 0)
+                {
+                    AssetManager::RegisterDependency(selfHandle, mesh);
+                }
                 OLO_CORE_ERROR("AnimationAsset::OnDependencyUpdated failed during reload: {}", e.what());
                 // Leave asset in safe state - don't throw, just log the error
             }
             catch (...)
             {
+                // Re-register dependencies even in exception paths to preserve dependency graph
+                if (animationSource != 0)
+                {
+                    AssetManager::RegisterDependency(selfHandle, animationSource);
+                }
+                if (mesh != 0)
+                {
+                    AssetManager::RegisterDependency(selfHandle, mesh);
+                }
                 OLO_CORE_ERROR("AnimationAsset::OnDependencyUpdated failed during reload: unknown exception");
                 // Leave asset in safe state - don't throw, just log the error
             }

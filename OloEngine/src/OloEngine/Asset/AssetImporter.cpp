@@ -8,6 +8,7 @@
 #include "OloEngine/Asset/AssetTypes.h"
 #include "OloEngine/Project/Project.h"
 
+#include <atomic>
 #include <memory>
 #include <mutex>
 
@@ -47,29 +48,17 @@ namespace OloEngine
     void AssetImporter::Shutdown()
     {
         // Set shutdown flag to prevent re-entry during static destruction
-        bool expected = false;
-        if (!s_IsShuttingDown.compare_exchange_strong(expected, true))
+        auto wasShuttingDown = s_IsShuttingDown.exchange(true, std::memory_order_acq_rel);
+        if (wasShuttingDown)
         {
             // Already shutting down, avoid double shutdown
             return;
         }
 
         std::scoped_lock lock(s_SerializersMutex);
-        const auto serializerCount = s_Serializers.size();
         
-        // During static destruction, avoid calling destructors that might access 
-        // already-destroyed static objects. Let the OS clean up the memory.
-        try 
-        {
-            s_Serializers.clear();
-            OLO_CORE_TRACE("AssetImporter shutdown - cleared {} serializers", serializerCount);
-        }
-        catch (...)
-        {
-            // If clear() fails (likely due to static destruction order issues),
-            // just abandon the cleanup and let the OS handle it
-            OLO_CORE_WARN("AssetImporter shutdown - failed to clear serializers safely, letting OS clean up");
-        }
+        // Deterministic cleanup - serializers have noexcept destructors
+        s_Serializers.clear();
     }
 
     void AssetImporter::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset)

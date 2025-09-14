@@ -9,7 +9,6 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <functional>
-#include <type_traits>
 
 namespace OloEngine
 {

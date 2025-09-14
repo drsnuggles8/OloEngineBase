@@ -16,7 +16,7 @@ namespace OloEngine
     public:
         FileStreamWriter(const std::filesystem::path& path);
         FileStreamWriter(const FileStreamWriter&) = delete;
-        virtual ~FileStreamWriter();
+        virtual ~FileStreamWriter() noexcept;
 
         bool IsStreamGood() const final { return m_Stream.good(); }
         u64 GetStreamPosition() final { return m_Stream.tellp(); }
@@ -35,7 +35,7 @@ namespace OloEngine
     public:
         FileStreamReader(const std::filesystem::path& path);
         FileStreamReader(const FileStreamReader&) = delete;
-        ~FileStreamReader();
+        ~FileStreamReader() noexcept;
 
         const std::filesystem::path& GetFilePath() const { return m_Path; }
 
