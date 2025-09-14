@@ -2,6 +2,7 @@
 
 #include "OloEngine/Asset/AssetImporter.h"
 #include "OloEngine/Asset/AssetExtensions.h"
+#include "OloEngine/Asset/PlaceholderAsset.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Timer.h"
 #include "OloEngine/Core/Ref.h"
@@ -9,10 +10,15 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Core/Events/EditorEvents.h"
 
 #include <algorithm>
 #include <future>
 #include <filesystem>
+
+#if OLO_ASYNC_ASSETS
+#include "FileWatch.hpp"
+#endif
 
 namespace OloEngine
 {
@@ -23,6 +29,7 @@ namespace OloEngine
 #endif
 
         AssetImporter::Init();
+        PlaceholderAssetManager::Initialize();
         OLO_CORE_INFO("Initializing EditorAssetManager");
     }
 
@@ -60,21 +67,51 @@ namespace OloEngine
             {
                 OLO_CORE_WARN("Failed to check asset registry existence: {}", ec.message());
             }
+
+            // Scan project assets directory for any new assets that aren't in the registry
+            auto assetDirectory = Project::GetAssetDirectory();
+            if (std::filesystem::exists(assetDirectory, ec) && !ec)
+            {
+                OLO_CORE_INFO("Scanning asset directory for new assets: {}", assetDirectory.string());
+                ScanDirectoryForAssets(assetDirectory);
+                OLO_CORE_INFO("Asset directory scan completed");
+                
+                // Serialize the updated registry to save any newly discovered assets
+                SerializeAssetRegistry();
+            }
+            else if (ec)
+            {
+                OLO_CORE_WARN("Failed to check asset directory existence: {}", ec.message());
+            }
         }
 
 #if OLO_ASYNC_ASSETS
-        // Start file watcher thread only if we have a valid project path
+        // Start real-time file watcher for the project directory
         if (!m_ProjectPath.empty())
         {
-            m_FileWatcherThread = std::thread([this]() { FileWatcherThreadFunction(); });
+            OLO_CORE_INFO("Starting real-time file watcher for project: {}", m_ProjectPath.string());
+            try 
+            {
+                m_ProjectFileWatcher = std::make_unique<filewatch::FileWatch<std::string>>(
+                    m_ProjectPath.string(), 
+                    [this](const std::string& file, const filewatch::Event change_type) {
+                        OnFileSystemEvent(file, change_type);
+                    }
+                );
+                OLO_CORE_INFO("Real-time file watcher started successfully");
+            }
+            catch (const std::exception& e)
+            {
+                OLO_CORE_ERROR("Failed to start file watcher: {}", e.what());
+                OLO_CORE_INFO("Falling back to polling-based file watching");
+                m_FileWatcherThread = std::thread([this]() { FileWatcherThreadFunction(); });
+            }
         }
 #endif
     }
 
     void EditorAssetManager::Shutdown() noexcept
     {
-        OLO_CORE_INFO("Shutting down EditorAssetManager");
-
 #if OLO_ASYNC_ASSETS
         // Stop asset thread
         if (m_AssetThread)
@@ -82,7 +119,13 @@ namespace OloEngine
             m_AssetThread->StopAndWait();
         }
         
-        // Stop file watcher
+        // Stop real-time file watcher
+        if (m_ProjectFileWatcher)
+        {
+            m_ProjectFileWatcher.reset();
+        }
+        
+        // Stop polling file watcher (fallback)
         m_ShouldTerminate = true;
         if (m_FileWatcherThread.joinable())
         {
@@ -95,7 +138,6 @@ namespace OloEngine
         {
             auto registryPath = Project::GetAssetRegistryPath();
             m_AssetRegistry.Serialize(registryPath);
-            OLO_CORE_INFO("Saved asset registry to {}", registryPath.string());
         }
 
         // Clear all loaded assets and memory assets
@@ -105,8 +147,8 @@ namespace OloEngine
             m_MemoryAssets.clear();
         }
         
-        // Shutdown AssetImporter to release serializer resources
         AssetImporter::Shutdown();
+        PlaceholderAssetManager::Shutdown();
     }
 
     AssetType EditorAssetManager::GetAssetType(AssetHandle assetHandle) const noexcept
@@ -171,11 +213,22 @@ namespace OloEngine
     {
         OLO_PROFILER_SCOPE("EditorAssetManager::ReloadData");
 
-        auto metadata = m_AssetRegistry.GetMetadata(assetHandle);
-        if (!metadata.IsValid())
+        // Capture metadata values under registry lock for thread safety
+        AssetMetadata metadata;
+        AssetType type;
+        std::filesystem::path path;
         {
-            OLO_CORE_ERROR("Cannot reload asset {}: metadata not found", (u64)assetHandle);
-            return false;
+            std::shared_lock<std::shared_mutex> lock(m_RegistryMutex);
+            metadata = m_AssetRegistry.GetMetadata(assetHandle);
+            if (!metadata.IsValid())
+            {
+                OLO_CORE_ERROR("Cannot reload asset {}: metadata not found", (u64)assetHandle);
+                return false;
+            }
+            
+            // Capture values while under lock to avoid accessing stale metadata later
+            type = metadata.Type;
+            path = metadata.FilePath;
         }
 
         // Remove from cache to force reload
@@ -188,14 +241,42 @@ namespace OloEngine
         auto asset = LoadAssetFromFile(metadata);
         if (!asset)
         {
-            OLO_CORE_ERROR("Failed to reload asset: {}", metadata.FilePath.string());
-            return false;
+            OLO_CORE_ERROR("Failed to reload asset: {}", path.string());
+            
+            // Load a safe placeholder asset instead of failing completely
+            auto placeholderAsset = AssetManager::GetPlaceholderAsset(type);
+            if (placeholderAsset)
+            {
+                // Set the placeholder's handle to match the original asset handle
+                placeholderAsset->SetHandle(assetHandle);
+                
+                // Cache the placeholder asset so callers get a valid asset reference
+                {
+                    std::unique_lock<std::shared_mutex> lock(m_AssetsMutex);
+                    m_LoadedAssets[assetHandle] = placeholderAsset;
+                }
+                
+                // Set status to Failed (we could add a new FailedWithPlaceholder status in the future)
+                SetAssetStatus(assetHandle, AssetStatus::Failed);
+                
+                OLO_CORE_WARN("Asset reload failed, substituted with placeholder: {} -> {} (Type: {})", 
+                              path.string(), (u64)assetHandle, AssetUtils::AssetTypeToString(type));
+                
+                // Continue with normal workflow even with placeholder
+                asset = placeholderAsset;
+            }
+            else
+            {
+                OLO_CORE_ERROR("Failed to create placeholder asset for type: {}", AssetUtils::AssetTypeToString(type));
+                SetAssetStatus(assetHandle, AssetStatus::Failed);
+                return false;
+            }
         }
 
         // Update LastWriteTime to prevent continuous reloads
         {
             std::error_code ec;
-            auto absolutePath = m_ProjectPath / metadata.FilePath;
+            auto absolutePath = m_ProjectPath / path;
             metadata.LastWriteTime = std::filesystem::last_write_time(absolutePath, ec);
             if (!ec)
             {
@@ -206,14 +287,25 @@ namespace OloEngine
             }
             else
             {
-                OLO_CORE_WARN("Failed to update LastWriteTime for asset {}: {}", metadata.FilePath.string(), ec.message());
+                OLO_CORE_WARN("Failed to update LastWriteTime for asset {}: {}", path.string(), ec.message());
             }
         }
 
         // Update dependencies
         UpdateDependencies(assetHandle);
+        
+        // Notify dependent assets that this asset has been updated
+        UpdateDependents(assetHandle);
 
-        OLO_CORE_INFO("Reloaded asset: {}", metadata.FilePath.string());
+        // Notify listeners via engine event system (on main thread)
+        {
+            Application::Get().SubmitToMainThread([assetHandle, type, path]() mutable {
+                AssetReloadedEvent evt(assetHandle, type, path);
+                Application::Get().OnEvent(evt);
+            });
+        }
+
+        OLO_CORE_INFO("Reloaded asset: {}", path.string());
         return true;
     }
 
@@ -365,18 +457,31 @@ namespace OloEngine
     void EditorAssetManager::RegisterDependency(AssetHandle handle, AssetHandle dependency)
     {
         std::unique_lock<std::shared_mutex> lock(m_DependenciesMutex);
-        m_AssetDependencies[dependency].insert(handle);
+        
+        OLO_CORE_ASSERT(handle != 0, "Cannot register dependency for invalid asset handle");
+        
+        // Ensure there is an entry in m_AssetDependencies for handle (creates if needed)
+        auto& dependencySet = m_AssetDependencies[handle];
+        
+        // Return early if dependency is invalid
+        if (dependency == 0)
+            return;
+        
+        // Asset 'handle' depends on 'dependency'
+        dependencySet.insert(dependency);
+        // Asset 'dependency' is depended on by 'handle'
+        m_AssetDependents[dependency].insert(handle);
     }
 
     void EditorAssetManager::DeregisterDependency(AssetHandle handle, AssetHandle dependency)
     {
         std::unique_lock<std::shared_mutex> lock(m_DependenciesMutex);
-        auto it = m_AssetDependencies.find(dependency);
-        if (it != m_AssetDependencies.end())
+        if (dependency != 0)
         {
-            it->second.erase(handle);
-            if (it->second.empty())
-                m_AssetDependencies.erase(it);
+            // Remove 'dependency' from what 'handle' depends on
+            m_AssetDependencies[handle].erase(dependency);
+            // Remove 'handle' from what depends on 'dependency'
+            m_AssetDependents[dependency].erase(handle);
         }
     }
 
@@ -384,18 +489,48 @@ namespace OloEngine
     {
         std::unique_lock<std::shared_mutex> lock(m_DependenciesMutex);
         
-        // Remove this asset from all dependency lists
-        for (auto it = m_AssetDependencies.begin(); it != m_AssetDependencies.end();)
+        // Find all dependencies this asset has
+        if (auto it = m_AssetDependencies.find(handle); it != m_AssetDependencies.end())
         {
-            it->second.erase(handle);
-            if (it->second.empty())
-                it = m_AssetDependencies.erase(it);
-            else
-                ++it;
+            // For each dependency, remove this asset from its dependents list
+            for (AssetHandle dependency : it->second)
+            {
+                m_AssetDependents[dependency].erase(handle);
+            }
+            // Remove this asset's dependency list
+            m_AssetDependencies.erase(it);
         }
+        
+        // Also remove this asset from being a dependent of anything
+        // (This handles cases where this asset was incorrectly registered)
+        for (auto& [depHandle, dependents] : m_AssetDependents)
+        {
+            dependents.erase(handle);
+        }
+    }
 
-        // Remove dependencies of this asset
-        m_AssetDependencies.erase(handle);
+    void EditorAssetManager::UpdateDependents(AssetHandle handle)
+    {
+        std::unordered_set<AssetHandle> dependents;
+        {
+            std::shared_lock lock(m_DependenciesMutex);
+            if (auto it = m_AssetDependents.find(handle); it != m_AssetDependents.end())
+                dependents = it->second;
+        }
+        
+        for (AssetHandle dependent : dependents)
+        {
+            if (IsAssetLoaded(dependent))
+            {
+                Ref<Asset> asset = GetAsset(dependent);
+                if (asset)
+                {
+                    OLO_CORE_TRACE("Notifying dependent asset {} of dependency {} update", 
+                                   (u64)dependent, (u64)handle);
+                    asset->OnDependencyUpdated(handle);
+                }
+            }
+        }
     }
 
     std::unordered_set<AssetHandle> EditorAssetManager::GetDependencies(AssetHandle handle) const
@@ -499,8 +634,56 @@ namespace OloEngine
 
     void EditorAssetManager::SyncWithAssetThread() noexcept
     {
-        // In editor mode, we don't have a separate asset thread
-        // This is a no-op for compatibility
+#if OLO_ASYNC_ASSETS
+        if (!m_AssetThread)
+            return;
+
+        OLO_PROFILER_SCOPE("EditorAssetManager::SyncWithAssetThread");
+
+        // Retrieve ready assets from the asset thread
+        std::vector<EditorAssetLoadResponse> freshAssets;
+        if (!m_AssetThread->RetrieveReadyAssets(freshAssets))
+            return; // No new assets
+
+        // Integrate ready assets into the main asset manager
+        {
+            std::unique_lock<std::shared_mutex> lock(m_AssetsMutex);
+            for (const auto& response : freshAssets)
+            {
+                if (response.AssetRef)
+                {
+                    m_LoadedAssets[response.Metadata.Handle] = response.AssetRef;
+                    OLO_CORE_TRACE("SyncWithAssetThread: Integrated asset {} from async load", 
+                                   (u64)response.Metadata.Handle);
+                    
+                    // Update asset status to Loaded in registry
+                    {
+                        std::unique_lock<std::shared_mutex> registryLock(m_RegistryMutex);
+                        auto metadata = m_AssetRegistry.GetMetadata(response.Metadata.Handle);
+                        if (metadata.IsValid())
+                        {
+                            metadata.Status = AssetStatus::Loaded;
+                            m_AssetRegistry.UpdateMetadata(response.Metadata.Handle, metadata);
+                        }
+                    }
+                    
+                    // TODO: Fire AssetLoadedEvent for listeners
+                }
+            }
+        }
+
+        OLO_CORE_TRACE("SyncWithAssetThread: Integrated {} assets from async loading", freshAssets.size());
+        
+        // Log telemetry information
+        if (freshAssets.size() > 0)
+        {
+            auto [queued, loaded, failed, queueLength] = m_AssetThread->GetTelemetry();
+            OLO_CORE_TRACE("Asset Thread Telemetry - Queued: {}, Loaded: {}, Failed: {}, Queue Length: {}", 
+                           queued, loaded, failed, queueLength);
+        }
+#else
+        // In synchronous mode, this is a no-op
+#endif
     }
 
     Ref<Asset> EditorAssetManager::LoadAssetFromFile(const AssetMetadata& metadata)
@@ -510,22 +693,32 @@ namespace OloEngine
         if (!metadata.IsValid())
         {
             OLO_CORE_ERROR("Cannot load asset: invalid metadata");
-            return nullptr;
+            SetAssetStatus(metadata.Handle, AssetStatus::Invalid);
+            return AssetManager::GetPlaceholderAsset(metadata.Type);
         }
 
-        if (!std::filesystem::exists(metadata.FilePath))
+        auto absolutePath = m_ProjectPath / metadata.FilePath;
+        if (!std::filesystem::exists(absolutePath))
         {
             OLO_CORE_ERROR("Cannot load asset: file does not exist: {}", metadata.FilePath.string());
-            return nullptr;
+            SetAssetStatus(metadata.Handle, AssetStatus::Missing);
+            return AssetManager::GetPlaceholderAsset(metadata.Type);
         }
+
+        // Set loading status
+        SetAssetStatus(metadata.Handle, AssetStatus::Loading);
 
         // Load asset using importer
         Ref<Asset> asset;
         if (!AssetImporter::TryLoadData(metadata, asset))
         {
             OLO_CORE_ERROR("Failed to load asset: {}", metadata.FilePath.string());
-            return nullptr;
+            SetAssetStatus(metadata.Handle, AssetStatus::Failed);
+            return AssetManager::GetPlaceholderAsset(metadata.Type);
         }
+
+        // Successfully loaded
+        SetAssetStatus(metadata.Handle, AssetStatus::Loaded);
 
         // Cache the loaded asset
         {
@@ -660,6 +853,201 @@ namespace OloEngine
     {
         std::shared_lock<std::shared_mutex> lock(m_AssetsMutex);
         return m_LoadedAssets;
+    }
+
+#if OLO_ASYNC_ASSETS
+    void EditorAssetManager::OnFileSystemEvent(const std::string& file, const filewatch::Event change_type)
+    {
+        // Convert to filesystem path for easier manipulation
+        std::filesystem::path filePath(file);
+        
+        // Only handle modification events (ignoring added/removed for now)
+        if (change_type != filewatch::Event::modified)
+            return;
+            
+        // Filter by asset extensions to avoid processing non-asset files
+        auto extension = filePath.extension();
+        if (extension.empty())
+            return;
+            
+        auto assetType = AssetExtensions::GetAssetTypeFromExtension(extension.string());
+        if (assetType == AssetType::None)
+        {
+            OLO_CORE_TRACE("Ignoring file change for non-asset file: {}", filePath.string());
+            return;
+        }
+            
+        OLO_CORE_TRACE("File system event: {} - {} (AssetType: {})", file, (int)change_type, (int)assetType);
+        
+        try
+        {
+            // The file watcher gives us paths relative to the project root
+            // So we can use the path directly for asset registry lookup
+            std::filesystem::path assetPath = filePath;
+            
+            // Normalize the path separators to match asset registry format
+            std::string pathStr = assetPath.generic_string();
+            
+            // Find the asset handle for this file
+            AssetHandle assetHandle = 0;
+            {
+                std::shared_lock<std::shared_mutex> registryLock(m_RegistryMutex);
+                auto allAssets = m_AssetRegistry.GetAllAssets();
+                for (const auto& metadata : allAssets)
+                {
+                    if (!metadata.IsValid())
+                        continue;
+                        
+                    // Compare normalized paths as strings (case insensitive for Windows)
+                    std::string registryPath = metadata.FilePath.generic_string();
+                    
+                    // Windows is case-insensitive, so compare lowercase
+                    std::transform(pathStr.begin(), pathStr.end(), pathStr.begin(), ::tolower);
+                    std::transform(registryPath.begin(), registryPath.end(), registryPath.begin(), ::tolower);
+                    
+                    if (pathStr == registryPath)
+                    {
+                        assetHandle = metadata.Handle;
+                        break;
+                    }
+                }
+            }
+            
+            // If we found the asset, reload it
+            if (assetHandle != 0)
+            {
+                OLO_CORE_INFO("🔄 Hot-reload triggered for asset: {} (Handle: {}, Type: {})", 
+                             pathStr, (u64)assetHandle, (int)assetType);
+                ReloadDataAsync(assetHandle);
+            }
+            else
+            {
+                // Check if this might be a new asset file
+                OLO_CORE_TRACE("File change detected for untracked file: {} (Type: {})", 
+                              pathStr, (int)assetType);
+                // TODO: In the future, we could auto-import new assets here
+            }
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("Error handling file system event for {}: {}", file, e.what());
+        }
+    }
+#endif
+
+    AssetMetadata EditorAssetManager::GetMetadata(AssetHandle handle) const
+    {
+        std::shared_lock lock(m_RegistryMutex);
+        return m_AssetRegistry.GetMetadata(handle);
+    }
+
+    void EditorAssetManager::SetMetadata(AssetHandle handle, const AssetMetadata& metadata)
+    {
+        std::unique_lock lock(m_RegistryMutex);
+        m_AssetRegistry.UpdateMetadata(handle, metadata);
+    }
+
+    void EditorAssetManager::SetAssetStatus(AssetHandle handle, AssetStatus status)
+    {
+        std::unique_lock lock(m_RegistryMutex);
+        auto metadata = m_AssetRegistry.GetMetadata(handle);
+        if (metadata.IsValid())
+        {
+            metadata.Status = status;
+            m_AssetRegistry.UpdateMetadata(handle, metadata);
+        }
+    }
+
+    void EditorAssetManager::ScanDirectoryForAssets(const std::filesystem::path& directory)
+    {
+        OLO_PROFILER_SCOPE("EditorAssetManager::ScanDirectoryForAssets");
+
+        if (!std::filesystem::exists(directory))
+        {
+            OLO_CORE_WARN("Directory does not exist for asset scanning: {}", directory.string());
+            return;
+        }
+
+        std::error_code ec;
+        auto iterator = std::filesystem::recursive_directory_iterator(directory, ec);
+        if (ec)
+        {
+            OLO_CORE_ERROR("Failed to create recursive directory iterator for {}: {}", directory.string(), ec.message());
+            return;
+        }
+
+        for (auto it = iterator; it != std::filesystem::recursive_directory_iterator(); it.increment(ec))
+        {
+            if (ec)
+            {
+                OLO_CORE_WARN("Error advancing directory iterator during asset scan: {}", ec.message());
+                ec.clear(); // Clear error and continue with next iteration
+                continue;
+            }
+
+            try
+            {
+                const auto& entry = *it;
+                
+                // Check if it's a regular file using error_code overload
+                std::error_code file_ec;
+                bool isRegularFile = entry.is_regular_file(file_ec);
+                if (file_ec)
+                {
+                    OLO_CORE_WARN("Error checking file type for {}: {}", entry.path().string(), file_ec.message());
+                    continue; // Skip this entry and continue
+                }
+                
+                if (isRegularFile)
+                {
+                    // Get the path safely
+                    std::filesystem::path entryPath;
+                    try
+                    {
+                        entryPath = entry.path();
+                    }
+                    catch (const std::filesystem::filesystem_error& path_ex)
+                    {
+                        OLO_CORE_WARN("Error getting path for directory entry: {}", path_ex.what());
+                        continue; // Skip this entry and continue
+                    }
+                    
+                    AssetType type = AssetExtensions::GetAssetTypeFromPath(entryPath.string());
+                    if (type != AssetType::None)
+                    {
+                        ImportAsset(entryPath);
+                    }
+                }
+            }
+            catch (const std::filesystem::filesystem_error& ex)
+            {
+                OLO_CORE_WARN("Filesystem error processing directory entry during asset scan: {}", ex.what());
+                // Continue to next entry
+                continue;
+            }
+            catch (const std::exception& ex)
+            {
+                OLO_CORE_WARN("Unexpected error processing directory entry during asset scan: {}", ex.what());
+                // Continue to next entry
+                continue;
+            }
+        }
+    }
+
+    bool EditorAssetManager::SerializeAssetRegistry()
+    {
+        try
+        {
+            std::scoped_lock lock(m_RegistryMutex);
+            
+            const std::filesystem::path registryPath = Project::GetAssetRegistryPath();
+            return m_AssetRegistry.Serialize(registryPath);
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("Failed to serialize asset registry: {}", e.what());
+            return false;
+        }
     }
 
 } // namespace OloEngine

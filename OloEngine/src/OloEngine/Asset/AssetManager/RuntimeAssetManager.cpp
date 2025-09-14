@@ -185,7 +185,7 @@ namespace OloEngine
         m_MemoryAssets[asset->m_Handle] = asset;
     }
 
-    bool RuntimeAssetManager::ReloadData(AssetHandle assetHandle)
+    bool RuntimeAssetManager::ReloadData([[maybe_unused]] AssetHandle assetHandle)
     {
         // Runtime manager doesn't support reloading from individual files
         // Assets are loaded from packs which don't change at runtime
@@ -193,7 +193,7 @@ namespace OloEngine
         return false;
     }
 
-    void RuntimeAssetManager::ReloadDataAsync(AssetHandle assetHandle)
+    void RuntimeAssetManager::ReloadDataAsync([[maybe_unused]] AssetHandle assetHandle)
     {
         // Runtime manager doesn't support async reloading
         OLO_CORE_WARN("RuntimeAssetManager::ReloadDataAsync - Async reloading not supported in runtime mode");

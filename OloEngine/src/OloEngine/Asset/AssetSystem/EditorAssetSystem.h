@@ -77,6 +77,18 @@ namespace OloEngine
          */
         float GetAssetUpdatePerformance() const { return m_AssetUpdatePerf; }
 
+        /**
+         * @brief Get telemetry information for debugging
+         * @return Tuple of (queued count, loaded count, failed count, queue length)
+         */
+        std::tuple<u32, u32, u32, sizet> GetTelemetry() const;
+
+        /**
+         * @brief Get current queue length
+         * @return Number of assets currently in loading queue
+         */
+        sizet GetQueueLength() const;
+
     private:
         /**
          * @brief Asset monitor update (checks for file changes)
@@ -99,19 +111,28 @@ namespace OloEngine
 
         // Asset loading queue
         std::queue<AssetMetadata> m_AssetLoadingQueue;
-        std::mutex m_AssetLoadingQueueMutex;
+        mutable std::mutex m_AssetLoadingQueueMutex;
         std::condition_variable m_AssetLoadingQueueCV;
 
         // Ready assets queue (assets loaded and ready for main thread)
         std::queue<EditorAssetLoadResponse> m_ReadyAssets;
-        std::mutex m_ReadyAssetsMutex;
+        mutable std::mutex m_ReadyAssetsMutex;
 
         // Loaded assets tracking (for file change detection)
         std::unordered_map<AssetHandle, Ref<Asset>> m_LoadedAssets;
         std::mutex m_LoadedAssetsMutex;
 
+        // Pending assets tracking (to prevent duplicate loading)
+        std::unordered_set<AssetHandle> m_PendingAssets;
+        std::mutex m_PendingAssetsMutex;
+
         // Performance tracking
         float m_AssetUpdatePerf = 0.0f;
+
+        // Telemetry counters
+        mutable std::atomic<u32> m_QueuedAssetsCount{0};
+        mutable std::atomic<u32> m_LoadedAssetsCount{0};
+        mutable std::atomic<u32> m_FailedAssetsCount{0};
     };
 
 } // namespace OloEngine

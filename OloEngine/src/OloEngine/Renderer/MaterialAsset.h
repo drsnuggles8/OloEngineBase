@@ -64,6 +64,7 @@ namespace OloEngine
 		bool IsTransparent() const { return m_Transparent; }
 	private:
 		void SetDefaults();
+		[[nodiscard]] Ref<Texture2D> GetTextureOrPlaceholder(AssetHandle handle) const;
 	private:
 		Ref<Material> m_Material;
 
@@ -93,6 +94,7 @@ namespace OloEngine
 
 		AssetHandle GetMaterial(u32 materialIndex) const
 		{
+			OLO_CORE_ASSERT(materialIndex < m_MaterialCount, "MaterialTable::GetMaterial: Material index {} exceeds capacity {}", materialIndex, m_MaterialCount);
 			auto it = m_Materials.find(materialIndex);
 			if (it == m_Materials.end())
 			{
@@ -105,11 +107,14 @@ namespace OloEngine
 		std::map<u32, AssetHandle>& GetMaterials() { return m_Materials; }
 		const std::map<u32, AssetHandle>& GetMaterials() const { return m_Materials; }
 
-		u32 GetMaterialCount() const { return static_cast<u32>(m_Materials.size()); }
+		u32 GetMaterialCount() const { return static_cast<u32>(m_Materials.size()); } // Number of active materials
+		u32 GetMaterialCapacity() const { return m_MaterialCount; } // Number of material slots (capacity)
+		void SetMaterialCapacity(u32 materialCapacity) { m_MaterialCount = materialCapacity; } // Set the number of material slots (capacity)
 
 		void Clear();
 	private:
 		std::map<u32, AssetHandle> m_Materials;
+		u32 m_MaterialCount = 1; // Number of material slots (capacity), not necessarily the count of materials in the map
 	};
 
 }

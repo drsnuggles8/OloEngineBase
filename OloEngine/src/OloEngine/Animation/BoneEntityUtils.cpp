@@ -4,6 +4,9 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Renderer/MeshSource.h"
+#include <algorithm>
+#include <functional>
+#include <mutex>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -51,13 +54,13 @@ namespace OloEngine
 
             // Calculate model space transform by multiplying with parent - with bounds checking
             int parentIndex = (i < skeleton->m_ParentIndices.size()) ? skeleton->m_ParentIndices[i] : -1;
-            if (parentIndex < 0 || static_cast<size_t>(parentIndex) >= boneTransforms.size())
+            if (parentIndex < 0 || static_cast<sizet>(parentIndex) >= boneTransforms.size())
             {
                 boneTransforms[i] = localTransform;
             }
             else
             {
-                boneTransforms[i] = boneTransforms[static_cast<size_t>(parentIndex)] * localTransform;
+                boneTransforms[i] = boneTransforms[static_cast<sizet>(parentIndex)] * localTransform;
             }        }
 
         return boneTransforms;

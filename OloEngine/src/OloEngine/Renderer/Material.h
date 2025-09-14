@@ -116,9 +116,19 @@ namespace OloEngine {
 		virtual Ref<Texture2D> GetTexture2D(const std::string& name, u32 arrayIndex);
 		virtual Ref<TextureCubemap> GetTextureCube(const std::string& name);
 
-		virtual Ref<Texture2D> TryGetTexture2D(const std::string& name);
-		virtual Ref<Texture2D> TryGetTexture2D(const std::string& name, u32 arrayIndex);
+		// Const overloads that forward to the non-const virtuals for backward compatibility
+		Ref<Texture2D> GetTexture2D(const std::string& name) const;
+		Ref<Texture2D> GetTexture2D(const std::string& name, u32 arrayIndex) const;
+		Ref<TextureCubemap> GetTextureCube(const std::string& name) const;
+
+		[[nodiscard]] virtual Ref<Texture2D> TryGetTexture2D(const std::string& name);
+		[[nodiscard]] virtual Ref<Texture2D> TryGetTexture2D(const std::string& name, u32 arrayIndex);
 		virtual Ref<TextureCubemap> TryGetTextureCube(const std::string& name);
+
+		// Const overloads that forward to the non-const virtuals for backward compatibility
+		[[nodiscard]] Ref<Texture2D> TryGetTexture2D(const std::string& name) const;
+		[[nodiscard]] Ref<Texture2D> TryGetTexture2D(const std::string& name, u32 arrayIndex) const;
+		Ref<TextureCubemap> TryGetTextureCube(const std::string& name) const;
 
 		virtual u32 GetFlags() const { return m_MaterialFlags; }
 		virtual void SetFlags(u32 flags) { m_MaterialFlags = flags; }
@@ -135,14 +145,6 @@ namespace OloEngine {
 		// =====================================================================
 		// TYPED PROPERTY ACCESSORS (Replacement for public member variables)
 		// =====================================================================
-		
-		// Material type and shader management (deprecated wrappers)
-		[[deprecated("Use GetType() instead")]]
-		MaterialType GetMaterialType() const { return GetType(); }
-		[[deprecated("Use SetType() instead")]]
-		void SetMaterialType(MaterialType type) { SetType(type); }
-		[[deprecated("Use GetShader() instead")]]
-		Ref<Shader> GetMaterialShader() const { return GetShader(); }
 		
 		// Legacy material properties (for backward compatibility)
 		const glm::vec3& GetAmbient() const { return m_Ambient; }
@@ -197,144 +199,6 @@ namespace OloEngine {
 		void SetBRDFLutMap(const Ref<Texture2D>& texture) { m_BRDFLutMap = texture; }
 
 		// =====================================================================
-		// LEGACY COMPATIBILITY: Deprecated reference aliases - use getters/setters instead
-		// =====================================================================
-		
-		// Material identification accessors
-		[[deprecated("Use GetName()/SetName() instead")]]
-		inline std::string& Name() { return m_Name; }
-		[[deprecated("Use GetName() instead")]]
-		inline const std::string& Name() const { return m_Name; }
-		
-		// Material type and shader accessors
-		[[deprecated("Use GetMaterialType()/SetMaterialType() instead")]]
-		inline MaterialType& Type() { return m_MaterialType; }
-		[[deprecated("Use GetMaterialType() instead")]]
-		inline const MaterialType& Type() const { return m_MaterialType; }
-		
-		[[deprecated("Use GetShader()/SetShader() instead")]]
-		inline Ref<OloEngine::Shader>& Shader() { return m_Shader; }
-		[[deprecated("Use GetShader() instead")]]
-		inline const Ref<OloEngine::Shader>& Shader() const { return m_Shader; }
-		
-		// Legacy material property accessors
-		[[deprecated("Use GetAmbient()/SetAmbient() instead")]]
-		inline glm::vec3& Ambient() { return m_Ambient; }
-		[[deprecated("Use GetAmbient() instead")]]
-		inline const glm::vec3& Ambient() const { return m_Ambient; }
-		
-		[[deprecated("Use GetDiffuse()/SetDiffuse() instead")]]
-		inline glm::vec3& Diffuse() { return m_Diffuse; }
-		[[deprecated("Use GetDiffuse() instead")]]
-		inline const glm::vec3& Diffuse() const { return m_Diffuse; }
-		
-		[[deprecated("Use GetSpecular()/SetSpecular() instead")]]
-		inline glm::vec3& Specular() { return m_Specular; }
-		[[deprecated("Use GetSpecular() instead")]]
-		inline const glm::vec3& Specular() const { return m_Specular; }
-		
-		[[deprecated("Use GetShininess()/SetShininess() instead")]]
-		inline float& Shininess() { return m_Shininess; }
-		[[deprecated("Use GetShininess() instead")]]
-		inline const float& Shininess() const { return m_Shininess; }
-		
-		[[deprecated("Use IsUsingTextureMaps()/SetUseTextureMaps() instead")]]
-		inline bool& UseTextureMaps() { return m_UseTextureMaps; }
-		[[deprecated("Use IsUsingTextureMaps() instead")]]
-		inline const bool& UseTextureMaps() const { return m_UseTextureMaps; }
-		
-		[[deprecated("Use GetDiffuseMap()/SetDiffuseMap() instead")]]
-		inline Ref<Texture2D>& DiffuseMap() { return m_DiffuseMap; }
-		[[deprecated("Use GetDiffuseMap() instead")]]
-		inline const Ref<Texture2D>& DiffuseMap() const { return m_DiffuseMap; }
-		
-		[[deprecated("Use GetSpecularMap()/SetSpecularMap() instead")]]
-		inline Ref<Texture2D>& SpecularMap() { return m_SpecularMap; }
-		[[deprecated("Use GetSpecularMap() instead")]]
-		inline const Ref<Texture2D>& SpecularMap() const { return m_SpecularMap; }
-		
-		// PBR material property accessors
-		[[deprecated("Use GetBaseColorFactor()/SetBaseColorFactor() instead")]]
-		inline glm::vec4& BaseColorFactor() { return m_BaseColorFactor; }
-		[[deprecated("Use GetBaseColorFactor() instead")]]
-		inline const glm::vec4& BaseColorFactor() const { return m_BaseColorFactor; }
-		
-		[[deprecated("Use GetEmissiveFactor()/SetEmissiveFactor() instead")]]
-		inline glm::vec4& EmissiveFactor() { return m_EmissiveFactor; }
-		[[deprecated("Use GetEmissiveFactor() instead")]]
-		inline const glm::vec4& EmissiveFactor() const { return m_EmissiveFactor; }
-		
-		[[deprecated("Use GetMetallicFactor()/SetMetallicFactor() instead")]]
-		inline float& MetallicFactor() { return m_MetallicFactor; }
-		[[deprecated("Use GetMetallicFactor() instead")]]
-		inline const float& MetallicFactor() const { return m_MetallicFactor; }
-		
-		[[deprecated("Use GetRoughnessFactor()/SetRoughnessFactor() instead")]]
-		inline float& RoughnessFactor() { return m_RoughnessFactor; }
-		[[deprecated("Use GetRoughnessFactor() instead")]]
-		inline const float& RoughnessFactor() const { return m_RoughnessFactor; }
-		
-		[[deprecated("Use GetNormalScale()/SetNormalScale() instead")]]
-		inline float& NormalScale() { return m_NormalScale; }
-		[[deprecated("Use GetNormalScale() instead")]]
-		inline const float& NormalScale() const { return m_NormalScale; }
-		
-		[[deprecated("Use GetOcclusionStrength()/SetOcclusionStrength() instead")]]
-		inline float& OcclusionStrength() { return m_OcclusionStrength; }
-		[[deprecated("Use GetOcclusionStrength() instead")]]
-		inline const float& OcclusionStrength() const { return m_OcclusionStrength; }
-		
-		[[deprecated("Use GetEnableIBL()/SetEnableIBL() instead")]]
-		inline bool& EnableIBL() { return m_EnableIBL; }
-		[[deprecated("Use GetEnableIBL() instead")]]
-		inline const bool& EnableIBL() const { return m_EnableIBL; }
-		
-		// PBR texture map accessors
-		[[deprecated("Use GetAlbedoMap()/SetAlbedoMap() instead")]]
-		inline Ref<Texture2D>& AlbedoMap() { return m_AlbedoMap; }
-		[[deprecated("Use GetAlbedoMap() instead")]]
-		inline const Ref<Texture2D>& AlbedoMap() const { return m_AlbedoMap; }
-		
-		[[deprecated("Use GetMetallicRoughnessMap()/SetMetallicRoughnessMap() instead")]]
-		inline Ref<Texture2D>& MetallicRoughnessMap() { return m_MetallicRoughnessMap; }
-		[[deprecated("Use GetMetallicRoughnessMap() instead")]]
-		inline const Ref<Texture2D>& MetallicRoughnessMap() const { return m_MetallicRoughnessMap; }
-		
-		[[deprecated("Use GetNormalMap()/SetNormalMap() instead")]]
-		inline Ref<Texture2D>& NormalMap() { return m_NormalMap; }
-		[[deprecated("Use GetNormalMap() instead")]]
-		inline const Ref<Texture2D>& NormalMap() const { return m_NormalMap; }
-		
-		[[deprecated("Use GetAOMap()/SetAOMap() instead")]]
-		inline Ref<Texture2D>& AOMap() { return m_AOMap; }
-		[[deprecated("Use GetAOMap() instead")]]
-		inline const Ref<Texture2D>& AOMap() const { return m_AOMap; }
-		
-		[[deprecated("Use GetEmissiveMap()/SetEmissiveMap() instead")]]
-		inline Ref<Texture2D>& EmissiveMap() { return m_EmissiveMap; }
-		[[deprecated("Use GetEmissiveMap() instead")]]
-		inline const Ref<Texture2D>& EmissiveMap() const { return m_EmissiveMap; }
-		
-		[[deprecated("Use GetEnvironmentMap()/SetEnvironmentMap() instead")]]
-		inline Ref<TextureCubemap>& EnvironmentMap() { return m_EnvironmentMap; }
-		[[deprecated("Use GetEnvironmentMap() instead")]]
-		inline const Ref<TextureCubemap>& EnvironmentMap() const { return m_EnvironmentMap; }
-		
-		[[deprecated("Use GetIrradianceMap()/SetIrradianceMap() instead")]]
-		inline Ref<TextureCubemap>& IrradianceMap() { return m_IrradianceMap; }
-		[[deprecated("Use GetIrradianceMap() instead")]]
-		inline const Ref<TextureCubemap>& IrradianceMap() const { return m_IrradianceMap; }
-		
-		[[deprecated("Use GetPrefilterMap()/SetPrefilterMap() instead")]]
-		inline Ref<TextureCubemap>& PrefilterMap() { return m_PrefilterMap; }
-		[[deprecated("Use GetPrefilterMap() instead")]]
-		inline const Ref<TextureCubemap>& PrefilterMap() const { return m_PrefilterMap; }
-		
-		[[deprecated("Use GetBRDFLutMap()/SetBRDFLutMap() instead")]]
-		inline Ref<Texture2D>& BRDFLutMap() { return m_BRDFLutMap; }
-		[[deprecated("Use GetBRDFLutMap() instead")]]
-		inline const Ref<Texture2D>& BRDFLutMap() const { return m_BRDFLutMap; }
-		
 		// Asset interface
 		static AssetType GetStaticType() { return AssetType::Material; }
 		virtual AssetType GetAssetType() const override { return GetStaticType(); }

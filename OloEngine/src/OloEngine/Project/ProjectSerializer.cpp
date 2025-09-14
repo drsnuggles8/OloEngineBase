@@ -119,6 +119,46 @@ namespace OloEngine
 			return true;
 		};
 
+		// Helper lambda for asset-relative paths (StartScene, ScriptModulePath)
+		auto safeGetAssetPath = [&](const YAML::Node& node, const char* key, std::filesystem::path& output, const std::filesystem::path& assetDir) -> bool
+		{
+			auto childNode = node[key];
+			if (!childNode || !childNode.IsScalar())
+			{
+				OLO_CORE_ERROR("Failed to load project file '{0}' - missing or invalid '{1}' field", filepath, key);
+				return false;
+			}
+			
+			std::filesystem::path extractedPath = childNode.as<std::string>();
+			
+			// Resolve relative paths against the asset directory within the project
+			if (extractedPath.is_relative())
+			{
+				output = assetDir / extractedPath;
+				output = std::filesystem::weakly_canonical(output);
+			}
+			else
+			{
+				output = extractedPath;
+			}
+			
+			// Check if the resolved path exists and log a warning if it doesn't
+			std::error_code ec;
+			if (!std::filesystem::exists(output, ec))
+			{
+				if (ec)
+				{
+					OLO_CORE_WARN("Failed to check existence of '{0}' path '{1}': {2}", key, output.string(), ec.message());
+				}
+				else
+				{
+					OLO_CORE_WARN("Path '{0}' for field '{1}' does not exist: {2}", key, output.string(), "Path not found");
+				}
+			}
+			
+			return true;
+		};
+
 		// Extract project configuration with proper validation
 		// First, extract all values into local variables to ensure atomic update
 		std::string name;
@@ -126,11 +166,19 @@ namespace OloEngine
 		std::filesystem::path assetDirectory;
 		std::filesystem::path scriptModulePath;
 		
-		// Perform all validations separately to ensure all errors are logged
+		// First get name and asset directory since other paths depend on asset directory
 		bool nameValid = safeGetString(projectNode, "Name", name);
-		bool startSceneValid = safeGetPath(projectNode, "StartScene", startScene);
 		bool assetDirectoryValid = safeGetPath(projectNode, "AssetDirectory", assetDirectory);
-		bool scriptModulePathValid = safeGetPath(projectNode, "ScriptModulePath", scriptModulePath);
+		
+		// Now resolve asset-relative paths using the asset directory
+		bool startSceneValid = false;
+		bool scriptModulePathValid = false;
+		
+		if (assetDirectoryValid)
+		{
+			startSceneValid = safeGetAssetPath(projectNode, "StartScene", startScene, assetDirectory);
+			scriptModulePathValid = safeGetAssetPath(projectNode, "ScriptModulePath", scriptModulePath, assetDirectory);
+		}
 		
 		// Check if all validations succeeded
 		bool allValid = nameValid && startSceneValid && assetDirectoryValid && scriptModulePathValid;

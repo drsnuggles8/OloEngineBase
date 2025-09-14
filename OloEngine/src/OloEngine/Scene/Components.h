@@ -44,6 +44,21 @@ namespace OloEngine
 		explicit operator const std::string& () const { return Tag; }
 	};
 
+	struct PrefabComponent
+	{
+		UUID m_PrefabID{};
+		UUID m_PrefabEntityID{};
+		PrefabComponent() = default;
+		PrefabComponent(const PrefabComponent&) = default;
+		PrefabComponent(UUID prefabID, UUID prefabEntityID)
+			: m_PrefabID(prefabID), m_PrefabEntityID(prefabEntityID) {}
+
+		[[nodiscard]] inline bool IsValid() const noexcept
+		{
+			return static_cast<u64>(m_PrefabID) != 0 && static_cast<u64>(m_PrefabEntityID) != 0;
+		}
+	};
+
 	struct TransformComponent
 	{
 		glm::vec3 Translation = { 0.0f, 0.0f, 0.0f };
@@ -226,6 +241,7 @@ namespace OloEngine
 		SpriteRendererComponent,
 		CircleRendererComponent,
 		CameraComponent,
+		PrefabComponent,
 		Rigidbody2DComponent,
 		BoxCollider2DComponent,
 		CircleCollider2DComponent,

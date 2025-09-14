@@ -14,13 +14,20 @@ namespace OloEngine
     class FileStreamWriter : public StreamWriter
     {
     public:
-        FileStreamWriter(const std::filesystem::path& path);
+        explicit FileStreamWriter(const std::filesystem::path& path);
         FileStreamWriter(const FileStreamWriter&) = delete;
-        virtual ~FileStreamWriter();
+        virtual ~FileStreamWriter() noexcept = default;
 
-        bool IsStreamGood() const final { return m_Stream.good(); }
-        u64 GetStreamPosition() final { return m_Stream.tellp(); }
-        void SetStreamPosition(u64 position) final { m_Stream.seekp(position); }
+        [[nodiscard]] bool IsStreamGood() const final { return m_Stream.good(); }
+        [[nodiscard]] u64 GetStreamPosition() final
+        {
+            const auto pos = m_Stream.tellp();
+            return pos == std::streampos(-1) ? 0ull : static_cast<u64>(pos);
+        }
+        void SetStreamPosition(u64 position) final
+        {
+            m_Stream.seekp(static_cast<std::streampos>(position));
+        }
         bool WriteData(const char* data, sizet size) final;
 
     private:
@@ -33,15 +40,22 @@ namespace OloEngine
     class FileStreamReader : public StreamReader
     {
     public:
-        FileStreamReader(const std::filesystem::path& path);
+        explicit FileStreamReader(const std::filesystem::path& path);
         FileStreamReader(const FileStreamReader&) = delete;
-        ~FileStreamReader();
+        ~FileStreamReader() noexcept override = default;
 
-        const std::filesystem::path& GetFilePath() const { return m_Path; }
+        [[nodiscard]] const std::filesystem::path& GetFilePath() const { return m_Path; }
 
-        bool IsStreamGood() const final { return m_Stream.good(); }
-        u64 GetStreamPosition() override { return m_Stream.tellg(); }
-        void SetStreamPosition(u64 position) override { m_Stream.seekg(position); }
+        [[nodiscard]] bool IsStreamGood() const final { return m_Stream.good(); }
+        [[nodiscard]] u64 GetStreamPosition() override
+        {
+            const auto pos = m_Stream.tellg();
+            return pos == std::streampos(-1) ? 0ull : static_cast<u64>(pos);
+        }
+        void SetStreamPosition(u64 position) override
+        {
+            m_Stream.seekg(static_cast<std::streampos>(position));
+        }
         bool ReadData(char* destination, sizet size) override;
 
     private:

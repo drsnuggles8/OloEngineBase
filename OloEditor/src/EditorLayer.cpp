@@ -1,7 +1,6 @@
-// This is an independent project of an individual developer. Dear PVS-Studio, please check it.
-// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "OloEnginePCH.h"
 #include "EditorLayer.h"
+#include "Panels/AssetPackBuilderPanel.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
@@ -10,11 +9,17 @@
 #include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Utils/PlatformUtils.h"
+#include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "OloEngine/Asset/AssetPackBuilder.h"
+#include "OloEngine/Core/Events/EditorEvents.h"
 
 #include <imgui.h>
 #include <ImGuizmo.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+
+#include <thread>
 
 namespace OloEngine
 {
@@ -24,6 +29,34 @@ namespace OloEngine
 		: Layer("EditorLayer"), m_CameraController(1280.0f / 720.0f), m_SquareColor({ 0.2f, 0.3f, 0.8f, 1.0f })
 	{
 		s_Font = new Font("C:/Windows/Fonts/arial.ttf");
+	}
+
+	EditorLayer::~EditorLayer()
+	{
+		// Cancel any ongoing build
+		m_BuildCancelRequested.store(true);
+		
+		// Wait for build to complete if running
+		if (m_BuildFuture.valid())
+		{
+			// Wait for completion with timeout to avoid indefinite blocking
+			using namespace std::chrono_literals;
+			while (m_BuildFuture.wait_for(100ms) != std::future_status::ready)
+			{
+				// Keep requesting cancellation during wait
+				m_BuildCancelRequested.store(true);
+			}
+			
+			// Get the result to properly clean up the future
+			try
+			{
+				(void)m_BuildFuture.get();
+			}
+			catch (...)
+			{
+				// Ignore exceptions during destruction
+			}
+		}
 	}
 
 	void EditorLayer::OnAttach()
@@ -69,6 +102,9 @@ namespace OloEngine
 	void EditorLayer::OnUpdate(Timestep const ts)
 	{
 		OLO_PROFILE_FUNCTION();
+
+		// Sync with async asset loading thread
+		AssetManager::SyncWithAssetThread();
 
 		m_ActiveScene->OnViewportResize(static_cast<u32>(m_ViewportSize.x), static_cast<u32>(m_ViewportSize.y));
 
@@ -281,6 +317,23 @@ namespace OloEngine
 				OLO_INFO("Reloading shaders...");
 				Renderer2D::GetShaderLibrary().ReloadShaders();
 				OLO_INFO("Shaders reloaded!");
+			}
+
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("Build"))
+		{
+			if (ImGui::MenuItem("Build Asset Pack..."))
+			{
+				BuildAssetPack();
+			}
+			
+			ImGui::Separator();
+			
+			if (ImGui::MenuItem("Asset Pack Builder", nullptr, &m_ShowAssetPackBuilder))
+			{
+				// Toggle panel visibility
 			}
 
 			ImGui::EndMenu();
@@ -501,6 +554,12 @@ namespace OloEngine
 	{
 		m_SceneHierarchyPanel.OnImGuiRender();
 		m_ContentBrowserPanel->OnImGuiRender();
+		
+		// Asset Pack Builder Panel
+		if (m_ShowAssetPackBuilder && m_AssetPackBuilderPanel)
+		{
+			m_AssetPackBuilderPanel->OnImGuiRender(m_ShowAssetPackBuilder);
+		}
 	}
 
 	void EditorLayer::UI_Settings()
@@ -560,6 +619,7 @@ namespace OloEngine
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<KeyPressedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
 		dispatcher.Dispatch<MouseButtonPressedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnMouseButtonPressed));
+		dispatcher.Dispatch<AssetReloadedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnAssetReloaded));
 	}
 
 	bool EditorLayer::OnKeyPressed(KeyPressedEvent const& e)
@@ -793,6 +853,7 @@ namespace OloEngine
 		Project::New();
 		NewScene();
 		m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
+		m_AssetPackBuilderPanel = CreateScope<AssetPackBuilderPanel>();
 	}
 
 	bool EditorLayer::OpenProject()
@@ -809,10 +870,15 @@ namespace OloEngine
 	{
 		if (Project::Load(path))
 		{
+			auto editorAssetManager = Ref<EditorAssetManager>::Create();
+			editorAssetManager->Initialize();
+			Project::SetAssetManager(editorAssetManager);
+			
 			auto startScenePath = Project::GetAssetFileSystemPath(Project::GetActive()->GetConfig().StartScene);
 			OLO_ASSERT(std::filesystem::exists(startScenePath));
 			OpenScene(startScenePath);
 			m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
+			m_AssetPackBuilderPanel = CreateScope<AssetPackBuilderPanel>();
 			return true;
 		}
 		return false;
@@ -991,6 +1057,99 @@ namespace OloEngine
 		{
 			m_EditorScene->DuplicateEntity(selectedEntity);
 		}
+	}
+
+	bool EditorLayer::OnAssetReloaded(AssetReloadedEvent const& e)
+	{
+		OLO_TRACE("🔄 Asset Reloaded Event Received!");
+		OLO_TRACE("   Handle: {}", static_cast<u64>(e.GetHandle()));
+		OLO_TRACE("   Type: {}", (int)e.GetAssetType());
+		OLO_TRACE("   Path: {}", e.GetPath().string());
+		
+		// TODO(olbu) Add specific handling based on asset type
+		switch (e.GetAssetType())
+		{
+			case AssetType::Texture2D:
+				OLO_TRACE("   → Texture asset reloaded - visual updates may be needed");
+				break;
+			case AssetType::Scene:
+				OLO_TRACE("   → Scene asset reloaded - consider refreshing scene hierarchy");
+				break;
+			case AssetType::Script:
+				OLO_TRACE("   → Script asset reloaded - C# assemblies updated");
+				break;
+			default:
+				OLO_TRACE("   → Asset type {} reloaded", (int)e.GetAssetType());
+				break;
+		}
+		
+		return false; // Don't consume the event, let other listeners handle it too
+	}
+
+	void EditorLayer::BuildAssetPack()
+	{
+		// Prevent concurrent builds
+		if (m_BuildInProgress.load())
+		{
+			OLO_CORE_WARN("Asset Pack build already in progress, ignoring request");
+			return;
+		}
+
+		OLO_CORE_INFO("Building Asset Pack...");
+
+		// Configure build settings
+		AssetPackBuilder::BuildSettings settings;
+		settings.m_OutputPath = "Assets/AssetPack.olopack";
+		settings.m_CompressAssets = true;
+		settings.m_IncludeScriptModule = true;
+		settings.m_ValidateAssets = true;
+
+		// Reset progress and flags
+		m_BuildProgress.store(0.0f);
+		m_BuildCancelRequested.store(false);
+		m_BuildInProgress.store(true);
+
+		// Start async build task using std::async
+		m_BuildFuture = std::async(std::launch::async, [this, settings]() -> AssetPackBuilder::BuildResult {
+			try
+			{
+				auto result = AssetPackBuilder::BuildFromActiveProject(settings, m_BuildProgress, &m_BuildCancelRequested);
+				
+				// Mark build as complete
+				m_BuildInProgress.store(false);
+				
+				if (result.m_Success && !m_BuildCancelRequested.load())
+				{
+					OLO_CORE_INFO("Asset Pack built successfully!");
+					OLO_CORE_INFO("  Output: {}", result.m_OutputPath.string());
+					OLO_CORE_INFO("  Assets: {}", result.m_AssetCount);
+					OLO_CORE_INFO("  Scenes: {}", result.m_SceneCount);
+				}
+				else if (m_BuildCancelRequested.load())
+				{
+					OLO_CORE_INFO("Asset Pack build was cancelled");
+				}
+				else
+				{
+					OLO_CORE_ERROR("Asset Pack build failed: {}", result.m_ErrorMessage);
+				}
+				
+				return result;
+			}
+			catch (const std::exception& ex)
+			{
+				m_BuildInProgress.store(false);
+				OLO_CORE_ERROR("Asset Pack build exception: {}", ex.what());
+				AssetPackBuilder::BuildResult errorResult{};
+				errorResult.m_Success = false;
+				errorResult.m_ErrorMessage = ex.what();
+				errorResult.m_OutputPath.clear();
+				errorResult.m_AssetCount = 0;
+				errorResult.m_SceneCount = 0;
+				return errorResult;			}
+		});
+
+		OLO_CORE_INFO("Asset Pack build started asynchronously...");
 	}
 
 }

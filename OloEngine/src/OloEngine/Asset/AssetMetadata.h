@@ -7,15 +7,21 @@
 #include "OloEngine/Asset/AssetTypes.h"
 #include <string>
 #include <filesystem>
+#include <array>
+#include <algorithm>
+#include <cctype>
 
 namespace OloEngine
 {
     enum class AssetStatus : u8
     {
-        None = 0,
-        Ready,
-        Invalid,
-        Loading
+        None = 0,           // Asset metadata exists but no loading attempted
+        NotLoaded,          // Asset exists but not yet loaded into memory
+        Loading,            // Asset is currently being loaded asynchronously
+        Loaded,             // Asset successfully loaded and ready to use
+        Failed,             // Asset loading failed (file corruption, format error, etc.)
+        Missing,            // Asset file does not exist on disk
+        Invalid             // Asset metadata is corrupted or asset type mismatch
     };
 
     /**
@@ -44,15 +50,19 @@ namespace OloEngine
             : Handle(handle), Type(type), FilePath(path) {}
 
         bool IsValid() const { return Handle != 0; }
-        bool IsReady() const { return Status == AssetStatus::Ready; }
+        bool IsReady() const { return Status == AssetStatus::Loaded; }
         bool IsLoading() const { return Status == AssetStatus::Loading; }
         bool IsInvalid() const { return Status == AssetStatus::Invalid; }
+        bool IsFailed() const { return Status == AssetStatus::Failed; }
+        bool IsMissing() const { return Status == AssetStatus::Missing; }
+        bool IsLoaded() const { return Status == AssetStatus::Loaded; }
+        bool IsNotLoaded() const { return Status == AssetStatus::NotLoaded || Status == AssetStatus::None; }
     };
 
     /**
      * @brief Editor load response structure for asset loading operations
      */
-    struct EditorAssetLoadResponse
+    struct [[nodiscard]] EditorAssetLoadResponse
     {
         AssetMetadata Metadata;
         Ref<Asset> AssetRef;
@@ -108,5 +118,55 @@ namespace OloEngine
         // Private constructors to enforce use of factory methods
         RuntimeAssetLoadResponse() = default;
     };
+
+    /**
+     * @brief Utility functions for AssetStatus
+     */
+    namespace AssetStatusUtils
+    {
+        inline constexpr const char* AssetStatusToString(AssetStatus status) noexcept
+        {
+            static constexpr std::array<const char*, 7> statusStrings = {
+                "None",         // AssetStatus::None = 0
+                "Not Loaded",   // AssetStatus::NotLoaded = 1
+                "Loading",      // AssetStatus::Loading = 2
+                "Loaded",       // AssetStatus::Loaded = 3
+                "Failed",       // AssetStatus::Failed = 4
+                "Missing",      // AssetStatus::Missing = 5
+                "Invalid"       // AssetStatus::Invalid = 6
+            };
+            
+            const auto index = static_cast<std::size_t>(status);
+            return (index < statusStrings.size()) ? statusStrings[index] : "Unknown";
+        }
+
+        inline AssetStatus AssetStatusFromString(const std::string& statusStr)
+        {
+            std::string lowerStr = statusStr;
+            std::transform(lowerStr.begin(), lowerStr.end(), lowerStr.begin(), 
+                          [](unsigned char c) { return std::tolower(c); });
+            
+            if (lowerStr == "none") return AssetStatus::None;
+            if (lowerStr == "not loaded" || lowerStr == "notloaded") return AssetStatus::NotLoaded;
+            if (lowerStr == "loading") return AssetStatus::Loading;
+            if (lowerStr == "loaded") return AssetStatus::Loaded;
+            if (lowerStr == "failed") return AssetStatus::Failed;
+            if (lowerStr == "missing") return AssetStatus::Missing;
+            if (lowerStr == "invalid") return AssetStatus::Invalid;
+            return AssetStatus::None;
+        }
+
+        inline bool IsStatusError(AssetStatus status)
+        {
+            return status == AssetStatus::Failed || 
+                   status == AssetStatus::Missing || 
+                   status == AssetStatus::Invalid;
+        }
+
+        inline bool IsStatusSuccess(AssetStatus status)
+        {
+            return status == AssetStatus::Loaded;
+        }
+    }
 
 }

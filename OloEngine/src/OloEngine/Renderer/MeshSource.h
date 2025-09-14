@@ -15,6 +15,8 @@
 #include <stdexcept>
 #include <string>
 #include <limits>
+#include <map>
+#include <optional>
 
 namespace OloEngine 
 {
@@ -22,6 +24,38 @@ namespace OloEngine
     class VertexArray;
     class VertexBuffer;
     class IndexBuffer;
+    
+    /**
+     * @brief Submesh data structure for organizing mesh geometry
+     * Compatible with Hazel's Submesh class for asset compatibility
+     */
+    struct Submesh
+    {
+        // Large fixed-size members first (64 bytes each)
+        glm::mat4 m_Transform{ 1.0f }; // World transform
+        glm::mat4 m_LocalTransform{ 1.0f };
+        BoundingBox m_BoundingBox;
+        
+        // Group all u32 fields together (4 bytes each)
+        u32 m_BaseVertex = 0;
+        u32 m_BaseIndex = 0;
+        u32 m_MaterialIndex = 0;
+        u32 m_IndexCount = 0;
+        u32 m_VertexCount = 0;
+        
+        // Variable-sized members and bool at the end
+        std::string m_NodeName, m_MeshName;
+        bool m_IsRigged = false;
+        
+        // Static assertions to verify expected size optimization
+        static_assert(sizeof(glm::mat4) == 64, "Expected glm::mat4 to be 64 bytes");
+        static_assert(sizeof(glm::vec3) == 12, "Expected glm::vec3 to be 12 bytes");
+        static_assert(alignof(glm::mat4) == 4, "Expected glm::mat4 alignment of 4 bytes");
+        static_assert(alignof(BoundingBox) <= 4, "Expected BoundingBox alignment <= 4 bytes");
+        // BoundingBox contains 2 glm::vec3, so should be 24 bytes
+        // Total fixed-size data: 64 + 64 + 24 + 20 = 172 bytes (before alignment)
+        // With proper member ordering, padding should be minimal
+    };
 
     /**
      * @brief Bone info structure for mapping mesh vertices to skeleton bones
@@ -80,27 +114,7 @@ namespace OloEngine
         }
     };
 
-    /**
-     * @brief Submesh information within a MeshSource
-     */
-    struct Submesh
-    {
-    u32 m_BaseVertex = 0;
-    u32 m_BaseIndex = 0;
-    u32 m_MaterialIndex = 0;
-    u32 m_IndexCount = 0;
-    u32 m_VertexCount = 0;
-        
-    glm::mat4 m_Transform = glm::mat4(1.0f);
-    BoundingBox m_BoundingBox;
-    std::string m_NodeName;
-        
-    // Rigging information
-    bool m_IsRigged = false;
-    std::vector<u32> m_BoneIndices;  // Indices of bones that affect this submesh
-        
-        Submesh() = default;
-    };
+
 
     /**
      * @brief Unified mesh source that can handle both static and animated meshes
@@ -125,6 +139,84 @@ namespace OloEngine
         std::vector<Vertex>& GetVertices() { return m_Vertices; }
         std::vector<u32>& GetIndices() { return m_Indices; }
         std::vector<Submesh>& GetSubmeshes() { return m_Submeshes; }
+
+        // Submesh management
+        void AddSubmesh(const Submesh& submesh) 
+        { 
+            m_Submeshes.push_back(submesh); 
+            m_Built = false; 
+            CalculateSubmeshBounds(); 
+            CalculateBounds(); 
+        }
+        void SetSubmeshes(const std::vector<Submesh>& submeshes) 
+        { 
+            m_Submeshes = submeshes; 
+            
+            // Prune material entries whose keys reference submesh indices that are now out of range
+            auto it = m_Materials.begin();
+            while (it != m_Materials.end())
+            {
+                if (it->first >= submeshes.size())
+                    it = m_Materials.erase(it);
+                else
+                    ++it;
+            }
+            
+            m_Built = false; 
+            CalculateSubmeshBounds(); 
+            CalculateBounds(); 
+        }
+        
+        // Material management
+        const std::map<u32, AssetHandle>& GetMaterials() const { return m_Materials; }
+        [[deprecated("Direct mutable access to materials bypasses validation. Use SetMaterial() instead.")]]
+        std::map<u32, AssetHandle>& GetMaterials() { return m_Materials; }
+        void SetMaterial(u32 index, AssetHandle material) 
+        { 
+            // Validate material handle (UUID 0 is invalid)
+            if (static_cast<u64>(material) == 0)
+            {
+                OLO_CORE_ERROR("SetMaterial: invalid material handle (null UUID) for index {}", index);
+                return;
+            }
+            
+            // Validate index bounds (reasonable range for material indices)
+            constexpr u32 MAX_MATERIAL_INDEX = 65535; // Reasonable upper limit
+            if (index > MAX_MATERIAL_INDEX)
+            {
+                OLO_CORE_ERROR("SetMaterial: material index {} exceeds maximum allowed ({})", index, MAX_MATERIAL_INDEX);
+                return;
+            }
+            
+            m_Materials[index] = material; 
+            m_Built = false;
+        }
+        bool HasMaterial(u32 index) const { return m_Materials.find(index) != m_Materials.end(); }
+        
+        // Additional material management with proper state invalidation
+        void RemoveMaterial(u32 index)
+        {
+            auto it = m_Materials.find(index);
+            if (it != m_Materials.end())
+            {
+                m_Materials.erase(it);
+                m_Built = false; // Invalidate GPU state
+            }
+        }
+        
+        void ClearMaterials()
+        {
+            if (!m_Materials.empty())
+            {
+                m_Materials.clear();
+                m_Built = false; // Invalidate GPU state
+            }
+        }
+        std::optional<AssetHandle> GetMaterial(u32 index) const 
+        { 
+            auto it = m_Materials.find(index);
+            return (it != m_Materials.end()) ? std::optional<AssetHandle>(it->second) : std::nullopt;
+        }
 
         // Skeleton and rigging
         bool HasSkeleton() const { return m_Skeleton != nullptr; }
@@ -185,7 +277,6 @@ namespace OloEngine
         bool HasBoneInfluences() const { return !m_BoneInfluences.empty(); }
 
         // Utility methods
-        void AddSubmesh(const Submesh& submesh) { m_Submeshes.push_back(submesh); }
         void CalculateBounds();
         void CalculateSubmeshBounds(); // Calculate individual submesh bounds
         void Build(); // Build GPU resources
@@ -213,9 +304,14 @@ namespace OloEngine
             OLO_CORE_ASSERT(m_BoneInfluenceBuffer, "BoneInfluenceBuffer not initialized or not rigged. Call Build() first.");
             return m_BoneInfluenceBuffer; 
         }
-        bool HasBoneInfluenceBuffer() const { return m_BoneInfluenceBuffer != nullptr; }        // Bounding volume accessors
+        bool HasBoneInfluenceBuffer() const { return m_BoneInfluenceBuffer != nullptr; }
+        
+        // Bounding volume accessors
         const BoundingBox& GetBoundingBox() const { return m_BoundingBox; }
         const BoundingSphere& GetBoundingSphere() const { return m_BoundingSphere; }
+        
+        // Utility methods
+        bool IsBuilt() const { return m_Built; }
         
         // Asset interface
         static AssetType GetStaticType() { return AssetType::MeshSource; }
@@ -231,6 +327,7 @@ namespace OloEngine
         std::vector<Vertex> m_Vertices;
         std::vector<u32> m_Indices;
         std::vector<Submesh> m_Submeshes;
+        std::map<u32, AssetHandle> m_Materials; // Material mapping for submeshes
         
         // Rigging data (Hazel-style: separated from vertex data)
         Ref<Skeleton> m_Skeleton;

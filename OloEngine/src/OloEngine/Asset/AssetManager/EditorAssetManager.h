@@ -1,12 +1,14 @@
 #pragma once
 
 #include "AssetManagerBase.h"
+#include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Asset/AssetRegistry.h"
 #include "OloEngine/Asset/AssetImporter.h"
 #include "OloEngine/Asset/AssetSystem/EditorAssetSystem.h"
 #include "OloEngine/Core/Events/EditorEvents.h"
 #include "OloEngine/Core/FileSystem.h"
+#include "OloEngine/Core/Application.h"
 
 #include <shared_mutex>
 #include <filesystem>
@@ -19,6 +21,7 @@
 #if OLO_ASYNC_ASSETS
 #include <thread>
 #include <atomic>
+#include "FileWatch.hpp"
 #endif
 
 namespace OloEngine
@@ -110,6 +113,13 @@ namespace OloEngine
          * @param metadata New metadata to set
          */
         void SetMetadata(AssetHandle handle, const AssetMetadata& metadata);
+
+        /**
+         * @brief Update asset status (thread-safe)
+         * @param handle Asset handle
+         * @param status New status
+         */
+        void SetAssetStatus(AssetHandle handle, AssetStatus status);
 
         /**
          * @brief Get asset handle from file path
@@ -227,7 +237,14 @@ namespace OloEngine
             {
                 OLO_CORE_INFO_TAG("AssetManager", "Replaced asset {}", metadata.FilePath.string());
                 UpdateDependencies(metadata.Handle);
-                // TODO: Dispatch AssetReloadedEvent
+                // Dispatch AssetReloadedEvent on main thread so UI layers can handle it safely
+                auto handle = metadata.Handle;
+                auto type = metadata.Type;
+                auto path = metadata.FilePath;
+                Application::Get().SubmitToMainThread([handle, type, path]() mutable {
+                    AssetReloadedEvent evt(handle, type, path);
+                    Application::Get().OnEvent(evt);
+                });
             }
 
             return asset;
@@ -290,6 +307,12 @@ namespace OloEngine
          */
         void UpdateDependencies(AssetHandle handle);
 
+        /**
+         * @brief Notify dependent assets when this asset has been updated
+         * @param handle Asset handle that was updated
+         */
+        void UpdateDependents(AssetHandle handle);
+
     private:
         /**
          * @brief Load an asset from file
@@ -329,7 +352,8 @@ namespace OloEngine
         std::unordered_map<AssetHandle, Ref<Asset>> m_MemoryAssets;
         
         // Asset dependencies tracking
-        std::unordered_map<AssetHandle, std::unordered_set<AssetHandle>> m_AssetDependencies;
+        std::unordered_map<AssetHandle, std::unordered_set<AssetHandle>> m_AssetDependencies; // asset handle -> assets that it depends on
+        std::unordered_map<AssetHandle, std::unordered_set<AssetHandle>> m_AssetDependents;   // asset handle -> assets that depend on it
         
         // Async asset loading system
         Ref<EditorAssetSystem> m_AssetThread;
@@ -343,6 +367,15 @@ namespace OloEngine
         // File watching thread and control
         std::thread m_FileWatcherThread;
         std::atomic<bool> m_ShouldTerminate{false};
+        
+        // Real-time file watching using filewatch library
+        std::unique_ptr<filewatch::FileWatch<std::string>> m_ProjectFileWatcher;
+        
+        // Callback for file system events
+        void OnFileSystemEvent(const std::string& file, const filewatch::Event change_type);
+        
+        // File watcher thread function
+        void FileWatcherThreadFunction();
 #endif
         
         // Project path for asset scanning

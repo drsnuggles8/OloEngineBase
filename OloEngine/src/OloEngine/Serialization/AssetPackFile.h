@@ -1,7 +1,9 @@
 #pragma once
 
 #include <map>
+#include <utility>
 #include <vector>
+#include <filesystem>
 #include "OloEngine/Asset/Asset.h"
 
 namespace OloEngine
@@ -49,6 +51,9 @@ namespace OloEngine
         IndexTable Index;
         std::vector<AssetInfo> AssetInfos;
         std::vector<SceneInfo> SceneInfos;
+        
+        // Temporary data used during asset pack building, not to be serialized
+        std::vector<std::pair<AssetHandle, std::filesystem::path>> TempAssetFiles;
     };
 
 } // namespace OloEngine

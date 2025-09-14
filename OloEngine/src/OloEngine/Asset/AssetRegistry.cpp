@@ -268,7 +268,6 @@ namespace OloEngine
                 file.write(pathStr.c_str(), pathLength);
             }
 
-            OLO_CORE_INFO("AssetRegistry serialized to: {}", filepath.string());
             return true;
         }
         catch (const std::exception& e)

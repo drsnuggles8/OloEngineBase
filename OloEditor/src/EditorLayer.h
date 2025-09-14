@@ -5,14 +5,22 @@
 #include "Panels/ContentBrowserPanel.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
+#include "OloEngine/Asset/AssetPackBuilder.h"
+
+#include <atomic>
+#include <future>
+#include <mutex>
 
 namespace OloEngine
 {
+	class AssetReloadedEvent;
+	class AssetPackBuilderPanel;
+	
 	class EditorLayer : public Layer
 	{
 	public:
 		EditorLayer();
-		~EditorLayer() override = default;
+		~EditorLayer() override;
 
 		void OnAttach() override;
 		void OnDetach() override;
@@ -23,6 +31,7 @@ namespace OloEngine
 	private:
 		bool OnKeyPressed(KeyPressedEvent const& e);
 		bool OnMouseButtonPressed(MouseButtonPressedEvent const& e);
+		bool OnAssetReloaded(AssetReloadedEvent const& e);
 
 		void OnOverlayRender() const;
 
@@ -45,6 +54,15 @@ namespace OloEngine
 		void OnScenePause();
 
 		void OnDuplicateEntity();
+
+		// Asset Pack Building
+		// Initiates an asynchronous build process for packaging project assets
+		void BuildAssetPack();
+		
+		// Build status and progress queries
+		bool IsBuildInProgress() const { return m_BuildInProgress.load(); }
+		f32 GetBuildProgress() const { return m_BuildProgress.load(); }
+		void CancelBuild() { m_BuildCancelRequested.store(true); }
 
 		// UI Panels
 		void UI_MenuBar();
@@ -95,6 +113,13 @@ namespace OloEngine
 		// Debug windows
 		bool m_ShowShaderDebugger = false;
 		bool m_ShowGPUResourceInspector = false;
+		bool m_ShowAssetPackBuilder = false;
+
+		// Asset Pack Build Management
+		std::future<AssetPackBuilder::BuildResult> m_BuildFuture;
+		std::atomic<bool> m_BuildInProgress{false};
+		std::atomic<bool> m_BuildCancelRequested{false};
+		std::atomic<f32> m_BuildProgress{0.0f};
 
 		enum class SceneState
 		{
@@ -105,6 +130,7 @@ namespace OloEngine
 		// Panels
 		SceneHierarchyPanel m_SceneHierarchyPanel;
 		Scope<ContentBrowserPanel> m_ContentBrowserPanel;
+		Scope<AssetPackBuilderPanel> m_AssetPackBuilderPanel;
 
 		// Editor resources
 		Ref<Texture2D> m_IconPlay;

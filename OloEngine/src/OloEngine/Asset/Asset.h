@@ -5,6 +5,7 @@
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Asset/AssetTypes.h"
 #include <type_traits>
+#include <string>
 
 namespace OloEngine
 {
@@ -161,6 +162,42 @@ namespace OloEngine
     };
 
     /**
+     * @brief Script file asset containing metadata about script files
+     * 
+     * Stores script class namespace and name information for C# script assets
+     * to enable proper script component instantiation and management.
+     */
+    class ScriptFileAsset : public Asset
+    {
+    public:
+        ScriptFileAsset() = default;
+        ScriptFileAsset(std::string classNamespace, std::string className)
+            : m_ClassNamespace(std::move(classNamespace)), m_ClassName(std::move(className))
+        {
+        }
+
+        const std::string& GetClassNamespace() const noexcept { return m_ClassNamespace; }
+        const std::string& GetClassName() const noexcept { return m_ClassName; }
+
+        std::string GetFullyQualifiedClassName() const
+        {
+            if (m_ClassNamespace.empty())
+                return m_ClassName;
+            return m_ClassNamespace + "." + m_ClassName;
+        }
+
+        void SetClassNamespace(std::string classNamespace) noexcept { m_ClassNamespace = std::move(classNamespace); }
+        void SetClassName(std::string className) noexcept { m_ClassName = std::move(className); }
+
+        static AssetType GetStaticType() { return AssetType::ScriptFile; }
+        virtual AssetType GetAssetType() const override { return GetStaticType(); }
+
+    private:
+        std::string m_ClassNamespace;
+        std::string m_ClassName;
+    };
+
+    /**
      * @brief Asynchronous asset loading result container
      * 
      * Used for async asset loading operations, contains the loaded asset
@@ -169,7 +206,7 @@ namespace OloEngine
      * @tparam T Asset type being loaded
      */
     template<typename T>
-    struct AsyncAssetResult
+    struct [[nodiscard]] AsyncAssetResult
     {
         Ref<T> Ptr;
         bool IsReady = false;

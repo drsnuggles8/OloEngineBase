@@ -12,10 +12,9 @@
 
 namespace OloEngine
 {
-    // Forward declaration for AsyncAssetResult template
-    template<typename T> struct AsyncAssetResult;
-
-    /**
+	// Forward declarations
+	template<typename T> struct AsyncAssetResult;
+	/**
      * @brief Abstract base class for asset management implementations
      * 
      * Defines the interface that both EditorAssetManager and RuntimeAssetManager

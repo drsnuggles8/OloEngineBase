@@ -180,6 +180,34 @@ namespace YAML {
 
     // Note: AssetHandle is a type alias for UUID, so the above specialization handles both types
 
+// YAML::Emitter operator overloads for glm types
+// These provide streaming support for writing YAML files
+#ifndef OLOENGINE_YAML_EMITTER_GLM_DEFINED
+#define OLOENGINE_YAML_EMITTER_GLM_DEFINED
+    
+    inline Emitter& operator<<(Emitter& out, const glm::vec2& v)
+    {
+        out << Flow;
+        out << BeginSeq << v.x << v.y << EndSeq;
+        return out;
+    }
+
+    inline Emitter& operator<<(Emitter& out, const glm::vec3& v)
+    {
+        out << Flow;
+        out << BeginSeq << v.x << v.y << v.z << EndSeq;
+        return out;
+    }
+
+    inline Emitter& operator<<(Emitter& out, const glm::vec4& v)
+    {
+        out << Flow;
+        out << BeginSeq << v.x << v.y << v.z << v.w << EndSeq;
+        return out;
+    }
+
+#endif
+
 #ifndef OLOENGINE_YAML_VEC2_DEFINED
 #define OLOENGINE_YAML_VEC2_DEFINED
     template<>

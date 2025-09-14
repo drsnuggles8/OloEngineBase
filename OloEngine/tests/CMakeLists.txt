@@ -2,11 +2,17 @@
 add_executable(OloEngine-Tests
 		OloEngineTest.cpp
 		MathTest.cpp
-		LoggerTest.cpp)
+		LoggerTest.cpp
+		AssetCreationTest.cpp)
 		
 target_link_libraries(OloEngine-Tests
 	OloEngine
 	gtest_main)
+
+# Fix UTF-8 compilation issue
+if(MSVC)
+	target_compile_options(OloEngine-Tests PRIVATE /utf-8)
+endif()
 
 target_include_directories(OloEngine-Tests PRIVATE
 	${CMAKE_SOURCE_DIR}/OloEngine/src

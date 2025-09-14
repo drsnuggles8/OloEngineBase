@@ -8,47 +8,120 @@
 #include "OloEngine/Asset/AssetTypes.h"
 #include "OloEngine/Project/Project.h"
 
+#include <atomic>
 #include <memory>
 #include <mutex>
 
 namespace OloEngine
 {
-    std::unordered_map<AssetType, Scope<AssetSerializer>> AssetImporter::s_Serializers;
-    std::mutex AssetImporter::s_SerializersMutex;
+    // Global flag to track if we're in static destruction
+    static std::atomic<bool> g_IsInStaticDestruction{false};
+    
+    // This object will be destroyed during static destruction and set the flag
+    struct StaticDestructionSentinel
+    {
+        ~StaticDestructionSentinel() 
+        { 
+            g_IsInStaticDestruction.store(true, std::memory_order_release);
+        }
+    };
+    
+    // This static object will be destroyed early in the static destruction chain
+    static StaticDestructionSentinel g_StaticSentinel;
+
+    // Use function-local static to ensure proper construction/destruction order
+    static std::unordered_map<AssetType, Scope<AssetSerializer>>& GetSerializers()
+    {
+        static std::unordered_map<AssetType, Scope<AssetSerializer>> s_Serializers;
+        return s_Serializers;
+    }
+
+    // Use function-local static for mutex as well
+    static std::mutex& GetSerializersMutex()
+    {
+        static std::mutex s_SerializersMutex;
+        return s_SerializersMutex;
+    }
+
     static std::once_flag s_InitFlag;
+    static std::atomic<bool> s_IsShuttingDown{false};
 	
 	void AssetImporter::Init()
     {
         std::call_once(s_InitFlag, []()
         {
-            s_Serializers.clear();
-            s_Serializers.reserve(17); // Reserve capacity for 17 serializers to avoid rehashing
-            s_Serializers[AssetType::Prefab] = CreateScope<PrefabSerializer>();
-            s_Serializers[AssetType::Texture2D] = CreateScope<TextureSerializer>();
-            s_Serializers[AssetType::TextureCube] = CreateScope<TextureSerializer>();
-            s_Serializers[AssetType::Mesh] = CreateScope<MeshSerializer>();
-            s_Serializers[AssetType::StaticMesh] = CreateScope<StaticMeshSerializer>();
-            s_Serializers[AssetType::MeshSource] = CreateScope<MeshSourceSerializer>();
-            s_Serializers[AssetType::Material] = CreateScope<MaterialAssetSerializer>();
-            s_Serializers[AssetType::EnvMap] = CreateScope<EnvironmentSerializer>();
-            s_Serializers[AssetType::Audio] = CreateScope<AudioFileSourceSerializer>();
-            s_Serializers[AssetType::SoundConfig] = CreateScope<SoundConfigSerializer>();
-            s_Serializers[AssetType::Scene] = CreateScope<SceneAssetSerializer>();
-            s_Serializers[AssetType::Font] = CreateScope<FontSerializer>();
-            s_Serializers[AssetType::MeshCollider] = CreateScope<MeshColliderSerializer>();
-            s_Serializers[AssetType::SoundGraphSound] = CreateScope<SoundGraphSerializer>();
-            s_Serializers[AssetType::AnimationClip] = CreateScope<AnimationAssetSerializer>();
-            s_Serializers[AssetType::AnimationGraph] = CreateScope<AnimationGraphAssetSerializer>();
-            s_Serializers[AssetType::ScriptFile] = CreateScope<ScriptFileSerializer>();
+            auto& serializers = GetSerializers();
+            serializers.clear();
+            serializers.reserve(17); // Reserve capacity for 17 serializers to avoid rehashing
+            serializers[AssetType::Prefab] = CreateScope<PrefabSerializer>();
+            serializers[AssetType::Texture2D] = CreateScope<TextureSerializer>();
+            serializers[AssetType::TextureCube] = CreateScope<TextureSerializer>();
+            serializers[AssetType::Mesh] = CreateScope<MeshSerializer>();
+            serializers[AssetType::StaticMesh] = CreateScope<StaticMeshSerializer>();
+            serializers[AssetType::MeshSource] = CreateScope<MeshSourceSerializer>();
+            serializers[AssetType::Material] = CreateScope<MaterialAssetSerializer>();
+            serializers[AssetType::EnvMap] = CreateScope<EnvironmentSerializer>();
+            serializers[AssetType::Audio] = CreateScope<AudioFileSourceSerializer>();
+            // serializers[AssetType::SoundConfig] = CreateScope<SoundConfigSerializer>(); // Disabled - SoundConfig not implemented
+            serializers[AssetType::Scene] = CreateScope<SceneAssetSerializer>();
+            serializers[AssetType::Font] = CreateScope<FontSerializer>();
+            serializers[AssetType::MeshCollider] = CreateScope<MeshColliderSerializer>();
+            serializers[AssetType::SoundGraphSound] = CreateScope<SoundGraphSerializer>();
+            serializers[AssetType::AnimationClip] = CreateScope<AnimationAssetSerializer>();
+            serializers[AssetType::AnimationGraph] = CreateScope<AnimationGraphAssetSerializer>();
+            serializers[AssetType::ScriptFile] = CreateScope<ScriptFileSerializer>();
         });
     }
 
     void AssetImporter::Shutdown()
     {
-        std::scoped_lock lock(s_SerializersMutex);
-        const auto serializerCount = s_Serializers.size();
-        s_Serializers.clear();
-        OLO_CORE_TRACE("AssetImporter shutdown - cleared {} serializers", serializerCount);
+        // Set shutdown flag to prevent re-entry during static destruction
+        auto wasShuttingDown = s_IsShuttingDown.exchange(true, std::memory_order_acq_rel);
+        if (wasShuttingDown)
+        {
+            // Already shutting down, avoid double shutdown
+            return;
+        }
+
+        // If we're in static destruction, absolutely do not attempt any cleanup
+        // The OS will handle memory cleanup automatically
+        if (g_IsInStaticDestruction.load(std::memory_order_acquire))
+        {
+            return;
+        }
+
+        // Additional safety check: try to detect if we're being called during exit
+        // by attempting to access the function-local statics safely
+        try
+        {
+            // If accessing these throws or behaves oddly, we're likely in static destruction
+            auto& mutex = GetSerializersMutex();
+            auto& serializers = GetSerializers();
+            
+            // Try to lock with a very short timeout - if this fails, we might be in trouble
+            if (!mutex.try_lock())
+            {
+                // Can't acquire lock quickly, might be in static destruction
+                return;
+            }
+            
+            // Use RAII to ensure unlock
+            std::unique_lock<std::mutex> lock(mutex, std::adopt_lock);
+            
+            // Final check: if we're in static destruction by now, just return
+            if (g_IsInStaticDestruction.load(std::memory_order_acquire))
+            {
+                return;
+            }
+            
+            // Only clear if we're absolutely sure we're not in static destruction
+            serializers.clear();
+        }
+        catch (...)
+        {
+            // Any exception during shutdown means we should not proceed
+            // This is likely due to static destruction issues
+        }
     }
 
     void AssetImporter::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset)
@@ -68,9 +141,10 @@ namespace OloEngine
         }
 
         {
-            std::scoped_lock lock(s_SerializersMutex);
-            auto it = s_Serializers.find(metadata.Type);
-            if (it == s_Serializers.end())
+            std::scoped_lock lock(GetSerializersMutex());
+            auto& serializers = GetSerializers();
+            auto it = serializers.find(metadata.Type);
+            if (it == serializers.end())
             {
                 OLO_CORE_WARN("No serializer available for asset type: {}", AssetUtils::AssetTypeToString(metadata.Type));
                 return;
@@ -102,9 +176,10 @@ namespace OloEngine
 
     bool AssetImporter::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset)
     {
-        std::scoped_lock lock(s_SerializersMutex);
-        auto it = s_Serializers.find(metadata.Type);
-        if (it == s_Serializers.end())
+        std::scoped_lock lock(GetSerializersMutex());
+        auto& serializers = GetSerializers();
+        auto it = serializers.find(metadata.Type);
+        if (it == serializers.end())
         {
             OLO_CORE_WARN("No serializer available for asset type: {}", AssetUtils::AssetTypeToString(metadata.Type));
             return false;
@@ -115,9 +190,10 @@ namespace OloEngine
 
     void AssetImporter::RegisterDependencies(const AssetMetadata& metadata)
     {
-        std::scoped_lock lock(s_SerializersMutex);
-        auto it = s_Serializers.find(metadata.Type);
-        if (it == s_Serializers.end())
+        std::scoped_lock lock(GetSerializersMutex());
+        auto& serializers = GetSerializers();
+        auto it = serializers.find(metadata.Type);
+        if (it == serializers.end())
         {
             OLO_CORE_WARN("No serializer available for asset type: {}", AssetUtils::AssetTypeToString(metadata.Type));
             return;
@@ -142,9 +218,10 @@ namespace OloEngine
 
         AssetType type = asset->GetAssetType();
         {
-            std::scoped_lock lock(s_SerializersMutex);
-            auto it = s_Serializers.find(type);
-            if (it == s_Serializers.end())
+            std::scoped_lock lock(GetSerializersMutex());
+            auto& serializers = GetSerializers();
+            auto it = serializers.find(type);
+            if (it == serializers.end())
             {
                 OLO_CORE_WARN("There's currently no serializer for assets of type: {}", AssetUtils::AssetTypeToString(type));
                 return false;
@@ -156,9 +233,10 @@ namespace OloEngine
 
     Ref<Asset> AssetImporter::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo)
     {
-        std::scoped_lock lock(s_SerializersMutex);
-        auto it = s_Serializers.find(assetInfo.Type);
-        if (it == s_Serializers.end())
+        std::scoped_lock lock(GetSerializersMutex());
+        auto& serializers = GetSerializers();
+        auto it = serializers.find(assetInfo.Type);
+        if (it == serializers.end())
         {
             OLO_CORE_WARN("No serializer available for asset type: {}", AssetUtils::AssetTypeToString(assetInfo.Type));
             return nullptr;
@@ -169,9 +247,10 @@ namespace OloEngine
 
     Ref<Scene> AssetImporter::DeserializeSceneFromAssetPack(FileStreamReader& stream, const AssetPackFile::SceneInfo& assetInfo)
     {
-        std::scoped_lock lock(s_SerializersMutex);
-        auto it = s_Serializers.find(AssetType::Scene);
-        if (it == s_Serializers.end())
+        std::scoped_lock lock(GetSerializersMutex());
+        auto& serializers = GetSerializers();
+        auto it = serializers.find(AssetType::Scene);
+        if (it == serializers.end())
         {
             OLO_CORE_WARN("Scene serializer not available");
             return nullptr;
