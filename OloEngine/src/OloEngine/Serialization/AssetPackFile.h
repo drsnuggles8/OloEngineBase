@@ -51,7 +51,7 @@ namespace OloEngine
         std::vector<AssetInfo> AssetInfos;
         std::vector<SceneInfo> SceneInfos;
         
-        // Temporary data used during asset pack building
+        // Temporary data used during asset pack building, not to be serialized
         std::vector<std::pair<AssetHandle, std::filesystem::path>> TempAssetFiles;
     };
 

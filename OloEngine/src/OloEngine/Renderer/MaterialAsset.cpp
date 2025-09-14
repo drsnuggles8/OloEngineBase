@@ -97,8 +97,7 @@ namespace OloEngine {
 	Ref<Texture2D> MaterialAsset::GetAlbedoMap() const
 	{
 		OLO_CORE_VERIFY(m_Material, "Material instance is null");
-		// Remove const from this to call non-const TryGetTexture2D
-		return const_cast<MaterialAsset*>(this)->m_Material->TryGetTexture2D(s_AlbedoMapUniform);
+		return m_Material->TryGetTexture2D(s_AlbedoMapUniform);
 	}
 
 	void MaterialAsset::SetAlbedoMap(AssetHandle handle)
@@ -111,7 +110,7 @@ namespace OloEngine {
 	Ref<Texture2D> MaterialAsset::GetNormalMap() const
 	{
 		OLO_CORE_VERIFY(m_Material, "Material instance is null");
-		return const_cast<MaterialAsset*>(this)->m_Material->TryGetTexture2D(s_NormalMapUniform);
+		return m_Material->TryGetTexture2D(s_NormalMapUniform);
 	}
 
 	void MaterialAsset::SetNormalMap(AssetHandle handle)
@@ -137,7 +136,7 @@ namespace OloEngine {
 	Ref<Texture2D> MaterialAsset::GetMetalnessMap() const
 	{
 		OLO_CORE_VERIFY(m_Material, "Material instance is null");
-		return const_cast<MaterialAsset*>(this)->m_Material->TryGetTexture2D(s_MetalnessMapUniform);
+		return m_Material->TryGetTexture2D(s_MetalnessMapUniform);
 	}
 
 	void MaterialAsset::SetMetalnessMap(AssetHandle handle)
@@ -150,7 +149,7 @@ namespace OloEngine {
 	Ref<Texture2D> MaterialAsset::GetRoughnessMap() const
 	{
 		OLO_CORE_VERIFY(m_Material, "Material instance is null");
-		return const_cast<MaterialAsset*>(this)->m_Material->TryGetTexture2D(s_RoughnessMapUniform);
+		return m_Material->TryGetTexture2D(s_RoughnessMapUniform);
 	}
 
 	void MaterialAsset::SetRoughnessMap(AssetHandle handle)

@@ -353,7 +353,7 @@ namespace OloEngine {
 		return defaultValue;
 	}
 
-	Ref<Texture2D> Material::GetTexture2D(const std::string& name)
+	Ref<Texture2D> Material::GetTexture2D(const std::string& name) const
 	{
 		auto it = m_Texture2DUniforms.find(name);
 		if (it != m_Texture2DUniforms.end())
@@ -362,7 +362,7 @@ namespace OloEngine {
 		return nullptr;
 	}
 
-	Ref<Texture2D> Material::GetTexture2D(const std::string& name, u32 arrayIndex)
+	Ref<Texture2D> Material::GetTexture2D(const std::string& name, u32 arrayIndex) const
 	{
 		std::string key = GenerateArrayKey(name, arrayIndex);
 		auto it = m_Texture2DUniforms.find(key);
@@ -381,12 +381,12 @@ namespace OloEngine {
 		return nullptr;
 	}
 
-	Ref<Texture2D> Material::TryGetTexture2D(const std::string& name)
+	Ref<Texture2D> Material::TryGetTexture2D(const std::string& name) const
 	{
 		return GetTexture2D(name);
 	}
 
-	Ref<Texture2D> Material::TryGetTexture2D(const std::string& name, u32 arrayIndex)
+	Ref<Texture2D> Material::TryGetTexture2D(const std::string& name, u32 arrayIndex) const
 	{
 		return GetTexture2D(name, arrayIndex);
 	}

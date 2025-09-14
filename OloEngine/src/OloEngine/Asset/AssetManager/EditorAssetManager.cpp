@@ -212,11 +212,22 @@ namespace OloEngine
     {
         OLO_PROFILER_SCOPE("EditorAssetManager::ReloadData");
 
-        auto metadata = m_AssetRegistry.GetMetadata(assetHandle);
-        if (!metadata.IsValid())
+        // Capture metadata values under registry lock for thread safety
+        AssetMetadata metadata;
+        AssetType type;
+        std::filesystem::path path;
         {
-            OLO_CORE_ERROR("Cannot reload asset {}: metadata not found", (u64)assetHandle);
-            return false;
+            std::shared_lock<std::shared_mutex> lock(m_RegistryMutex);
+            metadata = m_AssetRegistry.GetMetadata(assetHandle);
+            if (!metadata.IsValid())
+            {
+                OLO_CORE_ERROR("Cannot reload asset {}: metadata not found", (u64)assetHandle);
+                return false;
+            }
+            
+            // Capture values while under lock to avoid accessing stale metadata later
+            type = metadata.Type;
+            path = metadata.FilePath;
         }
 
         // Remove from cache to force reload
@@ -229,7 +240,7 @@ namespace OloEngine
         auto asset = LoadAssetFromFile(metadata);
         if (!asset)
         {
-            OLO_CORE_ERROR("Failed to reload asset: {}", metadata.FilePath.string());
+            OLO_CORE_ERROR("Failed to reload asset: {}", path.string());
             SetAssetStatus(assetHandle, AssetStatus::Failed);
             return false;
         }
@@ -237,7 +248,7 @@ namespace OloEngine
         // Update LastWriteTime to prevent continuous reloads
         {
             std::error_code ec;
-            auto absolutePath = m_ProjectPath / metadata.FilePath;
+            auto absolutePath = m_ProjectPath / path;
             metadata.LastWriteTime = std::filesystem::last_write_time(absolutePath, ec);
             if (!ec)
             {
@@ -248,7 +259,7 @@ namespace OloEngine
             }
             else
             {
-                OLO_CORE_WARN("Failed to update LastWriteTime for asset {}: {}", metadata.FilePath.string(), ec.message());
+                OLO_CORE_WARN("Failed to update LastWriteTime for asset {}: {}", path.string(), ec.message());
             }
         }
 
@@ -260,15 +271,13 @@ namespace OloEngine
 
         // Notify listeners via engine event system (on main thread)
         {
-            auto type = metadata.Type;
-            auto path = metadata.FilePath;
             Application::Get().SubmitToMainThread([assetHandle, type, path]() mutable {
                 AssetReloadedEvent evt(assetHandle, type, path);
                 Application::Get().OnEvent(evt);
             });
         }
 
-        OLO_CORE_INFO("Reloaded asset: {}", metadata.FilePath.string());
+        OLO_CORE_INFO("Reloaded asset: {}", path.string());
         return true;
     }
 
@@ -421,21 +430,19 @@ namespace OloEngine
     {
         std::unique_lock<std::shared_mutex> lock(m_DependenciesMutex);
         
-        if (dependency != 0)
-        {
-            OLO_CORE_ASSERT(handle != 0, "Cannot register dependency for invalid asset handle");
-            // Asset 'handle' depends on 'dependency'
-            m_AssetDependencies[handle].insert(dependency);
-            // Asset 'dependency' is depended on by 'handle'
-            m_AssetDependents[dependency].insert(handle);
+        OLO_CORE_ASSERT(handle != 0, "Cannot register dependency for invalid asset handle");
+        
+        // Ensure there is an entry in m_AssetDependencies for handle (creates if needed)
+        auto& dependencySet = m_AssetDependencies[handle];
+        
+        // Return early if dependency is invalid
+        if (dependency == 0)
             return;
-        }
-
-        // Otherwise just make sure there is an entry in m_AssetDependencies for handle
-        if (m_AssetDependencies.find(handle) == m_AssetDependencies.end())
-        {
-            m_AssetDependencies[handle] = {};
-        }
+        
+        // Asset 'handle' depends on 'dependency'
+        dependencySet.insert(dependency);
+        // Asset 'dependency' is depended on by 'handle'
+        m_AssetDependents[dependency].insert(handle);
     }
 
     void EditorAssetManager::DeregisterDependency(AssetHandle handle, AssetHandle dependency)
@@ -933,23 +940,69 @@ namespace OloEngine
             return;
         }
 
-        try
+        std::error_code ec;
+        auto iterator = std::filesystem::recursive_directory_iterator(directory, ec);
+        if (ec)
         {
-            for (auto& entry : std::filesystem::recursive_directory_iterator(directory))
+            OLO_CORE_ERROR("Failed to create recursive directory iterator for {}: {}", directory.string(), ec.message());
+            return;
+        }
+
+        for (auto it = iterator; it != std::filesystem::recursive_directory_iterator(); it.increment(ec))
+        {
+            if (ec)
             {
-                if (entry.is_regular_file())
+                OLO_CORE_WARN("Error advancing directory iterator during asset scan: {}", ec.message());
+                ec.clear(); // Clear error and continue with next iteration
+                continue;
+            }
+
+            try
+            {
+                const auto& entry = *it;
+                
+                // Check if it's a regular file using error_code overload
+                std::error_code file_ec;
+                bool isRegularFile = entry.is_regular_file(file_ec);
+                if (file_ec)
                 {
-                    AssetType type = AssetExtensions::GetAssetTypeFromPath(entry.path().string());
+                    OLO_CORE_WARN("Error checking file type for {}: {}", entry.path().string(), file_ec.message());
+                    continue; // Skip this entry and continue
+                }
+                
+                if (isRegularFile)
+                {
+                    // Get the path safely
+                    std::filesystem::path entryPath;
+                    try
+                    {
+                        entryPath = entry.path();
+                    }
+                    catch (const std::filesystem::filesystem_error& path_ex)
+                    {
+                        OLO_CORE_WARN("Error getting path for directory entry: {}", path_ex.what());
+                        continue; // Skip this entry and continue
+                    }
+                    
+                    AssetType type = AssetExtensions::GetAssetTypeFromPath(entryPath.string());
                     if (type != AssetType::None)
                     {
-                        ImportAsset(entry.path());
+                        ImportAsset(entryPath);
                     }
                 }
             }
-        }
-        catch (const std::filesystem::filesystem_error& ex)
-        {
-            OLO_CORE_ERROR("Failed to scan directory for assets: {}", ex.what());
+            catch (const std::filesystem::filesystem_error& ex)
+            {
+                OLO_CORE_WARN("Filesystem error processing directory entry during asset scan: {}", ex.what());
+                // Continue to next entry
+                continue;
+            }
+            catch (const std::exception& ex)
+            {
+                OLO_CORE_WARN("Unexpected error processing directory entry during asset scan: {}", ex.what());
+                // Continue to next entry
+                continue;
+            }
         }
     }
 

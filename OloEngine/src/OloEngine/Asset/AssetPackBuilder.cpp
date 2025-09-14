@@ -3,6 +3,7 @@
 
 #include "OloEngine/Asset/AssetImporter.h"
 #include "OloEngine/Asset/AssetSerializer.h"
+#include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/Log.h"
@@ -14,6 +15,8 @@
 #include <unordered_set>
 #include <fstream>
 #include <filesystem>
+#include <thread>
+#include <chrono>
 
 namespace OloEngine
 {
@@ -44,10 +47,141 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // For registry-based building, we'd need a way to get an asset manager that uses this registry
-        // For now, this is a placeholder implementation
-        OLO_CORE_WARN("AssetPackBuilder::BuildFromRegistry - Not fully implemented, falling back to active project");
-        return BuildFromActiveProject(settings, progress, cancelToken);
+        OLO_CORE_INFO("AssetPackBuilder: Starting asset pack build from provided registry");
+
+        BuildResult result;
+        result.OutputPath = settings.OutputPath;
+
+        try
+        {
+            // Check for cancellation before starting
+            if (cancelToken && cancelToken->load(std::memory_order_acquire))
+            {
+                OLO_CORE_INFO("AssetPackBuilder: Build cancelled before starting");
+                return { false, "Build cancelled by user", 0, 0, {} };
+            }
+
+            // Create a temporary EditorAssetManager to handle the assets from the registry
+            auto tempAssetManager = Ref<EditorAssetManager>::Create();
+            tempAssetManager->Initialize();
+
+            // Load all assets from the provided registry
+            auto allAssets = assetRegistry.GetAllAssets();
+            OLO_CORE_INFO("AssetPackBuilder: Loading {} assets from registry", allAssets.size());
+
+            // Set up progress tracking for asset loading
+            float loadProgress = 0.0f;
+            float progressPerAsset = 0.3f / static_cast<float>(allAssets.size()); // Reserve 30% for loading
+
+            sizet loadedCount = 0;
+            sizet failedCount = 0;
+
+            // Load each asset from the registry into the temporary manager
+            for (const auto& metadata : allAssets)
+            {
+                // Check for cancellation during loading
+                if (cancelToken && cancelToken->load(std::memory_order_acquire))
+                {
+                    OLO_CORE_INFO("AssetPackBuilder: Build cancelled during asset loading");
+                    tempAssetManager->Shutdown();
+                    return { false, "Build cancelled by user", 0, 0, {} };
+                }
+
+                try
+                {
+                    // Add the metadata to the temporary manager's registry
+                    tempAssetManager->SetMetadata(metadata.Handle, metadata);
+
+                    // Load the asset data
+                    auto asset = tempAssetManager->GetAsset(metadata.Handle);
+                    if (asset)
+                    {
+                        loadedCount++;
+                        OLO_CORE_TRACE("AssetPackBuilder: Loaded asset {} ({})", metadata.Handle, metadata.FilePath.string());
+                    }
+                    else
+                    {
+                        failedCount++;
+                        OLO_CORE_WARN("AssetPackBuilder: Failed to load asset {} ({})", metadata.Handle, metadata.FilePath.string());
+                    }
+                }
+                catch (const std::exception& e)
+                {
+                    failedCount++;
+                    OLO_CORE_ERROR("AssetPackBuilder: Exception loading asset {} ({}): {}", metadata.Handle, metadata.FilePath.string(), e.what());
+                }
+
+                // Update progress
+                loadProgress += progressPerAsset;
+                progress = loadProgress;
+            }
+
+            OLO_CORE_INFO("AssetPackBuilder: Loaded {}/{} assets successfully ({} failed)", loadedCount, allAssets.size(), failedCount);
+
+            // Check if we have any loaded assets to pack
+            if (loadedCount == 0)
+            {
+                tempAssetManager->Shutdown();
+                return { false, "No assets could be loaded from the registry", 0, 0, {} };
+            }
+
+            // Check for cancellation before starting the build
+            if (cancelToken && cancelToken->load(std::memory_order_acquire))
+            {
+                OLO_CORE_INFO("AssetPackBuilder: Build cancelled before packing");
+                tempAssetManager->Shutdown();
+                return { false, "Build cancelled by user", 0, 0, {} };
+            }
+
+            // Use the existing BuildImpl with the temporary asset manager
+            // The progress will start from 0.3 (30% for loading) and go to 1.0
+            std::atomic<float> buildProgress = 0.3f;
+            auto buildProgressCallback = [&progress, &buildProgress](float p) {
+                buildProgress = 0.3f + (p * 0.7f); // Scale remaining 70% progress
+                progress = buildProgress.load();
+            };
+
+            // Create a wrapper to update our main progress from BuildImpl's progress
+            std::atomic<float> internalProgress = 0.0f;
+            std::atomic<bool> progressUpdateActive = true;
+            
+            // Start a simple progress forwarding
+            auto updateProgress = [&]() {
+                while (progressUpdateActive.load())
+                {
+                    float internal = internalProgress.load();
+                    progress = 0.3f + (internal * 0.7f);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                }
+            };
+            std::thread progressThread(updateProgress);
+
+            // Call the existing implementation with the populated temporary manager
+            result = BuildImpl(tempAssetManager, settings, internalProgress, cancelToken);
+
+            // Stop progress thread and finalize
+            progressUpdateActive = false;
+            if (progressThread.joinable())
+                progressThread.join();
+
+            // Clean up the temporary asset manager
+            tempAssetManager->Shutdown();
+
+            // Update final progress
+            progress = result.Success ? 1.0f : internalProgress.load();
+
+            return result;
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("AssetPackBuilder::BuildFromRegistry - Exception: {}", e.what());
+            return { false, "Exception during build: " + std::string(e.what()), 0, 0, {} };
+        }
+        catch (...)
+        {
+            OLO_CORE_ERROR("AssetPackBuilder::BuildFromRegistry - Unknown exception");
+            return { false, "Unknown exception during build", 0, 0, {} };
+        }
     }
 
     AssetPackBuilder::BuildResult AssetPackBuilder::BuildImpl(Ref<AssetManagerBase> assetManager, const BuildSettings& settings, std::atomic<float>& progress, std::atomic<bool>* cancelToken)
@@ -278,7 +412,7 @@ namespace OloEngine
                 return false;
             }
 
-            if (processedAssets.contains(handle))
+            if (processedAssets.find(handle) != processedAssets.end())
                 continue;
 
             processedAssets.insert(handle);
