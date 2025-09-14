@@ -20,7 +20,7 @@ namespace OloEngine
     {
     public:
         AnimationAsset() = default;
-        explicit AnimationAsset(AssetHandle animationSource, AssetHandle mesh, const std::string& animationName, 
+        explicit AnimationAsset(AssetHandle animationSource, AssetHandle mesh, std::string animationName, 
                       bool extractRootMotion = false, u32 rootBoneIndex = 0,
                       const glm::vec3& rootTranslationMask = glm::vec3(1.0f),
                       const glm::vec3& rootRotationMask = glm::vec3(1.0f),
@@ -36,7 +36,7 @@ namespace OloEngine
 
         // Root motion extraction parameters
         bool IsExtractRootMotion() const { return m_IsExtractRootMotion; }
-        u32 RootBoneIndex() const { return m_RootBoneIndex; }
+        u32 GetRootBoneIndex() const { return m_RootBoneIndex; }
         const glm::vec3& GetRootTranslationMask() const { return m_RootTranslationMask; }
         const glm::vec3& GetRootRotationMask() const { return m_RootRotationMask; }
         bool IsDiscardRootMotion() const { return m_IsDiscardRootMotion; }

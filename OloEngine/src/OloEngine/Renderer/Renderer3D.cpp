@@ -335,11 +335,11 @@ namespace OloEngine
 		}
 		
 		Ref<Shader> shaderToUse;
-		if (material.Shader())
+		if (material.GetShader())
 		{
-			shaderToUse = material.Shader();
+			shaderToUse = material.GetShader();
 		}
-		else if (material.Type() == MaterialType::PBR)
+		else if (material.GetMaterialType() == MaterialType::PBR)
 		{
 			shaderToUse = s_Data.PBRShader;
 		}
@@ -370,34 +370,34 @@ namespace OloEngine
 		cmd->transform = glm::mat4(modelMatrix);
 		
 		// Legacy material properties (for backward compatibility)
-		cmd->ambient = material.Ambient();
-		cmd->diffuse = material.Diffuse();
-		cmd->specular = material.Specular();
-		cmd->shininess = material.Shininess();
-		cmd->useTextureMaps = material.UseTextureMaps();
-		cmd->diffuseMap = material.DiffuseMap();
-		cmd->specularMap = material.SpecularMap();
+		cmd->ambient = material.GetAmbient();
+		cmd->diffuse = material.GetDiffuse();
+		cmd->specular = material.GetSpecular();
+		cmd->shininess = material.GetShininess();
+		cmd->useTextureMaps = material.IsUsingTextureMaps();
+		cmd->diffuseMap = material.GetDiffuseMap();
+		cmd->specularMap = material.GetSpecularMap();
 		
 		// PBR material properties
-		cmd->enablePBR = (material.Type() == MaterialType::PBR);
-		cmd->baseColorFactor = material.BaseColorFactor();
-		cmd->emissiveFactor = material.EmissiveFactor();
-		cmd->metallicFactor = material.MetallicFactor();
-		cmd->roughnessFactor = material.RoughnessFactor();
-		cmd->normalScale = material.NormalScale();
-		cmd->occlusionStrength = material.OcclusionStrength();
-		cmd->enableIBL = material.EnableIBL();
+		cmd->enablePBR = (material.GetMaterialType() == MaterialType::PBR);
+		cmd->baseColorFactor = material.GetBaseColorFactor();
+		cmd->emissiveFactor = material.GetEmissiveFactor();
+		cmd->metallicFactor = material.GetMetallicFactor();
+		cmd->roughnessFactor = material.GetRoughnessFactor();
+		cmd->normalScale = material.GetNormalScale();
+		cmd->occlusionStrength = material.GetOcclusionStrength();
+		cmd->enableIBL = material.IsIBLEnabled();
 		
 		// PBR texture references
-		cmd->albedoMap = material.AlbedoMap();
-		cmd->metallicRoughnessMap = material.MetallicRoughnessMap();
-		cmd->normalMap = material.NormalMap();
-		cmd->aoMap = material.AOMap();
-		cmd->emissiveMap = material.EmissiveMap();
-		cmd->environmentMap = material.EnvironmentMap();
-		cmd->irradianceMap = material.IrradianceMap();
-		cmd->prefilterMap = material.PrefilterMap();
-		cmd->brdfLutMap = material.BRDFLutMap();
+		cmd->albedoMap = material.GetAlbedoMap();
+		cmd->metallicRoughnessMap = material.GetMetallicRoughnessMap();
+		cmd->normalMap = material.GetNormalMap();
+		cmd->aoMap = material.GetAOMap();
+		cmd->emissiveMap = material.GetEmissiveMap();
+		cmd->environmentMap = material.GetEnvironmentMap();
+		cmd->irradianceMap = material.GetIrradianceMap();
+		cmd->prefilterMap = material.GetPrefilterMap();
+		cmd->brdfLutMap = material.GetBRDFLutMap();
 		
 		cmd->shader = shaderToUse;
 		cmd->renderState = Ref<RenderState>::Create();
@@ -478,36 +478,36 @@ namespace OloEngine
 		cmd->transforms = transforms;
 		
 		// Legacy material properties (for backward compatibility)
-		cmd->ambient = material.Ambient();
-		cmd->diffuse = material.Diffuse();
-		cmd->specular = material.Specular();
-		cmd->shininess = material.Shininess();
-		cmd->useTextureMaps = material.UseTextureMaps();
-		cmd->diffuseMap = material.DiffuseMap();
-		cmd->specularMap = material.SpecularMap();
+		cmd->ambient = material.GetAmbient();
+		cmd->diffuse = material.GetDiffuse();
+		cmd->specular = material.GetSpecular();
+		cmd->shininess = material.GetShininess();
+		cmd->useTextureMaps = material.IsUsingTextureMaps();
+		cmd->diffuseMap = material.GetDiffuseMap();
+		cmd->specularMap = material.GetSpecularMap();
 		
 		// PBR material properties
-		cmd->enablePBR = (material.Type() == MaterialType::PBR);
-		cmd->baseColorFactor = material.BaseColorFactor();
-		cmd->emissiveFactor = material.EmissiveFactor();
-		cmd->metallicFactor = material.MetallicFactor();
-		cmd->roughnessFactor = material.RoughnessFactor();
-		cmd->normalScale = material.NormalScale();
-		cmd->occlusionStrength = material.OcclusionStrength();
-		cmd->enableIBL = material.EnableIBL();
+		cmd->enablePBR = (material.GetMaterialType() == MaterialType::PBR);
+		cmd->baseColorFactor = material.GetBaseColorFactor();
+		cmd->emissiveFactor = material.GetEmissiveFactor();
+		cmd->metallicFactor = material.GetMetallicFactor();
+		cmd->roughnessFactor = material.GetRoughnessFactor();
+		cmd->normalScale = material.GetNormalScale();
+		cmd->occlusionStrength = material.GetOcclusionStrength();
+		cmd->enableIBL = material.IsIBLEnabled();
 		
 		// PBR texture references
-		cmd->albedoMap = material.AlbedoMap();
-		cmd->metallicRoughnessMap = material.MetallicRoughnessMap();
-		cmd->normalMap = material.NormalMap();
-		cmd->aoMap = material.AOMap();
-		cmd->emissiveMap = material.EmissiveMap();
-		cmd->environmentMap = material.EnvironmentMap();
-		cmd->irradianceMap = material.IrradianceMap();
-		cmd->prefilterMap = material.PrefilterMap();
-		cmd->brdfLutMap = material.BRDFLutMap();
+		cmd->albedoMap = material.GetAlbedoMap();
+		cmd->metallicRoughnessMap = material.GetMetallicRoughnessMap();
+		cmd->normalMap = material.GetNormalMap();
+		cmd->aoMap = material.GetAOMap();
+		cmd->emissiveMap = material.GetEmissiveMap();
+		cmd->environmentMap = material.GetEnvironmentMap();
+		cmd->irradianceMap = material.GetIrradianceMap();
+		cmd->prefilterMap = material.GetPrefilterMap();
+		cmd->brdfLutMap = material.GetBRDFLutMap();
 		
-		cmd->shader = material.Shader() ? material.Shader() : s_Data.LightingShader;
+		cmd->shader = material.GetShader() ? material.GetShader() : s_Data.LightingShader;
 		cmd->renderState = Ref<RenderState>::Create();
 		packet->SetCommandType(cmd->header.type);
 		packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
@@ -751,11 +751,11 @@ namespace OloEngine
 		}
 
 		Ref<Shader> shaderToUse;
-		if (material.Shader())
+		if (material.GetShader())
 		{
-			shaderToUse = material.Shader();
+			shaderToUse = material.GetShader();
 		}
-		else if (material.Type() == MaterialType::PBR)
+		else if (material.GetMaterialType() == MaterialType::PBR)
 		{
 			shaderToUse = s_Data.PBRSkinnedShader;
 		}
@@ -802,34 +802,34 @@ namespace OloEngine
 		cmd->transform = modelMatrix;
 		
 		// Legacy material properties (for backward compatibility)
-		cmd->ambient = material.Ambient();
-		cmd->diffuse = material.Diffuse();
-		cmd->specular = material.Specular();
-		cmd->shininess = material.Shininess();
-		cmd->useTextureMaps = material.UseTextureMaps();
-		cmd->diffuseMap = material.DiffuseMap();
-		cmd->specularMap = material.SpecularMap();
+		cmd->ambient = material.GetAmbient();
+		cmd->diffuse = material.GetDiffuse();
+		cmd->specular = material.GetSpecular();
+		cmd->shininess = material.GetShininess();
+		cmd->useTextureMaps = material.IsUsingTextureMaps();
+		cmd->diffuseMap = material.GetDiffuseMap();
+		cmd->specularMap = material.GetSpecularMap();
 		
 		// PBR material properties
-		cmd->enablePBR = (material.Type() == MaterialType::PBR);
-		cmd->baseColorFactor = material.BaseColorFactor();
-		cmd->emissiveFactor = material.EmissiveFactor();
-		cmd->metallicFactor = material.MetallicFactor();
-		cmd->roughnessFactor = material.RoughnessFactor();
-		cmd->normalScale = material.NormalScale();
-		cmd->occlusionStrength = material.OcclusionStrength();
-		cmd->enableIBL = material.EnableIBL();
+		cmd->enablePBR = (material.GetMaterialType() == MaterialType::PBR);
+		cmd->baseColorFactor = material.GetBaseColorFactor();
+		cmd->emissiveFactor = material.GetEmissiveFactor();
+		cmd->metallicFactor = material.GetMetallicFactor();
+		cmd->roughnessFactor = material.GetRoughnessFactor();
+		cmd->normalScale = material.GetNormalScale();
+		cmd->occlusionStrength = material.GetOcclusionStrength();
+		cmd->enableIBL = material.IsIBLEnabled();
 		
 		// PBR texture references
-		cmd->albedoMap = material.AlbedoMap();
-		cmd->metallicRoughnessMap = material.MetallicRoughnessMap();
-		cmd->normalMap = material.NormalMap();
-		cmd->aoMap = material.AOMap();
-		cmd->emissiveMap = material.EmissiveMap();
-		cmd->environmentMap = material.EnvironmentMap();
-		cmd->irradianceMap = material.IrradianceMap();
-		cmd->prefilterMap = material.PrefilterMap();
-		cmd->brdfLutMap = material.BRDFLutMap();
+		cmd->albedoMap = material.GetAlbedoMap();
+		cmd->metallicRoughnessMap = material.GetMetallicRoughnessMap();
+		cmd->normalMap = material.GetNormalMap();
+		cmd->aoMap = material.GetAOMap();
+		cmd->emissiveMap = material.GetEmissiveMap();
+		cmd->environmentMap = material.GetEnvironmentMap();
+		cmd->irradianceMap = material.GetIrradianceMap();
+		cmd->prefilterMap = material.GetPrefilterMap();
+		cmd->brdfLutMap = material.GetBRDFLutMap();
 		
 		cmd->shader = shaderToUse;
 		cmd->renderState = Ref<RenderState>::Create();
@@ -1145,11 +1145,11 @@ namespace OloEngine
 
 		// Use a highly emissive material for skeleton visualization
 		Material material{};
-		material.Type() = MaterialType::PBR;
-		material.BaseColorFactor() = glm::vec4(color, 1.0f);
-		material.MetallicFactor() = 0.0f;
-		material.RoughnessFactor() = 1.0f;
-		material.EmissiveFactor() = glm::vec4(color * 5.0f, 1.0f); // Very bright emissive for visibility through surfaces
+		material.SetMaterialType(MaterialType::PBR);
+		material.SetBaseColorFactor(glm::vec4(color, 1.0f));
+		material.SetMetallicFactor(0.0f);
+		material.SetRoughnessFactor(1.0f);
+		material.SetEmissiveFactor(glm::vec4(color * 5.0f, 1.0f)); // Very bright emissive for visibility through surfaces
         
 		if (!s_Data.LineQuadMesh)
 		{
@@ -1222,11 +1222,11 @@ namespace OloEngine
 		
 		// Use a highly emissive material for skeleton joints
 		Material material{};
-		material.Type() = MaterialType::PBR;
-		material.BaseColorFactor() = glm::vec4(color, 1.0f);
-		material.MetallicFactor() = 0.0f;
-		material.RoughnessFactor() = 0.8f;
-		material.EmissiveFactor() = glm::vec4(color * 3.0f, 1.0f); // Very bright emission for visibility through surfaces
+		material.SetMaterialType(MaterialType::PBR);
+		material.SetBaseColorFactor(glm::vec4(color, 1.0f));
+		material.SetMetallicFactor(0.0f);
+		material.SetRoughnessFactor(0.8f);
+		material.SetEmissiveFactor(glm::vec4(color * 3.0f, 1.0f)); // Very bright emission for visibility through surfaces
 		
 		CommandPacket* packet = nullptr;
 		

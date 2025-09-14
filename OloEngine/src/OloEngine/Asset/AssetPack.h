@@ -55,7 +55,7 @@ namespace OloEngine
      * Provides detailed error information for failed load operations,
      * including specific error codes and descriptive messages.
      */
-    struct AssetPackLoadResult
+    struct [[nodiscard]] AssetPackLoadResult
     {
         bool Success = false;
         AssetPackLoadError ErrorCode = AssetPackLoadError::None;

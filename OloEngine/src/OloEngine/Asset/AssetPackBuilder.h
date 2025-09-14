@@ -24,7 +24,7 @@ namespace OloEngine
         /**
          * @brief Build result information
          */
-        struct BuildResult
+        struct [[nodiscard]] BuildResult
         {
             bool Success = false;
             std::string ErrorMessage;

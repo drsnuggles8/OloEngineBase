@@ -62,7 +62,7 @@ namespace OloEngine
     /**
      * @brief Editor load response structure for asset loading operations
      */
-    struct EditorAssetLoadResponse
+    struct [[nodiscard]] EditorAssetLoadResponse
     {
         AssetMetadata Metadata;
         Ref<Asset> AssetRef;

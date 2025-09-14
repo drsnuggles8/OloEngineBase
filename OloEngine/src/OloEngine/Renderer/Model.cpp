@@ -303,7 +303,7 @@ namespace OloEngine
 			auto overrideTexture = Texture2D::Create(m_TextureOverride->AlbedoPath);
 			if (overrideTexture && overrideTexture->IsLoaded())
 			{
-				materialRef->AlbedoMap() = overrideTexture;
+				materialRef->SetAlbedoMap(overrideTexture);
 			}
 		}
 		else
@@ -317,7 +317,7 @@ namespace OloEngine
 			}
 			if (!albedoMaps.empty())
 			{
-				materialRef->AlbedoMap() = albedoMaps[0];
+				materialRef->SetAlbedoMap(albedoMaps[0]);
 			}
 		}
 		
@@ -327,7 +327,7 @@ namespace OloEngine
 			auto overrideTexture = Texture2D::Create(m_TextureOverride->MetallicPath);
 			if (overrideTexture && overrideTexture->IsLoaded())
 			{
-				materialRef->MetallicRoughnessMap() = overrideTexture;
+				materialRef->SetMetallicRoughnessMap(overrideTexture);
 			}
 		}
 		else
@@ -341,7 +341,7 @@ namespace OloEngine
 			}
 			if (!metallicRoughnessMaps.empty())
 			{
-				materialRef->MetallicRoughnessMap() = metallicRoughnessMaps[0];
+				materialRef->SetMetallicRoughnessMap(metallicRoughnessMaps[0]);
 			}
 		}
 		
@@ -351,7 +351,7 @@ namespace OloEngine
 			auto overrideTexture = Texture2D::Create(m_TextureOverride->NormalPath);
 			if (overrideTexture && overrideTexture->IsLoaded())
 			{
-				materialRef->NormalMap() = overrideTexture;
+				materialRef->SetNormalMap(overrideTexture);
 			}
 		}
 		else
@@ -365,7 +365,7 @@ namespace OloEngine
 			}
 			if (!normalMaps.empty())
 			{
-				materialRef->NormalMap() = normalMaps[0];
+				materialRef->SetNormalMap(normalMaps[0]);
 			}
 		}
 		
@@ -376,7 +376,7 @@ namespace OloEngine
 			auto overrideTexture = Texture2D::Create(m_TextureOverride->AOPath);
 			if (overrideTexture && overrideTexture->IsLoaded())
 			{
-				materialRef->AOMap() = overrideTexture;
+				materialRef->SetAOMap(overrideTexture);
 			}
 		}
 		else if (m_TextureOverride && !m_TextureOverride->RoughnessPath.empty())
@@ -385,7 +385,7 @@ namespace OloEngine
 			auto overrideTexture = Texture2D::Create(m_TextureOverride->RoughnessPath);
 			if (overrideTexture && overrideTexture->IsLoaded())
 			{
-				materialRef->AOMap() = overrideTexture;
+				materialRef->SetAOMap(overrideTexture);
 			}
 		}
 		else
@@ -399,7 +399,7 @@ namespace OloEngine
 			}
 			if (!aoMaps.empty())
 			{
-				materialRef->AOMap() = aoMaps[0];
+				materialRef->SetAOMap(aoMaps[0]);
 			}
 		}
 		
@@ -409,7 +409,7 @@ namespace OloEngine
 			auto overrideTexture = Texture2D::Create(m_TextureOverride->EmissivePath);
 			if (overrideTexture && overrideTexture->IsLoaded())
 			{
-				materialRef->EmissiveMap() = overrideTexture;
+				materialRef->SetEmissiveMap(overrideTexture);
 			}
 		}
 		else
@@ -418,7 +418,7 @@ namespace OloEngine
 			auto emissiveMaps = LoadMaterialTextures(mat, aiTextureType_EMISSIVE);
 			if (!emissiveMaps.empty())
 			{
-				materialRef->EmissiveMap() = emissiveMaps[0];
+				materialRef->SetEmissiveMap(emissiveMaps[0]);
 			}
 		}
 		

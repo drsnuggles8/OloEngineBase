@@ -800,31 +800,31 @@ namespace OloEngine
         auto albedoMaps = LoadMaterialTextures(mat, aiTextureType_DIFFUSE);
         if (!albedoMaps.empty())
         {
-            material.AlbedoMap() = albedoMaps[0];
+            material.SetAlbedoMap(albedoMaps[0]);
         }
         
         auto metallicRoughnessMaps = LoadMaterialTextures(mat, aiTextureType_METALNESS);
         if (!metallicRoughnessMaps.empty())
         {
-            material.MetallicRoughnessMap() = metallicRoughnessMaps[0];
+            material.SetMetallicRoughnessMap(metallicRoughnessMaps[0]);
         }
         
         auto normalMaps = LoadMaterialTextures(mat, aiTextureType_NORMALS);
         if (!normalMaps.empty())
         {
-            material.NormalMap() = normalMaps[0];
+            material.SetNormalMap(normalMaps[0]);
         }
         
         auto aoMaps = LoadMaterialTextures(mat, aiTextureType_AMBIENT_OCCLUSION);
         if (!aoMaps.empty())
         {
-            material.AOMap() = aoMaps[0];
+            material.SetAOMap(aoMaps[0]);
         }
         
         auto emissiveMaps = LoadMaterialTextures(mat, aiTextureType_EMISSIVE);
         if (!emissiveMaps.empty())
         {
-            material.EmissiveMap() = emissiveMaps[0];
+            material.SetEmissiveMap(emissiveMaps[0]);
         }
         
         return material;

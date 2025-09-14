@@ -34,19 +34,19 @@ namespace OloEngine
         
         virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const = 0;
         virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const = 0;
-        virtual void RegisterDependencies(const AssetMetadata& metadata) const {}
+        virtual void RegisterDependencies([[maybe_unused]] const AssetMetadata& metadata) const {}
 
         virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const = 0;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const = 0;
         
         // Virtual method for scene-specific deserialization, returns nullptr by default
-        virtual Ref<Scene> DeserializeSceneFromAssetPack(FileStreamReader& stream, const AssetPackFile::SceneInfo& sceneInfo) const { return nullptr; }
+        virtual Ref<Scene> DeserializeSceneFromAssetPack([[maybe_unused]] FileStreamReader& stream, [[maybe_unused]] const AssetPackFile::SceneInfo& sceneInfo) const { return nullptr; }
     };
 
     class TextureSerializer : public AssetSerializer
     {
     public:
-        virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override {}
+        virtual void Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const override {}
         virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -56,7 +56,7 @@ namespace OloEngine
     class FontSerializer : public AssetSerializer
     {
     public:
-        virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override {}
+        virtual void Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const override {}
         virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -82,7 +82,7 @@ namespace OloEngine
     class EnvironmentSerializer : public AssetSerializer
     {
     public:
-        virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override {}
+        virtual void Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const override {}
         virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;

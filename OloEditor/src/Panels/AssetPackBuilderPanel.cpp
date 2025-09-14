@@ -7,19 +7,38 @@
 
 #include <imgui.h>
 #include <future>
+#include <chrono>
 #include <thread>
 #include <cstring>
 
 namespace OloEngine
 {
+    AssetPackBuilderPanel::AssetPackBuilderPanel()
+    {
+        // Initialize output path buffer with default value
+        const char* defaultPath = "Assets/AssetPack.olopack";
+        std::strncpy(m_OutputPathBuffer.data(), defaultPath, m_OutputPathBuffer.size() - 1);
+        m_OutputPathBuffer[m_OutputPathBuffer.size() - 1] = '\0';  // Ensure null termination
+    }
+
+    AssetPackBuilderPanel::~AssetPackBuilderPanel()
+    {
+        // Request cancellation and wait for thread to complete
+        if (m_BuildThread.joinable())
+        {
+            m_BuildThread.request_stop();
+            // jthread automatically joins in its destructor
+        }
+    }
+
     void AssetPackBuilderPanel::SyncUIFromSettings()
     {
         // Synchronize output path buffer from settings
         std::string pathStr = m_BuildSettings.OutputPath.string();
         
         // Safely copy to buffer with bounds checking
-        sizet copyLength = std::min(pathStr.length(), sizeof(m_OutputPathBuffer) - 1);
-        std::memcpy(m_OutputPathBuffer, pathStr.c_str(), copyLength);
+        sizet copyLength = std::min(pathStr.length(), m_OutputPathBuffer.size() - 1);
+        std::memcpy(m_OutputPathBuffer.data(), pathStr.c_str(), copyLength);
         m_OutputPathBuffer[copyLength] = '\0';  // Ensure null termination
     }
 
@@ -35,13 +54,13 @@ namespace OloEngine
 
         if (ImGui::Begin("Asset Pack Builder", &isOpen))
         {
-            // Check if build is complete
-            if (m_IsBuildInProgress.load() && m_BuildFuture.valid() && 
-                m_BuildFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+            // Check if build thread has completed (it will set m_IsBuildInProgress to false when done)
+            if (!m_IsBuildInProgress.load() && m_BuildThread.joinable())
             {
-                m_LastBuildResult = m_BuildFuture.get();
+                // Join the completed thread
+                m_BuildThread.join();
+                
                 m_HasBuildResult.store(true);
-                m_IsBuildInProgress.store(false);
                 m_BuildProgressPermille.store(1000);  // 100% in permille
                 
                 if (m_LastBuildResult.Success)
@@ -83,15 +102,15 @@ namespace OloEngine
             // Output path
             ImGui::Text("Output Path:");
             ImGui::SameLine();
-            if (ImGui::InputText("##OutputPath", m_OutputPathBuffer, sizeof(m_OutputPathBuffer)))
+            if (ImGui::InputText("##OutputPath", m_OutputPathBuffer.data(), m_OutputPathBuffer.size()))
             {
-                m_BuildSettings.OutputPath = std::filesystem::path(m_OutputPathBuffer);
+                m_BuildSettings.OutputPath = std::filesystem::path(m_OutputPathBuffer.data());
             }
             ImGui::SameLine();
             if (ImGui::Button("Browse"))
             {
                 // For now, just use default extension
-                std::string defaultPath = m_OutputPathBuffer;
+                std::string defaultPath = m_OutputPathBuffer.data();
                 if (defaultPath.empty())
                 {
                     defaultPath = "Assets/AssetPack.olopack";
@@ -255,23 +274,25 @@ namespace OloEngine
         }
 
         // Update settings from UI
-        m_BuildSettings.OutputPath = std::filesystem::path(m_OutputPathBuffer);
+        m_BuildSettings.OutputPath = std::filesystem::path(m_OutputPathBuffer.data());
 
         // Reset progress and results
         m_BuildProgressPermille.store(0);
         m_HasBuildResult.store(false);
         m_LastBuildResult = {};
-        m_CancelRequested.store(false);
 
-        // Start async build
+        // Start build thread
         m_IsBuildInProgress.store(true);
-        m_BuildFuture = std::async(std::launch::async, [this]() {
+        m_BuildThread = std::jthread([this](std::stop_token stopToken) {
+            // Create a cancellation flag bridge for the AssetPackBuilder API
+            std::atomic<bool> cancelRequested{false};
+            
             // Create a float progress tracker for the AssetPackBuilder API
             std::atomic<f32> floatProgress{0.0f};
             
-            // Launch a progress monitoring thread to convert float to permille
-            std::thread progressMonitor([this, &floatProgress]() {
-                while (m_IsBuildInProgress.load() && !m_CancelRequested.load()) {
+            // Launch a progress monitoring thread that checks for cancellation
+            std::jthread progressMonitor([this, &floatProgress, stopToken](std::stop_token) {
+                while (!stopToken.stop_requested()) {
                     f32 progress = floatProgress.load();
                     i32 permille = static_cast<i32>(progress * 1000.0f);
                     m_BuildProgressPermille.store(permille);
@@ -279,19 +300,25 @@ namespace OloEngine
                 }
             });
             
-            auto result = AssetPackBuilder::BuildFromActiveProject(m_BuildSettings, floatProgress, &m_CancelRequested);
+            // Monitor stop token and update cancellation flag
+            std::jthread cancellationMonitor([&cancelRequested, stopToken](std::stop_token) {
+                while (!stopToken.stop_requested()) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                }
+                cancelRequested.store(true);
+            });
+            
+            // Perform the actual build
+            auto result = AssetPackBuilder::BuildFromActiveProject(m_BuildSettings, floatProgress, &cancelRequested);
             
             // Final progress update
-            if (result.Success && !m_CancelRequested.load()) {
+            if (result.Success && !cancelRequested.load()) {
                 m_BuildProgressPermille.store(1000); // 100%
             }
             
-            // Wait for progress monitor to finish
-            if (progressMonitor.joinable()) {
-                progressMonitor.join();
-            }
-            
-            return result;
+            // Store result and mark build complete
+            m_LastBuildResult = result;
+            m_IsBuildInProgress.store(false);
         });
 
         OLO_CORE_INFO("Started asset pack build to: {}", m_BuildSettings.OutputPath.string());
@@ -304,11 +331,14 @@ namespace OloEngine
             return;
         }
 
-        // Signal cancellation cooperatively
-        m_CancelRequested.store(true, std::memory_order_release);
+        // Request cancellation using C++20 structured cancellation
+        if (m_BuildThread.joinable())
+        {
+            m_BuildThread.request_stop();
+        }
         
         // Update UI state immediately for responsive feedback
-        m_IsBuildInProgress.store(false, std::memory_order_release);
+        m_IsBuildInProgress.store(false);
         m_BuildProgressPermille.store(0);
         
         OLO_CORE_INFO("Asset pack build cancellation requested");

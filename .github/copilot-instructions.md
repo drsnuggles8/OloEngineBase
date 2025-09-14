@@ -18,8 +18,6 @@ Favor STL containers (e.g., std::vector) for contiguous memory and cache friendl
 
 - **Formatting:** Braces on new lines, 4-space indentation, public methods before private.
 
-- **Memory Management:** Use AssetRef<T> for asset objects and CreateScope<T> for non-asset objects.
-
 - **Namespaces:** All engine code wrapped in the OloEngine namespace.
 
 ## VS Code Tasks Usage

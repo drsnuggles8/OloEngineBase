@@ -300,16 +300,16 @@ namespace OloEngine
                 out << YAML::Key << "Textures" << YAML::Value << YAML::BeginMap;
                 
                 // Serialize PBR texture maps
-                if (material->AlbedoMap() && material->AlbedoMap()->m_Handle != 0)
-                    out << YAML::Key << "AlbedoMap" << YAML::Value << material->AlbedoMap()->m_Handle;
-                if (material->MetallicRoughnessMap() && material->MetallicRoughnessMap()->m_Handle != 0)
-                    out << YAML::Key << "MetallicRoughnessMap" << YAML::Value << material->MetallicRoughnessMap()->m_Handle;
-                if (material->NormalMap() && material->NormalMap()->m_Handle != 0)
-                    out << YAML::Key << "NormalMap" << YAML::Value << material->NormalMap()->m_Handle;
-                if (material->AOMap() && material->AOMap()->m_Handle != 0)
-                    out << YAML::Key << "AOMap" << YAML::Value << material->AOMap()->m_Handle;
-                if (material->EmissiveMap() && material->EmissiveMap()->m_Handle != 0)
-                    out << YAML::Key << "EmissiveMap" << YAML::Value << material->EmissiveMap()->m_Handle;
+                if (material->GetAlbedoMap() && material->GetAlbedoMap()->m_Handle != 0)
+                    out << YAML::Key << "AlbedoMap" << YAML::Value << material->GetAlbedoMap()->m_Handle;
+                if (material->GetMetallicRoughnessMap() && material->GetMetallicRoughnessMap()->m_Handle != 0)
+                    out << YAML::Key << "MetallicRoughnessMap" << YAML::Value << material->GetMetallicRoughnessMap()->m_Handle;
+                if (material->GetNormalMap() && material->GetNormalMap()->m_Handle != 0)
+                    out << YAML::Key << "NormalMap" << YAML::Value << material->GetNormalMap()->m_Handle;
+                if (material->GetAOMap() && material->GetAOMap()->m_Handle != 0)
+                    out << YAML::Key << "AOMap" << YAML::Value << material->GetAOMap()->m_Handle;
+                if (material->GetEmissiveMap() && material->GetEmissiveMap()->m_Handle != 0)
+                    out << YAML::Key << "EmissiveMap" << YAML::Value << material->GetEmissiveMap()->m_Handle;
                 
                 // Serialize dynamic texture uniforms
                 const auto& texture2DUniforms = material->GetTexture2DUniforms();
@@ -329,25 +329,25 @@ namespace OloEngine
                 out << YAML::Key << "BaseColor" << YAML::Value << YAML::BeginMap;
                 out << YAML::Key << "type" << YAML::Value << "vec4";
                 out << YAML::Key << "value" << YAML::Value << YAML::Flow << YAML::BeginSeq 
-                    << material->BaseColorFactor().x << material->BaseColorFactor().y 
-                    << material->BaseColorFactor().z << material->BaseColorFactor().w << YAML::EndSeq;
+                    << material->GetBaseColorFactor().x << material->GetBaseColorFactor().y 
+                    << material->GetBaseColorFactor().z << material->GetBaseColorFactor().w << YAML::EndSeq;
                 out << YAML::EndMap;
                 
                 out << YAML::Key << "Metallic" << YAML::Value << YAML::BeginMap;
                 out << YAML::Key << "type" << YAML::Value << "float";
-                out << YAML::Key << "value" << YAML::Value << material->MetallicFactor();
+                out << YAML::Key << "value" << YAML::Value << material->GetMetallicFactor();
                 out << YAML::EndMap;
                 
                 out << YAML::Key << "Roughness" << YAML::Value << YAML::BeginMap;
                 out << YAML::Key << "type" << YAML::Value << "float";
-                out << YAML::Key << "value" << YAML::Value << material->RoughnessFactor();
+                out << YAML::Key << "value" << YAML::Value << material->GetRoughnessFactor();
                 out << YAML::EndMap;
                 
                 out << YAML::Key << "Emission" << YAML::Value << YAML::BeginMap;
                 out << YAML::Key << "type" << YAML::Value << "vec4";
                 out << YAML::Key << "value" << YAML::Value << YAML::Flow << YAML::BeginSeq 
-                    << material->EmissiveFactor().x << material->EmissiveFactor().y 
-                    << material->EmissiveFactor().z << material->EmissiveFactor().w << YAML::EndSeq;
+                    << material->GetEmissiveFactor().x << material->GetEmissiveFactor().y 
+                    << material->GetEmissiveFactor().z << material->GetEmissiveFactor().w << YAML::EndSeq;
                 out << YAML::EndMap;
                 
                 // Serialize dynamic float uniforms
@@ -663,7 +663,7 @@ namespace OloEngine
     // AudioFileSourceSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    void AudioFileSourceSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    void AudioFileSourceSerializer::Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const
     {
         // AudioFile assets don't require explicit serialization to file
         // as they're loaded based on metadata analysis of the source file
@@ -1177,7 +1177,7 @@ namespace OloEngine
         return scene; // Direct return - Ref<Scene> should convert to Ref<Asset>
     }
 
-    Ref<Scene> SceneAssetSerializer::DeserializeSceneFromAssetPack(FileStreamReader& stream, const AssetPackFile::SceneInfo& sceneInfo) const
+    Ref<Scene> SceneAssetSerializer::DeserializeSceneFromAssetPack([[maybe_unused]] FileStreamReader& stream, [[maybe_unused]] const AssetPackFile::SceneInfo& sceneInfo) const
     {
         // TODO: Implement scene pack deserialization
         OLO_CORE_WARN("SceneAssetSerializer::DeserializeSceneFromAssetPack not yet implemented");
@@ -1217,7 +1217,7 @@ namespace OloEngine
     // MeshColliderSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    void MeshColliderSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    void MeshColliderSerializer::Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const
     {
         // TODO: Implement mesh collider serialization
         OLO_CORE_WARN("MeshColliderSerializer::Serialize not yet implemented");
@@ -1623,7 +1623,7 @@ namespace OloEngine
     // MeshSourceSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    bool MeshSourceSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
+    bool MeshSourceSerializer::TryLoadData(const AssetMetadata& metadata, [[maybe_unused]] Ref<Asset>& asset) const
     {
         std::filesystem::path path = Project::GetAssetDirectory() / metadata.FilePath;
         
@@ -1652,14 +1652,14 @@ namespace OloEngine
         return false;
     }
 
-    bool MeshSourceSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
+    bool MeshSourceSerializer::SerializeToAssetPack([[maybe_unused]] AssetHandle handle, [[maybe_unused]] FileStreamWriter& stream, [[maybe_unused]] AssetSerializationInfo& outInfo) const
     {
         // TODO: Implement mesh source pack serialization
         OLO_CORE_WARN("MeshSourceSerializer::SerializeToAssetPack not yet implemented");
         return false;
     }
 
-    Ref<Asset> MeshSourceSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
+    Ref<Asset> MeshSourceSerializer::DeserializeFromAssetPack([[maybe_unused]] FileStreamReader& stream, [[maybe_unused]] const AssetPackFile::AssetInfo& assetInfo) const
     {
         // TODO: Implement mesh source pack deserialization
         OLO_CORE_WARN("MeshSourceSerializer::DeserializeFromAssetPack not yet implemented");
@@ -2239,7 +2239,7 @@ namespace OloEngine
                 out << YAML::Key << "Mesh" << YAML::Value << animationAsset->GetMeshHandle();
                 out << YAML::Key << "AnimationName" << YAML::Value << animationAsset->GetAnimationName();
                 out << YAML::Key << "ExtractRootMotion" << YAML::Value << animationAsset->IsExtractRootMotion();
-                out << YAML::Key << "RootBoneIndex" << YAML::Value << animationAsset->RootBoneIndex();
+                out << YAML::Key << "RootBoneIndex" << YAML::Value << animationAsset->GetRootBoneIndex();
                 out << YAML::Key << "RootTranslationMask" << YAML::Value << animationAsset->GetRootTranslationMask();
                 out << YAML::Key << "RootRotationMask" << YAML::Value << animationAsset->GetRootRotationMask();
                 out << YAML::Key << "DiscardRootMotion" << YAML::Value << animationAsset->IsDiscardRootMotion();
@@ -2426,33 +2426,33 @@ namespace OloEngine
     // AnimationGraphAssetSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    void AnimationGraphAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    void AnimationGraphAssetSerializer::Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const
     {
         // TODO: Implement animation graph serialization
         OLO_CORE_WARN("AnimationGraphAssetSerializer::Serialize not yet implemented");
     }
 
-    bool AnimationGraphAssetSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
+    bool AnimationGraphAssetSerializer::TryLoadData([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] Ref<Asset>& asset) const
     {
         // TODO: Implement animation graph loading
         OLO_CORE_WARN("AnimationGraphAssetSerializer::TryLoadData not yet implemented");
         return false;
     }
 
-    void AnimationGraphAssetSerializer::RegisterDependencies(const AssetMetadata& metadata) const
+    void AnimationGraphAssetSerializer::RegisterDependencies([[maybe_unused]] const AssetMetadata& metadata) const
     {
         // TODO: Implement dependency registration
         OLO_CORE_WARN("AnimationGraphAssetSerializer::RegisterDependencies not yet implemented");
     }
 
-    bool AnimationGraphAssetSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
+    bool AnimationGraphAssetSerializer::SerializeToAssetPack([[maybe_unused]] AssetHandle handle, [[maybe_unused]] FileStreamWriter& stream, [[maybe_unused]] AssetSerializationInfo& outInfo) const
     {
         // TODO: Implement animation graph pack serialization
         OLO_CORE_WARN("AnimationGraphAssetSerializer::SerializeToAssetPack not yet implemented");
         return false;
     }
 
-    Ref<Asset> AnimationGraphAssetSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
+    Ref<Asset> AnimationGraphAssetSerializer::DeserializeFromAssetPack([[maybe_unused]] FileStreamReader& stream, [[maybe_unused]] const AssetPackFile::AssetInfo& assetInfo) const
     {
         // TODO: Implement animation graph pack deserialization
         OLO_CORE_WARN("AnimationGraphAssetSerializer::DeserializeFromAssetPack not yet implemented");
@@ -2463,27 +2463,27 @@ namespace OloEngine
     // SoundGraphSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    void SoundGraphSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    void SoundGraphSerializer::Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const
     {
         // TODO: Implement sound graph serialization
         OLO_CORE_WARN("SoundGraphSerializer::Serialize not yet implemented");
     }
 
-    bool SoundGraphSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
+    bool SoundGraphSerializer::TryLoadData([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] Ref<Asset>& asset) const
     {
         // TODO: Implement sound graph loading
         OLO_CORE_WARN("SoundGraphSerializer::TryLoadData not yet implemented");
         return false;
     }
 
-    bool SoundGraphSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
+    bool SoundGraphSerializer::SerializeToAssetPack([[maybe_unused]] AssetHandle handle, [[maybe_unused]] FileStreamWriter& stream, [[maybe_unused]] AssetSerializationInfo& outInfo) const
     {
         // TODO: Implement sound graph pack serialization
         OLO_CORE_WARN("SoundGraphSerializer::SerializeToAssetPack not yet implemented");
         return false;
     }
 
-    Ref<Asset> SoundGraphSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
+    Ref<Asset> SoundGraphSerializer::DeserializeFromAssetPack([[maybe_unused]] FileStreamReader& stream, [[maybe_unused]] const AssetPackFile::AssetInfo& assetInfo) const
     {
         // TODO: Implement sound graph pack deserialization
         OLO_CORE_WARN("SoundGraphSerializer::DeserializeFromAssetPack not yet implemented");

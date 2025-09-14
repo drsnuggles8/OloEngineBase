@@ -204,7 +204,7 @@ namespace OloEngine
      * @tparam T Asset type being loaded
      */
     template<typename T>
-    struct AsyncAssetResult
+    struct [[nodiscard]] AsyncAssetResult
     {
         Ref<T> Ptr;
         bool IsReady = false;

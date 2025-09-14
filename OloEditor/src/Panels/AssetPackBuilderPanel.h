@@ -4,9 +4,11 @@
 #include "OloEngine/ImGui/ImGuiLayer.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
 
+#include <array>
 #include <atomic>
-#include <future>
+#include <thread>
 #include <mutex>
+#include <chrono>
 
 namespace OloEngine
 {
@@ -19,35 +21,9 @@ namespace OloEngine
     class AssetPackBuilderPanel
     {
     public:
-        AssetPackBuilderPanel() = default;
+        AssetPackBuilderPanel();
         
-        ~AssetPackBuilderPanel()
-        {
-            // Request cancellation of any ongoing build
-            m_CancelRequested.store(true);
-            
-            // Wait for the build future to complete if valid
-            if (m_BuildFuture.valid())
-            {
-                // Wait for completion with timeout to avoid indefinite blocking
-                using namespace std::chrono_literals;
-                while (m_BuildFuture.wait_for(100ms) != std::future_status::ready)
-                {
-                    // Keep requesting cancellation during wait
-                    m_CancelRequested.store(true);
-                }
-                
-                // Get the result to properly clean up the future
-                try
-                {
-                    m_BuildFuture.get();
-                }
-                catch (...)
-                {
-                    // Ignore exceptions during destruction
-                }
-            }
-        }
+        ~AssetPackBuilderPanel();
 
         // Delete copy and move operations due to std::atomic and std::future members
         AssetPackBuilderPanel(const AssetPackBuilderPanel&) = delete;
@@ -105,8 +81,7 @@ namespace OloEngine
         // Progress tracking
         std::atomic<i32> m_BuildProgressPermille{0};  // Progress in permille (0-1000, where 1000 = 100%)
         std::atomic<bool> m_IsBuildInProgress{false};
-        std::atomic<bool> m_CancelRequested{false};
-        std::future<AssetPackBuilder::BuildResult> m_BuildFuture;
+        std::jthread m_BuildThread;
         
         // Results
         mutable std::mutex m_ResultMutex;  // Protects m_LastBuildResult and m_HasBuildResult
@@ -114,7 +89,7 @@ namespace OloEngine
         std::atomic<bool> m_HasBuildResult{false};
         
         // UI state
-        char m_OutputPathBuffer[512] = "Assets/AssetPack.olopack";
+        std::array<char, 512> m_OutputPathBuffer{};
         bool m_ShowAdvancedSettings = false;
     };
 }
