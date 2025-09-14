@@ -31,6 +31,11 @@ namespace OloEngine {
 	{
 	public:
 		ThreadSignal(const std::string& name, bool manualReset = false);
+		~ThreadSignal();
+
+		// Disable copy semantics to prevent double-closing handles
+		ThreadSignal(const ThreadSignal&) = delete;
+		ThreadSignal& operator=(const ThreadSignal&) = delete;
 
 		void Wait();
 		void Signal();

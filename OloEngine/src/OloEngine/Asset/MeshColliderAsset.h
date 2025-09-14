@@ -17,28 +17,28 @@ namespace OloEngine
     class MeshColliderAsset : public Asset
     {
     public:
-        AssetHandle ColliderMesh = 0;
-        ColliderMaterial Material;
-        bool EnableVertexWelding = true;
-        f32 VertexWeldTolerance = 0.1f;
-        bool FlipNormals = false;
-        bool CheckZeroAreaTriangles = true;
-        f32 AreaTestEpsilon = 0.06f;
-        bool ShiftVerticesToOrigin = false;
-        bool AlwaysShareShape = false;
-        ECollisionComplexity CollisionComplexity = ECollisionComplexity::Default;
-        glm::vec3 ColliderScale = glm::vec3(1.0f);
+        AssetHandle m_ColliderMesh{0};
+        ColliderMaterial m_Material{};
+        bool m_EnableVertexWelding{true};
+        f32 m_VertexWeldTolerance{0.1f};
+        bool m_FlipNormals{false};
+        bool m_CheckZeroAreaTriangles{true};
+        f32 m_AreaTestEpsilon{0.06f};
+        bool m_ShiftVerticesToOrigin{false};
+        bool m_AlwaysShareShape{false};
+        ECollisionComplexity m_CollisionComplexity{ECollisionComplexity::Default};
+        glm::vec3 m_ColliderScale{1.0f};
 
         // Preview Settings (Only used in mesh collider editor)
-        glm::vec3 PreviewScale = glm::vec3(1.0f);
+        glm::vec3 m_PreviewScale{1.0f};
 
         MeshColliderAsset() = default;
-        MeshColliderAsset(AssetHandle colliderMesh, ColliderMaterial material = ColliderMaterial())
-            : ColliderMesh(colliderMesh), Material(material)
+        explicit MeshColliderAsset(AssetHandle colliderMesh) noexcept
+            : m_ColliderMesh(colliderMesh), m_Material{}
         {
         }
 
-        static AssetType GetStaticType() { return AssetType::MeshCollider; }
-        virtual AssetType GetAssetType() const override { return GetStaticType(); }
+        static constexpr AssetType GetStaticType() noexcept { return AssetType::MeshCollider; }
+        AssetType GetAssetType() const noexcept override { return GetStaticType(); }
     };
 }

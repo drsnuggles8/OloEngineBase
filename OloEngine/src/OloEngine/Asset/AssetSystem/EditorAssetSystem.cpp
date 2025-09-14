@@ -94,7 +94,8 @@ namespace OloEngine
                     m_LoadedAssetsCount.fetch_add(1, std::memory_order_relaxed);
                     
                     OLO_CORE_TRACE("EditorAssetSystem: Asset loaded | handle={} | stats={{loaded={}, failed={}}}", 
-                                   (u64)metadata.Handle, m_LoadedAssetsCount.load(std::memory_order_relaxed), m_FailedAssetsCount.load(std::memory_order_relaxed));                }
+                                   (u64)metadata.Handle, m_LoadedAssetsCount.load(std::memory_order_relaxed), m_FailedAssetsCount.load(std::memory_order_relaxed));
+                }
                 else
                 {
                     // Update telemetry for failed loads

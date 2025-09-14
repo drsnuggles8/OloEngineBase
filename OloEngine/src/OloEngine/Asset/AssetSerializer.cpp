@@ -30,16 +30,6 @@
 #include <fstream>
 #include <algorithm>
 
-namespace YAML
-{
-	YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec3& v)
-	{
-		out << YAML::Flow;
-		out << YAML::BeginSeq << v.x << v.y << v.z << YAML::EndSeq;
-		return out;
-	}
-}
-
 namespace OloEngine
 {
     //////////////////////////////////////////////////////////////////////////////////
@@ -1332,29 +1322,29 @@ namespace OloEngine
         out << YAML::BeginMap; // Asset Data
         
         // Serialize ColliderMesh asset reference
-        out << YAML::Key << "ColliderMesh" << YAML::Value << meshCollider->ColliderMesh;
+        out << YAML::Key << "ColliderMesh" << YAML::Value << meshCollider->m_ColliderMesh;
         
         // Serialize Material properties
         out << YAML::Key << "Material" << YAML::Value;
         out << YAML::BeginMap; // Material
-        out << YAML::Key << "Friction" << YAML::Value << meshCollider->Material.Friction;
-        out << YAML::Key << "Restitution" << YAML::Value << meshCollider->Material.Restitution;
+        out << YAML::Key << "Friction" << YAML::Value << meshCollider->m_Material.Friction;
+        out << YAML::Key << "Restitution" << YAML::Value << meshCollider->m_Material.Restitution;
         out << YAML::EndMap; // Material
         
         // Serialize other properties
-        out << YAML::Key << "EnableVertexWelding" << YAML::Value << meshCollider->EnableVertexWelding;
-        out << YAML::Key << "VertexWeldTolerance" << YAML::Value << meshCollider->VertexWeldTolerance;
-        out << YAML::Key << "FlipNormals" << YAML::Value << meshCollider->FlipNormals;
-        out << YAML::Key << "CheckZeroAreaTriangles" << YAML::Value << meshCollider->CheckZeroAreaTriangles;
-        out << YAML::Key << "AreaTestEpsilon" << YAML::Value << meshCollider->AreaTestEpsilon;
-        out << YAML::Key << "ShiftVerticesToOrigin" << YAML::Value << meshCollider->ShiftVerticesToOrigin;
-        out << YAML::Key << "AlwaysShareShape" << YAML::Value << meshCollider->AlwaysShareShape;
+        out << YAML::Key << "EnableVertexWelding" << YAML::Value << meshCollider->m_EnableVertexWelding;
+        out << YAML::Key << "VertexWeldTolerance" << YAML::Value << meshCollider->m_VertexWeldTolerance;
+        out << YAML::Key << "FlipNormals" << YAML::Value << meshCollider->m_FlipNormals;
+        out << YAML::Key << "CheckZeroAreaTriangles" << YAML::Value << meshCollider->m_CheckZeroAreaTriangles;
+        out << YAML::Key << "AreaTestEpsilon" << YAML::Value << meshCollider->m_AreaTestEpsilon;
+        out << YAML::Key << "ShiftVerticesToOrigin" << YAML::Value << meshCollider->m_ShiftVerticesToOrigin;
+        out << YAML::Key << "AlwaysShareShape" << YAML::Value << meshCollider->m_AlwaysShareShape;
         
         // Serialize collision complexity
-        out << YAML::Key << "CollisionComplexity" << YAML::Value << (int)meshCollider->CollisionComplexity;
+        out << YAML::Key << "CollisionComplexity" << YAML::Value << (int)meshCollider->m_CollisionComplexity;
         
         // Serialize scale
-        out << YAML::Key << "ColliderScale" << YAML::Value << meshCollider->ColliderScale;
+        out << YAML::Key << "ColliderScale" << YAML::Value << meshCollider->m_ColliderScale;
         
         out << YAML::EndMap; // Asset Data
         out << YAML::EndMap; // MeshCollider
@@ -1377,7 +1367,7 @@ namespace OloEngine
             
             // Deserialize ColliderMesh asset reference
             if (meshColliderNode["ColliderMesh"])
-                targetMeshCollider->ColliderMesh = meshColliderNode["ColliderMesh"].as<AssetHandle>();
+                targetMeshCollider->m_ColliderMesh = meshColliderNode["ColliderMesh"].as<AssetHandle>();
             
             // Deserialize Material properties
             if (meshColliderNode["Material"])
@@ -1386,32 +1376,32 @@ namespace OloEngine
                 ColliderMaterial material;
                 material.Friction = materialNode["Friction"].as<float>(0.5f);
                 material.Restitution = materialNode["Restitution"].as<float>(0.15f);
-                targetMeshCollider->Material = material;
+                targetMeshCollider->m_Material = material;
             }
             
             // Deserialize other properties
             if (meshColliderNode["EnableVertexWelding"])
-                targetMeshCollider->EnableVertexWelding = meshColliderNode["EnableVertexWelding"].as<bool>();
+                targetMeshCollider->m_EnableVertexWelding = meshColliderNode["EnableVertexWelding"].as<bool>();
             if (meshColliderNode["VertexWeldTolerance"])
-                targetMeshCollider->VertexWeldTolerance = meshColliderNode["VertexWeldTolerance"].as<float>();
+                targetMeshCollider->m_VertexWeldTolerance = meshColliderNode["VertexWeldTolerance"].as<float>();
             if (meshColliderNode["FlipNormals"])
-                targetMeshCollider->FlipNormals = meshColliderNode["FlipNormals"].as<bool>();
+                targetMeshCollider->m_FlipNormals = meshColliderNode["FlipNormals"].as<bool>();
             if (meshColliderNode["CheckZeroAreaTriangles"])
-                targetMeshCollider->CheckZeroAreaTriangles = meshColliderNode["CheckZeroAreaTriangles"].as<bool>();
+                targetMeshCollider->m_CheckZeroAreaTriangles = meshColliderNode["CheckZeroAreaTriangles"].as<bool>();
             if (meshColliderNode["AreaTestEpsilon"])
-                targetMeshCollider->AreaTestEpsilon = meshColliderNode["AreaTestEpsilon"].as<float>();
+                targetMeshCollider->m_AreaTestEpsilon = meshColliderNode["AreaTestEpsilon"].as<float>();
             if (meshColliderNode["ShiftVerticesToOrigin"])
-                targetMeshCollider->ShiftVerticesToOrigin = meshColliderNode["ShiftVerticesToOrigin"].as<bool>();
+                targetMeshCollider->m_ShiftVerticesToOrigin = meshColliderNode["ShiftVerticesToOrigin"].as<bool>();
             if (meshColliderNode["AlwaysShareShape"])
-                targetMeshCollider->AlwaysShareShape = meshColliderNode["AlwaysShareShape"].as<bool>();
+                targetMeshCollider->m_AlwaysShareShape = meshColliderNode["AlwaysShareShape"].as<bool>();
             
             // Deserialize collision complexity
             if (meshColliderNode["CollisionComplexity"])
-                targetMeshCollider->CollisionComplexity = (ECollisionComplexity)meshColliderNode["CollisionComplexity"].as<int>();
+                targetMeshCollider->m_CollisionComplexity = (ECollisionComplexity)meshColliderNode["CollisionComplexity"].as<int>();
             
             // Deserialize scale
             if (meshColliderNode["ColliderScale"])
-                targetMeshCollider->ColliderScale = meshColliderNode["ColliderScale"].as<glm::vec3>();
+                targetMeshCollider->m_ColliderScale = meshColliderNode["ColliderScale"].as<glm::vec3>();
             
             return true;
         }

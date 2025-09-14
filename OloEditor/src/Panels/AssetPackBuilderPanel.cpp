@@ -34,7 +34,7 @@ namespace OloEngine
     void AssetPackBuilderPanel::SyncUIFromSettings()
     {
         // Synchronize output path buffer from settings
-        std::string pathStr = m_BuildSettings.OutputPath.string();
+        std::string pathStr = m_BuildSettings.m_OutputPath.string();
         
         // Safely copy to buffer with bounds checking
         sizet copyLength = std::min(pathStr.length(), m_OutputPathBuffer.size() - 1);
@@ -63,13 +63,13 @@ namespace OloEngine
                 m_HasBuildResult.store(true);
                 m_BuildProgressPermille.store(1000);  // 100% in permille
                 
-                if (m_LastBuildResult.Success)
+                if (m_LastBuildResult.m_Success)
                 {
-                    OLO_CORE_INFO("Asset pack build completed successfully: {}", m_LastBuildResult.OutputPath.string());
+                    OLO_CORE_INFO("Asset pack build completed successfully: {}", m_LastBuildResult.m_OutputPath.string());
                 }
                 else
                 {
-                    OLO_CORE_ERROR("Asset pack build failed: {}", m_LastBuildResult.ErrorMessage);
+                    OLO_CORE_ERROR("Asset pack build failed: {}", m_LastBuildResult.m_ErrorMessage);
                 }
             }
 
@@ -104,7 +104,7 @@ namespace OloEngine
             ImGui::SameLine();
             if (ImGui::InputText("##OutputPath", m_OutputPathBuffer.data(), m_OutputPathBuffer.size()))
             {
-                m_BuildSettings.OutputPath = std::filesystem::path(m_OutputPathBuffer.data());
+                m_BuildSettings.m_OutputPath = std::filesystem::path(m_OutputPathBuffer.data());
             }
             ImGui::SameLine();
             if (ImGui::Button("Browse"))
@@ -120,9 +120,9 @@ namespace OloEngine
             }
 
             // Basic settings
-            ImGui::Checkbox("Compress Assets", &m_BuildSettings.CompressAssets);
-            ImGui::Checkbox("Include Script Module", &m_BuildSettings.IncludeScriptModule);
-            ImGui::Checkbox("Validate Assets", &m_BuildSettings.ValidateAssets);
+            ImGui::Checkbox("Compress Assets", &m_BuildSettings.m_CompressAssets);
+            ImGui::Checkbox("Include Script Module", &m_BuildSettings.m_IncludeScriptModule);
+            ImGui::Checkbox("Validate Assets", &m_BuildSettings.m_ValidateAssets);
 
             // Advanced settings toggle
             if (ImGui::Button(m_ShowAdvancedSettings ? "Hide Advanced Settings" : "Show Advanced Settings"))
@@ -221,19 +221,19 @@ namespace OloEngine
         {
             ImGui::Indent();
 
-            if (m_LastBuildResult.Success)
+            if (m_LastBuildResult.m_Success)
             {
                 ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "✓ Build Successful");
                 
-                ImGui::Text("Output File: %s", m_LastBuildResult.OutputPath.string().c_str());
-                ImGui::Text("Assets Packed: %zu", m_LastBuildResult.AssetCount);
-                ImGui::Text("Scenes Packed: %zu", m_LastBuildResult.SceneCount);
+                ImGui::Text("Output File: %s", m_LastBuildResult.m_OutputPath.string().c_str());
+                ImGui::Text("Assets Packed: %zu", m_LastBuildResult.m_AssetCount);
+                ImGui::Text("Scenes Packed: %zu", m_LastBuildResult.m_SceneCount);
 
                 // Show file size if file exists
                 std::error_code ec;
-                if (std::filesystem::exists(m_LastBuildResult.OutputPath, ec) && !ec)
+                if (std::filesystem::exists(m_LastBuildResult.m_OutputPath, ec) && !ec)
                 {
-                    auto fileSize = std::filesystem::file_size(m_LastBuildResult.OutputPath, ec);
+                    auto fileSize = std::filesystem::file_size(m_LastBuildResult.m_OutputPath, ec);
                     if (!ec)
                     {
                         float fileSizeMB = static_cast<float>(fileSize) / (1024.0f * 1024.0f);
@@ -245,13 +245,13 @@ namespace OloEngine
                 // TODO: Add platform-specific directory opening functionality
                 if (ImGui::Button("Copy Output Path"))
                 {
-                    ImGui::SetClipboardText(m_LastBuildResult.OutputPath.string().c_str());
+                    ImGui::SetClipboardText(m_LastBuildResult.m_OutputPath.string().c_str());
                 }
             }
             else
             {
                 ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), "✗ Build Failed");
-                ImGui::TextWrapped("Error: %s", m_LastBuildResult.ErrorMessage.c_str());
+                ImGui::TextWrapped("Error: %s", m_LastBuildResult.m_ErrorMessage.c_str());
             }
 
             ImGui::Spacing();
@@ -274,7 +274,7 @@ namespace OloEngine
         }
 
         // Update settings from UI
-        m_BuildSettings.OutputPath = std::filesystem::path(m_OutputPathBuffer.data());
+        m_BuildSettings.m_OutputPath = std::filesystem::path(m_OutputPathBuffer.data());
 
         // Reset progress and results
         m_BuildProgressPermille.store(0);
@@ -312,7 +312,7 @@ namespace OloEngine
             auto result = AssetPackBuilder::BuildFromActiveProject(m_BuildSettings, floatProgress, &cancelRequested);
             
             // Final progress update
-            if (result.Success && !cancelRequested.load()) {
+            if (result.m_Success && !cancelRequested.load()) {
                 m_BuildProgressPermille.store(1000); // 100%
             }
             
@@ -321,7 +321,7 @@ namespace OloEngine
             m_IsBuildInProgress.store(false);
         });
 
-        OLO_CORE_INFO("Started asset pack build to: {}", m_BuildSettings.OutputPath.string());
+        OLO_CORE_INFO("Started asset pack build to: {}", m_BuildSettings.m_OutputPath.string());
     }
 
     void AssetPackBuilderPanel::CancelBuild()

@@ -4,23 +4,33 @@
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <Windows.h>
 
-namespace
-{
+namespace OloEngine {
+namespace Detail {
+
 	// Helper function to convert UTF-8 string to wide string
 	std::wstring Utf8ToWide(const std::string& utf8Str)
 	{
 		if (utf8Str.empty())
 			return std::wstring();
 
-		int wideSize = MultiByteToWideChar(CP_UTF8, 0, utf8Str.c_str(), -1, nullptr, 0);
+		int wideSize = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8Str.c_str(), -1, nullptr, 0);
 		if (wideSize <= 0)
 			return std::wstring();
 
-		std::wstring wideStr(wideSize - 1, 0); // -1 to exclude null terminator
-		MultiByteToWideChar(CP_UTF8, 0, utf8Str.c_str(), -1, &wideStr[0], wideSize);
+		std::wstring wideStr(wideSize, 0); // Allocate space for null terminator
+		int result = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8Str.c_str(), -1, &wideStr[0], wideSize);
+		if (result <= 0)
+			return std::wstring();
+
+		// Remove the null terminator that MultiByteToWideChar adds
+		if (!wideStr.empty() && wideStr.back() == L'\0')
+			wideStr.pop_back();
+
 		return wideStr;
 	}
-}
+
+} // namespace Detail
+} // namespace OloEngine
 
 namespace OloEngine {
 
@@ -33,7 +43,7 @@ namespace OloEngine {
 	{
 		HANDLE threadHandle = m_Thread.native_handle();
 
-		std::wstring wName(name.begin(), name.end());
+		std::wstring wName = Detail::Utf8ToWide(name);
 		SetThreadDescription(threadHandle, wName.c_str());
 		SetThreadAffinityMask(threadHandle, 8);
 	}
@@ -46,8 +56,15 @@ namespace OloEngine {
 
 	ThreadSignal::ThreadSignal(const std::string& name, bool manualReset)
 	{
-		std::wstring wideName = Utf8ToWide(name);
-		m_SignalHandle = CreateEventW(NULL, (BOOL)manualReset, FALSE, wideName.c_str());
+		if (name.empty())
+		{
+			m_SignalHandle = CreateEventW(NULL, static_cast<BOOL>(manualReset), FALSE, nullptr);
+		}
+		else
+		{
+			std::wstring wideName = OloEngine::Detail::Utf8ToWide(name);
+			m_SignalHandle = CreateEventW(NULL, static_cast<BOOL>(manualReset), FALSE, wideName.c_str());
+		}
 		
 		if (m_SignalHandle == NULL)
 		{
@@ -57,19 +74,46 @@ namespace OloEngine {
 		}
 	}
 
+	ThreadSignal::~ThreadSignal()
+	{
+		if (m_SignalHandle != NULL)
+		{
+			CloseHandle(m_SignalHandle);
+			m_SignalHandle = NULL;
+		}
+	}
+
 	void ThreadSignal::Wait()
 	{
-		WaitForSingleObject(m_SignalHandle, INFINITE);
+		DWORD result = WaitForSingleObject(m_SignalHandle, INFINITE);
+		if (result != WAIT_OBJECT_0)
+		{
+			DWORD lastError = GetLastError();
+			OLO_CORE_ERROR("ThreadSignal::Wait failed: WaitForSingleObject returned {}, GetLastError() = {}", result, lastError);
+			OLO_CORE_ASSERT(false, "ThreadSignal Wait failed");
+		}
 	}
 
 	void ThreadSignal::Signal()
 	{
-		SetEvent(m_SignalHandle);
+		BOOL result = SetEvent(m_SignalHandle);
+		if (!result)
+		{
+			DWORD lastError = GetLastError();
+			OLO_CORE_ERROR("ThreadSignal::Signal failed: SetEvent returned FALSE, GetLastError() = {}", lastError);
+			OLO_CORE_ASSERT(false, "ThreadSignal Signal failed");
+		}
 	}
 
 	void ThreadSignal::Reset()
 	{
-		ResetEvent(m_SignalHandle);
+		BOOL result = ResetEvent(m_SignalHandle);
+		if (!result)
+		{
+			DWORD lastError = GetLastError();
+			OLO_CORE_ERROR("ThreadSignal::Reset failed: ResetEvent returned FALSE, GetLastError() = {}", lastError);
+			OLO_CORE_ASSERT(false, "ThreadSignal Reset failed");
+		}
 	}
 
 	std::thread::id Thread::GetID() const

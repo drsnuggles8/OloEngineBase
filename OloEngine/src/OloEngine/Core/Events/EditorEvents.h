@@ -1,12 +1,11 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Core/Base.h"
 #include "OloEngine/Events/Event.h"
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Asset/AssetTypes.h"
 #include <string>
-#include <sstream>
+#include <format>
 #include <chrono>
 #include <filesystem>
 
@@ -88,9 +87,10 @@ namespace OloEngine
 
         std::string ToString() const override
         {
-            std::stringstream ss;
-            ss << "AssetReloadedEvent: handle=" << (u64)m_Handle << ", type=" << (int)m_Type << ", path=" << m_Path.string();
-            return ss.str();
+            return std::format("AssetReloadedEvent: handle={}, type={}, path={}", 
+                static_cast<u64>(m_Handle), 
+                static_cast<int>(m_Type), 
+                m_Path.string());
         }
 
     private:

@@ -31,18 +31,30 @@ namespace OloEngine
      */
     struct Submesh
     {
+        // Large fixed-size members first (64 bytes each)
+        glm::mat4 m_Transform{ 1.0f }; // World transform
+        glm::mat4 m_LocalTransform{ 1.0f };
+        BoundingBox m_BoundingBox;
+        
+        // Group all u32 fields together (4 bytes each)
         u32 m_BaseVertex = 0;
         u32 m_BaseIndex = 0;
         u32 m_MaterialIndex = 0;
         u32 m_IndexCount = 0;
         u32 m_VertexCount = 0;
         
-        glm::mat4 m_Transform{ 1.0f }; // World transform
-        glm::mat4 m_LocalTransform{ 1.0f };
-        BoundingBox m_BoundingBox;
-        
+        // Variable-sized members and bool at the end
         std::string m_NodeName, m_MeshName;
         bool m_IsRigged = false;
+        
+        // Static assertions to verify expected size optimization
+        static_assert(sizeof(glm::mat4) == 64, "Expected glm::mat4 to be 64 bytes");
+        static_assert(sizeof(glm::vec3) == 12, "Expected glm::vec3 to be 12 bytes");
+        static_assert(alignof(glm::mat4) == 4, "Expected glm::mat4 alignment of 4 bytes");
+        static_assert(alignof(BoundingBox) <= 4, "Expected BoundingBox alignment <= 4 bytes");
+        // BoundingBox contains 2 glm::vec3, so should be 24 bytes
+        // Total fixed-size data: 64 + 64 + 24 + 20 = 172 bytes (before alignment)
+        // With proper member ordering, padding should be minimal
     };
 
     /**

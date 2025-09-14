@@ -1099,10 +1099,10 @@ namespace OloEngine
 
 		// Configure build settings
 		AssetPackBuilder::BuildSettings settings;
-		settings.OutputPath = "Assets/AssetPack.olopack";
-		settings.CompressAssets = true;
-		settings.IncludeScriptModule = true;
-		settings.ValidateAssets = true;
+		settings.m_OutputPath = "Assets/AssetPack.olopack";
+		settings.m_CompressAssets = true;
+		settings.m_IncludeScriptModule = true;
+		settings.m_ValidateAssets = true;
 
 		// Reset progress and flags
 		m_BuildProgress.store(0.0f);
@@ -1118,12 +1118,12 @@ namespace OloEngine
 				// Mark build as complete
 				m_BuildInProgress.store(false);
 				
-				if (result.Success && !m_BuildCancelRequested.load())
+				if (result.m_Success && !m_BuildCancelRequested.load())
 				{
 					OLO_CORE_INFO("Asset Pack built successfully!");
-					OLO_CORE_INFO("  Output: {}", result.OutputPath.string());
-					OLO_CORE_INFO("  Assets: {}", result.AssetCount);
-					OLO_CORE_INFO("  Scenes: {}", result.SceneCount);
+					OLO_CORE_INFO("  Output: {}", result.m_OutputPath.string());
+					OLO_CORE_INFO("  Assets: {}", result.m_AssetCount);
+					OLO_CORE_INFO("  Scenes: {}", result.m_SceneCount);
 				}
 				else if (m_BuildCancelRequested.load())
 				{
@@ -1131,7 +1131,7 @@ namespace OloEngine
 				}
 				else
 				{
-					OLO_CORE_ERROR("Asset Pack build failed: {}", result.ErrorMessage);
+					OLO_CORE_ERROR("Asset Pack build failed: {}", result.m_ErrorMessage);
 				}
 				
 				return result;
@@ -1141,8 +1141,8 @@ namespace OloEngine
 				m_BuildInProgress.store(false);
 				OLO_CORE_ERROR("Asset Pack build exception: {}", ex.what());
 				AssetPackBuilder::BuildResult errorResult;
-				errorResult.Success = false;
-				errorResult.ErrorMessage = ex.what();
+				errorResult.m_Success = false;
+				errorResult.m_ErrorMessage = ex.what();
 				return errorResult;
 			}
 		});

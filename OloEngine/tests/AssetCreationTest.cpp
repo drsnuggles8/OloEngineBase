@@ -21,21 +21,21 @@ TEST_F(AssetCreationTest, MeshColliderAsset_Creation)
     EXPECT_NE(meshCollider, nullptr) << "MeshColliderAsset should be created successfully";
 
     // Test property assignment
-    meshCollider->ColliderMesh = 12345;
-    meshCollider->Material.Friction = 0.7f;
-    meshCollider->Material.Restitution = 0.3f;
-    meshCollider->EnableVertexWelding = true;
-    meshCollider->VertexWeldTolerance = 0.05f;
-    meshCollider->CollisionComplexity = ECollisionComplexity::UseComplexAsSimple;
-    meshCollider->ColliderScale = glm::vec3(2.0f, 1.5f, 3.0f);
+    meshCollider->m_ColliderMesh = 12345;
+    meshCollider->m_Material.Friction = 0.7f;
+    meshCollider->m_Material.Restitution = 0.3f;
+    meshCollider->m_EnableVertexWelding = true;
+    meshCollider->m_VertexWeldTolerance = 0.05f;
+    meshCollider->m_CollisionComplexity = ECollisionComplexity::UseComplexAsSimple;
+    meshCollider->m_ColliderScale = glm::vec3(2.0f, 1.5f, 3.0f);
 
     // Verify properties
-    EXPECT_EQ(meshCollider->ColliderMesh, 12345) << "ColliderMesh should be set correctly";
-    EXPECT_FLOAT_EQ(meshCollider->Material.Friction, 0.7f) << "Material friction should be set correctly";
-    EXPECT_FLOAT_EQ(meshCollider->Material.Restitution, 0.3f) << "Material restitution should be set correctly";
-    EXPECT_TRUE(meshCollider->EnableVertexWelding) << "Vertex welding should be enabled";
-    EXPECT_EQ(meshCollider->CollisionComplexity, ECollisionComplexity::UseComplexAsSimple) << "Collision complexity should be set correctly";
-    EXPECT_EQ(meshCollider->ColliderScale.x, 2.0f) << "Collider scale X should be set correctly";
+    EXPECT_EQ(meshCollider->m_ColliderMesh, 12345) << "ColliderMesh should be set correctly";
+    EXPECT_FLOAT_EQ(meshCollider->m_Material.Friction, 0.7f) << "Material friction should be set correctly";
+    EXPECT_FLOAT_EQ(meshCollider->m_Material.Restitution, 0.3f) << "Material restitution should be set correctly";
+    EXPECT_TRUE(meshCollider->m_EnableVertexWelding) << "Vertex welding should be enabled";
+    EXPECT_EQ(meshCollider->m_CollisionComplexity, ECollisionComplexity::UseComplexAsSimple) << "Collision complexity should be set correctly";
+    EXPECT_EQ(meshCollider->m_ColliderScale.x, 2.0f) << "Collider scale X should be set correctly";
 }
 
 /**

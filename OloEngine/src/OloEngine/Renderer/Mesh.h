@@ -55,8 +55,8 @@ namespace OloEngine
         u32 GetIndexCount() const;
 
         // Asset interface
-        static AssetType GetStaticType() { return AssetType::Mesh; }
-        AssetType GetAssetType() const override { return GetStaticType(); }
+        static constexpr AssetType GetStaticType() noexcept { return AssetType::Mesh; }
+        AssetType GetAssetType() const noexcept override { return GetStaticType(); }
 
     private:
         Ref<MeshSource> m_MeshSource;
@@ -89,14 +89,14 @@ namespace OloEngine
         void SetMeshAsset(AssetHandle meshSource) { m_MeshSource = meshSource; }
 
         // Materials
-        Ref<MaterialTable> GetMaterials() const { return m_Materials; }
+        const Ref<MaterialTable>& GetMaterials() const { return m_Materials; }
 
         // Collider generation
         bool ShouldGenerateColliders() const { return m_GenerateColliders; }
 
         // Asset interface
-        static AssetType GetStaticType() { return AssetType::StaticMesh; }
-        virtual AssetType GetAssetType() const override { return GetStaticType(); }
+        static constexpr AssetType GetStaticType() noexcept { return AssetType::StaticMesh; }
+        virtual AssetType GetAssetType() const noexcept override { return GetStaticType(); }
 
     private:
         void SetupStaticMesh();

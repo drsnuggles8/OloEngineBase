@@ -35,7 +35,8 @@ namespace OloEngine
     public:
         PlaceholderAsset(AssetType type) : m_PlaceholderType(type) 
         {
-            // Placeholder assets use handle 0 (invalid) - no need to set m_Handle
+            // Placeholder assets explicitly use handle 0 (invalid)
+            SetHandle(0);
         }
         virtual ~PlaceholderAsset() = default;
 
@@ -53,7 +54,6 @@ namespace OloEngine
     {
     public:
         PlaceholderTexture();
-        virtual ~PlaceholderTexture() = default;
 
         Ref<Texture2D> GetTexture() const { return m_Texture; }
 
@@ -149,7 +149,7 @@ namespace OloEngine
         /**
          * @brief Get statistics about placeholder usage
          */
-        static size_t GetPlaceholderCount() { return s_PlaceholderAssets.size(); }
+        static sizet GetPlaceholderCount() { return s_PlaceholderAssets.size(); }
 
     private:
         static std::unordered_map<AssetType, Ref<Asset>> s_PlaceholderAssets;

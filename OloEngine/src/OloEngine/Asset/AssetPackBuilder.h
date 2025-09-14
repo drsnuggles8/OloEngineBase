@@ -26,11 +26,11 @@ namespace OloEngine
          */
         struct [[nodiscard]] BuildResult
         {
-            bool Success = false;
-            std::string ErrorMessage;
-            sizet AssetCount = 0;
-            sizet SceneCount = 0;
-            std::filesystem::path OutputPath;
+            bool m_Success = false;
+            std::string m_ErrorMessage;
+            sizet m_AssetCount = 0;
+            sizet m_SceneCount = 0;
+            std::filesystem::path m_OutputPath;
         };
 
         /**
@@ -38,10 +38,10 @@ namespace OloEngine
          */
         struct BuildSettings
         {
-            std::filesystem::path OutputPath = "Assets/AssetPack.olopack";
-            bool CompressAssets = true;
-            bool IncludeScriptModule = true;
-            bool ValidateAssets = true;
+            std::filesystem::path m_OutputPath = "Assets/AssetPack.olopack";
+            bool m_CompressAssets = true;
+            bool m_IncludeScriptModule = true;
+            bool m_ValidateAssets = true;
         };
 
     public:
@@ -55,7 +55,7 @@ namespace OloEngine
          * @param cancelToken Optional cancellation token for cooperative cancellation
          * @return Build result with success/failure info
          */
-        static BuildResult BuildFromActiveProject(const BuildSettings& settings, std::atomic<float>& progress, std::atomic<bool>* cancelToken = nullptr);
+        static BuildResult BuildFromActiveProject(const BuildSettings& settings, std::atomic<f32>& progress, const std::atomic<bool>* cancelToken = nullptr);
 
         /**
          * @brief Create asset pack from specific asset registry
@@ -65,7 +65,7 @@ namespace OloEngine
          * @param cancelToken Optional cancellation token for cooperative cancellation
          * @return Build result with success/failure info
          */
-        static BuildResult BuildFromRegistry(const AssetRegistry& assetRegistry, const BuildSettings& settings, std::atomic<float>& progress, std::atomic<bool>* cancelToken = nullptr);
+        static BuildResult BuildFromRegistry(const AssetRegistry& assetRegistry, const BuildSettings& settings, std::atomic<f32>& progress, const std::atomic<bool>* cancelToken = nullptr);
 
     private:
         /**
@@ -76,7 +76,7 @@ namespace OloEngine
          * @param cancelToken Optional cancellation token for cooperative cancellation
          * @return Build result
          */
-        static BuildResult BuildImpl(Ref<AssetManagerBase> assetManager, const BuildSettings& settings, std::atomic<float>& progress, std::atomic<bool>* cancelToken = nullptr);
+        static BuildResult BuildImpl(Ref<AssetManagerBase> assetManager, const BuildSettings& settings, std::atomic<f32>& progress, const std::atomic<bool>* cancelToken = nullptr);
 
         /**
          * @brief Serialize all assets from asset manager to pack
@@ -86,7 +86,7 @@ namespace OloEngine
          * @param cancelToken Optional cancellation token for cooperative cancellation
          * @return Success status
          */
-        static bool SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, std::atomic<float>& progress, std::atomic<bool>* cancelToken = nullptr);
+        static bool SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, std::atomic<f32>& progress, const std::atomic<bool>* cancelToken = nullptr);
 
         /**
          * @brief Validate that all assets can be serialized

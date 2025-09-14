@@ -20,7 +20,7 @@
 
 namespace OloEngine
 {
-    AssetPackBuilder::BuildResult AssetPackBuilder::BuildFromActiveProject(const BuildSettings& settings, std::atomic<float>& progress, std::atomic<bool>* cancelToken)
+    AssetPackBuilder::BuildResult AssetPackBuilder::BuildFromActiveProject(const BuildSettings& settings, std::atomic<f32>& progress, const std::atomic<bool>* cancelToken)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -42,14 +42,14 @@ namespace OloEngine
         return BuildImpl(assetManager, settings, progress, cancelToken);
     }
 
-    AssetPackBuilder::BuildResult AssetPackBuilder::BuildFromRegistry(const AssetRegistry& assetRegistry, const BuildSettings& settings, std::atomic<float>& progress, std::atomic<bool>* cancelToken)
+    AssetPackBuilder::BuildResult AssetPackBuilder::BuildFromRegistry(const AssetRegistry& assetRegistry, const BuildSettings& settings, std::atomic<f32>& progress, const std::atomic<bool>* cancelToken)
     {
         OLO_PROFILE_FUNCTION();
 
         OLO_CORE_INFO("AssetPackBuilder: Starting asset pack build from provided registry");
 
         BuildResult result;
-        result.OutputPath = settings.OutputPath;
+        result.m_OutputPath = settings.m_OutputPath;
 
         try
         {
@@ -134,14 +134,14 @@ namespace OloEngine
 
             // Use the existing BuildImpl with the temporary asset manager
             // The progress will start from 0.3 (30% for loading) and go to 1.0
-            std::atomic<float> buildProgress = 0.3f;
-            auto buildProgressCallback = [&progress, &buildProgress](float p) {
+            std::atomic<f32> buildProgress = 0.3f;
+            auto buildProgressCallback = [&progress, &buildProgress](f32 p) {
                 buildProgress = 0.3f + (p * 0.7f); // Scale remaining 70% progress
                 progress = buildProgress.load();
             };
 
             // Create a wrapper to update our main progress from BuildImpl's progress
-            std::atomic<float> internalProgress = 0.0f;
+            std::atomic<f32> internalProgress = 0.0f;
             std::atomic<bool> progressUpdateActive = true;
             
             // Start a simple progress forwarding
@@ -167,7 +167,7 @@ namespace OloEngine
             tempAssetManager->Shutdown();
 
             // Update final progress
-            progress = result.Success ? 1.0f : internalProgress.load();
+            progress = result.m_Success ? 1.0f : internalProgress.load();
 
             return result;
         }
@@ -183,14 +183,14 @@ namespace OloEngine
         }
     }
 
-    AssetPackBuilder::BuildResult AssetPackBuilder::BuildImpl(Ref<AssetManagerBase> assetManager, const BuildSettings& settings, std::atomic<float>& progress, std::atomic<bool>* cancelToken)
+    AssetPackBuilder::BuildResult AssetPackBuilder::BuildImpl(Ref<AssetManagerBase> assetManager, const BuildSettings& settings, std::atomic<f32>& progress, const std::atomic<bool>* cancelToken)
     {
         OLO_PROFILE_FUNCTION();
 
         progress = 0.0f;
 
         BuildResult result;
-        result.OutputPath = settings.OutputPath;
+        result.m_OutputPath = settings.m_OutputPath;
 
         try
         {
@@ -202,12 +202,12 @@ namespace OloEngine
             }
 
             // Validate assets if requested
-            if (settings.ValidateAssets)
+            if (settings.m_ValidateAssets)
             {
                 OLO_CORE_INFO("AssetPackBuilder: Validating assets...");
                 if (!ValidateAssets(assetManager))
                 {
-                    result.ErrorMessage = "Asset validation failed";
+                    result.m_ErrorMessage = "Asset validation failed";
                     return result;
                 }
                 progress = 0.1f;
@@ -221,7 +221,7 @@ namespace OloEngine
             }
 
             // Create output directory if it doesn't exist
-            std::filesystem::create_directories(settings.OutputPath.parent_path());
+            std::filesystem::create_directories(settings.m_OutputPath.parent_path());
 
             // Initialize asset pack file structure
             AssetPackFile assetPackFile;
@@ -230,7 +230,7 @@ namespace OloEngine
             OLO_CORE_INFO("AssetPackBuilder: Serializing assets...");
             if (!SerializeAllAssets(assetManager, assetPackFile, progress, cancelToken))
             {
-                result.ErrorMessage = "Failed to serialize assets or build was cancelled";
+                result.m_ErrorMessage = "Failed to serialize assets or build was cancelled";
                 return result;
             }
 
@@ -245,7 +245,7 @@ namespace OloEngine
 
             // Get script module binary if requested
             Buffer scriptModuleBinary;
-            if (settings.IncludeScriptModule)
+            if (settings.m_IncludeScriptModule)
             {
                 scriptModuleBinary = GetScriptModuleBinary();
                 OLO_CORE_INFO("AssetPackBuilder: Script module binary size: {} bytes", scriptModuleBinary.Size);
@@ -254,12 +254,12 @@ namespace OloEngine
             progress = 0.9f;
 
             // Serialize the pack to file
-            OLO_CORE_INFO("AssetPackBuilder: Writing asset pack to: {}", settings.OutputPath.string());
+            OLO_CORE_INFO("AssetPackBuilder: Writing asset pack to: {}", settings.m_OutputPath.string());
             
-            FileStreamWriter writer(settings.OutputPath);
+            FileStreamWriter writer(settings.m_OutputPath);
             if (!writer.IsStreamGood())
             {
-                result.ErrorMessage = "Failed to create output file: " + settings.OutputPath.string();
+                result.m_ErrorMessage = "Failed to create output file: " + settings.m_OutputPath.string();
                 return result;
             }
 
@@ -362,31 +362,31 @@ namespace OloEngine
 
             if (!writer.IsStreamGood())
             {
-                result.ErrorMessage = "Failed to write asset pack file";
+                result.m_ErrorMessage = "Failed to write asset pack file";
                 return result;
             }
 
             progress = 1.0f;
 
             // Success!
-            result.Success = true;
-            result.AssetCount = assetPackFile.Index.AssetCount;
-            result.SceneCount = assetPackFile.Index.SceneCount;
+            result.m_Success = true;
+            result.m_AssetCount = assetPackFile.Index.AssetCount;
+            result.m_SceneCount = assetPackFile.Index.SceneCount;
 
             OLO_CORE_INFO("AssetPackBuilder: Successfully built asset pack with {} assets, {} scenes", 
-                         result.AssetCount, result.SceneCount);
+                         result.m_AssetCount, result.m_SceneCount);
 
             return result;
         }
         catch (const std::exception& e)
         {
-            result.ErrorMessage = "Exception during build: " + std::string(e.what());
+            result.m_ErrorMessage = "Exception during build: " + std::string(e.what());
             OLO_CORE_ERROR("AssetPackBuilder: Exception during build: {}", e.what());
             return result;
         }
     }
 
-    bool AssetPackBuilder::SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, std::atomic<float>& progress, std::atomic<bool>* cancelToken)
+    bool AssetPackBuilder::SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, std::atomic<f32>& progress, const std::atomic<bool>* cancelToken)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -396,8 +396,8 @@ namespace OloEngine
         assetPackFile.Index.AssetCount = static_cast<u32>(loadedAssets.size());
         assetPackFile.Index.SceneCount = 0; // Will be calculated as we process
 
-        float assetProgress = 0.1f; // Start from validation progress
-        float progressPerAsset = 0.7f / static_cast<float>(loadedAssets.size()); // Reserve 0.7 for asset processing
+        f32 assetProgress = 0.1f; // Start from validation progress
+        f32 progressPerAsset = 0.7f / static_cast<f32>(loadedAssets.size()); // Reserve 0.7 for asset processing
 
         std::unordered_set<AssetHandle> processedAssets;
 

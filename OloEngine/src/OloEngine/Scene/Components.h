@@ -241,6 +241,7 @@ namespace OloEngine
 		SpriteRendererComponent,
 		CircleRendererComponent,
 		CameraComponent,
+		PrefabComponent,
 		Rigidbody2DComponent,
 		BoxCollider2DComponent,
 		CircleCollider2DComponent,

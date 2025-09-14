@@ -21,19 +21,76 @@ namespace OloEngine {
 	MaterialAsset::MaterialAsset(bool transparent)
 		: m_Transparent(transparent)
 	{
-		SetHandle(0);
+		SetHandle(AssetHandle{});
+		
+		// Try to get the desired shader, fallback to a simpler shader if not available
+		Ref<Shader> shader;
+		ShaderLibrary& shaderLibrary = Renderer3D::GetShaderLibrary();
 		
 		if (transparent)
-			m_Material = Material::Create(Renderer3D::GetShaderLibrary().Get("DefaultPBR_Transparent"));
+		{
+			if (shaderLibrary.Exists("DefaultPBR_Transparent"))
+			{
+				shader = shaderLibrary.Get("DefaultPBR_Transparent");
+			}
+			else
+			{
+				OLO_CORE_WARN("MaterialAsset: DefaultPBR_Transparent shader not found, falling back to DefaultPBR");
+				if (shaderLibrary.Exists("DefaultPBR"))
+				{
+					shader = shaderLibrary.Get("DefaultPBR");
+				}
+				else
+				{
+					OLO_CORE_ERROR("MaterialAsset: DefaultPBR shader not found, falling back to Basic3D");
+					if (shaderLibrary.Exists("Basic3D"))
+					{
+						shader = shaderLibrary.Get("Basic3D");
+					}
+					else
+					{
+						OLO_CORE_ASSERT(false, "MaterialAsset: No fallback shader available! Basic3D shader is missing.");
+						return; // Cannot create material without a shader
+					}
+				}
+			}
+		}
 		else
-			m_Material = Material::Create(Renderer3D::GetShaderLibrary().Get("DefaultPBR"));
+		{
+			if (shaderLibrary.Exists("DefaultPBR"))
+			{
+				shader = shaderLibrary.Get("DefaultPBR");
+			}
+			else
+			{
+				OLO_CORE_ERROR("MaterialAsset: DefaultPBR shader not found, falling back to Basic3D");
+				if (shaderLibrary.Exists("Basic3D"))
+				{
+					shader = shaderLibrary.Get("Basic3D");
+				}
+				else
+				{
+					OLO_CORE_ASSERT(false, "MaterialAsset: No fallback shader available! Basic3D shader is missing.");
+					return; // Cannot create material without a shader
+				}
+			}
+		}
+		
+		// Verify we have a valid shader before creating the material
+		if (!shader)
+		{
+			OLO_CORE_ASSERT(false, "MaterialAsset: Failed to obtain a valid shader");
+			return;
+		}
+		
+		m_Material = Material::Create(shader);
 
 		SetDefaults();
 	}
 
 	MaterialAsset::MaterialAsset(Ref<Material> material)
 	{
-		SetHandle(0);
+		SetHandle(AssetHandle{});
 		m_Material = Material::Copy(material);
 	}
 
@@ -97,7 +154,12 @@ namespace OloEngine {
 	Ref<Texture2D> MaterialAsset::GetAlbedoMap() const
 	{
 		OLO_CORE_VERIFY(m_Material, "Material instance is null");
-		return m_Material->TryGetTexture2D(s_AlbedoMapUniform);
+		auto texture = m_Material->TryGetTexture2D(s_AlbedoMapUniform);
+		if (texture)
+			return texture;
+		
+		// Fall back to placeholder texture when no texture is set
+		return AssetManager::GetAsset<Texture2D>(AssetManager::GetPlaceholderAsset(AssetType::Texture2D)->GetHandle());
 	}
 
 	void MaterialAsset::SetAlbedoMap(AssetHandle handle)
@@ -110,7 +172,12 @@ namespace OloEngine {
 	Ref<Texture2D> MaterialAsset::GetNormalMap() const
 	{
 		OLO_CORE_VERIFY(m_Material, "Material instance is null");
-		return m_Material->TryGetTexture2D(s_NormalMapUniform);
+		auto texture = m_Material->TryGetTexture2D(s_NormalMapUniform);
+		if (texture)
+			return texture;
+		
+		// Fall back to placeholder texture when no texture is set
+		return AssetManager::GetAsset<Texture2D>(AssetManager::GetPlaceholderAsset(AssetType::Texture2D)->GetHandle());
 	}
 
 	void MaterialAsset::SetNormalMap(AssetHandle handle)
@@ -118,7 +185,27 @@ namespace OloEngine {
 		OLO_CORE_VERIFY(m_Material, "Material instance is null");
 		auto texture = GetTextureOrPlaceholder(handle);
 		m_Material->Set(s_NormalMapUniform, texture);
-		SetUseNormalMap(handle != 0); // Enable normal mapping only if a valid handle was provided
+		
+		// Enable normal mapping only if we got a real texture, not the placeholder
+		bool isRealTexture = false;
+		if (handle != 0 && texture)
+		{
+			// Check if the returned texture is different from the placeholder
+			auto placeholderAsset = AssetManager::GetPlaceholderAsset(AssetType::Texture2D);
+			if (placeholderAsset)
+			{
+				AssetHandle placeholderHandle = placeholderAsset->GetHandle();
+				auto placeholderTexture = AssetManager::GetAsset<Texture2D>(placeholderHandle);
+				isRealTexture = (texture != placeholderTexture);
+			}
+			else
+			{
+				// If no placeholder exists, any non-null texture is real
+				isRealTexture = true;
+			}
+		}
+		
+		SetUseNormalMap(isRealTexture);
 	}
 
 	bool MaterialAsset::IsUsingNormalMap() const
@@ -136,7 +223,12 @@ namespace OloEngine {
 	Ref<Texture2D> MaterialAsset::GetMetalnessMap() const
 	{
 		OLO_CORE_VERIFY(m_Material, "Material instance is null");
-		return m_Material->TryGetTexture2D(s_MetalnessMapUniform);
+		auto texture = m_Material->TryGetTexture2D(s_MetalnessMapUniform);
+		if (texture)
+			return texture;
+		
+		// Fall back to placeholder texture when no texture is set
+		return AssetManager::GetAsset<Texture2D>(AssetManager::GetPlaceholderAsset(AssetType::Texture2D)->GetHandle());
 	}
 
 	void MaterialAsset::SetMetalnessMap(AssetHandle handle)
@@ -149,7 +241,12 @@ namespace OloEngine {
 	Ref<Texture2D> MaterialAsset::GetRoughnessMap() const
 	{
 		OLO_CORE_VERIFY(m_Material, "Material instance is null");
-		return m_Material->TryGetTexture2D(s_RoughnessMapUniform);
+		auto texture = m_Material->TryGetTexture2D(s_RoughnessMapUniform);
+		if (texture)
+			return texture;
+		
+		// Fall back to placeholder texture when no texture is set
+		return AssetManager::GetAsset<Texture2D>(AssetManager::GetPlaceholderAsset(AssetType::Texture2D)->GetHandle());
 	}
 
 	void MaterialAsset::SetRoughnessMap(AssetHandle handle)
@@ -201,7 +298,22 @@ namespace OloEngine {
 		}
 		
 		// Fall back to placeholder texture when handle is invalid or texture couldn't be loaded
-		return AssetManager::GetAsset<Texture2D>(AssetManager::GetPlaceholderAsset(AssetType::Texture2D)->GetHandle());
+		auto placeholderAsset = AssetManager::GetPlaceholderAsset(AssetType::Texture2D);
+		if (!placeholderAsset)
+		{
+			OLO_CORE_ERROR("MaterialAsset::GetTextureOrPlaceholder: No placeholder asset available for Texture2D");
+			return nullptr; // Return null if no placeholder is available
+		}
+		
+		AssetHandle placeholderHandle = placeholderAsset->GetHandle();
+		auto placeholderTexture = AssetManager::GetAsset<Texture2D>(placeholderHandle);
+		if (!placeholderTexture)
+		{
+			OLO_CORE_ERROR("MaterialAsset::GetTextureOrPlaceholder: Failed to load placeholder texture");
+			return nullptr; // Return null if placeholder texture failed to load
+		}
+		
+		return placeholderTexture;
 	}
 
 	// MaterialTable implementation
@@ -214,24 +326,41 @@ namespace OloEngine {
 		: m_MaterialCount(other->m_MaterialCount)
 	{
 		const auto& meshMaterials = other->GetMaterials();
-		for (auto [index, materialAsset] : meshMaterials)
+		for (const auto& [index, materialAsset] : meshMaterials)
 			SetMaterial(index, materialAsset);
 	}
 
 	void MaterialTable::SetMaterial(u32 index, AssetHandle materialHandle)
 	{
+		// Strict bounds validation - prevent out-of-bounds writes
+		if (index >= m_MaterialCount)
+		{
+			OLO_CORE_ERROR("MaterialTable::SetMaterial: Material index {} exceeds capacity {}. Use SetMaterialCapacity() to resize first.", index, m_MaterialCount);
+			OLO_CORE_ASSERT(false, "MaterialTable::SetMaterial: Index out of bounds");
+			return; // Fail gracefully in release builds
+		}
+		
 		m_Materials[index] = materialHandle;
 	}
 
 	void MaterialTable::ClearMaterial(u32 index)
 	{
+		// Strict bounds validation - prevent out-of-bounds operations
+		if (index >= m_MaterialCount)
+		{
+			OLO_CORE_ERROR("MaterialTable::ClearMaterial: Material index {} exceeds capacity {}.", index, m_MaterialCount);
+			OLO_CORE_ASSERT(false, "MaterialTable::ClearMaterial: Index out of bounds");
+			return; // Fail gracefully in release builds
+		}
+		
 		m_Materials.erase(index);
 	}
 
 	void MaterialTable::Clear()
 	{
 		m_Materials.clear();
-		m_MaterialCount = 0; // Reset count to maintain consistency with empty materials map
+		// Note: Don't reset m_MaterialCount to 0 - this maintains the current capacity
+		// Users can call SetMaterialCapacity(0) explicitly if they want to reduce capacity
 	}
 
 }
