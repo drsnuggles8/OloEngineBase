@@ -3,6 +3,7 @@
 #include "VertexArray.h"
 #include "MaterialAsset.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include <numeric>
 
 namespace OloEngine
 {
@@ -171,29 +172,11 @@ namespace OloEngine
         }
     }
 
-    void StaticMesh::SetSubmeshes(const std::vector<u32>& submeshes, Ref<MeshSource> meshSourceAsset)
+    void StaticMesh::SetSubmeshes(const std::vector<u32>& submeshes)
     {
         m_Submeshes = submeshes;
         
-        // Validate submesh indices against the provided mesh source
-        if (meshSourceAsset)
-        {
-            const auto& sourceMeshes = meshSourceAsset->GetSubmeshes();
-            for (auto it = m_Submeshes.begin(); it != m_Submeshes.end();)
-            {
-                if (*it >= sourceMeshes.size())
-                {
-                    OLO_CORE_WARN("StaticMesh::SetSubmeshes - Invalid submesh index {} (max: {}), removing", *it, sourceMeshes.size() - 1);
-                    it = m_Submeshes.erase(it);
-                }
-                else
-                {
-                    ++it;
-                }
-            }
-        }
-        
-        // Re-setup with new submeshes
+        // Re-setup with new submeshes (validation will be handled in SetupStaticMesh)
         SetupStaticMesh();
     }
 
@@ -235,11 +218,8 @@ namespace OloEngine
         if (m_Submeshes.empty())
         {
             const auto& submeshes = meshSourceAsset->GetSubmeshes();
-            m_Submeshes.reserve(submeshes.size());
-            for (sizet i = 0; i < submeshes.size(); ++i)
-            {
-                m_Submeshes.push_back(static_cast<u32>(i));
-            }
+            m_Submeshes.resize(submeshes.size());
+            std::iota(m_Submeshes.begin(), m_Submeshes.end(), 0u);
         }
 
         // Validate submesh indices

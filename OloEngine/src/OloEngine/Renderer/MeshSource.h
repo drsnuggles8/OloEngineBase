@@ -16,6 +16,7 @@
 #include <string>
 #include <limits>
 #include <map>
+#include <optional>
 
 namespace OloEngine 
 {
@@ -138,6 +139,17 @@ namespace OloEngine
         void SetSubmeshes(const std::vector<Submesh>& submeshes) 
         { 
             m_Submeshes = submeshes; 
+            
+            // Prune material entries whose keys reference submesh indices that are now out of range
+            auto it = m_Materials.begin();
+            while (it != m_Materials.end())
+            {
+                if (it->first >= submeshes.size())
+                    it = m_Materials.erase(it);
+                else
+                    ++it;
+            }
+            
             m_Built = false; 
             CalculateSubmeshBounds(); 
             CalculateBounds(); 
@@ -188,10 +200,10 @@ namespace OloEngine
                 m_Built = false; // Invalidate GPU state
             }
         }
-        AssetHandle GetMaterial(u32 index) const 
+        std::optional<AssetHandle> GetMaterial(u32 index) const 
         { 
             auto it = m_Materials.find(index);
-            return (it != m_Materials.end()) ? it->second : AssetHandle{};
+            return (it != m_Materials.end()) ? std::optional<AssetHandle>(it->second) : std::nullopt;
         }
 
         // Skeleton and rigging

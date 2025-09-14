@@ -46,13 +46,12 @@ namespace OloEngine
 
 	struct PrefabComponent
 	{
-		UUID PrefabID = 0;
-		UUID EntityID = 0;
-
+		UUID m_PrefabID = 0;
+		UUID m_PrefabEntityID = 0;
 		PrefabComponent() = default;
 		PrefabComponent(const PrefabComponent&) = default;
-		PrefabComponent(UUID prefabID, UUID entityID)
-			: PrefabID(prefabID), EntityID(entityID) {}
+		PrefabComponent(UUID prefabID, UUID prefabEntityID)
+			: m_PrefabID(prefabID), m_PrefabEntityID(prefabEntityID) {}
 	};
 
 	struct TransformComponent

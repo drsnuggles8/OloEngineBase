@@ -22,7 +22,7 @@ namespace OloEngine
 		KeyPressed, KeyReleased, KeyTyped,
 		MouseButtonPressed, MouseButtonReleased, MouseMoved, MouseScrolled,
 		// Editor/Engine custom events
-		AssetReloaded
+		AssetReloaded,
 	};
 
 	enum class EventCategory

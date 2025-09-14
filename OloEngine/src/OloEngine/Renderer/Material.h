@@ -112,13 +112,23 @@ namespace OloEngine {
 		virtual const glm::mat3& GetMatrix3(const std::string& name) const;
 		virtual const glm::mat4& GetMatrix4(const std::string& name) const;
 
-		virtual Ref<Texture2D> GetTexture2D(const std::string& name) const;
-		virtual Ref<Texture2D> GetTexture2D(const std::string& name, u32 arrayIndex) const;
+		virtual Ref<Texture2D> GetTexture2D(const std::string& name);
+		virtual Ref<Texture2D> GetTexture2D(const std::string& name, u32 arrayIndex);
 		virtual Ref<TextureCubemap> GetTextureCube(const std::string& name);
 
-		virtual Ref<Texture2D> TryGetTexture2D(const std::string& name) const;
-		virtual Ref<Texture2D> TryGetTexture2D(const std::string& name, u32 arrayIndex) const;
+		// Const overloads that forward to the non-const virtuals for backward compatibility
+		Ref<Texture2D> GetTexture2D(const std::string& name) const;
+		Ref<Texture2D> GetTexture2D(const std::string& name, u32 arrayIndex) const;
+		Ref<TextureCubemap> GetTextureCube(const std::string& name) const;
+
+		[[nodiscard]] virtual Ref<Texture2D> TryGetTexture2D(const std::string& name);
+		[[nodiscard]] virtual Ref<Texture2D> TryGetTexture2D(const std::string& name, u32 arrayIndex);
 		virtual Ref<TextureCubemap> TryGetTextureCube(const std::string& name);
+
+		// Const overloads that forward to the non-const virtuals for backward compatibility
+		[[nodiscard]] Ref<Texture2D> TryGetTexture2D(const std::string& name) const;
+		[[nodiscard]] Ref<Texture2D> TryGetTexture2D(const std::string& name, u32 arrayIndex) const;
+		Ref<TextureCubemap> TryGetTextureCube(const std::string& name) const;
 
 		virtual u32 GetFlags() const { return m_MaterialFlags; }
 		virtual void SetFlags(u32 flags) { m_MaterialFlags = flags; }

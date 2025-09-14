@@ -82,7 +82,7 @@ namespace OloEngine
 
         // Submesh management
         const std::vector<u32>& GetSubmeshes() const { return m_Submeshes; }
-        void SetSubmeshes(const std::vector<u32>& submeshes, Ref<MeshSource> meshSourceAsset);
+        void SetSubmeshes(const std::vector<u32>& submeshes);
 
         // MeshSource access
         AssetHandle GetMeshSource() const { return m_MeshSource; }

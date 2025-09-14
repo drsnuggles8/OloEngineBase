@@ -163,8 +163,8 @@ namespace OloEngine
 		if (entity)
 		{
 			auto& prefabComponent = entity.AddComponent<PrefabComponent>();
-			prefabComponent.PrefabID = prefabHandle;
-			prefabComponent.EntityID = uuid;
+			prefabComponent.m_PrefabID = prefabHandle;
+			prefabComponent.m_PrefabEntityID = uuid;
 		}
 
 		return entity;

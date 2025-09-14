@@ -353,7 +353,7 @@ namespace OloEngine {
 		return defaultValue;
 	}
 
-	Ref<Texture2D> Material::GetTexture2D(const std::string& name) const
+	Ref<Texture2D> Material::GetTexture2D(const std::string& name)
 	{
 		auto it = m_Texture2DUniforms.find(name);
 		if (it != m_Texture2DUniforms.end())
@@ -362,7 +362,7 @@ namespace OloEngine {
 		return nullptr;
 	}
 
-	Ref<Texture2D> Material::GetTexture2D(const std::string& name, u32 arrayIndex) const
+	Ref<Texture2D> Material::GetTexture2D(const std::string& name, u32 arrayIndex)
 	{
 		std::string key = GenerateArrayKey(name, arrayIndex);
 		auto it = m_Texture2DUniforms.find(key);
@@ -370,6 +370,17 @@ namespace OloEngine {
 			return it->second;
 		
 		return nullptr;
+	}
+
+	// Const overloads that forward to the non-const virtuals
+	Ref<Texture2D> Material::GetTexture2D(const std::string& name) const
+	{
+		return const_cast<Material*>(this)->GetTexture2D(name);
+	}
+
+	Ref<Texture2D> Material::GetTexture2D(const std::string& name, u32 arrayIndex) const
+	{
+		return const_cast<Material*>(this)->GetTexture2D(name, arrayIndex);
 	}
 
 	Ref<TextureCubemap> Material::GetTextureCube(const std::string& name)
@@ -381,19 +392,42 @@ namespace OloEngine {
 		return nullptr;
 	}
 
-	Ref<Texture2D> Material::TryGetTexture2D(const std::string& name) const
+	// Const overload that forwards to the non-const virtual
+	Ref<TextureCubemap> Material::GetTextureCube(const std::string& name) const
+	{
+		return const_cast<Material*>(this)->GetTextureCube(name);
+	}
+
+	Ref<Texture2D> Material::TryGetTexture2D(const std::string& name)
 	{
 		return GetTexture2D(name);
 	}
 
-	Ref<Texture2D> Material::TryGetTexture2D(const std::string& name, u32 arrayIndex) const
+	Ref<Texture2D> Material::TryGetTexture2D(const std::string& name, u32 arrayIndex)
 	{
 		return GetTexture2D(name, arrayIndex);
+	}
+
+	// Const overloads that forward to the non-const virtuals for backward compatibility
+	Ref<Texture2D> Material::TryGetTexture2D(const std::string& name) const
+	{
+		return const_cast<Material*>(this)->TryGetTexture2D(name);
+	}
+
+	Ref<Texture2D> Material::TryGetTexture2D(const std::string& name, u32 arrayIndex) const
+	{
+		return const_cast<Material*>(this)->TryGetTexture2D(name, arrayIndex);
 	}
 
 	Ref<TextureCubemap> Material::TryGetTextureCube(const std::string& name)
 	{
 		return GetTextureCube(name);
+	}
+
+	// Const overload that forwards to the non-const virtual  
+	Ref<TextureCubemap> Material::TryGetTextureCube(const std::string& name) const
+	{
+		return const_cast<Material*>(this)->TryGetTextureCube(name);
 	}
 
 	void Material::SetFlag(MaterialFlag flag, bool value)
