@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <future>
+#include <mutex>
 
 namespace OloEngine
 {
@@ -18,7 +19,7 @@ namespace OloEngine
     {
     public:
         AssetPackBuilderPanel() = default;
-        ~AssetPackBuilderPanel() = default;
+        ~AssetPackBuilderPanel();
 
         /**
          * @brief Render the ImGui interface
@@ -63,12 +64,13 @@ namespace OloEngine
         
         // Progress tracking
         std::atomic<float> m_BuildProgress{0.0f};
-        bool m_IsBuildInProgress = false;
+        std::atomic<bool> m_IsBuildInProgress{false};
+        std::atomic<bool> m_CancelRequested{false};
         std::future<AssetPackBuilder::BuildResult> m_BuildFuture;
         
         // Results
         AssetPackBuilder::BuildResult m_LastBuildResult;
-        bool m_HasBuildResult = false;
+        std::atomic<bool> m_HasBuildResult{false};
         
         // UI state
         char m_OutputPathBuffer[512] = "Assets/AssetPack.olopack";

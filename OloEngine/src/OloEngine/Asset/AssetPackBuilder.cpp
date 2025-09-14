@@ -12,10 +12,12 @@
 #include "OloEngine/Serialization/FileStream.h"
 
 #include <unordered_set>
+#include <fstream>
+#include <filesystem>
 
 namespace OloEngine
 {
-    AssetPackBuilder::BuildResult AssetPackBuilder::BuildFromActiveProject(const BuildSettings& settings, std::atomic<float>& progress)
+    AssetPackBuilder::BuildResult AssetPackBuilder::BuildFromActiveProject(const BuildSettings& settings, std::atomic<float>& progress, std::atomic<bool>* cancelToken)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -35,20 +37,20 @@ namespace OloEngine
         }
 
         OLO_CORE_INFO("AssetPackBuilder: Starting asset pack build from active project");
-        return BuildImpl(assetManager, settings, progress);
+        return BuildImpl(assetManager, settings, progress, cancelToken);
     }
 
-    AssetPackBuilder::BuildResult AssetPackBuilder::BuildFromRegistry(const AssetRegistry& assetRegistry, const BuildSettings& settings, std::atomic<float>& progress)
+    AssetPackBuilder::BuildResult AssetPackBuilder::BuildFromRegistry(const AssetRegistry& assetRegistry, const BuildSettings& settings, std::atomic<float>& progress, std::atomic<bool>* cancelToken)
     {
         OLO_PROFILE_FUNCTION();
 
         // For registry-based building, we'd need a way to get an asset manager that uses this registry
         // For now, this is a placeholder implementation
         OLO_CORE_WARN("AssetPackBuilder::BuildFromRegistry - Not fully implemented, falling back to active project");
-        return BuildFromActiveProject(settings, progress);
+        return BuildFromActiveProject(settings, progress, cancelToken);
     }
 
-    AssetPackBuilder::BuildResult AssetPackBuilder::BuildImpl(Ref<AssetManagerBase> assetManager, const BuildSettings& settings, std::atomic<float>& progress)
+    AssetPackBuilder::BuildResult AssetPackBuilder::BuildImpl(Ref<AssetManagerBase> assetManager, const BuildSettings& settings, std::atomic<float>& progress, std::atomic<bool>* cancelToken)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -59,6 +61,13 @@ namespace OloEngine
 
         try
         {
+            // Check for cancellation before starting
+            if (cancelToken && cancelToken->load(std::memory_order_acquire))
+            {
+                OLO_CORE_INFO("AssetPackBuilder: Build cancelled before starting");
+                return { false, "Build cancelled by user", 0, 0, {} };
+            }
+
             // Validate assets if requested
             if (settings.ValidateAssets)
             {
@@ -69,6 +78,13 @@ namespace OloEngine
                     return result;
                 }
                 progress = 0.1f;
+                
+                // Check for cancellation after validation
+                if (cancelToken && cancelToken->load(std::memory_order_acquire))
+                {
+                    OLO_CORE_INFO("AssetPackBuilder: Build cancelled after validation");
+                    return { false, "Build cancelled by user", 0, 0, {} };
+                }
             }
 
             // Create output directory if it doesn't exist
@@ -79,13 +95,20 @@ namespace OloEngine
             
             // Serialize all assets
             OLO_CORE_INFO("AssetPackBuilder: Serializing assets...");
-            if (!SerializeAllAssets(assetManager, assetPackFile, progress))
+            if (!SerializeAllAssets(assetManager, assetPackFile, progress, cancelToken))
             {
-                result.ErrorMessage = "Failed to serialize assets";
+                result.ErrorMessage = "Failed to serialize assets or build was cancelled";
                 return result;
             }
 
             progress = 0.8f;
+
+            // Check for cancellation after serialization
+            if (cancelToken && cancelToken->load(std::memory_order_acquire))
+            {
+                OLO_CORE_INFO("AssetPackBuilder: Build cancelled after asset serialization");
+                return { false, "Build cancelled by user", 0, 0, {} };
+            }
 
             // Get script module binary if requested
             Buffer scriptModuleBinary;
@@ -99,10 +122,6 @@ namespace OloEngine
 
             // Serialize the pack to file
             OLO_CORE_INFO("AssetPackBuilder: Writing asset pack to: {}", settings.OutputPath.string());
-            
-            // For now, we'll use a simple approach similar to how AssetPack::Load works in reverse
-            // This would need to be implemented in AssetPackFile or AssetPackSerializer
-            // Based on the existing codebase structure, we'll create a basic implementation
             
             FileStreamWriter writer(settings.OutputPath);
             if (!writer.IsStreamGood())
@@ -162,9 +181,51 @@ namespace OloEngine
                 writer.WriteData(reinterpret_cast<const char*>(scriptModuleBinary.Data), scriptModuleBinary.Size);
             }
 
-            // Write asset data (this would be where the actual serialized asset data goes)
-            // For now, we'll just write placeholder data since the actual serialization
-            // would need to be coordinated with the existing AssetSerializer system
+            // Write actual asset data from temporary files
+            for (const auto& [handle, tempFilePath] : assetPackFile.TempAssetFiles)
+            {
+                if (std::filesystem::exists(tempFilePath))
+                {
+                    // Read the temporary file and write its contents to the main pack file
+                    std::ifstream tempFile(tempFilePath, std::ios::binary);
+                    if (tempFile.is_open())
+                    {
+                        // Get file size
+                        tempFile.seekg(0, std::ios::end);
+                        sizet fileSize = tempFile.tellg();
+                        tempFile.seekg(0, std::ios::beg);
+                        
+                        // Read and write data in chunks
+                        constexpr sizet bufferSize = 8192;
+                        char buffer[bufferSize];
+                        sizet remainingBytes = fileSize;
+                        
+                        while (remainingBytes > 0)
+                        {
+                            sizet bytesToRead = std::min(bufferSize, remainingBytes);
+                            tempFile.read(buffer, bytesToRead);
+                            writer.WriteData(buffer, bytesToRead);
+                            remainingBytes -= bytesToRead;
+                        }
+                        
+                        tempFile.close();
+                    }
+                    else
+                    {
+                        OLO_CORE_ERROR("AssetPackBuilder: Failed to read temporary file: {}", tempFilePath.string());
+                    }
+                    
+                    // Clean up temporary file
+                    std::filesystem::remove(tempFilePath);
+                }
+                else
+                {
+                    OLO_CORE_ERROR("AssetPackBuilder: Temporary file not found: {}", tempFilePath.string());
+                }
+            }
+
+            // Clear temporary file list
+            assetPackFile.TempAssetFiles.clear();
 
             if (!writer.IsStreamGood())
             {
@@ -192,7 +253,7 @@ namespace OloEngine
         }
     }
 
-    bool AssetPackBuilder::SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, std::atomic<float>& progress)
+    bool AssetPackBuilder::SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, std::atomic<float>& progress, std::atomic<bool>* cancelToken)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -207,8 +268,16 @@ namespace OloEngine
 
         std::unordered_set<AssetHandle> processedAssets;
 
+        // First pass: Create asset info structures and count assets
         for (const auto& [handle, asset] : loadedAssets)
         {
+            // Check for cancellation at the start of each asset processing
+            if (cancelToken && cancelToken->load(std::memory_order_acquire))
+            {
+                OLO_CORE_INFO("AssetPackBuilder: SerializeAllAssets cancelled during first pass");
+                return false;
+            }
+
             if (processedAssets.contains(handle))
                 continue;
 
@@ -218,8 +287,8 @@ namespace OloEngine
             AssetPackFile::AssetInfo assetInfo;
             assetInfo.Handle = handle;
             assetInfo.Type = static_cast<AssetType>(asset->GetAssetType());
-            assetInfo.PackedOffset = 0; // Will be calculated during actual serialization
-            assetInfo.PackedSize = 0;   // Will be calculated during actual serialization
+            assetInfo.PackedOffset = 0; // Will be calculated during serialization pass
+            assetInfo.PackedSize = 0;   // Will be calculated during serialization pass
             assetInfo.Flags = 0;
 
             // Count scenes separately
@@ -230,19 +299,126 @@ namespace OloEngine
                 // Create scene info
                 AssetPackFile::SceneInfo sceneInfo;
                 sceneInfo.Handle = handle;
-                sceneInfo.PackedOffset = 0; // Will be calculated during actual serialization
-                sceneInfo.PackedSize = 0;   // Will be calculated during actual serialization
+                sceneInfo.PackedOffset = 0; // Will be calculated during serialization pass
+                sceneInfo.PackedSize = 0;   // Will be calculated during serialization pass
                 assetPackFile.SceneInfos.push_back(sceneInfo);
             }
 
             assetPackFile.AssetInfos.push_back(assetInfo);
 
-            assetProgress += progressPerAsset;
+            assetProgress += progressPerAsset * 0.5f; // Use half progress for first pass
             progress = assetProgress;
         }
 
-        OLO_CORE_INFO("AssetPackBuilder: Processed {} assets ({} scenes)", 
-                     assetPackFile.Index.AssetCount, assetPackFile.Index.SceneCount);
+        // Second pass: Actually serialize assets and calculate offsets/sizes
+        // We calculate the data layout first, then write everything in order
+        u64 headerSize = sizeof(AssetPackFile::FileHeader);
+        u64 indexSize = sizeof(AssetPackFile::IndexTable);
+        u64 assetInfosSize = assetPackFile.AssetInfos.size() * sizeof(AssetPackFile::AssetInfo);
+        u64 sceneInfosSize = 0;
+        for (const auto& sceneInfo : assetPackFile.SceneInfos)
+        {
+            sceneInfosSize += sizeof(AssetHandle) + sizeof(u64) + sizeof(u64) + sizeof(u16); // Basic scene info
+            sceneInfosSize += sizeof(u32); // Scene asset count
+            sceneInfosSize += sceneInfo.Assets.size() * sizeof(AssetPackFile::AssetInfo); // Scene assets
+        }
+        
+        Buffer scriptModuleBinary = GetScriptModuleBinary();
+        u64 scriptBinarySize = sizeof(u32) + scriptModuleBinary.Size; // Size field + data
+
+        u64 assetDataStartOffset = headerSize + indexSize + assetInfosSize + sceneInfosSize + scriptBinarySize;
+        u64 currentOffset = assetDataStartOffset;
+
+        // Create temporary files for each asset and calculate sizes
+        std::vector<std::pair<AssetHandle, std::filesystem::path>> tempAssetFiles;
+        
+        // Process regular assets
+        for (auto& assetInfo : assetPackFile.AssetInfos)
+        {
+            // Check for cancellation at the start of each asset serialization
+            if (cancelToken && cancelToken->load(std::memory_order_acquire))
+            {
+                OLO_CORE_INFO("AssetPackBuilder: SerializeAllAssets cancelled during second pass");
+                // Clean up any temporary files created so far
+                for (const auto& [handle, tempPath] : tempAssetFiles)
+                {
+                    std::error_code ec;
+                    std::filesystem::remove(tempPath, ec);
+                }
+                return false;
+            }
+
+            if (assetInfo.Type == AssetType::Scene)
+                continue; // Scenes are handled separately
+                
+            // Create a temporary file for this asset
+            std::filesystem::path tempPath = std::filesystem::temp_directory_path() / ("olo_asset_" + std::to_string(assetInfo.Handle) + ".tmp");
+            FileStreamWriter tempWriter(tempPath);
+            
+            // Record the starting position
+            assetInfo.PackedOffset = currentOffset;
+            
+            // Serialize the asset
+            AssetSerializationInfo serializationInfo;
+            if (AssetImporter::SerializeToAssetPack(assetInfo.Handle, tempWriter, serializationInfo))
+            {
+                assetInfo.PackedSize = serializationInfo.Size;
+                tempAssetFiles.emplace_back(assetInfo.Handle, tempPath);
+                currentOffset += assetInfo.PackedSize;
+            }
+            else
+            {
+                OLO_CORE_ERROR("AssetPackBuilder: Failed to serialize asset with handle: {}", assetInfo.Handle);
+                assetInfo.PackedSize = 0;
+            }
+
+            assetProgress += progressPerAsset * 0.5f; // Use remaining progress for second pass
+            progress = assetProgress;
+        }
+
+        // Process scene assets
+        for (auto& sceneInfo : assetPackFile.SceneInfos)
+        {
+            // Check for cancellation at the start of each scene processing
+            if (cancelToken && cancelToken->load(std::memory_order_acquire))
+            {
+                OLO_CORE_INFO("AssetPackBuilder: SerializeAllAssets cancelled during scene processing");
+                // Clean up any temporary files created so far
+                for (const auto& [handle, tempPath] : tempAssetFiles)
+                {
+                    std::error_code ec;
+                    std::filesystem::remove(tempPath, ec);
+                }
+                return false;
+            }
+
+            // Create a temporary file for this scene
+            std::filesystem::path tempPath = std::filesystem::temp_directory_path() / ("olo_scene_" + std::to_string(sceneInfo.Handle) + ".tmp");
+            FileStreamWriter tempWriter(tempPath);
+            
+            // Record the starting position
+            sceneInfo.PackedOffset = currentOffset;
+            
+            // Serialize the scene asset
+            AssetSerializationInfo serializationInfo;
+            if (AssetImporter::SerializeToAssetPack(sceneInfo.Handle, tempWriter, serializationInfo))
+            {
+                sceneInfo.PackedSize = serializationInfo.Size;
+                tempAssetFiles.emplace_back(sceneInfo.Handle, tempPath);
+                currentOffset += sceneInfo.PackedSize;
+            }
+            else
+            {
+                OLO_CORE_ERROR("AssetPackBuilder: Failed to serialize scene with handle: {}", sceneInfo.Handle);
+                sceneInfo.PackedSize = 0;
+            }
+        }
+
+        // Store the temporary files for writing later
+        assetPackFile.TempAssetFiles = std::move(tempAssetFiles);
+
+        OLO_CORE_INFO("AssetPackBuilder: Serialized {} assets ({} scenes), total size: {} bytes", 
+                     assetPackFile.Index.AssetCount, assetPackFile.Index.SceneCount, currentOffset - assetDataStartOffset);
 
         return true;
     }
@@ -281,7 +457,6 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Try to get script module from project
         if (auto project = Project::GetActive())
         {
             auto scriptModulePath = project->GetConfig().ScriptModulePath;

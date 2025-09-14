@@ -45,11 +45,13 @@ This plan outlines concrete steps to bring OloEngine's asset management system t
 - ✅ Review async queue semantics to match Hazel: prevent duplicate queueing, set `AssetStatus::Loading`, clear on completion.
 - ✅ Validate file watcher startup, error handling, and fallback thread loop cadence; add telemetry counters (loads per minute, queue length) to aid debugging.
 - ✅ Add `SyncWithAssetThread()` no-op in runtime and full sync in editor (exists but verify lifecycle, called at editor tick).
+- Queue limits: max 4096 items; per-asset dedupe window 500ms.
+- Timeouts: load op 10s (configurable); retries: 3 with exponential backoff (250ms, 500ms, 1s).
+- Cancellation: supersede in-flight loads on newer file mtime.
+- Metrics: `asset.loads_per_min`, `asset.queue_depth`, `asset.load_latency_ms{result}`, `asset.reload_dropped{reason}`.
 
 **Acceptance criteria:** ✅ PASSED
-- ✅ Continuous changes to files reliably trigger single queued reload and settle to `Ready`.
-
-### Phase 3 — Serializer Coverage & Pack Parity
+- ✅ Continuous changes to files reliably trigger single queued reload and settle to `Ready`.### Phase 3 — Serializer Coverage & Pack Parity
 
 - Finish pack serialization for currently stubbed serializers:
   - `EnvironmentSerializer`, `AudioFileSourceSerializer`, `MeshColliderSerializer`, `ScriptFileSerializer`, `MeshSourceSerializer`, `MeshSerializer`, `AnimationGraphAssetSerializer`, `SoundGraphSerializer` (remove TODO logs, implement minimal working writes/reads).
@@ -58,6 +60,13 @@ This plan outlines concrete steps to bring OloEngine's asset management system t
 
 Acceptance criteria:
 - Build an asset pack containing the above types, load in runtime, and resolve dependencies without errors.
+
+## Pack Format Contract
+- Version: `AssetPackFile::Version` (semver). Reader must reject newer major versions.
+- Index: varint-encoded entries keyed by `AssetHandle`; UTF-8; little-endian.
+- Integrity: per-blob SHA-256 + pack-level Merkle root; fail closed on mismatch.
+- Compression: zstd level 3 (configurable); store uncompressed threshold (≤4 KiB).
+- Determinism: stable ordering by `AssetHandle`; identical inputs → identical pack hash.
 
 ### Phase 4 — Editor Pack Build Pipeline
 

@@ -49,18 +49,20 @@ namespace OloEngine
          * @brief Create asset pack from active project
          * @param settings Build settings for the pack
          * @param progress Atomic progress tracker (0.0 to 1.0)
+         * @param cancelToken Optional cancellation token for cooperative cancellation
          * @return Build result with success/failure info
          */
-        static BuildResult BuildFromActiveProject(const BuildSettings& settings, std::atomic<float>& progress);
+        static BuildResult BuildFromActiveProject(const BuildSettings& settings, std::atomic<float>& progress, std::atomic<bool>* cancelToken = nullptr);
 
         /**
          * @brief Create asset pack from specific asset registry
          * @param assetRegistry Asset registry to build from
          * @param settings Build settings for the pack
          * @param progress Atomic progress tracker (0.0 to 1.0)
+         * @param cancelToken Optional cancellation token for cooperative cancellation
          * @return Build result with success/failure info
          */
-        static BuildResult BuildFromRegistry(const AssetRegistry& assetRegistry, const BuildSettings& settings, std::atomic<float>& progress);
+        static BuildResult BuildFromRegistry(const AssetRegistry& assetRegistry, const BuildSettings& settings, std::atomic<float>& progress, std::atomic<bool>* cancelToken = nullptr);
 
     private:
         /**
@@ -68,18 +70,20 @@ namespace OloEngine
          * @param assetManager Asset manager to use
          * @param settings Build settings
          * @param progress Progress tracker
+         * @param cancelToken Optional cancellation token for cooperative cancellation
          * @return Build result
          */
-        static BuildResult BuildImpl(Ref<AssetManagerBase> assetManager, const BuildSettings& settings, std::atomic<float>& progress);
+        static BuildResult BuildImpl(Ref<AssetManagerBase> assetManager, const BuildSettings& settings, std::atomic<float>& progress, std::atomic<bool>* cancelToken = nullptr);
 
         /**
          * @brief Serialize all assets from asset manager to pack
          * @param assetManager Asset manager to read from
          * @param assetPackFile Pack file to write to
          * @param progress Progress tracker
+         * @param cancelToken Optional cancellation token for cooperative cancellation
          * @return Success status
          */
-        static bool SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, std::atomic<float>& progress);
+        static bool SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, std::atomic<float>& progress, std::atomic<bool>* cancelToken = nullptr);
 
         /**
          * @brief Validate that all assets can be serialized

@@ -196,9 +196,6 @@ namespace OloEngine
         
         if (!s_Initialized)
             return;
-
-        OLO_CORE_INFO("PlaceholderAssetManager: Shutting down with {} cached placeholders", 
-                      s_PlaceholderAssets.size());
         
         s_PlaceholderAssets.clear();
         s_Initialized = false;

@@ -10,18 +10,36 @@
 
 namespace OloEngine
 {
+    AssetPackBuilderPanel::~AssetPackBuilderPanel()
+    {
+        // Check if a build is in progress (with acquire ordering for synchronization)
+        if (m_IsBuildInProgress.load(std::memory_order_acquire))
+        {
+            // Signal cancellation cooperatively
+            CancelBuild();
+        }
+        
+        // Drain the future to prevent resource leaks and ensure cleanup
+        if (m_BuildFuture.valid())
+        {
+            // Wait for the background work to complete
+            // This ensures proper cleanup before destruction
+            m_BuildFuture.wait();
+        }
+    }
+
     void AssetPackBuilderPanel::OnImGuiRender(bool& isOpen)
     {
         if (ImGui::Begin("Asset Pack Builder", &isOpen))
         {
             // Check if build is complete
-            if (m_IsBuildInProgress && m_BuildFuture.valid() && 
+            if (m_IsBuildInProgress.load() && m_BuildFuture.valid() && 
                 m_BuildFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
             {
                 m_LastBuildResult = m_BuildFuture.get();
-                m_HasBuildResult = true;
-                m_IsBuildInProgress = false;
-                m_BuildProgress = 1.0f;
+                m_HasBuildResult.store(true);
+                m_IsBuildInProgress.store(false);
+                m_BuildProgress.store(1.0f);
                 
                 if (m_LastBuildResult.Success)
                 {
@@ -39,13 +57,13 @@ namespace OloEngine
             RenderBuildActions();
             ImGui::Separator();
             
-            if (m_IsBuildInProgress)
+            if (m_IsBuildInProgress.load())
             {
                 RenderBuildProgress();
                 ImGui::Separator();
             }
             
-            if (m_HasBuildResult)
+            if (m_HasBuildResult.load())
             {
                 RenderBuildResults();
             }
@@ -122,7 +140,7 @@ namespace OloEngine
             }
 
             // Build button
-            bool canBuild = !m_IsBuildInProgress && hasActiveProject;
+            bool canBuild = !m_IsBuildInProgress.load() && hasActiveProject;
             if (!canBuild)
             {
                 ImGui::BeginDisabled();
@@ -139,7 +157,7 @@ namespace OloEngine
             }
 
             // Cancel button (only when building)
-            if (m_IsBuildInProgress)
+            if (m_IsBuildInProgress.load())
             {
                 ImGui::SameLine();
                 if (ImGui::Button("Cancel"))
@@ -216,7 +234,7 @@ namespace OloEngine
             ImGui::Spacing();
             if (ImGui::Button("Clear Results"))
             {
-                m_HasBuildResult = false;
+                m_HasBuildResult.store(false);
                 m_LastBuildResult = {};
             }
 
@@ -226,7 +244,7 @@ namespace OloEngine
 
     void AssetPackBuilderPanel::StartBuild()
     {
-        if (m_IsBuildInProgress)
+        if (m_IsBuildInProgress.load())
         {
             OLO_CORE_WARN("Asset pack build already in progress");
             return;
@@ -236,14 +254,15 @@ namespace OloEngine
         m_BuildSettings.OutputPath = std::filesystem::path(m_OutputPathBuffer);
 
         // Reset progress and results
-        m_BuildProgress = 0.0f;
-        m_HasBuildResult = false;
+        m_BuildProgress.store(0.0f);
+        m_HasBuildResult.store(false);
         m_LastBuildResult = {};
+        m_CancelRequested.store(false);
 
         // Start async build
-        m_IsBuildInProgress = true;
+        m_IsBuildInProgress.store(true);
         m_BuildFuture = std::async(std::launch::async, [this]() {
-            return AssetPackBuilder::BuildFromActiveProject(m_BuildSettings, m_BuildProgress);
+            return AssetPackBuilder::BuildFromActiveProject(m_BuildSettings, m_BuildProgress, &m_CancelRequested);
         });
 
         OLO_CORE_INFO("Started asset pack build to: {}", m_BuildSettings.OutputPath.string());
@@ -251,18 +270,21 @@ namespace OloEngine
 
     void AssetPackBuilderPanel::CancelBuild()
     {
-        if (!m_IsBuildInProgress)
+        if (!m_IsBuildInProgress.load())
         {
             return;
         }
 
-        // Note: AssetPackBuilder doesn't currently support cancellation
-        // This would require implementing a cancellation token system
-        OLO_CORE_WARN("Build cancellation not implemented yet");
+        // Signal cancellation cooperatively
+        m_CancelRequested.store(true, std::memory_order_release);
         
-        // For now, we can only mark it as not in progress and let it complete
-        // The future will still complete, but we won't process the result
-        m_IsBuildInProgress = false;
-        m_BuildProgress = 0.0f;
+        // Update UI state immediately for responsive feedback
+        m_IsBuildInProgress.store(false, std::memory_order_release);
+        m_BuildProgress.store(0.0f);
+        
+        OLO_CORE_INFO("Asset pack build cancellation requested");
+        
+        // Note: The actual build may continue in the background until completion
+        // The destructor will wait() on the future to ensure proper cleanup
     }
 }
