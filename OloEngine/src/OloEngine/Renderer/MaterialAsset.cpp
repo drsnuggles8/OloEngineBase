@@ -104,20 +104,8 @@ namespace OloEngine {
 	void MaterialAsset::SetAlbedoMap(AssetHandle handle)
 	{
 		OLO_CORE_VERIFY(m_Material, "Material instance is null");
-		
-		if (handle)
-		{
-			auto texture = AssetManager::GetAsset<Texture2D>(handle);
-			if (texture)
-			{
-				m_Material->Set(s_AlbedoMapUniform, texture);
-			}
-		}
-		else
-		{
-			auto placeholderTexture = AssetManager::GetAsset<Texture2D>(AssetManager::GetPlaceholderAsset(AssetType::Texture2D)->GetHandle());
-			m_Material->Set(s_AlbedoMapUniform, placeholderTexture);
-		}
+		auto texture = GetTextureOrPlaceholder(handle);
+		m_Material->Set(s_AlbedoMapUniform, texture);
 	}
 
 	Ref<Texture2D> MaterialAsset::GetNormalMap() const
@@ -129,22 +117,9 @@ namespace OloEngine {
 	void MaterialAsset::SetNormalMap(AssetHandle handle)
 	{
 		OLO_CORE_VERIFY(m_Material, "Material instance is null");
-		
-		if (handle)
-		{
-			auto texture = AssetManager::GetAsset<Texture2D>(handle);
-			if (texture)
-			{
-				m_Material->Set(s_NormalMapUniform, texture);
-				SetUseNormalMap(true);
-			}
-		}
-		else
-		{
-			auto placeholderTexture = AssetManager::GetAsset<Texture2D>(AssetManager::GetPlaceholderAsset(AssetType::Texture2D)->GetHandle());
-			m_Material->Set(s_NormalMapUniform, placeholderTexture);
-			SetUseNormalMap(false);
-		}
+		auto texture = GetTextureOrPlaceholder(handle);
+		m_Material->Set(s_NormalMapUniform, texture);
+		SetUseNormalMap(handle != 0); // Enable normal mapping only if a valid handle was provided
 	}
 
 	bool MaterialAsset::IsUsingNormalMap() const
@@ -168,20 +143,8 @@ namespace OloEngine {
 	void MaterialAsset::SetMetalnessMap(AssetHandle handle)
 	{
 		OLO_CORE_VERIFY(m_Material, "Material instance is null");
-		
-		if (handle)
-		{
-			auto texture = AssetManager::GetAsset<Texture2D>(handle);
-			if (texture)
-			{
-				m_Material->Set(s_MetalnessMapUniform, texture);
-			}
-		}
-		else
-		{
-			auto placeholderTexture = AssetManager::GetAsset<Texture2D>(AssetManager::GetPlaceholderAsset(AssetType::Texture2D)->GetHandle());
-			m_Material->Set(s_MetalnessMapUniform, placeholderTexture);
-		}
+		auto texture = GetTextureOrPlaceholder(handle);
+		m_Material->Set(s_MetalnessMapUniform, texture);
 	}
 
 	Ref<Texture2D> MaterialAsset::GetRoughnessMap() const
@@ -193,20 +156,8 @@ namespace OloEngine {
 	void MaterialAsset::SetRoughnessMap(AssetHandle handle)
 	{
 		OLO_CORE_VERIFY(m_Material, "Material instance is null");
-		
-		if (handle)
-		{
-			auto texture = AssetManager::GetAsset<Texture2D>(handle);
-			if (texture)
-			{
-				m_Material->Set(s_RoughnessMapUniform, texture);
-			}
-		}
-		else
-		{
-			auto placeholderTexture = AssetManager::GetAsset<Texture2D>(AssetManager::GetPlaceholderAsset(AssetType::Texture2D)->GetHandle());
-			m_Material->Set(s_RoughnessMapUniform, placeholderTexture);
-		}
+		auto texture = GetTextureOrPlaceholder(handle);
+		m_Material->Set(s_RoughnessMapUniform, texture);
 	}
 
 	float MaterialAsset::GetTransparency() const
@@ -241,6 +192,19 @@ namespace OloEngine {
 		}
 	}
 
+	Ref<Texture2D> MaterialAsset::GetTextureOrPlaceholder(AssetHandle handle) const
+	{
+		if (handle)
+		{
+			auto texture = AssetManager::GetAsset<Texture2D>(handle);
+			if (texture)
+				return texture;
+		}
+		
+		// Fall back to placeholder texture when handle is invalid or texture couldn't be loaded
+		return AssetManager::GetAsset<Texture2D>(AssetManager::GetPlaceholderAsset(AssetType::Texture2D)->GetHandle());
+	}
+
 	// MaterialTable implementation
 	MaterialTable::MaterialTable(u32 materialCount)
 		: m_MaterialCount(materialCount)
@@ -268,6 +232,7 @@ namespace OloEngine {
 	void MaterialTable::Clear()
 	{
 		m_Materials.clear();
+		m_MaterialCount = 0; // Reset count to maintain consistency with empty materials map
 	}
 
 }

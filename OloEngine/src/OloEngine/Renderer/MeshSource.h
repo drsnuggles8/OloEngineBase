@@ -15,6 +15,7 @@
 #include <stdexcept>
 #include <string>
 #include <limits>
+#include <map>
 
 namespace OloEngine 
 {
@@ -127,18 +128,70 @@ namespace OloEngine
         std::vector<Submesh>& GetSubmeshes() { return m_Submeshes; }
 
         // Submesh management
-        void AddSubmesh(const Submesh& submesh) { m_Submeshes.push_back(submesh); }
-        void SetSubmeshes(const std::vector<Submesh>& submeshes) { m_Submeshes = submeshes; }
+        void AddSubmesh(const Submesh& submesh) 
+        { 
+            m_Submeshes.push_back(submesh); 
+            m_Built = false; 
+            CalculateSubmeshBounds(); 
+            CalculateBounds(); 
+        }
+        void SetSubmeshes(const std::vector<Submesh>& submeshes) 
+        { 
+            m_Submeshes = submeshes; 
+            m_Built = false; 
+            CalculateSubmeshBounds(); 
+            CalculateBounds(); 
+        }
         
         // Material management
         const std::map<u32, AssetHandle>& GetMaterials() const { return m_Materials; }
+        [[deprecated("Direct mutable access to materials bypasses validation. Use SetMaterial() instead.")]]
         std::map<u32, AssetHandle>& GetMaterials() { return m_Materials; }
-        void SetMaterial(u32 index, AssetHandle material) { m_Materials[index] = material; }
+        void SetMaterial(u32 index, AssetHandle material) 
+        { 
+            // Validate material handle (UUID 0 is invalid)
+            if (static_cast<u64>(material) == 0)
+            {
+                OLO_CORE_ERROR("SetMaterial: invalid material handle (null UUID) for index {}", index);
+                return;
+            }
+            
+            // Validate index bounds (reasonable range for material indices)
+            constexpr u32 MAX_MATERIAL_INDEX = 65535; // Reasonable upper limit
+            if (index > MAX_MATERIAL_INDEX)
+            {
+                OLO_CORE_ERROR("SetMaterial: material index {} exceeds maximum allowed ({})", index, MAX_MATERIAL_INDEX);
+                return;
+            }
+            
+            m_Materials[index] = material; 
+            m_Built = false;
+        }
         bool HasMaterial(u32 index) const { return m_Materials.find(index) != m_Materials.end(); }
+        
+        // Additional material management with proper state invalidation
+        void RemoveMaterial(u32 index)
+        {
+            auto it = m_Materials.find(index);
+            if (it != m_Materials.end())
+            {
+                m_Materials.erase(it);
+                m_Built = false; // Invalidate GPU state
+            }
+        }
+        
+        void ClearMaterials()
+        {
+            if (!m_Materials.empty())
+            {
+                m_Materials.clear();
+                m_Built = false; // Invalidate GPU state
+            }
+        }
         AssetHandle GetMaterial(u32 index) const 
         { 
             auto it = m_Materials.find(index);
-            return (it != m_Materials.end()) ? it->second : AssetHandle(0);
+            return (it != m_Materials.end()) ? it->second : AssetHandle{};
         }
 
         // Skeleton and rigging

@@ -64,6 +64,7 @@ namespace OloEngine
 		bool IsTransparent() const { return m_Transparent; }
 	private:
 		void SetDefaults();
+		Ref<Texture2D> GetTextureOrPlaceholder(AssetHandle handle) const;
 	private:
 		Ref<Material> m_Material;
 
@@ -106,12 +107,12 @@ namespace OloEngine
 		const std::map<u32, AssetHandle>& GetMaterials() const { return m_Materials; }
 
 		u32 GetMaterialCount() const { return m_MaterialCount; }
-		void SetMaterialCount(u32 materialCount) { m_MaterialCount = materialCount; }
+		void SetMaterialCount(u32 materialCount) { m_MaterialCount = materialCount; } // Set the number of material slots (capacity)
 
 		void Clear();
 	private:
 		std::map<u32, AssetHandle> m_Materials;
-		u32 m_MaterialCount;
+		u32 m_MaterialCount = 0; // Number of material slots (capacity), not necessarily the count of materials in the map
 	};
 
 }
