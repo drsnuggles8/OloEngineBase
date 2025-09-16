@@ -9,12 +9,17 @@
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Animation/BoneEntityUtils.h"
 #include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Physics3D/JoltScene.h"
 
 #include <glm/glm.hpp>
 #include <ranges>
 
 // Box2D
 #include "box2d/box2d.h"
+
+// Jolt Physics
+#include <Jolt/Jolt.h>
+#include <Jolt/Physics/Body/MotionType.h>
 
 namespace OloEngine
 {
@@ -33,7 +38,10 @@ namespace OloEngine
 	}
 
 	Scene::Scene()
-	= default;
+	{
+		// Initialize JoltScene
+		m_JoltScene = std::make_unique<JoltScene>(this);
+	}
 
 	Ref<Scene> Scene::Create()
 	{
@@ -204,6 +212,7 @@ namespace OloEngine
 		m_IsRunning = true;
 
 		OnPhysics2DStart();
+		OnPhysics3DStart();
 
 
 		for (auto listenerView = m_Registry.group<AudioListenerComponent>(entt::get<TransformComponent>); auto&& [e, ac, tc] : listenerView.each())
@@ -261,17 +270,20 @@ namespace OloEngine
 		}
 
 		OnPhysics2DStop();
+		OnPhysics3DStop();
 
 	}
 
 	void Scene::OnSimulationStart()
 	{
 		OnPhysics2DStart();
+		OnPhysics3DStart();
 	}
 
 	void Scene::OnSimulationStop()
 	{
 		OnPhysics2DStop();
+		OnPhysics3DStop();
 	}
 
 	void Scene::OnUpdateRuntime(Timestep const ts)
@@ -294,6 +306,12 @@ namespace OloEngine
 				// const i32 positionIterations = 2; // TODO: Use this parameter when implementing position iterations
 				b2World_Step(m_PhysicsWorld, ts.GetSeconds(), velocityIterations);
 
+				// Update 3D physics
+				if (m_JoltScene)
+				{
+					m_JoltScene->Simulate(ts.GetSeconds());
+				}
+
 				// Retrieve transform from Box2D
 				for (const auto view = m_Registry.view<Rigidbody2DComponent>(); const auto e : view)
 				{
@@ -307,6 +325,28 @@ namespace OloEngine
 					transform.Translation.x = position.x;
 					transform.Translation.y = position.y;
 					transform.Rotation.z = b2Rot_GetAngle(rotation);
+				}
+
+				// Retrieve transforms from Jolt 3D physics
+				for (const auto view = m_Registry.view<RigidBody3DComponent, TransformComponent>(); const auto e : view)
+				{
+					Entity entity = { e, this };
+					auto& transform = entity.GetComponent<TransformComponent>();
+					auto& rb3d = entity.GetComponent<RigidBody3DComponent>();
+
+					if (rb3d.RuntimeBody && rb3d.Type != BodyType3D::Static)
+					{
+						// Get the body from JoltScene and sync transforms
+						auto body = m_JoltScene->GetBody(entity);
+						if (body)
+						{
+							auto pos = body->GetPosition();
+							auto rot = body->GetRotation();
+							
+							transform.Translation = pos;
+							transform.Rotation = glm::eulerAngles(rot);
+						}
+					}
 				}
 			}
 
@@ -401,6 +441,12 @@ namespace OloEngine
 				// const i32 positionIterations = 2; // TODO: Use this parameter when implementing position iterations
 				b2World_Step(m_PhysicsWorld, ts.GetSeconds(), velocityIterations);
 
+				// Update 3D physics
+				if (m_JoltScene)
+				{
+					m_JoltScene->Simulate(ts.GetSeconds());
+				}
+
 				// Retrieve transform from Box2D
 				for (const auto view = m_Registry.view<Rigidbody2DComponent>(); const auto e : view)
 				{
@@ -414,6 +460,28 @@ namespace OloEngine
 					transform.Translation.x = position.x;
 					transform.Translation.y = position.y;
 					transform.Rotation.z = b2Rot_GetAngle(rotation);
+				}
+
+				// Retrieve transforms from Jolt 3D physics
+				for (const auto view = m_Registry.view<RigidBody3DComponent, TransformComponent>(); const auto e : view)
+				{
+					Entity entity = { e, this };
+					auto& transform = entity.GetComponent<TransformComponent>();
+					auto& rb3d = entity.GetComponent<RigidBody3DComponent>();
+
+					if (rb3d.RuntimeBody && rb3d.Type != BodyType3D::Static)
+					{
+						// Get the body from JoltScene and sync transforms
+						auto body = m_JoltScene->GetBody(entity);
+						if (body)
+						{
+							auto pos = body->GetPosition();
+							auto rot = body->GetRotation();
+							
+							transform.Translation = pos;
+							transform.Rotation = glm::eulerAngles(rot);
+						}
+					}
 				}
 			}
 		}
@@ -654,15 +722,65 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 		}
 	}
 
+	void Scene::OnPhysics3DStart()
+	{
+		m_JoltScene->Initialize();
+		
+		if (!m_JoltScene->IsInitialized())
+		{
+			OLO_CORE_ERROR("Failed to initialize 3D physics system");
+			return;
+		}
+
+		// Create physics bodies for all entities with RigidBody3DComponent
+		auto view = m_Registry.view<RigidBody3DComponent, TransformComponent>();
+		for (auto entity : view)
+		{
+			Entity ent = { entity, this };
+			
+			// Create the physics body - JoltScene will handle shape creation based on components
+			auto body = m_JoltScene->CreateBody(ent);
+			if (body)
+			{
+				auto& rb3d = ent.GetComponent<RigidBody3DComponent>();
+				// Store the body reference for runtime access
+				rb3d.RuntimeBody = body.get(); // Store raw pointer for compatibility
+			}
+		}
+	}
+
+	void Scene::OnPhysics3DStop()
+	{
+		// Clean up all physics bodies
+		auto view = m_Registry.view<RigidBody3DComponent>();
+		for (auto entity : view)
+		{
+			Entity ent = { entity, this };
+			auto& rb3d = ent.GetComponent<RigidBody3DComponent>();
+			
+			if (rb3d.RuntimeBody)
+			{
+				// Destroy the body using the entity
+				m_JoltScene->DestroyBody(ent);
+				rb3d.RuntimeBody = nullptr;
+			}
+		}
+
+		if (m_JoltScene)
+		{
+			m_JoltScene->Shutdown();
+		}
+	}
+
 	void Scene::RenderScene(EditorCamera const& camera)
 	{
 		Renderer2D::BeginScene(camera);
 
 		// Draw sprites
 		{
-			for (const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>); const auto entity : group)
+			for (const auto view = m_Registry.view<TransformComponent, SpriteRendererComponent>(); const auto entity : view)
 			{
-				const auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
+				const auto [transform, sprite] = view.get<TransformComponent, SpriteRendererComponent>(entity);
 
 				Renderer2D::DrawSprite(transform.GetTransform(), sprite, static_cast<int>(entity));
 			}
@@ -686,86 +804,108 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 				Renderer2D::DrawString(text.TextString, transform.GetTransform(), text, static_cast<int>(entity));
 			}
 		}
-		
-		Renderer2D::EndScene();
+	
+	Renderer2D::EndScene();
 	}
 
-	template<>
-	void Scene::OnComponentAdded<IDComponent>(Entity, IDComponent&)
-	{
-	}
+} // namespace OloEngine
 
-	template<>
-	void Scene::OnComponentAdded<TransformComponent>(Entity, TransformComponent&)
-	{
-	}
+// Template specializations for component callbacks
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::IDComponent>(OloEngine::Entity entity, OloEngine::IDComponent& component)
+{
+}
 
-	template<>
-	void Scene::OnComponentAdded<CameraComponent>(Entity, CameraComponent& component)
-	{
-		if ((m_ViewportWidth > 0) && (m_ViewportHeight > 0))
-		{
-			component.Camera.SetViewportSize(m_ViewportWidth, m_ViewportHeight);
-		}
-	}
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::TransformComponent>(OloEngine::Entity entity, OloEngine::TransformComponent& component)
+{
+}
 
-	template<>
-	void Scene::OnComponentAdded<ScriptComponent>(Entity, ScriptComponent&)
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::CameraComponent>(OloEngine::Entity entity, OloEngine::CameraComponent& component)
+{
+	if ((m_ViewportWidth > 0) && (m_ViewportHeight > 0))
 	{
+		component.Camera.SetViewportSize(m_ViewportWidth, m_ViewportHeight);
 	}
+}
 
-	template<>
-	void Scene::OnComponentAdded<SpriteRendererComponent>(Entity, SpriteRendererComponent&)
-	{
-	}
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::ScriptComponent>(OloEngine::Entity entity, OloEngine::ScriptComponent& component)
+{
+}
 
-	template<>
-	void Scene::OnComponentAdded<CircleRendererComponent>(Entity, CircleRendererComponent&)
-	{
-	}
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::SpriteRendererComponent>(OloEngine::Entity entity, OloEngine::SpriteRendererComponent& component)
+{
+}
 
-	template<>
-	void Scene::OnComponentAdded<TagComponent>(Entity, TagComponent&)
-	{
-	}
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::CircleRendererComponent>(OloEngine::Entity entity, OloEngine::CircleRendererComponent& component)
+{
+}
 
-	template<>
-	void Scene::OnComponentAdded<Rigidbody2DComponent>(Entity, Rigidbody2DComponent&)
-	{
-	}
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::TagComponent>(OloEngine::Entity entity, OloEngine::TagComponent& component)
+{
+}
 
-	template<>
-	void Scene::OnComponentAdded<BoxCollider2DComponent>(Entity, BoxCollider2DComponent&)
-	{
-	}
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::Rigidbody2DComponent>(OloEngine::Entity entity, OloEngine::Rigidbody2DComponent& component)
+{
+}
 
-	template<>
-	void Scene::OnComponentAdded<CircleCollider2DComponent>(Entity, CircleCollider2DComponent&)
-	{
-	}
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::BoxCollider2DComponent>(OloEngine::Entity entity, OloEngine::BoxCollider2DComponent& component)
+{
+}
 
-	template<>
-	void Scene::OnComponentAdded<TextComponent>(Entity, TextComponent&)
-	{
-	}
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::CircleCollider2DComponent>(OloEngine::Entity entity, OloEngine::CircleCollider2DComponent& component)
+{
+}
 
-	template<>
-	void Scene::OnComponentAdded<AudioSourceComponent>(Entity, AudioSourceComponent&)
-	{
-	}
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::TextComponent>(OloEngine::Entity entity, OloEngine::TextComponent& component)
+{
+}
 
-	template<>
-	void Scene::OnComponentAdded<AudioListenerComponent>(Entity, AudioListenerComponent&)
-	{
-	}
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::AudioSourceComponent>(OloEngine::Entity entity, OloEngine::AudioSourceComponent& component)
+{
+}
 
-	template<>
-	void Scene::OnComponentAdded<RelationshipComponent>(Entity, RelationshipComponent&)
-	{
-	}
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::AudioListenerComponent>(OloEngine::Entity entity, OloEngine::AudioListenerComponent& component)
+{
+}
 
-	template<>
-	void Scene::OnComponentAdded<PrefabComponent>(Entity, PrefabComponent&)
-	{
-	}
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::RelationshipComponent>(OloEngine::Entity entity, OloEngine::RelationshipComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::PrefabComponent>(OloEngine::Entity entity, OloEngine::PrefabComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::RigidBody3DComponent>(OloEngine::Entity entity, OloEngine::RigidBody3DComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::BoxCollider3DComponent>(OloEngine::Entity entity, OloEngine::BoxCollider3DComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::SphereCollider3DComponent>(OloEngine::Entity entity, OloEngine::SphereCollider3DComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::CapsuleCollider3DComponent>(OloEngine::Entity entity, OloEngine::CapsuleCollider3DComponent& component)
+{
 }

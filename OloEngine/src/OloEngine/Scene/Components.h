@@ -165,6 +165,75 @@ namespace OloEngine
 		CircleCollider2DComponent(const CircleCollider2DComponent&) = default;
 	};
 
+	// 3D Physics Components
+
+	enum class BodyType3D { Static = 0, Dynamic, Kinematic };
+
+	struct RigidBody3DComponent
+	{
+		BodyType3D Type = BodyType3D::Static;
+		f32 Mass = 1.0f;
+		f32 LinearDrag = 0.01f;
+		f32 AngularDrag = 0.05f;
+		bool DisableGravity = false;
+		bool IsTrigger = false;
+		
+		glm::vec3 InitialLinearVelocity = { 0.0f, 0.0f, 0.0f };
+		glm::vec3 InitialAngularVelocity = { 0.0f, 0.0f, 0.0f };
+		
+		f32 MaxLinearVelocity = 500.0f;
+		f32 MaxAngularVelocity = 50.0f;
+
+		// Storage for runtime - Jolt BodyID
+		void* RuntimeBody = nullptr;
+
+		RigidBody3DComponent() = default;
+		RigidBody3DComponent(const RigidBody3DComponent&) = default;
+	};
+
+	struct BoxCollider3DComponent
+	{
+		glm::vec3 HalfExtents = { 0.5f, 0.5f, 0.5f };
+		glm::vec3 Offset = { 0.0f, 0.0f, 0.0f };
+
+		// Physics material properties
+		f32 Density = 1.0f;
+		f32 Friction = 0.5f;
+		f32 Restitution = 0.0f;
+
+		BoxCollider3DComponent() = default;
+		BoxCollider3DComponent(const BoxCollider3DComponent&) = default;
+	};
+
+	struct SphereCollider3DComponent
+	{
+		f32 Radius = 0.5f;
+		glm::vec3 Offset = { 0.0f, 0.0f, 0.0f };
+
+		// Physics material properties
+		f32 Density = 1.0f;
+		f32 Friction = 0.5f;
+		f32 Restitution = 0.0f;
+
+		SphereCollider3DComponent() = default;
+		SphereCollider3DComponent(const SphereCollider3DComponent&) = default;
+	};
+
+	struct CapsuleCollider3DComponent
+	{
+		f32 Radius = 0.5f;
+		f32 HalfHeight = 1.0f;
+		glm::vec3 Offset = { 0.0f, 0.0f, 0.0f };
+
+		// Physics material properties
+		f32 Density = 1.0f;
+		f32 Friction = 0.5f;
+		f32 Restitution = 0.0f;
+
+		CapsuleCollider3DComponent() = default;
+		CapsuleCollider3DComponent(const CapsuleCollider3DComponent&) = default;
+	};
+
 	struct TextComponent
 	{
 		std::string TextString;
@@ -245,6 +314,10 @@ namespace OloEngine
 		Rigidbody2DComponent,
 		BoxCollider2DComponent,
 		CircleCollider2DComponent,
+		RigidBody3DComponent,
+		BoxCollider3DComponent,
+		SphereCollider3DComponent,
+		CapsuleCollider3DComponent,
 		TextComponent,
 		ScriptComponent,
 		AudioSourceComponent,

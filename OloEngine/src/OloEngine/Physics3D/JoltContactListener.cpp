@@ -1,0 +1,100 @@
+#include "JoltContactListener.h"
+#include "JoltScene.h"
+#include "OloEngine/Core/Log.h"
+
+namespace OloEngine {
+
+	JoltContactListener::JoltContactListener(JoltScene* scene)
+		: m_Scene(scene)
+	{
+		OLO_CORE_ASSERT(scene, "JoltContactListener requires a valid JoltScene");
+	}
+
+	JPH::ValidateResult JoltContactListener::OnContactValidate(const JPH::Body& inBody1, const JPH::Body& inBody2, JPH::RVec3Arg inBaseOffset, const JPH::CollideShapeResult& inCollisionResult)
+	{
+		// You can use this to validate contacts before they are added.
+		// For now, we accept all contacts
+		return JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
+	}
+
+	void JoltContactListener::OnContactAdded(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, JPH::ContactSettings& ioSettings)
+	{
+		UUID entityA = GetEntityIDFromBody(inBody1);
+		UUID entityB = GetEntityIDFromBody(inBody2);
+
+		if (entityA != 0 && entityB != 0)
+		{
+			glm::vec3 contactPoint = JoltUtils::FromJoltVector(inManifold.GetWorldSpaceContactPointOn1(0));
+			glm::vec3 contactNormal = JoltUtils::FromJoltVector(inManifold.mWorldSpaceNormal);
+			f32 contactDepth = inManifold.mPenetrationDepth;
+
+			ContactEvent event(ContactType::ContactAdded, entityA, entityB, contactPoint, contactNormal, contactDepth, 0.0f);
+			QueueContactEvent(event);
+		}
+	}
+
+	void JoltContactListener::OnContactPersisted(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, JPH::ContactSettings& ioSettings)
+	{
+		UUID entityA = GetEntityIDFromBody(inBody1);
+		UUID entityB = GetEntityIDFromBody(inBody2);
+
+		if (entityA != 0 && entityB != 0)
+		{
+			glm::vec3 contactPoint = JoltUtils::FromJoltVector(inManifold.GetWorldSpaceContactPointOn1(0));
+			glm::vec3 contactNormal = JoltUtils::FromJoltVector(inManifold.mWorldSpaceNormal);
+			f32 contactDepth = inManifold.mPenetrationDepth;
+
+			ContactEvent event(ContactType::ContactPersisted, entityA, entityB, contactPoint, contactNormal, contactDepth, 0.0f);
+			QueueContactEvent(event);
+		}
+	}
+
+	void JoltContactListener::OnContactRemoved(const JPH::SubShapeIDPair& inSubShapePair)
+	{
+		// Note: We can't get the bodies directly from the SubShapeIDPair, so we'll need to store additional data
+		// For now, we'll skip contact removed events. This can be enhanced later if needed.
+		
+		// ContactEvent event(ContactType::ContactRemoved, entityA, entityB);
+		// QueueContactEvent(event);
+	}
+
+	void JoltContactListener::ProcessContactEvents()
+	{
+		std::lock_guard<std::mutex> lock(m_ContactEventsMutex);
+		
+		// Process all queued contact events
+		while (!m_ContactEventQueue.empty())
+		{
+			const ContactEvent& event = m_ContactEventQueue.front();
+			
+			// Send the contact event to the scene for processing
+			if (m_Scene)
+			{
+				m_Scene->OnContactEvent(event.Type, event.EntityA, event.EntityB);
+			}
+			
+			m_ContactEventQueue.pop_front();
+		}
+	}
+
+	void JoltContactListener::QueueContactEvent(const ContactEvent& event)
+	{
+		std::lock_guard<std::mutex> lock(m_ContactEventsMutex);
+		
+		// Prevent memory issues by limiting the queue size
+		if (m_ContactEventQueue.size() >= MaxQueuedContactEvents)
+		{
+			OLO_CORE_WARN("Contact event queue is full! Dropping oldest event.");
+			m_ContactEventQueue.pop_front();
+		}
+		
+		m_ContactEventQueue.push_back(event);
+	}
+
+	UUID JoltContactListener::GetEntityIDFromBody(const JPH::Body& body)
+	{
+		// The entity ID is stored in the body's user data
+		return static_cast<UUID>(body.GetUserData());
+	}
+
+}
