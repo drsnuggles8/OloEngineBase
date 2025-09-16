@@ -237,6 +237,9 @@
 		"OloEngine/Renderer/Commands/ThreadLocalCache.cpp"
 		"OloEngine/Renderer/Commands/ThreadLocalCache.h"
 
+		"OloEngine/Physics3D/Physics3DSystem.cpp"
+		"OloEngine/Physics3D/Physics3DSystem.h"
+
 		"OloEngine/Scene/Components.h"
 		"OloEngine/Scene/Entity.cpp"
 		"OloEngine/Scene/Entity.h"
