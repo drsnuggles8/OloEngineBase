@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "JoltScene.h"
+#include "SceneQueries.h"
 #include "JoltShapes.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Base.h"
@@ -327,126 +328,233 @@ namespace OloEngine {
 			return false;
 
 		// Clear the output hit info
-		outHit = SceneQueryHit{};
+		outHit.Clear();
 
 		// Create ray
 		JPH::RRayCast ray;
 		ray.mOrigin = JoltUtils::ToJoltVector(rayInfo.Origin);
 		ray.mDirection = JoltUtils::ToJoltVector(glm::normalize(rayInfo.Direction)) * rayInfo.MaxDistance;
 
+		// Create body filter for entity exclusion
+		class EntityExclusionBodyFilter : public JPH::BodyFilter
+		{
+		public:
+			EntityExclusionBodyFilter(const std::vector<UUID>& excludedEntities) : m_ExcludedEntities(excludedEntities) {}
+
+			virtual bool ShouldCollide(const JPH::BodyID& inBodyID) const override
+			{
+				// Always allow initial filter check
+				(void)inBodyID; // Suppress unused parameter warning
+				return true;
+			}
+
+			virtual bool ShouldCollideLocked(const JPH::Body& inBody) const override
+			{
+				UUID entityID = static_cast<UUID>(inBody.GetUserData());
+				return !IsEntityExcluded(entityID);
+			}
+
+		private:
+			bool IsEntityExcluded(UUID entityID) const
+			{
+				return std::find(m_ExcludedEntities.begin(), m_ExcludedEntities.end(), entityID) != m_ExcludedEntities.end();
+			}
+
+			const std::vector<UUID>& m_ExcludedEntities;
+		};
+
 		// Perform ray cast
 		JPH::ClosestHitCollisionCollector<JPH::CastRayCollector> hitCollector;
 		JPH::RayCastSettings rayCastSettings;
 		
-		// Create layer filters
+		// Create filters
 		JPH::DefaultBroadPhaseLayerFilter broadPhaseFilter(*m_ObjectVsBroadPhaseLayerFilter, JPH::ObjectLayer(rayInfo.LayerMask));
 		JPH::DefaultObjectLayerFilter objectLayerFilter(*m_ObjectLayerPairFilter, JPH::ObjectLayer(rayInfo.LayerMask));
-		JPH::BodyFilter bodyFilter;
+		EntityExclusionBodyFilter bodyFilter(rayInfo.ExcludedEntities);
 
 		m_JoltSystem->GetNarrowPhaseQuery().CastRay(ray, rayCastSettings, hitCollector, broadPhaseFilter, objectLayerFilter, bodyFilter);
 
 		if (!hitCollector.HadHit())
 			return false;
 
-		// Get hit information
-		const auto& hit = hitCollector.mHit;
-		JPH::Vec3 hitPosition = ray.GetPointOnRay(hit.mFraction);
-
-		// Lock the body to get additional information
-		JPH::BodyLockRead bodyLock(m_JoltSystem->GetBodyLockInterface(), hit.mBodyID);
-		if (!bodyLock.Succeeded())
-			return false;
-
-		const JPH::Body& body = bodyLock.GetBody();
-
-		// Fill output data
-		outHit.HasHit = true;
-		outHit.EntityID = static_cast<UUID>(body.GetUserData());
-		outHit.Position = JoltUtils::FromJoltVector(hitPosition);
-		outHit.Distance = hit.mFraction * rayInfo.MaxDistance;
-		outHit.Normal = JoltUtils::FromJoltVector(body.GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, hitPosition));
-
+		// Fill hit information
+		FillHitInfo(hitCollector.mHit, ray, outHit);
 		return true;
 	}
 
-	bool JoltScene::CastShape(const ShapeCastInfo& shapeInfo, SceneQueryHit& outHit)
+	bool JoltScene::CastShape(const ShapeCastInfo& shapeCastInfo, SceneQueryHit& outHit)
+	{
+		switch (shapeCastInfo.GetCastType())
+		{
+			case ShapeCastType::Box:
+			{
+				const BoxCastInfo& boxInfo = static_cast<const BoxCastInfo&>(shapeCastInfo);
+				return CastBox(boxInfo, outHit);
+			}
+			case ShapeCastType::Sphere:
+			{
+				const SphereCastInfo& sphereInfo = static_cast<const SphereCastInfo&>(shapeCastInfo);
+				return CastSphere(sphereInfo, outHit);
+			}
+			case ShapeCastType::Capsule:
+			{
+				const CapsuleCastInfo& capsuleInfo = static_cast<const CapsuleCastInfo&>(shapeCastInfo);
+				return CastCapsule(capsuleInfo, outHit);
+			}
+			default:
+				OLO_CORE_ERROR("Unsupported shape cast type");
+				return false;
+		}
+	}
+
+	bool JoltScene::CastBox(const BoxCastInfo& boxCastInfo, SceneQueryHit& outHit)
 	{
 		if (!m_JoltSystem)
 			return false;
 
-		// Create shape based on shape info
-		JPH::Ref<JPH::Shape> shape;
-		switch (shapeInfo.Shape)
-		{
-			case ShapeType::Box:
-				shape = new JPH::BoxShape(JoltUtils::ToJoltVector(shapeInfo.HalfExtents));
-				break;
-			case ShapeType::Sphere:
-				shape = new JPH::SphereShape(shapeInfo.Radius);
-				break;
-			case ShapeType::Capsule:
-				shape = new JPH::CapsuleShape(shapeInfo.HalfHeight, shapeInfo.Radius);
-				break;
-			default:
-				OLO_CORE_ERROR("Unsupported shape type for shape cast: {0}", static_cast<i32>(shapeInfo.Shape));
-				return false;
-		}
+		JPH::Ref<JPH::Shape> boxShape = new JPH::BoxShape(JoltUtils::ToJoltVector(boxCastInfo.HalfExtent));
+		return PerformShapeCast(boxShape, boxCastInfo.Origin, boxCastInfo.Direction, 
+			boxCastInfo.MaxDistance, boxCastInfo.LayerMask, boxCastInfo.ExcludedEntities, outHit);
+	}
 
-		JPH::Vec3 startPos = JoltUtils::ToJoltVector(shapeInfo.Origin);
-		JPH::Vec3 direction = JoltUtils::ToJoltVector(glm::normalize(shapeInfo.Direction)) * shapeInfo.MaxDistance;
-		
-		JPH::RShapeCast shapeCast = JPH::RShapeCast::sFromWorldTransform(
-			shape,
-			JPH::Vec3::sReplicate(1.0f),
-			JPH::RMat44::sTranslation(startPos),
-			direction
-		);
-
-		// Perform shape cast
-		JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> hitCollector;
-		JPH::ShapeCastSettings shapeCastSettings;
-		
-		// Create layer filters
-		JPH::DefaultBroadPhaseLayerFilter broadPhaseFilter(*m_ObjectVsBroadPhaseLayerFilter, JPH::ObjectLayer(shapeInfo.LayerMask));
-		JPH::DefaultObjectLayerFilter objectLayerFilter(*m_ObjectLayerPairFilter, JPH::ObjectLayer(shapeInfo.LayerMask));
-		JPH::BodyFilter bodyFilter;
-
-		m_JoltSystem->GetNarrowPhaseQuery().CastShape(shapeCast, shapeCastSettings, startPos, hitCollector, broadPhaseFilter, objectLayerFilter, bodyFilter);
-		
-		if (!hitCollector.HadHit())
-		{
-			outHit.HasHit = false;
+	bool JoltScene::CastSphere(const SphereCastInfo& sphereCastInfo, SceneQueryHit& outHit)
+	{
+		if (!m_JoltSystem)
 			return false;
-		}
 
-		// Get hit information
-		const auto& hit = hitCollector.mHit;
-		JPH::Vec3 hitPosition = shapeCast.GetPointOnRay(hit.mFraction);
+		JPH::Ref<JPH::Shape> sphereShape = new JPH::SphereShape(sphereCastInfo.Radius);
+		return PerformShapeCast(sphereShape, sphereCastInfo.Origin, sphereCastInfo.Direction,
+			sphereCastInfo.MaxDistance, sphereCastInfo.LayerMask, sphereCastInfo.ExcludedEntities, outHit);
+	}
 
-		// Fill output data
-		outHit.HasHit = true;
-		outHit.Distance = hit.mFraction * shapeInfo.MaxDistance;
-		outHit.Position = JoltUtils::FromJoltVector(hitPosition);
-		outHit.EntityID = static_cast<UUID>(m_JoltSystem->GetBodyInterface().GetUserData(hit.mBodyID2));
+	bool JoltScene::CastCapsule(const CapsuleCastInfo& capsuleCastInfo, SceneQueryHit& outHit)
+	{
+		if (!m_JoltSystem)
+			return false;
 
-		// Get surface normal
-		JPH::BodyLockRead bodyLock(m_JoltSystem->GetBodyLockInterface(), hit.mBodyID2);
-		if (bodyLock.Succeeded())
-		{
-			outHit.Normal = JoltUtils::FromJoltVector(hit.mPenetrationAxis.Normalized());
-		}
-		else
-		{
-			outHit.Normal = glm::vec3(0.0f, 1.0f, 0.0f);
-		}
-
-		return true;
+		JPH::Ref<JPH::Shape> capsuleShape = new JPH::CapsuleShape(capsuleCastInfo.HalfHeight, capsuleCastInfo.Radius);
+		return PerformShapeCast(capsuleShape, capsuleCastInfo.Origin, capsuleCastInfo.Direction,
+			capsuleCastInfo.MaxDistance, capsuleCastInfo.LayerMask, capsuleCastInfo.ExcludedEntities, outHit);
 	}
 
 	i32 JoltScene::OverlapShape(const ShapeOverlapInfo& overlapInfo, SceneQueryHit* outHits, i32 maxHits)
 	{
-		// TODO: Implement shape overlap functionality
-		OLO_CORE_WARN("OverlapShape not yet implemented");
+		switch (overlapInfo.GetCastType())
+		{
+			case ShapeCastType::Box:
+			{
+				const BoxOverlapInfo& boxInfo = static_cast<const BoxOverlapInfo&>(overlapInfo);
+				return OverlapBox(boxInfo, outHits, maxHits);
+			}
+			case ShapeCastType::Sphere:
+			{
+				const SphereOverlapInfo& sphereInfo = static_cast<const SphereOverlapInfo&>(overlapInfo);
+				return OverlapSphere(sphereInfo, outHits, maxHits);
+			}
+			case ShapeCastType::Capsule:
+			{
+				const CapsuleOverlapInfo& capsuleInfo = static_cast<const CapsuleOverlapInfo&>(overlapInfo);
+				return OverlapCapsule(capsuleInfo, outHits, maxHits);
+			}
+			default:
+				OLO_CORE_ERROR("Unsupported shape overlap type");
+				return 0;
+		}
+	}
+
+	i32 JoltScene::OverlapBox(const BoxOverlapInfo& boxOverlapInfo, SceneQueryHit* outHits, i32 maxHits)
+	{
+		if (!m_JoltSystem)
+			return 0;
+
+		JPH::Ref<JPH::Shape> boxShape = new JPH::BoxShape(JoltUtils::ToJoltVector(boxOverlapInfo.HalfExtent));
+		return PerformShapeOverlap(boxShape, boxOverlapInfo.Origin, boxOverlapInfo.Rotation,
+			boxOverlapInfo.LayerMask, boxOverlapInfo.ExcludedEntities, outHits, maxHits);
+	}
+
+	i32 JoltScene::OverlapSphere(const SphereOverlapInfo& sphereOverlapInfo, SceneQueryHit* outHits, i32 maxHits)
+	{
+		if (!m_JoltSystem)
+			return 0;
+
+		JPH::Ref<JPH::Shape> sphereShape = new JPH::SphereShape(sphereOverlapInfo.Radius);
+		return PerformShapeOverlap(sphereShape, sphereOverlapInfo.Origin, sphereOverlapInfo.Rotation,
+			sphereOverlapInfo.LayerMask, sphereOverlapInfo.ExcludedEntities, outHits, maxHits);
+	}
+
+	i32 JoltScene::OverlapCapsule(const CapsuleOverlapInfo& capsuleOverlapInfo, SceneQueryHit* outHits, i32 maxHits)
+	{
+		if (!m_JoltSystem)
+			return 0;
+
+		JPH::Ref<JPH::Shape> capsuleShape = new JPH::CapsuleShape(capsuleOverlapInfo.HalfHeight, capsuleOverlapInfo.Radius);
+		return PerformShapeOverlap(capsuleShape, capsuleOverlapInfo.Origin, capsuleOverlapInfo.Rotation,
+			capsuleOverlapInfo.LayerMask, capsuleOverlapInfo.ExcludedEntities, outHits, maxHits);
+	}
+
+	i32 JoltScene::CastRayMultiple(const RayCastInfo& rayInfo, SceneQueryHit* outHits, i32 maxHits)
+	{
+		if (!m_JoltSystem || maxHits <= 0)
+			return 0;
+
+		// Create ray
+		JPH::RRayCast ray;
+		ray.mOrigin = JoltUtils::ToJoltVector(rayInfo.Origin);
+		ray.mDirection = JoltUtils::ToJoltVector(glm::normalize(rayInfo.Direction)) * rayInfo.MaxDistance;
+
+		// Create body filter for entity exclusion
+		class EntityExclusionBodyFilter : public JPH::BodyFilter
+		{
+		public:
+			EntityExclusionBodyFilter(const std::vector<UUID>& excludedEntities) : m_ExcludedEntities(excludedEntities) {}
+
+			virtual bool ShouldCollide(const JPH::BodyID& inBodyID) const override
+			{
+				(void)inBodyID; // Suppress unused parameter warning
+				return true;
+			}
+
+			virtual bool ShouldCollideLocked(const JPH::Body& inBody) const override
+			{
+				UUID entityID = static_cast<UUID>(inBody.GetUserData());
+				return std::find(m_ExcludedEntities.begin(), m_ExcludedEntities.end(), entityID) == m_ExcludedEntities.end();
+			}
+
+		private:
+			const std::vector<UUID>& m_ExcludedEntities;
+		};
+
+		// Perform ray cast with multiple hit collector
+		JPH::AllHitCollisionCollector<JPH::CastRayCollector> hitCollector;
+		JPH::RayCastSettings rayCastSettings;
+		
+		// Create filters
+		JPH::DefaultBroadPhaseLayerFilter broadPhaseFilter(*m_ObjectVsBroadPhaseLayerFilter, JPH::ObjectLayer(rayInfo.LayerMask));
+		JPH::DefaultObjectLayerFilter objectLayerFilter(*m_ObjectLayerPairFilter, JPH::ObjectLayer(rayInfo.LayerMask));
+		EntityExclusionBodyFilter bodyFilter(rayInfo.ExcludedEntities);
+
+		m_JoltSystem->GetNarrowPhaseQuery().CastRay(ray, rayCastSettings, hitCollector, broadPhaseFilter, objectLayerFilter, bodyFilter);
+
+		// Fill hit results
+		i32 hitCount = 0;
+		for (const auto& hit : hitCollector.mHits)
+		{
+			if (hitCount >= maxHits)
+				break;
+
+			FillHitInfo(hit, ray, outHits[hitCount]);
+			hitCount++;
+		}
+
+		return hitCount;
+	}
+
+	i32 JoltScene::CastShapeMultiple(const ShapeCastInfo& shapeCastInfo, SceneQueryHit* outHits, i32 maxHits)
+	{
+		// TODO: Implement multiple shape casting when needed
+		// For now, we can use single hit and return 0 or 1
+		if (maxHits > 0 && CastShape(shapeCastInfo, outHits[0]))
+			return 1;
 		return 0;
 	}
 
@@ -609,6 +717,201 @@ namespace OloEngine {
 		JPH::UnregisterTypes();
 
 		OLO_CORE_INFO("Jolt Physics shut down");
+	}
+
+	// Scene query helper methods
+	bool JoltScene::PerformShapeCast(JPH::Ref<JPH::Shape> shape, const glm::vec3& start, const glm::vec3& direction, 
+		f32 maxDistance, u32 layerMask, const std::vector<UUID>& excludedEntities, SceneQueryHit& outHit)
+	{
+		if (!m_JoltSystem)
+			return false;
+
+		outHit.Clear();
+
+		// Create shape cast
+		JPH::Vec3 startPos = JoltUtils::ToJoltVector(start);
+		JPH::Vec3 castDirection = JoltUtils::ToJoltVector(glm::normalize(direction)) * maxDistance;
+		
+		JPH::RShapeCast shapeCast = JPH::RShapeCast::sFromWorldTransform(
+			shape,
+			JPH::Vec3::sReplicate(1.0f),
+			JPH::RMat44::sTranslation(startPos),
+			castDirection
+		);
+
+		// Create body filter for entity exclusion
+		class EntityExclusionBodyFilter : public JPH::BodyFilter
+		{
+		public:
+			EntityExclusionBodyFilter(const std::vector<UUID>& excludedEntities) : m_ExcludedEntities(excludedEntities) {}
+
+			virtual bool ShouldCollide(const JPH::BodyID& inBodyID) const override
+			{
+				(void)inBodyID; // Suppress unused parameter warning
+				return true;
+			}
+
+			virtual bool ShouldCollideLocked(const JPH::Body& inBody) const override
+			{
+				UUID entityID = static_cast<UUID>(inBody.GetUserData());
+				return std::find(m_ExcludedEntities.begin(), m_ExcludedEntities.end(), entityID) == m_ExcludedEntities.end();
+			}
+
+		private:
+			const std::vector<UUID>& m_ExcludedEntities;
+		};
+
+		// Perform shape cast
+		JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> hitCollector;
+		JPH::ShapeCastSettings shapeCastSettings;
+		
+		// Create filters
+		JPH::DefaultBroadPhaseLayerFilter broadPhaseFilter(*m_ObjectVsBroadPhaseLayerFilter, JPH::ObjectLayer(layerMask));
+		JPH::DefaultObjectLayerFilter objectLayerFilter(*m_ObjectLayerPairFilter, JPH::ObjectLayer(layerMask));
+		EntityExclusionBodyFilter bodyFilter(excludedEntities);
+
+		m_JoltSystem->GetNarrowPhaseQuery().CastShape(shapeCast, shapeCastSettings, startPos, hitCollector, broadPhaseFilter, objectLayerFilter, bodyFilter);
+		
+		if (!hitCollector.HadHit())
+			return false;
+
+		// Fill hit information
+		FillHitInfo(hitCollector.mHit, shapeCast, outHit);
+		return true;
+	}
+
+	i32 JoltScene::PerformShapeOverlap(JPH::Ref<JPH::Shape> shape, const glm::vec3& position, const glm::quat& rotation,
+		u32 layerMask, const std::vector<UUID>& excludedEntities, SceneQueryHit* outHits, i32 maxHits)
+	{
+		if (!m_JoltSystem || maxHits <= 0)
+			return 0;
+
+		// Create transform for the overlap shape
+		JPH::RMat44 transform = JPH::RMat44::sRotationTranslation(
+			JoltUtils::ToJoltQuat(rotation),
+			JoltUtils::ToJoltVector(position)
+		);
+
+		// Create body filter for entity exclusion
+		class EntityExclusionBodyFilter : public JPH::BodyFilter
+		{
+		public:
+			EntityExclusionBodyFilter(const std::vector<UUID>& excludedEntities) : m_ExcludedEntities(excludedEntities) {}
+
+			virtual bool ShouldCollide(const JPH::BodyID& inBodyID) const override
+			{
+				(void)inBodyID; // Suppress unused parameter warning
+				return true;
+			}
+
+			virtual bool ShouldCollideLocked(const JPH::Body& inBody) const override
+			{
+				UUID entityID = static_cast<UUID>(inBody.GetUserData());
+				return std::find(m_ExcludedEntities.begin(), m_ExcludedEntities.end(), entityID) == m_ExcludedEntities.end();
+			}
+
+		private:
+			const std::vector<UUID>& m_ExcludedEntities;
+		};
+
+		// Perform overlap query
+		JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> hitCollector;
+		JPH::CollideShapeSettings overlapSettings;
+		
+		// Create filters
+		JPH::DefaultBroadPhaseLayerFilter broadPhaseFilter(*m_ObjectVsBroadPhaseLayerFilter, JPH::ObjectLayer(layerMask));
+		JPH::DefaultObjectLayerFilter objectLayerFilter(*m_ObjectLayerPairFilter, JPH::ObjectLayer(layerMask));
+		EntityExclusionBodyFilter bodyFilter(excludedEntities);
+
+		m_JoltSystem->GetNarrowPhaseQuery().CollideShape(shape, JPH::Vec3::sReplicate(1.0f), transform, overlapSettings, 
+			JPH::Vec3::sZero(), hitCollector, broadPhaseFilter, objectLayerFilter, bodyFilter);
+
+		// Fill hit results
+		i32 hitCount = 0;
+		for (const auto& hit : hitCollector.mHits)
+		{
+			if (hitCount >= maxHits)
+				break;
+
+			// Fill basic hit info for overlap (no distance or penetration info available from CollideShape)
+			SceneQueryHit& hitInfo = outHits[hitCount];
+			hitInfo.Clear();
+			
+			// Lock body to get entity information
+			JPH::BodyLockRead bodyLock(m_JoltSystem->GetBodyLockInterface(), hit.mBodyID2);
+			if (bodyLock.Succeeded())
+			{
+				const JPH::Body& body = bodyLock.GetBody();
+				hitInfo.HitEntity = static_cast<UUID>(body.GetUserData());
+				hitInfo.Position = JoltUtils::FromJoltVector(body.GetPosition());
+				
+				// Get body from our map for reference
+				auto it = m_Bodies.find(hitInfo.HitEntity);
+				if (it != m_Bodies.end())
+				{
+					hitInfo.HitBody = it->second;
+				}
+				
+				hitCount++;
+			}
+		}
+
+		return hitCount;
+	}
+
+	bool JoltScene::IsEntityExcluded(UUID entityID, const std::vector<UUID>& excludedEntities)
+	{
+		return std::find(excludedEntities.begin(), excludedEntities.end(), entityID) != excludedEntities.end();
+	}
+
+	void JoltScene::FillHitInfo(const JPH::RayCastResult& hit, const JPH::RRayCast& ray, SceneQueryHit& outHit)
+	{
+		outHit.Clear();
+		
+		JPH::Vec3 hitPosition = ray.GetPointOnRay(hit.mFraction);
+		outHit.Position = JoltUtils::FromJoltVector(hitPosition);
+		outHit.Distance = hit.mFraction * ray.mDirection.Length();
+
+		// Lock the body to get additional information
+		JPH::BodyLockRead bodyLock(m_JoltSystem->GetBodyLockInterface(), hit.mBodyID);
+		if (bodyLock.Succeeded())
+		{
+			const JPH::Body& body = bodyLock.GetBody();
+			outHit.HitEntity = static_cast<UUID>(body.GetUserData());
+			outHit.Normal = JoltUtils::FromJoltVector(body.GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, hitPosition));
+			
+			// Get body reference from our map
+			auto it = m_Bodies.find(outHit.HitEntity);
+			if (it != m_Bodies.end())
+			{
+				outHit.HitBody = it->second;
+			}
+		}
+	}
+
+	void JoltScene::FillHitInfo(const JPH::ShapeCastResult& hit, const JPH::RShapeCast& shapeCast, SceneQueryHit& outHit)
+	{
+		outHit.Clear();
+		
+		JPH::Vec3 hitPosition = shapeCast.GetPointOnRay(hit.mFraction);
+		outHit.Position = JoltUtils::FromJoltVector(hitPosition);
+		outHit.Distance = hit.mFraction * shapeCast.mDirection.Length();
+		outHit.Normal = JoltUtils::FromJoltVector(hit.mPenetrationAxis.Normalized());
+
+		// Lock the body to get additional information
+		JPH::BodyLockRead bodyLock(m_JoltSystem->GetBodyLockInterface(), hit.mBodyID2);
+		if (bodyLock.Succeeded())
+		{
+			const JPH::Body& body = bodyLock.GetBody();
+			outHit.HitEntity = static_cast<UUID>(body.GetUserData());
+			
+			// Get body reference from our map
+			auto it = m_Bodies.find(outHit.HitEntity);
+			if (it != m_Bodies.end())
+			{
+				outHit.HitBody = it->second;
+			}
+		}
 	}
 
 }

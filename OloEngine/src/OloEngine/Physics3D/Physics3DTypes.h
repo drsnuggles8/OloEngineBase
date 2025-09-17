@@ -12,7 +12,7 @@ namespace OloEngine {
 	class Entity;
 
 	// Type aliases for scene queries
-	using ExcludedEntityList = std::vector<UUID>;
+	using ExcludedEntityMap = std::vector<UUID>;
 
 	// Character controller contact callback function type
 	using ContactCallbackFn = std::function<void(Entity entity, Entity otherEntity)>;
@@ -84,49 +84,6 @@ namespace OloEngine {
 		ContactAdded,
 		ContactPersisted,
 		ContactRemoved
-	};
-
-	// Scene query structures
-	struct RayCastInfo
-	{
-		glm::vec3 Origin;
-		glm::vec3 Direction;
-		f32 MaxDistance = 500.0f;
-		u32 LayerMask = 0xFFFFFFFF;
-		ExcludedEntityList ExcludedEntities;
-	};
-
-	struct SceneQueryHit
-	{
-		bool HasHit = false;
-		UUID EntityID = 0;
-		glm::vec3 Position = glm::vec3(0.0f);
-		glm::vec3 Normal = glm::vec3(0.0f);
-		f32 Distance = 0.0f;
-	};
-
-	struct ShapeCastInfo
-	{
-		glm::vec3 Origin;
-		glm::vec3 Direction;
-		f32 MaxDistance = 500.0f;
-		u32 LayerMask = 0xFFFFFFFF;
-		ShapeType Shape;
-		glm::vec3 HalfExtents; // For box shape
-		f32 Radius; // For sphere/capsule
-		f32 HalfHeight; // For capsule
-		ExcludedEntityList ExcludedEntities;
-	};
-
-	struct ShapeOverlapInfo
-	{
-		glm::vec3 Origin;
-		u32 LayerMask = 0xFFFFFFFF;
-		ShapeType Shape;
-		glm::vec3 HalfExtents; // For box shape
-		f32 Radius; // For sphere/capsule
-		f32 HalfHeight; // For capsule
-		ExcludedEntityList ExcludedEntities;
 	};
 
 	// Collision filtering
