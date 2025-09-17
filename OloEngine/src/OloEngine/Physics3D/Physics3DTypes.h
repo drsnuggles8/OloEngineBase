@@ -134,4 +134,40 @@ namespace OloEngine {
 		constexpr u32 Debris = 7;
 	}
 
+	// Bitwise operators for EActorAxis
+	inline EActorAxis operator|(EActorAxis a, EActorAxis b)
+	{
+		return static_cast<EActorAxis>(static_cast<u32>(a) | static_cast<u32>(b));
+	}
+
+	inline EActorAxis operator&(EActorAxis a, EActorAxis b)
+	{
+		return static_cast<EActorAxis>(static_cast<u32>(a) & static_cast<u32>(b));
+	}
+
+	inline EActorAxis operator^(EActorAxis a, EActorAxis b)
+	{
+		return static_cast<EActorAxis>(static_cast<u32>(a) ^ static_cast<u32>(b));
+	}
+
+	inline EActorAxis operator~(EActorAxis a)
+	{
+		return static_cast<EActorAxis>(~static_cast<u32>(a));
+	}
+
+	inline EActorAxis& operator|=(EActorAxis& a, EActorAxis b)
+	{
+		return a = a | b;
+	}
+
+	inline EActorAxis& operator&=(EActorAxis& a, EActorAxis b)
+	{
+		return a = a & b;
+	}
+
+	inline EActorAxis& operator^=(EActorAxis& a, EActorAxis b)
+	{
+		return a = a ^ b;
+	}
+
 }

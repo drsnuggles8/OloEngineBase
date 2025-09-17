@@ -7,6 +7,7 @@
 #include "OloEngine/Audio/AudioSource.h"
 #include "OloEngine/Audio/AudioListener.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Physics3D/Physics3DTypes.h"
 
 #include "box2d/box2d.h"
 
@@ -178,6 +179,7 @@ namespace OloEngine
 		f32 AngularDrag = 0.05f;
 		bool DisableGravity = false;
 		bool IsTrigger = false;
+		EActorAxis LockedAxes = EActorAxis::None;
 		
 		glm::vec3 InitialLinearVelocity = { 0.0f, 0.0f, 0.0f };
 		glm::vec3 InitialAngularVelocity = { 0.0f, 0.0f, 0.0f };

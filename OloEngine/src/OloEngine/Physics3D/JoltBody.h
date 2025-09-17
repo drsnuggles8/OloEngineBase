@@ -12,6 +12,7 @@
 #include <Jolt/Core/Reference.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Body/BodyLockInterface.h>
+#include <Jolt/Physics/Constraints/SixDOFConstraint.h>
 
 namespace OloEngine {
 
@@ -127,10 +128,16 @@ namespace OloEngine {
 		const JPH::BodyLockInterface& GetBodyLockInterface();
 		const JPH::BodyLockInterface& GetBodyLockInterface() const;
 
+		// Axis locking constraint management
+		void CreateAxisLockConstraint(JPH::Body& body);
+		void DestroyAxisLockConstraint();
+		void OnAxisLockUpdated(bool forceWake);
+
 	private:
 		Entity m_Entity;
 		JoltScene* m_Scene;
 		JPH::BodyID m_BodyID;
+		JPH::SixDOFConstraint* m_AxisLockConstraint = nullptr;
 		
 		// Cached properties
 		EActorAxis m_LockedAxes = EActorAxis::None;

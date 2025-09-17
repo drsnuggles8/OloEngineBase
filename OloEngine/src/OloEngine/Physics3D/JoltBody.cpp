@@ -650,13 +650,14 @@ namespace OloEngine {
 			m_LockedAxes = static_cast<EActorAxis>(static_cast<u32>(m_LockedAxes) & ~static_cast<u32>(axis));
 		}
 
-		// TODO: Implement actual axis locking in Jolt
-		// This would require modifying the motion properties or using constraints
-
-		if (forceWake)
+		// Update component
+		if (m_Entity.HasComponent<RigidBody3DComponent>())
 		{
-			Activate();
+			auto& component = m_Entity.GetComponent<RigidBody3DComponent>();
+			component.LockedAxes = m_LockedAxes;
 		}
+
+		OnAxisLockUpdated(forceWake);
 	}
 
 	bool JoltBody::IsAxisLocked(EActorAxis axis) const
@@ -667,6 +668,73 @@ namespace OloEngine {
 	EActorAxis JoltBody::GetLockedAxes() const
 	{
 		return m_LockedAxes;
+	}
+
+	void JoltBody::OnAxisLockUpdated(bool forceWake)
+	{
+		if (m_BodyID.IsInvalid()) return;
+
+		// Recreate the axis lock constraint with new settings
+		DestroyAxisLockConstraint();
+
+		if (m_LockedAxes != EActorAxis::None && !IsStatic())
+		{
+			const auto& bodyLockInterface = GetBodyLockInterface();
+			JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID);
+			if (lock.Succeeded())
+			{
+				JPH::Body& body = lock.GetBody();
+				CreateAxisLockConstraint(body);
+			}
+		}
+
+		if (forceWake)
+		{
+			Activate();
+		}
+	}
+
+	void JoltBody::CreateAxisLockConstraint(JPH::Body& body)
+	{
+		if (m_AxisLockConstraint != nullptr) return; // Already created
+
+		JPH::SixDOFConstraintSettings constraintSettings;
+		constraintSettings.mPosition1 = constraintSettings.mPosition2 = body.GetCenterOfMassPosition();
+
+		// Lock translation axes
+		if ((m_LockedAxes & EActorAxis::TranslationX) != EActorAxis::None)
+			constraintSettings.MakeFixedAxis(JPH::SixDOFConstraintSettings::TranslationX);
+
+		if ((m_LockedAxes & EActorAxis::TranslationY) != EActorAxis::None)
+			constraintSettings.MakeFixedAxis(JPH::SixDOFConstraintSettings::TranslationY);
+
+		if ((m_LockedAxes & EActorAxis::TranslationZ) != EActorAxis::None)
+			constraintSettings.MakeFixedAxis(JPH::SixDOFConstraintSettings::TranslationZ);
+
+		// Lock rotation axes
+		if ((m_LockedAxes & EActorAxis::RotationX) != EActorAxis::None)
+			constraintSettings.MakeFixedAxis(JPH::SixDOFConstraintSettings::RotationX);
+
+		if ((m_LockedAxes & EActorAxis::RotationY) != EActorAxis::None)
+			constraintSettings.MakeFixedAxis(JPH::SixDOFConstraintSettings::RotationY);
+
+		if ((m_LockedAxes & EActorAxis::RotationZ) != EActorAxis::None)
+			constraintSettings.MakeFixedAxis(JPH::SixDOFConstraintSettings::RotationZ);
+
+		// Create the constraint between the body and a fixed point in world space
+		m_AxisLockConstraint = (JPH::SixDOFConstraint*)constraintSettings.Create(JPH::Body::sFixedToWorld, body);
+
+		// Add the constraint to the physics system
+		m_Scene->GetJoltSystem().AddConstraint(m_AxisLockConstraint);
+	}
+
+	void JoltBody::DestroyAxisLockConstraint()
+	{
+		if (m_AxisLockConstraint != nullptr)
+		{
+			m_Scene->GetJoltSystem().RemoveConstraint(m_AxisLockConstraint);
+			m_AxisLockConstraint = nullptr;
+		}
 	}
 
 	void JoltBody::SetShape(JPH::Ref<JPH::Shape> shape)
@@ -781,6 +849,19 @@ namespace OloEngine {
 
 		// Cache initial state
 		m_GravityEnabled = !rigidBodyComponent.DisableGravity;
+		m_LockedAxes = rigidBodyComponent.LockedAxes;
+
+		// Create axis lock constraint if needed
+		if (m_LockedAxes != EActorAxis::None && motionType != JPH::EMotionType::Static)
+		{
+			const auto& bodyLockInterface = GetBodyLockInterface();
+			JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID);
+			if (lock.Succeeded())
+			{
+				JPH::Body& body = lock.GetBody();
+				CreateAxisLockConstraint(body);
+			}
+		}
 
 		OLO_CORE_TRACE("Created Jolt body for entity {0}, BodyID: {1}", (u64)m_Entity.GetUUID(), m_BodyID.GetIndex());
 	}
@@ -788,6 +869,9 @@ namespace OloEngine {
 	void JoltBody::DestroyJoltBody()
 	{
 		if (m_BodyID.IsInvalid()) return;
+
+		// Destroy axis lock constraint first
+		DestroyAxisLockConstraint();
 
 		auto& bodyInterface = m_Scene->GetBodyInterface();
 		bodyInterface.RemoveBody(m_BodyID);
