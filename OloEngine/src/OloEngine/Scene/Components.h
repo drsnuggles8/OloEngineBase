@@ -234,6 +234,63 @@ namespace OloEngine
 		CapsuleCollider3DComponent(const CapsuleCollider3DComponent&) = default;
 	};
 
+	struct MeshCollider3DComponent
+	{
+		AssetHandle ColliderAsset = 0;  // Reference to MeshColliderAsset
+		glm::vec3 Offset = { 0.0f, 0.0f, 0.0f };
+		glm::vec3 Scale = { 1.0f, 1.0f, 1.0f };
+
+		// Physics material properties
+		f32 Density = 1.0f;
+		f32 Friction = 0.5f;
+		f32 Restitution = 0.0f;
+
+		// Collision complexity setting
+		bool UseComplexAsSimple = false;  // If true, use triangle mesh for dynamic bodies
+
+		MeshCollider3DComponent() = default;
+		MeshCollider3DComponent(const MeshCollider3DComponent&) = default;
+		explicit MeshCollider3DComponent(AssetHandle colliderAsset) : ColliderAsset(colliderAsset) {}
+	};
+
+	struct ConvexMeshCollider3DComponent
+	{
+		AssetHandle ColliderAsset = 0;  // Reference to MeshColliderAsset
+		glm::vec3 Offset = { 0.0f, 0.0f, 0.0f };
+		glm::vec3 Scale = { 1.0f, 1.0f, 1.0f };
+
+		// Physics material properties
+		f32 Density = 1.0f;
+		f32 Friction = 0.5f;
+		f32 Restitution = 0.0f;
+
+		// Convex hull settings
+		f32 ConvexRadius = 0.05f;  // Jolt convex radius for shape rounding
+		u32 MaxVertices = 256;     // Maximum vertices in convex hull
+
+		ConvexMeshCollider3DComponent() = default;
+		ConvexMeshCollider3DComponent(const ConvexMeshCollider3DComponent&) = default;
+		explicit ConvexMeshCollider3DComponent(AssetHandle colliderAsset) : ColliderAsset(colliderAsset) {}
+	};
+
+	struct TriangleMeshCollider3DComponent
+	{
+		AssetHandle ColliderAsset = 0;  // Reference to MeshColliderAsset
+		glm::vec3 Offset = { 0.0f, 0.0f, 0.0f };
+		glm::vec3 Scale = { 1.0f, 1.0f, 1.0f };
+
+		// Physics material properties
+		f32 Density = 1.0f;
+		f32 Friction = 0.5f;
+		f32 Restitution = 0.0f;
+
+		// Triangle mesh is always static - no additional settings needed
+
+		TriangleMeshCollider3DComponent() = default;
+		TriangleMeshCollider3DComponent(const TriangleMeshCollider3DComponent&) = default;
+		explicit TriangleMeshCollider3DComponent(AssetHandle colliderAsset) : ColliderAsset(colliderAsset) {}
+	};
+
 	struct CharacterController3DComponent
 	{
 		f32 SlopeLimitDeg = 45.0f;

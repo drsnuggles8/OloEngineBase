@@ -2,10 +2,14 @@
 #include "JoltShapes.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Asset/AssetManager.h"
+#include "MeshColliderCache.h"
 
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
+#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/Shape/MutableCompoundShape.h>
 
@@ -21,6 +25,10 @@ namespace OloEngine {
 
 		OLO_CORE_INFO("Initializing JoltShapes system");
 		s_ShapeCache.clear();
+		
+		// Initialize mesh collider cache
+		MeshColliderCache::GetInstance().Initialize();
+		
 		s_Initialized = true;
 	}
 
@@ -30,6 +38,10 @@ namespace OloEngine {
 			return;
 
 		OLO_CORE_INFO("Shutting down JoltShapes system");
+		
+		// Shutdown mesh collider cache
+		MeshColliderCache::GetInstance().Shutdown();
+		
 		ClearShapeCache();
 		s_Initialized = false;
 	}
@@ -75,6 +87,39 @@ namespace OloEngine {
 		return CreateCapsuleShapeInternal(scaledRadius, scaledHalfHeight);
 	}
 
+	JPH::Ref<JPH::Shape> JoltShapes::CreateMeshShape(const MeshCollider3DComponent& component, const glm::vec3& scale)
+	{
+		if (!ValidateMeshAsset(component.ColliderAsset))
+		{
+			OLO_CORE_ERROR("Invalid mesh collider asset handle: {0}", component.ColliderAsset);
+			return nullptr;
+		}
+
+		return CreateMeshShapeInternal(component.ColliderAsset, component.UseComplexAsSimple, scale);
+	}
+
+	JPH::Ref<JPH::Shape> JoltShapes::CreateConvexMeshShape(const ConvexMeshCollider3DComponent& component, const glm::vec3& scale)
+	{
+		if (!ValidateMeshAsset(component.ColliderAsset))
+		{
+			OLO_CORE_ERROR("Invalid convex mesh collider asset handle: {0}", component.ColliderAsset);
+			return nullptr;
+		}
+
+		return CreateConvexMeshShapeInternal(component.ColliderAsset, component.ConvexRadius, scale);
+	}
+
+	JPH::Ref<JPH::Shape> JoltShapes::CreateTriangleMeshShape(const TriangleMeshCollider3DComponent& component, const glm::vec3& scale)
+	{
+		if (!ValidateMeshAsset(component.ColliderAsset))
+		{
+			OLO_CORE_ERROR("Invalid triangle mesh collider asset handle: {0}", component.ColliderAsset);
+			return nullptr;
+		}
+
+		return CreateTriangleMeshShapeInternal(component.ColliderAsset, scale);
+	}
+
 	JPH::Ref<JPH::Shape> JoltShapes::CreateCompoundShape(Entity entity, bool isMutable)
 	{
 		if (!entity)
@@ -113,6 +158,39 @@ namespace OloEngine {
 		{
 			const auto& component = entity.GetComponent<CapsuleCollider3DComponent>();
 			auto shape = CreateCapsuleShape(component);
+			if (shape)
+			{
+				shapes.push_back(shape);
+				offsets.push_back(component.Offset);
+			}
+		}
+
+		if (entity.HasComponent<MeshCollider3DComponent>())
+		{
+			const auto& component = entity.GetComponent<MeshCollider3DComponent>();
+			auto shape = CreateMeshShape(component);
+			if (shape)
+			{
+				shapes.push_back(shape);
+				offsets.push_back(component.Offset);
+			}
+		}
+
+		if (entity.HasComponent<ConvexMeshCollider3DComponent>())
+		{
+			const auto& component = entity.GetComponent<ConvexMeshCollider3DComponent>();
+			auto shape = CreateConvexMeshShape(component);
+			if (shape)
+			{
+				shapes.push_back(shape);
+				offsets.push_back(component.Offset);
+			}
+		}
+
+		if (entity.HasComponent<TriangleMeshCollider3DComponent>())
+		{
+			const auto& component = entity.GetComponent<TriangleMeshCollider3DComponent>();
+			auto shape = CreateTriangleMeshShape(component);
 			if (shape)
 			{
 				shapes.push_back(shape);
@@ -191,6 +269,45 @@ namespace OloEngine {
 		{
 			const auto& component = entity.GetComponent<CapsuleCollider3DComponent>();
 			auto shape = CreateCapsuleShape(component);
+			if (shape)
+			{
+				if (colliderCount == 0)
+					singleShape = shape;
+				colliderCount++;
+			}
+		}
+
+		// Check for mesh collider
+		if (entity.HasComponent<MeshCollider3DComponent>())
+		{
+			const auto& component = entity.GetComponent<MeshCollider3DComponent>();
+			auto shape = CreateMeshShape(component);
+			if (shape)
+			{
+				if (colliderCount == 0)
+					singleShape = shape;
+				colliderCount++;
+			}
+		}
+
+		// Check for convex mesh collider
+		if (entity.HasComponent<ConvexMeshCollider3DComponent>())
+		{
+			const auto& component = entity.GetComponent<ConvexMeshCollider3DComponent>();
+			auto shape = CreateConvexMeshShape(component);
+			if (shape)
+			{
+				if (colliderCount == 0)
+					singleShape = shape;
+				colliderCount++;
+			}
+		}
+
+		// Check for triangle mesh collider
+		if (entity.HasComponent<TriangleMeshCollider3DComponent>())
+		{
+			const auto& component = entity.GetComponent<TriangleMeshCollider3DComponent>();
+			auto shape = CreateTriangleMeshShape(component);
 			if (shape)
 			{
 				if (colliderCount == 0)
@@ -303,6 +420,126 @@ namespace OloEngine {
 		return new JPH::CapsuleShape(halfHeight, radius);
 	}
 
+	JPH::Ref<JPH::Shape> JoltShapes::CreateMeshShapeInternal(AssetHandle meshAsset, bool useComplexAsSimple, const glm::vec3& scale)
+	{
+		// Get the mesh collider cache instance
+		auto& cache = MeshColliderCache::GetInstance();
+		
+		// Get the asset reference
+		auto meshColliderAsset = AssetManager::GetAsset<MeshColliderAsset>(meshAsset);
+		if (!meshColliderAsset)
+		{
+			OLO_CORE_ERROR("Failed to get MeshColliderAsset for handle {0}", meshAsset);
+			return nullptr;
+		}
+		
+		// Try to get cached mesh data
+		const auto& cachedData = cache.GetMeshData(meshColliderAsset);
+		if (!cachedData.IsValid)
+		{
+			OLO_CORE_ERROR("Failed to get valid cached mesh data for asset {0}", meshAsset);
+			return nullptr;
+		}
+
+		// Choose between simple (convex) and complex (triangle) based on usage
+		const MeshColliderData* meshData = nullptr;
+		if (useComplexAsSimple || cachedData.ComplexColliderData.Submeshes.empty())
+		{
+			// Use convex shape for dynamic bodies or if no complex data
+			if (cachedData.SimpleColliderData.Submeshes.empty())
+			{
+				OLO_CORE_ERROR("No simple (convex) mesh data available for asset {0}", meshAsset);
+				return nullptr;
+			}
+			meshData = &cachedData.SimpleColliderData;
+		}
+		else
+		{
+			// Use triangle mesh for static bodies
+			meshData = &cachedData.ComplexColliderData;
+		}
+
+		// For now, just use the first submesh - could be extended to support multiple submeshes
+		if (meshData->Submeshes.empty())
+		{
+			OLO_CORE_ERROR("No submesh data available for asset {0}", meshAsset);
+			return nullptr;
+		}
+
+		const auto& submesh = meshData->Submeshes[0];
+		
+		// TODO: Deserialize the Jolt shape from ColliderData
+		// This requires implementing shape deserialization from the cached binary data
+		OLO_CORE_WARN("Mesh shape deserialization not yet implemented for asset {0}", meshAsset);
+		
+		// For now, return a placeholder box shape
+		return CreateBoxShapeInternal(glm::vec3(1.0f));
+	}
+
+	JPH::Ref<JPH::Shape> JoltShapes::CreateConvexMeshShapeInternal(AssetHandle meshAsset, f32 convexRadius, const glm::vec3& scale)
+	{
+		// Get the mesh collider cache instance
+		auto& cache = MeshColliderCache::GetInstance();
+		
+		// Get the asset reference
+		auto meshColliderAsset = AssetManager::GetAsset<MeshColliderAsset>(meshAsset);
+		if (!meshColliderAsset)
+		{
+			OLO_CORE_ERROR("Failed to get MeshColliderAsset for handle {0}", meshAsset);
+			return nullptr;
+		}
+		
+		// Try to get cached mesh data
+		const auto& cachedData = cache.GetMeshData(meshColliderAsset);
+		if (!cachedData.IsValid || cachedData.SimpleColliderData.Submeshes.empty())
+		{
+			OLO_CORE_ERROR("Failed to get valid convex mesh data for asset {0}", meshAsset);
+			return nullptr;
+		}
+
+		// For now, just use the first submesh
+		const auto& submesh = cachedData.SimpleColliderData.Submeshes[0];
+		
+		// TODO: Deserialize the convex Jolt shape from ColliderData
+		// This requires implementing shape deserialization from the cached binary data
+		OLO_CORE_WARN("Convex mesh shape deserialization not yet implemented for asset {0}", meshAsset);
+		
+		// For now, return a placeholder box shape
+		return CreateBoxShapeInternal(glm::vec3(1.0f));
+	}
+
+	JPH::Ref<JPH::Shape> JoltShapes::CreateTriangleMeshShapeInternal(AssetHandle meshAsset, const glm::vec3& scale)
+	{
+		// Get the mesh collider cache instance
+		auto& cache = MeshColliderCache::GetInstance();
+		
+		// Get the asset reference
+		auto meshColliderAsset = AssetManager::GetAsset<MeshColliderAsset>(meshAsset);
+		if (!meshColliderAsset)
+		{
+			OLO_CORE_ERROR("Failed to get MeshColliderAsset for handle {0}", meshAsset);
+			return nullptr;
+		}
+		
+		// Try to get cached mesh data
+		const auto& cachedData = cache.GetMeshData(meshColliderAsset);
+		if (!cachedData.IsValid || cachedData.ComplexColliderData.Submeshes.empty())
+		{
+			OLO_CORE_ERROR("Failed to get valid triangle mesh data for asset {0}", meshAsset);
+			return nullptr;
+		}
+
+		// For now, just use the first submesh
+		const auto& submesh = cachedData.ComplexColliderData.Submeshes[0];
+		
+		// TODO: Deserialize the triangle mesh Jolt shape from ColliderData
+		// This requires implementing shape deserialization from the cached binary data
+		OLO_CORE_WARN("Triangle mesh shape deserialization not yet implemented for asset {0}", meshAsset);
+		
+		// For now, return a placeholder box shape
+		return CreateBoxShapeInternal(glm::vec3(1.0f));
+	}
+
 	bool JoltShapes::ValidateBoxDimensions(const glm::vec3& halfExtents)
 	{
 		return halfExtents.x >= MinShapeSize && halfExtents.x <= MaxShapeSize &&
@@ -320,6 +557,25 @@ namespace OloEngine {
 		return radius >= MinShapeSize && radius <= MaxShapeSize &&
 			   halfHeight >= MinShapeSize && halfHeight <= MaxShapeSize &&
 			   halfHeight >= radius; // Capsule half-height must be at least as large as radius
+	}
+
+	bool JoltShapes::ValidateMeshAsset(AssetHandle meshAsset)
+	{
+		if (meshAsset == 0)
+		{
+			OLO_CORE_ERROR("Invalid mesh asset handle: 0");
+			return false;
+		}
+
+		// Check if the asset exists in the asset manager
+		if (!AssetManager::IsAssetHandleValid(meshAsset))
+		{
+			OLO_CORE_ERROR("Mesh asset handle {0} is not valid", meshAsset);
+			return false;
+		}
+
+		// Additional validation could be added here to check asset type
+		return true;
 	}
 
 	glm::vec3 JoltShapes::ApplyScaleToBoxExtents(const glm::vec3& halfExtents, const glm::vec3& scale)

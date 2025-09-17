@@ -1,7 +1,7 @@
 #pragma once
 
 #include "OloEngine/Asset/Asset.h"
-#include "OloEngine/Physics/ColliderMaterial.h"
+#include "OloEngine/Physics3D/Physics3DTypes.h"
 
 #include <glm/glm.hpp>
 

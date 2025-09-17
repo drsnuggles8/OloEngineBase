@@ -5,6 +5,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
+#include "MeshColliderCache.h"
 
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Collision/Shape/Shape.h>
@@ -31,6 +32,9 @@ namespace OloEngine {
 		static JPH::Ref<JPH::Shape> CreateBoxShape(const BoxCollider3DComponent& component, const glm::vec3& scale = glm::vec3(1.0f));
 		static JPH::Ref<JPH::Shape> CreateSphereShape(const SphereCollider3DComponent& component, const glm::vec3& scale = glm::vec3(1.0f));
 		static JPH::Ref<JPH::Shape> CreateCapsuleShape(const CapsuleCollider3DComponent& component, const glm::vec3& scale = glm::vec3(1.0f));
+		static JPH::Ref<JPH::Shape> CreateMeshShape(const MeshCollider3DComponent& component, const glm::vec3& scale = glm::vec3(1.0f));
+		static JPH::Ref<JPH::Shape> CreateConvexMeshShape(const ConvexMeshCollider3DComponent& component, const glm::vec3& scale = glm::vec3(1.0f));
+		static JPH::Ref<JPH::Shape> CreateTriangleMeshShape(const TriangleMeshCollider3DComponent& component, const glm::vec3& scale = glm::vec3(1.0f));
 		
 		// Create compound shapes
 		static JPH::Ref<JPH::Shape> CreateCompoundShape(Entity entity, bool isMutable = false);
@@ -56,11 +60,15 @@ namespace OloEngine {
 		static JPH::Ref<JPH::Shape> CreateBoxShapeInternal(const glm::vec3& halfExtents);
 		static JPH::Ref<JPH::Shape> CreateSphereShapeInternal(f32 radius);
 		static JPH::Ref<JPH::Shape> CreateCapsuleShapeInternal(f32 radius, f32 halfHeight);
+		static JPH::Ref<JPH::Shape> CreateMeshShapeInternal(AssetHandle meshAsset, bool useComplexAsSimple, const glm::vec3& scale);
+		static JPH::Ref<JPH::Shape> CreateConvexMeshShapeInternal(AssetHandle meshAsset, f32 convexRadius, const glm::vec3& scale);
+		static JPH::Ref<JPH::Shape> CreateTriangleMeshShapeInternal(AssetHandle meshAsset, const glm::vec3& scale);
 
 		// Shape validation helpers
 		static bool ValidateBoxDimensions(const glm::vec3& halfExtents);
 		static bool ValidateSphereDimensions(f32 radius);
 		static bool ValidateCapsuleDimensions(f32 radius, f32 halfHeight);
+		static bool ValidateMeshAsset(AssetHandle meshAsset);
 
 		// Scaling helpers
 		static glm::vec3 ApplyScaleToBoxExtents(const glm::vec3& halfExtents, const glm::vec3& scale);

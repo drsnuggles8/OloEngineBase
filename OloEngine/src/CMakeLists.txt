@@ -252,6 +252,10 @@
 		"OloEngine/Physics3D/JoltScene.cpp"
 		"OloEngine/Physics3D/JoltCharacterController.h"
 		"OloEngine/Physics3D/JoltCharacterController.cpp"
+		"OloEngine/Physics3D/MeshCookingFactory.h"
+		"OloEngine/Physics3D/MeshCookingFactory.cpp"
+		"OloEngine/Physics3D/MeshColliderCache.h"
+		"OloEngine/Physics3D/MeshColliderCache.cpp"
 
 		"OloEngine/Scene/Components.h"
 		"OloEngine/Scene/Entity.cpp"
