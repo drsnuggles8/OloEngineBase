@@ -137,7 +137,7 @@ namespace OloEngine {
 		static glm::mat4 ComposeTransform(const glm::vec3& translation, const glm::quat& rotation, const glm::vec3& scale)
 		{
 			return glm::translate(glm::mat4(1.0f), translation) *
-				   glm::toMat4(rotation) *
+				   glm::mat4_cast(rotation) *
 				   glm::scale(glm::mat4(1.0f), scale);
 		}
 

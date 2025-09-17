@@ -1,6 +1,8 @@
+#include "OloEnginePCH.h"
 #include "JoltScene.h"
 #include "JoltShapes.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Core/Base.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Components.h"
 
@@ -13,7 +15,11 @@
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/RayCast.h>
+#include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
+#include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
+#include <Jolt/Physics/Collision/ObjectLayer.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/CollideShape.h>
 
 namespace OloEngine {
@@ -95,7 +101,12 @@ namespace OloEngine {
 			return;
 
 		// Step the physics simulation
-		JPH::EPhysicsUpdateError error = m_JoltSystem->Update(fixedTimeStep, m_CollisionSteps, m_IntegrationSubSteps, m_TempAllocator.get(), m_JobSystem.get());
+		JPH::EPhysicsUpdateError error = m_JoltSystem->Update(
+			fixedTimeStep, 
+			m_CollisionSteps, 
+			m_TempAllocator.get(), 
+			m_JobSystem.get()
+		);
 		
 		if (error != JPH::EPhysicsUpdateError::None)
 		{
@@ -137,7 +148,7 @@ namespace OloEngine {
 		}
 
 		// Create new body
-		Ref<JoltBody> body = CreateRef<JoltBody>(entity, this);
+		Ref<JoltBody> body = Ref<JoltBody>(new JoltBody(entity, this));
 		if (!body->IsValid())
 		{
 			OLO_CORE_ERROR("Failed to create Jolt body for entity {0}", (u64)entityID);
@@ -231,7 +242,12 @@ namespace OloEngine {
 		ray.mDirection = JoltUtils::ToJoltVector(rayInfo.Direction * rayInfo.MaxDistance);
 
 		JPH::RayCastResult hit;
-		if (m_JoltSystem->GetNarrowPhaseQuery().CastRay(ray, hit))
+		auto& layerInterface = *m_BroadPhaseLayerInterface;
+		JPH::DefaultBroadPhaseLayerFilter broadPhaseLayerFilter(*m_ObjectVsBroadPhaseLayerFilter, JPH::ObjectLayer(0));
+		JPH::DefaultObjectLayerFilter objectLayerFilter(*m_ObjectLayerPairFilter, JPH::ObjectLayer(0));
+		JPH::BodyFilter bodyFilter{};
+		
+		if (m_JoltSystem->GetNarrowPhaseQuery().CastRay(ray, hit, broadPhaseLayerFilter, objectLayerFilter, bodyFilter))
 		{
 			outHit.HasHit = true;
 			outHit.Distance = hit.mFraction * rayInfo.MaxDistance;
@@ -276,21 +292,39 @@ namespace OloEngine {
 				return false;
 		}
 
-		JPH::RShapeCast shapeCast;
-		shapeCast.mShape = shape;
-		shapeCast.mCenterOfMassStart = JoltUtils::ToJoltVector(shapeInfo.Origin);
-		shapeCast.mDirection = JoltUtils::ToJoltVector(shapeInfo.Direction * shapeInfo.MaxDistance);
-		shapeCast.mRotation = JPH::Quat::sIdentity();
+		JPH::Vec3 startPos = JoltUtils::ToJoltVector(shapeInfo.Origin);
+		JPH::Vec3 direction = JoltUtils::ToJoltVector(shapeInfo.Direction * shapeInfo.MaxDistance);
+		JPH::RShapeCast shapeCast(shape, JPH::Vec3::sReplicate(1.0f), JPH::RMat44::sTranslation(startPos), direction);
 
 		JPH::ShapeCastResult hit;
-		if (m_JoltSystem->GetNarrowPhaseQuery().CastShape(shapeCast, hit))
+		JPH::DefaultBroadPhaseLayerFilter broadPhaseLayerFilter(*m_ObjectVsBroadPhaseLayerFilter, JPH::ObjectLayer(0));
+		JPH::DefaultObjectLayerFilter objectLayerFilter(*m_ObjectLayerPairFilter, JPH::ObjectLayer(0));
+		JPH::BodyFilter bodyFilter{};
+		JPH::ShapeCastSettings settings{};
+		
+		// Use the simplified CastShape API
+		class ShapeCastCollector : public JPH::CastShapeCollector
+		{
+		public:
+			void AddHit(const JPH::ShapeCastResult& inResult) override
+			{
+				if (inResult.mFraction < mResult.mFraction)
+					mResult = inResult;
+			}
+			JPH::ShapeCastResult mResult;
+		};
+		
+		ShapeCastCollector collector;
+		m_JoltSystem->GetNarrowPhaseQuery().CastShape(shapeCast, settings, startPos, collector, broadPhaseLayerFilter, objectLayerFilter, bodyFilter);
+		
+		if (collector.mResult.mFraction < 1.0f)
 		{
 			outHit.HasHit = true;
-			outHit.Distance = hit.mFraction * shapeInfo.MaxDistance;
+			outHit.Distance = collector.mResult.mFraction * shapeInfo.MaxDistance;
 			outHit.Position = shapeInfo.Origin + shapeInfo.Direction * outHit.Distance;
 
 			// Get entity ID from body
-			u64 userData = m_JoltSystem->GetBodyInterface().GetUserData(hit.mBodyID2);
+			u64 userData = m_JoltSystem->GetBodyInterface().GetUserData(collector.mResult.mBodyID2);
 			outHit.EntityID = static_cast<UUID>(userData);
 
 			outHit.Normal = glm::vec3(0.0f, 1.0f, 0.0f); // TODO: Get actual surface normal

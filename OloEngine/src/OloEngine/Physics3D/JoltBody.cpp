@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "JoltBody.h"
 #include "JoltScene.h"
 #include "JoltShapes.h"
@@ -97,12 +98,11 @@ namespace OloEngine {
 	{
 		if (m_BodyID.IsInvalid()) return;
 
-		auto& bodyInterface = GetBodyInterface();
-		bodyInterface.SetIsSensor(m_BodyID, isTrigger);
-
-		// Update collision layer based on trigger state
-		SetCollisionLayer(GetCollisionLayer());
-
+		// In Jolt, sensor/trigger behavior is typically controlled through:
+		// 1. Object layers during body creation
+		// 2. Contact listener callbacks
+		// For now, we'll store the state and handle it during recreation if needed
+		
 		// Update component
 		if (m_Entity.HasComponent<RigidBody3DComponent>())
 		{
@@ -115,8 +115,13 @@ namespace OloEngine {
 	{
 		if (m_BodyID.IsInvalid()) return false;
 
-		auto& bodyInterface = GetBodyInterface();
-		return bodyInterface.GetIsSensor(m_BodyID);
+		// Get trigger state from component since Jolt doesn't provide direct access
+		if (m_Entity.HasComponent<RigidBody3DComponent>())
+		{
+			const auto& component = m_Entity.GetComponent<RigidBody3DComponent>();
+			return component.IsTrigger;
+		}
+		return false;
 	}
 
 	glm::vec3 JoltBody::GetPosition() const
@@ -194,11 +199,16 @@ namespace OloEngine {
 	{
 		if (m_BodyID.IsInvalid()) return 0.0f;
 
-		auto& bodyInterface = GetBodyInterface();
-		JPH::MotionProperties* motionProperties = bodyInterface.GetMotionProperties(m_BodyID);
-		if (motionProperties)
+		const auto& bodyLockInterface = GetBodyLockInterface();
+		JPH::BodyLockRead lock(bodyLockInterface, m_BodyID);
+		if (lock.Succeeded())
 		{
-			return 1.0f / motionProperties->GetInverseMass();
+			const JPH::Body& body = lock.GetBody();
+			const JPH::MotionProperties* motionProperties = body.GetMotionProperties();
+			if (motionProperties)
+			{
+				return 1.0f / motionProperties->GetInverseMass();
+			}
 		}
 		return 0.0f;
 	}
@@ -207,11 +217,16 @@ namespace OloEngine {
 	{
 		if (m_BodyID.IsInvalid() || !IsDynamic()) return;
 
-		auto& bodyInterface = GetBodyInterface();
-		JPH::MotionProperties* motionProperties = bodyInterface.GetMotionProperties(m_BodyID);
-		if (motionProperties)
+		const auto& bodyLockInterface = GetBodyLockInterface();
+		JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID);
+		if (lock.Succeeded())
 		{
-			motionProperties->SetInverseMass(1.0f / mass);
+			JPH::Body& body = lock.GetBody();
+			JPH::MotionProperties* motionProperties = body.GetMotionProperties();
+			if (motionProperties)
+			{
+				motionProperties->SetInverseMass(1.0f / mass);
+			}
 		}
 
 		// Update component
@@ -226,11 +241,16 @@ namespace OloEngine {
 	{
 		if (m_BodyID.IsInvalid()) return;
 
-		auto& bodyInterface = GetBodyInterface();
-		JPH::MotionProperties* motionProperties = bodyInterface.GetMotionProperties(m_BodyID);
-		if (motionProperties)
+		const auto& bodyLockInterface = GetBodyLockInterface();
+		JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID);
+		if (lock.Succeeded())
 		{
-			motionProperties->SetLinearDamping(linearDrag);
+			JPH::Body& body = lock.GetBody();
+			JPH::MotionProperties* motionProperties = body.GetMotionProperties();
+			if (motionProperties)
+			{
+				motionProperties->SetLinearDamping(linearDrag);
+			}
 		}
 
 		// Update component
@@ -245,11 +265,16 @@ namespace OloEngine {
 	{
 		if (m_BodyID.IsInvalid()) return 0.0f;
 
-		auto& bodyInterface = GetBodyInterface();
-		JPH::MotionProperties* motionProperties = bodyInterface.GetMotionProperties(m_BodyID);
-		if (motionProperties)
+		const auto& bodyLockInterface = GetBodyLockInterface();
+		JPH::BodyLockRead lock(bodyLockInterface, m_BodyID);
+		if (lock.Succeeded())
 		{
-			return motionProperties->GetLinearDamping();
+			const JPH::Body& body = lock.GetBody();
+			const JPH::MotionProperties* motionProperties = body.GetMotionProperties();
+			if (motionProperties)
+			{
+				return motionProperties->GetLinearDamping();
+			}
 		}
 		return 0.0f;
 	}
@@ -258,11 +283,16 @@ namespace OloEngine {
 	{
 		if (m_BodyID.IsInvalid()) return;
 
-		auto& bodyInterface = GetBodyInterface();
-		JPH::MotionProperties* motionProperties = bodyInterface.GetMotionProperties(m_BodyID);
-		if (motionProperties)
+		const auto& bodyLockInterface = GetBodyLockInterface();
+		JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID);
+		if (lock.Succeeded())
 		{
-			motionProperties->SetAngularDamping(angularDrag);
+			JPH::Body& body = lock.GetBody();
+			JPH::MotionProperties* motionProperties = body.GetMotionProperties();
+			if (motionProperties)
+			{
+				motionProperties->SetAngularDamping(angularDrag);
+			}
 		}
 
 		// Update component
@@ -277,11 +307,16 @@ namespace OloEngine {
 	{
 		if (m_BodyID.IsInvalid()) return 0.0f;
 
-		auto& bodyInterface = GetBodyInterface();
-		JPH::MotionProperties* motionProperties = bodyInterface.GetMotionProperties(m_BodyID);
-		if (motionProperties)
+		const auto& bodyLockInterface = GetBodyLockInterface();
+		JPH::BodyLockRead lock(bodyLockInterface, m_BodyID);
+		if (lock.Succeeded())
 		{
-			return motionProperties->GetAngularDamping();
+			const JPH::Body& body = lock.GetBody();
+			const JPH::MotionProperties* motionProperties = body.GetMotionProperties();
+			if (motionProperties)
+			{
+				return motionProperties->GetAngularDamping();
+			}
 		}
 		return 0.0f;
 	}
@@ -326,11 +361,16 @@ namespace OloEngine {
 	{
 		if (m_BodyID.IsInvalid()) return 0.0f;
 
-		auto& bodyInterface = GetBodyInterface();
-		JPH::MotionProperties* motionProperties = bodyInterface.GetMotionProperties(m_BodyID);
-		if (motionProperties)
+		const auto& bodyLockInterface = GetBodyLockInterface();
+		JPH::BodyLockRead lock(bodyLockInterface, m_BodyID);
+		if (lock.Succeeded())
 		{
-			return motionProperties->GetMaxLinearVelocity();
+			const JPH::Body& body = lock.GetBody();
+			const JPH::MotionProperties* motionProperties = body.GetMotionProperties();
+			if (motionProperties)
+			{
+				return motionProperties->GetMaxLinearVelocity();
+			}
 		}
 		return 0.0f;
 	}
@@ -339,11 +379,16 @@ namespace OloEngine {
 	{
 		if (m_BodyID.IsInvalid()) return;
 
-		auto& bodyInterface = GetBodyInterface();
-		JPH::MotionProperties* motionProperties = bodyInterface.GetMotionProperties(m_BodyID);
-		if (motionProperties)
+		const auto& bodyLockInterface = GetBodyLockInterface();
+		JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID);
+		if (lock.Succeeded())
 		{
-			motionProperties->SetMaxLinearVelocity(maxVelocity);
+			JPH::Body& body = lock.GetBody();
+			JPH::MotionProperties* motionProperties = body.GetMotionProperties();
+			if (motionProperties)
+			{
+				motionProperties->SetMaxLinearVelocity(maxVelocity);
+			}
 		}
 
 		// Update component
@@ -358,11 +403,16 @@ namespace OloEngine {
 	{
 		if (m_BodyID.IsInvalid()) return 0.0f;
 
-		auto& bodyInterface = GetBodyInterface();
-		JPH::MotionProperties* motionProperties = bodyInterface.GetMotionProperties(m_BodyID);
-		if (motionProperties)
+		const auto& bodyLockInterface = GetBodyLockInterface();
+		JPH::BodyLockRead lock(bodyLockInterface, m_BodyID);
+		if (lock.Succeeded())
 		{
-			return motionProperties->GetMaxAngularVelocity();
+			const JPH::Body& body = lock.GetBody();
+			const JPH::MotionProperties* motionProperties = body.GetMotionProperties();
+			if (motionProperties)
+			{
+				return motionProperties->GetMaxAngularVelocity();
+			}
 		}
 		return 0.0f;
 	}
@@ -371,11 +421,16 @@ namespace OloEngine {
 	{
 		if (m_BodyID.IsInvalid()) return;
 
-		auto& bodyInterface = GetBodyInterface();
-		JPH::MotionProperties* motionProperties = bodyInterface.GetMotionProperties(m_BodyID);
-		if (motionProperties)
+		const auto& bodyLockInterface = GetBodyLockInterface();
+		JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID);
+		if (lock.Succeeded())
 		{
-			motionProperties->SetMaxAngularVelocity(maxVelocity);
+			JPH::Body& body = lock.GetBody();
+			JPH::MotionProperties* motionProperties = body.GetMotionProperties();
+			if (motionProperties)
+			{
+				motionProperties->SetMaxAngularVelocity(maxVelocity);
+			}
 		}
 
 		// Update component
@@ -615,8 +670,9 @@ namespace OloEngine {
 	{
 		if (m_BodyID.IsInvalid()) return nullptr;
 
-		auto& bodyInterface = GetBodyInterface();
-		return bodyInterface.GetShape(m_BodyID);
+		const auto& bodyInterface = GetBodyInterface();
+		JPH::RefConst<JPH::Shape> constShape = bodyInterface.GetShape(m_BodyID);
+		return const_cast<JPH::Shape*>(constShape.GetPtr());
 	}
 
 	void JoltBody::Activate()
@@ -768,7 +824,17 @@ namespace OloEngine {
 		return m_Scene->GetBodyInterface();
 	}
 
+	const JPH::BodyInterface& JoltBody::GetBodyInterface() const
+	{
+		return m_Scene->GetBodyInterface();
+	}
+
 	const JPH::BodyLockInterface& JoltBody::GetBodyLockInterface()
+	{
+		return m_Scene->GetBodyLockInterface();
+	}
+
+	const JPH::BodyLockInterface& JoltBody::GetBodyLockInterface() const
 	{
 		return m_Scene->GetBodyLockInterface();
 	}

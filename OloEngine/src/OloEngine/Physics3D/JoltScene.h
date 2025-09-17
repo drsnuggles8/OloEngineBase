@@ -6,6 +6,7 @@
 #include "JoltContactListener.h"
 #include "JoltBody.h"
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/Ref.h"
 #include "OloEngine/Scene/Entity.h"
 
 #include <Jolt/Jolt.h>

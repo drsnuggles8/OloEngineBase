@@ -1,3 +1,4 @@
+#include "OloEnginePCH.h"
 #include "JoltShapes.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Scene/Components.h"
@@ -260,25 +261,23 @@ namespace OloEngine {
 		if (!shape)
 			return ShapeType::Box; // Default
 
-		switch (shape->GetType())
-		{
-			case JPH::EShapeType::Box:
-				return ShapeType::Box;
-			case JPH::EShapeType::Sphere:
-				return ShapeType::Sphere;
-			case JPH::EShapeType::Capsule:
-				return ShapeType::Capsule;
-			case JPH::EShapeType::Mesh:
-				return ShapeType::TriangleMesh;
-			case JPH::EShapeType::ConvexHull:
-				return ShapeType::ConvexMesh;
-			case JPH::EShapeType::StaticCompound:
-				return ShapeType::CompoundShape;
-			case JPH::EShapeType::MutableCompound:
-				return ShapeType::MutableCompoundShape;
-			default:
-				return ShapeType::Box; // Default fallback
-		}
+		// Use dynamic casting to determine shape type since enum constants may not be accessible
+		if (dynamic_cast<const JPH::BoxShape*>(shape))
+			return ShapeType::Box;
+		else if (dynamic_cast<const JPH::SphereShape*>(shape))
+			return ShapeType::Sphere;
+		else if (dynamic_cast<const JPH::CapsuleShape*>(shape))
+			return ShapeType::Capsule;
+		else if (dynamic_cast<const JPH::MeshShape*>(shape))
+			return ShapeType::TriangleMesh;
+		else if (dynamic_cast<const JPH::ConvexHullShape*>(shape))
+			return ShapeType::ConvexMesh;
+		else if (dynamic_cast<const JPH::StaticCompoundShape*>(shape))
+			return ShapeType::CompoundShape;
+		else if (dynamic_cast<const JPH::MutableCompoundShape*>(shape))
+			return ShapeType::MutableCompoundShape;
+		else
+			return ShapeType::Box; // Default fallback
 	}
 
 	const char* JoltShapes::GetShapeTypeName(const JPH::Shape* shape)
