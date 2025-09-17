@@ -1,13 +1,18 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/UUID.h"
 #include <glm/glm.hpp>
 #include <functional>
+#include <vector>
 
 namespace OloEngine {
 
 	// Forward declarations
 	class Entity;
+
+	// Type aliases for scene queries
+	using ExcludedEntityList = std::vector<UUID>;
 
 	// Character controller contact callback function type
 	using ContactCallbackFn = std::function<void(Entity entity, Entity otherEntity)>;
@@ -88,6 +93,7 @@ namespace OloEngine {
 		glm::vec3 Direction;
 		f32 MaxDistance = 500.0f;
 		u32 LayerMask = 0xFFFFFFFF;
+		ExcludedEntityList ExcludedEntities;
 	};
 
 	struct SceneQueryHit
@@ -109,6 +115,7 @@ namespace OloEngine {
 		glm::vec3 HalfExtents; // For box shape
 		f32 Radius; // For sphere/capsule
 		f32 HalfHeight; // For capsule
+		ExcludedEntityList ExcludedEntities;
 	};
 
 	struct ShapeOverlapInfo
@@ -119,6 +126,7 @@ namespace OloEngine {
 		glm::vec3 HalfExtents; // For box shape
 		f32 Radius; // For sphere/capsule
 		f32 HalfHeight; // For capsule
+		ExcludedEntityList ExcludedEntities;
 	};
 
 	// Collision filtering

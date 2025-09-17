@@ -24,6 +24,8 @@
 
 namespace OloEngine {
 
+	// TODO: Add body filter class to handle excluded entities later
+
 	JoltScene::JoltScene(Scene* scene)
 		: m_Scene(scene)
 	{
@@ -324,36 +326,47 @@ namespace OloEngine {
 		if (!m_JoltSystem)
 			return false;
 
+		// Clear the output hit info
+		outHit = SceneQueryHit{};
+
+		// Create ray
 		JPH::RRayCast ray;
 		ray.mOrigin = JoltUtils::ToJoltVector(rayInfo.Origin);
-		ray.mDirection = JoltUtils::ToJoltVector(rayInfo.Direction * rayInfo.MaxDistance);
+		ray.mDirection = JoltUtils::ToJoltVector(glm::normalize(rayInfo.Direction)) * rayInfo.MaxDistance;
 
-		JPH::RayCastResult hit;
-		auto& layerInterface = *m_BroadPhaseLayerInterface;
-		JPH::DefaultBroadPhaseLayerFilter broadPhaseLayerFilter(*m_ObjectVsBroadPhaseLayerFilter, JPH::ObjectLayer(0));
-		JPH::DefaultObjectLayerFilter objectLayerFilter(*m_ObjectLayerPairFilter, JPH::ObjectLayer(0));
-		JPH::BodyFilter bodyFilter{};
+		// Perform ray cast
+		JPH::ClosestHitCollisionCollector<JPH::CastRayCollector> hitCollector;
+		JPH::RayCastSettings rayCastSettings;
 		
-		if (m_JoltSystem->GetNarrowPhaseQuery().CastRay(ray, hit, broadPhaseLayerFilter, objectLayerFilter, bodyFilter))
-		{
-			outHit.HasHit = true;
-			outHit.Distance = hit.mFraction * rayInfo.MaxDistance;
-			outHit.Position = rayInfo.Origin + rayInfo.Direction * outHit.Distance;
-			
-			// Get body to find entity ID
-			JPH::BodyID bodyID = hit.mBodyID;
-			auto& bodyInterface = m_JoltSystem->GetBodyInterface();
-			u64 userData = bodyInterface.GetUserData(bodyID);
-			outHit.EntityID = static_cast<UUID>(userData);
+		// Create layer filters
+		JPH::DefaultBroadPhaseLayerFilter broadPhaseFilter(*m_ObjectVsBroadPhaseLayerFilter, JPH::ObjectLayer(rayInfo.LayerMask));
+		JPH::DefaultObjectLayerFilter objectLayerFilter(*m_ObjectLayerPairFilter, JPH::ObjectLayer(rayInfo.LayerMask));
+		JPH::BodyFilter bodyFilter;
 
-			// Calculate normal (this is a simplified approach)
-			outHit.Normal = glm::vec3(0.0f, 1.0f, 0.0f); // TODO: Get actual surface normal
+		m_JoltSystem->GetNarrowPhaseQuery().CastRay(ray, rayCastSettings, hitCollector, broadPhaseFilter, objectLayerFilter, bodyFilter);
 
-			return true;
-		}
+		if (!hitCollector.HadHit())
+			return false;
 
-		outHit.HasHit = false;
-		return false;
+		// Get hit information
+		const auto& hit = hitCollector.mHit;
+		JPH::Vec3 hitPosition = ray.GetPointOnRay(hit.mFraction);
+
+		// Lock the body to get additional information
+		JPH::BodyLockRead bodyLock(m_JoltSystem->GetBodyLockInterface(), hit.mBodyID);
+		if (!bodyLock.Succeeded())
+			return false;
+
+		const JPH::Body& body = bodyLock.GetBody();
+
+		// Fill output data
+		outHit.HasHit = true;
+		outHit.EntityID = static_cast<UUID>(body.GetUserData());
+		outHit.Position = JoltUtils::FromJoltVector(hitPosition);
+		outHit.Distance = hit.mFraction * rayInfo.MaxDistance;
+		outHit.Normal = JoltUtils::FromJoltVector(body.GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, hitPosition));
+
+		return true;
 	}
 
 	bool JoltScene::CastShape(const ShapeCastInfo& shapeInfo, SceneQueryHit& outHit)
@@ -380,74 +393,59 @@ namespace OloEngine {
 		}
 
 		JPH::Vec3 startPos = JoltUtils::ToJoltVector(shapeInfo.Origin);
-		JPH::Vec3 direction = JoltUtils::ToJoltVector(shapeInfo.Direction * shapeInfo.MaxDistance);
-		JPH::RShapeCast shapeCast(shape, JPH::Vec3::sReplicate(1.0f), JPH::RMat44::sTranslation(startPos), direction);
-
-		JPH::ShapeCastResult hit;
-		JPH::DefaultBroadPhaseLayerFilter broadPhaseLayerFilter(*m_ObjectVsBroadPhaseLayerFilter, JPH::ObjectLayer(0));
-		JPH::DefaultObjectLayerFilter objectLayerFilter(*m_ObjectLayerPairFilter, JPH::ObjectLayer(0));
-		JPH::BodyFilter bodyFilter{};
-		JPH::ShapeCastSettings settings{};
+		JPH::Vec3 direction = JoltUtils::ToJoltVector(glm::normalize(shapeInfo.Direction)) * shapeInfo.MaxDistance;
 		
-		// Use the simplified CastShape API
-		class ShapeCastCollector : public JPH::CastShapeCollector
+		JPH::RShapeCast shapeCast = JPH::RShapeCast::sFromWorldTransform(
+			shape,
+			JPH::Vec3::sReplicate(1.0f),
+			JPH::RMat44::sTranslation(startPos),
+			direction
+		);
+
+		// Perform shape cast
+		JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> hitCollector;
+		JPH::ShapeCastSettings shapeCastSettings;
+		
+		// Create layer filters
+		JPH::DefaultBroadPhaseLayerFilter broadPhaseFilter(*m_ObjectVsBroadPhaseLayerFilter, JPH::ObjectLayer(shapeInfo.LayerMask));
+		JPH::DefaultObjectLayerFilter objectLayerFilter(*m_ObjectLayerPairFilter, JPH::ObjectLayer(shapeInfo.LayerMask));
+		JPH::BodyFilter bodyFilter;
+
+		m_JoltSystem->GetNarrowPhaseQuery().CastShape(shapeCast, shapeCastSettings, startPos, hitCollector, broadPhaseFilter, objectLayerFilter, bodyFilter);
+		
+		if (!hitCollector.HadHit())
 		{
-		public:
-			void AddHit(const JPH::ShapeCastResult& inResult) override
-			{
-				if (inResult.mFraction < mResult.mFraction)
-					mResult = inResult;
-			}
-			JPH::ShapeCastResult mResult;
-		};
-		
-		ShapeCastCollector collector;
-		m_JoltSystem->GetNarrowPhaseQuery().CastShape(shapeCast, settings, startPos, collector, broadPhaseLayerFilter, objectLayerFilter, bodyFilter);
-		
-		if (collector.mResult.mFraction < 1.0f)
-		{
-			outHit.HasHit = true;
-			outHit.Distance = collector.mResult.mFraction * shapeInfo.MaxDistance;
-			outHit.Position = shapeInfo.Origin + shapeInfo.Direction * outHit.Distance;
-
-			// Get entity ID from body
-			u64 userData = m_JoltSystem->GetBodyInterface().GetUserData(collector.mResult.mBodyID2);
-			outHit.EntityID = static_cast<UUID>(userData);
-
-			outHit.Normal = glm::vec3(0.0f, 1.0f, 0.0f); // TODO: Get actual surface normal
-
-			return true;
+			outHit.HasHit = false;
+			return false;
 		}
 
-		outHit.HasHit = false;
-		return false;
+		// Get hit information
+		const auto& hit = hitCollector.mHit;
+		JPH::Vec3 hitPosition = shapeCast.GetPointOnRay(hit.mFraction);
+
+		// Fill output data
+		outHit.HasHit = true;
+		outHit.Distance = hit.mFraction * shapeInfo.MaxDistance;
+		outHit.Position = JoltUtils::FromJoltVector(hitPosition);
+		outHit.EntityID = static_cast<UUID>(m_JoltSystem->GetBodyInterface().GetUserData(hit.mBodyID2));
+
+		// Get surface normal
+		JPH::BodyLockRead bodyLock(m_JoltSystem->GetBodyLockInterface(), hit.mBodyID2);
+		if (bodyLock.Succeeded())
+		{
+			outHit.Normal = JoltUtils::FromJoltVector(hit.mPenetrationAxis.Normalized());
+		}
+		else
+		{
+			outHit.Normal = glm::vec3(0.0f, 1.0f, 0.0f);
+		}
+
+		return true;
 	}
 
 	i32 JoltScene::OverlapShape(const ShapeOverlapInfo& overlapInfo, SceneQueryHit* outHits, i32 maxHits)
 	{
-		if (!m_JoltSystem || !outHits || maxHits <= 0)
-			return 0;
-
-		// Create shape based on overlap info
-		JPH::Ref<JPH::Shape> shape;
-		switch (overlapInfo.Shape)
-		{
-			case ShapeType::Box:
-				shape = new JPH::BoxShape(JoltUtils::ToJoltVector(overlapInfo.HalfExtents));
-				break;
-			case ShapeType::Sphere:
-				shape = new JPH::SphereShape(overlapInfo.Radius);
-				break;
-			case ShapeType::Capsule:
-				shape = new JPH::CapsuleShape(overlapInfo.HalfHeight, overlapInfo.Radius);
-				break;
-			default:
-				OLO_CORE_ERROR("Unsupported shape type for overlap query: {0}", static_cast<i32>(overlapInfo.Shape));
-				return 0;
-		}
-
-		// TODO: Implement overlap query
-		// This would require using Jolt's CollideShape functionality
+		// TODO: Implement shape overlap functionality
 		OLO_CORE_WARN("OverlapShape not yet implemented");
 		return 0;
 	}
