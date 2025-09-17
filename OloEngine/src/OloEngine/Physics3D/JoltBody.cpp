@@ -83,15 +83,26 @@ namespace OloEngine {
 		auto& bodyInterface = GetBodyInterface();
 		JPH::ObjectLayer objectLayer = JoltLayerInterface::GetObjectLayerForCollider(layerID, GetBodyType(), IsTrigger());
 		bodyInterface.SetObjectLayer(m_BodyID, objectLayer);
+
+		// Update component
+		if (m_Entity.HasComponent<RigidBody3DComponent>())
+		{
+			auto& component = m_Entity.GetComponent<RigidBody3DComponent>();
+			component.LayerID = layerID;
+		}
 	}
 
 	u32 JoltBody::GetCollisionLayer() const
 	{
 		if (m_BodyID.IsInvalid()) return 0;
 
-		auto& bodyInterface = GetBodyInterface();
-		JPH::ObjectLayer objectLayer = bodyInterface.GetObjectLayer(m_BodyID);
-		return static_cast<u32>(objectLayer);
+		// Get layer ID from component since it's the authoritative source
+		if (m_Entity.HasComponent<RigidBody3DComponent>())
+		{
+			const auto& component = m_Entity.GetComponent<RigidBody3DComponent>();
+			return component.LayerID;
+		}
+		return 0;
 	}
 
 	void JoltBody::SetTrigger(bool isTrigger)
@@ -722,8 +733,8 @@ namespace OloEngine {
 		EBodyType bodyType = static_cast<EBodyType>(rigidBodyComponent.Type);
 		JPH::EMotionType motionType = JoltUtils::ToJoltMotionType(bodyType);
 
-		// Get object layer
-		JPH::ObjectLayer objectLayer = JoltLayerInterface::GetObjectLayer(bodyType, rigidBodyComponent.IsTrigger);
+		// Get object layer using the physics layer system
+		JPH::ObjectLayer objectLayer = JoltLayerInterface::GetObjectLayerForCollider(rigidBodyComponent.LayerID, bodyType, rigidBodyComponent.IsTrigger);
 
 		// Create body creation settings
 		JPH::BodyCreationSettings bodySettings(

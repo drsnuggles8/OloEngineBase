@@ -242,6 +242,8 @@
 		"OloEngine/Physics3D/JoltUtils.cpp"
 		"OloEngine/Physics3D/JoltLayerInterface.h"
 		"OloEngine/Physics3D/JoltLayerInterface.cpp"
+		"OloEngine/Physics3D/PhysicsLayer.h"
+		"OloEngine/Physics3D/PhysicsLayer.cpp"
 		"OloEngine/Physics3D/JoltContactListener.h"
 		"OloEngine/Physics3D/JoltContactListener.cpp"
 		"OloEngine/Physics3D/JoltShapes.h"

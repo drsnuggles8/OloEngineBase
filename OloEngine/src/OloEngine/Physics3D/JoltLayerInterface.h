@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Physics3DTypes.h"
+#include "PhysicsLayer.h"
 #include "OloEngine/Core/Base.h"
 
 #include <Jolt/Jolt.h>
@@ -32,6 +33,25 @@ namespace OloEngine {
 	public:
 		virtual bool ShouldCollide(JPH::ObjectLayer inObject1, JPH::ObjectLayer inObject2) const override
 		{
+			// First check basic layer compatibility (static objects, triggers, etc.)
+			bool basicCheck = ShouldCollideBasic(inObject1, inObject2);
+			if (!basicCheck)
+				return false;
+
+			// If both layers are user-defined physics layers, check the physics layer manager
+			if (inObject1 >= ObjectLayers::NUM_LAYERS && inObject2 >= ObjectLayers::NUM_LAYERS)
+			{
+				u32 layer1 = static_cast<u32>(inObject1) - ObjectLayers::NUM_LAYERS;
+				u32 layer2 = static_cast<u32>(inObject2) - ObjectLayers::NUM_LAYERS;
+				return PhysicsLayerManager::ShouldCollide(layer1, layer2);
+			}
+
+			return basicCheck;
+		}
+
+	private:
+		bool ShouldCollideBasic(JPH::ObjectLayer inObject1, JPH::ObjectLayer inObject2) const
+		{
 			switch (inObject1)
 			{
 				case ObjectLayers::NON_MOVING:
@@ -45,8 +65,8 @@ namespace OloEngine {
 				case ObjectLayers::DEBRIS:
 					return inObject2 == ObjectLayers::NON_MOVING || inObject2 == ObjectLayers::MOVING; // Debris collides with static and moving
 				default:
-					OLO_CORE_ASSERT(false, "Unknown object layer");
-					return false;
+					// For user-defined layers, return true and let the physics layer manager handle it
+					return true;
 			}
 		}
 	};
@@ -142,7 +162,13 @@ namespace OloEngine {
 
 		static JPH::ObjectLayer GetObjectLayerForCollider(u32 layerID, EBodyType bodyType, bool isTrigger = false)
 		{
-			// For now, we use the simple mapping. In the future, we could extend this to use the layerID for more complex filtering
+			// If a valid physics layer is specified, use it (offset by the number of built-in layers)
+			if (PhysicsLayerManager::IsLayerValid(layerID))
+			{
+				return JPH::ObjectLayer(ObjectLayers::NUM_LAYERS + layerID);
+			}
+
+			// Fall back to the basic layer mapping for built-in layers
 			return GetObjectLayer(bodyType, isTrigger);
 		}
 

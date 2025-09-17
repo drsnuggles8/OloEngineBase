@@ -172,6 +172,7 @@ namespace OloEngine
 	struct RigidBody3DComponent
 	{
 		BodyType3D Type = BodyType3D::Static;
+		u32 LayerID = 0;
 		f32 Mass = 1.0f;
 		f32 LinearDrag = 0.01f;
 		f32 AngularDrag = 0.05f;
