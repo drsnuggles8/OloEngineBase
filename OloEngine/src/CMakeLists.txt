@@ -238,6 +238,9 @@
 		"OloEngine/Renderer/Commands/ThreadLocalCache.h"
 
 		"OloEngine/Physics3D/Physics3DTypes.h"
+		"OloEngine/Physics3D/PhysicsSettings.h"
+		"OloEngine/Physics3D/Physics3DSystem.h"
+		"OloEngine/Physics3D/Physics3DSystem.cpp"
 		"OloEngine/Physics3D/JoltUtils.h"
 		"OloEngine/Physics3D/JoltUtils.cpp"
 		"OloEngine/Physics3D/JoltLayerInterface.h"

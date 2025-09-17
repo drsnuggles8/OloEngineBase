@@ -1,6 +1,8 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "PhysicsSettings.h"
+#include "PhysicsLayer.h"
 #include <memory>
 
 // Jolt includes
@@ -36,22 +38,11 @@ namespace OloEngine {
     };
 
     /// Class that determines if two object layers can collide
-    class ObjectLayerPairFilterImpl : public JPH::ObjectLayerPairFilter
+    /// Now integrated with PhysicsLayerManager for dynamic layer configuration
+    class OloObjectLayerPairFilterImpl : public JPH::ObjectLayerPairFilter
     {
     public:
-        virtual bool ShouldCollide(JPH::ObjectLayer inObject1, JPH::ObjectLayer inObject2) const override
-        {
-            switch (inObject1)
-            {
-            case Layers::NON_MOVING:
-                return inObject2 == Layers::MOVING; // Non moving only collides with moving
-            case Layers::MOVING:
-                return true; // Moving collides with everything
-            default:
-                JPH_ASSERT(false);
-                return false;
-            }
-        }
+        virtual bool ShouldCollide(JPH::ObjectLayer inObject1, JPH::ObjectLayer inObject2) const override;
     };
 
     /// Each broadphase layer results in a separate bounding volume tree in the broad phase. You at least want to have
@@ -67,60 +58,32 @@ namespace OloEngine {
 
     /// BroadPhaseLayerInterface implementation
     /// This defines a mapping between object and broadphase layers.
-    class BPLayerInterfaceImpl final : public JPH::BroadPhaseLayerInterface
+    /// Now integrated with PhysicsLayerManager for dynamic layer configuration
+    class OloBPLayerInterfaceImpl final : public JPH::BroadPhaseLayerInterface
     {
     public:
-        BPLayerInterfaceImpl()
-        {
-            // Create a mapping table from object to broad phase layer
-            m_ObjectToBroadPhase[Layers::NON_MOVING] = BroadPhaseLayers::NON_MOVING;
-            m_ObjectToBroadPhase[Layers::MOVING] = BroadPhaseLayers::MOVING;
-        }
+        OloBPLayerInterfaceImpl();
+        void UpdateLayers(); // Update layer mappings when PhysicsLayerManager changes
 
-        virtual JPH::uint GetNumBroadPhaseLayers() const override
-        {
-            return BroadPhaseLayers::NUM_LAYERS;
-        }
-
-        virtual JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer inLayer) const override
-        {
-            JPH_ASSERT(inLayer < Layers::NUM_LAYERS);
-            return m_ObjectToBroadPhase[inLayer];
-        }
+        virtual JPH::uint GetNumBroadPhaseLayers() const override;
+        virtual JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer inLayer) const override;
 
 #if defined(JPH_EXTERNAL_PROFILE) || defined(JPH_PROFILE_ENABLED)
-        virtual const char* GetBroadPhaseLayerName(JPH::BroadPhaseLayer inLayer) const override
-        {
-            switch ((JPH::BroadPhaseLayer::Type)inLayer)
-            {
-            case (JPH::BroadPhaseLayer::Type)BroadPhaseLayers::NON_MOVING:	return "NON_MOVING";
-            case (JPH::BroadPhaseLayer::Type)BroadPhaseLayers::MOVING:		return "MOVING";
-            default:													JPH_ASSERT(false); return "INVALID";
-            }
-        }
+        virtual const char* GetBroadPhaseLayerName(JPH::BroadPhaseLayer inLayer) const override;
 #endif // JPH_EXTERNAL_PROFILE || JPH_PROFILE_ENABLED
 
     private:
-        JPH::BroadPhaseLayer m_ObjectToBroadPhase[Layers::NUM_LAYERS];
+        static constexpr JPH::uint MAX_LAYERS = 32; // Maximum supported physics layers
+        JPH::BroadPhaseLayer m_ObjectToBroadPhase[MAX_LAYERS];
+        JPH::uint m_NumLayers = 2; // Start with default layers
     };
 
     /// Class that determines if an object layer can collide with a broadphase layer
-    class ObjectVsBroadPhaseLayerFilterImpl : public JPH::ObjectVsBroadPhaseLayerFilter
+    /// Now integrated with PhysicsLayerManager for dynamic layer configuration
+    class OloObjectVsBroadPhaseLayerFilterImpl : public JPH::ObjectVsBroadPhaseLayerFilter
     {
     public:
-        virtual bool ShouldCollide(JPH::ObjectLayer inLayer1, JPH::BroadPhaseLayer inLayer2) const override
-        {
-            switch (inLayer1)
-            {
-            case Layers::NON_MOVING:
-                return inLayer2 == BroadPhaseLayers::MOVING;
-            case Layers::MOVING:
-                return true;
-            default:
-                JPH_ASSERT(false);
-                return false;
-            }
-        }
+        virtual bool ShouldCollide(JPH::ObjectLayer inLayer1, JPH::BroadPhaseLayer inLayer2) const override;
     };
 
     /// A body activation listener gets notified when bodies activate and go to sleep
@@ -186,6 +149,14 @@ namespace OloEngine {
         // Step the physics simulation
         void Update(f32 deltaTime);
 
+        // Settings management
+        static PhysicsSettings& GetSettings() { return s_PhysicsSettings; }
+        static void SetSettings(const PhysicsSettings& settings);
+        static void ApplySettings(); // Apply current settings to the physics system
+
+        // Layer management
+        static void UpdateLayerConfiguration(); // Update layer configuration when PhysicsLayerManager changes
+
         // Create a box body
         JPH::BodyID CreateBox(const JPH::RVec3& position, const JPH::Quat& rotation, const JPH::Vec3& halfExtent, bool isStatic = false);
         
@@ -203,22 +174,19 @@ namespace OloEngine {
         JPH::PhysicsSystem* GetPhysicsSystem() { return m_PhysicsSystem.get(); }
 
     private:
-        // Maximum number of bodies in the physics system
-        static constexpr u32 cMaxBodies = 65536;
+        // Physics settings - now configurable instead of hard-coded
+        inline static PhysicsSettings s_PhysicsSettings;
 
-        // Maximum number of body pairs that can be queued at any time
-        static constexpr u32 cMaxBodyPairs = 65536;
+        // Static access to current instance for settings application
+        inline static Physics3DSystem* s_Instance = nullptr;
 
-        // Maximum number of contact constraints that can be queued at any time
-        static constexpr u32 cMaxContactConstraints = 10240;
-
-        // Number of mutexes to allocate to protect rigid bodies from concurrent access
-        static constexpr u32 cNumBodyMutexes = 0;
+        // Static access to layer interfaces for global layer management
+        inline static OloBPLayerInterfaceImpl* s_BroadPhaseLayerInterface = nullptr;
 
         // Create mapping table from object layer to broadphase layer
-        BPLayerInterfaceImpl m_BroadPhaseLayerInterface;
-        ObjectVsBroadPhaseLayerFilterImpl m_ObjectVsBroadPhaseLayerFilter;
-        ObjectLayerPairFilterImpl m_ObjectLayerPairFilter;
+        OloBPLayerInterfaceImpl m_BroadPhaseLayerInterface;
+        OloObjectVsBroadPhaseLayerFilterImpl m_ObjectVsBroadPhaseLayerFilter;
+        OloObjectLayerPairFilterImpl m_ObjectLayerPairFilter;
 
         // The physics system
         std::unique_ptr<JPH::PhysicsSystem> m_PhysicsSystem;
@@ -234,6 +202,12 @@ namespace OloEngine {
         MyContactListener m_ContactListener;
 
         bool m_Initialized = false;
+
+        // Helper methods
+        void UpdatePhysicsSystemSettings();
+
+        // Number of mutexes to allocate to protect rigid bodies from concurrent access
+        static constexpr u32 cNumBodyMutexes = 0;
     };
 
 } // namespace OloEngine

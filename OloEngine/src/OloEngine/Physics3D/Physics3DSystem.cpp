@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Physics3DSystem.h"
+#include "PhysicsLayer.h"
 
 // Jolt includes
 #include <Jolt/RegisterTypes.h>
@@ -10,6 +11,9 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+
+// Standard includes
+#include <algorithm>
 
 // Disable common warnings triggered by Jolt
 JPH_SUPPRESS_WARNINGS
@@ -44,8 +48,74 @@ static bool AssertFailedImpl(const char* inExpression, const char* inMessage, co
 
 namespace OloEngine {
 
+// ================================================================================================
+// Layer Interface Implementations
+// ================================================================================================
+
+bool OloObjectLayerPairFilterImpl::ShouldCollide(JPH::ObjectLayer inObject1, JPH::ObjectLayer inObject2) const
+{
+    // Use the PhysicsLayerManager to determine if layers should collide
+    return PhysicsLayerManager::ShouldCollide(static_cast<u32>(inObject1), static_cast<u32>(inObject2));
+}
+
+OloBPLayerInterfaceImpl::OloBPLayerInterfaceImpl()
+{
+    // Initialize the layer mapping
+    UpdateLayers();
+}
+
+JPH::uint OloBPLayerInterfaceImpl::GetNumBroadPhaseLayers() const
+{
+    return std::min(PhysicsLayerManager::GetLayerCount(), static_cast<u32>(MAX_LAYERS));
+}
+
+JPH::BroadPhaseLayer OloBPLayerInterfaceImpl::GetBroadPhaseLayer(JPH::ObjectLayer inLayer) const
+{
+    // For now, map object layers directly to broadphase layers (1:1 mapping)
+    u32 layerIndex = static_cast<u32>(inLayer);
+    if (layerIndex < GetNumBroadPhaseLayers())
+        return JPH::BroadPhaseLayer(static_cast<JPH::BroadPhaseLayer::Type>(layerIndex));
+    
+    // Default to first layer if invalid
+    return JPH::BroadPhaseLayer(0);
+}
+
+#if defined(JPH_EXTERNAL_PROFILE) || defined(JPH_PROFILE_ENABLED)
+const char* OloBPLayerInterfaceImpl::GetBroadPhaseLayerName(JPH::BroadPhaseLayer inLayer) const
+{
+    u32 layerIndex = inLayer.GetValue();
+    const auto& layerNames = PhysicsLayerManager::GetLayerNames();
+    
+    if (layerIndex < layerNames.size())
+        return layerNames[layerIndex].c_str();
+    
+    return "Unknown";
+}
+#endif // JPH_EXTERNAL_PROFILE || JPH_PROFILE_ENABLED
+
+void OloBPLayerInterfaceImpl::UpdateLayers()
+{
+    // This method can be called when the layer configuration changes
+    // Currently using direct mapping, but could be extended for more complex mapping strategies
+}
+
+bool OloObjectVsBroadPhaseLayerFilterImpl::ShouldCollide(JPH::ObjectLayer inLayer1, JPH::BroadPhaseLayer inLayer2) const
+{
+    // Convert broadphase layer back to object layer for collision checking
+    // Since we use 1:1 mapping, this is straightforward
+    JPH::ObjectLayer objectLayer2 = static_cast<JPH::ObjectLayer>(inLayer2.GetValue());
+    return PhysicsLayerManager::ShouldCollide(static_cast<u32>(inLayer1), static_cast<u32>(objectLayer2));
+}
+
+// ================================================================================================
+// Physics3DSystem Implementation
+// ================================================================================================
+
 Physics3DSystem::Physics3DSystem()
 {
+    // Set up static pointers for global access
+    s_Instance = this;
+    s_BroadPhaseLayerInterface = &m_BroadPhaseLayerInterface;
 }
 
 Physics3DSystem::~Physics3DSystem()
@@ -54,6 +124,12 @@ Physics3DSystem::~Physics3DSystem()
     {
         Shutdown();
     }
+    
+    // Clear static pointers
+    if (s_Instance == this)
+        s_Instance = nullptr;
+    if (s_BroadPhaseLayerInterface == &m_BroadPhaseLayerInterface)
+        s_BroadPhaseLayerInterface = nullptr;
 }
 
 bool Physics3DSystem::Initialize()
@@ -91,7 +167,10 @@ bool Physics3DSystem::Initialize()
 
     // Now we can create the actual physics system.
     m_PhysicsSystem = std::make_unique<JPH::PhysicsSystem>();
-    m_PhysicsSystem->Init(cMaxBodies, cNumBodyMutexes, cMaxBodyPairs, cMaxContactConstraints, m_BroadPhaseLayerInterface, m_ObjectVsBroadPhaseLayerFilter, m_ObjectLayerPairFilter);
+    m_PhysicsSystem->Init(s_PhysicsSettings.MaxBodies, cNumBodyMutexes, s_PhysicsSettings.MaxBodyPairs, s_PhysicsSettings.MaxContactConstraints, m_BroadPhaseLayerInterface, m_ObjectVsBroadPhaseLayerFilter, m_ObjectLayerPairFilter);
+
+    // Apply physics settings to the Jolt system
+    UpdatePhysicsSystemSettings();
 
     // A body activation listener gets notified when bodies activate and go to sleep
     // Note that this is called from a job so whatever you do here needs to be thread safe.
@@ -151,13 +230,13 @@ void Physics3DSystem::Update(f32 deltaTime)
         return;
     }
 
-    // If you take larger steps than 1 / 60th of a second you need to do multiple collision steps in order to keep the simulation stable.
-    // Do 1 step per 1/60th of a second (round up).
-    const f32 cStepTime = 1.0f / 60.0f;
-    i32 cCollisionSteps = static_cast<i32>(ceil(deltaTime / cStepTime));
+    // If you take larger steps than the fixed timestep you need to do multiple collision steps in order to keep the simulation stable.
+    // Do 1 step per fixed timestep (round up).
+    const f32 stepTime = s_PhysicsSettings.FixedTimestep;
+    i32 collisionSteps = static_cast<i32>(ceil(deltaTime / stepTime));
 
     // Step the world
-    m_PhysicsSystem->Update(deltaTime, cCollisionSteps, m_TempAllocator.get(), m_JobSystem.get());
+    m_PhysicsSystem->Update(deltaTime, collisionSteps, m_TempAllocator.get(), m_JobSystem.get());
 }
 
 JPH::BodyID Physics3DSystem::CreateBox(const JPH::RVec3& position, const JPH::Quat& rotation, const JPH::Vec3& halfExtent, bool isStatic)
@@ -222,6 +301,72 @@ void Physics3DSystem::RemoveBody(JPH::BodyID bodyID)
 
     // Destroy the body. After this the body ID is no longer valid.
     body_interface.DestroyBody(bodyID);
+}
+
+void Physics3DSystem::SetSettings(const PhysicsSettings& settings)
+{
+    s_PhysicsSettings = settings;
+    ApplySettings();
+}
+
+void Physics3DSystem::ApplySettings()
+{
+    // Apply settings if there's an active physics system instance
+    if (s_Instance && s_PhysicsSettings.MaxBodies > 0) // Basic validation
+    {
+        s_Instance->UpdatePhysicsSystemSettings();
+    }
+}
+
+void Physics3DSystem::UpdatePhysicsSystemSettings()
+{
+    if (!m_PhysicsSystem)
+        return;
+
+    // Apply gravity directly to the physics system
+    m_PhysicsSystem->SetGravity(JPH::Vec3(s_PhysicsSettings.Gravity.x, s_PhysicsSettings.Gravity.y, s_PhysicsSettings.Gravity.z));
+
+    // Create Jolt physics settings from our settings
+    JPH::PhysicsSettings joltSettings;
+    
+    // Basic simulation settings
+    joltSettings.mNumVelocitySteps = s_PhysicsSettings.VelocitySolverIterations;
+    joltSettings.mNumPositionSteps = s_PhysicsSettings.PositionSolverIterations;
+    
+    // Advanced Jolt settings
+    joltSettings.mBaumgarte = s_PhysicsSettings.Baumgarte;
+    joltSettings.mSpeculativeContactDistance = s_PhysicsSettings.SpeculativeContactDistance;
+    joltSettings.mPenetrationSlop = s_PhysicsSettings.PenetrationSlop;
+    joltSettings.mLinearCastThreshold = s_PhysicsSettings.LinearCastThreshold;
+    joltSettings.mMinVelocityForRestitution = s_PhysicsSettings.MinVelocityForRestitution;
+    joltSettings.mTimeBeforeSleep = s_PhysicsSettings.TimeBeforeSleep;
+    joltSettings.mPointVelocitySleepThreshold = s_PhysicsSettings.PointVelocitySleepThreshold;
+    
+    // Boolean settings
+    joltSettings.mDeterministicSimulation = s_PhysicsSettings.DeterministicSimulation;
+    joltSettings.mConstraintWarmStart = s_PhysicsSettings.ConstraintWarmStart;
+    joltSettings.mUseBodyPairContactCache = s_PhysicsSettings.UseBodyPairContactCache;
+    joltSettings.mUseManifoldReduction = s_PhysicsSettings.UseManifoldReduction;
+    joltSettings.mUseLargeIslandSplitter = s_PhysicsSettings.UseLargeIslandSplitter;
+    joltSettings.mAllowSleeping = s_PhysicsSettings.AllowSleeping;
+
+    // Apply settings to the physics system
+    m_PhysicsSystem->SetPhysicsSettings(joltSettings);
+    
+    OLO_CORE_INFO("Physics settings applied successfully");
+}
+
+void Physics3DSystem::UpdateLayerConfiguration()
+{
+    // Update the broadphase layer interface when layer configuration changes
+    if (s_BroadPhaseLayerInterface)
+    {
+        s_BroadPhaseLayerInterface->UpdateLayers();
+    }
+    
+    // Note: In a real implementation, you might need to recreate the physics system
+    // or update the collision filters if the layer configuration changes significantly
+    // For now, this provides the foundation for dynamic layer management
 }
 
 } // namespace OloEngine
