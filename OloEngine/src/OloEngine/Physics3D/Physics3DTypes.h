@@ -2,8 +2,15 @@
 
 #include "OloEngine/Core/Base.h"
 #include <glm/glm.hpp>
+#include <functional>
 
 namespace OloEngine {
+
+	// Forward declarations
+	class Entity;
+
+	// Character controller contact callback function type
+	using ContactCallbackFn = std::function<void(Entity entity, Entity otherEntity)>;
 
 	enum class EForceMode : u8
 	{

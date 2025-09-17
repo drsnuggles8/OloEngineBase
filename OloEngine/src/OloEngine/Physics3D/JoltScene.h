@@ -5,6 +5,7 @@
 #include "JoltLayerInterface.h"
 #include "JoltContactListener.h"
 #include "JoltBody.h"
+#include "JoltCharacterController.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Scene/Entity.h"
@@ -48,6 +49,15 @@ namespace OloEngine {
 		void DestroyBody(Entity entity);
 		Ref<JoltBody> GetBody(Entity entity);
 		Ref<JoltBody> GetBodyByEntityID(UUID entityID);
+
+		// Character controller management
+		Ref<JoltCharacterController> CreateCharacterController(Entity entity, const ContactCallbackFn& contactCallback = nullptr);
+		void DestroyCharacterController(Entity entity);
+		Ref<JoltCharacterController> GetCharacterController(Entity entity);
+		Ref<JoltCharacterController> GetCharacterControllerByEntityID(UUID entityID);
+
+		// Layer interface access for character controllers
+		JPH::PhysicsSystem* GetPhysicsSystem() const { return m_JoltSystem.get(); }
 
 		// Scene lifecycle
 		void OnRuntimeStart();
@@ -111,6 +121,10 @@ namespace OloEngine {
 		// Body management
 		std::unordered_map<UUID, Ref<JoltBody>> m_Bodies;
 		std::vector<Ref<JoltBody>> m_BodiesToSync;
+
+		// Character controller management
+		std::unordered_map<UUID, Ref<JoltCharacterController>> m_CharacterControllers;
+		std::vector<Ref<JoltCharacterController>> m_CharacterControllersToUpdate;
 
 		// Simulation settings
 		f32 m_FixedTimeStep = 1.0f / 60.0f;

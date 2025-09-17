@@ -234,6 +234,21 @@ namespace OloEngine
 		CapsuleCollider3DComponent(const CapsuleCollider3DComponent&) = default;
 	};
 
+	struct CharacterController3DComponent
+	{
+		f32 SlopeLimitDeg = 45.0f;
+		f32 StepOffset = 0.4f;
+		f32 JumpPower = 8.0f;
+		u32 LayerID = 0;
+		
+		bool DisableGravity = false;
+		bool ControlMovementInAir = false;
+		bool ControlRotationInAir = false;
+
+		CharacterController3DComponent() = default;
+		CharacterController3DComponent(const CharacterController3DComponent&) = default;
+	};
+
 	struct TextComponent
 	{
 		std::string TextString;
@@ -318,6 +333,7 @@ namespace OloEngine
 		BoxCollider3DComponent,
 		SphereCollider3DComponent,
 		CapsuleCollider3DComponent,
+		CharacterController3DComponent,
 		TextComponent,
 		ScriptComponent,
 		AudioSourceComponent,

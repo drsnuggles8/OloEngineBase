@@ -909,3 +909,8 @@ template<>
 void OloEngine::Scene::OnComponentAdded<OloEngine::CapsuleCollider3DComponent>(OloEngine::Entity entity, OloEngine::CapsuleCollider3DComponent& component)
 {
 }
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::CharacterController3DComponent>(OloEngine::Entity entity, OloEngine::CharacterController3DComponent& component)
+{
+}

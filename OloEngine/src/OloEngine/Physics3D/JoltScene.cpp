@@ -64,6 +64,14 @@ namespace OloEngine {
 		m_Bodies.clear();
 		m_BodiesToSync.clear();
 
+		// Destroy all character controllers
+		for (auto& [entityID, characterController] : m_CharacterControllers)
+		{
+			// Character controller destructor will handle Jolt cleanup
+		}
+		m_CharacterControllers.clear();
+		m_CharacterControllersToUpdate.clear();
+
 		JoltShapes::Shutdown();
 		ShutdownJolt();
 
@@ -100,6 +108,18 @@ namespace OloEngine {
 		if (!m_JoltSystem)
 			return;
 
+		// Pre-simulate character controllers
+		for (auto& characterController : m_CharacterControllersToUpdate)
+		{
+			characterController->PreSimulate(fixedTimeStep);
+		}
+
+		// Simulate character controllers
+		for (auto& characterController : m_CharacterControllersToUpdate)
+		{
+			characterController->Simulate(fixedTimeStep);
+		}
+
 		// Step the physics simulation
 		JPH::EPhysicsUpdateError error = m_JoltSystem->Update(
 			fixedTimeStep, 
@@ -111,6 +131,12 @@ namespace OloEngine {
 		if (error != JPH::EPhysicsUpdateError::None)
 		{
 			OLO_CORE_ERROR("Jolt physics update error: {0}", static_cast<i32>(error));
+		}
+
+		// Post-simulate character controllers
+		for (auto& characterController : m_CharacterControllersToUpdate)
+		{
+			characterController->PostSimulate();
 		}
 	}
 
@@ -193,6 +219,67 @@ namespace OloEngine {
 	{
 		auto it = m_Bodies.find(entityID);
 		return (it != m_Bodies.end()) ? it->second : nullptr;
+	}
+
+	Ref<JoltCharacterController> JoltScene::CreateCharacterController(Entity entity, const ContactCallbackFn& contactCallback)
+	{
+		if (!entity || !m_Initialized)
+			return nullptr;
+
+		UUID entityID = entity.GetUUID();
+
+		// Check if character controller already exists
+		auto it = m_CharacterControllers.find(entityID);
+		if (it != m_CharacterControllers.end())
+		{
+			OLO_CORE_WARN("Character controller already exists for entity {0}", (u64)entityID);
+			return it->second;
+		}
+
+		// Create character controller
+		auto characterController = Ref<JoltCharacterController>(new JoltCharacterController(entity, this, contactCallback));
+		
+		// Store it
+		m_CharacterControllers[entityID] = characterController;
+		m_CharacterControllersToUpdate.push_back(characterController);
+
+		OLO_CORE_TRACE("Created character controller for entity {0}", (u64)entityID);
+		return characterController;
+	}
+
+	void JoltScene::DestroyCharacterController(Entity entity)
+	{
+		if (!entity)
+			return;
+
+		UUID entityID = entity.GetUUID();
+		auto it = m_CharacterControllers.find(entityID);
+		if (it != m_CharacterControllers.end())
+		{
+			// Remove from update list
+			auto updateIt = std::find(m_CharacterControllersToUpdate.begin(), m_CharacterControllersToUpdate.end(), it->second);
+			if (updateIt != m_CharacterControllersToUpdate.end())
+			{
+				m_CharacterControllersToUpdate.erase(updateIt);
+			}
+
+			m_CharacterControllers.erase(it);
+			OLO_CORE_TRACE("Destroyed character controller for entity {0}", (u64)entityID);
+		}
+	}
+
+	Ref<JoltCharacterController> JoltScene::GetCharacterController(Entity entity)
+	{
+		if (!entity)
+			return nullptr;
+
+		return GetCharacterControllerByEntityID(entity.GetUUID());
+	}
+
+	Ref<JoltCharacterController> JoltScene::GetCharacterControllerByEntityID(UUID entityID)
+	{
+		auto it = m_CharacterControllers.find(entityID);
+		return (it != m_CharacterControllers.end()) ? it->second : nullptr;
 	}
 
 	void JoltScene::OnRuntimeStart()
