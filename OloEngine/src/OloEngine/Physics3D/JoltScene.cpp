@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "JoltScene.h"
+#include "EntityExclusionBodyFilter.h"
 #include "SceneQueries.h"
 #include "JoltShapes.h"
 #include "OloEngine/Core/Log.h"
@@ -24,8 +25,6 @@
 #include <Jolt/Physics/Collision/CollideShape.h>
 
 namespace OloEngine {
-
-	// TODO: Add body filter class to handle excluded entities later
 
 	JoltScene::JoltScene(Scene* scene)
 		: m_Scene(scene)
@@ -335,34 +334,6 @@ namespace OloEngine {
 		ray.mOrigin = JoltUtils::ToJoltVector(rayInfo.Origin);
 		ray.mDirection = JoltUtils::ToJoltVector(glm::normalize(rayInfo.Direction)) * rayInfo.MaxDistance;
 
-		// Create body filter for entity exclusion
-		class EntityExclusionBodyFilter : public JPH::BodyFilter
-		{
-		public:
-			EntityExclusionBodyFilter(const std::vector<UUID>& excludedEntities) : m_ExcludedEntities(excludedEntities) {}
-
-			virtual bool ShouldCollide(const JPH::BodyID& inBodyID) const override
-			{
-				// Always allow initial filter check
-				(void)inBodyID; // Suppress unused parameter warning
-				return true;
-			}
-
-			virtual bool ShouldCollideLocked(const JPH::Body& inBody) const override
-			{
-				UUID entityID = static_cast<UUID>(inBody.GetUserData());
-				return !IsEntityExcluded(entityID);
-			}
-
-		private:
-			bool IsEntityExcluded(UUID entityID) const
-			{
-				return std::find(m_ExcludedEntities.begin(), m_ExcludedEntities.end(), entityID) != m_ExcludedEntities.end();
-			}
-
-			const std::vector<UUID>& m_ExcludedEntities;
-		};
-
 		// Perform ray cast
 		JPH::ClosestHitCollisionCollector<JPH::CastRayCollector> hitCollector;
 		JPH::RayCastSettings rayCastSettings;
@@ -501,28 +472,6 @@ namespace OloEngine {
 		JPH::RRayCast ray;
 		ray.mOrigin = JoltUtils::ToJoltVector(rayInfo.Origin);
 		ray.mDirection = JoltUtils::ToJoltVector(glm::normalize(rayInfo.Direction)) * rayInfo.MaxDistance;
-
-		// Create body filter for entity exclusion
-		class EntityExclusionBodyFilter : public JPH::BodyFilter
-		{
-		public:
-			EntityExclusionBodyFilter(const std::vector<UUID>& excludedEntities) : m_ExcludedEntities(excludedEntities) {}
-
-			virtual bool ShouldCollide(const JPH::BodyID& inBodyID) const override
-			{
-				(void)inBodyID; // Suppress unused parameter warning
-				return true;
-			}
-
-			virtual bool ShouldCollideLocked(const JPH::Body& inBody) const override
-			{
-				UUID entityID = static_cast<UUID>(inBody.GetUserData());
-				return std::find(m_ExcludedEntities.begin(), m_ExcludedEntities.end(), entityID) == m_ExcludedEntities.end();
-			}
-
-		private:
-			const std::vector<UUID>& m_ExcludedEntities;
-		};
 
 		// Perform ray cast with multiple hit collector
 		JPH::AllHitCollisionCollector<JPH::CastRayCollector> hitCollector;
@@ -739,28 +688,6 @@ namespace OloEngine {
 			castDirection
 		);
 
-		// Create body filter for entity exclusion
-		class EntityExclusionBodyFilter : public JPH::BodyFilter
-		{
-		public:
-			EntityExclusionBodyFilter(const std::vector<UUID>& excludedEntities) : m_ExcludedEntities(excludedEntities) {}
-
-			virtual bool ShouldCollide(const JPH::BodyID& inBodyID) const override
-			{
-				(void)inBodyID; // Suppress unused parameter warning
-				return true;
-			}
-
-			virtual bool ShouldCollideLocked(const JPH::Body& inBody) const override
-			{
-				UUID entityID = static_cast<UUID>(inBody.GetUserData());
-				return std::find(m_ExcludedEntities.begin(), m_ExcludedEntities.end(), entityID) == m_ExcludedEntities.end();
-			}
-
-		private:
-			const std::vector<UUID>& m_ExcludedEntities;
-		};
-
 		// Perform shape cast
 		JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> hitCollector;
 		JPH::ShapeCastSettings shapeCastSettings;
@@ -791,28 +718,6 @@ namespace OloEngine {
 			JoltUtils::ToJoltQuat(rotation),
 			JoltUtils::ToJoltVector(position)
 		);
-
-		// Create body filter for entity exclusion
-		class EntityExclusionBodyFilter : public JPH::BodyFilter
-		{
-		public:
-			EntityExclusionBodyFilter(const std::vector<UUID>& excludedEntities) : m_ExcludedEntities(excludedEntities) {}
-
-			virtual bool ShouldCollide(const JPH::BodyID& inBodyID) const override
-			{
-				(void)inBodyID; // Suppress unused parameter warning
-				return true;
-			}
-
-			virtual bool ShouldCollideLocked(const JPH::Body& inBody) const override
-			{
-				UUID entityID = static_cast<UUID>(inBody.GetUserData());
-				return std::find(m_ExcludedEntities.begin(), m_ExcludedEntities.end(), entityID) == m_ExcludedEntities.end();
-			}
-
-		private:
-			const std::vector<UUID>& m_ExcludedEntities;
-		};
 
 		// Perform overlap query
 		JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> hitCollector;

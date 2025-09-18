@@ -256,6 +256,8 @@
 		"OloEngine/Physics3D/JoltBody.cpp"
 		"OloEngine/Physics3D/JoltScene.h"
 		"OloEngine/Physics3D/JoltScene.cpp"
+		"OloEngine/Physics3D/EntityExclusionBodyFilter.h"
+		"OloEngine/Physics3D/EntityExclusionBodyFilter.cpp"
 		"OloEngine/Physics3D/JoltCharacterController.h"
 		"OloEngine/Physics3D/JoltCharacterController.cpp"
 		"OloEngine/Physics3D/JoltBinaryStream.h"
