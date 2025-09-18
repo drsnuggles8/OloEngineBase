@@ -949,38 +949,38 @@ namespace OloEngine {
 		if (m_Entity.HasComponent<BoxCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<BoxCollider3DComponent>();
-			friction = collider.Friction;
-			restitution = collider.Restitution;
+			friction = collider.Material.StaticFriction;
+			restitution = collider.Material.Restitution;
 		}
 		else if (m_Entity.HasComponent<SphereCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<SphereCollider3DComponent>();
-			friction = collider.Friction;
-			restitution = collider.Restitution;
+			friction = collider.Material.StaticFriction;
+			restitution = collider.Material.Restitution;
 		}
 		else if (m_Entity.HasComponent<CapsuleCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<CapsuleCollider3DComponent>();
-			friction = collider.Friction;
-			restitution = collider.Restitution;
+			friction = collider.Material.StaticFriction;
+			restitution = collider.Material.Restitution;
 		}
 		else if (m_Entity.HasComponent<MeshCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<MeshCollider3DComponent>();
-			friction = collider.Friction;
-			restitution = collider.Restitution;
+			friction = collider.Material.StaticFriction;
+			restitution = collider.Material.Restitution;
 		}
 		else if (m_Entity.HasComponent<ConvexMeshCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<ConvexMeshCollider3DComponent>();
-			friction = collider.Friction;
-			restitution = collider.Restitution;
+			friction = collider.Material.StaticFriction;
+			restitution = collider.Material.Restitution;
 		}
 		else if (m_Entity.HasComponent<TriangleMeshCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<TriangleMeshCollider3DComponent>();
-			friction = collider.Friction;
-			restitution = collider.Restitution;
+			friction = collider.Material.StaticFriction;
+			restitution = collider.Material.Restitution;
 		}
 
 		// Apply the material properties to the body settings

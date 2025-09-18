@@ -200,9 +200,7 @@ namespace OloEngine
 		glm::vec3 Offset = { 0.0f, 0.0f, 0.0f };
 
 		// Physics material properties
-		f32 Density = 1.0f;
-		f32 Friction = 0.5f;
-		f32 Restitution = 0.0f;
+		ColliderMaterial Material;
 
 		BoxCollider3DComponent() = default;
 		BoxCollider3DComponent(const BoxCollider3DComponent&) = default;
@@ -214,9 +212,7 @@ namespace OloEngine
 		glm::vec3 Offset = { 0.0f, 0.0f, 0.0f };
 
 		// Physics material properties
-		f32 Density = 1.0f;
-		f32 Friction = 0.5f;
-		f32 Restitution = 0.0f;
+		ColliderMaterial Material;
 
 		SphereCollider3DComponent() = default;
 		SphereCollider3DComponent(const SphereCollider3DComponent&) = default;
@@ -229,9 +225,7 @@ namespace OloEngine
 		glm::vec3 Offset = { 0.0f, 0.0f, 0.0f };
 
 		// Physics material properties
-		f32 Density = 1.0f;
-		f32 Friction = 0.5f;
-		f32 Restitution = 0.0f;
+		ColliderMaterial Material;
 
 		CapsuleCollider3DComponent() = default;
 		CapsuleCollider3DComponent(const CapsuleCollider3DComponent&) = default;
@@ -244,9 +238,7 @@ namespace OloEngine
 		glm::vec3 Scale = { 1.0f, 1.0f, 1.0f };
 
 		// Physics material properties
-		f32 Density = 1.0f;
-		f32 Friction = 0.5f;
-		f32 Restitution = 0.0f;
+		ColliderMaterial Material;
 
 		// Collision complexity setting
 		bool UseComplexAsSimple = false;  // If true, use triangle mesh for dynamic bodies
@@ -263,9 +255,7 @@ namespace OloEngine
 		glm::vec3 Scale = { 1.0f, 1.0f, 1.0f };
 
 		// Physics material properties
-		f32 Density = 1.0f;
-		f32 Friction = 0.5f;
-		f32 Restitution = 0.0f;
+		ColliderMaterial Material;
 
 		// Convex hull settings
 		f32 ConvexRadius = 0.05f;  // Jolt convex radius for shape rounding
@@ -283,9 +273,7 @@ namespace OloEngine
 		glm::vec3 Scale = { 1.0f, 1.0f, 1.0f };
 
 		// Physics material properties
-		f32 Density = 1.0f;
-		f32 Friction = 0.5f;
-		f32 Restitution = 0.0f;
+		ColliderMaterial Material;
 
 		// Triangle mesh is always static - no additional settings needed
 
