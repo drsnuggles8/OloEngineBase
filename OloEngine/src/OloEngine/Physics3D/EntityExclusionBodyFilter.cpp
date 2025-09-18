@@ -3,17 +3,18 @@
 
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Body/Body.h>
+#include <algorithm>
 
 namespace OloEngine {
 
 	EntityExclusionBodyFilter::EntityExclusionBodyFilter(const std::vector<UUID>& excludedEntities)
-		: m_ExcludedEntities(excludedEntities)
+		: m_ExcludedEntities(excludedEntities.begin(), excludedEntities.end())
 	{
 	}
 
 	EntityExclusionBodyFilter::EntityExclusionBodyFilter(UUID excludedEntity)
 	{
-		m_ExcludedEntities.push_back(excludedEntity);
+		m_ExcludedEntities.insert(excludedEntity);
 	}
 
 	bool EntityExclusionBodyFilter::ShouldCollide(const JPH::BodyID& inBodyID) const
@@ -35,20 +36,13 @@ namespace OloEngine {
 
 	void EntityExclusionBodyFilter::AddExcludedEntity(UUID entityID)
 	{
-		// Only add if not already present
-		if (!IsEntityExcluded(entityID))
-		{
-			m_ExcludedEntities.push_back(entityID);
-		}
+		// Insert will automatically handle duplicates (won't insert if already present)
+		m_ExcludedEntities.insert(entityID);
 	}
 
 	void EntityExclusionBodyFilter::RemoveExcludedEntity(UUID entityID)
 	{
-		auto it = std::find(m_ExcludedEntities.begin(), m_ExcludedEntities.end(), entityID);
-		if (it != m_ExcludedEntities.end())
-		{
-			m_ExcludedEntities.erase(it);
-		}
+		m_ExcludedEntities.erase(entityID);
 	}
 
 	void EntityExclusionBodyFilter::ClearExcludedEntities()
@@ -58,7 +52,12 @@ namespace OloEngine {
 
 	bool EntityExclusionBodyFilter::IsEntityExcluded(UUID entityID) const
 	{
-		return std::find(m_ExcludedEntities.begin(), m_ExcludedEntities.end(), entityID) != m_ExcludedEntities.end();
+		return m_ExcludedEntities.find(entityID) != m_ExcludedEntities.end();
+	}
+
+	std::vector<UUID> EntityExclusionBodyFilter::GetExcludedEntities() const
+	{
+		return std::vector<UUID>(m_ExcludedEntities.begin(), m_ExcludedEntities.end());
 	}
 
 }

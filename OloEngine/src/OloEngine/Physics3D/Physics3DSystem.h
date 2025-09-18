@@ -4,6 +4,8 @@
 #include "PhysicsSettings.h"
 #include "PhysicsLayer.h"
 #include <memory>
+#include <stdexcept>
+#include <cassert>
 
 // Forward declarations
 namespace OloEngine {
@@ -24,7 +26,6 @@ namespace OloEngine {
 #include <Jolt/Physics/Body/BodyActivationListener.h>
 
 // STL includes
-#include <iostream>
 #include <cstdarg>
 #include <thread>
 
@@ -172,8 +173,20 @@ namespace OloEngine {
         void RemoveBody(JPH::BodyID bodyID);
 
         // Get body interface for direct manipulation
-        JPH::BodyInterface& GetBodyInterface() { return m_PhysicsSystem->GetBodyInterface(); }
-        const JPH::BodyInterface& GetBodyInterface() const { return m_PhysicsSystem->GetBodyInterface(); }
+        JPH::BodyInterface& GetBodyInterface() 
+        { 
+            assert(m_PhysicsSystem && "PhysicsSystem not initialized in Physics3DSystem::GetBodyInterface");
+            if (!m_PhysicsSystem) 
+                throw std::runtime_error("PhysicsSystem not initialized in Physics3DSystem::GetBodyInterface");
+            return m_PhysicsSystem->GetBodyInterface(); 
+        }
+        const JPH::BodyInterface& GetBodyInterface() const 
+        { 
+            assert(m_PhysicsSystem && "PhysicsSystem not initialized in Physics3DSystem::GetBodyInterface");
+            if (!m_PhysicsSystem) 
+                throw std::runtime_error("PhysicsSystem not initialized in Physics3DSystem::GetBodyInterface");
+            return m_PhysicsSystem->GetBodyInterface(); 
+        }
 
         // Get the physics system for direct access
         JPH::PhysicsSystem* GetPhysicsSystem() { return m_PhysicsSystem.get(); }
@@ -215,7 +228,12 @@ namespace OloEngine {
         void UpdatePhysicsSystemSettings();
 
         // Number of mutexes to allocate to protect rigid bodies from concurrent access
-        static constexpr u32 cNumBodyMutexes = 0;
+        // Can be overridden at compile time via -DOLO_PHYSICS_BODY_MUTEXES=N
+        #ifndef OLO_PHYSICS_BODY_MUTEXES
+        static constexpr u32 cNumBodyMutexes = 8; // Default: 8 mutexes for reasonable concurrency protection
+        #else
+        static constexpr u32 cNumBodyMutexes = OLO_PHYSICS_BODY_MUTEXES;
+        #endif
     };
 
 } // namespace OloEngine

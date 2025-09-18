@@ -1345,10 +1345,10 @@ namespace OloEngine
         // Serialize Material properties
         out << YAML::Key << "Material" << YAML::Value;
         out << YAML::BeginMap; // Material
-        out << YAML::Key << "StaticFriction" << YAML::Value << meshCollider->m_Material.StaticFriction;
-        out << YAML::Key << "DynamicFriction" << YAML::Value << meshCollider->m_Material.DynamicFriction;
-        out << YAML::Key << "Restitution" << YAML::Value << meshCollider->m_Material.Restitution;
-        out << YAML::Key << "Density" << YAML::Value << meshCollider->m_Material.Density;
+        out << YAML::Key << "StaticFriction" << YAML::Value << meshCollider->m_Material.m_StaticFriction;
+        out << YAML::Key << "DynamicFriction" << YAML::Value << meshCollider->m_Material.m_DynamicFriction;
+        out << YAML::Key << "Restitution" << YAML::Value << meshCollider->m_Material.m_Restitution;
+        out << YAML::Key << "Density" << YAML::Value << meshCollider->m_Material.m_Density;
         out << YAML::EndMap; // Material
         
         // Serialize other properties
@@ -1398,16 +1398,16 @@ namespace OloEngine
                 if (materialNode["Friction"])
                 {
                     float friction = materialNode["Friction"].as<float>(0.5f);
-                    material.StaticFriction = friction;
-                    material.DynamicFriction = friction;
+                    material.m_StaticFriction = friction;
+                    material.m_DynamicFriction = friction;
                 }
                 else
                 {
-                    material.StaticFriction = materialNode["StaticFriction"].as<float>(0.6f);
-                    material.DynamicFriction = materialNode["DynamicFriction"].as<float>(0.6f);
+                    material.m_StaticFriction = materialNode["StaticFriction"].as<float>(0.6f);
+                    material.m_DynamicFriction = materialNode["DynamicFriction"].as<float>(0.6f);
                 }
-                material.Restitution = materialNode["Restitution"].as<float>(0.0f);
-                material.Density = materialNode["Density"].as<float>(1000.0f);
+                material.m_Restitution = materialNode["Restitution"].as<float>(0.0f);
+                material.m_Density = materialNode["Density"].as<float>(1000.0f);
                 targetMeshCollider->m_Material = material;
             }
             

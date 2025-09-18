@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/UUID.h"
 #include <vector>
+#include <unordered_set>
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Body/BodyFilter.h>
 
@@ -74,12 +75,12 @@ namespace OloEngine {
 
 		/**
 		 * @brief Get the list of excluded entities
-		 * @return Const reference to the exclusion list
+		 * @return Vector containing all excluded entities
 		 */
-		const std::vector<UUID>& GetExcludedEntities() const { return m_ExcludedEntities; }
+		std::vector<UUID> GetExcludedEntities() const;
 
 	private:
-		std::vector<UUID> m_ExcludedEntities;
+		std::unordered_set<UUID> m_ExcludedEntities;
 	};
 
 }

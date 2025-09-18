@@ -3,20 +3,27 @@
 #include "OloEngine/Core/Base.h"
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 namespace OloEngine {
 
+	// Physics layer constants
+	constexpr u32 INVALID_LAYER_ID = static_cast<u32>(-1);
+	constexpr i32 INVALID_BIT_MASK = -1;
+	constexpr i32 NO_COLLISION_BITS = 0;
+	constexpr i32 NO_PREVIOUS_LAYER_ID = -1;
+
 	struct PhysicsLayer
 	{
-		u32 LayerID;
-		std::string Name;
-		i32 BitValue;
-		i32 CollidesWith = 0;
-		bool CollidesWithSelf = true;
+		u32 m_LayerID;
+		std::string m_Name;
+		i32 m_BitValue;
+		i32 m_CollidesWith = 0;
+		bool m_CollidesWithSelf = true;
 
 		bool IsValid() const
 		{
-			return !Name.empty() && BitValue > 0;
+			return !m_Name.empty() && m_BitValue > 0;
 		}
 	};
 
@@ -29,10 +36,10 @@ namespace OloEngine {
 		static void UpdateLayerName(u32 layerId, const std::string& newName);
 
 		static void SetLayerCollision(u32 layerId, u32 otherLayer, bool shouldCollide);
-		static std::vector<PhysicsLayer> GetLayerCollisions(u32 layerId);
+		static void GetLayerCollisions(u32 layerId, std::vector<PhysicsLayer>& outLayers);
 
 		static const std::vector<PhysicsLayer>& GetLayers() { return s_Layers; }
-		static const std::vector<std::string>& GetLayerNames() { return s_LayerNames; }
+		static std::vector<std::string> GetLayerNames();
 
 		static PhysicsLayer& GetLayer(u32 layerId);
 		static PhysicsLayer& GetLayer(const std::string& layerName);
@@ -49,7 +56,7 @@ namespace OloEngine {
 
 	private:
 		static std::vector<PhysicsLayer> s_Layers;
-		static std::vector<std::string> s_LayerNames;
+		static std::unordered_map<u32, std::string> s_LayerNames;
 		static PhysicsLayer s_NullLayer;
 	};
 

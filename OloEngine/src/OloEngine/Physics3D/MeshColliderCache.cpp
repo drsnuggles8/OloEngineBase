@@ -95,7 +95,7 @@ namespace OloEngine {
 		{
 			std::lock_guard<std::mutex> lock(m_CacheMutex);
 			auto it = m_CachedData.find(handle);
-			if (it != m_CachedData.end() && it->second.IsValid)
+			if (it != m_CachedData.end() && it->second.m_IsValid)
 			{
 				m_CacheHits++;
 				return it->second;
@@ -104,7 +104,7 @@ namespace OloEngine {
 
 		// Cache miss - try to load from disk cache
 		CachedColliderData loadedData = LoadFromCache(colliderAsset);
-		if (loadedData.IsValid)
+		if (loadedData.m_IsValid)
 		{
 			// Add to memory cache
 			std::lock_guard<std::mutex> lock(m_CacheMutex);
@@ -134,7 +134,7 @@ namespace OloEngine {
 		{
 			// Try loading again after cooking
 			loadedData = LoadFromCache(colliderAsset);
-			if (loadedData.IsValid)
+			if (loadedData.m_IsValid)
 			{
 				std::lock_guard<std::mutex> lock(m_CacheMutex);
 				sizet dataSize = CalculateDataSize(loadedData);
@@ -164,7 +164,7 @@ namespace OloEngine {
 
 		std::lock_guard<std::mutex> lock(m_CacheMutex);
 		auto it = m_CachedData.find(colliderAsset->GetHandle());
-		return it != m_CachedData.end() && it->second.IsValid;
+		return it != m_CachedData.end() && it->second.m_IsValid;
 	}
 
 	std::future<ECookingResult> MeshColliderCache::CookMeshAsync(Ref<MeshColliderAsset> colliderAsset, EMeshColliderType type, bool invalidateOld)
@@ -230,30 +230,21 @@ namespace OloEngine {
 
 		if (hasSimple)
 		{
-			cachedData.SimpleColliderData = m_CookingFactory->DeserializeMeshCollider(simpleCachePath);
+			cachedData.m_SimpleColliderData = m_CookingFactory->DeserializeMeshCollider(simpleCachePath);
 		}
 
 		if (hasComplex)
 		{
-			cachedData.ComplexColliderData = m_CookingFactory->DeserializeMeshCollider(complexCachePath);
+			cachedData.m_ComplexColliderData = m_CookingFactory->DeserializeMeshCollider(complexCachePath);
 		}
 
-		cachedData.IsValid = (hasSimple && cachedData.SimpleColliderData.IsValid) || 
-							 (hasComplex && cachedData.ComplexColliderData.IsValid);
+		cachedData.m_IsValid = (hasSimple && cachedData.m_SimpleColliderData.m_IsValid) || 
+							   (hasComplex && cachedData.m_ComplexColliderData.m_IsValid);
 
-		if (cachedData.IsValid)
+		if (cachedData.m_IsValid)
 		{
-			// Update last modified time
-			std::filesystem::file_time_type latestTime = std::filesystem::file_time_type::min();
-			if (hasSimple)
-			{
-				latestTime = std::max(latestTime, std::filesystem::last_write_time(simpleCachePath));
-			}
-			if (hasComplex)
-			{
-				latestTime = std::max(latestTime, std::filesystem::last_write_time(complexCachePath));
-			}
-			cachedData.LastModified = latestTime;
+			// Update last modified time using current time since we're cooking fresh data
+			cachedData.m_LastModified = std::chrono::system_clock::now();
 		}
 
 		return cachedData;
@@ -346,12 +337,12 @@ namespace OloEngine {
 		// Simple LRU-like eviction - remove entries until we're under the threshold
 		sizet targetSize = static_cast<sizet>(m_MaxCacheSize * CacheEvictionThreshold * 0.7f); // Evict to 70% of threshold
 
-		std::vector<std::pair<AssetHandle, std::filesystem::file_time_type>> entries;
+		std::vector<std::pair<AssetHandle, std::chrono::system_clock::time_point>> entries;
 		entries.reserve(m_CachedData.size());
 
 		for (const auto& [handle, data] : m_CachedData)
 		{
-			entries.emplace_back(handle, data.LastModified);
+			entries.emplace_back(handle, data.m_LastModified);
 		}
 
 		// Sort by last modified time (oldest first)
@@ -382,8 +373,8 @@ namespace OloEngine {
 	bool MeshColliderCache::ShouldEvictEntry(const CachedColliderData& data) const
 	{
 		// Check if entry is old enough to be evicted
-		auto now = std::filesystem::file_time_type::clock::now();
-		auto entryAge = std::chrono::duration_cast<std::chrono::milliseconds>(now - data.LastModified);
+		auto now = std::chrono::system_clock::now();
+		auto entryAge = std::chrono::duration_cast<std::chrono::milliseconds>(now - data.m_LastModified);
 		
 		return entryAge.count() > MinCacheEntryLifetimeMs;
 	}
@@ -393,21 +384,21 @@ namespace OloEngine {
 		sizet size = 0;
 
 		// Calculate size of simple collider data
-		for (const auto& submesh : data.SimpleColliderData.Submeshes)
+		for (const auto& submesh : data.m_SimpleColliderData.m_Submeshes)
 		{
-			size += submesh.ColliderData.size();
+			size += submesh.m_ColliderData.size();
 		}
 
 		// Calculate size of complex collider data
-		for (const auto& submesh : data.ComplexColliderData.Submeshes)
+		for (const auto& submesh : data.m_ComplexColliderData.m_Submeshes)
 		{
-			size += submesh.ColliderData.size();
+			size += submesh.m_ColliderData.size();
 		}
 
 		// Add overhead for the data structures themselves
 		size += sizeof(CachedColliderData);
-		size += data.SimpleColliderData.Submeshes.size() * sizeof(SubmeshColliderData);
-		size += data.ComplexColliderData.Submeshes.size() * sizeof(SubmeshColliderData);
+		size += data.m_SimpleColliderData.m_Submeshes.size() * sizeof(SubmeshColliderData);
+		size += data.m_ComplexColliderData.m_Submeshes.size() * sizeof(SubmeshColliderData);
 
 		return size;
 	}

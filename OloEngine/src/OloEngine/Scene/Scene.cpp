@@ -914,3 +914,18 @@ template<>
 void OloEngine::Scene::OnComponentAdded<OloEngine::CharacterController3DComponent>(OloEngine::Entity entity, OloEngine::CharacterController3DComponent& component)
 {
 }
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::MeshCollider3DComponent>(OloEngine::Entity entity, OloEngine::MeshCollider3DComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::ConvexMeshCollider3DComponent>(OloEngine::Entity entity, OloEngine::ConvexMeshCollider3DComponent& component)
+{
+}
+
+template<>
+void OloEngine::Scene::OnComponentAdded<OloEngine::TriangleMeshCollider3DComponent>(OloEngine::Entity entity, OloEngine::TriangleMeshCollider3DComponent& component)
+{
+}

@@ -53,15 +53,15 @@ namespace OloEngine {
 	 */
 	struct RayCastInfo
 	{
-		glm::vec3 Origin = glm::vec3(0.0f);
-		glm::vec3 Direction = glm::vec3(0.0f, 0.0f, 1.0f);
-		f32 MaxDistance = 500.0f;
-		u32 LayerMask = 0xFFFFFFFF;
-		ExcludedEntityMap ExcludedEntities;
+		glm::vec3 m_Origin = glm::vec3(0.0f);
+		glm::vec3 m_Direction = glm::vec3(0.0f, 0.0f, 1.0f);
+		f32 m_MaxDistance = 500.0f;
+		u32 m_LayerMask = 0xFFFFFFFF;
+		ExcludedEntityMap m_ExcludedEntities;
 
 		RayCastInfo() = default;
 		RayCastInfo(const glm::vec3& origin, const glm::vec3& direction, f32 maxDistance = 500.0f)
-			: Origin(origin), Direction(direction), MaxDistance(maxDistance) {}
+			: m_Origin(origin), m_Direction(direction), m_MaxDistance(maxDistance) {}
 	};
 
 	/**
@@ -76,11 +76,11 @@ namespace OloEngine {
 		ShapeCastInfo(ShapeCastType castType)
 			: m_Type(castType) {}
 
-		glm::vec3 Origin = glm::vec3(0.0f);
-		glm::vec3 Direction = glm::vec3(0.0f, 0.0f, 1.0f);
-		f32 MaxDistance = 500.0f;
-		u32 LayerMask = 0xFFFFFFFF;
-		ExcludedEntityMap ExcludedEntities;
+		glm::vec3 m_Origin = glm::vec3(0.0f);
+		glm::vec3 m_Direction = glm::vec3(0.0f, 0.0f, 1.0f);
+		f32 m_MaxDistance = 500.0f;
+		u32 m_LayerMask = 0xFFFFFFFF;
+		ExcludedEntityMap m_ExcludedEntities;
 
 		ShapeCastType GetCastType() const { return m_Type; }
 
@@ -97,14 +97,14 @@ namespace OloEngine {
 	{
 		BoxCastInfo() : ShapeCastInfo(ShapeCastType::Box) {}
 		BoxCastInfo(const glm::vec3& origin, const glm::vec3& direction, const glm::vec3& halfExtent, f32 maxDistance = 500.0f)
-			: ShapeCastInfo(ShapeCastType::Box), HalfExtent(halfExtent)
+			: ShapeCastInfo(ShapeCastType::Box), m_HalfExtent(halfExtent)
 		{
-			Origin = origin;
-			Direction = direction;
-			MaxDistance = maxDistance;
+			m_Origin = origin;
+			m_Direction = direction;
+			m_MaxDistance = maxDistance;
 		}
 
-		glm::vec3 HalfExtent = glm::vec3(0.5f);
+		glm::vec3 m_HalfExtent = glm::vec3(0.5f);
 	};
 
 	/**
@@ -115,15 +115,15 @@ namespace OloEngine {
 	struct SphereCastInfo : public ShapeCastInfo
 	{
 		SphereCastInfo() : ShapeCastInfo(ShapeCastType::Sphere) {}
-		SphereCastInfo(const glm::vec3& origin, const glm::vec3& direction, f32 radius, f32 maxDistance = 500.0f)
-			: ShapeCastInfo(ShapeCastType::Sphere), Radius(radius)
+		explicit SphereCastInfo(const glm::vec3& origin, const glm::vec3& direction, f32 radius, f32 maxDistance = 500.0f)
+			: ShapeCastInfo(ShapeCastType::Sphere), m_Radius(radius)
 		{
-			Origin = origin;
-			Direction = direction;
-			MaxDistance = maxDistance;
+			m_Origin = origin;
+			m_Direction = direction;
+			m_MaxDistance = maxDistance;
 		}
 
-		f32 Radius = 0.5f;
+		f32 m_Radius = 0.5f;
 	};
 
 	/**
@@ -134,16 +134,16 @@ namespace OloEngine {
 	struct CapsuleCastInfo : public ShapeCastInfo
 	{
 		CapsuleCastInfo() : ShapeCastInfo(ShapeCastType::Capsule) {}
-		CapsuleCastInfo(const glm::vec3& origin, const glm::vec3& direction, f32 halfHeight, f32 radius, f32 maxDistance = 500.0f)
-			: ShapeCastInfo(ShapeCastType::Capsule), HalfHeight(halfHeight), Radius(radius)
+		explicit CapsuleCastInfo(const glm::vec3& origin, const glm::vec3& direction, f32 halfHeight, f32 radius, f32 maxDistance = 500.0f)
+			: ShapeCastInfo(ShapeCastType::Capsule), m_HalfHeight(halfHeight), m_Radius(radius)
 		{
-			Origin = origin;
-			Direction = direction;
-			MaxDistance = maxDistance;
+			m_Origin = origin;
+			m_Direction = direction;
+			m_MaxDistance = maxDistance;
 		}
 
-		f32 HalfHeight = 1.0f;
-		f32 Radius = 0.5f;
+		f32 m_HalfHeight = 1.0f;
+		f32 m_Radius = 0.5f;
 	};
 
 	/**
@@ -153,15 +153,12 @@ namespace OloEngine {
 	 */
 	struct ShapeOverlapInfo
 	{
-		ShapeOverlapInfo(ShapeCastType castType)
-			: m_Type(castType)
-		{
-		}
+		ShapeOverlapInfo(ShapeCastType castType) : m_Type(castType) {}
 
-		glm::vec3 Origin = glm::vec3(0.0f);
-		glm::quat Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-		u32 LayerMask = 0xFFFFFFFF;
-		ExcludedEntityMap ExcludedEntities;
+		glm::vec3 m_Origin = glm::vec3(0.0f);
+		glm::quat m_Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+		u32 m_LayerMask = 0xFFFFFFFF;
+		ExcludedEntityMap m_ExcludedEntities;
 
 		ShapeCastType GetCastType() const { return m_Type; }
 
@@ -177,13 +174,13 @@ namespace OloEngine {
 	struct BoxOverlapInfo : public ShapeOverlapInfo
 	{
 		BoxOverlapInfo() : ShapeOverlapInfo(ShapeCastType::Box) {}
-		BoxOverlapInfo(const glm::vec3& origin, const glm::vec3& halfExtent)
-			: ShapeOverlapInfo(ShapeCastType::Box), HalfExtent(halfExtent)
+		BoxOverlapInfo(const glm::vec3& origin, const glm::vec3& halfExtentValue)
+			: ShapeOverlapInfo(ShapeCastType::Box), halfExtent(halfExtentValue)
 		{
-			Origin = origin;
+			m_Origin = origin;
 		}
 
-		glm::vec3 HalfExtent = glm::vec3(0.5f);
+		glm::vec3 halfExtent = glm::vec3(0.5f);
 	};
 
 	/**
@@ -194,13 +191,13 @@ namespace OloEngine {
 	struct SphereOverlapInfo : public ShapeOverlapInfo
 	{
 		SphereOverlapInfo() : ShapeOverlapInfo(ShapeCastType::Sphere) {}
-		SphereOverlapInfo(const glm::vec3& origin, f32 radius)
-			: ShapeOverlapInfo(ShapeCastType::Sphere), Radius(radius)
+		SphereOverlapInfo(const glm::vec3& origin, f32 sphereRadius)
+			: ShapeOverlapInfo(ShapeCastType::Sphere), radius(sphereRadius)
 		{
-			Origin = origin;
+			m_Origin = origin;
 		}
 
-		f32 Radius = 0.5f;
+		f32 radius = 0.5f;
 	};
 
 	/**
@@ -211,14 +208,14 @@ namespace OloEngine {
 	struct CapsuleOverlapInfo : public ShapeOverlapInfo
 	{
 		CapsuleOverlapInfo() : ShapeOverlapInfo(ShapeCastType::Capsule) {}
-		CapsuleOverlapInfo(const glm::vec3& origin, f32 halfHeight, f32 radius)
-			: ShapeOverlapInfo(ShapeCastType::Capsule), HalfHeight(halfHeight), Radius(radius)
+		CapsuleOverlapInfo(const glm::vec3& origin, f32 capsuleHalfHeight, f32 capsuleRadius)
+			: ShapeOverlapInfo(ShapeCastType::Capsule), halfHeight(capsuleHalfHeight), radius(capsuleRadius)
 		{
-			Origin = origin;
+			m_Origin = origin;
 		}
 
-		f32 HalfHeight = 1.0f;
-		f32 Radius = 0.5f;
+		f32 halfHeight = 1.0f;
+		f32 radius = 0.5f;
 	};
 
 	/**

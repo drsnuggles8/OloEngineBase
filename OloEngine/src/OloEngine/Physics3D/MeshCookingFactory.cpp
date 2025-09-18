@@ -119,8 +119,8 @@ namespace OloEngine {
 
 		// Create collider data
 		MeshColliderData colliderData;
-		colliderData.Type = type;
-		colliderData.Scale = colliderAsset->m_ColliderScale;
+		colliderData.m_Type = type;
+		colliderData.m_Scale = colliderAsset->m_ColliderScale;
 
 		// Process each submesh
 		auto meshSource = meshAsset->GetMeshSource();
@@ -144,10 +144,10 @@ namespace OloEngine {
 				return result;
 			}
 
-			colliderData.Submeshes.push_back(submeshData);
+			colliderData.m_Submeshes.push_back(submeshData);
 		}
 
-		colliderData.IsValid = !colliderData.Submeshes.empty();
+		colliderData.m_IsValid = !colliderData.m_Submeshes.empty();
 
 		// Serialize to cache
 		if (!SerializeMeshCollider(cacheFilePath, colliderData))
@@ -203,10 +203,10 @@ namespace OloEngine {
 			return ECookingResult::SourceDataInvalid;
 		}
 
-		outData.Transform = transform;
-		outData.Type = type;
-		outData.VertexCount = submeshVertices.size();
-		outData.IndexCount = submeshIndices.size();
+		outData.m_Transform = transform;
+		outData.m_Type = type;
+		outData.m_VertexCount = submeshVertices.size();
+		outData.m_IndexCount = submeshIndices.size();
 
 		// Cook based on type
 		if (type == EMeshColliderType::Triangle)
@@ -277,11 +277,11 @@ namespace OloEngine {
 
 			// Store the serialized data
 			const auto& serializedData = writer.GetData();
-			outData.ColliderData.assign(serializedData.begin(), serializedData.end());
-			outData.Type = EMeshColliderType::Triangle;
-			outData.Transform = transform;
-			outData.VertexCount = positions.size();
-			outData.IndexCount = triangleIndices.size();
+			outData.m_ColliderData.assign(serializedData.begin(), serializedData.end());
+			outData.m_Type = EMeshColliderType::Triangle;
+			outData.m_Transform = transform;
+			outData.m_VertexCount = positions.size();
+			outData.m_IndexCount = triangleIndices.size();
 
 			return ECookingResult::Success;
 		}
@@ -351,11 +351,11 @@ namespace OloEngine {
 
 			// Store the serialized data
 			const auto& serializedData = writer.GetData();
-			outData.ColliderData.assign(serializedData.begin(), serializedData.end());
-			outData.Type = EMeshColliderType::Convex;
-			outData.Transform = transform;
-			outData.VertexCount = finalHullVertices.size();
-			outData.IndexCount = 0; // Convex hulls don't use explicit indices
+			outData.m_ColliderData.assign(serializedData.begin(), serializedData.end());
+			outData.m_Type = EMeshColliderType::Convex;
+			outData.m_Transform = transform;
+			outData.m_VertexCount = finalHullVertices.size();
+			outData.m_IndexCount = 0; // Convex hulls don't use explicit indices
 
 			return ECookingResult::Success;
 		}
@@ -609,33 +609,31 @@ namespace OloEngine {
 				return false;
 			}
 
-			// Write header
-			OloMeshColliderHeader header;
-			header.Type = meshData.Type;
-			header.SubmeshCount = static_cast<u32>(meshData.Submeshes.size());
-			header.Scale = meshData.Scale;
+		// Write header
+		OloMeshColliderHeader header;
+		header.m_Type = meshData.m_Type;
+		header.m_SubmeshCount = static_cast<u32>(meshData.m_Submeshes.size());
+		header.m_Scale = meshData.m_Scale;
 
-			file.write(reinterpret_cast<const char*>(&header), sizeof(header));
+		file.write(reinterpret_cast<const char*>(&header), sizeof(header));
 
-			// Write submesh data
-			for (const auto& submesh : meshData.Submeshes)
+		// Write submesh data
+		for (const auto& submesh : meshData.m_Submeshes)
+		{
+			// Write submesh info
+			u32 dataSize = static_cast<u32>(submesh.m_ColliderData.size());
+			file.write(reinterpret_cast<const char*>(&dataSize), sizeof(dataSize));
+			file.write(reinterpret_cast<const char*>(&submesh.m_Transform), sizeof(submesh.m_Transform));
+			file.write(reinterpret_cast<const char*>(&submesh.m_Type), sizeof(submesh.m_Type));
+			file.write(reinterpret_cast<const char*>(&submesh.m_VertexCount), sizeof(submesh.m_VertexCount));
+			file.write(reinterpret_cast<const char*>(&submesh.m_IndexCount), sizeof(submesh.m_IndexCount));
+
+			// Write collider data
+			if (dataSize > 0)
 			{
-				// Write submesh info
-				u32 dataSize = static_cast<u32>(submesh.ColliderData.size());
-				file.write(reinterpret_cast<const char*>(&dataSize), sizeof(dataSize));
-				file.write(reinterpret_cast<const char*>(&submesh.Transform), sizeof(submesh.Transform));
-				file.write(reinterpret_cast<const char*>(&submesh.Type), sizeof(submesh.Type));
-				file.write(reinterpret_cast<const char*>(&submesh.VertexCount), sizeof(submesh.VertexCount));
-				file.write(reinterpret_cast<const char*>(&submesh.IndexCount), sizeof(submesh.IndexCount));
-
-				// Write collider data
-				if (dataSize > 0)
-				{
-					file.write(reinterpret_cast<const char*>(submesh.ColliderData.data()), dataSize);
-				}
+				file.write(reinterpret_cast<const char*>(submesh.m_ColliderData.data()), dataSize);
 			}
-
-			file.close();
+		}			file.close();
 			return true;
 		}
 		catch (const std::exception&)
@@ -660,45 +658,45 @@ namespace OloEngine {
 			OloMeshColliderHeader header;
 			file.read(reinterpret_cast<char*>(&header), sizeof(header));
 
-			// Validate header
-			if (strncmp(header.Header, "OloMeshC", 8) != 0 || header.Version != 1)
-			{
-				return meshData;
-			}
+		// Validate header
+		if (strncmp(header.m_Header, "OloMeshC", 8) != 0 || header.m_Version != 1)
+		{
+			return meshData;
+		}
 
-			meshData.Type = header.Type;
-			meshData.Scale = header.Scale;
-			meshData.Submeshes.reserve(header.SubmeshCount);
+		meshData.m_Type = header.m_Type;
+		meshData.m_Scale = header.m_Scale;
+		meshData.m_Submeshes.reserve(header.m_SubmeshCount);
 
-			// Read submesh data
-			for (u32 i = 0; i < header.SubmeshCount; ++i)
+		// Read submesh data
+		for (u32 i = 0; i < header.m_SubmeshCount; ++i)
 			{
 				SubmeshColliderData submesh;
 
 				// Read submesh info
 				u32 dataSize;
 				file.read(reinterpret_cast<char*>(&dataSize), sizeof(dataSize));
-				file.read(reinterpret_cast<char*>(&submesh.Transform), sizeof(submesh.Transform));
-				file.read(reinterpret_cast<char*>(&submesh.Type), sizeof(submesh.Type));
-				file.read(reinterpret_cast<char*>(&submesh.VertexCount), sizeof(submesh.VertexCount));
-				file.read(reinterpret_cast<char*>(&submesh.IndexCount), sizeof(submesh.IndexCount));
+			file.read(reinterpret_cast<char*>(&submesh.m_Transform), sizeof(submesh.m_Transform));
+			file.read(reinterpret_cast<char*>(&submesh.m_Type), sizeof(submesh.m_Type));
+			file.read(reinterpret_cast<char*>(&submesh.m_VertexCount), sizeof(submesh.m_VertexCount));
+			file.read(reinterpret_cast<char*>(&submesh.m_IndexCount), sizeof(submesh.m_IndexCount));
 
-				// Read collider data
-				if (dataSize > 0)
-				{
-					submesh.ColliderData.resize(dataSize);
-					file.read(reinterpret_cast<char*>(submesh.ColliderData.data()), dataSize);
-				}
-
-				meshData.Submeshes.push_back(submesh);
+			// Read collider data
+			if (dataSize > 0)
+			{
+				submesh.m_ColliderData.resize(dataSize);
+				file.read(reinterpret_cast<char*>(submesh.m_ColliderData.data()), dataSize);
 			}
 
-			meshData.IsValid = true;
+			meshData.m_Submeshes.push_back(submesh);
+		}
+
+		meshData.m_IsValid = true;
 			file.close();
 		}
 		catch (const std::exception&)
 		{
-			meshData.IsValid = false;
+			meshData.m_IsValid = false;
 		}
 
 		return meshData;
@@ -768,7 +766,7 @@ namespace OloEngine {
 
 	JPH::Ref<JPH::Shape> MeshCookingFactory::CreateShapeFromColliderData(const SubmeshColliderData& colliderData)
 	{
-		if (colliderData.ColliderData.empty())
+		if (colliderData.m_ColliderData.empty())
 		{
 			OLO_CORE_ERROR("MeshCookingFactory::CreateShapeFromColliderData: Empty collider data");
 			return nullptr;
@@ -778,9 +776,9 @@ namespace OloEngine {
 		{
 			// Create buffer from the collider data
 			Buffer buffer;
-			buffer.Size = colliderData.ColliderData.size();
+			buffer.Size = colliderData.m_ColliderData.size();
 			buffer.Data = new u8[buffer.Size];
-			std::memcpy(buffer.Data, colliderData.ColliderData.data(), buffer.Size);
+			std::memcpy(buffer.Data, colliderData.m_ColliderData.data(), buffer.Size);
 
 			// Deserialize the shape using JoltBinaryStream
 			JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);
@@ -805,7 +803,7 @@ namespace OloEngine {
 
 	bool MeshCookingFactory::CanCreateShapeFromColliderData(const SubmeshColliderData& colliderData) const
 	{
-		if (colliderData.ColliderData.empty())
+		if (colliderData.m_ColliderData.empty())
 		{
 			return false;
 		}
@@ -814,9 +812,9 @@ namespace OloEngine {
 		try
 		{
 			Buffer buffer;
-			buffer.Size = colliderData.ColliderData.size();
+			buffer.Size = colliderData.m_ColliderData.size();
 			buffer.Data = new u8[buffer.Size];
-			std::memcpy(buffer.Data, colliderData.ColliderData.data(), buffer.Size);
+			std::memcpy(buffer.Data, colliderData.m_ColliderData.data(), buffer.Size);
 
 			bool isValid = JoltBinaryStreamUtils::ValidateShapeData(buffer);
 			

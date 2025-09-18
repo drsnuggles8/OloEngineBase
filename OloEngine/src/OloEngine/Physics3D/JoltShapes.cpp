@@ -13,6 +13,7 @@
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/Shape/MutableCompoundShape.h>
+#include <Jolt/Physics/Collision/Shape/Shape.h>
 
 namespace OloEngine {
 
@@ -143,6 +144,8 @@ namespace OloEngine {
 
 	JPH::Ref<JPH::Shape> JoltShapes::CreateCompoundShape(Entity entity, bool isMutable)
 	{
+		(void)isMutable; // Suppress unused parameter warning
+
 		if (!entity)
 		{
 			OLO_CORE_ERROR("Cannot create compound shape for invalid entity");
@@ -377,6 +380,8 @@ namespace OloEngine {
 
 	glm::vec3 JoltShapes::CalculateShapeLocalCenterOfMass(Entity entity)
 	{
+		(void)entity; // Suppress unused parameter warning
+
 		// For now, return zero. This could be enhanced to calculate actual COM
 		return glm::vec3(0.0f);
 	}
@@ -399,23 +404,51 @@ namespace OloEngine {
 		if (!shape)
 			return ShapeType::Box; // Default
 
-		// Use dynamic casting to determine shape type since enum constants may not be accessible
-		if (dynamic_cast<const JPH::BoxShape*>(shape))
-			return ShapeType::Box;
-		else if (dynamic_cast<const JPH::SphereShape*>(shape))
-			return ShapeType::Sphere;
-		else if (dynamic_cast<const JPH::CapsuleShape*>(shape))
-			return ShapeType::Capsule;
-		else if (dynamic_cast<const JPH::MeshShape*>(shape))
-			return ShapeType::TriangleMesh;
-		else if (dynamic_cast<const JPH::ConvexHullShape*>(shape))
-			return ShapeType::ConvexMesh;
-		else if (dynamic_cast<const JPH::StaticCompoundShape*>(shape))
-			return ShapeType::CompoundShape;
-		else if (dynamic_cast<const JPH::MutableCompoundShape*>(shape))
-			return ShapeType::MutableCompoundShape;
-		else
-			return ShapeType::Box; // Default fallback
+		// Use fast switch on shape type and subtype for better performance
+		switch (shape->GetType())
+		{
+			case JPH::EShapeType::Convex:
+			{
+				switch (shape->GetSubType())
+				{
+					case JPH::EShapeSubType::Box:
+						return ShapeType::Box;
+					case JPH::EShapeSubType::Sphere:
+						return ShapeType::Sphere;
+					case JPH::EShapeSubType::Capsule:
+						return ShapeType::Capsule;
+					case JPH::EShapeSubType::ConvexHull:
+						return ShapeType::ConvexMesh;
+					default:
+						return ShapeType::Box; // Default for other convex shapes
+				}
+			}
+			case JPH::EShapeType::Compound:
+			{
+				switch (shape->GetSubType())
+				{
+					case JPH::EShapeSubType::StaticCompound:
+						return ShapeType::CompoundShape;
+					case JPH::EShapeSubType::MutableCompound:
+						return ShapeType::MutableCompoundShape;
+					default:
+						return ShapeType::CompoundShape; // Default for compound shapes
+				}
+			}
+			case JPH::EShapeType::Mesh:
+				return ShapeType::TriangleMesh;
+			case JPH::EShapeType::Decorated:
+			case JPH::EShapeType::HeightField:
+			case JPH::EShapeType::SoftBody:
+			case JPH::EShapeType::User1:
+			case JPH::EShapeType::User2:
+			case JPH::EShapeType::User3:
+			case JPH::EShapeType::User4:
+			case JPH::EShapeType::Plane:
+			case JPH::EShapeType::Empty:
+			default:
+				return ShapeType::Box; // Default fallback
+		}
 	}
 
 	const char* JoltShapes::GetShapeTypeName(const JPH::Shape* shape)
@@ -443,6 +476,8 @@ namespace OloEngine {
 
 	JPH::Ref<JPH::Shape> JoltShapes::CreateMeshShapeInternal(AssetHandle meshAsset, bool useComplexAsSimple, const glm::vec3& scale)
 	{
+		(void)scale; // Suppress unused parameter warning
+
 		// Get the mesh collider cache instance
 		auto& cache = MeshColliderCache::GetInstance();
 		
@@ -456,7 +491,7 @@ namespace OloEngine {
 		
 		// Try to get cached mesh data
 		const auto& cachedData = cache.GetMeshData(meshColliderAsset);
-		if (!cachedData.IsValid)
+		if (!cachedData.m_IsValid)
 		{
 			OLO_CORE_ERROR("Failed to get valid cached mesh data for asset {0}", meshAsset);
 			return nullptr;
@@ -464,43 +499,41 @@ namespace OloEngine {
 
 		// Choose between simple (convex) and complex (triangle) based on usage
 		const MeshColliderData* meshData = nullptr;
-		if (useComplexAsSimple || cachedData.ComplexColliderData.Submeshes.empty())
+		if (useComplexAsSimple || cachedData.m_ComplexColliderData.m_Submeshes.empty())
 		{
 			// Use convex shape for dynamic bodies or if no complex data
-			if (cachedData.SimpleColliderData.Submeshes.empty())
+			if (cachedData.m_SimpleColliderData.m_Submeshes.empty())
 			{
 				OLO_CORE_ERROR("No simple (convex) mesh data available for asset {0}", meshAsset);
 				return nullptr;
 			}
-			meshData = &cachedData.SimpleColliderData;
+			meshData = &cachedData.m_SimpleColliderData;
 		}
 		else
 		{
 			// Use triangle mesh for static bodies
-			meshData = &cachedData.ComplexColliderData;
+			meshData = &cachedData.m_ComplexColliderData;
 		}
 
 		// For now, just use the first submesh - could be extended to support multiple submeshes
-		if (meshData->Submeshes.empty())
+		if (meshData->m_Submeshes.empty())
 		{
 			OLO_CORE_ERROR("No submesh data available for asset {0}", meshAsset);
 			return nullptr;
 		}
 
-		const auto& submesh = meshData->Submeshes[0];
-		
 		// Try to deserialize the Jolt shape from cached ColliderData
-		if (!cachedData.ComplexColliderData.Submeshes.empty())
+		if (!cachedData.m_ComplexColliderData.m_Submeshes.empty())
 		{
-			const auto& colliderSubmesh = cachedData.ComplexColliderData.Submeshes[0];
+			const auto& colliderSubmesh = cachedData.m_ComplexColliderData.m_Submeshes[0];
 			
-			if (!colliderSubmesh.ColliderData.empty())
+			if (!colliderSubmesh.m_ColliderData.empty())
 			{
 				// Create buffer from the collider data
 				Buffer buffer;
-				buffer.Size = colliderSubmesh.ColliderData.size();
+				buffer.Size = colliderSubmesh.m_ColliderData.size();
 				buffer.Data = new u8[buffer.Size];
-				std::memcpy(buffer.Data, colliderSubmesh.ColliderData.data(), buffer.Size);
+				std::memcpy(buffer.Data, colliderSubmesh.m_ColliderData.data(), buffer.Size);
 
 				// Try to deserialize the shape
 				JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);
@@ -524,6 +557,9 @@ namespace OloEngine {
 
 	JPH::Ref<JPH::Shape> JoltShapes::CreateConvexMeshShapeInternal(AssetHandle meshAsset, f32 convexRadius, const glm::vec3& scale)
 	{
+		(void)convexRadius; // Suppress unused parameter warning
+		(void)scale; // Suppress unused parameter warning
+
 		// Get the mesh collider cache instance
 		auto& cache = MeshColliderCache::GetInstance();
 		
@@ -537,23 +573,23 @@ namespace OloEngine {
 		
 		// Try to get cached mesh data
 		const auto& cachedData = cache.GetMeshData(meshColliderAsset);
-		if (!cachedData.IsValid || cachedData.SimpleColliderData.Submeshes.empty())
+		if (!cachedData.m_IsValid || cachedData.m_SimpleColliderData.m_Submeshes.empty())
 		{
 			OLO_CORE_ERROR("Failed to get valid convex mesh data for asset {0}", meshAsset);
 			return nullptr;
 		}
 
 		// For now, just use the first submesh
-		const auto& submesh = cachedData.SimpleColliderData.Submeshes[0];
+		const auto& submesh = cachedData.m_SimpleColliderData.m_Submeshes[0];
 		
 		// Try to deserialize the convex Jolt shape from cached ColliderData
-		if (!submesh.ColliderData.empty())
+		if (!submesh.m_ColliderData.empty())
 		{
 			// Create buffer from the collider data
 			Buffer buffer;
-			buffer.Size = submesh.ColliderData.size();
+			buffer.Size = submesh.m_ColliderData.size();
 			buffer.Data = new u8[buffer.Size];
-			std::memcpy(buffer.Data, submesh.ColliderData.data(), buffer.Size);
+			std::memcpy(buffer.Data, submesh.m_ColliderData.data(), buffer.Size);
 
 			// Try to deserialize the shape
 			JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);
@@ -576,6 +612,8 @@ namespace OloEngine {
 
 	JPH::Ref<JPH::Shape> JoltShapes::CreateTriangleMeshShapeInternal(AssetHandle meshAsset, const glm::vec3& scale)
 	{
+		(void)scale; // Suppress unused parameter warning
+
 		// Get the mesh collider cache instance
 		auto& cache = MeshColliderCache::GetInstance();
 		
@@ -589,23 +627,23 @@ namespace OloEngine {
 		
 		// Try to get cached mesh data
 		const auto& cachedData = cache.GetMeshData(meshColliderAsset);
-		if (!cachedData.IsValid || cachedData.ComplexColliderData.Submeshes.empty())
+		if (!cachedData.m_IsValid || cachedData.m_ComplexColliderData.m_Submeshes.empty())
 		{
 			OLO_CORE_ERROR("Failed to get valid triangle mesh data for asset {0}", meshAsset);
 			return nullptr;
 		}
 
 		// For now, just use the first submesh
-		const auto& submesh = cachedData.ComplexColliderData.Submeshes[0];
+		const auto& submesh = cachedData.m_ComplexColliderData.m_Submeshes[0];
 		
 		// Try to deserialize the triangle mesh Jolt shape from cached ColliderData
-		if (!submesh.ColliderData.empty())
+		if (!submesh.m_ColliderData.empty())
 		{
 			// Create buffer from the collider data
 			Buffer buffer;
-			buffer.Size = submesh.ColliderData.size();
+			buffer.Size = submesh.m_ColliderData.size();
 			buffer.Data = new u8[buffer.Size];
-			std::memcpy(buffer.Data, submesh.ColliderData.data(), buffer.Size);
+			std::memcpy(buffer.Data, submesh.m_ColliderData.data(), buffer.Size);
 
 			// Try to deserialize the shape
 			JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);

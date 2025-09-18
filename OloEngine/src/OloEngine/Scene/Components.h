@@ -381,14 +381,16 @@ namespace OloEngine
 		BoxCollider3DComponent,
 		SphereCollider3DComponent,
 		CapsuleCollider3DComponent,
+		MeshCollider3DComponent,
+		ConvexMeshCollider3DComponent,
+		TriangleMeshCollider3DComponent,
 		CharacterController3DComponent,
 		TextComponent,
 		ScriptComponent,
 		AudioSourceComponent,
 		AudioListenerComponent,
-		// AnimatedMeshComponent removed - deprecated
-		SubmeshComponent,         // NEW
-		MeshComponent,            // NEW
+		SubmeshComponent,
+		MeshComponent,
 		AnimationStateComponent,
 		SkeletonComponent,
 		MaterialComponent,

@@ -42,7 +42,7 @@ static bool AssertFailedImpl(const char* inExpression, const char* inMessage, co
 
     // Breakpoint
     return true;
-};
+}
 
 #endif // JPH_ENABLE_ASSERTS
 
@@ -167,7 +167,7 @@ bool Physics3DSystem::Initialize()
 
     // Now we can create the actual physics system.
     m_PhysicsSystem = std::make_unique<JPH::PhysicsSystem>();
-    m_PhysicsSystem->Init(s_PhysicsSettings.MaxBodies, cNumBodyMutexes, s_PhysicsSettings.MaxBodyPairs, s_PhysicsSettings.MaxContactConstraints, m_BroadPhaseLayerInterface, m_ObjectVsBroadPhaseLayerFilter, m_ObjectLayerPairFilter);
+    m_PhysicsSystem->Init(s_PhysicsSettings.m_MaxBodies, cNumBodyMutexes, s_PhysicsSettings.m_MaxBodyPairs, s_PhysicsSettings.m_MaxContactConstraints, m_BroadPhaseLayerInterface, m_ObjectVsBroadPhaseLayerFilter, m_ObjectLayerPairFilter);
 
     // Apply physics settings to the Jolt system
     UpdatePhysicsSystemSettings();
@@ -186,10 +186,6 @@ bool Physics3DSystem::Initialize()
     // You can use this to create and remove bodies, change their position, and apply impulses, etc.
     // Note that if you know that you're always accessing the body interface from the same thread or that you're
     // doing a lot of reads or writes you can use the PhysicsSystem::GetBodyInterfaceNoLock() to avoid locking.
-
-    // Initialize the capture manager
-    // Note: JoltCaptureManager can be used independently without static integration
-    // Users can create their own instances: auto captureManager = CreateRef<JoltCaptureManager>();
 
     m_Initialized = true;
     OLO_CORE_INFO("Physics3D system initialized successfully");
@@ -239,7 +235,7 @@ void Physics3DSystem::Update(f32 deltaTime)
 
     // If you take larger steps than the fixed timestep you need to do multiple collision steps in order to keep the simulation stable.
     // Do 1 step per fixed timestep (round up).
-    const f32 stepTime = s_PhysicsSettings.FixedTimestep;
+    const f32 stepTime = s_PhysicsSettings.m_FixedTimestep;
     i32 collisionSteps = static_cast<i32>(ceil(deltaTime / stepTime));
 
     // Step the world
@@ -319,7 +315,7 @@ void Physics3DSystem::SetSettings(const PhysicsSettings& settings)
 void Physics3DSystem::ApplySettings()
 {
     // Apply settings if there's an active physics system instance
-    if (s_Instance && s_PhysicsSettings.MaxBodies > 0) // Basic validation
+    if (s_Instance && s_PhysicsSettings.m_MaxBodies > 0) // Basic validation
     {
         s_Instance->UpdatePhysicsSystemSettings();
     }
@@ -331,31 +327,31 @@ void Physics3DSystem::UpdatePhysicsSystemSettings()
         return;
 
     // Apply gravity directly to the physics system
-    m_PhysicsSystem->SetGravity(JPH::Vec3(s_PhysicsSettings.Gravity.x, s_PhysicsSettings.Gravity.y, s_PhysicsSettings.Gravity.z));
+    m_PhysicsSystem->SetGravity(JPH::Vec3(s_PhysicsSettings.m_Gravity.x, s_PhysicsSettings.m_Gravity.y, s_PhysicsSettings.m_Gravity.z));
 
     // Create Jolt physics settings from our settings
     JPH::PhysicsSettings joltSettings;
     
     // Basic simulation settings
-    joltSettings.mNumVelocitySteps = s_PhysicsSettings.VelocitySolverIterations;
-    joltSettings.mNumPositionSteps = s_PhysicsSettings.PositionSolverIterations;
+    joltSettings.mNumVelocitySteps = s_PhysicsSettings.m_VelocitySolverIterations;
+    joltSettings.mNumPositionSteps = s_PhysicsSettings.m_PositionSolverIterations;
     
     // Advanced Jolt settings
-    joltSettings.mBaumgarte = s_PhysicsSettings.Baumgarte;
-    joltSettings.mSpeculativeContactDistance = s_PhysicsSettings.SpeculativeContactDistance;
-    joltSettings.mPenetrationSlop = s_PhysicsSettings.PenetrationSlop;
-    joltSettings.mLinearCastThreshold = s_PhysicsSettings.LinearCastThreshold;
-    joltSettings.mMinVelocityForRestitution = s_PhysicsSettings.MinVelocityForRestitution;
-    joltSettings.mTimeBeforeSleep = s_PhysicsSettings.TimeBeforeSleep;
-    joltSettings.mPointVelocitySleepThreshold = s_PhysicsSettings.PointVelocitySleepThreshold;
+    joltSettings.mBaumgarte = s_PhysicsSettings.m_Baumgarte;
+    joltSettings.mSpeculativeContactDistance = s_PhysicsSettings.m_SpeculativeContactDistance;
+    joltSettings.mPenetrationSlop = s_PhysicsSettings.m_PenetrationSlop;
+    joltSettings.mLinearCastThreshold = s_PhysicsSettings.m_LinearCastThreshold;
+    joltSettings.mMinVelocityForRestitution = s_PhysicsSettings.m_MinVelocityForRestitution;
+    joltSettings.mTimeBeforeSleep = s_PhysicsSettings.m_TimeBeforeSleep;
+    joltSettings.mPointVelocitySleepThreshold = s_PhysicsSettings.m_PointVelocitySleepThreshold;
     
     // Boolean settings
-    joltSettings.mDeterministicSimulation = s_PhysicsSettings.DeterministicSimulation;
-    joltSettings.mConstraintWarmStart = s_PhysicsSettings.ConstraintWarmStart;
-    joltSettings.mUseBodyPairContactCache = s_PhysicsSettings.UseBodyPairContactCache;
-    joltSettings.mUseManifoldReduction = s_PhysicsSettings.UseManifoldReduction;
-    joltSettings.mUseLargeIslandSplitter = s_PhysicsSettings.UseLargeIslandSplitter;
-    joltSettings.mAllowSleeping = s_PhysicsSettings.AllowSleeping;
+    joltSettings.mDeterministicSimulation = s_PhysicsSettings.m_DeterministicSimulation;
+    joltSettings.mConstraintWarmStart = s_PhysicsSettings.m_ConstraintWarmStart;
+    joltSettings.mUseBodyPairContactCache = s_PhysicsSettings.m_UseBodyPairContactCache;
+    joltSettings.mUseManifoldReduction = s_PhysicsSettings.m_UseManifoldReduction;
+    joltSettings.mUseLargeIslandSplitter = s_PhysicsSettings.m_UseLargeIslandSplitter;
+    joltSettings.mAllowSleeping = s_PhysicsSettings.m_AllowSleeping;
 
     // Apply settings to the physics system
     m_PhysicsSystem->SetPhysicsSettings(joltSettings);

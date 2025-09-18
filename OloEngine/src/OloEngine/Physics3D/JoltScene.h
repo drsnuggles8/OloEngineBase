@@ -81,9 +81,9 @@ namespace OloEngine {
 		virtual i32 OverlapCapsule(const CapsuleOverlapInfo& capsuleOverlapInfo, SceneQueryHit* outHits, i32 maxHits) override;
 		virtual i32 CastRayMultiple(const RayCastInfo& rayInfo, SceneQueryHit* outHits, i32 maxHits) override;
 		virtual i32 CastShapeMultiple(const ShapeCastInfo& shapeCastInfo, SceneQueryHit* outHits, i32 maxHits) override;
-		i32 CastBoxMultiple(const BoxCastInfo& boxCastInfo, SceneQueryHit* outHits, i32 maxHits);
-		i32 CastSphereMultiple(const SphereCastInfo& sphereCastInfo, SceneQueryHit* outHits, i32 maxHits);
-		i32 CastCapsuleMultiple(const CapsuleCastInfo& capsuleCastInfo, SceneQueryHit* outHits, i32 maxHits);
+		virtual i32 CastBoxMultiple(const BoxCastInfo& boxCastInfo, SceneQueryHit* outHits, i32 maxHits);
+		virtual i32 CastSphereMultiple(const SphereCastInfo& sphereCastInfo, SceneQueryHit* outHits, i32 maxHits);
+		virtual i32 CastCapsuleMultiple(const CapsuleCastInfo& capsuleCastInfo, SceneQueryHit* outHits, i32 maxHits);
 
 		// Radial impulse
 		void AddRadialImpulse(const glm::vec3& origin, f32 radius, f32 strength, EFalloffMode falloff, bool velocityChange);
@@ -159,13 +159,13 @@ namespace OloEngine {
 		i32 m_IntegrationSubSteps = 1;
 
 		// Constants
-		static constexpr u32 MaxBodies = 65536;
-		static constexpr u32 NumBodyMutexes = 0; // Autodetect
-		static constexpr u32 MaxBodyPairs = 65536;
-		static constexpr u32 MaxContactConstraints = 10240;
-		static constexpr u32 TempAllocatorSize = 10 * 1024 * 1024; // 10 MB
-		static constexpr u32 JobSystemMaxJobs = 2048;
-		static constexpr u32 JobSystemMaxBarriers = 8;
+		static constexpr u32 s_MaxBodies = 65536;
+		static constexpr u32 s_NumBodyMutexes = 0; // Autodetect
+		static constexpr u32 s_MaxBodyPairs = 65536;
+		static constexpr u32 s_MaxContactConstraints = 10240;
+		static constexpr u32 s_TempAllocatorSize = 10 * 1024 * 1024; // 10 MB
+		static constexpr u32 s_JobSystemMaxJobs = 2048;
+		static constexpr u32 s_JobSystemMaxBarriers = 8;
 	};
 
 }

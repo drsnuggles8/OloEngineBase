@@ -20,6 +20,16 @@ namespace OloEngine {
 	class JoltUtils
 	{
 	public:
+		// Jolt Physics constants
+		static constexpr u32 kMaxJoltLayers = 32;
+
+		// Delete constructors and assignment operators to prevent instantiation
+		JoltUtils() = delete;
+		JoltUtils(const JoltUtils&) = delete;
+		JoltUtils(JoltUtils&&) = delete;
+		JoltUtils& operator=(const JoltUtils&) = delete;
+		JoltUtils& operator=(JoltUtils&&) = delete;
+
 		// GLM to Jolt conversions
 		static JPH::Vec3 ToJoltVector(const glm::vec3& vector)
 		{
@@ -105,32 +115,43 @@ namespace OloEngine {
 			}
 		}
 
+		// Transform decomposition result
+		struct TransformComponents
+		{
+			glm::vec3 Translation;
+			glm::quat Rotation;
+			glm::vec3 Scale;
+		};
+
 		// Utility functions
 		static glm::vec3 GetTranslationFromTransform(const glm::mat4& transform)
 		{
 			return glm::vec3(transform[3]);
 		}
 
-		static glm::quat GetRotationFromTransform(const glm::mat4& transform)
+		static TransformComponents DecomposeTransform(const glm::mat4& transform)
 		{
-			glm::vec3 scale;
-			glm::vec3 translation;
+			TransformComponents components;
+			
+			// Extract translation directly from the matrix (faster than decompose for this component)
+			components.Translation = glm::vec3(transform[3]);
+			
+			// Use glm::decompose for rotation and scale
 			glm::vec3 skew;
 			glm::vec4 perspective;
-			glm::quat rotation;
-			glm::decompose(transform, scale, rotation, translation, skew, perspective);
-			return rotation;
+			glm::decompose(transform, components.Scale, components.Rotation, components.Translation, skew, perspective);
+			
+			return components;
+		}
+
+		static glm::quat GetRotationFromTransform(const glm::mat4& transform)
+		{
+			return DecomposeTransform(transform).Rotation;
 		}
 
 		static glm::vec3 GetScaleFromTransform(const glm::mat4& transform)
 		{
-			glm::vec3 scale;
-			glm::vec3 translation;
-			glm::vec3 skew;
-			glm::vec4 perspective;
-			glm::quat rotation;
-			glm::decompose(transform, scale, rotation, translation, skew, perspective);
-			return scale;
+			return DecomposeTransform(transform).Scale;
 		}
 
 		// Transform composition
@@ -155,7 +176,7 @@ namespace OloEngine {
 		// Jolt layer ID validation
 		static bool IsValidLayerID(u32 layerID)
 		{
-			return layerID < 32; // Jolt supports up to 32 layers
+			return layerID < kMaxJoltLayers; // Jolt supports up to kMaxJoltLayers layers
 		}
 
 		// Safe casting helpers

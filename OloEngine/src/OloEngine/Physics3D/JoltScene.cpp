@@ -346,17 +346,17 @@ namespace OloEngine {
 
 		// Create ray
 		JPH::RRayCast ray;
-		ray.mOrigin = JoltUtils::ToJoltVector(rayInfo.Origin);
-		ray.mDirection = JoltUtils::ToJoltVector(glm::normalize(rayInfo.Direction)) * rayInfo.MaxDistance;
+		ray.mOrigin = JoltUtils::ToJoltVector(rayInfo.m_Origin);
+		ray.mDirection = JoltUtils::ToJoltVector(glm::normalize(rayInfo.m_Direction)) * rayInfo.m_MaxDistance;
 
 		// Perform ray cast
 		JPH::ClosestHitCollisionCollector<JPH::CastRayCollector> hitCollector;
 		JPH::RayCastSettings rayCastSettings;
 		
 		// Create filters
-		JPH::DefaultBroadPhaseLayerFilter broadPhaseFilter(*m_ObjectVsBroadPhaseLayerFilter, JPH::ObjectLayer(rayInfo.LayerMask));
-		JPH::DefaultObjectLayerFilter objectLayerFilter(*m_ObjectLayerPairFilter, JPH::ObjectLayer(rayInfo.LayerMask));
-		EntityExclusionBodyFilter bodyFilter(rayInfo.ExcludedEntities);
+		JPH::DefaultBroadPhaseLayerFilter broadPhaseFilter(*m_ObjectVsBroadPhaseLayerFilter, JPH::ObjectLayer(rayInfo.m_LayerMask));
+		JPH::DefaultObjectLayerFilter objectLayerFilter(*m_ObjectLayerPairFilter, JPH::ObjectLayer(rayInfo.m_LayerMask));
+		EntityExclusionBodyFilter bodyFilter(rayInfo.m_ExcludedEntities);
 
 		m_JoltSystem->GetNarrowPhaseQuery().CastRay(ray, rayCastSettings, hitCollector, broadPhaseFilter, objectLayerFilter, bodyFilter);
 
@@ -398,9 +398,9 @@ namespace OloEngine {
 		if (!m_JoltSystem)
 			return false;
 
-		JPH::Ref<JPH::Shape> boxShape = new JPH::BoxShape(JoltUtils::ToJoltVector(boxCastInfo.HalfExtent));
-		return PerformShapeCast(boxShape, boxCastInfo.Origin, boxCastInfo.Direction, 
-			boxCastInfo.MaxDistance, boxCastInfo.LayerMask, boxCastInfo.ExcludedEntities, outHit);
+		JPH::Ref<JPH::Shape> boxShape = new JPH::BoxShape(JoltUtils::ToJoltVector(boxCastInfo.m_HalfExtent));
+		return PerformShapeCast(boxShape, boxCastInfo.m_Origin, boxCastInfo.m_Direction, 
+			boxCastInfo.m_MaxDistance, boxCastInfo.m_LayerMask, boxCastInfo.m_ExcludedEntities, outHit);
 	}
 
 	bool JoltScene::CastSphere(const SphereCastInfo& sphereCastInfo, SceneQueryHit& outHit)
@@ -408,9 +408,9 @@ namespace OloEngine {
 		if (!m_JoltSystem)
 			return false;
 
-		JPH::Ref<JPH::Shape> sphereShape = new JPH::SphereShape(sphereCastInfo.Radius);
-		return PerformShapeCast(sphereShape, sphereCastInfo.Origin, sphereCastInfo.Direction,
-			sphereCastInfo.MaxDistance, sphereCastInfo.LayerMask, sphereCastInfo.ExcludedEntities, outHit);
+		JPH::Ref<JPH::Shape> sphereShape = new JPH::SphereShape(sphereCastInfo.m_Radius);
+		return PerformShapeCast(sphereShape, sphereCastInfo.m_Origin, sphereCastInfo.m_Direction,
+			sphereCastInfo.m_MaxDistance, sphereCastInfo.m_LayerMask, sphereCastInfo.m_ExcludedEntities, outHit);
 	}
 
 	bool JoltScene::CastCapsule(const CapsuleCastInfo& capsuleCastInfo, SceneQueryHit& outHit)
@@ -418,9 +418,9 @@ namespace OloEngine {
 		if (!m_JoltSystem)
 			return false;
 
-		JPH::Ref<JPH::Shape> capsuleShape = new JPH::CapsuleShape(capsuleCastInfo.HalfHeight, capsuleCastInfo.Radius);
-		return PerformShapeCast(capsuleShape, capsuleCastInfo.Origin, capsuleCastInfo.Direction,
-			capsuleCastInfo.MaxDistance, capsuleCastInfo.LayerMask, capsuleCastInfo.ExcludedEntities, outHit);
+		JPH::Ref<JPH::Shape> capsuleShape = new JPH::CapsuleShape(capsuleCastInfo.m_HalfHeight, capsuleCastInfo.m_Radius);
+		return PerformShapeCast(capsuleShape, capsuleCastInfo.m_Origin, capsuleCastInfo.m_Direction,
+			capsuleCastInfo.m_MaxDistance, capsuleCastInfo.m_LayerMask, capsuleCastInfo.m_ExcludedEntities, outHit);
 	}
 
 	i32 JoltScene::CastBoxMultiple(const BoxCastInfo& boxCastInfo, SceneQueryHit* outHits, i32 maxHits)
@@ -428,9 +428,9 @@ namespace OloEngine {
 		if (!m_JoltSystem)
 			return 0;
 
-		JPH::Ref<JPH::Shape> boxShape = new JPH::BoxShape(JoltUtils::ToJoltVector(boxCastInfo.HalfExtent));
-		return PerformShapeCastMultiple(boxShape, boxCastInfo.Origin, boxCastInfo.Direction,
-			boxCastInfo.MaxDistance, boxCastInfo.LayerMask, boxCastInfo.ExcludedEntities, outHits, maxHits);
+		JPH::Ref<JPH::Shape> boxShape = new JPH::BoxShape(JoltUtils::ToJoltVector(boxCastInfo.m_HalfExtent));
+		return PerformShapeCastMultiple(boxShape, boxCastInfo.m_Origin, boxCastInfo.m_Direction,
+			boxCastInfo.m_MaxDistance, boxCastInfo.m_LayerMask, boxCastInfo.m_ExcludedEntities, outHits, maxHits);
 	}
 
 	i32 JoltScene::CastSphereMultiple(const SphereCastInfo& sphereCastInfo, SceneQueryHit* outHits, i32 maxHits)
@@ -438,9 +438,9 @@ namespace OloEngine {
 		if (!m_JoltSystem)
 			return 0;
 
-		JPH::Ref<JPH::Shape> sphereShape = new JPH::SphereShape(sphereCastInfo.Radius);
-		return PerformShapeCastMultiple(sphereShape, sphereCastInfo.Origin, sphereCastInfo.Direction,
-			sphereCastInfo.MaxDistance, sphereCastInfo.LayerMask, sphereCastInfo.ExcludedEntities, outHits, maxHits);
+		JPH::Ref<JPH::Shape> sphereShape = new JPH::SphereShape(sphereCastInfo.m_Radius);
+		return PerformShapeCastMultiple(sphereShape, sphereCastInfo.m_Origin, sphereCastInfo.m_Direction,
+			sphereCastInfo.m_MaxDistance, sphereCastInfo.m_LayerMask, sphereCastInfo.m_ExcludedEntities, outHits, maxHits);
 	}
 
 	i32 JoltScene::CastCapsuleMultiple(const CapsuleCastInfo& capsuleCastInfo, SceneQueryHit* outHits, i32 maxHits)
@@ -448,9 +448,9 @@ namespace OloEngine {
 		if (!m_JoltSystem)
 			return 0;
 
-		JPH::Ref<JPH::Shape> capsuleShape = new JPH::CapsuleShape(capsuleCastInfo.HalfHeight, capsuleCastInfo.Radius);
-		return PerformShapeCastMultiple(capsuleShape, capsuleCastInfo.Origin, capsuleCastInfo.Direction,
-			capsuleCastInfo.MaxDistance, capsuleCastInfo.LayerMask, capsuleCastInfo.ExcludedEntities, outHits, maxHits);
+		JPH::Ref<JPH::Shape> capsuleShape = new JPH::CapsuleShape(capsuleCastInfo.m_HalfHeight, capsuleCastInfo.m_Radius);
+		return PerformShapeCastMultiple(capsuleShape, capsuleCastInfo.m_Origin, capsuleCastInfo.m_Direction,
+			capsuleCastInfo.m_MaxDistance, capsuleCastInfo.m_LayerMask, capsuleCastInfo.m_ExcludedEntities, outHits, maxHits);
 	}
 
 	i32 JoltScene::OverlapShape(const ShapeOverlapInfo& overlapInfo, SceneQueryHit* outHits, i32 maxHits)
@@ -483,9 +483,9 @@ namespace OloEngine {
 		if (!m_JoltSystem)
 			return 0;
 
-		JPH::Ref<JPH::Shape> boxShape = new JPH::BoxShape(JoltUtils::ToJoltVector(boxOverlapInfo.HalfExtent));
-		return PerformShapeOverlap(boxShape, boxOverlapInfo.Origin, boxOverlapInfo.Rotation,
-			boxOverlapInfo.LayerMask, boxOverlapInfo.ExcludedEntities, outHits, maxHits);
+		JPH::Ref<JPH::Shape> boxShape = new JPH::BoxShape(JoltUtils::ToJoltVector(boxOverlapInfo.halfExtent));
+		return PerformShapeOverlap(boxShape, boxOverlapInfo.m_Origin, boxOverlapInfo.m_Rotation,
+			boxOverlapInfo.m_LayerMask, boxOverlapInfo.m_ExcludedEntities, outHits, maxHits);
 	}
 
 	i32 JoltScene::OverlapSphere(const SphereOverlapInfo& sphereOverlapInfo, SceneQueryHit* outHits, i32 maxHits)
@@ -493,9 +493,9 @@ namespace OloEngine {
 		if (!m_JoltSystem)
 			return 0;
 
-		JPH::Ref<JPH::Shape> sphereShape = new JPH::SphereShape(sphereOverlapInfo.Radius);
-		return PerformShapeOverlap(sphereShape, sphereOverlapInfo.Origin, sphereOverlapInfo.Rotation,
-			sphereOverlapInfo.LayerMask, sphereOverlapInfo.ExcludedEntities, outHits, maxHits);
+		JPH::Ref<JPH::Shape> sphereShape = new JPH::SphereShape(sphereOverlapInfo.radius);
+		return PerformShapeOverlap(sphereShape, sphereOverlapInfo.m_Origin, sphereOverlapInfo.m_Rotation,
+			sphereOverlapInfo.m_LayerMask, sphereOverlapInfo.m_ExcludedEntities, outHits, maxHits);
 	}
 
 	i32 JoltScene::OverlapCapsule(const CapsuleOverlapInfo& capsuleOverlapInfo, SceneQueryHit* outHits, i32 maxHits)
@@ -503,9 +503,9 @@ namespace OloEngine {
 		if (!m_JoltSystem)
 			return 0;
 
-		JPH::Ref<JPH::Shape> capsuleShape = new JPH::CapsuleShape(capsuleOverlapInfo.HalfHeight, capsuleOverlapInfo.Radius);
-		return PerformShapeOverlap(capsuleShape, capsuleOverlapInfo.Origin, capsuleOverlapInfo.Rotation,
-			capsuleOverlapInfo.LayerMask, capsuleOverlapInfo.ExcludedEntities, outHits, maxHits);
+		JPH::Ref<JPH::Shape> capsuleShape = new JPH::CapsuleShape(capsuleOverlapInfo.halfHeight, capsuleOverlapInfo.radius);
+		return PerformShapeOverlap(capsuleShape, capsuleOverlapInfo.m_Origin, capsuleOverlapInfo.m_Rotation,
+			capsuleOverlapInfo.m_LayerMask, capsuleOverlapInfo.m_ExcludedEntities, outHits, maxHits);
 	}
 
 	i32 JoltScene::CastRayMultiple(const RayCastInfo& rayInfo, SceneQueryHit* outHits, i32 maxHits)
@@ -515,17 +515,17 @@ namespace OloEngine {
 
 		// Create ray
 		JPH::RRayCast ray;
-		ray.mOrigin = JoltUtils::ToJoltVector(rayInfo.Origin);
-		ray.mDirection = JoltUtils::ToJoltVector(glm::normalize(rayInfo.Direction)) * rayInfo.MaxDistance;
+		ray.mOrigin = JoltUtils::ToJoltVector(rayInfo.m_Origin);
+		ray.mDirection = JoltUtils::ToJoltVector(glm::normalize(rayInfo.m_Direction)) * rayInfo.m_MaxDistance;
 
 		// Perform ray cast with multiple hit collector
 		JPH::AllHitCollisionCollector<JPH::CastRayCollector> hitCollector;
 		JPH::RayCastSettings rayCastSettings;
 		
 		// Create filters
-		JPH::DefaultBroadPhaseLayerFilter broadPhaseFilter(*m_ObjectVsBroadPhaseLayerFilter, JPH::ObjectLayer(rayInfo.LayerMask));
-		JPH::DefaultObjectLayerFilter objectLayerFilter(*m_ObjectLayerPairFilter, JPH::ObjectLayer(rayInfo.LayerMask));
-		EntityExclusionBodyFilter bodyFilter(rayInfo.ExcludedEntities);
+		JPH::DefaultBroadPhaseLayerFilter broadPhaseFilter(*m_ObjectVsBroadPhaseLayerFilter, JPH::ObjectLayer(rayInfo.m_LayerMask));
+		JPH::DefaultObjectLayerFilter objectLayerFilter(*m_ObjectLayerPairFilter, JPH::ObjectLayer(rayInfo.m_LayerMask));
+		EntityExclusionBodyFilter bodyFilter(rayInfo.m_ExcludedEntities);
 
 		m_JoltSystem->GetNarrowPhaseQuery().CastRay(ray, rayCastSettings, hitCollector, broadPhaseFilter, objectLayerFilter, bodyFilter);
 
@@ -681,7 +681,7 @@ namespace OloEngine {
 		JPH::RegisterTypes();
 
 		// Create temp allocator
-		m_TempAllocator = std::make_unique<JPH::TempAllocatorImpl>(TempAllocatorSize);
+		m_TempAllocator = std::make_unique<JPH::TempAllocatorImpl>(s_TempAllocatorSize);
 
 		// Create job system
 		m_JobSystem = std::make_unique<JPH::JobSystemThreadPool>(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, std::thread::hardware_concurrency() - 1);
@@ -693,7 +693,7 @@ namespace OloEngine {
 
 		// Create physics system
 		m_JoltSystem = std::make_unique<JPH::PhysicsSystem>();
-		m_JoltSystem->Init(MaxBodies, NumBodyMutexes, MaxBodyPairs, MaxContactConstraints, 
+		m_JoltSystem->Init(s_MaxBodies, s_NumBodyMutexes, s_MaxBodyPairs, s_MaxContactConstraints, 
 			*m_BroadPhaseLayerInterface, *m_ObjectVsBroadPhaseLayerFilter, *m_ObjectLayerPairFilter);
 
 		// Create contact listener
@@ -704,7 +704,7 @@ namespace OloEngine {
 		m_JoltSystem->SetGravity(JPH::Vec3(0.0f, -9.81f, 0.0f));
 
 		OLO_CORE_INFO("Jolt Physics initialized - MaxBodies: {0}, MaxBodyPairs: {1}, MaxContactConstraints: {2}", 
-			MaxBodies, MaxBodyPairs, MaxContactConstraints);
+			s_MaxBodies, s_MaxBodyPairs, s_MaxContactConstraints);
 	}
 
 	void JoltScene::ShutdownJolt()

@@ -54,11 +54,26 @@ namespace OloEngine {
 			}
 
 			const u8* sourceData = GetSourceData();
-			if (sourceData)
+			if (!sourceData)
 			{
-				::memcpy(outData, sourceData + m_ReadBytes, inNumBytes);
-				m_ReadBytes += inNumBytes;
+				OLO_CORE_ERROR("JoltBinaryStreamReader: Source data is null");
+				return;
 			}
+
+			// Bounds checking before memcpy
+			u64 totalSize = GetSourceSize();
+			u64 remaining = totalSize - m_ReadBytes;
+			if (inNumBytes > remaining)
+			{
+				OLO_CORE_ERROR("JoltBinaryStreamReader: Requested {} bytes but only {} remaining (total size: {}, already read: {})", 
+					inNumBytes, remaining, totalSize, m_ReadBytes);
+				// Mark stream as failed by setting read position beyond size
+				m_ReadBytes = totalSize;
+				return;
+			}
+
+			::memcpy(outData, sourceData + m_ReadBytes, inNumBytes);
+			m_ReadBytes += inNumBytes;
 		}
 
 		bool IsEOF() const

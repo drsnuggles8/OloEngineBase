@@ -41,38 +41,38 @@ namespace OloEngine {
 
 	struct SubmeshColliderData
 	{
-		std::vector<u8> ColliderData;  // Serialized Jolt shape data
-		glm::mat4 Transform = glm::mat4(1.0f);
-		EMeshColliderType Type = EMeshColliderType::Triangle;
-		sizet VertexCount = 0;
-		sizet IndexCount = 0;
+		std::vector<u8> m_ColliderData;  // Serialized Jolt shape data
+		glm::mat4 m_Transform = glm::mat4(1.0f);
+		EMeshColliderType m_Type = EMeshColliderType::Triangle;
+		sizet m_VertexCount = 0;
+		sizet m_IndexCount = 0;
 	};
 
 	struct MeshColliderData
 	{
-		std::vector<SubmeshColliderData> Submeshes;
-		EMeshColliderType Type = EMeshColliderType::Triangle;
-		glm::vec3 Scale = glm::vec3(1.0f);
-		bool IsValid = false;
+		std::vector<SubmeshColliderData> m_Submeshes;
+		EMeshColliderType m_Type = EMeshColliderType::Triangle;
+		glm::vec3 m_Scale = glm::vec3(1.0f);
+		bool m_IsValid = false;
 	};
 
 	struct CachedColliderData
 	{
-		MeshColliderData SimpleColliderData;   // For dynamic bodies (convex)
-		MeshColliderData ComplexColliderData;  // For static bodies (triangle mesh)
-		std::filesystem::file_time_type LastModified;
-		bool IsValid = false;
+		MeshColliderData m_SimpleColliderData;   // For dynamic bodies (convex)
+		MeshColliderData m_ComplexColliderData;  // For static bodies (triangle mesh)
+		std::chrono::system_clock::time_point m_LastModified;
+		bool m_IsValid = false;
 	};
 
 	// .omc file format (OloEngine Mesh Collider)
 	struct OloMeshColliderHeader
 	{
-		char Header[8] = {'O','l','o','M','e','s','h','C'};
-		u32 Version = 1;
-		EMeshColliderType Type = EMeshColliderType::Triangle;
-		u32 SubmeshCount = 0;
-		glm::vec3 Scale = glm::vec3(1.0f);
-		f32 Reserved[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // For future use
+		char m_Header[8] = {'O','l','o','M','e','s','h','C'};
+		u32 m_Version = 1;
+		EMeshColliderType m_Type = EMeshColliderType::Triangle;
+		u32 m_SubmeshCount = 0;
+		glm::vec3 m_Scale = glm::vec3(1.0f);
+		f32 m_Reserved[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // For future use
 	};
 
 	class MeshCookingFactory : public RefCounted

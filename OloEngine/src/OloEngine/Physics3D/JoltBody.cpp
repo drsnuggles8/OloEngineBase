@@ -6,6 +6,7 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Scene/Components.h"
 
+#include <cstdint>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyActivationListener.h>
 
@@ -722,7 +723,7 @@ namespace OloEngine {
 			constraintSettings.MakeFixedAxis(JPH::SixDOFConstraintSettings::RotationZ);
 
 		// Create the constraint between the body and a fixed point in world space
-		m_AxisLockConstraint = (JPH::SixDOFConstraint*)constraintSettings.Create(JPH::Body::sFixedToWorld, body);
+		m_AxisLockConstraint = static_cast<JPH::SixDOFConstraint*>(constraintSettings.Create(JPH::Body::sFixedToWorld, body));
 
 		// Add the constraint to the physics system
 		m_Scene->GetJoltSystem().AddConstraint(m_AxisLockConstraint);
@@ -848,7 +849,7 @@ namespace OloEngine {
 		}
 
 		// Store BodyID in component for easy access
-		rigidBodyComponent.RuntimeBody = reinterpret_cast<void*>(m_BodyID.GetIndexAndSequenceNumber());
+		rigidBodyComponent.RuntimeBody = reinterpret_cast<void*>(static_cast<std::uintptr_t>(m_BodyID.GetIndexAndSequenceNumber()));
 
 		// Cache initial state
 		m_GravityEnabled = !rigidBodyComponent.DisableGravity;
@@ -949,38 +950,38 @@ namespace OloEngine {
 		if (m_Entity.HasComponent<BoxCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<BoxCollider3DComponent>();
-			friction = collider.Material.StaticFriction;
-			restitution = collider.Material.Restitution;
+			friction = collider.Material.m_StaticFriction;
+			restitution = collider.Material.m_Restitution;
 		}
 		else if (m_Entity.HasComponent<SphereCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<SphereCollider3DComponent>();
-			friction = collider.Material.StaticFriction;
-			restitution = collider.Material.Restitution;
+			friction = collider.Material.m_StaticFriction;
+			restitution = collider.Material.m_Restitution;
 		}
 		else if (m_Entity.HasComponent<CapsuleCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<CapsuleCollider3DComponent>();
-			friction = collider.Material.StaticFriction;
-			restitution = collider.Material.Restitution;
+			friction = collider.Material.m_StaticFriction;
+			restitution = collider.Material.m_Restitution;
 		}
 		else if (m_Entity.HasComponent<MeshCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<MeshCollider3DComponent>();
-			friction = collider.Material.StaticFriction;
-			restitution = collider.Material.Restitution;
+			friction = collider.Material.m_StaticFriction;
+			restitution = collider.Material.m_Restitution;
 		}
 		else if (m_Entity.HasComponent<ConvexMeshCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<ConvexMeshCollider3DComponent>();
-			friction = collider.Material.StaticFriction;
-			restitution = collider.Material.Restitution;
+			friction = collider.Material.m_StaticFriction;
+			restitution = collider.Material.m_Restitution;
 		}
 		else if (m_Entity.HasComponent<TriangleMeshCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<TriangleMeshCollider3DComponent>();
-			friction = collider.Material.StaticFriction;
-			restitution = collider.Material.Restitution;
+			friction = collider.Material.m_StaticFriction;
+			restitution = collider.Material.m_Restitution;
 		}
 
 		// Apply the material properties to the body settings
