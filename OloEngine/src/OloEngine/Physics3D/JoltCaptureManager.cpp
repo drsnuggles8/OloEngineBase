@@ -158,6 +158,19 @@ namespace OloEngine {
 		OLO_CORE_INFO("Capture file available: {0}", capturePath.string());
 	}
 
+	void JoltCaptureManager::OpenRecentCapture() const
+	{
+		OLO_PROFILE_FUNCTION();
+
+		if (m_RecentCapture.empty())
+		{
+			OLO_CORE_WARN("No recent capture available to open");
+			return;
+		}
+
+		OpenCapture(m_RecentCapture);
+	}
+
 	void JoltCaptureManager::ClearCaptures()
 	{
 		OLO_PROFILE_FUNCTION();

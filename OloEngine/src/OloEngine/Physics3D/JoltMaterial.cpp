@@ -6,17 +6,17 @@ namespace OloEngine {
 
 	JoltMaterial JoltMaterial::CreateFromBoxCollider(const BoxCollider3DComponent& collider)
 	{
-		return JoltMaterial(collider.Friction, collider.Restitution);
+		return CreateFromCollider(collider);
 	}
 
 	JoltMaterial JoltMaterial::CreateFromSphereCollider(const SphereCollider3DComponent& collider)
 	{
-		return JoltMaterial(collider.Friction, collider.Restitution);
+		return CreateFromCollider(collider);
 	}
 
 	JoltMaterial JoltMaterial::CreateFromCapsuleCollider(const CapsuleCollider3DComponent& collider)
 	{
-		return JoltMaterial(collider.Friction, collider.Restitution);
+		return CreateFromCollider(collider);
 	}
 
 }

@@ -20,7 +20,7 @@ namespace OloEngine {
 	{
 	public:
 		JoltContactListener(JoltScene* scene);
-		virtual ~JoltContactListener() = default;
+		virtual ~JoltContactListener() noexcept = default;
 
 		// Called when a contact is detected
 		virtual JPH::ValidateResult OnContactValidate(const JPH::Body& inBody1, const JPH::Body& inBody2, JPH::RVec3Arg inBaseOffset, const JPH::CollideShapeResult& inCollisionResult) override;
@@ -38,7 +38,7 @@ namespace OloEngine {
 		void ProcessContactEvents();
 
 		// Get the number of pending contact events
-		sizet GetPendingContactEventCount() const { return m_ContactEventQueue.size(); }
+		sizet GetPendingContactEventCount() const noexcept { return m_QueueSize.load(); }
 
 	private:
 		struct ContactEvent
@@ -59,6 +59,7 @@ namespace OloEngine {
 		};
 
 		void QueueContactEvent(const ContactEvent& event);
+		void QueueContactEvent(ContactEvent&& event);
 		UUID GetEntityIDFromBody(const JPH::Body& body);
 
 	private:
@@ -67,6 +68,9 @@ namespace OloEngine {
 		// Thread-safe contact event queue
 		mutable std::mutex m_ContactEventsMutex;
 		std::deque<ContactEvent> m_ContactEventQueue;
+		
+		// Atomic queue size counter for fast, thread-safe access
+		std::atomic<sizet> m_QueueSize{0};
 		
 		// Maximum number of contact events to queue (to prevent memory issues)
 		static constexpr sizet MaxQueuedContactEvents = 10000;

@@ -172,12 +172,12 @@ namespace OloEngine {
 		std::lock_guard<std::mutex> lock(m_CookingMutex);
 
 		CookingRequest request;
-		request.ColliderAsset = colliderAsset;
-		request.Type = type;
-		request.InvalidateOld = invalidateOld;
-		request.RequestTime = std::chrono::steady_clock::now();
+		request.m_ColliderAsset = colliderAsset;
+		request.m_Type = type;
+		request.m_InvalidateOld = invalidateOld;
+		request.m_RequestTime = std::chrono::steady_clock::now();
 
-		auto future = request.Promise.get_future();
+		auto future = request.m_Promise.get_future();
 		m_CookingQueue.push_back(std::move(request));
 
 		return future;
@@ -204,8 +204,8 @@ namespace OloEngine {
 
 			// Create async task
 			auto task = std::async(std::launch::async, [this, req = std::move(request)]() mutable {
-				ECookingResult result = m_CookingFactory->CookMeshType(req.ColliderAsset, req.Type, req.InvalidateOld);
-				req.Promise.set_value(result);
+				ECookingResult result = m_CookingFactory->CookMeshType(req.m_ColliderAsset, req.m_Type, req.m_InvalidateOld);
+				req.m_Promise.set_value(result);
 			});
 
 			m_CookingTasks.push_back(std::move(task));

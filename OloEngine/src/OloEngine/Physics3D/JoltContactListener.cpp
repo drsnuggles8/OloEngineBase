@@ -29,8 +29,7 @@ namespace OloEngine {
 			glm::vec3 contactNormal = JoltUtils::FromJoltVector(inManifold.mWorldSpaceNormal);
 			f32 contactDepth = inManifold.mPenetrationDepth;
 
-			ContactEvent event(ContactType::ContactAdded, entityA, entityB, contactPoint, contactNormal, contactDepth, 0.0f);
-			QueueContactEvent(event);
+			QueueContactEvent(ContactEvent(ContactType::ContactAdded, entityA, entityB, contactPoint, contactNormal, contactDepth, 0.0f));
 		}
 	}
 
@@ -45,8 +44,7 @@ namespace OloEngine {
 			glm::vec3 contactNormal = JoltUtils::FromJoltVector(inManifold.mWorldSpaceNormal);
 			f32 contactDepth = inManifold.mPenetrationDepth;
 
-			ContactEvent event(ContactType::ContactPersisted, entityA, entityB, contactPoint, contactNormal, contactDepth, 0.0f);
-			QueueContactEvent(event);
+			QueueContactEvent(ContactEvent(ContactType::ContactPersisted, entityA, entityB, contactPoint, contactNormal, contactDepth, 0.0f));
 		}
 	}
 
@@ -75,6 +73,7 @@ namespace OloEngine {
 			}
 			
 			m_ContactEventQueue.pop_front();
+			m_QueueSize.fetch_sub(1, std::memory_order_relaxed);
 		}
 	}
 
@@ -87,9 +86,27 @@ namespace OloEngine {
 		{
 			OLO_CORE_WARN("Contact event queue is full! Dropping oldest event.");
 			m_ContactEventQueue.pop_front();
+			m_QueueSize.fetch_sub(1, std::memory_order_relaxed);
 		}
 		
 		m_ContactEventQueue.push_back(event);
+		m_QueueSize.fetch_add(1, std::memory_order_relaxed);
+	}
+
+	void JoltContactListener::QueueContactEvent(ContactEvent&& event)
+	{
+		std::lock_guard<std::mutex> lock(m_ContactEventsMutex);
+		
+		// Prevent memory issues by limiting the queue size
+		if (m_ContactEventQueue.size() >= MaxQueuedContactEvents)
+		{
+			OLO_CORE_WARN("Contact event queue is full! Dropping oldest event.");
+			m_ContactEventQueue.pop_front();
+			m_QueueSize.fetch_sub(1, std::memory_order_relaxed);
+		}
+		
+		m_ContactEventQueue.push_back(std::move(event));
+		m_QueueSize.fetch_add(1, std::memory_order_relaxed);
 	}
 
 	UUID JoltContactListener::GetEntityIDFromBody(const JPH::Body& body)

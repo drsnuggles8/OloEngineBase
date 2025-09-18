@@ -13,11 +13,11 @@ namespace OloEngine {
 
 	struct CookingRequest
 	{
-		Ref<MeshColliderAsset> ColliderAsset;
-		EMeshColliderType Type;
-		bool InvalidateOld = false;
-		std::promise<ECookingResult> Promise;
-		std::chrono::steady_clock::time_point RequestTime;
+		Ref<MeshColliderAsset> m_ColliderAsset;
+		EMeshColliderType m_Type;
+		bool m_InvalidateOld = false;
+		std::promise<ECookingResult> m_Promise;
+		std::chrono::steady_clock::time_point m_RequestTime;
 	};
 
 	class MeshColliderCache

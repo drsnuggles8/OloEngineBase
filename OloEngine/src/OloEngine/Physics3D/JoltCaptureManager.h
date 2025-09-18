@@ -54,7 +54,7 @@ namespace OloEngine {
 
 		// File management
 		void OpenCapture(const std::filesystem::path& capturePath) const;
-		void OpenRecentCapture() const { OpenCapture(m_RecentCapture); }
+		void OpenRecentCapture() const;
 		void ClearCaptures();
 		void RemoveCapture(const std::filesystem::path& capturePath);
 		const std::vector<std::filesystem::path>& GetAllCaptures() const { return m_Captures; }

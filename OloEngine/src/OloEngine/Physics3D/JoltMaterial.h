@@ -29,6 +29,13 @@ namespace OloEngine {
 			return new JoltMaterial(colliderMaterial.StaticFriction, colliderMaterial.Restitution);
 		}
 
+		// Templated helper to create materials from any collider component with a Material member
+		template<typename T>
+		static JoltMaterial CreateFromCollider(const T& collider)
+		{
+			return JoltMaterial(collider.Material.StaticFriction, collider.Material.Restitution);
+		}
+
 		// Helper functions to create materials from our collider components
 		static JoltMaterial CreateFromBoxCollider(const BoxCollider3DComponent& collider);
 		static JoltMaterial CreateFromSphereCollider(const SphereCollider3DComponent& collider);
