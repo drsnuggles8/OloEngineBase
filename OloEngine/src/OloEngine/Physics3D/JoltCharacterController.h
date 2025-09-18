@@ -13,6 +13,7 @@
 #include <Jolt/Physics/Character/CharacterVirtual.h>
 
 #include <glm/glm.hpp>
+#include <unordered_set>
 #include <glm/gtc/quaternion.hpp>
 
 #include <functional>
@@ -139,11 +140,11 @@ namespace OloEngine
         JPH::Vec3 m_AngularVelocityOut = JPH::Vec3::sZero();    // Angular velocity after physics update
         JPH::Quat m_PreviousRotation = JPH::Quat::sIdentity();
 
-        // Contact tracking
-        JPH::BodyIDVector m_TriggeredBodies;
-        JPH::BodyIDVector m_StillTriggeredBodies;
-        JPH::BodyIDVector m_CollidedBodies;
-        JPH::BodyIDVector m_StillCollidedBodies;
+        // Contact tracking - using unordered_set for O(1) membership checks
+        std::unordered_set<JPH::BodyID> m_TriggeredBodies;
+        std::unordered_set<JPH::BodyID> m_StillTriggeredBodies;
+        std::unordered_set<JPH::BodyID> m_CollidedBodies;
+        std::unordered_set<JPH::BodyID> m_StillCollidedBodies;
 
         // Character properties
         f32 m_JumpPower = 0.0f;

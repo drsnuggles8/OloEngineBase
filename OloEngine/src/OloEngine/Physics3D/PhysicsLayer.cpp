@@ -125,8 +125,26 @@ namespace OloEngine {
 		{
 			sizet index = indexIt->second;
 			// Bounds check for safety
-			if (index < s_Layers.size() && s_Layers[index].m_LayerID == layerId)
-				return s_Layers[index];
+			if (index < s_Layers.size())
+			{
+				if (s_Layers[index].m_LayerID == layerId)
+				{
+					return s_Layers[index];
+				}
+				else
+				{
+					// Index map corruption detected - log the inconsistency
+					OLO_CORE_ERROR("PhysicsLayerManager: Index map corruption detected! "
+								  "Queried layerId: {}, found index: {}, actual layerId at index: {}, "
+								  "layers size: {}, index map size: {}",
+								  layerId, index, s_Layers[index].m_LayerID, 
+								  s_Layers.size(), s_LayerIndexMap.size());
+					
+					OLO_CORE_ASSERT(false, "PhysicsLayerManager index map corruption: layerId {} maps to index {} "
+									       "but s_Layers[{}].m_LayerID is {}", 
+									       layerId, index, index, s_Layers[index].m_LayerID);
+				}
+			}
 		}
 
 		return s_NullLayer;

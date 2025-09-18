@@ -12,8 +12,8 @@ namespace OloEngine {
 		// Require that T has a Material member
 		collider.Material;
 		// Require that Material has StaticFriction and Restitution members that are convertible to float
-		{ collider.Material.StaticFriction } -> std::convertible_to<float>;
-		{ collider.Material.Restitution } -> std::convertible_to<float>;
+		{ collider.Material.m_StaticFriction } -> std::convertible_to<float>;
+		{ collider.Material.m_Restitution } -> std::convertible_to<float>;
 	};
 
 	// Forward declarations

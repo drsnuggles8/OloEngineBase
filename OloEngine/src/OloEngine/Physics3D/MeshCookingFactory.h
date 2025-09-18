@@ -60,7 +60,7 @@ namespace OloEngine {
 	{
 		MeshColliderData m_SimpleColliderData;   // For dynamic bodies (convex)
 		MeshColliderData m_ComplexColliderData;  // For static bodies (triangle mesh)
-		std::chrono::system_clock::time_point m_LastModified;
+		std::chrono::system_clock::time_point m_LastAccessed; // Time when cached data was last loaded/accessed (for LRU eviction)
 		bool m_IsValid = false;
 	};
 

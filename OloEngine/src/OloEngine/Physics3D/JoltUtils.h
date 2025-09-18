@@ -152,15 +152,57 @@ namespace OloEngine {
 		// Prefer this over DecomposeTransform() when only rotation is needed (hot path optimization)
 		static glm::quat GetRotationFromTransform(const glm::mat4& transform)
 		{
+			static constexpr f32 NORMALIZATION_EPSILON = 1e-6f;
+			
 			// Extract the upper-left 3x3 rotation+scale matrix
 			glm::mat3 rotScale = glm::mat3(transform);
 			
-			// Normalize each column to remove scale and get pure rotation matrix
-			glm::vec3 col0 = glm::normalize(rotScale[0]);
-			glm::vec3 col1 = glm::normalize(rotScale[1]);
-			glm::vec3 col2 = glm::normalize(rotScale[2]);
+			// Calculate column lengths
+			f32 len0 = glm::length(rotScale[0]);
+			f32 len1 = glm::length(rotScale[1]);
+			f32 len2 = glm::length(rotScale[2]);
 			
-			// Reconstruct pure rotation matrix
+			// Check if any column is too small (near-zero scale)
+			if (len0 < NORMALIZATION_EPSILON || len1 < NORMALIZATION_EPSILON || len2 < NORMALIZATION_EPSILON)
+			{
+				// Fallback to robust decomposition when columns are degenerate
+				auto components = DecomposeTransform(transform);
+				return components.m_Rotation;
+			}
+			
+			// Safe normalization - all columns have sufficient length
+			glm::vec3 col0 = rotScale[0] / len0;
+			glm::vec3 col1 = rotScale[1] / len1;
+			glm::vec3 col2 = rotScale[2] / len2;
+			
+			// Verify orthogonality and apply Gram-Schmidt if needed
+			f32 dot01 = glm::dot(col0, col1);
+			f32 dot02 = glm::dot(col0, col2);
+			f32 dot12 = glm::dot(col1, col2);
+			
+			// If columns are not sufficiently orthogonal, re-orthogonalize
+			if (glm::abs(dot01) > NORMALIZATION_EPSILON || glm::abs(dot02) > NORMALIZATION_EPSILON || glm::abs(dot12) > NORMALIZATION_EPSILON)
+			{
+				// Apply Gram-Schmidt orthogonalization
+				// Keep col0 as reference, orthogonalize col1 and col2
+				col1 = col1 - glm::dot(col1, col0) * col0;
+				f32 len1_ortho = glm::length(col1);
+				if (len1_ortho < NORMALIZATION_EPSILON)
+				{
+					// col1 is parallel to col0, construct perpendicular vector
+					glm::vec3 arbitrary = (glm::abs(col0.x) < 0.9f) ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+					col1 = glm::normalize(glm::cross(col0, arbitrary));
+				}
+				else
+				{
+					col1 /= len1_ortho;
+				}
+				
+				// col2 = cross(col0, col1) for right-handed orthonormal basis
+				col2 = glm::cross(col0, col1);
+			}
+			
+			// Reconstruct pure rotation matrix from orthonormal columns
 			glm::mat3 rotation(col0, col1, col2);
 			
 			// Convert rotation matrix to quaternion

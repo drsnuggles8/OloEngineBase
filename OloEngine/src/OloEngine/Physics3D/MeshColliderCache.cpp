@@ -243,8 +243,8 @@ namespace OloEngine {
 
 		if (cachedData.m_IsValid)
 		{
-			// Update last modified time to reflect when cached data was loaded into memory
-			cachedData.m_LastModified = std::chrono::system_clock::now();
+			// Update last accessed time to reflect when cached data was loaded into memory
+			cachedData.m_LastAccessed = std::chrono::system_clock::now();
 		}
 
 		return cachedData;
@@ -342,10 +342,10 @@ namespace OloEngine {
 
 		for (const auto& [handle, data] : m_CachedData)
 		{
-			entries.emplace_back(handle, data.m_LastModified);
+			entries.emplace_back(handle, data.m_LastAccessed);
 		}
 
-		// Sort by last modified time (oldest first)
+		// Sort by last accessed time (oldest first)
 		std::sort(entries.begin(), entries.end(),
 			[](const auto& a, const auto& b) {
 				return a.second < b.second;
@@ -374,7 +374,7 @@ namespace OloEngine {
 	{
 		// Check if entry is old enough to be evicted
 		auto now = std::chrono::system_clock::now();
-		auto entryAge = std::chrono::duration_cast<std::chrono::milliseconds>(now - data.m_LastModified);
+		auto entryAge = std::chrono::duration_cast<std::chrono::milliseconds>(now - data.m_LastAccessed);
 		
 		return entryAge.count() > MinCacheEntryLifetimeMs;
 	}

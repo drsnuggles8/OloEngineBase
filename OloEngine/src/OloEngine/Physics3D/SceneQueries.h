@@ -158,6 +158,9 @@ namespace OloEngine {
 
 		ShapeCastType GetCastType() const { return m_Type; }
 
+	protected:
+		ShapeOverlapInfo(ShapeCastType castType, const glm::vec3& origin) : m_Type(castType), m_Origin(origin) {}
+
 	private:
 		ShapeCastType m_Type;
 	};
@@ -171,9 +174,8 @@ namespace OloEngine {
 	{
 		BoxOverlapInfo() : ShapeOverlapInfo(ShapeCastType::Box) {}
 		BoxOverlapInfo(const glm::vec3& origin, const glm::vec3& halfExtentValue)
-			: ShapeOverlapInfo(ShapeCastType::Box), m_HalfExtent(halfExtentValue)
+			: ShapeOverlapInfo(ShapeCastType::Box, origin), m_HalfExtent(halfExtentValue)
 		{
-			m_Origin = origin;
 		}
 
 		glm::vec3 m_HalfExtent = glm::vec3(0.5f);
@@ -188,9 +190,8 @@ namespace OloEngine {
 	{
 		SphereOverlapInfo() : ShapeOverlapInfo(ShapeCastType::Sphere) {}
 		SphereOverlapInfo(const glm::vec3& origin, f32 sphereRadius)
-			: ShapeOverlapInfo(ShapeCastType::Sphere), m_Radius(sphereRadius)
+			: ShapeOverlapInfo(ShapeCastType::Sphere, origin), m_Radius(sphereRadius)
 		{
-			m_Origin = origin;
 		}
 
 		f32 m_Radius = 0.5f;
@@ -205,9 +206,8 @@ namespace OloEngine {
 	{
 		CapsuleOverlapInfo() : ShapeOverlapInfo(ShapeCastType::Capsule) {}
 		CapsuleOverlapInfo(const glm::vec3& origin, f32 capsuleHalfHeight, f32 capsuleRadius)
-			: ShapeOverlapInfo(ShapeCastType::Capsule), m_HalfHeight(capsuleHalfHeight), m_Radius(capsuleRadius)
+			: ShapeOverlapInfo(ShapeCastType::Capsule, origin), m_HalfHeight(capsuleHalfHeight), m_Radius(capsuleRadius)
 		{
-			m_Origin = origin;
 		}
 
 		f32 m_HalfHeight = 1.0f;

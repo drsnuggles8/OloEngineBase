@@ -6,6 +6,7 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Core/Log.h"
 
+#include <unordered_set>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
@@ -166,7 +167,7 @@ namespace OloEngine
             else
             {
                 // Apply gravity when not grounded or on steep slope
-                glm::vec3 gravity = glm::vec3(0.0f, -9.81f, 0.0f); // Default gravity, should get from scene
+                glm::vec3 gravity = glm::vec3(0.0f, -9.81f, 0.0f); // TODO: Default gravity, should get from scene
                 newVelocity = currentVerticalVelocity + JoltUtils::ToJoltVector(gravity) * deltaTime;
             }
         }
@@ -274,28 +275,29 @@ namespace OloEngine
         // Handle contact events
         if (m_ContactEventCallback)
         {
-            // Process trigger end events
+            // Process trigger end events - O(1) lookups with unordered_set
             for (const auto& bodyID : m_TriggeredBodies)
             {
-                if (std::find(m_StillTriggeredBodies.begin(), m_StillTriggeredBodies.end(), bodyID) == m_StillTriggeredBodies.end())
+                if (m_StillTriggeredBodies.find(bodyID) == m_StillTriggeredBodies.end())
                 {
                     // Trigger end event - would need entity lookup from bodyID
                     // m_ContactEventCallback(m_Entity, otherEntity);
                 }
             }
 
-            // Process collision end events
+            // Process collision end events - O(1) lookups with unordered_set
             for (const auto& bodyID : m_CollidedBodies)
             {
-                if (std::find(m_StillCollidedBodies.begin(), m_StillCollidedBodies.end(), bodyID) == m_StillCollidedBodies.end())
+                if (m_StillCollidedBodies.find(bodyID) == m_StillCollidedBodies.end())
                 {
                     // Collision end event - would need entity lookup from bodyID
                     // m_ContactEventCallback(m_Entity, otherEntity);
                 }
             }
 
-            std::swap(m_TriggeredBodies, m_StillTriggeredBodies);
-            std::swap(m_CollidedBodies, m_StillCollidedBodies);
+            // Swap current frames to previous frames
+            m_TriggeredBodies = std::move(m_StillTriggeredBodies);
+            m_CollidedBodies = std::move(m_StillCollidedBodies);
 
             m_StillTriggeredBodies.clear();
             m_StillCollidedBodies.clear();
@@ -399,7 +401,7 @@ namespace OloEngine
 
     void JoltCharacterController::HandleTrigger(const JPH::BodyID bodyID2)
     {
-        if (std::find(m_TriggeredBodies.begin(), m_TriggeredBodies.end(), bodyID2) == m_TriggeredBodies.end())
+        if (m_TriggeredBodies.find(bodyID2) == m_TriggeredBodies.end())
         {
             // Trigger begin event - would need entity lookup from bodyID
             if (m_ContactEventCallback)
@@ -407,12 +409,12 @@ namespace OloEngine
                 // m_ContactEventCallback(m_Entity, otherEntity);
             }
         }
-        m_StillTriggeredBodies.push_back(bodyID2);
+        m_StillTriggeredBodies.insert(bodyID2);
     }
 
     void JoltCharacterController::HandleCollision(const JPH::BodyID bodyID2)
     {
-        if (std::find(m_CollidedBodies.begin(), m_CollidedBodies.end(), bodyID2) == m_CollidedBodies.end())
+        if (m_CollidedBodies.find(bodyID2) == m_CollidedBodies.end())
         {
             // Collision begin event - would need entity lookup from bodyID
             if (m_ContactEventCallback)
@@ -420,7 +422,7 @@ namespace OloEngine
                 // m_ContactEventCallback(m_Entity, otherEntity);
             }
         }
-        m_StillCollidedBodies.push_back(bodyID2);
+        m_StillCollidedBodies.insert(bodyID2);
     }
 
     // JPH::CharacterContactListener implementation
