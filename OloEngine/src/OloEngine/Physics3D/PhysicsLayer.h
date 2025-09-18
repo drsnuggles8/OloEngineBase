@@ -54,9 +54,13 @@ namespace OloEngine {
 	private:
 		static u32 GetNextLayerID();
 
+		// Helper function to rebuild the index map when s_Layers is modified
+		static void RebuildLayerIndexMap();
+
 	private:
 		static std::vector<PhysicsLayer> s_Layers;
 		static std::unordered_map<u32, std::string> s_LayerNames;
+		static std::unordered_map<u32, sizet> s_LayerIndexMap; // Maps LayerID to index in s_Layers for O(1) lookup
 		static PhysicsLayer s_NullLayer;
 	};
 

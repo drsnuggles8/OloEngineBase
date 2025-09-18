@@ -2,8 +2,19 @@
 
 #include "OloEngine/Physics3D/ColliderMaterial.h"
 #include <Jolt/Physics/Collision/PhysicsMaterial.h>
+#include <concepts>
 
 namespace OloEngine {
+
+	// Concept to constrain types that have a Material member with the required physics properties
+	template<typename T>
+	concept HasMaterialInterface = requires(const T& collider) {
+		// Require that T has a Material member
+		collider.Material;
+		// Require that Material has StaticFriction and Restitution members that are convertible to float
+		{ collider.Material.StaticFriction } -> std::convertible_to<float>;
+		{ collider.Material.Restitution } -> std::convertible_to<float>;
+	};
 
 	// Forward declarations
 	struct BoxCollider3DComponent;
@@ -26,14 +37,14 @@ namespace OloEngine {
 
 		inline static JoltMaterial* FromColliderMaterial(const ColliderMaterial& colliderMaterial)
 		{
-			return new JoltMaterial(colliderMaterial.StaticFriction, colliderMaterial.Restitution);
+			return new JoltMaterial(colliderMaterial.m_StaticFriction, colliderMaterial.m_Restitution);
 		}
 
 		// Templated helper to create materials from any collider component with a Material member
-		template<typename T>
+		template<typename T> requires HasMaterialInterface<T>
 		static JoltMaterial CreateFromCollider(const T& collider)
 		{
-			return JoltMaterial(collider.Material.StaticFriction, collider.Material.Restitution);
+			return JoltMaterial(collider.Material.m_StaticFriction, collider.Material.m_Restitution);
 		}
 
 		// Helper functions to create materials from our collider components

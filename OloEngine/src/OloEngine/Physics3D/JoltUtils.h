@@ -118,9 +118,9 @@ namespace OloEngine {
 		// Transform decomposition result
 		struct TransformComponents
 		{
-			glm::vec3 Translation;
-			glm::quat Rotation;
-			glm::vec3 Scale;
+			glm::vec3 m_Translation;
+			glm::quat m_Rotation;
+			glm::vec3 m_Scale;
 		};
 
 		// Utility functions
@@ -129,29 +129,65 @@ namespace OloEngine {
 			return glm::vec3(transform[3]);
 		}
 
+		// Full transform decomposition - extracts all components (translation, rotation, scale)
+		// Note: If you only need one component, prefer the direct extractors (GetRotationFromTransform, GetScaleFromTransform)
+		// for better performance in hot paths
 		static TransformComponents DecomposeTransform(const glm::mat4& transform)
 		{
 			TransformComponents components;
 			
 			// Extract translation directly from the matrix (faster than decompose for this component)
-			components.Translation = glm::vec3(transform[3]);
+			components.m_Translation = glm::vec3(transform[3]);
 			
-			// Use glm::decompose for rotation and scale
+			// Use glm::decompose for rotation and scale (use dummy translation to avoid overwriting)
 			glm::vec3 skew;
 			glm::vec4 perspective;
-			glm::decompose(transform, components.Scale, components.Rotation, components.Translation, skew, perspective);
+			glm::vec3 dummyTranslation;
+			glm::decompose(transform, components.m_Scale, components.m_Rotation, dummyTranslation, skew, perspective);
 			
 			return components;
 		}
 
+		// Fast direct rotation extraction - builds 3x3 rotation matrix, normalizes columns to remove scale, converts to quaternion
+		// Prefer this over DecomposeTransform() when only rotation is needed (hot path optimization)
 		static glm::quat GetRotationFromTransform(const glm::mat4& transform)
 		{
-			return DecomposeTransform(transform).Rotation;
+			// Extract the upper-left 3x3 rotation+scale matrix
+			glm::mat3 rotScale = glm::mat3(transform);
+			
+			// Normalize each column to remove scale and get pure rotation matrix
+			glm::vec3 col0 = glm::normalize(rotScale[0]);
+			glm::vec3 col1 = glm::normalize(rotScale[1]);
+			glm::vec3 col2 = glm::normalize(rotScale[2]);
+			
+			// Reconstruct pure rotation matrix
+			glm::mat3 rotation(col0, col1, col2);
+			
+			// Convert rotation matrix to quaternion
+			return glm::quat_cast(rotation);
 		}
 
+		// Fast direct scale extraction - computes per-axis scale as length of each transform column
+		// Prefer this over DecomposeTransform() when only scale is needed (hot path optimization)
 		static glm::vec3 GetScaleFromTransform(const glm::mat4& transform)
 		{
-			return DecomposeTransform(transform).Scale;
+			// Scale is the length of each column vector in the upper-left 3x3 matrix
+			return glm::vec3(
+				glm::length(glm::vec3(transform[0])), // X scale
+				glm::length(glm::vec3(transform[1])), // Y scale
+				glm::length(glm::vec3(transform[2]))  // Z scale
+			);
+		}
+
+		// Overloaded APIs that accept precomputed decomposition to avoid repeated work
+		static glm::quat GetRotationFromTransform(const TransformComponents& components)
+		{
+			return components.m_Rotation;
+		}
+
+		static glm::vec3 GetScaleFromTransform(const TransformComponents& components)
+		{
+			return components.m_Scale;
 		}
 
 		// Transform composition

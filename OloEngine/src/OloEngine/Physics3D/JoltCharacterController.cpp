@@ -424,7 +424,7 @@ namespace OloEngine
     }
 
     // JPH::CharacterContactListener implementation
-    void JoltCharacterController::OnAdjustBodyVelocity(const JPH::CharacterVirtual* inCharacter, const JPH::Body& inBody2, 
+    void JoltCharacterController::OnAdjustBodyVelocity([[maybe_unused]] const JPH::CharacterVirtual* inCharacter, const JPH::Body& inBody2, 
                                                       JPH::Vec3& ioLinearVelocity, JPH::Vec3& ioAngularVelocity)
     {
         // Character can influence other dynamic bodies (e.g., push objects around)
@@ -456,8 +456,8 @@ namespace OloEngine
         ioAngularVelocity *= velocityReduction;
     }
 
-    bool JoltCharacterController::OnContactValidate(const JPH::CharacterVirtual* inCharacter, const JPH::BodyID& inBodyID2, 
-                                                   const JPH::SubShapeID& inSubShapeID2)
+    bool JoltCharacterController::OnContactValidate([[maybe_unused]] const JPH::CharacterVirtual* inCharacter, const JPH::BodyID& inBodyID2, 
+                                                   [[maybe_unused]] const JPH::SubShapeID& inSubShapeID2)
     {
         // Validate if character should collide with this body based on collision layers
         if (!m_Scene)
@@ -494,9 +494,9 @@ namespace OloEngine
         return true;
     }
 
-    void JoltCharacterController::OnContactAdded(const JPH::CharacterVirtual* inCharacter, const JPH::BodyID& inBodyID2, 
-                                               const JPH::SubShapeID& inSubShapeID2, JPH::Vec3Arg inContactPosition, 
-                                               JPH::Vec3Arg inContactNormal, JPH::CharacterContactSettings& ioSettings)
+    void JoltCharacterController::OnContactAdded([[maybe_unused]] const JPH::CharacterVirtual* inCharacter, const JPH::BodyID& inBodyID2, 
+                                               [[maybe_unused]] const JPH::SubShapeID& inSubShapeID2, [[maybe_unused]] JPH::Vec3Arg inContactPosition, 
+                                               JPH::Vec3Arg inContactNormal, [[maybe_unused]] JPH::CharacterContactSettings& ioSettings)
     {
         m_CollisionFlags = ECollisionFlags::None;
 
@@ -519,7 +519,7 @@ namespace OloEngine
 
         // Check if it's a sensor/trigger
         bool isSensor = false;
-        bool isStatic = true;
+        [[maybe_unused]] bool isStatic = true;
         
         // Would need physics system integration to properly check body properties
         // For now, assume it's a solid collision
@@ -534,11 +534,11 @@ namespace OloEngine
         }
     }
 
-    void JoltCharacterController::OnContactSolve(const JPH::CharacterVirtual* inCharacter, const JPH::BodyID& inBodyID2, 
-                                               const JPH::SubShapeID& inSubShapeID2, JPH::RVec3Arg inContactPosition, 
-                                               JPH::Vec3Arg inContactNormal, JPH::Vec3Arg inContactVelocity, 
-                                               const JPH::PhysicsMaterial* inContactMaterial, JPH::Vec3Arg inCharacterVelocity, 
-                                               JPH::Vec3& ioNewCharacterVelocity)
+    void JoltCharacterController::OnContactSolve([[maybe_unused]] const JPH::CharacterVirtual* inCharacter, [[maybe_unused]] const JPH::BodyID& inBodyID2, 
+                                               [[maybe_unused]] const JPH::SubShapeID& inSubShapeID2, [[maybe_unused]] JPH::RVec3Arg inContactPosition, 
+                                               [[maybe_unused]] JPH::Vec3Arg inContactNormal, [[maybe_unused]] JPH::Vec3Arg inContactVelocity, 
+                                               [[maybe_unused]] const JPH::PhysicsMaterial* inContactMaterial, [[maybe_unused]] JPH::Vec3Arg inCharacterVelocity, 
+                                               [[maybe_unused]] JPH::Vec3& ioNewCharacterVelocity)
     {
         // Default implementation - no velocity modification
         // This can be extended to handle special materials, moving platforms, etc.

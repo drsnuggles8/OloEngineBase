@@ -243,7 +243,7 @@ namespace OloEngine {
 
 		if (cachedData.m_IsValid)
 		{
-			// Update last modified time using current time since we're cooking fresh data
+			// Update last modified time to reflect when cached data was loaded into memory
 			cachedData.m_LastModified = std::chrono::system_clock::now();
 		}
 

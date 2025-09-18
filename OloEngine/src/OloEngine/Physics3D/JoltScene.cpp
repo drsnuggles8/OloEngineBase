@@ -483,7 +483,7 @@ namespace OloEngine {
 		if (!m_JoltSystem)
 			return 0;
 
-		JPH::Ref<JPH::Shape> boxShape = new JPH::BoxShape(JoltUtils::ToJoltVector(boxOverlapInfo.halfExtent));
+		JPH::Ref<JPH::Shape> boxShape = new JPH::BoxShape(JoltUtils::ToJoltVector(boxOverlapInfo.m_HalfExtent));
 		return PerformShapeOverlap(boxShape, boxOverlapInfo.m_Origin, boxOverlapInfo.m_Rotation,
 			boxOverlapInfo.m_LayerMask, boxOverlapInfo.m_ExcludedEntities, outHits, maxHits);
 	}
@@ -493,7 +493,7 @@ namespace OloEngine {
 		if (!m_JoltSystem)
 			return 0;
 
-		JPH::Ref<JPH::Shape> sphereShape = new JPH::SphereShape(sphereOverlapInfo.radius);
+		JPH::Ref<JPH::Shape> sphereShape = new JPH::SphereShape(sphereOverlapInfo.m_Radius);
 		return PerformShapeOverlap(sphereShape, sphereOverlapInfo.m_Origin, sphereOverlapInfo.m_Rotation,
 			sphereOverlapInfo.m_LayerMask, sphereOverlapInfo.m_ExcludedEntities, outHits, maxHits);
 	}
@@ -503,7 +503,7 @@ namespace OloEngine {
 		if (!m_JoltSystem)
 			return 0;
 
-		JPH::Ref<JPH::Shape> capsuleShape = new JPH::CapsuleShape(capsuleOverlapInfo.halfHeight, capsuleOverlapInfo.radius);
+		JPH::Ref<JPH::Shape> capsuleShape = new JPH::CapsuleShape(capsuleOverlapInfo.m_HalfHeight, capsuleOverlapInfo.m_Radius);
 		return PerformShapeOverlap(capsuleShape, capsuleOverlapInfo.m_Origin, capsuleOverlapInfo.m_Rotation,
 			capsuleOverlapInfo.m_LayerMask, capsuleOverlapInfo.m_ExcludedEntities, outHits, maxHits);
 	}

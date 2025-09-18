@@ -4,6 +4,15 @@
 
 namespace OloEngine {
 
+	void PhysicsLayerManager::RebuildLayerIndexMap()
+	{
+		s_LayerIndexMap.clear();
+		for (sizet i = 0; i < s_Layers.size(); ++i)
+		{
+			s_LayerIndexMap[s_Layers[i].m_LayerID] = i;
+		}
+	}
+
 	u32 PhysicsLayerManager::AddLayer(const std::string& name, bool setCollisions)
 	{
 		for (const auto& layer : s_Layers)
@@ -16,6 +25,9 @@ namespace OloEngine {
 		PhysicsLayer layer = { layerId, name, static_cast<i32>(BIT(layerId)), static_cast<i32>(BIT(layerId)) };
 		s_Layers.insert(s_Layers.begin() + layerId, layer);
 		s_LayerNames[layerId] = name;
+
+		// Rebuild index map after modifying s_Layers
+		RebuildLayerIndexMap();
 
 		if (setCollisions)
 		{
@@ -50,7 +62,11 @@ namespace OloEngine {
 		auto layerIt = std::find_if(s_Layers.begin(), s_Layers.end(), 
 			[layerId](const PhysicsLayer& layer) { return layer.m_LayerID == layerId; });
 		if (layerIt != s_Layers.end())
+		{
 			s_Layers.erase(layerIt);
+			// Rebuild index map after modifying s_Layers
+			RebuildLayerIndexMap();
+		}
 	}
 
 	void PhysicsLayerManager::UpdateLayerName(u32 layerId, const std::string& newName)
@@ -103,10 +119,14 @@ namespace OloEngine {
 
 	PhysicsLayer& PhysicsLayerManager::GetLayer(u32 layerId)
 	{
-		for (auto& layer : s_Layers)
+		// O(1) lookup using index map
+		auto indexIt = s_LayerIndexMap.find(layerId);
+		if (indexIt != s_LayerIndexMap.end())
 		{
-			if (layer.m_LayerID == layerId)
-				return layer;
+			sizet index = indexIt->second;
+			// Bounds check for safety
+			if (index < s_Layers.size() && s_Layers[index].m_LayerID == layerId)
+				return s_Layers[index];
 		}
 
 		return s_NullLayer;
@@ -174,6 +194,7 @@ namespace OloEngine {
 
 	std::vector<PhysicsLayer> PhysicsLayerManager::s_Layers;
 	std::unordered_map<u32, std::string> PhysicsLayerManager::s_LayerNames;
+	std::unordered_map<u32, sizet> PhysicsLayerManager::s_LayerIndexMap;
 	PhysicsLayer PhysicsLayerManager::s_NullLayer = { INVALID_LAYER_ID, "NULL", NO_COLLISION_BITS, NO_COLLISION_BITS };
 
 }

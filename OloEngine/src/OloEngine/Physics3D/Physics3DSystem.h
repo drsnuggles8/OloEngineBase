@@ -175,14 +175,12 @@ namespace OloEngine {
         // Get body interface for direct manipulation
         JPH::BodyInterface& GetBodyInterface() 
         { 
-            assert(m_PhysicsSystem && "PhysicsSystem not initialized in Physics3DSystem::GetBodyInterface");
             if (!m_PhysicsSystem) 
                 throw std::runtime_error("PhysicsSystem not initialized in Physics3DSystem::GetBodyInterface");
             return m_PhysicsSystem->GetBodyInterface(); 
         }
         const JPH::BodyInterface& GetBodyInterface() const 
         { 
-            assert(m_PhysicsSystem && "PhysicsSystem not initialized in Physics3DSystem::GetBodyInterface");
             if (!m_PhysicsSystem) 
                 throw std::runtime_error("PhysicsSystem not initialized in Physics3DSystem::GetBodyInterface");
             return m_PhysicsSystem->GetBodyInterface(); 

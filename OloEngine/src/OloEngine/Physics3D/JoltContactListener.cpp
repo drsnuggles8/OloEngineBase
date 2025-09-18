@@ -11,14 +11,14 @@ namespace OloEngine {
 		OLO_CORE_ASSERT(scene, "JoltContactListener requires a valid JoltScene");
 	}
 
-	JPH::ValidateResult JoltContactListener::OnContactValidate(const JPH::Body& inBody1, const JPH::Body& inBody2, JPH::RVec3Arg inBaseOffset, const JPH::CollideShapeResult& inCollisionResult)
+	JPH::ValidateResult JoltContactListener::OnContactValidate([[maybe_unused]] const JPH::Body& inBody1, [[maybe_unused]] const JPH::Body& inBody2, [[maybe_unused]] JPH::RVec3Arg inBaseOffset, [[maybe_unused]] const JPH::CollideShapeResult& inCollisionResult)
 	{
 		// You can use this to validate contacts before they are added.
 		// For now, we accept all contacts
 		return JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
 	}
 
-	void JoltContactListener::OnContactAdded(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, JPH::ContactSettings& ioSettings)
+	void JoltContactListener::OnContactAdded(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, [[maybe_unused]] JPH::ContactSettings& ioSettings)
 	{
 		UUID entityA = GetEntityIDFromBody(inBody1);
 		UUID entityB = GetEntityIDFromBody(inBody2);
@@ -33,7 +33,7 @@ namespace OloEngine {
 		}
 	}
 
-	void JoltContactListener::OnContactPersisted(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, JPH::ContactSettings& ioSettings)
+	void JoltContactListener::OnContactPersisted(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, [[maybe_unused]] JPH::ContactSettings& ioSettings)
 	{
 		UUID entityA = GetEntityIDFromBody(inBody1);
 		UUID entityB = GetEntityIDFromBody(inBody2);
@@ -48,7 +48,7 @@ namespace OloEngine {
 		}
 	}
 
-	void JoltContactListener::OnContactRemoved(const JPH::SubShapeIDPair& inSubShapePair)
+	void JoltContactListener::OnContactRemoved([[maybe_unused]] const JPH::SubShapeIDPair& inSubShapePair)
 	{
 		// Note: We can't get the bodies directly from the SubShapeIDPair, so we'll need to store additional data
 		// For now, we'll skip contact removed events. This can be enhanced later if needed.

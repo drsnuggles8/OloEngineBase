@@ -812,12 +812,12 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 
 // Template specializations for component callbacks
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::IDComponent>(OloEngine::Entity entity, OloEngine::IDComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::IDComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::IDComponent& component)
 {
 }
 
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::TransformComponent>(OloEngine::Entity entity, OloEngine::TransformComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::TransformComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::TransformComponent& component)
 {
 }
 
@@ -831,101 +831,101 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::CameraComponent>(OloEngine::E
 }
 
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::ScriptComponent>(OloEngine::Entity entity, OloEngine::ScriptComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::ScriptComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::ScriptComponent& component)
 {
 }
 
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::SpriteRendererComponent>(OloEngine::Entity entity, OloEngine::SpriteRendererComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::SpriteRendererComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::SpriteRendererComponent& component)
 {
 }
 
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::CircleRendererComponent>(OloEngine::Entity entity, OloEngine::CircleRendererComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::CircleRendererComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::CircleRendererComponent& component)
 {
 }
 
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::TagComponent>(OloEngine::Entity entity, OloEngine::TagComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::TagComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::TagComponent& component)
 {
 }
 
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::Rigidbody2DComponent>(OloEngine::Entity entity, OloEngine::Rigidbody2DComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::Rigidbody2DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::Rigidbody2DComponent& component)
 {
 }
 
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::BoxCollider2DComponent>(OloEngine::Entity entity, OloEngine::BoxCollider2DComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::BoxCollider2DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::BoxCollider2DComponent& component)
 {
 }
 
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::CircleCollider2DComponent>(OloEngine::Entity entity, OloEngine::CircleCollider2DComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::CircleCollider2DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::CircleCollider2DComponent& component)
 {
 }
 
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::TextComponent>(OloEngine::Entity entity, OloEngine::TextComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::TextComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::TextComponent& component)
 {
 }
 
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::AudioSourceComponent>(OloEngine::Entity entity, OloEngine::AudioSourceComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::AudioSourceComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::AudioSourceComponent& component)
 {
 }
 
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::AudioListenerComponent>(OloEngine::Entity entity, OloEngine::AudioListenerComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::AudioListenerComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::AudioListenerComponent& component)
 {
 }
 
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::RelationshipComponent>(OloEngine::Entity entity, OloEngine::RelationshipComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::RelationshipComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::RelationshipComponent& component)
 {
 }
 
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::PrefabComponent>(OloEngine::Entity entity, OloEngine::PrefabComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::PrefabComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::PrefabComponent& component)
 {
 }
 
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::RigidBody3DComponent>(OloEngine::Entity entity, OloEngine::RigidBody3DComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::RigidBody3DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::RigidBody3DComponent& component)
 {
 }
 
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::BoxCollider3DComponent>(OloEngine::Entity entity, OloEngine::BoxCollider3DComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::BoxCollider3DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::BoxCollider3DComponent& component)
 {
 }
 
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::SphereCollider3DComponent>(OloEngine::Entity entity, OloEngine::SphereCollider3DComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::SphereCollider3DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::SphereCollider3DComponent& component)
 {
 }
 
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::CapsuleCollider3DComponent>(OloEngine::Entity entity, OloEngine::CapsuleCollider3DComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::CapsuleCollider3DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::CapsuleCollider3DComponent& component)
 {
 }
 
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::CharacterController3DComponent>(OloEngine::Entity entity, OloEngine::CharacterController3DComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::CharacterController3DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::CharacterController3DComponent& component)
 {
 }
 
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::MeshCollider3DComponent>(OloEngine::Entity entity, OloEngine::MeshCollider3DComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::MeshCollider3DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::MeshCollider3DComponent& component)
 {
 }
 
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::ConvexMeshCollider3DComponent>(OloEngine::Entity entity, OloEngine::ConvexMeshCollider3DComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::ConvexMeshCollider3DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::ConvexMeshCollider3DComponent& component)
 {
 }
 
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::TriangleMeshCollider3DComponent>(OloEngine::Entity entity, OloEngine::TriangleMeshCollider3DComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::TriangleMeshCollider3DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::TriangleMeshCollider3DComponent& component)
 {
 }
