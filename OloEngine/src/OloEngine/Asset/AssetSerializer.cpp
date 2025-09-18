@@ -1206,10 +1206,29 @@ namespace OloEngine
     // MeshColliderSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    void MeshColliderSerializer::Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const
+    void MeshColliderSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
-        // TODO: Implement mesh collider serialization
-        OLO_CORE_WARN("MeshColliderSerializer::Serialize not yet implemented");
+        Ref<MeshColliderAsset> meshCollider = asset.As<MeshColliderAsset>();
+        if (!meshCollider)
+        {
+            OLO_CORE_ERROR("MeshColliderSerializer::Serialize - Invalid mesh collider asset");
+            return;
+        }
+
+        std::string yamlString = SerializeToYAML(meshCollider);
+
+        std::filesystem::path filepath = Project::GetAssetDirectory() / metadata.FilePath;
+        std::ofstream fout(filepath);
+        if (!fout.is_open())
+        {
+            OLO_CORE_ERROR("MeshColliderSerializer::Serialize - Failed to open file for writing: {}", filepath.string());
+            return;
+        }
+        
+        fout << yamlString;
+        fout.close();
+        
+        OLO_CORE_TRACE("MeshColliderSerializer::Serialize - Successfully serialized MeshCollider to: {}", filepath.string());
     }
 
     bool MeshColliderSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
