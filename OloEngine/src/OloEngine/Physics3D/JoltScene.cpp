@@ -408,6 +408,36 @@ namespace OloEngine {
 			capsuleCastInfo.MaxDistance, capsuleCastInfo.LayerMask, capsuleCastInfo.ExcludedEntities, outHit);
 	}
 
+	i32 JoltScene::CastBoxMultiple(const BoxCastInfo& boxCastInfo, SceneQueryHit* outHits, i32 maxHits)
+	{
+		if (!m_JoltSystem)
+			return 0;
+
+		JPH::Ref<JPH::Shape> boxShape = new JPH::BoxShape(JoltUtils::ToJoltVector(boxCastInfo.HalfExtent));
+		return PerformShapeCastMultiple(boxShape, boxCastInfo.Origin, boxCastInfo.Direction,
+			boxCastInfo.MaxDistance, boxCastInfo.LayerMask, boxCastInfo.ExcludedEntities, outHits, maxHits);
+	}
+
+	i32 JoltScene::CastSphereMultiple(const SphereCastInfo& sphereCastInfo, SceneQueryHit* outHits, i32 maxHits)
+	{
+		if (!m_JoltSystem)
+			return 0;
+
+		JPH::Ref<JPH::Shape> sphereShape = new JPH::SphereShape(sphereCastInfo.Radius);
+		return PerformShapeCastMultiple(sphereShape, sphereCastInfo.Origin, sphereCastInfo.Direction,
+			sphereCastInfo.MaxDistance, sphereCastInfo.LayerMask, sphereCastInfo.ExcludedEntities, outHits, maxHits);
+	}
+
+	i32 JoltScene::CastCapsuleMultiple(const CapsuleCastInfo& capsuleCastInfo, SceneQueryHit* outHits, i32 maxHits)
+	{
+		if (!m_JoltSystem)
+			return 0;
+
+		JPH::Ref<JPH::Shape> capsuleShape = new JPH::CapsuleShape(capsuleCastInfo.HalfHeight, capsuleCastInfo.Radius);
+		return PerformShapeCastMultiple(capsuleShape, capsuleCastInfo.Origin, capsuleCastInfo.Direction,
+			capsuleCastInfo.MaxDistance, capsuleCastInfo.LayerMask, capsuleCastInfo.ExcludedEntities, outHits, maxHits);
+	}
+
 	i32 JoltScene::OverlapShape(const ShapeOverlapInfo& overlapInfo, SceneQueryHit* outHits, i32 maxHits)
 	{
 		switch (overlapInfo.GetCastType())
@@ -500,11 +530,30 @@ namespace OloEngine {
 
 	i32 JoltScene::CastShapeMultiple(const ShapeCastInfo& shapeCastInfo, SceneQueryHit* outHits, i32 maxHits)
 	{
-		// TODO: Implement multiple shape casting when needed
-		// For now, we can use single hit and return 0 or 1
-		if (maxHits > 0 && CastShape(shapeCastInfo, outHits[0]))
-			return 1;
-		return 0;
+		if (maxHits <= 0)
+			return 0;
+
+		switch (shapeCastInfo.GetCastType())
+		{
+			case ShapeCastType::Box:
+			{
+				const BoxCastInfo& boxInfo = static_cast<const BoxCastInfo&>(shapeCastInfo);
+				return CastBoxMultiple(boxInfo, outHits, maxHits);
+			}
+			case ShapeCastType::Sphere:
+			{
+				const SphereCastInfo& sphereInfo = static_cast<const SphereCastInfo&>(shapeCastInfo);
+				return CastSphereMultiple(sphereInfo, outHits, maxHits);
+			}
+			case ShapeCastType::Capsule:
+			{
+				const CapsuleCastInfo& capsuleInfo = static_cast<const CapsuleCastInfo&>(shapeCastInfo);
+				return CastCapsuleMultiple(capsuleInfo, outHits, maxHits);
+			}
+			default:
+				OLO_CORE_ERROR("Unsupported shape cast type");
+				return 0;
+		}
 	}
 
 	void JoltScene::AddRadialImpulse(const glm::vec3& origin, f32 radius, f32 strength, EFalloffMode falloff, bool velocityChange)
@@ -705,6 +754,48 @@ namespace OloEngine {
 		// Fill hit information
 		FillHitInfo(hitCollector.mHit, shapeCast, outHit);
 		return true;
+	}
+
+	i32 JoltScene::PerformShapeCastMultiple(JPH::Ref<JPH::Shape> shape, const glm::vec3& start, const glm::vec3& direction,
+		f32 maxDistance, u32 layerMask, const std::vector<UUID>& excludedEntities, SceneQueryHit* outHits, i32 maxHits)
+	{
+		if (!m_JoltSystem || maxHits <= 0)
+			return 0;
+
+		// Create shape cast
+		JPH::Vec3 startPos = JoltUtils::ToJoltVector(start);
+		JPH::Vec3 castDirection = JoltUtils::ToJoltVector(glm::normalize(direction)) * maxDistance;
+		
+		JPH::RShapeCast shapeCast = JPH::RShapeCast::sFromWorldTransform(
+			shape,
+			JPH::Vec3::sReplicate(1.0f),
+			JPH::RMat44::sTranslation(startPos),
+			castDirection
+		);
+
+		// Perform shape cast with multiple hit collector
+		JPH::AllHitCollisionCollector<JPH::CastShapeCollector> hitCollector;
+		JPH::ShapeCastSettings shapeCastSettings;
+		
+		// Create filters
+		JPH::DefaultBroadPhaseLayerFilter broadPhaseFilter(*m_ObjectVsBroadPhaseLayerFilter, JPH::ObjectLayer(layerMask));
+		JPH::DefaultObjectLayerFilter objectLayerFilter(*m_ObjectLayerPairFilter, JPH::ObjectLayer(layerMask));
+		EntityExclusionBodyFilter bodyFilter(excludedEntities);
+
+		m_JoltSystem->GetNarrowPhaseQuery().CastShape(shapeCast, shapeCastSettings, startPos, hitCollector, broadPhaseFilter, objectLayerFilter, bodyFilter);
+
+		// Fill hit results
+		i32 hitCount = 0;
+		for (const auto& hit : hitCollector.mHits)
+		{
+			if (hitCount >= maxHits)
+				break;
+
+			FillHitInfo(hit, shapeCast, outHits[hitCount]);
+			hitCount++;
+		}
+
+		return hitCount;
 	}
 
 	i32 JoltScene::PerformShapeOverlap(JPH::Ref<JPH::Shape> shape, const glm::vec3& position, const glm::quat& rotation,

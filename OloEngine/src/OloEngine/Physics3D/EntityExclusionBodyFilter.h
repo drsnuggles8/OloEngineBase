@@ -1,6 +1,8 @@
 #pragma once
 
-#include "Physics3DTypes.h"
+#include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/UUID.h"
+#include <vector>
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Body/BodyFilter.h>
 
