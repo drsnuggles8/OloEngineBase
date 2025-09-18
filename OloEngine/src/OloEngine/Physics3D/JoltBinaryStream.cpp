@@ -5,15 +5,66 @@
 #include "JoltUtils.h"
 
 #include <Jolt/Physics/Collision/Shape/Shape.h>
+#include <Jolt/Physics/Collision/PhysicsMaterial.h>
+#include <Jolt/Core/StreamOut.h>
+#include <Jolt/Core/StreamIn.h>
+#include <sstream>
 
 namespace OloEngine {
 
 	namespace JoltBinaryStreamUtils {
 
 		/**
-		 * @brief Serialize a Jolt shape to binary data
-		 * Note: This is a basic implementation that stores shape metadata and could be enhanced
-		 * to use Jolt's streaming system when available.
+		 * @brief Adapter to bridge OloEngine JoltBinaryStreamWriter to Jolt's StreamOut interface
+		 */
+		class JoltStreamOutAdapter : public JPH::StreamOut
+		{
+		public:
+			explicit JoltStreamOutAdapter(JoltBinaryStreamWriter& writer) : m_Writer(writer) {}
+
+			void WriteBytes(const void* inData, size_t inNumBytes) override
+			{
+				m_Writer.WriteBytes(inData, inNumBytes);
+			}
+
+			bool IsFailed() const override
+			{
+				return m_Writer.IsFailed();
+			}
+
+		private:
+			JoltBinaryStreamWriter& m_Writer;
+		};
+
+		/**
+		 * @brief Adapter to bridge OloEngine JoltBinaryStreamReader to Jolt's StreamIn interface
+		 */
+		class JoltStreamInAdapter : public JPH::StreamIn
+		{
+		public:
+			explicit JoltStreamInAdapter(JoltBinaryStreamReader& reader) : m_Reader(reader) {}
+
+			void ReadBytes(void* outData, size_t inNumBytes) override
+			{
+				m_Reader.ReadBytes(outData, inNumBytes);
+			}
+
+			bool IsEOF() const override
+			{
+				return m_Reader.IsEOF();
+			}
+
+			bool IsFailed() const override
+			{
+				return m_Reader.IsFailed();
+			}
+
+		private:
+			JoltBinaryStreamReader& m_Reader;
+		};
+
+		/**
+		 * @brief Serialize a Jolt shape to binary data using Jolt's native binary serialization
 		 * 
 		 * @param shape The Jolt shape to serialize
 		 * @param outWriter The binary stream writer to write to
@@ -29,37 +80,56 @@ namespace OloEngine {
 
 			try
 			{
-				// Write shape type and basic metadata for now
-				// This provides a foundation for shape serialization that can be enhanced later
+				// Use Jolt's native binary serialization system
+				JoltStreamOutAdapter streamAdapter(outWriter);
+				
+				// Serialize shape type first for type identification during deserialization
 				JPH::EShapeType shapeType = shape->GetType();
 				JPH::EShapeSubType shapeSubType = shape->GetSubType();
+				streamAdapter.Write(shapeType);
+				streamAdapter.Write(shapeSubType);
 				
-				// Write shape type
-				outWriter.WriteBytes(&shapeType, sizeof(shapeType));
+				// Use Jolt's SaveBinaryState for complete shape serialization
+				shape->SaveBinaryState(streamAdapter);
 				
-				// Write shape subtype
-				outWriter.WriteBytes(&shapeSubType, sizeof(shapeSubType));
+				// Save materials used by this shape
+				JPH::PhysicsMaterialList materials;
+				shape->SaveMaterialState(materials);
+				streamAdapter.Write(static_cast<u32>(materials.size()));
 				
-				// Write shape user data
-				u64 userData = shape->GetUserData();
-				outWriter.WriteBytes(&userData, sizeof(userData));
+				// For now, save material count only (material properties are handled through contact callbacks in Jolt)
+				// In the future, this could be enhanced to serialize custom material properties
+				for (const JPH::PhysicsMaterialRefC& material : materials)
+				{
+					// Save material debug name if available (for debugging/identification)
+					std::string debugName = (material != nullptr) ? material->GetDebugName() : "Default";
+					u32 nameLength = static_cast<u32>(debugName.length());
+					streamAdapter.Write(nameLength);
+					streamAdapter.WriteBytes(debugName.c_str(), nameLength);
+				}
 				
-				// Write bounds information
-				JPH::AABox localBounds = shape->GetLocalBounds();
-				outWriter.WriteBytes(&localBounds, sizeof(localBounds));
+				// Save sub-shapes if any
+				JPH::ShapeList subShapes;
+				shape->SaveSubShapeState(subShapes);
+				streamAdapter.Write(static_cast<u32>(subShapes.size()));
 				
-				// Write additional metadata
-				f32 innerRadius = shape->GetInnerRadius();
-				outWriter.WriteBytes(&innerRadius, sizeof(innerRadius));
+				// For now, we'll handle sub-shapes in a future enhancement
+				// Each sub-shape would need recursive serialization
+				if (!subShapes.empty())
+				{
+					OLO_CORE_WARN("JoltBinaryStreamUtils::SerializeShape: Shape has {} sub-shapes - recursive serialization not yet implemented", subShapes.size());
+				}
 				
-				// TODO: For a complete implementation, this would need to serialize
-				// the actual shape data using Jolt's binary serialization when available.
-				// For now, we store the essential metadata that can identify the shape.
+				if (streamAdapter.IsFailed())
+				{
+					OLO_CORE_ERROR("JoltBinaryStreamUtils::SerializeShape: Stream adapter failed during serialization");
+					return false;
+				}
 				
-				OLO_CORE_TRACE("JoltBinaryStreamUtils::SerializeShape: Successfully serialized shape metadata (type: {}, subtype: {})", 
-							   static_cast<u32>(shapeType), static_cast<u32>(shapeSubType));
+				OLO_CORE_TRACE("JoltBinaryStreamUtils::SerializeShape: Successfully serialized shape (type: {}, subtype: {}, {} materials, {} sub-shapes)", 
+							   static_cast<u32>(shapeType), static_cast<u32>(shapeSubType), materials.size(), subShapes.size());
 				
-				return !outWriter.IsFailed();
+				return true;
 			}
 			catch (const std::exception& e)
 			{
@@ -75,9 +145,7 @@ namespace OloEngine {
 		 * @return The deserialized shape, or nullptr if deserialization failed
 		 */
 		/**
-		 * @brief Deserialize a Jolt shape from binary data
-		 * Note: This is a basic implementation that reads shape metadata.
-		 * A complete implementation would recreate the actual shape.
+		 * @brief Deserialize a Jolt shape from binary data using Jolt's native binary deserialization
 		 * 
 		 * @param inReader The binary stream reader to read from
 		 * @return The deserialized shape, or nullptr if deserialization failed
@@ -92,31 +160,91 @@ namespace OloEngine {
 
 			try
 			{
-				// Read shape metadata that was written during serialization
+				// Use Jolt's native binary deserialization system
+				JoltStreamInAdapter streamAdapter(inReader);
+				
+				// Read shape type first to verify we can deserialize this shape
 				JPH::EShapeType shapeType;
-				inReader.ReadBytes(&shapeType, sizeof(shapeType));
-				
 				JPH::EShapeSubType shapeSubType;
-				inReader.ReadBytes(&shapeSubType, sizeof(shapeSubType));
+				streamAdapter.Read(shapeType);
+				streamAdapter.Read(shapeSubType);
 				
-				u64 userData;
-				inReader.ReadBytes(&userData, sizeof(userData));
+				if (streamAdapter.IsFailed() || streamAdapter.IsEOF())
+				{
+					OLO_CORE_ERROR("JoltBinaryStreamUtils::DeserializeShape: Failed to read shape type/subtype");
+					return nullptr;
+				}
 				
-				JPH::AABox localBounds;
-				inReader.ReadBytes(&localBounds, sizeof(localBounds));
+				// Use Jolt's sRestoreFromBinaryState for complete shape deserialization
+				JPH::Shape::ShapeResult shapeResult = JPH::Shape::sRestoreFromBinaryState(streamAdapter);
+				if (shapeResult.HasError())
+				{
+					OLO_CORE_ERROR("JoltBinaryStreamUtils::DeserializeShape: Failed to restore shape from binary state: {}", shapeResult.GetError().c_str());
+					return nullptr;
+				}
 				
-				f32 innerRadius;
-				inReader.ReadBytes(&innerRadius, sizeof(innerRadius));
+				JPH::Ref<JPH::Shape> shape = shapeResult.Get();
+				if (shape == nullptr)
+				{
+					OLO_CORE_ERROR("JoltBinaryStreamUtils::DeserializeShape: Shape restoration returned null shape");
+					return nullptr;
+				}
 				
-				// TODO: For a complete implementation, this would reconstruct the actual shape
-				// using the serialized data and Jolt's deserialization when available.
-				// For now, we've successfully read the metadata but can't recreate the shape.
+				// Read material count and restore materials
+				u32 materialCount;
+				streamAdapter.Read(materialCount);
 				
-				OLO_CORE_WARN("JoltBinaryStreamUtils::DeserializeShape: Shape deserialization read metadata (type: {}, subtype: {}) but shape reconstruction not yet implemented", 
-							 static_cast<u32>(shapeType), static_cast<u32>(shapeSubType));
+				if (materialCount > 0)
+				{
+					std::vector<JPH::PhysicsMaterialRefC> materials;
+					materials.reserve(materialCount);
+					
+					for (u32 i = 0; i < materialCount; ++i)
+					{
+						// Read material debug name
+						u32 nameLength;
+						streamAdapter.Read(nameLength);
+						
+						std::string debugName;
+						if (nameLength > 0 && nameLength < 1024) // Sanity check
+						{
+							debugName.resize(nameLength);
+							streamAdapter.ReadBytes(debugName.data(), nameLength);
+						}
+						
+						// Create a new simple material for now
+						// In the future, this could use a material registry to reuse materials
+						JPH::PhysicsMaterialRefC material = JPH::PhysicsMaterial::sDefault;
+						materials.push_back(material);
+					}
+					
+					// Restore material references (if the shape supports it)
+					if (!materials.empty())
+					{
+						shape->RestoreMaterialState(materials.data(), static_cast<u32>(materials.size()));
+					}
+				}
 				
-				// Return nullptr for now since we can't reconstruct the shape yet
-				return nullptr;
+				// Read sub-shape count
+				u32 subShapeCount;
+				streamAdapter.Read(subShapeCount);
+				
+				// For now, we expect no sub-shapes since recursive serialization isn't implemented yet
+				if (subShapeCount > 0)
+				{
+					OLO_CORE_WARN("JoltBinaryStreamUtils::DeserializeShape: Shape has {} sub-shapes but recursive deserialization not yet implemented", subShapeCount);
+				}
+				
+				if (streamAdapter.IsFailed())
+				{
+					OLO_CORE_ERROR("JoltBinaryStreamUtils::DeserializeShape: Stream adapter failed during deserialization");
+					return nullptr;
+				}
+				
+				OLO_CORE_TRACE("JoltBinaryStreamUtils::DeserializeShape: Successfully deserialized shape (type: {}, subtype: {}, {} materials, {} sub-shapes)", 
+							   static_cast<u32>(shapeType), static_cast<u32>(shapeSubType), materialCount, subShapeCount);
+				
+				return shape;
 			}
 			catch (const std::exception& e)
 			{
