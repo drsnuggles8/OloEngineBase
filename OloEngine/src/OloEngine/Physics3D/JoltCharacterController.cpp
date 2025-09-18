@@ -304,44 +304,96 @@ namespace OloEngine
 
     void JoltCharacterController::Create()
     {
+        if (!m_Scene || !m_Scene->GetPhysicsSystem())
+        {
+            OLO_CORE_ERROR("Cannot create character controller: Invalid scene or physics system");
+            return;
+        }
+
         // Create character controller settings
         JPH::Ref<JPH::CharacterVirtualSettings> settings = new JPH::CharacterVirtualSettings();
         settings->mMaxSlopeAngle = glm::radians(45.0f); // Default 45 degree slope limit
+        settings->mMaxStrength = 100.0f; // Maximum force the character can apply
+        settings->mCharacterPadding = 0.02f; // Small padding for stability
+        settings->mPenetrationRecoverySpeed = 1.0f; // Recovery speed from penetration
+        settings->mPredictiveContactDistance = 0.1f; // Predictive contact for smooth movement
         
         // Create a default capsule shape if no shape is specified
         if (!m_Shape)
         {
-            // Default capsule: radius 0.5, height 2.0
-            m_Shape = new JPH::CapsuleShape(1.0f, 0.5f);
+            // Default capsule: height 1.8m, radius 0.3m (typical human proportions)
+            m_Shape = new JPH::CapsuleShape(0.9f, 0.3f); // Half height, radius
         }
 
         settings->mShape = m_Shape;
         settings->mInnerBodyShape = m_Shape; // Required for character vs character collision
 
-        // Get initial transform from entity (would need component system integration)
+        // Get initial transform from entity's TransformComponent
         glm::vec3 position = glm::vec3(0.0f);
         glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-
-        // TODO: Create the character controller with proper physics system integration
-        // For now, we'll create a placeholder that can be properly initialized later
-        // m_Controller = new JPH::CharacterVirtual(settings, JoltUtils::ToJoltVector(position), JoltUtils::ToJoltQuat(rotation), &physicsSystem);
         
-        // Set this as the contact listener when controller is created
-        // if (m_Controller)
-        // {
-        //     m_Controller->SetListener(this);
-        // }
+        if (m_Entity && m_Entity.HasComponent<TransformComponent>())
+        {
+            auto& transform = m_Entity.GetComponent<TransformComponent>();
+            position = transform.Translation;
+            rotation = transform.Rotation;
+        }
 
-        OLO_CORE_INFO("Character controller created for entity (awaiting physics system integration)");
+        // Create the character controller with proper physics system integration
+        m_Controller = new JPH::CharacterVirtual(settings, 
+                                                JoltUtils::ToJoltVector(position), 
+                                                JoltUtils::ToJoltQuat(rotation), 
+                                                m_Scene->GetPhysicsSystem());
+        
+        // Set this as the contact listener for collision events
+        if (m_Controller)
+        {
+            m_Controller->SetListener(this);
+            m_PreviousRotation = JoltUtils::ToJoltQuat(rotation);
+            
+            OLO_CORE_INFO("Character controller created successfully for entity {0}", 
+                         m_Entity ? (u64)m_Entity.GetUUID() : 0);
+        }
+        else
+        {
+            OLO_CORE_ERROR("Failed to create Jolt character controller");
+        }
     }
 
     void JoltCharacterController::UpdateShape()
     {
-        if (m_Controller && m_Shape)
+        if (!m_Controller || !m_Shape)
         {
-            // Note: Jolt doesn't support changing shapes after creation
-            // Would need to recreate the controller
-            OLO_CORE_WARN("Character controller shape update not implemented - requires recreation");
+            OLO_CORE_WARN("Cannot update character controller shape: controller or shape is null");
+            return;
+        }
+
+        // Store current state
+        JPH::Vec3 position = m_Controller->GetPosition();
+        JPH::Quat rotation = m_Controller->GetRotation();
+        JPH::Vec3 linearVelocity = m_Controller->GetLinearVelocity();
+        
+        // Jolt doesn't support changing shapes after creation, so we need to recreate the controller
+        OLO_CORE_INFO("Recreating character controller with new shape");
+        
+        // Destroy current controller
+        m_Controller = nullptr;
+        
+        // Recreate with current state
+        Create();
+        
+        // Restore state if recreation was successful
+        if (m_Controller)
+        {
+            m_Controller->SetPosition(position);
+            m_Controller->SetRotation(rotation);
+            m_Controller->SetLinearVelocity(linearVelocity);
+            
+            OLO_CORE_INFO("Character controller shape updated successfully");
+        }
+        else
+        {
+            OLO_CORE_ERROR("Failed to recreate character controller after shape update");
         }
     }
 
@@ -375,13 +427,70 @@ namespace OloEngine
     void JoltCharacterController::OnAdjustBodyVelocity(const JPH::CharacterVirtual* inCharacter, const JPH::Body& inBody2, 
                                                       JPH::Vec3& ioLinearVelocity, JPH::Vec3& ioAngularVelocity)
     {
-        // TODO: Marshal this call out to gameplay and get result back for contacted inBody2
+        // Character can influence other dynamic bodies (e.g., push objects around)
+        // This is called when the character moves into another body
+        
+        if (inBody2.IsStatic() || inBody2.IsKinematic())
+        {
+            // Don't modify velocity of static or kinematic bodies
+            return;
+        }
+        
+        // Get other entity if available for callback
+        if (m_ContactEventCallback && m_Scene)
+        {
+            // Try to get the entity associated with this body
+            auto otherEntity = m_Scene->GetEntityByBodyID(inBody2.GetID());
+            if (otherEntity)
+            {
+                // Allow gameplay code to modify the contacted body's velocity
+                // This could be used for custom interaction behaviors
+                m_ContactEventCallback(m_Entity, otherEntity);
+            }
+        }
+        
+        // Apply reduced velocity modification for realistic character-object interaction
+        // Characters shouldn't be able to launch objects with full force
+        f32 velocityReduction = 0.5f; // Reduce the impact by 50%
+        ioLinearVelocity *= velocityReduction;
+        ioAngularVelocity *= velocityReduction;
     }
 
     bool JoltCharacterController::OnContactValidate(const JPH::CharacterVirtual* inCharacter, const JPH::BodyID& inBodyID2, 
                                                    const JPH::SubShapeID& inSubShapeID2)
     {
-        // For now, allow all contacts - can add layer filtering later
+        // Validate if character should collide with this body based on collision layers
+        if (!m_Scene)
+            return true;
+            
+        // Get the physics system to check collision layers
+        auto* physicsSystem = m_Scene->GetPhysicsSystem();
+        if (!physicsSystem)
+            return true;
+            
+        // Get the body interface to access the other body
+        const JPH::BodyLockRead bodyLock(physicsSystem->GetBodyLockInterface(), inBodyID2);
+        if (!bodyLock.Succeeded())
+            return true;
+            
+        const JPH::Body& otherBody = bodyLock.GetBody();
+        
+        // Check if the collision layers should interact
+        u32 otherLayer = otherBody.GetObjectLayer();
+        
+        // Characters shouldn't collide with triggers - they should pass through
+        if (otherLayer == CollisionLayers::Trigger)
+            return false;
+            
+        // Characters shouldn't collide with water by default (unless swimming implementation)
+        if (otherLayer == CollisionLayers::Water)
+            return false;
+            
+        // Characters shouldn't collide with debris by default
+        if (otherLayer == CollisionLayers::Debris)
+            return false;
+        
+        // Allow collision with all other layers (Static, Dynamic, Kinematic, other Characters)
         return true;
     }
 

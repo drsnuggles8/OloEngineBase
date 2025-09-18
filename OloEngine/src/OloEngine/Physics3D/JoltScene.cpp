@@ -223,6 +223,21 @@ namespace OloEngine {
 		return (it != m_Bodies.end()) ? it->second : nullptr;
 	}
 
+	Entity JoltScene::GetEntityByBodyID(const JPH::BodyID& bodyID)
+	{
+		// Search through all bodies to find the one with matching BodyID
+		for (const auto& [entityID, body] : m_Bodies)
+		{
+			if (body && body->GetBodyID() == bodyID)
+			{
+				return body->GetEntity();
+			}
+		}
+		
+		// Return invalid entity if not found
+		return Entity{};
+	}
+
 	Ref<JoltCharacterController> JoltScene::CreateCharacterController(Entity entity, const ContactCallbackFn& contactCallback)
 	{
 		if (!entity || !m_Initialized)

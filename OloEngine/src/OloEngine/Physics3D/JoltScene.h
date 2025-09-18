@@ -50,6 +50,9 @@ namespace OloEngine {
 		void DestroyBody(Entity entity);
 		Ref<JoltBody> GetBody(Entity entity);
 		Ref<JoltBody> GetBodyByEntityID(UUID entityID);
+		
+		// Entity lookup by body ID (for character controller integration)
+		Entity GetEntityByBodyID(const JPH::BodyID& bodyID);
 
 		// Character controller management
 		Ref<JoltCharacterController> CreateCharacterController(Entity entity, const ContactCallbackFn& contactCallback = nullptr);
