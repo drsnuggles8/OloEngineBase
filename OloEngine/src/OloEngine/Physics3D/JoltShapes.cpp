@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "JoltShapes.h"
+#include "JoltBinaryStream.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Asset/AssetManager.h"
@@ -17,6 +18,8 @@ namespace OloEngine {
 
 	bool JoltShapes::s_Initialized = false;
 	std::unordered_map<std::string, JPH::Ref<JPH::Shape>> JoltShapes::s_ShapeCache;
+	bool JoltShapes::s_PersistentCacheEnabled = true;
+	std::filesystem::path JoltShapes::s_PersistentCacheDirectory = "assets/cache/shapes";
 
 	void JoltShapes::Initialize()
 	{
@@ -28,6 +31,24 @@ namespace OloEngine {
 		
 		// Initialize mesh collider cache
 		MeshColliderCache::GetInstance().Initialize();
+		
+		// Create persistent cache directory if enabled
+		if (s_PersistentCacheEnabled)
+		{
+			try
+			{
+				if (!std::filesystem::exists(s_PersistentCacheDirectory))
+				{
+					std::filesystem::create_directories(s_PersistentCacheDirectory);
+				}
+				OLO_CORE_INFO("JoltShapes persistent cache directory: {}", s_PersistentCacheDirectory.string());
+			}
+			catch (const std::exception& e)
+			{
+				OLO_CORE_ERROR("Failed to create persistent cache directory: {}", e.what());
+				s_PersistentCacheEnabled = false;
+			}
+		}
 		
 		s_Initialized = true;
 	}
@@ -601,6 +622,160 @@ namespace OloEngine {
 		// Ensure half-height is at least as large as radius
 		if (halfHeight < radius)
 			halfHeight = radius;
+	}
+
+	JPH::Ref<JPH::Shape> JoltShapes::GetOrCreatePersistentCachedShape(const std::string& cacheKey, std::function<JPH::Ref<JPH::Shape>()> createFunc)
+	{
+		// First check in-memory cache
+		auto it = s_ShapeCache.find(cacheKey);
+		if (it != s_ShapeCache.end())
+		{
+			return it->second;
+		}
+
+		// Try to load from persistent cache
+		if (s_PersistentCacheEnabled)
+		{
+			auto shape = LoadShapeFromCache(cacheKey);
+			if (shape)
+			{
+				s_ShapeCache[cacheKey] = shape;
+				return shape;
+			}
+		}
+
+		// Create new shape
+		auto shape = createFunc();
+		if (shape)
+		{
+			s_ShapeCache[cacheKey] = shape;
+			
+			// Save to persistent cache
+			if (s_PersistentCacheEnabled)
+			{
+				SaveShapeToCache(cacheKey, shape);
+			}
+		}
+		
+		return shape;
+	}
+
+	bool JoltShapes::SaveShapeToCache(const std::string& cacheKey, const JPH::Shape* shape)
+	{
+		if (!s_PersistentCacheEnabled || !shape)
+			return false;
+
+		try
+		{
+			// Create cache file path
+			std::filesystem::path cacheFilePath = s_PersistentCacheDirectory / (cacheKey + ".jsc"); // Jolt Shape Cache
+
+			// Serialize shape to buffer
+			Buffer buffer = JoltBinaryStreamUtils::SerializeShapeToBuffer(shape);
+			if (!buffer.Data || buffer.Size == 0)
+			{
+				OLO_CORE_ERROR("JoltShapes::SaveShapeToCache: Failed to serialize shape for key: {}", cacheKey);
+				return false;
+			}
+
+			// Write buffer to file
+			std::ofstream file(cacheFilePath, std::ios::binary);
+			if (!file.is_open())
+			{
+				OLO_CORE_ERROR("JoltShapes::SaveShapeToCache: Failed to open cache file: {}", cacheFilePath.string());
+				buffer.Release();
+				return false;
+			}
+
+			file.write(reinterpret_cast<const char*>(buffer.Data), buffer.Size);
+			file.close();
+			buffer.Release();
+
+			return true;
+		}
+		catch (const std::exception& e)
+		{
+			OLO_CORE_ERROR("JoltShapes::SaveShapeToCache: Exception: {}", e.what());
+			return false;
+		}
+	}
+
+	JPH::Ref<JPH::Shape> JoltShapes::LoadShapeFromCache(const std::string& cacheKey)
+	{
+		if (!s_PersistentCacheEnabled)
+			return nullptr;
+
+		try
+		{
+			// Create cache file path
+			std::filesystem::path cacheFilePath = s_PersistentCacheDirectory / (cacheKey + ".jsc");
+
+			if (!std::filesystem::exists(cacheFilePath))
+			{
+				return nullptr; // No cached version exists
+			}
+
+			// Read file into buffer
+			std::ifstream file(cacheFilePath, std::ios::binary | std::ios::ate);
+			if (!file.is_open())
+			{
+				return nullptr;
+			}
+
+			std::streamsize size = file.tellg();
+			file.seekg(0, std::ios::beg);
+
+			Buffer buffer(static_cast<u64>(size));
+			if (!file.read(reinterpret_cast<char*>(buffer.Data), size))
+			{
+				buffer.Release();
+				return nullptr;
+			}
+			file.close();
+
+			// Deserialize shape from buffer
+			JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);
+			buffer.Release();
+
+			if (!shape)
+			{
+				OLO_CORE_WARN("JoltShapes::LoadShapeFromCache: Failed to deserialize shape for key: {}", cacheKey);
+				// Delete corrupted cache file
+				std::filesystem::remove(cacheFilePath);
+			}
+
+			return shape;
+		}
+		catch (const std::exception& e)
+		{
+			OLO_CORE_ERROR("JoltShapes::LoadShapeFromCache: Exception: {}", e.what());
+			return nullptr;
+		}
+	}
+
+	void JoltShapes::ClearPersistentCache()
+	{
+		if (!s_PersistentCacheEnabled)
+			return;
+
+		try
+		{
+			if (std::filesystem::exists(s_PersistentCacheDirectory))
+			{
+				for (const auto& entry : std::filesystem::directory_iterator(s_PersistentCacheDirectory))
+				{
+					if (entry.path().extension() == ".jsc")
+					{
+						std::filesystem::remove(entry.path());
+					}
+				}
+			}
+			OLO_CORE_INFO("Cleared JoltShapes persistent cache");
+		}
+		catch (const std::exception& e)
+		{
+			OLO_CORE_ERROR("JoltShapes::ClearPersistentCache: Exception: {}", e.what());
+		}
 	}
 
 }

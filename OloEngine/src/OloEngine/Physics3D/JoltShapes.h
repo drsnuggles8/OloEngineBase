@@ -19,6 +19,7 @@
 
 #include <unordered_map>
 #include <vector>
+#include <filesystem>
 
 namespace OloEngine {
 
@@ -45,6 +46,14 @@ namespace OloEngine {
 		// Shape caching for performance (optional)
 		static JPH::Ref<JPH::Shape> GetOrCreateCachedShape(const std::string& cacheKey, std::function<JPH::Ref<JPH::Shape>()> createFunc);
 		static void ClearShapeCache();
+
+		// Persistent shape caching using binary streams
+		static JPH::Ref<JPH::Shape> GetOrCreatePersistentCachedShape(const std::string& cacheKey, std::function<JPH::Ref<JPH::Shape>()> createFunc);
+		static bool SaveShapeToCache(const std::string& cacheKey, const JPH::Shape* shape);
+		static JPH::Ref<JPH::Shape> LoadShapeFromCache(const std::string& cacheKey);
+		static void ClearPersistentCache();
+		static bool IsPersistentCacheEnabled() { return s_PersistentCacheEnabled; }
+		static void SetPersistentCacheEnabled(bool enabled) { s_PersistentCacheEnabled = enabled; }
 
 		// Helper functions
 		static glm::vec3 CalculateShapeLocalCenterOfMass(Entity entity);
@@ -78,6 +87,8 @@ namespace OloEngine {
 	private:
 		static bool s_Initialized;
 		static std::unordered_map<std::string, JPH::Ref<JPH::Shape>> s_ShapeCache;
+		static bool s_PersistentCacheEnabled;
+		static std::filesystem::path s_PersistentCacheDirectory;
 		
 		// Constants for shape validation
 		static constexpr f32 MinShapeSize = 0.001f;

@@ -10,6 +10,12 @@
 #include <vector>
 #include <memory>
 
+// Jolt forward declarations
+namespace JPH {
+	class Shape;
+	template<typename T> class Ref;
+}
+
 namespace OloEngine {
 
 	// Forward declarations
@@ -104,6 +110,10 @@ namespace OloEngine {
 		// Serialization
 		bool SerializeMeshCollider(const std::filesystem::path& filepath, const MeshColliderData& meshData);
 		MeshColliderData DeserializeMeshCollider(const std::filesystem::path& filepath);
+
+		// Shape reconstruction from cached data
+		JPH::Ref<JPH::Shape> CreateShapeFromColliderData(const SubmeshColliderData& colliderData);
+		bool CanCreateShapeFromColliderData(const SubmeshColliderData& colliderData) const;
 
 		// Cache management
 		std::filesystem::path GetCacheFilePath(Ref<MeshColliderAsset> colliderAsset, EMeshColliderType type);

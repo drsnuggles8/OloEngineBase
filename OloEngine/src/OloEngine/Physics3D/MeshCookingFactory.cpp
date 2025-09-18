@@ -1,5 +1,6 @@
 #include "OloEngine/Physics3D/MeshCookingFactory.h"
 #include "OloEngine/Physics3D/JoltUtils.h"
+#include "OloEngine/Physics3D/JoltBinaryStream.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Asset/AssetManager.h"
@@ -12,6 +13,9 @@
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 #include <Jolt/Core/StreamOut.h>
+#include <Jolt/Core/Array.h>
+#include <Jolt/Math/Float3.h>
+#include <Jolt/Geometry/IndexedTriangle.h>
 #include <Jolt/Core/StreamIn.h>
 #include <Jolt/Geometry/ConvexHullBuilder.h>
 #include <Jolt/Core/StreamOut.h>
@@ -239,23 +243,23 @@ namespace OloEngine {
 			OptimizeTriangleMesh(positions, triangleIndices);
 
 			// Convert to Jolt format
-			JPH::Array<JPH::Float3> joltVertices;
+			::JPH::Array<::JPH::Float3> joltVertices;
 			joltVertices.reserve(positions.size());
 			for (const auto& pos : positions)
 			{
-				joltVertices.push_back(JPH::Float3(pos.x, pos.y, pos.z));
+				joltVertices.push_back(::JPH::Float3(pos.x, pos.y, pos.z));
 			}
 
-			JPH::Array<JPH::IndexedTriangle> joltTriangles;
+			::JPH::Array<::JPH::IndexedTriangle> joltTriangles;
 			joltTriangles.reserve(triangleIndices.size() / 3);
 			for (sizet i = 0; i < triangleIndices.size(); i += 3)
 			{
-				joltTriangles.push_back(JPH::IndexedTriangle(triangleIndices[i], triangleIndices[i + 1], triangleIndices[i + 2]));
+				joltTriangles.push_back(::JPH::IndexedTriangle(triangleIndices[i], triangleIndices[i + 1], triangleIndices[i + 2]));
 			}
 
 			// Create Jolt mesh shape
-			JPH::MeshShapeSettings meshSettings(joltVertices, joltTriangles);
-			JPH::ShapeSettings::ShapeResult result = meshSettings.Create();
+			::JPH::MeshShapeSettings meshSettings(joltVertices, joltTriangles);
+			::JPH::ShapeSettings::ShapeResult result = meshSettings.Create();
 			
 			if (result.HasError())
 			{
@@ -263,10 +267,21 @@ namespace OloEngine {
 				return ECookingResult::Failed;
 			}
 
-			// Serialize the shape data (simplified for now - Jolt ObjectStream has RTTI issues)
-			// TODO: Implement proper shape serialization later
-			std::string shapeData = "PLACEHOLDER_TRIANGLE_MESH_DATA";
-			outData.ColliderData.assign(shapeData.begin(), shapeData.end());
+			// Serialize the shape using JoltBinaryStream
+			JoltBinaryStreamWriter writer;
+			if (!JoltBinaryStreamUtils::SerializeShape(result.Get(), writer))
+			{
+				LogCookingError("CookTriangleMesh", "Failed to serialize triangle mesh shape");
+				return ECookingResult::Failed;
+			}
+
+			// Store the serialized data
+			const auto& serializedData = writer.GetData();
+			outData.ColliderData.assign(serializedData.begin(), serializedData.end());
+			outData.Type = EMeshColliderType::Triangle;
+			outData.Transform = transform;
+			outData.VertexCount = positions.size();
+			outData.IndexCount = triangleIndices.size();
 
 			return ECookingResult::Success;
 		}
@@ -307,7 +322,7 @@ namespace OloEngine {
 			}
 
 			// Convert to Jolt format
-			JPH::Array<JPH::Vec3> joltVertices;
+			::JPH::Array<::JPH::Vec3> joltVertices;
 			joltVertices.reserve(finalHullVertices.size());
 			for (const auto& vertex : finalHullVertices)
 			{
@@ -315,10 +330,10 @@ namespace OloEngine {
 			}
 
 			// Create Jolt convex hull shape
-			JPH::ConvexHullShapeSettings convexSettings(joltVertices);
+			::JPH::ConvexHullShapeSettings convexSettings(joltVertices);
 			convexSettings.mMaxConvexRadius = 0.05f; // 5cm default convex radius
 			
-			JPH::ShapeSettings::ShapeResult result = convexSettings.Create();
+			::JPH::ShapeSettings::ShapeResult result = convexSettings.Create();
 			
 			if (result.HasError())
 			{
@@ -326,10 +341,21 @@ namespace OloEngine {
 				return ECookingResult::Failed;
 			}
 
-			// Serialize the shape data (simplified for now - Jolt ObjectStream has RTTI issues)
-			// TODO: Implement proper shape serialization later
-			std::string shapeData = "PLACEHOLDER_CONVEX_MESH_DATA";
-			outData.ColliderData.assign(shapeData.begin(), shapeData.end());
+			// Serialize the shape using JoltBinaryStream
+			JoltBinaryStreamWriter writer;
+			if (!JoltBinaryStreamUtils::SerializeShape(result.Get(), writer))
+			{
+				LogCookingError("CookConvexMesh", "Failed to serialize convex mesh shape");
+				return ECookingResult::Failed;
+			}
+
+			// Store the serialized data
+			const auto& serializedData = writer.GetData();
+			outData.ColliderData.assign(serializedData.begin(), serializedData.end());
+			outData.Type = EMeshColliderType::Convex;
+			outData.Transform = transform;
+			outData.VertexCount = finalHullVertices.size();
+			outData.IndexCount = 0; // Convex hulls don't use explicit indices
 
 			return ECookingResult::Success;
 		}
@@ -738,6 +764,71 @@ namespace OloEngine {
 	void MeshCookingFactory::LogCookingError(const std::string& operation, const std::string& error)
 	{
 		OLO_CORE_ERROR("MeshCookingFactory::{}: {}", operation, error);
+	}
+
+	JPH::Ref<JPH::Shape> MeshCookingFactory::CreateShapeFromColliderData(const SubmeshColliderData& colliderData)
+	{
+		if (colliderData.ColliderData.empty())
+		{
+			OLO_CORE_ERROR("MeshCookingFactory::CreateShapeFromColliderData: Empty collider data");
+			return nullptr;
+		}
+
+		try
+		{
+			// Create buffer from the collider data
+			Buffer buffer;
+			buffer.Size = colliderData.ColliderData.size();
+			buffer.Data = new u8[buffer.Size];
+			std::memcpy(buffer.Data, colliderData.ColliderData.data(), buffer.Size);
+
+			// Deserialize the shape using JoltBinaryStream
+			JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);
+			
+			// Clean up buffer
+			buffer.Release();
+
+			if (!shape)
+			{
+				OLO_CORE_ERROR("MeshCookingFactory::CreateShapeFromColliderData: Failed to deserialize shape");
+				return nullptr;
+			}
+
+			return shape;
+		}
+		catch (const std::exception& e)
+		{
+			OLO_CORE_ERROR("MeshCookingFactory::CreateShapeFromColliderData: Exception: {}", e.what());
+			return nullptr;
+		}
+	}
+
+	bool MeshCookingFactory::CanCreateShapeFromColliderData(const SubmeshColliderData& colliderData) const
+	{
+		if (colliderData.ColliderData.empty())
+		{
+			return false;
+		}
+
+		// Try to validate the data by checking if it can be deserialized
+		try
+		{
+			Buffer buffer;
+			buffer.Size = colliderData.ColliderData.size();
+			buffer.Data = new u8[buffer.Size];
+			std::memcpy(buffer.Data, colliderData.ColliderData.data(), buffer.Size);
+
+			bool isValid = JoltBinaryStreamUtils::ValidateShapeData(buffer);
+			
+			// Clean up buffer
+			buffer.Release();
+
+			return isValid;
+		}
+		catch (const std::exception&)
+		{
+			return false;
+		}
 	}
 
 }
