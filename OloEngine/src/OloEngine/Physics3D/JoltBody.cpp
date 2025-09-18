@@ -820,6 +820,9 @@ namespace OloEngine {
 		bodySettings.mAngularDamping = rigidBodyComponent.AngularDrag;
 		bodySettings.mUserData = static_cast<u64>(m_Entity.GetUUID());
 
+		// Apply material properties from collider components
+		ApplyMaterialProperties(bodySettings);
+
 		if (motionType == JPH::EMotionType::Dynamic)
 		{
 			bodySettings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
@@ -932,6 +935,57 @@ namespace OloEngine {
 	const JPH::BodyLockInterface& JoltBody::GetBodyLockInterface() const
 	{
 		return m_Scene->GetBodyLockInterface();
+	}
+
+	void JoltBody::ApplyMaterialProperties(JPH::BodyCreationSettings& bodySettings)
+	{
+		// Default material properties
+		f32 friction = 0.5f;
+		f32 restitution = 0.0f;
+
+		// Check for collider components and use their material properties
+		// Priority: Box > Sphere > Capsule > other colliders (first found wins)
+		
+		if (m_Entity.HasComponent<BoxCollider3DComponent>())
+		{
+			const auto& collider = m_Entity.GetComponent<BoxCollider3DComponent>();
+			friction = collider.Friction;
+			restitution = collider.Restitution;
+		}
+		else if (m_Entity.HasComponent<SphereCollider3DComponent>())
+		{
+			const auto& collider = m_Entity.GetComponent<SphereCollider3DComponent>();
+			friction = collider.Friction;
+			restitution = collider.Restitution;
+		}
+		else if (m_Entity.HasComponent<CapsuleCollider3DComponent>())
+		{
+			const auto& collider = m_Entity.GetComponent<CapsuleCollider3DComponent>();
+			friction = collider.Friction;
+			restitution = collider.Restitution;
+		}
+		else if (m_Entity.HasComponent<MeshCollider3DComponent>())
+		{
+			const auto& collider = m_Entity.GetComponent<MeshCollider3DComponent>();
+			friction = collider.Friction;
+			restitution = collider.Restitution;
+		}
+		else if (m_Entity.HasComponent<ConvexMeshCollider3DComponent>())
+		{
+			const auto& collider = m_Entity.GetComponent<ConvexMeshCollider3DComponent>();
+			friction = collider.Friction;
+			restitution = collider.Restitution;
+		}
+		else if (m_Entity.HasComponent<TriangleMeshCollider3DComponent>())
+		{
+			const auto& collider = m_Entity.GetComponent<TriangleMeshCollider3DComponent>();
+			friction = collider.Friction;
+			restitution = collider.Restitution;
+		}
+
+		// Apply the material properties to the body settings
+		bodySettings.mFriction = friction;
+		bodySettings.mRestitution = restitution;
 	}
 
 }

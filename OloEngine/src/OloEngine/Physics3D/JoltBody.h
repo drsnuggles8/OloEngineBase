@@ -128,6 +128,9 @@ namespace OloEngine {
 		const JPH::BodyLockInterface& GetBodyLockInterface();
 		const JPH::BodyLockInterface& GetBodyLockInterface() const;
 
+		// Material application
+		void ApplyMaterialProperties(JPH::BodyCreationSettings& bodySettings);
+
 		// Axis locking constraint management
 		void CreateAxisLockConstraint(JPH::Body& body);
 		void DestroyAxisLockConstraint();

@@ -1,5 +1,8 @@
 #pragma once
 
+#include "OloEngine/Physics3D/ColliderMaterial.h"
+#include <Jolt/Physics/Collision/PhysicsMaterial.h>
+
 namespace OloEngine {
 
 	// Forward declarations
@@ -7,7 +10,7 @@ namespace OloEngine {
 	struct SphereCollider3DComponent;
 	struct CapsuleCollider3DComponent;
 
-	class JoltMaterial
+	class JoltMaterial : public JPH::PhysicsMaterial
 	{
 	public:
 		JoltMaterial() = default;
@@ -20,6 +23,11 @@ namespace OloEngine {
 
 		float GetRestitution() const { return m_Restitution; }
 		void SetRestitution(float restitution) { m_Restitution = restitution; }
+
+		inline static JoltMaterial* FromColliderMaterial(const ColliderMaterial& colliderMaterial)
+		{
+			return new JoltMaterial(colliderMaterial.StaticFriction, colliderMaterial.Restitution);
+		}
 
 		// Helper functions to create materials from our collider components
 		static JoltMaterial CreateFromBoxCollider(const BoxCollider3DComponent& collider);
