@@ -12,6 +12,8 @@ namespace OloEngine {
 
 		/**
 		 * @brief Serialize a Jolt shape to binary data
+		 * Note: This is a basic implementation that stores shape metadata and could be enhanced
+		 * to use Jolt's streaming system when available.
 		 * 
 		 * @param shape The Jolt shape to serialize
 		 * @param outWriter The binary stream writer to write to
@@ -27,19 +29,35 @@ namespace OloEngine {
 
 			try
 			{
-				// For now, use a simple approach - write basic shape information
-				// This is a placeholder until we can properly implement Jolt serialization
+				// Write shape type and basic metadata for now
+				// This provides a foundation for shape serialization that can be enhanced later
+				JPH::EShapeType shapeType = shape->GetType();
+				JPH::EShapeSubType shapeSubType = shape->GetSubType();
 				
 				// Write shape type
-				JPH::EShapeType shapeType = shape->GetType();
 				outWriter.WriteBytes(&shapeType, sizeof(shapeType));
-
-				// Write a placeholder for data size
-				sizet dataSize = sizeof(shapeType); // Just the type for now
-				outWriter.WriteBytes(&dataSize, sizeof(dataSize));
-
-				// TODO: Implement proper shape serialization
-				// For now, we're just writing the shape type
+				
+				// Write shape subtype
+				outWriter.WriteBytes(&shapeSubType, sizeof(shapeSubType));
+				
+				// Write shape user data
+				u64 userData = shape->GetUserData();
+				outWriter.WriteBytes(&userData, sizeof(userData));
+				
+				// Write bounds information
+				JPH::AABox localBounds = shape->GetLocalBounds();
+				outWriter.WriteBytes(&localBounds, sizeof(localBounds));
+				
+				// Write additional metadata
+				f32 innerRadius = shape->GetInnerRadius();
+				outWriter.WriteBytes(&innerRadius, sizeof(innerRadius));
+				
+				// TODO: For a complete implementation, this would need to serialize
+				// the actual shape data using Jolt's binary serialization when available.
+				// For now, we store the essential metadata that can identify the shape.
+				
+				OLO_CORE_TRACE("JoltBinaryStreamUtils::SerializeShape: Successfully serialized shape metadata (type: {}, subtype: {})", 
+							   static_cast<u32>(shapeType), static_cast<u32>(shapeSubType));
 				
 				return !outWriter.IsFailed();
 			}
@@ -56,6 +74,14 @@ namespace OloEngine {
 		 * @param inReader The binary stream reader to read from
 		 * @return The deserialized shape, or nullptr if deserialization failed
 		 */
+		/**
+		 * @brief Deserialize a Jolt shape from binary data
+		 * Note: This is a basic implementation that reads shape metadata.
+		 * A complete implementation would recreate the actual shape.
+		 * 
+		 * @param inReader The binary stream reader to read from
+		 * @return The deserialized shape, or nullptr if deserialization failed
+		 */
 		JPH::Ref<JPH::Shape> DeserializeShape(JoltBinaryStreamReader& inReader)
 		{
 			if (inReader.IsFailed() || inReader.IsEOF())
@@ -66,18 +92,30 @@ namespace OloEngine {
 
 			try
 			{
-				// Read shape type
+				// Read shape metadata that was written during serialization
 				JPH::EShapeType shapeType;
 				inReader.ReadBytes(&shapeType, sizeof(shapeType));
-
-				// Read data size
-				sizet dataSize;
-				inReader.ReadBytes(&dataSize, sizeof(dataSize));
-
-				// TODO: Implement proper shape deserialization based on shape type
-				// For now, we're just reading the basic data but not reconstructing the shape
 				
-				OLO_CORE_WARN("JoltBinaryStreamUtils::DeserializeShape: Shape deserialization not fully implemented yet");
+				JPH::EShapeSubType shapeSubType;
+				inReader.ReadBytes(&shapeSubType, sizeof(shapeSubType));
+				
+				u64 userData;
+				inReader.ReadBytes(&userData, sizeof(userData));
+				
+				JPH::AABox localBounds;
+				inReader.ReadBytes(&localBounds, sizeof(localBounds));
+				
+				f32 innerRadius;
+				inReader.ReadBytes(&innerRadius, sizeof(innerRadius));
+				
+				// TODO: For a complete implementation, this would reconstruct the actual shape
+				// using the serialized data and Jolt's deserialization when available.
+				// For now, we've successfully read the metadata but can't recreate the shape.
+				
+				OLO_CORE_WARN("JoltBinaryStreamUtils::DeserializeShape: Shape deserialization read metadata (type: {}, subtype: {}) but shape reconstruction not yet implemented", 
+							 static_cast<u32>(shapeType), static_cast<u32>(shapeSubType));
+				
+				// Return nullptr for now since we can't reconstruct the shape yet
 				return nullptr;
 			}
 			catch (const std::exception& e)
@@ -187,30 +225,146 @@ namespace OloEngine {
 		}
 
 		/**
-		 * @brief Compress shape data using simple RLE or other compression
+		 * @brief Compress shape data using simple RLE compression
 		 * 
 		 * @param inputBuffer The uncompressed shape data
-		 * @return Compressed buffer, or original buffer if compression fails/isn't beneficial
+		 * @return Compressed buffer, or original buffer if compression isn't beneficial
 		 */
 		Buffer CompressShapeData(const Buffer& inputBuffer)
 		{
-			// For now, return the original buffer
-			// TODO: Implement compression algorithm if needed
-			// This could use zlib, lz4, or other compression libraries
-			return Buffer::Copy(inputBuffer);
+			if (!inputBuffer.Data || inputBuffer.Size == 0)
+			{
+				OLO_CORE_WARN("JoltBinaryStreamUtils::CompressShapeData: Input buffer is empty");
+				return Buffer();
+			}
+
+			// For small buffers, compression isn't worth it
+			if (inputBuffer.Size < 64)
+			{
+				return Buffer::Copy(inputBuffer);
+			}
+
+			// Simple Run-Length Encoding compression
+			try
+			{
+				const u8* input = static_cast<const u8*>(inputBuffer.Data);
+				std::vector<u8> compressed;
+				compressed.reserve(inputBuffer.Size); // Reserve space for worst case
+
+				u8 currentByte = input[0];
+				u8 runLength = 1;
+
+				for (sizet i = 1; i < inputBuffer.Size; ++i)
+				{
+					if (input[i] == currentByte && runLength < 255)
+					{
+						runLength++;
+					}
+					else
+					{
+						// Store run length and byte
+						compressed.push_back(runLength);
+						compressed.push_back(currentByte);
+						
+						currentByte = input[i];
+						runLength = 1;
+					}
+				}
+
+				// Store the last run
+				compressed.push_back(runLength);
+				compressed.push_back(currentByte);
+
+				// Only use compression if it actually reduces size
+				if (compressed.size() < inputBuffer.Size)
+				{
+					Buffer result;
+					result.Allocate(compressed.size());
+					::memcpy(result.Data, compressed.data(), compressed.size());
+					
+					OLO_CORE_TRACE("JoltBinaryStreamUtils::CompressShapeData: Compressed {} bytes to {} bytes ({:.1f}% reduction)", 
+								   inputBuffer.Size, compressed.size(), 
+								   100.0f * (1.0f - static_cast<f32>(compressed.size()) / static_cast<f32>(inputBuffer.Size)));
+					
+					return result;
+				}
+				else
+				{
+					// Compression wasn't beneficial, return original
+					OLO_CORE_TRACE("JoltBinaryStreamUtils::CompressShapeData: Compression not beneficial, returning original buffer");
+					return Buffer::Copy(inputBuffer);
+				}
+			}
+			catch (const std::exception& e)
+			{
+				OLO_CORE_ERROR("JoltBinaryStreamUtils::CompressShapeData: Exception during compression: {}", e.what());
+				return Buffer::Copy(inputBuffer);
+			}
 		}
 
 		/**
-		 * @brief Decompress shape data
+		 * @brief Decompress shape data using RLE decompression
 		 * 
 		 * @param compressedBuffer The compressed shape data
-		 * @return Decompressed buffer, or original buffer if not compressed
+		 * @return Decompressed buffer, or original buffer if not compressed or decompression fails
 		 */
 		Buffer DecompressShapeData(const Buffer& compressedBuffer)
 		{
-			// For now, return the original buffer
-			// TODO: Implement decompression to match CompressShapeData
-			return Buffer::Copy(compressedBuffer);
+			if (!compressedBuffer.Data || compressedBuffer.Size == 0)
+			{
+				OLO_CORE_WARN("JoltBinaryStreamUtils::DecompressShapeData: Input buffer is empty");
+				return Buffer();
+			}
+
+			// If buffer size is odd, it might not be RLE compressed (RLE produces pairs)
+			if (compressedBuffer.Size % 2 != 0)
+			{
+				OLO_CORE_TRACE("JoltBinaryStreamUtils::DecompressShapeData: Buffer size suggests no RLE compression, returning original");
+				return Buffer::Copy(compressedBuffer);
+			}
+
+			try
+			{
+				const u8* input = static_cast<const u8*>(compressedBuffer.Data);
+				std::vector<u8> decompressed;
+				
+				// Estimate decompressed size (worst case: each pair expands to 255 bytes)
+				decompressed.reserve(compressedBuffer.Size * 128);
+
+				for (sizet i = 0; i < compressedBuffer.Size; i += 2)
+				{
+					u8 runLength = input[i];
+					u8 byte = input[i + 1];
+					
+					// Expand the run
+					for (u8 j = 0; j < runLength; ++j)
+					{
+						decompressed.push_back(byte);
+					}
+				}
+
+				if (!decompressed.empty())
+				{
+					Buffer result;
+					result.Allocate(decompressed.size());
+					::memcpy(result.Data, decompressed.data(), decompressed.size());
+					
+					OLO_CORE_TRACE("JoltBinaryStreamUtils::DecompressShapeData: Decompressed {} bytes to {} bytes", 
+								   compressedBuffer.Size, decompressed.size());
+					
+					return result;
+				}
+				else
+				{
+					OLO_CORE_WARN("JoltBinaryStreamUtils::DecompressShapeData: Decompression resulted in empty buffer");
+					return Buffer::Copy(compressedBuffer);
+				}
+			}
+			catch (const std::exception& e)
+			{
+				OLO_CORE_ERROR("JoltBinaryStreamUtils::DecompressShapeData: Exception during decompression: {}", e.what());
+				return Buffer::Copy(compressedBuffer);
+			}
 		}
 
 	} // namespace JoltBinaryStreamUtils

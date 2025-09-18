@@ -10,6 +10,8 @@ namespace JPH {
 	class Shape;
 	enum class EShapeType : u8;
 	template<typename T> class Ref;
+	class StreamIn;
+	class StreamOut;
 }
 
 namespace OloEngine {

@@ -489,9 +489,34 @@ namespace OloEngine {
 
 		const auto& submesh = meshData->Submeshes[0];
 		
-		// TODO: Deserialize the Jolt shape from ColliderData
-		// This requires implementing shape deserialization from the cached binary data
-		OLO_CORE_WARN("Mesh shape deserialization not yet implemented for asset {0}", meshAsset);
+		// Try to deserialize the Jolt shape from cached ColliderData
+		if (!cachedData.ComplexColliderData.Submeshes.empty())
+		{
+			const auto& colliderSubmesh = cachedData.ComplexColliderData.Submeshes[0];
+			
+			if (!colliderSubmesh.ColliderData.empty())
+			{
+				// Create buffer from the collider data
+				Buffer buffer;
+				buffer.Size = colliderSubmesh.ColliderData.size();
+				buffer.Data = new u8[buffer.Size];
+				std::memcpy(buffer.Data, colliderSubmesh.ColliderData.data(), buffer.Size);
+
+				// Try to deserialize the shape
+				JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);
+				
+				// Clean up buffer
+				buffer.Release();
+
+				if (shape)
+				{
+					OLO_CORE_TRACE("Successfully deserialized mesh shape for asset {0}", meshAsset);
+					return shape;
+				}
+			}
+		}
+		
+		OLO_CORE_WARN("Mesh shape deserialization failed for asset {0}, falling back to placeholder", meshAsset);
 		
 		// For now, return a placeholder box shape
 		return CreateBoxShapeInternal(glm::vec3(1.0f));
@@ -521,9 +546,29 @@ namespace OloEngine {
 		// For now, just use the first submesh
 		const auto& submesh = cachedData.SimpleColliderData.Submeshes[0];
 		
-		// TODO: Deserialize the convex Jolt shape from ColliderData
-		// This requires implementing shape deserialization from the cached binary data
-		OLO_CORE_WARN("Convex mesh shape deserialization not yet implemented for asset {0}", meshAsset);
+		// Try to deserialize the convex Jolt shape from cached ColliderData
+		if (!submesh.ColliderData.empty())
+		{
+			// Create buffer from the collider data
+			Buffer buffer;
+			buffer.Size = submesh.ColliderData.size();
+			buffer.Data = new u8[buffer.Size];
+			std::memcpy(buffer.Data, submesh.ColliderData.data(), buffer.Size);
+
+			// Try to deserialize the shape
+			JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);
+			
+			// Clean up buffer
+			buffer.Release();
+
+			if (shape)
+			{
+				OLO_CORE_TRACE("Successfully deserialized convex mesh shape for asset {0}", meshAsset);
+				return shape;
+			}
+		}
+		
+		OLO_CORE_WARN("Convex mesh shape deserialization failed for asset {0}, falling back to placeholder", meshAsset);
 		
 		// For now, return a placeholder box shape
 		return CreateBoxShapeInternal(glm::vec3(1.0f));
@@ -553,9 +598,29 @@ namespace OloEngine {
 		// For now, just use the first submesh
 		const auto& submesh = cachedData.ComplexColliderData.Submeshes[0];
 		
-		// TODO: Deserialize the triangle mesh Jolt shape from ColliderData
-		// This requires implementing shape deserialization from the cached binary data
-		OLO_CORE_WARN("Triangle mesh shape deserialization not yet implemented for asset {0}", meshAsset);
+		// Try to deserialize the triangle mesh Jolt shape from cached ColliderData
+		if (!submesh.ColliderData.empty())
+		{
+			// Create buffer from the collider data
+			Buffer buffer;
+			buffer.Size = submesh.ColliderData.size();
+			buffer.Data = new u8[buffer.Size];
+			std::memcpy(buffer.Data, submesh.ColliderData.data(), buffer.Size);
+
+			// Try to deserialize the shape
+			JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);
+			
+			// Clean up buffer
+			buffer.Release();
+
+			if (shape)
+			{
+				OLO_CORE_TRACE("Successfully deserialized triangle mesh shape for asset {0}", meshAsset);
+				return shape;
+			}
+		}
+		
+		OLO_CORE_WARN("Triangle mesh shape deserialization failed for asset {0}, falling back to placeholder", meshAsset);
 		
 		// For now, return a placeholder box shape
 		return CreateBoxShapeInternal(glm::vec3(1.0f));
