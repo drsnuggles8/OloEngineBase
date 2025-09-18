@@ -5,6 +5,11 @@
 #include "PhysicsLayer.h"
 #include <memory>
 
+// Forward declarations
+namespace OloEngine {
+    // Class forward declarations can go here if needed
+}
+
 // Jolt includes
 #include <Jolt/Jolt.h>
 #include <Jolt/RegisterTypes.h>
@@ -172,6 +177,9 @@ namespace OloEngine {
 
         // Get the physics system for direct access
         JPH::PhysicsSystem* GetPhysicsSystem() { return m_PhysicsSystem.get(); }
+
+        // Static access to the Jolt system (for utilities)
+        static JPH::PhysicsSystem& GetJoltSystem();
 
     private:
         // Physics settings - now configurable instead of hard-coded

@@ -264,6 +264,8 @@
 		"OloEngine/Physics3D/MeshCookingFactory.cpp"
 		"OloEngine/Physics3D/MeshColliderCache.h"
 		"OloEngine/Physics3D/MeshColliderCache.cpp"
+		"OloEngine/Physics3D/JoltCaptureManager.h"
+		"OloEngine/Physics3D/JoltCaptureManager.cpp"
 
 		"OloEngine/Scene/Components.h"
 		"OloEngine/Scene/Entity.cpp"

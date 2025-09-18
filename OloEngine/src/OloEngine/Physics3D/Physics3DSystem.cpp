@@ -187,6 +187,10 @@ bool Physics3DSystem::Initialize()
     // Note that if you know that you're always accessing the body interface from the same thread or that you're
     // doing a lot of reads or writes you can use the PhysicsSystem::GetBodyInterfaceNoLock() to avoid locking.
 
+    // Initialize the capture manager
+    // Note: JoltCaptureManager can be used independently without static integration
+    // Users can create their own instances: auto captureManager = CreateRef<JoltCaptureManager>();
+
     m_Initialized = true;
     OLO_CORE_INFO("Physics3D system initialized successfully");
 
@@ -205,6 +209,9 @@ void Physics3DSystem::Shutdown()
 
     // Remove the body activation listener
     m_PhysicsSystem->SetBodyActivationListener(nullptr);
+
+    // Shutdown capture manager
+    // Note: JoltCaptureManager instances are managed independently
 
     // Destroy the physics system
     m_PhysicsSystem.reset();
@@ -367,6 +374,12 @@ void Physics3DSystem::UpdateLayerConfiguration()
     // Note: In a real implementation, you might need to recreate the physics system
     // or update the collision filters if the layer configuration changes significantly
     // For now, this provides the foundation for dynamic layer management
+}
+
+JPH::PhysicsSystem& Physics3DSystem::GetJoltSystem()
+{
+    OLO_CORE_ASSERT(s_Instance && s_Instance->m_PhysicsSystem, "Physics system not initialized!");
+    return *s_Instance->m_PhysicsSystem;
 }
 
 } // namespace OloEngine
