@@ -7,6 +7,7 @@
 #include "JoltContactListener.h"
 #include "JoltBody.h"
 #include "JoltCharacterController.h"
+#include "EntityExclusionUtils.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Scene/Entity.h"
@@ -116,7 +117,7 @@ namespace OloEngine {
 		void InitializeJolt();
 		void ShutdownJolt();
 
-		// Scene query helpers
+		// Scene query helpers - legacy vector-based interface (O(n) performance)
 		bool PerformShapeCast(JPH::Ref<JPH::Shape> shape, const glm::vec3& start, const glm::vec3& direction, 
 			f32 maxDistance, u32 layerMask, const std::vector<UUID>& excludedEntities, SceneQueryHit& outHit);
 		i32 PerformShapeCastMultiple(JPH::Ref<JPH::Shape> shape, const glm::vec3& start, const glm::vec3& direction,
@@ -124,6 +125,16 @@ namespace OloEngine {
 		i32 PerformShapeOverlap(JPH::Ref<JPH::Shape> shape, const glm::vec3& position, const glm::quat& rotation,
 			u32 layerMask, const std::vector<UUID>& excludedEntities, SceneQueryHit* outHits, i32 maxHits);
 		bool IsEntityExcluded(UUID entityID, const std::vector<UUID>& excludedEntities);
+
+		// Scene query helpers - new O(1) ExcludedEntitySet interface
+		bool PerformShapeCast(JPH::Ref<JPH::Shape> shape, const glm::vec3& start, const glm::vec3& direction, 
+			f32 maxDistance, u32 layerMask, const ExcludedEntitySet& excludedEntitySet, SceneQueryHit& outHit);
+		i32 PerformShapeCastMultiple(JPH::Ref<JPH::Shape> shape, const glm::vec3& start, const glm::vec3& direction,
+			f32 maxDistance, u32 layerMask, const ExcludedEntitySet& excludedEntitySet, SceneQueryHit* outHits, i32 maxHits);
+		i32 PerformShapeOverlap(JPH::Ref<JPH::Shape> shape, const glm::vec3& position, const glm::quat& rotation,
+			u32 layerMask, const ExcludedEntitySet& excludedEntitySet, SceneQueryHit* outHits, i32 maxHits);
+		bool IsEntityExcluded(UUID entityID, const ExcludedEntitySet& excludedEntitySet);
+
 		void FillHitInfo(const JPH::RayCastResult& hit, const JPH::RRayCast& ray, SceneQueryHit& outHit);
 		void FillHitInfo(const JPH::ShapeCastResult& hit, const JPH::RShapeCast& shapeCast, SceneQueryHit& outHit);
 

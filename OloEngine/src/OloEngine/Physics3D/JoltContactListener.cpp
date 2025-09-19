@@ -26,6 +26,15 @@ namespace OloEngine {
 
 		if (entityA != 0 && entityB != 0 && inManifold.mRelativeContactPointsOn1.size() > 0)
 		{
+			// Create the SubShapeIDPair key for tracking this contact
+			JPH::SubShapeIDPair contactKey(inBody1.GetID(), inManifold.mSubShapeID1, inBody2.GetID(), inManifold.mSubShapeID2);
+			
+			// Store the contact in our active contacts map
+			{
+				std::lock_guard<std::mutex> lock(m_ActiveContactsMutex);
+				m_ActiveContacts[contactKey] = ContactInfo(entityA, entityB);
+			}
+
 			glm::vec3 contactPoint = JoltUtils::FromJoltVector(inManifold.GetWorldSpaceContactPointOn1(0));
 			glm::vec3 contactNormal = JoltUtils::FromJoltVector(inManifold.mWorldSpaceNormal);
 			f32 contactDepth = inManifold.mPenetrationDepth;
@@ -41,6 +50,19 @@ namespace OloEngine {
 
 		if (entityA != 0 && entityB != 0 && inManifold.mRelativeContactPointsOn1.size() > 0)
 		{
+			// The contact should already be in our active contacts map from OnContactAdded
+			// But we can ensure it's there (defensive programming)
+			JPH::SubShapeIDPair contactKey(inBody1.GetID(), inManifold.mSubShapeID1, inBody2.GetID(), inManifold.mSubShapeID2);
+			
+			{
+				std::lock_guard<std::mutex> lock(m_ActiveContactsMutex);
+				// Only add if not already present (should not happen in normal operation)
+				if (m_ActiveContacts.find(contactKey) == m_ActiveContacts.end())
+				{
+					m_ActiveContacts[contactKey] = ContactInfo(entityA, entityB);
+				}
+			}
+
 			glm::vec3 contactPoint = JoltUtils::FromJoltVector(inManifold.GetWorldSpaceContactPointOn1(0));
 			glm::vec3 contactNormal = JoltUtils::FromJoltVector(inManifold.mWorldSpaceNormal);
 			f32 contactDepth = inManifold.mPenetrationDepth;
@@ -49,13 +71,30 @@ namespace OloEngine {
 		}
 	}
 
-	void JoltContactListener::OnContactRemoved([[maybe_unused]] const JPH::SubShapeIDPair& inSubShapePair)
+	void JoltContactListener::OnContactRemoved(const JPH::SubShapeIDPair& inSubShapePair)
 	{
-		// Note: We can't get the bodies directly from the SubShapeIDPair, so we'll need to store additional data
-		// For now, we'll skip contact removed events. This can be enhanced later if needed.
+		// Look up the contact in our active contacts map to retrieve the entity IDs
+		UUID entityA = 0;
+		UUID entityB = 0;
 		
-		// ContactEvent event(ContactType::ContactRemoved, entityA, entityB);
-		// QueueContactEvent(event);
+		{
+			std::lock_guard<std::mutex> lock(m_ActiveContactsMutex);
+			auto it = m_ActiveContacts.find(inSubShapePair);
+			if (it != m_ActiveContacts.end())
+			{
+				entityA = it->second.EntityA;
+				entityB = it->second.EntityB;
+				
+				// Remove the contact from our tracking map
+				m_ActiveContacts.erase(it);
+			}
+		}
+		
+		// Only queue the event if we found valid entity IDs
+		if (entityA != 0 && entityB != 0)
+		{
+			QueueContactEvent(ContactEvent(ContactType::ContactRemoved, entityA, entityB));
+		}
 	}
 
 	void JoltContactListener::ProcessContactEvents()
@@ -86,12 +125,10 @@ namespace OloEngine {
 	{
 		std::lock_guard<std::mutex> lock(m_ContactEventsMutex);
 		
-		// Prevent memory issues by limiting the queue size
-		if (m_ContactEventQueue.size() >= MaxQueuedContactEvents)
+		// Check queue size limit and early-return to prevent queue growth during contact storms
+		if (m_QueueSize.load(std::memory_order_acquire) >= MaxQueuedContactEvents)
 		{
-			OLO_CORE_WARN("Contact event queue is full! Dropping oldest event.");
-			m_ContactEventQueue.pop_front();
-			m_QueueSize.fetch_sub(1, std::memory_order_relaxed);
+			return; // Drop the event instead of growing the queue
 		}
 		
 		m_ContactEventQueue.push_back(event);
@@ -102,12 +139,10 @@ namespace OloEngine {
 	{
 		std::lock_guard<std::mutex> lock(m_ContactEventsMutex);
 		
-		// Prevent memory issues by limiting the queue size
-		if (m_ContactEventQueue.size() >= MaxQueuedContactEvents)
+		// Check queue size limit and early-return to prevent queue growth during contact storms
+		if (m_QueueSize.load(std::memory_order_acquire) >= MaxQueuedContactEvents)
 		{
-			OLO_CORE_WARN("Contact event queue is full! Dropping oldest event.");
-			m_ContactEventQueue.pop_front();
-			m_QueueSize.fetch_sub(1, std::memory_order_relaxed);
+			return; // Drop the event instead of growing the queue
 		}
 		
 		m_ContactEventQueue.push_back(std::move(event));

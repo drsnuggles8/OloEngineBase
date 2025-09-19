@@ -872,7 +872,40 @@ namespace OloEngine {
 
 	bool JoltScene::IsEntityExcluded(UUID entityID, const std::vector<UUID>& excludedEntities)
 	{
-		return std::find(excludedEntities.begin(), excludedEntities.end(), entityID) != excludedEntities.end();
+		return EntityExclusionUtils::IsEntityExcluded(excludedEntities, entityID);
+	}
+
+	// New O(1) ExcludedEntitySet overloads
+	bool JoltScene::PerformShapeCast(JPH::Ref<JPH::Shape> shape, const glm::vec3& start, const glm::vec3& direction, 
+		f32 maxDistance, u32 layerMask, const ExcludedEntitySet& excludedEntitySet, SceneQueryHit& outHit)
+	{
+		// Convert to vector and delegate to existing implementation for now
+		// TODO: Optimize to use ExcludedEntitySet directly in body filter
+		std::vector<UUID> excludedEntities = excludedEntitySet.ToVector();
+		return PerformShapeCast(shape, start, direction, maxDistance, layerMask, excludedEntities, outHit);
+	}
+
+	i32 JoltScene::PerformShapeCastMultiple(JPH::Ref<JPH::Shape> shape, const glm::vec3& start, const glm::vec3& direction,
+		f32 maxDistance, u32 layerMask, const ExcludedEntitySet& excludedEntitySet, SceneQueryHit* outHits, i32 maxHits)
+	{
+		// Convert to vector and delegate to existing implementation for now
+		// TODO: Optimize to use ExcludedEntitySet directly in body filter
+		std::vector<UUID> excludedEntities = excludedEntitySet.ToVector();
+		return PerformShapeCastMultiple(shape, start, direction, maxDistance, layerMask, excludedEntities, outHits, maxHits);
+	}
+
+	i32 JoltScene::PerformShapeOverlap(JPH::Ref<JPH::Shape> shape, const glm::vec3& position, const glm::quat& rotation,
+		u32 layerMask, const ExcludedEntitySet& excludedEntitySet, SceneQueryHit* outHits, i32 maxHits)
+	{
+		// Convert to vector and delegate to existing implementation for now
+		// TODO: Optimize to use ExcludedEntitySet directly in body filter
+		std::vector<UUID> excludedEntities = excludedEntitySet.ToVector();
+		return PerformShapeOverlap(shape, position, rotation, layerMask, excludedEntities, outHits, maxHits);
+	}
+
+	bool JoltScene::IsEntityExcluded(UUID entityID, const ExcludedEntitySet& excludedEntitySet)
+	{
+		return EntityExclusionUtils::IsEntityExcluded(excludedEntitySet, entityID);
 	}
 
 	void JoltScene::FillHitInfo(const JPH::RayCastResult& hit, const JPH::RRayCast& ray, SceneQueryHit& outHit)

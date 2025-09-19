@@ -2,12 +2,24 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Asset/MeshColliderAsset.h"
 
 #include <chrono>
 #include <algorithm>
 #include <thread>
+#include <future>
 
 namespace OloEngine {
+
+	// Implementation-only types
+	struct CookingRequest
+	{
+		Ref<MeshColliderAsset> m_ColliderAsset;
+		EMeshColliderType m_Type;
+		bool m_InvalidateOld = false;
+		std::promise<ECookingResult> m_Promise;
+		std::chrono::steady_clock::time_point m_RequestTime;
+	};
 
 	MeshColliderCache& MeshColliderCache::GetInstance()
 	{
@@ -420,10 +432,10 @@ namespace OloEngine {
 		}
 
 		// Sort by last accessed time (oldest first)
-		std::sort(entries.begin(), entries.end(),
-			[](const auto& a, const auto& b) {
-				return a.second < b.second;
-			});
+		auto compareByLastAccessed = [](const auto& a, const auto& b) {
+			return a.second < b.second;
+		};
+		std::sort(entries.begin(), entries.end(), compareByLastAccessed);
 
 		// Remove oldest entries until we reach target size
 		for (const auto& [handle, time] : entries)

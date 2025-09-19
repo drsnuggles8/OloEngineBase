@@ -4,21 +4,26 @@
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Body/Body.h>
 #include <algorithm>
+#include <atomic>
 
 namespace OloEngine {
 
+	// File-static atomic flag to warn only once about null user data
+	static std::atomic<bool> s_NullUserDataWarned{false};
+
 	EntityExclusionBodyFilter::EntityExclusionBodyFilter(const std::vector<UUID>& excludedEntities)
-		: m_ExcludedEntities(excludedEntities.begin(), excludedEntities.end())
+		: m_ExcludedEntities(excludedEntities)
 	{
 	}
 
 	EntityExclusionBodyFilter::EntityExclusionBodyFilter(UUID excludedEntity)
+		: m_ExcludedEntities(excludedEntity)
 	{
-		m_ExcludedEntities.insert(excludedEntity);
 	}
 
 	bool EntityExclusionBodyFilter::ShouldCollide(const JPH::BodyID& inBodyID) const
 	{
+		// This method is exception-safe and will not throw
 		// Always allow initial filter check at the broad phase level
 		// The actual filtering happens in ShouldCollideLocked when we have access to the body data
 		(void)inBodyID; // Suppress unused parameter warning
@@ -27,12 +32,17 @@ namespace OloEngine {
 
 	bool EntityExclusionBodyFilter::ShouldCollideLocked(const JPH::Body& inBody) const
 	{
+		// This method is exception-safe and will not throw
 		// Get raw user data and validate it before using
 		JPH::uint64 rawUserData = inBody.GetUserData();
 		if (rawUserData == 0)
 		{
 			// No valid entity ID - allow collision by default
-			OLO_CORE_WARN("Physics body has null user data, allowing collision");
+			// Use atomic test-and-set to warn only once to avoid spamming hot query paths
+			if (!s_NullUserDataWarned.exchange(true, std::memory_order_relaxed))
+			{
+				OLO_CORE_WARN("Physics body has null user data, allowing collision (further warnings suppressed)");
+			}
 			return true;
 		}
 
@@ -45,28 +55,32 @@ namespace OloEngine {
 
 	void EntityExclusionBodyFilter::AddExcludedEntity(UUID entityID)
 	{
-		// Insert will automatically handle duplicates (won't insert if already present)
-		m_ExcludedEntities.insert(entityID);
+		std::unique_lock<std::shared_mutex> lock(m_ExclusionMutex);
+		m_ExcludedEntities.AddExcludedEntity(entityID);
 	}
 
 	void EntityExclusionBodyFilter::RemoveExcludedEntity(UUID entityID)
 	{
-		m_ExcludedEntities.erase(entityID);
+		std::unique_lock<std::shared_mutex> lock(m_ExclusionMutex);
+		m_ExcludedEntities.RemoveExcludedEntity(entityID);
 	}
 
 	void EntityExclusionBodyFilter::ClearExcludedEntities()
 	{
-		m_ExcludedEntities.clear();
+		std::unique_lock<std::shared_mutex> lock(m_ExclusionMutex);
+		m_ExcludedEntities.Clear();
 	}
 
 	bool EntityExclusionBodyFilter::IsEntityExcluded(UUID entityID) const
 	{
-		return m_ExcludedEntities.find(entityID) != m_ExcludedEntities.end();
+		std::shared_lock<std::shared_mutex> lock(m_ExclusionMutex);
+		return m_ExcludedEntities.IsEntityExcluded(entityID);
 	}
 
 	std::vector<UUID> EntityExclusionBodyFilter::GetExcludedEntities() const
 	{
-		return std::vector<UUID>(m_ExcludedEntities.begin(), m_ExcludedEntities.end());
+		std::shared_lock<std::shared_mutex> lock(m_ExclusionMutex);
+		return m_ExcludedEntities.ToVector();
 	}
 
 }

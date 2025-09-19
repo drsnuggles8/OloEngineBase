@@ -7,10 +7,12 @@
 
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
+#include <Jolt/Physics/Collision/Shape/SubShapeIDPair.h>
 
 #include <mutex>
 #include <deque>
 #include <atomic>
+#include <unordered_map>
 
 namespace OloEngine {
 
@@ -38,7 +40,7 @@ namespace OloEngine {
 		void ProcessContactEvents();
 
 		// Get the number of pending contact events
-		sizet GetPendingContactEventCount() const noexcept { return m_QueueSize.load(std::memory_order_acquire); }
+		[[nodiscard]] sizet GetPendingContactEventCount() const noexcept { return m_QueueSize.load(std::memory_order_acquire); }
 
 	private:
 		struct ContactEvent
@@ -60,10 +62,25 @@ namespace OloEngine {
 
 		void QueueContactEvent(const ContactEvent& event);
 		void QueueContactEvent(ContactEvent&& event);
+		
+		// Retrieves entity UUID from JPH::Body::GetUserData (expects u64 UUID); returns 0 when no valid UUID is present
 		UUID GetEntityIDFromBody(const JPH::Body& body);
 
 	private:
 		JoltScene* m_Scene;
+		
+		// Active contacts tracking for OnContactRemoved
+		struct ContactInfo
+		{
+			UUID EntityA;
+			UUID EntityB;
+			
+			ContactInfo() = default;
+			ContactInfo(UUID entityA, UUID entityB) : EntityA(entityA), EntityB(entityB) {}
+		};
+		
+		mutable std::mutex m_ActiveContactsMutex;
+		std::unordered_map<JPH::SubShapeIDPair, ContactInfo> m_ActiveContacts;
 		
 		// Thread-safe contact event queue
 		mutable std::mutex m_ContactEventsMutex;

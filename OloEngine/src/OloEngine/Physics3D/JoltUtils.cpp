@@ -1,10 +1,6 @@
 #include "OloEnginePCH.h"
 #include "JoltUtils.h"
 
-#include <Jolt/Jolt.h>
-#include <Jolt/Core/TempAllocator.h>
-#include <Jolt/Core/JobSystemThreadPool.h>
-#include <Jolt/Physics/PhysicsSettings.h>
-
-// All JoltUtils methods are implemented inline in the header file
-// This file exists for any future non-inline implementations
+// This translation unit exists as a placeholder for potential future non-inline JoltUtils implementations.
+// All current JoltUtils functionality is implemented as static inline methods in JoltUtils.h
+// to avoid unnecessary compilation dependencies and improve build times.

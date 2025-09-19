@@ -208,7 +208,7 @@ namespace OloEngine {
 		
 		m_FrameCount++;
 		
-		if (m_FrameCount % 60 == 0) // Log every 60 frames
+		if (m_FrameCount % m_FrameLogInterval == 0) // Log at configurable intervals
 		{
 			OLO_CORE_TRACE("Captured physics frame {0}", m_FrameCount);
 		}
@@ -361,6 +361,81 @@ namespace OloEngine {
 		catch (const std::filesystem::filesystem_error& e)
 		{
 			OLO_CORE_ERROR("Failed to initialize captures directory: {0}", e.what());
+		}
+	}
+
+	bool JoltCaptureManager::SetCapturesDirectory(const std::filesystem::path& directory)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		try
+		{
+			// Attempt to create the directory if it doesn't exist
+			if (!std::filesystem::exists(directory))
+			{
+				std::filesystem::create_directories(directory);
+				OLO_CORE_TRACE("Created captures directory: {0}", directory.string());
+			}
+
+			// Verify the directory is actually accessible
+			if (!std::filesystem::is_directory(directory))
+			{
+				OLO_CORE_ERROR("Path is not a directory: {0}", directory.string());
+				return false;
+			}
+
+			// Update the directory and refresh capture listings
+			m_CapturesDirectory = directory;
+			
+			// Refresh the captures cache by scanning the new directory
+			m_Captures.clear();
+			for (const auto& entry : std::filesystem::directory_iterator(m_CapturesDirectory))
+			{
+				if (entry.is_regular_file() && entry.path().extension() == ".jolt")
+				{
+					m_Captures.push_back(entry.path());
+				}
+			}
+
+			// Sort captures by modification time (newest first)
+			std::sort(m_Captures.begin(), m_Captures.end(), [](const std::filesystem::path& a, const std::filesystem::path& b)
+			{
+				return std::filesystem::last_write_time(a) > std::filesystem::last_write_time(b);
+			});
+
+			if (!m_Captures.empty())
+			{
+				m_RecentCapture = m_Captures.front();
+			}
+			else
+			{
+				m_RecentCapture.clear();
+			}
+
+			OLO_CORE_TRACE("Set captures directory to: {0} (found {1} existing captures)", 
+				m_CapturesDirectory.string(), m_Captures.size());
+
+			return true;
+		}
+		catch (const std::filesystem::filesystem_error& e)
+		{
+			OLO_CORE_ERROR("Failed to set captures directory to '{0}': {1}", directory.string(), e.what());
+			return false;
+		}
+	}
+
+	void JoltCaptureManager::SetFrameLogInterval(i32 interval)
+	{
+		// Validate interval is positive
+		if (interval <= 0)
+		{
+			OLO_CORE_WARN("Invalid frame log interval: {0}. Must be > 0. Using default value of 60.", interval);
+			m_FrameLogInterval = 60; // Fallback to default
+		}
+		else
+		{
+			m_FrameLogInterval = interval;
+			OLO_CORE_TRACE("Frame log interval set to {0} frames", m_FrameLogInterval);
 		}
 	}
 

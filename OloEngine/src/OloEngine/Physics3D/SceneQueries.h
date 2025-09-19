@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Physics3DTypes.h"
+#include "EntityExclusionUtils.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Core/Ref.h"
@@ -43,6 +44,7 @@ namespace OloEngine {
 		}
 	};
 
+	// Legacy type alias for backward compatibility - prefer ExcludedEntitySet for better performance
 	using ExcludedEntityMap = std::vector<UUID>;
 
 	/**
@@ -281,7 +283,8 @@ namespace OloEngine {
 			return SphereCastInfo(from, direction, radius, distance);
 		}
 
-		// Entity filtering helpers
+		// Entity filtering helpers - legacy vector-based interface (O(n) performance)
+		// Consider migrating to ExcludedEntitySet for O(1) performance
 		inline void AddExcludedEntity(ExcludedEntityMap& excludedEntities, UUID entityID)
 		{
 			excludedEntities.push_back(entityID);
@@ -289,7 +292,23 @@ namespace OloEngine {
 
 		inline bool IsEntityExcluded(const ExcludedEntityMap& excludedEntities, UUID entityID)
 		{
-			return std::find(excludedEntities.begin(), excludedEntities.end(), entityID) != excludedEntities.end();
+			return EntityExclusionUtils::IsEntityExcluded(excludedEntities, entityID);
+		}
+
+		// New O(1) entity filtering helpers using unified utility
+		inline bool IsEntityExcluded(const ExcludedEntitySet& excludedEntitySet, UUID entityID)
+		{
+			return EntityExclusionUtils::IsEntityExcluded(excludedEntitySet, entityID);
+		}
+
+		inline ExcludedEntitySet CreateExclusionSet(const ExcludedEntityMap& excludedEntities)
+		{
+			return EntityExclusionUtils::CreateExclusionSet(excludedEntities);
+		}
+
+		inline ExcludedEntitySet CreateExclusionSet(UUID excludedEntity)
+		{
+			return EntityExclusionUtils::CreateExclusionSet(excludedEntity);
 		}
 	}
 

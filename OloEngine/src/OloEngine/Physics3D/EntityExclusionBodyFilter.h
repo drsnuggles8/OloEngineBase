@@ -1,9 +1,10 @@
 #pragma once
 
+#include "EntityExclusionUtils.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/UUID.h"
 #include <vector>
-#include <unordered_set>
+#include <shared_mutex>
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Body/BodyFilter.h>
 
@@ -46,6 +47,8 @@ namespace OloEngine {
 		EntityExclusionBodyFilter() = default;
 
 		// JPH::BodyFilter interface implementation
+		// Note: These methods are exception-safe and designed not to throw,
+		// but cannot be marked noexcept due to base class signature constraints
 		virtual bool ShouldCollide(const JPH::BodyID& inBodyID) const override;
 		virtual bool ShouldCollideLocked(const JPH::Body& inBody) const override;
 
@@ -80,7 +83,8 @@ namespace OloEngine {
 		std::vector<UUID> GetExcludedEntities() const;
 
 	private:
-		std::unordered_set<UUID> m_ExcludedEntities;
+		ExcludedEntitySet m_ExcludedEntities;
+		mutable std::shared_mutex m_ExclusionMutex; // Protects m_ExcludedEntities for thread-safe access
 	};
 
 }
