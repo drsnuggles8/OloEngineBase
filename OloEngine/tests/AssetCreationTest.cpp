@@ -22,8 +22,8 @@ TEST_F(AssetCreationTest, MeshColliderAsset_Creation)
 
     // Test property assignment
     meshCollider->m_ColliderMesh = 12345;
-    meshCollider->m_Material.m_StaticFriction = 0.7f;
-    meshCollider->m_Material.m_Restitution = 0.3f;
+    meshCollider->m_Material.SetStaticFriction(0.7f);
+    meshCollider->m_Material.SetRestitution(0.3f);
     meshCollider->m_EnableVertexWelding = true;
     meshCollider->m_VertexWeldTolerance = 0.05f;
     meshCollider->m_CollisionComplexity = ECollisionComplexity::UseComplexAsSimple;
@@ -31,8 +31,8 @@ TEST_F(AssetCreationTest, MeshColliderAsset_Creation)
 
     // Verify properties
     EXPECT_EQ(meshCollider->m_ColliderMesh, 12345) << "ColliderMesh should be set correctly";
-    EXPECT_FLOAT_EQ(meshCollider->m_Material.m_StaticFriction, 0.7f) << "Material friction should be set correctly";
-    EXPECT_FLOAT_EQ(meshCollider->m_Material.m_Restitution, 0.3f) << "Material restitution should be set correctly";
+    EXPECT_FLOAT_EQ(meshCollider->m_Material.GetStaticFriction(), 0.7f) << "Material friction should be set correctly";
+    EXPECT_FLOAT_EQ(meshCollider->m_Material.GetRestitution(), 0.3f) << "Material restitution should be set correctly";
     EXPECT_TRUE(meshCollider->m_EnableVertexWelding) << "Vertex welding should be enabled";
     EXPECT_EQ(meshCollider->m_CollisionComplexity, ECollisionComplexity::UseComplexAsSimple) << "Collision complexity should be set correctly";
     EXPECT_EQ(meshCollider->m_ColliderScale.x, 2.0f) << "Collider scale X should be set correctly";
@@ -64,15 +64,15 @@ TEST_F(AssetCreationTest, ColliderMaterial_Basic)
     ColliderMaterial material;
     
     // Test default values
-    EXPECT_FLOAT_EQ(material.m_StaticFriction, 0.6f) << "Default static friction should be 0.6";
-    EXPECT_FLOAT_EQ(material.m_Restitution, 0.0f) << "Default restitution should be 0.0";
+    EXPECT_FLOAT_EQ(material.GetStaticFriction(), 0.6f) << "Default static friction should be 0.6";
+    EXPECT_FLOAT_EQ(material.GetRestitution(), 0.0f) << "Default restitution should be 0.0";
     
-    // Test assignment
-    material.m_StaticFriction = 0.8f;
-    material.m_Restitution = 0.2f;
+    // Test assignment through setters
+    material.SetStaticFriction(0.8f);
+    material.SetRestitution(0.2f);
     
-    EXPECT_FLOAT_EQ(material.m_StaticFriction, 0.8f) << "Static friction should be assignable";
-    EXPECT_FLOAT_EQ(material.m_Restitution, 0.2f) << "Restitution should be assignable";
+    EXPECT_FLOAT_EQ(material.GetStaticFriction(), 0.8f) << "Static friction should be assignable";
+    EXPECT_FLOAT_EQ(material.GetRestitution(), 0.2f) << "Restitution should be assignable";
 }
 
 /**

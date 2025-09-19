@@ -11,7 +11,7 @@ namespace OloEngine {
 
 	// Physics layer constants
 	constexpr u32 INVALID_LAYER_ID = static_cast<u32>(-1);
-	constexpr i32 INVALID_BIT_MASK = -1;
+	constexpr u32 INVALID_BIT_MASK = static_cast<u32>(-1);
 	constexpr u32 NO_COLLISION_BITS = 0;
 	constexpr i32 NO_PREVIOUS_LAYER_ID = -1;
 
@@ -23,7 +23,7 @@ namespace OloEngine {
 		u32 m_CollidesWith = 0;
 		bool m_CollidesWithSelf = true;
 
-		bool IsValid() const
+		[[nodiscard]] bool IsValid() const
 		{
 			return !m_Name.empty() && m_BitValue > 0;
 		}
@@ -38,14 +38,15 @@ namespace OloEngine {
 		static void UpdateLayerName(u32 layerId, const std::string& newName);
 
 		static void SetLayerCollision(u32 layerId, u32 otherLayer, bool shouldCollide);
+		static void SetLayerSelfCollision(u32 layerId, bool shouldCollide);
 		static void GetLayerCollisions(u32 layerId, std::vector<PhysicsLayer>& outLayers);
 
-		static const std::vector<PhysicsLayer> GetLayers(); // Returns a copy for thread safety
+		static std::vector<PhysicsLayer> GetLayers(); // Returns a copy for thread safety
 		static std::vector<std::string> GetLayerNames();
 
-		static PhysicsLayer& GetLayer(u32 layerId);
-		static PhysicsLayer& GetLayer(const std::string& layerName);
-		static u32 GetLayerCount() { return static_cast<u32>(s_Layers.size()); }
+		static PhysicsLayer GetLayer(u32 layerId);
+		static PhysicsLayer GetLayer(const std::string& layerName);
+		static u32 GetLayerCount();
 
 		[[nodiscard]] static bool ShouldCollide(u32 layer1, u32 layer2) noexcept;
 		[[nodiscard]] static bool IsLayerValid(u32 layerId) noexcept;
@@ -58,6 +59,10 @@ namespace OloEngine {
 
 		// Helper function to rebuild the index map when s_Layers is modified
 		static void RebuildLayerIndexMap();
+
+		// Internal unsafe methods for use within locked contexts - do not use externally
+		static PhysicsLayer& GetLayerUnsafe(u32 layerId);
+		static PhysicsLayer& GetLayerUnsafe(const std::string& layerName);
 
 	private:
 		static std::vector<PhysicsLayer> s_Layers;

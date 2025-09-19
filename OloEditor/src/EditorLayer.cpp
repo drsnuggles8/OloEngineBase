@@ -13,6 +13,7 @@
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
 #include "OloEngine/Core/Events/EditorEvents.h"
+#include "OloEngine/Physics3D/Physics3DSystem.h"
 
 #include <imgui.h>
 #include <ImGuizmo.h>
@@ -566,6 +567,22 @@ namespace OloEngine
 	{
 		ImGui::Begin("Settings");
 		ImGui::Checkbox("Show physics colliders", &m_ShowPhysicsColliders);
+
+		ImGui::Separator();
+		
+		// Physics Debug Settings
+		ImGui::Text("Physics Debug");
+		auto& physicsSettings = Physics3DSystem::GetSettings();
+		if (ImGui::Checkbox("Capture physics on play", &physicsSettings.m_CaptureOnPlay))
+		{
+			// Setting changed - could save project here if needed
+		}
+		ImGui::SameLine();
+		ImGui::TextDisabled("(?)");
+		if (ImGui::IsItemHovered())
+		{
+			ImGui::SetTooltip("Enable expensive physics debug capture during play mode.\nOff by default for production performance.");
+		}
 
 		ImGui::Image((ImTextureID)s_Font->GetAtlasTexture()->GetRendererID(), { 512,512 }, { 0, 1 }, { 1, 0 });
 

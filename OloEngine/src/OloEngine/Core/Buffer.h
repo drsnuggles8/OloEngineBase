@@ -28,10 +28,14 @@ namespace OloEngine
 			return result;
 		}
 
-		static Buffer Copy(std::span<const u8> data)
+		[[nodiscard]] static Buffer Copy(std::span<const u8> data)
 		{
+			// Early return for empty spans to avoid calling memcpy with zero length
+			if (data.size() == 0)
+				return Buffer{};
+				
 			Buffer result(data.size());
-			::memcpy(result.Data, data.data(), data.size());
+			::memcpy(result.Data, data.data(), static_cast<size_t>(data.size()));
 			return result;
 		}
 

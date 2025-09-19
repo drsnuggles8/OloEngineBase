@@ -12,6 +12,7 @@
 #include <Jolt/Core/Reference.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Body/BodyLockInterface.h>
+#include <Jolt/Physics/Constraints/Constraint.h>
 #include <Jolt/Physics/Constraints/SixDOFConstraint.h>
 
 namespace OloEngine {
@@ -30,7 +31,7 @@ namespace OloEngine {
 
 		// Jolt body access
 		JPH::BodyID GetBodyID() const { return m_BodyID; }
-		bool IsValid() const { return !m_BodyID.IsInvalid(); }
+		[[nodiscard]] bool IsValid() const { return !m_BodyID.IsInvalid(); }
 
 		// Body type
 		bool IsStatic() const;
@@ -108,8 +109,8 @@ namespace OloEngine {
 		EActorAxis GetLockedAxes() const;
 
 		// Shape management
-		void SetShape(JPH::Ref<JPH::Shape> shape);
-		JPH::Ref<JPH::Shape> GetShape() const;
+		void SetShape(JPH::RefConst<JPH::Shape> shape);
+		JPH::RefConst<JPH::Shape> GetShape() const;
 
 		// Activation
 		void Activate();
@@ -140,7 +141,7 @@ namespace OloEngine {
 		Entity m_Entity;
 		JoltScene* m_Scene;
 		JPH::BodyID m_BodyID;
-		JPH::SixDOFConstraint* m_AxisLockConstraint = nullptr;
+		JPH::Ref<JPH::SixDOFConstraint> m_AxisLockConstraint = nullptr;
 		
 		// Cached properties
 		EActorAxis m_LockedAxes = EActorAxis::None;

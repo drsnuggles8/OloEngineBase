@@ -70,11 +70,11 @@ namespace OloEngine {
 		void OpenRecentCapture() const;
 		void ClearCaptures();
 		void RemoveCapture(const std::filesystem::path& capturePath);
-		const std::vector<std::filesystem::path>& GetAllCaptures() const { return m_Captures; }
+		[[nodiscard]] const std::vector<std::filesystem::path>& GetAllCaptures() const { return m_Captures; }
 
 		// Settings
 		[[nodiscard]] bool SetCapturesDirectory(const std::filesystem::path& directory);
-		const std::filesystem::path& GetCapturesDirectory() const { return m_CapturesDirectory; }
+		[[nodiscard]] const std::filesystem::path& GetCapturesDirectory() const { return m_CapturesDirectory; }
 
 		/**
 		 * @brief Set the frame logging interval for capture progress

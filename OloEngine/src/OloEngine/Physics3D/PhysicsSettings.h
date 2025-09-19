@@ -26,8 +26,8 @@ namespace OloEngine {
 		u32 m_MaxBodyPairs = 65536;
 		u32 m_MaxContactConstraints = 10240;
 		
-		// Debug and capture settings
-		bool m_CaptureOnPlay = true;
+		// Debug and capture settings (capture is off by default for production)
+		bool m_CaptureOnPlay = false;
 		PhysicsDebugType m_CaptureMethod = PhysicsDebugType::DebugToFile;
 		
 		// Advanced Jolt-specific settings

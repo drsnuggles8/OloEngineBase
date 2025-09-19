@@ -31,10 +31,10 @@ namespace OloEngine {
 	concept HasMaterialInterface = requires(const T& collider) {
 		// Require that T has a Material member
 		collider.Material;
-		// Require that Material has StaticFriction, DynamicFriction, and Restitution members that are convertible to float
-		{ collider.Material.m_StaticFriction } -> std::convertible_to<float>;
-		{ collider.Material.m_DynamicFriction } -> std::convertible_to<float>;
-		{ collider.Material.m_Restitution } -> std::convertible_to<float>;
+		// Require that Material has getter methods that return values convertible to float
+		{ collider.Material.GetStaticFriction() } -> std::convertible_to<float>;
+		{ collider.Material.GetDynamicFriction() } -> std::convertible_to<float>;
+		{ collider.Material.GetRestitution() } -> std::convertible_to<float>;
 	};
 
 	class JoltMaterial : public JPH::PhysicsMaterial
@@ -53,7 +53,11 @@ namespace OloEngine {
 		void SetFriction(float friction) { m_Friction = friction; }
 
 		float GetRestitution() const { return m_Restitution; }
-		void SetRestitution(float restitution) { m_Restitution = restitution; }
+		void SetRestitution(float restitution) 
+		{ 
+			// Clamp restitution to valid range [0.0f, 1.0f] to match ColliderMaterial validation
+			m_Restitution = std::clamp(restitution, 0.0f, 1.0f); 
+		}
 
 		/// @brief Computes a single friction coefficient from static and dynamic friction values
 		/// @param staticFriction The static friction coefficient
@@ -84,16 +88,16 @@ namespace OloEngine {
 
 		inline static JPH::Ref<JoltMaterial> FromColliderMaterial(const ColliderMaterial& colliderMaterial)
 		{
-			float combinedFriction = GetCombinedFriction(colliderMaterial.m_StaticFriction, colliderMaterial.m_DynamicFriction);
-			return JPH::Ref<JoltMaterial>(new JoltMaterial(combinedFriction, colliderMaterial.m_Restitution));
+			float combinedFriction = GetCombinedFriction(colliderMaterial.GetStaticFriction(), colliderMaterial.GetDynamicFriction());
+			return JPH::Ref<JoltMaterial>(new JoltMaterial(combinedFriction, colliderMaterial.GetRestitution()));
 		}
 
 		// Templated helper to create materials from any collider component with a Material member
 		template<typename T> requires HasMaterialInterface<T>
 		static JoltMaterial CreateFromCollider(const T& collider)
 		{
-			float combinedFriction = GetCombinedFriction(collider.Material.m_StaticFriction, collider.Material.m_DynamicFriction);
-			return JoltMaterial(combinedFriction, collider.Material.m_Restitution);
+			float combinedFriction = GetCombinedFriction(collider.Material.GetStaticFriction(), collider.Material.GetDynamicFriction());
+			return JoltMaterial(combinedFriction, collider.Material.GetRestitution());
 		}
 
 		// Helper functions to create materials from our collider components

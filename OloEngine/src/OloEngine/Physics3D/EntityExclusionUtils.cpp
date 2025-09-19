@@ -15,7 +15,7 @@ namespace OloEngine {
 
 	bool ExcludedEntitySet::IsEntityExcluded(UUID entityID) const
 	{
-		return m_ExcludedEntities.find(entityID) != m_ExcludedEntities.end();
+		return m_ExcludedEntities.contains(entityID);
 	}
 
 	void ExcludedEntitySet::AddExcludedEntity(UUID entityID)
@@ -33,25 +33,29 @@ namespace OloEngine {
 		m_ExcludedEntities.clear();
 	}
 
-	bool ExcludedEntitySet::Empty() const
+	[[nodiscard]] bool ExcludedEntitySet::Empty() const
 	{
 		return m_ExcludedEntities.empty();
 	}
 
-	sizet ExcludedEntitySet::Size() const
+	[[nodiscard]] sizet ExcludedEntitySet::Size() const
 	{
 		return m_ExcludedEntities.size();
 	}
 
-	std::vector<UUID> ExcludedEntitySet::ToVector() const
+	[[nodiscard]] std::vector<UUID> ExcludedEntitySet::ToVector() const
 	{
 		return std::vector<UUID>(m_ExcludedEntities.begin(), m_ExcludedEntities.end());
 	}
 
 	void ExcludedEntitySet::UpdateFromVector(const std::vector<UUID>& excludedEntities)
 	{
-		m_ExcludedEntities.clear();
-		m_ExcludedEntities.insert(excludedEntities.begin(), excludedEntities.end());
+		// Construct temporary set from the vector - if this throws, m_ExcludedEntities remains unchanged
+		std::unordered_set<UUID> tempSet;
+		tempSet.reserve(excludedEntities.size()); // Reserve space to avoid rehashes during bulk insert
+		tempSet.insert(excludedEntities.begin(), excludedEntities.end());
+		// Swap is noexcept and provides strong exception safety
+		m_ExcludedEntities.swap(tempSet);
 	}
 
 	namespace EntityExclusionUtils {

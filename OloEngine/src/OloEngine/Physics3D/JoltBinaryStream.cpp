@@ -111,8 +111,18 @@ namespace OloEngine {
 					if (nameLength > maxNameLength)
 					{
 						OLO_CORE_WARN("JoltBinaryStreamUtils::SerializeShape: Material debug name too long ({} bytes), truncating to {} bytes", nameLength, maxNameLength);
-						debugName = debugName.substr(0, maxNameLength);
-						nameLength = maxNameLength;
+						
+						// UTF-8 aware truncation: find the last valid character boundary within maxNameLength
+						u32 truncatedLength = maxNameLength;
+						while (truncatedLength > 0 && (debugName[truncatedLength] & 0xC0) == 0x80)
+						{
+							// Step back if we're in the middle of a UTF-8 multi-byte sequence
+							// UTF-8 continuation bytes have the pattern 10xxxxxx (0x80-0xBF)
+							--truncatedLength;
+						}
+						
+						debugName = debugName.substr(0, truncatedLength);
+						nameLength = truncatedLength;
 					}
 					
 					streamAdapter.Write(nameLength);
@@ -273,13 +283,22 @@ namespace OloEngine {
 		Buffer SerializeShapeToBuffer(const JPH::Shape* shape)
 		{
 			if (!shape)
+			{
+				OLO_CORE_ERROR("JoltBinaryStreamUtils::SerializeShapeToBuffer: Cannot serialize null shape");
 				return Buffer();
+			}
 
 			JoltBinaryStreamWriter writer;
 			if (SerializeShape(shape, writer))
 			{
 				return writer.CreateBuffer();
 			}
+
+			// Log detailed error information for failed serialization
+			OLO_CORE_ERROR("JoltBinaryStreamUtils::SerializeShapeToBuffer: Failed to serialize shape (ptr: {:#x}, type: {}, subtype: {})", 
+						   reinterpret_cast<uintptr_t>(shape),
+						   static_cast<u32>(shape->GetType()),
+						   static_cast<u32>(shape->GetSubType()));
 
 			return Buffer();
 		}

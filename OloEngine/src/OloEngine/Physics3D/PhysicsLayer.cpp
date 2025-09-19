@@ -31,7 +31,7 @@ namespace OloEngine {
 		}
 
 		u32 layerId = GetNextLayerID();
-		PhysicsLayer layer = { layerId, name, BIT(layerId), BIT(layerId) };
+		PhysicsLayer layer = { layerId, name, ToLayerMask(layerId), ToLayerMask(layerId) };
 		
 		// Safe insertion with bounds checking
 		if (layerId == s_Layers.size())
@@ -71,7 +71,7 @@ namespace OloEngine {
 	{
 		std::unique_lock<std::shared_mutex> lock(s_LayersMutex);
 		
-		PhysicsLayer& layerInfo = GetLayer(layerId);
+		PhysicsLayer& layerInfo = GetLayerUnsafe(layerId);
 
 		for (auto& otherLayer : s_Layers)
 		{
@@ -109,7 +109,7 @@ namespace OloEngine {
 				return;
 		}
 
-		PhysicsLayer& layer = GetLayer(layerId);
+		PhysicsLayer& layer = GetLayerUnsafe(layerId);
 		
 		// Update name in map directly by key
 		s_LayerNames[layerId] = newName;
@@ -120,8 +120,8 @@ namespace OloEngine {
 	{
 		std::unique_lock<std::shared_mutex> lock(s_LayersMutex);
 		
-		PhysicsLayer& layerInfo = GetLayer(layerId);
-		PhysicsLayer& otherLayerInfo = GetLayer(otherLayer);
+		PhysicsLayer& layerInfo = GetLayerUnsafe(layerId);
+		PhysicsLayer& otherLayerInfo = GetLayerUnsafe(otherLayer);
 
 		if (shouldCollide)
 		{
@@ -135,11 +135,22 @@ namespace OloEngine {
 		}
 	}
 
+	void PhysicsLayerManager::SetLayerSelfCollision(u32 layerId, bool shouldCollide)
+	{
+		std::unique_lock<std::shared_mutex> lock(s_LayersMutex);
+		
+		PhysicsLayer& layerInfo = GetLayerUnsafe(layerId);
+		if (layerInfo.IsValid())
+		{
+			layerInfo.m_CollidesWithSelf = shouldCollide;
+		}
+	}
+
 	void PhysicsLayerManager::GetLayerCollisions(u32 layerId, std::vector<PhysicsLayer>& outLayers)
 	{
 		std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
 		
-		const PhysicsLayer& layer = GetLayer(layerId);
+		const PhysicsLayer& layer = GetLayerUnsafe(layerId);
 
 		outLayers.clear();
 		for (const auto& otherLayer : s_Layers)
@@ -152,7 +163,137 @@ namespace OloEngine {
 		}
 	}
 
-	PhysicsLayer& PhysicsLayerManager::GetLayer(u32 layerId)
+	PhysicsLayer PhysicsLayerManager::GetLayer(u32 layerId)
+	{
+		std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
+		
+		// O(1) lookup using index map
+		auto indexIt = s_LayerIndexMap.find(layerId);
+		if (indexIt != s_LayerIndexMap.end())
+		{
+			sizet index = indexIt->second;
+			// Bounds check for safety
+			if (index < s_Layers.size())
+			{
+				if (s_Layers[index].m_LayerID == layerId)
+				{
+					return s_Layers[index];
+				}
+				else
+				{
+					// Index map corruption detected - log the inconsistency
+					OLO_CORE_ERROR("PhysicsLayerManager: Index map corruption detected! "
+								  "Queried layerId: {}, found index: {}, actual layerId at index: {}, "
+								  "layers size: {}, index map size: {}",
+								  layerId, index, s_Layers[index].m_LayerID, 
+								  s_Layers.size(), s_LayerIndexMap.size());
+					
+					OLO_CORE_ASSERT(false, "PhysicsLayerManager index map corruption: layerId {} maps to index {} "
+									       "but s_Layers[{}].m_LayerID is {}", 
+									       layerId, index, index, s_Layers[index].m_LayerID);
+				}
+			}
+		}
+
+		return s_NullLayer;
+	}
+
+	PhysicsLayer PhysicsLayerManager::GetLayer(const std::string& layerName)
+	{
+		std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
+		
+		for (const auto& layer : s_Layers)
+		{
+			if (layer.m_Name == layerName)
+				return layer;
+		}
+
+		return s_NullLayer;
+	}
+
+std::vector<PhysicsLayer> PhysicsLayerManager::GetLayers()
+{
+	std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
+	return s_Layers; // Return a copy for thread safety
+}
+
+u32 PhysicsLayerManager::GetLayerCount()
+{
+	std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
+	return static_cast<u32>(s_Layers.size());
+}
+
+std::vector<std::string> PhysicsLayerManager::GetLayerNames()
+	{
+		std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
+		
+		std::vector<std::string> names;
+		names.reserve(s_LayerNames.size());
+		for (const auto& pair : s_LayerNames)
+		{
+			names.push_back(pair.second);
+		}
+		return names;
+	}
+
+	bool PhysicsLayerManager::ShouldCollide(u32 layer1, u32 layer2) noexcept
+	{
+		std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
+		
+		// Validate both layer IDs first
+		const PhysicsLayer& layerA = GetLayerUnsafe(layer1);
+		const PhysicsLayer& layerB = GetLayerUnsafe(layer2);
+		
+		// Return false if either layer is invalid (returns s_NullLayer)
+		if (layerA.m_LayerID == s_NullLayer.m_LayerID || layerB.m_LayerID == s_NullLayer.m_LayerID)
+			return false;
+		
+		// Perform bitmask collision test
+		return (layerA.m_CollidesWith & layerB.m_BitValue) != 0;
+	}
+
+	bool PhysicsLayerManager::IsLayerValid(u32 layerId) noexcept
+	{
+		std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
+		
+		const PhysicsLayer& layer = GetLayerUnsafe(layerId);
+		return layer.m_LayerID != s_NullLayer.m_LayerID && layer.IsValid();
+	}
+
+	bool PhysicsLayerManager::IsLayerValid(const std::string& layerName) noexcept
+	{
+		std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
+		
+		const PhysicsLayer& layer = GetLayerUnsafe(layerName);
+		return layer.m_LayerID != s_NullLayer.m_LayerID && layer.IsValid();
+	}
+
+	void PhysicsLayerManager::ClearLayers()
+	{
+		std::unique_lock<std::shared_mutex> lock(s_LayersMutex);
+		
+		s_Layers.clear();
+		s_LayerNames.clear();
+		s_LayerIndexMap.clear();
+	}
+
+	u32 PhysicsLayerManager::GetNextLayerID()
+	{
+		i32 lastId = NO_PREVIOUS_LAYER_ID;
+
+		for (const auto& layer : s_Layers)
+		{
+			if (lastId != NO_PREVIOUS_LAYER_ID && static_cast<i32>(layer.m_LayerID) != lastId + 1)
+				return static_cast<u32>(lastId + 1);
+
+			lastId = static_cast<i32>(layer.m_LayerID);
+		}
+
+		return static_cast<u32>(s_Layers.size());
+	}
+
+	// Internal unsafe methods - assume caller holds appropriate lock
+	PhysicsLayer& PhysicsLayerManager::GetLayerUnsafe(u32 layerId)
 	{
 		// O(1) lookup using index map
 		auto indexIt = s_LayerIndexMap.find(layerId);
@@ -185,7 +326,7 @@ namespace OloEngine {
 		return s_NullLayer;
 	}
 
-	PhysicsLayer& PhysicsLayerManager::GetLayer(const std::string& layerName)
+	PhysicsLayer& PhysicsLayerManager::GetLayerUnsafe(const std::string& layerName)
 	{
 		for (auto& layer : s_Layers)
 		{
@@ -194,81 +335,6 @@ namespace OloEngine {
 		}
 
 		return s_NullLayer;
-	}
-
-	const std::vector<PhysicsLayer> PhysicsLayerManager::GetLayers()
-	{
-		std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
-		return s_Layers; // Return a copy for thread safety
-	}
-
-	std::vector<std::string> PhysicsLayerManager::GetLayerNames()
-	{
-		std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
-		
-		std::vector<std::string> names;
-		names.reserve(s_LayerNames.size());
-		for (const auto& pair : s_LayerNames)
-		{
-			names.push_back(pair.second);
-		}
-		return names;
-	}
-
-	bool PhysicsLayerManager::ShouldCollide(u32 layer1, u32 layer2) noexcept
-	{
-		std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
-		
-		// Validate both layer IDs first
-		const PhysicsLayer& layerA = GetLayer(layer1);
-		const PhysicsLayer& layerB = GetLayer(layer2);
-		
-		// Return false if either layer is invalid (returns s_NullLayer)
-		if (layerA.m_LayerID == s_NullLayer.m_LayerID || layerB.m_LayerID == s_NullLayer.m_LayerID)
-			return false;
-		
-		// Perform bitmask collision test
-		return (layerA.m_CollidesWith & layerB.m_BitValue) != 0;
-	}
-
-	bool PhysicsLayerManager::IsLayerValid(u32 layerId) noexcept
-	{
-		std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
-		
-		const PhysicsLayer& layer = GetLayer(layerId);
-		return layer.m_LayerID != s_NullLayer.m_LayerID && layer.IsValid();
-	}
-
-	bool PhysicsLayerManager::IsLayerValid(const std::string& layerName) noexcept
-	{
-		std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
-		
-		const PhysicsLayer& layer = GetLayer(layerName);
-		return layer.m_LayerID != s_NullLayer.m_LayerID && layer.IsValid();
-	}
-
-	void PhysicsLayerManager::ClearLayers()
-	{
-		std::unique_lock<std::shared_mutex> lock(s_LayersMutex);
-		
-		s_Layers.clear();
-		s_LayerNames.clear();
-		s_LayerIndexMap.clear();
-	}
-
-	u32 PhysicsLayerManager::GetNextLayerID()
-	{
-		i32 lastId = NO_PREVIOUS_LAYER_ID;
-
-		for (const auto& layer : s_Layers)
-		{
-			if (lastId != NO_PREVIOUS_LAYER_ID && static_cast<i32>(layer.m_LayerID) != lastId + 1)
-				return static_cast<u32>(lastId + 1);
-
-			lastId = static_cast<i32>(layer.m_LayerID);
-		}
-
-		return static_cast<u32>(s_Layers.size());
 	}
 
 	std::vector<PhysicsLayer> PhysicsLayerManager::s_Layers;

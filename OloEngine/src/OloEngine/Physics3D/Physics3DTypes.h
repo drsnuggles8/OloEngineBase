@@ -33,6 +33,9 @@ namespace OloEngine {
 		RotationX = BIT(3), RotationY = BIT(4), RotationZ = BIT(5), Rotation = RotationX | RotationY | RotationZ
 	};
 
+	// Mask covering all defined axis bits (BIT(0) through BIT(5))
+	constexpr u32 AxisMask = BIT(0) | BIT(1) | BIT(2) | BIT(3) | BIT(4) | BIT(5);
+
 	enum class ECollisionDetectionType : u32
 	{
 		Discrete,
@@ -88,6 +91,12 @@ namespace OloEngine {
 		constexpr u32 Debris = 7;
 	}
 
+	// Helper function to convert layer index to bitmask
+	constexpr inline u32 ToLayerMask(u32 layerIndex)
+	{
+		return BIT(layerIndex);
+	}
+
 	// Bitwise operators for EActorAxis
 	constexpr inline EActorAxis operator|(EActorAxis a, EActorAxis b)
 	{
@@ -106,7 +115,7 @@ namespace OloEngine {
 
 	constexpr inline EActorAxis operator~(EActorAxis a)
 	{
-		return static_cast<EActorAxis>(~static_cast<u32>(a));
+		return static_cast<EActorAxis>(~static_cast<u32>(a) & AxisMask);
 	}
 
 	constexpr inline EActorAxis& operator|=(EActorAxis& a, EActorAxis b)

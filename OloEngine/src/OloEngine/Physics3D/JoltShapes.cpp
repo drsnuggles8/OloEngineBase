@@ -163,6 +163,19 @@ namespace OloEngine {
 		std::vector<JPH::Ref<JPH::Shape>> shapes;
 		std::vector<glm::vec3> offsets;
 
+		// Count potential collider components to pre-allocate vectors
+		sizet colliderCount = 0;
+		if (entity.HasComponent<BoxCollider3DComponent>()) colliderCount++;
+		if (entity.HasComponent<SphereCollider3DComponent>()) colliderCount++;
+		if (entity.HasComponent<CapsuleCollider3DComponent>()) colliderCount++;
+		if (entity.HasComponent<MeshCollider3DComponent>()) colliderCount++;
+		if (entity.HasComponent<ConvexMeshCollider3DComponent>()) colliderCount++;
+		if (entity.HasComponent<TriangleMeshCollider3DComponent>()) colliderCount++;
+
+		// Pre-allocate vectors to avoid reallocations during population
+		shapes.reserve(colliderCount);
+		offsets.reserve(colliderCount);
+
 		// Get entity transform for scaling primitive colliders
 		const auto& transform = entity.GetTransform();
 		const glm::vec3& entityScale = transform.Scale;
@@ -621,10 +634,7 @@ namespace OloEngine {
 			if (!colliderSubmesh.m_ColliderData.empty())
 			{
 				// Create buffer from the collider data
-				Buffer buffer;
-				buffer.Size = colliderSubmesh.m_ColliderData.size();
-				buffer.Data = new u8[buffer.Size];
-				std::memcpy(buffer.Data, colliderSubmesh.m_ColliderData.data(), buffer.Size);
+				Buffer buffer = Buffer::Copy(std::span{colliderSubmesh.m_ColliderData.data(), colliderSubmesh.m_ColliderData.size()});
 
 				// Try to deserialize the shape
 				JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);
@@ -677,10 +687,7 @@ namespace OloEngine {
 		if (!submesh.m_ColliderData.empty())
 		{
 			// Create buffer from the collider data
-			Buffer buffer;
-			buffer.Size = submesh.m_ColliderData.size();
-			buffer.Data = new u8[buffer.Size];
-			std::memcpy(buffer.Data, submesh.m_ColliderData.data(), buffer.Size);
+			Buffer buffer = Buffer::Copy(std::span{submesh.m_ColliderData.data(), submesh.m_ColliderData.size()});
 
 			// Try to deserialize the shape
 			JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);
@@ -731,10 +738,7 @@ namespace OloEngine {
 		if (!submesh.m_ColliderData.empty())
 		{
 			// Create buffer from the collider data
-			Buffer buffer;
-			buffer.Size = submesh.m_ColliderData.size();
-			buffer.Data = new u8[buffer.Size];
-			std::memcpy(buffer.Data, submesh.m_ColliderData.data(), buffer.Size);
+			Buffer buffer = Buffer::Copy(std::span{submesh.m_ColliderData.data(), submesh.m_ColliderData.size()});
 
 			// Try to deserialize the shape
 			JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);

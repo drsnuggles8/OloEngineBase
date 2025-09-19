@@ -248,7 +248,7 @@ namespace OloEngine
 			out << YAML::Key << "MaxContactConstraints" << YAML::Value << physicsSettings.m_MaxContactConstraints;
 
 			// Debug and capture settings (booleans don't need validation)
-			out << YAML::Comment("Enable physics capture during play mode");
+			out << YAML::Comment("Enable physics capture during play mode (off by default for production)");
 			out << YAML::Key << "CaptureOnPlay" << YAML::Value << physicsSettings.m_CaptureOnPlay;
 			
 			out << YAML::Comment("Physics capture method (0: DebugToFile, 1: LiveDebug)");
@@ -643,14 +643,14 @@ namespace OloEngine
 				// Process collision settings for all successfully created layers
 				for (const auto& [layerId, layerNode] : layersToProcess)
 				{
-					PhysicsLayer& layerInfo = PhysicsLayerManager::GetLayer(layerId);
+					PhysicsLayer layerInfo = PhysicsLayerManager::GetLayer(layerId);
 					if (!layerInfo.IsValid())
 					{
 						OLO_CORE_WARN("Physics deserialization: Skipping collision setup for invalid layer ID {}", layerId);
 						continue;
 					}
 					
-					layerInfo.m_CollidesWithSelf = layerNode["CollidesWithSelf"].as<bool>(true);
+					PhysicsLayerManager::SetLayerSelfCollision(layerId, layerNode["CollidesWithSelf"].as<bool>(true));
 
 					auto collidesWith = layerNode["CollidesWith"];
 					if (collidesWith)
@@ -658,7 +658,7 @@ namespace OloEngine
 						for (auto collisionLayer : collidesWith)
 						{
 							const std::string otherLayerName = collisionLayer["Name"].as<std::string>();
-							const auto& otherLayer = PhysicsLayerManager::GetLayer(otherLayerName);
+							const auto otherLayer = PhysicsLayerManager::GetLayer(otherLayerName);
 							if (otherLayer.IsValid())
 							{
 								PhysicsLayerManager::SetLayerCollision(layerInfo.m_LayerID, otherLayer.m_LayerID, true);
@@ -691,9 +691,6 @@ namespace OloEngine
 			// Validate loaded physics settings before applying
 			const auto validatedSettings = ValidatePhysicsSettings(physicsSettings);
 			Physics3DSystem::SetSettings(validatedSettings);
-
-			// Apply the validated physics settings
-			Physics3DSystem::ApplySettings();
 		}
 		
 		// Combine physics validity with overall project validity

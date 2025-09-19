@@ -74,12 +74,12 @@ namespace OloEngine {
 			m_ReadBytes += inNumBytes;
 		}
 
-		bool IsEOF() const
+		[[nodiscard]] bool IsEOF() const
 		{ 
 			return GetSourceSize() == 0 || m_ReadBytes >= GetSourceSize();
 		}
 
-		bool IsFailed() const
+		[[nodiscard]] bool IsFailed() const
 		{
 			// Check explicit failure flag first
 			if (m_Failed)
@@ -179,13 +179,13 @@ namespace OloEngine {
 			}
 		}
 
-		bool IsFailed() const { return m_Failed; }
+		[[nodiscard]] bool IsFailed() const { return m_Failed; }
 
 		// Data access methods
 		const std::vector<u8>& GetData() const { return m_TempBuffer; }
 		const u8* GetDataPtr() const { return m_TempBuffer.data(); }
 		sizet GetSize() const { return m_TempBuffer.size(); }
-		bool IsEmpty() const { return m_TempBuffer.empty(); }
+		[[nodiscard]] bool IsEmpty() const { return m_TempBuffer.empty(); }
 
 		// Create OloEngine Buffer from written data
 		Buffer CreateBuffer() const

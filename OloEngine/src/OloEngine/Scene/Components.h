@@ -189,6 +189,7 @@ namespace OloEngine
 
 		// Storage for runtime - Jolt BodyID
 		void* RuntimeBody = nullptr;
+		u64 RuntimeBodyToken = 0;
 
 		RigidBody3DComponent() = default;
 		RigidBody3DComponent(const RigidBody3DComponent&) = default;

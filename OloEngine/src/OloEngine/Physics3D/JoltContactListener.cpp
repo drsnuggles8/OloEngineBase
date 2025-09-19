@@ -115,15 +115,29 @@ namespace OloEngine {
 
 	void JoltContactListener::ProcessContactEvents()
 	{
-		// Drain the queue into a local container while holding the lock
-		std::deque<ContactEvent> localEventQueue;
+		// Pre-allocate local container based on current queue size
+		const sizet queueSize = m_QueueSize.load(std::memory_order_acquire);
+		if (queueSize == 0)
+		{
+			return; // Early exit if no events to process
+		}
+		
+		std::vector<ContactEvent> localEventQueue;
+		localEventQueue.reserve(queueSize); // Pre-allocate to avoid repeated allocations
+		
+		// Drain the queue into the pre-allocated container while minimizing lock time
 		{
 			std::lock_guard<std::mutex> lock(m_ContactEventsMutex);
 			
-			// Move all events to local queue for processing without holding the mutex
-			localEventQueue = std::move(m_ContactEventQueue);
-			m_ContactEventQueue.clear(); // Ensure the original queue is empty
-			m_QueueSize.store(0, std::memory_order_relaxed); // Reset queue size
+			// Move all events to local vector for processing without holding the mutex
+			while (!m_ContactEventQueue.empty())
+			{
+				localEventQueue.push_back(std::move(m_ContactEventQueue.front()));
+				m_ContactEventQueue.pop_front();
+			}
+			
+			// Reset queue size after draining
+			m_QueueSize.store(0, std::memory_order_relaxed);
 		}
 		
 		// Process all contact events without holding the mutex

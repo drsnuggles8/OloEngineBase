@@ -26,13 +26,13 @@ namespace OloEngine {
 		 * @brief Constructor from vector of excluded entities
 		 * @param excludedEntities Vector of entity UUIDs to exclude
 		 */
-		ExcludedEntitySet(const std::vector<UUID>& excludedEntities);
+		explicit ExcludedEntitySet(const std::vector<UUID>& excludedEntities);
 
 		/**
 		 * @brief Constructor with single excluded entity
 		 * @param excludedEntity Single entity UUID to exclude
 		 */
-		ExcludedEntitySet(UUID excludedEntity);
+		explicit ExcludedEntitySet(UUID excludedEntity);
 
 		/**
 		 * @brief Copy constructor
@@ -82,19 +82,19 @@ namespace OloEngine {
 		 * @brief Check if the exclusion set is empty
 		 * @return true if no entities are excluded, false otherwise
 		 */
-		bool Empty() const;
+		[[nodiscard]] bool Empty() const;
 
 		/**
 		 * @brief Get the number of excluded entities
 		 * @return Number of excluded entities
 		 */
-		sizet Size() const;
+		[[nodiscard]] sizet Size() const;
 
 		/**
 		 * @brief Get a vector containing all excluded entities
 		 * @return Vector of excluded entity UUIDs
 		 */
-		std::vector<UUID> ToVector() const;
+		[[nodiscard]] std::vector<UUID> ToVector() const;
 
 		/**
 		 * @brief Update the exclusion set with new entities from a vector

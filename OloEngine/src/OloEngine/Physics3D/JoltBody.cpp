@@ -110,17 +110,23 @@ namespace OloEngine {
 	{
 		if (m_BodyID.IsInvalid()) return;
 
-		// In Jolt, sensor/trigger behavior is typically controlled through:
-		// 1. Object layers during body creation
-		// 2. Contact listener callbacks
-		// For now, we'll store the state and handle it during recreation if needed
-		
-		// Update component
+		// Update component first
 		if (m_Entity.HasComponent<RigidBody3DComponent>())
 		{
 			auto& component = m_Entity.GetComponent<RigidBody3DComponent>();
 			component.IsTrigger = isTrigger;
 		}
+
+		// Update the Jolt body's object layer to reflect the trigger state
+		// This ensures collision filters and contact callbacks see the updated trigger state
+		auto& bodyInterface = GetBodyInterface();
+		JPH::ObjectLayer objectLayer = JoltLayerInterface::GetObjectLayerForCollider(GetCollisionLayer(), GetBodyType(), isTrigger);
+		bodyInterface.SetObjectLayer(m_BodyID, objectLayer);
+
+		// Note: Jolt doesn't provide a direct way to change mIsSensor on existing bodies.
+		// The object layer change handles most collision filtering cases. For full sensor
+		// behavior update, body recreation would be needed, but that's expensive and
+		// rarely necessary since object layers control collision detection.
 	}
 
 	bool JoltBody::IsTrigger() const
@@ -142,7 +148,7 @@ namespace OloEngine {
 
 		auto& bodyInterface = GetBodyInterface();
 		JPH::RVec3 position = bodyInterface.GetCenterOfMassPosition(m_BodyID);
-		return JoltUtils::FromJoltVector(position);
+		return JoltUtils::FromJoltRVec3(position);
 	}
 
 	void JoltBody::SetPosition(const glm::vec3& position)
@@ -150,7 +156,7 @@ namespace OloEngine {
 		if (m_BodyID.IsInvalid()) return;
 
 		auto& bodyInterface = GetBodyInterface();
-		JPH::RVec3 joltPosition = JoltUtils::ToJoltVector(position);
+		JPH::RVec3 joltPosition = JoltUtils::ToJoltRVec3(position);
 		bodyInterface.SetPosition(m_BodyID, joltPosition, JPH::EActivation::DontActivate);
 	}
 
@@ -177,7 +183,7 @@ namespace OloEngine {
 		if (m_BodyID.IsInvalid()) return;
 
 		auto& bodyInterface = GetBodyInterface();
-		JPH::RVec3 joltPosition = JoltUtils::ToJoltVector(position);
+		JPH::RVec3 joltPosition = JoltUtils::ToJoltRVec3(position);
 		JPH::Quat joltRotation = JoltUtils::ToJoltQuat(rotation);
 		bodyInterface.SetPositionAndRotation(m_BodyID, joltPosition, joltRotation, JPH::EActivation::DontActivate);
 	}
@@ -187,7 +193,7 @@ namespace OloEngine {
 		if (m_BodyID.IsInvalid() || !IsKinematic()) return;
 
 		auto& bodyInterface = GetBodyInterface();
-		JPH::RVec3 joltPosition = JoltUtils::ToJoltVector(targetPosition);
+		JPH::RVec3 joltPosition = JoltUtils::ToJoltRVec3(targetPosition);
 		JPH::Quat joltRotation = JoltUtils::ToJoltQuat(targetRotation);
 		bodyInterface.MoveKinematic(m_BodyID, joltPosition, joltRotation, deltaTime);
 	}
@@ -201,8 +207,23 @@ namespace OloEngine {
 		
 		// Get current rotation and apply delta
 		JPH::Quat currentRotation = bodyInterface.GetRotation(m_BodyID);
-		JPH::Quat deltaRotation = JPH::Quat::sRotation(joltRotation.Normalized(), joltRotation.Length());
-		JPH::Quat newRotation = deltaRotation * currentRotation;
+		
+		// Guard against zero-length rotation vectors to prevent undefined behavior
+		f32 rotationLengthSq = joltRotation.LengthSq();
+		constexpr f32 EPSILON = 1e-6f;
+		
+		JPH::Quat newRotation;
+		if (rotationLengthSq < EPSILON * EPSILON)
+		{
+			// Skip rotation for near-zero vectors (use identity delta quaternion)
+			newRotation = currentRotation;
+		}
+		else
+		{
+			// Safe to normalize and create rotation quaternion
+			JPH::Quat deltaRotation = JPH::Quat::sRotation(joltRotation.Normalized(), joltRotation.Length());
+			newRotation = deltaRotation * currentRotation;
+		}
 		
 		bodyInterface.SetRotation(m_BodyID, newRotation, JPH::EActivation::Activate);
 	}
@@ -517,7 +538,7 @@ namespace OloEngine {
 
 		auto& bodyInterface = GetBodyInterface();
 		JPH::Vec3 joltForce = JoltUtils::ToJoltVector(force);
-		JPH::RVec3 joltLocation = JoltUtils::ToJoltVector(location);
+		JPH::RVec3 joltLocation = JoltUtils::ToJoltRVec3(location);
 
 		switch (forceMode)
 		{
@@ -738,21 +759,21 @@ namespace OloEngine {
 		}
 	}
 
-	void JoltBody::SetShape(JPH::Ref<JPH::Shape> shape)
+	void JoltBody::SetShape(JPH::RefConst<JPH::Shape> shape)
 	{
 		if (m_BodyID.IsInvalid() || !shape) return;
 
 		auto& bodyInterface = GetBodyInterface();
-		bodyInterface.SetShape(m_BodyID, shape, true, JPH::EActivation::Activate);
+		bodyInterface.SetShape(m_BodyID, shape.GetPtr(), true, JPH::EActivation::Activate);
 	}
 
-	JPH::Ref<JPH::Shape> JoltBody::GetShape() const
+	JPH::RefConst<JPH::Shape> JoltBody::GetShape() const
 	{
 		if (m_BodyID.IsInvalid()) return nullptr;
 
 		const auto& bodyInterface = GetBodyInterface();
 		JPH::RefConst<JPH::Shape> constShape = bodyInterface.GetShape(m_BodyID);
-		return const_cast<JPH::Shape*>(constShape.GetPtr());
+		return constShape;
 	}
 
 	void JoltBody::Activate()
@@ -848,8 +869,8 @@ namespace OloEngine {
 			SetMaxAngularVelocity(rigidBodyComponent.MaxAngularVelocity);
 		}
 
-		// Store BodyID in component for easy access
-		rigidBodyComponent.RuntimeBody = reinterpret_cast<void*>(static_cast<std::uintptr_t>(m_BodyID.GetIndexAndSequenceNumber()));
+		// Store BodyID token in component for easy access
+		rigidBodyComponent.RuntimeBodyToken = static_cast<std::uint64_t>(m_BodyID.GetIndexAndSequenceNumber());
 
 		// Cache initial state
 		m_GravityEnabled = !rigidBodyComponent.DisableGravity;
@@ -885,7 +906,7 @@ namespace OloEngine {
 		if (m_Entity.HasComponent<RigidBody3DComponent>())
 		{
 			auto& component = m_Entity.GetComponent<RigidBody3DComponent>();
-			component.RuntimeBody = nullptr;
+			component.RuntimeBodyToken = 0;
 		}
 
 		m_BodyID = JPH::BodyID();
@@ -950,38 +971,38 @@ namespace OloEngine {
 		if (m_Entity.HasComponent<BoxCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<BoxCollider3DComponent>();
-			friction = collider.Material.m_StaticFriction;
-			restitution = collider.Material.m_Restitution;
+			friction = collider.Material.GetStaticFriction();
+			restitution = collider.Material.GetRestitution();
 		}
 		else if (m_Entity.HasComponent<SphereCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<SphereCollider3DComponent>();
-			friction = collider.Material.m_StaticFriction;
-			restitution = collider.Material.m_Restitution;
+			friction = collider.Material.GetStaticFriction();
+			restitution = collider.Material.GetRestitution();
 		}
 		else if (m_Entity.HasComponent<CapsuleCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<CapsuleCollider3DComponent>();
-			friction = collider.Material.m_StaticFriction;
-			restitution = collider.Material.m_Restitution;
+			friction = collider.Material.GetStaticFriction();
+			restitution = collider.Material.GetRestitution();
 		}
 		else if (m_Entity.HasComponent<MeshCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<MeshCollider3DComponent>();
-			friction = collider.Material.m_StaticFriction;
-			restitution = collider.Material.m_Restitution;
+			friction = collider.Material.GetStaticFriction();
+			restitution = collider.Material.GetRestitution();
 		}
 		else if (m_Entity.HasComponent<ConvexMeshCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<ConvexMeshCollider3DComponent>();
-			friction = collider.Material.m_StaticFriction;
-			restitution = collider.Material.m_Restitution;
+			friction = collider.Material.GetStaticFriction();
+			restitution = collider.Material.GetRestitution();
 		}
 		else if (m_Entity.HasComponent<TriangleMeshCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<TriangleMeshCollider3DComponent>();
-			friction = collider.Material.m_StaticFriction;
-			restitution = collider.Material.m_Restitution;
+			friction = collider.Material.GetStaticFriction();
+			restitution = collider.Material.GetRestitution();
 		}
 
 		// Apply the material properties to the body settings

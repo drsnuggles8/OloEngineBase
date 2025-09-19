@@ -5,6 +5,8 @@
 
 #include <Jolt/Jolt.h>
 #include <Jolt/Math/Vec3.h>
+#include <Jolt/Math/DVec3.h>
+#include <Jolt/Math/Real.h>
 #include <Jolt/Math/Quat.h>
 #include <Jolt/Math/Mat44.h>
 #include <Jolt/Physics/Body/MotionType.h>
@@ -39,6 +41,11 @@ namespace OloEngine {
 			return JPH::Vec3(vector.x, vector.y, vector.z);
 		}
 
+		static JPH::RVec3 ToJoltRVec3(const glm::vec3& vector)
+		{
+			return JPH::RVec3(vector.x, vector.y, vector.z);
+		}
+
 		static JPH::Quat ToJoltQuat(const glm::quat& quat)
 		{
 			return JPH::Quat(quat.x, quat.y, quat.z, quat.w);
@@ -58,6 +65,11 @@ namespace OloEngine {
 		static glm::vec3 FromJoltVector(const JPH::Vec3& vector)
 		{
 			return glm::vec3(vector.GetX(), vector.GetY(), vector.GetZ());
+		}
+
+		static glm::vec3 FromJoltRVec3(const JPH::RVec3& vector)
+		{
+			return glm::vec3(static_cast<f32>(vector.GetX()), static_cast<f32>(vector.GetY()), static_cast<f32>(vector.GetZ()));
 		}
 
 		static glm::quat FromJoltQuat(const JPH::Quat& quat)

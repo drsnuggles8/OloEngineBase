@@ -1218,15 +1218,44 @@ namespace OloEngine
         std::string yamlString = SerializeToYAML(meshCollider);
 
         std::filesystem::path filepath = Project::GetAssetDirectory() / metadata.FilePath;
-        std::ofstream fout(filepath);
+        
+        // Ensure parent directory exists
+        std::filesystem::path parentDir = filepath.parent_path();
+        if (!parentDir.empty())
+        {
+            std::error_code ec;
+            if (!std::filesystem::create_directories(parentDir, ec) && ec)
+            {
+                OLO_CORE_ERROR("MeshColliderSerializer::Serialize - Failed to create parent directories for: {}, error: {}", filepath.string(), ec.message());
+                return;
+            }
+        }
+        
+        // Create temporary file for atomic write
+        std::filesystem::path tempFilepath = parentDir / (filepath.filename().string() + ".tmp");
+        
+        // Write to temporary file
+        std::ofstream fout(tempFilepath);
         if (!fout.is_open())
         {
-            OLO_CORE_ERROR("MeshColliderSerializer::Serialize - Failed to open file for writing: {}", filepath.string());
+            OLO_CORE_ERROR("MeshColliderSerializer::Serialize - Failed to open temporary file for writing: {}", tempFilepath.string());
             return;
         }
         
         fout << yamlString;
+        fout.flush(); // Ensure data is written to the file
         fout.close();
+        
+        // Atomically rename temp file to final file
+        std::error_code ec;
+        std::filesystem::rename(tempFilepath, filepath, ec);
+        if (ec)
+        {
+            OLO_CORE_ERROR("MeshColliderSerializer::Serialize - Failed to rename temporary file {} to {}, error: {}", tempFilepath.string(), filepath.string(), ec.message());
+            // Clean up temporary file on failure
+            std::filesystem::remove(tempFilepath, ec);
+            return;
+        }
         
         OLO_CORE_TRACE("MeshColliderSerializer::Serialize - Successfully serialized MeshCollider to: {}", filepath.string());
     }
@@ -1345,10 +1374,10 @@ namespace OloEngine
         // Serialize Material properties
         out << YAML::Key << "Material" << YAML::Value;
         out << YAML::BeginMap; // Material
-        out << YAML::Key << "StaticFriction" << YAML::Value << meshCollider->m_Material.m_StaticFriction;
-        out << YAML::Key << "DynamicFriction" << YAML::Value << meshCollider->m_Material.m_DynamicFriction;
-        out << YAML::Key << "Restitution" << YAML::Value << meshCollider->m_Material.m_Restitution;
-        out << YAML::Key << "Density" << YAML::Value << meshCollider->m_Material.m_Density;
+        out << YAML::Key << "StaticFriction" << YAML::Value << meshCollider->m_Material.GetStaticFriction();
+        out << YAML::Key << "DynamicFriction" << YAML::Value << meshCollider->m_Material.GetDynamicFriction();
+        out << YAML::Key << "Restitution" << YAML::Value << meshCollider->m_Material.GetRestitution();
+        out << YAML::Key << "Density" << YAML::Value << meshCollider->m_Material.GetDensity();
         out << YAML::EndMap; // Material
         
         // Serialize other properties
@@ -1398,16 +1427,29 @@ namespace OloEngine
                 if (materialNode["Friction"])
                 {
                     float friction = materialNode["Friction"].as<float>(0.5f);
-                    material.m_StaticFriction = friction;
-                    material.m_DynamicFriction = friction;
+                    // Clamp friction values to valid range [0.0, 1.0]
+                    friction = std::clamp(friction, 0.0f, 1.0f);
+                    material.SetStaticFriction(friction);
+                    material.SetDynamicFriction(friction);
                 }
                 else
                 {
-                    material.m_StaticFriction = materialNode["StaticFriction"].as<float>(0.6f);
-                    material.m_DynamicFriction = materialNode["DynamicFriction"].as<float>(0.6f);
+                    float staticFriction = materialNode["StaticFriction"].as<float>(0.6f);
+                    float dynamicFriction = materialNode["DynamicFriction"].as<float>(0.6f);
+                    // Clamp friction values to valid range [0.0, 1.0]
+                    material.SetStaticFriction(std::clamp(staticFriction, 0.0f, 1.0f));
+                    material.SetDynamicFriction(std::clamp(dynamicFriction, 0.0f, 1.0f));
                 }
-                material.m_Restitution = materialNode["Restitution"].as<float>(0.0f);
-                material.m_Density = materialNode["Density"].as<float>(1000.0f);
+                
+                float restitution = materialNode["Restitution"].as<float>(0.0f);
+                float density = materialNode["Density"].as<float>(1000.0f);
+                
+                // Clamp restitution to valid range [0.0, 1.0]
+                material.SetRestitution(std::clamp(restitution, 0.0f, 1.0f));
+                
+                // Clamp density to sensible positive range [0.001, 1e6]
+                material.SetDensity(std::clamp(density, 0.001f, 1e6f));
+                
                 targetMeshCollider->m_Material = material;
             }
             

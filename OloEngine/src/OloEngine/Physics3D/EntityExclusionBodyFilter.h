@@ -46,6 +46,12 @@ namespace OloEngine {
 		 */
 		EntityExclusionBodyFilter() = default;
 
+		// Explicitly delete copy and move operations due to shared_mutex member
+		EntityExclusionBodyFilter(const EntityExclusionBodyFilter&) = delete;
+		EntityExclusionBodyFilter& operator=(const EntityExclusionBodyFilter&) = delete;
+		EntityExclusionBodyFilter(EntityExclusionBodyFilter&&) = delete;
+		EntityExclusionBodyFilter& operator=(EntityExclusionBodyFilter&&) = delete;
+
 		// JPH::BodyFilter interface implementation
 		// Note: These methods are exception-safe and designed not to throw,
 		// but cannot be marked noexcept due to base class signature constraints
@@ -74,13 +80,13 @@ namespace OloEngine {
 		 * @param entityID UUID to check
 		 * @return true if entity is excluded, false otherwise
 		 */
-		bool IsEntityExcluded(UUID entityID) const;
+		[[nodiscard]] bool IsEntityExcluded(UUID entityID) const;
 
 		/**
 		 * @brief Get the list of excluded entities
 		 * @return Vector containing all excluded entities
 		 */
-		std::vector<UUID> GetExcludedEntities() const;
+		[[nodiscard]] std::vector<UUID> GetExcludedEntities() const;
 
 	private:
 		ExcludedEntitySet m_ExcludedEntities;

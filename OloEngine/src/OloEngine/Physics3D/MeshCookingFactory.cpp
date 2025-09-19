@@ -12,17 +12,12 @@
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
-#include <Jolt/Core/StreamOut.h>
 #include <Jolt/Core/Array.h>
+#include <Jolt/Core/StreamIn.h>
+#include <Jolt/Core/StreamOut.h>
 #include <Jolt/Math/Float3.h>
 #include <Jolt/Geometry/IndexedTriangle.h>
-#include <Jolt/Core/StreamIn.h>
 #include <Jolt/Geometry/ConvexHullBuilder.h>
-#include <Jolt/Core/StreamOut.h>
-#include <Jolt/Core/StreamIn.h>
-#include <Jolt/Geometry/ConvexHullBuilder.h>
-#include <Jolt/Core/StreamOut.h>
-#include <Jolt/Core/StreamIn.h>
 
 #include <fstream>
 #include <algorithm>
@@ -177,6 +172,38 @@ namespace OloEngine {
 		const auto& allVertices = meshSource->GetVertices();
 		const auto& allIndices = meshSource->GetIndices();
 		
+		// Validate submesh vertex range bounds
+		if (submesh.m_BaseVertex >= allVertices.size())
+		{
+			LogCookingError("ProcessSubmesh", "Submesh BaseVertex (" + std::to_string(submesh.m_BaseVertex) + 
+							") is beyond vertices size (" + std::to_string(allVertices.size()) + ")");
+			return ECookingResult::SourceDataInvalid;
+		}
+		
+		if (submesh.m_BaseVertex + submesh.m_VertexCount > allVertices.size())
+		{
+			LogCookingError("ProcessSubmesh", "Submesh vertex range [" + std::to_string(submesh.m_BaseVertex) + 
+							", " + std::to_string(submesh.m_BaseVertex + submesh.m_VertexCount) + 
+							") exceeds vertices size (" + std::to_string(allVertices.size()) + ")");
+			return ECookingResult::SourceDataInvalid;
+		}
+		
+		// Validate submesh index range bounds
+		if (submesh.m_BaseIndex >= allIndices.size())
+		{
+			LogCookingError("ProcessSubmesh", "Submesh BaseIndex (" + std::to_string(submesh.m_BaseIndex) + 
+							") is beyond indices size (" + std::to_string(allIndices.size()) + ")");
+			return ECookingResult::SourceDataInvalid;
+		}
+		
+		if (submesh.m_BaseIndex + submesh.m_IndexCount > allIndices.size())
+		{
+			LogCookingError("ProcessSubmesh", "Submesh index range [" + std::to_string(submesh.m_BaseIndex) + 
+							", " + std::to_string(submesh.m_BaseIndex + submesh.m_IndexCount) + 
+							") exceeds indices size (" + std::to_string(allIndices.size()) + ")");
+			return ECookingResult::SourceDataInvalid;
+		}
+		
 		// Extract vertices and indices for this specific submesh
 		std::vector<glm::vec3> submeshVertices;
 		std::vector<u32> submeshIndices;
@@ -192,6 +219,16 @@ namespace OloEngine {
 		for (u32 i = 0; i < submesh.m_IndexCount; ++i)
 		{
 			u32 originalIndex = allIndices[submesh.m_BaseIndex + i];
+			
+			// Validate index is within submesh vertex range to prevent underflow
+			if (originalIndex < submesh.m_BaseVertex)
+			{
+				LogCookingError("ProcessSubmesh", "Index " + std::to_string(originalIndex) + 
+								" at position " + std::to_string(i) + " is below BaseVertex (" + 
+								std::to_string(submesh.m_BaseVertex) + "), would cause underflow");
+				return ECookingResult::SourceDataInvalid;
+			}
+			
 			// Indices are relative to BaseVertex, so subtract BaseVertex to make them 0-based for this submesh
 			submeshIndices.push_back(originalIndex - submesh.m_BaseVertex);
 		}
@@ -224,6 +261,13 @@ namespace OloEngine {
 	ECookingResult MeshCookingFactory::CookTriangleMesh(const std::vector<glm::vec3>& vertices, const std::vector<u32>& indices,
 														const glm::mat4& transform, SubmeshColliderData& outData)
 	{
+		// Validate input mesh data early
+		if (!ValidateMeshData(vertices, indices))
+		{
+			LogCookingError("CookTriangleMesh", "Invalid input mesh data");
+			return ECookingResult::SourceDataInvalid;
+		}
+
 		try
 		{
 			// Use the vertex positions directly
@@ -238,6 +282,13 @@ namespace OloEngine {
 
 			// Remove invalid triangles
 			RemoveInvalidTriangles(positions, triangleIndices, m_AreaTestEpsilon);
+
+			// Check if any valid triangles remain after cleanup
+			if (triangleIndices.empty())
+			{
+				LogCookingError("CookTriangleMesh", "No valid triangles remain after processing");
+				return ECookingResult::SourceDataInvalid;
+			}
 
 			// Optimize triangle mesh
 			OptimizeTriangleMesh(positions, triangleIndices);
@@ -295,6 +346,13 @@ namespace OloEngine {
 	ECookingResult MeshCookingFactory::CookConvexMesh(const std::vector<glm::vec3>& vertices, const std::vector<u32>& indices,
 													  const glm::mat4& transform, SubmeshColliderData& outData)
 	{
+		// Validate input mesh data early
+		if (!ValidateMeshData(vertices, indices))
+		{
+			LogCookingError("CookConvexMesh", "Invalid input mesh data");
+			return ECookingResult::SourceDataInvalid;
+		}
+
 		try
 		{
 			// Simplify vertices for convex hull (already have positions)
@@ -306,6 +364,20 @@ namespace OloEngine {
 				return simplifyResult;
 			}
 
+			// Check if any valid vertices remain after simplification
+			if (hullVertices.empty())
+			{
+				LogCookingError("CookConvexMesh", "No valid vertices remain after simplification");
+				return ECookingResult::SourceDataInvalid;
+			}
+
+			// Validate that simplified mesh has enough vertices for convex hull
+			if (hullVertices.size() < MinVerticesForConvexHull)
+			{
+				LogCookingError("CookConvexMesh", "Insufficient vertices after simplification for convex hull");
+				return ECookingResult::SourceDataInvalid;
+			}
+
 			// Generate convex hull
 			std::vector<glm::vec3> finalHullVertices;
 			ECookingResult hullResult = GenerateConvexHull(hullVertices, finalHullVertices);
@@ -313,6 +385,13 @@ namespace OloEngine {
 			if (hullResult != ECookingResult::Success)
 			{
 				return hullResult;
+			}
+
+			// Validate that convex hull generation produced enough vertices
+			if (finalHullVertices.size() < MinVerticesForConvexHull)
+			{
+				LogCookingError("CookConvexMesh", "Convex hull generation produced insufficient vertices");
+				return ECookingResult::SourceDataInvalid;
 			}
 
 			// Validate convex hull
@@ -623,7 +702,7 @@ namespace OloEngine {
 			// Write submesh info
 			u32 dataSize = static_cast<u32>(submesh.m_ColliderData.size());
 			file.write(reinterpret_cast<const char*>(&dataSize), sizeof(dataSize));
-			file.write(reinterpret_cast<const char*>(&submesh.m_Transform), sizeof(submesh.m_Transform));
+			file.write(reinterpret_cast<const char*>(&submesh.m_Transform), sizeof(float) * 16);
 			file.write(reinterpret_cast<const char*>(&submesh.m_Type), sizeof(submesh.m_Type));
 			file.write(reinterpret_cast<const char*>(&submesh.m_VertexCount), sizeof(submesh.m_VertexCount));
 			file.write(reinterpret_cast<const char*>(&submesh.m_IndexCount), sizeof(submesh.m_IndexCount));
@@ -654,11 +733,15 @@ namespace OloEngine {
 				return meshData;
 			}
 
-			// Read header
-			OloMeshColliderHeader header;
-			file.read(reinterpret_cast<char*>(&header), sizeof(header));
-
-		// Validate header
+		// Read header
+		OloMeshColliderHeader header;
+		file.read(reinterpret_cast<char*>(&header), sizeof(header));
+		
+		// Validate header read
+		if (!file.good() || file.gcount() != sizeof(header))
+		{
+			return meshData;
+		}		// Validate header
 		if (strncmp(header.m_Header, "OloMeshC", 8) != 0 || header.m_Version != 1)
 		{
 			return meshData;
@@ -670,22 +753,57 @@ namespace OloEngine {
 
 		// Read submesh data
 		for (u32 i = 0; i < header.m_SubmeshCount; ++i)
+		{
+			SubmeshColliderData submesh;
+
+			// Read submesh info
+			u32 dataSize;
+			file.read(reinterpret_cast<char*>(&dataSize), sizeof(dataSize));
+			if (!file.good() || file.gcount() != sizeof(dataSize))
 			{
-				SubmeshColliderData submesh;
+				return meshData;
+			}
 
-				// Read submesh info
-				u32 dataSize;
-				file.read(reinterpret_cast<char*>(&dataSize), sizeof(dataSize));
-			file.read(reinterpret_cast<char*>(&submesh.m_Transform), sizeof(submesh.m_Transform));
+			// Validate dataSize to prevent excessive allocations or out-of-bounds reads
+			if (dataSize > 100 * 1024 * 1024) // 100MB max reasonable size
+			{
+				return meshData;
+			}
+
+			// Read transform as 16 floats explicitly
+			file.read(reinterpret_cast<char*>(&submesh.m_Transform), sizeof(float) * 16);
+			if (!file.good() || file.gcount() != sizeof(float) * 16)
+			{
+				return meshData;
+			}
+
 			file.read(reinterpret_cast<char*>(&submesh.m_Type), sizeof(submesh.m_Type));
-			file.read(reinterpret_cast<char*>(&submesh.m_VertexCount), sizeof(submesh.m_VertexCount));
-			file.read(reinterpret_cast<char*>(&submesh.m_IndexCount), sizeof(submesh.m_IndexCount));
+			if (!file.good() || file.gcount() != sizeof(submesh.m_Type))
+			{
+				return meshData;
+			}
 
-			// Read collider data
+			file.read(reinterpret_cast<char*>(&submesh.m_VertexCount), sizeof(submesh.m_VertexCount));
+			if (!file.good() || file.gcount() != sizeof(submesh.m_VertexCount))
+			{
+				return meshData;
+			}
+
+			file.read(reinterpret_cast<char*>(&submesh.m_IndexCount), sizeof(submesh.m_IndexCount));
+			if (!file.good() || file.gcount() != sizeof(submesh.m_IndexCount))
+			{
+				return meshData;
+			}
+
+			// Read collider data with validation
 			if (dataSize > 0)
 			{
 				submesh.m_ColliderData.resize(dataSize);
 				file.read(reinterpret_cast<char*>(submesh.m_ColliderData.data()), dataSize);
+				if (!file.good() || static_cast<u32>(file.gcount()) != dataSize)
+				{
+					return meshData;
+				}
 			}
 
 			meshData.m_Submeshes.push_back(submesh);
@@ -774,17 +892,19 @@ namespace OloEngine {
 
 		try
 		{
-			// Create buffer from the collider data
+			// Create RAII buffer from the collider data
+			std::vector<u8> bufferData(colliderData.m_ColliderData.size());
+			std::memcpy(bufferData.data(), colliderData.m_ColliderData.data(), bufferData.size());
+
+			// Set up buffer struct pointing to RAII container
 			Buffer buffer;
-			buffer.Size = colliderData.m_ColliderData.size();
-			buffer.Data = new u8[buffer.Size];
-			std::memcpy(buffer.Data, colliderData.m_ColliderData.data(), buffer.Size);
+			buffer.Size = bufferData.size();
+			buffer.Data = bufferData.data();
 
 			// Deserialize the shape using JoltBinaryStream
 			JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);
 			
-			// Clean up buffer
-			buffer.Release();
+			// No manual cleanup needed - bufferData automatically destroyed on scope exit
 
 			if (!shape)
 			{
@@ -811,15 +931,18 @@ namespace OloEngine {
 		// Try to validate the data by checking if it can be deserialized
 		try
 		{
+			// Create RAII buffer from the collider data
+			std::vector<u8> bufferData(colliderData.m_ColliderData.size());
+			std::memcpy(bufferData.data(), colliderData.m_ColliderData.data(), bufferData.size());
+
+			// Set up buffer struct pointing to RAII container
 			Buffer buffer;
-			buffer.Size = colliderData.m_ColliderData.size();
-			buffer.Data = new u8[buffer.Size];
-			std::memcpy(buffer.Data, colliderData.m_ColliderData.data(), buffer.Size);
+			buffer.Size = bufferData.size();
+			buffer.Data = bufferData.data();
 
 			bool isValid = JoltBinaryStreamUtils::ValidateShapeData(buffer);
 			
-			// Clean up buffer
-			buffer.Release();
+			// No manual cleanup needed - bufferData automatically destroyed on scope exit
 
 			return isValid;
 		}

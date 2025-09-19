@@ -334,7 +334,7 @@ namespace OloEngine
 					auto& transform = entity.GetComponent<TransformComponent>();
 					auto& rb3d = entity.GetComponent<RigidBody3DComponent>();
 
-					if (rb3d.RuntimeBody && rb3d.Type != BodyType3D::Static && m_JoltScene)
+					if (rb3d.RuntimeBodyToken != 0 && rb3d.Type != BodyType3D::Static && m_JoltScene)
 					{
 						// Get the body from JoltScene and sync transforms
 						auto body = m_JoltScene->GetBody(entity);
@@ -469,7 +469,7 @@ namespace OloEngine
 					auto& transform = entity.GetComponent<TransformComponent>();
 					auto& rb3d = entity.GetComponent<RigidBody3DComponent>();
 
-					if (rb3d.RuntimeBody && rb3d.Type != BodyType3D::Static && m_JoltScene)
+					if (rb3d.RuntimeBodyToken != 0 && rb3d.Type != BodyType3D::Static && m_JoltScene)
 					{
 						// Get the body from JoltScene and sync transforms
 						auto body = m_JoltScene->GetBody(entity);
@@ -751,6 +751,7 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 				auto& rb3d = ent.GetComponent<RigidBody3DComponent>();
 				// Store the body reference for runtime access
 				rb3d.RuntimeBody = body.get(); // Store raw pointer for compatibility
+				rb3d.RuntimeBodyToken = body ? static_cast<std::uint64_t>(body->GetBodyID().GetIndexAndSequenceNumber()) : 0;
 			}
 		}
 	}
@@ -770,11 +771,12 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 			Entity ent = { entity, this };
 			auto& rb3d = ent.GetComponent<RigidBody3DComponent>();
 			
-			if (rb3d.RuntimeBody)
+			if (rb3d.RuntimeBody || rb3d.RuntimeBodyToken != 0)
 			{
 				// Destroy the body using the entity
 				m_JoltScene->DestroyBody(ent);
 				rb3d.RuntimeBody = nullptr;
+				rb3d.RuntimeBodyToken = 0;
 			}
 		}
 

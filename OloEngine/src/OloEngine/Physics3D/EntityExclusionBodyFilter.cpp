@@ -71,13 +71,13 @@ namespace OloEngine {
 		m_ExcludedEntities.Clear();
 	}
 
-	bool EntityExclusionBodyFilter::IsEntityExcluded(UUID entityID) const
+	[[nodiscard]] bool EntityExclusionBodyFilter::IsEntityExcluded(UUID entityID) const
 	{
 		std::shared_lock<std::shared_mutex> lock(m_ExclusionMutex);
 		return m_ExcludedEntities.IsEntityExcluded(entityID);
 	}
 
-	std::vector<UUID> EntityExclusionBodyFilter::GetExcludedEntities() const
+	[[nodiscard]] std::vector<UUID> EntityExclusionBodyFilter::GetExcludedEntities() const
 	{
 		std::shared_lock<std::shared_mutex> lock(m_ExclusionMutex);
 		return m_ExcludedEntities.ToVector();
