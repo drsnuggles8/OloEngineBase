@@ -347,7 +347,30 @@ namespace OloEngine {
 			// Sort captures by modification time (newest first)
 			std::sort(m_Captures.begin(), m_Captures.end(), [](const std::filesystem::path& a, const std::filesystem::path& b)
 			{
-				return std::filesystem::last_write_time(a) > std::filesystem::last_write_time(b);
+				// Safe retrieval of last write times with exception handling
+				std::filesystem::file_time_type timeA, timeB;
+				
+				try 
+				{
+					timeA = std::filesystem::last_write_time(a);
+				}
+				catch (const std::exception&)
+				{
+					// File became inaccessible - treat as oldest possible time
+					timeA = std::filesystem::file_time_type::min();
+				}
+				
+				try 
+				{
+					timeB = std::filesystem::last_write_time(b);
+				}
+				catch (const std::exception&)
+				{
+					// File became inaccessible - treat as oldest possible time
+					timeB = std::filesystem::file_time_type::min();
+				}
+				
+				return timeA > timeB;
 			});
 
 			if (!m_Captures.empty())
@@ -400,7 +423,30 @@ namespace OloEngine {
 			// Sort captures by modification time (newest first)
 			std::sort(m_Captures.begin(), m_Captures.end(), [](const std::filesystem::path& a, const std::filesystem::path& b)
 			{
-				return std::filesystem::last_write_time(a) > std::filesystem::last_write_time(b);
+				// Safe retrieval of last write times with exception handling
+				std::filesystem::file_time_type timeA, timeB;
+				
+				try 
+				{
+					timeA = std::filesystem::last_write_time(a);
+				}
+				catch (const std::exception&)
+				{
+					// File became inaccessible - treat as oldest possible time
+					timeA = std::filesystem::file_time_type::min();
+				}
+				
+				try 
+				{
+					timeB = std::filesystem::last_write_time(b);
+				}
+				catch (const std::exception&)
+				{
+					// File became inaccessible - treat as oldest possible time
+					timeB = std::filesystem::file_time_type::min();
+				}
+				
+				return timeA > timeB;
 			});
 
 			if (!m_Captures.empty())

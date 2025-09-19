@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Buffer.h"
 
 #include <vector>
+#include <cstring>
 
 // Forward declarations for types we need but don't want to include full headers
 namespace JPH {
@@ -25,13 +26,13 @@ namespace OloEngine {
 	{
 	public:
 		explicit JoltBinaryStreamReader(const Buffer& buffer)
-			: m_Buffer(&buffer), m_ReadBytes(0)
+			: m_Buffer(&buffer), m_ReadBytes(0), m_Failed(false)
 		{
 			OLO_CORE_ASSERT(buffer.Data != nullptr && buffer.Size > 0, "Invalid buffer provided to JoltBinaryStreamReader");
 		}
 
 		explicit JoltBinaryStreamReader(const u8* data, u64 size)
-			: m_Data(data), m_Size(size), m_ReadBytes(0)
+			: m_Data(data), m_Size(size), m_ReadBytes(0), m_Failed(false)
 		{
 			OLO_CORE_ASSERT(data != nullptr && size > 0, "Invalid data provided to JoltBinaryStreamReader");
 		}
@@ -42,6 +43,7 @@ namespace OloEngine {
 			m_Data = nullptr;
 			m_ReadBytes = 0;
 			m_Size = 0;
+			m_Failed = false;
 		}
 
 		// Stream reading interface
@@ -57,6 +59,7 @@ namespace OloEngine {
 			if (!sourceData)
 			{
 				OLO_CORE_ERROR("JoltBinaryStreamReader: Source data is null");
+				m_Failed = true;
 				return;
 			}
 
@@ -67,7 +70,8 @@ namespace OloEngine {
 			{
 				OLO_CORE_ERROR("JoltBinaryStreamReader: Requested {} bytes but only {} remaining (total size: {}, already read: {})", 
 					inNumBytes, remaining, totalSize, m_ReadBytes);
-				// Mark stream as failed by setting read position beyond size
+				// Mark stream as failed and clamp read position to size
+				m_Failed = true;
 				m_ReadBytes = totalSize;
 				return;
 			}
@@ -83,6 +87,11 @@ namespace OloEngine {
 
 		bool IsFailed() const
 		{
+			// Check explicit failure flag first
+			if (m_Failed)
+				return true;
+				
+			// Check existing buffer/data validity
 			if (m_Buffer)
 				return m_Buffer->Data == nullptr || m_Buffer->Size == 0;
 			else
@@ -97,7 +106,7 @@ namespace OloEngine {
 			return m_ReadBytes < size ? size - m_ReadBytes : 0;
 		}
 
-		void Reset() { m_ReadBytes = 0; }
+		void Reset() { m_ReadBytes = 0; m_Failed = false; }
 
 		// Seek to position (useful for debugging/validation)
 		bool Seek(u64 position)
@@ -126,6 +135,7 @@ namespace OloEngine {
 		const u8* m_Data = nullptr;
 		u64 m_Size = 0;
 		u64 m_ReadBytes = 0;
+		bool m_Failed = false;
 	};
 
 	/**
@@ -137,11 +147,13 @@ namespace OloEngine {
 	{
 	public:
 		JoltBinaryStreamWriter()
+			: m_Failed(false)
 		{
 			m_TempBuffer.reserve(1024); // Reserve some initial capacity
 		}
 
 		explicit JoltBinaryStreamWriter(sizet initialCapacity)
+			: m_Failed(false)
 		{
 			m_TempBuffer.reserve(initialCapacity);
 		}
@@ -151,15 +163,29 @@ namespace OloEngine {
 		// Stream writing interface
 		void WriteBytes(const void* inData, sizet inNumBytes)
 		{
+			if (m_Failed)
+			{
+				OLO_CORE_ERROR("JoltBinaryStreamWriter: Attempted to write to failed stream");
+				return;
+			}
+			
 			if (inData == nullptr || inNumBytes == 0)
 				return;
 
-			sizet currentOffset = m_TempBuffer.size();
-			m_TempBuffer.resize(currentOffset + inNumBytes);
-			::memcpy(m_TempBuffer.data() + currentOffset, inData, inNumBytes);
+			try 
+			{
+				sizet currentOffset = m_TempBuffer.size();
+				m_TempBuffer.resize(currentOffset + inNumBytes);
+				::memcpy(m_TempBuffer.data() + currentOffset, inData, inNumBytes);
+			}
+			catch (const std::exception& e)
+			{
+				OLO_CORE_ERROR("JoltBinaryStreamWriter: Failed to write {} bytes - {}", inNumBytes, e.what());
+				m_Failed = true;
+			}
 		}
 
-		bool IsFailed() const { return false; }
+		bool IsFailed() const { return m_Failed; }
 
 		// Data access methods
 		const std::vector<u8>& GetData() const { return m_TempBuffer; }
@@ -188,6 +214,7 @@ namespace OloEngine {
 		void Clear() 
 		{ 
 			m_TempBuffer.clear(); 
+			m_Failed = false;
 		}
 
 		void Reserve(sizet capacity) 
@@ -201,6 +228,7 @@ namespace OloEngine {
 
 	private:
 		std::vector<u8> m_TempBuffer;
+		bool m_Failed = false;
 	};
 
 	/**
@@ -224,6 +252,16 @@ namespace OloEngine {
 		sizet CalculateShapeMemoryUsage(const Buffer& buffer);
 		
 		// Optional compression support (for future use)
+		/**
+		 * @brief Compress shape data using RLE compression
+		 * 
+		 * @param inputBuffer Input buffer to compress
+		 * @return Compressed buffer if beneficial, otherwise a shared view of input buffer
+		 * 
+		 * @note LIFETIME: When compression is not beneficial, returns a non-owning view 
+		 *       that shares memory with inputBuffer. Caller must ensure inputBuffer 
+		 *       remains alive for the lifetime of the returned Buffer.
+		 */
 		Buffer CompressShapeData(const Buffer& inputBuffer);
 		Buffer DecompressShapeData(const Buffer& compressedBuffer);
 

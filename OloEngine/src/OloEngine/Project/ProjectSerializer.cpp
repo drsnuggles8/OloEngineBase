@@ -90,41 +90,39 @@ namespace OloEngine
 			out << YAML::Key << "UseBodyPairContactCache" << YAML::Value << physicsSettings.m_UseBodyPairContactCache;
 			out << YAML::Key << "UseManifoldReduction" << YAML::Value << physicsSettings.m_UseManifoldReduction;
 			out << YAML::Key << "UseLargeIslandSplitter" << YAML::Value << physicsSettings.m_UseLargeIslandSplitter;
-			out << YAML::Key << "AllowSleeping" << YAML::Value << physicsSettings.m_AllowSleeping;				// Physics layers serialization
-				if (PhysicsLayerManager::GetLayerCount() > 1)
+			out << YAML::Key << "AllowSleeping" << YAML::Value << physicsSettings.m_AllowSleeping;
+			// Physics layers serialization
+			if (PhysicsLayerManager::GetLayerCount() > 1)
+			{
+				out << YAML::Key << "Layers";
+				out << YAML::Value << YAML::BeginSeq;
+				
+				// Reusable vector to avoid allocations in the loop
+				std::vector<PhysicsLayer> collidingLayers;
+				
+				for (const auto& layer : PhysicsLayerManager::GetLayers())
 				{
-					out << YAML::Key << "Layers";
-					out << YAML::Value << YAML::BeginSeq;
+					out << YAML::BeginMap;
+					out << YAML::Key << "LayerID" << YAML::Value << layer.m_LayerID;
+					out << YAML::Key << "Name" << YAML::Value << layer.m_Name;
+					out << YAML::Key << "CollidesWithSelf" << YAML::Value << layer.m_CollidesWithSelf;
+					out << YAML::Key << "CollidesWith" << YAML::Value;
+					out << YAML::BeginSeq;
 					
-					// Reusable vector to avoid allocations in the loop
-					std::vector<PhysicsLayer> collidingLayers;
-					
-					for (const auto& layer : PhysicsLayerManager::GetLayers())
+					PhysicsLayerManager::GetLayerCollisions(layer.m_LayerID, collidingLayers);
+					for (const auto& collidingLayer : collidingLayers)
 					{
-						// Never serialize the Default layer (layer 0)
-						if (layer.m_LayerID == 0)
-							continue;
-
 						out << YAML::BeginMap;
-						out << YAML::Key << "Name" << YAML::Value << layer.m_Name;
-						out << YAML::Key << "CollidesWithSelf" << YAML::Value << layer.m_CollidesWithSelf;
-						out << YAML::Key << "CollidesWith" << YAML::Value;
-						out << YAML::BeginSeq;
-						
-						PhysicsLayerManager::GetLayerCollisions(layer.m_LayerID, collidingLayers);
-						for (const auto& collidingLayer : collidingLayers)
-						{
-							out << YAML::BeginMap;
-							out << YAML::Key << "Name" << YAML::Value << collidingLayer.m_Name;
-							out << YAML::EndMap;
-						}
-						out << YAML::EndSeq;
+						out << YAML::Key << "Name" << YAML::Value << collidingLayer.m_Name;
 						out << YAML::EndMap;
 					}
 					out << YAML::EndSeq;
+					out << YAML::EndMap;
 				}
+			out << YAML::EndSeq;
+			}
 
-				out << YAML::EndMap;
+			out << YAML::EndMap;
 			}
 
 			out << YAML::EndMap; // Root
@@ -292,54 +290,165 @@ namespace OloEngine
 
 		// Physics settings deserialization
 		auto physicsNode = data["Physics"];
+		bool physicsValid = true;
 		if (physicsNode)
 		{
-		auto& physicsSettings = Physics3DSystem::GetSettings();
+			// Track applied physics fields for validation
+			u32 appliedPhysicsFields = 0;
+			const u32 expectedPhysicsFields = 17; // Total number of physics settings fields
 
-		// Basic simulation settings
-		physicsSettings.m_FixedTimestep = physicsNode["FixedTimestep"].as<f32>(physicsSettings.m_FixedTimestep);
-		physicsSettings.m_Gravity = physicsNode["Gravity"].as<glm::vec3>(physicsSettings.m_Gravity);
-		physicsSettings.m_PositionSolverIterations = physicsNode["PositionSolverIterations"].as<u32>(physicsSettings.m_PositionSolverIterations);
-		physicsSettings.m_VelocitySolverIterations = physicsNode["VelocitySolverIterations"].as<u32>(physicsSettings.m_VelocitySolverIterations);
-		physicsSettings.m_MaxBodies = physicsNode["MaxBodies"].as<u32>(physicsSettings.m_MaxBodies);
-		physicsSettings.m_MaxBodyPairs = physicsNode["MaxBodyPairs"].as<u32>(physicsSettings.m_MaxBodyPairs);
-		physicsSettings.m_MaxContactConstraints = physicsNode["MaxContactConstraints"].as<u32>(physicsSettings.m_MaxContactConstraints);
+			auto& physicsSettings = Physics3DSystem::GetSettings();
 
-		// Debug settings
-		physicsSettings.m_CaptureOnPlay = physicsNode["CaptureOnPlay"].as<bool>(physicsSettings.m_CaptureOnPlay);
-		physicsSettings.m_CaptureMethod = static_cast<PhysicsDebugType>(physicsNode["CaptureMethod"].as<i32>(static_cast<i32>(physicsSettings.m_CaptureMethod)));
+			// Basic simulation settings
+			if (physicsNode["FixedTimestep"].IsDefined()) {
+				physicsSettings.m_FixedTimestep = physicsNode["FixedTimestep"].as<f32>(physicsSettings.m_FixedTimestep);
+				appliedPhysicsFields++;
+			}
+			if (physicsNode["Gravity"].IsDefined()) {
+				physicsSettings.m_Gravity = physicsNode["Gravity"].as<glm::vec3>(physicsSettings.m_Gravity);
+				appliedPhysicsFields++;
+			}
+			if (physicsNode["PositionSolverIterations"].IsDefined()) {
+				physicsSettings.m_PositionSolverIterations = physicsNode["PositionSolverIterations"].as<u32>(physicsSettings.m_PositionSolverIterations);
+				appliedPhysicsFields++;
+			}
+			if (physicsNode["VelocitySolverIterations"].IsDefined()) {
+				physicsSettings.m_VelocitySolverIterations = physicsNode["VelocitySolverIterations"].as<u32>(physicsSettings.m_VelocitySolverIterations);
+				appliedPhysicsFields++;
+			}
+			if (physicsNode["MaxBodies"].IsDefined()) {
+				physicsSettings.m_MaxBodies = physicsNode["MaxBodies"].as<u32>(physicsSettings.m_MaxBodies);
+				appliedPhysicsFields++;
+			}
+			if (physicsNode["MaxBodyPairs"].IsDefined()) {
+				physicsSettings.m_MaxBodyPairs = physicsNode["MaxBodyPairs"].as<u32>(physicsSettings.m_MaxBodyPairs);
+				appliedPhysicsFields++;
+			}
+			if (physicsNode["MaxContactConstraints"].IsDefined()) {
+				physicsSettings.m_MaxContactConstraints = physicsNode["MaxContactConstraints"].as<u32>(physicsSettings.m_MaxContactConstraints);
+				appliedPhysicsFields++;
+			}
 
-		// Advanced Jolt settings
-		physicsSettings.m_Baumgarte = physicsNode["Baumgarte"].as<f32>(physicsSettings.m_Baumgarte);
-		physicsSettings.m_SpeculativeContactDistance = physicsNode["SpeculativeContactDistance"].as<f32>(physicsSettings.m_SpeculativeContactDistance);
-		physicsSettings.m_PenetrationSlop = physicsNode["PenetrationSlop"].as<f32>(physicsSettings.m_PenetrationSlop);
-		physicsSettings.m_LinearCastThreshold = physicsNode["LinearCastThreshold"].as<f32>(physicsSettings.m_LinearCastThreshold);
-		physicsSettings.m_MinVelocityForRestitution = physicsNode["MinVelocityForRestitution"].as<f32>(physicsSettings.m_MinVelocityForRestitution);
-		physicsSettings.m_TimeBeforeSleep = physicsNode["TimeBeforeSleep"].as<f32>(physicsSettings.m_TimeBeforeSleep);
-		physicsSettings.m_PointVelocitySleepThreshold = physicsNode["PointVelocitySleepThreshold"].as<f32>(physicsSettings.m_PointVelocitySleepThreshold);
+			// Debug settings
+			if (physicsNode["CaptureOnPlay"].IsDefined()) {
+				physicsSettings.m_CaptureOnPlay = physicsNode["CaptureOnPlay"].as<bool>(physicsSettings.m_CaptureOnPlay);
+				appliedPhysicsFields++;
+			}
+			if (physicsNode["CaptureMethod"].IsDefined()) {
+				physicsSettings.m_CaptureMethod = static_cast<PhysicsDebugType>(physicsNode["CaptureMethod"].as<i32>(static_cast<i32>(physicsSettings.m_CaptureMethod)));
+				appliedPhysicsFields++;
+			}
 
-		// Boolean settings
-		physicsSettings.m_DeterministicSimulation = physicsNode["DeterministicSimulation"].as<bool>(physicsSettings.m_DeterministicSimulation);
-		physicsSettings.m_ConstraintWarmStart = physicsNode["ConstraintWarmStart"].as<bool>(physicsSettings.m_ConstraintWarmStart);
-		physicsSettings.m_UseBodyPairContactCache = physicsNode["UseBodyPairContactCache"].as<bool>(physicsSettings.m_UseBodyPairContactCache);
-		physicsSettings.m_UseManifoldReduction = physicsNode["UseManifoldReduction"].as<bool>(physicsSettings.m_UseManifoldReduction);
-		physicsSettings.m_UseLargeIslandSplitter = physicsNode["UseLargeIslandSplitter"].as<bool>(physicsSettings.m_UseLargeIslandSplitter);
-		physicsSettings.m_AllowSleeping = physicsNode["AllowSleeping"].as<bool>(physicsSettings.m_AllowSleeping);			// Physics layers deserialization
+			// Advanced Jolt settings
+			if (physicsNode["Baumgarte"].IsDefined()) {
+				physicsSettings.m_Baumgarte = physicsNode["Baumgarte"].as<f32>(physicsSettings.m_Baumgarte);
+				appliedPhysicsFields++;
+			}
+			if (physicsNode["SpeculativeContactDistance"].IsDefined()) {
+				physicsSettings.m_SpeculativeContactDistance = physicsNode["SpeculativeContactDistance"].as<f32>(physicsSettings.m_SpeculativeContactDistance);
+				appliedPhysicsFields++;
+			}
+			if (physicsNode["PenetrationSlop"].IsDefined()) {
+				physicsSettings.m_PenetrationSlop = physicsNode["PenetrationSlop"].as<f32>(physicsSettings.m_PenetrationSlop);
+				appliedPhysicsFields++;
+			}
+			if (physicsNode["LinearCastThreshold"].IsDefined()) {
+				physicsSettings.m_LinearCastThreshold = physicsNode["LinearCastThreshold"].as<f32>(physicsSettings.m_LinearCastThreshold);
+				appliedPhysicsFields++;
+			}
+			if (physicsNode["MinVelocityForRestitution"].IsDefined()) {
+				physicsSettings.m_MinVelocityForRestitution = physicsNode["MinVelocityForRestitution"].as<f32>(physicsSettings.m_MinVelocityForRestitution);
+				appliedPhysicsFields++;
+			}
+			if (physicsNode["TimeBeforeSleep"].IsDefined()) {
+				physicsSettings.m_TimeBeforeSleep = physicsNode["TimeBeforeSleep"].as<f32>(physicsSettings.m_TimeBeforeSleep);
+				appliedPhysicsFields++;
+			}
+			if (physicsNode["PointVelocitySleepThreshold"].IsDefined()) {
+				physicsSettings.m_PointVelocitySleepThreshold = physicsNode["PointVelocitySleepThreshold"].as<f32>(physicsSettings.m_PointVelocitySleepThreshold);
+				appliedPhysicsFields++;
+			}
+
+			// Boolean settings
+			if (physicsNode["DeterministicSimulation"].IsDefined()) {
+				physicsSettings.m_DeterministicSimulation = physicsNode["DeterministicSimulation"].as<bool>(physicsSettings.m_DeterministicSimulation);
+				appliedPhysicsFields++;
+			}
+			if (physicsNode["ConstraintWarmStart"].IsDefined()) {
+				physicsSettings.m_ConstraintWarmStart = physicsNode["ConstraintWarmStart"].as<bool>(physicsSettings.m_ConstraintWarmStart);
+				appliedPhysicsFields++;
+			}
+			if (physicsNode["UseBodyPairContactCache"].IsDefined()) {
+				physicsSettings.m_UseBodyPairContactCache = physicsNode["UseBodyPairContactCache"].as<bool>(physicsSettings.m_UseBodyPairContactCache);
+				appliedPhysicsFields++;
+			}
+			if (physicsNode["UseManifoldReduction"].IsDefined()) {
+				physicsSettings.m_UseManifoldReduction = physicsNode["UseManifoldReduction"].as<bool>(physicsSettings.m_UseManifoldReduction);
+				appliedPhysicsFields++;
+			}
+			if (physicsNode["UseLargeIslandSplitter"].IsDefined()) {
+				physicsSettings.m_UseLargeIslandSplitter = physicsNode["UseLargeIslandSplitter"].as<bool>(physicsSettings.m_UseLargeIslandSplitter);
+				appliedPhysicsFields++;
+			}
+			if (physicsNode["AllowSleeping"].IsDefined()) {
+				physicsSettings.m_AllowSleeping = physicsNode["AllowSleeping"].as<bool>(physicsSettings.m_AllowSleeping);
+				appliedPhysicsFields++;
+			}
+
+			// Physics layers deserialization
 			auto physicsLayers = physicsNode["Layers"];
 			if (physicsLayers)
 			{
-				// Clear existing layers (except default)
+				// Clear existing layers
 				PhysicsLayerManager::ClearLayers();
+				
+				// Ensure the default layer exists after clearing
+				// Default layer should always be ID 0 with name "Default"
+				u32 defaultLayerId = PhysicsLayerManager::AddLayer("Default", true);
+				if (defaultLayerId == INVALID_LAYER_ID || defaultLayerId != 0)
+				{
+					OLO_CORE_ERROR("Physics deserialization: Failed to recreate default layer");
+					physicsValid = false;
+				}
+				
+				std::vector<std::pair<u32, YAML::Node>> layersToProcess; // Store layers for collision setup
 				
 				for (auto layer : physicsLayers)
 				{
 					const std::string layerName = layer["Name"].as<std::string>();
-					u32 layerId = PhysicsLayerManager::AddLayer(layerName, false);
 					
+					// Skip if this is the default layer (already created)
+					if (layerName == "Default")
+					{
+						// Still store it for collision processing
+						layersToProcess.emplace_back(defaultLayerId, layer);
+						continue;
+					}
+					
+					u32 layerId = PhysicsLayerManager::AddLayer(layerName, false);
+					if (layerId == INVALID_LAYER_ID)
+					{
+						OLO_CORE_ERROR("Physics deserialization: Failed to add layer '{}' - may have hit layer limit", layerName);
+						continue; // Skip this layer but continue processing others
+					}
+					
+					// Store successful layer for collision setup
+					layersToProcess.emplace_back(layerId, layer);
+				}
+				
+				// Process collision settings for all successfully created layers
+				for (const auto& [layerId, layerNode] : layersToProcess)
+				{
 					PhysicsLayer& layerInfo = PhysicsLayerManager::GetLayer(layerId);
-					layerInfo.m_CollidesWithSelf = layer["CollidesWithSelf"].as<bool>(true);
+					if (!layerInfo.IsValid())
+					{
+						OLO_CORE_WARN("Physics deserialization: Skipping collision setup for invalid layer ID {}", layerId);
+						continue;
+					}
+					
+					layerInfo.m_CollidesWithSelf = layerNode["CollidesWithSelf"].as<bool>(true);
 
-					auto collidesWith = layer["CollidesWith"];
+					auto collidesWith = layerNode["CollidesWith"];
 					if (collidesWith)
 					{
 						for (auto collisionLayer : collidesWith)
@@ -350,14 +459,37 @@ namespace OloEngine
 							{
 								PhysicsLayerManager::SetLayerCollision(layerInfo.m_LayerID, otherLayer.m_LayerID, true);
 							}
+							else
+							{
+								OLO_CORE_WARN("Physics deserialization: Layer '{}' references non-existent collision layer '{}'", 
+									layerInfo.m_Name, otherLayerName);
+							}
 						}
 					}
 				}
 			}
 
+			// Log physics deserialization summary
+			if (appliedPhysicsFields == 0)
+			{
+				OLO_CORE_WARN("Physics settings: No valid fields found in project file");
+				physicsValid = false;
+			}
+			else if (appliedPhysicsFields < expectedPhysicsFields)
+			{
+				OLO_CORE_WARN("Physics settings: Applied {}/{} fields - some settings may use defaults", appliedPhysicsFields, expectedPhysicsFields);
+			}
+			else
+			{
+				OLO_CORE_INFO("Physics settings: Successfully loaded {}/{} fields", appliedPhysicsFields, expectedPhysicsFields);
+			}
+
 			// Apply the physics settings
 			Physics3DSystem::ApplySettings();
 		}
+		
+		// Combine physics validity with overall project validity
+		allValid = allValid && physicsValid;
 		
 		return allValid;
 	}

@@ -48,7 +48,7 @@ namespace OloEngine {
 		bool m_AllowSleeping = true;
 		
 		// Default values method for easy reset
-		static PhysicsSettings GetDefaults()
+		[[nodiscard]] static PhysicsSettings GetDefaults()
 		{
 			return PhysicsSettings{};
 		}

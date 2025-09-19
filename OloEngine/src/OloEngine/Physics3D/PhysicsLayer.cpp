@@ -16,9 +16,9 @@ namespace OloEngine {
 	u32 PhysicsLayerManager::AddLayer(const std::string& name, bool setCollisions)
 	{
 		// Enforce Jolt Physics 32-layer limit - check before any allocation or mutation
-		if (s_Layers.size() >= MAX_PHYSICS_LAYERS)
+		if (s_Layers.size() >= JoltUtils::kMaxJoltLayers)
 		{
-			OLO_CORE_ERROR("PhysicsLayerManager: Cannot add layer '{}' - maximum of {} layers already reached", name, MAX_PHYSICS_LAYERS);
+			OLO_CORE_ERROR("PhysicsLayerManager: Cannot add layer '{}' - maximum of {} layers already reached", name, JoltUtils::kMaxJoltLayers);
 			return INVALID_LAYER_ID;
 		}
 
@@ -179,18 +179,18 @@ namespace OloEngine {
 		return names;
 	}
 
-	bool PhysicsLayerManager::ShouldCollide(u32 layer1, u32 layer2)
+	bool PhysicsLayerManager::ShouldCollide(u32 layer1, u32 layer2) noexcept
 	{
 		return GetLayer(layer1).m_CollidesWith & GetLayer(layer2).m_BitValue;
 	}
 
-	bool PhysicsLayerManager::IsLayerValid(u32 layerId)
+	bool PhysicsLayerManager::IsLayerValid(u32 layerId) noexcept
 	{
 		const PhysicsLayer& layer = GetLayer(layerId);
 		return layer.m_LayerID != s_NullLayer.m_LayerID && layer.IsValid();
 	}
 
-	bool PhysicsLayerManager::IsLayerValid(const std::string& layerName)
+	bool PhysicsLayerManager::IsLayerValid(const std::string& layerName) noexcept
 	{
 		const PhysicsLayer& layer = GetLayer(layerName);
 		return layer.m_LayerID != s_NullLayer.m_LayerID && layer.IsValid();
@@ -200,6 +200,8 @@ namespace OloEngine {
 	{
 		s_Layers.clear();
 		s_LayerNames.clear();
+		s_LayerIndexMap.clear();
+		RebuildLayerIndexMap(); // Ensure index map is properly synchronized
 	}
 
 	u32 PhysicsLayerManager::GetNextLayerID()

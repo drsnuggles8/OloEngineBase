@@ -151,6 +151,7 @@ namespace OloEngine
 
         // Character properties
         f32 m_JumpPower = 0.0f;
+        bool m_JumpRequested = false;
         f32 m_StepOffset = 0.4f;
         f32 m_AngularVelocityDeltaTime = 0.0f;
 

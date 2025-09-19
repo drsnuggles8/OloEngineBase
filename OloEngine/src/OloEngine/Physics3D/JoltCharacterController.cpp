@@ -101,6 +101,7 @@ namespace OloEngine
     void JoltCharacterController::Jump(f32 jumpPower)
     {
         m_JumpPower = jumpPower;
+        m_JumpRequested = true;
     }
 
     glm::vec3 JoltCharacterController::GetLinearVelocity() const
@@ -156,12 +157,12 @@ namespace OloEngine
                 // When grounded, acquire velocity of ground
                 newVelocity = m_Controller->GetGroundVelocity();
 
-                // Jump
-                bool jumping = (currentVerticalVelocity.GetY() - newVelocity.GetY()) >= 0.1f;
-                if (m_JumpPower > 0.0f && !jumping)
+                // Jump - use deterministic flag instead of heuristic detection
+                if (m_JumpRequested && m_JumpPower > 0.0f)
                 {
                     newVelocity += JPH::Vec3(0, m_JumpPower, 0);
                     m_JumpPower = 0.0f;
+                    m_JumpRequested = false; // Consume flag once
                 }
             }
             else
@@ -338,7 +339,7 @@ namespace OloEngine
         {
             auto& transform = m_Entity.GetComponent<TransformComponent>();
             position = transform.Translation;
-            rotation = transform.Rotation;
+            rotation = glm::quat(transform.Rotation);
         }
 
         // Create the character controller with proper physics system integration

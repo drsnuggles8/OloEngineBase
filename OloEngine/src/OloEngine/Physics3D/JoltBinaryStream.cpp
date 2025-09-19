@@ -103,7 +103,18 @@ namespace OloEngine {
 				{
 					// Save material debug name if available (for debugging/identification)
 					std::string debugName = (material != nullptr) ? material->GetDebugName() : "Default";
+					
+					// Guard against pathological sizes - cap to maximum used by deserialization
+					constexpr u32 maxNameLength = 1024;
 					u32 nameLength = static_cast<u32>(debugName.length());
+					
+					if (nameLength > maxNameLength)
+					{
+						OLO_CORE_WARN("JoltBinaryStreamUtils::SerializeShape: Material debug name too long ({} bytes), truncating to {} bytes", nameLength, maxNameLength);
+						debugName = debugName.substr(0, maxNameLength);
+						nameLength = maxNameLength;
+					}
+					
 					streamAdapter.Write(nameLength);
 					streamAdapter.WriteBytes(debugName.c_str(), nameLength);
 				}
@@ -370,20 +381,25 @@ namespace OloEngine {
 			// For small buffers, compression isn't worth it
 			if (inputBuffer.Size < 64)
 			{
-				return Buffer::Copy(inputBuffer);
+				// Return shared view - no allocation needed for small buffers
+				return inputBuffer;
 			}
 
 			// Validate that input size fits in 32-bit for header
 			if (inputBuffer.Size > UINT32_MAX)
 			{
-				OLO_CORE_WARN("JoltBinaryStreamUtils::CompressShapeData: Input size too large for 32-bit header, returning original");
-				return Buffer::Copy(inputBuffer);
+				OLO_CORE_WARN("JoltBinaryStreamUtils::CompressShapeData: Input size too large for 32-bit header, returning shared view of original");
+				// Return shared view - no allocation needed when size is too large
+				return inputBuffer;
 			}
 
 			// Simple Run-Length Encoding compression
 			const u8* input = static_cast<const u8*>(inputBuffer.Data);
 			std::vector<u8> compressed;
-			compressed.reserve(inputBuffer.Size); // Reserve space for worst case
+			
+			// Reserve space for worst-case RLE output: 2 bytes per input byte (run length + value)
+			// This prevents re-allocations during compression
+			compressed.reserve(2 * inputBuffer.Size);
 
 			u8 currentByte = input[0];
 			u8 runLength = 1;
@@ -445,10 +461,12 @@ namespace OloEngine {
 			}
 			else
 			{
-				// Compression wasn't beneficial, return original
-				OLO_CORE_TRACE("JoltBinaryStreamUtils::CompressShapeData: Compression not beneficial (would be {} bytes vs {} original), returning original buffer", 
+				// Compression wasn't beneficial, return shared view of original buffer
+				// LIFETIME ASSUMPTION: Caller must ensure inputBuffer remains alive for the lifetime 
+				// of the returned Buffer, as this returns a non-owning view (not a copy)
+				OLO_CORE_TRACE("JoltBinaryStreamUtils::CompressShapeData: Compression not beneficial (would be {} bytes vs {} original), returning shared view of original buffer", 
 							   totalCompressedSize, inputBuffer.Size);
-				return Buffer::Copy(inputBuffer);
+				return inputBuffer; // Return shared view - no allocation needed
 			}
 		}
 

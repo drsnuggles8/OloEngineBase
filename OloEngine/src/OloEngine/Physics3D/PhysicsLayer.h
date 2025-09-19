@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "JoltUtils.h"
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -9,7 +10,6 @@ namespace OloEngine {
 
 	// Physics layer constants
 	constexpr u32 INVALID_LAYER_ID = static_cast<u32>(-1);
-	constexpr u32 MAX_PHYSICS_LAYERS = 32; // Jolt Physics 32-layer limit
 	constexpr i32 INVALID_BIT_MASK = -1;
 	constexpr i32 NO_COLLISION_BITS = 0;
 	constexpr i32 NO_PREVIOUS_LAYER_ID = -1;
@@ -46,9 +46,9 @@ namespace OloEngine {
 		static PhysicsLayer& GetLayer(const std::string& layerName);
 		static u32 GetLayerCount() { return static_cast<u32>(s_Layers.size()); }
 
-		static bool ShouldCollide(u32 layer1, u32 layer2);
-		static bool IsLayerValid(u32 layerId);
-		static bool IsLayerValid(const std::string& layerName);
+		[[nodiscard]] static bool ShouldCollide(u32 layer1, u32 layer2) noexcept;
+		[[nodiscard]] static bool IsLayerValid(u32 layerId) noexcept;
+		[[nodiscard]] static bool IsLayerValid(const std::string& layerName) noexcept;
 
 		static void ClearLayers();
 

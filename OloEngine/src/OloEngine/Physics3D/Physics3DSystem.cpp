@@ -258,6 +258,11 @@ JPH::BodyID Physics3DSystem::CreateBox(const JPH::RVec3& position, const JPH::Qu
 
     // Create the actual rigid body
     JPH::Body* body = m_PhysicsSystem->GetBodyInterface().CreateBody(body_settings); // Note that if we run out of bodies this can return nullptr
+    if (body == nullptr)
+    {
+        OLO_CORE_ERROR("Failed to create box body - physics system may be out of bodies");
+        return JPH::BodyID();
+    }
 
     // Add it to the world
     JPH::BodyID body_id = body->GetID();
@@ -282,6 +287,11 @@ JPH::BodyID Physics3DSystem::CreateSphere(const JPH::RVec3& position, f32 radius
 
     // Create the actual rigid body
     JPH::Body* body = m_PhysicsSystem->GetBodyInterface().CreateBody(body_settings); // Note that if we run out of bodies this can return nullptr
+    if (body == nullptr)
+    {
+        OLO_CORE_ERROR("Failed to create sphere body - physics system may be out of bodies");
+        return JPH::BodyID();
+    }
 
     // Add it to the world
     JPH::BodyID body_id = body->GetID();

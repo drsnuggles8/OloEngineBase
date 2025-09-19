@@ -334,7 +334,7 @@ namespace OloEngine
 					auto& transform = entity.GetComponent<TransformComponent>();
 					auto& rb3d = entity.GetComponent<RigidBody3DComponent>();
 
-					if (rb3d.RuntimeBody && rb3d.Type != BodyType3D::Static)
+					if (rb3d.RuntimeBody && rb3d.Type != BodyType3D::Static && m_JoltScene)
 					{
 						// Get the body from JoltScene and sync transforms
 						auto body = m_JoltScene->GetBody(entity);
@@ -469,7 +469,7 @@ namespace OloEngine
 					auto& transform = entity.GetComponent<TransformComponent>();
 					auto& rb3d = entity.GetComponent<RigidBody3DComponent>();
 
-					if (rb3d.RuntimeBody && rb3d.Type != BodyType3D::Static)
+					if (rb3d.RuntimeBody && rb3d.Type != BodyType3D::Static && m_JoltScene)
 					{
 						// Get the body from JoltScene and sync transforms
 						auto body = m_JoltScene->GetBody(entity);
@@ -724,6 +724,12 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 
 	void Scene::OnPhysics3DStart()
 	{
+		// Ensure JoltScene is initialized (defensive programming)
+		if (!m_JoltScene)
+		{
+			m_JoltScene = std::make_unique<JoltScene>(this);
+		}
+		
 		m_JoltScene->Initialize();
 		
 		if (!m_JoltScene->IsInitialized())
@@ -751,6 +757,12 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 
 	void Scene::OnPhysics3DStop()
 	{
+		// Early return if JoltScene is null to avoid null dereference
+		if (!m_JoltScene)
+		{
+			return;
+		}
+		
 		// Clean up all physics bodies
 		auto view = m_Registry.view<RigidBody3DComponent>();
 		for (auto entity : view)
@@ -766,10 +778,7 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 			}
 		}
 
-		if (m_JoltScene)
-		{
-			m_JoltScene->Shutdown();
-		}
+		m_JoltScene->Shutdown();
 	}
 
 	void Scene::RenderScene(EditorCamera const& camera)

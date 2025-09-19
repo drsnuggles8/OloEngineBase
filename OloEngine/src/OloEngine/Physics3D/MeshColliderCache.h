@@ -87,7 +87,6 @@ namespace OloEngine {
 		std::vector<CookingRequest> m_CookingQueue;
 		std::vector<std::future<void>> m_CookingTasks;
 		u32 m_MaxConcurrentCooks = 4;
-		u32 m_ActiveCooks = 0;
 
 		// Statistics
 		mutable std::atomic<sizet> m_CacheHits = 0;
