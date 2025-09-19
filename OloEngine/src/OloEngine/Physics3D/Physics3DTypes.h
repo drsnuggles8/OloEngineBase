@@ -43,10 +43,10 @@ namespace OloEngine {
 
 	enum class EFalloffMode { Constant, Linear };
 
-	enum class ShapeType { Box, Sphere, Capsule, ConvexMesh, TriangleMesh, CompoundShape, MutableCompoundShape, LAST };
+	enum class ShapeType { Box, Sphere, Capsule, ConvexMesh, TriangleMesh, CompoundShape, MutableCompoundShape, LAST }; // sentinel: not a valid ShapeType — MUST remain last
 
 	namespace ShapeUtils {
-		constexpr sizet MaxShapeTypes = (sizet)ShapeType::LAST;
+		constexpr sizet MaxShapeTypes = (sizet)ShapeType::LAST; // depends on LAST sentinel value — do not add entries after LAST
 
 		inline const char* ShapeTypeToString(ShapeType type)
 		{
@@ -89,37 +89,37 @@ namespace OloEngine {
 	}
 
 	// Bitwise operators for EActorAxis
-	inline EActorAxis operator|(EActorAxis a, EActorAxis b)
+	constexpr inline EActorAxis operator|(EActorAxis a, EActorAxis b)
 	{
 		return static_cast<EActorAxis>(static_cast<u32>(a) | static_cast<u32>(b));
 	}
 
-	inline EActorAxis operator&(EActorAxis a, EActorAxis b)
+	constexpr inline EActorAxis operator&(EActorAxis a, EActorAxis b)
 	{
 		return static_cast<EActorAxis>(static_cast<u32>(a) & static_cast<u32>(b));
 	}
 
-	inline EActorAxis operator^(EActorAxis a, EActorAxis b)
+	constexpr inline EActorAxis operator^(EActorAxis a, EActorAxis b)
 	{
 		return static_cast<EActorAxis>(static_cast<u32>(a) ^ static_cast<u32>(b));
 	}
 
-	inline EActorAxis operator~(EActorAxis a)
+	constexpr inline EActorAxis operator~(EActorAxis a)
 	{
 		return static_cast<EActorAxis>(~static_cast<u32>(a));
 	}
 
-	inline EActorAxis& operator|=(EActorAxis& a, EActorAxis b)
+	constexpr inline EActorAxis& operator|=(EActorAxis& a, EActorAxis b)
 	{
 		return a = a | b;
 	}
 
-	inline EActorAxis& operator&=(EActorAxis& a, EActorAxis b)
+	constexpr inline EActorAxis& operator&=(EActorAxis& a, EActorAxis b)
 	{
 		return a = a & b;
 	}
 
-	inline EActorAxis& operator^=(EActorAxis& a, EActorAxis b)
+	constexpr inline EActorAxis& operator^=(EActorAxis& a, EActorAxis b)
 	{
 		return a = a ^ b;
 	}

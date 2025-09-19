@@ -15,6 +15,13 @@ namespace OloEngine {
 
 	u32 PhysicsLayerManager::AddLayer(const std::string& name, bool setCollisions)
 	{
+		// Enforce Jolt Physics 32-layer limit - check before any allocation or mutation
+		if (s_Layers.size() >= MAX_PHYSICS_LAYERS)
+		{
+			OLO_CORE_ERROR("PhysicsLayerManager: Cannot add layer '{}' - maximum of {} layers already reached", name, MAX_PHYSICS_LAYERS);
+			return INVALID_LAYER_ID;
+		}
+
 		for (const auto& layer : s_Layers)
 		{
 			if (layer.m_Name == name)

@@ -126,13 +126,46 @@ namespace OloEngine {
 		// Need to cook the mesh
 		m_CacheMisses++;
 		
-		// Cook both simple and complex versions synchronously for immediate use
-		ECookingResult simpleResult = CookMeshImmediate(colliderAsset, EMeshColliderType::Convex, false);
-		ECookingResult complexResult = CookMeshImmediate(colliderAsset, EMeshColliderType::Triangle, false);
-
-		if (simpleResult == ECookingResult::Success || complexResult == ECookingResult::Success)
+		// Determine which type to prioritize based on typical usage patterns
+		// For now, we'll cook convex first (most common for dynamic bodies) and triangle async
+		// TODO: Could be enhanced with caller hints or usage tracking
+		EMeshColliderType primaryType = EMeshColliderType::Convex;
+		EMeshColliderType secondaryType = EMeshColliderType::Triangle;
+		
+		// Cook the primary type synchronously for immediate use
+		ECookingResult primaryResult = CookMeshImmediate(colliderAsset, primaryType, false);
+		
+		// Queue the secondary type for asynchronous cooking
+		std::future<ECookingResult> secondaryFuture = CookMeshAsync(colliderAsset, secondaryType, false);
+		
+		// If primary cooking succeeded, try loading the cache
+		if (primaryResult == ECookingResult::Success)
 		{
-			// Try loading again after cooking
+			// Try loading again after primary cooking
+			loadedData = LoadFromCache(colliderAsset);
+			if (loadedData.m_IsValid)
+			{
+				std::lock_guard<std::mutex> lock(m_CacheMutex);
+				sizet dataSize = CalculateDataSize(loadedData);
+				
+				if (m_CurrentCacheSize + dataSize > m_MaxCacheSize * CacheEvictionThreshold)
+				{
+					EvictOldestEntries();
+				}
+
+				m_CachedData[handle] = loadedData;
+				m_CurrentCacheSize += dataSize;
+				
+				// Note: Secondary cooking will update the cache asynchronously when complete
+				return m_CachedData[handle];
+			}
+		}
+		
+		// If primary failed, wait for secondary to complete and try again
+		ECookingResult secondaryResult = secondaryFuture.get();
+		if (secondaryResult == ECookingResult::Success)
+		{
+			// Try loading again after secondary cooking
 			loadedData = LoadFromCache(colliderAsset);
 			if (loadedData.m_IsValid)
 			{
@@ -202,9 +235,50 @@ namespace OloEngine {
 			CookingRequest request = std::move(m_CookingQueue.back());
 			m_CookingQueue.pop_back();
 
-			// Create async task
+			// Create async task that updates cache on completion
 			auto task = std::async(std::launch::async, [this, req = std::move(request)]() mutable {
 				ECookingResult result = m_CookingFactory->CookMeshType(req.m_ColliderAsset, req.m_Type, req.m_InvalidateOld);
+				
+				// If cooking succeeded, update the cache entry with the new data
+				if (result == ECookingResult::Success && req.m_ColliderAsset)
+				{
+					AssetHandle handle = req.m_ColliderAsset->GetHandle();
+					
+					// Load the updated data from disk
+					CachedColliderData updatedData = LoadFromCache(req.m_ColliderAsset);
+					if (updatedData.m_IsValid)
+					{
+						// Update the in-memory cache
+						std::lock_guard<std::mutex> lock(m_CacheMutex);
+						auto it = m_CachedData.find(handle);
+						if (it != m_CachedData.end())
+						{
+							// Update existing entry with new data
+							sizet oldDataSize = CalculateDataSize(it->second);
+							sizet newDataSize = CalculateDataSize(updatedData);
+							
+							// Update cache size tracking
+							m_CurrentCacheSize = m_CurrentCacheSize - oldDataSize + newDataSize;
+							
+							// Replace with updated data
+							it->second = updatedData;
+						}
+						else
+						{
+							// Add new entry if it doesn't exist (shouldn't normally happen)
+							sizet dataSize = CalculateDataSize(updatedData);
+							
+							if (m_CurrentCacheSize + dataSize > m_MaxCacheSize * CacheEvictionThreshold)
+							{
+								EvictOldestEntries();
+							}
+							
+							m_CachedData[handle] = updatedData;
+							m_CurrentCacheSize += dataSize;
+						}
+					}
+				}
+				
 				req.m_Promise.set_value(result);
 			});
 

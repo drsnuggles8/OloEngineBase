@@ -13,12 +13,15 @@
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/Shape/MutableCompoundShape.h>
+#include <Jolt/Physics/Collision/Shape/DecoratedShape.h>
+#include <Jolt/Physics/Collision/Shape/ScaledShape.h>
 #include <Jolt/Physics/Collision/Shape/Shape.h>
 
 namespace OloEngine {
 
 	bool JoltShapes::s_Initialized = false;
 	std::unordered_map<std::string, JPH::Ref<JPH::Shape>> JoltShapes::s_ShapeCache;
+	std::shared_mutex JoltShapes::s_ShapeCacheMutex;
 	bool JoltShapes::s_PersistentCacheEnabled = true;
 	std::filesystem::path JoltShapes::s_PersistentCacheDirectory = "assets/cache/shapes";
 
@@ -28,7 +31,10 @@ namespace OloEngine {
 			return;
 
 		OLO_CORE_INFO("Initializing JoltShapes system");
-		s_ShapeCache.clear();
+		{
+			std::unique_lock<std::shared_mutex> lock(s_ShapeCacheMutex);
+			s_ShapeCache.clear();
+		}
 		
 		// Initialize mesh collider cache
 		MeshColliderCache::GetInstance().Initialize();
@@ -155,11 +161,15 @@ namespace OloEngine {
 		std::vector<JPH::Ref<JPH::Shape>> shapes;
 		std::vector<glm::vec3> offsets;
 
+		// Get entity transform for scaling primitive colliders
+		const auto& transform = entity.GetTransform();
+		const glm::vec3& entityScale = transform.Scale;
+
 		// Collect all collider components
 		if (entity.HasComponent<BoxCollider3DComponent>())
 		{
 			const auto& component = entity.GetComponent<BoxCollider3DComponent>();
-			auto shape = CreateBoxShape(component);
+			auto shape = CreateBoxShape(component, entityScale);
 			if (shape)
 			{
 				shapes.push_back(shape);
@@ -170,7 +180,7 @@ namespace OloEngine {
 		if (entity.HasComponent<SphereCollider3DComponent>())
 		{
 			const auto& component = entity.GetComponent<SphereCollider3DComponent>();
-			auto shape = CreateSphereShape(component);
+			auto shape = CreateSphereShape(component, entityScale);
 			if (shape)
 			{
 				shapes.push_back(shape);
@@ -181,7 +191,7 @@ namespace OloEngine {
 		if (entity.HasComponent<CapsuleCollider3DComponent>())
 		{
 			const auto& component = entity.GetComponent<CapsuleCollider3DComponent>();
-			auto shape = CreateCapsuleShape(component);
+			auto shape = CreateCapsuleShape(component, entityScale);
 			if (shape)
 			{
 				shapes.push_back(shape);
@@ -192,7 +202,9 @@ namespace OloEngine {
 		if (entity.HasComponent<MeshCollider3DComponent>())
 		{
 			const auto& component = entity.GetComponent<MeshCollider3DComponent>();
-			auto shape = CreateMeshShape(component);
+			// Combine entity scale with component scale for mesh colliders
+			const glm::vec3 combinedScale = entityScale * component.Scale;
+			auto shape = CreateMeshShape(component, combinedScale);
 			if (shape)
 			{
 				shapes.push_back(shape);
@@ -203,7 +215,9 @@ namespace OloEngine {
 		if (entity.HasComponent<ConvexMeshCollider3DComponent>())
 		{
 			const auto& component = entity.GetComponent<ConvexMeshCollider3DComponent>();
-			auto shape = CreateConvexMeshShape(component);
+			// Combine entity scale with component scale for convex mesh colliders
+			const glm::vec3 combinedScale = entityScale * component.Scale;
+			auto shape = CreateConvexMeshShape(component, combinedScale);
 			if (shape)
 			{
 				shapes.push_back(shape);
@@ -214,7 +228,9 @@ namespace OloEngine {
 		if (entity.HasComponent<TriangleMeshCollider3DComponent>())
 		{
 			const auto& component = entity.GetComponent<TriangleMeshCollider3DComponent>();
-			auto shape = CreateTriangleMeshShape(component);
+			// Combine entity scale with component scale for triangle mesh colliders
+			const glm::vec3 combinedScale = entityScale * component.Scale;
+			auto shape = CreateTriangleMeshShape(component, combinedScale);
 			if (shape)
 			{
 				shapes.push_back(shape);
@@ -263,11 +279,15 @@ namespace OloEngine {
 		i32 colliderCount = 0;
 		JPH::Ref<JPH::Shape> singleShape = nullptr;
 
+		// Get entity transform for scaling primitive colliders
+		const auto& transform = entity.GetTransform();
+		const glm::vec3& entityScale = transform.Scale;
+
 		// Check for box collider
 		if (entity.HasComponent<BoxCollider3DComponent>())
 		{
 			const auto& component = entity.GetComponent<BoxCollider3DComponent>();
-			auto shape = CreateBoxShape(component);
+			auto shape = CreateBoxShape(component, entityScale);
 			if (shape)
 			{
 				singleShape = shape;
@@ -279,7 +299,7 @@ namespace OloEngine {
 		if (entity.HasComponent<SphereCollider3DComponent>())
 		{
 			const auto& component = entity.GetComponent<SphereCollider3DComponent>();
-			auto shape = CreateSphereShape(component);
+			auto shape = CreateSphereShape(component, entityScale);
 			if (shape)
 			{
 				if (colliderCount == 0)
@@ -292,7 +312,7 @@ namespace OloEngine {
 		if (entity.HasComponent<CapsuleCollider3DComponent>())
 		{
 			const auto& component = entity.GetComponent<CapsuleCollider3DComponent>();
-			auto shape = CreateCapsuleShape(component);
+			auto shape = CreateCapsuleShape(component, entityScale);
 			if (shape)
 			{
 				if (colliderCount == 0)
@@ -305,7 +325,9 @@ namespace OloEngine {
 		if (entity.HasComponent<MeshCollider3DComponent>())
 		{
 			const auto& component = entity.GetComponent<MeshCollider3DComponent>();
-			auto shape = CreateMeshShape(component);
+			// Combine entity scale with component scale for mesh colliders
+			const glm::vec3 combinedScale = entityScale * component.Scale;
+			auto shape = CreateMeshShape(component, combinedScale);
 			if (shape)
 			{
 				if (colliderCount == 0)
@@ -318,7 +340,9 @@ namespace OloEngine {
 		if (entity.HasComponent<ConvexMeshCollider3DComponent>())
 		{
 			const auto& component = entity.GetComponent<ConvexMeshCollider3DComponent>();
-			auto shape = CreateConvexMeshShape(component);
+			// Combine entity scale with component scale for convex mesh colliders
+			const glm::vec3 combinedScale = entityScale * component.Scale;
+			auto shape = CreateConvexMeshShape(component, combinedScale);
 			if (shape)
 			{
 				if (colliderCount == 0)
@@ -331,7 +355,9 @@ namespace OloEngine {
 		if (entity.HasComponent<TriangleMeshCollider3DComponent>())
 		{
 			const auto& component = entity.GetComponent<TriangleMeshCollider3DComponent>();
-			auto shape = CreateTriangleMeshShape(component);
+			// Combine entity scale with component scale for triangle mesh colliders
+			const glm::vec3 combinedScale = entityScale * component.Scale;
+			auto shape = CreateTriangleMeshShape(component, combinedScale);
 			if (shape)
 			{
 				if (colliderCount == 0)
@@ -359,15 +385,28 @@ namespace OloEngine {
 
 	JPH::Ref<JPH::Shape> JoltShapes::GetOrCreateCachedShape(const std::string& cacheKey, std::function<JPH::Ref<JPH::Shape>()> createFunc)
 	{
-		auto it = s_ShapeCache.find(cacheKey);
-		if (it != s_ShapeCache.end())
+		// First try to find with shared lock (read-only)
 		{
-			return it->second;
+			std::shared_lock<std::shared_mutex> readLock(s_ShapeCacheMutex);
+			auto it = s_ShapeCache.find(cacheKey);
+			if (it != s_ShapeCache.end())
+			{
+				return it->second;
+			}
 		}
 
+		// Not found, create shape (outside lock to avoid holding during creation)
 		auto shape = createFunc();
 		if (shape)
 		{
+			// Insert with unique lock (write access)
+			std::unique_lock<std::shared_mutex> writeLock(s_ShapeCacheMutex);
+			// Check again in case another thread inserted while we were creating
+			auto it = s_ShapeCache.find(cacheKey);
+			if (it != s_ShapeCache.end())
+			{
+				return it->second; // Another thread beat us to it
+			}
 			s_ShapeCache[cacheKey] = shape;
 		}
 		return shape;
@@ -375,6 +414,7 @@ namespace OloEngine {
 
 	void JoltShapes::ClearShapeCache()
 	{
+		std::unique_lock<std::shared_mutex> lock(s_ShapeCacheMutex);
 		s_ShapeCache.clear();
 	}
 
@@ -420,6 +460,7 @@ namespace OloEngine {
 					case JPH::EShapeSubType::ConvexHull:
 						return ShapeType::ConvexMesh;
 					default:
+						OLO_CORE_WARN("GetShapeType: Unknown convex shape subtype {0}, defaulting to Box", (i32)shape->GetSubType());
 						return ShapeType::Box; // Default for other convex shapes
 				}
 			}
@@ -432,21 +473,69 @@ namespace OloEngine {
 					case JPH::EShapeSubType::MutableCompound:
 						return ShapeType::MutableCompoundShape;
 					default:
+						OLO_CORE_WARN("GetShapeType: Unknown compound shape subtype {0}, defaulting to CompoundShape", (i32)shape->GetSubType());
 						return ShapeType::CompoundShape; // Default for compound shapes
 				}
 			}
 			case JPH::EShapeType::Mesh:
 				return ShapeType::TriangleMesh;
 			case JPH::EShapeType::Decorated:
+			{
+				// Handle decorated shapes by unwrapping the inner shape
+				switch (shape->GetSubType())
+				{
+					case JPH::EShapeSubType::Scaled:
+					{
+						// Cast to ScaledShape and get the inner shape
+						const JPH::ScaledShape* scaledShape = static_cast<const JPH::ScaledShape*>(shape);
+						if (scaledShape && scaledShape->GetInnerShape())
+						{
+							// Recursively determine the inner shape type
+							return GetShapeType(scaledShape->GetInnerShape());
+						}
+						else
+						{
+							OLO_CORE_WARN("GetShapeType: ScaledShape has no inner shape, defaulting to Box");
+							return ShapeType::Box;
+						}
+					}
+					default:
+					{
+						// Handle other decorated shape subtypes
+						const JPH::DecoratedShape* decoratedShape = static_cast<const JPH::DecoratedShape*>(shape);
+						if (decoratedShape && decoratedShape->GetInnerShape())
+						{
+							OLO_CORE_WARN("GetShapeType: Unknown decorated shape subtype {0}, unwrapping inner shape", (i32)shape->GetSubType());
+							return GetShapeType(decoratedShape->GetInnerShape());
+						}
+						else
+						{
+							OLO_CORE_WARN("GetShapeType: Decorated shape subtype {0} has no inner shape, defaulting to Box", (i32)shape->GetSubType());
+							return ShapeType::Box;
+						}
+					}
+				}
+			}
 			case JPH::EShapeType::HeightField:
+				OLO_CORE_WARN("GetShapeType: HeightField shape type {0} not supported, defaulting to Box", (i32)shape->GetType());
+				return ShapeType::Box;
 			case JPH::EShapeType::SoftBody:
+				OLO_CORE_WARN("GetShapeType: SoftBody shape type {0} not supported, defaulting to Box", (i32)shape->GetType());
+				return ShapeType::Box;
 			case JPH::EShapeType::User1:
 			case JPH::EShapeType::User2:
 			case JPH::EShapeType::User3:
 			case JPH::EShapeType::User4:
+				OLO_CORE_WARN("GetShapeType: User-defined shape type {0} not supported, defaulting to Box", (i32)shape->GetType());
+				return ShapeType::Box;
 			case JPH::EShapeType::Plane:
+				OLO_CORE_WARN("GetShapeType: Plane shape type {0} not supported, defaulting to Box", (i32)shape->GetType());
+				return ShapeType::Box;
 			case JPH::EShapeType::Empty:
+				OLO_CORE_WARN("GetShapeType: Empty shape type {0} not supported, defaulting to Box", (i32)shape->GetType());
+				return ShapeType::Box;
 			default:
+				OLO_CORE_WARN("GetShapeType: Unknown shape type {0}, defaulting to Box", (i32)shape->GetType());
 				return ShapeType::Box; // Default fallback
 		}
 	}
@@ -522,10 +611,10 @@ namespace OloEngine {
 			return nullptr;
 		}
 
-		// Try to deserialize the Jolt shape from cached ColliderData
-		if (!cachedData.m_ComplexColliderData.m_Submeshes.empty())
+		// Try to deserialize the Jolt shape from the selected meshData
+		if (!meshData->m_Submeshes.empty())
 		{
-			const auto& colliderSubmesh = cachedData.m_ComplexColliderData.m_Submeshes[0];
+			const auto& colliderSubmesh = meshData->m_Submeshes[0];
 			
 			if (!colliderSubmesh.m_ColliderData.empty())
 			{
@@ -729,31 +818,53 @@ namespace OloEngine {
 
 	JPH::Ref<JPH::Shape> JoltShapes::GetOrCreatePersistentCachedShape(const std::string& cacheKey, std::function<JPH::Ref<JPH::Shape>()> createFunc)
 	{
-		// First check in-memory cache
-		auto it = s_ShapeCache.find(cacheKey);
-		if (it != s_ShapeCache.end())
+		// First check in-memory cache with shared lock
 		{
-			return it->second;
-		}
-
-		// Try to load from persistent cache
-		if (s_PersistentCacheEnabled)
-		{
-			auto shape = LoadShapeFromCache(cacheKey);
-			if (shape)
+			std::shared_lock<std::shared_mutex> readLock(s_ShapeCacheMutex);
+			auto it = s_ShapeCache.find(cacheKey);
+			if (it != s_ShapeCache.end())
 			{
-				s_ShapeCache[cacheKey] = shape;
-				return shape;
+				return it->second;
 			}
 		}
 
-		// Create new shape
+		// Try to load from persistent cache (outside lock)
+		JPH::Ref<JPH::Shape> persistentShape;
+		if (s_PersistentCacheEnabled)
+		{
+			persistentShape = LoadShapeFromCache(cacheKey);
+			if (persistentShape)
+			{
+				// Insert loaded shape with unique lock
+				std::unique_lock<std::shared_mutex> writeLock(s_ShapeCacheMutex);
+				// Check again in case another thread inserted while we were loading
+				auto it = s_ShapeCache.find(cacheKey);
+				if (it != s_ShapeCache.end())
+				{
+					return it->second; // Another thread beat us to it
+				}
+				s_ShapeCache[cacheKey] = persistentShape;
+				return persistentShape;
+			}
+		}
+
+		// Create new shape (outside lock to avoid holding during creation)
 		auto shape = createFunc();
 		if (shape)
 		{
-			s_ShapeCache[cacheKey] = shape;
+			// Insert with unique lock
+			{
+				std::unique_lock<std::shared_mutex> writeLock(s_ShapeCacheMutex);
+				// Check again in case another thread inserted while we were creating
+				auto it = s_ShapeCache.find(cacheKey);
+				if (it != s_ShapeCache.end())
+				{
+					return it->second; // Another thread beat us to it
+				}
+				s_ShapeCache[cacheKey] = shape;
+			}
 			
-			// Save to persistent cache
+			// Save to persistent cache (outside lock)
 			if (s_PersistentCacheEnabled)
 			{
 				SaveShapeToCache(cacheKey, shape);

@@ -20,6 +20,7 @@
 #include <unordered_map>
 #include <vector>
 #include <filesystem>
+#include <shared_mutex>
 
 namespace OloEngine {
 
@@ -87,6 +88,7 @@ namespace OloEngine {
 	private:
 		static bool s_Initialized;
 		static std::unordered_map<std::string, JPH::Ref<JPH::Shape>> s_ShapeCache;
+		static std::shared_mutex s_ShapeCacheMutex;
 		static bool s_PersistentCacheEnabled;
 		static std::filesystem::path s_PersistentCacheDirectory;
 		

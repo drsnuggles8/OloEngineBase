@@ -38,7 +38,7 @@ namespace OloEngine {
 		void ProcessContactEvents();
 
 		// Get the number of pending contact events
-		sizet GetPendingContactEventCount() const noexcept { return m_QueueSize.load(); }
+		sizet GetPendingContactEventCount() const noexcept { return m_QueueSize.load(std::memory_order_acquire); }
 
 	private:
 		struct ContactEvent
