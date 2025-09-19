@@ -5,6 +5,7 @@
 
 #include <vector>
 #include <cstring>
+#include <span>
 
 // Forward declarations for types we need but don't want to include full headers
 namespace JPH {
@@ -37,14 +38,7 @@ namespace OloEngine {
 			OLO_CORE_ASSERT(data != nullptr && size > 0, "Invalid data provided to JoltBinaryStreamReader");
 		}
 
-		~JoltBinaryStreamReader()
-		{
-			m_Buffer = nullptr;
-			m_Data = nullptr;
-			m_ReadBytes = 0;
-			m_Size = 0;
-			m_Failed = false;
-		}
+		~JoltBinaryStreamReader() = default;
 
 		// Stream reading interface
 		void ReadBytes(void* outData, sizet inNumBytes)
@@ -199,9 +193,7 @@ namespace OloEngine {
 			if (m_TempBuffer.empty())
 				return Buffer();
 
-			Buffer buffer(m_TempBuffer.size());
-			::memcpy(buffer.Data, m_TempBuffer.data(), m_TempBuffer.size());
-			return buffer;
+			return Buffer::Copy(std::span{m_TempBuffer.data(), m_TempBuffer.size()});
 		}
 
 		// Create ScopedBuffer from written data
@@ -256,11 +248,10 @@ namespace OloEngine {
 		 * @brief Compress shape data using RLE compression
 		 * 
 		 * @param inputBuffer Input buffer to compress
-		 * @return Compressed buffer if beneficial, otherwise a shared view of input buffer
+		 * @return Always returns an owning Buffer - either compressed data or a copy of input buffer
 		 * 
-		 * @note LIFETIME: When compression is not beneficial, returns a non-owning view 
-		 *       that shares memory with inputBuffer. Caller must ensure inputBuffer 
-		 *       remains alive for the lifetime of the returned Buffer.
+		 * @note MEMORY SAFETY: Always returns an owning Buffer to prevent UAF issues.
+		 *       When compression is not beneficial, returns a copy of inputBuffer.
 		 */
 		Buffer CompressShapeData(const Buffer& inputBuffer);
 		Buffer DecompressShapeData(const Buffer& compressedBuffer);

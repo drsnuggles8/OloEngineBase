@@ -29,7 +29,7 @@ static void TraceImpl(const char* inFMT, ...)
     va_end(list);
 
     // Print to the TTY
-    OLO_CORE_TRACE(buffer);
+    OLO_CORE_TRACE("{}", buffer);
 }
 
 #ifdef JPH_ENABLE_ASSERTS
@@ -163,7 +163,10 @@ bool Physics3DSystem::Initialize()
     // We need a job system that will execute physics jobs on multiple threads. Typically
     // you would implement the JobSystem interface yourself and let Jolt Physics run on top
     // of your own job scheduler. JobSystemThreadPool is an example implementation.
-    m_JobSystem = std::make_unique<JPH::JobSystemThreadPool>(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, std::thread::hardware_concurrency() - 1);
+    unsigned hc = std::thread::hardware_concurrency();
+    if (hc == 0) hc = 1; // Treat 0 as 1
+    unsigned workerThreads = (hc > 1 ? hc - 1 : 1);
+    m_JobSystem = std::make_unique<JPH::JobSystemThreadPool>(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, workerThreads);
 
     // Now we can create the actual physics system.
     m_PhysicsSystem = std::make_unique<JPH::PhysicsSystem>();

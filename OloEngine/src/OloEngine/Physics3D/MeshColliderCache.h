@@ -3,7 +3,10 @@
 #include "MeshCookingFactory.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Asset/AssetTypes.h"
+#include "OloEngine/Asset/MeshColliderAsset.h"
 
+#include <atomic>
+#include <chrono>
 #include <unordered_map>
 #include <mutex>
 #include <vector>
@@ -12,9 +15,17 @@
 namespace OloEngine {
 
 	// Forward declarations
-	class MeshColliderAsset;
 	template<typename T> class Ref;
-	struct CookingRequest;
+
+	// Cooking request structure
+	struct CookingRequest
+	{
+		Ref<MeshColliderAsset> m_ColliderAsset;
+		EMeshColliderType m_Type;
+		bool m_InvalidateOld = false;
+		std::promise<ECookingResult> m_Promise;
+		std::chrono::steady_clock::time_point m_RequestTime;
+	};
 
 	class MeshColliderCache
 	{

@@ -359,16 +359,66 @@ namespace OloEngine {
 		 */
 		sizet CalculateShapeMemoryUsage(const Buffer& buffer)
 		{
-			// For now, return the serialized size as an approximation
-			// In the future, this could be more sophisticated
-			return buffer.Size;
+			if (!buffer.Data || buffer.Size == 0)
+				return 0;
+
+			// Start with the serialized buffer size as base memory usage
+			sizet totalMemory = buffer.Size;
+
+			try 
+			{
+				// Try to deserialize the shape to get more accurate memory estimate
+				JPH::EShapeType shapeType;
+				sizet dataSize;
+				if (GetShapeInfo(buffer, shapeType, dataSize))
+				{
+					// Add estimated runtime memory overhead based on shape type
+					// These are rough estimates based on Jolt Physics internal structures
+					switch (shapeType)
+					{
+					case JPH::EShapeType::Convex:
+						// Convex shapes: vertices, edges, faces + collision data
+						totalMemory += dataSize * 2; // ~2x overhead for runtime structures
+						break;
+					case JPH::EShapeType::Mesh:
+						// Mesh shapes: triangle soup + spatial acceleration structures
+						totalMemory += dataSize * 3; // ~3x overhead for octree/BVH structures
+						break;
+					case JPH::EShapeType::HeightField:
+						// Height fields: height data + cached normals
+						totalMemory += static_cast<sizet>(dataSize * 1.5f); // ~1.5x overhead for normal cache
+						break;
+					case JPH::EShapeType::Compound:
+						// Compound shapes: child shapes + transformation matrices
+						totalMemory += static_cast<sizet>(dataSize * 1.2f); // ~1.2x overhead for hierarchy
+						break;
+					default:
+						// Basic shapes (sphere, box, capsule, etc.)
+						totalMemory += 128; // Small fixed overhead for basic shapes
+						break;
+					}
+				}
+				else
+				{
+					// If we can't determine the shape type, use a conservative estimate
+					totalMemory *= 2; // Double the serialized size as fallback
+				}
+			}
+			catch (...)
+			{
+				// If any error occurs during analysis, fall back to basic estimate
+				OLO_CORE_WARN("JoltBinaryStreamUtils::CalculateShapeMemoryUsage: Error analyzing shape data, using basic estimate");
+				totalMemory *= 2; // Conservative fallback estimate
+			}
+
+			return totalMemory;
 		}
 
 		/**
 		 * @brief Compress shape data using simple RLE compression
 		 * 
 		 * @param inputBuffer The uncompressed shape data
-		 * @return Compressed buffer, or original buffer if compression isn't beneficial
+		 * @return Always returns an owning Buffer - either compressed data or a copy of input buffer
 		 */
 		Buffer CompressShapeData(const Buffer& inputBuffer)
 		{
@@ -378,19 +428,18 @@ namespace OloEngine {
 				return Buffer();
 			}
 
-			// For small buffers, compression isn't worth it
+			// For small buffers, compression isn't worth it - return copy of original
 			if (inputBuffer.Size < 64)
 			{
-				// Return shared view - no allocation needed for small buffers
-				return inputBuffer;
+				OLO_CORE_TRACE("JoltBinaryStreamUtils::CompressShapeData: Buffer too small for compression ({}B), returning copy", inputBuffer.Size);
+				return Buffer::Copy(inputBuffer);
 			}
 
 			// Validate that input size fits in 32-bit for header
 			if (inputBuffer.Size > UINT32_MAX)
 			{
-				OLO_CORE_WARN("JoltBinaryStreamUtils::CompressShapeData: Input size too large for 32-bit header, returning shared view of original");
-				// Return shared view - no allocation needed when size is too large
-				return inputBuffer;
+				OLO_CORE_WARN("JoltBinaryStreamUtils::CompressShapeData: Input size too large for 32-bit header, returning copy of original");
+				return Buffer::Copy(inputBuffer);
 			}
 
 			// Simple Run-Length Encoding compression
@@ -461,12 +510,10 @@ namespace OloEngine {
 			}
 			else
 			{
-				// Compression wasn't beneficial, return shared view of original buffer
-				// LIFETIME ASSUMPTION: Caller must ensure inputBuffer remains alive for the lifetime 
-				// of the returned Buffer, as this returns a non-owning view (not a copy)
-				OLO_CORE_TRACE("JoltBinaryStreamUtils::CompressShapeData: Compression not beneficial (would be {} bytes vs {} original), returning shared view of original buffer", 
+				// Compression wasn't beneficial, return copy of original buffer for memory safety
+				OLO_CORE_TRACE("JoltBinaryStreamUtils::CompressShapeData: Compression not beneficial (would be {} bytes vs {} original), returning copy of original buffer", 
 							   totalCompressedSize, inputBuffer.Size);
-				return inputBuffer; // Return shared view - no allocation needed
+				return Buffer::Copy(inputBuffer);
 			}
 		}
 

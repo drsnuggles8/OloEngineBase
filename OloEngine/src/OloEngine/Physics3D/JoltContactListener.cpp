@@ -2,6 +2,8 @@
 #include "JoltContactListener.h"
 #include "JoltScene.h"
 #include "JoltUtils.h"
+#include "PhysicsLayer.h"
+#include "JoltLayerInterface.h"
 #include "OloEngine/Core/Log.h"
 
 namespace OloEngine {
@@ -14,8 +16,22 @@ namespace OloEngine {
 
 	JPH::ValidateResult JoltContactListener::OnContactValidate([[maybe_unused]] const JPH::Body& inBody1, [[maybe_unused]] const JPH::Body& inBody2, [[maybe_unused]] JPH::RVec3Arg inBaseOffset, [[maybe_unused]] const JPH::CollideShapeResult& inCollisionResult)
 	{
-		// You can use this to validate contacts before they are added.
-		// For now, we accept all contacts
+		// Get the physics layer IDs from both bodies
+		u32 layer1 = GetPhysicsLayerFromBody(inBody1);
+		u32 layer2 = GetPhysicsLayerFromBody(inBody2);
+		
+		// If both bodies have custom physics layers, check if they should collide
+		if (layer1 != INVALID_LAYER_ID && layer2 != INVALID_LAYER_ID)
+		{
+			if (!PhysicsLayerManager::ShouldCollide(layer1, layer2))
+			{
+				return JPH::ValidateResult::RejectAllContactsForThisBodyPair;
+			}
+		}
+		
+		// Accept the contact if:
+		// - At least one body uses built-in layers (handled by Jolt's layer interface)
+		// - Both bodies have custom layers and should collide
 		return JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
 	}
 
@@ -153,6 +169,20 @@ namespace OloEngine {
 	{
 		// The entity ID is stored in the body's user data
 		return static_cast<UUID>(body.GetUserData());
+	}
+
+	u32 JoltContactListener::GetPhysicsLayerFromBody(const JPH::Body& body)
+	{
+		JPH::ObjectLayer objectLayer = body.GetObjectLayer();
+		
+		// Check if this is a custom physics layer (offset by NUM_LAYERS)
+		if (objectLayer >= ObjectLayers::NUM_LAYERS)
+		{
+			return static_cast<u32>(objectLayer) - ObjectLayers::NUM_LAYERS;
+		}
+		
+		// For built-in layers, return an invalid layer ID to indicate no custom layer
+		return INVALID_LAYER_ID;
 	}
 
 }

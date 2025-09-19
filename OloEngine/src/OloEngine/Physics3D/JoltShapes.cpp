@@ -19,6 +19,8 @@
 
 namespace OloEngine {
 
+	using ShapeUtils::ShapeTypeToString;
+
 	bool JoltShapes::s_Initialized = false;
 	std::unordered_map<std::string, JPH::Ref<JPH::Shape>> JoltShapes::s_ShapeCache;
 	std::shared_mutex JoltShapes::s_ShapeCacheMutex;
@@ -542,7 +544,7 @@ namespace OloEngine {
 
 	const char* JoltShapes::GetShapeTypeName(const JPH::Shape* shape)
 	{
-		return ShapeUtils::ShapeTypeToString(GetShapeType(shape));
+		return ShapeTypeToString(GetShapeType(shape));
 	}
 
 	// Private helper implementations

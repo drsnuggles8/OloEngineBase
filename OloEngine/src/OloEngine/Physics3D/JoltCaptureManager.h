@@ -6,7 +6,6 @@
 #include <filesystem>
 #include <vector>
 #include <fstream>
-#include <memory>
 
 namespace OloEngine {
 
@@ -23,10 +22,10 @@ namespace OloEngine {
 		
 		void Open(const std::filesystem::path& inPath);
 		void Close();
-		bool IsOpen() const { return m_Stream.is_open(); }
+		[[nodiscard]] bool IsOpen() const { return m_Stream.is_open(); }
 
 		void WriteBytes(const void* inData, sizet inNumBytes);
-		bool IsFailed() const;
+		[[nodiscard]] bool IsFailed() const;
 
 		// Explicitly non-copyable
 		JoltCaptureOutStream(const JoltCaptureOutStream&) = delete;
@@ -64,7 +63,7 @@ namespace OloEngine {
 		void BeginCapture();
 		void CaptureFrame();
 		void EndCapture();
-		bool IsCapturing() const;
+		[[nodiscard]] bool IsCapturing() const;
 
 		// File management
 		void OpenCapture(const std::filesystem::path& capturePath) const;
@@ -74,7 +73,7 @@ namespace OloEngine {
 		const std::vector<std::filesystem::path>& GetAllCaptures() const { return m_Captures; }
 
 		// Settings
-		bool SetCapturesDirectory(const std::filesystem::path& directory);
+		[[nodiscard]] bool SetCapturesDirectory(const std::filesystem::path& directory);
 		const std::filesystem::path& GetCapturesDirectory() const { return m_CapturesDirectory; }
 
 		/**
@@ -83,7 +82,7 @@ namespace OloEngine {
 		 * 
 		 * Controls how frequently the capture manager logs progress messages during recording.
 		 * A lower interval provides more frequent updates but may impact performance.
-		 * Default is 60 frames, which typically corresponds to 1 second at 60 FPS.
+		 * Default is DEFAULT_FRAME_LOG_INTERVAL frames, which typically corresponds to 1 second at 60 FPS.
 		 */
 		void SetFrameLogInterval(i32 interval);
 
@@ -95,12 +94,15 @@ namespace OloEngine {
 
 	private:
 		void InitializeCapturesDirectory();
+		void RefreshCapturesCache();
+
+		static constexpr i32 DEFAULT_FRAME_LOG_INTERVAL = 60;
 
 	private:
 		JoltCaptureOutStream m_Stream;
 		bool m_IsCapturing = false;
 		i32 m_FrameCount = 0;
-		i32 m_FrameLogInterval = 60; ///< Number of frames between log messages (default: 60)
+		i32 m_FrameLogInterval = DEFAULT_FRAME_LOG_INTERVAL; ///< Number of frames between log messages (default: DEFAULT_FRAME_LOG_INTERVAL)
 
 		std::filesystem::path m_CapturesDirectory;
 		std::filesystem::path m_RecentCapture;

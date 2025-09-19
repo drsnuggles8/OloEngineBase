@@ -40,7 +40,7 @@ namespace OloEngine {
 		void ProcessContactEvents();
 
 		// Get the number of pending contact events
-		[[nodiscard]] sizet GetPendingContactEventCount() const noexcept { return m_QueueSize.load(std::memory_order_acquire); }
+		[[nodiscard]] sizet GetPendingContactEventCount() const noexcept { return m_QueueSize.load(std::memory_order_relaxed); }
 
 	private:
 		struct ContactEvent
@@ -65,6 +65,9 @@ namespace OloEngine {
 		
 		// Retrieves entity UUID from JPH::Body::GetUserData (expects u64 UUID); returns 0 when no valid UUID is present
 		UUID GetEntityIDFromBody(const JPH::Body& body);
+		
+		// Retrieves physics layer ID from JPH::Body::GetObjectLayer; returns INVALID_LAYER_ID for built-in layers
+		u32 GetPhysicsLayerFromBody(const JPH::Body& body);
 
 	private:
 		JoltScene* m_Scene;

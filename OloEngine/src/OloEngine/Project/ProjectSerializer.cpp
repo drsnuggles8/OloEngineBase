@@ -32,6 +32,163 @@ namespace YAML {
 	};
 }
 
+// Physics settings validation helpers
+namespace {
+	// Validation ranges for physics settings
+	constexpr f32 MIN_FIXED_TIMESTEP = 1.0f / 300.0f;  // 300 Hz max frequency
+	constexpr f32 MAX_FIXED_TIMESTEP = 1.0f / 10.0f;   // 10 Hz min frequency
+	constexpr f32 MAX_GRAVITY_MAGNITUDE = 100.0f;      // Reasonable max gravity magnitude
+	constexpr u32 MIN_SOLVER_ITERATIONS = 1u;
+	constexpr u32 MAX_SOLVER_ITERATIONS = 50u;
+	constexpr u32 MIN_MAX_BODIES = 100u;
+	constexpr u32 MAX_MAX_BODIES = 1000000u;
+	constexpr u32 MIN_MAX_PAIRS = 100u;
+	constexpr u32 MAX_MAX_PAIRS = 1000000u;
+	constexpr u32 MIN_MAX_CONTACTS = 100u;
+	constexpr u32 MAX_MAX_CONTACTS = 100000u;
+	constexpr f32 MIN_BAUMGARTE = 0.01f;
+	constexpr f32 MAX_BAUMGARTE = 1.0f;
+	constexpr f32 MIN_CONTACT_DISTANCE = 0.001f;
+	constexpr f32 MAX_CONTACT_DISTANCE = 1.0f;
+	constexpr f32 MIN_SLOP = 0.001f;
+	constexpr f32 MAX_SLOP = 0.5f;
+	constexpr f32 MIN_CAST_THRESHOLD = 0.1f;
+	constexpr f32 MAX_CAST_THRESHOLD = 10.0f;
+	constexpr f32 MIN_VELOCITY_RESTITUTION = 0.0f;
+	constexpr f32 MAX_VELOCITY_RESTITUTION = 100.0f;
+	constexpr f32 MIN_TIME_BEFORE_SLEEP = 0.0f;
+	constexpr f32 MAX_TIME_BEFORE_SLEEP = 60.0f;
+	constexpr f32 MIN_VELOCITY_SLEEP_THRESHOLD = 0.001f;
+	constexpr f32 MAX_VELOCITY_SLEEP_THRESHOLD = 10.0f;
+
+	/// Validates and clamps a floating-point physics setting to safe ranges
+	/// \param value The value to validate
+	/// \param minVal Minimum allowed value
+	/// \param maxVal Maximum allowed value
+	/// \param defaultVal Default value to use if clamping is needed
+	/// \param settingName Name of the setting for logging
+	/// \return Validated and potentially clamped value
+	f32 ValidateAndClampFloat(f32 value, f32 minVal, f32 maxVal, f32 defaultVal, const char* settingName)
+	{
+		if (std::isnan(value) || std::isinf(value))
+		{
+			OLO_CORE_WARN("Physics validation: {} is NaN/Inf, using default value {}", settingName, defaultVal);
+			return defaultVal;
+		}
+		
+		if (value < minVal)
+		{
+			OLO_CORE_WARN("Physics validation: {} ({}) below minimum ({}), clamping to minimum", settingName, value, minVal);
+			return minVal;
+		}
+		
+		if (value > maxVal)
+		{
+			OLO_CORE_WARN("Physics validation: {} ({}) exceeds maximum ({}), clamping to maximum", settingName, value, maxVal);
+			return maxVal;
+		}
+		
+		return value;
+	}
+
+	/// Validates and clamps an unsigned integer physics setting to safe ranges
+	/// \param value The value to validate
+	/// \param minVal Minimum allowed value
+	/// \param maxVal Maximum allowed value
+	/// \param defaultVal Default value to use if clamping is needed
+	/// \param settingName Name of the setting for logging
+	/// \return Validated and potentially clamped value
+	u32 ValidateAndClampUInt(u32 value, u32 minVal, u32 maxVal, u32 defaultVal, const char* settingName)
+	{
+		if (value < minVal)
+		{
+			OLO_CORE_WARN("Physics validation: {} ({}) below minimum ({}), clamping to minimum", settingName, value, minVal);
+			return minVal;
+		}
+		
+		if (value > maxVal)
+		{
+			OLO_CORE_WARN("Physics validation: {} ({}) exceeds maximum ({}), clamping to maximum", settingName, value, maxVal);
+			return maxVal;
+		}
+		
+		return value;
+	}
+
+	/// Validates gravity vector magnitude and clamps if necessary
+	/// \param gravity The gravity vector to validate
+	/// \param settingName Name of the setting for logging
+	/// \return Validated gravity vector
+	glm::vec3 ValidateGravity(const glm::vec3& gravity, const char* settingName)
+	{
+		f32 magnitude = glm::length(gravity);
+		
+		if (std::isnan(magnitude) || std::isinf(magnitude))
+		{
+			OLO_CORE_WARN("Physics validation: {} has NaN/Inf components, using default (0, -9.81, 0)", settingName);
+			return glm::vec3(0.0f, -9.81f, 0.0f);
+		}
+		
+		if (magnitude > MAX_GRAVITY_MAGNITUDE)
+		{
+			glm::vec3 normalized = magnitude > 0.0f ? gravity / magnitude : glm::vec3(0.0f, -1.0f, 0.0f);
+			glm::vec3 clamped = normalized * MAX_GRAVITY_MAGNITUDE;
+			OLO_CORE_WARN("Physics validation: {} magnitude ({}) exceeds maximum ({}), clamping to maximum", 
+				settingName, magnitude, MAX_GRAVITY_MAGNITUDE);
+			return clamped;
+		}
+		
+		return gravity;
+	}
+
+	/// Validates an entire PhysicsSettings struct and returns a validated copy
+	/// \param settings The settings to validate
+	/// \return Validated copy of the settings
+	OloEngine::PhysicsSettings ValidatePhysicsSettings(const OloEngine::PhysicsSettings& settings)
+	{
+		OloEngine::PhysicsSettings validated = settings;
+		
+		// Validate core simulation settings
+		validated.m_FixedTimestep = ValidateAndClampFloat(settings.m_FixedTimestep, 
+			MIN_FIXED_TIMESTEP, MAX_FIXED_TIMESTEP, 1.0f / 60.0f, "FixedTimestep");
+		validated.m_Gravity = ValidateGravity(settings.m_Gravity, "Gravity");
+		
+		// Validate solver settings
+		validated.m_PositionSolverIterations = ValidateAndClampUInt(settings.m_PositionSolverIterations,
+			MIN_SOLVER_ITERATIONS, MAX_SOLVER_ITERATIONS, 2u, "PositionSolverIterations");
+		validated.m_VelocitySolverIterations = ValidateAndClampUInt(settings.m_VelocitySolverIterations,
+			MIN_SOLVER_ITERATIONS, MAX_SOLVER_ITERATIONS, 10u, "VelocitySolverIterations");
+		
+		// Validate system limits
+		validated.m_MaxBodies = ValidateAndClampUInt(settings.m_MaxBodies,
+			MIN_MAX_BODIES, MAX_MAX_BODIES, 65536u, "MaxBodies");
+		validated.m_MaxBodyPairs = ValidateAndClampUInt(settings.m_MaxBodyPairs,
+			MIN_MAX_PAIRS, MAX_MAX_PAIRS, 65536u, "MaxBodyPairs");
+		validated.m_MaxContactConstraints = ValidateAndClampUInt(settings.m_MaxContactConstraints,
+			MIN_MAX_CONTACTS, MAX_MAX_CONTACTS, 10240u, "MaxContactConstraints");
+		
+		// Validate advanced Jolt settings
+		validated.m_Baumgarte = ValidateAndClampFloat(settings.m_Baumgarte,
+			MIN_BAUMGARTE, MAX_BAUMGARTE, 0.2f, "Baumgarte");
+		validated.m_SpeculativeContactDistance = ValidateAndClampFloat(settings.m_SpeculativeContactDistance,
+			MIN_CONTACT_DISTANCE, MAX_CONTACT_DISTANCE, 0.02f, "SpeculativeContactDistance");
+		validated.m_PenetrationSlop = ValidateAndClampFloat(settings.m_PenetrationSlop,
+			MIN_SLOP, MAX_SLOP, 0.05f, "PenetrationSlop");
+		validated.m_LinearCastThreshold = ValidateAndClampFloat(settings.m_LinearCastThreshold,
+			MIN_CAST_THRESHOLD, MAX_CAST_THRESHOLD, 0.75f, "LinearCastThreshold");
+		validated.m_MinVelocityForRestitution = ValidateAndClampFloat(settings.m_MinVelocityForRestitution,
+			MIN_VELOCITY_RESTITUTION, MAX_VELOCITY_RESTITUTION, 1.0f, "MinVelocityForRestitution");
+		validated.m_TimeBeforeSleep = ValidateAndClampFloat(settings.m_TimeBeforeSleep,
+			MIN_TIME_BEFORE_SLEEP, MAX_TIME_BEFORE_SLEEP, 0.5f, "TimeBeforeSleep");
+		validated.m_PointVelocitySleepThreshold = ValidateAndClampFloat(settings.m_PointVelocitySleepThreshold,
+			MIN_VELOCITY_SLEEP_THRESHOLD, MAX_VELOCITY_SLEEP_THRESHOLD, 0.03f, "PointVelocitySleepThreshold");
+		
+		// Boolean settings don't need validation (any bool value is valid)
+		
+		return validated;
+	}
+}
+
 namespace OloEngine
 {
 
@@ -62,34 +219,80 @@ namespace OloEngine
 			{
 				out << YAML::BeginMap;
 
-			const auto& physicsSettings = Physics3DSystem::GetSettings();
+			// Validate physics settings before serialization
+			const auto& rawPhysicsSettings = Physics3DSystem::GetSettings();
+			const auto& physicsSettings = ValidatePhysicsSettings(rawPhysicsSettings);
 
+			// Core simulation settings with range documentation
+			out << YAML::Comment("Simulation timestep in seconds (range: 0.0033-0.1, default: 0.0167 for 60Hz)");
 			out << YAML::Key << "FixedTimestep" << YAML::Value << physicsSettings.m_FixedTimestep;
+			
+			out << YAML::Comment("Gravity vector in m/s² (magnitude limit: 100.0, default: [0, -9.81, 0])");
 			out << YAML::Key << "Gravity" << YAML::Value << physicsSettings.m_Gravity;
+			
+			// Solver iteration settings with range documentation
+			out << YAML::Comment("Position solver iterations per step (range: 1-50, default: 2)");
 			out << YAML::Key << "PositionSolverIterations" << YAML::Value << physicsSettings.m_PositionSolverIterations;
+			
+			out << YAML::Comment("Velocity solver iterations per step (range: 1-50, default: 10)");
 			out << YAML::Key << "VelocitySolverIterations" << YAML::Value << physicsSettings.m_VelocitySolverIterations;
+			
+			// System limits with range documentation
+			out << YAML::Comment("Maximum physics bodies in simulation (range: 100-1000000, default: 65536)");
 			out << YAML::Key << "MaxBodies" << YAML::Value << physicsSettings.m_MaxBodies;
+			
+			out << YAML::Comment("Maximum body pairs for collision detection (range: 100-1000000, default: 65536)");
 			out << YAML::Key << "MaxBodyPairs" << YAML::Value << physicsSettings.m_MaxBodyPairs;
+			
+			out << YAML::Comment("Maximum contact constraints (range: 100-100000, default: 10240)");
 			out << YAML::Key << "MaxContactConstraints" << YAML::Value << physicsSettings.m_MaxContactConstraints;
 
+			// Debug and capture settings (booleans don't need validation)
+			out << YAML::Comment("Enable physics capture during play mode");
 			out << YAML::Key << "CaptureOnPlay" << YAML::Value << physicsSettings.m_CaptureOnPlay;
+			
+			out << YAML::Comment("Physics capture method (0: DebugToFile, 1: LiveDebug)");
 			out << YAML::Key << "CaptureMethod" << YAML::Value << static_cast<i32>(physicsSettings.m_CaptureMethod);
 
-			// Advanced Jolt settings
+			// Advanced Jolt settings with range documentation
+			out << YAML::Comment("Baumgarte stabilization factor (range: 0.01-1.0, default: 0.2)");
 			out << YAML::Key << "Baumgarte" << YAML::Value << physicsSettings.m_Baumgarte;
+			
+			out << YAML::Comment("Speculative contact distance in meters (range: 0.001-1.0, default: 0.02)");
 			out << YAML::Key << "SpeculativeContactDistance" << YAML::Value << physicsSettings.m_SpeculativeContactDistance;
+			
+			out << YAML::Comment("Penetration slop tolerance in meters (range: 0.001-0.5, default: 0.05)");
 			out << YAML::Key << "PenetrationSlop" << YAML::Value << physicsSettings.m_PenetrationSlop;
+			
+			out << YAML::Comment("Linear cast threshold factor (range: 0.1-10.0, default: 0.75)");
 			out << YAML::Key << "LinearCastThreshold" << YAML::Value << physicsSettings.m_LinearCastThreshold;
+			
+			out << YAML::Comment("Minimum velocity for restitution in m/s (range: 0.0-100.0, default: 1.0)");
 			out << YAML::Key << "MinVelocityForRestitution" << YAML::Value << physicsSettings.m_MinVelocityForRestitution;
+			
+			out << YAML::Comment("Time before bodies sleep in seconds (range: 0.0-60.0, default: 0.5)");
 			out << YAML::Key << "TimeBeforeSleep" << YAML::Value << physicsSettings.m_TimeBeforeSleep;
+			
+			out << YAML::Comment("Point velocity sleep threshold in m/s (range: 0.001-10.0, default: 0.03)");
 			out << YAML::Key << "PointVelocitySleepThreshold" << YAML::Value << physicsSettings.m_PointVelocitySleepThreshold;
 
-			// Boolean settings
+			// Boolean optimization settings (no validation needed)
+			out << YAML::Comment("Enable deterministic simulation for reproducible results");
 			out << YAML::Key << "DeterministicSimulation" << YAML::Value << physicsSettings.m_DeterministicSimulation;
+			
+			out << YAML::Comment("Enable constraint warm starting for better convergence");
 			out << YAML::Key << "ConstraintWarmStart" << YAML::Value << physicsSettings.m_ConstraintWarmStart;
+			
+			out << YAML::Comment("Use body pair contact cache for performance");
 			out << YAML::Key << "UseBodyPairContactCache" << YAML::Value << physicsSettings.m_UseBodyPairContactCache;
+			
+			out << YAML::Comment("Use manifold reduction for contact optimization");
 			out << YAML::Key << "UseManifoldReduction" << YAML::Value << physicsSettings.m_UseManifoldReduction;
+			
+			out << YAML::Comment("Use large island splitter for complex scenes");
 			out << YAML::Key << "UseLargeIslandSplitter" << YAML::Value << physicsSettings.m_UseLargeIslandSplitter;
+			
+			out << YAML::Comment("Allow bodies to sleep when inactive");
 			out << YAML::Key << "AllowSleeping" << YAML::Value << physicsSettings.m_AllowSleeping;
 			// Physics layers serialization
 			if (PhysicsLayerManager::GetLayerCount() > 1)
@@ -295,7 +498,8 @@ namespace OloEngine
 		{
 			// Track applied physics fields for validation
 			u32 appliedPhysicsFields = 0;
-			const u32 expectedPhysicsFields = 17; // Total number of physics settings fields
+			const u32 expectedPhysicsFields = 22; // Total number of physics settings fields
+			                                      // (4 basic + 3 limits + 2 debug + 7 advanced + 6 boolean)
 
 			auto& physicsSettings = Physics3DSystem::GetSettings();
 
@@ -403,9 +607,9 @@ namespace OloEngine
 				PhysicsLayerManager::ClearLayers();
 				
 				// Ensure the default layer exists after clearing
-				// Default layer should always be ID 0 with name "Default"
+				// Note: Default layer ID is not guaranteed to be any specific value
 				u32 defaultLayerId = PhysicsLayerManager::AddLayer("Default", true);
-				if (defaultLayerId == INVALID_LAYER_ID || defaultLayerId != 0)
+				if (defaultLayerId == INVALID_LAYER_ID)
 				{
 					OLO_CORE_ERROR("Physics deserialization: Failed to recreate default layer");
 					physicsValid = false;
@@ -484,7 +688,11 @@ namespace OloEngine
 				OLO_CORE_INFO("Physics settings: Successfully loaded {}/{} fields", appliedPhysicsFields, expectedPhysicsFields);
 			}
 
-			// Apply the physics settings
+			// Validate loaded physics settings before applying
+			const auto validatedSettings = ValidatePhysicsSettings(physicsSettings);
+			Physics3DSystem::SetSettings(validatedSettings);
+
+			// Apply the validated physics settings
 			Physics3DSystem::ApplySettings();
 		}
 		

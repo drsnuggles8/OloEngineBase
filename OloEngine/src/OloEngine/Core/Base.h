@@ -86,7 +86,7 @@ constexpr auto ArraySize(T array) { return ( sizeof(array)/sizeof((array)[0]) );
 // Unique names
 #define OLO_UNIQUE_SUFFIX(PARAM) OLO_CONCAT(PARAM, __LINE__ )
 
-#define BIT(x) ((1) << (x))
+#define BIT(x) (1u << (x))
 
 
 namespace OloEngine

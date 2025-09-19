@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <cstring>
+#include <span>
 
 namespace OloEngine
 {
@@ -24,6 +25,13 @@ namespace OloEngine
 		{
 			Buffer result(other.Size);
 			::memcpy(result.Data, other.Data, other.Size);
+			return result;
+		}
+
+		static Buffer Copy(std::span<const u8> data)
+		{
+			Buffer result(data.size());
+			::memcpy(result.Data, data.data(), data.size());
 			return result;
 		}
 

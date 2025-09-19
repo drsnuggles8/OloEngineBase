@@ -11,16 +11,6 @@
 
 namespace OloEngine {
 
-	// Implementation-only types
-	struct CookingRequest
-	{
-		Ref<MeshColliderAsset> m_ColliderAsset;
-		EMeshColliderType m_Type;
-		bool m_InvalidateOld = false;
-		std::promise<ECookingResult> m_Promise;
-		std::chrono::steady_clock::time_point m_RequestTime;
-	};
-
 	MeshColliderCache& MeshColliderCache::GetInstance()
 	{
 		static MeshColliderCache instance;

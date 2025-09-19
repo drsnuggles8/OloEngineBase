@@ -3,6 +3,7 @@
 
 #include "OloEngine/Debug/Instrumentor.h"
 
+#include <algorithm>
 #include <chrono>
 #include <ctime>
 #include <iomanip>
@@ -36,6 +37,17 @@ namespace OloEngine {
 
 	void JoltCaptureOutStream::WriteBytes(const void* inData, sizet inNumBytes)
 	{
+		// Fast-path: return immediately for zero-length writes
+		if (inNumBytes == 0)
+			return;
+		
+		// Guard against null pointer with positive byte count
+		if (inData == nullptr)
+		{
+			OLO_CORE_ERROR("WriteBytes called with null data pointer but {} bytes requested", inNumBytes);
+			return;
+		}
+		
 		if (m_Stream.is_open())
 		{
 			m_Stream.write(static_cast<const char*>(inData), static_cast<std::streamsize>(inNumBytes));
@@ -146,20 +158,20 @@ namespace OloEngine {
 
 		// Generate filename with timestamp
 		auto now = std::chrono::system_clock::now();
-		auto time_t = std::chrono::system_clock::to_time_t(now);
+		auto now_time = std::chrono::system_clock::to_time_t(now);
 		
 		// Use thread-safe time conversion
 		std::tm local_tm{};
 #if defined(_WIN32)
 		// Windows: Use localtime_s (localtime_s(&tm, &time_t))
-		if (localtime_s(&local_tm, &time_t) != 0)
+		if (localtime_s(&local_tm, &now_time) != 0)
 		{
 			OLO_CORE_ERROR("Failed to convert time to local time on Windows");
 			return;
 		}
 #else
 		// POSIX: Use localtime_r (localtime_r(&time_t, &tm))
-		if (localtime_r(&time_t, &local_tm) == nullptr)
+		if (localtime_r(&now_time, &local_tm) == nullptr)
 		{
 			OLO_CORE_ERROR("Failed to convert time to local time on POSIX");
 			return;
@@ -170,6 +182,29 @@ namespace OloEngine {
 		ss << "capture_" << std::put_time(&local_tm, "%Y%m%d_%H%M%S") << ".jolt";
 
 		std::filesystem::path capturePath = m_CapturesDirectory / ss.str();
+
+		// Ensure filename uniqueness by adding numeric suffix if needed
+		if (std::filesystem::exists(capturePath))
+		{
+			std::stringstream baseNameSs;
+			baseNameSs << "capture_" << std::put_time(&local_tm, "%Y%m%d_%H%M%S");
+			std::string baseName = baseNameSs.str();
+			u32 counter = 1;
+			
+			do
+			{
+				std::stringstream uniqueSs;
+				uniqueSs << baseName << "_" << counter << ".jolt";
+				capturePath = m_CapturesDirectory / uniqueSs.str();
+				++counter;
+			} while (std::filesystem::exists(capturePath) && counter < 1000); // Safety limit
+			
+			if (counter >= 1000)
+			{
+				OLO_CORE_ERROR("Failed to generate unique capture filename after 1000 attempts");
+				return;
+			}
+		}
 
 		// Open the capture stream
 		m_Stream.Open(capturePath);
@@ -185,11 +220,11 @@ namespace OloEngine {
 				m_Captures.push_back(capturePath);
 			}
 
-			OLO_CORE_INFO("Started physics capture: {0}", capturePath.string());
+			OLO_CORE_INFO("Started physics capture: {}", capturePath.string());
 		}
 		else
 		{
-			OLO_CORE_ERROR("Failed to start physics capture - could not open file: {0}", capturePath.string());
+			OLO_CORE_ERROR("Failed to start physics capture - could not open file: {}", capturePath.string());
 		}
 	}
 
@@ -210,7 +245,7 @@ namespace OloEngine {
 		
 		if (m_FrameCount % m_FrameLogInterval == 0) // Log at configurable intervals
 		{
-			OLO_CORE_TRACE("Captured physics frame {0}", m_FrameCount);
+			OLO_CORE_TRACE("Captured physics frame {}", m_FrameCount);
 		}
 	}
 
@@ -227,7 +262,7 @@ namespace OloEngine {
 		m_IsCapturing = false;
 		m_FrameCount = 0; // Reset frame counter for next capture
 
-		OLO_CORE_INFO("Ended physics capture: {0}", m_RecentCapture.string());
+		OLO_CORE_INFO("Ended physics capture: {}", m_RecentCapture.string());
 	}
 
 	bool JoltCaptureManager::IsCapturing() const
@@ -241,12 +276,12 @@ namespace OloEngine {
 
 		if (!std::filesystem::exists(capturePath))
 		{
-			OLO_CORE_ERROR("Capture file does not exist: {0}", capturePath.string());
+			OLO_CORE_ERROR("Capture file does not exist: {}", capturePath.string());
 			return;
 		}
 
 		// Log the capture file path - user can manually open with external tools
-		OLO_CORE_INFO("Capture file available: {0}", capturePath.string());
+		OLO_CORE_INFO("Capture file available: {}", capturePath.string());
 	}
 
 	void JoltCaptureManager::OpenRecentCapture() const
@@ -279,7 +314,7 @@ namespace OloEngine {
 			}
 			catch (const std::filesystem::filesystem_error& e)
 			{
-				OLO_CORE_ERROR("Failed to remove capture file {0}: {1}", capturePath.string(), e.what());
+				OLO_CORE_ERROR("Failed to remove capture file {}: {}", capturePath.string(), e.what());
 			}
 		}
 
@@ -298,6 +333,13 @@ namespace OloEngine {
 		{
 			try
 			{
+				// Check if we're trying to remove the currently active capture
+				if (IsCapturing() && m_RecentCapture == capturePath)
+				{
+					OLO_CORE_INFO("Stopping active capture before removal: {}", capturePath.string());
+					EndCapture(); // Properly close the stream and reset state
+				}
+				
 				if (std::filesystem::exists(capturePath))
 				{
 					std::filesystem::remove(capturePath);
@@ -310,16 +352,16 @@ namespace OloEngine {
 					m_RecentCapture.clear();
 				}
 
-				OLO_CORE_INFO("Removed physics capture: {0}", capturePath.string());
+				OLO_CORE_INFO("Removed physics capture: {}", capturePath.string());
 			}
 			catch (const std::filesystem::filesystem_error& e)
 			{
-				OLO_CORE_ERROR("Failed to remove capture file {0}: {1}", capturePath.string(), e.what());
+				OLO_CORE_ERROR("Failed to remove capture file {}: {}", capturePath.string(), e.what());
 			}
 		}
 		else
 		{
-			OLO_CORE_WARN("Capture file not found in manager: {0}", capturePath.string());
+			OLO_CORE_WARN("Capture file not found in manager: {}", capturePath.string());
 		}
 	}
 
@@ -335,7 +377,26 @@ namespace OloEngine {
 			}
 
 			// Scan for existing capture files
-			m_Captures.clear();
+			RefreshCapturesCache();
+
+			OLO_CORE_TRACE("Initialized captures directory: {} (found {} existing captures)", 
+				m_CapturesDirectory.string(), m_Captures.size());
+		}
+		catch (const std::filesystem::filesystem_error& e)
+		{
+			OLO_CORE_ERROR("Failed to initialize captures directory: {}", e.what());
+		}
+	}
+
+	void JoltCaptureManager::RefreshCapturesCache()
+	{
+		// Clear existing captures
+		m_Captures.clear();
+		m_RecentCapture.clear();
+
+		try
+		{
+			// Enumerate all .jolt files in the captures directory
 			for (const auto& entry : std::filesystem::directory_iterator(m_CapturesDirectory))
 			{
 				if (entry.is_regular_file() && entry.path().extension() == ".jolt")
@@ -344,27 +405,26 @@ namespace OloEngine {
 				}
 			}
 
-			// Sort captures by modification time (newest first)
+			// Sort captures by last write time (newest first)
 			std::sort(m_Captures.begin(), m_Captures.end(), [](const std::filesystem::path& a, const std::filesystem::path& b)
 			{
-				// Safe retrieval of last write times with exception handling
 				std::filesystem::file_time_type timeA, timeB;
 				
-				try 
+				try
 				{
 					timeA = std::filesystem::last_write_time(a);
 				}
-				catch (const std::exception&)
+				catch (const std::filesystem::filesystem_error&)
 				{
 					// File became inaccessible - treat as oldest possible time
 					timeA = std::filesystem::file_time_type::min();
 				}
 				
-				try 
+				try
 				{
 					timeB = std::filesystem::last_write_time(b);
 				}
-				catch (const std::exception&)
+				catch (const std::filesystem::filesystem_error&)
 				{
 					// File became inaccessible - treat as oldest possible time
 					timeB = std::filesystem::file_time_type::min();
@@ -377,13 +437,10 @@ namespace OloEngine {
 			{
 				m_RecentCapture = m_Captures.front();
 			}
-
-			OLO_CORE_TRACE("Initialized captures directory: {0} (found {1} existing captures)", 
-				m_CapturesDirectory.string(), m_Captures.size());
 		}
 		catch (const std::filesystem::filesystem_error& e)
 		{
-			OLO_CORE_ERROR("Failed to initialize captures directory: {0}", e.what());
+			OLO_CORE_ERROR("Failed to refresh captures cache: {}", e.what());
 		}
 	}
 
@@ -397,13 +454,13 @@ namespace OloEngine {
 			if (!std::filesystem::exists(directory))
 			{
 				std::filesystem::create_directories(directory);
-				OLO_CORE_TRACE("Created captures directory: {0}", directory.string());
+				OLO_CORE_TRACE("Created captures directory: {}", directory.string());
 			}
 
 			// Verify the directory is actually accessible
 			if (!std::filesystem::is_directory(directory))
 			{
-				OLO_CORE_ERROR("Path is not a directory: {0}", directory.string());
+				OLO_CORE_ERROR("Path is not a directory: {}", directory.string());
 				return false;
 			}
 
@@ -411,61 +468,16 @@ namespace OloEngine {
 			m_CapturesDirectory = directory;
 			
 			// Refresh the captures cache by scanning the new directory
-			m_Captures.clear();
-			for (const auto& entry : std::filesystem::directory_iterator(m_CapturesDirectory))
-			{
-				if (entry.is_regular_file() && entry.path().extension() == ".jolt")
-				{
-					m_Captures.push_back(entry.path());
-				}
-			}
+			RefreshCapturesCache();
 
-			// Sort captures by modification time (newest first)
-			std::sort(m_Captures.begin(), m_Captures.end(), [](const std::filesystem::path& a, const std::filesystem::path& b)
-			{
-				// Safe retrieval of last write times with exception handling
-				std::filesystem::file_time_type timeA, timeB;
-				
-				try 
-				{
-					timeA = std::filesystem::last_write_time(a);
-				}
-				catch (const std::exception&)
-				{
-					// File became inaccessible - treat as oldest possible time
-					timeA = std::filesystem::file_time_type::min();
-				}
-				
-				try 
-				{
-					timeB = std::filesystem::last_write_time(b);
-				}
-				catch (const std::exception&)
-				{
-					// File became inaccessible - treat as oldest possible time
-					timeB = std::filesystem::file_time_type::min();
-				}
-				
-				return timeA > timeB;
-			});
-
-			if (!m_Captures.empty())
-			{
-				m_RecentCapture = m_Captures.front();
-			}
-			else
-			{
-				m_RecentCapture.clear();
-			}
-
-			OLO_CORE_TRACE("Set captures directory to: {0} (found {1} existing captures)", 
+			OLO_CORE_TRACE("Set captures directory to: {} (found {} existing captures)", 
 				m_CapturesDirectory.string(), m_Captures.size());
 
 			return true;
 		}
 		catch (const std::filesystem::filesystem_error& e)
 		{
-			OLO_CORE_ERROR("Failed to set captures directory to '{0}': {1}", directory.string(), e.what());
+			OLO_CORE_ERROR("Failed to set captures directory to '{}': {}", directory.string(), e.what());
 			return false;
 		}
 	}
@@ -475,13 +487,13 @@ namespace OloEngine {
 		// Validate interval is positive
 		if (interval <= 0)
 		{
-			OLO_CORE_WARN("Invalid frame log interval: {0}. Must be > 0. Using default value of 60.", interval);
-			m_FrameLogInterval = 60; // Fallback to default
+			OLO_CORE_WARN("Invalid frame log interval: {}. Must be > 0. Using default value of {}.", interval, DEFAULT_FRAME_LOG_INTERVAL);
+			m_FrameLogInterval = DEFAULT_FRAME_LOG_INTERVAL; // Fallback to default
 		}
 		else
 		{
 			m_FrameLogInterval = interval;
-			OLO_CORE_TRACE("Frame log interval set to {0} frames", m_FrameLogInterval);
+			OLO_CORE_TRACE("Frame log interval set to {} frames", m_FrameLogInterval);
 		}
 	}
 

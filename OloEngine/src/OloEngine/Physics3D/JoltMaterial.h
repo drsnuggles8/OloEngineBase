@@ -7,6 +7,13 @@
 #include <algorithm>
 #include <cmath>
 
+// Forward declare components to avoid circular dependencies
+namespace OloEngine {
+	struct BoxCollider3DComponent;
+	struct SphereCollider3DComponent;
+	struct CapsuleCollider3DComponent;
+}
+
 namespace OloEngine {
 
 	/// @brief Policy for combining static and dynamic friction coefficients into a single value for Jolt Physics
@@ -29,11 +36,6 @@ namespace OloEngine {
 		{ collider.Material.m_DynamicFriction } -> std::convertible_to<float>;
 		{ collider.Material.m_Restitution } -> std::convertible_to<float>;
 	};
-
-	// Forward declarations
-	struct BoxCollider3DComponent;
-	struct SphereCollider3DComponent;
-	struct CapsuleCollider3DComponent;
 
 	class JoltMaterial : public JPH::PhysicsMaterial
 	{
@@ -59,28 +61,26 @@ namespace OloEngine {
 		/// @return Combined friction value according to the current s_FrictionPolicy
 		static float GetCombinedFriction(float staticFriction, float dynamicFriction)
 		{
+			// Sanitize inputs: treat negative or NaN values as 0.0f to protect Jolt Physics
+			float cleanStaticFriction = (std::isnan(staticFriction) || !std::isfinite(staticFriction) || staticFriction < 0.0f) ? 0.0f : staticFriction;
+			float cleanDynamicFriction = (std::isnan(dynamicFriction) || !std::isfinite(dynamicFriction) || dynamicFriction < 0.0f) ? 0.0f : dynamicFriction;
+
 			switch (s_FrictionPolicy)
 			{
 				case FrictionCombinePolicy::UseStaticOnly:
-					return staticFriction;
+					return cleanStaticFriction;
 				case FrictionCombinePolicy::UseDynamicOnly:
-					return dynamicFriction;
+					return cleanDynamicFriction;
 				case FrictionCombinePolicy::UseMaximum:
-					return std::max(staticFriction, dynamicFriction);
+					return std::max(cleanStaticFriction, cleanDynamicFriction);
 				case FrictionCombinePolicy::UseAverage:
-					return (staticFriction + dynamicFriction) * 0.5f;
+					return (cleanStaticFriction + cleanDynamicFriction) * 0.5f;
 				case FrictionCombinePolicy::UseGeometricMean:
-					return std::sqrt(staticFriction * dynamicFriction);
+					return std::sqrt(cleanStaticFriction * cleanDynamicFriction);
 				default:
-					return std::max(staticFriction, dynamicFriction); // Default to maximum
+					return std::max(cleanStaticFriction, cleanDynamicFriction); // Default to maximum
 			}
 		}
-
-		float GetFriction() const { return m_Friction; }
-		void SetFriction(float friction) { m_Friction = friction; }
-
-		float GetRestitution() const { return m_Restitution; }
-		void SetRestitution(float restitution) { m_Restitution = restitution; }
 
 		inline static JPH::Ref<JoltMaterial> FromColliderMaterial(const ColliderMaterial& colliderMaterial)
 		{
@@ -97,9 +97,20 @@ namespace OloEngine {
 		}
 
 		// Helper functions to create materials from our collider components
-		static JoltMaterial CreateFromBoxCollider(const BoxCollider3DComponent& collider);
-		static JoltMaterial CreateFromSphereCollider(const SphereCollider3DComponent& collider);
-		static JoltMaterial CreateFromCapsuleCollider(const CapsuleCollider3DComponent& collider);
+		static inline JoltMaterial CreateFromBoxCollider(const BoxCollider3DComponent& collider)
+		{
+			return CreateFromCollider(collider);
+		}
+
+		static inline JoltMaterial CreateFromSphereCollider(const SphereCollider3DComponent& collider)
+		{
+			return CreateFromCollider(collider);
+		}
+
+		static inline JoltMaterial CreateFromCapsuleCollider(const CapsuleCollider3DComponent& collider)
+		{
+			return CreateFromCollider(collider);
+		}
 
 	private:
 		float m_Friction = 0.6f;
@@ -107,3 +118,6 @@ namespace OloEngine {
 	};
 
 }
+
+// Include component definitions for inline method implementations
+#include "OloEngine/Scene/Components.h"

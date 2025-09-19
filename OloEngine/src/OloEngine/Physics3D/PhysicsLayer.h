@@ -5,21 +5,22 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <shared_mutex>
 
 namespace OloEngine {
 
 	// Physics layer constants
 	constexpr u32 INVALID_LAYER_ID = static_cast<u32>(-1);
 	constexpr i32 INVALID_BIT_MASK = -1;
-	constexpr i32 NO_COLLISION_BITS = 0;
+	constexpr u32 NO_COLLISION_BITS = 0;
 	constexpr i32 NO_PREVIOUS_LAYER_ID = -1;
 
 	struct PhysicsLayer
 	{
 		u32 m_LayerID;
 		std::string m_Name;
-		i32 m_BitValue;
-		i32 m_CollidesWith = 0;
+		u32 m_BitValue;
+		u32 m_CollidesWith = 0;
 		bool m_CollidesWithSelf = true;
 
 		bool IsValid() const
@@ -39,7 +40,7 @@ namespace OloEngine {
 		static void SetLayerCollision(u32 layerId, u32 otherLayer, bool shouldCollide);
 		static void GetLayerCollisions(u32 layerId, std::vector<PhysicsLayer>& outLayers);
 
-		static const std::vector<PhysicsLayer>& GetLayers() { return s_Layers; }
+		static const std::vector<PhysicsLayer> GetLayers(); // Returns a copy for thread safety
 		static std::vector<std::string> GetLayerNames();
 
 		static PhysicsLayer& GetLayer(u32 layerId);
@@ -63,6 +64,7 @@ namespace OloEngine {
 		static std::unordered_map<u32, std::string> s_LayerNames;
 		static std::unordered_map<u32, sizet> s_LayerIndexMap; // Maps LayerID to index in s_Layers for O(1) lookup
 		static PhysicsLayer s_NullLayer;
+		static std::shared_mutex s_LayersMutex; // Protects all static containers
 	};
 
 }
