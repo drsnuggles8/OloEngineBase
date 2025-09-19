@@ -23,6 +23,9 @@ namespace OloEngine {
 		// Jolt Physics constants
 		static constexpr u32 kMaxJoltLayers = 32;
 
+		// Matrix operations constants
+		static constexpr f32 NORMALIZATION_EPSILON = 1e-6f;
+
 		// Delete constructors and assignment operators to prevent instantiation
 		JoltUtils() = delete;
 		JoltUtils(const JoltUtils&) = delete;
@@ -152,8 +155,6 @@ namespace OloEngine {
 		// Prefer this over DecomposeTransform() when only rotation is needed (hot path optimization)
 		static glm::quat GetRotationFromTransform(const glm::mat4& transform)
 		{
-			static constexpr f32 NORMALIZATION_EPSILON = 1e-6f;
-			
 			// Extract the upper-left 3x3 rotation+scale matrix
 			glm::mat3 rotScale = glm::mat3(transform);
 			
@@ -195,7 +196,7 @@ namespace OloEngine {
 				}
 				else
 				{
-					col1 /= len1_ortho;
+					col1 = glm::normalize(col1);
 				}
 				
 				// col2 = cross(col0, col1) for right-handed orthonormal basis

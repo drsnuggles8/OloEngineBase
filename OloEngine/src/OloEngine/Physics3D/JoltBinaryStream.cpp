@@ -314,9 +314,7 @@ namespace OloEngine {
 		 */
 		bool GetShapeInfo(const Buffer& buffer, JPH::EShapeType& outShapeType, sizet& outDataSize)
 		{
-			outDataSize = buffer.Size;
-
-			if (!buffer.Data || buffer.Size < sizeof(JPH::EShapeType) + sizeof(sizet))
+			if (!buffer.Data || buffer.Size < sizeof(JPH::EShapeType))
 				return false;
 
 			try
@@ -325,10 +323,13 @@ namespace OloEngine {
 				const u8* data = static_cast<const u8*>(buffer.Data);
 				::memcpy(&outShapeType, data, sizeof(JPH::EShapeType));
 				
-				// Read the stored data size
-				sizet storedDataSize;
-				::memcpy(&storedDataSize, data + sizeof(JPH::EShapeType), sizeof(sizet));
-				outDataSize = storedDataSize;
+				// Compute data size: total buffer size minus the header size
+				// Header contains: EShapeType + EShapeSubType
+				constexpr sizet headerSize = sizeof(JPH::EShapeType) + sizeof(JPH::EShapeSubType);
+				if (buffer.Size < headerSize)
+					return false;
+					
+				outDataSize = buffer.Size - headerSize;
 				
 				return true;
 			}
@@ -372,60 +373,81 @@ namespace OloEngine {
 				return Buffer::Copy(inputBuffer);
 			}
 
-			// Simple Run-Length Encoding compression
-			try
+			// Validate that input size fits in 32-bit for header
+			if (inputBuffer.Size > UINT32_MAX)
 			{
-				const u8* input = static_cast<const u8*>(inputBuffer.Data);
-				std::vector<u8> compressed;
-				compressed.reserve(inputBuffer.Size); // Reserve space for worst case
+				OLO_CORE_WARN("JoltBinaryStreamUtils::CompressShapeData: Input size too large for 32-bit header, returning original");
+				return Buffer::Copy(inputBuffer);
+			}
 
-				u8 currentByte = input[0];
-				u8 runLength = 1;
+			// Simple Run-Length Encoding compression
+			const u8* input = static_cast<const u8*>(inputBuffer.Data);
+			std::vector<u8> compressed;
+			compressed.reserve(inputBuffer.Size); // Reserve space for worst case
 
-				for (sizet i = 1; i < inputBuffer.Size; ++i)
+			u8 currentByte = input[0];
+			u8 runLength = 1;
+
+			for (sizet i = 1; i < inputBuffer.Size; ++i)
+			{
+				if (input[i] == currentByte && runLength < 255)
 				{
-					if (input[i] == currentByte && runLength < 255)
-					{
-						runLength++;
-					}
-					else
-					{
-						// Store run length and byte
-						compressed.push_back(runLength);
-						compressed.push_back(currentByte);
-						
-						currentByte = input[i];
-						runLength = 1;
-					}
-				}
-
-				// Store the last run
-				compressed.push_back(runLength);
-				compressed.push_back(currentByte);
-
-				// Only use compression if it actually reduces size
-				if (compressed.size() < inputBuffer.Size)
-				{
-					Buffer result;
-					result.Allocate(compressed.size());
-					::memcpy(result.Data, compressed.data(), compressed.size());
-					
-					OLO_CORE_TRACE("JoltBinaryStreamUtils::CompressShapeData: Compressed {} bytes to {} bytes ({:.1f}% reduction)", 
-								   inputBuffer.Size, compressed.size(), 
-								   100.0f * (1.0f - static_cast<f32>(compressed.size()) / static_cast<f32>(inputBuffer.Size)));
-					
-					return result;
+					runLength++;
 				}
 				else
 				{
-					// Compression wasn't beneficial, return original
-					OLO_CORE_TRACE("JoltBinaryStreamUtils::CompressShapeData: Compression not beneficial, returning original buffer");
-					return Buffer::Copy(inputBuffer);
+					// Store run length and byte
+					compressed.push_back(runLength);
+					compressed.push_back(currentByte);
+					
+					currentByte = input[i];
+					runLength = 1;
 				}
 			}
-			catch (const std::exception& e)
+
+			// Store the last run
+			compressed.push_back(runLength);
+			compressed.push_back(currentByte);
+
+			// Calculate total size with header: magic (4 bytes) + original size (4 bytes) + compressed data
+			constexpr sizet headerSize = 8; // 4-byte magic + 4-byte size
+			sizet totalCompressedSize = headerSize + compressed.size();
+
+			// Only use compression if it actually reduces size (including header overhead)
+			if (totalCompressedSize < inputBuffer.Size)
 			{
-				OLO_CORE_ERROR("JoltBinaryStreamUtils::CompressShapeData: Exception during compression: {}", e.what());
+				Buffer result;
+				result.Allocate(totalCompressedSize);
+				
+				u8* resultData = static_cast<u8*>(result.Data);
+				
+				// Write magic number "JRLE"
+				resultData[0] = 'J';
+				resultData[1] = 'R';
+				resultData[2] = 'L';
+				resultData[3] = 'E';
+				
+				// Write original size as 32-bit little-endian
+				u32 originalSize = static_cast<u32>(inputBuffer.Size);
+				resultData[4] = static_cast<u8>(originalSize & 0xFF);
+				resultData[5] = static_cast<u8>((originalSize >> 8) & 0xFF);
+				resultData[6] = static_cast<u8>((originalSize >> 16) & 0xFF);
+				resultData[7] = static_cast<u8>((originalSize >> 24) & 0xFF);
+				
+				// Copy compressed payload
+				::memcpy(resultData + headerSize, compressed.data(), compressed.size());
+				
+				OLO_CORE_TRACE("JoltBinaryStreamUtils::CompressShapeData: Compressed {} bytes to {} bytes with header (payload: {} bytes, {:.1f}% reduction)", 
+							   inputBuffer.Size, totalCompressedSize, compressed.size(),
+							   100.0f * (1.0f - static_cast<f32>(totalCompressedSize) / static_cast<f32>(inputBuffer.Size)));
+				
+				return result;
+			}
+			else
+			{
+				// Compression wasn't beneficial, return original
+				OLO_CORE_TRACE("JoltBinaryStreamUtils::CompressShapeData: Compression not beneficial (would be {} bytes vs {} original), returning original buffer", 
+							   totalCompressedSize, inputBuffer.Size);
 				return Buffer::Copy(inputBuffer);
 			}
 		}
@@ -444,53 +466,77 @@ namespace OloEngine {
 				return Buffer();
 			}
 
-			// If buffer size is odd, it might not be RLE compressed (RLE produces pairs)
-			if (compressedBuffer.Size % 2 != 0)
+			// Check if buffer has our compression header (magic + size)
+			constexpr sizet headerSize = 8; // 4-byte magic + 4-byte size
+			if (compressedBuffer.Size < headerSize)
 			{
-				OLO_CORE_TRACE("JoltBinaryStreamUtils::DecompressShapeData: Buffer size suggests no RLE compression, returning original");
+				OLO_CORE_TRACE("JoltBinaryStreamUtils::DecompressShapeData: Buffer too small for header, returning original");
 				return Buffer::Copy(compressedBuffer);
 			}
 
-			try
+			const u8* input = static_cast<const u8*>(compressedBuffer.Data);
+			
+			// Check for magic number "JRLE"
+			if (input[0] != 'J' || input[1] != 'R' || input[2] != 'L' || input[3] != 'E')
 			{
-				const u8* input = static_cast<const u8*>(compressedBuffer.Data);
-				std::vector<u8> decompressed;
+				OLO_CORE_TRACE("JoltBinaryStreamUtils::DecompressShapeData: No compression magic found, returning original");
+				return Buffer::Copy(compressedBuffer);
+			}
+
+			// Read original size from header (32-bit little-endian)
+			u32 originalSize = static_cast<u32>(input[4]) |
+							  (static_cast<u32>(input[5]) << 8) |
+							  (static_cast<u32>(input[6]) << 16) |
+							  (static_cast<u32>(input[7]) << 24);
+
+			// Get compressed payload (skip header)
+			const u8* compressedPayload = input + headerSize;
+			sizet payloadSize = compressedBuffer.Size - headerSize;
+
+			// If payload size is odd, it might not be valid RLE data (RLE produces pairs)
+			if (payloadSize % 2 != 0)
+			{
+				OLO_CORE_WARN("JoltBinaryStreamUtils::DecompressShapeData: Invalid RLE payload size (odd), returning original");
+				return Buffer::Copy(compressedBuffer);
+			}
+
+			std::vector<u8> decompressed;
+			decompressed.reserve(originalSize); // Use original size from header
+
+			for (sizet i = 0; i < payloadSize; i += 2)
+			{
+				u8 runLength = compressedPayload[i];
+				u8 byte = compressedPayload[i + 1];
 				
-				// Estimate decompressed size (worst case: each pair expands to 255 bytes)
-				decompressed.reserve(compressedBuffer.Size * 128);
-
-				for (sizet i = 0; i < compressedBuffer.Size; i += 2)
+				// Expand the run
+				for (u8 j = 0; j < runLength; ++j)
 				{
-					u8 runLength = input[i];
-					u8 byte = input[i + 1];
-					
-					// Expand the run
-					for (u8 j = 0; j < runLength; ++j)
-					{
-						decompressed.push_back(byte);
-					}
-				}
-
-				if (!decompressed.empty())
-				{
-					Buffer result;
-					result.Allocate(decompressed.size());
-					::memcpy(result.Data, decompressed.data(), decompressed.size());
-					
-					OLO_CORE_TRACE("JoltBinaryStreamUtils::DecompressShapeData: Decompressed {} bytes to {} bytes", 
-								   compressedBuffer.Size, decompressed.size());
-					
-					return result;
-				}
-				else
-				{
-					OLO_CORE_WARN("JoltBinaryStreamUtils::DecompressShapeData: Decompression resulted in empty buffer");
-					return Buffer::Copy(compressedBuffer);
+					decompressed.push_back(byte);
 				}
 			}
-			catch (const std::exception& e)
+
+			// Validate decompressed size matches header
+			if (decompressed.size() != originalSize)
 			{
-				OLO_CORE_ERROR("JoltBinaryStreamUtils::DecompressShapeData: Exception during decompression: {}", e.what());
+				OLO_CORE_ERROR("JoltBinaryStreamUtils::DecompressShapeData: Decompressed size mismatch (got {} bytes, expected {} bytes)", 
+							   decompressed.size(), originalSize);
+				return Buffer::Copy(compressedBuffer);
+			}
+
+			if (!decompressed.empty())
+			{
+				Buffer result;
+				result.Allocate(decompressed.size());
+				::memcpy(result.Data, decompressed.data(), decompressed.size());
+				
+				OLO_CORE_TRACE("JoltBinaryStreamUtils::DecompressShapeData: Decompressed {} bytes to {} bytes", 
+							   compressedBuffer.Size, decompressed.size());
+				
+				return result;
+			}
+			else
+			{
+				OLO_CORE_WARN("JoltBinaryStreamUtils::DecompressShapeData: Decompression resulted in empty buffer");
 				return Buffer::Copy(compressedBuffer);
 			}
 		}

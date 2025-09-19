@@ -167,7 +167,7 @@ namespace OloEngine
             else
             {
                 // Apply gravity when not grounded or on steep slope
-                glm::vec3 gravity = glm::vec3(0.0f, -9.81f, 0.0f); // TODO: Default gravity, should get from scene
+                glm::vec3 gravity = m_Scene->GetGravity();
                 newVelocity = currentVerticalVelocity + JoltUtils::ToJoltVector(gravity) * deltaTime;
             }
         }

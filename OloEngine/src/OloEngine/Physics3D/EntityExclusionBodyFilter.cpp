@@ -27,8 +27,17 @@ namespace OloEngine {
 
 	bool EntityExclusionBodyFilter::ShouldCollideLocked(const JPH::Body& inBody) const
 	{
-		// Extract entity UUID from body user data
-		UUID entityID = static_cast<UUID>(inBody.GetUserData());
+		// Get raw user data and validate it before using
+		JPH::uint64 rawUserData = inBody.GetUserData();
+		if (rawUserData == 0)
+		{
+			// No valid entity ID - allow collision by default
+			OLO_CORE_WARN("Physics body has null user data, allowing collision");
+			return true;
+		}
+
+		// Extract entity UUID from validated user data
+		UUID entityID = static_cast<UUID>(rawUserData);
 		
 		// Return false if this entity should be excluded (i.e., don't collide with excluded entities)
 		return !IsEntityExcluded(entityID);

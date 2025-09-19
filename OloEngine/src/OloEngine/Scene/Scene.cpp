@@ -822,7 +822,7 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::TransformComponent>([[maybe_u
 }
 
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::CameraComponent>(OloEngine::Entity entity, OloEngine::CameraComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::CameraComponent>([[maybe_unused]] OloEngine::Entity entity, OloEngine::CameraComponent& component)
 {
 	if ((m_ViewportWidth > 0) && (m_ViewportHeight > 0))
 	{

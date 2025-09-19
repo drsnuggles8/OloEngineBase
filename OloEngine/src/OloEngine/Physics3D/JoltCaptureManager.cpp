@@ -2,9 +2,9 @@
 #include "JoltCaptureManager.h"
 
 #include "OloEngine/Debug/Instrumentor.h"
-#include "OloEngine/Core/Application.h"
 
 #include <chrono>
+#include <ctime>
 #include <iomanip>
 #include <sstream>
 
@@ -15,10 +15,14 @@ namespace OloEngine {
 		OLO_PROFILE_FUNCTION();
 
 		Close();
-		m_Stream.open(inPath, std::ios::binary);
-		if (!m_Stream.is_open())
+		m_Stream.open(inPath, std::ios::out | std::ios::binary | std::ios::trunc);
+		
+		// Validate stream state immediately after opening
+		if (!m_Stream.is_open() || m_Stream.fail())
 		{
-			OLO_CORE_ERROR("Failed to open capture file: {0}", inPath.string());
+			OLO_CORE_ERROR("Failed to open capture file: {} (is_open: {}, fail: {})", 
+						   inPath.string(), m_Stream.is_open(), m_Stream.fail());
+			return;
 		}
 	}
 
@@ -34,7 +38,14 @@ namespace OloEngine {
 	{
 		if (m_Stream.is_open())
 		{
-			m_Stream.write(static_cast<const char*>(inData), inNumBytes);
+			m_Stream.write(static_cast<const char*>(inData), static_cast<std::streamsize>(inNumBytes));
+			
+			// Check for write failures immediately after the operation
+			if (m_Stream.fail() || m_Stream.bad() || !m_Stream.good())
+			{
+				OLO_CORE_ERROR("Failed to write {} bytes to capture stream (fail: {}, bad: {}, good: {})", 
+							   inNumBytes, m_Stream.fail(), m_Stream.bad(), m_Stream.good());
+			}
 		}
 	}
 
@@ -47,9 +58,70 @@ namespace OloEngine {
 	{
 		OLO_PROFILE_FUNCTION();
 
-		// Set default captures directory
-		auto appDataPath = std::filesystem::path(std::getenv("APPDATA")) / "OloEngine" / "Captures";
-		SetCapturesDirectory(appDataPath);
+		// Set default captures directory with cross-platform support
+		std::filesystem::path capturesPath;
+		
+#ifdef _WIN32
+		// Windows: Use APPDATA if available
+		const char* appData = std::getenv("APPDATA");
+		if (appData != nullptr)
+		{
+			capturesPath = std::filesystem::path(appData) / "OloEngine" / "Captures";
+		}
+		else
+		{
+			capturesPath = std::filesystem::current_path() / "Captures";
+		}
+#elif defined(__APPLE__)
+		// macOS: Use HOME + Library/Application Support
+		const char* home = std::getenv("HOME");
+		if (home != nullptr)
+		{
+			capturesPath = std::filesystem::path(home) / "Library" / "Application Support" / "OloEngine" / "Captures";
+		}
+		else
+		{
+			capturesPath = std::filesystem::current_path() / "Captures";
+		}
+#else
+		// Linux/Unix: Use XDG_DATA_HOME or fallback to HOME + .local/share
+		const char* xdgDataHome = std::getenv("XDG_DATA_HOME");
+		if (xdgDataHome != nullptr)
+		{
+			capturesPath = std::filesystem::path(xdgDataHome) / "OloEngine" / "Captures";
+		}
+		else
+		{
+			const char* home = std::getenv("HOME");
+			if (home != nullptr)
+			{
+				capturesPath = std::filesystem::path(home) / ".local" / "share" / "OloEngine" / "Captures";
+			}
+			else
+			{
+				capturesPath = std::filesystem::current_path() / "Captures";
+			}
+		}
+#endif
+
+		// Create the directory if it doesn't exist
+		std::error_code ec;
+		if (!std::filesystem::exists(capturesPath, ec))
+		{
+			if (std::filesystem::create_directories(capturesPath, ec))
+			{
+				OLO_CORE_INFO("Created captures directory: {}", capturesPath.string());
+			}
+			else
+			{
+				OLO_CORE_WARN("Failed to create captures directory: {} ({})", capturesPath.string(), ec.message());
+				// Fallback to current directory
+				capturesPath = std::filesystem::current_path() / "Captures";
+				std::filesystem::create_directories(capturesPath, ec);
+			}
+		}
+
+		SetCapturesDirectory(capturesPath);
 	}
 
 	JoltCaptureManager::~JoltCaptureManager()
@@ -75,8 +147,27 @@ namespace OloEngine {
 		// Generate filename with timestamp
 		auto now = std::chrono::system_clock::now();
 		auto time_t = std::chrono::system_clock::to_time_t(now);
+		
+		// Use thread-safe time conversion
+		std::tm local_tm{};
+#if defined(_WIN32)
+		// Windows: Use localtime_s (localtime_s(&tm, &time_t))
+		if (localtime_s(&local_tm, &time_t) != 0)
+		{
+			OLO_CORE_ERROR("Failed to convert time to local time on Windows");
+			return;
+		}
+#else
+		// POSIX: Use localtime_r (localtime_r(&time_t, &tm))
+		if (localtime_r(&time_t, &local_tm) == nullptr)
+		{
+			OLO_CORE_ERROR("Failed to convert time to local time on POSIX");
+			return;
+		}
+#endif
+		
 		std::stringstream ss;
-		ss << "capture_" << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S") << ".jolt";
+		ss << "capture_" << std::put_time(&local_tm, "%Y%m%d_%H%M%S") << ".jolt";
 
 		std::filesystem::path capturePath = m_CapturesDirectory / ss.str();
 
@@ -115,12 +206,11 @@ namespace OloEngine {
 		// Full implementation would require Jolt debug renderer integration
 		// This provides the framework for when JPH_DEBUG_RENDERER is available
 		
-		static i32 frameCount = 0;
-		frameCount++;
+		m_FrameCount++;
 		
-		if (frameCount % 60 == 0) // Log every 60 frames
+		if (m_FrameCount % 60 == 0) // Log every 60 frames
 		{
-			OLO_CORE_TRACE("Captured physics frame {0}", frameCount);
+			OLO_CORE_TRACE("Captured physics frame {0}", m_FrameCount);
 		}
 	}
 
@@ -135,6 +225,7 @@ namespace OloEngine {
 
 		m_Stream.Close();
 		m_IsCapturing = false;
+		m_FrameCount = 0; // Reset frame counter for next capture
 
 		OLO_CORE_INFO("Ended physics capture: {0}", m_RecentCapture.string());
 	}

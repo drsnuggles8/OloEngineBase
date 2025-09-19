@@ -1,11 +1,17 @@
 #pragma once
 
+// Standard library includes
+#include <functional>
+#include <unordered_set>
+
+// Project includes
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Scene/Entity.h"
 #include "Physics3DTypes.h"
 #include "JoltUtils.h"
 
+// Third-party includes
 #include <Jolt/Core/Reference.h>
 #include <Jolt/Math/Quat.h>
 #include <Jolt/Math/Vec3.h>
@@ -13,10 +19,7 @@
 #include <Jolt/Physics/Character/CharacterVirtual.h>
 
 #include <glm/glm.hpp>
-#include <unordered_set>
 #include <glm/gtc/quaternion.hpp>
-
-#include <functional>
 
 namespace OloEngine
 {

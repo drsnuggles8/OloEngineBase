@@ -11,10 +11,10 @@
 namespace OloEngine {
 
 	/**
-	 * @brief Stream output class for writing Jolt capture data to files
+	 * @brief File sink for writing physics capture data to binary files
 	 * 
-	 * Implements Jolt's StreamOut interface to write physics simulation
-	 * data to binary files that can be opened with JoltViewer.
+	 * Simple file output class used by the capture manager to write physics 
+	 * simulation data to binary files compatible with JoltViewer.
 	 */
 	class JoltCaptureOutStream
 	{
@@ -69,6 +69,7 @@ namespace OloEngine {
 	private:
 		JoltCaptureOutStream m_Stream;
 		bool m_IsCapturing = false;
+		i32 m_FrameCount = 0;
 
 		std::filesystem::path m_CapturesDirectory;
 		std::filesystem::path m_RecentCapture;

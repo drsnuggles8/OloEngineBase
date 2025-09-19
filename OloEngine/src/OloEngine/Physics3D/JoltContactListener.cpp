@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "JoltContactListener.h"
 #include "JoltScene.h"
+#include "JoltUtils.h"
 #include "OloEngine/Core/Log.h"
 
 namespace OloEngine {
@@ -23,7 +24,7 @@ namespace OloEngine {
 		UUID entityA = GetEntityIDFromBody(inBody1);
 		UUID entityB = GetEntityIDFromBody(inBody2);
 
-		if (entityA != 0 && entityB != 0)
+		if (entityA != 0 && entityB != 0 && inManifold.mRelativeContactPointsOn1.size() > 0)
 		{
 			glm::vec3 contactPoint = JoltUtils::FromJoltVector(inManifold.GetWorldSpaceContactPointOn1(0));
 			glm::vec3 contactNormal = JoltUtils::FromJoltVector(inManifold.mWorldSpaceNormal);
@@ -38,7 +39,7 @@ namespace OloEngine {
 		UUID entityA = GetEntityIDFromBody(inBody1);
 		UUID entityB = GetEntityIDFromBody(inBody2);
 
-		if (entityA != 0 && entityB != 0)
+		if (entityA != 0 && entityB != 0 && inManifold.mRelativeContactPointsOn1.size() > 0)
 		{
 			glm::vec3 contactPoint = JoltUtils::FromJoltVector(inManifold.GetWorldSpaceContactPointOn1(0));
 			glm::vec3 contactNormal = JoltUtils::FromJoltVector(inManifold.mWorldSpaceNormal);
@@ -59,21 +60,25 @@ namespace OloEngine {
 
 	void JoltContactListener::ProcessContactEvents()
 	{
-		std::lock_guard<std::mutex> lock(m_ContactEventsMutex);
-		
-		// Process all queued contact events
-		while (!m_ContactEventQueue.empty())
+		// Drain the queue into a local container while holding the lock
+		std::deque<ContactEvent> localEventQueue;
 		{
-			const ContactEvent& event = m_ContactEventQueue.front();
+			std::lock_guard<std::mutex> lock(m_ContactEventsMutex);
 			
+			// Move all events to local queue for processing without holding the mutex
+			localEventQueue = std::move(m_ContactEventQueue);
+			m_ContactEventQueue.clear(); // Ensure the original queue is empty
+			m_QueueSize.store(0, std::memory_order_relaxed); // Reset queue size
+		}
+		
+		// Process all contact events without holding the mutex
+		for (const ContactEvent& event : localEventQueue)
+		{
 			// Send the contact event to the scene for processing
 			if (m_Scene)
 			{
 				m_Scene->OnContactEvent(event.Type, event.EntityA, event.EntityB);
 			}
-			
-			m_ContactEventQueue.pop_front();
-			m_QueueSize.fetch_sub(1, std::memory_order_relaxed);
 		}
 	}
 
