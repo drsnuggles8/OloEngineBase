@@ -328,13 +328,13 @@ namespace OloEngine
 				}
 
 				// Retrieve transforms from Jolt 3D physics
-				for (const auto view = m_Registry.view<RigidBody3DComponent, TransformComponent>(); const auto e : view)
+				for (const auto view = m_Registry.view<Rigidbody3DComponent, TransformComponent>(); const auto e : view)
 				{
 					Entity entity = { e, this };
 					auto& transform = entity.GetComponent<TransformComponent>();
-					auto& rb3d = entity.GetComponent<RigidBody3DComponent>();
+					auto& rb3d = entity.GetComponent<Rigidbody3DComponent>();
 
-					if (rb3d.RuntimeBodyToken != 0 && rb3d.Type != BodyType3D::Static && m_JoltScene)
+					if (rb3d.m_RuntimeBodyToken != 0 && rb3d.m_Type != BodyType3D::Static && m_JoltScene)
 					{
 						// Get the body from JoltScene and sync transforms
 						auto body = m_JoltScene->GetBody(entity);
@@ -463,13 +463,13 @@ namespace OloEngine
 				}
 
 				// Retrieve transforms from Jolt 3D physics
-				for (const auto view = m_Registry.view<RigidBody3DComponent, TransformComponent>(); const auto e : view)
+				for (const auto view = m_Registry.view<Rigidbody3DComponent, TransformComponent>(); const auto e : view)
 				{
 					Entity entity = { e, this };
 					auto& transform = entity.GetComponent<TransformComponent>();
-					auto& rb3d = entity.GetComponent<RigidBody3DComponent>();
+					auto& rb3d = entity.GetComponent<Rigidbody3DComponent>();
 
-					if (rb3d.RuntimeBodyToken != 0 && rb3d.Type != BodyType3D::Static && m_JoltScene)
+					if (rb3d.m_RuntimeBodyToken != 0 && rb3d.m_Type != BodyType3D::Static && m_JoltScene)
 					{
 						// Get the body from JoltScene and sync transforms
 						auto body = m_JoltScene->GetBody(entity);
@@ -738,8 +738,8 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 			return;
 		}
 
-		// Create physics bodies for all entities with RigidBody3DComponent
-		auto view = m_Registry.view<RigidBody3DComponent, TransformComponent>();
+		// Create physics bodies for all entities with Rigidbody3DComponent
+		auto view = m_Registry.view<Rigidbody3DComponent, TransformComponent>();
 		for (auto entity : view)
 		{
 			Entity ent = { entity, this };
@@ -748,10 +748,10 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 			auto body = m_JoltScene->CreateBody(ent);
 			if (body)
 			{
-				auto& rb3d = ent.GetComponent<RigidBody3DComponent>();
+				auto& rb3d = ent.GetComponent<Rigidbody3DComponent>();
 				// Store the body reference for runtime access
-				rb3d.RuntimeBody = body.get(); // Store raw pointer for compatibility
-				rb3d.RuntimeBodyToken = body ? static_cast<std::uint64_t>(body->GetBodyID().GetIndexAndSequenceNumber()) : 0;
+				rb3d.m_RuntimeBody = body.get(); // Store raw pointer for compatibility
+				rb3d.m_RuntimeBodyToken = body ? static_cast<std::uint64_t>(body->GetBodyID().GetIndexAndSequenceNumber()) : 0;
 			}
 		}
 	}
@@ -765,18 +765,18 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 		}
 		
 		// Clean up all physics bodies
-		auto view = m_Registry.view<RigidBody3DComponent>();
+		auto view = m_Registry.view<Rigidbody3DComponent>();
 		for (auto entity : view)
 		{
 			Entity ent = { entity, this };
-			auto& rb3d = ent.GetComponent<RigidBody3DComponent>();
+			auto& rb3d = ent.GetComponent<Rigidbody3DComponent>();
 			
-			if (rb3d.RuntimeBody || rb3d.RuntimeBodyToken != 0)
+			if (rb3d.m_RuntimeBody || rb3d.m_RuntimeBodyToken != 0)
 			{
 				// Destroy the body using the entity
 				m_JoltScene->DestroyBody(ent);
-				rb3d.RuntimeBody = nullptr;
-				rb3d.RuntimeBodyToken = 0;
+				rb3d.m_RuntimeBody = nullptr;
+				rb3d.m_RuntimeBodyToken = 0;
 			}
 		}
 
@@ -902,7 +902,7 @@ void OloEngine::Scene::OnComponentAdded<OloEngine::PrefabComponent>([[maybe_unus
 }
 
 template<>
-void OloEngine::Scene::OnComponentAdded<OloEngine::RigidBody3DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::RigidBody3DComponent& component)
+void OloEngine::Scene::OnComponentAdded<OloEngine::Rigidbody3DComponent>([[maybe_unused]] OloEngine::Entity entity, [[maybe_unused]] OloEngine::Rigidbody3DComponent& component)
 {
 }
 

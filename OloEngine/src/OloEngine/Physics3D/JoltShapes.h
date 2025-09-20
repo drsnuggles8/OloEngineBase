@@ -1,5 +1,22 @@
 #pragma once
 
+/**
+ * @file JoltShapes.h
+ * @brief Utility functions for creating and converting Jolt collision shapes for the 3D physics system.
+ * 
+ * This header defines the JoltShapes class which provides static utility functions to convert engine
+ * component data (BoxCollider3DComponent, SphereCollider3DComponent, etc.) into Jolt Physics shape objects.
+ * It serves as the primary interface for mapping high-level engine collider components to low-level 
+ * Jolt shape representations used by the physics simulation.
+ * 
+ * Key Usage Notes:
+ * - Thread Safety: Shape creation functions are thread-safe. Shape caching uses shared_mutex for concurrent reads.
+ * - Memory Management: Returns JPH::Ref<JPH::Shape> smart pointers - Jolt handles lifetime automatically.
+ * - Coordinate Space: Expects engine world coordinates; shapes are created in Jolt's coordinate system.
+ * - Scaling: Scale parameters are applied during shape creation and baked into the final shape geometry.
+ * - Validation: All shape parameters are validated against s_MinShapeSize/s_MaxShapeSize bounds.
+ */
+
 #include "Physics3DTypes.h"
 #include "JoltUtils.h"
 #include "OloEngine/Core/Base.h"
@@ -21,6 +38,8 @@
 #include <vector>
 #include <filesystem>
 #include <shared_mutex>
+#include <utility>
+#include <atomic>
 
 namespace OloEngine {
 
@@ -53,8 +72,8 @@ namespace OloEngine {
 		static bool SaveShapeToCache(const std::string& cacheKey, const JPH::Shape* shape);
 		static JPH::Ref<JPH::Shape> LoadShapeFromCache(const std::string& cacheKey);
 		static void ClearPersistentCache();
-		static bool IsPersistentCacheEnabled() { return s_PersistentCacheEnabled; }
-		static void SetPersistentCacheEnabled(bool enabled) { s_PersistentCacheEnabled = enabled; }
+		static bool IsPersistentCacheEnabled() { return s_PersistentCacheEnabled.load(std::memory_order_acquire); }
+		static void SetPersistentCacheEnabled(bool enabled) { s_PersistentCacheEnabled.store(enabled, std::memory_order_release); }
 
 		// Helper functions
 		static glm::vec3 CalculateShapeLocalCenterOfMass(Entity entity);
@@ -83,18 +102,18 @@ namespace OloEngine {
 		// Scaling helpers
 		static glm::vec3 ApplyScaleToBoxExtents(const glm::vec3& halfExtents, const glm::vec3& scale);
 		static f32 ApplyScaleToSphereRadius(f32 radius, const glm::vec3& scale);
-		static void ApplyScaleToCapsule(f32& radius, f32& halfHeight, const glm::vec3& scale);
+		static std::pair<f32, f32> ApplyScaleToCapsule(f32 radius, f32 halfHeight, const glm::vec3& scale);
 
 	private:
 		static bool s_Initialized;
 		static std::unordered_map<std::string, JPH::Ref<JPH::Shape>> s_ShapeCache;
 		static std::shared_mutex s_ShapeCacheMutex;
-		static bool s_PersistentCacheEnabled;
+		static std::atomic<bool> s_PersistentCacheEnabled;
 		static std::filesystem::path s_PersistentCacheDirectory;
 		
 		// Constants for shape validation
-		static constexpr f32 MinShapeSize = 0.001f;
-		static constexpr f32 MaxShapeSize = 10000.0f;
+		static constexpr f32 s_MinShapeSize = 0.001f;
+		static constexpr f32 s_MaxShapeSize = 10000.0f;
 	};
 
 }

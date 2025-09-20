@@ -26,9 +26,9 @@
 
 namespace OloEngine {
 
-	MeshCookingFactory::MeshCookingFactory()
+	MeshCookingFactory::MeshCookingFactory(const std::filesystem::path& cacheDirectory)
+		: m_CacheDirectory(cacheDirectory)
 	{
-		m_CacheDirectory = std::filesystem::path("assets/cache/physics");
 	}
 
 	MeshCookingFactory::~MeshCookingFactory()
@@ -48,9 +48,23 @@ namespace OloEngine {
 		}
 
 		// Create cache directory if it doesn't exist
-		if (!std::filesystem::exists(m_CacheDirectory))
+		try
 		{
-			std::filesystem::create_directories(m_CacheDirectory);
+			if (!std::filesystem::exists(m_CacheDirectory))
+			{
+				std::filesystem::create_directories(m_CacheDirectory);
+			}
+			m_CacheAvailable = true;
+		}
+		catch (const std::filesystem::filesystem_error& e)
+		{
+			OLO_CORE_ERROR("MeshCookingFactory: Filesystem error during cache directory creation: {0}. Cache functionality will be disabled.", e.what());
+			m_CacheAvailable = false;
+		}
+		catch (const std::exception& e)
+		{
+			OLO_CORE_ERROR("MeshCookingFactory: Exception during cache directory creation: {0}. Cache functionality will be disabled.", e.what());
+			m_CacheAvailable = false;
 		}
 
 		m_Initialized = true;
@@ -104,12 +118,16 @@ namespace OloEngine {
 			return ECookingResult::SourceDataInvalid;
 		}
 
-		// Check cache
-		std::filesystem::path cacheFilePath = GetCacheFilePath(colliderAsset, type);
-		if (!invalidateOld && std::filesystem::exists(cacheFilePath))
+		// Check cache (only if cache is available)
+		std::filesystem::path cacheFilePath;
+		if (m_CacheAvailable)
 		{
-			// TODO: Add timestamp checking against source mesh
-			return ECookingResult::AlreadyExists;
+			cacheFilePath = GetCacheFilePath(colliderAsset, type);
+			if (!invalidateOld && std::filesystem::exists(cacheFilePath))
+			{
+				// TODO: Add timestamp checking against source mesh
+				return ECookingResult::AlreadyExists;
+			}
 		}
 
 		// Create collider data
@@ -144,11 +162,15 @@ namespace OloEngine {
 
 		colliderData.m_IsValid = !colliderData.m_Submeshes.empty();
 
-		// Serialize to cache
-		if (!SerializeMeshCollider(cacheFilePath, colliderData))
+		// Serialize to cache (only if cache is available)
+		if (m_CacheAvailable && !cacheFilePath.empty())
 		{
-			LogCookingError("CookMeshType", "Failed to serialize mesh collider to cache");
-			return ECookingResult::OutputInvalid;
+			if (!SerializeMeshCollider(cacheFilePath, colliderData))
+			{
+				LogCookingError("CookMeshType", "Failed to serialize mesh collider to cache");
+				// Don't return an error here - the cooking succeeded, just cache write failed
+				OLO_CORE_WARN("MeshCookingFactory: Cache write failed but cooking succeeded, continuing without cache");
+			}
 		}
 
 		// Update statistics
@@ -500,11 +522,32 @@ namespace OloEngine {
 		for (int index : usedVertices)
 		{
 			outHullVertices.push_back(JoltUtils::FromJoltVector(joltVertices[index]));
-		}			// Limit vertex count
-			if (outHullVertices.size() > m_MaxConvexHullVertices)
+		}
+
+		// Limit vertex count with proper convex hull reconstruction
+		if (outHullVertices.size() > m_MaxConvexHullVertices)
+		{
+			OLO_CORE_WARN("GenerateConvexHull: Hull has {0} vertices, exceeds limit of {1}. Attempting to reduce...", 
+						   outHullVertices.size(), m_MaxConvexHullVertices);
+			
+			// Try to select the most important vertices (extremes in each direction)
+			std::vector<glm::vec3> reducedVertices;
+			if (!ReduceConvexHullVertices(outHullVertices, m_MaxConvexHullVertices, reducedVertices))
 			{
-				outHullVertices.resize(m_MaxConvexHullVertices);
+				LogCookingError("GenerateConvexHull", "Failed to reduce vertex count while maintaining valid convex hull");
+				return ECookingResult::Failed;
 			}
+			
+			// Validate the reduced hull
+			if (!ValidateConvexHull(reducedVertices))
+			{
+				LogCookingError("GenerateConvexHull", "Reduced convex hull failed validation");
+				return ECookingResult::Failed;
+			}
+			
+			outHullVertices = std::move(reducedVertices);
+			OLO_CORE_INFO("GenerateConvexHull: Successfully reduced hull to {0} vertices", outHullVertices.size());
+		}
 
 			return ECookingResult::Success;
 		}
@@ -587,6 +630,128 @@ namespace OloEngine {
 	bool MeshCookingFactory::ValidateConvexHull(const std::vector<glm::vec3>& vertices)
 	{
 		return vertices.size() >= MinVerticesForConvexHull && vertices.size() <= m_MaxConvexHullVertices;
+	}
+
+	bool MeshCookingFactory::ReduceConvexHullVertices(const std::vector<glm::vec3>& inputVertices, u32 maxVertices, std::vector<glm::vec3>& outReducedVertices)
+	{
+		outReducedVertices.clear();
+		
+		if (inputVertices.size() <= maxVertices)
+		{
+			outReducedVertices = inputVertices;
+			return true;
+		}
+
+		if (maxVertices < MinVerticesForConvexHull)
+		{
+			return false; // Cannot create a valid convex hull with too few vertices
+		}
+
+		try
+		{
+			// Strategy: Select the most "extreme" vertices in each direction to preserve the hull shape
+			// This is a heuristic approach that tries to maintain the overall shape while reducing vertex count
+			
+			// Calculate bounding box to understand the extents
+			glm::vec3 minBounds = inputVertices[0];
+			glm::vec3 maxBounds = inputVertices[0];
+			
+			for (const auto& vertex : inputVertices)
+			{
+				minBounds = glm::min(minBounds, vertex);
+				maxBounds = glm::max(maxBounds, vertex);
+			}
+			
+			glm::vec3 center = (minBounds + maxBounds) * 0.5f;
+			
+			// Find vertices that are most extreme in various directions
+			std::set<size_t> selectedIndices;
+			
+			// Always include the 6 axis-aligned extremes (min/max X, Y, Z)
+			auto findExtreme = [&](const glm::vec3& direction) -> size_t {
+				f32 maxDot = -std::numeric_limits<f32>::max();
+				size_t bestIndex = 0;
+				
+				for (size_t i = 0; i < inputVertices.size(); ++i)
+				{
+					f32 dot = glm::dot(inputVertices[i] - center, direction);
+					if (dot > maxDot)
+					{
+						maxDot = dot;
+						bestIndex = i;
+					}
+				}
+				return bestIndex;
+			};
+			
+			// Add extremes in the 6 primary directions
+			selectedIndices.insert(findExtreme(glm::vec3(1, 0, 0)));   // +X
+			selectedIndices.insert(findExtreme(glm::vec3(-1, 0, 0)));  // -X
+			selectedIndices.insert(findExtreme(glm::vec3(0, 1, 0)));   // +Y
+			selectedIndices.insert(findExtreme(glm::vec3(0, -1, 0)));  // -Y
+			selectedIndices.insert(findExtreme(glm::vec3(0, 0, 1)));   // +Z
+			selectedIndices.insert(findExtreme(glm::vec3(0, 0, -1)));  // -Z
+			
+			// Add diagonal extremes if we have room
+			if (selectedIndices.size() < maxVertices)
+			{
+				const std::vector<glm::vec3> diagonals = {
+					glm::normalize(glm::vec3(1, 1, 1)),
+					glm::normalize(glm::vec3(1, 1, -1)),
+					glm::normalize(glm::vec3(1, -1, 1)),
+					glm::normalize(glm::vec3(1, -1, -1)),
+					glm::normalize(glm::vec3(-1, 1, 1)),
+					glm::normalize(glm::vec3(-1, 1, -1)),
+					glm::normalize(glm::vec3(-1, -1, 1)),
+					glm::normalize(glm::vec3(-1, -1, -1))
+				};
+				
+				for (const auto& diagonal : diagonals)
+				{
+					if (selectedIndices.size() >= maxVertices) break;
+					selectedIndices.insert(findExtreme(diagonal));
+				}
+			}
+			
+			// If we still need more vertices, add the ones furthest from the center
+			if (selectedIndices.size() < maxVertices)
+			{
+				std::vector<std::pair<f32, size_t>> distanceIndices;
+				
+				for (size_t i = 0; i < inputVertices.size(); ++i)
+				{
+					if (selectedIndices.find(i) == selectedIndices.end())
+					{
+						f32 distance = glm::length(inputVertices[i] - center);
+						distanceIndices.emplace_back(distance, i);
+					}
+				}
+				
+				// Sort by distance (furthest first)
+				std::sort(distanceIndices.begin(), distanceIndices.end(), std::greater<>());
+				
+				// Add the furthest vertices until we reach the limit
+				for (const auto& [distance, index] : distanceIndices)
+				{
+					if (selectedIndices.size() >= maxVertices) break;
+					selectedIndices.insert(index);
+				}
+			}
+			
+			// Convert selected indices to vertices
+			outReducedVertices.reserve(selectedIndices.size());
+			for (size_t index : selectedIndices)
+			{
+				outReducedVertices.push_back(inputVertices[index]);
+			}
+			
+			return true;
+		}
+		catch (const std::exception& e)
+		{
+			OLO_CORE_ERROR("ReduceConvexHullVertices: Exception during vertex reduction: {0}", e.what());
+			return false;
+		}
 	}
 
 	std::vector<glm::vec3> MeshCookingFactory::ExtractVertexPositions(const std::vector<glm::vec3>& vertices)
@@ -688,31 +853,33 @@ namespace OloEngine {
 				return false;
 			}
 
-		// Write header
-		OloMeshColliderHeader header;
-		header.m_Type = meshData.m_Type;
-		header.m_SubmeshCount = static_cast<u32>(meshData.m_Submeshes.size());
-		header.m_Scale = meshData.m_Scale;
+			// Write header
+			OloMeshColliderHeader header{};
+			header.m_Type = meshData.m_Type;
+			header.m_SubmeshCount = static_cast<u32>(meshData.m_Submeshes.size());
+			header.m_Scale = meshData.m_Scale;
 
-		file.write(reinterpret_cast<const char*>(&header), sizeof(header));
+			file.write(reinterpret_cast<const char*>(&header), sizeof(header));
 
-		// Write submesh data
-		for (const auto& submesh : meshData.m_Submeshes)
-		{
-			// Write submesh info
-			u32 dataSize = static_cast<u32>(submesh.m_ColliderData.size());
-			file.write(reinterpret_cast<const char*>(&dataSize), sizeof(dataSize));
-			file.write(reinterpret_cast<const char*>(&submesh.m_Transform), sizeof(float) * 16);
-			file.write(reinterpret_cast<const char*>(&submesh.m_Type), sizeof(submesh.m_Type));
-			file.write(reinterpret_cast<const char*>(&submesh.m_VertexCount), sizeof(submesh.m_VertexCount));
-			file.write(reinterpret_cast<const char*>(&submesh.m_IndexCount), sizeof(submesh.m_IndexCount));
-
-			// Write collider data
-			if (dataSize > 0)
+			// Write submesh data
+			for (const auto& submesh : meshData.m_Submeshes)
 			{
-				file.write(reinterpret_cast<const char*>(submesh.m_ColliderData.data()), dataSize);
+				// Write submesh info
+				u32 dataSize = static_cast<u32>(submesh.m_ColliderData.size());
+				file.write(reinterpret_cast<const char*>(&dataSize), sizeof(dataSize));
+				file.write(reinterpret_cast<const char*>(&submesh.m_Transform), sizeof(float) * 16);
+				file.write(reinterpret_cast<const char*>(&submesh.m_Type), sizeof(submesh.m_Type));
+				file.write(reinterpret_cast<const char*>(&submesh.m_VertexCount), sizeof(submesh.m_VertexCount));
+				file.write(reinterpret_cast<const char*>(&submesh.m_IndexCount), sizeof(submesh.m_IndexCount));
+
+				// Write collider data
+				if (dataSize > 0)
+				{
+					file.write(reinterpret_cast<const char*>(submesh.m_ColliderData.data()), dataSize);
+				}
 			}
-		}			file.close();
+			
+			file.close();
 			return true;
 		}
 		catch (const std::exception&)
@@ -733,83 +900,83 @@ namespace OloEngine {
 				return meshData;
 			}
 
-		// Read header
-		OloMeshColliderHeader header;
-		file.read(reinterpret_cast<char*>(&header), sizeof(header));
-		
-		// Validate header read
-		if (!file.good() || file.gcount() != sizeof(header))
-		{
-			return meshData;
-		}		// Validate header
-		if (strncmp(header.m_Header, "OloMeshC", 8) != 0 || header.m_Version != 1)
-		{
-			return meshData;
-		}
-
-		meshData.m_Type = header.m_Type;
-		meshData.m_Scale = header.m_Scale;
-		meshData.m_Submeshes.reserve(header.m_SubmeshCount);
-
-		// Read submesh data
-		for (u32 i = 0; i < header.m_SubmeshCount; ++i)
-		{
-			SubmeshColliderData submesh;
-
-			// Read submesh info
-			u32 dataSize;
-			file.read(reinterpret_cast<char*>(&dataSize), sizeof(dataSize));
-			if (!file.good() || file.gcount() != sizeof(dataSize))
+			// Read header
+			OloMeshColliderHeader header;
+			file.read(reinterpret_cast<char*>(&header), sizeof(header));
+			
+			// Validate header read
+			if (!file.good() || file.gcount() != sizeof(header))
+			{
+				return meshData;
+			}		// Validate header
+			if (strncmp(header.m_Header, "OloMeshC", 8) != 0 || header.m_Version != 1)
 			{
 				return meshData;
 			}
 
-			// Validate dataSize to prevent excessive allocations or out-of-bounds reads
-			if (dataSize > 100 * 1024 * 1024) // 100MB max reasonable size
-			{
-				return meshData;
-			}
+			meshData.m_Type = header.m_Type;
+			meshData.m_Scale = header.m_Scale;
+			meshData.m_Submeshes.reserve(header.m_SubmeshCount);
 
-			// Read transform as 16 floats explicitly
-			file.read(reinterpret_cast<char*>(&submesh.m_Transform), sizeof(float) * 16);
-			if (!file.good() || file.gcount() != sizeof(float) * 16)
+			// Read submesh data
+			for (u32 i = 0; i < header.m_SubmeshCount; ++i)
 			{
-				return meshData;
-			}
+				SubmeshColliderData submesh;
 
-			file.read(reinterpret_cast<char*>(&submesh.m_Type), sizeof(submesh.m_Type));
-			if (!file.good() || file.gcount() != sizeof(submesh.m_Type))
-			{
-				return meshData;
-			}
-
-			file.read(reinterpret_cast<char*>(&submesh.m_VertexCount), sizeof(submesh.m_VertexCount));
-			if (!file.good() || file.gcount() != sizeof(submesh.m_VertexCount))
-			{
-				return meshData;
-			}
-
-			file.read(reinterpret_cast<char*>(&submesh.m_IndexCount), sizeof(submesh.m_IndexCount));
-			if (!file.good() || file.gcount() != sizeof(submesh.m_IndexCount))
-			{
-				return meshData;
-			}
-
-			// Read collider data with validation
-			if (dataSize > 0)
-			{
-				submesh.m_ColliderData.resize(dataSize);
-				file.read(reinterpret_cast<char*>(submesh.m_ColliderData.data()), dataSize);
-				if (!file.good() || static_cast<u32>(file.gcount()) != dataSize)
+				// Read submesh info
+				u32 dataSize;
+				file.read(reinterpret_cast<char*>(&dataSize), sizeof(dataSize));
+				if (!file.good() || file.gcount() != sizeof(dataSize))
 				{
 					return meshData;
 				}
+
+				// Validate dataSize to prevent excessive allocations or out-of-bounds reads
+				if (dataSize > 100 * 1024 * 1024) // 100MB max reasonable size
+				{
+					return meshData;
+				}
+
+				// Read transform as 16 floats explicitly
+				file.read(reinterpret_cast<char*>(&submesh.m_Transform), sizeof(float) * 16);
+				if (!file.good() || file.gcount() != sizeof(float) * 16)
+				{
+					return meshData;
+				}
+
+				file.read(reinterpret_cast<char*>(&submesh.m_Type), sizeof(submesh.m_Type));
+				if (!file.good() || file.gcount() != sizeof(submesh.m_Type))
+				{
+					return meshData;
+				}
+
+				file.read(reinterpret_cast<char*>(&submesh.m_VertexCount), sizeof(submesh.m_VertexCount));
+				if (!file.good() || file.gcount() != sizeof(submesh.m_VertexCount))
+				{
+					return meshData;
+				}
+
+				file.read(reinterpret_cast<char*>(&submesh.m_IndexCount), sizeof(submesh.m_IndexCount));
+				if (!file.good() || file.gcount() != sizeof(submesh.m_IndexCount))
+				{
+					return meshData;
+				}
+
+				// Read collider data with validation
+				if (dataSize > 0)
+				{
+					submesh.m_ColliderData.resize(dataSize);
+					file.read(reinterpret_cast<char*>(submesh.m_ColliderData.data()), dataSize);
+					if (!file.good() || static_cast<u32>(file.gcount()) != dataSize)
+					{
+						return meshData;
+					}
+				}
+
+				meshData.m_Submeshes.push_back(submesh);
 			}
 
-			meshData.m_Submeshes.push_back(submesh);
-		}
-
-		meshData.m_IsValid = true;
+			meshData.m_IsValid = true;
 			file.close();
 		}
 		catch (const std::exception&)
@@ -841,20 +1008,39 @@ namespace OloEngine {
 
 	bool MeshCookingFactory::IsCacheValid(const std::filesystem::path& cacheFilePath, const std::filesystem::path& sourcePath)
 	{
-		if (!std::filesystem::exists(cacheFilePath) || !std::filesystem::exists(sourcePath))
+		try
 		{
+			if (!std::filesystem::exists(cacheFilePath) || !std::filesystem::exists(sourcePath))
+			{
+				return false;
+			}
+
+			// Compare file modification times
+			auto cacheTime = std::filesystem::last_write_time(cacheFilePath);
+			auto sourceTime = std::filesystem::last_write_time(sourcePath);
+
+			return cacheTime >= sourceTime;
+		}
+		catch (const std::filesystem::filesystem_error& e)
+		{
+			OLO_CORE_WARN("MeshCookingFactory: Filesystem error checking cache validity: {0}. Treating cache as invalid.", e.what());
 			return false;
 		}
-
-		// Compare file modification times
-		auto cacheTime = std::filesystem::last_write_time(cacheFilePath);
-		auto sourceTime = std::filesystem::last_write_time(sourcePath);
-
-		return cacheTime >= sourceTime;
+		catch (const std::exception& e)
+		{
+			OLO_CORE_WARN("MeshCookingFactory: Exception checking cache validity: {0}. Treating cache as invalid.", e.what());
+			return false;
+		}
 	}
 
 	void MeshCookingFactory::ClearCache()
 	{
+		if (!m_CacheAvailable)
+		{
+			OLO_CORE_WARN("MeshCookingFactory: Cache is not available, cannot clear cache");
+			return;
+		}
+
 		try
 		{
 			if (std::filesystem::exists(m_CacheDirectory))
@@ -871,9 +1057,13 @@ namespace OloEngine {
 			m_CachedMeshCount = 0;
 			OLO_CORE_INFO("Cleared mesh collider cache");
 		}
+		catch (const std::filesystem::filesystem_error& e)
+		{
+			OLO_CORE_ERROR("MeshCookingFactory: Filesystem error clearing cache: {0}", e.what());
+		}
 		catch (const std::exception& e)
 		{
-			OLO_CORE_ERROR("Failed to clear mesh collider cache: {}", e.what());
+			OLO_CORE_ERROR("MeshCookingFactory: Exception clearing cache: {0}", e.what());
 		}
 	}
 

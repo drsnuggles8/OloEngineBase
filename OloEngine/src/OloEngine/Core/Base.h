@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <stdexcept>
 #include <type_traits>
 
 #include "OloEngine/Core/PlatformDetection.h"
@@ -90,25 +91,33 @@ constexpr auto ArraySize(T array) { return ( sizeof(array)/sizeof((array)[0]) );
 // Bit manipulation macros and templates
 // 
 // Usage examples:
-//   enum Flags : u32 { FlagA = BIT(0), FlagB = BIT(1) };           // For bits 0-31
-//   enum LargeFlags : u64 { BigFlag = BIT64(35) };                 // For bits 32-63
-//   auto mask = Bit<u32>(5);                                       // Type-safe u32 mask
-//   auto bigMask = Bit<u64>(45);                                   // Type-safe u64 mask
+//   enum Flags : u32 { FlagA = OLO_BIT(0), FlagB = OLO_BIT(1) };   // For bits 0-31
+//   enum LargeFlags : u64 { BigFlag = OLO_BIT64(35) };             // For bits 32-63
+//   auto mask = OloEngine::BitMask<u32>(5);                        // Type-safe u32 mask
+//   auto bigMask = OloEngine::BitMask<u64>(45);                    // Type-safe u64 mask
 //
-#define BIT(x) (1u << (x))          // 32-bit version (safe for x < 32)
-#define BIT64(x) (1ULL << (x))      // 64-bit version (safe for x < 64)
-
-// Type-safe bit helper template - use for explicit type control
-template<typename T>
-constexpr T Bit(unsigned idx) 
-{
-    static_assert(std::is_integral_v<T>, "Bit() requires integral types");
-    return T(1) << idx;
-}
+// Bounds-checked bit manipulation macros - enforces compile-time safety
+#define OLO_BIT(x) ((x) < 32 ? (1u << (x)) : 0u)          // 32-bit version with bounds check
+#define OLO_BIT64(x) ((x) < 64 ? (1ULL << (x)) : 0ULL)    // 64-bit version with bounds check
 
 
 namespace OloEngine
 {
+	// Type-safe bit mask generator with bounds checking
+	template<typename T>
+	constexpr T BitMask(unsigned idx) 
+	{
+		static_assert(std::is_integral_v<T>, "BitMask() requires integral types");
+		static_assert(sizeof(T) <= 8, "BitMask() supports types up to 8 bytes (64-bit)");
+		
+		// Runtime bounds check with exception for out-of-range indices
+		if (idx >= sizeof(T) * 8) {
+			throw std::out_of_range("Bit index exceeds type width");
+		}
+		
+		return T(1) << idx;
+	}
+
 	template<typename T>
 	using Scope = std::unique_ptr<T>;
 	template<typename T, typename ... Args>

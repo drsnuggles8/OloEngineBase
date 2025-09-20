@@ -29,12 +29,12 @@ namespace OloEngine {
 	enum class EActorAxis : u32
 	{
 		None = 0,
-		TranslationX = BIT(0), TranslationY = BIT(1), TranslationZ = BIT(2), Translation = TranslationX | TranslationY | TranslationZ,
-		RotationX = BIT(3), RotationY = BIT(4), RotationZ = BIT(5), Rotation = RotationX | RotationY | RotationZ
+		TranslationX = OLO_BIT(0), TranslationY = OLO_BIT(1), TranslationZ = OLO_BIT(2), Translation = TranslationX | TranslationY | TranslationZ,
+		RotationX = OLO_BIT(3), RotationY = OLO_BIT(4), RotationZ = OLO_BIT(5), Rotation = RotationX | RotationY | RotationZ
 	};
 
-	// Mask covering all defined axis bits (BIT(0) through BIT(5))
-	constexpr u32 AxisMask = BIT(0) | BIT(1) | BIT(2) | BIT(3) | BIT(4) | BIT(5);
+	// Mask covering all defined axis bits (OLO_BIT(0) through OLO_BIT(5))
+	constexpr u32 AxisMask = OLO_BIT(0) | OLO_BIT(1) | OLO_BIT(2) | OLO_BIT(3) | OLO_BIT(4) | OLO_BIT(5);
 
 	enum class ECollisionDetectionType : u32
 	{
@@ -94,7 +94,7 @@ namespace OloEngine {
 	// Helper function to convert layer index to bitmask
 	constexpr inline u32 ToLayerMask(u32 layerIndex)
 	{
-		return BIT(layerIndex);
+		return OLO_BIT(layerIndex);
 	}
 
 	// Bitwise operators for EActorAxis

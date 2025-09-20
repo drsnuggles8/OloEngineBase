@@ -18,7 +18,7 @@ namespace OloEngine {
 		OLO_CORE_ASSERT(entity, "JoltBody requires a valid entity");
 		OLO_CORE_ASSERT(scene, "JoltBody requires a valid JoltScene");
 
-		if (entity.HasComponent<RigidBody3DComponent>())
+		if (entity.HasComponent<Rigidbody3DComponent>())
 		{
 			CreateJoltBody();
 		}
@@ -62,10 +62,10 @@ namespace OloEngine {
 		bodyInterface.SetMotionType(m_BodyID, motionType, JPH::EActivation::Activate);
 
 		// Update component
-		if (m_Entity.HasComponent<RigidBody3DComponent>())
+		if (m_Entity.HasComponent<Rigidbody3DComponent>())
 		{
-			auto& component = m_Entity.GetComponent<RigidBody3DComponent>();
-			component.Type = static_cast<BodyType3D>(bodyType);
+			auto& component = m_Entity.GetComponent<Rigidbody3DComponent>();
+			component.m_Type = static_cast<BodyType3D>(bodyType);
 		}
 	}
 
@@ -86,10 +86,10 @@ namespace OloEngine {
 		bodyInterface.SetObjectLayer(m_BodyID, objectLayer);
 
 		// Update component
-		if (m_Entity.HasComponent<RigidBody3DComponent>())
+		if (m_Entity.HasComponent<Rigidbody3DComponent>())
 		{
-			auto& component = m_Entity.GetComponent<RigidBody3DComponent>();
-			component.LayerID = layerID;
+			auto& component = m_Entity.GetComponent<Rigidbody3DComponent>();
+			component.m_LayerID = layerID;
 		}
 	}
 
@@ -98,10 +98,10 @@ namespace OloEngine {
 		if (m_BodyID.IsInvalid()) return 0;
 
 		// Get layer ID from component since it's the authoritative source
-		if (m_Entity.HasComponent<RigidBody3DComponent>())
+		if (m_Entity.HasComponent<Rigidbody3DComponent>())
 		{
-			const auto& component = m_Entity.GetComponent<RigidBody3DComponent>();
-			return component.LayerID;
+			const auto& component = m_Entity.GetComponent<Rigidbody3DComponent>();
+			return component.m_LayerID;
 		}
 		return 0;
 	}
@@ -111,10 +111,10 @@ namespace OloEngine {
 		if (m_BodyID.IsInvalid()) return;
 
 		// Update component first
-		if (m_Entity.HasComponent<RigidBody3DComponent>())
+		if (m_Entity.HasComponent<Rigidbody3DComponent>())
 		{
-			auto& component = m_Entity.GetComponent<RigidBody3DComponent>();
-			component.IsTrigger = isTrigger;
+			auto& component = m_Entity.GetComponent<Rigidbody3DComponent>();
+			component.m_IsTrigger = isTrigger;
 		}
 
 		// Update the Jolt body's object layer to reflect the trigger state
@@ -134,10 +134,10 @@ namespace OloEngine {
 		if (m_BodyID.IsInvalid()) return false;
 
 		// Get trigger state from component since Jolt doesn't provide direct access
-		if (m_Entity.HasComponent<RigidBody3DComponent>())
+		if (m_Entity.HasComponent<Rigidbody3DComponent>())
 		{
-			const auto& component = m_Entity.GetComponent<RigidBody3DComponent>();
-			return component.IsTrigger;
+			const auto& component = m_Entity.GetComponent<Rigidbody3DComponent>();
+			return component.m_IsTrigger;
 		}
 		return false;
 	}
@@ -263,10 +263,10 @@ namespace OloEngine {
 		}
 
 		// Update component
-		if (m_Entity.HasComponent<RigidBody3DComponent>())
+		if (m_Entity.HasComponent<Rigidbody3DComponent>())
 		{
-			auto& component = m_Entity.GetComponent<RigidBody3DComponent>();
-			component.Mass = mass;
+			auto& component = m_Entity.GetComponent<Rigidbody3DComponent>();
+			component.m_Mass = mass;
 		}
 	}
 
@@ -287,10 +287,10 @@ namespace OloEngine {
 		}
 
 		// Update component
-		if (m_Entity.HasComponent<RigidBody3DComponent>())
+		if (m_Entity.HasComponent<Rigidbody3DComponent>())
 		{
-			auto& component = m_Entity.GetComponent<RigidBody3DComponent>();
-			component.LinearDrag = linearDrag;
+			auto& component = m_Entity.GetComponent<Rigidbody3DComponent>();
+			component.m_LinearDrag = linearDrag;
 		}
 	}
 
@@ -329,10 +329,10 @@ namespace OloEngine {
 		}
 
 		// Update component
-		if (m_Entity.HasComponent<RigidBody3DComponent>())
+		if (m_Entity.HasComponent<Rigidbody3DComponent>())
 		{
-			auto& component = m_Entity.GetComponent<RigidBody3DComponent>();
-			component.AngularDrag = angularDrag;
+			auto& component = m_Entity.GetComponent<Rigidbody3DComponent>();
+			component.m_AngularDrag = angularDrag;
 		}
 	}
 
@@ -425,10 +425,10 @@ namespace OloEngine {
 		}
 
 		// Update component
-		if (m_Entity.HasComponent<RigidBody3DComponent>())
+		if (m_Entity.HasComponent<Rigidbody3DComponent>())
 		{
-			auto& component = m_Entity.GetComponent<RigidBody3DComponent>();
-			component.MaxLinearVelocity = maxVelocity;
+			auto& component = m_Entity.GetComponent<Rigidbody3DComponent>();
+			component.m_MaxLinearVelocity = maxVelocity;
 		}
 	}
 
@@ -467,10 +467,10 @@ namespace OloEngine {
 		}
 
 		// Update component
-		if (m_Entity.HasComponent<RigidBody3DComponent>())
+		if (m_Entity.HasComponent<Rigidbody3DComponent>())
 		{
-			auto& component = m_Entity.GetComponent<RigidBody3DComponent>();
-			component.MaxAngularVelocity = maxVelocity;
+			auto& component = m_Entity.GetComponent<Rigidbody3DComponent>();
+			component.m_MaxAngularVelocity = maxVelocity;
 		}
 	}
 
@@ -488,10 +488,10 @@ namespace OloEngine {
 		bodyInterface.SetGravityFactor(m_BodyID, enabled ? 1.0f : 0.0f);
 
 		// Update component
-		if (m_Entity.HasComponent<RigidBody3DComponent>())
+		if (m_Entity.HasComponent<Rigidbody3DComponent>())
 		{
-			auto& component = m_Entity.GetComponent<RigidBody3DComponent>();
-			component.DisableGravity = !enabled;
+			auto& component = m_Entity.GetComponent<Rigidbody3DComponent>();
+			component.m_DisableGravity = !enabled;
 		}
 	}
 
@@ -673,10 +673,10 @@ namespace OloEngine {
 		}
 
 		// Update component
-		if (m_Entity.HasComponent<RigidBody3DComponent>())
+		if (m_Entity.HasComponent<Rigidbody3DComponent>())
 		{
-			auto& component = m_Entity.GetComponent<RigidBody3DComponent>();
-			component.LockedAxes = m_LockedAxes;
+			auto& component = m_Entity.GetComponent<Rigidbody3DComponent>();
+			component.m_LockedAxes = m_LockedAxes;
 		}
 
 		OnAxisLockUpdated(forceWake);
@@ -804,7 +804,7 @@ namespace OloEngine {
 	{
 		if (!m_BodyID.IsInvalid()) return; // Already created
 
-		auto& rigidBodyComponent = m_Entity.GetComponent<RigidBody3DComponent>();
+		auto& rigidBodyComponent = m_Entity.GetComponent<Rigidbody3DComponent>();
 		auto& transformComponent = m_Entity.GetComponent<TransformComponent>();
 
 		// Create shape for the entity
@@ -820,11 +820,11 @@ namespace OloEngine {
 		glm::quat rotation = glm::quat(transformComponent.Rotation);
 
 		// Convert body type
-		EBodyType bodyType = static_cast<EBodyType>(rigidBodyComponent.Type);
+		EBodyType bodyType = static_cast<EBodyType>(rigidBodyComponent.m_Type);
 		JPH::EMotionType motionType = JoltUtils::ToJoltMotionType(bodyType);
 
 		// Get object layer using the physics layer system
-		JPH::ObjectLayer objectLayer = JoltLayerInterface::GetObjectLayerForCollider(rigidBodyComponent.LayerID, bodyType, rigidBodyComponent.IsTrigger);
+		JPH::ObjectLayer objectLayer = JoltLayerInterface::GetObjectLayerForCollider(rigidBodyComponent.m_LayerID, bodyType, rigidBodyComponent.m_IsTrigger);
 
 		// Create body creation settings
 		JPH::BodyCreationSettings bodySettings(
@@ -836,10 +836,10 @@ namespace OloEngine {
 		);
 
 		// Set additional properties
-		bodySettings.mIsSensor = rigidBodyComponent.IsTrigger;
-		bodySettings.mGravityFactor = rigidBodyComponent.DisableGravity ? 0.0f : 1.0f;
-		bodySettings.mLinearDamping = rigidBodyComponent.LinearDrag;
-		bodySettings.mAngularDamping = rigidBodyComponent.AngularDrag;
+		bodySettings.mIsSensor = rigidBodyComponent.m_IsTrigger;
+		bodySettings.mGravityFactor = rigidBodyComponent.m_DisableGravity ? 0.0f : 1.0f;
+		bodySettings.mLinearDamping = rigidBodyComponent.m_LinearDrag;
+		bodySettings.mAngularDamping = rigidBodyComponent.m_AngularDrag;
 		bodySettings.mUserData = static_cast<u64>(m_Entity.GetUUID());
 
 		// Apply material properties from collider components
@@ -848,7 +848,7 @@ namespace OloEngine {
 		if (motionType == JPH::EMotionType::Dynamic)
 		{
 			bodySettings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
-			bodySettings.mMassPropertiesOverride.mMass = rigidBodyComponent.Mass;
+			bodySettings.mMassPropertiesOverride.mMass = rigidBodyComponent.m_Mass;
 		}
 
 		// Create the body
@@ -863,18 +863,18 @@ namespace OloEngine {
 		// Set initial velocities
 		if (motionType != JPH::EMotionType::Static)
 		{
-			SetLinearVelocity(rigidBodyComponent.InitialLinearVelocity);
-			SetAngularVelocity(rigidBodyComponent.InitialAngularVelocity);
-			SetMaxLinearVelocity(rigidBodyComponent.MaxLinearVelocity);
-			SetMaxAngularVelocity(rigidBodyComponent.MaxAngularVelocity);
+			SetLinearVelocity(rigidBodyComponent.m_InitialLinearVelocity);
+			SetAngularVelocity(rigidBodyComponent.m_InitialAngularVelocity);
+			SetMaxLinearVelocity(rigidBodyComponent.m_MaxLinearVelocity);
+			SetMaxAngularVelocity(rigidBodyComponent.m_MaxAngularVelocity);
 		}
 
 		// Store BodyID token in component for easy access
-		rigidBodyComponent.RuntimeBodyToken = static_cast<std::uint64_t>(m_BodyID.GetIndexAndSequenceNumber());
+		rigidBodyComponent.m_RuntimeBodyToken = static_cast<std::uint64_t>(m_BodyID.GetIndexAndSequenceNumber());
 
 		// Cache initial state
-		m_GravityEnabled = !rigidBodyComponent.DisableGravity;
-		m_LockedAxes = rigidBodyComponent.LockedAxes;
+		m_GravityEnabled = !rigidBodyComponent.m_DisableGravity;
+		m_LockedAxes = rigidBodyComponent.m_LockedAxes;
 
 		// Create axis lock constraint if needed
 		if (m_LockedAxes != EActorAxis::None && motionType != JPH::EMotionType::Static)
@@ -903,10 +903,10 @@ namespace OloEngine {
 		bodyInterface.DestroyBody(m_BodyID);
 
 		// Clear runtime body reference in component
-		if (m_Entity.HasComponent<RigidBody3DComponent>())
+		if (m_Entity.HasComponent<Rigidbody3DComponent>())
 		{
-			auto& component = m_Entity.GetComponent<RigidBody3DComponent>();
-			component.RuntimeBodyToken = 0;
+			auto& component = m_Entity.GetComponent<Rigidbody3DComponent>();
+			component.m_RuntimeBodyToken = 0;
 		}
 
 		m_BodyID = JPH::BodyID();
@@ -918,17 +918,17 @@ namespace OloEngine {
 		if (m_BodyID.IsInvalid()) return;
 
 		// Update properties from components
-		if (m_Entity.HasComponent<RigidBody3DComponent>())
+		if (m_Entity.HasComponent<Rigidbody3DComponent>())
 		{
-			const auto& component = m_Entity.GetComponent<RigidBody3DComponent>();
+			const auto& component = m_Entity.GetComponent<Rigidbody3DComponent>();
 			
-			SetMass(component.Mass);
-			SetLinearDrag(component.LinearDrag);
-			SetAngularDrag(component.AngularDrag);
-			SetGravityEnabled(!component.DisableGravity);
-			SetTrigger(component.IsTrigger);
-			SetMaxLinearVelocity(component.MaxLinearVelocity);
-			SetMaxAngularVelocity(component.MaxAngularVelocity);
+			SetMass(component.m_Mass);
+			SetLinearDrag(component.m_LinearDrag);
+			SetAngularDrag(component.m_AngularDrag);
+			SetGravityEnabled(!component.m_DisableGravity);
+			SetTrigger(component.m_IsTrigger);
+			SetMaxLinearVelocity(component.m_MaxLinearVelocity);
+			SetMaxAngularVelocity(component.m_MaxAngularVelocity);
 		}
 
 		// Update shape if colliders changed
@@ -971,38 +971,38 @@ namespace OloEngine {
 		if (m_Entity.HasComponent<BoxCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<BoxCollider3DComponent>();
-			friction = collider.Material.GetStaticFriction();
-			restitution = collider.Material.GetRestitution();
+			friction = collider.m_Material.GetStaticFriction();
+			restitution = collider.m_Material.GetRestitution();
 		}
 		else if (m_Entity.HasComponent<SphereCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<SphereCollider3DComponent>();
-			friction = collider.Material.GetStaticFriction();
-			restitution = collider.Material.GetRestitution();
+			friction = collider.m_Material.GetStaticFriction();
+			restitution = collider.m_Material.GetRestitution();
 		}
 		else if (m_Entity.HasComponent<CapsuleCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<CapsuleCollider3DComponent>();
-			friction = collider.Material.GetStaticFriction();
-			restitution = collider.Material.GetRestitution();
+			friction = collider.m_Material.GetStaticFriction();
+			restitution = collider.m_Material.GetRestitution();
 		}
 		else if (m_Entity.HasComponent<MeshCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<MeshCollider3DComponent>();
-			friction = collider.Material.GetStaticFriction();
-			restitution = collider.Material.GetRestitution();
+			friction = collider.m_Material.GetStaticFriction();
+			restitution = collider.m_Material.GetRestitution();
 		}
 		else if (m_Entity.HasComponent<ConvexMeshCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<ConvexMeshCollider3DComponent>();
-			friction = collider.Material.GetStaticFriction();
-			restitution = collider.Material.GetRestitution();
+			friction = collider.m_Material.GetStaticFriction();
+			restitution = collider.m_Material.GetRestitution();
 		}
 		else if (m_Entity.HasComponent<TriangleMeshCollider3DComponent>())
 		{
 			const auto& collider = m_Entity.GetComponent<TriangleMeshCollider3DComponent>();
-			friction = collider.Material.GetStaticFriction();
-			restitution = collider.Material.GetRestitution();
+			friction = collider.m_Material.GetStaticFriction();
+			restitution = collider.m_Material.GetRestitution();
 		}
 
 		// Apply the material properties to the body settings

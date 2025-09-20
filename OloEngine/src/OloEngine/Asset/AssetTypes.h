@@ -36,8 +36,8 @@ namespace OloEngine
     enum class AssetFlag : u16
     {
         None = 0,
-        Missing = BIT(0),
-        Invalid = BIT(1)
+        Missing = OLO_BIT(0),
+        Invalid = OLO_BIT(1)
     };
 
     // Bitwise operators for AssetFlag to enable flag operations

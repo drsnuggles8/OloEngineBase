@@ -160,9 +160,9 @@ namespace OloEngine {
 
 	Ref<JoltBody> JoltScene::CreateBody(Entity entity)
 	{
-		if (!entity || !entity.HasComponent<RigidBody3DComponent>())
+		if (!entity || !entity.HasComponent<Rigidbody3DComponent>())
 		{
-			OLO_CORE_ERROR("Cannot create physics body for entity without RigidBody3DComponent");
+			OLO_CORE_ERROR("Cannot create physics body for entity without Rigidbody3DComponent");
 			return nullptr;
 		}
 
@@ -642,8 +642,8 @@ namespace OloEngine {
 		if (!m_Scene)
 			return;
 
-		// Create physics bodies for all entities with RigidBody3DComponent
-		auto view = m_Scene->GetAllEntitiesWith<RigidBody3DComponent>();
+		// Create physics bodies for all entities with Rigidbody3DComponent
+		auto view = m_Scene->GetAllEntitiesWith<Rigidbody3DComponent>();
 		for (auto entityID : view)
 		{
 			Entity entity{ entityID, m_Scene };

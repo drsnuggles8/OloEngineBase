@@ -13,8 +13,8 @@ namespace OloEngine {
     // Forward declarations to reduce compile dependencies
     class OloBPLayerInterfaceImpl;
     class OloObjectVsBroadPhaseLayerFilterImpl;
-    class MyBodyActivationListener;
-    class MyContactListener;
+    class PhysicsBodyActivationListener;
+    class JoltPhysicsSystemContactListener;
 }
 
 // Jolt includes
@@ -29,6 +29,11 @@ namespace OloEngine {
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyActivationListener.h>
+
+#include <memory>
+#include <atomic>
+#include <mutex>
+#include <queue>
 
 // Disable common warnings triggered by Jolt
 JPH_SUPPRESS_WARNINGS
@@ -53,8 +58,8 @@ namespace OloEngine {
 #endif // JPH_EXTERNAL_PROFILE || JPH_PROFILE_ENABLED
 
     private:
-        static constexpr JPH::uint MAX_LAYERS = 32; // Maximum supported physics layers
-        JPH::BroadPhaseLayer m_ObjectToBroadPhase[MAX_LAYERS];
+        static constexpr JPH::uint s_MaxLayers = 32; // Maximum supported physics layers
+        JPH::BroadPhaseLayer m_ObjectToBroadPhase[s_MaxLayers];
         JPH::uint m_NumLayers = 2; // Start with default layers
     };
 
@@ -69,24 +74,84 @@ namespace OloEngine {
     /// A body activation listener gets notified when bodies activate and go to sleep
     /// Note that this is called from a job so whatever you do here needs to be thread safe.
     /// Registering one is entirely optional.
-    class MyBodyActivationListener : public JPH::BodyActivationListener
+    class PhysicsBodyActivationListener : public JPH::BodyActivationListener
     {
     public:
+        struct ActivationEvent
+        {
+            enum Type { Activated, Deactivated };
+            Type EventType;
+            JPH::BodyID BodyID;
+            JPH::uint64 UserData;
+        };
+
         virtual void OnBodyActivated(const JPH::BodyID& inBodyID, JPH::uint64 inBodyUserData) override
         {
-            OLO_CORE_INFO("A body got activated");
+            // Thread-safe: enqueue event for main thread processing
+            ActivationEvent event{ ActivationEvent::Activated, inBodyID, inBodyUserData };
+            EnqueueEvent(event);
         }
 
         virtual void OnBodyDeactivated(const JPH::BodyID& inBodyID, JPH::uint64 inBodyUserData) override
         {
-            OLO_CORE_INFO("A body went to sleep");
+            // Thread-safe: enqueue event for main thread processing
+            ActivationEvent event{ ActivationEvent::Deactivated, inBodyID, inBodyUserData };
+            EnqueueEvent(event);
         }
+
+        // Process queued events on main thread
+        void ProcessEvents()
+        {
+            ActivationEvent event;
+            while (TryDequeueEvent(event))
+            {
+                switch (event.EventType)
+                {
+                    case ActivationEvent::Activated:
+                        OLO_CORE_INFO("Body {} got activated", event.BodyID.GetIndex());
+                        break;
+                    case ActivationEvent::Deactivated:
+                        OLO_CORE_INFO("Body {} went to sleep", event.BodyID.GetIndex());
+                        break;
+                }
+            }
+        }
+
+        // Get the number of pending events
+        sizet GetPendingEventCount() const noexcept
+        {
+            return m_QueueSize.load(std::memory_order_relaxed);
+        }
+
+    private:
+        void EnqueueEvent(const ActivationEvent& event)
+        {
+            std::lock_guard<std::mutex> lock(m_QueueMutex);
+            m_EventQueue.push(event);
+            m_QueueSize.fetch_add(1, std::memory_order_relaxed);
+        }
+
+        bool TryDequeueEvent(ActivationEvent& outEvent)
+        {
+            std::lock_guard<std::mutex> lock(m_QueueMutex);
+            if (m_EventQueue.empty())
+                return false;
+
+            outEvent = m_EventQueue.front();
+            m_EventQueue.pop();
+            m_QueueSize.fetch_sub(1, std::memory_order_relaxed);
+            return true;
+        }
+
+        mutable std::mutex m_QueueMutex;
+        std::queue<ActivationEvent> m_EventQueue;
+        std::atomic<sizet> m_QueueSize{ 0 };
     };
 
     /// A contact listener gets notified when bodies (are about to) collide, and when they separate again.
     /// Note that this is called from a job so whatever you do here needs to be thread safe.
     /// Registering one is entirely optional.
-    class MyContactListener : public JPH::ContactListener
+    class JoltPhysicsSystemContactListener : public JPH::ContactListener
     {
     public:
         // See: ContactListener
@@ -134,6 +199,9 @@ namespace OloEngine {
 
         // Step the physics simulation
         void Update(f32 deltaTime);
+
+        // Process activation events from the body activation listener (call on main thread)
+        void ProcessActivationEvents();
 
         // Settings management
         static PhysicsSettings& GetSettings() { return s_PhysicsSettings; }
@@ -196,8 +264,8 @@ namespace OloEngine {
         std::unique_ptr<JPH::JobSystemThreadPool> m_JobSystem;
 
         // Listeners
-        MyBodyActivationListener m_BodyActivationListener;
-        MyContactListener m_ContactListener;
+        PhysicsBodyActivationListener m_BodyActivationListener;
+        JoltPhysicsSystemContactListener m_ContactListener;
 
         bool m_Initialized = false;
 
@@ -207,9 +275,9 @@ namespace OloEngine {
         // Number of mutexes to allocate to protect rigid bodies from concurrent access
         // Can be overridden at compile time via -DOLO_PHYSICS_BODY_MUTEXES=N
         #ifndef OLO_PHYSICS_BODY_MUTEXES
-        static constexpr u32 cNumBodyMutexes = 8; // Default: 8 mutexes for reasonable concurrency protection
+        static constexpr u32 s_NumBodyMutexes = 8; // Default: 8 mutexes for reasonable concurrency protection
         #else
-        static constexpr u32 cNumBodyMutexes = OLO_PHYSICS_BODY_MUTEXES;
+        static constexpr u32 s_NumBodyMutexes = OLO_PHYSICS_BODY_MUTEXES;
         #endif
     };
 

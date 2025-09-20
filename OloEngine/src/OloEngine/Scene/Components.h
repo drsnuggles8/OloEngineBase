@@ -170,38 +170,38 @@ namespace OloEngine
 
 	enum class BodyType3D { Static = 0, Dynamic, Kinematic };
 
-	struct RigidBody3DComponent
+	struct Rigidbody3DComponent
 	{
-		BodyType3D Type = BodyType3D::Static;
-		u32 LayerID = 0;
-		f32 Mass = 1.0f;
-		f32 LinearDrag = 0.01f;
-		f32 AngularDrag = 0.05f;
-		bool DisableGravity = false;
-		bool IsTrigger = false;
-		EActorAxis LockedAxes = EActorAxis::None;
+		BodyType3D m_Type = BodyType3D::Static;
+		u32 m_LayerID = 0;
+		f32 m_Mass = 1.0f;
+		f32 m_LinearDrag = 0.01f;
+		f32 m_AngularDrag = 0.05f;
+		bool m_DisableGravity = false;
+		bool m_IsTrigger = false;
+		EActorAxis m_LockedAxes = EActorAxis::None;
 		
-		glm::vec3 InitialLinearVelocity = { 0.0f, 0.0f, 0.0f };
-		glm::vec3 InitialAngularVelocity = { 0.0f, 0.0f, 0.0f };
+		glm::vec3 m_InitialLinearVelocity = { 0.0f, 0.0f, 0.0f };
+		glm::vec3 m_InitialAngularVelocity = { 0.0f, 0.0f, 0.0f };
 		
-		f32 MaxLinearVelocity = 500.0f;
-		f32 MaxAngularVelocity = 50.0f;
+		f32 m_MaxLinearVelocity = 500.0f;
+		f32 m_MaxAngularVelocity = 50.0f;
 
 		// Storage for runtime - Jolt BodyID
-		void* RuntimeBody = nullptr;
-		u64 RuntimeBodyToken = 0;
+		void* m_RuntimeBody = nullptr;
+		u64 m_RuntimeBodyToken = 0;
 
-		RigidBody3DComponent() = default;
-		RigidBody3DComponent(const RigidBody3DComponent&) = default;
+		Rigidbody3DComponent() = default;
+		Rigidbody3DComponent(const Rigidbody3DComponent&) = default;
 	};
 
 	struct BoxCollider3DComponent
 	{
-		glm::vec3 HalfExtents = { 0.5f, 0.5f, 0.5f };
-		glm::vec3 Offset = { 0.0f, 0.0f, 0.0f };
+		glm::vec3 m_HalfExtents = { 0.5f, 0.5f, 0.5f };
+		glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
 
 		// Physics material properties
-		ColliderMaterial Material;
+		ColliderMaterial m_Material;
 
 		BoxCollider3DComponent() = default;
 		BoxCollider3DComponent(const BoxCollider3DComponent&) = default;
@@ -209,11 +209,11 @@ namespace OloEngine
 
 	struct SphereCollider3DComponent
 	{
-		f32 Radius = 0.5f;
-		glm::vec3 Offset = { 0.0f, 0.0f, 0.0f };
+		f32 m_Radius = 0.5f;
+		glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
 
 		// Physics material properties
-		ColliderMaterial Material;
+		ColliderMaterial m_Material;
 
 		SphereCollider3DComponent() = default;
 		SphereCollider3DComponent(const SphereCollider3DComponent&) = default;
@@ -221,12 +221,12 @@ namespace OloEngine
 
 	struct CapsuleCollider3DComponent
 	{
-		f32 Radius = 0.5f;
-		f32 HalfHeight = 1.0f;
-		glm::vec3 Offset = { 0.0f, 0.0f, 0.0f };
+		f32 m_Radius = 0.5f;
+		f32 m_HalfHeight = 1.0f;
+		glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
 
 		// Physics material properties
-		ColliderMaterial Material;
+		ColliderMaterial m_Material;
 
 		CapsuleCollider3DComponent() = default;
 		CapsuleCollider3DComponent(const CapsuleCollider3DComponent&) = default;
@@ -234,65 +234,65 @@ namespace OloEngine
 
 	struct MeshCollider3DComponent
 	{
-		AssetHandle ColliderAsset = 0;  // Reference to MeshColliderAsset
-		glm::vec3 Offset = { 0.0f, 0.0f, 0.0f };
-		glm::vec3 Scale = { 1.0f, 1.0f, 1.0f };
+		AssetHandle m_ColliderAsset = 0;  // Reference to MeshColliderAsset
+		glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
+		glm::vec3 m_Scale = { 1.0f, 1.0f, 1.0f };
 
 		// Physics material properties
-		ColliderMaterial Material;
+		ColliderMaterial m_Material;
 
 		// Collision complexity setting
-		bool UseComplexAsSimple = false;  // If true, use triangle mesh for dynamic bodies
+		bool m_UseComplexAsSimple = false;  // If true, use triangle mesh for dynamic bodies
 
 		MeshCollider3DComponent() = default;
 		MeshCollider3DComponent(const MeshCollider3DComponent&) = default;
-		explicit MeshCollider3DComponent(AssetHandle colliderAsset) : ColliderAsset(colliderAsset) {}
+		explicit MeshCollider3DComponent(AssetHandle colliderAsset) : m_ColliderAsset(colliderAsset) {}
 	};
 
 	struct ConvexMeshCollider3DComponent
 	{
-		AssetHandle ColliderAsset = 0;  // Reference to MeshColliderAsset
-		glm::vec3 Offset = { 0.0f, 0.0f, 0.0f };
-		glm::vec3 Scale = { 1.0f, 1.0f, 1.0f };
+		AssetHandle m_ColliderAsset = 0;  // Reference to MeshColliderAsset
+		glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
+		glm::vec3 m_Scale = { 1.0f, 1.0f, 1.0f };
 
 		// Physics material properties
-		ColliderMaterial Material;
+		ColliderMaterial m_Material;
 
 		// Convex hull settings
-		f32 ConvexRadius = 0.05f;  // Jolt convex radius for shape rounding
-		u32 MaxVertices = 256;     // Maximum vertices in convex hull
+		f32 m_ConvexRadius = 0.05f;  // Jolt convex radius for shape rounding
+		u32 m_MaxVertices = 256;     // Maximum vertices in convex hull
 
 		ConvexMeshCollider3DComponent() = default;
 		ConvexMeshCollider3DComponent(const ConvexMeshCollider3DComponent&) = default;
-		explicit ConvexMeshCollider3DComponent(AssetHandle colliderAsset) : ColliderAsset(colliderAsset) {}
+		explicit ConvexMeshCollider3DComponent(AssetHandle colliderAsset) : m_ColliderAsset(colliderAsset) {}
 	};
 
 	struct TriangleMeshCollider3DComponent
 	{
-		AssetHandle ColliderAsset = 0;  // Reference to MeshColliderAsset
-		glm::vec3 Offset = { 0.0f, 0.0f, 0.0f };
-		glm::vec3 Scale = { 1.0f, 1.0f, 1.0f };
+		AssetHandle m_ColliderAsset = 0;  // Reference to MeshColliderAsset
+		glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
+		glm::vec3 m_Scale = { 1.0f, 1.0f, 1.0f };
 
 		// Physics material properties
-		ColliderMaterial Material;
+		ColliderMaterial m_Material;
 
 		// Triangle mesh is always static - no additional settings needed
 
 		TriangleMeshCollider3DComponent() = default;
 		TriangleMeshCollider3DComponent(const TriangleMeshCollider3DComponent&) = default;
-		explicit TriangleMeshCollider3DComponent(AssetHandle colliderAsset) : ColliderAsset(colliderAsset) {}
+		explicit TriangleMeshCollider3DComponent(AssetHandle colliderAsset) : m_ColliderAsset(colliderAsset) {}
 	};
 
 	struct CharacterController3DComponent
 	{
-		f32 SlopeLimitDeg = 45.0f;
-		f32 StepOffset = 0.4f;
-		f32 JumpPower = 8.0f;
-		u32 LayerID = 0;
+		f32 m_SlopeLimitDeg = 45.0f;
+		f32 m_StepOffset = 0.4f;
+		f32 m_JumpPower = 8.0f;
+		u32 m_LayerID = 0;
 		
-		bool DisableGravity = false;
-		bool ControlMovementInAir = false;
-		bool ControlRotationInAir = false;
+		bool m_DisableGravity = false;
+		bool m_ControlMovementInAir = false;
+		bool m_ControlRotationInAir = false;
 
 		CharacterController3DComponent() = default;
 		CharacterController3DComponent(const CharacterController3DComponent&) = default;
@@ -378,7 +378,7 @@ namespace OloEngine
 		Rigidbody2DComponent,
 		BoxCollider2DComponent,
 		CircleCollider2DComponent,
-		RigidBody3DComponent,
+		Rigidbody3DComponent,
 		BoxCollider3DComponent,
 		SphereCollider3DComponent,
 		CapsuleCollider3DComponent,

@@ -78,7 +78,7 @@ namespace OloEngine {
 	class MeshCookingFactory : public RefCounted
 	{
 	public:
-		MeshCookingFactory();
+		MeshCookingFactory(const std::filesystem::path& cacheDirectory = "assets/cache/physics");
 		~MeshCookingFactory();
 
 		// Initialization
@@ -149,6 +149,9 @@ namespace OloEngine {
 		void OptimizeTriangleMesh(std::vector<glm::vec3>& vertices, std::vector<u32>& indices);
 		void RemoveInvalidTriangles(std::vector<glm::vec3>& vertices, std::vector<u32>& indices, f32 areaEpsilon);
 
+		// Convex hull optimization
+		bool ReduceConvexHullVertices(const std::vector<glm::vec3>& inputVertices, u32 maxVertices, std::vector<glm::vec3>& outReducedVertices);
+
 		// Cache path generation
 		std::string GenerateCacheKey(Ref<MeshColliderAsset> colliderAsset, EMeshColliderType type);
 		std::filesystem::path GetCacheDirectory();
@@ -173,6 +176,7 @@ namespace OloEngine {
 
 		// Cache directory
 		std::filesystem::path m_CacheDirectory;
+		bool m_CacheAvailable = true;
 
 		// Constants
 		static constexpr u32 MaxTrianglesPerMesh = 65536;

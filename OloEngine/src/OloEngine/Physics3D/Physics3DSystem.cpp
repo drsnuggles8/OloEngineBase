@@ -62,9 +62,9 @@ OloBPLayerInterfaceImpl::OloBPLayerInterfaceImpl()
 
 JPH::uint OloBPLayerInterfaceImpl::GetNumBroadPhaseLayers() const
 {
-    // Include the built-in object layers plus custom layers, clamped to MAX_LAYERS
+    // Include the built-in object layers plus custom layers, clamped to s_MaxLayers
     u32 total = PhysicsLayerManager::GetLayerCount() + ObjectLayers::NUM_LAYERS;
-    return std::min(total, static_cast<u32>(MAX_LAYERS));
+    return std::min(total, static_cast<u32>(s_MaxLayers));
 }
 
 JPH::BroadPhaseLayer OloBPLayerInterfaceImpl::GetBroadPhaseLayer(JPH::ObjectLayer inLayer) const
@@ -188,7 +188,7 @@ bool Physics3DSystem::Initialize()
 
     // Now we can create the actual physics system.
     m_PhysicsSystem = std::make_unique<JPH::PhysicsSystem>();
-    m_PhysicsSystem->Init(s_PhysicsSettings.m_MaxBodies, cNumBodyMutexes, s_PhysicsSettings.m_MaxBodyPairs, s_PhysicsSettings.m_MaxContactConstraints, m_BroadPhaseLayerInterface, m_ObjectVsBroadPhaseLayerFilter, OloEngine::JoltLayerInterface::GetObjectLayerPairFilter());
+    m_PhysicsSystem->Init(s_PhysicsSettings.m_MaxBodies, s_NumBodyMutexes, s_PhysicsSettings.m_MaxBodyPairs, s_PhysicsSettings.m_MaxContactConstraints, m_BroadPhaseLayerInterface, m_ObjectVsBroadPhaseLayerFilter, OloEngine::JoltLayerInterface::GetObjectLayerPairFilter());
 
     // Apply physics settings to the Jolt system
     UpdatePhysicsSystemSettings();
@@ -277,6 +277,17 @@ void Physics3DSystem::Update(f32 deltaTime)
 
     // Step the world
     m_PhysicsSystem->Update(deltaTime, collisionSteps, m_TempAllocator.get(), m_JobSystem.get());
+}
+
+void Physics3DSystem::ProcessActivationEvents()
+{
+    if (!m_Initialized)
+    {
+        return;
+    }
+
+    // Process any pending body activation events on the main thread
+    m_BodyActivationListener.ProcessEvents();
 }
 
 JPH::BodyID Physics3DSystem::CreateBox(const JPH::RVec3& position, const JPH::Quat& rotation, const JPH::Vec3& halfExtent, bool isStatic)

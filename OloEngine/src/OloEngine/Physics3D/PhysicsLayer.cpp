@@ -11,6 +11,10 @@ namespace OloEngine {
 		s_LayerIndexMap.clear();
 		for (sizet i = 0; i < s_Layers.size(); ++i)
 		{
+			// Skip invalid layers to prevent map corruption from duplicate keys
+			if (s_Layers[i].m_LayerID == INVALID_LAYER_ID)
+				continue;
+				
 			s_LayerIndexMap[s_Layers[i].m_LayerID] = i;
 		}
 	}
@@ -48,25 +52,27 @@ namespace OloEngine {
 		
 		PhysicsLayer layer = { layerId, name, ToLayerMask(layerId), ToLayerMask(layerId) };
 		
+		// Determine the actual vector index where the layer will be placed
+		sizet newLayerIndex;
+		
 		// Place the layer at the found free slot (could be a gap or at the end)
 		if (layerId < s_Layers.size())
 		{
-			// Fill an existing gap
+			// Fill an existing gap - use layerId as the index
 			s_Layers[layerId] = layer;
+			newLayerIndex = layerId;
 		}
 		else
 		{
 			// Append to the end (no gaps found)
 			s_Layers.push_back(layer);
+			newLayerIndex = s_Layers.size() - 1;
 		}
 		
 		s_LayerNames[layerId] = name;
 
-		// Update index map for the new/updated layer
-		s_LayerIndexMap[layerId] = layerId;
-		
-		// Get the index of the placed layer
-		sizet newLayerIndex = layerId;
+		// Update index map with the actual vector index
+		s_LayerIndexMap[layerId] = newLayerIndex;
 
 		if (setCollisions)
 		{
@@ -164,8 +170,8 @@ namespace OloEngine {
 		PhysicsLayer& layerInfo = GetLayerMutableUnsafe(layerId);
 		PhysicsLayer& otherLayerInfo = GetLayerMutableUnsafe(otherLayer);
 		
-		// Validate both layers before modification - prevent corrupting s_NullLayer
-		if (layerInfo.m_LayerID == s_NullLayer.m_LayerID || otherLayerInfo.m_LayerID == s_NullLayer.m_LayerID)
+		// Validate both layers before modification - directly check for invalid layer IDs
+		if (layerInfo.m_LayerID == INVALID_LAYER_ID || otherLayerInfo.m_LayerID == INVALID_LAYER_ID)
 		{
 			OLO_CORE_WARN("PhysicsLayerManager::SetLayerCollision: Invalid layer ID(s) - layerId: {}, otherLayer: {}", layerId, otherLayer);
 			return;
@@ -281,7 +287,17 @@ std::vector<PhysicsLayer> PhysicsLayerManager::GetLayers()
 u32 PhysicsLayerManager::GetLayerCount()
 {
 	std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
-	return static_cast<u32>(s_Layers.size());
+	
+	// Count only valid layers (exclude those with INVALID_LAYER_ID)
+	u32 validCount = 0;
+	for (const auto& layer : s_Layers)
+	{
+		if (layer.m_LayerID != INVALID_LAYER_ID)
+		{
+			validCount++;
+		}
+	}
+	return validCount;
 }
 
 std::vector<std::string> PhysicsLayerManager::GetLayerNames()
@@ -293,7 +309,11 @@ std::vector<std::string> PhysicsLayerManager::GetLayerNames()
 		names.reserve(s_Layers.size());
 		for (const auto& layer : s_Layers)
 		{
-			names.push_back(layer.m_Name);
+			// Skip invalid layers that have been removed
+			if (layer.m_LayerID != INVALID_LAYER_ID)
+			{
+				names.push_back(layer.m_Name);
+			}
 		}
 		return names;
 	}
@@ -423,9 +443,13 @@ std::vector<std::string> PhysicsLayerManager::GetLayerNames()
 			}
 		}
 
-		// Note: Cannot return mutable reference to const s_NullLayer, so create a local fallback
-		static PhysicsLayer s_MutableNullLayer = { INVALID_LAYER_ID, "NULL", NO_COLLISION_BITS, NO_COLLISION_BITS };
-		return s_MutableNullLayer;
+		// Invalid layer ID access - this is a programming error
+		OLO_CORE_ERROR("PhysicsLayerManager::GetLayerMutableUnsafe: Invalid layer ID {} accessed", layerId);
+		OLO_CORE_ASSERT(false, "Invalid layer ID accessed in GetLayerMutableUnsafe");
+
+		// Thread-local fallback to avoid data races - each thread gets its own fallback
+		thread_local PhysicsLayer s_ThreadLocalNullLayer = { INVALID_LAYER_ID, "NULL", NO_COLLISION_BITS, NO_COLLISION_BITS };
+		return s_ThreadLocalNullLayer;
 	}
 
 	const PhysicsLayer& PhysicsLayerManager::GetLayerUnsafe(const std::string& layerName)
