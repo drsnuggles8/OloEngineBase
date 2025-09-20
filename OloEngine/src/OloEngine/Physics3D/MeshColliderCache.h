@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <deque>
 #include <unordered_map>
 #include <mutex>
 #include <vector>
@@ -95,7 +96,7 @@ namespace OloEngine {
 
 		// Cooking system
 		Ref<MeshCookingFactory> m_CookingFactory;
-		std::vector<CookingRequest> m_CookingQueue;
+		std::deque<CookingRequest> m_CookingQueue;
 		std::vector<std::future<void>> m_CookingTasks;
 		u32 m_MaxConcurrentCooks = 4;
 
@@ -111,6 +112,7 @@ namespace OloEngine {
 
 		// Cache cleanup threshold
 		static constexpr f32 CacheEvictionThreshold = 0.8f; // Start evicting at 80% capacity
+		static constexpr f32 CacheEvictionTargetRatio = 0.7f; // Target cache size after eviction (70% of threshold)
 		static constexpr sizet MinCacheEntryLifetimeMs = 5000; // 5 seconds minimum lifetime
 	};
 

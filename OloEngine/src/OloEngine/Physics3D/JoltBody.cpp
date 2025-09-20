@@ -949,11 +949,6 @@ namespace OloEngine {
 		return m_Scene->GetBodyInterface();
 	}
 
-	const JPH::BodyLockInterface& JoltBody::GetBodyLockInterface()
-	{
-		return m_Scene->GetBodyLockInterface();
-	}
-
 	const JPH::BodyLockInterface& JoltBody::GetBodyLockInterface() const
 	{
 		return m_Scene->GetBodyLockInterface();

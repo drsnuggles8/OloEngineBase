@@ -105,7 +105,7 @@ namespace OloEngine {
 		void RefreshCapturesCache();
 		void HandleCaptureFailure(const std::string& errorMessage);
 
-		static constexpr i32 s_DefaultFrameLogInterval = 60;
+		static constexpr i32 s_DefaultFrameLogInterval = 100;
 
 	private:
 		JoltCaptureOutStream m_Stream;

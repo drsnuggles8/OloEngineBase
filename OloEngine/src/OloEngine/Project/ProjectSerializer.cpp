@@ -6,6 +6,10 @@
 
 #include <fstream>
 #include <yaml-cpp/yaml.h>
+#include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <type_traits>
 
 // YAML conversion for glm::vec3
 namespace YAML {
@@ -24,9 +28,20 @@ namespace YAML {
 				return false;
 			}
 
-			rhs.x = node[0].as<float>();
-			rhs.y = node[1].as<float>();
-			rhs.z = node[2].as<float>();
+			// Read each component into temporary variables for validation
+			float x = node[0].as<float>();
+			float y = node[1].as<float>();
+			float z = node[2].as<float>();
+			
+			// Validate all components are finite (not NaN or infinity)
+			if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
+				return false;
+			}
+			
+			// Only assign to output after all validation passes
+			rhs.x = x;
+			rhs.y = y;
+			rhs.z = z;
 			return true;
 		}
 	};
@@ -60,6 +75,21 @@ namespace {
 	constexpr f32 MAX_TIME_BEFORE_SLEEP = 60.0f;
 	constexpr f32 MIN_VELOCITY_SLEEP_THRESHOLD = 0.001f;
 	constexpr f32 MAX_VELOCITY_SLEEP_THRESHOLD = 10.0f;
+
+	/// Case-insensitive string comparison helper
+	/// \param lhs First string to compare
+	/// \param rhs Second string to compare
+	/// \return True if strings are equal (case-insensitive), false otherwise
+	bool iequals(const std::string& lhs, const std::string& rhs)
+	{
+		if (lhs.length() != rhs.length())
+			return false;
+		
+		return std::equal(lhs.begin(), lhs.end(), rhs.begin(),
+			[](char a, char b) {
+				return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+			});
+	}
 
 	/// Validates and clamps a floating-point physics setting to safe ranges
 	/// \param value The value to validate
@@ -294,8 +324,9 @@ namespace OloEngine
 			
 			out << YAML::Comment("Allow bodies to sleep when inactive");
 			out << YAML::Key << "AllowSleeping" << YAML::Value << physicsSettings.m_AllowSleeping;
+			
 			// Physics layers serialization
-			if (PhysicsLayerManager::GetLayerCount() > 1)
+			if (PhysicsLayerManager::GetLayerCount() > 0)
 			{
 				out << YAML::Key << "Layers";
 				out << YAML::Value << YAML::BeginSeq;
@@ -496,108 +527,64 @@ namespace OloEngine
 		bool physicsValid = true;
 		if (physicsNode)
 		{
+			// Physics field counts organized by category for maintainability
+			constexpr u32 basicSimulationFields = 4;     // FixedTimestep, Gravity, PositionSolverIterations, VelocitySolverIterations
+			constexpr u32 systemLimitFields = 3;         // MaxBodies, MaxBodyPairs, MaxContactConstraints
+			constexpr u32 debugFields = 2;               // CaptureOnPlay, CaptureMethod
+			constexpr u32 advancedJoltFields = 7;        // Baumgarte through PointVelocitySleepThreshold
+			constexpr u32 booleanOptimizationFields = 6; // DeterministicSimulation through AllowSleeping
+			
+			// Compute total expected fields automatically
+			constexpr u32 expectedPhysicsFields = basicSimulationFields + systemLimitFields + debugFields + 
+			                                      advancedJoltFields + booleanOptimizationFields;
+			
 			// Track applied physics fields for validation
 			u32 appliedPhysicsFields = 0;
-			const u32 expectedPhysicsFields = 22; // Total number of physics settings fields
-			                                      // (4 basic + 3 limits + 2 debug + 7 advanced + 6 boolean)
 
 			auto& physicsSettings = Physics3DSystem::GetSettings();
 
+			// Helper lambda to reduce duplication in physics field deserialization
+			auto deserializeField = [&](const char* fieldName, auto& targetField) {
+				if (physicsNode[fieldName].IsDefined()) {
+					using FieldType = std::decay_t<decltype(targetField)>;
+					targetField = physicsNode[fieldName].as<FieldType>(targetField);
+					appliedPhysicsFields++;
+				}
+			};
+
 			// Basic simulation settings
-			if (physicsNode["FixedTimestep"].IsDefined()) {
-				physicsSettings.m_FixedTimestep = physicsNode["FixedTimestep"].as<f32>(physicsSettings.m_FixedTimestep);
-				appliedPhysicsFields++;
-			}
-			if (physicsNode["Gravity"].IsDefined()) {
-				physicsSettings.m_Gravity = physicsNode["Gravity"].as<glm::vec3>(physicsSettings.m_Gravity);
-				appliedPhysicsFields++;
-			}
-			if (physicsNode["PositionSolverIterations"].IsDefined()) {
-				physicsSettings.m_PositionSolverIterations = physicsNode["PositionSolverIterations"].as<u32>(physicsSettings.m_PositionSolverIterations);
-				appliedPhysicsFields++;
-			}
-			if (physicsNode["VelocitySolverIterations"].IsDefined()) {
-				physicsSettings.m_VelocitySolverIterations = physicsNode["VelocitySolverIterations"].as<u32>(physicsSettings.m_VelocitySolverIterations);
-				appliedPhysicsFields++;
-			}
-			if (physicsNode["MaxBodies"].IsDefined()) {
-				physicsSettings.m_MaxBodies = physicsNode["MaxBodies"].as<u32>(physicsSettings.m_MaxBodies);
-				appliedPhysicsFields++;
-			}
-			if (physicsNode["MaxBodyPairs"].IsDefined()) {
-				physicsSettings.m_MaxBodyPairs = physicsNode["MaxBodyPairs"].as<u32>(physicsSettings.m_MaxBodyPairs);
-				appliedPhysicsFields++;
-			}
-			if (physicsNode["MaxContactConstraints"].IsDefined()) {
-				physicsSettings.m_MaxContactConstraints = physicsNode["MaxContactConstraints"].as<u32>(physicsSettings.m_MaxContactConstraints);
-				appliedPhysicsFields++;
-			}
+			deserializeField("FixedTimestep", physicsSettings.m_FixedTimestep);
+			deserializeField("Gravity", physicsSettings.m_Gravity);
+			deserializeField("PositionSolverIterations", physicsSettings.m_PositionSolverIterations);
+			deserializeField("VelocitySolverIterations", physicsSettings.m_VelocitySolverIterations);
+			deserializeField("MaxBodies", physicsSettings.m_MaxBodies);
+			deserializeField("MaxBodyPairs", physicsSettings.m_MaxBodyPairs);
+			deserializeField("MaxContactConstraints", physicsSettings.m_MaxContactConstraints);
 
 			// Debug settings
-			if (physicsNode["CaptureOnPlay"].IsDefined()) {
-				physicsSettings.m_CaptureOnPlay = physicsNode["CaptureOnPlay"].as<bool>(physicsSettings.m_CaptureOnPlay);
-				appliedPhysicsFields++;
-			}
+			deserializeField("CaptureOnPlay", physicsSettings.m_CaptureOnPlay);
+			// CaptureMethod requires special handling due to enum cast
 			if (physicsNode["CaptureMethod"].IsDefined()) {
 				physicsSettings.m_CaptureMethod = static_cast<PhysicsDebugType>(physicsNode["CaptureMethod"].as<i32>(static_cast<i32>(physicsSettings.m_CaptureMethod)));
 				appliedPhysicsFields++;
 			}
 
 			// Advanced Jolt settings
-			if (physicsNode["Baumgarte"].IsDefined()) {
-				physicsSettings.m_Baumgarte = physicsNode["Baumgarte"].as<f32>(physicsSettings.m_Baumgarte);
-				appliedPhysicsFields++;
-			}
-			if (physicsNode["SpeculativeContactDistance"].IsDefined()) {
-				physicsSettings.m_SpeculativeContactDistance = physicsNode["SpeculativeContactDistance"].as<f32>(physicsSettings.m_SpeculativeContactDistance);
-				appliedPhysicsFields++;
-			}
-			if (physicsNode["PenetrationSlop"].IsDefined()) {
-				physicsSettings.m_PenetrationSlop = physicsNode["PenetrationSlop"].as<f32>(physicsSettings.m_PenetrationSlop);
-				appliedPhysicsFields++;
-			}
-			if (physicsNode["LinearCastThreshold"].IsDefined()) {
-				physicsSettings.m_LinearCastThreshold = physicsNode["LinearCastThreshold"].as<f32>(physicsSettings.m_LinearCastThreshold);
-				appliedPhysicsFields++;
-			}
-			if (physicsNode["MinVelocityForRestitution"].IsDefined()) {
-				physicsSettings.m_MinVelocityForRestitution = physicsNode["MinVelocityForRestitution"].as<f32>(physicsSettings.m_MinVelocityForRestitution);
-				appliedPhysicsFields++;
-			}
-			if (physicsNode["TimeBeforeSleep"].IsDefined()) {
-				physicsSettings.m_TimeBeforeSleep = physicsNode["TimeBeforeSleep"].as<f32>(physicsSettings.m_TimeBeforeSleep);
-				appliedPhysicsFields++;
-			}
-			if (physicsNode["PointVelocitySleepThreshold"].IsDefined()) {
-				physicsSettings.m_PointVelocitySleepThreshold = physicsNode["PointVelocitySleepThreshold"].as<f32>(physicsSettings.m_PointVelocitySleepThreshold);
-				appliedPhysicsFields++;
-			}
+			deserializeField("Baumgarte", physicsSettings.m_Baumgarte);
+			deserializeField("SpeculativeContactDistance", physicsSettings.m_SpeculativeContactDistance);
+			deserializeField("PenetrationSlop", physicsSettings.m_PenetrationSlop);
+			deserializeField("LinearCastThreshold", physicsSettings.m_LinearCastThreshold);
+			deserializeField("MinVelocityForRestitution", physicsSettings.m_MinVelocityForRestitution);
+			deserializeField("TimeBeforeSleep", physicsSettings.m_TimeBeforeSleep);
+			deserializeField("PointVelocitySleepThreshold", physicsSettings.m_PointVelocitySleepThreshold);
 
 			// Boolean settings
-			if (physicsNode["DeterministicSimulation"].IsDefined()) {
-				physicsSettings.m_DeterministicSimulation = physicsNode["DeterministicSimulation"].as<bool>(physicsSettings.m_DeterministicSimulation);
-				appliedPhysicsFields++;
-			}
-			if (physicsNode["ConstraintWarmStart"].IsDefined()) {
-				physicsSettings.m_ConstraintWarmStart = physicsNode["ConstraintWarmStart"].as<bool>(physicsSettings.m_ConstraintWarmStart);
-				appliedPhysicsFields++;
-			}
-			if (physicsNode["UseBodyPairContactCache"].IsDefined()) {
-				physicsSettings.m_UseBodyPairContactCache = physicsNode["UseBodyPairContactCache"].as<bool>(physicsSettings.m_UseBodyPairContactCache);
-				appliedPhysicsFields++;
-			}
-			if (physicsNode["UseManifoldReduction"].IsDefined()) {
-				physicsSettings.m_UseManifoldReduction = physicsNode["UseManifoldReduction"].as<bool>(physicsSettings.m_UseManifoldReduction);
-				appliedPhysicsFields++;
-			}
-			if (physicsNode["UseLargeIslandSplitter"].IsDefined()) {
-				physicsSettings.m_UseLargeIslandSplitter = physicsNode["UseLargeIslandSplitter"].as<bool>(physicsSettings.m_UseLargeIslandSplitter);
-				appliedPhysicsFields++;
-			}
-			if (physicsNode["AllowSleeping"].IsDefined()) {
-				physicsSettings.m_AllowSleeping = physicsNode["AllowSleeping"].as<bool>(physicsSettings.m_AllowSleeping);
-				appliedPhysicsFields++;
-			}
+			deserializeField("DeterministicSimulation", physicsSettings.m_DeterministicSimulation);
+			deserializeField("ConstraintWarmStart", physicsSettings.m_ConstraintWarmStart);
+			deserializeField("UseBodyPairContactCache", physicsSettings.m_UseBodyPairContactCache);
+			deserializeField("UseManifoldReduction", physicsSettings.m_UseManifoldReduction);
+			deserializeField("UseLargeIslandSplitter", physicsSettings.m_UseLargeIslandSplitter);
+			deserializeField("AllowSleeping", physicsSettings.m_AllowSleeping);
 
 			// Physics layers deserialization
 			auto physicsLayers = physicsNode["Layers"];
@@ -621,8 +608,8 @@ namespace OloEngine
 				{
 					const std::string layerName = layer["Name"].as<std::string>();
 					
-					// Skip if this is the default layer (already created)
-					if (layerName == "Default")
+					// Skip if this is the default layer (already created) - case-insensitive comparison
+					if (iequals(layerName, "Default"))
 					{
 						// Still store it for collision processing
 						layersToProcess.emplace_back(defaultLayerId, layer);
@@ -693,8 +680,18 @@ namespace OloEngine
 			Physics3DSystem::SetSettings(validatedSettings);
 		}
 		
-		// Combine physics validity with overall project validity
-		allValid = allValid && physicsValid;
+		// Handle physics deserialization status separately from project load success
+		if (!physicsValid)
+		{
+			OLO_CORE_ERROR("Physics settings deserialization failed - initializing physics with safe defaults");
+			
+			// Initialize physics with safe default settings to ensure system stability
+			const auto defaultSettings = PhysicsSettings::GetDefaults();
+			Physics3DSystem::SetSettings(defaultSettings);
+			
+			// Note: physicsValid failure does not prevent project load - we gracefully degrade
+			// Callers can check project validity vs physics degradation separately if needed
+		}
 		
 		return allValid;
 	}

@@ -14,6 +14,9 @@
 
 namespace OloEngine {
 
+	// Static constexpr member definition for linker
+	constexpr i32 JoltCaptureManager::s_DefaultFrameLogInterval;
+
 	bool JoltCaptureOutStream::Open(const std::filesystem::path& inPath)
 		{
 			OLO_PROFILE_FUNCTION();

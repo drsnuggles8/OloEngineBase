@@ -162,11 +162,14 @@ bool Physics3DSystem::Initialize()
     JPH::Trace = TraceImpl;
     JPH_IF_ENABLE_ASSERTS(JPH::AssertFailed = AssertFailedImpl;)
 
-    // Create a factory - only if not already created
-    if (JPH::Factory::sInstance == nullptr)
+    // Create a factory - ensure clean state and proper ownership
+    if (JPH::Factory::sInstance != nullptr)
     {
-        JPH::Factory::sInstance = new JPH::Factory();
+        // Clean up any existing factory before creating new one
+        delete JPH::Factory::sInstance;
+        JPH::Factory::sInstance = nullptr;
     }
+    JPH::Factory::sInstance = new JPH::Factory();
 
     // Register all Jolt physics types
     JPH::RegisterTypes();

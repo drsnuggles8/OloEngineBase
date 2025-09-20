@@ -187,8 +187,7 @@ namespace OloEngine
 		f32 m_MaxLinearVelocity = 500.0f;
 		f32 m_MaxAngularVelocity = 50.0f;
 
-		// Storage for runtime - Jolt BodyID
-		void* m_RuntimeBody = nullptr;
+		// Storage for runtime - Jolt BodyID token for safe access
 		u64 m_RuntimeBodyToken = 0;
 
 		Rigidbody3DComponent() = default;

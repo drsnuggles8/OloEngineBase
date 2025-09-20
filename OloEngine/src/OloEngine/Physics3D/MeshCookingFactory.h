@@ -179,10 +179,10 @@ namespace OloEngine {
 		bool m_CacheAvailable = true;
 
 		// Constants
-		static constexpr u32 MaxTrianglesPerMesh = 65536;
-		static constexpr u32 MaxVerticesPerMesh = 32768;
-		static constexpr u32 MinVerticesForConvexHull = 4;
-		static constexpr f32 MinTriangleArea = 1e-6f;
+		static constexpr u32 s_MaxTrianglesPerMesh = 65536;
+		static constexpr u32 s_MaxVerticesPerMesh = 32768;
+		static constexpr u32 s_MinVerticesForConvexHull = 4;
+		static constexpr f32 s_MinTriangleArea = 1e-6f;
 	};
 
 }

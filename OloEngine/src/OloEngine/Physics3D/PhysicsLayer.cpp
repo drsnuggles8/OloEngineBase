@@ -196,6 +196,17 @@ namespace OloEngine {
 		PhysicsLayer& layerInfo = GetLayerMutableUnsafe(layerId);
 		if (layerInfo.IsValid())
 		{
+			// Update the global collision bitmask
+			if (shouldCollide)
+			{
+				layerInfo.m_CollidesWith |= layerInfo.m_BitValue;
+			}
+			else
+			{
+				layerInfo.m_CollidesWith &= ~layerInfo.m_BitValue;
+			}
+			
+			// Update the flag to match the bitmask state
 			layerInfo.m_CollidesWithSelf = shouldCollide;
 		}
 	}
@@ -220,36 +231,7 @@ namespace OloEngine {
 	PhysicsLayer PhysicsLayerManager::GetLayer(u32 layerId)
 	{
 		std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
-		
-		// O(1) lookup using index map
-		auto indexIt = s_LayerIndexMap.find(layerId);
-		if (indexIt != s_LayerIndexMap.end())
-		{
-			sizet index = indexIt->second;
-			// Bounds check for safety
-			if (index < s_Layers.size())
-			{
-				if (s_Layers[index].m_LayerID == layerId)
-				{
-					return s_Layers[index];
-				}
-				else
-				{
-					// Index map corruption detected - log the inconsistency
-					OLO_CORE_ERROR("PhysicsLayerManager: Index map corruption detected! "
-								  "Queried layerId: {}, found index: {}, actual layerId at index: {}, "
-								  "layers size: {}, index map size: {}",
-								  layerId, index, s_Layers[index].m_LayerID, 
-								  s_Layers.size(), s_LayerIndexMap.size());
-					
-					OLO_CORE_ASSERT(false, "PhysicsLayerManager index map corruption: layerId {} maps to index {} "
-									       "but s_Layers[{}].m_LayerID is {}", 
-									       layerId, index, index, s_Layers[index].m_LayerID);
-				}
-			}
-		}
-
-		return s_NullLayer;
+		return GetLayerImpl(layerId);
 	}
 
 	PhysicsLayer PhysicsLayerManager::GetLayer(const std::string& layerName)
@@ -394,6 +376,47 @@ std::vector<std::string> PhysicsLayerManager::GetLayerNames()
 	// Internal unsafe methods - assume caller holds appropriate lock
 	const PhysicsLayer& PhysicsLayerManager::GetLayerUnsafe(u32 layerId)
 	{
+		return GetLayerImpl(layerId);
+	}
+
+	// Internal mutable accessor for modification operations - use with caution
+	PhysicsLayer& PhysicsLayerManager::GetLayerMutableUnsafe(u32 layerId)
+	{
+		// Use the shared lookup logic
+		const PhysicsLayer& layer = GetLayerImpl(layerId);
+		
+		// Check if we got the null layer
+		if (&layer == &s_NullLayer)
+		{
+			// Invalid layer ID access - this is a programming error
+			OLO_CORE_ERROR("PhysicsLayerManager::GetLayerMutableUnsafe: Invalid layer ID {} accessed", layerId);
+			OLO_CORE_ASSERT(false, "Invalid layer ID accessed in GetLayerMutableUnsafe");
+
+			// Thread-local fallback to avoid data races - each thread gets its own fallback
+			thread_local PhysicsLayer s_ThreadLocalNullLayer = { INVALID_LAYER_ID, "NULL", NO_COLLISION_BITS, NO_COLLISION_BITS };
+			return s_ThreadLocalNullLayer;
+		}
+		
+		// Find the actual layer in s_Layers for mutable access
+		auto indexIt = s_LayerIndexMap.find(layerId);
+		sizet index = indexIt->second;
+		return s_Layers[index];
+	}
+
+	const PhysicsLayer& PhysicsLayerManager::GetLayerUnsafe(const std::string& layerName)
+	{
+		for (const auto& layer : s_Layers)
+		{
+			if (layer.m_Name == layerName)
+				return layer;
+		}
+
+		return s_NullLayer;
+	}
+
+	// Internal helper for shared lookup logic - assumes caller holds appropriate lock
+	const PhysicsLayer& PhysicsLayerManager::GetLayerImpl(u32 layerId)
+	{
 		// O(1) lookup using index map
 		auto indexIt = s_LayerIndexMap.find(layerId);
 		if (indexIt != s_LayerIndexMap.end())
@@ -420,44 +443,6 @@ std::vector<std::string> PhysicsLayerManager::GetLayerNames()
 									       layerId, index, index, s_Layers[index].m_LayerID);
 				}
 			}
-		}
-
-		return s_NullLayer;
-	}
-
-	// Internal mutable accessor for modification operations - use with caution
-	PhysicsLayer& PhysicsLayerManager::GetLayerMutableUnsafe(u32 layerId)
-	{
-		// O(1) lookup using index map
-		auto indexIt = s_LayerIndexMap.find(layerId);
-		if (indexIt != s_LayerIndexMap.end())
-		{
-			sizet index = indexIt->second;
-			// Bounds check for safety
-			if (index < s_Layers.size())
-			{
-				if (s_Layers[index].m_LayerID == layerId)
-				{
-					return s_Layers[index];
-				}
-			}
-		}
-
-		// Invalid layer ID access - this is a programming error
-		OLO_CORE_ERROR("PhysicsLayerManager::GetLayerMutableUnsafe: Invalid layer ID {} accessed", layerId);
-		OLO_CORE_ASSERT(false, "Invalid layer ID accessed in GetLayerMutableUnsafe");
-
-		// Thread-local fallback to avoid data races - each thread gets its own fallback
-		thread_local PhysicsLayer s_ThreadLocalNullLayer = { INVALID_LAYER_ID, "NULL", NO_COLLISION_BITS, NO_COLLISION_BITS };
-		return s_ThreadLocalNullLayer;
-	}
-
-	const PhysicsLayer& PhysicsLayerManager::GetLayerUnsafe(const std::string& layerName)
-	{
-		for (const auto& layer : s_Layers)
-		{
-			if (layer.m_Name == layerName)
-				return layer;
 		}
 
 		return s_NullLayer;

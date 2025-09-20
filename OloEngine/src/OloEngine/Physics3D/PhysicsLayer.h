@@ -74,6 +74,9 @@ namespace OloEngine {
 		static PhysicsLayer& GetLayerMutableUnsafe(u32 layerId);
 
 	private:
+		// Internal helper for shared lookup logic
+		static const PhysicsLayer& GetLayerImpl(u32 layerId);
+		
 		static std::vector<PhysicsLayer> s_Layers;
 		static std::unordered_map<u32, std::string> s_LayerNames;
 		static std::unordered_map<u32, sizet> s_LayerIndexMap; // Maps LayerID to index in s_Layers for O(1) lookup

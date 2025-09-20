@@ -46,6 +46,7 @@ namespace OloEngine {
 			return JPH::RVec3(vector.x, vector.y, vector.z);
 		}
 
+		// Note: GLM's .x/.y/.z/.w components map directly to Jolt's JPH::Quat(x,y,z,w) constructor
 		static JPH::Quat ToJoltQuat(const glm::quat& quat)
 		{
 			return JPH::Quat(quat.x, quat.y, quat.z, quat.w);

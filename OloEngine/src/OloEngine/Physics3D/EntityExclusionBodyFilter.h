@@ -36,6 +36,12 @@ namespace OloEngine {
 		explicit EntityExclusionBodyFilter(const std::vector<UUID>& excludedEntities);
 
 		/**
+		 * @brief Constructor with ExcludedEntitySet (optimized)
+		 * @param excludedEntitySet Pre-constructed set of entity UUIDs to exclude from queries
+		 */
+		explicit EntityExclusionBodyFilter(const ExcludedEntitySet& excludedEntitySet);
+
+		/**
 		 * @brief Constructor with single excluded entity
 		 * @param excludedEntity Single entity UUID to exclude from queries
 		 */

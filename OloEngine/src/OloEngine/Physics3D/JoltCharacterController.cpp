@@ -14,8 +14,13 @@
 
 namespace OloEngine
 {
+    // Physics simulation constants
+    constexpr f32 kVelocityEpsilon = 1e-6f;
+    constexpr f32 kQuatEpsilon = 1e-6f;
+
     JoltCharacterController::JoltCharacterController(Entity entity, JoltScene* scene, const ContactCallbackFn& contactCallback)
-        : m_Entity(entity), m_Scene(scene), m_ContactEventCallback(contactCallback)
+        : m_Entity(entity), m_Scene(scene), m_ContactEventCallback(contactCallback),
+          m_IgnoreCollisionLayers((1u << CollisionLayers::Trigger) | (1u << CollisionLayers::Water) | (1u << CollisionLayers::Debris))
     {
         Create();
     }
@@ -39,6 +44,9 @@ namespace OloEngine
 
     void JoltCharacterController::SetStepOffset(f32 stepOffset)
     {
+        // NOTE: Unlike SetSlopeLimit, step offset changes only take effect on the next Simulate() call.
+        // The Jolt CharacterVirtual API requires step height to be passed to ExtendedUpdate() each frame
+        // via ExtendedUpdateSettings.mWalkStairsStepUp, not set as a persistent controller property.
         m_StepOffset = stepOffset;
     }
 
@@ -92,7 +100,10 @@ namespace OloEngine
     void JoltCharacterController::Rotate(const glm::quat& rotation)
     {
         // Avoid quat multiplication if rotation is close to identity
-        if ((IsGrounded() || m_ControlRotationInAir) && fabs(rotation.w - 1.0f) > 0.000001f)
+        constexpr f32 QUAT_EPS = 1e-6f;
+        f32 imaginaryLength = glm::length(glm::vec3(rotation.x, rotation.y, rotation.z));
+        
+        if ((IsGrounded() || m_ControlRotationInAir) && imaginaryLength > QUAT_EPS)
         {
             m_Rotation = m_Rotation * JoltUtils::ToJoltQuat(rotation);
         }
@@ -138,17 +149,16 @@ namespace OloEngine
         UpdateShape();
     }
 
-    void JoltCharacterController::PreSimulate(f32 deltaTime)
+    JPH::Vec3 JoltCharacterController::CalculateDesiredVelocity(f32 deltaTime) const
     {
-        if (!m_Controller || deltaTime <= 0.0f)
-            return;
+        return m_LinearVelocity + m_Displacement / deltaTime;
+    }
 
-        m_Controller->UpdateGroundVelocity();
-
-        JPH::Vec3 desiredVelocity = m_LinearVelocity + m_Displacement / deltaTime;
+    JPH::Vec3 JoltCharacterController::ApplyGravityAndJump(f32 deltaTime, const JPH::Vec3& desiredVelocity)
+    {
         JPH::Vec3 currentVerticalVelocity = JPH::Vec3(0, m_Controller->GetLinearVelocity().GetY(), 0);
-
         JPH::Vec3 newVelocity;
+
         if (IsGravityEnabled())
         {
             if (m_Controller->GetGroundState() == JPH::CharacterVirtual::EGroundState::OnGround && 
@@ -177,6 +187,7 @@ namespace OloEngine
             newVelocity = JPH::Vec3::sZero();
         }
 
+        // Apply movement control based on ground state
         if (IsGrounded() || m_ControlMovementInAir)
         {
             newVelocity += desiredVelocity;
@@ -188,14 +199,19 @@ namespace OloEngine
             newVelocity += currentHorizontalVelocity;
         }
 
+        return newVelocity;
+    }
+
+    void JoltCharacterController::UpdateRotation(f32 deltaTime)
+    {
         m_AngularVelocityDeltaTime = deltaTime;
         m_PreviousRotation = m_Controller->GetRotation();
 
-        m_Controller->SetLinearVelocity(newVelocity);
-
-        if (m_AngularVelocityIn.LengthSq() < 0.000001f)
+        if (m_AngularVelocityIn.LengthSq() < kVelocityEpsilon)
         {
-            if (fabs(m_Rotation.GetW() - 1.0f) > 0.000001f)
+            // Check if rotation needs to be applied using robust quaternion identity check
+            JPH::Vec3 imaginaryPart(m_Rotation.GetX(), m_Rotation.GetY(), m_Rotation.GetZ());
+            if (imaginaryPart.Length() > kQuatEpsilon)
             {
                 m_Controller->SetRotation((m_Controller->GetRotation() * m_Rotation).Normalized());
             }
@@ -207,8 +223,20 @@ namespace OloEngine
             JPH::Quat scaledRotation = JPH::Quat::sRotation(axis, angle);
             m_Controller->SetRotation((m_Controller->GetRotation() * m_Rotation * scaledRotation).Normalized());
         }
+    }
 
-        m_AllowSliding = !IsGrounded() || !desiredVelocity.IsNearZero();
+    void JoltCharacterController::PreSimulate(f32 deltaTime)
+    {
+        if (!m_Controller || deltaTime <= 0.0f)
+            return;
+
+        m_Controller->UpdateGroundVelocity();
+
+        JPH::Vec3 desiredVelocity = CalculateDesiredVelocity(deltaTime);
+        JPH::Vec3 newVelocity = ApplyGravityAndJump(deltaTime, desiredVelocity);
+        
+        m_Controller->SetLinearVelocity(newVelocity);
+        UpdateRotation(deltaTime);
     }
 
     void JoltCharacterController::Simulate(f32 deltaTime)
@@ -221,7 +249,7 @@ namespace OloEngine
         JPH::Vec3 joltGravity = JoltUtils::ToJoltVector(gravity);
 
         // Get physics system for layer filters
-        JPH::PhysicsSystem* physicsSystem = m_Scene->GetPhysicsSystem();
+        JPH::PhysicsSystem* physicsSystem = m_Scene->GetJoltSystemPtr();
         if (!physicsSystem)
             return;
 
@@ -281,8 +309,12 @@ namespace OloEngine
             {
                 if (m_StillTriggeredBodies.find(bodyID) == m_StillTriggeredBodies.end())
                 {
-                    // Trigger end event - would need entity lookup from bodyID
-                    // m_ContactEventCallback(m_Entity, otherEntity);
+                    // Trigger end event - lookup entity from bodyID
+                    auto otherEntity = m_Scene->GetEntityByBodyID(bodyID);
+                    if (otherEntity)
+                    {
+                        m_ContactEventCallback(m_Entity, otherEntity);
+                    }
                 }
             }
 
@@ -291,8 +323,12 @@ namespace OloEngine
             {
                 if (m_StillCollidedBodies.find(bodyID) == m_StillCollidedBodies.end())
                 {
-                    // Collision end event - would need entity lookup from bodyID
-                    // m_ContactEventCallback(m_Entity, otherEntity);
+                    // Collision end event - lookup entity from bodyID
+                    auto otherEntity = m_Scene->GetEntityByBodyID(bodyID);
+                    if (otherEntity)
+                    {
+                        m_ContactEventCallback(m_Entity, otherEntity);
+                    }
                 }
             }
 
@@ -307,7 +343,7 @@ namespace OloEngine
 
     void JoltCharacterController::Create()
     {
-        if (!m_Scene || !m_Scene->GetPhysicsSystem())
+        if (!m_Scene || !m_Scene->GetJoltSystemPtr())
         {
             OLO_CORE_ERROR("Cannot create character controller: Invalid scene or physics system");
             return;
@@ -346,7 +382,7 @@ namespace OloEngine
         m_Controller = new JPH::CharacterVirtual(settings, 
                                                 JoltUtils::ToJoltVector(position), 
                                                 JoltUtils::ToJoltQuat(rotation), 
-                                                m_Scene->GetPhysicsSystem());
+                                                m_Scene->GetJoltSystemPtr());
         
         // Set this as the contact listener for collision events
         if (m_Controller)
@@ -355,7 +391,7 @@ namespace OloEngine
             m_PreviousRotation = JoltUtils::ToJoltQuat(rotation);
             
             OLO_CORE_INFO("Character controller created successfully for entity {0}", 
-                         m_Entity ? (u64)m_Entity.GetUUID() : 0);
+                         m_Entity ? m_Entity.GetUUID() : UUID(0));
         }
         else
         {
@@ -363,8 +399,12 @@ namespace OloEngine
         }
     }
 
+    // WARNING: Expensive operation - recreates entire character controller since Jolt cannot change shapes after creation.
+    // Consider batching or deferring to non-frame-critical times (e.g., scene load) to avoid performance impacts.
     void JoltCharacterController::UpdateShape()
     {
+        OLO_CORE_WARN("UpdateShape() called - this is an expensive operation that recreates the entire character controller");
+        
         if (!m_Controller || !m_Shape)
         {
             OLO_CORE_WARN("Cannot update character controller shape: controller or shape is null");
@@ -404,10 +444,14 @@ namespace OloEngine
     {
         if (m_TriggeredBodies.find(bodyID2) == m_TriggeredBodies.end())
         {
-            // Trigger begin event - would need entity lookup from bodyID
+            // Trigger begin event - lookup entity from bodyID
             if (m_ContactEventCallback)
             {
-                // m_ContactEventCallback(m_Entity, otherEntity);
+                Entity otherEntity = m_Scene->GetEntityByBodyID(bodyID2);
+                if (otherEntity)
+                {
+                    m_ContactEventCallback(m_Entity, otherEntity);
+                }
             }
         }
         m_StillTriggeredBodies.insert(bodyID2);
@@ -417,10 +461,14 @@ namespace OloEngine
     {
         if (m_CollidedBodies.find(bodyID2) == m_CollidedBodies.end())
         {
-            // Collision begin event - would need entity lookup from bodyID
+            // Collision begin event - lookup entity from bodyID
             if (m_ContactEventCallback)
             {
-                // m_ContactEventCallback(m_Entity, otherEntity);
+                Entity otherEntity = m_Scene->GetEntityByBodyID(bodyID2);
+                if (otherEntity)
+                {
+                    m_ContactEventCallback(m_Entity, otherEntity);
+                }
             }
         }
         m_StillCollidedBodies.insert(bodyID2);
@@ -467,7 +515,7 @@ namespace OloEngine
             return true;
             
         // Get the physics system to check collision layers
-        auto* physicsSystem = m_Scene->GetPhysicsSystem();
+        auto* physicsSystem = m_Scene->GetJoltSystemPtr();
         if (!physicsSystem)
             return true;
             
@@ -481,16 +529,8 @@ namespace OloEngine
         // Check if the collision layers should interact
         u32 otherLayer = otherBody.GetObjectLayer();
         
-        // Characters shouldn't collide with triggers - they should pass through
-        if (otherLayer == CollisionLayers::Trigger)
-            return false;
-            
-        // Characters shouldn't collide with water by default (unless swimming implementation)
-        if (otherLayer == CollisionLayers::Water)
-            return false;
-            
-        // Characters shouldn't collide with debris by default
-        if (otherLayer == CollisionLayers::Debris)
+        // Check if this layer should be ignored using configurable bitmask
+        if (m_IgnoreCollisionLayers & (1u << otherLayer))
             return false;
         
         // Allow collision with all other layers (Static, Dynamic, Kinematic, other Characters)
@@ -522,7 +562,6 @@ namespace OloEngine
 
         // Check if it's a sensor/trigger
         bool isSensor = false;
-        [[maybe_unused]] bool isStatic = true;
         
         // Would need physics system integration to properly check body properties
         // For now, assume it's a solid collision

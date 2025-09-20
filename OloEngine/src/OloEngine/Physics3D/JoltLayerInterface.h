@@ -24,7 +24,7 @@ namespace OloEngine {
 		static constexpr JPH::ObjectLayer TRIGGER = 2;
 		static constexpr JPH::ObjectLayer CHARACTER = 3;
 		static constexpr JPH::ObjectLayer DEBRIS = 4;
-		static constexpr u32 NUM_LAYERS = 5;
+		static constexpr JPH::uint NUM_LAYERS = 5;
 	}
 
 	/// Class that determines if two object layers can collide
@@ -93,8 +93,23 @@ namespace OloEngine {
 
 		virtual JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer inLayer) const override
 		{
-			OLO_CORE_ASSERT(inLayer < ObjectLayers::NUM_LAYERS, "Invalid object layer");
-			return m_ObjectToBroadPhase[inLayer];
+			// Handle built-in object layers
+			if (inLayer < ObjectLayers::NUM_LAYERS)
+			{
+				return m_ObjectToBroadPhase[inLayer];
+			}
+			
+			// Handle user-defined physics layers (>= NUM_LAYERS)
+			// User-defined layers are dynamic by nature, so map them to MOVING broad phase
+			u32 userIndex = static_cast<u32>(inLayer) - ObjectLayers::NUM_LAYERS;
+			if (PhysicsLayerManager::IsLayerValid(userIndex))
+			{
+				return BroadPhaseLayers::MOVING;
+			}
+			
+			// Fallback for invalid user-defined layers - use MOVING as safe default
+			OLO_CORE_WARN("Invalid user-defined object layer {}, using MOVING broad phase", static_cast<u32>(inLayer));
+			return BroadPhaseLayers::MOVING;
 		}
 
 #if defined(JPH_EXTERNAL_PROFILE) || defined(JPH_PROFILE_ENABLED)

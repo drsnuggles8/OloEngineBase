@@ -16,6 +16,11 @@ namespace OloEngine {
 	{
 	}
 
+	EntityExclusionBodyFilter::EntityExclusionBodyFilter(const ExcludedEntitySet& excludedEntitySet)
+		: m_ExcludedEntities(excludedEntitySet)
+	{
+	}
+
 	EntityExclusionBodyFilter::EntityExclusionBodyFilter(UUID excludedEntity)
 		: m_ExcludedEntities(excludedEntity)
 	{

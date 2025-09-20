@@ -4,7 +4,6 @@
 #include "PhysicsSettings.h"
 #include "PhysicsLayer.h"
 #include "JoltLayerInterface.h"
-#include <memory>
 #include <stdexcept>
 #include <cassert>
 
@@ -126,14 +125,14 @@ namespace OloEngine {
     private:
         void EnqueueEvent(const ActivationEvent& event)
         {
-            std::lock_guard<std::mutex> lock(m_QueueMutex);
+            std::scoped_lock lock(m_QueueMutex);
             m_EventQueue.push(event);
             m_QueueSize.fetch_add(1, std::memory_order_relaxed);
         }
 
         bool TryDequeueEvent(ActivationEvent& outEvent)
         {
-            std::lock_guard<std::mutex> lock(m_QueueMutex);
+            std::scoped_lock lock(m_QueueMutex);
             if (m_EventQueue.empty())
                 return false;
 
@@ -157,7 +156,9 @@ namespace OloEngine {
         // See: ContactListener
         virtual JPH::ValidateResult OnContactValidate(const JPH::Body& inBody1, const JPH::Body& inBody2, JPH::RVec3Arg inBaseOffset, const JPH::CollideShapeResult& inCollisionResult) override
         {
+#ifdef OLO_DEBUG
             OLO_CORE_INFO("Contact validate callback");
+#endif
 
             // Allows you to ignore a contact before it is created (using layers to not make objects collide is cheaper!)
             return JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
@@ -165,17 +166,23 @@ namespace OloEngine {
 
         virtual void OnContactAdded(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, JPH::ContactSettings& ioSettings) override
         {
+#ifdef OLO_DEBUG
             OLO_CORE_INFO("A contact was added");
+#endif
         }
 
         virtual void OnContactPersisted(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, JPH::ContactSettings& ioSettings) override
         {
+#ifdef OLO_DEBUG
             OLO_CORE_INFO("A contact was persisted");
+#endif
         }
 
         virtual void OnContactRemoved(const JPH::SubShapeIDPair& inSubShapePair) override
         {
+#ifdef OLO_DEBUG
             OLO_CORE_INFO("A contact was removed");
+#endif
         }
     };
 
@@ -190,6 +197,16 @@ namespace OloEngine {
         Physics3DSystem& operator=(const Physics3DSystem&) = delete;
         Physics3DSystem(Physics3DSystem&&) = delete;
         Physics3DSystem& operator=(Physics3DSystem&&) = delete;
+
+        // Singleton access
+        static Physics3DSystem& GetInstance()
+        {
+            if (s_Instance == nullptr)
+            {
+                throw std::runtime_error("Physics3DSystem: No instance available - singleton not initialized");
+            }
+            return *s_Instance;
+        }
 
         // Initialize the physics system
         bool Initialize();
@@ -221,17 +238,13 @@ namespace OloEngine {
         void RemoveBody(JPH::BodyID bodyID);
 
         // Get body interface for direct manipulation
-        JPH::BodyInterface& GetBodyInterface() 
+        JPH::BodyInterface* GetBodyInterface() 
         { 
-            if (!m_PhysicsSystem) 
-                throw std::runtime_error("PhysicsSystem not initialized in Physics3DSystem::GetBodyInterface");
-            return m_PhysicsSystem->GetBodyInterface(); 
+            return m_PhysicsSystem ? &m_PhysicsSystem->GetBodyInterface() : nullptr; 
         }
-        const JPH::BodyInterface& GetBodyInterface() const 
+        const JPH::BodyInterface* GetBodyInterface() const 
         { 
-            if (!m_PhysicsSystem) 
-                throw std::runtime_error("PhysicsSystem not initialized in Physics3DSystem::GetBodyInterface");
-            return m_PhysicsSystem->GetBodyInterface(); 
+            return m_PhysicsSystem ? &m_PhysicsSystem->GetBodyInterface() : nullptr; 
         }
 
         // Get the physics system for direct access
@@ -241,6 +254,10 @@ namespace OloEngine {
         static JPH::PhysicsSystem& GetJoltSystem() noexcept;
 
     private:
+        // ====================================================================
+        // Static Configuration & State
+        // ====================================================================
+        
         // Physics settings - now configurable instead of hard-coded
         inline static PhysicsSettings s_PhysicsSettings;
 
@@ -250,10 +267,18 @@ namespace OloEngine {
         // Static access to layer interfaces for global layer management
         inline static OloBPLayerInterfaceImpl* s_BroadPhaseLayerInterface = nullptr;
 
+        // ====================================================================
+        // Interfaces & Mappers
+        // ====================================================================
+        
         // Create mapping table from object layer to broadphase layer
         OloBPLayerInterfaceImpl m_BroadPhaseLayerInterface;
         OloObjectVsBroadPhaseLayerFilterImpl m_ObjectVsBroadPhaseLayerFilter;
 
+        // ====================================================================
+        // Core Systems & Allocators
+        // ====================================================================
+        
         // The physics system
         std::unique_ptr<JPH::PhysicsSystem> m_PhysicsSystem;
 
@@ -263,15 +288,27 @@ namespace OloEngine {
         // Job system that will execute physics jobs
         std::unique_ptr<JPH::JobSystemThreadPool> m_JobSystem;
 
+        // ====================================================================
+        // Listeners & Flags
+        // ====================================================================
+        
         // Listeners
         PhysicsBodyActivationListener m_BodyActivationListener;
         JoltPhysicsSystemContactListener m_ContactListener;
 
         bool m_Initialized = false;
 
+        // ====================================================================
+        // Helper Methods
+        // ====================================================================
+        
         // Helper methods
         void UpdatePhysicsSystemSettings();
 
+        // ====================================================================
+        // Compile-time Constants
+        // ====================================================================
+        
         // Number of mutexes to allocate to protect rigid bodies from concurrent access
         // Can be overridden at compile time via -DOLO_PHYSICS_BODY_MUTEXES=N
         #ifndef OLO_PHYSICS_BODY_MUTEXES

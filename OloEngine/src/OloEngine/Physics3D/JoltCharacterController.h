@@ -90,6 +90,10 @@ namespace OloEngine
         void SetCollisionLayer(u32 collisionLayer) { m_CollisionLayer = collisionLayer; }
         u32 GetCollisionLayer() const { return m_CollisionLayer; }
 
+        // Collision filtering
+        void SetIgnoreCollisionLayers(u32 layerMask) { m_IgnoreCollisionLayers = layerMask; }
+        u32 GetIgnoreCollisionLayers() const { return m_IgnoreCollisionLayers; }
+
         // Internal Jolt access
         JPH::BodyID GetBodyID() const { return m_Controller ? m_Controller->GetInnerBodyID() : JPH::BodyID(); }
         JPH::CharacterVirtual* GetJoltController() const { return m_Controller.GetPtr(); }
@@ -120,6 +124,11 @@ namespace OloEngine
         // Contact event handling
         void HandleTrigger(const JPH::BodyID bodyID2);
         void HandleCollision(const JPH::BodyID bodyID2);
+
+        // PreSimulate helper methods
+        JPH::Vec3 CalculateDesiredVelocity(f32 deltaTime) const;
+        JPH::Vec3 ApplyGravityAndJump(f32 deltaTime, const JPH::Vec3& desiredVelocity);
+        void UpdateRotation(f32 deltaTime);
 
     private:
         // Entity reference
@@ -156,13 +165,13 @@ namespace OloEngine
         f32 m_AngularVelocityDeltaTime = 0.0f;
 
         u32 m_CollisionLayer = 0;
+        u32 m_IgnoreCollisionLayers = 0;
         ECollisionFlags m_CollisionFlags = ECollisionFlags::None;
 
         // Settings
         bool m_HasGravity = true;
         bool m_ControlMovementInAir = false;
         bool m_ControlRotationInAir = false;
-        bool m_AllowSliding = false;
 
         friend class JoltScene;
     };

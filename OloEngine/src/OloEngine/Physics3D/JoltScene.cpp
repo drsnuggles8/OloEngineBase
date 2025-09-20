@@ -399,8 +399,9 @@ namespace OloEngine {
 			return false;
 
 		JPH::Ref<JPH::Shape> boxShape = new JPH::BoxShape(JoltUtils::ToJoltVector(boxCastInfo.m_HalfExtent));
+		ExcludedEntitySet exclusionSet(boxCastInfo.m_ExcludedEntities);
 		return PerformShapeCast(boxShape, boxCastInfo.m_Origin, boxCastInfo.m_Direction, 
-			boxCastInfo.m_MaxDistance, boxCastInfo.m_LayerMask, boxCastInfo.m_ExcludedEntities, outHit);
+			boxCastInfo.m_MaxDistance, boxCastInfo.m_LayerMask, exclusionSet, outHit);
 	}
 
 	bool JoltScene::CastSphere(const SphereCastInfo& sphereCastInfo, SceneQueryHit& outHit)
@@ -409,8 +410,9 @@ namespace OloEngine {
 			return false;
 
 		JPH::Ref<JPH::Shape> sphereShape = new JPH::SphereShape(sphereCastInfo.m_Radius);
+		ExcludedEntitySet exclusionSet(sphereCastInfo.m_ExcludedEntities);
 		return PerformShapeCast(sphereShape, sphereCastInfo.m_Origin, sphereCastInfo.m_Direction,
-			sphereCastInfo.m_MaxDistance, sphereCastInfo.m_LayerMask, sphereCastInfo.m_ExcludedEntities, outHit);
+			sphereCastInfo.m_MaxDistance, sphereCastInfo.m_LayerMask, exclusionSet, outHit);
 	}
 
 	bool JoltScene::CastCapsule(const CapsuleCastInfo& capsuleCastInfo, SceneQueryHit& outHit)
@@ -419,8 +421,9 @@ namespace OloEngine {
 			return false;
 
 		JPH::Ref<JPH::Shape> capsuleShape = new JPH::CapsuleShape(capsuleCastInfo.m_HalfHeight, capsuleCastInfo.m_Radius);
+		ExcludedEntitySet exclusionSet(capsuleCastInfo.m_ExcludedEntities);
 		return PerformShapeCast(capsuleShape, capsuleCastInfo.m_Origin, capsuleCastInfo.m_Direction,
-			capsuleCastInfo.m_MaxDistance, capsuleCastInfo.m_LayerMask, capsuleCastInfo.m_ExcludedEntities, outHit);
+			capsuleCastInfo.m_MaxDistance, capsuleCastInfo.m_LayerMask, exclusionSet, outHit);
 	}
 
 	i32 JoltScene::CastBoxMultiple(const BoxCastInfo& boxCastInfo, SceneQueryHit* outHits, i32 maxHits)
@@ -429,8 +432,9 @@ namespace OloEngine {
 			return 0;
 
 		JPH::Ref<JPH::Shape> boxShape = new JPH::BoxShape(JoltUtils::ToJoltVector(boxCastInfo.m_HalfExtent));
+		ExcludedEntitySet exclusionSet(boxCastInfo.m_ExcludedEntities);
 		return PerformShapeCastMultiple(boxShape, boxCastInfo.m_Origin, boxCastInfo.m_Direction,
-			boxCastInfo.m_MaxDistance, boxCastInfo.m_LayerMask, boxCastInfo.m_ExcludedEntities, outHits, maxHits);
+			boxCastInfo.m_MaxDistance, boxCastInfo.m_LayerMask, exclusionSet, outHits, maxHits);
 	}
 
 	i32 JoltScene::CastSphereMultiple(const SphereCastInfo& sphereCastInfo, SceneQueryHit* outHits, i32 maxHits)
@@ -439,8 +443,9 @@ namespace OloEngine {
 			return 0;
 
 		JPH::Ref<JPH::Shape> sphereShape = new JPH::SphereShape(sphereCastInfo.m_Radius);
+		ExcludedEntitySet exclusionSet(sphereCastInfo.m_ExcludedEntities);
 		return PerformShapeCastMultiple(sphereShape, sphereCastInfo.m_Origin, sphereCastInfo.m_Direction,
-			sphereCastInfo.m_MaxDistance, sphereCastInfo.m_LayerMask, sphereCastInfo.m_ExcludedEntities, outHits, maxHits);
+			sphereCastInfo.m_MaxDistance, sphereCastInfo.m_LayerMask, exclusionSet, outHits, maxHits);
 	}
 
 	i32 JoltScene::CastCapsuleMultiple(const CapsuleCastInfo& capsuleCastInfo, SceneQueryHit* outHits, i32 maxHits)
@@ -449,8 +454,9 @@ namespace OloEngine {
 			return 0;
 
 		JPH::Ref<JPH::Shape> capsuleShape = new JPH::CapsuleShape(capsuleCastInfo.m_HalfHeight, capsuleCastInfo.m_Radius);
+		ExcludedEntitySet exclusionSet(capsuleCastInfo.m_ExcludedEntities);
 		return PerformShapeCastMultiple(capsuleShape, capsuleCastInfo.m_Origin, capsuleCastInfo.m_Direction,
-			capsuleCastInfo.m_MaxDistance, capsuleCastInfo.m_LayerMask, capsuleCastInfo.m_ExcludedEntities, outHits, maxHits);
+			capsuleCastInfo.m_MaxDistance, capsuleCastInfo.m_LayerMask, exclusionSet, outHits, maxHits);
 	}
 
 	i32 JoltScene::OverlapShape(const ShapeOverlapInfo& overlapInfo, SceneQueryHit* outHits, i32 maxHits)
@@ -484,8 +490,9 @@ namespace OloEngine {
 			return 0;
 
 		JPH::Ref<JPH::Shape> boxShape = new JPH::BoxShape(JoltUtils::ToJoltVector(boxOverlapInfo.m_HalfExtent));
+		ExcludedEntitySet exclusionSet(boxOverlapInfo.m_ExcludedEntities);
 		return PerformShapeOverlap(boxShape, boxOverlapInfo.m_Origin, boxOverlapInfo.m_Rotation,
-			boxOverlapInfo.m_LayerMask, boxOverlapInfo.m_ExcludedEntities, outHits, maxHits);
+			boxOverlapInfo.m_LayerMask, exclusionSet, outHits, maxHits);
 	}
 
 	i32 JoltScene::OverlapSphere(const SphereOverlapInfo& sphereOverlapInfo, SceneQueryHit* outHits, i32 maxHits)
@@ -494,8 +501,9 @@ namespace OloEngine {
 			return 0;
 
 		JPH::Ref<JPH::Shape> sphereShape = new JPH::SphereShape(sphereOverlapInfo.m_Radius);
+		ExcludedEntitySet exclusionSet(sphereOverlapInfo.m_ExcludedEntities);
 		return PerformShapeOverlap(sphereShape, sphereOverlapInfo.m_Origin, sphereOverlapInfo.m_Rotation,
-			sphereOverlapInfo.m_LayerMask, sphereOverlapInfo.m_ExcludedEntities, outHits, maxHits);
+			sphereOverlapInfo.m_LayerMask, exclusionSet, outHits, maxHits);
 	}
 
 	i32 JoltScene::OverlapCapsule(const CapsuleOverlapInfo& capsuleOverlapInfo, SceneQueryHit* outHits, i32 maxHits)
@@ -504,8 +512,9 @@ namespace OloEngine {
 			return 0;
 
 		JPH::Ref<JPH::Shape> capsuleShape = new JPH::CapsuleShape(capsuleOverlapInfo.m_HalfHeight, capsuleOverlapInfo.m_Radius);
+		ExcludedEntitySet exclusionSet(capsuleOverlapInfo.m_ExcludedEntities);
 		return PerformShapeOverlap(capsuleShape, capsuleOverlapInfo.m_Origin, capsuleOverlapInfo.m_Rotation,
-			capsuleOverlapInfo.m_LayerMask, capsuleOverlapInfo.m_ExcludedEntities, outHits, maxHits);
+			capsuleOverlapInfo.m_LayerMask, exclusionSet, outHits, maxHits);
 	}
 
 	i32 JoltScene::CastRayMultiple(const RayCastInfo& rayInfo, SceneQueryHit* outHits, i32 maxHits)
@@ -732,9 +741,39 @@ namespace OloEngine {
 		OLO_CORE_INFO("Jolt Physics shut down");
 	}
 
-	// Scene query helper methods
+	// Scene query helper methods - Legacy vector-based interface (now forwards to ExcludedEntitySet)
 	bool JoltScene::PerformShapeCast(JPH::Ref<JPH::Shape> shape, const glm::vec3& start, const glm::vec3& direction, 
 		f32 maxDistance, u32 layerMask, const std::vector<UUID>& excludedEntities, SceneQueryHit& outHit)
+	{
+		// Create temporary ExcludedEntitySet for O(1) lookups during the query
+		ExcludedEntitySet tempExclusionSet(excludedEntities);
+		return PerformShapeCast(shape, start, direction, maxDistance, layerMask, tempExclusionSet, outHit);
+	}
+
+	i32 JoltScene::PerformShapeCastMultiple(JPH::Ref<JPH::Shape> shape, const glm::vec3& start, const glm::vec3& direction,
+		f32 maxDistance, u32 layerMask, const std::vector<UUID>& excludedEntities, SceneQueryHit* outHits, i32 maxHits)
+	{
+		// Create temporary ExcludedEntitySet for O(1) lookups during the query
+		ExcludedEntitySet tempExclusionSet(excludedEntities);
+		return PerformShapeCastMultiple(shape, start, direction, maxDistance, layerMask, tempExclusionSet, outHits, maxHits);
+	}
+
+	i32 JoltScene::PerformShapeOverlap(JPH::Ref<JPH::Shape> shape, const glm::vec3& position, const glm::quat& rotation,
+		u32 layerMask, const std::vector<UUID>& excludedEntities, SceneQueryHit* outHits, i32 maxHits)
+	{
+		// Create temporary ExcludedEntitySet for O(1) lookups during the query
+		ExcludedEntitySet tempExclusionSet(excludedEntities);
+		return PerformShapeOverlap(shape, position, rotation, layerMask, tempExclusionSet, outHits, maxHits);
+	}
+
+	bool JoltScene::IsEntityExcluded(UUID entityID, const std::vector<UUID>& excludedEntities)
+	{
+		return EntityExclusionUtils::IsEntityExcluded(excludedEntities, entityID);
+	}
+
+	// Optimized ExcludedEntitySet-based implementations
+	bool JoltScene::PerformShapeCast(JPH::Ref<JPH::Shape> shape, const glm::vec3& start, const glm::vec3& direction, 
+		f32 maxDistance, u32 layerMask, const ExcludedEntitySet& excludedEntitySet, SceneQueryHit& outHit)
 	{
 		if (!m_JoltSystem)
 			return false;
@@ -752,14 +791,14 @@ namespace OloEngine {
 			castDirection
 		);
 
-		// Perform shape cast
+		// Perform shape cast using optimized ExcludedEntitySet body filter
 		JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> hitCollector;
 		JPH::ShapeCastSettings shapeCastSettings;
 		
 		// Create filters
 		JPH::DefaultBroadPhaseLayerFilter broadPhaseFilter(*m_ObjectVsBroadPhaseLayerFilter, JPH::ObjectLayer(layerMask));
 		JPH::DefaultObjectLayerFilter objectLayerFilter(*m_ObjectLayerPairFilter, JPH::ObjectLayer(layerMask));
-		EntityExclusionBodyFilter bodyFilter(excludedEntities);
+		EntityExclusionBodyFilter bodyFilter(excludedEntitySet); // Use ExcludedEntitySet directly
 
 		m_JoltSystem->GetNarrowPhaseQuery().CastShape(shapeCast, shapeCastSettings, startPos, hitCollector, broadPhaseFilter, objectLayerFilter, bodyFilter);
 		
@@ -772,7 +811,7 @@ namespace OloEngine {
 	}
 
 	i32 JoltScene::PerformShapeCastMultiple(JPH::Ref<JPH::Shape> shape, const glm::vec3& start, const glm::vec3& direction,
-		f32 maxDistance, u32 layerMask, const std::vector<UUID>& excludedEntities, SceneQueryHit* outHits, i32 maxHits)
+		f32 maxDistance, u32 layerMask, const ExcludedEntitySet& excludedEntitySet, SceneQueryHit* outHits, i32 maxHits)
 	{
 		if (!m_JoltSystem || maxHits <= 0)
 			return 0;
@@ -788,14 +827,14 @@ namespace OloEngine {
 			castDirection
 		);
 
-		// Perform shape cast with multiple hit collector
+		// Perform shape cast with multiple hit collector using optimized ExcludedEntitySet body filter
 		JPH::AllHitCollisionCollector<JPH::CastShapeCollector> hitCollector;
 		JPH::ShapeCastSettings shapeCastSettings;
 		
 		// Create filters
 		JPH::DefaultBroadPhaseLayerFilter broadPhaseFilter(*m_ObjectVsBroadPhaseLayerFilter, JPH::ObjectLayer(layerMask));
 		JPH::DefaultObjectLayerFilter objectLayerFilter(*m_ObjectLayerPairFilter, JPH::ObjectLayer(layerMask));
-		EntityExclusionBodyFilter bodyFilter(excludedEntities);
+		EntityExclusionBodyFilter bodyFilter(excludedEntitySet); // Use ExcludedEntitySet directly
 
 		m_JoltSystem->GetNarrowPhaseQuery().CastShape(shapeCast, shapeCastSettings, startPos, hitCollector, broadPhaseFilter, objectLayerFilter, bodyFilter);
 
@@ -814,7 +853,7 @@ namespace OloEngine {
 	}
 
 	i32 JoltScene::PerformShapeOverlap(JPH::Ref<JPH::Shape> shape, const glm::vec3& position, const glm::quat& rotation,
-		u32 layerMask, const std::vector<UUID>& excludedEntities, SceneQueryHit* outHits, i32 maxHits)
+		u32 layerMask, const ExcludedEntitySet& excludedEntitySet, SceneQueryHit* outHits, i32 maxHits)
 	{
 		if (!m_JoltSystem || maxHits <= 0)
 			return 0;
@@ -825,14 +864,14 @@ namespace OloEngine {
 			JoltUtils::ToJoltVector(position)
 		);
 
-		// Perform overlap query
+		// Perform overlap query using optimized ExcludedEntitySet body filter
 		JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> hitCollector;
 		JPH::CollideShapeSettings overlapSettings;
 		
 		// Create filters
 		JPH::DefaultBroadPhaseLayerFilter broadPhaseFilter(*m_ObjectVsBroadPhaseLayerFilter, JPH::ObjectLayer(layerMask));
 		JPH::DefaultObjectLayerFilter objectLayerFilter(*m_ObjectLayerPairFilter, JPH::ObjectLayer(layerMask));
-		EntityExclusionBodyFilter bodyFilter(excludedEntities);
+		EntityExclusionBodyFilter bodyFilter(excludedEntitySet); // Use ExcludedEntitySet directly
 
 		m_JoltSystem->GetNarrowPhaseQuery().CollideShape(shape, JPH::Vec3::sReplicate(1.0f), transform, overlapSettings, 
 			JPH::Vec3::sZero(), hitCollector, broadPhaseFilter, objectLayerFilter, bodyFilter);
@@ -868,39 +907,6 @@ namespace OloEngine {
 		}
 
 		return hitCount;
-	}
-
-	bool JoltScene::IsEntityExcluded(UUID entityID, const std::vector<UUID>& excludedEntities)
-	{
-		return EntityExclusionUtils::IsEntityExcluded(excludedEntities, entityID);
-	}
-
-	// New O(1) ExcludedEntitySet overloads
-	bool JoltScene::PerformShapeCast(JPH::Ref<JPH::Shape> shape, const glm::vec3& start, const glm::vec3& direction, 
-		f32 maxDistance, u32 layerMask, const ExcludedEntitySet& excludedEntitySet, SceneQueryHit& outHit)
-	{
-		// Convert to vector and delegate to existing implementation for now
-		// TODO: Optimize to use ExcludedEntitySet directly in body filter
-		std::vector<UUID> excludedEntities = excludedEntitySet.ToVector();
-		return PerformShapeCast(shape, start, direction, maxDistance, layerMask, excludedEntities, outHit);
-	}
-
-	i32 JoltScene::PerformShapeCastMultiple(JPH::Ref<JPH::Shape> shape, const glm::vec3& start, const glm::vec3& direction,
-		f32 maxDistance, u32 layerMask, const ExcludedEntitySet& excludedEntitySet, SceneQueryHit* outHits, i32 maxHits)
-	{
-		// Convert to vector and delegate to existing implementation for now
-		// TODO: Optimize to use ExcludedEntitySet directly in body filter
-		std::vector<UUID> excludedEntities = excludedEntitySet.ToVector();
-		return PerformShapeCastMultiple(shape, start, direction, maxDistance, layerMask, excludedEntities, outHits, maxHits);
-	}
-
-	i32 JoltScene::PerformShapeOverlap(JPH::Ref<JPH::Shape> shape, const glm::vec3& position, const glm::quat& rotation,
-		u32 layerMask, const ExcludedEntitySet& excludedEntitySet, SceneQueryHit* outHits, i32 maxHits)
-	{
-		// Convert to vector and delegate to existing implementation for now
-		// TODO: Optimize to use ExcludedEntitySet directly in body filter
-		std::vector<UUID> excludedEntities = excludedEntitySet.ToVector();
-		return PerformShapeOverlap(shape, position, rotation, layerMask, excludedEntities, outHits, maxHits);
 	}
 
 	bool JoltScene::IsEntityExcluded(UUID entityID, const ExcludedEntitySet& excludedEntitySet)

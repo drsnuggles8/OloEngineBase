@@ -749,9 +749,8 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 			if (body)
 			{
 				auto& rb3d = ent.GetComponent<Rigidbody3DComponent>();
-				// Store the body reference for runtime access
-				rb3d.m_RuntimeBody = body.get(); // Store raw pointer for compatibility
-				rb3d.m_RuntimeBodyToken = body ? static_cast<std::uint64_t>(body->GetBodyID().GetIndexAndSequenceNumber()) : 0;
+				// Store only the body token for safe runtime access
+				rb3d.m_RuntimeBodyToken = static_cast<std::uint64_t>(body->GetBodyID().GetIndexAndSequenceNumber());
 			}
 		}
 	}
@@ -771,11 +770,10 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 			Entity ent = { entity, this };
 			auto& rb3d = ent.GetComponent<Rigidbody3DComponent>();
 			
-			if (rb3d.m_RuntimeBody || rb3d.m_RuntimeBodyToken != 0)
+			if (rb3d.m_RuntimeBodyToken != 0)
 			{
 				// Destroy the body using the entity
 				m_JoltScene->DestroyBody(ent);
-				rb3d.m_RuntimeBody = nullptr;
 				rb3d.m_RuntimeBodyToken = 0;
 			}
 		}

@@ -104,8 +104,11 @@ namespace OloEngine {
 		static f32 ApplyScaleToSphereRadius(f32 radius, const glm::vec3& scale);
 		static std::pair<f32, f32> ApplyScaleToCapsule(f32 radius, f32 halfHeight, const glm::vec3& scale);
 
+		// Volume calculation helpers
+		static f32 ComputeMeshVolume(AssetHandle colliderAsset, const glm::vec3& scale = glm::vec3(1.0f));
+
 	private:
-		static bool s_Initialized;
+		static std::atomic<bool> s_Initialized;
 		static std::unordered_map<std::string, JPH::Ref<JPH::Shape>> s_ShapeCache;
 		static std::shared_mutex s_ShapeCacheMutex;
 		static std::atomic<bool> s_PersistentCacheEnabled;

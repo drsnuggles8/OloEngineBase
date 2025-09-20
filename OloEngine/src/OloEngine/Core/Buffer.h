@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <cstring>
 #include <span>
+#include <limits>
 
 namespace OloEngine
 {
@@ -34,8 +35,16 @@ namespace OloEngine
 			if (data.size() == 0)
 				return Buffer{};
 				
-			Buffer result(data.size());
-			::memcpy(result.Data, data.data(), static_cast<size_t>(data.size()));
+			// Validate that span size fits in u64 to avoid truncation
+			if (data.size() > std::numeric_limits<u64>::max())
+			{
+				// Handle overflow - could throw or return empty buffer
+				// For now, return empty buffer to avoid silent truncation
+				return Buffer{};
+			}
+				
+			Buffer result(static_cast<u64>(data.size()));
+			::memcpy(result.Data, data.data(), data.size());
 			return result;
 		}
 

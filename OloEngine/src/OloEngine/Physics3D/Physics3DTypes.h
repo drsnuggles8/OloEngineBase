@@ -91,7 +91,12 @@ namespace OloEngine {
 		constexpr u32 Debris = 7;
 	}
 
-	// Helper function to convert layer index to bitmask
+	/**
+	 * @brief Converts a layer index to a bitmask for physics layer operations.
+	 * @param layerIndex The physics layer index (valid range: 0-31)
+	 * @return Bitmask with the corresponding bit set, or 0 if layerIndex >= 32
+	 * @note For indices >= 32, returns 0 to prevent undefined behavior from bit shifting
+	 */
 	constexpr inline u32 ToLayerMask(u32 layerIndex)
 	{
 		return OLO_BIT(layerIndex);

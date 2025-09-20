@@ -62,6 +62,7 @@ namespace OloEngine {
 		Ref<JoltCharacterController> GetCharacterControllerByEntityID(UUID entityID);
 
 		// Layer interface access for character controllers
+		// DEPRECATED: Use GetJoltSystem() instead. This method may return nullptr if not initialized.
 		JPH::PhysicsSystem* GetPhysicsSystem() const { return m_JoltSystem.get(); }
 
 		// Scene lifecycle
@@ -99,11 +100,35 @@ namespace OloEngine {
 		void OnContactEvent(ContactType type, UUID entityA, UUID entityB);
 
 		// Jolt system access
-		JPH::BodyInterface& GetBodyInterface() { return m_JoltSystem->GetBodyInterface(); }
-		const JPH::BodyInterface& GetBodyInterface() const { return m_JoltSystem->GetBodyInterface(); }
-		const JPH::BodyLockInterface& GetBodyLockInterface() const { return m_JoltSystem->GetBodyLockInterface(); }
-		JPH::PhysicsSystem& GetJoltSystem() { return *m_JoltSystem; }
-		const JPH::PhysicsSystem& GetJoltSystem() const { return *m_JoltSystem; }
+		// NOTE: These methods require Initialize() to have been called successfully
+		JPH::BodyInterface& GetBodyInterface() 
+		{ 
+			OLO_CORE_ASSERT(m_JoltSystem, "JoltScene not initialized - call Initialize() before accessing BodyInterface");
+			return m_JoltSystem->GetBodyInterface(); 
+		}
+		const JPH::BodyInterface& GetBodyInterface() const 
+		{ 
+			OLO_CORE_ASSERT(m_JoltSystem, "JoltScene not initialized - call Initialize() before accessing BodyInterface");
+			return m_JoltSystem->GetBodyInterface(); 
+		}
+		const JPH::BodyLockInterface& GetBodyLockInterface() const 
+		{ 
+			OLO_CORE_ASSERT(m_JoltSystem, "JoltScene not initialized - call Initialize() before accessing BodyLockInterface");
+			return m_JoltSystem->GetBodyLockInterface(); 
+		}
+		JPH::PhysicsSystem& GetJoltSystem() 
+		{ 
+			OLO_CORE_ASSERT(m_JoltSystem, "JoltScene not initialized - call Initialize() before accessing PhysicsSystem");
+			return *m_JoltSystem; 
+		}
+		const JPH::PhysicsSystem& GetJoltSystem() const 
+		{ 
+			OLO_CORE_ASSERT(m_JoltSystem, "JoltScene not initialized - call Initialize() before accessing PhysicsSystem");
+			return *m_JoltSystem; 
+		}
+
+		// Pointer version for null-checking (prefer reference versions above when possible)
+		JPH::PhysicsSystem* GetJoltSystemPtr() const { return m_JoltSystem.get(); }
 
 		// Debug info
 		u32 GetBodyCount() const { return m_JoltSystem ? m_JoltSystem->GetNumBodies() : 0; }
@@ -118,15 +143,25 @@ namespace OloEngine {
 		void ShutdownJolt();
 
 		// Scene query helpers - legacy vector-based interface (O(n) performance)
+		// ⚠️  DEPRECATED: These methods have O(n) performance due to linear entity exclusion checks.
+		// Migration: Use the ExcludedEntitySet overloads below for O(1) performance with repeated queries.
+		// Performance Note: Each query performs std::find() over the excluded entities vector, causing
+		// significant performance degradation with large exclusion lists or frequent queries.
+		[[deprecated("Use ExcludedEntitySet overloads for O(1) performance - this vector-based API has O(n) lookup cost")]]
 		bool PerformShapeCast(JPH::Ref<JPH::Shape> shape, const glm::vec3& start, const glm::vec3& direction, 
 			f32 maxDistance, u32 layerMask, const std::vector<UUID>& excludedEntities, SceneQueryHit& outHit);
+		[[deprecated("Use ExcludedEntitySet overloads for O(1) performance - this vector-based API has O(n) lookup cost")]]
 		i32 PerformShapeCastMultiple(JPH::Ref<JPH::Shape> shape, const glm::vec3& start, const glm::vec3& direction,
 			f32 maxDistance, u32 layerMask, const std::vector<UUID>& excludedEntities, SceneQueryHit* outHits, i32 maxHits);
+		[[deprecated("Use ExcludedEntitySet overloads for O(1) performance - this vector-based API has O(n) lookup cost")]]
 		i32 PerformShapeOverlap(JPH::Ref<JPH::Shape> shape, const glm::vec3& position, const glm::quat& rotation,
 			u32 layerMask, const std::vector<UUID>& excludedEntities, SceneQueryHit* outHits, i32 maxHits);
+		[[deprecated("Use ExcludedEntitySet overloads for O(1) performance - this vector-based API has O(n) lookup cost")]]
 		bool IsEntityExcluded(UUID entityID, const std::vector<UUID>& excludedEntities);
 
-		// Scene query helpers - new O(1) ExcludedEntitySet interface
+		// Scene query helpers - optimized O(1) ExcludedEntitySet interface
+		// ✅ PREFERRED: These methods provide O(1) entity exclusion checks for optimal performance.
+		// Performance Note: Uses std::unordered_set for constant-time entity lookup during queries.
 		bool PerformShapeCast(JPH::Ref<JPH::Shape> shape, const glm::vec3& start, const glm::vec3& direction, 
 			f32 maxDistance, u32 layerMask, const ExcludedEntitySet& excludedEntitySet, SceneQueryHit& outHit);
 		i32 PerformShapeCastMultiple(JPH::Ref<JPH::Shape> shape, const glm::vec3& start, const glm::vec3& direction,

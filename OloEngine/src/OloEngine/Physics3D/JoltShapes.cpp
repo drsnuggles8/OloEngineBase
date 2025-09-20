@@ -4,8 +4,11 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Asset/MeshColliderAsset.h"
+#include "OloEngine/Renderer/MeshSource.h"
 #include "MeshColliderCache.h"
 
+#include <atomic>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
@@ -21,7 +24,7 @@ namespace OloEngine {
 
 	using ShapeUtils::ShapeTypeToString;
 
-	bool JoltShapes::s_Initialized = false;
+	std::atomic<bool> JoltShapes::s_Initialized = false;
 	std::unordered_map<std::string, JPH::Ref<JPH::Shape>> JoltShapes::s_ShapeCache;
 	std::shared_mutex JoltShapes::s_ShapeCacheMutex;
 	std::atomic<bool> JoltShapes::s_PersistentCacheEnabled = true;
@@ -29,7 +32,7 @@ namespace OloEngine {
 
 	void JoltShapes::Initialize()
 	{
-		if (s_Initialized)
+		if (s_Initialized.load(std::memory_order_acquire))
 			return;
 
 		OLO_CORE_INFO("Initializing JoltShapes system");
@@ -59,12 +62,12 @@ namespace OloEngine {
 			}
 		}
 		
-		s_Initialized = true;
+		s_Initialized.store(true, std::memory_order_release);
 	}
 
 	void JoltShapes::Shutdown()
 	{
-		if (!s_Initialized)
+		if (!s_Initialized.load(std::memory_order_acquire))
 			return;
 
 		OLO_CORE_INFO("Shutting down JoltShapes system");
@@ -73,7 +76,7 @@ namespace OloEngine {
 		MeshColliderCache::GetInstance().Shutdown();
 		
 		ClearShapeCache();
-		s_Initialized = false;
+		s_Initialized.store(false, std::memory_order_release);
 	}
 
 	JPH::Ref<JPH::Shape> JoltShapes::CreateBoxShape(const BoxCollider3DComponent& component, const glm::vec3& scale)
@@ -505,17 +508,21 @@ namespace OloEngine {
 			totalVolume += capsuleVolume;
 		}
 
-		// For mesh colliders, we can only use the offset as an approximation since we don't have mesh geometry here
-		// In a more complete implementation, you'd calculate the actual mesh center of mass from vertex data
+		// For mesh colliders, we approximate volume using AABB dimensions (width*height*depth)
+		// TODO: For most accurate physics simulation, implement proper mesh volume calculation:
+		// 1. For triangle meshes: Use divergence theorem with triangulated surface or Monte Carlo integration
+		// 2. For convex meshes: Compute actual convex hull volume using tetrahedralization
+		// 3. For complex meshes: Use convex decomposition and sum component volumes
+		// This would require accessing vertex/triangle data from the mesh geometry
 		
 		if (entity.HasComponent<MeshCollider3DComponent>())
 		{
 			const auto& collider = entity.GetComponent<MeshCollider3DComponent>();
 			// Use offset as center of mass approximation
 			glm::vec3 meshCOM = collider.m_Offset;
-			// Use a default unit volume since we don't have mesh data
-			// In practice, you'd calculate this from the actual mesh
-			f32 meshVolume = 1.0f;
+			// Compute volume from mesh AABB, with fallback to conservative default
+			// TODO: For accurate center-of-mass calculation, also compute actual mesh centroid from vertex data
+			f32 meshVolume = ComputeMeshVolume(collider.m_ColliderAsset, collider.m_Scale);
 			
 			totalWeightedCOM += meshCOM * meshVolume;
 			totalVolume += meshVolume;
@@ -526,8 +533,8 @@ namespace OloEngine {
 			const auto& collider = entity.GetComponent<ConvexMeshCollider3DComponent>();
 			// Use offset as center of mass approximation
 			glm::vec3 convexMeshCOM = collider.m_Offset;
-			// Use a default unit volume since we don't have mesh data
-			f32 convexMeshVolume = 1.0f;
+			// Compute volume from mesh AABB, with fallback to conservative default
+			f32 convexMeshVolume = ComputeMeshVolume(collider.m_ColliderAsset, collider.m_Scale);
 			
 			totalWeightedCOM += convexMeshCOM * convexMeshVolume;
 			totalVolume += convexMeshVolume;
@@ -538,8 +545,8 @@ namespace OloEngine {
 			const auto& collider = entity.GetComponent<TriangleMeshCollider3DComponent>();
 			// Use offset as center of mass approximation
 			glm::vec3 triangleMeshCOM = collider.m_Offset;
-			// Use a default unit volume since we don't have mesh data
-			f32 triangleMeshVolume = 1.0f;
+			// Compute volume from mesh AABB, with fallback to conservative default
+			f32 triangleMeshVolume = ComputeMeshVolume(collider.m_ColliderAsset, collider.m_Scale);
 			
 			totalWeightedCOM += triangleMeshCOM * triangleMeshVolume;
 			totalVolume += triangleMeshVolume;
@@ -678,6 +685,54 @@ namespace OloEngine {
 	}
 
 	// Private helper implementations
+
+	f32 JoltShapes::ComputeMeshVolume(AssetHandle colliderAsset, const glm::vec3& scale)
+	{
+		// TODO: For most accurate volume calculation, compute actual mesh volume from vertex/triangle data
+		// using methods like divergence theorem, tetrahedralization, or convex decomposition.
+		// This would require accessing the original mesh geometry and implementing volume integration.
+		
+		// Conservative default volume for fallback cases
+		constexpr f32 defaultVolume = 1.0f;
+		
+		// Attempt to get mesh asset from collider asset
+		auto meshColliderAsset = AssetManager::GetAsset<MeshColliderAsset>(colliderAsset);
+		if (!meshColliderAsset)
+		{
+			OLO_CORE_WARN("ComputeMeshVolume: Could not get MeshColliderAsset for handle {}, using default volume {}", 
+						  colliderAsset, defaultVolume);
+			return defaultVolume;
+		}
+		
+		// Get the mesh source from the collider asset
+		auto meshSource = AssetManager::GetAsset<MeshSource>(meshColliderAsset->m_ColliderMesh);
+		if (!meshSource)
+		{
+			OLO_CORE_WARN("ComputeMeshVolume: Could not get MeshSource for collider mesh handle {}, using default volume {}", 
+						  meshColliderAsset->m_ColliderMesh, defaultVolume);
+			return defaultVolume;
+		}
+		
+		// Get the AABB and compute approximate volume from bounding box
+		const auto& boundingBox = meshSource->GetBoundingBox();
+		glm::vec3 size = boundingBox.GetSize();
+		
+		// Apply scaling
+		size *= scale;
+		
+		// Compute volume as width * height * depth
+		f32 volume = size.x * size.y * size.z;
+		
+		// Validate the computed volume
+		if (volume <= 0.0f || !std::isfinite(volume))
+		{
+			OLO_CORE_WARN("ComputeMeshVolume: Invalid computed volume {} for mesh, using default volume {}", 
+						  volume, defaultVolume);
+			return defaultVolume;
+		}
+		
+		return volume;
+	}
 
 	JPH::Ref<JPH::Shape> JoltShapes::CreateBoxShapeInternal(const glm::vec3& halfExtents)
 	{
@@ -1091,6 +1146,20 @@ namespace OloEngine {
 
 			std::streamsize size = file.tellg();
 			file.seekg(0, std::ios::beg);
+
+			// Validate file size before casting to u64
+			if (size < 0)
+			{
+				OLO_CORE_ERROR("JoltShapes::LoadShapeFromCache: Invalid file size {} for cache file: {}", size, cacheFilePath.string());
+				return nullptr;
+			}
+
+			// Check if size exceeds u64 maximum (unlikely but safe)
+			if (static_cast<u64>(size) > std::numeric_limits<u64>::max())
+			{
+				OLO_CORE_ERROR("JoltShapes::LoadShapeFromCache: File size {} exceeds maximum supported size for cache file: {}", size, cacheFilePath.string());
+				return nullptr;
+			}
 
 			Buffer buffer(static_cast<u64>(size));
 			if (!file.read(reinterpret_cast<char*>(buffer.Data), size))

@@ -78,10 +78,6 @@ namespace OloEngine {
 			{
 				OLO_CORE_ERROR("JoltBinaryStreamReader: outData pointer is null");
 				m_Failed = true;
-				if (m_ReadBytes < GetSourceSize())
-				{
-					m_ReadBytes = GetSourceSize(); // Clamp to prevent further reads
-				}
 				return;
 			}
 
@@ -108,7 +104,6 @@ namespace OloEngine {
 				OLO_CORE_ERROR("JoltBinaryStreamReader: Read position ({}) exceeds total size ({}), clamping and failing", 
 					m_ReadBytes, totalSize);
 				m_Failed = true;
-				m_ReadBytes = totalSize;
 				return;
 			}
 			
@@ -117,9 +112,8 @@ namespace OloEngine {
 			{
 				OLO_CORE_ERROR("JoltBinaryStreamReader: Requested {} bytes but only {} remaining (total size: {}, already read: {})", 
 					inNumBytes, remaining, totalSize, m_ReadBytes);
-				// Mark stream as failed and clamp read position to size
+				// Mark stream as failed but leave read position unchanged
 				m_Failed = true;
-				m_ReadBytes = totalSize;
 				return;
 			}
 

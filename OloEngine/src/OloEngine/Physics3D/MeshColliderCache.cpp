@@ -18,6 +18,7 @@ namespace OloEngine {
 	}
 
 	MeshColliderCache::MeshColliderCache()
+		: m_Initialized(false)
 	{
 		m_CookingFactory = Ref<MeshCookingFactory>(new MeshCookingFactory());
 	}
@@ -38,8 +39,19 @@ namespace OloEngine {
 			return;
 		}
 
-		// Initialize cooking factory
-		m_CookingFactory->Initialize();
+		// Initialize cooking factory with error handling
+		try
+		{
+			m_CookingFactory->Initialize();
+		}
+		catch (const std::exception& e)
+		{
+			OLO_CORE_ERROR("MeshColliderCache: Failed to initialize cooking factory: {}", e.what());
+			// Keep m_Initialized as false and return early
+			// Clean up any partial state if needed
+			m_CachedData.clear();
+			return;
+		}
 
 		// Reserve space for cache
 		m_CachedData.reserve(1024);
@@ -94,14 +106,20 @@ namespace OloEngine {
 		AssetHandle handle = colliderAsset->GetHandle();
 
 		// Try to get from cache first
+		const CachedColliderData* cachedData = nullptr;
 		{
 			std::lock_guard<std::mutex> lock(m_CacheMutex);
 			auto it = m_CachedData.find(handle);
 			if (it != m_CachedData.end() && it->second.m_IsValid)
 			{
-				m_CacheHits++;
-				return it->second;
+				cachedData = &it->second;
 			}
+		}
+		
+		if (cachedData)
+		{
+			m_CacheHits++;
+			return *cachedData;
 		}
 
 		// Cache miss - try to load from disk cache
@@ -109,20 +127,24 @@ namespace OloEngine {
 		if (loadedData.m_IsValid)
 		{
 			// Add to memory cache
-			std::lock_guard<std::mutex> lock(m_CacheMutex);
-			sizet dataSize = CalculateDataSize(loadedData);
-			
-			// Check if we need to evict entries
-			if (m_CurrentCacheSize + dataSize > m_MaxCacheSize * CacheEvictionThreshold)
+			const CachedColliderData* finalData = nullptr;
 			{
-				EvictOldestEntries();
-			}
+				std::lock_guard<std::mutex> lock(m_CacheMutex);
+				sizet dataSize = CalculateDataSize(loadedData);
+				
+				// Check if we need to evict entries
+				if (m_CurrentCacheSize + dataSize > m_MaxCacheSize * CacheEvictionThreshold)
+				{
+					EvictOldestEntries();
+				}
 
-			m_CachedData[handle] = loadedData;
-			m_CurrentCacheSize += dataSize;
+				m_CachedData[handle] = loadedData;
+				m_CurrentCacheSize += dataSize;
+				finalData = &m_CachedData[handle];
+			}
 			
 			m_CacheHits++;
-			return m_CachedData[handle];
+			return *finalData;
 		}
 
 		// Need to cook the mesh
@@ -164,7 +186,23 @@ namespace OloEngine {
 		}
 		
 		// If primary failed, wait for secondary to complete and try again
-		ECookingResult secondaryResult = secondaryFuture.get();
+		ECookingResult secondaryResult = ECookingResult::Failed;
+		
+		// Use timed wait to avoid indefinite blocking
+		constexpr auto timeout = std::chrono::seconds(5);
+		auto waitStatus = secondaryFuture.wait_for(timeout);
+		
+		if (waitStatus == std::future_status::ready)
+		{
+			secondaryResult = secondaryFuture.get();
+		}
+		else
+		{
+			OLO_CORE_WARN("Secondary mesh cooking timed out after {} seconds for asset {}", 
+						   timeout.count(), static_cast<u64>(handle));
+			// secondaryResult remains ECookingResult::Failed
+		}
+		
 		if (secondaryResult == ECookingResult::Success)
 		{
 			// Try loading again after secondary cooking
@@ -234,8 +272,8 @@ namespace OloEngine {
 		// Process new requests if we have capacity
 		while (!m_CookingQueue.empty() && m_CookingTasks.size() < m_MaxConcurrentCooks)
 		{
-			CookingRequest request = std::move(m_CookingQueue.back());
-			m_CookingQueue.pop_back();
+			CookingRequest request = std::move(m_CookingQueue.front());
+			m_CookingQueue.pop_front();
 
 			// Create async task that updates cache on completion
 			auto task = std::async(std::launch::async, [this, req = std::move(request)]() mutable {
@@ -297,24 +335,82 @@ namespace OloEngine {
 			return cachedData;
 		}
 
-		// Try to load both simple and complex data from disk cache
-		std::filesystem::path simpleCachePath = m_CookingFactory->GetCacheFilePath(colliderAsset, EMeshColliderType::Convex);
-		std::filesystem::path complexCachePath = m_CookingFactory->GetCacheFilePath(colliderAsset, EMeshColliderType::Triangle);
+	// Try to load both simple and complex data from disk cache
+	std::filesystem::path simpleCachePath = m_CookingFactory->GetCacheFilePath(colliderAsset, EMeshColliderType::Convex);
+	std::filesystem::path complexCachePath = m_CookingFactory->GetCacheFilePath(colliderAsset, EMeshColliderType::Triangle);
 
-		bool hasSimple = std::filesystem::exists(simpleCachePath);
-		bool hasComplex = std::filesystem::exists(complexCachePath);
+	bool hasSimple = false;
+	bool hasComplex = false;
 
-		if (hasSimple)
+	// Check if simple cache file exists with exception handling
+	try
+	{
+		hasSimple = std::filesystem::exists(simpleCachePath);
+	}
+	catch (const std::filesystem::filesystem_error& e)
+	{
+		OLO_CORE_WARN("Failed to check existence of simple cache file '{}': {}", simpleCachePath.string(), e.what());
+		hasSimple = false;
+	}
+	catch (const std::exception& e)
+	{
+		OLO_CORE_WARN("Unexpected error checking simple cache file '{}': {}", simpleCachePath.string(), e.what());
+		hasSimple = false;
+	}
+
+	// Check if complex cache file exists with exception handling
+	try
+	{
+		hasComplex = std::filesystem::exists(complexCachePath);
+	}
+	catch (const std::filesystem::filesystem_error& e)
+	{
+		OLO_CORE_WARN("Failed to check existence of complex cache file '{}': {}", complexCachePath.string(), e.what());
+		hasComplex = false;
+	}
+	catch (const std::exception& e)
+	{
+		OLO_CORE_WARN("Unexpected error checking complex cache file '{}': {}", complexCachePath.string(), e.what());
+		hasComplex = false;
+	}
+
+	// Load simple collider data with exception handling
+	if (hasSimple)
+	{
+		try
 		{
 			cachedData.m_SimpleColliderData = m_CookingFactory->DeserializeMeshCollider(simpleCachePath);
 		}
+		catch (const std::filesystem::filesystem_error& e)
+		{
+			OLO_CORE_WARN("Failed to deserialize simple mesh collider from '{}': {}", simpleCachePath.string(), e.what());
+			// Keep cachedData.m_SimpleColliderData in default (invalid) state
+		}
+		catch (const std::exception& e)
+		{
+			OLO_CORE_WARN("Unexpected error deserializing simple mesh collider from '{}': {}", simpleCachePath.string(), e.what());
+			// Keep cachedData.m_SimpleColliderData in default (invalid) state
+		}
+	}
 
-		if (hasComplex)
+	// Load complex collider data with exception handling
+	if (hasComplex)
+	{
+		try
 		{
 			cachedData.m_ComplexColliderData = m_CookingFactory->DeserializeMeshCollider(complexCachePath);
 		}
-
-		cachedData.m_IsValid = (hasSimple && cachedData.m_SimpleColliderData.m_IsValid) || 
+		catch (const std::filesystem::filesystem_error& e)
+		{
+			OLO_CORE_WARN("Failed to deserialize complex mesh collider from '{}': {}", complexCachePath.string(), e.what());
+			// Keep cachedData.m_ComplexColliderData in default (invalid) state
+		}
+		catch (const std::exception& e)
+		{
+			OLO_CORE_WARN("Unexpected error deserializing complex mesh collider from '{}': {}", complexCachePath.string(), e.what());
+			// Keep cachedData.m_ComplexColliderData in default (invalid) state
+		}
+	}		cachedData.m_IsValid = (hasSimple && cachedData.m_SimpleColliderData.m_IsValid) || 
 							   (hasComplex && cachedData.m_ComplexColliderData.m_IsValid);
 
 		if (cachedData.m_IsValid)
@@ -386,9 +482,9 @@ namespace OloEngine {
 		// Clear disk cache
 		m_CookingFactory->ClearCache();
 
-		// Reset statistics
-		m_CacheHits = 0;
-		m_CacheMisses = 0;
+		// Reset statistics with atomic operations
+		m_CacheHits.store(0);
+		m_CacheMisses.store(0);
 
 		OLO_CORE_INFO("Mesh collider cache cleared");
 	}
@@ -411,7 +507,7 @@ namespace OloEngine {
 	void MeshColliderCache::EvictOldestEntries()
 	{
 		// Simple LRU-like eviction - remove entries until we're under the threshold
-		sizet targetSize = static_cast<sizet>(m_MaxCacheSize * CacheEvictionThreshold * 0.7f); // Evict to 70% of threshold
+		sizet targetSize = static_cast<sizet>(m_MaxCacheSize * CacheEvictionThreshold * CacheEvictionTargetRatio);
 
 		std::vector<std::pair<AssetHandle, std::chrono::system_clock::time_point>> entries;
 		entries.reserve(m_CachedData.size());
@@ -422,10 +518,7 @@ namespace OloEngine {
 		}
 
 		// Sort by last accessed time (oldest first)
-		auto compareByLastAccessed = [](const auto& a, const auto& b) {
-			return a.second < b.second;
-		};
-		std::sort(entries.begin(), entries.end(), compareByLastAccessed);
+		std::sort(entries.begin(), entries.end(), [](const auto& lhs, const auto& rhs) { return lhs.second < rhs.second; });
 
 		// Remove oldest entries until we reach target size
 		for (const auto& [handle, time] : entries)

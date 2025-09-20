@@ -126,7 +126,6 @@ namespace OloEngine {
 		// Helper methods
 		JPH::BodyInterface& GetBodyInterface();
 		const JPH::BodyInterface& GetBodyInterface() const;
-		const JPH::BodyLockInterface& GetBodyLockInterface();
 		const JPH::BodyLockInterface& GetBodyLockInterface() const;
 
 		// Material application

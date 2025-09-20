@@ -45,6 +45,9 @@ namespace OloEngine {
 	};
 
 	// Legacy type alias for backward compatibility - prefer ExcludedEntitySet for better performance
+	// ⚠️  PERFORMANCE NOTE: ExcludedEntityMap (std::vector<UUID>) has O(n) lookup cost per query.
+	// For frequent queries or large exclusion lists, use ExcludedEntitySet for O(1) performance.
+	// Migration: Replace std::vector<UUID> with ExcludedEntitySet in physics query code.
 	using ExcludedEntityMap = std::vector<UUID>;
 
 	/**

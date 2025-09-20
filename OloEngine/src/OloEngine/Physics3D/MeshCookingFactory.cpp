@@ -7,6 +7,8 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshSource.h"
 
+#include <climits>
+#include <cstring>
 #include <set>
 #include <sstream>
 #include <Jolt/Jolt.h>
@@ -55,11 +57,6 @@ namespace OloEngine {
 				std::filesystem::create_directories(m_CacheDirectory);
 			}
 			m_CacheAvailable = true;
-		}
-		catch (const std::filesystem::filesystem_error& e)
-		{
-			OLO_CORE_ERROR("MeshCookingFactory: Filesystem error during cache directory creation: {0}. Cache functionality will be disabled.", e.what());
-			m_CacheAvailable = false;
 		}
 		catch (const std::exception& e)
 		{
@@ -394,7 +391,7 @@ namespace OloEngine {
 			}
 
 			// Validate that simplified mesh has enough vertices for convex hull
-			if (hullVertices.size() < MinVerticesForConvexHull)
+			if (hullVertices.size() < s_MinVerticesForConvexHull)
 			{
 				LogCookingError("CookConvexMesh", "Insufficient vertices after simplification for convex hull");
 				return ECookingResult::SourceDataInvalid;
@@ -410,7 +407,7 @@ namespace OloEngine {
 			}
 
 			// Validate that convex hull generation produced enough vertices
-			if (finalHullVertices.size() < MinVerticesForConvexHull)
+			if (finalHullVertices.size() < s_MinVerticesForConvexHull)
 			{
 				LogCookingError("CookConvexMesh", "Convex hull generation produced insufficient vertices");
 				return ECookingResult::SourceDataInvalid;
@@ -469,7 +466,7 @@ namespace OloEngine {
 
 	ECookingResult MeshCookingFactory::GenerateConvexHull(const std::vector<glm::vec3>& vertices, std::vector<glm::vec3>& outHullVertices)
 	{
-		if (vertices.size() < MinVerticesForConvexHull)
+		if (vertices.size() < s_MinVerticesForConvexHull)
 		{
 			return ECookingResult::SourceDataInvalid;
 		}
@@ -570,7 +567,7 @@ namespace OloEngine {
 
 		// Simple decimation: keep every nth vertex based on simplification ratio
 		sizet targetVertexCount = static_cast<sizet>(positions.size() * simplificationRatio);
-		targetVertexCount = std::max(targetVertexCount, static_cast<sizet>(MinVerticesForConvexHull));
+		targetVertexCount = std::max(targetVertexCount, static_cast<sizet>(s_MinVerticesForConvexHull));
 		targetVertexCount = std::min(targetVertexCount, static_cast<sizet>(m_MaxConvexHullVertices));
 
 		if (positions.size() <= targetVertexCount)
@@ -609,7 +606,7 @@ namespace OloEngine {
 			return false; // Must be triangulated
 		}
 
-		if (vertices.size() > MaxVerticesPerMesh || indices.size() > MaxTrianglesPerMesh * 3)
+		if (vertices.size() > s_MaxVerticesPerMesh || indices.size() > s_MaxTrianglesPerMesh * 3)
 		{
 			return false; // Too large
 		}
@@ -629,7 +626,7 @@ namespace OloEngine {
 
 	bool MeshCookingFactory::ValidateConvexHull(const std::vector<glm::vec3>& vertices)
 	{
-		return vertices.size() >= MinVerticesForConvexHull && vertices.size() <= m_MaxConvexHullVertices;
+		return vertices.size() >= s_MinVerticesForConvexHull && vertices.size() <= m_MaxConvexHullVertices;
 	}
 
 	bool MeshCookingFactory::ReduceConvexHullVertices(const std::vector<glm::vec3>& inputVertices, u32 maxVertices, std::vector<glm::vec3>& outReducedVertices)
@@ -642,7 +639,7 @@ namespace OloEngine {
 			return true;
 		}
 
-		if (maxVertices < MinVerticesForConvexHull)
+		if (maxVertices < s_MinVerticesForConvexHull)
 		{
 			return false; // Cannot create a valid convex hull with too few vertices
 		}
@@ -909,7 +906,7 @@ namespace OloEngine {
 			{
 				return meshData;
 			}		// Validate header
-			if (strncmp(header.m_Header, "OloMeshC", 8) != 0 || header.m_Version != 1)
+			if (memcmp(header.m_Header, "OloMeshC", 8) != 0 || header.m_Version != 1)
 			{
 				return meshData;
 			}
