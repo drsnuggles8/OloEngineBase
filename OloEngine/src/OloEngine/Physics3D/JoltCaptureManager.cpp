@@ -8,21 +8,22 @@
 #include <ctime>
 #include <iomanip>
 #include <sstream>
+#include <cstdlib>
 
 namespace OloEngine {
 
 	bool JoltCaptureOutStream::Open(const std::filesystem::path& inPath)
-	{
-		OLO_PROFILE_FUNCTION();
-
-		Close();
-		m_Stream.open(inPath, std::ios::out | std::ios::binary | std::ios::trunc);
-		
-		// Validate stream state immediately after opening
-		if (!m_Stream.is_open() || m_Stream.fail())
 		{
-			OLO_CORE_ERROR("Failed to open capture file: {} (is_open: {}, fail: {})", 
-						   inPath.string(), m_Stream.is_open(), m_Stream.fail());
+			OLO_PROFILE_FUNCTION();
+
+			Close();
+			m_Stream.open(inPath, std::ios::out | std::ios::binary | std::ios::trunc);
+			
+			// Validate stream state immediately after opening
+			if (!m_Stream.is_open() || m_Stream.fail())
+			{
+				OLO_CORE_ERROR("Failed to open capture file: {} (is_open: {}, fail: {})", 
+							   inPath.string(), m_Stream.is_open(), m_Stream.fail());
 			
 			// Ensure stream is closed on failure
 			if (m_Stream.is_open())
@@ -196,7 +197,15 @@ namespace OloEngine {
 		std::filesystem::path capturePath = m_CapturesDirectory / ss.str();
 
 		// Ensure filename uniqueness by adding numeric suffix if needed
-		if (std::filesystem::exists(capturePath))
+		std::error_code ec;
+		bool fileExists = std::filesystem::exists(capturePath, ec);
+		if (ec)
+		{
+			OLO_CORE_ERROR("Failed to check if capture file exists: {} - {}", capturePath.string(), ec.message());
+			return;
+		}
+		
+		if (fileExists)
 		{
 			std::stringstream baseNameSs;
 			baseNameSs << "capture_" << std::put_time(&local_tm, "%Y%m%d_%H%M%S");
@@ -209,7 +218,14 @@ namespace OloEngine {
 				uniqueSs << baseName << "_" << counter << ".jolt";
 				capturePath = m_CapturesDirectory / uniqueSs.str();
 				++counter;
-			} while (std::filesystem::exists(capturePath) && counter < 1000); // Safety limit
+				
+				fileExists = std::filesystem::exists(capturePath, ec);
+				if (ec)
+				{
+					OLO_CORE_ERROR("Failed to check file existence during uniqueness check: {} - {}", capturePath.string(), ec.message());
+					return;
+				}
+			} while (fileExists && counter < 1000); // Safety limit
 			
 			if (counter >= 1000)
 			{
@@ -331,7 +347,15 @@ namespace OloEngine {
 	{
 		OLO_PROFILE_FUNCTION();
 
-		if (!std::filesystem::exists(capturePath))
+		std::error_code ec;
+		bool exists = std::filesystem::exists(capturePath, ec);
+		if (ec)
+		{
+			OLO_CORE_ERROR("Failed to check if capture file exists: {} - {}", capturePath.string(), ec.message());
+			return;
+		}
+		
+		if (!exists)
 		{
 			OLO_CORE_ERROR("Capture file does not exist: {}", capturePath.string());
 			return;
@@ -544,8 +568,8 @@ namespace OloEngine {
 		// Validate interval is positive
 		if (interval <= 0)
 		{
-			OLO_CORE_WARN("Invalid frame log interval: {}. Must be > 0. Using default value of {}.", interval, DEFAULT_FRAME_LOG_INTERVAL);
-			m_FrameLogInterval = DEFAULT_FRAME_LOG_INTERVAL; // Fallback to default
+			OLO_CORE_WARN("Invalid frame log interval: {}. Must be > 0. Using default value of {}.", interval, s_DefaultFrameLogInterval);
+			m_FrameLogInterval = s_DefaultFrameLogInterval; // Fallback to default
 		}
 		else
 		{

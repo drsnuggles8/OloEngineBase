@@ -10,7 +10,7 @@
 namespace OloEngine {
 
 	/**
-	 * @brief File sink for writing physics capture data to binary files
+	 * @brief Simple output stream wrapper for Jolt capture files
 	 * 
 	 * Simple file output class used by the capture manager to write physics 
 	 * simulation data to binary files compatible with JoltViewer.
@@ -82,7 +82,7 @@ namespace OloEngine {
 		 * 
 		 * Controls how frequently the capture manager logs progress messages during recording.
 		 * A lower interval provides more frequent updates but may impact performance.
-		 * Default is DEFAULT_FRAME_LOG_INTERVAL frames, which typically corresponds to 1 second at 60 FPS.
+		 * Default is s_DefaultFrameLogInterval frames, which typically corresponds to 1 second at 60 FPS.
 		 */
 		void SetFrameLogInterval(i32 interval);
 
@@ -97,13 +97,13 @@ namespace OloEngine {
 		void RefreshCapturesCache();
 		void HandleCaptureFailure(const std::string& errorMessage);
 
-		static constexpr i32 DEFAULT_FRAME_LOG_INTERVAL = 60;
+		static constexpr i32 s_DefaultFrameLogInterval = 60;
 
 	private:
 		JoltCaptureOutStream m_Stream;
 		bool m_IsCapturing = false;
 		i32 m_FrameCount = 0;
-		i32 m_FrameLogInterval = DEFAULT_FRAME_LOG_INTERVAL; ///< Number of frames between log messages (default: DEFAULT_FRAME_LOG_INTERVAL)
+		i32 m_FrameLogInterval = s_DefaultFrameLogInterval; ///< Number of frames between log messages (default: s_DefaultFrameLogInterval)
 
 		std::filesystem::path m_CapturesDirectory;
 		std::filesystem::path m_RecentCapture;

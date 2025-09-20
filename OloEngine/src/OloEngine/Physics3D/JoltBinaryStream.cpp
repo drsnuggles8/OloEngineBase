@@ -8,6 +8,7 @@
 #include <Jolt/Physics/Collision/PhysicsMaterial.h>
 #include <Jolt/Core/StreamOut.h>
 #include <Jolt/Core/StreamIn.h>
+#include <limits>
 
 namespace OloEngine {
 
@@ -82,13 +83,8 @@ namespace OloEngine {
 				// Use Jolt's native binary serialization system
 				JoltStreamOutAdapter streamAdapter(outWriter);
 				
-				// Serialize shape type first for type identification during deserialization
-				JPH::EShapeType shapeType = shape->GetType();
-				JPH::EShapeSubType shapeSubType = shape->GetSubType();
-				streamAdapter.Write(shapeType);
-				streamAdapter.Write(shapeSubType);
-				
 				// Use Jolt's SaveBinaryState for complete shape serialization
+				// Note: SaveBinaryState internally writes EShapeType/EShapeSubType headers
 				shape->SaveBinaryState(streamAdapter);
 				
 				// Save materials used by this shape
@@ -113,7 +109,7 @@ namespace OloEngine {
 						
 						// UTF-8 aware truncation: find the last valid character boundary within maxNameLength
 						u32 truncatedLength = maxNameLength;
-						while (truncatedLength > 0 && (debugName[truncatedLength] & 0xC0) == 0x80)
+						while (truncatedLength > 0 && (static_cast<unsigned char>(debugName[truncatedLength - 1]) & 0xC0) == 0x80)
 						{
 							// Step back if we're in the middle of a UTF-8 multi-byte sequence
 							// UTF-8 continuation bytes have the pattern 10xxxxxx (0x80-0xBF)
@@ -147,7 +143,7 @@ namespace OloEngine {
 				}
 				
 				OLO_CORE_TRACE("JoltBinaryStreamUtils::SerializeShape: Successfully serialized shape (type: {}, subtype: {}, {} materials, {} sub-shapes)", 
-							   static_cast<u32>(shapeType), static_cast<u32>(shapeSubType), materials.size(), subShapes.size());
+							   static_cast<u32>(shape->GetType()), static_cast<u32>(shape->GetSubType()), materials.size(), subShapes.size());
 				
 				return true;
 			}
@@ -158,12 +154,6 @@ namespace OloEngine {
 			}
 		}
 
-		/**
-		 * @brief Deserialize a Jolt shape from binary data
-		 * 
-		 * @param inReader The binary stream reader to read from
-		 * @return The deserialized shape, or nullptr if deserialization failed
-		 */
 		/**
 		 * @brief Deserialize a Jolt shape from binary data using Jolt's native binary deserialization
 		 * 
@@ -183,19 +173,8 @@ namespace OloEngine {
 				// Use Jolt's native binary deserialization system
 				JoltStreamInAdapter streamAdapter(inReader);
 				
-				// Read shape type first to verify we can deserialize this shape
-				JPH::EShapeType shapeType;
-				JPH::EShapeSubType shapeSubType;
-				streamAdapter.Read(shapeType);
-				streamAdapter.Read(shapeSubType);
-				
-				if (streamAdapter.IsFailed() || streamAdapter.IsEOF())
-				{
-					OLO_CORE_ERROR("JoltBinaryStreamUtils::DeserializeShape: Failed to read shape type/subtype");
-					return nullptr;
-				}
-				
 				// Use Jolt's sRestoreFromBinaryState for complete shape deserialization
+				// Note: sRestoreFromBinaryState internally reads EShapeType/EShapeSubType headers
 				JPH::Shape::ShapeResult shapeResult = JPH::Shape::sRestoreFromBinaryState(streamAdapter);
 				if (shapeResult.HasError())
 				{
@@ -226,10 +205,33 @@ namespace OloEngine {
 						streamAdapter.Read(nameLength);
 						
 						std::string debugName;
-						if (nameLength > 0 && nameLength < 1024) // Sanity check
+						if (nameLength > 0)
 						{
-							debugName.resize(nameLength);
-							streamAdapter.ReadBytes(debugName.data(), nameLength);
+							// Always consume exactly nameLength bytes to prevent stream desync
+							constexpr u32 MAX_NAME = 1024;
+							u32 storeLen = std::min(nameLength, MAX_NAME);
+							
+							// Store up to the sane cap in debugName
+							// debugName.resize(storeLen);
+							streamAdapter.ReadBytes(debugName.data(), storeLen);
+							
+							// If nameLength exceeds our cap, drain the remaining bytes
+							if (nameLength > storeLen)
+							{
+								u32 remainingBytes = nameLength - storeLen;
+								// Drain in chunks to avoid large temporary allocations
+								constexpr u32 DRAIN_CHUNK_SIZE = 256;
+								std::array<u8, DRAIN_CHUNK_SIZE> drainBuffer;
+								
+								while (remainingBytes > 0)
+								{
+									u32 chunkSize = std::min(remainingBytes, DRAIN_CHUNK_SIZE);
+									streamAdapter.ReadBytes(drainBuffer.data(), chunkSize);
+									remainingBytes -= chunkSize;
+								}
+								
+								OLO_CORE_WARN("JoltBinaryStreamUtils::DeserializeShape: Material debug name too long ({} bytes), truncated to {} bytes", nameLength, storeLen);
+							}
 						}
 						
 						// Create a new simple material for now
@@ -262,7 +264,7 @@ namespace OloEngine {
 				}
 				
 				OLO_CORE_TRACE("JoltBinaryStreamUtils::DeserializeShape: Successfully deserialized shape (type: {}, subtype: {}, {} materials, {} sub-shapes)", 
-							   static_cast<u32>(shapeType), static_cast<u32>(shapeSubType), materialCount, subShapeCount);
+							   static_cast<u32>(shape->GetType()), static_cast<u32>(shape->GetSubType()), materialCount, subShapeCount);
 				
 				return shape;
 			}
@@ -321,16 +323,36 @@ namespace OloEngine {
 		 * @brief Validate serialized shape data
 		 * 
 		 * @param buffer The buffer to validate
+		 * @param deepValidation If true, performs full deserialization for thorough validation
 		 * @return true if the buffer contains valid shape data
 		 */
-		bool ValidateShapeData(const Buffer& buffer)
+		bool ValidateShapeData(const Buffer& buffer, bool deepValidation = false)
 		{
 			if (!buffer.Data || buffer.Size == 0)
 				return false;
 
-			// Try to deserialize and check if it succeeds
-			JPH::Ref<JPH::Shape> shape = DeserializeShapeFromBuffer(buffer);
-			return shape != nullptr;
+			// Quick validation using GetShapeInfo first (cheap header/magic/size checks)
+			JPH::EShapeType shapeType;
+			sizet dataSize;
+			if (!GetShapeInfo(buffer, shapeType, dataSize))
+				return false;
+
+			// Basic sanity checks on shape type and size
+			if (shapeType < JPH::EShapeType::Convex || shapeType >= JPH::EShapeType::Num)
+				return false;
+
+			if (dataSize != buffer.Size || dataSize < sizeof(JPH::EShapeType))
+				return false;
+
+			// Only perform expensive full deserialization if deep validation is requested
+			if (deepValidation)
+			{
+				JPH::Ref<JPH::Shape> shape = DeserializeShapeFromBuffer(buffer);
+				return shape != nullptr;
+			}
+
+			// Quick validation passed - buffer is plausible
+			return true;
 		}
 
 		/**
@@ -348,17 +370,14 @@ namespace OloEngine {
 
 			try
 			{
-				// Read shape type directly from buffer header
+				// Read shape type from Jolt's internal binary format
+				// SaveBinaryState writes EShapeType as the first field
 				const u8* data = static_cast<const u8*>(buffer.Data);
 				::memcpy(&outShapeType, data, sizeof(JPH::EShapeType));
 				
-				// Compute data size: total buffer size minus the header size
-				// Header contains: EShapeType + EShapeSubType
-				constexpr sizet headerSize = sizeof(JPH::EShapeType) + sizeof(JPH::EShapeSubType);
-				if (buffer.Size < headerSize)
-					return false;
-					
-				outDataSize = buffer.Size - headerSize;
+				// The entire buffer contains Jolt's binary shape data
+				// No manual headers are added, so the full size is shape data
+				outDataSize = buffer.Size;
 				
 				return true;
 			}
@@ -433,12 +452,13 @@ namespace OloEngine {
 		}
 
 		/**
-		 * @brief Compress shape data using simple RLE compression
+		 * @brief Compress shape data using simple RLE compression (opt-in for suitable content)
 		 * 
 		 * @param inputBuffer The uncompressed shape data
+		 * @param forceCompression If true, attempts compression regardless of content heuristics
 		 * @return Always returns an owning Buffer - either compressed data or a copy of input buffer
 		 */
-		Buffer CompressShapeData(const Buffer& inputBuffer)
+		Buffer CompressShapeData(const Buffer& inputBuffer, bool forceCompression = false)
 		{
 			if (!inputBuffer.Data || inputBuffer.Size == 0)
 			{
@@ -460,13 +480,52 @@ namespace OloEngine {
 				return Buffer::Copy(inputBuffer);
 			}
 
+			// Content-aware compression gating: Skip RLE for binary data that's unlikely to compress well
+			if (!forceCompression)
+			{
+				// Sample first 1KB to check for entropy (binary shape data often has high entropy)
+				const u8* sampleData = static_cast<const u8*>(inputBuffer.Data);
+				sizet sampleSize = std::min(inputBuffer.Size, static_cast<sizet>(1024));
+				
+				// Count unique bytes in sample
+				bool seenBytes[256] = {false};
+				sizet uniqueBytes = 0;
+				for (sizet i = 0; i < sampleSize; ++i)
+				{
+					if (!seenBytes[sampleData[i]])
+					{
+						seenBytes[sampleData[i]] = true;
+						uniqueBytes++;
+					}
+				}
+				
+				// If sample has high entropy (>75% unique bytes), skip compression
+				f32 entropyRatio = static_cast<f32>(uniqueBytes) / 256.0f;
+				if (entropyRatio > 0.75f)
+				{
+					OLO_CORE_TRACE("JoltBinaryStreamUtils::CompressShapeData: High entropy content detected ({:.1f}%), skipping RLE compression", entropyRatio * 100.0f);
+					return Buffer::Copy(inputBuffer);
+				}
+			}
+
 			// Simple Run-Length Encoding compression
 			const u8* input = static_cast<const u8*>(inputBuffer.Data);
 			std::vector<u8> compressed;
 			
+			// Guard against size_t overflow in reserve calculation
+			sizet reserveSize;
+			if (inputBuffer.Size <= std::numeric_limits<sizet>::max() / 2)
+			{
+				reserveSize = 2 * inputBuffer.Size;  // Safe multiplication
+			}
+			else
+			{
+				reserveSize = std::numeric_limits<sizet>::max();  // Cap to max
+			}
+			
 			// Reserve space for worst-case RLE output: 2 bytes per input byte (run length + value)
 			// This prevents re-allocations during compression
-			compressed.reserve(2 * inputBuffer.Size);
+			compressed.reserve(reserveSize);
 
 			u8 currentByte = input[0];
 			u8 runLength = 1;

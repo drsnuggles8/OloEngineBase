@@ -1,5 +1,7 @@
 #include "OloEnginePCH.h"
 #include "PhysicsLayer.h"
+#include "JoltUtils.h"
+#include "Physics3DTypes.h"
 #include "OloEngine/Core/Log.h"
 
 namespace OloEngine {
@@ -45,20 +47,24 @@ namespace OloEngine {
 		s_Layers.push_back(layer);
 		s_LayerNames[layerId] = name;
 
-		// Rebuild index map after modifying s_Layers
-		RebuildLayerIndexMap();
+		// Targeted index map update for append operations (more efficient than full rebuild)
+		s_LayerIndexMap[layerId] = s_Layers.size() - 1;
+		
+		// Get the actual index of the newly added layer
+		sizet newLayerIndex = s_Layers.size() - 1;
 
 		if (setCollisions)
 		{
 			// Inline collision bit update logic to avoid re-entrant locking
-			for (auto& layer2 : s_Layers)
+			for (sizet i = 0; i < s_Layers.size(); ++i)
 			{
-				// Set bidirectional collision
-				layer.m_CollidesWith |= layer2.m_BitValue;
-				layer2.m_CollidesWith |= layer.m_BitValue;
+				// Set bidirectional collision between the new layer and existing layers
+				s_Layers[newLayerIndex].m_CollidesWith |= s_Layers[i].m_BitValue;
+				s_Layers[i].m_CollidesWith |= s_Layers[newLayerIndex].m_BitValue;
 			}
-			// Update the layer in the vector since we modified it
-			s_Layers[layerId] = layer;
+			
+			// Clear the self-collision bit (don't collide with self by default)
+			s_Layers[newLayerIndex].m_CollidesWith &= ~s_Layers[newLayerIndex].m_BitValue;
 		}
 
 		return layer.m_LayerID;
@@ -233,11 +239,12 @@ std::vector<std::string> PhysicsLayerManager::GetLayerNames()
 	{
 		std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
 		
+		// Return names in stable order based on s_Layers insertion order (deterministic)
 		std::vector<std::string> names;
-		names.reserve(s_LayerNames.size());
-		for (const auto& pair : s_LayerNames)
+		names.reserve(s_Layers.size());
+		for (const auto& layer : s_Layers)
 		{
-			names.push_back(pair.second);
+			names.push_back(layer.m_Name);
 		}
 		return names;
 	}
@@ -254,7 +261,13 @@ std::vector<std::string> PhysicsLayerManager::GetLayerNames()
 		if (layerA.m_LayerID == s_NullLayer.m_LayerID || layerB.m_LayerID == s_NullLayer.m_LayerID)
 			return false;
 		
-		// Perform bitmask collision test
+		// Handle same-layer collision queries
+		if (layer1 == layer2)
+		{
+			return layerA.m_CollidesWithSelf;
+		}
+		
+		// Perform bitmask collision test for different layers
 		return (layerA.m_CollidesWith & layerB.m_BitValue) != 0;
 	}
 

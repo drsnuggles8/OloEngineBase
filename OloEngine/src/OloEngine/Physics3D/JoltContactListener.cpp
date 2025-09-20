@@ -48,7 +48,7 @@ namespace OloEngine {
 			// Store the contact in our active contacts map
 			{
 				std::lock_guard<std::mutex> lock(m_ActiveContactsMutex);
-				m_ActiveContacts[contactKey] = ContactInfo(entityA, entityB);
+				m_ActiveContacts.try_emplace(contactKey, entityA, entityB);
 			}
 
 			glm::vec3 contactPoint = JoltUtils::FromJoltRVec3(inManifold.GetWorldSpaceContactPointOn1(0));
@@ -75,7 +75,7 @@ namespace OloEngine {
 				// Only add if not already present (should not happen in normal operation)
 				if (m_ActiveContacts.find(contactKey) == m_ActiveContacts.end())
 				{
-					m_ActiveContacts[contactKey] = ContactInfo(entityA, entityB);
+					m_ActiveContacts.try_emplace(contactKey, entityA, entityB);
 				}
 			}
 
@@ -115,28 +115,23 @@ namespace OloEngine {
 
 	void JoltContactListener::ProcessContactEvents()
 	{
-		// Pre-allocate local container based on current queue size
+		// Check if there are events to process before acquiring lock
 		const sizet queueSize = m_QueueSize.load(std::memory_order_acquire);
 		if (queueSize == 0)
 		{
 			return; // Early exit if no events to process
 		}
 		
-		std::vector<ContactEvent> localEventQueue;
-		localEventQueue.reserve(queueSize); // Pre-allocate to avoid repeated allocations
+		std::deque<ContactEvent> localEventQueue;
 		
-		// Drain the queue into the pre-allocated container while minimizing lock time
+		// Swap the queue contents under minimal lock time
 		{
 			std::lock_guard<std::mutex> lock(m_ContactEventsMutex);
 			
-			// Move all events to local vector for processing without holding the mutex
-			while (!m_ContactEventQueue.empty())
-			{
-				localEventQueue.push_back(std::move(m_ContactEventQueue.front()));
-				m_ContactEventQueue.pop_front();
-			}
+			// Swap entire queue - O(1) operation instead of N moves
+			localEventQueue.swap(m_ContactEventQueue);
 			
-			// Reset queue size after draining
+			// Reset queue size after swap
 			m_QueueSize.store(0, std::memory_order_relaxed);
 		}
 		
