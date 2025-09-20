@@ -237,7 +237,7 @@ namespace OloEngine {
 		JPH::Ref<JPH::Shape> DeserializeShapeFromBuffer(const Buffer& buffer);
 
 		// Validation and information
-		bool ValidateShapeData(const Buffer& buffer);
+		bool ValidateShapeData(const Buffer& buffer, bool deepValidation = false);
 		bool GetShapeInfo(const Buffer& buffer, JPH::EShapeType& outShapeType, sizet& outDataSize);
 
 		// Memory and performance utilities

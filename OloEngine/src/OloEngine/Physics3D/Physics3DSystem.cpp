@@ -82,7 +82,9 @@ OloBPLayerInterfaceImpl::OloBPLayerInterfaceImpl()
 
 JPH::uint OloBPLayerInterfaceImpl::GetNumBroadPhaseLayers() const
 {
-    return std::min(PhysicsLayerManager::GetLayerCount(), static_cast<u32>(MAX_LAYERS));
+    // Include the two built-in layers plus custom layers, clamped to MAX_LAYERS
+    u32 total = PhysicsLayerManager::GetLayerCount() + 2;
+    return std::min(total, static_cast<u32>(MAX_LAYERS));
 }
 
 JPH::BroadPhaseLayer OloBPLayerInterfaceImpl::GetBroadPhaseLayer(JPH::ObjectLayer inLayer) const
@@ -262,10 +264,23 @@ void Physics3DSystem::Update(f32 deltaTime)
         return;
     }
 
-    // If you take larger steps than the fixed timestep you need to do multiple collision steps in order to keep the simulation stable.
-    // Do 1 step per fixed timestep (round up).
+    // Guard against non-positive deltaTime
+    if (deltaTime <= 0.0f)
+    {
+        return; // Skip update for invalid deltaTime
+    }
+
+    // Validate step time configuration
     const f32 stepTime = s_PhysicsSettings.m_FixedTimestep;
-    i32 collisionSteps = static_cast<i32>(ceil(deltaTime / stepTime));
+    if (stepTime <= 0.0f)
+    {
+        OLO_CORE_ERROR("Physics3DSystem::Update: Invalid fixed timestep configuration ({} <= 0)", stepTime);
+        return;
+    }
+
+    // If you take larger steps than the fixed timestep you need to do multiple collision steps in order to keep the simulation stable.
+    // Do 1 step per fixed timestep (round up), but ensure at least 1 step.
+    i32 collisionSteps = std::max(1, static_cast<i32>(ceil(deltaTime / stepTime)));
 
     // Step the world
     m_PhysicsSystem->Update(deltaTime, collisionSteps, m_TempAllocator.get(), m_JobSystem.get());
@@ -283,7 +298,7 @@ JPH::BodyID Physics3DSystem::CreateBox(const JPH::RVec3& position, const JPH::Qu
     JPH::RefConst<JPH::Shape> box_shape = new JPH::BoxShape(halfExtent);
 
     // Create the settings for the body itself. Note that here you can also set other properties like the restitution / friction.
-    JPH::BodyCreationSettings body_settings(box_shape, position, rotation, isStatic ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic, isStatic ? Layers::NON_MOVING : Layers::MOVING);
+    JPH::BodyCreationSettings body_settings(box_shape, position, rotation, isStatic ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic, isStatic ? ObjectLayers::NON_MOVING : ObjectLayers::MOVING);
 
     // Create the actual rigid body
     JPH::Body* body = m_PhysicsSystem->GetBodyInterface().CreateBody(body_settings); // Note that if we run out of bodies this can return nullptr
@@ -312,7 +327,7 @@ JPH::BodyID Physics3DSystem::CreateSphere(const JPH::RVec3& position, f32 radius
     JPH::RefConst<JPH::Shape> sphere_shape = new JPH::SphereShape(radius);
 
     // Create the settings for the body itself. Note that here you can also set other properties like the restitution / friction.
-    JPH::BodyCreationSettings body_settings(sphere_shape, position, JPH::Quat::sIdentity(), isStatic ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic, isStatic ? Layers::NON_MOVING : Layers::MOVING);
+    JPH::BodyCreationSettings body_settings(sphere_shape, position, JPH::Quat::sIdentity(), isStatic ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic, isStatic ? ObjectLayers::NON_MOVING : ObjectLayers::MOVING);
 
     // Create the actual rigid body
     JPH::Body* body = m_PhysicsSystem->GetBodyInterface().CreateBody(body_settings); // Note that if we run out of bodies this can return nullptr

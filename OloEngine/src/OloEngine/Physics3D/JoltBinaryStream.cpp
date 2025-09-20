@@ -8,6 +8,8 @@
 #include <Jolt/Physics/Collision/PhysicsMaterial.h>
 #include <Jolt/Core/StreamOut.h>
 #include <Jolt/Core/StreamIn.h>
+#include <array>
+#include <cstring>
 #include <limits>
 
 namespace OloEngine {
@@ -127,14 +129,15 @@ namespace OloEngine {
 				// Save sub-shapes if any
 				JPH::ShapeList subShapes;
 				shape->SaveSubShapeState(subShapes);
-				streamAdapter.Write(static_cast<u32>(subShapes.size()));
 				
-				// For now, we'll handle sub-shapes in a future enhancement
-				// Each sub-shape would need recursive serialization
+				// Fail fast if sub-shapes are present to prevent silent data loss
 				if (!subShapes.empty())
 				{
-					OLO_CORE_WARN("JoltBinaryStreamUtils::SerializeShape: Shape has {} sub-shapes - recursive serialization not yet implemented", subShapes.size());
+					OLO_CORE_ERROR("JoltBinaryStreamUtils::SerializeShape: Shape has {} sub-shapes but recursive serialization is unsupported - aborting to prevent data loss", subShapes.size());
+					return false;
 				}
+				
+				streamAdapter.Write(static_cast<u32>(subShapes.size()));
 				
 				if (streamAdapter.IsFailed())
 				{
@@ -193,10 +196,22 @@ namespace OloEngine {
 				u32 materialCount;
 				streamAdapter.Read(materialCount);
 				
-				if (materialCount > 0)
+				// Validate material count to prevent OOM attacks from malformed input
+				constexpr u32 MAX_MATERIALS = 1024;
+				if (materialCount == 0)
 				{
+					// No materials to process, skip material handling
+				}
+				else if (materialCount > MAX_MATERIALS)
+				{
+					OLO_CORE_ERROR("JoltBinaryStreamUtils::DeserializeShape: Material count {} exceeds maximum allowed {} - aborting to prevent OOM", materialCount, MAX_MATERIALS);
+					return nullptr;
+				}
+				else
+				{
+					// Safe to allocate and process materials
 					std::vector<JPH::PhysicsMaterialRefC> materials;
-					materials.reserve(materialCount);
+					materials.reserve(static_cast<size_t>(materialCount));
 					
 					for (u32 i = 0; i < materialCount; ++i)
 					{
@@ -212,7 +227,7 @@ namespace OloEngine {
 							u32 storeLen = std::min(nameLength, MAX_NAME);
 							
 							// Store up to the sane cap in debugName
-							// debugName.resize(storeLen);
+							debugName.resize(storeLen);
 							streamAdapter.ReadBytes(debugName.data(), storeLen);
 							
 							// If nameLength exceeds our cap, drain the remaining bytes
@@ -251,10 +266,11 @@ namespace OloEngine {
 				u32 subShapeCount;
 				streamAdapter.Read(subShapeCount);
 				
-				// For now, we expect no sub-shapes since recursive serialization isn't implemented yet
+				// Fail fast if sub-shapes are present to prevent silent data loss
 				if (subShapeCount > 0)
 				{
-					OLO_CORE_WARN("JoltBinaryStreamUtils::DeserializeShape: Shape has {} sub-shapes but recursive deserialization not yet implemented", subShapeCount);
+					OLO_CORE_ERROR("JoltBinaryStreamUtils::DeserializeShape: Shape has {} sub-shapes but recursive deserialization is unsupported - aborting to prevent data loss", subShapeCount);
+					return nullptr;
 				}
 				
 				if (streamAdapter.IsFailed())
@@ -326,7 +342,7 @@ namespace OloEngine {
 		 * @param deepValidation If true, performs full deserialization for thorough validation
 		 * @return true if the buffer contains valid shape data
 		 */
-		bool ValidateShapeData(const Buffer& buffer, bool deepValidation = false)
+		bool ValidateShapeData(const Buffer& buffer, bool deepValidation)
 		{
 			if (!buffer.Data || buffer.Size == 0)
 				return false;
@@ -642,27 +658,49 @@ namespace OloEngine {
 				return Buffer::Copy(compressedBuffer);
 			}
 
-			std::vector<u8> decompressed;
-			decompressed.reserve(originalSize); // Use original size from header
+			// Preflight: validate all runs and compute total output size
+			size_t totalOutputSize = 0;
+			for (sizet i = 0; i < payloadSize; i += 2)
+			{
+				// Ensure run pair exists
+				if (i + 1 >= payloadSize)
+				{
+					OLO_CORE_ERROR("JoltBinaryStreamUtils::DecompressShapeData: Incomplete RLE run at offset {}", i);
+					return Buffer::Copy(compressedBuffer);
+				}
+				
+				u8 runLength = compressedPayload[i];
+				totalOutputSize += static_cast<size_t>(runLength);
+				
+				// Early bounds check
+				if (totalOutputSize > originalSize)
+				{
+					OLO_CORE_ERROR("JoltBinaryStreamUtils::DecompressShapeData: RLE output would exceed original size ({} > {})", totalOutputSize, originalSize);
+					return Buffer::Copy(compressedBuffer);
+				}
+			}
+			
+			// Validate final computed size matches header
+			if (totalOutputSize != originalSize)
+			{
+				OLO_CORE_ERROR("JoltBinaryStreamUtils::DecompressShapeData: RLE computed size mismatch (got {} bytes, expected {} bytes)", 
+							   totalOutputSize, originalSize);
+				return Buffer::Copy(compressedBuffer);
+			}
 
+			// Allocate output buffer once with exact size
+			std::vector<u8> decompressed(originalSize);
+			u8* writePtr = decompressed.data();
+			
+			// Decompress directly into preallocated buffer
 			for (sizet i = 0; i < payloadSize; i += 2)
 			{
 				u8 runLength = compressedPayload[i];
 				u8 byte = compressedPayload[i + 1];
 				
-				// Expand the run
-				for (u8 j = 0; j < runLength; ++j)
-				{
-					decompressed.push_back(byte);
-				}
-			}
-
-			// Validate decompressed size matches header
-			if (decompressed.size() != originalSize)
-			{
-				OLO_CORE_ERROR("JoltBinaryStreamUtils::DecompressShapeData: Decompressed size mismatch (got {} bytes, expected {} bytes)", 
-							   decompressed.size(), originalSize);
-				return Buffer::Copy(compressedBuffer);
+				// Write run directly to buffer
+				std::memset(writePtr, byte, runLength);
+				writePtr += runLength;
 			}
 
 			if (!decompressed.empty())

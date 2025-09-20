@@ -276,6 +276,7 @@ namespace OloEngine {
 			
 			// Only set capturing flag after all initial operations succeed
 			m_IsCapturing = true;
+			m_FrameCount = 0; // Reset frame counter for new capture
 			m_RecentCapture = capturePath;
 			
 			// Add to captures list if not already present
@@ -374,6 +375,20 @@ namespace OloEngine {
 		if (!exists)
 		{
 			OLO_CORE_ERROR("Capture file does not exist: {}", capturePath.string());
+			return;
+		}
+		
+		// Check that it's a regular file (not a directory or special file)
+		bool isRegularFile = std::filesystem::is_regular_file(capturePath, ec);
+		if (ec)
+		{
+			OLO_CORE_ERROR("Failed to check if capture file is regular: {} - {}", capturePath.string(), ec.message());
+			return;
+		}
+		
+		if (!isRegularFile)
+		{
+			OLO_CORE_ERROR("Capture path is not a regular file: {}", capturePath.string());
 			return;
 		}
 
@@ -493,10 +508,20 @@ namespace OloEngine {
 
 		try
 		{
-			// Enumerate all .jolt files in the captures directory
-			for (const auto& entry : std::filesystem::directory_iterator(m_CapturesDirectory))
+			// Enumerate all .jolt files in the captures directory, skipping permission denied entries
+			for (const auto& entry : std::filesystem::directory_iterator(m_CapturesDirectory, 
+																		  std::filesystem::directory_options::skip_permission_denied))
 			{
-				if (entry.is_regular_file() && entry.path().extension() == ".jolt")
+				std::error_code ec;
+				bool isRegularFile = entry.is_regular_file(ec);
+				
+				// Skip entries with errors (permission denied, etc.)
+				if (ec)
+				{
+					continue;
+				}
+				
+				if (isRegularFile && entry.path().extension() == ".jolt")
 				{
 					m_Captures.push_back(entry.path());
 				}

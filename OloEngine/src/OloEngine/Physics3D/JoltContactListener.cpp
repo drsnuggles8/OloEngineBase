@@ -40,7 +40,7 @@ namespace OloEngine {
 		UUID entityA = GetEntityIDFromBody(inBody1);
 		UUID entityB = GetEntityIDFromBody(inBody2);
 
-		if (entityA != 0 && entityB != 0 && inManifold.mRelativeContactPointsOn1.size() > 0)
+		if (entityA != 0 && entityB != 0 && !inManifold.mRelativeContactPointsOn1.empty())
 		{
 			// Create the SubShapeIDPair key for tracking this contact
 			JPH::SubShapeIDPair contactKey(inBody1.GetID(), inManifold.mSubShapeID1, inBody2.GetID(), inManifold.mSubShapeID2);
@@ -64,7 +64,7 @@ namespace OloEngine {
 		UUID entityA = GetEntityIDFromBody(inBody1);
 		UUID entityB = GetEntityIDFromBody(inBody2);
 
-		if (entityA != 0 && entityB != 0 && inManifold.mRelativeContactPointsOn1.size() > 0)
+		if (entityA != 0 && entityB != 0 && !inManifold.mRelativeContactPointsOn1.empty())
 		{
 			// The contact should already be in our active contacts map from OnContactAdded
 			// But we can ensure it's there (defensive programming)
