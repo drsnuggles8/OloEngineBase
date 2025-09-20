@@ -469,7 +469,7 @@ namespace OloEngine {
 		 * @param forceCompression If true, attempts compression regardless of content heuristics
 		 * @return Always returns an owning Buffer - either compressed data or a copy of input buffer
 		 */
-		Buffer CompressShapeData(const Buffer& inputBuffer, bool forceCompression = false)
+		Buffer CompressShapeData(const Buffer& inputBuffer, bool forceCompression)
 		{
 			if (!inputBuffer.Data || inputBuffer.Size == 0)
 			{

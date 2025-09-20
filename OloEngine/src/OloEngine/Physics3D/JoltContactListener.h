@@ -70,7 +70,7 @@ namespace OloEngine {
 		[[nodiscard]] u32 GetPhysicsLayerFromBody(const JPH::Body& body) noexcept;
 
 	private:
-		JoltScene* m_Scene;
+		JoltScene* m_Scene; // non-owning, guaranteed valid for lifetime of listener
 		
 		// Active contacts tracking for OnContactRemoved
 		struct ContactInfo

@@ -54,20 +54,6 @@ namespace OloEngine {
 // Layer Interface Implementations
 // ================================================================================================
 
-bool OloObjectLayerPairFilterImpl::ShouldCollide(JPH::ObjectLayer inObject1, JPH::ObjectLayer inObject2) const
-{
-    // If both layers are user-defined physics layers, map to custom layer IDs and check
-    if (inObject1 >= OloEngine::ObjectLayers::NUM_LAYERS && inObject2 >= OloEngine::ObjectLayers::NUM_LAYERS)
-    {
-        u32 layer1 = static_cast<u32>(inObject1) - OloEngine::ObjectLayers::NUM_LAYERS;
-        u32 layer2 = static_cast<u32>(inObject2) - OloEngine::ObjectLayers::NUM_LAYERS;
-        return PhysicsLayerManager::ShouldCollide(layer1, layer2);
-    }
-    
-    // For built-in layers, use default Jolt collision logic (always allow)
-    return true;
-}
-
 OloBPLayerInterfaceImpl::OloBPLayerInterfaceImpl()
 {
     // Initialize the layer mapping
@@ -202,7 +188,7 @@ bool Physics3DSystem::Initialize()
 
     // Now we can create the actual physics system.
     m_PhysicsSystem = std::make_unique<JPH::PhysicsSystem>();
-    m_PhysicsSystem->Init(s_PhysicsSettings.m_MaxBodies, cNumBodyMutexes, s_PhysicsSettings.m_MaxBodyPairs, s_PhysicsSettings.m_MaxContactConstraints, m_BroadPhaseLayerInterface, m_ObjectVsBroadPhaseLayerFilter, m_ObjectLayerPairFilter);
+    m_PhysicsSystem->Init(s_PhysicsSettings.m_MaxBodies, cNumBodyMutexes, s_PhysicsSettings.m_MaxBodyPairs, s_PhysicsSettings.m_MaxContactConstraints, m_BroadPhaseLayerInterface, m_ObjectVsBroadPhaseLayerFilter, OloEngine::JoltLayerInterface::GetObjectLayerPairFilter());
 
     // Apply physics settings to the Jolt system
     UpdatePhysicsSystemSettings();
@@ -287,7 +273,7 @@ void Physics3DSystem::Update(f32 deltaTime)
 
     // If you take larger steps than the fixed timestep you need to do multiple collision steps in order to keep the simulation stable.
     // Do 1 step per fixed timestep (round up), but ensure at least 1 step.
-    i32 collisionSteps = std::max(1, static_cast<i32>(ceil(deltaTime / stepTime)));
+    i32 collisionSteps = std::max(1, static_cast<i32>(std::ceil(deltaTime / stepTime)));
 
     // Step the world
     m_PhysicsSystem->Update(deltaTime, collisionSteps, m_TempAllocator.get(), m_JobSystem.get());
@@ -433,7 +419,7 @@ void Physics3DSystem::UpdateLayerConfiguration()
     // For now, this provides the foundation for dynamic layer management
 }
 
-JPH::PhysicsSystem& Physics3DSystem::GetJoltSystem()
+JPH::PhysicsSystem& Physics3DSystem::GetJoltSystem() noexcept
 {
     OLO_CORE_ASSERT(s_Instance && s_Instance->m_PhysicsSystem, "Physics system not initialized!");
     return *s_Instance->m_PhysicsSystem;

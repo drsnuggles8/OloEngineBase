@@ -3,13 +3,18 @@
 #include "OloEngine/Core/Base.h"
 #include "PhysicsSettings.h"
 #include "PhysicsLayer.h"
+#include "JoltLayerInterface.h"
 #include <memory>
 #include <stdexcept>
 #include <cassert>
 
 // Forward declarations
 namespace OloEngine {
-    // Class forward declarations can go here if needed
+    // Forward declarations to reduce compile dependencies
+    class OloBPLayerInterfaceImpl;
+    class OloObjectVsBroadPhaseLayerFilterImpl;
+    class MyBodyActivationListener;
+    class MyContactListener;
 }
 
 // Jolt includes
@@ -25,43 +30,12 @@ namespace OloEngine {
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyActivationListener.h>
 
-// STL includes
-#include <cstdarg>
-#include <thread>
-
 // Disable common warnings triggered by Jolt
 JPH_SUPPRESS_WARNINGS
 
 namespace OloEngine {
 
-    /// Layer that objects can be in, determines which other objects it can collide with
-    /// Typically you at least want to have 1 layer for moving objects and 1 layer for static objects
-    namespace Layers
-    {
-        static constexpr JPH::ObjectLayer NON_MOVING = 0;
-        static constexpr JPH::ObjectLayer MOVING = 1;
-        static constexpr JPH::ObjectLayer NUM_LAYERS = 2;
-    };
-
-    /// Class that determines if two object layers can collide
-    /// Now integrated with PhysicsLayerManager for dynamic layer configuration
-    class OloObjectLayerPairFilterImpl : public JPH::ObjectLayerPairFilter
-    {
-    public:
-        virtual bool ShouldCollide(JPH::ObjectLayer inObject1, JPH::ObjectLayer inObject2) const override;
-    };
-
     /// Each broadphase layer results in a separate bounding volume tree in the broad phase. You at least want to have
-    /// a layer for non-moving and moving objects to avoid having to update a tree full of static objects every frame.
-    /// You can have a 1-on-1 mapping between object layers and broadphase layers (like in this example) but you can
-    /// also group multiple object layers that have the same collision behavior into a single broadphase layer.
-    namespace BroadPhaseLayers
-    {
-        static constexpr JPH::BroadPhaseLayer NON_MOVING(0);
-        static constexpr JPH::BroadPhaseLayer MOVING(1);
-        static constexpr JPH::uint NUM_LAYERS(2);
-    };
-
     /// BroadPhaseLayerInterface implementation
     /// This defines a mapping between object and broadphase layers.
     /// Now integrated with PhysicsLayerManager for dynamic layer configuration
@@ -170,10 +144,10 @@ namespace OloEngine {
         static void UpdateLayerConfiguration(); // Update layer configuration when PhysicsLayerManager changes
 
         // Create a box body
-        JPH::BodyID CreateBox(const JPH::RVec3& position, const JPH::Quat& rotation, const JPH::Vec3& halfExtent, bool isStatic = false);
+        [[nodiscard]] JPH::BodyID CreateBox(const JPH::RVec3& position, const JPH::Quat& rotation, const JPH::Vec3& halfExtent, bool isStatic = false);
         
         // Create a sphere body
-        JPH::BodyID CreateSphere(const JPH::RVec3& position, f32 radius, bool isStatic = false);
+        [[nodiscard]] JPH::BodyID CreateSphere(const JPH::RVec3& position, f32 radius, bool isStatic = false);
 
         // Remove a body
         void RemoveBody(JPH::BodyID bodyID);
@@ -193,10 +167,10 @@ namespace OloEngine {
         }
 
         // Get the physics system for direct access
-        JPH::PhysicsSystem* GetPhysicsSystem() { return m_PhysicsSystem.get(); }
+        JPH::PhysicsSystem* GetPhysicsSystem() noexcept { return m_PhysicsSystem.get(); }
 
         // Static access to the Jolt system (for utilities)
-        static JPH::PhysicsSystem& GetJoltSystem();
+        static JPH::PhysicsSystem& GetJoltSystem() noexcept;
 
     private:
         // Physics settings - now configurable instead of hard-coded
@@ -211,7 +185,6 @@ namespace OloEngine {
         // Create mapping table from object layer to broadphase layer
         OloBPLayerInterfaceImpl m_BroadPhaseLayerInterface;
         OloObjectVsBroadPhaseLayerFilterImpl m_ObjectVsBroadPhaseLayerFilter;
-        OloObjectLayerPairFilterImpl m_ObjectLayerPairFilter;
 
         // The physics system
         std::unique_ptr<JPH::PhysicsSystem> m_PhysicsSystem;

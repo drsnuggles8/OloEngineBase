@@ -49,7 +49,13 @@ namespace OloEngine {
 		// Stream reading interface
 		void ReadBytes(void* outData, sizet inNumBytes)
 		{
-			// Validate output pointer
+			// Special case: reading zero bytes is always a no-op
+			if (inNumBytes == 0)
+			{
+				return;
+			}
+
+			// Validate output pointer (only when we actually need to write data)
 			if (!outData)
 			{
 				OLO_CORE_ERROR("JoltBinaryStreamReader: outData pointer is null");
@@ -196,9 +202,9 @@ namespace OloEngine {
 		[[nodiscard]] bool IsFailed() const { return m_Failed; }
 
 		// Data access methods
-		const std::vector<u8>& GetData() const { return m_TempBuffer; }
-		const u8* GetDataPtr() const { return m_TempBuffer.data(); }
-		sizet GetSize() const { return m_TempBuffer.size(); }
+		[[nodiscard]] const std::vector<u8>& GetData() const { return m_TempBuffer; }
+		[[nodiscard]] const u8* GetDataPtr() const { return m_TempBuffer.data(); }
+		[[nodiscard]] sizet GetSize() const { return m_TempBuffer.size(); }
 		[[nodiscard]] bool IsEmpty() const { return m_TempBuffer.empty(); }
 
 		// Create OloEngine Buffer from written data
@@ -267,7 +273,7 @@ namespace OloEngine {
 		 * @note MEMORY SAFETY: Always returns an owning Buffer to prevent UAF issues.
 		 *       When compression is not beneficial, returns a copy of inputBuffer.
 		 */
-		Buffer CompressShapeData(const Buffer& inputBuffer);
+		Buffer CompressShapeData(const Buffer& inputBuffer, bool forceCompression = false);
 		Buffer DecompressShapeData(const Buffer& compressedBuffer);
 
 	} // namespace JoltBinaryStreamUtils

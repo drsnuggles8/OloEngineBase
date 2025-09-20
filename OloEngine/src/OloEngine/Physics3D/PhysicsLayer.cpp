@@ -18,7 +18,7 @@ namespace OloEngine {
 	u32 PhysicsLayerManager::ToLayerMask(u32 layerId) noexcept
 	{
 		// Validate layer ID bounds - prevent undefined behavior from bit shift
-		if (layerId >= 32) // u32 can only have 32 bits
+		if (layerId >= JoltUtils::kMaxJoltLayers) // u32 can only have 32 bits
 		{
 			OLO_CORE_ERROR("PhysicsLayerManager::ToLayerMask: Layer ID {} exceeds maximum bit position (31)", layerId);
 			return 0; // Return empty mask for invalid layer ID
@@ -78,6 +78,14 @@ namespace OloEngine {
 			// Clear the self-collision bit (don't collide with self by default)
 			s_Layers[newLayerIndex].m_CollidesWith &= ~s_Layers[newLayerIndex].m_BitValue;
 		}
+		else
+		{
+			// Even when setCollisions is false, ensure no self-collision by default
+			s_Layers[newLayerIndex].m_CollidesWith &= ~s_Layers[newLayerIndex].m_BitValue;
+		}
+		
+		// Always sync the m_CollidesWithSelf member with the actual collision mask
+		s_Layers[newLayerIndex].m_CollidesWithSelf = (s_Layers[newLayerIndex].m_CollidesWith & s_Layers[newLayerIndex].m_BitValue) != 0;
 
 		return layer.m_LayerID;
 	}
@@ -242,6 +250,19 @@ namespace OloEngine {
 		return s_NullLayer;
 	}
 
+	PhysicsLayer PhysicsLayerManager::GetLayer(const std::string_view& layerName)
+	{
+		std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
+		
+		for (const auto& layer : s_Layers)
+		{
+			if (layer.m_Name == layerName)
+				return layer;
+		}
+
+		return s_NullLayer;
+	}
+
 std::vector<PhysicsLayer> PhysicsLayerManager::GetLayers()
 {
 	std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
@@ -304,6 +325,19 @@ std::vector<std::string> PhysicsLayerManager::GetLayerNames()
 		
 		const PhysicsLayer& layer = GetLayerUnsafe(layerName);
 		return layer.m_LayerID != s_NullLayer.m_LayerID && layer.IsValid();
+	}
+
+	bool PhysicsLayerManager::IsLayerValid(const std::string_view& layerName) noexcept
+	{
+		std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
+		
+		// For string_view, we need to iterate directly since GetLayerUnsafe expects std::string
+		for (const auto& layer : s_Layers)
+		{
+			if (layer.m_Name == layerName)
+				return layer.m_LayerID != s_NullLayer.m_LayerID && layer.IsValid();
+		}
+		return false;
 	}
 
 	void PhysicsLayerManager::ClearLayers()
