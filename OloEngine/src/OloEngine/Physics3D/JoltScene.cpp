@@ -95,10 +95,23 @@ namespace OloEngine {
 		// Fixed timestep simulation with accumulator
 		m_Accumulator += deltaTime;
 
-		while (m_Accumulator >= m_FixedTimeStep)
+		// Prevent "spiral of death" by capping simulation steps per frame
+		u32 stepsExecuted = 0;
+		f32 maxAccumulator = static_cast<f32>(s_MaxStepsPerFrame) * m_FixedTimeStep;
+		
+		// If accumulator exceeds maximum, clamp it and log the skip
+		if (m_Accumulator > maxAccumulator)
+		{
+			f32 skippedTime = m_Accumulator - maxAccumulator;
+			m_Accumulator = maxAccumulator;
+			OLO_CORE_WARN("Physics timestep accumulator clamped! Skipped {0} seconds to prevent spiral of death", skippedTime);
+		}
+
+		while (m_Accumulator >= m_FixedTimeStep && stepsExecuted < s_MaxStepsPerFrame)
 		{
 			Step(m_FixedTimeStep);
 			m_Accumulator -= m_FixedTimeStep;
+			stepsExecuted++;
 		}
 
 		// Synchronize transforms after simulation
@@ -374,21 +387,36 @@ namespace OloEngine {
 		{
 			case ShapeCastType::Box:
 			{
+#ifdef OLO_DEBUG
+				// Debug-only runtime type verification to catch mismatches early
+				OLO_CORE_ASSERT(shapeCastInfo.GetCastType() == ShapeCastType::Box, 
+					"ShapeCastInfo type mismatch: expected Box but got different type");
+#endif
 				const BoxCastInfo& boxInfo = static_cast<const BoxCastInfo&>(shapeCastInfo);
 				return CastBox(boxInfo, outHit);
 			}
 			case ShapeCastType::Sphere:
 			{
+#ifdef OLO_DEBUG
+				// Debug-only runtime type verification to catch mismatches early
+				OLO_CORE_ASSERT(shapeCastInfo.GetCastType() == ShapeCastType::Sphere, 
+					"ShapeCastInfo type mismatch: expected Sphere but got different type");
+#endif
 				const SphereCastInfo& sphereInfo = static_cast<const SphereCastInfo&>(shapeCastInfo);
 				return CastSphere(sphereInfo, outHit);
 			}
 			case ShapeCastType::Capsule:
 			{
+#ifdef OLO_DEBUG
+				// Debug-only runtime type verification to catch mismatches early
+				OLO_CORE_ASSERT(shapeCastInfo.GetCastType() == ShapeCastType::Capsule, 
+					"ShapeCastInfo type mismatch: expected Capsule but got different type");
+#endif
 				const CapsuleCastInfo& capsuleInfo = static_cast<const CapsuleCastInfo&>(shapeCastInfo);
 				return CastCapsule(capsuleInfo, outHit);
 			}
 			default:
-				OLO_CORE_ERROR("Unsupported shape cast type");
+				OLO_CORE_ERROR("Unsupported shape cast type: {0}", static_cast<int>(shapeCastInfo.GetCastType()));
 				return false;
 		}
 	}
@@ -692,8 +720,10 @@ namespace OloEngine {
 		// Create temp allocator
 		m_TempAllocator = std::make_unique<JPH::TempAllocatorImpl>(s_TempAllocatorSize);
 
-		// Create job system
-		m_JobSystem = std::make_unique<JPH::JobSystemThreadPool>(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, std::thread::hardware_concurrency() - 1);
+		// Create job system with safe thread count calculation
+		u32 hardwareConcurrency = std::thread::hardware_concurrency();
+		u32 threadCount = (hardwareConcurrency <= 1) ? 1 : (hardwareConcurrency - 1);
+		m_JobSystem = std::make_unique<JPH::JobSystemThreadPool>(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, threadCount);
 
 		// Create layer interfaces
 		m_BroadPhaseLayerInterface = std::make_unique<BroadPhaseLayerInterface>();
@@ -892,14 +922,14 @@ namespace OloEngine {
 			if (bodyLock.Succeeded())
 			{
 				const JPH::Body& body = bodyLock.GetBody();
-				hitInfo.HitEntity = static_cast<UUID>(body.GetUserData());
-				hitInfo.Position = JoltUtils::FromJoltVector(body.GetPosition());
+				hitInfo.m_HitEntity = static_cast<UUID>(body.GetUserData());
+				hitInfo.m_Position = JoltUtils::FromJoltVector(body.GetPosition());
 				
 				// Get body from our map for reference
-				auto it = m_Bodies.find(hitInfo.HitEntity);
+				auto it = m_Bodies.find(hitInfo.m_HitEntity);
 				if (it != m_Bodies.end())
 				{
-					hitInfo.HitBody = it->second;
+					hitInfo.m_HitBody = it->second;
 				}
 				
 				hitCount++;
@@ -919,22 +949,22 @@ namespace OloEngine {
 		outHit.Clear();
 		
 		JPH::Vec3 hitPosition = ray.GetPointOnRay(hit.mFraction);
-		outHit.Position = JoltUtils::FromJoltVector(hitPosition);
-		outHit.Distance = hit.mFraction * ray.mDirection.Length();
+		outHit.m_Position = JoltUtils::FromJoltVector(hitPosition);
+		outHit.m_Distance = hit.mFraction * ray.mDirection.Length();
 
 		// Lock the body to get additional information
 		JPH::BodyLockRead bodyLock(m_JoltSystem->GetBodyLockInterface(), hit.mBodyID);
 		if (bodyLock.Succeeded())
 		{
 			const JPH::Body& body = bodyLock.GetBody();
-			outHit.HitEntity = static_cast<UUID>(body.GetUserData());
-			outHit.Normal = JoltUtils::FromJoltVector(body.GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, hitPosition));
+			outHit.m_HitEntity = static_cast<UUID>(body.GetUserData());
+			outHit.m_Normal = JoltUtils::FromJoltVector(body.GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, hitPosition));
 			
 			// Get body reference from our map
-			auto it = m_Bodies.find(outHit.HitEntity);
+			auto it = m_Bodies.find(outHit.m_HitEntity);
 			if (it != m_Bodies.end())
 			{
-				outHit.HitBody = it->second;
+				outHit.m_HitBody = it->second;
 			}
 		}
 	}
@@ -944,22 +974,22 @@ namespace OloEngine {
 		outHit.Clear();
 		
 		JPH::Vec3 hitPosition = shapeCast.GetPointOnRay(hit.mFraction);
-		outHit.Position = JoltUtils::FromJoltVector(hitPosition);
-		outHit.Distance = hit.mFraction * shapeCast.mDirection.Length();
-		outHit.Normal = JoltUtils::FromJoltVector(hit.mPenetrationAxis.Normalized());
+		outHit.m_Position = JoltUtils::FromJoltVector(hitPosition);
+		outHit.m_Distance = hit.mFraction * shapeCast.mDirection.Length();
+		outHit.m_Normal = JoltUtils::FromJoltVector(hit.mPenetrationAxis.Normalized());
 
 		// Lock the body to get additional information
 		JPH::BodyLockRead bodyLock(m_JoltSystem->GetBodyLockInterface(), hit.mBodyID2);
 		if (bodyLock.Succeeded())
 		{
 			const JPH::Body& body = bodyLock.GetBody();
-			outHit.HitEntity = static_cast<UUID>(body.GetUserData());
+			outHit.m_HitEntity = static_cast<UUID>(body.GetUserData());
 			
 			// Get body reference from our map
-			auto it = m_Bodies.find(outHit.HitEntity);
+			auto it = m_Bodies.find(outHit.m_HitEntity);
 			if (it != m_Bodies.end())
 			{
-				outHit.HitBody = it->second;
+				outHit.m_HitBody = it->second;
 			}
 		}
 	}

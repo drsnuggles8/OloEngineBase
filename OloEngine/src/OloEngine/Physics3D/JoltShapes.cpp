@@ -804,7 +804,16 @@ namespace OloEngine {
 			if (!colliderSubmesh.m_ColliderData.empty())
 			{
 				// Create buffer from the collider data
-				Buffer buffer = Buffer::Copy(std::span<const u8>(colliderSubmesh.m_ColliderData.data(), colliderSubmesh.m_ColliderData.size()));
+				Buffer buffer;
+				try
+				{
+					buffer = Buffer::Copy(std::span<const u8>(colliderSubmesh.m_ColliderData.data(), colliderSubmesh.m_ColliderData.size()));
+				}
+				catch (const std::length_error& e)
+				{
+					OLO_CORE_ERROR("Failed to copy collider data for asset {0}: {1}", meshAsset, e.what());
+					return nullptr;
+				}
 
 				// Try to deserialize the shape
 				JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);
@@ -867,7 +876,16 @@ namespace OloEngine {
 		if (!submesh.m_ColliderData.empty())
 		{
 			// Create buffer from the collider data
-			Buffer buffer = Buffer::Copy(std::span<const u8>(submesh.m_ColliderData.data(), submesh.m_ColliderData.size()));
+			Buffer buffer;
+			try
+			{
+				buffer = Buffer::Copy(std::span<const u8>(submesh.m_ColliderData.data(), submesh.m_ColliderData.size()));
+			}
+			catch (const std::length_error& e)
+			{
+				OLO_CORE_ERROR("Failed to copy convex collider data for asset {0}: {1}", meshAsset, e.what());
+				return nullptr;
+			}
 
 			// Try to deserialize the shape
 			JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);
@@ -927,7 +945,16 @@ namespace OloEngine {
 		if (!submesh.m_ColliderData.empty())
 		{
 			// Create buffer from the collider data
-			Buffer buffer = Buffer::Copy(std::span<const u8>(submesh.m_ColliderData.data(), submesh.m_ColliderData.size()));
+			Buffer buffer;
+			try
+			{
+				buffer = Buffer::Copy(std::span<const u8>(submesh.m_ColliderData.data(), submesh.m_ColliderData.size()));
+			}
+			catch (const std::length_error& e)
+			{
+				OLO_CORE_ERROR("Failed to copy triangle mesh collider data for asset {0}: {1}", meshAsset, e.what());
+				return nullptr;
+			}
 
 			// Try to deserialize the shape
 			JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);

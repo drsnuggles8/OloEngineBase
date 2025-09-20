@@ -122,6 +122,3 @@ namespace OloEngine {
 	};
 
 }
-
-// Include component definitions for inline method implementations
-#include "OloEngine/Scene/Components.h"

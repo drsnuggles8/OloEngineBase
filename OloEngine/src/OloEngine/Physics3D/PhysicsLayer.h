@@ -14,7 +14,7 @@ namespace OloEngine {
 	constexpr u32 INVALID_LAYER_ID = static_cast<u32>(-1);
 	constexpr u32 INVALID_BIT_MASK = static_cast<u32>(-1);
 	constexpr u32 NO_COLLISION_BITS = 0;
-	constexpr i32 NO_PREVIOUS_LAYER_ID = static_cast<i32>(-1);
+	constexpr u32 NO_PREVIOUS_LAYER_ID = static_cast<u32>(-1);
 
 	struct PhysicsLayer
 	{
@@ -52,8 +52,8 @@ namespace OloEngine {
 
 		[[nodiscard]] static bool ShouldCollide(u32 layer1, u32 layer2) noexcept;
 		[[nodiscard]] static bool IsLayerValid(u32 layerId) noexcept;
-		[[nodiscard]] static bool IsLayerValid(const std::string& layerName) noexcept;
-		[[nodiscard]] static bool IsLayerValid(const std::string_view& layerName) noexcept;
+		[[nodiscard]] static bool IsLayerValid(const std::string& layerName);
+		[[nodiscard]] static bool IsLayerValid(const std::string_view& layerName);
 
 		static void ClearLayers();
 

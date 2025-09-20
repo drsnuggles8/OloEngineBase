@@ -18,19 +18,19 @@ namespace OloEngine {
 	constexpr i32 JoltCaptureManager::s_DefaultFrameLogInterval;
 
 	bool JoltCaptureOutStream::Open(const std::filesystem::path& inPath)
-		{
-			OLO_PROFILE_FUNCTION();
+	{
+		OLO_PROFILE_FUNCTION();
 
-			Close();
-			m_Stream.clear(); // Reset any previous error flags before opening
-			m_Stream.open(inPath, std::ios::out | std::ios::binary | std::ios::trunc);
-			
-			// Validate stream state immediately after opening
-			if (!m_Stream.is_open() || m_Stream.fail())
-			{
-				OLO_CORE_ERROR("Failed to open capture file: {} (is_open: {}, fail: {})", 
-							   inPath.string(), m_Stream.is_open(), m_Stream.fail());
-			
+		Close();
+		m_Stream.clear(); // Reset any previous error flags before opening
+		m_Stream.open(inPath, std::ios::out | std::ios::binary | std::ios::trunc);
+		
+		// Validate stream state immediately after opening
+		if (!m_Stream.is_open() || m_Stream.fail())
+		{
+			OLO_CORE_ERROR("Failed to open capture file: {} (is_open: {}, fail: {})", 
+							inPath.string(), m_Stream.is_open(), m_Stream.fail());
+		
 			// Ensure stream is closed on failure
 			if (m_Stream.is_open())
 			{
@@ -89,6 +89,7 @@ namespace OloEngine {
 
 		// Set default captures directory with cross-platform support
 		std::filesystem::path capturesPath;
+		std::filesystem::path expectedRoot;
 		
 #ifdef _WIN32
 		// Windows: Use APPDATA if available
@@ -96,10 +97,12 @@ namespace OloEngine {
 		if (appData != nullptr)
 		{
 			capturesPath = std::filesystem::path(appData) / "OloEngine" / "Captures";
+			expectedRoot = std::filesystem::path(appData);
 		}
 		else
 		{
 			capturesPath = std::filesystem::current_path() / "Captures";
+			expectedRoot = std::filesystem::current_path();
 		}
 #elif defined(__APPLE__)
 		// macOS: Use HOME + Library/Application Support
@@ -107,10 +110,12 @@ namespace OloEngine {
 		if (home != nullptr)
 		{
 			capturesPath = std::filesystem::path(home) / "Library" / "Application Support" / "OloEngine" / "Captures";
+			expectedRoot = std::filesystem::path(home) / "Library" / "Application Support";
 		}
 		else
 		{
 			capturesPath = std::filesystem::current_path() / "Captures";
+			expectedRoot = std::filesystem::current_path();
 		}
 #else
 		// Linux/Unix: Use XDG_DATA_HOME or fallback to HOME + .local/share
@@ -118,6 +123,7 @@ namespace OloEngine {
 		if (xdgDataHome != nullptr)
 		{
 			capturesPath = std::filesystem::path(xdgDataHome) / "OloEngine" / "Captures";
+			expectedRoot = std::filesystem::path(xdgDataHome);
 		}
 		else
 		{
@@ -125,34 +131,39 @@ namespace OloEngine {
 			if (home != nullptr)
 			{
 				capturesPath = std::filesystem::path(home) / ".local" / "share" / "OloEngine" / "Captures";
+				expectedRoot = std::filesystem::path(home) / ".local" / "share";
 			}
 			else
 			{
 				capturesPath = std::filesystem::current_path() / "Captures";
+				expectedRoot = std::filesystem::current_path();
 			}
 		}
 #endif
 
+		// Validate and canonicalize the path to prevent directory traversal
+		std::filesystem::path validatedPath = ValidateAndCanonalizePath(capturesPath, expectedRoot);
+		
 		// Create the directory if it doesn't exist
 		std::error_code ec;
-		if (!std::filesystem::exists(capturesPath, ec))
+		if (!std::filesystem::exists(validatedPath, ec))
 		{
-			if (std::filesystem::create_directories(capturesPath, ec))
+			if (std::filesystem::create_directories(validatedPath, ec))
 			{
-				OLO_CORE_INFO("Created captures directory: {}", capturesPath.string());
+				OLO_CORE_INFO("Created captures directory: {}", validatedPath.string());
 			}
 			else
 			{
-				OLO_CORE_WARN("Failed to create captures directory: {} ({})", capturesPath.string(), ec.message());
+				OLO_CORE_WARN("Failed to create captures directory: {} ({})", validatedPath.string(), ec.message());
 				// Fallback to current directory
-				capturesPath = std::filesystem::current_path() / "Captures";
-				std::filesystem::create_directories(capturesPath, ec);
+				validatedPath = std::filesystem::current_path() / "Captures";
+				std::filesystem::create_directories(validatedPath, ec);
 			}
 		}
 
-		if (!SetCapturesDirectory(capturesPath))
+		if (!SetCapturesDirectory(validatedPath))
 		{
-			OLO_CORE_WARN("Failed to set captures directory to: {}", capturesPath.string());
+			OLO_CORE_WARN("Failed to set captures directory to: {}", validatedPath.string());
 			
 			// Attempt safe fallback directory
 			std::filesystem::path fallbackPath = std::filesystem::current_path() / "OloCaptures";
@@ -174,6 +185,45 @@ namespace OloEngine {
 		OLO_PROFILE_FUNCTION();
 
 		EndCapture();
+	}
+
+	std::filesystem::path JoltCaptureManager::ValidateAndCanonalizePath(const std::filesystem::path& path, const std::filesystem::path& expectedRoot)
+	{
+		try
+		{
+			// Canonicalize the path to resolve .. sequences and normalize it
+			std::filesystem::path canonicalPath = std::filesystem::weakly_canonical(path);
+			std::filesystem::path canonicalRoot = std::filesystem::weakly_canonical(expectedRoot);
+			
+			// Convert to strings for prefix comparison (ensures cross-platform compatibility)
+			std::string canonicalPathStr = canonicalPath.string();
+			std::string canonicalRootStr = canonicalRoot.string();
+			
+			// Normalize path separators for comparison
+			std::replace(canonicalPathStr.begin(), canonicalPathStr.end(), '\\', '/');
+			std::replace(canonicalRootStr.begin(), canonicalRootStr.end(), '\\', '/');
+			
+			// Check if the canonical path starts with the expected root
+			if (canonicalPathStr.find(canonicalRootStr) != 0)
+			{
+				OLO_CORE_WARN("Path validation failed: canonical path '{}' is not within expected root '{}'. Using safe fallback.", 
+					canonicalPath.string(), canonicalRoot.string());
+				return std::filesystem::current_path() / "Captures";
+			}
+			
+			OLO_CORE_TRACE("Path validation successful: '{}' canonicalized to '{}'", path.string(), canonicalPath.string());
+			return canonicalPath;
+		}
+		catch (const std::filesystem::filesystem_error& ex)
+		{
+			OLO_CORE_WARN("Path canonicalization failed for '{}': {}. Using safe fallback.", path.string(), ex.what());
+			return std::filesystem::current_path() / "Captures";
+		}
+		catch (const std::exception& ex)
+		{
+			OLO_CORE_WARN("Unexpected error during path validation for '{}': {}. Using safe fallback.", path.string(), ex.what());
+			return std::filesystem::current_path() / "Captures";
+		}
 	}
 
 	void JoltCaptureManager::BeginCapture()
@@ -576,22 +626,47 @@ namespace OloEngine {
 
 		try
 		{
-			// Attempt to create the directory if it doesn't exist
-			if (!std::filesystem::exists(directory))
+			// Validate and canonicalize the provided directory path
+			// For external calls, we allow paths within current working directory or standard app data locations
+			std::filesystem::path currentDir = std::filesystem::current_path();
+			std::filesystem::path validatedDirectory;
+			
+			// Try to canonicalize the path first
+			try
 			{
-				std::filesystem::create_directories(directory);
-				OLO_CORE_TRACE("Created captures directory: {}", directory.string());
+				validatedDirectory = std::filesystem::weakly_canonical(directory);
+			}
+			catch (const std::filesystem::filesystem_error&)
+			{
+				// If canonicalization fails, fall back to current directory + provided path
+				OLO_CORE_WARN("Failed to canonicalize path '{}'. Using safe fallback.", directory.string());
+				validatedDirectory = currentDir / "Captures";
+			}
+			
+			// Basic security check: ensure the path doesn't contain suspicious patterns
+			std::string pathStr = validatedDirectory.string();
+			if (pathStr.find("..") != std::string::npos)
+			{
+				OLO_CORE_WARN("Rejected path with parent directory references: '{}'. Using safe fallback.", directory.string());
+				validatedDirectory = currentDir / "Captures";
+			}
+
+			// Attempt to create the directory if it doesn't exist
+			if (!std::filesystem::exists(validatedDirectory))
+			{
+				std::filesystem::create_directories(validatedDirectory);
+				OLO_CORE_TRACE("Created captures directory: {}", validatedDirectory.string());
 			}
 
 			// Verify the directory is actually accessible
-			if (!std::filesystem::is_directory(directory))
+			if (!std::filesystem::is_directory(validatedDirectory))
 			{
-				OLO_CORE_ERROR("Path is not a directory: {}", directory.string());
+				OLO_CORE_ERROR("Path is not a directory: {}", validatedDirectory.string());
 				return false;
 			}
 
 			// Update the directory and refresh capture listings
-			m_CapturesDirectory = directory;
+			m_CapturesDirectory = validatedDirectory;
 			
 			// Refresh the captures cache by scanning the new directory
 			RefreshCapturesCache();

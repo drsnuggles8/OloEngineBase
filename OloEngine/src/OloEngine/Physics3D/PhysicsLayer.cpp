@@ -330,7 +330,7 @@ std::vector<std::string> PhysicsLayerManager::GetLayerNames()
 		return layer.m_LayerID != s_NullLayer.m_LayerID && layer.IsValid();
 	}
 
-	bool PhysicsLayerManager::IsLayerValid(const std::string& layerName) noexcept
+	bool PhysicsLayerManager::IsLayerValid(const std::string& layerName)
 	{
 		std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
 		
@@ -338,7 +338,7 @@ std::vector<std::string> PhysicsLayerManager::GetLayerNames()
 		return layer.m_LayerID != s_NullLayer.m_LayerID && layer.IsValid();
 	}
 
-	bool PhysicsLayerManager::IsLayerValid(const std::string_view& layerName) noexcept
+	bool PhysicsLayerManager::IsLayerValid(const std::string_view& layerName)
 	{
 		std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
 		

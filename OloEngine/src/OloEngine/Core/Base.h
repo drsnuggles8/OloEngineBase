@@ -93,8 +93,9 @@ constexpr auto ArraySize(T array) { return ( sizeof(array)/sizeof((array)[0]) );
 // Usage examples:
 //   enum Flags : u32 { FlagA = OLO_BIT(0), FlagB = OLO_BIT(1) };   // For bits 0-31
 //   enum LargeFlags : u64 { BigFlag = OLO_BIT64(35) };             // For bits 32-63
-//   auto mask = OloEngine::BitMask<u32>(5);                        // Type-safe u32 mask
-//   auto bigMask = OloEngine::BitMask<u64>(45);                    // Type-safe u64 mask
+//   auto mask = OloEngine::BitMask<u32>(5);                        // Type-safe u32 mask (runtime)
+//   auto bigMask = OloEngine::BitMask<u64>(45);                    // Type-safe u64 mask (runtime)
+//   constexpr auto cmask = OloEngine::BitMaskConstexpr<u32>(5);    // Compile-time constexpr safe
 //
 // Bounds-checked bit manipulation macros - enforces compile-time safety
 #define OLO_BIT(x) ((x) < 32 ? (1u << (x)) : 0u)          // 32-bit version with bounds check
@@ -103,9 +104,20 @@ constexpr auto ArraySize(T array) { return ( sizeof(array)/sizeof((array)[0]) );
 
 namespace OloEngine
 {
-	// Type-safe bit mask generator with bounds checking
+	// Type-safe bit mask generator for compile-time usage (C++20 constexpr compatible)
 	template<typename T>
-	constexpr T BitMask(unsigned idx) 
+	constexpr T BitMaskConstexpr(unsigned idx) 
+	{
+		static_assert(std::is_integral_v<T>, "BitMaskConstexpr() requires integral types");
+		static_assert(sizeof(T) <= 8, "BitMaskConstexpr() supports types up to 8 bytes (64-bit)");
+		
+		// Return 0 for out-of-range indices to avoid throwing in constexpr context
+		return (idx >= sizeof(T) * 8) ? T(0) : T(1) << idx;
+	}
+
+	// Type-safe bit mask generator with runtime bounds checking
+	template<typename T>
+	T BitMask(unsigned idx) 
 	{
 		static_assert(std::is_integral_v<T>, "BitMask() requires integral types");
 		static_assert(sizeof(T) <= 8, "BitMask() supports types up to 8 bytes (64-bit)");

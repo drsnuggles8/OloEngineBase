@@ -208,6 +208,7 @@ namespace OloEngine {
 		static constexpr u32 s_MaxBodies = 65536;
 		static constexpr u32 s_NumBodyMutexes = 0; // Autodetect
 		static constexpr u32 s_MaxBodyPairs = 65536;
+		static constexpr u32 s_MaxStepsPerFrame = 10; // Prevent "spiral of death" in fixed timestep
 		static constexpr u32 s_MaxContactConstraints = 10240;
 		static constexpr u32 s_TempAllocatorSize = 10 * 1024 * 1024; // 10 MB
 		static constexpr u32 s_JobSystemMaxJobs = 2048;

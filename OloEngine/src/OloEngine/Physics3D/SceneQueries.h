@@ -24,23 +24,23 @@ namespace OloEngine {
 	 */
 	struct SceneQueryHit
 	{
-		UUID HitEntity = 0;
-		glm::vec3 Position = glm::vec3(0.0f);
-		glm::vec3 Normal = glm::vec3(0.0f);
-		f32 Distance = 0.0f;
-		Ref<JoltBody> HitBody = nullptr;
+		UUID m_HitEntity = 0;
+		glm::vec3 m_Position = glm::vec3(0.0f);
+		glm::vec3 m_Normal = glm::vec3(0.0f);
+		f32 m_Distance = 0.0f;
+		Ref<JoltBody> m_HitBody = nullptr;
 		// TODO: Add PhysicsShape reference when shape abstraction is implemented
-		// Ref<PhysicsShape> HitCollider = nullptr;
+		// Ref<PhysicsShape> m_HitCollider = nullptr;
 
-		bool HasHit() const { return HitEntity != 0; }
+		bool HasHit() const { return m_HitEntity != 0; }
 
 		void Clear()
 		{
-			HitEntity = 0;
-			Position = glm::vec3(std::numeric_limits<f32>::max());
-			Normal = glm::vec3(std::numeric_limits<f32>::max());
-			Distance = std::numeric_limits<f32>::max();
-			HitBody = nullptr;
+			m_HitEntity = 0;
+			m_Position = glm::vec3(std::numeric_limits<f32>::max());
+			m_Normal = glm::vec3(std::numeric_limits<f32>::max());
+			m_Distance = std::numeric_limits<f32>::max();
+			m_HitBody = nullptr;
 		}
 	};
 

@@ -4,10 +4,12 @@
 #include <cstring>
 #include <span>
 #include <limits>
+#include <stdexcept>
 
 namespace OloEngine
 {
-	// Non-owning raw buffer class
+	/// Non-owning raw buffer class for managing memory blocks
+	/// @note Buffer operations may throw exceptions on critical failures like memory overflow
 	struct Buffer
 	{
 		u8* Data = nullptr;
@@ -29,6 +31,11 @@ namespace OloEngine
 			return result;
 		}
 
+		/// Creates a buffer by copying data from a span
+		/// @param data The span of bytes to copy
+		/// @return A new Buffer containing a copy of the span data
+		/// @throws std::length_error if span size exceeds u64 limits (extremely rare condition)
+		/// @note Empty spans result in an empty buffer (not an error condition)
 		[[nodiscard]] static Buffer Copy(std::span<const u8> data)
 		{
 			// Early return for empty spans to avoid calling memcpy with zero length
@@ -38,9 +45,7 @@ namespace OloEngine
 			// Validate that span size fits in u64 to avoid truncation
 			if (data.size() > std::numeric_limits<u64>::max())
 			{
-				// Handle overflow - could throw or return empty buffer
-				// For now, return empty buffer to avoid silent truncation
-				return Buffer{};
+				throw std::length_error("Buffer::Copy: span size exceeds u64 maximum - cannot copy data of this size");
 			}
 				
 			Buffer result(static_cast<u64>(data.size()));

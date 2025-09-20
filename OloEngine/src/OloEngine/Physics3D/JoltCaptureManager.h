@@ -104,6 +104,7 @@ namespace OloEngine {
 		void InitializeCapturesDirectory();
 		void RefreshCapturesCache();
 		void HandleCaptureFailure(const std::string& errorMessage);
+		std::filesystem::path ValidateAndCanonalizePath(const std::filesystem::path& path, const std::filesystem::path& expectedRoot);
 
 		static constexpr i32 s_DefaultFrameLogInterval = 100;
 

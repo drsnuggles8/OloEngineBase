@@ -251,7 +251,7 @@ namespace OloEngine {
         JPH::PhysicsSystem* GetPhysicsSystem() noexcept { return m_PhysicsSystem.get(); }
 
         // Static access to the Jolt system (for utilities)
-        static JPH::PhysicsSystem& GetJoltSystem() noexcept;
+        static JPH::PhysicsSystem& GetJoltSystem();
 
     private:
         // ====================================================================

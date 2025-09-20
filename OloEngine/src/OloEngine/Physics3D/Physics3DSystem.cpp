@@ -162,17 +162,22 @@ bool Physics3DSystem::Initialize()
     JPH::Trace = TraceImpl;
     JPH_IF_ENABLE_ASSERTS(JPH::AssertFailed = AssertFailedImpl;)
 
-    // Create a factory - ensure clean state and proper ownership
+    // Create a factory - ensure clean state and proper ownership using RAII
     if (JPH::Factory::sInstance != nullptr)
     {
         // Clean up any existing factory before creating new one
         delete JPH::Factory::sInstance;
         JPH::Factory::sInstance = nullptr;
     }
-    JPH::Factory::sInstance = new JPH::Factory();
-
-    // Register all Jolt physics types
+    
+    // Exception-safe factory creation using RAII
+    std::unique_ptr<JPH::Factory> tempFactory = std::make_unique<JPH::Factory>();
+    
+    // Register all Jolt physics types (this might throw)
     JPH::RegisterTypes();
+    
+    // Only assign to sInstance after all operations that might throw have succeeded
+    JPH::Factory::sInstance = tempFactory.release();
 
     // We need a temp allocator for temporary allocations during the physics update. We're
     // pre-allocating 10 MB to avoid having to do allocations during the physics update.
@@ -449,9 +454,13 @@ void Physics3DSystem::UpdateLayerConfiguration()
     // For now, this provides the foundation for dynamic layer management
 }
 
-JPH::PhysicsSystem& Physics3DSystem::GetJoltSystem() noexcept
+JPH::PhysicsSystem& Physics3DSystem::GetJoltSystem()
 {
-    OLO_CORE_ASSERT(s_Instance && s_Instance->m_PhysicsSystem, "Physics system not initialized!");
+    if (!s_Instance || !s_Instance->m_PhysicsSystem)
+    {
+        OLO_CORE_ERROR("Physics system not initialized! Cannot access Jolt PhysicsSystem.");
+        throw std::runtime_error("Physics system not initialized! Cannot access Jolt PhysicsSystem.");
+    }
     return *s_Instance->m_PhysicsSystem;
 }
 

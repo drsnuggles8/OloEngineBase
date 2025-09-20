@@ -52,6 +52,13 @@ namespace OloEngine {
 	private:
 		bool ShouldCollideBasic(JPH::ObjectLayer inObject1, JPH::ObjectLayer inObject2) const
 		{
+			// Make collision symmetric by checking both directions and returning logical OR
+			return ShouldCollideDirectional(inObject1, inObject2) || ShouldCollideDirectional(inObject2, inObject1);
+		}
+
+		// Helper function for directional collision checks
+		bool ShouldCollideDirectional(JPH::ObjectLayer inObject1, JPH::ObjectLayer inObject2) const
+		{
 			switch (inObject1)
 			{
 				case ObjectLayers::NON_MOVING:
