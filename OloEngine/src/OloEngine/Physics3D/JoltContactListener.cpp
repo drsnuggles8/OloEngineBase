@@ -116,7 +116,7 @@ namespace OloEngine {
 	void JoltContactListener::ProcessContactEvents()
 	{
 		// Check if there are events to process before acquiring lock
-		const sizet queueSize = m_QueueSize.load(std::memory_order_acquire);
+		const sizet queueSize = m_QueueSize.load(std::memory_order_relaxed);
 		if (queueSize == 0)
 		{
 			return; // Early exit if no events to process
@@ -151,7 +151,7 @@ namespace OloEngine {
 		std::lock_guard<std::mutex> lock(m_ContactEventsMutex);
 		
 		// Check queue size limit and early-return to prevent queue growth during contact storms
-		if (m_QueueSize.load(std::memory_order_acquire) >= MaxQueuedContactEvents)
+		if (m_QueueSize.load(std::memory_order_relaxed) >= MaxQueuedContactEvents)
 		{
 			return; // Drop the event instead of growing the queue
 		}
@@ -165,7 +165,7 @@ namespace OloEngine {
 		std::lock_guard<std::mutex> lock(m_ContactEventsMutex);
 		
 		// Check queue size limit and early-return to prevent queue growth during contact storms
-		if (m_QueueSize.load(std::memory_order_acquire) >= MaxQueuedContactEvents)
+		if (m_QueueSize.load(std::memory_order_relaxed) >= MaxQueuedContactEvents)
 		{
 			return; // Drop the event instead of growing the queue
 		}

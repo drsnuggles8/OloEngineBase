@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <vector>
 #include <fstream>
+#include <string>
 
 namespace OloEngine {
 
@@ -58,6 +59,12 @@ namespace OloEngine {
 	public:
 		JoltCaptureManager();
 		~JoltCaptureManager();
+		
+		// Explicitly non-copyable and non-movable
+		JoltCaptureManager(const JoltCaptureManager&) = delete;
+		JoltCaptureManager& operator=(const JoltCaptureManager&) = delete;
+		JoltCaptureManager(JoltCaptureManager&&) = delete;
+		JoltCaptureManager& operator=(JoltCaptureManager&&) = delete;
 
 		// Core capture functionality
 		void BeginCapture();

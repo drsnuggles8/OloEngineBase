@@ -338,10 +338,10 @@ namespace OloEngine {
 				return false;
 
 			// Basic sanity checks on shape type and size
-			if (shapeType < JPH::EShapeType::Convex || shapeType >= JPH::EShapeType::Num)
+			if (shapeType < JPH::EShapeType::Convex || shapeType > JPH::EShapeType::User4)
 				return false;
 
-			if (dataSize != buffer.Size || dataSize < sizeof(JPH::EShapeType))
+			if (dataSize < sizeof(JPH::EShapeType))
 				return false;
 
 			// Only perform expensive full deserialization if deep validation is requested

@@ -2,6 +2,14 @@
 #include "Physics3DSystem.h"
 #include "PhysicsLayer.h"
 
+// Define ObjectLayers locally since it's only needed for layer mapping
+namespace ObjectLayers
+{
+	static constexpr JPH::ObjectLayer NON_MOVING = 0;
+	static constexpr JPH::ObjectLayer MOVING = 1;
+	static constexpr JPH::uint NUM_LAYERS = 2;
+}
+
 // Jolt includes
 #include <Jolt/RegisterTypes.h>
 #include <Jolt/Core/Factory.h>
@@ -54,8 +62,16 @@ namespace OloEngine {
 
 bool OloObjectLayerPairFilterImpl::ShouldCollide(JPH::ObjectLayer inObject1, JPH::ObjectLayer inObject2) const
 {
-    // Use the PhysicsLayerManager to determine if layers should collide
-    return PhysicsLayerManager::ShouldCollide(static_cast<u32>(inObject1), static_cast<u32>(inObject2));
+    // If both layers are user-defined physics layers, map to custom layer IDs and check
+    if (inObject1 >= ObjectLayers::NUM_LAYERS && inObject2 >= ObjectLayers::NUM_LAYERS)
+    {
+        u32 layer1 = static_cast<u32>(inObject1) - ObjectLayers::NUM_LAYERS;
+        u32 layer2 = static_cast<u32>(inObject2) - ObjectLayers::NUM_LAYERS;
+        return PhysicsLayerManager::ShouldCollide(layer1, layer2);
+    }
+    
+    // For built-in layers, use default Jolt collision logic (always allow)
+    return true;
 }
 
 OloBPLayerInterfaceImpl::OloBPLayerInterfaceImpl()
@@ -104,7 +120,17 @@ bool OloObjectVsBroadPhaseLayerFilterImpl::ShouldCollide(JPH::ObjectLayer inLaye
     // Convert broadphase layer back to object layer for collision checking
     // Since we use 1:1 mapping, this is straightforward
     JPH::ObjectLayer objectLayer2 = static_cast<JPH::ObjectLayer>(inLayer2.GetValue());
-    return PhysicsLayerManager::ShouldCollide(static_cast<u32>(inLayer1), static_cast<u32>(objectLayer2));
+    
+    // If both layers are user-defined physics layers, map to custom layer IDs and check
+    if (inLayer1 >= ObjectLayers::NUM_LAYERS && objectLayer2 >= ObjectLayers::NUM_LAYERS)
+    {
+        u32 layer1 = static_cast<u32>(inLayer1) - ObjectLayers::NUM_LAYERS;
+        u32 layer2 = static_cast<u32>(objectLayer2) - ObjectLayers::NUM_LAYERS;
+        return PhysicsLayerManager::ShouldCollide(layer1, layer2);
+    }
+    
+    // For built-in layers, use default Jolt collision logic (always allow)
+    return true;
 }
 
 // ================================================================================================

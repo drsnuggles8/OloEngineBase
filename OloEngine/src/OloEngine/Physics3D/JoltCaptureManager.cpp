@@ -9,6 +9,7 @@
 #include <iomanip>
 #include <sstream>
 #include <cstdlib>
+#include <limits>
 
 namespace OloEngine {
 
@@ -17,6 +18,7 @@ namespace OloEngine {
 			OLO_PROFILE_FUNCTION();
 
 			Close();
+			m_Stream.clear(); // Reset any previous error flags before opening
 			m_Stream.open(inPath, std::ios::out | std::ios::binary | std::ios::trunc);
 			
 			// Validate stream state immediately after opening
@@ -43,6 +45,7 @@ namespace OloEngine {
 		{
 			m_Stream.close();
 		}
+		m_Stream.clear(); // Reset error/state flags for reuse
 	}
 
 	void JoltCaptureOutStream::WriteBytes(const void* inData, sizet inNumBytes)
@@ -146,6 +149,19 @@ namespace OloEngine {
 		if (!SetCapturesDirectory(capturesPath))
 		{
 			OLO_CORE_WARN("Failed to set captures directory to: {}", capturesPath.string());
+			
+			// Attempt safe fallback directory
+			std::filesystem::path fallbackPath = std::filesystem::current_path() / "OloCaptures";
+			if (SetCapturesDirectory(fallbackPath))
+			{
+				OLO_CORE_INFO("Successfully set fallback captures directory: {}", fallbackPath.string());
+			}
+			else
+			{
+				OLO_CORE_ERROR("Failed to set fallback captures directory: {}. Using current directory.", fallbackPath.string());
+				// Final fallback to current directory
+				m_CapturesDirectory = std::filesystem::current_path();
+			}
 		}
 	}
 
