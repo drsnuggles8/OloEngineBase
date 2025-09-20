@@ -33,13 +33,13 @@ namespace OloEngine {
 		 * @brief Constructor with excluded entities list
 		 * @param excludedEntities Vector of entity UUIDs to exclude from queries
 		 */
-		EntityExclusionBodyFilter(const std::vector<UUID>& excludedEntities);
+		explicit EntityExclusionBodyFilter(const std::vector<UUID>& excludedEntities);
 
 		/**
 		 * @brief Constructor with single excluded entity
 		 * @param excludedEntity Single entity UUID to exclude from queries
 		 */
-		EntityExclusionBodyFilter(UUID excludedEntity);
+		explicit EntityExclusionBodyFilter(UUID excludedEntity);
 
 		/**
 		 * @brief Default constructor - no entities excluded

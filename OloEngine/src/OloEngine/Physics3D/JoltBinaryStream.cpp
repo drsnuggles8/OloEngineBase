@@ -8,7 +8,6 @@
 #include <Jolt/Physics/Collision/PhysicsMaterial.h>
 #include <Jolt/Core/StreamOut.h>
 #include <Jolt/Core/StreamIn.h>
-#include <sstream>
 
 namespace OloEngine {
 

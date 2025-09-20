@@ -14,6 +14,7 @@ namespace OloEngine {
 		static constexpr f32 MIN_FRICTION = 0.0f;   ///< Minimum allowed friction coefficient
 		static constexpr f32 MAX_RESTITUTION = 1.0f; ///< Maximum allowed restitution (perfect bounce)
 		static constexpr f32 MIN_RESTITUTION = 0.0f; ///< Minimum allowed restitution (no bounce)
+		static constexpr f32 MIN_DENSITY = 0.001f;  ///< Minimum allowed density (prevents zero/negative values)
 
 		ColliderMaterial() { Validate(); }
 		
@@ -59,7 +60,7 @@ namespace OloEngine {
 		/// @brief Set density (basic range check)
 		void SetDensity(f32 density) 
 		{
-			m_Density = std::max(0.001f, density); // Prevent zero/negative density
+			m_Density = std::max(MIN_DENSITY, density); // Prevent zero/negative density
 		}
 
 		/// @brief Validate and clamp all material properties

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <type_traits>
 
 #include "OloEngine/Core/PlatformDetection.h"
 
@@ -86,7 +87,24 @@ constexpr auto ArraySize(T array) { return ( sizeof(array)/sizeof((array)[0]) );
 // Unique names
 #define OLO_UNIQUE_SUFFIX(PARAM) OLO_CONCAT(PARAM, __LINE__ )
 
-#define BIT(x) (1u << (x))
+// Bit manipulation macros and templates
+// 
+// Usage examples:
+//   enum Flags : u32 { FlagA = BIT(0), FlagB = BIT(1) };           // For bits 0-31
+//   enum LargeFlags : u64 { BigFlag = BIT64(35) };                 // For bits 32-63
+//   auto mask = Bit<u32>(5);                                       // Type-safe u32 mask
+//   auto bigMask = Bit<u64>(45);                                   // Type-safe u64 mask
+//
+#define BIT(x) (1u << (x))          // 32-bit version (safe for x < 32)
+#define BIT64(x) (1ULL << (x))      // 64-bit version (safe for x < 64)
+
+// Type-safe bit helper template - use for explicit type control
+template<typename T>
+constexpr T Bit(unsigned idx) 
+{
+    static_assert(std::is_integral_v<T>, "Bit() requires integral types");
+    return T(1) << idx;
+}
 
 
 namespace OloEngine

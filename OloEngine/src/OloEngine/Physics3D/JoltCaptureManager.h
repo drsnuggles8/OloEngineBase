@@ -20,7 +20,7 @@ namespace OloEngine {
 	public:
 		JoltCaptureOutStream() = default;
 		
-		void Open(const std::filesystem::path& inPath);
+		[[nodiscard]] bool Open(const std::filesystem::path& inPath);
 		void Close();
 		[[nodiscard]] bool IsOpen() const { return m_Stream.is_open(); }
 
@@ -90,11 +90,12 @@ namespace OloEngine {
 		 * @brief Get the current frame logging interval
 		 * @return Number of frames between log messages
 		 */
-		i32 GetFrameLogInterval() const { return m_FrameLogInterval; }
+		[[nodiscard]] i32 GetFrameLogInterval() const { return m_FrameLogInterval; }
 
 	private:
 		void InitializeCapturesDirectory();
 		void RefreshCapturesCache();
+		void HandleCaptureFailure(const std::string& errorMessage);
 
 		static constexpr i32 DEFAULT_FRAME_LOG_INTERVAL = 60;
 

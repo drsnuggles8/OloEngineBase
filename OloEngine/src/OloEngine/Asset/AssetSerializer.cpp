@@ -1447,8 +1447,8 @@ namespace OloEngine
                 // Clamp restitution to valid range [0.0, 1.0]
                 material.SetRestitution(std::clamp(restitution, 0.0f, 1.0f));
                 
-                // Clamp density to sensible positive range [0.001, 1e6]
-                material.SetDensity(std::clamp(density, 0.001f, 1e6f));
+                // Clamp density to sensible positive range [MIN_DENSITY, 1e6]
+                material.SetDensity(std::clamp(density, ColliderMaterial::MIN_DENSITY, 1e6f));
                 
                 targetMeshCollider->m_Material = material;
             }

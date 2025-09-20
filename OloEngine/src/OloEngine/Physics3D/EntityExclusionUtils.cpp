@@ -13,7 +13,7 @@ namespace OloEngine {
 		m_ExcludedEntities.insert(excludedEntity);
 	}
 
-	bool ExcludedEntitySet::IsEntityExcluded(UUID entityID) const
+	bool ExcludedEntitySet::IsEntityExcluded(UUID entityID) const noexcept
 	{
 		return m_ExcludedEntities.contains(entityID);
 	}
@@ -28,17 +28,17 @@ namespace OloEngine {
 		m_ExcludedEntities.erase(entityID);
 	}
 
-	void ExcludedEntitySet::Clear()
+	void ExcludedEntitySet::Clear() noexcept
 	{
 		m_ExcludedEntities.clear();
 	}
 
-	[[nodiscard]] bool ExcludedEntitySet::Empty() const
+	[[nodiscard]] bool ExcludedEntitySet::Empty() const noexcept
 	{
 		return m_ExcludedEntities.empty();
 	}
 
-	[[nodiscard]] sizet ExcludedEntitySet::Size() const
+	[[nodiscard]] sizet ExcludedEntitySet::Size() const noexcept
 	{
 		return m_ExcludedEntities.size();
 	}
@@ -60,7 +60,7 @@ namespace OloEngine {
 
 	namespace EntityExclusionUtils {
 
-		bool IsEntityExcluded(const std::vector<UUID>& excludedEntities, UUID entityID)
+		bool IsEntityExcluded(const std::vector<UUID>& excludedEntities, UUID entityID) noexcept
 		{
 			return std::find(excludedEntities.begin(), excludedEntities.end(), entityID) != excludedEntities.end();
 		}

@@ -59,7 +59,7 @@ namespace OloEngine {
 		 * @param entityID UUID to check
 		 * @return true if entity is excluded, false otherwise
 		 */
-		bool IsEntityExcluded(UUID entityID) const;
+		bool IsEntityExcluded(UUID entityID) const noexcept;
 
 		/**
 		 * @brief Add an entity to the exclusion set
@@ -76,19 +76,19 @@ namespace OloEngine {
 		/**
 		 * @brief Clear all excluded entities
 		 */
-		void Clear();
+		void Clear() noexcept;
 
 		/**
 		 * @brief Check if the exclusion set is empty
 		 * @return true if no entities are excluded, false otherwise
 		 */
-		[[nodiscard]] bool Empty() const;
+		[[nodiscard]] bool Empty() const noexcept;
 
 		/**
 		 * @brief Get the number of excluded entities
 		 * @return Number of excluded entities
 		 */
-		[[nodiscard]] sizet Size() const;
+		[[nodiscard]] sizet Size() const noexcept;
 
 		/**
 		 * @brief Get a vector containing all excluded entities
@@ -129,7 +129,7 @@ namespace OloEngine {
 		 * @note This function is provided for backward compatibility but has O(n) performance.
 		 *       Consider converting to ExcludedEntitySet for better performance.
 		 */
-		bool IsEntityExcluded(const std::vector<UUID>& excludedEntities, UUID entityID);
+		bool IsEntityExcluded(const std::vector<UUID>& excludedEntities, UUID entityID) noexcept;
 
 		/**
 		 * @brief Create an ExcludedEntitySet from a vector for efficient repeated lookups

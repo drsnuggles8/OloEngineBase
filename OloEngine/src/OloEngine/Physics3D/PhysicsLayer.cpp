@@ -31,26 +31,18 @@ namespace OloEngine {
 		}
 
 		u32 layerId = GetNextLayerID();
+		
+		// Enforce contiguous allocation - only allow adding at the end
+		if (layerId != s_Layers.size())
+		{
+			OLO_CORE_ERROR("PhysicsLayerManager: Cannot add layer '{}' - layerId {} != expected contiguous index {}", name, layerId, s_Layers.size());
+			return INVALID_LAYER_ID;
+		}
+		
 		PhysicsLayer layer = { layerId, name, ToLayerMask(layerId), ToLayerMask(layerId) };
 		
-		// Safe insertion with bounds checking
-		if (layerId == s_Layers.size())
-		{
-			// Append to the end
-			s_Layers.push_back(layer);
-		}
-		else if (layerId < s_Layers.size())
-		{
-			// Insert at the specified position
-			s_Layers.insert(s_Layers.begin() + layerId, layer);
-		}
-		else // layerId > s_Layers.size()
-		{
-			// Resize vector with default-initialized entries and append
-			s_Layers.resize(layerId, PhysicsLayer{});
-			s_Layers.push_back(layer);
-		}
-		
+		// Append to the end (contiguous allocation)
+		s_Layers.push_back(layer);
 		s_LayerNames[layerId] = name;
 
 		// Rebuild index map after modifying s_Layers
@@ -58,10 +50,15 @@ namespace OloEngine {
 
 		if (setCollisions)
 		{
-			for (const auto& layer2 : s_Layers)
+			// Inline collision bit update logic to avoid re-entrant locking
+			for (auto& layer2 : s_Layers)
 			{
-				SetLayerCollision(layer.m_LayerID, layer2.m_LayerID, true);
+				// Set bidirectional collision
+				layer.m_CollidesWith |= layer2.m_BitValue;
+				layer2.m_CollidesWith |= layer.m_BitValue;
 			}
+			// Update the layer in the vector since we modified it
+			s_Layers[layerId] = layer;
 		}
 
 		return layer.m_LayerID;
@@ -101,6 +98,15 @@ namespace OloEngine {
 	void PhysicsLayerManager::UpdateLayerName(u32 layerId, const std::string& newName)
 	{
 		std::unique_lock<std::shared_mutex> lock(s_LayersMutex);
+		
+		// Early validation to prevent mutating s_NullLayer for invalid IDs
+		auto indexIt = s_LayerIndexMap.find(layerId);
+		if (indexIt == s_LayerIndexMap.end())
+			return; // Invalid layer ID
+		
+		sizet index = indexIt->second;
+		if (index >= s_Layers.size() || s_Layers[index].m_LayerID != layerId)
+			return; // Invalid or corrupted layer mapping
 		
 		// Check if name already exists
 		for (const auto& pair : s_LayerNames)

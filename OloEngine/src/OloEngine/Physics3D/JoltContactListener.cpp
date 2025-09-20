@@ -51,7 +51,7 @@ namespace OloEngine {
 				m_ActiveContacts[contactKey] = ContactInfo(entityA, entityB);
 			}
 
-			glm::vec3 contactPoint = JoltUtils::FromJoltVector(inManifold.GetWorldSpaceContactPointOn1(0));
+			glm::vec3 contactPoint = JoltUtils::FromJoltRVec3(inManifold.GetWorldSpaceContactPointOn1(0));
 			glm::vec3 contactNormal = JoltUtils::FromJoltVector(inManifold.mWorldSpaceNormal);
 			f32 contactDepth = inManifold.mPenetrationDepth;
 
@@ -79,7 +79,7 @@ namespace OloEngine {
 				}
 			}
 
-			glm::vec3 contactPoint = JoltUtils::FromJoltVector(inManifold.GetWorldSpaceContactPointOn1(0));
+			glm::vec3 contactPoint = JoltUtils::FromJoltRVec3(inManifold.GetWorldSpaceContactPointOn1(0));
 			glm::vec3 contactNormal = JoltUtils::FromJoltVector(inManifold.mWorldSpaceNormal);
 			f32 contactDepth = inManifold.mPenetrationDepth;
 
@@ -179,13 +179,13 @@ namespace OloEngine {
 		m_QueueSize.fetch_add(1, std::memory_order_relaxed);
 	}
 
-	UUID JoltContactListener::GetEntityIDFromBody(const JPH::Body& body)
+	UUID JoltContactListener::GetEntityIDFromBody(const JPH::Body& body) noexcept
 	{
 		// The entity ID is stored in the body's user data
 		return static_cast<UUID>(body.GetUserData());
 	}
 
-	u32 JoltContactListener::GetPhysicsLayerFromBody(const JPH::Body& body)
+	u32 JoltContactListener::GetPhysicsLayerFromBody(const JPH::Body& body) noexcept
 	{
 		JPH::ObjectLayer objectLayer = body.GetObjectLayer();
 		

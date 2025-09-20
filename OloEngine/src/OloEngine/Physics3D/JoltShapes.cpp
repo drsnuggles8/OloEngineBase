@@ -580,8 +580,6 @@ namespace OloEngine {
 
 	JPH::Ref<JPH::Shape> JoltShapes::CreateMeshShapeInternal(AssetHandle meshAsset, bool useComplexAsSimple, const glm::vec3& scale)
 	{
-		(void)scale; // Suppress unused parameter warning
-
 		// Get the mesh collider cache instance
 		auto& cache = MeshColliderCache::GetInstance();
 		
@@ -634,7 +632,7 @@ namespace OloEngine {
 			if (!colliderSubmesh.m_ColliderData.empty())
 			{
 				// Create buffer from the collider data
-				Buffer buffer = Buffer::Copy(std::span{colliderSubmesh.m_ColliderData.data(), colliderSubmesh.m_ColliderData.size()});
+				Buffer buffer = Buffer::Copy(std::span<const u8>(colliderSubmesh.m_ColliderData.data(), colliderSubmesh.m_ColliderData.size()));
 
 				// Try to deserialize the shape
 				JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);
@@ -645,6 +643,15 @@ namespace OloEngine {
 				if (shape)
 				{
 					OLO_CORE_TRACE("Successfully deserialized mesh shape for asset {0}", meshAsset);
+					
+					// Check if scaling is needed
+					if (scale != glm::vec3(1.0f))
+					{
+						// Convert glm scale to Jolt Vec3 and create scaled shape
+						JPH::Vec3 joltScale = JoltUtils::ToJoltVector(scale);
+						return new JPH::ScaledShape(shape, joltScale);
+					}
+					
 					return shape;
 				}
 			}
@@ -653,13 +660,13 @@ namespace OloEngine {
 		OLO_CORE_WARN("Mesh shape deserialization failed for asset {0}, falling back to placeholder", meshAsset);
 		
 		// For now, return a placeholder box shape
-		return CreateBoxShapeInternal(glm::vec3(1.0f));
+		// Note: The CreateBoxShapeInternal already handles scaling, so we pass the scale parameter
+		return CreateBoxShapeInternal(scale);
 	}
 
 	JPH::Ref<JPH::Shape> JoltShapes::CreateConvexMeshShapeInternal(AssetHandle meshAsset, f32 convexRadius, const glm::vec3& scale)
 	{
 		(void)convexRadius; // Suppress unused parameter warning
-		(void)scale; // Suppress unused parameter warning
 
 		// Get the mesh collider cache instance
 		auto& cache = MeshColliderCache::GetInstance();
@@ -687,7 +694,7 @@ namespace OloEngine {
 		if (!submesh.m_ColliderData.empty())
 		{
 			// Create buffer from the collider data
-			Buffer buffer = Buffer::Copy(std::span{submesh.m_ColliderData.data(), submesh.m_ColliderData.size()});
+			Buffer buffer = Buffer::Copy(std::span<const u8>(submesh.m_ColliderData.data(), submesh.m_ColliderData.size()));
 
 			// Try to deserialize the shape
 			JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);
@@ -698,6 +705,15 @@ namespace OloEngine {
 			if (shape)
 			{
 				OLO_CORE_TRACE("Successfully deserialized convex mesh shape for asset {0}", meshAsset);
+				
+				// Check if scaling is needed
+				if (scale != glm::vec3(1.0f))
+				{
+					// Convert glm scale to Jolt Vec3 and create scaled shape
+					JPH::Vec3 joltScale = JoltUtils::ToJoltVector(scale);
+					return new JPH::ScaledShape(shape, joltScale);
+				}
+				
 				return shape;
 			}
 		}
@@ -705,13 +721,12 @@ namespace OloEngine {
 		OLO_CORE_WARN("Convex mesh shape deserialization failed for asset {0}, falling back to placeholder", meshAsset);
 		
 		// For now, return a placeholder box shape
-		return CreateBoxShapeInternal(glm::vec3(1.0f));
+		// Note: The CreateBoxShapeInternal already handles scaling, so we pass the scale parameter
+		return CreateBoxShapeInternal(scale);
 	}
 
 	JPH::Ref<JPH::Shape> JoltShapes::CreateTriangleMeshShapeInternal(AssetHandle meshAsset, const glm::vec3& scale)
 	{
-		(void)scale; // Suppress unused parameter warning
-
 		// Get the mesh collider cache instance
 		auto& cache = MeshColliderCache::GetInstance();
 		
@@ -738,7 +753,7 @@ namespace OloEngine {
 		if (!submesh.m_ColliderData.empty())
 		{
 			// Create buffer from the collider data
-			Buffer buffer = Buffer::Copy(std::span{submesh.m_ColliderData.data(), submesh.m_ColliderData.size()});
+			Buffer buffer = Buffer::Copy(std::span<const u8>(submesh.m_ColliderData.data(), submesh.m_ColliderData.size()));
 
 			// Try to deserialize the shape
 			JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);
@@ -749,6 +764,15 @@ namespace OloEngine {
 			if (shape)
 			{
 				OLO_CORE_TRACE("Successfully deserialized triangle mesh shape for asset {0}", meshAsset);
+				
+				// Check if scaling is needed
+				if (scale != glm::vec3(1.0f))
+				{
+					// Convert glm scale to Jolt Vec3 and create scaled shape
+					JPH::Vec3 joltScale = JoltUtils::ToJoltVector(scale);
+					return new JPH::ScaledShape(shape, joltScale);
+				}
+				
 				return shape;
 			}
 		}
@@ -756,7 +780,8 @@ namespace OloEngine {
 		OLO_CORE_WARN("Triangle mesh shape deserialization failed for asset {0}, falling back to placeholder", meshAsset);
 		
 		// For now, return a placeholder box shape
-		return CreateBoxShapeInternal(glm::vec3(1.0f));
+		// Note: The CreateBoxShapeInternal already handles scaling, so we pass the scale parameter
+		return CreateBoxShapeInternal(scale);
 	}
 
 	bool JoltShapes::ValidateBoxDimensions(const glm::vec3& halfExtents)

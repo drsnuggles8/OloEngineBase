@@ -11,7 +11,7 @@
 
 namespace OloEngine {
 
-	void JoltCaptureOutStream::Open(const std::filesystem::path& inPath)
+	bool JoltCaptureOutStream::Open(const std::filesystem::path& inPath)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -23,8 +23,17 @@ namespace OloEngine {
 		{
 			OLO_CORE_ERROR("Failed to open capture file: {} (is_open: {}, fail: {})", 
 						   inPath.string(), m_Stream.is_open(), m_Stream.fail());
-			return;
+			
+			// Ensure stream is closed on failure
+			if (m_Stream.is_open())
+			{
+				m_Stream.close();
+			}
+			
+			return false;
 		}
+		
+		return true;
 	}
 
 	void JoltCaptureOutStream::Close()
@@ -133,7 +142,10 @@ namespace OloEngine {
 			}
 		}
 
-		SetCapturesDirectory(capturesPath);
+		if (!SetCapturesDirectory(capturesPath))
+		{
+			OLO_CORE_WARN("Failed to set captures directory to: {}", capturesPath.string());
+		}
 	}
 
 	JoltCaptureManager::~JoltCaptureManager()
@@ -207,10 +219,30 @@ namespace OloEngine {
 		}
 
 		// Open the capture stream
-		m_Stream.Open(capturePath);
-		
-		if (m_Stream.IsOpen())
+		if (m_Stream.Open(capturePath))
 		{
+			// Verify stream is still in good state after opening
+			if (m_Stream.IsFailed())
+			{
+				OLO_CORE_ERROR("Stream failed immediately after opening: {}", capturePath.string());
+				m_Stream.Close();
+				return;
+			}
+			
+			// Perform any initial capture setup writes here
+			// Example: write header, metadata, etc.
+			// if (needToWriteHeader)
+			// {
+			//     m_Stream.WriteBytes(headerData, headerSize);
+			//     if (m_Stream.IsFailed())
+			//     {
+			//         OLO_CORE_ERROR("Failed to write capture header: {}", capturePath.string());
+			//         m_Stream.Close();
+			//         return;
+			//     }
+			// }
+			
+			// Only set capturing flag after all initial operations succeed
 			m_IsCapturing = true;
 			m_RecentCapture = capturePath;
 			
@@ -237,11 +269,29 @@ namespace OloEngine {
 			return;
 		}
 
+		// Check stream state before performing any operations
+		if (m_Stream.IsFailed())
+		{
+			HandleCaptureFailure("Stream is in failed state");
+			return;
+		}
+
 		// Basic capture functionality - currently just logs frame capture
 		// Full implementation would require Jolt debug renderer integration
 		// This provides the framework for when JPH_DEBUG_RENDERER is available
 		
 		m_FrameCount++;
+		
+		// Example of how write operations should be handled:
+		// if (actualWriteDataNeeded)
+		// {
+		//     m_Stream.WriteBytes(data, size);
+		//     if (m_Stream.IsFailed())
+		//     {
+		//         HandleCaptureFailure("Failed to write frame data");
+		//         return;
+		//     }
+		// }
 		
 		if (m_FrameCount % m_FrameLogInterval == 0) // Log at configurable intervals
 		{
@@ -253,21 +303,28 @@ namespace OloEngine {
 	{
 		OLO_PROFILE_FUNCTION();
 
-		if (!IsCapturing())
-		{
-			return;
-		}
-
-		m_Stream.Close();
+		// Always log if we think we were capturing (regardless of stream state)
+		bool wasCapturing = m_IsCapturing;
+		
+		// Always clear the capturing flag and reset state, regardless of stream condition
 		m_IsCapturing = false;
 		m_FrameCount = 0; // Reset frame counter for next capture
+		
+		// Close the stream if it's open
+		if (m_Stream.IsOpen())
+		{
+			m_Stream.Close();
+		}
 
-		OLO_CORE_INFO("Ended physics capture: {}", m_RecentCapture.string());
+		if (wasCapturing)
+		{
+			OLO_CORE_INFO("Ended physics capture: {}", m_RecentCapture.string());
+		}
 	}
 
 	bool JoltCaptureManager::IsCapturing() const
 	{
-		return m_IsCapturing && m_Stream.IsOpen();
+		return m_IsCapturing && m_Stream.IsOpen() && !m_Stream.IsFailed();
 	}
 
 	void JoltCaptureManager::OpenCapture(const std::filesystem::path& capturePath) const
@@ -494,6 +551,25 @@ namespace OloEngine {
 		{
 			m_FrameLogInterval = interval;
 			OLO_CORE_TRACE("Frame log interval set to {} frames", m_FrameLogInterval);
+		}
+	}
+
+	void JoltCaptureManager::HandleCaptureFailure(const std::string& errorMessage)
+	{
+		OLO_PROFILE_FUNCTION();
+
+		if (m_IsCapturing)
+		{
+			OLO_CORE_ERROR("Capture failure detected: {}. Stopping capture.", errorMessage);
+			
+			// Clear the capturing flag immediately
+			m_IsCapturing = false;
+			
+			// Reset frame counter
+			m_FrameCount = 0;
+			
+			// Close and cleanup the stream
+			m_Stream.Close();
 		}
 	}
 
