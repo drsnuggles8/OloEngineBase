@@ -25,7 +25,7 @@ namespace OloEngine {
 		virtual ~JoltContactListener() noexcept = default;
 
 		// Called when a contact is detected
-		virtual JPH::ValidateResult OnContactValidate(const JPH::Body& inBody1, const JPH::Body& inBody2, JPH::RVec3Arg inBaseOffset, const JPH::CollideShapeResult& inCollisionResult) override;
+		[[nodiscard]] virtual JPH::ValidateResult OnContactValidate(const JPH::Body& inBody1, const JPH::Body& inBody2, JPH::RVec3Arg inBaseOffset, const JPH::CollideShapeResult& inCollisionResult) override;
 
 		// Called when a contact is added (first frame of contact)
 		virtual void OnContactAdded(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, JPH::ContactSettings& ioSettings) override;
@@ -64,10 +64,10 @@ namespace OloEngine {
 		void QueueContactEvent(ContactEvent&& event);
 		
 		// Retrieves entity UUID from JPH::Body::GetUserData (expects u64 UUID); returns 0 when no valid UUID is present
-		UUID GetEntityIDFromBody(const JPH::Body& body) noexcept;
+		[[nodiscard]] UUID GetEntityIDFromBody(const JPH::Body& body) noexcept;
 		
 		// Retrieves physics layer ID from JPH::Body::GetObjectLayer; returns INVALID_LAYER_ID for built-in layers
-		u32 GetPhysicsLayerFromBody(const JPH::Body& body) noexcept;
+		[[nodiscard]] u32 GetPhysicsLayerFromBody(const JPH::Body& body) noexcept;
 
 	private:
 		JoltScene* m_Scene;

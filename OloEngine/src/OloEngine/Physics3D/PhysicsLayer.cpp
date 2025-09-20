@@ -15,6 +15,18 @@ namespace OloEngine {
 		}
 	}
 
+	u32 PhysicsLayerManager::ToLayerMask(u32 layerId) noexcept
+	{
+		// Validate layer ID bounds - prevent undefined behavior from bit shift
+		if (layerId >= 32) // u32 can only have 32 bits
+		{
+			OLO_CORE_ERROR("PhysicsLayerManager::ToLayerMask: Layer ID {} exceeds maximum bit position (31)", layerId);
+			return 0; // Return empty mask for invalid layer ID
+		}
+		
+		return 1u << layerId;
+	}
+
 	u32 PhysicsLayerManager::AddLayer(const std::string& name, bool setCollisions)
 	{
 		std::unique_lock<std::shared_mutex> lock(s_LayersMutex);
@@ -134,6 +146,13 @@ namespace OloEngine {
 		
 		PhysicsLayer& layerInfo = GetLayerUnsafe(layerId);
 		PhysicsLayer& otherLayerInfo = GetLayerUnsafe(otherLayer);
+		
+		// Validate both layers before modification - prevent corrupting s_NullLayer
+		if (layerInfo.m_LayerID == s_NullLayer.m_LayerID || otherLayerInfo.m_LayerID == s_NullLayer.m_LayerID)
+		{
+			OLO_CORE_WARN("PhysicsLayerManager::SetLayerCollision: Invalid layer ID(s) - layerId: {}, otherLayer: {}", layerId, otherLayer);
+			return;
+		}
 
 		if (shouldCollide)
 		{

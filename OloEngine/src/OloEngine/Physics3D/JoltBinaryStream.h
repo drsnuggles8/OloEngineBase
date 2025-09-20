@@ -27,7 +27,7 @@ namespace OloEngine {
 	{
 	public:
 		explicit JoltBinaryStreamReader(const Buffer& buffer)
-			: m_Buffer(&buffer), m_ReadBytes(0), m_Failed(false)
+			: m_Data(buffer.Data), m_Size(buffer.Size), m_ReadBytes(0), m_Failed(false)
 		{
 			OLO_CORE_ASSERT(buffer.Data != nullptr && buffer.Size > 0, "Invalid buffer provided to JoltBinaryStreamReader");
 		}
@@ -40,9 +40,27 @@ namespace OloEngine {
 
 		~JoltBinaryStreamReader() = default;
 
+		// Make non-copyable but movable
+		JoltBinaryStreamReader(const JoltBinaryStreamReader&) = delete;
+		JoltBinaryStreamReader& operator=(const JoltBinaryStreamReader&) = delete;
+		JoltBinaryStreamReader(JoltBinaryStreamReader&&) = default;
+		JoltBinaryStreamReader& operator=(JoltBinaryStreamReader&&) = default;
+
 		// Stream reading interface
 		void ReadBytes(void* outData, sizet inNumBytes)
 		{
+			// Validate output pointer
+			if (!outData)
+			{
+				OLO_CORE_ERROR("JoltBinaryStreamReader: outData pointer is null");
+				m_Failed = true;
+				if (m_ReadBytes < GetSourceSize())
+				{
+					m_ReadBytes = GetSourceSize(); // Clamp to prevent further reads
+				}
+				return;
+			}
+
 			if (IsEOF() || IsFailed())
 			{
 				OLO_CORE_ERROR("JoltBinaryStreamReader: Attempted to read past end of stream or from failed stream");
@@ -85,16 +103,13 @@ namespace OloEngine {
 			if (m_Failed)
 				return true;
 				
-			// Check existing buffer/data validity
-			if (m_Buffer)
-				return m_Buffer->Data == nullptr || m_Buffer->Size == 0;
-			else
-				return m_Data == nullptr || m_Size == 0;
+			// Check data validity
+			return m_Data == nullptr || m_Size == 0;
 		}
 
 		// Additional utility methods
-		u64 GetBytesRead() const { return m_ReadBytes; }
-		u64 GetRemainingBytes() const 
+		[[nodiscard]] u64 GetBytesRead() const { return m_ReadBytes; }
+		[[nodiscard]] u64 GetRemainingBytes() const 
 		{ 
 			u64 size = GetSourceSize();
 			return m_ReadBytes < size ? size - m_ReadBytes : 0;
@@ -116,16 +131,15 @@ namespace OloEngine {
 	private:
 		const u8* GetSourceData() const
 		{
-			return m_Buffer ? m_Buffer->Data : m_Data;
+			return m_Data;
 		}
 
 		u64 GetSourceSize() const
 		{
-			return m_Buffer ? m_Buffer->Size : m_Size;
+			return m_Size;
 		}
 
 	private:
-		const Buffer* m_Buffer = nullptr;
 		const u8* m_Data = nullptr;
 		u64 m_Size = 0;
 		u64 m_ReadBytes = 0;

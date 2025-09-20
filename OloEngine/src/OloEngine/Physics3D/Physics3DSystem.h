@@ -145,6 +145,12 @@ namespace OloEngine {
     public:
         Physics3DSystem();
         ~Physics3DSystem();
+        
+        // Singleton pattern enforcement - prevent copying
+        Physics3DSystem(const Physics3DSystem&) = delete;
+        Physics3DSystem& operator=(const Physics3DSystem&) = delete;
+        Physics3DSystem(Physics3DSystem&&) = delete;
+        Physics3DSystem& operator=(Physics3DSystem&&) = delete;
 
         // Initialize the physics system
         bool Initialize();

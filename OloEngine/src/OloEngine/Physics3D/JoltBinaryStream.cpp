@@ -347,20 +347,15 @@ namespace OloEngine {
 			if (!buffer.Data || buffer.Size == 0)
 				return false;
 
-			// Quick validation using GetShapeInfo first (cheap header/magic/size checks)
-			JPH::EShapeType shapeType;
-			sizet dataSize;
-			if (!GetShapeInfo(buffer, shapeType, dataSize))
-				return false;
+		// Quick validation using GetShapeInfo first (cheap header/magic/size checks)
+		JPH::EShapeType shapeType;
+		sizet dataSize;
+		if (!GetShapeInfo(buffer, shapeType, dataSize))
+			return false;
 
-			// Basic sanity checks on shape type and size
-			if (shapeType < JPH::EShapeType::Convex || shapeType > JPH::EShapeType::User4)
-				return false;
-
-			if (dataSize < sizeof(JPH::EShapeType))
-				return false;
-
-			// Only perform expensive full deserialization if deep validation is requested
+		// Basic sanity check on data size
+		if (dataSize < sizeof(JPH::EShapeType))
+			return false;			// Only perform expensive full deserialization if deep validation is requested
 			if (deepValidation)
 			{
 				JPH::Ref<JPH::Shape> shape = DeserializeShapeFromBuffer(buffer);
@@ -528,25 +523,29 @@ namespace OloEngine {
 			const u8* input = static_cast<const u8*>(inputBuffer.Data);
 			std::vector<u8> compressed;
 			
-			// Guard against size_t overflow in reserve calculation
-			sizet reserveSize;
-			if (inputBuffer.Size <= std::numeric_limits<sizet>::max() / 2)
-			{
-				reserveSize = 2 * inputBuffer.Size;  // Safe multiplication
-			}
-			else
-			{
-				reserveSize = std::numeric_limits<sizet>::max();  // Cap to max
-			}
-			
-			// Reserve space for worst-case RLE output: 2 bytes per input byte (run length + value)
-			// This prevents re-allocations during compression
-			compressed.reserve(reserveSize);
+		// Guard against overflow and excessive allocation in reserve calculation
+		constexpr sizet MAX_SAFE_RESERVE = 1024 * 1024 * 100; // 100MB cap
+		
+		sizet desiredReserve;
+		if (inputBuffer.Size <= std::numeric_limits<sizet>::max() / 2)
+		{
+			desiredReserve = 2 * inputBuffer.Size;  // Safe multiplication
+		}
+		else
+		{
+			// Skip reserving if multiplication would overflow
+			desiredReserve = 0;
+		}
+		
+		// Only reserve if the desired size is reasonable
+		if (desiredReserve > 0 && desiredReserve <= MAX_SAFE_RESERVE)
+		{
+			compressed.reserve(desiredReserve);
+		}
+		// For very large inputs, let vector grow naturally to avoid huge upfront allocation
 
-			u8 currentByte = input[0];
-			u8 runLength = 1;
-
-			for (sizet i = 1; i < inputBuffer.Size; ++i)
+		u8 currentByte = input[0];
+		u8 runLength = 1;			for (sizet i = 1; i < inputBuffer.Size; ++i)
 			{
 				if (input[i] == currentByte && runLength < 255)
 				{
@@ -659,7 +658,7 @@ namespace OloEngine {
 			}
 
 			// Preflight: validate all runs and compute total output size
-			size_t totalOutputSize = 0;
+			sizet totalOutputSize = 0;
 			for (sizet i = 0; i < payloadSize; i += 2)
 			{
 				// Ensure run pair exists
@@ -670,7 +669,7 @@ namespace OloEngine {
 				}
 				
 				u8 runLength = compressedPayload[i];
-				totalOutputSize += static_cast<size_t>(runLength);
+				totalOutputSize += static_cast<sizet>(runLength);
 				
 				// Early bounds check
 				if (totalOutputSize > originalSize)

@@ -59,6 +59,9 @@ namespace OloEngine {
 
 		// Helper function to rebuild the index map when s_Layers is modified
 		static void RebuildLayerIndexMap();
+		
+		// Helper function to generate layer bitmask with bounds checking
+		[[nodiscard]] static u32 ToLayerMask(u32 layerId) noexcept;
 
 		// Internal unsafe methods for use within locked contexts - do not use externally
 		static PhysicsLayer& GetLayerUnsafe(u32 layerId);

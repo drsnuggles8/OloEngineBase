@@ -1,14 +1,7 @@
 #include "OloEnginePCH.h"
 #include "Physics3DSystem.h"
 #include "PhysicsLayer.h"
-
-// Define ObjectLayers locally since it's only needed for layer mapping
-namespace ObjectLayers
-{
-	static constexpr JPH::ObjectLayer NON_MOVING = 0;
-	static constexpr JPH::ObjectLayer MOVING = 1;
-	static constexpr JPH::uint NUM_LAYERS = 2;
-}
+#include "JoltLayerInterface.h"
 
 // Jolt includes
 #include <Jolt/RegisterTypes.h>
@@ -22,6 +15,7 @@ namespace ObjectLayers
 
 // Standard includes
 #include <algorithm>
+#include <cmath>
 
 // Disable common warnings triggered by Jolt
 JPH_SUPPRESS_WARNINGS
@@ -63,10 +57,10 @@ namespace OloEngine {
 bool OloObjectLayerPairFilterImpl::ShouldCollide(JPH::ObjectLayer inObject1, JPH::ObjectLayer inObject2) const
 {
     // If both layers are user-defined physics layers, map to custom layer IDs and check
-    if (inObject1 >= ObjectLayers::NUM_LAYERS && inObject2 >= ObjectLayers::NUM_LAYERS)
+    if (inObject1 >= OloEngine::ObjectLayers::NUM_LAYERS && inObject2 >= OloEngine::ObjectLayers::NUM_LAYERS)
     {
-        u32 layer1 = static_cast<u32>(inObject1) - ObjectLayers::NUM_LAYERS;
-        u32 layer2 = static_cast<u32>(inObject2) - ObjectLayers::NUM_LAYERS;
+        u32 layer1 = static_cast<u32>(inObject1) - OloEngine::ObjectLayers::NUM_LAYERS;
+        u32 layer2 = static_cast<u32>(inObject2) - OloEngine::ObjectLayers::NUM_LAYERS;
         return PhysicsLayerManager::ShouldCollide(layer1, layer2);
     }
     
@@ -124,10 +118,10 @@ bool OloObjectVsBroadPhaseLayerFilterImpl::ShouldCollide(JPH::ObjectLayer inLaye
     JPH::ObjectLayer objectLayer2 = static_cast<JPH::ObjectLayer>(inLayer2.GetValue());
     
     // If both layers are user-defined physics layers, map to custom layer IDs and check
-    if (inLayer1 >= ObjectLayers::NUM_LAYERS && objectLayer2 >= ObjectLayers::NUM_LAYERS)
+    if (inLayer1 >= OloEngine::ObjectLayers::NUM_LAYERS && objectLayer2 >= OloEngine::ObjectLayers::NUM_LAYERS)
     {
-        u32 layer1 = static_cast<u32>(inLayer1) - ObjectLayers::NUM_LAYERS;
-        u32 layer2 = static_cast<u32>(objectLayer2) - ObjectLayers::NUM_LAYERS;
+        u32 layer1 = static_cast<u32>(inLayer1) - OloEngine::ObjectLayers::NUM_LAYERS;
+        u32 layer2 = static_cast<u32>(objectLayer2) - OloEngine::ObjectLayers::NUM_LAYERS;
         return PhysicsLayerManager::ShouldCollide(layer1, layer2);
     }
     
@@ -141,6 +135,13 @@ bool OloObjectVsBroadPhaseLayerFilterImpl::ShouldCollide(JPH::ObjectLayer inLaye
 
 Physics3DSystem::Physics3DSystem()
 {
+    // Prevent multiple instances - enforce singleton pattern
+    if (s_Instance != nullptr)
+    {
+        OLO_CORE_ERROR("Physics3DSystem: Cannot create multiple instances - singleton pattern enforced");
+        throw std::runtime_error("Physics3DSystem: Multiple instances not allowed");
+    }
+    
     // Set up static pointers for global access
     s_Instance = this;
     s_BroadPhaseLayerInterface = &m_BroadPhaseLayerInterface;
@@ -175,8 +176,11 @@ bool Physics3DSystem::Initialize()
     JPH::Trace = TraceImpl;
     JPH_IF_ENABLE_ASSERTS(JPH::AssertFailed = AssertFailedImpl;)
 
-    // Create a factory
-    JPH::Factory::sInstance = new JPH::Factory();
+    // Create a factory - only if not already created
+    if (JPH::Factory::sInstance == nullptr)
+    {
+        JPH::Factory::sInstance = new JPH::Factory();
+    }
 
     // Register all Jolt physics types
     JPH::RegisterTypes();
@@ -249,9 +253,12 @@ void Physics3DSystem::Shutdown()
     // Destroy the temp allocator
     m_TempAllocator.reset();
 
-    // Destroy the factory
-    delete JPH::Factory::sInstance;
-    JPH::Factory::sInstance = nullptr;
+    // Destroy the factory - only if we own it
+    if (JPH::Factory::sInstance != nullptr)
+    {
+        delete JPH::Factory::sInstance;
+        JPH::Factory::sInstance = nullptr;
+    }
 
     m_Initialized = false;
     OLO_CORE_INFO("Physics3D system shut down");
@@ -298,7 +305,7 @@ JPH::BodyID Physics3DSystem::CreateBox(const JPH::RVec3& position, const JPH::Qu
     JPH::RefConst<JPH::Shape> box_shape = new JPH::BoxShape(halfExtent);
 
     // Create the settings for the body itself. Note that here you can also set other properties like the restitution / friction.
-    JPH::BodyCreationSettings body_settings(box_shape, position, rotation, isStatic ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic, isStatic ? ObjectLayers::NON_MOVING : ObjectLayers::MOVING);
+    JPH::BodyCreationSettings body_settings(box_shape, position, rotation, isStatic ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic, isStatic ? OloEngine::ObjectLayers::NON_MOVING : OloEngine::ObjectLayers::MOVING);
 
     // Create the actual rigid body
     JPH::Body* body = m_PhysicsSystem->GetBodyInterface().CreateBody(body_settings); // Note that if we run out of bodies this can return nullptr
@@ -327,7 +334,7 @@ JPH::BodyID Physics3DSystem::CreateSphere(const JPH::RVec3& position, f32 radius
     JPH::RefConst<JPH::Shape> sphere_shape = new JPH::SphereShape(radius);
 
     // Create the settings for the body itself. Note that here you can also set other properties like the restitution / friction.
-    JPH::BodyCreationSettings body_settings(sphere_shape, position, JPH::Quat::sIdentity(), isStatic ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic, isStatic ? ObjectLayers::NON_MOVING : ObjectLayers::MOVING);
+    JPH::BodyCreationSettings body_settings(sphere_shape, position, JPH::Quat::sIdentity(), isStatic ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic, isStatic ? OloEngine::ObjectLayers::NON_MOVING : OloEngine::ObjectLayers::MOVING);
 
     // Create the actual rigid body
     JPH::Body* body = m_PhysicsSystem->GetBodyInterface().CreateBody(body_settings); // Note that if we run out of bodies this can return nullptr

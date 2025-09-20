@@ -14,7 +14,7 @@ namespace OloEngine {
 		OLO_CORE_ASSERT(scene, "JoltContactListener requires a valid JoltScene");
 	}
 
-	JPH::ValidateResult JoltContactListener::OnContactValidate([[maybe_unused]] const JPH::Body& inBody1, [[maybe_unused]] const JPH::Body& inBody2, [[maybe_unused]] JPH::RVec3Arg inBaseOffset, [[maybe_unused]] const JPH::CollideShapeResult& inCollisionResult)
+	[[nodiscard]] JPH::ValidateResult JoltContactListener::OnContactValidate([[maybe_unused]] const JPH::Body& inBody1, [[maybe_unused]] const JPH::Body& inBody2, [[maybe_unused]] JPH::RVec3Arg inBaseOffset, [[maybe_unused]] const JPH::CollideShapeResult& inCollisionResult)
 	{
 		// Get the physics layer IDs from both bodies
 		u32 layer1 = GetPhysicsLayerFromBody(inBody1);
@@ -174,13 +174,13 @@ namespace OloEngine {
 		m_QueueSize.fetch_add(1, std::memory_order_relaxed);
 	}
 
-	UUID JoltContactListener::GetEntityIDFromBody(const JPH::Body& body) noexcept
+	[[nodiscard]] UUID JoltContactListener::GetEntityIDFromBody(const JPH::Body& body) noexcept
 	{
 		// The entity ID is stored in the body's user data
 		return static_cast<UUID>(body.GetUserData());
 	}
 
-	u32 JoltContactListener::GetPhysicsLayerFromBody(const JPH::Body& body) noexcept
+	[[nodiscard]] u32 JoltContactListener::GetPhysicsLayerFromBody(const JPH::Body& body) noexcept
 	{
 		JPH::ObjectLayer objectLayer = body.GetObjectLayer();
 		

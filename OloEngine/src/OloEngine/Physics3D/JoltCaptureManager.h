@@ -50,9 +50,10 @@ namespace OloEngine {
 	 * Note: Full capture functionality requires JPH_DEBUG_RENDERER to be enabled.
 	 * Without it, the capture manager provides file management but no actual recording.
 	 * 
-	 * Thread Safety: This class is intended for single-threaded use only. The captures
-	 * list and stream state are not synchronized; external synchronization is required
-	 * if used from multiple threads.
+	 * Thread Safety: This class is NOT thread-safe and is intended for single-threaded
+	 * use only. All methods, including IsCapturing(), must be called from the same thread.
+	 * The capture state (m_IsCapturing) and captures list (m_Captures) are not synchronized.
+	 * External synchronization is required if access from multiple threads is necessary.
 	 */
 	class JoltCaptureManager : public RefCounted
 	{
