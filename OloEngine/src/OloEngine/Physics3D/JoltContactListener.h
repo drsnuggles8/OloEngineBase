@@ -21,7 +21,7 @@ namespace OloEngine {
 	class JoltContactListener : public JPH::ContactListener
 	{
 	public:
-		JoltContactListener(JoltScene* scene);
+		JoltContactListener(JoltScene& scene);
 		virtual ~JoltContactListener() noexcept = default;
 
 		// Called when a contact is detected
@@ -70,7 +70,7 @@ namespace OloEngine {
 		[[nodiscard]] u32 GetPhysicsLayerFromBody(const JPH::Body& body) noexcept;
 
 	private:
-		JoltScene* m_Scene; // non-owning, guaranteed valid for lifetime of listener
+		JoltScene& m_Scene; // non-owning reference, guaranteed valid for lifetime of listener
 		
 		// Active contacts tracking for OnContactRemoved
 		struct ContactInfo

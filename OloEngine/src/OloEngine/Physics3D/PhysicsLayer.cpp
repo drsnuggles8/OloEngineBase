@@ -46,24 +46,27 @@ namespace OloEngine {
 
 		u32 layerId = GetNextLayerID();
 		
-		// Enforce contiguous allocation - only allow adding at the end
-		if (layerId != s_Layers.size())
-		{
-			OLO_CORE_ERROR("PhysicsLayerManager: Cannot add layer '{}' - layerId {} != expected contiguous index {}", name, layerId, s_Layers.size());
-			return INVALID_LAYER_ID;
-		}
-		
 		PhysicsLayer layer = { layerId, name, ToLayerMask(layerId), ToLayerMask(layerId) };
 		
-		// Append to the end (contiguous allocation)
-		s_Layers.push_back(layer);
+		// Place the layer at the found free slot (could be a gap or at the end)
+		if (layerId < s_Layers.size())
+		{
+			// Fill an existing gap
+			s_Layers[layerId] = layer;
+		}
+		else
+		{
+			// Append to the end (no gaps found)
+			s_Layers.push_back(layer);
+		}
+		
 		s_LayerNames[layerId] = name;
 
-		// Targeted index map update for append operations (more efficient than full rebuild)
-		s_LayerIndexMap[layerId] = s_Layers.size() - 1;
+		// Update index map for the new/updated layer
+		s_LayerIndexMap[layerId] = layerId;
 		
-		// Get the actual index of the newly added layer
-		sizet newLayerIndex = s_Layers.size() - 1;
+		// Get the index of the placed layer
+		sizet newLayerIndex = layerId;
 
 		if (setCollisions)
 		{
@@ -110,14 +113,20 @@ namespace OloEngine {
 		// Remove from layer names
 		s_LayerNames.erase(layerId);
 
-		// Remove from layers
+		// Mark the layer as invalid (create a gap that can be reused)
 		auto layerIt = std::find_if(s_Layers.begin(), s_Layers.end(), 
 			[layerId](const PhysicsLayer& layer) { return layer.m_LayerID == layerId; });
 		if (layerIt != s_Layers.end())
 		{
-			s_Layers.erase(layerIt);
-			// Rebuild index map after modifying s_Layers
-			RebuildLayerIndexMap();
+			// Mark as invalid to create a reusable gap
+			layerIt->m_LayerID = INVALID_LAYER_ID;
+			layerIt->m_Name.clear();
+			layerIt->m_BitValue = 0;
+			layerIt->m_CollidesWith = 0;
+			layerIt->m_CollidesWithSelf = false;
+			
+			// Update index map to remove the mapping
+			s_LayerIndexMap.erase(layerId);
 		}
 	}
 
@@ -351,16 +360,14 @@ std::vector<std::string> PhysicsLayerManager::GetLayerNames()
 
 	u32 PhysicsLayerManager::GetNextLayerID()
 	{
-		i32 lastId = NO_PREVIOUS_LAYER_ID;
-
-		for (const auto& layer : s_Layers)
+		// Scan for the first gap (INVALID_LAYER_ID) in the layer vector
+		for (sizet i = 0; i < s_Layers.size(); ++i)
 		{
-			if (lastId != NO_PREVIOUS_LAYER_ID && static_cast<i32>(layer.m_LayerID) != lastId + 1)
-				return static_cast<u32>(lastId + 1);
-
-			lastId = static_cast<i32>(layer.m_LayerID);
+			if (s_Layers[i].m_LayerID == INVALID_LAYER_ID)
+				return static_cast<u32>(i);
 		}
 
+		// No gaps found, return the next index (size)
 		return static_cast<u32>(s_Layers.size());
 	}
 

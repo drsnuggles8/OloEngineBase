@@ -8,10 +8,10 @@
 
 namespace OloEngine {
 
-	JoltContactListener::JoltContactListener(JoltScene* scene)
+	JoltContactListener::JoltContactListener(JoltScene& scene)
 		: m_Scene(scene)
 	{
-		OLO_CORE_ASSERT(scene, "JoltContactListener requires a valid JoltScene");
+		// No null check needed since we now accept a reference
 	}
 
 	[[nodiscard]] JPH::ValidateResult JoltContactListener::OnContactValidate([[maybe_unused]] const JPH::Body& inBody1, [[maybe_unused]] const JPH::Body& inBody2, [[maybe_unused]] JPH::RVec3Arg inBaseOffset, [[maybe_unused]] const JPH::CollideShapeResult& inCollisionResult)
@@ -139,10 +139,7 @@ namespace OloEngine {
 		for (const ContactEvent& event : localEventQueue)
 		{
 			// Send the contact event to the scene for processing
-			if (m_Scene)
-			{
-				m_Scene->OnContactEvent(event.Type, event.EntityA, event.EntityB);
-			}
+			m_Scene.OnContactEvent(event.Type, event.EntityA, event.EntityB);
 		}
 	}
 
@@ -187,7 +184,17 @@ namespace OloEngine {
 		// Check if this is a custom physics layer (offset by NUM_LAYERS)
 		if (objectLayer >= ObjectLayers::NUM_LAYERS)
 		{
-			return static_cast<u32>(objectLayer) - ObjectLayers::NUM_LAYERS;
+			u32 customLayerIndex = static_cast<u32>(objectLayer) - ObjectLayers::NUM_LAYERS;
+			
+			// Validate against maximum Jolt layers to prevent undefined behavior
+			if (customLayerIndex >= JoltUtils::kMaxJoltLayers)
+			{
+				OLO_CORE_ERROR("JoltContactListener::GetPhysicsLayerFromBody: Custom layer index {} exceeds maximum ({})", 
+					customLayerIndex, JoltUtils::kMaxJoltLayers - 1);
+				return INVALID_LAYER_ID;
+			}
+			
+			return customLayerIndex;
 		}
 		
 		// For built-in layers, return an invalid layer ID to indicate no custom layer

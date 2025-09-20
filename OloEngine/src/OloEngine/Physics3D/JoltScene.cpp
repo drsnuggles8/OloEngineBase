@@ -697,7 +697,7 @@ namespace OloEngine {
 			*m_BroadPhaseLayerInterface, *m_ObjectVsBroadPhaseLayerFilter, *m_ObjectLayerPairFilter);
 
 		// Create contact listener
-		m_ContactListener = std::make_unique<JoltContactListener>(this);
+		m_ContactListener = std::make_unique<JoltContactListener>(*this);
 		m_JoltSystem->SetContactListener(m_ContactListener.get());
 
 		// Set default gravity

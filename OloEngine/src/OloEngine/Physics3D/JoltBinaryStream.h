@@ -6,6 +6,7 @@
 #include <vector>
 #include <cstring>
 #include <span>
+#include <limits>
 
 // Forward declarations for types we need but don't want to include full headers
 namespace JPH {
@@ -26,12 +27,29 @@ namespace OloEngine {
 	class JoltBinaryStreamReader
 	{
 	public:
+		/**
+		 * @brief Constructs a reader from a Buffer.
+		 * @warning The reader does NOT take ownership of the memory. The caller must ensure 
+		 *          the provided buffer outlives this reader instance to avoid dangling pointers.
+		 * @note For safe usage: pass an owning Buffer, use std::shared_ptr/unique_ptr for dynamic data,
+		 *       or ensure stack/temporary data remains valid during reader lifetime.
+		 * @param buffer The buffer to read from (must remain valid during reader lifetime)
+		 */
 		explicit JoltBinaryStreamReader(const Buffer& buffer)
 			: m_Data(buffer.Data), m_Size(buffer.Size), m_ReadBytes(0), m_Failed(false)
 		{
 			OLO_CORE_ASSERT(buffer.Data != nullptr && buffer.Size > 0, "Invalid buffer provided to JoltBinaryStreamReader");
 		}
 
+		/**
+		 * @brief Constructs a reader from raw pointer and size.
+		 * @warning The reader does NOT take ownership of the memory. The caller must ensure 
+		 *          the provided data outlives this reader instance to avoid dangling pointers.
+		 * @note For safe usage: use with stack arrays, string literals, or ensure dynamic memory
+		 *       remains valid. For untrusted input, consider copying into an owned buffer first.
+		 * @param data Pointer to data to read from (must remain valid during reader lifetime)
+		 * @param size Size of the data in bytes
+		 */
 		explicit JoltBinaryStreamReader(const u8* data, u64 size)
 			: m_Data(data), m_Size(size), m_ReadBytes(0), m_Failed(false)
 		{
@@ -83,6 +101,17 @@ namespace OloEngine {
 
 			// Bounds checking before memcpy
 			u64 totalSize = GetSourceSize();
+			
+			// Guard against underflow - check if m_ReadBytes is corrupt/greater than totalSize
+			if (m_ReadBytes > totalSize)
+			{
+				OLO_CORE_ERROR("JoltBinaryStreamReader: Read position ({}) exceeds total size ({}), clamping and failing", 
+					m_ReadBytes, totalSize);
+				m_Failed = true;
+				m_ReadBytes = totalSize;
+				return;
+			}
+			
 			u64 remaining = totalSize - m_ReadBytes;
 			if (inNumBytes > remaining)
 			{
@@ -124,7 +153,7 @@ namespace OloEngine {
 		void Reset() { m_ReadBytes = 0; m_Failed = false; }
 
 		// Seek to position (useful for debugging/validation)
-		bool Seek(u64 position)
+		[[nodiscard]] bool Seek(u64 position)
 		{
 			if (position <= GetSourceSize())
 			{
@@ -189,6 +218,15 @@ namespace OloEngine {
 			try 
 			{
 				sizet currentOffset = m_TempBuffer.size();
+				
+				// Check for size_t overflow before resizing
+				if (inNumBytes > std::numeric_limits<size_t>::max() - currentOffset)
+				{
+					OLO_CORE_ERROR("JoltBinaryStreamWriter: Buffer size overflow - requested {} bytes would exceed maximum size", inNumBytes);
+					m_Failed = true;
+					return;
+				}
+				
 				m_TempBuffer.resize(currentOffset + inNumBytes);
 				::memcpy(m_TempBuffer.data() + currentOffset, inData, inNumBytes);
 			}
@@ -235,7 +273,7 @@ namespace OloEngine {
 		}
 
 		// Get statistics for debugging
-		sizet GetCapacity() const { return m_TempBuffer.capacity(); }
+		[[nodiscard]] sizet GetCapacity() const { return m_TempBuffer.capacity(); }
 		void ShrinkToFit() { m_TempBuffer.shrink_to_fit(); }
 
 	private:

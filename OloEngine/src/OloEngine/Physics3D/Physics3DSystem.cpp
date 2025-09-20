@@ -62,8 +62,8 @@ OloBPLayerInterfaceImpl::OloBPLayerInterfaceImpl()
 
 JPH::uint OloBPLayerInterfaceImpl::GetNumBroadPhaseLayers() const
 {
-    // Include the two built-in layers plus custom layers, clamped to MAX_LAYERS
-    u32 total = PhysicsLayerManager::GetLayerCount() + 2;
+    // Include the built-in object layers plus custom layers, clamped to MAX_LAYERS
+    u32 total = PhysicsLayerManager::GetLayerCount() + ObjectLayers::NUM_LAYERS;
     return std::min(total, static_cast<u32>(MAX_LAYERS));
 }
 

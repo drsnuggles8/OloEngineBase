@@ -95,35 +95,14 @@ namespace OloEngine {
 				streamAdapter.Write(static_cast<u32>(materials.size()));
 				
 				// For now, save material count only (material properties are handled through contact callbacks in Jolt)
-				// In the future, this could be enhanced to serialize custom material properties
-				for (const JPH::PhysicsMaterialRefC& material : materials)
+				// Material debug names are not serialized since deserialization only uses PhysicsMaterial::sDefault
+				// In the future, this could be enhanced to serialize custom material properties with a registry
+				for ([[maybe_unused]] const JPH::PhysicsMaterialRefC& material : materials)
 				{
-					// Save material debug name if available (for debugging/identification)
-					std::string debugName = (material != nullptr) ? material->GetDebugName() : "Default";
-					
-					// Guard against pathological sizes - cap to maximum used by deserialization
-					constexpr u32 maxNameLength = 1024;
-					u32 nameLength = static_cast<u32>(debugName.length());
-					
-					if (nameLength > maxNameLength)
-					{
-						OLO_CORE_WARN("JoltBinaryStreamUtils::SerializeShape: Material debug name too long ({} bytes), truncating to {} bytes", nameLength, maxNameLength);
-						
-						// UTF-8 aware truncation: find the last valid character boundary within maxNameLength
-						u32 truncatedLength = maxNameLength;
-						while (truncatedLength > 0 && (static_cast<unsigned char>(debugName[truncatedLength - 1]) & 0xC0) == 0x80)
-						{
-							// Step back if we're in the middle of a UTF-8 multi-byte sequence
-							// UTF-8 continuation bytes have the pattern 10xxxxxx (0x80-0xBF)
-							--truncatedLength;
-						}
-						
-						debugName = debugName.substr(0, truncatedLength);
-						nameLength = truncatedLength;
-					}
-					
+					// Write zero name length to indicate no name data (reduces blob size)
+					constexpr u32 nameLength = 0;
 					streamAdapter.Write(nameLength);
-					streamAdapter.WriteBytes(debugName.c_str(), nameLength);
+					// No name bytes written - deserialization will skip reading names
 				}
 				
 				// Save sub-shapes if any
@@ -215,42 +194,29 @@ namespace OloEngine {
 					
 					for (u32 i = 0; i < materialCount; ++i)
 					{
-						// Read material debug name
+						// Read material debug name length (expected to be zero)
 						u32 nameLength;
 						streamAdapter.Read(nameLength);
 						
-						std::string debugName;
+						// Skip any name data if present (for backwards compatibility)
 						if (nameLength > 0)
 						{
-							// Always consume exactly nameLength bytes to prevent stream desync
-							constexpr u32 MAX_NAME = 1024;
-							u32 storeLen = std::min(nameLength, MAX_NAME);
+							// Drain the name bytes to maintain stream consistency
+							constexpr u32 DRAIN_CHUNK_SIZE = 256;
+							std::array<u8, DRAIN_CHUNK_SIZE> drainBuffer;
 							
-							// Store up to the sane cap in debugName
-							debugName.resize(storeLen);
-							streamAdapter.ReadBytes(debugName.data(), storeLen);
-							
-							// If nameLength exceeds our cap, drain the remaining bytes
-							if (nameLength > storeLen)
+							u32 remainingBytes = nameLength;
+							while (remainingBytes > 0)
 							{
-								u32 remainingBytes = nameLength - storeLen;
-								// Drain in chunks to avoid large temporary allocations
-								constexpr u32 DRAIN_CHUNK_SIZE = 256;
-								std::array<u8, DRAIN_CHUNK_SIZE> drainBuffer;
-								
-								while (remainingBytes > 0)
-								{
-									u32 chunkSize = std::min(remainingBytes, DRAIN_CHUNK_SIZE);
-									streamAdapter.ReadBytes(drainBuffer.data(), chunkSize);
-									remainingBytes -= chunkSize;
-								}
-								
-								OLO_CORE_WARN("JoltBinaryStreamUtils::DeserializeShape: Material debug name too long ({} bytes), truncated to {} bytes", nameLength, storeLen);
+								u32 chunkSize = std::min(remainingBytes, DRAIN_CHUNK_SIZE);
+								streamAdapter.ReadBytes(drainBuffer.data(), chunkSize);
+								remainingBytes -= chunkSize;
 							}
+							
+							OLO_CORE_WARN("JoltBinaryStreamUtils::DeserializeShape: Skipping material debug name ({} bytes) - names not used in current implementation", nameLength);
 						}
 						
-						// Create a new simple material for now
-						// In the future, this could use a material registry to reuse materials
+						// Always use default material since we don't have a material registry yet
 						JPH::PhysicsMaterialRefC material = JPH::PhysicsMaterial::sDefault;
 						materials.push_back(material);
 					}
@@ -355,15 +321,17 @@ namespace OloEngine {
 
 		// Basic sanity check on data size
 		if (dataSize < sizeof(JPH::EShapeType))
-			return false;			// Only perform expensive full deserialization if deep validation is requested
-			if (deepValidation)
-			{
-				JPH::Ref<JPH::Shape> shape = DeserializeShapeFromBuffer(buffer);
-				return shape != nullptr;
-			}
+			return false;
+		
+		// Only perform expensive full deserialization if deep validation is requested
+		if (deepValidation)
+		{
+			JPH::Ref<JPH::Shape> shape = DeserializeShapeFromBuffer(buffer);
+			return shape != nullptr;
+		}
 
-			// Quick validation passed - buffer is plausible
-			return true;
+		// Quick validation passed - buffer is plausible
+		return true;
 		}
 
 		/**
