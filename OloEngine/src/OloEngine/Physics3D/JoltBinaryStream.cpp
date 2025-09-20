@@ -479,10 +479,10 @@ namespace OloEngine {
 				}
 				
 				// If sample has high entropy (>75% unique bytes), skip compression
-				f32 entropyRatio = static_cast<f32>(uniqueBytes) / 256.0f;
+				f32 entropyRatio = static_cast<f32>(uniqueBytes) / static_cast<f32>(sampleSize);
 				if (entropyRatio > 0.75f)
 				{
-					OLO_CORE_TRACE("JoltBinaryStreamUtils::CompressShapeData: High entropy content detected ({:.1f}%), skipping RLE compression", entropyRatio * 100.0f);
+					OLO_CORE_TRACE("JoltBinaryStreamUtils::CompressShapeData: High entropy content detected ({:.1f}% unique in {} byte sample), skipping RLE compression", entropyRatio * 100.0f, sampleSize);
 					return Buffer::Copy(inputBuffer);
 				}
 			}
@@ -656,8 +656,10 @@ namespace OloEngine {
 			}
 
 			// Allocate output buffer once with exact size
-			std::vector<u8> decompressed(originalSize);
-			u8* writePtr = decompressed.data();
+			Buffer result;
+			result.Allocate(originalSize);
+			u8* writePtr = static_cast<u8*>(result.Data);
+			sizet offset = 0;
 			
 			// Decompress directly into preallocated buffer
 			for (sizet i = 0; i < payloadSize; i += 2)
@@ -666,26 +668,14 @@ namespace OloEngine {
 				u8 byte = compressedPayload[i + 1];
 				
 				// Write run directly to buffer
-				std::memset(writePtr, byte, runLength);
-				writePtr += runLength;
+				std::memset(writePtr + offset, byte, runLength);
+				offset += runLength;
 			}
 
-			if (!decompressed.empty())
-			{
-				Buffer result;
-				result.Allocate(decompressed.size());
-				::memcpy(result.Data, decompressed.data(), decompressed.size());
-				
-				OLO_CORE_TRACE("JoltBinaryStreamUtils::DecompressShapeData: Decompressed {} bytes to {} bytes", 
-							   compressedBuffer.Size, decompressed.size());
-				
-				return result;
-			}
-			else
-			{
-				OLO_CORE_WARN("JoltBinaryStreamUtils::DecompressShapeData: Decompression resulted in empty buffer");
-				return Buffer::Copy(compressedBuffer);
-			}
+			OLO_CORE_TRACE("JoltBinaryStreamUtils::DecompressShapeData: Decompressed {} bytes to {} bytes", 
+						   compressedBuffer.Size, result.Size);
+			
+			return result;
 		}
 
 	} // namespace JoltBinaryStreamUtils

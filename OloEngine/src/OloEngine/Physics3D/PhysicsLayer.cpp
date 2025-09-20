@@ -97,7 +97,7 @@ namespace OloEngine {
 	{
 		std::unique_lock<std::shared_mutex> lock(s_LayersMutex);
 		
-		PhysicsLayer& layerInfo = GetLayerUnsafe(layerId);
+		PhysicsLayer& layerInfo = GetLayerMutableUnsafe(layerId);
 
 		for (auto& otherLayer : s_Layers)
 		{
@@ -150,7 +150,7 @@ namespace OloEngine {
 				return;
 		}
 
-		PhysicsLayer& layer = GetLayerUnsafe(layerId);
+		PhysicsLayer& layer = GetLayerMutableUnsafe(layerId);
 		
 		// Update name in map directly by key
 		s_LayerNames[layerId] = newName;
@@ -161,8 +161,8 @@ namespace OloEngine {
 	{
 		std::unique_lock<std::shared_mutex> lock(s_LayersMutex);
 		
-		PhysicsLayer& layerInfo = GetLayerUnsafe(layerId);
-		PhysicsLayer& otherLayerInfo = GetLayerUnsafe(otherLayer);
+		PhysicsLayer& layerInfo = GetLayerMutableUnsafe(layerId);
+		PhysicsLayer& otherLayerInfo = GetLayerMutableUnsafe(otherLayer);
 		
 		// Validate both layers before modification - prevent corrupting s_NullLayer
 		if (layerInfo.m_LayerID == s_NullLayer.m_LayerID || otherLayerInfo.m_LayerID == s_NullLayer.m_LayerID)
@@ -187,7 +187,7 @@ namespace OloEngine {
 	{
 		std::unique_lock<std::shared_mutex> lock(s_LayersMutex);
 		
-		PhysicsLayer& layerInfo = GetLayerUnsafe(layerId);
+		PhysicsLayer& layerInfo = GetLayerMutableUnsafe(layerId);
 		if (layerInfo.IsValid())
 		{
 			layerInfo.m_CollidesWithSelf = shouldCollide;
@@ -372,7 +372,7 @@ std::vector<std::string> PhysicsLayerManager::GetLayerNames()
 	}
 
 	// Internal unsafe methods - assume caller holds appropriate lock
-	PhysicsLayer& PhysicsLayerManager::GetLayerUnsafe(u32 layerId)
+	const PhysicsLayer& PhysicsLayerManager::GetLayerUnsafe(u32 layerId)
 	{
 		// O(1) lookup using index map
 		auto indexIt = s_LayerIndexMap.find(layerId);
@@ -405,9 +405,32 @@ std::vector<std::string> PhysicsLayerManager::GetLayerNames()
 		return s_NullLayer;
 	}
 
-	PhysicsLayer& PhysicsLayerManager::GetLayerUnsafe(const std::string& layerName)
+	// Internal mutable accessor for modification operations - use with caution
+	PhysicsLayer& PhysicsLayerManager::GetLayerMutableUnsafe(u32 layerId)
 	{
-		for (auto& layer : s_Layers)
+		// O(1) lookup using index map
+		auto indexIt = s_LayerIndexMap.find(layerId);
+		if (indexIt != s_LayerIndexMap.end())
+		{
+			sizet index = indexIt->second;
+			// Bounds check for safety
+			if (index < s_Layers.size())
+			{
+				if (s_Layers[index].m_LayerID == layerId)
+				{
+					return s_Layers[index];
+				}
+			}
+		}
+
+		// Note: Cannot return mutable reference to const s_NullLayer, so create a local fallback
+		static PhysicsLayer s_MutableNullLayer = { INVALID_LAYER_ID, "NULL", NO_COLLISION_BITS, NO_COLLISION_BITS };
+		return s_MutableNullLayer;
+	}
+
+	const PhysicsLayer& PhysicsLayerManager::GetLayerUnsafe(const std::string& layerName)
+	{
+		for (const auto& layer : s_Layers)
 		{
 			if (layer.m_Name == layerName)
 				return layer;
@@ -419,7 +442,7 @@ std::vector<std::string> PhysicsLayerManager::GetLayerNames()
 	std::vector<PhysicsLayer> PhysicsLayerManager::s_Layers;
 	std::unordered_map<u32, std::string> PhysicsLayerManager::s_LayerNames;
 	std::unordered_map<u32, sizet> PhysicsLayerManager::s_LayerIndexMap;
-	PhysicsLayer PhysicsLayerManager::s_NullLayer = { INVALID_LAYER_ID, "NULL", NO_COLLISION_BITS, NO_COLLISION_BITS };
+	const PhysicsLayer PhysicsLayerManager::s_NullLayer = { INVALID_LAYER_ID, "NULL", NO_COLLISION_BITS, NO_COLLISION_BITS };
 	std::shared_mutex PhysicsLayerManager::s_LayersMutex;
 
 }

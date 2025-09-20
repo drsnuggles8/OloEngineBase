@@ -67,14 +67,17 @@ namespace OloEngine {
 		[[nodiscard]] static u32 ToLayerMask(u32 layerId) noexcept;
 
 		// Internal unsafe methods for use within locked contexts - do not use externally
-		static PhysicsLayer& GetLayerUnsafe(u32 layerId);
-		static PhysicsLayer& GetLayerUnsafe(const std::string& layerName);
+		static const PhysicsLayer& GetLayerUnsafe(u32 layerId);
+		static const PhysicsLayer& GetLayerUnsafe(const std::string& layerName);
+		
+		// Internal mutable accessor for modification operations - use with caution
+		static PhysicsLayer& GetLayerMutableUnsafe(u32 layerId);
 
 	private:
 		static std::vector<PhysicsLayer> s_Layers;
 		static std::unordered_map<u32, std::string> s_LayerNames;
 		static std::unordered_map<u32, sizet> s_LayerIndexMap; // Maps LayerID to index in s_Layers for O(1) lookup
-		static PhysicsLayer s_NullLayer;
+		static const PhysicsLayer s_NullLayer;
 		static std::shared_mutex s_LayersMutex; // Protects all static containers
 	};
 

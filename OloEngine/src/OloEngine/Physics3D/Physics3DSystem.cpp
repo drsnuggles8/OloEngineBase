@@ -287,6 +287,15 @@ JPH::BodyID Physics3DSystem::CreateBox(const JPH::RVec3& position, const JPH::Qu
         return JPH::BodyID();
     }
 
+    // Validate box halfExtent components
+    constexpr f32 minExtent = std::numeric_limits<f32>::epsilon();
+    if (halfExtent.GetX() <= minExtent || halfExtent.GetY() <= minExtent || halfExtent.GetZ() <= minExtent)
+    {
+        OLO_CORE_ERROR("Physics3DSystem::CreateBox: Invalid halfExtent vector ({}, {}, {}) - all components must be > {}",
+                       halfExtent.GetX(), halfExtent.GetY(), halfExtent.GetZ(), minExtent);
+        return JPH::BodyID();
+    }
+
     // Create a box shape
     JPH::RefConst<JPH::Shape> box_shape = new JPH::BoxShape(halfExtent);
 
@@ -313,6 +322,13 @@ JPH::BodyID Physics3DSystem::CreateSphere(const JPH::RVec3& position, f32 radius
     if (!m_Initialized)
     {
         OLO_CORE_ERROR("Physics3DSystem not initialized");
+        return JPH::BodyID();
+    }
+
+    // Validate sphere radius
+    if (radius <= 0.0f)
+    {
+        OLO_CORE_ERROR("Physics3DSystem::CreateSphere: Invalid radius ({}) - must be > 0", radius);
         return JPH::BodyID();
     }
 
@@ -362,7 +378,7 @@ void Physics3DSystem::SetSettings(const PhysicsSettings& settings)
 void Physics3DSystem::ApplySettings()
 {
     // Apply settings if there's an active physics system instance
-    if (s_Instance && s_PhysicsSettings.m_MaxBodies > 0) // Basic validation
+    if (s_Instance)
     {
         s_Instance->UpdatePhysicsSystemSettings();
     }

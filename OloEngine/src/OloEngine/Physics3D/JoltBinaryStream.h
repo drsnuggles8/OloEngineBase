@@ -213,14 +213,22 @@ namespace OloEngine {
 			}
 			
 			if (inData == nullptr || inNumBytes == 0)
+			{
+				if (inNumBytes == 0)
+					return; // Valid case: zero bytes to write
+				
+				// Invalid case: null data with non-zero size
+				OLO_CORE_ERROR("JoltBinaryStreamWriter: Null data pointer with non-zero size ({} bytes)", inNumBytes);
+				m_Failed = true;
 				return;
+			}
 
 			try 
 			{
 				sizet currentOffset = m_TempBuffer.size();
 				
-				// Check for size_t overflow before resizing
-				if (inNumBytes > std::numeric_limits<size_t>::max() - currentOffset)
+				// Check for size_t overflow before resizing (ensure type alignment)
+				if (static_cast<size_t>(inNumBytes) > std::numeric_limits<size_t>::max() - static_cast<size_t>(currentOffset))
 				{
 					OLO_CORE_ERROR("JoltBinaryStreamWriter: Buffer size overflow - requested {} bytes would exceed maximum size", inNumBytes);
 					m_Failed = true;
