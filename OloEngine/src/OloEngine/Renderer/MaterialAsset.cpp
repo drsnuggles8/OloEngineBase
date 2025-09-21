@@ -98,7 +98,7 @@ namespace OloEngine {
 	{
 	}
 
-	void MaterialAsset::OnDependencyUpdated(AssetHandle handle)
+	void MaterialAsset::OnDependencyUpdated([[maybe_unused]] AssetHandle handle)
 	{
 		// Handle material dependency updates if needed
 	}

@@ -13,7 +13,14 @@
 #include "mono/metadata/mono-debug.h"
 #include "mono/metadata/threads.h"
 
+#ifdef _MSC_VER
+	#pragma warning(push)
+	#pragma warning(disable: 4068) // unknown pragma 'mark'
+#endif
 #include "FileWatch.hpp"
+#ifdef _MSC_VER
+	#pragma warning(pop)
+#endif
 
 namespace OloEngine
 {

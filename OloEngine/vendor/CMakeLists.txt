@@ -2,6 +2,11 @@ include(FetchContent)
 set(FETCHCONTENT_QUIET off)
 set(FETCHCONTENT_BASE_DIR ${PROJECT_SOURCE_DIR}/vendor CACHE PATH "Missing description." FORCE)
 
+# Set CMake policies to suppress warnings in vendor libraries
+if(POLICY CMP0194)  
+    cmake_policy(SET CMP0194 NEW)  # MSVC assembler policy for libpng
+endif()
+
 message(STATUS "Downloading third party libraries using CMake's FetchContent and CPM")
 
 FetchContent_Declare(
@@ -137,6 +142,8 @@ set(PNG_SHARED ON CACHE BOOL "Build libpng as a shared lib" FORCE)
 option(PNG_TOOLS OFF)
 option(PNG_TESTS OFF)
 option(PNG_DEBUG ON)
+set(PNG_ARM_NEON "off" CACHE STRING "Disable ARM NEON optimizations" FORCE)
+set(PNG_INTEL_SSE "off" CACHE STRING "Disable Intel SSE optimizations" FORCE)
 FetchContent_MakeAvailable(libpng)
 set(PNG_LIBRARY png CACHE INTERNAL "")
 set(PNG_PNG_INCLUDE_DIR ${libpng_SOURCE_DIR} CACHE INTERNAL "")
@@ -215,9 +222,7 @@ glad_add_library(glad STATIC API gl:core=4.6 LOCATION ${PROJECT_SOURCE_DIR}/vend
 
 FetchContent_Declare(stb_image
 	GIT_REPOSITORY https://github.com/nothings/stb.git
-	GIT_TAG master
-	CONFIGURE_COMMAND ""
-	BUILD_COMMAND "")
+	GIT_TAG master)
 FetchContent_MakeAvailable(stb_image)
 add_library(stb_image INTERFACE)
 file(COPY ${stb_image_SOURCE_DIR}/stb_image.h DESTINATION "${PROJECT_SOURCE_DIR}/vendor/stb_image-build/include/stb_image")
