@@ -491,30 +491,30 @@ namespace OloEngine {
 			const u8* input = static_cast<const u8*>(inputBuffer.Data);
 			std::vector<u8> compressed;
 			
-		// Guard against overflow and excessive allocation in reserve calculation
-		constexpr sizet MAX_SAFE_RESERVE = 1024 * 1024 * 100; // 100MB cap
-		
-		sizet desiredReserve;
-		if (inputBuffer.Size <= std::numeric_limits<sizet>::max() / 2)
-		{
-			desiredReserve = 2 * inputBuffer.Size;  // Safe multiplication
-		}
-		else
-		{
-			// Skip reserving if multiplication would overflow
-			desiredReserve = 0;
-		}
-		
-		// Only reserve if the desired size is reasonable
-		if (desiredReserve > 0 && desiredReserve <= MAX_SAFE_RESERVE)
-		{
-			compressed.reserve(desiredReserve);
-		}
-		// For very large inputs, let vector grow naturally to avoid huge upfront allocation
+			// Guard against overflow and excessive allocation in reserve calculation
+			constexpr sizet MAX_SAFE_RESERVE = 1024 * 1024 * 100; // 100MB cap
+			
+			sizet desiredReserve;
+			if (inputBuffer.Size <= std::numeric_limits<sizet>::max() / 2)
+			{
+				desiredReserve = 2 * inputBuffer.Size;  // Safe multiplication
+			}
+			else
+			{
+				// Skip reserving if multiplication would overflow
+				desiredReserve = 0;
+			}
+			
+			// Only reserve if the desired size is reasonable
+			if (desiredReserve > 0 && desiredReserve <= MAX_SAFE_RESERVE)
+			{
+				compressed.reserve(desiredReserve);
+			}
+			// For very large inputs, let vector grow naturally to avoid huge upfront allocation
 
-		u8 currentByte = input[0];
-		u8 runLength = 1;
-		for (sizet i = 1; i < inputBuffer.Size; ++i)
+			u8 currentByte = input[0];
+			u8 runLength = 1;
+			for (sizet i = 1; i < inputBuffer.Size; ++i)
 			{
 				if (input[i] == currentByte && runLength < 255)
 				{

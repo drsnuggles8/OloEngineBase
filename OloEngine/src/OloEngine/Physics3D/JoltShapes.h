@@ -37,6 +37,7 @@
 #include <unordered_map>
 #include <vector>
 #include <filesystem>
+#include <mutex>
 #include <shared_mutex>
 #include <utility>
 #include <atomic>
@@ -138,6 +139,7 @@ namespace OloEngine {
 
 	private:
 		static std::atomic<bool> s_Initialized;
+		static std::mutex s_InitializationMutex;
 		static std::unordered_map<std::string, JPH::Ref<JPH::Shape>> s_ShapeCache;
 		static std::shared_mutex s_ShapeCacheMutex;
 		static std::atomic<bool> s_PersistentCacheEnabled;

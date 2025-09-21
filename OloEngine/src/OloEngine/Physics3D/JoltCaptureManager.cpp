@@ -14,9 +14,6 @@
 
 namespace OloEngine {
 
-	// Static constexpr member definition for linker
-	constexpr i32 JoltCaptureManager::s_DefaultFrameLogInterval;
-
 	JoltCaptureOutStream::~JoltCaptureOutStream() noexcept
 	{
 		Close();
@@ -214,7 +211,7 @@ namespace OloEngine {
 			std::replace(canonicalRootStr.begin(), canonicalRootStr.end(), '\\', '/');
 			
 			// Check if the canonical path starts with the expected root
-			if (canonicalPathStr.find(canonicalRootStr) != 0)
+			if (!canonicalPathStr.starts_with(canonicalRootStr))
 			{
 				OLO_CORE_WARN("Path validation failed: canonical path '{}' is not within expected root '{}'. Using safe fallback.", 
 					canonicalPath.string(), canonicalRoot.string());
@@ -653,11 +650,38 @@ namespace OloEngine {
 				validatedDirectory = currentDir / "Captures";
 			}
 			
-			// Basic security check: ensure the path doesn't contain suspicious patterns
-			std::string pathStr = validatedDirectory.string();
-			if (pathStr.find("..") != std::string::npos)
+			// Security check: ensure the validated directory is contained within allowed base directories
+			// Walk up the parent chain to verify containment
+			try
 			{
-				OLO_CORE_WARN("Rejected path with parent directory references: '{}'. Using safe fallback.", directory.string());
+				std::filesystem::path canonicalValidated = std::filesystem::weakly_canonical(validatedDirectory);
+				std::filesystem::path canonicalCurrent = std::filesystem::weakly_canonical(currentDir);
+				std::filesystem::path canonicalCaptures = std::filesystem::weakly_canonical(currentDir / "Captures");
+				
+				bool isContained = false;
+				std::filesystem::path checkPath = canonicalValidated;
+				
+				// Walk up the parent chain to see if we reach currentDir or currentDir/Captures
+				while (!checkPath.empty() && checkPath != checkPath.root_path())
+				{
+					if (checkPath == canonicalCurrent || checkPath == canonicalCaptures)
+					{
+						isContained = true;
+						break;
+					}
+					checkPath = checkPath.parent_path();
+				}
+				
+				if (!isContained)
+				{
+					OLO_CORE_WARN("Rejected path outside allowed directories: '{}'. Using safe fallback.", canonicalValidated.string());
+					validatedDirectory = currentDir / "Captures";
+				}
+			}
+			catch (const std::filesystem::filesystem_error&)
+			{
+				// If containment check fails, use safe fallback
+				OLO_CORE_WARN("Failed to validate path containment for '{}'. Using safe fallback.", validatedDirectory.string());
 				validatedDirectory = currentDir / "Captures";
 			}
 

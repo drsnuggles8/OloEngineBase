@@ -69,6 +69,9 @@ namespace OloEngine {
 		// Retrieves physics layer ID from JPH::Body::GetObjectLayer; returns INVALID_LAYER_ID for built-in layers
 		[[nodiscard]] u32 GetPhysicsLayerFromBody(const JPH::Body& body) noexcept;
 
+		// Helper method to process contact manifolds and avoid duplicate logic
+		void ProcessContactManifold(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, ContactType type);
+
 	private:
 		JoltScene& m_Scene; // non-owning reference, guaranteed valid for lifetime of listener
 		

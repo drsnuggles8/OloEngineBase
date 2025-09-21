@@ -139,12 +139,21 @@ const char* OloBPLayerInterfaceImpl::GetBroadPhaseLayerName(JPH::BroadPhaseLayer
     }
     
     // Check if it's a custom layer from PhysicsLayerManager
+    // Store layer names in a static container to ensure persistence of c_str() pointers
+    static std::vector<std::string> cachedLayerNames;
     const auto& layerNames = PhysicsLayerManager::GetLayerNames();
+    
+    // Update cached names if they've changed
+    if (cachedLayerNames != layerNames)
+    {
+        cachedLayerNames = layerNames;
+    }
+    
     u32 customLayerIndex = layerIndex - BroadPhaseLayers::NUM_LAYERS;
     
-    if (customLayerIndex < layerNames.size())
+    if (customLayerIndex < cachedLayerNames.size())
     {
-        return layerNames[customLayerIndex].c_str();
+        return cachedLayerNames[customLayerIndex].c_str();
     }
     
     // Fallback for any other out-of-range values
@@ -182,9 +191,12 @@ bool OloObjectVsBroadPhaseLayerFilterImpl::ShouldCollide(JPH::ObjectLayer inLaye
 
 Physics3DSystem::Physics3DSystem()
 {
-    // Set up static pointers for global access
-    s_Instance = this;
-    s_BroadPhaseLayerInterface = &m_BroadPhaseLayerInterface;
+    // Set up static pointers for global access (thread-safe)
+    {
+        std::lock_guard<std::mutex> lock(s_InstanceMutex);
+        s_Instance = this;
+        s_BroadPhaseLayerInterface = &m_BroadPhaseLayerInterface;
+    }
 }
 
 Physics3DSystem::~Physics3DSystem()
@@ -194,11 +206,14 @@ Physics3DSystem::~Physics3DSystem()
         Shutdown();
     }
     
-    // Clear static pointers
-    if (s_Instance == this)
-        s_Instance = nullptr;
-    if (s_BroadPhaseLayerInterface == &m_BroadPhaseLayerInterface)
-        s_BroadPhaseLayerInterface = nullptr;
+    // Clear static pointers (thread-safe)
+    {
+        std::lock_guard<std::mutex> lock(s_InstanceMutex);
+        if (s_Instance == this)
+            s_Instance = nullptr;
+        if (s_BroadPhaseLayerInterface == &m_BroadPhaseLayerInterface)
+            s_BroadPhaseLayerInterface = nullptr;
+    }
 }
 
 bool Physics3DSystem::Initialize()

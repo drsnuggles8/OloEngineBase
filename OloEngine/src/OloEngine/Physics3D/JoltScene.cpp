@@ -64,6 +64,7 @@ namespace OloEngine {
 			// Body destructor will handle Jolt cleanup
 		}
 		m_Bodies.clear();
+		m_BodyIDToEntity.clear(); // Clear reverse lookup map
 		m_BodiesToSync.clear();
 
 		// Destroy all character controllers
@@ -197,6 +198,10 @@ namespace OloEngine {
 		}
 
 		m_Bodies[entityID] = body;
+		
+		// Add to reverse lookup map for efficient GetEntityByBodyID
+		m_BodyIDToEntity[body->GetBodyID()] = entityID;
+		
 		OLO_CORE_TRACE("Created physics body for entity {0}", (u64)entityID);
 		return body;
 	}
@@ -210,6 +215,12 @@ namespace OloEngine {
 		auto it = m_Bodies.find(entityID);
 		if (it != m_Bodies.end())
 		{
+			// Remove from reverse lookup map
+			if (it->second && it->second->IsValid())
+			{
+				m_BodyIDToEntity.erase(it->second->GetBodyID());
+			}
+			
 			// Remove from sync list
 			auto syncIt = std::find(m_BodiesToSync.begin(), m_BodiesToSync.end(), it->second);
 			if (syncIt != m_BodiesToSync.end())
@@ -238,13 +249,12 @@ namespace OloEngine {
 
 	Entity JoltScene::GetEntityByBodyID(const JPH::BodyID& bodyID)
 	{
-		// Search through all bodies to find the one with matching BodyID
-		for (const auto& [entityID, body] : m_Bodies)
+		// Use efficient reverse lookup instead of O(n) linear search
+		auto it = m_BodyIDToEntity.find(bodyID);
+		if (it != m_BodyIDToEntity.end())
 		{
-			if (body && body->GetBodyID() == bodyID)
-			{
-				return body->GetEntity();
-			}
+			// Found the entity UUID, get Entity from scene
+			return m_Scene->GetEntityByUUID(it->second);
 		}
 		
 		// Return invalid entity if not found
@@ -334,6 +344,7 @@ namespace OloEngine {
 			// Body destructor will handle cleanup
 		}
 		m_Bodies.clear();
+		m_BodyIDToEntity.clear(); // Clear reverse lookup map
 		m_BodiesToSync.clear();
 	}
 

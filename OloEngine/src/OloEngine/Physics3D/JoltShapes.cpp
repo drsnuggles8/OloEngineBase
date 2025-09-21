@@ -26,6 +26,7 @@ namespace OloEngine {
 	using ShapeUtils::ShapeTypeToString;
 
 	std::atomic<bool> JoltShapes::s_Initialized = false;
+	std::mutex JoltShapes::s_InitializationMutex;
 	std::unordered_map<std::string, JPH::Ref<JPH::Shape>> JoltShapes::s_ShapeCache;
 	std::shared_mutex JoltShapes::s_ShapeCacheMutex;
 	std::atomic<bool> JoltShapes::s_PersistentCacheEnabled = true;
@@ -44,6 +45,14 @@ namespace OloEngine {
 
 	void JoltShapes::Initialize(const std::filesystem::path& cacheDirectory)
 	{
+		// Fast-path check: if already initialized, return immediately
+		if (s_Initialized.load(std::memory_order_acquire))
+			return;
+
+		// Double-checked locking: acquire initialization mutex
+		std::lock_guard<std::mutex> lock(s_InitializationMutex);
+		
+		// Second check: ensure only one thread performs initialization
 		if (s_Initialized.load(std::memory_order_acquire))
 			return;
 
@@ -77,6 +86,7 @@ namespace OloEngine {
 			}
 		}
 		
+		// Mark as initialized with release semantics to ensure all prior writes are visible
 		s_Initialized.store(true, std::memory_order_release);
 	}
 

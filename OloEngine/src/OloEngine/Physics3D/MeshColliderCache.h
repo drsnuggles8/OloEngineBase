@@ -62,11 +62,11 @@ namespace OloEngine {
 		f32 GetCacheHitRatio() const;
 
 		// Settings
-		void SetMaxCacheSize(sizet maxSizeBytes) { m_MaxCacheSize = maxSizeBytes; }
-		sizet GetMaxCacheSize() const { return m_MaxCacheSize; }
+		void SetMaxCacheSize(sizet maxSizeBytes) { m_MaxCacheSize.store(maxSizeBytes, std::memory_order_relaxed); }
+		sizet GetMaxCacheSize() const { return m_MaxCacheSize.load(std::memory_order_relaxed); }
 
-		void SetMaxConcurrentCooks(u32 maxCooks) { m_MaxConcurrentCooks = maxCooks; }
-		u32 GetMaxConcurrentCooks() const { return m_MaxConcurrentCooks; }
+		void SetMaxConcurrentCooks(u32 maxCooks) { m_MaxConcurrentCooks.store(maxCooks, std::memory_order_relaxed); }
+		u32 GetMaxConcurrentCooks() const { return m_MaxConcurrentCooks.load(std::memory_order_relaxed); }
 
 		// Debug info
 		std::vector<AssetHandle> GetCachedAssets() const;
@@ -100,13 +100,13 @@ namespace OloEngine {
 		// Cache storage
 		std::unordered_map<AssetHandle, CachedColliderData> m_CachedData;
 		sizet m_CurrentCacheSize = 0;
-		sizet m_MaxCacheSize = 100 * 1024 * 1024; // 100MB default
+		std::atomic<sizet> m_MaxCacheSize = 100 * 1024 * 1024; // 100MB default
 
 		// Cooking system
 		Ref<MeshCookingFactory> m_CookingFactory;
 		std::deque<CookingRequest> m_CookingQueue;
 		std::vector<std::future<void>> m_CookingTasks;
-		u32 m_MaxConcurrentCooks = 4;
+		std::atomic<u32> m_MaxConcurrentCooks = 4;
 
 		// Statistics
 		mutable std::atomic<sizet> m_CacheHits = 0;

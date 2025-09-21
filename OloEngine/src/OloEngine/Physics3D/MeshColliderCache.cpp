@@ -53,7 +53,7 @@ namespace OloEngine {
 		m_CachedData.reserve(1024);
 
 		m_Initialized = true;
-		OLO_CORE_INFO("MeshColliderCache initialized with max size: {}MB", m_MaxCacheSize / (1024 * 1024));
+		OLO_CORE_INFO("MeshColliderCache initialized with max size: {}MB", m_MaxCacheSize.load() / (1024 * 1024));
 	}
 
 	void MeshColliderCache::Shutdown()
@@ -129,7 +129,7 @@ namespace OloEngine {
 				sizet dataSize = CalculateDataSize(loadedData);
 				
 				// Check if we need to evict entries
-				if (m_CurrentCacheSize + dataSize > m_MaxCacheSize * s_CacheEvictionThreshold)
+				if (m_CurrentCacheSize + dataSize > m_MaxCacheSize.load() * s_CacheEvictionThreshold)
 				{
 					EvictOldestEntries();
 				}
@@ -168,7 +168,7 @@ namespace OloEngine {
 				std::lock_guard<std::mutex> lock(m_CacheMutex);
 				sizet dataSize = CalculateDataSize(loadedData);
 				
-				if (m_CurrentCacheSize + dataSize > m_MaxCacheSize * s_CacheEvictionThreshold)
+				if (m_CurrentCacheSize + dataSize > m_MaxCacheSize.load() * s_CacheEvictionThreshold)
 				{
 					EvictOldestEntries();
 				}
@@ -208,7 +208,7 @@ namespace OloEngine {
 				std::lock_guard<std::mutex> lock(m_CacheMutex);
 				sizet dataSize = CalculateDataSize(loadedData);
 				
-				if (m_CurrentCacheSize + dataSize > m_MaxCacheSize * s_CacheEvictionThreshold)
+				if (m_CurrentCacheSize + dataSize > m_MaxCacheSize.load() * s_CacheEvictionThreshold)
 				{
 					EvictOldestEntries();
 				}
@@ -266,7 +266,7 @@ namespace OloEngine {
 		);
 
 		// Process new requests if we have capacity
-		while (!m_CookingQueue.empty() && m_CookingTasks.size() < m_MaxConcurrentCooks)
+		while (!m_CookingQueue.empty() && m_CookingTasks.size() < m_MaxConcurrentCooks.load())
 		{
 			CookingRequest request = std::move(m_CookingQueue.front());
 			m_CookingQueue.pop_front();
@@ -304,7 +304,7 @@ namespace OloEngine {
 							// Add new entry if it doesn't exist (shouldn't normally happen)
 							sizet dataSize = CalculateDataSize(updatedData);
 							
-							if (m_CurrentCacheSize + dataSize > m_MaxCacheSize * s_CacheEvictionThreshold)
+							if (m_CurrentCacheSize + dataSize > m_MaxCacheSize.load() * s_CacheEvictionThreshold)
 							{
 								EvictOldestEntries();
 							}
@@ -411,12 +411,12 @@ namespace OloEngine {
 	cachedData.m_IsValid = (hasSimple && cachedData.m_SimpleColliderData.m_IsValid) || (hasComplex && cachedData.m_ComplexColliderData.m_IsValid);
 
 	if (cachedData.m_IsValid)
-		{
-			// Update last accessed time to reflect when cached data was loaded into memory
-			cachedData.m_LastAccessed = std::chrono::system_clock::now();
-		}
+	{
+		// Update last accessed time to reflect when cached data was loaded into memory
+		cachedData.m_LastAccessed = std::chrono::system_clock::now();
+	}
 
-		return cachedData;
+	return cachedData;
 	}
 
 	ECookingResult MeshColliderCache::CookMeshImmediate(Ref<MeshColliderAsset> colliderAsset, EMeshColliderType type, bool invalidateOld)
@@ -504,7 +504,7 @@ namespace OloEngine {
 	void MeshColliderCache::EvictOldestEntries()
 	{
 		// Simple LRU-like eviction - remove entries until we're under the threshold
-		sizet targetSize = static_cast<sizet>(std::round(m_MaxCacheSize * s_CacheEvictionThreshold * s_CacheEvictionTargetRatio));
+		sizet targetSize = static_cast<sizet>(std::round(m_MaxCacheSize.load() * s_CacheEvictionThreshold * s_CacheEvictionTargetRatio));
 
 		std::vector<std::pair<AssetHandle, std::chrono::system_clock::time_point>> entries;
 		entries.reserve(m_CachedData.size());

@@ -6,6 +6,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Scene/Entity.h"
 
+#include <concepts>
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Body/BodyID.h>
 #include <Jolt/Physics/Collision/Shape/Shape.h>
@@ -14,6 +15,12 @@
 #include <Jolt/Physics/Body/BodyLockInterface.h>
 #include <Jolt/Physics/Constraints/Constraint.h>
 #include <Jolt/Physics/Constraints/SixDOFConstraint.h>
+
+// Concept to constrain template types to be derived from JPH::Shape
+// This enables compile-time type safety for shape management APIs
+// while preserving backward compatibility with existing code
+template<typename T>
+concept JoltShape = std::derived_from<T, JPH::Shape>;
 
 namespace OloEngine {
 
@@ -109,7 +116,26 @@ namespace OloEngine {
 		EActorAxis GetLockedAxes() const;
 
 		// Shape management
+		/// @brief Set the shape for this body using a type-safe template
+		/// @tparam T Shape type derived from JPH::Shape (constrained by JoltShape concept)
+		/// @param shape The shape to set for this body
+		/// @example body->SetShape(JPH::RefConst<JPH::BoxShape>(new JPH::BoxShape(halfExtents)));
+		template<JoltShape T>
+		void SetShape(JPH::RefConst<T> shape);
+		
+		/// @brief Set the shape for this body (backward compatibility)
+		/// @param shape The base shape to set for this body
 		void SetShape(JPH::RefConst<JPH::Shape> shape);
+		
+		/// @brief Get the shape from this body with compile-time type safety
+		/// @tparam T Shape type derived from JPH::Shape (constrained by JoltShape concept)
+		/// @return Typed shape reference, or nullptr if shape doesn't match type T
+		/// @example auto boxShape = body->GetShape<JPH::BoxShape>();
+		template<JoltShape T>
+		JPH::RefConst<T> GetShape() const;
+		
+		/// @brief Get the shape from this body (backward compatibility)
+		/// @return Base shape reference
 		JPH::RefConst<JPH::Shape> GetShape() const;
 
 		// Activation
@@ -151,5 +177,29 @@ namespace OloEngine {
 		EActorAxis m_LockedAxes = EActorAxis::None;
 		bool m_GravityEnabled = true;
 	};
+
+	// Template implementations for concept-constrained shape methods
+	template<JoltShape T>
+	inline void JoltBody::SetShape(JPH::RefConst<T> shape)
+	{
+		// Convert to base JPH::Shape for implementation
+		SetShape(JPH::RefConst<JPH::Shape>(shape.GetPtr()));
+	}
+
+	template<JoltShape T>
+	inline JPH::RefConst<T> JoltBody::GetShape() const
+	{
+		// Get the base shape and cast to the requested type
+		JPH::RefConst<JPH::Shape> baseShape = GetShape();
+		if (!baseShape)
+			return nullptr;
+		
+		// Dynamic cast to ensure type safety at runtime
+		const T* derivedShape = dynamic_cast<const T*>(baseShape.GetPtr());
+		if (!derivedShape)
+			return nullptr;
+		
+		return JPH::RefConst<T>(derivedShape);
+	}
 
 }

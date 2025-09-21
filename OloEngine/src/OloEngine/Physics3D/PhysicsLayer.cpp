@@ -4,6 +4,7 @@
 #include "Physics3DTypes.h"
 #include "OloEngine/Core/Log.h"
 #include <cstdlib>
+#include <limits>
 
 namespace OloEngine {
 
@@ -375,15 +376,33 @@ std::vector<std::string> PhysicsLayerManager::GetLayerNames()
 
 	u32 PhysicsLayerManager::GetNextLayerID()
 	{
+		// PRECONDITION: Caller must hold the s_LayersMutex lock
 		// Scan for the first gap (INVALID_LAYER_ID) in the layer vector
 		for (sizet i = 0; i < s_Layers.size(); ++i)
 		{
 			if (s_Layers[i].m_LayerID == INVALID_LAYER_ID)
+			{
+				// Check for overflow before casting to u32
+				if (i > std::numeric_limits<u32>::max())
+				{
+					OLO_CORE_ERROR("PhysicsLayerManager::GetNextLayerID: Layer index {} exceeds u32 maximum", i);
+					return INVALID_LAYER_ID;
+				}
 				return static_cast<u32>(i);
+			}
 		}
 
 		// No gaps found, return the next index (size)
-		return static_cast<u32>(s_Layers.size());
+		sizet nextId = s_Layers.size();
+		
+		// Check for overflow before casting to u32
+		if (nextId > std::numeric_limits<u32>::max())
+		{
+			OLO_CORE_ERROR("PhysicsLayerManager::GetNextLayerID: Next layer ID {} exceeds u32 maximum", nextId);
+			return INVALID_LAYER_ID;
+		}
+		
+		return static_cast<u32>(nextId);
 	}
 
 	// Internal unsafe methods - assume caller holds appropriate lock

@@ -3,6 +3,7 @@
 #include <memory>
 #include <stdexcept>
 #include <type_traits>
+#include <cstdint>
 
 #include "OloEngine/Core/PlatformDetection.h"
 
@@ -98,8 +99,33 @@ constexpr auto ArraySize(T array) { return ( sizeof(array)/sizeof((array)[0]) );
 //   constexpr auto cmask = OloEngine::BitMaskConstexpr<u32>(5);    // Compile-time constexpr safe
 //
 // Bounds-checked bit manipulation macros - enforces compile-time safety
-#define OLO_BIT(x) ((x) < 32 ? (1u << (x)) : 0u)          // 32-bit version with bounds check
-#define OLO_BIT64(x) ((x) < 64 ? (1ULL << (x)) : 0ULL)    // 64-bit version with bounds check
+#define OLO_BIT(x) (((x) >= 0 && (x) < 32) ? (1u << static_cast<unsigned>(x)) : 0u)          // 32-bit version with bounds check
+#define OLO_BIT64(x) (((x) >= 0 && (x) < 64) ? (1ULL << static_cast<unsigned>(x)) : 0ULL)    // 64-bit version with bounds check
+
+// Type-safe inline template function alternatives (recommended for new code)
+template<typename T>
+constexpr std::enable_if_t<std::is_integral_v<T> && std::is_signed_v<T>, std::uint32_t>
+OLO_Bit(T x) noexcept {
+    return (x >= 0 && static_cast<unsigned>(x) < 32) ? (1u << static_cast<unsigned>(x)) : 0u;
+}
+
+template<typename T>
+constexpr std::enable_if_t<std::is_integral_v<T> && std::is_unsigned_v<T>, std::uint32_t>
+OLO_Bit(T x) noexcept {
+    return (x < 32) ? (1u << x) : 0u;
+}
+
+template<typename T>
+constexpr std::enable_if_t<std::is_integral_v<T> && std::is_signed_v<T>, std::uint64_t>
+OLO_Bit64(T x) noexcept {
+    return (x >= 0 && static_cast<unsigned>(x) < 64) ? (1ULL << static_cast<unsigned>(x)) : 0ULL;
+}
+
+template<typename T>
+constexpr std::enable_if_t<std::is_integral_v<T> && std::is_unsigned_v<T>, std::uint64_t>
+OLO_Bit64(T x) noexcept {
+    return (x < 64) ? (1ULL << x) : 0ULL;
+}
 
 
 namespace OloEngine

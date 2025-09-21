@@ -759,37 +759,104 @@ namespace OloEngine {
 
 	void MeshCookingFactory::WeldVertices(std::vector<glm::vec3>& vertices, std::vector<u32>& indices, f32 tolerance)
 	{
-		// Simple vertex welding implementation
-		std::vector<glm::vec3> weldedVertices;
+		// Custom hash for glm::ivec3 grid keys
+		struct IVec3Hash
+		{
+			sizet operator()(const glm::ivec3& key) const
+			{
+				// FNV-1a hash for better distribution
+				constexpr sizet fnvOffset = 14695981039346656037ULL;
+				constexpr sizet fnvPrime = 1099511628211ULL;
+				
+				sizet hash = fnvOffset;
+				hash = (hash ^ static_cast<sizet>(key.x)) * fnvPrime;
+				hash = (hash ^ static_cast<sizet>(key.y)) * fnvPrime;
+				hash = (hash ^ static_cast<sizet>(key.z)) * fnvPrime;
+				return hash;
+			}
+		};
+		
+		if (vertices.empty())
+			return;
+			
+		const f32 invTolerance = 1.0f / tolerance;
+		
+		// Spatial hash map: grid cell -> list of vertex indices in that cell
+		std::unordered_map<glm::ivec3, std::vector<u32>, IVec3Hash> spatialHash;
+		spatialHash.reserve(vertices.size() / 4); // Estimate bucket count to avoid rehashing
+		
 		std::vector<u32> remapTable(vertices.size());
+		std::vector<glm::vec3> weldedVertices;
+		weldedVertices.reserve(vertices.size()); // Worst case: no welding occurs
+		
+		// 27 neighbor cell offsets (including center cell)
+		const glm::ivec3 neighborOffsets[27] = {
+			{-1,-1,-1}, {-1,-1, 0}, {-1,-1, 1},
+			{-1, 0,-1}, {-1, 0, 0}, {-1, 0, 1},
+			{-1, 1,-1}, {-1, 1, 0}, {-1, 1, 1},
+			{ 0,-1,-1}, { 0,-1, 0}, { 0,-1, 1},
+			{ 0, 0,-1}, { 0, 0, 0}, { 0, 0, 1},
+			{ 0, 1,-1}, { 0, 1, 0}, { 0, 1, 1},
+			{ 1,-1,-1}, { 1,-1, 0}, { 1,-1, 1},
+			{ 1, 0,-1}, { 1, 0, 0}, { 1, 0, 1},
+			{ 1, 1,-1}, { 1, 1, 0}, { 1, 1, 1}
+		};
 		
 		for (sizet i = 0; i < vertices.size(); ++i)
 		{
-			bool found = false;
-			for (sizet j = 0; j < weldedVertices.size(); ++j)
+			const glm::vec3& vertex = vertices[i];
+			const glm::ivec3 gridKey = glm::ivec3(glm::floor(vertex * invTolerance));
+			
+			u32 matchedIndex = static_cast<u32>(-1);
+			
+			// Check all 27 neighboring cells (including center) for existing vertices
+			for (const auto& offset : neighborOffsets)
 			{
-				if (glm::distance(vertices[i], weldedVertices[j]) < tolerance)
+				const glm::ivec3 neighborKey = gridKey + offset;
+				auto cellIt = spatialHash.find(neighborKey);
+				
+				if (cellIt != spatialHash.end())
 				{
-					remapTable[i] = static_cast<u32>(j);
-					found = true;
-					break;
+					// Check vertices in this neighboring cell
+					for (u32 existingIndex : cellIt->second)
+					{
+						if (glm::distance(vertex, weldedVertices[existingIndex]) < tolerance)
+						{
+							matchedIndex = existingIndex;
+							break;
+						}
+					}
+					
+					if (matchedIndex != static_cast<u32>(-1))
+						break;
 				}
 			}
 			
-			if (!found)
+			if (matchedIndex != static_cast<u32>(-1))
 			{
-				remapTable[i] = static_cast<u32>(weldedVertices.size());
-				weldedVertices.push_back(vertices[i]);
+				// Found a match - reuse existing vertex
+				remapTable[i] = matchedIndex;
+			}
+			else
+			{
+				// No match found - add new vertex
+				const u32 newIndex = static_cast<u32>(weldedVertices.size());
+				remapTable[i] = newIndex;
+				weldedVertices.push_back(vertex);
+				
+				// Add this vertex to the spatial hash grid
+				spatialHash[gridKey].push_back(newIndex);
 			}
 		}
 		
-		// Update indices
+		// Update indices using remap table
 		for (u32& index : indices)
 		{
 			index = remapTable[index];
 		}
 		
-		vertices = weldedVertices;
+		// Replace original vertices with welded vertices
+		vertices = std::move(weldedVertices);
 	}
 
 	void MeshCookingFactory::RemoveDuplicateVertices(std::vector<glm::vec3>& vertices, std::vector<u32>& indices)
@@ -1114,18 +1181,13 @@ namespace OloEngine {
 		// Try to validate the data by checking if it can be deserialized
 		try
 		{
-			// Create RAII buffer from the collider data
-			std::vector<u8> bufferData(colliderData.m_ColliderData.size());
-			std::memcpy(bufferData.data(), colliderData.m_ColliderData.data(), bufferData.size());
-
-			// Set up buffer struct pointing to RAII container
+			// Set up buffer struct pointing directly to existing collider data
+			// No copy needed since ValidateShapeData only reads the data
 			Buffer buffer;
-			buffer.Size = bufferData.size();
-			buffer.Data = bufferData.data();
+			buffer.Size = colliderData.m_ColliderData.size();
+			buffer.Data = const_cast<u8*>(colliderData.m_ColliderData.data());
 
 			bool isValid = JoltBinaryStreamUtils::ValidateShapeData(buffer);
-			
-			// No manual cleanup needed - bufferData automatically destroyed on scope exit
 
 			return isValid;
 		}

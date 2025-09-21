@@ -140,6 +140,7 @@ namespace OloEngine {
         // Singleton creation and destruction methods
         static void CreateInstance()
         {
+            std::lock_guard<std::mutex> lock(s_InstanceMutex);
             if (s_Instance != nullptr)
             {
                 throw std::runtime_error("Physics3DSystem: Instance already exists - cannot create multiple instances");
@@ -149,6 +150,7 @@ namespace OloEngine {
 
         static void DestroyInstance()
         {
+            std::lock_guard<std::mutex> lock(s_InstanceMutex);
             if (s_Instance == nullptr)
             {
                 throw std::runtime_error("Physics3DSystem: No instance to destroy - already destroyed or never created");
@@ -222,6 +224,9 @@ namespace OloEngine {
 
         // Static access to layer interfaces for global layer management
         inline static OloBPLayerInterfaceImpl* s_BroadPhaseLayerInterface = nullptr;
+
+        // Static mutex to protect singleton instance assignments
+        inline static std::mutex s_InstanceMutex;
 
         // ====================================================================
         // Interfaces & Mappers

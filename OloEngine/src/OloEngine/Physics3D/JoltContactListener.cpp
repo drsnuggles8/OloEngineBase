@@ -37,54 +37,12 @@ namespace OloEngine {
 
 	void JoltContactListener::OnContactAdded(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, [[maybe_unused]] JPH::ContactSettings& ioSettings)
 	{
-		UUID entityA = GetEntityIDFromBody(inBody1);
-		UUID entityB = GetEntityIDFromBody(inBody2);
-
-		if (entityA != 0 && entityB != 0 && !inManifold.mRelativeContactPointsOn1.empty())
-		{
-			// Create the SubShapeIDPair key for tracking this contact
-			JPH::SubShapeIDPair contactKey(inBody1.GetID(), inManifold.mSubShapeID1, inBody2.GetID(), inManifold.mSubShapeID2);
-			
-			// Store the contact in our active contacts map
-			{
-				std::lock_guard<std::mutex> lock(m_ActiveContactsMutex);
-				m_ActiveContacts.try_emplace(contactKey, entityA, entityB);
-			}
-
-			glm::vec3 contactPoint = JoltUtils::FromJoltRVec3(inManifold.GetWorldSpaceContactPointOn1(0));
-			glm::vec3 contactNormal = JoltUtils::FromJoltVector(inManifold.mWorldSpaceNormal);
-			f32 contactDepth = inManifold.mPenetrationDepth;
-
-			QueueContactEvent(ContactEvent(ContactType::ContactAdded, entityA, entityB, contactPoint, contactNormal, contactDepth, 0.0f));
-		}
+		ProcessContactManifold(inBody1, inBody2, inManifold, ContactType::ContactAdded);
 	}
 
 	void JoltContactListener::OnContactPersisted(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, [[maybe_unused]] JPH::ContactSettings& ioSettings)
 	{
-		UUID entityA = GetEntityIDFromBody(inBody1);
-		UUID entityB = GetEntityIDFromBody(inBody2);
-
-		if (entityA != 0 && entityB != 0 && !inManifold.mRelativeContactPointsOn1.empty())
-		{
-			// The contact should already be in our active contacts map from OnContactAdded
-			// But we can ensure it's there (defensive programming)
-			JPH::SubShapeIDPair contactKey(inBody1.GetID(), inManifold.mSubShapeID1, inBody2.GetID(), inManifold.mSubShapeID2);
-			
-			{
-				std::lock_guard<std::mutex> lock(m_ActiveContactsMutex);
-				// Only add if not already present (should not happen in normal operation)
-				if (m_ActiveContacts.find(contactKey) == m_ActiveContacts.end())
-				{
-					m_ActiveContacts.try_emplace(contactKey, entityA, entityB);
-				}
-			}
-
-			glm::vec3 contactPoint = JoltUtils::FromJoltRVec3(inManifold.GetWorldSpaceContactPointOn1(0));
-			glm::vec3 contactNormal = JoltUtils::FromJoltVector(inManifold.mWorldSpaceNormal);
-			f32 contactDepth = inManifold.mPenetrationDepth;
-
-			QueueContactEvent(ContactEvent(ContactType::ContactPersisted, entityA, entityB, contactPoint, contactNormal, contactDepth, 0.0f));
-		}
+		ProcessContactManifold(inBody1, inBody2, inManifold, ContactType::ContactPersisted);
 	}
 
 	void JoltContactListener::OnContactRemoved(const JPH::SubShapeIDPair& inSubShapePair)
@@ -169,6 +127,42 @@ namespace OloEngine {
 		
 		m_ContactEventQueue.push_back(std::move(event));
 		m_QueueSize.fetch_add(1, std::memory_order_relaxed);
+	}
+
+	void JoltContactListener::ProcessContactManifold(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, ContactType type)
+	{
+		UUID entityA = GetEntityIDFromBody(inBody1);
+		UUID entityB = GetEntityIDFromBody(inBody2);
+
+		if (entityA != 0 && entityB != 0 && !inManifold.mRelativeContactPointsOn1.empty())
+		{
+			// Create the SubShapeIDPair key for tracking this contact
+			JPH::SubShapeIDPair contactKey(inBody1.GetID(), inManifold.mSubShapeID1, inBody2.GetID(), inManifold.mSubShapeID2);
+			
+			// Handle contact tracking based on the contact type
+			{
+				std::lock_guard<std::mutex> lock(m_ActiveContactsMutex);
+				if (type == ContactType::ContactAdded)
+				{
+					// Always insert for ContactAdded
+					m_ActiveContacts.try_emplace(contactKey, entityA, entityB);
+				}
+				else if (type == ContactType::ContactPersisted)
+				{
+					// Only add if not already present (should not happen in normal operation)
+					if (m_ActiveContacts.find(contactKey) == m_ActiveContacts.end())
+					{
+						m_ActiveContacts.try_emplace(contactKey, entityA, entityB);
+					}
+				}
+			}
+
+			glm::vec3 contactPoint = JoltUtils::FromJoltRVec3(inManifold.GetWorldSpaceContactPointOn1(0));
+			glm::vec3 contactNormal = JoltUtils::FromJoltVector(inManifold.mWorldSpaceNormal);
+			f32 contactDepth = inManifold.mPenetrationDepth;
+
+			QueueContactEvent(ContactEvent(type, entityA, entityB, contactPoint, contactNormal, contactDepth, 0.0f));
+		}
 	}
 
 	[[nodiscard]] UUID JoltContactListener::GetEntityIDFromBody(const JPH::Body& body) noexcept

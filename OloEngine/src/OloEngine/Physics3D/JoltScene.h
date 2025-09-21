@@ -196,6 +196,7 @@ namespace OloEngine {
 
 		// Body management
 		std::unordered_map<UUID, Ref<JoltBody>> m_Bodies;
+		std::unordered_map<JPH::BodyID, UUID> m_BodyIDToEntity; // Reverse lookup for efficient GetEntityByBodyID
 		std::vector<Ref<JoltBody>> m_BodiesToSync;
 
 		// Character controller management
