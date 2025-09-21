@@ -175,6 +175,10 @@ void Sandbox3D::OnAttach()
     m_TestScene = OloEngine::Ref<OloEngine::Scene>::Create();
     m_TestScene->OnRuntimeStart();
     
+    // Initialize 3D physics for the test scene
+    m_TestScene->OnPhysics3DStart();
+    m_PhysicsEnabled = true;
+    
     LoadTestAnimatedModel();
     LoadTestPBRModel();
 }
@@ -339,6 +343,9 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
             case SceneType::PBRModelTesting:
                 RenderPBRModelTestingScene();
                 break;
+            case SceneType::Physics3DTesting:
+                RenderPhysics3DTestingScene();
+                break;
         }
         
         OloEngine::Renderer3D::EndScene();
@@ -433,6 +440,9 @@ void Sandbox3D::OnImGuiRender()
             break;
         case SceneType::PBRModelTesting:
             RenderPBRModelTestingUI();
+            break;
+        case SceneType::Physics3DTesting:
+            RenderPhysics3DTestingUI();
             break;
     }
     
@@ -1823,6 +1833,13 @@ void Sandbox3D::InitializeSceneLighting()
     m_SceneLights[static_cast<int>(SceneType::PBRModelTesting)].Ambient = glm::vec3(0.3f);
     m_SceneLights[static_cast<int>(SceneType::PBRModelTesting)].Diffuse = glm::vec3(1.0f);
     m_SceneLights[static_cast<int>(SceneType::PBRModelTesting)].Specular = glm::vec3(1.0f);
+    
+    // Physics3D Testing Scene - Bright directional light for clear physics visualization
+    m_SceneLights[static_cast<int>(SceneType::Physics3DTesting)].Type = OloEngine::LightType::Directional;
+    m_SceneLights[static_cast<int>(SceneType::Physics3DTesting)].Direction = glm::vec3(-0.3f, -1.0f, -0.2f);
+    m_SceneLights[static_cast<int>(SceneType::Physics3DTesting)].Ambient = glm::vec3(0.3f);
+    m_SceneLights[static_cast<int>(SceneType::Physics3DTesting)].Diffuse = glm::vec3(0.9f);
+    m_SceneLights[static_cast<int>(SceneType::Physics3DTesting)].Specular = glm::vec3(0.8f);
 }
 
 void Sandbox3D::ApplySceneLighting(SceneType sceneType)
@@ -1974,6 +1991,472 @@ void Sandbox3D::RenderPBRModelTestingUI()
     {
         m_RotationAngleY = 0.0f;
     }
+}
+
+// === PHYSICS3D SCENE IMPLEMENTATION ===
+
+void Sandbox3D::RenderPhysics3DTestingScene()
+{
+    if (!m_PhysicsEnabled || !m_TestScene)
+        return;
+    
+    // Render all physics entities with their materials
+    auto physicsView = m_TestScene->GetAllEntitiesWith<OloEngine::Rigidbody3DComponent, OloEngine::TransformComponent>();
+    for (auto entityID : physicsView)
+    {
+        OloEngine::Entity entity = { entityID, m_TestScene.get() };
+        
+        // Skip rendering if entity doesn't have a mesh component
+        if (!entity.HasComponent<OloEngine::MeshComponent>())
+            continue;
+            
+        auto& transformComp = entity.GetComponent<OloEngine::TransformComponent>();
+        auto& meshComp = entity.GetComponent<OloEngine::MeshComponent>();
+        
+        // Get material or use default
+        OloEngine::Material material;
+        if (entity.HasComponent<OloEngine::MaterialComponent>())
+        {
+            material = entity.GetComponent<OloEngine::MaterialComponent>().m_Material;
+        }
+        else
+        {
+            // Use a default PBR material for physics objects
+            material = *OloEngine::Material::CreatePBR("Physics Object", glm::vec3(0.7f, 0.3f, 0.3f), 0.1f, 0.6f);
+        }
+        
+        // Render the mesh
+        if (meshComp.m_MeshSource && !meshComp.m_MeshSource->GetSubmeshes().empty())
+        {
+            auto mesh = OloEngine::Ref<OloEngine::Mesh>::Create(meshComp.m_MeshSource, 0);
+            auto* packet = OloEngine::Renderer3D::DrawMesh(mesh, transformComp.GetTransform(), material);
+            if (packet) OloEngine::Renderer3D::SubmitPacket(packet);
+        }
+    }
+}
+
+void Sandbox3D::RenderPhysics3DTestingUI()
+{
+    if (ImGui::CollapsingHeader("Physics3D Scene", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::TextWrapped("Interactive 3D physics scene with Jolt Physics integration.");
+        ImGui::Separator();
+        
+        // Physics status
+        ImGui::Text("Physics Status: %s", m_PhysicsEnabled ? "Enabled" : "Disabled");
+        if (m_TestScene)
+        {
+            auto physicsView = m_TestScene->GetAllEntitiesWith<OloEngine::Rigidbody3DComponent>();
+            ImGui::Text("Physics Objects: %zu", physicsView.size());
+        }
+        
+        ImGui::Separator();
+        
+        // Physics settings
+        if (ImGui::CollapsingHeader("Physics Settings", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::Checkbox("Enable Physics Simulation", &m_PhysicsSimulationEnabled);
+            
+            if (ImGui::SliderFloat("Gravity", &m_PhysicsGravity, -20.0f, 0.0f))
+            {
+                if (m_TestScene && m_TestScene->GetJoltScene())
+                {
+                    m_TestScene->GetJoltScene()->SetGravity(glm::vec3(0.0f, m_PhysicsGravity, 0.0f));
+                }
+            }
+            
+            ImGui::Checkbox("Show Physics Debug", &m_ShowPhysicsDebug);
+        }
+        
+        // Demo scenarios
+        if (ImGui::CollapsingHeader("Demo Scenarios", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            if (ImGui::Combo("Demo Mode", &m_PhysicsDemoMode, m_PhysicsDemoModes, 5))
+            {
+                SetupPhysicsDemo(m_PhysicsDemoMode);
+            }
+            
+            if (ImGui::Button("Reset Demo"))
+            {
+                SetupPhysicsDemo(m_PhysicsDemoMode);
+            }
+            ImGui::SameLine();
+            
+            if (ImGui::Button("Clear All"))
+            {
+                ClearPhysicsEntities();
+            }
+        }
+        
+        // Object spawning
+        if (ImGui::CollapsingHeader("Object Spawning", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::Combo("Object Type", &m_SpawnObjectType, m_PhysicsObjectTypes, 3);
+            ImGui::SliderFloat("Spawn Height", &m_SpawnHeight, 5.0f, 20.0f);
+            ImGui::SliderFloat("Initial Force", &m_SpawnForce, 0.0f, 10.0f);
+            
+            if (ImGui::Button("Spawn Object"))
+            {
+                glm::vec3 spawnPos = glm::vec3(
+                    (rand() % 200 - 100) / 100.0f * 3.0f, // Random X between -3 and 3
+                    m_SpawnHeight,
+                    (rand() % 200 - 100) / 100.0f * 3.0f  // Random Z between -3 and 3
+                );
+                
+                OloEngine::Entity newEntity;
+                SpawnPhysicsObject(newEntity, spawnPos, m_SpawnObjectType);
+                
+                if (m_SpawnForce > 0.0f && newEntity)
+                {
+                    // Apply initial random force
+                    if (auto body = m_TestScene->GetJoltScene()->GetBody(newEntity))
+                    {
+                        glm::vec3 force = glm::vec3(
+                            (rand() % 200 - 100) / 100.0f * m_SpawnForce,
+                            0.0f,
+                            (rand() % 200 - 100) / 100.0f * m_SpawnForce
+                        );
+                        body->AddForce(force);
+                    }
+                }
+                
+                m_PhysicsEntities.push_back(newEntity);
+            }
+        }
+        
+        // Physics debug info
+        if (m_ShowPhysicsDebug && ImGui::CollapsingHeader("Debug Info", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            if (m_TestScene && m_TestScene->GetJoltScene())
+            {
+                auto joltScene = m_TestScene->GetJoltScene();
+                ImGui::Text("Total Bodies: %u", joltScene->GetBodyCount());
+                ImGui::Text("Active Bodies: %u", joltScene->GetActiveBodyCount());
+                ImGui::Text("Gravity: (%.2f, %.2f, %.2f)", 
+                           joltScene->GetGravity().x, joltScene->GetGravity().y, joltScene->GetGravity().z);
+            }
+        }
+    }
+}
+
+// Physics helper methods
+void Sandbox3D::SetupPhysicsDemo(i32 demoMode)
+{
+    ClearPhysicsEntities();
+    
+    if (!m_TestScene || !m_PhysicsEnabled)
+        return;
+    
+    // Create static ground first
+    CreateGround();
+    
+    switch (demoMode)
+    {
+        case 0: // Basic Objects
+        {
+            // Simple demo with a few different objects
+            m_PhysicsEntities.push_back(CreatePhysicsBox(glm::vec3(0, 10, 0), glm::vec3(1.0f)));
+            m_PhysicsEntities.push_back(CreatePhysicsSphere(glm::vec3(3, 12, 0), 0.8f));
+            m_PhysicsEntities.push_back(CreatePhysicsCapsule(glm::vec3(-3, 14, 0), 0.5f, 1.5f));
+            break;
+        }
+        case 1: // Stack Test (inspired by Jolt StackTest)
+        {
+            // Create a stack of alternating boxes
+            for (int i = 0; i < 8; ++i)
+            {
+                glm::vec3 position(0, 1.0f + i * 2.1f, 0);
+                OloEngine::Entity stackBox = CreatePhysicsBox(position, glm::vec3(1.0f, 0.5f, 2.0f));
+                
+                // Alternate rotation
+                if ((i & 1) != 0 && stackBox)
+                {
+                    auto& transform = stackBox.GetComponent<OloEngine::TransformComponent>();
+                    transform.Rotation.y = glm::radians(90.0f);
+                }
+                
+                m_PhysicsEntities.push_back(stackBox);
+            }
+            break;
+        }
+        case 2: // Pyramid Test (inspired by Jolt PyramidTest)
+        {
+            // Create a pyramid of boxes
+            const f32 boxSize = 1.0f;
+            const f32 boxSeparation = 0.1f;
+            const i32 pyramidHeight = 6;
+            
+            for (int i = 0; i < pyramidHeight; ++i)
+            {
+                for (int j = i / 2; j < pyramidHeight - (i + 1) / 2; ++j)
+                {
+                    for (int k = i / 2; k < pyramidHeight - (i + 1) / 2; ++k)
+                    {
+                        glm::vec3 position(
+                            -pyramidHeight * 0.5f + boxSize * j + (i & 1 ? boxSize * 0.5f : 0.0f),
+                            1.0f + (boxSize + boxSeparation) * i,
+                            -pyramidHeight * 0.5f + boxSize * k + (i & 1 ? boxSize * 0.5f : 0.0f)
+                        );
+                        
+                        m_PhysicsEntities.push_back(CreatePhysicsBox(position, glm::vec3(boxSize * 0.5f)));
+                    }
+                }
+            }
+            break;
+        }
+        case 3: // Bouncing Balls
+        {
+            // Create multiple spheres at different heights
+            for (int i = 0; i < 8; ++i)
+            {
+                f32 radius = 0.3f + (i % 3) * 0.2f; // Varying sizes
+                glm::vec3 position(
+                    (i - 4) * 1.5f,
+                    10.0f + i * 2.0f,
+                    0.0f
+                );
+                
+                auto sphere = CreatePhysicsSphere(position, radius);
+                
+                // Set high restitution for bouncing
+                if (sphere && sphere.HasComponent<OloEngine::SphereCollider3DComponent>())
+                {
+                    auto& collider = sphere.GetComponent<OloEngine::SphereCollider3DComponent>();
+                    collider.m_Material.SetRestitution(0.8f);
+                    collider.m_Material.SetStaticFriction(0.3f);
+                    collider.m_Material.SetDynamicFriction(0.3f);
+                }
+                
+                m_PhysicsEntities.push_back(sphere);
+            }
+            break;
+        }
+        case 4: // Mixed Scenario
+        {
+            // Complex scene with different object types and arrangements
+            
+            // Central tower of boxes
+            for (int i = 0; i < 5; ++i)
+            {
+                m_PhysicsEntities.push_back(CreatePhysicsBox(glm::vec3(0, 1 + i * 2.0f, 0), glm::vec3(0.8f)));
+            }
+            
+            // Surrounding spheres
+            for (int i = 0; i < 6; ++i)
+            {
+                f32 angle = i * glm::pi<f32>() * 2.0f / 6.0f;
+                glm::vec3 position(glm::cos(angle) * 4.0f, 8.0f, glm::sin(angle) * 4.0f);
+                m_PhysicsEntities.push_back(CreatePhysicsSphere(position, 0.6f));
+            }
+            
+            // Some capsules for variety
+            m_PhysicsEntities.push_back(CreatePhysicsCapsule(glm::vec3(2, 15, 2), 0.4f, 1.2f));
+            m_PhysicsEntities.push_back(CreatePhysicsCapsule(glm::vec3(-2, 16, -2), 0.4f, 1.2f));
+            
+            break;
+        }
+    }
+}
+
+void Sandbox3D::SpawnPhysicsObject(OloEngine::Entity& entity, const glm::vec3& position, i32 objectType)
+{
+    if (!m_TestScene)
+        return;
+        
+    switch (objectType)
+    {
+        case 0: // Box
+            entity = CreatePhysicsBox(position);
+            break;
+        case 1: // Sphere
+            entity = CreatePhysicsSphere(position);
+            break;
+        case 2: // Capsule
+            entity = CreatePhysicsCapsule(position);
+            break;
+    }
+}
+
+void Sandbox3D::ClearPhysicsEntities()
+{
+    if (!m_TestScene)
+        return;
+        
+    for (auto& entity : m_PhysicsEntities)
+    {
+        if (entity)
+        {
+            m_TestScene->DestroyEntity(entity);
+        }
+    }
+    m_PhysicsEntities.clear();
+}
+
+OloEngine::Entity Sandbox3D::CreatePhysicsBox(const glm::vec3& position, const glm::vec3& size, bool isDynamic)
+{
+    if (!m_TestScene)
+        return {};
+        
+    auto entity = m_TestScene->CreateEntity("Physics Box");
+    
+    // Transform component
+    auto& transform = entity.GetComponent<OloEngine::TransformComponent>();
+    transform.Translation = position;
+    transform.Scale = size;
+    
+    // Mesh component (using cube primitive)
+    auto& meshComp = entity.AddComponent<OloEngine::MeshComponent>();
+    meshComp.m_MeshSource = m_CubeMesh->GetMeshSource();
+    
+    // Material component
+    auto& materialComp = entity.AddComponent<OloEngine::MaterialComponent>();
+    materialComp.m_Material = *OloEngine::Material::CreatePBR("Physics Box", glm::vec3(0.8f, 0.3f, 0.3f), 0.1f, 0.6f);
+    
+    // Rigidbody component
+    auto& rigidbody = entity.AddComponent<OloEngine::Rigidbody3DComponent>();
+    rigidbody.m_Type = isDynamic ? OloEngine::BodyType3D::Dynamic : OloEngine::BodyType3D::Static;
+    rigidbody.m_Mass = 1.0f;
+    
+	// Box collider component
+	auto& collider = entity.AddComponent<OloEngine::BoxCollider3DComponent>();
+	collider.m_HalfExtents = size;
+	collider.m_Material.SetRestitution(0.3f);
+	collider.m_Material.SetStaticFriction(0.7f);
+	collider.m_Material.SetDynamicFriction(0.7f);
+	
+	// Create physics body for this entity
+	if (m_TestScene && m_TestScene->GetJoltScene())
+	{
+		m_TestScene->GetJoltScene()->CreateBody(entity);
+	}
+	
+	return entity;
+}
+
+OloEngine::Entity Sandbox3D::CreatePhysicsSphere(const glm::vec3& position, f32 radius, bool isDynamic)
+{
+    if (!m_TestScene)
+        return {};
+        
+    auto entity = m_TestScene->CreateEntity("Physics Sphere");
+    
+    // Transform component
+    auto& transform = entity.GetComponent<OloEngine::TransformComponent>();
+    transform.Translation = position;
+    transform.Scale = glm::vec3(radius * 2.0f); // Scale for visual representation
+    
+    // Mesh component (using sphere primitive)
+    auto& meshComp = entity.AddComponent<OloEngine::MeshComponent>();
+    meshComp.m_MeshSource = m_SphereMesh->GetMeshSource();
+    
+    // Material component
+    auto& materialComp = entity.AddComponent<OloEngine::MaterialComponent>();
+    materialComp.m_Material = *OloEngine::Material::CreatePBR("Physics Sphere", glm::vec3(0.3f, 0.8f, 0.3f), 0.1f, 0.4f);
+    
+    // Rigidbody component
+    auto& rigidbody = entity.AddComponent<OloEngine::Rigidbody3DComponent>();
+    rigidbody.m_Type = isDynamic ? OloEngine::BodyType3D::Dynamic : OloEngine::BodyType3D::Static;
+    rigidbody.m_Mass = 0.8f;
+    
+	// Sphere collider component
+	auto& collider = entity.AddComponent<OloEngine::SphereCollider3DComponent>();
+	collider.m_Radius = radius;
+	collider.m_Material.SetRestitution(0.6f);
+	collider.m_Material.SetStaticFriction(0.5f);
+	collider.m_Material.SetDynamicFriction(0.5f);
+	
+	// Create physics body for this entity
+	if (m_TestScene && m_TestScene->GetJoltScene())
+	{
+		m_TestScene->GetJoltScene()->CreateBody(entity);
+	}
+	
+	return entity;
+}
+
+OloEngine::Entity Sandbox3D::CreatePhysicsCapsule(const glm::vec3& position, f32 radius, f32 height, bool isDynamic)
+{
+    if (!m_TestScene)
+        return {};
+        
+    auto entity = m_TestScene->CreateEntity("Physics Capsule");
+    
+    // Transform component
+    auto& transform = entity.GetComponent<OloEngine::TransformComponent>();
+    transform.Translation = position;
+    // For capsule visual representation, we'll use a scaled cylinder (using box for now as placeholder)
+    transform.Scale = glm::vec3(radius * 2.0f, height, radius * 2.0f);
+    
+    // Mesh component (using box as placeholder for capsule - could be improved with actual capsule mesh)
+    auto& meshComp = entity.AddComponent<OloEngine::MeshComponent>();
+    meshComp.m_MeshSource = m_CubeMesh->GetMeshSource();
+    
+    // Material component
+    auto& materialComp = entity.AddComponent<OloEngine::MaterialComponent>();
+    materialComp.m_Material = *OloEngine::Material::CreatePBR("Physics Capsule", glm::vec3(0.3f, 0.3f, 0.8f), 0.1f, 0.5f);
+    
+    // Rigidbody component
+    auto& rigidbody = entity.AddComponent<OloEngine::Rigidbody3DComponent>();
+    rigidbody.m_Type = isDynamic ? OloEngine::BodyType3D::Dynamic : OloEngine::BodyType3D::Static;
+    rigidbody.m_Mass = 1.2f;
+    
+	// Capsule collider component
+	auto& collider = entity.AddComponent<OloEngine::CapsuleCollider3DComponent>();
+	collider.m_Radius = radius;
+	collider.m_HalfHeight = height * 0.5f;
+	collider.m_Material.SetRestitution(0.4f);
+	collider.m_Material.SetStaticFriction(0.6f);
+	collider.m_Material.SetDynamicFriction(0.6f);
+	
+	// Create physics body for this entity
+	if (m_TestScene && m_TestScene->GetJoltScene())
+	{
+		m_TestScene->GetJoltScene()->CreateBody(entity);
+	}
+	
+	return entity;
+}
+
+void Sandbox3D::CreateGround()
+{
+	if (!m_TestScene)
+		return;
+		
+	// Create a large static box as the ground plane
+	OloEngine::Entity ground = m_TestScene->CreateEntity("Ground");
+	
+	// Transform component - position at y=0, large scale
+	auto& transform = ground.GetComponent<OloEngine::TransformComponent>();
+	transform.Translation = glm::vec3(0.0f, -2.0f, 0.0f);
+	transform.Scale = glm::vec3(50.0f, 1.0f, 50.0f);
+	
+	// Mesh component (using box mesh)
+	auto& meshComp = ground.AddComponent<OloEngine::MeshComponent>();
+	meshComp.m_MeshSource = m_CubeMesh->GetMeshSource();
+	
+	// Material component - use a distinct ground material
+	auto& materialComp = ground.AddComponent<OloEngine::MaterialComponent>();
+	materialComp.m_Material = *OloEngine::Material::CreatePBR("Ground", glm::vec3(0.5f, 0.5f, 0.5f), 0.8f, 0.1f);
+	
+	// Rigidbody component - static body
+	auto& rigidbody = ground.AddComponent<OloEngine::Rigidbody3DComponent>();
+	rigidbody.m_Type = OloEngine::BodyType3D::Static;
+	
+	// Box collider component - large ground plane
+	auto& collider = ground.AddComponent<OloEngine::BoxCollider3DComponent>();
+	collider.m_HalfExtents = glm::vec3(25.0f, 0.5f, 25.0f); // Half extents for 50x1x50 box
+	collider.m_Material.SetRestitution(0.2f);
+	collider.m_Material.SetStaticFriction(0.8f);
+	collider.m_Material.SetDynamicFriction(0.6f);
+	
+	// Create physics body for the ground
+	if (m_TestScene->GetJoltScene())
+	{
+		m_TestScene->GetJoltScene()->CreateBody(ground);
+	}
+	
+	// Add to physics entities list for rendering
+	m_PhysicsEntities.push_back(ground);
 }
 
 void Sandbox3D::LoadTestPBRModel()
