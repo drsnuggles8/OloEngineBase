@@ -26,7 +26,7 @@ namespace OloEngine {
 
 		[[nodiscard]] bool IsValid() const
 		{
-			return !m_Name.empty() && m_BitValue > 0;
+			return !m_Name.empty() && m_BitValue > 0 && m_LayerID != INVALID_LAYER_ID;
 		}
 	};
 

@@ -99,7 +99,7 @@ namespace OloEngine {
 	 */
 	constexpr inline u32 ToLayerMask(u32 layerIndex)
 	{
-		return OLO_BIT(layerIndex);
+		return (layerIndex >= 32) ? 0 : OLO_BIT(layerIndex);
 	}
 
 	// Bitwise operators for EActorAxis

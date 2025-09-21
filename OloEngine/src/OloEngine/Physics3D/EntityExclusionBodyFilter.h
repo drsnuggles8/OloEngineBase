@@ -8,12 +8,6 @@
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Body/BodyFilter.h>
 
-// Forward declarations
-namespace JPH {
-	class BodyID;
-	class Body;
-}
-
 namespace OloEngine {
 
 	/**
@@ -57,6 +51,11 @@ namespace OloEngine {
 		EntityExclusionBodyFilter& operator=(const EntityExclusionBodyFilter&) = delete;
 		EntityExclusionBodyFilter(EntityExclusionBodyFilter&&) = delete;
 		EntityExclusionBodyFilter& operator=(EntityExclusionBodyFilter&&) = delete;
+
+		/**
+		 * @brief Virtual destructor for proper polymorphic destruction
+		 */
+		virtual ~EntityExclusionBodyFilter() = default;
 
 		// JPH::BodyFilter interface implementation
 		// Note: These methods are exception-safe and designed not to throw,

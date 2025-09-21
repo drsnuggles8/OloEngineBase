@@ -9,8 +9,8 @@ namespace OloEngine {
 	}
 
 	ExcludedEntitySet::ExcludedEntitySet(UUID excludedEntity)
+		: m_ExcludedEntities{excludedEntity}
 	{
-		m_ExcludedEntities.insert(excludedEntity);
 	}
 
 	bool ExcludedEntitySet::IsEntityExcluded(UUID entityID) const noexcept
@@ -60,6 +60,11 @@ namespace OloEngine {
 
 	namespace EntityExclusionUtils {
 
+		// WARNING: O(n) linear search performance - use ExcludedEntitySet for frequent lookups
+		// This function is provided for backward compatibility but performs a linear search.
+		// For multiple lookups with the same vector, convert to ExcludedEntitySet first:
+		//   auto exclusionSet = CreateExclusionSet(excludedEntities);
+		//   exclusionSet.IsEntityExcluded(entityID); // O(1) instead of O(n)
 		bool IsEntityExcluded(const std::vector<UUID>& excludedEntities, UUID entityID) noexcept
 		{
 			return std::find(excludedEntities.begin(), excludedEntities.end(), entityID) != excludedEntities.end();

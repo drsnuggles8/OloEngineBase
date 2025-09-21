@@ -2,6 +2,7 @@
 #include "Physics3DSystem.h"
 #include "PhysicsLayer.h"
 #include "JoltLayerInterface.h"
+#include "JoltUtils.h"
 
 // Jolt includes
 #include <Jolt/RegisterTypes.h>
@@ -16,6 +17,9 @@
 // Standard includes
 #include <algorithm>
 #include <cmath>
+#include <string>
+#include <cstdarg>
+#include <array>
 
 // Disable common warnings triggered by Jolt
 JPH_SUPPRESS_WARNINGS
@@ -23,15 +27,47 @@ JPH_SUPPRESS_WARNINGS
 // Callback for traces, connect this to your own trace function if you have one
 static void TraceImpl(const char* inFMT, ...)
 {
-    // Format the message
     va_list list;
     va_start(list, inFMT);
-    char buffer[1024];
-    vsnprintf(buffer, sizeof(buffer), inFMT, list);
-    va_end(list);
-
-    // Print to the TTY
-    OLO_CORE_TRACE("{}", buffer);
+    
+    // First pass: determine required buffer size
+    va_list listCopy;
+    va_copy(listCopy, list);
+    int requiredSize = vsnprintf(nullptr, 0, inFMT, listCopy);
+    va_end(listCopy);
+    
+    if (requiredSize < 0)
+    {
+        // Handle vsnprintf error - fallback to truncated static buffer
+        char fallbackBuffer[1024];
+        vsnprintf(fallbackBuffer, sizeof(fallbackBuffer), inFMT, list);
+        va_end(list);
+        OLO_CORE_TRACE("{}", fallbackBuffer);
+        return;
+    }
+    
+    try
+    {
+        // Allocate string with required size (+1 for null terminator)
+        std::string message(static_cast<size_t>(requiredSize), '\0');
+        
+        // Second pass: format into the allocated buffer
+        vsnprintf(message.data(), static_cast<size_t>(requiredSize) + 1, inFMT, list);
+        va_end(list);
+        
+        // Print the complete message
+        OLO_CORE_TRACE("{}", message);
+    }
+    catch (const std::bad_alloc&)
+    {
+        // Handle allocation failure - fallback to truncated static buffer
+        va_end(list);
+        va_start(list, inFMT);
+        char fallbackBuffer[1024];
+        vsnprintf(fallbackBuffer, sizeof(fallbackBuffer), inFMT, list);
+        va_end(list);
+        OLO_CORE_TRACE("{}", fallbackBuffer);
+    }
 }
 
 #ifdef JPH_ENABLE_ASSERTS
@@ -49,6 +85,9 @@ static bool AssertFailedImpl(const char* inExpression, const char* inMessage, co
 #endif // JPH_ENABLE_ASSERTS
 
 namespace OloEngine {
+
+// Physics simulation constants
+constexpr f32 kMinPhysicsExtent = 1e-3f;  // Minimum practical extent for stable physics simulation (1mm)
 
 // ================================================================================================
 // Layer Interface Implementations
@@ -82,11 +121,28 @@ JPH::BroadPhaseLayer OloBPLayerInterfaceImpl::GetBroadPhaseLayer(JPH::ObjectLaye
 const char* OloBPLayerInterfaceImpl::GetBroadPhaseLayerName(JPH::BroadPhaseLayer inLayer) const
 {
     u32 layerIndex = inLayer.GetValue();
+    
+    // First check if it's a built-in broad phase layer
+    static const std::array<const char*, BroadPhaseLayers::NUM_LAYERS> builtInLayerNames = {
+        "NON_MOVING",  // BroadPhaseLayers::NON_MOVING (0)
+        "MOVING"       // BroadPhaseLayers::MOVING (1)
+    };
+    
+    if (layerIndex < builtInLayerNames.size())
+    {
+        return builtInLayerNames[layerIndex];
+    }
+    
+    // Check if it's a custom layer from PhysicsLayerManager
     const auto& layerNames = PhysicsLayerManager::GetLayerNames();
+    u32 customLayerIndex = layerIndex - BroadPhaseLayers::NUM_LAYERS;
     
-    if (layerIndex < layerNames.size())
-        return layerNames[layerIndex].c_str();
+    if (customLayerIndex < layerNames.size())
+    {
+        return layerNames[customLayerIndex].c_str();
+    }
     
+    // Fallback for any other out-of-range values
     return "Unknown";
 }
 #endif // JPH_EXTERNAL_PROFILE || JPH_PROFILE_ENABLED
@@ -163,21 +219,24 @@ bool Physics3DSystem::Initialize()
     JPH_IF_ENABLE_ASSERTS(JPH::AssertFailed = AssertFailedImpl;)
 
     // Create a factory - ensure clean state and proper ownership using RAII
-    if (JPH::Factory::sInstance != nullptr)
-    {
-        // Clean up any existing factory before creating new one
-        delete JPH::Factory::sInstance;
-        JPH::Factory::sInstance = nullptr;
-    }
+    // Capture old factory for automatic cleanup and create custom deleter that nulls sInstance
+    std::unique_ptr<JPH::Factory, void(*)(JPH::Factory*)> oldFactory(
+        JPH::Factory::sInstance,
+        [](JPH::Factory* factory) {
+            JPH::Factory::sInstance = nullptr;
+            delete factory;
+        }
+    );
     
     // Exception-safe factory creation using RAII
-    std::unique_ptr<JPH::Factory> tempFactory = std::make_unique<JPH::Factory>();
+    auto newFactory = std::make_unique<JPH::Factory>();
     
     // Register all Jolt physics types (this might throw)
     JPH::RegisterTypes();
     
     // Only assign to sInstance after all operations that might throw have succeeded
-    JPH::Factory::sInstance = tempFactory.release();
+    JPH::Factory::sInstance = newFactory.release();
+    // Old factory will be automatically cleaned up when oldFactory goes out of scope
 
     // We need a temp allocator for temporary allocations during the physics update. We're
     // pre-allocating 10 MB to avoid having to do allocations during the physics update.
@@ -307,11 +366,10 @@ JPH::BodyID Physics3DSystem::CreateBox(const JPH::RVec3& position, const JPH::Qu
     }
 
     // Validate box halfExtent components
-    constexpr f32 minExtent = std::numeric_limits<f32>::epsilon();
-    if (halfExtent.GetX() <= minExtent || halfExtent.GetY() <= minExtent || halfExtent.GetZ() <= minExtent)
+    if (halfExtent.GetX() <= kMinPhysicsExtent || halfExtent.GetY() <= kMinPhysicsExtent || halfExtent.GetZ() <= kMinPhysicsExtent)
     {
-        OLO_CORE_ERROR("Physics3DSystem::CreateBox: Invalid halfExtent vector ({}, {}, {}) - all components must be > {}",
-                       halfExtent.GetX(), halfExtent.GetY(), halfExtent.GetZ(), minExtent);
+        OLO_CORE_ERROR("Physics3DSystem::CreateBox: Invalid halfExtent vector ({}, {}, {}) - all components must be > {} (minimum physics extent)",
+                       halfExtent.GetX(), halfExtent.GetY(), halfExtent.GetZ(), kMinPhysicsExtent);
         return JPH::BodyID();
     }
 
@@ -409,7 +467,7 @@ void Physics3DSystem::UpdatePhysicsSystemSettings()
         return;
 
     // Apply gravity directly to the physics system
-    m_PhysicsSystem->SetGravity(JPH::Vec3(s_PhysicsSettings.m_Gravity.x, s_PhysicsSettings.m_Gravity.y, s_PhysicsSettings.m_Gravity.z));
+    m_PhysicsSystem->SetGravity(JoltUtils::ToJoltVector(s_PhysicsSettings.m_Gravity));
 
     // Create Jolt physics settings from our settings
     JPH::PhysicsSettings joltSettings;
@@ -454,14 +512,76 @@ void Physics3DSystem::UpdateLayerConfiguration()
     // For now, this provides the foundation for dynamic layer management
 }
 
-JPH::PhysicsSystem& Physics3DSystem::GetJoltSystem()
+// PhysicsBodyActivationListener implementations
+void PhysicsBodyActivationListener::OnBodyActivated(const JPH::BodyID& inBodyID, JPH::uint64 inBodyUserData)
 {
-    if (!s_Instance || !s_Instance->m_PhysicsSystem)
+    // Thread-safe: enqueue event for main thread processing
+    ActivationEvent event{ ActivationEvent::Activated, inBodyID, inBodyUserData };
+    EnqueueEvent(event);
+}
+
+void PhysicsBodyActivationListener::OnBodyDeactivated(const JPH::BodyID& inBodyID, JPH::uint64 inBodyUserData)
+{
+    // Thread-safe: enqueue event for main thread processing
+    ActivationEvent event{ ActivationEvent::Deactivated, inBodyID, inBodyUserData };
+    EnqueueEvent(event);
+}
+
+void PhysicsBodyActivationListener::ProcessEvents()
+{
+    ActivationEvent event;
+    while (TryDequeueEvent(event))
     {
-        OLO_CORE_ERROR("Physics system not initialized! Cannot access Jolt PhysicsSystem.");
-        throw std::runtime_error("Physics system not initialized! Cannot access Jolt PhysicsSystem.");
+        switch (event.EventType)
+        {
+            case ActivationEvent::Activated:
+                OLO_CORE_INFO("Body {} got activated", event.BodyID.GetIndex());
+                break;
+            case ActivationEvent::Deactivated:
+                OLO_CORE_INFO("Body {} went to sleep", event.BodyID.GetIndex());
+                break;
+        }
     }
-    return *s_Instance->m_PhysicsSystem;
+}
+
+sizet PhysicsBodyActivationListener::GetPendingEventCount() const noexcept
+{
+    return m_QueueSize.load(std::memory_order_relaxed);
+}
+
+// ====================================================================
+// JoltPhysicsSystemContactListener Implementation
+// ====================================================================
+
+// Compile-time flag to enable/disable contact logging
+// Define OLO_ENABLE_CONTACT_LOGGING to enable verbose contact logging
+#ifdef OLO_ENABLE_CONTACT_LOGGING
+    #define OLO_CONTACT_LOG(message) OLO_CORE_INFO(message)
+#else
+    #define OLO_CONTACT_LOG(message) ((void)0)
+#endif
+
+JPH::ValidateResult JoltPhysicsSystemContactListener::OnContactValidate(const JPH::Body& inBody1, const JPH::Body& inBody2, JPH::RVec3Arg inBaseOffset, const JPH::CollideShapeResult& inCollisionResult)
+{
+    OLO_CONTACT_LOG("Contact validate callback");
+    
+    // Allows you to ignore a contact before it is created (using layers to not make objects collide is cheaper!)
+    return JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
+}
+
+void JoltPhysicsSystemContactListener::OnContactAdded(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, JPH::ContactSettings& ioSettings)
+{
+    OLO_CONTACT_LOG("A contact was added");
+}
+
+void JoltPhysicsSystemContactListener::OnContactPersisted(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, JPH::ContactSettings& ioSettings)
+{
+    OLO_CONTACT_LOG("A contact was persisted");
+}
+
+void JoltPhysicsSystemContactListener::OnContactRemoved(const JPH::SubShapeIDPair& inSubShapePair)
+{
+    OLO_CONTACT_LOG("A contact was removed");
 }
 
 } // namespace OloEngine

@@ -8,6 +8,8 @@ namespace OloEngine {
 
 	void PhysicsLayerManager::RebuildLayerIndexMap()
 	{
+		std::unique_lock<std::shared_mutex> lock(s_LayersMutex);
+		
 		s_LayerIndexMap.clear();
 		for (sizet i = 0; i < s_Layers.size(); ++i)
 		{
@@ -79,19 +81,18 @@ namespace OloEngine {
 			// Inline collision bit update logic to avoid re-entrant locking
 			for (sizet i = 0; i < s_Layers.size(); ++i)
 			{
-				// Set bidirectional collision between the new layer and existing layers
+				// Skip invalid layers and the new layer itself
+				if (s_Layers[i].m_LayerID == INVALID_LAYER_ID || i == newLayerIndex)
+					continue;
+					
+				// Set bidirectional collision between the new layer and existing valid layers
 				s_Layers[newLayerIndex].m_CollidesWith |= s_Layers[i].m_BitValue;
 				s_Layers[i].m_CollidesWith |= s_Layers[newLayerIndex].m_BitValue;
 			}
-			
-			// Clear the self-collision bit (don't collide with self by default)
-			s_Layers[newLayerIndex].m_CollidesWith &= ~s_Layers[newLayerIndex].m_BitValue;
 		}
-		else
-		{
-			// Even when setCollisions is false, ensure no self-collision by default
-			s_Layers[newLayerIndex].m_CollidesWith &= ~s_Layers[newLayerIndex].m_BitValue;
-		}
+		
+		// Clear the self-collision bit (don't collide with self by default)
+		s_Layers[newLayerIndex].m_CollidesWith &= ~s_Layers[newLayerIndex].m_BitValue;
 		
 		// Always sync the m_CollidesWithSelf member with the actual collision mask
 		s_Layers[newLayerIndex].m_CollidesWithSelf = (s_Layers[newLayerIndex].m_CollidesWith & s_Layers[newLayerIndex].m_BitValue) != 0;
@@ -102,6 +103,14 @@ namespace OloEngine {
 	void PhysicsLayerManager::RemoveLayer(u32 layerId)
 	{
 		std::unique_lock<std::shared_mutex> lock(s_LayersMutex);
+		
+		// Check if the layer exists before attempting removal
+		auto layerIndexIt = s_LayerIndexMap.find(layerId);
+		if (layerIndexIt == s_LayerIndexMap.end())
+		{
+			// Layer doesn't exist, nothing to remove
+			return;
+		}
 		
 		PhysicsLayer& layerInfo = GetLayerMutableUnsafe(layerId);
 
@@ -220,6 +229,9 @@ namespace OloEngine {
 		outLayers.clear();
 		for (const auto& otherLayer : s_Layers)
 		{
+			if (otherLayer.m_LayerID == INVALID_LAYER_ID)
+				continue;
+				
 			if (otherLayer.m_LayerID == layerId)
 				continue;
 
@@ -327,7 +339,7 @@ std::vector<std::string> PhysicsLayerManager::GetLayerNames()
 		std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
 		
 		const PhysicsLayer& layer = GetLayerUnsafe(layerId);
-		return layer.m_LayerID != s_NullLayer.m_LayerID && layer.IsValid();
+		return layer.IsValid();
 	}
 
 	bool PhysicsLayerManager::IsLayerValid(const std::string& layerName)
@@ -335,7 +347,7 @@ std::vector<std::string> PhysicsLayerManager::GetLayerNames()
 		std::shared_lock<std::shared_mutex> lock(s_LayersMutex);
 		
 		const PhysicsLayer& layer = GetLayerUnsafe(layerName);
-		return layer.m_LayerID != s_NullLayer.m_LayerID && layer.IsValid();
+		return layer.IsValid();
 	}
 
 	bool PhysicsLayerManager::IsLayerValid(const std::string_view& layerName)
@@ -346,7 +358,7 @@ std::vector<std::string> PhysicsLayerManager::GetLayerNames()
 		for (const auto& layer : s_Layers)
 		{
 			if (layer.m_Name == layerName)
-				return layer.m_LayerID != s_NullLayer.m_LayerID && layer.IsValid();
+				return layer.IsValid();
 		}
 		return false;
 	}

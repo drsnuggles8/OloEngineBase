@@ -7,6 +7,8 @@
 #include "OloEngine/Scene/Components.h"
 
 #include <cstdint>
+#include <optional>
+#include <utility>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyActivationListener.h>
 
@@ -800,21 +802,18 @@ namespace OloEngine {
 		return bodyInterface.IsActive(m_BodyID);
 	}
 
-	void JoltBody::CreateJoltBody()
+	JPH::Ref<JPH::Shape> JoltBody::CreateShapeForBody() const
 	{
-		if (!m_BodyID.IsInvalid()) return; // Already created
-
-		auto& rigidBodyComponent = m_Entity.GetComponent<Rigidbody3DComponent>();
-		auto& transformComponent = m_Entity.GetComponent<TransformComponent>();
-
-		// Create shape for the entity
 		JPH::Ref<JPH::Shape> shape = JoltShapes::CreateShapeForEntity(m_Entity);
 		if (!shape)
 		{
 			OLO_CORE_ERROR("Failed to create shape for entity {0}", (u64)m_Entity.GetUUID());
-			return;
 		}
+		return shape;
+	}
 
+	JPH::BodyCreationSettings JoltBody::CreateBodySettings(const TransformComponent& transformComponent, const Rigidbody3DComponent& rigidBodyComponent, JPH::Ref<JPH::Shape> shape) const
+	{
 		// Get transform
 		glm::vec3 position = transformComponent.Translation;
 		glm::quat rotation = glm::quat(transformComponent.Rotation);
@@ -851,14 +850,14 @@ namespace OloEngine {
 			bodySettings.mMassPropertiesOverride.mMass = rigidBodyComponent.m_Mass;
 		}
 
-		// Create the body
-		m_BodyID = m_Scene->GetBodyInterface().CreateAndAddBody(bodySettings, JPH::EActivation::Activate);
+		return bodySettings;
+	}
 
-		if (m_BodyID.IsInvalid())
-		{
-			OLO_CORE_ERROR("Failed to create Jolt body for entity {0}", (u64)m_Entity.GetUUID());
-			return;
-		}
+	void JoltBody::SetupCreatedBody(JPH::BodyID bodyID, const Rigidbody3DComponent& rigidBodyComponent)
+	{
+		// Convert body type to determine motion type
+		EBodyType bodyType = static_cast<EBodyType>(rigidBodyComponent.m_Type);
+		JPH::EMotionType motionType = JoltUtils::ToJoltMotionType(bodyType);
 
 		// Set initial velocities
 		if (motionType != JPH::EMotionType::Static)
@@ -870,7 +869,9 @@ namespace OloEngine {
 		}
 
 		// Store BodyID token in component for easy access
-		rigidBodyComponent.m_RuntimeBodyToken = static_cast<std::uint64_t>(m_BodyID.GetIndexAndSequenceNumber());
+		// Note: We need to get a mutable reference to modify the component
+		auto& mutableRigidBodyComponent = m_Entity.GetComponent<Rigidbody3DComponent>();
+		mutableRigidBodyComponent.m_RuntimeBodyToken = static_cast<std::uint64_t>(bodyID.GetIndexAndSequenceNumber());
 
 		// Cache initial state
 		m_GravityEnabled = !rigidBodyComponent.m_DisableGravity;
@@ -880,13 +881,43 @@ namespace OloEngine {
 		if (m_LockedAxes != EActorAxis::None && motionType != JPH::EMotionType::Static)
 		{
 			const auto& bodyLockInterface = GetBodyLockInterface();
-			JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID);
+			JPH::BodyLockWrite lock(bodyLockInterface, bodyID);
 			if (lock.Succeeded())
 			{
 				JPH::Body& body = lock.GetBody();
 				CreateAxisLockConstraint(body);
 			}
 		}
+	}
+
+	void JoltBody::CreateJoltBody()
+	{
+		if (!m_BodyID.IsInvalid()) return; // Already created
+
+		auto& rigidBodyComponent = m_Entity.GetComponent<Rigidbody3DComponent>();
+		auto& transformComponent = m_Entity.GetComponent<TransformComponent>();
+
+		// Create shape for the entity
+		JPH::Ref<JPH::Shape> shape = CreateShapeForBody();
+		if (!shape)
+		{
+			return; // Error already logged in CreateShapeForBody
+		}
+
+		// Create body creation settings
+		JPH::BodyCreationSettings bodySettings = CreateBodySettings(transformComponent, rigidBodyComponent, shape);
+
+		// Create the body
+		m_BodyID = m_Scene->GetBodyInterface().CreateAndAddBody(bodySettings, JPH::EActivation::Activate);
+
+		if (m_BodyID.IsInvalid())
+		{
+			OLO_CORE_ERROR("Failed to create Jolt body for entity {0}", (u64)m_Entity.GetUUID());
+			return;
+		}
+
+		// Setup the created body with initial state and constraints
+		SetupCreatedBody(m_BodyID, rigidBodyComponent);
 
 		OLO_CORE_TRACE("Created Jolt body for entity {0}, BodyID: {1}", (u64)m_Entity.GetUUID(), m_BodyID.GetIndex());
 	}
@@ -954,53 +985,46 @@ namespace OloEngine {
 		return m_Scene->GetBodyLockInterface();
 	}
 
-	void JoltBody::ApplyMaterialProperties(JPH::BodyCreationSettings& bodySettings)
+	void JoltBody::ApplyMaterialProperties(JPH::BodyCreationSettings& bodySettings) const
 	{
-		// Default material properties
-		f32 friction = 0.5f;
-		f32 restitution = 0.0f;
+		// Helper to extract material properties from first available collider component
+		// Returns {friction, restitution} pair, with fallback defaults if no collider found
+		auto extractMaterialProperties = [&]() -> std::pair<f32, f32> {
+			// Check collider components in priority order: Box > Sphere > Capsule > Mesh > ConvexMesh > TriangleMesh
+			
+			// Template helper to check component and extract material if present
+			auto tryExtractMaterial = [&]<typename ColliderType>() -> std::optional<std::pair<f32, f32>> {
+				if (m_Entity.HasComponent<ColliderType>())
+				{
+					const auto& collider = m_Entity.GetComponent<ColliderType>();
+					return std::make_pair(
+						collider.m_Material.GetStaticFriction(),
+						collider.m_Material.GetRestitution()
+					);
+				}
+				return std::nullopt;
+			};
 
-		// Check for collider components and use their material properties
-		// Priority: Box > Sphere > Capsule > other colliders (first found wins)
-		
-		if (m_Entity.HasComponent<BoxCollider3DComponent>())
-		{
-			const auto& collider = m_Entity.GetComponent<BoxCollider3DComponent>();
-			friction = collider.m_Material.GetStaticFriction();
-			restitution = collider.m_Material.GetRestitution();
-		}
-		else if (m_Entity.HasComponent<SphereCollider3DComponent>())
-		{
-			const auto& collider = m_Entity.GetComponent<SphereCollider3DComponent>();
-			friction = collider.m_Material.GetStaticFriction();
-			restitution = collider.m_Material.GetRestitution();
-		}
-		else if (m_Entity.HasComponent<CapsuleCollider3DComponent>())
-		{
-			const auto& collider = m_Entity.GetComponent<CapsuleCollider3DComponent>();
-			friction = collider.m_Material.GetStaticFriction();
-			restitution = collider.m_Material.GetRestitution();
-		}
-		else if (m_Entity.HasComponent<MeshCollider3DComponent>())
-		{
-			const auto& collider = m_Entity.GetComponent<MeshCollider3DComponent>();
-			friction = collider.m_Material.GetStaticFriction();
-			restitution = collider.m_Material.GetRestitution();
-		}
-		else if (m_Entity.HasComponent<ConvexMeshCollider3DComponent>())
-		{
-			const auto& collider = m_Entity.GetComponent<ConvexMeshCollider3DComponent>();
-			friction = collider.m_Material.GetStaticFriction();
-			restitution = collider.m_Material.GetRestitution();
-		}
-		else if (m_Entity.HasComponent<TriangleMeshCollider3DComponent>())
-		{
-			const auto& collider = m_Entity.GetComponent<TriangleMeshCollider3DComponent>();
-			friction = collider.m_Material.GetStaticFriction();
-			restitution = collider.m_Material.GetRestitution();
-		}
+			// Try each collider type in priority order
+			if (auto material = tryExtractMaterial.template operator()<BoxCollider3DComponent>())
+				return *material;
+			if (auto material = tryExtractMaterial.template operator()<SphereCollider3DComponent>())
+				return *material;
+			if (auto material = tryExtractMaterial.template operator()<CapsuleCollider3DComponent>())
+				return *material;
+			if (auto material = tryExtractMaterial.template operator()<MeshCollider3DComponent>())
+				return *material;
+			if (auto material = tryExtractMaterial.template operator()<ConvexMeshCollider3DComponent>())
+				return *material;
+			if (auto material = tryExtractMaterial.template operator()<TriangleMeshCollider3DComponent>())
+				return *material;
 
-		// Apply the material properties to the body settings
+			// Fallback defaults if no collider component found
+			return {0.5f, 0.0f}; // {friction, restitution}
+		};
+
+		// Extract material properties and apply to body settings
+		auto [friction, restitution] = extractMaterialProperties();
 		bodySettings.mFriction = friction;
 		bodySettings.mRestitution = restitution;
 	}

@@ -139,7 +139,7 @@ namespace OloEngine {
 		 */
 		inline ExcludedEntitySet CreateExclusionSet(const std::vector<UUID>& excludedEntities)
 		{
-			return ExcludedEntitySet(excludedEntities);
+			return ExcludedEntitySet{excludedEntities};
 		}
 
 		/**
@@ -149,7 +149,7 @@ namespace OloEngine {
 		 */
 		inline ExcludedEntitySet CreateExclusionSet(UUID excludedEntity)
 		{
-			return ExcludedEntitySet(excludedEntity);
+			return ExcludedEntitySet{excludedEntity};
 		}
 
 	} // namespace EntityExclusionUtils

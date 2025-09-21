@@ -133,7 +133,7 @@ namespace OloEngine {
 				sizet dataSize = CalculateDataSize(loadedData);
 				
 				// Check if we need to evict entries
-				if (m_CurrentCacheSize + dataSize > m_MaxCacheSize * CacheEvictionThreshold)
+				if (m_CurrentCacheSize + dataSize > m_MaxCacheSize * s_CacheEvictionThreshold)
 				{
 					EvictOldestEntries();
 				}
@@ -172,7 +172,7 @@ namespace OloEngine {
 				std::lock_guard<std::mutex> lock(m_CacheMutex);
 				sizet dataSize = CalculateDataSize(loadedData);
 				
-				if (m_CurrentCacheSize + dataSize > m_MaxCacheSize * CacheEvictionThreshold)
+				if (m_CurrentCacheSize + dataSize > m_MaxCacheSize * s_CacheEvictionThreshold)
 				{
 					EvictOldestEntries();
 				}
@@ -212,7 +212,7 @@ namespace OloEngine {
 				std::lock_guard<std::mutex> lock(m_CacheMutex);
 				sizet dataSize = CalculateDataSize(loadedData);
 				
-				if (m_CurrentCacheSize + dataSize > m_MaxCacheSize * CacheEvictionThreshold)
+				if (m_CurrentCacheSize + dataSize > m_MaxCacheSize * s_CacheEvictionThreshold)
 				{
 					EvictOldestEntries();
 				}
@@ -308,7 +308,7 @@ namespace OloEngine {
 							// Add new entry if it doesn't exist (shouldn't normally happen)
 							sizet dataSize = CalculateDataSize(updatedData);
 							
-							if (m_CurrentCacheSize + dataSize > m_MaxCacheSize * CacheEvictionThreshold)
+							if (m_CurrentCacheSize + dataSize > m_MaxCacheSize * s_CacheEvictionThreshold)
 							{
 								EvictOldestEntries();
 							}
@@ -507,7 +507,7 @@ namespace OloEngine {
 	void MeshColliderCache::EvictOldestEntries()
 	{
 		// Simple LRU-like eviction - remove entries until we're under the threshold
-		sizet targetSize = static_cast<sizet>(m_MaxCacheSize * CacheEvictionThreshold * CacheEvictionTargetRatio);
+		sizet targetSize = static_cast<sizet>(m_MaxCacheSize * s_CacheEvictionThreshold * s_CacheEvictionTargetRatio);
 
 		std::vector<std::pair<AssetHandle, std::chrono::system_clock::time_point>> entries;
 		entries.reserve(m_CachedData.size());
@@ -545,7 +545,7 @@ namespace OloEngine {
 		auto now = std::chrono::system_clock::now();
 		auto entryAge = std::chrono::duration_cast<std::chrono::milliseconds>(now - data.m_LastAccessed);
 		
-		return entryAge.count() > MinCacheEntryLifetimeMs;
+		return entryAge.count() > s_MinCacheEntryLifetimeMs;
 	}
 
 	sizet MeshColliderCache::CalculateDataSize(const CachedColliderData& data) const

@@ -84,43 +84,14 @@ namespace OloEngine {
             JPH::uint64 UserData;
         };
 
-        virtual void OnBodyActivated(const JPH::BodyID& inBodyID, JPH::uint64 inBodyUserData) override
-        {
-            // Thread-safe: enqueue event for main thread processing
-            ActivationEvent event{ ActivationEvent::Activated, inBodyID, inBodyUserData };
-            EnqueueEvent(event);
-        }
-
-        virtual void OnBodyDeactivated(const JPH::BodyID& inBodyID, JPH::uint64 inBodyUserData) override
-        {
-            // Thread-safe: enqueue event for main thread processing
-            ActivationEvent event{ ActivationEvent::Deactivated, inBodyID, inBodyUserData };
-            EnqueueEvent(event);
-        }
+        virtual void OnBodyActivated(const JPH::BodyID& inBodyID, JPH::uint64 inBodyUserData) override;
+        virtual void OnBodyDeactivated(const JPH::BodyID& inBodyID, JPH::uint64 inBodyUserData) override;
 
         // Process queued events on main thread
-        void ProcessEvents()
-        {
-            ActivationEvent event;
-            while (TryDequeueEvent(event))
-            {
-                switch (event.EventType)
-                {
-                    case ActivationEvent::Activated:
-                        OLO_CORE_INFO("Body {} got activated", event.BodyID.GetIndex());
-                        break;
-                    case ActivationEvent::Deactivated:
-                        OLO_CORE_INFO("Body {} went to sleep", event.BodyID.GetIndex());
-                        break;
-                }
-            }
-        }
+        void ProcessEvents();
 
         // Get the number of pending events
-        sizet GetPendingEventCount() const noexcept
-        {
-            return m_QueueSize.load(std::memory_order_relaxed);
-        }
+        sizet GetPendingEventCount() const noexcept;
 
     private:
         void EnqueueEvent(const ActivationEvent& event)
@@ -154,36 +125,13 @@ namespace OloEngine {
     {
     public:
         // See: ContactListener
-        virtual JPH::ValidateResult OnContactValidate(const JPH::Body& inBody1, const JPH::Body& inBody2, JPH::RVec3Arg inBaseOffset, const JPH::CollideShapeResult& inCollisionResult) override
-        {
-#ifdef OLO_DEBUG
-            OLO_CORE_INFO("Contact validate callback");
-#endif
+        virtual JPH::ValidateResult OnContactValidate(const JPH::Body& inBody1, const JPH::Body& inBody2, JPH::RVec3Arg inBaseOffset, const JPH::CollideShapeResult& inCollisionResult) override;
 
-            // Allows you to ignore a contact before it is created (using layers to not make objects collide is cheaper!)
-            return JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
-        }
+        virtual void OnContactAdded(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, JPH::ContactSettings& ioSettings) override;
 
-        virtual void OnContactAdded(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, JPH::ContactSettings& ioSettings) override
-        {
-#ifdef OLO_DEBUG
-            OLO_CORE_INFO("A contact was added");
-#endif
-        }
+        virtual void OnContactPersisted(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, JPH::ContactSettings& ioSettings) override;
 
-        virtual void OnContactPersisted(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, JPH::ContactSettings& ioSettings) override
-        {
-#ifdef OLO_DEBUG
-            OLO_CORE_INFO("A contact was persisted");
-#endif
-        }
-
-        virtual void OnContactRemoved(const JPH::SubShapeIDPair& inSubShapePair) override
-        {
-#ifdef OLO_DEBUG
-            OLO_CORE_INFO("A contact was removed");
-#endif
-        }
+        virtual void OnContactRemoved(const JPH::SubShapeIDPair& inSubShapePair) override;
     };
 
     class Physics3DSystem
@@ -238,20 +186,17 @@ namespace OloEngine {
         void RemoveBody(JPH::BodyID bodyID);
 
         // Get body interface for direct manipulation
-        JPH::BodyInterface* GetBodyInterface() 
+        [[nodiscard]] JPH::BodyInterface* GetBodyInterface() 
         { 
             return m_PhysicsSystem ? &m_PhysicsSystem->GetBodyInterface() : nullptr; 
         }
-        const JPH::BodyInterface* GetBodyInterface() const 
+        [[nodiscard]] const JPH::BodyInterface* GetBodyInterface() const 
         { 
             return m_PhysicsSystem ? &m_PhysicsSystem->GetBodyInterface() : nullptr; 
         }
 
         // Get the physics system for direct access
-        JPH::PhysicsSystem* GetPhysicsSystem() noexcept { return m_PhysicsSystem.get(); }
-
-        // Static access to the Jolt system (for utilities)
-        static JPH::PhysicsSystem& GetJoltSystem();
+        [[nodiscard]] JPH::PhysicsSystem* GetPhysicsSystem() noexcept { return m_PhysicsSystem.get(); }
 
     private:
         // ====================================================================

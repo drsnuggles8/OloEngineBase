@@ -84,6 +84,14 @@ namespace OloEngine {
 		static ShapeType GetShapeType(const JPH::Shape* shape);
 		static const char* GetShapeTypeName(const JPH::Shape* shape);
 
+		// Delete constructors and assignment operators to prevent instantiation
+		JoltShapes() = delete;
+		~JoltShapes() = delete;
+		JoltShapes(const JoltShapes&) = delete;
+		JoltShapes(JoltShapes&&) = delete;
+		JoltShapes& operator=(const JoltShapes&) = delete;
+		JoltShapes& operator=(JoltShapes&&) = delete;
+
 	private:
 		// Internal shape creation helpers
 		static JPH::Ref<JPH::Shape> CreateBoxShapeInternal(const glm::vec3& halfExtents);

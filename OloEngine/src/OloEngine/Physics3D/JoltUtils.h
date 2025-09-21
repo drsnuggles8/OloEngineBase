@@ -26,7 +26,7 @@ namespace OloEngine {
 		static constexpr u32 kMaxJoltLayers = 32;
 
 		// Matrix operations constants
-		static constexpr f32 NORMALIZATION_EPSILON = 1e-6f;
+		static constexpr f32 kNormalizationEpsilon = 1e-6f;
 
 		// Delete constructors and assignment operators to prevent instantiation
 		JoltUtils() = delete;
@@ -146,7 +146,7 @@ namespace OloEngine {
 		}
 
 		// Full transform decomposition - extracts all components (translation, rotation, scale)
-		// Note: If you only need one component, prefer the direct extractors (GetRotationFromTransform, GetScaleFromTransform)
+		// Note: If you only need one component, prefer the direct extractors (GetTranslationFromTransform, GetRotationFromTransform, GetScaleFromTransform)
 		// for better performance in hot paths
 		static TransformComponents DecomposeTransform(const glm::mat4& transform)
 		{
@@ -177,7 +177,7 @@ namespace OloEngine {
 			f32 len2 = glm::length(rotScale[2]);
 			
 			// Check if any column is too small (near-zero scale)
-			if (len0 < NORMALIZATION_EPSILON || len1 < NORMALIZATION_EPSILON || len2 < NORMALIZATION_EPSILON)
+			if (len0 < kNormalizationEpsilon || len1 < kNormalizationEpsilon || len2 < kNormalizationEpsilon)
 			{
 				// Fallback to robust decomposition when columns are degenerate
 				auto components = DecomposeTransform(transform);
@@ -195,13 +195,13 @@ namespace OloEngine {
 			f32 dot12 = glm::dot(col1, col2);
 			
 			// If columns are not sufficiently orthogonal, re-orthogonalize
-			if (glm::abs(dot01) > NORMALIZATION_EPSILON || glm::abs(dot02) > NORMALIZATION_EPSILON || glm::abs(dot12) > NORMALIZATION_EPSILON)
+			if (glm::abs(dot01) > kNormalizationEpsilon || glm::abs(dot02) > kNormalizationEpsilon || glm::abs(dot12) > kNormalizationEpsilon)
 			{
 				// Apply Gram-Schmidt orthogonalization
 				// Keep col0 as reference, orthogonalize col1 and col2
 				col1 = col1 - glm::dot(col1, col0) * col0;
 				f32 len1_ortho = glm::length(col1);
-				if (len1_ortho < NORMALIZATION_EPSILON)
+				if (len1_ortho < kNormalizationEpsilon)
 				{
 					// col1 is parallel to col0, construct perpendicular vector
 					glm::vec3 arbitrary = (glm::abs(col0.x) < 0.9f) ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
@@ -244,6 +244,11 @@ namespace OloEngine {
 		static glm::vec3 GetScaleFromTransform(const TransformComponents& components)
 		{
 			return components.m_Scale;
+		}
+
+		static glm::vec3 GetTranslationFromTransform(const TransformComponents& components)
+		{
+			return components.m_Translation;
 		}
 
 		// Transform composition

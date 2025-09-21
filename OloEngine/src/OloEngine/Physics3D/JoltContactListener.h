@@ -45,19 +45,19 @@ namespace OloEngine {
 	private:
 		struct ContactEvent
 		{
-			ContactType Type = ContactType::None;
-			UUID EntityA = 0;
-			UUID EntityB = 0;
-			glm::vec3 ContactPoint = glm::vec3(0.0f);
-			glm::vec3 ContactNormal = glm::vec3(0.0f);
-			f32 ContactDepth = 0.0f;
-			f32 ContactImpulse = 0.0f;
+			ContactType m_Type = ContactType::None;
+			UUID m_EntityA = 0;
+			UUID m_EntityB = 0;
+			glm::vec3 m_ContactPoint = glm::vec3(0.0f);
+			glm::vec3 m_ContactNormal = glm::vec3(0.0f);
+			f32 m_ContactDepth = 0.0f;
+			f32 m_ContactImpulse = 0.0f;
 
 			ContactEvent() = default;
 			ContactEvent(ContactType type, UUID entityA, UUID entityB)
-				: Type(type), EntityA(entityA), EntityB(entityB) {}
+				: m_Type(type), m_EntityA(entityA), m_EntityB(entityB) {}
 			ContactEvent(ContactType type, UUID entityA, UUID entityB, const glm::vec3& point, const glm::vec3& normal, f32 depth, f32 impulse)
-				: Type(type), EntityA(entityA), EntityB(entityB), ContactPoint(point), ContactNormal(normal), ContactDepth(depth), ContactImpulse(impulse) {}
+				: m_Type(type), m_EntityA(entityA), m_EntityB(entityB), m_ContactPoint(point), m_ContactNormal(normal), m_ContactDepth(depth), m_ContactImpulse(impulse) {}
 		};
 
 		void QueueContactEvent(const ContactEvent& event);
@@ -75,11 +75,11 @@ namespace OloEngine {
 		// Active contacts tracking for OnContactRemoved
 		struct ContactInfo
 		{
-			UUID EntityA;
-			UUID EntityB;
+			UUID m_EntityA;
+			UUID m_EntityB;
 			
 			ContactInfo() = default;
-			ContactInfo(UUID entityA, UUID entityB) : EntityA(entityA), EntityB(entityB) {}
+			ContactInfo(UUID entityA, UUID entityB) : m_EntityA(entityA), m_EntityB(entityB) {}
 		};
 		
 		mutable std::mutex m_ActiveContactsMutex;

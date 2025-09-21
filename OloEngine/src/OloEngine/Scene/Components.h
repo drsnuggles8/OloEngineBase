@@ -200,7 +200,7 @@ namespace OloEngine
 		glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
 
 		// Physics material properties
-		ColliderMaterial m_Material;
+		ColliderMaterial m_Material{};
 
 		BoxCollider3DComponent() = default;
 		BoxCollider3DComponent(const BoxCollider3DComponent&) = default;
@@ -212,7 +212,7 @@ namespace OloEngine
 		glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
 
 		// Physics material properties
-		ColliderMaterial m_Material;
+		ColliderMaterial m_Material{};
 
 		SphereCollider3DComponent() = default;
 		SphereCollider3DComponent(const SphereCollider3DComponent&) = default;
@@ -225,7 +225,7 @@ namespace OloEngine
 		glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
 
 		// Physics material properties
-		ColliderMaterial m_Material;
+		ColliderMaterial m_Material{};
 
 		CapsuleCollider3DComponent() = default;
 		CapsuleCollider3DComponent(const CapsuleCollider3DComponent&) = default;
@@ -238,7 +238,7 @@ namespace OloEngine
 		glm::vec3 m_Scale = { 1.0f, 1.0f, 1.0f };
 
 		// Physics material properties
-		ColliderMaterial m_Material;
+		ColliderMaterial m_Material{};
 
 		// Collision complexity setting
 		bool m_UseComplexAsSimple = false;  // If true, use triangle mesh for dynamic bodies
@@ -255,7 +255,7 @@ namespace OloEngine
 		glm::vec3 m_Scale = { 1.0f, 1.0f, 1.0f };
 
 		// Physics material properties
-		ColliderMaterial m_Material;
+		ColliderMaterial m_Material{};
 
 		// Convex hull settings
 		f32 m_ConvexRadius = 0.05f;  // Jolt convex radius for shape rounding
@@ -273,7 +273,7 @@ namespace OloEngine
 		glm::vec3 m_Scale = { 1.0f, 1.0f, 1.0f };
 
 		// Physics material properties
-		ColliderMaterial m_Material;
+		ColliderMaterial m_Material{};
 
 		// Triangle mesh is always static - no additional settings needed
 

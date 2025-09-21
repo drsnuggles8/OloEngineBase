@@ -50,31 +50,31 @@ namespace YAML {
 // Physics settings validation helpers
 namespace {
 	// Validation ranges for physics settings
-	constexpr f32 MIN_FIXED_TIMESTEP = 1.0f / 300.0f;  // 300 Hz max frequency
-	constexpr f32 MAX_FIXED_TIMESTEP = 1.0f / 10.0f;   // 10 Hz min frequency
-	constexpr f32 MAX_GRAVITY_MAGNITUDE = 100.0f;      // Reasonable max gravity magnitude
-	constexpr u32 MIN_SOLVER_ITERATIONS = 1u;
-	constexpr u32 MAX_SOLVER_ITERATIONS = 50u;
-	constexpr u32 MIN_MAX_BODIES = 100u;
-	constexpr u32 MAX_MAX_BODIES = 1000000u;
-	constexpr u32 MIN_MAX_PAIRS = 100u;
-	constexpr u32 MAX_MAX_PAIRS = 1000000u;
-	constexpr u32 MIN_MAX_CONTACTS = 100u;
-	constexpr u32 MAX_MAX_CONTACTS = 100000u;
-	constexpr f32 MIN_BAUMGARTE = 0.01f;
-	constexpr f32 MAX_BAUMGARTE = 1.0f;
-	constexpr f32 MIN_CONTACT_DISTANCE = 0.001f;
-	constexpr f32 MAX_CONTACT_DISTANCE = 1.0f;
-	constexpr f32 MIN_SLOP = 0.001f;
-	constexpr f32 MAX_SLOP = 0.5f;
-	constexpr f32 MIN_CAST_THRESHOLD = 0.1f;
-	constexpr f32 MAX_CAST_THRESHOLD = 10.0f;
-	constexpr f32 MIN_VELOCITY_RESTITUTION = 0.0f;
-	constexpr f32 MAX_VELOCITY_RESTITUTION = 100.0f;
-	constexpr f32 MIN_TIME_BEFORE_SLEEP = 0.0f;
-	constexpr f32 MAX_TIME_BEFORE_SLEEP = 60.0f;
-	constexpr f32 MIN_VELOCITY_SLEEP_THRESHOLD = 0.001f;
-	constexpr f32 MAX_VELOCITY_SLEEP_THRESHOLD = 10.0f;
+	constexpr f32 s_MinFixedTimestep = 1.0f / 300.0f;  // 300 Hz max frequency
+	constexpr f32 s_MaxFixedTimestep = 1.0f / 10.0f;   // 10 Hz min frequency
+	constexpr f32 s_MaxGravityMagnitude = 100.0f;      // Reasonable max gravity magnitude
+	constexpr u32 s_MinSolverIterations = 1u;
+	constexpr u32 s_MaxSolverIterations = 50u;
+	constexpr u32 s_MinMaxBodies = 100u;
+	constexpr u32 s_MaxMaxBodies = 1000000u;
+	constexpr u32 s_MinMaxPairs = 100u;
+	constexpr u32 s_MaxMaxPairs = 1000000u;
+	constexpr u32 s_MinMaxContacts = 100u;
+	constexpr u32 s_MaxMaxContacts = 100000u;
+	constexpr f32 s_MinBaumgarte = 0.01f;
+	constexpr f32 s_MaxBaumgarte = 1.0f;
+	constexpr f32 s_MinContactDistance = 0.001f;
+	constexpr f32 s_MaxContactDistance = 1.0f;
+	constexpr f32 s_MinSlop = 0.001f;
+	constexpr f32 s_MaxSlop = 0.5f;
+	constexpr f32 s_MinCastThreshold = 0.1f;
+	constexpr f32 s_MaxCastThreshold = 10.0f;
+	constexpr f32 s_MinVelocityRestitution = 0.0f;
+	constexpr f32 s_MaxVelocityRestitution = 100.0f;
+	constexpr f32 s_MinTimeBeforeSleep = 0.0f;
+	constexpr f32 s_MaxTimeBeforeSleep = 60.0f;
+	constexpr f32 s_MinVelocitySleepThreshold = 0.001f;
+	constexpr f32 s_MaxVelocitySleepThreshold = 10.0f;
 
 	/// Case-insensitive string comparison helper
 	/// \param lhs First string to compare
@@ -159,12 +159,12 @@ namespace {
 			return glm::vec3(0.0f, -9.81f, 0.0f);
 		}
 		
-		if (magnitude > MAX_GRAVITY_MAGNITUDE)
+		if (magnitude > s_MaxGravityMagnitude)
 		{
 			glm::vec3 normalized = magnitude > 0.0f ? gravity / magnitude : glm::vec3(0.0f, -1.0f, 0.0f);
-			glm::vec3 clamped = normalized * MAX_GRAVITY_MAGNITUDE;
+			glm::vec3 clamped = normalized * s_MaxGravityMagnitude;
 			OLO_CORE_WARN("Physics validation: {} magnitude ({}) exceeds maximum ({}), clamping to maximum", 
-				settingName, magnitude, MAX_GRAVITY_MAGNITUDE);
+				settingName, magnitude, s_MaxGravityMagnitude);
 			return clamped;
 		}
 		
@@ -180,38 +180,38 @@ namespace {
 		
 		// Validate core simulation settings
 		validated.m_FixedTimestep = ValidateAndClampFloat(settings.m_FixedTimestep, 
-			MIN_FIXED_TIMESTEP, MAX_FIXED_TIMESTEP, 1.0f / 60.0f, "FixedTimestep");
+			s_MinFixedTimestep, s_MaxFixedTimestep, 1.0f / 60.0f, "FixedTimestep");
 		validated.m_Gravity = ValidateGravity(settings.m_Gravity, "Gravity");
 		
 		// Validate solver settings
 		validated.m_PositionSolverIterations = ValidateAndClampUInt(settings.m_PositionSolverIterations,
-			MIN_SOLVER_ITERATIONS, MAX_SOLVER_ITERATIONS, 2u, "PositionSolverIterations");
+			s_MinSolverIterations, s_MaxSolverIterations, 2u, "PositionSolverIterations");
 		validated.m_VelocitySolverIterations = ValidateAndClampUInt(settings.m_VelocitySolverIterations,
-			MIN_SOLVER_ITERATIONS, MAX_SOLVER_ITERATIONS, 10u, "VelocitySolverIterations");
+			s_MinSolverIterations, s_MaxSolverIterations, 10u, "VelocitySolverIterations");
 		
 		// Validate system limits
 		validated.m_MaxBodies = ValidateAndClampUInt(settings.m_MaxBodies,
-			MIN_MAX_BODIES, MAX_MAX_BODIES, 65536u, "MaxBodies");
+			s_MinMaxBodies, s_MaxMaxBodies, 65536u, "MaxBodies");
 		validated.m_MaxBodyPairs = ValidateAndClampUInt(settings.m_MaxBodyPairs,
-			MIN_MAX_PAIRS, MAX_MAX_PAIRS, 65536u, "MaxBodyPairs");
+			s_MinMaxPairs, s_MaxMaxPairs, 65536u, "MaxBodyPairs");
 		validated.m_MaxContactConstraints = ValidateAndClampUInt(settings.m_MaxContactConstraints,
-			MIN_MAX_CONTACTS, MAX_MAX_CONTACTS, 10240u, "MaxContactConstraints");
+			s_MinMaxContacts, s_MaxMaxContacts, 10240u, "MaxContactConstraints");
 		
 		// Validate advanced Jolt settings
 		validated.m_Baumgarte = ValidateAndClampFloat(settings.m_Baumgarte,
-			MIN_BAUMGARTE, MAX_BAUMGARTE, 0.2f, "Baumgarte");
+			s_MinBaumgarte, s_MaxBaumgarte, 0.2f, "Baumgarte");
 		validated.m_SpeculativeContactDistance = ValidateAndClampFloat(settings.m_SpeculativeContactDistance,
-			MIN_CONTACT_DISTANCE, MAX_CONTACT_DISTANCE, 0.02f, "SpeculativeContactDistance");
+			s_MinContactDistance, s_MaxContactDistance, 0.02f, "SpeculativeContactDistance");
 		validated.m_PenetrationSlop = ValidateAndClampFloat(settings.m_PenetrationSlop,
-			MIN_SLOP, MAX_SLOP, 0.05f, "PenetrationSlop");
+			s_MinSlop, s_MaxSlop, 0.05f, "PenetrationSlop");
 		validated.m_LinearCastThreshold = ValidateAndClampFloat(settings.m_LinearCastThreshold,
-			MIN_CAST_THRESHOLD, MAX_CAST_THRESHOLD, 0.75f, "LinearCastThreshold");
+			s_MinCastThreshold, s_MaxCastThreshold, 0.75f, "LinearCastThreshold");
 		validated.m_MinVelocityForRestitution = ValidateAndClampFloat(settings.m_MinVelocityForRestitution,
-			MIN_VELOCITY_RESTITUTION, MAX_VELOCITY_RESTITUTION, 1.0f, "MinVelocityForRestitution");
+			s_MinVelocityRestitution, s_MaxVelocityRestitution, 1.0f, "MinVelocityForRestitution");
 		validated.m_TimeBeforeSleep = ValidateAndClampFloat(settings.m_TimeBeforeSleep,
-			MIN_TIME_BEFORE_SLEEP, MAX_TIME_BEFORE_SLEEP, 0.5f, "TimeBeforeSleep");
+			s_MinTimeBeforeSleep, s_MaxTimeBeforeSleep, 0.5f, "TimeBeforeSleep");
 		validated.m_PointVelocitySleepThreshold = ValidateAndClampFloat(settings.m_PointVelocitySleepThreshold,
-			MIN_VELOCITY_SLEEP_THRESHOLD, MAX_VELOCITY_SLEEP_THRESHOLD, 0.03f, "PointVelocitySleepThreshold");
+			s_MinVelocitySleepThreshold, s_MaxVelocitySleepThreshold, 0.03f, "PointVelocitySleepThreshold");
 		
 		// Boolean settings don't need validation (any bool value is valid)
 		

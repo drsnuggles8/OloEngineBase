@@ -98,8 +98,8 @@ namespace OloEngine {
 			auto it = m_ActiveContacts.find(inSubShapePair);
 			if (it != m_ActiveContacts.end())
 			{
-				entityA = it->second.EntityA;
-				entityB = it->second.EntityB;
+				entityA = it->second.m_EntityA;
+				entityB = it->second.m_EntityB;
 				
 				// Remove the contact from our tracking map
 				m_ActiveContacts.erase(it);
@@ -139,7 +139,7 @@ namespace OloEngine {
 		for (const ContactEvent& event : localEventQueue)
 		{
 			// Send the contact event to the scene for processing
-			m_Scene.OnContactEvent(event.Type, event.EntityA, event.EntityB);
+			m_Scene.OnContactEvent(event.m_Type, event.m_EntityA, event.m_EntityB);
 		}
 	}
 

@@ -111,9 +111,9 @@ namespace OloEngine {
 		CachedColliderData m_InvalidData;
 
 		// Cache cleanup threshold
-		static constexpr f32 CacheEvictionThreshold = 0.8f; // Start evicting at 80% capacity
-		static constexpr f32 CacheEvictionTargetRatio = 0.7f; // Target cache size after eviction (70% of threshold)
-		static constexpr sizet MinCacheEntryLifetimeMs = 5000; // 5 seconds minimum lifetime
+		static constexpr f32 s_CacheEvictionThreshold = 0.8f; // Start evicting at 80% capacity
+		static constexpr f32 s_CacheEvictionTargetRatio = 0.7f; // Target cache size after eviction (70% of threshold)
+		static constexpr sizet s_MinCacheEntryLifetimeMs = 5000; // 5 seconds minimum lifetime
 	};
 
 }

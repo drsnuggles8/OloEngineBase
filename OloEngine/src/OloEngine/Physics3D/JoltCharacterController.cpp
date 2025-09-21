@@ -17,6 +17,17 @@ namespace OloEngine
     // Physics simulation constants
     constexpr f32 kVelocityEpsilon = 1e-6f;
     constexpr f32 kQuatEpsilon = 1e-6f;
+    constexpr f32 kVelocityReductionFactor = 0.5f;  // Reduce character impact force by 50% for realistic interaction
+    constexpr f32 kCollisionAngleDotThreshold = 0.7f;  // Dot product threshold for collision angle detection (roughly 45 degrees)
+    
+    // Character controller default settings
+    constexpr f32 kDefaultMaxSlopeDegrees = 45.0f;  // Maximum slope angle in degrees that character can walk on
+    constexpr f32 kDefaultMaxStrength = 100.0f;  // Maximum force the character can apply
+    constexpr f32 kDefaultCharacterPadding = 0.02f;  // Small padding for stability
+    constexpr f32 kDefaultPenetrationRecoverySpeed = 1.0f;  // Recovery speed from penetration
+    constexpr f32 kDefaultPredictiveContactDistance = 0.1f;  // Predictive contact for smooth movement
+    constexpr f32 kDefaultCapsuleHalfHeight = 0.9f;  // Default capsule half height (1.8m total height)
+    constexpr f32 kDefaultCapsuleRadius = 0.3f;  // Default capsule radius for typical human proportions
 
     JoltCharacterController::JoltCharacterController(Entity entity, JoltScene* scene, const ContactCallbackFn& contactCallback)
         : m_Entity(entity), m_Scene(scene), m_ContactEventCallback(contactCallback),
@@ -100,10 +111,9 @@ namespace OloEngine
     void JoltCharacterController::Rotate(const glm::quat& rotation)
     {
         // Avoid quat multiplication if rotation is close to identity
-        constexpr f32 QUAT_EPS = 1e-6f;
         f32 imaginaryLength = glm::length(glm::vec3(rotation.x, rotation.y, rotation.z));
         
-        if ((IsGrounded() || m_ControlRotationInAir) && imaginaryLength > QUAT_EPS)
+        if ((IsGrounded() || m_ControlRotationInAir) && imaginaryLength > kQuatEpsilon)
         {
             m_Rotation = m_Rotation * JoltUtils::ToJoltQuat(rotation);
         }
@@ -351,17 +361,17 @@ namespace OloEngine
 
         // Create character controller settings
         JPH::Ref<JPH::CharacterVirtualSettings> settings = new JPH::CharacterVirtualSettings();
-        settings->mMaxSlopeAngle = glm::radians(45.0f); // Default 45 degree slope limit
-        settings->mMaxStrength = 100.0f; // Maximum force the character can apply
-        settings->mCharacterPadding = 0.02f; // Small padding for stability
-        settings->mPenetrationRecoverySpeed = 1.0f; // Recovery speed from penetration
-        settings->mPredictiveContactDistance = 0.1f; // Predictive contact for smooth movement
+        settings->mMaxSlopeAngle = glm::radians(kDefaultMaxSlopeDegrees); // Default 45 degree slope limit
+        settings->mMaxStrength = kDefaultMaxStrength; // Maximum force the character can apply
+        settings->mCharacterPadding = kDefaultCharacterPadding; // Small padding for stability
+        settings->mPenetrationRecoverySpeed = kDefaultPenetrationRecoverySpeed; // Recovery speed from penetration
+        settings->mPredictiveContactDistance = kDefaultPredictiveContactDistance; // Predictive contact for smooth movement
         
         // Create a default capsule shape if no shape is specified
         if (!m_Shape)
         {
             // Default capsule: height 1.8m, radius 0.3m (typical human proportions)
-            m_Shape = new JPH::CapsuleShape(0.9f, 0.3f); // Half height, radius
+            m_Shape = new JPH::CapsuleShape(kDefaultCapsuleHalfHeight, kDefaultCapsuleRadius); // Half height, radius
         }
 
         settings->mShape = m_Shape;
@@ -502,9 +512,8 @@ namespace OloEngine
         
         // Apply reduced velocity modification for realistic character-object interaction
         // Characters shouldn't be able to launch objects with full force
-        f32 velocityReduction = 0.5f; // Reduce the impact by 50%
-        ioLinearVelocity *= velocityReduction;
-        ioAngularVelocity *= velocityReduction;
+        ioLinearVelocity *= kVelocityReductionFactor;
+        ioAngularVelocity *= kVelocityReductionFactor;
     }
 
     bool JoltCharacterController::OnContactValidate([[maybe_unused]] const JPH::CharacterVirtual* inCharacter, const JPH::BodyID& inBodyID2, 
@@ -547,11 +556,11 @@ namespace OloEngine
         JPH::Vec3 up = JPH::Vec3(0, 1, 0);
         f32 dotUp = inContactNormal.Dot(up);
         
-        if (dotUp > 0.7f) // Roughly 45 degrees
+        if (dotUp > kCollisionAngleDotThreshold) // Roughly 45 degrees
         {
             m_CollisionFlags = static_cast<ECollisionFlags>(static_cast<u8>(m_CollisionFlags) | static_cast<u8>(ECollisionFlags::Below));
         }
-        else if (dotUp < -0.7f)
+        else if (dotUp < -kCollisionAngleDotThreshold)
         {
             m_CollisionFlags = static_cast<ECollisionFlags>(static_cast<u8>(m_CollisionFlags) | static_cast<u8>(ECollisionFlags::Above));
         }

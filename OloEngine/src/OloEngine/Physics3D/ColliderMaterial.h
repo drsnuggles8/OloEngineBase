@@ -16,7 +16,10 @@ namespace OloEngine {
 		static constexpr f32 MIN_RESTITUTION = 0.0f; ///< Minimum allowed restitution (no bounce)
 		static constexpr f32 MIN_DENSITY = 0.001f;  ///< Minimum allowed density (prevents zero/negative values)
 
-		ColliderMaterial() { Validate(); }
+		ColliderMaterial() 
+		{ 
+			Validate(); 
+		}
 		
 		ColliderMaterial(f32 staticFriction, f32 dynamicFriction, f32 restitution, f32 density = 1000.0f)
 			: m_StaticFriction(staticFriction), m_DynamicFriction(dynamicFriction), m_Restitution(restitution), m_Density(density) 
@@ -25,16 +28,28 @@ namespace OloEngine {
 		}
 
 		/// @brief Get static friction coefficient
-		f32 GetStaticFriction() const { return m_StaticFriction; }
+		f32 GetStaticFriction() const 
+		{ 
+			return m_StaticFriction; 
+		}
 
 		/// @brief Get dynamic friction coefficient  
-		f32 GetDynamicFriction() const { return m_DynamicFriction; }
+		f32 GetDynamicFriction() const 
+		{ 
+			return m_DynamicFriction; 
+		}
 
 		/// @brief Get restitution (bounciness) factor
-		f32 GetRestitution() const { return m_Restitution; }
+		f32 GetRestitution() const 
+		{ 
+			return m_Restitution; 
+		}
 
 		/// @brief Get material density in kg/m³
-		f32 GetDensity() const { return m_Density; }
+		f32 GetDensity() const 
+		{ 
+			return m_Density; 
+		}
 
 		/// @brief Set static friction with validation
 		void SetStaticFriction(f32 friction) 

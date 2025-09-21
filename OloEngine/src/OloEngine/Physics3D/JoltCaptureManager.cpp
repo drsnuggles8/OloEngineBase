@@ -17,6 +17,11 @@ namespace OloEngine {
 	// Static constexpr member definition for linker
 	constexpr i32 JoltCaptureManager::s_DefaultFrameLogInterval;
 
+	JoltCaptureOutStream::~JoltCaptureOutStream() noexcept
+	{
+		Close();
+	}
+
 	bool JoltCaptureOutStream::Open(const std::filesystem::path& inPath)
 	{
 		OLO_PROFILE_FUNCTION();
@@ -52,30 +57,35 @@ namespace OloEngine {
 		m_Stream.clear(); // Reset error/state flags for reuse
 	}
 
-	void JoltCaptureOutStream::WriteBytes(const void* inData, sizet inNumBytes)
+	bool JoltCaptureOutStream::WriteBytes(const void* inData, sizet inNumBytes)
 	{
-		// Fast-path: return immediately for zero-length writes
+		// Fast-path: return success immediately for zero-length writes
 		if (inNumBytes == 0)
-			return;
+			return true;
 		
 		// Guard against null pointer with positive byte count
 		if (inData == nullptr)
 		{
 			OLO_CORE_ERROR("WriteBytes called with null data pointer but {} bytes requested", inNumBytes);
-			return;
+			return false;
 		}
 		
-		if (m_Stream.is_open())
+		if (!m_Stream.is_open())
 		{
-			m_Stream.write(static_cast<const char*>(inData), static_cast<std::streamsize>(inNumBytes));
-			
-			// Check for write failures immediately after the operation
-			if (m_Stream.fail() || m_Stream.bad() || !m_Stream.good())
-			{
-				OLO_CORE_ERROR("Failed to write {} bytes to capture stream (fail: {}, bad: {}, good: {})", 
-							   inNumBytes, m_Stream.fail(), m_Stream.bad(), m_Stream.good());
-			}
+			return false;
 		}
+		
+		m_Stream.write(static_cast<const char*>(inData), static_cast<std::streamsize>(inNumBytes));
+		
+		// Check for write failures immediately after the operation
+		if (m_Stream.fail() || m_Stream.bad() || !m_Stream.good())
+		{
+			OLO_CORE_ERROR("Failed to write {} bytes to capture stream (fail: {}, bad: {}, good: {})", 
+						   inNumBytes, m_Stream.fail(), m_Stream.bad(), m_Stream.good());
+			return false;
+		}
+		
+		return true;
 	}
 
 	bool JoltCaptureOutStream::IsFailed() const
@@ -414,7 +424,7 @@ namespace OloEngine {
 		return m_IsCapturing && m_Stream.IsOpen() && !m_Stream.IsFailed();
 	}
 
-	void JoltCaptureManager::OpenCapture(const std::filesystem::path& capturePath) const
+	void JoltCaptureManager::OpenCapture(const std::filesystem::path& capturePath)
 	{
 		OLO_PROFILE_FUNCTION();
 
@@ -450,7 +460,7 @@ namespace OloEngine {
 		OLO_CORE_INFO("Capture file available: {}", capturePath.string());
 	}
 
-	void JoltCaptureManager::OpenRecentCapture() const
+	void JoltCaptureManager::OpenRecentCapture()
 	{
 		OLO_PROFILE_FUNCTION();
 

@@ -67,7 +67,7 @@ namespace OloEngine {
 	// .omc file format (OloEngine Mesh Collider)
 	struct OloMeshColliderHeader
 	{
-		char m_Header[8] = {'O','l','o','M','e','s','h','C'};
+		char m_Header[8] = {'O','l','o','M','e','s','h','C'};  // "OloMeshC" as 8-byte header (no null terminator)
 		u32 m_Version = 1;
 		EMeshColliderType m_Type = EMeshColliderType::Triangle;
 		u32 m_SubmeshCount = 0;
@@ -130,6 +130,9 @@ namespace OloEngine {
 		void SetMaxConvexHullVertices(u32 maxVertices) { m_MaxConvexHullVertices = maxVertices; }
 		u32 GetMaxConvexHullVertices() const { return m_MaxConvexHullVertices; }
 
+		void SetMaxConvexRadius(f32 radius) { m_MaxConvexRadius = radius; }
+		f32 GetMaxConvexRadius() const { return m_MaxConvexRadius; }
+
 		// Statistics
 		sizet GetTriangleMeshCount() const { return m_TriangleMeshCount; }
 		sizet GetConvexMeshCount() const { return m_ConvexMeshCount; }
@@ -166,6 +169,7 @@ namespace OloEngine {
 		bool m_VertexWeldingEnabled = true;
 		f32 m_VertexWeldTolerance = 0.001f;
 		u32 m_MaxConvexHullVertices = 256;
+		f32 m_MaxConvexRadius = 0.05f; // Default 5cm convex radius
 		f32 m_AreaTestEpsilon = 0.0001f;
 		f32 m_ConvexSimplificationRatio = 0.1f;
 

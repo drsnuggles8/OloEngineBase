@@ -1,11 +1,16 @@
 #pragma once
 
-#include "OloEngine/Physics3D/ColliderMaterial.h"
-#include <Jolt/Jolt.h>
-#include <Jolt/Physics/Collision/PhysicsMaterial.h>
-#include <concepts>
+// Standard library headers
 #include <algorithm>
 #include <cmath>
+#include <concepts>
+
+// Third-party headers
+#include <Jolt/Jolt.h>
+#include <Jolt/Physics/Collision/PhysicsMaterial.h>
+
+// Internal project headers
+#include "OloEngine/Physics3D/ColliderMaterial.h"
 
 // Forward declare components to avoid circular dependencies
 namespace OloEngine {
@@ -66,8 +71,8 @@ namespace OloEngine {
 		static float GetCombinedFriction(float staticFriction, float dynamicFriction)
 		{
 			// Sanitize inputs: treat negative or NaN values as 0.0f to protect Jolt Physics
-			float cleanStaticFriction = (std::isnan(staticFriction) || !std::isfinite(staticFriction) || staticFriction < 0.0f) ? 0.0f : staticFriction;
-			float cleanDynamicFriction = (std::isnan(dynamicFriction) || !std::isfinite(dynamicFriction) || dynamicFriction < 0.0f) ? 0.0f : dynamicFriction;
+			float cleanStaticFriction = (!std::isfinite(staticFriction) || staticFriction < 0.0f) ? 0.0f : staticFriction;
+			float cleanDynamicFriction = (!std::isfinite(dynamicFriction) || dynamicFriction < 0.0f) ? 0.0f : dynamicFriction;
 
 			switch (s_FrictionPolicy)
 			{

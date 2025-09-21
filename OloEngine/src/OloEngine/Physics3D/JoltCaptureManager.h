@@ -20,12 +20,13 @@ namespace OloEngine {
 	{
 	public:
 		JoltCaptureOutStream() = default;
+		~JoltCaptureOutStream() noexcept;
 		
 		[[nodiscard]] bool Open(const std::filesystem::path& inPath);
 		void Close();
 		[[nodiscard]] bool IsOpen() const { return m_Stream.is_open(); }
 
-		void WriteBytes(const void* inData, sizet inNumBytes);
+		[[nodiscard]] bool WriteBytes(const void* inData, sizet inNumBytes);
 		[[nodiscard]] bool IsFailed() const;
 
 		// Explicitly non-copyable
@@ -74,8 +75,8 @@ namespace OloEngine {
 		[[nodiscard]] bool IsCapturing() const;
 
 		// File management
-		void OpenCapture(const std::filesystem::path& capturePath) const;
-		void OpenRecentCapture() const;
+		void OpenCapture(const std::filesystem::path& capturePath);
+		void OpenRecentCapture();
 		void ClearCaptures();
 		void RemoveCapture(const std::filesystem::path& capturePath);
 		[[nodiscard]] const std::vector<std::filesystem::path>& GetAllCaptures() const { return m_Captures; }

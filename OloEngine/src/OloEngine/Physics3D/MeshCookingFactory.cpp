@@ -429,7 +429,7 @@ namespace OloEngine {
 
 			// Create Jolt convex hull shape
 			::JPH::ConvexHullShapeSettings convexSettings(joltVertices);
-			convexSettings.mMaxConvexRadius = 0.05f; // 5cm default convex radius
+			convexSettings.mMaxConvexRadius = m_MaxConvexRadius; // Configurable convex radius
 			
 			::JPH::ShapeSettings::ShapeResult result = convexSettings.Create();
 			
@@ -481,70 +481,70 @@ namespace OloEngine {
 				joltVertices.push_back(JoltUtils::ToJoltVector(vertex));
 			}
 
-		// Use Jolt's convex hull builder
-		JPH::ConvexHullBuilder builder(joltVertices);
-		
-		const char* error = nullptr;
-		JPH::ConvexHullBuilder::EResult result = builder.Initialize(INT_MAX, 1e-5f, error);
+			// Use Jolt's convex hull builder
+			JPH::ConvexHullBuilder builder(joltVertices);
+			
+			const char* error = nullptr;
+			JPH::ConvexHullBuilder::EResult result = builder.Initialize(i32_max, 1e-5f, error);
 
-		if (result != JPH::ConvexHullBuilder::EResult::Success)
-		{
-			std::string errorMsg = error ? error : "Unknown error";
-			LogCookingError("GenerateConvexHull", "Convex hull generation failed: " + errorMsg);
-			return ECookingResult::Failed;
-		}
-
-		// Extract hull vertices by collecting unique vertex indices from faces
-		std::set<int> usedVertices;
-		const auto& faces = builder.GetFaces();
-		
-		for (const auto* face : faces)
-		{
-			if (!face->mRemoved)
+			if (result != JPH::ConvexHullBuilder::EResult::Success)
 			{
-				// Iterate through all edges of this face to collect vertex indices
-				auto* edge = face->mFirstEdge;
-				do
+				std::string errorMsg = error ? error : "Unknown error";
+				LogCookingError("GenerateConvexHull", "Convex hull generation failed: " + errorMsg);
+				return ECookingResult::Failed;
+			}
+
+			// Extract hull vertices by collecting unique vertex indices from faces
+			std::set<int> usedVertices;
+			const auto& faces = builder.GetFaces();
+			
+			for (const auto* face : faces)
+			{
+				if (!face->mRemoved)
 				{
-					usedVertices.insert(edge->mStartIdx);
-					edge = edge->mNextEdge;
-				} while (edge != face->mFirstEdge);
+					// Iterate through all edges of this face to collect vertex indices
+					auto* edge = face->mFirstEdge;
+					do
+					{
+						usedVertices.insert(edge->mStartIdx);
+						edge = edge->mNextEdge;
+					} while (edge != face->mFirstEdge);
+				}
 			}
-		}
 
-		// Convert indices to actual vertex positions
-		outHullVertices.clear();
-		outHullVertices.reserve(usedVertices.size());
+			// Convert indices to actual vertex positions
+			outHullVertices.clear();
+			outHullVertices.reserve(usedVertices.size());
 
-		for (int index : usedVertices)
-		{
-			outHullVertices.push_back(JoltUtils::FromJoltVector(joltVertices[index]));
-		}
-
-		// Limit vertex count with proper convex hull reconstruction
-		if (outHullVertices.size() > m_MaxConvexHullVertices)
-		{
-			OLO_CORE_WARN("GenerateConvexHull: Hull has {0} vertices, exceeds limit of {1}. Attempting to reduce...", 
-						   outHullVertices.size(), m_MaxConvexHullVertices);
-			
-			// Try to select the most important vertices (extremes in each direction)
-			std::vector<glm::vec3> reducedVertices;
-			if (!ReduceConvexHullVertices(outHullVertices, m_MaxConvexHullVertices, reducedVertices))
+			for (int index : usedVertices)
 			{
-				LogCookingError("GenerateConvexHull", "Failed to reduce vertex count while maintaining valid convex hull");
-				return ECookingResult::Failed;
+				outHullVertices.push_back(JoltUtils::FromJoltVector(joltVertices[index]));
 			}
-			
-			// Validate the reduced hull
-			if (!ValidateConvexHull(reducedVertices))
+
+			// Limit vertex count with proper convex hull reconstruction
+			if (outHullVertices.size() > m_MaxConvexHullVertices)
 			{
-				LogCookingError("GenerateConvexHull", "Reduced convex hull failed validation");
-				return ECookingResult::Failed;
+				OLO_CORE_WARN("GenerateConvexHull: Hull has {0} vertices, exceeds limit of {1}. Attempting to reduce...", 
+							outHullVertices.size(), m_MaxConvexHullVertices);
+				
+				// Try to select the most important vertices (extremes in each direction)
+				std::vector<glm::vec3> reducedVertices;
+				if (!ReduceConvexHullVertices(outHullVertices, m_MaxConvexHullVertices, reducedVertices))
+				{
+					LogCookingError("GenerateConvexHull", "Failed to reduce vertex count while maintaining valid convex hull");
+					return ECookingResult::Failed;
+				}
+				
+				// Validate the reduced hull
+				if (!ValidateConvexHull(reducedVertices))
+				{
+					LogCookingError("GenerateConvexHull", "Reduced convex hull failed validation");
+					return ECookingResult::Failed;
+				}
+				
+				outHullVertices = std::move(reducedVertices);
+				OLO_CORE_INFO("GenerateConvexHull: Successfully reduced hull to {0} vertices", outHullVertices.size());
 			}
-			
-			outHullVertices = std::move(reducedVertices);
-			OLO_CORE_INFO("GenerateConvexHull: Successfully reduced hull to {0} vertices", outHullVertices.size());
-		}
 
 			return ECookingResult::Success;
 		}
@@ -1079,19 +1079,15 @@ namespace OloEngine {
 
 		try
 		{
-			// Create RAII buffer from the collider data
-			std::vector<u8> bufferData(colliderData.m_ColliderData.size());
-			std::memcpy(bufferData.data(), colliderData.m_ColliderData.data(), bufferData.size());
-
-			// Set up buffer struct pointing to RAII container
+			// Set up buffer struct pointing directly to existing collider data
+			// No copy needed since DeserializeShapeFromBuffer only reads the data
+			// const_cast is safe here because JoltBinaryStreamReader only reads from the buffer
 			Buffer buffer;
-			buffer.Size = bufferData.size();
-			buffer.Data = bufferData.data();
+			buffer.Size = colliderData.m_ColliderData.size();
+			buffer.Data = const_cast<u8*>(colliderData.m_ColliderData.data());
 
 			// Deserialize the shape using JoltBinaryStream
 			JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);
-			
-			// No manual cleanup needed - bufferData automatically destroyed on scope exit
 
 			if (!shape)
 			{

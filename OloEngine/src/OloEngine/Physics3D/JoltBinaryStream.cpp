@@ -402,11 +402,11 @@ namespace OloEngine {
 						break;
 					case JPH::EShapeType::HeightField:
 						// Height fields: height data + cached normals
-						totalMemory += static_cast<sizet>(dataSize * 1.5f); // ~1.5x overhead for normal cache
+						totalMemory += static_cast<sizet>(dataSize + dataSize / 2); // ~1.5x overhead for normal cache
 						break;
 					case JPH::EShapeType::Compound:
 						// Compound shapes: child shapes + transformation matrices
-						totalMemory += static_cast<sizet>(dataSize * 1.2f); // ~1.2x overhead for hierarchy
+						totalMemory += static_cast<sizet>(dataSize + dataSize / 5); // ~1.2x overhead for hierarchy
 						break;
 					default:
 						// Basic shapes (sphere, box, capsule, etc.)

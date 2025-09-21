@@ -63,7 +63,11 @@ namespace OloEngine {
 
 		// Layer interface access for character controllers
 		// DEPRECATED: Use GetJoltSystem() instead. This method may return nullptr if not initialized.
-		JPH::PhysicsSystem* GetPhysicsSystem() const { return m_JoltSystem.get(); }
+		JPH::PhysicsSystem* GetPhysicsSystem() const 
+		{ 
+			OLO_CORE_ASSERT(m_JoltSystem, "JoltScene not initialized - call Initialize() before accessing PhysicsSystem");
+			return m_JoltSystem.get(); 
+		}
 
 		// Scene lifecycle
 		void OnRuntimeStart();
