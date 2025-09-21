@@ -41,6 +41,34 @@ physics->AddRigidBody(entity, colliderShape, bodyType);
 
 **Scripting Dual-Runtime**: C# entities inherit `Entity` base class, Lua scripts use component binding.
 
+```csharp
+// C# Entity example - inherits from Entity base class
+public class Player : Entity
+{
+    private float speed = 5.0f;
+    
+    protected override void OnUpdate(float deltaTime)
+    {
+        // Access components through Entity base class
+        var transform = GetComponent<TransformComponent>();
+        var input = Input.GetAxis("Horizontal");
+        transform.Translation.x += input * speed * deltaTime;
+    }
+}
+```
+
+```lua
+-- Lua script example - component binding approach
+function OnUpdate(entity, deltaTime)
+    -- Get component through binding system
+    local transform = entity:GetComponent("TransformComponent")
+    local input = Input.GetAxis("Horizontal")
+    
+    -- Modify component properties directly
+    transform.Translation.x = transform.Translation.x + input * 5.0 * deltaTime
+end
+```
+
 **YAML Serialization**: Comprehensive scene/entity serialization with custom converters in `Core/YAMLConverters.h`.
 ```cpp
 SceneSerializer serializer(scene);
