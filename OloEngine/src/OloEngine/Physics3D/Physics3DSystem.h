@@ -137,21 +137,32 @@ namespace OloEngine {
     class Physics3DSystem
     {
     public:
-        Physics3DSystem();
-        ~Physics3DSystem();
-        
-        // Singleton pattern enforcement - prevent copying
-        Physics3DSystem(const Physics3DSystem&) = delete;
-        Physics3DSystem& operator=(const Physics3DSystem&) = delete;
-        Physics3DSystem(Physics3DSystem&&) = delete;
-        Physics3DSystem& operator=(Physics3DSystem&&) = delete;
+        // Singleton creation and destruction methods
+        static void CreateInstance()
+        {
+            if (s_Instance != nullptr)
+            {
+                throw std::runtime_error("Physics3DSystem: Instance already exists - cannot create multiple instances");
+            }
+            s_Instance = new Physics3DSystem();
+        }
+
+        static void DestroyInstance()
+        {
+            if (s_Instance == nullptr)
+            {
+                throw std::runtime_error("Physics3DSystem: No instance to destroy - already destroyed or never created");
+            }
+            delete s_Instance;
+            s_Instance = nullptr;
+        }
 
         // Singleton access
         static Physics3DSystem& GetInstance()
         {
             if (s_Instance == nullptr)
             {
-                throw std::runtime_error("Physics3DSystem: No instance available - singleton not initialized");
+                throw std::runtime_error("Physics3DSystem: No instance available - call CreateInstance() first");
             }
             return *s_Instance;
         }
@@ -249,6 +260,20 @@ namespace OloEngine {
         
         // Helper methods
         void UpdatePhysicsSystemSettings();
+
+        // ====================================================================
+        // Singleton Implementation
+        // ====================================================================
+        
+        // Private constructor and destructor to prevent direct instantiation
+        Physics3DSystem();
+        ~Physics3DSystem();
+        
+        // Singleton pattern enforcement - prevent copying and moving
+        Physics3DSystem(const Physics3DSystem&) = delete;
+        Physics3DSystem& operator=(const Physics3DSystem&) = delete;
+        Physics3DSystem(Physics3DSystem&&) = delete;
+        Physics3DSystem& operator=(Physics3DSystem&&) = delete;
 
         // ====================================================================
         // Compile-time Constants

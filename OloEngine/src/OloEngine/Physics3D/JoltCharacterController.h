@@ -105,7 +105,7 @@ namespace OloEngine
         void PostSimulate();
 
         void Create();
-        void UpdateShape();
+        bool UpdateShape();
 
         // JPH::CharacterContactListener interface
         void OnAdjustBodyVelocity(const JPH::CharacterVirtual* inCharacter, const JPH::Body& inBody2, 

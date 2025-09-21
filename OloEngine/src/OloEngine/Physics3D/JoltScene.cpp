@@ -493,16 +493,31 @@ namespace OloEngine {
 		{
 			case ShapeCastType::Box:
 			{
+#ifdef OLO_DEBUG
+				// Debug-only runtime type verification to catch mismatches early
+				OLO_CORE_ASSERT(overlapInfo.GetCastType() == ShapeCastType::Box, 
+					"ShapeOverlapInfo type mismatch: expected Box but got different type");
+#endif
 				const BoxOverlapInfo& boxInfo = static_cast<const BoxOverlapInfo&>(overlapInfo);
 				return OverlapBox(boxInfo, outHits, maxHits);
 			}
 			case ShapeCastType::Sphere:
 			{
+#ifdef OLO_DEBUG
+				// Debug-only runtime type verification to catch mismatches early
+				OLO_CORE_ASSERT(overlapInfo.GetCastType() == ShapeCastType::Sphere, 
+					"ShapeOverlapInfo type mismatch: expected Sphere but got different type");
+#endif
 				const SphereOverlapInfo& sphereInfo = static_cast<const SphereOverlapInfo&>(overlapInfo);
 				return OverlapSphere(sphereInfo, outHits, maxHits);
 			}
 			case ShapeCastType::Capsule:
 			{
+#ifdef OLO_DEBUG
+				// Debug-only runtime type verification to catch mismatches early
+				OLO_CORE_ASSERT(overlapInfo.GetCastType() == ShapeCastType::Capsule, 
+					"ShapeOverlapInfo type mismatch: expected Capsule but got different type");
+#endif
 				const CapsuleOverlapInfo& capsuleInfo = static_cast<const CapsuleOverlapInfo&>(overlapInfo);
 				return OverlapCapsule(capsuleInfo, outHits, maxHits);
 			}

@@ -7,6 +7,8 @@
 #include "OloEngine/Core/Ref.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
+
 #include <vector>
 #include <limits>
 

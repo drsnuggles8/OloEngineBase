@@ -39,10 +39,6 @@ namespace OloEngine
     JoltCharacterController::~JoltCharacterController()
     {
         // Make sure controller is destroyed before the rest of the class (in particular before m_Shape)
-        if (m_Controller)
-        {
-            m_Controller = nullptr;
-        }
     }
 
     void JoltCharacterController::SetSlopeLimit(f32 slopeLimit)
@@ -156,7 +152,10 @@ namespace OloEngine
     void JoltCharacterController::SetShape(const JPH::Ref<JPH::Shape>& shape)
     {
         m_Shape = shape;
-        UpdateShape();
+        if (!UpdateShape())
+        {
+            OLO_CORE_ERROR("Failed to update character controller shape");
+        }
     }
 
     JPH::Vec3 JoltCharacterController::CalculateDesiredVelocity(f32 deltaTime) const
@@ -411,14 +410,14 @@ namespace OloEngine
 
     // WARNING: Expensive operation - recreates entire character controller since Jolt cannot change shapes after creation.
     // Consider batching or deferring to non-frame-critical times (e.g., scene load) to avoid performance impacts.
-    void JoltCharacterController::UpdateShape()
+    bool JoltCharacterController::UpdateShape()
     {
         OLO_CORE_WARN("UpdateShape() called - this is an expensive operation that recreates the entire character controller");
         
         if (!m_Controller || !m_Shape)
         {
             OLO_CORE_WARN("Cannot update character controller shape: controller or shape is null");
-            return;
+            return false;
         }
 
         // Store current state
@@ -443,10 +442,12 @@ namespace OloEngine
             m_Controller->SetLinearVelocity(linearVelocity);
             
             OLO_CORE_INFO("Character controller shape updated successfully");
+            return true;
         }
         else
         {
             OLO_CORE_ERROR("Failed to recreate character controller after shape update");
+            return false;
         }
     }
 
@@ -569,11 +570,18 @@ namespace OloEngine
             m_CollisionFlags = static_cast<ECollisionFlags>(static_cast<u8>(m_CollisionFlags) | static_cast<u8>(ECollisionFlags::Sides));
         }
 
-        // Check if it's a sensor/trigger
+        // Check if it's a sensor/trigger by querying the physics body
         bool isSensor = false;
-        
-        // Would need physics system integration to properly check body properties
-        // For now, assume it's a solid collision
+        if (m_Scene && m_Scene->GetJoltSystemPtr())
+        {
+            const auto& bodyLockInterface = m_Scene->GetBodyLockInterface();
+            JPH::BodyLockRead lock(bodyLockInterface, inBodyID2);
+            if (lock.Succeeded())
+            {
+                const JPH::Body& body = lock.GetBody();
+                isSensor = body.IsSensor();
+            }
+        }
         
         if (isSensor)
         {

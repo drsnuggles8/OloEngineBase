@@ -9,6 +9,7 @@
 #include "MeshColliderCache.h"
 
 #include <atomic>
+#include <cstdlib>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
@@ -28,12 +29,26 @@ namespace OloEngine {
 	std::unordered_map<std::string, JPH::Ref<JPH::Shape>> JoltShapes::s_ShapeCache;
 	std::shared_mutex JoltShapes::s_ShapeCacheMutex;
 	std::atomic<bool> JoltShapes::s_PersistentCacheEnabled = true;
-	std::filesystem::path JoltShapes::s_PersistentCacheDirectory = "assets/cache/shapes";
+	std::filesystem::path JoltShapes::s_PersistentCacheDirectory;
+
+	// Shape validation constants definitions
+	constexpr f32 JoltShapes::s_MinShapeSize;
+	constexpr f32 JoltShapes::s_MaxShapeSize;
 
 	void JoltShapes::Initialize()
 	{
+		// Use default cache directory with environment variable and fallback logic
+		std::filesystem::path cacheDir = GetDefaultCacheDirectory();
+		Initialize(cacheDir);
+	}
+
+	void JoltShapes::Initialize(const std::filesystem::path& cacheDirectory)
+	{
 		if (s_Initialized.load(std::memory_order_acquire))
 			return;
+
+		// Set the cache directory
+		SetPersistentCacheDirectory(cacheDirectory);
 
 		OLO_CORE_INFO("Initializing JoltShapes system");
 		{
@@ -77,6 +92,24 @@ namespace OloEngine {
 		
 		ClearShapeCache();
 		s_Initialized.store(false, std::memory_order_release);
+	}
+
+	void JoltShapes::SetPersistentCacheDirectory(const std::filesystem::path& directory)
+	{
+		s_PersistentCacheDirectory = directory;
+	}
+
+	std::filesystem::path JoltShapes::GetDefaultCacheDirectory()
+	{
+		// Check environment variable first
+		const char* envCacheDir = std::getenv("OLO_PHYSICS_CACHE_DIR");
+		if (envCacheDir && strlen(envCacheDir) > 0)
+		{
+			return std::filesystem::path(envCacheDir);
+		}
+
+		// Fallback to default location
+		return std::filesystem::path("assets/cache/shapes");
 	}
 
 	JPH::Ref<JPH::Shape> JoltShapes::CreateBoxShape(const BoxCollider3DComponent& component, const glm::vec3& scale)
@@ -151,68 +184,60 @@ namespace OloEngine {
 		return CreateTriangleMeshShapeInternal(component.m_ColliderAsset, scale);
 	}
 
-	JPH::Ref<JPH::Shape> JoltShapes::CreateCompoundShape(Entity entity, bool isMutable)
+	std::vector<JoltShapes::CollectedShape> JoltShapes::CollectColliderShapesForEntity(Entity entity, const glm::vec3& entityScale)
 	{
+		std::vector<CollectedShape> collectedShapes;
+
 		if (!entity)
 		{
-			OLO_CORE_ERROR("Cannot create compound shape for invalid entity");
-			return nullptr;
+			return collectedShapes;
 		}
 
-		std::vector<JPH::Ref<JPH::Shape>> shapes;
-		std::vector<glm::vec3> offsets;
+		// Pre-allocate vector based on potential collider count to avoid reallocations
+		sizet estimatedCount = 0;
+		if (entity.HasComponent<BoxCollider3DComponent>()) estimatedCount++;
+		if (entity.HasComponent<SphereCollider3DComponent>()) estimatedCount++;
+		if (entity.HasComponent<CapsuleCollider3DComponent>()) estimatedCount++;
+		if (entity.HasComponent<MeshCollider3DComponent>()) estimatedCount++;
+		if (entity.HasComponent<ConvexMeshCollider3DComponent>()) estimatedCount++;
+		if (entity.HasComponent<TriangleMeshCollider3DComponent>()) estimatedCount++;
+		
+		collectedShapes.reserve(estimatedCount);
 
-		// Count potential collider components to pre-allocate vectors
-		sizet colliderCount = 0;
-		if (entity.HasComponent<BoxCollider3DComponent>()) colliderCount++;
-		if (entity.HasComponent<SphereCollider3DComponent>()) colliderCount++;
-		if (entity.HasComponent<CapsuleCollider3DComponent>()) colliderCount++;
-		if (entity.HasComponent<MeshCollider3DComponent>()) colliderCount++;
-		if (entity.HasComponent<ConvexMeshCollider3DComponent>()) colliderCount++;
-		if (entity.HasComponent<TriangleMeshCollider3DComponent>()) colliderCount++;
-
-		// Pre-allocate vectors to avoid reallocations during population
-		shapes.reserve(colliderCount);
-		offsets.reserve(colliderCount);
-
-		// Get entity transform for scaling primitive colliders
-		const auto& transform = entity.GetTransform();
-		const glm::vec3& entityScale = transform.Scale;
-
-		// Collect all collider components
+		// Check for box collider
 		if (entity.HasComponent<BoxCollider3DComponent>())
 		{
 			const auto& component = entity.GetComponent<BoxCollider3DComponent>();
 			auto shape = CreateBoxShape(component, entityScale);
 			if (shape)
 			{
-				shapes.push_back(shape);
-				offsets.push_back(component.m_Offset);
+				collectedShapes.push_back({shape, component.m_Offset});
 			}
 		}
 
+		// Check for sphere collider
 		if (entity.HasComponent<SphereCollider3DComponent>())
 		{
 			const auto& component = entity.GetComponent<SphereCollider3DComponent>();
 			auto shape = CreateSphereShape(component, entityScale);
 			if (shape)
 			{
-				shapes.push_back(shape);
-				offsets.push_back(component.m_Offset);
+				collectedShapes.push_back({shape, component.m_Offset});
 			}
 		}
 
+		// Check for capsule collider
 		if (entity.HasComponent<CapsuleCollider3DComponent>())
 		{
 			const auto& component = entity.GetComponent<CapsuleCollider3DComponent>();
 			auto shape = CreateCapsuleShape(component, entityScale);
 			if (shape)
 			{
-				shapes.push_back(shape);
-				offsets.push_back(component.m_Offset);
+				collectedShapes.push_back({shape, component.m_Offset});
 			}
 		}
 
+		// Check for mesh collider
 		if (entity.HasComponent<MeshCollider3DComponent>())
 		{
 			const auto& component = entity.GetComponent<MeshCollider3DComponent>();
@@ -221,11 +246,11 @@ namespace OloEngine {
 			auto shape = CreateMeshShape(component, combinedScale);
 			if (shape)
 			{
-				shapes.push_back(shape);
-				offsets.push_back(component.m_Offset);
+				collectedShapes.push_back({shape, component.m_Offset});
 			}
 		}
 
+		// Check for convex mesh collider
 		if (entity.HasComponent<ConvexMeshCollider3DComponent>())
 		{
 			const auto& component = entity.GetComponent<ConvexMeshCollider3DComponent>();
@@ -234,11 +259,11 @@ namespace OloEngine {
 			auto shape = CreateConvexMeshShape(component, combinedScale);
 			if (shape)
 			{
-				shapes.push_back(shape);
-				offsets.push_back(component.m_Offset);
+				collectedShapes.push_back({shape, component.m_Offset});
 			}
 		}
 
+		// Check for triangle mesh collider
 		if (entity.HasComponent<TriangleMeshCollider3DComponent>())
 		{
 			const auto& component = entity.GetComponent<TriangleMeshCollider3DComponent>();
@@ -247,21 +272,38 @@ namespace OloEngine {
 			auto shape = CreateTriangleMeshShape(component, combinedScale);
 			if (shape)
 			{
-				shapes.push_back(shape);
-				offsets.push_back(component.m_Offset);
+				collectedShapes.push_back({shape, component.m_Offset});
 			}
 		}
 
-		if (shapes.empty())
+		return collectedShapes;
+	}
+
+	JPH::Ref<JPH::Shape> JoltShapes::CreateCompoundShape(Entity entity, bool isMutable)
+	{
+		if (!entity)
+		{
+			OLO_CORE_ERROR("Cannot create compound shape for invalid entity");
+			return nullptr;
+		}
+
+		// Get entity transform for scaling primitive colliders
+		const auto& transform = entity.GetTransform();
+		const glm::vec3& entityScale = transform.Scale;
+
+		// Collect all collider shapes using the helper
+		auto collectedShapes = CollectColliderShapesForEntity(entity, entityScale);
+
+		if (collectedShapes.empty())
 		{
 			OLO_CORE_WARN("No valid shapes found for compound shape creation");
 			return nullptr;
 		}
 
 		// If only one shape, return it directly (no need for compound)
-		if (shapes.size() == 1)
+		if (collectedShapes.size() == 1)
 		{
-			return shapes[0];
+			return collectedShapes[0].shape;
 		}
 
 		// Create compound shape based on mutability requirement
@@ -269,10 +311,10 @@ namespace OloEngine {
 		{
 			// Create mutable compound shape for dynamic modification
 			JPH::MutableCompoundShapeSettings mutableSettings;
-			for (sizet i = 0; i < shapes.size(); ++i)
+			for (const auto& collectedShape : collectedShapes)
 			{
-				JPH::Vec3 joltOffset = JoltUtils::ToJoltVector(offsets[i]);
-				mutableSettings.AddShape(joltOffset, JPH::Quat::sIdentity(), shapes[i]);
+				JPH::Vec3 joltOffset = JoltUtils::ToJoltVector(collectedShape.offset);
+				mutableSettings.AddShape(joltOffset, JPH::Quat::sIdentity(), collectedShape.shape);
 			}
 
 			JPH::Shape::ShapeResult result = mutableSettings.Create();
@@ -288,10 +330,10 @@ namespace OloEngine {
 		{
 			// Create static compound shape for better performance when no modification is needed
 			JPH::StaticCompoundShapeSettings compoundSettings;
-			for (sizet i = 0; i < shapes.size(); ++i)
+			for (const auto& collectedShape : collectedShapes)
 			{
-				JPH::Vec3 joltOffset = JoltUtils::ToJoltVector(offsets[i]);
-				compoundSettings.AddShape(joltOffset, JPH::Quat::sIdentity(), shapes[i]);
+				JPH::Vec3 joltOffset = JoltUtils::ToJoltVector(collectedShape.offset);
+				compoundSettings.AddShape(joltOffset, JPH::Quat::sIdentity(), collectedShape.shape);
 			}
 
 			JPH::Shape::ShapeResult result = compoundSettings.Create();
@@ -313,107 +355,24 @@ namespace OloEngine {
 			return nullptr;
 		}
 
-		i32 colliderCount = 0;
-		JPH::Ref<JPH::Shape> singleShape = nullptr;
-
 		// Get entity transform for scaling primitive colliders
 		const auto& transform = entity.GetTransform();
 		const glm::vec3& entityScale = transform.Scale;
 
-		// Check for box collider
-		if (entity.HasComponent<BoxCollider3DComponent>())
-		{
-			const auto& component = entity.GetComponent<BoxCollider3DComponent>();
-			auto shape = CreateBoxShape(component, entityScale);
-			if (shape)
-			{
-				singleShape = shape;
-				colliderCount++;
-			}
-		}
-
-		// Check for sphere collider
-		if (entity.HasComponent<SphereCollider3DComponent>())
-		{
-			const auto& component = entity.GetComponent<SphereCollider3DComponent>();
-			auto shape = CreateSphereShape(component, entityScale);
-			if (shape)
-			{
-				if (colliderCount == 0)
-					singleShape = shape;
-				colliderCount++;
-			}
-		}
-
-		// Check for capsule collider
-		if (entity.HasComponent<CapsuleCollider3DComponent>())
-		{
-			const auto& component = entity.GetComponent<CapsuleCollider3DComponent>();
-			auto shape = CreateCapsuleShape(component, entityScale);
-			if (shape)
-			{
-				if (colliderCount == 0)
-					singleShape = shape;
-				colliderCount++;
-			}
-		}
-
-		// Check for mesh collider
-		if (entity.HasComponent<MeshCollider3DComponent>())
-		{
-			const auto& component = entity.GetComponent<MeshCollider3DComponent>();
-			// Combine entity scale with component scale for mesh colliders
-			const glm::vec3 combinedScale = entityScale * component.m_Scale;
-			auto shape = CreateMeshShape(component, combinedScale);
-			if (shape)
-			{
-				if (colliderCount == 0)
-					singleShape = shape;
-				colliderCount++;
-			}
-		}
-
-		// Check for convex mesh collider
-		if (entity.HasComponent<ConvexMeshCollider3DComponent>())
-		{
-			const auto& component = entity.GetComponent<ConvexMeshCollider3DComponent>();
-			// Combine entity scale with component scale for convex mesh colliders
-			const glm::vec3 combinedScale = entityScale * component.m_Scale;
-			auto shape = CreateConvexMeshShape(component, combinedScale);
-			if (shape)
-			{
-				if (colliderCount == 0)
-					singleShape = shape;
-				colliderCount++;
-			}
-		}
-
-		// Check for triangle mesh collider
-		if (entity.HasComponent<TriangleMeshCollider3DComponent>())
-		{
-			const auto& component = entity.GetComponent<TriangleMeshCollider3DComponent>();
-			// Combine entity scale with component scale for triangle mesh colliders
-			const glm::vec3 combinedScale = entityScale * component.m_Scale;
-			auto shape = CreateTriangleMeshShape(component, combinedScale);
-			if (shape)
-			{
-				if (colliderCount == 0)
-					singleShape = shape;
-				colliderCount++;
-			}
-		}
+		// Collect all collider shapes using the helper
+		auto collectedShapes = CollectColliderShapesForEntity(entity, entityScale);
 
 		// If no colliders found, create a default box
-		if (colliderCount == 0)
+		if (collectedShapes.empty())
 		{
 			OLO_CORE_WARN("No colliders found on entity {0}, creating default box shape", (u64)entity.GetUUID());
 			return CreateBoxShapeInternal(glm::vec3(0.5f)); // 1x1x1 box
 		}
 
 		// If only one collider, return its shape directly
-		if (colliderCount == 1)
+		if (collectedShapes.size() == 1)
 		{
-			return singleShape;
+			return collectedShapes[0].shape;
 		}
 
 		// Multiple colliders, create compound shape
@@ -625,31 +584,41 @@ namespace OloEngine {
 				{
 					case JPH::EShapeSubType::Scaled:
 					{
-						// Safe cast to ScaledShape with runtime type checking
-						const JPH::ScaledShape* scaledShape = dynamic_cast<const JPH::ScaledShape*>(shape);
-						if (scaledShape && scaledShape->GetInnerShape())
+						// Type guaranteed by switch - use static_cast for performance
+						#ifdef OLO_DEBUG
+						// Debug-time safety check
+						OLO_CORE_ASSERT(dynamic_cast<const JPH::ScaledShape*>(shape) != nullptr, 
+							"GetShapeType: Switch guaranteed ScaledShape but dynamic_cast failed");
+						#endif
+						const JPH::ScaledShape* scaledShape = static_cast<const JPH::ScaledShape*>(shape);
+						if (scaledShape->GetInnerShape())
 						{
 							// Recursively determine the inner shape type
 							return GetShapeType(scaledShape->GetInnerShape());
 						}
 						else
 						{
-							OLO_CORE_WARN("GetShapeType: Failed to cast to ScaledShape or ScaledShape has no inner shape, defaulting to Box");
+							OLO_CORE_WARN("GetShapeType: ScaledShape has no inner shape, defaulting to Box");
 							return ShapeType::Box;
 						}
 					}
 					default:
 					{
-						// Handle other decorated shape subtypes with safe runtime type checking
-						const JPH::DecoratedShape* decoratedShape = dynamic_cast<const JPH::DecoratedShape*>(shape);
-						if (decoratedShape && decoratedShape->GetInnerShape())
+						// Handle other decorated shape subtypes - type guaranteed to be DecoratedShape by outer switch
+						#ifdef OLO_DEBUG
+						// Debug-time safety check
+						OLO_CORE_ASSERT(dynamic_cast<const JPH::DecoratedShape*>(shape) != nullptr, 
+							"GetShapeType: Switch guaranteed DecoratedShape but dynamic_cast failed");
+						#endif
+						const JPH::DecoratedShape* decoratedShape = static_cast<const JPH::DecoratedShape*>(shape);
+						if (decoratedShape->GetInnerShape())
 						{
 							OLO_CORE_WARN("GetShapeType: Unknown decorated shape subtype {0}, unwrapping inner shape", (i32)shape->GetSubType());
 							return GetShapeType(decoratedShape->GetInnerShape());
 						}
 						else
 						{
-							OLO_CORE_WARN("GetShapeType: Failed to cast to DecoratedShape or decorated shape subtype {0} has no inner shape, defaulting to Box", (i32)shape->GetSubType());
+							OLO_CORE_WARN("GetShapeType: Decorated shape subtype {0} has no inner shape, defaulting to Box", (i32)shape->GetSubType());
 							return ShapeType::Box;
 						}
 					}
@@ -750,6 +719,57 @@ namespace OloEngine {
 		return new JPH::CapsuleShape(halfHeight, radius);
 	}
 
+	// Static helper function to extract common mesh shape creation logic
+	JPH::Ref<JPH::Shape> JoltShapes::CreateMeshShapeFromCachedData(AssetHandle meshAsset, const SubmeshColliderData& submeshData, const glm::vec3& scale, const std::string& shapeTypeName)
+	{
+		// Check if collider data exists
+		if (submeshData.m_ColliderData.empty())
+		{
+			OLO_CORE_ERROR("No {} collider data available for asset {}", shapeTypeName, meshAsset);
+			return nullptr;
+		}
+		
+		// Create buffer from the collider data
+		Buffer buffer;
+		try
+		{
+			buffer = Buffer::Copy(std::span<const u8>(submeshData.m_ColliderData.data(), submeshData.m_ColliderData.size()));
+		}
+		catch (const std::length_error& e)
+		{
+			OLO_CORE_ERROR("Failed to copy {} collider data for asset {}: {}", shapeTypeName, meshAsset, e.what());
+			return nullptr;
+		}
+
+		// Try to deserialize the shape
+		JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);
+		
+		// Clean up buffer
+		buffer.Release();
+
+		if (shape)
+		{
+			OLO_CORE_TRACE("Successfully deserialized {} shape for asset {}", shapeTypeName, meshAsset);
+			
+			// Check if scaling is needed
+			if (scale != glm::vec3(1.0f))
+			{
+				// Convert glm scale to Jolt Vec3 and create scaled shape
+				JPH::Vec3 joltScale = JoltUtils::ToJoltVector(scale);
+				return new JPH::ScaledShape(shape, joltScale);
+			}
+			
+			return shape;
+		}
+		
+		OLO_CORE_WARN("{} shape deserialization failed for asset {}, falling back to placeholder", shapeTypeName, meshAsset);
+		
+		// Return a placeholder box shape
+		// Convert scale to half-extents since CreateBoxShapeInternal expects half-extents, not full scale
+		glm::vec3 halfExtents = scale * 0.5f;
+		return CreateBoxShapeInternal(halfExtents);
+	}
+
 	JPH::Ref<JPH::Shape> JoltShapes::CreateMeshShapeInternal(AssetHandle meshAsset, bool useComplexAsSimple, const glm::vec3& scale)
 	{
 		// Get the mesh collider cache instance
@@ -796,54 +816,9 @@ namespace OloEngine {
 			return nullptr;
 		}
 
-		// Try to deserialize the Jolt shape from the selected meshData
-		if (!meshData->m_Submeshes.empty())
-		{
-			const auto& colliderSubmesh = meshData->m_Submeshes[0];
-			
-			if (!colliderSubmesh.m_ColliderData.empty())
-			{
-				// Create buffer from the collider data
-				Buffer buffer;
-				try
-				{
-					buffer = Buffer::Copy(std::span<const u8>(colliderSubmesh.m_ColliderData.data(), colliderSubmesh.m_ColliderData.size()));
-				}
-				catch (const std::length_error& e)
-				{
-					OLO_CORE_ERROR("Failed to copy collider data for asset {0}: {1}", meshAsset, e.what());
-					return nullptr;
-				}
-
-				// Try to deserialize the shape
-				JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);
-				
-				// Clean up buffer
-				buffer.Release();
-
-				if (shape)
-				{
-					OLO_CORE_TRACE("Successfully deserialized mesh shape for asset {0}", meshAsset);
-					
-					// Check if scaling is needed
-					if (scale != glm::vec3(1.0f))
-					{
-						// Convert glm scale to Jolt Vec3 and create scaled shape
-						JPH::Vec3 joltScale = JoltUtils::ToJoltVector(scale);
-						return new JPH::ScaledShape(shape, joltScale);
-					}
-					
-					return shape;
-				}
-			}
-		}
-		
-		OLO_CORE_WARN("Mesh shape deserialization failed for asset {0}, falling back to placeholder", meshAsset);
-		
-		// For now, return a placeholder box shape
-		// Convert scale to half-extents since CreateBoxShapeInternal expects half-extents, not full scale
-		glm::vec3 halfExtents = scale * 0.5f;
-		return CreateBoxShapeInternal(halfExtents);
+		// Use the helper to create the shape from the first submesh
+		const auto& colliderSubmesh = meshData->m_Submeshes[0];
+		return CreateMeshShapeFromCachedData(meshAsset, colliderSubmesh, scale, "mesh");
 	}
 
 	JPH::Ref<JPH::Shape> JoltShapes::CreateConvexMeshShapeInternal(AssetHandle meshAsset, f32 convexRadius, const glm::vec3& scale)
@@ -872,49 +847,8 @@ namespace OloEngine {
 		// For now, just use the first submesh
 		const auto& submesh = cachedData.m_SimpleColliderData.m_Submeshes[0];
 		
-		// Try to deserialize the convex Jolt shape from cached ColliderData
-		if (!submesh.m_ColliderData.empty())
-		{
-			// Create buffer from the collider data
-			Buffer buffer;
-			try
-			{
-				buffer = Buffer::Copy(std::span<const u8>(submesh.m_ColliderData.data(), submesh.m_ColliderData.size()));
-			}
-			catch (const std::length_error& e)
-			{
-				OLO_CORE_ERROR("Failed to copy convex collider data for asset {0}: {1}", meshAsset, e.what());
-				return nullptr;
-			}
-
-			// Try to deserialize the shape
-			JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);
-			
-			// Clean up buffer
-			buffer.Release();
-
-			if (shape)
-			{
-				OLO_CORE_TRACE("Successfully deserialized convex mesh shape for asset {0}", meshAsset);
-				
-				// Check if scaling is needed
-				if (scale != glm::vec3(1.0f))
-				{
-					// Convert glm scale to Jolt Vec3 and create scaled shape
-					JPH::Vec3 joltScale = JoltUtils::ToJoltVector(scale);
-					return new JPH::ScaledShape(shape, joltScale);
-				}
-				
-				return shape;
-			}
-		}
-		
-		OLO_CORE_WARN("Convex mesh shape deserialization failed for asset {0}, falling back to placeholder", meshAsset);
-		
-		// For now, return a placeholder box shape
-		// Convert scale to half-extents since CreateBoxShapeInternal expects half-extents, not full scale
-		glm::vec3 halfExtents = scale * 0.5f;
-		return CreateBoxShapeInternal(halfExtents);
+		// Use the helper to create the shape from the submesh
+		return CreateMeshShapeFromCachedData(meshAsset, submesh, scale, "convex mesh");
 	}
 
 	JPH::Ref<JPH::Shape> JoltShapes::CreateTriangleMeshShapeInternal(AssetHandle meshAsset, const glm::vec3& scale)
@@ -941,49 +875,8 @@ namespace OloEngine {
 		// For now, just use the first submesh
 		const auto& submesh = cachedData.m_ComplexColliderData.m_Submeshes[0];
 		
-		// Try to deserialize the triangle mesh Jolt shape from cached ColliderData
-		if (!submesh.m_ColliderData.empty())
-		{
-			// Create buffer from the collider data
-			Buffer buffer;
-			try
-			{
-				buffer = Buffer::Copy(std::span<const u8>(submesh.m_ColliderData.data(), submesh.m_ColliderData.size()));
-			}
-			catch (const std::length_error& e)
-			{
-				OLO_CORE_ERROR("Failed to copy triangle mesh collider data for asset {0}: {1}", meshAsset, e.what());
-				return nullptr;
-			}
-
-			// Try to deserialize the shape
-			JPH::Ref<JPH::Shape> shape = JoltBinaryStreamUtils::DeserializeShapeFromBuffer(buffer);
-			
-			// Clean up buffer
-			buffer.Release();
-
-			if (shape)
-			{
-				OLO_CORE_TRACE("Successfully deserialized triangle mesh shape for asset {0}", meshAsset);
-				
-				// Check if scaling is needed
-				if (scale != glm::vec3(1.0f))
-				{
-					// Convert glm scale to Jolt Vec3 and create scaled shape
-					JPH::Vec3 joltScale = JoltUtils::ToJoltVector(scale);
-					return new JPH::ScaledShape(shape, joltScale);
-				}
-				
-				return shape;
-			}
-		}
-		
-		OLO_CORE_WARN("Triangle mesh shape deserialization failed for asset {0}, falling back to placeholder", meshAsset);
-		
-		// For now, return a placeholder box shape
-		// Convert scale to half-extents since CreateBoxShapeInternal expects half-extents, not full scale
-		glm::vec3 halfExtents = scale * 0.5f;
-		return CreateBoxShapeInternal(halfExtents);
+		// Use the helper to create the shape from the submesh
+		return CreateMeshShapeFromCachedData(meshAsset, submesh, scale, "triangle mesh");
 	}
 
 	bool JoltShapes::ValidateBoxDimensions(const glm::vec3& halfExtents)

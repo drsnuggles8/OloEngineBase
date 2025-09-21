@@ -31,8 +31,12 @@ namespace OloEngine {
 	class MeshColliderCache
 	{
 	public:
-		// Singleton access
-		static MeshColliderCache& GetInstance();
+		// Singleton access - thread-safe Meyers singleton
+		static inline MeshColliderCache& GetInstance()
+		{
+			static MeshColliderCache instance;
+			return instance;
+		}
 
 		// Initialization
 		void Initialize();
@@ -82,8 +86,12 @@ namespace OloEngine {
 		// Singleton - private constructor/destructor
 		MeshColliderCache();
 		~MeshColliderCache();
+		
+		// Deleted copy and move operations to prevent duplication
 		MeshColliderCache(const MeshColliderCache&) = delete;
 		MeshColliderCache& operator=(const MeshColliderCache&) = delete;
+		MeshColliderCache(MeshColliderCache&&) = delete;
+		MeshColliderCache& operator=(MeshColliderCache&&) = delete;
 
 		// Thread safety
 		mutable std::mutex m_CacheMutex;

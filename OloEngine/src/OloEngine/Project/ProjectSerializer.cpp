@@ -77,140 +77,140 @@ namespace {
 	constexpr f32 s_MaxVelocitySleepThreshold = 10.0f;
 
 	/// Case-insensitive string comparison helper
-	/// \param lhs First string to compare
-	/// \param rhs Second string to compare
+	/// \param Lhs First string to compare
+	/// \param Rhs Second string to compare
 	/// \return True if strings are equal (case-insensitive), false otherwise
-	bool iequals(const std::string& lhs, const std::string& rhs)
+	bool iequals(const std::string& Lhs, const std::string& Rhs)
 	{
-		if (lhs.length() != rhs.length())
+		if (Lhs.length() != Rhs.length())
 			return false;
 		
-		return std::equal(lhs.begin(), lhs.end(), rhs.begin(),
+		return std::equal(Lhs.begin(), Lhs.end(), Rhs.begin(),
 			[](char a, char b) {
 				return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
 			});
 	}
 
 	/// Validates and clamps a floating-point physics setting to safe ranges
-	/// \param value The value to validate
-	/// \param minVal Minimum allowed value
-	/// \param maxVal Maximum allowed value
-	/// \param defaultVal Default value to use if clamping is needed
-	/// \param settingName Name of the setting for logging
+	/// \param Value The value to validate
+	/// \param MinVal Minimum allowed value
+	/// \param MaxVal Maximum allowed value
+	/// \param DefaultVal Default value to use if clamping is needed
+	/// \param SettingName Name of the setting for logging
 	/// \return Validated and potentially clamped value
-	f32 ValidateAndClampFloat(f32 value, f32 minVal, f32 maxVal, f32 defaultVal, const char* settingName)
+	f32 ValidateAndClampFloat(f32 Value, f32 MinVal, f32 MaxVal, f32 DefaultVal, const char* SettingName)
 	{
-		if (std::isnan(value) || std::isinf(value))
+		if (std::isnan(Value) || std::isinf(Value))
 		{
-			OLO_CORE_WARN("Physics validation: {} is NaN/Inf, using default value {}", settingName, defaultVal);
-			return defaultVal;
+			OLO_CORE_WARN("Physics validation: {} is NaN/Inf, using default value {}", SettingName, DefaultVal);
+			return DefaultVal;
 		}
 		
-		if (value < minVal)
+		if (Value < MinVal)
 		{
-			OLO_CORE_WARN("Physics validation: {} ({}) below minimum ({}), clamping to minimum", settingName, value, minVal);
-			return minVal;
+			OLO_CORE_WARN("Physics validation: {} ({}) below minimum ({}), clamping to minimum", SettingName, Value, MinVal);
+			return MinVal;
 		}
 		
-		if (value > maxVal)
+		if (Value > MaxVal)
 		{
-			OLO_CORE_WARN("Physics validation: {} ({}) exceeds maximum ({}), clamping to maximum", settingName, value, maxVal);
-			return maxVal;
+			OLO_CORE_WARN("Physics validation: {} ({}) exceeds maximum ({}), clamping to maximum", SettingName, Value, MaxVal);
+			return MaxVal;
 		}
 		
-		return value;
+		return Value;
 	}
 
 	/// Validates and clamps an unsigned integer physics setting to safe ranges
-	/// \param value The value to validate
-	/// \param minVal Minimum allowed value
-	/// \param maxVal Maximum allowed value
-	/// \param defaultVal Default value to use if clamping is needed
-	/// \param settingName Name of the setting for logging
+	/// \param Value The value to validate
+	/// \param MinVal Minimum allowed value
+	/// \param MaxVal Maximum allowed value
+	/// \param DefaultVal Default value to use if clamping is needed
+	/// \param SettingName Name of the setting for logging
 	/// \return Validated and potentially clamped value
-	u32 ValidateAndClampUInt(u32 value, u32 minVal, u32 maxVal, u32 defaultVal, const char* settingName)
+	u32 ValidateAndClampUInt(u32 Value, u32 MinVal, u32 MaxVal, u32 DefaultVal, const char* SettingName)
 	{
-		if (value < minVal)
+		if (Value < MinVal)
 		{
-			OLO_CORE_WARN("Physics validation: {} ({}) below minimum ({}), clamping to minimum", settingName, value, minVal);
-			return minVal;
+			OLO_CORE_WARN("Physics validation: {} ({}) below minimum ({}), clamping to minimum", SettingName, Value, MinVal);
+			return MinVal;
 		}
 		
-		if (value > maxVal)
+		if (Value > MaxVal)
 		{
-			OLO_CORE_WARN("Physics validation: {} ({}) exceeds maximum ({}), clamping to maximum", settingName, value, maxVal);
-			return maxVal;
+			OLO_CORE_WARN("Physics validation: {} ({}) exceeds maximum ({}), clamping to maximum", SettingName, Value, MaxVal);
+			return MaxVal;
 		}
 		
-		return value;
+		return Value;
 	}
 
 	/// Validates gravity vector magnitude and clamps if necessary
-	/// \param gravity The gravity vector to validate
-	/// \param settingName Name of the setting for logging
+	/// \param Gravity The gravity vector to validate
+	/// \param SettingName Name of the setting for logging
 	/// \return Validated gravity vector
-	glm::vec3 ValidateGravity(const glm::vec3& gravity, const char* settingName)
+	glm::vec3 ValidateGravity(const glm::vec3& Gravity, const char* SettingName)
 	{
-		f32 magnitude = glm::length(gravity);
+		f32 Magnitude = glm::length(Gravity);
 		
-		if (std::isnan(magnitude) || std::isinf(magnitude))
+		if (std::isnan(Magnitude) || std::isinf(Magnitude))
 		{
-			OLO_CORE_WARN("Physics validation: {} has NaN/Inf components, using default (0, -9.81, 0)", settingName);
+			OLO_CORE_WARN("Physics validation: {} has NaN/Inf components, using default (0, -9.81, 0)", SettingName);
 			return glm::vec3(0.0f, -9.81f, 0.0f);
 		}
 		
-		if (magnitude > s_MaxGravityMagnitude)
+		if (Magnitude > s_MaxGravityMagnitude)
 		{
-			glm::vec3 normalized = magnitude > 0.0f ? gravity / magnitude : glm::vec3(0.0f, -1.0f, 0.0f);
+			glm::vec3 normalized = Magnitude > 0.0f ? Gravity / Magnitude : glm::vec3(0.0f, -1.0f, 0.0f);
 			glm::vec3 clamped = normalized * s_MaxGravityMagnitude;
 			OLO_CORE_WARN("Physics validation: {} magnitude ({}) exceeds maximum ({}), clamping to maximum", 
-				settingName, magnitude, s_MaxGravityMagnitude);
+				SettingName, Magnitude, s_MaxGravityMagnitude);
 			return clamped;
 		}
 		
-		return gravity;
+		return Gravity;
 	}
 
 	/// Validates an entire PhysicsSettings struct and returns a validated copy
-	/// \param settings The settings to validate
+	/// \param Settings The settings to validate
 	/// \return Validated copy of the settings
-	OloEngine::PhysicsSettings ValidatePhysicsSettings(const OloEngine::PhysicsSettings& settings)
+	OloEngine::PhysicsSettings ValidatePhysicsSettings(const OloEngine::PhysicsSettings& Settings)
 	{
-		OloEngine::PhysicsSettings validated = settings;
+		OloEngine::PhysicsSettings validated = Settings;
 		
 		// Validate core simulation settings
-		validated.m_FixedTimestep = ValidateAndClampFloat(settings.m_FixedTimestep, 
+		validated.m_FixedTimestep = ValidateAndClampFloat(Settings.m_FixedTimestep, 
 			s_MinFixedTimestep, s_MaxFixedTimestep, 1.0f / 60.0f, "FixedTimestep");
-		validated.m_Gravity = ValidateGravity(settings.m_Gravity, "Gravity");
+		validated.m_Gravity = ValidateGravity(Settings.m_Gravity, "Gravity");
 		
 		// Validate solver settings
-		validated.m_PositionSolverIterations = ValidateAndClampUInt(settings.m_PositionSolverIterations,
+		validated.m_PositionSolverIterations = ValidateAndClampUInt(Settings.m_PositionSolverIterations,
 			s_MinSolverIterations, s_MaxSolverIterations, 2u, "PositionSolverIterations");
-		validated.m_VelocitySolverIterations = ValidateAndClampUInt(settings.m_VelocitySolverIterations,
+		validated.m_VelocitySolverIterations = ValidateAndClampUInt(Settings.m_VelocitySolverIterations,
 			s_MinSolverIterations, s_MaxSolverIterations, 10u, "VelocitySolverIterations");
 		
 		// Validate system limits
-		validated.m_MaxBodies = ValidateAndClampUInt(settings.m_MaxBodies,
+		validated.m_MaxBodies = ValidateAndClampUInt(Settings.m_MaxBodies,
 			s_MinMaxBodies, s_MaxMaxBodies, 65536u, "MaxBodies");
-		validated.m_MaxBodyPairs = ValidateAndClampUInt(settings.m_MaxBodyPairs,
+		validated.m_MaxBodyPairs = ValidateAndClampUInt(Settings.m_MaxBodyPairs,
 			s_MinMaxPairs, s_MaxMaxPairs, 65536u, "MaxBodyPairs");
-		validated.m_MaxContactConstraints = ValidateAndClampUInt(settings.m_MaxContactConstraints,
+		validated.m_MaxContactConstraints = ValidateAndClampUInt(Settings.m_MaxContactConstraints,
 			s_MinMaxContacts, s_MaxMaxContacts, 10240u, "MaxContactConstraints");
 		
 		// Validate advanced Jolt settings
-		validated.m_Baumgarte = ValidateAndClampFloat(settings.m_Baumgarte,
+		validated.m_Baumgarte = ValidateAndClampFloat(Settings.m_Baumgarte,
 			s_MinBaumgarte, s_MaxBaumgarte, 0.2f, "Baumgarte");
-		validated.m_SpeculativeContactDistance = ValidateAndClampFloat(settings.m_SpeculativeContactDistance,
+		validated.m_SpeculativeContactDistance = ValidateAndClampFloat(Settings.m_SpeculativeContactDistance,
 			s_MinContactDistance, s_MaxContactDistance, 0.02f, "SpeculativeContactDistance");
-		validated.m_PenetrationSlop = ValidateAndClampFloat(settings.m_PenetrationSlop,
+		validated.m_PenetrationSlop = ValidateAndClampFloat(Settings.m_PenetrationSlop,
 			s_MinSlop, s_MaxSlop, 0.05f, "PenetrationSlop");
-		validated.m_LinearCastThreshold = ValidateAndClampFloat(settings.m_LinearCastThreshold,
+		validated.m_LinearCastThreshold = ValidateAndClampFloat(Settings.m_LinearCastThreshold,
 			s_MinCastThreshold, s_MaxCastThreshold, 0.75f, "LinearCastThreshold");
-		validated.m_MinVelocityForRestitution = ValidateAndClampFloat(settings.m_MinVelocityForRestitution,
+		validated.m_MinVelocityForRestitution = ValidateAndClampFloat(Settings.m_MinVelocityForRestitution,
 			s_MinVelocityRestitution, s_MaxVelocityRestitution, 1.0f, "MinVelocityForRestitution");
-		validated.m_TimeBeforeSleep = ValidateAndClampFloat(settings.m_TimeBeforeSleep,
+		validated.m_TimeBeforeSleep = ValidateAndClampFloat(Settings.m_TimeBeforeSleep,
 			s_MinTimeBeforeSleep, s_MaxTimeBeforeSleep, 0.5f, "TimeBeforeSleep");
-		validated.m_PointVelocitySleepThreshold = ValidateAndClampFloat(settings.m_PointVelocitySleepThreshold,
+		validated.m_PointVelocitySleepThreshold = ValidateAndClampFloat(Settings.m_PointVelocitySleepThreshold,
 			s_MinVelocitySleepThreshold, s_MaxVelocitySleepThreshold, 0.03f, "PointVelocitySleepThreshold");
 		
 		// Boolean settings don't need validation (any bool value is valid)
@@ -563,10 +563,21 @@ namespace OloEngine
 
 			// Debug settings
 			deserializeField("CaptureOnPlay", physicsSettings.m_CaptureOnPlay);
-			// CaptureMethod requires special handling due to enum cast
+			// CaptureMethod requires special handling due to enum cast with validation
 			if (physicsNode["CaptureMethod"].IsDefined()) {
-				physicsSettings.m_CaptureMethod = static_cast<PhysicsDebugType>(physicsNode["CaptureMethod"].as<i32>(static_cast<i32>(physicsSettings.m_CaptureMethod)));
-				appliedPhysicsFields++;
+				i32 captureMethodValue = physicsNode["CaptureMethod"].as<i32>(static_cast<i32>(physicsSettings.m_CaptureMethod));
+				
+				// Validate enum bounds - PhysicsDebugType has DebugToFile=0 and LiveDebug=1
+				constexpr i32 minValidValue = static_cast<i32>(PhysicsDebugType::DebugToFile);
+				constexpr i32 maxValidValue = static_cast<i32>(PhysicsDebugType::LiveDebug);
+				
+				if (captureMethodValue >= minValidValue && captureMethodValue <= maxValidValue) {
+					physicsSettings.m_CaptureMethod = static_cast<PhysicsDebugType>(captureMethodValue);
+					appliedPhysicsFields++;
+				} else {
+					OLO_CORE_WARN("Physics deserialization: Invalid CaptureMethod value {} (valid range: {}-{}), keeping current value", 
+						captureMethodValue, minValidValue, maxValidValue);
+				}
 			}
 
 			// Advanced Jolt settings

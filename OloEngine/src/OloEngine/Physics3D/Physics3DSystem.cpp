@@ -30,11 +30,15 @@ static void TraceImpl(const char* inFMT, ...)
     va_list list;
     va_start(list, inFMT);
     
+    // Create a copy for potential fallback use before consuming the original
+    va_list fallbackList;
+    va_copy(fallbackList, list);
+    
     // First pass: determine required buffer size
-    va_list listCopy;
-    va_copy(listCopy, list);
-    int requiredSize = vsnprintf(nullptr, 0, inFMT, listCopy);
-    va_end(listCopy);
+    va_list sizeCheckList;
+    va_copy(sizeCheckList, list);
+    int requiredSize = vsnprintf(nullptr, 0, inFMT, sizeCheckList);
+    va_end(sizeCheckList);
     
     if (requiredSize < 0)
     {
@@ -42,6 +46,7 @@ static void TraceImpl(const char* inFMT, ...)
         char fallbackBuffer[1024];
         vsnprintf(fallbackBuffer, sizeof(fallbackBuffer), inFMT, list);
         va_end(list);
+        va_end(fallbackList);  // Clean up the fallback copy
         OLO_CORE_TRACE("{}", fallbackBuffer);
         return;
     }
@@ -54,18 +59,18 @@ static void TraceImpl(const char* inFMT, ...)
         // Second pass: format into the allocated buffer
         vsnprintf(message.data(), static_cast<size_t>(requiredSize) + 1, inFMT, list);
         va_end(list);
+        va_end(fallbackList);  // Clean up the unused fallback copy
         
         // Print the complete message
         OLO_CORE_TRACE("{}", message);
     }
     catch (const std::bad_alloc&)
     {
-        // Handle allocation failure - fallback to truncated static buffer
-        va_end(list);
-        va_start(list, inFMT);
+        // Handle allocation failure - use the fallback copy we prepared earlier
+        va_end(list);  // Clean up the original list first
         char fallbackBuffer[1024];
-        vsnprintf(fallbackBuffer, sizeof(fallbackBuffer), inFMT, list);
-        va_end(list);
+        vsnprintf(fallbackBuffer, sizeof(fallbackBuffer), inFMT, fallbackList);
+        va_end(fallbackList);
         OLO_CORE_TRACE("{}", fallbackBuffer);
     }
 }
@@ -177,13 +182,6 @@ bool OloObjectVsBroadPhaseLayerFilterImpl::ShouldCollide(JPH::ObjectLayer inLaye
 
 Physics3DSystem::Physics3DSystem()
 {
-    // Prevent multiple instances - enforce singleton pattern
-    if (s_Instance != nullptr)
-    {
-        OLO_CORE_ERROR("Physics3DSystem: Cannot create multiple instances - singleton pattern enforced");
-        throw std::runtime_error("Physics3DSystem: Multiple instances not allowed");
-    }
-    
     // Set up static pointers for global access
     s_Instance = this;
     s_BroadPhaseLayerInterface = &m_BroadPhaseLayerInterface;
@@ -403,9 +401,9 @@ JPH::BodyID Physics3DSystem::CreateSphere(const JPH::RVec3& position, f32 radius
     }
 
     // Validate sphere radius
-    if (radius <= 0.0f)
+    if (radius < kMinPhysicsExtent)
     {
-        OLO_CORE_ERROR("Physics3DSystem::CreateSphere: Invalid radius ({}) - must be > 0", radius);
+        OLO_CORE_ERROR("Physics3DSystem::CreateSphere: Invalid radius ({}) - must be >= {} (minimum physics extent)", radius, kMinPhysicsExtent);
         return JPH::BodyID();
     }
 

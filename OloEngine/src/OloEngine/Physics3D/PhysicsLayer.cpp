@@ -3,6 +3,7 @@
 #include "JoltUtils.h"
 #include "Physics3DTypes.h"
 #include "OloEngine/Core/Log.h"
+#include <cstdlib>
 
 namespace OloEngine {
 
@@ -404,9 +405,9 @@ std::vector<std::string> PhysicsLayerManager::GetLayerNames()
 			OLO_CORE_ERROR("PhysicsLayerManager::GetLayerMutableUnsafe: Invalid layer ID {} accessed", layerId);
 			OLO_CORE_ASSERT(false, "Invalid layer ID accessed in GetLayerMutableUnsafe");
 
-			// Thread-local fallback to avoid data races - each thread gets its own fallback
-			thread_local PhysicsLayer s_ThreadLocalNullLayer = { INVALID_LAYER_ID, "NULL", NO_COLLISION_BITS, NO_COLLISION_BITS };
-			return s_ThreadLocalNullLayer;
+			// This is a programming error that violates the contract - terminate immediately
+			// to prevent returning an invalid reference that doesn't point into s_Layers
+			std::abort();
 		}
 		
 		// Find the actual layer in s_Layers for mutable access

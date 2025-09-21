@@ -4,18 +4,14 @@
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/MeshColliderAsset.h"
 
+#include <atomic>
 #include <chrono>
 #include <algorithm>
 #include <thread>
 #include <future>
+#include <cmath>
 
 namespace OloEngine {
-
-	MeshColliderCache& MeshColliderCache::GetInstance()
-	{
-		static MeshColliderCache instance;
-		return instance;
-	}
 
 	MeshColliderCache::MeshColliderCache()
 		: m_Initialized(false)
@@ -99,7 +95,7 @@ namespace OloEngine {
 	{
 		if (!colliderAsset || !m_Initialized)
 		{
-			m_CacheMisses++;
+			m_CacheMisses.fetch_add(1, std::memory_order_relaxed);
 			return m_InvalidData;
 		}
 
@@ -118,7 +114,7 @@ namespace OloEngine {
 		
 		if (cachedData)
 		{
-			m_CacheHits++;
+			m_CacheHits.fetch_add(1, std::memory_order_relaxed);
 			return *cachedData;
 		}
 
@@ -143,12 +139,12 @@ namespace OloEngine {
 				finalData = &m_CachedData[handle];
 			}
 			
-			m_CacheHits++;
+			m_CacheHits.fetch_add(1, std::memory_order_relaxed);
 			return *finalData;
 		}
 
 		// Need to cook the mesh
-		m_CacheMisses++;
+		m_CacheMisses.fetch_add(1, std::memory_order_relaxed);
 		
 		// Determine which type to prioritize based on typical usage patterns
 		// For now, we'll cook convex first (most common for dynamic bodies) and triangle async
@@ -410,10 +406,11 @@ namespace OloEngine {
 			OLO_CORE_WARN("Unexpected error deserializing complex mesh collider from '{}': {}", complexCachePath.string(), e.what());
 			// Keep cachedData.m_ComplexColliderData in default (invalid) state
 		}
-	}		cachedData.m_IsValid = (hasSimple && cachedData.m_SimpleColliderData.m_IsValid) || 
-							   (hasComplex && cachedData.m_ComplexColliderData.m_IsValid);
+	}
+	
+	cachedData.m_IsValid = (hasSimple && cachedData.m_SimpleColliderData.m_IsValid) || (hasComplex && cachedData.m_ComplexColliderData.m_IsValid);
 
-		if (cachedData.m_IsValid)
+	if (cachedData.m_IsValid)
 		{
 			// Update last accessed time to reflect when cached data was loaded into memory
 			cachedData.m_LastAccessed = std::chrono::system_clock::now();
@@ -507,7 +504,7 @@ namespace OloEngine {
 	void MeshColliderCache::EvictOldestEntries()
 	{
 		// Simple LRU-like eviction - remove entries until we're under the threshold
-		sizet targetSize = static_cast<sizet>(m_MaxCacheSize * s_CacheEvictionThreshold * s_CacheEvictionTargetRatio);
+		sizet targetSize = static_cast<sizet>(std::round(m_MaxCacheSize * s_CacheEvictionThreshold * s_CacheEvictionTargetRatio));
 
 		std::vector<std::pair<AssetHandle, std::chrono::system_clock::time_point>> entries;
 		entries.reserve(m_CachedData.size());

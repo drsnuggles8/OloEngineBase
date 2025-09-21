@@ -38,9 +38,8 @@ namespace OloEngine
 	}
 
 	Scene::Scene()
+		: m_JoltScene(std::make_unique<JoltScene>(this))
 	{
-		// Initialize JoltScene
-		m_JoltScene = std::make_unique<JoltScene>(this);
 	}
 
 	Ref<Scene> Scene::Create()
@@ -724,11 +723,8 @@ void Scene::OnComponentAdded<MaterialComponent>(Entity, MaterialComponent&) {}
 
 	void Scene::OnPhysics3DStart()
 	{
-		// Ensure JoltScene is initialized (defensive programming)
-		if (!m_JoltScene)
-		{
-			m_JoltScene = std::make_unique<JoltScene>(this);
-		}
+		// Ensure JoltScene was properly initialized in constructor
+		OLO_CORE_ASSERT(m_JoltScene, "JoltScene should be initialized in constructor");
 		
 		m_JoltScene->Initialize();
 		

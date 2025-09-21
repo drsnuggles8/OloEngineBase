@@ -47,7 +47,12 @@ namespace OloEngine {
 	{
 	public:
 		static void Initialize();
+		static void Initialize(const std::filesystem::path& cacheDirectory);
 		static void Shutdown();
+
+		// Cache directory configuration
+		static void SetPersistentCacheDirectory(const std::filesystem::path& directory);
+		static std::filesystem::path GetPersistentCacheDirectory() { return s_PersistentCacheDirectory; }
 
 		// Create shapes from components
 		static JPH::Ref<JPH::Shape> CreateBoxShape(const BoxCollider3DComponent& component, const glm::vec3& scale = glm::vec3(1.0f));
@@ -93,6 +98,19 @@ namespace OloEngine {
 		JoltShapes& operator=(JoltShapes&&) = delete;
 
 	private:
+		// Helper struct for collecting collider shapes
+		struct CollectedShape
+		{
+			JPH::Ref<JPH::Shape> shape;
+			glm::vec3 offset;
+		};
+
+		// Collects all collider shapes for an entity with proper scaling
+		static std::vector<CollectedShape> CollectColliderShapesForEntity(Entity entity, const glm::vec3& entityScale);
+
+		// Configuration helpers
+		static std::filesystem::path GetDefaultCacheDirectory();
+
 		// Internal shape creation helpers
 		static JPH::Ref<JPH::Shape> CreateBoxShapeInternal(const glm::vec3& halfExtents);
 		static JPH::Ref<JPH::Shape> CreateSphereShapeInternal(f32 radius);
@@ -100,6 +118,9 @@ namespace OloEngine {
 		static JPH::Ref<JPH::Shape> CreateMeshShapeInternal(AssetHandle meshAsset, bool useComplexAsSimple, const glm::vec3& scale);
 		static JPH::Ref<JPH::Shape> CreateConvexMeshShapeInternal(AssetHandle meshAsset, f32 convexRadius, const glm::vec3& scale);
 		static JPH::Ref<JPH::Shape> CreateTriangleMeshShapeInternal(AssetHandle meshAsset, const glm::vec3& scale);
+
+		// Common helper for mesh shape creation from cached data
+		static JPH::Ref<JPH::Shape> CreateMeshShapeFromCachedData(AssetHandle meshAsset, const SubmeshColliderData& submeshData, const glm::vec3& scale, const std::string& shapeTypeName);
 
 		// Shape validation helpers
 		static bool ValidateBoxDimensions(const glm::vec3& halfExtents);

@@ -513,7 +513,8 @@ namespace OloEngine {
 		// For very large inputs, let vector grow naturally to avoid huge upfront allocation
 
 		u8 currentByte = input[0];
-		u8 runLength = 1;			for (sizet i = 1; i < inputBuffer.Size; ++i)
+		u8 runLength = 1;
+		for (sizet i = 1; i < inputBuffer.Size; ++i)
 			{
 				if (input[i] == currentByte && runLength < 255)
 				{
