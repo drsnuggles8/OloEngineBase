@@ -29,12 +29,12 @@ namespace OloEngine {
 	enum class EActorAxis : u32
 	{
 		None = 0,
-		TranslationX = OLO_BIT(0), TranslationY = OLO_BIT(1), TranslationZ = OLO_BIT(2), Translation = TranslationX | TranslationY | TranslationZ,
-		RotationX = OLO_BIT(3), RotationY = OLO_BIT(4), RotationZ = OLO_BIT(5), Rotation = RotationX | RotationY | RotationZ
+		TranslationX = OloBit32(0), TranslationY = OloBit32(1), TranslationZ = OloBit32(2), Translation = TranslationX | TranslationY | TranslationZ,
+		RotationX = OloBit32(3), RotationY = OloBit32(4), RotationZ = OloBit32(5), Rotation = RotationX | RotationY | RotationZ
 	};
 
-	// Mask covering all defined axis bits (OLO_BIT(0) through OLO_BIT(5))
-	constexpr u32 AxisMask = OLO_BIT(0) | OLO_BIT(1) | OLO_BIT(2) | OLO_BIT(3) | OLO_BIT(4) | OLO_BIT(5);
+	// Mask covering all defined axis bits (OloBit32(0) through OloBit32(5))
+	constexpr u32 AxisMask = OloBit32(0) | OloBit32(1) | OloBit32(2) | OloBit32(3) | OloBit32(4) | OloBit32(5);
 
 	enum class ECollisionDetectionType : u32
 	{
@@ -94,12 +94,12 @@ namespace OloEngine {
 	/**
 	 * @brief Converts a layer index to a bitmask for physics layer operations.
 	 * @param layerIndex The physics layer index (valid range: 0-31)
-	 * @return Bitmask with the corresponding bit set, or 0 if layerIndex >= 32
-	 * @note For indices >= 32, returns 0 to prevent undefined behavior from bit shifting
+	 * @return Bitmask with the corresponding bit set, or throws if layerIndex >= 32
+	 * @note Now enforces bounds checking - will throw std::out_of_range for indices >= 32
 	 */
 	constexpr inline u32 ToLayerMask(u32 layerIndex)
 	{
-		return (layerIndex >= 32) ? 0 : OLO_BIT(layerIndex);
+		return OloBit32(static_cast<int>(layerIndex));
 	}
 
 	// Bitwise operators for EActorAxis

@@ -651,25 +651,96 @@ namespace OloEngine {
 			}
 			
 			// Security check: ensure the validated directory is contained within allowed base directories
-			// Walk up the parent chain to verify containment
+			// Include both current directory and platform-specific app data directories
 			try
 			{
 				std::filesystem::path canonicalValidated = std::filesystem::weakly_canonical(validatedDirectory);
 				std::filesystem::path canonicalCurrent = std::filesystem::weakly_canonical(currentDir);
-				std::filesystem::path canonicalCaptures = std::filesystem::weakly_canonical(currentDir / "Captures");
+				
+				// Build list of allowed base directories (current dir + platform-specific app data)
+				std::vector<std::filesystem::path> allowedBasePaths;
+				allowedBasePaths.push_back(canonicalCurrent);
+				
+				// Add platform-specific app data directories
+#ifdef _WIN32
+				const char* appData = std::getenv("APPDATA");
+				if (appData != nullptr)
+				{
+					try
+					{
+						allowedBasePaths.push_back(std::filesystem::weakly_canonical(std::filesystem::path(appData)));
+					}
+					catch (const std::filesystem::filesystem_error&)
+					{
+						// Ignore if canonicalization fails for app data path
+					}
+				}
+#elif defined(__APPLE__)
+				const char* home = std::getenv("HOME");
+				if (home != nullptr)
+				{
+					try
+					{
+						std::filesystem::path appSupport = std::filesystem::path(home) / "Library" / "Application Support";
+						allowedBasePaths.push_back(std::filesystem::weakly_canonical(appSupport));
+					}
+					catch (const std::filesystem::filesystem_error&)
+					{
+						// Ignore if canonicalization fails for app support path
+					}
+				}
+#else
+				// Linux/Unix: Add XDG_DATA_HOME and ~/.local/share
+				const char* xdgDataHome = std::getenv("XDG_DATA_HOME");
+				if (xdgDataHome != nullptr)
+				{
+					try
+					{
+						allowedBasePaths.push_back(std::filesystem::weakly_canonical(std::filesystem::path(xdgDataHome)));
+					}
+					catch (const std::filesystem::filesystem_error&)
+					{
+						// Ignore if canonicalization fails
+					}
+				}
+				
+				const char* home = std::getenv("HOME");
+				if (home != nullptr)
+				{
+					try
+					{
+						std::filesystem::path localShare = std::filesystem::path(home) / ".local" / "share";
+						allowedBasePaths.push_back(std::filesystem::weakly_canonical(localShare));
+					}
+					catch (const std::filesystem::filesystem_error&)
+					{
+						// Ignore if canonicalization fails
+					}
+				}
+#endif
 				
 				bool isContained = false;
-				std::filesystem::path checkPath = canonicalValidated;
 				
-				// Walk up the parent chain to see if we reach currentDir or currentDir/Captures
-				while (!checkPath.empty() && checkPath != checkPath.root_path())
+				// Check if validated path is contained within any allowed base directory
+				for (const auto& basePath : allowedBasePaths)
 				{
-					if (checkPath == canonicalCurrent || checkPath == canonicalCaptures)
+					std::filesystem::path checkPath = canonicalValidated;
+					
+					// Walk up the parent chain to see if we reach this base path
+					while (!checkPath.empty() && checkPath != checkPath.root_path())
 					{
-						isContained = true;
+						if (checkPath == basePath)
+						{
+							isContained = true;
+							break;
+						}
+						checkPath = checkPath.parent_path();
+					}
+					
+					if (isContained)
+					{
 						break;
 					}
-					checkPath = checkPath.parent_path();
 				}
 				
 				if (!isContained)

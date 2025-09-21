@@ -89,42 +89,60 @@ constexpr auto ArraySize(T array) { return ( sizeof(array)/sizeof((array)[0]) );
 // Unique names
 #define OLO_UNIQUE_SUFFIX(PARAM) OLO_CONCAT(PARAM, __LINE__ )
 
-// Bit manipulation macros and templates
+// Bit manipulation functions
 // 
 // Usage examples:
-//   enum Flags : u32 { FlagA = OLO_BIT(0), FlagB = OLO_BIT(1) };   // For bits 0-31
-//   enum LargeFlags : u64 { BigFlag = OLO_BIT64(35) };             // For bits 32-63
-//   auto mask = OloEngine::BitMask<u32>(5);                        // Type-safe u32 mask (runtime)
-//   auto bigMask = OloEngine::BitMask<u64>(45);                    // Type-safe u64 mask (runtime)
-//   constexpr auto cmask = OloEngine::BitMaskConstexpr<u32>(5);    // Compile-time constexpr safe
+//   enum Flags : u32 { FlagA = OloBit32(0), FlagB = OloBit32(1) };   // For bits 0-31
+//   enum LargeFlags : u64 { BigFlag = OloBit64(35) };                // For bits 32-63
+//   auto mask = OloEngine::BitMask<u32>(5);                          // Type-safe u32 mask (runtime)
+//   auto bigMask = OloEngine::BitMask<u64>(45);                      // Type-safe u64 mask (runtime)
+//   constexpr auto cmask = OloEngine::BitMaskConstexpr<u32>(5);      // Compile-time constexpr safe
 //
-// Bounds-checked bit manipulation macros - enforces compile-time safety
-#define OLO_BIT(x) (((x) >= 0 && (x) < 32) ? (1u << static_cast<unsigned>(x)) : 0u)          // 32-bit version with bounds check
-#define OLO_BIT64(x) (((x) >= 0 && (x) < 64) ? (1ULL << static_cast<unsigned>(x)) : 0ULL)    // 64-bit version with bounds check
-
-// Type-safe inline template function alternatives (recommended for new code)
-template<typename T>
-constexpr std::enable_if_t<std::is_integral_v<T> && std::is_signed_v<T>, std::uint32_t>
-OLO_Bit(T x) noexcept {
-    return (x >= 0 && static_cast<unsigned>(x) < 32) ? (1u << static_cast<unsigned>(x)) : 0u;
+// Bounds-checked bit manipulation functions - enforces compile-time and runtime safety
+constexpr std::uint32_t OloBit32(int x)
+{
+#if __cpp_lib_is_constant_evaluated >= 201811L
+    if (std::is_constant_evaluated())
+    {
+        // Compile-time: hard error via throw for out-of-bounds
+        if (x < 0 || x >= 32)
+        {
+            throw std::out_of_range("Bit index out of range for 32-bit value");
+        }
+    }
+    else
+#endif
+    {
+        // Runtime: throw exception for out-of-bounds
+        if (x < 0 || x >= 32)
+        {
+            throw std::out_of_range("Bit index out of range for 32-bit value");
+        }
+    }
+    return 1u << static_cast<unsigned>(x);
 }
 
-template<typename T>
-constexpr std::enable_if_t<std::is_integral_v<T> && std::is_unsigned_v<T>, std::uint32_t>
-OLO_Bit(T x) noexcept {
-    return (x < 32) ? (1u << x) : 0u;
-}
-
-template<typename T>
-constexpr std::enable_if_t<std::is_integral_v<T> && std::is_signed_v<T>, std::uint64_t>
-OLO_Bit64(T x) noexcept {
-    return (x >= 0 && static_cast<unsigned>(x) < 64) ? (1ULL << static_cast<unsigned>(x)) : 0ULL;
-}
-
-template<typename T>
-constexpr std::enable_if_t<std::is_integral_v<T> && std::is_unsigned_v<T>, std::uint64_t>
-OLO_Bit64(T x) noexcept {
-    return (x < 64) ? (1ULL << x) : 0ULL;
+constexpr std::uint64_t OloBit64(int x)
+{
+#if __cpp_lib_is_constant_evaluated >= 201811L
+    if (std::is_constant_evaluated())
+    {
+        // Compile-time: hard error via throw for out-of-bounds
+        if (x < 0 || x >= 64)
+        {
+            throw std::out_of_range("Bit index out of range for 64-bit value");
+        }
+    }
+    else
+#endif
+    {
+        // Runtime: throw exception for out-of-bounds
+        if (x < 0 || x >= 64)
+        {
+            throw std::out_of_range("Bit index out of range for 64-bit value");
+        }
+    }
+    return 1ULL << static_cast<unsigned>(x);
 }
 
 

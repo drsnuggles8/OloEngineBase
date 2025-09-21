@@ -57,8 +57,8 @@ namespace OloEngine {
 #endif // JPH_EXTERNAL_PROFILE || JPH_PROFILE_ENABLED
 
     private:
-        static constexpr JPH::uint s_MaxLayers = 32; // Maximum supported physics layers
-        JPH::BroadPhaseLayer m_ObjectToBroadPhase[s_MaxLayers];
+        static constexpr JPH::uint sMaxLayers = 32; // Maximum supported physics layers
+        JPH::BroadPhaseLayer m_ObjectToBroadPhase[sMaxLayers] = {};
         JPH::uint m_NumLayers = 2; // Start with default layers
     };
 

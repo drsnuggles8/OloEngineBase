@@ -41,7 +41,7 @@ namespace OloEngine {
 		// Initialization
 		void Initialize();
 		void Shutdown();
-		bool IsInitialized() const { return m_Initialized; }
+		bool IsInitialized() const { return m_IsInitialized; }
 
 		// Main cache interface
 		const CachedColliderData& GetMeshData(Ref<MeshColliderAsset> colliderAsset);
@@ -113,7 +113,7 @@ namespace OloEngine {
 		mutable std::atomic<sizet> m_CacheMisses = 0;
 
 		// State
-		bool m_Initialized = false;
+		std::atomic<bool> m_IsInitialized = false;
 
 		// Invalid/placeholder data
 		CachedColliderData m_InvalidData;
@@ -122,6 +122,10 @@ namespace OloEngine {
 		static constexpr f32 s_CacheEvictionThreshold = 0.8f; // Start evicting at 80% capacity
 		static constexpr f32 s_CacheEvictionTargetRatio = 0.7f; // Target cache size after eviction (70% of threshold)
 		static constexpr sizet s_MinCacheEntryLifetimeMs = 5000; // 5 seconds minimum lifetime
+		
+		// Cache initialization constants
+		static constexpr sizet s_InitialCacheReserve = 1024; // Initial cache container reserve size
+		static constexpr sizet s_BytesToMB = 1024 * 1024; // Bytes to megabytes conversion factor
 	};
 
 }

@@ -30,9 +30,9 @@ namespace OloEngine
     enum class ECollisionFlags : u8
     {
         None  = 0,
-        Sides = OLO_BIT(0),
-        Above = OLO_BIT(1),
-        Below = OLO_BIT(2),
+        Sides = OloBit32(0),
+        Above = OloBit32(1),
+        Below = OloBit32(2),
     };
 
     /**

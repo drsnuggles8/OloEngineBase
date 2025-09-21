@@ -51,11 +51,15 @@ namespace OloEngine {
 
 		JoltMaterial() = default;
 		JoltMaterial(float friction, float restitution)
-			: m_Friction(friction), m_Restitution(restitution)
+			: m_Friction(std::max(0.0f, friction)), m_Restitution(std::clamp(restitution, 0.0f, 1.0f))
 		{}
 
 		float GetFriction() const { return m_Friction; }
-		void SetFriction(float friction) { m_Friction = friction; }
+		void SetFriction(float friction) 
+		{ 
+			// Ensure friction is non-negative to match physical constraints
+			m_Friction = std::max(0.0f, friction); 
+		}
 
 		float GetRestitution() const { return m_Restitution; }
 		void SetRestitution(float restitution) 

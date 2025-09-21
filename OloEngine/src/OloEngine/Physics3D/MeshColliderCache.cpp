@@ -10,18 +10,18 @@
 #include <thread>
 #include <future>
 #include <cmath>
+#include <filesystem>
 
 namespace OloEngine {
 
 	MeshColliderCache::MeshColliderCache()
-		: m_Initialized(false)
 	{
 		m_CookingFactory = Ref<MeshCookingFactory>(new MeshCookingFactory());
 	}
 
 	MeshColliderCache::~MeshColliderCache()
 	{
-		if (m_Initialized)
+		if (m_IsInitialized.load(std::memory_order_acquire))
 		{
 			Shutdown();
 		}
@@ -29,7 +29,7 @@ namespace OloEngine {
 
 	void MeshColliderCache::Initialize()
 	{
-		if (m_Initialized)
+		if (m_IsInitialized.load(std::memory_order_acquire))
 		{
 			OLO_CORE_WARN("MeshColliderCache already initialized");
 			return;
@@ -43,22 +43,22 @@ namespace OloEngine {
 		catch (const std::exception& e)
 		{
 			OLO_CORE_ERROR("MeshColliderCache: Failed to initialize cooking factory: {}", e.what());
-			// Keep m_Initialized as false and return early
+			// Keep m_IsInitialized as false and return early
 			// Clean up any partial state if needed
 			m_CachedData.clear();
 			return;
 		}
 
 		// Reserve space for cache
-		m_CachedData.reserve(1024);
+		m_CachedData.reserve(s_InitialCacheReserve);
 
-		m_Initialized = true;
-		OLO_CORE_INFO("MeshColliderCache initialized with max size: {}MB", m_MaxCacheSize.load() / (1024 * 1024));
+		m_IsInitialized.store(true, std::memory_order_release);
+		OLO_CORE_INFO("MeshColliderCache initialized with max size: {}MB", m_MaxCacheSize.load() / s_BytesToMB);
 	}
 
 	void MeshColliderCache::Shutdown()
 	{
-		if (!m_Initialized)
+		if (!m_IsInitialized.load(std::memory_order_acquire))
 		{
 			return;
 		}
@@ -87,13 +87,13 @@ namespace OloEngine {
 		// Shutdown cooking factory
 		m_CookingFactory->Shutdown();
 
-		m_Initialized = false;
+		m_IsInitialized.store(false, std::memory_order_release);
 		OLO_CORE_INFO("MeshColliderCache shutdown");
 	}
 
 	const CachedColliderData& MeshColliderCache::GetMeshData(Ref<MeshColliderAsset> colliderAsset)
 	{
-		if (!colliderAsset || !m_Initialized)
+		if (!colliderAsset || !m_IsInitialized.load(std::memory_order_acquire))
 		{
 			m_CacheMisses.fetch_add(1, std::memory_order_relaxed);
 			return m_InvalidData;
@@ -226,7 +226,7 @@ namespace OloEngine {
 
 	bool MeshColliderCache::HasMeshData(Ref<MeshColliderAsset> colliderAsset) const
 	{
-		if (!colliderAsset || !m_Initialized)
+		if (!colliderAsset || !m_IsInitialized.load(std::memory_order_acquire))
 		{
 			return false;
 		}
@@ -331,92 +331,92 @@ namespace OloEngine {
 			return cachedData;
 		}
 
-	// Try to load both simple and complex data from disk cache
-	std::filesystem::path simpleCachePath = m_CookingFactory->GetCacheFilePath(colliderAsset, EMeshColliderType::Convex);
-	std::filesystem::path complexCachePath = m_CookingFactory->GetCacheFilePath(colliderAsset, EMeshColliderType::Triangle);
+		// Try to load both simple and complex data from disk cache
+		std::filesystem::path simpleCachePath = m_CookingFactory->GetCacheFilePath(colliderAsset, EMeshColliderType::Convex);
+		std::filesystem::path complexCachePath = m_CookingFactory->GetCacheFilePath(colliderAsset, EMeshColliderType::Triangle);
 
-	bool hasSimple = false;
-	bool hasComplex = false;
+		bool hasSimple = false;
+		bool hasComplex = false;
 
-	// Check if simple cache file exists with exception handling
-	try
-	{
-		hasSimple = std::filesystem::exists(simpleCachePath);
-	}
-	catch (const std::filesystem::filesystem_error& e)
-	{
-		OLO_CORE_WARN("Failed to check existence of simple cache file '{}': {}", simpleCachePath.string(), e.what());
-		hasSimple = false;
-	}
-	catch (const std::exception& e)
-	{
-		OLO_CORE_WARN("Unexpected error checking simple cache file '{}': {}", simpleCachePath.string(), e.what());
-		hasSimple = false;
-	}
-
-	// Check if complex cache file exists with exception handling
-	try
-	{
-		hasComplex = std::filesystem::exists(complexCachePath);
-	}
-	catch (const std::filesystem::filesystem_error& e)
-	{
-		OLO_CORE_WARN("Failed to check existence of complex cache file '{}': {}", complexCachePath.string(), e.what());
-		hasComplex = false;
-	}
-	catch (const std::exception& e)
-	{
-		OLO_CORE_WARN("Unexpected error checking complex cache file '{}': {}", complexCachePath.string(), e.what());
-		hasComplex = false;
-	}
-
-	// Load simple collider data with exception handling
-	if (hasSimple)
-	{
+		// Check if simple cache file exists with exception handling
 		try
 		{
-			cachedData.m_SimpleColliderData = m_CookingFactory->DeserializeMeshCollider(simpleCachePath);
+			hasSimple = std::filesystem::exists(simpleCachePath);
 		}
 		catch (const std::filesystem::filesystem_error& e)
 		{
-			OLO_CORE_WARN("Failed to deserialize simple mesh collider from '{}': {}", simpleCachePath.string(), e.what());
-			// Keep cachedData.m_SimpleColliderData in default (invalid) state
+			OLO_CORE_WARN("Failed to check existence of simple cache file '{}': {}", simpleCachePath.string(), e.what());
+			hasSimple = false;
 		}
 		catch (const std::exception& e)
 		{
-			OLO_CORE_WARN("Unexpected error deserializing simple mesh collider from '{}': {}", simpleCachePath.string(), e.what());
-			// Keep cachedData.m_SimpleColliderData in default (invalid) state
+			OLO_CORE_WARN("Unexpected error checking simple cache file '{}': {}", simpleCachePath.string(), e.what());
+			hasSimple = false;
 		}
-	}
 
-	// Load complex collider data with exception handling
-	if (hasComplex)
-	{
+		// Check if complex cache file exists with exception handling
 		try
 		{
-			cachedData.m_ComplexColliderData = m_CookingFactory->DeserializeMeshCollider(complexCachePath);
+			hasComplex = std::filesystem::exists(complexCachePath);
 		}
 		catch (const std::filesystem::filesystem_error& e)
 		{
-			OLO_CORE_WARN("Failed to deserialize complex mesh collider from '{}': {}", complexCachePath.string(), e.what());
-			// Keep cachedData.m_ComplexColliderData in default (invalid) state
+			OLO_CORE_WARN("Failed to check existence of complex cache file '{}': {}", complexCachePath.string(), e.what());
+			hasComplex = false;
 		}
 		catch (const std::exception& e)
 		{
-			OLO_CORE_WARN("Unexpected error deserializing complex mesh collider from '{}': {}", complexCachePath.string(), e.what());
-			// Keep cachedData.m_ComplexColliderData in default (invalid) state
+			OLO_CORE_WARN("Unexpected error checking complex cache file '{}': {}", complexCachePath.string(), e.what());
+			hasComplex = false;
 		}
-	}
-	
-	cachedData.m_IsValid = (hasSimple && cachedData.m_SimpleColliderData.m_IsValid) || (hasComplex && cachedData.m_ComplexColliderData.m_IsValid);
 
-	if (cachedData.m_IsValid)
-	{
-		// Update last accessed time to reflect when cached data was loaded into memory
-		cachedData.m_LastAccessed = std::chrono::system_clock::now();
-	}
+		// Load simple collider data with exception handling
+		if (hasSimple)
+		{
+			try
+			{
+				cachedData.m_SimpleColliderData = m_CookingFactory->DeserializeMeshCollider(simpleCachePath);
+			}
+			catch (const std::filesystem::filesystem_error& e)
+			{
+				OLO_CORE_WARN("Failed to deserialize simple mesh collider from '{}': {}", simpleCachePath.string(), e.what());
+				// Keep cachedData.m_SimpleColliderData in default (invalid) state
+			}
+			catch (const std::exception& e)
+			{
+				OLO_CORE_WARN("Unexpected error deserializing simple mesh collider from '{}': {}", simpleCachePath.string(), e.what());
+				// Keep cachedData.m_SimpleColliderData in default (invalid) state
+			}
+		}
 
-	return cachedData;
+		// Load complex collider data with exception handling
+		if (hasComplex)
+		{
+			try
+			{
+				cachedData.m_ComplexColliderData = m_CookingFactory->DeserializeMeshCollider(complexCachePath);
+			}
+			catch (const std::filesystem::filesystem_error& e)
+			{
+				OLO_CORE_WARN("Failed to deserialize complex mesh collider from '{}': {}", complexCachePath.string(), e.what());
+				// Keep cachedData.m_ComplexColliderData in default (invalid) state
+			}
+			catch (const std::exception& e)
+			{
+				OLO_CORE_WARN("Unexpected error deserializing complex mesh collider from '{}': {}", complexCachePath.string(), e.what());
+				// Keep cachedData.m_ComplexColliderData in default (invalid) state
+			}
+		}
+		
+		cachedData.m_IsValid = (hasSimple && cachedData.m_SimpleColliderData.m_IsValid) || (hasComplex && cachedData.m_ComplexColliderData.m_IsValid);
+
+		if (cachedData.m_IsValid)
+		{
+			// Update last accessed time to reflect when cached data was loaded into memory
+			cachedData.m_LastAccessed = std::chrono::system_clock::now();
+		}
+
+		return cachedData;
 	}
 
 	ECookingResult MeshColliderCache::CookMeshImmediate(Ref<MeshColliderAsset> colliderAsset, EMeshColliderType type, bool invalidateOld)
