@@ -53,14 +53,14 @@ namespace OloEngine {
 	void JoltShapes::Initialize(const std::filesystem::path& cacheDirectory)
 	{
 		// Fast-path check: if already initialized, return immediately
-		if (s_Initialized.load(std::memory_order_acquire))
+		if (s_Initialized.load(std::memory_order_relaxed))
 			return;
 
 		// Double-checked locking: acquire initialization mutex
 		std::lock_guard<std::mutex> lock(s_InitializationMutex);
 		
 		// Second check: ensure only one thread performs initialization
-		if (s_Initialized.load(std::memory_order_acquire))
+		if (s_Initialized.load(std::memory_order_relaxed))
 			return;
 
 		// Set the cache directory
@@ -809,12 +809,14 @@ namespace OloEngine {
 		}
 		
 		// Try to get cached mesh data
-		const auto& cachedData = cache.GetMeshData(meshColliderAsset);
-		if (!cachedData.m_IsValid)
+		auto cachedDataOpt = cache.GetMeshData(meshColliderAsset);
+		if (!cachedDataOpt.has_value())
 		{
 			OLO_CORE_ERROR("Failed to get valid cached mesh data for asset {0}", meshAsset);
 			return nullptr;
 		}
+		
+		const auto& cachedData = cachedDataOpt.value().get();
 
 		// Choose between simple (convex) and complex (triangle) based on usage
 		const MeshColliderData* meshData = nullptr;
@@ -862,8 +864,15 @@ namespace OloEngine {
 		}
 		
 		// Try to get cached mesh data
-		const auto& cachedData = cache.GetMeshData(meshColliderAsset);
-		if (!cachedData.m_IsValid || cachedData.m_SimpleColliderData.m_Submeshes.empty())
+		auto cachedDataOpt = cache.GetMeshData(meshColliderAsset);
+		if (!cachedDataOpt.has_value())
+		{
+			OLO_CORE_ERROR("Failed to get valid convex mesh data for asset {0}", meshAsset);
+			return nullptr;
+		}
+		
+		const auto& cachedData = cachedDataOpt.value().get();
+		if (cachedData.m_SimpleColliderData.m_Submeshes.empty())
 		{
 			OLO_CORE_ERROR("Failed to get valid convex mesh data for asset {0}", meshAsset);
 			return nullptr;
@@ -890,8 +899,15 @@ namespace OloEngine {
 		}
 		
 		// Try to get cached mesh data
-		const auto& cachedData = cache.GetMeshData(meshColliderAsset);
-		if (!cachedData.m_IsValid || cachedData.m_ComplexColliderData.m_Submeshes.empty())
+		auto cachedDataOpt = cache.GetMeshData(meshColliderAsset);
+		if (!cachedDataOpt.has_value())
+		{
+			OLO_CORE_ERROR("Failed to get valid triangle mesh data for asset {0}", meshAsset);
+			return nullptr;
+		}
+		
+		const auto& cachedData = cachedDataOpt.value().get();
+		if (cachedData.m_ComplexColliderData.m_Submeshes.empty())
 		{
 			OLO_CORE_ERROR("Failed to get valid triangle mesh data for asset {0}", meshAsset);
 			return nullptr;

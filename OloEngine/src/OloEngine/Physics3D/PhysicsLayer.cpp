@@ -161,10 +161,10 @@ namespace OloEngine {
 		if (index >= s_Layers.size() || s_Layers[index].m_LayerID != layerId)
 			return; // Invalid or corrupted layer mapping
 		
-		// Check if name already exists
+		// Check if name already exists in a different layer
 		for (const auto& pair : s_LayerNames)
 		{
-			if (pair.second == newName)
+			if (pair.first != layerId && pair.second == newName)
 				return;
 		}
 

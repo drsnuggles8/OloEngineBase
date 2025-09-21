@@ -43,9 +43,14 @@ namespace OloEngine {
 		catch (const std::exception& e)
 		{
 			OLO_CORE_ERROR("MeshColliderCache: Failed to initialize cooking factory: {}", e.what());
-			// Keep m_IsInitialized as false and return early
-			// Clean up any partial state if needed
+			// Clean up all partial state to ensure no other methods attempt to use invalid factory
+			m_CookingFactory->Shutdown(); // Clean up any partial initialization in factory
+			m_CookingFactory = Ref<MeshCookingFactory>(new MeshCookingFactory()); // Recreate factory in clean state
 			m_CachedData.clear();
+			m_CookingQueue.clear();
+			m_CookingTasks.clear();
+			m_CurrentCacheSize = 0;
+			// Keep m_IsInitialized as false and return early
 			return;
 		}
 
@@ -91,137 +96,35 @@ namespace OloEngine {
 		OLO_CORE_INFO("MeshColliderCache shutdown");
 	}
 
-	const CachedColliderData& MeshColliderCache::GetMeshData(Ref<MeshColliderAsset> colliderAsset)
+	std::optional<CachedColliderData> MeshColliderCache::GetMeshData(Ref<MeshColliderAsset> colliderAsset)
 	{
 		if (!colliderAsset || !m_IsInitialized.load(std::memory_order_acquire))
 		{
 			m_CacheMisses.fetch_add(1, std::memory_order_relaxed);
-			return m_InvalidData;
+			return std::nullopt;
 		}
 
 		AssetHandle handle = colliderAsset->GetHandle();
 
-		// Try to get from cache first
-		const CachedColliderData* cachedData = nullptr;
+		// Try to get from memory cache first
+		if (auto cachedData = TryGetFromCache(handle))
 		{
-			std::lock_guard<std::mutex> lock(m_CacheMutex);
-			auto it = m_CachedData.find(handle);
-			if (it != m_CachedData.end() && it->second.m_IsValid)
-			{
-				cachedData = &it->second;
-			}
-		}
-		
-		if (cachedData)
-		{
-			m_CacheHits.fetch_add(1, std::memory_order_relaxed);
-			return *cachedData;
+			return cachedData;
 		}
 
-		// Cache miss - try to load from disk cache
-		CachedColliderData loadedData = LoadFromCache(colliderAsset);
-		if (loadedData.m_IsValid)
+		// Try to load from disk cache and add to memory cache
+		if (auto loadedData = LoadAndCache(colliderAsset, handle))
 		{
-			// Add to memory cache
-			const CachedColliderData* finalData = nullptr;
-			{
-				std::lock_guard<std::mutex> lock(m_CacheMutex);
-				sizet dataSize = CalculateDataSize(loadedData);
-				
-				// Check if we need to evict entries
-				if (m_CurrentCacheSize + dataSize > m_MaxCacheSize.load() * s_CacheEvictionThreshold)
-				{
-					EvictOldestEntries();
-				}
-
-				m_CachedData[handle] = loadedData;
-				m_CurrentCacheSize += dataSize;
-				finalData = &m_CachedData[handle];
-			}
-			
-			m_CacheHits.fetch_add(1, std::memory_order_relaxed);
-			return *finalData;
+			return loadedData;
 		}
 
-		// Need to cook the mesh
-		m_CacheMisses.fetch_add(1, std::memory_order_relaxed);
-		
-		// Determine which type to prioritize based on typical usage patterns
-		// For now, we'll cook convex first (most common for dynamic bodies) and triangle async
+		// Need to cook the mesh - determine primary and secondary types
+		// Cook convex first (most common for dynamic bodies) and triangle async
 		// TODO: Could be enhanced with caller hints or usage tracking
 		EMeshColliderType primaryType = EMeshColliderType::Convex;
 		EMeshColliderType secondaryType = EMeshColliderType::Triangle;
 		
-		// Cook the primary type synchronously for immediate use
-		ECookingResult primaryResult = CookMeshImmediate(colliderAsset, primaryType, false);
-		
-		// Queue the secondary type for asynchronous cooking
-		std::future<ECookingResult> secondaryFuture = CookMeshAsync(colliderAsset, secondaryType, false);
-		
-		// If primary cooking succeeded, try loading the cache
-		if (primaryResult == ECookingResult::Success)
-		{
-			// Try loading again after primary cooking
-			loadedData = LoadFromCache(colliderAsset);
-			if (loadedData.m_IsValid)
-			{
-				std::lock_guard<std::mutex> lock(m_CacheMutex);
-				sizet dataSize = CalculateDataSize(loadedData);
-				
-				if (m_CurrentCacheSize + dataSize > m_MaxCacheSize.load() * s_CacheEvictionThreshold)
-				{
-					EvictOldestEntries();
-				}
-
-				m_CachedData[handle] = loadedData;
-				m_CurrentCacheSize += dataSize;
-				
-				// Note: Secondary cooking will update the cache asynchronously when complete
-				return m_CachedData[handle];
-			}
-		}
-		
-		// If primary failed, wait for secondary to complete and try again
-		ECookingResult secondaryResult = ECookingResult::Failed;
-		
-		// Use timed wait to avoid indefinite blocking
-		constexpr auto timeout = std::chrono::seconds(5);
-		auto waitStatus = secondaryFuture.wait_for(timeout);
-		
-		if (waitStatus == std::future_status::ready)
-		{
-			secondaryResult = secondaryFuture.get();
-		}
-		else
-		{
-			OLO_CORE_WARN("Secondary mesh cooking timed out after {} seconds for asset {}", 
-						   timeout.count(), static_cast<u64>(handle));
-			// secondaryResult remains ECookingResult::Failed
-		}
-		
-		if (secondaryResult == ECookingResult::Success)
-		{
-			// Try loading again after secondary cooking
-			loadedData = LoadFromCache(colliderAsset);
-			if (loadedData.m_IsValid)
-			{
-				std::lock_guard<std::mutex> lock(m_CacheMutex);
-				sizet dataSize = CalculateDataSize(loadedData);
-				
-				if (m_CurrentCacheSize + dataSize > m_MaxCacheSize.load() * s_CacheEvictionThreshold)
-				{
-					EvictOldestEntries();
-				}
-
-				m_CachedData[handle] = loadedData;
-				m_CurrentCacheSize += dataSize;
-				
-				return m_CachedData[handle];
-			}
-		}
-
-		// Return invalid data if everything failed
-		return m_InvalidData;
+		return CookAndCache(colliderAsset, primaryType, secondaryType);
 	}
 
 	bool MeshColliderCache::HasMeshData(Ref<MeshColliderAsset> colliderAsset) const
@@ -616,6 +519,134 @@ namespace OloEngine {
 		}
 		
 		return m_InvalidData;
+	}
+
+	// Helper methods for GetMeshData refactoring
+	std::optional<CachedColliderData> MeshColliderCache::TryGetFromCache(AssetHandle handle)
+	{
+		std::lock_guard<std::mutex> lock(m_CacheMutex);
+		auto it = m_CachedData.find(handle);
+		if (it != m_CachedData.end() && it->second.m_IsValid)
+		{
+			m_CacheHits.fetch_add(1, std::memory_order_relaxed);
+			return it->second;
+		}
+		return std::nullopt;
+	}
+
+	std::optional<CachedColliderData> MeshColliderCache::LoadAndCache(Ref<MeshColliderAsset> colliderAsset, AssetHandle handle)
+	{
+		// Try to load from disk cache
+		CachedColliderData loadedData = LoadFromCache(colliderAsset);
+		if (!loadedData.m_IsValid)
+		{
+			return std::nullopt;
+		}
+
+		// Add to memory cache with proper eviction management
+		CachedColliderData cachedResult;
+		{
+			std::lock_guard<std::mutex> lock(m_CacheMutex);
+			sizet dataSize = CalculateDataSize(loadedData);
+			
+			// Check if we need to evict entries
+			if (m_CurrentCacheSize + dataSize > m_MaxCacheSize.load() * s_CacheEvictionThreshold)
+			{
+				EvictOldestEntries();
+			}
+
+			m_CachedData[handle] = std::move(loadedData);
+			m_CurrentCacheSize += dataSize;
+			cachedResult = m_CachedData[handle];
+		}
+		
+		m_CacheHits.fetch_add(1, std::memory_order_relaxed);
+		return cachedResult;
+	}
+
+	std::optional<CachedColliderData> MeshColliderCache::CookAndCache(Ref<MeshColliderAsset> colliderAsset, EMeshColliderType primaryType, EMeshColliderType secondaryType)
+	{
+		AssetHandle handle = colliderAsset->GetHandle();
+		
+		// Increment cache miss counter for cooking attempts
+		m_CacheMisses.fetch_add(1, std::memory_order_relaxed);
+		
+		// Cook the primary type synchronously for immediate use
+		ECookingResult primaryResult = CookMeshImmediate(colliderAsset, primaryType, false);
+		
+		// Queue the secondary type for asynchronous cooking
+		std::future<ECookingResult> secondaryFuture = CookMeshAsync(colliderAsset, secondaryType, false);
+		
+		// If primary cooking succeeded, try loading the cache
+		if (primaryResult == ECookingResult::Success)
+		{
+			CachedColliderData loadedData = LoadFromCache(colliderAsset);
+			if (loadedData.m_IsValid)
+			{
+				CachedColliderData cachedResult;
+				{
+					std::lock_guard<std::mutex> lock(m_CacheMutex);
+					sizet dataSize = CalculateDataSize(loadedData);
+					
+					if (m_CurrentCacheSize + dataSize > m_MaxCacheSize.load() * s_CacheEvictionThreshold)
+					{
+						EvictOldestEntries();
+					}
+
+					m_CachedData[handle] = std::move(loadedData);
+					m_CurrentCacheSize += dataSize;
+					cachedResult = m_CachedData[handle];
+				}
+				
+				// Note: Secondary cooking will update the cache asynchronously when complete
+				return cachedResult;
+			}
+		}
+		
+		// If primary failed, wait for secondary to complete and try again
+		ECookingResult secondaryResult = ECookingResult::Failed;
+		
+		// Use timed wait to avoid indefinite blocking
+		constexpr auto timeout = std::chrono::seconds(5);
+		auto waitStatus = secondaryFuture.wait_for(timeout);
+		
+		if (waitStatus == std::future_status::ready)
+		{
+			secondaryResult = secondaryFuture.get();
+		}
+		else
+		{
+			OLO_CORE_WARN("Secondary mesh cooking timed out after {} seconds for asset {}", 
+						   timeout.count(), static_cast<u64>(handle));
+			// secondaryResult remains ECookingResult::Failed
+		}
+		
+		if (secondaryResult == ECookingResult::Success)
+		{
+			CachedColliderData loadedData = LoadFromCache(colliderAsset);
+			if (loadedData.m_IsValid)
+			{
+				CachedColliderData cachedResult;
+				{
+					std::lock_guard<std::mutex> lock(m_CacheMutex);
+					sizet dataSize = CalculateDataSize(loadedData);
+					
+					if (m_CurrentCacheSize + dataSize > m_MaxCacheSize.load() * s_CacheEvictionThreshold)
+					{
+						EvictOldestEntries();
+					}
+
+					m_CachedData[handle] = std::move(loadedData);
+					m_CurrentCacheSize += dataSize;
+					cachedResult = m_CachedData[handle];
+				}
+				
+				return cachedResult;
+			}
+		}
+
+		// Return nullopt if everything failed
+		return std::nullopt;
 	}
 
 }

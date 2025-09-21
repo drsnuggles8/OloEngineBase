@@ -8,6 +8,8 @@
 #include <atomic>
 #include <chrono>
 #include <deque>
+#include <functional>
+#include <optional>
 #include <unordered_map>
 #include <mutex>
 #include <vector>
@@ -44,7 +46,15 @@ namespace OloEngine {
 		bool IsInitialized() const { return m_IsInitialized; }
 
 		// Main cache interface
-		const CachedColliderData& GetMeshData(Ref<MeshColliderAsset> colliderAsset);
+		/// @brief Safely get cached mesh data for an asset
+		/// @param colliderAsset The mesh collider asset to get data for
+		/// @return Optional reference to cached data, or std::nullopt if not available
+		/// @note Always check the returned optional before accessing. Use HasMeshData() to test availability.
+		std::optional<CachedColliderData> GetMeshData(Ref<MeshColliderAsset> colliderAsset);
+		
+		/// @brief Check if cached mesh data is available for an asset
+		/// @param colliderAsset The mesh collider asset to check
+		/// @return true if valid cached data is available, false otherwise
 		bool HasMeshData(Ref<MeshColliderAsset> colliderAsset) const;
 		
 		// Async cooking interface
@@ -81,6 +91,11 @@ namespace OloEngine {
 		// Loading and cooking
 		CachedColliderData LoadFromCache(Ref<MeshColliderAsset> colliderAsset);
 		ECookingResult CookMeshImmediate(Ref<MeshColliderAsset> colliderAsset, EMeshColliderType type, bool invalidateOld);
+
+		// Helper methods for GetMeshData refactoring
+		std::optional<CachedColliderData> TryGetFromCache(AssetHandle handle);
+		std::optional<CachedColliderData> LoadAndCache(Ref<MeshColliderAsset> colliderAsset, AssetHandle handle);
+		std::optional<CachedColliderData> CookAndCache(Ref<MeshColliderAsset> colliderAsset, EMeshColliderType primaryType, EMeshColliderType secondaryType);
 
 	private:
 		// Singleton - private constructor/destructor

@@ -75,7 +75,14 @@ namespace OloEngine {
 		/// @brief Set density (basic range check)
 		void SetDensity(f32 density) 
 		{
-			m_Density = std::max(MIN_DENSITY, density); // Prevent zero/negative density
+			if (!std::isfinite(density))
+			{
+				m_Density = MIN_DENSITY; // Handle NaN/infinity with safe minimum
+			}
+			else
+			{
+				m_Density = std::max(MIN_DENSITY, density); // Prevent zero/negative density
+			}
 		}
 
 		/// @brief Validate and clamp all material properties
