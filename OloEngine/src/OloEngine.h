@@ -40,3 +40,17 @@
 
 #include "OloEngine/Renderer/Camera/OrthographicCamera.h"
 // ------------------------------
+
+// --Audio-----------------------
+#include "OloEngine/Audio/AudioEngine.h"
+#include "OloEngine/Audio/AudioSource.h"
+#include "OloEngine/Audio/AudioListener.h"
+
+// Sound Graph System
+#include "OloEngine/Audio/SoundGraph/SoundGraph.h"
+#include "OloEngine/Audio/SoundGraph/SoundGraphPlayer.h"
+#include "OloEngine/Audio/SoundGraph/SoundGraphSerializer.h"
+#include "OloEngine/Audio/SoundGraph/NodeProcessor.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/WavePlayerNode.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/MixerNode.h"
+// ------------------------------

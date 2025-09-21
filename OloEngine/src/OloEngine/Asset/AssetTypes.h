@@ -27,10 +27,11 @@ namespace OloEngine
         Shader = 16,
         MeshCollider = 17,
         SoundGraphSound = 18,
-        AnimationClip = 19,
-        AnimationGraph = 20,
-        Model = 21,
-        Environment = 22
+        SoundGraph = 19,
+        AnimationClip = 20,
+        AnimationGraph = 21,
+        Model = 22,
+        Environment = 23
     };
 
     enum class AssetFlag : u16
@@ -112,6 +113,7 @@ namespace OloEngine
                 case AssetType::Shader:              return "Shader";
                 case AssetType::MeshCollider:        return "MeshCollider";
                 case AssetType::SoundGraphSound:     return "SoundGraphSound";
+                case AssetType::SoundGraph:          return "SoundGraph";
                 case AssetType::AnimationClip:       return "AnimationClip";
                 case AssetType::AnimationGraph:      return "AnimationGraph";
                 case AssetType::Model:               return "Model";
@@ -149,6 +151,7 @@ namespace OloEngine
             if (assetType == "Shader")              return AssetType::Shader;
             if (assetType == "MeshCollider")        return AssetType::MeshCollider;
             if (assetType == "SoundGraphSound")     return AssetType::SoundGraphSound;
+            if (assetType == "SoundGraph")          return AssetType::SoundGraph;
             if (assetType == "AnimationClip")       return AssetType::AnimationClip;
             //if (assetType == "AnimationController") return AssetType::AnimationController; // OBSOLETE. You need to re-import animated asset
             if (assetType == "AnimationGraph")      return AssetType::AnimationGraph;
