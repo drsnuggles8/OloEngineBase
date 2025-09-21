@@ -186,6 +186,16 @@ void Sandbox3D::OnAttach()
 void Sandbox3D::OnDetach()
 {
 	OLO_PROFILE_FUNCTION();
+	
+	// Clean up physics entities before shutdown to prevent assertion failures
+	ClearPhysicsEntities();
+	
+	// Stop physics simulation if running
+	if (m_TestScene && m_TestScene->GetJoltScene())
+	{
+		m_TestScene->OnPhysics3DStop();
+	}
+	
     OloEngine::RendererMemoryTracker::GetInstance().Shutdown();
     OloEngine::RendererProfiler::GetInstance().Shutdown();
     // Note: GPUResourceInspector is shutdown in Application destructor
@@ -321,7 +331,12 @@ void Sandbox3D::OnUpdate(const OloEngine::Timestep ts)
         
         ApplySceneLighting(m_CurrentScene);
         
-        RenderGroundPlane();
+        // Only render the ground plane for non-physics scenes
+        // Physics3D Testing scene has its own physics ground
+        if (m_CurrentScene != SceneType::Physics3DTesting)
+        {
+            RenderGroundPlane();
+        }
         
         switch (m_CurrentScene)
         {
@@ -2282,9 +2297,23 @@ void Sandbox3D::ClearPhysicsEntities()
     if (!m_TestScene)
         return;
         
+    // First, destroy physics bodies to avoid component access issues during entity destruction
     for (auto& entity : m_PhysicsEntities)
     {
-        if (entity)
+        if (entity) // Uses operator bool() to check if entity is valid
+        {
+            // Destroy physics body first if it exists
+            if (m_TestScene->GetJoltScene() && entity.HasComponent<OloEngine::Rigidbody3DComponent>())
+            {
+                m_TestScene->GetJoltScene()->DestroyBody(entity);
+            }
+        }
+    }
+    
+    // Then destroy the entities
+    for (auto& entity : m_PhysicsEntities)
+    {
+        if (entity) // Uses operator bool() to check if entity is valid
         {
             m_TestScene->DestroyEntity(entity);
         }
