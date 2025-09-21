@@ -6,6 +6,14 @@ message(STATUS "CMake version: ${CMAKE_VERSION}")
 set(CMAKE_FIND_PACKAGE_NO_PACKAGE_REGISTRY ON)
 set(CMAKE_FIND_PACKAGE_NO_SYSTEM_PACKAGE_REGISTRY ON)
 
+# Set CMake policies to suppress warnings
+if(POLICY CMP0174)
+    cmake_policy(SET CMP0174 NEW)  # Empty commands warning
+endif()
+if(POLICY CMP0194)  
+    cmake_policy(SET CMP0194 NEW)  # MSVC assembler policy
+endif()
+
 project(OloEngineBase
         VERSION 0.0.1
         LANGUAGES CXX C CSharp)

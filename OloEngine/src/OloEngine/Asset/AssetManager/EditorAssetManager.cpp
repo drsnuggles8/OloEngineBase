@@ -17,7 +17,14 @@
 #include <filesystem>
 
 #if OLO_ASYNC_ASSETS
+#ifdef _MSC_VER
+	#pragma warning(push)
+	#pragma warning(disable: 4068) // unknown pragma 'mark'
+#endif
 #include "FileWatch.hpp"
+#ifdef _MSC_VER
+	#pragma warning(pop)
+#endif
 #endif
 
 namespace OloEngine

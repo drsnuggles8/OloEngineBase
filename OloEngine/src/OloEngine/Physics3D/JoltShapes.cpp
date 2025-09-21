@@ -71,7 +71,7 @@ namespace OloEngine {
 
 		OLO_CORE_INFO("Initializing JoltShapes system");
 		{
-			std::unique_lock<std::shared_mutex> lock(s_ShapeCacheMutex);
+			std::unique_lock<std::shared_mutex> shapeCacheLock(s_ShapeCacheMutex);
 			s_ShapeCache.clear();
 		}
 		
