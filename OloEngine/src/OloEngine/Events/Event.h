@@ -28,11 +28,11 @@ namespace OloEngine
 	enum class EventCategory
 	{
 		None = 0,
-		Application = BIT(0),
-		Input = BIT(1),
-		Keyboard = BIT(2),
-		Mouse = BIT(3),
-		MouseButton = BIT(4)
+		Application = OloBit32(0),
+		Input = OloBit32(1),
+		Keyboard = OloBit32(2),
+		Mouse = OloBit32(3),
+		MouseButton = OloBit32(4)
 	};
 
 	EventCategory operator |(EventCategory lhs, EventCategory rhs);

@@ -24,7 +24,6 @@
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Animation/AnimationAsset.h"
 #include "OloEngine/Asset/MeshColliderAsset.h"
-#include "OloEngine/Physics/ColliderMaterial.h"
 #include "OloEngine/Core/YAMLConverters.h"
 #include <yaml-cpp/yaml.h>
 #include <fstream>
@@ -1207,10 +1206,58 @@ namespace OloEngine
     // MeshColliderSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    void MeshColliderSerializer::Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const
+    void MeshColliderSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
-        // TODO: Implement mesh collider serialization
-        OLO_CORE_WARN("MeshColliderSerializer::Serialize not yet implemented");
+        Ref<MeshColliderAsset> meshCollider = asset.As<MeshColliderAsset>();
+        if (!meshCollider)
+        {
+            OLO_CORE_ERROR("MeshColliderSerializer::Serialize - Invalid mesh collider asset");
+            return;
+        }
+
+        std::string yamlString = SerializeToYAML(meshCollider);
+
+        std::filesystem::path filepath = Project::GetAssetDirectory() / metadata.FilePath;
+        
+        // Ensure parent directory exists
+        std::filesystem::path parentDir = filepath.parent_path();
+        if (!parentDir.empty())
+        {
+            std::error_code ec;
+            if (!std::filesystem::create_directories(parentDir, ec) && ec)
+            {
+                OLO_CORE_ERROR("MeshColliderSerializer::Serialize - Failed to create parent directories for: {}, error: {}", filepath.string(), ec.message());
+                return;
+            }
+        }
+        
+        // Create temporary file for atomic write
+        std::filesystem::path tempFilepath = parentDir / (filepath.filename().string() + ".tmp");
+        
+        // Write to temporary file
+        std::ofstream fout(tempFilepath);
+        if (!fout.is_open())
+        {
+            OLO_CORE_ERROR("MeshColliderSerializer::Serialize - Failed to open temporary file for writing: {}", tempFilepath.string());
+            return;
+        }
+        
+        fout << yamlString;
+        fout.flush(); // Ensure data is written to the file
+        fout.close();
+        
+        // Atomically rename temp file to final file
+        std::error_code ec;
+        std::filesystem::rename(tempFilepath, filepath, ec);
+        if (ec)
+        {
+            OLO_CORE_ERROR("MeshColliderSerializer::Serialize - Failed to rename temporary file {} to {}, error: {}", tempFilepath.string(), filepath.string(), ec.message());
+            // Clean up temporary file on failure
+            std::filesystem::remove(tempFilepath, ec);
+            return;
+        }
+        
+        OLO_CORE_TRACE("MeshColliderSerializer::Serialize - Successfully serialized MeshCollider to: {}", filepath.string());
     }
 
     bool MeshColliderSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
@@ -1327,8 +1374,10 @@ namespace OloEngine
         // Serialize Material properties
         out << YAML::Key << "Material" << YAML::Value;
         out << YAML::BeginMap; // Material
-        out << YAML::Key << "Friction" << YAML::Value << meshCollider->m_Material.Friction;
-        out << YAML::Key << "Restitution" << YAML::Value << meshCollider->m_Material.Restitution;
+        out << YAML::Key << "StaticFriction" << YAML::Value << meshCollider->m_Material.GetStaticFriction();
+        out << YAML::Key << "DynamicFriction" << YAML::Value << meshCollider->m_Material.GetDynamicFriction();
+        out << YAML::Key << "Restitution" << YAML::Value << meshCollider->m_Material.GetRestitution();
+        out << YAML::Key << "Density" << YAML::Value << meshCollider->m_Material.GetDensity();
         out << YAML::EndMap; // Material
         
         // Serialize other properties
@@ -1374,8 +1423,33 @@ namespace OloEngine
             {
                 YAML::Node materialNode = meshColliderNode["Material"];
                 ColliderMaterial material;
-                material.Friction = materialNode["Friction"].as<float>(0.5f);
-                material.Restitution = materialNode["Restitution"].as<float>(0.15f);
+                // Handle both old and new material formats for backward compatibility
+                if (materialNode["Friction"])
+                {
+                    float friction = materialNode["Friction"].as<float>(0.5f);
+                    // Clamp friction values to valid range [0.0, 1.0]
+                    friction = std::clamp(friction, 0.0f, 1.0f);
+                    material.SetStaticFriction(friction);
+                    material.SetDynamicFriction(friction);
+                }
+                else
+                {
+                    float staticFriction = materialNode["StaticFriction"].as<float>(0.6f);
+                    float dynamicFriction = materialNode["DynamicFriction"].as<float>(0.6f);
+                    // Clamp friction values to valid range [0.0, 1.0]
+                    material.SetStaticFriction(std::clamp(staticFriction, 0.0f, 1.0f));
+                    material.SetDynamicFriction(std::clamp(dynamicFriction, 0.0f, 1.0f));
+                }
+                
+                float restitution = materialNode["Restitution"].as<float>(0.0f);
+                float density = materialNode["Density"].as<float>(1000.0f);
+                
+                // Clamp restitution to valid range [0.0, 1.0]
+                material.SetRestitution(std::clamp(restitution, 0.0f, 1.0f));
+                
+                // Clamp density to sensible positive range [MIN_DENSITY, 1e6]
+                material.SetDensity(std::clamp(density, ColliderMaterial::MIN_DENSITY, 1e6f));
+                
                 targetMeshCollider->m_Material = material;
             }
             

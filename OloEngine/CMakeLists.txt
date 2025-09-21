@@ -53,6 +53,7 @@ target_include_directories(OloEngine PRIVATE
 	vendor/glad-build/include
 	vendor/glfw-src/include
 	vendor/glm-src
+	vendor/joltphysics-src
 	vendor/miniaudio-src
 	vendor/lua-src
 	vendor/imgui-src
@@ -74,6 +75,7 @@ target_link_libraries(OloEngine
 	glfw
 	imgui
 	imguizmo
+	Jolt
 	msdf-atlas-gen
 	opengl32.lib
 	sol2

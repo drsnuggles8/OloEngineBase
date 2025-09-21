@@ -25,6 +25,7 @@ namespace OloEngine
 	class MeshSource;
 	class Skeleton;
 	class Prefab;
+	class JoltScene;
 
 	class Scene : public Asset
 	{
@@ -110,6 +111,9 @@ namespace OloEngine
 		void OnPhysics2DStart();
 		void OnPhysics2DStop();
 
+		void OnPhysics3DStart();
+		void OnPhysics3DStop();
+
 		void RenderScene(EditorCamera const& camera);
 	private:
 		entt::registry m_Registry;
@@ -120,6 +124,7 @@ namespace OloEngine
 		int m_StepFrames = 0;
 
 		b2WorldId m_PhysicsWorld = b2_nullWorldId;
+		std::unique_ptr<JoltScene> m_JoltScene;
 
 		std::unordered_map<UUID, entt::entity> m_EntityMap;
 
