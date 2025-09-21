@@ -17,6 +17,7 @@
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Physics3D/JoltScene.h"
 
 class Sandbox3D : public OloEngine::Layer
 {
@@ -39,6 +40,7 @@ public:
 		StateTesting = 3,
 		ModelLoading = 4,
 		PBRModelTesting = 5,
+		Physics3DTesting = 6,
 		Count // Used for compile-time array bounds checking
 	};
 
@@ -61,7 +63,8 @@ private:
 		"Lighting Testing", 
 		"State Testing", 
 		"Model Loading",
-		"PBR Model Testing"
+		"PBR Model Testing",
+		"Physics3D Testing"
 	};
 	
 	// Scene rendering methods
@@ -71,6 +74,7 @@ private:
 	void RenderStateTestingScene();
 	void RenderModelLoadingScene();
 	void RenderPBRModelTestingScene();
+	void RenderPhysics3DTestingScene();
 	
 	// Scene UI methods
 	void RenderMaterialTestingUI();
@@ -79,6 +83,7 @@ private:
 	void RenderStateTestingUI();
 	void RenderModelLoadingUI();
 	void RenderPBRModelTestingUI();
+	void RenderPhysics3DTestingUI();
 	
 	// Helper methods
 	OloEngine::Material& GetCurrentPBRMaterial();
@@ -254,8 +259,32 @@ private:
 	const char* m_StateTestModes[4] = { "Wireframe", "Alpha Blend", "Polygon Offset", "All Effects" };
 	bool m_UseQueuedStateChanges = true;
 	
+	// Physics3D testing settings
+	bool m_PhysicsEnabled = false;
+	bool m_ShowPhysicsDebug = false;
+	bool m_PhysicsSimulationEnabled = true;
+	f32 m_PhysicsGravity = -9.81f;
+	i32 m_PhysicsDemoMode = 0;
+	const char* m_PhysicsDemoModes[5] = { "Basic Objects", "Stack Test", "Pyramid Test", "Bouncing Balls", "Mixed Scenario" };
+	i32 m_SpawnObjectType = 0;
+	const char* m_PhysicsObjectTypes[3] = { "Box", "Sphere", "Capsule" };
+	f32 m_SpawnHeight = 10.0f;
+	f32 m_SpawnForce = 0.0f;
+	
+	// Physics entities management
+	std::vector<OloEngine::Entity> m_PhysicsEntities;
+	
 	// Common scene elements (shared across scenes)
 	void RenderGroundPlane();
 	void RenderGrassQuad();
 	void RenderPerformanceInfo();
+	
+	// Physics helper methods
+	void SetupPhysicsDemo(i32 demoMode);
+	void SpawnPhysicsObject(OloEngine::Entity& entity, const glm::vec3& position, i32 objectType);
+	void ClearPhysicsEntities();
+	OloEngine::Entity CreatePhysicsBox(const glm::vec3& position, const glm::vec3& size = glm::vec3(1.0f), bool isDynamic = true);
+	OloEngine::Entity CreatePhysicsSphere(const glm::vec3& position, f32 radius = 0.5f, bool isDynamic = true);
+	OloEngine::Entity CreatePhysicsCapsule(const glm::vec3& position, f32 radius = 0.5f, f32 height = 1.0f, bool isDynamic = true);
+	void CreateGround();
 };

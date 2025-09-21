@@ -99,6 +99,13 @@ namespace OloEngine
 		{
 			return m_Registry.view<Components...>();
 		}
+		
+		// Physics access
+		JoltScene* GetJoltScene() const { return m_JoltScene.get(); }
+		
+		// Physics lifecycle (public for external scene setup)
+		void OnPhysics3DStart();
+		void OnPhysics3DStop();
 
 		// Asset interface
 		static AssetType GetStaticType() { return AssetType::Scene; }
@@ -110,9 +117,6 @@ namespace OloEngine
 
 		void OnPhysics2DStart();
 		void OnPhysics2DStop();
-
-		void OnPhysics3DStart();
-		void OnPhysics3DStop();
 
 		void RenderScene(EditorCamera const& camera);
 	private:
