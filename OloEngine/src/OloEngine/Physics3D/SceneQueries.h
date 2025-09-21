@@ -253,6 +253,9 @@ namespace OloEngine {
 
 		// Multi-hit shape casting
 		virtual i32 CastShapeMultiple(const ShapeCastInfo& shapeCastInfo, SceneQueryHit* outHits, i32 maxHits) = 0;
+		virtual i32 CastBoxMultiple(const BoxCastInfo& boxCastInfo, SceneQueryHit* outHits, i32 maxHits) = 0;
+		virtual i32 CastSphereMultiple(const SphereCastInfo& sphereCastInfo, SceneQueryHit* outHits, i32 maxHits) = 0;
+		virtual i32 CastCapsuleMultiple(const CapsuleCastInfo& capsuleCastInfo, SceneQueryHit* outHits, i32 maxHits) = 0;
 	};
 
 	/**

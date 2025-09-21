@@ -919,6 +919,9 @@ namespace OloEngine {
 
 			// Write header
 			OloMeshColliderHeader header{};
+			// Initialize header fields for file format validation
+			memcpy(header.m_Header, "OloMeshC", 8);
+			header.m_Version = 1;
 			header.m_Type = meshData.m_Type;
 			header.m_SubmeshCount = static_cast<u32>(meshData.m_Submeshes.size());
 			header.m_Scale = meshData.m_Scale;

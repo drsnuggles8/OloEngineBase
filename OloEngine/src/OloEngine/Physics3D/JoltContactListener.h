@@ -60,8 +60,22 @@ namespace OloEngine {
 				: m_Type(type), m_EntityA(entityA), m_EntityB(entityB), m_ContactPoint(point), m_ContactNormal(normal), m_ContactDepth(depth), m_ContactImpulse(impulse) {}
 		};
 
-		void QueueContactEvent(const ContactEvent& event);
-		void QueueContactEvent(ContactEvent&& event);
+		template<typename T>
+		void QueueContactEvent(T&& event)
+		{
+			std::lock_guard<std::mutex> lock(m_ContactEventsMutex);
+			
+			// Check queue size limit and early-return to prevent queue growth during contact storms
+			// Use the protected container size under mutex rather than relaxed atomic load
+			if (m_ContactEventQueue.size() >= MaxQueuedContactEvents)
+			{
+				return; // Drop the event instead of growing the queue
+			}
+			
+			m_ContactEventQueue.push_back(std::forward<T>(event));
+			// Update atomic counter to maintain consistency for fast external queries
+			m_QueueSize.store(m_ContactEventQueue.size(), std::memory_order_relaxed);
+		}
 		
 		// Retrieves entity UUID from JPH::Body::GetUserData (expects u64 UUID); returns 0 when no valid UUID is present
 		[[nodiscard]] UUID GetEntityIDFromBody(const JPH::Body& body) noexcept;

@@ -5,6 +5,7 @@
 #include "OloEngine/Physics3D/ColliderMaterial.h"
 #include <glm/glm.hpp>
 #include <functional>
+#include <stdexcept>
 #include <vector>
 
 namespace OloEngine {
@@ -99,6 +100,10 @@ namespace OloEngine {
 	 */
 	constexpr inline u32 ToLayerMask(u32 layerIndex)
 	{
+		if (layerIndex >= 32)
+		{
+			throw std::out_of_range("Layer index must be < 32");
+		}
 		return OloBit32(static_cast<int>(layerIndex));
 	}
 

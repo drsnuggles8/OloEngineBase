@@ -92,6 +92,8 @@ constexpr auto ArraySize(T array) { return ( sizeof(array)/sizeof((array)[0]) );
 // Bit manipulation functions
 // 
 // Usage examples:
+//   enum TinyFlags : u8 { FlagA = OloBit8(0), FlagB = OloBit8(1) };   // For bits 0-7
+//   enum SmallFlags : u16 { FlagA = OloBit16(0), FlagB = OloBit16(1) }; // For bits 0-15
 //   enum Flags : u32 { FlagA = OloBit32(0), FlagB = OloBit32(1) };   // For bits 0-31
 //   enum LargeFlags : u64 { BigFlag = OloBit64(35) };                // For bits 32-63
 //   auto mask = OloEngine::BitMask<u32>(5);                          // Type-safe u32 mask (runtime)
@@ -99,6 +101,52 @@ constexpr auto ArraySize(T array) { return ( sizeof(array)/sizeof((array)[0]) );
 //   constexpr auto cmask = OloEngine::BitMaskConstexpr<u32>(5);      // Compile-time constexpr safe
 //
 // Bounds-checked bit manipulation functions - enforces compile-time and runtime safety
+constexpr std::uint8_t OloBit8(int x)
+{
+#if __cpp_lib_is_constant_evaluated >= 201811L
+    if (std::is_constant_evaluated())
+    {
+        // Compile-time: hard error via throw for out-of-bounds
+        if (x < 0 || x >= 8)
+        {
+            throw std::out_of_range("Bit index out of range for 8-bit value");
+        }
+    }
+    else
+#endif
+    {
+        // Runtime: throw exception for out-of-bounds
+        if (x < 0 || x >= 8)
+        {
+            throw std::out_of_range("Bit index out of range for 8-bit value");
+        }
+    }
+    return static_cast<std::uint8_t>(1u << static_cast<unsigned>(x));
+}
+
+constexpr std::uint16_t OloBit16(int x)
+{
+#if __cpp_lib_is_constant_evaluated >= 201811L
+    if (std::is_constant_evaluated())
+    {
+        // Compile-time: hard error via throw for out-of-bounds
+        if (x < 0 || x >= 16)
+        {
+            throw std::out_of_range("Bit index out of range for 16-bit value");
+        }
+    }
+    else
+#endif
+    {
+        // Runtime: throw exception for out-of-bounds
+        if (x < 0 || x >= 16)
+        {
+            throw std::out_of_range("Bit index out of range for 16-bit value");
+        }
+    }
+    return static_cast<std::uint16_t>(1u << static_cast<unsigned>(x));
+}
+
 constexpr std::uint32_t OloBit32(int x)
 {
 #if __cpp_lib_is_constant_evaluated >= 201811L

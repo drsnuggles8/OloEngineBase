@@ -82,6 +82,17 @@ namespace OloEngine {
 
 			try
 			{
+				// Check for sub-shapes before any writes to prevent inconsistent stream state
+				JPH::ShapeList subShapes;
+				shape->SaveSubShapeState(subShapes);
+				
+				// Fail fast if sub-shapes are present to prevent silent data loss
+				if (!subShapes.empty())
+				{
+					OLO_CORE_ERROR("JoltBinaryStreamUtils::SerializeShape: Shape has {} sub-shapes but recursive serialization is unsupported - aborting to prevent data loss", subShapes.size());
+					return false;
+				}
+				
 				// Use Jolt's native binary serialization system
 				JoltStreamOutAdapter streamAdapter(outWriter);
 				
@@ -103,17 +114,6 @@ namespace OloEngine {
 					constexpr u32 nameLength = 0;
 					streamAdapter.Write(nameLength);
 					// No name bytes written - deserialization will skip reading names
-				}
-				
-				// Save sub-shapes if any
-				JPH::ShapeList subShapes;
-				shape->SaveSubShapeState(subShapes);
-				
-				// Fail fast if sub-shapes are present to prevent silent data loss
-				if (!subShapes.empty())
-				{
-					OLO_CORE_ERROR("JoltBinaryStreamUtils::SerializeShape: Shape has {} sub-shapes but recursive serialization is unsupported - aborting to prevent data loss", subShapes.size());
-					return false;
 				}
 				
 				streamAdapter.Write(static_cast<u32>(subShapes.size()));
@@ -378,6 +378,14 @@ namespace OloEngine {
 			if (!buffer.Data || buffer.Size == 0)
 				return 0;
 
+			// Memory estimation constants for different shape types
+			constexpr f32 CONVEX_MEMORY_MULTIPLIER = 2.0f;        // ~2x overhead for runtime structures (vertices, edges, faces + collision data)
+			constexpr f32 MESH_MEMORY_MULTIPLIER = 3.0f;          // ~3x overhead for octree/BVH structures (triangle soup + spatial acceleration)
+			constexpr f32 HEIGHTFIELD_MEMORY_MULTIPLIER = 1.5f;   // ~1.5x overhead for normal cache (height data + cached normals)
+			constexpr f32 COMPOUND_MEMORY_MULTIPLIER = 1.2f;      // ~1.2x overhead for hierarchy (child shapes + transformation matrices)
+			constexpr sizet BASIC_SHAPE_OVERHEAD = 128;           // Small fixed overhead for basic shapes (sphere, box, capsule, etc.)
+			constexpr f32 CONSERVATIVE_FALLBACK_MULTIPLIER = 2.0f; // Conservative estimate when shape type cannot be determined
+
 			// Start with the serialized buffer size as base memory usage
 			sizet totalMemory = buffer.Size;
 
@@ -394,37 +402,37 @@ namespace OloEngine {
 					{
 					case JPH::EShapeType::Convex:
 						// Convex shapes: vertices, edges, faces + collision data
-						totalMemory += dataSize * 2; // ~2x overhead for runtime structures
+						totalMemory += static_cast<sizet>(dataSize * CONVEX_MEMORY_MULTIPLIER);
 						break;
 					case JPH::EShapeType::Mesh:
 						// Mesh shapes: triangle soup + spatial acceleration structures
-						totalMemory += dataSize * 3; // ~3x overhead for octree/BVH structures
+						totalMemory += static_cast<sizet>(dataSize * MESH_MEMORY_MULTIPLIER);
 						break;
 					case JPH::EShapeType::HeightField:
 						// Height fields: height data + cached normals
-						totalMemory += static_cast<sizet>(dataSize + dataSize / 2); // ~1.5x overhead for normal cache
+						totalMemory += static_cast<sizet>(dataSize * HEIGHTFIELD_MEMORY_MULTIPLIER);
 						break;
 					case JPH::EShapeType::Compound:
 						// Compound shapes: child shapes + transformation matrices
-						totalMemory += static_cast<sizet>(dataSize + dataSize / 5); // ~1.2x overhead for hierarchy
+						totalMemory += static_cast<sizet>(dataSize * COMPOUND_MEMORY_MULTIPLIER);
 						break;
 					default:
 						// Basic shapes (sphere, box, capsule, etc.)
-						totalMemory += 128; // Small fixed overhead for basic shapes
+						totalMemory += BASIC_SHAPE_OVERHEAD;
 						break;
 					}
 				}
 				else
 				{
 					// If we can't determine the shape type, use a conservative estimate
-					totalMemory *= 2; // Double the serialized size as fallback
+					totalMemory = static_cast<sizet>(totalMemory * CONSERVATIVE_FALLBACK_MULTIPLIER);
 				}
 			}
 			catch (...)
 			{
 				// If any error occurs during analysis, fall back to basic estimate
 				OLO_CORE_WARN("JoltBinaryStreamUtils::CalculateShapeMemoryUsage: Error analyzing shape data, using basic estimate");
-				totalMemory *= 2; // Conservative fallback estimate
+				totalMemory = static_cast<sizet>(totalMemory * CONSERVATIVE_FALLBACK_MULTIPLIER);
 			}
 
 			return totalMemory;

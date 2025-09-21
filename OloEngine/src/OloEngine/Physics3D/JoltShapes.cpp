@@ -10,6 +10,16 @@
 
 #include <atomic>
 #include <cstdlib>
+#include <thread>
+#include <chrono>
+#include <random>
+#include <sstream>
+#ifdef _WIN32
+#include <windows.h>
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
@@ -31,10 +41,7 @@ namespace OloEngine {
 	std::shared_mutex JoltShapes::s_ShapeCacheMutex;
 	std::atomic<bool> JoltShapes::s_PersistentCacheEnabled = true;
 	std::filesystem::path JoltShapes::s_PersistentCacheDirectory;
-
-	// Shape validation constants definitions
-	constexpr f32 JoltShapes::s_MinShapeSize;
-	constexpr f32 JoltShapes::s_MaxShapeSize;
+	std::shared_mutex JoltShapes::s_PersistentCacheDirectoryMutex;
 
 	void JoltShapes::Initialize()
 	{
@@ -73,11 +80,12 @@ namespace OloEngine {
 		{
 			try
 			{
-				if (!std::filesystem::exists(s_PersistentCacheDirectory))
+				std::filesystem::path cacheDir = GetPersistentCacheDirectory();
+				if (!std::filesystem::exists(cacheDir))
 				{
-					std::filesystem::create_directories(s_PersistentCacheDirectory);
+					std::filesystem::create_directories(cacheDir);
 				}
-				OLO_CORE_INFO("JoltShapes persistent cache directory: {}", s_PersistentCacheDirectory.string());
+				OLO_CORE_INFO("JoltShapes persistent cache directory: {}", cacheDir.string());
 			}
 			catch (const std::exception& e)
 			{
@@ -106,7 +114,14 @@ namespace OloEngine {
 
 	void JoltShapes::SetPersistentCacheDirectory(const std::filesystem::path& directory)
 	{
+		std::unique_lock<std::shared_mutex> lock(s_PersistentCacheDirectoryMutex);
 		s_PersistentCacheDirectory = directory;
+	}
+
+	std::filesystem::path JoltShapes::GetPersistentCacheDirectory()
+	{
+		std::shared_lock<std::shared_mutex> lock(s_PersistentCacheDirectoryMutex);
+		return s_PersistentCacheDirectory;
 	}
 
 	std::filesystem::path JoltShapes::GetDefaultCacheDirectory()
@@ -1020,7 +1035,28 @@ namespace OloEngine {
 		try
 		{
 			// Create cache file path
-			std::filesystem::path cacheFilePath = s_PersistentCacheDirectory / (cacheKey + ".jsc"); // Jolt Shape Cache
+			std::filesystem::path cacheFilePath = GetPersistentCacheDirectory() / (cacheKey + ".jsc"); // Jolt Shape Cache
+			
+			// Ensure the cache directory exists
+			std::filesystem::path cacheDir = cacheFilePath.parent_path();
+			if (!std::filesystem::exists(cacheDir))
+			{
+				std::filesystem::create_directories(cacheDir);
+			}
+
+			// Generate thread-unique temporary file name to prevent race conditions
+			// Use thread ID, timestamp, and random number for uniqueness
+			auto threadId = std::this_thread::get_id();
+			auto timestamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+			std::random_device rd;
+			std::mt19937 gen(rd());
+			std::uniform_int_distribution<> dis(1000, 9999);
+			
+			std::ostringstream tempNameStream;
+			tempNameStream << cacheKey << "_" << std::hash<std::thread::id>{}(threadId) 
+						   << "_" << timestamp << "_" << dis(gen) << ".tmp";
+			
+			std::filesystem::path tempFilePath = cacheDir / tempNameStream.str();
 
 			// Serialize shape to buffer
 			Buffer buffer = JoltBinaryStreamUtils::SerializeShapeToBuffer(shape);
@@ -1030,24 +1066,82 @@ namespace OloEngine {
 				return false;
 			}
 
-			// Write buffer to file
-			std::ofstream file(cacheFilePath, std::ios::binary);
-			if (!file.is_open())
+			// Write to temporary file first (atomic write pattern)
 			{
-				OLO_CORE_ERROR("JoltShapes::SaveShapeToCache: Failed to open cache file: {}", cacheFilePath.string());
-				buffer.Release();
+				std::ofstream file(tempFilePath, std::ios::binary);
+				if (!file.is_open())
+				{
+					OLO_CORE_ERROR("JoltShapes::SaveShapeToCache: Failed to open temporary cache file: {}", tempFilePath.string());
+					buffer.Release();
+					return false;
+				}
+
+				// Write data and ensure it's fully flushed to disk
+				file.write(reinterpret_cast<const char*>(buffer.Data), buffer.Size);
+				
+				// Ensure write is successful before closing
+				if (!file.good())
+				{
+					OLO_CORE_ERROR("JoltShapes::SaveShapeToCache: Error writing to temporary file: {}", tempFilePath.string());
+					file.close();
+					buffer.Release();
+					std::filesystem::remove(tempFilePath); // Clean up failed temp file
+					return false;
+				}
+				
+				// Flush and sync to ensure data is on disk before rename
+				file.flush(); // Flush C++ stream buffer
+				file.close();
+			}
+			
+			buffer.Release();
+
+			// Check if temp file was written successfully
+			if (!std::filesystem::exists(tempFilePath))
+			{
+				OLO_CORE_ERROR("JoltShapes::SaveShapeToCache: Temporary file was not created: {}", tempFilePath.string());
 				return false;
 			}
 
-			file.write(reinterpret_cast<const char*>(buffer.Data), buffer.Size);
-			file.close();
-			buffer.Release();
+			// Atomically replace the target file with the temporary file
+			// This operation is atomic on most filesystems
+			std::error_code ec;
+			std::filesystem::rename(tempFilePath, cacheFilePath, ec);
+			
+			if (ec)
+			{
+				OLO_CORE_ERROR("JoltShapes::SaveShapeToCache: Failed to rename temp file to final cache file: {} -> {}, Error: {}", 
+							   tempFilePath.string(), cacheFilePath.string(), ec.message());
+				
+				// Clean up the temporary file on failure
+				std::filesystem::remove(tempFilePath, ec); // Ignore errors on cleanup
+				return false;
+			}
 
 			return true;
 		}
 		catch (const std::exception& e)
 		{
 			OLO_CORE_ERROR("JoltShapes::SaveShapeToCache: Exception: {}", e.what());
+			
+			// Clean up any potential temporary files on exception
+			try
+			{
+				std::filesystem::path cacheDir = GetPersistentCacheDirectory();
+				for (const auto& entry : std::filesystem::directory_iterator(cacheDir))
+				{
+					if (entry.path().extension() == ".tmp" && 
+						entry.path().filename().string().find(cacheKey) != std::string::npos)
+					{
+						std::filesystem::remove(entry.path());
+					}
+				}
+			}
+			catch (...) 
+			{
+				// Ignore cleanup errors
+			}
+			
 			return false;
 		}
 	}
@@ -1060,7 +1154,7 @@ namespace OloEngine {
 		try
 		{
 			// Create cache file path
-			std::filesystem::path cacheFilePath = s_PersistentCacheDirectory / (cacheKey + ".jsc");
+			std::filesystem::path cacheFilePath = GetPersistentCacheDirectory() / (cacheKey + ".jsc");
 
 			if (!std::filesystem::exists(cacheFilePath))
 			{
@@ -1126,9 +1220,10 @@ namespace OloEngine {
 
 		try
 		{
-			if (std::filesystem::exists(s_PersistentCacheDirectory))
+			std::filesystem::path cacheDir = GetPersistentCacheDirectory();
+			if (std::filesystem::exists(cacheDir))
 			{
-				for (const auto& entry : std::filesystem::directory_iterator(s_PersistentCacheDirectory))
+				for (const auto& entry : std::filesystem::directory_iterator(cacheDir))
 				{
 					if (entry.path().extension() == ".jsc")
 					{

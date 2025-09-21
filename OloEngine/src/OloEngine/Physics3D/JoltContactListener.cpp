@@ -101,34 +101,6 @@ namespace OloEngine {
 		}
 	}
 
-	void JoltContactListener::QueueContactEvent(const ContactEvent& event)
-	{
-		std::lock_guard<std::mutex> lock(m_ContactEventsMutex);
-		
-		// Check queue size limit and early-return to prevent queue growth during contact storms
-		if (m_QueueSize.load(std::memory_order_relaxed) >= MaxQueuedContactEvents)
-		{
-			return; // Drop the event instead of growing the queue
-		}
-		
-		m_ContactEventQueue.push_back(event);
-		m_QueueSize.fetch_add(1, std::memory_order_relaxed);
-	}
-
-	void JoltContactListener::QueueContactEvent(ContactEvent&& event)
-	{
-		std::lock_guard<std::mutex> lock(m_ContactEventsMutex);
-		
-		// Check queue size limit and early-return to prevent queue growth during contact storms
-		if (m_QueueSize.load(std::memory_order_relaxed) >= MaxQueuedContactEvents)
-		{
-			return; // Drop the event instead of growing the queue
-		}
-		
-		m_ContactEventQueue.push_back(std::move(event));
-		m_QueueSize.fetch_add(1, std::memory_order_relaxed);
-	}
-
 	void JoltContactListener::ProcessContactManifold(const JPH::Body& inBody1, const JPH::Body& inBody2, const JPH::ContactManifold& inManifold, ContactType type)
 	{
 		UUID entityA = GetEntityIDFromBody(inBody1);

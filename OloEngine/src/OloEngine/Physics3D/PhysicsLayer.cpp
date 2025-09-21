@@ -5,6 +5,7 @@
 #include "OloEngine/Core/Log.h"
 #include <cstdlib>
 #include <limits>
+#include <stdexcept>
 
 namespace OloEngine {
 
@@ -414,24 +415,26 @@ std::vector<std::string> PhysicsLayerManager::GetLayerNames()
 	// Internal mutable accessor for modification operations - use with caution
 	PhysicsLayer& PhysicsLayerManager::GetLayerMutableUnsafe(u32 layerId)
 	{
-		// Use the shared lookup logic
-		const PhysicsLayer& layer = GetLayerImpl(layerId);
-		
-		// Check if we got the null layer
-		if (&layer == &s_NullLayer)
+		// Perform single lookup in s_LayerIndexMap
+		auto indexIt = s_LayerIndexMap.find(layerId);
+		if (indexIt == s_LayerIndexMap.end())
 		{
 			// Invalid layer ID access - this is a programming error
 			OLO_CORE_ERROR("PhysicsLayerManager::GetLayerMutableUnsafe: Invalid layer ID {} accessed", layerId);
 			OLO_CORE_ASSERT(false, "Invalid layer ID accessed in GetLayerMutableUnsafe");
-
-			// This is a programming error that violates the contract - terminate immediately
-			// to prevent returning an invalid reference that doesn't point into s_Layers
-			std::abort();
+			
+			// Throw exception for recoverable error handling instead of terminating
+			throw std::out_of_range("PhysicsLayerManager: Invalid layer ID " + std::to_string(layerId) + " in GetLayerMutableUnsafe");
 		}
 		
-		// Find the actual layer in s_Layers for mutable access
-		auto indexIt = s_LayerIndexMap.find(layerId);
 		sizet index = indexIt->second;
+		
+		// Debug assert for bounds checking and consistency
+		OLO_CORE_ASSERT(index < s_Layers.size() && s_Layers[index].m_LayerID == layerId, 
+						"PhysicsLayerManager index map corruption: layerId {} maps to index {} "
+						"but s_Layers[{}].m_LayerID is {}", 
+						layerId, index, index, (index < s_Layers.size()) ? s_Layers[index].m_LayerID : INVALID_LAYER_ID);
+		
 		return s_Layers[index];
 	}
 

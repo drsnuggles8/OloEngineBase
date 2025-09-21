@@ -141,6 +141,14 @@ namespace OloEngine {
 	public:
 		virtual bool ShouldCollide(JPH::ObjectLayer inLayer1, JPH::BroadPhaseLayer inLayer2) const override
 		{
+			// Handle user-defined layers (indices >= NUM_LAYERS) first
+			// Treat user-defined layers as moving-like: they can collide with both broadphase layers
+			if (inLayer1 >= ObjectLayers::NUM_LAYERS)
+			{
+				return true; // User-defined layers collide with all broadphase layers
+			}
+			
+			// Handle built-in object layers
 			switch (inLayer1)
 			{
 				case ObjectLayers::NON_MOVING:
@@ -154,7 +162,8 @@ namespace OloEngine {
 				case ObjectLayers::DEBRIS:
 					return true;
 				default:
-					OLO_CORE_ASSERT(false, "Unknown object layer");
+					// This should never happen since we checked for user-defined layers above
+					OLO_CORE_ASSERT(false, "Unknown built-in object layer");
 					return false;
 			}
 		}

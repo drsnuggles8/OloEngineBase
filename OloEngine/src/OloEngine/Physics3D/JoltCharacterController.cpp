@@ -39,6 +39,8 @@ namespace OloEngine
     JoltCharacterController::~JoltCharacterController()
     {
         // Make sure controller is destroyed before the rest of the class (in particular before m_Shape)
+        // The controller holds references to m_Shape, so we must explicitly release it first
+        m_Controller = nullptr;
     }
 
     void JoltCharacterController::SetSlopeLimit(f32 slopeLimit)

@@ -53,7 +53,7 @@ namespace OloEngine {
 
 		// Cache directory configuration
 		static void SetPersistentCacheDirectory(const std::filesystem::path& directory);
-		static std::filesystem::path GetPersistentCacheDirectory() { return s_PersistentCacheDirectory; }
+		static std::filesystem::path GetPersistentCacheDirectory();
 
 		// Create shapes from components
 		static JPH::Ref<JPH::Shape> CreateBoxShape(const BoxCollider3DComponent& component, const glm::vec3& scale = glm::vec3(1.0f));
@@ -144,6 +144,7 @@ namespace OloEngine {
 		static std::shared_mutex s_ShapeCacheMutex;
 		static std::atomic<bool> s_PersistentCacheEnabled;
 		static std::filesystem::path s_PersistentCacheDirectory;
+		static std::shared_mutex s_PersistentCacheDirectoryMutex;
 		
 		// Constants for shape validation
 		static constexpr f32 s_MinShapeSize = 0.001f;
