@@ -9,6 +9,7 @@
 #include "MeshColliderCache.h"
 
 #include <atomic>
+#include <cerrno>
 #include <cstdlib>
 #include <thread>
 #include <chrono>
@@ -17,8 +18,10 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <io.h>
+#include <fcntl.h>
 #else
 #include <unistd.h>
+#include <fcntl.h>
 #endif
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
@@ -816,7 +819,7 @@ namespace OloEngine {
 			return nullptr;
 		}
 		
-		const auto& cachedData = cachedDataOpt.value().get();
+		const auto& cachedData = cachedDataOpt.value();
 
 		// Choose between simple (convex) and complex (triangle) based on usage
 		const MeshColliderData* meshData = nullptr;
@@ -871,7 +874,7 @@ namespace OloEngine {
 			return nullptr;
 		}
 		
-		const auto& cachedData = cachedDataOpt.value().get();
+		const auto& cachedData = cachedDataOpt.value();
 		if (cachedData.m_SimpleColliderData.m_Submeshes.empty())
 		{
 			OLO_CORE_ERROR("Failed to get valid convex mesh data for asset {0}", meshAsset);
@@ -906,7 +909,7 @@ namespace OloEngine {
 			return nullptr;
 		}
 		
-		const auto& cachedData = cachedDataOpt.value().get();
+		const auto& cachedData = cachedDataOpt.value();
 		if (cachedData.m_ComplexColliderData.m_Submeshes.empty())
 		{
 			OLO_CORE_ERROR("Failed to get valid triangle mesh data for asset {0}", meshAsset);
@@ -1107,7 +1110,55 @@ namespace OloEngine {
 				
 				// Flush and sync to ensure data is on disk before rename
 				file.flush(); // Flush C++ stream buffer
-				file.close();
+				file.close(); // Close the file first
+				
+				// Force OS-level persistence by reopening and syncing
+				bool syncSuccess = false;
+#ifdef _WIN32
+				// On Windows, use _open and _commit for guaranteed persistence
+				int fd = _open(tempFilePath.string().c_str(), _O_WRONLY);
+				if (fd != -1)
+				{
+					if (_commit(fd) == 0)
+					{
+						syncSuccess = true;
+					}
+					else
+					{
+						OLO_CORE_WARN("JoltShapes::SaveShapeToCache: _commit failed for file: {}, errno: {}", tempFilePath.string(), errno);
+					}
+					_close(fd);
+				}
+				else
+				{
+					OLO_CORE_WARN("JoltShapes::SaveShapeToCache: Failed to reopen file for sync: {}", tempFilePath.string());
+				}
+#else
+				// On POSIX systems, use open and fsync for guaranteed persistence
+				int fd = open(tempFilePath.string().c_str(), O_WRONLY);
+				if (fd != -1)
+				{
+					if (fsync(fd) == 0)
+					{
+						syncSuccess = true;
+					}
+					else
+					{
+						OLO_CORE_WARN("JoltShapes::SaveShapeToCache: fsync failed for file: {}, errno: {}", tempFilePath.string(), errno);
+					}
+					close(fd);
+				}
+				else
+				{
+					OLO_CORE_WARN("JoltShapes::SaveShapeToCache: Failed to reopen file for sync: {}", tempFilePath.string());
+				}
+#endif
+				
+				// Log sync failure but continue - data may still be written eventually
+				if (!syncSuccess)
+				{
+					OLO_CORE_WARN("JoltShapes::SaveShapeToCache: OS-level sync failed for: {}, proceeding with rename", tempFilePath.string());
+				}
 			}
 			
 			buffer.Release();

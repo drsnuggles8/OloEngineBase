@@ -270,6 +270,8 @@ namespace OloEngine {
 			f32 distance = glm::length(direction);
 			if (distance > 0.0f)
 				direction /= distance;
+			else
+				direction = glm::vec3(0.0f, 0.0f, 1.0f); // Default unit vector for zero-distance case
 			return RayCastInfo(from, direction, distance);
 		}
 
@@ -279,6 +281,8 @@ namespace OloEngine {
 			f32 distance = glm::length(direction);
 			if (distance > 0.0f)
 				direction /= distance;
+			else
+				direction = glm::vec3(0.0f, 0.0f, 1.0f); // Default unit vector for zero-distance case
 			return BoxCastInfo(from, direction, halfExtent, distance);
 		}
 
@@ -288,6 +292,8 @@ namespace OloEngine {
 			f32 distance = glm::length(direction);
 			if (distance > 0.0f)
 				direction /= distance;
+			else
+				direction = glm::vec3(0.0f, 0.0f, 1.0f); // Default unit vector for zero-distance case
 			return SphereCastInfo(from, direction, radius, distance);
 		}
 

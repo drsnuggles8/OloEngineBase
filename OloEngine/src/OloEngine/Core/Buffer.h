@@ -34,7 +34,7 @@ namespace OloEngine
 		/// Creates a buffer by copying data from a span
 		/// @param data The span of bytes to copy
 		/// @return A new Buffer containing a copy of the span data
-		/// @throws std::length_error if span size exceeds u64 limits (extremely rare condition)
+		/// @throws std::length_error if span size exceeds u64 limits (only on platforms where size_t > u64)
 		/// @note Empty spans result in an empty buffer (not an error condition)
 		[[nodiscard]] static Buffer Copy(std::span<const u8> data)
 		{
@@ -42,10 +42,13 @@ namespace OloEngine
 			if (data.size() == 0)
 				return Buffer{};
 				
-			// Validate that span size fits in u64 to avoid truncation
-			if (data.size() > std::numeric_limits<u64>::max())
+			// Validate that span size fits in u64 to avoid truncation (only when size_t > u64)
+			if constexpr (sizeof(size_t) > sizeof(u64))
 			{
-				throw std::length_error("Buffer::Copy: span size exceeds u64 maximum - cannot copy data of this size");
+				if (data.size() > std::numeric_limits<u64>::max())
+				{
+					throw std::length_error("Buffer::Copy: span size exceeds u64 maximum - cannot copy data of this size");
+				}
 			}
 				
 			Buffer result(static_cast<u64>(data.size()));

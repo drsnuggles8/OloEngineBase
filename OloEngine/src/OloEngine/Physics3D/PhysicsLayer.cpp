@@ -85,7 +85,7 @@ namespace OloEngine {
 			for (sizet i = 0; i < s_Layers.size(); ++i)
 			{
 				// Skip invalid layers and the new layer itself
-				if (s_Layers[i].m_LayerID == INVALID_LAYER_ID || i == newLayerIndex)
+				if (s_Layers[i].m_LayerID == INVALID_LAYER_ID || s_Layers[i].m_LayerID == s_Layers[newLayerIndex].m_LayerID)
 					continue;
 					
 				// Set bidirectional collision between the new layer and existing valid layers

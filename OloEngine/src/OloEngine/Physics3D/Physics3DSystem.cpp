@@ -17,6 +17,7 @@
 // Standard includes
 #include <algorithm>
 #include <cmath>
+#include <deque>
 #include <string>
 #include <cstdarg>
 #include <array>
@@ -139,14 +140,16 @@ const char* OloBPLayerInterfaceImpl::GetBroadPhaseLayerName(JPH::BroadPhaseLayer
     }
     
     // Check if it's a custom layer from PhysicsLayerManager
-    // Store layer names in a static container to ensure persistence of c_str() pointers
-    static std::vector<std::string> cachedLayerNames;
+    // Store layer names in a static deque to ensure pointer stability of c_str() pointers
+    // deque provides pointer stability - elements are not moved when the container grows
+    static std::deque<std::string> cachedLayerNames;
     const auto& layerNames = PhysicsLayerManager::GetLayerNames();
     
     // Update cached names if they've changed
-    if (cachedLayerNames != layerNames)
+    if (cachedLayerNames.size() != layerNames.size() || 
+        !std::equal(cachedLayerNames.begin(), cachedLayerNames.end(), layerNames.begin()))
     {
-        cachedLayerNames = layerNames;
+        cachedLayerNames.assign(layerNames.begin(), layerNames.end());
     }
     
     u32 customLayerIndex = layerIndex - BroadPhaseLayers::NUM_LAYERS;
