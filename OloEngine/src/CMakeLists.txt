@@ -96,6 +96,11 @@
 		"OloEngine/Audio/SoundGraph/Nodes/SineNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/RandomNode.h"
 		
+		# Envelope Nodes
+		"OloEngine/Audio/SoundGraph/Nodes/ADEnvelope.h"
+		"OloEngine/Audio/SoundGraph/Nodes/ADSREnvelope.h"
+		"OloEngine/Audio/SoundGraph/Nodes/AREnvelope.h"
+		
 		# Note: Other SoundGraph files temporarily disabled - need updating for new Core infrastructure
 		# "OloEngine/Audio/SoundGraph/NodeProcessor.h"
 		# "OloEngine/Audio/SoundGraph/NodeProcessor.cpp"

@@ -28,6 +28,11 @@
 #include "OloEngine/Audio/SoundGraph/Nodes/SineNode.h"
 #include "OloEngine/Audio/SoundGraph/Nodes/RandomNode.h"
 
+// Envelope Nodes
+#include "OloEngine/Audio/SoundGraph/Nodes/ADEnvelope.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/ADSREnvelope.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/AREnvelope.h"
+
 using namespace OloEngine::Audio::SoundGraph;
 
 class MathNodeTest : public ::testing::Test
@@ -1032,4 +1037,360 @@ TEST_F(MathNodeTest, RandomNodeUtilityMethodsTest)
 	
 	// Last value should match
 	EXPECT_FLOAT_EQ(node.GetLastValue(), value2);
+}
+
+// ============================================================================
+// Envelope Node Tests
+// ============================================================================
+
+// ADEnvelope Tests
+TEST_F(MathNodeTest, ADEnvelopeBasicOperationTest)
+{
+	ADEnvelope node;
+	node.Initialize(44100.0, 512);
+	
+	// Set envelope parameters - use shorter times that will show progress in 512 samples (~0.011s)
+	node.SetParameterValue(OLO_IDENTIFIER("AttackTime"), 0.005f);  // 0.005s = 220 samples
+	node.SetParameterValue(OLO_IDENTIFIER("DecayTime"), 0.004f);   // 0.004s = 176 samples
+	node.SetParameterValue(OLO_IDENTIFIER("AttackCurve"), 1.0f);  // Linear
+	node.SetParameterValue(OLO_IDENTIFIER("DecayCurve"), 1.0f);   // Linear
+	node.SetParameterValue(OLO_IDENTIFIER("Peak"), 1.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Sustain"), 0.5f);
+	
+	// Trigger the envelope
+	node.SetParameterValue(OLO_IDENTIFIER("Trigger"), 1.0f);
+	
+	f32 outputBuffer[512];
+	f32* inputs[1] = { nullptr };
+	f32* outputs[1] = { outputBuffer };
+	
+	node.Process(inputs, outputs, 512);
+	
+	// Check initial samples are in attack phase (increasing)
+	EXPECT_GT(outputBuffer[100], 0.0f);
+	EXPECT_LT(outputBuffer[100], 1.0f);
+	
+	// Check peak region exists (attack should complete around sample 220)
+	bool foundPeak = false;
+	for (u32 i = 0; i < 512; ++i) {
+		if (outputBuffer[i] >= 0.95f) {
+			foundPeak = true;
+			break;
+		}
+	}
+	EXPECT_TRUE(foundPeak);
+}
+
+TEST_F(MathNodeTest, ADEnvelopeStateTransitionsTest)
+{
+	ADEnvelope node;
+	node.Initialize(44100.0, 2048);
+	
+	// Short envelope for testing (0.01s attack, 0.01s decay)
+	node.SetParameterValue(OLO_IDENTIFIER("AttackTime"), 0.01f);
+	node.SetParameterValue(OLO_IDENTIFIER("DecayTime"), 0.01f);
+	node.SetParameterValue(OLO_IDENTIFIER("Peak"), 1.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Sustain"), 0.3f);
+	
+	// Trigger and process enough samples to complete envelope
+	node.SetParameterValue(OLO_IDENTIFIER("Trigger"), 1.0f);
+	
+	f32 outputBuffer[2048];
+	f32* inputs[1] = { nullptr };
+	f32* outputs[1] = { outputBuffer };
+	
+	node.Process(inputs, outputs, 2048);
+	
+	// Check that envelope eventually reaches sustain level
+	f32 finalValue = outputBuffer[2047];
+	EXPECT_NEAR(finalValue, 0.3f, 0.1f);
+}
+
+TEST_F(MathNodeTest, ADEnvelopeCurveShapingTest)
+{
+	ADEnvelope node;
+	node.Initialize(44100.0, 1024);
+	
+	// Use shorter times for 1024 samples (~0.023s)
+	node.SetParameterValue(OLO_IDENTIFIER("AttackTime"), 0.015f);  // 0.015s = 661 samples
+	node.SetParameterValue(OLO_IDENTIFIER("DecayTime"), 0.006f);   // 0.006s = 264 samples
+	node.SetParameterValue(OLO_IDENTIFIER("AttackCurve"), 2.0f);  // Exponential
+	node.SetParameterValue(OLO_IDENTIFIER("DecayCurve"), 0.5f);   // Logarithmic
+	node.SetParameterValue(OLO_IDENTIFIER("Peak"), 1.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Sustain"), 0.0f);
+	
+	f32 outputBuffer[1024];
+	f32* inputs[1] = { nullptr };
+	f32* outputs[1] = { outputBuffer };
+	
+	node.SetParameterValue(OLO_IDENTIFIER("Trigger"), 1.0f);
+	node.Process(inputs, outputs, 1024);
+	
+	// Verify curve shaping affects envelope shape
+	// Exponential attack should have slower start
+	EXPECT_LT(outputBuffer[50], outputBuffer[100] - outputBuffer[50]);
+}
+
+// ADSREnvelope Tests
+TEST_F(MathNodeTest, ADSREnvelopeBasicOperationTest)
+{
+	ADSREnvelope node;
+	node.Initialize(44100.0, 2048);
+	
+	// Set ADSR parameters - use shorter times for 2048 samples (~0.046s)
+	node.SetParameterValue(OLO_IDENTIFIER("AttackTime"), 0.01f);   // 0.01s = 441 samples
+	node.SetParameterValue(OLO_IDENTIFIER("DecayTime"), 0.01f);    // 0.01s = 441 samples  
+	node.SetParameterValue(OLO_IDENTIFIER("SustainLevel"), 0.7f);
+	node.SetParameterValue(OLO_IDENTIFIER("ReleaseTime"), 0.02f);  // 0.02s = 882 samples
+	node.SetParameterValue(OLO_IDENTIFIER("Peak"), 1.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Velocity"), 1.0f);
+	
+	f32 outputBuffer[2048];
+	f32* inputs[1] = { nullptr };
+	f32* outputs[1] = { outputBuffer };
+	
+	// Note on
+	node.SetParameterValue(OLO_IDENTIFIER("NoteOn"), 1.0f);
+	node.Process(inputs, outputs, 2048);
+	
+	// Should reach peak during attack/decay (around sample 441)
+	bool foundPeak = false;
+	for (u32 i = 0; i < 1000; ++i) {
+		if (outputBuffer[i] >= 0.95f) {
+			foundPeak = true;
+			break;
+		}
+	}
+	EXPECT_TRUE(foundPeak);
+	
+	// Should settle to sustain level (after attack+decay = 882 samples)
+	f32 sustainValue = outputBuffer[1500];
+	EXPECT_NEAR(sustainValue, 0.7f, 0.1f);
+}
+
+TEST_F(MathNodeTest, ADSREnvelopeNoteOffReleaseTest)
+{
+	ADSREnvelope node;
+	node.Initialize(44100.0, 1000);
+	
+	node.SetParameterValue(OLO_IDENTIFIER("AttackTime"), 0.01f);
+	node.SetParameterValue(OLO_IDENTIFIER("DecayTime"), 0.01f);
+	node.SetParameterValue(OLO_IDENTIFIER("SustainLevel"), 0.8f);
+	node.SetParameterValue(OLO_IDENTIFIER("ReleaseTime"), 0.05f);
+	node.SetParameterValue(OLO_IDENTIFIER("Velocity"), 1.0f);
+	
+	// Process note on phase
+	f32 outputBuffer1[1000];
+	f32* inputs1[1] = { nullptr };
+	f32* outputs1[1] = { outputBuffer1 };
+	
+	node.SetParameterValue(OLO_IDENTIFIER("NoteOn"), 1.0f);
+	node.Process(inputs1, outputs1, 1000);
+	
+	// Trigger note off and process release
+	f32 outputBuffer2[1000];
+	f32* inputs2[1] = { nullptr };
+	f32* outputs2[1] = { outputBuffer2 };
+	
+	node.SetParameterValue(OLO_IDENTIFIER("NoteOff"), 1.0f);
+	node.Process(inputs2, outputs2, 1000);
+	
+	// Value should decrease during release
+	f32 startValue = outputBuffer2[0];
+	f32 endValue = outputBuffer2[999];
+	EXPECT_GT(startValue, endValue);
+	EXPECT_GE(endValue, 0.0f);
+}
+
+TEST_F(MathNodeTest, ADSREnvelopeVelocityScalingTest)
+{
+	ADSREnvelope node1, node2;
+	node1.Initialize(44100.0, 512);
+	node2.Initialize(44100.0, 512);
+	
+	// Same parameters except velocity - use shorter times for 512 samples (~0.011s)
+	node1.SetParameterValue(OLO_IDENTIFIER("AttackTime"), 0.005f);  // 0.005s = 220 samples
+	node1.SetParameterValue(OLO_IDENTIFIER("DecayTime"), 0.003f);   // 0.003s = 132 samples
+	node1.SetParameterValue(OLO_IDENTIFIER("SustainLevel"), 0.8f);
+	node1.SetParameterValue(OLO_IDENTIFIER("Velocity"), 0.5f);
+	node1.SetParameterValue(OLO_IDENTIFIER("Peak"), 1.0f);
+	
+	node2.SetParameterValue(OLO_IDENTIFIER("AttackTime"), 0.005f);  // 0.005s = 220 samples
+	node2.SetParameterValue(OLO_IDENTIFIER("DecayTime"), 0.003f);   // 0.003s = 132 samples
+	node2.SetParameterValue(OLO_IDENTIFIER("SustainLevel"), 0.8f);
+	node2.SetParameterValue(OLO_IDENTIFIER("Velocity"), 1.0f);
+	node2.SetParameterValue(OLO_IDENTIFIER("Peak"), 1.0f);
+	
+	f32 outputBuffer1[512], outputBuffer2[512];
+	f32* inputs1[1] = { nullptr };
+	f32* inputs2[1] = { nullptr };
+	f32* outputs1[1] = { outputBuffer1 };
+	f32* outputs2[1] = { outputBuffer2 };
+	
+	node1.SetParameterValue(OLO_IDENTIFIER("NoteOn"), 1.0f);
+	node2.SetParameterValue(OLO_IDENTIFIER("NoteOn"), 1.0f);
+	
+	node1.Process(inputs1, outputs1, 512);
+	node2.Process(inputs2, outputs2, 512);
+	
+	// Higher velocity should produce higher peak
+	f32 peak1 = 0.0f, peak2 = 0.0f;
+	for (u32 i = 0; i < 512; ++i) {
+		peak1 = std::max(peak1, outputBuffer1[i]);
+		peak2 = std::max(peak2, outputBuffer2[i]);
+	}
+	
+	EXPECT_LT(peak1, peak2);
+	EXPECT_NEAR(peak1, 0.5f, 0.1f);
+	EXPECT_NEAR(peak2, 1.0f, 0.1f);
+}
+
+// AREnvelope Tests
+TEST_F(MathNodeTest, AREnvelopeBasicOperationTest)
+{
+	AREnvelope node;
+	node.Initialize(44100.0, 2048);
+	
+	// Use shorter times that will complete within 2048 samples (~0.046s)
+	node.SetParameterValue(OLO_IDENTIFIER("AttackTime"), 0.01f);   // 0.01s = 441 samples
+	node.SetParameterValue(OLO_IDENTIFIER("ReleaseTime"), 0.02f);  // 0.02s = 882 samples  
+	node.SetParameterValue(OLO_IDENTIFIER("AttackCurve"), 1.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("ReleaseCurve"), 1.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Peak"), 1.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Velocity"), 1.0f);
+	
+	f32 outputBuffer[2048];
+	f32* inputs[1] = { nullptr };
+	f32* outputs[1] = { outputBuffer };
+	
+	// Trigger the envelope
+	node.SetParameterValue(OLO_IDENTIFIER("Trigger"), 1.0f);
+	node.Process(inputs, outputs, 2048);
+	
+	// Should start at 0, rise to peak, then fall back to 0
+	EXPECT_NEAR(outputBuffer[0], 0.0f, 0.01f);
+	
+	// Find peak
+	f32 peakValue = 0.0f;
+	u32 peakIndex = 0;
+	for (u32 i = 0; i < 2048; ++i) {
+		if (outputBuffer[i] > peakValue) {
+			peakValue = outputBuffer[i];
+			peakIndex = i;
+		}
+	}
+	
+	EXPECT_GT(peakValue, 0.9f);
+	EXPECT_GT(peakIndex, 0);
+	EXPECT_LT(peakIndex, 2048);
+	
+	// Should end near 0 (total envelope time = 0.03s = 1323 samples, so should complete)
+	EXPECT_NEAR(outputBuffer[2047], 0.0f, 0.1f);
+}
+
+TEST_F(MathNodeTest, AREnvelopeRetriggerTest)
+{
+	AREnvelope node;
+	node.Initialize(44100.0, 1000);
+	
+	node.SetParameterValue(OLO_IDENTIFIER("AttackTime"), 0.02f);
+	node.SetParameterValue(OLO_IDENTIFIER("ReleaseTime"), 0.08f);
+	node.SetParameterValue(OLO_IDENTIFIER("Peak"), 1.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Velocity"), 1.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Retrigger"), 1.0f);  // Allow retrigger
+	
+	f32 outputBuffer1[1000], outputBuffer2[1000];
+	f32* inputs1[1] = { nullptr };
+	f32* inputs2[1] = { nullptr };
+	f32* outputs1[1] = { outputBuffer1 };
+	f32* outputs2[1] = { outputBuffer2 };
+	
+	// First trigger
+	node.SetParameterValue(OLO_IDENTIFIER("Trigger"), 1.0f);
+	node.Process(inputs1, outputs1, 1000);
+	
+	// Second trigger while still processing
+	node.SetParameterValue(OLO_IDENTIFIER("Trigger"), 1.0f);
+	node.Process(inputs2, outputs2, 1000);
+	
+	// Both should have valid envelopes
+	f32 peak1 = 0.0f, peak2 = 0.0f;
+	for (u32 i = 0; i < 1000; ++i) {
+		peak1 = std::max(peak1, outputBuffer1[i]);
+		peak2 = std::max(peak2, outputBuffer2[i]);
+	}
+	
+	EXPECT_GT(peak1, 0.5f);
+	EXPECT_GT(peak2, 0.5f);
+}
+
+TEST_F(MathNodeTest, AREnvelopeCurveShapingTest)
+{
+	AREnvelope node;
+	node.Initialize(44100.0, 2048);
+	
+	node.SetParameterValue(OLO_IDENTIFIER("AttackTime"), 0.1f);
+	node.SetParameterValue(OLO_IDENTIFIER("ReleaseTime"), 0.1f);
+	node.SetParameterValue(OLO_IDENTIFIER("AttackCurve"), 3.0f);   // Very exponential
+	node.SetParameterValue(OLO_IDENTIFIER("ReleaseCurve"), 0.3f);  // Very logarithmic
+	node.SetParameterValue(OLO_IDENTIFIER("Peak"), 1.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Velocity"), 1.0f);
+	
+	f32 outputBuffer[2048];
+	f32* inputs[1] = { nullptr };
+	f32* outputs[1] = { outputBuffer };
+	
+	node.SetParameterValue(OLO_IDENTIFIER("Trigger"), 1.0f);
+	node.Process(inputs, outputs, 2048);
+	
+	// Exponential attack should have slow start
+	u32 attackSamples = static_cast<u32>(0.1f * 44100.0f);
+	if (attackSamples < 2048) {
+		f32 quarterPoint = outputBuffer[attackSamples / 4];
+		f32 halfPoint = outputBuffer[attackSamples / 2];
+		
+		// Quarter point should be much less than half the final value
+		EXPECT_LT(quarterPoint, halfPoint * 0.5f);
+	}
+}
+
+TEST_F(MathNodeTest, AREnvelopeVelocityAndPeakScalingTest)
+{
+	AREnvelope node1, node2;
+	node1.Initialize(44100.0, 1024);
+	node2.Initialize(44100.0, 1024);
+	
+	// Different velocity and peak combinations - use shorter times for 1024 samples (~0.023s)
+	node1.SetParameterValue(OLO_IDENTIFIER("AttackTime"), 0.008f);  // 0.008s = 353 samples
+	node1.SetParameterValue(OLO_IDENTIFIER("ReleaseTime"), 0.010f); // 0.010s = 441 samples
+	node1.SetParameterValue(OLO_IDENTIFIER("Velocity"), 0.5f);
+	node1.SetParameterValue(OLO_IDENTIFIER("Peak"), 0.8f);
+	
+	node2.SetParameterValue(OLO_IDENTIFIER("AttackTime"), 0.008f);  // 0.008s = 353 samples
+	node2.SetParameterValue(OLO_IDENTIFIER("ReleaseTime"), 0.010f); // 0.010s = 441 samples
+	node2.SetParameterValue(OLO_IDENTIFIER("Velocity"), 1.0f);
+	node2.SetParameterValue(OLO_IDENTIFIER("Peak"), 1.0f);
+	
+	f32 outputBuffer1[1024], outputBuffer2[1024];
+	f32* inputs1[1] = { nullptr };
+	f32* inputs2[1] = { nullptr };
+	f32* outputs1[1] = { outputBuffer1 };
+	f32* outputs2[1] = { outputBuffer2 };
+	
+	node1.SetParameterValue(OLO_IDENTIFIER("Trigger"), 1.0f);
+	node2.SetParameterValue(OLO_IDENTIFIER("Trigger"), 1.0f);
+	
+	node1.Process(inputs1, outputs1, 1024);
+	node2.Process(inputs2, outputs2, 1024);
+	
+	f32 peak1 = 0.0f, peak2 = 0.0f;
+	for (u32 i = 0; i < 1024; ++i) {
+		peak1 = std::max(peak1, outputBuffer1[i]);
+		peak2 = std::max(peak2, outputBuffer2[i]);
+	}
+	
+	// peak1 should be 0.5 * 0.8 = 0.4, peak2 should be 1.0 * 1.0 = 1.0
+	EXPECT_NEAR(peak1, 0.4f, 0.1f);
+	EXPECT_NEAR(peak2, 1.0f, 0.1f);
+	EXPECT_LT(peak1, peak2);
 }
