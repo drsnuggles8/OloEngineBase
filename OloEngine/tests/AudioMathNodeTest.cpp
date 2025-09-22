@@ -18,6 +18,11 @@
 #include "OloEngine/Audio/SoundGraph/Nodes/LinearToLogFrequencyNode.h"
 #include "OloEngine/Audio/SoundGraph/Nodes/FrequencyLogToLinearNode.h"
 
+// Music Theory Nodes
+#include "OloEngine/Audio/SoundGraph/Nodes/BPMToSecondsNode.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/NoteToFrequencyNode.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/FrequencyToNoteNode.h"
+
 // Generator Nodes
 #include "OloEngine/Audio/SoundGraph/Nodes/NoiseNode.h"
 
@@ -718,4 +723,98 @@ TEST_F(MathNodeTest, NoiseNodeBrownianTest)
 		}
 	}
 	EXPECT_TRUE(hasNonZeroValues);
+}
+
+// ===== Music Theory Node Tests =====
+
+// BPMToSecondsNode Tests
+TEST_F(MathNodeTest, BPMToSecondsNodeBasicTest)
+{
+	BPMToSecondsNode node;
+	
+	// Initialize the node
+	node.Initialize(48000.0, 512);
+	
+	// Test standard 120 BPM (should equal 0.5 seconds per beat)
+	node.SetParameterValue(OLO_IDENTIFIER("BPM"), 120.0f);
+	
+	f32* inputs[1] = { nullptr };
+	f32 outputBuffer[128];
+	f32* outputs[1] = { outputBuffer };
+	node.Process(inputs, outputs, 128);
+	
+	EXPECT_FLOAT_EQ(outputBuffer[0], 0.5f);
+}
+
+TEST_F(MathNodeTest, BPMToSecondsNodeZeroProtectionTest)
+{
+	BPMToSecondsNode node;
+	node.Initialize(48000.0, 512);
+	
+	// Test zero BPM protection
+	node.SetParameterValue(OLO_IDENTIFIER("BPM"), 0.0f);
+	
+	f32* inputs[1] = { nullptr };
+	f32 outputBuffer[128];
+	f32* outputs[1] = { outputBuffer };
+	node.Process(inputs, outputs, 128);
+	
+	// Should default to 120 BPM when zero is provided
+	EXPECT_FLOAT_EQ(outputBuffer[0], 0.5f); // 60/120 = 0.5
+}
+
+// NoteToFrequencyNode Tests
+TEST_F(MathNodeTest, NoteToFrequencyNodeF32BasicTest)
+{
+	NoteToFrequencyNodeF32 node;
+	
+	// Initialize the node
+	node.Initialize(48000.0, 512);
+	
+	// Test A4 (MIDI note 69) = 440 Hz
+	node.SetParameterValue(OLO_IDENTIFIER("MIDINote"), 69.0f);
+	
+	f32* inputs[1] = { nullptr };
+	f32 outputBuffer[128];
+	f32* outputs[1] = { outputBuffer };
+	node.Process(inputs, outputs, 128);
+	
+	EXPECT_FLOAT_EQ(outputBuffer[0], 440.0f);
+}
+
+TEST_F(MathNodeTest, NoteToFrequencyNodeI32BasicTest)
+{
+	NoteToFrequencyNodeI32 node;
+	
+	// Initialize the node
+	node.Initialize(48000.0, 512);
+	
+	// Test A4 (MIDI note 69) = 440 Hz
+	node.SetParameterValue(OLO_IDENTIFIER("MIDINote"), 69);
+	
+	f32* inputs[1] = { nullptr };
+	f32 outputBuffer[128];
+	f32* outputs[1] = { outputBuffer };
+	node.Process(inputs, outputs, 128);
+	
+	EXPECT_FLOAT_EQ(outputBuffer[0], 440.0f);
+}
+
+// FrequencyToNoteNode Tests
+TEST_F(MathNodeTest, FrequencyToNoteNodeBasicTest)
+{
+	FrequencyToNoteNode node;
+	
+	// Initialize the node
+	node.Initialize(48000.0, 512);
+	
+	// Test 440 Hz = A4 (MIDI note 69)
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 440.0f);
+	
+	f32* inputs[1] = { nullptr };
+	f32 outputBuffer[128];
+	f32* outputs[1] = { outputBuffer };
+	node.Process(inputs, outputs, 128);
+	
+	EXPECT_NEAR(outputBuffer[0], 69.0f, 0.01f);
 }

@@ -86,6 +86,11 @@
 		"OloEngine/Audio/SoundGraph/Nodes/LinearToLogFrequencyNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/FrequencyLogToLinearNode.h"
 		
+		# Music Theory Nodes
+		"OloEngine/Audio/SoundGraph/Nodes/BPMToSecondsNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/NoteToFrequencyNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/FrequencyToNoteNode.h"
+		
 		# Generator Nodes
 		"OloEngine/Audio/SoundGraph/Nodes/NoiseNode.h"
 		
