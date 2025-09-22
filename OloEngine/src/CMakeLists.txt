@@ -101,6 +101,15 @@
 		"OloEngine/Audio/SoundGraph/Nodes/ADSREnvelope.h"
 		"OloEngine/Audio/SoundGraph/Nodes/AREnvelope.h"
 		
+		# Trigger Nodes
+		"OloEngine/Audio/SoundGraph/Nodes/RepeatTrigger.h"
+		"OloEngine/Audio/SoundGraph/Nodes/TriggerCounter.h"
+		"OloEngine/Audio/SoundGraph/Nodes/DelayedTrigger.h"
+		
+		# Array Nodes
+		"OloEngine/Audio/SoundGraph/Nodes/GetRandom.h"
+		"OloEngine/Audio/SoundGraph/Nodes/Get.h"
+		
 		# Note: Other SoundGraph files temporarily disabled - need updating for new Core infrastructure
 		# "OloEngine/Audio/SoundGraph/NodeProcessor.h"
 		# "OloEngine/Audio/SoundGraph/NodeProcessor.cpp"
