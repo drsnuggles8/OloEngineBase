@@ -93,6 +93,8 @@
 		
 		# Generator Nodes
 		"OloEngine/Audio/SoundGraph/Nodes/NoiseNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/SineNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/RandomNode.h"
 		
 		# Note: Other SoundGraph files temporarily disabled - need updating for new Core infrastructure
 		# "OloEngine/Audio/SoundGraph/NodeProcessor.h"

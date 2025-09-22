@@ -25,6 +25,8 @@
 
 // Generator Nodes
 #include "OloEngine/Audio/SoundGraph/Nodes/NoiseNode.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/SineNode.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/RandomNode.h"
 
 using namespace OloEngine::Audio::SoundGraph;
 
@@ -817,4 +819,217 @@ TEST_F(MathNodeTest, FrequencyToNoteNodeBasicTest)
 	node.Process(inputs, outputs, 128);
 	
 	EXPECT_NEAR(outputBuffer[0], 69.0f, 0.01f);
+}
+
+// ========================================
+// GENERATOR NODE TESTS
+// ========================================
+
+// SineNode Tests
+TEST_F(MathNodeTest, SineNodeBasicOscillationTest)
+{
+	SineNode node;
+	
+	// Initialize the node with known sample rate
+	node.Initialize(48000.0, 512);
+	
+	// Test 440Hz sine wave (A4)
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 440.0f);
+	
+	f32* inputs[1] = { nullptr };
+	f32 outputBuffer[128];
+	f32* outputs[1] = { outputBuffer };
+	
+	// Process one buffer
+	node.Process(inputs, outputs, 128);
+	
+	// Check that output is within sine wave range [-1, 1]
+	for (u32 i = 0; i < 128; ++i)
+	{
+		EXPECT_GE(outputBuffer[i], -1.0f);
+		EXPECT_LE(outputBuffer[i], 1.0f);
+	}
+	
+	// First sample should be 0 (starting phase)
+	EXPECT_NEAR(outputBuffer[0], 0.0f, 0.001f);
+}
+
+TEST_F(MathNodeTest, SineNodeFrequencyClampingTest)
+{
+	SineNode node;
+	node.Initialize(48000.0, 512);
+	
+	// Test frequency clamping - too high (clamping happens in GetCurrentFrequency)
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 25000.0f);
+	EXPECT_FLOAT_EQ(node.GetCurrentFrequency(), 22000.0f);
+	
+	// Test frequency clamping - negative (clamping happens in GetCurrentFrequency)
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), -100.0f);
+	EXPECT_FLOAT_EQ(node.GetCurrentFrequency(), 0.0f);
+}
+
+TEST_F(MathNodeTest, SineNodePhaseTest)
+{
+	SineNode node;
+	node.Initialize(48000.0, 512);
+	
+	// Set to 1Hz for easy phase calculation
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 1.0f);
+	
+	f32* inputs[1] = { nullptr };
+	f32 outputBuffer[128];
+	f32* outputs[1] = { outputBuffer };
+	
+	// Process multiple buffers to test phase continuity
+	node.Process(inputs, outputs, 128);
+	f32 firstBuffer = outputBuffer[127]; // Last sample of first buffer
+	
+	node.Process(inputs, outputs, 128);
+	f32 secondBuffer = outputBuffer[0]; // First sample of second buffer
+	
+	// Phase should be continuous (no jumps)
+	EXPECT_NEAR(firstBuffer, secondBuffer, 0.1f);
+}
+
+TEST_F(MathNodeTest, SineNodeUtilityMethodsTest)
+{
+	SineNode node;
+	node.Initialize(48000.0, 512);
+	
+	// Test frequency setting
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 880.0f);
+	EXPECT_FLOAT_EQ(node.GetCurrentFrequency(), 880.0f);
+	
+	// Test phase reset
+	node.ResetPhase();
+	EXPECT_FLOAT_EQ(node.GetCurrentPhase(), 0.0f);
+	
+	// Test phase setting
+	node.ResetPhase(glm::pi<f32>() / 2.0f); // 90 degrees
+	EXPECT_NEAR(node.GetCurrentPhase(), glm::pi<f64>() / 2.0, 0.001);
+}
+
+// RandomNode Tests
+TEST_F(MathNodeTest, RandomNodeF32BasicTest)
+{
+	RandomNodeF32 node;
+	node.Initialize(48000.0, 512);
+	
+	// Set range [0.0, 1.0]
+	node.SetParameterValue(OLO_IDENTIFIER("Min"), 0.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Max"), 1.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Seed"), 12345);
+	
+	f32* inputs[1] = { nullptr };
+	f32 outputBuffer[128];
+	f32* outputs[1] = { outputBuffer };
+	
+	// Process and check range
+	node.Process(inputs, outputs, 128);
+	
+	f32 value = outputBuffer[0];
+	EXPECT_GE(value, 0.0f);
+	EXPECT_LE(value, 1.0f);
+	
+	// Check that all samples have the same value (constant output)
+	for (u32 i = 1; i < 128; ++i)
+	{
+		EXPECT_FLOAT_EQ(outputBuffer[i], value);
+	}
+}
+
+TEST_F(MathNodeTest, RandomNodeI32BasicTest)
+{
+	RandomNodeI32 node;
+	node.Initialize(48000.0, 512);
+	
+	// Set range [0, 100]
+	node.SetParameterValue(OLO_IDENTIFIER("Min"), 0);
+	node.SetParameterValue(OLO_IDENTIFIER("Max"), 100);
+	node.SetParameterValue(OLO_IDENTIFIER("Seed"), 54321);
+	
+	f32* inputs[1] = { nullptr };
+	f32 outputBuffer[128];
+	f32* outputs[1] = { outputBuffer };
+	
+	// Process and check range
+	node.Process(inputs, outputs, 128);
+	
+	i32 value = static_cast<i32>(outputBuffer[0]);
+	EXPECT_GE(value, 0);
+	EXPECT_LE(value, 100);
+}
+
+TEST_F(MathNodeTest, RandomNodeSeedReproducibilityTest)
+{
+	RandomNodeF32 node1, node2;
+	
+	// Both nodes with same seed should produce same result
+	node1.Initialize(48000.0, 512);
+	node2.Initialize(48000.0, 512);
+	
+	node1.SetParameterValue(OLO_IDENTIFIER("Seed"), 42);
+	node2.SetParameterValue(OLO_IDENTIFIER("Seed"), 42);
+	
+	f32* inputs[1] = { nullptr };
+	f32 outputBuffer1[128], outputBuffer2[128];
+	f32* outputs1[1] = { outputBuffer1 };
+	f32* outputs2[1] = { outputBuffer2 };
+	
+	node1.Process(inputs, outputs1, 128);
+	node2.Process(inputs, outputs2, 128);
+	
+	EXPECT_FLOAT_EQ(outputBuffer1[0], outputBuffer2[0]);
+}
+
+TEST_F(MathNodeTest, RandomNodeRangeSwapTest)
+{
+	RandomNodeF32 node;
+	node.Initialize(48000.0, 512);
+	
+	// Set inverted range - should be swapped internally
+	node.SetParameterValue(OLO_IDENTIFIER("Min"), 10.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Max"), 5.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Seed"), 999);
+	
+	f32* inputs[1] = { nullptr };
+	f32 outputBuffer[128];
+	f32* outputs[1] = { outputBuffer };
+	
+	node.Process(inputs, outputs, 128);
+	
+	f32 value = outputBuffer[0];
+	EXPECT_GE(value, 5.0f);  // Should be in corrected range
+	EXPECT_LE(value, 10.0f);
+}
+
+TEST_F(MathNodeTest, RandomNodeUtilityMethodsTest)
+{
+	RandomNodeF32 node;
+	node.Initialize(48000.0, 512);
+	
+	// Test range setting
+	node.SetParameterValue(OLO_IDENTIFIER("Min"), 2.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Max"), 8.0f);
+	
+	auto range = node.GetRange();
+	EXPECT_FLOAT_EQ(range.first, 2.0f);
+	EXPECT_FLOAT_EQ(range.second, 8.0f);
+	
+	// Test seed reset
+	node.ResetSeed(777);
+	EXPECT_EQ(node.GetParameterValue<i32>(OLO_IDENTIFIER("Seed")), 777);
+	
+	// Test value generation
+	f32 value1 = node.GenerateNext();
+	f32 value2 = node.GenerateNext();
+	
+	// Values should be in range
+	EXPECT_GE(value1, 2.0f);
+	EXPECT_LE(value1, 8.0f);
+	EXPECT_GE(value2, 2.0f);
+	EXPECT_LE(value2, 8.0f);
+	
+	// Last value should match
+	EXPECT_FLOAT_EQ(node.GetLastValue(), value2);
 }
