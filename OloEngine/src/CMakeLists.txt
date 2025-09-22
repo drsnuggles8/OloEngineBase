@@ -67,7 +67,16 @@
 		"OloEngine/Audio/AudioSource.cpp"
 		"OloEngine/Audio/AudioSource.h"
 		
-		# Temporarily disabled - SoundGraph files need updating for new Core infrastructure
+		# SoundGraph Math Nodes (updated for new Core infrastructure)
+		"OloEngine/Audio/SoundGraph/Nodes/AddNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/SubtractNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/MultiplyNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/DivideNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/MinNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/MaxNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/ClampNode.h"
+		
+		# Note: Other SoundGraph files temporarily disabled - need updating for new Core infrastructure
 		# "OloEngine/Audio/SoundGraph/NodeProcessor.h"
 		# "OloEngine/Audio/SoundGraph/NodeProcessor.cpp"
 		# "OloEngine/Audio/SoundGraph/SoundGraph.h"
@@ -76,7 +85,10 @@
 		# "OloEngine/Audio/SoundGraph/SoundGraphPlayer.cpp"
 		# "OloEngine/Audio/SoundGraph/SoundGraphSerializer.h"
 		# "OloEngine/Audio/SoundGraph/SoundGraphSerializer.cpp"
-		# "OloEngine/Audio/SoundGraph/TypeSystem.h"
+		# "OloEngine/Audio/SoundGraph/Parameters.h"
+		# "OloEngine/Audio/SoundGraph/Flag.h"
+		# "OloEngine/Audio/SoundGraph/Events.h"
+		# "OloEngine/Audio/SoundGraph/ExampleEventNodes.h"
 		# "OloEngine/Audio/SoundGraph/Nodes/WavePlayerNode.h"
 		# "OloEngine/Audio/SoundGraph/Nodes/WavePlayerNode.cpp"
 		# "OloEngine/Audio/SoundGraph/Nodes/MixerNode.h"
