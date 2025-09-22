@@ -5,7 +5,8 @@ add_executable(OloEngine-Tests
 		LoggerTest.cpp
 		AssetCreationTest.cpp
 		CoreUtilitiesTest.cpp
-		EndpointRegistrationTest.cpp)
+		EndpointRegistrationTest.cpp
+		EventSystemTest.cpp)
 		
 target_link_libraries(OloEngine-Tests
 	OloEngine

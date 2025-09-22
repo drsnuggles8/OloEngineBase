@@ -87,6 +87,7 @@ namespace OloEngine
 		f64 GetFloat64() noexcept 
 		{ 
 			// Ensure we get a positive value by taking absolute value and normalizing properly
+			// TODO(olbu): Should probably add a GetInt() function so that we only fetch positive values instead of the unsignedValue hack
 			const i32 value = GetInt32();
 			const u32 unsignedValue = static_cast<u32>(value < 0 ? -value : value);
 			return unsignedValue / static_cast<f64>(0x7FFFFFFF); 

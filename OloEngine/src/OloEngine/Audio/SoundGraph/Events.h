@@ -5,6 +5,7 @@
 #include <functional>
 #include <vector>
 #include <memory>
+#include <algorithm>
 
 #define OLO_FORCE_INLINE OLO_FINLINE
 
@@ -84,7 +85,35 @@ namespace OloEngine::Audio::SoundGraph
 		/// Connect this output to an input event
 		void ConnectTo(const std::shared_ptr<InputEvent>& inputEvent)
 		{
-			m_Destinations.push_back(inputEvent);
+			if (inputEvent)
+			{
+				m_Destinations.push_back(inputEvent);
+			}
+		}
+
+		/// Disconnect from an input event
+		void DisconnectFrom(const std::shared_ptr<InputEvent>& inputEvent)
+		{
+			m_Destinations.erase(
+				std::remove(m_Destinations.begin(), m_Destinations.end(), inputEvent),
+				m_Destinations.end()
+			);
+		}
+
+		/// Disconnect all connections
+		void DisconnectAll()
+		{
+			m_Destinations.clear();
+		}
+
+		/// Get number of connections
+		size_t GetConnectionCount() const { return m_Destinations.size(); }
+
+		/// Check if connected to a specific input
+		bool IsConnectedTo(const std::shared_ptr<InputEvent>& inputEvent) const
+		{
+			return std::find(m_Destinations.begin(), m_Destinations.end(), inputEvent) 
+				   != m_Destinations.end();
 		}
 
 		NodeProcessor* m_Owner = nullptr;
@@ -109,5 +138,46 @@ namespace OloEngine::Audio::SoundGraph
 
 		operator f32() const { return m_Value; }
 	};
+
+	//==============================================================================
+	/// Event processing utilities
+	namespace EventUtils
+	{
+		/// Create a trigger callback that sets a flag
+		inline std::function<void(f32)> CreateFlagTrigger(Flag& flag)
+		{
+			return [&flag](f32) { flag.SetDirty(); };
+		}
+
+		/// Create a callback that forwards to another event
+		inline std::function<void(f32)> CreateEventForwarder(std::shared_ptr<OutputEvent> output)
+		{
+			return [output](f32 value) 
+			{ 
+				if (output) (*output)(value); 
+			};
+		}
+
+		/// Create a callback that sets a value and triggers a flag
+		template<typename T>
+		inline std::function<void(f32)> CreateValueSetter(T& target, Flag& flag)
+		{
+			return [&target, &flag](f32 value) 
+			{
+				target = static_cast<T>(value);
+				flag.SetDirty();
+			};
+		}
+
+		/// Connect two events with optional value transformation
+		inline void ConnectEvents(std::shared_ptr<OutputEvent> source, 
+								 std::shared_ptr<InputEvent> destination)
+		{
+			if (source && destination)
+			{
+				source->ConnectTo(destination);
+			}
+		}
+	}
 
 } // namespace OloEngine::Audio::SoundGraph

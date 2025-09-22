@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Identifier.h"
 #include "Events.h"
 #include "Parameters.h"
+#include "Flag.h"
 #include <vector>
 #include <memory>
 #include <string>
@@ -157,9 +158,25 @@ namespace OloEngine::Audio::SoundGraph
 /// Declare an input event endpoint
 #define DECLARE_INPUT_EVENT(Name, Callback) \
 	const auto Name##_ID = OLO_IDENTIFIER(#Name); \
-	auto Name##_Event = AddInputEvent<f32>(Name##_ID, #Name, Callback)
+	auto Name##_Event = AddInputEvent(Name##_ID, #Name, Callback)
 
 /// Declare an output event endpoint
 #define DECLARE_OUTPUT_EVENT(Name) \
 	const auto Name##_ID = OLO_IDENTIFIER(#Name); \
 	auto Name##_Event = AddOutputEvent<f32>(Name##_ID, #Name)
+
+/// Declare an input event that triggers a flag
+#define DECLARE_INPUT_EVENT_FLAG(Name, FlagVar) \
+	Flag FlagVar; \
+	const auto Name##_ID = OLO_IDENTIFIER(#Name); \
+	auto Name##_Event = AddInputEvent(Name##_ID, #Name, EventUtils::CreateFlagTrigger(FlagVar))
+
+/// Declare an input event that sets a value and triggers a flag
+#define DECLARE_INPUT_EVENT_VALUE(Name, ValueVar, FlagVar) \
+	Flag FlagVar; \
+	const auto Name##_ID = OLO_IDENTIFIER(#Name); \
+	auto Name##_Event = AddInputEvent(Name##_ID, #Name, EventUtils::CreateValueSetter(ValueVar, FlagVar))
+
+/// Connect two events in the constructor/initialization
+#define CONNECT_EVENTS(SourceEvent, DestEvent) \
+	EventUtils::ConnectEvents(SourceEvent, DestEvent)
