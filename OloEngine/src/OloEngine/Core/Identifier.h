@@ -130,3 +130,8 @@ namespace std
 		}
 	};
 }
+
+//==============================================================================
+/// Macro for creating compile-time identifiers
+/// Usage: OLO_IDENTIFIER("MyIdentifier") -> constexpr Identifier
+#define OLO_IDENTIFIER(name) OloEngine::Identifier(name)

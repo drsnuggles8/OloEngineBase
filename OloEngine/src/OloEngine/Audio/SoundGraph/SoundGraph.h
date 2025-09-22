@@ -1,7 +1,9 @@
 #pragma once
 
 #include "NodeProcessor.h"
+#include "Events.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Core/UUID.h"
 #include "OloEngine/Asset/Asset.h"
 
 #include <vector>
@@ -60,14 +62,16 @@ namespace OloEngine::Audio::SoundGraph
 			static constexpr const char* OnFinished = "OnFinished";
 		};
 
-		explicit SoundGraph(std::string_view debugName, UUID id);
+		explicit SoundGraph();
 		virtual ~SoundGraph() = default;
 
 		// NodeProcessor overrides
-		void Process(f32* leftChannel, f32* rightChannel, u32 numSamples) override;
-		void Update(f32 deltaTime) override;
-		void Initialize(f64 sampleRate) override;
-		void Reset() override;
+		void Process(f32** inputs, f32** outputs, u32 numSamples) override;
+		void Update(f64 deltaTime) override;
+		void Initialize(f64 sampleRate, u32 maxBufferSize) override;
+		
+		Identifier GetTypeID() const override { return OLO_IDENTIFIER("SoundGraph"); }
+		const char* GetDisplayName() const override { return "Sound Graph"; }
 
 		//==============================================================================
 		/// Graph Construction API

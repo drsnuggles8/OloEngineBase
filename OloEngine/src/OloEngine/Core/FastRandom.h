@@ -86,7 +86,10 @@ namespace OloEngine
 		/// Floating point generation
 		f64 GetFloat64() noexcept 
 		{ 
-			return GetInt32() / static_cast<f64>(0x7FFFFFFF); 
+			// Ensure we get a positive value by taking absolute value and normalizing properly
+			const i32 value = GetInt32();
+			const u32 unsignedValue = static_cast<u32>(value < 0 ? -value : value);
+			return unsignedValue / static_cast<f64>(0x7FFFFFFF); 
 		}
 
 		f32 GetFloat32() noexcept 

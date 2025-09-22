@@ -13,10 +13,11 @@ OloEngine is a multi-layered game engine based on Hazel, supporting both 2D/3D r
 ## Development Workflow
 
 ### Building & Running
-- Use VS Code tasks exclusively: `run-sandbox3d-debug`, `run-oloeditor-release`, etc.
+- If running on Visual Studio Code, use VS Code tasks exclusively: `run-sandbox3d-debug`, `run-oloeditor-release`, etc.
 - Applications must run from `OloEditor/` working directory (assets/mono dependencies)
 - CMake generates solutions in `build/`, binaries in `bin/[Config]/[Target]/`
 - Use `scripts/Win-GenerateProject.bat` for initial setup, `scripts/Win-DeleteStuff.bat` to clean (or manually delete the `build/` folder)
+- Test projects in `OloEngine/tests/` can be run via CTest or directly from the IDE
 
 ### Key Patterns
 

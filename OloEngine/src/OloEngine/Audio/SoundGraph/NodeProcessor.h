@@ -1,194 +1,165 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Core/UUID.h"
-#include "OloEngine/Core/Ref.h"
-#include "OloEngine/Core/Log.h"
-
-#include <string>
-#include <functional>
-#include <unordered_map>
+#include "OloEngine/Core/Identifier.h"
+#include "Events.h"
+#include "Parameters.h"
 #include <vector>
 #include <memory>
+#include <string>
 
 namespace OloEngine::Audio::SoundGraph
 {
-	// Forward declarations
-	struct StreamWriter;
-	struct InputEvent;
-	struct OutputEvent;
-
 	//==============================================================================
-	/// Base class for all sound graph nodes
+	/// Base class for all audio processing nodes
 	struct NodeProcessor
 	{
-		explicit NodeProcessor(std::string_view debugName, UUID id) noexcept
-			: m_DebugName(debugName), m_ID(id)
-		{
-		}
-
+		NodeProcessor() = default;
 		virtual ~NodeProcessor() = default;
 
-		std::string m_DebugName;
-		UUID m_ID;
+		/// Process a block of audio samples
+		virtual void Process(f32** inputs, f32** outputs, u32 numSamples) = 0;
+		
+		/// Update node state (called on main thread)
+		virtual void Update(f64 deltaTime) {}
+		
+		/// Initialize node with sample rate and buffer size
+		virtual void Initialize(f64 sampleRate, u32 maxBufferSize) = 0;
 
-		// Audio processing callback - called by the audio thread
-		virtual void Process([[maybe_unused]] f32* leftChannel, [[maybe_unused]] f32* rightChannel, [[maybe_unused]] u32 numSamples) {}
+		/// Get node type identifier
+		virtual Identifier GetTypeID() const = 0;
+		
+		/// Get node display name
+		virtual const char* GetDisplayName() const = 0;
 
-		// Update any internal state before processing - called by main thread
-		virtual void Update([[maybe_unused]] f32 deltaTime) {}
+		//======================================================================
+		// ENDPOINT REGISTRATION SYSTEM
+		//======================================================================
 
-		// Initialize the node with the given sample rate
-		virtual void Initialize(f64 sampleRate) { m_SampleRate = sampleRate; }
+		/// Add an input event endpoint
+		template<typename T>
+		std::shared_ptr<InputEvent> AddInputEvent(const Identifier& id, 
+			const std::string& name,
+			std::function<void(f32)> callback)
+		{
+			auto inputEvent = std::make_shared<InputEvent>(*this, std::move(callback));
+			m_InputEvents[id] = inputEvent;
+			m_InputNames[id] = name;
+			return inputEvent;
+		}
 
-		// Reset the node to its initial state
-		virtual void Reset() {}
+		/// Add an output event endpoint
+		template<typename T>
+		std::shared_ptr<OutputEvent> AddOutputEvent(const Identifier& id, const std::string& name)
+		{
+			auto outputEvent = std::make_shared<OutputEvent>(*this);
+			m_OutputEvents[id] = outputEvent;
+			m_OutputNames[id] = name;
+			return outputEvent;
+		}
 
-		// Get the current frame number (for timing)
-		u64 GetCurrentFrame() const { return m_CurrentFrame; }
+		/// Add a parameter endpoint
+		template<typename T>
+		void AddParameter(const Identifier& id, const std::string& name, T initialValue)
+		{
+			m_Parameters.AddParameter(id, name, initialValue);
+		}
 
-		// Set the current frame (called by the sound graph)
-		void SetCurrentFrame(u64 frame) { m_CurrentFrame = frame; }
+		/// Get input event by ID
+		std::shared_ptr<InputEvent> GetInputEvent(const Identifier& id) const
+		{
+			auto it = m_InputEvents.find(id);
+			return (it != m_InputEvents.end()) ? it->second : nullptr;
+		}
 
-		// Get the debug name of the node
-		const std::string& GetName() const { return m_DebugName; }
+		/// Get output event by ID
+		std::shared_ptr<OutputEvent> GetOutputEvent(const Identifier& id) const
+		{
+			auto it = m_OutputEvents.find(id);
+			return (it != m_OutputEvents.end()) ? it->second : nullptr;
+		}
 
-		// Get the ID of the node
-		UUID GetID() const { return m_ID; }
+		/// Get parameter value
+		template<typename T>
+		T GetParameterValue(const Identifier& id, T defaultValue = T{}) const
+		{
+			return m_Parameters.GetParameterValue(id, defaultValue);
+		}
+
+		/// Set parameter value
+		template<typename T>
+		void SetParameterValue(const Identifier& id, T value)
+		{
+			m_Parameters.SetParameterValue(id, value);
+		}
+
+		/// Get all input events
+		const std::unordered_map<Identifier, std::shared_ptr<InputEvent>>& GetInputEvents() const
+		{
+			return m_InputEvents;
+		}
+
+		/// Get all output events
+		const std::unordered_map<Identifier, std::shared_ptr<OutputEvent>>& GetOutputEvents() const
+		{
+			return m_OutputEvents;
+		}
+
+		/// Get parameter registry
+		const ParameterRegistry& GetParameterRegistry() const
+		{
+			return m_Parameters;
+		}
 
 	protected:
+		/// Sample rate for audio processing
 		f64 m_SampleRate = 48000.0;
-		u64 m_CurrentFrame = 0;
 
-		// Input/Output management
-		struct InputEndpoint
-		{
-			std::string Name;
-			f32* ValuePtr = nullptr;
-			std::function<void(f32)> EventCallback;
-			bool IsEvent = false;
-		};
+		/// Parameter registry for this node
+		ParameterRegistry m_Parameters;
 
-		struct OutputEndpoint
-		{
-			std::string Name;
-			f32* ValuePtr = nullptr;
-			std::function<void(f32)> EventCallback;
-			bool IsEvent = false;
-		};
+		/// Input event endpoints
+		std::unordered_map<Identifier, std::shared_ptr<InputEvent>> m_InputEvents;
+		std::unordered_map<Identifier, std::string> m_InputNames;
 
-		std::unordered_map<std::string, InputEndpoint> m_InputEndpoints;
-		std::unordered_map<std::string, OutputEndpoint> m_OutputEndpoints;
-
-		// Helper functions for adding inputs/outputs
-		void AddInputValue(const std::string& name, f32* valuePtr)
-		{
-			InputEndpoint endpoint;
-			endpoint.Name = name;
-			endpoint.ValuePtr = valuePtr;
-			endpoint.IsEvent = false;
-			m_InputEndpoints[name] = endpoint;
-		}
-
-		void AddInputEvent(const std::string& name, std::function<void(f32)> callback)
-		{
-			InputEndpoint endpoint;
-			endpoint.Name = name;
-			endpoint.EventCallback = callback;
-			endpoint.IsEvent = true;
-			m_InputEndpoints[name] = endpoint;
-		}
-
-		void AddOutputValue(const std::string& name, f32* valuePtr)
-		{
-			OutputEndpoint endpoint;
-			endpoint.Name = name;
-			endpoint.ValuePtr = valuePtr;
-			endpoint.IsEvent = false;
-			m_OutputEndpoints[name] = endpoint;
-		}
-
-		void AddOutputEvent(const std::string& name, std::function<void(f32)> callback)
-		{
-			OutputEndpoint endpoint;
-			endpoint.Name = name;
-			endpoint.EventCallback = callback;
-			endpoint.IsEvent = true;
-			m_OutputEndpoints[name] = endpoint;
-		}
-
-	public:
-		// Public interface for connections
-		const std::unordered_map<std::string, InputEndpoint>& GetInputEndpoints() const { return m_InputEndpoints; }
-		const std::unordered_map<std::string, OutputEndpoint>& GetOutputEndpoints() const { return m_OutputEndpoints; }
-
-		// Connect this node's output to another node's input
-		bool ConnectTo(const std::string& outputName, NodeProcessor* targetNode, const std::string& inputName);
-
-		// Trigger an event on this node
-		void TriggerEvent(const std::string& eventName, f32 value = 1.0f);
-	};
-
-	//==============================================================================
-	/// Event handling structures
-	struct InputEvent
-	{
-		NodeProcessor& Node;
-		std::function<void(f32)> Callback;
-
-		InputEvent(NodeProcessor& node, std::function<void(f32)> callback)
-			: Node(node), Callback(callback) {}
-
-		void operator()(f32 value) { Callback(value); }
-	};
-
-	struct OutputEvent
-	{
-		NodeProcessor& Node;
-		std::function<void(f32)> Callback;
-
-		OutputEvent(NodeProcessor& node)
-			: Node(node) {}
-
-		void AddCallback(std::function<void(f32)> callback)
-		{
-			Callback = callback;
-		}
-
-		void Trigger(f32 value = 1.0f)
-		{
-			if (Callback)
-				Callback(value);
-		}
-	};
-
-	//==============================================================================
-	/// Stream writer for value interpolation
-	struct StreamWriter
-	{
-		f32 m_Value = 0.0f;
-		std::string m_Name;
-
-		StreamWriter(f32 initialValue, const std::string& name)
-			: m_Value(initialValue), m_Name(name) {}
-
-		StreamWriter& operator<<(f32 value)
-		{
-			m_Value = value;
-			return *this;
-		}
-
-		operator f32() const { return m_Value; }
+		/// Output event endpoints
+		std::unordered_map<Identifier, std::shared_ptr<OutputEvent>> m_OutputEvents;
+		std::unordered_map<Identifier, std::string> m_OutputNames;
 	};
 
 	//==============================================================================
 	/// Connection between nodes
 	struct Connection
 	{
-		UUID SourceNodeID;
+		Identifier SourceNodeID;
 		std::string SourceEndpoint;
-		UUID TargetNodeID;
+		Identifier TargetNodeID;
 		std::string TargetEndpoint;
 		bool IsEvent = false;
 	};
-}
+
+} // namespace OloEngine::Audio::SoundGraph
+
+//==============================================================================
+// MACROS FOR CONVENIENT ENDPOINT DECLARATION
+//==============================================================================
+
+/// Declare an input parameter with type and name
+#define DECLARE_INPUT(Type, Name) \
+	const auto Name##_ID = OLO_IDENTIFIER(#Name); \
+	AddParameter<Type>(Name##_ID, #Name, Type{})
+
+/// Declare an output parameter with type and name
+#define DECLARE_OUTPUT(Type, Name) \
+	const auto Name##_ID = OLO_IDENTIFIER(#Name); \
+	AddParameter<Type>(Name##_ID, #Name, Type{})
+
+/// Declare an input event endpoint
+#define DECLARE_INPUT_EVENT(Name, Callback) \
+	const auto Name##_ID = OLO_IDENTIFIER(#Name); \
+	auto Name##_Event = AddInputEvent<f32>(Name##_ID, #Name, Callback)
+
+/// Declare an output event endpoint
+#define DECLARE_OUTPUT_EVENT(Name) \
+	const auto Name##_ID = OLO_IDENTIFIER(#Name); \
+	auto Name##_Event = AddOutputEvent<f32>(Name##_ID, #Name)
