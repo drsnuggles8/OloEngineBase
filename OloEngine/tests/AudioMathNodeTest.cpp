@@ -8,6 +8,19 @@
 #include "OloEngine/Audio/SoundGraph/Nodes/MaxNode.h"
 #include "OloEngine/Audio/SoundGraph/Nodes/ClampNode.h"
 
+// Advanced Math Nodes
+#include "OloEngine/Audio/SoundGraph/Nodes/PowerNode.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/LogNode.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/ModuloNode.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/MapRangeNode.h"
+
+// Audio-Specific Math Nodes
+#include "OloEngine/Audio/SoundGraph/Nodes/LinearToLogFrequencyNode.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/FrequencyLogToLinearNode.h"
+
+// Generator Nodes
+#include "OloEngine/Audio/SoundGraph/Nodes/NoiseNode.h"
+
 using namespace OloEngine::Audio::SoundGraph;
 
 class MathNodeTest : public ::testing::Test
@@ -383,4 +396,326 @@ TEST_F(MathNodeTest, ClampNodeSwappedMinMaxTest)
 	// Should clamp to the actual max (10.0f since we swap min/max internally)
 	f32 result = node.GetParameterValue<f32>(OLO_IDENTIFIER("Output"));
 	EXPECT_FLOAT_EQ(result, 10.0f);
+}
+
+//=============================================================================
+// Advanced Math Node Tests
+//=============================================================================
+
+// PowerNode Tests
+TEST_F(MathNodeTest, PowerNodeF32Test)
+{
+	PowerNodeF32 node;
+	
+	// Initialize the node
+	node.Initialize(48000.0, 512);
+	
+	// Test 2^3 = 8
+	node.SetParameterValue(OLO_IDENTIFIER("Base"), 2.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Exponent"), 3.0f);
+	
+	f32* inputs[2] = { nullptr, nullptr };
+	f32* outputs[1] = { nullptr };
+	node.Process(inputs, outputs, 256);
+	
+	f32 result = node.GetParameterValue<f32>(OLO_IDENTIFIER("Result"));
+	EXPECT_FLOAT_EQ(result, 8.0f);
+}
+
+TEST_F(MathNodeTest, PowerNodeI32Test)
+{
+	PowerNodeI32 node;
+	
+	// Initialize the node
+	node.Initialize(48000.0, 512);
+	
+	// Test 3^4 = 81
+	node.SetParameterValue(OLO_IDENTIFIER("Base"), 3);
+	node.SetParameterValue(OLO_IDENTIFIER("Exponent"), 4);
+	
+	f32* inputs[2] = { nullptr, nullptr };
+	f32* outputs[1] = { nullptr };
+	node.Process(inputs, outputs, 256);
+	
+	i32 result = node.GetParameterValue<i32>(OLO_IDENTIFIER("Result"));
+	EXPECT_EQ(result, 81);
+}
+
+// LogNode Tests
+TEST_F(MathNodeTest, LogNodeF32Test)
+{
+	LogNodeF32 node;
+	
+	// Initialize the node
+	node.Initialize(48000.0, 512);
+	
+	// Test log_10(100) = 2
+	node.SetParameterValue(OLO_IDENTIFIER("Base"), 10.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Value"), 100.0f);
+	
+	f32* inputs[2] = { nullptr, nullptr };
+	f32* outputs[1] = { nullptr };
+	node.Process(inputs, outputs, 256);
+	
+	f32 result = node.GetParameterValue<f32>(OLO_IDENTIFIER("Result"));
+	EXPECT_NEAR(result, 2.0f, 0.001f);
+}
+
+TEST_F(MathNodeTest, LogNodeI32Test)
+{
+	LogNodeI32 node;
+	
+	// Initialize the node
+	node.Initialize(48000.0, 512);
+	
+	// Test log_2(8) = 3
+	node.SetParameterValue(OLO_IDENTIFIER("Base"), 2);
+	node.SetParameterValue(OLO_IDENTIFIER("Value"), 8);
+	
+	f32* inputs[2] = { nullptr, nullptr };
+	f32* outputs[1] = { nullptr };
+	node.Process(inputs, outputs, 256);
+	
+	i32 result = node.GetParameterValue<i32>(OLO_IDENTIFIER("Result"));
+	EXPECT_EQ(result, 3);
+}
+
+// ModuloNode Tests
+TEST_F(MathNodeTest, ModuloNodeF32Test)
+{
+	ModuloNodeF32 node;
+	
+	// Initialize the node
+	node.Initialize(48000.0, 512);
+	
+	// Test 7.5 % 2.5 = 0.0
+	node.SetParameterValue(OLO_IDENTIFIER("Value"), 7.5f);
+	node.SetParameterValue(OLO_IDENTIFIER("Modulo"), 2.5f);
+	
+	f32* inputs[2] = { nullptr, nullptr };
+	f32* outputs[1] = { nullptr };
+	node.Process(inputs, outputs, 256);
+	
+	f32 result = node.GetParameterValue<f32>(OLO_IDENTIFIER("Result"));
+	EXPECT_NEAR(result, 0.0f, 0.001f);
+}
+
+TEST_F(MathNodeTest, ModuloNodeI32Test)
+{
+	ModuloNodeI32 node;
+	
+	// Initialize the node
+	node.Initialize(48000.0, 512);
+	
+	// Test 10 % 3 = 1
+	node.SetParameterValue(OLO_IDENTIFIER("Value"), 10);
+	node.SetParameterValue(OLO_IDENTIFIER("Modulo"), 3);
+	
+	f32* inputs[2] = { nullptr, nullptr };
+	f32* outputs[1] = { nullptr };
+	node.Process(inputs, outputs, 256);
+	
+	i32 result = node.GetParameterValue<i32>(OLO_IDENTIFIER("Result"));
+	EXPECT_EQ(result, 1);
+}
+
+// MapRangeNode Tests
+TEST_F(MathNodeTest, MapRangeNodeF32Test)
+{
+	MapRangeNodeF32 node;
+	
+	// Initialize the node
+	node.Initialize(48000.0, 512);
+	
+	// Test mapping 0.5 from [0,1] to [0,100] = 50
+	node.SetParameterValue(OLO_IDENTIFIER("Input"), 0.5f);
+	node.SetParameterValue(OLO_IDENTIFIER("InRangeMin"), 0.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("InRangeMax"), 1.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("OutRangeMin"), 0.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("OutRangeMax"), 100.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Clamped"), false);
+	
+	f32* inputs[2] = { nullptr, nullptr };
+	f32* outputs[1] = { nullptr };
+	node.Process(inputs, outputs, 256);
+	
+	f32 result = node.GetParameterValue<f32>(OLO_IDENTIFIER("Output"));
+	EXPECT_FLOAT_EQ(result, 50.0f);
+}
+
+TEST_F(MathNodeTest, MapRangeNodeClampedTest)
+{
+	MapRangeNodeF32 node;
+	
+	// Initialize the node
+	node.Initialize(48000.0, 512);
+	
+	// Test mapping 1.5 from [0,1] to [0,100] with clamping enabled = 100
+	node.SetParameterValue(OLO_IDENTIFIER("Input"), 1.5f);
+	node.SetParameterValue(OLO_IDENTIFIER("InRangeMin"), 0.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("InRangeMax"), 1.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("OutRangeMin"), 0.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("OutRangeMax"), 100.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Clamped"), true);
+	
+	f32* inputs[2] = { nullptr, nullptr };
+	f32* outputs[1] = { nullptr };
+	node.Process(inputs, outputs, 256);
+	
+	f32 result = node.GetParameterValue<f32>(OLO_IDENTIFIER("Output"));
+	EXPECT_FLOAT_EQ(result, 100.0f);
+}
+
+//=============================================================================
+// Audio-Specific Math Node Tests
+//=============================================================================
+
+// LinearToLogFrequencyNode Tests
+TEST_F(MathNodeTest, LinearToLogFrequencyNodeTest)
+{
+	LinearToLogFrequencyNode node;
+	
+	// Initialize the node
+	node.Initialize(48000.0, 512);
+	
+	// Test mapping 0.5 linear to log frequency (should be geometric mean of min/max)
+	node.SetParameterValue(OLO_IDENTIFIER("Value"), 0.5f);
+	node.SetParameterValue(OLO_IDENTIFIER("MinValue"), 0.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("MaxValue"), 1.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("MinFrequency"), 20.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("MaxFrequency"), 20000.0f);
+	
+	f32* inputs[2] = { nullptr, nullptr };
+	f32* outputs[1] = { nullptr };
+	node.Process(inputs, outputs, 256);
+	
+	f32 result = node.GetParameterValue<f32>(OLO_IDENTIFIER("Frequency"));
+	
+	// Should be approximately the geometric mean: sqrt(20 * 20000) ≈ 632.45
+	EXPECT_NEAR(result, 632.45f, 1.0f);
+}
+
+// FrequencyLogToLinearNode Tests
+TEST_F(MathNodeTest, FrequencyLogToLinearNodeTest)
+{
+	FrequencyLogToLinearNode node;
+	
+	// Initialize the node
+	node.Initialize(48000.0, 512);
+	
+	// Test mapping 1000Hz back to linear (should be around middle of range)
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 1000.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("MinFrequency"), 20.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("MaxFrequency"), 20000.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("MinValue"), 0.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("MaxValue"), 1.0f);
+	
+	f32* inputs[2] = { nullptr, nullptr };
+	f32* outputs[1] = { nullptr };
+	node.Process(inputs, outputs, 256);
+	
+	f32 result = node.GetParameterValue<f32>(OLO_IDENTIFIER("Value"));
+	
+	// 1000Hz should be somewhere in the middle range
+	EXPECT_GT(result, 0.3f);
+	EXPECT_LT(result, 0.8f);
+}
+
+//=============================================================================
+// Generator Node Tests
+//=============================================================================
+
+// NoiseNode Tests
+TEST_F(MathNodeTest, NoiseNodeWhiteTest)
+{
+	NoiseNode node;
+	
+	// Initialize the node
+	node.Initialize(48000.0, 512);
+	
+	// Test white noise generation (Type = 0)
+	node.SetParameterValue(OLO_IDENTIFIER("Seed"), 12345);
+	node.SetParameterValue(OLO_IDENTIFIER("Type"), 0); // WhiteNoise
+	
+	f32* inputs[2] = { nullptr, nullptr };
+	f32 outputBuffer[256];
+	f32* outputs[1] = { outputBuffer };
+	node.Process(inputs, outputs, 256);
+	
+	// Check that output buffer contains values (not all zeros)
+	bool hasNonZeroValues = false;
+	for (u32 i = 0; i < 256; ++i)
+	{
+		if (outputBuffer[i] != 0.0f)
+		{
+			hasNonZeroValues = true;
+			break;
+		}
+	}
+	EXPECT_TRUE(hasNonZeroValues);
+	
+	// Check that values are in reasonable range (typically 0-1 for white noise)
+	for (u32 i = 0; i < 256; ++i)
+	{
+		EXPECT_GE(outputBuffer[i], 0.0f);
+		EXPECT_LE(outputBuffer[i], 1.0f);
+	}
+}
+
+TEST_F(MathNodeTest, NoiseNodePinkTest)
+{
+	NoiseNode node;
+	
+	// Initialize the node
+	node.Initialize(48000.0, 512);
+	
+	// Test pink noise generation (Type = 1)
+	node.SetParameterValue(OLO_IDENTIFIER("Seed"), 54321);
+	node.SetParameterValue(OLO_IDENTIFIER("Type"), 1); // PinkNoise
+	
+	f32* inputs[2] = { nullptr, nullptr };
+	f32 outputBuffer[256];
+	f32* outputs[1] = { outputBuffer };
+	node.Process(inputs, outputs, 256);
+	
+	// Check that output buffer contains values (not all zeros)
+	bool hasNonZeroValues = false;
+	for (u32 i = 0; i < 256; ++i)
+	{
+		if (outputBuffer[i] != 0.0f)
+		{
+			hasNonZeroValues = true;
+			break;
+		}
+	}
+	EXPECT_TRUE(hasNonZeroValues);
+}
+
+TEST_F(MathNodeTest, NoiseNodeBrownianTest)
+{
+	NoiseNode node;
+	
+	// Initialize the node
+	node.Initialize(48000.0, 512);
+	
+	// Test brownian noise generation (Type = 2)
+	node.SetParameterValue(OLO_IDENTIFIER("Seed"), 98765);
+	node.SetParameterValue(OLO_IDENTIFIER("Type"), 2); // BrownianNoise
+	
+	f32* inputs[2] = { nullptr, nullptr };
+	f32 outputBuffer[256];
+	f32* outputs[1] = { outputBuffer };
+	node.Process(inputs, outputs, 256);
+	
+	// Check that output buffer contains values (not all zeros)
+	bool hasNonZeroValues = false;
+	for (u32 i = 0; i < 256; ++i)
+	{
+		if (outputBuffer[i] != 0.0f)
+		{
+			hasNonZeroValues = true;
+			break;
+		}
+	}
+	EXPECT_TRUE(hasNonZeroValues);
 }

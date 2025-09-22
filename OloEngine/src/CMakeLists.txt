@@ -76,6 +76,19 @@
 		"OloEngine/Audio/SoundGraph/Nodes/MaxNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/ClampNode.h"
 		
+		# Advanced Math Nodes
+		"OloEngine/Audio/SoundGraph/Nodes/PowerNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/LogNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/ModuloNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/MapRangeNode.h"
+		
+		# Audio-Specific Math Nodes
+		"OloEngine/Audio/SoundGraph/Nodes/LinearToLogFrequencyNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/FrequencyLogToLinearNode.h"
+		
+		# Generator Nodes
+		"OloEngine/Audio/SoundGraph/Nodes/NoiseNode.h"
+		
 		# Note: Other SoundGraph files temporarily disabled - need updating for new Core infrastructure
 		# "OloEngine/Audio/SoundGraph/NodeProcessor.h"
 		# "OloEngine/Audio/SoundGraph/NodeProcessor.cpp"
