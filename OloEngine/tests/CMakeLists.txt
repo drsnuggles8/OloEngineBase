@@ -3,7 +3,8 @@ add_executable(OloEngine-Tests
 		OloEngineTest.cpp
 		MathTest.cpp
 		LoggerTest.cpp
-		AssetCreationTest.cpp)
+		AssetCreationTest.cpp
+		CoreUtilitiesTest.cpp)
 		
 target_link_libraries(OloEngine-Tests
 	OloEngine
