@@ -15,6 +15,10 @@ add_executable(OloEngine-Tests
 		ArrayOperationNodesTest.cpp
 		GraphRoutingSystemTest.cpp
 		SoundGraphBasicTest.cpp
+		LockFreeCommunicationTest.cpp
+		AudioThreadDebugTest.cpp
+		MinimalThreadTest.cpp
+		AudioThreadFullTest.cpp
 		)
 		
 target_link_libraries(OloEngine-Tests

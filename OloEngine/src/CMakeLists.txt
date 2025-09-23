@@ -115,6 +115,10 @@
 		"OloEngine/Audio/SoundGraph/Nodes/CompareNodes.h"
 		"OloEngine/Audio/SoundGraph/Nodes/ConditionalNodes.h"
 		
+		"OloEngine/Audio/LockFreeFIFO.h"
+		"OloEngine/Audio/AudioThread.h"
+		"OloEngine/Audio/AudioThread.cpp"
+		
 		# Note: Other SoundGraph files temporarily disabled - need updating for new Core infrastructure
 		"OloEngine/Audio/SoundGraph/NodeProcessor.h"
 		"OloEngine/Audio/SoundGraph/NodeProcessor.cpp"
