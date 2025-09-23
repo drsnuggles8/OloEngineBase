@@ -36,11 +36,17 @@ namespace OloEngine::Audio::SoundGraph
 	public:
 		SineNode()
 		{
-			// Register parameters directly
-			AddParameter<f32>(Frequency_ID, "Frequency", 440.0f);     // Default to A4 (440 Hz)
-			AddParameter<f32>(PhaseOffset_ID, "PhaseOffset", 0.0f);   // Phase offset in radians
-			AddParameter<f32>(ResetPhase_ID, "ResetPhase", 0.0f);     // ResetPhase trigger
-			AddParameter<f32>(Output_ID, "Output", 0.0f);             // Sine wave output
+			// Register parameters directly with interpolation for smooth frequency transitions
+			DECLARE_INTERPOLATED_INPUT(f32, Frequency);     // Interpolated for smooth pitch changes
+			DECLARE_INPUT(f32, PhaseOffset);                 // Immediate for precise phase control
+			DECLARE_INPUT(f32, ResetPhase);                  // Immediate trigger parameter
+			DECLARE_OUTPUT(f32, Output);                     // Audio output
+
+			// Set default values
+			SetParameterValue(Frequency_ID, 440.0f, false); // A4 (440 Hz)
+			SetParameterValue(PhaseOffset_ID, 0.0f, false);
+			SetParameterValue(ResetPhase_ID, 0.0f, false);
+			SetParameterValue(Output_ID, 0.0f, false);
 
 			// Register ResetPhase input event with flag callback
 			AddInputEvent<f32>(ResetPhase_ID, "ResetPhase", [this](f32 value) {
@@ -56,6 +62,9 @@ namespace OloEngine::Audio::SoundGraph
 
 		void Process(f32** inputs, f32** outputs, u32 numSamples) override
 		{
+			// Process interpolation and parameter connections first
+			ProcessBeforeAudio();
+
 			// Check for ResetPhase trigger via parameter or flag
 			f32 resetPhaseValue = GetParameterValue<f32>(ResetPhase_ID);
 			
@@ -64,7 +73,7 @@ namespace OloEngine::Audio::SoundGraph
 				ResetPhase();
 				// Reset trigger parameter
 				if (resetPhaseValue > 0.5f)
-					SetParameterValue(ResetPhase_ID, 0.0f);
+					SetParameterValue(ResetPhase_ID, 0.0f, false);
 			}
 
 			const f32 frequency = glm::clamp(GetParameterValue<f32>(Frequency_ID), MIN_FREQ_HZ, MAX_FREQ_HZ);
@@ -93,7 +102,7 @@ namespace OloEngine::Audio::SoundGraph
 				}
 				
 				// Set output parameter to the last generated value
-				SetParameterValue(Output_ID, outputs[0][numSamples - 1]);
+				SetParameterValue(Output_ID, outputs[0][numSamples - 1], false);
 			}
 			else
 			{
@@ -101,7 +110,7 @@ namespace OloEngine::Audio::SoundGraph
 				const f64 currentPhase = m_Phase + static_cast<f64>(phaseOffset);
 				const f32 sineValue = static_cast<f32>(glm::sin(currentPhase));
 				
-				SetParameterValue(Output_ID, sineValue);
+				SetParameterValue(Output_ID, sineValue, false);
 				
 				// Advance phase for next call
 				m_Phase += m_PhaseIncrement * numSamples;
@@ -115,6 +124,9 @@ namespace OloEngine::Audio::SoundGraph
 		void Initialize(f64 sampleRate, u32 maxBufferSize) override
 		{
 			m_SampleRate = sampleRate;
+			
+			// Initialize interpolation with default 10ms transition time
+			InitializeInterpolation(sampleRate, 0.01);
 			
 			// Initialize phase and calculate initial phase increment
 			m_Phase = static_cast<f64>(GetParameterValue<f32>(PhaseOffset_ID));

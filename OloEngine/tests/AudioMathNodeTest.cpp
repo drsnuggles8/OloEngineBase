@@ -892,12 +892,12 @@ TEST_F(MathNodeTest, SineNodeFrequencyClampingTest)
 	SineNode node;
 	node.Initialize(48000.0, 512);
 	
-	// Test frequency clamping - too high (clamping happens in GetCurrentFrequency)
-	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 25000.0f);
+	// Test frequency clamping - too high (use immediate mode for testing)
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 25000.0f, false);
 	EXPECT_FLOAT_EQ(node.GetCurrentFrequency(), 22000.0f);
 	
-	// Test frequency clamping - negative (clamping happens in GetCurrentFrequency)
-	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), -100.0f);
+	// Test frequency clamping - negative (use immediate mode for testing)
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), -100.0f, false);
 	EXPECT_FLOAT_EQ(node.GetCurrentFrequency(), 0.0f);
 }
 
@@ -929,8 +929,8 @@ TEST_F(MathNodeTest, SineNodeUtilityMethodsTest)
 	SineNode node;
 	node.Initialize(48000.0, 512);
 	
-	// Test frequency setting
-	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 880.0f);
+	// Test frequency setting (use immediate mode for testing)
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 880.0f, false);
 	EXPECT_FLOAT_EQ(node.GetCurrentFrequency(), 880.0f);
 	
 	// Test phase reset

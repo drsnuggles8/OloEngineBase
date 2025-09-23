@@ -11,6 +11,7 @@ add_executable(OloEngine-Tests
 		AudioGraphEventSystemTest.cpp
 		TriggerArrayNodesTest.cpp
 		WavePlayerNodeTest.cpp
+		ParameterInterpolationTest.cpp
 		)
 		
 target_link_libraries(OloEngine-Tests

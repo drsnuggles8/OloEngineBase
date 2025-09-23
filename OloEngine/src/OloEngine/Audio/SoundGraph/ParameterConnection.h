@@ -88,8 +88,18 @@ namespace OloEngine::Audio::SoundGraph
 				sourceValue = m_Transform(sourceValue);
 			}
 
-			// Set value on target parameter
-			m_TargetNode->SetParameterValue(m_TargetParameterID, sourceValue);
+			// Set value on target parameter with interpolation control
+			// Check if target parameter supports interpolation
+			if (m_TargetNode->GetParameterRegistry().ParameterSupportsInterpolation(m_TargetParameterID))
+			{
+				// Use interpolated setting for smooth transitions
+				m_TargetNode->SetParameterValue(m_TargetParameterID, sourceValue, m_UseInterpolation);
+			}
+			else
+			{
+				// Set directly for non-interpolated parameters
+				m_TargetNode->SetParameterValue(m_TargetParameterID, sourceValue, false);
+			}
 		}
 
 		/// Get type name for debugging
@@ -112,9 +122,18 @@ namespace OloEngine::Audio::SoundGraph
 		/// Clear any transformation function
 		void ClearTransform() { m_Transform = nullptr; }
 
+		/// Enable or disable interpolation for this connection (if target supports it)
+		void SetInterpolationEnabled(bool enabled) { m_UseInterpolation = enabled; }
+
+		/// Check if interpolation is enabled for this connection
+		bool IsInterpolationEnabled() const { return m_UseInterpolation; }
+
 	private:
 		/// Optional transformation function to apply during propagation
 		std::function<T(T)> m_Transform;
+		
+		/// Whether to use interpolation when setting target values (if supported)
+		bool m_UseInterpolation = true;
 	};
 
 	//==============================================================================

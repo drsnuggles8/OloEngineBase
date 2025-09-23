@@ -22,7 +22,7 @@ namespace OloEngine::Audio::SoundGraph
 		virtual ~NodeProcessor() = default;
 
 		/// Process a block of audio samples
-		/// NOTE: Derived classes should call ProcessParameterConnections() at the start of their Process method
+		/// NOTE: Derived classes should call ProcessBeforeAudio() at the start of their Process method
 		virtual void Process(f32** inputs, f32** outputs, u32 numSamples) = 0;
 		
 		/// Update node state (called on main thread)
@@ -30,6 +30,29 @@ namespace OloEngine::Audio::SoundGraph
 		
 		/// Initialize node with sample rate and buffer size
 		virtual void Initialize(f64 sampleRate, u32 maxBufferSize) = 0;
+
+		/// Set interpolation configuration for this node
+		void SetInterpolationConfig(const InterpolationConfig& config)
+		{
+			m_Parameters.SetInterpolationConfig(config);
+		}
+
+		/// Get interpolation configuration
+		const InterpolationConfig& GetInterpolationConfig() const
+		{
+			return m_Parameters.GetInterpolationConfig();
+		}
+
+		/// Initialize interpolation configuration with sample rate
+		/// This should be called from derived class Initialize() methods
+		void InitializeInterpolation(f64 sampleRate, f64 interpolationTimeSeconds = 0.01)
+		{
+			InterpolationConfig config;
+			config.SampleRate = sampleRate;
+			config.SetInterpolationTimeSeconds(interpolationTimeSeconds);
+			config.EnableInterpolation = true;
+			SetInterpolationConfig(config);
+		}
 
 		/// Get node type identifier
 		virtual Identifier GetTypeID() const = 0;
@@ -70,6 +93,13 @@ namespace OloEngine::Audio::SoundGraph
 			m_Parameters.AddParameter(id, name, initialValue);
 		}
 
+		/// Add an interpolated parameter endpoint (for smooth value transitions)
+		template<typename T>
+		void AddInterpolatedParameter(const Identifier& id, const std::string& name, T initialValue)
+		{
+			m_Parameters.AddInterpolatedParameter(id, name, initialValue, m_Parameters.GetInterpolationConfig());
+		}
+
 		/// Get input event by ID
 		std::shared_ptr<InputEvent> GetInputEvent(const Identifier& id) const
 		{
@@ -95,7 +125,14 @@ namespace OloEngine::Audio::SoundGraph
 		template<typename T>
 		void SetParameterValue(const Identifier& id, T value)
 		{
-			m_Parameters.SetParameterValue(id, value);
+			m_Parameters.SetParameterValue(id, value, true); // Default to interpolated
+		}
+
+		/// Set parameter value with interpolation control
+		template<typename T>
+		void SetParameterValue(const Identifier& id, T value, bool interpolate)
+		{
+			m_Parameters.SetParameterValue(id, value, interpolate);
 		}
 
 		/// Get all input events
@@ -118,6 +155,12 @@ namespace OloEngine::Audio::SoundGraph
 
 		/// Get parameter registry
 		const ParameterRegistry& GetParameterRegistry() const
+		{
+			return m_Parameters;
+		}
+
+		/// Get parameter registry (non-const)
+		ParameterRegistry& GetParameterRegistry()
 		{
 			return m_Parameters;
 		}
@@ -154,9 +197,19 @@ namespace OloEngine::Audio::SoundGraph
 		/// Process all outgoing parameter connections (propagate values)
 		void ProcessParameterConnections();
 
-		/// Helper method for derived classes to call at the start of their Process method
-		/// This ensures parameter connections are updated before audio processing
-		void ProcessBeforeAudio() { ProcessParameterConnections(); }
+		/// Process parameter interpolation and connections
+		/// This should be called at the start of every Process() method in derived classes
+		void ProcessBeforeAudio() 
+		{ 
+			ProcessParameterInterpolation();
+			ProcessParameterConnections(); 
+		}
+
+		/// Process parameter interpolation (called once per audio frame)
+		void ProcessParameterInterpolation()
+		{
+			m_Parameters.ProcessInterpolation();
+		}
 
 		/// Get all parameter connections from this node
 		const std::vector<std::shared_ptr<ParameterConnection>>& GetParameterConnections() const { return m_ParameterConnections; }
@@ -201,6 +254,11 @@ namespace OloEngine::Audio::SoundGraph
 #define DECLARE_INPUT(Type, Name) \
 	const auto Name##_ID = OLO_IDENTIFIER(#Name); \
 	AddParameter<Type>(Name##_ID, #Name, Type{})
+
+/// Declare an interpolated input parameter with type and name (for smooth value transitions)
+#define DECLARE_INTERPOLATED_INPUT(Type, Name) \
+	const auto Name##_ID = OLO_IDENTIFIER(#Name); \
+	AddInterpolatedParameter<Type>(Name##_ID, #Name, Type{})
 
 /// Declare an output parameter with type and name
 #define DECLARE_OUTPUT(Type, Name) \
