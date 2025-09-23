@@ -1,141 +1,98 @@
 #pragma once
 
 #include "../NodeProcessor.h"
+#include "OloEngine/Core/Identifier.h"
 #include <vector>
 
 namespace OloEngine::Audio::SoundGraph
 {
 	//==============================================================================
-	/// Mixer Node - mixes multiple audio inputs into one output
+	/// MixerNode - Mixes multiple audio inputs into one output
+	/// Supports configurable number of inputs with individual volume and mute controls
+	/// Essential for combining multiple audio sources in sound graphs
 	class MixerNode : public NodeProcessor
 	{
+	private:
+		// Parameter identifiers
+		const Identifier MasterVolume_ID = OLO_IDENTIFIER("MasterVolume");
+		const Identifier NumInputs_ID = OLO_IDENTIFIER("NumInputs");
+		const Identifier Output_ID = OLO_IDENTIFIER("Output");
+
+		// Dynamic input parameter prefixes
+		static constexpr const char* INPUT_PREFIX = "Input";
+		static constexpr const char* VOLUME_PREFIX = "Volume";
+		static constexpr const char* MUTE_PREFIX = "Mute";
+
+		// State
+		u32 m_NumInputs = 4;
+		f64 m_SampleRate = 48000.0;
+
+		// Helper methods
+		Identifier GetInputID(u32 index) const;
+		Identifier GetVolumeID(u32 index) const;
+		Identifier GetMuteID(u32 index) const;
+		void UpdateParameterCount();
+
 	public:
-		// Endpoint identifiers
-		struct EndpointIDs
-		{
-			static constexpr const char* OutputLeft = "OutLeft";
-			static constexpr const char* OutputRight = "OutRight";
-			static constexpr const char* MasterVolume = "MasterVolume";
+		MixerNode();
+		~MixerNode() override = default;
 
-			// Dynamic input endpoints (Input1Left, Input1Right, Input1Volume, etc.)
-			static std::string GetInputLeftName(u32 index) { return "Input" + std::to_string(index + 1) + "Left"; }
-			static std::string GetInputRightName(u32 index) { return "Input" + std::to_string(index + 1) + "Right"; }
-			static std::string GetInputVolumeName(u32 index) { return "Input" + std::to_string(index + 1) + "Volume"; }
-			static std::string GetInputMuteName(u32 index) { return "Input" + std::to_string(index + 1) + "Mute"; }
-		};
+		// NodeProcessor interface
+		void Process(f32** inputs, f32** outputs, u32 numSamples) override;
+		void Initialize(f64 sampleRate, u32 samplesPerBlock) override;
+		void Reset();
 
-		explicit MixerNode(std::string_view debugName, UUID id, u32 numInputs = 4);
-		virtual ~MixerNode() = default;
+		// Node identification
+		[[nodiscard]] Identifier GetTypeID() const override { return OLO_IDENTIFIER("MixerNode"); }
+		[[nodiscard]] const char* GetDisplayName() const override { return "Mixer"; }
 
-		// NodeProcessor overrides
-		void Process(f32* leftChannel, f32* rightChannel, u32 numSamples) override;
-		void Update(f32 deltaTime) override;
-		void Initialize(f64 sampleRate) override;
-		void Reset() override;
-
-		//==============================================================================
-		/// Configuration
-
-		// Set the number of input channels
+		// Configuration
 		void SetNumInputs(u32 numInputs);
 		u32 GetNumInputs() const { return m_NumInputs; }
 
-		// Set volume for a specific input
+		// Individual input controls
 		void SetInputVolume(u32 inputIndex, f32 volume);
 		f32 GetInputVolume(u32 inputIndex) const;
-
-		// Mute/unmute a specific input
 		void SetInputMute(u32 inputIndex, bool mute);
 		bool IsInputMuted(u32 inputIndex) const;
 
-		// Set master volume
-		void SetMasterVolume(f32 volume) { m_MasterVolume = volume; }
-		f32 GetMasterVolume() const { return m_MasterVolume; }
-
-		// Add input endpoint (for serialization)
-		void AddInputEndpoint() { SetNumInputs(m_NumInputs + 1); }
-		void AddInputEndpoint(const std::string& /*name*/) { SetNumInputs(m_NumInputs + 1); }
-
-	private:
-		struct InputChannel
-		{
-			f32 LeftInput = 0.0f;
-			f32 RightInput = 0.0f;
-			f32 Volume = 1.0f;
-			bool Muted = false;
-		};
-
-		u32 m_NumInputs = 4;
-		std::vector<InputChannel> m_Inputs;
-
 		// Master controls
-		f32 m_MasterVolume = 1.0f;
-
-		// Output values
-		f32 m_OutputLeft = 0.0f;
-		f32 m_OutputRight = 0.0f;
-
-		//==============================================================================
-		/// Internal methods
-
-		void InitializeEndpoints();
-		void ResizeInputs(u32 newSize);
+		void SetMasterVolume(f32 volume);
+		f32 GetMasterVolume() const;
 	};
 
 	//==============================================================================
-	/// Gain Node - simple volume control
+	/// GainNode - Simple volume control for audio signals
+	/// Single input/output with gain and mute control
 	class GainNode : public NodeProcessor
 	{
-	public:
-		// Endpoint identifiers
-		struct EndpointIDs
-		{
-			static constexpr const char* InputLeft = "InLeft";
-			static constexpr const char* InputRight = "InRight";
-			static constexpr const char* OutputLeft = "OutLeft";
-			static constexpr const char* OutputRight = "OutRight";
-			static constexpr const char* Gain = "Gain";
-			static constexpr const char* Mute = "Mute";
-		};
-
-		explicit GainNode(std::string_view debugName, UUID id);
-		virtual ~GainNode() = default;
-
-		// NodeProcessor overrides
-		void Process(f32* leftChannel, f32* rightChannel, u32 numSamples) override;
-		void Update(f32 deltaTime) override;
-		void Initialize(f64 sampleRate) override;
-		void Reset() override;
-
-		//==============================================================================
-		/// Configuration
-
-		void SetGain(f32 gain) { m_Gain = gain; }
-		f32 GetGain() const { return m_Gain; }
-
-		// Alias for serialization compatibility
-		void SetVolume(f32 volume) { SetGain(volume); }
-		f32 GetVolume() const { return GetGain(); }
-
-		void SetMute(bool mute) { m_Mute = mute; }
-		bool IsMuted() const { return m_Mute; }
-
 	private:
-		// Input values
-		f32 m_InputLeft = 0.0f;
-		f32 m_InputRight = 0.0f;
+		// Parameter identifiers
+		const Identifier Input_ID = OLO_IDENTIFIER("Input");
+		const Identifier Gain_ID = OLO_IDENTIFIER("Gain");
+		const Identifier Mute_ID = OLO_IDENTIFIER("Mute");
+		const Identifier Output_ID = OLO_IDENTIFIER("Output");
 
-		// Parameters
-		f32 m_Gain = 1.0f;
-		bool m_Mute = false;
+		f64 m_SampleRate = 48000.0;
 
-		// Output values
-		f32 m_OutputLeft = 0.0f;
-		f32 m_OutputRight = 0.0f;
+	public:
+		GainNode();
+		~GainNode() override = default;
 
-		//==============================================================================
-		/// Internal methods
+		// NodeProcessor interface
+		void Process(f32** inputs, f32** outputs, u32 numSamples) override;
+		void Initialize(f64 sampleRate, u32 samplesPerBlock) override;
+		void Reset();
 
-		void InitializeEndpoints();
+		// Node identification
+		[[nodiscard]] Identifier GetTypeID() const override { return OLO_IDENTIFIER("GainNode"); }
+		[[nodiscard]] const char* GetDisplayName() const override { return "Gain"; }
+
+		// Controls
+		void SetGain(f32 gain);
+		f32 GetGain() const;
+		void SetMute(bool mute);
+		bool IsMuted() const;
 	};
-}
+
+} // namespace OloEngine::Audio::SoundGraph
