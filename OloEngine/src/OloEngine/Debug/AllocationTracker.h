@@ -1,10 +1,11 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/Ref.h"
 #include <atomic>
+#include <string>
 
 namespace OloEngine {
-
 // Enable allocation tracking only in debug builds by default
 // Can be overridden by defining OLO_FORCE_ALLOCATION_TRACKING
 #if defined(OLO_DEBUG) || defined(OLO_FORCE_ALLOCATION_TRACKING)
@@ -55,7 +56,9 @@ public:
     {
         // Use relaxed ordering for best performance
         // We only care about the final count, not ordering between threads
-        s_LiveCount.fetch_add(1, std::memory_order_relaxed);
+        sizet newLiveCount = s_LiveCount.fetch_add(1, std::memory_order_relaxed) + 1;
+        s_TotalCreated.fetch_add(1, std::memory_order_relaxed);
+        UpdatePeakCount(newLiveCount);
     }
     
     /**
@@ -64,7 +67,9 @@ public:
      */
     AllocationTracker(AllocationTracker const&) noexcept
     {
-        s_LiveCount.fetch_add(1, std::memory_order_relaxed);
+        sizet newLiveCount = s_LiveCount.fetch_add(1, std::memory_order_relaxed) + 1;
+        s_TotalCreated.fetch_add(1, std::memory_order_relaxed);
+        UpdatePeakCount(newLiveCount);
     }
     
     /**
@@ -73,7 +78,9 @@ public:
      */
     AllocationTracker(AllocationTracker&&) noexcept
     {
-        s_LiveCount.fetch_add(1, std::memory_order_relaxed);
+        sizet newLiveCount = s_LiveCount.fetch_add(1, std::memory_order_relaxed) + 1;
+        s_TotalCreated.fetch_add(1, std::memory_order_relaxed);
+        UpdatePeakCount(newLiveCount);
     }
     
     /**
@@ -289,8 +296,7 @@ bool IsAllocationNeutral(const AllocationSnapshot<T>& snapshot);
     #define OLO_ALLOCATION_TRACKED(ClassName) \
         public ::OloEngine::AllocationTracker<ClassName>
 #else
-    #define OLO_ALLOCATION_TRACKED(ClassName) \
-        /* Empty in release builds */
+    #define OLO_ALLOCATION_TRACKED(ClassName)
 #endif
 
 /**

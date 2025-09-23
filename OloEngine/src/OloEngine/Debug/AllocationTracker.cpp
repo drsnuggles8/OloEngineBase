@@ -12,8 +12,8 @@
 #include <sstream>
 #include <iomanip>
 
-// Stack trace support - available in MSVC 2022 17.4+ with C++23
-#if defined(_MSC_VER) && _MSC_VER >= 1934 && __cplusplus >= 202302L
+// Stack trace support - available when <stacktrace> header is present (C++23)
+#if __has_include(<stacktrace>) && __cplusplus >= 202302L
     #include <stacktrace>
     #define OLO_HAS_STACKTRACE 1
 #else
@@ -346,13 +346,21 @@ public:
      */
     std::vector<void const*> GetNewObjects() const
     {
-        auto current_objects = AllocationTrackerExtended<Tag>::GetLiveObjectPointers();
+        const auto current_objects = AllocationTrackerExtended<Tag>::GetLiveObjectPointers();
         std::vector<void const*> new_objects;
+        
+        // Create unordered_set from snapshot for O(1) lookups
+        std::unordered_set<void const*> snapshot_set;
+        snapshot_set.reserve(m_live_objects.size());
+        for (void const* obj : m_live_objects)
+        {
+            snapshot_set.insert(obj);
+        }
         
         // Find objects in current that aren't in snapshot
         for (void const* obj : current_objects)
         {
-            if (std::find(m_live_objects.begin(), m_live_objects.end(), obj) == m_live_objects.end())
+            if (snapshot_set.find(obj) == snapshot_set.end())
             {
                 new_objects.push_back(obj);
             }
@@ -367,13 +375,21 @@ public:
      */
     std::vector<void const*> GetDestroyedObjects() const
     {
-        auto current_objects = AllocationTrackerExtended<Tag>::GetLiveObjectPointers();
+        const auto current_objects = AllocationTrackerExtended<Tag>::GetLiveObjectPointers();
         std::vector<void const*> destroyed_objects;
+        
+        // Create unordered_set from current objects for O(1) lookups
+        std::unordered_set<void const*> current_set;
+        current_set.reserve(current_objects.size());
+        for (void const* obj : current_objects)
+        {
+            current_set.insert(obj);
+        }
         
         // Find objects in snapshot that aren't in current
         for (void const* obj : m_live_objects)
         {
-            if (std::find(current_objects.begin(), current_objects.end(), obj) == current_objects.end())
+            if (current_set.find(obj) == current_set.end())
             {
                 destroyed_objects.push_back(obj);
             }
@@ -387,7 +403,26 @@ public:
      */
     bool HasNewObjects() const
     {
-        return !GetNewObjects().empty();
+        const auto current_objects = AllocationTrackerExtended<Tag>::GetLiveObjectPointers();
+        
+        // Create unordered_set from snapshot for O(1) lookups
+        std::unordered_set<void const*> snapshot_set;
+        snapshot_set.reserve(m_live_objects.size());
+        for (void const* obj : m_live_objects)
+        {
+            snapshot_set.insert(obj);
+        }
+        
+        // Check if any current object is not in snapshot (early exit on first match)
+        for (void const* obj : current_objects)
+        {
+            if (snapshot_set.find(obj) == snapshot_set.end())
+            {
+                return true; // Found a new object, early exit
+            }
+        }
+        
+        return false; // No new objects found
     }
     
     /**
@@ -395,7 +430,27 @@ public:
      */
     sizet GetNewObjectCount() const
     {
-        return GetNewObjects().size();
+        const auto current_objects = AllocationTrackerExtended<Tag>::GetLiveObjectPointers();
+        sizet count = 0;
+        
+        // Create unordered_set from snapshot for O(1) lookups
+        std::unordered_set<void const*> snapshot_set;
+        snapshot_set.reserve(m_live_objects.size());
+        for (void const* obj : m_live_objects)
+        {
+            snapshot_set.insert(obj);
+        }
+        
+        // Count objects in current that aren't in snapshot (no vector allocation)
+        for (void const* obj : current_objects)
+        {
+            if (snapshot_set.find(obj) == snapshot_set.end())
+            {
+                ++count;
+            }
+        }
+        
+        return count;
     }
     
     /**
