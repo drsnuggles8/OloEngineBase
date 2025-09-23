@@ -1,7 +1,6 @@
 #include "OloEngine/Core/Base.h"
 #include "SoundGraphSerializer.h"
 #include "Nodes/WavePlayerNode.h"
-#include "Nodes/MixerNode.h"
 
 #include "OloEngine/Core/Log.h"
 
@@ -115,14 +114,25 @@ namespace OloEngine::Audio::SoundGraph
 			if (soundGraphNode["Nodes"])
 			{
 				auto nodesNode = soundGraphNode["Nodes"];
+				sizet nodeCount = 0;
+				sizet validNodeCount = 0;
 				
 				for (const auto& nodeYaml : nodesNode)
 				{
+					nodeCount++;
 					SoundGraphAsset::NodeData nodeData;
 					if (DeserializeNodeData(nodeYaml, nodeData))
 					{
 						asset.Nodes.push_back(nodeData);
+						validNodeCount++;
 					}
+				}
+				
+				// If nodes were present but none were valid, fail
+				if (nodeCount > 0 && validNodeCount == 0)
+				{
+					OLO_CORE_ERROR("Sound graph contains nodes but none could be deserialized");
+					return false;
 				}
 			}
 			
@@ -130,23 +140,44 @@ namespace OloEngine::Audio::SoundGraph
 			if (soundGraphNode["Connections"])
 			{
 				auto connectionsNode = soundGraphNode["Connections"];
+				sizet connectionCount = 0;
+				sizet validConnectionCount = 0;
 				
 				for (const auto& connectionYaml : connectionsNode)
 				{
+					connectionCount++;
 					Connection connection;
 					if (DeserializeConnection(connectionYaml, connection))
 					{
 						asset.Connections.push_back(connection);
+						validConnectionCount++;
 					}
+				}
+				
+				// If connections were present but none were valid, fail
+				if (connectionCount > 0 && validConnectionCount == 0)
+				{
+					OLO_CORE_ERROR("Sound graph contains connections but none could be deserialized");
+					return false;
 				}
 			}
 			
 			OLO_CORE_INFO("Successfully deserialized sound graph: {}", asset.Name);
 			return true;
 		}
+		catch (const YAML::Exception& e)
+		{
+			OLO_CORE_ERROR("Failed to parse YAML: Invalid format");
+			return false;
+		}
 		catch (const std::exception& e)
 		{
 			OLO_CORE_ERROR("Failed to deserialize sound graph: {}", e.what());
+			return false;
+		}
+		catch (...)
+		{
+			OLO_CORE_ERROR("Unknown error occurred during sound graph deserialization");
 			return false;
 		}
 	}
@@ -240,9 +271,9 @@ namespace OloEngine::Audio::SoundGraph
 				return false;
 			}
 			
-			connection.SourceNodeID = UUID(node["SourceNodeID"].as<u64>());
+			connection.SourceNodeID = Identifier(node["SourceNodeID"].as<u64>());
 			connection.SourceEndpoint = node["SourceEndpoint"].as<std::string>();
-			connection.TargetNodeID = UUID(node["TargetNodeID"].as<u64>());
+			connection.TargetNodeID = Identifier(node["TargetNodeID"].as<u64>());
 			connection.TargetEndpoint = node["TargetEndpoint"].as<std::string>();
 			
 			if (node["IsEvent"])
@@ -270,20 +301,23 @@ namespace OloEngine::Audio::SoundGraph
 		if (s_NodeCreators.empty())
 			InitializeDefaultNodeTypes();
 		
-		auto soundGraph = Ref<SoundGraph>::Create(asset.Name, asset.ID);
+		auto soundGraph = Ref<SoundGraph>::Create();
+		// TODO: Set name and ID if SoundGraph supports them
 		
 		// Create all nodes first
 		std::unordered_map<UUID, NodeProcessor*> nodeMap;
 		
 		for (const auto& nodeData : asset.Nodes)
 		{
-			auto node = CreateNode(nodeData.Type, nodeData.Name, nodeData.ID);
+			// Convert UUID from NodeData to Identifier for CreateNode
+			Identifier nodeId = Identifier(static_cast<u64>(nodeData.ID));
+			auto node = CreateNode(nodeData.Type, nodeData.Name, nodeId);
 			if (node)
 			{
 				// Apply properties
 				ApplyNodeProperties(node.get(), nodeData);
 				
-				// Store reference for connection phase
+				// Store reference for connection phase using original UUID
 				nodeMap[nodeData.ID] = node.get();
 				
 				// Add to sound graph
@@ -298,8 +332,12 @@ namespace OloEngine::Audio::SoundGraph
 		// Connect nodes
 		for (const auto& connection : asset.Connections)
 		{
-			auto outputNodeIt = nodeMap.find(connection.SourceNodeID);
-			auto inputNodeIt = nodeMap.find(connection.TargetNodeID);
+			// Convert Identifier to UUID for lookup in nodeMap
+			UUID sourceUUID = UUID(static_cast<u64>(connection.SourceNodeID));
+			UUID targetUUID = UUID(static_cast<u64>(connection.TargetNodeID));
+			
+			auto outputNodeIt = nodeMap.find(sourceUUID);
+			auto inputNodeIt = nodeMap.find(targetUUID);
 			
 			if (outputNodeIt != nodeMap.end() && inputNodeIt != nodeMap.end())
 			{
@@ -310,14 +348,14 @@ namespace OloEngine::Audio::SoundGraph
 				if (!outputNode->ConnectTo(connection.SourceEndpoint, inputNode, connection.TargetEndpoint))
 				{
 					OLO_CORE_WARN("Failed to connect {} -> {} ({} -> {})", 
-						outputNode->GetName(), inputNode->GetName(),
+						outputNode->GetDisplayName(), inputNode->GetDisplayName(),
 						connection.SourceEndpoint, connection.TargetEndpoint);
 				}
 			}
 			else
 			{
 				OLO_CORE_ERROR("Connection references unknown nodes: {} -> {}", 
-					connection.SourceNodeID, connection.TargetNodeID);
+					static_cast<u64>(connection.SourceNodeID), static_cast<u64>(connection.TargetNodeID));
 			}
 		}
 		
@@ -331,13 +369,11 @@ namespace OloEngine::Audio::SoundGraph
 	{
 		// Register built-in node types
 		RegisterNodeType<WavePlayerNode>("WavePlayer");
-		RegisterNodeType<MixerNode>("Mixer");
-		RegisterNodeType<GainNode>("Gain");
 		
 		OLO_CORE_INFO("Registered {} default sound graph node types", s_NodeCreators.size());
 	}
 
-	Scope<NodeProcessor> SoundGraphFactory::CreateNode(const std::string& typeName, const std::string& name, UUID id)
+	Scope<NodeProcessor> SoundGraphFactory::CreateNode(const std::string& typeName, const std::string& name, Identifier id)
 	{
 		auto it = s_NodeCreators.find(typeName);
 		if (it != s_NodeCreators.end())
@@ -378,28 +414,8 @@ namespace OloEngine::Audio::SoundGraph
 				wavePlayer->SetLoop(it->second == "true");
 			}
 		}
-		else if (auto gainNode = dynamic_cast<GainNode*>(node))
-		{
-			auto it = nodeData.Properties.find("Volume");
-			if (it != nodeData.Properties.end())
-			{
-				gainNode->SetVolume(std::stof(it->second));
-			}
-		}
-		else if (auto mixerNode = dynamic_cast<MixerNode*>(node))
-		{
-			auto it = nodeData.Properties.find("InputCount");
-			if (it != nodeData.Properties.end())
-			{
-				u32 inputCount = std::stoul(it->second);
-				// MixerNode creates inputs dynamically, so we may need to create additional inputs
-				for (u32 i = mixerNode->GetNumInputs(); i < inputCount; ++i)
-				{
-					mixerNode->AddInputEndpoint("Input" + std::to_string(i));
-				}
-			}
-		}
+		// TODO: Add more node types as they become available
 		
-		OLO_CORE_TRACE("Applied properties to node '{}' of type '{}'", node->GetName(), nodeData.Type);
+		OLO_CORE_TRACE("Applied properties to node '{}' of type '{}'", node->GetDisplayName(), nodeData.Type);
 	}
 }

@@ -52,18 +52,19 @@ namespace OloEngine::Audio::SoundGraph
 		template<typename NodeType>
 		static void RegisterNodeType(const std::string& typeName)
 		{
-			s_NodeCreators[typeName] = [](const std::string& name, UUID id) -> Scope<NodeProcessor>
+			s_NodeCreators[typeName] = [](const std::string& name, Identifier id) -> Scope<NodeProcessor>
 			{
-				return CreateScope<NodeType>(name, id);
+				// Create node with default constructor, name and ID are not used in current implementation
+				return CreateScope<NodeType>();
 			};
 		}
 
 	private:
-		using NodeCreatorFunc = std::function<Scope<NodeProcessor>(const std::string&, UUID)>;
+		using NodeCreatorFunc = std::function<Scope<NodeProcessor>(const std::string&, Identifier)>;
 		static std::unordered_map<std::string, NodeCreatorFunc> s_NodeCreators;
 
 		static void InitializeDefaultNodeTypes();
-		static Scope<NodeProcessor> CreateNode(const std::string& typeName, const std::string& name, UUID id);
+		static Scope<NodeProcessor> CreateNode(const std::string& typeName, const std::string& name, Identifier id);
 		static void ApplyNodeProperties(NodeProcessor* node, const SoundGraphAsset::NodeData& nodeData);
 	};
 }

@@ -15,6 +15,7 @@ add_executable(OloEngine-Tests
 		ArrayOperationNodesTest.cpp
 		GraphRoutingSystemTest.cpp
 		SoundGraphBasicTest.cpp
+		SoundGraphSerializationTest.cpp
 		LockFreeCommunicationTest.cpp
 		AudioThreadDebugTest.cpp
 		MinimalThreadTest.cpp
