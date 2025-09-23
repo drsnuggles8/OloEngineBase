@@ -41,21 +41,47 @@ namespace OloEngine::Audio::SoundGraph
 		bool IsPaused() const { return m_IsPaused; }
 		f64 GetPlaybackPosition() const { return m_PlaybackPosition; }
 		f64 GetDuration() const { return m_Duration; }
-		bool IsLooping() const { return m_Loop; }
+		bool IsLooping() const { return GetParameterValue<bool>(OLO_IDENTIFIER("Loop"), false); }
+		i32 GetCurrentLoopCount() const { return m_CurrentLoopCount; }
+		i32 GetMaxLoopCount() const { return GetParameterValue<i32>(OLO_IDENTIFIER("LoopCount"), -1); }
+		f64 GetLoopStart() const { return GetParameterValue<f64>(OLO_IDENTIFIER("LoopStart"), 0.0); }
+		f64 GetLoopEnd() const { return GetParameterValue<f64>(OLO_IDENTIFIER("LoopEnd"), -1.0); }
 
 		// Parameter setters (for serialization)
-		void SetVolume(f32 volume) { m_Volume = volume; }
-		void SetPitch(f32 pitch) { m_Pitch = pitch; }
-		void SetLoop(bool loop) { m_Loop = loop; }
-		void SetStartTime(f64 startTime) { m_StartTime = startTime; }
-		void SetMaxLoopCount(i32 count) { m_MaxLoopCount = count; }
+		void SetVolume(f32 volume) { 
+			m_Volume = volume; 
+			SetParameterValue(OLO_IDENTIFIER("Volume"), volume); 
+		}
+		void SetPitch(f32 pitch) { 
+			m_Pitch = pitch; 
+			SetParameterValue(OLO_IDENTIFIER("Pitch"), pitch); 
+		}
+		void SetLoop(bool loop) { 
+			m_Loop = loop; 
+			SetParameterValue(OLO_IDENTIFIER("Loop"), loop); 
+		}
+		void SetMaxLoopCount(i32 maxLoops) { 
+			m_MaxLoopCount = maxLoops; 
+			SetParameterValue(OLO_IDENTIFIER("LoopCount"), maxLoops); 
+		}
+		void SetStartTime(f64 startTime) { 
+			m_StartTime = startTime; 
+			SetParameterValue(OLO_IDENTIFIER("StartTime"), startTime); 
+		}
+		void SetLoopStart(f64 loopStart) { 
+			m_LoopStart = loopStart; 
+			SetParameterValue(OLO_IDENTIFIER("LoopStart"), loopStart); 
+		}
+		void SetLoopEnd(f64 loopEnd) { 
+			m_LoopEnd = loopEnd; 
+			SetParameterValue(OLO_IDENTIFIER("LoopEnd"), loopEnd); 
+		}
 
 		// Parameter getters
-		f32 GetVolume() const { return m_Volume; }
-		f32 GetPitch() const { return m_Pitch; }
-		bool GetLoop() const { return m_Loop; }
-		f64 GetStartTime() const { return m_StartTime; }
-		i32 GetMaxLoopCount() const { return m_MaxLoopCount; }
+		f32 GetVolume() const { return GetParameterValue<f32>(OLO_IDENTIFIER("Volume"), 1.0f); }
+		f32 GetPitch() const { return GetParameterValue<f32>(OLO_IDENTIFIER("Pitch"), 1.0f); }
+		bool GetLoop() const { return GetParameterValue<bool>(OLO_IDENTIFIER("Loop"), false); }
+		f64 GetStartTime() const { return GetParameterValue<f64>(OLO_IDENTIFIER("StartTime"), 0.0); }
 
 		// File loading (for serialization)
 		void LoadAudioFile(const std::string& filePath);
@@ -84,12 +110,14 @@ namespace OloEngine::Audio::SoundGraph
 		f64 m_PlaybackPosition = 0.0; // in samples
 		i32 m_CurrentLoopCount = 0;
 
-		// Input parameters (controlled by other nodes or external input)
+		// Input parameters (temporary member variables for compatibility)
 		f32 m_Volume = 1.0f;
 		f32 m_Pitch = 1.0f;
-		f64 m_StartTime = 0.0; // in seconds
+		f64 m_StartTime = 0.0;
 		bool m_Loop = false;
-		i32 m_MaxLoopCount = -1; // -1 = infinite loops
+		i32 m_MaxLoopCount = -1;
+		f64 m_LoopStart = 0.0;
+		f64 m_LoopEnd = -1.0;
 
 		// Output values
 		f32 m_OutputLeft = 0.0f;

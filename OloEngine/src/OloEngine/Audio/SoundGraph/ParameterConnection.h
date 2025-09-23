@@ -2,13 +2,12 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Identifier.h"
+#include "NodeProcessor.h"  // Full include since we need template methods
 #include <memory>
 #include <functional>
 
 namespace OloEngine::Audio::SoundGraph
 {
-	// Forward declarations
-	class NodeProcessor;
 	
 	//==============================================================================
 	/// Represents a connection between two parameters (output -> input)
@@ -69,25 +68,53 @@ namespace OloEngine::Audio::SoundGraph
 	{
 	public:
 		TypedParameterConnection(NodeProcessor* sourceNode, const Identifier& sourceParam,
-								NodeProcessor* targetNode, const Identifier& targetParam);
+								NodeProcessor* targetNode, const Identifier& targetParam)
+			: ParameterConnection(sourceNode, sourceParam, targetNode, targetParam)
+		{
+		}
 
 		/// Propagate the typed value from source to target
-		void PropagateValue() override;
+		void PropagateValue() override
+		{
+			if (!IsValid())
+				return;
+
+			// Get value from source parameter
+			T sourceValue = m_SourceNode->GetParameterValue<T>(m_SourceParameterID, T{});
+
+			// Apply transformation if present
+			if (m_Transform)
+			{
+				sourceValue = m_Transform(sourceValue);
+			}
+
+			// Set value on target parameter
+			m_TargetNode->SetParameterValue(m_TargetParameterID, sourceValue);
+		}
 
 		/// Get type name for debugging
-		const char* GetTypeName() const override;
+		const char* GetTypeName() const override
+		{
+			if constexpr (std::is_same_v<T, f32>)
+				return "f32";
+			else if constexpr (std::is_same_v<T, i32>)
+				return "i32";
+			else if constexpr (std::is_same_v<T, bool>)
+				return "bool";
+			else
+				return "unknown";
+		}
 
-	private:
-		/// Optional transformation function to apply during propagation
-		std::function<T(T)> m_Transform;
-
-	public:
 		/// Set a transformation function to modify the value during propagation
 		/// Example: connection.SetTransform([](f32 x) { return x * 2.0f; }); // Double the value
 		void SetTransform(std::function<T(T)> transform) { m_Transform = std::move(transform); }
 
 		/// Clear any transformation function
 		void ClearTransform() { m_Transform = nullptr; }
+
+	private:
+		/// Optional transformation function to apply during propagation
+		std::function<T(T)> m_Transform;
 	};
 
 	//==============================================================================
@@ -102,59 +129,6 @@ namespace OloEngine::Audio::SoundGraph
 	template<typename T>
 	std::shared_ptr<TypedParameterConnection<T>> CreateParameterConnection(
 		NodeProcessor* sourceNode, const std::string& sourceParam,
-		NodeProcessor* targetNode, const std::string& targetParam);
-
-	/// Create a parameter connection using identifiers
-	template<typename T>
-	std::shared_ptr<TypedParameterConnection<T>> CreateParameterConnection(
-		NodeProcessor* sourceNode, const Identifier& sourceParam,
-		NodeProcessor* targetNode, const Identifier& targetParam);
-
-	//==============================================================================
-	/// Implementation details
-
-	template<typename T>
-	TypedParameterConnection<T>::TypedParameterConnection(NodeProcessor* sourceNode, const Identifier& sourceParam,
-														  NodeProcessor* targetNode, const Identifier& targetParam)
-		: ParameterConnection(sourceNode, sourceParam, targetNode, targetParam)
-	{
-	}
-
-	template<typename T>
-	void TypedParameterConnection<T>::PropagateValue()
-	{
-		if (!IsValid())
-			return;
-
-		// Get value from source parameter
-		T sourceValue = m_SourceNode->GetParameterValue<T>(m_SourceParameterID, T{});
-
-		// Apply transformation if present
-		if (m_Transform)
-		{
-			sourceValue = m_Transform(sourceValue);
-		}
-
-		// Set value on target parameter
-		m_TargetNode->SetParameterValue(m_TargetParameterID, sourceValue);
-	}
-
-	template<typename T>
-	const char* TypedParameterConnection<T>::GetTypeName() const
-	{
-		if constexpr (std::is_same_v<T, f32>)
-			return "f32";
-		else if constexpr (std::is_same_v<T, i32>)
-			return "i32";
-		else if constexpr (std::is_same_v<T, bool>)
-			return "bool";
-		else
-			return "unknown";
-	}
-
-	template<typename T>
-	std::shared_ptr<TypedParameterConnection<T>> CreateParameterConnection(
-		NodeProcessor* sourceNode, const std::string& sourceParam,
 		NodeProcessor* targetNode, const std::string& targetParam)
 	{
 		if (!sourceNode || !targetNode)
@@ -166,6 +140,7 @@ namespace OloEngine::Audio::SoundGraph
 		return CreateParameterConnection<T>(sourceNode, sourceID, targetNode, targetID);
 	}
 
+	/// Create a parameter connection using identifiers
 	template<typename T>
 	std::shared_ptr<TypedParameterConnection<T>> CreateParameterConnection(
 		NodeProcessor* sourceNode, const Identifier& sourceParam,

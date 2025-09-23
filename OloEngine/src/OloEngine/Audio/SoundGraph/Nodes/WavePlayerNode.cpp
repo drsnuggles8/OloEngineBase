@@ -29,7 +29,7 @@ namespace OloEngine::Audio::SoundGraph
 		f32 pitch = GetParameterValue<f32>(OLO_IDENTIFIER("Pitch"), 1.0f);
 		f64 startTime = GetParameterValue<f64>(OLO_IDENTIFIER("StartTime"), 0.0);
 		bool loop = GetParameterValue<bool>(OLO_IDENTIFIER("Loop"), false);
-		i32 maxLoopCount = GetParameterValue<i32>(OLO_IDENTIFIER("LoopCount"), -1);
+		i32 maxLoopCount = GetParameterValue<i32>(OLO_IDENTIFIER("LoopCount"), -1); // -1 = infinite loops
 
 		// Clear output if not playing
 		if (!m_IsPlaying || m_IsPaused || !m_AudioData.IsValid())
@@ -54,18 +54,38 @@ namespace OloEngine::Audio::SoundGraph
 			// Check if we've reached the end
 			if (m_PlaybackPosition >= maxPosition)
 			{
-				if (loop && (maxLoopCount < 0 || m_CurrentLoopCount < maxLoopCount))
+				if (loop)
 				{
-					// Loop back to start time
-					m_PlaybackPosition = startTime * m_SampleRate;
+					// Increment loop count and trigger OnLooped event
 					m_CurrentLoopCount++;
+					TriggerOutputEvent("OnLooped", static_cast<f32>(m_CurrentLoopCount));
 					
-					// Trigger loop event
-					TriggerOutputEvent("OnLoop", static_cast<f32>(m_CurrentLoopCount));
+					// Check if we've exceeded the maximum loop count
+					if (maxLoopCount >= 0 && m_CurrentLoopCount > maxLoopCount)
+					{
+						// Stop playback - exceeded max loops
+						TriggerFinish();
+						
+						// Fill remaining samples with silence
+						for (u32 j = i; j < numSamples; ++j)
+						{
+							leftChannel[j] = 0.0f;
+							rightChannel[j] = 0.0f;
+						}
+						return;
+					}
+					else
+					{
+						// Continue looping - reset to start position
+						m_PlaybackPosition = startTime * m_SampleRate;
+						
+						// Continue processing this sample with the new position
+						// (This provides seamless loop transition)
+					}
 				}
 				else
 				{
-					// Finished playing
+					// No looping - finished playing
 					TriggerFinish();
 					
 					// Fill remaining samples with silence
@@ -85,13 +105,13 @@ namespace OloEngine::Audio::SoundGraph
 			if (m_AudioData.numChannels == 1)
 			{
 				// Mono - duplicate to both channels
-				leftSample = rightSample = GetSampleAtPosition(m_PlaybackPosition, 0) * m_Volume;
+				leftSample = rightSample = GetSampleAtPosition(m_PlaybackPosition, 0);
 			}
 			else if (m_AudioData.numChannels >= 2)
 			{
 				// Stereo or more - use first two channels
-				leftSample = GetSampleAtPosition(m_PlaybackPosition, 0) * m_Volume;
-				rightSample = GetSampleAtPosition(m_PlaybackPosition, 1) * m_Volume;
+				leftSample = GetSampleAtPosition(m_PlaybackPosition, 0);
+				rightSample = GetSampleAtPosition(m_PlaybackPosition, 1);
 			}
 
 			// Apply volume
@@ -116,6 +136,9 @@ namespace OloEngine::Audio::SoundGraph
 			f32 normalizedPosition = static_cast<f32>((m_PlaybackPosition / m_SampleRate) / m_Duration);
 			SetParameterValue(OLO_IDENTIFIER("PlaybackPosition"), normalizedPosition);
 		}
+		
+		// Update current loop count parameter
+		SetParameterValue(OLO_IDENTIFIER("CurrentLoopCount"), m_CurrentLoopCount);
 	}
 
 	void WavePlayerNode::Update([[maybe_unused]] f64 deltaTime)
@@ -137,7 +160,7 @@ namespace OloEngine::Audio::SoundGraph
 		m_OutputRight = 0.0f;
 		m_PlaybackPositionOutput = 0.0f;
 		
-		OLO_CORE_TRACE("[WavePlayerNode] Initialized with sample rate {} and buffer size {}", sampleRate, maxBufferSize);
+		// OLO_CORE_TRACE("[WavePlayerNode] Initialized with sample rate {} and buffer size {}", sampleRate, maxBufferSize);
 	}
 
 	void WavePlayerNode::SetAudioFile(const std::string& filePath)
@@ -186,7 +209,7 @@ namespace OloEngine::Audio::SoundGraph
 	{
 		if (!data || numFrames == 0 || numChannels == 0)
 		{
-			OLO_CORE_ERROR("[WavePlayerNode] Invalid audio data provided");
+			// OLO_CORE_ERROR("[WavePlayerNode] Invalid audio data provided");
 			return;
 		}
 
@@ -207,8 +230,8 @@ namespace OloEngine::Audio::SoundGraph
 		// Update duration
 		m_Duration = m_AudioData.duration;
 
-		OLO_CORE_TRACE("[WavePlayerNode] Set audio data: {} frames, {} channels, {:.2f}s duration", 
-			numFrames, numChannels, m_Duration);
+		// OLO_CORE_TRACE("[WavePlayerNode] Set audio data: {} frames, {} channels, {:.2f}s duration", 
+		//	numFrames, numChannels, m_Duration);
 	}
 
 	void WavePlayerNode::SetupEndpoints()
@@ -219,6 +242,8 @@ namespace OloEngine::Audio::SoundGraph
 		AddParameter<f64>(OLO_IDENTIFIER("StartTime"), "StartTime", 0.0);
 		AddParameter<bool>(OLO_IDENTIFIER("Loop"), "Loop", false);
 		AddParameter<i32>(OLO_IDENTIFIER("LoopCount"), "LoopCount", -1);
+		AddParameter<f64>(OLO_IDENTIFIER("LoopStart"), "LoopStart", 0.0);
+		AddParameter<f64>(OLO_IDENTIFIER("LoopEnd"), "LoopEnd", -1.0);
 
 		// Input events with flags
 		m_PlayEvent = AddInputEvent<f32>(OLO_IDENTIFIER("Play"), "Play", 
@@ -232,12 +257,13 @@ namespace OloEngine::Audio::SoundGraph
 		m_OnPlayEvent = AddOutputEvent<f32>(OLO_IDENTIFIER("OnPlay"), "OnPlay");
 		m_OnStopEvent = AddOutputEvent<f32>(OLO_IDENTIFIER("OnStop"), "OnStop");
 		m_OnFinishEvent = AddOutputEvent<f32>(OLO_IDENTIFIER("OnFinish"), "OnFinish");
-		m_OnLoopEvent = AddOutputEvent<f32>(OLO_IDENTIFIER("OnLoop"), "OnLoop");
+		m_OnLoopEvent = AddOutputEvent<f32>(OLO_IDENTIFIER("OnLooped"), "OnLooped");
 
 		// Output parameters
 		AddParameter<f32>(OLO_IDENTIFIER("OutLeft"), "OutLeft", 0.0f);
 		AddParameter<f32>(OLO_IDENTIFIER("OutRight"), "OutRight", 0.0f);
 		AddParameter<f32>(OLO_IDENTIFIER("PlaybackPosition"), "PlaybackPosition", 0.0f);
+		AddParameter<i32>(OLO_IDENTIFIER("CurrentLoopCount"), "CurrentLoopCount", 0);
 	}
 
 	void WavePlayerNode::ProcessEvents()
@@ -326,7 +352,6 @@ namespace OloEngine::Audio::SoundGraph
 		if (m_IsPlaying)
 		{
 			m_IsPaused = !m_IsPaused;
-			OLO_CORE_TRACE("[WavePlayerNode] '{}' {}", GetDisplayName(), m_IsPaused ? "paused" : "resumed");
 		}
 	}
 }
