@@ -27,6 +27,17 @@
 #include "OloEngine/Audio/SoundGraph/Nodes/NoiseNode.h"
 #include "OloEngine/Audio/SoundGraph/Nodes/SineNode.h"
 #include "OloEngine/Audio/SoundGraph/Nodes/RandomNode.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/TriangleNode.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/SquareNode.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/SawtoothNode.h"
+
+// Filter Nodes
+#include "OloEngine/Audio/SoundGraph/Nodes/LowPassFilterNode.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/HighPassFilterNode.h"
+
+// Utility Nodes
+#include "OloEngine/Audio/SoundGraph/Nodes/SampleAndHoldNode.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/GateNode.h"
 
 // Envelope Nodes
 #include "OloEngine/Audio/SoundGraph/Nodes/ADEnvelope.h"
@@ -1514,6 +1525,244 @@ TEST_F(MathNodeTest, DelayedTriggerBasicTest)
 	
 	// Test passed if no exceptions were thrown
 	EXPECT_TRUE(true);
+}
+
+//==============================================================================
+// Oscillator Node Tests
+//==============================================================================
+
+TEST_F(MathNodeTest, TriangleNodeBasicTest)
+{
+	TriangleNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Set frequency to 100 Hz for more predictable testing
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 100.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Amplitude"), 1.0f);
+	
+	f32 outputBuffer[512]; // Small buffer for testing
+	f32* inputs[1] = { nullptr };
+	f32* outputs[1] = { outputBuffer };
+	
+	// Process one buffer
+	node.Process(inputs, outputs, 512);
+	
+	// Check that we get a triangle wave with reasonable values
+	// At 100 Hz, period = 441 samples, so quarter period = ~110 samples
+	
+	// The waveform should vary between -1 and 1
+	f32 minVal = outputBuffer[0];
+	f32 maxVal = outputBuffer[0];
+	for (u32 i = 0; i < 512; ++i)
+	{
+		minVal = glm::min(minVal, outputBuffer[i]);
+		maxVal = glm::max(maxVal, outputBuffer[i]);
+	}
+	
+	// Should have reasonable range
+	EXPECT_LT(minVal, -0.5f); // Should go below -0.5
+	EXPECT_GT(maxVal, 0.5f);  // Should go above 0.5
+	EXPECT_LT(glm::abs(maxVal - (-minVal)), 0.2f); // Should be roughly symmetric
+}
+
+TEST_F(MathNodeTest, SquareNodeBasicTest)
+{
+	SquareNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Set frequency to 1 Hz for predictable testing
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 1.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Amplitude"), 1.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("DutyCycle"), 0.5f); // 50% duty cycle
+	
+	f32 outputBuffer[44100]; // 1 second at 44.1kHz
+	f32* inputs[1] = { nullptr };
+	f32* outputs[1] = { outputBuffer };
+	
+	// Process one second of audio
+	node.Process(inputs, outputs, 44100);
+	
+	// Check that we get a square wave
+	// First quarter should be high
+	f32 firstQuarterSample = outputBuffer[11025];
+	EXPECT_NEAR(firstQuarterSample, 1.0f, 0.01f);
+	
+	// Third quarter should be low
+	f32 thirdQuarterSample = outputBuffer[33075];
+	EXPECT_NEAR(thirdQuarterSample, -1.0f, 0.01f);
+}
+
+TEST_F(MathNodeTest, SawtoothNodeBasicTest)
+{
+	SawtoothNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Set frequency to 1 Hz for predictable testing
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 1.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Amplitude"), 1.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Direction"), 1.0f); // Rising sawtooth
+	
+	f32 outputBuffer[44100]; // 1 second at 44.1kHz
+	f32* inputs[1] = { nullptr };
+	f32* outputs[1] = { outputBuffer };
+	
+	// Process one second of audio
+	node.Process(inputs, outputs, 44100);
+	
+	// Check that we get a rising sawtooth wave
+	// Start should be near -1
+	EXPECT_NEAR(outputBuffer[0], -1.0f, 0.1f);
+	
+	// Middle should be near 0
+	f32 middleSample = outputBuffer[22050];
+	EXPECT_NEAR(middleSample, 0.0f, 0.1f);
+	
+	// Near end should be approaching 1
+	f32 nearEndSample = outputBuffer[40000];
+	EXPECT_GT(nearEndSample, 0.5f);
+}
+
+//==============================================================================
+// Filter Node Tests
+//==============================================================================
+
+TEST_F(MathNodeTest, LowPassFilterBasicTest)
+{
+	LowPassFilterNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Set cutoff frequency to 1000 Hz
+	node.SetParameterValue(OLO_IDENTIFIER("Cutoff"), 1000.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Resonance"), 0.7f);
+	
+	// Create a test signal with high frequency content
+	f32 inputBuffer[512];
+	f32 outputBuffer[512];
+	
+	// Generate a mix of 500Hz (should pass) and 5000Hz (should be attenuated)
+	for (u32 i = 0; i < 512; ++i)
+	{
+		f32 t = static_cast<f32>(i) / 44100.0f;
+		inputBuffer[i] = glm::sin(2.0f * glm::pi<f32>() * 500.0f * t) + 
+						 glm::sin(2.0f * glm::pi<f32>() * 5000.0f * t);
+	}
+	
+	f32* inputs[1] = { inputBuffer };
+	f32* outputs[1] = { outputBuffer };
+	
+	node.Process(inputs, outputs, 512);
+	
+	// The output should be different from input (filtered)
+	bool isDifferent = false;
+	for (u32 i = 0; i < 512; ++i)
+	{
+		if (glm::abs(outputBuffer[i] - inputBuffer[i]) > 0.01f)
+		{
+			isDifferent = true;
+			break;
+		}
+	}
+	EXPECT_TRUE(isDifferent);
+}
+
+TEST_F(MathNodeTest, HighPassFilterBasicTest)
+{
+	HighPassFilterNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Set cutoff frequency to 1000 Hz
+	node.SetParameterValue(OLO_IDENTIFIER("Cutoff"), 1000.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Resonance"), 0.7f);
+	
+	// Test with a DC signal (should be filtered out)
+	f32 inputBuffer[512];
+	f32 outputBuffer[512];
+	
+	// Fill with DC signal
+	for (u32 i = 0; i < 512; ++i)
+	{
+		inputBuffer[i] = 1.0f;
+	}
+	
+	f32* inputs[1] = { inputBuffer };
+	f32* outputs[1] = { outputBuffer };
+	
+	node.Process(inputs, outputs, 512);
+	
+	// Output should be much smaller than input (DC filtered out)
+	f32 outputLevel = 0.0f;
+	for (u32 i = 0; i < 512; ++i)
+	{
+		outputLevel += glm::abs(outputBuffer[i]);
+	}
+	outputLevel /= 512.0f;
+	
+	EXPECT_LT(outputLevel, 0.1f); // Should be much less than input
+}
+
+//==============================================================================
+// Utility Node Tests
+//==============================================================================
+
+TEST_F(MathNodeTest, SampleAndHoldBasicTest)
+{
+	SampleAndHoldNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Set input value
+	node.SetParameterValue(OLO_IDENTIFIER("Input"), 0.75f);
+	
+	// Initially output should be 0
+	EXPECT_FLOAT_EQ(node.GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.0f);
+	
+	// Trigger sample
+	node.SetParameterValue(OLO_IDENTIFIER("Trigger"), 1.0f);
+	
+	f32 outputBuffer[64];
+	f32* inputs[1] = { nullptr };
+	f32* outputs[1] = { outputBuffer };
+	
+	node.Process(inputs, outputs, 64);
+	
+	// Output should now hold the sampled value
+	EXPECT_FLOAT_EQ(node.GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.75f);
+	EXPECT_FLOAT_EQ(node.GetHeldValue(), 0.75f);
+	
+	// Change input and verify it doesn't affect output until next trigger
+	node.SetParameterValue(OLO_IDENTIFIER("Input"), 0.25f);
+	node.Process(inputs, outputs, 64);
+	EXPECT_FLOAT_EQ(node.GetHeldValue(), 0.75f); // Should still hold old value
+}
+
+TEST_F(MathNodeTest, GateNodeBasicTest)
+{
+	GateNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Set input and threshold
+	node.SetParameterValue(OLO_IDENTIFIER("Input"), 1.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Threshold"), 0.5f);
+	
+	// Test with gate closed
+	node.SetParameterValue(OLO_IDENTIFIER("Gate"), 0.0f);
+	
+	f32 outputBuffer[64];
+	f32* inputs[1] = { nullptr };
+	f32* outputs[1] = { outputBuffer };
+	
+	node.Process(inputs, outputs, 64);
+	
+	// Output should be 0 when gate is closed
+	EXPECT_FLOAT_EQ(node.GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.0f);
+	EXPECT_FALSE(node.IsGateOpen());
+	
+	// Test with gate open
+	node.SetParameterValue(OLO_IDENTIFIER("Gate"), 1.0f);
+	node.Process(inputs, outputs, 64);
+	
+	// Output should pass through when gate is open
+	EXPECT_FLOAT_EQ(node.GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 1.0f);
+	EXPECT_TRUE(node.IsGateOpen());
 }
 
 //==============================================================================

@@ -94,7 +94,14 @@
 		# Generator Nodes
 		"OloEngine/Audio/SoundGraph/Nodes/NoiseNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/SineNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/TriangleNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/SquareNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/SawtoothNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/RandomNode.h"
+		
+		# Filter Nodes
+		"OloEngine/Audio/SoundGraph/Nodes/LowPassFilterNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/HighPassFilterNode.h"
 		
 		# Envelope Nodes
 		"OloEngine/Audio/SoundGraph/Nodes/ADEnvelope.h"
@@ -109,6 +116,10 @@
 		# Array Nodes
 		"OloEngine/Audio/SoundGraph/Nodes/GetRandom.h"
 		"OloEngine/Audio/SoundGraph/Nodes/Get.h"
+		
+		# Utility Nodes
+		"OloEngine/Audio/SoundGraph/Nodes/SampleAndHoldNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/GateNode.h"
 		
 		# Note: Other SoundGraph files temporarily disabled - need updating for new Core infrastructure
 		# "OloEngine/Audio/SoundGraph/NodeProcessor.h"
