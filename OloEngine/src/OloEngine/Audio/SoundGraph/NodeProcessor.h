@@ -11,6 +11,9 @@
 
 namespace OloEngine::Audio::SoundGraph
 {
+	// Forward declarations
+	class ParameterConnection;
+	template<typename T> class TypedParameterConnection;
 	//==============================================================================
 	/// Base class for all audio processing nodes
 	struct NodeProcessor
@@ -19,6 +22,7 @@ namespace OloEngine::Audio::SoundGraph
 		virtual ~NodeProcessor() = default;
 
 		/// Process a block of audio samples
+		/// NOTE: Derived classes should call ProcessParameterConnections() at the start of their Process method
 		virtual void Process(f32** inputs, f32** outputs, u32 numSamples) = 0;
 		
 		/// Update node state (called on main thread)
@@ -106,11 +110,56 @@ namespace OloEngine::Audio::SoundGraph
 			return m_OutputEvents;
 		}
 
+		/// Check if parameter exists
+		bool HasParameter(const Identifier& id) const
+		{
+			return m_Parameters.HasParameter(id);
+		}
+
 		/// Get parameter registry
 		const ParameterRegistry& GetParameterRegistry() const
 		{
 			return m_Parameters;
 		}
+
+		//======================================================================
+		// CONNECTION SYSTEM
+		//======================================================================
+
+		/// Connect this node's output to another node's input
+		bool ConnectTo(const std::string& outputName, NodeProcessor* targetNode, const std::string& inputName);
+
+		/// Trigger an output event by identifier
+		void TriggerOutputEvent(const Identifier& eventID, f32 value = 1.0f);
+
+		/// Trigger an output event by name
+		void TriggerOutputEvent(const std::string& eventName, f32 value = 1.0f);
+
+		//======================================================================
+		// PARAMETER CONNECTION SYSTEM
+		//======================================================================
+
+		/// Create a parameter connection to another node (f32 type)
+		bool CreateParameterConnectionF32(const std::string& outputParam, NodeProcessor* targetNode, const std::string& inputParam);
+
+		/// Create a parameter connection to another node (i32 type)
+		bool CreateParameterConnectionI32(const std::string& outputParam, NodeProcessor* targetNode, const std::string& inputParam);
+
+		/// Create a parameter connection to another node (bool type)
+		bool CreateParameterConnectionBool(const std::string& outputParam, NodeProcessor* targetNode, const std::string& inputParam);
+
+		/// Remove a parameter connection
+		bool RemoveParameterConnection(const std::string& outputParam, NodeProcessor* targetNode, const std::string& inputParam);
+
+		/// Process all outgoing parameter connections (propagate values)
+		void ProcessParameterConnections();
+
+		/// Helper method for derived classes to call at the start of their Process method
+		/// This ensures parameter connections are updated before audio processing
+		void ProcessBeforeAudio() { ProcessParameterConnections(); }
+
+		/// Get all parameter connections from this node
+		const std::vector<std::shared_ptr<ParameterConnection>>& GetParameterConnections() const { return m_ParameterConnections; }
 
 	protected:
 		/// Sample rate for audio processing
@@ -126,6 +175,9 @@ namespace OloEngine::Audio::SoundGraph
 		/// Output event endpoints
 		std::unordered_map<Identifier, std::shared_ptr<OutputEvent>> m_OutputEvents;
 		std::unordered_map<Identifier, std::string> m_OutputNames;
+
+		/// Parameter connections from this node to other nodes
+		std::vector<std::shared_ptr<ParameterConnection>> m_ParameterConnections;
 	};
 
 	//==============================================================================

@@ -94,6 +94,12 @@ namespace OloEngine::Audio::SoundGraph
 				param->Value = value;
 		}
 
+		/// Check if parameter exists
+		bool HasParameter(const Identifier& id) const
+		{
+			return m_Parameters.find(id) != m_Parameters.end();
+		}
+
 		/// Get all parameters
 		const std::unordered_map<Identifier, std::shared_ptr<Parameter>>& GetParameters() const
 		{

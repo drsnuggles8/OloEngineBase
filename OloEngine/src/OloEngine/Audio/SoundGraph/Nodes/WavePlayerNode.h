@@ -38,10 +38,13 @@ namespace OloEngine::Audio::SoundGraph
 		virtual ~WavePlayerNode();
 
 		// NodeProcessor overrides
-		void Process(f32* leftChannel, f32* rightChannel, u32 numSamples) override;
-		void Update(f32 deltaTime) override;
-		void Initialize(f64 sampleRate) override;
+		void Process(f32** inputs, f32** outputs, u32 numSamples) override;
+		void Update(f64 deltaTime) override;
+		void Initialize(f64 sampleRate, u32 maxBufferSize) override;
 		void Reset() override;
+		
+		Identifier GetTypeID() const override { return OLO_IDENTIFIER("WavePlayer"); }
+		const char* GetDisplayName() const override { return "Wave Player"; }
 
 		//==============================================================================
 		/// Configuration

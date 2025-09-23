@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "NodeProcessor.h"
+#include "ParameterConnection.h"
 
 namespace OloEngine::Audio::SoundGraph
 {
@@ -11,74 +12,188 @@ namespace OloEngine::Audio::SoundGraph
 			return false;
 		}
 
-		// Check if output exists on this node
-		auto outputIt = m_OutputEndpoints.find(outputName);
-		if (outputIt == m_OutputEndpoints.end())
-		{
-			OLO_CORE_ERROR("[SoundGraph] Output endpoint '{}' not found on node '{}'", outputName, m_DebugName);
-			return false;
-		}
+		// Convert endpoint names to identifiers
+		Identifier outputID = OLO_IDENTIFIER(outputName.c_str());
+		Identifier inputID = OLO_IDENTIFIER(inputName.c_str());
 
-		// Check if input exists on target node
-		auto inputIt = targetNode->m_InputEndpoints.find(inputName);
-		if (inputIt == targetNode->m_InputEndpoints.end())
-		{
-			OLO_CORE_ERROR("[SoundGraph] Input endpoint '{}' not found on target node '{}'", inputName, targetNode->m_DebugName);
-			return false;
-		}
+		// Try event connection first
+		auto sourceEvent = GetOutputEvent(outputID);
+		auto targetEvent = targetNode->GetInputEvent(inputID);
 
-		// Verify that both endpoints are the same type (event or value)
-		const auto& output = outputIt->second;
-		const auto& input = inputIt->second;
-
-		if (output.IsEvent != input.IsEvent)
+		if (sourceEvent && targetEvent)
 		{
-			OLO_CORE_ERROR("[SoundGraph] Cannot connect event output to value input or vice versa");
-			return false;
-		}
-
-		// Make the connection
-		if (output.IsEvent)
-		{
-			// Event connection: wire the output callback to trigger the input callback
-			// Note: This is a simplified implementation - in a full system you'd want 
-			// a more sophisticated event routing system
+			// Connect events
+			sourceEvent->ConnectTo(targetEvent);
 			OLO_CORE_TRACE("[SoundGraph] Connected event '{}' from '{}' to '{}' on '{}'", 
-				outputName, m_DebugName, inputName, targetNode->m_DebugName);
-		}
-		else
-		{
-			// Value connection: wire the output value pointer to the input value pointer
-			if (output.ValuePtr && input.ValuePtr)
-			{
-				// In a real implementation, you'd set up the connection so that
-				// the target node reads from the source node's output value
-				OLO_CORE_TRACE("[SoundGraph] Connected value '{}' from '{}' to '{}' on '{}'", 
-					outputName, m_DebugName, inputName, targetNode->m_DebugName);
-			}
+				outputName, GetDisplayName(), inputName, targetNode->GetDisplayName());
+			return true;
 		}
 
+		// Try parameter connection (value connection)
+		// Check if both nodes have the specified parameters
+		if (m_Parameters.HasParameter(outputID) && targetNode->m_Parameters.HasParameter(inputID))
+		{
+			// Try f32 connection first (most common audio parameter type)
+			if (CreateParameterConnectionF32(outputName, targetNode, inputName))
+			{
+				return true;
+			}
+			
+			// If f32 connection failed, try other common types
+			if (CreateParameterConnectionI32(outputName, targetNode, inputName))
+			{
+				return true;
+			}
+			
+			if (CreateParameterConnectionBool(outputName, targetNode, inputName))
+			{
+				return true;
+			}
+			
+			OLO_CORE_ERROR("[SoundGraph] Parameter connection failed - incompatible types for '{}' to '{}'", 
+				outputName, inputName);
+			return false;
+		}
+
+		OLO_CORE_ERROR("[SoundGraph] No compatible endpoints found for connection from '{}' to '{}'", 
+			outputName, inputName);
+		return false;
+	}
+
+	void NodeProcessor::TriggerOutputEvent(const Identifier& eventID, f32 value)
+	{
+		auto outputEvent = GetOutputEvent(eventID);
+		if (outputEvent)
+		{
+			(*outputEvent)(value);
+		}
+	}
+
+	void NodeProcessor::TriggerOutputEvent(const std::string& eventName, f32 value)
+	{
+		Identifier eventID = OLO_IDENTIFIER(eventName.c_str());
+		TriggerOutputEvent(eventID, value);
+	}
+
+	//==============================================================================
+	/// Parameter Connection Implementation
+
+	bool NodeProcessor::CreateParameterConnectionF32(const std::string& outputParam, NodeProcessor* targetNode, const std::string& inputParam)
+	{
+		if (!targetNode)
+			return false;
+
+		Identifier outputID = OLO_IDENTIFIER(outputParam.c_str());
+		Identifier inputID = OLO_IDENTIFIER(inputParam.c_str());
+		
+		if (!HasParameter(outputID) || !targetNode->HasParameter(inputID))
+		{
+			return false;
+		}
+
+		auto connection = std::make_shared<TypedParameterConnection<f32>>(
+			this, outputID, targetNode, inputID);
+
+		if (!connection || !connection->IsValid())
+		{
+			return false;
+		}
+
+		m_ParameterConnections.push_back(connection);
+		OLO_CORE_TRACE("[SoundGraph] Created f32 parameter connection: '{}:{}' -> '{}:{}'", 
+			GetDisplayName(), outputParam, targetNode->GetDisplayName(), inputParam);
 		return true;
 	}
 
-	void NodeProcessor::TriggerEvent(const std::string& eventName, f32 value)
+	bool NodeProcessor::CreateParameterConnectionI32(const std::string& outputParam, NodeProcessor* targetNode, const std::string& inputParam)
 	{
-		auto outputIt = m_OutputEndpoints.find(eventName);
-		if (outputIt != m_OutputEndpoints.end() && outputIt->second.IsEvent)
+		if (!targetNode)
+			return false;
+
+		Identifier outputID = OLO_IDENTIFIER(outputParam.c_str());
+		Identifier inputID = OLO_IDENTIFIER(inputParam.c_str());
+		
+		if (!HasParameter(outputID) || !targetNode->HasParameter(inputID))
 		{
-			if (outputIt->second.EventCallback)
-			{
-				outputIt->second.EventCallback(value);
-			}
+			return false;
 		}
 
-		// Also check input events (for external triggering)
-		auto inputIt = m_InputEndpoints.find(eventName);
-		if (inputIt != m_InputEndpoints.end() && inputIt->second.IsEvent)
+		auto connection = std::make_shared<TypedParameterConnection<i32>>(
+			this, outputID, targetNode, inputID);
+
+		if (!connection || !connection->IsValid())
 		{
-			if (inputIt->second.EventCallback)
+			return false;
+		}
+
+		m_ParameterConnections.push_back(connection);
+		OLO_CORE_TRACE("[SoundGraph] Created i32 parameter connection: '{}:{}' -> '{}:{}'", 
+			GetDisplayName(), outputParam, targetNode->GetDisplayName(), inputParam);
+		return true;
+	}
+
+	bool NodeProcessor::CreateParameterConnectionBool(const std::string& outputParam, NodeProcessor* targetNode, const std::string& inputParam)
+	{
+		if (!targetNode)
+			return false;
+
+		Identifier outputID = OLO_IDENTIFIER(outputParam.c_str());
+		Identifier inputID = OLO_IDENTIFIER(inputParam.c_str());
+		
+		if (!HasParameter(outputID) || !targetNode->HasParameter(inputID))
+		{
+			return false;
+		}
+
+		auto connection = std::make_shared<TypedParameterConnection<bool>>(
+			this, outputID, targetNode, inputID);
+
+		if (!connection || !connection->IsValid())
+		{
+			return false;
+		}
+
+		m_ParameterConnections.push_back(connection);
+		OLO_CORE_TRACE("[SoundGraph] Created bool parameter connection: '{}:{}' -> '{}:{}'", 
+			GetDisplayName(), outputParam, targetNode->GetDisplayName(), inputParam);
+		return true;
+	}
+
+	bool NodeProcessor::RemoveParameterConnection(const std::string& outputParam, NodeProcessor* targetNode, const std::string& inputParam)
+	{
+		if (!targetNode)
+			return false;
+
+		Identifier outputID = OLO_IDENTIFIER(outputParam.c_str());
+		Identifier inputID = OLO_IDENTIFIER(inputParam.c_str());
+
+		// Find and remove the connection
+		auto it = std::remove_if(m_ParameterConnections.begin(), m_ParameterConnections.end(),
+			[=](const std::shared_ptr<ParameterConnection>& connection) {
+				return connection->GetTargetNode() == targetNode &&
+					   connection->GetSourceParameterID() == outputID &&
+					   connection->GetTargetParameterID() == inputID;
+			});
+
+		if (it != m_ParameterConnections.end())
+		{
+			m_ParameterConnections.erase(it, m_ParameterConnections.end());
+			OLO_CORE_TRACE("[SoundGraph] Removed parameter connection: '{}:{}' -> '{}:{}'", 
+				GetDisplayName(), outputParam, targetNode->GetDisplayName(), inputParam);
+			return true;
+		}
+
+		return false;
+	}
+
+	void NodeProcessor::ProcessParameterConnections()
+	{
+		// Propagate values through all parameter connections
+		for (auto& connection : m_ParameterConnections)
+		{
+			if (connection && connection->IsValid())
 			{
-				inputIt->second.EventCallback(value);
+				connection->PropagateValue();
 			}
 		}
 	}

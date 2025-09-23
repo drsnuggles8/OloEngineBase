@@ -16,8 +16,19 @@ namespace OloEngine::Audio::SoundGraph
 
 	WavePlayerNode::~WavePlayerNode() = default;
 
-	void WavePlayerNode::Process(f32* leftChannel, f32* rightChannel, u32 numSamples)
+	void WavePlayerNode::Process(f32** inputs, f32** outputs, u32 numSamples)
 	{
+		// For WavePlayer, we typically don't use inputs, but generate our own audio output
+		// outputs[0] = left channel, outputs[1] = right channel
+		f32* leftChannel = outputs[0];
+		f32* rightChannel = outputs[1];
+		// Read current parameter values
+		f32 volume = GetParameterValue<f32>(OLO_IDENTIFIER("Volume"), 1.0f);
+		f32 pitch = GetParameterValue<f32>(OLO_IDENTIFIER("Pitch"), 1.0f);
+		f64 startTime = GetParameterValue<f64>(OLO_IDENTIFIER("StartTime"), 0.0);
+		bool loop = GetParameterValue<bool>(OLO_IDENTIFIER("Loop"), false);
+		i32 maxLoopCount = GetParameterValue<i32>(OLO_IDENTIFIER("LoopCount"), -1);
+
 		// Clear output if not playing
 		if (!m_IsPlaying || m_IsPaused || m_AudioData.empty())
 		{
@@ -26,12 +37,14 @@ namespace OloEngine::Audio::SoundGraph
 				leftChannel[i] = 0.0f;
 				rightChannel[i] = 0.0f;
 			}
-			m_OutputLeft = 0.0f;
-			m_OutputRight = 0.0f;
+			
+			// Set output parameters
+			SetParameterValue(OLO_IDENTIFIER("OutLeft"), 0.0f);
+			SetParameterValue(OLO_IDENTIFIER("OutRight"), 0.0f);
 			return;
 		}
 
-		const f64 sampleIncrement = m_Pitch; // Pitch affects playback speed
+		const f64 sampleIncrement = pitch; // Pitch affects playback speed
 		const f64 maxPosition = static_cast<f64>(m_NumFrames);
 
 		for (u32 i = 0; i < numSamples; ++i)
@@ -39,14 +52,14 @@ namespace OloEngine::Audio::SoundGraph
 			// Check if we've reached the end
 			if (m_PlaybackPosition >= maxPosition)
 			{
-				if (m_Loop && (m_MaxLoopCount < 0 || m_CurrentLoopCount < m_MaxLoopCount))
+				if (loop && (maxLoopCount < 0 || m_CurrentLoopCount < maxLoopCount))
 				{
 					// Loop back to start time
-					m_PlaybackPosition = m_StartTime * m_SampleRate;
+					m_PlaybackPosition = startTime * m_SampleRate;
 					m_CurrentLoopCount++;
 					
 					// Trigger loop event
-					m_OnLoop.Trigger(static_cast<f32>(m_CurrentLoopCount));
+					TriggerOutputEvent("OnLoop", static_cast<f32>(m_CurrentLoopCount));
 				}
 				else
 				{
@@ -79,22 +92,27 @@ namespace OloEngine::Audio::SoundGraph
 				rightSample = GetSampleAtPosition(m_PlaybackPosition, 1) * m_Volume;
 			}
 
+			// Apply volume
+			leftSample *= volume;
+			rightSample *= volume;
+
 			// Write to output buffers
 			leftChannel[i] = leftSample;
 			rightChannel[i] = rightSample;
-
-			// Update output values (last sample in the buffer)
-			m_OutputLeft = leftSample;
-			m_OutputRight = rightSample;
 
 			// Advance playback position
 			m_PlaybackPosition += sampleIncrement;
 		}
 
-		// Update playback position output (normalized 0-1)
+		// Update output parameters (last sample in the buffer for continuous values)
+		SetParameterValue(OLO_IDENTIFIER("OutLeft"), leftChannel[numSamples - 1]);
+		SetParameterValue(OLO_IDENTIFIER("OutRight"), rightChannel[numSamples - 1]);
+
+		// Update playback position parameter (normalized 0-1)
 		if (m_Duration > 0.0)
 		{
-			m_PlaybackPositionOutput = static_cast<f32>((m_PlaybackPosition / m_SampleRate) / m_Duration);
+			f32 normalizedPosition = static_cast<f32>((m_PlaybackPosition / m_SampleRate) / m_Duration);
+			SetParameterValue(OLO_IDENTIFIER("PlaybackPosition"), normalizedPosition);
 		}
 	}
 
@@ -156,27 +174,27 @@ namespace OloEngine::Audio::SoundGraph
 	void WavePlayerNode::InitializeEndpoints()
 	{
 		// Input events
-		AddInputEvent(EndpointIDs::Play, [this](f32 value) { OnPlayEvent(value); });
-		AddInputEvent(EndpointIDs::Stop, [this](f32 value) { OnStopEvent(value); });
-		AddInputEvent(EndpointIDs::Pause, [this](f32 value) { OnPauseEvent(value); });
+		AddInputEvent<f32>(OLO_IDENTIFIER("Play"), "Play", [this](f32 value) { OnPlayEvent(value); });
+		AddInputEvent<f32>(OLO_IDENTIFIER("Stop"), "Stop", [this](f32 value) { OnStopEvent(value); });
+		AddInputEvent<f32>(OLO_IDENTIFIER("Pause"), "Pause", [this](f32 value) { OnPauseEvent(value); });
 
 		// Input parameters
-		AddInputValue(EndpointIDs::Volume, &m_Volume);
-		AddInputValue(EndpointIDs::Pitch, &m_Pitch);
-		AddInputValue(EndpointIDs::StartTime, reinterpret_cast<f32*>(&m_StartTime));
-		AddInputValue(EndpointIDs::Loop, reinterpret_cast<f32*>(&m_Loop));
-		AddInputValue(EndpointIDs::LoopCount, reinterpret_cast<f32*>(&m_MaxLoopCount));
+		AddParameter<f32>(OLO_IDENTIFIER("Volume"), "Volume", 1.0f);
+		AddParameter<f32>(OLO_IDENTIFIER("Pitch"), "Pitch", 1.0f);
+		AddParameter<f64>(OLO_IDENTIFIER("StartTime"), "StartTime", 0.0);
+		AddParameter<bool>(OLO_IDENTIFIER("Loop"), "Loop", false);
+		AddParameter<i32>(OLO_IDENTIFIER("LoopCount"), "LoopCount", -1);
 
-		// Output values
-		AddOutputValue(EndpointIDs::OutputLeft, &m_OutputLeft);
-		AddOutputValue(EndpointIDs::OutputRight, &m_OutputRight);
-		AddOutputValue(EndpointIDs::PlaybackPosition, &m_PlaybackPositionOutput);
+		// Output parameters
+		AddParameter<f32>(OLO_IDENTIFIER("OutLeft"), "OutLeft", 0.0f);
+		AddParameter<f32>(OLO_IDENTIFIER("OutRight"), "OutRight", 0.0f);
+		AddParameter<f32>(OLO_IDENTIFIER("PlaybackPosition"), "PlaybackPosition", 0.0f);
 
 		// Output events
-		AddOutputEvent(EndpointIDs::OnPlay, [this](f32 value) { m_OnPlay.Trigger(value); });
-		AddOutputEvent(EndpointIDs::OnStop, [this](f32 value) { m_OnStop.Trigger(value); });
-		AddOutputEvent(EndpointIDs::OnFinish, [this](f32 value) { m_OnFinish.Trigger(value); });
-		AddOutputEvent(EndpointIDs::OnLoop, [this](f32 value) { m_OnLoop.Trigger(value); });
+		AddOutputEvent<f32>(OLO_IDENTIFIER("OnPlay"), "OnPlay");
+		AddOutputEvent<f32>(OLO_IDENTIFIER("OnStop"), "OnStop");
+		AddOutputEvent<f32>(OLO_IDENTIFIER("OnFinish"), "OnFinish");
+		AddOutputEvent<f32>(OLO_IDENTIFIER("OnLoop"), "OnLoop");
 	}
 
 	void WavePlayerNode::LoadAudioFile(const std::string& filePath)
@@ -257,22 +275,24 @@ namespace OloEngine::Audio::SoundGraph
 		m_IsPlaying = false;
 		m_PlaybackPosition = 0.0;
 		m_CurrentLoopCount = 0;
-		m_OnFinish.Trigger(1.0f);
+		TriggerOutputEvent("OnFinish", 1.0f);
 		
-		OLO_CORE_TRACE("[WavePlayerNode] '{}' finished playing", m_DebugName);
+		OLO_CORE_TRACE("[WavePlayerNode] '{}' finished playing", GetDisplayName());
 	}
 
 	void WavePlayerNode::OnPlayEvent(f32 value)
 	{
 		if (!m_IsPlaying)
 		{
+			f64 startTime = GetParameterValue<f64>(OLO_IDENTIFIER("StartTime"), 0.0);
+			
 			m_IsPlaying = true;
 			m_IsPaused = false;
-			m_PlaybackPosition = m_StartTime * m_SampleRate;
+			m_PlaybackPosition = startTime * m_SampleRate;
 			m_CurrentLoopCount = 0;
-			m_OnPlay.Trigger(value);
+			TriggerOutputEvent("OnPlay", value);
 			
-			OLO_CORE_TRACE("[WavePlayerNode] '{}' started playing", m_DebugName);
+			OLO_CORE_TRACE("[WavePlayerNode] '{}' started playing", GetDisplayName());
 		}
 	}
 
@@ -284,9 +304,9 @@ namespace OloEngine::Audio::SoundGraph
 			m_IsPaused = false;
 			m_PlaybackPosition = 0.0;
 			m_CurrentLoopCount = 0;
-			m_OnStop.Trigger(value);
+			TriggerOutputEvent("OnStop", value);
 			
-			OLO_CORE_TRACE("[WavePlayerNode] '{}' stopped", m_DebugName);
+			OLO_CORE_TRACE("[WavePlayerNode] '{}' stopped", GetDisplayName());
 		}
 	}
 
@@ -295,7 +315,7 @@ namespace OloEngine::Audio::SoundGraph
 		if (m_IsPlaying)
 		{
 			m_IsPaused = !m_IsPaused;
-			OLO_CORE_TRACE("[WavePlayerNode] '{}' {}", m_DebugName, m_IsPaused ? "paused" : "resumed");
+			OLO_CORE_TRACE("[WavePlayerNode] '{}' {}", GetDisplayName(), m_IsPaused ? "paused" : "resumed");
 		}
 	}
 
