@@ -2,6 +2,7 @@
 
 #include "NodeProcessor.h"
 #include "Events.h"
+#include "ParameterConnection.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Asset/Asset.h"
@@ -83,6 +84,38 @@ namespace OloEngine::Audio::SoundGraph
 		NodeProcessor* FindNodeByID(UUID id);
 		const NodeProcessor* FindNodeByID(UUID id) const;
 
+		//==============================================================================
+		/// Graph-Level Routing API (Enhanced from Hazel patterns)
+
+		/** Node Output Value -> Node Input Value */
+		bool AddValueConnection(UUID sourceNodeID, const std::string& sourceEndpoint, 
+							   UUID targetNodeID, const std::string& targetEndpoint);
+
+		/** Node Output Event -> Node Input Event */
+		bool AddEventConnection(UUID sourceNodeID, const std::string& sourceEndpoint,
+							   UUID targetNodeID, const std::string& targetEndpoint);
+
+		/** Graph Input Value -> Node Input Value */
+		bool AddInputValueRoute(const std::string& graphInput, UUID targetNodeID, const std::string& targetEndpoint);
+
+		/** Graph Input Event -> Node Input Event */
+		bool AddInputEventRoute(const std::string& graphInput, UUID targetNodeID, const std::string& targetEndpoint);
+
+		/** Node Output Value -> Graph Output Value */
+		bool AddOutputValueRoute(UUID sourceNodeID, const std::string& sourceEndpoint, const std::string& graphOutput);
+
+		/** Node Output Event -> Graph Output Event */
+		bool AddOutputEventRoute(UUID sourceNodeID, const std::string& sourceEndpoint, const std::string& graphOutput);
+
+		/** Connect Input Event to Input Event (for event chaining) */
+		bool AddRoute(const std::string& sourceEventName, const std::string& targetEventName);
+
+		/** Connect Output Event to Output Event (for event forwarding) */
+		bool AddEventRoute(const std::string& sourceEventName, const std::string& targetEventName);
+
+		//==============================================================================
+		/// Legacy Connection API (maintained for backward compatibility)
+
 		// Connect two nodes in the graph
 		bool ConnectNodes(UUID sourceNodeID, const std::string& sourceEndpoint, 
 						  UUID targetNodeID, const std::string& targetEndpoint);
@@ -163,7 +196,53 @@ namespace OloEngine::Audio::SoundGraph
 		void ProcessEvents();
 		void ProcessConnections();
 
-		// Event handlers
+		//==============================================================================
+		/// Internal routing utilities
+
+		/** Low-level event connection helper */
+		void AddConnection(std::shared_ptr<OutputEvent> source, std::shared_ptr<InputEvent> destination);
+
+		/** Low-level parameter connection helper */
+		template<typename T>
+		bool AddConnection(NodeProcessor* sourceNode, const std::string& sourceParam,
+						  NodeProcessor* targetNode, const std::string& targetParam)
+		{
+			if (!sourceNode || !targetNode)
+				return false;
+
+			Identifier sourceID = OLO_IDENTIFIER(sourceParam.c_str());
+			Identifier targetID = OLO_IDENTIFIER(targetParam.c_str());
+
+			// Verify parameters exist
+			if (!sourceNode->HasParameter(sourceID) || !targetNode->HasParameter(targetID))
+				return false;
+
+			// Create parameter connection
+			auto connection = CreateParameterConnection<T>(sourceNode, sourceID, targetNode, targetID);
+			if (connection)
+			{
+				// Store connection for processing during audio callback
+				// TODO: Add connection storage system once ParameterConnection integration is complete
+				return true;
+			}
+
+			return false;
+		}
+
+		/** Route InputEvent to InputEvent (for event chaining) */
+		void AddRoute(std::shared_ptr<InputEvent> source, std::shared_ptr<InputEvent> destination);
+
+		/** Route OutputEvent to OutputEvent (for event forwarding) */
+		void AddRoute(std::shared_ptr<OutputEvent> source, std::shared_ptr<OutputEvent> destination);
+
+		/** Get or create graph input event */
+		std::shared_ptr<InputEvent> GetOrCreateGraphInputEvent(const std::string& name);
+
+		/** Get or create graph output event */
+		std::shared_ptr<OutputEvent> GetOrCreateGraphOutputEvent(const std::string& name);
+
+		//==============================================================================
+		/// Event handlers
 		void OnPlay(f32 value = 1.0f);
 		void OnStop(f32 value = 1.0f);
 		void OnFinished(f32 value = 1.0f);

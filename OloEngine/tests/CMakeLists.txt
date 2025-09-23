@@ -13,6 +13,8 @@ add_executable(OloEngine-Tests
 		WavePlayerNodeTest.cpp
 		ParameterInterpolationTest.cpp
 		ArrayOperationNodesTest.cpp
+		GraphRoutingSystemTest.cpp
+		SoundGraphBasicTest.cpp
 		)
 		
 target_link_libraries(OloEngine-Tests

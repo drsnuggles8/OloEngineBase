@@ -7,6 +7,8 @@ namespace OloEngine::Audio::SoundGraph
 {
 	SoundGraph::SoundGraph()
 	{
+		// Ensure parameters are properly initialized
+		m_Parameters.SetInterpolationConfig({});
 		InitializeEndpoints();
 	}
 
@@ -85,6 +87,9 @@ namespace OloEngine::Audio::SoundGraph
 	void SoundGraph::Initialize(f64 sampleRate, u32 maxBufferSize)
 	{
 		m_SampleRate = sampleRate;
+
+		// Initialize interpolation system for this graph
+		InitializeInterpolation(sampleRate, 0.01);
 
 		// Initialize all nodes
 		for (auto& node : m_Nodes)
@@ -244,15 +249,15 @@ namespace OloEngine::Audio::SoundGraph
 	void SoundGraph::InitializeEndpoints()
 	{
 		// Set up graph input/output parameters using current NodeProcessor API
-		AddParameter<f32>(OLO_IDENTIFIER("InputLeft"), EndpointIDs::InputLeft, 0.0f);
-		AddParameter<f32>(OLO_IDENTIFIER("InputRight"), EndpointIDs::InputRight, 0.0f);
-		AddParameter<f32>(OLO_IDENTIFIER("OutputLeft"), EndpointIDs::OutputLeft, 0.0f);
-		AddParameter<f32>(OLO_IDENTIFIER("OutputRight"), EndpointIDs::OutputRight, 0.0f);
+		AddParameter<f32>(OLO_IDENTIFIER("InputLeft"), "InputLeft", 0.0f);
+		AddParameter<f32>(OLO_IDENTIFIER("InputRight"), "InputRight", 0.0f);
+		AddParameter<f32>(OLO_IDENTIFIER("OutputLeft"), "OutputLeft", 0.0f);
+		AddParameter<f32>(OLO_IDENTIFIER("OutputRight"), "OutputRight", 0.0f);
 
 		// Set up event endpoints with current API
-		AddInputEvent<f32>(OLO_IDENTIFIER("Play"), EndpointIDs::Play, [this](f32 value) { OnPlay(value); });
-		AddInputEvent<f32>(OLO_IDENTIFIER("Stop"), EndpointIDs::Stop, [this](f32 value) { OnStop(value); });
-		AddOutputEvent<f32>(OLO_IDENTIFIER("OnFinished"), EndpointIDs::OnFinished);
+		AddInputEvent<f32>(OLO_IDENTIFIER("Play"), "Play", [this](f32 value) { OnPlay(value); });
+		AddInputEvent<f32>(OLO_IDENTIFIER("Stop"), "Stop", [this](f32 value) { OnStop(value); });
+		AddOutputEvent<f32>(OLO_IDENTIFIER("OnFinished"), "OnFinished");
 	}
 
 	void SoundGraph::ProcessEvents()
@@ -322,5 +327,272 @@ namespace OloEngine::Audio::SoundGraph
 
 		// TODO: Implement full asset reconstruction once NodeProcessor API supports ID/Name methods
 		OLO_CORE_INFO("Updated sound graph from asset data - TODO: implement full reconstruction");
+	}
+
+	//==============================================================================
+	/// Graph-Level Routing Implementation
+
+	bool SoundGraph::AddValueConnection(UUID sourceNodeID, const std::string& sourceEndpoint, 
+										UUID targetNodeID, const std::string& targetEndpoint)
+	{
+		NodeProcessor* sourceNode = FindNodeByID(sourceNodeID);
+		NodeProcessor* targetNode = FindNodeByID(targetNodeID);
+
+		if (!sourceNode || !targetNode)
+		{
+			OLO_CORE_ERROR("[SoundGraph] Node not found for value connection");
+			return false;
+		}
+
+		// Try different parameter types (f32 most common in audio)
+		if (AddConnection<f32>(sourceNode, sourceEndpoint, targetNode, targetEndpoint))
+		{
+			OLO_CORE_TRACE("[SoundGraph] Created f32 value connection: '{}:{}' -> '{}:{}'",
+				sourceNode->GetDisplayName(), sourceEndpoint, targetNode->GetDisplayName(), targetEndpoint);
+			return true;
+		}
+
+		if (AddConnection<i32>(sourceNode, sourceEndpoint, targetNode, targetEndpoint))
+		{
+			OLO_CORE_TRACE("[SoundGraph] Created i32 value connection: '{}:{}' -> '{}:{}'",
+				sourceNode->GetDisplayName(), sourceEndpoint, targetNode->GetDisplayName(), targetEndpoint);
+			return true;
+		}
+
+		if (AddConnection<bool>(sourceNode, sourceEndpoint, targetNode, targetEndpoint))
+		{
+			OLO_CORE_TRACE("[SoundGraph] Created bool value connection: '{}:{}' -> '{}:{}'",
+				sourceNode->GetDisplayName(), sourceEndpoint, targetNode->GetDisplayName(), targetEndpoint);
+			return true;
+		}
+
+		OLO_CORE_ERROR("[SoundGraph] No compatible parameter types found for value connection");
+		return false;
+	}
+
+	bool SoundGraph::AddEventConnection(UUID sourceNodeID, const std::string& sourceEndpoint,
+										UUID targetNodeID, const std::string& targetEndpoint)
+	{
+		NodeProcessor* sourceNode = FindNodeByID(sourceNodeID);
+		NodeProcessor* targetNode = FindNodeByID(targetNodeID);
+
+		if (!sourceNode || !targetNode)
+		{
+			OLO_CORE_ERROR("[SoundGraph] Node not found for event connection");
+			return false;
+		}
+
+		Identifier sourceID = OLO_IDENTIFIER(sourceEndpoint.c_str());
+		Identifier targetID = OLO_IDENTIFIER(targetEndpoint.c_str());
+
+		auto sourceEvent = sourceNode->GetOutputEvent(sourceID);
+		auto targetEvent = targetNode->GetInputEvent(targetID);
+
+		if (!sourceEvent || !targetEvent)
+		{
+			OLO_CORE_ERROR("[SoundGraph] Event endpoints not found for connection");
+			return false;
+		}
+
+		AddConnection(sourceEvent, targetEvent);
+		OLO_CORE_TRACE("[SoundGraph] Created event connection: '{}:{}' -> '{}:{}'",
+			sourceNode->GetDisplayName(), sourceEndpoint, targetNode->GetDisplayName(), targetEndpoint);
+		return true;
+	}
+
+	bool SoundGraph::AddInputValueRoute(const std::string& graphInput, UUID targetNodeID, const std::string& targetEndpoint)
+	{
+		NodeProcessor* targetNode = FindNodeByID(targetNodeID);
+		if (!targetNode)
+		{
+			OLO_CORE_ERROR("[SoundGraph] Target node not found for input value route");
+			return false;
+		}
+
+		// Create or get graph input parameter
+		Identifier inputID = OLO_IDENTIFIER(graphInput.c_str());
+		
+		// Add graph input parameter if it doesn't exist
+		if (!HasParameter(inputID))
+		{
+			AddParameter<f32>(inputID, graphInput, 0.0f);
+		}
+
+		// Create parameter connection from graph to node
+		if (AddConnection<f32>(this, graphInput, targetNode, targetEndpoint))
+		{
+			OLO_CORE_TRACE("[SoundGraph] Created input value route: '{}' -> '{}:{}'",
+				graphInput, targetNode->GetDisplayName(), targetEndpoint);
+			return true;
+		}
+
+		return false;
+	}
+
+	bool SoundGraph::AddInputEventRoute(const std::string& graphInput, UUID targetNodeID, const std::string& targetEndpoint)
+	{
+		NodeProcessor* targetNode = FindNodeByID(targetNodeID);
+		if (!targetNode)
+		{
+			OLO_CORE_ERROR("[SoundGraph] Target node not found for input event route");
+			return false;
+		}
+
+		auto graphInputEvent = GetOrCreateGraphInputEvent(graphInput);
+		
+		Identifier targetID = OLO_IDENTIFIER(targetEndpoint.c_str());
+		auto targetEvent = targetNode->GetInputEvent(targetID);
+
+		if (!targetEvent)
+		{
+			OLO_CORE_ERROR("[SoundGraph] Target event endpoint '{}' not found", targetEndpoint);
+			return false;
+		}
+
+		AddRoute(graphInputEvent, targetEvent);
+		OLO_CORE_TRACE("[SoundGraph] Created input event route: '{}' -> '{}:{}'",
+			graphInput, targetNode->GetDisplayName(), targetEndpoint);
+		return true;
+	}
+
+	bool SoundGraph::AddOutputValueRoute(UUID sourceNodeID, const std::string& sourceEndpoint, const std::string& graphOutput)
+	{
+		NodeProcessor* sourceNode = FindNodeByID(sourceNodeID);
+		if (!sourceNode)
+		{
+			OLO_CORE_ERROR("[SoundGraph] Source node not found for output value route");
+			return false;
+		}
+
+		// Create or get graph output parameter
+		Identifier outputID = OLO_IDENTIFIER(graphOutput.c_str());
+		
+		// Add graph output parameter if it doesn't exist
+		if (!HasParameter(outputID))
+		{
+			AddParameter<f32>(outputID, graphOutput, 0.0f);
+		}
+
+		// Create parameter connection from node to graph
+		if (AddConnection<f32>(sourceNode, sourceEndpoint, this, graphOutput))
+		{
+			OLO_CORE_TRACE("[SoundGraph] Created output value route: '{}:{}' -> '{}'",
+				sourceNode->GetDisplayName(), sourceEndpoint, graphOutput);
+			return true;
+		}
+
+		return false;
+	}
+
+	bool SoundGraph::AddOutputEventRoute(UUID sourceNodeID, const std::string& sourceEndpoint, const std::string& graphOutput)
+	{
+		NodeProcessor* sourceNode = FindNodeByID(sourceNodeID);
+		if (!sourceNode)
+		{
+			OLO_CORE_ERROR("[SoundGraph] Source node not found for output event route");
+			return false;
+		}
+
+		Identifier sourceID = OLO_IDENTIFIER(sourceEndpoint.c_str());
+		auto sourceEvent = sourceNode->GetOutputEvent(sourceID);
+		
+		if (!sourceEvent)
+		{
+			OLO_CORE_ERROR("[SoundGraph] Source event endpoint '{}' not found", sourceEndpoint);
+			return false;
+		}
+
+		auto graphOutputEvent = GetOrCreateGraphOutputEvent(graphOutput);
+		AddRoute(sourceEvent, graphOutputEvent);
+		
+		OLO_CORE_TRACE("[SoundGraph] Created output event route: '{}:{}' -> '{}'",
+			sourceNode->GetDisplayName(), sourceEndpoint, graphOutput);
+		return true;
+	}
+
+	bool SoundGraph::AddRoute(const std::string& sourceEventName, const std::string& targetEventName)
+	{
+		auto sourceEvent = GetOrCreateGraphInputEvent(sourceEventName);
+		auto targetEvent = GetOrCreateGraphInputEvent(targetEventName);
+		
+		AddRoute(sourceEvent, targetEvent);
+		OLO_CORE_TRACE("[SoundGraph] Created event route: '{}' -> '{}'", sourceEventName, targetEventName);
+		return true;
+	}
+
+	bool SoundGraph::AddEventRoute(const std::string& sourceEventName, const std::string& targetEventName)
+	{
+		auto sourceEvent = GetOrCreateGraphOutputEvent(sourceEventName);
+		auto targetEvent = GetOrCreateGraphOutputEvent(targetEventName);
+		
+		AddRoute(sourceEvent, targetEvent);
+		OLO_CORE_TRACE("[SoundGraph] Created output event route: '{}' -> '{}'", sourceEventName, targetEventName);
+		return true;
+	}
+
+	//==============================================================================
+	/// Internal Routing Utilities
+
+	void SoundGraph::AddConnection(std::shared_ptr<OutputEvent> source, std::shared_ptr<InputEvent> destination)
+	{
+		if (source && destination)
+		{
+			source->ConnectTo(destination);
+		}
+	}
+
+	void SoundGraph::AddRoute(std::shared_ptr<InputEvent> source, std::shared_ptr<InputEvent> destination)
+	{
+		if (source && destination)
+		{
+			// Route input event to input event (event chaining)
+			source->m_Callback = [destination](f32 value) 
+			{
+				if (destination) (*destination)(value);
+			};
+		}
+	}
+
+	void SoundGraph::AddRoute(std::shared_ptr<OutputEvent> source, std::shared_ptr<OutputEvent> destination)
+	{
+		if (source && destination)
+		{
+			// Create intermediate input event for routing
+			auto intermediateEvent = std::make_shared<InputEvent>(*this, 
+				[destination](f32 value) 
+				{
+					if (destination) (*destination)(value);
+				});
+			
+			source->ConnectTo(intermediateEvent);
+		}
+	}
+
+	std::shared_ptr<InputEvent> SoundGraph::GetOrCreateGraphInputEvent(const std::string& name)
+	{
+		Identifier eventID = OLO_IDENTIFIER(name.c_str());
+		
+		auto existingEvent = GetInputEvent(eventID);
+		if (existingEvent)
+			return existingEvent;
+
+		// Create new graph input event
+		return AddInputEvent<f32>(eventID, name, [this, name](f32 value)
+		{
+			// Default behavior: trigger corresponding graph event
+			TriggerGraphEvent(name, value);
+		});
+	}
+
+	std::shared_ptr<OutputEvent> SoundGraph::GetOrCreateGraphOutputEvent(const std::string& name)
+	{
+		Identifier eventID = OLO_IDENTIFIER(name.c_str());
+		
+		auto existingEvent = GetOutputEvent(eventID);
+		if (existingEvent)
+			return existingEvent;
+
+		// Create new graph output event
+		return AddOutputEvent<f32>(eventID, name);
 	}
 }
