@@ -135,6 +135,16 @@ namespace OloEngine
         }
 
         /**
+         * @brief Get asset metadata by handle
+         * @param handle Handle of the asset
+         * @return AssetMetadata for the asset, or empty metadata if not found
+         */
+        static AssetMetadata GetAssetMetadata(AssetHandle handle)
+        {
+            return GetActiveManager()->GetAssetMetadata(handle);
+        }
+
+        /**
          * @brief Synchronize with the asset loading thread
          * 
          * Ensures any pending async operations are completed or processed

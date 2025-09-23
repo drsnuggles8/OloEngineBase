@@ -2,6 +2,7 @@
 
 #include "../NodeProcessor.h"
 #include "OloEngine/Asset/Asset.h"
+#include "OloEngine/Audio/AudioLoader.h"
 
 #include <vector>
 
@@ -12,36 +13,13 @@ namespace OloEngine::Audio::SoundGraph
 	class WavePlayerNode : public NodeProcessor
 	{
 	public:
-		// Endpoint identifiers
-		struct EndpointIDs
-		{
-			static constexpr const char* Play = "Play";
-			static constexpr const char* Stop = "Stop";
-			static constexpr const char* Pause = "Pause";
-			static constexpr const char* OutputLeft = "OutLeft";
-			static constexpr const char* OutputRight = "OutRight";
-			static constexpr const char* PlaybackPosition = "PlaybackPosition";
-			static constexpr const char* OnPlay = "OnPlay";
-			static constexpr const char* OnStop = "OnStop";
-			static constexpr const char* OnFinish = "OnFinish";
-			static constexpr const char* OnLoop = "OnLoop";
-
-			// Input parameters
-			static constexpr const char* Volume = "Volume";
-			static constexpr const char* Pitch = "Pitch";
-			static constexpr const char* StartTime = "StartTime";
-			static constexpr const char* Loop = "Loop";
-			static constexpr const char* LoopCount = "LoopCount";
-		};
-
-		explicit WavePlayerNode(std::string_view debugName, UUID id);
-		virtual ~WavePlayerNode();
+		explicit WavePlayerNode();
+		virtual ~WavePlayerNode() = default;
 
 		// NodeProcessor overrides
 		void Process(f32** inputs, f32** outputs, u32 numSamples) override;
 		void Update(f64 deltaTime) override;
 		void Initialize(f64 sampleRate, u32 maxBufferSize) override;
-		void Reset() override;
 		
 		Identifier GetTypeID() const override { return OLO_IDENTIFIER("WavePlayer"); }
 		const char* GetDisplayName() const override { return "Wave Player"; }
@@ -49,11 +27,14 @@ namespace OloEngine::Audio::SoundGraph
 		//==============================================================================
 		/// Configuration
 
-		// Set the audio file to play
+		// Set the audio file to play (uses file path for now)
 		void SetAudioFile(const std::string& filePath);
 		
 		// Set audio data directly (for streamed/generated audio)
 		void SetAudioData(const f32* data, u32 numFrames, u32 numChannels);
+		
+		// Set AudioFile asset handle (future integration)
+		void SetAudioFile(AssetHandle audioFileHandle);
 
 		// Get current playback state
 		bool IsPlaying() const { return m_IsPlaying; }
@@ -80,11 +61,22 @@ namespace OloEngine::Audio::SoundGraph
 		void LoadAudioFile(const std::string& filePath);
 
 	private:
-		// Audio data
-		std::vector<f32> m_AudioData;
-		u32 m_NumChannels = 0;
-		u32 m_NumFrames = 0;
-		f64 m_Duration = 0.0; // in seconds
+		//==============================================================================
+		/// Setup and Internal Methods
+		void SetupEndpoints();
+		void ProcessEvents();
+		f32 GetSampleAtPosition(f64 position, u32 channel) const;
+		void TriggerFinish();
+
+		// Event handlers
+		void OnPlayEvent(f32 value);
+		void OnStopEvent(f32 value);
+		void OnPauseEvent(f32 value);
+
+		//==============================================================================
+		/// Audio Data and State
+		Audio::AudioData m_AudioData;  // Audio data loaded from file or asset
+		f64 m_Duration = 0.0;           // Duration in seconds (derived from AudioData)
 
 		// Playback state
 		bool m_IsPlaying = false;
@@ -104,48 +96,25 @@ namespace OloEngine::Audio::SoundGraph
 		f32 m_OutputRight = 0.0f;
 		f32 m_PlaybackPositionOutput = 0.0f;
 
-		// Event outputs
-		OutputEvent m_OnPlay;
-		OutputEvent m_OnStop;
-		OutputEvent m_OnFinish;
-		OutputEvent m_OnLoop;
-
 		//==============================================================================
-		/// Internal methods
+		/// Event System
+		
+		// Event flags
+		Flag m_PlayFlag;
+		Flag m_StopFlag;
+		Flag m_PauseFlag;
 
-		void InitializeEndpoints();
-		f32 GetSampleAtPosition(f64 position, u32 channel) const;
-		void TriggerFinish();
+		// Event endpoints (stored as members)
+		std::shared_ptr<InputEvent> m_PlayEvent;
+		std::shared_ptr<InputEvent> m_StopEvent;
+		std::shared_ptr<InputEvent> m_PauseEvent;
+		std::shared_ptr<OutputEvent> m_OnPlayEvent;
+		std::shared_ptr<OutputEvent> m_OnStopEvent;
+		std::shared_ptr<OutputEvent> m_OnFinishEvent;
+		std::shared_ptr<OutputEvent> m_OnLoopEvent;
 
-		// Event handlers
-		void OnPlayEvent(f32 value);
-		void OnStopEvent(f32 value);
-		void OnPauseEvent(f32 value);
+		// Asset handle for AudioFile integration (future)
+		AssetHandle m_AudioFileHandle = 0;
 	};
 
-	//==============================================================================
-	/// Audio File Asset - represents a loaded audio file
-	struct AudioFileAsset
-	{
-		// Asset type
-		static AssetType GetStaticType() { return AssetType::Audio; }
-		AssetType GetAssetType() const { return GetStaticType(); }
-
-		// Audio data
-		std::vector<f32> Data;
-		u32 NumChannels = 0;
-		u32 NumFrames = 0;
-		f64 SampleRate = 44100.0;
-		f64 Duration = 0.0;
-
-		// Load from file
-		bool LoadFromFile(const std::string& filePath);
-
-		// Get audio data
-		const f32* GetData() const { return Data.data(); }
-		u32 GetNumFrames() const { return NumFrames; }
-		u32 GetNumChannels() const { return NumChannels; }
-		f64 GetSampleRate() const { return SampleRate; }
-		f64 GetDuration() const { return Duration; }
-	};
 }

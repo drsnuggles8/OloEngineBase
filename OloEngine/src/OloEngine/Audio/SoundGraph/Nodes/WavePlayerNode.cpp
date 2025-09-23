@@ -1,27 +1,29 @@
 #include "OloEnginePCH.h"
 #include "WavePlayerNode.h"
-
-#include <miniaudio.h>
+#include "OloEngine/Audio/AudioLoader.h"
+#include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Project/Project.h"
 
 #include <algorithm>
 #include <cmath>
 
 namespace OloEngine::Audio::SoundGraph
 {
-	WavePlayerNode::WavePlayerNode(std::string_view debugName, UUID id)
-		: NodeProcessor(debugName, id), m_OnPlay(*this), m_OnStop(*this), m_OnFinish(*this), m_OnLoop(*this)
+	WavePlayerNode::WavePlayerNode()
 	{
-		InitializeEndpoints();
+		SetupEndpoints();
 	}
-
-	WavePlayerNode::~WavePlayerNode() = default;
 
 	void WavePlayerNode::Process(f32** inputs, f32** outputs, u32 numSamples)
 	{
+		// Process events first
+		ProcessEvents();
+
 		// For WavePlayer, we typically don't use inputs, but generate our own audio output
 		// outputs[0] = left channel, outputs[1] = right channel
 		f32* leftChannel = outputs[0];
 		f32* rightChannel = outputs[1];
+		
 		// Read current parameter values
 		f32 volume = GetParameterValue<f32>(OLO_IDENTIFIER("Volume"), 1.0f);
 		f32 pitch = GetParameterValue<f32>(OLO_IDENTIFIER("Pitch"), 1.0f);
@@ -30,7 +32,7 @@ namespace OloEngine::Audio::SoundGraph
 		i32 maxLoopCount = GetParameterValue<i32>(OLO_IDENTIFIER("LoopCount"), -1);
 
 		// Clear output if not playing
-		if (!m_IsPlaying || m_IsPaused || m_AudioData.empty())
+		if (!m_IsPlaying || m_IsPaused || !m_AudioData.IsValid())
 		{
 			for (u32 i = 0; i < numSamples; ++i)
 			{
@@ -45,7 +47,7 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 		const f64 sampleIncrement = pitch; // Pitch affects playback speed
-		const f64 maxPosition = static_cast<f64>(m_NumFrames);
+		const f64 maxPosition = static_cast<f64>(m_AudioData.numFrames);
 
 		for (u32 i = 0; i < numSamples; ++i)
 		{
@@ -80,12 +82,12 @@ namespace OloEngine::Audio::SoundGraph
 			f32 leftSample = 0.0f;
 			f32 rightSample = 0.0f;
 
-			if (m_NumChannels == 1)
+			if (m_AudioData.numChannels == 1)
 			{
 				// Mono - duplicate to both channels
 				leftSample = rightSample = GetSampleAtPosition(m_PlaybackPosition, 0) * m_Volume;
 			}
-			else if (m_NumChannels >= 2)
+			else if (m_AudioData.numChannels >= 2)
 			{
 				// Stereo or more - use first two channels
 				leftSample = GetSampleAtPosition(m_PlaybackPosition, 0) * m_Volume;
@@ -116,26 +118,17 @@ namespace OloEngine::Audio::SoundGraph
 		}
 	}
 
-	void WavePlayerNode::Update([[maybe_unused]] f32 deltaTime)
+	void WavePlayerNode::Update([[maybe_unused]] f64 deltaTime)
 	{
 		// Update any time-based parameters here if needed
 		// For most audio processing, everything happens in Process()
 	}
 
-	void WavePlayerNode::Initialize(f64 sampleRate)
+	void WavePlayerNode::Initialize(f64 sampleRate, u32 maxBufferSize)
 	{
-		NodeProcessor::Initialize(sampleRate);
+		m_SampleRate = sampleRate;
 		
 		// Reset playback state
-		Reset();
-		
-		OLO_CORE_TRACE("[WavePlayerNode] Initialized '{}' with sample rate {}", m_DebugName, sampleRate);
-	}
-
-	void WavePlayerNode::Reset()
-	{
-		NodeProcessor::Reset();
-		
 		m_IsPlaying = false;
 		m_IsPaused = false;
 		m_PlaybackPosition = 0.0;
@@ -143,11 +136,50 @@ namespace OloEngine::Audio::SoundGraph
 		m_OutputLeft = 0.0f;
 		m_OutputRight = 0.0f;
 		m_PlaybackPositionOutput = 0.0f;
+		
+		OLO_CORE_TRACE("[WavePlayerNode] Initialized with sample rate {} and buffer size {}", sampleRate, maxBufferSize);
 	}
 
 	void WavePlayerNode::SetAudioFile(const std::string& filePath)
 	{
 		LoadAudioFile(filePath);
+	}
+
+	void WavePlayerNode::SetAudioFile(AssetHandle audioFileHandle)
+	{
+		m_AudioFileHandle = audioFileHandle;
+		
+		if (audioFileHandle == 0)
+		{
+			// Clear audio data if invalid handle
+			m_AudioData.Clear();
+			m_Duration = 0.0;
+			return;
+		}
+
+		// Get the AudioFile asset
+		auto audioFileAsset = AssetManager::GetAsset<AudioFile>(audioFileHandle);
+		if (!audioFileAsset)
+		{
+			OLO_CORE_ERROR("[WavePlayerNode] Failed to get AudioFile asset for handle: {}", audioFileHandle);
+			return;
+		}
+
+		// Get the file path for this asset  
+		const auto& metadata = AssetManager::GetAssetMetadata(audioFileHandle);
+		auto filePath = Project::GetAssetDirectory() / metadata.FilePath;
+		
+		// Load the actual audio data using AudioLoader
+		if (!Audio::AudioLoader::LoadAudioFile(filePath, m_AudioData))
+		{
+			OLO_CORE_ERROR("[WavePlayerNode] Failed to load audio file from asset: {}", filePath.string());
+			return;
+		}
+
+		// Update duration from loaded data
+		m_Duration = m_AudioData.duration;
+
+		OLO_CORE_TRACE("[WavePlayerNode] Successfully loaded AudioFile asset {} from: {}", audioFileHandle, filePath.string());
 	}
 
 	void WavePlayerNode::SetAudioData(const f32* data, u32 numFrames, u32 numChannels)
@@ -158,26 +190,29 @@ namespace OloEngine::Audio::SoundGraph
 			return;
 		}
 
-		m_NumFrames = numFrames;
-		m_NumChannels = numChannels;
-		m_Duration = static_cast<f64>(numFrames) / m_SampleRate;
+		// Clear existing data
+		m_AudioData.Clear();
+
+		// Set up audio data structure
+		m_AudioData.numFrames = numFrames;
+		m_AudioData.numChannels = numChannels;
+		m_AudioData.sampleRate = m_SampleRate; // Use node's sample rate
+		m_AudioData.duration = static_cast<f64>(numFrames) / m_SampleRate;
 
 		// Copy audio data
-		const u32 totalSamples = numFrames * numChannels;
-		m_AudioData.resize(totalSamples);
-		std::memcpy(m_AudioData.data(), data, totalSamples * sizeof(f32));
+		const u64 totalSamples = static_cast<u64>(numFrames) * numChannels;
+		m_AudioData.samples.resize(totalSamples);
+		std::memcpy(m_AudioData.samples.data(), data, totalSamples * sizeof(f32));
+
+		// Update duration
+		m_Duration = m_AudioData.duration;
 
 		OLO_CORE_TRACE("[WavePlayerNode] Set audio data: {} frames, {} channels, {:.2f}s duration", 
 			numFrames, numChannels, m_Duration);
 	}
 
-	void WavePlayerNode::InitializeEndpoints()
+	void WavePlayerNode::SetupEndpoints()
 	{
-		// Input events
-		AddInputEvent<f32>(OLO_IDENTIFIER("Play"), "Play", [this](f32 value) { OnPlayEvent(value); });
-		AddInputEvent<f32>(OLO_IDENTIFIER("Stop"), "Stop", [this](f32 value) { OnStopEvent(value); });
-		AddInputEvent<f32>(OLO_IDENTIFIER("Pause"), "Pause", [this](f32 value) { OnPauseEvent(value); });
-
 		// Input parameters
 		AddParameter<f32>(OLO_IDENTIFIER("Volume"), "Volume", 1.0f);
 		AddParameter<f32>(OLO_IDENTIFIER("Pitch"), "Pitch", 1.0f);
@@ -185,89 +220,65 @@ namespace OloEngine::Audio::SoundGraph
 		AddParameter<bool>(OLO_IDENTIFIER("Loop"), "Loop", false);
 		AddParameter<i32>(OLO_IDENTIFIER("LoopCount"), "LoopCount", -1);
 
+		// Input events with flags
+		m_PlayEvent = AddInputEvent<f32>(OLO_IDENTIFIER("Play"), "Play", 
+			[this](f32) { m_PlayFlag.SetDirty(); });
+		m_StopEvent = AddInputEvent<f32>(OLO_IDENTIFIER("Stop"), "Stop", 
+			[this](f32) { m_StopFlag.SetDirty(); });
+		m_PauseEvent = AddInputEvent<f32>(OLO_IDENTIFIER("Pause"), "Pause", 
+			[this](f32) { m_PauseFlag.SetDirty(); });
+
+		// Output events
+		m_OnPlayEvent = AddOutputEvent<f32>(OLO_IDENTIFIER("OnPlay"), "OnPlay");
+		m_OnStopEvent = AddOutputEvent<f32>(OLO_IDENTIFIER("OnStop"), "OnStop");
+		m_OnFinishEvent = AddOutputEvent<f32>(OLO_IDENTIFIER("OnFinish"), "OnFinish");
+		m_OnLoopEvent = AddOutputEvent<f32>(OLO_IDENTIFIER("OnLoop"), "OnLoop");
+
 		// Output parameters
 		AddParameter<f32>(OLO_IDENTIFIER("OutLeft"), "OutLeft", 0.0f);
 		AddParameter<f32>(OLO_IDENTIFIER("OutRight"), "OutRight", 0.0f);
 		AddParameter<f32>(OLO_IDENTIFIER("PlaybackPosition"), "PlaybackPosition", 0.0f);
+	}
 
-		// Output events
-		AddOutputEvent<f32>(OLO_IDENTIFIER("OnPlay"), "OnPlay");
-		AddOutputEvent<f32>(OLO_IDENTIFIER("OnStop"), "OnStop");
-		AddOutputEvent<f32>(OLO_IDENTIFIER("OnFinish"), "OnFinish");
-		AddOutputEvent<f32>(OLO_IDENTIFIER("OnLoop"), "OnLoop");
+	void WavePlayerNode::ProcessEvents()
+	{
+		// Process play event
+		if (m_PlayFlag.CheckAndResetIfDirty())
+		{
+			OnPlayEvent(1.0f);
+		}
+
+		// Process stop event
+		if (m_StopFlag.CheckAndResetIfDirty())
+		{
+			OnStopEvent(1.0f);
+		}
+
+		// Process pause event
+		if (m_PauseFlag.CheckAndResetIfDirty())
+		{
+			OnPauseEvent(1.0f);
+		}
 	}
 
 	void WavePlayerNode::LoadAudioFile(const std::string& filePath)
 	{
-		// Use miniaudio to load the file
-		ma_decoder decoder;
-		ma_decoder_config config = ma_decoder_config_init(ma_format_f32, 0, 0); // Let miniaudio determine channels and sample rate
-		
-		ma_result result = ma_decoder_init_file(filePath.c_str(), &config, &decoder);
-		if (result != MA_SUCCESS)
+		// Use AudioLoader to load the file
+		if (!Audio::AudioLoader::LoadAudioFile(filePath, m_AudioData))
 		{
-			OLO_CORE_ERROR("[WavePlayerNode] Failed to initialize decoder for file: {}", filePath);
+			OLO_CORE_ERROR("[WavePlayerNode] Failed to load audio file: {}", filePath);
 			return;
 		}
 
-		// Get audio file info
-		ma_uint64 totalFrames;
-		result = ma_decoder_get_length_in_pcm_frames(&decoder, &totalFrames);
-		if (result != MA_SUCCESS)
-		{
-			OLO_CORE_ERROR("[WavePlayerNode] Failed to get frame count for file: {}", filePath);
-			ma_decoder_uninit(&decoder);
-			return;
-		}
+		// Update duration from loaded data
+		m_Duration = m_AudioData.duration;
 
-		m_NumChannels = decoder.outputChannels;
-		m_NumFrames = static_cast<u32>(totalFrames);
-		m_Duration = static_cast<f64>(totalFrames) / static_cast<f64>(decoder.outputSampleRate);
-
-		// Allocate buffer and read audio data
-		const u32 totalSamples = m_NumFrames * m_NumChannels;
-		m_AudioData.resize(totalSamples);
-
-		ma_uint64 framesRead;
-		result = ma_decoder_read_pcm_frames(&decoder, m_AudioData.data(), totalFrames, &framesRead);
-		
-		ma_decoder_uninit(&decoder);
-
-		if (result != MA_SUCCESS || framesRead != totalFrames)
-		{
-			OLO_CORE_ERROR("[WavePlayerNode] Failed to read audio data from file: {}", filePath);
-			m_AudioData.clear();
-			m_NumFrames = 0;
-			m_NumChannels = 0;
-			m_Duration = 0.0;
-			return;
-		}
-
-		OLO_CORE_TRACE("[WavePlayerNode] Loaded audio file '{}': {} frames, {} channels, {:.2f}s duration", 
-			filePath, m_NumFrames, m_NumChannels, m_Duration);
+		OLO_CORE_TRACE("[WavePlayerNode] Successfully loaded audio file: {}", filePath);
 	}
 
 	f32 WavePlayerNode::GetSampleAtPosition(f64 position, u32 channel) const
 	{
-		if (m_AudioData.empty() || channel >= m_NumChannels)
-			return 0.0f;
-
-		// Convert to integer position
-		const u64 intPosition = static_cast<u64>(position);
-		
-		// Boundary check
-		if (intPosition >= m_NumFrames)
-			return 0.0f;
-
-		// Calculate sample index
-		const u64 sampleIndex = intPosition * m_NumChannels + channel;
-		
-		if (sampleIndex >= m_AudioData.size())
-			return 0.0f;
-
-		// For now, use nearest neighbor sampling
-		// In a more advanced implementation, you'd use linear interpolation
-		return m_AudioData[sampleIndex];
+		return m_AudioData.GetSample(static_cast<u64>(position), channel);
 	}
 
 	void WavePlayerNode::TriggerFinish()
@@ -317,62 +328,5 @@ namespace OloEngine::Audio::SoundGraph
 			m_IsPaused = !m_IsPaused;
 			OLO_CORE_TRACE("[WavePlayerNode] '{}' {}", GetDisplayName(), m_IsPaused ? "paused" : "resumed");
 		}
-	}
-
-	//==============================================================================
-	/// AudioFileAsset Implementation
-
-	bool AudioFileAsset::LoadFromFile(const std::string& filePath)
-	{
-		// Use miniaudio to load the file
-		ma_decoder decoder;
-		ma_decoder_config config = ma_decoder_config_init(ma_format_f32, 0, 0);
-		
-		ma_result result = ma_decoder_init_file(filePath.c_str(), &config, &decoder);
-		if (result != MA_SUCCESS)
-		{
-			OLO_CORE_ERROR("[AudioFileAsset] Failed to initialize decoder for file: {}", filePath);
-			return false;
-		}
-
-		// Get audio file info
-		ma_uint64 totalFrames;
-		result = ma_decoder_get_length_in_pcm_frames(&decoder, &totalFrames);
-		if (result != MA_SUCCESS)
-		{
-			OLO_CORE_ERROR("[AudioFileAsset] Failed to get frame count for file: {}", filePath);
-			ma_decoder_uninit(&decoder);
-			return false;
-		}
-
-		NumChannels = decoder.outputChannels;
-		NumFrames = static_cast<u32>(totalFrames);
-		SampleRate = static_cast<f64>(decoder.outputSampleRate);
-		Duration = static_cast<f64>(totalFrames) / SampleRate;
-
-		// Allocate buffer and read audio data
-		const u32 totalSamples = NumFrames * NumChannels;
-		Data.resize(totalSamples);
-
-		ma_uint64 framesRead;
-		result = ma_decoder_read_pcm_frames(&decoder, Data.data(), totalFrames, &framesRead);
-		
-		ma_decoder_uninit(&decoder);
-
-		if (result != MA_SUCCESS || framesRead != totalFrames)
-		{
-			OLO_CORE_ERROR("[AudioFileAsset] Failed to read audio data from file: {}", filePath);
-			Data.clear();
-			NumFrames = 0;
-			NumChannels = 0;
-			SampleRate = 0.0;
-			Duration = 0.0;
-			return false;
-		}
-
-		OLO_CORE_TRACE("[AudioFileAsset] Loaded audio file '{}': {} frames, {} channels, {:.2f}s duration", 
-			filePath, NumFrames, NumChannels, Duration);
-
-		return true;
 	}
 }

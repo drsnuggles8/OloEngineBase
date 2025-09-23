@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Asset/AssetSerializer.h"
+#include "OloEngine/Audio/AudioLoader.h"
 
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Core/FileSystem.h"
@@ -20,14 +21,48 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // For AudioFile assets, we create a metadata object based on file analysis
-        // TODO: Implement audio file analysis to extract Duration, SamplingRate, BitDepth, NumChannels, FileSize
-        // For now, create a basic AudioFile asset
+        // Get the file path for this asset
+        auto filePath = Project::GetAssetDirectory() / metadata.FilePath;
         
-        asset = Ref<AudioFile>::Create();
+        if (!std::filesystem::exists(filePath))
+        {
+            OLO_CORE_ERROR("AudioFileSourceSerializer: File does not exist: {}", filePath.string());
+            // Create a default AudioFile asset
+            asset = Ref<AudioFile>::Create();
+            asset->SetHandle(metadata.Handle);
+            return false;
+        }
+
+        // Use AudioLoader to get audio file information
+        u32 numChannels = 0;
+        u32 numFrames = 0; 
+        f64 sampleRate = 0.0;
+        f64 duration = 0.0;
+        
+        if (!Audio::AudioLoader::GetAudioFileInfo(filePath, numChannels, numFrames, sampleRate, duration))
+        {
+            OLO_CORE_ERROR("AudioFileSourceSerializer: Failed to get audio file info for: {}", filePath.string());
+            // Create a default AudioFile asset
+            asset = Ref<AudioFile>::Create();
+            asset->SetHandle(metadata.Handle);
+            return false;
+        }
+
+        // Get file size
+        std::error_code ec;
+        u64 fileSize = std::filesystem::file_size(filePath, ec);
+        if (ec)
+        {
+            OLO_CORE_WARN("AudioFileSourceSerializer: Could not get file size for: {}", filePath.string());
+            fileSize = 0;
+        }
+
+        // Create AudioFile asset with loaded metadata
+        asset = Ref<AudioFile>::Create(duration, static_cast<u32>(sampleRate), 16, static_cast<u16>(numChannels), fileSize);
         asset->SetHandle(metadata.Handle);
         
-        OLO_CORE_TRACE("AudioFileSourceSerializer: Loaded AudioFile asset {0}", metadata.Handle);
+        OLO_CORE_TRACE("AudioFileSourceSerializer: Loaded AudioFile asset {} - Duration: {:.2f}s, Channels: {}, SampleRate: {}", 
+                      metadata.Handle, duration, numChannels, sampleRate);
         return true;
     }
 

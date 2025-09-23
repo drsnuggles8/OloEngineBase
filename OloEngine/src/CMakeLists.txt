@@ -66,6 +66,8 @@
 		"OloEngine/Audio/AudioListener.h"
 		"OloEngine/Audio/AudioSource.cpp"
 		"OloEngine/Audio/AudioSource.h"
+		"OloEngine/Audio/AudioLoader.cpp"
+		"OloEngine/Audio/AudioLoader.h"
 		
 		# SoundGraph Math Nodes (updated for new Core infrastructure)
 		"OloEngine/Audio/SoundGraph/Nodes/AddNode.h"
@@ -139,8 +141,8 @@
 		# "OloEngine/Audio/SoundGraph/Flag.h"
 		# "OloEngine/Audio/SoundGraph/Events.h"
 		# "OloEngine/Audio/SoundGraph/ExampleEventNodes.h"
-		# "OloEngine/Audio/SoundGraph/Nodes/WavePlayerNode.h"
-		# "OloEngine/Audio/SoundGraph/Nodes/WavePlayerNode.cpp"
+		"OloEngine/Audio/SoundGraph/Nodes/WavePlayerNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/WavePlayerNode.cpp"
 		# "OloEngine/Audio/SoundGraph/Nodes/MixerNode.h"
 		# "OloEngine/Audio/SoundGraph/Nodes/MixerNode.cpp"
 		
