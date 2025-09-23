@@ -99,6 +99,8 @@
 
 		"OloEngine/Debug/Instrumentor.h"
 		"OloEngine/Debug/Profiler.h"
+		"OloEngine/Debug/AllocationTracker.cpp"
+		"OloEngine/Debug/AllocationTracker.h"
 
 		"OloEngine/Events/ApplicationEvent.h"
 		"OloEngine/Events/Event.cpp"
