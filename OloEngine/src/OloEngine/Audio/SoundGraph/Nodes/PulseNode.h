@@ -69,13 +69,14 @@ namespace OloEngine::Audio::SoundGraph
 					if (normalizedPhase < 0.0) normalizedPhase += 1.0;
 					
 					// Generate pulse wave: +1.0 when phase < pulseWidth, -1.0 otherwise
-					const f32 pulseValue = (normalizedPhase < static_cast<f64>(pulseWidth)) ? 1.0f : -1.0f;
+					const f64 pulseWidthAsDouble = static_cast<f64>(pulseWidth);
+					const f32 pulseValue = (normalizedPhase < pulseWidthAsDouble) ? 1.0f : -1.0f;
 					
 					outputs[0][i] = pulseValue;
 					
 					// Advance phase and wrap around 2π
 					m_Phase += m_PhaseIncrement;
-					if (m_Phase >= glm::two_pi<f64>())
+					while (m_Phase >= glm::two_pi<f64>())
 					{
 						m_Phase -= glm::two_pi<f64>();
 					}
@@ -108,8 +109,8 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			m_SampleRate = sampleRate;
 			
-			// Initialize phase and calculate initial phase increment
-			m_Phase = static_cast<f64>(GetParameterValue<f32>(PhaseOffset_ID));
+			// Initialize phase to 0.0 (ignore phase offset for initial state)
+			m_Phase = 0.0;
 			const f32 frequency = glm::clamp(GetParameterValue<f32>(Frequency_ID), MIN_FREQ_HZ, MAX_FREQ_HZ);
 			m_PhaseIncrement = frequency * glm::two_pi<f64>() / m_SampleRate;
 		}
