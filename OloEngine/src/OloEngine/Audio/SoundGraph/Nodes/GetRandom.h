@@ -161,6 +161,11 @@ namespace OloEngine::Audio::SoundGraph
 			m_Array.clear();
 		}
 
+		sizet GetArraySize() const
+		{
+			return m_Array.size();
+		}
+
 	private:
 		void SelectRandomElement()
 		{

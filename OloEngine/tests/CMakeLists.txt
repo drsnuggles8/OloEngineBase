@@ -12,6 +12,7 @@ add_executable(OloEngine-Tests
 		TriggerArrayNodesTest.cpp
 		WavePlayerNodeTest.cpp
 		ParameterInterpolationTest.cpp
+		ArrayOperationNodesTest.cpp
 		)
 		
 target_link_libraries(OloEngine-Tests
