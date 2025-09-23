@@ -1226,6 +1226,9 @@ TEST_F(MathNodeTest, RandomNodeF32BasicTest)
 	node.SetParameterValue(OLO_IDENTIFIER("Max"), 1.0f);
 	node.SetParameterValue(OLO_IDENTIFIER("Seed"), 12345);
 	
+	// Trigger value generation (pure event-driven)
+	node.SetParameterValue(OLO_IDENTIFIER("Next"), 1.0f);
+	
 	f32* inputs[1] = { nullptr };
 	f32 outputBuffer[128];
 	f32* outputs[1] = { outputBuffer };
@@ -1254,6 +1257,9 @@ TEST_F(MathNodeTest, RandomNodeI32BasicTest)
 	node.SetParameterValue(OLO_IDENTIFIER("Max"), 100);
 	node.SetParameterValue(OLO_IDENTIFIER("Seed"), 54321);
 	
+	// Trigger value generation (pure event-driven)
+	node.SetParameterValue(OLO_IDENTIFIER("Next"), 1.0f);
+	
 	f32* inputs[1] = { nullptr };
 	f32 outputBuffer[128];
 	f32* outputs[1] = { outputBuffer };
@@ -1277,6 +1283,10 @@ TEST_F(MathNodeTest, RandomNodeSeedReproducibilityTest)
 	node1.SetParameterValue(OLO_IDENTIFIER("Seed"), 42);
 	node2.SetParameterValue(OLO_IDENTIFIER("Seed"), 42);
 	
+	// Trigger value generation on both nodes (pure event-driven)
+	node1.SetParameterValue(OLO_IDENTIFIER("Next"), 1.0f);
+	node2.SetParameterValue(OLO_IDENTIFIER("Next"), 1.0f);
+	
 	f32* inputs[1] = { nullptr };
 	f32 outputBuffer1[128], outputBuffer2[128];
 	f32* outputs1[1] = { outputBuffer1 };
@@ -1297,6 +1307,9 @@ TEST_F(MathNodeTest, RandomNodeRangeSwapTest)
 	node.SetParameterValue(OLO_IDENTIFIER("Min"), 10.0f);
 	node.SetParameterValue(OLO_IDENTIFIER("Max"), 5.0f);
 	node.SetParameterValue(OLO_IDENTIFIER("Seed"), 999);
+	
+	// Trigger value generation (pure event-driven)
+	node.SetParameterValue(OLO_IDENTIFIER("Next"), 1.0f);
 	
 	f32* inputs[1] = { nullptr };
 	f32 outputBuffer[128];

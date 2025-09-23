@@ -13,11 +13,10 @@ OloEngine is a multi-layered game engine based on Hazel, supporting both 2D/3D r
 ## Development Workflow
 
 ### Building & Running
-- If running on Visual Studio Code, use VS Code tasks exclusively: `run-sandbox3d-debug`, `run-oloeditor-release`, etc.
+- If running on Visual Studio Code, use tasks exclusively: `run-sandbox3d-debug`, `run-oloeditor-release`, etc.
 - Applications must run from `OloEditor/` working directory (assets/mono dependencies)
-- CMake generates solutions in `build/`, binaries in `bin/[Config]/[Target]/`
 - Use `scripts/Win-GenerateProject.bat` for initial setup, `scripts/Win-DeleteStuff.bat` to clean (or manually delete the `build/` folder)
-- Test projects in `OloEngine/tests/` can be run via CTest or directly from the IDE
+- Test projects can be build via `cmake --build E:\repos\OloEngineBase\build --target OloEngine-Tests` and then executed via `build\OloEngine\tests\Debug\OloEngine-Tests.exe` or run via CTest
 
 ### Key Patterns
 
@@ -93,6 +92,7 @@ RendererProfiler::GetInstance().IncrementCounter(MetricType::DrawCalls, 1);
 ## Code Style Guidelines
 
 - **C++ Standards:** Target C++23 where supported by current compilers, baseline C++20 across the repo
+- **Development Approach:** Alpha mode - breaking changes are acceptable for better design, focus on optimal solutions, just make sure that when changes break things, we fix them quickly to keep momentum
 - **Naming:** PascalCase for classes, `m_PascalCase` for members, `s_PascalCase` for statics
 - **Types:** Custom typedefs (`u8`, `i16`, `i32`, `f32`, `sizet`) defined in `Core/Base.h`
 - **Headers:** Use `#pragma once`, RAII for OpenGL resources, STL containers preferred
@@ -107,7 +107,7 @@ RendererProfiler::GetInstance().IncrementCounter(MetricType::DrawCalls, 1);
 
 **Vendor Management**: Dependencies fetched via CPM, stored in `OloEngine/vendor/`. Never modify vendor code directly.
 
-**Renderer Backend**: Currently OpenGL-based. Uses SPIR-V for shader compilation via Vulkan SDK tools.
+**Renderer Backend**: OpenGL-based. Uses SPIR-V for shader compilation via Vulkan SDK tools.
 
 **Debug/Profiling System**: Comprehensive performance tracking with Tracy integration and custom renderer profilers.
 - `RendererProfiler` - Frame timing, draw calls, GPU metrics
@@ -122,6 +122,3 @@ RendererProfiler::GetInstance().IncrementCounter(MetricType::DrawCalls, 1);
 - **Event System**: Custom events inherit `Event`, dispatched through `Application::OnEvent`
 - **Asset Hot-Reload**: Filewatch triggers `AssetReloadedEvent` → update references
 - **ImGui Integration**: `ImGuiLayer` for editor UI, custom panels inherit base classes
-
-## VS Code Tasks Usage
-Always use VS Code tasks for building/running: `build-sandbox3d-debug`, `run-oloeditor-release`, etc. Tasks ensure correct working directories and environment setup.

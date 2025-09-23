@@ -20,12 +20,14 @@ namespace OloEngine::Audio::SoundGraph
 		const Identifier Seed_ID = OLO_IDENTIFIER("Seed");
 		const Identifier Next_ID = OLO_IDENTIFIER("Next");
 		const Identifier Reset_ID = OLO_IDENTIFIER("Reset");
+		const Identifier NoRepeats_ID = OLO_IDENTIFIER("NoRepeats");
 		const Identifier Output_ID = OLO_IDENTIFIER("Output");
 		const Identifier Selected_ID = OLO_IDENTIFIER("Selected");
 
 		// Array and random state
 		std::vector<T> m_Array;
 		FastRandom m_Random;
+		i32 m_LastSelectedIndex = -1;  // Track last selected index for NoRepeats
 
 		// Flags for parameter change detection
 		Flag m_NextFlag;
@@ -42,6 +44,7 @@ namespace OloEngine::Audio::SoundGraph
 			AddParameter<i32>(Seed_ID, "Seed", 0);
 			AddParameter<f32>(Next_ID, "Next", 0.0f);
 			AddParameter<f32>(Reset_ID, "Reset", 0.0f);
+			AddParameter<f32>(NoRepeats_ID, "NoRepeats", 0.0f);  // 0 = allow repeats, 1 = no repeats
 			
 			// Add output parameters for the selected values
 			if constexpr (std::is_same_v<T, f32>)
@@ -164,8 +167,25 @@ namespace OloEngine::Audio::SoundGraph
 			if (m_Array.empty())
 				return;
 
-			// Get random index
-			i32 index = m_Random.GetInt32InRange(0, static_cast<i32>(m_Array.size() - 1));
+			const bool noRepeats = GetParameterValue<f32>(NoRepeats_ID) > 0.5f;
+			i32 index;
+
+			if (noRepeats && m_Array.size() > 1 && m_LastSelectedIndex != -1)
+			{
+				// NoRepeats mode: ensure we don't select the same index as last time
+				do
+				{
+					index = m_Random.GetInt32InRange(0, static_cast<i32>(m_Array.size() - 1));
+				} while (index == m_LastSelectedIndex);
+			}
+			else
+			{
+				// Normal mode: any index is valid
+				index = m_Random.GetInt32InRange(0, static_cast<i32>(m_Array.size() - 1));
+			}
+
+			// Store the selected index for NoRepeats functionality
+			m_LastSelectedIndex = index;
 			T selectedValue = m_Array[index];
 
 			// Update output parameters
@@ -181,7 +201,7 @@ namespace OloEngine::Audio::SoundGraph
 
 		void ResetSeed()
 		{
-			// Re-seed the random generator
+			// Re-seed the random generator and reset last selected index
 			i32 seed = GetParameterValue<i32>(Seed_ID, 0);
 			if (seed == 0)
 			{
@@ -191,6 +211,9 @@ namespace OloEngine::Audio::SoundGraph
 			{
 				m_Random.SetSeed(seed);
 			}
+			
+			// Reset the last selected index when resetting
+			m_LastSelectedIndex = -1;
 		}
 	};
 

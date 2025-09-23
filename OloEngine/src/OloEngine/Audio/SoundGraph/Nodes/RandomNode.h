@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../NodeProcessor.h"
+#include "../Flag.h"
 #include "OloEngine/Core/Identifier.h"
 #include "OloEngine/Core/FastRandom.h"
 #include <glm/glm.hpp>
@@ -22,12 +23,22 @@ namespace OloEngine::Audio::SoundGraph
 		const Identifier Min_ID = OLO_IDENTIFIER("Min");
 		const Identifier Max_ID = OLO_IDENTIFIER("Max");
 		const Identifier Seed_ID = OLO_IDENTIFIER("Seed");
+		const Identifier Next_ID = OLO_IDENTIFIER("Next");
+		const Identifier Reset_ID = OLO_IDENTIFIER("Reset");
 		const Identifier Output_ID = OLO_IDENTIFIER("Output");
 
 		// Random number generator state
 		FastRandom m_Random;
 		i32 m_CurrentSeed = -1;
 		T m_LastValue = T(0);
+
+		// Event flags
+		Flag m_NextFlag;
+		Flag m_ResetFlag;
+
+		// Output events
+		std::shared_ptr<OutputEvent> m_NextEvent;
+		std::shared_ptr<OutputEvent> m_ResetEvent;
 
 		// Default values based on type
 		static constexpr T GetDefaultMin() 
@@ -53,7 +64,21 @@ namespace OloEngine::Audio::SoundGraph
 			AddParameter<T>(Min_ID, "Min", GetDefaultMin());
 			AddParameter<T>(Max_ID, "Max", GetDefaultMax());
 			AddParameter<i32>(Seed_ID, "Seed", -1);  // -1 means use time-based seed
+			AddParameter<f32>(Next_ID, "Next", 0.0f);  // Next trigger
+			AddParameter<f32>(Reset_ID, "Reset", 0.0f);  // Reset trigger
 			AddParameter<T>(Output_ID, "Output", T(0));
+
+			// Register input events with flag callbacks
+			AddInputEvent<f32>(Next_ID, "Next", [this](f32 value) {
+				if (value > 0.5f) m_NextFlag.SetDirty();
+			});
+			AddInputEvent<f32>(Reset_ID, "Reset", [this](f32 value) {
+				if (value > 0.5f) m_ResetFlag.SetDirty();
+			});
+
+			// Register output events
+			m_NextEvent = AddOutputEvent<f32>(OLO_IDENTIFIER("OnNext"), "OnNext");
+			m_ResetEvent = AddOutputEvent<f32>(OLO_IDENTIFIER("OnReset"), "OnReset");
 		}
 
 		virtual ~RandomNode() = default;
@@ -63,6 +88,92 @@ namespace OloEngine::Audio::SoundGraph
 		//======================================================================
 
 		void Process(f32** inputs, f32** outputs, u32 numSamples) override
+		{
+			// Check for triggers via parameters or flags
+			f32 nextValue = GetParameterValue<f32>(Next_ID);
+			f32 resetValue = GetParameterValue<f32>(Reset_ID);
+			
+			if (nextValue > 0.5f || m_NextFlag.CheckAndResetIfDirty())
+			{
+				GenerateNextValue();
+				// Fire Next event
+				if (m_NextEvent)
+					(*m_NextEvent)(1.0f);
+				// Reset trigger parameter
+				if (nextValue > 0.5f)
+					SetParameterValue(Next_ID, 0.0f);
+			}
+
+			if (resetValue > 0.5f || m_ResetFlag.CheckAndResetIfDirty())
+			{
+				ResetRandomSeed();
+				GenerateNextValue(); // Generate new value after reset
+				// Fire Reset event
+				if (m_ResetEvent)
+					(*m_ResetEvent)(1.0f);
+				// Reset trigger parameter
+				if (resetValue > 0.5f)
+					SetParameterValue(Reset_ID, 0.0f);
+			}
+
+			// Fill output buffer with current value (constant)
+			if (outputs && outputs[0])
+			{
+				const f32 outputValue = static_cast<f32>(m_LastValue);
+				for (u32 i = 0; i < numSamples; ++i)
+				{
+					outputs[0][i] = outputValue;
+				}
+			}
+		}
+
+		void Initialize(f64 sampleRate, u32 maxBufferSize) override
+		{
+			m_SampleRate = sampleRate;
+			
+			// Initialize random generator
+			const i32 seed = GetParameterValue<i32>(Seed_ID);
+			m_CurrentSeed = seed;
+			
+			if (seed == -1)
+			{
+				m_Random = FastRandom();  // Use default constructor (time-based seed)
+			}
+			else
+			{
+				m_Random.SetSeed(seed);
+			}
+
+			// Pure event-driven: no automatic value generation
+			// Values must be explicitly requested via Next event or parameter
+		}
+
+		Identifier GetTypeID() const override
+		{
+			if constexpr (std::is_same_v<T, f32>)
+				return OLO_IDENTIFIER("RandomNodeF32");
+			else if constexpr (std::is_same_v<T, i32>)
+				return OLO_IDENTIFIER("RandomNodeI32");
+			else
+				return OLO_IDENTIFIER("RandomNode");
+		}
+
+		const char* GetDisplayName() const override
+		{
+			if constexpr (std::is_same_v<T, f32>)
+				return "Random Float";
+			else if constexpr (std::is_same_v<T, i32>)
+				return "Random Integer";
+			else
+				return "Random";
+		}
+
+		//======================================================================
+		// Utility Methods
+		//======================================================================
+
+		/// Generate a new random value and update output
+		void GenerateNextValue()
 		{
 			const T minValue = GetParameterValue<T>(Min_ID);
 			const T maxValue = GetParameterValue<T>(Max_ID);
@@ -121,27 +232,17 @@ namespace OloEngine::Audio::SoundGraph
 
 			m_LastValue = randomValue;
 			SetParameterValue(Output_ID, randomValue);
-
-			// Fill output buffer if provided (constant value)
-			if (outputs && outputs[0])
-			{
-				const f32 outputValue = static_cast<f32>(randomValue);
-				for (u32 i = 0; i < numSamples; ++i)
-				{
-					outputs[0][i] = outputValue;
-				}
-			}
 		}
 
-		void Initialize(f64 sampleRate, u32 maxBufferSize) override
+		/// Reset the random generator with current or new seed
+		void ResetRandomSeed()
 		{
-			// Initialize random generator
 			const i32 seed = GetParameterValue<i32>(Seed_ID);
 			m_CurrentSeed = seed;
 			
 			if (seed == -1)
 			{
-				m_Random = FastRandom();  // Use default constructor (time-based seed)
+				m_Random = FastRandom();
 			}
 			else
 			{
@@ -149,35 +250,10 @@ namespace OloEngine::Audio::SoundGraph
 			}
 		}
 
-		Identifier GetTypeID() const override
-		{
-			if constexpr (std::is_same_v<T, f32>)
-				return OLO_IDENTIFIER("RandomNodeF32");
-			else if constexpr (std::is_same_v<T, i32>)
-				return OLO_IDENTIFIER("RandomNodeI32");
-			else
-				return OLO_IDENTIFIER("RandomNode");
-		}
-
-		const char* GetDisplayName() const override
-		{
-			if constexpr (std::is_same_v<T, f32>)
-				return "Random Float";
-			else if constexpr (std::is_same_v<T, i32>)
-				return "Random Integer";
-			else
-				return "Random";
-		}
-
-		//======================================================================
-		// Utility Methods
-		//======================================================================
-
 		/// Generate a new random value (useful for triggering updates)
 		T GenerateNext()
 		{
-			// Force regeneration by calling Process with dummy parameters
-			Process(nullptr, nullptr, 1);
+			GenerateNextValue();
 			return m_LastValue;
 		}
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../NodeProcessor.h"
+#include "../Flag.h"
 #include "OloEngine/Core/Identifier.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
@@ -17,12 +18,16 @@ namespace OloEngine::Audio::SoundGraph
 		// Endpoint identifiers
 		const Identifier Frequency_ID = OLO_IDENTIFIER("Frequency");
 		const Identifier PhaseOffset_ID = OLO_IDENTIFIER("PhaseOffset");
+		const Identifier ResetPhase_ID = OLO_IDENTIFIER("ResetPhase");
 		const Identifier Output_ID = OLO_IDENTIFIER("Output");
 
 		// Oscillator state
 		f64 m_Phase = 0.0;
 		f64 m_PhaseIncrement = 0.0;
 		f64 m_SampleRate = 48000.0;
+
+		// Event flag for ResetPhase
+		Flag m_ResetPhaseFlag;
 
 		// Frequency limits for audio safety
 		static constexpr f32 MIN_FREQ_HZ = 0.0f;
@@ -34,7 +39,13 @@ namespace OloEngine::Audio::SoundGraph
 			// Register parameters directly
 			AddParameter<f32>(Frequency_ID, "Frequency", 440.0f);     // Default to A4 (440 Hz)
 			AddParameter<f32>(PhaseOffset_ID, "PhaseOffset", 0.0f);   // Phase offset in radians
+			AddParameter<f32>(ResetPhase_ID, "ResetPhase", 0.0f);     // ResetPhase trigger
 			AddParameter<f32>(Output_ID, "Output", 0.0f);             // Sine wave output
+
+			// Register ResetPhase input event with flag callback
+			AddInputEvent<f32>(ResetPhase_ID, "ResetPhase", [this](f32 value) {
+				if (value > 0.5f) m_ResetPhaseFlag.SetDirty();
+			});
 		}
 
 		virtual ~SineNode() = default;
@@ -45,6 +56,17 @@ namespace OloEngine::Audio::SoundGraph
 
 		void Process(f32** inputs, f32** outputs, u32 numSamples) override
 		{
+			// Check for ResetPhase trigger via parameter or flag
+			f32 resetPhaseValue = GetParameterValue<f32>(ResetPhase_ID);
+			
+			if (resetPhaseValue > 0.5f || m_ResetPhaseFlag.CheckAndResetIfDirty())
+			{
+				ResetPhase();
+				// Reset trigger parameter
+				if (resetPhaseValue > 0.5f)
+					SetParameterValue(ResetPhase_ID, 0.0f);
+			}
+
 			const f32 frequency = glm::clamp(GetParameterValue<f32>(Frequency_ID), MIN_FREQ_HZ, MAX_FREQ_HZ);
 			const f32 phaseOffset = GetParameterValue<f32>(PhaseOffset_ID);
 			
