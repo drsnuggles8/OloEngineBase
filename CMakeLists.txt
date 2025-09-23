@@ -45,7 +45,7 @@ set_property(GLOBAL PROPERTY USE_FOLDERS YES)
 set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "Utilities/cmake")
 
 # Build options
-option(BUILD_TESTS "Build tests" OFF)
+option(BUILD_TESTS "Build tests" ON)
 
 # Main targets built by this project
 add_subdirectory(OloEngine)

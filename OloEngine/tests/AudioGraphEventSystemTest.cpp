@@ -3,6 +3,7 @@
 
 #include "OloEngine/Audio/SoundGraph/NodeProcessor.h"
 #include "OloEngine/Audio/SoundGraph/Events.h"
+#include "OloEngine/Core/Identifier.h"
 
 using namespace OloEngine::Audio::SoundGraph;
 
@@ -34,7 +35,7 @@ public:
         m_SampleRate = sampleRate;
     }
 
-    Identifier GetTypeID() const override { return OLO_IDENTIFIER("EventTest"); }
+    OloEngine::Identifier GetTypeID() const override { return OLO_IDENTIFIER("EventTest"); }
     const char* GetDisplayName() const override { return "Event Test"; }
 
     // Test accessors

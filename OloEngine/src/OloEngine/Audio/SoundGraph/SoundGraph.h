@@ -136,6 +136,8 @@ namespace OloEngine::Audio::SoundGraph
 		// Internal state
 		bool m_IsPlaying = false;
 		bool m_HasFinished = false;
+		std::string m_DebugName = "SoundGraph";
+		u64 m_CurrentFrame = 0;
 		
 		// Graph endpoints for input/output
 		f32 m_InputLeft = 0.0f;

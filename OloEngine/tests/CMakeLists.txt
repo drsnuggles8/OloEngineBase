@@ -8,6 +8,8 @@ add_executable(OloEngine-Tests
 		EndpointRegistrationTest.cpp
 		EventSystemTest.cpp
 		AudioMathNodeTest.cpp
+		AudioGraphEventSystemTest.cpp
+		TriggerArrayNodesTest.cpp
 		WavePlayerNodeTest.cpp
 		)
 		

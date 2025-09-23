@@ -69,7 +69,7 @@
 		"OloEngine/Audio/AudioLoader.cpp"
 		"OloEngine/Audio/AudioLoader.h"
 		
-		# SoundGraph Math Nodes (updated for new Core infrastructure)
+		# SoundGraph Nodes
 		"OloEngine/Audio/SoundGraph/Nodes/AddNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/SubtractNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/MultiplyNode.h"
@@ -77,23 +77,15 @@
 		"OloEngine/Audio/SoundGraph/Nodes/MinNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/MaxNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/ClampNode.h"
-		
-		# Advanced Math Nodes
 		"OloEngine/Audio/SoundGraph/Nodes/PowerNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/LogNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/ModuloNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/MapRangeNode.h"
-		
-		# Audio-Specific Math Nodes
 		"OloEngine/Audio/SoundGraph/Nodes/LinearToLogFrequencyNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/FrequencyLogToLinearNode.h"
-		
-		# Music Theory Nodes
 		"OloEngine/Audio/SoundGraph/Nodes/BPMToSecondsNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/NoteToFrequencyNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/FrequencyToNoteNode.h"
-		
-		# Generator Nodes
 		"OloEngine/Audio/SoundGraph/Nodes/NoiseNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/SineNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/CosineNode.h"
@@ -102,43 +94,37 @@
 		"OloEngine/Audio/SoundGraph/Nodes/SquareNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/SawtoothNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/RandomNode.h"
-		
-		# Filter Nodes
 		"OloEngine/Audio/SoundGraph/Nodes/LowPassFilterNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/HighPassFilterNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/BandPassFilterNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/NotchFilterNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/AllPassFilterNode.h"
-		
-		# Envelope Nodes
 		"OloEngine/Audio/SoundGraph/Nodes/ADEnvelope.h"
 		"OloEngine/Audio/SoundGraph/Nodes/ADSREnvelope.h"
 		"OloEngine/Audio/SoundGraph/Nodes/AREnvelope.h"
-		
-		# Trigger Nodes
 		"OloEngine/Audio/SoundGraph/Nodes/RepeatTrigger.h"
 		"OloEngine/Audio/SoundGraph/Nodes/TriggerCounter.h"
 		"OloEngine/Audio/SoundGraph/Nodes/DelayedTrigger.h"
-		
-		# Array Nodes
+		"OloEngine/Audio/SoundGraph/Nodes/OnPlayTrigger.h"
+		"OloEngine/Audio/SoundGraph/Nodes/OnFinishTrigger.h"
+		"OloEngine/Audio/SoundGraph/Nodes/ThresholdTrigger.h"
 		"OloEngine/Audio/SoundGraph/Nodes/GetRandom.h"
 		"OloEngine/Audio/SoundGraph/Nodes/Get.h"
-		
-		# Utility Nodes
 		"OloEngine/Audio/SoundGraph/Nodes/SampleAndHoldNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/GateNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/CompareNodes.h"
+		"OloEngine/Audio/SoundGraph/Nodes/ConditionalNodes.h"
 		
 		# Note: Other SoundGraph files temporarily disabled - need updating for new Core infrastructure
 		"OloEngine/Audio/SoundGraph/NodeProcessor.h"
 		"OloEngine/Audio/SoundGraph/NodeProcessor.cpp"
 		"OloEngine/Audio/SoundGraph/ParameterConnection.h"
 		"OloEngine/Audio/SoundGraph/ParameterConnection.cpp"
-		"OloEngine/Audio/SoundGraph/ParameterConnection.inl"
 		"OloEngine/Audio/SoundGraph/Events.h"
 		"OloEngine/Audio/SoundGraph/Flag.h"
 		"OloEngine/Audio/SoundGraph/Parameters.h"
-		# "OloEngine/Audio/SoundGraph/SoundGraph.h"
-		# "OloEngine/Audio/SoundGraph/SoundGraph.cpp"
+		"OloEngine/Audio/SoundGraph/SoundGraph.h"
+		"OloEngine/Audio/SoundGraph/SoundGraph.cpp"
 		# "OloEngine/Audio/SoundGraph/SoundGraphPlayer.h"
 		# "OloEngine/Audio/SoundGraph/SoundGraphPlayer.cpp"
 		# "OloEngine/Audio/SoundGraph/SoundGraphSerializer.h"

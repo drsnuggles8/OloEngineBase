@@ -44,6 +44,9 @@
 #include "OloEngine/Audio/SoundGraph/Nodes/SampleAndHoldNode.h"
 #include "OloEngine/Audio/SoundGraph/Nodes/GateNode.h"
 
+// Compare Nodes
+#include "OloEngine/Audio/SoundGraph/Nodes/CompareNodes.h"
+
 // Envelope Nodes
 #include "OloEngine/Audio/SoundGraph/Nodes/ADEnvelope.h"
 #include "OloEngine/Audio/SoundGraph/Nodes/ADSREnvelope.h"
@@ -2906,4 +2909,234 @@ TEST_F(MathNodeTest, AllPassFilterPhaseShiftTest)
 	EXPECT_LE(phase1000, glm::pi<f32>());
 	EXPECT_GE(phase5000, -glm::pi<f32>());
 	EXPECT_LE(phase5000, glm::pi<f32>());
+}
+
+//==============================================================================
+// CompareNodes Tests
+//==============================================================================
+
+class EqualNodeTest : public ::testing::Test
+{
+protected:
+	void SetUp() override
+	{
+		floatNode = std::make_unique<EqualNode<f32>>();
+		floatNode->Initialize(48000.0, 512);
+		
+		intNode = std::make_unique<EqualNode<i32>>();
+		intNode->Initialize(48000.0, 512);
+		
+		boolNode = std::make_unique<EqualNode<bool>>();
+		boolNode->Initialize(48000.0, 512);
+	}
+
+	std::unique_ptr<EqualNode<f32>> floatNode;
+	std::unique_ptr<EqualNode<i32>> intNode;
+	std::unique_ptr<EqualNode<bool>> boolNode;
+};
+
+TEST_F(EqualNodeTest, FloatEqualityComparison)
+{
+	f32* inputs[] = {nullptr};
+	f32* outputs[] = {nullptr};
+	
+	// Test equal values
+	floatNode->SetParameterValue(OLO_IDENTIFIER("LeftInput"), 5.0f);
+	floatNode->SetParameterValue(OLO_IDENTIFIER("RightInput"), 5.0f);
+	floatNode->Process(inputs, outputs, 64);
+	EXPECT_GT(floatNode->GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.5f);
+
+	// Test unequal values
+	floatNode->SetParameterValue(OLO_IDENTIFIER("LeftInput"), 5.0f);
+	floatNode->SetParameterValue(OLO_IDENTIFIER("RightInput"), 3.0f);
+	floatNode->Process(inputs, outputs, 64);
+	EXPECT_LT(floatNode->GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.5f);
+
+	// Test zero values
+	floatNode->SetParameterValue(OLO_IDENTIFIER("LeftInput"), 0.0f);
+	floatNode->SetParameterValue(OLO_IDENTIFIER("RightInput"), 0.0f);
+	floatNode->Process(inputs, outputs, 64);
+	EXPECT_GT(floatNode->GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.5f);
+
+	// Test negative values
+	floatNode->SetParameterValue(OLO_IDENTIFIER("LeftInput"), -2.5f);
+	floatNode->SetParameterValue(OLO_IDENTIFIER("RightInput"), -2.5f);
+	floatNode->Process(inputs, outputs, 64);
+	EXPECT_GT(floatNode->GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.5f);
+}
+
+TEST_F(EqualNodeTest, IntegerEqualityComparison)
+{
+	f32* inputs[] = {nullptr};
+	f32* outputs[] = {nullptr};
+	
+	// Test equal values
+	intNode->SetParameterValue(OLO_IDENTIFIER("LeftInput"), 42);
+	intNode->SetParameterValue(OLO_IDENTIFIER("RightInput"), 42);
+	intNode->Process(inputs, outputs, 64);
+	EXPECT_GT(intNode->GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.5f);
+
+	// Test unequal values
+	intNode->SetParameterValue(OLO_IDENTIFIER("LeftInput"), 10);
+	intNode->SetParameterValue(OLO_IDENTIFIER("RightInput"), 20);
+	intNode->Process(inputs, outputs, 64);
+	EXPECT_LT(intNode->GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.5f);
+}
+
+TEST_F(EqualNodeTest, BooleanEqualityComparison)
+{
+	f32* inputs[] = {nullptr};
+	f32* outputs[] = {nullptr};
+	
+	// Test equal true values
+	boolNode->SetParameterValue(OLO_IDENTIFIER("LeftInput"), true);
+	boolNode->SetParameterValue(OLO_IDENTIFIER("RightInput"), true);
+	boolNode->Process(inputs, outputs, 64);
+	EXPECT_GT(boolNode->GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.5f);
+
+	// Test equal false values
+	boolNode->SetParameterValue(OLO_IDENTIFIER("LeftInput"), false);
+	boolNode->SetParameterValue(OLO_IDENTIFIER("RightInput"), false);
+	boolNode->Process(inputs, outputs, 64);
+	EXPECT_GT(boolNode->GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.5f);
+
+	// Test unequal values
+	boolNode->SetParameterValue(OLO_IDENTIFIER("LeftInput"), true);
+	boolNode->SetParameterValue(OLO_IDENTIFIER("RightInput"), false);
+	boolNode->Process(inputs, outputs, 64);
+	EXPECT_LT(boolNode->GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.5f);
+}
+
+class GreaterThanNodeTest : public ::testing::Test
+{
+protected:
+	void SetUp() override
+	{
+		floatNode = std::make_unique<GreaterThanNode<f32>>();
+		floatNode->Initialize(48000.0, 512);
+		
+		intNode = std::make_unique<GreaterThanNode<i32>>();
+		intNode->Initialize(48000.0, 512);
+	}
+
+	std::unique_ptr<GreaterThanNode<f32>> floatNode;
+	std::unique_ptr<GreaterThanNode<i32>> intNode;
+};
+
+TEST_F(GreaterThanNodeTest, FloatGreaterThanComparison)
+{
+	f32* inputs[] = {nullptr};
+	f32* outputs[] = {nullptr};
+	
+	// Test left > right (should be true)
+	floatNode->SetParameterValue(OLO_IDENTIFIER("LeftInput"), 10.0f);
+	floatNode->SetParameterValue(OLO_IDENTIFIER("RightInput"), 5.0f);
+	floatNode->Process(inputs, outputs, 64);
+	EXPECT_GT(floatNode->GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.5f);
+
+	// Test left < right (should be false)
+	floatNode->SetParameterValue(OLO_IDENTIFIER("LeftInput"), 3.0f);
+	floatNode->SetParameterValue(OLO_IDENTIFIER("RightInput"), 8.0f);
+	floatNode->Process(inputs, outputs, 64);
+	EXPECT_LT(floatNode->GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.5f);
+
+	// Test left = right (should be false)
+	floatNode->SetParameterValue(OLO_IDENTIFIER("LeftInput"), 7.0f);
+	floatNode->SetParameterValue(OLO_IDENTIFIER("RightInput"), 7.0f);
+	floatNode->Process(inputs, outputs, 64);
+	EXPECT_LT(floatNode->GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.5f);
+
+	// Test with negative numbers
+	floatNode->SetParameterValue(OLO_IDENTIFIER("LeftInput"), -2.0f);
+	floatNode->SetParameterValue(OLO_IDENTIFIER("RightInput"), -5.0f);
+	floatNode->Process(inputs, outputs, 64);
+	EXPECT_GT(floatNode->GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.5f);
+}
+
+TEST_F(GreaterThanNodeTest, IntegerGreaterThanComparison)
+{
+	f32* inputs[] = {nullptr};
+	f32* outputs[] = {nullptr};
+	
+	// Test left > right
+	intNode->SetParameterValue(OLO_IDENTIFIER("LeftInput"), 15);
+	intNode->SetParameterValue(OLO_IDENTIFIER("RightInput"), 10);
+	intNode->Process(inputs, outputs, 64);
+	EXPECT_GT(intNode->GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.5f);
+
+	// Test left < right
+	intNode->SetParameterValue(OLO_IDENTIFIER("LeftInput"), 5);
+	intNode->SetParameterValue(OLO_IDENTIFIER("RightInput"), 8);
+	intNode->Process(inputs, outputs, 64);
+	EXPECT_LT(intNode->GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.5f);
+
+	// Test left = right
+	intNode->SetParameterValue(OLO_IDENTIFIER("LeftInput"), 7);
+	intNode->SetParameterValue(OLO_IDENTIFIER("RightInput"), 7);
+	intNode->Process(inputs, outputs, 64);
+	EXPECT_LT(intNode->GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.5f);
+}
+
+class LessThanNodeTest : public ::testing::Test
+{
+protected:
+	void SetUp() override
+	{
+		floatNode = std::make_unique<LessThanNode<f32>>();
+		floatNode->Initialize(48000.0, 512);
+		
+		intNode = std::make_unique<LessThanNode<i32>>();
+		intNode->Initialize(48000.0, 512);
+	}
+
+	std::unique_ptr<LessThanNode<f32>> floatNode;
+	std::unique_ptr<LessThanNode<i32>> intNode;
+};
+
+TEST_F(LessThanNodeTest, FloatLessThanComparison)
+{
+	f32* inputs[] = {nullptr};
+	f32* outputs[] = {nullptr};
+	
+	// Test left < right (should be true)
+	floatNode->SetParameterValue(OLO_IDENTIFIER("LeftInput"), 3.0f);
+	floatNode->SetParameterValue(OLO_IDENTIFIER("RightInput"), 8.0f);
+	floatNode->Process(inputs, outputs, 64);
+	EXPECT_GT(floatNode->GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.5f);
+
+	// Test left > right (should be false)
+	floatNode->SetParameterValue(OLO_IDENTIFIER("LeftInput"), 10.0f);
+	floatNode->SetParameterValue(OLO_IDENTIFIER("RightInput"), 5.0f);
+	floatNode->Process(inputs, outputs, 64);
+	EXPECT_LT(floatNode->GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.5f);
+
+	// Test left = right (should be false)
+	floatNode->SetParameterValue(OLO_IDENTIFIER("LeftInput"), 7.0f);
+	floatNode->SetParameterValue(OLO_IDENTIFIER("RightInput"), 7.0f);
+	floatNode->Process(inputs, outputs, 64);
+	EXPECT_LT(floatNode->GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.5f);
+}
+
+TEST_F(LessThanNodeTest, IntegerLessThanComparison)
+{
+	f32* inputs[] = {nullptr};
+	f32* outputs[] = {nullptr};
+	
+	// Test left < right
+	intNode->SetParameterValue(OLO_IDENTIFIER("LeftInput"), 5);
+	intNode->SetParameterValue(OLO_IDENTIFIER("RightInput"), 8);
+	intNode->Process(inputs, outputs, 64);
+	EXPECT_GT(intNode->GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.5f);
+
+	// Test left > right
+	intNode->SetParameterValue(OLO_IDENTIFIER("LeftInput"), 15);
+	intNode->SetParameterValue(OLO_IDENTIFIER("RightInput"), 10);
+	intNode->Process(inputs, outputs, 64);
+	EXPECT_LT(intNode->GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.5f);
+
+	// Test left = right
+	intNode->SetParameterValue(OLO_IDENTIFIER("LeftInput"), 7);
+	intNode->SetParameterValue(OLO_IDENTIFIER("RightInput"), 7);
+	intNode->Process(inputs, outputs, 64);
+	EXPECT_LT(intNode->GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.5f);
 }
