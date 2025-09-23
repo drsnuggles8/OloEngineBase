@@ -26,6 +26,8 @@
 // Generator Nodes
 #include "OloEngine/Audio/SoundGraph/Nodes/NoiseNode.h"
 #include "OloEngine/Audio/SoundGraph/Nodes/SineNode.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/CosineNode.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/PulseNode.h"
 #include "OloEngine/Audio/SoundGraph/Nodes/RandomNode.h"
 #include "OloEngine/Audio/SoundGraph/Nodes/TriangleNode.h"
 #include "OloEngine/Audio/SoundGraph/Nodes/SquareNode.h"
@@ -34,6 +36,9 @@
 // Filter Nodes
 #include "OloEngine/Audio/SoundGraph/Nodes/LowPassFilterNode.h"
 #include "OloEngine/Audio/SoundGraph/Nodes/HighPassFilterNode.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/BandPassFilterNode.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/NotchFilterNode.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/AllPassFilterNode.h"
 
 // Utility Nodes
 #include "OloEngine/Audio/SoundGraph/Nodes/SampleAndHoldNode.h"
@@ -934,6 +939,261 @@ TEST_F(MathNodeTest, SineNodeUtilityMethodsTest)
 	EXPECT_NEAR(node.GetCurrentPhase(), glm::pi<f64>() / 2.0, 0.001);
 }
 
+// CosineNode Tests  
+TEST_F(MathNodeTest, CosineNodeBasicOscillationTest)
+{
+	CosineNode node;
+	
+	// Initialize the node with known sample rate
+	node.Initialize(48000.0, 512);
+	
+	// Test 440Hz cosine wave (A4)
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 440.0f);
+	
+	f32* inputs[1] = { nullptr };
+	f32 outputBuffer[128];
+	f32* outputs[1] = { outputBuffer };
+	
+	// Process one buffer
+	node.Process(inputs, outputs, 128);
+	
+	// Check that output is within cosine wave range [-1, 1]
+	for (u32 i = 0; i < 128; ++i)
+	{
+		EXPECT_GE(outputBuffer[i], -1.0f);
+		EXPECT_LE(outputBuffer[i], 1.0f);
+	}
+	
+	// First sample should be 1 (cosine starts at 1 when phase=0)
+	EXPECT_NEAR(outputBuffer[0], 1.0f, 0.001f);
+}
+
+TEST_F(MathNodeTest, CosineNodeFrequencyClampingTest)
+{
+	CosineNode node;
+	node.Initialize(48000.0, 512);
+	
+	// Test frequency clamping - too high
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 25000.0f);
+	EXPECT_FLOAT_EQ(node.GetCurrentFrequency(), 22000.0f);
+	
+	// Test frequency clamping - negative
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), -100.0f);
+	EXPECT_FLOAT_EQ(node.GetCurrentFrequency(), 0.0f);
+}
+
+TEST_F(MathNodeTest, CosineNodePhaseTest)
+{
+	CosineNode node;
+	node.Initialize(48000.0, 512);
+	
+	// Set to 1Hz for easy phase calculation
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 1.0f);
+	
+	f32* inputs[1] = { nullptr };
+	f32 outputBuffer[128];
+	f32* outputs[1] = { outputBuffer };
+	
+	// Process multiple buffers to test phase continuity
+	node.Process(inputs, outputs, 128);
+	f32 firstBuffer = outputBuffer[127]; // Last sample of first buffer
+	
+	node.Process(inputs, outputs, 128);
+	f32 secondBuffer = outputBuffer[0]; // First sample of second buffer
+	
+	// Phase should be continuous (no jumps)
+	EXPECT_NEAR(firstBuffer, secondBuffer, 0.1f);
+}
+
+TEST_F(MathNodeTest, CosineNodeUtilityMethodsTest)
+{
+	CosineNode node;
+	node.Initialize(48000.0, 512);
+	
+	// Test frequency setting
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 880.0f);
+	EXPECT_FLOAT_EQ(node.GetCurrentFrequency(), 880.0f);
+	
+	// Test phase reset
+	node.ResetPhase();
+	EXPECT_FLOAT_EQ(node.GetCurrentPhase(), 0.0f);
+	
+	// Test phase setting
+	node.ResetPhase(glm::pi<f32>() / 2.0f); // 90 degrees
+	EXPECT_NEAR(node.GetCurrentPhase(), glm::pi<f64>() / 2.0, 0.001);
+}
+
+TEST_F(MathNodeTest, CosineVsSinePhaseRelationshipTest)
+{
+	SineNode sineNode;
+	CosineNode cosineNode;
+	
+	sineNode.Initialize(48000.0, 512);
+	cosineNode.Initialize(48000.0, 512);
+	
+	// Set same frequency for both
+	f32 testFreq = 440.0f;
+	sineNode.SetParameterValue(OLO_IDENTIFIER("Frequency"), testFreq);
+	cosineNode.SetParameterValue(OLO_IDENTIFIER("Frequency"), testFreq);
+	
+	f32* inputs[1] = { nullptr };
+	f32 sineBuffer[4], cosineBuffer[4];
+	f32* sineOutputs[1] = { sineBuffer };
+	f32* cosineOutputs[1] = { cosineBuffer };
+	
+	// Process a few samples
+	sineNode.Process(inputs, sineOutputs, 4);
+	cosineNode.Process(inputs, cosineOutputs, 4);
+	
+	// Cosine should lead sine by 90 degrees
+	// At phase=0: sin(0)=0, cos(0)=1
+	EXPECT_NEAR(sineBuffer[0], 0.0f, 0.001f);
+	EXPECT_NEAR(cosineBuffer[0], 1.0f, 0.001f);
+}
+
+// PulseNode Tests
+TEST_F(MathNodeTest, PulseNodeBasicSquareWaveTest)
+{
+	PulseNode node;
+	
+	// Initialize the node with known sample rate
+	node.Initialize(48000.0, 512);
+	
+	// Test 440Hz pulse wave (A4) with 50% duty cycle (square wave)
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 440.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("PulseWidth"), 0.5f);
+	
+	f32* inputs[1] = { nullptr };
+	f32 outputBuffer[128];
+	f32* outputs[1] = { outputBuffer };
+	
+	// Process one buffer
+	node.Process(inputs, outputs, 128);
+	
+	// Check that output is within pulse wave range [-1, 1]
+	for (u32 i = 0; i < 128; ++i)
+	{
+		EXPECT_TRUE(outputBuffer[i] == 1.0f || outputBuffer[i] == -1.0f);
+	}
+	
+	// First sample should be +1 (pulse starts high at 50% duty cycle)
+	EXPECT_FLOAT_EQ(outputBuffer[0], 1.0f);
+}
+
+TEST_F(MathNodeTest, PulseNodeDutyCycleTest)
+{
+	PulseNode node;
+	node.Initialize(1.0, 512); // 1Hz for easy testing
+	
+	// Test 25% duty cycle - should be high for 1/4 of period
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 1.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("PulseWidth"), 0.25f);
+	
+	f32* inputs[1] = { nullptr };
+	f32 outputBuffer[4];
+	f32* outputs[1] = { outputBuffer };
+	
+	// Process 4 samples (1 full period at 1Hz sample rate)
+	node.Process(inputs, outputs, 4);
+	
+	// First sample should be high (start of pulse)
+	EXPECT_FLOAT_EQ(outputBuffer[0], 1.0f);
+	// Second, third, fourth samples should be low (75% of period)
+	EXPECT_FLOAT_EQ(outputBuffer[1], -1.0f);
+	EXPECT_FLOAT_EQ(outputBuffer[2], -1.0f);
+	EXPECT_FLOAT_EQ(outputBuffer[3], -1.0f);
+}
+
+TEST_F(MathNodeTest, PulseNodePulseWidthClampingTest)
+{
+	PulseNode node;
+	node.Initialize(48000.0, 512);
+	
+	// Test pulse width clamping - too low
+	node.SetPulseWidth(-0.5f);
+	auto range = PulseNode::GetPulseWidthRange();
+	EXPECT_FLOAT_EQ(node.GetCurrentPulseWidth(), range.first);
+	
+	// Test pulse width clamping - too high
+	node.SetPulseWidth(1.5f);
+	EXPECT_FLOAT_EQ(node.GetCurrentPulseWidth(), range.second);
+	
+	// Test valid pulse width
+	node.SetPulseWidth(0.3f);
+	EXPECT_FLOAT_EQ(node.GetCurrentPulseWidth(), 0.3f);
+}
+
+TEST_F(MathNodeTest, PulseNodeFrequencyClampingTest)
+{
+	PulseNode node;
+	node.Initialize(48000.0, 512);
+	
+	// Test frequency clamping - too high
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 25000.0f);
+	EXPECT_FLOAT_EQ(node.GetCurrentFrequency(), 22000.0f);
+	
+	// Test frequency clamping - negative
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), -100.0f);
+	EXPECT_FLOAT_EQ(node.GetCurrentFrequency(), 0.0f);
+}
+
+TEST_F(MathNodeTest, PulseNodeUtilityMethodsTest)
+{
+	PulseNode node;
+	node.Initialize(48000.0, 512);
+	
+	// Test frequency setting
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 880.0f);
+	EXPECT_FLOAT_EQ(node.GetCurrentFrequency(), 880.0f);
+	
+	// Test pulse width setting
+	node.SetPulseWidth(0.75f);
+	EXPECT_FLOAT_EQ(node.GetCurrentPulseWidth(), 0.75f);
+	
+	// Test phase reset
+	node.ResetPhase();
+	EXPECT_FLOAT_EQ(node.GetCurrentPhase(), 0.0f);
+	
+	// Test phase setting
+	node.ResetPhase(glm::pi<f32>() / 2.0f); // 90 degrees
+	EXPECT_NEAR(node.GetCurrentPhase(), glm::pi<f64>() / 2.0, 0.001);
+}
+
+TEST_F(MathNodeTest, PulseNodePWMEffectTest)
+{
+	PulseNode node;
+	node.Initialize(8.0, 512); // 8 Hz for easy testing
+	
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 8.0f);
+	
+	f32* inputs[1] = { nullptr };
+	f32 outputBuffer[8];
+	f32* outputs[1] = { outputBuffer };
+	
+	// Test different pulse widths
+	std::vector<f32> pulseWidths = { 0.1f, 0.5f, 0.9f };
+	
+	for (f32 width : pulseWidths)
+	{
+		node.ResetPhase(0.0f);
+		node.SetPulseWidth(width);
+		
+		// Process one period (8 samples at 8Hz)
+		node.Process(inputs, outputs, 8);
+		
+		// Count high samples
+		i32 highSamples = 0;
+		for (u32 i = 0; i < 8; ++i)
+		{
+			if (outputBuffer[i] > 0.0f) highSamples++;
+		}
+		
+		// Expected high samples should be approximately width * period
+		i32 expectedHigh = static_cast<i32>(width * 8.0f);
+		EXPECT_TRUE(abs(highSamples - expectedHigh) <= 1); // Allow 1 sample tolerance
+	}
+}
+
 // RandomNode Tests
 TEST_F(MathNodeTest, RandomNodeF32BasicTest)
 {
@@ -1700,6 +1960,233 @@ TEST_F(MathNodeTest, HighPassFilterBasicTest)
 	EXPECT_LT(outputLevel, 0.1f); // Should be much less than input
 }
 
+TEST_F(MathNodeTest, BandPassFilterBasicTest)
+{
+	BandPassFilterNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Set center frequency to 1000 Hz with 200 Hz bandwidth
+	node.SetParameterValue(OLO_IDENTIFIER("CenterFreq"), 1000.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Bandwidth"), 200.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Resonance"), 1.0f);
+	
+	// Test with a DC signal (should be filtered out)
+	f32 inputBuffer[512];
+	f32 outputBuffer[512];
+	
+	// Fill with DC signal
+	for (u32 i = 0; i < 512; ++i)
+	{
+		inputBuffer[i] = 1.0f;
+	}
+	
+	f32* inputs[1] = { inputBuffer };
+	f32* outputs[1] = { outputBuffer };
+	
+	node.Process(inputs, outputs, 512);
+	
+	// Output should be much smaller than input (DC filtered out)
+	f32 outputLevel = 0.0f;
+	for (u32 i = 0; i < 512; ++i)
+	{
+		outputLevel += glm::abs(outputBuffer[i]);
+	}
+	outputLevel /= 512.0f;
+	
+	EXPECT_LT(outputLevel, 0.1f); // Should be much less than input
+}
+
+TEST_F(MathNodeTest, BandPassFilterParameterClampingTest)
+{
+	BandPassFilterNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Test center frequency clamping
+	node.SetParameterValue(OLO_IDENTIFIER("CenterFreq"), -100.0f); // Too low
+	EXPECT_GE(node.GetCenterFrequency(), 20.0f); // Should be clamped to minimum
+	
+	node.SetParameterValue(OLO_IDENTIFIER("CenterFreq"), 50000.0f); // Too high
+	EXPECT_LT(node.GetCenterFrequency(), 22000.0f); // Should be clamped below Nyquist
+	
+	// Test bandwidth clamping
+	node.SetParameterValue(OLO_IDENTIFIER("CenterFreq"), 1000.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Bandwidth"), -50.0f); // Negative bandwidth
+	EXPECT_GE(node.GetBandwidth(), 1.0f); // Should be clamped to minimum
+	
+	node.SetParameterValue(OLO_IDENTIFIER("Bandwidth"), 2000.0f); // Bandwidth larger than center freq
+	EXPECT_LE(node.GetBandwidth(), node.GetCenterFrequency()); // Should be limited
+	
+	// Test resonance clamping
+	node.SetParameterValue(OLO_IDENTIFIER("Resonance"), -1.0f); // Too low
+	EXPECT_GE(node.GetResonance(), 0.1f); // Should be clamped to minimum
+	
+	node.SetParameterValue(OLO_IDENTIFIER("Resonance"), 50.0f); // Too high
+	EXPECT_LE(node.GetResonance(), 10.0f); // Should be clamped to maximum
+}
+
+TEST_F(MathNodeTest, BandPassFilterUtilityMethodsTest)
+{
+	BandPassFilterNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Set up known parameters
+	node.SetParameterValue(OLO_IDENTIFIER("CenterFreq"), 1000.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Bandwidth"), 200.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Resonance"), 2.0f);
+	
+	// Test utility methods
+	EXPECT_NEAR(node.GetCenterFrequency(), 1000.0f, 0.1f);
+	EXPECT_NEAR(node.GetBandwidth(), 200.0f, 0.1f);
+	EXPECT_NEAR(node.GetResonance(), 2.0f, 0.1f);
+	
+	// Test effective Q calculation
+	f32 expectedQ = (1000.0f / 200.0f) * 2.0f; // center_freq / bandwidth * resonance
+	EXPECT_NEAR(node.GetEffectiveQ(), expectedQ, 0.1f);
+	
+	// Test cutoff frequency calculations
+	f32 lowCutoff = node.GetLowCutoff();
+	f32 highCutoff = node.GetHighCutoff();
+	EXPECT_LT(lowCutoff, 1000.0f); // Low cutoff should be below center
+	EXPECT_GT(highCutoff, 1000.0f); // High cutoff should be above center
+	EXPECT_NEAR(highCutoff - lowCutoff, 200.0f, 50.0f); // Approximate bandwidth
+}
+
+TEST_F(MathNodeTest, BandPassFilterResetTest)
+{
+	BandPassFilterNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Set filter parameters
+	node.SetParameterValue(OLO_IDENTIFIER("CenterFreq"), 1000.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Bandwidth"), 200.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Resonance"), 2.0f);
+	
+	// Process some audio to build up filter state
+	f32 inputBuffer[64];
+	f32 outputBuffer[64];
+	
+	for (u32 i = 0; i < 64; ++i)
+	{
+		inputBuffer[i] = glm::sin(2.0f * glm::pi<f32>() * 1000.0f * i / 44100.0f);
+	}
+	
+	f32* inputs[1] = { inputBuffer };
+	f32* outputs[1] = { outputBuffer };
+	
+	// Process first time to build up internal state
+	node.Process(inputs, outputs, 64);
+	
+	// Reset filter state should not crash and should complete
+	EXPECT_NO_THROW(node.ResetFilter());
+	
+	// Should be able to process again after reset
+	EXPECT_NO_THROW(node.Process(inputs, outputs, 64));
+	
+	// Basic functionality check - output should not be all zeros for sine input at center frequency
+	bool hasNonZeroOutput = false;
+	for (u32 i = 10; i < 64; ++i) // Skip first samples due to transient
+	{
+		if (glm::abs(outputBuffer[i]) > 0.001f)
+		{
+			hasNonZeroOutput = true;
+			break;
+		}
+	}
+	EXPECT_TRUE(hasNonZeroOutput) << "Filter should produce output for signal at center frequency";
+}
+
+TEST_F(MathNodeTest, BandPassFilterSetterMethodsTest)
+{
+	BandPassFilterNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Test SetCenterFrequency with validation
+	node.SetCenterFrequency(1500.0f);
+	EXPECT_NEAR(node.GetCenterFrequency(), 1500.0f, 0.1f);
+	
+	node.SetCenterFrequency(-100.0f); // Should be clamped
+	EXPECT_GE(node.GetCenterFrequency(), 20.0f);
+	
+	// Test SetBandwidth with validation
+	node.SetCenterFrequency(1000.0f); // Reset to known value
+	node.SetBandwidth(300.0f);
+	EXPECT_NEAR(node.GetBandwidth(), 300.0f, 0.1f);
+	
+	node.SetBandwidth(-50.0f); // Should be clamped
+	EXPECT_GE(node.GetBandwidth(), 1.0f);
+	
+	node.SetBandwidth(2000.0f); // Larger than center freq, should be limited
+	EXPECT_LE(node.GetBandwidth(), node.GetCenterFrequency());
+}
+
+TEST_F(MathNodeTest, BandPassFilterFrequencyResponseTest)
+{
+	BandPassFilterNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Set up filter: 1000 Hz center, 200 Hz bandwidth, moderate resonance
+	node.SetParameterValue(OLO_IDENTIFIER("CenterFreq"), 1000.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Bandwidth"), 200.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Resonance"), 1.5f);
+	
+	f32 inputBuffer[64];
+	f32 outputBuffer[64];
+	f32* inputs[1] = { inputBuffer };
+	f32* outputs[1] = { outputBuffer };
+	
+	// Test at center frequency (should pass well)
+	for (u32 i = 0; i < 64; ++i)
+	{
+		inputBuffer[i] = glm::sin(2.0f * glm::pi<f32>() * 1000.0f * i / 44100.0f);
+	}
+	
+	node.ResetFilter();
+	node.Process(inputs, outputs, 64);
+	
+	f32 centerFreqLevel = 0.0f;
+	for (u32 i = 32; i < 64; ++i) // Skip transient
+	{
+		centerFreqLevel += glm::abs(outputBuffer[i]);
+	}
+	centerFreqLevel /= 32.0f;
+	
+	// Test at low frequency (should be attenuated)
+	for (u32 i = 0; i < 64; ++i)
+	{
+		inputBuffer[i] = glm::sin(2.0f * glm::pi<f32>() * 200.0f * i / 44100.0f);
+	}
+	
+	node.ResetFilter();
+	node.Process(inputs, outputs, 64);
+	
+	f32 lowFreqLevel = 0.0f;
+	for (u32 i = 32; i < 64; ++i) // Skip transient
+	{
+		lowFreqLevel += glm::abs(outputBuffer[i]);
+	}
+	lowFreqLevel /= 32.0f;
+	
+	// Test at high frequency (should be attenuated)
+	for (u32 i = 0; i < 64; ++i)
+	{
+		inputBuffer[i] = glm::sin(2.0f * glm::pi<f32>() * 5000.0f * i / 44100.0f);
+	}
+	
+	node.ResetFilter();
+	node.Process(inputs, outputs, 64);
+	
+	f32 highFreqLevel = 0.0f;
+	for (u32 i = 32; i < 64; ++i) // Skip transient
+	{
+		highFreqLevel += glm::abs(outputBuffer[i]);
+	}
+	highFreqLevel /= 32.0f;
+	
+	// Center frequency should pass better than frequencies outside the band
+	EXPECT_GT(centerFreqLevel, lowFreqLevel);
+	EXPECT_GT(centerFreqLevel, highFreqLevel);
+}
+
 //==============================================================================
 // Utility Node Tests
 //==============================================================================
@@ -1922,4 +2409,483 @@ TEST_F(MathNodeTest, ArrayNodeEmptyArrayTest)
 	getRandomNode.SetParameterValue(OLO_IDENTIFIER("Next"), 1.0f);
 	getRandomNode.Process(inputs, outputs, 64);
 	EXPECT_EQ(getRandomNode.GetParameterValue<f32>(OLO_IDENTIFIER("Output")), 0.0f);
+}
+
+//==============================================================================
+// NotchFilter Node Tests
+//==============================================================================
+
+TEST_F(MathNodeTest, NotchFilterBasicTest)
+{
+	NotchFilterNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Set center frequency to 1000 Hz with 200 Hz bandwidth
+	node.SetParameterValue(OLO_IDENTIFIER("CenterFreq"), 1000.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Bandwidth"), 200.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Resonance"), 1.0f);
+	
+	// Test with a signal at the center frequency (should be attenuated)
+	f32 inputBuffer[512];
+	f32 outputBuffer[512];
+	
+	// Fill with 1000 Hz sine wave (at center frequency - should be notched out)
+	for (u32 i = 0; i < 512; ++i)
+	{
+		inputBuffer[i] = glm::sin(2.0f * glm::pi<f32>() * 1000.0f * i / 44100.0f);
+	}
+	
+	f32* inputs[1] = { inputBuffer };
+	f32* outputs[1] = { outputBuffer };
+	
+	node.Process(inputs, outputs, 512);
+	
+	// Calculate average output level (should be much lower than input)
+	f32 outputLevel = 0.0f;
+	for (u32 i = 100; i < 512; ++i) // Skip transient
+	{
+		outputLevel += glm::abs(outputBuffer[i]);
+	}
+	outputLevel /= 412.0f;
+	
+	// Input level for comparison
+	f32 inputLevel = 0.0f;
+	for (u32 i = 100; i < 512; ++i)
+	{
+		inputLevel += glm::abs(inputBuffer[i]);
+	}
+	inputLevel /= 412.0f;
+	
+	// Output should be significantly attenuated (less than 20% of input)
+	EXPECT_LT(outputLevel, inputLevel * 0.2f);
+}
+
+TEST_F(MathNodeTest, NotchFilterParameterClampingTest)
+{
+	NotchFilterNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Test center frequency clamping
+	node.SetParameterValue(OLO_IDENTIFIER("CenterFreq"), -100.0f); // Too low
+	EXPECT_GE(node.GetCenterFrequency(), 20.0f); // Should be clamped to minimum
+	
+	node.SetParameterValue(OLO_IDENTIFIER("CenterFreq"), 50000.0f); // Too high
+	EXPECT_LT(node.GetCenterFrequency(), 22000.0f); // Should be clamped below Nyquist
+	
+	// Test bandwidth clamping
+	node.SetParameterValue(OLO_IDENTIFIER("CenterFreq"), 1000.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Bandwidth"), -50.0f); // Negative bandwidth
+	EXPECT_GE(node.GetBandwidth(), 1.0f); // Should be clamped to minimum
+	
+	node.SetParameterValue(OLO_IDENTIFIER("Bandwidth"), 2000.0f); // Bandwidth larger than center freq
+	EXPECT_LE(node.GetBandwidth(), node.GetCenterFrequency()); // Should be limited
+	
+	// Test resonance clamping
+	node.SetParameterValue(OLO_IDENTIFIER("Resonance"), -1.0f); // Too low
+	EXPECT_GE(node.GetResonance(), 0.1f); // Should be clamped to minimum
+	
+	node.SetParameterValue(OLO_IDENTIFIER("Resonance"), 50.0f); // Too high
+	EXPECT_LE(node.GetResonance(), 10.0f); // Should be clamped to maximum
+}
+
+TEST_F(MathNodeTest, NotchFilterUtilityMethodsTest)
+{
+	NotchFilterNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Set up known parameters
+	node.SetParameterValue(OLO_IDENTIFIER("CenterFreq"), 1000.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Bandwidth"), 200.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Resonance"), 2.0f);
+	
+	// Test utility methods
+	EXPECT_NEAR(node.GetCenterFrequency(), 1000.0f, 0.1f);
+	EXPECT_NEAR(node.GetBandwidth(), 200.0f, 0.1f);
+	EXPECT_NEAR(node.GetResonance(), 2.0f, 0.1f);
+	
+	// Test effective Q calculation
+	f32 expectedQ = (1000.0f / 200.0f) * 2.0f; // center_freq / bandwidth * resonance
+	EXPECT_NEAR(node.GetEffectiveQ(), expectedQ, 0.1f);
+	
+	// Test cutoff frequency calculations
+	f32 lowCutoff = node.GetLowCutoff();
+	f32 highCutoff = node.GetHighCutoff();
+	EXPECT_LT(lowCutoff, 1000.0f); // Low cutoff should be below center
+	EXPECT_GT(highCutoff, 1000.0f); // High cutoff should be above center
+	EXPECT_NEAR(highCutoff - lowCutoff, 200.0f, 50.0f); // Approximate bandwidth
+}
+
+TEST_F(MathNodeTest, NotchFilterResetTest)
+{
+	NotchFilterNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Set filter parameters
+	node.SetParameterValue(OLO_IDENTIFIER("CenterFreq"), 1000.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Bandwidth"), 200.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Resonance"), 2.0f);
+	
+	// Process some audio to build up filter state
+	f32 inputBuffer[64];
+	f32 outputBuffer[64];
+	
+	for (u32 i = 0; i < 64; ++i)
+	{
+		inputBuffer[i] = glm::sin(2.0f * glm::pi<f32>() * 500.0f * i / 44100.0f); // Frequency outside notch
+	}
+	
+	f32* inputs[1] = { inputBuffer };
+	f32* outputs[1] = { outputBuffer };
+	
+	// Process first time to build up internal state
+	node.Process(inputs, outputs, 64);
+	
+	// Reset filter state should not crash and should complete
+	EXPECT_NO_THROW(node.ResetFilter());
+	
+	// Should be able to process again after reset
+	EXPECT_NO_THROW(node.Process(inputs, outputs, 64));
+	
+	// Basic functionality check - output should not be all zeros for signal outside notch
+	bool hasNonZeroOutput = false;
+	for (u32 i = 10; i < 64; ++i) // Skip first samples due to transient
+	{
+		if (glm::abs(outputBuffer[i]) > 0.001f)
+		{
+			hasNonZeroOutput = true;
+			break;
+		}
+	}
+	EXPECT_TRUE(hasNonZeroOutput) << "Filter should produce output for signal outside notch frequency";
+}
+
+TEST_F(MathNodeTest, NotchFilterSetterMethodsTest)
+{
+	NotchFilterNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Test SetCenterFrequency with validation
+	node.SetCenterFrequency(1500.0f);
+	EXPECT_NEAR(node.GetCenterFrequency(), 1500.0f, 0.1f);
+	
+	node.SetCenterFrequency(-100.0f); // Should be clamped
+	EXPECT_GE(node.GetCenterFrequency(), 20.0f);
+	
+	// Test SetBandwidth with validation
+	node.SetCenterFrequency(1000.0f); // Reset to known value
+	node.SetBandwidth(300.0f);
+	EXPECT_NEAR(node.GetBandwidth(), 300.0f, 0.1f);
+	
+	node.SetBandwidth(-50.0f); // Should be clamped
+	EXPECT_GE(node.GetBandwidth(), 1.0f);
+	
+	node.SetBandwidth(2000.0f); // Larger than center freq, should be limited
+	EXPECT_LE(node.GetBandwidth(), node.GetCenterFrequency());
+}
+
+TEST_F(MathNodeTest, NotchFilterFrequencyResponseTest)
+{
+	NotchFilterNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Set up filter: 1000 Hz center, 200 Hz bandwidth, moderate resonance
+	node.SetParameterValue(OLO_IDENTIFIER("CenterFreq"), 1000.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Bandwidth"), 200.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Resonance"), 1.5f);
+	
+	f32 inputBuffer[64];
+	f32 outputBuffer[64];
+	f32* inputs[1] = { inputBuffer };
+	f32* outputs[1] = { outputBuffer };
+	
+	// Test at center frequency (should be attenuated)
+	for (u32 i = 0; i < 64; ++i)
+	{
+		inputBuffer[i] = glm::sin(2.0f * glm::pi<f32>() * 1000.0f * i / 44100.0f);
+	}
+	
+	node.ResetFilter();
+	node.Process(inputs, outputs, 64);
+	
+	f32 centerFreqLevel = 0.0f;
+	for (u32 i = 32; i < 64; ++i) // Skip transient
+	{
+		centerFreqLevel += glm::abs(outputBuffer[i]);
+	}
+	centerFreqLevel /= 32.0f;
+	
+	// Test at frequency outside notch (should pass well)
+	for (u32 i = 0; i < 64; ++i)
+	{
+		inputBuffer[i] = glm::sin(2.0f * glm::pi<f32>() * 500.0f * i / 44100.0f);
+	}
+	
+	node.ResetFilter();
+	node.Process(inputs, outputs, 64);
+	
+	f32 outsideNotchLevel = 0.0f;
+	for (u32 i = 32; i < 64; ++i) // Skip transient
+	{
+		outsideNotchLevel += glm::abs(outputBuffer[i]);
+	}
+	outsideNotchLevel /= 32.0f;
+	
+	// Test at another frequency outside notch (should pass well)
+	for (u32 i = 0; i < 64; ++i)
+	{
+		inputBuffer[i] = glm::sin(2.0f * glm::pi<f32>() * 2000.0f * i / 44100.0f);
+	}
+	
+	node.ResetFilter();
+	node.Process(inputs, outputs, 64);
+	
+	f32 highFreqLevel = 0.0f;
+	for (u32 i = 32; i < 64; ++i) // Skip transient
+	{
+		highFreqLevel += glm::abs(outputBuffer[i]);
+	}
+	highFreqLevel /= 32.0f;
+	
+	// Frequencies outside the notch should pass better than the center frequency
+	EXPECT_GT(outsideNotchLevel, centerFreqLevel);
+	EXPECT_GT(highFreqLevel, centerFreqLevel);
+}
+
+//==============================================================================
+// AllPassFilter Node Tests
+//==============================================================================
+
+TEST_F(MathNodeTest, AllPassFilterBasicTest)
+{
+	AllPassFilterNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Set characteristic frequency to 1000 Hz
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 1000.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Resonance"), 1.0f);
+	
+	// Test with a sine wave at different frequencies
+	f32 inputBuffer[512];
+	f32 outputBuffer[512];
+	
+	// Fill with 1000 Hz sine wave
+	for (u32 i = 0; i < 512; ++i)
+	{
+		inputBuffer[i] = glm::sin(2.0f * glm::pi<f32>() * 1000.0f * i / 44100.0f);
+	}
+	
+	f32* inputs[1] = { inputBuffer };
+	f32* outputs[1] = { outputBuffer };
+	
+	node.Process(inputs, outputs, 512);
+	
+	// Calculate RMS levels (all-pass should preserve amplitude)
+	f32 inputRMS = 0.0f;
+	f32 outputRMS = 0.0f;
+	
+	for (u32 i = 100; i < 512; ++i) // Skip transient
+	{
+		inputRMS += inputBuffer[i] * inputBuffer[i];
+		outputRMS += outputBuffer[i] * outputBuffer[i];
+	}
+	
+	inputRMS = glm::sqrt(inputRMS / 412.0f);
+	outputRMS = glm::sqrt(outputRMS / 412.0f);
+	
+	// All-pass filter should preserve amplitude (within 5% tolerance)
+	EXPECT_NEAR(outputRMS, inputRMS, inputRMS * 0.05f);
+}
+
+TEST_F(MathNodeTest, AllPassFilterParameterClampingTest)
+{
+	AllPassFilterNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Test frequency clamping
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), -100.0f); // Too low
+	EXPECT_GE(node.GetFrequency(), 20.0f); // Should be clamped to minimum
+	
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 50000.0f); // Too high
+	EXPECT_LT(node.GetFrequency(), 22000.0f); // Should be clamped below Nyquist
+	
+	// Test resonance clamping
+	node.SetParameterValue(OLO_IDENTIFIER("Resonance"), -1.0f); // Too low
+	EXPECT_GE(node.GetResonance(), 0.1f); // Should be clamped to minimum
+	
+	node.SetParameterValue(OLO_IDENTIFIER("Resonance"), 50.0f); // Too high
+	EXPECT_LE(node.GetResonance(), 10.0f); // Should be clamped to maximum
+}
+
+TEST_F(MathNodeTest, AllPassFilterUtilityMethodsTest)
+{
+	AllPassFilterNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Set up known parameters
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 1000.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Resonance"), 2.0f);
+	
+	// Test utility methods
+	EXPECT_NEAR(node.GetFrequency(), 1000.0f, 0.1f);
+	EXPECT_NEAR(node.GetResonance(), 2.0f, 0.1f);
+	
+	// All-pass filter should preserve amplitude
+	EXPECT_TRUE(node.PreservesAmplitude());
+	
+	// Test phase shift calculation (should be non-zero)
+	f32 phaseShift500 = node.GetPhaseShiftAt(500.0f);  // Below characteristic freq
+	f32 phaseShift1000 = node.GetPhaseShiftAt(1000.0f); // At characteristic freq
+	f32 phaseShift2000 = node.GetPhaseShiftAt(2000.0f); // Above characteristic freq
+	
+	// Phase shifts should be different at different frequencies
+	EXPECT_NE(phaseShift500, phaseShift1000);
+	EXPECT_NE(phaseShift1000, phaseShift2000);
+	
+	// Group delay should be positive
+	f32 groupDelay = node.GetGroupDelay();
+	EXPECT_GT(groupDelay, 0.0f);
+}
+
+TEST_F(MathNodeTest, AllPassFilterResetTest)
+{
+	AllPassFilterNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Set filter parameters
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 1000.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Resonance"), 2.0f);
+	
+	// Process some audio to build up filter state
+	f32 inputBuffer[64];
+	f32 outputBuffer[64];
+	
+	for (u32 i = 0; i < 64; ++i)
+	{
+		inputBuffer[i] = glm::sin(2.0f * glm::pi<f32>() * 1000.0f * i / 44100.0f);
+	}
+	
+	f32* inputs[1] = { inputBuffer };
+	f32* outputs[1] = { outputBuffer };
+	
+	// Process first time to build up internal state
+	node.Process(inputs, outputs, 64);
+	
+	// Reset filter state should not crash and should complete
+	EXPECT_NO_THROW(node.ResetFilter());
+	
+	// Should be able to process again after reset
+	EXPECT_NO_THROW(node.Process(inputs, outputs, 64));
+	
+	// Basic functionality check - output should not be all zeros
+	bool hasNonZeroOutput = false;
+	for (u32 i = 10; i < 64; ++i) // Skip first samples due to transient
+	{
+		if (glm::abs(outputBuffer[i]) > 0.001f)
+		{
+			hasNonZeroOutput = true;
+			break;
+		}
+	}
+	EXPECT_TRUE(hasNonZeroOutput) << "All-pass filter should produce output";
+}
+
+TEST_F(MathNodeTest, AllPassFilterSetterMethodsTest)
+{
+	AllPassFilterNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Test SetFrequency with validation
+	node.SetFrequency(1500.0f);
+	EXPECT_NEAR(node.GetFrequency(), 1500.0f, 0.1f);
+	
+	node.SetFrequency(-100.0f); // Should be clamped
+	EXPECT_GE(node.GetFrequency(), 20.0f);
+	
+	node.SetFrequency(50000.0f); // Should be clamped
+	EXPECT_LE(node.GetFrequency(), 22000.0f);
+	
+	// Test SetResonance with validation
+	node.SetResonance(3.0f);
+	EXPECT_NEAR(node.GetResonance(), 3.0f, 0.1f);
+	
+	node.SetResonance(-1.0f); // Should be clamped
+	EXPECT_GE(node.GetResonance(), 0.1f);
+	
+	node.SetResonance(50.0f); // Should be clamped
+	EXPECT_LE(node.GetResonance(), 10.0f);
+}
+
+TEST_F(MathNodeTest, AllPassFilterAmplitudePreservationTest)
+{
+	AllPassFilterNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Set up filter with moderate parameters
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 1000.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Resonance"), 1.5f); // Lower Q for more stable behavior
+	
+	f32 inputBuffer[256];  // Longer buffer for better steady-state
+	f32 outputBuffer[256];
+	f32* inputs[1] = { inputBuffer };
+	f32* outputs[1] = { outputBuffer };
+	
+	// Test multiple frequencies to ensure amplitude preservation
+	std::vector<f32> testFreqs = { 200.0f, 500.0f, 1000.0f, 2000.0f, 4000.0f };
+	
+	for (f32 testFreq : testFreqs)
+	{
+		// Generate test signal
+		for (u32 i = 0; i < 256; ++i)
+		{
+			inputBuffer[i] = glm::sin(2.0f * glm::pi<f32>() * testFreq * i / 44100.0f);
+		}
+		
+		node.ResetFilter();
+		node.Process(inputs, outputs, 256);
+		
+		// Calculate RMS levels (use last quarter to ensure steady state)
+		f32 inputRMS = 0.0f;
+		f32 outputRMS = 0.0f;
+		
+		for (u32 i = 192; i < 256; ++i) // Use last quarter for steady state
+		{
+			inputRMS += inputBuffer[i] * inputBuffer[i];
+			outputRMS += outputBuffer[i] * outputBuffer[i];
+		}
+		
+		inputRMS = glm::sqrt(inputRMS / 64.0f);
+		outputRMS = glm::sqrt(outputRMS / 64.0f);
+		
+		// All-pass should preserve amplitude within 10% in steady state
+		EXPECT_NEAR(outputRMS, inputRMS, inputRMS * 0.10f) 
+			<< "Amplitude not preserved at " << testFreq << " Hz";
+	}
+}
+
+TEST_F(MathNodeTest, AllPassFilterPhaseShiftTest)
+{
+	AllPassFilterNode node;
+	node.Initialize(44100.0, 512);
+	
+	// Set up filter
+	node.SetParameterValue(OLO_IDENTIFIER("Frequency"), 1000.0f);
+	node.SetParameterValue(OLO_IDENTIFIER("Resonance"), 2.0f);
+	
+	// Test that different frequencies produce different phase shifts
+	f32 phase200 = node.GetPhaseShiftAt(200.0f);
+	f32 phase1000 = node.GetPhaseShiftAt(1000.0f);
+	f32 phase5000 = node.GetPhaseShiftAt(5000.0f);
+	
+	// All phase shifts should be different
+	EXPECT_NE(phase200, phase1000);
+	EXPECT_NE(phase1000, phase5000);
+	EXPECT_NE(phase200, phase5000);
+	
+	// Phase shifts should be within reasonable bounds (-π to π)
+	EXPECT_GE(phase200, -glm::pi<f32>());
+	EXPECT_LE(phase200, glm::pi<f32>());
+	EXPECT_GE(phase1000, -glm::pi<f32>());
+	EXPECT_LE(phase1000, glm::pi<f32>());
+	EXPECT_GE(phase5000, -glm::pi<f32>());
+	EXPECT_LE(phase5000, glm::pi<f32>());
 }

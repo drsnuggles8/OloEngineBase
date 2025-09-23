@@ -94,6 +94,8 @@
 		# Generator Nodes
 		"OloEngine/Audio/SoundGraph/Nodes/NoiseNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/SineNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/CosineNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/PulseNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/TriangleNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/SquareNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/SawtoothNode.h"
@@ -102,6 +104,9 @@
 		# Filter Nodes
 		"OloEngine/Audio/SoundGraph/Nodes/LowPassFilterNode.h"
 		"OloEngine/Audio/SoundGraph/Nodes/HighPassFilterNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/BandPassFilterNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/NotchFilterNode.h"
+		"OloEngine/Audio/SoundGraph/Nodes/AllPassFilterNode.h"
 		
 		# Envelope Nodes
 		"OloEngine/Audio/SoundGraph/Nodes/ADEnvelope.h"
