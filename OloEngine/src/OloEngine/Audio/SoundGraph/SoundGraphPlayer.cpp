@@ -1,151 +1,248 @@
 #include "OloEnginePCH.h"
 #include "SoundGraphPlayer.h"
 
-#include <algorithm>
-
-namespace OloEngine::Audio
+namespace OloEngine::Audio::SoundGraph
 {
 	//==============================================================================
-	/// SoundGraphPlayer Implementation
-
-	SoundGraphPlayer::SoundGraphPlayer(Ref<SoundGraph::SoundGraph> soundGraph)
-		: m_SoundGraph(soundGraph)
-	{
-		if (!m_SoundGraph)
-		{
-			OLO_CORE_ERROR("[SoundGraphPlayer] Cannot create player with null sound graph");
-			return;
-		}
-
-		OLO_CORE_TRACE("[SoundGraphPlayer] Created player for sound graph '{}'", m_SoundGraph->m_DebugName);
-	}
+	// SoundGraphPlayer Implementation
 
 	SoundGraphPlayer::~SoundGraphPlayer()
 	{
-		Stop();
+		Shutdown();
 	}
 
-	void SoundGraphPlayer::Play()
+	bool SoundGraphPlayer::Initialize(ma_engine* engine)
 	{
-		if (!m_SoundGraph)
+		if (m_IsInitialized)
+		{
+			OLO_CORE_WARN("[SoundGraphPlayer] Already initialized");
+			return false;
+		}
+
+		if (!engine)
+		{
+			OLO_CORE_ERROR("[SoundGraphPlayer] Invalid engine");
+			return false;
+		}
+
+		m_Engine = engine;
+		m_IsInitialized = true;
+
+		OLO_CORE_TRACE("[SoundGraphPlayer] Initialized successfully");
+		return true;
+	}
+
+	void SoundGraphPlayer::Shutdown()
+	{
+		if (!m_IsInitialized)
 			return;
 
-		std::lock_guard<std::mutex> lock(m_Mutex);
-
-		if (!m_IsPlaying.load())
+		// Stop and remove all sources
+		for (auto& [id, source] : m_SoundGraphSources)
 		{
-			m_IsPlaying.store(true);
-			m_IsPaused.store(false);
-			m_SoundGraph->Play();
-
-			OLO_CORE_TRACE("[SoundGraphPlayer] Started playing sound graph '{}'", m_SoundGraph->m_DebugName);
-		}
-	}
-
-	void SoundGraphPlayer::Stop()
-	{
-		if (!m_SoundGraph)
-			return;
-
-		std::lock_guard<std::mutex> lock(m_Mutex);
-
-		if (m_IsPlaying.load())
-		{
-			m_IsPlaying.store(false);
-			m_IsPaused.store(false);
-			m_SoundGraph->Stop();
-
-			OLO_CORE_TRACE("[SoundGraphPlayer] Stopped sound graph '{}'", m_SoundGraph->m_DebugName);
-		}
-	}
-
-	void SoundGraphPlayer::Pause()
-	{
-		if (!m_SoundGraph)
-			return;
-
-		std::lock_guard<std::mutex> lock(m_Mutex);
-
-		if (m_IsPlaying.load() && !m_IsPaused.load())
-		{
-			m_IsPaused.store(true);
-			OLO_CORE_TRACE("[SoundGraphPlayer] Paused sound graph '{}'", m_SoundGraph->m_DebugName);
-		}
-	}
-
-	void SoundGraphPlayer::Resume()
-	{
-		if (!m_SoundGraph)
-			return;
-
-		std::lock_guard<std::mutex> lock(m_Mutex);
-
-		if (m_IsPlaying.load() && m_IsPaused.load())
-		{
-			m_IsPaused.store(false);
-			OLO_CORE_TRACE("[SoundGraphPlayer] Resumed sound graph '{}'", m_SoundGraph->m_DebugName);
-		}
-	}
-
-	void SoundGraphPlayer::ProcessAudio(f32* leftChannel, f32* rightChannel, u32 numSamples)
-	{
-		if (!m_SoundGraph || !m_IsPlaying.load() || m_IsPaused.load())
-		{
-			// Fill with silence
-			for (u32 i = 0; i < numSamples; ++i)
+			if (source)
 			{
-				leftChannel[i] = 0.0f;
-				rightChannel[i] = 0.0f;
-			}
-			return;
-		}
-
-		// Process the sound graph
-		m_SoundGraph->Process(leftChannel, rightChannel, numSamples);
-
-		// Apply volume
-		if (m_Volume != 1.0f)
-		{
-			for (u32 i = 0; i < numSamples; ++i)
-			{
-				leftChannel[i] *= m_Volume;
-				rightChannel[i] *= m_Volume;
+				source->Stop();
+				source->Uninitialize();
 			}
 		}
+		m_SoundGraphSources.clear();
 
-		// Check if the sound graph has finished
-		if (!m_SoundGraph->IsPlaying() && m_IsPlaying.load())
+		m_Engine = nullptr;
+		m_IsInitialized = false;
+		m_NextSourceID = 1;
+
+		OLO_CORE_TRACE("[SoundGraphPlayer] Shutdown complete");
+	}
+
+	u32 SoundGraphPlayer::CreateSoundGraphSource(Ref<SoundGraph> soundGraph)
+	{
+		if (!m_IsInitialized || !soundGraph)
 		{
-			if (m_Loop)
+			OLO_CORE_ERROR("[SoundGraphPlayer] Cannot create source - not initialized or invalid sound graph");
+			return 0;
+		}
+
+		u32 sourceID = GetNextSourceID();
+		auto source = CreateScope<SoundGraphSource>(soundGraph);
+
+		if (source->Initialize(m_Engine) != MA_SUCCESS)
+		{
+			OLO_CORE_ERROR("[SoundGraphPlayer] Failed to initialize sound graph source");
+			return 0;
+		}
+
+		m_SoundGraphSources[sourceID] = std::move(source);
+
+		OLO_CORE_TRACE("[SoundGraphPlayer] Created sound graph source with ID {}", sourceID);
+		return sourceID;
+	}
+
+	bool SoundGraphPlayer::Play(u32 sourceID)
+	{
+		auto it = m_SoundGraphSources.find(sourceID);
+		if (it == m_SoundGraphSources.end())
+		{
+			OLO_CORE_ERROR("[SoundGraphPlayer] Source ID {} not found", sourceID);
+			return false;
+		}
+
+		ma_result result = it->second->Play();
+		if (result == MA_SUCCESS)
+		{
+			OLO_CORE_TRACE("[SoundGraphPlayer] Started playback of source {}", sourceID);
+			return true;
+		}
+		else
+		{
+			OLO_CORE_ERROR("[SoundGraphPlayer] Failed to start playback of source {}: {}", sourceID, static_cast<int>(result));
+			return false;
+		}
+	}
+
+	bool SoundGraphPlayer::Stop(u32 sourceID)
+	{
+		auto it = m_SoundGraphSources.find(sourceID);
+		if (it == m_SoundGraphSources.end())
+		{
+			OLO_CORE_ERROR("[SoundGraphPlayer] Source ID {} not found", sourceID);
+			return false;
+		}
+
+		ma_result result = it->second->Stop();
+		if (result == MA_SUCCESS)
+		{
+			OLO_CORE_TRACE("[SoundGraphPlayer] Stopped playback of source {}", sourceID);
+			return true;
+		}
+		else
+		{
+			OLO_CORE_ERROR("[SoundGraphPlayer] Failed to stop playback of source {}: {}", sourceID, static_cast<int>(result));
+			return false;
+		}
+	}
+
+	bool SoundGraphPlayer::Pause(u32 sourceID)
+	{
+		auto it = m_SoundGraphSources.find(sourceID);
+		if (it == m_SoundGraphSources.end())
+		{
+			OLO_CORE_ERROR("[SoundGraphPlayer] Source ID {} not found", sourceID);
+			return false;
+		}
+
+		ma_result result = it->second->Pause();
+		if (result == MA_SUCCESS)
+		{
+			OLO_CORE_TRACE("[SoundGraphPlayer] Paused playback of source {}", sourceID);
+			return true;
+		}
+		else
+		{
+			OLO_CORE_ERROR("[SoundGraphPlayer] Failed to pause playback of source {}: {}", sourceID, static_cast<int>(result));
+			return false;
+		}
+	}
+
+	bool SoundGraphPlayer::IsPlaying(u32 sourceID) const
+	{
+		auto it = m_SoundGraphSources.find(sourceID);
+		if (it == m_SoundGraphSources.end())
+		{
+			return false;
+		}
+
+		return it->second->IsPlaying();
+	}
+
+	bool SoundGraphPlayer::RemoveSoundGraphSource(u32 sourceID)
+	{
+		auto it = m_SoundGraphSources.find(sourceID);
+		if (it == m_SoundGraphSources.end())
+		{
+			OLO_CORE_ERROR("[SoundGraphPlayer] Source ID {} not found", sourceID);
+			return false;
+		}
+
+		// Stop playback and uninitialize before removing
+		it->second->Stop();
+		it->second->Uninitialize();
+		m_SoundGraphSources.erase(it);
+
+		OLO_CORE_TRACE("[SoundGraphPlayer] Removed sound graph source {}", sourceID);
+		return true;
+	}
+
+	Ref<SoundGraph> SoundGraphPlayer::GetSoundGraph(u32 sourceID) const
+	{
+		auto it = m_SoundGraphSources.find(sourceID);
+		if (it == m_SoundGraphSources.end())
+		{
+			return nullptr;
+		}
+
+		return it->second->GetSoundGraph();
+	}
+
+	void SoundGraphPlayer::SetMasterVolume(f32 volume)
+	{
+		m_MasterVolume = glm::clamp(volume, 0.0f, 2.0f);
+		
+		// Apply master volume to all sources
+		for (auto& [id, source] : m_SoundGraphSources)
+		{
+			if (source && source->GetSound())
 			{
-				// Restart the sound graph
-				m_SoundGraph->Reset();
-				m_SoundGraph->Play();
+				ma_sound_set_volume(source->GetSound(), m_MasterVolume);
+			}
+		}
+
+		OLO_CORE_TRACE("[SoundGraphPlayer] Set master volume to {}", m_MasterVolume);
+	}
+
+	void SoundGraphPlayer::Update(f64 deltaTime)
+	{
+		// Update all sound graphs on the main thread
+		for (auto& [id, source] : m_SoundGraphSources)
+		{
+			if (source && source->GetSoundGraph())
+			{
+				source->GetSoundGraph()->Update(deltaTime);
+			}
+		}
+
+		// Remove any finished sources
+		auto it = m_SoundGraphSources.begin();
+		while (it != m_SoundGraphSources.end())
+		{
+			if (!it->second->IsPlaying())
+			{
+				// Check if the sound has actually finished (not just stopped)
+				// For now, we'll keep all sources around until explicitly removed
+				++it;
 			}
 			else
 			{
-				OnSoundGraphFinished();
+				++it;
 			}
 		}
 	}
 
-	void SoundGraphPlayer::Update(f32 deltaTime)
+	u32 SoundGraphPlayer::GetActiveSourceCount() const
 	{
-		if (m_SoundGraph)
+		u32 count = 0;
+		for (const auto& [id, source] : m_SoundGraphSources)
 		{
-			m_SoundGraph->Update(deltaTime);
+			if (source && source->IsPlaying())
+			{
+				count++;
+			}
 		}
-	}
-
-	void SoundGraphPlayer::OnSoundGraphFinished()
-	{
-		m_IsPlaying.store(false);
-		m_IsPaused.store(false);
-		OLO_CORE_TRACE("[SoundGraphPlayer] Sound graph '{}' finished playing", m_SoundGraph->m_DebugName);
+		return count;
 	}
 
 	//==============================================================================
-	/// SoundGraphManager Implementation
+	// SoundGraphManager Implementation
 
 	SoundGraphManager& SoundGraphManager::GetInstance()
 	{
@@ -153,147 +250,93 @@ namespace OloEngine::Audio
 		return instance;
 	}
 
-	Ref<SoundGraphPlayer> SoundGraphManager::CreatePlayer(Ref<SoundGraph::SoundGraph> soundGraph)
+	bool SoundGraphManager::Initialize(ma_engine* engine)
 	{
-		if (!soundGraph)
+		if (m_IsInitialized)
 		{
-			OLO_CORE_ERROR("[SoundGraphManager] Cannot create player with null sound graph");
-			return nullptr;
+			OLO_CORE_WARN("[SoundGraphManager] Already initialized");
+			return false;
 		}
 
-		// Initialize the sound graph with our sample rate
-		soundGraph->Initialize(m_SampleRate);
-
-		auto player = Ref<SoundGraphPlayer>::Create(soundGraph);
-
-		// Add to our list of players
+		bool success = m_Player.Initialize(engine);
+		if (success)
 		{
-			std::lock_guard<std::mutex> lock(m_PlayersMutex);
-			m_Players.push_back(player);
+			m_IsInitialized = true;
+			OLO_CORE_TRACE("[SoundGraphManager] Initialized successfully");
+		}
+		else
+		{
+			OLO_CORE_ERROR("[SoundGraphManager] Failed to initialize");
 		}
 
-		OLO_CORE_TRACE("[SoundGraphManager] Created sound graph player (total: {})", m_Players.size());
-		return player;
-	}
-
-	void SoundGraphManager::RemovePlayer(Ref<SoundGraphPlayer> player)
-	{
-		if (!player)
-			return;
-
-		std::lock_guard<std::mutex> lock(m_PlayersMutex);
-
-		auto it = std::find(m_Players.begin(), m_Players.end(), player);
-		if (it != m_Players.end())
-		{
-			m_Players.erase(it);
-			OLO_CORE_TRACE("[SoundGraphManager] Removed sound graph player (total: {})", m_Players.size());
-		}
-	}
-
-	void SoundGraphManager::ProcessAudio(f32* leftChannel, f32* rightChannel, u32 numSamples)
-	{
-		// Clear output buffers
-		for (u32 i = 0; i < numSamples; ++i)
-		{
-			leftChannel[i] = 0.0f;
-			rightChannel[i] = 0.0f;
-		}
-
-		// Ensure temp buffers are large enough
-		if (m_TempLeftBuffer.size() < numSamples)
-		{
-			m_TempLeftBuffer.resize(numSamples);
-			m_TempRightBuffer.resize(numSamples);
-		}
-
-		// Process all active players
-		{
-			std::lock_guard<std::mutex> lock(m_PlayersMutex);
-
-			for (auto& player : m_Players)
-			{
-				if (!player || !player->IsPlaying())
-					continue;
-
-				// Process this player into temp buffers
-				player->ProcessAudio(m_TempLeftBuffer.data(), m_TempRightBuffer.data(), numSamples);
-
-				// Mix into output buffers
-				for (u32 i = 0; i < numSamples; ++i)
-				{
-					leftChannel[i] += m_TempLeftBuffer[i];
-					rightChannel[i] += m_TempRightBuffer[i];
-				}
-			}
-		}
-
-		// Apply master volume
-		if (m_MasterVolume != 1.0f)
-		{
-			for (u32 i = 0; i < numSamples; ++i)
-			{
-				leftChannel[i] *= m_MasterVolume;
-				rightChannel[i] *= m_MasterVolume;
-			}
-		}
-
-		// Clean up finished players
-		{
-			std::lock_guard<std::mutex> lock(m_PlayersMutex);
-			
-			m_Players.erase(
-				std::remove_if(m_Players.begin(), m_Players.end(),
-					[](const Ref<SoundGraphPlayer>& player)
-					{
-						return !player || (!player->IsPlaying() && !player->IsLooping());
-					}),
-				m_Players.end()
-			);
-		}
-	}
-
-	void SoundGraphManager::Update(f32 deltaTime)
-	{
-		std::lock_guard<std::mutex> lock(m_PlayersMutex);
-
-		for (auto& player : m_Players)
-		{
-			if (player)
-			{
-				player->Update(deltaTime);
-			}
-		}
-	}
-
-	void SoundGraphManager::Initialize(f64 sampleRate)
-	{
-		m_SampleRate = sampleRate;
-		
-		// Reserve space for temp buffers (reasonable default)
-		m_TempLeftBuffer.reserve(1024);
-		m_TempRightBuffer.reserve(1024);
-
-		OLO_CORE_TRACE("[SoundGraphManager] Initialized with sample rate {}", sampleRate);
+		return success;
 	}
 
 	void SoundGraphManager::Shutdown()
 	{
-		std::lock_guard<std::mutex> lock(m_PlayersMutex);
+		if (!m_IsInitialized)
+			return;
 
-		// Stop all players
-		for (auto& player : m_Players)
-		{
-			if (player)
-			{
-				player->Stop();
-			}
-		}
-
-		m_Players.clear();
-		m_TempLeftBuffer.clear();
-		m_TempRightBuffer.clear();
+		m_Player.Shutdown();
+		m_IsInitialized = false;
 
 		OLO_CORE_TRACE("[SoundGraphManager] Shutdown complete");
 	}
+
+	u32 SoundGraphManager::PlaySoundGraph(Ref<SoundGraph> soundGraph)
+	{
+		if (!m_IsInitialized || !soundGraph)
+		{
+			OLO_CORE_ERROR("[SoundGraphManager] Cannot play sound graph - not initialized or invalid graph");
+			return 0;
+		}
+
+		u32 sourceID = m_Player.CreateSoundGraphSource(soundGraph);
+		if (sourceID != 0)
+		{
+			if (m_Player.Play(sourceID))
+			{
+				OLO_CORE_TRACE("[SoundGraphManager] Playing sound graph with source ID {}", sourceID);
+				return sourceID;
+			}
+			else
+			{
+				// Clean up the source if playback failed
+				m_Player.RemoveSoundGraphSource(sourceID);
+				return 0;
+			}
+		}
+
+		return 0;
+	}
+
+	bool SoundGraphManager::StopSoundGraph(u32 sourceID)
+	{
+		if (!m_IsInitialized)
+		{
+			OLO_CORE_ERROR("[SoundGraphManager] Not initialized");
+			return false;
+		}
+
+		return m_Player.Stop(sourceID);
+	}
+
+	bool SoundGraphManager::IsPlaying(u32 sourceID) const
+	{
+		if (!m_IsInitialized)
+		{
+			return false;
+		}
+
+		return m_Player.IsPlaying(sourceID);
+	}
+
+	void SoundGraphManager::Update(f64 deltaTime)
+	{
+		if (m_IsInitialized)
+		{
+			m_Player.Update(deltaTime);
+		}
+	}
+
 }

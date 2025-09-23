@@ -1,117 +1,112 @@
 #pragma once
 
+#include "OloEngine/Core/Base.h"
 #include "SoundGraph.h"
-#include "../AudioSource.h"
+#include "SoundGraphSource.h"
+#include <miniaudio.h>
+#include <unordered_map>
 
-#include <thread>
-#include <atomic>
-#include <mutex>
-
-namespace OloEngine::Audio
+namespace OloEngine::Audio::SoundGraph
 {
 	//==============================================================================
-	/// Sound Graph Player - integrates sound graphs with the audio system
-	class SoundGraphPlayer : public RefCounted
+	/// SoundGraphPlayer - Manages playback of sound graphs through the audio engine
+	class SoundGraphPlayer
 	{
 	public:
-		explicit SoundGraphPlayer(Ref<SoundGraph::SoundGraph> soundGraph);
-		virtual ~SoundGraphPlayer();
+		SoundGraphPlayer() = default;
+		~SoundGraphPlayer();
+
+		// Initialize with the audio engine
+		bool Initialize(ma_engine* engine);
+		void Shutdown();
 
 		//==============================================================================
-		/// Playback Control
+		/// Playback Management
 
-		void Play();
-		void Stop();
-		void Pause();
-		void Resume();
+		// Create a new sound graph source for playback
+		u32 CreateSoundGraphSource(Ref<SoundGraph> soundGraph);
 
-		[[nodiscard]] bool IsPlaying() const { return m_IsPlaying.load(); }
-		[[nodiscard]] bool IsPaused() const { return m_IsPaused.load(); }
+		// Play a sound graph source
+		bool Play(u32 sourceID);
+
+		// Stop a sound graph source
+		bool Stop(u32 sourceID);
+
+		// Pause a sound graph source
+		bool Pause(u32 sourceID);
+
+		// Check if a source is playing
+		bool IsPlaying(u32 sourceID) const;
+
+		// Remove a sound graph source
+		bool RemoveSoundGraphSource(u32 sourceID);
+
+		// Get the sound graph from a source ID
+		Ref<SoundGraph> GetSoundGraph(u32 sourceID) const;
 
 		//==============================================================================
-		/// Configuration
+		/// Global Controls
 
-		void SetVolume(f32 volume) { m_Volume = volume; }
-		[[nodiscard]] f32 GetVolume() const { return m_Volume; }
+		// Set master volume for all sound graph sources
+		void SetMasterVolume(f32 volume);
+		f32 GetMasterVolume() const { return m_MasterVolume; }
 
-		void SetLoop(bool loop) { m_Loop = loop; }
-		[[nodiscard]] bool IsLooping() const { return m_Loop; }
-
-		// Get the underlying sound graph
-		[[nodiscard]] Ref<SoundGraph::SoundGraph> GetSoundGraph() const { return m_SoundGraph; }
+		// Update all sound graphs (called from main thread)
+		void Update(f64 deltaTime);
 
 		//==============================================================================
-		/// Audio Callback Integration
+		/// Debug and Statistics
 
-		// This would be called by the audio system's callback
-		void ProcessAudio(f32* leftChannel, f32* rightChannel, u32 numSamples);
+		// Get number of active sound graph sources
+		u32 GetActiveSourceCount() const;
 
-		// Update the sound graph (called from main thread)
-		void Update(f32 deltaTime);
+		// Get total number of managed sources
+		u32 GetTotalSourceCount() const { return static_cast<u32>(m_SoundGraphSources.size()); }
 
 	private:
-		Ref<SoundGraph::SoundGraph> m_SoundGraph;
+		// Audio engine reference
+		ma_engine* m_Engine = nullptr;
+		bool m_IsInitialized = false;
 
-		// Playback state
-		std::atomic<bool> m_IsPlaying{ false };
-		std::atomic<bool> m_IsPaused{ false };
-		bool m_Loop = false;
-		f32 m_Volume = 1.0f;
+		// Master volume control
+		f32 m_MasterVolume = 1.0f;
 
-		// Thread safety
-		mutable std::mutex m_Mutex;
+		// Sound graph sources
+		std::unordered_map<u32, Scope<SoundGraphSource>> m_SoundGraphSources;
+		u32 m_NextSourceID = 1;
 
-		//==============================================================================
-		/// Internal methods
-
-		void OnSoundGraphFinished();
+		// Get next available source ID
+		u32 GetNextSourceID() { return m_NextSourceID++; }
 	};
 
 	//==============================================================================
-	/// Sound Graph Manager - manages all active sound graph players
+	/// SoundGraphManager - Singleton for global sound graph management
 	class SoundGraphManager
 	{
 	public:
 		static SoundGraphManager& GetInstance();
 
-		//==============================================================================
-		/// Player Management
-
-		// Create and register a new sound graph player
-		Ref<SoundGraphPlayer> CreatePlayer(Ref<SoundGraph::SoundGraph> soundGraph);
-
-		// Remove a player from the manager
-		void RemovePlayer(Ref<SoundGraphPlayer> player);
-
-		// Process audio for all active players (called by audio thread)
-		void ProcessAudio(f32* leftChannel, f32* rightChannel, u32 numSamples);
-
-		// Update all players (called from main thread)
-		void Update(f32 deltaTime);
-
-		//==============================================================================
-		/// Global Settings
-
-		void SetMasterVolume(f32 volume) { m_MasterVolume = volume; }
-		[[nodiscard]] f32 GetMasterVolume() const { return m_MasterVolume; }
-
-		// Initialize with the audio system sample rate
-		void Initialize(f64 sampleRate);
-
-		// Shutdown the manager
+		// Initialize with the audio engine
+		bool Initialize(ma_engine* engine);
 		void Shutdown();
+
+		// Get the sound graph player
+		SoundGraphPlayer& GetPlayer() { return m_Player; }
+
+		// Convenience methods that delegate to the player
+		u32 PlaySoundGraph(Ref<SoundGraph> soundGraph);
+		bool StopSoundGraph(u32 sourceID);
+		bool IsPlaying(u32 sourceID) const;
+
+		// Update (called from main thread)
+		void Update(f64 deltaTime);
 
 	private:
 		SoundGraphManager() = default;
 		~SoundGraphManager() = default;
 
-		std::vector<Ref<SoundGraphPlayer>> m_Players;
-		f32 m_MasterVolume = 1.0f;
-		f64 m_SampleRate = 48000.0;
-		mutable std::mutex m_PlayersMutex;
-
-		// Temporary buffers for mixing
-		std::vector<f32> m_TempLeftBuffer;
-		std::vector<f32> m_TempRightBuffer;
+		SoundGraphPlayer m_Player;
+		bool m_IsInitialized = false;
 	};
+
 }
