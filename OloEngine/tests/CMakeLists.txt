@@ -20,6 +20,9 @@ add_executable(OloEngine-Tests
 		AudioThreadDebugTest.cpp
 		MinimalThreadTest.cpp
 		AudioThreadFullTest.cpp
+		
+		# Advanced Audio Node Tests (Phase 4)
+		AdvancedAudioNodeTest.cpp
 		)
 		
 target_link_libraries(OloEngine-Tests
