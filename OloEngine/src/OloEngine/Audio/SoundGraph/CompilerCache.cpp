@@ -1,0 +1,611 @@
+#include "OloEnginePCH.h"
+#include "CompilerCache.h"
+
+#include <filesystem>
+#include <fstream>
+#include <algorithm>
+
+namespace OloEngine::Audio::SoundGraph
+{
+    //==============================================================================
+    /// CompilerCache Implementation
+
+    CompilerCache::CompilerCache(const std::string& cacheDirectory)
+        : m_CacheDirectory(cacheDirectory)
+    {
+        CreateCacheDirectory();
+        LoadFromDisk();
+    }
+
+    bool CompilerCache::HasCompiled(const std::string& sourcePath, const std::string& compilerVersion) const
+    {
+        std::shared_lock lock(m_Mutex);
+        
+        std::string key = GenerateCacheKey(sourcePath, compilerVersion);
+        auto it = m_CompiledResults.find(key);
+        
+        if (it == m_CompiledResults.end() || !it->second.IsValid)
+        {
+            return false;
+        }
+
+        // Check if source is newer than compilation
+        return !IsSourceNewer(sourcePath, it->second);
+    }
+
+    CompilationResult* CompilerCache::GetCompiled(const std::string& sourcePath, const std::string& compilerVersion)
+    {
+        std::unique_lock lock(m_Mutex);
+        
+        std::string key = GenerateCacheKey(sourcePath, compilerVersion);
+        auto it = m_CompiledResults.find(key);
+        
+        if (it == m_CompiledResults.end() || !it->second.IsValid)
+        {
+            ++m_MissCount;
+            return nullptr;
+        }
+
+        // Check if source is newer than compilation
+        if (IsSourceNewer(sourcePath, it->second))
+        {
+            ++m_MissCount;
+            it->second.IsValid = false; // Invalidate outdated entry
+            return nullptr;
+        }
+
+        ++m_HitCount;
+        return &it->second;
+    }
+
+    void CompilerCache::StoreCompiled(const std::string& sourcePath, const CompilationResult& result)
+    {
+        std::unique_lock lock(m_Mutex);
+        
+        std::string key = GenerateCacheKey(sourcePath, result.CompilerVersion);
+        
+        // Check if we need to evict old entries
+        if (m_CompiledResults.size() >= m_MaxCacheSize)
+        {
+            // Simple eviction: remove oldest entry
+            auto oldestIt = std::min_element(m_CompiledResults.begin(), m_CompiledResults.end(),
+                [](const auto& a, const auto& b) {
+                    return a.second.CompilationTime < b.second.CompilationTime;
+                });
+            
+            if (oldestIt != m_CompiledResults.end())
+            {
+                m_CompiledResults.erase(oldestIt);
+            }
+        }
+
+        m_CompiledResults[key] = result;
+        
+        if (m_AutoSave)
+        {
+            // Save to disk asynchronously in production
+            std::string filePath = GetCacheFilePath(sourcePath, result.CompilerVersion);
+            SerializeResult(result, filePath);
+        }
+
+        OLO_CORE_TRACE("CompilerCache: Stored compiled result for '{}' ({}ms compilation)", 
+                       sourcePath, result.CompilationTimeMs);
+    }
+
+    void CompilerCache::InvalidateCompiled(const std::string& sourcePath)
+    {
+        std::unique_lock lock(m_Mutex);
+        
+        // Invalidate all versions of this source file
+        for (auto& [key, result] : m_CompiledResults)
+        {
+            if (result.SourcePath == sourcePath)
+            {
+                result.IsValid = false;
+            }
+        }
+    }
+
+    void CompilerCache::ClearCache()
+    {
+        std::unique_lock lock(m_Mutex);
+        
+        m_CompiledResults.clear();
+        m_HitCount = 0;
+        m_MissCount = 0;
+        
+        // Clear disk cache
+        try
+        {
+            if (std::filesystem::exists(m_CacheDirectory))
+            {
+                std::filesystem::remove_all(m_CacheDirectory);
+                CreateCacheDirectory();
+            }
+        }
+        catch (const std::filesystem::filesystem_error& ex)
+        {
+            OLO_CORE_ERROR("CompilerCache: Failed to clear disk cache: {}", ex.what());
+        }
+    }
+
+    bool CompilerCache::IsSourceNewer(const std::string& sourcePath, const CompilationResult& result) const
+    {
+        auto sourceModTime = GetFileModificationTime(sourcePath);
+        return sourceModTime > result.CompilationTime;
+    }
+
+    std::string CompilerCache::GetCacheFilePath(const std::string& sourcePath, const std::string& compilerVersion) const
+    {
+        std::string key = GenerateCacheKey(sourcePath, compilerVersion);
+        sizet hash = HashString(key);
+        return m_CacheDirectory + "/" + std::to_string(hash) + ".compiled";
+    }
+
+    bool CompilerCache::LoadFromDisk()
+    {
+        if (!std::filesystem::exists(m_CacheDirectory))
+        {
+            return true; // No cache directory is fine
+        }
+
+        std::unique_lock lock(m_Mutex);
+        
+        try
+        {
+            sizet loadedCount = 0;
+            
+            for (const auto& entry : std::filesystem::directory_iterator(m_CacheDirectory))
+            {
+                if (entry.is_regular_file() && entry.path().extension() == ".compiled")
+                {
+                    CompilationResult result;
+                    if (DeserializeResult(result, entry.path().string()))
+                    {
+                        std::string key = GenerateCacheKey(result.SourcePath, result.CompilerVersion);
+                        m_CompiledResults[key] = result;
+                        ++loadedCount;
+                    }
+                }
+            }
+            
+            OLO_CORE_INFO("CompilerCache: Loaded {} compiled results from disk", loadedCount);
+            return true;
+        }
+        catch (const std::filesystem::filesystem_error& ex)
+        {
+            OLO_CORE_ERROR("CompilerCache: Failed to load from disk: {}", ex.what());
+            return false;
+        }
+    }
+
+    bool CompilerCache::SaveToDisk() const
+    {
+        std::shared_lock lock(m_Mutex);
+        
+        try
+        {
+            CreateCacheDirectory();
+            
+            sizet savedCount = 0;
+            
+            for (const auto& [key, result] : m_CompiledResults)
+            {
+                if (result.IsValid)
+                {
+                    std::string filePath = GetCacheFilePath(result.SourcePath, result.CompilerVersion);
+                    if (SerializeResult(result, filePath))
+                    {
+                        ++savedCount;
+                    }
+                }
+            }
+            
+            OLO_CORE_INFO("CompilerCache: Saved {} compiled results to disk", savedCount);
+            return true;
+        }
+        catch (const std::exception& ex)
+        {
+            OLO_CORE_ERROR("CompilerCache: Failed to save to disk: {}", ex.what());
+            return false;
+        }
+    }
+
+    void CompilerCache::ValidateAllEntries()
+    {
+        std::unique_lock lock(m_Mutex);
+        
+        std::vector<std::string> invalidKeys;
+        
+        for (auto& [key, result] : m_CompiledResults)
+        {
+            // Check if source file exists
+            if (!std::filesystem::exists(result.SourcePath))
+            {
+                invalidKeys.push_back(key);
+                continue;
+            }
+
+            // Check if source is newer than compilation
+            if (IsSourceNewer(result.SourcePath, result))
+            {
+                result.IsValid = false;
+            }
+        }
+
+        // Remove entries for non-existent source files
+        for (const std::string& key : invalidKeys)
+        {
+            m_CompiledResults.erase(key);
+        }
+
+        if (!invalidKeys.empty())
+        {
+            OLO_CORE_INFO("CompilerCache: Removed {} entries for deleted source files", invalidKeys.size());
+        }
+    }
+
+    void CompilerCache::CleanupOldEntries(std::chrono::hours maxAge)
+    {
+        std::unique_lock lock(m_Mutex);
+        
+        auto threshold = std::chrono::system_clock::now() - maxAge;
+        std::vector<std::string> oldKeys;
+        
+        for (const auto& [key, result] : m_CompiledResults)
+        {
+            if (result.CompilationTime < threshold)
+            {
+                oldKeys.push_back(key);
+            }
+        }
+
+        for (const std::string& key : oldKeys)
+        {
+            m_CompiledResults.erase(key);
+        }
+
+        if (!oldKeys.empty())
+        {
+            OLO_CORE_INFO("CompilerCache: Cleaned up {} old entries", oldKeys.size());
+        }
+    }
+
+    void CompilerCache::CompactCache()
+    {
+        ValidateAllEntries();
+        CleanupOldEntries();
+        
+        if (m_AutoSave)
+        {
+            SaveToDisk();
+        }
+    }
+
+    sizet CompilerCache::GetTotalDiskUsage() const
+    {
+        sizet totalSize = 0;
+        
+        try
+        {
+            if (std::filesystem::exists(m_CacheDirectory))
+            {
+                for (const auto& entry : std::filesystem::recursive_directory_iterator(m_CacheDirectory))
+                {
+                    if (entry.is_regular_file())
+                    {
+                        totalSize += entry.file_size();
+                    }
+                }
+            }
+        }
+        catch (const std::filesystem::filesystem_error&)
+        {
+            // Ignore errors
+        }
+        
+        return totalSize;
+    }
+
+    f32 CompilerCache::GetCacheHitRatio() const
+    {
+        u64 totalRequests = m_HitCount + m_MissCount;
+        return totalRequests > 0 ? static_cast<f32>(m_HitCount) / static_cast<f32>(totalRequests) : 0.0f;
+    }
+
+    void CompilerCache::LogStatistics() const
+    {
+        std::shared_lock lock(m_Mutex);
+        
+        OLO_CORE_INFO("CompilerCache Statistics:");
+        OLO_CORE_INFO("  Entries: {}/{}", m_CompiledResults.size(), m_MaxCacheSize);
+        OLO_CORE_INFO("  Disk Usage: {:.2f} MB", GetTotalDiskUsage() / (1024.0f * 1024.0f));
+        OLO_CORE_INFO("  Hit Ratio: {:.1f}% ({}/{} requests)", 
+                      GetCacheHitRatio() * 100.0f, m_HitCount, m_HitCount + m_MissCount);
+    }
+
+    void CompilerCache::SetCacheDirectory(const std::string& directory)
+    {
+        std::unique_lock lock(m_Mutex);
+        
+        if (m_CacheDirectory != directory)
+        {
+            // Save current cache before switching
+            if (m_AutoSave && !m_CompiledResults.empty())
+            {
+                SaveToDisk();
+            }
+            
+            m_CacheDirectory = directory;
+            CreateCacheDirectory();
+            
+            // Clear in-memory cache and reload from new directory
+            m_CompiledResults.clear();
+            lock.unlock();
+            LoadFromDisk();
+        }
+    }
+
+    //==============================================================================
+    /// Private Helper Methods
+
+    std::string CompilerCache::GenerateCacheKey(const std::string& sourcePath, const std::string& compilerVersion) const
+    {
+        return sourcePath + "|" + compilerVersion;
+    }
+
+    sizet CompilerCache::HashString(const std::string& str) const
+    {
+        sizet hash = 0;
+        for (char c : str)
+        {
+            hash = hash * 31 + static_cast<sizet>(c);
+        }
+        return hash;
+    }
+
+    sizet CompilerCache::GetFileSize(const std::string& filePath) const
+    {
+        std::error_code ec;
+        auto size = std::filesystem::file_size(filePath, ec);
+        return ec ? 0 : static_cast<sizet>(size);
+    }
+
+    std::chrono::time_point<std::chrono::system_clock> CompilerCache::GetFileModificationTime(const std::string& filePath) const
+    {
+        std::error_code ec;
+        auto ftime = std::filesystem::last_write_time(filePath, ec);
+        if (ec)
+            return std::chrono::system_clock::now();
+
+        // Convert to system_clock time_point
+        auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+            ftime - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
+        return sctp;
+    }
+
+    bool CompilerCache::CreateCacheDirectory() const
+    {
+        try
+        {
+            if (!std::filesystem::exists(m_CacheDirectory))
+            {
+                std::filesystem::create_directories(m_CacheDirectory);
+            }
+            return true;
+        }
+        catch (const std::filesystem::filesystem_error& ex)
+        {
+            OLO_CORE_ERROR("CompilerCache: Failed to create cache directory '{}': {}", m_CacheDirectory, ex.what());
+            return false;
+        }
+    }
+
+    bool CompilerCache::SerializeResult(const CompilationResult& result, const std::string& filePath) const
+    {
+        try
+        {
+            std::ofstream file(filePath, std::ios::binary);
+            if (!file.is_open())
+                return false;
+
+            // Simple binary serialization (in production, use a proper serialization library)
+            auto writeString = [&file](const std::string& str) {
+                u32 length = static_cast<u32>(str.size());
+                file.write(reinterpret_cast<const char*>(&length), sizeof(length));
+                file.write(str.c_str(), length);
+            };
+
+            writeString(result.SourcePath);
+            writeString(result.CompiledPath);
+            
+            u32 dataSize = static_cast<u32>(result.CompiledData.size());
+            file.write(reinterpret_cast<const char*>(&dataSize), sizeof(dataSize));
+            file.write(reinterpret_cast<const char*>(result.CompiledData.data()), dataSize);
+            
+            file.write(reinterpret_cast<const char*>(&result.SourceHash), sizeof(result.SourceHash));
+            
+            auto timePoint = result.CompilationTime.time_since_epoch().count();
+            file.write(reinterpret_cast<const char*>(&timePoint), sizeof(timePoint));
+            
+            writeString(result.CompilerVersion);
+            writeString(result.ErrorMessage);
+            
+            file.write(reinterpret_cast<const char*>(&result.IsValid), sizeof(result.IsValid));
+            file.write(reinterpret_cast<const char*>(&result.CompilationTimeMs), sizeof(result.CompilationTimeMs));
+            file.write(reinterpret_cast<const char*>(&result.SourceSizeBytes), sizeof(result.SourceSizeBytes));
+            file.write(reinterpret_cast<const char*>(&result.CompiledSizeBytes), sizeof(result.CompiledSizeBytes));
+
+            return true;
+        }
+        catch (const std::exception& ex)
+        {
+            OLO_CORE_ERROR("CompilerCache: Failed to serialize result to '{}': {}", filePath, ex.what());
+            return false;
+        }
+    }
+
+    bool CompilerCache::DeserializeResult(CompilationResult& result, const std::string& filePath) const
+    {
+        try
+        {
+            std::ifstream file(filePath, std::ios::binary);
+            if (!file.is_open())
+                return false;
+
+            auto readString = [&file]() -> std::string {
+                u32 length;
+                file.read(reinterpret_cast<char*>(&length), sizeof(length));
+                std::string str(length, '\0');
+                file.read(&str[0], length);
+                return str;
+            };
+
+            result.SourcePath = readString();
+            result.CompiledPath = readString();
+            
+            u32 dataSize;
+            file.read(reinterpret_cast<char*>(&dataSize), sizeof(dataSize));
+            result.CompiledData.resize(dataSize);
+            file.read(reinterpret_cast<char*>(result.CompiledData.data()), dataSize);
+            
+            file.read(reinterpret_cast<char*>(&result.SourceHash), sizeof(result.SourceHash));
+            
+            decltype(result.CompilationTime.time_since_epoch().count()) timePoint;
+            file.read(reinterpret_cast<char*>(&timePoint), sizeof(timePoint));
+            result.CompilationTime = std::chrono::system_clock::time_point(std::chrono::system_clock::duration(timePoint));
+            
+            result.CompilerVersion = readString();
+            result.ErrorMessage = readString();
+            
+            file.read(reinterpret_cast<char*>(&result.IsValid), sizeof(result.IsValid));
+            file.read(reinterpret_cast<char*>(&result.CompilationTimeMs), sizeof(result.CompilationTimeMs));
+            file.read(reinterpret_cast<char*>(&result.SourceSizeBytes), sizeof(result.SourceSizeBytes));
+            file.read(reinterpret_cast<char*>(&result.CompiledSizeBytes), sizeof(result.CompiledSizeBytes));
+
+            return true;
+        }
+        catch (const std::exception& ex)
+        {
+            OLO_CORE_ERROR("CompilerCache: Failed to deserialize result from '{}': {}", filePath, ex.what());
+            return false;
+        }
+    }
+
+    //==============================================================================
+    /// Compiler Utilities
+
+    namespace CompilerUtilities
+    {
+        static Ref<CompilerCache> s_GlobalCompilerCache;
+        static std::mutex s_GlobalCacheMutex;
+
+        Ref<CompilerCache> GetGlobalCompilerCache()
+        {
+            std::lock_guard<std::mutex> lock(s_GlobalCacheMutex);
+            
+            if (!s_GlobalCompilerCache)
+            {
+                s_GlobalCompilerCache = CreateRef<CompilerCache>();
+            }
+            
+            return s_GlobalCompilerCache;
+        }
+
+        void SetGlobalCompilerCache(Ref<CompilerCache> cache)
+        {
+            std::lock_guard<std::mutex> lock(s_GlobalCacheMutex);
+            s_GlobalCompilerCache = cache;
+        }
+
+        void InitializeCompilerCache()
+        {
+            auto cache = GetGlobalCompilerCache();
+            OLO_CORE_INFO("CompilerCache: Initialized global compiler cache");
+        }
+
+        void ShutdownCompilerCache()
+        {
+            std::lock_guard<std::mutex> lock(s_GlobalCacheMutex);
+            
+            if (s_GlobalCompilerCache)
+            {
+                s_GlobalCompilerCache->LogStatistics();
+                if (s_GlobalCompilerCache->m_AutoSave)
+                {
+                    s_GlobalCompilerCache->SaveToDisk();
+                }
+                s_GlobalCompilerCache.reset();
+                OLO_CORE_INFO("CompilerCache: Shutdown global compiler cache");
+            }
+        }
+
+        CompilationResult CompileWithCache(const std::string& sourcePath, const std::string& compilerVersion)
+        {
+            auto cache = GetGlobalCompilerCache();
+            
+            // Check cache first
+            if (auto cached = cache->GetCompiled(sourcePath, compilerVersion))
+            {
+                return *cached;
+            }
+
+            // Cache miss - need to compile
+            CompilationResult result;
+            result.SourcePath = sourcePath;
+            result.CompilerVersion = compilerVersion;
+            result.CompilationTime = std::chrono::system_clock::now();
+            
+            auto startTime = std::chrono::high_resolution_clock::now();
+            
+            // Placeholder compilation (in production, call actual compiler)
+            result.IsValid = true; // Assume success for now
+            result.ErrorMessage = "";
+            result.CompiledData = { 0x42, 0x43, 0x44, 0x45 }; // Placeholder bytecode
+            
+            auto endTime = std::chrono::high_resolution_clock::now();
+            result.CompilationTimeMs = std::chrono::duration<f64, std::milli>(endTime - startTime).count();
+            result.SourceSizeBytes = cache->GetFileSize(sourcePath);
+            result.CompiledSizeBytes = result.CompiledData.size();
+            
+            // Store in cache
+            cache->StoreCompiled(sourcePath, result);
+            
+            return result;
+        }
+
+        std::vector<CompilationResult> BatchCompileWithCache(
+            const std::vector<std::string>& sourcePaths, 
+            const std::string& compilerVersion)
+        {
+            std::vector<CompilationResult> results;
+            results.reserve(sourcePaths.size());
+            
+            for (const std::string& path : sourcePaths)
+            {
+                results.push_back(CompileWithCache(path, compilerVersion));
+            }
+            
+            return results;
+        }
+
+        void PerformMaintenanceTasks()
+        {
+            auto cache = GetGlobalCompilerCache();
+            cache->CompactCache();
+        }
+
+        void CleanupExpiredEntries()
+        {
+            auto cache = GetGlobalCompilerCache();
+            cache->CleanupOldEntries();
+        }
+
+        void ValidateAllCaches()
+        {
+            auto cache = GetGlobalCompilerCache();
+            cache->ValidateAllEntries();
+        }
+    }
+
+} // namespace OloEngine::Audio::SoundGraph

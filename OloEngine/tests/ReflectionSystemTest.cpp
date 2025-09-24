@@ -1,4 +1,4 @@
-#include "OloEngine/Audio/SoundGraph/Nodes/AddNodeReflected.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/AddNode.h"
 #include "OloEngine/Core/Reflection/Reflection.h"
 
 #include <gtest/gtest.h>
@@ -12,11 +12,11 @@ class ReflectionSystemTest : public ::testing::Test
 protected:
     void SetUp() override
     {
-        node = std::make_unique<AddNodeReflectedF32>();
+        node = std::make_unique<AddNodeF32>();
         node->Initialize(44100.0, 512);
     }
 
-    std::unique_ptr<AddNodeReflectedF32> node;
+    std::unique_ptr<AddNodeF32> node;
 };
 
 TEST_F(ReflectionSystemTest, NodeHasReflectionDescription)

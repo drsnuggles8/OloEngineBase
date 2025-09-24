@@ -1,45 +1,44 @@
 #pragma once
 
 #include "OloEngine/Audio/SoundGraph/NodeProcessor.h"
+#include "OloEngine/Audio/SoundGraph/NodeDescriptors.h"
 
 namespace OloEngine::Audio::SoundGraph
 {
 	//==============================================================================
-	/// Subtract node that subtracts InputB from InputA
+	/// Subtract node using reflection-based endpoint system
 	template<typename T>
 	class SubtractNode : public NodeProcessor
 	{
-	private:
-		// Endpoint identifiers
-		const Identifier InputA_ID = OLO_IDENTIFIER("InputA");
-		const Identifier InputB_ID = OLO_IDENTIFIER("InputB");
-		const Identifier Output_ID = OLO_IDENTIFIER("Output");
-
 	public:
+		// Input members (pointers will be connected to parameter system)
+		T* in_InputA = nullptr;
+		T* in_InputB = nullptr;
+		
+		// Output member (direct value, computed in Process)
+		T out_Output{};
+
 		SubtractNode()
 		{
-			// Register parameters directly
-			AddParameter<T>(InputA_ID, "InputA", T{});
-			AddParameter<T>(InputB_ID, "InputB", T{});
-			AddParameter<T>(Output_ID, "Output", T{});
-		}
-
-		void Process(f32** inputs, f32** outputs, u32 numSamples) override
-		{
-			// Get current parameter values
-			T inputA = GetParameterValue<T>(InputA_ID);
-			T inputB = GetParameterValue<T>(InputB_ID);
-			
-			// Perform subtraction
-			T result = inputA - inputB;
-			
-			// Set output parameter
-			SetParameterValue(Output_ID, result);
+			// Automatic endpoint registration using reflection
+			EndpointUtilities::RegisterEndpoints(this);
 		}
 
 		void Initialize(f64 sampleRate, u32 maxBufferSize) override
 		{
 			m_SampleRate = sampleRate;
+			
+			// Initialize input pointers to connect with parameter system
+			EndpointUtilities::InitializeInputs(this);
+		}
+
+		void Process(f32** inputs, f32** outputs, u32 numSamples) override
+		{
+			// Use the connected input values (now accessible via pointers)
+			if (in_InputA && in_InputB)
+			{
+				out_Output = *in_InputA - *in_InputB;
+			}
 		}
 
 		Identifier GetTypeID() const override
@@ -61,10 +60,6 @@ namespace OloEngine::Audio::SoundGraph
 			else
 				return "Subtract (unknown)";
 		}
-
-	private:
-		// Parameter IDs are available as members
-		// InputA_ID, InputB_ID, Output_ID are accessible
 	};
 
 	// Common type aliases
@@ -72,3 +67,24 @@ namespace OloEngine::Audio::SoundGraph
 	using SubtractNodeI32 = SubtractNode<i32>;
 
 } // namespace OloEngine::Audio::SoundGraph
+
+//==============================================================================
+/// REFLECTION DESCRIPTIONS
+
+// Describe the f32 version
+DESCRIBE_NODE(OloEngine::Audio::SoundGraph::SubtractNode<float>,
+	NODE_INPUTS(
+		&OloEngine::Audio::SoundGraph::SubtractNode<float>::in_InputA,
+		&OloEngine::Audio::SoundGraph::SubtractNode<float>::in_InputB),
+	NODE_OUTPUTS(
+		&OloEngine::Audio::SoundGraph::SubtractNode<float>::out_Output)
+);
+
+// Describe the i32 version  
+DESCRIBE_NODE(OloEngine::Audio::SoundGraph::SubtractNode<int>,
+	NODE_INPUTS(
+		&OloEngine::Audio::SoundGraph::SubtractNode<int>::in_InputA,
+		&OloEngine::Audio::SoundGraph::SubtractNode<int>::in_InputB),
+	NODE_OUTPUTS(
+		&OloEngine::Audio::SoundGraph::SubtractNode<int>::out_Output)
+);

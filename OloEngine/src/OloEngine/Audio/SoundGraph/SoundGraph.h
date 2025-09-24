@@ -1,8 +1,7 @@
 #pragma once
 
 #include "NodeProcessor.h"
-#include "Events.h"
-#include "ParameterConnection.h"
+#include "Value.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Asset/Asset.h"
@@ -48,7 +47,7 @@ namespace OloEngine::Audio::SoundGraph
 
 	//==============================================================================
 	/// Main sound graph containing inputs, outputs, and nodes
-	class SoundGraph : public NodeProcessor, public RefCounted
+	class SoundGraph : public RefCounted
 	{
 	public:
 		// Predefined endpoint identifiers
@@ -66,14 +65,10 @@ namespace OloEngine::Audio::SoundGraph
 		explicit SoundGraph();
 		virtual ~SoundGraph() = default;
 
-		// NodeProcessor overrides
-		void Process(f32** inputs, f32** outputs, u32 numSamples) override;
-		void Update(f64 deltaTime) override;
-		void Initialize(f64 sampleRate, u32 maxBufferSize) override;
+		// Audio processing interface (not NodeProcessor inheritance)
+		void Process(f32** inputs, f32** outputs, u32 numSamples);
+		void Initialize(f64 sampleRate, u32 maxBufferSize);
 		
-		Identifier GetTypeID() const override { return OLO_IDENTIFIER("SoundGraph"); }
-		const char* GetDisplayName() const override { return "Sound Graph"; }
-
 		//==============================================================================
 		/// Graph Construction API
 
