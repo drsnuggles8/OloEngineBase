@@ -165,6 +165,13 @@ namespace OloEngine::Audio::SoundGraph
 			return m_Parameters;
 		}
 
+		/// Get typed parameter by ID
+		template<typename T>
+		std::shared_ptr<TypedParameter<T>> GetParameter(const Identifier& id) const
+		{
+			return m_Parameters.GetParameter<T>(id);
+		}
+
 		//======================================================================
 		// CONNECTION SYSTEM
 		//======================================================================
