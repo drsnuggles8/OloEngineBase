@@ -34,10 +34,10 @@ namespace OloEngine::Audio::SoundGraph
 		/// Internal serialization methods
 
 		static YAML::Emitter& SerializeNodeData(YAML::Emitter& out, const SoundGraphAsset::NodeData& nodeData);
-		static YAML::Emitter& SerializeConnection(YAML::Emitter& out, const Connection& connection);
+		static YAML::Emitter& SerializeConnection(YAML::Emitter& out, const Prototype::Connection& connection);
 
 		static bool DeserializeNodeData(const YAML::Node& node, SoundGraphAsset::NodeData& nodeData);
-		static bool DeserializeConnection(const YAML::Node& node, Connection& connection);
+		static bool DeserializeConnection(const YAML::Node& node, Prototype::Connection& connection);
 	};
 
 	//==============================================================================

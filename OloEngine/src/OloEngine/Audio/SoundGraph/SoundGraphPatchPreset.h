@@ -1,7 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Core/RefCounted.h"
+#include "OloEngine/Core/Ref.h"
 
 #include <string>
 #include <unordered_map>

@@ -28,6 +28,49 @@ namespace OloEngine::Audio::SoundGraph
 		ValueType() = default;
 		ValueType(Kind kind) : m_kind(kind) {}
 		ValueType(Kind elementKind, sizet arraySize) : m_kind(Kind::Array), m_elementType(std::make_unique<ValueType>(elementKind)), m_arraySize(arraySize) {}
+		
+		// Copy constructor
+		ValueType(const ValueType& other) : m_kind(other.m_kind), m_arraySize(other.m_arraySize)
+		{
+			if (other.m_elementType)
+				m_elementType = std::make_unique<ValueType>(*other.m_elementType);
+		}
+		
+		// Move constructor
+		ValueType(ValueType&& other) noexcept : m_kind(other.m_kind), m_elementType(std::move(other.m_elementType)), m_arraySize(other.m_arraySize)
+		{
+			other.m_kind = Kind::Void;
+			other.m_arraySize = 0;
+		}
+		
+		// Copy assignment
+		ValueType& operator=(const ValueType& other)
+		{
+			if (this != &other)
+			{
+				m_kind = other.m_kind;
+				m_arraySize = other.m_arraySize;
+				if (other.m_elementType)
+					m_elementType = std::make_unique<ValueType>(*other.m_elementType);
+				else
+					m_elementType.reset();
+			}
+			return *this;
+		}
+		
+		// Move assignment
+		ValueType& operator=(ValueType&& other) noexcept
+		{
+			if (this != &other)
+			{
+				m_kind = other.m_kind;
+				m_elementType = std::move(other.m_elementType);
+				m_arraySize = other.m_arraySize;
+				other.m_kind = Kind::Void;
+				other.m_arraySize = 0;
+			}
+			return *this;
+		}
 
 		// Static factory methods
 		template<typename T>
@@ -178,7 +221,7 @@ namespace OloEngine::Audio::SoundGraph
 		void MoveFrom(Value&& other)
 		{
 			Clear();
-			m_type = other.m_type;
+			m_type = std::move(other.m_type);
 			m_data = other.m_data;
 			m_size = other.m_size;
 			m_ownsData = other.m_ownsData;

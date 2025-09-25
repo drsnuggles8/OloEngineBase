@@ -1,6 +1,7 @@
 #include "OloEngine/Core/Base.h"
 #include "SoundGraphSerializer.h"
-#include "Nodes/WavePlayerNode.h"
+#include "SoundGraphPrototype.h"
+// #include "Nodes/WavePlayer.h" // TODO: Missing WavePlayer node - commented out to fix compilation
 
 #include "OloEngine/Core/Log.h"
 
@@ -146,7 +147,7 @@ namespace OloEngine::Audio::SoundGraph
 				for (const auto& connectionYaml : connectionsNode)
 				{
 					connectionCount++;
-					Connection connection;
+					Prototype::Connection connection;
 					if (DeserializeConnection(connectionYaml, connection))
 					{
 						asset.Connections.push_back(connection);
@@ -209,15 +210,15 @@ namespace OloEngine::Audio::SoundGraph
 		return out;
 	}
 
-	YAML::Emitter& SoundGraphSerializer::SerializeConnection(YAML::Emitter& out, const Connection& connection)
+	YAML::Emitter& SoundGraphSerializer::SerializeConnection(YAML::Emitter& out, const Prototype::Connection& connection)
 	{
 		out << YAML::BeginMap;
 		
-		out << YAML::Key << "SourceNodeID" << YAML::Value << connection.SourceNodeID;
-		out << YAML::Key << "SourceEndpoint" << YAML::Value << connection.SourceEndpoint;
-		out << YAML::Key << "TargetNodeID" << YAML::Value << connection.TargetNodeID;
-		out << YAML::Key << "TargetEndpoint" << YAML::Value << connection.TargetEndpoint;
-		out << YAML::Key << "IsEvent" << YAML::Value << connection.IsEvent;
+		out << YAML::Key << "SourceNodeID" << YAML::Value << connection.Source.NodeID;
+		out << YAML::Key << "SourceEndpoint" << YAML::Value << connection.Source.EndpointID;
+		out << YAML::Key << "TargetNodeID" << YAML::Value << connection.Destination.NodeID;
+		out << YAML::Key << "TargetEndpoint" << YAML::Value << connection.Destination.EndpointID;
+		out << YAML::Key << "Type" << YAML::Value << connection.Type;
 		
 		out << YAML::EndMap;
 		
@@ -260,7 +261,7 @@ namespace OloEngine::Audio::SoundGraph
 		}
 	}
 
-	bool SoundGraphSerializer::DeserializeConnection(const YAML::Node& node, Connection& connection)
+	bool SoundGraphSerializer::DeserializeConnection(const YAML::Node& node, Prototype::Connection& connection)
 	{
 		try
 		{
@@ -271,15 +272,15 @@ namespace OloEngine::Audio::SoundGraph
 				return false;
 			}
 			
-			connection.SourceNodeID = Identifier(node["SourceNodeID"].as<u64>());
-			connection.SourceEndpoint = node["SourceEndpoint"].as<std::string>();
-			connection.TargetNodeID = Identifier(node["TargetNodeID"].as<u64>());
-			connection.TargetEndpoint = node["TargetEndpoint"].as<std::string>();
+			connection.Source.NodeID = UUID(node["SourceNodeID"].as<u64>());
+			connection.Source.EndpointID = Identifier(node["SourceEndpoint"].as<u32>());
+			connection.Destination.NodeID = UUID(node["TargetNodeID"].as<u64>());
+			connection.Destination.EndpointID = Identifier(node["TargetEndpoint"].as<u32>());
 			
-			if (node["IsEvent"])
-				connection.IsEvent = node["IsEvent"].as<bool>();
+			if (node["Type"])
+				connection.Type = static_cast<Prototype::Connection::EType>(node["Type"].as<i32>());
 			else
-				connection.IsEvent = false; // Default value
+				connection.Type = Prototype::Connection::NodeValue_NodeValue; // Default value
 			
 			return true;
 		}
@@ -332,30 +333,30 @@ namespace OloEngine::Audio::SoundGraph
 		// Connect nodes
 		for (const auto& connection : asset.Connections)
 		{
-			// Convert Identifier to UUID for lookup in nodeMap
-			UUID sourceUUID = UUID(static_cast<u64>(connection.SourceNodeID));
-			UUID targetUUID = UUID(static_cast<u64>(connection.TargetNodeID));
-			
-			auto outputNodeIt = nodeMap.find(sourceUUID);
-			auto inputNodeIt = nodeMap.find(targetUUID);
+			auto outputNodeIt = nodeMap.find(connection.Source.NodeID);
+			auto inputNodeIt = nodeMap.find(connection.Destination.NodeID);
 			
 			if (outputNodeIt != nodeMap.end() && inputNodeIt != nodeMap.end())
 			{
 				NodeProcessor* outputNode = outputNodeIt->second;
 				NodeProcessor* inputNode = inputNodeIt->second;
 				
+				// TODO: Implement connection logic for ValueView system
 				// Connect the nodes
-				if (!outputNode->ConnectTo(connection.SourceEndpoint, inputNode, connection.TargetEndpoint))
+				/*
+				if (!outputNode->ConnectTo(connection.Source.EndpointID, inputNode, connection.Destination.EndpointID))
 				{
 					OLO_CORE_WARN("Failed to connect {} -> {} ({} -> {})", 
 						outputNode->GetDisplayName(), inputNode->GetDisplayName(),
-						connection.SourceEndpoint, connection.TargetEndpoint);
+						connection.Source.EndpointID, connection.Destination.EndpointID);
 				}
+				*/
+				OLO_CORE_WARN("TODO: Connection logic not implemented for ValueView system");
 			}
 			else
 			{
 				OLO_CORE_ERROR("Connection references unknown nodes: {} -> {}", 
-					static_cast<u64>(connection.SourceNodeID), static_cast<u64>(connection.TargetNodeID));
+					static_cast<u64>(connection.Source.NodeID), static_cast<u64>(connection.Destination.NodeID));
 			}
 		}
 		
@@ -368,7 +369,7 @@ namespace OloEngine::Audio::SoundGraph
 	void SoundGraphFactory::InitializeDefaultNodeTypes()
 	{
 		// Register built-in node types
-		RegisterNodeType<WavePlayerNode>("WavePlayer");
+		// RegisterNodeType<WavePlayerNode>("WavePlayer"); // TODO: Missing WavePlayer node - commented out to fix compilation
 		
 		OLO_CORE_INFO("Registered {} default sound graph node types", s_NodeCreators.size());
 	}
@@ -388,6 +389,8 @@ namespace OloEngine::Audio::SoundGraph
 	void SoundGraphFactory::ApplyNodeProperties(NodeProcessor* node, const SoundGraphAsset::NodeData& nodeData)
 	{
 		// Apply type-specific properties
+		// TODO: Missing WavePlayer node - commented out to fix compilation
+		/*
 		if (auto wavePlayer = dynamic_cast<WavePlayerNode*>(node))
 		{
 			auto it = nodeData.Properties.find("AudioFilePath");
@@ -414,8 +417,9 @@ namespace OloEngine::Audio::SoundGraph
 				wavePlayer->SetLoop(it->second == "true");
 			}
 		}
+		*/
 		// TODO: Add more node types as they become available
 		
-		OLO_CORE_TRACE("Applied properties to node '{}' of type '{}'", node->GetDisplayName(), nodeData.Type);
+		// OLO_CORE_TRACE("Applied properties to node '{}' of type '{}'", node->GetDisplayName(), nodeData.Type); // TODO: GetDisplayName() method missing
 	}
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "NodeProcessor.h"
+#include "SoundGraphPrototype.h"
 #include "Value.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/UUID.h"
@@ -30,7 +31,7 @@ namespace OloEngine::Audio::SoundGraph
 		};
 
 		std::vector<NodeData> Nodes;
-		std::vector<Connection> Connections;
+		std::vector<Prototype::Connection> Connections;
 
 		static AssetType GetStaticType() { return AssetType::SoundGraph; }
 		AssetType GetAssetType() const { return GetStaticType(); }
@@ -149,7 +150,7 @@ namespace OloEngine::Audio::SoundGraph
 		[[nodiscard]] const std::vector<Scope<NodeProcessor>>& GetNodes() const { return m_Nodes; }
 
 		// Get all connections in the graph
-		[[nodiscard]] const std::vector<Connection>& GetConnections() const { return m_Connections; }
+		[[nodiscard]] const std::vector<Prototype::Connection>& GetConnections() const { return m_Connections; }
 
 		//==============================================================================
 		/// Asset Serialization
@@ -175,7 +176,7 @@ namespace OloEngine::Audio::SoundGraph
 
 		// Nodes and connections
 		std::vector<Scope<NodeProcessor>> m_Nodes;
-		std::vector<Connection> m_Connections;
+		std::vector<Prototype::Connection> m_Connections;
 
 		// Event queue for communicating with the main thread
 		std::queue<GraphEvent> m_OutgoingEvents;
@@ -195,7 +196,7 @@ namespace OloEngine::Audio::SoundGraph
 		/// Internal routing utilities
 
 		/** Low-level event connection helper */
-		void AddConnection(std::shared_ptr<OutputEvent> source, std::shared_ptr<InputEvent> destination);
+		void AddConnection(std::shared_ptr<NodeProcessor::OutputEvent> source, std::shared_ptr<NodeProcessor::InputEvent> destination);
 
 		/** Low-level parameter connection helper */
 		template<typename T>
@@ -225,16 +226,16 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 		/** Route InputEvent to InputEvent (for event chaining) */
-		void AddRoute(std::shared_ptr<InputEvent> source, std::shared_ptr<InputEvent> destination);
+		void AddRoute(std::shared_ptr<NodeProcessor::InputEvent> source, std::shared_ptr<NodeProcessor::InputEvent> destination);
 
 		/** Route OutputEvent to OutputEvent (for event forwarding) */
-		void AddRoute(std::shared_ptr<OutputEvent> source, std::shared_ptr<OutputEvent> destination);
+		void AddRoute(std::shared_ptr<NodeProcessor::OutputEvent> source, std::shared_ptr<NodeProcessor::OutputEvent> destination);
 
 		/** Get or create graph input event */
-		std::shared_ptr<InputEvent> GetOrCreateGraphInputEvent(const std::string& name);
+		std::shared_ptr<NodeProcessor::InputEvent> GetOrCreateGraphInputEvent(const std::string& name);
 
 		/** Get or create graph output event */
-		std::shared_ptr<OutputEvent> GetOrCreateGraphOutputEvent(const std::string& name);
+		std::shared_ptr<NodeProcessor::OutputEvent> GetOrCreateGraphOutputEvent(const std::string& name);
 
 		//==============================================================================
 		/// Event handlers

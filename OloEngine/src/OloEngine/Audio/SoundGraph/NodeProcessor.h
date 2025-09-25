@@ -109,8 +109,9 @@ namespace OloEngine::Audio::SoundGraph
 		ValueView& AddInStream(Identifier id, ValueView* source = nullptr)
 		{
 			const auto& [element, inserted] = Ins.try_emplace(id);
-			if (source)
-				element->second = *source;
+			// TODO: Handle source ValueView connection properly - ValueView has deleted assignment due to unique_ptr
+			// if (source)
+			//     element->second = *source; // This won't work due to deleted copy assignment
 
 			OLO_CORE_ASSERT(inserted);
 			return element->second;
@@ -145,6 +146,11 @@ namespace OloEngine::Audio::SoundGraph
 		inline ValueView& OutValue(const Identifier& id) { return Outs.at(id); }
 		inline InputEvent& InEvent(const Identifier& id) { return InEvs.at(id); }
 		inline OutputEvent& OutEvent(const Identifier& id) { return OutEvs.at(id); }
+
+		inline bool HasParameter(const Identifier& id) const 
+		{ 
+			return Ins.contains(id) || Outs.contains(id) || InEvs.contains(id) || OutEvs.contains(id);
+		}
 	};
 
 	//==============================================================================
