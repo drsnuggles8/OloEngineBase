@@ -2,6 +2,7 @@
 
 #include "../NodeProcessor.h"
 #include "../Flag.h"
+#include "OloEngine/Audio/SoundGraph/ValueView.h"
 #include "OloEngine/Core/Identifier.h"
 #include <glm/glm.hpp>
 #include <vector>
@@ -17,13 +18,13 @@ namespace OloEngine::Audio::SoundGraph
 	class ConvolutionNode : public NodeProcessor
 	{
 	private:
-		// Endpoint identifiers
-		const Identifier Input_ID = OLO_IDENTIFIER("Input");
-		const Identifier ImpulseResponse_ID = OLO_IDENTIFIER("ImpulseResponse");
-		const Identifier WetLevel_ID = OLO_IDENTIFIER("WetLevel");
-		const Identifier DryLevel_ID = OLO_IDENTIFIER("DryLevel");
-		const Identifier LoadImpulse_ID = OLO_IDENTIFIER("LoadImpulse");
-		const Identifier Output_ID = OLO_IDENTIFIER("Output");
+		// Parameter streams
+		InputView<f32> m_InputSignal;
+		InputView<f32> m_ImpulseResponseInput;
+		InputView<f32> m_WetLevelInput;
+		InputView<f32> m_DryLevelInput;
+		InputView<f32> m_LoadImpulseInput;
+		OutputView<f32> m_Output;
 
 		// Convolution parameters
 		struct ConvolutionState
@@ -57,81 +58,66 @@ namespace OloEngine::Audio::SoundGraph
 	public:
 		ConvolutionNode()
 		{
-			// Register inputs and outputs
-			DECLARE_INPUT(f32, Input);                       // Audio input to be convolved
-			DECLARE_INPUT(f32, ImpulseResponse);             // Impulse response data (for dynamic loading)
-			DECLARE_INTERPOLATED_INPUT(f32, WetLevel);       // Convolved signal level
-			DECLARE_INTERPOLATED_INPUT(f32, DryLevel);       // Original signal level
-			DECLARE_INPUT(f32, LoadImpulse);                 // Trigger to load new impulse
-			DECLARE_OUTPUT(f32, Output);                     // Convolved audio output
+			// Initialize input streams with default values
+			m_InputSignal = CreateInputView<f32>("Input", 0.0f);
+			m_ImpulseResponseInput = CreateInputView<f32>("ImpulseResponse", 0.0f);
+			m_WetLevelInput = CreateInputView<f32>("WetLevel", 0.5f);
+			m_DryLevelInput = CreateInputView<f32>("DryLevel", 0.5f);
+			m_LoadImpulseInput = CreateInputView<f32>("LoadImpulse", 0.0f);
+			
+			// Initialize output stream
+			m_Output = CreateOutputView<f32>("Output");
 
-			// Set default values
-			SetParameterValue(Input_ID, 0.0f, false);
-			SetParameterValue(ImpulseResponse_ID, 0.0f, false);
-			SetParameterValue(WetLevel_ID, 1.0f, false);     // 100% wet by default
-			SetParameterValue(DryLevel_ID, 0.0f, false);     // 0% dry (pure convolution)
-			SetParameterValue(LoadImpulse_ID, 0.0f, false);
-			SetParameterValue(Output_ID, 0.0f, false);
-
-			// Register LoadImpulse input event with flag callback
-			AddInputEvent<f32>(LoadImpulse_ID, "LoadImpulse", [this](f32 value) {
+			// Register impulse loading trigger callback
+			m_LoadImpulseInput.RegisterInputEvent([this](f32 value) {
 				if (value > 0.5f) m_LoadImpulseFlag.SetDirty();
 			});
 		}
 
-		virtual ~ConvolutionNode() = default;
-
-		//======================================================================
-		// NodeProcessor Implementation
-		//======================================================================
-
-		void Process(f32** inputs, f32** outputs, u32 numSamples) override
-		{
-			// Process interpolation and parameter connections first
-			ProcessBeforeAudio();
-
-			// Check for impulse loading trigger
-			f32 loadImpulseValue = GetParameterValue<f32>(LoadImpulse_ID);
-			if (loadImpulseValue > 0.5f || m_LoadImpulseFlag.CheckAndResetIfDirty())
-			{
-				LoadDefaultImpulse(); // Load default or update from parameter
-				if (loadImpulseValue > 0.5f)
-					SetParameterValue(LoadImpulse_ID, 0.0f, false);
-			}
-
-			// Get mix levels
-			const f32 wetLevel = glm::clamp(GetParameterValue<f32>(WetLevel_ID), MIN_LEVEL, MAX_LEVEL);
-			const f32 dryLevel = glm::clamp(GetParameterValue<f32>(DryLevel_ID), MIN_LEVEL, MAX_LEVEL);
-
-			// Process audio if we have valid input/output and initialized convolution
-			if (inputs && inputs[0] && outputs && outputs[0] && m_State.isInitialized)
-			{
-				ProcessConvolution(inputs[0], outputs[0], numSamples, wetLevel, dryLevel);
-				
-				// Set output parameter to the last generated value
-				SetParameterValue(Output_ID, outputs[0][numSamples - 1], false);
-			}
-			else if (outputs && outputs[0])
-			{
-				// Clear output if no valid processing
-				for (u32 i = 0; i < numSamples; ++i)
-				{
-					outputs[0][i] = 0.0f;
-				}
-				SetParameterValue(Output_ID, 0.0f, false);
-			}
-		}
-
 		void Initialize(f64 sampleRate, u32 maxBufferSize) override
 		{
+			NodeProcessor::Initialize(sampleRate, maxBufferSize);
+			
 			m_SampleRate = sampleRate;
 			m_MaxBufferSize = maxBufferSize;
 			
-			// Initialize interpolation with default 10ms transition time
-			InitializeInterpolation(sampleRate, 0.01);
-			
-			// Initialize convolution with default impulse
+			// Initialize convolution with default impulse response
 			LoadDefaultImpulse();
+		}
+
+		void Process(f32** inputs, f32** outputs, u32 numSamples) override
+		{
+			// Update input parameters from connections
+			m_InputSignal.UpdateFromConnections();
+			m_ImpulseResponseInput.UpdateFromConnections();
+			m_WetLevelInput.UpdateFromConnections();
+			m_DryLevelInput.UpdateFromConnections();
+			m_LoadImpulseInput.UpdateFromConnections();
+
+			// Check for impulse loading trigger
+			f32 loadImpulseValue = m_LoadImpulseInput.GetValue();
+			if (loadImpulseValue > 0.5f || m_LoadImpulseFlag.CheckAndResetIfDirty())
+			{
+				LoadDefaultImpulse();
+			}
+
+			// Get processing parameters
+			f32 wetLevel = glm::clamp(m_WetLevelInput.GetValue(), MIN_LEVEL, MAX_LEVEL);
+			f32 dryLevel = glm::clamp(m_DryLevelInput.GetValue(), MIN_LEVEL, MAX_LEVEL);
+
+			if (!m_State.isInitialized)
+			{
+				// If convolution not ready, pass dry signal through
+				ProcessDrySignal(inputs, outputs, numSamples, dryLevel);
+			}
+			else
+			{
+				// Process convolution
+				ProcessConvolution(inputs, outputs, numSamples, wetLevel, dryLevel);
+			}
+
+			// Update output connections
+			m_Output.UpdateOutputConnections();
 		}
 
 		Identifier GetTypeID() const override
@@ -145,173 +131,160 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 		//======================================================================
-		// Convolution Implementation
+		// Utility methods for impulse response management
 		//======================================================================
+		
+		void LoadImpulseResponse(const std::vector<f32>& impulse)
+		{
+			if (impulse.empty()) return;
+			
+			m_State.impulseResponse = impulse;
+			m_State.impulseLength = impulse.size();
+			
+			// Determine FFT size (next power of 2, at least 2 * impulse length)
+			u32 requiredSize = m_State.impulseLength + m_MaxBufferSize - 1;
+			m_State.fftSize = NextPowerOfTwo(requiredSize);
+			
+			InitializeConvolution();
+		}
+		
+		void SetWetLevel(f32 level) { m_WetLevelInput.SetValue(glm::clamp(level, MIN_LEVEL, MAX_LEVEL)); }
+		void SetDryLevel(f32 level) { m_DryLevelInput.SetValue(glm::clamp(level, MIN_LEVEL, MAX_LEVEL)); }
+		
+		f32 GetWetLevel() const { return m_WetLevelInput.GetValue(); }
+		f32 GetDryLevel() const { return m_DryLevelInput.GetValue(); }
+		
+		u32 GetImpulseLength() const { return m_State.impulseLength; }
+		bool IsInitialized() const { return m_State.isInitialized; }
 
 	private:
-		void ProcessConvolution(const f32* input, f32* output, u32 numSamples, f32 wetLevel, f32 dryLevel)
+		void ProcessDrySignal(f32** inputs, f32** outputs, u32 numSamples, f32 dryLevel)
 		{
-			if (!m_State.isInitialized || m_State.fftSize == 0)
+			if (inputs && inputs[0] && outputs && outputs[0])
 			{
-				// Fallback: just copy input to output with dry level
+				// Process audio buffer - dry signal only
 				for (u32 i = 0; i < numSamples; ++i)
 				{
-					output[i] = input[i] * dryLevel;
+					f32 drySignal = inputs[0][i] * dryLevel;
+					outputs[0][i] = drySignal;
+					m_Output.SetValue(outputs[0][i]);
 				}
-				return;
 			}
-
-			// Process in chunks that fit our FFT size
-			const u32 processingSize = m_State.fftSize / 2; // Overlap-add processing
-			
-			for (u32 sampleIndex = 0; sampleIndex < numSamples; ++sampleIndex)
+			else
 			{
-				// Store input in circular buffer
-				m_State.inputBuffer[m_State.bufferIndex] = input[sampleIndex];
-				
-				// Get convolved output (with delay compensation)
-				f32 convolvedSample = 0.0f;
-				if (m_State.bufferIndex >= m_State.impulseLength)
-				{
-					convolvedSample = m_State.outputBuffer[m_State.bufferIndex - m_State.impulseLength];
-				}
-				
-				// Apply convolution using time-domain approach for real-time performance
-				// Note: For production, this should be replaced with partitioned FFT convolution
-				convolvedSample = ComputeConvolutionSample(sampleIndex);
-				
-				// Mix wet and dry signals
-				output[sampleIndex] = (convolvedSample * wetLevel) + (input[sampleIndex] * dryLevel);
-				
-				// Advance buffer index
-				m_State.bufferIndex = (m_State.bufferIndex + 1) % m_State.inputBuffer.size();
+				// Single sample processing
+				f32 inputValue = m_InputSignal.GetValue();
+				f32 outputValue = inputValue * dryLevel;
+				m_Output.SetValue(outputValue);
 			}
 		}
 
-		f32 ComputeConvolutionSample(u32 currentIndex)
+		void ProcessConvolution(f32** inputs, f32** outputs, u32 numSamples, f32 wetLevel, f32 dryLevel)
 		{
-			f32 result = 0.0f;
-			
-			// Simple time-domain convolution (for small impulse responses)
-			// This is a simplified implementation - production code should use FFT
-			const u32 impulseLength = std::min(m_State.impulseLength, static_cast<u32>(m_State.impulseResponse.size()));
-			const u32 bufferSize = static_cast<u32>(m_State.inputBuffer.size());
-			
-			for (u32 i = 0; i < impulseLength; ++i)
+			if (inputs && inputs[0] && outputs && outputs[0])
 			{
-				u32 inputIndex = (m_State.bufferIndex - i + bufferSize) % bufferSize;
-				result += m_State.inputBuffer[inputIndex] * m_State.impulseResponse[i];
+				// Process audio buffer with convolution
+				for (u32 i = 0; i < numSamples; ++i)
+				{
+					f32 inputSample = inputs[0][i];
+					f32 wetSample = ProcessConvolutionSample(inputSample);
+					f32 drySignal = inputSample * dryLevel;
+					f32 wetSignal = wetSample * wetLevel;
+					
+					outputs[0][i] = drySignal + wetSignal;
+					m_Output.SetValue(outputs[0][i]);
+				}
+			}
+			else
+			{
+				// Single sample processing
+				f32 inputValue = m_InputSignal.GetValue();
+				f32 wetSample = ProcessConvolutionSample(inputValue);
+				f32 outputValue = (inputValue * dryLevel) + (wetSample * wetLevel);
+				m_Output.SetValue(outputValue);
+			}
+		}
+
+		f32 ProcessConvolutionSample(f32 inputSample)
+		{
+			// Simple FIR convolution (would be optimized with FFT in production)
+			f32 output = 0.0f;
+			
+			// Store input sample in circular buffer
+			m_State.inputBuffer[m_State.bufferIndex] = inputSample;
+			
+			// Convolve with impulse response
+			for (u32 i = 0; i < m_State.impulseLength; ++i)
+			{
+				u32 bufferIdx = (m_State.bufferIndex + m_State.inputBuffer.size() - i) % m_State.inputBuffer.size();
+				output += m_State.inputBuffer[bufferIdx] * m_State.impulseResponse[i];
 			}
 			
-			return result;
+			// Advance buffer index
+			m_State.bufferIndex = (m_State.bufferIndex + 1) % m_State.inputBuffer.size();
+			
+			return output;
 		}
 
 		void LoadDefaultImpulse()
 		{
-			// Create a simple default impulse response (early reflections pattern)
-			m_State.impulseResponse.clear();
-			m_State.impulseResponse.resize(DEFAULT_IMPULSE_LENGTH, 0.0f);
+			// Create a simple impulse response for testing (exponential decay)
+			std::vector<f32> defaultImpulse(DEFAULT_IMPULSE_LENGTH);
 			
-			// Create a simple room impulse: direct sound + early reflections + decay
-			const f32 sampleRate = static_cast<f32>(m_SampleRate);
-			
-			// Direct sound (impulse at start)
-			m_State.impulseResponse[0] = 1.0f;
-			
-			// Early reflections (simulate wall bounces)
-			const std::vector<std::pair<f32, f32>> reflections = {
-				{0.020f, 0.6f},   // 20ms, 60% amplitude (wall reflection)
-				{0.035f, 0.4f},   // 35ms, 40% amplitude
-				{0.055f, 0.3f},   // 55ms, 30% amplitude
-				{0.080f, 0.25f},  // 80ms, 25% amplitude
-				{0.120f, 0.2f},   // 120ms, 20% amplitude
-			};
-			
-			for (const auto& reflection : reflections)
+			for (u32 i = 0; i < DEFAULT_IMPULSE_LENGTH; ++i)
 			{
-				u32 sampleDelay = static_cast<u32>(reflection.first * sampleRate);
-				if (sampleDelay < DEFAULT_IMPULSE_LENGTH)
-				{
-					m_State.impulseResponse[sampleDelay] = reflection.second;
-				}
+				f32 decay = std::exp(-5.0f * i / DEFAULT_IMPULSE_LENGTH);
+				defaultImpulse[i] = decay * (i == 0 ? 1.0f : 0.1f); // Initial impulse + decay
 			}
 			
-			// Add exponential decay tail
-			for (u32 i = 100; i < DEFAULT_IMPULSE_LENGTH; ++i)
-			{
-				f32 time = static_cast<f32>(i) / sampleRate;
-				f32 decay = std::exp(-time * 2.0f); // 2 second decay time
-				m_State.impulseResponse[i] += decay * 0.1f * (static_cast<f32>(rand()) / RAND_MAX - 0.5f);
-			}
-			
-			InitializeConvolutionBuffers();
+			LoadImpulseResponse(defaultImpulse);
 		}
 
-		void InitializeConvolutionBuffers()
+		void InitializeConvolution()
 		{
-			m_State.impulseLength = static_cast<u32>(m_State.impulseResponse.size());
+			if (m_State.impulseLength == 0) return;
 			
-			// Initialize circular buffer for input (needs to be larger than impulse)
-			const u32 bufferSize = std::max(m_State.impulseLength * 2, m_MaxBufferSize * 4);
-			m_State.inputBuffer.resize(bufferSize, 0.0f);
-			m_State.outputBuffer.resize(bufferSize, 0.0f);
+			// Initialize buffers for convolution
+			u32 bufferLength = m_State.impulseLength + m_MaxBufferSize;
+			m_State.inputBuffer.resize(bufferLength);
+			m_State.outputBuffer.resize(bufferLength);
 			
-			// Reset buffer index
+			// Clear buffers
+			std::fill(m_State.inputBuffer.begin(), m_State.inputBuffer.end(), 0.0f);
+			std::fill(m_State.outputBuffer.begin(), m_State.outputBuffer.end(), 0.0f);
+			
+			// Initialize FFT buffers (for future optimization)
+			m_State.inputFFT.resize(m_State.fftSize);
+			m_State.outputFFT.resize(m_State.fftSize);
+			m_State.impulseResponseFFT.resize(m_State.fftSize);
+			
+			// Pre-compute impulse response FFT (simplified)
+			for (u32 i = 0; i < m_State.impulseLength; ++i)
+			{
+				m_State.impulseResponseFFT[i] = std::complex<f32>(m_State.impulseResponse[i], 0.0f);
+			}
+			for (u32 i = m_State.impulseLength; i < m_State.fftSize; ++i)
+			{
+				m_State.impulseResponseFFT[i] = std::complex<f32>(0.0f, 0.0f);
+			}
+			
 			m_State.bufferIndex = 0;
-			
-			// For FFT-based convolution (future implementation)
-			m_State.fftSize = NextPowerOfTwo(m_State.impulseLength + m_MaxBufferSize);
-			
 			m_State.isInitialized = true;
 		}
 
 		static u32 NextPowerOfTwo(u32 value)
 		{
-			u32 result = 1;
-			while (result < value)
-			{
-				result <<= 1;
-			}
-			return result;
-		}
-
-	public:
-		//======================================================================
-		// Utility Methods
-		//======================================================================
-
-		/// Load a custom impulse response from a vector of samples
-		void LoadImpulseResponse(const std::vector<f32>& impulseData)
-		{
-			if (!impulseData.empty())
-			{
-				m_State.impulseResponse = impulseData;
-				InitializeConvolutionBuffers();
-			}
-		}
-
-		/// Get the current impulse response length in samples
-		u32 GetImpulseLength() const
-		{
-			return m_State.impulseLength;
-		}
-
-		/// Check if convolution is properly initialized
-		bool IsInitialized() const
-		{
-			return m_State.isInitialized;
-		}
-
-		/// Get current wet level
-		f32 GetWetLevel() const
-		{
-			return glm::clamp(GetParameterValue<f32>(WetLevel_ID), MIN_LEVEL, MAX_LEVEL);
-		}
-
-		/// Get current dry level  
-		f32 GetDryLevel() const
-		{
-			return glm::clamp(GetParameterValue<f32>(DryLevel_ID), MIN_LEVEL, MAX_LEVEL);
+			if (value <= 1) return 1;
+			
+			value--;
+			value |= value >> 1;
+			value |= value >> 2;
+			value |= value >> 4;
+			value |= value >> 8;
+			value |= value >> 16;
+			value++;
+			
+			return value;
 		}
 	};
 

@@ -1,109 +1,182 @@
 #pragma once
 
-#include "../NodeProcessor.h"
-#include "OloEngine/Core/Identifier.h"
+#include "OloEngine/Audio/SoundGraph/NodeProcessor.h"
+#include "OloEngine/Audio/SoundGraph/ValueView.h"
+#include "OloEngine/Core/Base.h"
+#include <cmath>
+#include <type_traits>
 
-namespace OloEngine::Audio::SoundGraph
-{
+namespace OloEngine::Audio::SoundGraph {
+
 	//==============================================================================
-	/// Modulo Node - calculates the remainder of value divided by modulo (value % modulo)
-	/// Primarily designed for integer operations, but supports f32 using fmod
+	/// ModuloNode - calculates the remainder of value divided by modulo (value % modulo)
+	/// Supports both f32 (using fmod) and i32 operations with per-sample processing
 	template<typename T>
 	class ModuloNode : public NodeProcessor
 	{
+		static_assert(std::is_arithmetic_v<T>, "ModuloNode can only be of arithmetic type");
+
 	private:
-		// Endpoint identifiers
-		const Identifier Value_ID = OLO_IDENTIFIER("Value");
-		const Identifier Modulo_ID = OLO_IDENTIFIER("Modulo");
-		const Identifier Result_ID = OLO_IDENTIFIER("Result");
+		//======================================================================
+		// ValueView Streams for Real-Time Processing
+		//======================================================================
+		
+		ValueView<T> m_ValueView;
+		ValueView<T> m_ModuloView;
+		ValueView<T> m_OutputView;
+
+		//======================================================================
+		// Current Parameter Values (from streams)
+		//======================================================================
+		
+		T m_CurrentValue = T{};
+		T m_CurrentModulo = T{2}; // Default to modulo 2
 
 	public:
-		ModuloNode()
-		{
-			// Register parameters directly
-			AddParameter<T>(Value_ID, "Value", T{0});
-			AddParameter<T>(Modulo_ID, "Modulo", T{2}); // Default to modulo 2
-			AddParameter<T>(Result_ID, "Result", T{0});
-		}
-
-		virtual ~ModuloNode() = default;
-
 		//======================================================================
-		// NodeProcessor Implementation
+		// Constructor & Destructor
 		//======================================================================
-
-		void Process(f32** inputs, f32** outputs, u32 numSamples) override
+		
+		explicit ModuloNode(NodeDatabase& database, NodeID nodeID)
+			: NodeProcessor(database, nodeID)
+			, m_ValueView("Value", T{})
+			, m_ModuloView("Modulo", T{2})
+			, m_OutputView("Result", T{})
 		{
-			const T value = GetParameterValue<T>(Value_ID);
-			const T modulo = GetParameterValue<T>(Modulo_ID);
+			// Create Input/Output events
+			RegisterInputEvent<T>("Value", [this](const T& value) { m_CurrentValue = value; });
+			RegisterInputEvent<T>("Modulo", [this](const T& value) { m_CurrentModulo = value; });
 			
-			T result;
-			if constexpr (std::is_same_v<T, f32>)
-			{
-				// Prevent division by zero
-				if (modulo == 0.0f)
-				{
-					result = 0.0f; // Safe fallback value
-				}
-				else
-				{
-					result = std::fmod(value, modulo);
-				}
-			}
-			else if constexpr (std::is_same_v<T, i32>)
-			{
-				// Prevent division by zero
-				if (modulo == 0)
-				{
-					result = 0; // Safe fallback value
-				}
-				else
-				{
-					result = value % modulo;
-				}
-			}
-
-			// Set output parameter
-			SetParameterValue(Result_ID, result);
-
-			// Fill output buffer if provided
-			if (outputs && outputs[0])
-			{
-				for (u32 i = 0; i < numSamples; ++i)
-				{
-					outputs[0][i] = static_cast<f32>(result);
-				}
-			}
+			RegisterOutputEvent<T>("Result");
 		}
 
 		void Initialize(f64 sampleRate, u32 maxBufferSize) override
 		{
-			m_SampleRate = sampleRate;
+			NodeProcessor::Initialize(sampleRate, maxBufferSize);
+			
+			// Initialize ValueView streams
+			m_ValueView.Initialize(maxBufferSize);
+			m_ModuloView.Initialize(maxBufferSize);
+			m_OutputView.Initialize(maxBufferSize);
 		}
 
-		Identifier GetTypeID() const override
+		void Process(f32** inputs, f32** outputs, u32 numSamples) override
 		{
-			if constexpr (std::is_same_v<T, f32>)
-				return OLO_IDENTIFIER("ModuloNodeF32");
-			else if constexpr (std::is_same_v<T, i32>)
-				return OLO_IDENTIFIER("ModuloNodeI32");
-			else
-				return OLO_IDENTIFIER("ModuloNode");
+			// Update ValueView streams from inputs
+			m_ValueView.UpdateFromConnections(inputs, numSamples);
+			m_ModuloView.UpdateFromConnections(inputs, numSamples);
+			
+			for (u32 sample = 0; sample < numSamples; ++sample)
+			{
+				// Get current values from streams
+				T value = m_ValueView.GetValue(sample);
+				T modulo = m_ModuloView.GetValue(sample);
+				
+				// Update internal state if changed
+				if (value != m_CurrentValue) m_CurrentValue = value;
+				if (modulo != m_CurrentModulo) m_CurrentModulo = modulo;
+				
+				// Calculate modulo with division-by-zero protection
+				T result;
+				if constexpr (std::is_same_v<T, f32>)
+				{
+					if (std::abs(modulo) < std::numeric_limits<f32>::epsilon())
+					{
+						result = 0.0f; // Safe fallback
+					}
+					else
+					{
+						result = std::fmod(value, modulo);
+					}
+				}
+				else if constexpr (std::is_same_v<T, i32>)
+				{
+					if (modulo == 0)
+					{
+						result = 0; // Safe fallback
+					}
+					else
+					{
+						result = value % modulo;
+					}
+				}
+				
+				// Set output value
+				m_OutputView.SetValue(sample, result);
+			}
+			
+			// Update output streams
+			m_OutputView.UpdateOutputConnections(outputs, numSamples);
 		}
 
-		const char* GetDisplayName() const override
+		//======================================================================
+		// Legacy API Methods (for compatibility with existing code)
+		//======================================================================
+		
+		void SetValue(const T& value) { TriggerInputEvent<T>("Value", value); }
+		void SetModulo(const T& value) { TriggerInputEvent<T>("Modulo", value); }
+		T GetResult() const 
+		{ 
+			if constexpr (std::is_same_v<T, f32>)
+			{
+				if (std::abs(m_CurrentModulo) < std::numeric_limits<f32>::epsilon())
+					return 0.0f;
+				return std::fmod(m_CurrentValue, m_CurrentModulo);
+			}
+			else
+			{
+				if (m_CurrentModulo == 0) return 0;
+				return m_CurrentValue % m_CurrentModulo;
+			}
+		}
+		
+		//======================================================================
+		// ValueView Stream Access (for audio connections)
+		//======================================================================
+		
+		ValueView<T>& GetValueView() { return m_ValueView; }
+		ValueView<T>& GetModuloView() { return m_ModuloView; }
+		ValueView<T>& GetResultView() { return m_OutputView; }
+
+		const ValueView<T>& GetValueView() const { return m_ValueView; }
+		const ValueView<T>& GetModuloView() const { return m_ModuloView; }
+		const ValueView<T>& GetResultView() const { return m_OutputView; }
+
+		//======================================================================
+		// Serialization
+		//======================================================================
+		
+		void Serialize(YAML::Emitter& out) const override
+		{
+			NodeProcessor::Serialize(out);
+			out << YAML::Key << "Value" << YAML::Value << m_CurrentValue;
+			out << YAML::Key << "Modulo" << YAML::Value << m_CurrentModulo;
+		}
+
+		void Deserialize(const YAML::Node& node) override
+		{
+			NodeProcessor::Deserialize(node);
+			if (node["Value"]) m_CurrentValue = node["Value"].as<T>();
+			if (node["Modulo"]) m_CurrentModulo = node["Modulo"].as<T>();
+		}
+
+		//======================================================================
+		// Node Information
+		//======================================================================
+		
+		std::string GetTypeName() const override
 		{
 			if constexpr (std::is_same_v<T, f32>)
-				return "Modulo (f32)";
+				return "ModuloNode<f32>";
 			else if constexpr (std::is_same_v<T, i32>)
-				return "Modulo (i32)";
+				return "ModuloNode<i32>";
 			else
-				return "Modulo";
+				return "ModuloNode<unknown>";
 		}
 	};
 
-	// Type aliases for common usage
-	using ModuloNodeF32 = ModuloNode<f32>;
-	using ModuloNodeI32 = ModuloNode<i32>;
+	// Common instantiations
+	using ModuloNodeF = ModuloNode<f32>;
+	using ModuloNodeI = ModuloNode<i32>;
 
 } // namespace OloEngine::Audio::SoundGraph

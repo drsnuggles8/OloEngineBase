@@ -1,71 +1,110 @@
 #pragma once
 
 #include "OloEngine/Audio/SoundGraph/NodeProcessor.h"
-#include "OloEngine/Audio/SoundGraph/NodeDescriptors.h"
+#include "OloEngine/Audio/SoundGraph/Value.h"
 #include <cmath>
 
 namespace OloEngine::Audio::SoundGraph
 {
 	//==============================================================================
-	/// Divide node using reflection-based endpoint system with division-by-zero protection
+	/// Divide node - Simple division of two values using new Hazel-style foundation
+	/// Supports both real-time audio streams and single-value processing
+	/// Includes sophisticated divide-by-zero protection
 	template<typename T>
 	class DivideNode : public NodeProcessor
 	{
-	public:
-		// Input members (pointers will be connected to parameter system)
-		T* in_InputA = nullptr;
-		T* in_InputB = nullptr;
+	private:
+		// Input streams for connected values
+		ValueView<T> m_InputA;
+		ValueView<T> m_InputB;
 		
-		// Output member (direct value, computed in Process)
-		T out_Output{};
+		// Output stream for computed results
+		ValueView<T> m_Output;
 
+		// Current values (for single-value processing)
+		T m_CurrentA{};
+		T m_CurrentB{};
+		T m_CurrentOutput{};
+
+	public:
 		DivideNode()
 		{
-			// Automatic endpoint registration using reflection
-			EndpointUtilities::RegisterEndpoints(this);
+			// Create input events for receiving values
+			auto inputAEvent = std::make_shared<InputEvent>("InputA", [this](const Value& value) {
+				if (value.GetType() == GetValueType<T>())
+				{
+					m_CurrentA = value.Get<T>();
+				}
+			});
+			
+			auto inputBEvent = std::make_shared<InputEvent>("InputB", [this](const Value& value) {
+				if (value.GetType() == GetValueType<T>())
+				{
+					m_CurrentB = value.Get<T>();
+				}
+			});
+
+			// Register input events
+			AddInputEvent(inputAEvent);
+			AddInputEvent(inputBEvent);
+
+			// Create output event for sending computed values
+			auto outputEvent = std::make_shared<OutputEvent>("Output");
+			AddOutputEvent(outputEvent);
+
+			// Initialize default values (avoid divide by zero)
+			if constexpr (std::is_same_v<T, f32>)
+			{
+				m_CurrentA = 1.0f;
+				m_CurrentB = 1.0f;  // Safe divisor
+				m_CurrentOutput = 1.0f;
+			}
+			else if constexpr (std::is_same_v<T, i32>)
+			{
+				m_CurrentA = 1;
+				m_CurrentB = 1;  // Safe divisor
+				m_CurrentOutput = 1;
+			}
 		}
 
 		void Initialize(f64 sampleRate, u32 maxBufferSize) override
 		{
-			m_SampleRate = sampleRate;
-			
-			// Initialize input pointers to connect with parameter system
-			EndpointUtilities::InitializeInputs(this);
+			NodeProcessor::Initialize(sampleRate, maxBufferSize);
+
+			// Initialize ValueView streams for real-time processing
+			m_InputA = CreateValueView<T>();
+			m_InputB = CreateValueView<T>();
+			m_Output = CreateValueView<T>();
 		}
 
 		void Process(f32** inputs, f32** outputs, u32 numSamples) override
 		{
-			// Use the connected input values (now accessible via pointers)
-			if (in_InputA && in_InputB)
+			// For simple math nodes, we typically work with single values rather than audio streams
+			// But we support both modes for flexibility
+			
+			if (m_InputA.HasStream() && m_InputB.HasStream() && m_Output.HasStream())
 			{
-				// Handle division by zero
-				T result{};
-				if constexpr (std::is_floating_point_v<T>)
+				// Stream processing mode - process per-sample values
+				for (u32 i = 0; i < numSamples; ++i)
 				{
-					// For floating point types, check for near-zero values
-					if (std::abs(*in_InputB) < std::numeric_limits<T>::epsilon())
-					{
-						result = *in_InputA >= T{} ? std::numeric_limits<T>::infinity() : -std::numeric_limits<T>::infinity();
-					}
-					else
-					{
-						result = *in_InputA / *in_InputB;
-					}
+					T valueA = m_InputA.GetNextValue();
+					T valueB = m_InputB.GetNextValue();
+					T result = SafeDivide(valueA, valueB);
+					m_Output.WriteValue(result);
 				}
-				else
-				{
-					// For integer types, check for exact zero
-					if (*in_InputB == T{})
-					{
-						result = T{}; // Return zero for integer division by zero
-					}
-					else
-					{
-						result = *in_InputA / *in_InputB;
-					}
-				}
+			}
+			else
+			{
+				// Single-value processing mode - compute once and send event
+				m_CurrentOutput = SafeDivide(m_CurrentA, m_CurrentB);
 				
-				out_Output = result;
+				// Send result via output event
+				auto outputEvent = FindOutputEvent("Output");
+				if (outputEvent)
+				{
+					Value resultValue = CreateValue<T>(m_CurrentOutput);
+					outputEvent->TriggerEvent(resultValue);
+				}
 			}
 		}
 
@@ -88,6 +127,44 @@ namespace OloEngine::Audio::SoundGraph
 			else
 				return "Divide (unknown)";
 		}
+
+		//==============================================================================
+		/// Direct access methods for compatibility
+		
+		void SetInputA(T value) { m_CurrentA = value; }
+		void SetInputB(T value) { m_CurrentB = value; }
+		T GetOutput() const { return m_CurrentOutput; }
+
+	private:
+		//==============================================================================
+		/// Safe division with sophisticated divide-by-zero handling
+		T SafeDivide(T a, T b) const
+		{
+			if constexpr (std::is_floating_point_v<T>)
+			{
+				// For floating point types, check for near-zero values
+				if (std::abs(b) < std::numeric_limits<T>::epsilon())
+				{
+					return a >= T{} ? std::numeric_limits<T>::infinity() : -std::numeric_limits<T>::infinity();
+				}
+				else
+				{
+					return a / b;
+				}
+			}
+			else
+			{
+				// For integer types, check for exact zero
+				if (b == T{})
+				{
+					return T{}; // Return zero for integer division by zero
+				}
+				else
+				{
+					return a / b;
+				}
+			}
+		}
 	};
 
 	// Common type aliases
@@ -95,24 +172,3 @@ namespace OloEngine::Audio::SoundGraph
 	using DivideNodeI32 = DivideNode<i32>;
 
 } // namespace OloEngine::Audio::SoundGraph
-
-//==============================================================================
-/// REFLECTION DESCRIPTIONS
-
-// Describe the f32 version
-DESCRIBE_NODE(OloEngine::Audio::SoundGraph::DivideNode<float>,
-	NODE_INPUTS(
-		&OloEngine::Audio::SoundGraph::DivideNode<float>::in_InputA,
-		&OloEngine::Audio::SoundGraph::DivideNode<float>::in_InputB),
-	NODE_OUTPUTS(
-		&OloEngine::Audio::SoundGraph::DivideNode<float>::out_Output)
-);
-
-// Describe the i32 version  
-DESCRIBE_NODE(OloEngine::Audio::SoundGraph::DivideNode<int>,
-	NODE_INPUTS(
-		&OloEngine::Audio::SoundGraph::DivideNode<int>::in_InputA,
-		&OloEngine::Audio::SoundGraph::DivideNode<int>::in_InputB),
-	NODE_OUTPUTS(
-		&OloEngine::Audio::SoundGraph::DivideNode<int>::out_Output)
-);

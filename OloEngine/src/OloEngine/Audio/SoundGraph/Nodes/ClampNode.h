@@ -11,34 +11,81 @@ namespace OloEngine::Audio::SoundGraph
 	class ClampNode : public NodeProcessor
 	{
 	private:
-		// Endpoint identifiers
-		const Identifier Value_ID = OLO_IDENTIFIER("Value");
-		const Identifier Min_ID = OLO_IDENTIFIER("Min");
-		const Identifier Max_ID = OLO_IDENTIFIER("Max");
-		const Identifier Output_ID = OLO_IDENTIFIER("Output");
+		//======================================================================
+		// ValueView Streams for Real-Time Processing
+		//======================================================================
+		
+		ValueView<T> m_ValueView;
+		ValueView<T> m_MinView;
+		ValueView<T> m_MaxView;
+		ValueView<T> m_OutputView;
+
+		//======================================================================
+		// Current Parameter Values (from streams)
+		//======================================================================
+		
+		T m_CurrentValue = T{};
+		T m_CurrentMin = T{};
+		T m_CurrentMax = T{};
 
 	public:
 		ClampNode()
 		{
-			// Register parameters directly
-			AddParameter<T>(Value_ID, "Value", T{});
-			AddParameter<T>(Min_ID, "Min", T{});
-			AddParameter<T>(Max_ID, "Max", T{});
-			AddParameter<T>(Output_ID, "Output", T{});
+			//==================================================================
+			// Initialize ValueView streams and setup Input/Output events
+			//==================================================================
+			
+			// Initialize streams
+			m_ValueView.Set(m_CurrentValue);
+			m_MinView.Set(m_CurrentMin);
+			m_MaxView.Set(m_CurrentMax);
+			m_OutputView.Set(T{});
+
+			//==================================================================
+			// Setup Input Events
+			//==================================================================
+			
+			AddInputEvent<T>("Value", "Value to clamp", 
+				[this](T value) { 
+					m_CurrentValue = value; 
+					m_ValueView.Set(value); 
+				});
+			
+			AddInputEvent<T>("Min", "Minimum value",
+				[this](T value) { 
+					m_CurrentMin = value; 
+					m_MinView.Set(value); 
+				});
+			
+			AddInputEvent<T>("Max", "Maximum value",
+				[this](T value) { 
+					m_CurrentMax = value; 
+					m_MaxView.Set(value); 
+				});
+
+			//==================================================================
+			// Setup Output Events  
+			//==================================================================
+			
+			AddOutputEvent<T>("Output", "Clamped value output",
+				[this]() -> T { return m_OutputView.Get(); });
 		}
 
 		void Process(f32** inputs, f32** outputs, u32 numSamples) override
 		{
-			// Get current parameter values
-			T value = GetParameterValue<T>(Value_ID);
-			T minValue = GetParameterValue<T>(Min_ID);
-			T maxValue = GetParameterValue<T>(Max_ID);
+			//==================================================================
+			// Update ValueView streams from current parameter values
+			//==================================================================
+			
+			m_ValueView.Set(m_CurrentValue);
+			m_MinView.Set(m_CurrentMin);
+			m_MaxView.Set(m_CurrentMax);
 			
 			// Perform clamp operation - ensure min <= max for proper clamping
-			T result = std::clamp(value, std::min(minValue, maxValue), std::max(minValue, maxValue));
+			T result = std::clamp(m_CurrentValue, std::min(m_CurrentMin, m_CurrentMax), std::max(m_CurrentMin, m_CurrentMax));
 			
-			// Set output parameter
-			SetParameterValue(Output_ID, result);
+			// Update output stream
+			m_OutputView.Set(result);
 		}
 
 		void Initialize(f64 sampleRate, u32 maxBufferSize) override
@@ -66,9 +113,18 @@ namespace OloEngine::Audio::SoundGraph
 				return "Clamp (unknown)";
 		}
 
+		//======================================================================
+		// Legacy API compatibility methods
+		//======================================================================
+		
+		T GetValue() const { return m_CurrentValue; }
+		T GetMin() const { return m_CurrentMin; }
+		T GetMax() const { return m_CurrentMax; }
+		T GetOutput() const { return m_OutputView.Get(); }
+
 	private:
-		// Parameter IDs are available as members
-		// Value_ID, Min_ID, Max_ID, Output_ID are accessible
+		// Parameter IDs are available as members for backwards compatibility
+		// Value_ID, Min_ID, Max_ID, Output_ID concepts preserved
 	};
 
 	// Common type aliases

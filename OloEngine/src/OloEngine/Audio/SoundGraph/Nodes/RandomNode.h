@@ -2,6 +2,7 @@
 
 #include "../NodeProcessor.h"
 #include "../Flag.h"
+#include "OloEngine/Audio/SoundGraph/ValueView.h"
 #include "OloEngine/Core/Identifier.h"
 #include "OloEngine/Core/FastRandom.h"
 #include <glm/glm.hpp>
@@ -19,26 +20,25 @@ namespace OloEngine::Audio::SoundGraph
 			"RandomNode can only be of arithmetic type (excluding bool)");
 
 	private:
-		// Endpoint identifiers
-		const Identifier Min_ID = OLO_IDENTIFIER("Min");
-		const Identifier Max_ID = OLO_IDENTIFIER("Max");
-		const Identifier Seed_ID = OLO_IDENTIFIER("Seed");
-		const Identifier Next_ID = OLO_IDENTIFIER("Next");
-		const Identifier Reset_ID = OLO_IDENTIFIER("Reset");
-		const Identifier Output_ID = OLO_IDENTIFIER("Output");
+		//======================================================================
+		// Parameter streams
+		//======================================================================
+		
+		InputView<T> m_MinInput;
+		InputView<T> m_MaxInput;
+		InputView<i32> m_SeedInput;
+		InputView<f32> m_NextInput;
+		InputView<f32> m_ResetInput;
+		OutputView<T> m_Output;
 
 		// Random number generator state
 		FastRandom m_Random;
-		i32 m_CurrentSeed = -1;
+		i32 m_LastSeed = -1;
 		T m_LastValue = T(0);
 
-		// Event flags
+		// Event flags for triggers
 		Flag m_NextFlag;
 		Flag m_ResetFlag;
-
-		// Output events
-		std::shared_ptr<OutputEvent> m_NextEvent;
-		std::shared_ptr<OutputEvent> m_ResetEvent;
 
 		// Default values based on type
 		static constexpr T GetDefaultMin() 
@@ -58,27 +58,30 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 	public:
+		//======================================================================
+		// Constructor & Destructor
+		//======================================================================
+		
 		RandomNode()
 		{
-			// Register parameters with appropriate defaults
-			AddParameter<T>(Min_ID, "Min", GetDefaultMin());
-			AddParameter<T>(Max_ID, "Max", GetDefaultMax());
-			AddParameter<i32>(Seed_ID, "Seed", -1);  // -1 means use time-based seed
-			AddParameter<f32>(Next_ID, "Next", 0.0f);  // Next trigger
-			AddParameter<f32>(Reset_ID, "Reset", 0.0f);  // Reset trigger
-			AddParameter<T>(Output_ID, "Output", T(0));
+			// Initialize input streams with default values
+			m_MinInput = CreateInputView<T>("Min", GetDefaultMin());
+			m_MaxInput = CreateInputView<T>("Max", GetDefaultMax());
+			m_SeedInput = CreateInputView<i32>("Seed", -1);
+			m_NextInput = CreateInputView<f32>("Next", 0.0f);
+			m_ResetInput = CreateInputView<f32>("Reset", 0.0f);
+			
+			// Initialize output stream
+			m_Output = CreateOutputView<T>("Output");
 
-			// Register input events with flag callbacks
-			AddInputEvent<f32>(Next_ID, "Next", [this](f32 value) {
+			// Register input event callbacks
+			m_NextInput.RegisterInputEvent([this](f32 value) {
 				if (value > 0.5f) m_NextFlag.SetDirty();
 			});
-			AddInputEvent<f32>(Reset_ID, "Reset", [this](f32 value) {
+			
+			m_ResetInput.RegisterInputEvent([this](f32 value) {
 				if (value > 0.5f) m_ResetFlag.SetDirty();
 			});
-
-			// Register output events
-			m_NextEvent = AddOutputEvent<f32>(OLO_IDENTIFIER("OnNext"), "OnNext");
-			m_ResetEvent = AddOutputEvent<f32>(OLO_IDENTIFIER("OnReset"), "OnReset");
 		}
 
 		virtual ~RandomNode() = default;
@@ -89,63 +92,47 @@ namespace OloEngine::Audio::SoundGraph
 
 		void Process(f32** inputs, f32** outputs, u32 numSamples) override
 		{
-			// Check for triggers via parameters or flags
-			f32 nextValue = GetParameterValue<f32>(Next_ID);
-			f32 resetValue = GetParameterValue<f32>(Reset_ID);
+			// Update input parameters from connections
+			m_MinInput.UpdateFromConnections();
+			m_MaxInput.UpdateFromConnections();
+			m_SeedInput.UpdateFromConnections();
+			m_NextInput.UpdateFromConnections();
+			m_ResetInput.UpdateFromConnections();
 			
-			if (nextValue > 0.5f || m_NextFlag.CheckAndResetIfDirty())
+			for (u32 sample = 0; sample < numSamples; ++sample)
 			{
-				GenerateNextValue();
-				// Fire Next event
-				if (m_NextEvent)
-					(*m_NextEvent)(1.0f);
-				// Reset trigger parameter
-				if (nextValue > 0.5f)
-					SetParameterValue(Next_ID, 0.0f);
-			}
+				// Get current parameter values from streams
+				T currentMin = m_MinInput.GetValue();
+				T currentMax = m_MaxInput.GetValue();
+				i32 currentSeed = m_SeedInput.GetValue();
+				f32 nextTrigger = m_NextInput.GetValue();
+				f32 resetTrigger = m_ResetInput.GetValue();
 
-			if (resetValue > 0.5f || m_ResetFlag.CheckAndResetIfDirty())
-			{
-				ResetRandomSeed();
-				GenerateNextValue(); // Generate new value after reset
-				// Fire Reset event
-				if (m_ResetEvent)
-					(*m_ResetEvent)(1.0f);
-				// Reset trigger parameter
-				if (resetValue > 0.5f)
-					SetParameterValue(Reset_ID, 0.0f);
-			}
-
-			// Fill output buffer with current value (constant)
-			if (outputs && outputs[0])
-			{
-				const f32 outputValue = static_cast<f32>(m_LastValue);
-				for (u32 i = 0; i < numSamples; ++i)
+				// Check for triggers
+				if (nextTrigger > 0.5f || m_NextFlag.CheckAndResetIfDirty())
 				{
-					outputs[0][i] = outputValue;
+					GenerateNextValue(currentMin, currentMax, currentSeed);
 				}
+
+				if (resetTrigger > 0.5f || m_ResetFlag.CheckAndResetIfDirty())
+				{
+					ResetRandomSeed(currentSeed);
+				}
+
+				// Set output value for this sample
+				m_Output.SetValue(m_LastValue);
 			}
+			
+			// Update output connections
+			m_Output.UpdateOutputConnections();
 		}
 
 		void Initialize(f64 sampleRate, u32 maxBufferSize) override
 		{
-			m_SampleRate = sampleRate;
+			NodeProcessor::Initialize(sampleRate, maxBufferSize);
 			
-			// Initialize random generator
-			const i32 seed = GetParameterValue<i32>(Seed_ID);
-			m_CurrentSeed = seed;
-			
-			if (seed == -1)
-			{
-				m_Random = FastRandom();  // Use default constructor (time-based seed)
-			}
-			else
-			{
-				m_Random.SetSeed(seed);
-			}
-
-			// Pure event-driven: no automatic value generation
-			// Values must be explicitly requested via Next event or parameter
+			// Initialize random generator with default seed
+			ResetRandomSeed(-1);
 		}
 
 		Identifier GetTypeID() const override
@@ -172,118 +159,81 @@ namespace OloEngine::Audio::SoundGraph
 		// Utility Methods
 		//======================================================================
 
-		/// Generate a new random value and update output
-		void GenerateNextValue()
+		/// Generate a new random value within the specified range
+		void GenerateNextValue(T minValue, T maxValue, i32 seed)
 		{
-			const T minValue = GetParameterValue<T>(Min_ID);
-			const T maxValue = GetParameterValue<T>(Max_ID);
-			const i32 seed = GetParameterValue<i32>(Seed_ID);
-
-			// Initialize or re-seed if needed
-			if (seed != m_CurrentSeed)
+			// Update seed if changed
+			if (seed != m_LastSeed && seed != -1)
 			{
-				m_CurrentSeed = seed;
-				if (seed == -1)
-				{
-					// Use time-based seed (FastRandom generates its own default)
-					m_Random = FastRandom();
-				}
-				else
-				{
-					// Use specified seed
-					m_Random.SetSeed(seed);
-				}
+				m_Random.SetSeed(seed);
+				m_LastSeed = seed;
 			}
 
 			// Ensure min <= max
-			T actualMin = minValue;
-			T actualMax = maxValue;
-			if (actualMin > actualMax)
+			if (minValue > maxValue)
 			{
-				std::swap(actualMin, actualMax);
+				std::swap(minValue, maxValue);
 			}
 
-			// Generate random value
-			T randomValue;
+			// Generate new value within range
 			if constexpr (std::is_integral_v<T>)
 			{
-				// Integer types: use uniform distribution
-				if (actualMin == actualMax)
-				{
-					randomValue = actualMin;
-				}
+				if (minValue == maxValue)
+					m_LastValue = minValue;
 				else
-				{
-					randomValue = m_Random.GetInt32InRange(static_cast<i32>(actualMin), static_cast<i32>(actualMax));
-				}
+					m_LastValue = m_Random.GetInt32InRange(static_cast<i32>(minValue), static_cast<i32>(maxValue));
 			}
 			else
 			{
-				// Floating-point types: use uniform distribution
-				if (actualMin == actualMax)
-				{
-					randomValue = actualMin;
-				}
+				if (minValue == maxValue)
+					m_LastValue = minValue;
 				else
-				{
-					randomValue = m_Random.GetFloat32InRange(static_cast<f32>(actualMin), static_cast<f32>(actualMax));
-				}
+					m_LastValue = m_Random.GetFloat32InRange(static_cast<f32>(minValue), static_cast<f32>(maxValue));
 			}
-
-			m_LastValue = randomValue;
-			SetParameterValue(Output_ID, randomValue);
 		}
 
-		/// Reset the random generator with current or new seed
-		void ResetRandomSeed()
+		/// Reset random seed
+		void ResetRandomSeed(i32 seed)
 		{
-			const i32 seed = GetParameterValue<i32>(Seed_ID);
-			m_CurrentSeed = seed;
-			
 			if (seed == -1)
 			{
-				m_Random = FastRandom();
+				m_Random = FastRandom();  // Use default constructor (time-based seed)
+				m_LastSeed = -1;
 			}
 			else
 			{
 				m_Random.SetSeed(seed);
+				m_LastSeed = seed;
 			}
-		}
-
-		/// Generate a new random value (useful for triggering updates)
-		T GenerateNext()
-		{
-			GenerateNextValue();
-			return m_LastValue;
-		}
-
-		/// Get the last generated value
-		T GetLastValue() const
-		{
-			return m_LastValue;
-		}
-
-		/// Reset the random generator with a new seed
-		void ResetSeed(i32 newSeed = -1)
-		{
-			SetParameterValue(Seed_ID, newSeed);
-			m_CurrentSeed = newSeed;
 			
-			if (newSeed == -1)
-			{
-				m_Random = FastRandom();
-			}
-			else
-			{
-				m_Random.SetSeed(newSeed);
-			}
+			// Generate initial value using current parameters
+			T currentMin = m_MinInput.GetValue();
+			T currentMax = m_MaxInput.GetValue();
+			GenerateNextValue(currentMin, currentMax, seed);
 		}
 
-		/// Get the current range
+		//======================================================================
+		// Legacy API Compatibility Methods
+		//======================================================================
+		
+		T GetMin() const { return m_MinInput.GetValue(); }
+		void SetMin(const T& value) { m_MinInput.SetValue(value); }
+		
+		T GetMax() const { return m_MaxInput.GetValue(); }
+		void SetMax(const T& value) { m_MaxInput.SetValue(value); }
+		
+		i32 GetSeed() const { return m_SeedInput.GetValue(); }
+		void SetSeed(const i32& value) { m_SeedInput.SetValue(value); }
+		
+		T GetOutput() const { return m_LastValue; }
+		
+		void TriggerNext() { m_NextFlag.SetDirty(); }
+		void TriggerReset() { m_ResetFlag.SetDirty(); }
+		
 		std::pair<T, T> GetRange() const
 		{
-			T minVal = GetParameterValue<T>(Min_ID);
-			T maxVal = GetParameterValue<T>(Max_ID);
+			T minVal = m_MinInput.GetValue();
+			T maxVal = m_MaxInput.GetValue();
 			if (minVal > maxVal) std::swap(minVal, maxVal);
 			return { minVal, maxVal };
 		}

@@ -1,190 +1,241 @@
 #pragma once
 
 #include "OloEngine/Audio/SoundGraph/NodeProcessor.h"
-#include "OloEngine/Audio/SoundGraph/Flag.h"
+#include "OloEngine/Audio/SoundGraph/ValueView.h"
+#include "OloEngine/Core/Base.h"
 
-namespace OloEngine::Audio::SoundGraph
-{
+namespace OloEngine::Audio::SoundGraph {
+
 	//==============================================================================
 	/// TriggerCounter - Counts trigger events and generates stepped values
-	/// Based on Hazel's TriggerCounter node
+	/// Generates incrementing count and calculated values based on start value and step size
 	class TriggerCounter : public NodeProcessor
 	{
 	private:
-		// Endpoint identifiers
-		const Identifier StartValue_ID = OLO_IDENTIFIER("StartValue");
-		const Identifier StepSize_ID = OLO_IDENTIFIER("StepSize");
-		const Identifier ResetCount_ID = OLO_IDENTIFIER("ResetCount");
-		const Identifier Trigger_ID = OLO_IDENTIFIER("Trigger");
-		const Identifier Reset_ID = OLO_IDENTIFIER("Reset");
-		const Identifier Count_ID = OLO_IDENTIFIER("Count");
-		const Identifier Value_ID = OLO_IDENTIFIER("Value");
-		const Identifier CountOut_ID = OLO_IDENTIFIER("CountOut");
-		const Identifier ValueOut_ID = OLO_IDENTIFIER("ValueOut");
+		//======================================================================
+		// ValueView Streams for Real-Time Processing
+		//======================================================================
+		
+		ValueView<f32> m_StartValueView;
+		ValueView<f32> m_StepSizeView;
+		ValueView<f32> m_ResetCountView;
+		ValueView<f32> m_TriggerView;
+		ValueView<f32> m_ResetView;
+		ValueView<i32> m_CountOutView;
+		ValueView<f32> m_ValueOutView;
 
-		// Counter state
+		//======================================================================
+		// Current Parameter Values and Internal State
+		//======================================================================
+		
+		f32 m_CurrentStartValue = 0.0f;
+		f32 m_CurrentStepSize = 1.0f;
+		f32 m_CurrentResetCount = 8.0f;
+		f32 m_CurrentTrigger = 0.0f;
+		f32 m_CurrentReset = 0.0f;
+		
 		i32 m_Count = 0;
-		f32 m_LastStartValue = 0.0f;
-
-		// Flags for parameter change detection
-		Flag m_TriggerFlag;
-		Flag m_ResetFlag;
-
-		// Output events
-		std::shared_ptr<OutputEvent> m_CountOutEvent;
-		std::shared_ptr<OutputEvent> m_ValueOutEvent;
+		f32 m_CurrentValue = 0.0f;
+		
+		bool m_PrevTriggerState = false;
+		bool m_PrevResetState = false;
 
 	public:
-		TriggerCounter()
+		//======================================================================
+		// Constructor & Destructor
+		//======================================================================
+		
+		explicit TriggerCounter(NodeDatabase& database, NodeID nodeID)
+			: NodeProcessor(database, nodeID)
+			, m_StartValueView("StartValue", 0.0f)
+			, m_StepSizeView("StepSize", 1.0f)
+			, m_ResetCountView("ResetCount", 8.0f)
+			, m_TriggerView("Trigger", 0.0f)
+			, m_ResetView("Reset", 0.0f)
+			, m_CountOutView("CountOut", 0)
+			, m_ValueOutView("ValueOut", 0.0f)
 		{
-			// Register parameters
-			AddParameter<f32>(StartValue_ID, "StartValue", 0.0f);
-			AddParameter<f32>(StepSize_ID, "StepSize", 1.0f);
-			AddParameter<f32>(ResetCount_ID, "ResetCount", 8.0f);
-			AddParameter<f32>(Trigger_ID, "Trigger", 0.0f);
-			AddParameter<f32>(Reset_ID, "Reset", 0.0f);
-			AddParameter<f32>(Count_ID, "Count", 0.0f);
-			AddParameter<f32>(Value_ID, "Value", 0.0f);
-
-			// Register input events with flag callbacks
-			AddInputEvent<f32>(Trigger_ID, "Trigger", [this](f32 value) {
-				if (value > 0.5f) m_TriggerFlag.SetDirty();
+			// Create Input/Output events
+			RegisterInputEvent<f32>("StartValue", [this](f32 value) { 
+				m_CurrentStartValue = value; 
+				// Update current value when start value changes at count 0
+				if (m_Count == 0) {
+					m_CurrentValue = value;
+				}
 			});
-			AddInputEvent<f32>(Reset_ID, "Reset", [this](f32 value) {
-				if (value > 0.5f) m_ResetFlag.SetDirty();
-			});
-
-			// Register output events
-			m_CountOutEvent = AddOutputEvent<i32>(CountOut_ID, "CountOut");
-			m_ValueOutEvent = AddOutputEvent<f32>(ValueOut_ID, "ValueOut");
-		}
-
-		// Override SetParameterValue to handle StartValue changes
-		template<typename T>
-		void SetParameterValue(const Identifier& id, T value)
-		{
-			// Call base implementation
-			NodeProcessor::SetParameterValue(id, value);
+			RegisterInputEvent<f32>("StepSize", [this](f32 value) { m_CurrentStepSize = value; });
+			RegisterInputEvent<f32>("ResetCount", [this](f32 value) { m_CurrentResetCount = value; });
+			RegisterInputEvent<f32>("Trigger", [this](f32 value) { m_CurrentTrigger = value; });
+			RegisterInputEvent<f32>("Reset", [this](f32 value) { m_CurrentReset = value; });
 			
-			// Handle StartValue changes when count is 0
-			if (id == StartValue_ID && m_Count == 0)
-			{
-				f32 startValue = static_cast<f32>(value);
-				NodeProcessor::SetParameterValue(Value_ID, startValue);
-				NodeProcessor::SetParameterValue(ValueOut_ID, startValue);
-				m_LastStartValue = startValue;
-				
-				if (m_ValueOutEvent)
-					(*m_ValueOutEvent)(startValue);
-			}
+			RegisterOutputEvent<i32>("CountOut");
+			RegisterOutputEvent<f32>("ValueOut");
 		}
 
 		void Initialize(f64 sampleRate, u32 maxBufferSize) override
 		{
-			m_SampleRate = sampleRate;
+			NodeProcessor::Initialize(sampleRate, maxBufferSize);
+			
+			// Initialize ValueView streams
+			m_StartValueView.Initialize(maxBufferSize);
+			m_StepSizeView.Initialize(maxBufferSize);
+			m_ResetCountView.Initialize(maxBufferSize);
+			m_TriggerView.Initialize(maxBufferSize);
+			m_ResetView.Initialize(maxBufferSize);
+			m_CountOutView.Initialize(maxBufferSize);
+			m_ValueOutView.Initialize(maxBufferSize);
+			
+			// Reset internal state
 			ResetCounter();
-			// Update last start value to current parameter value
-			m_LastStartValue = GetParameterValue<f32>(StartValue_ID, 0.0f);
 		}
 
 		void Process(f32** inputs, f32** outputs, u32 numSamples) override
 		{
-			// Check for StartValue changes and update the Value parameter accordingly
-			f32 currentStartValue = GetParameterValue<f32>(StartValue_ID, 0.0f);
-			if (currentStartValue != m_LastStartValue && m_Count == 0)
-			{
-				// Update initial value to reflect new StartValue
-				SetParameterValue(Value_ID, currentStartValue);
-				SetParameterValue(ValueOut_ID, currentStartValue);
-				if (m_ValueOutEvent)
-					(*m_ValueOutEvent)(currentStartValue);
-				m_LastStartValue = currentStartValue;
-			}
-
-			// Check for triggers via parameter or flag
-			f32 triggerValue = GetParameterValue<f32>(Trigger_ID);
-			f32 resetValue = GetParameterValue<f32>(Reset_ID);
+			// Update ValueView streams from inputs
+			m_StartValueView.UpdateFromConnections(inputs, numSamples);
+			m_StepSizeView.UpdateFromConnections(inputs, numSamples);
+			m_ResetCountView.UpdateFromConnections(inputs, numSamples);
+			m_TriggerView.UpdateFromConnections(inputs, numSamples);
+			m_ResetView.UpdateFromConnections(inputs, numSamples);
 			
-			if (triggerValue > 0.5f || m_TriggerFlag.CheckAndResetIfDirty())
+			for (u32 sample = 0; sample < numSamples; ++sample)
 			{
-				IncrementCounter();
-				// Reset trigger parameter
-				if (triggerValue > 0.5f)
-					SetParameterValue(Trigger_ID, 0.0f);
+				// Get current values from streams
+				f32 startValue = m_StartValueView.GetValue(sample);
+				f32 stepSize = m_StepSizeView.GetValue(sample);
+				f32 resetCount = m_ResetCountView.GetValue(sample);
+				f32 trigger = m_TriggerView.GetValue(sample);
+				f32 reset = m_ResetView.GetValue(sample);
+				
+				// Update internal state
+				if (startValue != m_CurrentStartValue) {
+					m_CurrentStartValue = startValue;
+					if (m_Count == 0) {
+						m_CurrentValue = startValue;
+					}
+				}
+				m_CurrentStepSize = stepSize;
+				m_CurrentResetCount = resetCount;
+				m_CurrentTrigger = trigger;
+				m_CurrentReset = reset;
+				
+				// Check for reset (positive edge)
+				bool resetState = reset > 0.5f;
+				if (resetState && !m_PrevResetState)
+				{
+					ResetCounter();
+				}
+				m_PrevResetState = resetState;
+				
+				// Check for trigger (positive edge)
+				bool triggerState = trigger > 0.5f;
+				if (triggerState && !m_PrevTriggerState)
+				{
+					IncrementCounter();
+				}
+				m_PrevTriggerState = triggerState;
+				
+				// Set output values
+				m_CountOutView.SetValue(sample, m_Count);
+				m_ValueOutView.SetValue(sample, m_CurrentValue);
 			}
+			
+			// Update output streams
+			m_CountOutView.UpdateOutputConnections(outputs, numSamples);
+			m_ValueOutView.UpdateOutputConnections(outputs, numSamples);
+		}
 
-			if (resetValue > 0.5f || m_ResetFlag.CheckAndResetIfDirty())
-			{
-				ResetCounter();
-				// Reset trigger parameter
-				if (resetValue > 0.5f)
-					SetParameterValue(Reset_ID, 0.0f);
+		//======================================================================
+		// Legacy API Methods (for compatibility with existing code)
+		//======================================================================
+		
+		void SetStartValue(f32 value) { TriggerInputEvent<f32>("StartValue", value); }
+		void SetStepSize(f32 value) { TriggerInputEvent<f32>("StepSize", value); }
+		void SetResetCount(f32 value) { TriggerInputEvent<f32>("ResetCount", value); }
+		void SetTrigger(f32 value) { TriggerInputEvent<f32>("Trigger", value); }
+		void SetReset(f32 value) { TriggerInputEvent<f32>("Reset", value); }
+		
+		i32 GetCount() const { return m_Count; }
+		f32 GetValue() const { return m_CurrentValue; }
+		
+		//======================================================================
+		// ValueView Stream Access (for audio connections)
+		//======================================================================
+		
+		ValueView<f32>& GetStartValueView() { return m_StartValueView; }
+		ValueView<f32>& GetStepSizeView() { return m_StepSizeView; }
+		ValueView<f32>& GetResetCountView() { return m_ResetCountView; }
+		ValueView<f32>& GetTriggerView() { return m_TriggerView; }
+		ValueView<f32>& GetResetView() { return m_ResetView; }
+		ValueView<i32>& GetCountOutView() { return m_CountOutView; }
+		ValueView<f32>& GetValueOutView() { return m_ValueOutView; }
+
+		const ValueView<f32>& GetStartValueView() const { return m_StartValueView; }
+		const ValueView<f32>& GetStepSizeView() const { return m_StepSizeView; }
+		const ValueView<f32>& GetResetCountView() const { return m_ResetCountView; }
+		const ValueView<f32>& GetTriggerView() const { return m_TriggerView; }
+		const ValueView<f32>& GetResetView() const { return m_ResetView; }
+		const ValueView<i32>& GetCountOutView() const { return m_CountOutView; }
+		const ValueView<f32>& GetValueOutView() const { return m_ValueOutView; }
+
+		//======================================================================
+		// Serialization
+		//======================================================================
+		
+		void Serialize(YAML::Emitter& out) const override
+		{
+			NodeProcessor::Serialize(out);
+			out << YAML::Key << "StartValue" << YAML::Value << m_CurrentStartValue;
+			out << YAML::Key << "StepSize" << YAML::Value << m_CurrentStepSize;
+			out << YAML::Key << "ResetCount" << YAML::Value << m_CurrentResetCount;
+			out << YAML::Key << "Count" << YAML::Value << m_Count;
+		}
+
+		void Deserialize(const YAML::Node& node) override
+		{
+			NodeProcessor::Deserialize(node);
+			if (node["StartValue"]) m_CurrentStartValue = node["StartValue"].as<f32>();
+			if (node["StepSize"]) m_CurrentStepSize = node["StepSize"].as<f32>();
+			if (node["ResetCount"]) m_CurrentResetCount = node["ResetCount"].as<f32>();
+			if (node["Count"]) {
+				m_Count = node["Count"].as<i32>();
+				m_CurrentValue = m_CurrentStartValue + m_CurrentStepSize * static_cast<f32>(m_Count);
 			}
 		}
 
-		Identifier GetTypeID() const override
+		//======================================================================
+		// Node Information
+		//======================================================================
+		
+		std::string GetTypeName() const override
 		{
-			return OLO_IDENTIFIER("TriggerCounter");
-		}
-
-		const char* GetDisplayName() const override
-		{
-			return "Trigger Counter";
+			return "TriggerCounter";
 		}
 
 	private:
+		//======================================================================
+		// Internal Helper Methods
+		//======================================================================
+		
 		void IncrementCounter()
 		{
 			m_Count++;
-
-			// Calculate current value: StartValue + StepSize * Count
-			f32 startValue = GetParameterValue<f32>(StartValue_ID, 0.0f);
-			f32 stepSize = GetParameterValue<f32>(StepSize_ID, 1.0f);
-			f32 currentValue = startValue + stepSize * static_cast<f32>(m_Count);
-
-			// Update parameters
-			SetParameterValue(Count_ID, static_cast<f32>(m_Count));
-			SetParameterValue(Value_ID, currentValue);
-
-			// Update output parameters
-			SetParameterValue(CountOut_ID, m_Count);
-			SetParameterValue(ValueOut_ID, currentValue);
-
-			// Fire output events
-			if (m_CountOutEvent)
-				(*m_CountOutEvent)(static_cast<f32>(m_Count));
-			if (m_ValueOutEvent)
-				(*m_ValueOutEvent)(currentValue);
-
-			// Check for auto-reset AFTER updating the values
-			f32 resetCount = GetParameterValue<f32>(ResetCount_ID, 8.0f);
-			if (resetCount > 0.5f && static_cast<f32>(m_Count) >= resetCount)
+			
+			// Calculate new value: StartValue + StepSize * Count
+			m_CurrentValue = m_CurrentStartValue + m_CurrentStepSize * static_cast<f32>(m_Count);
+			
+			// Check for auto-reset
+			if (m_CurrentResetCount > 0.5f && static_cast<f32>(m_Count) >= m_CurrentResetCount)
 			{
 				ResetCounter();
 			}
 		}
-
+		
 		void ResetCounter()
 		{
 			m_Count = 0;
-
-			// Calculate reset value using current StartValue parameter
-			f32 startValue = GetParameterValue<f32>(StartValue_ID, 0.0f);
-			m_LastStartValue = startValue;
-			
-			// Update parameters
-			SetParameterValue(Count_ID, static_cast<f32>(m_Count));
-			SetParameterValue(Value_ID, startValue);
-
-			// Update output parameters
-			SetParameterValue(CountOut_ID, m_Count);
-			SetParameterValue(ValueOut_ID, startValue);
-
-			// Fire output events
-			if (m_CountOutEvent)
-				(*m_CountOutEvent)(static_cast<f32>(m_Count));
-			if (m_ValueOutEvent)
-				(*m_ValueOutEvent)(startValue);
+			m_CurrentValue = m_CurrentStartValue;
 		}
 	};
-}
+
+} // namespace OloEngine::Audio::SoundGraph

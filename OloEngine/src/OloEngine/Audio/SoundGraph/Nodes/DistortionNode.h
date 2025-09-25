@@ -30,29 +30,46 @@ namespace OloEngine::Audio::SoundGraph
 		};
 
 	private:
-		// Endpoint identifiers
-		const Identifier Input_ID = OLO_IDENTIFIER("Input");
-		const Identifier DistortionType_ID = OLO_IDENTIFIER("DistortionType");
-		const Identifier Drive_ID = OLO_IDENTIFIER("Drive");
-		const Identifier Tone_ID = OLO_IDENTIFIER("Tone");
-		const Identifier OutputLevel_ID = OLO_IDENTIFIER("OutputLevel");
-		const Identifier WetDryMix_ID = OLO_IDENTIFIER("WetDryMix");
+		//======================================================================
+		// ValueView Streams for Real-Time Audio Processing
+		//======================================================================
 		
-		// Bit crushing parameters
-		const Identifier BitDepth_ID = OLO_IDENTIFIER("BitDepth");
-		const Identifier SampleRateReduction_ID = OLO_IDENTIFIER("SampleRateReduction");
+		// Input audio stream
+		ValueView<f32> m_InputView;
 		
-		// Tube saturation parameters
-		const Identifier WarmthAmount_ID = OLO_IDENTIFIER("WarmthAmount");
-		const Identifier AsymmetryAmount_ID = OLO_IDENTIFIER("AsymmetryAmount");
+		// Control parameter streams  
+		ValueView<f32> m_DistortionTypeView;
+		ValueView<f32> m_DriveView;
+		ValueView<f32> m_ToneView;
+		ValueView<f32> m_OutputLevelView;
+		ValueView<f32> m_WetDryMixView;
+		ValueView<f32> m_BitDepthView;
+		ValueView<f32> m_SampleRateReductionView;
+		ValueView<f32> m_WarmthAmountView;
+		ValueView<f32> m_AsymmetryAmountView;
+		ValueView<f32> m_BypassView;
+		ValueView<f32> m_ResetView;
 		
-		// Control parameters
-		const Identifier Bypass_ID = OLO_IDENTIFIER("Bypass");
-		const Identifier Reset_ID = OLO_IDENTIFIER("Reset");
+		// Output streams
+		ValueView<f32> m_OutputView;
+		ValueView<f32> m_HarmonicContentView;
+
+		//======================================================================
+		// Current Parameter Values (from streams)
+		//======================================================================
 		
-		// Outputs
-		const Identifier Output_ID = OLO_IDENTIFIER("Output");
-		const Identifier HarmonicContent_ID = OLO_IDENTIFIER("HarmonicContent");
+		f32 m_CurrentInput = 0.0f;
+		f32 m_CurrentDistortionType = 0.0f;
+		f32 m_CurrentDrive = 20.0f;
+		f32 m_CurrentTone = 0.0f;
+		f32 m_CurrentOutputLevel = 0.0f;
+		f32 m_CurrentWetDryMix = 1.0f;
+		f32 m_CurrentBitDepth = 16.0f;
+		f32 m_CurrentSampleRateReduction = 1.0f;
+		f32 m_CurrentWarmthAmount = 0.5f;
+		f32 m_CurrentAsymmetryAmount = 0.0f;
+		f32 m_CurrentBypass = 0.0f;
+		f32 m_CurrentReset = 0.0f;
 
 		// Distortion state
 		struct DistortionState
@@ -110,54 +127,118 @@ namespace OloEngine::Audio::SoundGraph
 	public:
 		DistortionNode()
 		{
-			// Register inputs
-			DECLARE_INPUT(f32, Input);                       // Audio input
-			DECLARE_INPUT(f32, DistortionType);             // Distortion algorithm
-			DECLARE_INTERPOLATED_INPUT(f32, Drive);          // Input gain/drive amount
-			DECLARE_INTERPOLATED_INPUT(f32, Tone);           // Tone shaping (-1 to +1)
-			DECLARE_INTERPOLATED_INPUT(f32, OutputLevel);    // Output level compensation
-			DECLARE_INTERPOLATED_INPUT(f32, WetDryMix);      // Wet/dry mix (0-1)
+			//==================================================================
+			// Initialize ValueView streams and setup Input/Output events
+			//==================================================================
 			
-			// Bit crushing parameters
-			DECLARE_INPUT(f32, BitDepth);                   // Bit depth reduction
-			DECLARE_INPUT(f32, SampleRateReduction);        // Sample rate reduction factor
+			// Initialize input streams with defaults  
+			m_InputView.Set(m_CurrentInput);
+			m_DistortionTypeView.Set(m_CurrentDistortionType);
+			m_DriveView.Set(m_CurrentDrive);
+			m_ToneView.Set(m_CurrentTone);
+			m_OutputLevelView.Set(m_CurrentOutputLevel);
+			m_WetDryMixView.Set(m_CurrentWetDryMix);
+			m_BitDepthView.Set(m_CurrentBitDepth);
+			m_SampleRateReductionView.Set(m_CurrentSampleRateReduction);
+			m_WarmthAmountView.Set(m_CurrentWarmthAmount);
+			m_AsymmetryAmountView.Set(m_CurrentAsymmetryAmount);
+			m_BypassView.Set(m_CurrentBypass);
+			m_ResetView.Set(m_CurrentReset);
 			
-			// Tube saturation parameters
-			DECLARE_INTERPOLATED_INPUT(f32, WarmthAmount);   // Tube warmth/saturation
-			DECLARE_INTERPOLATED_INPUT(f32, AsymmetryAmount); // Asymmetric clipping
-			
-			// Control parameters
-			DECLARE_INPUT(f32, Bypass);                     // Bypass distortion
-			DECLARE_INPUT(f32, Reset);                      // Reset distortion state
+			// Initialize output streams
+			m_OutputView.Set(0.0f);
+			m_HarmonicContentView.Set(0.0f);
 
-			// Register outputs
-			DECLARE_OUTPUT(f32, Output);                    // Distorted audio output
-			DECLARE_OUTPUT(f32, HarmonicContent);          // Harmonic content estimate
+			//==================================================================
+			// Setup Input Events - Audio inputs
+			//==================================================================
+			
+			AddInputEvent<f32>("Input", "Audio input", 
+				[this](f32 value) { 
+					m_CurrentInput = value; 
+					m_InputView.Set(value); 
+				});
 
-			// Set default values
-			SetParameterValue(Input_ID, 0.0f, false);
-			SetParameterValue(DistortionType_ID, static_cast<f32>(DistortionType::SoftClip), false);
-			SetParameterValue(Drive_ID, 10.0f, false);         // 10 dB drive
-			SetParameterValue(Tone_ID, 0.0f, false);           // Neutral tone
-			SetParameterValue(OutputLevel_ID, -6.0f, false);   // -6 dB output compensation
-			SetParameterValue(WetDryMix_ID, 1.0f, false);      // 100% wet
+			//==================================================================
+			// Setup Input Events - Control parameters with validation
+			//==================================================================
 			
-			SetParameterValue(BitDepth_ID, 8.0f, false);       // 8-bit crushing
-			SetParameterValue(SampleRateReduction_ID, 4.0f, false); // 4x sample rate reduction
+			AddInputEvent<f32>("DistortionType", "Distortion algorithm",
+				[this](f32 value) { 
+					m_CurrentDistortionType = glm::clamp(value, 0.0f, 6.0f);
+					m_DistortionTypeView.Set(m_CurrentDistortionType); 
+				});
 			
-			SetParameterValue(WarmthAmount_ID, 0.5f, false);   // Moderate warmth
-			SetParameterValue(AsymmetryAmount_ID, 0.1f, false); // Slight asymmetry
+			AddInputEvent<f32>("Drive", "Input gain/drive amount",
+				[this](f32 value) { 
+					m_CurrentDrive = glm::clamp(value, MIN_DRIVE_DB, MAX_DRIVE_DB);
+					m_DriveView.Set(m_CurrentDrive); 
+				});
 			
-			SetParameterValue(Bypass_ID, 0.0f, false);         // Not bypassed
-			SetParameterValue(Reset_ID, 0.0f, false);
+			AddInputEvent<f32>("Tone", "Tone shaping (-1 to +1)", 
+				[this](f32 value) { 
+					m_CurrentTone = glm::clamp(value, MIN_TONE, MAX_TONE);
+					m_ToneView.Set(m_CurrentTone); 
+				});
 			
-			SetParameterValue(Output_ID, 0.0f, false);
-			SetParameterValue(HarmonicContent_ID, 0.0f, false);
+			AddInputEvent<f32>("OutputLevel", "Output level compensation",
+				[this](f32 value) { 
+					m_CurrentOutputLevel = glm::clamp(value, MIN_OUTPUT_DB, MAX_OUTPUT_DB);
+					m_OutputLevelView.Set(m_CurrentOutputLevel); 
+				});
+			
+			AddInputEvent<f32>("WetDryMix", "Wet/dry mix (0-1)",
+				[this](f32 value) { 
+					m_CurrentWetDryMix = glm::clamp(value, MIN_MIX, MAX_MIX);
+					m_WetDryMixView.Set(m_CurrentWetDryMix); 
+				});
+			
+			AddInputEvent<f32>("BitDepth", "Bit depth reduction",
+				[this](f32 value) { 
+					m_CurrentBitDepth = glm::clamp(value, MIN_BIT_DEPTH, MAX_BIT_DEPTH);
+					m_BitDepthView.Set(m_CurrentBitDepth); 
+				});
+			
+			AddInputEvent<f32>("SampleRateReduction", "Sample rate reduction factor",
+				[this](f32 value) { 
+					m_CurrentSampleRateReduction = glm::clamp(value, MIN_SAMPLE_RATE_REDUCTION, MAX_SAMPLE_RATE_REDUCTION);
+					m_SampleRateReductionView.Set(m_CurrentSampleRateReduction); 
+				});
+			
+			AddInputEvent<f32>("WarmthAmount", "Tube warmth/saturation",
+				[this](f32 value) { 
+					m_CurrentWarmthAmount = glm::clamp(value, MIN_WARMTH, MAX_WARMTH);
+					m_WarmthAmountView.Set(m_CurrentWarmthAmount); 
+				});
+			
+			AddInputEvent<f32>("AsymmetryAmount", "Asymmetric clipping",
+				[this](f32 value) { 
+					m_CurrentAsymmetryAmount = glm::clamp(value, MIN_ASYMMETRY, MAX_ASYMMETRY);
+					m_AsymmetryAmountView.Set(m_CurrentAsymmetryAmount); 
+				});
+			
+			AddInputEvent<f32>("Bypass", "Bypass distortion",
+				[this](f32 value) { 
+					m_CurrentBypass = value;
+					m_BypassView.Set(m_CurrentBypass); 
+				});
+			
+			AddInputEvent<f32>("Reset", "Reset distortion state",
+				[this](f32 value) { 
+					m_CurrentReset = value;
+					m_ResetView.Set(m_CurrentReset);
+					if (value > 0.5f) m_ResetFlag.SetDirty();
+				});
 
-			// Register Reset input event with flag callback
-			AddInputEvent<f32>(Reset_ID, "Reset", [this](f32 value) {
-				if (value > 0.5f) m_ResetFlag.SetDirty();
-			});
+			//==================================================================
+			// Setup Output Events  
+			//==================================================================
+			
+			AddOutputEvent<f32>("Output", "Distorted audio output",
+				[this]() -> f32 { return m_OutputView.Get(); });
+			
+			AddOutputEvent<f32>("HarmonicContent", "Harmonic content estimate", 
+				[this]() -> f32 { return m_HarmonicContentView.Get(); });
 		}
 
 		virtual ~DistortionNode() = default;
@@ -168,23 +249,47 @@ namespace OloEngine::Audio::SoundGraph
 
 		void Process(f32** inputs, f32** outputs, u32 numSamples) override
 		{
-			// Process interpolation and parameter connections first
-			ProcessBeforeAudio();
+			//==================================================================
+			// Update all ValueView streams from current input values
+			//==================================================================
+			
+			if (inputs && inputs[0])
+			{
+				for (u32 i = 0; i < numSamples; ++i)
+				{
+					m_InputView.Set(inputs[0][i]);
+				}
+			}
+			
+			// Update control parameter streams
+			m_DistortionTypeView.Set(m_CurrentDistortionType);
+			m_DriveView.Set(m_CurrentDrive);
+			m_ToneView.Set(m_CurrentTone);
+			m_OutputLevelView.Set(m_CurrentOutputLevel);
+			m_WetDryMixView.Set(m_CurrentWetDryMix);
+			m_BitDepthView.Set(m_CurrentBitDepth);
+			m_SampleRateReductionView.Set(m_CurrentSampleRateReduction);
+			m_WarmthAmountView.Set(m_CurrentWarmthAmount);
+			m_AsymmetryAmountView.Set(m_CurrentAsymmetryAmount);
+			m_BypassView.Set(m_CurrentBypass);
+			m_ResetView.Set(m_CurrentReset);
 
 			// Check for reset trigger
-			f32 resetValue = GetParameterValue<f32>(Reset_ID);
-			if (resetValue > 0.5f || m_ResetFlag.CheckAndResetIfDirty())
+			if (m_CurrentReset > 0.5f || m_ResetFlag.CheckAndResetIfDirty())
 			{
 				ResetDistortion();
-				if (resetValue > 0.5f)
-					SetParameterValue(Reset_ID, 0.0f, false);
+				if (m_CurrentReset > 0.5f)
+				{
+					m_CurrentReset = 0.0f;
+					m_ResetView.Set(0.0f);
+				}
 			}
 
 			// Update distortion parameters
 			UpdateDistortionParameters();
 
 			// Check bypass
-			const bool isBypassed = GetParameterValue<f32>(Bypass_ID) > 0.5f;
+			const bool isBypassed = m_CurrentBypass > 0.5f;
 
 			// Process audio
 			if (inputs && inputs[0] && outputs && outputs[0] && m_State.isInitialized)
@@ -251,25 +356,25 @@ namespace OloEngine::Audio::SoundGraph
 		void UpdateDistortionParameters()
 		{
 			// Update tone filter coefficient
-			const f32 toneValue = glm::clamp(GetParameterValue<f32>(Tone_ID), MIN_TONE, MAX_TONE);
+			const f32 toneValue = glm::clamp(m_CurrentTone, MIN_TONE, MAX_TONE);
 			const f32 cutoffFreq = 1000.0f + toneValue * 2000.0f; // 1kHz center, ±2kHz range
 			const f32 normalizedFreq = cutoffFreq / static_cast<f32>(m_SampleRate);
 			m_State.toneFilterCoeff = std::exp(-2.0f * glm::pi<f32>() * normalizedFreq);
 
 			// Update bit crushing period
-			const f32 sampleRateReduction = glm::clamp(GetParameterValue<f32>(SampleRateReduction_ID), 
+			const f32 sampleRateReduction = glm::clamp(m_CurrentSampleRateReduction, 
 													   MIN_SAMPLE_RATE_REDUCTION, MAX_SAMPLE_RATE_REDUCTION);
 			m_State.bitCrushPeriod = static_cast<u32>(sampleRateReduction);
 		}
 
 		void ProcessDistortion(const f32* input, f32* output, u32 numSamples)
 		{
-			const DistortionType distType = static_cast<DistortionType>(static_cast<i32>(GetParameterValue<f32>(DistortionType_ID)));
-			const f32 driveDb = glm::clamp(GetParameterValue<f32>(Drive_ID), MIN_DRIVE_DB, MAX_DRIVE_DB);
+			const DistortionType distType = static_cast<DistortionType>(static_cast<i32>(m_CurrentDistortionType));
+			const f32 driveDb = glm::clamp(m_CurrentDrive, MIN_DRIVE_DB, MAX_DRIVE_DB);
 			const f32 driveLinear = DbToLinear(driveDb);
-			const f32 outputDb = glm::clamp(GetParameterValue<f32>(OutputLevel_ID), MIN_OUTPUT_DB, MAX_OUTPUT_DB);
+			const f32 outputDb = glm::clamp(m_CurrentOutputLevel, MIN_OUTPUT_DB, MAX_OUTPUT_DB);
 			const f32 outputLinear = DbToLinear(outputDb);
-			const f32 wetMix = glm::clamp(GetParameterValue<f32>(WetDryMix_ID), MIN_MIX, MAX_MIX);
+			const f32 wetMix = glm::clamp(m_CurrentWetDryMix, MIN_MIX, MAX_MIX);
 			const f32 dryMix = 1.0f - wetMix;
 
 			// Accumulate RMS values for harmonic content analysis
@@ -353,8 +458,8 @@ namespace OloEngine::Audio::SoundGraph
 
 		f32 ApplyTubeSaturation(f32 sample)
 		{
-			const f32 warmth = glm::clamp(GetParameterValue<f32>(WarmthAmount_ID), MIN_WARMTH, MAX_WARMTH);
-			const f32 asymmetry = glm::clamp(GetParameterValue<f32>(AsymmetryAmount_ID), MIN_ASYMMETRY, MAX_ASYMMETRY);
+			const f32 warmth = glm::clamp(m_CurrentWarmthAmount, MIN_WARMTH, MAX_WARMTH);
+			const f32 asymmetry = glm::clamp(m_CurrentAsymmetryAmount, MIN_ASYMMETRY, MAX_ASYMMETRY);
 			
 			// Asymmetric tube-style saturation
 			f32 result;
@@ -382,7 +487,7 @@ namespace OloEngine::Audio::SoundGraph
 
 		f32 ApplyBitCrushing(f32 sample)
 		{
-			const f32 bitDepth = glm::clamp(GetParameterValue<f32>(BitDepth_ID), MIN_BIT_DEPTH, MAX_BIT_DEPTH);
+			const f32 bitDepth = glm::clamp(m_CurrentBitDepth, MIN_BIT_DEPTH, MAX_BIT_DEPTH);
 			
 			// Sample rate reduction
 			if (m_State.bitCrushCounter++ >= m_State.bitCrushPeriod)
@@ -462,7 +567,7 @@ namespace OloEngine::Audio::SoundGraph
 			// Simple tone control using first-order filter
 			m_State.toneFilterState = sample + (m_State.toneFilterState - sample) * m_State.toneFilterCoeff;
 			
-			const f32 toneValue = glm::clamp(GetParameterValue<f32>(Tone_ID), MIN_TONE, MAX_TONE);
+			const f32 toneValue = glm::clamp(m_CurrentTone, MIN_TONE, MAX_TONE);
 			
 			// Mix between low-pass filtered (dark) and original (bright)
 			const f32 mix = (toneValue + 1.0f) * 0.5f; // Convert -1..1 to 0..1
@@ -542,25 +647,26 @@ namespace OloEngine::Audio::SoundGraph
 
 	public:
 		//======================================================================
-		// Utility Methods
+		//======================================================================
+		// Legacy API compatibility methods
 		//======================================================================
 
 		/// Get the current distortion type
 		DistortionType GetDistortionType() const
 		{
-			return static_cast<DistortionType>(static_cast<i32>(GetParameterValue<f32>(DistortionType_ID)));
+			return static_cast<DistortionType>(static_cast<i32>(m_CurrentDistortionType));
 		}
 
 		/// Get current drive amount in dB
 		f32 GetDrive() const
 		{
-			return glm::clamp(GetParameterValue<f32>(Drive_ID), MIN_DRIVE_DB, MAX_DRIVE_DB);
+			return m_CurrentDrive;
 		}
 
 		/// Get current tone setting
 		f32 GetTone() const
 		{
-			return glm::clamp(GetParameterValue<f32>(Tone_ID), MIN_TONE, MAX_TONE);
+			return m_CurrentTone;
 		}
 
 		/// Get current harmonic content estimate
@@ -572,13 +678,13 @@ namespace OloEngine::Audio::SoundGraph
 		/// Check if distortion is bypassed
 		bool IsBypassed() const
 		{
-			return GetParameterValue<f32>(Bypass_ID) > 0.5f;
+			return m_CurrentBypass > 0.5f;
 		}
 
 		/// Get current wet/dry mix
 		f32 GetWetDryMix() const
 		{
-			return glm::clamp(GetParameterValue<f32>(WetDryMix_ID), MIN_MIX, MAX_MIX);
+			return m_CurrentWetDryMix;
 		}
 	};
 

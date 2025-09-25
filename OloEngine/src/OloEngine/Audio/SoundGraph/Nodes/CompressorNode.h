@@ -26,25 +26,49 @@ namespace OloEngine::Audio::SoundGraph
 		};
 
 	private:
-		// Endpoint identifiers
-		const Identifier Input_ID = OLO_IDENTIFIER("Input");
-		const Identifier SidechainInput_ID = OLO_IDENTIFIER("SidechainInput");
-		const Identifier Threshold_ID = OLO_IDENTIFIER("Threshold");
-		const Identifier Ratio_ID = OLO_IDENTIFIER("Ratio");
-		const Identifier Attack_ID = OLO_IDENTIFIER("Attack");
-		const Identifier Release_ID = OLO_IDENTIFIER("Release");
-		const Identifier Knee_ID = OLO_IDENTIFIER("Knee");
-		const Identifier MakeupGain_ID = OLO_IDENTIFIER("MakeupGain");
-		const Identifier DetectionMode_ID = OLO_IDENTIFIER("DetectionMode");
-		const Identifier LookAhead_ID = OLO_IDENTIFIER("LookAhead");
-		const Identifier AutoMakeup_ID = OLO_IDENTIFIER("AutoMakeup");
-		const Identifier Bypass_ID = OLO_IDENTIFIER("Bypass");
-		const Identifier Reset_ID = OLO_IDENTIFIER("Reset");
+		//======================================================================
+		// ValueView Streams for Real-Time Audio Processing
+		//======================================================================
 		
-		// Outputs
-		const Identifier Output_ID = OLO_IDENTIFIER("Output");
-		const Identifier GainReduction_ID = OLO_IDENTIFIER("GainReduction");
-		const Identifier EnvelopeLevel_ID = OLO_IDENTIFIER("EnvelopeLevel");
+		// Input audio streams
+		ValueView<f32> m_InputView;
+		ValueView<f32> m_SidechainInputView;
+		
+		// Control parameter streams  
+		ValueView<f32> m_ThresholdView;
+		ValueView<f32> m_RatioView;
+		ValueView<f32> m_AttackView;
+		ValueView<f32> m_ReleaseView;
+		ValueView<f32> m_KneeView;
+		ValueView<f32> m_MakeupGainView;
+		ValueView<f32> m_DetectionModeView;
+		ValueView<f32> m_LookAheadView;
+		ValueView<f32> m_AutoMakeupView;
+		ValueView<f32> m_BypassView;
+		ValueView<f32> m_ResetView;
+		
+		// Output streams
+		ValueView<f32> m_OutputView;
+		ValueView<f32> m_GainReductionView; 
+		ValueView<f32> m_EnvelopeLevelView;
+
+		//======================================================================
+		// Current Parameter Values (from streams)
+		//======================================================================
+		
+		f32 m_CurrentInput = 0.0f;
+		f32 m_CurrentSidechainInput = 0.0f;
+		f32 m_CurrentThreshold = -12.0f;
+		f32 m_CurrentRatio = 4.0f;
+		f32 m_CurrentAttack = 5.0f;
+		f32 m_CurrentRelease = 100.0f;
+		f32 m_CurrentKnee = 2.0f;
+		f32 m_CurrentMakeupGain = 0.0f;
+		f32 m_CurrentDetectionMode = static_cast<f32>(DetectionMode::RMS);
+		f32 m_CurrentLookAhead = 2.0f;
+		f32 m_CurrentAutoMakeup = 0.0f;
+		f32 m_CurrentBypass = 0.0f;
+		f32 m_CurrentReset = 0.0f;
 
 		// Compression state
 		struct CompressionState
@@ -101,49 +125,129 @@ namespace OloEngine::Audio::SoundGraph
 	public:
 		CompressorNode()
 		{
-			// Register inputs
-			DECLARE_INPUT(f32, Input);                       // Main audio input
-			DECLARE_INPUT(f32, SidechainInput);             // External sidechain input
-			DECLARE_INTERPOLATED_INPUT(f32, Threshold);      // Compression threshold in dB
-			DECLARE_INTERPOLATED_INPUT(f32, Ratio);          // Compression ratio (1:1 to 20:1)
-			DECLARE_INTERPOLATED_INPUT(f32, Attack);         // Attack time in milliseconds
-			DECLARE_INTERPOLATED_INPUT(f32, Release);        // Release time in milliseconds
-			DECLARE_INTERPOLATED_INPUT(f32, Knee);           // Soft knee width in dB
-			DECLARE_INTERPOLATED_INPUT(f32, MakeupGain);     // Output makeup gain in dB
-			DECLARE_INPUT(f32, DetectionMode);              // Peak/RMS/Hybrid detection
-			DECLARE_INPUT(f32, LookAhead);                  // Look-ahead time in ms
-			DECLARE_INPUT(f32, AutoMakeup);                 // Auto makeup gain enable
-			DECLARE_INPUT(f32, Bypass);                     // Bypass compression
-			DECLARE_INPUT(f32, Reset);                      // Reset compressor state
-
-			// Register outputs
-			DECLARE_OUTPUT(f32, Output);                    // Compressed audio output
-			DECLARE_OUTPUT(f32, GainReduction);            // Current gain reduction in dB
-			DECLARE_OUTPUT(f32, EnvelopeLevel);            // Envelope follower level in dB
-
-			// Set default values (typical compressor settings)
-			SetParameterValue(Input_ID, 0.0f, false);
-			SetParameterValue(SidechainInput_ID, 0.0f, false);
-			SetParameterValue(Threshold_ID, -12.0f, false);       // -12 dB threshold
-			SetParameterValue(Ratio_ID, 4.0f, false);             // 4:1 compression ratio
-			SetParameterValue(Attack_ID, 5.0f, false);            // 5ms attack
-			SetParameterValue(Release_ID, 100.0f, false);         // 100ms release
-			SetParameterValue(Knee_ID, 2.0f, false);              // 2 dB soft knee
-			SetParameterValue(MakeupGain_ID, 0.0f, false);        // No makeup gain
-			SetParameterValue(DetectionMode_ID, static_cast<f32>(DetectionMode::RMS), false);
-			SetParameterValue(LookAhead_ID, 2.0f, false);         // 2ms look-ahead
-			SetParameterValue(AutoMakeup_ID, 0.0f, false);        // Auto makeup off
-			SetParameterValue(Bypass_ID, 0.0f, false);            // Not bypassed
-			SetParameterValue(Reset_ID, 0.0f, false);
+			//==================================================================
+			// Initialize ValueView streams and setup Input/Output events
+			//==================================================================
 			
-			SetParameterValue(Output_ID, 0.0f, false);
-			SetParameterValue(GainReduction_ID, 0.0f, false);
-			SetParameterValue(EnvelopeLevel_ID, -96.0f, false);   // -96 dB (silence)
+			// Initialize input streams with defaults  
+			m_InputView.Set(m_CurrentInput);
+			m_SidechainInputView.Set(m_CurrentSidechainInput);
+			m_ThresholdView.Set(m_CurrentThreshold);
+			m_RatioView.Set(m_CurrentRatio);
+			m_AttackView.Set(m_CurrentAttack);
+			m_ReleaseView.Set(m_CurrentRelease);
+			m_KneeView.Set(m_CurrentKnee);
+			m_MakeupGainView.Set(m_CurrentMakeupGain);
+			m_DetectionModeView.Set(m_CurrentDetectionMode);
+			m_LookAheadView.Set(m_CurrentLookAhead);
+			m_AutoMakeupView.Set(m_CurrentAutoMakeup);
+			m_BypassView.Set(m_CurrentBypass);
+			m_ResetView.Set(m_CurrentReset);
+			
+			// Initialize output streams
+			m_OutputView.Set(0.0f);
+			m_GainReductionView.Set(0.0f);
+			m_EnvelopeLevelView.Set(-96.0f);
 
-			// Register Reset input event with flag callback
-			AddInputEvent<f32>(Reset_ID, "Reset", [this](f32 value) {
-				if (value > 0.5f) m_ResetFlag.SetDirty();
-			});
+			//==================================================================
+			// Setup Input Events - Audio inputs
+			//==================================================================
+			
+			AddInputEvent<f32>("Input", "Main audio input", 
+				[this](f32 value) { 
+					m_CurrentInput = value; 
+					m_InputView.Set(value); 
+				});
+			
+			AddInputEvent<f32>("SidechainInput", "External sidechain input",
+				[this](f32 value) { 
+					m_CurrentSidechainInput = value; 
+					m_SidechainInputView.Set(value); 
+				});
+
+			//==================================================================
+			// Setup Input Events - Control parameters with validation
+			//==================================================================
+			
+			AddInputEvent<f32>("Threshold", "Compression threshold in dB",
+				[this](f32 value) { 
+					m_CurrentThreshold = glm::clamp(value, MIN_THRESHOLD_DB, MAX_THRESHOLD_DB);
+					m_ThresholdView.Set(m_CurrentThreshold); 
+				});
+			
+			AddInputEvent<f32>("Ratio", "Compression ratio (1:1 to 20:1)",
+				[this](f32 value) { 
+					m_CurrentRatio = glm::clamp(value, MIN_RATIO, MAX_RATIO);
+					m_RatioView.Set(m_CurrentRatio); 
+				});
+			
+			AddInputEvent<f32>("Attack", "Attack time in milliseconds", 
+				[this](f32 value) { 
+					m_CurrentAttack = glm::clamp(value, MIN_ATTACK_MS, MAX_ATTACK_MS);
+					m_AttackView.Set(m_CurrentAttack); 
+				});
+			
+			AddInputEvent<f32>("Release", "Release time in milliseconds",
+				[this](f32 value) { 
+					m_CurrentRelease = glm::clamp(value, MIN_RELEASE_MS, MAX_RELEASE_MS);
+					m_ReleaseView.Set(m_CurrentRelease); 
+				});
+			
+			AddInputEvent<f32>("Knee", "Soft knee width in dB",
+				[this](f32 value) { 
+					m_CurrentKnee = glm::clamp(value, MIN_KNEE_DB, MAX_KNEE_DB);
+					m_KneeView.Set(m_CurrentKnee); 
+				});
+			
+			AddInputEvent<f32>("MakeupGain", "Output makeup gain in dB",
+				[this](f32 value) { 
+					m_CurrentMakeupGain = glm::clamp(value, MIN_MAKEUP_DB, MAX_MAKEUP_DB);
+					m_MakeupGainView.Set(m_CurrentMakeupGain); 
+				});
+			
+			AddInputEvent<f32>("DetectionMode", "Peak/RMS/Hybrid detection",
+				[this](f32 value) { 
+					m_CurrentDetectionMode = glm::clamp(value, 0.0f, 2.0f);
+					m_DetectionModeView.Set(m_CurrentDetectionMode); 
+				});
+			
+			AddInputEvent<f32>("LookAhead", "Look-ahead time in ms",
+				[this](f32 value) { 
+					m_CurrentLookAhead = glm::clamp(value, MIN_LOOKAHEAD_MS, MAX_LOOKAHEAD_MS);
+					m_LookAheadView.Set(m_CurrentLookAhead); 
+				});
+			
+			AddInputEvent<f32>("AutoMakeup", "Auto makeup gain enable",
+				[this](f32 value) { 
+					m_CurrentAutoMakeup = value;
+					m_AutoMakeupView.Set(m_CurrentAutoMakeup); 
+				});
+			
+			AddInputEvent<f32>("Bypass", "Bypass compression",
+				[this](f32 value) { 
+					m_CurrentBypass = value;
+					m_BypassView.Set(m_CurrentBypass); 
+				});
+			
+			AddInputEvent<f32>("Reset", "Reset compressor state",
+				[this](f32 value) { 
+					m_CurrentReset = value;
+					m_ResetView.Set(m_CurrentReset);
+					if (value > 0.5f) m_ResetFlag.SetDirty();
+				});
+
+			//==================================================================
+			// Setup Output Events  
+			//==================================================================
+			
+			AddOutputEvent<f32>("Output", "Compressed audio output",
+				[this]() -> f32 { return m_OutputView.Get(); });
+			
+			AddOutputEvent<f32>("GainReduction", "Current gain reduction in dB", 
+				[this]() -> f32 { return m_GainReductionView.Get(); });
+			
+			AddOutputEvent<f32>("EnvelopeLevel", "Envelope follower level in dB",
+				[this]() -> f32 { return m_EnvelopeLevelView.Get(); });
 		}
 
 		virtual ~CompressorNode() = default;
@@ -154,23 +258,49 @@ namespace OloEngine::Audio::SoundGraph
 
 		void Process(f32** inputs, f32** outputs, u32 numSamples) override
 		{
-			// Process interpolation and parameter connections first
-			ProcessBeforeAudio();
+			//==================================================================
+			// Update all ValueView streams from current input values
+			//==================================================================
+			
+			if (inputs && inputs[0])
+			{
+				for (u32 i = 0; i < numSamples; ++i)
+				{
+					m_InputView.Set(inputs[0][i]);
+					if (inputs[1]) // Sidechain input
+						m_SidechainInputView.Set(inputs[1][i]);
+				}
+			}
+			
+			// Update control parameter streams
+			m_ThresholdView.Set(m_CurrentThreshold);
+			m_RatioView.Set(m_CurrentRatio);
+			m_AttackView.Set(m_CurrentAttack);
+			m_ReleaseView.Set(m_CurrentRelease);
+			m_KneeView.Set(m_CurrentKnee);
+			m_MakeupGainView.Set(m_CurrentMakeupGain);
+			m_DetectionModeView.Set(m_CurrentDetectionMode);
+			m_LookAheadView.Set(m_CurrentLookAhead);
+			m_AutoMakeupView.Set(m_CurrentAutoMakeup);
+			m_BypassView.Set(m_CurrentBypass);
+			m_ResetView.Set(m_CurrentReset);
 
 			// Check for reset trigger
-			f32 resetValue = GetParameterValue<f32>(Reset_ID);
-			if (resetValue > 0.5f || m_ResetFlag.CheckAndResetIfDirty())
+			if (m_CurrentReset > 0.5f || m_ResetFlag.CheckAndResetIfDirty())
 			{
 				ResetCompressor();
-				if (resetValue > 0.5f)
-					SetParameterValue(Reset_ID, 0.0f, false);
+				if (m_CurrentReset > 0.5f)
+				{
+					m_CurrentReset = 0.0f;
+					m_ResetView.Set(0.0f);
+				}
 			}
 
 			// Update compressor parameters
 			UpdateCompressionParameters();
 
 			// Check bypass
-			const bool isBypassed = GetParameterValue<f32>(Bypass_ID) > 0.5f;
+			const bool isBypassed = m_CurrentBypass > 0.5f;
 
 			// Process audio
 			if (inputs && inputs[0] && outputs && outputs[0] && m_State.isInitialized)
@@ -181,18 +311,16 @@ namespace OloEngine::Audio::SoundGraph
 					for (u32 i = 0; i < numSamples; ++i)
 					{
 						outputs[0][i] = inputs[0][i];
+						m_OutputView.Set(inputs[0][i]);
 					}
-					SetParameterValue(GainReduction_ID, 0.0f, false);
-					SetParameterValue(EnvelopeLevel_ID, -96.0f, false);
+					m_GainReductionView.Set(0.0f);
+					m_EnvelopeLevelView.Set(-96.0f);
 				}
 				else
 				{
 					// Apply compression
 					ProcessCompression(inputs, outputs, numSamples);
 				}
-				
-				// Set output parameter to the last generated value
-				SetParameterValue(Output_ID, outputs[0][numSamples - 1], false);
 			}
 			else if (outputs && outputs[0])
 			{
@@ -201,18 +329,15 @@ namespace OloEngine::Audio::SoundGraph
 				{
 					outputs[0][i] = 0.0f;
 				}
-				SetParameterValue(Output_ID, 0.0f, false);
-				SetParameterValue(GainReduction_ID, 0.0f, false);
-				SetParameterValue(EnvelopeLevel_ID, -96.0f, false);
+				m_OutputView.Set(0.0f);
+				m_GainReductionView.Set(0.0f);
+				m_EnvelopeLevelView.Set(-96.0f);
 			}
 		}
 
 		void Initialize(f64 sampleRate, u32 maxBufferSize) override
 		{
 			m_SampleRate = sampleRate;
-			
-			// Initialize interpolation with default 1ms transition time
-			InitializeInterpolation(sampleRate, 0.001);
 			
 			// Initialize compression state
 			InitializeCompression(maxBufferSize);
@@ -239,14 +364,14 @@ namespace OloEngine::Audio::SoundGraph
 		void UpdateCompressionParameters()
 		{
 			// Calculate attack and release coefficients
-			const f32 attackMs = glm::clamp(GetParameterValue<f32>(Attack_ID), MIN_ATTACK_MS, MAX_ATTACK_MS);
-			const f32 releaseMs = glm::clamp(GetParameterValue<f32>(Release_ID), MIN_RELEASE_MS, MAX_RELEASE_MS);
+			const f32 attackMs = glm::clamp(m_CurrentAttack, MIN_ATTACK_MS, MAX_ATTACK_MS);
+			const f32 releaseMs = glm::clamp(m_CurrentRelease, MIN_RELEASE_MS, MAX_RELEASE_MS);
 			
 			m_State.attackCoeff = std::exp(-1.0f / (attackMs * 0.001f * static_cast<f32>(m_SampleRate)));
 			m_State.releaseCoeff = std::exp(-1.0f / (releaseMs * 0.001f * static_cast<f32>(m_SampleRate)));
 
 			// Update look-ahead samples
-			const f32 lookAheadMs = glm::clamp(GetParameterValue<f32>(LookAhead_ID), MIN_LOOKAHEAD_MS, MAX_LOOKAHEAD_MS);
+			const f32 lookAheadMs = glm::clamp(m_CurrentLookAhead, MIN_LOOKAHEAD_MS, MAX_LOOKAHEAD_MS);
 			m_State.lookAheadSamples = static_cast<u32>(lookAheadMs * 0.001f * m_SampleRate);
 			
 			// Ensure delay buffer is large enough
@@ -258,12 +383,12 @@ namespace OloEngine::Audio::SoundGraph
 
 		void ProcessCompression(f32** inputs, f32** outputs, u32 numSamples)
 		{
-			const f32 thresholdDb = glm::clamp(GetParameterValue<f32>(Threshold_ID), MIN_THRESHOLD_DB, MAX_THRESHOLD_DB);
-			const f32 ratio = glm::clamp(GetParameterValue<f32>(Ratio_ID), MIN_RATIO, MAX_RATIO);
-			const f32 kneeDb = glm::clamp(GetParameterValue<f32>(Knee_ID), MIN_KNEE_DB, MAX_KNEE_DB);
-			const f32 makeupGainDb = glm::clamp(GetParameterValue<f32>(MakeupGain_ID), MIN_MAKEUP_DB, MAX_MAKEUP_DB);
-			const bool autoMakeup = GetParameterValue<f32>(AutoMakeup_ID) > 0.5f;
-			const DetectionMode detectionMode = static_cast<DetectionMode>(static_cast<i32>(GetParameterValue<f32>(DetectionMode_ID)));
+			const f32 thresholdDb = glm::clamp(m_CurrentThreshold, MIN_THRESHOLD_DB, MAX_THRESHOLD_DB);
+			const f32 ratio = glm::clamp(m_CurrentRatio, MIN_RATIO, MAX_RATIO);
+			const f32 kneeDb = glm::clamp(m_CurrentKnee, MIN_KNEE_DB, MAX_KNEE_DB);
+			const f32 makeupGainDb = glm::clamp(m_CurrentMakeupGain, MIN_MAKEUP_DB, MAX_MAKEUP_DB);
+			const bool autoMakeup = m_CurrentAutoMakeup > 0.5f;
+			const DetectionMode detectionMode = static_cast<DetectionMode>(static_cast<i32>(m_CurrentDetectionMode));
 
 			// Convert to linear values
 			const f32 thresholdLinear = DbToLinear(thresholdDb);
@@ -326,14 +451,15 @@ namespace OloEngine::Audio::SoundGraph
 				outputSample = SoftLimit(outputSample);
 				
 				outputs[0][i] = outputSample;
+				m_OutputView.Set(outputSample);
 				
 				// Store gain reduction for metering
 				m_State.gainReduction = LinearToDb(gainReductionLinear);
 			}
 
 			// Update output parameters with final values
-			SetParameterValue(GainReduction_ID, m_State.gainReduction, false);
-			SetParameterValue(EnvelopeLevel_ID, LinearToDb(m_State.envelope), false);
+			m_GainReductionView.Set(m_State.gainReduction);
+			m_EnvelopeLevelView.Set(LinearToDb(m_State.envelope));
 		}
 
 		f32 GetDetectionLevel(f32 sample, DetectionMode mode)
@@ -519,19 +645,19 @@ namespace OloEngine::Audio::SoundGraph
 		/// Get the current threshold in dB
 		f32 GetThreshold() const
 		{
-			return glm::clamp(GetParameterValue<f32>(Threshold_ID), MIN_THRESHOLD_DB, MAX_THRESHOLD_DB);
+			return m_CurrentThreshold;
 		}
 
 		/// Get the current compression ratio
 		f32 GetRatio() const
 		{
-			return glm::clamp(GetParameterValue<f32>(Ratio_ID), MIN_RATIO, MAX_RATIO);
+			return m_CurrentRatio;
 		}
 
 		/// Check if compressor is bypassed
 		bool IsBypassed() const
 		{
-			return GetParameterValue<f32>(Bypass_ID) > 0.5f;
+			return m_CurrentBypass > 0.5f;
 		}
 	};
 

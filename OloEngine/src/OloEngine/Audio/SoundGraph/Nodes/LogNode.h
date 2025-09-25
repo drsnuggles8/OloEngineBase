@@ -18,19 +18,40 @@ namespace OloEngine::Audio::SoundGraph
 	template<typename T>
 	class LogNode : public NodeProcessor
 	{
+		static_assert(std::is_arithmetic_v<T>, "LogNode can only be of arithmetic type");
+
 	private:
-		// Endpoint identifiers
-		const Identifier Base_ID = OLO_IDENTIFIER("Base");
-		const Identifier Value_ID = OLO_IDENTIFIER("Value");
-		const Identifier Result_ID = OLO_IDENTIFIER("Result");
+		//======================================================================
+		// ValueView Streams for Real-Time Processing
+		//======================================================================
+		
+		ValueView<T> m_BaseView;
+		ValueView<T> m_ValueView;
+		ValueView<T> m_ResultView;
+
+		//======================================================================
+		// Current Parameter Values (from streams)
+		//======================================================================
+		
+		T m_CurrentBase = T(10);
+		T m_CurrentValue = T(1);
 
 	public:
-		LogNode()
+		//======================================================================
+		// Constructor & Destructor
+		//======================================================================
+		
+		explicit LogNode(NodeDatabase& database, NodeID nodeID)
+			: NodeProcessor(database, nodeID)
+			, m_BaseView("Base", T(10))  // Default to base 10
+			, m_ValueView("Value", T(1))
+			, m_ResultView("Result", T(0))
 		{
-			// Register parameters directly
-			AddParameter<T>(Base_ID, "Base", T{10}); // Default to base 10
-			AddParameter<T>(Value_ID, "Value", T{1});
-			AddParameter<T>(Result_ID, "Result", T{0});
+			// Create Input/Output events
+			RegisterInputEvent<T>("Base", [this](const T& value) { m_CurrentBase = value; });
+			RegisterInputEvent<T>("Value", [this](const T& value) { m_CurrentValue = value; });
+			
+			RegisterOutputEvent<T>("Result");
 		}
 
 		virtual ~LogNode() = default;
@@ -41,53 +62,81 @@ namespace OloEngine::Audio::SoundGraph
 
 		void Process(f32** inputs, f32** outputs, u32 numSamples) override
 		{
-			const T base = GetParameterValue<T>(Base_ID);
-			const T value = GetParameterValue<T>(Value_ID);
+			// Update ValueView streams from inputs
+			m_BaseView.UpdateFromConnections(inputs, numSamples);
+			m_ValueView.UpdateFromConnections(inputs, numSamples);
 			
-			T result;
-			if constexpr (std::is_same_v<T, f32>)
+			for (u32 sample = 0; sample < numSamples; ++sample)
 			{
-				// Prevent logarithm of zero or negative numbers
-				if (value <= 0.0f || base <= 0.0f || base == 1.0f)
+				// Get current values from streams
+				T base = m_BaseView.GetValue(sample);
+				T value = m_ValueView.GetValue(sample);
+				
+				// Update internal state if changed
+				if (base != m_CurrentBase) m_CurrentBase = base;
+				if (value != m_CurrentValue) m_CurrentValue = value;
+				
+				// Calculate logarithm result with safety checks
+				T result;
+				if constexpr (std::is_same_v<T, f32>)
 				{
-					result = 0.0f; // Safe fallback value
+					// Prevent logarithm of zero or negative numbers
+					if (value <= 0.0f || base <= 0.0f || base == 1.0f)
+					{
+						result = 0.0f; // Safe fallback value
+					}
+					else
+					{
+						result = glm::log(value, base);
+					}
+				}
+				else if constexpr (std::is_same_v<T, i32>)
+				{
+					// For integers, convert to float, compute, then convert back
+					if (value <= 0 || base <= 0 || base == 1)
+					{
+						result = 0; // Safe fallback value
+					}
+					else
+					{
+						result = static_cast<i32>(glm::log(static_cast<f32>(value), static_cast<f32>(base)));
+					}
 				}
 				else
 				{
-					result = glm::log(value, base);
+					// Generic fallback
+					if (value <= T(0) || base <= T(0) || base == T(1))
+					{
+						result = T(0);
+					}
+					else
+					{
+						result = static_cast<T>(glm::log(static_cast<f32>(value), static_cast<f32>(base)));
+					}
 				}
-			}
-			else if constexpr (std::is_same_v<T, i32>)
-			{
-				// For integer log, convert to float, calculate, then back to int
-				if (value <= 0 || base <= 0 || base == 1)
-				{
-					result = 0; // Safe fallback value
-				}
-				else
-				{
-					result = static_cast<i32>(glm::log(static_cast<f32>(value), static_cast<f32>(base)));
-				}
-			}
 
-			// Set output parameter
-			SetParameterValue(Result_ID, result);
-
-			// Fill output buffer if provided
-			if (outputs && outputs[0])
-			{
-				for (u32 i = 0; i < numSamples; ++i)
-				{
-					outputs[0][i] = static_cast<f32>(result);
-				}
+				// Set output value
+				m_ResultView.SetValue(sample, result);
 			}
+			
+			// Update output streams
+			m_ResultView.UpdateOutputConnections(outputs, numSamples);
 		}
 
 		void Initialize(f64 sampleRate, u32 maxBufferSize) override
 		{
-			m_SampleRate = sampleRate;
+			NodeProcessor::Initialize(sampleRate, maxBufferSize);
+			
+			// Initialize ValueView streams
+			m_BaseView.Initialize(maxBufferSize);
+			m_ValueView.Initialize(maxBufferSize);
+			m_ResultView.Initialize(maxBufferSize);
 		}
 
+		//======================================================================
+		// Type Information
+		//======================================================================
+		
 		Identifier GetTypeID() const override
 		{
 			if constexpr (std::is_same_v<T, f32>)
@@ -106,6 +155,42 @@ namespace OloEngine::Audio::SoundGraph
 				return "Log (i32)";
 			else
 				return "Log";
+		}
+		
+		//======================================================================
+		// Legacy API Compatibility Methods
+		//======================================================================
+		
+		T GetBase() const { return m_CurrentBase; }
+		void SetBase(const T& value) { m_CurrentBase = value; }
+		
+		T GetValue() const { return m_CurrentValue; }
+		void SetValue(const T& value) { m_CurrentValue = value; }
+		
+		T GetResult() const 
+		{ 
+			// Calculate result with safety checks
+			if constexpr (std::is_same_v<T, f32>)
+			{
+				if (m_CurrentValue <= 0.0f || m_CurrentBase <= 0.0f || m_CurrentBase == 1.0f)
+					return 0.0f;
+				else
+					return glm::log(m_CurrentValue, m_CurrentBase);
+			}
+			else if constexpr (std::is_same_v<T, i32>)
+			{
+				if (m_CurrentValue <= 0 || m_CurrentBase <= 0 || m_CurrentBase == 1)
+					return 0;
+				else
+					return static_cast<i32>(glm::log(static_cast<f32>(m_CurrentValue), static_cast<f32>(m_CurrentBase)));
+			}
+			else
+			{
+				if (m_CurrentValue <= T(0) || m_CurrentBase <= T(0) || m_CurrentBase == T(1))
+					return T(0);
+				else
+					return static_cast<T>(glm::log(static_cast<f32>(m_CurrentValue), static_cast<f32>(m_CurrentBase)));
+			}
 		}
 	};
 

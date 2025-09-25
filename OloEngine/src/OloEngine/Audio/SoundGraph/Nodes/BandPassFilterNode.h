@@ -1,46 +1,109 @@
 #pragma once
 
 #include "OloEngine/Audio/SoundGraph/NodeProcessor.h"
+#include "OloEngine/Audio/SoundGraph/Value.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Identifier.h"
 #include <cmath>
+#include <glm/glm.hpp>
+#include <glm/gtc/constants.hpp>
 
 namespace OloEngine::Audio::SoundGraph
 {
 	//==============================================================================
-	/// BandPassFilterNode - Two-pole band-pass filter
+	/// BandPassFilterNode - Band-pass filter using new Hazel-style foundation
 	/// Allows frequencies within a specific range to pass through while attenuating others
 	/// Ideal for isolating frequency bands and creating frequency-selective effects
 	class BandPassFilterNode : public NodeProcessor
 	{
-		// Parameter identifiers
-		const Identifier Input_ID = OLO_IDENTIFIER("Input");
-		const Identifier CenterFreq_ID = OLO_IDENTIFIER("CenterFreq");
-		const Identifier Bandwidth_ID = OLO_IDENTIFIER("Bandwidth");
-		const Identifier Resonance_ID = OLO_IDENTIFIER("Resonance");
-		const Identifier Output_ID = OLO_IDENTIFIER("Output");
+	private:
+		// Input streams for connected values
+		ValueView<f32> m_InputStream;
+		ValueView<f32> m_CenterFreqStream;
+		ValueView<f32> m_BandwidthStream;
+		ValueView<f32> m_ResonanceStream;
+		
+		// Output stream for filtered audio
+		ValueView<f32> m_OutputStream;
 
-		// Internal state
+		// Current parameter values (for single-value processing)
+		f32 m_CurrentInput = 0.0f;
+		f32 m_CurrentCenterFreq = 1000.0f;  // Hz
+		f32 m_CurrentBandwidth = 200.0f;    // Hz
+		f32 m_CurrentResonance = 1.0f;      // Q factor
+		f32 m_CurrentOutput = 0.0f;
+
+		// Internal filter state
 		f64 m_SampleRate = 44100.0;
 		f32 m_PreviousOutput = 0.0f;
 		f32 m_PreviousOutput2 = 0.0f;
 		f32 m_PreviousInput = 0.0f;
 		f32 m_PreviousInput2 = 0.0f;
 
+		// Filter parameter limits
+		static constexpr f32 MIN_CENTER_FREQ_HZ = 20.0f;
+		static constexpr f32 MIN_BANDWIDTH_HZ = 1.0f;
+		static constexpr f32 MIN_RESONANCE = 0.1f;
+		static constexpr f32 MAX_RESONANCE = 10.0f;
+
 	public:
 		BandPassFilterNode()
 		{
-			// Register parameters
-			AddParameter<f32>(Input_ID, "Input", 0.0f);
-			AddParameter<f32>(CenterFreq_ID, "CenterFreq", 1000.0f); // Center frequency in Hz
-			AddParameter<f32>(Bandwidth_ID, "Bandwidth", 200.0f);    // Bandwidth in Hz
-			AddParameter<f32>(Resonance_ID, "Resonance", 1.0f);      // Q factor (0.1 to 10)
-			AddParameter<f32>(Output_ID, "Output", 0.0f);
+			// Create input events for receiving parameter values
+			auto inputEvent = std::make_shared<InputEvent>("Input", [this](const Value& value) {
+				if (value.GetType() == ValueType::Float32)
+				{
+					m_CurrentInput = value.Get<f32>();
+				}
+			});
+			
+			auto centerFreqEvent = std::make_shared<InputEvent>("CenterFreq", [this](const Value& value) {
+				if (value.GetType() == ValueType::Float32)
+				{
+					f32 maxFreq = static_cast<f32>(m_SampleRate * 0.45);  // Avoid aliasing
+					m_CurrentCenterFreq = glm::clamp(value.Get<f32>(), MIN_CENTER_FREQ_HZ, maxFreq);
+				}
+			});
+
+			auto bandwidthEvent = std::make_shared<InputEvent>("Bandwidth", [this](const Value& value) {
+				if (value.GetType() == ValueType::Float32)
+				{
+					// Clamp bandwidth to prevent degenerate cases
+					f32 maxBandwidth = m_CurrentCenterFreq;
+					m_CurrentBandwidth = glm::clamp(value.Get<f32>(), MIN_BANDWIDTH_HZ, maxBandwidth);
+				}
+			});
+
+			auto resonanceEvent = std::make_shared<InputEvent>("Resonance", [this](const Value& value) {
+				if (value.GetType() == ValueType::Float32)
+				{
+					m_CurrentResonance = glm::clamp(value.Get<f32>(), MIN_RESONANCE, MAX_RESONANCE);
+				}
+			});
+
+			// Register input events
+			AddInputEvent(inputEvent);
+			AddInputEvent(centerFreqEvent);
+			AddInputEvent(bandwidthEvent);
+			AddInputEvent(resonanceEvent);
+
+			// Create output event for sending filtered audio
+			auto outputEvent = std::make_shared<OutputEvent>("Output");
+			AddOutputEvent(outputEvent);
 		}
 
 		void Initialize(f64 sampleRate, u32 maxBufferSize) override
 		{
 			m_SampleRate = sampleRate;
+			
+			// Initialize ValueView streams with proper capacity
+			m_InputStream = ValueView<f32>(maxBufferSize);
+			m_CenterFreqStream = ValueView<f32>(maxBufferSize);  
+			m_BandwidthStream = ValueView<f32>(maxBufferSize);
+			m_ResonanceStream = ValueView<f32>(maxBufferSize);
+			m_OutputStream = ValueView<f32>(maxBufferSize);
+
+			// Reset filter state
 			m_PreviousOutput = 0.0f;
 			m_PreviousOutput2 = 0.0f;
 			m_PreviousInput = 0.0f;
@@ -49,99 +112,137 @@ namespace OloEngine::Audio::SoundGraph
 
 		void Process(f32** inputs, f32** outputs, u32 numSamples) override
 		{
-			f32 centerFreq = GetParameterValue<f32>(CenterFreq_ID, 1000.0f);
-			f32 bandwidth = GetParameterValue<f32>(Bandwidth_ID, 200.0f);
-			f32 resonance = GetParameterValue<f32>(Resonance_ID, 1.0f);
-
-			// Clamp center frequency to reasonable range (avoid aliasing)
-			centerFreq = glm::clamp(centerFreq, 20.0f, static_cast<f32>(m_SampleRate * 0.45));
-			// Clamp bandwidth to prevent degenerate cases
-			bandwidth = glm::clamp(bandwidth, 1.0f, centerFreq);
-			// Clamp resonance to avoid instability
-			resonance = glm::clamp(resonance, 0.1f, 10.0f);
-
-			// Calculate Q from bandwidth: Q = center_freq / bandwidth
-			f32 Q = centerFreq / bandwidth;
-			// Apply user resonance scaling
-			Q *= resonance;
-			Q = glm::clamp(Q, 0.1f, 30.0f); // Prevent extreme Q values
-
-			// Calculate biquad coefficients for band-pass filter
-			f32 omega = 2.0f * glm::pi<f32>() * centerFreq / static_cast<f32>(m_SampleRate);
-			f32 alpha = glm::sin(omega) / (2.0f * Q);
-			
-			f32 cos_omega = glm::cos(omega);
-			
-			// Band-pass filter coefficients
-			f32 b0 = alpha;
-			f32 b1 = 0.0f;
-			f32 b2 = -alpha;
-			f32 a0 = 1.0f + alpha;
-			f32 a1 = -2.0f * cos_omega;
-			f32 a2 = 1.0f - alpha;
-
-			// Normalize coefficients
-			b0 /= a0;
-			b1 /= a0;
-			b2 /= a0;
-			a1 /= a0;
-			a2 /= a0;
-
+			// Handle stream processing mode (real-time audio)
 			if (inputs && inputs[0] && outputs && outputs[0])
 			{
-				// Process input buffer
+				// Fill input stream from audio buffer
 				for (u32 i = 0; i < numSamples; ++i)
 				{
-					f32 inputSample = inputs[0][i];
-					
-					// Biquad filter implementation
-					f32 output = b0 * inputSample + b1 * m_PreviousInput + b2 * m_PreviousInput2
-							   - a1 * m_PreviousOutput - a2 * m_PreviousOutput2;
-					
-					outputs[0][i] = output;
-					
-					// Update state
-					m_PreviousInput2 = m_PreviousInput;
-					m_PreviousInput = inputSample;
-					m_PreviousOutput2 = m_PreviousOutput;
-					m_PreviousOutput = output;
+					m_InputStream[i] = inputs[0][i];
 				}
 
-				// Update output parameter with last sample
-				SetParameterValue(Output_ID, outputs[0][numSamples - 1]);
-			}
-			else
-			{
-				// Process single input parameter
-				f32 inputSample = GetParameterValue<f32>(Input_ID, 0.0f);
-				
-				// Calculate coefficients (same as above)
+				// Get current parameter values for coefficient calculation
+				f32 centerFreq = m_CurrentCenterFreq;
+				f32 bandwidth = m_CurrentBandwidth;
+				f32 resonance = m_CurrentResonance;
+
+				// Clamp parameters to safe ranges
+				f32 maxFreq = static_cast<f32>(m_SampleRate * 0.45);
+				centerFreq = glm::clamp(centerFreq, MIN_CENTER_FREQ_HZ, maxFreq);
+				bandwidth = glm::clamp(bandwidth, MIN_BANDWIDTH_HZ, centerFreq);
+				resonance = glm::clamp(resonance, MIN_RESONANCE, MAX_RESONANCE);
+
+				// Calculate Q from bandwidth and apply resonance scaling
 				f32 Q = (centerFreq / bandwidth) * resonance;
-				Q = glm::clamp(Q, 0.1f, 30.0f);
-				
+				Q = glm::clamp(Q, 0.1f, 30.0f); // Prevent extreme Q values
+
+				// Calculate biquad coefficients for band-pass filter
 				f32 omega = 2.0f * glm::pi<f32>() * centerFreq / static_cast<f32>(m_SampleRate);
 				f32 alpha = glm::sin(omega) / (2.0f * Q);
+				
 				f32 cos_omega = glm::cos(omega);
 				
+				// Band-pass filter coefficients
 				f32 b0 = alpha;
 				f32 b1 = 0.0f;
 				f32 b2 = -alpha;
 				f32 a0 = 1.0f + alpha;
 				f32 a1 = -2.0f * cos_omega;
 				f32 a2 = 1.0f - alpha;
+
+				// Normalize coefficients
+				b0 /= a0;
+				b1 /= a0;
+				b2 /= a0;
+				a1 /= a0;
+				a2 /= a0;
+
+				// Process samples and fill output stream
+				for (u32 i = 0; i < numSamples; ++i)
+				{
+					f32 inputSample = m_InputStream[i];
+					
+					// Biquad filter implementation
+					f32 output = b0 * inputSample + b1 * m_PreviousInput + b2 * m_PreviousInput2
+							   - a1 * m_PreviousOutput - a2 * m_PreviousOutput2;
+					
+					m_OutputStream[i] = output;
+					outputs[0][i] = output;
+					
+					// Update filter state
+					m_PreviousInput2 = m_PreviousInput;
+					m_PreviousInput = inputSample;
+					m_PreviousOutput2 = m_PreviousOutput;
+					m_PreviousOutput = output;
+				}
+
+				// Update current output value with last sample
+				m_CurrentOutput = m_OutputStream[numSamples - 1];
+
+				// Send output via event system
+				auto outputEvent = GetOutputEvent("Output");
+				if (outputEvent)
+				{
+					outputEvent->SendValue(Value(m_CurrentOutput));
+				}
+			}
+			else
+			{
+				// Handle single-value processing mode (control parameters)
+				f32 inputSample = m_CurrentInput;
+				f32 centerFreq = m_CurrentCenterFreq;
+				f32 bandwidth = m_CurrentBandwidth;
+				f32 resonance = m_CurrentResonance;
+
+				// Clamp parameters to safe ranges
+				f32 maxFreq = static_cast<f32>(m_SampleRate * 0.45);
+				centerFreq = glm::clamp(centerFreq, MIN_CENTER_FREQ_HZ, maxFreq);
+				bandwidth = glm::clamp(bandwidth, MIN_BANDWIDTH_HZ, centerFreq);
+				resonance = glm::clamp(resonance, MIN_RESONANCE, MAX_RESONANCE);
+
+				// Calculate Q from bandwidth and apply resonance scaling
+				f32 Q = (centerFreq / bandwidth) * resonance;
+				Q = glm::clamp(Q, 0.1f, 30.0f);
+
+				// Calculate biquad coefficients for band-pass filter
+				f32 omega = 2.0f * glm::pi<f32>() * centerFreq / static_cast<f32>(m_SampleRate);
+				f32 alpha = glm::sin(omega) / (2.0f * Q);
 				
-				b0 /= a0; b1 /= a0; b2 /= a0; a1 /= a0; a2 /= a0;
+				f32 cos_omega = glm::cos(omega);
 				
+				// Band-pass filter coefficients
+				f32 b0 = alpha;
+				f32 b1 = 0.0f;
+				f32 b2 = -alpha;
+				f32 a0 = 1.0f + alpha;
+				f32 a1 = -2.0f * cos_omega;
+				f32 a2 = 1.0f - alpha;
+
+				// Normalize coefficients
+				b0 /= a0;
+				b1 /= a0;
+				b2 /= a0;
+				a1 /= a0;
+				a2 /= a0;
+
+				// Process single sample
 				f32 output = b0 * inputSample + b1 * m_PreviousInput + b2 * m_PreviousInput2
 						   - a1 * m_PreviousOutput - a2 * m_PreviousOutput2;
 				
-				SetParameterValue(Output_ID, output);
+				m_CurrentOutput = output;
 				
-				// Update state
+				// Update filter state
 				m_PreviousInput2 = m_PreviousInput;
 				m_PreviousInput = inputSample;
 				m_PreviousOutput2 = m_PreviousOutput;
 				m_PreviousOutput = output;
+
+				// Send output via event system
+				auto outputEvent = GetOutputEvent("Output");
+				if (outputEvent)
+				{
+					outputEvent->SendValue(Value(m_CurrentOutput));
+				}
 			}
 		}
 
@@ -156,36 +257,36 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 		//======================================================================
-		// Utility Methods
+		// Legacy Compatibility & Utility Methods
 		//======================================================================
 
-		/// Get the current center frequency (clamped to safe range)
-		f32 GetCenterFrequency() const
-		{
-			f32 centerFreq = GetParameterValue<f32>(CenterFreq_ID, 1000.0f);
-			return glm::clamp(centerFreq, 20.0f, static_cast<f32>(m_SampleRate * 0.45));
+		// Legacy compatibility methods for direct access
+		f32 GetCenterFrequency() const { return m_CurrentCenterFreq; }
+		f32 GetBandwidth() const { return m_CurrentBandwidth; }
+		f32 GetResonance() const { return m_CurrentResonance; }
+		f32 GetOutput() const { return m_CurrentOutput; }
+		
+		void SetInput(f32 value) { m_CurrentInput = value; }
+		void SetCenterFrequency(f32 freq) 
+		{ 
+			f32 maxFreq = static_cast<f32>(m_SampleRate * 0.45);
+			m_CurrentCenterFreq = glm::clamp(freq, MIN_CENTER_FREQ_HZ, maxFreq);
 		}
-
-		/// Get the current bandwidth (clamped to safe range)
-		f32 GetBandwidth() const
-		{
-			f32 bandwidth = GetParameterValue<f32>(Bandwidth_ID, 200.0f);
-			f32 centerFreq = GetCenterFrequency();
-			return glm::clamp(bandwidth, 1.0f, centerFreq);
+		void SetBandwidth(f32 bandwidth) 
+		{ 
+			m_CurrentBandwidth = glm::clamp(bandwidth, MIN_BANDWIDTH_HZ, m_CurrentCenterFreq);
 		}
-
-		/// Get the current resonance factor
-		f32 GetResonance() const
-		{
-			return glm::clamp(GetParameterValue<f32>(Resonance_ID, 1.0f), 0.1f, 10.0f);
+		void SetResonance(f32 resonance) 
+		{ 
+			m_CurrentResonance = glm::clamp(resonance, MIN_RESONANCE, MAX_RESONANCE);
 		}
 
 		/// Calculate the effective Q factor from current parameters
 		f32 GetEffectiveQ() const
 		{
-			f32 centerFreq = GetCenterFrequency();
-			f32 bandwidth = GetBandwidth();
-			f32 resonance = GetResonance();
+			f32 centerFreq = m_CurrentCenterFreq;
+			f32 bandwidth = m_CurrentBandwidth;
+			f32 resonance = m_CurrentResonance;
 			
 			f32 Q = (centerFreq / bandwidth) * resonance;
 			return glm::clamp(Q, 0.1f, 30.0f);
@@ -194,17 +295,14 @@ namespace OloEngine::Audio::SoundGraph
 		/// Get the approximate low cutoff frequency (-3dB point)
 		f32 GetLowCutoff() const
 		{
-			f32 centerFreq = GetCenterFrequency();
-			f32 bandwidth = GetBandwidth();
-			return glm::max(20.0f, centerFreq - bandwidth * 0.5f);
+			return glm::max(MIN_CENTER_FREQ_HZ, m_CurrentCenterFreq - m_CurrentBandwidth * 0.5f);
 		}
 
 		/// Get the approximate high cutoff frequency (-3dB point)
 		f32 GetHighCutoff() const
 		{
-			f32 centerFreq = GetCenterFrequency();
-			f32 bandwidth = GetBandwidth();
-			return glm::min(static_cast<f32>(m_SampleRate * 0.45), centerFreq + bandwidth * 0.5f);
+			f32 maxFreq = static_cast<f32>(m_SampleRate * 0.45);
+			return glm::min(maxFreq, m_CurrentCenterFreq + m_CurrentBandwidth * 0.5f);
 		}
 
 		/// Reset the filter state to prevent audio artifacts
@@ -216,20 +314,12 @@ namespace OloEngine::Audio::SoundGraph
 			m_PreviousInput2 = 0.0f;
 		}
 
-		/// Set center frequency with validation
-		void SetCenterFrequency(f32 freq)
-		{
-			f32 clampedFreq = glm::clamp(freq, 20.0f, static_cast<f32>(m_SampleRate * 0.45));
-			SetParameterValue(CenterFreq_ID, clampedFreq);
-		}
-
-		/// Set bandwidth with validation
-		void SetBandwidth(f32 bandwidth)
-		{
-			f32 centerFreq = GetCenterFrequency();
-			f32 clampedBandwidth = glm::clamp(bandwidth, 1.0f, centerFreq);
-			SetParameterValue(Bandwidth_ID, clampedBandwidth);
-		}
+		// ValueView accessors for advanced stream processing
+		const ValueView<f32>& GetInputStream() const { return m_InputStream; }
+		const ValueView<f32>& GetCenterFreqStream() const { return m_CenterFreqStream; }
+		const ValueView<f32>& GetBandwidthStream() const { return m_BandwidthStream; }
+		const ValueView<f32>& GetResonanceStream() const { return m_ResonanceStream; }
+		const ValueView<f32>& GetOutputStream() const { return m_OutputStream; }
 	};
 
 } // namespace OloEngine::Audio::SoundGraph

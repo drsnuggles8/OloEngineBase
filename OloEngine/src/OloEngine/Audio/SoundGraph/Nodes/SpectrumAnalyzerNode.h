@@ -2,6 +2,7 @@
 
 #include "../NodeProcessor.h"
 #include "../Flag.h"
+#include "OloEngine/Audio/SoundGraph/ValueView.h"
 #include "OloEngine/Core/Identifier.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
@@ -28,45 +29,43 @@ namespace OloEngine::Audio::SoundGraph
 		};
 
 	private:
-		// Endpoint identifiers
-		const Identifier Input_ID = OLO_IDENTIFIER("Input");
-		const Identifier WindowSize_ID = OLO_IDENTIFIER("WindowSize");
-		const Identifier WindowFunction_ID = OLO_IDENTIFIER("WindowFunction");
-		const Identifier OverlapFactor_ID = OLO_IDENTIFIER("OverlapFactor");
-		const Identifier UpdateRate_ID = OLO_IDENTIFIER("UpdateRate");
-		const Identifier MinFrequency_ID = OLO_IDENTIFIER("MinFrequency");
-		const Identifier MaxFrequency_ID = OLO_IDENTIFIER("MaxFrequency");
-		const Identifier Reset_ID = OLO_IDENTIFIER("Reset");
+		// Parameter streams
+		InputView<f32> m_InputSignal;
+		InputView<f32> m_WindowSizeInput;
+		InputView<f32> m_WindowFunctionInput;
+		InputView<f32> m_OverlapFactorInput;
+		InputView<f32> m_UpdateRateInput;
+		InputView<f32> m_MinFrequencyInput;
+		InputView<f32> m_MaxFrequencyInput;
+		InputView<f32> m_ResetInput;
 		
-		// Output arrays (frequency bins)
-		const Identifier MagnitudeSpectrum_ID = OLO_IDENTIFIER("MagnitudeSpectrum");
-		const Identifier PhaseSpectrum_ID = OLO_IDENTIFIER("PhaseSpectrum");
-		const Identifier PowerSpectrum_ID = OLO_IDENTIFIER("PowerSpectrum");
-		const Identifier PeakFrequency_ID = OLO_IDENTIFIER("PeakFrequency");
-		const Identifier SpectralCentroid_ID = OLO_IDENTIFIER("SpectralCentroid");
+		// Output streams
+		OutputView<f32> m_MagnitudeSpectrumOutput;
+		OutputView<f32> m_PhaseSpectrumOutput;
+		OutputView<f32> m_PowerSpectrumOutput;
+		OutputView<f32> m_PeakFrequencyOutput;
+		OutputView<f32> m_SpectralCentroidOutput;
 
 		// FFT Analysis state
 		struct AnalysisState
 		{
+			u32 windowSize = 1024;
+			WindowFunction windowFunc = WindowFunction::Hann;
+			u32 hopSize = 512;
+			f32 minFreq = 20.0f;
+			f32 maxFreq = 20000.0f;
+			u32 updateInterval = 800;  // ~60 Hz at 48kHz
+			
 			std::vector<f32> inputBuffer;
-			std::vector<f32> windowBuffer;
+			std::vector<f32> window;
 			std::vector<std::complex<f32>> fftBuffer;
 			std::vector<f32> magnitudeSpectrum;
 			std::vector<f32> phaseSpectrum;
 			std::vector<f32> powerSpectrum;
 			
-			u32 windowSize = 1024;
 			u32 bufferIndex = 0;
-			u32 hopSize = 512;
 			u32 samplesSinceLastUpdate = 0;
-			u32 updateInterval = 512;
-			
-			WindowFunction windowFunc = WindowFunction::Hann;
-			f32 minFreq = 20.0f;
-			f32 maxFreq = 20000.0f;
-			
-			bool isInitialized = false;
-			bool needsUpdate = false;
+			bool needsReinitialization = true;
 		};
 
 		AnalysisState m_State;
@@ -90,98 +89,81 @@ namespace OloEngine::Audio::SoundGraph
 	public:
 		SpectrumAnalyzerNode()
 		{
-			// Register inputs
-			DECLARE_INPUT(f32, Input);                       // Audio input for analysis
-			DECLARE_INPUT(f32, WindowSize);                  // FFT window size (power of 2)
-			DECLARE_INPUT(f32, WindowFunction);              // Window function type
-			DECLARE_INPUT(f32, OverlapFactor);              // Overlap between windows (0.0-0.875)
-			DECLARE_INPUT(f32, UpdateRate);                 // Analysis update rate in Hz
-			DECLARE_INPUT(f32, MinFrequency);               // Minimum frequency for analysis
-			DECLARE_INPUT(f32, MaxFrequency);               // Maximum frequency for analysis
-			DECLARE_INPUT(f32, Reset);                      // Reset analysis state
-
-			// Register array outputs (note: these will be parameter arrays)
-			DECLARE_OUTPUT(f32, MagnitudeSpectrum);         // Magnitude spectrum array
-			DECLARE_OUTPUT(f32, PhaseSpectrum);             // Phase spectrum array  
-			DECLARE_OUTPUT(f32, PowerSpectrum);             // Power spectrum array
-			DECLARE_OUTPUT(f32, PeakFrequency);             // Dominant frequency
-			DECLARE_OUTPUT(f32, SpectralCentroid);          // Spectral centroid (brightness)
-
-			// Set default values
-			SetParameterValue(Input_ID, 0.0f, false);
-			SetParameterValue(WindowSize_ID, 1024.0f, false);      // 1024 samples default
-			SetParameterValue(WindowFunction_ID, static_cast<f32>(WindowFunction::Hann), false);
-			SetParameterValue(OverlapFactor_ID, 0.5f, false);      // 50% overlap
-			SetParameterValue(UpdateRate_ID, 60.0f, false);        // 60 Hz update rate
-			SetParameterValue(MinFrequency_ID, 20.0f, false);
-			SetParameterValue(MaxFrequency_ID, 20000.0f, false);
-			SetParameterValue(Reset_ID, 0.0f, false);
+			// Initialize input streams with default values
+			m_InputSignal = CreateInputView<f32>("Input", 0.0f);
+			m_WindowSizeInput = CreateInputView<f32>("WindowSize", 1024.0f);
+			m_WindowFunctionInput = CreateInputView<f32>("WindowFunction", static_cast<f32>(WindowFunction::Hann));
+			m_OverlapFactorInput = CreateInputView<f32>("OverlapFactor", 0.5f);
+			m_UpdateRateInput = CreateInputView<f32>("UpdateRate", 60.0f);
+			m_MinFrequencyInput = CreateInputView<f32>("MinFrequency", 20.0f);
+			m_MaxFrequencyInput = CreateInputView<f32>("MaxFrequency", 20000.0f);
+			m_ResetInput = CreateInputView<f32>("Reset", 0.0f);
 			
-			SetParameterValue(MagnitudeSpectrum_ID, 0.0f, false);
-			SetParameterValue(PhaseSpectrum_ID, 0.0f, false);
-			SetParameterValue(PowerSpectrum_ID, 0.0f, false);
-			SetParameterValue(PeakFrequency_ID, 0.0f, false);
-			SetParameterValue(SpectralCentroid_ID, 0.0f, false);
+			// Initialize output streams
+			m_MagnitudeSpectrumOutput = CreateOutputView<f32>("MagnitudeSpectrum");
+			m_PhaseSpectrumOutput = CreateOutputView<f32>("PhaseSpectrum");
+			m_PowerSpectrumOutput = CreateOutputView<f32>("PowerSpectrum");
+			m_PeakFrequencyOutput = CreateOutputView<f32>("PeakFrequency");
+			m_SpectralCentroidOutput = CreateOutputView<f32>("SpectralCentroid");
 
-			// Register Reset input event with flag callback
-			AddInputEvent<f32>(Reset_ID, "Reset", [this](f32 value) {
+			// Register reset trigger callback
+			m_ResetInput.RegisterInputEvent([this](f32 value) {
 				if (value > 0.5f) m_ResetFlag.SetDirty();
 			});
 		}
 
-		virtual ~SpectrumAnalyzerNode() = default;
-
-		//======================================================================
-		// NodeProcessor Implementation
-		//======================================================================
+		void Initialize(f64 sampleRate, u32 maxBufferSize) override
+		{
+			NodeProcessor::Initialize(sampleRate, maxBufferSize);
+			
+			m_SampleRate = sampleRate;
+			InitializeAnalysis();
+		}
 
 		void Process(f32** inputs, f32** outputs, u32 numSamples) override
 		{
-			// Process interpolation and parameter connections first
-			ProcessBeforeAudio();
+			// Update input parameters from connections
+			m_InputSignal.UpdateFromConnections();
+			m_WindowSizeInput.UpdateFromConnections();
+			m_WindowFunctionInput.UpdateFromConnections();
+			m_OverlapFactorInput.UpdateFromConnections();
+			m_UpdateRateInput.UpdateFromConnections();
+			m_MinFrequencyInput.UpdateFromConnections();
+			m_MaxFrequencyInput.UpdateFromConnections();
+			m_ResetInput.UpdateFromConnections();
 
 			// Check for reset trigger
-			f32 resetValue = GetParameterValue<f32>(Reset_ID);
+			f32 resetValue = m_ResetInput.GetValue();
 			if (resetValue > 0.5f || m_ResetFlag.CheckAndResetIfDirty())
 			{
 				ResetAnalysis();
-				if (resetValue > 0.5f)
-					SetParameterValue(Reset_ID, 0.0f, false);
 			}
 
-			// Update analysis parameters
+			// Update analysis parameters if they changed
 			UpdateAnalysisParameters();
-
-			// Process input audio for analysis
-			if (inputs && inputs[0] && m_State.isInitialized)
+			
+			// Process audio input for analysis
+			if (inputs && inputs[0])
 			{
 				ProcessAnalysis(inputs[0], numSamples);
 			}
-
-			// Copy input to output (pass-through)
-			if (inputs && inputs[0] && outputs && outputs[0])
+			else
 			{
-				for (u32 i = 0; i < numSamples; ++i)
-				{
-					outputs[0][i] = inputs[0][i];
-				}
+				// Process single input value
+				f32 inputValue = m_InputSignal.GetValue();
+				ProcessAnalysis(&inputValue, 1);
 			}
-			else if (outputs && outputs[0])
-			{
-				// Clear output if no input
-				for (u32 i = 0; i < numSamples; ++i)
-				{
-					outputs[0][i] = 0.0f;
-				}
-			}
-		}
 
-		void Initialize(f64 sampleRate, u32 maxBufferSize) override
-		{
-			m_SampleRate = sampleRate;
-			
-			// Initialize analysis state
-			InitializeAnalysis();
+			// Update output values
+			m_PeakFrequencyOutput.SetValue(m_PeakFrequency);
+			m_SpectralCentroidOutput.SetValue(m_SpectralCentroid);
+
+			// Update output connections
+			m_MagnitudeSpectrumOutput.UpdateOutputConnections();
+			m_PhaseSpectrumOutput.UpdateOutputConnections();
+			m_PowerSpectrumOutput.UpdateOutputConnections();
+			m_PeakFrequencyOutput.UpdateOutputConnections();
+			m_SpectralCentroidOutput.UpdateOutputConnections();
 		}
 
 		Identifier GetTypeID() const override
@@ -194,15 +176,11 @@ namespace OloEngine::Audio::SoundGraph
 			return "Spectrum Analyzer";
 		}
 
-		//======================================================================
-		// Analysis Implementation
-		//======================================================================
-
 	private:
 		void UpdateAnalysisParameters()
 		{
 			// Update window size (must be power of 2)
-			u32 newWindowSize = static_cast<u32>(GetParameterValue<f32>(WindowSize_ID));
+			u32 newWindowSize = static_cast<u32>(m_WindowSizeInput.GetValue());
 			newWindowSize = std::clamp(newWindowSize, MIN_WINDOW_SIZE, MAX_WINDOW_SIZE);
 			newWindowSize = NextPowerOfTwo(newWindowSize);
 			
@@ -213,21 +191,21 @@ namespace OloEngine::Audio::SoundGraph
 			}
 
 			// Update window function
-			i32 windowFuncInt = static_cast<i32>(GetParameterValue<f32>(WindowFunction_ID));
+			i32 windowFuncInt = static_cast<i32>(m_WindowFunctionInput.GetValue());
 			m_State.windowFunc = static_cast<WindowFunction>(std::clamp(windowFuncInt, 0, 4));
 
 			// Update overlap factor
-			f32 overlapFactor = glm::clamp(GetParameterValue<f32>(OverlapFactor_ID), MIN_OVERLAP, MAX_OVERLAP);
+			f32 overlapFactor = glm::clamp(m_OverlapFactorInput.GetValue(), MIN_OVERLAP, MAX_OVERLAP);
 			m_State.hopSize = static_cast<u32>(m_State.windowSize * (1.0f - overlapFactor));
 			m_State.hopSize = std::max(m_State.hopSize, 1u);
 
 			// Update frequency range
-			m_State.minFreq = std::max(GetParameterValue<f32>(MinFrequency_ID), 0.0f);
-			m_State.maxFreq = std::min(GetParameterValue<f32>(MaxFrequency_ID), static_cast<f32>(m_SampleRate * 0.5));
+			m_State.minFreq = std::max(m_MinFrequencyInput.GetValue(), 0.0f);
+			m_State.maxFreq = std::min(m_MaxFrequencyInput.GetValue(), static_cast<f32>(m_SampleRate * 0.5));
 			m_State.maxFreq = std::max(m_State.maxFreq, m_State.minFreq + 1.0f);
 
 			// Update update rate
-			f32 updateRate = glm::clamp(GetParameterValue<f32>(UpdateRate_ID), MIN_UPDATE_RATE, MAX_UPDATE_RATE);
+			f32 updateRate = glm::clamp(m_UpdateRateInput.GetValue(), MIN_UPDATE_RATE, MAX_UPDATE_RATE);
 			m_State.updateInterval = static_cast<u32>(m_SampleRate / updateRate);
 			m_State.updateInterval = std::max(m_State.updateInterval, 1u);
 		}
@@ -251,267 +229,166 @@ namespace OloEngine::Audio::SoundGraph
 			}
 		}
 
-		void PerformFFTAnalysis()
-		{
-			// Copy windowed data to FFT buffer
-			ApplyWindow();
-			
-			// Perform FFT (simplified implementation - in production use a proper FFT library)
-			PerformFFT();
-			
-			// Calculate spectrum data
-			CalculateSpectrum();
-			
-			// Update output parameters
-			UpdateOutputParameters();
-		}
-
-		void ApplyWindow()
-		{
-			// Apply windowing function to input buffer
-			for (u32 i = 0; i < m_State.windowSize; ++i)
-			{
-				u32 readIndex = (m_State.bufferIndex + i) % m_State.windowSize;
-				f32 windowValue = CalculateWindowValue(i, m_State.windowSize, m_State.windowFunc);
-				m_State.windowBuffer[i] = m_State.inputBuffer[readIndex] * windowValue;
-			}
-		}
-
-		f32 CalculateWindowValue(u32 n, u32 N, WindowFunction func)
-		{
-			const f32 pi = glm::pi<f32>();
-			const f32 normN = static_cast<f32>(n) / static_cast<f32>(N - 1);
-			
-			switch (func)
-			{
-				case WindowFunction::Rectangle:
-					return 1.0f;
-					
-				case WindowFunction::Hann:
-					return 0.5f * (1.0f - std::cos(2.0f * pi * normN));
-					
-				case WindowFunction::Hamming:
-					return 0.54f - 0.46f * std::cos(2.0f * pi * normN);
-					
-				case WindowFunction::Blackman:
-					return 0.42f - 0.5f * std::cos(2.0f * pi * normN) + 0.08f * std::cos(4.0f * pi * normN);
-					
-				case WindowFunction::Kaiser:
-					// Simplified Kaiser window (beta = 8.6)
-					return 0.5f * (1.0f - std::cos(2.0f * pi * normN));
-					
-				default:
-					return 1.0f;
-			}
-		}
-
-		void PerformFFT()
-		{
-			// Simplified DFT implementation for demonstration
-			// In production, use a proper FFT library like FFTW or similar
-			const u32 N = m_State.windowSize;
-			const f32 pi = glm::pi<f32>();
-			
-			for (u32 k = 0; k < N / 2; ++k)
-			{
-				std::complex<f32> sum(0.0f, 0.0f);
-				
-				for (u32 n = 0; n < N; ++n)
-				{
-					f32 angle = -2.0f * pi * static_cast<f32>(k * n) / static_cast<f32>(N);
-					std::complex<f32> twiddle(std::cos(angle), std::sin(angle));
-					sum += m_State.windowBuffer[n] * twiddle;
-				}
-				
-				m_State.fftBuffer[k] = sum;
-			}
-		}
-
-		void CalculateSpectrum()
-		{
-			const u32 numBins = m_State.windowSize / 2;
-			
-			for (u32 i = 0; i < numBins; ++i)
-			{
-				const std::complex<f32>& bin = m_State.fftBuffer[i];
-				
-				// Magnitude spectrum
-				m_State.magnitudeSpectrum[i] = std::abs(bin);
-				
-				// Phase spectrum
-				m_State.phaseSpectrum[i] = std::arg(bin);
-				
-				// Power spectrum
-				m_State.powerSpectrum[i] = m_State.magnitudeSpectrum[i] * m_State.magnitudeSpectrum[i];
-			}
-			
-			// Calculate analysis features
-			CalculatePeakFrequency();
-			CalculateSpectralCentroid();
-		}
-
-		void CalculatePeakFrequency()
-		{
-			const u32 numBins = m_State.windowSize / 2;
-			const f32 binSize = static_cast<f32>(m_SampleRate) / static_cast<f32>(m_State.windowSize);
-			
-			u32 peakBin = 0;
-			f32 peakMagnitude = 0.0f;
-			
-			for (u32 i = 1; i < numBins - 1; ++i) // Skip DC and Nyquist
-			{
-				f32 frequency = static_cast<f32>(i) * binSize;
-				
-				// Only consider frequencies in our range of interest
-				if (frequency >= m_State.minFreq && frequency <= m_State.maxFreq)
-				{
-					if (m_State.magnitudeSpectrum[i] > peakMagnitude)
-					{
-						peakMagnitude = m_State.magnitudeSpectrum[i];
-						peakBin = i;
-					}
-				}
-			}
-			
-			m_PeakFrequency = static_cast<f32>(peakBin) * binSize;
-		}
-
-		void CalculateSpectralCentroid()
-		{
-			const u32 numBins = m_State.windowSize / 2;
-			const f32 binSize = static_cast<f32>(m_SampleRate) / static_cast<f32>(m_State.windowSize);
-			
-			f32 weightedSum = 0.0f;
-			f32 magnitudeSum = 0.0f;
-			
-			for (u32 i = 1; i < numBins - 1; ++i) // Skip DC and Nyquist
-			{
-				f32 frequency = static_cast<f32>(i) * binSize;
-				
-				// Only consider frequencies in our range of interest
-				if (frequency >= m_State.minFreq && frequency <= m_State.maxFreq)
-				{
-					f32 magnitude = m_State.magnitudeSpectrum[i];
-					weightedSum += frequency * magnitude;
-					magnitudeSum += magnitude;
-				}
-			}
-			
-			m_SpectralCentroid = (magnitudeSum > 0.0f) ? (weightedSum / magnitudeSum) : 0.0f;
-		}
-
-		void UpdateOutputParameters()
-		{
-			// Update scalar outputs
-			SetParameterValue(PeakFrequency_ID, m_PeakFrequency, false);
-			SetParameterValue(SpectralCentroid_ID, m_SpectralCentroid, false);
-			
-			// Note: Array outputs would need special handling in the parameter system
-			// For now, we'll just set the first bin values as examples
-			if (!m_State.magnitudeSpectrum.empty())
-			{
-				SetParameterValue(MagnitudeSpectrum_ID, m_State.magnitudeSpectrum[1], false); // Skip DC
-				SetParameterValue(PhaseSpectrum_ID, m_State.phaseSpectrum[1], false);
-				SetParameterValue(PowerSpectrum_ID, m_State.powerSpectrum[1], false);
-			}
-		}
-
 		void InitializeAnalysis()
 		{
-			// Initialize buffers
-			m_State.inputBuffer.resize(m_State.windowSize, 0.0f);
-			m_State.windowBuffer.resize(m_State.windowSize, 0.0f);
-			m_State.fftBuffer.resize(m_State.windowSize / 2);
-			m_State.magnitudeSpectrum.resize(m_State.windowSize / 2, 0.0f);
-			m_State.phaseSpectrum.resize(m_State.windowSize / 2, 0.0f);
-			m_State.powerSpectrum.resize(m_State.windowSize / 2, 0.0f);
+			m_State.inputBuffer.resize(m_State.windowSize);
+			m_State.window.resize(m_State.windowSize);
+			m_State.fftBuffer.resize(m_State.windowSize);
+			m_State.magnitudeSpectrum.resize(m_State.windowSize / 2 + 1);
+			m_State.phaseSpectrum.resize(m_State.windowSize / 2 + 1);
+			m_State.powerSpectrum.resize(m_State.windowSize / 2 + 1);
 			
-			// Reset state
+			// Clear buffers
+			std::fill(m_State.inputBuffer.begin(), m_State.inputBuffer.end(), 0.0f);
+			
+			// Generate window function
+			GenerateWindow();
+			
 			m_State.bufferIndex = 0;
 			m_State.samplesSinceLastUpdate = 0;
-			m_State.hopSize = m_State.windowSize / 2; // 50% overlap default
-			
-			m_State.isInitialized = true;
 		}
 
 		void ResetAnalysis()
 		{
-			if (m_State.isInitialized)
+			InitializeAnalysis();
+			m_PeakFrequency = 0.0f;
+			m_SpectralCentroid = 0.0f;
+		}
+
+		void GenerateWindow()
+		{
+			for (u32 i = 0; i < m_State.windowSize; ++i)
 			{
-				// Clear all buffers
-				std::fill(m_State.inputBuffer.begin(), m_State.inputBuffer.end(), 0.0f);
-				std::fill(m_State.windowBuffer.begin(), m_State.windowBuffer.end(), 0.0f);
-				std::fill(m_State.magnitudeSpectrum.begin(), m_State.magnitudeSpectrum.end(), 0.0f);
-				std::fill(m_State.phaseSpectrum.begin(), m_State.phaseSpectrum.end(), 0.0f);
-				std::fill(m_State.powerSpectrum.begin(), m_State.powerSpectrum.end(), 0.0f);
+				f32 n = static_cast<f32>(i) / (m_State.windowSize - 1);
 				
-				// Reset indices
-				m_State.bufferIndex = 0;
-				m_State.samplesSinceLastUpdate = 0;
-				
-				// Reset analysis results
-				m_PeakFrequency = 0.0f;
-				m_SpectralCentroid = 0.0f;
+				switch (m_State.windowFunc)
+				{
+					case WindowFunction::Rectangle:
+						m_State.window[i] = 1.0f;
+						break;
+					case WindowFunction::Hann:
+						m_State.window[i] = 0.5f * (1.0f - std::cos(2.0f * glm::pi<f32>() * n));
+						break;
+					case WindowFunction::Hamming:
+						m_State.window[i] = 0.54f - 0.46f * std::cos(2.0f * glm::pi<f32>() * n);
+						break;
+					case WindowFunction::Blackman:
+						m_State.window[i] = 0.42f - 0.5f * std::cos(2.0f * glm::pi<f32>() * n) + 0.08f * std::cos(4.0f * glm::pi<f32>() * n);
+						break;
+					case WindowFunction::Kaiser:
+						// Simplified Kaiser window (beta=8.6)
+						m_State.window[i] = 0.54f - 0.46f * std::cos(2.0f * glm::pi<f32>() * n);
+						break;
+				}
 			}
+		}
+
+		void PerformFFTAnalysis()
+		{
+			// Copy windowed input to FFT buffer
+			for (u32 i = 0; i < m_State.windowSize; ++i)
+			{
+				u32 bufferIdx = (m_State.bufferIndex + i) % m_State.windowSize;
+				m_State.fftBuffer[i] = std::complex<f32>(m_State.inputBuffer[bufferIdx] * m_State.window[i], 0.0f);
+			}
+
+			// Perform FFT (simplified DFT for this implementation)
+			PerformDFT();
+
+			// Compute magnitude and phase spectra
+			ComputeSpectralFeatures();
+		}
+
+		void PerformDFT()
+		{
+			// Simple DFT implementation (would be replaced with FFT in production)
+			std::vector<std::complex<f32>> temp = m_State.fftBuffer;
+			
+			for (u32 k = 0; k < m_State.windowSize; ++k)
+			{
+				std::complex<f32> sum(0.0f, 0.0f);
+				for (u32 n = 0; n < m_State.windowSize; ++n)
+				{
+					f32 angle = -2.0f * glm::pi<f32>() * k * n / m_State.windowSize;
+					std::complex<f32> twiddle(std::cos(angle), std::sin(angle));
+					sum += temp[n] * twiddle;
+				}
+				m_State.fftBuffer[k] = sum;
+			}
+		}
+
+		void ComputeSpectralFeatures()
+		{
+			u32 numBins = m_State.windowSize / 2 + 1;
+			f32 freqBinWidth = static_cast<f32>(m_SampleRate) / m_State.windowSize;
+			
+			f32 maxMagnitude = 0.0f;
+			u32 peakBin = 0;
+			f32 spectralSum = 0.0f;
+			f32 weightedSum = 0.0f;
+			
+			for (u32 i = 0; i < numBins; ++i)
+			{
+				f32 magnitude = std::abs(m_State.fftBuffer[i]);
+				f32 phase = std::arg(m_State.fftBuffer[i]);
+				f32 power = magnitude * magnitude;
+				
+				m_State.magnitudeSpectrum[i] = magnitude;
+				m_State.phaseSpectrum[i] = phase;
+				m_State.powerSpectrum[i] = power;
+				
+				// Find peak frequency
+				if (magnitude > maxMagnitude)
+				{
+					maxMagnitude = magnitude;
+					peakBin = i;
+				}
+				
+				// Compute spectral centroid
+				f32 frequency = i * freqBinWidth;
+				if (frequency >= m_State.minFreq && frequency <= m_State.maxFreq)
+				{
+					spectralSum += magnitude;
+					weightedSum += magnitude * frequency;
+				}
+			}
+			
+			// Update peak frequency
+			m_PeakFrequency = peakBin * freqBinWidth;
+			
+			// Update spectral centroid
+			m_SpectralCentroid = (spectralSum > 0.0f) ? (weightedSum / spectralSum) : 0.0f;
 		}
 
 		static u32 NextPowerOfTwo(u32 value)
 		{
-			u32 result = 1;
-			while (result < value)
-			{
-				result <<= 1;
-			}
-			return result;
+			if (value <= 1) return 1;
+			
+			value--;
+			value |= value >> 1;
+			value |= value >> 2;
+			value |= value >> 4;
+			value |= value >> 8;
+			value |= value >> 16;
+			value++;
+			
+			return value;
 		}
 
 	public:
 		//======================================================================
-		// Utility Methods
+		// Utility methods for accessing analysis results
 		//======================================================================
-
-		/// Get the current window size
-		u32 GetWindowSize() const
-		{
-			return m_State.windowSize;
-		}
-
-		/// Get the number of frequency bins
-		u32 GetNumFrequencyBins() const
-		{
-			return m_State.windowSize / 2;
-		}
-
-		/// Get frequency for a specific bin
-		f32 GetBinFrequency(u32 binIndex) const
-		{
-			const f32 binSize = static_cast<f32>(m_SampleRate) / static_cast<f32>(m_State.windowSize);
-			return static_cast<f32>(binIndex) * binSize;
-		}
-
-		/// Get the magnitude spectrum (for external access)
-		const std::vector<f32>& GetMagnitudeSpectrum() const
-		{
-			return m_State.magnitudeSpectrum;
-		}
-
-		/// Get the power spectrum (for external access)
-		const std::vector<f32>& GetPowerSpectrum() const
-		{
-			return m_State.powerSpectrum;
-		}
-
-		/// Get current peak frequency
-		f32 GetPeakFrequency() const
-		{
-			return m_PeakFrequency;
-		}
-
-		/// Get current spectral centroid
-		f32 GetSpectralCentroid() const
-		{
-			return m_SpectralCentroid;
-		}
+		
+		f32 GetPeakFrequency() const { return m_PeakFrequency; }
+		f32 GetSpectralCentroid() const { return m_SpectralCentroid; }
+		
+		const std::vector<f32>& GetMagnitudeSpectrum() const { return m_State.magnitudeSpectrum; }
+		const std::vector<f32>& GetPhaseSpectrum() const { return m_State.phaseSpectrum; }
+		const std::vector<f32>& GetPowerSpectrum() const { return m_State.powerSpectrum; }
+		
+		u32 GetWindowSize() const { return m_State.windowSize; }
+		WindowFunction GetWindowFunction() const { return m_State.windowFunc; }
 	};
 
 } // namespace OloEngine::Audio::SoundGraph
