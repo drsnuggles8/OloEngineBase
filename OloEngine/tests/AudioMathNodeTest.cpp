@@ -1,65 +1,13 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
-#include "OloEngine/Audio/SoundGraph/Nodes/SubtractNode.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/MultiplyNode.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/DivideNode.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/MinNode.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/MaxNode.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/ClampNode.h"
-
-// Advanced Math Nodes
-#include "OloEngine/Audio/SoundGraph/Nodes/PowerNode.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/LogNode.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/ModuloNode.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/MapRangeNode.h"
-
-// Audio-Specific Math Nodes
-#include "OloEngine/Audio/SoundGraph/Nodes/LinearToLogFrequencyNode.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/FrequencyLogToLinearNode.h"
-
-// Music Theory Nodes
-#include "OloEngine/Audio/SoundGraph/Nodes/BPMToSecondsNode.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/NoteToFrequencyNode.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/FrequencyToNoteNode.h"
-
-// Generator Nodes
-#include "OloEngine/Audio/SoundGraph/Nodes/NoiseNode.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/SineNode.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/CosineNode.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/PulseNode.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/RandomNode.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/TriangleNode.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/SquareNode.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/SawtoothNode.h"
-
-// Filter Nodes
-#include "OloEngine/Audio/SoundGraph/Nodes/LowPassFilterNode.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/HighPassFilterNode.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/BandPassFilterNode.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/NotchFilterNode.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/AllPassFilterNode.h"
-
-// Utility Nodes
-#include "OloEngine/Audio/SoundGraph/Nodes/SampleAndHoldNode.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/GateNode.h"
-
-// Compare Nodes
-#include "OloEngine/Audio/SoundGraph/Nodes/CompareNodes.h"
-
-// Envelope Nodes
-#include "OloEngine/Audio/SoundGraph/Nodes/ADEnvelope.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/ADSREnvelope.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/AREnvelope.h"
-
-// Trigger Nodes
-#include "OloEngine/Audio/SoundGraph/Nodes/RepeatTrigger.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/TriggerCounter.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/DelayedTrigger.h"
-
-// Array Nodes
-#include "OloEngine/Audio/SoundGraph/Nodes/GetRandom.h"
-#include "OloEngine/Audio/SoundGraph/Nodes/Get.h"
+// New consolidated node headers
+#include "OloEngine/Audio/SoundGraph/Nodes/MathNodes.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/GeneratorNodes.h" 
+#include "OloEngine/Audio/SoundGraph/Nodes/EnvelopeNodes.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/TriggerNodes.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/ArrayNodes.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/MusicNodes.h"
 
 using namespace OloEngine::Audio::SoundGraph;
 

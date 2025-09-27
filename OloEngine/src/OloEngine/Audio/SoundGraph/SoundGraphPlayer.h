@@ -79,34 +79,4 @@ namespace OloEngine::Audio::SoundGraph
 		u32 GetNextSourceID() { return m_NextSourceID++; }
 	};
 
-	//==============================================================================
-	/// SoundGraphManager - Singleton for global sound graph management
-	class SoundGraphManager
-	{
-	public:
-		static SoundGraphManager& GetInstance();
-
-		// Initialize with the audio engine
-		bool Initialize(ma_engine* engine);
-		void Shutdown();
-
-		// Get the sound graph player
-		SoundGraphPlayer& GetPlayer() { return m_Player; }
-
-		// Convenience methods that delegate to the player
-		u32 PlaySoundGraph(Ref<SoundGraph> soundGraph);
-		bool StopSoundGraph(u32 sourceID);
-		bool IsPlaying(u32 sourceID) const;
-
-		// Update (called from main thread)
-		void Update(f64 deltaTime);
-
-	private:
-		SoundGraphManager() = default;
-		~SoundGraphManager() = default;
-
-		SoundGraphPlayer m_Player;
-		bool m_IsInitialized = false;
-	};
-
 }

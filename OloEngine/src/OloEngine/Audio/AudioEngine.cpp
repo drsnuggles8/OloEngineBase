@@ -1,6 +1,5 @@
 #include "OloEnginePCH.h"
 #include "AudioEngine.h"
-#include "SoundGraph/SoundGraphPlayer.h"
 
 #define MINIAUDIO_IMPLEMENTATION
 #include <miniaudio.h>
@@ -19,18 +18,12 @@ namespace OloEngine
 		ma_result result = ::ma_engine_init(nullptr, s_Engine);
 		OLO_CORE_ASSERT(result == MA_SUCCESS, "Failed to initialize audio engine!");
 
-		// Initialize the sound graph manager with the engine
-		Audio::SoundGraph::SoundGraphManager::GetInstance().Initialize(s_Engine);
-
 		OLO_CORE_TRACE("[AudioEngine] Initialized successfully with sample rate {}", ma_engine_get_sample_rate(s_Engine));
 	}
 
 	void AudioEngine::Shutdown()
 	{
 		OLO_CORE_TRACE("[AudioEngine] Shutting down.");
-
-		// Shutdown the sound graph manager first
-		Audio::SoundGraph::SoundGraphManager::GetInstance().Shutdown();
 
 		::ma_engine_uninit(s_Engine);
 		delete s_Engine;

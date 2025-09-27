@@ -96,7 +96,7 @@ namespace OloEngine::Audio::SoundGraph
 			}
 		});
 
-		source->SetEventCallback([](u64 frameIndex, u32 endpointID, const Value& eventData) {
+		source->SetEventCallback([](u64 frameIndex, u32 endpointID, const choc::value::Value& eventData) {
 			// Handle graph events - could check for specific endpoint IDs like "OnFinished"
 			OLO_CORE_TRACE("[SoundGraph] Event at frame {0}, endpoint {1}", frameIndex, endpointID);
 		});
@@ -252,104 +252,6 @@ namespace OloEngine::Audio::SoundGraph
 			}
 		}
 		return count;
-	}
-
-	//==============================================================================
-	// SoundGraphManager Implementation
-
-	SoundGraphManager& SoundGraphManager::GetInstance()
-	{
-		static SoundGraphManager instance;
-		return instance;
-	}
-
-	bool SoundGraphManager::Initialize(ma_engine* engine)
-	{
-		if (m_IsInitialized)
-		{
-			OLO_CORE_WARN("[SoundGraphManager] Already initialized");
-			return false;
-		}
-
-		bool success = m_Player.Initialize(engine);
-		if (success)
-		{
-			m_IsInitialized = true;
-			OLO_CORE_TRACE("[SoundGraphManager] Initialized successfully");
-		}
-		else
-		{
-			OLO_CORE_ERROR("[SoundGraphManager] Failed to initialize");
-		}
-
-		return success;
-	}
-
-	void SoundGraphManager::Shutdown()
-	{
-		if (!m_IsInitialized)
-			return;
-
-		m_Player.Shutdown();
-		m_IsInitialized = false;
-
-		OLO_CORE_TRACE("[SoundGraphManager] Shutdown complete");
-	}
-
-	u32 SoundGraphManager::PlaySoundGraph(Ref<SoundGraph> soundGraph)
-	{
-		if (!m_IsInitialized || !soundGraph)
-		{
-			OLO_CORE_ERROR("[SoundGraphManager] Cannot play sound graph - not initialized or invalid graph");
-			return 0;
-		}
-
-		u32 sourceID = m_Player.CreateSoundGraphSource(soundGraph);
-		if (sourceID != 0)
-		{
-			if (m_Player.Play(sourceID))
-			{
-				OLO_CORE_TRACE("[SoundGraphManager] Playing sound graph with source ID {}", sourceID);
-				return sourceID;
-			}
-			else
-			{
-				// Clean up the source if playback failed
-				m_Player.RemoveSoundGraphSource(sourceID);
-				return 0;
-			}
-		}
-
-		return 0;
-	}
-
-	bool SoundGraphManager::StopSoundGraph(u32 sourceID)
-	{
-		if (!m_IsInitialized)
-		{
-			OLO_CORE_ERROR("[SoundGraphManager] Not initialized");
-			return false;
-		}
-
-		return m_Player.Stop(sourceID);
-	}
-
-	bool SoundGraphManager::IsPlaying(u32 sourceID) const
-	{
-		if (!m_IsInitialized)
-		{
-			return false;
-		}
-
-		return m_Player.IsPlaying(sourceID);
-	}
-
-	void SoundGraphManager::Update(f64 deltaTime)
-	{
-		if (m_IsInitialized)
-		{
-			m_Player.Update(deltaTime);
-		}
 	}
 
 }
