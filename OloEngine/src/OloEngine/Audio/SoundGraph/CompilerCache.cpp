@@ -506,7 +506,7 @@ namespace OloEngine::Audio::SoundGraph
             
             if (!s_GlobalCompilerCache)
             {
-                s_GlobalCompilerCache = CreateRef<CompilerCache>();
+                s_GlobalCompilerCache = Ref<CompilerCache>::Create();
             }
             
             return s_GlobalCompilerCache;

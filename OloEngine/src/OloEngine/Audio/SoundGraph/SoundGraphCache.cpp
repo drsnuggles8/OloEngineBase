@@ -467,7 +467,7 @@ namespace OloEngine::Audio::SoundGraph
             
             if (!s_GlobalCache)
             {
-                s_GlobalCache = CreateRef<SoundGraphCache>();
+                s_GlobalCache = Ref<SoundGraphCache>::Create();
             }
             
             return s_GlobalCache;

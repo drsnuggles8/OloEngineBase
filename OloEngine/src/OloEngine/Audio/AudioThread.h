@@ -1,140 +1,64 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include <choc/containers/choc_SingleReaderSingleWriterFIFO.h>
 #include <functional>
 #include <thread>
 #include <atomic>
-#include <string>
-#include <memory>
+#include <mutex>
+#include <condition_variable>
+#include <queue>
 
 namespace OloEngine::Audio
 {
-	//==============================================================================
-	/// Function callback wrapper for audio thread tasks
-	/// Provides task identification and execution tracking
-	class AudioThreadTask
-	{
-	public:
-		using CallbackFunction = std::function<void()>;
+    /// High-priority audio thread manager for real-time audio processing
+    /// Provides lock-free communication between main thread and audio thread
+    class AudioThread
+    {
+    public:
+        using Task = std::function<void()>;
 
-		AudioThreadTask(CallbackFunction&& func, const std::string& taskID = "UNNAMED")
-			: m_Function(std::move(func)), m_TaskID(taskID)
-		{
-		}
+        /// Start the audio thread
+        static bool Start();
 
-		void Execute()
-		{
-			if (m_Function)
-			{
-				m_Function();
-			}
-		}
+        /// Stop the audio thread
+        static void Stop();
 
-		const std::string& GetTaskID() const { return m_TaskID; }
+        /// Check if the audio thread is currently running
+        static bool IsRunning();
 
-	private:
-		CallbackFunction m_Function;
-		std::string m_TaskID;
-	};
+        /// Check if the current thread is the audio thread
+        static bool IsAudioThread();
 
-	//==============================================================================
-	/// Reference counter for audio thread synchronization
-	/// Allows main thread to wait for audio thread task completion
-	class AudioThreadFence
-	{
-	public:
-		AudioThreadFence();
-		~AudioThreadFence();
+        /// Get the audio thread ID
+        static std::thread::id GetThreadID();
 
-		/// Begin a fence operation - increments counter and schedules decrement on audio thread
-		void Begin();
+        /// Execute a task on the audio thread
+        /// @param task - Function to execute on audio thread
+        /// @param waitForCompletion - Whether to wait for task completion
+        static void ExecuteOnAudioThread(Task task, bool waitForCompletion = true);
 
-		/// Begin a fence and immediately wait for completion
-		void BeginAndWait();
+        /// Get the number of pending tasks in the audio thread queue
+        static size_t GetPendingTaskCount();
 
-		/// Wait for the current fence to complete
-		void Wait() const;
+    private:
+        AudioThread() = delete;
+        ~AudioThread() = delete;
 
-		/// Check if the fence is ready (counter is zero)
-		bool IsReady() const { return m_Counter->GetCount() == 0; }
+        static void AudioThreadLoop();
+        static void ProcessTasks();
 
-	private:
-		class RefCounter
-		{
-		public:
-			void IncRefCount() { m_Count.fetch_add(1, std::memory_order_acq_rel); }
-			void DecRefCount() { m_Count.fetch_sub(1, std::memory_order_acq_rel); }
-			i32 GetCount() const { return m_Count.load(std::memory_order_acquire); }
+        // Thread management
+        static std::unique_ptr<std::thread> s_AudioThread;
+        static std::atomic<bool> s_ShouldStop;
+        static std::atomic<bool> s_IsRunning;
+        static std::thread::id s_AudioThreadID;
 
-		private:
-			std::atomic<i32> m_Count{ 0 };
-		};
-
-		RefCounter* m_Counter = new RefCounter();
-	};
-
-	//==============================================================================
-	/// Audio Thread Management System
-	/// Provides lock-free task execution on a dedicated audio thread
-	/// Based on Hazel's AudioThread architecture
-	struct AudioThreadStaticInit;
-	
-	class AudioThread
-	{
-		friend struct AudioThreadStaticInit;
-		
-	public:
-		using TaskQueue = SingleReaderMultipleWriterFIFO<std::unique_ptr<AudioThreadTask>>;
-
-		/// Start the audio thread
-		static bool Start();
-
-		/// Stop the audio thread and wait for completion
-		static bool Stop();
-
-		/// Check if the audio thread is currently running
-		static bool IsRunning();
-
-		/// Check if the current thread is the audio thread
-		static bool IsAudioThread();
-
-		/// Get the audio thread ID
-		static std::thread::id GetThreadID();
-
-		/// Add a task to the audio thread queue
-		static void AddTask(std::unique_ptr<AudioThreadTask> task);
-
-		/// Execute a function on the audio thread
-		static void ExecuteOnAudioThread(std::function<void()> func, const std::string& taskID = "UNNAMED");
-
-		/// Execute a function on audio thread with policy control
-		enum class ExecutionPolicy
-		{
-			ExecuteNow,   // If on audio thread, execute immediately
-			ExecuteAsync  // Always add to queue
-		};
-
-		static void ExecuteOnAudioThread(ExecutionPolicy policy, std::function<void()> func, const std::string& taskID = "UNNAMED");
-
-		/// Get timing statistics
-		static f64 GetLastUpdateTime() { return s_LastUpdateTime; }
-
-	private:
-		static void ThreadFunction();
-		static void OnUpdate();
-
-		// Thread management
-		static std::atomic<bool> s_ThreadActive;
-		static std::unique_ptr<std::thread> s_AudioThread;
-		static std::thread::id s_AudioThreadID;
-
-		// Task queue
-		static TaskQueue s_TaskQueue;
-		static constexpr u32 TASK_QUEUE_SIZE = 1024; // Must be power of 2
-
-		// Performance tracking
-		static std::atomic<f64> s_LastUpdateTime;
-	};
+        // Task queue (lock-free would be better, but using mutex for simplicity)
+        static std::queue<Task> s_TaskQueue;
+        static std::mutex s_TaskQueueMutex;
+        static std::condition_variable s_TaskCondition;
+        static std::condition_variable s_CompletionCondition;
+        static std::atomic<int> s_PendingTasks;
+    };
 
 } // namespace OloEngine::Audio

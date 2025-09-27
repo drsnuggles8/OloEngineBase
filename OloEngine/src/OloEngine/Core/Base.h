@@ -183,5 +183,48 @@ static const i16 i16_max = INT16_MAX;
 static const u8 u8_max = UINT8_MAX;
 static const i8 i8_max = INT8_MAX;
 
+//==============================================================================
+/// Flag utilities for state tracking
+
+/**
+ * Thread-safe atomic flag for inter-thread communication
+ * Based on Hazel's AtomicFlag implementation
+ */
+struct AtomicFlag
+{
+	OLO_FINLINE void SetDirty() { m_Flag.clear(); }
+	OLO_FINLINE bool CheckAndResetIfDirty() { return !m_Flag.test_and_set(); }
+
+	explicit AtomicFlag() noexcept { m_Flag.test_and_set(); }
+	AtomicFlag(const AtomicFlag&) noexcept {}
+	AtomicFlag& operator=(const AtomicFlag&) noexcept { return *this; }
+	AtomicFlag(AtomicFlag&&) noexcept {};
+	AtomicFlag& operator=(AtomicFlag&&) noexcept { return *this; }
+
+private:
+	std::atomic_flag m_Flag;
+};
+
+/**
+ * Simple flag for tracking dirty state (single-threaded)
+ * Based on Hazel's Flag implementation
+ */
+struct Flag
+{
+	OLO_FINLINE void SetDirty() noexcept { m_Flag = true; }
+	OLO_FINLINE bool CheckAndResetIfDirty() noexcept
+	{
+		if (m_Flag)
+			return !(m_Flag = !m_Flag);
+		else
+			return false;
+	}
+
+	OLO_FINLINE bool IsDirty() const noexcept { return m_Flag; }
+
+private:
+	bool m_Flag = false;
+};
+
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Assert.h"

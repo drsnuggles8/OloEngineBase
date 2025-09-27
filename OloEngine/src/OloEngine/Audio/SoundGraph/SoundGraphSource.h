@@ -18,20 +18,8 @@
 
 namespace OloEngine::Audio::SoundGraph
 {
-	//==============================================================================
-	/// AtomicFlag - Simple atomic flag for thread communication
-	struct AtomicFlag
-	{
-		void SetDirty() { m_Flag.store(true, std::memory_order_release); }
-		bool CheckAndResetIfDirty() 
-		{
-			return m_Flag.exchange(false, std::memory_order_acq_rel);
-		}
-		bool IsDirty() const { return m_Flag.load(std::memory_order_acquire); }
-
-	private:
-		std::atomic<bool> m_Flag{ false };
-	};
+	// Use Flag utilities from Base.h
+	using ::AtomicFlag;
 
 	//==============================================================================
 	/// DataSourceContext - Manages wave asset readers for sound graph
@@ -93,10 +81,10 @@ namespace OloEngine::Audio::SoundGraph
 		/// Parameter Interface
 		
 		/** Set graph parameter value by name (slower - hashes name) */
-		bool SetParameter(std::string_view parameterName, const Value& value);
+		bool SetParameter(std::string_view parameterName, const choc::value::Value& value);
 		
 		/** Set graph parameter value by ID (faster - pre-hashed) */
-		bool SetParameter(u32 parameterID, const Value& value);
+		bool SetParameter(u32 parameterID, const choc::value::Value& value);
 		
 		/** Apply parameter preset to the sound graph */
 		bool ApplyParameterPreset(const SoundGraphPatchPreset& preset);
@@ -115,7 +103,7 @@ namespace OloEngine::Audio::SoundGraph
 		/// Event Callbacks (set by SoundGraphPlayer or other managers)
 		
 		using OnGraphMessageCallback = std::function<void(u64 frameIndex, const char* message)>;
-		using OnGraphEventCallback = std::function<void(u64 frameIndex, u32 endpointID, const Value& eventData)>;
+		using OnGraphEventCallback = std::function<void(u64 frameIndex, u32 endpointID, const choc::value::Value& eventData)>;
 		
 		void SetMessageCallback(OnGraphMessageCallback callback) { m_OnGraphMessage = std::move(callback); }
 		void SetEventCallback(OnGraphEventCallback callback) { m_OnGraphEvent = std::move(callback); }
@@ -137,7 +125,7 @@ namespace OloEngine::Audio::SoundGraph
 		void ProcessSamples(float** ppFramesOut, u32 frameCount);
 		
 		/** SoundGraph event handlers (called from audio thread) */
-		static void HandleGraphEvent(void* context, u64 frameIndex, u32 endpointID, const Value& eventData);
+				static void HandleGraphEvent(void* context, u64 frameIndex, Identifier endpointID, const choc::value::Value& eventData);
 		static void HandleGraphMessage(void* context, u64 frameIndex, const char* message);
 
 		/** Wave source refill callback for nodes */
@@ -224,8 +212,8 @@ namespace OloEngine::Audio::SoundGraph
 			std::function<void()> Callback;
 		};
 		
-		Audio::SingleReaderSingleWriterFIFO<EventMessage> m_EventQueue;
-		Audio::SingleReaderSingleWriterFIFO<EventMessage> m_MessageQueue;
+		choc::fifo::SingleReaderSingleWriterFIFO<EventMessage> m_EventQueue;
+		choc::fifo::SingleReaderSingleWriterFIFO<EventMessage> m_MessageQueue;
 	};
 
 } // namespace OloEngine::Audio::SoundGraph

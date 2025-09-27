@@ -1,220 +1,197 @@
 #include "OloEnginePCH.h"
 #include "AudioThread.h"
 
+#include <chrono>
+
 namespace OloEngine::Audio
 {
-	//==============================================================================
-	// AudioThread Static Members
-	//==============================================================================
-	std::atomic<bool> AudioThread::s_ThreadActive{ false };
-	std::unique_ptr<std::thread> AudioThread::s_AudioThread = nullptr;
-	std::thread::id AudioThread::s_AudioThreadID{};
-	AudioThread::TaskQueue AudioThread::s_TaskQueue;
-	std::atomic<f64> AudioThread::s_LastUpdateTime{ 0.0 };
+    // Static member definitions
+    std::unique_ptr<std::thread> AudioThread::s_AudioThread = nullptr;
+    std::atomic<bool> AudioThread::s_ShouldStop{ false };
+    std::atomic<bool> AudioThread::s_IsRunning{ false };
+    std::thread::id AudioThread::s_AudioThreadID{};
+    
+    std::queue<AudioThread::Task> AudioThread::s_TaskQueue{};
+    std::mutex AudioThread::s_TaskQueueMutex{};
+    std::condition_variable AudioThread::s_TaskCondition{};
+    std::condition_variable AudioThread::s_CompletionCondition{};
+    std::atomic<int> AudioThread::s_PendingTasks{ 0 };
 
-	// Static initialization helper
-	struct AudioThreadStaticInit
-	{
-		AudioThreadStaticInit()
-		{
-			AudioThread::s_TaskQueue.reset(AudioThread::TASK_QUEUE_SIZE);
-		}
-	};
-	static AudioThreadStaticInit s_StaticInit;
+    bool AudioThread::Start()
+    {
+        if (s_IsRunning.load())
+        {
+            OLO_CORE_WARN("AudioThread is already running");
+            return false;
+        }
 
-	//==============================================================================
-	// AudioThreadFence Implementation
-	//==============================================================================
-	AudioThreadFence::AudioThreadFence()
-	{
-		OLO_CORE_ASSERT(!AudioThread::IsAudioThread(), "AudioThreadFence cannot be created on audio thread");
-	}
+        s_ShouldStop.store(false);
+        s_AudioThread = std::make_unique<std::thread>(AudioThreadLoop);
+        
+        // Wait for thread to start
+        std::unique_lock<std::mutex> lock(s_TaskQueueMutex);
+        s_TaskCondition.wait(lock, [] { return s_IsRunning.load(); });
+        
+        OLO_CORE_INFO("AudioThread started with ID: {}", (void*)&s_AudioThreadID);
+        return true;
+    }
 
-	AudioThreadFence::~AudioThreadFence()
-	{
-		OLO_CORE_ASSERT(!AudioThread::IsAudioThread(), "AudioThreadFence cannot be destroyed on audio thread");
-		Wait();
-		delete m_Counter;
-	}
+    void AudioThread::Stop()
+    {
+        if (!s_IsRunning.load())
+        {
+            OLO_CORE_WARN("AudioThread is not running");
+            return;
+        }
 
-	void AudioThreadFence::Begin()
-	{
-		OLO_CORE_ASSERT(!AudioThread::IsAudioThread(), "AudioThreadFence::Begin() called from audio thread");
+        s_ShouldStop.store(true);
+        s_TaskCondition.notify_all();
 
-		if (!AudioThread::IsRunning())
-			return;
+        if (s_AudioThread && s_AudioThread->joinable())
+        {
+            s_AudioThread->join();
+        }
 
-		Wait();
+        s_AudioThread.reset();
+        s_IsRunning.store(false);
+        
+        // Clear any remaining tasks
+        {
+            std::lock_guard<std::mutex> lock(s_TaskQueueMutex);
+            while (!s_TaskQueue.empty())
+            {
+                s_TaskQueue.pop();
+            }
+            s_PendingTasks.store(0);
+        }
 
-		m_Counter->IncRefCount();
+        OLO_CORE_INFO("AudioThread stopped");
+    }
 
-		AudioThread::ExecuteOnAudioThread([counter = m_Counter]()
-		{
-			counter->DecRefCount();
-		}, "AudioThreadFence");
-	}
+    bool AudioThread::IsRunning()
+    {
+        return s_IsRunning.load();
+    }
 
-	void AudioThreadFence::BeginAndWait()
-	{
-		Begin();
-		Wait();
-	}
+    bool AudioThread::IsAudioThread()
+    {
+        return std::this_thread::get_id() == s_AudioThreadID;
+    }
 
-	void AudioThreadFence::Wait() const
-	{
-		OLO_CORE_ASSERT(!AudioThread::IsAudioThread(), "AudioThreadFence::Wait() called from audio thread");
+    std::thread::id AudioThread::GetThreadID()
+    {
+        return s_AudioThreadID;
+    }
 
-		while (!IsReady())
-		{
-			std::this_thread::yield();
-		}
-	}
+    void AudioThread::ExecuteOnAudioThread(Task task, bool waitForCompletion)
+    {
+        if (!task)
+        {
+            OLO_CORE_ERROR("Cannot execute null task on AudioThread");
+            return;
+        }
 
-	//==============================================================================
-	// AudioThread Implementation
-	//==============================================================================
-	bool AudioThread::Start()
-	{
-		if (s_ThreadActive.load())
-			return false;
+        if (!s_IsRunning.load())
+        {
+            OLO_CORE_ERROR("Cannot execute task: AudioThread is not running");
+            return;
+        }
 
-		s_ThreadActive.store(true);
-		s_AudioThread = std::make_unique<std::thread>(ThreadFunction);
-		s_AudioThreadID = s_AudioThread->get_id();
+        // If we're already on the audio thread, execute immediately
+        if (IsAudioThread())
+        {
+            task();
+            return;
+        }
 
-		// Remove logging to avoid potential issues
-		// OLO_CORE_INFO("Audio Thread started with ID: {}", std::hash<std::thread::id>{}(s_AudioThreadID));
-		return true;
-	}
+        // Add task to queue
+        {
+            std::lock_guard<std::mutex> lock(s_TaskQueueMutex);
+            s_TaskQueue.push(task);
+            s_PendingTasks.fetch_add(1);
+        }
+        
+        s_TaskCondition.notify_one();
 
-	bool AudioThread::Stop()
-	{
-		if (!s_ThreadActive.load())
-			return false;
+        // Wait for completion if requested
+        if (waitForCompletion)
+        {
+            std::unique_lock<std::mutex> lock(s_TaskQueueMutex);
+            s_CompletionCondition.wait(lock, [&task] { 
+                // This is a simplified completion check
+                // In a real implementation, you'd want to track specific task completion
+                return s_PendingTasks.load() == 0;
+            });
+        }
+    }
 
-		s_ThreadActive.store(false);
+    size_t AudioThread::GetPendingTaskCount()
+    {
+        return static_cast<size_t>(s_PendingTasks.load());
+    }
 
-		if (s_AudioThread && s_AudioThread->joinable())
-		{
-			s_AudioThread->join();
-		}
+    void AudioThread::AudioThreadLoop()
+    {
+        s_AudioThreadID = std::this_thread::get_id();
+        s_IsRunning.store(true);
+        
+        // Set thread priority (platform-specific)
+        #ifdef OLO_PLATFORM_WINDOWS
+            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+        #endif
+        
+        // Notify that thread has started
+        s_TaskCondition.notify_all();
+        
+        OLO_CORE_INFO("AudioThread loop started");
 
-		s_AudioThread.reset();
-		// Remove logging to avoid potential issues
-		// OLO_CORE_INFO("Audio Thread stopped");
-		return true;
-	}
+        while (!s_ShouldStop.load())
+        {
+            ProcessTasks();
+            
+            // Small sleep to prevent busy waiting
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+        }
 
-	bool AudioThread::IsRunning()
-	{
-		return s_ThreadActive.load();
-	}
+        OLO_CORE_INFO("AudioThread loop ended");
+    }
 
-	bool AudioThread::IsAudioThread()
-	{
-		return std::this_thread::get_id() == s_AudioThreadID;
-	}
+    void AudioThread::ProcessTasks()
+    {
+        std::unique_lock<std::mutex> lock(s_TaskQueueMutex);
+        
+        // Wait for tasks or stop signal
+        s_TaskCondition.wait_for(lock, std::chrono::milliseconds(1), 
+            [] { return !s_TaskQueue.empty() || s_ShouldStop.load(); });
 
-	std::thread::id AudioThread::GetThreadID()
-	{
-		return s_AudioThreadID;
-	}
-
-	void AudioThread::AddTask(std::unique_ptr<AudioThreadTask> task)
-	{
-		if (!s_TaskQueue.push(std::move(task)))
-		{
-			OLO_CORE_WARN("Audio thread task queue is full! Task '{}' dropped", task ? task->GetTaskID() : "INVALID");
-		}
-	}
-
-	void AudioThread::ExecuteOnAudioThread(std::function<void()> func, const std::string& taskID)
-	{
-		auto task = std::make_unique<AudioThreadTask>(std::move(func), taskID);
-		AddTask(std::move(task));
-	}
-
-	void AudioThread::ExecuteOnAudioThread(ExecutionPolicy policy, std::function<void()> func, const std::string& taskID)
-	{
-		if (IsAudioThread())
-		{
-			switch (policy)
-			{
-			case ExecutionPolicy::ExecuteNow:
-				func();
-				break;
-			case ExecutionPolicy::ExecuteAsync:
-			default:
-				ExecuteOnAudioThread(std::move(func), taskID);
-				break;
-			}
-		}
-		else
-		{
-			ExecuteOnAudioThread(std::move(func), taskID);
-		}
-	}
-
-	void AudioThread::ThreadFunction()
-	{
-		// Remove logging to avoid potential issues
-		// OLO_CORE_INFO("Audio Thread started execution");
-
-#ifdef OLO_PLATFORM_WINDOWS
-		// Set thread name for debugging
-		SetThreadDescription(GetCurrentThread(), L"OloEngine Audio Thread");
-#endif
-
-		while (s_ThreadActive.load())
-		{
-			OnUpdate();
-			
-			// Small sleep to prevent 100% CPU usage
-			std::this_thread::sleep_for(std::chrono::microseconds(100));
-		}
-
-		// Remove logging to avoid potential issues
-		// OLO_CORE_INFO("Audio Thread finished execution");
-	}
-
-	void AudioThread::OnUpdate()
-	{
-		// Process all available tasks
-		std::unique_ptr<AudioThreadTask> task;
-		u32 tasksProcessed = 0;
-		auto start = std::chrono::steady_clock::now();
-
-		while (s_TaskQueue.pop(task) && task)
-		{
-			try
-			{
-				task->Execute();
-				++tasksProcessed;
-			}
-			catch (const std::exception& e)
-			{
-				// Remove logging to avoid potential issues
-				// OLO_CORE_ERROR("Audio thread task '{}' threw exception: {}", task->GetTaskID(), e.what());
-			}
-			catch (...)
-			{
-				// Remove logging to avoid potential issues
-				// OLO_CORE_ERROR("Audio thread task '{}' threw unknown exception", task->GetTaskID());
-			}
-
-			// Reset task pointer
-			task.reset();
-		}
-
-		auto elapsed = std::chrono::steady_clock::now() - start;
-		auto elapsedMs = std::chrono::duration<double, std::milli>(elapsed).count();
-		s_LastUpdateTime.store(elapsedMs);
-
-		// Log performance warning if update took too long (removed for debugging)
-		// if (elapsedMs > 1.0) // More than 1ms
-		// {
-		//     OLO_CORE_WARN("Audio thread update took {:.2f}ms (processed {} tasks)", elapsedMs, tasksProcessed);
-		// }
-	}
+        // Process all available tasks
+        while (!s_TaskQueue.empty() && !s_ShouldStop.load())
+        {
+            Task task = std::move(s_TaskQueue.front());
+            s_TaskQueue.pop();
+            
+            // Execute task without holding the lock
+            lock.unlock();
+            
+            try
+            {
+                task();
+            }
+            catch (const std::exception& e)
+            {
+                OLO_CORE_ERROR("AudioThread task threw exception: {}", e.what());
+            }
+            catch (...)
+            {
+                OLO_CORE_ERROR("AudioThread task threw unknown exception");
+            }
+            
+            s_PendingTasks.fetch_sub(1);
+            lock.lock();
+        }
+        
+        // Notify completion
+        s_CompletionCondition.notify_all();
+    }
 
 } // namespace OloEngine::Audio

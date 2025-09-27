@@ -108,7 +108,7 @@ namespace OloEngine::Audio::SoundGraph
 	//==============================================================================
 	Ref<Prototype> ConstructPrototype(GraphGeneratorOptions options, std::vector<UUID>& waveAssetsToLoad)
 	{
-		auto prototype = CreateRef<Prototype>();
+		auto prototype = Ref<Prototype>::Create();
 		prototype->DebugName = options.Name;
 		prototype->ID = UUID();
 
@@ -132,9 +132,35 @@ namespace OloEngine::Audio::SoundGraph
 			return nullptr;
 		}
 
-		auto graph = CreateRef<SoundGraph>(prototype->DebugName, prototype->ID);
+		auto graph = Ref<SoundGraph>::Create(prototype->DebugName, prototype->ID);
 		
-		// Create all nodes
+		//==============================================================================
+		// Step 1: Set up graph inputs and outputs
+		
+		for (const auto& input : prototype->Inputs)
+		{
+			graph->AddGraphInputStream(input.EndpointID, input.DefaultValue);
+		}
+
+		for (const auto& output : prototype->Outputs)
+		{
+			graph->AddGraphOutputStream(output.EndpointID);
+		}
+
+		// Set output channel IDs
+		graph->OutputChannelIDs = prototype->OutputChannelIDs;
+
+		//==============================================================================
+		// Step 2: Set up local variables
+		
+		for (const auto& localVar : prototype->LocalVariablePlugs)
+		{
+			graph->AddLocalVariableStream(localVar.EndpointID, localVar.DefaultValue);
+		}
+
+		//==============================================================================
+		// Step 3: Create all nodes
+		
 		for (const auto& nodeDesc : prototype->Nodes)
 		{
 			auto node = Factory::Create(nodeDesc.NodeTypeID, nodeDesc.ID);
@@ -144,16 +170,114 @@ namespace OloEngine::Audio::SoundGraph
 				continue;
 			}
 
-			// TODO: Apply default value plugs to the node
+			// Apply default value plugs to the node
+			for (const auto& defaultPlug : nodeDesc.DefaultValuePlugs)
+			{
+				// Find the corresponding input stream in the node and set default value
+				auto inputIt = node->InputStreams.find(defaultPlug.EndpointID);
+				if (inputIt != node->InputStreams.end())
+				{
+					// Create a default value plug for this input
+					auto defaultValuePlug = CreateScope<StreamWriter>(
+						inputIt->second, 
+						defaultPlug.DefaultValue, 
+						defaultPlug.EndpointID
+					);
+					
+					node->DefaultValuePlugs.push_back(std::move(defaultValuePlug));
+				}
+			}
 			
 			graph->AddNode(Scope<NodeProcessor>(node));
 		}
 
-		// TODO: Establish connections between nodes based on prototype->Connections
-		// TODO: Set up graph inputs/outputs based on prototype->Inputs/Outputs
+		//==============================================================================
+		// Step 4: Establish all connections between nodes
 		
-		OLO_CORE_INFO("Created SoundGraph instance '{}' with {} nodes", 
-					  prototype->DebugName, prototype->Nodes.size());
+		for (const auto& connection : prototype->Connections)
+		{
+			bool success = false;
+			
+			switch (connection.Type)
+			{
+				case Prototype::Connection::NodeValue_NodeValue:
+					success = graph->AddValueConnection(
+						connection.Source.NodeID, 
+						connection.Source.EndpointID,
+						connection.Destination.NodeID, 
+						connection.Destination.EndpointID
+					);
+					break;
+
+				case Prototype::Connection::NodeEvent_NodeEvent:
+					success = graph->AddEventConnection(
+						connection.Source.NodeID, 
+						connection.Source.EndpointID,
+						connection.Destination.NodeID, 
+						connection.Destination.EndpointID
+					);
+					break;
+
+				case Prototype::Connection::GraphValue_NodeValue:
+					success = graph->AddInputValueRoute(
+						connection.Source.EndpointID,
+						connection.Destination.NodeID, 
+						connection.Destination.EndpointID
+					);
+					break;
+
+				case Prototype::Connection::GraphEvent_NodeEvent:
+					success = graph->AddInputEventsRoute(
+						connection.Source.EndpointID,
+						connection.Destination.NodeID, 
+						connection.Destination.EndpointID
+					);
+					break;
+
+				case Prototype::Connection::NodeValue_GraphValue:
+					success = graph->AddToGraphOutputConnection(
+						connection.Source.NodeID, 
+						connection.Source.EndpointID,
+						connection.Destination.EndpointID
+					);
+					break;
+
+				case Prototype::Connection::NodeEvent_GraphEvent:
+					success = graph->AddToGraphOutEventConnection(
+						connection.Source.NodeID, 
+						connection.Source.EndpointID,
+						connection.Destination.EndpointID
+					);
+					break;
+
+				case Prototype::Connection::LocalVariable_NodeValue:
+					success = graph->AddLocalVariableRoute(
+						connection.Source.EndpointID,
+						connection.Destination.NodeID, 
+						connection.Destination.EndpointID
+					);
+					break;
+
+				default:
+					OLO_CORE_ERROR("Unknown connection type: {}", (int)connection.Type);
+					break;
+			}
+
+			if (!success)
+			{
+				OLO_CORE_WARN("Failed to establish connection from {}:{} to {}:{}", 
+					connection.Source.NodeID, connection.Source.EndpointID.GetString(),
+					connection.Destination.NodeID, connection.Destination.EndpointID.GetString());
+			}
+		}
+
+		//==============================================================================
+		// Step 5: Initialize the graph
+		
+		graph->Init();
+		
+		OLO_CORE_INFO("Created SoundGraph instance '{}' with {} nodes and {} connections", 
+					  prototype->DebugName, prototype->Nodes.size(), prototype->Connections.size());
 
 		return graph;
 	}

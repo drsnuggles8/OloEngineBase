@@ -408,21 +408,43 @@ namespace OloEngine::Audio::SoundGraph
 		// Handle play requests
 		if (m_PlayRequestFlag.CheckAndResetIfDirty())
 		{
-			// Send play event to sound graph - integration needed
-			m_CurrentFrame.store(0);
-			m_IsPlaying.store(true);
-			m_IsFinished = false;
+			// Send play event to sound graph
+			if (m_Graph->SendInputEvent(SoundGraph::IDs::Play, choc::value::ValueView::createFloat32(1.0f)))
+			{
+				m_CurrentFrame.store(0);
+				m_IsPlaying.store(true);
+				m_IsFinished = false;
+			}
 		}
 
 		// Process the sound graph
-		if (m_PresetIsInitialized)
+		if (m_PresetIsInitialized && m_Graph->IsPlayable())
 		{
-			u32 numChannels = 2; // Stereo
-			float* outputBuffer = ppFramesOut[0];
+			// Begin processing block (refill wave player buffers)
+			m_Graph->BeginProcessBlock();
 
-			// This would need full integration with OloEngine's sound graph processing
-			// For now, output silence as a placeholder
-			ma_silence_pcm_frames(outputBuffer, frameCount, ma_format_f32, numChannels);
+			// Process each frame
+			for (u32 frame = 0; frame < frameCount; ++frame)
+			{
+				// Process the graph for this frame
+				m_Graph->Process();
+
+				// Copy output channels to the output buffer
+				u32 outputChannels = std::min(2u, (u32)m_Graph->out_Channels.size());
+				for (u32 channel = 0; channel < outputChannels; ++channel)
+				{
+					ppFramesOut[channel][frame] = m_Graph->out_Channels[channel];
+				}
+
+				// Handle mono to stereo conversion if needed
+				if (outputChannels == 1 && ppFramesOut[1])
+				{
+					ppFramesOut[1][frame] = ppFramesOut[0][frame];
+				}
+			}
+
+			// Handle outgoing events and messages
+			m_Graph->HandleOutgoingEvents(this, HandleGraphEvent, HandleGraphMessage);
 
 			// Update frame counter
 			m_CurrentFrame.fetch_add(frameCount, std::memory_order_relaxed);
@@ -440,9 +462,9 @@ namespace OloEngine::Audio::SoundGraph
 	}
 
 	//==============================================================================
-	/// Static Callbacks - Simplified
+	/// Static Callbacks
 
-	void SoundGraphSource::HandleGraphEvent(void* context, u64 frameIndex, u32 endpointID, const Value& eventData)
+	void SoundGraphSource::HandleGraphEvent(void* context, u64 frameIndex, Identifier endpointID, const choc::value::ValueView& eventData)
 	{
 		auto* source = static_cast<SoundGraphSource*>(context);
 		if (!source)
@@ -456,7 +478,13 @@ namespace OloEngine::Audio::SoundGraph
 			msg.FrameIndex = frameIndex;
 			msg.Callback = [source, frameIndex, endpointID, eventData]()
 			{
-				source->m_OnGraphEvent(frameIndex, endpointID, eventData);
+				// Convert to u32 for the callback (legacy compatibility)
+				u32 endpointIDu32 = static_cast<u32>(endpointID);
+				
+				// Create a simple Value wrapper for the callback
+				// TODO: Implement proper Value wrapper when needed
+				Value simpleValue; // Placeholder
+				source->m_OnGraphEvent(frameIndex, endpointIDu32, simpleValue);
 			};
 
 			source->m_EventQueue.push(std::move(msg));

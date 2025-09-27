@@ -459,7 +459,7 @@ namespace OloEngine::Audio::SoundGraph
 
     Ref<SoundGraphPatchPreset> CreateBasicSoundPreset()
     {
-        auto preset = CreateRef<SoundGraphPatchPreset>();
+        auto preset = Ref<SoundGraphPatchPreset>::Create();
         preset->SetName("Basic Sound Controls");
         preset->SetDescription("Common parameters for sound control");
 
