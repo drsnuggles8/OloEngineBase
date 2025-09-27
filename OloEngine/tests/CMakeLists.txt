@@ -5,10 +5,9 @@ add_executable(OloEngine-Tests
 		LoggerTest.cpp
 		AssetCreationTest.cpp
 		CoreUtilitiesTest.cpp
-		EndpointRegistrationTest.cpp
-		EventSystemTest.cpp
-		ReflectionSystemTest.cpp
-		ReflectionStringTest.cpp
+		SoundGraphBasicTest.cpp
+		SoundGraphSerializationTest.cpp
+		SoundGraphCacheTest.cpp
 		)
 		
 target_link_libraries(OloEngine-Tests
@@ -25,7 +24,9 @@ target_include_directories(OloEngine-Tests PRIVATE
 	${CMAKE_SOURCE_DIR}/OloEngine/vendor/entt-src/single_include/entt
 	${CMAKE_SOURCE_DIR}/OloEngine/vendor/googletest-src/googletest/include
 	${CMAKE_SOURCE_DIR}/OloEngine/vendor/glm-src
-	${CMAKE_SOURCE_DIR}/OloEngine/vendor/spdlog-src/include)
+	${CMAKE_SOURCE_DIR}/OloEngine/vendor/spdlog-src/include
+	${CMAKE_SOURCE_DIR}/OloEngine/vendor/miniaudio-src
+	${CMAKE_SOURCE_DIR}/OloEngine/vendor/choc-src)
 
 include(GoogleTest)
 gtest_discover_tests(OloEngine-Tests
