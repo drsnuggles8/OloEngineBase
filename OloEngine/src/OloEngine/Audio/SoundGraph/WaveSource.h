@@ -12,7 +12,7 @@ namespace OloEngine::Audio
     */
     struct WaveSource
     {
-        CircularBuffer<f32, 1920> Channels;     // Interleaved sample data
+        MonoCircularBuffer<f32, 1920 * 2> Channels;   // Interleaved stereo sample data (L,R,L,R,...)
 
         i64 TotalFrames = 0;                    // Total frames in the source to be set by the reader on the first read, used by Wave Player
         i64 StartPosition = 0;                  // Frame position in source to wrap around when reached the end of the source

@@ -73,6 +73,7 @@
 		"OloEngine/Audio/AudioLoader.h"		
 		"OloEngine/Audio/AudioThread.h"
 		"OloEngine/Audio/AudioThread.cpp"
+		"OloEngine/Audio/SampleBufferOperations.h"
 		
 		# SoundGraph System
 		"OloEngine/Audio/SoundGraph/CompilerCache.cpp"
@@ -276,7 +277,7 @@
 		"OloEngine/Renderer/Passes/FinalRenderPass.cpp"
 		"OloEngine/Renderer/Passes/SceneRenderPass.h"
 		"OloEngine/Renderer/Passes/SceneRenderPass.cpp"
-		
+
 		"OloEngine/Renderer/Commands/CommandAllocator.cpp"
 		"OloEngine/Renderer/Commands/CommandAllocator.h"
 		"OloEngine/Renderer/Commands/CommandBucket.cpp"

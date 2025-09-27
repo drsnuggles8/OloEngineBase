@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Audio/SampleBufferOperations.h"
 #include <miniaudio.h>
 #include <choc/audio/choc_SampleBuffers.h>
 #include <choc/audio/choc_SampleBufferUtilities.h>
@@ -143,8 +144,8 @@ namespace OloEngine::Audio
 			{
 				for (size_t i = 0; i < m_BusConfig.InputBuses.size(); ++i)
 				{
-					// TODO: Implement proper deinterleaving
-					m_InDeinterleavedBuses[i].clear();
+					// Deinterleave input audio from interleaved format
+					SampleBufferOperations::Deinterleave(m_InDeinterleavedBuses[i], ppFramesIn[0]);
 				}
 			}
 			else
@@ -157,7 +158,8 @@ namespace OloEngine::Audio
 
 			for (size_t i = 0; i < m_BusConfig.OutputBuses.size(); ++i)
 			{
-				// TODO: Implement proper interleaving
+				// Interleave output audio to interleaved format
+				SampleBufferOperations::Interleave(ppFramesOut[0], m_OutDeinterleavedBuses[i]);
 			}
 		}
 
