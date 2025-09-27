@@ -17,6 +17,8 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Audio/AudioSource.h"
+#include "OloEngine/Asset/SoundGraphAsset.h"
+#include "OloEngine/Audio/SoundGraph/SoundGraphSerializer.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Prefab.h"
@@ -2524,32 +2526,48 @@ namespace OloEngine
     }
 
     //////////////////////////////////////////////////////////////////////////////////
-    // SoundGraphSerializer
+    // SoundGraphSerializer  
     //////////////////////////////////////////////////////////////////////////////////
 
-    void SoundGraphSerializer::Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const
+    void SoundGraphSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
-        // TODO: Implement sound graph serialization
-        OLO_CORE_WARN("SoundGraphSerializer::Serialize not yet implemented");
+        Ref<SoundGraphAsset> soundGraphAsset = asset.As<SoundGraphAsset>();
+        if (!soundGraphAsset)
+        {
+            OLO_CORE_ERROR("SoundGraphSerializer::Serialize - asset is not a SoundGraphAsset");
+            return;
+        }
+
+        Audio::SoundGraph::SoundGraphSerializer::Serialize(*soundGraphAsset, metadata.FilePath);
     }
 
-    bool SoundGraphSerializer::TryLoadData([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] Ref<Asset>& asset) const
+    bool SoundGraphSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
-        // TODO: Implement sound graph loading
-        OLO_CORE_WARN("SoundGraphSerializer::TryLoadData not yet implemented");
-        return false;
+        Ref<SoundGraphAsset> soundGraphAsset = Ref<SoundGraphAsset>::Create();
+        
+        if (!Audio::SoundGraph::SoundGraphSerializer::Deserialize(*soundGraphAsset, metadata.FilePath))
+        {
+            OLO_CORE_ERROR("SoundGraphSerializer::TryLoadData - Failed to deserialize SoundGraph from '{}'", metadata.FilePath.string());
+            return false;
+        }
+
+        // Set the asset handle from metadata
+        soundGraphAsset->SetHandle(metadata.Handle);
+        
+        asset = soundGraphAsset;
+        return true;
     }
 
-    bool SoundGraphSerializer::SerializeToAssetPack([[maybe_unused]] AssetHandle handle, [[maybe_unused]] FileStreamWriter& stream, [[maybe_unused]] AssetSerializationInfo& outInfo) const
+    bool SoundGraphSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
-        // TODO: Implement sound graph pack serialization
+        // TODO: Implement sound graph pack serialization when AssetPack format is needed
         OLO_CORE_WARN("SoundGraphSerializer::SerializeToAssetPack not yet implemented");
         return false;
     }
 
-    Ref<Asset> SoundGraphSerializer::DeserializeFromAssetPack([[maybe_unused]] FileStreamReader& stream, [[maybe_unused]] const AssetPackFile::AssetInfo& assetInfo) const
+    Ref<Asset> SoundGraphSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
-        // TODO: Implement sound graph pack deserialization
+        // TODO: Implement sound graph pack deserialization when AssetPack format is needed
         OLO_CORE_WARN("SoundGraphSerializer::DeserializeFromAssetPack not yet implemented");
         return nullptr;
     }

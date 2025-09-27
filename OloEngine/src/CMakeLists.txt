@@ -43,6 +43,8 @@
 		"OloEngine/Asset/AssetPackBuilder.h"
 		"OloEngine/Asset/AssetPackBuilder.cpp"
 		"OloEngine/Asset/MeshColliderAsset.h"
+		"OloEngine/Asset/SoundGraphAsset.h"
+		"OloEngine/Asset/SoundGraphAsset.cpp"
 		"OloEngine/Asset/Serializers/MaterialSerializer.h"
 		"OloEngine/Asset/Serializers/MaterialSerializer.cpp"
 		"OloEngine/Asset/Serializers/MeshSerializer.h"
@@ -51,6 +53,7 @@
 		"OloEngine/Asset/Serializers/ShaderSerializer.cpp"
 		"OloEngine/Asset/Serializers/TextureSerializer.h"
 		"OloEngine/Asset/Serializers/TextureSerializer.cpp"
+
 		"OloEngine/Serialization/AssetPackFile.h"
 		"OloEngine/Serialization/FileStream.h"
 		"OloEngine/Serialization/FileStream.cpp"
@@ -58,7 +61,7 @@
 		"OloEngine/Serialization/StreamReader.cpp"
 		"OloEngine/Serialization/StreamWriter.h"
 		"OloEngine/Serialization/StreamWriter.cpp"
-		"OloEngine/Core/Events/EditorEvents.h"
+
 		
 		"OloEngine/Audio/AudioEngine.cpp"
 		"OloEngine/Audio/AudioEngine.h"
@@ -89,6 +92,7 @@
 		"OloEngine/Audio/SoundGraph/SoundGraphPlayer.cpp"
 		"OloEngine/Audio/SoundGraph/SoundGraphPlayer.h"
 		"OloEngine/Audio/SoundGraph/SoundGraphPrototype.h"
+		"OloEngine/Audio/SoundGraph/SoundGraphSerializer.h"
 		"OloEngine/Audio/SoundGraph/SoundGraphSerializer.cpp"
 		"OloEngine/Audio/SoundGraph/SoundGraphSound.cpp"
 		"OloEngine/Audio/SoundGraph/SoundGraphSound.h"
@@ -143,9 +147,11 @@
 		"OloEngine/Core/Hash.h"
 		"OloEngine/Core/Identifier.h"
 		"OloEngine/Core/FastRandom.h"
+		
+		"OloEngine/Core/Events/EditorEvents.h"
 
 		"OloEngine/Debug/Instrumentor.h"
-		"OloEngine/Debug/Profiler.h"
+		"OloEngine/Debug/Profiler.h"		
 
 		"OloEngine/Events/ApplicationEvent.h"
 		"OloEngine/Events/Event.cpp"
@@ -249,6 +255,7 @@
 		"OloEngine/Renderer/Camera/PerspectiveCamera.h"
 		"OloEngine/Renderer/Camera/PerspectiveCameraController.cpp"
 		"OloEngine/Renderer/Camera/PerspectiveCameraController.h"
+
 		"OloEngine/Renderer/Debug/RenderGraphDebugger.h"
 		"OloEngine/Renderer/Debug/RenderGraphDebugger.cpp"
 		"OloEngine/Renderer/Debug/CommandPacketDebugger.h"
@@ -269,6 +276,7 @@
 		"OloEngine/Renderer/Passes/FinalRenderPass.cpp"
 		"OloEngine/Renderer/Passes/SceneRenderPass.h"
 		"OloEngine/Renderer/Passes/SceneRenderPass.cpp"
+		
 		"OloEngine/Renderer/Commands/CommandAllocator.cpp"
 		"OloEngine/Renderer/Commands/CommandAllocator.h"
 		"OloEngine/Renderer/Commands/CommandBucket.cpp"

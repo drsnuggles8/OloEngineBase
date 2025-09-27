@@ -24,6 +24,7 @@ namespace OloEngine
     // struct SoundConfig;  // TODO(olbu): Implement once soundconfig exists
     class AnimationAsset;
     class AnimationGraphAsset;
+    class SoundGraphAsset;
 
     struct AssetSerializationInfo
     {
