@@ -20,9 +20,9 @@ namespace OloEngine::Audio::SoundGraph
 		struct Endpoint
 		{
 			Identifier EndpointID;
-			Value DefaultValue;
+			choc::value::Value DefaultValue;
 
-			Endpoint(Identifier id, const Value& defaultValue)
+			Endpoint(Identifier id, const choc::value::Value& defaultValue)
 				: EndpointID(id), DefaultValue(defaultValue) {}
 
 			Endpoint()

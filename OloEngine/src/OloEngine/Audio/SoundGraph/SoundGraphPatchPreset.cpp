@@ -175,7 +175,7 @@ namespace OloEngine::Audio::SoundGraph
         for (const auto& [parameterID, value] : patch.Parameters)
         {
             // Apply the parameter value based on its type
-            std::visit([target, parameterID](const auto& v) {
+            std::visit([target, parameterID](const auto& v) -> void {
                 using T = std::decay_t<decltype(v)>;
                 if constexpr (std::is_same_v<T, f32>)
                 {
@@ -275,7 +275,7 @@ namespace OloEngine::Audio::SoundGraph
             json += "      \"description\": \"" + descriptor.Description + "\",\n";
             json += "      \"defaultValue\": \"" + SerializeParameterValue(descriptor.DefaultValue) + "\",\n";
             json += "      \"units\": \"" + descriptor.Units + "\",\n";
-            json += "      \"automatable\": " + (descriptor.IsAutomatable ? "true" : "false") + "\n";
+            json += "      \"automatable\": " + std::string(descriptor.IsAutomatable ? "true" : "false") + "\n";
             json += "    }";
         }
 

@@ -12,8 +12,8 @@ namespace OloEngine::Audio::SoundGraph
 	// Simple factory registration - we'll expand this as we add more nodes
 	static const Registry NodeProcessors
 	{
-		// Wave player node
-		{ Identifier("WavePlayer"), [](UUID nodeID) { return new WavePlayerNode("WavePlayer", nodeID); } },
+		// Wave player node - commented out until WavePlayerNode.h is available
+		// { Identifier("WavePlayer"), [](UUID nodeID) { return new WavePlayerNode("WavePlayer", nodeID); } },
 		
 		// Math nodes (placeholder - will add when we create MathNodes.h)
 		// { Identifier("Add"), [](UUID nodeID) { return new AddNode("Add", nodeID); } },
@@ -29,7 +29,7 @@ namespace OloEngine::Audio::SoundGraph
 	{
 		if (!NodeProcessors.count(nodeTypeID))
 		{
-			OLO_CORE_ERROR("SoundGraph::Factory::Create - Node with type ID '{}' is not in the registry", nodeTypeID.GetString());
+			OLO_CORE_ERROR("SoundGraph::Factory::Create - Node with type ID '{}' is not in the registry", nodeTypeID.GetHash());
 			return nullptr;
 		}
 

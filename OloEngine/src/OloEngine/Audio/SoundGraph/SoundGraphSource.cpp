@@ -168,9 +168,12 @@ namespace OloEngine::Audio::SoundGraph
 			m_CurrentFrame.store(0);
 			m_IsFinished = false;
 
-			// Clear any pending events
-			m_EventQueue.clear();
-			m_MessageQueue.clear();
+			// Clear any pending events by consuming them all
+			EventMessage msg;
+			while (m_EventQueue.pop(msg));  // Consume all pending events
+			
+			EventMessage msgData;
+			while (m_MessageQueue.pop(msgData)); // Consume all pending messages
 
 			// Reset the suspend flag
 			m_SuspendFlag.CheckAndResetIfDirty();
@@ -258,7 +261,7 @@ namespace OloEngine::Audio::SoundGraph
 	//==============================================================================
 	/// Parameter Interface
 
-	bool SoundGraphSource::SetParameter(std::string_view parameterName, const Value& value)
+	bool SoundGraphSource::SetParameter(std::string_view parameterName, const choc::value::Value& value)
 	{
 		if (!m_Graph || parameterName.empty())
 			return false;
@@ -268,7 +271,7 @@ namespace OloEngine::Audio::SoundGraph
 		return SetParameter(parameterID, value);
 	}
 
-	bool SoundGraphSource::SetParameter(u32 parameterID, const Value& value)
+	bool SoundGraphSource::SetParameter(u32 parameterID, const choc::value::Value& value)
 	{
 		auto it = m_ParameterHandles.find(parameterID);
 		if (it == m_ParameterHandles.end())
@@ -409,7 +412,7 @@ namespace OloEngine::Audio::SoundGraph
 		if (m_PlayRequestFlag.CheckAndResetIfDirty())
 		{
 			// Send play event to sound graph
-			if (m_Graph->SendInputEvent(SoundGraph::IDs::Play, choc::value::ValueView::createFloat32(1.0f)))
+			if (m_Graph->SendInputEvent(SoundGraph::IDs::Play, choc::value::createFloat32(1.0f)))
 			{
 				m_CurrentFrame.store(0);
 				m_IsPlaying.store(true);
@@ -481,9 +484,9 @@ namespace OloEngine::Audio::SoundGraph
 				// Convert to u32 for the callback (legacy compatibility)
 				u32 endpointIDu32 = static_cast<u32>(endpointID);
 				
-				// Create a simple Value wrapper for the callback
-				// TODO: Implement proper Value wrapper when needed
-				Value simpleValue; // Placeholder
+				// Create a simple choc::value::Value wrapper for the callback
+				// TODO: Implement proper Value wrapper when needed  
+				choc::value::Value simpleValue = choc::value::createFloat32(1.0f); // Placeholder
 				source->m_OnGraphEvent(frameIndex, endpointIDu32, simpleValue);
 			};
 

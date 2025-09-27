@@ -125,7 +125,7 @@ namespace OloEngine::Audio::SoundGraph
 		void ProcessSamples(float** ppFramesOut, u32 frameCount);
 		
 		/** SoundGraph event handlers (called from audio thread) */
-				static void HandleGraphEvent(void* context, u64 frameIndex, Identifier endpointID, const choc::value::Value& eventData);
+				static void HandleGraphEvent(void* context, u64 frameIndex, Identifier endpointID, const choc::value::ValueView& eventData);
 		static void HandleGraphMessage(void* context, u64 frameIndex, const char* message);
 
 		/** Wave source refill callback for nodes */

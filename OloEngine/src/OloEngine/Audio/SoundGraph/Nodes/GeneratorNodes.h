@@ -70,72 +70,171 @@ namespace OloEngine::Audio::SoundGraph
 	//==============================================================================
 	struct SquareOscillator : public NodeProcessor
 	{
-		explicit SquareOscillator(const char* dbgName, UUID id) : BaseOscillator(dbgName, id)
+		explicit SquareOscillator(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
 		{
 			RegisterEndpoints();
 		}
 
+		// Input parameters
+		float* in_Frequency = nullptr;		// Frequency in Hz
+		float* in_Amplitude = nullptr;		// Amplitude (0.0 to 1.0)
+		float* in_Phase = nullptr;			// Phase offset in radians
 		float* in_PulseWidth = nullptr;		// Pulse width (0.0 to 1.0, 0.5 = square)
 
-		void RegisterEndpoints()
-		{
-			EndpointUtilities::RegisterEndpoints(this);
-		}
+		// Output
+		float out_Value{ 0.0f };
 
-		void InitializeInputs()
+		void RegisterEndpoints();
+		void InitializeInputs();
+
+		void Init() final
 		{
-			EndpointUtilities::InitializeInputs(this);
+			InitializeInputs();
+			m_SampleRate = 48000.0f; // TODO: Get from audio context
+			m_Phase = 0.0f;
 		}
 
 		void Process() final
 		{
-			float phase = UpdatePhase();
-			float pulseWidth = glm::clamp(*in_PulseWidth, 0.0f, 1.0f);
-			float squareWave = (phase < pulseWidth) ? 1.0f : -1.0f;
-			out_Value = squareWave * (*in_Amplitude);
+			float frequency = glm::max(0.0f, *in_Frequency);
+			float amplitude = glm::clamp(*in_Amplitude, 0.0f, 1.0f);
+			float phaseOffset = *in_Phase;
+			float pulseWidth = glm::clamp(*in_PulseWidth, 0.01f, 0.99f);
+
+			// Update phase
+			float deltaPhase = frequency / m_SampleRate;
+			m_Phase += deltaPhase;
+			
+			// Wrap phase to [0, 1]
+			if (m_Phase >= 1.0f)
+				m_Phase = fmod(m_Phase, 1.0f);
+			
+			// Calculate square with phase offset and pulse width
+			float totalPhase = m_Phase + (phaseOffset / (2.0f * std::numbers::pi_v<float>));
+			totalPhase = fmod(totalPhase + 1.0f, 1.0f); // Ensure positive
+			
+			out_Value = amplitude * (totalPhase < pulseWidth ? 1.0f : -1.0f);
 		}
+
+	private:
+		float m_SampleRate{ 48000.0f };
+		float m_Phase{ 0.0f };
 	};
 
 	//==============================================================================
 	// Sawtooth Wave Oscillator
 	//==============================================================================
-	struct SawtoothOscillator : public BaseOscillator
+	struct SawtoothOscillator : public NodeProcessor
 	{
-		explicit SawtoothOscillator(const char* dbgName, UUID id) : BaseOscillator(dbgName, id)
+		explicit SawtoothOscillator(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
 		{
 			RegisterEndpoints();
 		}
 
+		// Input parameters
+		float* in_Frequency = nullptr;		// Frequency in Hz
+		float* in_Amplitude = nullptr;		// Amplitude (0.0 to 1.0)
+		float* in_Phase = nullptr;			// Phase offset in radians
+
+		// Output
+		float out_Value{ 0.0f };
+
+		void RegisterEndpoints();
+		void InitializeInputs();
+
+		void Init() final
+		{
+			InitializeInputs();
+			m_SampleRate = 48000.0f; // TODO: Get from audio context
+			m_Phase = 0.0f;
+		}
+
 		void Process() final
 		{
-			float phase = UpdatePhase();
-			float sawtoothWave = 2.0f * phase - 1.0f; // Convert [0,1] to [-1,1]
-			out_Value = sawtoothWave * (*in_Amplitude);
+			float frequency = glm::max(0.0f, *in_Frequency);
+			float amplitude = glm::clamp(*in_Amplitude, 0.0f, 1.0f);
+			float phaseOffset = *in_Phase;
+
+			// Update phase
+			float deltaPhase = frequency / m_SampleRate;
+			m_Phase += deltaPhase;
+			
+			// Wrap phase to [0, 1]
+			if (m_Phase >= 1.0f)
+				m_Phase = fmod(m_Phase, 1.0f);
+			
+			// Calculate sawtooth with phase offset
+			float totalPhase = m_Phase + (phaseOffset / (2.0f * std::numbers::pi_v<float>));
+			totalPhase = fmod(totalPhase + 1.0f, 1.0f); // Ensure positive
+			
+			// Convert [0,1] to [-1,1] sawtooth
+			out_Value = amplitude * (2.0f * totalPhase - 1.0f);
 		}
+
+	private:
+		float m_SampleRate{ 48000.0f };
+		float m_Phase{ 0.0f };
 	};
 
 	//==============================================================================
 	// Triangle Wave Oscillator
 	//==============================================================================
-	struct TriangleOscillator : public BaseOscillator
+	struct TriangleOscillator : public NodeProcessor
 	{
-		explicit TriangleOscillator(const char* dbgName, UUID id) : BaseOscillator(dbgName, id)
+		explicit TriangleOscillator(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
 		{
 			RegisterEndpoints();
 		}
 
+		// Input parameters
+		float* in_Frequency = nullptr;		// Frequency in Hz
+		float* in_Amplitude = nullptr;		// Amplitude (0.0 to 1.0)
+		float* in_Phase = nullptr;			// Phase offset in radians
+
+		// Output
+		float out_Value{ 0.0f };
+
+		void RegisterEndpoints();
+		void InitializeInputs();
+
+		void Init() final
+		{
+			InitializeInputs();
+			m_SampleRate = 48000.0f; // TODO: Get from audio context
+			m_Phase = 0.0f;
+		}
+
 		void Process() final
 		{
-			float phase = UpdatePhase();
+			float frequency = glm::max(0.0f, *in_Frequency);
+			float amplitude = glm::clamp(*in_Amplitude, 0.0f, 1.0f);
+			float phaseOffset = *in_Phase;
+
+			// Update phase
+			float deltaPhase = frequency / m_SampleRate;
+			m_Phase += deltaPhase;
+			
+			// Wrap phase to [0, 1]
+			if (m_Phase >= 1.0f)
+				m_Phase = fmod(m_Phase, 1.0f);
+			
+			// Calculate triangle with phase offset
+			float totalPhase = m_Phase + (phaseOffset / (2.0f * std::numbers::pi_v<float>));
+			totalPhase = fmod(totalPhase + 1.0f, 1.0f); // Ensure positive
+			
+			// Convert [0,1] to [-1,1] triangle wave
 			float triangleWave;
-			
-			if (phase < 0.5f)
-				triangleWave = 4.0f * phase - 1.0f;		// Rising: -1 to +1
+			if (totalPhase < 0.5f)
+				triangleWave = 4.0f * totalPhase - 1.0f; // Rising edge: [0,0.5] -> [-1,1]
 			else
-				triangleWave = 3.0f - 4.0f * phase;		// Falling: +1 to -1
+				triangleWave = 3.0f - 4.0f * totalPhase; // Falling edge: [0.5,1] -> [1,-1]
 			
-			out_Value = triangleWave * (*in_Amplitude);
+			out_Value = amplitude * triangleWave;
 		}
+
+	private:
+		float m_SampleRate{ 48000.0f };
+		float m_Phase{ 0.0f };
 	};
 
 	//==============================================================================

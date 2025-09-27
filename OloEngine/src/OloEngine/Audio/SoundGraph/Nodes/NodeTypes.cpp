@@ -1,6 +1,6 @@
 #include "OloEngine/Core/Base.h"
 #include "NodeTypes.h"
-#include "NodeDescriptors.h"
+#include "OloEngine/Audio/SoundGraph/NodeDescriptors.h"
 
 namespace OloEngine::Audio::SoundGraph
 {

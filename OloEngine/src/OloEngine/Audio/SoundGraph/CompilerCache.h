@@ -1,7 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Core/RefCounted.h"
+#include "OloEngine/Core/Ref.h"
 
 #include <string>
 #include <unordered_map>
@@ -51,6 +51,7 @@ namespace OloEngine::Audio::SoundGraph
         bool LoadFromDisk();
         bool SaveToDisk() const;
         void SetAutoSave(bool enabled) { m_AutoSave = enabled; }
+        bool GetAutoSave() const { return m_AutoSave; }
         
         /// Cache Management
         void ValidateAllEntries();
@@ -70,7 +71,7 @@ namespace OloEngine::Audio::SoundGraph
         sizet GetMaxCacheSize() const { return m_MaxCacheSize; }
 
     private:
-        mutable std::shared_mutex m_Mutex;
+        mutable std::mutex m_Mutex;
         std::unordered_map<std::string, CompilationResult> m_CompiledResults;
         
         std::string m_CacheDirectory;
@@ -84,7 +85,11 @@ namespace OloEngine::Audio::SoundGraph
         // Helper methods
         std::string GenerateCacheKey(const std::string& sourcePath, const std::string& compilerVersion) const;
         sizet HashString(const std::string& str) const;
+        
+    public:
         sizet GetFileSize(const std::string& filePath) const;
+    
+    private:
         std::chrono::time_point<std::chrono::system_clock> GetFileModificationTime(const std::string& filePath) const;
         bool CreateCacheDirectory() const;
         

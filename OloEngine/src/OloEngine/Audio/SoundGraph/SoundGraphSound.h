@@ -4,21 +4,20 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/Timestep.h"
+#include "OloEngine/Asset/Asset.h"  // For AssetHandle
 #include <glm/glm.hpp>
 #include <string>
 #include <functional>
+#include <vector>
 
 // Forward declarations
-struct ma_splitter_node;
-struct ma_engine_node;
-
 namespace OloEngine
 {
 	class AudioEngine;
-	class SoundGraphSource;
 
 	namespace Audio::SoundGraph
 	{
+		class SoundGraphSource;
 		struct SoundGraph;
 	}
 
@@ -86,10 +85,10 @@ namespace OloEngine
         //==============================================================================
         /// Initialization
         /** Initialize from SoundGraph instance */
-        bool InitializeFromGraph(const Ref<SoundGraph>& soundGraph);
+        bool InitializeFromGraph(const Ref<Audio::SoundGraph::SoundGraph>& soundGraph);
         
         /** Initialize from SoundGraph asset and data sources */
-        bool InitializeDataSource(const std::vector<AssetHandle>& dataSources, const Ref<SoundGraph>& soundGraph);
+        bool InitializeDataSource(const std::vector<AssetHandle>& dataSources, const Ref<Audio::SoundGraph::SoundGraph>& soundGraph);
 
         void ReleaseResources();
 
@@ -116,8 +115,9 @@ namespace OloEngine
         /// Advanced Control
         f32 GetCurrentFadeVolume() const { return m_CurrentFadeVolume; }
         f32 GetCurrentPriority() const;
+        f32 GetPlaybackPercentage() const;
 
-        SoundGraphSource* GetSource() const { return m_Source.get(); }
+        Audio::SoundGraph::SoundGraphSource* GetSource() const { return m_Source.get(); }
 
     private:
         /* Stop playback with short fade-out to prevent click.
@@ -137,8 +137,8 @@ namespace OloEngine
         enum StopOptions : u16
         {
             None = 0,
-            NotifyPlaybackComplete  = BIT(0),
-            ResetPlaybackPosition   = BIT(1)
+            NotifyPlaybackComplete  = (1 << 0),
+            ResetPlaybackPosition   = (1 << 1)
         };
 
         /* "Hard-stop" playback without fade. This is called to immediately stop playback,
@@ -167,10 +167,10 @@ namespace OloEngine
         SoundPlayState m_NextPlayState{ SoundPlayState::Stopped };
 
         /* Data source. SoundGraphSource handles the audio processing and miniaudio integration */
-        Scope<SoundGraphSource> m_Source = nullptr;
+        Scope<Audio::SoundGraph::SoundGraphSource> m_Source = nullptr;
 
-        // MiniAudio nodes for effects chain
-        ma_splitter_node* m_MasterSplitter = nullptr;
+        // Note: MiniAudio nodes moved to SoundGraphSource to avoid header conflicts
+        // Effects chain handled internally by SoundGraphSource
 
         bool m_bIsReadyToPlay = false;
         u8 m_Priority = 128;  // 0 = highest priority, 255 = lowest
@@ -195,6 +195,12 @@ namespace OloEngine
         glm::vec3 m_Position{ 0.0f };
         glm::vec3 m_Orientation{ 0.0f, 0.0f, 1.0f };
         glm::vec3 m_Velocity{ 0.0f };
+        glm::vec3 m_Location{ 0.0f };  // Alias for m_Position
+
+        // Status flags  
+        bool m_IsReadyToPlay = false;
+        bool m_IsStopping = false;
+        f32 m_CurrentFadeVolume = 1.0f;
 
         // Fade control
         bool m_bIsFading = false;

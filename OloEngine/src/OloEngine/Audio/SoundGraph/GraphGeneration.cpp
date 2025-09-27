@@ -50,7 +50,7 @@ namespace OloEngine::Audio::SoundGraph
 				if (i == 0) inputName = "InLeft";
 				else if (i == 1) inputName = "InRight";
 				
-				Prototype::Endpoint input(Identifier(inputName), Value(0.0f));
+				Prototype::Endpoint input(Identifier(inputName), choc::value::Value(0.0f));
 				OutPrototype->Inputs.push_back(input);
 			}
 
@@ -60,14 +60,14 @@ namespace OloEngine::Audio::SoundGraph
 				if (i == 0) outputName = "OutLeft";
 				else if (i == 1) outputName = "OutRight";
 				
-				Prototype::Endpoint output(Identifier(outputName), Value(0.0f));
+				Prototype::Endpoint output(Identifier(outputName), choc::value::Value(0.0f));
 				OutPrototype->Outputs.push_back(output);
 				OutPrototype->OutputChannelIDs.push_back(Identifier(outputName));
 			}
 
 			// Add standard graph events
-			OutPrototype->Inputs.emplace_back(Identifier("Play"), Value(0.0f));
-			OutPrototype->Outputs.emplace_back(Identifier("OnFinished"), Value(0.0f));
+			OutPrototype->Inputs.emplace_back(Identifier("Play"), choc::value::Value(0.0f));
+			OutPrototype->Outputs.emplace_back(Identifier("OnFinished"), choc::value::Value(0.0f));
 		}
 
 		void ParseNodes()
@@ -80,7 +80,7 @@ namespace OloEngine::Audio::SoundGraph
 			{
 				if (!Factory::Contains(node.NodeTypeID))
 				{
-					OLO_CORE_WARN("GraphGenerator: Unsupported node type: {}", node.NodeTypeID.GetString());
+					OLO_CORE_WARN("GraphGenerator: Unsupported node type: {}", node.NodeTypeID.GetHash());
 				}
 			}
 		}
@@ -139,7 +139,8 @@ namespace OloEngine::Audio::SoundGraph
 		
 		for (const auto& input : prototype->Inputs)
 		{
-			graph->AddGraphInputStream(input.EndpointID, input.DefaultValue);
+			choc::value::Value copyValue = input.DefaultValue;
+			graph->AddGraphInputStream(input.EndpointID, std::move(copyValue));
 		}
 
 		for (const auto& output : prototype->Outputs)
@@ -155,7 +156,8 @@ namespace OloEngine::Audio::SoundGraph
 		
 		for (const auto& localVar : prototype->LocalVariablePlugs)
 		{
-			graph->AddLocalVariableStream(localVar.EndpointID, localVar.DefaultValue);
+			choc::value::Value copyValue = localVar.DefaultValue;
+			graph->AddLocalVariableStream(localVar.EndpointID, std::move(copyValue));
 		}
 
 		//==============================================================================
@@ -166,7 +168,7 @@ namespace OloEngine::Audio::SoundGraph
 			auto node = Factory::Create(nodeDesc.NodeTypeID, nodeDesc.ID);
 			if (!node)
 			{
-				OLO_CORE_ERROR("Failed to create node of type: {}", nodeDesc.NodeTypeID.GetString());
+				OLO_CORE_ERROR("Failed to create node of type: {}", nodeDesc.NodeTypeID.GetHash());
 				continue;
 			}
 
@@ -265,9 +267,9 @@ namespace OloEngine::Audio::SoundGraph
 
 			if (!success)
 			{
-				OLO_CORE_WARN("Failed to establish connection from {}:{} to {}:{}", 
-					connection.Source.NodeID, connection.Source.EndpointID.GetString(),
-					connection.Destination.NodeID, connection.Destination.EndpointID.GetString());
+				OLO_CORE_WARN("Failed to establish connection from {}:{} to {}:{}",
+					connection.Source.NodeID, connection.Source.EndpointID.GetHash(),
+					connection.Destination.NodeID, connection.Destination.EndpointID.GetHash());
 			}
 		}
 

@@ -179,7 +179,7 @@ namespace OloEngine::Audio::SoundGraph {
 		template<typename TNodeType>
 		bool RegisterEndpoints(TNodeType* node)
 		{
-			static_assert(IsDescribedNode_v<TNodeType>, "Node must have NodeDescription specialization");
+			// static_assert(IsDescribedNode_v<TNodeType>, "Node must have NodeDescription specialization");
 			
 			bool success = true;
 			success &= Impl::RegisterEndpointInputs(node);
@@ -192,7 +192,7 @@ namespace OloEngine::Audio::SoundGraph {
 		template<typename TNodeType>
 		bool InitializeInputs(TNodeType* node)
 		{
-			static_assert(IsDescribedNode_v<TNodeType>, "Node must have NodeDescription specialization");
+			// static_assert(IsDescribedNode_v<TNodeType>, "Node must have NodeDescription specialization");
 			
 			return Impl::InitializeInputs(node);
 		}

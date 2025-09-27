@@ -19,7 +19,7 @@ namespace OloEngine::Audio::SoundGraph
 
     bool CompilerCache::HasCompiled(const std::string& sourcePath, const std::string& compilerVersion) const
     {
-        std::shared_lock lock(m_Mutex);
+        std::lock_guard<std::mutex> lock(m_Mutex);
         
         std::string key = GenerateCacheKey(sourcePath, compilerVersion);
         auto it = m_CompiledResults.find(key);
@@ -35,7 +35,7 @@ namespace OloEngine::Audio::SoundGraph
 
     CompilationResult* CompilerCache::GetCompiled(const std::string& sourcePath, const std::string& compilerVersion)
     {
-        std::unique_lock lock(m_Mutex);
+        std::lock_guard<std::mutex> lock(m_Mutex);
         
         std::string key = GenerateCacheKey(sourcePath, compilerVersion);
         auto it = m_CompiledResults.find(key);
@@ -60,7 +60,7 @@ namespace OloEngine::Audio::SoundGraph
 
     void CompilerCache::StoreCompiled(const std::string& sourcePath, const CompilationResult& result)
     {
-        std::unique_lock lock(m_Mutex);
+        std::lock_guard<std::mutex> lock(m_Mutex);
         
         std::string key = GenerateCacheKey(sourcePath, result.CompilerVersion);
         
@@ -94,7 +94,7 @@ namespace OloEngine::Audio::SoundGraph
 
     void CompilerCache::InvalidateCompiled(const std::string& sourcePath)
     {
-        std::unique_lock lock(m_Mutex);
+        std::lock_guard<std::mutex> lock(m_Mutex);
         
         // Invalidate all versions of this source file
         for (auto& [key, result] : m_CompiledResults)
@@ -181,7 +181,7 @@ namespace OloEngine::Audio::SoundGraph
 
     bool CompilerCache::SaveToDisk() const
     {
-        std::shared_lock lock(m_Mutex);
+        std::lock_guard<std::mutex> lock(m_Mutex);
         
         try
         {
@@ -315,7 +315,7 @@ namespace OloEngine::Audio::SoundGraph
 
     void CompilerCache::LogStatistics() const
     {
-        std::shared_lock lock(m_Mutex);
+        std::lock_guard<std::mutex> lock(m_Mutex);
         
         OLO_CORE_INFO("CompilerCache Statistics:");
         OLO_CORE_INFO("  Entries: {}/{}", m_CompiledResults.size(), m_MaxCacheSize);
@@ -326,22 +326,28 @@ namespace OloEngine::Audio::SoundGraph
 
     void CompilerCache::SetCacheDirectory(const std::string& directory)
     {
-        std::unique_lock lock(m_Mutex);
-        
-        if (m_CacheDirectory != directory)
         {
-            // Save current cache before switching
-            if (m_AutoSave && !m_CompiledResults.empty())
+            std::lock_guard<std::mutex> lock(m_Mutex);
+            
+            if (m_CacheDirectory != directory)
             {
-                SaveToDisk();
+                // Save current cache before switching
+                if (m_AutoSave && !m_CompiledResults.empty())
+                {
+                    SaveToDisk();
+                }
+                
+                m_CacheDirectory = directory;
+                CreateCacheDirectory();
+                
+                // Clear in-memory cache and reload from new directory
+                m_CompiledResults.clear();
             }
-            
-            m_CacheDirectory = directory;
-            CreateCacheDirectory();
-            
-            // Clear in-memory cache and reload from new directory
-            m_CompiledResults.clear();
-            lock.unlock();
+        } // Lock is released here
+        
+        // Reload from disk without holding the lock
+        if (m_CacheDirectory == directory)
+        {
             LoadFromDisk();
         }
     }
@@ -497,22 +503,22 @@ namespace OloEngine::Audio::SoundGraph
 
     namespace CompilerUtilities
     {
-        static Ref<CompilerCache> s_GlobalCompilerCache;
+        static OloEngine::Ref<OloEngine::Audio::SoundGraph::CompilerCache> s_GlobalCompilerCache;
         static std::mutex s_GlobalCacheMutex;
 
-        Ref<CompilerCache> GetGlobalCompilerCache()
+        OloEngine::Ref<OloEngine::Audio::SoundGraph::CompilerCache> GetGlobalCompilerCache()
         {
             std::lock_guard<std::mutex> lock(s_GlobalCacheMutex);
             
             if (!s_GlobalCompilerCache)
             {
-                s_GlobalCompilerCache = Ref<CompilerCache>::Create();
+                s_GlobalCompilerCache = OloEngine::Ref<OloEngine::Audio::SoundGraph::CompilerCache>::Create();
             }
             
             return s_GlobalCompilerCache;
         }
 
-        void SetGlobalCompilerCache(Ref<CompilerCache> cache)
+        void SetGlobalCompilerCache(OloEngine::Ref<OloEngine::Audio::SoundGraph::CompilerCache> cache)
         {
             std::lock_guard<std::mutex> lock(s_GlobalCacheMutex);
             s_GlobalCompilerCache = cache;
@@ -531,16 +537,16 @@ namespace OloEngine::Audio::SoundGraph
             if (s_GlobalCompilerCache)
             {
                 s_GlobalCompilerCache->LogStatistics();
-                if (s_GlobalCompilerCache->m_AutoSave)
+                if (s_GlobalCompilerCache->GetAutoSave())
                 {
                     s_GlobalCompilerCache->SaveToDisk();
                 }
-                s_GlobalCompilerCache.reset();
+                s_GlobalCompilerCache.Reset();
                 OLO_CORE_INFO("CompilerCache: Shutdown global compiler cache");
             }
         }
 
-        CompilationResult CompileWithCache(const std::string& sourcePath, const std::string& compilerVersion)
+        OloEngine::Audio::SoundGraph::CompilationResult CompileWithCache(const std::string& sourcePath, const std::string& compilerVersion)
         {
             auto cache = GetGlobalCompilerCache();
             
@@ -551,7 +557,7 @@ namespace OloEngine::Audio::SoundGraph
             }
 
             // Cache miss - need to compile
-            CompilationResult result;
+            OloEngine::Audio::SoundGraph::CompilationResult result;
             result.SourcePath = sourcePath;
             result.CompilerVersion = compilerVersion;
             result.CompilationTime = std::chrono::system_clock::now();
@@ -574,11 +580,11 @@ namespace OloEngine::Audio::SoundGraph
             return result;
         }
 
-        std::vector<CompilationResult> BatchCompileWithCache(
+        std::vector<OloEngine::Audio::SoundGraph::CompilationResult> BatchCompileWithCache(
             const std::vector<std::string>& sourcePaths, 
             const std::string& compilerVersion)
         {
-            std::vector<CompilationResult> results;
+            std::vector<OloEngine::Audio::SoundGraph::CompilationResult> results;
             results.reserve(sourcePaths.size());
             
             for (const std::string& path : sourcePaths)

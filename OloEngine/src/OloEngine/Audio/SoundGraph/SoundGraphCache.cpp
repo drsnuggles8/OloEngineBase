@@ -32,14 +32,14 @@ namespace OloEngine::Audio::SoundGraph
 
     bool SoundGraphCache::Has(const std::string& sourcePath) const
     {
-        std::shared_lock lock(m_Mutex);
+        std::lock_guard<std::mutex> lock(m_Mutex);
         auto it = m_CacheEntries.find(sourcePath);
         return it != m_CacheEntries.end() && it->second.IsValid;
     }
 
     Ref<SoundGraph> SoundGraphCache::Get(const std::string& sourcePath)
     {
-        std::unique_lock lock(m_Mutex);
+        std::lock_guard<std::mutex> lock(m_Mutex);
         
         auto it = m_CacheEntries.find(sourcePath);
         if (it == m_CacheEntries.end() || !it->second.IsValid)
@@ -65,7 +65,7 @@ namespace OloEngine::Audio::SoundGraph
             return;
         }
 
-        std::unique_lock lock(m_Mutex);
+        std::lock_guard<std::mutex> lock(m_Mutex);
 
         // Calculate memory usage
         sizet graphMemory = CalculateGraphMemoryUsage(graph);
@@ -109,7 +109,7 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphCache::Remove(const std::string& sourcePath)
     {
-        std::unique_lock lock(m_Mutex);
+        std::lock_guard<std::mutex> lock(m_Mutex);
         
         auto it = m_CacheEntries.find(sourcePath);
         if (it != m_CacheEntries.end())
@@ -122,7 +122,7 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphCache::Clear()
     {
-        std::unique_lock lock(m_Mutex);
+        std::lock_guard<std::mutex> lock(m_Mutex);
         
         m_CacheEntries.clear();
         m_LRUOrder.clear();
@@ -158,7 +158,7 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphCache::ValidateEntries()
     {
-        std::unique_lock lock(m_Mutex);
+        std::lock_guard<std::mutex> lock(m_Mutex);
         
         std::vector<std::string> invalidPaths;
         
@@ -193,7 +193,7 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphCache::CompactCache()
     {
-        std::unique_lock lock(m_Mutex);
+        std::lock_guard<std::mutex> lock(m_Mutex);
         
         // Remove entries that haven't been accessed recently
         auto threshold = std::chrono::system_clock::now() - std::chrono::hours(24);
@@ -230,7 +230,7 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphCache::InvalidateByPath(const std::string& sourcePath)
     {
-        std::unique_lock lock(m_Mutex);
+        std::lock_guard<std::mutex> lock(m_Mutex);
         
         auto it = m_CacheEntries.find(sourcePath);
         if (it != m_CacheEntries.end())
@@ -242,7 +242,7 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphCache::InvalidateByDirectory(const std::string& directoryPath)
     {
-        std::unique_lock lock(m_Mutex);
+        std::lock_guard<std::mutex> lock(m_Mutex);
         
         std::vector<std::string> pathsToInvalidate;
         
@@ -289,7 +289,7 @@ namespace OloEngine::Audio::SoundGraph
 
     std::vector<std::string> SoundGraphCache::GetCachedPaths() const
     {
-        std::shared_lock lock(m_Mutex);
+        std::lock_guard<std::mutex> lock(m_Mutex);
         
         std::vector<std::string> paths;
         paths.reserve(m_CacheEntries.size());
@@ -308,7 +308,7 @@ namespace OloEngine::Audio::SoundGraph
 
     const SoundGraphCacheEntry* SoundGraphCache::GetCacheEntry(const std::string& sourcePath) const
     {
-        std::shared_lock lock(m_Mutex);
+        std::lock_guard<std::mutex> lock(m_Mutex);
         
         auto it = m_CacheEntries.find(sourcePath);
         return it != m_CacheEntries.end() ? &it->second : nullptr;
@@ -316,7 +316,7 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphCache::LogStatistics() const
     {
-        std::shared_lock lock(m_Mutex);
+        std::lock_guard<std::mutex> lock(m_Mutex);
         
         OLO_CORE_INFO("SoundGraphCache Statistics:");
         OLO_CORE_INFO("  Entries: {}/{}", m_CacheEntries.size(), m_MaxCacheSize);
@@ -493,7 +493,7 @@ namespace OloEngine::Audio::SoundGraph
             if (s_GlobalCache)
             {
                 s_GlobalCache->LogStatistics();
-                s_GlobalCache.reset();
+                s_GlobalCache.Reset();
                 OLO_CORE_INFO("SoundGraphCache: Shutdown global cache");
             }
         }

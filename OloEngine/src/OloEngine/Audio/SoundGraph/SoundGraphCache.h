@@ -1,7 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Core/RefCounted.h"
+#include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/Thread.h"
 
 #include <string>
@@ -9,6 +9,8 @@
 #include <unordered_set>
 #include <vector>
 #include <chrono>
+#include <queue>
+#include <mutex>
 #include <mutex>
 #include <functional>
 
@@ -80,7 +82,7 @@ namespace OloEngine::Audio::SoundGraph
         bool LoadCacheMetadata(const std::string& filePath);
 
     private:
-        mutable std::shared_mutex m_Mutex;
+        mutable std::mutex m_Mutex;
         std::unordered_map<std::string, SoundGraphCacheEntry> m_CacheEntries;
         
         // LRU tracking

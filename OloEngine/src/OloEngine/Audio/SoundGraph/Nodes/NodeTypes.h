@@ -5,6 +5,9 @@
 #include "GeneratorNodes.h"
 #include "EnvelopeNodes.h"
 #include "WavePlayer.h"
+#include "TriggerNodes.h"
+#include "ArrayNodes.h"
+#include "MusicNodes.h"
 
 // This file includes all node types - following Hazel's NodeTypes.h pattern
 // Template implementations are in NodeTypeImpls.h
