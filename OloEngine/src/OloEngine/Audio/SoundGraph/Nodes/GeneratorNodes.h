@@ -35,7 +35,7 @@ namespace OloEngine::Audio::SoundGraph
 		void Init() final
 		{
 			InitializeInputs();
-			m_SampleRate = 48000.0f; // TODO: Get from audio context
+			// Sample rate is now set by NodeProcessor base class
 			m_Phase = 0.0f;
 		}
 
@@ -61,7 +61,6 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 	private:
-		float m_SampleRate{ 48000.0f };
 		float m_Phase{ 0.0f };
 	};
 
@@ -90,7 +89,7 @@ namespace OloEngine::Audio::SoundGraph
 		void Init() final
 		{
 			InitializeInputs();
-			m_SampleRate = 48000.0f; // TODO: Get from audio context
+			// Sample rate is now set by NodeProcessor base class
 			m_Phase = 0.0f;
 		}
 
@@ -117,7 +116,6 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 	private:
-		float m_SampleRate{ 48000.0f };
 		float m_Phase{ 0.0f };
 	};
 
@@ -145,7 +143,7 @@ namespace OloEngine::Audio::SoundGraph
 		void Init() final
 		{
 			InitializeInputs();
-			m_SampleRate = 48000.0f; // TODO: Get from audio context
+			// Sample rate is now set by NodeProcessor base class
 			m_Phase = 0.0f;
 		}
 
@@ -172,7 +170,6 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 	private:
-		float m_SampleRate{ 48000.0f };
 		float m_Phase{ 0.0f };
 	};
 
@@ -200,7 +197,7 @@ namespace OloEngine::Audio::SoundGraph
 		void Init() final
 		{
 			InitializeInputs();
-			m_SampleRate = 48000.0f; // TODO: Get from audio context
+			// Sample rate is now set by NodeProcessor base class
 			m_Phase = 0.0f;
 		}
 
@@ -233,7 +230,6 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 	private:
-		float m_SampleRate{ 48000.0f };
 		float m_Phase{ 0.0f };
 	};
 

@@ -49,8 +49,30 @@ namespace OloEngine::Audio::SoundGraph {
 							
 							if constexpr (isInputEvent)
 							{
-								// Handle input events (member functions) - skip for now
-								// TODO: Add proper input event support
+								// Handle input events (member functions)
+								// Create an InputEvent and bind it to the member function
+								using FunctionType = TMember;
+								
+								// Create InputEvent bound to the member function
+								auto inputEvent = std::make_shared<NodeProcessor::InputEvent>(*node, 
+									[node, memberPtr](float value) {
+										// Call the member function with the event value
+										if constexpr (std::is_same_v<FunctionType, void()>)
+										{
+											// No-parameter event function
+											(node->*memberPtr)();
+										}
+										else if constexpr (std::is_same_v<FunctionType, void(float)>)
+										{
+											// Single float parameter event function
+											(node->*memberPtr)(value);
+										}
+										// TODO: Add support for other event parameter types as needed
+									});
+								
+								// Register the event with the node
+								node->InEvs[OLO_IDENTIFIER(cleanName.c_str())] = *inputEvent;
+								
 								return true;
 							}
 							else
@@ -96,16 +118,23 @@ namespace OloEngine::Audio::SoundGraph {
 					{
 						auto registerOutput = [node, memberIndex = 0](auto memberPtr) mutable
 						{
-							using TMember = std::remove_reference_t<decltype(memberPtr)>;
-							constexpr bool isOutputEvent = std::is_member_function_pointer_v<TMember>;
+							using TMember = typename Core::Reflection::MemberPointer::ReturnType<decltype(memberPtr)>::Type;
+							constexpr bool isOutputEvent = std::is_same_v<TMember, NodeProcessor::OutputEvent>;
 							
 							const std::string_view memberName = OutputsDescription::MemberNames[memberIndex++];
 							const std::string cleanName = std::string(Core::Reflection::StringUtils::RemovePrefixAndSuffix(memberName));
 							
 							if constexpr (isOutputEvent)
 							{
-								// Handle output events - skip for now  
-								// TODO: Add proper output event support
+								// Handle output events
+								// Output events are OutputEvent members that can trigger other events
+								
+								// Get reference to the OutputEvent member
+								NodeProcessor::OutputEvent& outputEvent = node->*memberPtr;
+								
+								// Register the output event with the node
+								node->OutEvs[OLO_IDENTIFIER(cleanName.c_str())] = outputEvent;
+								
 								return true;
 							}
 							else

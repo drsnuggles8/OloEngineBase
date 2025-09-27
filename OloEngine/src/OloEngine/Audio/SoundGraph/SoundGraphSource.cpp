@@ -249,7 +249,7 @@ namespace OloEngine::Audio::SoundGraph
 			// to properly integrate with the sound graph's wave player system
 			
 			// Initialize the sound graph with our sample rate
-			// m_Graph->Initialize(m_SampleRate, m_BlockSize);
+			m_Graph->SetSampleRate(static_cast<f32>(m_SampleRate));
 
 			// Update parameter mappings
 			UpdateParameterSet();
@@ -484,10 +484,9 @@ namespace OloEngine::Audio::SoundGraph
 				// Convert to u32 for the callback (legacy compatibility)
 				u32 endpointIDu32 = static_cast<u32>(endpointID);
 				
-				// Create a simple choc::value::Value wrapper for the callback
-				// TODO: Implement proper Value wrapper when needed  
-				choc::value::Value simpleValue = choc::value::createFloat32(1.0f); // Placeholder
-				source->m_OnGraphEvent(frameIndex, endpointIDu32, simpleValue);
+				// Create a proper Value wrapper from the event data
+				choc::value::Value eventValue = choc::value::Value(eventData);
+				source->m_OnGraphEvent(frameIndex, endpointIDu32, eventValue);
 			};
 
 			source->m_EventQueue.push(std::move(msg));

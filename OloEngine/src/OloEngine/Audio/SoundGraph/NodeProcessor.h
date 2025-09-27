@@ -55,6 +55,10 @@ namespace OloEngine::Audio::SoundGraph
 		std::string DebugName;
 		UUID ID;
 
+	protected:
+		f32 m_SampleRate = 48000.0f;
+
+	public:
 		//==============================================================================
 		/// Base Input/Output structures
 
@@ -157,6 +161,7 @@ namespace OloEngine::Audio::SoundGraph
 		//==============================================================================
 		/// Virtual interface - must be implemented by derived nodes
 
+		virtual void SetSampleRate(f32 sampleRate) { m_SampleRate = sampleRate; }
 		virtual void Init() {}
 		virtual void Process() {}
 

@@ -243,6 +243,7 @@ namespace OloEngine::Audio::SoundGraph
 			}
 		}
 
+	public:
 		void ForceRefillBuffer()
 		{
 			if (m_WaveSource.WaveHandle && m_WaveSource.onRefill)
@@ -251,6 +252,11 @@ namespace OloEngine::Audio::SoundGraph
 				m_WaveSource.Refill();
 			}
 		}
+
+		Audio::WaveSource& GetWaveSource() { return m_WaveSource; }
+		const Audio::WaveSource& GetWaveSource() const { return m_WaveSource; }
+
+	private:
 
 		void ReadNextFrame()
 		{

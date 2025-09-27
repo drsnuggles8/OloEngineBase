@@ -32,7 +32,7 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			InitializeInputs();
 
-			m_FrameTime = 1.0f / 48000.0f; // TODO: get samplerate from the graph
+			m_FrameTime = 1.0f / m_SampleRate;
 			m_Counter = 0.0f;
 			m_Playing = false;
 		}
@@ -185,7 +185,7 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			InitializeInputs();
 
-			m_FrameTime = 1.0f / 48000.0f; // TODO: get samplerate from the graph
+			m_FrameTime = 1.0f / m_SampleRate;
 			m_Counter = 0.0f;
 			m_Waiting = false;
 		}

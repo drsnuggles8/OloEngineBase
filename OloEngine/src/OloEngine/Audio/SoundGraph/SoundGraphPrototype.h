@@ -33,9 +33,6 @@ namespace OloEngine::Audio::SoundGraph
 		/// Graph IO
 		std::vector<Endpoint> Inputs, Outputs;
 
-		// TODO: this should be removed and output channels should have hardcoded ids
-		std::vector<Identifier> OutputChannelIDs;
-
 		std::vector<Endpoint> LocalVariablePlugs;
 
 		//==============================================================================

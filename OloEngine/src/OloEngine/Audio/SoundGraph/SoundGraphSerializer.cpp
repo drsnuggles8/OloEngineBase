@@ -138,9 +138,28 @@ namespace OloEngine::Audio::SoundGraph
             
             if (soundGraph["ID"])
             {
+                u64 fileAssetID = soundGraph["ID"].as<u64>();
+                u64 currentAssetHandle = static_cast<u64>(asset.GetHandle());
+                
+                // Validate the asset ID from file against the current handle
+                // This helps detect potential asset ID mismatches during loading
+                if (currentAssetHandle != 0 && fileAssetID != 0)
+                {
+                    if (currentAssetHandle != fileAssetID)
+                    {
+                        OLO_CORE_WARN("SoundGraphSerializer: Asset ID mismatch - file contains {}, current handle is {}. "
+                                     "This could indicate the asset was loaded with a different handle than expected.",
+                                     fileAssetID, currentAssetHandle);
+                    }
+                    else
+                    {
+                        OLO_CORE_TRACE("SoundGraphSerializer: Asset ID validation passed - handle {} matches file ID {}",
+                                       currentAssetHandle, fileAssetID);
+                    }
+                }
+                
                 // Note: We cannot set the asset ID directly since it's managed by AssetManager
-                // The ID in the file is mainly for reference purposes
-                // TODO: Consider if we need to validate against the actual asset handle
+                // The ID in the file is mainly for reference and validation purposes
             }
             
             // Nodes

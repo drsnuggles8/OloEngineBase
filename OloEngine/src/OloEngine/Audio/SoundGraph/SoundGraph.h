@@ -2,6 +2,7 @@
 
 #include "NodeProcessor.h"
 #include "WaveSource.h"
+#include "Nodes/WavePlayer.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Core/Identifier.h"
@@ -356,20 +357,32 @@ namespace OloEngine::Audio::SoundGraph
 			OutgoingMessages.reset(1024);
 		}
 
+		void SetSampleRate(f32 sampleRate) 
+		{ 
+			m_SampleRate = sampleRate; 
+		}
+		
+		f32 GetSampleRate() const 
+		{ 
+			return m_SampleRate; 
+		}
+
 		void Init() final
 		{
 			// Find wave players among nodes
 			WavePlayers.clear();
 			for (auto& node : Nodes)
 			{
-				// TODO: Add proper type checking when we implement WavePlayer nodes
-				// if (auto* wavePlayer = dynamic_cast<WavePlayerNode*>(node.get()))
-				//     WavePlayers.push_back(wavePlayer);
+				if (auto* wavePlayer = dynamic_cast<WavePlayer*>(node.get()))
+					WavePlayers.push_back(wavePlayer);
 			}
 
-			// Initialize all nodes in order
+			// Initialize all nodes in order, passing sample rate
 			for (auto& node : Nodes)
+			{
+				node->SetSampleRate(m_SampleRate);
 				node->Init();
+			}
 
 			bIsInitialized = true;
 		}
@@ -377,9 +390,11 @@ namespace OloEngine::Audio::SoundGraph
 		void BeginProcessBlock()
 		{
 			// Refill wave player buffers
-			// TODO: Implement when we have WavePlayer nodes
-			// for (auto& wavePlayer : WavePlayers)
-			//     wavePlayer->buffer.Refill();
+			for (auto& wavePlayer : WavePlayers)
+			{
+				if (auto* wp = static_cast<WavePlayer*>(wavePlayer))
+					wp->ForceRefillBuffer();
+			}
 		}
 
 		void Process() final
@@ -506,19 +521,30 @@ namespace OloEngine::Audio::SoundGraph
 		using RefillCallback = bool(*)(Audio::WaveSource&, void* userData, u32 numFrames);
 		void SetRefillWavePlayerBufferCallback(RefillCallback callback, void* userData, u32 numFrames)
 		{
-			// TODO: Implement when we have WavePlayer nodes
-			// for (auto& node : Nodes)
-			// {
-			//     if (auto* wavePlayer = dynamic_cast<WavePlayerNode*>(node.get()))
-			//         wavePlayer->buffer.onRefill = [callback, userData, numFrames](Audio::WaveSource& source) { 
-			//             return callback(source, userData, numFrames); 
-			//         };
-			// }
+			for (auto& wavePlayer : WavePlayers)
+			{
+				if (auto* wp = static_cast<WavePlayer*>(wavePlayer))
+				{
+					// Store the original callback to chain with it
+					auto originalCallback = wp->GetWaveSource().onRefill;
+					
+					// Set new callback that chains with the original
+					wp->GetWaveSource().onRefill = [callback, userData, numFrames, originalCallback](Audio::WaveSource& source) -> bool {
+						bool result = true;
+						if (originalCallback)
+							result = originalCallback(source);
+						if (callback)
+							result &= callback(source, userData, numFrames);
+						return result;
+					};
+				}
+			}
 		}
 
 	private:
 		bool bIsInitialized = false;
 		u64 CurrentFrame = 0;
+		f32 m_SampleRate = 48000.0f;
 
 		//==============================================================================
 		/// Thread-safe Event/Message Queues

@@ -67,8 +67,7 @@ namespace OloEngine::Audio::SoundGraph
 		auto source = CreateScope<SoundGraphSource>();
 
 		// Initialize the source with our engine and sample rate
-		// TODO: Get actual sample rate from engine
-		u32 sampleRate = 48000;
+		u32 sampleRate = ma_engine_get_sample_rate(m_Engine);
 		u32 blockSize = 512;
 		
 		if (!source->Initialize(m_Engine, sampleRate, blockSize))

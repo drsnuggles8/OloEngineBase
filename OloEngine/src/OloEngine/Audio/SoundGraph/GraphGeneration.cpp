@@ -56,13 +56,10 @@ namespace OloEngine::Audio::SoundGraph
 
 			for (u32 i = 0; i < Options.NumOutChannels; ++i)
 			{
-				std::string outputName = "Out" + std::to_string(i);
-				if (i == 0) outputName = "OutLeft";
-				else if (i == 1) outputName = "OutRight";
+				Identifier outputID = (i == 0) ? IDs::OutLeft : IDs::OutRight;
 				
-				Prototype::Endpoint output(Identifier(outputName), choc::value::Value(0.0f));
+				Prototype::Endpoint output(outputID, choc::value::Value(0.0f));
 				OutPrototype->Outputs.push_back(output);
-				OutPrototype->OutputChannelIDs.push_back(Identifier(outputName));
 			}
 
 			// Add standard graph events
@@ -87,21 +84,138 @@ namespace OloEngine::Audio::SoundGraph
 
 		void ParseConnections()
 		{
-			// Copy connections from the source prototype
-			OutPrototype->Connections = Options.GraphPrototype->Connections;
+			// Validate and copy connections from the source prototype
+			OutPrototype->Connections.clear();
 			
-			// TODO: Validate connections are valid
-			OLO_CORE_INFO("GraphGenerator: Parsed {} connections", OutPrototype->Connections.size());
+			if (!Options.GraphPrototype)
+			{
+				OLO_CORE_WARN("GraphGenerator: No graph prototype provided for connection parsing");
+				return;
+			}
+			
+			size_t validConnections = 0;
+			size_t invalidConnections = 0;
+			
+			for (const auto& connection : Options.GraphPrototype->Connections)
+			{
+				// Validate connection endpoints are not empty
+				if (!connection.Source.EndpointID.IsValid())
+				{
+					OLO_CORE_WARN("GraphGenerator: Connection has empty source endpoint");
+					invalidConnections++;
+					continue;
+				}
+				
+				if (!connection.Destination.EndpointID.IsValid())
+				{
+					OLO_CORE_WARN("GraphGenerator: Connection has empty destination endpoint");
+					invalidConnections++;
+					continue;
+				}
+				
+				// Validate source and destination nodes exist in prototype
+				bool sourceNodeExists = false;
+				bool destinationNodeExists = false;
+				
+				for (const auto& node : Options.GraphPrototype->Nodes)
+				{
+					if (node.ID == connection.Source.NodeID)
+						sourceNodeExists = true;
+					if (node.ID == connection.Destination.NodeID)
+						destinationNodeExists = true;
+				}
+				
+				if (!sourceNodeExists)
+				{
+					OLO_CORE_WARN("GraphGenerator: Connection references non-existent source node {}", static_cast<u64>(connection.Source.NodeID));
+					invalidConnections++;
+					continue;
+				}
+				
+				if (!destinationNodeExists)
+				{
+					OLO_CORE_WARN("GraphGenerator: Connection references non-existent destination node {}", static_cast<u64>(connection.Destination.NodeID));
+					invalidConnections++;
+					continue;
+				}
+				
+				// Validate connection type is valid
+				if (connection.Type < Prototype::Connection::NodeValue_NodeValue || 
+					connection.Type > Prototype::Connection::LocalVariable_NodeValue)
+				{
+					OLO_CORE_WARN("GraphGenerator: Connection has invalid connection type {}", static_cast<int>(connection.Type));
+					invalidConnections++;
+					continue;
+				}
+				
+				// Validate that event connections only connect to event endpoints
+				bool isEventConnection = (connection.Type == Prototype::Connection::NodeEvent_NodeEvent ||
+										connection.Type == Prototype::Connection::GraphEvent_NodeEvent ||
+										connection.Type == Prototype::Connection::NodeEvent_GraphEvent);
+				
+				bool isValueConnection = (connection.Type == Prototype::Connection::NodeValue_NodeValue ||
+										connection.Type == Prototype::Connection::GraphValue_NodeValue ||
+										connection.Type == Prototype::Connection::NodeValue_GraphValue ||
+										connection.Type == Prototype::Connection::LocalVariable_NodeValue);
+				
+				if (!isEventConnection && !isValueConnection)
+				{
+					OLO_CORE_WARN("GraphGenerator: Connection type {} does not match event or value pattern", static_cast<int>(connection.Type));
+					invalidConnections++;
+					continue;
+				}
+				
+				// Basic endpoint compatibility validation
+				// For now, we assume same-type connections are compatible
+				// More sophisticated type checking would require endpoint type information
+				if (isEventConnection)
+				{
+					OLO_CORE_TRACE("GraphGenerator: Validated event connection from endpoint {} to {}", 
+						static_cast<u64>(connection.Source.EndpointID), static_cast<u64>(connection.Destination.EndpointID));
+				}
+				else if (isValueConnection)
+				{
+					OLO_CORE_TRACE("GraphGenerator: Validated value connection from endpoint {} to {}", 
+						static_cast<u64>(connection.Source.EndpointID), static_cast<u64>(connection.Destination.EndpointID));
+				}
+				
+				// Connection is valid, add to output prototype
+				OutPrototype->Connections.push_back(connection);
+				validConnections++;
+			}
+			
+			OLO_CORE_INFO("GraphGenerator: Validated {} connections ({} valid, {} invalid)", 
+				Options.GraphPrototype->Connections.size(), validConnections, invalidConnections);
 		}
 
 		void ParseWaveReferences()
 		{
 			// Scan through nodes and collect any wave asset references
-			// For now, this is a placeholder - would need to examine node default values
-			// for asset handles and collect them
-			
 			OutWaveAssets.clear();
-			// TODO: Implement wave asset collection from node default values
+			
+			for (const auto& node : Options.GraphPrototype->Nodes)
+			{
+				// Check each default value plug for potential asset handles
+				for (const auto& plug : node.DefaultValuePlugs)
+				{
+					// Asset handles are stored as int64 values
+					if (plug.DefaultValue.getType().isInt64())
+					{
+						int64_t assetHandle = plug.DefaultValue.getInt64();
+						if (assetHandle != 0) // Non-zero indicates a valid asset handle
+						{
+							UUID assetUUID = static_cast<UUID>(assetHandle);
+							if (std::find(OutWaveAssets.begin(), OutWaveAssets.end(), assetUUID) == OutWaveAssets.end())
+							{
+								OutWaveAssets.push_back(assetUUID);
+								OLO_CORE_TRACE("GraphGenerator: Found wave asset reference: {}", assetUUID);
+							}
+						}
+					}
+				}
+			}
+			
+			OLO_CORE_INFO("GraphGenerator: Collected {} wave asset references", OutWaveAssets.size());
 		}
 	};
 
@@ -148,8 +262,8 @@ namespace OloEngine::Audio::SoundGraph
 			graph->AddGraphOutputStream(output.EndpointID);
 		}
 
-		// Set output channel IDs
-		graph->OutputChannelIDs = prototype->OutputChannelIDs;
+		// Set hardcoded output channel IDs (OutLeft, OutRight)
+		graph->OutputChannelIDs = { IDs::OutLeft, IDs::OutRight };
 
 		//==============================================================================
 		// Step 2: Set up local variables

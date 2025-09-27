@@ -34,9 +34,7 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			InitializeInputs();
 
-			// Convert time parameters to rates (samples per unit)
-			m_SampleRate = 48000.0f; // TODO: Get from audio context
-			
+			// Sample rate is now set by NodeProcessor base class
 			RecalculateRates();
 			
 			// Initialize state
@@ -101,7 +99,6 @@ namespace OloEngine::Audio::SoundGraph
 		State m_State{ Idle };
 		float m_Value{ 0.0f };
 		float m_Target{ 0.0f };
-		float m_SampleRate{ 48000.0f };
 
 		// Pre-calculated rates
 		float m_AttackRate{ 0.001f };
@@ -203,8 +200,7 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			InitializeInputs();
 
-			m_SampleRate = 48000.0f; // TODO: Get from audio context
-			
+			// Sample rate is now set by NodeProcessor base class
 			RecalculateRates();
 			
 			// Initialize state
@@ -289,7 +285,6 @@ namespace OloEngine::Audio::SoundGraph
 		State m_State{ Idle };
 		float m_Value{ 0.0f };
 		float m_Target{ 0.0f };
-		float m_SampleRate{ 48000.0f };
 		float m_SustainStartValue{ 0.0f }; // Value when release started
 
 		// Pre-calculated rates

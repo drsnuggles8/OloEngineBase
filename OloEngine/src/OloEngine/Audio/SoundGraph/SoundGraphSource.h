@@ -178,9 +178,39 @@ namespace OloEngine::Audio::SoundGraph
 			// Only one writer at a time expected
 			void SetPreset(const SoundGraphPatchPreset& preset)
 			{
-				// Create a copy using serialization/deserialization or manual copying
+				// Create a copy using deep copying
 				m_Preset = std::make_unique<SoundGraphPatchPreset>();
-				// TODO: Implement proper copying mechanism
+				
+				// Copy preset metadata
+				m_Preset->SetName(preset.GetName());
+				m_Preset->SetDescription(preset.GetDescription());
+				m_Preset->SetVersion(preset.GetVersion());
+				m_Preset->SetAuthor(preset.GetAuthor());
+				
+				// Copy parameter descriptors
+				auto descriptors = preset.GetAllParameterDescriptors();
+				for (const auto& descriptor : descriptors)
+				{
+					m_Preset->RegisterParameter(descriptor);
+				}
+				
+				// Copy patches
+				auto patchNames = preset.GetPatchNames();
+				for (const auto& patchName : patchNames)
+				{
+					const auto* sourcePatch = preset.GetPatch(patchName);
+					if (sourcePatch)
+					{
+						m_Preset->CreatePatch(patchName, "Copied patch");
+						auto* destPatch = m_Preset->GetPatch(patchName);
+						if (destPatch)
+						{
+							// Copy all parameter values from source patch
+							*destPatch = *sourcePatch; // Use assignment operator if available
+						}
+					}
+				}
+				
 				m_HasChanges.store(true, std::memory_order_release);
 			}
 			
@@ -189,8 +219,39 @@ namespace OloEngine::Audio::SoundGraph
 			{
 				if (m_HasChanges.exchange(false, std::memory_order_acq_rel) && m_Preset)
 				{
-					// TODO: Implement proper copying mechanism
-					// outPreset = *m_Preset;
+					// Copy preset data to output
+					outPreset.SetName(m_Preset->GetName());
+					outPreset.SetDescription(m_Preset->GetDescription());
+					outPreset.SetVersion(m_Preset->GetVersion());
+					outPreset.SetAuthor(m_Preset->GetAuthor());
+					
+					// Clear existing parameter descriptors and patches in output
+					// (Note: There's no clear method exposed, so we assume outPreset starts clean
+					// or implement clearing if needed)
+					
+					// Copy parameter descriptors
+					auto descriptors = m_Preset->GetAllParameterDescriptors();
+					for (const auto& descriptor : descriptors)
+					{
+						outPreset.RegisterParameter(descriptor);
+					}
+					
+					// Copy patches
+					auto patchNames = m_Preset->GetPatchNames();
+					for (const auto& patchName : patchNames)
+					{
+						const auto* sourcePatch = m_Preset->GetPatch(patchName);
+						if (sourcePatch)
+						{
+							outPreset.CreatePatch(patchName, "Copied patch");
+							auto* destPatch = outPreset.GetPatch(patchName);
+							if (destPatch)
+							{
+								*destPatch = *sourcePatch;
+							}
+						}
+					}
+					
 					return true;
 				}
 				return false;

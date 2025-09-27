@@ -136,16 +136,31 @@ namespace OloEngine::Audio::SoundGraph
 
 		void ProcessTrigger()
 		{
-			// For now, since we don't have dynamic array support,
-			// we'll treat this as a simple passthrough with bounds checking
-			// TODO: Implement proper array handling when choc::value arrays are integrated
+			// Basic array access implementation
+			// Note: Full choc::value array integration would provide dynamic arrays
+			// For now, we implement single-element access with validation
 			
-			if (in_Array)
+			if (in_Array && in_Index)
 			{
-				out_Element = *in_Array;
+				// For single-element arrays, only index 0 is valid
+				int32_t index = *in_Index;
+				if (index == 0)
+				{
+					out_Element = *in_Array;
+					out_OnTrigger(static_cast<float>(out_Element));
+				}
+				else
+				{
+					// Index out of bounds - output zero and don't trigger
+					out_Element = T{0};
+					OLO_CORE_WARN("ArrayGet: Index {} out of bounds for single-element array", index);
+				}
 			}
-			
-			out_OnTrigger(static_cast<float>(out_Element));
+			else
+			{
+				// No input - output zero
+				out_Element = T{0};
+			}
 		}
 	};
 
