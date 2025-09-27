@@ -19,6 +19,16 @@ if(sol2_ADDED)
   target_link_libraries(sol2 INTERFACE lua)
 endif()
 
+# CHOC - for SoundGraph audio processing (Value system, FIFOs, real-time utilities)
+CPMAddPackage(NAME choc
+  GIT_REPOSITORY https://github.com/Tracktion/choc.git
+  GIT_TAG main
+  DOWNLOAD_ONLY YES)
+if(choc_ADDED)
+  add_library(choc INTERFACE IMPORTED)
+  target_include_directories(choc SYSTEM INTERFACE ${choc_SOURCE_DIR})
+endif()
+
 # Main targets built by this project
 add_subdirectory(src)
 if(BUILD_TESTS)
@@ -71,6 +81,7 @@ target_include_directories(OloEngine PRIVATE
 target_link_libraries(OloEngine
 	assimp
 	box2d
+	choc
 	glad
 	glfw
 	imgui

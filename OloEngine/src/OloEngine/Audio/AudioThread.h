@@ -1,7 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "LockFreeFIFO.h"
+#include <choc/containers/choc_SingleReaderSingleWriterFIFO.h>
 #include <functional>
 #include <thread>
 #include <atomic>

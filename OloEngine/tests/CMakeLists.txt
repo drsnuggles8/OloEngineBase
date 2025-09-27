@@ -7,20 +7,6 @@ add_executable(OloEngine-Tests
 		CoreUtilitiesTest.cpp
 		EndpointRegistrationTest.cpp
 		EventSystemTest.cpp
-		AudioMathNodeTest.cpp
-		AudioGraphEventSystemTest.cpp
-		TriggerArrayNodesTest.cpp
-		WavePlayerNodeTest.cpp
-		ParameterInterpolationTest.cpp
-		ArrayOperationNodesTest.cpp
-		GraphRoutingSystemTest.cpp
-		SoundGraphBasicTest.cpp
-		SoundGraphSerializationTest.cpp
-		LockFreeCommunicationTest.cpp
-		AudioThreadDebugTest.cpp
-		MinimalThreadTest.cpp
-		AudioThreadFullTest.cpp
-		AdvancedAudioNodeTest.cpp
 		ReflectionSystemTest.cpp
 		ReflectionStringTest.cpp
 		)

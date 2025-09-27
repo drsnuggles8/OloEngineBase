@@ -42,8 +42,8 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			if (source)
 			{
-				source->Stop();
-				source->Uninitialize();
+				source->SuspendProcessing(true);
+				source->Shutdown();
 			}
 		}
 		m_SoundGraphSources.clear();
@@ -64,17 +64,46 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 		u32 sourceID = GetNextSourceID();
-		auto source = CreateScope<SoundGraphSource>(soundGraph);
+		auto source = CreateScope<SoundGraphSource>();
 
-		if (source->Initialize(m_Engine) != MA_SUCCESS)
+		// Initialize the source with our engine and sample rate
+		// TODO: Get actual sample rate from engine
+		u32 sampleRate = 48000;
+		u32 blockSize = 512;
+		
+		if (!source->Initialize(m_Engine, sampleRate, blockSize))
 		{
 			OLO_CORE_ERROR("[SoundGraphPlayer] Failed to initialize sound graph source");
 			return 0;
 		}
 
+		// Set up the sound graph
+		source->ReplaceGraph(soundGraph);
+
+		// Set up event callbacks
+		source->SetMessageCallback([](u64 frameIndex, const char* message) {
+			if (message[0] == '!')
+			{
+				OLO_CORE_ERROR("[SoundGraph] Frame {0}: {1}", frameIndex, message);
+			}
+			else if (message[0] == '*')
+			{
+				OLO_CORE_WARN("[SoundGraph] Frame {0}: {1}", frameIndex, message);
+			}
+			else
+			{
+				OLO_CORE_TRACE("[SoundGraph] Frame {0}: {1}", frameIndex, message);
+			}
+		});
+
+		source->SetEventCallback([](u64 frameIndex, u32 endpointID, const Value& eventData) {
+			// Handle graph events - could check for specific endpoint IDs like "OnFinished"
+			OLO_CORE_TRACE("[SoundGraph] Event at frame {0}, endpoint {1}", frameIndex, endpointID);
+		});
+
 		m_SoundGraphSources[sourceID] = std::move(source);
 
-		OLO_CORE_TRACE("[SoundGraphPlayer] Created sound graph source with ID {}", sourceID);
+		OLO_CORE_TRACE("[SoundGraphPlayer] Created sound graph source with ID {0}", sourceID);
 		return sourceID;
 	}
 
@@ -83,19 +112,19 @@ namespace OloEngine::Audio::SoundGraph
 		auto it = m_SoundGraphSources.find(sourceID);
 		if (it == m_SoundGraphSources.end())
 		{
-			OLO_CORE_ERROR("[SoundGraphPlayer] Source ID {} not found", sourceID);
+			OLO_CORE_ERROR("[SoundGraphPlayer] Source ID {0} not found", sourceID);
 			return false;
 		}
 
-		ma_result result = it->second->Play();
-		if (result == MA_SUCCESS)
+		bool result = it->second->SendPlayEvent();
+		if (result)
 		{
-			OLO_CORE_TRACE("[SoundGraphPlayer] Started playback of source {}", sourceID);
+			OLO_CORE_TRACE("[SoundGraphPlayer] Started playback of source {0}", sourceID);
 			return true;
 		}
 		else
 		{
-			OLO_CORE_ERROR("[SoundGraphPlayer] Failed to start playback of source {}: {}", sourceID, static_cast<int>(result));
+			OLO_CORE_ERROR("[SoundGraphPlayer] Failed to start playback of source {0}", sourceID);
 			return false;
 		}
 	}
@@ -105,21 +134,13 @@ namespace OloEngine::Audio::SoundGraph
 		auto it = m_SoundGraphSources.find(sourceID);
 		if (it == m_SoundGraphSources.end())
 		{
-			OLO_CORE_ERROR("[SoundGraphPlayer] Source ID {} not found", sourceID);
+			OLO_CORE_ERROR("[SoundGraphPlayer] Source ID {0} not found", sourceID);
 			return false;
 		}
 
-		ma_result result = it->second->Stop();
-		if (result == MA_SUCCESS)
-		{
-			OLO_CORE_TRACE("[SoundGraphPlayer] Stopped playback of source {}", sourceID);
-			return true;
-		}
-		else
-		{
-			OLO_CORE_ERROR("[SoundGraphPlayer] Failed to stop playback of source {}: {}", sourceID, static_cast<int>(result));
-			return false;
-		}
+		it->second->SuspendProcessing(true);
+		OLO_CORE_TRACE("[SoundGraphPlayer] Stopped playback of source {0}", sourceID);
+		return true;
 	}
 
 	bool SoundGraphPlayer::Pause(u32 sourceID)
@@ -127,21 +148,14 @@ namespace OloEngine::Audio::SoundGraph
 		auto it = m_SoundGraphSources.find(sourceID);
 		if (it == m_SoundGraphSources.end())
 		{
-			OLO_CORE_ERROR("[SoundGraphPlayer] Source ID {} not found", sourceID);
+			OLO_CORE_ERROR("[SoundGraphPlayer] Source ID {0} not found", sourceID);
 			return false;
 		}
 
-		ma_result result = it->second->Pause();
-		if (result == MA_SUCCESS)
-		{
-			OLO_CORE_TRACE("[SoundGraphPlayer] Paused playback of source {}", sourceID);
-			return true;
-		}
-		else
-		{
-			OLO_CORE_ERROR("[SoundGraphPlayer] Failed to pause playback of source {}: {}", sourceID, static_cast<int>(result));
-			return false;
-		}
+		// Pause by suspending processing
+		it->second->SuspendProcessing(true);
+		OLO_CORE_TRACE("[SoundGraphPlayer] Paused playback of source {0}", sourceID);
+		return true;
 	}
 
 	bool SoundGraphPlayer::IsPlaying(u32 sourceID) const
@@ -165,8 +179,8 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 		// Stop playback and uninitialize before removing
-		it->second->Stop();
-		it->second->Uninitialize();
+		it->second->SuspendProcessing(true);
+		it->second->Shutdown();
 		m_SoundGraphSources.erase(it);
 
 		OLO_CORE_TRACE("[SoundGraphPlayer] Removed sound graph source {}", sourceID);
@@ -181,7 +195,7 @@ namespace OloEngine::Audio::SoundGraph
 			return nullptr;
 		}
 
-		return it->second->GetSoundGraph();
+		return it->second->GetGraph();
 	}
 
 	void SoundGraphPlayer::SetMasterVolume(f32 volume)
@@ -191,10 +205,9 @@ namespace OloEngine::Audio::SoundGraph
 		// Apply master volume to all sources
 		for (auto& [id, source] : m_SoundGraphSources)
 		{
-			if (source && source->GetSound())
-			{
-				ma_sound_set_volume(source->GetSound(), m_MasterVolume);
-			}
+			// We don't have direct volume control on individual sources yet
+			// This would need integration with the sound graph parameter system
+			// For now, we just store the master volume for future use
 		}
 
 		OLO_CORE_TRACE("[SoundGraphPlayer] Set master volume to {}", m_MasterVolume);
@@ -205,9 +218,9 @@ namespace OloEngine::Audio::SoundGraph
 		// Update all sound graphs on the main thread
 		for (auto& [id, source] : m_SoundGraphSources)
 		{
-			if (source && source->GetSoundGraph())
+			if (source)
 			{
-				source->GetSoundGraph()->Update(deltaTime);
+				source->Update(deltaTime);
 			}
 		}
 
