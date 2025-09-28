@@ -106,7 +106,16 @@ namespace OloEngine::Audio::SoundGraph
         out << YAML::EndMap; // SoundGraph
         out << YAML::EndMap; // Root
         
-        return out.c_str();
+        // Check emitter state before using c_str()
+        if (out.good())
+        {
+            return std::string(out.c_str());
+        }
+        else
+        {
+            OLO_CORE_ERROR("SoundGraphSerializer: YAML emitter failed during serialization");
+            return std::string(); // Return empty string on failure
+        }
     }
 
     bool SoundGraphSerializer::DeserializeFromString(SoundGraphAsset& asset, const std::string& yamlString)

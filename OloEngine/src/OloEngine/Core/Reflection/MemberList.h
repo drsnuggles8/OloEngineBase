@@ -222,7 +222,7 @@ namespace OloEngine::Core::Reflection {
 		template<size_t MemberIndex>
 		static constexpr auto GetMemberSize()
 		{
-			return sizeof(MemberType<MemberIndex>);
+			return sizeof(FilterVoid_t<MemberType<MemberIndex>>);
 		}
 
 		static constexpr std::optional<size_t> GetMemberSize(size_t memberIndex)

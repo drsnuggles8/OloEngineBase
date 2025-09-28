@@ -14,6 +14,7 @@
 #include <queue>
 #include <mutex>
 #include <vector>
+#include <optional>
 
 namespace OloEngine::Audio::SoundGraph
 {
@@ -75,7 +76,7 @@ namespace OloEngine::Audio::SoundGraph
         
         /// Debugging and Introspection
         std::vector<std::string> GetCachedPaths() const;
-        const SoundGraphCacheEntry* GetCacheEntry(const std::string& sourcePath) const;
+        std::optional<SoundGraphCacheEntry> GetCacheEntry(const std::string& sourcePath) const;
         void LogStatistics() const;
         
         /// Serialization for persistent cache

@@ -63,7 +63,9 @@ namespace OloEngine
 			// LCG: Linear Congruential Generator
 			// Formula: (a * seed + c) % m
 			// Using constants from Numerical Recipes
-			m_State = (LCG_A * m_State + LCG_C) % LCG_M;
+			// Use 64-bit arithmetic to avoid 32-bit overflow
+			i64 temp = static_cast<i64>(LCG_A) * static_cast<i64>(m_State) + static_cast<i64>(LCG_C);
+			m_State = static_cast<i32>(temp % static_cast<i64>(LCG_M));
 			return m_State;
 		}
 
@@ -116,16 +118,22 @@ namespace OloEngine
 		{
 			if (low >= high) return low;
 			
-			// Avoid modulo bias by using rejection sampling for better distribution
-			const u32 range = static_cast<u32>(high - low + 1);
-			const u32 limit = 0xFFFFFFFF - (0xFFFFFFFF % range);
+			// Compute span using 64-bit arithmetic to prevent overflow
+			const u64 span = static_cast<u64>(high) - static_cast<u64>(low) + 1;
+			OLO_CORE_ASSERT(span > 0, "FastRandom: span must be positive");
+			OLO_CORE_ASSERT(span <= static_cast<u64>(LCG_M), "FastRandom: span exceeds generator resolution");
+			
+			// Use the actual generator maximum (LCG_M - 1) for rejection sampling
+			const u32 generatorMax = static_cast<u32>(LCG_M - 1);
+			const u32 spanU32 = static_cast<u32>(span);
+			const u32 limit = generatorMax - (generatorMax % spanU32);
 			
 			u32 value;
 			do {
 				value = GetUInt32();
 			} while (value >= limit);
 			
-			return low + static_cast<i32>(value % range);
+			return low + static_cast<i32>(value % spanU32);
 		}
 
 		//==============================================================================

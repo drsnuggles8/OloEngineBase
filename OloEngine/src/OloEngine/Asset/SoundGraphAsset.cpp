@@ -115,6 +115,15 @@ namespace OloEngine
         if (Nodes.empty())
             return false;
 
+        // Check for nodes with duplicate IDs
+        std::unordered_set<UUID> nodeIds;
+        for (const auto& node : Nodes)
+        {
+            if (nodeIds.find(node.ID) != nodeIds.end())
+                return false; // Duplicate node ID found
+            nodeIds.insert(node.ID);
+        }
+
         // Validate all connections reference existing nodes
         for (const auto& connection : Connections)
         {

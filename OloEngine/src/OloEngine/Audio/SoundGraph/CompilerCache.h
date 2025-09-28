@@ -38,7 +38,7 @@ namespace OloEngine::Audio::SoundGraph
 
         /// Cache Operations
         bool HasCompiled(const std::string& sourcePath, const std::string& compilerVersion = "") const;
-        CompilationResult* GetCompiled(const std::string& sourcePath, const std::string& compilerVersion = "");
+        std::shared_ptr<const CompilationResult> GetCompiled(const std::string& sourcePath, const std::string& compilerVersion = "");
         void StoreCompiled(const std::string& sourcePath, const CompilationResult& result);
         void InvalidateCompiled(const std::string& sourcePath);
         void ClearCache();
@@ -72,7 +72,7 @@ namespace OloEngine::Audio::SoundGraph
 
     private:
         mutable std::mutex m_Mutex;
-        std::unordered_map<std::string, CompilationResult> m_CompiledResults;
+        std::unordered_map<std::string, std::shared_ptr<CompilationResult>> m_CompiledResults;
         
         std::string m_CacheDirectory;
         sizet m_MaxCacheSize = 1000; // Maximum number of cached compilations

@@ -132,7 +132,7 @@ namespace OloEngine::Audio::SoundGraph
 
 		void AddOutEvent(Identifier id, OutputEvent& out)
 		{
-			const auto& [element, inserted] = OutEvents.insert({ id, out });
+			const auto& [element, inserted] = OutEvents.insert({ id, std::ref(out) });
 			OLO_CORE_ASSERT(inserted, "Output event with this ID already exists");
 		}
 
@@ -169,7 +169,7 @@ namespace OloEngine::Audio::SoundGraph
 		/// Endpoint access
 
 		std::unordered_map<Identifier, InputEvent> InEvents;
-		std::unordered_map<Identifier, OutputEvent&> OutEvents;
+		std::unordered_map<Identifier, std::reference_wrapper<OutputEvent>> OutEvents;
 
 		std::unordered_map<Identifier, choc::value::ValueView> InputStreams;
 		std::unordered_map<Identifier, choc::value::ValueView> OutputStreams;
@@ -183,7 +183,7 @@ namespace OloEngine::Audio::SoundGraph
 		inline choc::value::ValueView& InValue(const Identifier& id) { return InputStreams.at(id); }
 		inline choc::value::ValueView& OutValue(const Identifier& id) { return OutputStreams.at(id); }
 		inline InputEvent& InEvent(const Identifier& id) { return InEvents.at(id); }
-		inline OutputEvent& OutEvent(const Identifier& id) { return OutEvents.at(id); }
+		inline OutputEvent& OutEvent(const Identifier& id) { return OutEvents.at(id).get(); }
 
 		//==============================================================================
 		/// Parameter system (OloEngine enhancement over Hazel)

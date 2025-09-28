@@ -78,6 +78,17 @@ namespace OloEngine::Audio
 		static bool GetAudioFileInfo(const std::filesystem::path& filePath, 
 			u32& outNumChannels, u32& outNumFrames, f64& outSampleRate, f64& outDuration);
 		
+		/// Get comprehensive audio file information including bit depth
+		/// @param filePath Path to the audio file
+		/// @param outNumChannels Number of channels (output)
+		/// @param outNumFrames Number of frames (output)
+		/// @param outSampleRate Sample rate (output)
+		/// @param outDuration Duration in seconds (output)
+		/// @param outBitDepth Original bit depth (output)
+		/// @return true if successful, false otherwise
+		static bool GetAudioFileInfo(const std::filesystem::path& filePath, 
+			u32& outNumChannels, u32& outNumFrames, f64& outSampleRate, f64& outDuration, u16& outBitDepth);
+		
 		/// Check if a file extension is supported
 		/// @param extension File extension (e.g., ".wav", ".mp3", ".ogg")
 		/// @return true if supported, false otherwise

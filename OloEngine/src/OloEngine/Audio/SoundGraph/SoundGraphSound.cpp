@@ -344,7 +344,8 @@ namespace OloEngine
     i32 SoundGraphSound::StopNow(u16 options)
     {
         m_PlayState = SoundPlayState::Stopped;
-    m_IsFading = false;
+        m_IsFading = false;
+        m_IsFinished = true;
         
         if (options & StopOptions::ResetPlaybackPosition)
         {

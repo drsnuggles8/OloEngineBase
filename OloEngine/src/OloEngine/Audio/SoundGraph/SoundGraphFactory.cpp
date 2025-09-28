@@ -9,6 +9,7 @@ namespace OloEngine::Audio::SoundGraph
 	//==============================================================================
 	using Registry = std::unordered_map<Identifier, std::function<NodeProcessor*(UUID nodeID)>>;
 
+	// TODO(olbu): Expand this registry as we add more node types
 	// Simple factory registration - we'll expand this as we add more nodes
 	static const Registry NodeProcessors
 	{

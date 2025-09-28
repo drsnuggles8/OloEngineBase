@@ -1,11 +1,12 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include <functional>
-#include <thread>
 #include <atomic>
-#include <mutex>
 #include <condition_variable>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <thread>
 #include <queue>
 
 namespace OloEngine::Audio

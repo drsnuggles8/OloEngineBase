@@ -145,7 +145,7 @@ namespace OloEngine::Audio
 				for (size_t i = 0; i < m_BusConfig.InputBuses.size(); ++i)
 				{
 					// Deinterleave input audio from interleaved format
-					SampleBufferOperations::Deinterleave(m_InDeinterleavedBuses[i], ppFramesIn[0]);
+					SampleBufferOperations::Deinterleave(m_InDeinterleavedBuses[i], ppFramesIn[i]);
 				}
 			}
 			else
@@ -159,7 +159,13 @@ namespace OloEngine::Audio
 			for (size_t i = 0; i < m_BusConfig.OutputBuses.size(); ++i)
 			{
 				// Interleave output audio to interleaved format
-				SampleBufferOperations::Interleave(ppFramesOut[0], m_OutDeinterleavedBuses[i]);
+				SampleBufferOperations::Interleave(ppFramesOut[i], m_OutDeinterleavedBuses[i]);
+			}
+			
+			// Set output frame count
+			if (pFrameCountOut != nullptr)
+			{
+				*pFrameCountOut = *pFrameCountIn;
 			}
 		}
 

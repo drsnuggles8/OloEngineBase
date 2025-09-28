@@ -158,28 +158,30 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphCache::ValidateEntries()
     {
-        std::lock_guard<std::mutex> lock(m_Mutex);
-        
         std::vector<std::string> invalidPaths;
         
-        for (auto& [path, entry] : m_CacheEntries)
+        // Gather invalid paths while holding the mutex
         {
-            // Check if source file still exists
-            if (!std::filesystem::exists(path))
+            std::lock_guard<std::mutex> lock(m_Mutex);
+            for (auto& [path, entry] : m_CacheEntries)
             {
-                invalidPaths.push_back(path);
-                continue;
-            }
+                // Check if source file still exists
+                if (!std::filesystem::exists(path))
+                {
+                    invalidPaths.push_back(path);
+                    continue;
+                }
 
-            // Check if source file has been modified
-            if (IsSourceNewer(path))
-            {
-                invalidPaths.push_back(path);
-                continue;
+                // Check if source file has been modified
+                if (IsSourceNewer(path))
+                {
+                    invalidPaths.push_back(path);
+                    continue;
+                }
             }
         }
 
-        // Remove invalid entries
+        // Remove invalid entries after releasing the mutex to avoid deadlock
         for (const std::string& path : invalidPaths)
         {
             Remove(path);
@@ -193,20 +195,23 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphCache::CompactCache()
     {
-        std::lock_guard<std::mutex> lock(m_Mutex);
-        
         // Remove entries that haven't been accessed recently
         auto threshold = std::chrono::system_clock::now() - std::chrono::hours(24);
         std::vector<std::string> oldPaths;
         
-        for (const auto& [path, entry] : m_CacheEntries)
+        // Gather old paths while holding the mutex
         {
-            if (entry.LastAccessed < threshold && entry.AccessCount < 5)
+            std::lock_guard<std::mutex> lock(m_Mutex);
+            for (const auto& [path, entry] : m_CacheEntries)
             {
-                oldPaths.push_back(path);
+                if (entry.LastAccessed < threshold && entry.AccessCount < 5)
+                {
+                    oldPaths.push_back(path);
+                }
             }
         }
 
+        // Remove entries after releasing the mutex to avoid deadlock
         for (const std::string& path : oldPaths)
         {
             Remove(path);
@@ -306,12 +311,16 @@ namespace OloEngine::Audio::SoundGraph
         return paths;
     }
 
-    const SoundGraphCacheEntry* SoundGraphCache::GetCacheEntry(const std::string& sourcePath) const
+    std::optional<SoundGraphCacheEntry> SoundGraphCache::GetCacheEntry(const std::string& sourcePath) const
     {
         std::lock_guard<std::mutex> lock(m_Mutex);
         
         auto it = m_CacheEntries.find(sourcePath);
-        return it != m_CacheEntries.end() ? &it->second : nullptr;
+        if (it != m_CacheEntries.end())
+        {
+            return it->second; // Return a copy
+        }
+        return std::nullopt;
     }
 
     void SoundGraphCache::LogStatistics() const
@@ -439,6 +448,11 @@ namespace OloEngine::Audio::SoundGraph
                 // In a real implementation, this would compile/load the actual graph
                 Ref<SoundGraph> graph = nullptr; // LoadSoundGraphFromFile(sourcePath);
                 
+                // Generate compiled path for caching
+                // Convert source path to cache path (e.g., "path/file.soundgraph" -> "cache/soundgraph/file.sgc")
+                std::filesystem::path sourcePathFs(sourcePath);
+                std::string compiledPath = "cache/soundgraph/" + sourcePathFs.stem().string() + ".sgc";
+                
                 if (callback)
                 {
                     callback(sourcePath, graph);
@@ -447,7 +461,7 @@ namespace OloEngine::Audio::SoundGraph
                 // Cache the result if successful
                 if (graph)
                 {
-                    Put(sourcePath, graph);
+                    Put(sourcePath, graph, compiledPath);
                 }
             }
         }

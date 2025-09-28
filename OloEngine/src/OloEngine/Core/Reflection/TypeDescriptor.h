@@ -22,8 +22,14 @@ namespace OloEngine::Core::Reflection {
 
 	//==============================================================================
 	/// Check if type has specialized description
-	template<typename T, typename TTag = DummyTag>
-	using IsDescribed = IsSpecialized<Description<std::remove_cvref_t<T>, TTag>>;
+	/// Detects Description specializations by checking for MemberListType nested type
+	template<typename T, typename TTag = DummyTag, typename = void>
+	struct IsDescribed : std::false_type {};
+
+	template<typename T, typename TTag>
+	struct IsDescribed<T, TTag, std::void_t<
+		typename Description<std::remove_cvref_t<T>, TTag>::MemberListType
+	>> : std::true_type {};
 
 	template<typename T, typename TTag = DummyTag>
 	constexpr bool IsDescribed_v = IsDescribed<T, TTag>::value;

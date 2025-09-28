@@ -2,6 +2,7 @@
 
 #include "NodeProcessor.h"
 #include "OloEngine/Core/Reflection/Reflection.h"
+#include <functional>
 
 namespace OloEngine::Audio::SoundGraph {
 
@@ -17,8 +18,15 @@ namespace OloEngine::Audio::SoundGraph {
 
 	//==============================================================================
 	/// Check if a node has description specializations
+	/// Detects NodeDescription specializations by checking for Inputs/Outputs nested types
+	template<typename T, typename = void>
+	struct IsDescribedNode : std::false_type {};
+
 	template<typename T>
-	using IsDescribedNode = Core::Reflection::IsSpecialized<NodeDescription<std::remove_cvref_t<T>>>;
+	struct IsDescribedNode<T, std::void_t<
+		typename NodeDescription<std::remove_cvref_t<T>>::Inputs,
+		typename NodeDescription<std::remove_cvref_t<T>>::Outputs
+	>> : std::true_type {};
 
 	template<typename T>
 	constexpr bool IsDescribedNode_v = IsDescribedNode<T>::value;
@@ -53,21 +61,21 @@ namespace OloEngine::Audio::SoundGraph {
 								// Create an InputEvent and bind it to the member function
 								using FunctionType = TMember;
 								
-								// Create InputEvent bound to the member function
-								auto inputEvent = std::make_shared<NodeProcessor::InputEvent>(*node, 
-									[node, memberPtr](float value) {
-										// Call the member function with the event value
-										if constexpr (std::is_same_v<FunctionType, void()>)
-										{
-											// No-parameter event function
-											(node->*memberPtr)();
-										}
-										else if constexpr (std::is_same_v<FunctionType, void(float)>)
-										{
-											// Single float parameter event function
-											(node->*memberPtr)(value);
-										}
-										// TODO: Add support for other event parameter types as needed
+							// Create InputEvent bound to the member function
+							auto inputEvent = std::make_shared<NodeProcessor::InputEvent>(*node, 
+								[node, memberPtr](float value) {
+									// Call the member function with the event value using std::invoke
+									if constexpr (std::is_invocable_v<FunctionType, decltype(*node)>)
+									{
+										// No-parameter event function
+										std::invoke(memberPtr, node.get());
+									}
+									else if constexpr (std::is_invocable_v<FunctionType, decltype(*node), float>)
+									{
+										// Single float parameter event function
+										std::invoke(memberPtr, node.get(), value);
+									}
+									// TODO: Add support for other event parameter types as needed
 									});
 								
 								// Register the event with the node

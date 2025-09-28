@@ -4,6 +4,7 @@
 #include "SoundGraph.h"
 #include "OloEngine/Core/Ref.h"
 
+#include <string>
 #include <vector>
 
 namespace OloEngine::Audio::SoundGraph

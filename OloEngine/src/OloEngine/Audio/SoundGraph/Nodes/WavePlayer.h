@@ -89,7 +89,7 @@ namespace OloEngine::Audio::SoundGraph
 				StartPlayback();
 
 			if (m_StopFlag.CheckAndResetIfDirty())
-				StopPlayback(true);
+				StopPlayback(false);
 
 			if (m_IsPlaying)
 			{
@@ -144,13 +144,16 @@ namespace OloEngine::Audio::SoundGraph
 			if (!m_WaveSource.WaveHandle)
 			{
 				DBG("WavePlayer: Invalid wave asset handle, cannot start playback");
-				StopPlayback(true);
+				StopPlayback(false);
 				return;
 			}
 
-			// If already playing, refill buffer from start
-			if (m_IsPlaying)
-				ForceRefillBuffer();
+			// Set playback frame counters to start sample (respects start-time offset)
+			m_FrameNumber = m_StartSample;
+			m_WaveSource.ReadPosition = m_FrameNumber;
+
+			// Prime the buffer unconditionally when transitioning into playback
+			ForceRefillBuffer();
 
 			m_IsPlaying = true;
 			out_OnPlay(2.0f);
@@ -167,7 +170,9 @@ namespace OloEngine::Audio::SoundGraph
 			UpdateWaveSourceIfNeeded();
 
 			if (notifyOnFinish)
-				out_OnFinished(2.0f);
+				out_OnFinished(2.0f);  // Natural completion
+			else
+				out_OnStop(2.0f);     // Manual stop or error
 
 			DBG("WavePlayer: Stopped playing");
 		}

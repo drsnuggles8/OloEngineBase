@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include <algorithm>
 #include <array>
 #include <cstring>
 
@@ -30,41 +31,53 @@ namespace OloEngine::Audio
 		{
 			static_assert(NumChannels == 1, "Use PushFrame for multi-channel buffers");
 			
+			// Write sample at current position
 			m_buf[m_writepos] = x;
-			++m_writepos;
-			++m_avail;
 			
-			if (m_writepos >= m_buf.size()) 
-			{
+			// Advance and wrap write position
+			++m_writepos;
+			if (m_writepos >= static_cast<int>(m_buf.size()))
 				m_writepos = 0;
-				// Handle buffer overflow by advancing read position if we've wrapped around
-				if (m_avail >= m_buf.size())
-				{
-					m_readpos = (m_writepos + 1) % m_buf.size();
-					m_avail = static_cast<int>(m_buf.size()) - 1;
-				}
+			
+			// Check for overwrite: if buffer was full, advance read position
+			if (m_avail < static_cast<int>(m_buf.size()))
+			{
+				++m_avail;
+			}
+			else
+			{
+				// Buffer was full - advance read position to discard oldest sample
+				++m_readpos;
+				if (m_readpos >= static_cast<int>(m_buf.size()))
+					m_readpos = 0;
 			}
 		}
 
 		/// Push a frame of samples (for multi-channel buffers)
 		inline void PushFrame(const T* frame) noexcept
 		{
+			// Write frame at current position
 			for (sizet ch = 0; ch < NumChannels; ++ch)
 			{
 				m_buf[m_writepos * NumChannels + ch] = frame[ch];
 			}
-			++m_writepos;
-			++m_avail;
 			
-			if (m_writepos >= GetFrameCapacity()) 
-			{
+			// Advance and wrap write position
+			++m_writepos;
+			if (m_writepos >= static_cast<int>(GetFrameCapacity()))
 				m_writepos = 0;
-				// Handle buffer overflow by advancing read position
-				if (m_avail >= GetFrameCapacity())
-				{
-					m_readpos = (m_writepos + 1) % GetFrameCapacity();
-					m_avail = static_cast<int>(GetFrameCapacity()) - 1;
-				}
+			
+			// Check for overwrite: if buffer was full, advance read position
+			if (m_avail < static_cast<int>(GetFrameCapacity()))
+			{
+				++m_avail;
+			}
+			else
+			{
+				// Buffer was full - advance read position to discard oldest frame
+				++m_readpos;
+				if (m_readpos >= static_cast<int>(GetFrameCapacity()))
+					m_readpos = 0;
 			}
 		}
 
@@ -132,31 +145,46 @@ namespace OloEngine::Audio
 		{
 			static_assert(NumChannels == 1, "Use PushMultipleFrames for multi-channel buffers");
 			
+			// Clamp len to buffer size to prevent overrun
+			const int bufferSize = static_cast<int>(m_buf.size());
+			len = std::min(len, bufferSize);
+			
+			const int previousAvail = m_avail;
 			const sizet free = m_buf.size() - m_writepos;
-			const int overflow = len - static_cast<int>(free);
-
-			if (overflow > 0)
+			
+			// Copy in bounded chunks
+			if (len > static_cast<int>(free))
 			{
-				std::memcpy(&m_buf[m_writepos], buf, free * sizeof(T));
-				std::memcpy(&m_buf[0], buf + free, overflow * sizeof(T));
-				m_writepos = overflow;
+				// First chunk: copy up to end of buffer
+				const sizet firstChunk = std::min(static_cast<sizet>(len), free);
+				std::memcpy(&m_buf[m_writepos], buf, firstChunk * sizeof(T));
+				
+				// Second chunk: copy remaining to start of buffer
+				const sizet secondChunk = std::min(static_cast<sizet>(len - firstChunk), m_buf.size());
+				std::memcpy(&m_buf[0], buf + firstChunk, secondChunk * sizeof(T));
+				
+				m_writepos = static_cast<int>(secondChunk);
 			}
 			else
 			{
+				// Single chunk fits without wrapping
 				std::memcpy(&m_buf[m_writepos], buf, len * sizeof(T));
 				m_writepos += len;
-				if (m_writepos >= m_buf.size())
+				if (m_writepos >= bufferSize)
 					m_writepos = 0;
 			}
 
-			m_avail += len;
+			// Calculate how much data was overwritten
+			const int overwritten = std::max(0, previousAvail + len - bufferSize);
 			
-			// Handle overflow by adjusting read position and available count
-			if (m_avail >= static_cast<int>(m_buf.size()))
+			// Advance read position by amount overwritten
+			if (overwritten > 0)
 			{
-				m_avail = static_cast<int>(m_buf.size()) - 1;
-				m_readpos = (m_writepos + 1) % m_buf.size();
+				m_readpos = (m_readpos + overwritten) % bufferSize;
 			}
+			
+			// Update available count
+			m_avail = std::min(previousAvail + len, bufferSize);
 		}
 
 		/// Push multiple frames for multi-channel buffers

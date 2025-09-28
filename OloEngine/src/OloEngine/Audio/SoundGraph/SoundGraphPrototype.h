@@ -7,6 +7,7 @@
 
 #include <vector>
 #include <string>
+#include <utility>
 
 namespace OloEngine::Audio::SoundGraph
 {

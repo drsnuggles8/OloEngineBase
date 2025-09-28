@@ -27,11 +27,11 @@ namespace OloEngine
         Shader = 16,
         MeshCollider = 17,
         SoundGraphSound = 18,
-        SoundGraph = 19,
-        AnimationClip = 20,
-        AnimationGraph = 21,
-        Model = 22,
-        Environment = 23
+        AnimationClip = 19,
+        AnimationGraph = 20,
+        Model = 21,
+        Environment = 22,
+        SoundGraph = 23
     };
 
     enum class AssetFlag : u16

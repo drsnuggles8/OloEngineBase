@@ -55,7 +55,7 @@ namespace OloEngine::Audio::SoundGraph
 
 		//==========================================================================
 		/// NodeProcessor setup
-		T* in_Array = nullptr;
+		std::vector<T>* in_Array = nullptr;
 		int32_t* in_Min = nullptr;
 		int32_t* in_Max = nullptr;
 		int32_t* in_Seed = nullptr;
@@ -74,10 +74,42 @@ namespace OloEngine::Audio::SoundGraph
 
 		void ProcessNext()
 		{
-			// Generate random value in range
-			T randomValue = static_cast<T>(m_Random.GetInt32InRange(*in_Min, *in_Max));
-			out_Element = randomValue;
-			out_OnNext(1.0f);
+			// Validate array exists and is not empty
+			if (!in_Array || in_Array->size() == 0)
+			{
+				// Handle null/empty array gracefully - set default value and return
+				out_Element = T{0};
+				OLO_CORE_WARN("GetRandom: Array is null or empty, using default value");
+				return;
+			}
+
+			// Compute valid index range within array bounds
+			int32_t arraySize = static_cast<int32_t>(in_Array->size());
+			int32_t minIndex = (in_Min && *in_Min >= 0) ? glm::min(*in_Min, arraySize - 1) : 0;
+			int32_t maxIndex = (in_Max && *in_Max < arraySize) ? *in_Max : arraySize - 1;
+			
+			// Ensure valid range
+			if (minIndex > maxIndex)
+			{
+				minIndex = 0;
+				maxIndex = arraySize - 1;
+			}
+
+			// Generate random index within valid bounds
+			int32_t randomIndex = m_Random.GetInt32InRange(minIndex, maxIndex);
+			
+			// Validate index is within bounds (safety check)
+			if (randomIndex >= 0 && randomIndex < arraySize)
+			{
+				out_Element = (*in_Array)[randomIndex];
+				out_OnNext(1.0f);
+			}
+			else
+			{
+				// Out-of-range fallback - should not happen with proper bounds checking
+				out_Element = T{0};
+				OLO_CORE_ERROR("GetRandom: Generated index {} out of bounds [0, {})", randomIndex, arraySize);
+			}
 		}
 
 		void ProcessReset()

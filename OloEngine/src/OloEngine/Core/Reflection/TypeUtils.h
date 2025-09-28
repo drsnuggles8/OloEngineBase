@@ -1,11 +1,12 @@
 #pragma once
 
-#include <type_traits>
-#include <vector>
 #include <array>
-#include <variant>
 #include <optional>
 #include <iostream>
+#include <type_traits>
+#include <variant>
+#include <vector>
+#include <utility>
 
 namespace OloEngine::Core::Reflection {
 
@@ -42,12 +43,21 @@ namespace OloEngine::Core::Reflection {
 	}
 
 	//==============================================================================
-	/// Check if a template is specialized
-	template <typename, typename = void>
-	struct IsSpecialized : std::false_type {};
+	/// Check if a type is an instantiation of a specific class template
+	template<template<typename...> class Template, typename T>
+	struct IsSpecializationOf : std::false_type {};
 
-	template<typename T>
-	struct IsSpecialized<T, std::void_t<decltype(T{})>> : std::true_type {};
+	template<template<typename...> class Template, typename... Args>
+	struct IsSpecializationOf<Template, Template<Args...>> : std::true_type {};
+
+	template<template<typename...> class Template, typename T>
+	constexpr bool IsSpecializationOf_v = IsSpecializationOf<Template, T>::value;
+
+	//==============================================================================
+	/// Detect if a template has been explicitly specialized by checking for expected members
+	/// This works by attempting to access a member that only exists in specializations
+	template<typename T, typename = void>
+	struct IsSpecialized : std::false_type {};
 
 	template<typename T>
 	constexpr bool IsSpecialized_v = IsSpecialized<T>::value;

@@ -24,38 +24,38 @@ namespace OloEngine::Audio::SoundGraph
         std::string key = GenerateCacheKey(sourcePath, compilerVersion);
         auto it = m_CompiledResults.find(key);
         
-        if (it == m_CompiledResults.end() || !it->second.IsValid)
+        if (it == m_CompiledResults.end() || !it->second || !it->second->IsValid)
         {
             return false;
         }
 
         // Check if source is newer than compilation
-        return !IsSourceNewer(sourcePath, it->second);
+        return !IsSourceNewer(sourcePath, *it->second);
     }
 
-    CompilationResult* CompilerCache::GetCompiled(const std::string& sourcePath, const std::string& compilerVersion)
+    std::shared_ptr<const CompilationResult> CompilerCache::GetCompiled(const std::string& sourcePath, const std::string& compilerVersion)
     {
         std::lock_guard<std::mutex> lock(m_Mutex);
         
         std::string key = GenerateCacheKey(sourcePath, compilerVersion);
         auto it = m_CompiledResults.find(key);
         
-        if (it == m_CompiledResults.end() || !it->second.IsValid)
+        if (it == m_CompiledResults.end() || !it->second || !it->second->IsValid)
         {
             ++m_MissCount;
             return nullptr;
         }
 
         // Check if source is newer than compilation
-        if (IsSourceNewer(sourcePath, it->second))
+        if (IsSourceNewer(sourcePath, *it->second))
         {
             ++m_MissCount;
-            it->second.IsValid = false; // Invalidate outdated entry
+            it->second->IsValid = false; // Invalidate outdated entry
             return nullptr;
         }
 
         ++m_HitCount;
-        return &it->second;
+        return it->second; // Return shared_ptr for thread-safe access
     }
 
     void CompilerCache::StoreCompiled(const std::string& sourcePath, const CompilationResult& result)
@@ -70,7 +70,7 @@ namespace OloEngine::Audio::SoundGraph
             // Simple eviction: remove oldest entry
             auto oldestIt = std::min_element(m_CompiledResults.begin(), m_CompiledResults.end(),
                 [](const auto& a, const auto& b) {
-                    return a.second.CompilationTime < b.second.CompilationTime;
+                    return a.second && b.second && a.second->CompilationTime < b.second->CompilationTime;
                 });
             
             if (oldestIt != m_CompiledResults.end())
@@ -79,7 +79,7 @@ namespace OloEngine::Audio::SoundGraph
             }
         }
 
-        m_CompiledResults[key] = result;
+        m_CompiledResults[key] = std::make_shared<CompilationResult>(result);
         
         if (m_AutoSave)
         {
@@ -97,11 +97,11 @@ namespace OloEngine::Audio::SoundGraph
         std::lock_guard<std::mutex> lock(m_Mutex);
         
         // Invalidate all versions of this source file
-        for (auto& [key, result] : m_CompiledResults)
+        for (auto& [key, resultPtr] : m_CompiledResults)
         {
-            if (result.SourcePath == sourcePath)
+            if (resultPtr && resultPtr->SourcePath == sourcePath)
             {
-                result.IsValid = false;
+                resultPtr->IsValid = false;
             }
         }
     }
@@ -163,7 +163,7 @@ namespace OloEngine::Audio::SoundGraph
                     if (DeserializeResult(result, entry.path().string()))
                     {
                         std::string key = GenerateCacheKey(result.SourcePath, result.CompilerVersion);
-                        m_CompiledResults[key] = result;
+                        m_CompiledResults[key] = std::make_shared<CompilationResult>(result);
                         ++loadedCount;
                     }
                 }
@@ -189,12 +189,12 @@ namespace OloEngine::Audio::SoundGraph
             
             sizet savedCount = 0;
             
-            for (const auto& [key, result] : m_CompiledResults)
+            for (const auto& [key, resultPtr] : m_CompiledResults)
             {
-                if (result.IsValid)
+                if (resultPtr && resultPtr->IsValid)
                 {
-                    std::string filePath = GetCacheFilePath(result.SourcePath, result.CompilerVersion);
-                    if (SerializeResult(result, filePath))
+                    std::string filePath = GetCacheFilePath(resultPtr->SourcePath, resultPtr->CompilerVersion);
+                    if (SerializeResult(*resultPtr, filePath))
                     {
                         ++savedCount;
                     }
@@ -217,19 +217,25 @@ namespace OloEngine::Audio::SoundGraph
         
         std::vector<std::string> invalidKeys;
         
-        for (auto& [key, result] : m_CompiledResults)
+        for (auto& [key, resultPtr] : m_CompiledResults)
         {
+            if (!resultPtr)
+            {
+                invalidKeys.push_back(key);
+                continue;
+            }
+
             // Check if source file exists
-            if (!std::filesystem::exists(result.SourcePath))
+            if (!std::filesystem::exists(resultPtr->SourcePath))
             {
                 invalidKeys.push_back(key);
                 continue;
             }
 
             // Check if source is newer than compilation
-            if (IsSourceNewer(result.SourcePath, result))
+            if (IsSourceNewer(resultPtr->SourcePath, *resultPtr))
             {
-                result.IsValid = false;
+                resultPtr->IsValid = false;
             }
         }
 
@@ -252,9 +258,9 @@ namespace OloEngine::Audio::SoundGraph
         auto threshold = std::chrono::system_clock::now() - maxAge;
         std::vector<std::string> oldKeys;
         
-        for (const auto& [key, result] : m_CompiledResults)
+        for (const auto& [key, resultPtr] : m_CompiledResults)
         {
-            if (result.CompilationTime < threshold)
+            if (resultPtr && resultPtr->CompilationTime < threshold)
             {
                 oldKeys.push_back(key);
             }
@@ -512,7 +518,8 @@ namespace OloEngine::Audio::SoundGraph
             
             if (!s_GlobalCompilerCache)
             {
-                s_GlobalCompilerCache = OloEngine::Ref<OloEngine::Audio::SoundGraph::CompilerCache>::Create();
+                // Use default cache directory consistent with CompilerCacheConfig
+                s_GlobalCompilerCache = OloEngine::Ref<OloEngine::Audio::SoundGraph::CompilerCache>::Create("cache/compiler/");
             }
             
             return s_GlobalCompilerCache;

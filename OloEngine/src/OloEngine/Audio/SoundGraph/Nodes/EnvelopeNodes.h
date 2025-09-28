@@ -46,6 +46,21 @@ namespace OloEngine::Audio::SoundGraph
 
 		void Process() final
 		{
+			// Check for parameter changes and recalculate rates if needed
+			if (*in_AttackTime != m_CachedAttackTime ||
+				*in_DecayTime != m_CachedDecayTime ||
+				*in_AttackCurve != m_CachedAttackCurve ||
+				*in_DecayCurve != m_CachedDecayCurve ||
+				m_SampleRate != m_CachedSampleRate)
+			{
+				RecalculateRates();
+				m_CachedAttackTime = *in_AttackTime;
+				m_CachedDecayTime = *in_DecayTime;
+				m_CachedAttackCurve = *in_AttackCurve;
+				m_CachedDecayCurve = *in_DecayCurve;
+				m_CachedSampleRate = m_SampleRate;
+			}
+
 			// Handle trigger events
 			if (m_TriggerFlag.IsDirty())
 			{
@@ -108,6 +123,13 @@ namespace OloEngine::Audio::SoundGraph
 		float m_DecayCurve{ 1.0f };
 
 		Flag m_TriggerFlag;
+
+		// Cached parameter values for runtime change detection
+		f32 m_CachedAttackTime = -1.0f;
+		f32 m_CachedDecayTime = -1.0f;
+		f32 m_CachedAttackCurve = -1.0f;
+		f32 m_CachedDecayCurve = -1.0f;
+		f32 m_CachedSampleRate = -1.0f;
 
 		void RecalculateRates()
 		{
@@ -218,6 +240,25 @@ namespace OloEngine::Audio::SoundGraph
 
 		void Process() final
 		{
+			// Check for parameter changes and recalculate rates if needed
+			if (*in_AttackTime != m_CachedAttackTime ||
+				*in_DecayTime != m_CachedDecayTime ||
+				*in_ReleaseTime != m_CachedReleaseTime ||
+				*in_AttackCurve != m_CachedAttackCurve ||
+				*in_DecayCurve != m_CachedDecayCurve ||
+				*in_ReleaseCurve != m_CachedReleaseCurve ||
+				m_SampleRate != m_CachedSampleRate)
+			{
+				RecalculateRates();
+				m_CachedAttackTime = *in_AttackTime;
+				m_CachedDecayTime = *in_DecayTime;
+				m_CachedReleaseTime = *in_ReleaseTime;
+				m_CachedAttackCurve = *in_AttackCurve;
+				m_CachedDecayCurve = *in_DecayCurve;
+				m_CachedReleaseCurve = *in_ReleaseCurve;
+				m_CachedSampleRate = m_SampleRate;
+			}
+
 			// Handle trigger and release events
 			if (m_TriggerFlag.IsDirty())
 			{
@@ -304,6 +345,15 @@ namespace OloEngine::Audio::SoundGraph
 
 		Flag m_TriggerFlag;
 		Flag m_ReleaseFlag;
+
+		// Cached parameter values for runtime change detection
+		f32 m_CachedAttackTime = -1.0f;
+		f32 m_CachedDecayTime = -1.0f;
+		f32 m_CachedReleaseTime = -1.0f;
+		f32 m_CachedAttackCurve = -1.0f;
+		f32 m_CachedDecayCurve = -1.0f;
+		f32 m_CachedReleaseCurve = -1.0f;
+		f32 m_CachedSampleRate = -1.0f;
 
 		void RecalculateRates()
 		{

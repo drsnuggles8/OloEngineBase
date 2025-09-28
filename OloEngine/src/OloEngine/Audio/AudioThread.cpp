@@ -63,6 +63,8 @@ namespace OloEngine::Audio
                 s_TaskQueue.pop();
             }
             s_PendingTasks.store(0);
+            // Notify any threads waiting for task completion
+            s_CompletionCondition.notify_all();
         }
 
         OLO_CORE_INFO("AudioThread stopped");

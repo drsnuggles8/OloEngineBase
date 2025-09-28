@@ -165,6 +165,7 @@ namespace OloEngine::Audio::SoundGraph
 			out_Value = (*in_StartValue);
 			out_Count = 0;
 			out_OnReset(1.0f);
+			m_PendingAutoReset = false;
 		}
 	};
 

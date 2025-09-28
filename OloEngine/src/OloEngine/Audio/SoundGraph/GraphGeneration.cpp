@@ -73,6 +73,9 @@ namespace OloEngine::Audio::SoundGraph
 			// Copy nodes from the source prototype to the output prototype
 			OutPrototype->Nodes = Options.GraphPrototype->Nodes;
 			
+			// Copy local variable plugs so they are available for CreateInstance step 2
+			OutPrototype->LocalVariablePlugs = Options.GraphPrototype->LocalVariablePlugs;
+			
 			// Validate that all node types are supported by our factory
 			for (const auto& node : OutPrototype->Nodes)
 			{
