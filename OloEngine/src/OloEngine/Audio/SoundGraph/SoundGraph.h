@@ -13,6 +13,7 @@
 #include <memory>
 #include <unordered_map>
 #include <functional>
+#include <type_traits>
 
 #define LOG_DBG_MESSAGES 0
 
@@ -49,15 +50,17 @@ namespace OloEngine::Audio::SoundGraph
 			: NodeProcessor(debugName.data(), id), EndpointOutputStreams(*this)
 		{
 			AddInEvent(IDs::Play);
-
-			out_OnFinish.AddDestination(std::make_shared<InputEvent>(*this,
-				[&](float v)
+			
+			// Create a dedicated input event for handling finish notifications
+			auto& finishHandler = AddInEvent(Identifier("OnFinishHandler"), [&](float v)
 				{
 					(void)v;
 					static constexpr float dummyValue = 1.0f;
 					choc::value::ValueView value(choc::value::Type::createFloat32(), (void*)&dummyValue, nullptr);
 					OutgoingEvents.push({ CurrentFrame, IDs::OnFinished, value });
-				}));
+				});
+			
+			out_OnFinish.AddDestination(&finishHandler);
 			
 			AddOutEvent(IDs::OnFinished, out_OnFinish);
 
@@ -144,7 +147,7 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			EndpointInputStreams.emplace_back(CreateScope<StreamWriter>(AddInStream(id), std::forward<T>(externalObjectOrDefaultValue), id));
 
-			if (std::is_same_v<T, float>)
+			if (std::is_same_v<std::remove_cvref_t<T>, float>)
 			{
 				// Add interpolation for float parameters
 				InterpInputs.try_emplace(id, InterpolatedValue{ 0.0f, 0.0f, 0.0f, 0, EndpointInputStreams.back().get() });
@@ -219,7 +222,7 @@ namespace OloEngine::Audio::SoundGraph
 
 		void AddConnection(OutputEvent& source, InputEvent& destination) noexcept
 		{
-			source.AddDestination(std::make_shared<InputEvent>(destination));
+			source.AddDestination(&destination);
 		}
 
 		/// Connect Input Event to Input Event
@@ -232,8 +235,13 @@ namespace OloEngine::Audio::SoundGraph
 		/// Connect Output Event to Output Event
 		void AddRoute(OutputEvent& source, OutputEvent& destination) noexcept
 		{
+			// Create a dedicated input event for routing from OutputEvent to OutputEvent
 			OutputEvent* dest = &destination;
-			source.AddDestination(std::make_shared<InputEvent>(*this, [dest](float v) { (*dest)(v); }));
+			static size_t routeCounter = 0;
+			std::string routeIdStr = "Route_" + std::to_string(routeCounter++);
+			Identifier routeId(routeIdStr);
+			auto& routeHandler = AddInEvent(routeId, [dest](float v) { (*dest)(v); });
+			source.AddDestination(&routeHandler);
 		}
 
 		//==============================================================================
@@ -463,15 +471,24 @@ namespace OloEngine::Audio::SoundGraph
 
 			if (value.isFloat32())
 			{
-				// Handle interpolation for float values
-				auto& interpInput = InterpInputs.at(endpoint->get()->DestinationID);
-				if (interpolate)
+				// Handle interpolation for float values - use safe lookup
+				auto interpIt = InterpInputs.find(endpoint->get()->DestinationID);
+				if (interpIt != InterpInputs.end())
 				{
-					interpInput.SetTarget(value.getFloat32(), 480); // 10ms at 48kHz
+					auto& interpInput = interpIt->second;
+					if (interpolate)
+					{
+						interpInput.SetTarget(value.getFloat32(), 480); // 10ms at 48kHz
+					}
+					else
+					{
+						interpInput.Reset(value.getFloat32());
+						*(*endpoint) << value;
+					}
 				}
 				else
 				{
-					interpInput.Reset(value.getFloat32());
+					// No interpolation registered, just set the value directly
 					*(*endpoint) << value;
 				}
 			}

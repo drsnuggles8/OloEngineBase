@@ -115,21 +115,11 @@ namespace OloEngine::Core::Reflection {
 
 	//==============================================================================
 	/// Nth element extraction from parameter pack
-	namespace Impl {
-		template<size_t... Ns, typename... Args>
-		constexpr auto NthElementUnroll(std::index_sequence<Ns...>, Args... args)
-		{
-			return [](decltype((void*)Ns)..., auto* nth, auto*...)
-			{
-				return *nth;
-			}(&args...);
-		}
-	}
-
-	template<auto N, typename... Args>
-	constexpr auto NthElement(Args... args)
+	template<auto I, typename... Args>
+	constexpr decltype(auto) NthElement(Args&&... args)
 	{
-		return Impl::NthElementUnroll(std::make_index_sequence<N>(), args...);
+		static_assert(I < sizeof...(Args), "Index out of bounds for parameter pack");
+		return std::get<I>(std::forward_as_tuple(std::forward<Args>(args)...));
 	}
 
 } // namespace OloEngine::Core::Reflection

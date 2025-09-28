@@ -122,6 +122,10 @@ namespace OloEngine::Audio::SoundGraph
 		float m_AttackCurve{ 1.0f };
 		float m_DecayCurve{ 1.0f };
 
+		// Normalized progress tracking (0..1)
+		float m_AttackProgress{ 0.0f };
+		float m_DecayProgress{ 0.0f };
+
 		Flag m_TriggerFlag;
 
 		// Cached parameter values for runtime change detection
@@ -159,36 +163,46 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			m_State = Attack;
 			m_Target = 1.0f;
+			m_AttackProgress = 0.0f; // Reset attack progress
 			out_OnTrigger(1.0f);
 		}
 
 		void ProcessAttack()
 		{
-			// Exponential curve for attack
-			float progress = m_AttackRate;
-			float curvedProgress = glm::pow(progress, 1.0f / m_AttackCurve);
+			// Increment normalized progress using the solved rate (preserves timing)
+			m_AttackProgress += m_AttackRate;
+			m_AttackProgress = glm::clamp(m_AttackProgress, 0.0f, 1.0f);
 			
-			m_Value += curvedProgress * (m_Target - m_Value);
+			// Apply curve to normalized progress
+			float curvedProgress = glm::pow(m_AttackProgress, 1.0f / m_AttackCurve);
+			
+			// Interpolate using curved progress
+			m_Value = curvedProgress; // Attack goes from 0 to 1
 
-			// Check if attack is complete (within small threshold)
-			if (m_Value >= 0.99f)
+			// Check if attack is complete
+			if (m_AttackProgress >= 1.0f)
 			{
 				m_Value = 1.0f;
 				m_State = Decay;
 				m_Target = 0.0f;
+				m_DecayProgress = 0.0f; // Reset decay progress
 			}
 		}
 
 		void ProcessDecay()
 		{
-			// Exponential curve for decay
-			float progress = m_DecayRate;
-			float curvedProgress = glm::pow(progress, 1.0f / m_DecayCurve);
+			// Increment normalized progress using the solved rate (preserves timing)
+			m_DecayProgress += m_DecayRate;
+			m_DecayProgress = glm::clamp(m_DecayProgress, 0.0f, 1.0f);
 			
-			m_Value += curvedProgress * (m_Target - m_Value);
+			// Apply curve to normalized progress
+			float curvedProgress = glm::pow(m_DecayProgress, 1.0f / m_DecayCurve);
+			
+			// Interpolate using curved progress (decay goes from 1 to 0)
+			m_Value = 1.0f - curvedProgress;
 
 			// Check if decay is complete
-			if (m_Value <= 0.01f)
+			if (m_DecayProgress >= 1.0f)
 			{
 				m_Value = 0.0f;
 				m_State = Idle;
@@ -343,6 +357,11 @@ namespace OloEngine::Audio::SoundGraph
 		float m_DecayCurve{ 1.0f };
 		float m_ReleaseCurve{ 1.0f };
 
+		// Normalized progress tracking (0..1)
+		float m_AttackProgress{ 0.0f };
+		float m_DecayProgress{ 0.0f };
+		float m_ReleaseProgress{ 0.0f };
+
 		Flag m_TriggerFlag;
 		Flag m_ReleaseFlag;
 
@@ -361,36 +380,28 @@ namespace OloEngine::Audio::SoundGraph
 			m_DecayCurve = glm::max(0.1f, *in_DecayCurve);
 			m_ReleaseCurve = glm::max(0.1f, *in_ReleaseCurve);
 
-			// Calculate rates (exponential coefficients)
+			// Calculate per-sample progress increments (1/durationInSamples)
 			if (*in_AttackTime <= 0.0f)
-				m_AttackRate = 1.0f; // Immediate
+				m_AttackRate = 1.0f; // Immediate (complete in one sample)
 			else
-			{
-				const float remainingRatio = 0.01f; // Reach 0.99 of target
-				m_AttackRate = 1.0f - powf(remainingRatio, 1.0f / (*in_AttackTime * m_SampleRate));
-			}
+				m_AttackRate = 1.0f / (*in_AttackTime * m_SampleRate);
 
 			if (*in_DecayTime <= 0.0f)
 				m_DecayRate = 1.0f; // Immediate
 			else
-			{
-				const float remainingRatio = 0.01f; // Reach 0.01 of start value
-				m_DecayRate = 1.0f - powf(remainingRatio, 1.0f / (*in_DecayTime * m_SampleRate));
-			}
+				m_DecayRate = 1.0f / (*in_DecayTime * m_SampleRate);
 
 			if (*in_ReleaseTime <= 0.0f)
 				m_ReleaseRate = 1.0f; // Immediate
 			else
-			{
-				const float remainingRatio = 0.01f; // Reach 0.01 of start value
-				m_ReleaseRate = 1.0f - powf(remainingRatio, 1.0f / (*in_ReleaseTime * m_SampleRate));
-			}
+				m_ReleaseRate = 1.0f / (*in_ReleaseTime * m_SampleRate);
 		}
 
 		void StartAttack()
 		{
 			m_State = Attack;
 			m_Target = 1.0f;
+			m_AttackProgress = 0.0f; // Reset attack progress
 			out_OnTrigger(1.0f);
 		}
 
@@ -401,35 +412,48 @@ namespace OloEngine::Audio::SoundGraph
 				m_State = Release;
 				m_SustainStartValue = m_Value;
 				m_Target = 0.0f;
+				m_ReleaseProgress = 0.0f; // Reset release progress
 				out_OnRelease(1.0f);
 			}
 		}
 
 		void ProcessAttack()
 		{
-			float progress = m_AttackRate;
-			float curvedProgress = glm::pow(progress, 1.0f / m_AttackCurve);
+			// Increment normalized progress using the solved rate (preserves timing)
+			m_AttackProgress += m_AttackRate;
+			m_AttackProgress = glm::clamp(m_AttackProgress, 0.0f, 1.0f);
 			
-			m_Value += curvedProgress * (m_Target - m_Value);
+			// Apply curve to normalized progress
+			float curvedProgress = glm::pow(m_AttackProgress, 1.0f / m_AttackCurve);
+			
+			// Interpolate using curved progress (attack goes from 0 to 1)
+			m_Value = curvedProgress;
 
-			if (m_Value >= 0.99f)
+			// Check if attack is complete
+			if (m_AttackProgress >= 1.0f)
 			{
 				m_Value = 1.0f;
 				m_State = Decay;
 				m_Target = glm::clamp(*in_SustainLevel, 0.0f, 1.0f);
+				m_DecayProgress = 0.0f; // Reset decay progress
 			}
 		}
 
 		void ProcessDecay()
 		{
-			float progress = m_DecayRate;
-			float curvedProgress = glm::pow(progress, 1.0f / m_DecayCurve);
+			// Increment normalized progress using the solved rate (preserves timing)
+			m_DecayProgress += m_DecayRate;
+			m_DecayProgress = glm::clamp(m_DecayProgress, 0.0f, 1.0f);
 			
-			m_Value += curvedProgress * (m_Target - m_Value);
-
-			// Check if decay reached sustain level (within threshold)
+			// Apply curve to normalized progress
+			float curvedProgress = glm::pow(m_DecayProgress, 1.0f / m_DecayCurve);
+			
+			// Interpolate using curved progress (decay from 1.0 to sustain level)
 			float sustainLevel = glm::clamp(*in_SustainLevel, 0.0f, 1.0f);
-			if (glm::abs(m_Value - sustainLevel) <= 0.01f)
+			m_Value = 1.0f - curvedProgress * (1.0f - sustainLevel);
+
+			// Check if decay is complete
+			if (m_DecayProgress >= 1.0f)
 			{
 				m_Value = sustainLevel;
 				m_State = Sustain;
@@ -438,12 +462,18 @@ namespace OloEngine::Audio::SoundGraph
 
 		void ProcessRelease()
 		{
-			float progress = m_ReleaseRate;
-			float curvedProgress = glm::pow(progress, 1.0f / m_ReleaseCurve);
+			// Increment normalized progress using the solved rate (preserves timing)
+			m_ReleaseProgress += m_ReleaseRate;
+			m_ReleaseProgress = glm::clamp(m_ReleaseProgress, 0.0f, 1.0f);
 			
-			m_Value += curvedProgress * (m_Target - m_Value);
+			// Apply curve to normalized progress
+			float curvedProgress = glm::pow(m_ReleaseProgress, 1.0f / m_ReleaseCurve);
+			
+			// Interpolate using curved progress (release from sustain level to 0)
+			m_Value = m_SustainStartValue * (1.0f - curvedProgress);
 
-			if (m_Value <= 0.01f)
+			// Check if release is complete
+			if (m_ReleaseProgress >= 1.0f)
 			{
 				m_Value = 0.0f;
 				m_State = Idle;

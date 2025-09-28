@@ -203,14 +203,22 @@ namespace OloEngine::Audio::SoundGraph
 
 	void SoundGraphPlayer::SetMasterVolume(f32 volume)
 	{
+		// Bail early if the audio engine is not initialized
+		if (!m_IsInitialized || !m_Engine)
+		{
+			OLO_CORE_WARN("[SoundGraphPlayer] Cannot set master volume: audio engine not initialized");
+			return;
+		}
+
+		// Clamp and store the volume value
 		m_MasterVolume = glm::clamp(volume, 0.0f, 2.0f);
 		
-		// Apply master volume to all sources
-		for (auto& [id, source] : m_SoundGraphSources)
+		// Apply the master volume to the underlying miniaudio engine
+		ma_result result = ma_engine_set_volume(m_Engine, m_MasterVolume);
+		if (result != MA_SUCCESS)
 		{
-			// We don't have direct volume control on individual sources yet
-			// This would need integration with the sound graph parameter system
-			// For now, we just store the master volume for future use
+			OLO_CORE_ERROR("[SoundGraphPlayer] Failed to set master volume on audio engine: {}", ma_result_description(result));
+			return;
 		}
 
 		OLO_CORE_TRACE("[SoundGraphPlayer] Set master volume to {}", m_MasterVolume);

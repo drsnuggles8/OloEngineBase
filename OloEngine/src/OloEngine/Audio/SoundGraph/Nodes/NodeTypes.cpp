@@ -23,6 +23,16 @@ namespace OloEngine::Audio::SoundGraph
 
 	// Math nodes that are non-template (following Hazel's pattern)
 	// Note: Template math nodes are handled in NodeTypeImpls.h
+	// These math nodes have declaration-only RegisterEndpoints/InitializeInputs methods
+	INIT_ENDPOINTS_FUNCS(Subtract<float>);
+	INIT_ENDPOINTS_FUNCS(Multiply<float>);
+	INIT_ENDPOINTS_FUNCS(Divide<float>);
+	INIT_ENDPOINTS_FUNCS(Min<float>);
+	INIT_ENDPOINTS_FUNCS(Max<float>);
+	INIT_ENDPOINTS_FUNCS(Clamp<float>);
+	INIT_ENDPOINTS_FUNCS(MapRange<float>);
+	INIT_ENDPOINTS_FUNCS(Power<float>);
+	INIT_ENDPOINTS_FUNCS(Abs<float>);
 
 	// Generator nodes that need custom behavior use INIT_ENDPOINTS_FUNCS
 	INIT_ENDPOINTS_FUNCS(Noise);

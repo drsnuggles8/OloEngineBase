@@ -107,10 +107,12 @@ namespace OloEngine::Audio::SoundGraph
 						}
 						else
 						{
-							// Loop back to start
-							ReadNextFrame();
+							// Loop back to start - reset play head before fetching next frame
 							m_FrameNumber = m_StartSample;
-							m_WaveSource.ReadPosition = m_FrameNumber + 1;
+							m_WaveSource.ReadPosition = m_FrameNumber;
+							ReadNextFrame();
+							m_FrameNumber++;
+							m_WaveSource.ReadPosition = m_FrameNumber;
 						}
 					}
 					else
@@ -237,7 +239,8 @@ namespace OloEngine::Audio::SoundGraph
 				{
 					f64 sampleRate = m_AudioData.IsValid() ? m_AudioData.sampleRate : 48000.0;
 					m_StartSample = static_cast<i64>(*in_StartTime * sampleRate);
-					m_StartSample = glm::min(m_StartSample, m_TotalFrames - 1);
+					i64 maxSample = (m_TotalFrames > 0 ? m_TotalFrames - 1 : 0);
+					m_StartSample = glm::min(m_StartSample, maxSample);
 				}
 				else
 				{

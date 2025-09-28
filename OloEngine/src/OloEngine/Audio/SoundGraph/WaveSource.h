@@ -23,13 +23,19 @@ namespace OloEngine::Audio
         using RefillCallback = std::function<bool(WaveSource&)>;
         RefillCallback onRefill = nullptr;
 
-        inline bool Refill() { return onRefill(*this); }
+        inline bool Refill() 
+        { 
+            if (!onRefill) 
+                return false; 
+            return onRefill(*this); 
+        }
 
         inline void Clear() noexcept
         {
             Channels.Clear();
 
             TotalFrames = 0;
+            StartPosition = 0;
             ReadPosition = 0;
             WaveHandle = 0;
             WaveName = nullptr;

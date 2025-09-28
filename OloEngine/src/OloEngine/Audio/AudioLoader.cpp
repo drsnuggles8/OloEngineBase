@@ -82,7 +82,15 @@ namespace OloEngine::Audio
 
 		// Allocate buffer for audio data
 		const u64 totalSamples = static_cast<u64>(outAudioData.numFrames) * outAudioData.numChannels;
-		outAudioData.samples.resize(totalSamples);
+		const u64 maxSamples = static_cast<u64>(outAudioData.samples.max_size());
+		if (totalSamples > maxSamples)
+		{
+			OLO_CORE_ERROR("[AudioLoader] Audio buffer too large for file: {} (samples: {}, max: {})",
+				filePath.string(), totalSamples, maxSamples);
+			ma_decoder_uninit(&decoder);
+			return false;
+		}
+		outAudioData.samples.resize(static_cast<size_t>(totalSamples));
 
 		// Read audio data
 		ma_uint64 framesRead;
@@ -168,7 +176,15 @@ namespace OloEngine::Audio
 
 		// Allocate buffer for audio data
 		const u64 totalSamples = static_cast<u64>(outAudioData.numFrames) * outAudioData.numChannels;
-		outAudioData.samples.resize(totalSamples);
+		const u64 maxSamples = static_cast<u64>(outAudioData.samples.max_size());
+		if (totalSamples > maxSamples)
+		{
+			OLO_CORE_ERROR("[AudioLoader] Audio buffer too large for memory decode (samples: {}, max: {})",
+				totalSamples, maxSamples);
+			ma_decoder_uninit(&decoder);
+			return false;
+		}
+		outAudioData.samples.resize(static_cast<size_t>(totalSamples));
 
 		// Read audio data
 		ma_uint64 framesRead;

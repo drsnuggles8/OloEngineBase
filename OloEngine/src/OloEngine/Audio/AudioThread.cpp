@@ -13,13 +13,19 @@ namespace OloEngine::Audio
     
     std::queue<AudioThread::Task> AudioThread::s_TaskQueue{};
     std::mutex AudioThread::s_TaskQueueMutex{};
+    std::mutex AudioThread::s_StartStopMutex{};
     std::condition_variable AudioThread::s_TaskCondition{};
     std::condition_variable AudioThread::s_CompletionCondition{};
     std::atomic<int> AudioThread::s_PendingTasks{ 0 };
 
     bool AudioThread::Start()
     {
-        if (s_IsRunning.load())
+        // Serialize start operations to prevent race conditions
+        std::lock_guard<std::mutex> startLock(s_StartStopMutex);
+        
+        // Use atomic compare-exchange to ensure only one thread can transition to running
+        bool expected = false;
+        if (!s_IsRunning.compare_exchange_strong(expected, true))
         {
             OLO_CORE_WARN("AudioThread is already running");
             return false;
@@ -27,8 +33,9 @@ namespace OloEngine::Audio
 
         s_ShouldStop.store(false);
         s_AudioThread = std::make_unique<std::thread>(AudioThreadLoop);
+        s_AudioThreadID = s_AudioThread->get_id();
         
-        // Wait for thread to start
+        // Wait for thread to start (thread loop will confirm it's running)
         std::unique_lock<std::mutex> lock(s_TaskQueueMutex);
         s_TaskCondition.wait(lock, [] { return s_IsRunning.load(); });
         
@@ -38,6 +45,9 @@ namespace OloEngine::Audio
 
     void AudioThread::Stop()
     {
+        // Serialize stop operations with start operations
+        std::lock_guard<std::mutex> startLock(s_StartStopMutex);
+        
         if (!s_IsRunning.load())
         {
             OLO_CORE_WARN("AudioThread is not running");
@@ -53,6 +63,9 @@ namespace OloEngine::Audio
         }
 
         s_AudioThread.reset();
+        s_AudioThreadID = std::thread::id{};
+        
+        // Only clear s_IsRunning after thread has been joined
         s_IsRunning.store(false);
         
         // Clear any remaining tasks

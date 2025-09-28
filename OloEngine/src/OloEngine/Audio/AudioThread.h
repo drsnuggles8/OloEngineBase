@@ -57,6 +57,7 @@ namespace OloEngine::Audio
         // Task queue (lock-free would be better, but using mutex for simplicity)
         static std::queue<Task> s_TaskQueue;
         static std::mutex s_TaskQueueMutex;
+        static std::mutex s_StartStopMutex;  // Serializes start/stop operations
         static std::condition_variable s_TaskCondition;
         static std::condition_variable s_CompletionCondition;
         static std::atomic<int> s_PendingTasks;

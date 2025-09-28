@@ -133,6 +133,7 @@ namespace OloEngine::Audio::SoundGraph
 
     f32 SoundGraphCache::GetHitRatio() const
     {
+        std::lock_guard<std::mutex> lock(m_Mutex);
         u64 totalAccesses = m_HitCount + m_MissCount;
         return totalAccesses > 0 ? static_cast<f32>(m_HitCount) / static_cast<f32>(totalAccesses) : 0.0f;
     }
@@ -225,12 +226,20 @@ namespace OloEngine::Audio::SoundGraph
 
     bool SoundGraphCache::IsSourceNewer(const std::string& sourcePath) const
     {
-        auto it = m_CacheEntries.find(sourcePath);
-        if (it == m_CacheEntries.end())
-            return true;
-
+        // Copy the cached timestamp while holding the mutex to avoid race conditions
+        std::optional<std::chrono::time_point<std::chrono::system_clock>> cachedModTime;
+        {
+            std::lock_guard<std::mutex> lock(m_Mutex);
+            auto it = m_CacheEntries.find(sourcePath);
+            if (it == m_CacheEntries.end())
+                return true;
+            
+            cachedModTime = it->second.LastModified;
+        }
+        
+        // Perform filesystem access outside the lock
         auto currentModTime = GetFileModificationTime(sourcePath);
-        return currentModTime > it->second.LastModified;
+        return currentModTime > cachedModTime.value();
     }
 
     void SoundGraphCache::InvalidateByPath(const std::string& sourcePath)
@@ -332,8 +341,12 @@ namespace OloEngine::Audio::SoundGraph
         OLO_CORE_INFO("  Memory Usage: {:.2f}/{:.2f} MB", 
                       m_CurrentMemoryUsage / (1024.0f * 1024.0f),
                       m_MaxMemoryUsage / (1024.0f * 1024.0f));
+        
+        // Compute hit ratio directly within the lock to avoid deadlock and ensure consistency
+        u64 totalAccesses = m_HitCount + m_MissCount;
+        f32 hitRatio = totalAccesses > 0 ? static_cast<f32>(m_HitCount) / static_cast<f32>(totalAccesses) : 0.0f;
         OLO_CORE_INFO("  Hit Ratio: {:.1f}% ({}/{} requests)", 
-                      GetHitRatio() * 100.0f, m_HitCount, m_HitCount + m_MissCount);
+                      hitRatio * 100.0f, m_HitCount, totalAccesses);
     }
 
     bool SoundGraphCache::SaveCacheMetadata(const std::string& filePath) const
@@ -414,7 +427,8 @@ namespace OloEngine::Audio::SoundGraph
         constexpr sizet BufferSize = 4096;
         char buffer[BufferSize];
         
-        while (file.read(buffer, BufferSize))
+        // Process all reads including the final partial read
+        while (file.read(buffer, BufferSize) || file.gcount() > 0)
         {
             for (sizet i = 0; i < static_cast<sizet>(file.gcount()); ++i)
             {

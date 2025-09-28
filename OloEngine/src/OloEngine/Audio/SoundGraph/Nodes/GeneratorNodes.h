@@ -261,15 +261,34 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			InitializeInputs();
 
-			// Initialize generator with seed
-			int seed = (in_Seed && *in_Seed != -1) ? *in_Seed : static_cast<int>(std::time(nullptr));
-			m_Generator.Init(seed, static_cast<ENoiseType>(*in_Type));
+			// Initialize with safe input resolution
+			int resolvedSeed = ResolveSeed();
+			ENoiseType resolvedType = ResolveType();
+			
+			// Cache the resolved values
+			m_CachedSeed = resolvedSeed;
+			m_CachedType = resolvedType;
+			
+			// Initialize generator
+			m_Generator.Init(resolvedSeed, resolvedType);
 		}
 
 		void Process() final
 		{
+			// Check if seed or type have changed and reinitialize if needed
+			int resolvedSeed = ResolveSeed();
+			ENoiseType resolvedType = ResolveType();
+			
+			if (resolvedSeed != m_CachedSeed || resolvedType != m_CachedType)
+			{
+				m_CachedSeed = resolvedSeed;
+				m_CachedType = resolvedType;
+				m_Generator.Init(resolvedSeed, resolvedType);
+			}
+			
 			float noiseValue = m_Generator.GetNextValue();
-			out_Value = noiseValue * (*in_Amplitude);
+			float amplitude = in_Amplitude ? *in_Amplitude : 1.0f;
+			out_Value = noiseValue * amplitude;
 		}
 
 		enum ENoiseType : int32_t
@@ -280,6 +299,21 @@ namespace OloEngine::Audio::SoundGraph
 		};
 
 	private:
+		// Helper methods for safe input resolution
+		int ResolveSeed() const
+		{
+			return (in_Seed && *in_Seed != -1) ? *in_Seed : static_cast<int>(std::time(nullptr));
+		}
+		
+		ENoiseType ResolveType() const
+		{
+			return (in_Type) ? static_cast<ENoiseType>(*in_Type) : WhiteNoise;
+		}
+		
+		// Cached values to detect changes
+		int m_CachedSeed = -1;
+		ENoiseType m_CachedType = WhiteNoise;
+
 		struct Generator
 		{
 		public:

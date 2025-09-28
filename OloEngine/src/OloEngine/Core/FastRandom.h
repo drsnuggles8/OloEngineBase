@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include <chrono>
+#include <limits>
 
 namespace OloEngine
 {
@@ -48,12 +49,12 @@ namespace OloEngine
 	public:
 		//==============================================================================
 		/// Constructors
-		FastRandom() noexcept : m_State(DEFAULT_SEED) {}
-		explicit FastRandom(i32 seed) noexcept : m_State(seed) {}
+		FastRandom() noexcept : m_State(NormalizeSeed(DEFAULT_SEED)) {}
+		explicit FastRandom(i32 seed) noexcept : m_State(NormalizeSeed(seed)) {}
 
 		//==============================================================================
 		/// Seed management
-		void SetSeed(i32 newSeed) noexcept { m_State = newSeed; }
+		void SetSeed(i32 newSeed) noexcept { m_State = NormalizeSeed(newSeed); }
 		i32 GetCurrentSeed() const noexcept { return m_State; }
 
 		//==============================================================================
@@ -123,16 +124,19 @@ namespace OloEngine
 			OLO_CORE_ASSERT(span > 0, "FastRandom: span must be positive");
 			OLO_CORE_ASSERT(span <= static_cast<u64>(LCG_M), "FastRandom: span exceeds generator resolution");
 			
-			// Use the actual generator maximum (LCG_M - 1) for rejection sampling
-			const u32 generatorMax = static_cast<u32>(LCG_M - 1);
+			// Use 64-bit arithmetic for rejection sampling to prevent limit becoming zero
 			const u32 spanU32 = static_cast<u32>(span);
-			const u32 limit = generatorMax - (generatorMax % spanU32);
+			const u64 range = static_cast<u64>(LCG_M);  // Full generator domain size
+			const u64 limit64 = range - (range % static_cast<u64>(spanU32));
+			const u32 limit = static_cast<u32>(limit64);
 			
 			u32 value;
 			do {
 				value = GetUInt32();
 			} while (value >= limit);
 			
+			// Use rejection sampling to ensure uniform distribution across the requested range.
+			// The 64-bit arithmetic prevents 'limit' from becoming zero when span equals the full generator range.
 			return low + static_cast<i32>(value % spanU32);
 		}
 
@@ -177,6 +181,29 @@ namespace OloEngine
 		static constexpr i32 LCG_M = 2147483647;  // 2^31 - 1
 		static constexpr i32 LCG_A = 48271;       // Multiplier
 		static constexpr i32 LCG_C = 0;           // Increment
+
+		// Normalize seed to valid range [1, LCG_M - 1] to prevent degenerate states
+		static constexpr i32 NormalizeSeed(i32 seed) noexcept
+		{
+			// Handle zero seed (degenerate case)
+			if (seed == 0)
+				return DEFAULT_SEED;
+			
+			// Handle negative seeds by taking absolute value
+			if (seed < 0)
+			{
+				// Prevent overflow when seed is INT32_MIN
+				if (seed == std::numeric_limits<i32>::min())
+					return DEFAULT_SEED;
+				seed = -seed;
+			}
+			
+			// Ensure seed is within valid LCG range [1, LCG_M - 1]
+			if (seed >= LCG_M)
+				seed = (seed % (LCG_M - 1)) + 1;
+			
+			return seed;
+		}
 	};
 
 	//==============================================================================

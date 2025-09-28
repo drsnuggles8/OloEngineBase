@@ -16,12 +16,32 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			OLO_CORE_ASSERT(Options.GraphPrototype);
 			OLO_CORE_ASSERT(OutPrototype);
+			GenerateChannelIdentifiers();
 		}
 
 		//==============================================================================
 		GraphGeneratorOptions& Options;
 		Ref<Prototype> OutPrototype;
 		std::vector<UUID> OutWaveAssets;
+		std::vector<Identifier> m_OutputChannelIdentifiers; // Generated channel IDs for reuse
+
+		void GenerateChannelIdentifiers()
+		{
+			m_OutputChannelIdentifiers.reserve(Options.NumOutChannels);
+			for (u32 i = 0; i < Options.NumOutChannels; ++i)
+			{
+				if (i == 0)
+					m_OutputChannelIdentifiers.push_back(SoundGraph::IDs::OutLeft);
+				else if (i == 1)
+					m_OutputChannelIdentifiers.push_back(SoundGraph::IDs::OutRight);
+				else
+				{
+					// Generate unique channel identifier for channels beyond stereo
+					std::string channelName = "Out" + std::to_string(i);
+					m_OutputChannelIdentifiers.push_back(Identifier(channelName));
+				}
+			}
+		}
 
 		//==============================================================================
 		bool Run()
@@ -55,15 +75,13 @@ namespace OloEngine::Audio::SoundGraph
 				OutPrototype->Inputs.push_back(input);
 			}
 
-			for (u32 i = 0; i < Options.NumOutChannels; ++i)
-			{
-				Identifier outputID = (i == 0) ? SoundGraph::IDs::OutLeft : SoundGraph::IDs::OutRight;
-				
-				Prototype::Endpoint output(outputID, choc::value::Value(0.0f));
-				OutPrototype->Outputs.push_back(output);
-			}
-
-			// Add standard graph events
+		for (u32 i = 0; i < Options.NumOutChannels; ++i)
+		{
+			Identifier outputID = m_OutputChannelIdentifiers[i];
+			
+			Prototype::Endpoint output(outputID, choc::value::Value(0.0f));
+			OutPrototype->Outputs.push_back(output);
+		}			// Add standard graph events
 			OutPrototype->Inputs.emplace_back(Identifier("Play"), choc::value::Value(0.0f));
 			OutPrototype->Outputs.emplace_back(Identifier("OnFinished"), choc::value::Value(0.0f));
 		}
@@ -266,8 +284,19 @@ namespace OloEngine::Audio::SoundGraph
 			graph->AddGraphOutputStream(output.EndpointID);
 		}
 
-		// Set hardcoded output channel IDs (OutLeft, OutRight)
-		graph->OutputChannelIDs = { SoundGraph::IDs::OutLeft, SoundGraph::IDs::OutRight };
+		// Set output channel IDs from the prototype outputs
+		graph->OutputChannelIDs.clear();
+		graph->OutputChannelIDs.reserve(prototype->Outputs.size());
+		
+		// Filter outputs to only include channel outputs (exclude events like "OnFinished")
+		for (const auto& output : prototype->Outputs)
+		{
+			// Skip event outputs - only include audio channel outputs
+			if (output.EndpointID != Identifier("OnFinished"))
+			{
+				graph->OutputChannelIDs.push_back(output.EndpointID);
+			}
+		}
 
 		//==============================================================================
 		// Step 2: Set up local variables

@@ -204,13 +204,24 @@ namespace OloEngine::Audio
 			
 			OLO_CORE_ASSERT(m_avail >= count);
 
-			std::memcpy(dest, &m_buf[m_readpos], count * sizeof(T));
+			// Detect wrap: compute tail = m_buf.size() - m_readpos
+			const size_t tail = m_buf.size() - static_cast<size_t>(m_readpos);
+			
+			if (count <= tail)
+			{
+				// No wrap - single memcpy as before
+				std::memcpy(dest, &m_buf[m_readpos], count * sizeof(T));
+			}
+			else
+			{
+				// Wrap case - copy tail samples from end, then remaining from start
+				std::memcpy(dest, &m_buf[m_readpos], tail * sizeof(T));
+				std::memcpy(dest + tail, &m_buf[0], (count - tail) * sizeof(T));
+			}
 
-			m_readpos += count;
-			m_avail -= count;
-
-			if (m_readpos >= static_cast<int>(m_buf.size()))
-				m_readpos = m_readpos - static_cast<int>(m_buf.size());
+			// Advance read position with proper modulo
+			m_readpos = static_cast<int>((static_cast<size_t>(m_readpos) + count) % m_buf.size());
+			m_avail -= static_cast<int>(count);
 		}
 
 		constexpr sizet GetSize() const noexcept { return m_buf.size(); }

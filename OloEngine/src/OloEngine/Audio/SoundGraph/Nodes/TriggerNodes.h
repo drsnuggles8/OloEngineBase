@@ -44,10 +44,15 @@ namespace OloEngine::Audio::SoundGraph
 			if (m_StopFlag.CheckAndResetIfDirty())
 				StopTrigger();
 
-			if (m_Playing && (m_Counter += m_FrameTime) >= (*in_Period))
+			if (m_Playing)
 			{
-				m_Counter = 0.0f;
-				out_Trigger(1.0f);
+				m_Counter += m_FrameTime;
+				// Handle multiple periods if frame time exceeds period, preserving overshoot
+				while (m_Counter >= (*in_Period))
+				{
+					m_Counter -= (*in_Period);
+					out_Trigger(1.0f);
+				}
 			}
 		}
 

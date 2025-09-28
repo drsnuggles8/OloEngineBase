@@ -204,7 +204,7 @@ struct OloEngine::Core::Reflection::Description<Class, Tag> :						\
 private:																			\
 	static constexpr std::string_view MemberStr{ #__VA_ARGS__ };					\
 	static constexpr std::string_view ClassStr{ #Class };							\
-	static constexpr std::string_view Delimiter{ ", " };							\
+	static constexpr std::string_view Delimiter{ "," };							\
 	static constexpr size_t MemberCount = MemberListType::Count();					\
 																					\
 public:																				\

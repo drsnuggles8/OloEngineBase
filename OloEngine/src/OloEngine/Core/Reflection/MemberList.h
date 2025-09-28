@@ -4,6 +4,8 @@
 #include <tuple>
 #include <variant>
 #include <optional>
+#include <type_traits>
+#include <functional>
 
 namespace OloEngine::Core::Reflection {
 
@@ -38,21 +40,37 @@ namespace OloEngine::Core::Reflection {
 		template<typename TObj, typename TFunc>
 		static constexpr auto Apply(TFunc func, TObj& obj)
 		{
-			return func(obj.*MemberPointers...);
+			using result_t = std::invoke_result_t<TFunc, decltype(obj.*MemberPointers)...>;
+			if constexpr (std::is_void_v<result_t>)
+			{
+				std::invoke(func, obj.*MemberPointers...);
+			}
+			else
+			{
+				return std::invoke(func, obj.*MemberPointers...);
+			}
 		}
 
 		/** Apply a function to variadic pack of the member list (const version) */
 		template<typename TObj, typename TFunc>
 		static constexpr auto Apply(TFunc func, const TObj& obj)
 		{
-			return func(obj.*MemberPointers...);
+			using result_t = std::invoke_result_t<TFunc, decltype(obj.*MemberPointers)...>;
+			if constexpr (std::is_void_v<result_t>)
+			{
+				std::invoke(func, obj.*MemberPointers...);
+			}
+			else
+			{
+				return std::invoke(func, obj.*MemberPointers...);
+			}
 		}
 
 		/** Apply a function to each member that's not a member function */
 		template<typename TObj, typename TFunc>
-		static constexpr auto ApplyForEach(TFunc func, TObj& obj)
+		static constexpr void ApplyForEach(TFunc func, TObj& obj)
 		{
-			return (ApplyIfMemberNotFunction(func, MemberPointers, obj), ...);
+			(ApplyIfMemberNotFunction(func, MemberPointers, obj), ...);
 		}
 
 		/** Apply function to default initialized variables for each member type.
@@ -63,7 +81,15 @@ namespace OloEngine::Core::Reflection {
 		template<typename TFunc>
 		static constexpr auto ApplyToStaticType(TFunc f)
 		{
-			return f(MemberPointers...);
+			using result_t = std::invoke_result_t<TFunc, decltype(MemberPointers)...>;
+			if constexpr (std::is_void_v<result_t>)
+			{
+				std::invoke(f, MemberPointers...);
+			}
+			else
+			{
+				return std::invoke(f, MemberPointers...);
+			}
 		}
 
 	private:

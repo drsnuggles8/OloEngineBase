@@ -166,7 +166,7 @@ namespace OloEngine::Audio::SoundGraph
 			// Resuming - reset state
 			m_IsPlaying.store(false);
 			m_CurrentFrame.store(0);
-			m_IsFinished = false;
+			m_IsFinished.store(false, std::memory_order_relaxed);
 
 			// Clear any pending events by consuming them all
 			EventMessage msg;
@@ -201,7 +201,7 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 		// Handle automatic suspension when finished
-		if (m_IsFinished && m_IsPlaying.load())
+		if (m_IsFinished.load(std::memory_order_relaxed) && m_IsPlaying.load())
 		{
 			SuspendProcessing(true);
 		}
@@ -391,7 +391,14 @@ namespace OloEngine::Audio::SoundGraph
 
 		if (!m_Graph || IsSuspended())
 		{
-			ma_silence_pcm_frames(ppFramesOut[0], frameCount, ma_format_f32, 2);
+			// Silence each channel independently for planar buffers
+			for (u32 channel = 0; channel < 2; ++channel)
+			{
+				if (ppFramesOut[channel])
+				{
+					ma_silence_pcm_frames(ppFramesOut[channel], frameCount, ma_format_f32, 1);
+				}
+			}
 			return;
 		}
 
@@ -405,7 +412,14 @@ namespace OloEngine::Audio::SoundGraph
 			else
 			{
 				// If preset application failed, output silence
-				ma_silence_pcm_frames(ppFramesOut[0], frameCount, ma_format_f32, 2);
+				// Silence each channel independently for planar buffers
+				for (u32 channel = 0; channel < 2; ++channel)
+				{
+					if (ppFramesOut[channel])
+					{
+						ma_silence_pcm_frames(ppFramesOut[channel], frameCount, ma_format_f32, 1);
+					}
+				}
 				return;
 			}
 		}
@@ -418,7 +432,7 @@ namespace OloEngine::Audio::SoundGraph
 			{
 				m_CurrentFrame.store(0);
 				m_IsPlaying.store(true);
-				m_IsFinished = false;
+				m_IsFinished.store(false, std::memory_order_relaxed);
 			}
 		}
 
@@ -457,12 +471,19 @@ namespace OloEngine::Audio::SoundGraph
 			// Check if playback should finish
 			if (AreAllDataSourcesAtEnd())
 			{
-				m_IsFinished = true;
+				m_IsFinished.store(true, std::memory_order_relaxed);
 			}
 		}
 		else
 		{
-			ma_silence_pcm_frames(ppFramesOut[0], frameCount, ma_format_f32, 2);
+			// Silence each channel independently for planar buffers
+			for (u32 channel = 0; channel < 2; ++channel)
+			{
+				if (ppFramesOut[channel])
+				{
+					ma_silence_pcm_frames(ppFramesOut[channel], frameCount, ma_format_f32, 1);
+				}
+			}
 		}
 	}
 

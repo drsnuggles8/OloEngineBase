@@ -62,7 +62,7 @@ namespace OloEngine::Audio::SoundGraph
 		
 		void SuspendProcessing(bool shouldBeSuspended);
 		bool IsSuspended() const { return m_Suspended.load(); }
-		bool IsFinished() const noexcept { return m_IsFinished && !m_IsPlaying; }
+		bool IsFinished() const noexcept { return m_IsFinished.load(std::memory_order_relaxed) && !m_IsPlaying.load(std::memory_order_relaxed); }
 		bool IsPlaying() const { return m_IsPlaying.load() && !IsSuspended(); }
 
 		//==============================================================================
@@ -149,7 +149,7 @@ namespace OloEngine::Audio::SoundGraph
 		/// Playback state
 		std::atomic<bool> m_IsPlaying{ false };
 		std::atomic<u64> m_CurrentFrame{ 0 };
-		bool m_IsFinished = false;
+		std::atomic<bool> m_IsFinished{ false };
 
 		//============================================
 		/// Sound graph and data sources

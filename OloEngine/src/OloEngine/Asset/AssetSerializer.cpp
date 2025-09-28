@@ -2538,16 +2538,21 @@ namespace OloEngine
             return;
         }
 
-        Audio::SoundGraph::SoundGraphSerializer::Serialize(*soundGraphAsset, metadata.FilePath);
+        // Resolve absolute path by anchoring to project asset directory
+        std::filesystem::path absolutePath = Project::GetAssetDirectory() / metadata.FilePath;
+        Audio::SoundGraph::SoundGraphSerializer::Serialize(*soundGraphAsset, absolutePath);
     }
 
     bool SoundGraphSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
         Ref<SoundGraphAsset> soundGraphAsset = Ref<SoundGraphAsset>::Create();
         
-        if (!Audio::SoundGraph::SoundGraphSerializer::Deserialize(*soundGraphAsset, metadata.FilePath))
+        // Resolve absolute path by anchoring to project asset directory
+        std::filesystem::path absolutePath = Project::GetAssetDirectory() / metadata.FilePath;
+        
+        if (!Audio::SoundGraph::SoundGraphSerializer::Deserialize(*soundGraphAsset, absolutePath))
         {
-            OLO_CORE_ERROR("SoundGraphSerializer::TryLoadData - Failed to deserialize SoundGraph from '{}'", metadata.FilePath.string());
+            OLO_CORE_ERROR("SoundGraphSerializer::TryLoadData - Failed to deserialize SoundGraph from '{}'", absolutePath.string());
             return false;
         }
 

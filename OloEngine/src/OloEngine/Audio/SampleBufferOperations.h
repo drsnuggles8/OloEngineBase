@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cmath>
+#include <cstring>
+
 #include "OloEngine/Core/Base.h"
 #include <choc/audio/choc_SampleBuffers.h>
 
@@ -14,7 +17,20 @@ namespace OloEngine::Audio
         /// Apply a gain ramp to an interleaved buffer
         static inline void ApplyGainRamp(f32* data, u32 numSamples, u32 numChannels, f32 gainStart, f32 gainEnd)
         {
-            const f32 delta = (gainEnd - gainStart) / static_cast<f32>(numSamples);
+            // Guard against division by zero
+            if (numSamples == 0)
+                return;
+            
+            // Special case for single sample: apply gainEnd directly
+            if (numSamples == 1)
+            {
+                for (u32 ch = 0; ch < numChannels; ++ch)
+                    data[ch] *= gainEnd;
+                return;
+            }
+            
+            // For multiple samples, use (numSamples - 1) to ensure last sample equals gainEnd
+            const f32 delta = (gainEnd - gainStart) / static_cast<f32>(numSamples - 1);
             for (u32 i = 0; i < numSamples; ++i)
             {
                 for (u32 ch = 0; ch < numChannels; ++ch)
@@ -25,7 +41,19 @@ namespace OloEngine::Audio
         /// Apply a gain ramp to a single channel in an interleaved buffer
         static inline void ApplyGainRampToSingleChannel(f32* data, u32 numSamples, u32 numChannels, u32 channel, f32 gainStart, f32 gainEnd)
         {
-            const f32 delta = (gainEnd - gainStart) / static_cast<f32>(numSamples);
+            // Guard against division by zero
+            if (numSamples == 0)
+                return;
+            
+            // Special case for single sample: apply gainEnd directly
+            if (numSamples == 1)
+            {
+                data[channel] *= gainEnd;
+                return;
+            }
+            
+            // For multiple samples, use (numSamples - 1) to ensure last sample equals gainEnd
+            const f32 delta = (gainEnd - gainStart) / static_cast<f32>(numSamples - 1);
             for (u32 i = 0; i < numSamples; ++i)
             {
                 data[i * numChannels + channel] *= gainStart + delta * static_cast<f32>(i);
@@ -36,18 +64,28 @@ namespace OloEngine::Audio
         static inline void AddAndApplyGainRamp(f32* dest, const f32* source, u32 destChannel, u32 sourceChannel,
                                              u32 destNumChannels, u32 sourceNumChannels, u32 numSamples, f32 gainStart, f32 gainEnd)
         {
+            // Guard against empty range
+            if (numSamples == 0)
+                return;
+                
             if (gainEnd == gainStart)
             {
                 for (u32 i = 0; i < numSamples; ++i)
                     dest[i * destNumChannels + destChannel] += source[i * sourceNumChannels + sourceChannel] * gainStart;
             }
+            else if (numSamples == 1)
+            {
+                // Special case for single sample: apply gainEnd directly
+                dest[destChannel] += source[sourceChannel] * gainEnd;
+            }
             else
             {
-                const f32 delta = (gainEnd - gainStart) / static_cast<f32>(numSamples);
+                // For multiple samples, use (numSamples - 1) to ensure last sample equals gainEnd
+                const f32 delta = (gainEnd - gainStart) / static_cast<f32>(numSamples - 1);
                 for (u32 i = 0; i < numSamples; ++i)
                 {
-                    dest[i * destNumChannels + destChannel] += source[i * sourceNumChannels + sourceChannel] * gainStart;
-                    gainStart += delta;
+                    f32 gain = gainStart + delta * static_cast<f32>(i);
+                    dest[i * destNumChannels + destChannel] += source[i * sourceNumChannels + sourceChannel] * gain;
                 }
             }
         }
@@ -143,18 +181,31 @@ namespace OloEngine::Audio
         template<typename T, template<typename> typename LayoutType>
         static T GetMagnitude(const choc::buffer::BufferView<T, LayoutType>& buffer, i32 startSample, i32 numSamples)
         {
+            // Early return for invalid parameters
+            if (numSamples <= 0 || startSample < 0 || startSample >= static_cast<i32>(buffer.getNumFrames()))
+                return T(0);
+            
+            // Clamp the sample window to buffer bounds
+            i32 endSample = std::min(startSample + numSamples, static_cast<i32>(buffer.getNumFrames()));
+            i32 actualSamplesCount = endSample - startSample;
+            
+            // Return zero if no samples to process
+            if (actualSamplesCount <= 0)
+                return T(0);
+            
             T magnitude = T(0);
             
             for (u32 ch = 0; ch < buffer.getNumChannels(); ++ch)
             {
-                for (i32 s = startSample; s < startSample + numSamples && s < static_cast<i32>(buffer.getNumFrames()); ++s)
+                for (i32 s = startSample; s < endSample; ++s)
                 {
                     T sample = buffer.getSample(ch, s);
                     magnitude += sample * sample;
                 }
             }
             
-            return std::sqrt(magnitude / (buffer.getNumChannels() * numSamples));
+            // Use actual samples processed for accurate mean calculation
+            return std::sqrt(magnitude / (buffer.getNumChannels() * actualSamplesCount));
         }
 
         /// Clear a buffer with zeros

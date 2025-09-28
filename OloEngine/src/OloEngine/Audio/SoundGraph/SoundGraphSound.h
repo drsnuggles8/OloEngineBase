@@ -45,30 +45,51 @@ namespace OloEngine
 		u8 Priority = 128;  // 0 = highest, 255 = lowest
 	};
 
+	/**
+	 * Abstract base interface for audio playback objects
+	 */
+	class IPlayableAudio : public RefCounted
+	{
+	public:
+		virtual ~IPlayableAudio() = default;
+		
+		// Core playback interface
+		virtual bool Play() = 0;
+		virtual bool Stop() = 0;
+		virtual bool Pause() = 0;
+		virtual bool IsPlaying() const = 0;
+		
+		// Volume and pitch control
+		virtual void SetVolume(f32 newVolume) = 0;
+		virtual void SetPitch(f32 newPitch) = 0;
+		virtual f32 GetVolume() const = 0;
+		virtual f32 GetPitch() const = 0;
+	};
+
 	/* =====================================
 		SoundGraph Sound, represents playing voice
 		Based on Hazel::SoundGraphSound
 		------------------------------------
 	*/
-	class SoundGraphSound : public RefCounted
+	class SoundGraphSound : public IPlayableAudio
 	{
 	public:
 		explicit SoundGraphSound();
 		~SoundGraphSound();
 
 		//--- Sound Source Interface
-		virtual bool Play();
-		virtual bool Stop();
-		virtual bool Pause();
-		virtual bool IsPlaying() const;
+		bool Play() override;
+		bool Stop() override;
+		bool Pause() override;
+		bool IsPlaying() const override;
 		// ~ End of Sound Source Interface
 
-		virtual void SetVolume(f32 newVolume);
-		virtual void SetPitch(f32 newPitch);
+		void SetVolume(f32 newVolume) override;
+		void SetPitch(f32 newPitch) override;
 		void SetLooping(bool looping);
 
-		virtual f32 GetVolume() const;
-		virtual f32 GetPitch() const;
+		f32 GetVolume() const override;
+		f32 GetPitch() const override;
 
 		void SetLowPassFilter(f32 value);   // 0.0 - 1.0 normalized
 		void SetHighPassFilter(f32 value);  // 0.0 - 1.0 normalized

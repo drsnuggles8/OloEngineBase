@@ -288,6 +288,13 @@ namespace OloEngine::Audio::SoundGraph
         {
             std::string yamlString = SerializeToString(asset);
             
+            // Check if serialization failed (empty string indicates failure)
+            if (yamlString.empty())
+            {
+                OLO_CORE_ERROR("SoundGraphSerializer: Failed to serialize SoundGraphAsset to YAML string for file: {}", filePath.string());
+                return false;
+            }
+            
             // Ensure directory exists (only if parent path is not empty)
             if (!filePath.parent_path().empty())
             {

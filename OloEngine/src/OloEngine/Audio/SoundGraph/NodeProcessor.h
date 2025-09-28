@@ -6,13 +6,14 @@
 #include "OloEngine/Core/Ref.h"
 #include <choc/containers/choc_Value.h>
 
-#include <string>
-#include <functional>
 #include <complex>
+#include <functional>
+#include <memory>
+#include <string>
 #include <type_traits>
 #include <unordered_map>
 #include <vector>
-#include <memory>
+#include <utility>
 
 #include <glm/gtc/constants.hpp>
 #include <glm/glm.hpp>
@@ -107,17 +108,22 @@ namespace OloEngine::Audio::SoundGraph
 
 			inline void operator()(float value) noexcept
 			{
-				for (auto& out : DestinationEvents)
-					(*out)(value);
+				for (auto* dest : DestinationEvents)
+				{
+					if (dest) // Null check for safety
+						(*dest)(value);
+				}
 			}
 
-			void AddDestination(const std::shared_ptr<InputEvent>& dest)
+			void AddDestination(InputEvent* dest)
 			{
-				DestinationEvents.push_back(dest);
+				if (dest)
+					DestinationEvents.push_back(dest);
 			}
 
 			// OutputEvent should always have destination Input to call
-			std::vector<std::shared_ptr<InputEvent>> DestinationEvents;
+			// Using raw pointers since InputEvent instances are owned by value in InEvents
+			std::vector<InputEvent*> DestinationEvents;
 		};
 
 		//==============================================================================
@@ -232,13 +238,15 @@ namespace OloEngine::Audio::SoundGraph
 
 		inline void operator<<(float value) noexcept
 		{
-			*(float*)OutputValue.getRawData() = value;
+			OutputValue = choc::value::Value(value);
+			DestinationView = OutputValue.getViewReference();
 		}
 
 		template<typename T>
 		inline void operator<<(T value) noexcept
 		{
-			*(T*)OutputValue.getRawData() = value;
+			OutputValue = choc::value::Value(value);
+			DestinationView = OutputValue.getViewReference();
 		}
 
 		Identifier DestinationID;
@@ -253,12 +261,14 @@ namespace OloEngine::Audio::SoundGraph
 	inline void StreamWriter::operator<<(const choc::value::ValueView& value) noexcept
 	{
 		OutputValue = value;
+		DestinationView = OutputValue.getViewReference();
 	}
 
 	template<>
 	inline void StreamWriter::operator<<(choc::value::ValueView value) noexcept
 	{
 		OutputValue = value;
+		DestinationView = OutputValue.getViewReference();
 	}
 
 } // namespace OloEngine::Audio::SoundGraph

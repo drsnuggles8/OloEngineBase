@@ -328,8 +328,22 @@ namespace OloEngine
 
     bool SoundGraphSound::StopFade(u64 numSamples)
     {
-        i32 milliseconds = static_cast<i32>((numSamples * 1000) / 44100);
-        return StopFade(milliseconds);
+        // Compute milliseconds using double to avoid overflow
+        // TODO: Get actual sample rate from audio engine instead of hardcoding 44100
+        double milliseconds = static_cast<double>(numSamples) * 1000.0 / 44100.0;
+        
+        // Clamp to valid i32 range before calling the overload
+        constexpr double maxInt32 = static_cast<double>(INT32_MAX);
+        if (milliseconds > maxInt32)
+        {
+            milliseconds = maxInt32;
+        }
+        else if (milliseconds < 0.0)
+        {
+            milliseconds = 0.0;
+        }
+        
+        return StopFade(static_cast<i32>(milliseconds));
     }
 
     bool SoundGraphSound::StopFade(i32 milliseconds)

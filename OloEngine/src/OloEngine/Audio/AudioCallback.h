@@ -195,9 +195,20 @@ namespace OloEngine::Audio
 		void ProcessBlock(const std::vector<choc::buffer::ChannelArrayBuffer<float>>& inBuffer, 
 			std::vector<choc::buffer::ChannelArrayBuffer<float>>& outBuffer, u32 numFramesRequested)
 		{
-			(void)numFramesRequested;
 			if (onAudioCallback && !m_Suspended.load())
+			{
 				onAudioCallback(inBuffer, outBuffer);
+			}
+			else
+			{
+				// Clear output buffer to prevent stale samples when callback is null or suspended
+				for (auto& channelBuffer : outBuffer)
+				{
+					// Set frame count and zero the samples
+					channelBuffer.resize({ channelBuffer.getNumChannels(), numFramesRequested });
+					channelBuffer.clear();
+				}
+			}
 		}
 
 	private:
@@ -215,7 +226,7 @@ namespace OloEngine::Audio
 		bool IsSuspended() final { return m_Suspended.load(); }
 
 		std::function<void(const float** ppFramesIn, ma_uint32* pFrameCountIn,
-			float** ppFramesOut, const BusConfig& busConfig)> onAudioCallback;
+			float** ppFramesOut, ma_uint32* pFrameCountOut, const BusConfig& busConfig)> onAudioCallback;
 
 	private:
 		friend AudioCallbackInterleaved<CallbackBindedInterleaved>;
@@ -224,9 +235,37 @@ namespace OloEngine::Audio
 		bool Init(u32 sampleRate, u32 maxBlockSize, const BusConfig& config) { (void)sampleRate; (void)maxBlockSize; (void)config; return true; }
 		void ProcessBlock(const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
 		{
-			(void)ppFramesIn; (void)pFrameCountIn; (void)ppFramesOut; (void)pFrameCountOut;
+			// Derive requested frame count (0 if pFrameCountIn is null)
+			ma_uint32 requestedFrames = (pFrameCountIn != nullptr) ? *pFrameCountIn : 0;
+			
+			// Always set output frame count first
+			if (pFrameCountOut != nullptr)
+			{
+				*pFrameCountOut = requestedFrames;
+			}
+			
 			if (onAudioCallback && !m_Suspended.load())
-				onAudioCallback(ppFramesIn, pFrameCountIn, ppFramesOut, m_BusConfig);
+			{
+				// Pass pFrameCountOut to callback so it can set the produced frame count
+				onAudioCallback(ppFramesIn, pFrameCountIn, ppFramesOut, pFrameCountOut, m_BusConfig);
+			}
+			else
+			{
+				// Clear output buffers to prevent stale samples when callback is null or suspended
+				if (ppFramesOut != nullptr && requestedFrames > 0)
+				{
+					// Zero all output channels for the requested frames
+					for (u32 busIndex = 0; busIndex < m_BusConfig.OutputBuses.size(); ++busIndex)
+					{
+						if (ppFramesOut[busIndex] != nullptr)
+						{
+							u32 channelCount = m_BusConfig.OutputBuses[busIndex];
+							u32 totalSamples = channelCount * requestedFrames;
+							memset(ppFramesOut[busIndex], 0, totalSamples * sizeof(float));
+						}
+					}
+				}
+			}
 		}
 
 	private:

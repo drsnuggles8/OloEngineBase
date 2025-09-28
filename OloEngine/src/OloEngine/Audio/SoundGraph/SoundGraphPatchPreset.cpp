@@ -5,9 +5,47 @@
 #include <algorithm>
 #include <fstream>
 #include <chrono>
+#include <cstdio>
 
 namespace OloEngine::Audio::SoundGraph
 {
+    //==============================================================================
+    /// JSON String Escaping Helper
+    
+    static std::string EscapeStringForJSON(const std::string& str)
+    {
+        std::string escaped;
+        escaped.reserve(str.size() * 2); // Reserve extra space for potential escapes
+        
+        for (char c : str)
+        {
+            switch (c)
+            {
+                case '\"': escaped += "\\\""; break;
+                case '\\': escaped += "\\\\"; break;
+                case '\b': escaped += "\\b"; break;
+                case '\f': escaped += "\\f"; break;
+                case '\n': escaped += "\\n"; break;
+                case '\r': escaped += "\\r"; break;
+                case '\t': escaped += "\\t"; break;
+                default:
+                    if (c >= 0 && c < 32)
+                    {
+                        // Escape control characters as \uXXXX
+                        char buf[7];
+                        sprintf(buf, "\\u%04X", static_cast<unsigned char>(c));
+                        escaped += buf;
+                    }
+                    else
+                    {
+                        escaped += c;
+                    }
+                    break;
+            }
+        }
+        return escaped;
+    }
+
     //==============================================================================
     /// ParameterPatch Implementation
     
@@ -203,9 +241,11 @@ namespace OloEngine::Audio::SoundGraph
 
         // Create or update patch
         ParameterPatch& patch = m_Patches[patchName];
+        patch.Clear();
         patch.Name = patchName;
         patch.Description = "Captured state from SoundGraphSound";
-        patch.Clear();
+        patch.Timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count() / 1000.0;
 
         // Capture basic sound properties
         // These would be mapped to specific parameter IDs in a real implementation
@@ -255,12 +295,12 @@ namespace OloEngine::Audio::SoundGraph
 
     std::string SoundGraphPatchPreset::SerializeToJSON() const
     {
-        // Simple JSON serialization (in a real implementation, use a JSON library like nlohmann::json)
+        // JSON serialization with proper string escaping
         std::string json = "{\n";
-        json += "  \"name\": \"" + m_PresetName + "\",\n";
-        json += "  \"description\": \"" + m_PresetDescription + "\",\n";
-        json += "  \"version\": \"" + m_Version + "\",\n";
-        json += "  \"author\": \"" + m_Author + "\",\n";
+        json += "  \"name\": \"" + EscapeStringForJSON(m_PresetName) + "\",\n";
+        json += "  \"description\": \"" + EscapeStringForJSON(m_PresetDescription) + "\",\n";
+        json += "  \"version\": \"" + EscapeStringForJSON(m_Version) + "\",\n";
+        json += "  \"author\": \"" + EscapeStringForJSON(m_Author) + "\",\n";
         json += "  \"parameters\": [\n";
 
         bool firstParam = true;
@@ -271,11 +311,11 @@ namespace OloEngine::Audio::SoundGraph
             
             json += "    {\n";
             json += "      \"id\": " + std::to_string(descriptor.ID) + ",\n";
-            json += "      \"name\": \"" + descriptor.Name + "\",\n";
-            json += "      \"displayName\": \"" + descriptor.DisplayName + "\",\n";
-            json += "      \"description\": \"" + descriptor.Description + "\",\n";
-            json += "      \"defaultValue\": \"" + SerializeParameterValue(descriptor.DefaultValue) + "\",\n";
-            json += "      \"units\": \"" + descriptor.Units + "\",\n";
+            json += "      \"name\": \"" + EscapeStringForJSON(descriptor.Name) + "\",\n";
+            json += "      \"displayName\": \"" + EscapeStringForJSON(descriptor.DisplayName) + "\",\n";
+            json += "      \"description\": \"" + EscapeStringForJSON(descriptor.Description) + "\",\n";
+            json += "      \"defaultValue\": \"" + EscapeStringForJSON(SerializeParameterValue(descriptor.DefaultValue)) + "\",\n";
+            json += "      \"units\": \"" + EscapeStringForJSON(descriptor.Units) + "\",\n";
             json += "      \"automatable\": " + std::string(descriptor.IsAutomatable ? "true" : "false") + "\n";
             json += "    }";
         }
@@ -290,8 +330,8 @@ namespace OloEngine::Audio::SoundGraph
             firstPatch = false;
             
             json += "    {\n";
-            json += "      \"name\": \"" + patch.Name + "\",\n";
-            json += "      \"description\": \"" + patch.Description + "\",\n";
+            json += "      \"name\": \"" + EscapeStringForJSON(patch.Name) + "\",\n";
+            json += "      \"description\": \"" + EscapeStringForJSON(patch.Description) + "\",\n";
             json += "      \"timestamp\": " + std::to_string(patch.Timestamp) + ",\n";
             json += "      \"parameters\": {\n";
             
@@ -301,7 +341,7 @@ namespace OloEngine::Audio::SoundGraph
                 if (!firstPatchParam) json += ",\n";
                 firstPatchParam = false;
                 
-                json += "        \"" + std::to_string(paramId) + "\": \"" + SerializeParameterValue(value) + "\"";
+                json += "        \"" + std::to_string(paramId) + "\": \"" + EscapeStringForJSON(SerializeParameterValue(value)) + "\"";
             }
             
             json += "\n      }\n";

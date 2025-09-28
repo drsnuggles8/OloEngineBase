@@ -300,8 +300,10 @@ namespace OloEngine::Audio::SoundGraph
 			}
 
 			// Linear interpolation: normalize to [0,1] then scale to target range
-			T normalized = (*in_Value - fromMin) / fromRange;
-			out_Out = toMin + normalized * (toMax - toMin);
+			// Use wider floating-point type to avoid integer division truncation
+			using CalcType = std::conditional_t<std::is_integral_v<T>, double, T>;
+			CalcType normalized = (static_cast<CalcType>(*in_Value - fromMin)) / static_cast<CalcType>(fromRange);
+			out_Out = static_cast<T>(static_cast<CalcType>(toMin) + normalized * static_cast<CalcType>(toMax - toMin));
 		}
 	};
 

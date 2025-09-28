@@ -74,7 +74,7 @@ namespace OloEngine::Audio::SoundGraph
 			EndpointRef Source, Destination;
 			EType Type;
 
-			Connection(EndpointRef&& source, EndpointRef&& destination, EType connectionType)
+			Connection(EndpointRef source, EndpointRef destination, EType connectionType)
 				: Source(std::move(source)), Destination(std::move(destination)), Type(connectionType)
 			{}
 

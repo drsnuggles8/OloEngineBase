@@ -33,7 +33,12 @@ namespace OloEngine::Audio
 		/// Check if audio data is valid
 		bool IsValid() const 
 		{ 
-			return !samples.empty() && numChannels > 0 && numFrames > 0 && sampleRate > 0.0; 
+			if (samples.empty() || numChannels == 0 || numFrames == 0 || sampleRate <= 0.0)
+				return false;
+				
+			// Verify that samples buffer size matches expected sample count
+			const size_t expectedSampleCount = size_t(numFrames) * size_t(numChannels);
+			return samples.size() == expectedSampleCount;
 		}
 		
 		/// Get sample at specific frame and channel

@@ -197,10 +197,10 @@ struct AtomicFlag
 	OLO_FINLINE bool CheckAndResetIfDirty() { return !m_Flag.test_and_set(); }
 
 	explicit AtomicFlag() noexcept { m_Flag.test_and_set(); }
-	AtomicFlag(const AtomicFlag&) noexcept {}
-	AtomicFlag& operator=(const AtomicFlag&) noexcept { return *this; }
-	AtomicFlag(AtomicFlag&&) noexcept {};
-	AtomicFlag& operator=(AtomicFlag&&) noexcept { return *this; }
+	AtomicFlag(const AtomicFlag&) = delete;
+	AtomicFlag& operator=(const AtomicFlag&) = delete;
+	AtomicFlag(AtomicFlag&&) = delete;
+	AtomicFlag& operator=(AtomicFlag&&) = delete;
 
 private:
 	std::atomic_flag m_Flag;

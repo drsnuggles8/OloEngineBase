@@ -68,12 +68,12 @@ namespace OloEngine::Audio::SoundGraph {
 									if constexpr (std::is_invocable_v<FunctionType, decltype(*node)>)
 									{
 										// No-parameter event function
-										std::invoke(memberPtr, node.get());
+										std::invoke(memberPtr, node);
 									}
 									else if constexpr (std::is_invocable_v<FunctionType, decltype(*node), float>)
 									{
 										// Single float parameter event function
-										std::invoke(memberPtr, node.get(), value);
+										std::invoke(memberPtr, node, value);
 									}
 									// TODO: Add support for other event parameter types as needed
 									});

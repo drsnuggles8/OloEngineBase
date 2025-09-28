@@ -2,15 +2,12 @@
 
 #include <string>
 #include <filesystem>
-
-// Forward declarations
-namespace OloEngine
-{
-    class SoundGraphAsset;
-}
+#include "../../Asset/SoundGraphAsset.h"
 
 namespace OloEngine::Audio::SoundGraph
 {
+    using OloEngine::SoundGraphAsset;
+
     /**
      * @brief Serializer for SoundGraph assets to/from YAML format
      * 
