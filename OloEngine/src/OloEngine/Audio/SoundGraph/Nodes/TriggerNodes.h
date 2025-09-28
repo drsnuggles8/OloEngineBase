@@ -22,8 +22,8 @@ namespace OloEngine::Audio::SoundGraph
 
 		explicit RepeatTrigger(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
 		{
-			AddInEvent(IDs::Start, [this](float v) { m_StartFlag.SetDirty(); });
-			AddInEvent(IDs::Stop, [this](float v) { m_StopFlag.SetDirty(); });
+			AddInEvent(IDs::Start, [this](float v) { (void)v; m_StartFlag.SetDirty(); });
+			AddInEvent(IDs::Stop, [this](float v) { (void)v; m_StopFlag.SetDirty(); });
 			
 			RegisterEndpoints();
 		}
@@ -96,8 +96,8 @@ namespace OloEngine::Audio::SoundGraph
 
 		explicit TriggerCounter(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
 		{
-			AddInEvent(IDs::Trigger, [this](float v) { m_TriggerFlag.SetDirty(); });
-			AddInEvent(IDs::Reset, [this](float v) { m_ResetFlag.SetDirty(); });
+			AddInEvent(IDs::Trigger, [this](float v) { (void)v; m_TriggerFlag.SetDirty(); });
+			AddInEvent(IDs::Reset, [this](float v) { (void)v; m_ResetFlag.SetDirty(); });
 
 			RegisterEndpoints();
 		}
@@ -117,6 +117,13 @@ namespace OloEngine::Audio::SoundGraph
 
 			if (m_ResetFlag.CheckAndResetIfDirty())
 				ProcessReset();
+
+			// Handle deferred auto-reset at end of frame
+			if (m_PendingAutoReset)
+			{
+				ProcessReset();
+				m_PendingAutoReset = false;
+			}
 		}
 
 		//==========================================================================
@@ -134,6 +141,7 @@ namespace OloEngine::Audio::SoundGraph
 	private:
 		Flag m_TriggerFlag;
 		Flag m_ResetFlag;
+		bool m_PendingAutoReset = false;
 
 		void RegisterEndpoints();
 		void InitializeInputs();
@@ -145,10 +153,10 @@ namespace OloEngine::Audio::SoundGraph
 
 			out_OnTrigger(1.0f);
 
-			// Auto-reset if we've reached the reset count
+			// Auto-reset if we've reached the reset count (defer to end of frame)
 			if ((*in_ResetCount) > 0 && out_Count >= (*in_ResetCount))
 			{
-				ProcessReset();
+				m_PendingAutoReset = true;
 			}
 		}
 
@@ -175,8 +183,8 @@ namespace OloEngine::Audio::SoundGraph
 
 		explicit DelayedTrigger(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
 		{
-			AddInEvent(IDs::Trigger, [this](float v) { m_TriggerFlag.SetDirty(); });
-			AddInEvent(IDs::Reset, [this](float v) { m_ResetFlag.SetDirty(); });
+			AddInEvent(IDs::Trigger, [this](float v) { (void)v; m_TriggerFlag.SetDirty(); });
+			AddInEvent(IDs::Reset, [this](float v) { (void)v; m_ResetFlag.SetDirty(); });
 
 			RegisterEndpoints();
 		}

@@ -96,6 +96,7 @@ namespace OloEngine::Audio::SoundGraph
 		});
 
 		source->SetEventCallback([](u64 frameIndex, u32 endpointID, const choc::value::Value& eventData) {
+			(void)eventData;
 			// Handle graph events - could check for specific endpoint IDs like "OnFinished"
 			OLO_CORE_TRACE("[SoundGraph] Event at frame {0}, endpoint {1}", frameIndex, endpointID);
 		});
@@ -114,6 +115,9 @@ namespace OloEngine::Audio::SoundGraph
 			OLO_CORE_ERROR("[SoundGraphPlayer] Source ID {0} not found", sourceID);
 			return false;
 		}
+
+		// Resume processing before sending play event
+		it->second->SuspendProcessing(false);
 
 		bool result = it->second->SendPlayEvent();
 		if (result)

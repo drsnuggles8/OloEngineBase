@@ -4,6 +4,7 @@
 #include "NodeProcessor.h"
 #include "SoundGraphFactory.h"
 #include "SoundGraphPrototype.h"
+#include "SoundGraph.h"
 
 namespace OloEngine::Audio::SoundGraph
 {
@@ -56,7 +57,7 @@ namespace OloEngine::Audio::SoundGraph
 
 			for (u32 i = 0; i < Options.NumOutChannels; ++i)
 			{
-				Identifier outputID = (i == 0) ? IDs::OutLeft : IDs::OutRight;
+				Identifier outputID = (i == 0) ? SoundGraph::IDs::OutLeft : SoundGraph::IDs::OutRight;
 				
 				Prototype::Endpoint output(outputID, choc::value::Value(0.0f));
 				OutPrototype->Outputs.push_back(output);
@@ -263,7 +264,7 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 		// Set hardcoded output channel IDs (OutLeft, OutRight)
-		graph->OutputChannelIDs = { IDs::OutLeft, IDs::OutRight };
+		graph->OutputChannelIDs = { SoundGraph::IDs::OutLeft, SoundGraph::IDs::OutRight };
 
 		//==============================================================================
 		// Step 2: Set up local variables

@@ -83,21 +83,21 @@ namespace OloEngine::Core::Reflection {
 		{
 			size_t memberCounter = 0;
 
-			// Utility to construct the 'unwrap' function and increment
-			// the counter within the variadic unpack
-			auto unwrapWithCounter = [&memberCounter, &f, memberIndex]()
-			{
-				auto unwrap = [&memberCounter, &f, memberIndex](auto& memb)
-				{
+			// Iterate the parameter pack directly and advance the counter for every element.
+			// Only invoke the callback for data members; skip member-function pointers but
+			// still increment the counter so indices remain aligned with the original pack.
+			(([
+				&]() {
+					using MemberPtrT = decltype(MemberPointers);
 					if (memberCounter == memberIndex)
-						f(memb);
-					memberCounter++;
-				};
-
-				return unwrap;
-			};
-
-			(ApplyIfMemberNotFunction(unwrapWithCounter(), MemberPointers, std::forward<TObj>(obj)), ...);
+					{
+						if constexpr (!std::is_member_function_pointer_v<MemberPtrT>)
+						{
+							f(obj.*MemberPointers);
+						}
+					}
+					++memberCounter;
+				}()), ...);
 		}
 
 		template<size_t MemberIndex, typename TObj, typename TFunc>

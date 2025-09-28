@@ -213,6 +213,7 @@ namespace OloEngine::Audio::SoundGraph
         constexpr u32 PITCH_PARAM_ID = 2;
         constexpr u32 LOWPASS_PARAM_ID = 10;
         constexpr u32 HIGHPASS_PARAM_ID = 11;
+        (void)LOWPASS_PARAM_ID; (void)HIGHPASS_PARAM_ID;
 
         patch.SetParameter(VOLUME_PARAM_ID, source->GetVolume());
         patch.SetParameter(PITCH_PARAM_ID, source->GetPitch());
@@ -315,6 +316,7 @@ namespace OloEngine::Audio::SoundGraph
 
     bool SoundGraphPatchPreset::DeserializeFromJSON(const std::string& jsonData)
     {
+        (void)jsonData;
         // Simple JSON deserialization (in a real implementation, use a proper JSON parser)
         // This is a placeholder implementation
         OLO_CORE_WARN("SoundGraphPatchPreset::DeserializeFromJSON - Not fully implemented");

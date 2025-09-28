@@ -29,8 +29,9 @@ namespace OloEngine::Audio::SoundGraph
 	//==============================================================================
 	/// Raw Sound Graph containing Inputs, Outputs and Nodes
 	/// This is the main executable graph that processes audio in real-time
-	struct SoundGraph final : public NodeProcessor, public RefCounted
+	class SoundGraph final : public NodeProcessor, public RefCounted
 	{
+	public:
 		struct IDs
 		{
 			DECLARE_ID(InLeft);
@@ -52,6 +53,7 @@ namespace OloEngine::Audio::SoundGraph
 			out_OnFinish.AddDestination(std::make_shared<InputEvent>(*this,
 				[&](float v)
 				{
+					(void)v;
 					static constexpr float dummyValue = 1.0f;
 					choc::value::ValueView value(choc::value::Type::createFloat32(), (void*)&dummyValue, nullptr);
 					OutgoingEvents.push({ CurrentFrame, IDs::OnFinished, value });

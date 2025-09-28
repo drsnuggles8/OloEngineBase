@@ -6,6 +6,9 @@
 
 #include <glm/glm.hpp>
 #include <numbers>
+#include <cmath>
+#include <ctime>
+#include <cstring>
 
 #define DECLARE_ID(name) static constexpr Identifier name{ #name }
 

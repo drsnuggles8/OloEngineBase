@@ -189,6 +189,7 @@ namespace OloEngine::Audio
 		void ProcessBlock(const std::vector<choc::buffer::ChannelArrayBuffer<float>>& inBuffer, 
 			std::vector<choc::buffer::ChannelArrayBuffer<float>>& outBuffer, u32 numFramesRequested)
 		{
+			(void)numFramesRequested;
 			if (onAudioCallback && !m_Suspended.load())
 				onAudioCallback(inBuffer, outBuffer);
 		}
@@ -214,9 +215,10 @@ namespace OloEngine::Audio
 		friend AudioCallbackInterleaved<CallbackBindedInterleaved>;
 
 		virtual void ReleaseResources() override {}
-		bool Init(u32 sampleRate, u32 maxBlockSize, const BusConfig& config) { return true; }
+		bool Init(u32 sampleRate, u32 maxBlockSize, const BusConfig& config) { (void)sampleRate; (void)maxBlockSize; (void)config; return true; }
 		void ProcessBlock(const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
 		{
+			(void)ppFramesIn; (void)pFrameCountIn; (void)ppFramesOut; (void)pFrameCountOut;
 			if (onAudioCallback && !m_Suspended.load())
 				onAudioCallback(ppFramesIn, pFrameCountIn, ppFramesOut, m_BusConfig);
 		}

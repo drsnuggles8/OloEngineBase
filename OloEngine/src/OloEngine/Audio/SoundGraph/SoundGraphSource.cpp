@@ -183,6 +183,7 @@ namespace OloEngine::Audio::SoundGraph
 
 	void SoundGraphSource::Update(f64 deltaTime)
 	{
+		(void)deltaTime;
 		// Process events from the audio thread
 		EventMessage eventMsg;
 		while (m_EventQueue.pop(eventMsg))
@@ -273,6 +274,7 @@ namespace OloEngine::Audio::SoundGraph
 
 	bool SoundGraphSource::SetParameter(u32 parameterID, const choc::value::Value& value)
 	{
+		(void)parameterID; (void)value;
 		auto it = m_ParameterHandles.find(parameterID);
 		if (it == m_ParameterHandles.end())
 		{

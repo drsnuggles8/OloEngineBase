@@ -279,8 +279,11 @@ namespace OloEngine::Audio::SoundGraph
         {
             std::string yamlString = SerializeToString(asset);
             
-            // Ensure directory exists
-            std::filesystem::create_directories(filePath.parent_path());
+            // Ensure directory exists (only if parent path is not empty)
+            if (!filePath.parent_path().empty())
+            {
+                std::filesystem::create_directories(filePath.parent_path());
+            }
             
             std::ofstream file(filePath);
             if (!file.is_open())

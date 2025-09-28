@@ -11,6 +11,8 @@
 
 #include <miniaudio.h>
 #include <atomic>
+#include <string>
+#include <string_view>
 #include <unordered_map>
 #include <functional>
 #include <memory>

@@ -37,8 +37,8 @@ namespace OloEngine::Audio::SoundGraph
 		explicit WavePlayer(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
 		{
 			// Input events using Flag system like Hazel
-			AddInEvent(IDs::Play, [this](float v) { m_PlayFlag.SetDirty(); });
-			AddInEvent(IDs::Stop, [this](float v) { m_StopFlag.SetDirty(); });
+			AddInEvent(IDs::Play, [this](float v) { (void)v; m_PlayFlag.SetDirty(); });
+			AddInEvent(IDs::Stop, [this](float v) { (void)v; m_StopFlag.SetDirty(); });
 
 			RegisterEndpoints();
 		}

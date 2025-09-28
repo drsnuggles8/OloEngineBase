@@ -5,6 +5,7 @@
 
 #include <glm/glm.hpp>
 #include <algorithm>
+#include <cmath>
 
 #define DECLARE_ID(name) static constexpr Identifier name{ #name }
 
@@ -113,17 +114,23 @@ namespace OloEngine::Audio::SoundGraph
 			m_AttackCurve = glm::max(0.1f, *in_AttackCurve);
 			m_DecayCurve = glm::max(0.1f, *in_DecayCurve);
 
-			// Calculate attack rate (per sample)
+			// Calculate attack rate (exponential coefficient for reaching 0.99)
 			if (*in_AttackTime <= 0.0f)
 				m_AttackRate = 1.0f; // Immediate
 			else
-				m_AttackRate = 1.0f / (*in_AttackTime * m_SampleRate);
+			{
+				const float remainingRatio = 0.01f; // Reach 0.99 of target
+				m_AttackRate = 1.0f - powf(remainingRatio, 1.0f / (*in_AttackTime * m_SampleRate));
+			}
 
-			// Calculate decay rate (per sample)
+			// Calculate decay rate (exponential coefficient for reaching 0.01)
 			if (*in_DecayTime <= 0.0f)
 				m_DecayRate = 1.0f; // Immediate
 			else
-				m_DecayRate = 1.0f / (*in_DecayTime * m_SampleRate);
+			{
+				const float remainingRatio = 0.01f; // Reach 0.01 of start value
+				m_DecayRate = 1.0f - powf(remainingRatio, 1.0f / (*in_DecayTime * m_SampleRate));
+			}
 		}
 
 		void StartAttack()
@@ -190,8 +197,8 @@ namespace OloEngine::Audio::SoundGraph
 		explicit ADSREnvelope(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
 		{
 			// Input events
-			AddInEvent(IDs::Trigger, [this](float v) { m_TriggerFlag.SetDirty(); });
-			AddInEvent(IDs::Release, [this](float v) { m_ReleaseFlag.SetDirty(); });
+			AddInEvent(IDs::Trigger, [this](float v) { (void)v; m_TriggerFlag.SetDirty(); });
+			AddInEvent(IDs::Release, [this](float v) { (void)v; m_ReleaseFlag.SetDirty(); });
 
 			RegisterEndpoints();
 		}
@@ -304,10 +311,30 @@ namespace OloEngine::Audio::SoundGraph
 			m_DecayCurve = glm::max(0.1f, *in_DecayCurve);
 			m_ReleaseCurve = glm::max(0.1f, *in_ReleaseCurve);
 
-			// Calculate rates (per sample)
-			m_AttackRate = (*in_AttackTime <= 0.0f) ? 1.0f : 1.0f / (*in_AttackTime * m_SampleRate);
-			m_DecayRate = (*in_DecayTime <= 0.0f) ? 1.0f : 1.0f / (*in_DecayTime * m_SampleRate);
-			m_ReleaseRate = (*in_ReleaseTime <= 0.0f) ? 1.0f : 1.0f / (*in_ReleaseTime * m_SampleRate);
+			// Calculate rates (exponential coefficients)
+			if (*in_AttackTime <= 0.0f)
+				m_AttackRate = 1.0f; // Immediate
+			else
+			{
+				const float remainingRatio = 0.01f; // Reach 0.99 of target
+				m_AttackRate = 1.0f - powf(remainingRatio, 1.0f / (*in_AttackTime * m_SampleRate));
+			}
+
+			if (*in_DecayTime <= 0.0f)
+				m_DecayRate = 1.0f; // Immediate
+			else
+			{
+				const float remainingRatio = 0.01f; // Reach 0.01 of start value
+				m_DecayRate = 1.0f - powf(remainingRatio, 1.0f / (*in_DecayTime * m_SampleRate));
+			}
+
+			if (*in_ReleaseTime <= 0.0f)
+				m_ReleaseRate = 1.0f; // Immediate
+			else
+			{
+				const float remainingRatio = 0.01f; // Reach 0.01 of start value
+				m_ReleaseRate = 1.0f - powf(remainingRatio, 1.0f / (*in_ReleaseTime * m_SampleRate));
+			}
 		}
 
 		void StartAttack()

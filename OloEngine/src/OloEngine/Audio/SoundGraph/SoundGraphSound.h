@@ -172,38 +172,38 @@ namespace OloEngine
         // Note: MiniAudio nodes moved to SoundGraphSource to avoid header conflicts
         // Effects chain handled internally by SoundGraphSource
 
-        bool m_bIsReadyToPlay = false;
-        u8 m_Priority = 128;  // 0 = highest priority, 255 = lowest
-        bool m_bLooping = false;
-        bool m_bFinished = false;
-
+		// Playback status
+		u8 m_Priority = 128;  // 0 = highest priority, 255 = lowest
+		
         /* Stored Fader "resting" value. Used to restore Fader before restarting playback if a fade has occurred. */
         f32 m_StoredFaderValue = 1.0f;
         f32 m_LastFadeOutDuration = 0.0f;
-
+		
         f64 m_Volume = 1.0;
         f64 m_Pitch = 1.0;
-
+		
         /* Stop-fade counter. Used to stop the sound after "stopping-fade" has finished. */
         f64 m_StopFadeTime = 0.0;
-
+		
         // Filter states
         f32 m_LowPassValue = 1.0f;   // Normalized filter value
         f32 m_HighPassValue = 0.0f;  // Normalized filter value
-
+		
         // Spatial audio properties
         glm::vec3 m_Position{ 0.0f };
         glm::vec3 m_Orientation{ 0.0f, 0.0f, 1.0f };
         glm::vec3 m_Velocity{ 0.0f };
         glm::vec3 m_Location{ 0.0f };  // Alias for m_Position
-
+		
         // Status flags  
-        bool m_IsReadyToPlay = false;
-        bool m_IsStopping = false;
+		bool m_IsReadyToPlay = false;
+		bool m_IsStopping = false;
+		bool m_IsLooping = false;
+		bool m_IsFinished = false;
         f32 m_CurrentFadeVolume = 1.0f;
 
         // Fade control
-        bool m_bIsFading = false;
+    	bool m_IsFading = false;
         f32 m_FadeStartVolume = 1.0f;
         f32 m_FadeTargetVolume = 1.0f;
         f32 m_FadeDuration = 0.0f;

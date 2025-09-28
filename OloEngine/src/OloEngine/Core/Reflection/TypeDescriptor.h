@@ -2,7 +2,12 @@
 
 #include "MemberList.h"
 #include "StringUtils.h"
+#include <array>
 #include <iostream>
+#include <optional>
+#include <string_view>
+#include <type_traits>
+#include <utility>
 
 namespace OloEngine::Core::Reflection {
 

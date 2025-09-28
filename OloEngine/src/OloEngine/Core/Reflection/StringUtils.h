@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Core/Base.h"
+
 #include <string_view>
 #include <array>
 
@@ -26,7 +28,8 @@ namespace OloEngine::Core::Reflection::StringUtils {
 		auto pos = source.begin();
 		while (pos != source.end())
 		{
-			if (std::string_view(&*pos, delimiter.size()) == delimiter)
+			const auto remaining = static_cast<sizet>(source.end() - pos);
+			if (remaining >= delimiter.size() && std::string_view(&*pos, delimiter.size()) == delimiter)
 				++count;
 			++pos;
 		}

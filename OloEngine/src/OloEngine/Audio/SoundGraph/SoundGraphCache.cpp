@@ -407,7 +407,7 @@ namespace OloEngine::Audio::SoundGraph
         
         while (file.read(buffer, BufferSize))
         {
-            for (sizet i = 0; i < file.gcount(); ++i)
+            for (sizet i = 0; i < static_cast<sizet>(file.gcount()); ++i)
             {
                 hash = hash * 31 + static_cast<sizet>(buffer[i]);
             }
