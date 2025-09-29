@@ -167,8 +167,8 @@ namespace OloEngine::Audio::SoundGraph
 			m_AttackProgress += m_AttackRate;
 			m_AttackProgress = glm::clamp(m_AttackProgress, 0.0f, 1.0f);
 			
-			// Apply curve to normalized progress
-			float curvedProgress = glm::pow(m_AttackProgress, 1.0f / m_AttackCurve);
+			// Apply curve to normalized progress (curve>1 = convex/slow-start, curve<1 = concave/fast-start)
+			float curvedProgress = glm::pow(m_AttackProgress, m_AttackCurve);
 			
 			// Interpolate using curved progress
 			m_Value = curvedProgress; // Attack goes from 0 to 1
@@ -189,8 +189,8 @@ namespace OloEngine::Audio::SoundGraph
 			m_DecayProgress += m_DecayRate;
 			m_DecayProgress = glm::clamp(m_DecayProgress, 0.0f, 1.0f);
 			
-			// Apply curve to normalized progress
-			float curvedProgress = glm::pow(m_DecayProgress, 1.0f / m_DecayCurve);
+			// Apply curve to normalized progress (curve>1 = convex/slow-start, curve<1 = concave/fast-start)
+			float curvedProgress = glm::pow(m_DecayProgress, m_DecayCurve);
 			
 			// Interpolate using curved progress (decay goes from 1 to 0)
 			m_Value = 1.0f - curvedProgress;
@@ -417,8 +417,8 @@ namespace OloEngine::Audio::SoundGraph
 			m_AttackProgress += m_AttackRate;
 			m_AttackProgress = glm::clamp(m_AttackProgress, 0.0f, 1.0f);
 			
-			// Apply curve to normalized progress
-			float curvedProgress = glm::pow(m_AttackProgress, 1.0f / m_AttackCurve);
+			// Apply curve to normalized progress (curve>1 = convex/slow-start, curve<1 = concave/fast-start)
+			float curvedProgress = glm::pow(m_AttackProgress, m_AttackCurve);
 			
 			// Interpolate using curved progress (attack goes from 0 to 1)
 			m_Value = curvedProgress;
@@ -439,8 +439,8 @@ namespace OloEngine::Audio::SoundGraph
 			m_DecayProgress += m_DecayRate;
 			m_DecayProgress = glm::clamp(m_DecayProgress, 0.0f, 1.0f);
 			
-			// Apply curve to normalized progress
-			float curvedProgress = glm::pow(m_DecayProgress, 1.0f / m_DecayCurve);
+			// Apply curve to normalized progress (curve>1 = convex/slow-start, curve<1 = concave/fast-start)
+			float curvedProgress = glm::pow(m_DecayProgress, m_DecayCurve);
 			
 			// Interpolate using curved progress (decay from 1.0 to sustain level)
 			float sustainLevel = glm::clamp(*in_SustainLevel, 0.0f, 1.0f);
@@ -460,8 +460,8 @@ namespace OloEngine::Audio::SoundGraph
 			m_ReleaseProgress += m_ReleaseRate;
 			m_ReleaseProgress = glm::clamp(m_ReleaseProgress, 0.0f, 1.0f);
 			
-			// Apply curve to normalized progress
-			float curvedProgress = glm::pow(m_ReleaseProgress, 1.0f / m_ReleaseCurve);
+			// Apply curve to normalized progress (curve>1 = convex/slow-start, curve<1 = concave/fast-start)
+			float curvedProgress = glm::pow(m_ReleaseProgress, m_ReleaseCurve);
 			
 			// Interpolate using curved progress (release from sustain level to 0)
 			m_Value = m_SustainStartValue * (1.0f - curvedProgress);

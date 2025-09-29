@@ -68,6 +68,10 @@ namespace OloEngine::Audio::SoundGraph
             return;
         }
 
+        // Perform filesystem I/O operations outside the critical section
+        auto sourceHash = HashFile(sourcePath);
+        auto lastModified = GetFileModificationTime(sourcePath);
+
         std::lock_guard<std::mutex> lock(m_Mutex);
 
         // Calculate memory usage
@@ -103,8 +107,8 @@ namespace OloEngine::Audio::SoundGraph
         SoundGraphCacheEntry entry;
         entry.SourcePath = sourcePath;
         entry.CompiledPath = compiledPath;
-        entry.SourceHash = HashFile(sourcePath);
-        entry.LastModified = GetFileModificationTime(sourcePath);
+        entry.SourceHash = sourceHash;
+        entry.LastModified = lastModified;
         entry.LastAccessed = std::chrono::system_clock::now();
         entry.CachedGraph = graph;
         entry.IsValid = true;
@@ -163,9 +167,9 @@ namespace OloEngine::Audio::SoundGraph
         if (m_LRUOrder.empty())
             return;
 
-        // Remove least recently used (last in LRU order)
-        std::string lruPath = m_LRUOrder.back();
-        m_LRUOrder.pop_back();
+        // Remove least recently used (front in LRU order) - O(1) operation
+        std::string lruPath = m_LRUOrder.front();
+        m_LRUOrder.pop_front();
 
         auto it = m_CacheEntries.find(lruPath);
         if (it != m_CacheEntries.end())
@@ -396,16 +400,14 @@ namespace OloEngine::Audio::SoundGraph
     //==============================================================================
     /// Private Helper Methods
 
-    void SoundGraphCache::UpdateLRU(const std::string& sourcePath)
-    {
-        // Remove from current position if exists
-        RemoveFromLRU(sourcePath);
-        
-        // Add to front (most recently used)
-        m_LRUOrder.insert(m_LRUOrder.begin(), sourcePath);
-    }
-
-    void SoundGraphCache::RemoveFromLRU(const std::string& sourcePath)
+	void SoundGraphCache::UpdateLRU(const std::string& sourcePath)
+	{
+		// Remove from current position if exists
+		RemoveFromLRU(sourcePath);
+		
+		// Add to back (most recently used) - O(1) operation
+		m_LRUOrder.push_back(sourcePath);
+	}    void SoundGraphCache::RemoveFromLRU(const std::string& sourcePath)
     {
         auto it = std::find(m_LRUOrder.begin(), m_LRUOrder.end(), sourcePath);
         if (it != m_LRUOrder.end())
@@ -419,9 +421,79 @@ namespace OloEngine::Audio::SoundGraph
         if (!graph)
             return 0;
 
-        // Estimate memory usage (in a real implementation, this would be more accurate)
-        // Base size + estimated node count * average node size
-        return 1024 + (100 * 512); // Placeholder: 1KB base + ~50KB for typical graph
+        sizet totalMemory = 0;
+
+        // Base object size (approximate)
+        totalMemory += sizeof(SoundGraph);
+
+        // NodeProcessor base class data structures
+        totalMemory += sizeof(NodeProcessor);
+        
+        // Calculate memory for all nodes in the graph
+        for (const auto& node : graph->Nodes)
+        {
+            if (node)
+            {
+                // Base node memory
+                totalMemory += sizeof(NodeProcessor);
+                
+                // NodeProcessor maps and vectors (approximate overhead)
+                totalMemory += 256; // Estimated overhead for maps/vectors per node
+                
+                // Check if this is a WavePlayer with audio data
+                // WavePlayer nodes can consume significant memory for audio samples
+                // AudioData.samples is std::vector<f32> with interleaved audio
+                // Estimate: typical audio file might be 1-5MB of samples
+                // We'll use a conservative estimate since we can't easily inspect the actual AudioData
+                totalMemory += 2 * 1024 * 1024; // 2MB per node (conservative estimate for potential audio data)
+            }
+        }
+
+        // SoundGraph-specific data structures
+        
+        // Nodes vector overhead
+        totalMemory += graph->Nodes.capacity() * sizeof(Scope<NodeProcessor>);
+        
+        // WavePlayers vector (raw pointers, minimal overhead)
+        totalMemory += graph->WavePlayers.capacity() * sizeof(NodeProcessor*);
+        
+        // EndpointInputStreams vector
+        totalMemory += graph->EndpointInputStreams.capacity() * sizeof(Scope<StreamWriter>);
+        for (const auto& endpoint : graph->EndpointInputStreams)
+        {
+            if (endpoint)
+                totalMemory += sizeof(StreamWriter) + 64; // StreamWriter + estimated choc::value overhead
+        }
+        
+        // InterpolatedValue map
+        totalMemory += graph->InterpInputs.size() * (sizeof(Identifier) + sizeof(SoundGraph::InterpolatedValue));
+        totalMemory += graph->InterpInputs.bucket_count() * sizeof(void*); // Hash table overhead
+        
+        // LocalVariables vector
+        totalMemory += graph->LocalVariables.capacity() * sizeof(Scope<StreamWriter>);
+        for (const auto& localVar : graph->LocalVariables)
+        {
+            if (localVar)
+                totalMemory += sizeof(StreamWriter) + 64; // StreamWriter + estimated overhead
+        }
+        
+        // Output channel vectors
+        totalMemory += graph->OutputChannelIDs.capacity() * sizeof(Identifier);
+        totalMemory += graph->out_Channels.capacity() * sizeof(float);
+        
+        // EndpointOutputStreams (NodeProcessor)
+        totalMemory += sizeof(NodeProcessor) + 256; // Base size + estimated overhead
+        
+		// Thread-safe FIFO queues (choc::fifo::SingleReaderSingleWriterFIFO)
+		// These are typically allocated with fixed sizes
+		// Note: Cannot access private OutgoingEvent/OutgoingMessage structs directly
+		// Using estimated sizes based on typical event/message structure
+		totalMemory += 1024 * 64;  // Estimated FIFO capacity * estimated event size
+		totalMemory += 1024 * 32; // Estimated FIFO capacity * estimated message size        // choc::value::ValueView objects don't own data, minimal memory overhead
+        // String storage for debug names, identifiers, etc.
+        totalMemory += 1024; // Estimated string storage overhead
+        
+        return totalMemory;
     }
 
     sizet SoundGraphCache::GetFileSize(const std::string& filePath) const
@@ -450,21 +522,23 @@ namespace OloEngine::Audio::SoundGraph
         if (!file.is_open())
             return 0;
 
-        // Simple hash of file content (in production, use a proper hash function)
-        sizet hash = 0;
-        constexpr sizet BufferSize = 4096;
-        char buffer[BufferSize];
+        // Use std::hash for consistent, overflow-safe hashing
+        std::hash<std::string> hasher;
+        std::string fileContent;
         
-        // Process all reads including the final partial read
-        while (file.read(buffer, BufferSize) || file.gcount() > 0)
+        // Read file content efficiently
+        file.seekg(0, std::ios::end);
+        auto fileSize = file.tellg();
+        file.seekg(0, std::ios::beg);
+        
+        if (fileSize > 0)
         {
-            for (sizet i = 0; i < static_cast<sizet>(file.gcount()); ++i)
-            {
-                hash = hash * 31 + static_cast<sizet>(buffer[i]);
-            }
+            fileContent.resize(static_cast<size_t>(fileSize));
+            file.read(&fileContent[0], fileSize);
         }
         
-        return hash;
+        // Use standard library hash function - no overflow issues
+        return hasher(fileContent);
     }
 
     void SoundGraphCache::LoaderThreadFunc()
@@ -486,14 +560,79 @@ namespace OloEngine::Audio::SoundGraph
                 m_LoadQueue.pop();
                 lock.unlock();
 
-                // Load the graph (placeholder implementation)
-                // In a real implementation, this would compile/load the actual graph
-                Ref<SoundGraph> graph = nullptr; // LoadSoundGraphFromFile(sourcePath);
+                // Load the graph - CURRENTLY UNIMPLEMENTED
+                // TODO: Implement actual sound graph loading from file
+                // This should:
+                // 1. Use SoundGraphSerializer::Deserialize(asset, sourcePath) to load SoundGraphAsset
+                // 2. Compile/convert SoundGraphAsset to executable SoundGraph
+                // 3. Return the compiled SoundGraph for caching and execution
+                Ref<SoundGraph> graph = nullptr;
                 
-                // Generate compiled path for caching
+                // CRITICAL: Graph loading is not implemented - fail visibly instead of silently
+                OLO_CORE_ERROR("SoundGraphCache::LoaderThreadFunc - Sound graph loading is NOT IMPLEMENTED for '{}'", sourcePath);
+                OLO_CORE_ERROR("SoundGraphCache::LoaderThreadFunc - This breaks async loading functionality!");
+                
+                // Assert in debug builds to catch this during development
+                #ifdef OLO_DEBUG
+                    OLO_CORE_ASSERT(false, "SoundGraphCache: Graph loading is unimplemented - this must be fixed!");
+                #endif
+                
+                // For now, continue with null graph but with clear error indication
+                // This allows the system to continue running while making the problem visible
+                
+                // Generate compiled path for caching with configurable base directory
                 // Convert source path to cache path (e.g., "path/file.soundgraph" -> "cache/soundgraph/file.sgc")
                 std::filesystem::path sourcePathFs(sourcePath);
-                std::string compiledPath = "cache/soundgraph/" + sourcePathFs.stem().string() + ".sgc";
+                std::string baseCacheDir = "cache/soundgraph/"; // TODO: Make configurable via settings/config
+                std::string compiledPath = baseCacheDir + sourcePathFs.stem().string() + ".sgc";
+                
+                // Ensure cache directory exists before writing
+                std::filesystem::path compiledPathFs(compiledPath);
+                std::filesystem::path cacheDir = compiledPathFs.parent_path();
+                
+                try
+                {
+                    if (!std::filesystem::exists(cacheDir))
+                    {
+                        bool created = std::filesystem::create_directories(cacheDir);
+                        if (!created)
+                        {
+                            OLO_CORE_ERROR("SoundGraphCache: Failed to create cache directory '{}'", cacheDir.string());
+                            // Continue without caching rather than failing completely
+                            if (callback)
+                            {
+                                callback(sourcePath, graph);
+                            }
+                            continue;
+                        }
+                        else
+                        {
+                            OLO_CORE_INFO("SoundGraphCache: Created cache directory '{}'", cacheDir.string());
+                        }
+                    }
+                }
+                catch (const std::filesystem::filesystem_error& e)
+                {
+                    OLO_CORE_ERROR("SoundGraphCache: Filesystem error creating cache directory '{}': {}", 
+                                   cacheDir.string(), e.what());
+                    // Continue without caching rather than failing completely
+                    if (callback)
+                    {
+                        callback(sourcePath, graph);
+                    }
+                    continue;
+                }
+                catch (const std::exception& e)
+                {
+                    OLO_CORE_ERROR("SoundGraphCache: Unexpected error creating cache directory '{}': {}", 
+                                   cacheDir.string(), e.what());
+                    // Continue without caching rather than failing completely
+                    if (callback)
+                    {
+                        callback(sourcePath, graph);
+                    }
+                    continue;
+                }
                 
                 if (callback)
                 {
@@ -507,6 +646,60 @@ namespace OloEngine::Audio::SoundGraph
                 }
             }
         }
+    }
+
+    //==============================================================================
+    /// Cache Statistics
+
+    sizet SoundGraphCache::GetSize() const
+    {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        return m_CacheEntries.size();
+    }
+
+    sizet SoundGraphCache::GetMemoryUsage() const
+    {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        return m_CurrentMemoryUsage;
+    }
+
+    //==============================================================================
+    /// Configuration
+
+    void SoundGraphCache::SetMaxCacheSize(sizet maxSize)
+    {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        m_MaxCacheSize = maxSize;
+        
+        // Trigger eviction if current cache exceeds new limit
+        while (m_CacheEntries.size() > m_MaxCacheSize && !m_CacheEntries.empty())
+        {
+            EvictLRU();
+        }
+    }
+
+    void SoundGraphCache::SetMaxMemoryUsage(sizet maxMemory)
+    {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        m_MaxMemoryUsage = maxMemory;
+        
+        // Trigger eviction if current memory usage exceeds new limit
+        while (m_CurrentMemoryUsage > m_MaxMemoryUsage && !m_CacheEntries.empty())
+        {
+            EvictLRU();
+        }
+    }
+
+    sizet SoundGraphCache::GetMaxCacheSize() const
+    {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        return m_MaxCacheSize;
+    }
+
+    sizet SoundGraphCache::GetMaxMemoryUsage() const
+    {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        return m_MaxMemoryUsage;
     }
 
     //==============================================================================

@@ -3,6 +3,7 @@
 #include <array>
 #include <optional>
 #include <iostream>
+#include <tuple>
 #include <type_traits>
 #include <variant>
 #include <vector>

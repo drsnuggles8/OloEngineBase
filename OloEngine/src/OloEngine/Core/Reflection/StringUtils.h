@@ -24,14 +24,26 @@ namespace OloEngine::Core::Reflection::StringUtils {
 
 	constexpr size_t CountTokens(std::string_view source, std::string_view delimiter)
 	{
+		// Guard against empty delimiter to avoid infinite loops
+		if (delimiter.empty())
+			return source.empty() ? 0 : 1;
+			
 		size_t count = 1;
 		auto pos = source.begin();
 		while (pos != source.end())
 		{
 			const auto remaining = static_cast<sizet>(source.end() - pos);
 			if (remaining >= delimiter.size() && std::string_view(&*pos, delimiter.size()) == delimiter)
+			{
 				++count;
-			++pos;
+				// Advance by delimiter size after finding a match
+				pos += delimiter.size();
+			}
+			else
+			{
+				// Advance by one character if no match
+				++pos;
+			}
 		}
 		return count;
 	}

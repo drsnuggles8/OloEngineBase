@@ -67,7 +67,7 @@ namespace OloEngine::Core::Reflection {
 
 		static constexpr std::optional<std::string_view> GetMemberName(size_t memberIndex)
 		{
-			return (NumberOfMembers > memberIndex) ? std::optional<std::string_view>(TDescription::MemberNames[memberIndex]) : std::nullopt;
+			return (memberIndex != INVALID_INDEX && memberIndex < NumberOfMembers) ? std::optional<std::string_view>(TDescription::MemberNames[memberIndex]) : std::nullopt;
 		}
 
 		template<size_t MemberIndex>
@@ -94,14 +94,14 @@ namespace OloEngine::Core::Reflection {
 		static constexpr std::optional<TValue> GetMemberValueByName(std::string_view memberName, const TObjType& object)
 		{
 			const auto index = IndexOf(memberName);
-			return (NumberOfMembers > index) ? TList::template GetMemberValueOfType<TValue>(index, object) : std::nullopt;
+			return (index != INVALID_INDEX && index < NumberOfMembers) ? TList::template GetMemberValueOfType<TValue>(index, object) : std::nullopt;
 		}
 
 		template<typename TValue>
 		static constexpr bool SetMemberValueByName(std::string_view memberName, const TValue& value, TObjType& object)
 		{
 			const auto index = IndexOf(memberName);
-			return (NumberOfMembers > index) ? TList::template SetMemberValue<TValue>(index, value, object) : false;
+			return (index != INVALID_INDEX && index < NumberOfMembers) ? TList::template SetMemberValue<TValue>(index, value, object) : false;
 		}
 
 		//==============================================================================
@@ -110,13 +110,13 @@ namespace OloEngine::Core::Reflection {
 		static constexpr std::optional<bool> IsFunctionByName(std::string_view memberName)
 		{
 			const auto index = IndexOf(memberName);
-			return (NumberOfMembers > index) ? TList::IsFunction(index) : std::nullopt;
+			return (index != INVALID_INDEX && index < NumberOfMembers) ? TList::IsFunction(index) : std::nullopt;
 		}
 
 		static constexpr std::optional<size_t> GetMemberSizeByName(std::string_view memberName)
 		{
 			const auto index = IndexOf(memberName);
-			return (NumberOfMembers > index) ? TList::GetMemberSize(index) : std::nullopt;
+			return (index != INVALID_INDEX && index < NumberOfMembers) ? TList::GetMemberSize(index) : std::nullopt;
 		}
 
 		//==============================================================================

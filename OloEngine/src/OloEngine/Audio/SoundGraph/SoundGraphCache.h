@@ -10,6 +10,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <deque>
 #include <functional>
 #include <queue>
 #include <mutex>
@@ -50,15 +51,15 @@ namespace OloEngine::Audio::SoundGraph
         void Clear();
 
         /// Cache Statistics
-        sizet GetSize() const { return m_CacheEntries.size(); }
-        sizet GetMemoryUsage() const { return m_CurrentMemoryUsage; }
+        sizet GetSize() const;
+        sizet GetMemoryUsage() const;
         f32 GetHitRatio() const;
         
         /// Configuration
-        void SetMaxCacheSize(sizet maxSize) { m_MaxCacheSize = maxSize; }
-        void SetMaxMemoryUsage(sizet maxMemory) { m_MaxMemoryUsage = maxMemory; }
-        sizet GetMaxCacheSize() const { return m_MaxCacheSize; }
-        sizet GetMaxMemoryUsage() const { return m_MaxMemoryUsage; }
+        void SetMaxCacheSize(sizet maxSize);
+        void SetMaxMemoryUsage(sizet maxMemory);
+        sizet GetMaxCacheSize() const;
+        sizet GetMaxMemoryUsage() const;
 
         /// Cache Maintenance
         void EvictLRU();
@@ -85,13 +86,11 @@ namespace OloEngine::Audio::SoundGraph
         bool LoadCacheMetadata(const std::string& filePath);
 
     private:
-        mutable std::mutex m_Mutex;
-        std::unordered_map<std::string, SoundGraphCacheEntry> m_CacheEntries;
-        
-        // LRU tracking
-        std::vector<std::string> m_LRUOrder; // Most recent first
-        
-        // Configuration
+		mutable std::mutex m_Mutex;
+		std::unordered_map<std::string, SoundGraphCacheEntry> m_CacheEntries;
+		
+		// LRU tracking - most recent at back for O(1) insertion
+		std::deque<std::string> m_LRUOrder;        // Configuration
         sizet m_MaxCacheSize;
         sizet m_MaxMemoryUsage;
         sizet m_CurrentMemoryUsage = 0;

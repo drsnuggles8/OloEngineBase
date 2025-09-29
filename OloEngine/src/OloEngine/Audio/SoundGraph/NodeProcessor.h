@@ -2,6 +2,7 @@
 
 #include "OloEngine/Audio/AudioCallback.h"
 #include "OloEngine/Core/Identifier.h"
+#include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Core/Ref.h"
 #include <choc/containers/choc_Value.h>
@@ -71,15 +72,15 @@ namespace OloEngine::Audio::SoundGraph
 
 		struct Input
 		{
-			Input() { OLO_CORE_ASSERT(false, "Must not construct Input using default constructor"); }
+			Input() = delete;
 			explicit Input(NodeProcessor& owner) noexcept : Node(&owner) {}
 			NodeProcessor* Node = nullptr;
 		};
 
 		struct Output
 		{
-			Output() { OLO_CORE_ASSERT(false, "Must not construct Output using default constructor"); }
-			Output(NodeProcessor& owner) noexcept : Node(&owner) {}
+			Output() = delete;
+			explicit Output(NodeProcessor& owner) noexcept : Node(&owner) {}
 			NodeProcessor* Node = nullptr;
 		};
 
@@ -114,22 +115,32 @@ namespace OloEngine::Audio::SoundGraph
 
 			inline void operator()(float value) noexcept
 			{
-				for (auto* dest : DestinationEvents)
+				// Iterate through weak_ptr connections, cleaning up expired ones
+				auto it = DestinationEvents.begin();
+				while (it != DestinationEvents.end())
 				{
-					if (dest) // Null check for safety
+					if (auto dest = it->lock()) // Check if still valid
+					{
 						(*dest)(value);
+						++it;
+					}
+					else
+					{
+						// Remove expired weak_ptr
+						it = DestinationEvents.erase(it);
+					}
 				}
 			}
 
-			void AddDestination(InputEvent* dest)
+			void AddDestination(std::shared_ptr<InputEvent> dest)
 			{
 				if (dest)
-					DestinationEvents.push_back(dest);
+					DestinationEvents.push_back(std::weak_ptr<InputEvent>(dest));
 			}
 
-			// OutputEvent should always have destination Input to call
-			// Using raw pointers since InputEvent instances are owned by value in InEvents
-			std::vector<InputEvent*> DestinationEvents;
+			// Safe connection management using weak_ptr to prevent dangling pointers
+			// InputEvent instances are now owned by shared_ptr in InEvents
+			std::vector<std::weak_ptr<InputEvent>> DestinationEvents;
 		};
 
 		//==============================================================================
@@ -137,9 +148,10 @@ namespace OloEngine::Audio::SoundGraph
 
 		InputEvent& AddInEvent(Identifier id, InputEvent::EventFunction function = nullptr)
 		{
-			const auto& [element, inserted] = InEvents.try_emplace(id, *this, function);
+			auto inputEvent = std::make_shared<InputEvent>(*this, function);
+			const auto& [element, inserted] = InEvents.try_emplace(id, inputEvent);
 			OLO_CORE_ASSERT(inserted, "Input event with this ID already exists");
-			return element->second;
+			return *element->second;
 		}
 
 		void AddOutEvent(Identifier id, OutputEvent& out)
@@ -180,7 +192,7 @@ namespace OloEngine::Audio::SoundGraph
 		//==============================================================================
 		/// Endpoint access
 
-		std::unordered_map<Identifier, InputEvent> InEvents;
+		std::unordered_map<Identifier, std::shared_ptr<InputEvent>> InEvents;
 		std::unordered_map<Identifier, std::reference_wrapper<OutputEvent>> OutEvents;
 
 		std::unordered_map<Identifier, choc::value::ValueView> InputStreams;
@@ -194,11 +206,22 @@ namespace OloEngine::Audio::SoundGraph
 
 		inline choc::value::ValueView& InValue(const Identifier& id) { return InputStreams.at(id); }
 		inline choc::value::ValueView& OutValue(const Identifier& id) { return OutputStreams.at(id); }
-		inline InputEvent& InEvent(const Identifier& id) { return InEvents.at(id); }
+		inline InputEvent& InEvent(const Identifier& id) { return *InEvents.at(id); }
 		inline OutputEvent& OutEvent(const Identifier& id) { return OutEvents.at(id).get(); }
 
 		//==============================================================================
 		/// Parameter system (OloEngine enhancement over Hazel)
+
+		//==============================================================================
+		/// Parameter debugging/introspection (publicly accessible)
+		
+		struct ParameterInfo
+		{
+			Identifier ID;
+			std::string DebugName;
+			std::string TypeName;
+		};
+		std::unordered_map<Identifier, ParameterInfo> ParameterInfos;
 
 		template<typename T>
 		void AddParameter(Identifier id, std::string_view debugName, const T& defaultValue)
@@ -219,13 +242,6 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 	private:
-		struct ParameterInfo
-		{
-			Identifier ID;
-			std::string DebugName;
-			std::string TypeName;
-		};
-		std::unordered_map<Identifier, ParameterInfo> ParameterInfos;
 	};
 
 	//==============================================================================
@@ -233,13 +249,13 @@ namespace OloEngine::Audio::SoundGraph
 	struct StreamWriter : public NodeProcessor
 	{
 	template<typename T>
-	explicit StreamWriter(choc::value::ValueView& destination, T&& externalObjectOrDefaultValue, Identifier destinationID, UUID id = UUID()) noexcept
+	explicit StreamWriter(const choc::value::ValueView& destination, T&& externalObjectOrDefaultValue, Identifier destinationID, UUID id = UUID()) noexcept
 		: NodeProcessor("Stream Writer", id)
-		, DestinationView(destination)
-		, OutputValue(std::forward<T>(externalObjectOrDefaultValue))
 		, DestinationID(destinationID)
+		, OutputValue(std::forward<T>(externalObjectOrDefaultValue))
+		, DestinationView(OutputValue.getViewReference())
 	{
-		DestinationView = OutputValue.getViewReference();
+		// DestinationView is now owned by value and initialized from OutputValue
 	}
 
 	// Explicitly delete copy and move operations to prevent dangling references
@@ -263,7 +279,7 @@ namespace OloEngine::Audio::SoundGraph
 
 		Identifier DestinationID;
 		choc::value::Value OutputValue;
-		choc::value::ValueView& DestinationView;
+		choc::value::ValueView DestinationView;
 	};
 
 	//==============================================================================

@@ -36,9 +36,12 @@ namespace OloEngine
 	{
 		OLO_CORE_TRACE("[AudioEngine] Shutting down.");
 
-		::ma_engine_uninit(s_Engine);
-		delete s_Engine;
-		s_Engine = nullptr;
+		if (s_Engine)
+		{
+			::ma_engine_uninit(s_Engine);
+			delete s_Engine;
+			s_Engine = nullptr;
+		}
 
 		OLO_CORE_TRACE("[AudioEngine] Shutdown complete.");
 	}

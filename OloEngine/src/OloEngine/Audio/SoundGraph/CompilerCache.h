@@ -67,11 +67,15 @@ namespace OloEngine::Audio::SoundGraph
         
         /// Configuration
         void SetCacheDirectory(const std::string& directory);
-        const std::string& GetCacheDirectory() const { return m_CacheDirectory; }
-        void SetMaxCacheSize(sizet maxSize) { m_MaxCacheSize = maxSize; }
-        sizet GetMaxCacheSize() const { return m_MaxCacheSize; }
-
-    private:
+		const std::string& GetCacheDirectory() const { return m_CacheDirectory; }
+		void SetMaxCacheSize(sizet maxSize) { m_MaxCacheSize = maxSize; }
+		sizet GetMaxCacheSize() const { return m_MaxCacheSize; }
+		
+		/// Initialization Status
+		bool IsFullyInitialized() const { return m_DirectoryInitialized && m_DiskCacheLoaded; }
+		bool IsDirectoryInitialized() const { return m_DirectoryInitialized; }
+		bool IsDiskCacheLoaded() const { return m_DiskCacheLoaded; }
+		const std::string& GetInitializationErrors() const { return m_InitializationErrors; }    private:
         mutable std::mutex m_Mutex;
         std::unordered_map<std::string, std::shared_ptr<CompilationResult>> m_CompiledResults;
         
@@ -79,11 +83,14 @@ namespace OloEngine::Audio::SoundGraph
         sizet m_MaxCacheSize = 1000; // Maximum number of cached compilations
         bool m_AutoSave = true;
         
-        // Statistics
-        mutable u64 m_HitCount = 0;
-        mutable u64 m_MissCount = 0;
-        
-        // Helper methods
+		// Statistics
+		mutable u64 m_HitCount = 0;
+		mutable u64 m_MissCount = 0;
+		
+		// Initialization state tracking
+		bool m_DirectoryInitialized = false;
+		bool m_DiskCacheLoaded = false;
+		std::string m_InitializationErrors;        // Helper methods
         std::string GenerateCacheKey(const std::string& sourcePath, const std::string& compilerVersion) const;
         sizet HashString(const std::string& str) const;
         

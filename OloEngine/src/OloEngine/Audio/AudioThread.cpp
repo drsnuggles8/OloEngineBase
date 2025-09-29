@@ -84,7 +84,10 @@ namespace OloEngine::Audio
                 std::lock_guard<std::mutex> lock(s_TaskQueueMutex);
                 while (!s_TaskQueue.empty())
                 {
+                    auto token = std::move(s_TaskQueue.front());
                     s_TaskQueue.pop();
+                    token->promise.set_exception(
+                        std::make_exception_ptr(std::runtime_error("AudioThread stopped before executing task")));
                 }
                 s_PendingTasks.store(0);
                 // Notify any threads waiting for task completion
@@ -113,7 +116,10 @@ namespace OloEngine::Audio
             std::lock_guard<std::mutex> lock(s_TaskQueueMutex);
             while (!s_TaskQueue.empty())
             {
+                auto token = std::move(s_TaskQueue.front());
                 s_TaskQueue.pop();
+                token->promise.set_exception(
+                    std::make_exception_ptr(std::runtime_error("AudioThread stopped before executing task")));
             }
             s_PendingTasks.store(0);
             // Notify any threads waiting for task completion
@@ -130,11 +136,13 @@ namespace OloEngine::Audio
 
     bool AudioThread::IsAudioThread()
     {
+        std::lock_guard<std::mutex> lock(s_StartStopMutex);
         return std::this_thread::get_id() == s_AudioThreadID;
     }
 
     std::thread::id AudioThread::GetThreadID()
     {
+        std::lock_guard<std::mutex> lock(s_StartStopMutex);
         return s_AudioThreadID;
     }
 

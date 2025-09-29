@@ -25,7 +25,19 @@ namespace OloEngine::Audio::SoundGraph
 		Audio::WaveSource waveSource{};
 		waveSource.WaveHandle = handle;
 		waveSource.WaveName = ""; // audioAsset->GetPath().c_str(); // For debugging - needs proper API
-		waveSource.TotalFrames = 0; // audioAsset->GetFrameCount(); // Needs proper API
+		
+		// Extract metadata from the audio asset to set up the wave source properly
+		// This prevents AreAllSourcesAtEnd() from immediately reporting finished due to TotalFrames = 0
+		const double duration = audioAsset->GetDuration();
+		const u32 sampleRate = audioAsset->GetSamplingRate();
+		const u16 numChannels = audioAsset->GetNumChannels();
+		
+		// Calculate total frames from duration and sample rate
+		waveSource.TotalFrames = static_cast<i64>(duration * sampleRate);
+		
+		// Store additional metadata that may be needed for audio processing
+		// Note: WaveSource doesn't have explicit fields for these, but they're available in the AudioFile
+		// If needed later, these can be accessed via AssetManager::GetAsset<AudioFile>(handle)
 		
 		// Set up refill callback - we'll handle this through the SoundGraphSource
 		// The actual refill will be managed by the parent class
@@ -499,17 +511,19 @@ namespace OloEngine::Audio::SoundGraph
 		// Queue the event for processing on the main thread
 		if (source->m_OnGraphEvent)
 		{
-			// Create a copy of the event data for thread safety
+			// Allocate/copy the payload into an owned Value on the audio thread for thread safety
+			// ValueView points to scratch storage that will be invalid on the main thread
+			choc::value::Value ownedEventData = choc::value::Value(eventData);
+			
 			EventMessage msg;
 			msg.FrameIndex = frameIndex;
-			msg.Callback = [source, frameIndex, endpointID, eventData]()
+			msg.Callback = [source, frameIndex, endpointID, ownedEventData = std::move(ownedEventData)]()
 			{
 				// Convert to u32 for the callback (legacy compatibility)
 				u32 endpointIDu32 = static_cast<u32>(endpointID);
 				
-				// Create a proper Value wrapper from the event data
-				choc::value::Value eventValue = choc::value::Value(eventData);
-				source->m_OnGraphEvent(frameIndex, endpointIDu32, eventValue);
+				// Use the owned, thread-safe copy of the event data
+				source->m_OnGraphEvent(frameIndex, endpointIDu32, ownedEventData);
 			};
 
 			source->m_EventQueue.push(std::move(msg));

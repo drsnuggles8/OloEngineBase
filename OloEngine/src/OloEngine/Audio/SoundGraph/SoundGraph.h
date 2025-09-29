@@ -15,6 +15,7 @@
 #include <functional>
 #include <type_traits>
 #include <algorithm>
+#include <atomic>
 
 #define LOG_DBG_MESSAGES 0
 
@@ -59,13 +60,13 @@ namespace OloEngine::Audio::SoundGraph
 					static constexpr float dummyValue = 1.0f;
 					choc::value::ValueView value(choc::value::Type::createFloat32(), (void*)&dummyValue, nullptr);
 					OutgoingEvents.push({ CurrentFrame, IDs::OnFinished, value });
-				});
+			});
+		
+			// Connect using shared_ptr from InEvents
+			if (auto finishHandlerPtr = InEvents.find(IDs::OnFinished); finishHandlerPtr != InEvents.end())
+				out_OnFinish.AddDestination(finishHandlerPtr->second);
 			
-			out_OnFinish.AddDestination(&finishHandler);
-			
-			AddOutEvent(IDs::OnFinished, out_OnFinish);
-
-			OutgoingEvents.reset(1024);
+			AddOutEvent(IDs::OnFinished, out_OnFinish);			OutgoingEvents.reset(1024);
 			OutgoingMessages.reset(1024);
 
 			out_Channels.reserve(2);
@@ -102,8 +103,20 @@ namespace OloEngine::Audio::SoundGraph
 			void SetTarget(float newTarget, int numSteps) noexcept
 			{
 				target = newTarget;
-				increment = (target - current) / numSteps;
-				steps = numSteps;
+				
+				// Guard against division by zero and invalid step counts
+				if (numSteps <= 0)
+				{
+					// No interpolation - set increment to 0 and steps to 0
+					increment = 0.0f;
+					steps = 0;
+				}
+				else
+				{
+					// Normal interpolation calculation
+					increment = (target - current) / numSteps;
+					steps = numSteps;
+				}
 			}
 			
 			void Reset(float initialValue) noexcept
@@ -176,6 +189,14 @@ namespace OloEngine::Audio::SoundGraph
 			Nodes.emplace_back(std::move(node));
 		}
 
+		/// OWNERSHIP WARNING: This function takes ownership of the raw pointer and will delete it.
+		/// Pass only heap-allocated pointers created with 'new' or equivalent.
+		/// Do NOT:
+		/// - Pass stack-allocated objects
+		/// - Pass pointers managed by other smart pointers 
+		/// - Delete or reuse the pointer after calling this function
+		/// - Pass the same pointer multiple times
+		/// The pointer will be wrapped in a Scope<NodeProcessor> and automatically deleted when the graph is destroyed.
 		void AddNode(NodeProcessor* node)
 		{
 			OLO_CORE_ASSERT(node);
@@ -223,7 +244,17 @@ namespace OloEngine::Audio::SoundGraph
 
 		void AddConnection(OutputEvent& source, InputEvent& destination) noexcept
 		{
-			source.AddDestination(&destination);
+			// Find the shared_ptr for this InputEvent in InEvents
+			for (const auto& [id, inputEventPtr] : InEvents)
+			{
+				if (inputEventPtr.get() == &destination)
+				{
+					source.AddDestination(inputEventPtr);
+					return;
+				}
+			}
+			// If not found, this suggests the InputEvent isn't managed by this graph
+			OLO_CORE_WARN("AddConnection: InputEvent not found in managed events");
 		}
 
 		/// Connect Input Event to Input Event
@@ -238,11 +269,14 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			// Create a dedicated input event for routing from OutputEvent to OutputEvent
 			OutputEvent* dest = &destination;
-			static size_t routeCounter = 0;
-			std::string routeIdStr = "Route_" + std::to_string(routeCounter++);
+			static std::atomic<size_t> routeCounter{0};
+			size_t currentRouteId = routeCounter.fetch_add(1, std::memory_order_relaxed);
+			std::string routeIdStr = "Route_" + std::to_string(currentRouteId);
 			Identifier routeId(routeIdStr);
 			auto& routeHandler = AddInEvent(routeId, [dest](float v) { (*dest)(v); });
-			source.AddDestination(&routeHandler);
+			// Use the shared_ptr from InEvents for the newly created routeHandler
+			if (auto routeHandlerPtr = InEvents.find(routeId); routeHandlerPtr != InEvents.end())
+				source.AddDestination(routeHandlerPtr->second);
 		}
 
 		//==============================================================================
@@ -505,11 +539,11 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			auto endpoint = InEvents.find(endpointID);
 
-			if (endpoint == InEvents.end() || !endpoint->second.Event)
+			if (endpoint == InEvents.end() || !endpoint->second || !endpoint->second->Event)
 				return false;
 
 			// Handle float values for events
-			endpoint->second(value.isFloat32() ? value.getFloat32() : 1.0f);
+			endpoint->second->Event(value.isFloat32() ? value.getFloat32() : 1.0f);
 			return true;
 		}
 

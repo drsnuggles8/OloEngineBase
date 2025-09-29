@@ -186,6 +186,11 @@ namespace OloEngine::Audio
             if (numSamples <= 0 || startSample < 0 || startSample >= static_cast<i32>(buffer.getNumFrames()))
                 return T(0);
             
+            // Cache channel count and check for zero channels to prevent division by zero
+            const auto cachedChannels = buffer.getNumChannels();
+            if (cachedChannels == 0)
+                return T(0);
+            
             // Clamp the sample window to buffer bounds
             i32 endSample = std::min(startSample + numSamples, static_cast<i32>(buffer.getNumFrames()));
             i32 actualSamplesCount = endSample - startSample;
@@ -196,7 +201,7 @@ namespace OloEngine::Audio
             
             T magnitude = T(0);
             
-            for (u32 ch = 0; ch < buffer.getNumChannels(); ++ch)
+            for (u32 ch = 0; ch < cachedChannels; ++ch)
             {
                 for (i32 s = startSample; s < endSample; ++s)
                 {
@@ -205,8 +210,8 @@ namespace OloEngine::Audio
                 }
             }
             
-            // Use actual samples processed for accurate mean calculation
-            return std::sqrt(magnitude / (buffer.getNumChannels() * actualSamplesCount));
+            // Use cached channel count and actual samples processed for accurate mean calculation
+            return std::sqrt(magnitude / (cachedChannels * actualSamplesCount));
         }
 
         /// Clear a buffer with zeros

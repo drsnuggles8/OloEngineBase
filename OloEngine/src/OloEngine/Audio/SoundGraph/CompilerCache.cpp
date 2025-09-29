@@ -10,14 +10,84 @@ namespace OloEngine::Audio::SoundGraph
     //==============================================================================
     /// CompilerCache Implementation
 
-    CompilerCache::CompilerCache(const std::string& cacheDirectory)
-        : m_CacheDirectory(cacheDirectory)
-    {
-        CreateCacheDirectory();
-        LoadFromDisk();
-    }
-
-    bool CompilerCache::HasCompiled(const std::string& sourcePath, const std::string& compilerVersion) const
+	CompilerCache::CompilerCache(const std::string& cacheDirectory)
+		: m_CacheDirectory(cacheDirectory)
+	{
+		// Initialize directory creation with enhanced error handling
+		try
+		{
+			CreateCacheDirectory();
+			m_DirectoryInitialized = true;
+			OLO_CORE_INFO("CompilerCache: Successfully created/verified cache directory '{}'", m_CacheDirectory);
+		}
+		catch (const std::filesystem::filesystem_error& ex)
+		{
+			std::string error = "Filesystem error during directory creation: " + std::string(ex.what());
+			m_InitializationErrors += error + "; ";
+			OLO_CORE_ERROR("CompilerCache: {}", error);
+			m_DirectoryInitialized = false;
+			// Continue - cache will work in memory-only mode
+		}
+		catch (const std::exception& ex)
+		{
+			std::string error = "Exception during directory creation: " + std::string(ex.what());
+			m_InitializationErrors += error + "; ";
+			OLO_CORE_ERROR("CompilerCache: {}", error);
+			m_DirectoryInitialized = false;
+			// Continue - cache will work in memory-only mode
+		}
+		catch (...)
+		{
+			std::string error = "Unknown exception during directory creation";
+			m_InitializationErrors += error + "; ";
+			OLO_CORE_ERROR("CompilerCache: {}", error);
+			m_DirectoryInitialized = false;
+			// Continue - cache will work in memory-only mode
+		}
+		
+		// Initialize disk cache loading with enhanced error handling
+		try
+		{
+			LoadFromDisk();
+			m_DiskCacheLoaded = true;
+			OLO_CORE_INFO("CompilerCache: Successfully loaded {} entries from disk", m_CompiledResults.size());
+		}
+		catch (const std::filesystem::filesystem_error& ex)
+		{
+			std::string error = "Filesystem error during cache loading: " + std::string(ex.what());
+			m_InitializationErrors += error + "; ";
+			OLO_CORE_WARN("CompilerCache: {}", error);
+			m_DiskCacheLoaded = false;
+			// Continue - start with empty cache
+		}
+		catch (const std::exception& ex)
+		{
+			std::string error = "Exception during cache loading: " + std::string(ex.what());
+			m_InitializationErrors += error + "; ";
+			OLO_CORE_WARN("CompilerCache: {}", error);
+			m_DiskCacheLoaded = false;
+			// Continue - start with empty cache
+		}
+		catch (...)
+		{
+			std::string error = "Unknown exception during cache loading";
+			m_InitializationErrors += error + "; ";
+			OLO_CORE_WARN("CompilerCache: {}", error);
+			m_DiskCacheLoaded = false;
+			// Continue - start with empty cache
+		}
+		
+		// Log final initialization status
+		if (IsFullyInitialized())
+		{
+			OLO_CORE_INFO("CompilerCache: Fully initialized successfully");
+		}
+		else
+		{
+			OLO_CORE_WARN("CompilerCache: Partially initialized - some features may be limited. Errors: {}", 
+						  m_InitializationErrors.empty() ? "None" : m_InitializationErrors);
+		}
+	}    bool CompilerCache::HasCompiled(const std::string& sourcePath, const std::string& compilerVersion) const
     {
         std::lock_guard<std::mutex> lock(m_Mutex);
         
@@ -421,6 +491,16 @@ namespace OloEngine::Audio::SoundGraph
             if (!file.is_open())
                 return false;
 
+            // Write magic header and format version for future compatibility
+            // Magic: "OLCC" (OloEngine Compiler Cache) - 4 bytes
+            // Version: 1 (u32) - Current format version
+            // Increment version when fields are added/reordered for backward/forward compatibility
+            const char magic[4] = {'O', 'L', 'C', 'C'};
+            const u32 formatVersion = 1;
+            
+            file.write(magic, sizeof(magic));
+            file.write(reinterpret_cast<const char*>(&formatVersion), sizeof(formatVersion));
+
             // Simple binary serialization (in production, use a proper serialization library)
             auto writeString = [&file](const std::string& str) {
                 u32 length = static_cast<u32>(str.size());
@@ -464,6 +544,28 @@ namespace OloEngine::Audio::SoundGraph
             std::ifstream file(filePath, std::ios::binary);
             if (!file.is_open())
                 return false;
+
+            // Validate magic header and format version
+            char magic[4];
+            file.read(magic, sizeof(magic));
+            if (magic[0] != 'O' || magic[1] != 'L' || magic[2] != 'C' || magic[3] != 'C')
+            {
+                OLO_CORE_ERROR("CompilerCache: Invalid magic header in cache file '{}'", filePath);
+                return false;
+            }
+            
+            u32 formatVersion;
+            file.read(reinterpret_cast<char*>(&formatVersion), sizeof(formatVersion));
+            if (formatVersion > 1) // Current supported version is 1
+            {
+                OLO_CORE_WARN("CompilerCache: Unsupported format version {} in cache file '{}' (expected <= 1)", formatVersion, filePath);
+                return false;
+            }
+            if (formatVersion < 1) // Minimum supported version is 1
+            {
+                OLO_CORE_WARN("CompilerCache: Outdated format version {} in cache file '{}' (expected >= 1)", formatVersion, filePath);
+                return false;
+            }
 
             auto readString = [&file]() -> std::string {
                 u32 length;

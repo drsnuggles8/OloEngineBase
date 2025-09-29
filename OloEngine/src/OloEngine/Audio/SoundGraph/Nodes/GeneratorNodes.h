@@ -10,6 +10,7 @@
 #include <ctime>
 #include <cstring>
 #include <optional>
+#include <atomic>
 
 #define DECLARE_ID(name) static constexpr Identifier name{ #name }
 
@@ -49,26 +50,31 @@ namespace OloEngine::Audio::SoundGraph
 			float amplitude = glm::clamp(*in_Amplitude, 0.0f, 1.0f);
 			float phaseOffset = *in_Phase;
 
-			// Update phase
-			float deltaPhase = frequency / m_SampleRate;
+			// Guard against zero or near-zero sample rate
+			if (m_SampleRate <= 1e-6f)
+			{
+				// Return silence for invalid sample rate
+				out_Value = 0.0f;
+				return;
+			}
+
+			// Update phase using double precision for higher accuracy
+			double deltaPhase = static_cast<double>(frequency) / static_cast<double>(m_SampleRate);
 			m_Phase += deltaPhase;
 			
-			// Wrap phase to [0, 1]
-			if (m_Phase >= 1.0f)
-				m_Phase = fmod(m_Phase, 1.0f);
+			// Robust phase wrapping to keep in [0, 1) - handles negative values correctly
+			m_Phase -= std::floor(m_Phase);
 			
 			// Calculate sine with phase offset
-			float totalPhase = m_Phase + (phaseOffset / (2.0f * std::numbers::pi_v<float>));
-			totalPhase = fmod(totalPhase + 1.0f, 1.0f); // Ensure positive
+			float totalPhase = static_cast<float>(m_Phase) + (phaseOffset / (2.0f * std::numbers::pi_v<float>));
+			totalPhase = std::fmod(totalPhase + 1.0f, 1.0f); // Ensure positive
 			
-			out_Value = amplitude * std::sin(2.0f * std::numbers::pi_v<float> * totalPhase);
-		}
+		out_Value = amplitude * std::sin(2.0f * std::numbers::pi_v<float> * totalPhase);
+	}
 
-	private:
-		float m_Phase{ 0.0f };
-	};
-
-	//==============================================================================
+private:
+	double m_Phase{ 0.0 };
+};	//==============================================================================
 	// Square Wave Oscillator  
 	//==============================================================================
 	struct SquareOscillator : public NodeProcessor
@@ -262,6 +268,9 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			InitializeInputs();
 
+			// Initialize fallback seed once to avoid thread safety issues
+			m_FallbackSeed = static_cast<int>(std::time(nullptr));
+
 			// Initialize with safe input resolution
 			int resolvedSeed = ResolveSeed();
 			ENoiseType resolvedType = ResolveType();
@@ -309,12 +318,8 @@ namespace OloEngine::Audio::SoundGraph
 			}
 			else
 			{
-				// Use cached fallback seed to avoid reseeding every second
-				if (!m_CachedFallbackSeed.has_value())
-				{
-					m_CachedFallbackSeed = static_cast<int>(std::time(nullptr));
-				}
-				return *m_CachedFallbackSeed;
+				// Use pre-initialized fallback seed (thread-safe)
+				return m_FallbackSeed;
 			}
 		}
 		
@@ -327,8 +332,8 @@ namespace OloEngine::Audio::SoundGraph
 		int m_CachedSeed = -1;
 		ENoiseType m_CachedType = WhiteNoise;
 		
-		// Cached fallback seed for when input seed is unset (-1)
-		mutable std::optional<int> m_CachedFallbackSeed;
+		// Pre-initialized fallback seed for when input seed is unset (-1) - thread-safe
+		std::atomic<int> m_FallbackSeed{0};
 
 		struct Generator
 		{

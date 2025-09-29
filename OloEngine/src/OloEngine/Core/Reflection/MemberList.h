@@ -182,14 +182,22 @@ namespace OloEngine::Core::Reflection {
 		{
 			static_assert(Count() > MemberIndex);
 
-			auto filter = [&obj](auto member)
+			using MemberPtr = decltype(NthElement<MemberIndex>(MemberPointers...));
+			
+			if constexpr (std::is_member_function_pointer_v<MemberPtr>)
 			{
-				if constexpr (std::is_member_function_pointer_v<decltype(member)>)
-					return;
-				else
+				// For member function pointers, return void (don't define the lambda)
+				return;
+			}
+			else
+			{
+				// For data members, define lambda and return its result
+				auto filter = [&obj](auto member)
+				{
 					return obj.*member;
-			};
-			return filter(NthElement<MemberIndex>(MemberPointers...));
+				};
+				return filter(NthElement<MemberIndex>(MemberPointers...));
+			}
 		}
 
 		template<typename TValue, typename TObj>

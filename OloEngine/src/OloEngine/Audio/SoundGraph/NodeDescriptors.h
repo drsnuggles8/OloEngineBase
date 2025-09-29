@@ -148,7 +148,7 @@ namespace OloEngine::Audio::SoundGraph {
 							else
 							{
 								// Handle output parameters (always direct values for outputs)
-								using ValueType = typename Core::Reflection::MemberPointer::ReturnType<TMember>::Type;
+								using ValueType = typename Core::Reflection::MemberPointer::ReturnType<decltype(memberPtr)>::Type;
 								// Output values are registered but not added as parameters since they're computed
 								// The processing function will set their values directly
 								return true;

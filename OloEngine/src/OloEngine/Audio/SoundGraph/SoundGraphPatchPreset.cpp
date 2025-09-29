@@ -6,6 +6,7 @@
 #include <fstream>
 #include <chrono>
 #include <cstdio>
+#include <cmath>
 
 namespace OloEngine::Audio::SoundGraph
 {
@@ -358,7 +359,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         (void)jsonData;
         // Simple JSON deserialization (in a real implementation, use a proper JSON parser)
-        // This is a placeholder implementation
+        // TODO(olbu): This is a placeholder implementation
         OLO_CORE_WARN("SoundGraphPatchPreset::DeserializeFromJSON - Not fully implemented");
         return false;
     }
@@ -437,7 +438,7 @@ namespace OloEngine::Audio::SoundGraph
                         }
                         else if constexpr (std::is_same_v<T, i32>)
                         {
-                            i32 interpolated = static_cast<i32>(vA + (vB - vA) * t);
+                            i32 interpolated = static_cast<i32>(std::lround(vA + (vB - vA) * t));
                             result.SetParameter(paramId, interpolated);
                         }
                         else if constexpr (std::is_same_v<T, bool>)

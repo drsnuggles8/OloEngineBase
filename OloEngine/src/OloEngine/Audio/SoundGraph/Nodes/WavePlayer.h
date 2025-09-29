@@ -170,7 +170,7 @@ namespace OloEngine::Audio::SoundGraph
 			if (!m_AudioData.IsValid())
 			{
 				DBG("WavePlayer: Audio data not ready yet, playback delayed");
-				m_PendingPlayback = true; // Will start when load completes
+				m_PendingPlayback.store(true, std::memory_order_relaxed); // Will start when load completes
 				return;
 			}
 
@@ -181,16 +181,16 @@ namespace OloEngine::Audio::SoundGraph
 			// Prime the buffer unconditionally when transitioning into playback
 			ForceRefillBuffer();
 
-			m_IsPlaying = true;
-			m_PendingPlayback = false;
-			out_OnPlay(2.0f);
-			DBG("WavePlayer: Started playing");
+		m_IsPlaying = true;
+		m_PendingPlayback.store(false, std::memory_order_relaxed);
+		out_OnPlay(2.0f);
+		DBG("WavePlayer: Started playing");
 		}
 
 		void StopPlayback(bool notifyOnFinish)
 		{
 			m_IsPlaying = false;
-			m_PendingPlayback = false;  // Cancel any pending playback
+			m_PendingPlayback.store(false, std::memory_order_relaxed);  // Cancel any pending playback
 			m_LoopCount = 0;
 			m_FrameNumber = m_StartSample;
 			m_WaveSource.ReadPosition = m_FrameNumber;
@@ -239,7 +239,7 @@ namespace OloEngine::Audio::SoundGraph
 		void StartAsyncLoad(u64 waveAsset)
 		{
 			// Mark as loading
-			m_LoadState = LoadState::Loading;
+			m_LoadState.store(LoadState::Loading, std::memory_order_relaxed);
 			
 			// Start async load on background thread
 			m_AsyncLoadFuture = std::async(std::launch::async, [this, waveAsset]() -> std::optional<AudioData> {
@@ -273,7 +273,7 @@ namespace OloEngine::Audio::SoundGraph
 
 		void CheckAsyncLoadCompletion()
 		{
-			if (m_LoadState == LoadState::Loading && m_AsyncLoadFuture.valid())
+			if (m_LoadState.load(std::memory_order_relaxed) == LoadState::Loading && m_AsyncLoadFuture.valid())
 			{
 				// Check if async load completed (non-blocking)
 				auto status = m_AsyncLoadFuture.wait_for(std::chrono::seconds(0));
@@ -292,11 +292,11 @@ namespace OloEngine::Audio::SoundGraph
 							return FillBufferFromAudioData(source);
 						};
 						
-						m_TotalFrames = m_WaveSource.TotalFrames;
-						m_IsInitialized = true;
-						m_LoadState = LoadState::Ready;
+					m_TotalFrames = m_WaveSource.TotalFrames;
+					m_IsInitialized = true;
+					m_LoadState.store(LoadState::Ready, std::memory_order_relaxed);
 
-						// Apply start time offset now that we have the data
+					// Apply start time offset now that we have the data
 						if (in_StartTime && *in_StartTime > 0.0f)
 						{
 							f64 sampleRate = m_AudioData.sampleRate;
@@ -312,7 +312,7 @@ namespace OloEngine::Audio::SoundGraph
 						m_FrameNumber = m_StartSample;
 
 						// If playback was pending, start it now
-						if (m_PendingPlayback)
+						if (m_PendingPlayback.load(std::memory_order_relaxed))
 						{
 							StartPlayback();
 						}
@@ -322,8 +322,8 @@ namespace OloEngine::Audio::SoundGraph
 						// Failed to load
 						m_TotalFrames = 0;
 						m_IsInitialized = false;
-						m_LoadState = LoadState::Failed;
-						m_PendingPlayback = false;
+						m_LoadState.store(LoadState::Failed, std::memory_order_relaxed);
+						m_PendingPlayback.store(false, std::memory_order_relaxed);
 					}
 				}
 			}
@@ -334,7 +334,7 @@ namespace OloEngine::Audio::SoundGraph
 			if (m_AsyncLoadFuture.valid())
 			{
 				// We can't actually cancel a std::async, but we can ignore the result
-				m_LoadState = LoadState::Cancelled;
+				m_LoadState.store(LoadState::Cancelled, std::memory_order_relaxed);
 				// Future will be replaced or destructed, which handles cleanup
 			}
 		}
@@ -356,31 +356,40 @@ namespace OloEngine::Audio::SoundGraph
 
 		void ReadNextFrame()
 		{
-			if (m_WaveSource.Channels.Available() >= 2) // Stereo frame
+			// Iterative approach to avoid stack overflow from recursive refill attempts
+			constexpr int maxRefillRetries = 5; // Reasonable limit to prevent infinite loops
+			
+			for (int retryCount = 0; retryCount <= maxRefillRetries; ++retryCount)
 			{
-				// Read interleaved stereo data
-				out_OutLeft = m_WaveSource.Channels.Get();
-				out_OutRight = m_WaveSource.Channels.Get();
-			}
-			else if (m_WaveSource.Channels.Available() >= 1) // Mono frame
-			{
-				// Mono - duplicate to both channels
-				float sample = m_WaveSource.Channels.Get();
-				out_OutLeft = sample;
-				out_OutRight = sample;
-			}
-			else
-			{
-				// No data available - try to refill buffer
-				if (m_WaveSource.onRefill && m_WaveSource.Refill())
+				if (m_WaveSource.Channels.Available() >= 2) // Stereo frame
 				{
-					// Buffer refilled, try reading again
-					ReadNextFrame();
+					// Read interleaved stereo data
+					out_OutLeft = m_WaveSource.Channels.Get();
+					out_OutRight = m_WaveSource.Channels.Get();
+					return; // Successfully read data
+				}
+				else if (m_WaveSource.Channels.Available() >= 1) // Mono frame
+				{
+					// Mono - duplicate to both channels
+					float sample = m_WaveSource.Channels.Get();
+					out_OutLeft = sample;
+					out_OutRight = sample;
+					return; // Successfully read data
 				}
 				else
 				{
-					// No data available
-					OutputSilence();
+					// No data available - try to refill buffer (only if we haven't exceeded retry limit)
+					if (retryCount < maxRefillRetries && m_WaveSource.onRefill && m_WaveSource.Refill())
+					{
+						// Buffer refilled, continue loop to try reading again
+						continue;
+					}
+					else
+					{
+						// No data available or max retries exceeded
+						OutputSilence();
+						return;
+					}
 				}
 			}
 		}
@@ -432,8 +441,8 @@ namespace OloEngine::Audio::SoundGraph
 			Cancelled
 		};
 		
-		LoadState m_LoadState{ LoadState::Idle };
-		bool m_PendingPlayback{ false }; // Start playback when async load completes
+		std::atomic<LoadState> m_LoadState{ LoadState::Idle };
+		std::atomic<bool> m_PendingPlayback{ false }; // Start playback when async load completes
 		std::future<std::optional<AudioData>> m_AsyncLoadFuture;
 
 		// Flag system for events (like Hazel)

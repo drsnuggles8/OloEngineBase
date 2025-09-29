@@ -327,7 +327,6 @@ namespace OloEngine::Audio::SoundGraph
     void SoundGraphSound::SetLocation(const glm::vec3& location)
     {
         m_Position = location;
-        m_Location = location;
     }
 
     void SoundGraphSound::SetVelocity(const glm::vec3& velocity)

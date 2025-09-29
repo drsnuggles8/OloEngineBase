@@ -152,14 +152,48 @@ namespace OloEngine
 		template<typename T>
 		T GetInRange(T low, T high) noexcept
 		{
+			// Validate range parameters (swap if needed for consistency)
+			if (low > high)
+			{
+				T temp = low;
+				low = high;
+				high = temp;
+			}
+
 			if constexpr (std::is_same_v<T, f32>)
 				return GetFloat32InRange(low, high);
 			else if constexpr (std::is_same_v<T, f64>)
 				return GetFloat64InRange(low, high);
-		else if constexpr (std::is_integral_v<T>)
-			return static_cast<T>(GetInt32InRange(static_cast<i32>(low), static_cast<i32>(high)));
-		else
-			static_assert(kAlwaysFalse<T>, "Unsupported type for GetInRange");
+			else if constexpr (std::is_integral_v<T>)
+			{
+				// Safe handling for integral types - check size to prevent overflow
+				if constexpr (sizeof(T) <= sizeof(i32))
+				{
+					// 32-bit or smaller: safe to cast and use existing function
+					return static_cast<T>(GetInt32InRange(static_cast<i32>(low), static_cast<i32>(high)));
+				}
+				else
+				{
+					// Wider than 32-bit: use 64-bit safe implementation
+					static_assert(sizeof(T) <= sizeof(i64), "Integral types wider than 64-bit not supported");
+					
+					// For now, clamp to i32 range to use existing implementation safely
+					// TODO: Implement GetInt64InRange for full 64-bit support
+					constexpr i64 i32_min = static_cast<i64>(std::numeric_limits<i32>::min());
+					constexpr i64 i32_max = static_cast<i64>(std::numeric_limits<i32>::max());
+					
+					i64 low64 = static_cast<i64>(low);
+					i64 high64 = static_cast<i64>(high);
+					
+					// Clamp to i32 range for safe operation
+					low64 = std::max(low64, i32_min);
+					high64 = std::min(high64, i32_max);
+					
+					return static_cast<T>(GetInt32InRange(static_cast<i32>(low64), static_cast<i32>(high64)));
+				}
+			}
+			else
+				static_assert(kAlwaysFalse<T>, "Unsupported type for GetInRange");
 		}
 
 		//==============================================================================

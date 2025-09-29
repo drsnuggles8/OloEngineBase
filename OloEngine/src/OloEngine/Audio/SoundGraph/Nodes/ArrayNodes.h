@@ -38,8 +38,17 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			InitializeInputs();
 
-			// Initialize random generator
-			int32_t seed = (*in_Seed == -1) ? static_cast<int32_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count()) : *in_Seed;
+			// Initialize random generator with safe null checking
+			// If in_Seed is null (initialization failed), use high-resolution clock as fallback
+			// If in_Seed is -1, use high-resolution clock for truly random seed
+			// Otherwise use the provided seed value
+			int32_t seed;
+			if (!in_Seed) {
+				// Fallback: use high-resolution clock when in_Seed is null
+				seed = static_cast<int32_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
+			} else {
+				seed = (*in_Seed == -1) ? static_cast<int32_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count()) : *in_Seed;
+			}
 			m_Random.SetSeed(seed);
 			
 			out_Element = T{};
@@ -115,7 +124,17 @@ namespace OloEngine::Audio::SoundGraph
 
 		void ProcessReset()
 		{
-			int32_t seed = (*in_Seed == -1) ? static_cast<int32_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count()) : *in_Seed;
+			// Safe seed handling with null checking
+			// If in_Seed is null (initialization failed), use high-resolution clock as fallback
+			// If in_Seed is -1, use high-resolution clock for truly random seed
+			// Otherwise use the provided seed value
+			int32_t seed;
+			if (!in_Seed) {
+				// Fallback: use high-resolution clock when in_Seed is null
+				seed = static_cast<int32_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
+			} else {
+				seed = (*in_Seed == -1) ? static_cast<int32_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count()) : *in_Seed;
+			}
 			m_Random.SetSeed(seed);
 			out_OnReset(1.0f);
 		}
@@ -155,7 +174,7 @@ namespace OloEngine::Audio::SoundGraph
 
 		//==========================================================================
 		/// NodeProcessor setup
-		T* in_Array = nullptr;
+		std::vector<T>* in_Array = nullptr;
 		int32_t* in_Index = nullptr;
 
 		OutputEvent out_OnTrigger{ *this };
@@ -169,33 +188,45 @@ namespace OloEngine::Audio::SoundGraph
 
 		void ProcessTrigger()
 		{
-			// Basic array access implementation
-			// Note: Full choc::value array integration would provide dynamic arrays
-			// For now, we implement single-element access with validation
-			
-			if (in_Array && in_Index)
+			// Validate array exists and is not empty
+			if (!in_Array || in_Array->size() == 0)
 			{
-				// For single-element arrays, only index 0 is valid
-				int32_t index = *in_Index;
-				if (index == 0)
-				{
-					out_Element = *in_Array;
-					if constexpr (std::is_arithmetic_v<T>)
-						out_OnTrigger(static_cast<float>(out_Element));
-					else
-						out_OnTrigger(1.0f);
-				}
+				// Handle null/empty array gracefully - set default value and return
+				out_Element = T{};
+				OLO_CORE_WARN("ArrayGet: Array is null or empty, using default value");
+				return;
+			}
+
+			// Validate index pointer exists
+			if (!in_Index)
+			{
+				// No index provided - use first element (index 0)
+				out_Element = (*in_Array)[0];
+				if constexpr (std::is_arithmetic_v<T>)
+					out_OnTrigger(static_cast<float>(out_Element));
 				else
-				{
-					// Index out of bounds - output zero and don't trigger
-					out_Element = T{};
-					OLO_CORE_WARN("ArrayGet: Index {} out of bounds for single-element array", index);
-				}
+					out_OnTrigger(1.0f);
+				return;
+			}
+
+			// Perform bounds checking against actual array size
+			int32_t index = *in_Index;
+			int32_t arraySize = static_cast<int32_t>(in_Array->size());
+			
+			if (index >= 0 && index < arraySize)
+			{
+				// Valid index - get element from array
+				out_Element = (*in_Array)[index];
+				if constexpr (std::is_arithmetic_v<T>)
+					out_OnTrigger(static_cast<float>(out_Element));
+				else
+					out_OnTrigger(1.0f);
 			}
 			else
 			{
-				// No input - output zero
+				// Index out of bounds - output default and warn
 				out_Element = T{};
+				OLO_CORE_WARN("ArrayGet: Index {} out of bounds for array of size {}", index, arraySize);
 			}
 		}
 	};
@@ -226,8 +257,15 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			InitializeInputs();
 
-			// Initialize random generator
-			int32_t seed = (*in_Seed == -1) ? static_cast<int32_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count()) : *in_Seed;
+			// Initialize random generator with safe null checking
+			// If in_Seed is null or -1, use high-resolution clock for random seed
+			// Otherwise use the provided seed value
+			int32_t seed;
+			if (in_Seed && *in_Seed != -1) {
+				seed = *in_Seed;
+			} else {
+				seed = static_cast<int32_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
+			}
 			m_Random.SetSeed(seed);
 			
 			out_Value = T{};
@@ -262,6 +300,16 @@ namespace OloEngine::Audio::SoundGraph
 
 		void ProcessNext()
 		{
+			// Validate input pointers before dereferencing
+			if (!in_Min || !in_Max)
+			{
+				// Handle null pointers gracefully - set default value and return
+				out_Value = T{};
+				OLO_CORE_WARN("Random: in_Min or in_Max is null, using default value");
+				out_OnNext(1.0f);
+				return;
+			}
+
 			T randomValue;
 			
 			if constexpr (std::is_same_v<T, float>)
@@ -283,7 +331,17 @@ namespace OloEngine::Audio::SoundGraph
 
 		void ProcessReset()
 		{
-			int32_t seed = (*in_Seed == -1) ? static_cast<int32_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count()) : *in_Seed;
+			// Safe seed handling with null checking
+			// If in_Seed is null (initialization failed), use high-resolution clock as fallback
+			// If in_Seed is -1, use high-resolution clock for truly random seed
+			// Otherwise use the provided seed value
+			int32_t seed;
+			if (!in_Seed) {
+				// Fallback: use high-resolution clock when in_Seed is null
+				seed = static_cast<int32_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
+			} else {
+				seed = (*in_Seed == -1) ? static_cast<int32_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count()) : *in_Seed;
+			}
 			m_Random.SetSeed(seed);
 			out_OnReset(1.0f);
 		}

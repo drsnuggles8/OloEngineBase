@@ -8,30 +8,26 @@ namespace OloEngine::Audio
 		AudioCallback::processing_node* node = (AudioCallback::processing_node*)pNode;
 
 		AudioCallback* callback = node->callback;
-		if (callback && !callback->IsSuspended())
+		
+		// Early return if callback is null to avoid dereferencing
+		if (!callback)
+			return;
+
+		// Silence all configured output buses with their actual channel counts
+		// This runs exactly once regardless of callback state
+		for (size_t i = 0; i < callback->m_BusConfig.OutputBuses.size(); ++i)
 		{
-			// Silence all configured output buses with their actual channel counts
-			for (size_t i = 0; i < callback->m_BusConfig.OutputBuses.size(); ++i)
+			if (ppFramesOut[i] != nullptr)
 			{
-				if (ppFramesOut[i] != nullptr)
-				{
-					u32 channelCount = callback->m_BusConfig.OutputBuses[i];
-					ma_silence_pcm_frames(ppFramesOut[i], *pFrameCountOut, ma_format_f32, channelCount);
-				}
+				u32 channelCount = callback->m_BusConfig.OutputBuses[i];
+				ma_silence_pcm_frames(ppFramesOut[i], *pFrameCountOut, ma_format_f32, channelCount);
 			}
-			callback->ProcessBlockBase(ppFramesIn, pFrameCountIn, ppFramesOut, pFrameCountOut);
 		}
-		else
+
+		// Only process audio if callback is not suspended
+		if (!callback->IsSuspended())
 		{
-			// Silence all configured output buses with their actual channel counts
-			for (size_t i = 0; i < callback->m_BusConfig.OutputBuses.size(); ++i)
-			{
-				if (ppFramesOut[i] != nullptr)
-				{
-					u32 channelCount = callback->m_BusConfig.OutputBuses[i];
-					ma_silence_pcm_frames(ppFramesOut[i], *pFrameCountOut, ma_format_f32, channelCount);
-				}
-			}
+			callback->ProcessBlockBase(ppFramesIn, pFrameCountIn, ppFramesOut, pFrameCountOut);
 		}
 	}
 
@@ -58,6 +54,19 @@ namespace OloEngine::Audio
 
 		m_Node.callback = this;
 		m_Node.pEngine = m_Engine;
+
+		// Validate bus counts before casting to ma_uint8 (max 255)
+		// This prevents overflow when casting sizet to ma_uint8
+		if (busConfig.InputBuses.size() > UINT8_MAX)
+		{
+			OLO_CORE_ERROR("Too many input buses: {} (maximum is {})", busConfig.InputBuses.size(), UINT8_MAX);
+			return false;
+		}
+		if (busConfig.OutputBuses.size() > UINT8_MAX)
+		{
+			OLO_CORE_ERROR("Too many output buses: {} (maximum is {})", busConfig.OutputBuses.size(), UINT8_MAX);
+			return false;
+		}
 
 		// Initialize node with required layout
 		processing_node_vtable.onProcess = processing_node_process_pcm_frames;

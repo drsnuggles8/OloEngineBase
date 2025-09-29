@@ -194,7 +194,7 @@ namespace OloEngine::Audio
 			return false;
 		}
 
-		OLO_CORE_TRACE("[AudioLoader] Successfully loaded audio file '{}': {} frames, {} channels, {:.2f}s duration, {:.1f}MB{}", 
+		OLO_CORE_TRACE("[AudioLoader] Successfully loaded audio file '{}': {} frames, {} channels, {:.2f}s duration, {:.1f}MB", 
 			filePath.string(), outAudioData.numFrames, outAudioData.numChannels, outAudioData.duration,
 			static_cast<f64>(outAudioData.fileSize) / (1024 * 1024));
 
@@ -371,7 +371,7 @@ namespace OloEngine::Audio
 			return false;
 		}
 
-		OLO_CORE_TRACE("[AudioLoader] Successfully loaded audio from memory: {} frames, {} channels, {:.2f}s duration, {:.1f}MB{}", 
+		OLO_CORE_TRACE("[AudioLoader] Successfully loaded audio from memory: {} frames, {} channels, {:.2f}s duration, {:.1f}MB", 
 			outAudioData.numFrames, outAudioData.numChannels, outAudioData.duration,
 			static_cast<f64>(dataSize) / (1024 * 1024));
 
