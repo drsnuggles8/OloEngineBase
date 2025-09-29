@@ -77,10 +77,10 @@ namespace OloEngine
         SoundGraphNodeData* GetNode(const UUID& nodeId);
         const SoundGraphNodeData* GetNode(const UUID& nodeId) const;
         
-        void AddNode(const SoundGraphNodeData& node);
+        bool AddNode(const SoundGraphNodeData& node);
         bool RemoveNode(const UUID& nodeId);
         
-        void AddConnection(const SoundGraphConnection& connection);
+        bool AddConnection(const SoundGraphConnection& connection);
         bool RemoveConnection(const UUID& sourceNodeId, const std::string& sourceEndpoint,
                             const UUID& targetNodeId, const std::string& targetEndpoint, 
                             bool isEvent);

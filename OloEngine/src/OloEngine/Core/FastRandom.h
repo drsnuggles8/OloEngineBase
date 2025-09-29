@@ -1,6 +1,8 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+
+#include <algorithm>
 #include <chrono>
 #include <limits>
 #include <type_traits>

@@ -56,8 +56,16 @@ namespace OloEngine::Audio::SoundGraph
         /// Persistent Storage
         bool LoadFromDisk();
         bool SaveToDisk() const;
-        void SetAutoSave(bool enabled) { m_AutoSave = enabled; }
-        bool GetAutoSave() const { return m_AutoSave; }
+        void SetAutoSave(bool enabled) 
+        { 
+            std::lock_guard<std::mutex> lock(m_Mutex);
+            m_AutoSave = enabled; 
+        }
+        bool GetAutoSave() const 
+        { 
+            std::lock_guard<std::mutex> lock(m_Mutex);
+            return m_AutoSave; 
+        }
         
         /// Cache Management
         void ValidateAllEntries();
@@ -76,15 +84,43 @@ namespace OloEngine::Audio::SoundGraph
         
         /// Configuration
         void SetCacheDirectory(const std::string& directory);
-		const std::string& GetCacheDirectory() const { return m_CacheDirectory; }
-		void SetMaxCacheSize(sizet maxSize) { m_MaxCacheSize = maxSize; }
-		sizet GetMaxCacheSize() const { return m_MaxCacheSize; }
+		std::string GetCacheDirectory() const 
+		{ 
+			std::lock_guard<std::mutex> lock(m_Mutex);
+			return m_CacheDirectory; 
+		}
+		void SetMaxCacheSize(sizet maxSize) 
+		{ 
+			std::lock_guard<std::mutex> lock(m_Mutex);
+			m_MaxCacheSize = maxSize; 
+		}
+		sizet GetMaxCacheSize() const 
+		{ 
+			std::lock_guard<std::mutex> lock(m_Mutex);
+			return m_MaxCacheSize; 
+		}
 		
 		/// Initialization Status
-		bool IsFullyInitialized() const { return m_DirectoryInitialized && m_DiskCacheLoaded; }
-		bool IsDirectoryInitialized() const { return m_DirectoryInitialized; }
-		bool IsDiskCacheLoaded() const { return m_DiskCacheLoaded; }
-		const std::string& GetInitializationErrors() const { return m_InitializationErrors; }    private:
+		bool IsFullyInitialized() const 
+		{ 
+			std::lock_guard<std::mutex> lock(m_Mutex);
+			return m_DirectoryInitialized && m_DiskCacheLoaded; 
+		}
+		bool IsDirectoryInitialized() const 
+		{ 
+			std::lock_guard<std::mutex> lock(m_Mutex);
+			return m_DirectoryInitialized; 
+		}
+		bool IsDiskCacheLoaded() const 
+		{ 
+			std::lock_guard<std::mutex> lock(m_Mutex);
+			return m_DiskCacheLoaded; 
+		}
+		std::string GetInitializationErrors() const 
+		{ 
+			std::lock_guard<std::mutex> lock(m_Mutex);
+			return m_InitializationErrors; 
+		}    private:
         mutable std::mutex m_Mutex;
         std::unordered_map<std::string, std::shared_ptr<CompilationResult>> m_CompiledResults;
         

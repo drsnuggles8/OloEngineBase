@@ -248,9 +248,8 @@ namespace OloEngine::Audio::SoundGraph
 					outPreset.SetVersion(localPreset->GetVersion());
 					outPreset.SetAuthor(localPreset->GetAuthor());
 					
-					// Clear existing parameter descriptors and patches in output
-					// (Note: There's no clear method exposed, so we assume outPreset starts clean
-					// or implement clearing if needed)
+					// Clear existing parameter descriptors and patches in output to prevent stale data
+					outPreset.Clear();
 					
 					// Copy parameter descriptors
 					auto descriptors = localPreset->GetAllParameterDescriptors();

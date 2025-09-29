@@ -11,6 +11,8 @@
 #include <cstring>
 #include <optional>
 #include <atomic>
+#include <chrono>
+#include <random>
 
 #define DECLARE_ID(name) static constexpr Identifier name{ #name }
 
@@ -292,8 +294,30 @@ private:
 		{
 			InitializeInputs();
 
-			// Initialize fallback seed once to avoid thread safety issues
-			m_FallbackSeed = static_cast<int>(std::time(nullptr));
+			// Initialize fallback seed with high-entropy construction
+			static std::atomic<u64> s_Counter{ 0 };
+			
+			// Combine multiple entropy sources
+			u64 counter = s_Counter.fetch_add(1, std::memory_order_relaxed);
+			u64 timestamp = static_cast<u64>(std::chrono::steady_clock::now().time_since_epoch().count());
+			u64 randomDevice = 0;
+			try {
+				std::random_device rd;
+				randomDevice = static_cast<u64>(rd()) << 32 | rd();
+			} catch (...) {
+				// Fallback if random_device fails
+				randomDevice = static_cast<u64>(std::time(nullptr));
+			}
+			u64 nodeAddress = reinterpret_cast<uintptr_t>(this);
+			
+			// Mix entropy sources using simple hash combining
+			u64 seed64 = counter;
+			seed64 ^= timestamp + 0x9e3779b9 + (seed64 << 6) + (seed64 >> 2);
+			seed64 ^= randomDevice + 0x9e3779b9 + (seed64 << 6) + (seed64 >> 2);
+			seed64 ^= nodeAddress + 0x9e3779b9 + (seed64 << 6) + (seed64 >> 2);
+			
+			// Deterministic narrowing to int
+			m_FallbackSeed = static_cast<int>(seed64 ^ (seed64 >> 32));
 
 			// Initialize with safe input resolution
 			int resolvedSeed = ResolveSeed();

@@ -188,16 +188,16 @@ namespace OloEngine::Audio
 
         /// Calculate magnitude of a buffer section
         template<typename T, template<typename> typename LayoutType>
-        static T GetMagnitude(const choc::buffer::BufferView<T, LayoutType>& buffer, i32 startSample, i32 numSamples)
+        static double GetMagnitude(const choc::buffer::BufferView<T, LayoutType>& buffer, i32 startSample, i32 numSamples)
         {
             // Early return for invalid parameters
             if (numSamples <= 0 || startSample < 0 || startSample >= static_cast<i32>(buffer.getNumFrames()))
-                return T(0);
+                return 0.0;
             
             // Cache channel count and check for zero channels to prevent division by zero
             const auto cachedChannels = buffer.getNumChannels();
             if (cachedChannels == 0)
-                return T(0);
+                return 0.0;
             
             // Clamp the sample window to buffer bounds
             i32 endSample = std::min(startSample + numSamples, static_cast<i32>(buffer.getNumFrames()));
@@ -205,21 +205,23 @@ namespace OloEngine::Audio
             
             // Return zero if no samples to process
             if (actualSamplesCount <= 0)
-                return T(0);
+                return 0.0;
             
-            T magnitude = T(0);
+            double magnitude = 0.0;
             
             for (u32 ch = 0; ch < cachedChannels; ++ch)
             {
                 for (i32 s = startSample; s < endSample; ++s)
                 {
                     T sample = buffer.getSample(ch, s);
-                    magnitude += sample * sample;
+                    double doubleSample = static_cast<double>(sample);
+                    magnitude += doubleSample * doubleSample;
                 }
             }
             
             // Use cached channel count and actual samples processed for accurate mean calculation
-            return std::sqrt(magnitude / (cachedChannels * actualSamplesCount));
+            double meanSquare = magnitude / (static_cast<double>(cachedChannels) * static_cast<double>(actualSamplesCount));
+            return std::sqrt(meanSquare);
         }
 
         /// Clear a buffer with zeros

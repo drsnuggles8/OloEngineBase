@@ -155,11 +155,21 @@ namespace OloEngine::Audio
 		{
 			static_assert(NumChannels == 1, "Use PushMultipleFrames for multi-channel buffers");
 			
-			// Clamp len to buffer size to prevent overrun
-			const int bufferSize = static_cast<int>(m_buf.size());
-			len = std::min(len, bufferSize);
+			// Bail for non-positive lengths
+			if (len <= 0)
+				return;
 			
+			const int bufferSize = static_cast<int>(m_buf.size());
 			const int previousAvail = m_avail;
+			
+			// If input is larger than buffer, advance source pointer to keep newest samples
+			const T* sourcePtr = buf;
+			if (len > bufferSize)
+			{
+				sourcePtr = buf + (len - bufferSize);
+				len = bufferSize;
+			}
+			
 			const sizet free = m_buf.size() - m_writepos;
 			
 			// Copy in bounded chunks using safe element-wise copying
@@ -167,18 +177,18 @@ namespace OloEngine::Audio
 			{
 				// First chunk: copy up to end of buffer
 				const sizet firstChunk = std::min(static_cast<sizet>(len), free);
-				std::copy_n(buf, firstChunk, &m_buf[m_writepos]);
+				std::copy_n(sourcePtr, firstChunk, &m_buf[m_writepos]);
 				
 				// Second chunk: copy remaining to start of buffer
 				const sizet secondChunk = std::min(static_cast<sizet>(len - firstChunk), m_buf.size());
-				std::copy_n(buf + firstChunk, secondChunk, &m_buf[0]);
+				std::copy_n(sourcePtr + firstChunk, secondChunk, &m_buf[0]);
 				
 				m_writepos = static_cast<int>(secondChunk);
 			}
 			else
 			{
 				// Single chunk fits without wrapping
-				std::copy_n(buf, len, &m_buf[m_writepos]);
+				std::copy_n(sourcePtr, len, &m_buf[m_writepos]);
 				m_writepos += len;
 				if (m_writepos >= bufferSize)
 					m_writepos = 0;
@@ -187,7 +197,7 @@ namespace OloEngine::Audio
 			// Calculate how much data was overwritten
 			const int overwritten = std::max(0, previousAvail + len - bufferSize);
 			
-			// Advance read position by amount overwritten
+			// Advance read position by amount overwritten (mod bufferSize)
 			if (overwritten > 0)
 			{
 				m_readpos = (m_readpos + overwritten) % bufferSize;

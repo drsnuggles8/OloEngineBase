@@ -254,9 +254,10 @@ namespace OloEngine::Audio::SoundGraph
 		: NodeProcessor("Stream Writer", id)
 		, DestinationID(destinationID)
 		, OutputValue(std::forward<T>(externalObjectOrDefaultValue))
-		, DestinationView(OutputValue.getViewReference())
+		, DestinationView(destination)
 	{
-		// DestinationView is now owned by value and initialized from OutputValue
+		// Write the default value into the destination immediately
+		DestinationView.set(OutputValue);
 	}
 
 	// Explicitly delete copy and move operations to prevent dangling references
@@ -266,17 +267,17 @@ namespace OloEngine::Audio::SoundGraph
 	StreamWriter& operator=(StreamWriter&&) = delete;
 
 	inline void operator<<(float value) noexcept
-		{
-			OutputValue = choc::value::Value(value);
-			DestinationView = OutputValue.getViewReference();
-		}
+	{
+		OutputValue = choc::value::Value(value);
+		DestinationView.set(OutputValue);
+	}
 
-		template<typename T>
-		inline void operator<<(T value) noexcept
-		{
-			OutputValue = choc::value::Value(value);
-			DestinationView = OutputValue.getViewReference();
-		}
+	template<typename T>
+	inline void operator<<(T value) noexcept
+	{
+		OutputValue = choc::value::Value(value);
+		DestinationView.set(OutputValue);
+	}
 
 		Identifier DestinationID;
 		choc::value::Value OutputValue;
@@ -290,14 +291,14 @@ namespace OloEngine::Audio::SoundGraph
 	inline void StreamWriter::operator<<(const choc::value::ValueView& value) noexcept
 	{
 		OutputValue = value;
-		DestinationView = OutputValue.getViewReference();
+		DestinationView.set(OutputValue);
 	}
 
 	template<>
 	inline void StreamWriter::operator<<(choc::value::ValueView value) noexcept
 	{
 		OutputValue = value;
-		DestinationView = OutputValue.getViewReference();
+		DestinationView.set(OutputValue);
 	}
 
 } // namespace OloEngine::Audio::SoundGraph

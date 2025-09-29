@@ -140,7 +140,14 @@ namespace OloEngine::Core::Reflection::StringUtils {
 		const auto namespaceSize = namespaceView.size();
 		
 		if (namespaceSize == 0)
+		{
+			// Check for global-scope qualified name (starts with "::")
+			if (fullName.size() >= 2 && fullName.rfind("::", 0) == 0)
+			{
+				return fullName.substr(2);  // Strip leading "::"
+			}
 			return fullName;
+		}
 		
 		return fullName.substr(namespaceSize + 2);  // +2 for "::"
 	}

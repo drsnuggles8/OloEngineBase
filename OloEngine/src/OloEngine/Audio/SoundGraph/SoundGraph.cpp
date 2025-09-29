@@ -20,19 +20,9 @@ namespace OloEngine::Audio::SoundGraph
 		// Ensure parameter connections are updated first
 		ProcessBeforeAudio();
 
-		if (!m_IsPla	void SoundGraph::AddRoute(std::shared_ptr<NodeProcessor::InputEvent> source, std::shared_ptr<NodeProcessor::InputEvent> destination)
-	{
-		if (source && destination)
+		if (!m_IsPlaying)
 		{
-			// Route input event to input event (event chaining)
-			source->Event = [destination](f32 value) 
-			{
-				(*destination)(value);
-			};
-		}
-	}
-
-	void SoundGraph::AddRoute(std::shared_ptr<NodeProcessor::OutputEvent> source, std::shared_ptr<NodeProcessor::OutputEvent> destination)		// Fill with silence if not playing
+			// Fill with silence if not playing
 			if (outputs[0] && outputs[1])
 			{
 				for (u32 i = 0; i < numSamples; ++i)

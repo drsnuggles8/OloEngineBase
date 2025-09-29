@@ -322,13 +322,34 @@ namespace OloEngine::Audio::SoundGraph
 
 			T randomValue;
 			
+			// Get type-appropriate bounds and normalize min/max ordering
+			T minValue, maxValue;
+			
 			if constexpr (std::is_same_v<T, float>)
 			{
-				randomValue = m_Random.GetFloatInRange(*in_Min, *in_Max);
+				// For float, clamp to reasonable audio range
+				minValue = glm::clamp(*in_Min, -1000.0f, 1000.0f);
+				maxValue = glm::clamp(*in_Max, -1000.0f, 1000.0f);
+				
+				// Ensure min <= max
+				if (minValue > maxValue)
+					std::swap(minValue, maxValue);
+					
+				randomValue = m_Random.GetFloatInRange(minValue, maxValue);
 			}
 			else if constexpr (std::is_integral_v<T>)
 			{
-				randomValue = static_cast<T>(m_Random.GetInt32InRange(static_cast<int32_t>(*in_Min), static_cast<int32_t>(*in_Max)));
+				// For integers, clamp to reasonable range
+				constexpr T typeMin = static_cast<T>(-100000);
+				constexpr T typeMax = static_cast<T>(100000);
+				minValue = glm::clamp(*in_Min, typeMin, typeMax);
+				maxValue = glm::clamp(*in_Max, typeMin, typeMax);
+				
+				// Ensure min <= max
+				if (minValue > maxValue)
+					std::swap(minValue, maxValue);
+					
+				randomValue = static_cast<T>(m_Random.GetInt32InRange(static_cast<int32_t>(minValue), static_cast<int32_t>(maxValue)));
 			}
 			else
 			{

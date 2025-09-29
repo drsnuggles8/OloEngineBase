@@ -105,7 +105,7 @@ namespace OloEngine::Core::Reflection {
 		/// Member access by index
 
 		template<typename TObj, typename TFunc>
-		static constexpr auto ApplyToMember(size_t memberIndex, TFunc&& f, TObj&& obj)
+		static constexpr void ApplyToMember(size_t memberIndex, TFunc&& f, TObj&& obj)
 		{
 			size_t memberCounter = 0;
 
@@ -127,7 +127,7 @@ namespace OloEngine::Core::Reflection {
 		}
 
 		template<size_t MemberIndex, typename TObj, typename TFunc>
-		constexpr static auto ApplyToMember(TFunc&& f, TObj&& obj)
+		constexpr static void ApplyToMember(TFunc&& f, TObj&& obj)
 		{
 			f(obj.*NthElement<MemberIndex>(MemberPointers...));
 		}

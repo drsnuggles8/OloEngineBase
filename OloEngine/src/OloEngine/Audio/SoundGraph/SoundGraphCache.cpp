@@ -407,14 +407,16 @@ namespace OloEngine::Audio::SoundGraph
 		
 		// Add to back (most recently used) - O(1) operation
 		m_LRUOrder.push_back(sourcePath);
-	}    void SoundGraphCache::RemoveFromLRU(const std::string& sourcePath)
-    {
-        auto it = std::find(m_LRUOrder.begin(), m_LRUOrder.end(), sourcePath);
-        if (it != m_LRUOrder.end())
-        {
-            m_LRUOrder.erase(it);
-        }
-    }
+	}
+
+	void SoundGraphCache::RemoveFromLRU(const std::string& sourcePath)
+	{
+		auto it = std::find(m_LRUOrder.begin(), m_LRUOrder.end(), sourcePath);
+		if (it != m_LRUOrder.end())
+		{
+			m_LRUOrder.erase(it);
+		}
+	}
 
     sizet SoundGraphCache::CalculateGraphMemoryUsage(const Ref<SoundGraph>& graph) const
     {

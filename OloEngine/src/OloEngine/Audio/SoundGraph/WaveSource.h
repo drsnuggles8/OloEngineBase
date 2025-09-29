@@ -26,20 +26,119 @@ namespace OloEngine::Audio
             using FuncPtr = bool(*)(WaveSource&, void*) noexcept;
             FuncPtr funcPtr = nullptr;
             void* context = nullptr;
+            
+            // Per-instance storage to avoid cross-instance interference
+            std::function<bool(WaveSource&)> instanceFunc;
 
             RefillCallback() = default;
             RefillCallback(FuncPtr ptr, void* ctx = nullptr) noexcept : funcPtr(ptr), context(ctx) {}
             
-            // Assignment from std::function for compatibility 
+            // Copy constructor - rebind to the new instance
+            RefillCallback(const RefillCallback& other) noexcept 
+                : instanceFunc(other.instanceFunc)
+            {
+                if (other.instanceFunc)
+                {
+                    funcPtr = [](WaveSource& source, void* ctx) noexcept -> bool {
+                        auto* self = static_cast<RefillCallback*>(ctx);
+                        try { return self->instanceFunc(source); }
+                        catch (...) { return false; }
+                    };
+                    context = this;
+                }
+                else
+                {
+                    funcPtr = other.funcPtr;
+                    context = other.context;
+                }
+            }
+            
+            // Move constructor - rebind to the new instance
+            RefillCallback(RefillCallback&& other) noexcept 
+                : instanceFunc(std::move(other.instanceFunc))
+            {
+                if (instanceFunc)
+                {
+                    funcPtr = [](WaveSource& source, void* ctx) noexcept -> bool {
+                        auto* self = static_cast<RefillCallback*>(ctx);
+                        try { return self->instanceFunc(source); }
+                        catch (...) { return false; }
+                    };
+                    context = this;
+                    other.funcPtr = nullptr;
+                    other.context = nullptr;
+                }
+                else
+                {
+                    funcPtr = other.funcPtr;
+                    context = other.context;
+                    other.funcPtr = nullptr;
+                    other.context = nullptr;
+                }
+            }
+            
+            // Copy assignment - rebind to this instance
+            RefillCallback& operator=(const RefillCallback& other) noexcept
+            {
+                if (this != &other)
+                {
+                    instanceFunc = other.instanceFunc;
+                    if (instanceFunc)
+                    {
+                        funcPtr = [](WaveSource& source, void* ctx) noexcept -> bool {
+                            auto* self = static_cast<RefillCallback*>(ctx);
+                            try { return self->instanceFunc(source); }
+                            catch (...) { return false; }
+                        };
+                        context = this;
+                    }
+                    else
+                    {
+                        funcPtr = other.funcPtr;
+                        context = other.context;
+                    }
+                }
+                return *this;
+            }
+            
+            // Move assignment - rebind to this instance
+            RefillCallback& operator=(RefillCallback&& other) noexcept
+            {
+                if (this != &other)
+                {
+                    instanceFunc = std::move(other.instanceFunc);
+                    if (instanceFunc)
+                    {
+                        funcPtr = [](WaveSource& source, void* ctx) noexcept -> bool {
+                            auto* self = static_cast<RefillCallback*>(ctx);
+                            try { return self->instanceFunc(source); }
+                            catch (...) { return false; }
+                        };
+                        context = this;
+                        other.funcPtr = nullptr;
+                        other.context = nullptr;
+                    }
+                    else
+                    {
+                        funcPtr = other.funcPtr;
+                        context = other.context;
+                        other.funcPtr = nullptr;
+                        other.context = nullptr;
+                    }
+                }
+                return *this;
+            }
+            
+            // Assignment from std::function - uses per-instance storage
             RefillCallback& operator=(const std::function<bool(WaveSource&)>& func) noexcept
             {
-                static thread_local std::function<bool(WaveSource&)> storedFunc;
-                storedFunc = func;
-                funcPtr = [](WaveSource& source, void*) noexcept -> bool {
-                    try { return storedFunc(source); }
+                instanceFunc = func;
+                funcPtr = [](WaveSource& source, void* ctx) noexcept -> bool {
+                    auto* self = static_cast<RefillCallback*>(ctx);
+                    try { return self->instanceFunc(source); }
                     catch (...) { return false; }
                 };
-                context = nullptr;
+                context = this;
                 return *this;
             }
 

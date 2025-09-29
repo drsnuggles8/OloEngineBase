@@ -135,33 +135,47 @@ namespace OloEngine::Audio::SoundGraph
 					continue;
 				}
 				
-				// Validate source and destination nodes exist in prototype
-				bool sourceNodeExists = false;
-				bool destinationNodeExists = false;
-				
+			// Validate source and destination nodes exist in prototype (only for node-targeting connections)
+			
+			// Determine which endpoints require real nodes based on connection type
+			bool sourceRequiresNode = (connection.Type == Prototype::Connection::NodeValue_NodeValue ||
+									   connection.Type == Prototype::Connection::NodeEvent_NodeEvent ||
+									   connection.Type == Prototype::Connection::NodeValue_GraphValue ||
+									   connection.Type == Prototype::Connection::NodeEvent_GraphEvent);
+			
+			bool destinationRequiresNode = (connection.Type == Prototype::Connection::NodeValue_NodeValue ||
+											 connection.Type == Prototype::Connection::NodeEvent_NodeEvent ||
+											 connection.Type == Prototype::Connection::GraphValue_NodeValue ||
+											 connection.Type == Prototype::Connection::GraphEvent_NodeEvent);
+			
+			// Only validate node existence for endpoints that actually require nodes
+			bool sourceNodeExists = !sourceRequiresNode;  // Default to true for non-node endpoints
+			bool destinationNodeExists = !destinationRequiresNode;  // Default to true for non-node endpoints
+			
+			if (sourceRequiresNode || destinationRequiresNode)
+			{
 				for (const auto& node : Options.GraphPrototype->Nodes)
 				{
-					if (node.ID == connection.Source.NodeID)
+					if (sourceRequiresNode && node.ID == connection.Source.NodeID)
 						sourceNodeExists = true;
-					if (node.ID == connection.Destination.NodeID)
+					if (destinationRequiresNode && node.ID == connection.Destination.NodeID)
 						destinationNodeExists = true;
 				}
-				
-				if (!sourceNodeExists)
-				{
-					OLO_CORE_WARN("GraphGenerator: Connection references non-existent source node {}", static_cast<u64>(connection.Source.NodeID));
-					invalidConnections++;
-					continue;
-				}
-				
-				if (!destinationNodeExists)
-				{
-					OLO_CORE_WARN("GraphGenerator: Connection references non-existent destination node {}", static_cast<u64>(connection.Destination.NodeID));
-					invalidConnections++;
-					continue;
-				}
-				
-				// Validate connection type is valid using explicit allow-list
+			}
+			
+			if (sourceRequiresNode && !sourceNodeExists)
+			{
+				OLO_CORE_WARN("GraphGenerator: Connection references non-existent source node {}", static_cast<u64>(connection.Source.NodeID));
+				invalidConnections++;
+				continue;
+			}
+			
+			if (destinationRequiresNode && !destinationNodeExists)
+			{
+				OLO_CORE_WARN("GraphGenerator: Connection references non-existent destination node {}", static_cast<u64>(connection.Destination.NodeID));
+				invalidConnections++;
+				continue;
+			}				// Validate connection type is valid using explicit allow-list
 				bool isValidConnectionType = false;
 				switch (connection.Type)
 				{

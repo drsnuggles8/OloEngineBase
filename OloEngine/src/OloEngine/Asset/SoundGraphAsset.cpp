@@ -36,13 +36,15 @@ namespace OloEngine
         return nullptr;
     }
 
-    void SoundGraphAsset::AddNode(const SoundGraphNodeData& node)
+    bool SoundGraphAsset::AddNode(const SoundGraphNodeData& node)
     {
         // Ensure node ID is unique
         if (!HasNode(node.ID))
         {
             Nodes.push_back(node);
+            return true;
         }
+        return false;
     }
 
     bool SoundGraphAsset::RemoveNode(const UUID& nodeId)
@@ -68,13 +70,15 @@ namespace OloEngine
         return false;
     }
 
-    void SoundGraphAsset::AddConnection(const SoundGraphConnection& connection)
+    bool SoundGraphAsset::AddConnection(const SoundGraphConnection& connection)
     {
         // Validate nodes exist
         if (HasNode(connection.SourceNodeID) && HasNode(connection.TargetNodeID))
         {
             Connections.push_back(connection);
+            return true;
         }
+        return false;
     }
 
     bool SoundGraphAsset::RemoveConnection(const UUID& sourceNodeId, const std::string& sourceEndpoint,

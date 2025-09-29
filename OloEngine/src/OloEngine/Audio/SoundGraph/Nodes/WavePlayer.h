@@ -49,8 +49,19 @@ namespace OloEngine::Audio::SoundGraph
 
 		~WavePlayer()
 		{
-			// Ensure any ongoing async load is cancelled
+			// Ensure any ongoing async load is moved to stale container
 			CancelAsyncLoad();
+			
+			// Wait for all stale loads to complete before destruction
+			// This is safe to do in destructor since it's not on audio thread
+			for (auto& future : m_StaleLoads)
+			{
+				if (future.valid())
+				{
+					try { future.get(); } catch (...) { /* Ignore exceptions during cleanup */ }
+				}
+			}
+			m_StaleLoads.clear();
 		}
 
 		// Input parameters
@@ -273,6 +284,9 @@ namespace OloEngine::Audio::SoundGraph
 
 		void CheckAsyncLoadCompletion()
 		{
+			// Clean up any completed stale futures first (non-blocking)
+			CleanupStaleLoads();
+			
 			if (m_LoadState.load(std::memory_order_relaxed) == LoadState::Loading && m_AsyncLoadFuture.valid())
 			{
 				// Check if async load completed (non-blocking)
@@ -333,9 +347,12 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			if (m_AsyncLoadFuture.valid())
 			{
-				// We can't actually cancel a std::async, but we can ignore the result
+				// Mark as cancelled
 				m_LoadState.store(LoadState::Cancelled, std::memory_order_relaxed);
-				// Future will be replaced or destructed, which handles cleanup
+				
+				// Move future to stale container to avoid blocking destructor
+				m_StaleLoads.push_back(std::move(m_AsyncLoadFuture));
+				// m_AsyncLoadFuture is now invalid and safe to reassign
 			}
 		}
 
@@ -444,6 +461,9 @@ namespace OloEngine::Audio::SoundGraph
 		std::atomic<LoadState> m_LoadState{ LoadState::Idle };
 		std::atomic<bool> m_PendingPlayback{ false }; // Start playback when async load completes
 		std::future<std::optional<AudioData>> m_AsyncLoadFuture;
+		
+		// Container for stale futures to avoid blocking destructor on audio thread
+		std::vector<std::future<std::optional<AudioData>>> m_StaleLoads;
 
 		// Flag system for events (like Hazel)
 		Flag m_PlayFlag;

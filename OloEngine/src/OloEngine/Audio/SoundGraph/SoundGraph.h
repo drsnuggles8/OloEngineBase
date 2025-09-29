@@ -62,8 +62,8 @@ namespace OloEngine::Audio::SoundGraph
 					OutgoingEvents.push({ CurrentFrame, IDs::OnFinished, value });
 			});
 		
-			// Connect using shared_ptr from InEvents
-			if (auto finishHandlerPtr = InEvents.find(IDs::OnFinished); finishHandlerPtr != InEvents.end())
+			// Connect using shared_ptr from InEvents - use the same identifier as registration
+			if (auto finishHandlerPtr = InEvents.find(Identifier("OnFinishHandler")); finishHandlerPtr != InEvents.end())
 				out_OnFinish.AddDestination(finishHandlerPtr->second);
 			
 			AddOutEvent(IDs::OnFinished, out_OnFinish);			OutgoingEvents.reset(1024);

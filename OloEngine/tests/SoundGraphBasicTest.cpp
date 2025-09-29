@@ -61,7 +61,7 @@ TEST_F(SoundGraphBasicTest, SoundGraphAssetBasicOperations)
     node.PosX = 100.0f;
     node.PosY = 200.0f;
     
-    asset.AddNode(node);
+    EXPECT_TRUE(asset.AddNode(node));
     
     // Now should be valid (has nodes) and contain our node
     EXPECT_TRUE(asset.IsValid());
@@ -91,8 +91,8 @@ TEST_F(SoundGraphBasicTest, SoundGraphConnections)
     node2.Name = "Target Node";
     node2.Type = "Effect";
     
-    asset.AddNode(node1);
-    asset.AddNode(node2);
+    EXPECT_TRUE(asset.AddNode(node1));
+    EXPECT_TRUE(asset.AddNode(node2));
     
     // Add connection
     SoundGraphConnection connection;
@@ -102,7 +102,7 @@ TEST_F(SoundGraphBasicTest, SoundGraphConnections)
     connection.TargetEndpoint = "input";
     connection.IsEvent = false;
     
-    asset.AddConnection(connection);
+    EXPECT_TRUE(asset.AddConnection(connection));
     
     EXPECT_EQ(asset.Connections.size(), 1);
     EXPECT_TRUE(asset.IsValid()); // Should be valid with nodes and connections
@@ -130,8 +130,8 @@ TEST_F(SoundGraphBasicTest, SoundGraphRemoveConnection)
     node2.Name = "Target Node";
     node2.Type = "Effect";
     
-    asset.AddNode(node1);
-    asset.AddNode(node2);
+    EXPECT_TRUE(asset.AddNode(node1));
+    EXPECT_TRUE(asset.AddNode(node2));
     
     // Add two connections with same endpoints but different IsEvent flags
     SoundGraphConnection dataConnection;
@@ -148,8 +148,8 @@ TEST_F(SoundGraphBasicTest, SoundGraphRemoveConnection)
     eventConnection.TargetEndpoint = "input";
     eventConnection.IsEvent = true; // Event connection
     
-    asset.AddConnection(dataConnection);
-    asset.AddConnection(eventConnection);
+    EXPECT_TRUE(asset.AddConnection(dataConnection));
+    EXPECT_TRUE(asset.AddConnection(eventConnection));
     
     EXPECT_EQ(asset.Connections.size(), 2);
     
@@ -297,7 +297,7 @@ TEST_F(SoundGraphBasicTest, SoundGraphValidation)
     node.Name = "Valid Node";
     node.Type = "TestType";
     
-    asset.AddNode(node);
+    EXPECT_TRUE(asset.AddNode(node));
     EXPECT_TRUE(asset.IsValid());
     
     // Try to add invalid connection (referencing non-existent node)
@@ -309,7 +309,7 @@ TEST_F(SoundGraphBasicTest, SoundGraphValidation)
     badConnection.TargetEndpoint = "in";
     
     sizet connectionCountBefore = asset.Connections.size();
-    asset.AddConnection(badConnection);
+    EXPECT_FALSE(asset.AddConnection(badConnection));
     
     // Connection should not be added, asset should remain valid
     EXPECT_EQ(asset.Connections.size(), connectionCountBefore);

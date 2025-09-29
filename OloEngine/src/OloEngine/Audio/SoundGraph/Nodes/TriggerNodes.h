@@ -2,6 +2,7 @@
 #include "OloEngine/Audio/SoundGraph/NodeProcessor.h"
 #include "OloEngine/Audio/SoundGraph/NodeDescriptors.h"
 #include "OloEngine/Core/UUID.h"
+#include <cmath>
 
 #define DECLARE_ID(name) static constexpr Identifier name{ #name }
 
@@ -48,9 +49,13 @@ namespace OloEngine::Audio::SoundGraph
 			{
 				m_Counter += m_FrameTime;
 				
-				// Guard against zero/negative period to prevent infinite loop
+				// Guard against zero/negative/non-finite period to prevent infinite loop
 				static constexpr float kMinPeriod = 0.001f; // 1ms minimum period (1000 Hz max frequency)
-				float safePeriod = (*in_Period) <= 0.0f ? kMinPeriod : (*in_Period);
+				float safePeriod;
+				if (!std::isfinite(*in_Period) || *in_Period < kMinPeriod)
+					safePeriod = kMinPeriod;
+				else
+					safePeriod = *in_Period;
 				
 				// Handle multiple periods if frame time exceeds period, preserving overshoot
 				while (m_Counter >= safePeriod)

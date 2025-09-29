@@ -66,7 +66,9 @@ namespace OloEngine
 		{
 			hash ^= static_cast<u32>(static_cast<unsigned char>(*data++));
 			hash *= FNV_PRIME;
-		}			return hash;
+		}
+		
+		return hash;
 		}
 
 		//==============================================================================

@@ -484,7 +484,7 @@ namespace OloEngine::Audio
 
 		// Common audio formats supported by miniaudio
 		static const std::vector<std::string> supportedExtensions = {
-			".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma"
+			".wav", ".mp3", ".flac", ".ogg"
 		};
 
 		return std::find(supportedExtensions.begin(), supportedExtensions.end(), lowerExt) != supportedExtensions.end();
@@ -492,7 +492,7 @@ namespace OloEngine::Audio
 
 	std::vector<std::string> AudioLoader::GetSupportedExtensions()
 	{
-		return {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma"};
+		return {".wav", ".mp3", ".flac", ".ogg"};
 	}
 
 } // namespace OloEngine::Audio
