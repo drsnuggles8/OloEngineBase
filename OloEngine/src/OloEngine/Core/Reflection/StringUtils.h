@@ -29,21 +29,11 @@ namespace OloEngine::Core::Reflection::StringUtils {
 			return source.empty() ? 0 : 1;
 			
 		size_t count = 1;
-		auto pos = source.begin();
-		while (pos != source.end())
+		std::size_t pos = 0;
+		while ((pos = source.find(delimiter, pos)) != std::string_view::npos)
 		{
-			const auto remaining = static_cast<sizet>(source.end() - pos);
-			if (remaining >= delimiter.size() && std::string_view(&*pos, delimiter.size()) == delimiter)
-			{
-				++count;
-				// Advance by delimiter size after finding a match
-				pos += delimiter.size();
-			}
-			else
-			{
-				// Advance by one character if no match
-				++pos;
-			}
+			++count;
+			pos += delimiter.size();
 		}
 		return count;
 	}
@@ -54,6 +44,14 @@ namespace OloEngine::Core::Reflection::StringUtils {
 		std::array<std::string_view, N> tokens{};
 
 		if (N == 0) return tokens;
+
+		// Guard against empty delimiter - return source as single token
+		if (delimiter.empty())
+		{
+			if (N > 0)
+				tokens[0] = source;
+			return tokens;
+		}
 
 		size_t tokenStart = 0;
 		size_t pos = 0;

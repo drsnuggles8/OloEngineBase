@@ -44,7 +44,7 @@ namespace OloEngine::Core::Reflection {
 		using MemberListType = TMemberList;
 
 		template<typename TFunc>
-		static constexpr bool ApplyToStaticType(TFunc&& func)
+		static constexpr decltype(auto) ApplyToStaticType(TFunc&& func)
 		{
 			return TMemberList::ApplyToStaticType(std::forward<TFunc>(func));
 		}
@@ -203,7 +203,7 @@ struct OloEngine::Core::Reflection::Description<Class, Tag> :						\
 	using MemberListType = OloEngine::Core::Reflection::MemberList<__VA_ARGS__>;	\
 																					\
 private:																			\
-	static constexpr std::string_view MemberStr{ #__VA_ARGS__ };					\
+	static constexpr std::string_view MemberStr{ __VA_OPT__(#__VA_ARGS__) __VA_OPT__(,) "" };	\
 	static constexpr std::string_view ClassStr{ #Class };							\
 	static constexpr std::string_view Delimiter{ "," };							\
 	static constexpr size_t MemberCount = MemberListType::Count();					\
@@ -215,10 +215,12 @@ public:																				\
 		OloEngine::Core::Reflection::StringUtils::ExtractClassName(ClassStr);		\
 																					\
 	static constexpr std::array<std::string_view, MemberCount> MemberNames =		\
-		OloEngine::Core::Reflection::StringUtils::CleanMemberNames<MemberCount>(		\
-			OloEngine::Core::Reflection::StringUtils::RemoveNamespace<MemberCount>(	\
-				OloEngine::Core::Reflection::StringUtils::SplitString<MemberCount>(	\
-					MemberStr, Delimiter)));												\
+		MemberCount > 0 ?															\
+			OloEngine::Core::Reflection::StringUtils::CleanMemberNames<MemberCount>(	\
+				OloEngine::Core::Reflection::StringUtils::RemoveNamespace<MemberCount>(	\
+					OloEngine::Core::Reflection::StringUtils::SplitString<MemberCount>(	\
+						MemberStr, Delimiter))) :										\
+			std::array<std::string_view, 0>{};										\
 };
 
 /**

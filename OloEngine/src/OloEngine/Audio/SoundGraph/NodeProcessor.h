@@ -163,10 +163,11 @@ namespace OloEngine::Audio::SoundGraph
 		choc::value::ValueView& AddInStream(Identifier id, choc::value::ValueView* source = nullptr)
 		{
 			const auto& [element, inserted] = InputStreams.try_emplace(id);
+			OLO_CORE_ASSERT(inserted, "Input stream with this ID already exists");
+			
 			if (source)
 				element->second = *source;
 
-			OLO_CORE_ASSERT(inserted, "Input stream with this ID already exists");
 			return element->second;
 		}
 

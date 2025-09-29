@@ -26,6 +26,10 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 		m_Engine = engine;
+		
+		// Initialize real-time message queue
+		m_LogQueue.reset(512);
+		
 		m_IsInitialized = true;
 
 		OLO_CORE_TRACE("[SoundGraphPlayer] Initialized successfully");
@@ -38,19 +42,22 @@ namespace OloEngine::Audio::SoundGraph
 			return;
 
 		// Stop and remove all sources
-		for (auto& [id, source] : m_SoundGraphSources)
 		{
-			if (source)
+			std::lock_guard<std::mutex> lock(m_Mutex);
+			for (auto& [id, source] : m_SoundGraphSources)
 			{
-				source->SuspendProcessing(true);
-				source->Shutdown();
+				if (source)
+				{
+					source->SuspendProcessing(true);
+					source->Shutdown();
+				}
 			}
+			m_SoundGraphSources.clear();
 		}
-		m_SoundGraphSources.clear();
 
 		m_Engine = nullptr;
 		m_IsInitialized = false;
-		m_NextSourceID = 1;
+		m_NextSourceID.store(1, std::memory_order_relaxed);
 
 		OLO_CORE_TRACE("[SoundGraphPlayer] Shutdown complete");
 	}
@@ -80,28 +87,60 @@ namespace OloEngine::Audio::SoundGraph
 		source->ReplaceGraph(soundGraph);
 
 		// Set up event callbacks
-		source->SetMessageCallback([](u64 frameIndex, const char* message) {
+		source->SetMessageCallback([this](u64 frameIndex, const char* message) {
+			RtMsg msg;
+			msg.frame = frameIndex;
+			msg.isEvent = false;
+			
+			// Determine log level based on message prefix
 			if (message[0] == '!')
 			{
-				OLO_CORE_ERROR("[SoundGraph] Frame {0}: {1}", frameIndex, message);
+				msg.level = RtMsg::Error;
 			}
 			else if (message[0] == '*')
 			{
-				OLO_CORE_WARN("[SoundGraph] Frame {0}: {1}", frameIndex, message);
+				msg.level = RtMsg::Warn;
 			}
 			else
 			{
-				OLO_CORE_TRACE("[SoundGraph] Frame {0}: {1}", frameIndex, message);
+				msg.level = RtMsg::Trace;
 			}
+			
+			// Copy message text (real-time safe)
+			size_t len = strlen(message);
+			if (len >= sizeof(msg.text))
+				len = sizeof(msg.text) - 1;
+			memcpy(msg.text, message, len);
+			msg.text[len] = '\0';
+			
+			// Try to push to queue (drop if full to maintain real-time safety)
+			m_LogQueue.push(std::move(msg));
 		});
 
-		source->SetEventCallback([](u64 frameIndex, u32 endpointID, const choc::value::Value& eventData) {
+		source->SetEventCallback([this](u64 frameIndex, u32 endpointID, const choc::value::Value& eventData) {
 			(void)eventData;
-			// Handle graph events - could check for specific endpoint IDs like "OnFinished"
-			OLO_CORE_TRACE("[SoundGraph] Event at frame {0}, endpoint {1}", frameIndex, endpointID);
+			RtMsg msg;
+			msg.frame = frameIndex;
+			msg.level = RtMsg::Trace;
+			msg.endpointID = endpointID;
+			msg.isEvent = true;
+			
+			// Format event message (real-time safe)
+			const char* eventMsg = "Event";
+			size_t len = strlen(eventMsg);
+			if (len >= sizeof(msg.text))
+				len = sizeof(msg.text) - 1;
+			memcpy(msg.text, eventMsg, len);
+			msg.text[len] = '\0';
+			
+			// Try to push to queue (drop if full to maintain real-time safety)
+			m_LogQueue.push(std::move(msg));
 		});
 
-		m_SoundGraphSources[sourceID] = std::move(source);
+		{
+			std::lock_guard<std::mutex> lock(m_Mutex);
+			m_SoundGraphSources[sourceID] = std::move(source);
+		}
 
 		OLO_CORE_TRACE("[SoundGraphPlayer] Created sound graph source with ID {0}", sourceID);
 		return sourceID;
@@ -109,6 +148,7 @@ namespace OloEngine::Audio::SoundGraph
 
 	bool SoundGraphPlayer::Play(u32 sourceID)
 	{
+		std::lock_guard<std::mutex> lock(m_Mutex);
 		auto it = m_SoundGraphSources.find(sourceID);
 		if (it == m_SoundGraphSources.end())
 		{
@@ -136,6 +176,7 @@ namespace OloEngine::Audio::SoundGraph
 
 	bool SoundGraphPlayer::Stop(u32 sourceID)
 	{
+		std::lock_guard<std::mutex> lock(m_Mutex);
 		auto it = m_SoundGraphSources.find(sourceID);
 		if (it == m_SoundGraphSources.end())
 		{
@@ -150,6 +191,7 @@ namespace OloEngine::Audio::SoundGraph
 
 	bool SoundGraphPlayer::Pause(u32 sourceID)
 	{
+		std::lock_guard<std::mutex> lock(m_Mutex);
 		auto it = m_SoundGraphSources.find(sourceID);
 		if (it == m_SoundGraphSources.end())
 		{
@@ -165,6 +207,7 @@ namespace OloEngine::Audio::SoundGraph
 
 	bool SoundGraphPlayer::IsPlaying(u32 sourceID) const
 	{
+		std::lock_guard<std::mutex> lock(m_Mutex);
 		auto it = m_SoundGraphSources.find(sourceID);
 		if (it == m_SoundGraphSources.end())
 		{
@@ -176,10 +219,11 @@ namespace OloEngine::Audio::SoundGraph
 
 	bool SoundGraphPlayer::RemoveSoundGraphSource(u32 sourceID)
 	{
+		std::lock_guard<std::mutex> lock(m_Mutex);
 		auto it = m_SoundGraphSources.find(sourceID);
 		if (it == m_SoundGraphSources.end())
 		{
-			OLO_CORE_ERROR("[SoundGraphPlayer] Source ID {} not found", sourceID);
+			OLO_CORE_ERROR("[SoundGraphPlayer] Source ID {0} not found", sourceID);
 			return false;
 		}
 
@@ -194,6 +238,7 @@ namespace OloEngine::Audio::SoundGraph
 
 	Ref<SoundGraph> SoundGraphPlayer::GetSoundGraph(u32 sourceID) const
 	{
+		std::lock_guard<std::mutex> lock(m_Mutex);
 		auto it = m_SoundGraphSources.find(sourceID);
 		if (it == m_SoundGraphSources.end())
 		{
@@ -228,6 +273,35 @@ namespace OloEngine::Audio::SoundGraph
 
 	void SoundGraphPlayer::Update(f64 deltaTime)
 	{
+		// Process real-time messages from audio thread (lock-free)
+		RtMsg msg;
+		while (m_LogQueue.pop(msg))
+		{
+			if (msg.isEvent)
+			{
+				// Handle graph events
+				OLO_CORE_TRACE("[SoundGraph] Event at frame {0}, endpoint {1}", msg.frame, msg.endpointID);
+			}
+			else
+			{
+				// Handle log messages
+				switch (msg.level)
+				{
+					case RtMsg::Error:
+						OLO_CORE_ERROR("[SoundGraph] Frame {0}: {1}", msg.frame, msg.text);
+						break;
+					case RtMsg::Warn:
+						OLO_CORE_WARN("[SoundGraph] Frame {0}: {1}", msg.frame, msg.text);
+						break;
+					case RtMsg::Trace:
+					default:
+						OLO_CORE_TRACE("[SoundGraph] Frame {0}: {1}", msg.frame, msg.text);
+						break;
+				}
+			}
+		}
+
+		std::lock_guard<std::mutex> lock(m_Mutex);
 		// Update all sound graphs on the main thread
 		for (auto& [id, source] : m_SoundGraphSources)
 		{
@@ -256,6 +330,7 @@ namespace OloEngine::Audio::SoundGraph
 
 	u32 SoundGraphPlayer::GetActiveSourceCount() const
 	{
+		std::lock_guard<std::mutex> lock(m_Mutex);
 		u32 count = 0;
 		for (const auto& [id, source] : m_SoundGraphSources)
 		{

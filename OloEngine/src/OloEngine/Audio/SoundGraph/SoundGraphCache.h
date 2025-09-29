@@ -96,8 +96,8 @@ namespace OloEngine::Audio::SoundGraph
         sizet m_CurrentMemoryUsage = 0;
         
         // Statistics
-        mutable u64 m_HitCount = 0;
-        mutable u64 m_MissCount = 0;
+        mutable std::atomic<u64> m_HitCount = 0;
+        mutable std::atomic<u64> m_MissCount = 0;
         
         // Async loading
         Thread m_LoaderThread;

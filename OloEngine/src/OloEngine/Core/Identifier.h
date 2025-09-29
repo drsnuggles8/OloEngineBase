@@ -88,10 +88,10 @@ namespace OloEngine
 			return m_Hash != other.m_Hash; 
 		}
 
-		constexpr bool operator<(const Identifier& other) const noexcept
-		{
-			return m_Hash < other.m_Hash;
-		}
+		// Note: operator< intentionally removed to prevent issues with ordered containers
+		// due to potential hash collisions. Use std::unordered_map/set for Identifier keys.
+		// If ordering is required, consider using a different identifier type that stores
+		// the original string for deterministic comparison.
 
 		//==============================================================================
 		/// Conversion operators

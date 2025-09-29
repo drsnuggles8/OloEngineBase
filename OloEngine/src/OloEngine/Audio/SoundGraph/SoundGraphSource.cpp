@@ -3,6 +3,8 @@
 #include "OloEngine/Audio/AudioLoader.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Core/Hash.h"
+#include <chrono>
+#include <thread>
 
 namespace OloEngine::Audio::SoundGraph
 {
@@ -152,6 +154,24 @@ namespace OloEngine::Audio::SoundGraph
 			return;
 
 		SuspendProcessing(true);
+		
+		// Wait for audio thread to acknowledge suspension before tearing down state
+		// This prevents race conditions during destruction
+		constexpr auto timeout = std::chrono::milliseconds(100);
+		auto startTime = std::chrono::steady_clock::now();
+		
+		while (!m_Suspended.load() && 
+			   (std::chrono::steady_clock::now() - startTime) < timeout)
+		{
+			std::this_thread::sleep_for(std::chrono::microseconds(100));
+		}
+		
+		// If timeout occurred, log a warning but continue with shutdown
+		if (!m_Suspended.load())
+		{
+			OLO_CORE_WARN("[SoundGraphSource] Timeout waiting for audio thread suspension acknowledgment");
+		}
+		
 		UninitializeDataSources();
 
 		if (m_IsInitialized)

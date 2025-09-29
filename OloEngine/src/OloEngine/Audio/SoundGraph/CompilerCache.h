@@ -10,6 +10,11 @@
 #include <vector>
 #include <unordered_map>
 
+// Default compiler version - can be overridden at compile time
+#ifndef OLO_SOUND_GRAPH_COMPILER_VERSION
+#define OLO_SOUND_GRAPH_COMPILER_VERSION "v0.0.1"
+#endif
+
 namespace OloEngine::Audio::SoundGraph
 {
     /// Compilation result with metadata
@@ -38,15 +43,15 @@ namespace OloEngine::Audio::SoundGraph
         ~CompilerCache() = default;
 
         /// Cache Operations
-        bool HasCompiled(const std::string& sourcePath, const std::string& compilerVersion = "") const;
-        std::shared_ptr<const CompilationResult> GetCompiled(const std::string& sourcePath, const std::string& compilerVersion = "");
+        bool HasCompiled(const std::string& sourcePath, const std::string& compilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION) const;
+        std::shared_ptr<const CompilationResult> GetCompiled(const std::string& sourcePath, const std::string& compilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION);
         void StoreCompiled(const std::string& sourcePath, const CompilationResult& result);
         void InvalidateCompiled(const std::string& sourcePath);
         void ClearCache();
 
         /// File System Integration
         bool IsSourceNewer(const std::string& sourcePath, const CompilationResult& result) const;
-        std::string GetCacheFilePath(const std::string& sourcePath, const std::string& compilerVersion = "") const;
+        std::string GetCacheFilePath(const std::string& sourcePath, const std::string& compilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION) const;
         
         /// Persistent Storage
         bool LoadFromDisk();
@@ -60,7 +65,11 @@ namespace OloEngine::Audio::SoundGraph
         void CompactCache();
         
         /// Statistics
-        sizet GetCacheSize() const { return m_CompiledResults.size(); }
+        sizet GetCacheSize() const 
+        { 
+            std::lock_guard<std::mutex> lock(m_Mutex);
+            return m_CompiledResults.size(); 
+        }
         sizet GetTotalDiskUsage() const;
         f32 GetCacheHitRatio() const;
         void LogStatistics() const;
@@ -122,12 +131,12 @@ namespace OloEngine::Audio::SoundGraph
         void ShutdownCompilerCache();
         
         /// Compile with caching
-        CompilationResult CompileWithCache(const std::string& sourcePath, const std::string& compilerVersion = "");
+        CompilationResult CompileWithCache(const std::string& sourcePath, const std::string& compilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION);
         
         /// Batch compilation utilities
         std::vector<CompilationResult> BatchCompileWithCache(
             const std::vector<std::string>& sourcePaths, 
-            const std::string& compilerVersion = "");
+            const std::string& compilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION);
         
         /// Cache maintenance
         void PerformMaintenanceTasks();

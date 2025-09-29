@@ -3,9 +3,17 @@
 
 namespace OloEngine::Audio
 {
-	static void processing_node_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
+	void processing_node_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
 	{
-		AudioCallback::processing_node* node = (AudioCallback::processing_node*)pNode;
+		// Assert that the node is valid
+		OLO_CORE_ASSERT(pNode != nullptr);
+		
+		// Reinterpret the ma_node* to our processing_node instance
+		AudioCallback::processing_node* node = reinterpret_cast<AudioCallback::processing_node*>(pNode);
+		
+		// Assert that the node and its callback are valid
+		OLO_CORE_ASSERT(node != nullptr);
+		OLO_CORE_ASSERT(node->callback != nullptr);
 
 		AudioCallback* callback = node->callback;
 		
@@ -69,9 +77,11 @@ namespace OloEngine::Audio
 		}
 
 		// Initialize node with required layout
-		processing_node_vtable.onProcess = processing_node_process_pcm_frames;
-		processing_node_vtable.inputBusCount = (ma_uint8)busConfig.InputBuses.size();
-		processing_node_vtable.outputBusCount = (ma_uint8)busConfig.OutputBuses.size();
+		m_VTable.onProcess = processing_node_process_pcm_frames;
+		m_VTable.onGetRequiredInputFrameCount = nullptr;
+		m_VTable.inputBusCount = (ma_uint8)busConfig.InputBuses.size();
+		m_VTable.outputBusCount = (ma_uint8)busConfig.OutputBuses.size();
+		m_VTable.flags = MA_NODE_FLAG_CONTINUOUS_PROCESSING | MA_NODE_FLAG_ALLOW_NULL_INPUT;
 		
 		ma_result result;
 
@@ -80,7 +90,7 @@ namespace OloEngine::Audio
 
 		nodeConfig.pInputChannels = busConfig.InputBuses.data();
 		nodeConfig.pOutputChannels = busConfig.OutputBuses.data();
-		nodeConfig.vtable = &processing_node_vtable;
+		nodeConfig.vtable = &m_VTable;
 		result = ma_node_init(&engine->nodeGraph, &nodeConfig, nullptr, &m_Node);
 
 		if (result != MA_SUCCESS)

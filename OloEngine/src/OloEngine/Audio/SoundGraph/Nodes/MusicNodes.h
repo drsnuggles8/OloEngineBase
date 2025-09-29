@@ -11,6 +11,14 @@
 
 #define DECLARE_ID(name) static constexpr Identifier name{ #name }
 
+// BPM constants for music timing calculations
+namespace
+{
+	static constexpr float DEFAULT_BPM = 120.0f;
+	static constexpr float MIN_BPM = 1.0f;
+	static constexpr float MAX_BPM = 1000.0f;
+}
+
 namespace OloEngine::Audio::SoundGraph
 {
 	//==========================================================================
@@ -45,16 +53,26 @@ namespace OloEngine::Audio::SoundGraph
 
 		void UpdateSeconds()
 		{
-			// Safety check: ensure input pointer is valid and value is positive
-			if (!in_BPM || *in_BPM <= 0.0f)
+			// Preserve existing output when BPM input is null
+			if (!in_BPM)
+				return;
+			
+			// Get BPM value and handle invalid/out-of-range values
+			float bpm = *in_BPM;
+			
+			// Replace non-positive or out-of-range BPM with default
+			if (bpm <= 0.0f || !std::isfinite(bpm))
 			{
-				out_Seconds = 0.0f;
+				bpm = DEFAULT_BPM;
 			}
 			else
 			{
-				// Convert BPM to seconds per beat: 60 seconds per minute / beats per minute
-				out_Seconds = 60.0f / (*in_BPM);
+				// Clamp BPM to sane range
+				bpm = std::clamp(bpm, MIN_BPM, MAX_BPM);
 			}
+			
+			// Convert BPM to seconds per beat: 60 seconds per minute / beats per minute
+			out_Seconds = 60.0f / bpm;
 		}
 	};
 
@@ -149,20 +167,20 @@ namespace OloEngine::Audio::SoundGraph
 				return;
 			}
 
-			// Validate frequency is above a safe minimum to prevent precision/domain issues with log2
-			// Use audible floor of 20.0f Hz (below human hearing threshold) as minimum
-			constexpr float minFrequency = 20.0f;
-			
-			if (*in_Frequency < minFrequency)
+			// Handle non-positive frequencies
+			if (*in_Frequency <= 0.0f)
 			{
-				// Set to fallback for invalid or out-of-range inputs
-				out_MIDINote = 0.0f; // MIDI note 0 (C-1, ~8.18 Hz)
+				// Set to fallback for invalid frequencies
+				out_MIDINote = 0.0f; // MIDI note 0 (C-1)
 				return;
 			}
 
 			// Convert frequency to MIDI note using A4 (440 Hz) as reference (MIDI note 69)
 			// Formula: note = 69 + 12 * log2(frequency / 440)
-			out_MIDINote = 69.0f + 12.0f * std::log2((*in_Frequency) / 440.0f);
+			float midiNote = 69.0f + 12.0f * std::log2((*in_Frequency) / 440.0f);
+			
+			// Clamp to valid MIDI range [0.0f, 127.0f]
+			out_MIDINote = std::clamp(midiNote, 0.0f, 127.0f);
 		}
 	};
 

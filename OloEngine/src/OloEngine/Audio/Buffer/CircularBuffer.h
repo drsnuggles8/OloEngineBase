@@ -17,6 +17,7 @@ namespace OloEngine::Audio
 	{
 		// Compile-time safety check to prevent buffer overflow
 		static_assert(Size >= NumChannels, "CircularBuffer: Size must be >= NumChannels to hold at least one frame");
+		static_assert(Size % NumChannels == 0, "CircularBuffer: Size must be a multiple of NumChannels to avoid partial frames");
 		
 	public:
 		CircularBuffer() = default;
@@ -121,7 +122,10 @@ namespace OloEngine::Audio
 		{
 			static_assert(NumChannels == 1, "Use GetMultipleFrames for multi-channel buffers");
 			
-			OLO_CORE_ASSERT(m_avail > 0);
+			// Early return if buffer is empty
+			if (m_avail == 0)
+				return 0;
+				
 			if (len > m_avail)
 				len = m_avail;
 			for (int i = 0; i < len; ++i)
@@ -132,7 +136,10 @@ namespace OloEngine::Audio
 		/// Get multiple frames for multi-channel buffers
 		inline int GetMultipleFrames(T* buf, int numFrames) noexcept
 		{
-			OLO_CORE_ASSERT(m_avail > 0);
+			// Early return for empty buffer or invalid input
+			if (m_avail <= 0 || numFrames <= 0)
+				return 0;
+				
 			if (numFrames > m_avail)
 				numFrames = m_avail;
 				

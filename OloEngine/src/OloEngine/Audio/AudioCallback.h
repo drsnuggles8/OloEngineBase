@@ -31,7 +31,7 @@ namespace OloEngine::Audio
 			std::vector<u32> OutputBuses;
 		};
 
-		ma_node* GetNode() { return &m_Node.base; }
+		ma_node_base* GetNode() { return &m_Node.base; }
 
 		bool Initialize(ma_engine* engine, const BusConfig& busConfig);
 		void Uninitialize();
@@ -50,6 +50,7 @@ namespace OloEngine::Audio
 
 	private:
 		bool m_IsInitialized = false;
+		ma_node_vtable m_VTable = {};
 
 		friend void processing_node_process_pcm_frames(ma_node* pNode, const float** ppFramesIn, ma_uint32* pFrameCountIn,
 			float** ppFramesOut, ma_uint32* pFrameCountOut);
@@ -61,15 +62,6 @@ namespace OloEngine::Audio
 			bool bInitialized = false;
 			AudioCallback* callback;
 		} m_Node;
-
-		ma_node_vtable processing_node_vtable =
-		{
-			nullptr,
-			nullptr,
-			1, // 1 input bus.
-			1, // 1 output bus.
-			MA_NODE_FLAG_CONTINUOUS_PROCESSING | MA_NODE_FLAG_ALLOW_NULL_INPUT // Default flags.
-		};
 	};
 
 	/// CRTP template for interleaved audio processing
@@ -138,41 +130,72 @@ namespace OloEngine::Audio
 		T& Underlying() { return static_cast<T&>(*this); }
 		const T& Underlying() const { return static_cast<T const&>(*this); }
 
-		void ProcessBlockBase(const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut) final
+	void ProcessBlockBase(const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut) final
+	{
+		// Cache a safe frame count - miniaudio can pass pFrameCountIn as nullptr for source-style nodes
+		ma_uint32 frameCount = pFrameCountIn ? *pFrameCountIn : (pFrameCountOut ? *pFrameCountOut : 0);
+		
+		if (ppFramesIn != nullptr)
 		{
-			// Cache a safe frame count - miniaudio can pass pFrameCountIn as nullptr for source-style nodes
-			ma_uint32 frameCount = pFrameCountIn ? *pFrameCountIn : (pFrameCountOut ? *pFrameCountOut : 0);
-			
-			if (ppFramesIn != nullptr)
+			// Use actual deinterleaved buffer count for safety, not m_BusConfig size
+			for (size_t i = 0; i < m_InDeinterleavedBuses.size(); ++i)
 			{
-				for (size_t i = 0; i < m_BusConfig.InputBuses.size(); ++i)
+				// Ensure deinterleaved buffer is sized to frameCount
+				if (m_InDeinterleavedBuses[i].getSize().numFrames != frameCount)
 				{
-					// Deinterleave input audio from interleaved format
-					SampleBufferOperations::Deinterleave(m_InDeinterleavedBuses[i], ppFramesIn[i]);
+					m_InDeinterleavedBuses[i].resize({ m_InDeinterleavedBuses[i].getSize().numChannels, frameCount });
+				}
+				
+				// Only deinterleave if the input pointer is non-null
+				if (ppFramesIn[i] != nullptr)
+				{
+					// Deinterleave input audio from interleaved format with explicit frame count
+					SampleBufferOperations::Deinterleave(m_InDeinterleavedBuses[i], ppFramesIn[i], frameCount);
+				}
+				else
+				{
+					m_InDeinterleavedBuses[i].clear();
 				}
 			}
-			else
-			{
-				for (size_t i = 0; i < m_BusConfig.InputBuses.size(); ++i)
-					m_InDeinterleavedBuses[i].clear();
-			}
+		}
+		else
+		{
+			// Clear all input buses when no input provided
+			for (size_t i = 0; i < m_InDeinterleavedBuses.size(); ++i)
+				m_InDeinterleavedBuses[i].clear();
+		}
 
-			Underlying().ProcessBlock(m_InDeinterleavedBuses, m_OutDeinterleavedBuses, frameCount);
-
-			for (size_t i = 0; i < m_BusConfig.OutputBuses.size(); ++i)
+		// Ensure output buffers are properly sized before processing
+		for (size_t i = 0; i < m_OutDeinterleavedBuses.size(); ++i)
+		{
+			if (m_OutDeinterleavedBuses[i].getSize().numFrames != frameCount)
 			{
-				// Interleave output audio to interleaved format
-				SampleBufferOperations::Interleave(ppFramesOut[i], m_OutDeinterleavedBuses[i]);
-			}
-			
-			// Set output frame count
-			if (pFrameCountOut != nullptr)
-			{
-				*pFrameCountOut = frameCount;
+				m_OutDeinterleavedBuses[i].resize({ m_OutDeinterleavedBuses[i].getSize().numChannels, frameCount });
 			}
 		}
 
-	private:
+		Underlying().ProcessBlock(m_InDeinterleavedBuses, m_OutDeinterleavedBuses, frameCount);
+
+		// Use actual deinterleaved buffer count and check for null output pointers
+		if (ppFramesOut != nullptr)
+		{
+			for (size_t i = 0; i < m_OutDeinterleavedBuses.size(); ++i)
+			{
+				// Only interleave if the output pointer is non-null
+				if (ppFramesOut[i] != nullptr)
+				{
+					// Interleave output audio to interleaved format with explicit frame count
+					SampleBufferOperations::Interleave(ppFramesOut[i], m_OutDeinterleavedBuses[i], frameCount);
+				}
+			}
+		}
+		
+		// Set output frame count
+		if (pFrameCountOut != nullptr)
+		{
+			*pFrameCountOut = frameCount;
+		}
+	}	private:
 		std::vector<choc::buffer::ChannelArrayBuffer<float>> m_InDeinterleavedBuses;
 		std::vector<choc::buffer::ChannelArrayBuffer<float>> m_OutDeinterleavedBuses;
 	};

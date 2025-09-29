@@ -110,6 +110,14 @@ private:
 			float phaseOffset = *in_Phase;
 			float pulseWidth = glm::clamp(*in_PulseWidth, 0.01f, 0.99f);
 
+			// Guard against zero or near-zero sample rate
+			if (m_SampleRate <= 1e-6f)
+			{
+				// Return silence for invalid sample rate
+				out_Value = 0.0f;
+				return;
+			}
+
 			// Update phase
 			float deltaPhase = frequency / m_SampleRate;
 			m_Phase += deltaPhase;
@@ -162,6 +170,14 @@ private:
 			float frequency = glm::max(0.0f, *in_Frequency);
 			float amplitude = glm::clamp(*in_Amplitude, 0.0f, 1.0f);
 			float phaseOffset = *in_Phase;
+
+			// Guard against zero or near-zero sample rate
+			if (m_SampleRate <= 1e-6f)
+			{
+				// Return silence for invalid sample rate
+				out_Value = 0.0f;
+				return;
+			}
 
 			// Update phase
 			float deltaPhase = frequency / m_SampleRate;
@@ -216,6 +232,14 @@ private:
 			float frequency = glm::max(0.0f, *in_Frequency);
 			float amplitude = glm::clamp(*in_Amplitude, 0.0f, 1.0f);
 			float phaseOffset = *in_Phase;
+
+			// Guard against zero or near-zero sample rate
+			if (m_SampleRate <= 1e-6f)
+			{
+				// Return silence for invalid sample rate
+				out_Value = 0.0f;
+				return;
+			}
 
 			// Update phase
 			float deltaPhase = frequency / m_SampleRate;

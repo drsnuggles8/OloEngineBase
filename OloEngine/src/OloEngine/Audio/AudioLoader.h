@@ -5,6 +5,7 @@
 #include <vector>
 #include <string>
 #include <filesystem>
+#include <cmath>
 
 namespace OloEngine::Audio
 {
@@ -33,7 +34,7 @@ namespace OloEngine::Audio
 		/// Check if audio data is valid
 		bool IsValid() const 
 		{ 
-			if (samples.empty() || numChannels == 0 || numFrames == 0 || sampleRate <= 0.0)
+			if (samples.empty() || numChannels == 0 || numFrames == 0 || !std::isfinite(sampleRate) || sampleRate <= 0.0)
 				return false;
 				
 			// Verify that samples buffer size matches expected sample count

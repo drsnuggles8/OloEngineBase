@@ -101,7 +101,7 @@ namespace OloEngine
         std::string Description;
         
         // Reference to the base sound graph
-        AssetHandle SoundGraphHandle;
+        AssetHandle SoundGraphHandle = 0;
         
         // Parameter overrides for this specific sound instance
         std::unordered_map<std::string, std::string> ParameterOverrides;

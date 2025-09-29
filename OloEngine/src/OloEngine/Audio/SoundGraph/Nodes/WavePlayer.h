@@ -345,7 +345,7 @@ namespace OloEngine::Audio::SoundGraph
 			if (m_WaveSource.WaveHandle && m_WaveSource.onRefill)
 			{
 				m_WaveSource.ReadPosition = m_FrameNumber;
-				m_WaveSource.Refill();
+				[[maybe_unused]] bool refillSuccess = m_WaveSource.Refill();
 			}
 		}
 

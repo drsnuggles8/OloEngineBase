@@ -161,9 +161,25 @@ namespace OloEngine::Audio::SoundGraph
 					continue;
 				}
 				
-				// Validate connection type is valid
-				if (connection.Type < Prototype::Connection::NodeValue_NodeValue || 
-					connection.Type > Prototype::Connection::LocalVariable_NodeValue)
+				// Validate connection type is valid using explicit allow-list
+				bool isValidConnectionType = false;
+				switch (connection.Type)
+				{
+					case Prototype::Connection::NodeValue_NodeValue:
+					case Prototype::Connection::NodeEvent_NodeEvent:
+					case Prototype::Connection::GraphValue_NodeValue:
+					case Prototype::Connection::GraphEvent_NodeEvent:
+					case Prototype::Connection::NodeValue_GraphValue:
+					case Prototype::Connection::NodeEvent_GraphEvent:
+					case Prototype::Connection::LocalVariable_NodeValue:
+						isValidConnectionType = true;
+						break;
+					default:
+						isValidConnectionType = false;
+						break;
+				}
+				
+				if (!isValidConnectionType)
 				{
 					OLO_CORE_WARN("GraphGenerator: Connection has invalid connection type {}", static_cast<int>(connection.Type));
 					invalidConnections++;

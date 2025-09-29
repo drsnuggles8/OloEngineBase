@@ -129,22 +129,47 @@ namespace OloEngine
 			const i64 spanSigned = static_cast<i64>(high) - static_cast<i64>(low) + 1;
 			OLO_CORE_ASSERT(spanSigned > 0, "FastRandom: span must be positive");
 			const u64 span = static_cast<u64>(spanSigned);
-			OLO_CORE_ASSERT(span <= static_cast<u64>(LCG_M), "FastRandom: span exceeds generator resolution");
+			OLO_CORE_ASSERT(span <= static_cast<u64>(LCG_M - 1), "FastRandom: span exceeds generator resolution");
 			
-			// Use 64-bit arithmetic for rejection sampling to prevent limit becoming zero
+			// Convert to zero-based domain: GetUInt32() produces [1, LCG_M-1], we need [0, LCG_M-2]
 			const u32 spanU32 = static_cast<u32>(span);
-			const u64 range = static_cast<u64>(LCG_M);  // Full generator domain size
-			const u64 limit64 = range - (range % span);
+			const u64 domainU64 = static_cast<u64>(LCG_M - 1);  // Actual domain size: LCG_M - 1
+			const u64 limit64 = domainU64 - (domainU64 % span);
 			const u32 limit = static_cast<u32>(limit64);
 			
-			u32 value;
+			u32 valueZero;
 			do {
-				value = GetUInt32();
-			} while (value >= limit);
+				u32 value = GetUInt32();
+				valueZero = value - 1;  // Convert [1, LCG_M-1] to [0, LCG_M-2]
+			} while (valueZero >= limit);
 			
 			// Use rejection sampling to ensure uniform distribution across the requested range.
 			// The 64-bit arithmetic prevents 'limit' from becoming zero when span equals the full generator range.
-			return low + static_cast<i32>(value % spanU32);
+			return low + static_cast<i32>(valueZero % spanU32);
+		}
+
+		u32 GetUInt32InRange(u32 low, u32 high) noexcept
+		{
+			if (low >= high) return low;
+			
+			// Compute span using 64-bit arithmetic to handle the full u32 range
+			const u64 span = static_cast<u64>(high) - static_cast<u64>(low) + 1;
+			OLO_CORE_ASSERT(span <= static_cast<u64>(LCG_M - 1), "FastRandom: span exceeds generator resolution");
+			
+			// Convert to zero-based domain: GetUInt32() produces [1, LCG_M-1], we need [0, LCG_M-2]
+			const u32 spanU32 = static_cast<u32>(span);
+			const u64 domainU64 = static_cast<u64>(LCG_M - 1);  // Actual domain size: LCG_M - 1
+			const u64 limit64 = domainU64 - (domainU64 % span);
+			const u32 limit = static_cast<u32>(limit64);
+			
+			u32 valueZero;
+			do {
+				u32 value = GetUInt32();
+				valueZero = value - 1;  // Convert [1, LCG_M-1] to [0, LCG_M-2]
+			} while (valueZero >= limit);
+			
+			// Use rejection sampling to ensure uniform distribution across the requested range
+			return low + (valueZero % spanU32);
 		}
 
 		//==============================================================================
@@ -166,30 +191,62 @@ namespace OloEngine
 				return GetFloat64InRange(low, high);
 			else if constexpr (std::is_integral_v<T>)
 			{
-				// Safe handling for integral types - check size to prevent overflow
+				// Safe handling for integral types - separate signed and unsigned paths
 				if constexpr (sizeof(T) <= sizeof(i32))
 				{
-					// 32-bit or smaller: safe to cast and use existing function
-					return static_cast<T>(GetInt32InRange(static_cast<i32>(low), static_cast<i32>(high)));
+					if constexpr (std::is_unsigned_v<T>)
+					{
+						// Unsigned 32-bit or smaller: use u32 safe path
+						u32 uLow = static_cast<u32>(low);
+						u32 uHigh = static_cast<u32>(high);
+						
+						// Clamp to generator's effective resolution
+						uLow = std::min(uLow, static_cast<u32>(LCG_M - 1));
+						uHigh = std::min(uHigh, static_cast<u32>(LCG_M - 1));
+						
+						return static_cast<T>(GetUInt32InRange(uLow, uHigh));
+					}
+					else
+					{
+						// Signed 32-bit or smaller: safe to cast and use existing function
+						return static_cast<T>(GetInt32InRange(static_cast<i32>(low), static_cast<i32>(high)));
+					}
 				}
 				else
 				{
 					// Wider than 32-bit: use 64-bit safe implementation
 					static_assert(sizeof(T) <= sizeof(i64), "Integral types wider than 64-bit not supported");
 					
-					// For now, clamp to i32 range to use existing implementation safely
-					// TODO: Implement GetInt64InRange for full 64-bit support
-					constexpr i64 i32_min = static_cast<i64>(std::numeric_limits<i32>::min());
-					constexpr i64 i32_max = static_cast<i64>(std::numeric_limits<i32>::max());
-					
-					i64 low64 = static_cast<i64>(low);
-					i64 high64 = static_cast<i64>(high);
-					
-					// Clamp to i32 range for safe operation
-					low64 = std::max(low64, i32_min);
-					high64 = std::min(high64, i32_max);
-					
-					return static_cast<T>(GetInt32InRange(static_cast<i32>(low64), static_cast<i32>(high64)));
+					if constexpr (std::is_unsigned_v<T>)
+					{
+						// Unsigned 64-bit: clamp to u32 range for now
+						constexpr u64 u32_max = static_cast<u64>(std::numeric_limits<u32>::max());
+						
+						u64 low64 = static_cast<u64>(low);
+						u64 high64 = static_cast<u64>(high);
+						
+						// Clamp to u32 range and generator resolution
+						low64 = std::min(low64, std::min(u32_max, static_cast<u64>(LCG_M - 1)));
+						high64 = std::min(high64, std::min(u32_max, static_cast<u64>(LCG_M - 1)));
+						
+						return static_cast<T>(GetUInt32InRange(static_cast<u32>(low64), static_cast<u32>(high64)));
+					}
+					else
+					{
+						// Signed 64-bit: clamp to i32 range for now
+						// TODO: Implement GetInt64InRange for full 64-bit support
+						constexpr i64 i32_min = static_cast<i64>(std::numeric_limits<i32>::min());
+						constexpr i64 i32_max = static_cast<i64>(std::numeric_limits<i32>::max());
+						
+						i64 low64 = static_cast<i64>(low);
+						i64 high64 = static_cast<i64>(high);
+						
+						// Clamp to i32 range for safe operation
+						low64 = std::max(low64, i32_min);
+						high64 = std::min(high64, i32_max);
+						
+						return static_cast<T>(GetInt32InRange(static_cast<i32>(low64), static_cast<i32>(high64)));
+					}
 				}
 			}
 			else
@@ -200,7 +257,10 @@ namespace OloEngine
 		/// Utility functions
 		bool GetBool() noexcept
 		{
-			return (GetUInt32() & 1) != 0;
+			// Prefer higher-order randomness or threshold on [0,1)
+			return GetFloat32() < 0.5f;
+			// Alternatively (faster, still better than LSB):
+			// return (GetUInt32() & 0x40000000u) != 0u;
 		}
 
 		f32 GetNormalizedFloat() noexcept

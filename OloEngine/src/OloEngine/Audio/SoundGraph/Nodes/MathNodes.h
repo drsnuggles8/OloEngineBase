@@ -5,6 +5,7 @@
 
 #include <glm/glm.hpp>
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <type_traits>
 
@@ -18,6 +19,30 @@
 
 namespace OloEngine::Audio::SoundGraph
 {
+	//==============================================================================
+	// Math utilities
+	//==============================================================================
+	namespace detail
+	{
+		/// Saturating absolute value that handles INT_MIN safely
+		template<typename T>
+		constexpr T sat_abs(T value) noexcept
+		{
+			if constexpr (std::is_integral_v<T> && std::is_signed_v<T>)
+			{
+				// For signed integers, handle INT_MIN overflow case
+				if (value == std::numeric_limits<T>::min())
+					return std::numeric_limits<T>::max();
+				return value < T(0) ? -value : value;
+			}
+			else
+			{
+				// For unsigned types and floating point, use standard abs
+				return glm::abs(value);
+			}
+		}
+	}
+
 	//==============================================================================
 	// Addition Node
 	//==============================================================================
@@ -184,7 +209,7 @@ namespace OloEngine::Audio::SoundGraph
 			if constexpr (std::is_floating_point_v<T>)
 			{
 				if (glm::abs(denominator) < std::numeric_limits<T>::epsilon())
-					denominator = std::numeric_limits<T>::epsilon();
+					denominator = std::copysign(std::numeric_limits<T>::epsilon(), denominator);
 			}
 			else
 			{
@@ -510,8 +535,8 @@ namespace OloEngine::Audio::SoundGraph
 							// Check for overflow before multiplication
 							if (result != T(0) && currentBase != T(0))
 							{
-								T maxDiv = std::numeric_limits<T>::max() / glm::abs(currentBase);
-								if (glm::abs(result) > maxDiv)
+								T maxDiv = std::numeric_limits<T>::max() / detail::sat_abs(currentBase);
+								if (detail::sat_abs(result) > maxDiv)
 								{
 									out_Out = T(0); // Overflow
 									return;
@@ -527,7 +552,7 @@ namespace OloEngine::Audio::SoundGraph
 							if (currentBase != T(0))
 							{
 								T maxSqrt = static_cast<T>(std::sqrt(static_cast<double>(std::numeric_limits<T>::max())));
-								if (glm::abs(currentBase) > maxSqrt)
+								if (detail::sat_abs(currentBase) > maxSqrt)
 								{
 									if (result == T(1)) // Only first iteration, so base^1 is still valid
 										out_Out = currentBase;
@@ -582,7 +607,7 @@ namespace OloEngine::Audio::SoundGraph
 				out_Out = T(0);
 				return;
 			}
-			out_Out = glm::abs(*in_Value);
+			out_Out = detail::sat_abs(*in_Value);
 		}
 	};
 

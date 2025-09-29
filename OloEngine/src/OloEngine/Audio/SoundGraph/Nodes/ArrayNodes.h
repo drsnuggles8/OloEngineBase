@@ -7,6 +7,7 @@
 #include <vector>
 #include <chrono>
 #include <type_traits>
+#include <algorithm>
 
 #define DECLARE_ID(name) static constexpr Identifier name{ #name }
 
@@ -95,14 +96,23 @@ namespace OloEngine::Audio::SoundGraph
 
 			// Compute valid index range within array bounds
 			int32_t arraySize = static_cast<int32_t>(in_Array->size());
-			int32_t minIndex = (in_Min && *in_Min >= 0) ? glm::min(*in_Min, arraySize - 1) : 0;
-			int32_t maxIndex = (in_Max && *in_Max < arraySize) ? *in_Max : arraySize - 1;
 			
-			// Ensure valid range
+			// Handle empty array case
+			if (arraySize == 0)
+			{
+				out_Element = T{};
+				OLO_CORE_WARN("GetRandom: Array is empty, using default value");
+				return;
+			}
+			
+			// Clamp both bounds to valid array indices [0, arraySize-1]
+			int32_t minIndex = (in_Min) ? std::clamp(*in_Min, 0, arraySize - 1) : 0;
+			int32_t maxIndex = (in_Max) ? std::clamp(*in_Max, 0, arraySize - 1) : arraySize - 1;
+			
+			// Ensure minIndex <= maxIndex by swapping if necessary
 			if (minIndex > maxIndex)
 			{
-				minIndex = 0;
-				maxIndex = arraySize - 1;
+				std::swap(minIndex, maxIndex);
 			}
 
 			// Generate random index within valid bounds

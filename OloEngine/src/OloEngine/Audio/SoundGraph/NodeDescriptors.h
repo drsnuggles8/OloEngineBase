@@ -3,6 +3,11 @@
 #include "NodeProcessor.h"
 #include "OloEngine/Core/Reflection/Reflection.h"
 #include <functional>
+#include <type_traits>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <type_traits>
 
 namespace OloEngine::Audio::SoundGraph {
 
@@ -43,7 +48,7 @@ namespace OloEngine::Audio::SoundGraph {
 			{
 				if constexpr (IsDescribedNode_v<TNodeType>)
 				{
-					using InputsDescription = typename NodeDescription<TNodeType>::Inputs;
+					using InputsDescription = typename NodeDescription<std::remove_cvref_t<TNodeType>>::Inputs;
 					
 					return InputsDescription::MemberListType::ApplyToStaticType([node](const auto&... members)
 					{
@@ -120,7 +125,7 @@ namespace OloEngine::Audio::SoundGraph {
 			{
 				if constexpr (IsDescribedNode_v<TNodeType>)
 				{
-					using OutputsDescription = typename NodeDescription<TNodeType>::Outputs;
+					using OutputsDescription = typename NodeDescription<std::remove_cvref_t<TNodeType>>::Outputs;
 					
 					return OutputsDescription::MemberListType::ApplyToStaticType([node](const auto&... members)
 					{
@@ -171,7 +176,7 @@ namespace OloEngine::Audio::SoundGraph {
 			{
 				if constexpr (IsDescribedNode_v<TNodeType>)
 				{
-					using InputsDescription = typename NodeDescription<TNodeType>::Inputs;
+					using InputsDescription = typename NodeDescription<std::remove_cvref_t<TNodeType>>::Inputs;
 					
 					return InputsDescription::MemberListType::ApplyToStaticType([node](const auto&... members)
 					{
@@ -195,6 +200,11 @@ namespace OloEngine::Audio::SoundGraph {
 									if (param)
 									{
 										node->*memberPtr = &param->Value;
+									}
+									else
+									{
+										// Clear pointer when parameter lookup fails to avoid dangling references
+										node->*memberPtr = nullptr;
 									}
 								}
 							}

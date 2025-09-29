@@ -1,408 +1,413 @@
-#include "OloEnginePCH.h"
+#include "OloEngine/Core/Base.h"
 #include "SoundGraphSerializer.h"
-#include "OloEngine/Asset/SoundGraphAsset.h"
-#include "OloEngine/Core/Log.h"
-#include "OloEngine/Core/YAMLConverters.h"
+#include "SoundGraphPrototype.h"
+#include "Nodes/WavePlayerNode.h"
 
-#include <yaml-cpp/yaml.h>
+#include "OloEngine/Core/Log.h"
+
 #include <fstream>
 
 namespace OloEngine::Audio::SoundGraph
 {
-    std::string SoundGraphSerializer::SerializeToString(const SoundGraphAsset& asset)
-    {
-        YAML::Emitter out;
-        
-        out << YAML::BeginMap;
-        out << YAML::Key << "SoundGraph" << YAML::Value << YAML::BeginMap;
-        
-        // Basic properties
-        out << YAML::Key << "Name" << YAML::Value << asset.Name;
-        out << YAML::Key << "Description" << YAML::Value << asset.Description;
-        out << YAML::Key << "Version" << YAML::Value << asset.Version;
-        out << YAML::Key << "ID" << YAML::Value << static_cast<u64>(asset.GetHandle());
-        
-        // Nodes
-        out << YAML::Key << "Nodes" << YAML::Value << YAML::BeginSeq;
-        for (const auto& node : asset.Nodes)
-        {
-            out << YAML::BeginMap;
-            out << YAML::Key << "ID" << YAML::Value << static_cast<u64>(node.ID);
-            out << YAML::Key << "Name" << YAML::Value << node.Name;
-            out << YAML::Key << "Type" << YAML::Value << node.Type;
-            out << YAML::Key << "PosX" << YAML::Value << node.PosX;
-            out << YAML::Key << "PosY" << YAML::Value << node.PosY;
-            
-            if (!node.Properties.empty())
-            {
-                out << YAML::Key << "Properties" << YAML::Value << YAML::BeginMap;
-                for (const auto& [key, value] : node.Properties)
-                {
-                    out << YAML::Key << key << YAML::Value << value;
-                }
-                out << YAML::EndMap;
-            }
-            
-            out << YAML::EndMap;
-        }
-        out << YAML::EndSeq;
-        
-        // Connections
-        out << YAML::Key << "Connections" << YAML::Value << YAML::BeginSeq;
-        for (const auto& connection : asset.Connections)
-        {
-            out << YAML::BeginMap;
-            out << YAML::Key << "SourceNodeID" << YAML::Value << static_cast<u64>(connection.SourceNodeID);
-            out << YAML::Key << "SourceEndpoint" << YAML::Value << connection.SourceEndpoint;
-            out << YAML::Key << "TargetNodeID" << YAML::Value << static_cast<u64>(connection.TargetNodeID);
-            out << YAML::Key << "TargetEndpoint" << YAML::Value << connection.TargetEndpoint;
-            out << YAML::Key << "IsEvent" << YAML::Value << connection.IsEvent;
-            out << YAML::EndMap;
-        }
-        out << YAML::EndSeq;
-        
-        // Graph configuration
-        if (!asset.GraphInputs.empty())
-        {
-            out << YAML::Key << "GraphInputs" << YAML::Value << YAML::BeginMap;
-            for (const auto& [key, value] : asset.GraphInputs)
-            {
-                out << YAML::Key << key << YAML::Value << value;
-            }
-            out << YAML::EndMap;
-        }
-        
-        if (!asset.GraphOutputs.empty())
-        {
-            out << YAML::Key << "GraphOutputs" << YAML::Value << YAML::BeginMap;
-            for (const auto& [key, value] : asset.GraphOutputs)
-            {
-                out << YAML::Key << key << YAML::Value << value;
-            }
-            out << YAML::EndMap;
-        }
-        
-        if (!asset.LocalVariables.empty())
-        {
-            out << YAML::Key << "LocalVariables" << YAML::Value << YAML::BeginMap;
-            for (const auto& [key, value] : asset.LocalVariables)
-            {
-                out << YAML::Key << key << YAML::Value << value;
-            }
-            out << YAML::EndMap;
-        }
-        
-        // Wave sources
-        if (!asset.WaveSources.empty())
-        {
-            out << YAML::Key << "WaveSources" << YAML::Value << YAML::BeginSeq;
-            for (const auto& waveSource : asset.WaveSources)
-            {
-                out << static_cast<u64>(waveSource);
-            }
-            out << YAML::EndSeq;
-        }
-        
-        out << YAML::EndMap; // SoundGraph
-        out << YAML::EndMap; // Root
-        
-        // Check emitter state before using c_str()
-        if (out.good())
-        {
-            return std::string(out.c_str());
-        }
-        else
-        {
-            OLO_CORE_ERROR("SoundGraphSerializer: YAML emitter failed during serialization");
-            return std::string(); // Return empty string on failure
-        }
-    }
+	//==============================================================================
+	// SoundGraphSerializer Implementation
 
-    bool SoundGraphSerializer::DeserializeFromString(SoundGraphAsset& asset, const std::string& yamlString)
-    {
-        try
-        {
-            YAML::Node root = YAML::Load(yamlString);
-            
-            if (!root["SoundGraph"])
-            {
-                OLO_CORE_ERROR("SoundGraphSerializer: Missing 'SoundGraph' root node");
-                return false;
-            }
-            
-            YAML::Node soundGraph = root["SoundGraph"];
-            
-            // Parse into temporary variables first to avoid mutating the asset on failure
-            std::string tempName;
-            std::string tempDescription;
-            u32 tempVersion = 0;
-            u64 tempAssetID = 0;
-            std::vector<SoundGraphNodeData> tempNodes;
-            std::vector<SoundGraphConnection> tempConnections;
-            std::unordered_map<std::string, std::string> tempGraphInputs;
-            std::unordered_map<std::string, std::string> tempGraphOutputs;
-            std::unordered_map<std::string, std::string> tempLocalVariables;
-            std::vector<AssetHandle> tempWaveSources;
-            
-            // Basic properties
-            if (soundGraph["Name"])
-                tempName = soundGraph["Name"].as<std::string>();
-            
-            if (soundGraph["Description"])
-                tempDescription = soundGraph["Description"].as<std::string>();
-            
-            if (soundGraph["Version"])
-                tempVersion = soundGraph["Version"].as<u32>();
-            
-            if (soundGraph["ID"])
-            {
-                u64 fileAssetID = soundGraph["ID"].as<u64>();
-                tempAssetID = fileAssetID;
-                u64 currentAssetHandle = static_cast<u64>(asset.GetHandle());
-                
-                // Validate the asset ID from file against the current handle
-                // This helps detect potential asset ID mismatches during loading
-                if (currentAssetHandle != 0 && fileAssetID != 0)
-                {
-                    if (currentAssetHandle != fileAssetID)
-                    {
-                        OLO_CORE_WARN("SoundGraphSerializer: Asset ID mismatch - file contains {}, current handle is {}. "
-                                     "This could indicate the asset was loaded with a different handle than expected.",
-                                     fileAssetID, currentAssetHandle);
-                    }
-                    else
-                    {
-                        OLO_CORE_TRACE("SoundGraphSerializer: Asset ID validation passed - handle {} matches file ID {}",
-                                       currentAssetHandle, fileAssetID);
-                    }
-                }
-                
-                // Note: We cannot set the asset ID directly since it's managed by AssetManager
-                // The ID in the file is mainly for reference and validation purposes
-            }
-            
-            // Nodes
-            if (soundGraph["Nodes"] && soundGraph["Nodes"].IsSequence())
-            {
-                for (const auto& nodeYaml : soundGraph["Nodes"])
-                {
-                    SoundGraphNodeData node;
-                    
-                    if (!nodeYaml["ID"] || !nodeYaml["Type"])
-                    {
-                        OLO_CORE_ERROR("SoundGraphSerializer: Node missing required ID or Type");
-                        return false;
-                    }
-                    
-                    node.ID = nodeYaml["ID"].as<u64>();
-                    node.Type = nodeYaml["Type"].as<std::string>();
-                    
-                    if (nodeYaml["Name"])
-                        node.Name = nodeYaml["Name"].as<std::string>();
-                    
-                    if (nodeYaml["PosX"])
-                        node.PosX = nodeYaml["PosX"].as<float>();
-                    
-                    if (nodeYaml["PosY"])
-                        node.PosY = nodeYaml["PosY"].as<float>();
-                    
-                    // Properties
-                    if (nodeYaml["Properties"] && nodeYaml["Properties"].IsMap())
-                    {
-                        for (const auto& prop : nodeYaml["Properties"])
-                        {
-                            node.Properties[prop.first.as<std::string>()] = prop.second.as<std::string>();
-                        }
-                    }
-                    
-                    tempNodes.push_back(node);
-                }
-            }
-            
-            // Connections
-            if (soundGraph["Connections"] && soundGraph["Connections"].IsSequence())
-            {
-                for (const auto& connYaml : soundGraph["Connections"])
-                {
-                    if (!connYaml["SourceNodeID"] || !connYaml["SourceEndpoint"] ||
-                        !connYaml["TargetNodeID"] || !connYaml["TargetEndpoint"])
-                    {
-                        OLO_CORE_WARN("SoundGraphSerializer: Connection missing required fields, skipping");
-                        continue;
-                    }
-                    
-                    SoundGraphConnection connection;
-                    connection.SourceNodeID = connYaml["SourceNodeID"].as<u64>();
-                    connection.SourceEndpoint = connYaml["SourceEndpoint"].as<std::string>();
-                    connection.TargetNodeID = connYaml["TargetNodeID"].as<u64>();
-                    connection.TargetEndpoint = connYaml["TargetEndpoint"].as<std::string>();
-                    
-                    if (connYaml["IsEvent"])
-                        connection.IsEvent = connYaml["IsEvent"].as<bool>();
-                    
-                    tempConnections.push_back(connection);
-                }
-            }
-            
-            // Graph configuration
-            if (soundGraph["GraphInputs"] && soundGraph["GraphInputs"].IsMap())
-            {
-                for (const auto& input : soundGraph["GraphInputs"])
-                {
-                    tempGraphInputs[input.first.as<std::string>()] = input.second.as<std::string>();
-                }
-            }
-            
-            if (soundGraph["GraphOutputs"] && soundGraph["GraphOutputs"].IsMap())
-            {
-                for (const auto& output : soundGraph["GraphOutputs"])
-                {
-                    tempGraphOutputs[output.first.as<std::string>()] = output.second.as<std::string>();
-                }
-            }
-            
-            if (soundGraph["LocalVariables"] && soundGraph["LocalVariables"].IsMap())
-            {
-                for (const auto& var : soundGraph["LocalVariables"])
-                {
-                    tempLocalVariables[var.first.as<std::string>()] = var.second.as<std::string>();
-                }
-            }
-            
-            // Wave sources
-            if (soundGraph["WaveSources"] && soundGraph["WaveSources"].IsSequence())
-            {
-                for (const auto& waveSourceYaml : soundGraph["WaveSources"])
-                {
-                    tempWaveSources.push_back(waveSourceYaml.as<u64>());
-                }
-            }
-            
-            // All parsing successful - now clear and update the asset
-            asset.Clear();
-            
-            // Assign parsed data to asset
-            asset.Name = tempName;
-            asset.Description = tempDescription;
-            asset.Version = tempVersion;
-            
-            // Add all nodes
-            for (const auto& node : tempNodes)
-            {
-                asset.AddNode(node);
-            }
-            
-            // Add all connections
-            for (const auto& connection : tempConnections)
-            {
-                asset.AddConnection(connection);
-            }
-            
-            // Set graph configuration
-            asset.GraphInputs = tempGraphInputs;
-            asset.GraphOutputs = tempGraphOutputs;
-            asset.LocalVariables = tempLocalVariables;
-            
-            // Set wave sources
-            asset.WaveSources = tempWaveSources;
-            
-            return asset.IsValid();
-        }
-        catch (const YAML::Exception& ex)
-        {
-            OLO_CORE_ERROR("SoundGraphSerializer: YAML parsing error - {}", ex.what());
-            return false;
-        }
-        catch (const std::exception& ex)
-        {
-            OLO_CORE_ERROR("SoundGraphSerializer: Deserialization error - {}", ex.what());
-            return false;
-        }
-    }
+	void SoundGraphSerializer::Serialize(const SoundGraphAsset& asset, const std::filesystem::path& filepath)
+	{
+		std::string yamlString = SerializeToString(asset);
+		
+		std::ofstream fout(filepath);
+		if (fout.is_open())
+		{
+			fout << yamlString;
+			fout.close();
+			OLO_CORE_INFO("Successfully serialized sound graph to {}", filepath.string());
+		}
+		else
+		{
+			OLO_CORE_ERROR("Failed to open file for writing: {}", filepath.string());
+		}
+	}
 
-    bool SoundGraphSerializer::Serialize(const SoundGraphAsset& asset, const std::filesystem::path& filePath)
-    {
-        try
-        {
-            std::string yamlString = SerializeToString(asset);
-            
-            // Check if serialization failed (empty string indicates failure)
-            if (yamlString.empty())
-            {
-                OLO_CORE_ERROR("SoundGraphSerializer: Failed to serialize SoundGraphAsset to YAML string for file: {}", filePath.string());
-                return false;
-            }
-            
-            // Ensure directory exists (only if parent path is not empty)
-            if (!filePath.parent_path().empty())
-            {
-                std::filesystem::create_directories(filePath.parent_path());
-            }
-            
-            std::ofstream file(filePath);
-            if (!file.is_open())
-            {
-                OLO_CORE_ERROR("SoundGraphSerializer: Failed to open file for writing: {}", filePath.string());
-                return false;
-            }
-            
-            file << yamlString;
-            
-            // Flush the stream and check for write errors
-            file.flush();
-            if (file.fail() || file.bad())
-            {
-                OLO_CORE_ERROR("SoundGraphSerializer: Failed to write data to file: {}", filePath.string());
-                file.close();
-                return false;
-            }
-            
-            file.close();
-            
-            // Check for any errors that occurred during close
-            if (file.fail())
-            {
-                OLO_CORE_ERROR("SoundGraphSerializer: Failed to close file properly: {}", filePath.string());
-                return false;
-            }
-            
-            return true;
-        }
-        catch (const std::exception& ex)
-        {
-            OLO_CORE_ERROR("SoundGraphSerializer: Failed to serialize to file '{}': {}", filePath.string(), ex.what());
-            return false;
-        }
-    }
+	std::string SoundGraphSerializer::SerializeToString(const SoundGraphAsset& asset)
+	{
+		YAML::Emitter out;
+		
+		out << YAML::BeginMap;
+		
+		// Asset metadata
+		out << YAML::Key << "SoundGraph" << YAML::Value;
+		out << YAML::BeginMap;
+		
+		out << YAML::Key << "Name" << YAML::Value << asset.Name;
+		out << YAML::Key << "ID" << YAML::Value << asset.ID;
+		
+		// Serialize nodes
+		out << YAML::Key << "Nodes" << YAML::Value;
+		out << YAML::BeginSeq;
+		
+		for (const auto& nodeData : asset.Nodes)
+		{
+			SerializeNodeData(out, nodeData);
+		}
+		
+		out << YAML::EndSeq;
+		
+		// Serialize connections
+		out << YAML::Key << "Connections" << YAML::Value;
+		out << YAML::BeginSeq;
+		
+		for (const auto& connection : asset.Connections)
+		{
+			SerializeConnection(out, connection);
+		}
+		
+		out << YAML::EndSeq;
+		
+		out << YAML::EndMap; // SoundGraph
+		out << YAML::EndMap; // Root
+		
+		return out.c_str();
+	}
 
-    bool SoundGraphSerializer::Deserialize(SoundGraphAsset& asset, const std::filesystem::path& filePath)
-    {
-        try
-        {
-            if (!std::filesystem::exists(filePath))
-            {
-                OLO_CORE_ERROR("SoundGraphSerializer: File does not exist: {}", filePath.string());
-                return false;
-            }
-            
-            std::ifstream file(filePath);
-            if (!file.is_open())
-            {
-                OLO_CORE_ERROR("SoundGraphSerializer: Failed to open file for reading: {}", filePath.string());
-                return false;
-            }
-            
-            std::string yamlString((std::istreambuf_iterator<char>(file)),
-                                   std::istreambuf_iterator<char>());
-            file.close();
-            
-            return DeserializeFromString(asset, yamlString);
-        }
-        catch (const std::exception& ex)
-        {
-            OLO_CORE_ERROR("SoundGraphSerializer: Failed to deserialize from file '{}': {}", filePath.string(), ex.what());
-            return false;
-        }
-    }
+	bool SoundGraphSerializer::Deserialize(SoundGraphAsset& asset, const std::filesystem::path& filepath)
+	{
+		std::ifstream fin(filepath);
+		if (!fin.is_open())
+		{
+			OLO_CORE_ERROR("Failed to open sound graph file: {}", filepath.string());
+			return false;
+		}
+		
+		std::stringstream buffer;
+		buffer << fin.rdbuf();
+		fin.close();
+		
+		return DeserializeFromString(asset, buffer.str());
+	}
 
-} // namespace OloEngine::Audio::SoundGraph
+	bool SoundGraphSerializer::DeserializeFromString(SoundGraphAsset& asset, const std::string& yamlString)
+	{
+		try
+		{
+			YAML::Node data = YAML::Load(yamlString);
+			
+			if (!data["SoundGraph"])
+			{
+				OLO_CORE_ERROR("Invalid sound graph file format - missing SoundGraph root node");
+				return false;
+			}
+			
+			auto soundGraphNode = data["SoundGraph"];
+			
+			// Load metadata
+			if (soundGraphNode["Name"])
+				asset.Name = soundGraphNode["Name"].as<std::string>();
+			
+			if (soundGraphNode["ID"])
+				asset.ID = UUID(soundGraphNode["ID"].as<u64>());
+			
+			// Clear existing data
+			asset.Nodes.clear();
+			asset.Connections.clear();
+			
+			// Load nodes
+			if (soundGraphNode["Nodes"])
+			{
+				auto nodesNode = soundGraphNode["Nodes"];
+				sizet nodeCount = 0;
+				sizet validNodeCount = 0;
+				
+				for (const auto& nodeYaml : nodesNode)
+				{
+					nodeCount++;
+					SoundGraphAsset::NodeData nodeData;
+					if (DeserializeNodeData(nodeYaml, nodeData))
+					{
+						asset.Nodes.push_back(nodeData);
+						validNodeCount++;
+					}
+				}
+				
+				// If nodes were present but none were valid, fail
+				if (nodeCount > 0 && validNodeCount == 0)
+				{
+					OLO_CORE_ERROR("Sound graph contains nodes but none could be deserialized");
+					return false;
+				}
+			}
+			
+			// Load connections
+			if (soundGraphNode["Connections"])
+			{
+				auto connectionsNode = soundGraphNode["Connections"];
+				sizet connectionCount = 0;
+				sizet validConnectionCount = 0;
+				
+				for (const auto& connectionYaml : connectionsNode)
+				{
+					connectionCount++;
+					Prototype::Connection connection;
+					if (DeserializeConnection(connectionYaml, connection))
+					{
+						asset.Connections.push_back(connection);
+						validConnectionCount++;
+					}
+				}
+				
+				// If connections were present but none were valid, fail
+				if (connectionCount > 0 && validConnectionCount == 0)
+				{
+					OLO_CORE_ERROR("Sound graph contains connections but none could be deserialized");
+					return false;
+				}
+			}
+			
+			OLO_CORE_INFO("Successfully deserialized sound graph: {}", asset.Name);
+			return true;
+		}
+		catch (const YAML::Exception& e)
+		{
+			OLO_CORE_ERROR("Failed to parse YAML: Invalid format");
+			return false;
+		}
+		catch (const std::exception& e)
+		{
+			OLO_CORE_ERROR("Failed to deserialize sound graph: {}", e.what());
+			return false;
+		}
+		catch (...)
+		{
+			OLO_CORE_ERROR("Unknown error occurred during sound graph deserialization");
+			return false;
+		}
+	}
+
+	YAML::Emitter& SoundGraphSerializer::SerializeNodeData(YAML::Emitter& out, const SoundGraphAsset::NodeData& nodeData)
+	{
+		out << YAML::BeginMap;
+		
+		out << YAML::Key << "ID" << YAML::Value << nodeData.ID;
+		out << YAML::Key << "Name" << YAML::Value << nodeData.Name;
+		out << YAML::Key << "Type" << YAML::Value << nodeData.Type;
+		
+		// Serialize properties
+		if (!nodeData.Properties.empty())
+		{
+			out << YAML::Key << "Properties" << YAML::Value;
+			out << YAML::BeginMap;
+			
+			for (const auto& [key, value] : nodeData.Properties)
+			{
+				out << YAML::Key << key << YAML::Value << value;
+			}
+			
+			out << YAML::EndMap;
+		}
+		
+		out << YAML::EndMap;
+		
+		return out;
+	}
+
+	YAML::Emitter& SoundGraphSerializer::SerializeConnection(YAML::Emitter& out, const Prototype::Connection& connection)
+	{
+		out << YAML::BeginMap;
+		
+		out << YAML::Key << "SourceNodeID" << YAML::Value << connection.Source.NodeID;
+		out << YAML::Key << "SourceEndpoint" << YAML::Value << connection.Source.EndpointID;
+		out << YAML::Key << "TargetNodeID" << YAML::Value << connection.Destination.NodeID;
+		out << YAML::Key << "TargetEndpoint" << YAML::Value << connection.Destination.EndpointID;
+		out << YAML::Key << "Type" << YAML::Value << connection.Type;
+		
+		out << YAML::EndMap;
+		
+		return out;
+	}
+
+	bool SoundGraphSerializer::DeserializeNodeData(const YAML::Node& node, SoundGraphAsset::NodeData& nodeData)
+	{
+		try
+		{
+			if (!node["ID"] || !node["Name"] || !node["Type"])
+			{
+				OLO_CORE_ERROR("Invalid node data - missing required fields");
+				return false;
+			}
+			
+			nodeData.ID = UUID(node["ID"].as<u64>());
+			nodeData.Name = node["Name"].as<std::string>();
+			nodeData.Type = node["Type"].as<std::string>();
+			
+			// Load properties if they exist
+			if (node["Properties"])
+			{
+				auto propsNode = node["Properties"];
+				
+				for (const auto& prop : propsNode)
+				{
+					std::string key = prop.first.as<std::string>();
+					std::string value = prop.second.as<std::string>();
+					nodeData.Properties[key] = value;
+				}
+			}
+			
+			return true;
+		}
+		catch (const std::exception& e)
+		{
+			OLO_CORE_ERROR("Failed to deserialize node data: {}", e.what());
+			return false;
+		}
+	}
+
+	bool SoundGraphSerializer::DeserializeConnection(const YAML::Node& node, Prototype::Connection& connection)
+	{
+		try
+		{
+			if (!node["SourceNodeID"] || !node["SourceEndpoint"] || 
+				!node["TargetNodeID"] || !node["TargetEndpoint"])
+			{
+				OLO_CORE_ERROR("Invalid connection data - missing required fields");
+				return false;
+			}
+			
+			connection.Source.NodeID = UUID(node["SourceNodeID"].as<u64>());
+			connection.Source.EndpointID = Identifier(node["SourceEndpoint"].as<u32>());
+			connection.Destination.NodeID = UUID(node["TargetNodeID"].as<u64>());
+			connection.Destination.EndpointID = Identifier(node["TargetEndpoint"].as<u32>());
+			
+			if (node["Type"])
+				connection.Type = static_cast<Prototype::Connection::EType>(node["Type"].as<i32>());
+			else
+				connection.Type = Prototype::Connection::NodeValue_NodeValue; // Default value
+			
+			return true;
+		}
+		catch (const std::exception& e)
+		{
+			OLO_CORE_ERROR("Failed to deserialize connection: {}", e.what());
+			return false;
+		}
+	}
+
+	//==============================================================================
+	// SoundGraphFactory Implementation
+
+	std::unordered_map<std::string, SoundGraphFactory::NodeCreatorFunc> SoundGraphFactory::s_NodeCreators;
+
+	Ref<SoundGraph> SoundGraphFactory::CreateFromAsset(const SoundGraphAsset& asset)
+	{
+		// Initialize node types if not done already
+		if (s_NodeCreators.empty())
+			InitializeDefaultNodeTypes();
+		
+		auto soundGraph = Ref<SoundGraph>::Create();
+		// TODO: Set name and ID if SoundGraph supports them
+		
+		// Create all nodes first
+		std::unordered_map<UUID, NodeProcessor*> nodeMap;
+		
+		for (const auto& nodeData : asset.Nodes)
+		{
+			// Convert UUID from NodeData to Identifier for CreateNode
+			Identifier nodeId = Identifier(static_cast<u64>(nodeData.ID));
+			auto node = CreateNode(nodeData.Type, nodeData.Name, nodeId);
+			if (node)
+			{
+				// Apply properties
+				ApplyNodeProperties(node.get(), nodeData);
+				
+				// Store reference for connection phase using original UUID
+				nodeMap[nodeData.ID] = node.get();
+				
+				// Add to sound graph
+				soundGraph->AddNode(std::move(node));
+			}
+			else
+			{
+				OLO_CORE_ERROR("Failed to create node of type '{}' with name '{}'", nodeData.Type, nodeData.Name);
+			}
+		}
+		
+		// Connect nodes
+		for (const auto& connection : asset.Connections)
+		{
+			auto outputNodeIt = nodeMap.find(connection.Source.NodeID);
+			auto inputNodeIt = nodeMap.find(connection.Destination.NodeID);
+			
+			if (outputNodeIt != nodeMap.end() && inputNodeIt != nodeMap.end())
+			{
+				NodeProcessor* outputNode = outputNodeIt->second;
+				NodeProcessor* inputNode = inputNodeIt->second;
+				
+				// TODO: Implement connection logic for ValueView system
+				// Connect the nodes
+				/*
+				if (!outputNode->ConnectTo(connection.Source.EndpointID, inputNode, connection.Destination.EndpointID))
+				{
+					OLO_CORE_WARN("Failed to connect {} -> {} ({} -> {})", 
+						outputNode->GetDisplayName(), inputNode->GetDisplayName(),
+						connection.Source.EndpointID, connection.Destination.EndpointID);
+				}
+				*/
+				OLO_CORE_WARN("TODO: Connection logic not implemented for ValueView system");
+			}
+			else
+			{
+				OLO_CORE_ERROR("Connection references unknown nodes: {} -> {}", 
+					static_cast<u64>(connection.Source.NodeID), static_cast<u64>(connection.Destination.NodeID));
+			}
+		}
+		
+		OLO_CORE_INFO("Successfully created sound graph '{}' with {} nodes and {} connections", 
+			asset.Name, asset.Nodes.size(), asset.Connections.size());
+		
+		return soundGraph;
+	}
+
+	void SoundGraphFactory::InitializeDefaultNodeTypes()
+	{
+		// Register built-in node types
+		RegisterNodeType<WavePlayerNode>("WavePlayer");
+		
+		OLO_CORE_INFO("Registered {} default sound graph node types", s_NodeCreators.size());
+	}
+
+	Scope<NodeProcessor> SoundGraphFactory::CreateNode(const std::string& typeName, const std::string& name, Identifier id)
+	{
+		auto it = s_NodeCreators.find(typeName);
+		if (it != s_NodeCreators.end())
+		{
+			return it->second(name, id);
+		}
+		
+		OLO_CORE_ERROR("Unknown node type: {}", typeName);
+		return nullptr;
+	}
+
+	void SoundGraphFactory::ApplyNodeProperties(NodeProcessor* node, const SoundGraphAsset::NodeData& nodeData)
+	{
+		// Apply type-specific properties
+		if (auto wavePlayer = dynamic_cast<WavePlayerNode*>(node))
+		{
+			auto it = nodeData.Properties.find("WaveAsset");
+			if (it != nodeData.Properties.end())
+			{
+				// Try to parse the asset handle from string
+				try 
+				{
+					AssetHandle handle = std::stoull(it->second);
+					wavePlayer->SetWaveAsset(handle);
+				}
+				catch (...)
+				{
+					OLO_CORE_WARN("SoundGraphSerializer: Failed to parse WaveAsset handle: {}", it->second);
+				}
+			}
+		}
+		// TODO: Add more node types as they become available
+		
+		// OLO_CORE_TRACE("Applied properties to node '{}' of type '{}'", node->GetDisplayName(), nodeData.Type); // TODO: GetDisplayName() method missing
+	}
+}

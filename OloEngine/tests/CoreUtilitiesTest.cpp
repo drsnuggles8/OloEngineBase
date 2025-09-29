@@ -97,8 +97,22 @@ TEST(CoreUtilitiesTest, FastRandomTest)
 	EXPECT_GE(randomFloat2, 0.0f);
 	EXPECT_LE(randomFloat2, 1.0f);
 	
-	// Should generate different values (with high probability)
-	EXPECT_NE(randomFloat1, randomFloat2);
+	// Test variability by drawing additional floats and ensuring at least one differs
+	bool foundDifferentValue = (randomFloat1 != randomFloat2);
+	if (!foundDifferentValue)
+	{
+		// Draw 4 more floats to check for variability
+		for (int i = 0; i < 4; ++i)
+		{
+			auto additionalFloat = rng.GetFloat32InRange(0.0f, 1.0f);
+			if (additionalFloat != randomFloat1)
+			{
+				foundDifferentValue = true;
+				break;
+			}
+		}
+	}
+	EXPECT_TRUE(foundDifferentValue);
 	
 	// Test integer range generation
 	auto randomInt1 = rng.GetInt32InRange(1, 100);

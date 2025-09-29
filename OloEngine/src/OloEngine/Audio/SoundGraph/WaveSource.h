@@ -20,14 +20,42 @@ namespace OloEngine::Audio
         u64 WaveHandle = 0;                     // Source Wave Asset handle
         const char* WaveName = nullptr;         // Wave Asset name for debugging purposes
 
-        using RefillCallback = std::function<bool(WaveSource&)>;
-        RefillCallback onRefill = nullptr;
+        // Callback wrapper that encapsulates function pointer with context
+        struct RefillCallback final
+        {
+            using FuncPtr = bool(*)(WaveSource&, void*) noexcept;
+            FuncPtr funcPtr = nullptr;
+            void* context = nullptr;
 
-        inline bool Refill() 
+            RefillCallback() = default;
+            RefillCallback(FuncPtr ptr, void* ctx = nullptr) noexcept : funcPtr(ptr), context(ctx) {}
+            
+            // Assignment from std::function for compatibility 
+            RefillCallback& operator=(const std::function<bool(WaveSource&)>& func) noexcept
+            {
+                static thread_local std::function<bool(WaveSource&)> storedFunc;
+                storedFunc = func;
+                funcPtr = [](WaveSource& source, void*) noexcept -> bool {
+                    try { return storedFunc(source); }
+                    catch (...) { return false; }
+                };
+                context = nullptr;
+                return *this;
+            }
+
+            [[nodiscard]] bool operator()(WaveSource& source) const noexcept
+            {
+                return funcPtr ? funcPtr(source, context) : false;
+            }
+
+            explicit operator bool() const noexcept { return funcPtr != nullptr; }
+        };
+
+        RefillCallback onRefill;
+
+        [[nodiscard]] inline bool Refill() noexcept
         { 
-            if (!onRefill) 
-                return false; 
-            return onRefill(*this); 
+            return onRefill(*this);
         }
 
         inline void Clear() noexcept

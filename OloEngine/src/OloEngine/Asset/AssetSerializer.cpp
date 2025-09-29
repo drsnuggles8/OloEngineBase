@@ -2540,6 +2540,12 @@ namespace OloEngine
 
         // Resolve absolute path by anchoring to project asset directory
         std::filesystem::path absolutePath = Project::GetAssetDirectory() / metadata.FilePath;
+        
+        // Ensure parent directory exists
+        std::filesystem::create_directories(absolutePath.parent_path());
+        
+        // Profile the serialization operation
+        OLO_PROFILE_SCOPE("SoundGraphSerializer::Serialize");
         Audio::SoundGraph::SoundGraphSerializer::Serialize(*soundGraphAsset, absolutePath);
     }
 

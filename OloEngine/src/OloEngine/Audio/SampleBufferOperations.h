@@ -42,8 +42,8 @@ namespace OloEngine::Audio
         /// Apply a gain ramp to a single channel in an interleaved buffer
         static inline void ApplyGainRampToSingleChannel(f32* data, u32 numSamples, u32 numChannels, u32 channel, f32 gainStart, f32 gainEnd)
         {
-            // Guard against division by zero
-            if (numSamples == 0)
+            // Guard against invalid parameters
+            if (numSamples == 0 || numChannels == 0 || channel >= numChannels)
                 return;
             
             // Special case for single sample: apply gainEnd directly
@@ -65,6 +65,10 @@ namespace OloEngine::Audio
         static inline void AddAndApplyGainRamp(f32* dest, const f32* source, u32 destChannel, u32 sourceChannel,
                                              u32 destNumChannels, u32 sourceNumChannels, u32 numSamples, f32 gainStart, f32 gainEnd)
         {
+            // Guard against invalid parameters
+            if (destNumChannels == 0 || sourceNumChannels == 0 || destChannel >= destNumChannels || sourceChannel >= sourceNumChannels)
+                return;
+                
             // Guard against empty range
             if (numSamples == 0)
                 return;
@@ -95,6 +99,10 @@ namespace OloEngine::Audio
         static inline void AddAndApplyGain(f32* dest, const f32* source, u32 destChannel, u32 sourceChannel,
                                          u32 destNumChannels, u32 sourceNumChannels, u32 numSamples, f32 gain)
         {
+            // Guard against invalid parameters
+            if (destNumChannels == 0 || sourceNumChannels == 0 || destChannel >= destNumChannels || sourceChannel >= sourceNumChannels)
+                return;
+                
             for (u32 i = 0; i < numSamples; ++i)
                 dest[i * destNumChannels + destChannel] += source[i * sourceNumChannels + sourceChannel] * gain;
         }

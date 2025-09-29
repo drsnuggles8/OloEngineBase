@@ -138,8 +138,15 @@ namespace OloEngine::Audio::SoundGraph
         return descriptors;
     }
 
-    void SoundGraphPatchPreset::CreatePatch(const std::string& name, const std::string& description)
+    bool SoundGraphPatchPreset::CreatePatch(const std::string& name, const std::string& description)
     {
+        // Check for existing patch to avoid overwriting
+        if (m_Patches.find(name) != m_Patches.end())
+        {
+            OLO_CORE_WARN("SoundGraphPatchPreset::CreatePatch - patch '{}' already exists, not overwriting", name);
+            return false;
+        }
+        
         ParameterPatch patch;
         patch.Name = name;
         patch.Description = description;
@@ -147,6 +154,7 @@ namespace OloEngine::Audio::SoundGraph
             std::chrono::system_clock::now().time_since_epoch()).count() / 1000.0;
         
         m_Patches[name] = patch;
+        return true;
     }
 
     void SoundGraphPatchPreset::DeletePatch(const std::string& name)
@@ -211,24 +219,88 @@ namespace OloEngine::Audio::SoundGraph
             return;
         }
 
+        // Helper lambdas to convert Variant to numeric types safely
+        auto toFloat = [](const ParameterValue& pv, f32 fallback) -> f32
+        {
+            return std::visit([&](const auto& v) -> f32 {
+                using VT = std::decay_t<decltype(v)>;
+                if constexpr (std::is_same_v<VT, f32>) return v;
+                else if constexpr (std::is_same_v<VT, i32>) return static_cast<f32>(v);
+                else if constexpr (std::is_same_v<VT, bool>) return v ? 1.0f : 0.0f;
+                else return fallback;
+            }, pv);
+        };
+
+        auto toInt = [](const ParameterValue& pv, i32 fallback) -> i32
+        {
+            return std::visit([&](const auto& v) -> i32 {
+                using VT = std::decay_t<decltype(v)>;
+                if constexpr (std::is_same_v<VT, i32>) return v;
+                else if constexpr (std::is_same_v<VT, f32>) return static_cast<i32>(std::lround(v));
+                else if constexpr (std::is_same_v<VT, bool>) return v ? 1 : 0;
+                else return fallback;
+            }, pv);
+        };
+
+        auto toBool = [](const ParameterValue& pv, bool fallback) -> bool
+        {
+            return std::visit([&](const auto& v) -> bool {
+                using VT = std::decay_t<decltype(v)>;
+                if constexpr (std::is_same_v<VT, bool>) return v;
+                else if constexpr (std::is_same_v<VT, i32>) return v != 0;
+                else if constexpr (std::is_same_v<VT, f32>) return v != 0.0f;
+                else return fallback;
+            }, pv);
+        };
+
         for (const auto& [parameterID, value] : patch.Parameters)
         {
-            // Apply the parameter value based on its type
-            std::visit([target, parameterID](const auto& v) -> void {
-                using T = std::decay_t<decltype(v)>;
-                if constexpr (std::is_same_v<T, f32>)
+            // Look up descriptor to determine the declared type and bounds
+            const ParameterDescriptor* desc = GetParameterDescriptor(parameterID);
+            if (!desc)
+            {
+                // Unknown parameter - skip safely
+                continue;
+            }
+
+            // Determine declared type by default value's alternative
+            std::visit([&](const auto& defaultVal)
+            {
+                using DT = std::decay_t<decltype(defaultVal)>;
+
+                if constexpr (std::is_same_v<DT, f32>)
                 {
-                    target->SetParameter(parameterID, v);
+                    // Convert incoming value to float and clamp to [min,max]
+                    f32 minV = toFloat(desc->MinValue, std::numeric_limits<f32>::lowest());
+                    f32 maxV = toFloat(desc->MaxValue, std::numeric_limits<f32>::max());
+                    if (maxV < minV) std::swap(minV, maxV);
+
+                    f32 vOut = toFloat(value, defaultVal);
+                    vOut = std::clamp(vOut, minV, maxV);
+                    target->SetParameter(parameterID, vOut);
                 }
-                else if constexpr (std::is_same_v<T, i32>)
+                else if constexpr (std::is_same_v<DT, i32>)
                 {
-                    target->SetParameter(parameterID, v);
+                    // Convert incoming value to int and clamp to [min,max]
+                    i32 minV = toInt(desc->MinValue, std::numeric_limits<i32>::min());
+                    i32 maxV = toInt(desc->MaxValue, std::numeric_limits<i32>::max());
+                    if (maxV < minV) std::swap(minV, maxV);
+
+                    i32 vOut = toInt(value, defaultVal);
+                    vOut = std::clamp(vOut, minV, maxV);
+                    target->SetParameter(parameterID, vOut);
                 }
-                else if constexpr (std::is_same_v<T, bool>)
+                else if constexpr (std::is_same_v<DT, bool>)
                 {
-                    target->SetParameter(parameterID, v);
+                    // Coerce using (value != 0) semantics
+                    bool vOut = toBool(value, defaultVal);
+                    target->SetParameter(parameterID, vOut);
                 }
-            }, value);
+                else
+                {
+                    // Unsupported type; skip safely
+                }
+            }, desc->DefaultValue);
         }
     }
 

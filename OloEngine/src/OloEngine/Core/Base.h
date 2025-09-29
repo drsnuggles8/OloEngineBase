@@ -203,7 +203,7 @@ struct AtomicFlag
 	AtomicFlag& operator=(AtomicFlag&&) = delete;
 
 private:
-	std::atomic_flag m_Flag;
+	std::atomic_flag m_Flag = ATOMIC_FLAG_INIT;
 };
 
 /**

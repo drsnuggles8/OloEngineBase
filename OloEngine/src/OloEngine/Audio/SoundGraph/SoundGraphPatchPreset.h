@@ -78,7 +78,7 @@ namespace OloEngine::Audio::SoundGraph
         std::vector<ParameterDescriptor> GetAllParameterDescriptors() const;
         
         /// Patch Management
-        void CreatePatch(const std::string& name, const std::string& description = "");
+        bool CreatePatch(const std::string& name, const std::string& description = "");
         void DeletePatch(const std::string& name);
         bool HasPatch(const std::string& name) const;
         ParameterPatch* GetPatch(const std::string& name);

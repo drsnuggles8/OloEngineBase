@@ -543,7 +543,7 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphCache::LoaderThreadFunc()
     {
-        while (!m_ShutdownLoader)
+        while (true)
         {
             std::unique_lock<std::mutex> lock(m_LoadQueueMutex);
             
@@ -551,7 +551,8 @@ namespace OloEngine::Audio::SoundGraph
                 return !m_LoadQueue.empty() || m_ShutdownLoader; 
             });
 
-            if (m_ShutdownLoader)
+            // Check shutdown condition under mutex protection
+            if (m_ShutdownLoader && m_LoadQueue.empty())
                 break;
 
             if (!m_LoadQueue.empty())

@@ -205,12 +205,14 @@ namespace OloEngine::Audio::SoundGraph
 				const auto* sourcePatch = preset.GetPatch(patchName);
 				if (sourcePatch)
 				{
-					newPreset->CreatePatch(patchName, "Copied patch");
-					auto* destPatch = newPreset->GetPatch(patchName);
-					if (destPatch)
+					if (newPreset->CreatePatch(patchName, "Copied patch"))
 					{
-						// Copy all parameter values from source patch
-						*destPatch = *sourcePatch; // Use assignment operator if available
+						auto* destPatch = newPreset->GetPatch(patchName);
+						if (destPatch)
+						{
+							// Copy all parameter values from source patch
+							*destPatch = *sourcePatch; // Use assignment operator if available
+						}
 					}
 				}
 			}
@@ -264,11 +266,13 @@ namespace OloEngine::Audio::SoundGraph
 						const auto* sourcePatch = localPreset->GetPatch(patchName);
 						if (sourcePatch)
 						{
-							outPreset.CreatePatch(patchName, "Copied patch");
-							auto* destPatch = outPreset.GetPatch(patchName);
-							if (destPatch)
+							if (outPreset.CreatePatch(patchName, "Copied patch"))
 							{
-								*destPatch = *sourcePatch;
+								auto* destPatch = outPreset.GetPatch(patchName);
+								if (destPatch)
+								{
+									*destPatch = *sourcePatch;
+								}
 							}
 						}
 					}

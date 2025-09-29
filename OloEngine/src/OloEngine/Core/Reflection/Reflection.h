@@ -24,8 +24,8 @@
  *   OLO_DESCRIBE(MyClass, &MyClass::value, &MyClass::count);
  *   
  *   MyClass obj;
- *   using Provider = DescriptionProvider<Description<MyClass>, MyClass>;
- *   Provider::SetMemberValueByName("value", 42.0f, obj);
+ *   using MyClassProvider = Provider<MyClass>;
+ *   MyClassProvider::SetMemberValueByName("value", 42.0f, obj);
  */
 
 #include "TypeUtils.h"
