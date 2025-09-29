@@ -22,8 +22,11 @@ namespace OloEngine::Audio::SoundGraph
 
     SoundGraphCache::~SoundGraphCache()
     {
-        // Shutdown async loader
-        m_ShutdownLoader = true;
+        // Shutdown async loader with proper synchronization
+        {
+            std::lock_guard<std::mutex> lock(m_LoadQueueMutex);
+            m_ShutdownLoader = true;
+        }
         m_LoadCondition.notify_all();
         m_LoaderThread.Join();
         
@@ -77,6 +80,23 @@ namespace OloEngine::Audio::SoundGraph
             EvictLRU();
             if (m_CacheEntries.empty())
                 break;
+        }
+
+        // Check if the graph is too large to cache
+        if (graphMemory > m_MaxMemoryUsage)
+        {
+            OLO_CORE_WARN("SoundGraphCache::Put - Graph '{}' size ({:.1f}MB) exceeds maximum memory limit ({:.1f}MB), not caching", 
+                          sourcePath, graphMemory / (1024.0f * 1024.0f), m_MaxMemoryUsage / (1024.0f * 1024.0f));
+            return;
+        }
+
+        // Check if the graph still doesn't fit after eviction
+        if ((m_CurrentMemoryUsage + graphMemory) > m_MaxMemoryUsage)
+        {
+            OLO_CORE_WARN("SoundGraphCache::Put - Graph '{}' size ({:.1f}MB) cannot fit in available memory (current: {:.1f}MB, max: {:.1f}MB), not caching", 
+                          sourcePath, graphMemory / (1024.0f * 1024.0f), 
+                          m_CurrentMemoryUsage / (1024.0f * 1024.0f), m_MaxMemoryUsage / (1024.0f * 1024.0f));
+            return;
         }
 
         // Create cache entry
@@ -161,24 +181,32 @@ namespace OloEngine::Audio::SoundGraph
     {
         std::vector<std::string> invalidPaths;
         
-        // Gather invalid paths while holding the mutex
+        // Gather paths and cached timestamps while holding the mutex
+        std::vector<std::pair<std::string, std::chrono::time_point<std::chrono::system_clock>>> pathsToCheck;
         {
             std::lock_guard<std::mutex> lock(m_Mutex);
             for (auto& [path, entry] : m_CacheEntries)
             {
-                // Check if source file still exists
-                if (!std::filesystem::exists(path))
-                {
-                    invalidPaths.push_back(path);
-                    continue;
-                }
+                pathsToCheck.emplace_back(path, entry.LastModified);
+            }
+        }
+        
+        // Perform filesystem checks without holding the mutex to avoid deadlock
+        for (const auto& [path, cachedModTime] : pathsToCheck)
+        {
+            // Check if source file still exists
+            if (!std::filesystem::exists(path))
+            {
+                invalidPaths.push_back(path);
+                continue;
+            }
 
-                // Check if source file has been modified
-                if (IsSourceNewer(path))
-                {
-                    invalidPaths.push_back(path);
-                    continue;
-                }
+            // Check if source file has been modified
+            auto currentModTime = GetFileModificationTime(path);
+            if (currentModTime > cachedModTime)
+            {
+                invalidPaths.push_back(path);
+                continue;
             }
         }
 

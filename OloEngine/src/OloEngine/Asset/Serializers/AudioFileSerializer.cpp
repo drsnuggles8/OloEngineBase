@@ -38,8 +38,9 @@ namespace OloEngine
         u32 numFrames = 0; 
         f64 sampleRate = 0.0;
         f64 duration = 0.0;
+        u16 bitDepth = 0;
         
-        if (!Audio::AudioLoader::GetAudioFileInfo(filePath, numChannels, numFrames, sampleRate, duration))
+        if (!Audio::AudioLoader::GetAudioFileInfo(filePath, numChannels, numFrames, sampleRate, duration, bitDepth))
         {
             OLO_CORE_ERROR("AudioFileSourceSerializer: Failed to get audio file info for: {}", filePath.string());
             // Create a default AudioFile asset
@@ -58,11 +59,11 @@ namespace OloEngine
         }
 
         // Create AudioFile asset with loaded metadata
-        asset = Ref<AudioFile>::Create(duration, static_cast<u32>(sampleRate), 16, static_cast<u16>(numChannels), fileSize);
+        asset = Ref<AudioFile>::Create(duration, static_cast<u32>(sampleRate), bitDepth, static_cast<u16>(numChannels), fileSize);
         asset->SetHandle(metadata.Handle);
         
-        OLO_CORE_TRACE("AudioFileSourceSerializer: Loaded AudioFile asset {} - Duration: {:.2f}s, Channels: {}, SampleRate: {}", 
-                      metadata.Handle, duration, numChannels, sampleRate);
+        OLO_CORE_TRACE("AudioFileSourceSerializer: Loaded AudioFile asset {} - Duration: {:.2f}s, Channels: {}, SampleRate: {}, BitDepth: {}", 
+                      metadata.Handle, duration, numChannels, sampleRate, bitDepth);
         return true;
     }
 

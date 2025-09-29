@@ -9,6 +9,7 @@
 #include <cmath>
 #include <ctime>
 #include <cstring>
+#include <optional>
 
 #define DECLARE_ID(name) static constexpr Identifier name{ #name }
 
@@ -302,7 +303,19 @@ namespace OloEngine::Audio::SoundGraph
 		// Helper methods for safe input resolution
 		int ResolveSeed() const
 		{
-			return (in_Seed && *in_Seed != -1) ? *in_Seed : static_cast<int>(std::time(nullptr));
+			if (in_Seed && *in_Seed != -1)
+			{
+				return *in_Seed;
+			}
+			else
+			{
+				// Use cached fallback seed to avoid reseeding every second
+				if (!m_CachedFallbackSeed.has_value())
+				{
+					m_CachedFallbackSeed = static_cast<int>(std::time(nullptr));
+				}
+				return *m_CachedFallbackSeed;
+			}
 		}
 		
 		ENoiseType ResolveType() const
@@ -313,6 +326,9 @@ namespace OloEngine::Audio::SoundGraph
 		// Cached values to detect changes
 		int m_CachedSeed = -1;
 		ENoiseType m_CachedType = WhiteNoise;
+		
+		// Cached fallback seed for when input seed is unset (-1)
+		mutable std::optional<int> m_CachedFallbackSeed;
 
 		struct Generator
 		{

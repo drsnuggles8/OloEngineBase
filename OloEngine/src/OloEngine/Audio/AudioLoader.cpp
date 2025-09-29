@@ -46,68 +46,155 @@ namespace OloEngine::Audio
 		}
 
 		// Get audio file information
-		ma_uint64 totalFrames;
+		ma_uint64 totalFrames = 0;
 		result = ma_decoder_get_length_in_pcm_frames(&decoder, &totalFrames);
-		if (result != MA_SUCCESS)
+		
+		bool knownLength = (result == MA_SUCCESS && totalFrames > 0);
+		bool streamingMode = (result == MA_NOT_IMPLEMENTED || totalFrames == 0);
+		
+		if (!knownLength && !streamingMode)
 		{
+			// Genuine error occurred
 			OLO_CORE_ERROR("[AudioLoader] Failed to get frame count for file: {} (error: {})", 
 				filePath.string(), static_cast<int>(result));
 			ma_decoder_uninit(&decoder);
 			return false;
 		}
 
-		// Check for frame count overflow before casting to u32
-		if (totalFrames > UINT32_MAX)
-		{
-			OLO_CORE_ERROR("[AudioLoader] File has too many frames: {} ({} frames > {} max)", 
-				utf8Path, totalFrames, UINT32_MAX);
-			ma_decoder_uninit(&decoder);
-			return false;
-		}
-
-		// Store audio properties
+		// Store basic audio properties
 		outAudioData.numChannels = decoder.outputChannels;
-		outAudioData.numFrames = static_cast<u32>(totalFrames);
 		outAudioData.sampleRate = static_cast<f64>(decoder.outputSampleRate);
-		outAudioData.duration = static_cast<f64>(totalFrames) / outAudioData.sampleRate;
 
-		// Validate audio properties
-		if (outAudioData.numChannels == 0 || outAudioData.numFrames == 0 || outAudioData.sampleRate <= 0.0)
+		// Validate basic audio properties
+		if (outAudioData.numChannels == 0 || outAudioData.sampleRate <= 0.0)
 		{
-			OLO_CORE_ERROR("[AudioLoader] Invalid audio properties for file: {} (channels: {}, frames: {}, sampleRate: {})", 
-				filePath.string(), outAudioData.numChannels, outAudioData.numFrames, outAudioData.sampleRate);
+			OLO_CORE_ERROR("[AudioLoader] Invalid basic audio properties for file: {} (channels: {}, sampleRate: {})", 
+				filePath.string(), outAudioData.numChannels, outAudioData.sampleRate);
 			ma_decoder_uninit(&decoder);
 			return false;
 		}
 
-		// Allocate buffer for audio data
-		const u64 totalSamples = static_cast<u64>(outAudioData.numFrames) * outAudioData.numChannels;
-		const u64 maxSamples = static_cast<u64>(outAudioData.samples.max_size());
-		if (totalSamples > maxSamples)
+		// Handle known length vs streaming mode
+		if (knownLength)
 		{
-			OLO_CORE_ERROR("[AudioLoader] Audio buffer too large for file: {} (samples: {}, max: {})",
-				filePath.string(), totalSamples, maxSamples);
-			ma_decoder_uninit(&decoder);
-			return false;
-		}
-		outAudioData.samples.resize(static_cast<size_t>(totalSamples));
+			// Known length path - same as before
+			// Check for frame count overflow before casting to u32
+			if (totalFrames > UINT32_MAX)
+			{
+				OLO_CORE_ERROR("[AudioLoader] File has too many frames: {} ({} frames > {} max)", 
+					utf8Path, totalFrames, UINT32_MAX);
+				ma_decoder_uninit(&decoder);
+				return false;
+			}
 
-		// Read audio data
-		ma_uint64 framesRead;
-		result = ma_decoder_read_pcm_frames(&decoder, outAudioData.samples.data(), totalFrames, &framesRead);
-		
+			outAudioData.numFrames = static_cast<u32>(totalFrames);
+			outAudioData.duration = static_cast<f64>(totalFrames) / outAudioData.sampleRate;
+
+			// Allocate buffer for audio data
+			const u64 totalSamples = static_cast<u64>(outAudioData.numFrames) * outAudioData.numChannels;
+			const u64 maxSamples = static_cast<u64>(outAudioData.samples.max_size());
+			if (totalSamples > maxSamples)
+			{
+				OLO_CORE_ERROR("[AudioLoader] Audio buffer too large for file: {} (samples: {}, max: {})",
+					filePath.string(), totalSamples, maxSamples);
+				ma_decoder_uninit(&decoder);
+				return false;
+			}
+			outAudioData.samples.resize(static_cast<size_t>(totalSamples));
+
+			// Read audio data in one go
+			ma_uint64 framesRead;
+			result = ma_decoder_read_pcm_frames(&decoder, outAudioData.samples.data(), totalFrames, &framesRead);
+			
+			if (result != MA_SUCCESS || framesRead != totalFrames)
+			{
+				OLO_CORE_ERROR("[AudioLoader] Failed to read audio data from file: {} (error: {}, frames read: {}/{})", 
+					filePath.string(), static_cast<int>(result), framesRead, totalFrames);
+				ma_decoder_uninit(&decoder);
+				outAudioData.Clear();
+				return false;
+			}
+		}
+		else
+		{
+			// Streaming mode - read in chunks until MA_AT_END
+			OLO_CORE_WARN("[AudioLoader] Using streaming read for file: {} (format may not support length queries)", 
+				filePath.string());
+			
+			const u32 chunkFrames = 4096; // Read 4096 frames at a time
+			const u32 chunkSamples = chunkFrames * outAudioData.numChannels;
+			std::vector<f32> chunkBuffer(chunkSamples);
+			
+			ma_uint64 totalFramesRead = 0;
+			
+			while (true)
+			{
+				ma_uint64 framesRead;
+				result = ma_decoder_read_pcm_frames(&decoder, chunkBuffer.data(), chunkFrames, &framesRead);
+				
+				if (result != MA_SUCCESS && result != MA_AT_END)
+				{
+					OLO_CORE_ERROR("[AudioLoader] Error during streaming read from file: {} (error: {})", 
+						filePath.string(), static_cast<int>(result));
+					ma_decoder_uninit(&decoder);
+					outAudioData.Clear();
+					return false;
+				}
+				
+				if (framesRead == 0)
+					break; // End of stream
+				
+				// Check for frame count overflow
+				if (totalFramesRead + framesRead > UINT32_MAX)
+				{
+					OLO_CORE_ERROR("[AudioLoader] Streaming read exceeded maximum frame count for file: {}", 
+						filePath.string());
+					ma_decoder_uninit(&decoder);
+					outAudioData.Clear();
+					return false;
+				}
+				
+				// Append samples to output
+				const u64 samplesToAppend = framesRead * outAudioData.numChannels;
+				const u64 currentSize = outAudioData.samples.size();
+				const u64 newSize = currentSize + samplesToAppend;
+				
+				// Check for sample buffer overflow
+				if (newSize > outAudioData.samples.max_size())
+				{
+					OLO_CORE_ERROR("[AudioLoader] Sample buffer overflow during streaming read from file: {}", 
+						filePath.string());
+					ma_decoder_uninit(&decoder);
+					outAudioData.Clear();
+					return false;
+				}
+				
+				outAudioData.samples.resize(static_cast<size_t>(newSize));
+				std::memcpy(outAudioData.samples.data() + currentSize, chunkBuffer.data(), samplesToAppend * sizeof(f32));
+				
+				totalFramesRead += framesRead;
+				
+				if (result == MA_AT_END)
+					break;
+			}
+			
+			// Set final frame count and duration from streaming read
+			outAudioData.numFrames = static_cast<u32>(totalFramesRead);
+			outAudioData.duration = static_cast<f64>(totalFramesRead) / outAudioData.sampleRate;
+		}
+
 		// Clean up decoder
 		ma_decoder_uninit(&decoder);
 
-		if (result != MA_SUCCESS || framesRead != totalFrames)
+		// Final validation
+		if (outAudioData.numFrames == 0)
 		{
-			OLO_CORE_ERROR("[AudioLoader] Failed to read audio data from file: {} (error: {}, frames read: {}/{})", 
-				filePath.string(), static_cast<int>(result), framesRead, totalFrames);
+			OLO_CORE_ERROR("[AudioLoader] No audio frames loaded from file: {}", filePath.string());
 			outAudioData.Clear();
 			return false;
 		}
 
-		OLO_CORE_TRACE("[AudioLoader] Successfully loaded audio file '{}': {} frames, {} channels, {:.2f}s duration, {:.1f}MB", 
+		OLO_CORE_TRACE("[AudioLoader] Successfully loaded audio file '{}': {} frames, {} channels, {:.2f}s duration, {:.1f}MB{}", 
 			filePath.string(), outAudioData.numFrames, outAudioData.numChannels, outAudioData.duration,
 			static_cast<f64>(outAudioData.fileSize) / (1024 * 1024));
 
@@ -141,67 +228,150 @@ namespace OloEngine::Audio
 		}
 
 		// Get audio file information
-		ma_uint64 totalFrames;
+		ma_uint64 totalFrames = 0;
 		result = ma_decoder_get_length_in_pcm_frames(&decoder, &totalFrames);
-		if (result != MA_SUCCESS)
+		
+		bool knownLength = (result == MA_SUCCESS && totalFrames > 0);
+		bool streamingMode = (result == MA_NOT_IMPLEMENTED || totalFrames == 0);
+		
+		if (!knownLength && !streamingMode)
 		{
+			// Genuine error occurred
 			OLO_CORE_ERROR("[AudioLoader] Failed to get frame count from memory (error: {})", static_cast<int>(result));
 			ma_decoder_uninit(&decoder);
 			return false;
 		}
 
-		// Check for frame count overflow before casting to u32
-		if (totalFrames > UINT32_MAX)
-		{
-			OLO_CORE_ERROR("[AudioLoader] Memory audio has too many frames: {} frames > {} max", 
-				totalFrames, UINT32_MAX);
-			ma_decoder_uninit(&decoder);
-			return false;
-		}
-
-		// Store audio properties
+		// Store basic audio properties
 		outAudioData.numChannels = decoder.outputChannels;
-		outAudioData.numFrames = static_cast<u32>(totalFrames);
 		outAudioData.sampleRate = static_cast<f64>(decoder.outputSampleRate);
-		outAudioData.duration = static_cast<f64>(totalFrames) / outAudioData.sampleRate;
 
-		// Validate audio properties
-		if (outAudioData.numChannels == 0 || outAudioData.numFrames == 0 || outAudioData.sampleRate <= 0.0)
+		// Validate basic audio properties
+		if (outAudioData.numChannels == 0 || outAudioData.sampleRate <= 0.0)
 		{
-			OLO_CORE_ERROR("[AudioLoader] Invalid audio properties from memory (channels: {}, frames: {}, sampleRate: {})", 
-				outAudioData.numChannels, outAudioData.numFrames, outAudioData.sampleRate);
+			OLO_CORE_ERROR("[AudioLoader] Invalid basic audio properties from memory (channels: {}, sampleRate: {})", 
+				outAudioData.numChannels, outAudioData.sampleRate);
 			ma_decoder_uninit(&decoder);
 			return false;
 		}
 
-		// Allocate buffer for audio data
-		const u64 totalSamples = static_cast<u64>(outAudioData.numFrames) * outAudioData.numChannels;
-		const u64 maxSamples = static_cast<u64>(outAudioData.samples.max_size());
-		if (totalSamples > maxSamples)
+		// Handle known length vs streaming mode
+		if (knownLength)
 		{
-			OLO_CORE_ERROR("[AudioLoader] Audio buffer too large for memory decode (samples: {}, max: {})",
-				totalSamples, maxSamples);
-			ma_decoder_uninit(&decoder);
-			return false;
-		}
-		outAudioData.samples.resize(static_cast<size_t>(totalSamples));
+			// Known length path - same as before
+			// Check for frame count overflow before casting to u32
+			if (totalFrames > UINT32_MAX)
+			{
+				OLO_CORE_ERROR("[AudioLoader] Memory audio has too many frames: {} frames > {} max", 
+					totalFrames, UINT32_MAX);
+				ma_decoder_uninit(&decoder);
+				return false;
+			}
 
-		// Read audio data
-		ma_uint64 framesRead;
-		result = ma_decoder_read_pcm_frames(&decoder, outAudioData.samples.data(), totalFrames, &framesRead);
-		
+			outAudioData.numFrames = static_cast<u32>(totalFrames);
+			outAudioData.duration = static_cast<f64>(totalFrames) / outAudioData.sampleRate;
+
+			// Allocate buffer for audio data
+			const u64 totalSamples = static_cast<u64>(outAudioData.numFrames) * outAudioData.numChannels;
+			const u64 maxSamples = static_cast<u64>(outAudioData.samples.max_size());
+			if (totalSamples > maxSamples)
+			{
+				OLO_CORE_ERROR("[AudioLoader] Audio buffer too large for memory decode (samples: {}, max: {})",
+					totalSamples, maxSamples);
+				ma_decoder_uninit(&decoder);
+				return false;
+			}
+			outAudioData.samples.resize(static_cast<size_t>(totalSamples));
+
+			// Read audio data in one go
+			ma_uint64 framesRead;
+			result = ma_decoder_read_pcm_frames(&decoder, outAudioData.samples.data(), totalFrames, &framesRead);
+			
+			if (result != MA_SUCCESS || framesRead != totalFrames)
+			{
+				OLO_CORE_ERROR("[AudioLoader] Failed to read audio data from memory (error: {}, frames read: {}/{})", 
+					static_cast<int>(result), framesRead, totalFrames);
+				ma_decoder_uninit(&decoder);
+				outAudioData.Clear();
+				return false;
+			}
+		}
+		else
+		{
+			// Streaming mode - read in chunks until MA_AT_END
+			OLO_CORE_WARN("[AudioLoader] Using streaming read for memory decode (format may not support length queries)");
+			
+			const u32 chunkFrames = 4096; // Read 4096 frames at a time
+			const u32 chunkSamples = chunkFrames * outAudioData.numChannels;
+			std::vector<f32> chunkBuffer(chunkSamples);
+			
+			ma_uint64 totalFramesRead = 0;
+			
+			while (true)
+			{
+				ma_uint64 framesRead;
+				result = ma_decoder_read_pcm_frames(&decoder, chunkBuffer.data(), chunkFrames, &framesRead);
+				
+				if (result != MA_SUCCESS && result != MA_AT_END)
+				{
+					OLO_CORE_ERROR("[AudioLoader] Error during streaming read from memory (error: {})", static_cast<int>(result));
+					ma_decoder_uninit(&decoder);
+					outAudioData.Clear();
+					return false;
+				}
+				
+				if (framesRead == 0)
+					break; // End of stream
+				
+				// Check for frame count overflow
+				if (totalFramesRead + framesRead > UINT32_MAX)
+				{
+					OLO_CORE_ERROR("[AudioLoader] Streaming read exceeded maximum frame count during memory decode");
+					ma_decoder_uninit(&decoder);
+					outAudioData.Clear();
+					return false;
+				}
+				
+				// Append samples to output
+				const u64 samplesToAppend = framesRead * outAudioData.numChannels;
+				const u64 currentSize = outAudioData.samples.size();
+				const u64 newSize = currentSize + samplesToAppend;
+				
+				// Check for sample buffer overflow
+				if (newSize > outAudioData.samples.max_size())
+				{
+					OLO_CORE_ERROR("[AudioLoader] Sample buffer overflow during streaming memory decode");
+					ma_decoder_uninit(&decoder);
+					outAudioData.Clear();
+					return false;
+				}
+				
+				outAudioData.samples.resize(static_cast<size_t>(newSize));
+				std::memcpy(outAudioData.samples.data() + currentSize, chunkBuffer.data(), samplesToAppend * sizeof(f32));
+				
+				totalFramesRead += framesRead;
+				
+				if (result == MA_AT_END)
+					break;
+			}
+			
+			// Set final frame count and duration from streaming read
+			outAudioData.numFrames = static_cast<u32>(totalFramesRead);
+			outAudioData.duration = static_cast<f64>(totalFramesRead) / outAudioData.sampleRate;
+		}
+
 		// Clean up decoder
 		ma_decoder_uninit(&decoder);
 
-		if (result != MA_SUCCESS || framesRead != totalFrames)
+		// Final validation
+		if (outAudioData.numFrames == 0)
 		{
-			OLO_CORE_ERROR("[AudioLoader] Failed to read audio data from memory (error: {}, frames read: {}/{})", 
-				static_cast<int>(result), framesRead, totalFrames);
+			OLO_CORE_ERROR("[AudioLoader] No audio frames loaded from memory");
 			outAudioData.Clear();
 			return false;
 		}
 
-		OLO_CORE_TRACE("[AudioLoader] Successfully loaded audio from memory: {} frames, {} channels, {:.2f}s duration, {:.1f}MB", 
+		OLO_CORE_TRACE("[AudioLoader] Successfully loaded audio from memory: {} frames, {} channels, {:.2f}s duration, {:.1f}MB{}", 
 			outAudioData.numFrames, outAudioData.numChannels, outAudioData.duration,
 			static_cast<f64>(dataSize) / (1024 * 1024));
 
@@ -241,28 +411,42 @@ namespace OloEngine::Audio
 		// Get audio file information
 		ma_uint64 totalFrames;
 		result = ma_decoder_get_length_in_pcm_frames(&decoder, &totalFrames);
-		if (result != MA_SUCCESS)
+		
+		// Handle frame length query results
+		if (result == MA_SUCCESS && totalFrames > 0)
 		{
+			// Check for frame count overflow before casting to u32
+			if (totalFrames > UINT32_MAX)
+			{
+				OLO_CORE_ERROR("[AudioLoader] Info query: file has too many frames: {} ({} frames > {} max)", 
+					utf8Path, totalFrames, UINT32_MAX);
+				ma_decoder_uninit(&decoder);
+				return false;
+			}
+			
+			outNumFrames = static_cast<u32>(totalFrames);
+			outDuration = static_cast<f64>(totalFrames) / static_cast<f64>(decoder.outputSampleRate);
+		}
+		else if (result == MA_NOT_IMPLEMENTED || totalFrames == 0)
+		{
+			// Some formats (like Vorbis) don't support length queries or may have zero length
+			OLO_CORE_WARN("[AudioLoader] Cannot determine frame count for file: {} (format may not support length queries)", 
+				utf8Path);
+			outNumFrames = 0;
+			outDuration = 0.0;
+		}
+		else
+		{
+			// Genuine error occurred
 			OLO_CORE_ERROR("[AudioLoader] Failed to get frame count for info query: {} (error: {})", 
 				filePath.string(), static_cast<int>(result));
 			ma_decoder_uninit(&decoder);
 			return false;
 		}
 
-		// Check for frame count overflow before casting to u32
-		if (totalFrames > UINT32_MAX)
-		{
-			OLO_CORE_ERROR("[AudioLoader] Info query: file has too many frames: {} ({} frames > {} max)", 
-				utf8Path, totalFrames, UINT32_MAX);
-			ma_decoder_uninit(&decoder);
-			return false;
-		}
-
 		// Store audio properties
 		outNumChannels = decoder.outputChannels;
-		outNumFrames = static_cast<u32>(totalFrames);
 		outSampleRate = static_cast<f64>(decoder.outputSampleRate);
-		outDuration = static_cast<f64>(totalFrames) / outSampleRate;
 		
 		// Get original bit depth from the decoder format
 		switch (decoder.outputFormat)
@@ -281,11 +465,11 @@ namespace OloEngine::Audio
 		// Clean up decoder
 		ma_decoder_uninit(&decoder);
 
-		// Validate audio properties
-		if (outNumChannels == 0 || outNumFrames == 0 || outSampleRate <= 0.0 || outBitDepth == 0)
+		// Validate essential audio properties (frame count can be 0 for streaming formats)
+		if (outNumChannels == 0 || outSampleRate <= 0.0 || outBitDepth == 0)
 		{
-			OLO_CORE_ERROR("[AudioLoader] Invalid audio properties for file: {} (channels: {}, frames: {}, sampleRate: {}, bitDepth: {})", 
-				filePath.string(), outNumChannels, outNumFrames, outSampleRate, outBitDepth);
+			OLO_CORE_ERROR("[AudioLoader] Invalid essential audio properties for file: {} (channels: {}, sampleRate: {}, bitDepth: {})", 
+				filePath.string(), outNumChannels, outSampleRate, outBitDepth);
 			return false;
 		}
 

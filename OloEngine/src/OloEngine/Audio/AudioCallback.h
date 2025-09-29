@@ -31,7 +31,7 @@ namespace OloEngine::Audio
 			std::vector<u32> OutputBuses;
 		};
 
-		ma_node* GetNode() { return &m_Node; }
+		ma_node* GetNode() { return &m_Node.base; }
 
 		bool Initialize(ma_engine* engine, const BusConfig& busConfig);
 		void Uninitialize();
@@ -140,6 +140,9 @@ namespace OloEngine::Audio
 
 		void ProcessBlockBase(const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut) final
 		{
+			// Cache a safe frame count - miniaudio can pass pFrameCountIn as nullptr for source-style nodes
+			ma_uint32 frameCount = pFrameCountIn ? *pFrameCountIn : (pFrameCountOut ? *pFrameCountOut : 0);
+			
 			if (ppFramesIn != nullptr)
 			{
 				for (size_t i = 0; i < m_BusConfig.InputBuses.size(); ++i)
@@ -154,7 +157,7 @@ namespace OloEngine::Audio
 					m_InDeinterleavedBuses[i].clear();
 			}
 
-			Underlying().ProcessBlock(m_InDeinterleavedBuses, m_OutDeinterleavedBuses, *pFrameCountIn);
+			Underlying().ProcessBlock(m_InDeinterleavedBuses, m_OutDeinterleavedBuses, frameCount);
 
 			for (size_t i = 0; i < m_BusConfig.OutputBuses.size(); ++i)
 			{
@@ -165,7 +168,7 @@ namespace OloEngine::Audio
 			// Set output frame count
 			if (pFrameCountOut != nullptr)
 			{
-				*pFrameCountOut = *pFrameCountIn;
+				*pFrameCountOut = frameCount;
 			}
 		}
 

@@ -11,7 +11,7 @@ namespace OloEngine::Audio
     std::atomic<bool> AudioThread::s_IsRunning{ false };
     std::thread::id AudioThread::s_AudioThreadID{};
     
-    std::queue<AudioThread::Task> AudioThread::s_TaskQueue{};
+    std::queue<std::unique_ptr<AudioThread::CompletionToken>> AudioThread::s_TaskQueue{};
     std::mutex AudioThread::s_TaskQueueMutex{};
     std::mutex AudioThread::s_StartStopMutex{};
     std::condition_variable AudioThread::s_TaskCondition{};
@@ -32,8 +32,24 @@ namespace OloEngine::Audio
         }
 
         s_ShouldStop.store(false);
-        s_AudioThread = std::make_unique<std::thread>(AudioThreadLoop);
-        s_AudioThreadID = s_AudioThread->get_id();
+        
+        try
+        {
+            s_AudioThread = std::make_unique<std::thread>(AudioThreadLoop);
+            s_AudioThreadID = s_AudioThread->get_id();
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("Failed to create AudioThread: {}", e.what());
+            s_IsRunning.store(false);
+            return false;
+        }
+        catch (...)
+        {
+            OLO_CORE_ERROR("Failed to create AudioThread: unknown exception");
+            s_IsRunning.store(false);
+            return false;
+        }
         
         // Wait for thread to start (thread loop will confirm it's running)
         std::unique_lock<std::mutex> lock(s_TaskQueueMutex);
@@ -57,6 +73,30 @@ namespace OloEngine::Audio
         s_ShouldStop.store(true);
         s_TaskCondition.notify_all();
 
+        // Check if we're trying to stop from within the audio thread itself
+        if (std::this_thread::get_id() == s_AudioThreadID)
+        {
+            // We're on the audio thread - cannot join ourselves
+            OLO_CORE_WARN("AudioThread::Stop() called from within audio thread - performing local cleanup only");
+            
+            // Clear any remaining tasks
+            {
+                std::lock_guard<std::mutex> lock(s_TaskQueueMutex);
+                while (!s_TaskQueue.empty())
+                {
+                    s_TaskQueue.pop();
+                }
+                s_PendingTasks.store(0);
+                // Notify any threads waiting for task completion
+                s_CompletionCondition.notify_all();
+            }
+            
+            // Note: s_IsRunning, thread join, and reset will be handled by the thread loop exit
+            // or by an external thread calling Stop() again
+            return;
+        }
+
+        // Normal case: called from a different thread
         if (s_AudioThread && s_AudioThread->joinable())
         {
             s_AudioThread->join();
@@ -98,31 +138,53 @@ namespace OloEngine::Audio
         return s_AudioThreadID;
     }
 
-    void AudioThread::ExecuteOnAudioThread(Task task, bool waitForCompletion)
+    std::future<void> AudioThread::ExecuteOnAudioThread(Task task, bool waitForCompletion)
     {
         if (!task)
         {
             OLO_CORE_ERROR("Cannot execute null task on AudioThread");
-            return;
+            // Return a future that is immediately ready with an exception
+            std::promise<void> promise;
+            auto future = promise.get_future();
+            promise.set_exception(std::make_exception_ptr(std::invalid_argument("Null task")));
+            return future;
         }
 
         if (!s_IsRunning.load())
         {
             OLO_CORE_ERROR("Cannot execute task: AudioThread is not running");
-            return;
+            // Return a future that is immediately ready with an exception
+            std::promise<void> promise;
+            auto future = promise.get_future();
+            promise.set_exception(std::make_exception_ptr(std::runtime_error("AudioThread not running")));
+            return future;
         }
 
         // If we're already on the audio thread, execute immediately
         if (IsAudioThread())
         {
-            task();
-            return;
+            std::promise<void> promise;
+            auto future = promise.get_future();
+            try
+            {
+                task();
+                promise.set_value();
+            }
+            catch (...)
+            {
+                promise.set_exception(std::current_exception());
+            }
+            return future;
         }
+
+        // Create completion token
+        auto token = std::make_unique<CompletionToken>(std::move(task));
+        auto future = token->promise.get_future();
 
         // Add task to queue
         {
             std::lock_guard<std::mutex> lock(s_TaskQueueMutex);
-            s_TaskQueue.push(task);
+            s_TaskQueue.push(std::move(token));
             s_PendingTasks.fetch_add(1);
         }
         
@@ -131,13 +193,10 @@ namespace OloEngine::Audio
         // Wait for completion if requested
         if (waitForCompletion)
         {
-            std::unique_lock<std::mutex> lock(s_TaskQueueMutex);
-            s_CompletionCondition.wait(lock, [&task] { 
-                // This is a simplified completion check
-                // In a real implementation, you'd want to track specific task completion
-                return s_PendingTasks.load() == 0;
-            });
+            future.wait();
         }
+
+        return future;
     }
 
     size_t AudioThread::GetPendingTaskCount()
@@ -169,6 +228,10 @@ namespace OloEngine::Audio
         }
 
         OLO_CORE_INFO("AudioThread loop ended");
+        
+        // Thread is exiting - perform final cleanup
+        // This handles the case where Stop() was called from within this thread
+        s_IsRunning.store(false);
     }
 
     void AudioThread::ProcessTasks()
@@ -182,7 +245,7 @@ namespace OloEngine::Audio
         // Process all available tasks
         while (!s_TaskQueue.empty() && !s_ShouldStop.load())
         {
-            Task task = std::move(s_TaskQueue.front());
+            auto token = std::move(s_TaskQueue.front());
             s_TaskQueue.pop();
             
             // Execute task without holding the lock
@@ -190,15 +253,12 @@ namespace OloEngine::Audio
             
             try
             {
-                task();
-            }
-            catch (const std::exception& e)
-            {
-                OLO_CORE_ERROR("AudioThread task threw exception: {}", e.what());
+                token->task();
+                token->promise.set_value();
             }
             catch (...)
             {
-                OLO_CORE_ERROR("AudioThread task threw unknown exception");
+                token->promise.set_exception(std::current_exception());
             }
             
             s_PendingTasks.fetch_sub(1);

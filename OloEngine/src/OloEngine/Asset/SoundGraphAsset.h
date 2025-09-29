@@ -82,7 +82,8 @@ namespace OloEngine
         
         void AddConnection(const SoundGraphConnection& connection);
         bool RemoveConnection(const UUID& sourceNodeId, const std::string& sourceEndpoint,
-                            const UUID& targetNodeId, const std::string& targetEndpoint);
+                            const UUID& targetNodeId, const std::string& targetEndpoint, 
+                            bool isEvent);
         
         // Clear all data
         void Clear();

@@ -146,7 +146,7 @@ namespace OloEngine::Core::Reflection {
 					using TMemberNoCVR = std::remove_cvref_t<decltype(memb)>;
 					using TValueNoCVR = std::remove_cvref_t<decltype(value)>;
 
-					if constexpr (std::is_same_v<TValueNoCVR, TMemberNoCVR>)
+					if constexpr (std::is_same_v<TValueNoCVR, TMemberNoCVR> && std::is_assignable_v<TMemberNoCVR&, TValueNoCVR>)
 					{
 						memb = std::forward<decltype(value)>(value);
 						valueSet = true;
@@ -167,7 +167,7 @@ namespace OloEngine::Core::Reflection {
 					using TMemberNoCVR = std::remove_cvref_t<decltype(memb)>;
 					using TValueNoCVR = std::remove_cvref_t<decltype(value)>;
 
-					if constexpr (std::is_same_v<TValueNoCVR, TMemberNoCVR>)
+					if constexpr (std::is_same_v<TValueNoCVR, TMemberNoCVR> && std::is_assignable_v<TMemberNoCVR&, TValueNoCVR>)
 					{
 						memb = std::forward<decltype(value)>(value);
 						valueSet = true;

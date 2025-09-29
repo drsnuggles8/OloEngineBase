@@ -9,6 +9,7 @@
 #include "OloEngine/Scripting/Lua/LuaScriptEngine.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
+#include <stdexcept>
 #include <ranges>
 #include <utility>
 
@@ -38,7 +39,11 @@ namespace OloEngine
 		#endif
 
 		Renderer::Init(m_Specification.PreferredRenderer);
-		AudioEngine::Init();
+		if (!AudioEngine::Init())
+		{
+			OLO_CORE_CRITICAL("Failed to initialize AudioEngine! Application cannot continue.");
+			throw std::runtime_error("AudioEngine initialization failed");
+		}
 		ScriptEngine::Init();
 		LuaScriptEngine::Init();
 

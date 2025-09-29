@@ -8,7 +8,7 @@
 #include <choc/containers/choc_Value.h>
 #include <algorithm>
 
-namespace OloEngine
+namespace OloEngine::Audio::SoundGraph
 {
     using EPlayState = SoundPlayState;
 
@@ -41,20 +41,106 @@ namespace OloEngine
     // Additional overload to match header declaration
     bool SoundGraphSound::InitializeFromGraph(const Ref<Audio::SoundGraph::SoundGraph>& soundGraph)
     {
-        // Stub implementation
+        // Validate input parameters
         if (!soundGraph)
+        {
+            OLO_CORE_ERROR("SoundGraphSound::InitializeFromGraph - Invalid soundGraph provided");
             return false;
-    m_IsReadyToPlay = true;
-        return true;
+        }
+
+        // Ensure we have a valid source to work with
+        if (!m_Source)
+        {
+            OLO_CORE_ERROR("SoundGraphSound::InitializeFromGraph - No source available, call InitializeAudioCallback first");
+            return false;
+        }
+
+        // Wire the sound graph into the source
+        try
+        {
+            m_Source->ReplaceGraph(soundGraph);
+            // Only set ready state if the source accepted the graph successfully
+            m_IsReadyToPlay = true;
+            return true;
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("SoundGraphSound::InitializeFromGraph - Failed to replace graph: {}", e.what());
+            m_IsReadyToPlay = false;
+            return false;
+        }
+        catch (...)
+        {
+            OLO_CORE_ERROR("SoundGraphSound::InitializeFromGraph - Unknown error occurred while replacing graph");
+            m_IsReadyToPlay = false;
+            return false;
+        }
     }
 
     bool SoundGraphSound::InitializeDataSource(const std::vector<AssetHandle>& dataSources, const Ref<Audio::SoundGraph::SoundGraph>& soundGraph)  
     {
-        // Stub implementation
-        if (dataSources.empty() || !soundGraph)
+        // Validate input parameters
+        if (dataSources.empty())
+        {
+            OLO_CORE_ERROR("SoundGraphSound::InitializeDataSource - No data sources provided");
             return false;
-    m_IsReadyToPlay = true;
-        return true;
+        }
+
+        if (!soundGraph)
+        {
+            OLO_CORE_ERROR("SoundGraphSound::InitializeDataSource - Invalid soundGraph provided");
+            return false;
+        }
+
+        // Ensure we have a valid source to work with
+        if (!m_Source)
+        {
+            OLO_CORE_ERROR("SoundGraphSound::InitializeDataSource - No source available, call InitializeAudioCallback first");
+            return false;
+        }
+
+        // Validate all asset handles before proceeding
+        for (const auto& handle : dataSources)
+        {
+            if (handle == 0) // UUID 0 is invalid/null handle
+            {
+                OLO_CORE_ERROR("SoundGraphSound::InitializeDataSource - Invalid asset handle in data sources");
+                return false;
+            }
+        }
+
+        // Initialize data sources first
+        if (!m_Source->InitializeDataSources(dataSources))
+        {
+            OLO_CORE_ERROR("SoundGraphSound::InitializeDataSource - Failed to initialize data sources");
+            m_IsReadyToPlay = false;
+            return false;
+        }
+
+        // Wire the sound graph into the source
+        try
+        {
+            m_Source->ReplaceGraph(soundGraph);
+            // Only set ready state if both operations succeeded
+            m_IsReadyToPlay = true;
+            return true;
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("SoundGraphSound::InitializeDataSource - Failed to replace graph: {}", e.what());
+            // Clean up data sources since graph setup failed
+            m_Source->UninitializeDataSources();
+            m_IsReadyToPlay = false;
+            return false;
+        }
+        catch (...)
+        {
+            OLO_CORE_ERROR("SoundGraphSound::InitializeDataSource - Unknown error occurred while replacing graph");
+            // Clean up data sources since graph setup failed
+            m_Source->UninitializeDataSources();
+            m_IsReadyToPlay = false;
+            return false;
+        }
     }
 
     void SoundGraphSound::ReleaseResources()
@@ -83,8 +169,17 @@ namespace OloEngine
 
     bool SoundGraphSound::Stop()
     {
+        // Cancel any active fades
+        m_IsFading = false;
+        m_FadeCurrentTime = 0.0f;
+        m_FadeDuration = 0.0f;
+        m_FadeStartVolume = static_cast<f32>(m_Volume);
+        m_FadeTargetVolume = static_cast<f32>(m_Volume);
+        
+        // Set play state and finished flag
         m_PlayState = SoundPlayState::Stopped;
-    m_IsFinished = true;
+        m_IsFinished = true;
+        
         return true;
     }
 

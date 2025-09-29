@@ -53,6 +53,12 @@ namespace OloEngine::Audio::SoundGraph
 
 		virtual ~NodeProcessor() = default;
 
+		// Explicitly delete copy and move operations to prevent dangling pointers
+		NodeProcessor(const NodeProcessor&) = delete;
+		NodeProcessor& operator=(const NodeProcessor&) = delete;
+		NodeProcessor(NodeProcessor&&) = delete;
+		NodeProcessor& operator=(NodeProcessor&&) = delete;
+
 		std::string DebugName;
 		UUID ID;
 
@@ -226,17 +232,23 @@ namespace OloEngine::Audio::SoundGraph
 	/// StreamWriter - Utility for writing values to streams
 	struct StreamWriter : public NodeProcessor
 	{
-		template<typename T>
-		explicit StreamWriter(choc::value::ValueView& destination, T&& externalObjectOrDefaultValue, Identifier destinationID, UUID id = UUID()) noexcept
-			: NodeProcessor("Stream Writer", id)
-			, DestinationView(destination)
-			, OutputValue(std::forward<T>(externalObjectOrDefaultValue))
-			, DestinationID(destinationID)
-		{
-			DestinationView = OutputValue.getViewReference();
-		}
+	template<typename T>
+	explicit StreamWriter(choc::value::ValueView& destination, T&& externalObjectOrDefaultValue, Identifier destinationID, UUID id = UUID()) noexcept
+		: NodeProcessor("Stream Writer", id)
+		, DestinationView(destination)
+		, OutputValue(std::forward<T>(externalObjectOrDefaultValue))
+		, DestinationID(destinationID)
+	{
+		DestinationView = OutputValue.getViewReference();
+	}
 
-		inline void operator<<(float value) noexcept
+	// Explicitly delete copy and move operations to prevent dangling references
+	StreamWriter(const StreamWriter&) = delete;
+	StreamWriter& operator=(const StreamWriter&) = delete;
+	StreamWriter(StreamWriter&&) = delete;
+	StreamWriter& operator=(StreamWriter&&) = delete;
+
+	inline void operator<<(float value) noexcept
 		{
 			OutputValue = choc::value::Value(value);
 			DestinationView = OutputValue.getViewReference();

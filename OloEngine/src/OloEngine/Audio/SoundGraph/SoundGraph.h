@@ -14,6 +14,7 @@
 #include <unordered_map>
 #include <functional>
 #include <type_traits>
+#include <algorithm>
 
 #define LOG_DBG_MESSAGES 0
 
@@ -46,8 +47,8 @@ namespace OloEngine::Audio::SoundGraph
 			IDs() = delete;
 		};
 
-		explicit SoundGraph(std::string_view debugName, UUID id)
-			: NodeProcessor(debugName.data(), id), EndpointOutputStreams(*this)
+	explicit SoundGraph(std::string_view debugName, UUID id)
+		: NodeProcessor(debugName.data(), id), EndpointOutputStreams("Graph Output Endpoints", UUID())
 		{
 			AddInEvent(IDs::Play);
 			

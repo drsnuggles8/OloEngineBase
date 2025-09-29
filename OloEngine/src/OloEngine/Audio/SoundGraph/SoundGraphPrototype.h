@@ -78,8 +78,8 @@ namespace OloEngine::Audio::SoundGraph
 				: Source(std::move(source)), Destination(std::move(destination)), Type(connectionType)
 			{}
 
-			Connection()
-				: Source{ UUID(), Identifier(0) }, Destination{ UUID(), Identifier(0) }, Type(NodeValue_NodeValue) {}
+		Connection()
+			: Source{ UUID(0), Identifier(0) }, Destination{ UUID(0), Identifier(0) }, Type(NodeValue_NodeValue) {}
 		};
 
 		// Used to create a copy of the graph

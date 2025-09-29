@@ -3,6 +3,7 @@
 #include "SoundGraphPrototype.h"
 #include "SoundGraph.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Core/UUID.h"
 
 #include <string>
 #include <vector>

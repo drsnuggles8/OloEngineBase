@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include <chrono>
 #include <limits>
+#include <type_traits>
 
 namespace OloEngine
 {
@@ -46,6 +47,11 @@ namespace OloEngine
 	/// 
 	class FastRandom
 	{
+	private:
+		// Template-dependent constant for static_assert in template functions
+		template<typename U>
+		static inline constexpr bool kAlwaysFalse = false;
+
 	public:
 		//==============================================================================
 		/// Constructors
@@ -119,15 +125,16 @@ namespace OloEngine
 		{
 			if (low >= high) return low;
 			
-			// Compute span using 64-bit arithmetic to prevent overflow
-			const u64 span = static_cast<u64>(high) - static_cast<u64>(low) + 1;
-			OLO_CORE_ASSERT(span > 0, "FastRandom: span must be positive");
+			// Compute span using signed 64-bit arithmetic to handle negative values correctly
+			const i64 spanSigned = static_cast<i64>(high) - static_cast<i64>(low) + 1;
+			OLO_CORE_ASSERT(spanSigned > 0, "FastRandom: span must be positive");
+			const u64 span = static_cast<u64>(spanSigned);
 			OLO_CORE_ASSERT(span <= static_cast<u64>(LCG_M), "FastRandom: span exceeds generator resolution");
 			
 			// Use 64-bit arithmetic for rejection sampling to prevent limit becoming zero
 			const u32 spanU32 = static_cast<u32>(span);
 			const u64 range = static_cast<u64>(LCG_M);  // Full generator domain size
-			const u64 limit64 = range - (range % static_cast<u64>(spanU32));
+			const u64 limit64 = range - (range % span);
 			const u32 limit = static_cast<u32>(limit64);
 			
 			u32 value;
@@ -149,10 +156,10 @@ namespace OloEngine
 				return GetFloat32InRange(low, high);
 			else if constexpr (std::is_same_v<T, f64>)
 				return GetFloat64InRange(low, high);
-			else if constexpr (std::is_integral_v<T>)
-				return static_cast<T>(GetInt32InRange(static_cast<i32>(low), static_cast<i32>(high)));
-			else
-				static_assert(false, "Unsupported type for GetInRange");
+		else if constexpr (std::is_integral_v<T>)
+			return static_cast<T>(GetInt32InRange(static_cast<i32>(low), static_cast<i32>(high)));
+		else
+			static_assert(kAlwaysFalse<T>, "Unsupported type for GetInRange");
 		}
 
 		//==============================================================================

@@ -5,6 +5,8 @@
 
 #include <glm/glm.hpp>
 #include <algorithm>
+#include <limits>
+#include <type_traits>
 
 #ifndef GLM_ENABLE_EXPERIMENTAL
 #define GLM_ENABLE_EXPERIMENTAL

@@ -8,7 +8,7 @@ namespace OloEngine
 {
 	ma_engine* AudioEngine::s_Engine;
 
-	void AudioEngine::Init()
+	bool AudioEngine::Init()
 	{
 		OLO_CORE_TRACE("[AudioEngine] Initializing.");
 		ma_engine_config config = ::ma_engine_config_init();
@@ -20,15 +20,16 @@ namespace OloEngine
 		if (result == MA_SUCCESS)
 		{
 			OLO_CORE_TRACE("[AudioEngine] Initialized successfully with sample rate {}", ma_engine_get_sample_rate(s_Engine));
+			return true;
 		}
 		else
 		{
 			OLO_CORE_ERROR("[AudioEngine] Failed to initialize audio engine! Error code: {}", static_cast<int>(result));
 			delete s_Engine;
 			s_Engine = nullptr;
+			OLO_CORE_ASSERT(false, "Failed to initialize audio engine!");
+			return false;
 		}
-		
-		OLO_CORE_ASSERT(result == MA_SUCCESS, "Failed to initialize audio engine!");
 	}
 
 	void AudioEngine::Shutdown()

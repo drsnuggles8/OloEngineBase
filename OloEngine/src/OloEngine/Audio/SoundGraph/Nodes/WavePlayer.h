@@ -10,6 +10,10 @@
 #include <chrono>
 #include <array>
 #include <type_traits>
+#include <thread>
+#include <mutex>
+#include <atomic>
+#include <future>
 
 #define LOG_DBG_MESSAGES 0
 
@@ -41,6 +45,12 @@ namespace OloEngine::Audio::SoundGraph
 			AddInEvent(IDs::Stop, [this](float v) { (void)v; m_StopFlag.SetDirty(); });
 
 			RegisterEndpoints();
+		}
+
+		~WavePlayer()
+		{
+			// Ensure any ongoing async load is cancelled
+			CancelAsyncLoad();
 		}
 
 		// Input parameters
@@ -84,6 +94,9 @@ namespace OloEngine::Audio::SoundGraph
 
 		void Process() final
 		{
+			// Check for completed async loads (non-blocking, audio thread safe)
+			CheckAsyncLoadCompletion();
+
 			// Handle events using Flag system like Hazel
 			if (m_PlayFlag.CheckAndResetIfDirty())
 				StartPlayback();
@@ -139,7 +152,10 @@ namespace OloEngine::Audio::SoundGraph
 	private:
 		void StartPlayback()
 		{
-			// Update wave source if asset changed
+			// Check for completed async loads first (non-blocking)
+			CheckAsyncLoadCompletion();
+
+			// Update wave source if asset changed (async)
 			UpdateWaveSourceIfNeeded();
 
 			// Check if we have a valid asset
@@ -147,6 +163,14 @@ namespace OloEngine::Audio::SoundGraph
 			{
 				DBG("WavePlayer: Invalid wave asset handle, cannot start playback");
 				StopPlayback(false);
+				return;
+			}
+
+			// Only start if audio data is ready
+			if (!m_AudioData.IsValid())
+			{
+				DBG("WavePlayer: Audio data not ready yet, playback delayed");
+				m_PendingPlayback = true; // Will start when load completes
 				return;
 			}
 
@@ -158,6 +182,7 @@ namespace OloEngine::Audio::SoundGraph
 			ForceRefillBuffer();
 
 			m_IsPlaying = true;
+			m_PendingPlayback = false;
 			out_OnPlay(2.0f);
 			DBG("WavePlayer: Started playing");
 		}
@@ -165,11 +190,13 @@ namespace OloEngine::Audio::SoundGraph
 		void StopPlayback(bool notifyOnFinish)
 		{
 			m_IsPlaying = false;
+			m_PendingPlayback = false;  // Cancel any pending playback
 			m_LoopCount = 0;
 			m_FrameNumber = m_StartSample;
 			m_WaveSource.ReadPosition = m_FrameNumber;
 
-			UpdateWaveSourceIfNeeded();
+			// Check for completed async loads (in case asset changed while playing)
+			CheckAsyncLoadCompletion();
 
 			if (notifyOnFinish)
 				out_OnFinished(2.0f);  // Natural completion
@@ -185,69 +212,130 @@ namespace OloEngine::Audio::SoundGraph
 
 			if (m_WaveSource.WaveHandle != waveAsset)
 			{
+				// Cancel any pending load for the old asset
+				CancelAsyncLoad();
+
 				m_WaveSource.WaveHandle = waveAsset;
 
 				if (m_WaveSource.WaveHandle)
 				{
-					// Integrate with OloEngine's AssetManager
-					AssetHandle assetHandle = static_cast<AssetHandle>(waveAsset);
-					AssetMetadata metadata = AssetManager::GetAssetMetadata(assetHandle);
-					
-					if (metadata.IsValid() && !metadata.FilePath.empty())
+					// Start async loading
+					StartAsyncLoad(waveAsset);
+				}
+				else
+				{
+					// Clear data for null asset
+					m_TotalFrames = 0;
+					m_AudioData.Clear();
+					m_IsInitialized = false;
+				}
+
+				// Reset playback position (will be updated when async load completes)
+				m_StartSample = 0;
+				m_FrameNumber = m_StartSample;
+			}
+		}
+
+		void StartAsyncLoad(u64 waveAsset)
+		{
+			// Mark as loading
+			m_LoadState = LoadState::Loading;
+			
+			// Start async load on background thread
+			m_AsyncLoadFuture = std::async(std::launch::async, [this, waveAsset]() -> std::optional<AudioData> {
+				// Integrate with OloEngine's AssetManager
+				AssetHandle assetHandle = static_cast<AssetHandle>(waveAsset);
+				AssetMetadata metadata = AssetManager::GetAssetMetadata(assetHandle);
+				
+				if (metadata.IsValid() && !metadata.FilePath.empty())
+				{
+					// Load audio data using AudioLoader (on background thread)
+					AudioData audioData;
+					if (AudioLoader::LoadAudioFile(metadata.FilePath, audioData))
 					{
-						// Load audio data using AudioLoader
-						AudioData audioData;
-						if (AudioLoader::LoadAudioFile(metadata.FilePath, audioData))
+						OLO_CORE_INFO("WavePlayer: Loaded audio asset - {} channels, {} Hz, {:.2f}s duration",
+							audioData.numChannels, audioData.sampleRate, audioData.duration);
+						return audioData;
+					}
+					else
+					{
+						OLO_CORE_ERROR("WavePlayer: Failed to load audio file: {}", metadata.FilePath.string());
+					}
+				}
+				else
+				{
+					OLO_CORE_ERROR("WavePlayer: Invalid asset metadata for handle {}", assetHandle);
+				}
+				
+				return std::nullopt; // Failed to load
+			});
+		}
+
+		void CheckAsyncLoadCompletion()
+		{
+			if (m_LoadState == LoadState::Loading && m_AsyncLoadFuture.valid())
+			{
+				// Check if async load completed (non-blocking)
+				auto status = m_AsyncLoadFuture.wait_for(std::chrono::seconds(0));
+				if (status == std::future_status::ready)
+				{
+					// Load completed - get result
+					auto result = m_AsyncLoadFuture.get();
+					if (result.has_value())
+					{
+						// Success - swap in the loaded data on audio thread
+						m_AudioData = std::move(result.value());
+						m_WaveSource.TotalFrames = m_AudioData.numFrames;
+						
+						// Set up refill callback to read from loaded audio data
+						m_WaveSource.onRefill = [this](Audio::WaveSource& source) -> bool {
+							return FillBufferFromAudioData(source);
+						};
+						
+						m_TotalFrames = m_WaveSource.TotalFrames;
+						m_IsInitialized = true;
+						m_LoadState = LoadState::Ready;
+
+						// Apply start time offset now that we have the data
+						if (in_StartTime && *in_StartTime > 0.0f)
 						{
-							// Update wave source with audio data
-							m_WaveSource.TotalFrames = audioData.numFrames;
-							m_AudioData = std::move(audioData); // Store audio data
-							
-							// Set up refill callback to read from loaded audio data
-							m_WaveSource.onRefill = [this](Audio::WaveSource& source) -> bool {
-								return FillBufferFromAudioData(source);
-							};
-							
-							m_TotalFrames = m_WaveSource.TotalFrames;
-							m_IsInitialized = true;
-							
-							OLO_CORE_INFO("WavePlayer: Loaded audio asset - {} channels, {} Hz, {:.2f}s duration",
-								m_AudioData.numChannels, m_AudioData.sampleRate, m_AudioData.duration);
+							f64 sampleRate = m_AudioData.sampleRate;
+							m_StartSample = static_cast<i64>(*in_StartTime * sampleRate);
+							i64 maxSample = (m_TotalFrames > 0 ? m_TotalFrames - 1 : 0);
+							m_StartSample = glm::min(m_StartSample, maxSample);
 						}
 						else
 						{
-							OLO_CORE_ERROR("WavePlayer: Failed to load audio file: {}", metadata.FilePath.string());
-							m_TotalFrames = 0;
-							m_IsInitialized = false;
+							m_StartSample = 0;
+						}
+
+						m_FrameNumber = m_StartSample;
+
+						// If playback was pending, start it now
+						if (m_PendingPlayback)
+						{
+							StartPlayback();
 						}
 					}
 					else
 					{
-						OLO_CORE_ERROR("WavePlayer: Invalid asset metadata for handle {}", assetHandle);
+						// Failed to load
 						m_TotalFrames = 0;
 						m_IsInitialized = false;
+						m_LoadState = LoadState::Failed;
+						m_PendingPlayback = false;
 					}
 				}
-				else
-				{
-					m_TotalFrames = 0;
-					m_AudioData.Clear();
-				}
+			}
+		}
 
-				// Apply start time offset
-				if (in_StartTime && *in_StartTime > 0.0f)
-				{
-					f64 sampleRate = m_AudioData.IsValid() ? m_AudioData.sampleRate : 48000.0;
-					m_StartSample = static_cast<i64>(*in_StartTime * sampleRate);
-					i64 maxSample = (m_TotalFrames > 0 ? m_TotalFrames - 1 : 0);
-					m_StartSample = glm::min(m_StartSample, maxSample);
-				}
-				else
-				{
-					m_StartSample = 0;
-				}
-
-				m_FrameNumber = m_StartSample;
+		void CancelAsyncLoad()
+		{
+			if (m_AsyncLoadFuture.valid())
+			{
+				// We can't actually cancel a std::async, but we can ignore the result
+				m_LoadState = LoadState::Cancelled;
+				// Future will be replaced or destructed, which handles cleanup
 			}
 		}
 
@@ -333,6 +421,20 @@ namespace OloEngine::Audio::SoundGraph
 		i64 m_StartSample{ 0 };
 		int m_LoopCount{ 0 };
 		i64 m_TotalFrames{ 0 };
+
+		// Async loading state
+		enum class LoadState
+		{
+			Idle,
+			Loading,
+			Ready,
+			Failed,
+			Cancelled
+		};
+		
+		LoadState m_LoadState{ LoadState::Idle };
+		bool m_PendingPlayback{ false }; // Start playback when async load completes
+		std::future<std::optional<AudioData>> m_AsyncLoadFuture;
 
 		// Flag system for events (like Hazel)
 		Flag m_PlayFlag;

@@ -127,6 +127,8 @@ namespace OloEngine::Audio::SoundGraph
 		}
 		else
 		{
+			// Re-suspend processing to restore previous state since play failed
+			it->second->SuspendProcessing(true);
 			OLO_CORE_ERROR("[SoundGraphPlayer] Failed to start playback of source {0}", sourceID);
 			return false;
 		}

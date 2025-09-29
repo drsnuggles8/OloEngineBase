@@ -78,14 +78,16 @@ namespace OloEngine
     }
 
     bool SoundGraphAsset::RemoveConnection(const UUID& sourceNodeId, const std::string& sourceEndpoint,
-                                         const UUID& targetNodeId, const std::string& targetEndpoint)
+                                         const UUID& targetNodeId, const std::string& targetEndpoint,
+                                         bool isEvent)
     {
         auto it = std::find_if(Connections.begin(), Connections.end(),
             [&](const SoundGraphConnection& conn) {
                 return conn.SourceNodeID == sourceNodeId &&
                        conn.SourceEndpoint == sourceEndpoint &&
                        conn.TargetNodeID == targetNodeId &&
-                       conn.TargetEndpoint == targetEndpoint;
+                       conn.TargetEndpoint == targetEndpoint &&
+                       conn.IsEvent == isEvent;
             });
         
         if (it != Connections.end())

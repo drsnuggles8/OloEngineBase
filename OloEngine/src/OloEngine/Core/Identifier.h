@@ -2,6 +2,8 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Hash.h"
+#include <cstddef>
+#include <functional>
 #include <string>
 #include <string_view>
 
@@ -124,9 +126,9 @@ namespace std
 	template<>
 	struct hash<OloEngine::Identifier>
 	{
-		sizet operator()(const OloEngine::Identifier& id) const noexcept
+		std::size_t operator()(const OloEngine::Identifier& id) const noexcept
 		{
-			return static_cast<sizet>(id.GetHash());
+			return static_cast<std::size_t>(id.GetHash());
 		}
 	};
 }

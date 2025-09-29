@@ -71,33 +71,38 @@ namespace OloEngine
 		Based on Hazel::SoundGraphSound
 		------------------------------------
 	*/
-	class SoundGraphSound : public IPlayableAudio
+
+	namespace Audio
 	{
-	public:
-		explicit SoundGraphSound();
-		~SoundGraphSound();
+		namespace SoundGraph
+		{
+			class SoundGraphSound : public IPlayableAudio
+			{
+			public:
+				explicit SoundGraphSound();
+				~SoundGraphSound();
 
-		//--- Sound Source Interface
-		bool Play() override;
-		bool Stop() override;
-		bool Pause() override;
-		bool IsPlaying() const override;
-		// ~ End of Sound Source Interface
+				//--- Sound Source Interface
+				bool Play() override;
+				bool Stop() override;
+				bool Pause() override;
+				bool IsPlaying() const override;
+				// ~ End of Sound Source Interface
 
-		void SetVolume(f32 newVolume) override;
-		void SetPitch(f32 newPitch) override;
-		void SetLooping(bool looping);
+				void SetVolume(f32 newVolume) override;
+				void SetPitch(f32 newPitch) override;
+				void SetLooping(bool looping);
 
-		f32 GetVolume() const override;
-		f32 GetPitch() const override;
+				f32 GetVolume() const override;
+				f32 GetPitch() const override;
 
-		void SetLowPassFilter(f32 value);   // 0.0 - 1.0 normalized
-		void SetHighPassFilter(f32 value);  // 0.0 - 1.0 normalized
+				void SetLowPassFilter(f32 value);   // 0.0 - 1.0 normalized
+				void SetHighPassFilter(f32 value);  // 0.0 - 1.0 normalized
 
-		//==============================================================================
-		/// Sound Parameter Interface
-		void SetParameter(u32 parameterID, f32 value);
-		void SetParameter(u32 parameterID, i32 value);
+				//==============================================================================
+				/// Sound Parameter Interface
+				void SetParameter(u32 parameterID, f32 value);
+				void SetParameter(u32 parameterID, i32 value);
 		void SetParameter(u32 parameterID, bool value);
 
 		virtual bool FadeIn(f32 duration, f32 targetVolume);
@@ -230,5 +235,8 @@ namespace OloEngine
         f32 m_FadeDuration = 0.0f;
         f32 m_FadeCurrentTime = 0.0f;
     };
+
+		} // namespace SoundGraph
+	} // namespace Audio
 
 } // namespace OloEngine

@@ -6,6 +6,7 @@
 
 #include <vector>
 #include <chrono>
+#include <type_traits>
 
 #define DECLARE_ID(name) static constexpr Identifier name{ #name }
 
@@ -41,7 +42,7 @@ namespace OloEngine::Audio::SoundGraph
 			int32_t seed = (*in_Seed == -1) ? static_cast<int32_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count()) : *in_Seed;
 			m_Random.SetSeed(seed);
 			
-			out_Element = T{0};
+			out_Element = T{};
 		}
 
 		void Process() final
@@ -62,7 +63,7 @@ namespace OloEngine::Audio::SoundGraph
 
 		OutputEvent out_OnNext{ *this };
 		OutputEvent out_OnReset{ *this };
-		T out_Element{ T{0} };
+		T out_Element{ T{} };
 
 	private:
 		Flag m_NextFlag;
@@ -78,7 +79,7 @@ namespace OloEngine::Audio::SoundGraph
 			if (!in_Array || in_Array->size() == 0)
 			{
 				// Handle null/empty array gracefully - set default value and return
-				out_Element = T{0};
+				out_Element = T{};
 				OLO_CORE_WARN("GetRandom: Array is null or empty, using default value");
 				return;
 			}
@@ -107,7 +108,7 @@ namespace OloEngine::Audio::SoundGraph
 			else
 			{
 				// Out-of-range fallback - should not happen with proper bounds checking
-				out_Element = T{0};
+				out_Element = T{};
 				OLO_CORE_ERROR("GetRandom: Generated index {} out of bounds [0, {})", randomIndex, arraySize);
 			}
 		}
@@ -143,7 +144,7 @@ namespace OloEngine::Audio::SoundGraph
 		void Init() final
 		{
 			InitializeInputs();
-			out_Element = T{0};
+			out_Element = T{};
 		}
 
 		void Process() final
@@ -158,7 +159,7 @@ namespace OloEngine::Audio::SoundGraph
 		int32_t* in_Index = nullptr;
 
 		OutputEvent out_OnTrigger{ *this };
-		T out_Element{ T{0} };
+		T out_Element{ T{} };
 
 	private:
 		Flag m_TriggerFlag;
@@ -179,19 +180,22 @@ namespace OloEngine::Audio::SoundGraph
 				if (index == 0)
 				{
 					out_Element = *in_Array;
-					out_OnTrigger(static_cast<float>(out_Element));
+					if constexpr (std::is_arithmetic_v<T>)
+						out_OnTrigger(static_cast<float>(out_Element));
+					else
+						out_OnTrigger(1.0f);
 				}
 				else
 				{
 					// Index out of bounds - output zero and don't trigger
-					out_Element = T{0};
+					out_Element = T{};
 					OLO_CORE_WARN("ArrayGet: Index {} out of bounds for single-element array", index);
 				}
 			}
 			else
 			{
 				// No input - output zero
-				out_Element = T{0};
+				out_Element = T{};
 			}
 		}
 	};
@@ -226,7 +230,7 @@ namespace OloEngine::Audio::SoundGraph
 			int32_t seed = (*in_Seed == -1) ? static_cast<int32_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count()) : *in_Seed;
 			m_Random.SetSeed(seed);
 			
-			out_Value = T{0};
+			out_Value = T{};
 		}
 
 		void Process() final
@@ -246,7 +250,7 @@ namespace OloEngine::Audio::SoundGraph
 
 		OutputEvent out_OnNext{ *this };
 		OutputEvent out_OnReset{ *this };
-		T out_Value{ T{0} };
+		T out_Value{ T{} };
 
 	private:
 		Flag m_NextFlag;
@@ -270,7 +274,7 @@ namespace OloEngine::Audio::SoundGraph
 			}
 			else
 			{
-				randomValue = T{0};
+				randomValue = T{};
 			}
 			
 			out_Value = randomValue;

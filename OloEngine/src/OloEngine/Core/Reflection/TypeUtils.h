@@ -17,11 +17,81 @@ namespace OloEngine::Core::Reflection {
 			template <typename T>
 			struct ReturnTypeFunction;
 
+			// Non-const member functions
 			template <typename Object, typename Return, typename... Args>
 			struct ReturnTypeFunction<Return(Object::*)(Args...)> { using Type = Return; };
 
 			template <typename Object, typename Return, typename... Args>
+			struct ReturnTypeFunction<Return(Object::*)(Args...) noexcept> { using Type = Return; };
+
+			template <typename Object, typename Return, typename... Args>
+			struct ReturnTypeFunction<Return(Object::*)(Args...) &> { using Type = Return; };
+
+			template <typename Object, typename Return, typename... Args>
+			struct ReturnTypeFunction<Return(Object::*)(Args...) && > { using Type = Return; };
+
+			template <typename Object, typename Return, typename... Args>
+			struct ReturnTypeFunction<Return(Object::*)(Args...) & noexcept> { using Type = Return; };
+
+			template <typename Object, typename Return, typename... Args>
+			struct ReturnTypeFunction<Return(Object::*)(Args...) && noexcept> { using Type = Return; };
+
+			// Const member functions
+			template <typename Object, typename Return, typename... Args>
 			struct ReturnTypeFunction<Return(Object::*)(Args...) const> { using Type = Return; };
+
+			template <typename Object, typename Return, typename... Args>
+			struct ReturnTypeFunction<Return(Object::*)(Args...) const noexcept> { using Type = Return; };
+
+			template <typename Object, typename Return, typename... Args>
+			struct ReturnTypeFunction<Return(Object::*)(Args...) const &> { using Type = Return; };
+
+			template <typename Object, typename Return, typename... Args>
+			struct ReturnTypeFunction<Return(Object::*)(Args...) const && > { using Type = Return; };
+
+			template <typename Object, typename Return, typename... Args>
+			struct ReturnTypeFunction<Return(Object::*)(Args...) const & noexcept> { using Type = Return; };
+
+			template <typename Object, typename Return, typename... Args>
+			struct ReturnTypeFunction<Return(Object::*)(Args...) const && noexcept> { using Type = Return; };
+
+			// Volatile member functions
+			template <typename Object, typename Return, typename... Args>
+			struct ReturnTypeFunction<Return(Object::*)(Args...) volatile> { using Type = Return; };
+
+			template <typename Object, typename Return, typename... Args>
+			struct ReturnTypeFunction<Return(Object::*)(Args...) volatile noexcept> { using Type = Return; };
+
+			template <typename Object, typename Return, typename... Args>
+			struct ReturnTypeFunction<Return(Object::*)(Args...) volatile &> { using Type = Return; };
+
+			template <typename Object, typename Return, typename... Args>
+			struct ReturnTypeFunction<Return(Object::*)(Args...) volatile && > { using Type = Return; };
+
+			template <typename Object, typename Return, typename... Args>
+			struct ReturnTypeFunction<Return(Object::*)(Args...) volatile & noexcept> { using Type = Return; };
+
+			template <typename Object, typename Return, typename... Args>
+			struct ReturnTypeFunction<Return(Object::*)(Args...) volatile && noexcept> { using Type = Return; };
+
+			// Const volatile member functions
+			template <typename Object, typename Return, typename... Args>
+			struct ReturnTypeFunction<Return(Object::*)(Args...) const volatile> { using Type = Return; };
+
+			template <typename Object, typename Return, typename... Args>
+			struct ReturnTypeFunction<Return(Object::*)(Args...) const volatile noexcept> { using Type = Return; };
+
+			template <typename Object, typename Return, typename... Args>
+			struct ReturnTypeFunction<Return(Object::*)(Args...) const volatile &> { using Type = Return; };
+
+			template <typename Object, typename Return, typename... Args>
+			struct ReturnTypeFunction<Return(Object::*)(Args...) const volatile && > { using Type = Return; };
+
+			template <typename Object, typename Return, typename... Args>
+			struct ReturnTypeFunction<Return(Object::*)(Args...) const volatile & noexcept> { using Type = Return; };
+
+			template <typename Object, typename Return, typename... Args>
+			struct ReturnTypeFunction<Return(Object::*)(Args...) const volatile && noexcept> { using Type = Return; };
 
 			template <typename T>
 			struct ReturnTypeObject;
@@ -58,6 +128,10 @@ namespace OloEngine::Core::Reflection {
 	/// This works by attempting to access a member that only exists in specializations
 	template<typename T, typename = void>
 	struct IsSpecialized : std::false_type {};
+
+	/// SFINAE-based partial specialization that detects the ReflectionSpecializationTag marker
+	template<typename T>
+	struct IsSpecialized<T, std::void_t<typename T::ReflectionSpecializationTag>> : std::true_type {};
 
 	template<typename T>
 	constexpr bool IsSpecialized_v = IsSpecialized<T>::value;

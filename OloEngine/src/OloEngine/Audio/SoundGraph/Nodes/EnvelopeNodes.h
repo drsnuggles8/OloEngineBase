@@ -140,23 +140,17 @@ namespace OloEngine::Audio::SoundGraph
 			m_AttackCurve = glm::max(0.1f, *in_AttackCurve);
 			m_DecayCurve = glm::max(0.1f, *in_DecayCurve);
 
-			// Calculate attack rate (exponential coefficient for reaching 0.99)
+			// Calculate attack rate (linear per-sample increment to reach 1.0 in specified time)
 			if (*in_AttackTime <= 0.0f)
 				m_AttackRate = 1.0f; // Immediate
 			else
-			{
-				const float remainingRatio = 0.01f; // Reach 0.99 of target
-				m_AttackRate = 1.0f - powf(remainingRatio, 1.0f / (*in_AttackTime * m_SampleRate));
-			}
+				m_AttackRate = 1.0f / (*in_AttackTime * m_SampleRate);
 
-			// Calculate decay rate (exponential coefficient for reaching 0.01)
+			// Calculate decay rate (linear per-sample increment to reach 1.0 in specified time)
 			if (*in_DecayTime <= 0.0f)
 				m_DecayRate = 1.0f; // Immediate
 			else
-			{
-				const float remainingRatio = 0.01f; // Reach 0.01 of start value
-				m_DecayRate = 1.0f - powf(remainingRatio, 1.0f / (*in_DecayTime * m_SampleRate));
-			}
+				m_DecayRate = 1.0f / (*in_DecayTime * m_SampleRate);
 		}
 
 		void StartAttack()

@@ -1,11 +1,30 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+#include <unordered_map>
 
-// Test the Core utility systems: Hash, Identifier, and FastRandom
+// Test the Core utility systems: Hash, Identifier, FastRandom, and Reflection TypeUtils
 // These are fundamental building blocks for audio graph parameter handling
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Core/Identifier.h"
 #include "OloEngine/Core/FastRandom.h"
+#include "OloEngine/Core/Reflection/TypeUtils.h"
+
+namespace {
+	// Test types for IsSpecialized trait testing
+	struct RegularType {};
+	
+	struct SpecializedType {
+		using ReflectionSpecializationTag = void;
+	};
+	
+	template<typename T>
+	struct TemplateType {};
+	
+	template<typename T>
+	struct SpecializedTemplateType {
+		using ReflectionSpecializationTag = void;
+	};
+}
 
 TEST(CoreUtilitiesTest, HashSystemTest)
 {
@@ -51,6 +70,16 @@ TEST(CoreUtilitiesTest, IdentifierSystemTest)
 	
 	// These should be equal (same string)
 	EXPECT_EQ(static_cast<uint32_t>(testParam1), static_cast<uint32_t>(testParam2));
+
+	// Test hash functor with std::unordered_map
+	std::unordered_map<OloEngine::Identifier, int> identifierMap;
+	identifierMap[param1] = 100;
+	identifierMap[param2] = 200;
+	
+	// Verify hash-based lookup works
+	EXPECT_EQ(identifierMap[param1], 100);
+	EXPECT_EQ(identifierMap[param2], 200);
+	EXPECT_EQ(identifierMap[param3], 100); // param3 == param1
 }
 
 TEST(CoreUtilitiesTest, FastRandomTest)
@@ -85,4 +114,21 @@ TEST(CoreUtilitiesTest, FastRandomTest)
 	auto globalRandom = OloEngine::RandomUtils::Float32(0.0f, 10.0f);
 	EXPECT_GE(globalRandom, 0.0f);
 	EXPECT_LE(globalRandom, 10.0f);
+}
+
+TEST(CoreUtilitiesTest, IsSpecializedTest)
+{
+	using namespace OloEngine::Core::Reflection;
+	
+	// Test type without specialization marker
+	EXPECT_FALSE(IsSpecialized_v<RegularType>);
+	
+	// Test type with specialization marker
+	EXPECT_TRUE(IsSpecialized_v<SpecializedType>);
+	
+	// Test template type without marker
+	EXPECT_FALSE(IsSpecialized_v<TemplateType<int>>);
+	
+	// Test template type with marker
+	EXPECT_TRUE(IsSpecialized_v<SpecializedTemplateType<int>>);
 }

@@ -132,22 +132,32 @@ namespace OloEngine::Audio::SoundGraph
             
             YAML::Node soundGraph = root["SoundGraph"];
             
-            // Clear existing data
-            asset.Clear();
+            // Parse into temporary variables first to avoid mutating the asset on failure
+            std::string tempName;
+            std::string tempDescription;
+            u32 tempVersion = 0;
+            u64 tempAssetID = 0;
+            std::vector<SoundGraphNodeData> tempNodes;
+            std::vector<SoundGraphConnection> tempConnections;
+            std::unordered_map<std::string, std::string> tempGraphInputs;
+            std::unordered_map<std::string, std::string> tempGraphOutputs;
+            std::unordered_map<std::string, std::string> tempLocalVariables;
+            std::vector<AssetHandle> tempWaveSources;
             
             // Basic properties
             if (soundGraph["Name"])
-                asset.Name = soundGraph["Name"].as<std::string>();
+                tempName = soundGraph["Name"].as<std::string>();
             
             if (soundGraph["Description"])
-                asset.Description = soundGraph["Description"].as<std::string>();
+                tempDescription = soundGraph["Description"].as<std::string>();
             
             if (soundGraph["Version"])
-                asset.Version = soundGraph["Version"].as<u32>();
+                tempVersion = soundGraph["Version"].as<u32>();
             
             if (soundGraph["ID"])
             {
                 u64 fileAssetID = soundGraph["ID"].as<u64>();
+                tempAssetID = fileAssetID;
                 u64 currentAssetHandle = static_cast<u64>(asset.GetHandle());
                 
                 // Validate the asset ID from file against the current handle
@@ -205,7 +215,7 @@ namespace OloEngine::Audio::SoundGraph
                         }
                     }
                     
-                    asset.AddNode(node);
+                    tempNodes.push_back(node);
                 }
             }
             
@@ -230,7 +240,7 @@ namespace OloEngine::Audio::SoundGraph
                     if (connYaml["IsEvent"])
                         connection.IsEvent = connYaml["IsEvent"].as<bool>();
                     
-                    asset.AddConnection(connection);
+                    tempConnections.push_back(connection);
                 }
             }
             
@@ -239,7 +249,7 @@ namespace OloEngine::Audio::SoundGraph
             {
                 for (const auto& input : soundGraph["GraphInputs"])
                 {
-                    asset.GraphInputs[input.first.as<std::string>()] = input.second.as<std::string>();
+                    tempGraphInputs[input.first.as<std::string>()] = input.second.as<std::string>();
                 }
             }
             
@@ -247,7 +257,7 @@ namespace OloEngine::Audio::SoundGraph
             {
                 for (const auto& output : soundGraph["GraphOutputs"])
                 {
-                    asset.GraphOutputs[output.first.as<std::string>()] = output.second.as<std::string>();
+                    tempGraphOutputs[output.first.as<std::string>()] = output.second.as<std::string>();
                 }
             }
             
@@ -255,7 +265,7 @@ namespace OloEngine::Audio::SoundGraph
             {
                 for (const auto& var : soundGraph["LocalVariables"])
                 {
-                    asset.LocalVariables[var.first.as<std::string>()] = var.second.as<std::string>();
+                    tempLocalVariables[var.first.as<std::string>()] = var.second.as<std::string>();
                 }
             }
             
@@ -264,9 +274,37 @@ namespace OloEngine::Audio::SoundGraph
             {
                 for (const auto& waveSourceYaml : soundGraph["WaveSources"])
                 {
-                    asset.WaveSources.push_back(waveSourceYaml.as<u64>());
+                    tempWaveSources.push_back(waveSourceYaml.as<u64>());
                 }
             }
+            
+            // All parsing successful - now clear and update the asset
+            asset.Clear();
+            
+            // Assign parsed data to asset
+            asset.Name = tempName;
+            asset.Description = tempDescription;
+            asset.Version = tempVersion;
+            
+            // Add all nodes
+            for (const auto& node : tempNodes)
+            {
+                asset.AddNode(node);
+            }
+            
+            // Add all connections
+            for (const auto& connection : tempConnections)
+            {
+                asset.AddConnection(connection);
+            }
+            
+            // Set graph configuration
+            asset.GraphInputs = tempGraphInputs;
+            asset.GraphOutputs = tempGraphOutputs;
+            asset.LocalVariables = tempLocalVariables;
+            
+            // Set wave sources
+            asset.WaveSources = tempWaveSources;
             
             return asset.IsValid();
         }
@@ -309,7 +347,24 @@ namespace OloEngine::Audio::SoundGraph
             }
             
             file << yamlString;
+            
+            // Flush the stream and check for write errors
+            file.flush();
+            if (file.fail() || file.bad())
+            {
+                OLO_CORE_ERROR("SoundGraphSerializer: Failed to write data to file: {}", filePath.string());
+                file.close();
+                return false;
+            }
+            
             file.close();
+            
+            // Check for any errors that occurred during close
+            if (file.fail())
+            {
+                OLO_CORE_ERROR("SoundGraphSerializer: Failed to close file properly: {}", filePath.string());
+                return false;
+            }
             
             return true;
         }

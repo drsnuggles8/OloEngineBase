@@ -16,6 +16,7 @@
 #include <unordered_map>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 namespace OloEngine::Audio::SoundGraph
@@ -168,81 +169,99 @@ namespace OloEngine::Audio::SoundGraph
 		};
 		std::unordered_map<u32, ParameterInfo> m_ParameterHandles;
 
-		//============================================
-		/// Thread communication
+	//============================================
+	/// Thread communication
+	
+	// Thread-safe parameter preset for communication between main and audio threads
+	struct ThreadSafePreset
+	{
+		std::atomic<bool> m_HasChanges{ false };
+		mutable std::mutex m_PresetMutex;
+		std::shared_ptr<SoundGraphPatchPreset> m_Preset;
 		
-		// Simple parameter preset for thread-safe communication
-		struct ThreadSafePreset
+		// Only one writer at a time expected - called from main thread
+		void SetPreset(const SoundGraphPatchPreset& preset)
 		{
-			std::atomic<bool> m_HasChanges{ false };
-			std::unique_ptr<SoundGraphPatchPreset> m_Preset;
+			// Create a new shared_ptr copy using deep copying
+			auto newPreset = std::make_shared<SoundGraphPatchPreset>();
 			
-			// Only one writer at a time expected
-			void SetPreset(const SoundGraphPatchPreset& preset)
+			// Copy preset metadata
+			newPreset->SetName(preset.GetName());
+			newPreset->SetDescription(preset.GetDescription());
+			newPreset->SetVersion(preset.GetVersion());
+			newPreset->SetAuthor(preset.GetAuthor());
+			
+			// Copy parameter descriptors
+			auto descriptors = preset.GetAllParameterDescriptors();
+			for (const auto& descriptor : descriptors)
 			{
-				// Create a copy using deep copying
-				m_Preset = std::make_unique<SoundGraphPatchPreset>();
-				
-				// Copy preset metadata
-				m_Preset->SetName(preset.GetName());
-				m_Preset->SetDescription(preset.GetDescription());
-				m_Preset->SetVersion(preset.GetVersion());
-				m_Preset->SetAuthor(preset.GetAuthor());
-				
-				// Copy parameter descriptors
-				auto descriptors = preset.GetAllParameterDescriptors();
-				for (const auto& descriptor : descriptors)
-				{
-					m_Preset->RegisterParameter(descriptor);
-				}
-				
-				// Copy patches
-				auto patchNames = preset.GetPatchNames();
-				for (const auto& patchName : patchNames)
-				{
-					const auto* sourcePatch = preset.GetPatch(patchName);
-					if (sourcePatch)
-					{
-						m_Preset->CreatePatch(patchName, "Copied patch");
-						auto* destPatch = m_Preset->GetPatch(patchName);
-						if (destPatch)
-						{
-							// Copy all parameter values from source patch
-							*destPatch = *sourcePatch; // Use assignment operator if available
-						}
-					}
-				}
-				
-				m_HasChanges.store(true, std::memory_order_release);
+				newPreset->RegisterParameter(descriptor);
 			}
 			
-			// Read from audio thread
-			bool GetPresetIfChanged(SoundGraphPatchPreset& outPreset)
+			// Copy patches
+			auto patchNames = preset.GetPatchNames();
+			for (const auto& patchName : patchNames)
 			{
-				if (m_HasChanges.exchange(false, std::memory_order_acq_rel) && m_Preset)
+				const auto* sourcePatch = preset.GetPatch(patchName);
+				if (sourcePatch)
+				{
+					newPreset->CreatePatch(patchName, "Copied patch");
+					auto* destPatch = newPreset->GetPatch(patchName);
+					if (destPatch)
+					{
+						// Copy all parameter values from source patch
+						*destPatch = *sourcePatch; // Use assignment operator if available
+					}
+				}
+			}
+			
+			// Atomically swap in the new preset while holding the lock
+			{
+				std::lock_guard<std::mutex> lock(m_PresetMutex);
+				m_Preset = newPreset;
+			}
+			
+			// Signal changes after publishing the new preset
+			m_HasChanges.store(true, std::memory_order_release);
+		}
+		
+		// Read from audio thread - takes a stable snapshot for safe reading
+		bool GetPresetIfChanged(SoundGraphPatchPreset& outPreset)
+		{
+			if (m_HasChanges.exchange(false, std::memory_order_acq_rel))
+			{
+				// Take a local copy of the shared_ptr while holding the lock briefly
+				std::shared_ptr<SoundGraphPatchPreset> localPreset;
+				{
+					std::lock_guard<std::mutex> lock(m_PresetMutex);
+					localPreset = m_Preset;
+				}
+				
+				// Now work with the stable snapshot without holding the lock
+				if (localPreset)
 				{
 					// Copy preset data to output
-					outPreset.SetName(m_Preset->GetName());
-					outPreset.SetDescription(m_Preset->GetDescription());
-					outPreset.SetVersion(m_Preset->GetVersion());
-					outPreset.SetAuthor(m_Preset->GetAuthor());
+					outPreset.SetName(localPreset->GetName());
+					outPreset.SetDescription(localPreset->GetDescription());
+					outPreset.SetVersion(localPreset->GetVersion());
+					outPreset.SetAuthor(localPreset->GetAuthor());
 					
 					// Clear existing parameter descriptors and patches in output
 					// (Note: There's no clear method exposed, so we assume outPreset starts clean
 					// or implement clearing if needed)
 					
 					// Copy parameter descriptors
-					auto descriptors = m_Preset->GetAllParameterDescriptors();
+					auto descriptors = localPreset->GetAllParameterDescriptors();
 					for (const auto& descriptor : descriptors)
 					{
 						outPreset.RegisterParameter(descriptor);
 					}
 					
 					// Copy patches
-					auto patchNames = m_Preset->GetPatchNames();
+					auto patchNames = localPreset->GetPatchNames();
 					for (const auto& patchName : patchNames)
 					{
-						const auto* sourcePatch = m_Preset->GetPatch(patchName);
+						const auto* sourcePatch = localPreset->GetPatch(patchName);
 						if (sourcePatch)
 						{
 							outPreset.CreatePatch(patchName, "Copied patch");
@@ -256,11 +275,10 @@ namespace OloEngine::Audio::SoundGraph
 					
 					return true;
 				}
-				return false;
 			}
-		} m_ThreadSafePreset;
-
-		AtomicFlag m_PlayRequestFlag;
+			return false;
+		}
+	} m_ThreadSafePreset;		AtomicFlag m_PlayRequestFlag;
 		bool m_PresetIsInitialized = false;
 
 		//============================================

@@ -162,7 +162,8 @@ namespace OloEngine::Core::Reflection {
 
 					if constexpr (!std::is_member_function_pointer_v<decltype(memb)>)
 					{
-						if constexpr (IsStreamable_v<typename MemberPointer::ReturnType<decltype(memb)>::Type>)
+						// Derive the member type directly from the member access expression
+						if constexpr (IsStreamable_v<decltype(obj.*memb)>)
 							stream << "{ " << (obj.*memb) << " }";
 					}
 

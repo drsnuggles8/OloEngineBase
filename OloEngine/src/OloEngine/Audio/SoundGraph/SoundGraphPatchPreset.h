@@ -8,7 +8,7 @@
 #include <variant>
 #include <vector>
 
-namespace OloEngine
+namespace OloEngine::Audio::SoundGraph
 {
     class SoundGraphSound; // Forward declaration
 }
@@ -86,11 +86,11 @@ namespace OloEngine::Audio::SoundGraph
         std::vector<std::string> GetPatchNames() const;
         
         /// Apply patches to targets
-        void ApplyPatch(const std::string& patchName, OloEngine::SoundGraphSound* target);
-        void ApplyPatch(const ParameterPatch& patch, OloEngine::SoundGraphSound* target);
+        void ApplyPatch(const std::string& patchName, SoundGraphSound* target);
+        void ApplyPatch(const ParameterPatch& patch, SoundGraphSound* target);
         
         /// Capture current state as a patch
-        void CaptureStateToPatch(const std::string& patchName, OloEngine::SoundGraphSound* source);
+        void CaptureStateToPatch(const std::string& patchName, SoundGraphSound* source);
         
         /// Preset File I/O
         bool SaveToFile(const std::string& filePath) const;

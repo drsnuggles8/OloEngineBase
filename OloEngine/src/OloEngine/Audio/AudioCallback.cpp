@@ -10,12 +10,28 @@ namespace OloEngine::Audio
 		AudioCallback* callback = node->callback;
 		if (callback && !callback->IsSuspended())
 		{
-			ma_silence_pcm_frames(ppFramesOut[0], *pFrameCountOut, ma_format_f32, 2);
+			// Silence all configured output buses with their actual channel counts
+			for (size_t i = 0; i < callback->m_BusConfig.OutputBuses.size(); ++i)
+			{
+				if (ppFramesOut[i] != nullptr)
+				{
+					u32 channelCount = callback->m_BusConfig.OutputBuses[i];
+					ma_silence_pcm_frames(ppFramesOut[i], *pFrameCountOut, ma_format_f32, channelCount);
+				}
+			}
 			callback->ProcessBlockBase(ppFramesIn, pFrameCountIn, ppFramesOut, pFrameCountOut);
 		}
 		else
 		{
-			ma_silence_pcm_frames(ppFramesOut[0], *pFrameCountOut, ma_format_f32, 2);
+			// Silence all configured output buses with their actual channel counts
+			for (size_t i = 0; i < callback->m_BusConfig.OutputBuses.size(); ++i)
+			{
+				if (ppFramesOut[i] != nullptr)
+				{
+					u32 channelCount = callback->m_BusConfig.OutputBuses[i];
+					ma_silence_pcm_frames(ppFramesOut[i], *pFrameCountOut, ma_format_f32, channelCount);
+				}
+			}
 		}
 	}
 
@@ -58,12 +74,22 @@ namespace OloEngine::Audio
 		nodeConfig.vtable = &processing_node_vtable;
 		result = ma_node_init(&engine->nodeGraph, &nodeConfig, nullptr, &m_Node);
 
-		OLO_CORE_ASSERT(result == MA_SUCCESS, "Failed to initialize miniaudio node");
-		m_Node.bInitialized = true;
+		if (result != MA_SUCCESS)
+		{
+			OLO_CORE_ERROR("Failed to initialize miniaudio node: {}", result);
+			return false;
+		}
 
 		result = ma_node_attach_output_bus(&m_Node, 0u, &engine->nodeGraph.endpoint, 0u);
-		OLO_CORE_ASSERT(result == MA_SUCCESS, "Failed to attach output bus");
+		if (result != MA_SUCCESS)
+		{
+			OLO_CORE_ERROR("Failed to attach output bus: {}", result);
+			ma_node_uninit(&m_Node, nullptr);
+			return false;
+		}
 
+		// Only set flags and call InitBase on full success
+		m_Node.bInitialized = true;
 		m_IsInitialized = true;
 		return InitBase(sampleRate, blockSize, busConfig);
 	}

@@ -3,7 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include <algorithm>
 #include <array>
-#include <cstring>
+#include <type_traits>
 
 namespace OloEngine::Audio
 {
@@ -15,6 +15,9 @@ namespace OloEngine::Audio
 	template<typename T, sizet Size, sizet NumChannels = 1>
 	class CircularBuffer final
 	{
+		// Compile-time safety check to prevent buffer overflow
+		static_assert(Size >= NumChannels, "CircularBuffer: Size must be >= NumChannels to hold at least one frame");
+		
 	public:
 		CircularBuffer() = default;
 
@@ -152,23 +155,23 @@ namespace OloEngine::Audio
 			const int previousAvail = m_avail;
 			const sizet free = m_buf.size() - m_writepos;
 			
-			// Copy in bounded chunks
+			// Copy in bounded chunks using safe element-wise copying
 			if (len > static_cast<int>(free))
 			{
 				// First chunk: copy up to end of buffer
 				const sizet firstChunk = std::min(static_cast<sizet>(len), free);
-				std::memcpy(&m_buf[m_writepos], buf, firstChunk * sizeof(T));
+				std::copy_n(buf, firstChunk, &m_buf[m_writepos]);
 				
 				// Second chunk: copy remaining to start of buffer
 				const sizet secondChunk = std::min(static_cast<sizet>(len - firstChunk), m_buf.size());
-				std::memcpy(&m_buf[0], buf + firstChunk, secondChunk * sizeof(T));
+				std::copy_n(buf + firstChunk, secondChunk, &m_buf[0]);
 				
 				m_writepos = static_cast<int>(secondChunk);
 			}
 			else
 			{
 				// Single chunk fits without wrapping
-				std::memcpy(&m_buf[m_writepos], buf, len * sizeof(T));
+				std::copy_n(buf, len, &m_buf[m_writepos]);
 				m_writepos += len;
 				if (m_writepos >= bufferSize)
 					m_writepos = 0;
@@ -197,6 +200,7 @@ namespace OloEngine::Audio
 		}
 
 		/// Fast version without checking how many available (single-channel)
+		/// Uses safe element-wise copying for non-trivially copyable types
 		template<unsigned int count>
 		void GetMultiple(T* dest)
 		{
@@ -209,14 +213,14 @@ namespace OloEngine::Audio
 			
 			if (count <= tail)
 			{
-				// No wrap - single memcpy as before
-				std::memcpy(dest, &m_buf[m_readpos], count * sizeof(T));
+				// No wrap - single copy as before
+				std::copy_n(&m_buf[m_readpos], count, dest);
 			}
 			else
 			{
 				// Wrap case - copy tail samples from end, then remaining from start
-				std::memcpy(dest, &m_buf[m_readpos], tail * sizeof(T));
-				std::memcpy(dest + tail, &m_buf[0], (count - tail) * sizeof(T));
+				std::copy_n(&m_buf[m_readpos], tail, dest);
+				std::copy_n(&m_buf[0], count - tail, dest + tail);
 			}
 
 			// Advance read position with proper modulo

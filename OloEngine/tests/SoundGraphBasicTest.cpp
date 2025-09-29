@@ -115,6 +115,61 @@ TEST_F(SoundGraphBasicTest, SoundGraphConnections)
     EXPECT_FALSE(conn.IsEvent);
 }
 
+TEST_F(SoundGraphBasicTest, SoundGraphRemoveConnection)
+{
+    SoundGraphAsset asset;
+    asset.Name = "Remove Connection Test";
+    
+    // Add two nodes
+    SoundGraphNodeData node1, node2;
+    node1.ID = UUID();
+    node1.Name = "Source Node";
+    node1.Type = "Generator";
+    
+    node2.ID = UUID();
+    node2.Name = "Target Node";
+    node2.Type = "Effect";
+    
+    asset.AddNode(node1);
+    asset.AddNode(node2);
+    
+    // Add two connections with same endpoints but different IsEvent flags
+    SoundGraphConnection dataConnection;
+    dataConnection.SourceNodeID = node1.ID;
+    dataConnection.SourceEndpoint = "output";
+    dataConnection.TargetNodeID = node2.ID;
+    dataConnection.TargetEndpoint = "input";
+    dataConnection.IsEvent = false; // Data connection
+    
+    SoundGraphConnection eventConnection;
+    eventConnection.SourceNodeID = node1.ID;
+    eventConnection.SourceEndpoint = "output";
+    eventConnection.TargetNodeID = node2.ID;
+    eventConnection.TargetEndpoint = "input";
+    eventConnection.IsEvent = true; // Event connection
+    
+    asset.AddConnection(dataConnection);
+    asset.AddConnection(eventConnection);
+    
+    EXPECT_EQ(asset.Connections.size(), 2);
+    
+    // Test removing the data connection should leave the event connection
+    bool removed = asset.RemoveConnection(node1.ID, "output", node2.ID, "input", false);
+    EXPECT_TRUE(removed);
+    EXPECT_EQ(asset.Connections.size(), 1);
+    EXPECT_TRUE(asset.Connections[0].IsEvent); // Only event connection should remain
+    
+    // Test removing the event connection should leave no connections
+    removed = asset.RemoveConnection(node1.ID, "output", node2.ID, "input", true);
+    EXPECT_TRUE(removed);
+    EXPECT_EQ(asset.Connections.size(), 0);
+    
+    // Test removing non-existent connection should return false
+    removed = asset.RemoveConnection(node1.ID, "output", node2.ID, "input", false);
+    EXPECT_FALSE(removed);
+    EXPECT_EQ(asset.Connections.size(), 0);
+}
+
 TEST_F(SoundGraphBasicTest, CircularBufferSingleChannel)
 {
     // Test the enhanced CircularBuffer with single channel

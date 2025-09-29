@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <algorithm>
 
 #include "OloEngine/Core/Base.h"
 #include <choc/audio/choc_SampleBuffers.h>

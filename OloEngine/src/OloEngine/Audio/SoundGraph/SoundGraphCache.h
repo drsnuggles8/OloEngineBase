@@ -15,6 +15,7 @@
 #include <mutex>
 #include <vector>
 #include <optional>
+#include <utility>
 
 namespace OloEngine::Audio::SoundGraph
 {
