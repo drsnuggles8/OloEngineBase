@@ -356,6 +356,33 @@ namespace OloEngine::Audio::SoundGraph
 			}
 		}
 
+		void CleanupStaleLoads()
+		{
+			// Remove completed futures from stale loads container (non-blocking)
+			m_StaleLoads.erase(
+				std::remove_if(m_StaleLoads.begin(), m_StaleLoads.end(),
+					[](const std::future<std::optional<AudioData>>& future) -> bool {
+						if (!future.valid())
+							return true; // Remove invalid futures
+						
+						// Check if completed (non-blocking)
+						auto status = future.wait_for(std::chrono::seconds(0));
+						if (status == std::future_status::ready)
+						{
+							// Future is complete, safe to remove
+							try { 
+								// Get result to properly clean up the future
+								const_cast<std::future<std::optional<AudioData>>&>(future).get();
+							} catch (...) { 
+								// Ignore exceptions during cleanup 
+							}
+							return true;
+						}
+						return false; // Keep pending futures
+					}),
+				m_StaleLoads.end());
+		}
+
 	public:
 		void ForceRefillBuffer()
 		{

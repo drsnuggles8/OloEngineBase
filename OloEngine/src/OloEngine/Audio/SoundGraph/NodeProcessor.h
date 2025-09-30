@@ -273,7 +273,8 @@ namespace OloEngine::Audio::SoundGraph
 	}
 
 	template<typename T>
-	inline void operator<<(T value) noexcept
+	typename std::enable_if_t<!std::is_same_v<std::decay_t<T>, choc::value::Value>>
+	operator<<(T value) noexcept
 	{
 		OutputValue = choc::value::Value(value);
 		DestinationView.set(OutputValue);

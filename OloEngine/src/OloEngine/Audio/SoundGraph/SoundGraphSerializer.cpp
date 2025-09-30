@@ -1,11 +1,43 @@
 #include "OloEngine/Core/Base.h"
 #include "SoundGraphSerializer.h"
 #include "SoundGraphPrototype.h"
-#include "Nodes/WavePlayerNode.h"
+#include "Nodes/WavePlayer.h"
+#include "Factory.h"
 
 #include "OloEngine/Core/Log.h"
-
+#include <yaml-cpp/yaml.h>
 #include <fstream>
+
+// Forward declarations
+namespace OloEngine { struct SoundGraphNodeData; }
+
+namespace OloEngine::Audio::SoundGraph
+{
+	// SoundGraphFactory class declaration
+	class SoundGraphFactory
+	{
+	public:
+		using NodeCreatorFunc = std::function<Scope<NodeProcessor>(const std::string&, Identifier)>;
+		
+		static Ref<SoundGraph> CreateFromAsset(const SoundGraphAsset& asset);
+		static void InitializeDefaultNodeTypes();
+		static Scope<NodeProcessor> CreateNode(const std::string& typeName, const std::string& name, Identifier id);
+		static void ApplyNodeProperties(NodeProcessor* node, const SoundGraphNodeData& nodeData);
+		
+		template<typename NodeType>
+		static void RegisterNodeType(const std::string& typeName)
+		{
+			s_NodeCreators[typeName] = [](const std::string& name, Identifier id) -> Scope<NodeProcessor>
+			{
+				auto node = Scope<NodeType>::Create(name, id);
+				return std::static_pointer_cast<NodeProcessor>(node);
+			};
+		}
+		
+	private:
+		static std::unordered_map<std::string, NodeCreatorFunc> s_NodeCreators;
+	};
+}
 
 namespace OloEngine::Audio::SoundGraph
 {
@@ -333,8 +365,8 @@ namespace OloEngine::Audio::SoundGraph
 		// Connect nodes
 		for (const auto& connection : asset.Connections)
 		{
-			auto outputNodeIt = nodeMap.find(connection.Source.NodeID);
-			auto inputNodeIt = nodeMap.find(connection.Destination.NodeID);
+			auto outputNodeIt = nodeMap.find(connection.SourceNodeID);
+			auto inputNodeIt = nodeMap.find(connection.TargetNodeID);
 			
 			if (outputNodeIt != nodeMap.end() && inputNodeIt != nodeMap.end())
 			{
@@ -356,7 +388,7 @@ namespace OloEngine::Audio::SoundGraph
 			else
 			{
 				OLO_CORE_ERROR("Connection references unknown nodes: {} -> {}", 
-					static_cast<u64>(connection.Source.NodeID), static_cast<u64>(connection.Destination.NodeID));
+					static_cast<u64>(connection.SourceNodeID), static_cast<u64>(connection.TargetNodeID));
 			}
 		}
 		
@@ -369,7 +401,7 @@ namespace OloEngine::Audio::SoundGraph
 	void SoundGraphFactory::InitializeDefaultNodeTypes()
 	{
 		// Register built-in node types
-		RegisterNodeType<WavePlayerNode>("WavePlayer");
+		RegisterNodeType<WavePlayer>("WavePlayer");
 		
 		OLO_CORE_INFO("Registered {} default sound graph node types", s_NodeCreators.size());
 	}
@@ -386,10 +418,10 @@ namespace OloEngine::Audio::SoundGraph
 		return nullptr;
 	}
 
-	void SoundGraphFactory::ApplyNodeProperties(NodeProcessor* node, const SoundGraphAsset::NodeData& nodeData)
+	void SoundGraphFactory::ApplyNodeProperties(NodeProcessor* node, const SoundGraphNodeData& nodeData)
 	{
 		// Apply type-specific properties
-		if (auto wavePlayer = dynamic_cast<WavePlayerNode*>(node))
+		if (auto wavePlayer = dynamic_cast<WavePlayer*>(node))
 		{
 			auto it = nodeData.Properties.find("WaveAsset");
 			if (it != nodeData.Properties.end())

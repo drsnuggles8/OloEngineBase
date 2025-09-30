@@ -217,7 +217,10 @@ namespace OloEngine::Audio
 		friend AudioCallbackDeinterleaved<CallbackBindedDeinterleaved>;
 
 		virtual void ReleaseResources() override {}
-		bool Init(u32 sampleRate, u32 maxBlockSize, const BusConfig& config) { return true; }
+		bool Init(u32 sampleRate, u32 maxBlockSize, const BusConfig& config) { 
+			(void)sampleRate; (void)maxBlockSize; (void)config; // Suppress unreferenced parameter warnings
+			return true; 
+		}
 		void ProcessBlock(const std::vector<choc::buffer::ChannelArrayBuffer<float>>& inBuffer, 
 			std::vector<choc::buffer::ChannelArrayBuffer<float>>& outBuffer, u32 numFramesRequested)
 		{

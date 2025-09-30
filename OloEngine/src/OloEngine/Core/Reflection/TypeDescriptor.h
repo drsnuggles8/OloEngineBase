@@ -220,7 +220,7 @@ public:																				\
 				OloEngine::Core::Reflection::StringUtils::RemoveNamespace<MemberCount>(	\
 					OloEngine::Core::Reflection::StringUtils::SplitString<MemberCount>(	\
 						MemberStr, Delimiter))) :										\
-			std::array<std::string_view, 0>{};										\
+			std::array<std::string_view, MemberCount>{};										\
 };
 
 /**

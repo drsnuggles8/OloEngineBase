@@ -1,6 +1,6 @@
 #include "OloEnginePCH.h"
 #include "SoundGraph.h"
-#include "Nodes/WavePlayerNode.h"
+#include "Nodes/WavePlayer.h"
 // #include "Nodes/MixerNode.h"  // Temporarily disabled due to API incompatibility
 
 namespace OloEngine::Audio::SoundGraph
@@ -207,7 +207,7 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			m_IsPlaying = true;
 			m_HasFinished = false;
-			OnPlay();
+			OnPlay(1.0f);
 			OLO_CORE_TRACE("[SoundGraph] Started playing sound graph '{}'", m_DebugName);
 		}
 	}
@@ -217,8 +217,8 @@ namespace OloEngine::Audio::SoundGraph
 		if (m_IsPlaying)
 		{
 			m_IsPlaying = false;
-			OnStop();
-			OLO_CORE_TRACE("[SoundGraph] Stopped sound graph '{}'", m_DebugName);
+			OnStop(0.0f);
+			OLO_CORE_TRACE("[SoundGraph] Stopped playing sound graph '{}'", m_DebugName);
 		}
 	}
 
@@ -251,16 +251,15 @@ namespace OloEngine::Audio::SoundGraph
 
 	void SoundGraph::InitializeEndpoints()
 	{
-		// Set up graph input/output parameters using current NodeProcessor API
-		AddParameter<f32>(OLO_IDENTIFIER("InputLeft"), "InputLeft", 0.0f);
-		AddParameter<f32>(OLO_IDENTIFIER("InputRight"), "InputRight", 0.0f);
-		AddParameter<f32>(OLO_IDENTIFIER("OutputLeft"), "OutputLeft", 0.0f);
-		AddParameter<f32>(OLO_IDENTIFIER("OutputRight"), "OutputRight", 0.0f);
+	// Set up graph input/output parameters using current NodeProcessor API
+	this->AddParameter<f32>(OLO_IDENTIFIER("InputLeft"), "InputLeft", 0.0f);
+	this->AddParameter<f32>(OLO_IDENTIFIER("InputRight"), "InputRight", 0.0f);
+	this->AddParameter<f32>(OLO_IDENTIFIER("OutputLeft"), "OutputLeft", 0.0f);
+	this->AddParameter<f32>(OLO_IDENTIFIER("OutputRight"), "OutputRight", 0.0f);
 
-		// Set up event endpoints with current API
-		AddInputEvent<f32>(OLO_IDENTIFIER("Play"), "Play", [this](f32 value) { OnPlay(value); });
-		AddInputEvent<f32>(OLO_IDENTIFIER("Stop"), "Stop", [this](f32 value) { OnStop(value); });
-		AddOutputEvent<f32>(OLO_IDENTIFIER("OnFinished"), "OnFinished");
+	// Set up event endpoints with current API
+	this->AddInEvent(OLO_IDENTIFIER("Play"), [this](f32 value) { this->OnPlay(value); });
+	this->AddInEvent(OLO_IDENTIFIER("Stop"), [this](f32 value) { this->OnStop(value); });
 	}
 
 	void SoundGraph::ProcessEvents()

@@ -2572,6 +2572,7 @@ namespace OloEngine
     bool SoundGraphSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
         // TODO: Implement sound graph pack serialization when AssetPack format is needed
+        (void)handle; (void)stream; (void)outInfo; // Suppress unreferenced parameter warnings
         OLO_CORE_WARN("SoundGraphSerializer::SerializeToAssetPack not yet implemented");
         return false;
     }
@@ -2579,6 +2580,7 @@ namespace OloEngine
     Ref<Asset> SoundGraphSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
         // TODO: Implement sound graph pack deserialization when AssetPack format is needed
+        (void)stream; (void)assetInfo; // Suppress unreferenced parameter warnings
         OLO_CORE_WARN("SoundGraphSerializer::DeserializeFromAssetPack not yet implemented");
         return nullptr;
     }

@@ -1,7 +1,7 @@
 #include "OloEnginePCH.h"
 #include "SoundGraphFactory.h"
 
-#include "Nodes/WavePlayerNode.h"
+#include "Nodes/WavePlayer.h"
 // Additional node includes will go here as we add them
 
 namespace OloEngine::Audio::SoundGraph
@@ -13,7 +13,7 @@ namespace OloEngine::Audio::SoundGraph
 	static const Registry NodeProcessors
 	{
 		// Wave player node
-		{ Identifier("WavePlayer"), [](UUID nodeID) { return new WavePlayerNode("WavePlayer", nodeID); } },
+		{ Identifier("WavePlayer"), [](UUID nodeID) { return new WavePlayer("WavePlayer", nodeID); } },
 		
 		// Math nodes (placeholder - will add when we create MathNodes.h)
 		// { Identifier("Add"), [](UUID nodeID) { return new AddNode("Add", nodeID); } },
@@ -29,7 +29,7 @@ namespace OloEngine::Audio::SoundGraph
 	{
 		if (!NodeProcessors.count(nodeTypeID))
 		{
-			OLO_CORE_ERROR("SoundGraph::Factory::Create - Node with type ID '{}' is not in the registry", nodeTypeID.GetString());
+			OLO_CORE_ERROR("SoundGraph::Factory::Create - Node with type ID is not in the registry");
 			return nullptr;
 		}
 

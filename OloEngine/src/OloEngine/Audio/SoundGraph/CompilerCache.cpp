@@ -176,6 +176,22 @@ namespace OloEngine::Audio::SoundGraph
         }
     }
 
+    void CompilerCache::InvalidateCompiled(const std::filesystem::path& sourcePath, const std::string& compilerVersion)
+    {
+        std::unique_lock lock(m_Mutex);
+        
+        std::string key = GenerateCacheKey(sourcePath, compilerVersion);
+        auto it = m_CompiledResults.find(key);
+        if (it != m_CompiledResults.end())
+        {
+            auto& resultPtr = it->second;
+            if (resultPtr)
+            {
+                resultPtr->IsValid = false;
+            }
+        }
+    }
+
     void CompilerCache::ClearCache()
     {
         std::unique_lock lock(m_Mutex);

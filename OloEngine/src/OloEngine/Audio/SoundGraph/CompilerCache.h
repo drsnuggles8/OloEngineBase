@@ -44,9 +44,10 @@ namespace OloEngine::Audio::SoundGraph
 
         /// Cache Operations
         bool HasCompiled(const std::string& sourcePath, const std::string& compilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION) const;
-        std::shared_ptr<const CompilationResult> GetCompiled(const std::string& sourcePath, const std::string& compilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION);
+        std::shared_ptr<const CompilationResult> GetCompiled(const std::string& sourcePath, const std::string& compilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION) const;
         void StoreCompiled(const std::string& sourcePath, const CompilationResult& result);
         void InvalidateCompiled(const std::string& sourcePath);
+        void InvalidateCompiled(const std::string& sourcePath, const std::string& compilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION);
         void ClearCache();
 
         /// File System Integration

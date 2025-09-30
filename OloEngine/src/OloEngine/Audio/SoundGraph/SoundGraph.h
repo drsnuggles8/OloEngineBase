@@ -14,6 +14,7 @@
 #include <unordered_map>
 #include <functional>
 #include <type_traits>
+#include <queue>
 #include <algorithm>
 #include <atomic>
 
@@ -27,8 +28,26 @@
 
 #define DECLARE_ID(name) static constexpr Identifier name{ #name }
 
+// Forward declarations
+namespace OloEngine { class SoundGraphAsset; }
+
 namespace OloEngine::Audio::SoundGraph
 {
+	// Forward declarations and utility structs
+	struct GraphEvent
+	{
+		u64 frameIndex = 0;
+		Identifier endpointID;
+		choc::value::Value value;
+		std::string message;
+	};
+	
+	struct EndpointIDs
+	{
+		static inline const Identifier Play = Identifier::FromString("play");
+		static inline const Identifier Stop = Identifier::FromString("stop");
+	};
+	
 	//==============================================================================
 	/// Raw Sound Graph containing Inputs, Outputs and Nodes
 	/// This is the main executable graph that processes audio in real-time
@@ -466,11 +485,27 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 		//==============================================================================
-		/// Runtime Status
+	/// Runtime Status
 
-		bool IsPlayable() const { return bIsInitialized; }
+	bool IsPlayable() const { return bIsInitialized; }
 
-		//==============================================================================
+	/// Missing method declarations
+	void InitializeEndpoints();
+	void ProcessEvents();
+	void OnPlay(f32 value);
+	void OnStop(f32 value);
+	void Play();
+	void Stop();
+	
+	// Additional methods found in implementation
+	std::queue<GraphEvent> GetPendingEvents();
+	void TriggerGraphEvent(const std::string& eventName, f32 value);
+	void ProcessConnections();
+	void OnFinished(f32 value);
+	SoundGraphAsset CreateAssetData() const;
+	void UpdateFromAssetData(const SoundGraphAsset& asset);
+
+	//==============================================================================
 		/// Event and Message Handling
 
 		/// Used in HandleOutgoingEvents
@@ -599,6 +634,17 @@ namespace OloEngine::Audio::SoundGraph
 		bool bIsInitialized = false;
 		u64 CurrentFrame = 0;
 		f32 m_SampleRate = 48000.0f;
+		
+		// Missing member variables from implementation
+		bool m_HasFinished = false;
+		bool m_IsPlaying = false;
+		u64 m_CurrentFrame = 0;
+		std::string m_DebugName;
+		
+		// Missing containers
+		std::queue<struct GraphEvent> m_OutgoingEvents;
+		
+		// TODO: Add other missing members as needed
 
 		//==============================================================================
 		/// Thread-safe Event/Message Queues
