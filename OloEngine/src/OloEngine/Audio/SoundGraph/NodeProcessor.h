@@ -7,6 +7,7 @@
 #include "OloEngine/Core/Ref.h"
 #include <choc/containers/choc_Value.h>
 
+#include <any>
 #include <complex>
 #include <functional>
 #include <memory>
@@ -210,10 +211,68 @@ namespace OloEngine::Audio::SoundGraph
 		inline InputEvent& InEvent(const Identifier& id) { return *InEvents.at(id); }
 		inline OutputEvent& OutEvent(const Identifier& id) { return OutEvents.at(id).get(); }
 
-		//==============================================================================
-		/// Parameter system (OloEngine enhancement over Hazel)
+		// Additional helper methods for SoundGraph integration
+		inline std::shared_ptr<InputEvent> GetInputEvent(const Identifier& id) 
+		{ 
+			auto it = InEvents.find(id);
+			return it != InEvents.end() ? it->second : nullptr;
+		}
+		
+		inline OutputEvent* GetOutputEvent(const Identifier& id) 
+		{ 
+			auto it = OutEvents.find(id);
+			return it != OutEvents.end() ? &(it->second.get()) : nullptr;
+		}
 
-		//==============================================================================
+	inline const char* GetDisplayName() const { return DebugName.c_str(); }
+	inline bool HasParameter(const Identifier& id) const { return ParameterInfos.find(id) != ParameterInfos.end(); }
+
+	//==============================================================================
+	/// Parameter access wrapper for InitializeInputs functionality
+	
+	template<typename T>
+	struct ParameterWrapper
+	{
+		T Value;
+		Identifier ID;
+		
+		ParameterWrapper(const T& value, Identifier id) : Value(value), ID(id) {}
+	};
+	
+	// Storage for parameter wrappers (must persist for pointer stability)
+	mutable std::unordered_map<Identifier, std::shared_ptr<void>> m_ParameterWrappers;
+	
+	template<typename T>
+	ParameterWrapper<T>* GetParameter(const Identifier& id)
+	{
+		// Check if we already have a wrapper for this parameter
+		auto wrapperIt = m_ParameterWrappers.find(id);
+		if (wrapperIt != m_ParameterWrappers.end())
+		{
+			return static_cast<ParameterWrapper<T>*>(wrapperIt->second.get());
+		}
+		
+		// Find the parameter in the storage
+		auto it = m_ParameterStorage.find(id);
+		if (it == m_ParameterStorage.end())
+			return nullptr;
+		
+		// Try to get the typed value from the any storage
+		try
+		{
+			T value = std::any_cast<T>(it->second);
+			auto wrapper = std::make_shared<ParameterWrapper<T>>(value, id);
+			m_ParameterWrappers[id] = wrapper;
+			return wrapper.get();
+		}
+		catch (const std::bad_any_cast&)
+		{
+			return nullptr;
+		}
+	}
+
+	//==============================================================================
+	/// Parameter system (OloEngine enhancement over Hazel)		//==============================================================================
 		/// Parameter debugging/introspection (publicly accessible)
 		
 		struct ParameterInfo
@@ -222,27 +281,31 @@ namespace OloEngine::Audio::SoundGraph
 			std::string DebugName;
 			std::string TypeName;
 		};
-		std::unordered_map<Identifier, ParameterInfo> ParameterInfos;
+	std::unordered_map<Identifier, ParameterInfo> ParameterInfos;
+	
+	/// Storage for parameter values (for GetParameter access)
+	std::unordered_map<Identifier, std::any> m_ParameterStorage;
 
-		template<typename T>
-		void AddParameter(Identifier id, std::string_view debugName, const T& defaultValue)
-		{
-			// Add input stream for this parameter
-			auto& stream = AddInStream(id);
-			
-			// Create default value plug
-			auto defaultPlug = std::make_shared<StreamWriter>(stream, T(defaultValue), id);
-			DefaultValuePlugs.push_back(defaultPlug);
-			
-			// Store parameter info for debugging
-			ParameterInfo info;
-			info.ID = id;
-			info.DebugName = std::string(debugName);
-			info.TypeName = typeid(T).name();
-			ParameterInfos[id] = std::move(info);
-		}
-
-	private:
+	template<typename T>
+	void AddParameter(Identifier id, std::string_view debugName, const T& defaultValue)
+	{
+		// Add input stream for this parameter
+		auto& stream = AddInStream(id);
+		
+		// Create default value plug
+		auto defaultPlug = std::make_shared<StreamWriter>(stream, T(defaultValue), id);
+		DefaultValuePlugs.push_back(defaultPlug);
+		
+		// Store parameter value for GetParameter access
+		m_ParameterStorage[id] = defaultValue;
+		
+		// Store parameter info for debugging
+		ParameterInfo info;
+		info.ID = id;
+		info.DebugName = std::string(debugName);
+		info.TypeName = typeid(T).name();
+		ParameterInfos[id] = std::move(info);
+	}	private:
 	};
 
 	//==============================================================================
@@ -257,7 +320,7 @@ namespace OloEngine::Audio::SoundGraph
 		, DestinationView(destination)
 	{
 		// Write the default value into the destination immediately
-		DestinationView.set(OutputValue);
+		DestinationView = OutputValue;
 	}
 
 	// Explicitly delete copy and move operations to prevent dangling references
@@ -269,7 +332,7 @@ namespace OloEngine::Audio::SoundGraph
 	inline void operator<<(float value) noexcept
 	{
 		OutputValue = choc::value::Value(value);
-		DestinationView.set(OutputValue);
+		DestinationView = OutputValue;
 	}
 
 	template<typename T>
@@ -277,7 +340,7 @@ namespace OloEngine::Audio::SoundGraph
 	operator<<(T value) noexcept
 	{
 		OutputValue = choc::value::Value(value);
-		DestinationView.set(OutputValue);
+		DestinationView = OutputValue;
 	}
 
 		Identifier DestinationID;
@@ -292,14 +355,14 @@ namespace OloEngine::Audio::SoundGraph
 	inline void StreamWriter::operator<<(const choc::value::ValueView& value) noexcept
 	{
 		OutputValue = value;
-		DestinationView.set(OutputValue);
+		DestinationView = OutputValue;
 	}
 
 	template<>
 	inline void StreamWriter::operator<<(choc::value::ValueView value) noexcept
 	{
 		OutputValue = value;
-		DestinationView.set(OutputValue);
+		DestinationView = OutputValue;
 	}
 
 } // namespace OloEngine::Audio::SoundGraph

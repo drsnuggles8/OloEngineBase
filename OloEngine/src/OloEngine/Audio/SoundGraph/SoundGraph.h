@@ -44,8 +44,8 @@ namespace OloEngine::Audio::SoundGraph
 	
 	struct EndpointIDs
 	{
-		static inline const Identifier Play = Identifier::FromString("play");
-		static inline const Identifier Stop = Identifier::FromString("stop");
+		static inline const Identifier Play = Identifier("play");
+		static inline const Identifier Stop = Identifier("stop");
 	};
 	
 	//==============================================================================
@@ -317,6 +317,10 @@ namespace OloEngine::Audio::SoundGraph
 			return true;
 		}
 
+		/// String-based overload for AddValueConnection
+		bool AddValueConnection(UUID sourceNodeID, const std::string& sourceEndpoint, 
+								UUID targetNodeID, const std::string& targetEndpoint);
+
 		/// Node Output Event -> Node Input Event
 		bool AddEventConnection(UUID sourceNodeID, Identifier sourceNodeEndpointID, UUID destinationNodeID, Identifier destinationNodeEndpointID) noexcept
 		{
@@ -332,6 +336,10 @@ namespace OloEngine::Audio::SoundGraph
 			AddConnection(sourceNode->OutEvent(sourceNodeEndpointID), destinationNode->InEvent(destinationNodeEndpointID));
 			return true;
 		}
+
+		/// String-based overload for AddEventConnection
+		bool AddEventConnection(UUID sourceNodeID, const std::string& sourceEndpoint,
+								UUID targetNodeID, const std::string& targetEndpoint);
 
 		/// Graph Input Value -> Node Input Value
 		bool AddInputValueRoute(Identifier graphInputEventID, UUID destinationNodeID, Identifier destinationNodeEndpointID) noexcept

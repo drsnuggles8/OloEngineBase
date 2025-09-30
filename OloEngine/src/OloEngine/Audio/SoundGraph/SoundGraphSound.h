@@ -18,7 +18,7 @@ namespace OloEngine
 	namespace Audio::SoundGraph
 	{
 		class SoundGraphSource;
-		struct SoundGraph;
+		class SoundGraph;
 	}
 
 	enum class SoundPlayState

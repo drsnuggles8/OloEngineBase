@@ -377,8 +377,9 @@ namespace OloEngine::Audio::SoundGraph
         // Compute hit ratio directly within the lock to avoid deadlock and ensure consistency
         u64 totalAccesses = m_HitCount + m_MissCount;
         f32 hitRatio = totalAccesses > 0 ? static_cast<f32>(m_HitCount) / static_cast<f32>(totalAccesses) : 0.0f;
+        u64 hitCount = m_HitCount.load();
         OLO_CORE_INFO("  Hit Ratio: {:.1f}% ({}/{} requests)", 
-                      hitRatio * 100.0f, m_HitCount, totalAccesses);
+                      hitRatio * 100.0f, hitCount, totalAccesses);
     }
 
     bool SoundGraphCache::SaveCacheMetadata(const std::string& filePath) const

@@ -149,8 +149,9 @@ namespace OloEngine::Audio
 				// Only deinterleave if the input pointer is non-null
 				if (ppFramesIn[i] != nullptr)
 				{
-					// Deinterleave input audio from interleaved format with explicit frame count
-					SampleBufferOperations::Deinterleave(m_InDeinterleavedBuses[i], ppFramesIn[i], frameCount);
+					// Deinterleave input audio from interleaved format
+					// Buffer is already resized to correct frame count above
+					SampleBufferOperations::Deinterleave(m_InDeinterleavedBuses[i], ppFramesIn[i]);
 				}
 				else
 				{
@@ -184,8 +185,9 @@ namespace OloEngine::Audio
 				// Only interleave if the output pointer is non-null
 				if (ppFramesOut[i] != nullptr)
 				{
-					// Interleave output audio to interleaved format with explicit frame count
-					SampleBufferOperations::Interleave(ppFramesOut[i], m_OutDeinterleavedBuses[i], frameCount);
+					// Interleave output audio to interleaved format
+					// Buffer already has correct frame count from processing
+					SampleBufferOperations::Interleave(ppFramesOut[i], m_OutDeinterleavedBuses[i]);
 				}
 			}
 		}

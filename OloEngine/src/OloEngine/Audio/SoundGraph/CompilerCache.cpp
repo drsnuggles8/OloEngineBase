@@ -103,32 +103,30 @@ namespace OloEngine::Audio::SoundGraph
         return !IsSourceNewer(sourcePath, *it->second);
     }
 
-    std::shared_ptr<const CompilationResult> CompilerCache::GetCompiled(const std::string& sourcePath, const std::string& compilerVersion)
-    {
-        std::lock_guard<std::mutex> lock(m_Mutex);
-        
-        std::string key = GenerateCacheKey(sourcePath, compilerVersion);
-        auto it = m_CompiledResults.find(key);
-        
-        if (it == m_CompiledResults.end() || !it->second || !it->second->IsValid)
-        {
-            ++m_MissCount;
-            return nullptr;
-        }
+	std::shared_ptr<const CompilationResult> CompilerCache::GetCompiled(const std::string& sourcePath, const std::string& compilerVersion) const
+	{
+		std::lock_guard<std::mutex> lock(m_Mutex);
+		
+		std::string key = GenerateCacheKey(sourcePath, compilerVersion);
+		auto it = m_CompiledResults.find(key);
+		
+		if (it == m_CompiledResults.end() || !it->second || !it->second->IsValid)
+		{
+			++m_MissCount;
+			return nullptr;
+		}
 
-        // Check if source is newer than compilation
-        if (IsSourceNewer(sourcePath, *it->second))
-        {
-            ++m_MissCount;
-            it->second->IsValid = false; // Invalidate outdated entry
-            return nullptr;
-        }
+		// Check if source is newer than compilation
+		if (IsSourceNewer(sourcePath, *it->second))
+		{
+			++m_MissCount;
+			it->second->IsValid = false; // Invalidate outdated entry
+			return nullptr;
+		}
 
-        ++m_HitCount;
-        return it->second; // Return shared_ptr for thread-safe access
-    }
-
-    void CompilerCache::StoreCompiled(const std::string& sourcePath, const CompilationResult& result)
+		++m_HitCount;
+		return it->second; // Return shared_ptr for thread-safe access
+	}    void CompilerCache::StoreCompiled(const std::string& sourcePath, const CompilationResult& result)
     {
         std::lock_guard<std::mutex> lock(m_Mutex);
         
@@ -176,23 +174,21 @@ namespace OloEngine::Audio::SoundGraph
         }
     }
 
-    void CompilerCache::InvalidateCompiled(const std::filesystem::path& sourcePath, const std::string& compilerVersion)
-    {
-        std::unique_lock lock(m_Mutex);
-        
-        std::string key = GenerateCacheKey(sourcePath, compilerVersion);
-        auto it = m_CompiledResults.find(key);
-        if (it != m_CompiledResults.end())
-        {
-            auto& resultPtr = it->second;
-            if (resultPtr)
-            {
-                resultPtr->IsValid = false;
-            }
-        }
-    }
-
-    void CompilerCache::ClearCache()
+	void CompilerCache::InvalidateCompiled(const std::string& sourcePath, const std::string& compilerVersion)
+	{
+		std::unique_lock lock(m_Mutex);
+		
+		std::string key = GenerateCacheKey(sourcePath, compilerVersion);
+		auto it = m_CompiledResults.find(key);
+		if (it != m_CompiledResults.end())
+		{
+			auto& resultPtr = it->second;
+			if (resultPtr)
+			{
+				resultPtr->IsValid = false;
+			}
+		}
+	}    void CompilerCache::ClearCache()
     {
         std::unique_lock lock(m_Mutex);
         

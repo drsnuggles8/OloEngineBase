@@ -1,15 +1,13 @@
 #include "OloEngine/Core/Base.h"
 #include "SoundGraphSerializer.h"
+#include "SoundGraph.h"
 #include "SoundGraphPrototype.h"
 #include "Nodes/WavePlayer.h"
-#include "Factory.h"
+#include "SoundGraphFactory.h"
 
 #include "OloEngine/Core/Log.h"
 #include <yaml-cpp/yaml.h>
 #include <fstream>
-
-// Forward declarations
-namespace OloEngine { struct SoundGraphNodeData; }
 
 namespace OloEngine::Audio::SoundGraph
 {
@@ -25,16 +23,14 @@ namespace OloEngine::Audio::SoundGraph
 		static void ApplyNodeProperties(NodeProcessor* node, const SoundGraphNodeData& nodeData);
 		
 		template<typename NodeType>
-		static void RegisterNodeType(const std::string& typeName)
+	static void RegisterNodeType(const std::string& typeName)
+	{
+		s_NodeCreators[typeName] = [](const std::string& name, Identifier id) -> Scope<NodeProcessor>
 		{
-			s_NodeCreators[typeName] = [](const std::string& name, Identifier id) -> Scope<NodeProcessor>
-			{
-				auto node = Scope<NodeType>::Create(name, id);
-				return std::static_pointer_cast<NodeProcessor>(node);
-			};
-		}
-		
-	private:
+			auto node = CreateScope<NodeType>(name.c_str(), UUID(id.GetHash()));
+			return std::move(node);
+		};
+	}	private:
 		static std::unordered_map<std::string, NodeCreatorFunc> s_NodeCreators;
 	};
 }
@@ -44,7 +40,7 @@ namespace OloEngine::Audio::SoundGraph
 	//==============================================================================
 	// SoundGraphSerializer Implementation
 
-	void SoundGraphSerializer::Serialize(const SoundGraphAsset& asset, const std::filesystem::path& filepath)
+	bool SoundGraphSerializer::Serialize(const SoundGraphAsset& asset, const std::filesystem::path& filepath)
 	{
 		std::string yamlString = SerializeToString(asset);
 		
@@ -54,10 +50,12 @@ namespace OloEngine::Audio::SoundGraph
 			fout << yamlString;
 			fout.close();
 			OLO_CORE_INFO("Successfully serialized sound graph to {}", filepath.string());
+			return true;
 		}
 		else
 		{
 			OLO_CORE_ERROR("Failed to open file for writing: {}", filepath.string());
+			return false;
 		}
 	}
 
@@ -72,7 +70,7 @@ namespace OloEngine::Audio::SoundGraph
 		out << YAML::BeginMap;
 		
 		out << YAML::Key << "Name" << YAML::Value << asset.Name;
-		out << YAML::Key << "ID" << YAML::Value << asset.ID;
+		out << YAML::Key << "Handle" << YAML::Value << asset.GetHandle();
 		
 		// Serialize nodes
 		out << YAML::Key << "Nodes" << YAML::Value;
@@ -136,8 +134,9 @@ namespace OloEngine::Audio::SoundGraph
 			if (soundGraphNode["Name"])
 				asset.Name = soundGraphNode["Name"].as<std::string>();
 			
-			if (soundGraphNode["ID"])
-				asset.ID = UUID(soundGraphNode["ID"].as<u64>());
+			// TODO: Handle deserialization requires friend access or public SetHandle
+			// if (soundGraphNode["Handle"])
+			// 	asset.SetHandle(UUID(soundGraphNode["Handle"].as<u64>()));
 			
 			// Clear existing data
 			asset.Nodes.clear();
@@ -153,7 +152,7 @@ namespace OloEngine::Audio::SoundGraph
 				for (const auto& nodeYaml : nodesNode)
 				{
 					nodeCount++;
-					SoundGraphAsset::NodeData nodeData;
+					OloEngine::SoundGraphNodeData nodeData;
 					if (DeserializeNodeData(nodeYaml, nodeData))
 					{
 						asset.Nodes.push_back(nodeData);
@@ -179,7 +178,7 @@ namespace OloEngine::Audio::SoundGraph
 				for (const auto& connectionYaml : connectionsNode)
 				{
 					connectionCount++;
-					Prototype::Connection connection;
+					OloEngine::SoundGraphConnection connection;
 					if (DeserializeConnection(connectionYaml, connection))
 					{
 						asset.Connections.push_back(connection);
@@ -215,7 +214,7 @@ namespace OloEngine::Audio::SoundGraph
 		}
 	}
 
-	YAML::Emitter& SoundGraphSerializer::SerializeNodeData(YAML::Emitter& out, const SoundGraphAsset::NodeData& nodeData)
+	YAML::Emitter& SoundGraphSerializer::SerializeNodeData(YAML::Emitter& out, const OloEngine::SoundGraphNodeData& nodeData)
 	{
 		out << YAML::BeginMap;
 		
@@ -242,22 +241,22 @@ namespace OloEngine::Audio::SoundGraph
 		return out;
 	}
 
-	YAML::Emitter& SoundGraphSerializer::SerializeConnection(YAML::Emitter& out, const Prototype::Connection& connection)
+	YAML::Emitter& SoundGraphSerializer::SerializeConnection(YAML::Emitter& out, const OloEngine::SoundGraphConnection& connection)
 	{
 		out << YAML::BeginMap;
 		
-		out << YAML::Key << "SourceNodeID" << YAML::Value << connection.Source.NodeID;
-		out << YAML::Key << "SourceEndpoint" << YAML::Value << connection.Source.EndpointID;
-		out << YAML::Key << "TargetNodeID" << YAML::Value << connection.Destination.NodeID;
-		out << YAML::Key << "TargetEndpoint" << YAML::Value << connection.Destination.EndpointID;
-		out << YAML::Key << "Type" << YAML::Value << connection.Type;
+		out << YAML::Key << "SourceNodeID" << YAML::Value << connection.SourceNodeID;
+		out << YAML::Key << "SourceEndpoint" << YAML::Value << connection.SourceEndpoint;
+		out << YAML::Key << "TargetNodeID" << YAML::Value << connection.TargetNodeID;
+		out << YAML::Key << "TargetEndpoint" << YAML::Value << connection.TargetEndpoint;
+		out << YAML::Key << "IsEvent" << YAML::Value << connection.IsEvent;
 		
 		out << YAML::EndMap;
 		
 		return out;
 	}
 
-	bool SoundGraphSerializer::DeserializeNodeData(const YAML::Node& node, SoundGraphAsset::NodeData& nodeData)
+	bool SoundGraphSerializer::DeserializeNodeData(const YAML::Node& node, OloEngine::SoundGraphNodeData& nodeData)
 	{
 		try
 		{
@@ -293,7 +292,7 @@ namespace OloEngine::Audio::SoundGraph
 		}
 	}
 
-	bool SoundGraphSerializer::DeserializeConnection(const YAML::Node& node, Prototype::Connection& connection)
+	bool SoundGraphSerializer::DeserializeConnection(const YAML::Node& node, OloEngine::SoundGraphConnection& connection)
 	{
 		try
 		{
@@ -304,15 +303,15 @@ namespace OloEngine::Audio::SoundGraph
 				return false;
 			}
 			
-			connection.Source.NodeID = UUID(node["SourceNodeID"].as<u64>());
-			connection.Source.EndpointID = Identifier(node["SourceEndpoint"].as<u32>());
-			connection.Destination.NodeID = UUID(node["TargetNodeID"].as<u64>());
-			connection.Destination.EndpointID = Identifier(node["TargetEndpoint"].as<u32>());
+			connection.SourceNodeID = UUID(node["SourceNodeID"].as<u64>());
+			connection.SourceEndpoint = node["SourceEndpoint"].as<std::string>();
+			connection.TargetNodeID = UUID(node["TargetNodeID"].as<u64>());
+			connection.TargetEndpoint = node["TargetEndpoint"].as<std::string>();
 			
-			if (node["Type"])
-				connection.Type = static_cast<Prototype::Connection::EType>(node["Type"].as<i32>());
+			if (node["IsEvent"])
+				connection.IsEvent = node["IsEvent"].as<bool>();
 			else
-				connection.Type = Prototype::Connection::NodeValue_NodeValue; // Default value
+				connection.IsEvent = false; // Default value
 			
 			return true;
 		}
@@ -334,9 +333,14 @@ namespace OloEngine::Audio::SoundGraph
 		if (s_NodeCreators.empty())
 			InitializeDefaultNodeTypes();
 		
-		auto soundGraph = Ref<SoundGraph>::Create();
+		auto soundGraph = Ref<SoundGraph>::Create("FromAsset", UUID());
 		// TODO: Set name and ID if SoundGraph supports them
 		
+		// TODO: Implement AddNode in SoundGraph class to support dynamic node creation
+		OLO_CORE_WARN("SoundGraphFactory::CreateFromAsset - Node creation and connection not yet implemented");
+		OLO_CORE_WARN("TODO: SoundGraph needs AddNode() method and connection API for runtime graph building");
+		
+		/* DISABLED until SoundGraph supports dynamic node addition:
 		// Create all nodes first
 		std::unordered_map<UUID, NodeProcessor*> nodeMap;
 		
@@ -375,14 +379,12 @@ namespace OloEngine::Audio::SoundGraph
 				
 				// TODO: Implement connection logic for ValueView system
 				// Connect the nodes
-				/*
-				if (!outputNode->ConnectTo(connection.Source.EndpointID, inputNode, connection.Destination.EndpointID))
-				{
-					OLO_CORE_WARN("Failed to connect {} -> {} ({} -> {})", 
-						outputNode->GetDisplayName(), inputNode->GetDisplayName(),
-						connection.Source.EndpointID, connection.Destination.EndpointID);
-				}
-				*/
+				//if (!outputNode->ConnectTo(connection.Source.EndpointID, inputNode, connection.Destination.EndpointID))
+				//{
+				//	OLO_CORE_WARN("Failed to connect {} -> {} ({} -> {})", 
+				//		outputNode->GetDisplayName(), inputNode->GetDisplayName(),
+				//		connection.Source.EndpointID, connection.Destination.EndpointID);
+				//}
 				OLO_CORE_WARN("TODO: Connection logic not implemented for ValueView system");
 			}
 			else
@@ -391,9 +393,9 @@ namespace OloEngine::Audio::SoundGraph
 					static_cast<u64>(connection.SourceNodeID), static_cast<u64>(connection.TargetNodeID));
 			}
 		}
+		*/
 		
-		OLO_CORE_INFO("Successfully created sound graph '{}' with {} nodes and {} connections", 
-			asset.Name, asset.Nodes.size(), asset.Connections.size());
+		OLO_CORE_INFO("Created empty sound graph '{}' (TODO: implement node creation from asset)", asset.Name);
 		
 		return soundGraph;
 	}
@@ -426,11 +428,14 @@ namespace OloEngine::Audio::SoundGraph
 			auto it = nodeData.Properties.find("WaveAsset");
 			if (it != nodeData.Properties.end())
 			{
+				// TODO: Implement SetWaveAsset method in WavePlayer
 				// Try to parse the asset handle from string
 				try 
 				{
 					AssetHandle handle = std::stoull(it->second);
-					wavePlayer->SetWaveAsset(handle);
+					// wavePlayer->SetWaveAsset(handle);  // TODO: Method needs to be added to WavePlayer
+					OLO_CORE_WARN("SoundGraphSerializer: SetWaveAsset not yet implemented");
+					(void)handle; // Suppress unused variable warning
 				}
 				catch (...)
 				{

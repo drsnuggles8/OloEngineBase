@@ -10,12 +10,15 @@
 // Node descriptions for all implemented sound graph nodes
 // This enables automatic endpoint registration and initialization
 
-namespace OloEngine::Audio::SoundGraph
-{
-    //==============================================================================
-    // WavePlayer Node Description
-    //==============================================================================
-    DESCRIBE_NODE(WavePlayer,
+// NOTE: DESCRIBE_NODE macros must be at global scope (outside any namespace)
+// because they expand to template specializations in OloEngine::Core::Reflection namespace
+
+using namespace OloEngine::Audio::SoundGraph;
+
+//==============================================================================
+// WavePlayer Node Description
+//==============================================================================
+DESCRIBE_NODE(WavePlayer,
         NODE_INPUTS(
             &WavePlayer::in_WaveAsset,
             &WavePlayer::in_StartTime,
@@ -414,9 +417,7 @@ namespace OloEngine::Audio::SoundGraph
         NODE_INPUTS(
             &FrequencyToNote::in_Frequency
         ),
-        NODE_OUTPUTS(
-            &FrequencyToNote::out_MIDINote
-        )
-    );
-
-} // namespace OloEngine::Audio::SoundGraph
+    NODE_OUTPUTS(
+        &FrequencyToNote::out_MIDINote
+    )
+);

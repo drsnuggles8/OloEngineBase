@@ -4,6 +4,13 @@
 #include <filesystem>
 #include "../../Asset/SoundGraphAsset.h"
 
+// Forward declare YAML types to avoid including yaml-cpp in header
+namespace YAML
+{
+    class Emitter;
+    class Node;
+}
+
 namespace OloEngine::Audio::SoundGraph
 {
     using OloEngine::SoundGraphAsset;
@@ -49,6 +56,16 @@ namespace OloEngine::Audio::SoundGraph
         static bool Deserialize(SoundGraphAsset& asset, const std::filesystem::path& filePath);
 
     private:
+        // Forward declare for nested types
+        class Prototype;
+        
+        // Helper serialization methods
+        static YAML::Emitter& SerializeNodeData(YAML::Emitter& out, const OloEngine::SoundGraphNodeData& nodeData);
+        static YAML::Emitter& SerializeConnection(YAML::Emitter& out, const OloEngine::SoundGraphConnection& connection);
+        
+        static bool DeserializeNodeData(const YAML::Node& node, OloEngine::SoundGraphNodeData& outNodeData);
+        static bool DeserializeConnection(const YAML::Node& node, OloEngine::SoundGraphConnection& outConnection);
+        
         SoundGraphSerializer() = delete; // Static class
     };
 

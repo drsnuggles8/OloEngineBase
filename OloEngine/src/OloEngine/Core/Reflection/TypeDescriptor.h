@@ -203,18 +203,18 @@ struct OloEngine::Core::Reflection::Description<Class, Tag> :						\
 	using MemberListType = OloEngine::Core::Reflection::MemberList<__VA_ARGS__>;	\
 																					\
 private:																			\
-	static constexpr std::string_view MemberStr{ __VA_OPT__(#__VA_ARGS__) __VA_OPT__(,) "" };	\
-	static constexpr std::string_view ClassStr{ #Class };							\
-	static constexpr std::string_view Delimiter{ "," };							\
+	static inline const std::string_view MemberStr{ __VA_OPT__(#__VA_ARGS__) __VA_OPT__(,) "" };	\
+	static inline const std::string_view ClassStr{ #Class };							\
+	static inline const std::string_view Delimiter{ "," };							\
 	static constexpr size_t MemberCount = MemberListType::Count();					\
 																					\
 public:																				\
-	static constexpr std::string_view Namespace = 									\
+	static inline const std::string_view Namespace = 									\
 		OloEngine::Core::Reflection::StringUtils::ExtractNamespace(ClassStr);		\
-	static constexpr std::string_view ClassName =									\
+	static inline const std::string_view ClassName =									\
 		OloEngine::Core::Reflection::StringUtils::ExtractClassName(ClassStr);		\
 																					\
-	static constexpr std::array<std::string_view, MemberCount> MemberNames =		\
+	static inline const std::array<std::string_view, MemberCount> MemberNames =		\
 		MemberCount > 0 ?															\
 			OloEngine::Core::Reflection::StringUtils::CleanMemberNames<MemberCount>(	\
 				OloEngine::Core::Reflection::StringUtils::RemoveNamespace<MemberCount>(	\

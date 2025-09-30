@@ -335,7 +335,7 @@ namespace OloEngine::Audio::SoundGraph
 				if (minValue > maxValue)
 					std::swap(minValue, maxValue);
 					
-				randomValue = m_Random.GetFloatInRange(minValue, maxValue);
+				randomValue = m_Random.GetFloat32InRange(minValue, maxValue);
 			}
 			else if constexpr (std::is_integral_v<T>)
 			{
