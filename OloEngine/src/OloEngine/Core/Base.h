@@ -193,17 +193,18 @@ static const i8 i8_max = INT8_MAX;
  */
 struct AtomicFlag
 {
-	OLO_FINLINE void SetDirty() { m_Flag.clear(); }
-	OLO_FINLINE bool CheckAndResetIfDirty() { return !m_Flag.test_and_set(); }
+	OLO_FINLINE void SetDirty() { m_Flag.store(true, std::memory_order_release); }
+	OLO_FINLINE bool CheckAndResetIfDirty() { return m_Flag.exchange(false, std::memory_order_acq_rel); }
 
-	explicit AtomicFlag() noexcept { m_Flag.test_and_set(); }
+	// Initialize to "not dirty" state (false)
+	explicit AtomicFlag() noexcept : m_Flag(false) {}
 	AtomicFlag(const AtomicFlag&) = delete;
 	AtomicFlag& operator=(const AtomicFlag&) = delete;
 	AtomicFlag(AtomicFlag&&) = delete;
 	AtomicFlag& operator=(AtomicFlag&&) = delete;
 
 private:
-	std::atomic_flag m_Flag{};
+	std::atomic<bool> m_Flag;
 };
 
 /**

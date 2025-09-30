@@ -61,7 +61,7 @@ namespace OloEngine
         // Ref<Audio::SoundGraph::SoundGraphPrototype> CompiledPrototype;
         
         // Referenced wave sources
-        std::vector<AssetHandle> WaveSources;
+        std::vector<AssetHandle> m_WaveSources;
         
         // Serialization version for compatibility
         u32 Version = 1;

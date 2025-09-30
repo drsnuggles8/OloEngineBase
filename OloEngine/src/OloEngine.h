@@ -8,6 +8,7 @@
 #include "OloEngine/Core/Layer.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Assert.h"
+
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Core/Identifier.h"
 #include "OloEngine/Core/FastRandom.h"

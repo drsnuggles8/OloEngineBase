@@ -167,9 +167,9 @@ namespace OloEngine::Audio
             auto numChannels = dest.getNumChannels();
             auto destData = dest.getView().data.channels;
 
-            for (u32 ch = 0; ch < numChannels; ++ch)
+            for (u32 s = 0; s < dest.getNumFrames(); ++s)
             {
-                for (u32 s = 0; s < dest.getNumFrames(); ++s)
+                for (u32 ch = 0; ch < numChannels; ++ch)
                 {
                     destData[ch][s] = source[s * numChannels + ch];
                 }
@@ -185,11 +185,11 @@ namespace OloEngine::Audio
             auto numChannels = source.getNumChannels();
             auto sourceData = source.getView().data.channels;
 
-            for (u32 ch = 0; ch < numChannels; ++ch)
+            for (u32 s = 0; s < dest.getNumFrames(); ++s)
             {
-                for (u32 s = 0; s < source.getNumFrames(); ++s)
+                for (u32 ch = 0; ch < numChannels; ++ch)
                 {
-                    dest[s * numChannels + ch] = sourceData[ch][s];
+                    destData[ch][s] = source[s * numChannels + ch];
                 }
             }
         }
@@ -199,9 +199,9 @@ namespace OloEngine::Audio
         {
             OLO_PROFILE_FUNCTION();
 
-            for (u32 ch = 0; ch < numChannels; ++ch)
+            for (u32 s = 0; s < numSamples; ++s)
             {
-                for (u32 s = 0; s < numSamples; ++s)
+                for (u32 ch = 0; ch < numChannels; ++ch)
                 {
                     dest[ch][s] = source[s * numChannels + ch];
                 }
@@ -213,9 +213,9 @@ namespace OloEngine::Audio
         {
             OLO_PROFILE_FUNCTION();
 
-            for (u32 ch = 0; ch < numChannels; ++ch)
+            for (u32 s = 0; s < numSamples; ++s)
             {
-                for (u32 s = 0; s < numSamples; ++s)
+                for (u32 ch = 0; ch < numChannels; ++ch)
                 {
                     dest[s * numChannels + ch] = source[ch][s];
                 }
@@ -233,7 +233,7 @@ namespace OloEngine::Audio
                 return 0.0;
             
             // Cache channel count and check for zero channels to prevent division by zero
-            const auto cachedChannels = buffer.getNumChannels();
+            const u32 cachedChannels = buffer.getNumChannels();
             if (cachedChannels == 0)
                 return 0.0;
             

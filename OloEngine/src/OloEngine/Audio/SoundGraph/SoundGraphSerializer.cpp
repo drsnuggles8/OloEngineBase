@@ -28,7 +28,7 @@ namespace OloEngine::Audio::SoundGraph
 			s_NodeCreators[typeName] = [](const std::string& name, Identifier id) -> Scope<NodeProcessor>
 			{
 				auto node = CreateScope<NodeType>(name.c_str(), UUID(id.GetHash()));
-				return std::move(node);
+				return node;
 			};
 		}
 
@@ -201,7 +201,7 @@ namespace OloEngine::Audio::SoundGraph
 		}
 		catch (const YAML::Exception& e)
 		{
-			OLO_CORE_ERROR("Failed to parse YAML: Invalid format");
+			OLO_CORE_ERROR("Failed to parse YAML: {}}", e.what());
 			return false;
 		}
 		catch (const std::exception& e)

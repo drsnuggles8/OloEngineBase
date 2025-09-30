@@ -76,12 +76,10 @@ namespace OloEngine::Audio::SoundGraph
 			auto& finishHandler = AddInEvent(Identifier("OnFinishHandler"), [&](float v)
 				{
 					(void)v;
-					static constexpr float dummyValue = 1.0f;
-					choc::value::ValueView value(choc::value::Type::createFloat32(), (void*)&dummyValue, nullptr);
-					OutgoingEvents.push({ CurrentFrame, IDs::OnFinished, value });
-			});
-		
-			// Connect using shared_ptr from InEvents - use the same identifier as registration
+			static constexpr float dummyValue = 1.0f;
+			choc::value::ValueView value(choc::value::Type::createFloat32(), (void*)&dummyValue, nullptr);
+			OutgoingEvents.push({ m_CurrentFrame, IDs::OnFinished, value });
+		});			// Connect using shared_ptr from InEvents - use the same identifier as registration
 			if (auto finishHandlerPtr = InEvents.find(Identifier("OnFinishHandler")); finishHandlerPtr != InEvents.end())
 				out_OnFinish.AddDestination(finishHandlerPtr->second);
 			
@@ -453,13 +451,11 @@ namespace OloEngine::Audio::SoundGraph
 			for (auto& node : Nodes)
 			{
 				node->SetSampleRate(m_SampleRate);
-				node->Init();
-			}
-
-			bIsInitialized = true;
+			node->Init();
 		}
 
-		void BeginProcessBlock()
+		m_IsInitialized = true;
+	}		void BeginProcessBlock()
 		{
 			// Refill wave player buffers
 			for (auto& wavePlayer : WavePlayers)
@@ -475,14 +471,12 @@ namespace OloEngine::Audio::SoundGraph
 			for (std::pair<const Identifier, InterpolatedValue>& interpValue : InterpInputs)
 				interpValue.second.Process();
 
-			// Process all nodes in graph
-			for (auto& node : Nodes)
-				node->Process();
+		// Process all nodes in graph
+		for (auto& node : Nodes)
+			node->Process();
 
-			++CurrentFrame;
-		}
-
-		/// Reset nodes to their initial state
+		++m_CurrentFrame;
+	}		/// Reset nodes to their initial state
 		void Reinit()
 		{
 			OutgoingEvents.reset();
@@ -495,7 +489,7 @@ namespace OloEngine::Audio::SoundGraph
 		//==============================================================================
 	/// Runtime Status
 
-	bool IsPlayable() const { return bIsInitialized; }
+	bool IsPlayable() const { return m_IsInitialized; }
 
 	/// Missing method declarations
 	void InitializeEndpoints();
@@ -639,8 +633,7 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 	private:
-		bool bIsInitialized = false;
-		u64 CurrentFrame = 0;
+		bool m_IsInitialized = false;
 		f32 m_SampleRate = 48000.0f;
 		
 		// Missing member variables from implementation

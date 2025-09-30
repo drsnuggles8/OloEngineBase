@@ -15,7 +15,7 @@ namespace OloEngine::Audio::SoundGraph
 	{
 		OLO_PROFILE_FUNCTION();
 		
-		if (WaveSources.find(handle) != WaveSources.end())
+		if (m_WaveSources.find(handle) != m_WaveSources.end())
 			return true; // Already initialized
 
 		// Load the audio asset
@@ -46,32 +46,32 @@ namespace OloEngine::Audio::SoundGraph
 		// Set up refill callback - we'll handle this through the SoundGraphSource
 		// The actual refill will be managed by the parent class
 		
-		WaveSources[handle] = std::move(waveSource);
+		m_WaveSources[handle] = std::move(waveSource);
 		return true;
 	}
 
 	void DataSourceContext::UninitializeWaveSource(AssetHandle handle)
 	{
-		auto it = WaveSources.find(handle);
-		if (it != WaveSources.end())
+		auto it = m_WaveSources.find(handle);
+		if (it != m_WaveSources.end())
 		{
 			it->second.Clear();
-			WaveSources.erase(it);
+			m_WaveSources.erase(it);
 		}
 	}
 
 	void DataSourceContext::UninitializeAll()
 	{
-		for (auto& [handle, source] : WaveSources)
+		for (auto& [handle, source] : m_WaveSources)
 		{
 			source.Clear();
 		}
-		WaveSources.clear();
+		m_WaveSources.clear();
 	}
 
 	bool DataSourceContext::AreAllSourcesAtEnd() const
 	{
-		for (const auto& [handle, source] : WaveSources)
+		for (const auto& [handle, source] : m_WaveSources)
 		{
 			if (source.ReadPosition < source.TotalFrames)
 				return false;

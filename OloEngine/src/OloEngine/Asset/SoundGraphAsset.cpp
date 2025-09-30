@@ -112,7 +112,7 @@ namespace OloEngine
         GraphOutputs.clear();
         LocalVariables.clear();
         // CompiledPrototype.Reset(); // TODO: Uncomment when SoundGraphPrototype is implemented
-        WaveSources.clear();
+        m_WaveSources.clear();
     }
 
     bool SoundGraphAsset::IsValid() const
