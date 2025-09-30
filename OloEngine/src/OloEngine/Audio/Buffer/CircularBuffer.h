@@ -226,7 +226,7 @@ namespace OloEngine::Audio
 			OLO_CORE_ASSERT(m_avail >= count);
 
 			// Detect wrap: compute tail = m_buf.size() - m_readpos
-			const size_t tail = m_buf.size() - static_cast<size_t>(m_readpos);
+			const sizet tail = m_buf.size() - static_cast<sizet>(m_readpos);
 			
 			if (count <= tail)
 			{

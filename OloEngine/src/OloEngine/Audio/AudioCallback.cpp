@@ -23,7 +23,7 @@ namespace OloEngine::Audio
 
 		// Silence all configured output buses with their actual channel counts
 		// This runs exactly once regardless of callback state
-		for (size_t i = 0; i < callback->m_BusConfig.OutputBuses.size(); ++i)
+		for (sizet i = 0; i < callback->m_BusConfig.OutputBuses.size(); ++i)
 		{
 			if (ppFramesOut[i] != nullptr)
 			{

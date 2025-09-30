@@ -38,7 +38,7 @@ namespace OloEngine::Audio
 				return false;
 				
 			// Verify that samples buffer size matches expected sample count
-			const size_t expectedSampleCount = size_t(numFrames) * size_t(numChannels);
+			const sizet expectedSampleCount = size_t(numFrames) * size_t(numChannels);
 			return samples.size() == expectedSampleCount;
 		}
 		

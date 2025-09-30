@@ -107,7 +107,7 @@ namespace OloEngine::Audio::SoundGraph
 			}
 			
 			// Copy message text (real-time safe)
-			size_t len = strlen(message);
+			sizet len = strlen(message);
 			if (len >= sizeof(msg.text))
 				len = sizeof(msg.text) - 1;
 			memcpy(msg.text, message, len);
@@ -127,7 +127,7 @@ namespace OloEngine::Audio::SoundGraph
 			
 			// Format event message (real-time safe)
 			const char* eventMsg = "Event";
-			size_t len = strlen(eventMsg);
+			sizet len = strlen(eventMsg);
 			if (len >= sizeof(msg.text))
 				len = sizeof(msg.text) - 1;
 			memcpy(msg.text, eventMsg, len);

@@ -49,11 +49,6 @@ namespace OloEngine
 	/// 
 	class FastRandom
 	{
-	private:
-		// Template-dependent constant for static_assert in template functions
-		template<typename U>
-		static inline constexpr bool kAlwaysFalse = false;
-
 	public:
 		//==============================================================================
 		/// Constructors
@@ -277,6 +272,10 @@ namespace OloEngine
 		}
 
 	private:
+		// Template-dependent constant for static_assert in template functions
+		template<typename U>
+		static inline constexpr bool kAlwaysFalse = false;
+
 		i32 m_State;
 
 		// LCG constants from Numerical Recipes

@@ -21,7 +21,7 @@ namespace OloEngine::Core::Reflection {
 		using TupleType = decltype(std::tuple(MemberPointers...));
 
 	private:
-		template<size_t MemberIndex>
+		template<sizet MemberIndex>
 		using MemberType = typename MemberPointer::ReturnType<std::remove_cvref_t<decltype(std::get<MemberIndex>(TupleType()))>>::Type;
 
 		template<typename TMemberPtr>
@@ -31,7 +31,7 @@ namespace OloEngine::Core::Reflection {
 		using VariantType = std::variant<FilterVoid_t<MemberPtrType<decltype(MemberPointers)>>...>;
 
 	public:
-		static constexpr size_t Count() { return sizeof...(MemberPointers); }
+		static constexpr sizet Count() { return sizeof...(MemberPointers); }
 
 		//==============================================================================
 		/// Apply functions to member pointers
@@ -105,9 +105,9 @@ namespace OloEngine::Core::Reflection {
 		/// Member access by index
 
 		template<typename TObj, typename TFunc>
-		static constexpr void ApplyToMember(size_t memberIndex, TFunc&& f, TObj&& obj)
+		static constexpr void ApplyToMember(sizet memberIndex, TFunc&& f, TObj&& obj)
 		{
-			size_t memberCounter = 0;
+			sizet memberCounter = 0;
 
 			// Iterate the parameter pack directly and advance the counter for every element.
 			// Only invoke the callback for data members; skip member-function pointers but
@@ -126,7 +126,7 @@ namespace OloEngine::Core::Reflection {
 				}()), ...);
 		}
 
-		template<size_t MemberIndex, typename TObj, typename TFunc>
+		template<sizet MemberIndex, typename TObj, typename TFunc>
 		constexpr static void ApplyToMember(TFunc&& f, TObj&& obj)
 		{
 			f(obj.*NthElement<MemberIndex>(MemberPointers...));
@@ -136,7 +136,7 @@ namespace OloEngine::Core::Reflection {
 		/// Member value getters/setters
 
 		template<typename TValue, typename TObj>
-		static constexpr bool SetMemberValue(size_t memberIndex, const TValue& value, TObj&& obj)
+		static constexpr bool SetMemberValue(sizet memberIndex, const TValue& value, TObj&& obj)
 		{
 			bool valueSet = false;
 
@@ -156,7 +156,7 @@ namespace OloEngine::Core::Reflection {
 			return valueSet;
 		}
 
-		template<size_t MemberIndex, typename TValue, typename TObj>
+		template<sizet MemberIndex, typename TValue, typename TObj>
 		static constexpr bool SetMemberValue(const TValue& value, TObj&& obj)
 		{
 			bool valueSet = false;
@@ -177,7 +177,7 @@ namespace OloEngine::Core::Reflection {
 			return valueSet;
 		}
 
-		template<size_t MemberIndex, typename TObj>
+		template<sizet MemberIndex, typename TObj>
 		static constexpr auto GetMemberValue(const TObj& obj)
 		{
 			static_assert(Count() > MemberIndex);
@@ -201,7 +201,7 @@ namespace OloEngine::Core::Reflection {
 		}
 
 		template<typename TValue, typename TObj>
-		static constexpr std::optional<TValue> GetMemberValueOfType(size_t memberIndex, const TObj& obj)
+		static constexpr std::optional<TValue> GetMemberValueOfType(sizet memberIndex, const TObj& obj)
 		{
 			std::optional<TValue> value{};
 
@@ -225,21 +225,21 @@ namespace OloEngine::Core::Reflection {
 		//==============================================================================
 		/// Type information queries
 
-		template<size_t MemberIndex>
+		template<sizet MemberIndex>
 		static constexpr bool IsFunction()
 		{
 			static_assert(Count() > MemberIndex);
 			return std::is_member_function_pointer_v<decltype(NthElement<MemberIndex>(MemberPointers...))>;
 		}
 
-		static constexpr std::optional<bool> IsFunction(size_t memberIndex)
+		static constexpr std::optional<bool> IsFunction(sizet memberIndex)
 		{
 			std::optional<bool> isFunction;
 
 			if (Count() > memberIndex)
 			{
-				size_t memberCounter = 0;
-				auto unwrap = [&isFunction, memberIndex](auto memb, size_t counter)
+				sizet memberCounter = 0;
+				auto unwrap = [&isFunction, memberIndex](auto memb, sizet counter)
 				{
 					if (counter == memberIndex)
 					{
@@ -253,20 +253,20 @@ namespace OloEngine::Core::Reflection {
 			return isFunction;
 		}
 
-		template<size_t MemberIndex>
+		template<sizet MemberIndex>
 		static constexpr auto GetMemberSize()
 		{
 			return sizeof(FilterVoid_t<MemberType<MemberIndex>>);
 		}
 
-		static constexpr std::optional<size_t> GetMemberSize(size_t memberIndex)
+		static constexpr std::optional<sizet> GetMemberSize(sizet memberIndex)
 		{
-			std::optional<size_t> size;
+			std::optional<sizet> size;
 
 			if (Count() > memberIndex)
 			{
-				size_t memberCounter = 0;
-				auto unwrap = [&size, memberIndex](auto memb, size_t counter)
+				sizet memberCounter = 0;
+				auto unwrap = [&size, memberIndex](auto memb, sizet counter)
 				{
 					if (counter == memberIndex)
 					{

@@ -6,8 +6,8 @@
 
 namespace OloEngine
 {
-	constexpr size_t OLO_MAX_BUFFER_SIZE = 1024ull * 1024ull * 1024ull; // 1GB
-	constexpr size_t OLO_MAX_STRING_SIZE = 256ull * 1024ull * 1024ull;  // 256MB
+	constexpr sizet OLO_MAX_BUFFER_SIZE = 1024ull * 1024ull * 1024ull; // 1GB
+	constexpr sizet OLO_MAX_STRING_SIZE = 256ull * 1024ull * 1024ull;  // 256MB
 	bool StreamReader::ReadData(std::span<std::byte> destination)
 	{
 		// Convert std::span<std::byte> to char* and size for the virtual method

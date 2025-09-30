@@ -665,11 +665,11 @@ namespace OloEngine {
 			std::set<size_t> selectedIndices;
 			
 			// Always include the 6 axis-aligned extremes (min/max X, Y, Z)
-			auto findExtreme = [&](const glm::vec3& direction) -> size_t {
+			auto findExtreme = [&](const glm::vec3& direction) -> sizet {
 				f32 maxDot = -std::numeric_limits<f32>::max();
-				size_t bestIndex = 0;
+				sizet bestIndex = 0;
 				
-				for (size_t i = 0; i < inputVertices.size(); ++i)
+				for (sizet i = 0; i < inputVertices.size(); ++i)
 				{
 					f32 dot = glm::dot(inputVertices[i] - center, direction);
 					if (dot > maxDot)
@@ -713,9 +713,9 @@ namespace OloEngine {
 			// If we still need more vertices, add the ones furthest from the center
 			if (selectedIndices.size() < maxVertices)
 			{
-				std::vector<std::pair<f32, size_t>> distanceIndices;
+				std::vector<std::pair<f32, sizet>> distanceIndices;
 				
-				for (size_t i = 0; i < inputVertices.size(); ++i)
+				for (sizet i = 0; i < inputVertices.size(); ++i)
 				{
 					if (selectedIndices.find(i) == selectedIndices.end())
 					{
@@ -737,7 +737,7 @@ namespace OloEngine {
 			
 			// Convert selected indices to vertices
 			outReducedVertices.reserve(selectedIndices.size());
-			for (size_t index : selectedIndices)
+			for (sizet index : selectedIndices)
 			{
 				outReducedVertices.push_back(inputVertices[index]);
 			}

@@ -4,36 +4,39 @@
 #include "Nodes/WavePlayer.h"
 // Additional node includes will go here as we add them
 
+#include <memory>
+
 namespace OloEngine::Audio::SoundGraph
 {
 	//==============================================================================
-	using Registry = std::unordered_map<Identifier, std::function<NodeProcessor*(UUID nodeID)>>;
+	using Registry = std::unordered_map<Identifier, std::function<std::unique_ptr<NodeProcessor>(UUID nodeID)>>;
 
 	// Simple factory registration - we'll expand this as we add more nodes
 	static const Registry NodeProcessors
 	{
 		// Wave player node
-		{ Identifier("WavePlayer"), [](UUID nodeID) { return new WavePlayer("WavePlayer", nodeID); } },
+		{ Identifier("WavePlayer"), [](UUID nodeID) { return std::make_unique<WavePlayer>("WavePlayer", nodeID); } },
 		
 		// Math nodes (placeholder - will add when we create MathNodes.h)
-		// { Identifier("Add"), [](UUID nodeID) { return new AddNode("Add", nodeID); } },
-		// { Identifier("Multiply"), [](UUID nodeID) { return new MultiplyNode("Multiply", nodeID); } },
+		// { Identifier("Add"), [](UUID nodeID) { return std::make_unique<AddNode>("Add", nodeID); } },
+		// { Identifier("Multiply"), [](UUID nodeID) { return std::make_unique<MultiplyNode>("Multiply", nodeID); } },
 		
 		// Generator nodes (placeholder - will add when we create GeneratorNodes.h)
-		// { Identifier("Sine"), [](UUID nodeID) { return new SineNode("Sine", nodeID); } },
-		// { Identifier("Noise"), [](UUID nodeID) { return new NoiseNode("Noise", nodeID); } },
+		// { Identifier("Sine"), [](UUID nodeID) { return std::make_unique<SineNode>("Sine", nodeID); } },
+		// { Identifier("Noise"), [](UUID nodeID) { return std::make_unique<NoiseNode>("Noise", nodeID); } },
 	};
 
 	//==============================================================================
-	NodeProcessor* Factory::Create(Identifier nodeTypeID, UUID nodeID)
+	std::unique_ptr<NodeProcessor> Factory::Create(Identifier nodeTypeID, UUID nodeID)
 	{
-		if (!NodeProcessors.count(nodeTypeID))
+		auto it = NodeProcessors.find(nodeTypeID);
+		if (it == NodeProcessors.end())
 		{
 			OLO_CORE_ERROR("SoundGraph::Factory::Create - Node with type ID is not in the registry");
 			return nullptr;
 		}
 
-		return NodeProcessors.at(nodeTypeID)(nodeID);
+		return it->second(nodeID);
 	}
 
 	bool Factory::Contains(Identifier nodeTypeID)

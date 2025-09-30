@@ -53,7 +53,7 @@ namespace OloEngine::Audio
         static std::future<void> ExecuteOnAudioThread(Task task, bool waitForCompletion = true);
 
         /// Get the number of pending tasks in the audio thread queue
-        static size_t GetPendingTaskCount();
+        static sizet GetPendingTaskCount();
 
     private:
         AudioThread() = delete;

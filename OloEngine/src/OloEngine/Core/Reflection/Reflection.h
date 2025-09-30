@@ -34,12 +34,12 @@
 #include "TypeDescriptor.h"
 
 namespace OloEngine::Core::Reflection {
-	
-	// Re-export commonly used types for convenience
-	using StringUtils::RemovePrefixAndSuffix;
-	
-	// Helper alias for easy provider access
-	template<typename T, typename TTag = DummyTag>
-	using Provider = DescriptionProvider<Description<T, TTag>, T>;
+    
+    // Re-export commonly used types for convenience
+    using StringUtils::RemovePrefixAndSuffix;
+    
+    // Helper alias for easy provider access
+    template<typename T, typename TTag = DummyTag>
+    using Provider = DescriptionProvider<Description<T, TTag>, T>;
 
 } // namespace OloEngine::Core::Reflection

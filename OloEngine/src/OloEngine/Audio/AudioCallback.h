@@ -101,14 +101,14 @@ namespace OloEngine::Audio
 		bool InitBase(u32 sampleRate, u32 maxBlockSize, const BusConfig& busConfig) final
 		{
 			m_InDeinterleavedBuses.resize(busConfig.InputBuses.size());
-			for (size_t i = 0; i < m_InDeinterleavedBuses.size(); ++i)
+			for (sizet i = 0; i < m_InDeinterleavedBuses.size(); ++i)
 			{
 				m_InDeinterleavedBuses[i].resize({ busConfig.InputBuses[i], maxBlockSize });
 				m_InDeinterleavedBuses[i].clear();
 			}
 
 			m_OutDeinterleavedBuses.resize(busConfig.OutputBuses.size());
-			for (size_t i = 0; i < m_OutDeinterleavedBuses.size(); ++i)
+			for (sizet i = 0; i < m_OutDeinterleavedBuses.size(); ++i)
 			{
 				m_OutDeinterleavedBuses[i].resize({ busConfig.OutputBuses[i], maxBlockSize });
 				m_OutDeinterleavedBuses[i].clear();
@@ -138,7 +138,7 @@ namespace OloEngine::Audio
 		if (ppFramesIn != nullptr)
 		{
 			// Use actual deinterleaved buffer count for safety, not m_BusConfig size
-			for (size_t i = 0; i < m_InDeinterleavedBuses.size(); ++i)
+			for (sizet i = 0; i < m_InDeinterleavedBuses.size(); ++i)
 			{
 				// Ensure deinterleaved buffer is sized to frameCount
 				if (m_InDeinterleavedBuses[i].getSize().numFrames != frameCount)
@@ -162,12 +162,12 @@ namespace OloEngine::Audio
 		else
 		{
 			// Clear all input buses when no input provided
-			for (size_t i = 0; i < m_InDeinterleavedBuses.size(); ++i)
+			for (sizet i = 0; i < m_InDeinterleavedBuses.size(); ++i)
 				m_InDeinterleavedBuses[i].clear();
 		}
 
 		// Ensure output buffers are properly sized before processing
-		for (size_t i = 0; i < m_OutDeinterleavedBuses.size(); ++i)
+		for (sizet i = 0; i < m_OutDeinterleavedBuses.size(); ++i)
 		{
 			if (m_OutDeinterleavedBuses[i].getSize().numFrames != frameCount)
 			{
@@ -180,7 +180,7 @@ namespace OloEngine::Audio
 		// Use actual deinterleaved buffer count and check for null output pointers
 		if (ppFramesOut != nullptr)
 		{
-			for (size_t i = 0; i < m_OutDeinterleavedBuses.size(); ++i)
+			for (sizet i = 0; i < m_OutDeinterleavedBuses.size(); ++i)
 			{
 				// Only interleave if the output pointer is non-null
 				if (ppFramesOut[i] != nullptr)

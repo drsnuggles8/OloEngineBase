@@ -207,9 +207,9 @@ namespace OloEngine::Audio
         return future;
     }
 
-    size_t AudioThread::GetPendingTaskCount()
+    sizet AudioThread::GetPendingTaskCount()
     {
-        return static_cast<size_t>(s_PendingTasks.load());
+        return static_cast<sizet>(s_PendingTasks.load());
     }
 
     void AudioThread::AudioThreadLoop()

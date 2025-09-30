@@ -22,14 +22,14 @@ namespace OloEngine::Core::Reflection::StringUtils {
 		return len1 >= len2 && text.substr(len1 - len2) == suffix;
 	}
 
-	constexpr size_t CountTokens(std::string_view source, std::string_view delimiter)
+	constexpr sizet CountTokens(std::string_view source, std::string_view delimiter)
 	{
 		// Guard against empty delimiter to avoid infinite loops
 		if (delimiter.empty())
 			return source.empty() ? 0 : 1;
 			
-		size_t count = 1;
-		std::size_t pos = 0;
+		sizet count = 1;
+		sizet pos = 0;
 		while ((pos = source.find(delimiter, pos)) != std::string_view::npos)
 		{
 			++count;
@@ -38,7 +38,7 @@ namespace OloEngine::Core::Reflection::StringUtils {
 		return count;
 	}
 
-	template<size_t N>
+	template<sizet N>
 	constexpr std::array<std::string_view, N> SplitString(std::string_view source, std::string_view delimiter)
 	{
 		std::array<std::string_view, N> tokens{};
@@ -53,9 +53,9 @@ namespace OloEngine::Core::Reflection::StringUtils {
 			return tokens;
 		}
 
-		size_t tokenStart = 0;
-		size_t pos = 0;
-		size_t i = 0;
+		sizet tokenStart = 0;
+		sizet pos = 0;
+		sizet i = 0;
 
 		while (pos < source.length() && i < N - 1)
 		{
@@ -90,7 +90,7 @@ namespace OloEngine::Core::Reflection::StringUtils {
 		return name.substr(pos + 1);
 	}
 
-	template<size_t N>
+	template<sizet N>
 	constexpr std::array<std::string_view, N> RemoveNamespace(std::array<std::string_view, N> memberList)
 	{
 		for (std::string_view& fullName : memberList)
@@ -116,7 +116,7 @@ namespace OloEngine::Core::Reflection::StringUtils {
 		return name;
 	}
 
-	template<size_t N>
+	template<sizet N>
 	constexpr std::array<std::string_view, N> CleanMemberNames(std::array<std::string_view, N> memberList)
 	{
 		for (std::string_view& name : memberList)

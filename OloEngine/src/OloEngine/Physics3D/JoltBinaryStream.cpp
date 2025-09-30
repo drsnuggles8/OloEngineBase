@@ -24,7 +24,7 @@ namespace OloEngine {
 		public:
 			explicit JoltStreamOutAdapter(JoltBinaryStreamWriter& writer) : m_Writer(writer) {}
 
-			void WriteBytes(const void* inData, size_t inNumBytes) override
+			void WriteBytes(const void* inData, sizet inNumBytes) override
 			{
 				m_Writer.WriteBytes(inData, inNumBytes);
 			}
@@ -46,7 +46,7 @@ namespace OloEngine {
 		public:
 			explicit JoltStreamInAdapter(JoltBinaryStreamReader& reader) : m_Reader(reader) {}
 
-			void ReadBytes(void* outData, size_t inNumBytes) override
+			void ReadBytes(void* outData, sizet inNumBytes) override
 			{
 				m_Reader.ReadBytes(outData, inNumBytes);
 			}

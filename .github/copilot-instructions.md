@@ -93,9 +93,11 @@ RendererProfiler::GetInstance().IncrementCounter(MetricType::DrawCalls, 1);
 - **C++ Standards:** Target C++23 where supported by current compilers, baseline C++20 across the repo
 - **Development Approach:** Alpha mode - breaking changes are acceptable for better design, focus on optimal solutions, just make sure that when changes break things, we fix them quickly to keep momentum
 - **Naming:** PascalCase for classes, `m_PascalCase` for members, `s_PascalCase` for statics
-- **Types:** Custom typedefs (`u8`, `i16`, `i32`, `f32`, `sizet`) defined in `Core/Base.h`
-- **Headers:** Use `#pragma once`, RAII for OpenGL resources, STL containers preferred
-- **Formatting:** Braces on new lines, 4-space indentation, public before private
+- **Types:** Custom typedefs (`u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, `f32`, `f64`, `sizet`) defined in `Core/Base.h`
+- **Headers:** Use `#pragma once`, RAII for OpenGL resources, STL containers preferred. Use the OloEnginePCH precompiled header for common includes
+- **Includes:** Use quotes for project headers, angle brackets for system/third-party. Include what you use
+- **Smart Pointers:** Use `Ref<T>` defined in `Core/Ref.h`
+- **Formatting:** Braces on new lines, 4-space indentation (not tabs!), public before private
 
 ## Critical Build Dependencies
 

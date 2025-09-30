@@ -1,4 +1,5 @@
 #pragma once
+#include "OloEnginePCH.h"
 
 #include <array>
 #include <optional>
@@ -154,7 +155,7 @@ namespace OloEngine::Core::Reflection {
 	/// Array detection utilities
 	namespace ArrayImpl {
 		template <typename T>					struct IsArrayImpl : std::false_type {};
-		template <typename T, std::size_t N>	struct IsArrayImpl<std::array<T, N>> : std::true_type {};
+		template <typename T, sizet N>	struct IsArrayImpl<std::array<T, N>> : std::true_type {};
 		template <typename... Args>				struct IsArrayImpl<std::vector<Args...>> : std::true_type {};
 	}
 

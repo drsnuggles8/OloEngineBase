@@ -115,8 +115,8 @@ namespace OloEngine::Audio::SoundGraph
 				return;
 			}
 			
-			size_t validConnections = 0;
-			size_t invalidConnections = 0;
+			sizet validConnections = 0;
+			sizet invalidConnections = 0;
 			
 			for (const auto& connection : Options.GraphPrototype->Connections)
 			{
@@ -367,7 +367,7 @@ namespace OloEngine::Audio::SoundGraph
 				}
 			}
 			
-			graph->AddNode(Scope<NodeProcessor>(node));
+			graph->AddNode(std::move(node));
 		}
 
 		//==============================================================================

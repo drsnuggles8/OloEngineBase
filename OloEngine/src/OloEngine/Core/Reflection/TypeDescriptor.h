@@ -59,27 +59,27 @@ namespace OloEngine::Core::Reflection {
 		using TList = typename TDescription::MemberListType;
 
 	public:
-		static constexpr size_t NumberOfMembers = TList::Count();
-		static constexpr size_t INVALID_INDEX = size_t(-1);
+		static constexpr sizet NumberOfMembers = TList::Count();
+		static constexpr sizet INVALID_INDEX = size_t(-1);
 
 		//==============================================================================
 		/// Member name operations
 
-		static constexpr std::optional<std::string_view> GetMemberName(size_t memberIndex)
+		static constexpr std::optional<std::string_view> GetMemberName(sizet memberIndex)
 		{
 			return (memberIndex != INVALID_INDEX && memberIndex < NumberOfMembers) ? std::optional<std::string_view>(TDescription::MemberNames[memberIndex]) : std::nullopt;
 		}
 
-		template<size_t MemberIndex>
+		template<sizet MemberIndex>
 		static constexpr std::string_view GetMemberName()
 		{
 			static_assert(NumberOfMembers > MemberIndex);
 			return TDescription::MemberNames[MemberIndex];
 		}
 
-		static constexpr size_t IndexOf(std::string_view memberName)
+		static constexpr sizet IndexOf(std::string_view memberName)
 		{
-			for (size_t i = 0; i < NumberOfMembers; ++i)
+			for (sizet i = 0; i < NumberOfMembers; ++i)
 			{
 				if (TDescription::MemberNames[i] == memberName)
 					return i;
@@ -130,7 +130,7 @@ namespace OloEngine::Core::Reflection {
 			stream << "Members:" << '\n';
 			stream << "---" << '\n';
 
-			for (size_t i = 0; i < NumberOfMembers; ++i)
+			for (sizet i = 0; i < NumberOfMembers; ++i)
 			{
 				if (auto name = GetMemberName(i))
 					stream << *name;
@@ -154,8 +154,8 @@ namespace OloEngine::Core::Reflection {
 
 			auto unwrapOuter = [&stream, &obj](auto... members)
 			{
-				size_t memberCounter = 0;
-				auto unwrap = [&stream, &obj, memberCounter](auto memb, size_t index) mutable
+				sizet memberCounter = 0;
+				auto unwrap = [&stream, &obj, memberCounter](auto memb, sizet index) mutable
 				{
 					if (auto name = GetMemberName(index))
 						stream << *name;
@@ -206,7 +206,7 @@ private:																			\
 	static inline const std::string_view MemberStr{ __VA_OPT__(#__VA_ARGS__) __VA_OPT__(,) "" };	\
 	static inline const std::string_view ClassStr{ #Class };							\
 	static inline const std::string_view Delimiter{ "," };							\
-	static constexpr size_t MemberCount = MemberListType::Count();					\
+	static constexpr sizet MemberCount = MemberListType::Count();					\
 																					\
 public:																				\
 	static inline const std::string_view Namespace = 									\

@@ -288,8 +288,8 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			// Create a dedicated input event for routing from OutputEvent to OutputEvent
 			OutputEvent* dest = &destination;
-			static std::atomic<size_t> routeCounter{0};
-			size_t currentRouteId = routeCounter.fetch_add(1, std::memory_order_relaxed);
+			static std::atomic<sizet> routeCounter{0};
+			sizet currentRouteId = routeCounter.fetch_add(1, std::memory_order_relaxed);
 			std::string routeIdStr = "Route_" + std::to_string(currentRouteId);
 			Identifier routeId(routeIdStr);
 			auto& routeHandler = AddInEvent(routeId, [dest](float v) { (*dest)(v); });
