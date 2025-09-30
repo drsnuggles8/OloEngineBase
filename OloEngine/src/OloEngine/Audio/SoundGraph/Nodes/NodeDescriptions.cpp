@@ -1,11 +1,11 @@
 #include "OloEngine/Audio/SoundGraph/NodeDescriptors.h"
-#include "WavePlayer.h"
-#include "GeneratorNodes.h"
-#include "MathNodes.h"
-#include "EnvelopeNodes.h"
-#include "TriggerNodes.h"
-#include "ArrayNodes.h"
-#include "MusicNodes.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/WavePlayer.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/GeneratorNodes.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/MathNodes.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/EnvelopeNodes.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/TriggerNodes.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/ArrayNodes.h"
+#include "OloEngine/Audio/SoundGraph/Nodes/MusicNodes.h"
 
 // Node descriptions for all implemented sound graph nodes
 // This enables automatic endpoint registration and initialization
@@ -417,7 +417,7 @@ DESCRIBE_NODE(WavePlayer,
         NODE_INPUTS(
             &FrequencyToNote::in_Frequency
         ),
-    NODE_OUTPUTS(
-        &FrequencyToNote::out_MIDINote
-    )
-);
+		NODE_OUTPUTS(
+			&FrequencyToNote::out_MIDINote
+		)
+	);

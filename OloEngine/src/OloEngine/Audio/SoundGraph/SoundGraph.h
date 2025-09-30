@@ -623,10 +623,10 @@ namespace OloEngine::Audio::SoundGraph
 				if (auto* wp = static_cast<WavePlayer*>(wavePlayer))
 				{
 					// Store the original callback to chain with it
-					auto originalCallback = wp->GetWaveSource().onRefill;
+					auto originalCallback = wp->GetWaveSource().m_OnRefill;
 					
 					// Set new callback that chains with the original
-					wp->GetWaveSource().onRefill = [callback, userData, numFrames, originalCallback](Audio::WaveSource& source) -> bool {
+					wp->GetWaveSource().m_OnRefill = [callback, userData, numFrames, originalCallback](Audio::WaveSource& source) -> bool {
 						bool result = true;
 						if (originalCallback)
 							result = originalCallback(source);

@@ -24,14 +24,14 @@ namespace OloEngine::Audio
         struct RefillCallback final
         {
             using FuncPtr = bool(*)(WaveSource&, void*) noexcept;
-            FuncPtr funcPtr = nullptr;
+            FuncPtr m_FuncPtr = nullptr;
             void* context = nullptr;
             
             // Per-instance storage to avoid cross-instance interference
             std::function<bool(WaveSource&)> instanceFunc;
 
             RefillCallback() = default;
-            RefillCallback(FuncPtr ptr, void* ctx = nullptr) noexcept : funcPtr(ptr), context(ctx) {}
+            RefillCallback(FuncPtr ptr, void* ctx = nullptr) noexcept : m_FuncPtr(ptr), context(ctx) {}
             
             // Copy constructor - rebind to the new instance
             RefillCallback(const RefillCallback& other) noexcept 
@@ -39,7 +39,7 @@ namespace OloEngine::Audio
             {
                 if (other.instanceFunc)
                 {
-                    funcPtr = [](WaveSource& source, void* ctx) noexcept -> bool {
+                    m_FuncPtr = [](WaveSource& source, void* ctx) noexcept -> bool {
                         auto* self = static_cast<RefillCallback*>(ctx);
                         try { return self->instanceFunc(source); }
                         catch (...) { return false; }
@@ -48,7 +48,7 @@ namespace OloEngine::Audio
                 }
                 else
                 {
-                    funcPtr = other.funcPtr;
+                    m_FuncPtr = other.m_FuncPtr;
                     context = other.context;
                 }
             }
@@ -59,20 +59,20 @@ namespace OloEngine::Audio
             {
                 if (instanceFunc)
                 {
-                    funcPtr = [](WaveSource& source, void* ctx) noexcept -> bool {
+                    m_FuncPtr = [](WaveSource& source, void* ctx) noexcept -> bool {
                         auto* self = static_cast<RefillCallback*>(ctx);
                         try { return self->instanceFunc(source); }
                         catch (...) { return false; }
                     };
                     context = this;
-                    other.funcPtr = nullptr;
+                    other.m_FuncPtr = nullptr;
                     other.context = nullptr;
                 }
                 else
                 {
-                    funcPtr = other.funcPtr;
+                    m_FuncPtr = other.m_FuncPtr;
                     context = other.context;
-                    other.funcPtr = nullptr;
+                    other.m_FuncPtr = nullptr;
                     other.context = nullptr;
                 }
             }
@@ -85,7 +85,7 @@ namespace OloEngine::Audio
                     instanceFunc = other.instanceFunc;
                     if (instanceFunc)
                     {
-                        funcPtr = [](WaveSource& source, void* ctx) noexcept -> bool {
+                        m_FuncPtr = [](WaveSource& source, void* ctx) noexcept -> bool {
                             auto* self = static_cast<RefillCallback*>(ctx);
                             try { return self->instanceFunc(source); }
                             catch (...) { return false; }
@@ -94,7 +94,7 @@ namespace OloEngine::Audio
                     }
                     else
                     {
-                        funcPtr = other.funcPtr;
+                        m_FuncPtr = other.m_FuncPtr;
                         context = other.context;
                     }
                 }
@@ -109,20 +109,20 @@ namespace OloEngine::Audio
                     instanceFunc = std::move(other.instanceFunc);
                     if (instanceFunc)
                     {
-                        funcPtr = [](WaveSource& source, void* ctx) noexcept -> bool {
+                        m_FuncPtr = [](WaveSource& source, void* ctx) noexcept -> bool {
                             auto* self = static_cast<RefillCallback*>(ctx);
                             try { return self->instanceFunc(source); }
                             catch (...) { return false; }
                         };
                         context = this;
-                        other.funcPtr = nullptr;
+                        other.m_FuncPtr = nullptr;
                         other.context = nullptr;
                     }
                     else
                     {
-                        funcPtr = other.funcPtr;
+                        m_FuncPtr = other.m_FuncPtr;
                         context = other.context;
-                        other.funcPtr = nullptr;
+                        other.m_FuncPtr = nullptr;
                         other.context = nullptr;
                     }
                 }
@@ -133,7 +133,7 @@ namespace OloEngine::Audio
             RefillCallback& operator=(const std::function<bool(WaveSource&)>& func) noexcept
             {
                 instanceFunc = func;
-                funcPtr = [](WaveSource& source, void* ctx) noexcept -> bool {
+                m_FuncPtr = [](WaveSource& source, void* ctx) noexcept -> bool {
                     auto* self = static_cast<RefillCallback*>(ctx);
                     try { return self->instanceFunc(source); }
                     catch (...) { return false; }
@@ -144,17 +144,17 @@ namespace OloEngine::Audio
 
             [[nodiscard]] bool operator()(WaveSource& source) const noexcept
             {
-                return funcPtr ? funcPtr(source, context) : false;
+                return m_FuncPtr ? m_FuncPtr(source, context) : false;
             }
 
-            explicit operator bool() const noexcept { return funcPtr != nullptr; }
+            explicit operator bool() const noexcept { return m_FuncPtr != nullptr; }
         };
 
-        RefillCallback onRefill;
+        RefillCallback m_OnRefill;
 
         [[nodiscard]] inline bool Refill() noexcept
         { 
-            return onRefill(*this);
+            return m_OnRefill(*this);
         }
 
         inline void Clear() noexcept

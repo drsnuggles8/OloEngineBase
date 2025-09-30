@@ -2526,7 +2526,7 @@ namespace OloEngine
     }
 
     //////////////////////////////////////////////////////////////////////////////////
-    // SoundGraphSerializer  
+    // SoundGraphSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
     void SoundGraphSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
@@ -2541,16 +2541,25 @@ namespace OloEngine
         // Resolve absolute path by anchoring to project asset directory
         std::filesystem::path absolutePath = Project::GetAssetDirectory() / metadata.FilePath;
         
-        // Ensure parent directory exists
-        std::filesystem::create_directories(absolutePath.parent_path());
-        
-        // Profile the serialization operation
+        std::filesystem::path parentDir = absolutePath.parent_path();
+        if (!parentDir.empty())
+        {
+            std::error_code ec;
+            if (!std::filesystem::create_directories(parentDir, ec) && ec)
+            {
+                OLO_CORE_ERROR("SoundGraphSerializer::Serialize - Failed to create parent directories for: {}, error: {}", absolutePath.string(), ec.message());
+                return;
+            }
+        }
+
         OLO_PROFILE_SCOPE("SoundGraphSerializer::Serialize");
         Audio::SoundGraph::SoundGraphSerializer::Serialize(*soundGraphAsset, absolutePath);
     }
 
     bool SoundGraphSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
+		OLO_PROFILE_FUNCTION();
+		
         Ref<SoundGraphAsset> soundGraphAsset = Ref<SoundGraphAsset>::Create();
         
         // Resolve absolute path by anchoring to project asset directory

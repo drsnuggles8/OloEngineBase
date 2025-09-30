@@ -150,13 +150,13 @@ namespace OloEngine
             if (assetType == "ScriptFile")          return AssetType::ScriptFile;
             if (assetType == "Shader")              return AssetType::Shader;
             if (assetType == "MeshCollider")        return AssetType::MeshCollider;
-            if (assetType == "SoundGraphSound")     return AssetType::SoundGraphSound;
             if (assetType == "SoundGraph")          return AssetType::SoundGraph;
             if (assetType == "AnimationClip")       return AssetType::AnimationClip;
             //if (assetType == "AnimationController") return AssetType::AnimationController; // OBSOLETE. You need to re-import animated asset
             if (assetType == "AnimationGraph")      return AssetType::AnimationGraph;
             if (assetType == "Model")               return AssetType::Model;
             if (assetType == "Environment")         return AssetType::Environment;
+            if (assetType == "SoundGraphSound")     return AssetType::SoundGraphSound;
 
             return AssetType::None;
         }

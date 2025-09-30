@@ -91,7 +91,7 @@ RendererProfiler::GetInstance().IncrementCounter(MetricType::DrawCalls, 1);
 ## Code Style Guidelines
 
 - **C++ Standards:** Target C++23 where supported by current compilers, baseline C++20 across the repo
-- **Development Approach:** Alpha mode - breaking changes are acceptable for better design, focus on optimal solutions, just make sure that when changes break things, we fix them quickly to keep momentum
+- **Development Approach:** Alpha mode - breaking changes are acceptable for better design. We focus on optimal solutions, just make sure that when changes break things, we fix them quickly
 - **Naming:** PascalCase for classes, `m_PascalCase` for members, `s_PascalCase` for statics
 - **Types:** Custom typedefs (`u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, `f32`, `f64`, `sizet`) defined in `Core/Base.h`
 - **Headers:** Use `#pragma once`, RAII for OpenGL resources, STL containers preferred. Use the OloEnginePCH precompiled header for common includes
@@ -101,12 +101,7 @@ RendererProfiler::GetInstance().IncrementCounter(MetricType::DrawCalls, 1);
 
 ## Critical Build Dependencies
 
-**CMake Functions**: Use `olo_*` functions from `cmake/CommonProperties.cmake`:
-- `olo_set_output_directories()` - Standardized bin paths  
-- `olo_enable_lto()` / `olo_enable_pch()` - Performance optimizations
-- `olo_set_compiler_options()` - Common flags across targets
-
-**Vendor Management**: Dependencies fetched via CPM, stored in `OloEngine/vendor/`. Never modify vendor code directly.
+**Vendor Management**: Dependencies fetched via CPM / FetchContent, stored in `OloEngine/vendor/`. Never modify vendor code directly.
 
 **Renderer Backend**: OpenGL-based. Uses SPIR-V for shader compilation via Vulkan SDK tools.
 

@@ -4,7 +4,6 @@
 #include "OloEngine/Core/Hash.h"
 #include <cstddef>
 #include <functional>
-#include <string>
 #include <string_view>
 
 namespace OloEngine
@@ -81,12 +80,7 @@ namespace OloEngine
 		constexpr bool operator==(const Identifier& other) const noexcept 
 		{ 
 			return m_Hash == other.m_Hash; 
-		}
-		
-		constexpr bool operator!=(const Identifier& other) const noexcept 
-		{ 
-			return m_Hash != other.m_Hash; 
-		}
+		}	
 
 		// Note: operator< intentionally removed to prevent issues with ordered containers
 		// due to potential hash collisions. Use std::unordered_map/set for Identifier keys.
@@ -132,8 +126,3 @@ namespace std
 		}
 	};
 }
-
-//==============================================================================
-/// Macro for creating compile-time identifiers
-/// Usage: OLO_IDENTIFIER("MyIdentifier") -> constexpr Identifier
-#define OLO_IDENTIFIER(name) OloEngine::Identifier(name)

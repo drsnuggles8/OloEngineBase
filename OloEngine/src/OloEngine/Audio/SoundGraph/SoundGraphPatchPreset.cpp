@@ -30,11 +30,11 @@ namespace OloEngine::Audio::SoundGraph
                 case '\r': escaped += "\\r"; break;
                 case '\t': escaped += "\\t"; break;
                 default:
-                    if (c >= 0 && c < 32)
+                    if (static_cast<unsigned char>(c) < 32)
                     {
                         // Escape control characters as \uXXXX
                         char buf[7];
-                        sprintf(buf, "\\u%04X", static_cast<unsigned char>(c));
+                        snprintf(buf, sizeof(buf), "\\u%04X", static_cast<unsigned char>(c));
                         escaped += buf;
                     }
                     else
@@ -345,8 +345,15 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         file << jsonData;
-        file.close();
+        file.flush();
         
+        if (file.fail() || !file)
+        {
+            OLO_CORE_ERROR("Failed to write data to file: {}", filePath);
+            return false;
+        }
+        
+        file.close();
         return true;
     }
 

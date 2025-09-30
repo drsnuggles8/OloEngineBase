@@ -115,6 +115,8 @@ namespace OloEngine::Audio
 
 	void AudioCallback::Uninitialize()
 	{
+		OLO_PROFILE_FUNCTION();
+		
 		if (m_Node.bInitialized)
 		{
 			ma_node_set_state(&m_Node, ma_node_state_stopped);

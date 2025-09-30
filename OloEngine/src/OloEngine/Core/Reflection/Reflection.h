@@ -17,8 +17,8 @@
  * 
  * Example:
  *   struct MyClass {
- *       float value = 0.0f;
- *       int count = 0;
+ *       f32 value = 0.0f;
+ *       i32 count = 0;
  *   };
  *   
  *   OLO_DESCRIBE(MyClass, &MyClass::value, &MyClass::count);

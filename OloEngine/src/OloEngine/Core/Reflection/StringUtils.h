@@ -54,28 +54,21 @@ namespace OloEngine::Core::Reflection::StringUtils {
 		}
 
 		sizet tokenStart = 0;
-		sizet pos = 0;
 		sizet i = 0;
 
-		while (pos < source.length() && i < N - 1)
+		while (i < N - 1)
 		{
-			// Check if we have enough characters left for the delimiter
-			if (pos + delimiter.length() <= source.length() && 
-				source.substr(pos, delimiter.length()) == delimiter)
-			{
-				tokens[i] = source.substr(tokenStart, pos - tokenStart);
-				pos += delimiter.length();
-				tokenStart = pos;
-				++i;
-			}
-			else
-			{
-				++pos;
-			}
+			sizet pos = source.find(delimiter, tokenStart);
+			if (pos == std::string_view::npos)
+				break;
+
+			tokens[i] = source.substr(tokenStart, pos - tokenStart);
+			tokenStart = pos + delimiter.size();
+			++i;
 		}
 
-		// Last token gets everything remaining
-		if (i < N && tokenStart < source.length())
+		// Assign last token unconditionally (allows empty token if tokenStart == source.size())
+		if (i < N)
 			tokens[i] = source.substr(tokenStart);
 
 		return tokens;
@@ -103,15 +96,15 @@ namespace OloEngine::Core::Reflection::StringUtils {
 	{
 		// Remove common prefixes
 		if (StartsWith(name, "in_"))
-			name.remove_prefix(3);  // sizeof("in_") - 1
+			name.remove_prefix(3);  // length of "in_"
 		else if (StartsWith(name, "out_"))
-			name.remove_prefix(4);  // sizeof("out_") - 1
+			name.remove_prefix(4);  // length of "out_"
 		else if (StartsWith(name, "m_"))
-			name.remove_prefix(2);  // sizeof("m_") - 1
+			name.remove_prefix(2);  // length of "m_"
 
 		// Remove common suffixes
 		if (EndsWith(name, "_Raw"))
-			name.remove_suffix(4);  // sizeof("_Raw") - 1
+			name.remove_suffix(4);  // length of "_Raw"
 
 		return name;
 	}

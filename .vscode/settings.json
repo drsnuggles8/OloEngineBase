@@ -98,7 +98,8 @@
         "xutility": "cpp",
         "execution": "cpp",
         "typeindex": "cpp",
-        "resumable": "cpp"
+        "resumable": "cpp",
+        "numbers": "cpp"
     },
     "dotnet.defaultSolution": "disable"
 }

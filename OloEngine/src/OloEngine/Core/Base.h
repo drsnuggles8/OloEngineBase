@@ -203,7 +203,7 @@ struct AtomicFlag
 	AtomicFlag& operator=(AtomicFlag&&) = delete;
 
 private:
-	std::atomic_flag m_Flag = ATOMIC_FLAG_INIT;
+	std::atomic_flag m_Flag{};
 };
 
 /**
@@ -216,12 +216,21 @@ struct Flag
 	OLO_FINLINE bool CheckAndResetIfDirty() noexcept
 	{
 		if (m_Flag)
-			return !(m_Flag = !m_Flag);
+		{
+			m_Flag = false;
+			return true;
+		}
 		else
+		{
 			return false;
+		}
 	}
 
-	OLO_FINLINE bool IsDirty() const noexcept { return m_Flag; }
+	OLO_FINLINE bool IsDirty() const noexcept
+	{
+		return m_Flag;
+	}
+	
 
 private:
 	bool m_Flag = false;

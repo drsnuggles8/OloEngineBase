@@ -13,6 +13,8 @@ namespace OloEngine::Audio::SoundGraph
 
 	bool DataSourceContext::InitializeWaveSource(AssetHandle handle)
 	{
+		OLO_PROFILE_FUNCTION();
+		
 		if (WaveSources.find(handle) != WaveSources.end())
 			return true; // Already initialized
 
@@ -174,10 +176,7 @@ namespace OloEngine::Audio::SoundGraph
 		
 		UninitializeDataSources();
 
-		if (m_IsInitialized)
-		{
-			ma_engine_node_uninit(&m_EngineNode, nullptr);
-		}
+		ma_engine_node_uninit(&m_EngineNode, nullptr);
 
 		m_Engine = nullptr;
 		m_Graph = nullptr;
@@ -414,6 +413,8 @@ namespace OloEngine::Audio::SoundGraph
 
 	void SoundGraphSource::ProcessSamples(float** ppFramesOut, u32 frameCount)
 	{
+		OLO_PROFILE_FUNCTION();
+
 		// Handle suspension
 		if (m_SuspendFlag.CheckAndResetIfDirty())
 		{

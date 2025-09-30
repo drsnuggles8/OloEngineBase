@@ -148,7 +148,7 @@ namespace OloEngine::Core::Reflection {
 
 					if constexpr (std::is_same_v<TValueNoCVR, TMemberNoCVR> && std::is_assignable_v<TMemberNoCVR&, TValueNoCVR>)
 					{
-						memb = std::forward<decltype(value)>(value);
+						memb = value;
 						valueSet = true;
 					}
 				}, std::forward<decltype(obj)>(obj));
@@ -169,7 +169,7 @@ namespace OloEngine::Core::Reflection {
 
 					if constexpr (std::is_same_v<TValueNoCVR, TMemberNoCVR> && std::is_assignable_v<TMemberNoCVR&, TValueNoCVR>)
 					{
-						memb = std::forward<decltype(value)>(value);
+						memb = value;
 						valueSet = true;
 					}
 				}, std::forward<decltype(obj)>(obj));

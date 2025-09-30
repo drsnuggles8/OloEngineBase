@@ -84,7 +84,7 @@ namespace OloEngine::Audio::SoundGraph {
 									});
 								
 								// Register the event with the node
-								node->InEvs[OLO_IDENTIFIER(cleanName.c_str())] = *inputEvent;
+								node->InEvs[OloEngine::Identifier(cleanName.c_str())] = *inputEvent;
 								
 								return true;
 							}
@@ -97,13 +97,13 @@ namespace OloEngine::Audio::SoundGraph {
 								{
 									// Pointer members - these will be connected to input streams
 									using UnderlyingType = std::remove_pointer_t<ValueType>;
-									node->AddParameter<UnderlyingType>(OLO_IDENTIFIER(cleanName.c_str()), cleanName, UnderlyingType{});
+									node->AddParameter<UnderlyingType>(OloEngine::Identifier(cleanName.c_str()), cleanName, UnderlyingType{});
 									return true;
 								}
 								else
 								{
 									// Direct value members
-									node->AddParameter<ValueType>(OLO_IDENTIFIER(cleanName.c_str()), cleanName, node->*memberPtr);
+									node->AddParameter<ValueType>(OloEngine::Identifier(cleanName.c_str()), cleanName, node->*memberPtr);
 									return true;
 								}
 							}
@@ -146,7 +146,7 @@ namespace OloEngine::Audio::SoundGraph {
 								NodeProcessor::OutputEvent& outputEvent = node->*memberPtr;
 								
 								// Register the output event with the node
-								node->OutEvs[OLO_IDENTIFIER(cleanName.c_str())] = outputEvent;
+								node->OutEvs[OloEngine::Identifier(cleanName.c_str())] = outputEvent;
 								
 								return true;
 							}
@@ -196,7 +196,7 @@ namespace OloEngine::Audio::SoundGraph {
 								{
 									// Connect pointer members to parameter system
 									using UnderlyingType = std::remove_pointer_t<ValueType>;
-									auto param = node->template GetParameter<UnderlyingType>(OLO_IDENTIFIER(cleanName.c_str()));
+									auto param = node->template GetParameter<UnderlyingType>(OloEngine::Identifier(cleanName.c_str()));
 									if (param)
 									{
 										node->*memberPtr = &param->Value;

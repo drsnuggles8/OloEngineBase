@@ -18,6 +18,8 @@ namespace OloEngine::Audio
         /// Apply a gain ramp to an interleaved buffer
         static inline void ApplyGainRamp(f32* data, u32 numSamples, u32 numChannels, f32 gainStart, f32 gainEnd)
         {
+            OLO_PROFILE_FUNCTION();
+
             // Guard against division by zero
             if (numSamples == 0)
                 return;
@@ -42,6 +44,8 @@ namespace OloEngine::Audio
         /// Apply a gain ramp to a single channel in an interleaved buffer
         static inline void ApplyGainRampToSingleChannel(f32* data, u32 numSamples, u32 numChannels, u32 channel, f32 gainStart, f32 gainEnd)
         {
+            OLO_PROFILE_FUNCTION();
+
             // Guard against invalid parameters
             if (numSamples == 0 || numChannels == 0 || channel >= numChannels)
                 return;
@@ -65,6 +69,8 @@ namespace OloEngine::Audio
         static inline void AddAndApplyGainRamp(f32* dest, const f32* source, u32 destChannel, u32 sourceChannel,
                                              u32 destNumChannels, u32 sourceNumChannels, u32 numSamples, f32 gainStart, f32 gainEnd)
         {
+            OLO_PROFILE_FUNCTION();
+
             // Guard against invalid parameters
             if (destNumChannels == 0 || sourceNumChannels == 0 || destChannel >= destNumChannels || sourceChannel >= sourceNumChannels)
                 return;
@@ -99,6 +105,8 @@ namespace OloEngine::Audio
         static inline void AddAndApplyGain(f32* dest, const f32* source, u32 destChannel, u32 sourceChannel,
                                          u32 destNumChannels, u32 sourceNumChannels, u32 numSamples, f32 gain)
         {
+            OLO_PROFILE_FUNCTION();
+
             // Guard against invalid parameters
             if (destNumChannels == 0 || sourceNumChannels == 0 || destChannel >= destNumChannels || sourceChannel >= sourceNumChannels)
                 return;
@@ -107,15 +115,33 @@ namespace OloEngine::Audio
                 dest[i * destNumChannels + destChannel] += source[i * sourceNumChannels + sourceChannel] * gain;
         }
 
-        /// Compare buffer contents for equality
+        /// Compare buffer contents for bit-exact equality
+        /// NOTE: Uses exact floating-point comparison (==). This only returns true if buffers
+        /// are bit-for-bit identical (e.g., exact memory copies). Due to floating-point precision,
+        /// mathematically equivalent values may differ slightly after arithmetic operations.
+        /// For approximate equality testing (e.g., after audio processing), use ContentMatchesApprox instead.
         static bool ContentMatches(const f32* buffer1, const f32* buffer2, u32 frameCount, u32 numChannels)
         {
+            OLO_PROFILE_FUNCTION();
+            
+            // Optimization: use memcmp for bit-exact comparison
+            const sizet totalSamples = static_cast<sizet>(frameCount) * static_cast<sizet>(numChannels);
+            return std::memcmp(buffer1, buffer2, totalSamples * sizeof(f32)) == 0;
+        }
+
+        /// Compare buffer contents for approximate equality within epsilon tolerance
+        /// This is typically more appropriate for audio processing where floating-point
+        /// precision errors are expected after arithmetic operations.
+        static bool ContentMatchesApprox(const f32* buffer1, const f32* buffer2, u32 frameCount, u32 numChannels, f32 epsilon = 1e-6f)
+        {
+            OLO_PROFILE_FUNCTION();
+            
             for (u32 frame = 0; frame < frameCount; ++frame)
             {
                 for (u32 chan = 0; chan < numChannels; ++chan)
                 {
                     const auto pos = frame * numChannels + chan;
-                    if (buffer1[pos] != buffer2[pos])
+                    if (std::abs(buffer1[pos] - buffer2[pos]) > epsilon)
                         return false;
                 }
             }
@@ -126,6 +152,8 @@ namespace OloEngine::Audio
         /// Add two deinterleaved buffers together
         static inline void AddDeinterleaved(f32* dest, const f32* source, u32 numSamples)
         {
+            OLO_PROFILE_FUNCTION();
+
             for (u32 i = 0; i < numSamples; ++i)
                 dest[i] += source[i];
         }
@@ -134,10 +162,12 @@ namespace OloEngine::Audio
         template<typename SampleType>
         static void Deinterleave(choc::buffer::ChannelArrayBuffer<SampleType>& dest, const f32* source)
         {
+            OLO_PROFILE_FUNCTION();
+
             auto numChannels = dest.getNumChannels();
             auto destData = dest.getView().data.channels;
 
-            for (u32 ch = 0; ch < dest.getNumChannels(); ++ch)
+            for (u32 ch = 0; ch < numChannels; ++ch)
             {
                 for (u32 s = 0; s < dest.getNumFrames(); ++s)
                 {
@@ -150,10 +180,12 @@ namespace OloEngine::Audio
         template <typename SampleType>
         static void Interleave(f32* dest, const choc::buffer::ChannelArrayBuffer<SampleType>& source)
         {
+            OLO_PROFILE_FUNCTION();
+
             auto numChannels = source.getNumChannels();
             auto sourceData = source.getView().data.channels;
 
-            for (u32 ch = 0; ch < source.getNumChannels(); ++ch)
+            for (u32 ch = 0; ch < numChannels; ++ch)
             {
                 for (u32 s = 0; s < source.getNumFrames(); ++s)
                 {
@@ -165,6 +197,8 @@ namespace OloEngine::Audio
         /// Convert interleaved audio to deinterleaved format using raw pointers
         static void Deinterleave(f32* const* dest, const f32* source, u32 numChannels, u32 numSamples)
         {
+            OLO_PROFILE_FUNCTION();
+
             for (u32 ch = 0; ch < numChannels; ++ch)
             {
                 for (u32 s = 0; s < numSamples; ++s)
@@ -177,6 +211,8 @@ namespace OloEngine::Audio
         /// Convert deinterleaved audio to interleaved format using raw pointers
         static void Interleave(f32* dest, const f32* const* source, u32 numChannels, u32 numSamples)
         {
+            OLO_PROFILE_FUNCTION();
+
             for (u32 ch = 0; ch < numChannels; ++ch)
             {
                 for (u32 s = 0; s < numSamples; ++s)
@@ -190,6 +226,8 @@ namespace OloEngine::Audio
         template<typename T, template<typename> typename LayoutType>
         static double GetMagnitude(const choc::buffer::BufferView<T, LayoutType>& buffer, i32 startSample, i32 numSamples)
         {
+            OLO_PROFILE_FUNCTION();
+
             // Early return for invalid parameters
             if (numSamples <= 0 || startSample < 0 || startSample >= static_cast<i32>(buffer.getNumFrames()))
                 return 0.0;
@@ -228,12 +266,16 @@ namespace OloEngine::Audio
         template<typename SampleType>
         static void Clear(choc::buffer::ChannelArrayBuffer<SampleType>& buffer)
         {
+            OLO_PROFILE_FUNCTION();
+
             buffer.clear();
         }
 
         /// Clear an interleaved buffer with zeros
         static void Clear(f32* data, u32 numSamples, u32 numChannels)
         {
+            OLO_PROFILE_FUNCTION();
+
             std::memset(data, 0, numSamples * numChannels * sizeof(f32));
         }
     };

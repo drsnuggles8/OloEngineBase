@@ -68,20 +68,15 @@ namespace OloEngine::Audio::SoundGraph
         //==============================================================================
         /// Global Controls
 
-        // Set master volume for all sound graph sources
         void SetMasterVolume(f32 volume);
         f32 GetMasterVolume() const { return m_MasterVolume; }
 
-        // Update all sound graphs (called from main thread)
         void Update(f64 deltaTime);
 
         //==============================================================================
         /// Debug and Statistics
 
-        // Get number of active sound graph sources
         u32 GetActiveSourceCount() const;
-
-        // Get total number of managed sources
         u32 GetTotalSourceCount() const 
         { 
             std::lock_guard<std::mutex> lock(m_Mutex);

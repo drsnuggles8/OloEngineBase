@@ -272,15 +272,13 @@ namespace OloEngine::Audio::SoundGraph
 	}
 
 	//==============================================================================
-	/// Parameter system (OloEngine enhancement over Hazel)		//==============================================================================
-		/// Parameter debugging/introspection (publicly accessible)
-		
-		struct ParameterInfo
-		{
-			Identifier ID;
-			std::string DebugName;
-			std::string TypeName;
-		};
+	/// Parameter system (OloEngine enhancement over Hazel)		
+	struct ParameterInfo
+	{
+		Identifier ID;
+		std::string DebugName;
+		std::string TypeName;
+	};
 	std::unordered_map<Identifier, ParameterInfo> ParameterInfos;
 	
 	/// Storage for parameter values (for GetParameter access)
@@ -312,36 +310,36 @@ namespace OloEngine::Audio::SoundGraph
 	/// StreamWriter - Utility for writing values to streams
 	struct StreamWriter : public NodeProcessor
 	{
-	template<typename T>
-	explicit StreamWriter(const choc::value::ValueView& destination, T&& externalObjectOrDefaultValue, Identifier destinationID, UUID id = UUID()) noexcept
-		: NodeProcessor("Stream Writer", id)
-		, DestinationID(destinationID)
-		, OutputValue(std::forward<T>(externalObjectOrDefaultValue))
-		, DestinationView(destination)
-	{
-		// Write the default value into the destination immediately
-		DestinationView = OutputValue;
-	}
+		template<typename T>
+		explicit StreamWriter(const choc::value::ValueView& destination, T&& externalObjectOrDefaultValue, Identifier destinationID, UUID id = UUID()) noexcept
+			: NodeProcessor("Stream Writer", id)
+			, DestinationID(destinationID)
+			, OutputValue(std::forward<T>(externalObjectOrDefaultValue))
+			, DestinationView(destination)
+		{
+			// Write the default value into the destination immediately
+			DestinationView = OutputValue;
+		}
 
-	// Explicitly delete copy and move operations to prevent dangling references
-	StreamWriter(const StreamWriter&) = delete;
-	StreamWriter& operator=(const StreamWriter&) = delete;
-	StreamWriter(StreamWriter&&) = delete;
-	StreamWriter& operator=(StreamWriter&&) = delete;
+		// Explicitly delete copy and move operations to prevent dangling references
+		StreamWriter(const StreamWriter&) = delete;
+		StreamWriter& operator=(const StreamWriter&) = delete;
+		StreamWriter(StreamWriter&&) = delete;
+		StreamWriter& operator=(StreamWriter&&) = delete;
 
-	inline void operator<<(float value) noexcept
-	{
-		OutputValue = choc::value::Value(value);
-		DestinationView = OutputValue;
-	}
+		inline void operator<<(float value) noexcept
+		{
+			OutputValue = choc::value::Value(value);
+			DestinationView = OutputValue;
+		}
 
-	template<typename T>
-	typename std::enable_if_t<!std::is_same_v<std::decay_t<T>, choc::value::Value>>
-	operator<<(T value) noexcept
-	{
-		OutputValue = choc::value::Value(value);
-		DestinationView = OutputValue;
-	}
+		template<typename T>
+		typename std::enable_if_t<!std::is_same_v<std::decay_t<T>, choc::value::Value>>
+		operator<<(T value) noexcept
+		{
+			OutputValue = choc::value::Value(value);
+			DestinationView = OutputValue;
+		}
 
 		Identifier DestinationID;
 		choc::value::Value OutputValue;

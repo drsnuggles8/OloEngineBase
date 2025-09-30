@@ -14,6 +14,12 @@ namespace OloEngine
 		ma_engine_config config = ::ma_engine_config_init();
 		config.listenerCount = 1;
 
+		if (s_Engine)
+		{
+			OLO_CORE_WARN("[AudioEngine] Already initialized.");
+			return true;
+		}
+
 		s_Engine = new ma_engine();
 		ma_result result = ::ma_engine_init(nullptr, s_Engine);
 		
@@ -34,6 +40,7 @@ namespace OloEngine
 
 	void AudioEngine::Shutdown()
 	{
+		OLO_PROFILE_FUNCTION();
 		OLO_CORE_TRACE("[AudioEngine] Shutting down.");
 
 		if (s_Engine)

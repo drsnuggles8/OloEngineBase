@@ -5,10 +5,14 @@
 
 #include <miniaudio.h>
 #include <algorithm>
-#include <fstream>
 
 namespace OloEngine::Audio
 {
+	// Common audio formats supported by miniaudio
+	static const std::vector<std::string> s_SupportedExtensions = {
+		".wav", ".mp3", ".flac", ".ogg"
+	};
+
 	bool AudioLoader::LoadAudioFile(const std::filesystem::path& filePath, AudioData& outAudioData)
 	{
 		OLO_PROFILE_FUNCTION();
@@ -480,19 +484,17 @@ namespace OloEngine::Audio
 	{
 		// Convert to lowercase for case-insensitive comparison
 		std::string lowerExt = extension;
-		std::transform(lowerExt.begin(), lowerExt.end(), lowerExt.begin(), ::tolower);
+		std::transform(lowerExt.begin(), lowerExt.end(), lowerExt.begin(), [](unsigned char c)
+		{
+			return static_cast<char>(std::tolower(c));
+		});
 
-		// Common audio formats supported by miniaudio
-		static const std::vector<std::string> supportedExtensions = {
-			".wav", ".mp3", ".flac", ".ogg"
-		};
-
-		return std::find(supportedExtensions.begin(), supportedExtensions.end(), lowerExt) != supportedExtensions.end();
+		return std::find(s_SupportedExtensions.begin(), s_SupportedExtensions.end(), lowerExt) != s_SupportedExtensions.end();
 	}
 
 	std::vector<std::string> AudioLoader::GetSupportedExtensions()
 	{
-		return {".wav", ".mp3", ".flac", ".ogg"};
+		return s_SupportedExtensions;
 	}
 
 } // namespace OloEngine::Audio

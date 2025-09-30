@@ -302,7 +302,7 @@ namespace OloEngine::Audio::SoundGraph
 						m_WaveSource.TotalFrames = m_AudioData.numFrames;
 						
 						// Set up refill callback to read from loaded audio data
-						m_WaveSource.onRefill = [this](Audio::WaveSource& source) -> bool {
+						m_WaveSource.m_OnRefill = [this](Audio::WaveSource& source) -> bool {
 							return FillBufferFromAudioData(source);
 						};
 						
@@ -386,7 +386,7 @@ namespace OloEngine::Audio::SoundGraph
 	public:
 		void ForceRefillBuffer()
 		{
-			if (m_WaveSource.WaveHandle && m_WaveSource.onRefill)
+			if (m_WaveSource.WaveHandle && m_WaveSource.m_OnRefill)
 			{
 				m_WaveSource.ReadPosition = m_FrameNumber;
 				[[maybe_unused]] bool refillSuccess = m_WaveSource.Refill();
@@ -423,7 +423,7 @@ namespace OloEngine::Audio::SoundGraph
 				else
 				{
 					// No data available - try to refill buffer (only if we haven't exceeded retry limit)
-					if (retryCount < maxRefillRetries && m_WaveSource.onRefill && m_WaveSource.Refill())
+					if (retryCount < maxRefillRetries && m_WaveSource.m_OnRefill && m_WaveSource.Refill())
 					{
 						// Buffer refilled, continue loop to try reading again
 						continue;

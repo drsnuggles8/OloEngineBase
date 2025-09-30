@@ -29,6 +29,8 @@ namespace OloEngine::Audio::SoundGraph
 	//==============================================================================
 	std::unique_ptr<NodeProcessor> Factory::Create(Identifier nodeTypeID, UUID nodeID)
 	{
+		OLO_PROFILE_FUNCTION();
+		
 		auto it = NodeProcessors.find(nodeTypeID);
 		if (it == NodeProcessors.end())
 		{
