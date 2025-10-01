@@ -113,17 +113,17 @@ namespace OloEngine
                 case AssetType::Shader:              return "Shader";
                 case AssetType::MeshCollider:        return "MeshCollider";
                 case AssetType::SoundGraphSound:     return "SoundGraphSound";
-                case AssetType::SoundGraph:          return "SoundGraph";
                 case AssetType::AnimationClip:       return "AnimationClip";
                 case AssetType::AnimationGraph:      return "AnimationGraph";
                 case AssetType::Model:               return "Model";
                 case AssetType::Environment:         return "Environment";
+				case AssetType::SoundGraph:          return "SoundGraph";
             }
-
+			
             OLO_CORE_ASSERT(false, "Unknown Asset Type");
             return "None";
         }
-
+		
         /**
          * @brief Convert string representation to AssetType enum
          * @param assetType String representation of the asset type
@@ -150,13 +150,13 @@ namespace OloEngine
             if (assetType == "ScriptFile")          return AssetType::ScriptFile;
             if (assetType == "Shader")              return AssetType::Shader;
             if (assetType == "MeshCollider")        return AssetType::MeshCollider;
-            if (assetType == "SoundGraph")          return AssetType::SoundGraph;
+            if (assetType == "SoundGraphSound")     return AssetType::SoundGraphSound;
             if (assetType == "AnimationClip")       return AssetType::AnimationClip;
             //if (assetType == "AnimationController") return AssetType::AnimationController; // OBSOLETE. You need to re-import animated asset
             if (assetType == "AnimationGraph")      return AssetType::AnimationGraph;
             if (assetType == "Model")               return AssetType::Model;
             if (assetType == "Environment")         return AssetType::Environment;
-            if (assetType == "SoundGraphSound")     return AssetType::SoundGraphSound;
+            if (assetType == "SoundGraph")          return AssetType::SoundGraph;
 
             return AssetType::None;
         }

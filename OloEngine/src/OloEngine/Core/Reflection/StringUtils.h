@@ -18,7 +18,7 @@ namespace OloEngine::Core::Reflection::StringUtils {
 
 	constexpr bool EndsWith(std::string_view text, std::string_view suffix)
 	{
-		auto len1 = text.length(), len2 = suffix.length();
+		sizet len1 = text.length(), len2 = suffix.length();
 		return len1 >= len2 && text.substr(len1 - len2) == suffix;
 	}
 

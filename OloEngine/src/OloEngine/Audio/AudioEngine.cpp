@@ -10,6 +10,8 @@ namespace OloEngine
 
 	bool AudioEngine::Init()
 	{
+		OLO_PROFILE_FUNCTION();
+
 		OLO_CORE_TRACE("[AudioEngine] Initializing.");
 		ma_engine_config config = ::ma_engine_config_init();
 		config.listenerCount = 1;
@@ -30,7 +32,7 @@ namespace OloEngine
 		}
 		else
 		{
-			OLO_CORE_ERROR("[AudioEngine] Failed to initialize audio engine! Error code: {}", static_cast<int>(result));
+			OLO_CORE_ERROR("[AudioEngine] Failed to initialize audio engine! Error code: {}", static_cast<i32>(result));
 			delete s_Engine;
 			s_Engine = nullptr;
 			OLO_CORE_ASSERT(false, "Failed to initialize audio engine!");

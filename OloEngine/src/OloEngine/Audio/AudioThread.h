@@ -61,11 +61,13 @@ namespace OloEngine::Audio
 
         static void AudioThreadLoop();
         static void ProcessTasks();
+        static void ClearPendingTasks();
 
         // Thread management
         static std::unique_ptr<std::thread> s_AudioThread;
         static std::atomic<bool> s_ShouldStop;
-        static std::atomic<bool> s_IsRunning;
+        static std::atomic<bool> s_IsRunning;      // Ownership flag for start/stop
+        static std::atomic<bool> s_IsInitialized;  // Thread initialization completion flag
         static std::thread::id s_AudioThreadID;
 
         // Task queue (lock-free would be better, but using mutex for simplicity)

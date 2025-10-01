@@ -9,6 +9,7 @@ namespace OloEngine::Audio
     std::unique_ptr<std::thread> AudioThread::s_AudioThread = nullptr;
     std::atomic<bool> AudioThread::s_ShouldStop{ false };
     std::atomic<bool> AudioThread::s_IsRunning{ false };
+    std::atomic<bool> AudioThread::s_IsInitialized{ false };
     std::thread::id AudioThread::s_AudioThreadID{};
     
     std::queue<std::unique_ptr<AudioThread::CompletionToken>> AudioThread::s_TaskQueue{};
@@ -20,6 +21,8 @@ namespace OloEngine::Audio
 
     bool AudioThread::Start()
     {
+		OLO_PROFILE_FUNCTION();
+
         // Serialize start operations to prevent race conditions
         std::lock_guard<std::mutex> startLock(s_StartStopMutex);
         
@@ -31,6 +34,8 @@ namespace OloEngine::Audio
             return false;
         }
 
+        // Reset initialization flag before starting thread
+        s_IsInitialized.store(false, std::memory_order_relaxed);
         s_ShouldStop.store(false);
         
         try
@@ -51,16 +56,18 @@ namespace OloEngine::Audio
             return false;
         }
         
-        // Wait for thread to start (thread loop will confirm it's running)
+        // Wait for thread initialization to complete (thread loop will signal via s_IsInitialized)
         std::unique_lock<std::mutex> lock(s_TaskQueueMutex);
-        s_TaskCondition.wait(lock, [] { return s_IsRunning.load(); });
+        s_TaskCondition.wait(lock, [] { return s_IsInitialized.load(); });
         
-        OLO_CORE_INFO("AudioThread started with ID: {}", (void*)&s_AudioThreadID);
+        OLO_CORE_INFO("AudioThread started with ID: {}", std::hash<std::thread::id>{}(s_AudioThreadID));
         return true;
     }
 
     void AudioThread::Stop()
     {
+		OLO_PROFILE_FUNCTION();
+
         // Serialize stop operations with start operations
         std::lock_guard<std::mutex> startLock(s_StartStopMutex);
         
@@ -80,19 +87,7 @@ namespace OloEngine::Audio
             OLO_CORE_WARN("AudioThread::Stop() called from within audio thread - performing local cleanup only");
             
             // Clear any remaining tasks
-            {
-                std::lock_guard<std::mutex> lock(s_TaskQueueMutex);
-                while (!s_TaskQueue.empty())
-                {
-                    auto token = std::move(s_TaskQueue.front());
-                    s_TaskQueue.pop();
-                    token->promise.set_exception(
-                        std::make_exception_ptr(std::runtime_error("AudioThread stopped before executing task")));
-                }
-                s_PendingTasks.store(0);
-                // Notify any threads waiting for task completion
-                s_CompletionCondition.notify_all();
-            }
+            ClearPendingTasks();
             
             // Note: s_IsRunning, thread join, and reset will be handled by the thread loop exit
             // or by an external thread calling Stop() again
@@ -108,23 +103,12 @@ namespace OloEngine::Audio
         s_AudioThread.reset();
         s_AudioThreadID = std::thread::id{};
         
-        // Only clear s_IsRunning after thread has been joined
+        // Clear initialization and running flags after thread has been joined
+        s_IsInitialized.store(false);
         s_IsRunning.store(false);
         
         // Clear any remaining tasks
-        {
-            std::lock_guard<std::mutex> lock(s_TaskQueueMutex);
-            while (!s_TaskQueue.empty())
-            {
-                auto token = std::move(s_TaskQueue.front());
-                s_TaskQueue.pop();
-                token->promise.set_exception(
-                    std::make_exception_ptr(std::runtime_error("AudioThread stopped before executing task")));
-            }
-            s_PendingTasks.store(0);
-            // Notify any threads waiting for task completion
-            s_CompletionCondition.notify_all();
-        }
+        ClearPendingTasks();
 
         OLO_CORE_INFO("AudioThread stopped");
     }
@@ -148,6 +132,8 @@ namespace OloEngine::Audio
 
     std::future<void> AudioThread::ExecuteOnAudioThread(Task task, bool waitForCompletion)
     {
+		OLO_PROFILE_FUNCTION();
+
         if (!task)
         {
             OLO_CORE_ERROR("Cannot execute null task on AudioThread");
@@ -214,15 +200,17 @@ namespace OloEngine::Audio
 
     void AudioThread::AudioThreadLoop()
     {
+		OLO_PROFILE_FUNCTION();
+
         s_AudioThreadID = std::this_thread::get_id();
-        s_IsRunning.store(true);
         
         // Set thread priority (platform-specific)
         #ifdef OLO_PLATFORM_WINDOWS
             SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
         #endif
         
-        // Notify that thread has started
+        // Signal that thread initialization is complete
+        s_IsInitialized.store(true);
         s_TaskCondition.notify_all();
         
         OLO_CORE_INFO("AudioThread loop started");
@@ -230,9 +218,6 @@ namespace OloEngine::Audio
         while (!s_ShouldStop.load())
         {
             ProcessTasks();
-            
-            // Small sleep to prevent busy waiting
-            std::this_thread::sleep_for(std::chrono::microseconds(100));
         }
 
         OLO_CORE_INFO("AudioThread loop ended");
@@ -244,6 +229,8 @@ namespace OloEngine::Audio
 
     void AudioThread::ProcessTasks()
     {
+		OLO_PROFILE_FUNCTION();
+		
         std::unique_lock<std::mutex> lock(s_TaskQueueMutex);
         
         // Wait for tasks or stop signal
@@ -274,6 +261,21 @@ namespace OloEngine::Audio
         }
         
         // Notify completion
+        s_CompletionCondition.notify_all();
+    }
+
+    void AudioThread::ClearPendingTasks()
+    {
+        std::lock_guard<std::mutex> lock(s_TaskQueueMutex);
+        while (!s_TaskQueue.empty())
+        {
+            auto token = std::move(s_TaskQueue.front());
+            s_TaskQueue.pop();
+            token->promise.set_exception(
+                std::make_exception_ptr(std::runtime_error("AudioThread stopped before executing task")));
+        }
+        s_PendingTasks.store(0);
+        // Notify any threads waiting for task completion
         s_CompletionCondition.notify_all();
     }
 

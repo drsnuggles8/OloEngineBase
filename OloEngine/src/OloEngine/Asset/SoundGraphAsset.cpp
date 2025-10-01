@@ -8,7 +8,9 @@ namespace OloEngine
 {
     bool SoundGraphAsset::HasNode(const UUID& nodeId) const
     {
-        for (const auto& node : Nodes)
+        OLO_PROFILE_FUNCTION();
+
+        for (const auto& node : m_Nodes)
         {
             if (node.ID == nodeId)
                 return true;
@@ -18,7 +20,9 @@ namespace OloEngine
 
     SoundGraphNodeData* SoundGraphAsset::GetNode(const UUID& nodeId)
     {
-        for (auto& node : Nodes)
+        OLO_PROFILE_FUNCTION();
+        
+        for (auto& node : m_Nodes)
         {
             if (node.ID == nodeId)
                 return &node;
@@ -28,7 +32,9 @@ namespace OloEngine
 
     const SoundGraphNodeData* SoundGraphAsset::GetNode(const UUID& nodeId) const
     {
-        for (const auto& node : Nodes)
+        OLO_PROFILE_FUNCTION();
+
+        for (const auto& node : m_Nodes)
         {
             if (node.ID == nodeId)
                 return &node;
@@ -38,10 +44,12 @@ namespace OloEngine
 
     bool SoundGraphAsset::AddNode(const SoundGraphNodeData& node)
     {
+        OLO_PROFILE_FUNCTION();
+
         // Ensure node ID is unique
         if (!HasNode(node.ID))
         {
-            Nodes.push_back(node);
+            m_Nodes.push_back(node);
             return true;
         }
         return false;
@@ -49,20 +57,22 @@ namespace OloEngine
 
     bool SoundGraphAsset::RemoveNode(const UUID& nodeId)
     {
-        auto it = std::find_if(Nodes.begin(), Nodes.end(),
+        OLO_PROFILE_FUNCTION();
+
+        auto it = std::find_if(m_Nodes.begin(), m_Nodes.end(),
             [nodeId](const SoundGraphNodeData& node) { return node.ID == nodeId; });
         
-        if (it != Nodes.end())
+        if (it != m_Nodes.end())
         {
-            Nodes.erase(it);
+            m_Nodes.erase(it);
             
             // Remove all connections involving this node
-            Connections.erase(
-                std::remove_if(Connections.begin(), Connections.end(),
+            m_Connections.erase(
+                std::remove_if(m_Connections.begin(), m_Connections.end(),
                     [nodeId](const SoundGraphConnection& conn) {
                         return conn.SourceNodeID == nodeId || conn.TargetNodeID == nodeId;
                     }),
-                Connections.end()
+                m_Connections.end()
             );
             
             return true;
@@ -72,10 +82,12 @@ namespace OloEngine
 
     bool SoundGraphAsset::AddConnection(const SoundGraphConnection& connection)
     {
+        OLO_PROFILE_FUNCTION();
+
         // Validate nodes exist
         if (HasNode(connection.SourceNodeID) && HasNode(connection.TargetNodeID))
         {
-            Connections.push_back(connection);
+            m_Connections.push_back(connection);
             return true;
         }
         return false;
@@ -85,7 +97,9 @@ namespace OloEngine
                                          const UUID& targetNodeId, const std::string& targetEndpoint,
                                          bool isEvent)
     {
-        auto it = std::find_if(Connections.begin(), Connections.end(),
+        OLO_PROFILE_FUNCTION();
+
+        auto it = std::find_if(m_Connections.begin(), m_Connections.end(),
             [&](const SoundGraphConnection& conn) {
                 return conn.SourceNodeID == sourceNodeId &&
                        conn.SourceEndpoint == sourceEndpoint &&
@@ -94,9 +108,9 @@ namespace OloEngine
                        conn.IsEvent == isEvent;
             });
         
-        if (it != Connections.end())
+        if (it != m_Connections.end())
         {
-            Connections.erase(it);
+            m_Connections.erase(it);
             return true;
         }
         return false;
@@ -104,26 +118,30 @@ namespace OloEngine
 
     void SoundGraphAsset::Clear()
     {
-        Name.clear();
-        Description.clear();
-        Nodes.clear();
-        Connections.clear();
-        GraphInputs.clear();
-        GraphOutputs.clear();
-        LocalVariables.clear();
+        OLO_PROFILE_FUNCTION();
+
+        m_Name.clear();
+        m_Description.clear();
+        m_Nodes.clear();
+        m_Connections.clear();
+        m_GraphInputs.clear();
+        m_GraphOutputs.clear();
+        m_LocalVariables.clear();
         // CompiledPrototype.Reset(); // TODO: Uncomment when SoundGraphPrototype is implemented
         m_WaveSources.clear();
     }
 
     bool SoundGraphAsset::IsValid() const
     {
+        OLO_PROFILE_FUNCTION();
+
         // Basic validation
-        if (Nodes.empty())
+        if (m_Nodes.empty())
             return false;
 
         // Check for nodes with duplicate IDs
         std::unordered_set<UUID> nodeIds;
-        for (const auto& node : Nodes)
+        for (const auto& node : m_Nodes)
         {
             if (nodeIds.find(node.ID) != nodeIds.end())
                 return false; // Duplicate node ID found
@@ -131,7 +149,7 @@ namespace OloEngine
         }
 
         // Validate all connections reference existing nodes
-        for (const auto& connection : Connections)
+        for (const auto& connection : m_Connections)
         {
             if (!HasNode(connection.SourceNodeID) || !HasNode(connection.TargetNodeID))
                 return false;
@@ -142,14 +160,16 @@ namespace OloEngine
 
     std::vector<std::string> SoundGraphAsset::GetValidationErrors() const
     {
+        OLO_PROFILE_FUNCTION();
+        
         std::vector<std::string> errors;
 
-        if (Nodes.empty())
+        if (m_Nodes.empty())
             errors.push_back("Sound graph has no nodes");
 
         // Check for nodes with duplicate IDs
         std::unordered_set<UUID> nodeIds;
-        for (const auto& node : Nodes)
+        for (const auto& node : m_Nodes)
         {
             if (nodeIds.find(node.ID) != nodeIds.end())
                 errors.push_back("Duplicate node ID: " + std::to_string(static_cast<u64>(node.ID)));
@@ -157,7 +177,7 @@ namespace OloEngine
         }
 
         // Validate connections
-        for (const auto& connection : Connections)
+        for (const auto& connection : m_Connections)
         {
             if (!HasNode(connection.SourceNodeID))
                 errors.push_back("Connection references non-existent source node: " + std::to_string(static_cast<u64>(connection.SourceNodeID)));

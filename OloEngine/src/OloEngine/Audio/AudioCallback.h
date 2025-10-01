@@ -27,8 +27,8 @@ namespace OloEngine::Audio
 
 		struct BusConfig
 		{
-			std::vector<u32> InputBuses;
-			std::vector<u32> OutputBuses;
+			std::vector<u32> m_InputBuses;
+			std::vector<u32> m_OutputBuses;
 		};
 
 		ma_node_base* GetNode() { return &m_Node.base; }
@@ -100,17 +100,17 @@ namespace OloEngine::Audio
 	protected:
 		bool InitBase(u32 sampleRate, u32 maxBlockSize, const BusConfig& busConfig) final
 		{
-			m_InDeinterleavedBuses.resize(busConfig.InputBuses.size());
+			m_InDeinterleavedBuses.resize(busConfig.m_InputBuses.size());
 			for (sizet i = 0; i < m_InDeinterleavedBuses.size(); ++i)
 			{
-				m_InDeinterleavedBuses[i].resize({ busConfig.InputBuses[i], maxBlockSize });
+				m_InDeinterleavedBuses[i].resize({ busConfig.m_InputBuses[i], maxBlockSize });
 				m_InDeinterleavedBuses[i].clear();
 			}
 
-			m_OutDeinterleavedBuses.resize(busConfig.OutputBuses.size());
+			m_OutDeinterleavedBuses.resize(busConfig.m_OutputBuses.size());
 			for (sizet i = 0; i < m_OutDeinterleavedBuses.size(); ++i)
 			{
-				m_OutDeinterleavedBuses[i].resize({ busConfig.OutputBuses[i], maxBlockSize });
+				m_OutDeinterleavedBuses[i].resize({ busConfig.m_OutputBuses[i], maxBlockSize });
 				m_OutDeinterleavedBuses[i].clear();
 			}
 
@@ -286,11 +286,11 @@ namespace OloEngine::Audio
 				if (ppFramesOut != nullptr && requestedFrames > 0)
 				{
 					// Zero all output channels for the requested frames
-					for (u32 busIndex = 0; busIndex < m_BusConfig.OutputBuses.size(); ++busIndex)
+					for (u32 busIndex = 0; busIndex < m_BusConfig.m_OutputBuses.size(); ++busIndex)
 					{
 						if (ppFramesOut[busIndex] != nullptr)
 						{
-							u32 channelCount = m_BusConfig.OutputBuses[busIndex];
+							u32 channelCount = m_BusConfig.m_OutputBuses[busIndex];
 							u32 totalSamples = channelCount * requestedFrames;
 							memset(ppFramesOut[busIndex], 0, totalSamples * sizeof(float));
 						}

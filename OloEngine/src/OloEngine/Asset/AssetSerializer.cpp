@@ -2558,8 +2558,8 @@ namespace OloEngine
 
     bool SoundGraphSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
-		OLO_PROFILE_FUNCTION();
-		
+        OLO_PROFILE_FUNCTION();
+        
         Ref<SoundGraphAsset> soundGraphAsset = Ref<SoundGraphAsset>::Create();
         
         // Resolve absolute path by anchoring to project asset directory

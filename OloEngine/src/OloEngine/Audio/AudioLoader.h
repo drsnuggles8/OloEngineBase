@@ -12,46 +12,46 @@ namespace OloEngine::Audio
     /// Audio data structure for loaded audio files
     struct AudioData
     {
-        std::vector<f32> samples;       // Interleaved audio samples (L, R, L, R...)
-        u32 numChannels = 0;            // Number of audio channels
-        u32 numFrames = 0;              // Total number of frames (not samples)
-        f64 sampleRate = 0.0;           // Sample rate in Hz
-        f64 duration = 0.0;             // Duration in seconds
-        u64 fileSize = 0;               // Original file size in bytes
+        std::vector<f32> m_Samples;       // Interleaved audio samples (L, R, L, R...)
+        u32 m_NumChannels = 0;            // Number of audio channels
+        u32 m_NumFrames = 0;              // Total number of frames (not samples)
+        f64 m_SampleRate = 0.0;           // Sample rate in Hz
+        f64 m_Duration = 0.0;             // Duration in seconds
+        u64 m_FileSize = 0;               // Original file size in bytes
         
         /// Clear all audio data
         void Clear()
         {
-            samples.clear();
-            numChannels = 0;
-            numFrames = 0;
-            sampleRate = 0.0;
-            duration = 0.0;
-            fileSize = 0;
+            m_Samples.clear();
+            m_NumChannels = 0;
+            m_NumFrames = 0;
+            m_SampleRate = 0.0;
+            m_Duration = 0.0;
+            m_FileSize = 0;
         }
         
         /// Check if audio data is valid
         bool IsValid() const 
         { 
-            if (samples.empty() || numChannels == 0 || numFrames == 0 || !std::isfinite(sampleRate) || sampleRate <= 0.0)
+            if (m_Samples.empty() || m_NumChannels == 0 || m_NumFrames == 0 || !std::isfinite(m_SampleRate) || m_SampleRate <= 0.0)
                 return false;
                 
-            const sizet expectedSampleCount = sizet(numFrames) * sizet(numChannels);
-            return samples.size() == expectedSampleCount;
+            const sizet expectedSampleCount = sizet(m_NumFrames) * sizet(m_NumChannels);
+            return m_Samples.size() == expectedSampleCount;
         }
         
         /// Get sample at specific frame and channel
         f32 GetSample(u64 frame, u32 channel) const
         {
-            if (frame >= numFrames || channel >= numChannels)
+            if (frame >= m_NumFrames || channel >= m_NumChannels)
                 return 0.0f;
             
-            u64 sampleIndex = frame * numChannels + channel;
-            return (sampleIndex < samples.size()) ? samples[sampleIndex] : 0.0f;
+            u64 sampleIndex = frame * m_NumChannels + channel;
+            return (sampleIndex < m_Samples.size()) ? m_Samples[sampleIndex] : 0.0f;
         }
         
         /// Get total number of samples (all channels)
-        u64 GetTotalSamples() const { return static_cast<u64>(samples.size()); }
+        u64 GetTotalSamples() const { return static_cast<u64>(m_Samples.size()); }
     };
 
     //==============================================================================

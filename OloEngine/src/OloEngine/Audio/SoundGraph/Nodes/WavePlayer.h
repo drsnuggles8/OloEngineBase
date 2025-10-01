@@ -265,7 +265,7 @@ namespace OloEngine::Audio::SoundGraph
 					if (AudioLoader::LoadAudioFile(metadata.FilePath, audioData))
 					{
 						OLO_CORE_INFO("WavePlayer: Loaded audio asset - {} channels, {} Hz, {:.2f}s duration",
-							audioData.numChannels, audioData.sampleRate, audioData.duration);
+							audioData.m_NumChannels, audioData.m_SampleRate, audioData.m_Duration);
 						return audioData;
 					}
 					else
@@ -299,7 +299,7 @@ namespace OloEngine::Audio::SoundGraph
 					{
 						// Success - swap in the loaded data on audio thread
 						m_AudioData = std::move(result.value());
-						m_WaveSource.TotalFrames = m_AudioData.numFrames;
+						m_WaveSource.TotalFrames = m_AudioData.m_NumFrames;
 						
 						// Set up refill callback to read from loaded audio data
 						m_WaveSource.m_OnRefill = [this](Audio::WaveSource& source) -> bool {
@@ -313,7 +313,7 @@ namespace OloEngine::Audio::SoundGraph
 					// Apply start time offset now that we have the data
 						if (in_StartTime && *in_StartTime > 0.0f)
 						{
-							f64 sampleRate = m_AudioData.sampleRate;
+							f64 sampleRate = m_AudioData.m_SampleRate;
 							m_StartSample = static_cast<i64>(*in_StartTime * sampleRate);
 							i64 maxSample = (m_TotalFrames > 0 ? m_TotalFrames - 1 : 0);
 							m_StartSample = glm::min(m_StartSample, maxSample);
@@ -450,14 +450,14 @@ namespace OloEngine::Audio::SoundGraph
 			
 			const u32 framesToRead = 1024; // Read chunk size
 			u64 startFrame = source.ReadPosition;
-			u64 endFrame = glm::min(startFrame + framesToRead, static_cast<u64>(m_AudioData.numFrames));
+			u64 endFrame = glm::min(startFrame + framesToRead, static_cast<u64>(m_AudioData.m_NumFrames));
 			
-			if (startFrame >= m_AudioData.numFrames) return false;
+			if (startFrame >= m_AudioData.m_NumFrames) return false;
 			
 			// Fill the circular buffer with interleaved audio data
 			for (u64 frame = startFrame; frame < endFrame; ++frame)
 			{
-				for (u32 channel = 0; channel < m_AudioData.numChannels; ++channel)
+				for (u32 channel = 0; channel < m_AudioData.m_NumChannels; ++channel)
 				{
 					f32 sample = m_AudioData.GetSample(frame, channel);
 					source.Channels.Push(sample);

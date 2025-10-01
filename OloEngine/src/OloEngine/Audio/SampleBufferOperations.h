@@ -185,11 +185,11 @@ namespace OloEngine::Audio
             auto numChannels = source.getNumChannels();
             auto sourceData = source.getView().data.channels;
 
-            for (u32 s = 0; s < dest.getNumFrames(); ++s)
+            for (u32 s = 0; s < source.getNumFrames(); ++s)
             {
                 for (u32 ch = 0; ch < numChannels; ++ch)
                 {
-                    destData[ch][s] = source[s * numChannels + ch];
+                    dest[s * numChannels + ch] = sourceData[ch][s];
                 }
             }
         }

@@ -71,14 +71,14 @@ namespace OloEngine::Audio::SoundGraph
 		out << YAML::Key << "SoundGraph" << YAML::Value;
 		out << YAML::BeginMap;
 		
-		out << YAML::Key << "Name" << YAML::Value << asset.Name;
+		out << YAML::Key << "Name" << YAML::Value << asset.m_Name;
 		out << YAML::Key << "Handle" << YAML::Value << asset.GetHandle();
 		
 		// Serialize nodes
 		out << YAML::Key << "Nodes" << YAML::Value;
 		out << YAML::BeginSeq;
 		
-		for (const auto& nodeData : asset.Nodes)
+		for (const auto& nodeData : asset.m_Nodes)
 		{
 			SerializeNodeData(out, nodeData);
 		}
@@ -89,7 +89,7 @@ namespace OloEngine::Audio::SoundGraph
 		out << YAML::Key << "Connections" << YAML::Value;
 		out << YAML::BeginSeq;
 		
-		for (const auto& connection : asset.Connections)
+		for (const auto& connection : asset.m_Connections)
 		{
 			SerializeConnection(out, connection);
 		}
@@ -134,15 +134,15 @@ namespace OloEngine::Audio::SoundGraph
 			
 			// Load metadata
 			if (soundGraphNode["Name"])
-				asset.Name = soundGraphNode["Name"].as<std::string>();
+				asset.m_Name = soundGraphNode["Name"].as<std::string>();
 			
 			// TODO: Handle deserialization requires friend access or public SetHandle
 			// if (soundGraphNode["Handle"])
 			// 	asset.SetHandle(UUID(soundGraphNode["Handle"].as<u64>()));
 			
 			// Clear existing data
-			asset.Nodes.clear();
-			asset.Connections.clear();
+			asset.m_Nodes.clear();
+			asset.m_Connections.clear();
 			
 			// Load nodes
 			if (soundGraphNode["Nodes"])
@@ -157,7 +157,7 @@ namespace OloEngine::Audio::SoundGraph
 					OloEngine::SoundGraphNodeData nodeData;
 					if (DeserializeNodeData(nodeYaml, nodeData))
 					{
-						asset.Nodes.push_back(nodeData);
+						asset.m_Nodes.push_back(nodeData);
 						validNodeCount++;
 					}
 				}
@@ -183,7 +183,7 @@ namespace OloEngine::Audio::SoundGraph
 					OloEngine::SoundGraphConnection connection;
 					if (DeserializeConnection(connectionYaml, connection))
 					{
-						asset.Connections.push_back(connection);
+						asset.m_Connections.push_back(connection);
 						validConnectionCount++;
 					}
 				}
@@ -196,7 +196,7 @@ namespace OloEngine::Audio::SoundGraph
 				}
 			}
 			
-			OLO_CORE_INFO("Successfully deserialized sound graph: {}", asset.Name);
+			OLO_CORE_INFO("Successfully deserialized sound graph: {}", asset.m_Name);
 			return true;
 		}
 		catch (const YAML::Exception& e)
@@ -347,7 +347,7 @@ namespace OloEngine::Audio::SoundGraph
 		// Create all nodes first
 		std::unordered_map<UUID, NodeProcessor*> nodeMap;
 		
-		for (const auto& nodeData : asset.Nodes)
+		for (const auto& nodeData : asset.m_Nodes)
 		{
 			// Convert UUID from NodeData to Identifier for CreateNode
 			Identifier nodeId = Identifier(static_cast<u64>(nodeData.ID));
@@ -370,7 +370,7 @@ namespace OloEngine::Audio::SoundGraph
 		}
 		
 		// Connect nodes
-		for (const auto& connection : asset.Connections)
+		for (const auto& connection : asset.m_Connections)
 		{
 			auto outputNodeIt = nodeMap.find(connection.SourceNodeID);
 			auto inputNodeIt = nodeMap.find(connection.TargetNodeID);
@@ -398,7 +398,7 @@ namespace OloEngine::Audio::SoundGraph
 		}
 		*/
 		
-		OLO_CORE_INFO("Created empty sound graph '{}' (TODO: implement node creation from asset)", asset.Name);
+		OLO_CORE_INFO("Created empty sound graph '{}' (TODO: implement node creation from asset)", asset.m_Name);
 		
 		return soundGraph;
 	}

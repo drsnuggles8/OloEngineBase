@@ -28,11 +28,11 @@ namespace OloEngine::Audio
 
 		// Get file size
 		std::error_code ec;
-		outAudioData.fileSize = std::filesystem::file_size(filePath, ec);
+		outAudioData.m_FileSize = std::filesystem::file_size(filePath, ec);
 		if (ec)
 		{
 			OLO_CORE_WARN("[AudioLoader] Could not get file size for: {}", filePath.string());
-			outAudioData.fileSize = 0;
+			outAudioData.m_FileSize = 0;
 		}
 
 		// Initialize miniaudio decoder
@@ -66,14 +66,14 @@ namespace OloEngine::Audio
 		}
 
 		// Store basic audio properties
-		outAudioData.numChannels = decoder.outputChannels;
-		outAudioData.sampleRate = static_cast<f64>(decoder.outputSampleRate);
+		outAudioData.m_NumChannels = decoder.outputChannels;
+		outAudioData.m_SampleRate = static_cast<f64>(decoder.outputSampleRate);
 
 		// Validate basic audio properties
-		if (outAudioData.numChannels == 0 || outAudioData.sampleRate <= 0.0)
+		if (outAudioData.m_NumChannels == 0 || outAudioData.m_SampleRate <= 0.0)
 		{
 			OLO_CORE_ERROR("[AudioLoader] Invalid basic audio properties for file: {} (channels: {}, sampleRate: {})", 
-				filePath.string(), outAudioData.numChannels, outAudioData.sampleRate);
+				filePath.string(), outAudioData.m_NumChannels, outAudioData.m_SampleRate);
 			ma_decoder_uninit(&decoder);
 			return false;
 		}
@@ -91,12 +91,12 @@ namespace OloEngine::Audio
 				return false;
 			}
 
-			outAudioData.numFrames = static_cast<u32>(totalFrames);
-			outAudioData.duration = static_cast<f64>(totalFrames) / outAudioData.sampleRate;
+			outAudioData.m_NumFrames = static_cast<u32>(totalFrames);
+			outAudioData.m_Duration = static_cast<f64>(totalFrames) / outAudioData.m_SampleRate;
 
 			// Allocate buffer for audio data
-			const u64 totalSamples = static_cast<u64>(outAudioData.numFrames) * outAudioData.numChannels;
-			const u64 maxSamples = static_cast<u64>(outAudioData.samples.max_size());
+			const u64 totalSamples = static_cast<u64>(outAudioData.m_NumFrames) * outAudioData.m_NumChannels;
+			const u64 maxSamples = static_cast<u64>(outAudioData.m_Samples.max_size());
 			if (totalSamples > maxSamples)
 			{
 				OLO_CORE_ERROR("[AudioLoader] Audio buffer too large for file: {} (samples: {}, max: {})",
@@ -104,11 +104,11 @@ namespace OloEngine::Audio
 				ma_decoder_uninit(&decoder);
 				return false;
 			}
-			outAudioData.samples.resize(static_cast<size_t>(totalSamples));
+			outAudioData.m_Samples.resize(static_cast<size_t>(totalSamples));
 
 			// Read audio data in one go
 			ma_uint64 framesRead;
-			result = ma_decoder_read_pcm_frames(&decoder, outAudioData.samples.data(), totalFrames, &framesRead);
+			result = ma_decoder_read_pcm_frames(&decoder, outAudioData.m_Samples.data(), totalFrames, &framesRead);
 			
 			if (result != MA_SUCCESS || framesRead != totalFrames)
 			{
@@ -126,7 +126,7 @@ namespace OloEngine::Audio
 				filePath.string());
 			
 			const u32 chunkFrames = 4096; // Read 4096 frames at a time
-			const u32 chunkSamples = chunkFrames * outAudioData.numChannels;
+			const u32 chunkSamples = chunkFrames * outAudioData.m_NumChannels;
 			std::vector<f32> chunkBuffer(chunkSamples);
 			
 			ma_uint64 totalFramesRead = 0;
@@ -159,12 +159,12 @@ namespace OloEngine::Audio
 				}
 				
 				// Append samples to output
-				const u64 samplesToAppend = framesRead * outAudioData.numChannels;
-				const u64 currentSize = outAudioData.samples.size();
+				const u64 samplesToAppend = framesRead * outAudioData.m_NumChannels;
+				const u64 currentSize = outAudioData.m_Samples.size();
 				const u64 newSize = currentSize + samplesToAppend;
 				
 				// Check for sample buffer overflow
-				if (newSize > outAudioData.samples.max_size())
+				if (newSize > outAudioData.m_Samples.max_size())
 				{
 					OLO_CORE_ERROR("[AudioLoader] Sample buffer overflow during streaming read from file: {}", 
 						filePath.string());
@@ -173,8 +173,8 @@ namespace OloEngine::Audio
 					return false;
 				}
 				
-				outAudioData.samples.resize(static_cast<size_t>(newSize));
-				std::memcpy(outAudioData.samples.data() + currentSize, chunkBuffer.data(), samplesToAppend * sizeof(f32));
+				outAudioData.m_Samples.resize(static_cast<size_t>(newSize));
+				std::memcpy(outAudioData.m_Samples.data() + currentSize, chunkBuffer.data(), samplesToAppend * sizeof(f32));
 				
 				totalFramesRead += framesRead;
 				
@@ -183,15 +183,15 @@ namespace OloEngine::Audio
 			}
 			
 			// Set final frame count and duration from streaming read
-			outAudioData.numFrames = static_cast<u32>(totalFramesRead);
-			outAudioData.duration = static_cast<f64>(totalFramesRead) / outAudioData.sampleRate;
+			outAudioData.m_NumFrames = static_cast<u32>(totalFramesRead);
+			outAudioData.m_Duration = static_cast<f64>(totalFramesRead) / outAudioData.m_SampleRate;
 		}
 
 		// Clean up decoder
 		ma_decoder_uninit(&decoder);
 
 		// Final validation
-		if (outAudioData.numFrames == 0)
+		if (outAudioData.m_NumFrames == 0)
 		{
 			OLO_CORE_ERROR("[AudioLoader] No audio frames loaded from file: {}", filePath.string());
 			outAudioData.Clear();
@@ -199,8 +199,8 @@ namespace OloEngine::Audio
 		}
 
 		OLO_CORE_TRACE("[AudioLoader] Successfully loaded audio file '{}': {} frames, {} channels, {:.2f}s duration, {:.1f}MB", 
-			filePath.string(), outAudioData.numFrames, outAudioData.numChannels, outAudioData.duration,
-			static_cast<f64>(outAudioData.fileSize) / (1024 * 1024));
+			filePath.string(), outAudioData.m_NumFrames, outAudioData.m_NumChannels, outAudioData.m_Duration,
+			static_cast<f64>(outAudioData.m_FileSize) / (1024 * 1024));
 
 		return true;
 	}
@@ -218,7 +218,7 @@ namespace OloEngine::Audio
 			return false;
 		}
 
-		outAudioData.fileSize = dataSize;
+		outAudioData.m_FileSize = dataSize;
 
 		// Initialize miniaudio decoder from memory
 		ma_decoder decoder;
@@ -247,14 +247,14 @@ namespace OloEngine::Audio
 		}
 
 		// Store basic audio properties
-		outAudioData.numChannels = decoder.outputChannels;
-		outAudioData.sampleRate = static_cast<f64>(decoder.outputSampleRate);
+		outAudioData.m_NumChannels = decoder.outputChannels;
+		outAudioData.m_SampleRate = static_cast<f64>(decoder.outputSampleRate);
 
 		// Validate basic audio properties
-		if (outAudioData.numChannels == 0 || outAudioData.sampleRate <= 0.0)
+		if (outAudioData.m_NumChannels == 0 || outAudioData.m_SampleRate <= 0.0)
 		{
 			OLO_CORE_ERROR("[AudioLoader] Invalid basic audio properties from memory (channels: {}, sampleRate: {})", 
-				outAudioData.numChannels, outAudioData.sampleRate);
+				outAudioData.m_NumChannels, outAudioData.m_SampleRate);
 			ma_decoder_uninit(&decoder);
 			return false;
 		}
@@ -272,12 +272,12 @@ namespace OloEngine::Audio
 				return false;
 			}
 
-			outAudioData.numFrames = static_cast<u32>(totalFrames);
-			outAudioData.duration = static_cast<f64>(totalFrames) / outAudioData.sampleRate;
+			outAudioData.m_NumFrames = static_cast<u32>(totalFrames);
+			outAudioData.m_Duration = static_cast<f64>(totalFrames) / outAudioData.m_SampleRate;
 
 			// Allocate buffer for audio data
-			const u64 totalSamples = static_cast<u64>(outAudioData.numFrames) * outAudioData.numChannels;
-			const u64 maxSamples = static_cast<u64>(outAudioData.samples.max_size());
+			const u64 totalSamples = static_cast<u64>(outAudioData.m_NumFrames) * outAudioData.m_NumChannels;
+			const u64 maxSamples = static_cast<u64>(outAudioData.m_Samples.max_size());
 			if (totalSamples > maxSamples)
 			{
 				OLO_CORE_ERROR("[AudioLoader] Audio buffer too large for memory decode (samples: {}, max: {})",
@@ -285,11 +285,11 @@ namespace OloEngine::Audio
 				ma_decoder_uninit(&decoder);
 				return false;
 			}
-			outAudioData.samples.resize(static_cast<size_t>(totalSamples));
+			outAudioData.m_Samples.resize(static_cast<size_t>(totalSamples));
 
 			// Read audio data in one go
 			ma_uint64 framesRead;
-			result = ma_decoder_read_pcm_frames(&decoder, outAudioData.samples.data(), totalFrames, &framesRead);
+			result = ma_decoder_read_pcm_frames(&decoder, outAudioData.m_Samples.data(), totalFrames, &framesRead);
 			
 			if (result != MA_SUCCESS || framesRead != totalFrames)
 			{
@@ -306,7 +306,7 @@ namespace OloEngine::Audio
 			OLO_CORE_WARN("[AudioLoader] Using streaming read for memory decode (format may not support length queries)");
 			
 			const u32 chunkFrames = 4096; // Read 4096 frames at a time
-			const u32 chunkSamples = chunkFrames * outAudioData.numChannels;
+			const u32 chunkSamples = chunkFrames * outAudioData.m_NumChannels;
 			std::vector<f32> chunkBuffer(chunkSamples);
 			
 			ma_uint64 totalFramesRead = 0;
@@ -337,12 +337,12 @@ namespace OloEngine::Audio
 				}
 				
 				// Append samples to output
-				const u64 samplesToAppend = framesRead * outAudioData.numChannels;
-				const u64 currentSize = outAudioData.samples.size();
+				const u64 samplesToAppend = framesRead * outAudioData.m_NumChannels;
+				const u64 currentSize = outAudioData.m_Samples.size();
 				const u64 newSize = currentSize + samplesToAppend;
 				
 				// Check for sample buffer overflow
-				if (newSize > outAudioData.samples.max_size())
+				if (newSize > outAudioData.m_Samples.max_size())
 				{
 					OLO_CORE_ERROR("[AudioLoader] Sample buffer overflow during streaming memory decode");
 					ma_decoder_uninit(&decoder);
@@ -350,8 +350,8 @@ namespace OloEngine::Audio
 					return false;
 				}
 				
-				outAudioData.samples.resize(static_cast<size_t>(newSize));
-				std::memcpy(outAudioData.samples.data() + currentSize, chunkBuffer.data(), samplesToAppend * sizeof(f32));
+				outAudioData.m_Samples.resize(static_cast<size_t>(newSize));
+				std::memcpy(outAudioData.m_Samples.data() + currentSize, chunkBuffer.data(), samplesToAppend * sizeof(f32));
 				
 				totalFramesRead += framesRead;
 				
@@ -360,15 +360,15 @@ namespace OloEngine::Audio
 			}
 			
 			// Set final frame count and duration from streaming read
-			outAudioData.numFrames = static_cast<u32>(totalFramesRead);
-			outAudioData.duration = static_cast<f64>(totalFramesRead) / outAudioData.sampleRate;
+			outAudioData.m_NumFrames = static_cast<u32>(totalFramesRead);
+			outAudioData.m_Duration = static_cast<f64>(totalFramesRead) / outAudioData.m_SampleRate;
 		}
 
 		// Clean up decoder
 		ma_decoder_uninit(&decoder);
 
 		// Final validation
-		if (outAudioData.numFrames == 0)
+		if (outAudioData.m_NumFrames == 0)
 		{
 			OLO_CORE_ERROR("[AudioLoader] No audio frames loaded from memory");
 			outAudioData.Clear();
@@ -376,7 +376,7 @@ namespace OloEngine::Audio
 		}
 
 		OLO_CORE_TRACE("[AudioLoader] Successfully loaded audio from memory: {} frames, {} channels, {:.2f}s duration, {:.1f}MB", 
-			outAudioData.numFrames, outAudioData.numChannels, outAudioData.duration,
+			outAudioData.m_NumFrames, outAudioData.m_NumChannels, outAudioData.m_Duration,
 			static_cast<f64>(dataSize) / (1024 * 1024));
 
 		return true;

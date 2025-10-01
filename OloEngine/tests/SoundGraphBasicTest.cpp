@@ -45,12 +45,12 @@ TEST_F(SoundGraphBasicTest, SoundGraphAssetBasicOperations)
 {
     // Test basic SoundGraphAsset functionality
     SoundGraphAsset asset;
-    asset.Name = "Test Graph";
-    asset.Description = "Testing basic operations";
+    asset.m_Name = "Test Graph";
+    asset.m_Description = "Testing basic operations";
     
     // Initially should be invalid (no nodes)
     EXPECT_FALSE(asset.IsValid());
-    EXPECT_EQ(asset.Nodes.size(), 0);
+    EXPECT_EQ(asset.m_Nodes.size(), 0);
     
     // Add a test node
     SoundGraphNodeData node;
@@ -65,7 +65,7 @@ TEST_F(SoundGraphBasicTest, SoundGraphAssetBasicOperations)
     
     // Now should be valid (has nodes) and contain our node
     EXPECT_TRUE(asset.IsValid());
-    EXPECT_EQ(asset.Nodes.size(), 1);
+    EXPECT_EQ(asset.m_Nodes.size(), 1);
     EXPECT_TRUE(asset.HasNode(node.ID));
     
     // Test node retrieval
@@ -79,7 +79,7 @@ TEST_F(SoundGraphBasicTest, SoundGraphAssetBasicOperations)
 TEST_F(SoundGraphBasicTest, SoundGraphConnections)
 {
     SoundGraphAsset asset;
-    asset.Name = "Connection Test";
+    asset.m_Name = "Connection Test";
     
     // Add two nodes
     SoundGraphNodeData node1, node2;
@@ -104,10 +104,10 @@ TEST_F(SoundGraphBasicTest, SoundGraphConnections)
     
     EXPECT_TRUE(asset.AddConnection(connection));
     
-    EXPECT_EQ(asset.Connections.size(), 1);
+    EXPECT_EQ(asset.m_Connections.size(), 1);
     EXPECT_TRUE(asset.IsValid()); // Should be valid with nodes and connections
     
-    const auto& conn = asset.Connections[0];
+    const auto& conn = asset.m_Connections[0];
     EXPECT_EQ(conn.SourceNodeID, node1.ID);
     EXPECT_EQ(conn.TargetNodeID, node2.ID);
     EXPECT_EQ(conn.SourceEndpoint, "output");
@@ -118,7 +118,7 @@ TEST_F(SoundGraphBasicTest, SoundGraphConnections)
 TEST_F(SoundGraphBasicTest, SoundGraphRemoveConnection)
 {
     SoundGraphAsset asset;
-    asset.Name = "Remove Connection Test";
+    asset.m_Name = "Remove Connection Test";
     
     // Add two nodes
     SoundGraphNodeData node1, node2;
@@ -151,23 +151,23 @@ TEST_F(SoundGraphBasicTest, SoundGraphRemoveConnection)
     EXPECT_TRUE(asset.AddConnection(dataConnection));
     EXPECT_TRUE(asset.AddConnection(eventConnection));
     
-    EXPECT_EQ(asset.Connections.size(), 2);
+    EXPECT_EQ(asset.m_Connections.size(), 2);
     
     // Test removing the data connection should leave the event connection
     bool removed = asset.RemoveConnection(node1.ID, "output", node2.ID, "input", false);
     EXPECT_TRUE(removed);
-    EXPECT_EQ(asset.Connections.size(), 1);
-    EXPECT_TRUE(asset.Connections[0].IsEvent); // Only event connection should remain
+    EXPECT_EQ(asset.m_Connections.size(), 1);
+    EXPECT_TRUE(asset.m_Connections[0].IsEvent); // Only event connection should remain
     
     // Test removing the event connection should leave no connections
     removed = asset.RemoveConnection(node1.ID, "output", node2.ID, "input", true);
     EXPECT_TRUE(removed);
-    EXPECT_EQ(asset.Connections.size(), 0);
+    EXPECT_EQ(asset.m_Connections.size(), 0);
     
     // Test removing non-existent connection should return false
     removed = asset.RemoveConnection(node1.ID, "output", node2.ID, "input", false);
     EXPECT_FALSE(removed);
-    EXPECT_EQ(asset.Connections.size(), 0);
+    EXPECT_EQ(asset.m_Connections.size(), 0);
 }
 
 TEST_F(SoundGraphBasicTest, CircularBufferSingleChannel)
@@ -308,10 +308,10 @@ TEST_F(SoundGraphBasicTest, SoundGraphValidation)
     badConnection.SourceEndpoint = "out";
     badConnection.TargetEndpoint = "in";
     
-    sizet connectionCountBefore = asset.Connections.size();
+    sizet connectionCountBefore = asset.m_Connections.size();
     EXPECT_FALSE(asset.AddConnection(badConnection));
     
     // Connection should not be added, asset should remain valid
-    EXPECT_EQ(asset.Connections.size(), connectionCountBefore);
+    EXPECT_EQ(asset.m_Connections.size(), connectionCountBefore);
     EXPECT_TRUE(asset.IsValid());
 }

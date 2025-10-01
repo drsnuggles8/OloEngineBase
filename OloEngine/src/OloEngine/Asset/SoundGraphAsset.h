@@ -36,25 +36,25 @@ namespace OloEngine
         std::unordered_map<std::string, std::string> Properties;
         
         // Editor-specific data (position, etc.)
-        float PosX = 0.0f;
-        float PosY = 0.0f;
+        f32 PosX = 0.0f;
+        f32 PosY = 0.0f;
     };
 
     /// SoundGraph Asset - serializable representation of a sound graph
     class SoundGraphAsset : public Asset
     {
     public:
-        std::string Name;
-        std::string Description;
+        std::string m_Name;
+        std::string m_Description;
         
         // Graph structure
-        std::vector<SoundGraphNodeData> Nodes;
-        std::vector<SoundGraphConnection> Connections;
+        std::vector<SoundGraphNodeData> m_Nodes;
+        std::vector<SoundGraphConnection> m_Connections;
         
         // Graph inputs/outputs configuration
-        std::unordered_map<std::string, std::string> GraphInputs;
-        std::unordered_map<std::string, std::string> GraphOutputs;
-        std::unordered_map<std::string, std::string> LocalVariables;
+        std::unordered_map<std::string, std::string> m_GraphInputs;
+        std::unordered_map<std::string, std::string> m_GraphOutputs;
+        std::unordered_map<std::string, std::string> m_LocalVariables;
         
         // Runtime prototype (compiled graph)
         // TODO: Implement SoundGraphPrototype when runtime audio graph system is ready
@@ -64,7 +64,7 @@ namespace OloEngine
         std::vector<AssetHandle> m_WaveSources;
         
         // Serialization version for compatibility
-        u32 Version = 1;
+        u32 m_Version = 1;
 
         SoundGraphAsset() = default;
         virtual ~SoundGraphAsset() = default;
@@ -97,19 +97,19 @@ namespace OloEngine
     class SoundGraphSoundAsset : public Asset
     {
     public:
-        std::string Name;
-        std::string Description;
+        std::string m_Name;
+        std::string m_Description;
         
         // Reference to the base sound graph
-        AssetHandle SoundGraphHandle = 0;
+        AssetHandle m_SoundGraphHandle = 0;
         
         // Parameter overrides for this specific sound instance
-        std::unordered_map<std::string, std::string> ParameterOverrides;
+        std::unordered_map<std::string, std::string> m_ParameterOverrides;
         
         // Audio properties specific to this sound
-        float Volume = 1.0f;
-        float Pitch = 1.0f;
-        bool Loop = false;
+        float m_Volume = 1.0f;
+        float m_Pitch = 1.0f;
+        bool m_Loop = false;
         
         SoundGraphSoundAsset() = default;
         virtual ~SoundGraphSoundAsset() = default;

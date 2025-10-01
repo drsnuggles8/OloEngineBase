@@ -13,7 +13,7 @@ OloEngine is a multi-layered game engine based on Hazel, supporting both 2D/3D r
 ## Development Workflow
 
 ### Building & Running
-- If running on Visual Studio Code, use tasks exclusively: `run-sandbox3d-debug`, `run-oloeditor-release`, etc.
+- Use tasks exclusively: `build-sandbox3d-debug`, `run-sandbox3d-debug`, `build-oloeditor-release`, etc.
 - Applications must run from `OloEditor/` working directory (assets/mono dependencies)
 - Use `scripts/Win-GenerateProject.bat` for initial setup, `scripts/Win-DeleteStuff.bat` to clean (or manually delete the `build/` folder)
 - Test projects can be built via `cmake --build <build-dir> --target OloEngine-Tests` and then executed via `<build-dir>\OloEngine\tests\Debug\OloEngine-Tests.exe` or run via CTest
@@ -97,7 +97,7 @@ RendererProfiler::GetInstance().IncrementCounter(MetricType::DrawCalls, 1);
 - **Headers:** Use `#pragma once`, RAII for OpenGL resources, STL containers preferred. Use the OloEnginePCH precompiled header for common includes
 - **Includes:** Use quotes for project headers, angle brackets for system/third-party. Include what you use
 - **Smart Pointers:** Use `Ref<T>` defined in `Core/Ref.h`
-- **Formatting:** Braces on new lines, 4-space indentation (not tabs!), public before private
+- **Formatting:** Braces on new lines except for short/inline cases, 4-space indentation (not tabs!), public methods, then public members, then protected, then private
 
 ## Critical Build Dependencies
 
