@@ -413,8 +413,15 @@ namespace OloEngine::Audio::SoundGraph
 
     f32 SoundGraphSound::GetPlaybackPercentage() const
     {
-        // Stub - always return 0% for now
-        return 0.0f;
+        if (!m_Source)
+            return 0.0f;
+
+        u64 maxFrames = m_Source->GetMaxTotalFrames();
+        if (maxFrames == 0)
+            return 0.0f;
+
+        u64 currentFrame = m_Source->GetCurrentFrame();
+        return static_cast<f32>(currentFrame) / static_cast<f32>(maxFrames);
     }
 
     //==============================================================================

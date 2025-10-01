@@ -5,6 +5,7 @@
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Asset/SoundGraphAsset.h"
+#include "OloEngine/Audio/SoundGraph/SoundGraphPrototype.h"
 #include "OloEngine/Audio/SoundGraph/SoundGraphSerializer.h"
 #include "OloEngine/Audio/Buffer/CircularBuffer.h"
 #include "OloEngine/Audio/SampleBufferOperations.h"

@@ -5,8 +5,8 @@
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Audio/SoundGraph/SoundGraph.h"
 #include "OloEngine/Audio/SoundGraph/SoundGraphPatchPreset.h"
+#include "OloEngine/Audio/LockFreeEventQueue.h"
 #include <choc/containers/choc_Value.h>
-#include <choc/containers/choc_SingleReaderSingleWriterFIFO.h>
 #include "WaveSource.h"
 
 #include <miniaudio.h>
@@ -62,9 +62,9 @@ namespace OloEngine::Audio::SoundGraph
         void Shutdown();
         
         void SuspendProcessing(bool shouldBeSuspended);
-        bool IsSuspended() const { return m_Suspended.load(); }
+        bool IsSuspended() const { return m_Suspended.load(std::memory_order_relaxed); }
         bool IsFinished() const noexcept { return m_IsFinished.load(std::memory_order_relaxed) && !m_IsPlaying.load(std::memory_order_relaxed); }
-        bool IsPlaying() const { return m_IsPlaying.load() && !IsSuspended(); }
+        bool IsPlaying() const { return m_IsPlaying.load(std::memory_order_relaxed) && !IsSuspended(); }
 
         //==============================================================================
         /// Main thread update (processes events from audio thread)
@@ -100,7 +100,10 @@ namespace OloEngine::Audio::SoundGraph
         bool IsAnyDataSourceReading() { return !AreAllDataSourcesAtEnd(); }
         
         bool SendPlayEvent();
-        u64 GetCurrentFrame() const { return m_CurrentFrame.load(); }
+        u64 GetCurrentFrame() const { return m_CurrentFrame.load(std::memory_order_relaxed); }
+        
+        /** Get the maximum total frames from all data sources (longest audio duration) */
+        u64 GetMaxTotalFrames() const;
 
         //==============================================================================
         /// Configuration
@@ -299,14 +302,9 @@ namespace OloEngine::Audio::SoundGraph
         OnGraphEventCallback m_OnGraphEvent;
         
         // Lock-free event queues for communicating from audio thread to main thread
-        struct EventMessage
-        {
-            u64 FrameIndex;
-            std::function<void()> Callback;
-        };
-        
-        choc::fifo::SingleReaderSingleWriterFIFO<EventMessage> m_EventQueue;
-        choc::fifo::SingleReaderSingleWriterFIFO<EventMessage> m_MessageQueue;
+        // These use pre-allocated storage to avoid any memory allocation in the audio callback
+        Audio::AudioEventQueue<256> m_EventQueue;
+        Audio::AudioMessageQueue<256> m_MessageQueue;
     };
 
 } // namespace OloEngine::Audio::SoundGraph

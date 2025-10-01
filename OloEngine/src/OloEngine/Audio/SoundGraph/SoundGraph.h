@@ -6,6 +6,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Core/Identifier.h"
+#include "OloEngine/Audio/LockFreeEventQueue.h"
 
 #include <choc/containers/choc_SingleReaderSingleWriterFIFO.h>
 
@@ -73,19 +74,23 @@ namespace OloEngine::Audio::SoundGraph
 			AddInEvent(IDs::Play);
 			
 			// Create a dedicated input event for handling finish notifications
-			auto& finishHandler = AddInEvent(Identifier("OnFinishHandler"), [&](float v)
+			AddInEvent(Identifier("OnFinishHandler"), [&](float v)
 				{
 					(void)v;
-			static constexpr float dummyValue = 1.0f;
-			choc::value::ValueView value(choc::value::Type::createFloat32(), (void*)&dummyValue, nullptr);
-			OutgoingEvents.push({ m_CurrentFrame, IDs::OnFinished, value });
+			// Push finish event using pre-allocated storage (real-time safe)
+			Audio::AudioThreadEvent event;
+			event.FrameIndex = m_CurrentFrame;
+			event.EndpointID = static_cast<u32>(IDs::OnFinished);
+			
+			choc::value::Value value = choc::value::createFloat32(1.0f);
+			event.ValueData.CopyFrom(value);
+			OutgoingEvents.Push(event);
 		});			// Connect using shared_ptr from InEvents - use the same identifier as registration
 			if (auto finishHandlerPtr = InEvents.find(Identifier("OnFinishHandler")); finishHandlerPtr != InEvents.end())
 				out_OnFinish.AddDestination(finishHandlerPtr->second);
 			
-			AddOutEvent(IDs::OnFinished, out_OnFinish);			OutgoingEvents.reset(1024);
-			OutgoingMessages.reset(1024);
-
+			AddOutEvent(IDs::OnFinished, out_OnFinish);
+			
 			out_Channels.reserve(2);
 		}
 
@@ -203,52 +208,28 @@ namespace OloEngine::Audio::SoundGraph
 		void AddNode(Scope<NodeProcessor>&& node)
 		{
 			OLO_CORE_ASSERT(node);
+			NodeProcessor* nodePtr = node.get();
+			UUID nodeID = nodePtr->ID;
+			
 			Nodes.emplace_back(std::move(node));
-		}
-
-		/// OWNERSHIP WARNING: This function takes ownership of the raw pointer and will delete it.
-		/// Pass only heap-allocated pointers created with 'new' or equivalent.
-		/// Do NOT:
-		/// - Pass stack-allocated objects
-		/// - Pass pointers managed by other smart pointers 
-		/// - Delete or reuse the pointer after calling this function
-		/// - Pass the same pointer multiple times
-		/// The pointer will be wrapped in a Scope<NodeProcessor> and automatically deleted when the graph is destroyed.
-		void AddNode(NodeProcessor* node)
-		{
-			OLO_CORE_ASSERT(node);
-			Nodes.emplace_back(Scope<NodeProcessor>(node));
+			m_NodeLookup[nodeID] = nodePtr;
 		}
 
 		//==============================================================================
 		/// Node Discovery and Management
 
+		/// Fast O(1) node lookup by UUID using hash map
 		NodeProcessor* FindNodeByID(UUID id)
 		{
-			auto it = std::find_if(Nodes.begin(), Nodes.end(),
-				[id](const Scope<NodeProcessor>& nodePtr)
-				{
-					return nodePtr->ID == id;
-				});
-
-			if (it != Nodes.end())
-				return it->get();
-			else
-				return nullptr;
+			auto it = m_NodeLookup.find(id);
+			return (it != m_NodeLookup.end()) ? it->second : nullptr;
 		}
 
+		/// Fast O(1) node lookup by UUID using hash map (const version)
 		const NodeProcessor* FindNodeByID(UUID id) const
 		{
-			auto it = std::find_if(Nodes.begin(), Nodes.end(),
-				[id](const Scope<NodeProcessor>& nodePtr)
-				{
-					return nodePtr->ID == id;
-				});
-
-			if (it != Nodes.end())
-				return it->get();
-			else
-				return nullptr;
+			auto it = m_NodeLookup.find(id);
+			return (it != m_NodeLookup.end()) ? it->second : nullptr;
 		}
 
 		//==============================================================================
@@ -282,21 +263,19 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 		/// Connect Output Event to Output Event
-		void AddRoute(OutputEvent& source, OutputEvent& destination) noexcept
-		{
-			// Create a dedicated input event for routing from OutputEvent to OutputEvent
-			OutputEvent* dest = &destination;
-			static std::atomic<sizet> routeCounter{0};
-			sizet currentRouteId = routeCounter.fetch_add(1, std::memory_order_relaxed);
-			std::string routeIdStr = "Route_" + std::to_string(currentRouteId);
-			Identifier routeId(routeIdStr);
-			auto& routeHandler = AddInEvent(routeId, [dest](float v) { (*dest)(v); });
-			// Use the shared_ptr from InEvents for the newly created routeHandler
-			if (auto routeHandlerPtr = InEvents.find(routeId); routeHandlerPtr != InEvents.end())
-				source.AddDestination(routeHandlerPtr->second);
-		}
-
-		//==============================================================================
+	void AddRoute(OutputEvent& source, OutputEvent& destination) noexcept
+	{
+		// Create a dedicated input event for routing from OutputEvent to OutputEvent
+		OutputEvent* dest = &destination;
+		static std::atomic<sizet> routeCounter{0};
+		sizet currentRouteId = routeCounter.fetch_add(1, std::memory_order_relaxed);
+		std::string routeIdStr = "Route_" + std::to_string(currentRouteId);
+		Identifier routeId(routeIdStr);
+		AddInEvent(routeId, [dest](float v) { (*dest)(v); });
+		// Use the shared_ptr from InEvents for the newly created routeHandler
+		if (auto routeHandlerPtr = InEvents.find(routeId); routeHandlerPtr != InEvents.end())
+			source.AddDestination(routeHandlerPtr->second);
+	}		//==============================================================================
 		/// Graph Connections Public API
 
 		/// Node Output Value -> Node Input Value
@@ -423,8 +402,8 @@ namespace OloEngine::Audio::SoundGraph
 		/// Reset Graph to its initial state
 		void Reset()
 		{
-			OutgoingEvents.reset(1024);
-			OutgoingMessages.reset(1024);
+			OutgoingEvents.Clear();
+			OutgoingMessages.Clear();
 		}
 
 		void SetSampleRate(f32 sampleRate) 
@@ -439,10 +418,16 @@ namespace OloEngine::Audio::SoundGraph
 
 		void Init() final
 		{
-			// Find wave players among nodes
+			// Rebuild node lookup map and find wave players
+			m_NodeLookup.clear();
 			WavePlayers.clear();
+			
 			for (auto& node : Nodes)
 			{
+				// Rebuild lookup map
+				m_NodeLookup[node->ID] = node.get();
+				
+				// Find wave players
 				if (auto* wavePlayer = dynamic_cast<WavePlayer*>(node.get()))
 					WavePlayers.push_back(wavePlayer);
 			}
@@ -479,8 +464,8 @@ namespace OloEngine::Audio::SoundGraph
 	}		/// Reset nodes to their initial state
 		void Reinit()
 		{
-			OutgoingEvents.reset();
-			OutgoingMessages.reset();
+			OutgoingEvents.Clear();
+			OutgoingMessages.Clear();
 
 			for (auto& node : Nodes)
 				node->Init();
@@ -519,13 +504,20 @@ namespace OloEngine::Audio::SoundGraph
 		/// This must be called periodically if the graph is generating events
 		void HandleOutgoingEvents(void* userContext, HandleOutgoingEventFn* handleEvent, HandleConsoleMessageFn* handleConsoleMessage)
 		{
-			OutgoingEvent outEvent;
-			while (OutgoingEvents.pop(outEvent))
-				handleEvent(userContext, outEvent.FrameIndex, outEvent.EndpointID, outEvent.value);
+			Audio::AudioThreadEvent outEvent;
+			while (OutgoingEvents.Pop(outEvent))
+			{
+				// Convert EndpointID back to Identifier and get ValueView
+				Identifier endpointID(outEvent.EndpointID);
+				choc::value::ValueView valueView = outEvent.ValueData.GetView();
+				handleEvent(userContext, outEvent.FrameIndex, endpointID, valueView);
+			}
 
-			OutgoingMessage outMessage;
-			while (OutgoingMessages.pop(outMessage))
-				handleConsoleMessage(userContext, outMessage.FrameIndex, outMessage.Message);
+			Audio::AudioThreadMessage outMessage;
+			while (OutgoingMessages.Pop(outMessage))
+			{
+				handleConsoleMessage(userContext, outMessage.FrameIndex, outMessage.Text);
+			}
 		}
 
 		//==============================================================================
@@ -642,6 +634,9 @@ namespace OloEngine::Audio::SoundGraph
 		u64 m_CurrentFrame = 0;
 		std::string m_DebugName;
 		
+		// Fast node lookup map (O(1) instead of O(n))
+		std::unordered_map<UUID, NodeProcessor*> m_NodeLookup;
+		
 		// Missing containers
 		std::queue<struct GraphEvent> m_OutgoingEvents;
 		
@@ -649,22 +644,10 @@ namespace OloEngine::Audio::SoundGraph
 
 		//==============================================================================
 		/// Thread-safe Event/Message Queues
-
-		struct OutgoingEvent
-		{
-			u64 FrameIndex;
-			Identifier EndpointID;
-			choc::value::ValueView value;
-		};
+		/// Using lock-free queues with pre-allocated storage to avoid heap allocations in audio thread
 		
-		struct OutgoingMessage
-		{
-			u64 FrameIndex;
-			const char* Message;
-		};
-		
-		choc::fifo::SingleReaderSingleWriterFIFO<OutgoingEvent> OutgoingEvents;
-		choc::fifo::SingleReaderSingleWriterFIFO<OutgoingMessage> OutgoingMessages;
+		Audio::AudioEventQueue<1024> OutgoingEvents;
+		Audio::AudioMessageQueue<1024> OutgoingMessages;
 	};
 
 	//==============================================================================

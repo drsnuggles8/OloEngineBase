@@ -685,8 +685,47 @@ namespace OloEngine::Audio::SoundGraph
             
             auto startTime = std::chrono::high_resolution_clock::now();
             
-            // Placeholder compilation (in production, call actual compiler)
-            result.IsValid = true; // Assume success for now
+            // ========================================================================
+            // TODO: Implement DSP/Audio Script Compilation
+            // ========================================================================
+            // This placeholder is for a future bytecode compilation system for DSP code.
+            // 
+            // CURRENT ARCHITECTURE:
+            // The SoundGraph system currently uses a different "compilation" pipeline:
+            // 1. SoundGraphSerializer deserializes SoundGraphAsset from YAML/JSON
+            // 2. GraphGenerator::ConstructPrototype() builds a Prototype from asset data
+            // 3. CreateInstance() creates an executable SoundGraph from the Prototype
+            // 4. The CompiledPrototype is cached in the SoundGraphAsset for faster loading
+            // 
+            // FUTURE IMPLEMENTATION:
+            // When we add DSP scripting support (e.g., Lua/ChaiScript for custom audio nodes),
+            // this function should:
+            // 1. Read the DSP source code from sourcePath
+            // 2. Parse and validate the script syntax
+            // 3. Compile to bytecode (or JIT compile to native code)
+            // 4. Package the bytecode with metadata (entry points, parameter definitions, etc.)
+            // 5. Return the compiled bytecode in result.CompiledData
+            // 
+            // BYTECODE FORMAT (proposed):
+            // - Header: Magic number, version, entry point offsets
+            // - Symbol table: Parameter names, types, default values
+            // - Code section: Compiled instructions or IR
+            // - Metadata: Source hash, compilation flags, optimization level
+            // 
+            // INTEGRATION POINTS:
+            // - Custom DSP node registration system
+            // - Hot-reload support for script changes (using IsSourceNewer)
+            // - Performance profiling for compiled vs interpreted execution
+            // 
+            // NOTES:
+            // - This is NOT needed for the current graph-based audio system
+            // - CompilerCache infrastructure is ready for when we add DSP scripting
+            // - Consider LLVM/JIT compilation for optimal performance
+            // - May want to support multiple DSP languages (Faust, SOUL, custom)
+            // ========================================================================
+            
+            // Placeholder compilation (returns dummy bytecode until DSP system is implemented)
+            result.IsValid = true;
             result.ErrorMessage = "";
             result.CompiledData = { 0x42, 0x43, 0x44, 0x45 }; // Placeholder bytecode
             

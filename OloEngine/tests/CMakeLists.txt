@@ -6,6 +6,7 @@ add_executable(OloEngine-Tests
 		AssetCreationTest.cpp
 		CoreUtilitiesTest.cpp
 		SoundGraphBasicTest.cpp
+		AudioEventQueueTest.cpp
 		)
 		
 target_link_libraries(OloEngine-Tests

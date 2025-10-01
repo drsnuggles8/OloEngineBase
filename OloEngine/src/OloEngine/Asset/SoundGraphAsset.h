@@ -12,7 +12,7 @@
 namespace OloEngine::Audio::SoundGraph
 {
     struct Prototype;
-    struct SoundGraph;
+    class SoundGraph;
 }
 
 namespace OloEngine

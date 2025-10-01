@@ -343,7 +343,8 @@ namespace OloEngine::Audio::SoundGraph
 		for (const auto& nodeData : asset.m_Nodes)
 		{
 			// Convert UUID from NodeData to Identifier for CreateNode
-			Identifier nodeId = Identifier(static_cast<u64>(nodeData.ID));
+			// Note: Identifier uses u32 hash, so we take lower 32 bits of UUID
+			Identifier nodeId = Identifier(static_cast<u32>(static_cast<u64>(nodeData.ID)));
 			auto node = CreateNode(nodeData.Type, nodeData.Name, nodeId);
 			if (node)
 			{
@@ -440,9 +441,8 @@ namespace OloEngine::Audio::SoundGraph
 				OLO_CORE_INFO("SoundGraphSerializer: WaveAsset property '{}' will be set via parameter system", it->second);
 			}
 		}
-		// TODO: Add more node types as they become available
+		// Additional node type property handling can be added here as needed
 		
-		// OLO_CORE_TRACE("Applied properties to node '{}' of type '{}'", node->GetDisplayName(), nodeData.Type);
-		// TODO: GetDisplayName() method missing
+		OLO_CORE_TRACE("Applied properties to node '{}' of type '{}'", node->GetDisplayName(), nodeData.Type);
 	}
 }

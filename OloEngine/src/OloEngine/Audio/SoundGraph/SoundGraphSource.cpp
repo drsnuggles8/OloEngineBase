@@ -3,6 +3,7 @@
 #include "OloEngine/Audio/AudioLoader.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Core/Hash.h"
+#include "OloEngine/Project/Project.h"
 #include <chrono>
 #include <thread>
 
@@ -82,12 +83,21 @@ namespace OloEngine::Audio::SoundGraph
 	//==============================================================================
 	/// SoundGraphSource Implementation
 
+	u64 SoundGraphSource::GetMaxTotalFrames() const
+	{
+		u64 maxFrames = 0;
+		for (const auto& [handle, source] : m_DataSources.m_WaveSources)
+		{
+			if (source.TotalFrames > static_cast<i64>(maxFrames))
+				maxFrames = static_cast<u64>(source.TotalFrames);
+		}
+		return maxFrames;
+	}
+
 	SoundGraphSource::SoundGraphSource()
 	{
-		// Initialize event queues
-		EventMessage defaultMsg{ 0, nullptr };
-		m_EventQueue.reset(256, defaultMsg);
-		m_MessageQueue.reset(256, defaultMsg);
+		// Event queues are pre-allocated in their constructors - no initialization needed
+		// The lock-free queues have no dynamic allocation
 	}
 
 	SoundGraphSource::~SoundGraphSource()
@@ -195,20 +205,20 @@ namespace OloEngine::Audio::SoundGraph
 		else
 		{
 			// Resuming - reset state
-			m_IsPlaying.store(false);
-			m_CurrentFrame.store(0);
+			m_IsPlaying.store(false, std::memory_order_relaxed);
+			m_CurrentFrame.store(0, std::memory_order_relaxed);
 			m_IsFinished.store(false, std::memory_order_relaxed);
 
 			// Clear any pending events by consuming them all
-			EventMessage msg;
-			while (m_EventQueue.pop(msg));  // Consume all pending events
+			Audio::AudioThreadEvent event;
+			while (m_EventQueue.Pop(event));  // Consume all pending events
 			
-			EventMessage msgData;
-			while (m_MessageQueue.pop(msgData)); // Consume all pending messages
+			Audio::AudioThreadMessage msg;
+			while (m_MessageQueue.Pop(msg)); // Consume all pending messages
 
 			// Reset the suspend flag
 			m_SuspendFlag.CheckAndResetIfDirty();
-			m_Suspended.store(false);
+			m_Suspended.store(false, std::memory_order_relaxed);
 		}
 	}
 
@@ -216,23 +226,32 @@ namespace OloEngine::Audio::SoundGraph
 	{
 		(void)deltaTime;
 		// Process events from the audio thread
-		EventMessage eventMsg;
-		while (m_EventQueue.pop(eventMsg))
+		Audio::AudioThreadEvent event;
+		while (m_EventQueue.Pop(event))
 		{
-			if (eventMsg.Callback)
-				eventMsg.Callback();
+			// Call the event callback with the pre-allocated value data
+			if (m_OnGraphEvent)
+			{
+				// We're on the main thread now - safe to allocate
+				// Convert ValueView to Value for the callback
+				choc::value::Value value = event.ValueData.GetValue();
+				m_OnGraphEvent(event.FrameIndex, event.EndpointID, value);
+			}
 		}
 
 		// Process messages from the audio thread  
-		EventMessage messageMsg;
-		while (m_MessageQueue.pop(messageMsg))
+		Audio::AudioThreadMessage msg;
+		while (m_MessageQueue.Pop(msg))
 		{
-			if (messageMsg.Callback)
-				messageMsg.Callback();
+			// Call the message callback with the pre-allocated text
+			if (m_OnGraphMessage)
+			{
+				m_OnGraphMessage(msg.FrameIndex, msg.Text);
+			}
 		}
 
 		// Handle automatic suspension when finished
-		if (m_IsFinished.load(std::memory_order_relaxed) && m_IsPlaying.load())
+		if (m_IsFinished.load(std::memory_order_relaxed) && m_IsPlaying.load(std::memory_order_relaxed))
 		{
 			SuspendProcessing(true);
 		}
@@ -418,8 +437,8 @@ namespace OloEngine::Audio::SoundGraph
 		// Handle suspension
 		if (m_SuspendFlag.CheckAndResetIfDirty())
 		{
-			m_Suspended.store(true);
-			m_IsPlaying.store(false);
+			m_Suspended.store(true, std::memory_order_release);
+			m_IsPlaying.store(false, std::memory_order_relaxed);
 		}
 
 		if (!m_Graph || IsSuspended())
@@ -529,25 +548,27 @@ namespace OloEngine::Audio::SoundGraph
 		if (!source)
 			return;
 
-		// Queue the event for processing on the main thread
-		if (source->m_OnGraphEvent)
+		// Queue the event for processing on the main thread using lock-free pre-allocated storage
+		// This is real-time safe - no allocations, no locks, no blocking
+		Audio::AudioThreadEvent event;
+		event.FrameIndex = frameIndex;
+		event.EndpointID = static_cast<u32>(endpointID);
+		
+		// Copy the event data into pre-allocated inline storage
+		// This avoids heap allocation while remaining thread-safe
+		if (!event.ValueData.CopyFrom(eventData))
 		{
-			// Allocate/copy the payload into an owned Value on the audio thread for thread safety
-			// ValueView points to scratch storage that will be invalid on the main thread
-			choc::value::Value ownedEventData = choc::value::Value(eventData);
-			
-			EventMessage msg;
-			msg.FrameIndex = frameIndex;
-			msg.Callback = [source, frameIndex, endpointID, ownedEventData = std::move(ownedEventData)]()
-			{
-				// Convert to u32 for the callback (legacy compatibility)
-				u32 endpointIDu32 = static_cast<u32>(endpointID);
-				
-				// Use the owned, thread-safe copy of the event data
-				source->m_OnGraphEvent(frameIndex, endpointIDu32, ownedEventData);
-			};
-
-			source->m_EventQueue.push(std::move(msg));
+			// Value was too large for inline storage - this is rare for audio events
+			// Log a warning but don't allocate (keep it real-time safe)
+			// The event will be dropped, which is better than causing audio glitches
+			return;
+		}
+		
+		// Push to the lock-free queue (wait-free operation)
+		if (!source->m_EventQueue.Push(event))
+		{
+			// Queue is full - event dropped
+			// This is preferable to blocking or allocating in the audio thread
 		}
 	}
 
@@ -557,19 +578,17 @@ namespace OloEngine::Audio::SoundGraph
 		if (!source || !message)
 			return;
 
-		// Queue the message for processing on the main thread
-		if (source->m_OnGraphMessage)
+		// Queue the message for processing on the main thread using lock-free pre-allocated storage
+		// This is real-time safe - no allocations, no locks, no blocking
+		Audio::AudioThreadMessage msg;
+		msg.FrameIndex = frameIndex;
+		msg.SetText(message);  // Copies into pre-allocated buffer
+		
+		// Push to the lock-free queue (wait-free operation)
+		if (!source->m_MessageQueue.Push(msg))
 		{
-			// Create a copy of the message for thread safety
-			std::string messageCopy(message);
-			EventMessage msg;
-			msg.FrameIndex = frameIndex;
-			msg.Callback = [source, frameIndex, messageCopy]()
-			{
-				source->m_OnGraphMessage(frameIndex, messageCopy.c_str());
-			};
-
-			source->m_MessageQueue.push(std::move(msg));
+			// Queue is full - message dropped
+			// This is preferable to blocking or allocating in the audio thread
 		}
 	}
 
@@ -579,17 +598,62 @@ namespace OloEngine::Audio::SoundGraph
 		if (!source)
 			return false;
 
-		// This would need integration with OloEngine's audio loading system
-		// to refill the wave source buffer from the asset
-		
 		if (waveSource.WaveHandle == 0)
 			return false;
 
-		// Placeholder - in a real implementation you'd:
-		// 1. Get the audio asset from the handle
-		// 2. Read the next block of samples
-		// 3. Fill the waveSource.Channels buffer
-		// 4. Update waveSource.ReadPosition
+		// Get the audio asset metadata
+		AssetMetadata metadata = AssetManager::GetAssetMetadata(waveSource.WaveHandle);
+		if (!metadata.IsValid())
+		{
+			OLO_CORE_ERROR("[SoundGraphSource] Invalid asset metadata for handle: {}", waveSource.WaveHandle);
+			return false;
+		}
+
+		// Build the full file path
+		std::filesystem::path filePath = Project::GetAssetDirectory() / metadata.FilePath;
+		if (!std::filesystem::exists(filePath))
+		{
+			OLO_CORE_ERROR("[SoundGraphSource] Audio file does not exist: {}", filePath.string());
+			return false;
+		}
+
+		// Load audio data from file
+		// Note: This loads the entire file which is not ideal for large files
+		// A production implementation would use streaming decoders or a cache
+		AudioData audioData;
+		if (!AudioLoader::LoadAudioFile(filePath, audioData))
+		{
+			OLO_CORE_ERROR("[SoundGraphSource] Failed to load audio file: {}", filePath.string());
+			return false;
+		}
+
+		// Calculate how many frames we can refill
+		const i64 remainingFrames = waveSource.TotalFrames - waveSource.ReadPosition;
+		if (remainingFrames <= 0)
+			return false; // Already at end of audio
+
+		// Determine how many frames to push into the circular buffer
+		// We'll push up to the buffer capacity or what's remaining, whichever is smaller
+		constexpr sizet bufferFrameCapacity = 1920; // MonoCircularBuffer<f32, 1920 * 2> / 2 channels
+		const i64 framesToPush = std::min(static_cast<i64>(bufferFrameCapacity), remainingFrames);
+
+		// Validate we don't exceed the audio data bounds
+		if (waveSource.ReadPosition + framesToPush > static_cast<i64>(audioData.m_NumFrames))
+		{
+			OLO_CORE_ERROR("[SoundGraphSource] Read position out of bounds");
+			return false;
+		}
+
+		// Copy samples from audio data into the circular buffer
+		// Audio data is interleaved (L,R,L,R...), same as the circular buffer expects
+		const i64 startSampleIndex = waveSource.ReadPosition * audioData.m_NumChannels;
+		const i64 numSamplesToPush = framesToPush * audioData.m_NumChannels;
+
+		// Push samples into the circular buffer
+		waveSource.Channels.PushMultiple(&audioData.m_Samples[startSampleIndex], static_cast<int>(numSamplesToPush));
+
+		// Update read position
+		waveSource.ReadPosition += framesToPush;
 
 		return true;
 	}

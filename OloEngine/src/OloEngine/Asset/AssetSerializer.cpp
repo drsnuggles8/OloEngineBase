@@ -2581,18 +2581,56 @@ namespace OloEngine
 
     bool SoundGraphSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
-        // TODO: Implement sound graph pack serialization when AssetPack format is needed
-        (void)handle; (void)stream; (void)outInfo; // Suppress unreferenced parameter warnings
-        OLO_CORE_WARN("SoundGraphSerializer::SerializeToAssetPack not yet implemented");
-        return false;
+        OLO_PROFILE_FUNCTION();
+
+        outInfo.Offset = stream.GetStreamPosition();
+
+        // Get the SoundGraphAsset
+        Ref<SoundGraphAsset> soundGraphAsset = AssetManager::GetAsset<SoundGraphAsset>(handle);
+        if (!soundGraphAsset)
+        {
+            OLO_CORE_ERROR("SoundGraphSerializer::SerializeToAssetPack - Failed to get SoundGraphAsset for handle {}", handle);
+            return false;
+        }
+
+        // Serialize the SoundGraphAsset to YAML string
+        std::string yamlData = Audio::SoundGraph::SoundGraphSerializer::SerializeToString(*soundGraphAsset);
+        
+        // Write the YAML data as a string to the pack
+        stream.WriteString(yamlData);
+        
+        outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
+        
+        OLO_CORE_TRACE("SoundGraphSerializer::SerializeToAssetPack - Serialized SoundGraph '{}' to pack, Size: {} bytes", 
+                       soundGraphAsset->m_Name, outInfo.Size);
+        return true;
     }
 
     Ref<Asset> SoundGraphSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
-        // TODO: Implement sound graph pack deserialization when AssetPack format is needed
-        (void)stream; (void)assetInfo; // Suppress unreferenced parameter warnings
-        OLO_CORE_WARN("SoundGraphSerializer::DeserializeFromAssetPack not yet implemented");
-        return nullptr;
+        OLO_PROFILE_FUNCTION();
+
+        // Set stream position to the asset's offset in the pack
+        stream.SetStreamPosition(assetInfo.PackedOffset);
+
+        // Read the YAML data as a string
+        std::string yamlData;
+        stream.ReadString(yamlData);
+
+        // Deserialize from YAML string
+        Ref<SoundGraphAsset> soundGraphAsset = Ref<SoundGraphAsset>::Create();
+        if (!Audio::SoundGraph::SoundGraphSerializer::DeserializeFromString(*soundGraphAsset, yamlData))
+        {
+            OLO_CORE_ERROR("SoundGraphSerializer::DeserializeFromAssetPack - Failed to deserialize SoundGraph from pack");
+            return nullptr;
+        }
+
+        // Set the handle
+        soundGraphAsset->SetHandle(assetInfo.Handle);
+
+        OLO_CORE_TRACE("SoundGraphSerializer::DeserializeFromAssetPack - Deserialized SoundGraph '{}' from pack, Handle: {}", 
+                       soundGraphAsset->m_Name, assetInfo.Handle);
+        return soundGraphAsset;
     }
 
 } // namespace OloEngine
