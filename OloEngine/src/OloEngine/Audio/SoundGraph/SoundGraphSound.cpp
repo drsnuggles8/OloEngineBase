@@ -422,9 +422,13 @@ namespace OloEngine::Audio::SoundGraph
 
     bool SoundGraphSound::StopFade(u64 numSamples)
     {
+        // Get actual sample rate from the source, fallback to 48000 if not available
+        u32 sampleRate = m_Source ? m_Source->GetSampleRate() : 48000;
+        if (sampleRate == 0)
+            sampleRate = 48000; // Safety fallback if source hasn't been initialized
+        
         // Compute milliseconds using double to avoid overflow
-        // TODO: Get actual sample rate from audio engine instead of hardcoding 44100
-        double milliseconds = static_cast<double>(numSamples) * 1000.0 / 44100.0;
+        double milliseconds = static_cast<double>(numSamples) * 1000.0 / static_cast<double>(sampleRate);
         
         // Clamp to valid i32 range before calling the overload
         constexpr double maxInt32 = static_cast<double>(INT32_MAX);

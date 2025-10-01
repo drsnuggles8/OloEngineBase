@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "SoundGraphAsset.h"
+#include "OloEngine/Audio/SoundGraph/SoundGraphPrototype.h"
 
 #include <algorithm>
 #include <unordered_set>
@@ -127,7 +128,7 @@ namespace OloEngine
         m_GraphInputs.clear();
         m_GraphOutputs.clear();
         m_LocalVariables.clear();
-        // CompiledPrototype.Reset(); // TODO: Uncomment when SoundGraphPrototype is implemented
+        CompiledPrototype.Reset();
         m_WaveSources.clear();
     }
 

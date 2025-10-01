@@ -1,6 +1,9 @@
 #include "OloEnginePCH.h"
 #include "SoundGraphCache.h"
 #include "SoundGraph.h"
+#include "SoundGraphSerializer.h"
+#include "GraphGeneration.h"
+#include "OloEngine/Asset/SoundGraphAsset.h"
 
 #include <filesystem>
 #include <fstream>
@@ -564,31 +567,87 @@ namespace OloEngine::Audio::SoundGraph
                 m_LoadQueue.pop();
                 lock.unlock();
 
-                // Load the graph - CURRENTLY UNIMPLEMENTED
-                // TODO: Implement actual sound graph loading from file
-                // This should:
-                // 1. Use SoundGraphSerializer::Deserialize(asset, sourcePath) to load SoundGraphAsset
-                // 2. Compile/convert SoundGraphAsset to executable SoundGraph
-                // 3. Return the compiled SoundGraph for caching and execution
+                // Load and compile the sound graph
                 Ref<SoundGraph> graph = nullptr;
                 
-                // CRITICAL: Graph loading is not implemented - fail visibly instead of silently
-                OLO_CORE_ERROR("SoundGraphCache::LoaderThreadFunc - Sound graph loading is NOT IMPLEMENTED for '{}'", sourcePath);
-                OLO_CORE_ERROR("SoundGraphCache::LoaderThreadFunc - This breaks async loading functionality!");
-                
-                // Assert in debug builds to catch this during development
-                #ifdef OLO_DEBUG
-                    OLO_CORE_ASSERT(false, "SoundGraphCache: Graph loading is unimplemented - this must be fixed!");
-                #endif
-                
-                // For now, continue with null graph but with clear error indication
-                // This allows the system to continue running while making the problem visible
+                try
+                {
+                    // Step 1: Deserialize the SoundGraphAsset from file
+                    OloEngine::SoundGraphAsset asset;
+                    if (!SoundGraphSerializer::Deserialize(asset, sourcePath))
+                    {
+                        OLO_CORE_ERROR("SoundGraphCache::LoaderThreadFunc - Failed to deserialize SoundGraphAsset from '{}'", sourcePath);
+                        if (callback)
+                            callback(sourcePath, nullptr);
+                        continue;
+                    }
+                    
+                    OLO_CORE_INFO("SoundGraphCache: Successfully deserialized SoundGraphAsset '{}'", asset.m_Name);
+                    
+                    // Step 2: Compile the asset to a Prototype
+                    std::vector<UUID> waveAssetsToLoad;
+                    GraphGeneratorOptions options;
+                    options.Name = asset.m_Name;
+                    options.NumInChannels = 2;  // Stereo input
+                    options.NumOutChannels = 2; // Stereo output
+                    options.GraphPrototype = Ref<Prototype>::Create(); // Create empty prototype for population
+                    
+                    // If the asset already has a compiled prototype, use it; otherwise compile from scratch
+                    Ref<Prototype> prototype;
+                    if (asset.CompiledPrototype)
+                    {
+                        OLO_CORE_INFO("SoundGraphCache: Using pre-compiled prototype for '{}'", asset.m_Name);
+                        prototype = asset.CompiledPrototype;
+                    }
+                    else
+                    {
+                        OLO_CORE_INFO("SoundGraphCache: Compiling prototype from asset data for '{}'", asset.m_Name);
+                        prototype = ConstructPrototype(options, waveAssetsToLoad);
+                        
+                        if (!prototype)
+                        {
+                            OLO_CORE_ERROR("SoundGraphCache::LoaderThreadFunc - Failed to construct prototype from asset '{}'", sourcePath);
+                            if (callback)
+                                callback(sourcePath, nullptr);
+                            continue;
+                        }
+                        
+                        // Cache the compiled prototype in the asset for future use
+                        asset.CompiledPrototype = prototype;
+                    }
+                    
+                    // Step 3: Create an instance of the SoundGraph from the Prototype
+                    graph = CreateInstance(prototype);
+                    
+                    if (!graph)
+                    {
+                        OLO_CORE_ERROR("SoundGraphCache::LoaderThreadFunc - Failed to create SoundGraph instance from prototype '{}'", sourcePath);
+                        if (callback)
+                            callback(sourcePath, nullptr);
+                        continue;
+                    }
+                    
+                    OLO_CORE_INFO("SoundGraphCache: Successfully created SoundGraph instance '{}'", asset.m_Name);
+                }
+                catch (const std::exception& e)
+                {
+                    OLO_CORE_ERROR("SoundGraphCache::LoaderThreadFunc - Exception during graph loading: {}", e.what());
+                    graph = nullptr;
+                    if (callback)
+                    {
+                        callback(sourcePath, nullptr);
+                    }
+                    continue;
+                }
                 
                 // Generate compiled path for caching with configurable base directory
                 // Convert source path to cache path (e.g., "path/file.soundgraph" -> "cache/soundgraph/file.sgc")
                 std::filesystem::path sourcePathFs(sourcePath);
-                std::string baseCacheDir = "cache/soundgraph/"; // TODO: Make configurable via settings/config
-                std::string compiledPath = baseCacheDir + sourcePathFs.stem().string() + ".sgc";
+                std::string compiledPath;
+                {
+                    std::lock_guard<std::mutex> cacheLock(m_Mutex);
+                    compiledPath = m_CacheDirectory + sourcePathFs.stem().string() + ".sgc";
+                }
                 
                 // Ensure cache directory exists before writing
                 std::filesystem::path compiledPathFs(compiledPath);
@@ -704,6 +763,24 @@ namespace OloEngine::Audio::SoundGraph
     {
         std::lock_guard<std::mutex> lock(m_Mutex);
         return m_MaxMemoryUsage;
+    }
+
+    void SoundGraphCache::SetCacheDirectory(const std::string& directory)
+    {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        m_CacheDirectory = directory;
+        
+        // Ensure the directory ends with a slash
+        if (!m_CacheDirectory.empty() && m_CacheDirectory.back() != '/' && m_CacheDirectory.back() != '\\')
+        {
+            m_CacheDirectory += '/';
+        }
+    }
+
+    std::string SoundGraphCache::GetCacheDirectory() const
+    {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        return m_CacheDirectory;
     }
 
     //==============================================================================

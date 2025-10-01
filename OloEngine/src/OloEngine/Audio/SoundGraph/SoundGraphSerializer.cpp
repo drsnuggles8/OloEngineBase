@@ -136,9 +136,8 @@ namespace OloEngine::Audio::SoundGraph
 			if (soundGraphNode["Name"])
 				asset.m_Name = soundGraphNode["Name"].as<std::string>();
 			
-			// TODO: Handle deserialization requires friend access or public SetHandle
-			// if (soundGraphNode["Handle"])
-			// 	asset.SetHandle(UUID(soundGraphNode["Handle"].as<u64>()));
+			// NOTE: Handle is set by AssetManager when loading the asset, not during YAML deserialization
+			// The asset handle is managed by the asset loading pipeline, not the serializer
 			
 			// Clear existing data
 			asset.m_Nodes.clear();
@@ -336,14 +335,8 @@ namespace OloEngine::Audio::SoundGraph
 		if (s_NodeCreators.empty())
 			InitializeDefaultNodeTypes();
 		
-		auto soundGraph = Ref<SoundGraph>::Create("FromAsset", UUID());
-		// TODO: Set name and ID if SoundGraph supports them
+		auto soundGraph = Ref<SoundGraph>::Create(asset.m_Name, UUID());
 		
-		// TODO: Implement AddNode in SoundGraph class to support dynamic node creation
-		OLO_CORE_WARN("SoundGraphFactory::CreateFromAsset - Node creation and connection not yet implemented");
-		OLO_CORE_WARN("TODO: SoundGraph needs AddNode() method and connection API for runtime graph building");
-		
-		/* DISABLED until SoundGraph supports dynamic node addition:
 		// Create all nodes first
 		std::unordered_map<UUID, NodeProcessor*> nodeMap;
 		
@@ -377,18 +370,27 @@ namespace OloEngine::Audio::SoundGraph
 			
 			if (outputNodeIt != nodeMap.end() && inputNodeIt != nodeMap.end())
 			{
-				NodeProcessor* outputNode = outputNodeIt->second;
-				NodeProcessor* inputNode = inputNodeIt->second;
+				// Connect using SoundGraph's connection API
+				bool success = false;
+				if (connection.IsEvent)
+				{
+					success = soundGraph->AddEventConnection(
+						connection.SourceNodeID, connection.SourceEndpoint,
+						connection.TargetNodeID, connection.TargetEndpoint);
+				}
+				else
+				{
+					success = soundGraph->AddValueConnection(
+						connection.SourceNodeID, connection.SourceEndpoint,
+						connection.TargetNodeID, connection.TargetEndpoint);
+				}
 				
-				// TODO: Implement connection logic for ValueView system
-				// Connect the nodes
-				//if (!outputNode->ConnectTo(connection.Source.EndpointID, inputNode, connection.Destination.EndpointID))
-				//{
-				//	OLO_CORE_WARN("Failed to connect {} -> {} ({} -> {})", 
-				//		outputNode->GetDisplayName(), inputNode->GetDisplayName(),
-				//		connection.Source.EndpointID, connection.Destination.EndpointID);
-				//}
-				OLO_CORE_WARN("TODO: Connection logic not implemented for ValueView system");
+				if (!success)
+				{
+					OLO_CORE_WARN("Failed to connect {} -> {} ({} -> {})", 
+						connection.SourceNodeID, connection.TargetNodeID,
+						connection.SourceEndpoint, connection.TargetEndpoint);
+				}
 			}
 			else
 			{
@@ -396,9 +398,9 @@ namespace OloEngine::Audio::SoundGraph
 					static_cast<u64>(connection.SourceNodeID), static_cast<u64>(connection.TargetNodeID));
 			}
 		}
-		*/
 		
-		OLO_CORE_INFO("Created empty sound graph '{}' (TODO: implement node creation from asset)", asset.m_Name);
+		OLO_CORE_INFO("Created sound graph '{}' with {} nodes and {} connections", 
+			asset.m_Name, asset.m_Nodes.size(), asset.m_Connections.size());
 		
 		return soundGraph;
 	}
@@ -431,23 +433,16 @@ namespace OloEngine::Audio::SoundGraph
 			auto it = nodeData.Properties.find("WaveAsset");
 			if (it != nodeData.Properties.end())
 			{
-				// TODO: Implement SetWaveAsset method in WavePlayer
-				// Try to parse the asset handle from string
-				try 
-				{
-					AssetHandle handle = std::stoull(it->second);
-					// wavePlayer->SetWaveAsset(handle);  // TODO: Method needs to be added to WavePlayer
-					OLO_CORE_WARN("SoundGraphSerializer: SetWaveAsset not yet implemented");
-					(void)handle; // Suppress unused variable warning
-				}
-				catch (...)
-				{
-					OLO_CORE_WARN("SoundGraphSerializer: Failed to parse WaveAsset handle: {}", it->second);
-				}
+				// NOTE: WaveAsset is set through the parameter system, not a dedicated setter
+				// The in_WaveAsset parameter is connected to the graph's parameter inputs
+				// during graph construction. Properties in the asset are metadata only.
+				// Actual parameter values are set via SoundGraph::SetParameter() at runtime.
+				OLO_CORE_INFO("SoundGraphSerializer: WaveAsset property '{}' will be set via parameter system", it->second);
 			}
 		}
 		// TODO: Add more node types as they become available
 		
-		// OLO_CORE_TRACE("Applied properties to node '{}' of type '{}'", node->GetDisplayName(), nodeData.Type); // TODO: GetDisplayName() method missing
+		// OLO_CORE_TRACE("Applied properties to node '{}' of type '{}'", node->GetDisplayName(), nodeData.Type);
+		// TODO: GetDisplayName() method missing
 	}
 }

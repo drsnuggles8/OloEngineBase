@@ -2,51 +2,14 @@
 #include "SoundGraphPatchPreset.h"
 #include "SoundGraphSound.h"
 
+#include <nlohmann/json.hpp>
 #include <algorithm>
 #include <fstream>
 #include <chrono>
-#include <cstdio>
 #include <cmath>
 
 namespace OloEngine::Audio::SoundGraph
 {
-    //==============================================================================
-    /// JSON String Escaping Helper
-    
-    static std::string EscapeStringForJSON(const std::string& str)
-    {
-        std::string escaped;
-        escaped.reserve(str.size() * 2); // Reserve extra space for potential escapes
-        
-        for (char c : str)
-        {
-            switch (c)
-            {
-                case '\"': escaped += "\\\""; break;
-                case '\\': escaped += "\\\\"; break;
-                case '\b': escaped += "\\b"; break;
-                case '\f': escaped += "\\f"; break;
-                case '\n': escaped += "\\n"; break;
-                case '\r': escaped += "\\r"; break;
-                case '\t': escaped += "\\t"; break;
-                default:
-                    if (static_cast<unsigned char>(c) < 32)
-                    {
-                        // Escape control characters as \uXXXX
-                        char buf[7];
-                        snprintf(buf, sizeof(buf), "\\u%04X", static_cast<unsigned char>(c));
-                        escaped += buf;
-                    }
-                    else
-                    {
-                        escaped += c;
-                    }
-                    break;
-            }
-        }
-        return escaped;
-    }
-
     //==============================================================================
     /// ParameterPatch Implementation
     
@@ -375,72 +338,207 @@ namespace OloEngine::Audio::SoundGraph
 
     std::string SoundGraphPatchPreset::SerializeToJSON() const
     {
-        // JSON serialization with proper string escaping
-        std::string json = "{\n";
-        json += "  \"name\": \"" + EscapeStringForJSON(m_PresetName) + "\",\n";
-        json += "  \"description\": \"" + EscapeStringForJSON(m_PresetDescription) + "\",\n";
-        json += "  \"version\": \"" + EscapeStringForJSON(m_Version) + "\",\n";
-        json += "  \"author\": \"" + EscapeStringForJSON(m_Author) + "\",\n";
-        json += "  \"parameters\": [\n";
-
-        bool firstParam = true;
+        using json = nlohmann::json;
+        
+        json root;
+        root["name"] = m_PresetName;
+        root["description"] = m_PresetDescription;
+        root["version"] = m_Version;
+        root["author"] = m_Author;
+        
+        // Serialize parameter descriptors
+        json parameters = json::array();
         for (const auto& [id, descriptor] : m_ParameterDescriptors)
         {
-            if (!firstParam) json += ",\n";
-            firstParam = false;
-            
-            json += "    {\n";
-            json += "      \"id\": " + std::to_string(descriptor.ID) + ",\n";
-            json += "      \"name\": \"" + EscapeStringForJSON(descriptor.Name) + "\",\n";
-            json += "      \"displayName\": \"" + EscapeStringForJSON(descriptor.DisplayName) + "\",\n";
-            json += "      \"description\": \"" + EscapeStringForJSON(descriptor.Description) + "\",\n";
-            json += "      \"defaultValue\": \"" + EscapeStringForJSON(SerializeParameterValue(descriptor.DefaultValue)) + "\",\n";
-            json += "      \"units\": \"" + EscapeStringForJSON(descriptor.Units) + "\",\n";
-            json += "      \"automatable\": " + std::string(descriptor.IsAutomatable ? "true" : "false") + "\n";
-            json += "    }";
+            json param;
+            param["id"] = descriptor.ID;
+            param["name"] = descriptor.Name;
+            param["displayName"] = descriptor.DisplayName;
+            param["description"] = descriptor.Description;
+            param["defaultValue"] = SerializeParameterValue(descriptor.DefaultValue);
+            param["minValue"] = SerializeParameterValue(descriptor.MinValue);
+            param["maxValue"] = SerializeParameterValue(descriptor.MaxValue);
+            param["units"] = descriptor.Units;
+            param["automatable"] = descriptor.IsAutomatable;
+            parameters.push_back(param);
         }
-
-        json += "\n  ],\n";
-        json += "  \"patches\": [\n";
-
-        bool firstPatch = true;
+        root["parameters"] = parameters;
+        
+        // Serialize patches
+        json patches = json::array();
         for (const auto& [name, patch] : m_Patches)
         {
-            if (!firstPatch) json += ",\n";
-            firstPatch = false;
+            json patchJson;
+            patchJson["name"] = patch.Name;
+            patchJson["description"] = patch.Description;
+            patchJson["timestamp"] = patch.Timestamp;
             
-            json += "    {\n";
-            json += "      \"name\": \"" + EscapeStringForJSON(patch.Name) + "\",\n";
-            json += "      \"description\": \"" + EscapeStringForJSON(patch.Description) + "\",\n";
-            json += "      \"timestamp\": " + std::to_string(patch.Timestamp) + ",\n";
-            json += "      \"parameters\": {\n";
-            
-            bool firstPatchParam = true;
+            json patchParams;
             for (const auto& [paramId, value] : patch.Parameters)
             {
-                if (!firstPatchParam) json += ",\n";
-                firstPatchParam = false;
-                
-                json += "        \"" + std::to_string(paramId) + "\": \"" + EscapeStringForJSON(SerializeParameterValue(value)) + "\"";
+                patchParams[std::to_string(paramId)] = SerializeParameterValue(value);
             }
-            
-            json += "\n      }\n";
-            json += "    }";
+            patchJson["parameters"] = patchParams;
+            patches.push_back(patchJson);
         }
-
-        json += "\n  ]\n";
-        json += "}\n";
-
-        return json;
+        root["patches"] = patches;
+        
+        // Return pretty-printed JSON with 2-space indentation
+        return root.dump(2);
     }
 
     bool SoundGraphPatchPreset::DeserializeFromJSON(const std::string& jsonData)
     {
-        (void)jsonData;
-        // Simple JSON deserialization (in a real implementation, use a proper JSON parser)
-        // TODO(olbu): This is a placeholder implementation
-        OLO_CORE_WARN("SoundGraphPatchPreset::DeserializeFromJSON - Not fully implemented");
-        return false;
+        using json = nlohmann::json;
+        
+        try
+        {
+            json root = json::parse(jsonData);
+            
+            // Clear existing data
+            Clear();
+            
+            // Deserialize basic metadata
+            if (root.contains("name") && root["name"].is_string())
+                m_PresetName = root["name"].get<std::string>();
+            
+            if (root.contains("description") && root["description"].is_string())
+                m_PresetDescription = root["description"].get<std::string>();
+            
+            if (root.contains("version") && root["version"].is_string())
+                m_Version = root["version"].get<std::string>();
+            
+            if (root.contains("author") && root["author"].is_string())
+                m_Author = root["author"].get<std::string>();
+            
+            // Deserialize parameter descriptors
+            if (root.contains("parameters") && root["parameters"].is_array())
+            {
+                for (const auto& paramJson : root["parameters"])
+                {
+                    ParameterDescriptor descriptor;
+                    
+                    if (paramJson.contains("id") && paramJson["id"].is_number())
+                        descriptor.ID = paramJson["id"].get<u32>();
+                    
+                    if (paramJson.contains("name") && paramJson["name"].is_string())
+                        descriptor.Name = paramJson["name"].get<std::string>();
+                    
+                    if (paramJson.contains("displayName") && paramJson["displayName"].is_string())
+                        descriptor.DisplayName = paramJson["displayName"].get<std::string>();
+                    
+                    if (paramJson.contains("description") && paramJson["description"].is_string())
+                        descriptor.Description = paramJson["description"].get<std::string>();
+                    
+                    if (paramJson.contains("units") && paramJson["units"].is_string())
+                        descriptor.Units = paramJson["units"].get<std::string>();
+                    
+                    if (paramJson.contains("automatable") && paramJson["automatable"].is_boolean())
+                        descriptor.IsAutomatable = paramJson["automatable"].get<bool>();
+                    
+                    // For default/min/max values, we'll use f32 as default type
+                    if (paramJson.contains("defaultValue") && paramJson["defaultValue"].is_string())
+                    {
+                        std::string valueStr = paramJson["defaultValue"].get<std::string>();
+                        try {
+                            descriptor.DefaultValue = std::stof(valueStr);
+                        } catch (...) {
+                            descriptor.DefaultValue = 0.0f;
+                        }
+                    }
+                    
+                    if (paramJson.contains("minValue") && paramJson["minValue"].is_string())
+                    {
+                        std::string valueStr = paramJson["minValue"].get<std::string>();
+                        try {
+                            descriptor.MinValue = std::stof(valueStr);
+                        } catch (...) {
+                            descriptor.MinValue = 0.0f;
+                        }
+                    }
+                    
+                    if (paramJson.contains("maxValue") && paramJson["maxValue"].is_string())
+                    {
+                        std::string valueStr = paramJson["maxValue"].get<std::string>();
+                        try {
+                            descriptor.MaxValue = std::stof(valueStr);
+                        } catch (...) {
+                            descriptor.MaxValue = 1.0f;
+                        }
+                    }
+                    
+                    RegisterParameter(descriptor);
+                }
+            }
+            
+            // Deserialize patches
+            if (root.contains("patches") && root["patches"].is_array())
+            {
+                for (const auto& patchJson : root["patches"])
+                {
+                    ParameterPatch patch;
+                    
+                    if (patchJson.contains("name") && patchJson["name"].is_string())
+                        patch.Name = patchJson["name"].get<std::string>();
+                    
+                    if (patchJson.contains("description") && patchJson["description"].is_string())
+                        patch.Description = patchJson["description"].get<std::string>();
+                    
+                    if (patchJson.contains("timestamp") && patchJson["timestamp"].is_number())
+                        patch.Timestamp = patchJson["timestamp"].get<f64>();
+                    
+                    if (patchJson.contains("parameters") && patchJson["parameters"].is_object())
+                    {
+                        for (auto& [key, value] : patchJson["parameters"].items())
+                        {
+                            try
+                            {
+                                u32 paramId = std::stoul(key);
+                                std::string valueStr = value.get<std::string>();
+                                
+                                // Find the descriptor to determine the type
+                                const ParameterDescriptor* desc = GetParameterDescriptor(paramId);
+                                if (desc)
+                                {
+                                    ParameterValue paramValue = DeserializeParameterValue(valueStr, desc->DefaultValue);
+                                    patch.Parameters[paramId] = paramValue;
+                                }
+                                else
+                                {
+                                    // Default to f32 if no descriptor found
+                                    try {
+                                        patch.Parameters[paramId] = std::stof(valueStr);
+                                    } catch (...) {
+                                        patch.Parameters[paramId] = 0.0f;
+                                    }
+                                }
+                            }
+                            catch (...)
+                            {
+                                OLO_CORE_WARN("SoundGraphPatchPreset::DeserializeFromJSON - Failed to parse parameter: {}", key);
+                            }
+                        }
+                    }
+                    
+                    if (!patch.Name.empty())
+                    {
+                        m_Patches[patch.Name] = patch;
+                    }
+                }
+            }
+            
+            return true;
+        }
+        catch (const json::exception& e)
+        {
+            OLO_CORE_ERROR("SoundGraphPatchPreset::DeserializeFromJSON - JSON parsing error: {}", e.what());
+            return false;
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("SoundGraphPatchPreset::DeserializeFromJSON - Error: {}", e.what());
+            return false;
+        }
     }
 
     void SoundGraphPatchPreset::Clear()

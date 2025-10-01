@@ -29,6 +29,14 @@ if(choc_ADDED)
   target_include_directories(choc SYSTEM INTERFACE ${choc_SOURCE_DIR})
 endif()
 
+# nlohmann/json - for JSON serialization
+CPMAddPackage(NAME nlohmann_json
+  GIT_REPOSITORY https://github.com/nlohmann/json.git
+  VERSION 3.11.3
+  OPTIONS
+    "JSON_BuildTests OFF"
+    "JSON_Install OFF")
+
 # Main targets built by this project
 add_subdirectory(src)
 if(BUILD_TESTS)
@@ -88,6 +96,7 @@ target_link_libraries(OloEngine
 	imguizmo
 	Jolt
 	msdf-atlas-gen
+	nlohmann_json::nlohmann_json
 	opengl32.lib
 	sol2
 	stb_image

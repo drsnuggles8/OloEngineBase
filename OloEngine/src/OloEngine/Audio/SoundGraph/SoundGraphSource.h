@@ -103,6 +103,12 @@ namespace OloEngine::Audio::SoundGraph
         u64 GetCurrentFrame() const { return m_CurrentFrame.load(); }
 
         //==============================================================================
+        /// Configuration
+
+        /** Get the sample rate used by this source */
+        u32 GetSampleRate() const { return m_SampleRate; }
+
+        //==============================================================================
         /// Event Callbacks (set by SoundGraphPlayer or other managers)
         
         using OnGraphMessageCallback = std::function<void(u64 frameIndex, const char* message)>;

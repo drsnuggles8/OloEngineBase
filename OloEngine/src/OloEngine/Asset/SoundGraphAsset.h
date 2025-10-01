@@ -11,7 +11,7 @@
 // Forward declarations
 namespace OloEngine::Audio::SoundGraph
 {
-    class SoundGraphPrototype;
+    struct Prototype;
     struct SoundGraph;
 }
 
@@ -57,8 +57,7 @@ namespace OloEngine
         std::unordered_map<std::string, std::string> m_LocalVariables;
         
         // Runtime prototype (compiled graph)
-        // TODO: Implement SoundGraphPrototype when runtime audio graph system is ready
-        // Ref<Audio::SoundGraph::SoundGraphPrototype> CompiledPrototype;
+        Ref<Audio::SoundGraph::Prototype> CompiledPrototype;
         
         // Referenced wave sources
         std::vector<AssetHandle> m_WaveSources;

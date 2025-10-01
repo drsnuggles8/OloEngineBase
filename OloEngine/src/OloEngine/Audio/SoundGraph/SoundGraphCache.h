@@ -60,6 +60,10 @@ namespace OloEngine::Audio::SoundGraph
         void SetMaxMemoryUsage(sizet maxMemory);
         sizet GetMaxCacheSize() const;
         sizet GetMaxMemoryUsage() const;
+        
+        /// Cache directory configuration
+        void SetCacheDirectory(const std::string& directory);
+        std::string GetCacheDirectory() const;
 
         /// Cache Maintenance
         void EvictLRU();
@@ -94,6 +98,7 @@ namespace OloEngine::Audio::SoundGraph
         sizet m_MaxCacheSize;
         sizet m_MaxMemoryUsage;
         sizet m_CurrentMemoryUsage = 0;
+        std::string m_CacheDirectory = "cache/soundgraph/";
         
         // Statistics
         mutable std::atomic<u64> m_HitCount = 0;

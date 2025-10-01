@@ -19,6 +19,7 @@
 #include "OloEngine/Audio/AudioSource.h"
 #include "OloEngine/Asset/SoundGraphAsset.h"
 #include "OloEngine/Audio/SoundGraph/SoundGraphSerializer.h"
+#include "OloEngine/Audio/SoundGraph/SoundGraphPrototype.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Prefab.h"
