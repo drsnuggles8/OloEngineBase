@@ -5,170 +5,193 @@
 
 namespace OloEngine::Audio::SoundGraph
 {
-	//==============================================================================
-	// ValueSerializer Helper for choc::value serialization
-	struct ValueSerializer
-	{
-		std::vector<u8> Data;
-		
-		void write(const void* data, sizet size)
-		{
-			const u8* byteData = static_cast<const u8*>(data);
-			Data.insert(Data.end(), byteData, byteData + size);
-		}
-	};
+    //==============================================================================
+    // ValueSerializer Helper for choc::value serialization
+    struct ValueSerializer
+    {
+        std::vector<u8> m_Data;
+        
+        void Write(const void* data, sizet size)
+        {
+            OLO_PROFILE_FUNCTION();
+            const u8* byteData = static_cast<const u8*>(data);
+            m_Data.insert(m_Data.end(), byteData, byteData + size);
+        }
 
-	//==============================================================================
-	// Prototype::Endpoint Serialization
-	
-	void Prototype::Endpoint::Serialize(StreamWriter* writer, const Endpoint& endpoint)
-	{
-		// Write the endpoint ID as u32
-		writer->WriteRaw(static_cast<u32>(endpoint.EndpointID));
+        // Adapter for choc library - delegates to Write()
+        void write(const void* data, sizet size)
+        {
+            Write(data, size);
+        }
+    };
 
-		// Serialize the choc::value::Value using choc's built-in serialization
-		ValueSerializer wrapper;
-		endpoint.DefaultValue.serialise(wrapper);
-		writer->WriteArray(wrapper.Data);
-	}
+    //==============================================================================
+    // Prototype::Endpoint Serialization
+    
+    void Prototype::Endpoint::Serialize(StreamWriter* writer, const Endpoint& endpoint)
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        // Write the endpoint ID as u32
+        writer->WriteRaw(static_cast<u32>(endpoint.m_EndpointID));
 
-	void Prototype::Endpoint::Deserialize(StreamReader* reader, Endpoint& endpoint)
-	{
-		// Read the endpoint ID
-		u32 id;
-		reader->ReadRaw(id);
-		endpoint.EndpointID = Identifier(id);
+        // Serialize the choc::value::Value using choc's built-in serialization
+        ValueSerializer wrapper;
+        endpoint.m_DefaultValue.serialise(wrapper);
+        writer->WriteArray(wrapper.m_Data);
+    }
+    
+    void Prototype::Endpoint::Deserialize(StreamReader* reader, Endpoint& endpoint)
+    {
+        OLO_PROFILE_FUNCTION();
 
-		// Deserialize the choc::value::Value
-		std::vector<u8> data;
-		reader->ReadArray(data);
-		choc::value::InputData inputData{ data.data(), data.data() + data.size() };
-		endpoint.DefaultValue = choc::value::Value::deserialise(inputData);
-	}
+        // Read the endpoint ID
+        u32 id;
+        reader->ReadRaw(id);
+        endpoint.m_EndpointID = Identifier(id);
 
-	//==============================================================================
-	// Prototype::Node Serialization
-	
-	void Prototype::Node::Serialize(StreamWriter* writer, const Node& node)
-	{
-		// Write node type ID
-		writer->WriteRaw(static_cast<u32>(node.NodeTypeID));
-		
-		// Write node UUID
-		writer->WriteRaw(static_cast<u64>(node.ID));
-		
-		// Write default value plugs array
-		writer->WriteArray(node.DefaultValuePlugs);
-	}
+        // Deserialize the choc::value::Value
+        std::vector<u8> data;
+        reader->ReadArray(data);
+        choc::value::InputData inputData{ data.data(), data.data() + data.size() };
+        endpoint.m_DefaultValue = choc::value::Value::deserialise(inputData);
+    }
 
-	void Prototype::Node::Deserialize(StreamReader* reader, Node& node)
-	{
-		// Read node type ID
-		u32 typeID;
-		reader->ReadRaw(typeID);
-		node.NodeTypeID = Identifier(typeID);
-		
-		// Read node UUID
-		u64 id;
-		reader->ReadRaw(id);
-		node.ID = UUID(id);
-		
-		// Read default value plugs array
-		reader->ReadArray(node.DefaultValuePlugs);
-	}
+    //==============================================================================
+    // Prototype::Node Serialization
+    
+    void Prototype::Node::Serialize(StreamWriter* writer, const Node& node)
+    {
+        OLO_PROFILE_FUNCTION();
 
-	//==============================================================================
-	// Prototype::Connection Serialization
-	
-	void Prototype::Connection::Serialize(StreamWriter* writer, const Connection& connection)
-	{
-		// Write source endpoint
-		writer->WriteRaw(static_cast<u64>(connection.Source.NodeID));
-		writer->WriteRaw(static_cast<u32>(connection.Source.EndpointID));
-		
-		// Write destination endpoint
-		writer->WriteRaw(static_cast<u64>(connection.Destination.NodeID));
-		writer->WriteRaw(static_cast<u32>(connection.Destination.EndpointID));
-		
-		// Write connection type
-		writer->WriteRaw(static_cast<u32>(connection.Type));
-	}
+        // Write node type ID
+        writer->WriteRaw(static_cast<u32>(node.m_NodeTypeID));
+        
+        // Write node UUID
+        writer->WriteRaw(static_cast<u64>(node.m_ID));
+        
+        // Write default value plugs array
+        writer->WriteArray(node.m_DefaultValuePlugs);
+    }
 
-	void Prototype::Connection::Deserialize(StreamReader* reader, Connection& connection)
-	{
-		// Read source endpoint
-		u64 sourceNodeID;
-		u32 sourceEndpointID;
-		reader->ReadRaw(sourceNodeID);
-		reader->ReadRaw(sourceEndpointID);
-		connection.Source.NodeID = UUID(sourceNodeID);
-		connection.Source.EndpointID = Identifier(sourceEndpointID);
-		
-		// Read destination endpoint
-		u64 destNodeID;
-		u32 destEndpointID;
-		reader->ReadRaw(destNodeID);
-		reader->ReadRaw(destEndpointID);
-		connection.Destination.NodeID = UUID(destNodeID);
-		connection.Destination.EndpointID = Identifier(destEndpointID);
-		
-		// Read connection type
-		u32 type;
-		reader->ReadRaw(type);
-		connection.Type = static_cast<Connection::EType>(type);
-	}
+    void Prototype::Node::Deserialize(StreamReader* reader, Node& node)
+    {
+        OLO_PROFILE_FUNCTION();
 
-	//==============================================================================
-	// Prototype Serialization
-	
-	void Prototype::Serialize(StreamWriter* writer, const Prototype& prototype)
-	{
-		// Write debug name
-		writer->WriteString(prototype.DebugName);
-		
-		// Write prototype ID
-		writer->WriteRaw(static_cast<u64>(prototype.ID));
-		
-		// Write inputs array
-		writer->WriteArray(prototype.Inputs);
-		
-		// Write outputs array
-		writer->WriteArray(prototype.Outputs);
-		
-		// Write local variable plugs array
-		writer->WriteArray(prototype.LocalVariablePlugs);
-		
-		// Write nodes array
-		writer->WriteArray(prototype.Nodes);
-		
-		// Write connections array
-		writer->WriteArray(prototype.Connections);
-	}
+        // Read node type ID
+        u32 typeID;
+        reader->ReadRaw(typeID);
+        node.m_NodeTypeID = Identifier(typeID);
+        
+        // Read node UUID
+        u64 id;
+        reader->ReadRaw(id);
+        node.m_ID = UUID(id);
+        
+        // Read default value plugs array
+        reader->ReadArray(node.m_DefaultValuePlugs);
+    }
 
-	void Prototype::Deserialize(StreamReader* reader, Prototype& prototype)
-	{
-		// Read debug name
-		reader->ReadString(prototype.DebugName);
-		
-		// Read prototype ID
-		u64 id;
-		reader->ReadRaw(id);
-		prototype.ID = UUID(id);
-		
-		// Read inputs array
-		reader->ReadArray(prototype.Inputs);
-		
-		// Read outputs array
-		reader->ReadArray(prototype.Outputs);
-		
-		// Read local variable plugs array
-		reader->ReadArray(prototype.LocalVariablePlugs);
-		
-		// Read nodes array
-		reader->ReadArray(prototype.Nodes);
-		
-		// Read connections array
-		reader->ReadArray(prototype.Connections);
-	}
+    //==============================================================================
+    // Prototype::Connection Serialization
+    
+    void Prototype::Connection::Serialize(StreamWriter* writer, const Connection& connection)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Write source endpoint
+        writer->WriteRaw(static_cast<u64>(connection.m_Source.m_NodeID));
+        writer->WriteRaw(static_cast<u32>(connection.m_Source.m_EndpointID));
+        
+        // Write destination endpoint
+        writer->WriteRaw(static_cast<u64>(connection.m_Destination.m_NodeID));
+        writer->WriteRaw(static_cast<u32>(connection.m_Destination.m_EndpointID));
+        
+        // Write connection type
+        writer->WriteRaw(static_cast<u32>(connection.m_Type));
+    }
+
+    void Prototype::Connection::Deserialize(StreamReader* reader, Connection& connection)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Read source endpoint
+        u64 sourceNodeID;
+        u32 sourceEndpointID;
+        reader->ReadRaw(sourceNodeID);
+        reader->ReadRaw(sourceEndpointID);
+        connection.m_Source.m_NodeID = UUID(sourceNodeID);
+        connection.m_Source.m_EndpointID = Identifier(sourceEndpointID);
+        
+        // Read destination endpoint
+        u64 destNodeID;
+        u32 destEndpointID;
+        reader->ReadRaw(destNodeID);
+        reader->ReadRaw(destEndpointID);
+        connection.m_Destination.m_NodeID = UUID(destNodeID);
+        connection.m_Destination.m_EndpointID = Identifier(destEndpointID);
+        
+        // Read connection type
+        u32 type;
+        reader->ReadRaw(type);
+        connection.m_Type = static_cast<Connection::EType>(type);
+    }
+
+    //==============================================================================
+    // Prototype Serialization
+    
+    void Prototype::Serialize(StreamWriter* writer, const Prototype& prototype)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Write debug name
+        writer->WriteString(prototype.m_DebugName);
+        
+        // Write prototype ID
+        writer->WriteRaw(static_cast<u64>(prototype.m_ID));
+        
+        // Write inputs array
+        writer->WriteArray(prototype.m_Inputs);
+        
+        // Write outputs array
+        writer->WriteArray(prototype.m_Outputs);
+        
+        // Write local variable plugs array
+        writer->WriteArray(prototype.m_LocalVariablePlugs);
+        
+        // Write nodes array
+        writer->WriteArray(prototype.m_Nodes);
+        
+        // Write connections array
+        writer->WriteArray(prototype.m_Connections);
+    }
+
+    void Prototype::Deserialize(StreamReader* reader, Prototype& prototype)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Read debug name
+        reader->ReadString(prototype.m_DebugName);
+        
+        // Read prototype ID
+        u64 id;
+        reader->ReadRaw(id);
+        prototype.m_ID = UUID(id);
+        
+        // Read inputs array
+        reader->ReadArray(prototype.m_Inputs);
+        
+        // Read outputs array
+        reader->ReadArray(prototype.m_Outputs);
+        
+        // Read local variable plugs array
+        reader->ReadArray(prototype.m_LocalVariablePlugs);
+        
+        // Read nodes array
+        reader->ReadArray(prototype.m_Nodes);
+        
+        // Read connections array
+        reader->ReadArray(prototype.m_Connections);
+    }
 
 } // namespace OloEngine::Audio::SoundGraph

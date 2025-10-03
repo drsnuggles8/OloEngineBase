@@ -64,8 +64,12 @@ namespace OloEngine
             crc = s_CRC32_TABLE[(crc ^ *str++) & 0xFF] ^ (crc >> 8);
         }
         return crc ^ 0xFFFFFFFF;
-    }    u32 Hash::CRC32(const std::string& string)
+    }
+    
+    u32 Hash::CRC32(const std::string& string)
     {
+        OLO_PROFILE_FUNCTION();
+
         u32 crc = 0xFFFFFFFF;
         for (char c : string)
         {

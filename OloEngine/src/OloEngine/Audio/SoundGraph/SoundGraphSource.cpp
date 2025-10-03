@@ -28,8 +28,8 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 		Audio::WaveSource waveSource{};
-		waveSource.WaveHandle = handle;
-		waveSource.WaveName = ""; // audioAsset->GetPath().c_str(); // For debugging - needs proper API
+		waveSource.m_WaveHandle = handle;
+		waveSource.m_WaveName = ""; // audioAsset->GetPath().c_str(); // For debugging - needs proper API
 		
 		// Extract metadata from the audio asset to set up the wave source properly
 		// This prevents AreAllSourcesAtEnd() from immediately reporting finished due to TotalFrames = 0
@@ -38,7 +38,7 @@ namespace OloEngine::Audio::SoundGraph
 		const u16 numChannels = audioAsset->GetNumChannels();
 		
 		// Calculate total frames from duration and sample rate
-		waveSource.TotalFrames = static_cast<i64>(duration * sampleRate);
+		waveSource.m_TotalFrames = static_cast<i64>(duration * sampleRate);
 		
 		// Store additional metadata that may be needed for audio processing
 		// Note: WaveSource doesn't have explicit fields for these, but they're available in the AudioFile
@@ -74,7 +74,7 @@ namespace OloEngine::Audio::SoundGraph
 	{
 		for (const auto& [handle, source] : m_WaveSources)
 		{
-			if (source.ReadPosition < source.TotalFrames)
+			if (source.m_ReadPosition < source.m_TotalFrames)
 				return false;
 		}
 		return true;
@@ -88,8 +88,8 @@ namespace OloEngine::Audio::SoundGraph
 		u64 maxFrames = 0;
 		for (const auto& [handle, source] : m_DataSources.m_WaveSources)
 		{
-			if (source.TotalFrames > static_cast<i64>(maxFrames))
-				maxFrames = static_cast<u64>(source.TotalFrames);
+			if (source.m_TotalFrames > static_cast<i64>(maxFrames))
+				maxFrames = static_cast<u64>(source.m_TotalFrames);
 		}
 		return maxFrames;
 	}
@@ -598,14 +598,14 @@ namespace OloEngine::Audio::SoundGraph
 		if (!source)
 			return false;
 
-		if (waveSource.WaveHandle == 0)
+		if (waveSource.m_WaveHandle == 0)
 			return false;
 
 		// Get the audio asset metadata
-		AssetMetadata metadata = AssetManager::GetAssetMetadata(waveSource.WaveHandle);
+		AssetMetadata metadata = AssetManager::GetAssetMetadata(waveSource.m_WaveHandle);
 		if (!metadata.IsValid())
 		{
-			OLO_CORE_ERROR("[SoundGraphSource] Invalid asset metadata for handle: {}", waveSource.WaveHandle);
+			OLO_CORE_ERROR("[SoundGraphSource] Invalid asset metadata for handle: {}", waveSource.m_WaveHandle);
 			return false;
 		}
 
@@ -628,7 +628,7 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 		// Calculate how many frames we can refill
-		const i64 remainingFrames = waveSource.TotalFrames - waveSource.ReadPosition;
+		const i64 remainingFrames = waveSource.m_TotalFrames - waveSource.m_ReadPosition;
 		if (remainingFrames <= 0)
 			return false; // Already at end of audio
 
@@ -638,7 +638,7 @@ namespace OloEngine::Audio::SoundGraph
 		const i64 framesToPush = std::min(static_cast<i64>(bufferFrameCapacity), remainingFrames);
 
 		// Validate we don't exceed the audio data bounds
-		if (waveSource.ReadPosition + framesToPush > static_cast<i64>(audioData.m_NumFrames))
+		if (waveSource.m_ReadPosition + framesToPush > static_cast<i64>(audioData.m_NumFrames))
 		{
 			OLO_CORE_ERROR("[SoundGraphSource] Read position out of bounds");
 			return false;
@@ -646,14 +646,14 @@ namespace OloEngine::Audio::SoundGraph
 
 		// Copy samples from audio data into the circular buffer
 		// Audio data is interleaved (L,R,L,R...), same as the circular buffer expects
-		const i64 startSampleIndex = waveSource.ReadPosition * audioData.m_NumChannels;
+		const i64 startSampleIndex = waveSource.m_ReadPosition * audioData.m_NumChannels;
 		const i64 numSamplesToPush = framesToPush * audioData.m_NumChannels;
 
 		// Push samples into the circular buffer
-		waveSource.Channels.PushMultiple(&audioData.m_Samples[startSampleIndex], static_cast<int>(numSamplesToPush));
+		waveSource.m_Channels.PushMultiple(&audioData.m_Samples[startSampleIndex], static_cast<int>(numSamplesToPush));
 
 		// Update read position
-		waveSource.ReadPosition += framesToPush;
+		waveSource.m_ReadPosition += framesToPush;
 
 		return true;
 	}

@@ -6,6 +6,8 @@ namespace OloEngine::Audio::SoundGraph
 {
 	void SoundGraph::Play()
 	{
+		OLO_PROFILE_FUNCTION();
+
 		if (!m_IsPlaying)
 		{
 			m_IsPlaying = true;
@@ -17,6 +19,8 @@ namespace OloEngine::Audio::SoundGraph
 
 	void SoundGraph::Stop()
 	{
+		OLO_PROFILE_FUNCTION();
+
 		if (m_IsPlaying)
 		{
 			m_IsPlaying = false;
@@ -27,6 +31,8 @@ namespace OloEngine::Audio::SoundGraph
 
 	void SoundGraph::TriggerGraphEvent(const std::string& eventName, f32 value)
 	{
+		OLO_PROFILE_FUNCTION();
+
 		// Add event to queue for processing in audio thread
 		GraphEvent event;
 		event.frameIndex = m_CurrentFrame;
@@ -48,22 +54,26 @@ namespace OloEngine::Audio::SoundGraph
 
 	void SoundGraph::InitializeEndpoints()
 	{
+		OLO_PROFILE_FUNCTION();
+
 		// Set up event endpoints
 		AddInEvent(IDs::Play, [this](f32 value) { OnPlay(value); });
 	}
 
 	void SoundGraph::ProcessEvents()
 	{
-		// Process any internal events
+		// TODO(olbu): Process any internal events
 	}
 
 	void SoundGraph::ProcessConnections()
 	{
-		// Process all connections in the graph
+		// TODO(olbu): Process all connections in the graph
 	}
 
 	void SoundGraph::OnPlay(f32 value)
 	{
+		OLO_PROFILE_FUNCTION();
+
 		(void)value;
 		m_IsPlaying = true;
 		OLO_CORE_TRACE("[SoundGraph] Started playing sound graph");
@@ -71,6 +81,8 @@ namespace OloEngine::Audio::SoundGraph
 
 	void SoundGraph::OnStop(f32 value)
 	{
+		OLO_PROFILE_FUNCTION();
+
 		(void)value;
 		m_IsPlaying = false;
 		m_HasFinished = false;
@@ -79,6 +91,8 @@ namespace OloEngine::Audio::SoundGraph
 
 	void SoundGraph::OnFinished(f32 value)
 	{
+		OLO_PROFILE_FUNCTION();
+
 		(void)value;
 		m_HasFinished = true;
 		m_IsPlaying = false;
@@ -87,6 +101,8 @@ namespace OloEngine::Audio::SoundGraph
 
 	void SoundGraph::UpdateFromAssetData([[maybe_unused]] const SoundGraphAsset& asset)
 	{
+		OLO_PROFILE_FUNCTION();
+		
 		// Clear existing state
 		m_IsPlaying = false;
 		m_HasFinished = false;

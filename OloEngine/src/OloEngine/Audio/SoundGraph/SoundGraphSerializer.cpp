@@ -47,18 +47,21 @@ namespace OloEngine::Audio::SoundGraph
 		std::string yamlString = SerializeToString(asset);
 		
 		std::ofstream fout(filepath);
-		if (fout.is_open())
-		{
-			fout << yamlString;
-			fout.close();
-			OLO_CORE_INFO("Successfully serialized sound graph to {}", filepath.string());
-			return true;
-		}
-		else
+		if (!fout.is_open())
 		{
 			OLO_CORE_ERROR("Failed to open file for writing: {}", filepath.string());
 			return false;
 		}
+
+		fout << yamlString;
+		if (!fout)
+		{
+			OLO_CORE_ERROR("Failed to write sound graph to {}", filepath.string());
+			return false;
+		}
+
+		OLO_CORE_INFO("Successfully serialized sound graph to {}", filepath.string());
+		return true;
 	}
 
 	std::string SoundGraphSerializer::SerializeToString(const SoundGraphAsset& asset)
@@ -200,7 +203,7 @@ namespace OloEngine::Audio::SoundGraph
 		}
 		catch (const YAML::Exception& e)
 		{
-			OLO_CORE_ERROR("Failed to parse YAML: {}}", e.what());
+			OLO_CORE_ERROR("Failed to parse YAML: {}", e.what());
 			return false;
 		}
 		catch (const std::exception& e)

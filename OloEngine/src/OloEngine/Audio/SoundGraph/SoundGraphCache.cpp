@@ -12,6 +12,12 @@
 namespace OloEngine::Audio::SoundGraph
 {
     //==============================================================================
+    /// Default cache configuration constants
+    
+    constexpr sizet DEFAULT_MAX_CACHE_ITEMS = 50;
+    constexpr sizet DEFAULT_MAX_MEMORY_BYTES = 256 * 1024 * 1024; // 256MB
+    
+    //==============================================================================
     /// SoundGraphCache Implementation
 
     SoundGraphCache::SoundGraphCache(sizet maxCacheSize, sizet maxMemoryUsage)
@@ -136,6 +142,8 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphCache::Remove(const std::string& sourcePath)
     {
+        OLO_PROFILE_FUNCTION();
+
         std::lock_guard<std::mutex> lock(m_Mutex);
         
         auto it = m_CacheEntries.find(sourcePath);
@@ -149,6 +157,8 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphCache::Clear()
     {
+        OLO_PROFILE_FUNCTION();
+
         std::lock_guard<std::mutex> lock(m_Mutex);
         
         m_CacheEntries.clear();
@@ -160,6 +170,8 @@ namespace OloEngine::Audio::SoundGraph
 
     f32 SoundGraphCache::GetHitRatio() const
     {
+        OLO_PROFILE_FUNCTION();
+
         std::lock_guard<std::mutex> lock(m_Mutex);
         u64 totalAccesses = m_HitCount + m_MissCount;
         return totalAccesses > 0 ? static_cast<f32>(m_HitCount) / static_cast<f32>(totalAccesses) : 0.0f;
@@ -295,9 +307,21 @@ namespace OloEngine::Audio::SoundGraph
         
         std::vector<std::string> pathsToInvalidate;
         
+        // Use filesystem::path for robust directory matching
+        std::filesystem::path targetDir(directoryPath);
+        targetDir = targetDir.lexically_normal();
+        
         for (auto& [path, entry] : m_CacheEntries)
         {
-            if (path.find(directoryPath) == 0) // Path starts with directory
+            std::filesystem::path entryPath(path);
+            entryPath = entryPath.lexically_normal();
+            
+            // Check if entryPath is within targetDir by comparing parent paths
+            auto [dirEnd, entryEnd] = std::mismatch(targetDir.begin(), targetDir.end(), 
+                                                     entryPath.begin(), entryPath.end());
+            
+            // Match if we consumed all of targetDir and entryPath has same or more components
+            if (dirEnd == targetDir.end())
             {
                 pathsToInvalidate.push_back(path);
             }
@@ -404,23 +428,23 @@ namespace OloEngine::Audio::SoundGraph
     //==============================================================================
     /// Private Helper Methods
 
-	void SoundGraphCache::UpdateLRU(const std::string& sourcePath)
-	{
-		// Remove from current position if exists
-		RemoveFromLRU(sourcePath);
-		
-		// Add to back (most recently used) - O(1) operation
-		m_LRUOrder.push_back(sourcePath);
-	}
+    void SoundGraphCache::UpdateLRU(const std::string& sourcePath)
+    {
+        // Remove from current position if exists
+        RemoveFromLRU(sourcePath);
+        
+        // Add to back (most recently used) - O(1) operation
+        m_LRUOrder.push_back(sourcePath);
+    }
 
-	void SoundGraphCache::RemoveFromLRU(const std::string& sourcePath)
-	{
-		auto it = std::find(m_LRUOrder.begin(), m_LRUOrder.end(), sourcePath);
-		if (it != m_LRUOrder.end())
-		{
-			m_LRUOrder.erase(it);
-		}
-	}
+    void SoundGraphCache::RemoveFromLRU(const std::string& sourcePath)
+    {
+        auto it = std::find(m_LRUOrder.begin(), m_LRUOrder.end(), sourcePath);
+        if (it != m_LRUOrder.end())
+        {
+            m_LRUOrder.erase(it);
+        }
+    }
 
     sizet SoundGraphCache::CalculateGraphMemoryUsage(const Ref<SoundGraph>& graph) const
     {
@@ -490,12 +514,12 @@ namespace OloEngine::Audio::SoundGraph
         // EndpointOutputStreams (NodeProcessor)
         totalMemory += sizeof(NodeProcessor) + 256; // Base size + estimated overhead
         
-		// Thread-safe FIFO queues (choc::fifo::SingleReaderSingleWriterFIFO)
-		// These are typically allocated with fixed sizes
-		// Note: Cannot access private OutgoingEvent/OutgoingMessage structs directly
-		// Using estimated sizes based on typical event/message structure
-		totalMemory += 1024 * 64;  // Estimated FIFO capacity * estimated event size
-		totalMemory += 1024 * 32; // Estimated FIFO capacity * estimated message size        // choc::value::ValueView objects don't own data, minimal memory overhead
+        // Thread-safe FIFO queues (choc::fifo::SingleReaderSingleWriterFIFO)
+        // These are typically allocated with fixed sizes
+        // Note: Cannot access private OutgoingEvent/OutgoingMessage structs directly
+        // Using estimated sizes based on typical event/message structure
+        totalMemory += 1024 * 64;  // Estimated FIFO capacity * estimated event size
+        totalMemory += 1024 * 32; // Estimated FIFO capacity * estimated message size        // choc::value::ValueView objects don't own data, minimal memory overhead
         // String storage for debug names, identifiers, etc.
         totalMemory += 1024; // Estimated string storage overhead
         
@@ -587,10 +611,10 @@ namespace OloEngine::Audio::SoundGraph
                     // Step 2: Compile the asset to a Prototype
                     std::vector<UUID> waveAssetsToLoad;
                     GraphGeneratorOptions options;
-                    options.Name = asset.m_Name;
-                    options.NumInChannels = 2;  // Stereo input
-                    options.NumOutChannels = 2; // Stereo output
-                    options.GraphPrototype = Ref<Prototype>::Create(); // Create empty prototype for population
+                    options.m_Name = asset.m_Name;
+                    options.m_NumInChannels = 2;  // Stereo input
+                    options.m_NumOutChannels = 2; // Stereo output
+                    options.m_GraphPrototype = Ref<Prototype>::Create(); // Create empty prototype for population
                     
                     // If the asset already has a compiled prototype, use it; otherwise compile from scratch
                     Ref<Prototype> prototype;
@@ -797,7 +821,7 @@ namespace OloEngine::Audio::SoundGraph
             
             if (!s_GlobalCache)
             {
-                s_GlobalCache = Ref<SoundGraphCache>::Create();
+                s_GlobalCache = Ref<SoundGraphCache>::Create(DEFAULT_MAX_CACHE_ITEMS, DEFAULT_MAX_MEMORY_BYTES);
             }
             
             return s_GlobalCache;

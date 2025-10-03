@@ -12,10 +12,10 @@ namespace OloEngine::Audio::SoundGraph
 {
 	struct GraphGeneratorOptions
 	{
-		std::string Name;
-		u32 NumInChannels;
-		u32 NumOutChannels;
-		Ref<Prototype> GraphPrototype;
+		std::string m_Name;
+		u32 m_NumInChannels;
+		u32 m_NumOutChannels;
+		Ref<Prototype> m_GraphPrototype;
 		// Note: Editor model and cache dependencies removed for now
 	};
 

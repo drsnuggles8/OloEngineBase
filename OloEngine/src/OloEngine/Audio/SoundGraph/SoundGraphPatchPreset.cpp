@@ -15,6 +15,8 @@ namespace OloEngine::Audio::SoundGraph
     
     void ParameterPatch::SetParameter(u32 parameterID, const ParameterValue& value)
     {
+        OLO_PROFILE_FUNCTION();
+
         Parameters[parameterID] = value;
         Timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count() / 1000.0;
@@ -22,16 +24,22 @@ namespace OloEngine::Audio::SoundGraph
 
     void ParameterPatch::RemoveParameter(u32 parameterID)
     {
+        OLO_PROFILE_FUNCTION();
+
         Parameters.erase(parameterID);
     }
 
     bool ParameterPatch::HasParameter(u32 parameterID) const
     {
+        OLO_PROFILE_FUNCTION();
+
         return Parameters.find(parameterID) != Parameters.end();
     }
 
     std::vector<u32> ParameterPatch::GetParameterIDs() const
     {
+        OLO_PROFILE_FUNCTION();
+
         std::vector<u32> ids;
         ids.reserve(Parameters.size());
         
@@ -46,6 +54,8 @@ namespace OloEngine::Audio::SoundGraph
 
     void ParameterPatch::Clear()
     {
+        OLO_PROFILE_FUNCTION();
+        
         Parameters.clear();
         Name.clear();
         Description.clear();
@@ -57,11 +67,15 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphPatchPreset::RegisterParameter(const ParameterDescriptor& descriptor)
     {
+        OLO_PROFILE_FUNCTION();
+
         m_ParameterDescriptors[descriptor.ID] = descriptor;
     }
 
     void SoundGraphPatchPreset::UnregisterParameter(u32 parameterID)
     {
+        OLO_PROFILE_FUNCTION();
+
         m_ParameterDescriptors.erase(parameterID);
         
         // Remove from all patches
@@ -73,17 +87,23 @@ namespace OloEngine::Audio::SoundGraph
 
     bool SoundGraphPatchPreset::IsParameterRegistered(u32 parameterID) const
     {
+        OLO_PROFILE_FUNCTION();
+
         return m_ParameterDescriptors.find(parameterID) != m_ParameterDescriptors.end();
     }
 
     const ParameterDescriptor* SoundGraphPatchPreset::GetParameterDescriptor(u32 parameterID) const
     {
+        OLO_PROFILE_FUNCTION();
+
         auto it = m_ParameterDescriptors.find(parameterID);
         return it != m_ParameterDescriptors.end() ? &it->second : nullptr;
     }
 
     std::vector<ParameterDescriptor> SoundGraphPatchPreset::GetAllParameterDescriptors() const
     {
+        OLO_PROFILE_FUNCTION();
+
         std::vector<ParameterDescriptor> descriptors;
         descriptors.reserve(m_ParameterDescriptors.size());
         
@@ -103,6 +123,8 @@ namespace OloEngine::Audio::SoundGraph
 
     bool SoundGraphPatchPreset::CreatePatch(const std::string& name, const std::string& description)
     {
+        OLO_PROFILE_FUNCTION();
+
         // Check for existing patch to avoid overwriting
         if (m_Patches.find(name) != m_Patches.end())
         {
@@ -122,28 +144,38 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphPatchPreset::DeletePatch(const std::string& name)
     {
+        OLO_PROFILE_FUNCTION();
+
         m_Patches.erase(name);
     }
 
     bool SoundGraphPatchPreset::HasPatch(const std::string& name) const
     {
+        OLO_PROFILE_FUNCTION();
+
         return m_Patches.find(name) != m_Patches.end();
     }
 
     ParameterPatch* SoundGraphPatchPreset::GetPatch(const std::string& name)
     {
+        OLO_PROFILE_FUNCTION();
+
         auto it = m_Patches.find(name);
         return it != m_Patches.end() ? &it->second : nullptr;
     }
 
     const ParameterPatch* SoundGraphPatchPreset::GetPatch(const std::string& name) const
     {
+        OLO_PROFILE_FUNCTION();
+
         auto it = m_Patches.find(name);
         return it != m_Patches.end() ? &it->second : nullptr;
     }
 
     std::vector<std::string> SoundGraphPatchPreset::GetPatchNames() const
     {
+        OLO_PROFILE_FUNCTION();
+
         std::vector<std::string> names;
         names.reserve(m_Patches.size());
         
@@ -158,6 +190,8 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphPatchPreset::ApplyPatch(const std::string& patchName, SoundGraphSound* target)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!target)
         {
             OLO_CORE_WARN("SoundGraphPatchPreset::ApplyPatch - target is null");
@@ -176,6 +210,8 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphPatchPreset::ApplyPatch(const ParameterPatch& patch, SoundGraphSound* target)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!target)
         {
             OLO_CORE_WARN("SoundGraphPatchPreset::ApplyPatch - target is null");
@@ -236,7 +272,11 @@ namespace OloEngine::Audio::SoundGraph
                     // Convert incoming value to float and clamp to [min,max]
                     f32 minV = toFloat(desc->MinValue, std::numeric_limits<f32>::lowest());
                     f32 maxV = toFloat(desc->MaxValue, std::numeric_limits<f32>::max());
-                    if (maxV < minV) std::swap(minV, maxV);
+                    if (maxV < minV)
+                    {
+                        OLO_CORE_WARN("Parameter {} has inverted bounds [{}, {}], swapping", parameterID, minV, maxV);
+                        std::swap(minV, maxV);
+                    }
 
                     f32 vOut = toFloat(value, defaultVal);
                     vOut = std::clamp(vOut, minV, maxV);
@@ -247,7 +287,11 @@ namespace OloEngine::Audio::SoundGraph
                     // Convert incoming value to int and clamp to [min,max]
                     i32 minV = toInt(desc->MinValue, std::numeric_limits<i32>::min());
                     i32 maxV = toInt(desc->MaxValue, std::numeric_limits<i32>::max());
-                    if (maxV < minV) std::swap(minV, maxV);
+                    if (maxV < minV)
+                    {
+                        OLO_CORE_WARN("Parameter {} has inverted bounds [{}, {}], swapping", parameterID, minV, maxV);
+                        std::swap(minV, maxV);
+                    }
 
                     i32 vOut = toInt(value, defaultVal);
                     vOut = std::clamp(vOut, minV, maxV);
@@ -269,6 +313,8 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphPatchPreset::CaptureStateToPatch(const std::string& patchName, SoundGraphSound* source)
     {
+        OLO_PROFILE_FUNCTION();
+
         if (!source)
         {
             OLO_CORE_WARN("SoundGraphPatchPreset::CaptureStateToPatch - source is null");
@@ -298,6 +344,8 @@ namespace OloEngine::Audio::SoundGraph
 
     bool SoundGraphPatchPreset::SaveToFile(const std::string& filePath) const
     {
+        OLO_PROFILE_FUNCTION();
+
         std::string jsonData = SerializeToJSON();
         
         std::ofstream file(filePath);
@@ -322,6 +370,8 @@ namespace OloEngine::Audio::SoundGraph
 
     bool SoundGraphPatchPreset::LoadFromFile(const std::string& filePath)
     {
+        OLO_PROFILE_FUNCTION();
+
         std::ifstream file(filePath);
         if (!file.is_open())
         {
@@ -338,6 +388,8 @@ namespace OloEngine::Audio::SoundGraph
 
     std::string SoundGraphPatchPreset::SerializeToJSON() const
     {
+        OLO_PROFILE_FUNCTION();
+
         using json = nlohmann::json;
         
         json root;
@@ -389,6 +441,8 @@ namespace OloEngine::Audio::SoundGraph
 
     bool SoundGraphPatchPreset::DeserializeFromJSON(const std::string& jsonData)
     {
+        OLO_PROFILE_FUNCTION();
+
         using json = nlohmann::json;
         
         try
@@ -543,6 +597,8 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphPatchPreset::Clear()
     {
+        OLO_PROFILE_FUNCTION();
+
         m_PresetName.clear();
         m_PresetDescription.clear();
         m_Version = "1.0";
@@ -553,11 +609,15 @@ namespace OloEngine::Audio::SoundGraph
 
     bool SoundGraphPatchPreset::IsEmpty() const
     {
+        OLO_PROFILE_FUNCTION();
+
         return m_ParameterDescriptors.empty() && m_Patches.empty();
     }
 
     ParameterPatch SoundGraphPatchPreset::MergePatches(const std::vector<std::string>& patchNames, const std::string& mergedPatchName) const
     {
+        OLO_PROFILE_FUNCTION();
+
         ParameterPatch merged;
         merged.Name = mergedPatchName;
         merged.Description = "Merged from multiple patches";
@@ -580,6 +640,8 @@ namespace OloEngine::Audio::SoundGraph
 
     ParameterPatch SoundGraphPatchPreset::InterpolatePatches(const std::string& patchA, const std::string& patchB, f32 t, const std::string& resultPatchName) const
     {
+        OLO_PROFILE_FUNCTION();
+
         const ParameterPatch* a = GetPatch(patchA);
         const ParameterPatch* b = GetPatch(patchB);
         
@@ -633,6 +695,8 @@ namespace OloEngine::Audio::SoundGraph
 
     std::string SoundGraphPatchPreset::SerializeParameterValue(const ParameterValue& value) const
     {
+        OLO_PROFILE_FUNCTION();
+
         return std::visit([](const auto& v) -> std::string {
             using T = std::decay_t<decltype(v)>;
             if constexpr (std::is_same_v<T, f32>)
@@ -653,6 +717,8 @@ namespace OloEngine::Audio::SoundGraph
 
     ParameterValue SoundGraphPatchPreset::DeserializeParameterValue(const std::string& valueStr, const ParameterValue& defaultValue) const
     {
+        OLO_PROFILE_FUNCTION();
+
         // Simple deserialization based on the default value type
         return std::visit([&valueStr](const auto& defaultVal) -> ParameterValue {
             using T = std::decay_t<decltype(defaultVal)>;
@@ -679,6 +745,8 @@ namespace OloEngine::Audio::SoundGraph
 
     Ref<SoundGraphPatchPreset> CreateBasicSoundPreset()
     {
+        OLO_PROFILE_FUNCTION();
+
         auto preset = Ref<SoundGraphPatchPreset>::Create();
         preset->SetName("Basic Sound Controls");
         preset->SetDescription("Common parameters for sound control");
@@ -711,6 +779,8 @@ namespace OloEngine::Audio::SoundGraph
 
     Ref<SoundGraphPatchPreset> CreateSpatialAudioPreset()
     {
+        OLO_PROFILE_FUNCTION();
+        
         auto preset = CreateBasicSoundPreset();
         preset->SetName("Spatial Audio");
         preset->SetDescription("3D spatial audio parameters");
@@ -732,6 +802,8 @@ namespace OloEngine::Audio::SoundGraph
 
     Ref<SoundGraphPatchPreset> CreateFilterEffectsPreset()
     {
+        OLO_PROFILE_FUNCTION();
+
         auto preset = CreateBasicSoundPreset();
         preset->SetName("Filter & Effects");
         preset->SetDescription("Audio filters and effects parameters");

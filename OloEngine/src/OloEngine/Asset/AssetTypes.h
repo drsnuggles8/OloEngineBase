@@ -117,13 +117,13 @@ namespace OloEngine
                 case AssetType::AnimationGraph:      return "AnimationGraph";
                 case AssetType::Model:               return "Model";
                 case AssetType::Environment:         return "Environment";
-				case AssetType::SoundGraph:          return "SoundGraph";
+                case AssetType::SoundGraph:          return "SoundGraph";
             }
-			
+            
             OLO_CORE_ASSERT(false, "Unknown Asset Type");
             return "None";
         }
-		
+        
         /**
          * @brief Convert string representation to AssetType enum
          * @param assetType String representation of the asset type

@@ -21,19 +21,19 @@ namespace OloEngine::Audio::SoundGraph
 	/// SoundGraph Prototype, used to construct instances of SoundGraph for playback
 	struct Prototype : public RefCounted
 	{
-		std::string DebugName;
-		UUID ID;
+		std::string m_DebugName;
+		UUID m_ID;
 
 		struct Endpoint
 		{
-			Identifier EndpointID;
-			choc::value::Value DefaultValue;
+			Identifier m_EndpointID;
+			choc::value::Value m_DefaultValue;
 
 			Endpoint(Identifier id, const choc::value::Value& defaultValue)
-				: EndpointID(id), DefaultValue(defaultValue) {}
+				: m_EndpointID(id), m_DefaultValue(defaultValue) {}
 
 			Endpoint()
-				: EndpointID(0), DefaultValue() {}
+				: m_EndpointID(0), m_DefaultValue() {}
 
 			static void Serialize(OloEngine::StreamWriter* writer, const Endpoint& endpoint);
 			static void Deserialize(OloEngine::StreamReader* reader, Endpoint& endpoint);
@@ -41,26 +41,26 @@ namespace OloEngine::Audio::SoundGraph
 
 		//==============================================================================
 		/// Graph IO
-		std::vector<Endpoint> Inputs, Outputs;
+		std::vector<Endpoint> m_Inputs, m_Outputs;
 
-		std::vector<Endpoint> LocalVariablePlugs;
+		std::vector<Endpoint> m_LocalVariablePlugs;
 
 		//==============================================================================
 		/// Nodes
 		struct Node
 		{
-			Identifier NodeTypeID; // Used to call Factory to create the right node type
-			UUID ID;
-			std::vector<Endpoint> DefaultValuePlugs;
+			Identifier m_NodeTypeID; // Used to call Factory to create the right node type
+			UUID m_ID;
+			std::vector<Endpoint> m_DefaultValuePlugs;
 
-			Node(Identifier typeID, UUID uniqueID) : NodeTypeID(typeID), ID(uniqueID) {}
-			Node() : NodeTypeID(0), ID(0) {}
+			Node(Identifier typeID, UUID uniqueID) : m_NodeTypeID(typeID), m_ID(uniqueID) {}
+			Node() : m_NodeTypeID(0), m_ID(0) {}
 
 			static void Serialize(OloEngine::StreamWriter* writer, const Node& node);
 			static void Deserialize(OloEngine::StreamReader* reader, Node& node);
 		};
 
-		std::vector<Node> Nodes;
+		std::vector<Node> m_Nodes;
 
 		//==============================================================================
 		/// Connections
@@ -79,26 +79,26 @@ namespace OloEngine::Audio::SoundGraph
 
 			struct EndpointRef
 			{
-				UUID NodeID;
-				Identifier EndpointID;
+				UUID m_NodeID;
+				Identifier m_EndpointID;
 			};
 
-			EndpointRef Source, Destination;
-			EType Type;
+			EndpointRef m_Source, m_Destination;
+			EType m_Type;
 
 			Connection(EndpointRef source, EndpointRef destination, EType connectionType)
-				: Source(std::move(source)), Destination(std::move(destination)), Type(connectionType)
+				: m_Source(std::move(source)), m_Destination(std::move(destination)), m_Type(connectionType)
 			{}
 
 		Connection()
-			: Source{ UUID(0), Identifier(0) }, Destination{ UUID(0), Identifier(0) }, Type(NodeValue_NodeValue) {}
+			: m_Source{ UUID(0), Identifier(0) }, m_Destination{ UUID(0), Identifier(0) }, m_Type(NodeValue_NodeValue) {}
 
 			static void Serialize(OloEngine::StreamWriter* writer, const Connection& connection);
 			static void Deserialize(OloEngine::StreamReader* reader, Connection& connection);
 		};
 
 		// Used to create a copy of the graph
-		std::vector<Connection> Connections;
+		std::vector<Connection> m_Connections;
 
 		static void Serialize(OloEngine::StreamWriter* writer, const Prototype& prototype);
 		static void Deserialize(OloEngine::StreamReader* reader, Prototype& prototype);

@@ -12,18 +12,18 @@ namespace OloEngine
 	{
 		OLO_PROFILE_FUNCTION();
 
-		OLO_CORE_TRACE("[AudioEngine] Initializing.");
-		ma_engine_config config = ::ma_engine_config_init();
-		config.listenerCount = 1;
-
 		if (s_Engine)
 		{
 			OLO_CORE_WARN("[AudioEngine] Already initialized.");
 			return true;
 		}
 
+		OLO_CORE_TRACE("[AudioEngine] Initializing.");
+		ma_engine_config config = ::ma_engine_config_init();
+		config.listenerCount = 1;
+
 		s_Engine = new ma_engine();
-		ma_result result = ::ma_engine_init(nullptr, s_Engine);
+		ma_result result = ::ma_engine_init(&config, s_Engine);
 		
 		if (result == MA_SUCCESS)
 		{

@@ -31,7 +31,7 @@ namespace OloEngine::Audio
 			std::vector<u32> m_OutputBuses;
 		};
 
-		ma_node_base* GetNode() { return &m_Node.base; }
+		ma_node_base* GetNode() { return &m_Node.m_Base; }
 
 		bool Initialize(ma_engine* engine, const BusConfig& busConfig);
 		void Uninitialize();
@@ -57,10 +57,10 @@ namespace OloEngine::Audio
 
 		struct processing_node
 		{
-			ma_node_base base;
-			ma_engine* pEngine;
-			bool bInitialized = false;
-			AudioCallback* callback;
+			ma_node_base m_Base;
+			ma_engine* m_PEngine;
+			bool m_BInitialized = false;
+			AudioCallback* m_Callback;
 		} m_Node;
 	};
 
@@ -197,7 +197,9 @@ namespace OloEngine::Audio
 		{
 			*pFrameCountOut = frameCount;
 		}
-	}	private:
+	}
+	
+	private:
 		std::vector<choc::buffer::ChannelArrayBuffer<float>> m_InDeinterleavedBuses;
 		std::vector<choc::buffer::ChannelArrayBuffer<float>> m_OutDeinterleavedBuses;
 	};
@@ -219,6 +221,7 @@ namespace OloEngine::Audio
 		friend AudioCallbackDeinterleaved<CallbackBindedDeinterleaved>;
 
 		virtual void ReleaseResources() override {}
+		// TODO(olbu): Investigate what this Init() function is even used for? We just set to true, the other stuff is just done for suppressing parameter warnings
 		bool Init(u32 sampleRate, u32 maxBlockSize, const BusConfig& config) { 
 			(void)sampleRate; (void)maxBlockSize; (void)config; // Suppress unreferenced parameter warnings
 			return true; 
@@ -263,7 +266,14 @@ namespace OloEngine::Audio
 		friend AudioCallbackInterleaved<CallbackBindedInterleaved>;
 
 		virtual void ReleaseResources() override {}
-		bool Init(u32 sampleRate, u32 maxBlockSize, const BusConfig& config) { (void)sampleRate; (void)maxBlockSize; (void)config; return true; }
+		bool Init(u32 sampleRate, u32 maxBlockSize, const BusConfig& config)
+		{
+			(void)sampleRate;
+			(void)maxBlockSize;
+			(void)config;
+			return true;
+		}
+
 		void ProcessBlock(const float** ppFramesIn, ma_uint32* pFrameCountIn, float** ppFramesOut, ma_uint32* pFrameCountOut)
 		{
 			// Derive requested frame count (0 if pFrameCountIn is null)

@@ -61,14 +61,14 @@ namespace OloEngine
             const sizet length = str.length();
             const char* data = str.data();
 
-			u32 hash = OFFSET_BASIS;
-			for (sizet i = 0; i < length; ++i)
-			{
-				hash ^= static_cast<u32>(static_cast<unsigned char>(*data++));
-				hash *= FNV_PRIME;
-			}
-			
-			return hash;
+            u32 hash = OFFSET_BASIS;
+            for (sizet i = 0; i < length; ++i)
+            {
+                hash ^= static_cast<u32>(static_cast<unsigned char>(*data++));
+                hash *= FNV_PRIME;
+            }
+            
+            return hash;
         }
 
         //==============================================================================

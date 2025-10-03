@@ -14,7 +14,7 @@ namespace OloEngine::Audio
 		// Assert that the node and its callback are valid
 		OLO_CORE_ASSERT(node != nullptr);
 
-		AudioCallback* callback = node->callback;
+		AudioCallback* callback = node->m_Callback;
 		
 		// Early return if callback is null to avoid dereferencing
 		if (!callback)
@@ -54,15 +54,15 @@ namespace OloEngine::Audio
 		for (const auto& bus : busConfig.m_OutputBuses) 
 			OLO_CORE_ASSERT(bus > 0, "Output bus channel count must be > 0");
 
-		if (m_Node.bInitialized)
+		if (m_Node.m_BInitialized)
 		{
 			ma_node_set_state(&m_Node, ma_node_state_stopped);
 			ma_node_uninit(&m_Node, nullptr);
-			m_Node.bInitialized = false;
+			m_Node.m_BInitialized = false;
 		}
 
-		m_Node.callback = this;
-		m_Node.pEngine = m_Engine;
+		m_Node.m_Callback = this;
+		m_Node.m_PEngine = m_Engine;
 
 		// Validate bus counts before casting to ma_uint8 (max 255)
 		// This prevents overflow when casting sizet to ma_uint8
@@ -109,7 +109,7 @@ namespace OloEngine::Audio
 		}
 
 		// Only set flags and call InitBase on full success
-		m_Node.bInitialized = true;
+		m_Node.m_BInitialized = true;
 		m_IsInitialized = true;
 		return InitBase(sampleRate, blockSize, busConfig);
 	}
@@ -118,13 +118,13 @@ namespace OloEngine::Audio
 	{
 		OLO_PROFILE_FUNCTION();
 		
-		if (m_Node.bInitialized)
+		if (m_Node.m_BInitialized)
 		{
 			ma_node_set_state(&m_Node, ma_node_state_stopped);
 			ma_node_uninit(&m_Node, nullptr);
-			m_Node.bInitialized = false;
-			m_Node.pEngine = nullptr;
-			m_Node.callback = nullptr;
+			m_Node.m_BInitialized = false;
+			m_Node.m_PEngine = nullptr;
+			m_Node.m_Callback = nullptr;
 		}
 
 		m_IsInitialized = false;
@@ -133,10 +133,10 @@ namespace OloEngine::Audio
 
 	bool AudioCallback::StartNode()
 	{
-		if (m_Node.bInitialized)
+		if (m_Node.m_BInitialized)
 			ma_node_set_state(&m_Node, ma_node_state_started);
 
-		return m_Node.bInitialized;
+		return m_Node.m_BInitialized;
 	}
 
 } // namespace OloEngine::Audio

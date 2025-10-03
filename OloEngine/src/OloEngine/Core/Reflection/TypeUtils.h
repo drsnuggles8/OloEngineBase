@@ -2,11 +2,9 @@
 #include "OloEnginePCH.h"
 
 #include <array>
-#include <optional>
 #include <iostream>
 #include <tuple>
 #include <type_traits>
-#include <variant>
 #include <vector>
 #include <utility>
 
@@ -162,11 +160,11 @@ namespace OloEngine::Core::Reflection {
 	template<typename T>
 	struct IsArray
 	{
-		static constexpr bool Value = ArrayImpl::IsArrayImpl<std::decay_t<T>>::value;
+		static constexpr bool s_Value = ArrayImpl::IsArrayImpl<std::decay_t<T>>::value;
 	};
 
 	template<typename T>
-	inline constexpr bool IsArray_v = IsArray<T>::Value;
+	inline constexpr bool IsArray_v = IsArray<T>::s_Value;
 
 	//==============================================================================
 	/// Streaming detection utilities (for debugging/serialization)
@@ -183,11 +181,11 @@ namespace OloEngine::Core::Reflection {
 
 	public:
 		// Check return value from the matching "test" overload
-		static constexpr bool Value = decltype(Test<T>(0))::value;
+		static constexpr bool s_Value = decltype(Test<T>(0))::value;
 	};
 
 	template<class T>
-	inline constexpr bool IsStreamable_v = IsStreamable<T>::Value;
+	inline constexpr bool IsStreamable_v = IsStreamable<T>::s_Value;
 
 	//==============================================================================
 	/// Nth element extraction from parameter pack

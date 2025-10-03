@@ -22,11 +22,11 @@ namespace OloEngine::Audio::SoundGraph
             Error = 2
         };
 
-        u64 frame = 0;
-        Level level = Trace;
-        char text[256] = {};
-        u32 endpointID = 0; // For event messages
-        bool isEvent = false; // true for events, false for log messages
+        u64 m_Frame = 0;
+        Level m_Level = Trace;
+        char m_Text[256] = {};
+        u32 m_EndpointID = 0; // For event messages
+        bool m_IsEvent = false; // true for events, false for log messages
     };
 
     //==============================================================================
@@ -102,15 +102,35 @@ namespace OloEngine::Audio::SoundGraph
         choc::fifo::SingleReaderSingleWriterFIFO<RtMsg> m_LogQueue;
 
         // Get next available source ID (thread-safe)
+        // Returns a unique ID that is not currently in use, or 0 if all IDs are exhausted
         u32 GetNextSourceID() 
         { 
-            u32 id = m_NextSourceID.fetch_add(1, std::memory_order_relaxed);
-            // Ensure we never return 0 (if wraparound occurs)
-            if (id == 0)
+            constexpr u32 MaxAttempts = 1000; // Prevent infinite loop if many IDs are in use
+            
+            for (u32 attempt = 0; attempt < MaxAttempts; ++attempt)
             {
-                id = m_NextSourceID.fetch_add(1, std::memory_order_relaxed);
+                u32 id = m_NextSourceID.fetch_add(1, std::memory_order_relaxed);
+                
+                // Skip 0 as it's reserved for error/invalid ID
+                if (id == 0)
+                    continue;
+                
+                // Thread-safe check: is this ID already in use?
+                std::lock_guard<std::mutex> lock(m_Mutex);
+                if (m_SoundGraphSources.find(id) == m_SoundGraphSources.end())
+                {
+                    // ID is available
+                    return id;
+                }
+                
+                // ID collision detected (very rare unless wraparound occurred)
+                // Continue to next candidate
             }
-            return id;
+            
+            // All attempts exhausted - this should be extremely rare
+            // Only happens if ~1000+ consecutive IDs are all in use
+            OLO_CORE_ERROR("[SoundGraphPlayer] Failed to allocate unique source ID after {} attempts", MaxAttempts);
+            return 0; // Return 0 to indicate failure
         }
     };
 

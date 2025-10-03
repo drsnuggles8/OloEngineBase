@@ -89,29 +89,29 @@ namespace OloEngine::Audio::SoundGraph
 		// Set up event callbacks
 		source->SetMessageCallback([this](u64 frameIndex, const char* message) {
 			RtMsg msg;
-			msg.frame = frameIndex;
-			msg.isEvent = false;
+			msg.m_Frame = frameIndex;
+			msg.m_IsEvent = false;
 			
 			// Determine log level based on message prefix
 			if (message[0] == '!')
 			{
-				msg.level = RtMsg::Error;
+				msg.m_Level = RtMsg::Error;
 			}
 			else if (message[0] == '*')
 			{
-				msg.level = RtMsg::Warn;
+				msg.m_Level = RtMsg::Warn;
 			}
 			else
 			{
-				msg.level = RtMsg::Trace;
+				msg.m_Level = RtMsg::Trace;
 			}
 			
 			// Copy message text (real-time safe)
 			sizet len = strlen(message);
-			if (len >= sizeof(msg.text))
-				len = sizeof(msg.text) - 1;
-			memcpy(msg.text, message, len);
-			msg.text[len] = '\0';
+			if (len >= sizeof(msg.m_Text))
+				len = sizeof(msg.m_Text) - 1;
+			memcpy(msg.m_Text, message, len);
+			msg.m_Text[len] = '\0';
 			
 			// Try to push to queue (drop if full to maintain real-time safety)
 			m_LogQueue.push(std::move(msg));
@@ -120,18 +120,18 @@ namespace OloEngine::Audio::SoundGraph
 		source->SetEventCallback([this](u64 frameIndex, u32 endpointID, const choc::value::Value& eventData) {
 			(void)eventData;
 			RtMsg msg;
-			msg.frame = frameIndex;
-			msg.level = RtMsg::Trace;
-			msg.endpointID = endpointID;
-			msg.isEvent = true;
+			msg.m_Frame = frameIndex;
+			msg.m_Level = RtMsg::Trace;
+			msg.m_EndpointID = endpointID;
+			msg.m_IsEvent = true;
 			
 			// Format event message (real-time safe)
 			const char* eventMsg = "Event";
 			sizet len = strlen(eventMsg);
-			if (len >= sizeof(msg.text))
-				len = sizeof(msg.text) - 1;
-			memcpy(msg.text, eventMsg, len);
-			msg.text[len] = '\0';
+			if (len >= sizeof(msg.m_Text))
+				len = sizeof(msg.m_Text) - 1;
+			memcpy(msg.m_Text, eventMsg, len);
+			msg.m_Text[len] = '\0';
 			
 			// Try to push to queue (drop if full to maintain real-time safety)
 			m_LogQueue.push(std::move(msg));
@@ -277,25 +277,25 @@ namespace OloEngine::Audio::SoundGraph
 		RtMsg msg;
 		while (m_LogQueue.pop(msg))
 		{
-			if (msg.isEvent)
+			if (msg.m_IsEvent)
 			{
 				// Handle graph events
-				OLO_CORE_TRACE("[SoundGraph] Event at frame {0}, endpoint {1}", msg.frame, msg.endpointID);
+				OLO_CORE_TRACE("[SoundGraph] Event at frame {0}, endpoint {1}", msg.m_Frame, msg.m_EndpointID);
 			}
 			else
 			{
 				// Handle log messages
-				switch (msg.level)
+				switch (msg.m_Level)
 				{
 					case RtMsg::Error:
-						OLO_CORE_ERROR("[SoundGraph] Frame {0}: {1}", msg.frame, msg.text);
+						OLO_CORE_ERROR("[SoundGraph] Frame {0}: {1}", msg.m_Frame, msg.m_Text);
 						break;
 					case RtMsg::Warn:
-						OLO_CORE_WARN("[SoundGraph] Frame {0}: {1}", msg.frame, msg.text);
+						OLO_CORE_WARN("[SoundGraph] Frame {0}: {1}", msg.m_Frame, msg.m_Text);
 						break;
 					case RtMsg::Trace:
 					default:
-						OLO_CORE_TRACE("[SoundGraph] Frame {0}: {1}", msg.frame, msg.text);
+						OLO_CORE_TRACE("[SoundGraph] Frame {0}: {1}", msg.m_Frame, msg.m_Text);
 						break;
 				}
 			}

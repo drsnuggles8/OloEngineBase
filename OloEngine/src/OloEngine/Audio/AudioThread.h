@@ -13,7 +13,7 @@
 namespace OloEngine::Audio
 {
     /// High-priority audio thread manager for real-time audio processing
-    /// Provides lock-free communication between main thread and audio thread
+    /// Provides thread-safe communication between main thread and audio thread
     class AudioThread
     {
     public:
@@ -23,10 +23,10 @@ namespace OloEngine::Audio
         /// Completion token for per-task tracking
         struct CompletionToken
         {
-            Task task;
-            std::promise<void> promise;
+            Task m_Task;
+            std::promise<void> m_Promise;
             
-            CompletionToken(Task t) : task(std::move(t)) {}
+            CompletionToken(Task t) : m_Task(std::move(t)) {}
         };
         
     public:
@@ -76,7 +76,7 @@ namespace OloEngine::Audio
         static std::mutex s_StartStopMutex;  // Serializes start/stop operations
         static std::condition_variable s_TaskCondition;
         static std::condition_variable s_CompletionCondition;
-        static std::atomic<int> s_PendingTasks;
+        static std::atomic<i32> s_PendingTasks;
     };
 
 } // namespace OloEngine::Audio

@@ -20,19 +20,19 @@ namespace OloEngine::Audio::SoundGraph
     /// Compilation result with metadata
     struct CompilationResult
     {
-        std::string SourcePath;
-        std::string CompiledPath;
-        std::vector<u8> CompiledData;
-        sizet SourceHash = 0;
-        std::chrono::time_point<std::chrono::system_clock> CompilationTime;
-        std::string CompilerVersion;
-        bool IsValid = false;
-        std::string ErrorMessage;
+        std::string m_SourcePath;
+        std::string m_CompiledPath;
+        std::vector<u8> m_CompiledData;
+        sizet m_SourceHash = 0;
+        std::chrono::time_point<std::chrono::system_clock> m_CompilationTime;
+        std::string m_CompilerVersion;
+        bool m_IsValid = false;
+        std::string m_ErrorMessage;
         
         // Compilation statistics
-        f64 CompilationTimeMs = 0.0;
-        sizet SourceSizeBytes = 0;
-        sizet CompiledSizeBytes = 0;
+        f64 m_CompilationTimeMs = 0.0;
+        sizet m_SourceSizeBytes = 0;
+        sizet m_CompiledSizeBytes = 0;
     };
 
     /// High-performance cache for compiled sound graph bytecode
@@ -193,12 +193,12 @@ namespace OloEngine::Audio::SoundGraph
     
     struct CompilerCacheConfig
     {
-        std::string CacheDirectory = "cache/compiler/";
-        sizet MaxCacheSize = 1000;
-        bool AutoSave = true;
-        bool EnableDiskCache = true;
-        std::chrono::hours MaxEntryAge = std::chrono::hours(24 * 7); // 1 week
-        sizet MaxDiskUsageBytes = 512 * 1024 * 1024; // 512MB
+        std::string m_CacheDirectory = "cache/compiler/";
+        sizet m_MaxCacheSize = 1000;
+        bool m_AutoSave = true;
+        bool m_EnableDiskCache = true;
+        std::chrono::hours m_MaxEntryAge = std::chrono::hours(24 * 7); // 1 week
+        sizet m_MaxDiskUsageBytes = 512 * 1024 * 1024; // 512MB
     };
 
 } // namespace OloEngine::Audio::SoundGraph

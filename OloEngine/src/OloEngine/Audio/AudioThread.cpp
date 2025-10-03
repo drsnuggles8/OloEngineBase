@@ -5,6 +5,10 @@
 
 namespace OloEngine::Audio
 {
+    // Thread-local flag for lock-free IsAudioThread() check
+    // Set to true when the audio thread starts, false otherwise
+    thread_local bool t_IsAudioThread = false;
+    
     // Static member definitions
     std::unique_ptr<std::thread> AudioThread::s_AudioThread = nullptr;
     std::atomic<bool> AudioThread::s_ShouldStop{ false };
@@ -17,7 +21,7 @@ namespace OloEngine::Audio
     std::mutex AudioThread::s_StartStopMutex{};
     std::condition_variable AudioThread::s_TaskCondition{};
     std::condition_variable AudioThread::s_CompletionCondition{};
-    std::atomic<int> AudioThread::s_PendingTasks{ 0 };
+    std::atomic<i32> AudioThread::s_PendingTasks{ 0 };
 
     bool AudioThread::Start()
     {
@@ -35,13 +39,12 @@ namespace OloEngine::Audio
         }
 
         // Reset initialization flag before starting thread
-        s_IsInitialized.store(false, std::memory_order_relaxed);
+        s_IsInitialized.store(false, std::memory_order_release);
         s_ShouldStop.store(false);
         
         try
         {
             s_AudioThread = std::make_unique<std::thread>(AudioThreadLoop);
-            s_AudioThreadID = s_AudioThread->get_id();
         }
         catch (const std::exception& e)
         {
@@ -120,8 +123,9 @@ namespace OloEngine::Audio
 
     bool AudioThread::IsAudioThread()
     {
-        std::lock_guard<std::mutex> lock(s_StartStopMutex);
-        return std::this_thread::get_id() == s_AudioThreadID;
+        // Lock-free check using thread-local storage
+        // This flag is set by the audio thread itself, avoiding mutex overhead
+        return t_IsAudioThread;
     }
 
     std::thread::id AudioThread::GetThreadID()
@@ -173,7 +177,7 @@ namespace OloEngine::Audio
 
         // Create completion token
         auto token = std::make_unique<CompletionToken>(std::move(task));
-        auto future = token->promise.get_future();
+        auto future = token->m_Promise.get_future();
 
         // Add task to queue
         {
@@ -202,6 +206,9 @@ namespace OloEngine::Audio
     {
 		OLO_PROFILE_FUNCTION();
 
+        // Mark this thread as the audio thread (lock-free for IsAudioThread())
+        t_IsAudioThread = true;
+        
         s_AudioThreadID = std::this_thread::get_id();
         
         // Set thread priority (platform-specific)
@@ -221,6 +228,9 @@ namespace OloEngine::Audio
         }
 
         OLO_CORE_INFO("AudioThread loop ended");
+        
+        // Clear the thread-local flag as we're exiting the audio thread
+        t_IsAudioThread = false;
         
         // Thread is exiting - perform final cleanup
         // This handles the case where Stop() was called from within this thread
@@ -248,12 +258,12 @@ namespace OloEngine::Audio
             
             try
             {
-                token->task();
-                token->promise.set_value();
+                token->m_Task();
+                token->m_Promise.set_value();
             }
             catch (...)
             {
-                token->promise.set_exception(std::current_exception());
+                token->m_Promise.set_exception(std::current_exception());
             }
             
             s_PendingTasks.fetch_sub(1);
@@ -271,7 +281,7 @@ namespace OloEngine::Audio
         {
             auto token = std::move(s_TaskQueue.front());
             s_TaskQueue.pop();
-            token->promise.set_exception(
+            token->m_Promise.set_exception(
                 std::make_exception_ptr(std::runtime_error("AudioThread stopped before executing task")));
         }
         s_PendingTasks.store(0);
