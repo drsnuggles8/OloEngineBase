@@ -29,8 +29,8 @@ namespace OloEngine::Audio::SoundGraph
 
 		explicit GetRandom(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
 		{
-			AddInEvent(IDs::Next, [this](float v) { m_NextFlag.SetDirty(); });
-			AddInEvent(IDs::Reset, [this](float v) { m_ResetFlag.SetDirty(); });
+			AddInEvent(IDs::Next, [this](float v) { (void)v; m_NextFlag.SetDirty(); });
+			AddInEvent(IDs::Reset, [this](float v) { (void)v; m_ResetFlag.SetDirty(); });
 			
 			RegisterEndpoints();
 		}
@@ -39,24 +39,16 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			InitializeInputs();
 
-			// Initialize random generator with safe null checking
-			// If in_Seed is null (initialization failed), use high-resolution clock as fallback
-			// If in_Seed is -1, use high-resolution clock for truly random seed
-			// Otherwise use the provided seed value
-			int32_t seed;
-			if (!in_Seed) {
-				// Fallback: use high-resolution clock when in_Seed is null
-				seed = static_cast<int32_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
-			} else {
-				seed = (*in_Seed == -1) ? static_cast<int32_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count()) : *in_Seed;
-			}
-			m_Random.SetSeed(seed);
+			// Initialize random generator with seed
+			m_Random.SetSeed(GetSeedValue());
 			
 			out_Element = T{};
 		}
 
 		void Process() final
 		{
+			OLO_PROFILE_FUNCTION();
+
 			if (m_NextFlag.CheckAndResetIfDirty())
 				ProcessNext();
 
@@ -67,9 +59,9 @@ namespace OloEngine::Audio::SoundGraph
 		//==========================================================================
 		/// NodeProcessor setup
 		std::vector<T>* in_Array = nullptr;
-		int32_t* in_Min = nullptr;
-		int32_t* in_Max = nullptr;
-		int32_t* in_Seed = nullptr;
+		i32* in_Min = nullptr;
+		i32* in_Max = nullptr;
+		i32* in_Seed = nullptr;
 
 		OutputEvent out_OnNext{ *this };
 		OutputEvent out_OnReset{ *this };
@@ -83,6 +75,19 @@ namespace OloEngine::Audio::SoundGraph
 		void RegisterEndpoints();
 		void InitializeInputs();
 
+		/// Helper method to get seed value with safe null checking
+		/// Returns: high-resolution clock value if in_Seed is null or -1, otherwise the provided seed
+		i32 GetSeedValue() const
+		{
+			if (!in_Seed) {
+				// Fallback: use high-resolution clock when in_Seed is null
+				return static_cast<i32>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
+			}
+			return (*in_Seed == -1) 
+				? static_cast<i32>(std::chrono::high_resolution_clock::now().time_since_epoch().count()) 
+				: *in_Seed;
+		}
+
 		void ProcessNext()
 		{
 			// Validate array exists and is not empty
@@ -95,19 +100,11 @@ namespace OloEngine::Audio::SoundGraph
 			}
 
 			// Compute valid index range within array bounds
-			int32_t arraySize = static_cast<int32_t>(in_Array->size());
-			
-			// Handle empty array case
-			if (arraySize == 0)
-			{
-				out_Element = T{};
-				OLO_CORE_WARN("GetRandom: Array is empty, using default value");
-				return;
-			}
+			i32 arraySize = static_cast<i32>(in_Array->size());
 			
 			// Clamp both bounds to valid array indices [0, arraySize-1]
-			int32_t minIndex = (in_Min) ? std::clamp(*in_Min, 0, arraySize - 1) : 0;
-			int32_t maxIndex = (in_Max) ? std::clamp(*in_Max, 0, arraySize - 1) : arraySize - 1;
+			i32 minIndex = (in_Min) ? std::clamp(*in_Min, 0, arraySize - 1) : 0;
+			i32 maxIndex = (in_Max) ? std::clamp(*in_Max, 0, arraySize - 1) : arraySize - 1;
 			
 			// Ensure minIndex <= maxIndex by swapping if necessary
 			if (minIndex > maxIndex)
@@ -116,7 +113,7 @@ namespace OloEngine::Audio::SoundGraph
 			}
 
 			// Generate random index within valid bounds
-			int32_t randomIndex = m_Random.GetInt32InRange(minIndex, maxIndex);
+			i32 randomIndex = m_Random.GetInt32InRange(minIndex, maxIndex);
 			
 			// Validate index is within bounds (safety check)
 			if (randomIndex >= 0 && randomIndex < arraySize)
@@ -134,18 +131,8 @@ namespace OloEngine::Audio::SoundGraph
 
 		void ProcessReset()
 		{
-			// Safe seed handling with null checking
-			// If in_Seed is null (initialization failed), use high-resolution clock as fallback
-			// If in_Seed is -1, use high-resolution clock for truly random seed
-			// Otherwise use the provided seed value
-			int32_t seed;
-			if (!in_Seed) {
-				// Fallback: use high-resolution clock when in_Seed is null
-				seed = static_cast<int32_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
-			} else {
-				seed = (*in_Seed == -1) ? static_cast<int32_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count()) : *in_Seed;
-			}
-			m_Random.SetSeed(seed);
+			// Reset random generator with seed
+			m_Random.SetSeed(GetSeedValue());
 			out_OnReset(1.0f);
 		}
 	};
@@ -165,19 +152,25 @@ namespace OloEngine::Audio::SoundGraph
 
 		explicit Get(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
 		{
-			AddInEvent(IDs::Trigger, [this](float v) { m_TriggerFlag.SetDirty(); });
+			OLO_PROFILE_FUNCTION();
+
+			AddInEvent(IDs::Trigger, [this](float v) { (void)v; m_TriggerFlag.SetDirty(); });
 			
 			RegisterEndpoints();
 		}
 
 		void Init() final
 		{
+			OLO_PROFILE_FUNCTION();
+
 			InitializeInputs();
 			out_Element = T{};
 		}
 
 		void Process() final
 		{
+			OLO_PROFILE_FUNCTION();
+
 			if (m_TriggerFlag.CheckAndResetIfDirty())
 				ProcessTrigger();
 		}
@@ -185,7 +178,7 @@ namespace OloEngine::Audio::SoundGraph
 		//==========================================================================
 		/// NodeProcessor setup
 		std::vector<T>* in_Array = nullptr;
-		int32_t* in_Index = nullptr;
+		i32* in_Index = nullptr;
 
 		OutputEvent out_OnTrigger{ *this };
 		T out_Element{ T{} };
@@ -220,8 +213,8 @@ namespace OloEngine::Audio::SoundGraph
 			}
 
 			// Perform bounds checking against actual array size
-			int32_t index = *in_Index;
-			int32_t arraySize = static_cast<int32_t>(in_Array->size());
+			i32 index = *in_Index;
+			i32 arraySize = static_cast<i32>(in_Array->size());
 			
 			if (index >= 0 && index < arraySize)
 			{
@@ -257,8 +250,8 @@ namespace OloEngine::Audio::SoundGraph
 
 		explicit Random(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
 		{
-			AddInEvent(IDs::Next, [this](float v) { m_NextFlag.SetDirty(); });
-			AddInEvent(IDs::Reset, [this](float v) { m_ResetFlag.SetDirty(); });
+			AddInEvent(IDs::Next, [this](float v) { (void)v; m_NextFlag.SetDirty(); });
+			AddInEvent(IDs::Reset, [this](float v) { (void)v; m_ResetFlag.SetDirty(); });
 			
 			RegisterEndpoints();
 		}
@@ -267,16 +260,8 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			InitializeInputs();
 
-			// Initialize random generator with safe null checking
-			// If in_Seed is null or -1, use high-resolution clock for random seed
-			// Otherwise use the provided seed value
-			int32_t seed;
-			if (in_Seed && *in_Seed != -1) {
-				seed = *in_Seed;
-			} else {
-				seed = static_cast<int32_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
-			}
-			m_Random.SetSeed(seed);
+			// Initialize random generator with seed
+			m_Random.SetSeed(GetSeedValue());
 			
 			out_Value = T{};
 		}
@@ -294,7 +279,7 @@ namespace OloEngine::Audio::SoundGraph
 		/// NodeProcessor setup  
 		T* in_Min = nullptr;
 		T* in_Max = nullptr;
-		int32_t* in_Seed = nullptr;
+		i32* in_Seed = nullptr;
 
 		OutputEvent out_OnNext{ *this };
 		OutputEvent out_OnReset{ *this };
@@ -307,6 +292,19 @@ namespace OloEngine::Audio::SoundGraph
 
 		void RegisterEndpoints();
 		void InitializeInputs();
+
+		/// Helper method to get seed value with safe null checking
+		/// Returns: high-resolution clock value if in_Seed is null or -1, otherwise the provided seed
+		i32 GetSeedValue() const
+		{
+			if (!in_Seed) {
+				// Fallback: use high-resolution clock when in_Seed is null
+				return static_cast<i32>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
+			}
+			return (*in_Seed == -1) 
+				? static_cast<i32>(std::chrono::high_resolution_clock::now().time_since_epoch().count()) 
+				: *in_Seed;
+		}
 
 		void ProcessNext()
 		{
@@ -349,7 +347,7 @@ namespace OloEngine::Audio::SoundGraph
 				if (minValue > maxValue)
 					std::swap(minValue, maxValue);
 					
-				randomValue = static_cast<T>(m_Random.GetInt32InRange(static_cast<int32_t>(minValue), static_cast<int32_t>(maxValue)));
+				randomValue = static_cast<T>(m_Random.GetInt32InRange(static_cast<i32>(minValue), static_cast<i32>(maxValue)));
 			}
 			else
 			{
@@ -362,18 +360,8 @@ namespace OloEngine::Audio::SoundGraph
 
 		void ProcessReset()
 		{
-			// Safe seed handling with null checking
-			// If in_Seed is null (initialization failed), use high-resolution clock as fallback
-			// If in_Seed is -1, use high-resolution clock for truly random seed
-			// Otherwise use the provided seed value
-			int32_t seed;
-			if (!in_Seed) {
-				// Fallback: use high-resolution clock when in_Seed is null
-				seed = static_cast<int32_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
-			} else {
-				seed = (*in_Seed == -1) ? static_cast<int32_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count()) : *in_Seed;
-			}
-			m_Random.SetSeed(seed);
+			// Reset random generator with seed
+			m_Random.SetSeed(GetSeedValue());
 			out_OnReset(1.0f);
 		}
 	};

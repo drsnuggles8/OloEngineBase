@@ -97,7 +97,7 @@ RendererProfiler::GetInstance().IncrementCounter(MetricType::DrawCalls, 1);
 - **Headers:** Use `#pragma once`, RAII for OpenGL resources, STL containers preferred. Use the OloEnginePCH precompiled header for common includes
 - **Includes:** Use quotes for project headers, angle brackets for system/third-party. Include what you use
 - **Smart Pointers:** Use `Ref<T>` defined in `Core/Ref.h`
-- **Formatting:** Braces on new lines except for short/inline cases, 4-space indentation (not tabs!), public methods, then public members, then protected, then private
+- **Formatting:** Braces on new lines except for short/inline/one-line cases, 4-space indentation (not tabs!), public methods, then public members, then protected, then private
 
 ## Critical Build Dependencies
 

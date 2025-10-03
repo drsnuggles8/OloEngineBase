@@ -60,7 +60,7 @@ namespace OloEngine::Core::Reflection {
 
 	public:
 		static constexpr sizet NumberOfMembers = TList::Count();
-		static constexpr sizet INVALID_INDEX = size_t(-1);
+		static constexpr sizet INVALID_INDEX = sizet(-1);
 
 		//==============================================================================
 		/// Member name operations
@@ -113,7 +113,7 @@ namespace OloEngine::Core::Reflection {
 			return (index != INVALID_INDEX && index < NumberOfMembers) ? TList::IsFunction(index) : std::nullopt;
 		}
 
-		static constexpr std::optional<size_t> GetMemberSizeByName(std::string_view memberName)
+		static constexpr std::optional<sizet> GetMemberSizeByName(std::string_view memberName)
 		{
 			const auto index = IndexOf(memberName);
 			return (index != INVALID_INDEX && index < NumberOfMembers) ? TList::GetMemberSize(index) : std::nullopt;

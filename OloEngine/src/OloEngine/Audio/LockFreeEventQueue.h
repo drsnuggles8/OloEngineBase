@@ -36,7 +36,7 @@ namespace OloEngine::Audio
             : m_Type(other.m_Type)
             , m_DataSize(other.m_DataSize)
         {
-            std::memcpy(m_Storage, other.m_Storage, InlineStorageSize);
+            std::memcpy(m_Storage, other.m_Storage, std::min(m_DataSize, static_cast<u32>(InlineStorageSize)));
         }
         
         // Copy assignment
@@ -46,7 +46,7 @@ namespace OloEngine::Audio
             {
                 m_Type = other.m_Type;
                 m_DataSize = other.m_DataSize;
-                std::memcpy(m_Storage, other.m_Storage, InlineStorageSize);
+                std::memcpy(m_Storage, other.m_Storage, std::min(m_DataSize, static_cast<u32>(InlineStorageSize)));
             }
             return *this;
         }
@@ -99,7 +99,6 @@ namespace OloEngine::Audio
         {
             m_Type = choc::value::Type::createVoid();
             m_DataSize = 0;
-            std::memset(m_Storage, 0, InlineStorageSize);
         }
     };
     
@@ -140,8 +139,8 @@ namespace OloEngine::Audio
         u64 FrameIndex = 0;
         
         // Pre-allocated storage for message text
-        static constexpr sizet MaxMessageLength = 256;
-        char Text[MaxMessageLength] = {};
+        static constexpr sizet s_MaxMessageLength = 256;
+        char Text[s_MaxMessageLength] = {};
         
         AudioThreadMessage() = default;
         
@@ -149,8 +148,8 @@ namespace OloEngine::Audio
         AudioThreadMessage(const AudioThreadMessage& other)
             : FrameIndex(other.FrameIndex)
         {
-            std::strncpy(Text, other.Text, MaxMessageLength - 1);
-            Text[MaxMessageLength - 1] = '\0';
+            std::strncpy(Text, other.Text, s_MaxMessageLength - 1);
+            Text[s_MaxMessageLength - 1] = '\0';
         }
         
         // Copy assignment
@@ -159,8 +158,8 @@ namespace OloEngine::Audio
             if (this != &other)
             {
                 FrameIndex = other.FrameIndex;
-                std::strncpy(Text, other.Text, MaxMessageLength - 1);
-                Text[MaxMessageLength - 1] = '\0';
+                std::strncpy(Text, other.Text, s_MaxMessageLength - 1);
+                Text[s_MaxMessageLength - 1] = '\0';
             }
             return *this;
         }
@@ -169,8 +168,8 @@ namespace OloEngine::Audio
         {
             if (text)
             {
-                std::strncpy(Text, text, MaxMessageLength - 1);
-                Text[MaxMessageLength - 1] = '\0';
+                std::strncpy(Text, text, s_MaxMessageLength - 1);
+                Text[s_MaxMessageLength - 1] = '\0';
             }
             else
             {

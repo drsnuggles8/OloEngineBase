@@ -31,6 +31,8 @@ namespace OloEngine::Audio::SoundGraph
 
 		void Init() final
 		{
+			OLO_PROFILE_FUNCTION();
+			
 			InitializeInputs();
 
 			m_FrameTime = 1.0f / m_SampleRate;
@@ -40,6 +42,8 @@ namespace OloEngine::Audio::SoundGraph
 
 		void Process() final
 		{
+			OLO_PROFILE_FUNCTION();
+			
 			if (m_StartFlag.CheckAndResetIfDirty())
 				StartTrigger();
 			if (m_StopFlag.CheckAndResetIfDirty())
@@ -68,13 +72,13 @@ namespace OloEngine::Audio::SoundGraph
 
 		//==========================================================================
 		/// NodeProcessor setup
-		float* in_Period = nullptr;
+		f32* in_Period = nullptr;
 		OutputEvent out_Trigger{ *this };
 
 	private:
 		bool m_Playing = false;
-		float m_Counter = 0.0f;
-		float m_FrameTime = 0.0f;
+		f32 m_Counter = 0.0f;
+		f32 m_FrameTime = 0.0f;
 
 		Flag m_StartFlag;
 		Flag m_StopFlag;
@@ -119,6 +123,8 @@ namespace OloEngine::Audio::SoundGraph
 
 		void Init() final
 		{
+			OLO_PROFILE_FUNCTION();
+			
 			InitializeInputs();
 
 			out_Count = 0;
@@ -127,11 +133,17 @@ namespace OloEngine::Audio::SoundGraph
 
 		void Process() final
 		{
+			OLO_PROFILE_FUNCTION();
+			
 			if (m_TriggerFlag.CheckAndResetIfDirty())
 				ProcessTrigger();
 
 			if (m_ResetFlag.CheckAndResetIfDirty())
+			{
+				// Clear pending auto-reset before manual reset to prevent double-reset
+				m_PendingAutoReset = false;
 				ProcessReset();
+			}
 
 			// Handle deferred auto-reset at end of frame
 			if (m_PendingAutoReset)
@@ -143,12 +155,12 @@ namespace OloEngine::Audio::SoundGraph
 
 		//==========================================================================
 		/// NodeProcessor setup
-		float* in_StartValue = nullptr;
-		float* in_StepSize = nullptr;
-		int* in_ResetCount = nullptr;
+		f32* in_StartValue = nullptr;
+		f32* in_StepSize = nullptr;
+		i32* in_ResetCount = nullptr;
 
-		int out_Count = 0;
-		float out_Value = 0.0f;
+		i32 out_Count = 0;
+		f32 out_Value = 0.0f;
 
 		OutputEvent out_OnTrigger{ *this };
 		OutputEvent out_OnReset{ *this };
@@ -207,6 +219,8 @@ namespace OloEngine::Audio::SoundGraph
 
 		void Init() final
 		{
+			OLO_PROFILE_FUNCTION();
+			
 			InitializeInputs();
 
 			m_FrameTime = 1.0f / m_SampleRate;
@@ -216,6 +230,8 @@ namespace OloEngine::Audio::SoundGraph
 
 		void Process() final
 		{
+			OLO_PROFILE_FUNCTION();
+
 			if (m_TriggerFlag.CheckAndResetIfDirty())
 				StartDelay();
 
@@ -232,14 +248,14 @@ namespace OloEngine::Audio::SoundGraph
 
 		//==========================================================================
 		/// NodeProcessor setup
-		float* in_DelayTime = nullptr;
+		f32* in_DelayTime = nullptr;
 		OutputEvent out_DelayedTrigger{ *this };
 		OutputEvent out_OnReset{ *this };
 
 	private:
 		bool m_Waiting = false;
-		float m_Counter = 0.0f;
-		float m_FrameTime = 0.0f;
+		f32 m_Counter = 0.0f;
+		f32 m_FrameTime = 0.0f;
 
 		Flag m_TriggerFlag;
 		Flag m_ResetFlag;

@@ -10,10 +10,7 @@ namespace OloEngine::Audio::SoundGraph
 
 		if (!m_IsPlaying)
 		{
-			m_IsPlaying = true;
-			m_HasFinished = false;
 			OnPlay(1.0f);
-			OLO_CORE_TRACE("[SoundGraph] Started playing sound graph");
 		}
 	}
 
@@ -23,9 +20,7 @@ namespace OloEngine::Audio::SoundGraph
 
 		if (m_IsPlaying)
 		{
-			m_IsPlaying = false;
 			OnStop(0.0f);
-			OLO_CORE_TRACE("[SoundGraph] Stopped sound graph");
 		}
 	}
 
@@ -34,12 +29,14 @@ namespace OloEngine::Audio::SoundGraph
 		OLO_PROFILE_FUNCTION();
 
 		// Add event to queue for processing in audio thread
-		GraphEvent event;
-		event.frameIndex = m_CurrentFrame;
-		event.endpointID = Identifier(eventName);
-		event.value = choc::value::createFloat32(value);
-		event.message = eventName;
-		m_OutgoingEvents.push(event);
+		Audio::AudioThreadEvent event;
+		event.FrameIndex = m_CurrentFrame;
+		event.EndpointID = static_cast<u32>(Identifier(eventName));
+		
+		choc::value::Value valueData = choc::value::createFloat32(value);
+		event.ValueData.CopyFrom(valueData);
+		
+		m_OutgoingEvents.Push(event);
 
 		// Also trigger immediately if it's a graph-level event
 		if (eventName == "play")
@@ -58,6 +55,7 @@ namespace OloEngine::Audio::SoundGraph
 
 		// Set up event endpoints
 		AddInEvent(IDs::Play, [this](f32 value) { OnPlay(value); });
+		AddInEvent(IDs::Stop, [this](f32 value) { OnStop(value); });
 	}
 
 	void SoundGraph::ProcessEvents()
@@ -76,6 +74,7 @@ namespace OloEngine::Audio::SoundGraph
 
 		(void)value;
 		m_IsPlaying = true;
+		m_HasFinished = false;
 		OLO_CORE_TRACE("[SoundGraph] Started playing sound graph");
 	}
 
@@ -106,6 +105,8 @@ namespace OloEngine::Audio::SoundGraph
 		// Clear existing state
 		m_IsPlaying = false;
 		m_HasFinished = false;
+		m_OutgoingEvents.Clear();
+		m_OutgoingMessages.Clear();
 		OLO_CORE_INFO("Updated sound graph from asset data");
 	}
 

@@ -20,24 +20,24 @@ namespace OloEngine
     /// Connection between two nodes in the sound graph
     struct SoundGraphConnection
     {
-        UUID SourceNodeID;
-        std::string SourceEndpoint;
-        UUID TargetNodeID; 
-        std::string TargetEndpoint;
-        bool IsEvent = false;
+        UUID m_SourceNodeID;
+        std::string m_SourceEndpoint;
+        UUID m_TargetNodeID; 
+        std::string m_TargetEndpoint;
+        bool m_IsEvent = false;
     };
 
     /// Node data in the sound graph asset
     struct SoundGraphNodeData
     {
-        UUID ID;
-        std::string Name;
-        std::string Type;  // Node type identifier
-        std::unordered_map<std::string, std::string> Properties;
+        UUID m_ID;
+        std::string m_Name;
+        std::string m_Type;  // Node type identifier
+        std::unordered_map<std::string, std::string> m_Properties;
         
         // Editor-specific data (position, etc.)
-        f32 PosX = 0.0f;
-        f32 PosY = 0.0f;
+        f32 m_PosX = 0.0f;
+        f32 m_PosY = 0.0f;
     };
 
     /// SoundGraph Asset - serializable representation of a sound graph
@@ -57,7 +57,7 @@ namespace OloEngine
         std::unordered_map<std::string, std::string> m_LocalVariables;
         
         // Runtime prototype (compiled graph)
-        Ref<Audio::SoundGraph::Prototype> CompiledPrototype;
+        Ref<Audio::SoundGraph::Prototype> m_CompiledPrototype;
         
         // Referenced wave sources
         std::vector<AssetHandle> m_WaveSources;
@@ -87,9 +87,16 @@ namespace OloEngine
         // Clear all data
         void Clear();
         
+        // Rebuild the node ID map from m_Nodes (call after direct manipulation of m_Nodes, e.g., deserialization)
+        void RebuildNodeIdMap();
+        
         // Validation
         bool IsValid() const;
         std::vector<std::string> GetValidationErrors() const;
+
+    private:
+        // Fast node ID lookup: maps UUID to index in m_Nodes
+        std::unordered_map<UUID, sizet> m_NodeIdMap;
     };
 
     /// SoundGraphSound Asset - specific instance configuration of a sound graph  
@@ -106,8 +113,8 @@ namespace OloEngine
         std::unordered_map<std::string, std::string> m_ParameterOverrides;
         
         // Audio properties specific to this sound
-        float m_Volume = 1.0f;
-        float m_Pitch = 1.0f;
+        f32 m_Volume = 1.0f;
+        f32 m_Pitch = 1.0f;
         bool m_Loop = false;
         
         SoundGraphSoundAsset() = default;

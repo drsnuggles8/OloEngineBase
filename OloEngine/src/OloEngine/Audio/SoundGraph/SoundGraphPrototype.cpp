@@ -53,8 +53,32 @@ namespace OloEngine::Audio::SoundGraph
         // Deserialize the choc::value::Value
         std::vector<u8> data;
         reader->ReadArray(data);
-        choc::value::InputData inputData{ data.data(), data.data() + data.size() };
-        endpoint.m_DefaultValue = choc::value::Value::deserialise(inputData);
+        
+        // Validate input buffer before deserialization
+        if (data.empty())
+        {
+            OLO_CORE_ERROR("[SoundGraphPrototype] Empty data buffer for endpoint ID {0} - using default void value", id);
+            endpoint.m_DefaultValue = choc::value::Value();
+            return;
+        }
+        
+        try
+        {
+            choc::value::InputData inputData{ data.data(), data.data() + data.size() };
+            endpoint.m_DefaultValue = choc::value::Value::deserialise(inputData);
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("[SoundGraphPrototype] Failed to deserialize endpoint ID {0} (data size: {1}): {2} - using default void value", 
+                id, data.size(), e.what());
+            endpoint.m_DefaultValue = choc::value::Value();
+        }
+        catch (...)
+        {
+            OLO_CORE_ERROR("[SoundGraphPrototype] Unknown error deserializing endpoint ID {0} (data size: {1}) - using default void value", 
+                id, data.size());
+            endpoint.m_DefaultValue = choc::value::Value();
+        }
     }
 
     //==============================================================================
@@ -134,7 +158,22 @@ namespace OloEngine::Audio::SoundGraph
         // Read connection type
         u32 type;
         reader->ReadRaw(type);
-        connection.m_Type = static_cast<Connection::EType>(type);
+        
+        // Validate the connection type before casting
+        // Valid range: NodeValue_NodeValue (0) to LocalVariable_NodeValue (6)
+        constexpr u32 minValidType = static_cast<u32>(Connection::EType::NodeValue_NodeValue);
+        constexpr u32 maxValidType = static_cast<u32>(Connection::EType::LocalVariable_NodeValue);
+        
+        if (type < minValidType || type > maxValidType)
+        {
+            OLO_CORE_ERROR("[SoundGraphPrototype] Invalid connection type {0} (valid range: {1}-{2}) for connection from node {3} to node {4} - defaulting to NodeValue_NodeValue",
+                type, minValidType, maxValidType, sourceNodeID, destNodeID);
+            connection.m_Type = Connection::EType::NodeValue_NodeValue;
+        }
+        else
+        {
+            connection.m_Type = static_cast<Connection::EType>(type);
+        }
     }
 
     //==============================================================================

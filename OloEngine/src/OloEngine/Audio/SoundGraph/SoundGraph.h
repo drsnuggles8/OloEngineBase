@@ -37,16 +37,16 @@ namespace OloEngine::Audio::SoundGraph
 	// Forward declarations and utility structs
 	struct GraphEvent
 	{
-		u64 frameIndex = 0;
-		Identifier endpointID;
-		choc::value::Value value;
-		std::string message;
+		u64 m_FrameIndex = 0;
+		Identifier m_EndpointID;
+		choc::value::Value m_Value;
+		std::string m_Message;
 	};
 	
 	struct EndpointIDs
 	{
-		static inline const Identifier Play = Identifier("play");
-		static inline const Identifier Stop = Identifier("stop");
+		static inline const Identifier s_Play = Identifier("play");
+		static inline const Identifier s_Stop = Identifier("stop");
 	};
 	
 	//==============================================================================
@@ -63,13 +63,14 @@ namespace OloEngine::Audio::SoundGraph
 			DECLARE_ID(OutRight);
 
 			DECLARE_ID(Play);
+			DECLARE_ID(Stop);
 			DECLARE_ID(OnFinished);
 		private:
 			IDs() = delete;
 		};
 
 	explicit SoundGraph(std::string_view debugName, UUID id)
-		: NodeProcessor(debugName.data(), id), EndpointOutputStreams("Graph Output Endpoints", UUID())
+		: NodeProcessor(debugName.data(), id), m_EndpointOutputStreams("Graph Output Endpoints", UUID())
 		{
 			AddInEvent(IDs::Play);
 			
@@ -84,32 +85,32 @@ namespace OloEngine::Audio::SoundGraph
 			
 			choc::value::Value value = choc::value::createFloat32(1.0f);
 			event.ValueData.CopyFrom(value);
-			OutgoingEvents.Push(event);
+			m_OutgoingEvents.Push(event);
 		});			// Connect using shared_ptr from InEvents - use the same identifier as registration
 			if (auto finishHandlerPtr = InEvents.find(Identifier("OnFinishHandler")); finishHandlerPtr != InEvents.end())
-				out_OnFinish.AddDestination(finishHandlerPtr->second);
+				m_OutOnFinish.AddDestination(finishHandlerPtr->second);
 			
-			AddOutEvent(IDs::OnFinished, out_OnFinish);
+			AddOutEvent(IDs::OnFinished, m_OutOnFinish);
 			
-			out_Channels.reserve(2);
+			m_OutChannels.reserve(2);
 		}
 
 		//==============================================================================
 		/// Core Components
 
-		OutputEvent out_OnFinish{ *this };
+		OutputEvent m_OutOnFinish{ *this };
 
 		/// All nodes in the graph
-		std::vector<Scope<NodeProcessor>> Nodes;
+		std::vector<Scope<NodeProcessor>> m_Nodes;
 
 		/// Wave players for audio file playback (subset of nodes)
-		std::vector<NodeProcessor*> WavePlayers; // Raw pointers to nodes in Nodes vector
+		std::vector<NodeProcessor*> m_WavePlayers; // Raw pointers to nodes in m_Nodes vector
 
 		/// Input stream endpoints from external sources
-		std::vector<Scope<StreamWriter>> EndpointInputStreams;
+		std::vector<Scope<StreamWriter>> m_EndpointInputStreams;
 
 		/// Output stream endpoints (collects output from nodes)
-		NodeProcessor EndpointOutputStreams;
+		NodeProcessor m_EndpointOutputStreams;
 
 		//==============================================================================
 		/// Parameter Interpolation System
@@ -164,16 +165,16 @@ namespace OloEngine::Audio::SoundGraph
 			}
 		};
 		
-		std::unordered_map<Identifier, InterpolatedValue> InterpInputs;
+		std::unordered_map<Identifier, InterpolatedValue> m_InterpInputs;
 
 		/// Local variable streams (internal graph state)
-		std::vector<Scope<StreamWriter>> LocalVariables;
+		std::vector<Scope<StreamWriter>> m_LocalVariables;
 
 		/// Output channel identifiers
-		std::vector<Identifier> OutputChannelIDs;
+		std::vector<Identifier> m_OutputChannelIDs;
 
 		/// Output channel values
-		std::vector<float> out_Channels;
+		std::vector<float> m_OutChannels;
 
 		//==============================================================================
 		/// Graph Construction Public API
@@ -181,37 +182,37 @@ namespace OloEngine::Audio::SoundGraph
 		template<typename T>
 		void AddGraphInputStream(Identifier id, T&& externalObjectOrDefaultValue)
 		{
-			EndpointInputStreams.emplace_back(CreateScope<StreamWriter>(AddInStream(id), std::forward<T>(externalObjectOrDefaultValue), id));
+			m_EndpointInputStreams.emplace_back(CreateScope<StreamWriter>(AddInStream(id), std::forward<T>(externalObjectOrDefaultValue), id));
 
 			if (std::is_same_v<std::remove_cvref_t<T>, float>)
 			{
 				// Add interpolation for float parameters
-				InterpInputs.try_emplace(id, InterpolatedValue{ 0.0f, 0.0f, 0.0f, 0, EndpointInputStreams.back().get() });
+				m_InterpInputs.try_emplace(id, InterpolatedValue{ 0.0f, 0.0f, 0.0f, 0, m_EndpointInputStreams.back().get() });
 			}
 		}
 
 		void AddGraphOutputStream(Identifier id)
 		{
-			AddOutStream<float>(id, out_Channels.emplace_back(0.0f));
-			EndpointOutputStreams.AddInStream(id);
+			AddOutStream<float>(id, m_OutChannels.emplace_back(0.0f));
+			m_EndpointOutputStreams.AddInStream(id);
 
-			AddConnection(OutValue(id), EndpointOutputStreams.InValue(id));
+			AddConnection(OutValue(id), m_EndpointOutputStreams.InValue(id));
 		}
 
 		template<typename T>
 		void AddLocalVariableStream(Identifier id, T&& externalObjectOrDefaultValue)
 		{
 			choc::value::Value dummy;
-			LocalVariables.emplace_back(CreateScope<StreamWriter>(dummy.getViewReference(), std::forward<T>(externalObjectOrDefaultValue), id));
+			m_LocalVariables.emplace_back(CreateScope<StreamWriter>(dummy.getViewReference(), std::forward<T>(externalObjectOrDefaultValue), id));
 		}
 
 		void AddNode(Scope<NodeProcessor>&& node)
 		{
 			OLO_CORE_ASSERT(node);
 			NodeProcessor* nodePtr = node.get();
-			UUID nodeID = nodePtr->ID;
+			UUID nodeID = nodePtr->m_ID;
 			
-			Nodes.emplace_back(std::move(node));
+			m_Nodes.emplace_back(std::move(node));
 			m_NodeLookup[nodeID] = nodePtr;
 		}
 
@@ -322,10 +323,10 @@ namespace OloEngine::Audio::SoundGraph
 		bool AddInputValueRoute(Identifier graphInputEventID, UUID destinationNodeID, Identifier destinationNodeEndpointID) noexcept
 		{
 			auto* destinationNode = FindNodeByID(destinationNodeID);
-			auto endpoint = std::find_if(EndpointInputStreams.begin(), EndpointInputStreams.end(),
+			auto endpoint = std::find_if(m_EndpointInputStreams.begin(), m_EndpointInputStreams.end(),
 				[graphInputEventID](const Scope<StreamWriter>& endpoint) { return endpoint->DestinationID == graphInputEventID; });
 			
-			if (!destinationNode || endpoint == EndpointInputStreams.end())
+			if (!destinationNode || endpoint == m_EndpointInputStreams.end())
 			{
 				OLO_CORE_ASSERT(false, "Failed to find destination node or input endpoint");
 				return false;
@@ -361,7 +362,7 @@ namespace OloEngine::Audio::SoundGraph
 				return false;
 			}
 
-			AddConnection(sourceNode->OutValue(sourceNodeEndpointID), EndpointOutputStreams.InValue(graphOutValueID));
+			AddConnection(sourceNode->OutValue(sourceNodeEndpointID), m_EndpointOutputStreams.InValue(graphOutValueID));
 			return true;
 		}
 
@@ -383,10 +384,10 @@ namespace OloEngine::Audio::SoundGraph
 		bool AddLocalVariableRoute(Identifier graphLocalVariableID, UUID destinationNodeID, Identifier destinationNodeEndpointID) noexcept
 		{
 			auto* destinationNode = FindNodeByID(destinationNodeID);
-			auto endpoint = std::find_if(LocalVariables.begin(), LocalVariables.end(),
+			auto endpoint = std::find_if(m_LocalVariables.begin(), m_LocalVariables.end(),
 				[graphLocalVariableID](const Scope<StreamWriter>& endpoint) { return endpoint->DestinationID == graphLocalVariableID; });
 
-			if (!destinationNode || endpoint == LocalVariables.end())
+			if (!destinationNode || endpoint == m_LocalVariables.end())
 			{
 				OLO_CORE_ASSERT(false, "Failed to find destination node or local variable endpoint");
 				return false;
@@ -402,8 +403,8 @@ namespace OloEngine::Audio::SoundGraph
 		/// Reset Graph to its initial state
 		void Reset()
 		{
-			OutgoingEvents.Clear();
-			OutgoingMessages.Clear();
+			m_OutgoingEvents.Clear();
+			m_OutgoingMessages.Clear();
 		}
 
 		void SetSampleRate(f32 sampleRate) 
@@ -420,20 +421,20 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			// Rebuild node lookup map and find wave players
 			m_NodeLookup.clear();
-			WavePlayers.clear();
+			m_WavePlayers.clear();
 			
-			for (auto& node : Nodes)
+			for (auto& node : m_Nodes)
 			{
 				// Rebuild lookup map
-				m_NodeLookup[node->ID] = node.get();
+				m_NodeLookup[node->m_ID] = node.get();
 				
 				// Find wave players
 				if (auto* wavePlayer = dynamic_cast<WavePlayer*>(node.get()))
-					WavePlayers.push_back(wavePlayer);
+					m_WavePlayers.push_back(wavePlayer);
 			}
 
 			// Initialize all nodes in order, passing sample rate
-			for (auto& node : Nodes)
+			for (auto& node : m_Nodes)
 			{
 				node->SetSampleRate(m_SampleRate);
 			node->Init();
@@ -443,7 +444,7 @@ namespace OloEngine::Audio::SoundGraph
 	}		void BeginProcessBlock()
 		{
 			// Refill wave player buffers
-			for (auto& wavePlayer : WavePlayers)
+			for (auto& wavePlayer : m_WavePlayers)
 			{
 				if (auto* wp = static_cast<WavePlayer*>(wavePlayer))
 					wp->ForceRefillBuffer();
@@ -453,21 +454,21 @@ namespace OloEngine::Audio::SoundGraph
 		void Process() final
 		{
 			// Process parameter interpolations
-			for (std::pair<const Identifier, InterpolatedValue>& interpValue : InterpInputs)
+			for (std::pair<const Identifier, InterpolatedValue>& interpValue : m_InterpInputs)
 				interpValue.second.Process();
 
 		// Process all nodes in graph
-		for (auto& node : Nodes)
+		for (auto& node : m_Nodes)
 			node->Process();
 
 		++m_CurrentFrame;
 	}		/// Reset nodes to their initial state
 		void Reinit()
 		{
-			OutgoingEvents.Clear();
-			OutgoingMessages.Clear();
+			m_OutgoingEvents.Clear();
+			m_OutgoingMessages.Clear();
 
-			for (auto& node : Nodes)
+			for (auto& node : m_Nodes)
 				node->Init();
 		}
 
@@ -505,7 +506,7 @@ namespace OloEngine::Audio::SoundGraph
 		void HandleOutgoingEvents(void* userContext, HandleOutgoingEventFn* handleEvent, HandleConsoleMessageFn* handleConsoleMessage)
 		{
 			Audio::AudioThreadEvent outEvent;
-			while (OutgoingEvents.Pop(outEvent))
+			while (m_OutgoingEvents.Pop(outEvent))
 			{
 				// Convert EndpointID back to Identifier and get ValueView
 				Identifier endpointID(outEvent.EndpointID);
@@ -514,7 +515,7 @@ namespace OloEngine::Audio::SoundGraph
 			}
 
 			Audio::AudioThreadMessage outMessage;
-			while (OutgoingMessages.Pop(outMessage))
+			while (m_OutgoingMessages.Pop(outMessage))
 			{
 				handleConsoleMessage(userContext, outMessage.FrameIndex, outMessage.Text);
 			}
@@ -525,19 +526,19 @@ namespace OloEngine::Audio::SoundGraph
 
 		bool SendInputValue(u32 endpointID, choc::value::ValueView value, bool interpolate)
 		{
-			auto endpoint = std::find_if(EndpointInputStreams.begin(), EndpointInputStreams.end(),
+			auto endpoint = std::find_if(m_EndpointInputStreams.begin(), m_EndpointInputStreams.end(),
 				[endpointID](const Scope<StreamWriter>& endpoint)
 				{
 					return (u32)endpoint->DestinationID == endpointID;
 				});
-			if (endpoint == EndpointInputStreams.end())
+			if (endpoint == m_EndpointInputStreams.end())
 				return false;
 
 			if (value.isFloat32())
 			{
 				// Handle interpolation for float values - use safe lookup
-				auto interpIt = InterpInputs.find(endpoint->get()->DestinationID);
-				if (interpIt != InterpInputs.end())
+				auto interpIt = m_InterpInputs.find(endpoint->get()->DestinationID);
+				if (interpIt != m_InterpInputs.end())
 				{
 					auto& interpInput = interpIt->second;
 					if (interpolate)
@@ -590,9 +591,9 @@ namespace OloEngine::Audio::SoundGraph
 		std::vector<Identifier> GetParameters() const
 		{
 			std::vector<Identifier> handles;
-			handles.reserve(EndpointInputStreams.size());
+			handles.reserve(m_EndpointInputStreams.size());
 
-			for (const auto& endpoint : EndpointInputStreams)
+			for (const auto& endpoint : m_EndpointInputStreams)
 				handles.push_back(endpoint->DestinationID);
 
 			return handles;
@@ -604,7 +605,7 @@ namespace OloEngine::Audio::SoundGraph
 		using RefillCallback = bool(*)(Audio::WaveSource&, void* userData, u32 numFrames);
 		void SetRefillWavePlayerBufferCallback(RefillCallback callback, void* userData, u32 numFrames)
 		{
-			for (auto& wavePlayer : WavePlayers)
+			for (auto& wavePlayer : m_WavePlayers)
 			{
 				if (auto* wp = static_cast<WavePlayer*>(wavePlayer))
 				{
@@ -636,18 +637,13 @@ namespace OloEngine::Audio::SoundGraph
 		
 		// Fast node lookup map (O(1) instead of O(n))
 		std::unordered_map<UUID, NodeProcessor*> m_NodeLookup;
-		
-		// Missing containers
-		std::queue<struct GraphEvent> m_OutgoingEvents;
-		
-		// TODO: Add other missing members as needed
 
 		//==============================================================================
 		/// Thread-safe Event/Message Queues
 		/// Using lock-free queues with pre-allocated storage to avoid heap allocations in audio thread
 		
-		Audio::AudioEventQueue<1024> OutgoingEvents;
-		Audio::AudioMessageQueue<1024> OutgoingMessages;
+		Audio::AudioEventQueue<1024> m_OutgoingEvents;
+		Audio::AudioMessageQueue<1024> m_OutgoingMessages;
 	};
 
 	//==============================================================================
@@ -658,11 +654,11 @@ namespace OloEngine::Audio::SoundGraph
 	{
 		const bool isFloat = externalObjectOrDefaultValue.isFloat32();
 
-		EndpointInputStreams.emplace_back(CreateScope<StreamWriter>(AddInStream(id), std::forward<choc::value::Value>(externalObjectOrDefaultValue), id));
+		m_EndpointInputStreams.emplace_back(CreateScope<StreamWriter>(AddInStream(id), std::forward<choc::value::Value>(externalObjectOrDefaultValue), id));
 
 		if (isFloat)
 		{
-			InterpInputs.try_emplace(id, InterpolatedValue{ 0.0f, 0.0f, 0.0f, 0, EndpointInputStreams.back().get() });
+			m_InterpInputs.try_emplace(id, InterpolatedValue{ 0.0f, 0.0f, 0.0f, 0, m_EndpointInputStreams.back().get() });
 		}
 	}
 

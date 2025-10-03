@@ -12,7 +12,7 @@ namespace OloEngine::Core::Reflection::StringUtils {
 
     constexpr bool StartsWith(std::string_view text, std::string_view prefix)
     {
-        auto len = prefix.length();
+        sizet len = prefix.length();
         return text.length() >= len && text.substr(0, len) == prefix;
     }
 
@@ -48,7 +48,7 @@ namespace OloEngine::Core::Reflection::StringUtils {
     {
         std::array<std::string_view, N> tokens{};
 
-        if (N == 0)
+        if constexpr (N == 0)
         {
             return tokens;
         }

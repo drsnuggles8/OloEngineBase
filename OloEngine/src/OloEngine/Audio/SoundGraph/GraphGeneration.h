@@ -19,7 +19,7 @@ namespace OloEngine::Audio::SoundGraph
 		// Note: Editor model and cache dependencies removed for now
 	};
 
-	Ref<Prototype> ConstructPrototype(GraphGeneratorOptions options, std::vector<UUID>& waveAssetsToLoad);
+	Ref<Prototype> ConstructPrototype(const GraphGeneratorOptions& options, std::vector<UUID>& waveAssetsToLoad);
 
 	/** Create instance of SoundGraph from Prototype for playback */
 	Ref<SoundGraph> CreateInstance(const Ref<Prototype>& prototype);

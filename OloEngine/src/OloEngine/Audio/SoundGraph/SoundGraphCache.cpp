@@ -460,7 +460,7 @@ namespace OloEngine::Audio::SoundGraph
         totalMemory += sizeof(NodeProcessor);
         
         // Calculate memory for all nodes in the graph
-        for (const auto& node : graph->Nodes)
+        for (const auto& node : graph->m_Nodes)
         {
             if (node)
             {
@@ -482,34 +482,34 @@ namespace OloEngine::Audio::SoundGraph
         // SoundGraph-specific data structures
         
         // Nodes vector overhead
-        totalMemory += graph->Nodes.capacity() * sizeof(Scope<NodeProcessor>);
+        totalMemory += graph->m_Nodes.capacity() * sizeof(Scope<NodeProcessor>);
         
         // WavePlayers vector (raw pointers, minimal overhead)
-        totalMemory += graph->WavePlayers.capacity() * sizeof(NodeProcessor*);
+        totalMemory += graph->m_WavePlayers.capacity() * sizeof(NodeProcessor*);
         
         // EndpointInputStreams vector
-        totalMemory += graph->EndpointInputStreams.capacity() * sizeof(Scope<StreamWriter>);
-        for (const auto& endpoint : graph->EndpointInputStreams)
+        totalMemory += graph->m_EndpointInputStreams.capacity() * sizeof(Scope<StreamWriter>);
+        for (const auto& endpoint : graph->m_EndpointInputStreams)
         {
             if (endpoint)
                 totalMemory += sizeof(StreamWriter) + 64; // StreamWriter + estimated choc::value overhead
         }
         
         // InterpolatedValue map
-        totalMemory += graph->InterpInputs.size() * (sizeof(Identifier) + sizeof(SoundGraph::InterpolatedValue));
-        totalMemory += graph->InterpInputs.bucket_count() * sizeof(void*); // Hash table overhead
+        totalMemory += graph->m_InterpInputs.size() * (sizeof(Identifier) + sizeof(SoundGraph::InterpolatedValue));
+        totalMemory += graph->m_InterpInputs.bucket_count() * sizeof(void*); // Hash table overhead
         
         // LocalVariables vector
-        totalMemory += graph->LocalVariables.capacity() * sizeof(Scope<StreamWriter>);
-        for (const auto& localVar : graph->LocalVariables)
+        totalMemory += graph->m_LocalVariables.capacity() * sizeof(Scope<StreamWriter>);
+        for (const auto& localVar : graph->m_LocalVariables)
         {
             if (localVar)
                 totalMemory += sizeof(StreamWriter) + 64; // StreamWriter + estimated overhead
         }
         
         // Output channel vectors
-        totalMemory += graph->OutputChannelIDs.capacity() * sizeof(Identifier);
-        totalMemory += graph->out_Channels.capacity() * sizeof(float);
+        totalMemory += graph->m_OutputChannelIDs.capacity() * sizeof(Identifier);
+        totalMemory += graph->m_OutChannels.capacity() * sizeof(float);
         
         // EndpointOutputStreams (NodeProcessor)
         totalMemory += sizeof(NodeProcessor) + 256; // Base size + estimated overhead
@@ -519,7 +519,8 @@ namespace OloEngine::Audio::SoundGraph
         // Note: Cannot access private OutgoingEvent/OutgoingMessage structs directly
         // Using estimated sizes based on typical event/message structure
         totalMemory += 1024 * 64;  // Estimated FIFO capacity * estimated event size
-        totalMemory += 1024 * 32; // Estimated FIFO capacity * estimated message size        // choc::value::ValueView objects don't own data, minimal memory overhead
+        totalMemory += 1024 * 32; // Estimated FIFO capacity * estimated message size
+        // choc::value::ValueView objects don't own data, minimal memory overhead
         // String storage for debug names, identifiers, etc.
         totalMemory += 1024; // Estimated string storage overhead
         
@@ -618,10 +619,10 @@ namespace OloEngine::Audio::SoundGraph
                     
                     // If the asset already has a compiled prototype, use it; otherwise compile from scratch
                     Ref<Prototype> prototype;
-                    if (asset.CompiledPrototype)
+                    if (asset.m_CompiledPrototype)
                     {
                         OLO_CORE_INFO("SoundGraphCache: Using pre-compiled prototype for '{}'", asset.m_Name);
-                        prototype = asset.CompiledPrototype;
+                        prototype = asset.m_CompiledPrototype;
                     }
                     else
                     {
@@ -637,7 +638,7 @@ namespace OloEngine::Audio::SoundGraph
                         }
                         
                         // Cache the compiled prototype in the asset for future use
-                        asset.CompiledPrototype = prototype;
+                        asset.m_CompiledPrototype = prototype;
                     }
                     
                     // Step 3: Create an instance of the SoundGraph from the Prototype

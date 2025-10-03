@@ -80,7 +80,7 @@ namespace OloEngine
         /// Simple 64-bit hash for UUIDs and other numeric data
         static constexpr u64 Hash64(u64 value) noexcept
         {
-            // FNV-like mixing for 64-bit values
+            // 64-bit hash mixing function (finalizer pattern)
             value ^= value >> 33;
             value *= 0xff51afd7ed558ccdULL;
             value ^= value >> 33;

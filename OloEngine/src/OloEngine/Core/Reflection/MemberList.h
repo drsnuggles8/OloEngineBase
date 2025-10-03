@@ -97,7 +97,9 @@ namespace OloEngine::Core::Reflection {
 		static constexpr auto ApplyIfMemberNotFunction(TFunc func, TMemberPtr member, TObj&& obj)
 		{
 			if constexpr (!std::is_member_function_pointer_v<decltype(member)>)
+			{
 				func(obj.*member);
+			}
 		}
 
 	public:
@@ -113,7 +115,8 @@ namespace OloEngine::Core::Reflection {
 			// Only invoke the callback for data members; skip member-function pointers but
 			// still increment the counter so indices remain aligned with the original pack.
 			(([
-				&]() {
+				&]()
+				{
 					using MemberPtrT = decltype(MemberPointers);
 					if (memberCounter == memberIndex)
 					{

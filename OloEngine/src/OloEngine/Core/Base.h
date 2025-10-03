@@ -4,6 +4,7 @@
 #include <memory>
 #include <stdexcept>
 #include <type_traits>
+#include <utility>
 #include <cstdint>
 
 #include "OloEngine/Core/PlatformDetection.h"
@@ -216,22 +217,20 @@ struct Flag
 	OLO_FINLINE void SetDirty() noexcept { m_Flag = true; }
 	OLO_FINLINE bool CheckAndResetIfDirty() noexcept
 	{
-		if (m_Flag)
-		{
-			m_Flag = false;
-			return true;
-		}
-		else
-		{
-			return false;
-		}
+		return std::exchange(m_Flag, false);
 	}
 
 	OLO_FINLINE bool IsDirty() const noexcept
 	{
 		return m_Flag;
 	}
-	
+
+	// Explicitly delete copy and move operations to avoid accidental copying of dirty state
+	Flag() = default;
+	Flag(const Flag&) = delete;
+	Flag& operator=(const Flag&) = delete;
+	Flag(Flag&&) = delete;
+	Flag& operator=(Flag&&) = delete;
 
 private:
 	bool m_Flag = false;

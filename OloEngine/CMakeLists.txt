@@ -32,7 +32,7 @@ endif()
 # nlohmann/json - for JSON serialization
 CPMAddPackage(NAME nlohmann_json
   GIT_REPOSITORY https://github.com/nlohmann/json.git
-  VERSION 3.11.3
+  VERSION 3.12.0
   OPTIONS
     "JSON_BuildTests OFF"
     "JSON_Install OFF")

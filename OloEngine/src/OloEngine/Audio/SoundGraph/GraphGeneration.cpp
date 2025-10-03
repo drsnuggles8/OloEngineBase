@@ -11,7 +11,7 @@ namespace OloEngine::Audio::SoundGraph
     //==============================================================================
     struct GraphGenerator
     {
-        GraphGenerator(GraphGeneratorOptions& options, Ref<Prototype>& outPrototype)
+        GraphGenerator(const GraphGeneratorOptions& options, Ref<Prototype>& outPrototype)
             : m_Options(options), m_OutPrototype(outPrototype)
         {
             OLO_CORE_ASSERT(m_Options.m_GraphPrototype);
@@ -20,7 +20,7 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         //==============================================================================
-        GraphGeneratorOptions& m_Options;
+        const GraphGeneratorOptions& m_Options;
         Ref<Prototype> m_OutPrototype;
         std::vector<UUID> m_OutWaveAssets;
         std::vector<Identifier> m_OutputChannelIdentifiers; // Generated channel IDs for reuse
@@ -83,9 +83,11 @@ namespace OloEngine::Audio::SoundGraph
                 
                 Prototype::Endpoint output(outputID, choc::value::Value(0.0f));
                 m_OutPrototype->m_Outputs.push_back(output);
-            }			// Add standard graph events
-                m_OutPrototype->m_Inputs.emplace_back(Identifier("Play"), choc::value::Value(0.0f));
-                m_OutPrototype->m_Outputs.emplace_back(Identifier("OnFinished"), choc::value::Value(0.0f));
+            }
+            
+            // Add standard graph events
+            m_OutPrototype->m_Inputs.emplace_back(Identifier("Play"), choc::value::Value(0.0f));
+            m_OutPrototype->m_Outputs.emplace_back(SoundGraph::IDs::OnFinished, choc::value::Value(0.0f));
         }
 
         void ParseNodes()
@@ -253,6 +255,7 @@ namespace OloEngine::Audio::SoundGraph
 
             // Scan through nodes and collect any wave asset references
             m_OutWaveAssets.clear();
+            std::unordered_set<UUID> seenAssets;
             
             for (const auto& node : m_Options.m_GraphPrototype->m_Nodes)
             {
@@ -266,7 +269,7 @@ namespace OloEngine::Audio::SoundGraph
                         if (assetHandle != 0) // Non-zero indicates a valid asset handle
                         {
                             UUID assetUUID = static_cast<UUID>(assetHandle);
-                            if (std::find(m_OutWaveAssets.begin(), m_OutWaveAssets.end(), assetUUID) == m_OutWaveAssets.end())
+                            if (seenAssets.insert(assetUUID).second)
                             {
                                 m_OutWaveAssets.push_back(assetUUID);
                                 OLO_CORE_TRACE("GraphGenerator: Found wave asset reference: {}", assetUUID);
@@ -281,7 +284,7 @@ namespace OloEngine::Audio::SoundGraph
     };
 
     //==============================================================================
-    Ref<Prototype> ConstructPrototype(GraphGeneratorOptions options, std::vector<UUID>& waveAssetsToLoad)
+    Ref<Prototype> ConstructPrototype(const GraphGeneratorOptions& options, std::vector<UUID>& waveAssetsToLoad)
     {
         OLO_PROFILE_FUNCTION();
         
@@ -322,16 +325,16 @@ namespace OloEngine::Audio::SoundGraph
             }
 
             // Set output channel IDs from the prototype outputs
-            graph->OutputChannelIDs.clear();
-            graph->OutputChannelIDs.reserve(prototype->m_Outputs.size());
+            graph->m_OutputChannelIDs.clear();
+            graph->m_OutputChannelIDs.reserve(prototype->m_Outputs.size());
             
             // Filter outputs to only include channel outputs (exclude events like "OnFinished")
             for (const auto& output : prototype->m_Outputs)
             {
                 // Skip event outputs - only include audio channel outputs
-                if (output.m_EndpointID != Identifier("OnFinished"))
+                if (output.m_EndpointID != SoundGraph::IDs::OnFinished)
                 {
-                    graph->OutputChannelIDs.push_back(output.m_EndpointID);
+                    graph->m_OutputChannelIDs.push_back(output.m_EndpointID);
                 }
             }
         }

@@ -6,6 +6,9 @@
 #include <filesystem>
 #include <cmath>
 
+// Forward declaration for miniaudio decoder type
+typedef struct ma_decoder ma_decoder;
+
 namespace OloEngine::Audio
 {
     //==============================================================================
@@ -36,22 +39,27 @@ namespace OloEngine::Audio
             if (m_Samples.empty() || m_NumChannels == 0 || m_NumFrames == 0 || !std::isfinite(m_SampleRate) || m_SampleRate <= 0.0)
                 return false;
                 
-            const sizet expectedSampleCount = sizet(m_NumFrames) * sizet(m_NumChannels);
+            const sizet expectedSampleCount = static_cast<sizet>(m_NumFrames) * static_cast<sizet>(m_NumChannels);
             return m_Samples.size() == expectedSampleCount;
         }
         
         /// Get sample at specific frame and channel
         f32 GetSample(u64 frame, u32 channel) const
         {
+            OLO_CORE_ASSERT(IsValid(), "AudioData must be valid before accessing samples");
+            
             if (frame >= m_NumFrames || channel >= m_NumChannels)
                 return 0.0f;
             
             u64 sampleIndex = frame * m_NumChannels + channel;
-            return (sampleIndex < m_Samples.size()) ? m_Samples[sampleIndex] : 0.0f;
+            return m_Samples[sampleIndex];
         }
         
         /// Get total number of samples (all channels)
-        u64 GetTotalSamples() const { return static_cast<u64>(m_Samples.size()); }
+        u64 GetTotalSamples() const
+        {
+            return static_cast<u64>(m_Samples.size());
+        }
     };
 
     //==============================================================================
@@ -104,6 +112,13 @@ namespace OloEngine::Audio
 
     private:
         AudioLoader() = delete; // Static utility class
+        
+        /// Helper function to decode audio data from an initialized decoder
+        /// @param decoder Initialized ma_decoder ready for reading
+        /// @param outAudioData Structure to receive loaded audio data
+        /// @param sourceDescription Description of the source for error messages (e.g., file path or "memory")
+        /// @return true if decoding succeeded, false otherwise
+        static bool DecodeAudioData(ma_decoder& decoder, AudioData& outAudioData, const std::string& sourceDescription);
     };
 
 } // namespace OloEngine::Audio

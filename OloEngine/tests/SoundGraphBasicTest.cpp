@@ -55,26 +55,26 @@ TEST_F(SoundGraphBasicTest, SoundGraphAssetBasicOperations)
     
     // Add a test node
     SoundGraphNodeData node;
-    node.ID = UUID();
-    node.Name = "Test Node";
-    node.Type = "TestType";
-    node.Properties["param1"] = "value1";
-    node.PosX = 100.0f;
-    node.PosY = 200.0f;
+    node.m_ID = UUID();
+    node.m_Name = "Test Node";
+    node.m_Type = "TestType";
+    node.m_Properties["param1"] = "value1";
+    node.m_PosX = 100.0f;
+    node.m_PosY = 200.0f;
     
     EXPECT_TRUE(asset.AddNode(node));
     
     // Now should be valid (has nodes) and contain our node
     EXPECT_TRUE(asset.IsValid());
     EXPECT_EQ(asset.m_Nodes.size(), 1);
-    EXPECT_TRUE(asset.HasNode(node.ID));
+    EXPECT_TRUE(asset.HasNode(node.m_ID));
     
     // Test node retrieval
-    const SoundGraphNodeData* retrieved = asset.GetNode(node.ID);
+    const SoundGraphNodeData* retrieved = asset.GetNode(node.m_ID);
     ASSERT_NE(retrieved, nullptr);
-    EXPECT_EQ(retrieved->Name, "Test Node");
-    EXPECT_EQ(retrieved->Type, "TestType");
-    EXPECT_EQ(retrieved->Properties.at("param1"), "value1");
+    EXPECT_EQ(retrieved->m_Name, "Test Node");
+    EXPECT_EQ(retrieved->m_Type, "TestType");
+    EXPECT_EQ(retrieved->m_Properties.at("param1"), "value1");
 }
 
 TEST_F(SoundGraphBasicTest, SoundGraphConnections)
@@ -84,24 +84,24 @@ TEST_F(SoundGraphBasicTest, SoundGraphConnections)
     
     // Add two nodes
     SoundGraphNodeData node1, node2;
-    node1.ID = UUID();
-    node1.Name = "Source Node";
-    node1.Type = "Generator";
+    node1.m_ID = UUID();
+    node1.m_Name = "Source Node";
+    node1.m_Type = "Generator";
     
-    node2.ID = UUID();
-    node2.Name = "Target Node";
-    node2.Type = "Effect";
+    node2.m_ID = UUID();
+    node2.m_Name = "Target Node";
+    node2.m_Type = "Effect";
     
     EXPECT_TRUE(asset.AddNode(node1));
     EXPECT_TRUE(asset.AddNode(node2));
     
     // Add connection
     SoundGraphConnection connection;
-    connection.SourceNodeID = node1.ID;
-    connection.SourceEndpoint = "output";
-    connection.TargetNodeID = node2.ID;
-    connection.TargetEndpoint = "input";
-    connection.IsEvent = false;
+    connection.m_SourceNodeID = node1.m_ID;
+    connection.m_SourceEndpoint = "output";
+    connection.m_TargetNodeID = node2.m_ID;
+    connection.m_TargetEndpoint = "input";
+    connection.m_IsEvent = false;
     
     EXPECT_TRUE(asset.AddConnection(connection));
     
@@ -109,11 +109,11 @@ TEST_F(SoundGraphBasicTest, SoundGraphConnections)
     EXPECT_TRUE(asset.IsValid()); // Should be valid with nodes and connections
     
     const auto& conn = asset.m_Connections[0];
-    EXPECT_EQ(conn.SourceNodeID, node1.ID);
-    EXPECT_EQ(conn.TargetNodeID, node2.ID);
-    EXPECT_EQ(conn.SourceEndpoint, "output");
-    EXPECT_EQ(conn.TargetEndpoint, "input");
-    EXPECT_FALSE(conn.IsEvent);
+    EXPECT_EQ(conn.m_SourceNodeID, node1.m_ID);
+    EXPECT_EQ(conn.m_TargetNodeID, node2.m_ID);
+    EXPECT_EQ(conn.m_SourceEndpoint, "output");
+    EXPECT_EQ(conn.m_TargetEndpoint, "input");
+    EXPECT_FALSE(conn.m_IsEvent);
 }
 
 TEST_F(SoundGraphBasicTest, SoundGraphRemoveConnection)
@@ -123,31 +123,31 @@ TEST_F(SoundGraphBasicTest, SoundGraphRemoveConnection)
     
     // Add two nodes
     SoundGraphNodeData node1, node2;
-    node1.ID = UUID();
-    node1.Name = "Source Node";
-    node1.Type = "Generator";
+    node1.m_ID = UUID();
+    node1.m_Name = "Source Node";
+    node1.m_Type = "Generator";
     
-    node2.ID = UUID();
-    node2.Name = "Target Node";
-    node2.Type = "Effect";
+    node2.m_ID = UUID();
+    node2.m_Name = "Target Node";
+    node2.m_Type = "Effect";
     
     EXPECT_TRUE(asset.AddNode(node1));
     EXPECT_TRUE(asset.AddNode(node2));
     
     // Add two connections with same endpoints but different IsEvent flags
     SoundGraphConnection dataConnection;
-    dataConnection.SourceNodeID = node1.ID;
-    dataConnection.SourceEndpoint = "output";
-    dataConnection.TargetNodeID = node2.ID;
-    dataConnection.TargetEndpoint = "input";
-    dataConnection.IsEvent = false; // Data connection
+    dataConnection.m_SourceNodeID = node1.m_ID;
+    dataConnection.m_SourceEndpoint = "output";
+    dataConnection.m_TargetNodeID = node2.m_ID;
+    dataConnection.m_TargetEndpoint = "input";
+    dataConnection.m_IsEvent = false; // Data connection
     
     SoundGraphConnection eventConnection;
-    eventConnection.SourceNodeID = node1.ID;
-    eventConnection.SourceEndpoint = "output";
-    eventConnection.TargetNodeID = node2.ID;
-    eventConnection.TargetEndpoint = "input";
-    eventConnection.IsEvent = true; // Event connection
+    eventConnection.m_SourceNodeID = node1.m_ID;
+    eventConnection.m_SourceEndpoint = "output";
+    eventConnection.m_TargetNodeID = node2.m_ID;
+    eventConnection.m_TargetEndpoint = "input";
+    eventConnection.m_IsEvent = true; // Event connection
     
     EXPECT_TRUE(asset.AddConnection(dataConnection));
     EXPECT_TRUE(asset.AddConnection(eventConnection));
@@ -155,18 +155,18 @@ TEST_F(SoundGraphBasicTest, SoundGraphRemoveConnection)
     EXPECT_EQ(asset.m_Connections.size(), 2);
     
     // Test removing the data connection should leave the event connection
-    bool removed = asset.RemoveConnection(node1.ID, "output", node2.ID, "input", false);
+    bool removed = asset.RemoveConnection(node1.m_ID, "output", node2.m_ID, "input", false);
     EXPECT_TRUE(removed);
     EXPECT_EQ(asset.m_Connections.size(), 1);
-    EXPECT_TRUE(asset.m_Connections[0].IsEvent); // Only event connection should remain
+    EXPECT_TRUE(asset.m_Connections[0].m_IsEvent); // Only event connection should remain
     
     // Test removing the event connection should leave no connections
-    removed = asset.RemoveConnection(node1.ID, "output", node2.ID, "input", true);
+    removed = asset.RemoveConnection(node1.m_ID, "output", node2.m_ID, "input", true);
     EXPECT_TRUE(removed);
     EXPECT_EQ(asset.m_Connections.size(), 0);
     
     // Test removing non-existent connection should return false
-    removed = asset.RemoveConnection(node1.ID, "output", node2.ID, "input", false);
+    removed = asset.RemoveConnection(node1.m_ID, "output", node2.m_ID, "input", false);
     EXPECT_FALSE(removed);
     EXPECT_EQ(asset.m_Connections.size(), 0);
 }
@@ -294,9 +294,9 @@ TEST_F(SoundGraphBasicTest, SoundGraphValidation)
     
     // Add a valid node
     SoundGraphNodeData node;
-    node.ID = UUID();
-    node.Name = "Valid Node";
-    node.Type = "TestType";
+    node.m_ID = UUID();
+    node.m_Name = "Valid Node";
+    node.m_Type = "TestType";
     
     EXPECT_TRUE(asset.AddNode(node));
     EXPECT_TRUE(asset.IsValid());
@@ -304,10 +304,10 @@ TEST_F(SoundGraphBasicTest, SoundGraphValidation)
     // Try to add invalid connection (referencing non-existent node)
     // This should be rejected, keeping the asset valid
     SoundGraphConnection badConnection;
-    badConnection.SourceNodeID = node.ID;
-    badConnection.TargetNodeID = UUID(); // Non-existent node
-    badConnection.SourceEndpoint = "out";
-    badConnection.TargetEndpoint = "in";
+    badConnection.m_SourceNodeID = node.m_ID;
+    badConnection.m_TargetNodeID = UUID(); // Non-existent node
+    badConnection.m_SourceEndpoint = "out";
+    badConnection.m_TargetEndpoint = "in";
     
     sizet connectionCountBefore = asset.m_Connections.size();
     EXPECT_FALSE(asset.AddConnection(badConnection));

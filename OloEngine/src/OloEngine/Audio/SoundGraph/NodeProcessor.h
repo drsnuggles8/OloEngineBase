@@ -11,6 +11,8 @@
 #include <complex>
 #include <functional>
 #include <memory>
+#include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <type_traits>
 #include <unordered_map>
@@ -49,7 +51,7 @@ namespace OloEngine::Audio::SoundGraph
 	struct NodeProcessor
 	{
 		explicit NodeProcessor(const char* dbgName, UUID id) noexcept
-			: DebugName(dbgName), ID(id)
+			: m_DebugName(dbgName), m_ID(id)
 		{
 		}
 
@@ -61,8 +63,8 @@ namespace OloEngine::Audio::SoundGraph
 		NodeProcessor(NodeProcessor&&) = delete;
 		NodeProcessor& operator=(NodeProcessor&&) = delete;
 
-		std::string DebugName;
-		UUID ID;
+		std::string m_DebugName;
+		UUID m_ID;
 
 	protected:
 		f32 m_SampleRate = 48000.0f;
@@ -224,7 +226,7 @@ namespace OloEngine::Audio::SoundGraph
 			return it != OutEvents.end() ? &(it->second.get()) : nullptr;
 		}
 
-	inline const char* GetDisplayName() const { return DebugName.c_str(); }
+	inline const char* GetDisplayName() const { return m_DebugName.c_str(); }
 	inline bool HasParameter(const Identifier& id) const { return ParameterInfos.find(id) != ParameterInfos.end(); }
 
 	//==============================================================================
@@ -233,23 +235,39 @@ namespace OloEngine::Audio::SoundGraph
 	template<typename T>
 	struct ParameterWrapper
 	{
-		T Value;
-		Identifier ID;
+		T m_Value;
+		Identifier m_ID;
 		
-		ParameterWrapper(const T& value, Identifier id) : Value(value), ID(id) {}
+		ParameterWrapper(const T& value, Identifier id) : m_Value(value), m_ID(id) {}
 	};
 	
 	// Storage for parameter wrappers (must persist for pointer stability)
-	mutable std::unordered_map<Identifier, std::shared_ptr<void>> m_ParameterWrappers;
+	std::unordered_map<Identifier, std::shared_ptr<void>> m_ParameterWrappers;
+	
+	// Mutex for thread-safe parameter access
+	mutable std::shared_mutex m_ParameterMutex;
 	
 	template<typename T>
-	ParameterWrapper<T>* GetParameter(const Identifier& id)
+	std::shared_ptr<ParameterWrapper<T>> GetParameter(const Identifier& id)
 	{
-		// Check if we already have a wrapper for this parameter
+		// First, try to find existing wrapper with shared lock (read-only)
+		{
+			std::shared_lock<std::shared_mutex> lock(m_ParameterMutex);
+			auto wrapperIt = m_ParameterWrappers.find(id);
+			if (wrapperIt != m_ParameterWrappers.end())
+			{
+				return std::static_pointer_cast<ParameterWrapper<T>>(wrapperIt->second);
+			}
+		}
+		
+		// Not found in cache, need to create it - acquire exclusive lock
+		std::unique_lock<std::shared_mutex> lock(m_ParameterMutex);
+		
+		// Double-check: another thread might have created it while we were waiting for the lock
 		auto wrapperIt = m_ParameterWrappers.find(id);
 		if (wrapperIt != m_ParameterWrappers.end())
 		{
-			return static_cast<ParameterWrapper<T>*>(wrapperIt->second.get());
+			return std::static_pointer_cast<ParameterWrapper<T>>(wrapperIt->second);
 		}
 		
 		// Find the parameter in the storage
@@ -263,7 +281,7 @@ namespace OloEngine::Audio::SoundGraph
 			T value = std::any_cast<T>(it->second);
 			auto wrapper = std::make_shared<ParameterWrapper<T>>(value, id);
 			m_ParameterWrappers[id] = wrapper;
-			return wrapper.get();
+			return wrapper;
 		}
 		catch (const std::bad_any_cast&)
 		{
@@ -294,8 +312,11 @@ namespace OloEngine::Audio::SoundGraph
 		auto defaultPlug = std::make_shared<StreamWriter>(stream, T(defaultValue), id);
 		DefaultValuePlugs.push_back(defaultPlug);
 		
-		// Store parameter value for GetParameter access
-		m_ParameterStorage[id] = defaultValue;
+		// Store parameter value for GetParameter access (thread-safe)
+		{
+			std::unique_lock<std::shared_mutex> lock(m_ParameterMutex);
+			m_ParameterStorage[id] = defaultValue;
+		}
 		
 		// Store parameter info for debugging
 		ParameterInfo info;

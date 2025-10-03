@@ -31,7 +31,7 @@ namespace OloEngine::Audio::SoundGraph
         // Map of asset handle to audio buffer/reader data
         std::unordered_map<AssetHandle, Audio::WaveSource> m_WaveSources;
         
-        bool InitializeWaveSource(AssetHandle handle);
+        bool InitializeWaveSource(AssetHandle handle, std::unordered_map<AssetHandle, std::shared_ptr<Audio::AudioData>>& audioDataCache);
         void UninitializeWaveSource(AssetHandle handle);
         void UninitializeAll();
         
@@ -63,8 +63,8 @@ namespace OloEngine::Audio::SoundGraph
         
         void SuspendProcessing(bool shouldBeSuspended);
         bool IsSuspended() const { return m_Suspended.load(std::memory_order_relaxed); }
-        bool IsFinished() const noexcept { return m_IsFinished.load(std::memory_order_relaxed) && !m_IsPlaying.load(std::memory_order_relaxed); }
-        bool IsPlaying() const { return m_IsPlaying.load(std::memory_order_relaxed) && !IsSuspended(); }
+        bool IsFinished() const noexcept;
+        bool IsPlaying() const;
 
         //==============================================================================
         /// Main thread update (processes events from audio thread)
@@ -145,6 +145,11 @@ namespace OloEngine::Audio::SoundGraph
 
     private:
         //============================================
+        /// Helper methods
+        
+        /** Helper to silence output buffers (planar stereo) */
+        void SilenceOutputBuffers(float** ppFramesOut, u32 frameCount);
+        //============================================
         /// Audio engine and processing
         ma_engine* m_Engine = nullptr;
         ma_engine_node m_EngineNode{};
@@ -165,16 +170,21 @@ namespace OloEngine::Audio::SoundGraph
         /// Sound graph and data sources
         Ref<SoundGraph> m_Graph = nullptr;
         DataSourceContext m_DataSources;
+        
+        // Cached audio data for each wave source (keyed by AssetHandle)
+        // Preloaded during initialization to avoid blocking file I/O in audio thread
+        // Uses shared_ptr for automatic memory management and safe access
+        std::unordered_map<AssetHandle, std::shared_ptr<Audio::AudioData>> m_CachedAudioDataMap;
 
         //============================================
         /// Parameter management
         struct ParameterInfo
         {
-            u32 Handle;
-            std::string Name; // For debugging
+            u32 m_Handle;
+            std::string m_Name; // For debugging
             
             ParameterInfo(u32 handle, std::string_view name = "") 
-                : Handle(handle), Name(name) {}
+                : m_Handle(handle), m_Name(name) {}
         };
         std::unordered_map<u32, ParameterInfo> m_ParameterHandles;
 

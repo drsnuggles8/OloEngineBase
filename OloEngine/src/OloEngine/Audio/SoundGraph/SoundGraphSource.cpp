@@ -12,14 +12,14 @@ namespace OloEngine::Audio::SoundGraph
 	//==============================================================================
 	/// DataSourceContext Implementation
 
-	bool DataSourceContext::InitializeWaveSource(AssetHandle handle)
+	bool DataSourceContext::InitializeWaveSource(AssetHandle handle, std::unordered_map<AssetHandle, std::shared_ptr<Audio::AudioData>>& audioDataCache)
 	{
 		OLO_PROFILE_FUNCTION();
 		
 		if (m_WaveSources.find(handle) != m_WaveSources.end())
 			return true; // Already initialized
 
-		// Load the audio asset
+		// Load the audio asset metadata
 		auto audioAsset = AssetManager::GetAsset<AudioFile>(handle);
 		if (!audioAsset)
 		{
@@ -35,23 +35,78 @@ namespace OloEngine::Audio::SoundGraph
 		// This prevents AreAllSourcesAtEnd() from immediately reporting finished due to TotalFrames = 0
 		const double duration = audioAsset->GetDuration();
 		const u32 sampleRate = audioAsset->GetSamplingRate();
-		const u16 numChannels = audioAsset->GetNumChannels();
 		
-		// Calculate total frames from duration and sample rate
-		waveSource.m_TotalFrames = static_cast<i64>(duration * sampleRate);
+		// Calculate total frames from duration and sample rate with overflow protection
+		// Use long double to avoid overflow during multiplication before casting to i64
+		if (duration < 0.0)
+		{
+			// Negative duration is invalid - clamp to 0
+			waveSource.m_TotalFrames = 0;
+		}
+		else
+		{
+			const long double framesLD = static_cast<long double>(duration) * static_cast<long double>(sampleRate);
+			constexpr i64 maxFrames = std::numeric_limits<i64>::max();
+			
+			// Saturate to i64::max if overflow would occur
+			if (framesLD >= static_cast<long double>(maxFrames))
+			{
+				waveSource.m_TotalFrames = maxFrames;
+				OLO_CORE_WARN("[SoundGraphSource] Audio duration {} seconds at {} Hz exceeds i64::max frames, saturating to max", 
+					duration, sampleRate);
+			}
+			else
+			{
+				waveSource.m_TotalFrames = static_cast<i64>(framesLD);
+			}
+		}
 		
-		// Store additional metadata that may be needed for audio processing
-		// Note: WaveSource doesn't have explicit fields for these, but they're available in the AudioFile
-		// If needed later, these can be accessed via AssetManager::GetAsset<AudioFile>(handle)
-		
-		// Set up refill callback - we'll handle this through the SoundGraphSource
-		// The actual refill will be managed by the parent class
-		
-		m_WaveSources[handle] = std::move(waveSource);
-		return true;
+		// Preload audio data to avoid blocking file I/O in audio thread
+		// This is done during initialization on the main thread
+		AssetMetadata metadata = AssetManager::GetAssetMetadata(handle);
+		if (metadata.IsValid())
+		{
+			std::filesystem::path filePath = Project::GetAssetDirectory() / metadata.FilePath;
+			if (std::filesystem::exists(filePath))
+			{
+				auto cachedAudioData = std::make_shared<Audio::AudioData>();
+				if (Audio::AudioLoader::LoadAudioFile(filePath, *cachedAudioData))
+				{
+					// Store in cache for use by audio thread
+					audioDataCache[handle] = cachedAudioData;
+					
+					// Set atomic pointer for lock-free access in audio thread callback
+					waveSource.m_CachedAudioData.store(cachedAudioData.get(), std::memory_order_release);
+					
+					OLO_CORE_TRACE("[SoundGraphSource] Preloaded audio data for handle {}: {} frames, {} channels, {} Hz", 
+						handle, cachedAudioData->m_NumFrames, cachedAudioData->m_NumChannels, cachedAudioData->m_SampleRate);
+				}
+				else
+				{
+					OLO_CORE_ERROR("[SoundGraphSource] Failed to preload audio file: {}", filePath.string());
+				}
+			}
+			else
+			{
+			OLO_CORE_ERROR("[SoundGraphSource] Audio file does not exist: {}", filePath.string());
+		}
 	}
-
-	void DataSourceContext::UninitializeWaveSource(AssetHandle handle)
+	
+	// Insert with try_emplace to construct WaveSource in-place (atomic member prevents move/copy)
+	auto [it, inserted] = m_WaveSources.try_emplace(handle);
+	if (inserted)
+	{
+		// Manually initialize the in-place constructed WaveSource
+		it->second.m_WaveHandle = waveSource.m_WaveHandle;
+		it->second.m_WaveName = waveSource.m_WaveName;
+		it->second.m_TotalFrames = waveSource.m_TotalFrames;
+		it->second.m_StartPosition = waveSource.m_StartPosition;
+		it->second.m_ReadPosition = waveSource.m_ReadPosition;
+		it->second.m_CachedAudioData.store(waveSource.m_CachedAudioData.load(std::memory_order_acquire), std::memory_order_release);
+	}
+	
+	return true;
+}	void DataSourceContext::UninitializeWaveSource(AssetHandle handle)
 	{
 		auto it = m_WaveSources.find(handle);
 		if (it != m_WaveSources.end())
@@ -88,8 +143,13 @@ namespace OloEngine::Audio::SoundGraph
 		u64 maxFrames = 0;
 		for (const auto& [handle, source] : m_DataSources.m_WaveSources)
 		{
-			if (source.m_TotalFrames > static_cast<i64>(maxFrames))
-				maxFrames = static_cast<u64>(source.m_TotalFrames);
+			// Only consider non-negative frame counts to avoid signed/unsigned comparison issues
+			if (source.m_TotalFrames > 0)
+			{
+				const u64 totalFramesU64 = static_cast<u64>(source.m_TotalFrames);
+				if (totalFramesU64 > maxFrames)
+					maxFrames = totalFramesU64;
+			}
 		}
 		return maxFrames;
 	}
@@ -107,6 +167,8 @@ namespace OloEngine::Audio::SoundGraph
 
 	bool SoundGraphSource::Initialize(ma_engine* engine, u32 sampleRate, u32 maxBlockSize)
 	{
+		OLO_PROFILE_FUNCTION();
+		
 		if (m_IsInitialized)
 		{
 			OLO_CORE_WARN("[SoundGraphSource] Already initialized");
@@ -162,6 +224,8 @@ namespace OloEngine::Audio::SoundGraph
 
 	void SoundGraphSource::Shutdown()
 	{
+		OLO_PROFILE_FUNCTION();
+		
 		if (!m_IsInitialized)
 			return;
 
@@ -198,6 +262,8 @@ namespace OloEngine::Audio::SoundGraph
 
 	void SoundGraphSource::SuspendProcessing(bool shouldBeSuspended)
 	{
+		OLO_PROFILE_FUNCTION();
+		
 		if (shouldBeSuspended)
 		{
 			m_SuspendFlag.SetDirty();
@@ -222,8 +288,20 @@ namespace OloEngine::Audio::SoundGraph
 		}
 	}
 
+	bool SoundGraphSource::IsFinished() const noexcept
+	{
+		return m_IsFinished.load(std::memory_order_relaxed) && !m_IsPlaying.load(std::memory_order_relaxed);
+	}
+
+	bool SoundGraphSource::IsPlaying() const
+	{
+		return m_IsPlaying.load(std::memory_order_relaxed) && !IsSuspended();
+	}
+
 	void SoundGraphSource::Update(f64 deltaTime)
 	{
+		OLO_PROFILE_FUNCTION();
+		
 		(void)deltaTime;
 		// Process events from the audio thread
 		Audio::AudioThreadEvent event;
@@ -262,11 +340,13 @@ namespace OloEngine::Audio::SoundGraph
 
 	bool SoundGraphSource::InitializeDataSources(const std::vector<AssetHandle>& dataSources)
 	{
+		OLO_PROFILE_FUNCTION();
+		
 		bool success = true;
 
 		for (AssetHandle handle : dataSources)
 		{
-			if (!m_DataSources.InitializeWaveSource(handle))
+			if (!m_DataSources.InitializeWaveSource(handle, m_CachedAudioDataMap))
 			{
 				OLO_CORE_ERROR("[SoundGraphSource] Failed to initialize data source: {0}", handle);
 				success = false;
@@ -337,10 +417,10 @@ namespace OloEngine::Audio::SoundGraph
 		if (m_Graph)
 		{
 			// This would need to be adapted to OloEngine's parameter system
-			// return m_Graph->SetParameterValue(it->second.Handle, value);
+			// return m_Graph->SetParameterValue(it->second.m_Handle, value);
 			
 			// Placeholder - needs integration with sound graph parameter system
-			OLO_CORE_TRACE("[SoundGraphSource] Setting parameter {0} to value", it->second.Name);
+			OLO_CORE_TRACE("[SoundGraphSource] Setting parameter {0} to value", it->second.m_Name);
 			return true;
 		}
 
@@ -349,6 +429,8 @@ namespace OloEngine::Audio::SoundGraph
 
 	bool SoundGraphSource::ApplyParameterPreset(const SoundGraphPatchPreset& preset)
 	{
+		OLO_PROFILE_FUNCTION();
+
 		if (!m_Graph)
 		{
 			OLO_CORE_ERROR("[SoundGraphSource] No sound graph loaded");
@@ -368,16 +450,22 @@ namespace OloEngine::Audio::SoundGraph
 
 	int SoundGraphSource::GetNumDataSources() const
 	{
+		OLO_PROFILE_FUNCTION();
+		
 		return m_DataSources.GetSourceCount();
 	}
 
 	bool SoundGraphSource::AreAllDataSourcesAtEnd()
 	{
+		OLO_PROFILE_FUNCTION();
+		
 		return m_DataSources.AreAllSourcesAtEnd();
 	}
 
 	bool SoundGraphSource::SendPlayEvent()
 	{
+		OLO_PROFILE_FUNCTION();
+		
 		if (!m_Graph)
 			return false;
 
@@ -390,6 +478,8 @@ namespace OloEngine::Audio::SoundGraph
 
 	void SoundGraphSource::UpdateParameterSet()
 	{
+		OLO_PROFILE_FUNCTION();
+		
 		if (!m_Graph)
 			return;
 
@@ -408,6 +498,8 @@ namespace OloEngine::Audio::SoundGraph
 
 	bool SoundGraphSource::ApplyParameterPresetInternal()
 	{
+		OLO_PROFILE_FUNCTION();
+		
 		if (!m_Graph)
 			return false;
 
@@ -416,6 +508,7 @@ namespace OloEngine::Audio::SoundGraph
 		// 1. Get the preset from the thread-safe container
 		// 2. Apply each parameter to the sound graph
 		// 3. Track which parameters were successfully set
+		// TODO(implement preset application)
 
 		// Placeholder - just mark as initialized
 		return true;
@@ -423,8 +516,21 @@ namespace OloEngine::Audio::SoundGraph
 
 	void SoundGraphSource::UpdateChangedParameters()
 	{
+		// TODO(implement parameter change detection)
 		// Handle any parameter changes that occurred since last audio block
 		// This would integrate with OloEngine's parameter change detection system
+	}
+
+	void SoundGraphSource::SilenceOutputBuffers(float** ppFramesOut, u32 frameCount)
+	{
+		// Silence each channel independently for planar buffers
+		for (u32 channel = 0; channel < 2; ++channel)
+		{
+			if (ppFramesOut[channel])
+			{
+				ma_silence_pcm_frames(ppFramesOut[channel], frameCount, ma_format_f32, 1);
+			}
+		}
 	}
 
 	//==============================================================================
@@ -443,14 +549,7 @@ namespace OloEngine::Audio::SoundGraph
 
 		if (!m_Graph || IsSuspended())
 		{
-			// Silence each channel independently for planar buffers
-			for (u32 channel = 0; channel < 2; ++channel)
-			{
-				if (ppFramesOut[channel])
-				{
-					ma_silence_pcm_frames(ppFramesOut[channel], frameCount, ma_format_f32, 1);
-				}
-			}
+			SilenceOutputBuffers(ppFramesOut, frameCount);
 			return;
 		}
 
@@ -464,14 +563,7 @@ namespace OloEngine::Audio::SoundGraph
 			else
 			{
 				// If preset application failed, output silence
-				// Silence each channel independently for planar buffers
-				for (u32 channel = 0; channel < 2; ++channel)
-				{
-					if (ppFramesOut[channel])
-					{
-						ma_silence_pcm_frames(ppFramesOut[channel], frameCount, ma_format_f32, 1);
-					}
-				}
+				SilenceOutputBuffers(ppFramesOut, frameCount);
 				return;
 			}
 		}
@@ -501,10 +593,10 @@ namespace OloEngine::Audio::SoundGraph
 				m_Graph->Process();
 
 				// Copy output channels to the output buffer
-				u32 outputChannels = std::min(2u, (u32)m_Graph->out_Channels.size());
+				u32 outputChannels = std::min(2u, (u32)m_Graph->m_OutChannels.size());
 				for (u32 channel = 0; channel < outputChannels; ++channel)
 				{
-					ppFramesOut[channel][frame] = m_Graph->out_Channels[channel];
+					ppFramesOut[channel][frame] = m_Graph->m_OutChannels[channel];
 				}
 
 				// Handle mono to stereo conversion if needed
@@ -528,14 +620,7 @@ namespace OloEngine::Audio::SoundGraph
 		}
 		else
 		{
-			// Silence each channel independently for planar buffers
-			for (u32 channel = 0; channel < 2; ++channel)
-			{
-				if (ppFramesOut[channel])
-				{
-					ma_silence_pcm_frames(ppFramesOut[channel], frameCount, ma_format_f32, 1);
-				}
-			}
+			SilenceOutputBuffers(ppFramesOut, frameCount);
 		}
 	}
 
@@ -594,6 +679,8 @@ namespace OloEngine::Audio::SoundGraph
 
 	bool SoundGraphSource::RefillWaveSourceCallback(Audio::WaveSource& waveSource, void* userData)
 	{
+		OLO_PROFILE_FUNCTION();
+		
 		auto* source = static_cast<SoundGraphSource*>(userData);
 		if (!source)
 			return false;
@@ -601,29 +688,25 @@ namespace OloEngine::Audio::SoundGraph
 		if (waveSource.m_WaveHandle == 0)
 			return false;
 
-		// Get the audio asset metadata
-		AssetMetadata metadata = AssetManager::GetAssetMetadata(waveSource.m_WaveHandle);
-		if (!metadata.IsValid())
+		// Load cached audio data pointer atomically (lock-free, realtime-safe)
+		// This pointer was set during initialization on the main thread
+		const Audio::AudioData* audioData = waveSource.m_CachedAudioData.load(std::memory_order_acquire);
+		
+		// Handle missing or invalid cached data gracefully
+		if (!audioData || !audioData->IsValid())
 		{
-			OLO_CORE_ERROR("[SoundGraphSource] Invalid asset metadata for handle: {}", waveSource.m_WaveHandle);
-			return false;
-		}
-
-		// Build the full file path
-		std::filesystem::path filePath = Project::GetAssetDirectory() / metadata.FilePath;
-		if (!std::filesystem::exists(filePath))
-		{
-			OLO_CORE_ERROR("[SoundGraphSource] Audio file does not exist: {}", filePath.string());
-			return false;
-		}
-
-		// Load audio data from file
-		// Note: This loads the entire file which is not ideal for large files
-		// A production implementation would use streaming decoders or a cache
-		AudioData audioData;
-		if (!AudioLoader::LoadAudioFile(filePath, audioData))
-		{
-			OLO_CORE_ERROR("[SoundGraphSource] Failed to load audio file: {}", filePath.string());
+			// Audio data not preloaded or corrupted - this is a critical error but don't block
+			// Log once per wave source to avoid spam (could track with a flag if needed)
+			static std::unordered_set<u64> s_LoggedMissingData;
+			if (s_LoggedMissingData.find(waveSource.m_WaveHandle) == s_LoggedMissingData.end())
+			{
+				OLO_CORE_ERROR("[SoundGraphSource] No preloaded audio data for handle: {} - Audio will underrun", 
+					waveSource.m_WaveHandle);
+				s_LoggedMissingData.insert(waveSource.m_WaveHandle);
+			}
+			
+			// Return false to signal underflow - gracefully handle by not pushing data
+			// This prevents audio glitches from blocking operations
 			return false;
 		}
 
@@ -638,19 +721,39 @@ namespace OloEngine::Audio::SoundGraph
 		const i64 framesToPush = std::min(static_cast<i64>(bufferFrameCapacity), remainingFrames);
 
 		// Validate we don't exceed the audio data bounds
-		if (waveSource.m_ReadPosition + framesToPush > static_cast<i64>(audioData.m_NumFrames))
+		if (waveSource.m_ReadPosition + framesToPush > static_cast<i64>(audioData->m_NumFrames))
 		{
-			OLO_CORE_ERROR("[SoundGraphSource] Read position out of bounds");
-			return false;
+			// Read position out of bounds - this should not happen if TotalFrames was set correctly
+			// Handle gracefully by clamping instead of erroring
+			const i64 validFrames = static_cast<i64>(audioData->m_NumFrames) - waveSource.m_ReadPosition;
+			if (validFrames <= 0)
+				return false; // No valid frames to read
+			
+			// Clamp to valid range
+			const i64 clampedFramesToPush = std::min(framesToPush, validFrames);
+			
+			// Copy samples from cached audio data into the circular buffer
+			// Audio data is interleaved (L,R,L,R...), same as the circular buffer expects
+			const i64 startSampleIndex = waveSource.m_ReadPosition * audioData->m_NumChannels;
+			const i64 numSamplesToPush = clampedFramesToPush * audioData->m_NumChannels;
+
+			// Push samples into the circular buffer (lock-free operation)
+			waveSource.m_Channels.PushMultiple(&audioData->m_Samples[startSampleIndex], static_cast<int>(numSamplesToPush));
+
+			// Update read position
+			waveSource.m_ReadPosition += clampedFramesToPush;
+			
+			return true;
 		}
 
-		// Copy samples from audio data into the circular buffer
+		// Copy samples from cached audio data into the circular buffer
 		// Audio data is interleaved (L,R,L,R...), same as the circular buffer expects
-		const i64 startSampleIndex = waveSource.m_ReadPosition * audioData.m_NumChannels;
-		const i64 numSamplesToPush = framesToPush * audioData.m_NumChannels;
+		const i64 startSampleIndex = waveSource.m_ReadPosition * audioData->m_NumChannels;
+		const i64 numSamplesToPush = framesToPush * audioData->m_NumChannels;
 
-		// Push samples into the circular buffer
-		waveSource.m_Channels.PushMultiple(&audioData.m_Samples[startSampleIndex], static_cast<int>(numSamplesToPush));
+		// Push samples into the circular buffer (lock-free operation)
+		// No blocking, no allocations, no file I/O - fully realtime-safe
+		waveSource.m_Channels.PushMultiple(&audioData->m_Samples[startSampleIndex], static_cast<int>(numSamplesToPush));
 
 		// Update read position
 		waveSource.m_ReadPosition += framesToPush;

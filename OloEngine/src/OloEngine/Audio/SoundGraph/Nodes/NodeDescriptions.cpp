@@ -397,27 +397,27 @@ DESCRIBE_NODE(WavePlayer,
 
     DESCRIBE_NODE(NoteToFrequency<float>,
         NODE_INPUTS(
-            &NoteToFrequency<float>::m_InMIDINote
+            &NoteToFrequency<float>::in_MIDINote
         ),
         NODE_OUTPUTS(
-            &NoteToFrequency<float>::m_OutFrequency
+            &NoteToFrequency<float>::out_Frequency
         )
     );
 
     DESCRIBE_NODE(NoteToFrequency<int>,
         NODE_INPUTS(
-            &NoteToFrequency<int>::m_InMIDINote
+            &NoteToFrequency<int>::in_MIDINote
         ),
         NODE_OUTPUTS(
-            &NoteToFrequency<int>::m_OutFrequency
+            &NoteToFrequency<int>::out_Frequency
         )
     );
 
     DESCRIBE_NODE(FrequencyToNote,
         NODE_INPUTS(
-            &FrequencyToNote::m_InFrequency
+            &FrequencyToNote::in_Frequency
         ),
         NODE_OUTPUTS(
-            &FrequencyToNote::m_OutMIDINote
+            &FrequencyToNote::out_MIDINote
         )
     );

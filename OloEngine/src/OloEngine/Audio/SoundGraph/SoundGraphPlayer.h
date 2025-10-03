@@ -69,7 +69,11 @@ namespace OloEngine::Audio::SoundGraph
         /// Global Controls
 
         void SetMasterVolume(f32 volume);
-        f32 GetMasterVolume() const { return m_MasterVolume; }
+        f32 GetMasterVolume() const 
+        { 
+            std::lock_guard<std::mutex> lock(m_Mutex);
+            return m_MasterVolume; 
+        }
 
         void Update(f64 deltaTime);
 

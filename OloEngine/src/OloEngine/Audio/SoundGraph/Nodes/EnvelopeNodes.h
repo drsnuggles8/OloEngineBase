@@ -26,7 +26,7 @@ namespace OloEngine::Audio::SoundGraph
 		explicit ADEnvelope(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
 		{
 			// Input events
-			AddInEvent(IDs::Trigger, [this](float v) { m_TriggerFlag.SetDirty(); });
+			AddInEvent(IDs::Trigger, [this](float v) { (void)v; m_TriggerFlag.SetDirty(); });
 
 			RegisterEndpoints();
 		}
@@ -46,6 +46,8 @@ namespace OloEngine::Audio::SoundGraph
 
 		void Process() final
 		{
+			OLO_PROFILE_FUNCTION();
+
 			// Check for parameter changes and recalculate rates if needed
 			if (*in_AttackTime != m_CachedAttackTime ||
 				*in_DecayTime != m_CachedDecayTime ||
@@ -88,14 +90,14 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 		// Input parameters
-		float* in_AttackTime = nullptr;		// Attack time in seconds
-		float* in_DecayTime = nullptr;		// Decay time in seconds
-		float* in_AttackCurve = nullptr;	// Attack curve shaping (1.0 = linear, >1 = convex, <1 = concave)
-		float* in_DecayCurve = nullptr;		// Decay curve shaping
+		f32* in_AttackTime = nullptr;		// Attack time in seconds
+		f32* in_DecayTime = nullptr;		// Decay time in seconds
+		f32* in_AttackCurve = nullptr;	// Attack curve shaping (1.0 = linear, >1 = convex, <1 = concave)
+		f32* in_DecayCurve = nullptr;		// Decay curve shaping
 		bool* in_Looping = nullptr;			// Enable looping (retrigger after decay)
 
 		// Outputs
-		float out_OutEnvelope{ 0.0f };
+		f32 out_OutEnvelope{ 0.0f };
 
 		// Output events
 		OutputEvent out_OnTrigger{ *this };
@@ -113,18 +115,18 @@ namespace OloEngine::Audio::SoundGraph
 		};
 
 		State m_State{ Idle };
-		float m_Value{ 0.0f };
-		float m_Target{ 0.0f };
+		f32 m_Value{ 0.0f };
+		f32 m_Target{ 0.0f };
 
 		// Pre-calculated rates
-		float m_AttackRate{ 0.001f };
-		float m_DecayRate{ 0.001f };
-		float m_AttackCurve{ 1.0f };
-		float m_DecayCurve{ 1.0f };
+		f32 m_AttackRate{ 0.001f };
+		f32 m_DecayRate{ 0.001f };
+		f32 m_AttackCurve{ 1.0f };
+		f32 m_DecayCurve{ 1.0f };
 
 		// Normalized progress tracking (0..1)
-		float m_AttackProgress{ 0.0f };
-		float m_DecayProgress{ 0.0f };
+		f32 m_AttackProgress{ 0.0f };
+		f32 m_DecayProgress{ 0.0f };
 
 		Flag m_TriggerFlag;
 
@@ -168,7 +170,7 @@ namespace OloEngine::Audio::SoundGraph
 			m_AttackProgress = glm::clamp(m_AttackProgress, 0.0f, 1.0f);
 			
 			// Apply curve to normalized progress (curve>1 = convex/slow-start, curve<1 = concave/fast-start)
-			float curvedProgress = glm::pow(m_AttackProgress, m_AttackCurve);
+			f32 curvedProgress = glm::pow(m_AttackProgress, m_AttackCurve);
 			
 			// Interpolate using curved progress
 			m_Value = curvedProgress; // Attack goes from 0 to 1
@@ -190,7 +192,7 @@ namespace OloEngine::Audio::SoundGraph
 			m_DecayProgress = glm::clamp(m_DecayProgress, 0.0f, 1.0f);
 			
 			// Apply curve to normalized progress (curve>1 = convex/slow-start, curve<1 = concave/fast-start)
-			float curvedProgress = glm::pow(m_DecayProgress, m_DecayCurve);
+			f32 curvedProgress = glm::pow(m_DecayProgress, m_DecayCurve);
 			
 			// Interpolate using curved progress (decay goes from 1 to 0)
 			m_Value = 1.0f - curvedProgress;
@@ -248,6 +250,8 @@ namespace OloEngine::Audio::SoundGraph
 
 		void Process() final
 		{
+			OLO_PROFILE_FUNCTION();
+			
 			// Check for parameter changes and recalculate rates if needed
 			if (*in_AttackTime != m_CachedAttackTime ||
 				*in_DecayTime != m_CachedDecayTime ||
@@ -309,16 +313,16 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 		// Input parameters
-		float* in_AttackTime = nullptr;		// Attack time in seconds
-		float* in_DecayTime = nullptr;		// Decay time in seconds
-		float* in_SustainLevel = nullptr;	// Sustain level (0.0 to 1.0)
-		float* in_ReleaseTime = nullptr;	// Release time in seconds
-		float* in_AttackCurve = nullptr;	// Attack curve shaping
-		float* in_DecayCurve = nullptr;		// Decay curve shaping
-		float* in_ReleaseCurve = nullptr;	// Release curve shaping
+		f32* in_AttackTime = nullptr;		// Attack time in seconds
+		f32* in_DecayTime = nullptr;		// Decay time in seconds
+		f32* in_SustainLevel = nullptr;	// Sustain level (0.0 to 1.0)
+		f32* in_ReleaseTime = nullptr;	// Release time in seconds
+		f32* in_AttackCurve = nullptr;	// Attack curve shaping
+		f32* in_DecayCurve = nullptr;		// Decay curve shaping
+		f32* in_ReleaseCurve = nullptr;	// Release curve shaping
 
 		// Outputs
-		float out_OutEnvelope{ 0.0f };
+		f32 out_OutEnvelope{ 0.0f };
 
 		// Output events
 		OutputEvent out_OnTrigger{ *this };
@@ -339,22 +343,22 @@ namespace OloEngine::Audio::SoundGraph
 		};
 
 		State m_State{ Idle };
-		float m_Value{ 0.0f };
-		float m_Target{ 0.0f };
-		float m_SustainStartValue{ 0.0f }; // Value when release started
+		f32 m_Value{ 0.0f };
+		f32 m_Target{ 0.0f };
+		f32 m_SustainStartValue{ 0.0f }; // Value when release started
 
 		// Pre-calculated rates
-		float m_AttackRate{ 0.001f };
-		float m_DecayRate{ 0.001f };
-		float m_ReleaseRate{ 0.001f };
-		float m_AttackCurve{ 1.0f };
-		float m_DecayCurve{ 1.0f };
-		float m_ReleaseCurve{ 1.0f };
+		f32 m_AttackRate{ 0.001f };
+		f32 m_DecayRate{ 0.001f };
+		f32 m_ReleaseRate{ 0.001f };
+		f32 m_AttackCurve{ 1.0f };
+		f32 m_DecayCurve{ 1.0f };
+		f32 m_ReleaseCurve{ 1.0f };
 
 		// Normalized progress tracking (0..1)
-		float m_AttackProgress{ 0.0f };
-		float m_DecayProgress{ 0.0f };
-		float m_ReleaseProgress{ 0.0f };
+		f32 m_AttackProgress{ 0.0f };
+		f32 m_DecayProgress{ 0.0f };
+		f32 m_ReleaseProgress{ 0.0f };
 
 		Flag m_TriggerFlag;
 		Flag m_ReleaseFlag;
@@ -418,7 +422,7 @@ namespace OloEngine::Audio::SoundGraph
 			m_AttackProgress = glm::clamp(m_AttackProgress, 0.0f, 1.0f);
 			
 			// Apply curve to normalized progress (curve>1 = convex/slow-start, curve<1 = concave/fast-start)
-			float curvedProgress = glm::pow(m_AttackProgress, m_AttackCurve);
+			f32 curvedProgress = glm::pow(m_AttackProgress, m_AttackCurve);
 			
 			// Interpolate using curved progress (attack goes from 0 to 1)
 			m_Value = curvedProgress;
@@ -440,10 +444,10 @@ namespace OloEngine::Audio::SoundGraph
 			m_DecayProgress = glm::clamp(m_DecayProgress, 0.0f, 1.0f);
 			
 			// Apply curve to normalized progress (curve>1 = convex/slow-start, curve<1 = concave/fast-start)
-			float curvedProgress = glm::pow(m_DecayProgress, m_DecayCurve);
+			f32 curvedProgress = glm::pow(m_DecayProgress, m_DecayCurve);
 			
 			// Interpolate using curved progress (decay from 1.0 to sustain level)
-			float sustainLevel = glm::clamp(*in_SustainLevel, 0.0f, 1.0f);
+			f32 sustainLevel = glm::clamp(*in_SustainLevel, 0.0f, 1.0f);
 			m_Value = 1.0f - curvedProgress * (1.0f - sustainLevel);
 
 			// Check if decay is complete
@@ -461,7 +465,7 @@ namespace OloEngine::Audio::SoundGraph
 			m_ReleaseProgress = glm::clamp(m_ReleaseProgress, 0.0f, 1.0f);
 			
 			// Apply curve to normalized progress (curve>1 = convex/slow-start, curve<1 = concave/fast-start)
-			float curvedProgress = glm::pow(m_ReleaseProgress, m_ReleaseCurve);
+			f32 curvedProgress = glm::pow(m_ReleaseProgress, m_ReleaseCurve);
 			
 			// Interpolate using curved progress (release from sustain level to 0)
 			m_Value = m_SustainStartValue * (1.0f - curvedProgress);

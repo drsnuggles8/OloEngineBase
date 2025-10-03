@@ -98,7 +98,7 @@ namespace OloEngine
 		u16 GetUInt16() noexcept 
 		{
 			OLO_PROFILE_FUNCTION();
-			return static_cast<u16>(GetInt16() & 0xFFFF); 
+			return static_cast<u16>(GetInt16());
 		}
 
 	//==============================================================================

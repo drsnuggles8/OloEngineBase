@@ -1,9 +1,12 @@
 #include "OloEnginePCH.h"
 #include "CompilerCache.h"
+#include "OloEngine/Project/Project.h"
 
 #include <filesystem>
 #include <fstream>
 #include <algorithm>
+#include <sstream>
+#include <iomanip>
 
 namespace OloEngine::Audio::SoundGraph
 {
@@ -143,15 +146,28 @@ namespace OloEngine::Audio::SoundGraph
         // Check if we need to evict old entries
         if (m_CompiledResults.size() >= m_MaxCacheSize)
         {
-            // Simple eviction: remove oldest entry
-            auto oldestIt = std::min_element(m_CompiledResults.begin(), m_CompiledResults.end(),
-                [](const auto& a, const auto& b) {
-                    return a.second && b.second && a.second->m_CompilationTime < b.second->m_CompilationTime;
-                });
+            // First, remove any nullptr entries to prevent invalid comparisons
+            std::erase_if(m_CompiledResults, [](const auto& entry) {
+                return entry.second == nullptr;
+            });
             
-            if (oldestIt != m_CompiledResults.end())
+            // If we still need to evict after removing nullptrs, remove the oldest valid entry
+            if (m_CompiledResults.size() >= m_MaxCacheSize)
             {
-                m_CompiledResults.erase(oldestIt);
+                auto oldestIt = std::min_element(m_CompiledResults.begin(), m_CompiledResults.end(),
+                    [](const auto& a, const auto& b) {
+                        // Both should be non-null after filtering, but double-check for safety
+                        if (!a.second) return false; // a is invalid, b is "less" (comes first)
+                        if (!b.second) return true;  // b is invalid, a is "less" (comes first)
+                        return a.second->m_CompilationTime < b.second->m_CompilationTime;
+                    });
+                
+                if (oldestIt != m_CompiledResults.end())
+                {
+                    OLO_CORE_TRACE("CompilerCache: Evicting oldest entry (source: '{}', compiler: '{}')", 
+                                   oldestIt->second->m_SourcePath, oldestIt->second->m_CompilerVersion);
+                    m_CompiledResults.erase(oldestIt);
+                }
             }
         }
 
@@ -202,28 +218,94 @@ namespace OloEngine::Audio::SoundGraph
 		}
 	}
     
-    void CompilerCache::ClearCache()
+    void CompilerCache::ClearCache(bool force)
     {
         OLO_PROFILE_FUNCTION();
         
         std::lock_guard<std::mutex> lock(m_Mutex);
         
+        // Always clear in-memory cache
         m_CompiledResults.clear();
         m_HitCount = 0;
         m_MissCount = 0;
         
-        // Clear disk cache
+        OLO_CORE_INFO("CompilerCache: Cleared in-memory cache (hit count: 0, miss count: 0)");
+        
+        // Handle disk cache deletion if forced
+        if (!force)
+        {
+            OLO_CORE_INFO("CompilerCache: Disk cache preserved (use ClearCache(true) to delete disk files)");
+            return;
+        }
+        
+        // DESTRUCTIVE OPERATION: Delete disk cache
         try
         {
-            if (std::filesystem::exists(m_CacheDirectory))
+            if (!std::filesystem::exists(m_CacheDirectory))
             {
-                std::filesystem::remove_all(m_CacheDirectory);
-                CreateCacheDirectory();
+                OLO_CORE_INFO("CompilerCache: Cache directory '{}' does not exist, nothing to clear", m_CacheDirectory);
+                return;
             }
+            
+            // Create backup directory path with timestamp
+            auto now = std::chrono::system_clock::now();
+            auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
+            std::filesystem::path backupPath = std::filesystem::path(m_CacheDirectory).parent_path() / 
+                                               ("compiler_backup_" + std::to_string(timestamp));
+            
+            // Log prominent warning before destructive operation
+            OLO_CORE_WARN("CompilerCache: DESTRUCTIVE OPERATION - Deleting disk cache at '{}'", m_CacheDirectory);
+            OLO_CORE_WARN("CompilerCache: Creating backup at '{}' before deletion", backupPath.string());
+            
+            // Attempt to create backup before deletion
+            bool backupSuccess = false;
+            try
+            {
+                std::filesystem::copy(m_CacheDirectory, backupPath, 
+                    std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing);
+                backupSuccess = true;
+                OLO_CORE_INFO("CompilerCache: Backup created successfully at '{}'", backupPath.string());
+            }
+            catch (const std::filesystem::filesystem_error& backupEx)
+            {
+                OLO_CORE_ERROR("CompilerCache: Failed to create backup: {} - Proceeding with deletion anyway", backupEx.what());
+            }
+            
+            // Perform the destructive removal
+            std::error_code removeEc;
+            auto removedCount = std::filesystem::remove_all(m_CacheDirectory, removeEc);
+            
+            if (removeEc)
+            {
+                OLO_CORE_ERROR("CompilerCache: Failed to remove cache directory '{}': {} (error code: {})", 
+                    m_CacheDirectory, removeEc.message(), removeEc.value());
+                
+                if (backupSuccess)
+                {
+                    OLO_CORE_INFO("CompilerCache: Backup is available at '{}' for recovery", backupPath.string());
+                }
+                return;
+            }
+            
+            OLO_CORE_INFO("CompilerCache: Successfully deleted {} files/directories from '{}'", removedCount, m_CacheDirectory);
+            
+            if (backupSuccess)
+            {
+                OLO_CORE_INFO("CompilerCache: Backup preserved at '{}' (can be manually deleted if not needed)", backupPath.string());
+            }
+            
+            // Recreate empty cache directory
+            CreateCacheDirectory();
+            OLO_CORE_INFO("CompilerCache: Recreated empty cache directory at '{}'", m_CacheDirectory);
         }
         catch (const std::filesystem::filesystem_error& ex)
         {
-            OLO_CORE_ERROR("CompilerCache: Failed to clear disk cache: {}", ex.what());
+            OLO_CORE_ERROR("CompilerCache: Filesystem error during cache clearing: {} (path: '{}', error code: {})", 
+                ex.what(), ex.path1().string(), ex.code().value());
+        }
+        catch (const std::exception& ex)
+        {
+            OLO_CORE_ERROR("CompilerCache: Unexpected error during cache clearing: {}", ex.what());
         }
     }
 
@@ -237,7 +319,10 @@ namespace OloEngine::Audio::SoundGraph
     {
         std::string key = GenerateCacheKey(sourcePath, compilerVersion);
         sizet hash = HashString(key);
-        return m_CacheDirectory + "/" + std::to_string(hash) + ".compiled";
+        
+        // Use std::filesystem::path for cross-platform path concatenation
+        std::filesystem::path cachePath = std::filesystem::path(m_CacheDirectory) / (std::to_string(hash) + ".compiled");
+        return cachePath.string();
     }
 
     bool CompilerCache::LoadFromDisk()
@@ -266,6 +351,12 @@ namespace OloEngine::Audio::SoundGraph
                         m_CompiledResults[key] = std::make_shared<CompilationResult>(result);
                         ++loadedCount;
                     }
+                    else
+                    {
+                        // Log failed deserialization for debugging and auditing
+                        OLO_CORE_WARN("CompilerCache: Failed to deserialize compiled cache file: '{}' - file may be corrupted or incompatible", 
+                            entry.path().string());
+                    }
                 }
             }
             
@@ -290,6 +381,7 @@ namespace OloEngine::Audio::SoundGraph
             CreateCacheDirectory();
             
             sizet savedCount = 0;
+            sizet failedCount = 0;
             
             for (const auto& [key, resultPtr] : m_CompiledResults)
             {
@@ -300,10 +392,25 @@ namespace OloEngine::Audio::SoundGraph
                     {
                         ++savedCount;
                     }
+                    else
+                    {
+                        // Log detailed failure information for debugging
+                        OLO_CORE_WARN("CompilerCache: Failed to serialize cache entry to '{}' (source: '{}', compiler: '{}')",
+                            filePath, resultPtr->m_SourcePath, resultPtr->m_CompilerVersion);
+                        ++failedCount;
+                    }
                 }
             }
             
-            OLO_CORE_INFO("CompilerCache: Saved {} compiled results to disk", savedCount);
+            if (failedCount > 0)
+            {
+                OLO_CORE_INFO("CompilerCache: Saved {} compiled results to disk ({} failed)", savedCount, failedCount);
+            }
+            else
+            {
+                OLO_CORE_INFO("CompilerCache: Saved {} compiled results to disk", savedCount);
+            }
+            
             return true;
         }
         catch (const std::filesystem::filesystem_error& ex)
@@ -485,7 +592,23 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        return sourcePath + "|" + compilerVersion;
+        // Generate a deterministic hash-based cache key to avoid collisions from separator characters
+        // Uses hash_combine pattern to mix hashes of both inputs into a single deterministic value
+        std::hash<std::string> hasher;
+        
+        // Compute individual hashes
+        sizet h1 = hasher(sourcePath);
+        sizet h2 = hasher(compilerVersion);
+        
+        // Combine hashes using the hash_combine algorithm (similar to boost::hash_combine)
+        // This approach provides good distribution and is deterministic across runs
+        sizet combinedHash = h1;
+        combinedHash ^= h2 + 0x9e3779b9 + (combinedHash << 6) + (combinedHash >> 2);
+        
+        // Convert to hexadecimal string for filesystem-safe cache key
+        std::ostringstream oss;
+        oss << std::hex << std::setfill('0') << std::setw(sizeof(sizet) * 2) << combinedHash;
+        return oss.str();
     }
 
     sizet CompilerCache::HashString(const std::string& str) const
@@ -553,20 +676,59 @@ namespace OloEngine::Audio::SoundGraph
             if (!file.is_open())
                 return false;
 
+            // Platform-independent binary serialization helpers (little-endian byte order)
+            // All multi-byte numeric values are converted to little-endian before writing
+            auto write_u32 = [&file](u32 value) {
+                // Convert to little-endian byte order
+                u8 bytes[4];
+                bytes[0] = static_cast<u8>(value & 0xFF);
+                bytes[1] = static_cast<u8>((value >> 8) & 0xFF);
+                bytes[2] = static_cast<u8>((value >> 16) & 0xFF);
+                bytes[3] = static_cast<u8>((value >> 24) & 0xFF);
+                file.write(reinterpret_cast<const char*>(bytes), 4);
+            };
+
+            auto write_u64 = [&file](u64 value) {
+                // Convert to little-endian byte order
+                u8 bytes[8];
+                bytes[0] = static_cast<u8>(value & 0xFF);
+                bytes[1] = static_cast<u8>((value >> 8) & 0xFF);
+                bytes[2] = static_cast<u8>((value >> 16) & 0xFF);
+                bytes[3] = static_cast<u8>((value >> 24) & 0xFF);
+                bytes[4] = static_cast<u8>((value >> 32) & 0xFF);
+                bytes[5] = static_cast<u8>((value >> 40) & 0xFF);
+                bytes[6] = static_cast<u8>((value >> 48) & 0xFF);
+                bytes[7] = static_cast<u8>((value >> 56) & 0xFF);
+                file.write(reinterpret_cast<const char*>(bytes), 8);
+            };
+
+            auto write_f64 = [&file, &write_u64](f64 value) {
+                // Reinterpret double as u64 bit pattern, then write in little-endian
+                u64 bits;
+                std::memcpy(&bits, &value, sizeof(f64));
+                write_u64(bits);
+            };
+
+            auto write_bool = [&file](bool value) {
+                // Write boolean as single byte (platform-independent)
+                u8 byte = value ? 1 : 0;
+                file.write(reinterpret_cast<const char*>(&byte), 1);
+            };
+
             // Write magic header and format version for future compatibility
             // Magic: "OLCC" (OloEngine Compiler Cache) - 4 bytes
-            // Version: 1 (u32) - Current format version
+            // Version: 2 (u32) - Current format version (bumped from 1 for little-endian format)
             // Increment version when fields are added/reordered for backward/forward compatibility
             const char magic[4] = {'O', 'L', 'C', 'C'};
-            const u32 formatVersion = 1;
+            const u32 formatVersion = 2;
             
             file.write(magic, sizeof(magic));
-            file.write(reinterpret_cast<const char*>(&formatVersion), sizeof(formatVersion));
+            write_u32(formatVersion);
 
-            // Simple binary serialization (in production, use a proper serialization library)
-            auto writeString = [&file](const std::string& str) {
+            // Platform-independent string writer using little-endian length
+            auto writeString = [&file, &write_u32](const std::string& str) {
                 u32 length = static_cast<u32>(str.size());
-                file.write(reinterpret_cast<const char*>(&length), sizeof(length));
+                write_u32(length);
                 file.write(str.c_str(), length);
             };
 
@@ -574,21 +736,22 @@ namespace OloEngine::Audio::SoundGraph
             writeString(result.m_CompiledPath);
             
             u32 dataSize = static_cast<u32>(result.m_CompiledData.size());
-            file.write(reinterpret_cast<const char*>(&dataSize), sizeof(dataSize));
+            write_u32(dataSize);
             file.write(reinterpret_cast<const char*>(result.m_CompiledData.data()), dataSize);
             
-            file.write(reinterpret_cast<const char*>(&result.m_SourceHash), sizeof(result.m_SourceHash));
+            write_u64(result.m_SourceHash);
             
-            auto timePoint = result.m_CompilationTime.time_since_epoch().count();
-            file.write(reinterpret_cast<const char*>(&timePoint), sizeof(timePoint));
+            // Convert time_point to fixed-size u64 before writing
+            u64 timePoint = static_cast<u64>(result.m_CompilationTime.time_since_epoch().count());
+            write_u64(timePoint);
             
             writeString(result.m_CompilerVersion);
             writeString(result.m_ErrorMessage);
             
-            file.write(reinterpret_cast<const char*>(&result.m_IsValid), sizeof(result.m_IsValid));
-            file.write(reinterpret_cast<const char*>(&result.m_CompilationTimeMs), sizeof(result.m_CompilationTimeMs));
-            file.write(reinterpret_cast<const char*>(&result.m_SourceSizeBytes), sizeof(result.m_SourceSizeBytes));
-            file.write(reinterpret_cast<const char*>(&result.m_CompiledSizeBytes), sizeof(result.m_CompiledSizeBytes));
+            write_bool(result.m_IsValid);
+            write_f64(result.m_CompilationTimeMs);
+            write_u64(result.m_SourceSizeBytes);
+            write_u64(result.m_CompiledSizeBytes);
 
             return true;
         }
@@ -609,6 +772,45 @@ namespace OloEngine::Audio::SoundGraph
             if (!file.is_open())
                 return false;
 
+            // Platform-independent binary deserialization helpers (little-endian byte order)
+            auto read_u32 = [&file]() -> u32 {
+                u8 bytes[4];
+                file.read(reinterpret_cast<char*>(bytes), 4);
+                // Convert from little-endian to native byte order
+                return static_cast<u32>(bytes[0]) |
+                       (static_cast<u32>(bytes[1]) << 8) |
+                       (static_cast<u32>(bytes[2]) << 16) |
+                       (static_cast<u32>(bytes[3]) << 24);
+            };
+
+            auto read_u64 = [&file]() -> u64 {
+                u8 bytes[8];
+                file.read(reinterpret_cast<char*>(bytes), 8);
+                // Convert from little-endian to native byte order
+                return static_cast<u64>(bytes[0]) |
+                       (static_cast<u64>(bytes[1]) << 8) |
+                       (static_cast<u64>(bytes[2]) << 16) |
+                       (static_cast<u64>(bytes[3]) << 24) |
+                       (static_cast<u64>(bytes[4]) << 32) |
+                       (static_cast<u64>(bytes[5]) << 40) |
+                       (static_cast<u64>(bytes[6]) << 48) |
+                       (static_cast<u64>(bytes[7]) << 56);
+            };
+
+            auto read_f64 = [&file, &read_u64]() -> f64 {
+                // Read u64 bit pattern in little-endian, then reinterpret as double
+                u64 bits = read_u64();
+                f64 value;
+                std::memcpy(&value, &bits, sizeof(f64));
+                return value;
+            };
+
+            auto read_bool = [&file]() -> bool {
+                u8 byte;
+                file.read(reinterpret_cast<char*>(&byte), 1);
+                return byte != 0;
+            };
+
             // Validate magic header and format version
             char magic[4];
             file.read(magic, sizeof(magic));
@@ -620,9 +822,9 @@ namespace OloEngine::Audio::SoundGraph
             
             u32 formatVersion;
             file.read(reinterpret_cast<char*>(&formatVersion), sizeof(formatVersion));
-            if (formatVersion > 1) // Current supported version is 1
+            if (formatVersion > 2) // Current supported version is 2
             {
-                OLO_CORE_WARN("CompilerCache: Unsupported format version {} in cache file '{}' (expected <= 1)", formatVersion, filePath);
+                OLO_CORE_WARN("CompilerCache: Unsupported format version {} in cache file '{}' (expected <= 2)", formatVersion, filePath);
                 return false;
             }
             if (formatVersion < 1) // Minimum supported version is 1
@@ -631,9 +833,19 @@ namespace OloEngine::Audio::SoundGraph
                 return false;
             }
 
-            auto readString = [&file]() -> std::string {
+            // Platform-independent string reader using little-endian length
+            auto readString = [&file, &read_u32, formatVersion]() -> std::string {
                 u32 length;
-                file.read(reinterpret_cast<char*>(&length), sizeof(length));
+                if (formatVersion == 1)
+                {
+                    // Old format: read platform-dependent length
+                    file.read(reinterpret_cast<char*>(&length), sizeof(length));
+                }
+                else
+                {
+                    // New format (v2+): read little-endian length
+                    length = read_u32();
+                }
                 std::string str(length, '\0');
                 file.read(&str[0], length);
                 return str;
@@ -643,23 +855,52 @@ namespace OloEngine::Audio::SoundGraph
             result.m_CompiledPath = readString();
             
             u32 dataSize;
-            file.read(reinterpret_cast<char*>(&dataSize), sizeof(dataSize));
+            if (formatVersion == 1)
+            {
+                file.read(reinterpret_cast<char*>(&dataSize), sizeof(dataSize));
+            }
+            else
+            {
+                dataSize = read_u32();
+            }
             result.m_CompiledData.resize(dataSize);
             file.read(reinterpret_cast<char*>(result.m_CompiledData.data()), dataSize);
             
-            file.read(reinterpret_cast<char*>(&result.m_SourceHash), sizeof(result.m_SourceHash));
-            
-            decltype(result.m_CompilationTime.time_since_epoch().count()) timePoint;
-            file.read(reinterpret_cast<char*>(&timePoint), sizeof(timePoint));
-            result.m_CompilationTime = std::chrono::system_clock::time_point(std::chrono::system_clock::duration(timePoint));
-            
-            result.m_CompilerVersion = readString();
-            result.m_ErrorMessage = readString();
-            
-            file.read(reinterpret_cast<char*>(&result.m_IsValid), sizeof(result.m_IsValid));
-            file.read(reinterpret_cast<char*>(&result.m_CompilationTimeMs), sizeof(result.m_CompilationTimeMs));
-            file.read(reinterpret_cast<char*>(&result.m_SourceSizeBytes), sizeof(result.m_SourceSizeBytes));
-            file.read(reinterpret_cast<char*>(&result.m_CompiledSizeBytes), sizeof(result.m_CompiledSizeBytes));
+            if (formatVersion == 1)
+            {
+                // Old format: platform-dependent reads
+                file.read(reinterpret_cast<char*>(&result.m_SourceHash), sizeof(result.m_SourceHash));
+                
+                decltype(result.m_CompilationTime.time_since_epoch().count()) timePoint;
+                file.read(reinterpret_cast<char*>(&timePoint), sizeof(timePoint));
+                result.m_CompilationTime = std::chrono::system_clock::time_point(std::chrono::system_clock::duration(timePoint));
+                
+                result.m_CompilerVersion = readString();
+                result.m_ErrorMessage = readString();
+                
+                file.read(reinterpret_cast<char*>(&result.m_IsValid), sizeof(result.m_IsValid));
+                file.read(reinterpret_cast<char*>(&result.m_CompilationTimeMs), sizeof(result.m_CompilationTimeMs));
+                file.read(reinterpret_cast<char*>(&result.m_SourceSizeBytes), sizeof(result.m_SourceSizeBytes));
+                file.read(reinterpret_cast<char*>(&result.m_CompiledSizeBytes), sizeof(result.m_CompiledSizeBytes));
+            }
+            else // formatVersion >= 2
+            {
+                // New format: platform-independent little-endian reads
+                result.m_SourceHash = read_u64();
+                
+                u64 timePoint = read_u64();
+                result.m_CompilationTime = std::chrono::system_clock::time_point(
+                    std::chrono::system_clock::duration(timePoint)
+                );
+                
+                result.m_CompilerVersion = readString();
+                result.m_ErrorMessage = readString();
+                
+                result.m_IsValid = read_bool();
+                result.m_CompilationTimeMs = read_f64();
+                result.m_SourceSizeBytes = read_u64();
+                result.m_CompiledSizeBytes = read_u64();
+            }
 
             return true;
         }
@@ -684,8 +925,40 @@ namespace OloEngine::Audio::SoundGraph
             
             if (!s_GlobalCompilerCache)
             {
-                // Use default cache directory consistent with CompilerCacheConfig
-                s_GlobalCompilerCache = OloEngine::Ref<OloEngine::Audio::SoundGraph::CompilerCache>::Create("cache/compiler/");
+                // Derive absolute cache directory from project directory
+                std::filesystem::path cacheDir;
+                
+                try
+                {
+                    // Use project directory as base if available, otherwise fall back to current working directory
+                    if (Project::GetActive())
+                    {
+                        cacheDir = Project::GetProjectDirectory() / "cache" / "compiler";
+                    }
+                    else
+                    {
+                        // Fallback: use current working directory if no project is active
+                        cacheDir = std::filesystem::current_path() / "cache" / "compiler";
+                        OLO_CORE_WARN("CompilerCache: No active project found, using working directory for cache: {}", cacheDir.string());
+                    }
+                    
+                    // Convert to absolute path to ensure deterministic location
+                    cacheDir = std::filesystem::absolute(cacheDir);
+                    
+                    // Ensure the directory exists before passing to CompilerCache
+                    std::filesystem::create_directories(cacheDir);
+                    
+                    OLO_CORE_INFO("CompilerCache: Using absolute cache directory: {}", cacheDir.string());
+                    
+                    s_GlobalCompilerCache = OloEngine::Ref<OloEngine::Audio::SoundGraph::CompilerCache>::Create(cacheDir.string());
+                }
+                catch (const std::filesystem::filesystem_error& ex)
+                {
+                    OLO_CORE_ERROR("CompilerCache: Failed to create cache directory: {}", ex.what());
+                    
+                    // Create with empty path as fallback (cache will be disabled)
+                    s_GlobalCompilerCache = OloEngine::Ref<OloEngine::Audio::SoundGraph::CompilerCache>::Create("");
+                }
             }
             
             return s_GlobalCompilerCache;

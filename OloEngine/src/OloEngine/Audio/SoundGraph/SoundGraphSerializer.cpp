@@ -66,6 +66,8 @@ namespace OloEngine::Audio::SoundGraph
 
 	std::string SoundGraphSerializer::SerializeToString(const SoundGraphAsset& asset)
 	{
+		OLO_PROFILE_FUNCTION();
+
 		YAML::Emitter out;
 		
 		out << YAML::BeginMap;
@@ -123,6 +125,8 @@ namespace OloEngine::Audio::SoundGraph
 
 	bool SoundGraphSerializer::DeserializeFromString(SoundGraphAsset& asset, const std::string& yamlString)
 	{
+		OLO_PROFILE_FUNCTION();
+
 		try
 		{
 			YAML::Node data = YAML::Load(yamlString);
@@ -170,6 +174,9 @@ namespace OloEngine::Audio::SoundGraph
 					OLO_CORE_ERROR("Sound graph contains nodes but none could be deserialized");
 					return false;
 				}
+				
+				// Rebuild the node ID map after loading nodes
+				asset.RebuildNodeIdMap();
 			}
 			
 			// Load connections
@@ -222,17 +229,17 @@ namespace OloEngine::Audio::SoundGraph
 	{
 		out << YAML::BeginMap;
 		
-		out << YAML::Key << "ID" << YAML::Value << nodeData.ID;
-		out << YAML::Key << "Name" << YAML::Value << nodeData.Name;
-		out << YAML::Key << "Type" << YAML::Value << nodeData.Type;
+		out << YAML::Key << "ID" << YAML::Value << nodeData.m_ID;
+		out << YAML::Key << "Name" << YAML::Value << nodeData.m_Name;
+		out << YAML::Key << "Type" << YAML::Value << nodeData.m_Type;
 		
 		// Serialize properties
-		if (!nodeData.Properties.empty())
+		if (!nodeData.m_Properties.empty())
 		{
 			out << YAML::Key << "Properties" << YAML::Value;
 			out << YAML::BeginMap;
 			
-			for (const auto& [key, value] : nodeData.Properties)
+			for (const auto& [key, value] : nodeData.m_Properties)
 			{
 				out << YAML::Key << key << YAML::Value << value;
 			}
@@ -249,11 +256,11 @@ namespace OloEngine::Audio::SoundGraph
 	{
 		out << YAML::BeginMap;
 		
-		out << YAML::Key << "SourceNodeID" << YAML::Value << connection.SourceNodeID;
-		out << YAML::Key << "SourceEndpoint" << YAML::Value << connection.SourceEndpoint;
-		out << YAML::Key << "TargetNodeID" << YAML::Value << connection.TargetNodeID;
-		out << YAML::Key << "TargetEndpoint" << YAML::Value << connection.TargetEndpoint;
-		out << YAML::Key << "IsEvent" << YAML::Value << connection.IsEvent;
+		out << YAML::Key << "SourceNodeID" << YAML::Value << connection.m_SourceNodeID;
+		out << YAML::Key << "SourceEndpoint" << YAML::Value << connection.m_SourceEndpoint;
+		out << YAML::Key << "TargetNodeID" << YAML::Value << connection.m_TargetNodeID;
+		out << YAML::Key << "TargetEndpoint" << YAML::Value << connection.m_TargetEndpoint;
+		out << YAML::Key << "IsEvent" << YAML::Value << connection.m_IsEvent;
 		
 		out << YAML::EndMap;
 		
@@ -270,9 +277,9 @@ namespace OloEngine::Audio::SoundGraph
 				return false;
 			}
 			
-			nodeData.ID = UUID(node["ID"].as<u64>());
-			nodeData.Name = node["Name"].as<std::string>();
-			nodeData.Type = node["Type"].as<std::string>();
+			nodeData.m_ID = UUID(node["ID"].as<u64>());
+			nodeData.m_Name = node["Name"].as<std::string>();
+			nodeData.m_Type = node["Type"].as<std::string>();
 			
 			// Load properties if they exist
 			if (node["Properties"])
@@ -283,7 +290,7 @@ namespace OloEngine::Audio::SoundGraph
 				{
 					std::string key = prop.first.as<std::string>();
 					std::string value = prop.second.as<std::string>();
-					nodeData.Properties[key] = value;
+					nodeData.m_Properties[key] = value;
 				}
 			}
 			
@@ -307,15 +314,15 @@ namespace OloEngine::Audio::SoundGraph
 				return false;
 			}
 			
-			connection.SourceNodeID = UUID(node["SourceNodeID"].as<u64>());
-			connection.SourceEndpoint = node["SourceEndpoint"].as<std::string>();
-			connection.TargetNodeID = UUID(node["TargetNodeID"].as<u64>());
-			connection.TargetEndpoint = node["TargetEndpoint"].as<std::string>();
+			connection.m_SourceNodeID = UUID(node["SourceNodeID"].as<u64>());
+			connection.m_SourceEndpoint = node["SourceEndpoint"].as<std::string>();
+			connection.m_TargetNodeID = UUID(node["TargetNodeID"].as<u64>());
+			connection.m_TargetEndpoint = node["TargetEndpoint"].as<std::string>();
 			
 			if (node["IsEvent"])
-				connection.IsEvent = node["IsEvent"].as<bool>();
+				connection.m_IsEvent = node["IsEvent"].as<bool>();
 			else
-				connection.IsEvent = false; // Default value
+				connection.m_IsEvent = false; // Default value
 			
 			return true;
 		}
@@ -346,60 +353,66 @@ namespace OloEngine::Audio::SoundGraph
 		for (const auto& nodeData : asset.m_Nodes)
 		{
 			// Convert UUID from NodeData to Identifier for CreateNode
-			// Note: Identifier uses u32 hash, so we take lower 32 bits of UUID
-			Identifier nodeId = Identifier(static_cast<u32>(static_cast<u64>(nodeData.ID)));
-			auto node = CreateNode(nodeData.Type, nodeData.Name, nodeId);
+			// Note: Identifier uses u32 hash. To avoid collisions from truncation,
+			// we XOR the upper and lower 32-bit halves of the 64-bit UUID to create
+			// a proper 32-bit hash that incorporates information from the entire UUID.
+			u64 uuid64 = static_cast<u64>(nodeData.m_ID);
+			u32 upperHalf = static_cast<u32>(uuid64 >> 32);
+			u32 lowerHalf = static_cast<u32>(uuid64 & 0xFFFFFFFF);
+			u32 combinedHash = upperHalf ^ lowerHalf;
+			Identifier nodeId = Identifier(combinedHash);
+			auto node = CreateNode(nodeData.m_Type, nodeData.m_Name, nodeId);
 			if (node)
 			{
 				// Apply properties
 				ApplyNodeProperties(node.get(), nodeData);
 				
 				// Store reference for connection phase using original UUID
-				nodeMap[nodeData.ID] = node.get();
+				nodeMap[nodeData.m_ID] = node.get();
 				
 				// Add to sound graph
 				soundGraph->AddNode(std::move(node));
 			}
 			else
 			{
-				OLO_CORE_ERROR("Failed to create node of type '{}' with name '{}'", nodeData.Type, nodeData.Name);
+				OLO_CORE_ERROR("Failed to create node of type '{}' with name '{}'", nodeData.m_Type, nodeData.m_Name);
 			}
 		}
 		
 		// Connect nodes
 		for (const auto& connection : asset.m_Connections)
 		{
-			auto outputNodeIt = nodeMap.find(connection.SourceNodeID);
-			auto inputNodeIt = nodeMap.find(connection.TargetNodeID);
+			auto outputNodeIt = nodeMap.find(connection.m_SourceNodeID);
+			auto inputNodeIt = nodeMap.find(connection.m_TargetNodeID);
 			
 			if (outputNodeIt != nodeMap.end() && inputNodeIt != nodeMap.end())
 			{
 				// Connect using SoundGraph's connection API
 				bool success = false;
-				if (connection.IsEvent)
+				if (connection.m_IsEvent)
 				{
 					success = soundGraph->AddEventConnection(
-						connection.SourceNodeID, connection.SourceEndpoint,
-						connection.TargetNodeID, connection.TargetEndpoint);
+						connection.m_SourceNodeID, connection.m_SourceEndpoint,
+						connection.m_TargetNodeID, connection.m_TargetEndpoint);
 				}
 				else
 				{
 					success = soundGraph->AddValueConnection(
-						connection.SourceNodeID, connection.SourceEndpoint,
-						connection.TargetNodeID, connection.TargetEndpoint);
+						connection.m_SourceNodeID, connection.m_SourceEndpoint,
+						connection.m_TargetNodeID, connection.m_TargetEndpoint);
 				}
 				
 				if (!success)
 				{
 					OLO_CORE_WARN("Failed to connect {} -> {} ({} -> {})", 
-						connection.SourceNodeID, connection.TargetNodeID,
-						connection.SourceEndpoint, connection.TargetEndpoint);
+						connection.m_SourceNodeID, connection.m_TargetNodeID,
+						connection.m_SourceEndpoint, connection.m_TargetEndpoint);
 				}
 			}
 			else
 			{
 				OLO_CORE_ERROR("Connection references unknown nodes: {} -> {}", 
-					static_cast<u64>(connection.SourceNodeID), static_cast<u64>(connection.TargetNodeID));
+					static_cast<u64>(connection.m_SourceNodeID), static_cast<u64>(connection.m_TargetNodeID));
 			}
 		}
 		
@@ -434,8 +447,8 @@ namespace OloEngine::Audio::SoundGraph
 		// Apply type-specific properties
 		if (auto wavePlayer = dynamic_cast<WavePlayer*>(node))
 		{
-			auto it = nodeData.Properties.find("WaveAsset");
-			if (it != nodeData.Properties.end())
+			auto it = nodeData.m_Properties.find("WaveAsset");
+			if (it != nodeData.m_Properties.end())
 			{
 				// NOTE: WaveAsset is set through the parameter system, not a dedicated setter
 				// The in_WaveAsset parameter is connected to the graph's parameter inputs
@@ -446,6 +459,6 @@ namespace OloEngine::Audio::SoundGraph
 		}
 		// Additional node type property handling can be added here as needed
 		
-		OLO_CORE_TRACE("Applied properties to node '{}' of type '{}'", node->GetDisplayName(), nodeData.Type);
+		OLO_CORE_TRACE("Applied properties to node '{}' of type '{}'", node->GetDisplayName(), nodeData.m_Type);
 	}
 }

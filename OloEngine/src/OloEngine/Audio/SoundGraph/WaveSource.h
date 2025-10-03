@@ -2,9 +2,13 @@
 
 #include "OloEngine/Audio/Buffer/CircularBuffer.h"
 #include <functional>
+#include <atomic>
 
 namespace OloEngine::Audio
 {
+    // Forward declaration
+    struct AudioData;
+
     //==============================================================================
     /** Request from readers for new data when close to empty.
         Or check at the end/beginning of the audio callback
@@ -19,6 +23,11 @@ namespace OloEngine::Audio
         i64 m_ReadPosition = 0;                   // Frame position in source to read next time from (this is where this source is being read by a NodeProcessor)
         u64 m_WaveHandle = 0;                     // Source Wave Asset handle
         const char* m_WaveName = nullptr;         // Wave Asset name for debugging purposes
+        
+        // Cached audio data pointer for lock-free access in audio thread
+        // This should be set during initialization and remain valid for the lifetime of the WaveSource
+        // Using atomic pointer ensures thread-safe access without locks in the realtime callback
+        std::atomic<const AudioData*> m_CachedAudioData{nullptr};
 
         // Callback wrapper that encapsulates function pointer with context
         struct RefillCallback final
@@ -34,7 +43,7 @@ namespace OloEngine::Audio
             RefillCallback(FuncPtr ptr, void* ctx = nullptr) noexcept : m_FuncPtr(ptr), m_Context(ctx) {}
             
             // Copy constructor - rebind to the new instance
-            RefillCallback(const RefillCallback& other) noexcept 
+            RefillCallback(const RefillCallback& other) 
                 : m_InstanceFunc(other.m_InstanceFunc)
             {
                 if (other.m_InstanceFunc)
@@ -78,7 +87,7 @@ namespace OloEngine::Audio
             }
             
             // Copy assignment - rebind to this instance
-            RefillCallback& operator=(const RefillCallback& other) noexcept
+            RefillCallback& operator=(const RefillCallback& other)
             {
                 if (this != &other)
                 {
@@ -130,7 +139,7 @@ namespace OloEngine::Audio
             }
             
             // Assignment from std::function - uses per-instance storage
-            RefillCallback& operator=(const std::function<bool(WaveSource&)>& func) noexcept
+            RefillCallback& operator=(const std::function<bool(WaveSource&)>& func)
             {
                 m_InstanceFunc = func;
                 m_FuncPtr = [](WaveSource& source, void* ctx) noexcept -> bool {

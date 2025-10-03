@@ -14,14 +14,14 @@ namespace OloEngine::Audio
     std::atomic<bool> AudioThread::s_ShouldStop{ false };
     std::atomic<bool> AudioThread::s_IsRunning{ false };
     std::atomic<bool> AudioThread::s_IsInitialized{ false };
-    std::thread::id AudioThread::s_AudioThreadID{};
+    std::atomic<std::thread::id> AudioThread::s_AudioThreadID{};
     
     std::queue<std::unique_ptr<AudioThread::CompletionToken>> AudioThread::s_TaskQueue{};
     std::mutex AudioThread::s_TaskQueueMutex{};
     std::mutex AudioThread::s_StartStopMutex{};
     std::condition_variable AudioThread::s_TaskCondition{};
     std::condition_variable AudioThread::s_CompletionCondition{};
-    std::atomic<i32> AudioThread::s_PendingTasks{ 0 };
+    std::atomic<sizet> AudioThread::s_PendingTasks{ 0 };
 
     bool AudioThread::Start()
     {
@@ -63,7 +63,7 @@ namespace OloEngine::Audio
         std::unique_lock<std::mutex> lock(s_TaskQueueMutex);
         s_TaskCondition.wait(lock, [] { return s_IsInitialized.load(); });
         
-        OLO_CORE_INFO("AudioThread started with ID: {}", std::hash<std::thread::id>{}(s_AudioThreadID));
+        OLO_CORE_INFO("AudioThread started with ID: {}", std::hash<std::thread::id>{}(s_AudioThreadID.load(std::memory_order_acquire)));
         return true;
     }
 
@@ -84,7 +84,7 @@ namespace OloEngine::Audio
         s_TaskCondition.notify_all();
 
         // Check if we're trying to stop from within the audio thread itself
-        if (std::this_thread::get_id() == s_AudioThreadID)
+        if (std::this_thread::get_id() == s_AudioThreadID.load(std::memory_order_acquire))
         {
             // We're on the audio thread - cannot join ourselves
             OLO_CORE_WARN("AudioThread::Stop() called from within audio thread - performing local cleanup only");
@@ -104,7 +104,7 @@ namespace OloEngine::Audio
         }
 
         s_AudioThread.reset();
-        s_AudioThreadID = std::thread::id{};
+        s_AudioThreadID.store(std::thread::id{}, std::memory_order_release);
         
         // Clear initialization and running flags after thread has been joined
         s_IsInitialized.store(false);
@@ -130,8 +130,7 @@ namespace OloEngine::Audio
 
     std::thread::id AudioThread::GetThreadID()
     {
-        std::lock_guard<std::mutex> lock(s_StartStopMutex);
-        return s_AudioThreadID;
+        return s_AudioThreadID.load(std::memory_order_acquire);
     }
 
     std::future<void> AudioThread::ExecuteOnAudioThread(Task task, bool waitForCompletion)
@@ -209,7 +208,7 @@ namespace OloEngine::Audio
         // Mark this thread as the audio thread (lock-free for IsAudioThread())
         t_IsAudioThread = true;
         
-        s_AudioThreadID = std::this_thread::get_id();
+        s_AudioThreadID.store(std::this_thread::get_id(), std::memory_order_release);
         
         // Set thread priority (platform-specific)
         #ifdef OLO_PLATFORM_WINDOWS

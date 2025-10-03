@@ -48,7 +48,13 @@ namespace OloEngine::Audio::SoundGraph
         void StoreCompiled(const std::string& sourcePath, const CompilationResult& result);
         void InvalidateCompiled(const std::string& sourcePath);
         void InvalidateCompiled(const std::string& sourcePath, const std::string& compilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION);
-        void ClearCache();
+        
+        /// Clears all in-memory cached compilation results and optionally deletes the disk cache.
+        /// WARNING: This is a DESTRUCTIVE operation when force=true - all cached files will be permanently deleted!
+        /// @param force If true, physically deletes the cache directory from disk and recreates it.
+        ///              If false (default), only clears in-memory cache without touching disk files.
+        ///              A warning is always logged before disk deletion to prevent accidental data loss.
+        void ClearCache(bool force = false);
 
         /// File System Integration
         bool IsSourceNewer(const std::string& sourcePath, const CompilationResult& result) const;

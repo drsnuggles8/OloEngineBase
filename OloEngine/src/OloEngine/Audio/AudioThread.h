@@ -27,6 +27,10 @@ namespace OloEngine::Audio
             std::promise<void> m_Promise;
             
             CompletionToken(Task t) : m_Task(std::move(t)) {}
+             CompletionToken(const CompletionToken&) = delete;
+            CompletionToken& operator=(const CompletionToken&) = delete;
+            CompletionToken(CompletionToken&&) = default;
+            CompletionToken& operator=(CompletionToken&&) = default;
         };
         
     public:
@@ -68,7 +72,7 @@ namespace OloEngine::Audio
         static std::atomic<bool> s_ShouldStop;
         static std::atomic<bool> s_IsRunning;      // Ownership flag for start/stop
         static std::atomic<bool> s_IsInitialized;  // Thread initialization completion flag
-        static std::thread::id s_AudioThreadID;
+        static std::atomic<std::thread::id> s_AudioThreadID;
 
         // Task queue (lock-free would be better, but using mutex for simplicity)
         static std::queue<std::unique_ptr<CompletionToken>> s_TaskQueue;
@@ -76,7 +80,7 @@ namespace OloEngine::Audio
         static std::mutex s_StartStopMutex;  // Serializes start/stop operations
         static std::condition_variable s_TaskCondition;
         static std::condition_variable s_CompletionCondition;
-        static std::atomic<i32> s_PendingTasks;
+        static std::atomic<sizet> s_PendingTasks;
     };
 
 } // namespace OloEngine::Audio
