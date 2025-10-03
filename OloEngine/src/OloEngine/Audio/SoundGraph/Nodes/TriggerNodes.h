@@ -56,24 +56,24 @@ namespace OloEngine::Audio::SoundGraph
 				// Guard against zero/negative/non-finite period to prevent infinite loop
 				static constexpr float kMinPeriod = 0.001f; // 1ms minimum period (1000 Hz max frequency)
 				float safePeriod;
-				if (!std::isfinite(*in_Period) || *in_Period < kMinPeriod)
+				if (!std::isfinite(*m_InPeriod) || *m_InPeriod < kMinPeriod)
 					safePeriod = kMinPeriod;
 				else
-					safePeriod = *in_Period;
+					safePeriod = *m_InPeriod;
 				
 				// Handle multiple periods if frame time exceeds period, preserving overshoot
 				while (m_Counter >= safePeriod)
 				{
 					m_Counter -= safePeriod;
-					out_Trigger(1.0f);
+					m_OutTrigger(1.0f);
 				}
 			}
 		}
 
 		//==========================================================================
 		/// NodeProcessor setup
-		f32* in_Period = nullptr;
-		OutputEvent out_Trigger{ *this };
+		f32* m_InPeriod = nullptr;
+		OutputEvent m_OutTrigger{ *this };
 
 	private:
 		bool m_Playing = false;
@@ -90,7 +90,7 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			m_Playing = true;
 			m_Counter = 0.0f;
-			out_Trigger(1.0f);
+			m_OutTrigger(1.0f);
 		}
 
 		void StopTrigger()
@@ -127,8 +127,8 @@ namespace OloEngine::Audio::SoundGraph
 			
 			InitializeInputs();
 
-			out_Count = 0;
-			out_Value = (*in_StartValue);
+			m_OutCount = 0;
+			m_OutValue = (*m_InStartValue);
 		}
 
 		void Process() final
@@ -155,15 +155,15 @@ namespace OloEngine::Audio::SoundGraph
 
 		//==========================================================================
 		/// NodeProcessor setup
-		f32* in_StartValue = nullptr;
-		f32* in_StepSize = nullptr;
-		i32* in_ResetCount = nullptr;
+		f32* m_InStartValue = nullptr;
+		f32* m_InStepSize = nullptr;
+		i32* m_InResetCount = nullptr;
 
-		i32 out_Count = 0;
-		f32 out_Value = 0.0f;
+		i32 m_OutCount = 0;
+		f32 m_OutValue = 0.0f;
 
-		OutputEvent out_OnTrigger{ *this };
-		OutputEvent out_OnReset{ *this };
+		OutputEvent m_OutOnTrigger{ *this };
+		OutputEvent m_OutOnReset{ *this };
 
 	private:
 		Flag m_TriggerFlag;
@@ -175,13 +175,13 @@ namespace OloEngine::Audio::SoundGraph
 
 		void ProcessTrigger()
 		{
-			++out_Count;
-			out_Value = (*in_StepSize) * out_Count + (*in_StartValue);
+			++m_OutCount;
+			m_OutValue = (*m_InStepSize) * m_OutCount + (*m_InStartValue);
 
-			out_OnTrigger(1.0f);
+			m_OutOnTrigger(1.0f);
 
 			// Auto-reset if we've reached the reset count (defer to end of frame)
-			if ((*in_ResetCount) > 0 && out_Count >= (*in_ResetCount))
+			if ((*m_InResetCount) > 0 && m_OutCount >= (*m_InResetCount))
 			{
 				m_PendingAutoReset = true;
 			}
@@ -189,9 +189,9 @@ namespace OloEngine::Audio::SoundGraph
 
 		void ProcessReset()
 		{
-			out_Value = (*in_StartValue);
-			out_Count = 0;
-			out_OnReset(1.0f);
+			m_OutValue = (*m_InStartValue);
+			m_OutCount = 0;
+			m_OutOnReset(1.0f);
 			m_PendingAutoReset = false;
 		}
 	};
@@ -238,19 +238,19 @@ namespace OloEngine::Audio::SoundGraph
 			if (m_ResetFlag.CheckAndResetIfDirty())
 				ProcessReset();
 
-			if (m_Waiting && (m_Counter += m_FrameTime) >= (*in_DelayTime))
+			if (m_Waiting && (m_Counter += m_FrameTime) >= (*m_InDelayTime))
 			{
 				m_Waiting = false;
 				m_Counter = 0.0f;
-				out_DelayedTrigger(1.0f);
+				m_OutDelayedTrigger(1.0f);
 			}
 		}
 
 		//==========================================================================
 		/// NodeProcessor setup
-		f32* in_DelayTime = nullptr;
-		OutputEvent out_DelayedTrigger{ *this };
-		OutputEvent out_OnReset{ *this };
+		f32* m_InDelayTime = nullptr;
+		OutputEvent m_OutDelayedTrigger{ *this };
+		OutputEvent m_OutOnReset{ *this };
 
 	private:
 		bool m_Waiting = false;
@@ -273,7 +273,7 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			m_Waiting = false;
 			m_Counter = 0.0f;
-			out_OnReset(1.0f);
+			m_OutOnReset(1.0f);
 		}
 	};
 

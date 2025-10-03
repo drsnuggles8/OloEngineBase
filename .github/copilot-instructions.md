@@ -13,10 +13,10 @@ OloEngine is a multi-layered game engine based on Hazel, supporting both 2D/3D r
 ## Development Workflow
 
 ### Building & Running
-- Use tasks exclusively: `build-sandbox3d-debug`, `run-sandbox3d-debug`, `build-oloeditor-release`, etc.
 - Applications must run from `OloEditor/` working directory (assets/mono dependencies)
 - Use `scripts/Win-GenerateProject.bat` for initial setup, `scripts/Win-DeleteStuff.bat` to clean (or manually delete the `build/` folder)
 - Test projects can be built via `cmake --build <build-dir> --target OloEngine-Tests` and then executed via `<build-dir>\OloEngine\tests\Debug\OloEngine-Tests.exe` or run via CTest
+
 ### Key Patterns
 
 **Entity-Component-System**: Uses EnTT for scene management. Entities are UUID-based handles, components stored in registries.
@@ -91,7 +91,7 @@ RendererProfiler::GetInstance().IncrementCounter(MetricType::DrawCalls, 1);
 ## Code Style Guidelines
 
 - **C++ Standards:** Target C++23 where supported by current compilers, baseline C++20 across the repo
-- **Development Approach:** Alpha mode - breaking changes are acceptable for better design. We focus on optimal solutions, just make sure that when changes break things, we fix them quickly
+- **Development Approach:** Alpha mode - breaking changes are acceptable for better design. We focus on optimal solutions; ensure that breaking changes are fixed promptly
 - **Naming:** PascalCase for classes, `m_PascalCase` for members, `s_PascalCase` for statics
 - **Types:** Custom typedefs (`u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, `f32`, `f64`, `sizet`) defined in `Core/Base.h`
 - **Headers:** Use `#pragma once`, RAII for OpenGL resources, STL containers preferred. Use the OloEnginePCH precompiled header for common includes

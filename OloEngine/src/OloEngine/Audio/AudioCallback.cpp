@@ -8,8 +8,12 @@ namespace OloEngine::Audio
 		// Assert that the node is valid
 		OLO_CORE_ASSERT(pNode != nullptr);
 		
-		// Reinterpret the ma_node* to our processing_node instance
-		AudioCallback::processing_node* node = reinterpret_cast<AudioCallback::processing_node*>(pNode);
+		// Safe cast: processing_node has ma_node_base as first member, making this layout-compatible
+		AudioCallback::processing_node* node = static_cast<AudioCallback::processing_node*>(static_cast<void*>(pNode));
+		
+		// Runtime type validation: verify this is actually a processing_node instance
+		OLO_CORE_ASSERT(node->m_TypeId == AudioCallback::processing_node::s_MagicTypeId, 
+			"Invalid node type! Expected processing_node but got different type. This indicates memory corruption or incorrect node usage.");
 		
 		// Assert that the node and its callback are valid
 		OLO_CORE_ASSERT(node != nullptr);
@@ -44,9 +48,18 @@ namespace OloEngine::Audio
 		
 		m_Engine = engine;
 		m_BusConfig = busConfig;
+		
+		if (!engine || !engine->pDevice)
+		{
+			OLO_CORE_ERROR("Engine or device is null");
+			return false;
+		}
 
 		u32 sampleRate = engine->pDevice->sampleRate;
 		u32 blockSize = engine->pDevice->playback.internalPeriodSizeInFrames;
+
+		// Store max block size for runtime validation
+		m_MaxBlockSize = blockSize;
 
 		OLO_CORE_ASSERT(!busConfig.m_InputBuses.empty() && !busConfig.m_OutputBuses.empty(), "Bus config must have input and output buses");
 		for (const auto& bus : busConfig.m_InputBuses)  
@@ -63,6 +76,7 @@ namespace OloEngine::Audio
 
 		m_Node.m_Callback = this;
 		m_Node.m_PEngine = m_Engine;
+		m_Node.m_TypeId = processing_node::s_MagicTypeId; // Set magic ID for runtime type validation
 
 		// Validate bus counts before casting to ma_uint8 (max 255)
 		// This prevents overflow when casting sizet to ma_uint8
@@ -108,10 +122,20 @@ namespace OloEngine::Audio
 			return false;
 		}
 
-		// Only set flags and call InitBase on full success
+		// Call InitBase first and only set flags on success
+		if (!InitBase(sampleRate, blockSize, busConfig))
+		{
+			// InitBase failed - cleanup and ensure flags remain false
+			ma_node_uninit(&m_Node, nullptr);
+			m_Node.m_BInitialized = false;
+			m_IsInitialized = false;
+			return false;
+		}
+
+		// InitBase succeeded - set flags and return success
 		m_Node.m_BInitialized = true;
 		m_IsInitialized = true;
-		return InitBase(sampleRate, blockSize, busConfig);
+		return true;
 	}
 
 	void AudioCallback::Uninitialize()
@@ -133,6 +157,8 @@ namespace OloEngine::Audio
 
 	bool AudioCallback::StartNode()
 	{
+		OLO_PROFILE_FUNCTION();
+
 		if (m_Node.m_BInitialized)
 			ma_node_set_state(&m_Node, ma_node_state_started);
 

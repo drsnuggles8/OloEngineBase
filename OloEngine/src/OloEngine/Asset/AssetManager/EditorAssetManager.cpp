@@ -942,7 +942,7 @@ namespace OloEngine
     }
 #endif
 
-    AssetMetadata EditorAssetManager::GetMetadata(AssetHandle handle) const
+    const AssetMetadata& EditorAssetManager::GetMetadata(AssetHandle handle) const
     {
         std::shared_lock lock(m_RegistryMutex);
         return m_AssetRegistry.GetMetadata(handle);

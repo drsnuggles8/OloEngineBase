@@ -30,9 +30,9 @@
 
 namespace OloEngine::Audio::SoundGraph
 {
-	// Use Flag utilities from Base.h
-	using ::Flag;
-	using ::AtomicFlag;
+	// Use Flag utilities from OloEngine namespace
+	using OloEngine::Flag;
+	using OloEngine::AtomicFlag;
 
 } // namespace OloEngine::Audio::SoundGraph
 
@@ -290,12 +290,12 @@ namespace OloEngine::Audio::SoundGraph
 	}
 
 	//==============================================================================
-	/// Parameter system (OloEngine enhancement over Hazel)		
+	/// Parameter system	
 	struct ParameterInfo
 	{
-		Identifier ID;
-		std::string DebugName;
-		std::string TypeName;
+		Identifier m_ID;
+		std::string m_DebugName;
+		std::string m_TypeName;
 	};
 	std::unordered_map<Identifier, ParameterInfo> ParameterInfos;
 	
@@ -320,9 +320,9 @@ namespace OloEngine::Audio::SoundGraph
 		
 		// Store parameter info for debugging
 		ParameterInfo info;
-		info.ID = id;
-		info.DebugName = std::string(debugName);
-		info.TypeName = typeid(T).name();
+		info.m_ID = id;
+		info.m_DebugName = std::string(debugName);
+		info.m_TypeName = typeid(T).name();
 		ParameterInfos[id] = std::move(info);
 	}	private:
 	};

@@ -96,16 +96,16 @@ namespace OloEngine
         /**
          * @brief Get asset metadata by handle
          * @param handle Asset handle
-         * @return Asset metadata
+         * @return Const reference to asset metadata
          */
-        AssetMetadata GetMetadata(AssetHandle handle) const;
+        const AssetMetadata& GetMetadata(AssetHandle handle) const;
 
         /**
          * @brief Get asset metadata by handle (base class override)
          * @param handle Asset handle
-         * @return Asset metadata
+         * @return Const reference to asset metadata
          */
-        virtual AssetMetadata GetAssetMetadata(AssetHandle handle) const noexcept override { return GetMetadata(handle); }
+        virtual const AssetMetadata& GetAssetMetadata(AssetHandle handle) const noexcept override { return GetMetadata(handle); }
 
         /**
          * @brief Set asset metadata (thread-safe)

@@ -33,12 +33,8 @@ namespace OloEngine::Audio
         struct RefillCallback final
         {
             using FuncPtr = bool(*)(WaveSource&, void*) noexcept;
-            FuncPtr m_FuncPtr = nullptr;
-            void* m_Context = nullptr;
-            
-            // Per-instance storage to avoid cross-instance interference
-            std::function<bool(WaveSource&)> m_InstanceFunc;
 
+        public:
             RefillCallback() = default;
             RefillCallback(FuncPtr ptr, void* ctx = nullptr) noexcept : m_FuncPtr(ptr), m_Context(ctx) {}
             
@@ -157,6 +153,18 @@ namespace OloEngine::Audio
             }
 
             explicit operator bool() const noexcept { return m_FuncPtr != nullptr; }
+
+            // Read-only accessors for inspection
+            [[nodiscard]] FuncPtr GetFunctionPointer() const noexcept { return m_FuncPtr; }
+            [[nodiscard]] void* GetContext() const noexcept { return m_Context; }
+            [[nodiscard]] bool IsInstanceBacked() const noexcept { return static_cast<bool>(m_InstanceFunc); }
+
+        private:
+            FuncPtr m_FuncPtr = nullptr;
+            void* m_Context = nullptr;
+            
+            // Per-instance storage to avoid cross-instance interference
+            std::function<bool(WaveSource&)> m_InstanceFunc;
         };
 
         RefillCallback m_OnRefill;

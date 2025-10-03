@@ -23,10 +23,10 @@ namespace OloEngine
 			// Read the size from stream into local variable
 			ReadData(reinterpret_cast<char*>(&bufferSize), sizeof(u64));
 			
-			// Validate size fits into size_t
-			if (bufferSize > std::numeric_limits<size_t>::max())
+			// Validate size fits into sizet
+			if (bufferSize > std::numeric_limits<sizet>::max())
 			{
-				OLO_CORE_ERROR("Buffer size {} exceeds maximum size_t value", bufferSize);
+				OLO_CORE_ERROR("Buffer size {} exceeds maximum sizet value", bufferSize);
 				return;
 			}
 			
@@ -39,7 +39,7 @@ namespace OloEngine
 		}
 		
 		// Set validated size and allocate
-		buffer.Size = static_cast<size_t>(bufferSize);
+		buffer.Size = static_cast<sizet>(bufferSize);
 		buffer.Allocate(buffer.Size);
 		ReadData(reinterpret_cast<char*>(buffer.Data), buffer.Size);
 	}
@@ -49,10 +49,10 @@ namespace OloEngine
 		u64 size;
 		ReadData(reinterpret_cast<char*>(&size), sizeof(u64));
 
-		// Validate size fits into size_t
-		if (size > std::numeric_limits<size_t>::max())
+		// Validate size fits into sizet
+		if (size > std::numeric_limits<sizet>::max())
 		{
-			OLO_CORE_ERROR("String size {} exceeds maximum size_t value", size);
+			OLO_CORE_ERROR("String size {} exceeds maximum sizet value", size);
 			return;
 		}
 		
@@ -63,7 +63,7 @@ namespace OloEngine
 			return;
 		}
 
-		string.resize(static_cast<size_t>(size));
+		string.resize(static_cast<sizet>(size));
 		
 		// Use safe ReadData overload with std::span to avoid reinterpret_cast
 		auto stringBytes = std::as_writable_bytes(std::span<char>(string.data(), string.size()));

@@ -153,57 +153,57 @@ namespace OloEngine
 				*/
 				bool StopFade(u64 numSamples);
 
-			/* Stop playback with short fade-out to prevent click.
-			@param milliseconds - length of the fade-out in milliseconds
-			
-			@returns true - if successfully initialized fade
-			*/
-			bool StopFade(i32 milliseconds);
+				/* Stop playback with short fade-out to prevent click.
+				@param milliseconds - length of the fade-out in milliseconds
+				
+				@returns true - if successfully initialized fade
+				*/
+				bool StopFade(i32 milliseconds);
 
-			enum class StopOptions : u16
-			{
-				None = 0,
-				NotifyPlaybackComplete  = (1 << 0),
-				ResetPlaybackPosition   = (1 << 1)
-			};
+				enum class StopOptions : u16
+				{
+					None = 0,
+					NotifyPlaybackComplete  = (1 << 0),
+					ResetPlaybackPosition   = (1 << 1)
+				};
 
-			// Bitwise operators for StopOptions
-			inline friend StopOptions operator|(StopOptions lhs, StopOptions rhs)
-			{
-				return static_cast<StopOptions>(static_cast<u16>(lhs) | static_cast<u16>(rhs));
-			}
+				// Bitwise operators for StopOptions
+				inline friend StopOptions operator|(StopOptions lhs, StopOptions rhs)
+				{
+					return static_cast<StopOptions>(static_cast<u16>(lhs) | static_cast<u16>(rhs));
+				}
 
-			inline friend StopOptions operator&(StopOptions lhs, StopOptions rhs)
-			{
-				return static_cast<StopOptions>(static_cast<u16>(lhs) & static_cast<u16>(rhs));
-			}
+				inline friend StopOptions operator&(StopOptions lhs, StopOptions rhs)
+				{
+					return static_cast<StopOptions>(static_cast<u16>(lhs) & static_cast<u16>(rhs));
+				}
 
-			inline friend StopOptions operator~(StopOptions opt)
-			{
-				return static_cast<StopOptions>(~static_cast<u16>(opt));
-			}
+				inline friend StopOptions operator~(StopOptions opt)
+				{
+					return static_cast<StopOptions>(~static_cast<u16>(opt));
+				}
 
-			inline friend StopOptions& operator|=(StopOptions& lhs, StopOptions rhs)
-			{
-				lhs = lhs | rhs;
-				return lhs;
-			}
+				inline friend StopOptions& operator|=(StopOptions& lhs, StopOptions rhs)
+				{
+					lhs = lhs | rhs;
+					return lhs;
+				}
 
-			inline friend StopOptions& operator&=(StopOptions& lhs, StopOptions rhs)
-			{
-				lhs = lhs & rhs;
-				return lhs;
-			}
+				inline friend StopOptions& operator&=(StopOptions& lhs, StopOptions rhs)
+				{
+					lhs = lhs & rhs;
+					return lhs;
+				}
 
-			/* "Hard-stop" playback without fade. This is called to immediately stop playback,
-			as well as to reset the play state when "stop-fade" has ended.
-			@param options - combination of StopOptions flags
-			
-			@returns voice ID of the sound source in pool
-			*/
-			i32 StopNow(StopOptions options = StopOptions::None);
+				/* "Hard-stop" playback without fade. This is called to immediately stop playback,
+				as well as to reset the play state when "stop-fade" has ended.
+				@param options - combination of StopOptions flags
+				
+				@returns voice ID of the sound source in pool
+				*/
+				i32 StopNow(StopOptions options = StopOptions::None);
 
-			void InitializeEffects(const Ref<SoundConfig>& config);
+				void InitializeEffects(const Ref<SoundConfig>& config);
 				bool InitializeAudioCallback();
 
 				// Audio frequency conversion utilities

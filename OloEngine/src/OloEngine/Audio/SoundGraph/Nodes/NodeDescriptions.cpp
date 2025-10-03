@@ -13,83 +13,83 @@
 // NOTE: DESCRIBE_NODE macros must be at global scope (outside any namespace)
 // because they expand to template specializations in OloEngine::Core::Reflection namespace
 
-using namespace OloEngine::Audio::SoundGraph;
+namespace sg = OloEngine::Audio::SoundGraph;
 
 //==============================================================================
 // WavePlayer Node Description
 //==============================================================================
-DESCRIBE_NODE(WavePlayer,
+DESCRIBE_NODE(sg::WavePlayer,
         NODE_INPUTS(
-            &WavePlayer::in_WaveAsset,
-            &WavePlayer::in_StartTime,
-            &WavePlayer::in_Loop,
-            &WavePlayer::in_NumberOfLoops
+            &sg::WavePlayer::in_WaveAsset,
+            &sg::WavePlayer::in_StartTime,
+            &sg::WavePlayer::in_Loop,
+            &sg::WavePlayer::in_NumberOfLoops
         ),
         NODE_OUTPUTS(
-            &WavePlayer::out_OutLeft,
-            &WavePlayer::out_OutRight,
-            &WavePlayer::out_OnPlay,
-            &WavePlayer::out_OnStop,
-            &WavePlayer::out_OnFinished
+            &sg::WavePlayer::out_OutLeft,
+            &sg::WavePlayer::out_OutRight,
+            &sg::WavePlayer::out_OnPlay,
+            &sg::WavePlayer::out_OnStop,
+            &sg::WavePlayer::out_OnFinished
         )
     );
 
     //==============================================================================
     // Generator Nodes Descriptions
     //==============================================================================
-    DESCRIBE_NODE(SineOscillator,
+    DESCRIBE_NODE(sg::SineOscillator,
         NODE_INPUTS(
-            &SineOscillator::in_Frequency,
-            &SineOscillator::in_Amplitude,
-            &SineOscillator::in_Phase
+            &sg::SineOscillator::in_Frequency,
+            &sg::SineOscillator::in_Amplitude,
+            &sg::SineOscillator::in_Phase
         ),
         NODE_OUTPUTS(
-            &SineOscillator::out_Value
+            &sg::SineOscillator::out_Value
         )
     );
 
-    DESCRIBE_NODE(SquareOscillator,
+    DESCRIBE_NODE(sg::SquareOscillator,
         NODE_INPUTS(
-            &SquareOscillator::in_Frequency,
-            &SquareOscillator::in_Amplitude,
-            &SquareOscillator::in_Phase,
-            &SquareOscillator::in_PulseWidth
+            &sg::SquareOscillator::in_Frequency,
+            &sg::SquareOscillator::in_Amplitude,
+            &sg::SquareOscillator::in_Phase,
+            &sg::SquareOscillator::in_PulseWidth
         ),
         NODE_OUTPUTS(
-            &SquareOscillator::out_Value
+            &sg::SquareOscillator::out_Value
         )
     );
 
-    DESCRIBE_NODE(SawtoothOscillator,
+    DESCRIBE_NODE(sg::SawtoothOscillator,
         NODE_INPUTS(
-            &SawtoothOscillator::in_Frequency,
-            &SawtoothOscillator::in_Amplitude,
-            &SawtoothOscillator::in_Phase
+            &sg::SawtoothOscillator::in_Frequency,
+            &sg::SawtoothOscillator::in_Amplitude,
+            &sg::SawtoothOscillator::in_Phase
         ),
         NODE_OUTPUTS(
-            &SawtoothOscillator::out_Value
+            &sg::SawtoothOscillator::out_Value
         )
     );
 
-    DESCRIBE_NODE(TriangleOscillator,
+    DESCRIBE_NODE(sg::TriangleOscillator,
         NODE_INPUTS(
-            &TriangleOscillator::in_Frequency,
-            &TriangleOscillator::in_Amplitude,
-            &TriangleOscillator::in_Phase
+            &sg::TriangleOscillator::in_Frequency,
+            &sg::TriangleOscillator::in_Amplitude,
+            &sg::TriangleOscillator::in_Phase
         ),
         NODE_OUTPUTS(
-            &TriangleOscillator::out_Value
+            &sg::TriangleOscillator::out_Value
         )
     );
 
-    DESCRIBE_NODE(Noise,
+    DESCRIBE_NODE(sg::Noise,
         NODE_INPUTS(
-            &Noise::in_Seed,
-            &Noise::in_Type,
-            &Noise::in_Amplitude
+            &sg::Noise::in_Seed,
+            &sg::Noise::in_Type,
+            &sg::Noise::in_Amplitude
         ),
         NODE_OUTPUTS(
-            &Noise::out_Value
+            &sg::Noise::out_Value
         )
     );
 
@@ -98,326 +98,326 @@ DESCRIBE_NODE(WavePlayer,
     //==============================================================================
     
     // Float specializations
-    DESCRIBE_NODE(Add<float>,
+    DESCRIBE_NODE(sg::Add<float>,
         NODE_INPUTS(
-            &Add<float>::in_Value1,
-            &Add<float>::in_Value2
+            &sg::Add<float>::m_InValue1,
+            &sg::Add<float>::m_InValue2
         ),
         NODE_OUTPUTS(
-            &Add<float>::out_Out
+            &sg::Add<float>::m_OutOut
         )
     );
 
-    DESCRIBE_NODE(Subtract<float>,
+    DESCRIBE_NODE(sg::Subtract<float>,
         NODE_INPUTS(
-            &Subtract<float>::in_Value1,
-            &Subtract<float>::in_Value2
+            &sg::Subtract<float>::m_InValue1,
+            &sg::Subtract<float>::m_InValue2
         ),
         NODE_OUTPUTS(
-            &Subtract<float>::out_Out
+            &sg::Subtract<float>::m_OutOut
         )
     );
 
-    DESCRIBE_NODE(Multiply<float>,
+    DESCRIBE_NODE(sg::Multiply<float>,
         NODE_INPUTS(
-            &Multiply<float>::in_Value,
-            &Multiply<float>::in_Multiplier
+            &sg::Multiply<float>::m_InValue,
+            &sg::Multiply<float>::m_InMultiplier
         ),
         NODE_OUTPUTS(
-            &Multiply<float>::out_Out
+            &sg::Multiply<float>::m_OutOut
         )
     );
 
-    DESCRIBE_NODE(Divide<float>,
+    DESCRIBE_NODE(sg::Divide<float>,
         NODE_INPUTS(
-            &Divide<float>::in_Value,
-            &Divide<float>::in_Denominator
+            &sg::Divide<float>::m_InValue,
+            &sg::Divide<float>::m_InDenominator
         ),
         NODE_OUTPUTS(
-            &Divide<float>::out_Out
+            &sg::Divide<float>::m_OutOut
         )
     );
 
-    DESCRIBE_NODE(Min<float>,
+    DESCRIBE_NODE(sg::Min<float>,
         NODE_INPUTS(
-            &Min<float>::in_Value1,
-            &Min<float>::in_Value2
+            &sg::Min<float>::m_InValue1,
+            &sg::Min<float>::m_InValue2
         ),
         NODE_OUTPUTS(
-            &Min<float>::out_Out
+            &sg::Min<float>::m_OutOut
         )
     );
 
-    DESCRIBE_NODE(Max<float>,
+    DESCRIBE_NODE(sg::Max<float>,
         NODE_INPUTS(
-            &Max<float>::in_Value1,
-            &Max<float>::in_Value2
+            &sg::Max<float>::m_InValue1,
+            &sg::Max<float>::m_InValue2
         ),
         NODE_OUTPUTS(
-            &Max<float>::out_Out
+            &sg::Max<float>::m_OutOut
         )
     );
 
-    DESCRIBE_NODE(Clamp<float>,
+    DESCRIBE_NODE(sg::Clamp<float>,
         NODE_INPUTS(
-            &Clamp<float>::in_Value,
-            &Clamp<float>::in_MinValue,
-            &Clamp<float>::in_MaxValue
+            &sg::Clamp<float>::m_InValue,
+            &sg::Clamp<float>::m_InMinValue,
+            &sg::Clamp<float>::m_InMaxValue
         ),
         NODE_OUTPUTS(
-            &Clamp<float>::out_Out
+            &sg::Clamp<float>::m_OutOut
         )
     );
 
-    DESCRIBE_NODE(MapRange<float>,
+    DESCRIBE_NODE(sg::MapRange<float>,
         NODE_INPUTS(
-            &MapRange<float>::in_Value,
-            &MapRange<float>::in_FromMin,
-            &MapRange<float>::in_FromMax,
-            &MapRange<float>::in_ToMin,
-            &MapRange<float>::in_ToMax
+            &sg::MapRange<float>::m_InValue,
+            &sg::MapRange<float>::m_InFromMin,
+            &sg::MapRange<float>::m_InFromMax,
+            &sg::MapRange<float>::m_InToMin,
+            &sg::MapRange<float>::m_InToMax
         ),
         NODE_OUTPUTS(
-            &MapRange<float>::out_Out
+            &sg::MapRange<float>::m_OutOut
         )
     );
 
-    DESCRIBE_NODE(Power<float>,
+    DESCRIBE_NODE(sg::Power<float>,
         NODE_INPUTS(
-            &Power<float>::in_Base,
-            &Power<float>::in_Exponent
+            &sg::Power<float>::m_InBase,
+            &sg::Power<float>::m_InExponent
         ),
         NODE_OUTPUTS(
-            &Power<float>::out_Out
+            &sg::Power<float>::m_OutOut
         )
     );
 
-    DESCRIBE_NODE(Abs<float>,
+    DESCRIBE_NODE(sg::Abs<float>,
         NODE_INPUTS(
-            &Abs<float>::in_Value
+            &sg::Abs<float>::m_InValue
         ),
         NODE_OUTPUTS(
-            &Abs<float>::out_Out
+            &sg::Abs<float>::m_OutOut
         )
     );
 
     // Integer specializations
-    DESCRIBE_NODE(Add<int>,
+    DESCRIBE_NODE(sg::Add<int>,
         NODE_INPUTS(
-            &Add<int>::in_Value1,
-            &Add<int>::in_Value2
+            &sg::Add<int>::m_InValue1,
+            &sg::Add<int>::m_InValue2
         ),
         NODE_OUTPUTS(
-            &Add<int>::out_Out
+            &sg::Add<int>::m_OutOut
         )
     );
 
-    DESCRIBE_NODE(Subtract<int>,
+    DESCRIBE_NODE(sg::Subtract<int>,
         NODE_INPUTS(
-            &Subtract<int>::in_Value1,
-            &Subtract<int>::in_Value2
+            &sg::Subtract<int>::m_InValue1,
+            &sg::Subtract<int>::m_InValue2
         ),
         NODE_OUTPUTS(
-            &Subtract<int>::out_Out
+            &sg::Subtract<int>::m_OutOut
         )
     );
 
-    DESCRIBE_NODE(Multiply<int>,
+    DESCRIBE_NODE(sg::Multiply<int>,
         NODE_INPUTS(
-            &Multiply<int>::in_Value,
-            &Multiply<int>::in_Multiplier
+            &sg::Multiply<int>::m_InValue,
+            &sg::Multiply<int>::m_InMultiplier
         ),
         NODE_OUTPUTS(
-            &Multiply<int>::out_Out
+            &sg::Multiply<int>::m_OutOut
         )
     );
 
     //==============================================================================
     // Envelope Nodes Descriptions
     //==============================================================================
-    DESCRIBE_NODE(ADEnvelope,
+    DESCRIBE_NODE(sg::ADEnvelope,
         NODE_INPUTS(
-            &ADEnvelope::in_AttackTime,
-            &ADEnvelope::in_DecayTime,
-            &ADEnvelope::in_AttackCurve,
-            &ADEnvelope::in_DecayCurve,
-            &ADEnvelope::in_Looping
+            &sg::ADEnvelope::m_InAttackTime,
+            &sg::ADEnvelope::m_InDecayTime,
+            &sg::ADEnvelope::m_InAttackCurve,
+            &sg::ADEnvelope::m_InDecayCurve,
+            &sg::ADEnvelope::m_InLooping
         ),
         NODE_OUTPUTS(
-            &ADEnvelope::out_OutEnvelope,
-            &ADEnvelope::out_OnTrigger,
-            &ADEnvelope::out_OnComplete
+            &sg::ADEnvelope::m_OutOutEnvelope,
+            &sg::ADEnvelope::m_OutOnTrigger,
+            &sg::ADEnvelope::m_OutOnComplete
         )
     );
 
-    DESCRIBE_NODE(ADSREnvelope,
+    DESCRIBE_NODE(sg::ADSREnvelope,
         NODE_INPUTS(
-            &ADSREnvelope::in_AttackTime,
-            &ADSREnvelope::in_DecayTime,
-            &ADSREnvelope::in_SustainLevel,
-            &ADSREnvelope::in_ReleaseTime,
-            &ADSREnvelope::in_AttackCurve,
-            &ADSREnvelope::in_DecayCurve,
-            &ADSREnvelope::in_ReleaseCurve
+            &sg::ADSREnvelope::m_InAttackTime,
+            &sg::ADSREnvelope::m_InDecayTime,
+            &sg::ADSREnvelope::m_InSustainLevel,
+            &sg::ADSREnvelope::m_InReleaseTime,
+            &sg::ADSREnvelope::m_InAttackCurve,
+            &sg::ADSREnvelope::m_InDecayCurve,
+            &sg::ADSREnvelope::m_InReleaseCurve
         ),
         NODE_OUTPUTS(
-            &ADSREnvelope::out_OutEnvelope,
-            &ADSREnvelope::out_OnTrigger,
-            &ADSREnvelope::out_OnRelease,
-            &ADSREnvelope::out_OnComplete
+            &sg::ADSREnvelope::m_OutOutEnvelope,
+            &sg::ADSREnvelope::m_OutOnTrigger,
+            &sg::ADSREnvelope::m_OutOnRelease,
+            &sg::ADSREnvelope::m_OutOnComplete
         )
     );
 
     //==============================================================================
     // Trigger Nodes Descriptions
     //==============================================================================
-    DESCRIBE_NODE(RepeatTrigger,
+    DESCRIBE_NODE(sg::RepeatTrigger,
         NODE_INPUTS(
-            &RepeatTrigger::in_Period
+            &sg::RepeatTrigger::m_InPeriod
         ),
         NODE_OUTPUTS(
-            &RepeatTrigger::out_Trigger
+            &sg::RepeatTrigger::m_OutTrigger
         )
     );
 
-    DESCRIBE_NODE(TriggerCounter,
+    DESCRIBE_NODE(sg::TriggerCounter,
         NODE_INPUTS(
-            &TriggerCounter::in_StartValue,
-            &TriggerCounter::in_StepSize,
-            &TriggerCounter::in_ResetCount
+            &sg::TriggerCounter::m_InStartValue,
+            &sg::TriggerCounter::m_InStepSize,
+            &sg::TriggerCounter::m_InResetCount
         ),
         NODE_OUTPUTS(
-            &TriggerCounter::out_Count,
-            &TriggerCounter::out_Value,
-            &TriggerCounter::out_OnTrigger,
-            &TriggerCounter::out_OnReset
+            &sg::TriggerCounter::m_OutCount,
+            &sg::TriggerCounter::m_OutValue,
+            &sg::TriggerCounter::m_OutOnTrigger,
+            &sg::TriggerCounter::m_OutOnReset
         )
     );
 
-    DESCRIBE_NODE(DelayedTrigger,
+    DESCRIBE_NODE(sg::DelayedTrigger,
         NODE_INPUTS(
-            &DelayedTrigger::in_DelayTime
+            &sg::DelayedTrigger::m_InDelayTime
         ),
         NODE_OUTPUTS(
-            &DelayedTrigger::out_DelayedTrigger,
-            &DelayedTrigger::out_OnReset
+            &sg::DelayedTrigger::m_OutDelayedTrigger,
+            &sg::DelayedTrigger::m_OutOnReset
         )
     );
 
     //==============================================================================
     // Array Nodes Descriptions
     //==============================================================================
-    DESCRIBE_NODE(GetRandom<float>,
+    DESCRIBE_NODE(sg::GetRandom<float>,
         NODE_INPUTS(
-            &GetRandom<float>::in_Array,
-            &GetRandom<float>::in_Min,
-            &GetRandom<float>::in_Max,
-            &GetRandom<float>::in_Seed
+            &sg::GetRandom<float>::m_InArray,
+            &sg::GetRandom<float>::m_InMin,
+            &sg::GetRandom<float>::m_InMax,
+            &sg::GetRandom<float>::m_InSeed
         ),
         NODE_OUTPUTS(
-            &GetRandom<float>::out_OnNext,
-            &GetRandom<float>::out_OnReset,
-            &GetRandom<float>::out_Element
+            &sg::GetRandom<float>::m_OutOnNext,
+            &sg::GetRandom<float>::m_OutOnReset,
+            &sg::GetRandom<float>::m_OutElement
         )
     );
 
-    DESCRIBE_NODE(GetRandom<int>,
+    DESCRIBE_NODE(sg::GetRandom<int>,
         NODE_INPUTS(
-            &GetRandom<int>::in_Array,
-            &GetRandom<int>::in_Min,
-            &GetRandom<int>::in_Max,
-            &GetRandom<int>::in_Seed
+            &sg::GetRandom<int>::m_InArray,
+            &sg::GetRandom<int>::m_InMin,
+            &sg::GetRandom<int>::m_InMax,
+            &sg::GetRandom<int>::m_InSeed
         ),
         NODE_OUTPUTS(
-            &GetRandom<int>::out_OnNext,
-            &GetRandom<int>::out_OnReset,
-            &GetRandom<int>::out_Element
+            &sg::GetRandom<int>::m_OutOnNext,
+            &sg::GetRandom<int>::m_OutOnReset,
+            &sg::GetRandom<int>::m_OutElement
         )
     );
 
-    DESCRIBE_NODE(Get<float>,
+    DESCRIBE_NODE(sg::Get<float>,
         NODE_INPUTS(
-            &Get<float>::in_Array,
-            &Get<float>::in_Index
+            &sg::Get<float>::m_InArray,
+            &sg::Get<float>::m_InIndex
         ),
         NODE_OUTPUTS(
-            &Get<float>::out_OnTrigger,
-            &Get<float>::out_Element
+            &sg::Get<float>::m_OutOnTrigger,
+            &sg::Get<float>::m_OutElement
         )
     );
 
-    DESCRIBE_NODE(Get<int>,
+    DESCRIBE_NODE(sg::Get<int>,
         NODE_INPUTS(
-            &Get<int>::in_Array,
-            &Get<int>::in_Index
+            &sg::Get<int>::m_InArray,
+            &sg::Get<int>::m_InIndex
         ),
         NODE_OUTPUTS(
-            &Get<int>::out_OnTrigger,
-            &Get<int>::out_Element
+            &sg::Get<int>::m_OutOnTrigger,
+            &sg::Get<int>::m_OutElement
         )
     );
 
-    DESCRIBE_NODE(Random<float>,
+    DESCRIBE_NODE(sg::Random<float>,
         NODE_INPUTS(
-            &Random<float>::in_Min,
-            &Random<float>::in_Max,
-            &Random<float>::in_Seed
+            &sg::Random<float>::m_InMin,
+            &sg::Random<float>::m_InMax,
+            &sg::Random<float>::m_InSeed
         ),
         NODE_OUTPUTS(
-            &Random<float>::out_OnNext,
-            &Random<float>::out_OnReset,
-            &Random<float>::out_Value
+            &sg::Random<float>::m_OutOnNext,
+            &sg::Random<float>::m_OutOnReset,
+            &sg::Random<float>::m_OutValue
         )
     );
 
-    DESCRIBE_NODE(Random<int>,
+    DESCRIBE_NODE(sg::Random<int>,
         NODE_INPUTS(
-            &Random<int>::in_Min,
-            &Random<int>::in_Max,
-            &Random<int>::in_Seed
+            &sg::Random<int>::m_InMin,
+            &sg::Random<int>::m_InMax,
+            &sg::Random<int>::m_InSeed
         ),
         NODE_OUTPUTS(
-            &Random<int>::out_OnNext,
-            &Random<int>::out_OnReset,
-            &Random<int>::out_Value
+            &sg::Random<int>::m_OutOnNext,
+            &sg::Random<int>::m_OutOnReset,
+            &sg::Random<int>::m_OutValue
         )
     );
 
     //==============================================================================
     // Music Nodes Descriptions
     //==============================================================================
-    DESCRIBE_NODE(BPMToSeconds,
+    DESCRIBE_NODE(sg::BPMToSeconds,
         NODE_INPUTS(
-            &BPMToSeconds::in_BPM
+            &sg::BPMToSeconds::m_InBPM
         ),
         NODE_OUTPUTS(
-            &BPMToSeconds::out_Seconds
+            &sg::BPMToSeconds::m_OutSeconds
         )
     );
 
-    DESCRIBE_NODE(NoteToFrequency<float>,
+    DESCRIBE_NODE(sg::NoteToFrequency<float>,
         NODE_INPUTS(
-            &NoteToFrequency<float>::in_MIDINote
+            &sg::NoteToFrequency<float>::m_InMIDINote
         ),
         NODE_OUTPUTS(
-            &NoteToFrequency<float>::out_Frequency
+            &sg::NoteToFrequency<float>::m_OutFrequency
         )
     );
 
-    DESCRIBE_NODE(NoteToFrequency<int>,
+    DESCRIBE_NODE(sg::NoteToFrequency<int>,
         NODE_INPUTS(
-            &NoteToFrequency<int>::in_MIDINote
+            &sg::NoteToFrequency<int>::m_InMIDINote
         ),
         NODE_OUTPUTS(
-            &NoteToFrequency<int>::out_Frequency
+            &sg::NoteToFrequency<int>::m_OutFrequency
         )
     );
 
-    DESCRIBE_NODE(FrequencyToNote,
+    DESCRIBE_NODE(sg::FrequencyToNote,
         NODE_INPUTS(
-            &FrequencyToNote::in_Frequency
+            &sg::FrequencyToNote::m_InFrequency
         ),
         NODE_OUTPUTS(
-            &FrequencyToNote::out_MIDINote
+            &sg::FrequencyToNote::m_OutMIDINote
         )
     );

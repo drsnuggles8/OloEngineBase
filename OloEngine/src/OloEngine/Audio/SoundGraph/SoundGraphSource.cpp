@@ -136,6 +136,110 @@ namespace OloEngine::Audio::SoundGraph
 	}
 
 	//==============================================================================
+	/// SoundGraphSource::ThreadSafePreset Implementation
+
+	void SoundGraphSource::ThreadSafePreset::SetPreset(const SoundGraphPatchPreset& preset)
+	{
+		// Create a new shared_ptr copy using deep copying
+		auto newPreset = std::make_shared<SoundGraphPatchPreset>();
+		
+		// Copy preset metadata
+		newPreset->SetName(preset.GetName());
+		newPreset->SetDescription(preset.GetDescription());
+		newPreset->SetVersion(preset.GetVersion());
+		newPreset->SetAuthor(preset.GetAuthor());
+		
+		// Copy parameter descriptors
+		auto descriptors = preset.GetAllParameterDescriptors();
+		for (const auto& descriptor : descriptors)
+		{
+			newPreset->RegisterParameter(descriptor);
+		}
+		
+		// Copy patches
+		auto patchNames = preset.GetPatchNames();
+		for (const auto& patchName : patchNames)
+		{
+			const auto* sourcePatch = preset.GetPatch(patchName);
+			if (sourcePatch)
+			{
+				if (newPreset->CreatePatch(patchName, "Copied patch"))
+				{
+					auto* destPatch = newPreset->GetPatch(patchName);
+					if (destPatch)
+					{
+						// Copy all parameter values from source patch
+						*destPatch = *sourcePatch; // Use assignment operator if available
+					}
+				}
+			}
+		}
+		
+		// Atomically swap in the new preset while holding the lock
+		{
+			std::lock_guard<std::mutex> lock(m_PresetMutex);
+			m_Preset = newPreset;
+		}
+		
+		// Signal changes after publishing the new preset
+		m_HasChanges.store(true, std::memory_order_release);
+	}
+
+	bool SoundGraphSource::ThreadSafePreset::GetPresetIfChanged(SoundGraphPatchPreset& outPreset)
+	{
+		if (m_HasChanges.exchange(false, std::memory_order_acq_rel))
+		{
+			// Take a local copy of the shared_ptr while holding the lock briefly
+			std::shared_ptr<SoundGraphPatchPreset> localPreset;
+			{
+				std::lock_guard<std::mutex> lock(m_PresetMutex);
+				localPreset = m_Preset;
+			}
+			
+			// Now work with the stable snapshot without holding the lock
+			if (localPreset)
+			{
+				// Copy preset data to output
+				outPreset.SetName(localPreset->GetName());
+				outPreset.SetDescription(localPreset->GetDescription());
+				outPreset.SetVersion(localPreset->GetVersion());
+				outPreset.SetAuthor(localPreset->GetAuthor());
+				
+				// Clear existing parameter descriptors and patches in output to prevent stale data
+				outPreset.Clear();
+				
+				// Copy parameter descriptors
+				auto descriptors = localPreset->GetAllParameterDescriptors();
+				for (const auto& descriptor : descriptors)
+				{
+					outPreset.RegisterParameter(descriptor);
+				}
+				
+				// Copy patches
+				auto patchNames = localPreset->GetPatchNames();
+				for (const auto& patchName : patchNames)
+				{
+					const auto* sourcePatch = localPreset->GetPatch(patchName);
+					if (sourcePatch)
+					{
+						if (outPreset.CreatePatch(patchName, "Copied patch"))
+						{
+							auto* destPatch = outPreset.GetPatch(patchName);
+							if (destPatch)
+							{
+								*destPatch = *sourcePatch;
+							}
+						}
+					}
+				}
+				
+				return true;
+			}
+		}
+		return false;
+	}
+
+	//==============================================================================
 	/// SoundGraphSource Implementation
 
 	u64 SoundGraphSource::GetMaxTotalFrames() const
@@ -312,8 +416,8 @@ namespace OloEngine::Audio::SoundGraph
 			{
 				// We're on the main thread now - safe to allocate
 				// Convert ValueView to Value for the callback
-				choc::value::Value value = event.ValueData.GetValue();
-				m_OnGraphEvent(event.FrameIndex, event.EndpointID, value);
+				choc::value::Value value = event.m_ValueData.GetValue();
+				m_OnGraphEvent(event.m_FrameIndex, event.m_EndpointID, value);
 			}
 		}
 
@@ -324,7 +428,7 @@ namespace OloEngine::Audio::SoundGraph
 			// Call the message callback with the pre-allocated text
 			if (m_OnGraphMessage)
 			{
-				m_OnGraphMessage(msg.FrameIndex, msg.Text);
+				m_OnGraphMessage(msg.m_FrameIndex, msg.m_Text);
 			}
 		}
 
@@ -636,12 +740,12 @@ namespace OloEngine::Audio::SoundGraph
 		// Queue the event for processing on the main thread using lock-free pre-allocated storage
 		// This is real-time safe - no allocations, no locks, no blocking
 		Audio::AudioThreadEvent event;
-		event.FrameIndex = frameIndex;
-		event.EndpointID = static_cast<u32>(endpointID);
+		event.m_FrameIndex = frameIndex;
+		event.m_EndpointID = static_cast<u32>(endpointID);
 		
 		// Copy the event data into pre-allocated inline storage
 		// This avoids heap allocation while remaining thread-safe
-		if (!event.ValueData.CopyFrom(eventData))
+		if (!event.m_ValueData.CopyFrom(eventData))
 		{
 			// Value was too large for inline storage - this is rare for audio events
 			// Log a warning but don't allocate (keep it real-time safe)
@@ -666,7 +770,7 @@ namespace OloEngine::Audio::SoundGraph
 		// Queue the message for processing on the main thread using lock-free pre-allocated storage
 		// This is real-time safe - no allocations, no locks, no blocking
 		Audio::AudioThreadMessage msg;
-		msg.FrameIndex = frameIndex;
+		msg.m_FrameIndex = frameIndex;
 		msg.SetText(message);  // Copies into pre-allocated buffer
 		
 		// Push to the lock-free queue (wait-free operation)

@@ -69,11 +69,12 @@ namespace OloEngine
         /**
          * @brief Get asset metadata by handle
          * @param handle Handle of the asset
-         * @return AssetMetadata for the asset, or empty metadata if not found
+         * @return Const reference to AssetMetadata for the asset, or empty metadata if not found
          * 
-         * Note: Runtime asset managers may return limited metadata compared to editor managers
+         * Note: Runtime asset managers may return limited metadata compared to editor managers.
+         * The returned reference remains valid as long as the asset manager exists and the asset is not removed.
          */
-        virtual AssetMetadata GetAssetMetadata(AssetHandle handle) const noexcept = 0;
+        virtual const AssetMetadata& GetAssetMetadata(AssetHandle handle) const noexcept = 0;
 
         /**
          * @brief Add a memory-only asset (no backing file)

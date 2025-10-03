@@ -160,14 +160,15 @@ namespace OloEngine::Audio
 
         /// Convert interleaved audio to deinterleaved format using choc buffers
         template<typename SampleType>
-        static void Deinterleave(choc::buffer::ChannelArrayBuffer<SampleType>& dest, const f32* source)
+        static void Deinterleave(choc::buffer::ChannelArrayBuffer<SampleType>& dest, const f32* source, u32 numFrames = 0)
         {
             OLO_PROFILE_FUNCTION();
 
             auto numChannels = dest.getNumChannels();
             auto destData = dest.getView().data.channels;
+            auto framesToProcess = (numFrames == 0) ? dest.getNumFrames() : std::min(numFrames, dest.getNumFrames());
 
-            for (u32 s = 0; s < dest.getNumFrames(); ++s)
+            for (u32 s = 0; s < framesToProcess; ++s)
             {
                 for (u32 ch = 0; ch < numChannels; ++ch)
                 {
@@ -178,14 +179,15 @@ namespace OloEngine::Audio
 
         /// Convert deinterleaved audio to interleaved format using choc buffers
         template <typename SampleType>
-        static void Interleave(f32* dest, const choc::buffer::ChannelArrayBuffer<SampleType>& source)
+        static void Interleave(f32* dest, const choc::buffer::ChannelArrayBuffer<SampleType>& source, u32 numFrames = 0)
         {
             OLO_PROFILE_FUNCTION();
 
             auto numChannels = source.getNumChannels();
             auto sourceData = source.getView().data.channels;
+            auto framesToProcess = (numFrames == 0) ? source.getNumFrames() : std::min(numFrames, source.getNumFrames());
 
-            for (u32 s = 0; s < source.getNumFrames(); ++s)
+            for (u32 s = 0; s < framesToProcess; ++s)
             {
                 for (u32 ch = 0; ch < numChannels; ++ch)
                 {

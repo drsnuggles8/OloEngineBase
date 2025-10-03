@@ -36,7 +36,7 @@ namespace OloEngine::Audio
             : m_Type(other.m_Type)
             , m_DataSize(other.m_DataSize)
         {
-            std::memcpy(m_Storage, other.m_Storage, std::min(m_DataSize, static_cast<u32>(InlineStorageSize)));
+            std::memcpy(m_Storage, other.m_Storage, std::min(static_cast<sizet>(m_DataSize), InlineStorageSize));
         }
         
         // Copy assignment
@@ -46,7 +46,7 @@ namespace OloEngine::Audio
             {
                 m_Type = other.m_Type;
                 m_DataSize = other.m_DataSize;
-                std::memcpy(m_Storage, other.m_Storage, std::min(m_DataSize, static_cast<u32>(InlineStorageSize)));
+                std::memcpy(m_Storage, other.m_Storage, std::min(static_cast<sizet>(m_DataSize), InlineStorageSize));
             }
             return *this;
         }
@@ -106,17 +106,17 @@ namespace OloEngine::Audio
     /// Event structure with pre-allocated value storage
     struct AudioThreadEvent
     {
-        u64 FrameIndex = 0;
-        u32 EndpointID = 0;  // Use u32 instead of Identifier for lock-free compatibility
-        PreAllocatedValue ValueData;
+        u64 m_FrameIndex = 0;
+        u32 m_EndpointID = 0;  // Use u32 instead of Identifier for lock-free compatibility
+        PreAllocatedValue m_ValueData;
         
         AudioThreadEvent() = default;
         
         // Copy constructor
         AudioThreadEvent(const AudioThreadEvent& other)
-            : FrameIndex(other.FrameIndex)
-            , EndpointID(other.EndpointID)
-            , ValueData(other.ValueData)
+            : m_FrameIndex(other.m_FrameIndex)
+            , m_EndpointID(other.m_EndpointID)
+            , m_ValueData(other.m_ValueData)
         {}
         
         // Copy assignment
@@ -124,9 +124,9 @@ namespace OloEngine::Audio
         {
             if (this != &other)
             {
-                FrameIndex = other.FrameIndex;
-                EndpointID = other.EndpointID;
-                ValueData = other.ValueData;
+                m_FrameIndex = other.m_FrameIndex;
+                m_EndpointID = other.m_EndpointID;
+                m_ValueData = other.m_ValueData;
             }
             return *this;
         }
@@ -136,20 +136,20 @@ namespace OloEngine::Audio
     /// Message structure with pre-allocated string storage
     struct AudioThreadMessage
     {
-        u64 FrameIndex = 0;
+        u64 m_FrameIndex = 0;
         
         // Pre-allocated storage for message text
         static constexpr sizet s_MaxMessageLength = 256;
-        char Text[s_MaxMessageLength] = {};
+        char m_Text[s_MaxMessageLength] = {};
         
         AudioThreadMessage() = default;
         
         // Copy constructor
         AudioThreadMessage(const AudioThreadMessage& other)
-            : FrameIndex(other.FrameIndex)
+            : m_FrameIndex(other.m_FrameIndex)
         {
-            std::strncpy(Text, other.Text, s_MaxMessageLength - 1);
-            Text[s_MaxMessageLength - 1] = '\0';
+            std::strncpy(m_Text, other.m_Text, s_MaxMessageLength - 1);
+            m_Text[s_MaxMessageLength - 1] = '\0';
         }
         
         // Copy assignment
@@ -157,9 +157,9 @@ namespace OloEngine::Audio
         {
             if (this != &other)
             {
-                FrameIndex = other.FrameIndex;
-                std::strncpy(Text, other.Text, s_MaxMessageLength - 1);
-                Text[s_MaxMessageLength - 1] = '\0';
+                m_FrameIndex = other.m_FrameIndex;
+                std::strncpy(m_Text, other.m_Text, s_MaxMessageLength - 1);
+                m_Text[s_MaxMessageLength - 1] = '\0';
             }
             return *this;
         }
@@ -168,12 +168,12 @@ namespace OloEngine::Audio
         {
             if (text)
             {
-                std::strncpy(Text, text, s_MaxMessageLength - 1);
-                Text[s_MaxMessageLength - 1] = '\0';
+                std::strncpy(m_Text, text, s_MaxMessageLength - 1);
+                m_Text[s_MaxMessageLength - 1] = '\0';
             }
             else
             {
-                Text[0] = '\0';
+                m_Text[0] = '\0';
             }
         }
     };
@@ -204,6 +204,8 @@ namespace OloEngine::Audio
         /// This is wait-free and allocation-free
         bool Push(const T& item) noexcept
         {
+            OLO_PROFILE_FUNCTION();
+
             const sizet writeIndex = m_WriteIndex.load(std::memory_order_relaxed);
             const sizet nextWriteIndex = (writeIndex + 1) & (Capacity - 1);
             

@@ -49,17 +49,17 @@ namespace OloEngine::Audio::SoundGraph
 			OLO_PROFILE_FUNCTION();
 
 			// Check for parameter changes and recalculate rates if needed
-			if (*in_AttackTime != m_CachedAttackTime ||
-				*in_DecayTime != m_CachedDecayTime ||
-				*in_AttackCurve != m_CachedAttackCurve ||
-				*in_DecayCurve != m_CachedDecayCurve ||
+			if (*m_InAttackTime != m_CachedAttackTime ||
+				*m_InDecayTime != m_CachedDecayTime ||
+				*m_InAttackCurve != m_CachedAttackCurve ||
+				*m_InDecayCurve != m_CachedDecayCurve ||
 				m_SampleRate != m_CachedSampleRate)
 			{
 				RecalculateRates();
-				m_CachedAttackTime = *in_AttackTime;
-				m_CachedDecayTime = *in_DecayTime;
-				m_CachedAttackCurve = *in_AttackCurve;
-				m_CachedDecayCurve = *in_DecayCurve;
+				m_CachedAttackTime = *m_InAttackTime;
+				m_CachedDecayTime = *m_InDecayTime;
+				m_CachedAttackCurve = *m_InAttackCurve;
+				m_CachedDecayCurve = *m_InDecayCurve;
 				m_CachedSampleRate = m_SampleRate;
 			}
 
@@ -86,22 +86,22 @@ namespace OloEngine::Audio::SoundGraph
 				break;
 			}
 
-			out_OutEnvelope = m_Value;
+			m_OutOutEnvelope = m_Value;
 		}
 
 		// Input parameters
-		f32* in_AttackTime = nullptr;		// Attack time in seconds
-		f32* in_DecayTime = nullptr;		// Decay time in seconds
-		f32* in_AttackCurve = nullptr;	// Attack curve shaping (1.0 = linear, >1 = convex, <1 = concave)
-		f32* in_DecayCurve = nullptr;		// Decay curve shaping
-		bool* in_Looping = nullptr;			// Enable looping (retrigger after decay)
+		f32* m_InAttackTime = nullptr;		// Attack time in seconds
+		f32* m_InDecayTime = nullptr;		// Decay time in seconds
+		f32* m_InAttackCurve = nullptr;	// Attack curve shaping (1.0 = linear, >1 = convex, <1 = concave)
+		f32* m_InDecayCurve = nullptr;		// Decay curve shaping
+		bool* m_InLooping = nullptr;			// Enable looping (retrigger after decay)
 
 		// Outputs
-		f32 out_OutEnvelope{ 0.0f };
+		f32 m_OutOutEnvelope{ 0.0f };
 
 		// Output events
-		OutputEvent out_OnTrigger{ *this };
-		OutputEvent out_OnComplete{ *this };
+		OutputEvent m_OutOnTrigger{ *this };
+		OutputEvent m_OutOnComplete{ *this };
 
 		void RegisterEndpoints();
 		void InitializeInputs();
@@ -139,20 +139,20 @@ namespace OloEngine::Audio::SoundGraph
 
 		void RecalculateRates()
 		{
-			m_AttackCurve = glm::max(0.1f, *in_AttackCurve);
-			m_DecayCurve = glm::max(0.1f, *in_DecayCurve);
+			m_AttackCurve = glm::max(0.1f, *m_InAttackCurve);
+			m_DecayCurve = glm::max(0.1f, *m_InDecayCurve);
 
 			// Calculate attack rate (linear per-sample increment to reach 1.0 in specified time)
-			if (*in_AttackTime <= 0.0f)
+			if (*m_InAttackTime <= 0.0f)
 				m_AttackRate = 1.0f; // Immediate
 			else
-				m_AttackRate = 1.0f / (*in_AttackTime * m_SampleRate);
+				m_AttackRate = 1.0f / (*m_InAttackTime * m_SampleRate);
 
 			// Calculate decay rate (linear per-sample increment to reach 1.0 in specified time)
-			if (*in_DecayTime <= 0.0f)
+			if (*m_InDecayTime <= 0.0f)
 				m_DecayRate = 1.0f; // Immediate
 			else
-				m_DecayRate = 1.0f / (*in_DecayTime * m_SampleRate);
+				m_DecayRate = 1.0f / (*m_InDecayTime * m_SampleRate);
 		}
 
 		void StartAttack()
@@ -160,7 +160,7 @@ namespace OloEngine::Audio::SoundGraph
 			m_State = Attack;
 			m_Target = 1.0f;
 			m_AttackProgress = 0.0f; // Reset attack progress
-			out_OnTrigger(1.0f);
+			m_OutOnTrigger(1.0f);
 		}
 
 		void ProcessAttack()
@@ -202,10 +202,10 @@ namespace OloEngine::Audio::SoundGraph
 			{
 				m_Value = 0.0f;
 				m_State = Idle;
-				out_OnComplete(1.0f);
+				m_OutOnComplete(1.0f);
 
 				// Handle looping
-				if (*in_Looping)
+				if (*m_InLooping)
 				{
 					StartAttack();
 				}
@@ -253,21 +253,21 @@ namespace OloEngine::Audio::SoundGraph
 			OLO_PROFILE_FUNCTION();
 			
 			// Check for parameter changes and recalculate rates if needed
-			if (*in_AttackTime != m_CachedAttackTime ||
-				*in_DecayTime != m_CachedDecayTime ||
-				*in_ReleaseTime != m_CachedReleaseTime ||
-				*in_AttackCurve != m_CachedAttackCurve ||
-				*in_DecayCurve != m_CachedDecayCurve ||
-				*in_ReleaseCurve != m_CachedReleaseCurve ||
+			if (*m_InAttackTime != m_CachedAttackTime ||
+				*m_InDecayTime != m_CachedDecayTime ||
+				*m_InReleaseTime != m_CachedReleaseTime ||
+				*m_InAttackCurve != m_CachedAttackCurve ||
+				*m_InDecayCurve != m_CachedDecayCurve ||
+				*m_InReleaseCurve != m_CachedReleaseCurve ||
 				m_SampleRate != m_CachedSampleRate)
 			{
 				RecalculateRates();
-				m_CachedAttackTime = *in_AttackTime;
-				m_CachedDecayTime = *in_DecayTime;
-				m_CachedReleaseTime = *in_ReleaseTime;
-				m_CachedAttackCurve = *in_AttackCurve;
-				m_CachedDecayCurve = *in_DecayCurve;
-				m_CachedReleaseCurve = *in_ReleaseCurve;
+				m_CachedAttackTime = *m_InAttackTime;
+				m_CachedDecayTime = *m_InDecayTime;
+				m_CachedReleaseTime = *m_InReleaseTime;
+				m_CachedAttackCurve = *m_InAttackCurve;
+				m_CachedDecayCurve = *m_InDecayCurve;
+				m_CachedReleaseCurve = *m_InReleaseCurve;
 				m_CachedSampleRate = m_SampleRate;
 			}
 
@@ -301,7 +301,7 @@ namespace OloEngine::Audio::SoundGraph
 
 			case Sustain:
 				// Value remains at sustain level
-				m_Value = *in_SustainLevel;
+				m_Value = *m_InSustainLevel;
 				break;
 
 			case Release:
@@ -309,25 +309,25 @@ namespace OloEngine::Audio::SoundGraph
 				break;
 			}
 
-			out_OutEnvelope = m_Value;
+			m_OutOutEnvelope = m_Value;
 		}
 
 		// Input parameters
-		f32* in_AttackTime = nullptr;		// Attack time in seconds
-		f32* in_DecayTime = nullptr;		// Decay time in seconds
-		f32* in_SustainLevel = nullptr;	// Sustain level (0.0 to 1.0)
-		f32* in_ReleaseTime = nullptr;	// Release time in seconds
-		f32* in_AttackCurve = nullptr;	// Attack curve shaping
-		f32* in_DecayCurve = nullptr;		// Decay curve shaping
-		f32* in_ReleaseCurve = nullptr;	// Release curve shaping
+		f32* m_InAttackTime = nullptr;		// Attack time in seconds
+		f32* m_InDecayTime = nullptr;		// Decay time in seconds
+		f32* m_InSustainLevel = nullptr;	// Sustain level (0.0 to 1.0)
+		f32* m_InReleaseTime = nullptr;	// Release time in seconds
+		f32* m_InAttackCurve = nullptr;	// Attack curve shaping
+		f32* m_InDecayCurve = nullptr;		// Decay curve shaping
+		f32* m_InReleaseCurve = nullptr;	// Release curve shaping
 
 		// Outputs
-		f32 out_OutEnvelope{ 0.0f };
+		f32 m_OutOutEnvelope{ 0.0f };
 
 		// Output events
-		OutputEvent out_OnTrigger{ *this };
-		OutputEvent out_OnRelease{ *this };
-		OutputEvent out_OnComplete{ *this };
+		OutputEvent m_OutOnTrigger{ *this };
+		OutputEvent m_OutOnRelease{ *this };
+		OutputEvent m_OutOnComplete{ *this };
 
 		void RegisterEndpoints();
 		void InitializeInputs();
@@ -374,25 +374,25 @@ namespace OloEngine::Audio::SoundGraph
 
 		void RecalculateRates()
 		{
-			m_AttackCurve = glm::max(0.1f, *in_AttackCurve);
-			m_DecayCurve = glm::max(0.1f, *in_DecayCurve);
-			m_ReleaseCurve = glm::max(0.1f, *in_ReleaseCurve);
+			m_AttackCurve = glm::max(0.1f, *m_InAttackCurve);
+			m_DecayCurve = glm::max(0.1f, *m_InDecayCurve);
+			m_ReleaseCurve = glm::max(0.1f, *m_InReleaseCurve);
 
 			// Calculate per-sample progress increments (1/durationInSamples)
-			if (*in_AttackTime <= 0.0f)
+			if (*m_InAttackTime <= 0.0f)
 				m_AttackRate = 1.0f; // Immediate (complete in one sample)
 			else
-				m_AttackRate = 1.0f / (*in_AttackTime * m_SampleRate);
+				m_AttackRate = 1.0f / (*m_InAttackTime * m_SampleRate);
 
-			if (*in_DecayTime <= 0.0f)
+			if (*m_InDecayTime <= 0.0f)
 				m_DecayRate = 1.0f; // Immediate
 			else
-				m_DecayRate = 1.0f / (*in_DecayTime * m_SampleRate);
+				m_DecayRate = 1.0f / (*m_InDecayTime * m_SampleRate);
 
-			if (*in_ReleaseTime <= 0.0f)
+			if (*m_InReleaseTime <= 0.0f)
 				m_ReleaseRate = 1.0f; // Immediate
 			else
-				m_ReleaseRate = 1.0f / (*in_ReleaseTime * m_SampleRate);
+				m_ReleaseRate = 1.0f / (*m_InReleaseTime * m_SampleRate);
 		}
 
 		void StartAttack()
@@ -400,7 +400,7 @@ namespace OloEngine::Audio::SoundGraph
 			m_State = Attack;
 			m_Target = 1.0f;
 			m_AttackProgress = 0.0f; // Reset attack progress
-			out_OnTrigger(1.0f);
+			m_OutOnTrigger(1.0f);
 		}
 
 		void StartRelease()
@@ -411,7 +411,7 @@ namespace OloEngine::Audio::SoundGraph
 				m_SustainStartValue = m_Value;
 				m_Target = 0.0f;
 				m_ReleaseProgress = 0.0f; // Reset release progress
-				out_OnRelease(1.0f);
+				m_OutOnRelease(1.0f);
 			}
 		}
 
@@ -432,7 +432,7 @@ namespace OloEngine::Audio::SoundGraph
 			{
 				m_Value = 1.0f;
 				m_State = Decay;
-				m_Target = glm::clamp(*in_SustainLevel, 0.0f, 1.0f);
+				m_Target = glm::clamp(*m_InSustainLevel, 0.0f, 1.0f);
 				m_DecayProgress = 0.0f; // Reset decay progress
 			}
 		}
@@ -447,7 +447,7 @@ namespace OloEngine::Audio::SoundGraph
 			f32 curvedProgress = glm::pow(m_DecayProgress, m_DecayCurve);
 			
 			// Interpolate using curved progress (decay from 1.0 to sustain level)
-			f32 sustainLevel = glm::clamp(*in_SustainLevel, 0.0f, 1.0f);
+			f32 sustainLevel = glm::clamp(*m_InSustainLevel, 0.0f, 1.0f);
 			m_Value = 1.0f - curvedProgress * (1.0f - sustainLevel);
 
 			// Check if decay is complete
@@ -475,7 +475,7 @@ namespace OloEngine::Audio::SoundGraph
 			{
 				m_Value = 0.0f;
 				m_State = Idle;
-				out_OnComplete(1.0f);
+				m_OutOnComplete(1.0f);
 			}
 		}
 	};

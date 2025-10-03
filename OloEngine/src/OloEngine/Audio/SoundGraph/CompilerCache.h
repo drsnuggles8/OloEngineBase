@@ -9,6 +9,10 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <queue>
+#include <thread>
+#include <condition_variable>
+#include <atomic>
 
 // Default compiler version - can be overridden at compile time
 #ifndef OLO_SOUND_GRAPH_COMPILER_VERSION
@@ -40,7 +44,7 @@ namespace OloEngine::Audio::SoundGraph
     {
     public:
         CompilerCache(const std::string& cacheDirectory = "cache/compiler/");
-        ~CompilerCache() = default;
+        ~CompilerCache();
 
         /// Cache Operations
         bool HasCompiled(const std::string& sourcePath, const std::string& compilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION) const;
@@ -54,7 +58,9 @@ namespace OloEngine::Audio::SoundGraph
         /// @param force If true, physically deletes the cache directory from disk and recreates it.
         ///              If false (default), only clears in-memory cache without touching disk files.
         ///              A warning is always logged before disk deletion to prevent accidental data loss.
-        void ClearCache(bool force = false);
+        /// @param allowDeletionWithoutBackup If true, allows deletion even if backup creation fails.
+        ///                                    If false (default), aborts deletion when backup fails to prevent data loss.
+        void ClearCache(bool force = false, bool allowDeletionWithoutBackup = false);
 
         /// File System Integration
         bool IsSourceNewer(const std::string& sourcePath, const CompilationResult& result) const;
@@ -143,6 +149,17 @@ namespace OloEngine::Audio::SoundGraph
         bool SerializeResult(const CompilationResult& result, const std::string& filePath) const;
         bool DeserializeResult(CompilationResult& result, const std::string& filePath) const;
         
+        // Async save support
+        struct SaveTask
+        {
+            CompilationResult m_Result;
+            std::string m_FilePath;
+        };
+        
+        void AsyncSaveWorker();
+        void EnqueueSave(const CompilationResult& result, const std::string& filePath);
+        void ShutdownAsyncSaver();
+        
     private:
         mutable std::mutex m_Mutex;
         std::unordered_map<std::string, std::shared_ptr<CompilationResult>> m_CompiledResults;
@@ -160,9 +177,15 @@ namespace OloEngine::Audio::SoundGraph
         bool m_DiskCacheLoaded = false;
         std::string m_InitializationErrors;
         
+        // Async save worker
+        std::queue<SaveTask> m_SaveQueue;
+        std::mutex m_SaveQueueMutex;
+        std::condition_variable m_SaveQueueCV;
+        std::thread m_SaveWorkerThread;
+        std::atomic<bool> m_SaveWorkerRunning{false};
+        
         // Helper methods
         std::string GenerateCacheKey(const std::string& sourcePath, const std::string& compilerVersion) const;
-        sizet HashString(const std::string& str) const;
     };
 
     /// Compiler integration utilities

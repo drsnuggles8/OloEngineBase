@@ -26,14 +26,14 @@ namespace OloEngine::Audio::SoundGraph
     /// Cache entry for compiled sound graphs
     struct SoundGraphCacheEntry
     {
-        std::string SourcePath;
-        std::string CompiledPath;
-        sizet SourceHash = 0;
-        std::chrono::time_point<std::chrono::system_clock> LastModified;
-        std::chrono::time_point<std::chrono::system_clock> LastAccessed;
-        Ref<SoundGraph> CachedGraph;
-        bool IsValid = false;
-        u32 AccessCount = 0;
+        std::string m_SourcePath;
+        std::string m_CompiledPath;
+        sizet m_SourceHash = 0;
+        std::chrono::time_point<std::chrono::system_clock> m_LastModified;
+        std::chrono::time_point<std::chrono::system_clock> m_LastAccessed;
+        Ref<SoundGraph> m_CachedGraph;
+        bool m_IsValid = false;
+        u32 m_AccessCount = 0;
     };
 
     /// High-performance cache for compiled sound graphs with LRU eviction
@@ -90,11 +90,11 @@ namespace OloEngine::Audio::SoundGraph
         bool LoadCacheMetadata(const std::string& filePath);
 
     private:
-		mutable std::mutex m_Mutex;
-		std::unordered_map<std::string, SoundGraphCacheEntry> m_CacheEntries;
-		
-		// LRU tracking - most recent at back for O(1) insertion
-		std::deque<std::string> m_LRUOrder;        // Configuration
+        mutable std::mutex m_Mutex;
+        std::unordered_map<std::string, SoundGraphCacheEntry> m_CacheEntries;
+        
+        // LRU tracking - most recent at back for O(1) insertion
+        std::deque<std::string> m_LRUOrder;        // Configuration
         sizet m_MaxCacheSize;
         sizet m_MaxMemoryUsage;
         sizet m_CurrentMemoryUsage = 0;
@@ -157,13 +157,13 @@ namespace OloEngine::Audio::SoundGraph
     
     struct SoundGraphCacheConfig
     {
-        sizet MaxCacheSize = 50;
-        sizet MaxMemoryUsage = 256 * 1024 * 1024; // 256MB
-        bool EnableAsyncLoading = true;
-        bool EnablePersistentCache = true;
-        std::string CacheDirectory = "cache/soundgraph/";
-        i32 MaintenanceIntervalMinutes = 30;
-        f32 EvictionThreshold = 0.9f; // Start evicting when 90% full
+        sizet m_MaxCacheSize = 50;
+        sizet m_MaxMemoryUsage = 256 * 1024 * 1024; // 256MB
+        bool m_EnableAsyncLoading = true;
+        bool m_EnablePersistentCache = true;
+        std::string m_CacheDirectory = "cache/soundgraph/";
+        i32 m_MaintenanceIntervalMinutes = 30;
+        f32 m_EvictionThreshold = 0.9f; // Start evicting when 90% full
     };
 
 } // namespace OloEngine::Audio::SoundGraph

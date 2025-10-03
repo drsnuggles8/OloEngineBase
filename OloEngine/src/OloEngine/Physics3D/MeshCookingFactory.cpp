@@ -662,7 +662,7 @@ namespace OloEngine {
 			glm::vec3 center = (minBounds + maxBounds) * 0.5f;
 			
 			// Find vertices that are most extreme in various directions
-			std::set<size_t> selectedIndices;
+			std::set<sizet> selectedIndices;
 			
 			// Always include the 6 axis-aligned extremes (min/max X, Y, Z)
 			auto findExtreme = [&](const glm::vec3& direction) -> sizet {

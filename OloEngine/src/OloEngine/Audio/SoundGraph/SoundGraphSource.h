@@ -21,8 +21,8 @@
 
 namespace OloEngine::Audio::SoundGraph
 {
-    // Use Flag utilities from Base.h
-    using ::AtomicFlag;
+    // Use Flag utilities from OloEngine namespace
+    using OloEngine::AtomicFlag;
 
     //==============================================================================
     /// DataSourceContext - Manages wave asset readers for sound graph
@@ -36,7 +36,7 @@ namespace OloEngine::Audio::SoundGraph
         void UninitializeAll();
         
         bool AreAllSourcesAtEnd() const;
-        int GetSourceCount() const { return static_cast<int>(m_WaveSources.size()); }
+        i32 GetSourceCount() const { return static_cast<i32>(m_WaveSources.size()); }
     };
 
     //==============================================================================
@@ -95,7 +95,7 @@ namespace OloEngine::Audio::SoundGraph
         //==============================================================================
         /// Playback Interface
         
-        int GetNumDataSources() const;
+        i32 GetNumDataSources() const;
         bool AreAllDataSourcesAtEnd();
         bool IsAnyDataSourceReading() { return !AreAllDataSourcesAtEnd(); }
         
@@ -199,107 +199,10 @@ namespace OloEngine::Audio::SoundGraph
             std::shared_ptr<SoundGraphPatchPreset> m_Preset;
             
             // Only one writer at a time expected - called from main thread
-            void SetPreset(const SoundGraphPatchPreset& preset)
-            {
-                // Create a new shared_ptr copy using deep copying
-                auto newPreset = std::make_shared<SoundGraphPatchPreset>();
-                
-                // Copy preset metadata
-                newPreset->SetName(preset.GetName());
-                newPreset->SetDescription(preset.GetDescription());
-                newPreset->SetVersion(preset.GetVersion());
-                newPreset->SetAuthor(preset.GetAuthor());
-                
-                // Copy parameter descriptors
-                auto descriptors = preset.GetAllParameterDescriptors();
-                for (const auto& descriptor : descriptors)
-                {
-                    newPreset->RegisterParameter(descriptor);
-                }
-                
-                // Copy patches
-                auto patchNames = preset.GetPatchNames();
-                for (const auto& patchName : patchNames)
-                {
-                    const auto* sourcePatch = preset.GetPatch(patchName);
-                    if (sourcePatch)
-                    {
-                        if (newPreset->CreatePatch(patchName, "Copied patch"))
-                        {
-                            auto* destPatch = newPreset->GetPatch(patchName);
-                            if (destPatch)
-                            {
-                                // Copy all parameter values from source patch
-                                *destPatch = *sourcePatch; // Use assignment operator if available
-                            }
-                        }
-                    }
-                }
-                
-                // Atomically swap in the new preset while holding the lock
-                {
-                    std::lock_guard<std::mutex> lock(m_PresetMutex);
-                    m_Preset = newPreset;
-                }
-                
-                // Signal changes after publishing the new preset
-                m_HasChanges.store(true, std::memory_order_release);
-            }
+            void SetPreset(const SoundGraphPatchPreset& preset);
             
             // Read from audio thread - takes a stable snapshot for safe reading
-            bool GetPresetIfChanged(SoundGraphPatchPreset& outPreset)
-            {
-                if (m_HasChanges.exchange(false, std::memory_order_acq_rel))
-                {
-                    // Take a local copy of the shared_ptr while holding the lock briefly
-                    std::shared_ptr<SoundGraphPatchPreset> localPreset;
-                    {
-                        std::lock_guard<std::mutex> lock(m_PresetMutex);
-                        localPreset = m_Preset;
-                    }
-                    
-                    // Now work with the stable snapshot without holding the lock
-                    if (localPreset)
-                    {
-                        // Copy preset data to output
-                        outPreset.SetName(localPreset->GetName());
-                        outPreset.SetDescription(localPreset->GetDescription());
-                        outPreset.SetVersion(localPreset->GetVersion());
-                        outPreset.SetAuthor(localPreset->GetAuthor());
-                        
-                        // Clear existing parameter descriptors and patches in output to prevent stale data
-                        outPreset.Clear();
-                        
-                        // Copy parameter descriptors
-                        auto descriptors = localPreset->GetAllParameterDescriptors();
-                        for (const auto& descriptor : descriptors)
-                        {
-                            outPreset.RegisterParameter(descriptor);
-                        }
-                        
-                        // Copy patches
-                        auto patchNames = localPreset->GetPatchNames();
-                        for (const auto& patchName : patchNames)
-                        {
-                            const auto* sourcePatch = localPreset->GetPatch(patchName);
-                            if (sourcePatch)
-                            {
-                                if (outPreset.CreatePatch(patchName, "Copied patch"))
-                                {
-                                    auto* destPatch = outPreset.GetPatch(patchName);
-                                    if (destPatch)
-                                    {
-                                        *destPatch = *sourcePatch;
-                                    }
-                                }
-                            }
-                        }
-                        
-                        return true;
-                    }
-                }
-                return false;
-            }
+            bool GetPresetIfChanged(SoundGraphPatchPreset& outPreset);
         }
         
         m_ThreadSafePreset;

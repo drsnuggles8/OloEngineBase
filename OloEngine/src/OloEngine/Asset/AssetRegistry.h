@@ -57,16 +57,20 @@ namespace OloEngine
         /**
          * @brief Get asset metadata by handle
          * @param handle Asset handle
-         * @return Asset metadata, or default-constructed metadata if not found
+         * @return Const reference to asset metadata, or empty metadata if not found
+         * 
+         * The returned reference remains valid as long as the registry exists and the asset is not removed.
          */
-        AssetMetadata GetMetadata(AssetHandle handle) const;
+        const AssetMetadata& GetMetadata(AssetHandle handle) const;
 
         /**
          * @brief Get asset metadata by file path
          * @param path File path of the asset
-         * @return Asset metadata, or default-constructed metadata if not found
+         * @return Const reference to asset metadata, or empty metadata if not found
+         * 
+         * The returned reference remains valid as long as the registry exists and the asset is not removed.
          */
-        AssetMetadata GetMetadata(const std::filesystem::path& path) const;
+        const AssetMetadata& GetMetadata(const std::filesystem::path& path) const;
 
         /**
          * @brief Check if an asset exists in the registry

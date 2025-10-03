@@ -8,14 +8,14 @@
 
 namespace OloEngine::Audio::SoundGraph
 {
-	class Factory
-	{
-	public:
-		[[nodiscard]] static std::unique_ptr<NodeProcessor> Create(Identifier nodeTypeID, UUID nodeID);
-		static bool Contains(Identifier nodeTypeID);
+    class Factory
+    {
+    public:
+        [[nodiscard]] static std::unique_ptr<NodeProcessor> Create(Identifier nodeTypeID, UUID nodeID);
+        static bool Contains(Identifier nodeTypeID);
 
-	private:
-		Factory() = delete;
-	};
+    private:
+        Factory() = delete;
+    };
 
 } // namespace OloEngine::Audio::SoundGraph

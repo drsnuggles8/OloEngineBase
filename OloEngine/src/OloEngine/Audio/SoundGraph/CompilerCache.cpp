@@ -16,6 +16,8 @@ namespace OloEngine::Audio::SoundGraph
 	CompilerCache::CompilerCache(const std::string& cacheDirectory)
 		: m_CacheDirectory(cacheDirectory)
 	{
+        OLO_PROFILE_FUNCTION();
+
 		// Initialize directory creation with enhanced error handling
 		try
 		{
@@ -90,6 +92,16 @@ namespace OloEngine::Audio::SoundGraph
 			OLO_CORE_WARN("CompilerCache: Partially initialized - some features may be limited. Errors: {}", 
 						  m_InitializationErrors.empty() ? "None" : m_InitializationErrors);
 		}
+		
+		// Start async save worker thread
+		m_SaveWorkerRunning = true;
+		m_SaveWorkerThread = std::thread(&CompilerCache::AsyncSaveWorker, this);
+		OLO_CORE_TRACE("CompilerCache: Async save worker thread started");
+	}
+	
+	CompilerCache::~CompilerCache()
+	{
+		ShutdownAsyncSaver();
 	}
     
     bool CompilerCache::HasCompiled(const std::string& sourcePath, const std::string& compilerVersion) const
@@ -135,7 +147,9 @@ namespace OloEngine::Audio::SoundGraph
 
 		++m_HitCount;
 		return it->second; // Return shared_ptr for thread-safe access
-	}    void CompilerCache::StoreCompiled(const std::string& sourcePath, const CompilationResult& result)
+	}
+    
+    void CompilerCache::StoreCompiled(const std::string& sourcePath, const CompilationResult& result)
     {
         OLO_PROFILE_FUNCTION();
         
@@ -175,9 +189,9 @@ namespace OloEngine::Audio::SoundGraph
         
         if (m_AutoSave)
         {
-            // Save to disk asynchronously in production
+            // Save to disk asynchronously using background worker thread
             std::string filePath = GetCacheFilePath(sourcePath, result.m_CompilerVersion);
-            SerializeResult(result, filePath);
+            EnqueueSave(result, filePath);
         }
 
         OLO_CORE_TRACE("CompilerCache: Stored compiled result for '{}' ({}ms compilation)", 
@@ -218,7 +232,7 @@ namespace OloEngine::Audio::SoundGraph
 		}
 	}
     
-    void CompilerCache::ClearCache(bool force)
+    void CompilerCache::ClearCache(bool force, bool allowDeletionWithoutBackup)
     {
         OLO_PROFILE_FUNCTION();
         
@@ -268,7 +282,22 @@ namespace OloEngine::Audio::SoundGraph
             }
             catch (const std::filesystem::filesystem_error& backupEx)
             {
-                OLO_CORE_ERROR("CompilerCache: Failed to create backup: {} - Proceeding with deletion anyway", backupEx.what());
+                OLO_CORE_ERROR("CompilerCache: Failed to create backup: {} (path: '{}', error code: {})", 
+                    backupEx.what(), backupEx.path1().string(), backupEx.code().value());
+            }
+            
+            // SAFETY CHECK: Abort deletion if backup failed unless explicitly allowed
+            if (!backupSuccess && !allowDeletionWithoutBackup)
+            {
+                OLO_CORE_ERROR("CompilerCache: ABORTING cache deletion - backup creation failed and allowDeletionWithoutBackup is false");
+                OLO_CORE_ERROR("CompilerCache: To proceed with deletion despite backup failure, call ClearCache(true, true)");
+                OLO_CORE_INFO("CompilerCache: In-memory cache was cleared, but disk cache remains intact at '{}'", m_CacheDirectory);
+                return;
+            }
+            
+            if (!backupSuccess && allowDeletionWithoutBackup)
+            {
+                OLO_CORE_WARN("CompilerCache: Proceeding with deletion WITHOUT backup (allowDeletionWithoutBackup=true) - DATA LOSS RISK!");
             }
             
             // Perform the destructive removal
@@ -318,10 +347,9 @@ namespace OloEngine::Audio::SoundGraph
     std::string CompilerCache::GetCacheFilePath(const std::string& sourcePath, const std::string& compilerVersion) const
     {
         std::string key = GenerateCacheKey(sourcePath, compilerVersion);
-        sizet hash = HashString(key);
         
         // Use std::filesystem::path for cross-platform path concatenation
-        std::filesystem::path cachePath = std::filesystem::path(m_CacheDirectory) / (std::to_string(hash) + ".compiled");
+        std::filesystem::path cachePath = std::filesystem::path(m_CacheDirectory) / (key + ".compiled");
         return cachePath.string();
     }
 
@@ -611,18 +639,6 @@ namespace OloEngine::Audio::SoundGraph
         return oss.str();
     }
 
-    sizet CompilerCache::HashString(const std::string& str) const
-    {
-        OLO_PROFILE_FUNCTION();
-
-        sizet hash = 0;
-        for (char c : str)
-        {
-            hash = hash * 31 + static_cast<sizet>(c);
-        }
-        return hash;
-    }
-
     sizet CompilerCache::GetFileSize(const std::string& filePath) const
     {
         OLO_PROFILE_FUNCTION();
@@ -820,8 +836,8 @@ namespace OloEngine::Audio::SoundGraph
                 return false;
             }
             
-            u32 formatVersion;
-            file.read(reinterpret_cast<char*>(&formatVersion), sizeof(formatVersion));
+            // Read format version using little-endian reader (matches write_u32 in SerializeResult)
+            u32 formatVersion = read_u32();
             if (formatVersion > 2) // Current supported version is 2
             {
                 OLO_CORE_WARN("CompilerCache: Unsupported format version {} in cache file '{}' (expected <= 2)", formatVersion, filePath);
@@ -1111,6 +1127,126 @@ namespace OloEngine::Audio::SoundGraph
             auto cache = GetGlobalCompilerCache();
             cache->ValidateAllEntries();
         }
+    }
+    
+    //==============================================================================
+    /// Async Save Implementation
+    
+    void CompilerCache::EnqueueSave(const CompilationResult& result, const std::string& filePath)
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        SaveTask task;
+        task.m_Result = result;
+        task.m_FilePath = filePath;
+        
+        {
+            std::lock_guard<std::mutex> lock(m_SaveQueueMutex);
+            m_SaveQueue.push(std::move(task));
+        }
+        
+        m_SaveQueueCV.notify_one();
+        OLO_CORE_TRACE("CompilerCache: Enqueued async save for '{}' (queue size: {})", 
+                       result.m_SourcePath, m_SaveQueue.size());
+    }
+    
+    void CompilerCache::AsyncSaveWorker()
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        OLO_CORE_INFO("CompilerCache: Async save worker thread running");
+        
+        while (m_SaveWorkerRunning)
+        {
+            SaveTask task;
+            
+            {
+                std::unique_lock<std::mutex> lock(m_SaveQueueMutex);
+                
+                // Wait for work or shutdown signal
+                m_SaveQueueCV.wait(lock, [this] {
+                    return !m_SaveQueue.empty() || !m_SaveWorkerRunning;
+                });
+                
+                // Exit if shutting down and queue is empty
+                if (!m_SaveWorkerRunning && m_SaveQueue.empty())
+                {
+                    break;
+                }
+                
+                // Get next task
+                if (!m_SaveQueue.empty())
+                {
+                    task = std::move(m_SaveQueue.front());
+                    m_SaveQueue.pop();
+                }
+                else
+                {
+                    continue;
+                }
+            }
+            
+            // Perform the save outside the lock to avoid blocking enqueuers
+            try
+            {
+                if (!SerializeResult(task.m_Result, task.m_FilePath))
+                {
+                    OLO_CORE_ERROR("CompilerCache: Async save failed for '{}' to '{}'", 
+                                   task.m_Result.m_SourcePath, task.m_FilePath);
+                }
+                else
+                {
+                    OLO_CORE_TRACE("CompilerCache: Async save completed for '{}' to '{}'", 
+                                   task.m_Result.m_SourcePath, task.m_FilePath);
+                }
+            }
+            catch (const std::exception& ex)
+            {
+                OLO_CORE_ERROR("CompilerCache: Exception during async save for '{}': {}", 
+                               task.m_Result.m_SourcePath, ex.what());
+            }
+            catch (...)
+            {
+                OLO_CORE_ERROR("CompilerCache: Unknown exception during async save for '{}'", 
+                               task.m_Result.m_SourcePath);
+            }
+        }
+        
+        OLO_CORE_INFO("CompilerCache: Async save worker thread shutting down");
+    }
+    
+    void CompilerCache::ShutdownAsyncSaver()
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        if (!m_SaveWorkerRunning)
+        {
+            return; // Already shut down
+        }
+        
+        OLO_CORE_INFO("CompilerCache: Shutting down async save worker...");
+        
+        // Signal worker to stop
+        m_SaveWorkerRunning = false;
+        m_SaveQueueCV.notify_all();
+        
+        // Wait for worker to finish processing remaining tasks
+        if (m_SaveWorkerThread.joinable())
+        {
+            m_SaveWorkerThread.join();
+        }
+        
+        // Check if any tasks were left unprocessed
+        {
+            std::lock_guard<std::mutex> lock(m_SaveQueueMutex);
+            if (!m_SaveQueue.empty())
+            {
+                OLO_CORE_WARN("CompilerCache: {} save tasks were not processed during shutdown", 
+                              m_SaveQueue.size());
+            }
+        }
+        
+        OLO_CORE_INFO("CompilerCache: Async save worker shutdown complete");
     }
 
 } // namespace OloEngine::Audio::SoundGraph

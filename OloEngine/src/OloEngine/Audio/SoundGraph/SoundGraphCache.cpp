@@ -46,7 +46,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         std::lock_guard<std::mutex> lock(m_Mutex);
         auto it = m_CacheEntries.find(sourcePath);
-        return it != m_CacheEntries.end() && it->second.IsValid;
+        return it != m_CacheEntries.end() && it->second.m_IsValid;
     }
 
     Ref<SoundGraph> SoundGraphCache::Get(const std::string& sourcePath)
@@ -54,7 +54,7 @@ namespace OloEngine::Audio::SoundGraph
         std::lock_guard<std::mutex> lock(m_Mutex);
         
         auto it = m_CacheEntries.find(sourcePath);
-        if (it == m_CacheEntries.end() || !it->second.IsValid)
+        if (it == m_CacheEntries.end() || !it->second.m_IsValid)
         {
             ++m_MissCount;
             return nullptr;
@@ -62,11 +62,11 @@ namespace OloEngine::Audio::SoundGraph
 
         // Update statistics and LRU
         ++m_HitCount;
-        it->second.LastAccessed = std::chrono::system_clock::now();
-        it->second.AccessCount++;
+        it->second.m_LastAccessed = std::chrono::system_clock::now();
+        it->second.m_AccessCount++;
         UpdateLRU(sourcePath);
 
-        return it->second.CachedGraph;
+        return it->second.m_CachedGraph;
     }
 
     void SoundGraphCache::Put(const std::string& sourcePath, Ref<SoundGraph> graph, const std::string& compiledPath)
@@ -114,20 +114,20 @@ namespace OloEngine::Audio::SoundGraph
 
         // Create cache entry
         SoundGraphCacheEntry entry;
-        entry.SourcePath = sourcePath;
-        entry.CompiledPath = compiledPath;
-        entry.SourceHash = sourceHash;
-        entry.LastModified = lastModified;
-        entry.LastAccessed = std::chrono::system_clock::now();
-        entry.CachedGraph = graph;
-        entry.IsValid = true;
-        entry.AccessCount = 1;
+        entry.m_SourcePath = sourcePath;
+        entry.m_CompiledPath = compiledPath;
+        entry.m_SourceHash = sourceHash;
+        entry.m_LastModified = lastModified;
+        entry.m_LastAccessed = std::chrono::system_clock::now();
+        entry.m_CachedGraph = graph;
+        entry.m_IsValid = true;
+        entry.m_AccessCount = 1;
 
         // Remove existing entry if it exists
         auto it = m_CacheEntries.find(sourcePath);
         if (it != m_CacheEntries.end())
         {
-            m_CurrentMemoryUsage -= CalculateGraphMemoryUsage(it->second.CachedGraph);
+            m_CurrentMemoryUsage -= CalculateGraphMemoryUsage(it->second.m_CachedGraph);
             RemoveFromLRU(sourcePath);
         }
 
@@ -149,7 +149,7 @@ namespace OloEngine::Audio::SoundGraph
         auto it = m_CacheEntries.find(sourcePath);
         if (it != m_CacheEntries.end())
         {
-            m_CurrentMemoryUsage -= CalculateGraphMemoryUsage(it->second.CachedGraph);
+            m_CurrentMemoryUsage -= CalculateGraphMemoryUsage(it->second.m_CachedGraph);
             RemoveFromLRU(sourcePath);
             m_CacheEntries.erase(it);
         }
@@ -189,7 +189,7 @@ namespace OloEngine::Audio::SoundGraph
         auto it = m_CacheEntries.find(lruPath);
         if (it != m_CacheEntries.end())
         {
-            m_CurrentMemoryUsage -= CalculateGraphMemoryUsage(it->second.CachedGraph);
+            m_CurrentMemoryUsage -= CalculateGraphMemoryUsage(it->second.m_CachedGraph);
             m_CacheEntries.erase(it);
             
             OLO_CORE_TRACE("SoundGraphCache: Evicted LRU entry '{}'", lruPath);
@@ -206,7 +206,7 @@ namespace OloEngine::Audio::SoundGraph
             std::lock_guard<std::mutex> lock(m_Mutex);
             for (auto& [path, entry] : m_CacheEntries)
             {
-                pathsToCheck.emplace_back(path, entry.LastModified);
+                pathsToCheck.emplace_back(path, entry.m_LastModified);
             }
         }
         
@@ -252,7 +252,7 @@ namespace OloEngine::Audio::SoundGraph
             std::lock_guard<std::mutex> lock(m_Mutex);
             for (const auto& [path, entry] : m_CacheEntries)
             {
-                if (entry.LastAccessed < threshold && entry.AccessCount < 5)
+                if (entry.m_LastAccessed < threshold && entry.m_AccessCount < 5)
                 {
                     oldPaths.push_back(path);
                 }
@@ -281,7 +281,7 @@ namespace OloEngine::Audio::SoundGraph
             if (it == m_CacheEntries.end())
                 return true;
             
-            cachedModTime = it->second.LastModified;
+            cachedModTime = it->second.m_LastModified;
         }
         
         // Perform filesystem access outside the lock
@@ -296,7 +296,7 @@ namespace OloEngine::Audio::SoundGraph
         auto it = m_CacheEntries.find(sourcePath);
         if (it != m_CacheEntries.end())
         {
-            it->second.IsValid = false;
+            it->second.m_IsValid = false;
             OLO_CORE_TRACE("SoundGraphCache: Invalidated entry '{}'", sourcePath);
         }
     }
@@ -329,7 +329,7 @@ namespace OloEngine::Audio::SoundGraph
 
         for (const std::string& path : pathsToInvalidate)
         {
-            m_CacheEntries[path].IsValid = false;
+            m_CacheEntries[path].m_IsValid = false;
         }
 
         OLO_CORE_INFO("SoundGraphCache: Invalidated {} entries in directory '{}'", 
@@ -369,7 +369,7 @@ namespace OloEngine::Audio::SoundGraph
         
         for (const auto& [path, entry] : m_CacheEntries)
         {
-            if (entry.IsValid)
+            if (entry.m_IsValid)
             {
                 paths.push_back(path);
             }

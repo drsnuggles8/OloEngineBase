@@ -123,8 +123,10 @@ namespace OloEngine::Audio::SoundGraph
 				{
 					if (*in_Loop)
 					{
-					++m_LoopCount;
-					out_OnLooped(2.0f);						// Check if we've completed all loops
+						++m_LoopCount;
+						out_OnLooped(2.0f);
+						
+						// Check if we've completed all loops
 						if (*in_NumberOfLoops >= 0 && m_LoopCount > *in_NumberOfLoops)
 						{
 							StopPlayback(true);
@@ -307,11 +309,11 @@ namespace OloEngine::Audio::SoundGraph
 							return FillBufferFromAudioData(source);
 						};
 						
-					m_TotalFrames = m_WaveSource.m_TotalFrames;
-					m_IsInitialized = true;
-					m_LoadState.store(LoadState::Ready, std::memory_order_relaxed);
+						m_TotalFrames = m_WaveSource.m_TotalFrames;
+						m_IsInitialized = true;
+						m_LoadState.store(LoadState::Ready, std::memory_order_relaxed);
 
-					// Apply start time offset now that we have the data
+						// Apply start time offset now that we have the data
 						if (in_StartTime && *in_StartTime > 0.0f)
 						{
 							f64 sampleRate = m_AudioData.m_SampleRate;
@@ -359,29 +361,28 @@ namespace OloEngine::Audio::SoundGraph
 
 		void CleanupStaleLoads()
 		{
-			// Remove completed futures from stale loads container (non-blocking)
-			m_StaleLoads.erase(
-				std::remove_if(m_StaleLoads.begin(), m_StaleLoads.end(),
-					[](const std::future<std::optional<AudioData>>& future) -> bool {
-						if (!future.valid())
-							return true; // Remove invalid futures
-						
-						// Check if completed (non-blocking)
-						auto status = future.wait_for(std::chrono::seconds(0));
-						if (status == std::future_status::ready)
-						{
-							// Future is complete, safe to remove
-							try { 
-								// Get result to properly clean up the future
-								const_cast<std::future<std::optional<AudioData>>&>(future).get();
-							} catch (...) { 
-								// Ignore exceptions during cleanup 
-							}
-							return true;
+			// Use C++20 std::erase_if to remove completed or invalid futures
+			// Avoids const_cast code smell by taking non-const reference
+			std::erase_if(m_StaleLoads, 
+				[](std::future<std::optional<AudioData>>& future) -> bool {
+					if (!future.valid())
+						return true; // Remove invalid futures
+					
+					// Check if completed (non-blocking)
+					auto status = future.wait_for(std::chrono::seconds(0));
+					if (status == std::future_status::ready)
+					{
+						// Future is complete, safe to remove
+						try { 
+							// Get result to properly clean up the future
+							future.get();
+						} catch (...) { 
+							// Ignore exceptions during cleanup 
 						}
-						return false; // Keep pending futures
-					}),
-				m_StaleLoads.end());
+						return true;
+					}
+					return false; // Keep pending futures
+				});
 		}
 
 	public:

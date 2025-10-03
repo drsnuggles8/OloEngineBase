@@ -18,6 +18,7 @@
 #include <queue>
 #include <algorithm>
 #include <atomic>
+#include <string_view>
 
 #define LOG_DBG_MESSAGES 0
 
@@ -80,11 +81,11 @@ namespace OloEngine::Audio::SoundGraph
 					(void)v;
 			// Push finish event using pre-allocated storage (real-time safe)
 			Audio::AudioThreadEvent event;
-			event.FrameIndex = m_CurrentFrame;
-			event.EndpointID = static_cast<u32>(IDs::OnFinished);
+			event.m_FrameIndex = m_CurrentFrame;
+			event.m_EndpointID = static_cast<u32>(IDs::OnFinished);
 			
 			choc::value::Value value = choc::value::createFloat32(1.0f);
-			event.ValueData.CopyFrom(value);
+			event.m_ValueData.CopyFrom(value);
 			m_OutgoingEvents.Push(event);
 		});			// Connect using shared_ptr from InEvents - use the same identifier as registration
 			if (auto finishHandlerPtr = InEvents.find(Identifier("OnFinishHandler")); finishHandlerPtr != InEvents.end())
@@ -487,7 +488,7 @@ namespace OloEngine::Audio::SoundGraph
 	
 	// Additional methods found in implementation
 	std::queue<GraphEvent> GetPendingEvents();
-	void TriggerGraphEvent(const std::string& eventName, f32 value);
+	void TriggerGraphEvent(std::string_view eventName, f32 value);
 	void ProcessConnections();
 	void OnFinished(f32 value);
 	SoundGraphAsset CreateAssetData() const;
@@ -509,15 +510,15 @@ namespace OloEngine::Audio::SoundGraph
 			while (m_OutgoingEvents.Pop(outEvent))
 			{
 				// Convert EndpointID back to Identifier and get ValueView
-				Identifier endpointID(outEvent.EndpointID);
-				choc::value::ValueView valueView = outEvent.ValueData.GetView();
-				handleEvent(userContext, outEvent.FrameIndex, endpointID, valueView);
+				Identifier endpointID(outEvent.m_EndpointID);
+				choc::value::ValueView valueView = outEvent.m_ValueData.GetView();
+				handleEvent(userContext, outEvent.m_FrameIndex, endpointID, valueView);
 			}
 
 			Audio::AudioThreadMessage outMessage;
 			while (m_OutgoingMessages.Pop(outMessage))
 			{
-				handleConsoleMessage(userContext, outMessage.FrameIndex, outMessage.Text);
+				handleConsoleMessage(userContext, outMessage.m_FrameIndex, outMessage.m_Text);
 			}
 		}
 

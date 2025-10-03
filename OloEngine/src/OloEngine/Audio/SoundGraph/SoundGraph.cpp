@@ -24,17 +24,17 @@ namespace OloEngine::Audio::SoundGraph
 		}
 	}
 
-	void SoundGraph::TriggerGraphEvent(const std::string& eventName, f32 value)
+	void SoundGraph::TriggerGraphEvent(std::string_view eventName, f32 value)
 	{
 		OLO_PROFILE_FUNCTION();
 
 		// Add event to queue for processing in audio thread
 		Audio::AudioThreadEvent event;
-		event.FrameIndex = m_CurrentFrame;
-		event.EndpointID = static_cast<u32>(Identifier(eventName));
+		event.m_FrameIndex = m_CurrentFrame;
+		event.m_EndpointID = static_cast<u32>(Identifier(eventName));
 		
 		choc::value::Value valueData = choc::value::createFloat32(value);
-		event.ValueData.CopyFrom(valueData);
+		event.m_ValueData.CopyFrom(valueData);
 		
 		m_OutgoingEvents.Push(event);
 
@@ -98,6 +98,7 @@ namespace OloEngine::Audio::SoundGraph
 		OLO_CORE_TRACE("[SoundGraph] Sound graph finished");
 	}
 
+	// TODO(olbu): This doesn't do anything yet, implement proper version
 	void SoundGraph::UpdateFromAssetData([[maybe_unused]] const SoundGraphAsset& asset)
 	{
 		OLO_PROFILE_FUNCTION();

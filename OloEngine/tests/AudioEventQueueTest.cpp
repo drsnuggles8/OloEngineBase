@@ -193,8 +193,8 @@ TEST(AudioEventQueue, LongMessageTruncation)
     ASSERT_TRUE(queue.Pop(popped));
     
     // Should be truncated to buffer size - 1
-    EXPECT_EQ(std::strlen(popped.Text), AudioThreadMessage::MaxMessageLength - 1);
-    EXPECT_EQ(popped.Text[AudioThreadMessage::MaxMessageLength - 1], '\0');
+    EXPECT_EQ(std::strlen(popped.Text), AudioThreadMessage::s_MaxMessageLength - 1);
+    EXPECT_EQ(popped.Text[AudioThreadMessage::s_MaxMessageLength - 1], '\0');
 }
 
 //==============================================================================

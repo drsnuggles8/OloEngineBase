@@ -5,6 +5,27 @@
 
 namespace OloEngine::Audio
 {
+    // Helper function to create a ready future without allocating a promise
+    // Uses a cached shared_future that is already in ready state
+    namespace
+    {
+        std::future<void> MakeReadyFuture()
+        {
+            // Static shared future that's always ready - avoids repeated allocations
+            static std::shared_future<void> s_ReadyFuture = []() {
+                std::promise<void> p;
+                p.set_value();
+                return p.get_future().share();
+            }();
+            
+            // Return a regular future from the shared one
+            // Note: This still creates a future object, but reuses the shared state
+            return std::async(std::launch::deferred, [readyFuture = s_ReadyFuture]() {
+                readyFuture.wait(); // No-op since it's already ready
+            });
+        }
+    }
+
     // Thread-local flag for lock-free IsAudioThread() check
     // Set to true when the audio thread starts, false otherwise
     thread_local bool t_IsAudioThread = false;
@@ -25,7 +46,7 @@ namespace OloEngine::Audio
 
     bool AudioThread::Start()
     {
-		OLO_PROFILE_FUNCTION();
+        OLO_PROFILE_FUNCTION();
 
         // Serialize start operations to prevent race conditions
         std::lock_guard<std::mutex> startLock(s_StartStopMutex);
@@ -69,7 +90,7 @@ namespace OloEngine::Audio
 
     void AudioThread::Stop()
     {
-		OLO_PROFILE_FUNCTION();
+        OLO_PROFILE_FUNCTION();
 
         // Serialize stop operations with start operations
         std::lock_guard<std::mutex> startLock(s_StartStopMutex);
@@ -92,8 +113,16 @@ namespace OloEngine::Audio
             // Clear any remaining tasks
             ClearPendingTasks();
             
-            // Note: s_IsRunning, thread join, and reset will be handled by the thread loop exit
-            // or by an external thread calling Stop() again
+            // Detach the thread so it can clean up on its own, then reset static state
+            if (s_AudioThread && s_AudioThread->joinable())
+            {
+                s_AudioThread->detach();
+            }
+            s_AudioThread.reset();
+            s_AudioThreadID.store(std::thread::id{}, std::memory_order_release);
+            s_IsInitialized.store(false);
+            s_IsRunning.store(false);
+            
             return;
         }
 
@@ -135,7 +164,7 @@ namespace OloEngine::Audio
 
     std::future<void> AudioThread::ExecuteOnAudioThread(Task task, bool waitForCompletion)
     {
-		OLO_PROFILE_FUNCTION();
+        OLO_PROFILE_FUNCTION();
 
         if (!task)
         {
@@ -160,18 +189,20 @@ namespace OloEngine::Audio
         // If we're already on the audio thread, execute immediately
         if (IsAudioThread())
         {
-            std::promise<void> promise;
-            auto future = promise.get_future();
             try
             {
                 task();
-                promise.set_value();
+                // Return a pre-completed future to avoid promise allocation overhead
+                return MakeReadyFuture();
             }
             catch (...)
             {
+                // For exceptions, we still need a promise to propagate the exception
+                std::promise<void> promise;
+                auto future = promise.get_future();
                 promise.set_exception(std::current_exception());
+                return future;
             }
-            return future;
         }
 
         // Create completion token
@@ -198,12 +229,12 @@ namespace OloEngine::Audio
 
     sizet AudioThread::GetPendingTaskCount()
     {
-        return static_cast<sizet>(s_PendingTasks.load());
+        return s_PendingTasks.load();
     }
 
     void AudioThread::AudioThreadLoop()
     {
-		OLO_PROFILE_FUNCTION();
+        OLO_PROFILE_FUNCTION();
 
         // Mark this thread as the audio thread (lock-free for IsAudioThread())
         t_IsAudioThread = true;
@@ -238,8 +269,8 @@ namespace OloEngine::Audio
 
     void AudioThread::ProcessTasks()
     {
-		OLO_PROFILE_FUNCTION();
-		
+        OLO_PROFILE_FUNCTION();
+        
         std::unique_lock<std::mutex> lock(s_TaskQueueMutex);
         
         // Wait for tasks or stop signal

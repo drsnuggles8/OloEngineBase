@@ -42,7 +42,7 @@ namespace OloEngine::Audio::SoundGraph
 			// Initialize random generator with seed
 			m_Random.SetSeed(GetSeedValue());
 			
-			out_Element = T{};
+			m_OutElement = T{};
 		}
 
 		void Process() final
@@ -58,14 +58,14 @@ namespace OloEngine::Audio::SoundGraph
 
 		//==========================================================================
 		/// NodeProcessor setup
-		std::vector<T>* in_Array = nullptr;
-		i32* in_Min = nullptr;
-		i32* in_Max = nullptr;
-		i32* in_Seed = nullptr;
+		std::vector<T>* m_InArray = nullptr;
+		i32* m_InMin = nullptr;
+		i32* m_InMax = nullptr;
+		i32* m_InSeed = nullptr;
 
-		OutputEvent out_OnNext{ *this };
-		OutputEvent out_OnReset{ *this };
-		T out_Element{ T{} };
+		OutputEvent m_OutOnNext{ *this };
+		OutputEvent m_OutOnReset{ *this };
+		T m_OutElement{ T{} };
 
 	private:
 		Flag m_NextFlag;
@@ -76,35 +76,35 @@ namespace OloEngine::Audio::SoundGraph
 		void InitializeInputs();
 
 		/// Helper method to get seed value with safe null checking
-		/// Returns: high-resolution clock value if in_Seed is null or -1, otherwise the provided seed
+		/// Returns: high-resolution clock value if m_InSeed is null or -1, otherwise the provided seed
 		i32 GetSeedValue() const
 		{
-			if (!in_Seed) {
-				// Fallback: use high-resolution clock when in_Seed is null
+			if (!m_InSeed) {
+				// Fallback: use high-resolution clock when m_InSeed is null
 				return static_cast<i32>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
 			}
-			return (*in_Seed == -1) 
+			return (*m_InSeed == -1) 
 				? static_cast<i32>(std::chrono::high_resolution_clock::now().time_since_epoch().count()) 
-				: *in_Seed;
+				: *m_InSeed;
 		}
 
 		void ProcessNext()
 		{
 			// Validate array exists and is not empty
-			if (!in_Array || in_Array->size() == 0)
+			if (!m_InArray || m_InArray->size() == 0)
 			{
 				// Handle null/empty array gracefully - set default value and return
-				out_Element = T{};
+				m_OutElement = T{};
 				OLO_CORE_WARN("GetRandom: Array is null or empty, using default value");
 				return;
 			}
 
 			// Compute valid index range within array bounds
-			i32 arraySize = static_cast<i32>(in_Array->size());
+			i32 arraySize = static_cast<i32>(m_InArray->size());
 			
 			// Clamp both bounds to valid array indices [0, arraySize-1]
-			i32 minIndex = (in_Min) ? std::clamp(*in_Min, 0, arraySize - 1) : 0;
-			i32 maxIndex = (in_Max) ? std::clamp(*in_Max, 0, arraySize - 1) : arraySize - 1;
+			i32 minIndex = (m_InMin) ? std::clamp(*m_InMin, 0, arraySize - 1) : 0;
+			i32 maxIndex = (m_InMax) ? std::clamp(*m_InMax, 0, arraySize - 1) : arraySize - 1;
 			
 			// Ensure minIndex <= maxIndex by swapping if necessary
 			if (minIndex > maxIndex)
@@ -118,13 +118,13 @@ namespace OloEngine::Audio::SoundGraph
 			// Validate index is within bounds (safety check)
 			if (randomIndex >= 0 && randomIndex < arraySize)
 			{
-				out_Element = (*in_Array)[randomIndex];
-				out_OnNext(1.0f);
+				m_OutElement = (*m_InArray)[randomIndex];
+				m_OutOnNext(1.0f);
 			}
 			else
 			{
 				// Out-of-range fallback - should not happen with proper bounds checking
-				out_Element = T{};
+				m_OutElement = T{};
 				OLO_CORE_ERROR("GetRandom: Generated index {} out of bounds [0, {})", randomIndex, arraySize);
 			}
 		}
@@ -133,7 +133,7 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			// Reset random generator with seed
 			m_Random.SetSeed(GetSeedValue());
-			out_OnReset(1.0f);
+			m_OutOnReset(1.0f);
 		}
 	};
 
@@ -164,7 +164,7 @@ namespace OloEngine::Audio::SoundGraph
 			OLO_PROFILE_FUNCTION();
 
 			InitializeInputs();
-			out_Element = T{};
+			m_OutElement = T{};
 		}
 
 		void Process() final
@@ -177,11 +177,11 @@ namespace OloEngine::Audio::SoundGraph
 
 		//==========================================================================
 		/// NodeProcessor setup
-		std::vector<T>* in_Array = nullptr;
-		i32* in_Index = nullptr;
+		std::vector<T>* m_InArray = nullptr;
+		i32* m_InIndex = nullptr;
 
-		OutputEvent out_OnTrigger{ *this };
-		T out_Element{ T{} };
+		OutputEvent m_OutOnTrigger{ *this };
+		T m_OutElement{ T{} };
 
 	private:
 		Flag m_TriggerFlag;
@@ -192,43 +192,43 @@ namespace OloEngine::Audio::SoundGraph
 		void ProcessTrigger()
 		{
 			// Validate array exists and is not empty
-			if (!in_Array || in_Array->size() == 0)
+			if (!m_InArray || m_InArray->size() == 0)
 			{
 				// Handle null/empty array gracefully - set default value and return
-				out_Element = T{};
+				m_OutElement = T{};
 				OLO_CORE_WARN("ArrayGet: Array is null or empty, using default value");
 				return;
 			}
 
 			// Validate index pointer exists
-			if (!in_Index)
+			if (!m_InIndex)
 			{
 				// No index provided - use first element (index 0)
-				out_Element = (*in_Array)[0];
+				m_OutElement = (*m_InArray)[0];
 				if constexpr (std::is_arithmetic_v<T>)
-					out_OnTrigger(static_cast<float>(out_Element));
+					m_OutOnTrigger(static_cast<float>(m_OutElement));
 				else
-					out_OnTrigger(1.0f);
+					m_OutOnTrigger(1.0f);
 				return;
 			}
 
 			// Perform bounds checking against actual array size
-			i32 index = *in_Index;
-			i32 arraySize = static_cast<i32>(in_Array->size());
+			i32 index = *m_InIndex;
+			i32 arraySize = static_cast<i32>(m_InArray->size());
 			
 			if (index >= 0 && index < arraySize)
 			{
 				// Valid index - get element from array
-				out_Element = (*in_Array)[index];
+				m_OutElement = (*m_InArray)[index];
 				if constexpr (std::is_arithmetic_v<T>)
-					out_OnTrigger(static_cast<float>(out_Element));
+					m_OutOnTrigger(static_cast<float>(m_OutElement));
 				else
-					out_OnTrigger(1.0f);
+					m_OutOnTrigger(1.0f);
 			}
 			else
 			{
 				// Index out of bounds - output default and warn
-				out_Element = T{};
+				m_OutElement = T{};
 				OLO_CORE_WARN("ArrayGet: Index {} out of bounds for array of size {}", index, arraySize);
 			}
 		}
@@ -263,7 +263,7 @@ namespace OloEngine::Audio::SoundGraph
 			// Initialize random generator with seed
 			m_Random.SetSeed(GetSeedValue());
 			
-			out_Value = T{};
+			m_OutValue = T{};
 		}
 
 		void Process() final
@@ -277,13 +277,13 @@ namespace OloEngine::Audio::SoundGraph
 
 		//==========================================================================
 		/// NodeProcessor setup  
-		T* in_Min = nullptr;
-		T* in_Max = nullptr;
-		i32* in_Seed = nullptr;
+		T* m_InMin = nullptr;
+		T* m_InMax = nullptr;
+		i32* m_InSeed = nullptr;
 
-		OutputEvent out_OnNext{ *this };
-		OutputEvent out_OnReset{ *this };
-		T out_Value{ T{} };
+		OutputEvent m_OutOnNext{ *this };
+		OutputEvent m_OutOnReset{ *this };
+		T m_OutValue{ T{} };
 
 	private:
 		Flag m_NextFlag;
@@ -294,27 +294,27 @@ namespace OloEngine::Audio::SoundGraph
 		void InitializeInputs();
 
 		/// Helper method to get seed value with safe null checking
-		/// Returns: high-resolution clock value if in_Seed is null or -1, otherwise the provided seed
+		/// Returns: high-resolution clock value if m_InSeed is null or -1, otherwise the provided seed
 		i32 GetSeedValue() const
 		{
-			if (!in_Seed) {
-				// Fallback: use high-resolution clock when in_Seed is null
+			if (!m_InSeed) {
+				// Fallback: use high-resolution clock when m_InSeed is null
 				return static_cast<i32>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
 			}
-			return (*in_Seed == -1) 
+			return (*m_InSeed == -1) 
 				? static_cast<i32>(std::chrono::high_resolution_clock::now().time_since_epoch().count()) 
-				: *in_Seed;
+				: *m_InSeed;
 		}
 
 		void ProcessNext()
 		{
 			// Validate input pointers before dereferencing
-			if (!in_Min || !in_Max)
+			if (!m_InMin || !m_InMax)
 			{
 				// Handle null pointers gracefully - set default value and return
-				out_Value = T{};
-				OLO_CORE_WARN("Random: in_Min or in_Max is null, using default value");
-				out_OnNext(1.0f);
+				m_OutValue = T{};
+				OLO_CORE_WARN("Random: m_InMin or m_InMax is null, using default value");
+				m_OutOnNext(1.0f);
 				return;
 			}
 
@@ -326,8 +326,8 @@ namespace OloEngine::Audio::SoundGraph
 			if constexpr (std::is_same_v<T, float>)
 			{
 				// For float, clamp to reasonable audio range
-				minValue = glm::clamp(*in_Min, -1000.0f, 1000.0f);
-				maxValue = glm::clamp(*in_Max, -1000.0f, 1000.0f);
+				minValue = glm::clamp(*m_InMin, -1000.0f, 1000.0f);
+				maxValue = glm::clamp(*m_InMax, -1000.0f, 1000.0f);
 				
 				// Ensure min <= max
 				if (minValue > maxValue)
@@ -340,8 +340,8 @@ namespace OloEngine::Audio::SoundGraph
 				// For integers, clamp to reasonable range
 				constexpr T typeMin = static_cast<T>(-100000);
 				constexpr T typeMax = static_cast<T>(100000);
-				minValue = glm::clamp(*in_Min, typeMin, typeMax);
-				maxValue = glm::clamp(*in_Max, typeMin, typeMax);
+				minValue = glm::clamp(*m_InMin, typeMin, typeMax);
+				maxValue = glm::clamp(*m_InMax, typeMin, typeMax);
 				
 				// Ensure min <= max
 				if (minValue > maxValue)
@@ -354,15 +354,15 @@ namespace OloEngine::Audio::SoundGraph
 				randomValue = T{};
 			}
 			
-			out_Value = randomValue;
-			out_OnNext(1.0f);
+			m_OutValue = randomValue;
+			m_OutOnNext(1.0f);
 		}
 
 		void ProcessReset()
 		{
 			// Reset random generator with seed
 			m_Random.SetSeed(GetSeedValue());
-			out_OnReset(1.0f);
+			m_OutOnReset(1.0f);
 		}
 	};
 

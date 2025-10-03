@@ -187,54 +187,56 @@ static const i8 i8_max = INT8_MAX;
 
 //==============================================================================
 /// Flag utilities for state tracking
-
-/**
- * Thread-safe atomic flag for inter-thread communication
- * Based on Hazel's AtomicFlag implementation
- */
-struct AtomicFlag
+namespace OloEngine
 {
-	OLO_FINLINE void SetDirty() { m_Flag.store(true, std::memory_order_release); }
-	OLO_FINLINE bool CheckAndResetIfDirty() { return m_Flag.exchange(false, std::memory_order_acq_rel); }
-
-	// Initialize to "not dirty" state (false)
-	explicit AtomicFlag() noexcept : m_Flag(false) {}
-	AtomicFlag(const AtomicFlag&) = delete;
-	AtomicFlag& operator=(const AtomicFlag&) = delete;
-	AtomicFlag(AtomicFlag&&) = delete;
-	AtomicFlag& operator=(AtomicFlag&&) = delete;
-
-private:
-	std::atomic<bool> m_Flag;
-};
-
-/**
- * Simple flag for tracking dirty state (single-threaded)
- * Based on Hazel's Flag implementation
- */
-struct Flag
-{
-	OLO_FINLINE void SetDirty() noexcept { m_Flag = true; }
-	OLO_FINLINE bool CheckAndResetIfDirty() noexcept
+	/**
+	 * Thread-safe atomic flag for inter-thread communication
+	 * Based on Hazel's AtomicFlag implementation
+	 */
+	struct AtomicFlag
 	{
-		return std::exchange(m_Flag, false);
-	}
+		OLO_FINLINE void SetDirty() { m_Flag.store(true, std::memory_order_release); }
+		OLO_FINLINE bool CheckAndResetIfDirty() { return m_Flag.exchange(false, std::memory_order_acq_rel); }
 
-	OLO_FINLINE bool IsDirty() const noexcept
+		// Initialize to "not dirty" state (false)
+		AtomicFlag() noexcept : m_Flag(false) {}
+		AtomicFlag(const AtomicFlag&) = delete;
+		AtomicFlag& operator=(const AtomicFlag&) = delete;
+		AtomicFlag(AtomicFlag&&) = delete;
+		AtomicFlag& operator=(AtomicFlag&&) = delete;
+
+	private:
+		std::atomic<bool> m_Flag;
+	};
+
+	/**
+	 * Simple flag for tracking dirty state (single-threaded)
+	 * Based on Hazel's Flag implementation
+	 */
+	struct Flag
 	{
-		return m_Flag;
-	}
+		OLO_FINLINE void SetDirty() noexcept { m_Flag = true; }
+		OLO_FINLINE bool CheckAndResetIfDirty() noexcept
+		{
+			return std::exchange(m_Flag, false);
+		}
 
-	// Explicitly delete copy and move operations to avoid accidental copying of dirty state
-	Flag() = default;
-	Flag(const Flag&) = delete;
-	Flag& operator=(const Flag&) = delete;
-	Flag(Flag&&) = delete;
-	Flag& operator=(Flag&&) = delete;
+		OLO_FINLINE bool IsDirty() const noexcept
+		{
+			return m_Flag;
+		}
 
-private:
-	bool m_Flag = false;
-};
+		// Explicitly delete copy and move operations to avoid accidental copying of dirty state
+		Flag() = default;
+		Flag(const Flag&) = delete;
+		Flag& operator=(const Flag&) = delete;
+		Flag(Flag&&) = delete;
+		Flag& operator=(Flag&&) = delete;
+
+	private:
+		bool m_Flag = false;
+	};
+}
 
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Assert.h"
