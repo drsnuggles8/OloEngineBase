@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <list>
 #include <queue>
 #include <thread>
 #include <condition_variable>
@@ -103,11 +104,13 @@ namespace OloEngine::Audio::SoundGraph
             std::lock_guard<std::mutex> lock(m_Mutex);
             return m_CacheDirectory; 
         }
+
         void SetMaxCacheSize(sizet maxSize) 
         { 
             std::lock_guard<std::mutex> lock(m_Mutex);
             m_MaxCacheSize = maxSize; 
         }
+        
         sizet GetMaxCacheSize() const 
         { 
             std::lock_guard<std::mutex> lock(m_Mutex);
@@ -163,6 +166,10 @@ namespace OloEngine::Audio::SoundGraph
     private:
         mutable std::mutex m_Mutex;
         std::unordered_map<std::string, std::shared_ptr<CompilationResult>> m_CompiledResults;
+        
+        // LRU tracking: front = oldest (LRU), back = newest (MRU)
+        mutable std::list<std::string> m_AccessOrder;
+        mutable std::unordered_map<std::string, std::list<std::string>::iterator> m_AccessOrderMap;
         
         std::string m_CacheDirectory;
         sizet m_MaxCacheSize = 1000; // Maximum number of cached compilations

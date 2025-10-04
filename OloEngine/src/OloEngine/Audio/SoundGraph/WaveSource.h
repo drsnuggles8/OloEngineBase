@@ -28,6 +28,10 @@ namespace OloEngine::Audio
         // This should be set during initialization and remain valid for the lifetime of the WaveSource
         // Using atomic pointer ensures thread-safe access without locks in the realtime callback
         std::atomic<const AudioData*> m_CachedAudioData{nullptr};
+        
+        // Thread-safe flag to track if we've logged missing data error for this source
+        // Prevents log spam when audio data fails to load
+        std::atomic<bool> m_MissingDataLogged{false};
 
         // Callback wrapper that encapsulates function pointer with context
         struct RefillCallback final
@@ -170,7 +174,7 @@ namespace OloEngine::Audio
         RefillCallback m_OnRefill;
 
         [[nodiscard]] inline bool Refill() noexcept
-        { 
+        {
             OLO_PROFILE_FUNCTION();
             
             return m_OnRefill(*this);
@@ -185,6 +189,8 @@ namespace OloEngine::Audio
             m_ReadPosition = 0;
             m_WaveHandle = 0;
             m_WaveName = nullptr;
+            m_CachedAudioData.store(nullptr, std::memory_order_release);
+            m_MissingDataLogged.store(false, std::memory_order_release);
         }
     };
 

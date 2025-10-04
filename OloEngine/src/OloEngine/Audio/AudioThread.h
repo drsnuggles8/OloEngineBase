@@ -27,7 +27,7 @@ namespace OloEngine::Audio
             std::promise<void> m_Promise;
             
             CompletionToken(Task t) : m_Task(std::move(t)) {}
-             CompletionToken(const CompletionToken&) = delete;
+            CompletionToken(const CompletionToken&) = delete;
             CompletionToken& operator=(const CompletionToken&) = delete;
             CompletionToken(CompletionToken&&) = default;
             CompletionToken& operator=(CompletionToken&&) = default;
@@ -52,9 +52,9 @@ namespace OloEngine::Audio
 
         /// Execute a task on the audio thread
         /// @param task - Function to execute on audio thread
-        /// @param waitForCompletion - Whether to wait for task completion
-        /// @return Future that completes when the specific task finishes
-        static std::future<void> ExecuteOnAudioThread(Task task, bool waitForCompletion = true);
+        /// @return Future that completes when the task finishes. Callers can call .wait() or .get() 
+        ///         on the returned future if synchronous behavior is needed, or ignore it for async execution.
+        static std::future<void> ExecuteOnAudioThread(Task task);
 
         /// Get the number of pending tasks in the audio thread queue
         static sizet GetPendingTaskCount();

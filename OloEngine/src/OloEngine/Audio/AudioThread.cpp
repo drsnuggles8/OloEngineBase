@@ -5,24 +5,14 @@
 
 namespace OloEngine::Audio
 {
-    // Helper function to create a ready future without allocating a promise
-    // Uses a cached shared_future that is already in ready state
+    // Helper function to create a ready future
     namespace
     {
         std::future<void> MakeReadyFuture()
         {
-            // Static shared future that's always ready - avoids repeated allocations
-            static std::shared_future<void> s_ReadyFuture = []() {
-                std::promise<void> p;
-                p.set_value();
-                return p.get_future().share();
-            }();
-            
-            // Return a regular future from the shared one
-            // Note: This still creates a future object, but reuses the shared state
-            return std::async(std::launch::deferred, [readyFuture = s_ReadyFuture]() {
-                readyFuture.wait(); // No-op since it's already ready
-            });
+            std::promise<void> promise;
+            promise.set_value();
+            return promise.get_future();
         }
     }
 
@@ -162,7 +152,7 @@ namespace OloEngine::Audio
         return s_AudioThreadID.load(std::memory_order_acquire);
     }
 
-    std::future<void> AudioThread::ExecuteOnAudioThread(Task task, bool waitForCompletion)
+    std::future<void> AudioThread::ExecuteOnAudioThread(Task task)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -173,16 +163,6 @@ namespace OloEngine::Audio
             std::promise<void> promise;
             auto future = promise.get_future();
             promise.set_exception(std::make_exception_ptr(std::invalid_argument("Null task")));
-            return future;
-        }
-
-        if (!s_IsRunning.load())
-        {
-            OLO_CORE_ERROR("Cannot execute task: AudioThread is not running");
-            // Return a future that is immediately ready with an exception
-            std::promise<void> promise;
-            auto future = promise.get_future();
-            promise.set_exception(std::make_exception_ptr(std::runtime_error("AudioThread not running")));
             return future;
         }
 
@@ -205,24 +185,32 @@ namespace OloEngine::Audio
             }
         }
 
-        // Create completion token
+        // Create completion token and future before locking
         auto token = std::make_unique<CompletionToken>(std::move(task));
         auto future = token->m_Promise.get_future();
 
-        // Add task to queue
+        // Protect both the running check and task enqueue to prevent TOCTOU race with Stop()
+        // This ensures Stop() cannot clear pending tasks between our check and enqueue
         {
-            std::lock_guard<std::mutex> lock(s_TaskQueueMutex);
-            s_TaskQueue.push(std::move(token));
-            s_PendingTasks.fetch_add(1);
-        }
+            std::lock_guard<std::mutex> stateLock(s_StartStopMutex);
+            
+            if (!s_IsRunning.load())
+            {
+                OLO_CORE_ERROR("Cannot execute task: AudioThread is not running");
+                // Set exception on the promise we already created
+                token->m_Promise.set_exception(std::make_exception_ptr(std::runtime_error("AudioThread not running")));
+                return future;
+            }
+
+            // Add task to queue while still holding state lock
+            {
+                std::lock_guard<std::mutex> queueLock(s_TaskQueueMutex);
+                s_TaskQueue.push(std::move(token));
+                s_PendingTasks.fetch_add(1);
+            }
+        } // Release state lock before notifying
         
         s_TaskCondition.notify_one();
-
-        // Wait for completion if requested
-        if (waitForCompletion)
-        {
-            future.wait();
-        }
 
         return future;
     }

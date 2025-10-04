@@ -58,7 +58,7 @@ namespace OloEngine::Audio::SoundGraph
         //==============================================================================
         /// Initialization and lifecycle
         
-        bool Initialize(ma_engine* engine, u32 sampleRate, u32 maxBlockSize);
+        bool Initialize(ma_engine* engine, u32 sampleRate, u32 maxBlockSize, u32 channelCount = 2);
         void Shutdown();
         
         void SuspendProcessing(bool shouldBeSuspended);
@@ -100,6 +100,7 @@ namespace OloEngine::Audio::SoundGraph
         bool IsAnyDataSourceReading() { return !AreAllDataSourcesAtEnd(); }
         
         bool SendPlayEvent();
+        void ResetPlayback();
         u64 GetCurrentFrame() const { return m_CurrentFrame.load(std::memory_order_relaxed); }
         
         /** Get the maximum total frames from all data sources (longest audio duration) */
@@ -110,6 +111,9 @@ namespace OloEngine::Audio::SoundGraph
 
         /** Get the sample rate used by this source */
         u32 GetSampleRate() const { return m_SampleRate; }
+
+        /** Get the channel count used by this source */
+        u32 GetChannelCount() const { return m_ChannelCount; }
 
         //==============================================================================
         /// Event Callbacks (set by SoundGraphPlayer or other managers)
@@ -159,6 +163,7 @@ namespace OloEngine::Audio::SoundGraph
         AtomicFlag m_SuspendFlag;
         u32 m_SampleRate = 0;
         u32 m_BlockSize = 0;
+        u32 m_ChannelCount = 2;
 
         //============================================
         /// Playback state
@@ -203,9 +208,8 @@ namespace OloEngine::Audio::SoundGraph
             
             // Read from audio thread - takes a stable snapshot for safe reading
             bool GetPresetIfChanged(SoundGraphPatchPreset& outPreset);
-        }
-        
-        m_ThreadSafePreset;
+        } m_ThreadSafePreset;
+
         AtomicFlag m_PlayRequestFlag;
         bool m_PresetIsInitialized = false;
 

@@ -64,20 +64,20 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 		// Input parameters
-		int64_t* in_WaveAsset = nullptr;		// Asset handle for wave file
-		float* in_StartTime = nullptr;			// Start time offset in seconds
-		bool* in_Loop = nullptr;				// Enable looping playback
-		int* in_NumberOfLoops = nullptr;		// Number of loops (-1 = infinite)
+		int64_t* m_InWaveAsset = nullptr;		// Asset handle for wave file
+		float* m_InStartTime = nullptr;			// Start time offset in seconds
+		bool* m_InLoop = nullptr;				// Enable looping playback
+		int* m_InNumberOfLoops = nullptr;		// Number of loops (-1 = infinite)
 
 		// Output audio channels
-		float out_OutLeft{ 0.0f };
-		float out_OutRight{ 0.0f };
+		float m_OutOutLeft{ 0.0f };
+		float m_OutOutRight{ 0.0f };
 
 		// Output events
-		OutputEvent out_OnPlay{ *this };
-		OutputEvent out_OnStop{ *this };
-		OutputEvent out_OnFinished{ *this };
-		OutputEvent out_OnLooped{ *this };
+		OutputEvent m_OutOnPlay{ *this };
+		OutputEvent m_OutOnStop{ *this };
+		OutputEvent m_OutOnFinished{ *this };
+		OutputEvent m_OutOnLooped{ *this };
 
 		void RegisterEndpoints();
 		void InitializeInputs();
@@ -121,13 +121,13 @@ namespace OloEngine::Audio::SoundGraph
 				// Check if we've reached the end
 				if (m_FrameNumber >= m_TotalFrames)
 				{
-					if (*in_Loop)
+					if (*m_InLoop)
 					{
 						++m_LoopCount;
-						out_OnLooped(2.0f);
+						m_OutOnLooped(2.0f);
 						
 						// Check if we've completed all loops
-						if (*in_NumberOfLoops >= 0 && m_LoopCount > *in_NumberOfLoops)
+						if (*m_InNumberOfLoops >= 0 && m_LoopCount > *m_InNumberOfLoops)
 						{
 							StopPlayback(true);
 							OutputSilence();
@@ -197,7 +197,7 @@ namespace OloEngine::Audio::SoundGraph
 
 			m_IsPlaying = true;
 			m_PendingPlayback.store(false, std::memory_order_relaxed);
-			out_OnPlay(2.0f);
+			m_OutOnPlay(2.0f);
 			DBG("WavePlayer: Started playing");
 		}
 
@@ -213,16 +213,16 @@ namespace OloEngine::Audio::SoundGraph
 			CheckAsyncLoadCompletion();
 
 			if (notifyOnFinish)
-				out_OnFinished(2.0f);  // Natural completion
+				m_OutOnFinished(2.0f);  // Natural completion
 			else
-				out_OnStop(2.0f);     // Manual stop or error
+				m_OutOnStop(2.0f);     // Manual stop or error
 
 			DBG("WavePlayer: Stopped playing");
 		}
 
 		void UpdateWaveSourceIfNeeded()
 		{
-			u64 waveAsset = static_cast<u64>(*in_WaveAsset);
+			u64 waveAsset = static_cast<u64>(*m_InWaveAsset);
 
 			if (m_WaveSource.m_WaveHandle != waveAsset)
 			{
@@ -314,10 +314,10 @@ namespace OloEngine::Audio::SoundGraph
 						m_LoadState.store(LoadState::Ready, std::memory_order_relaxed);
 
 						// Apply start time offset now that we have the data
-						if (in_StartTime && *in_StartTime > 0.0f)
+						if (m_InStartTime && *m_InStartTime > 0.0f)
 						{
 							f64 sampleRate = m_AudioData.m_SampleRate;
-							m_StartSample = static_cast<i64>(*in_StartTime * sampleRate);
+							m_StartSample = static_cast<i64>(*m_InStartTime * sampleRate);
 							i64 maxSample = (m_TotalFrames > 0 ? m_TotalFrames - 1 : 0);
 							m_StartSample = glm::min(m_StartSample, maxSample);
 						}
@@ -410,16 +410,16 @@ namespace OloEngine::Audio::SoundGraph
 				if (m_WaveSource.m_Channels.Available() >= 2) // Stereo frame
 				{
 					// Read interleaved stereo data
-					out_OutLeft = m_WaveSource.m_Channels.Get();
-					out_OutRight = m_WaveSource.m_Channels.Get();
+					m_OutOutLeft = m_WaveSource.m_Channels.Get();
+					m_OutOutRight = m_WaveSource.m_Channels.Get();
 					return; // Successfully read data
 				}
 				else if (m_WaveSource.m_Channels.Available() >= 1) // Mono frame
 				{
 					// Mono - duplicate to both channels
 					float sample = m_WaveSource.m_Channels.Get();
-					out_OutLeft = sample;
-					out_OutRight = sample;
+					m_OutOutLeft = sample;
+					m_OutOutRight = sample;
 					return; // Successfully read data
 				}
 				else
@@ -442,8 +442,8 @@ namespace OloEngine::Audio::SoundGraph
 
 		void OutputSilence()
 		{
-			out_OutLeft = 0.0f;
-			out_OutRight = 0.0f;
+			m_OutOutLeft = 0.0f;
+			m_OutOutRight = 0.0f;
 		}
 
 		bool FillBufferFromAudioData(Audio::WaveSource& source)

@@ -13,7 +13,7 @@ namespace OloEngine::Audio::SoundGraph
 {
     //==============================================================================
     /// Real-time safe message for audio thread logging
-    struct RtMsg
+    struct RealtimeMessage
     {
         enum Level : u8
         {
@@ -81,6 +81,7 @@ namespace OloEngine::Audio::SoundGraph
         /// Debug and Statistics
 
         u32 GetActiveSourceCount() const;
+        
         u32 GetTotalSourceCount() const 
         { 
             std::lock_guard<std::mutex> lock(m_Mutex);
@@ -103,39 +104,11 @@ namespace OloEngine::Audio::SoundGraph
         std::atomic<u32> m_NextSourceID{1};
 
         // Real-time safe logging system
-        choc::fifo::SingleReaderSingleWriterFIFO<RtMsg> m_LogQueue;
+        choc::fifo::SingleReaderSingleWriterFIFO<RealtimeMessage> m_LogQueue;
 
         // Get next available source ID (thread-safe)
         // Returns a unique ID that is not currently in use, or 0 if all IDs are exhausted
-        u32 GetNextSourceID() 
-        { 
-            constexpr u32 MaxAttempts = 1000; // Prevent infinite loop if many IDs are in use
-            
-            for (u32 attempt = 0; attempt < MaxAttempts; ++attempt)
-            {
-                u32 id = m_NextSourceID.fetch_add(1, std::memory_order_relaxed);
-                
-                // Skip 0 as it's reserved for error/invalid ID
-                if (id == 0)
-                    continue;
-                
-                // Thread-safe check: is this ID already in use?
-                std::lock_guard<std::mutex> lock(m_Mutex);
-                if (m_SoundGraphSources.find(id) == m_SoundGraphSources.end())
-                {
-                    // ID is available
-                    return id;
-                }
-                
-                // ID collision detected (very rare unless wraparound occurred)
-                // Continue to next candidate
-            }
-            
-            // All attempts exhausted - this should be extremely rare
-            // Only happens if ~1000+ consecutive IDs are all in use
-            OLO_CORE_ERROR("[SoundGraphPlayer] Failed to allocate unique source ID after {} attempts", MaxAttempts);
-            return 0; // Return 0 to indicate failure
-        }
+        u32 GetNextSourceID();
     };
 
 }

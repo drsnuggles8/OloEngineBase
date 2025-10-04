@@ -36,34 +36,35 @@ namespace OloEngine::Core::Reflection {
 		//==============================================================================
 		/// Apply functions to member pointers
 
+	private:
+		/** Internal helper for Apply that forwards const-ness properly */
+		template<typename TObj, typename TFunc>
+		static constexpr auto ApplyImpl(TFunc func, TObj&& obj)
+		{
+			using result_t = std::invoke_result_t<TFunc, decltype(std::forward_like<TObj>(obj.*MemberPointers))...>;
+			if constexpr (std::is_void_v<result_t>)
+			{
+				std::invoke(func, std::forward_like<TObj>(obj.*MemberPointers)...);
+			}
+			else
+			{
+				return std::invoke(func, std::forward_like<TObj>(obj.*MemberPointers)...);
+			}
+		}
+
+	public:
 		/** Apply a function to variadic pack of the member list */
 		template<typename TObj, typename TFunc>
 		static constexpr auto Apply(TFunc func, TObj& obj)
 		{
-			using result_t = std::invoke_result_t<TFunc, decltype(obj.*MemberPointers)...>;
-			if constexpr (std::is_void_v<result_t>)
-			{
-				std::invoke(func, obj.*MemberPointers...);
-			}
-			else
-			{
-				return std::invoke(func, obj.*MemberPointers...);
-			}
+			return ApplyImpl(func, obj);
 		}
 
 		/** Apply a function to variadic pack of the member list (const version) */
 		template<typename TObj, typename TFunc>
 		static constexpr auto Apply(TFunc func, const TObj& obj)
 		{
-			using result_t = std::invoke_result_t<TFunc, decltype(obj.*MemberPointers)...>;
-			if constexpr (std::is_void_v<result_t>)
-			{
-				std::invoke(func, obj.*MemberPointers...);
-			}
-			else
-			{
-				return std::invoke(func, obj.*MemberPointers...);
-			}
+			return ApplyImpl(func, obj);
 		}
 
 		/** Apply a function to each member that's not a member function */
@@ -138,6 +139,26 @@ namespace OloEngine::Core::Reflection {
 		//==============================================================================
 		/// Member value getters/setters
 
+	private:
+		/** Common logic for setting member values with type checking */
+		template<typename TValue, typename TMember>
+		static constexpr bool TrySetMemberValue(TMember& member, const TValue& value)
+		{
+			using TMemberNoCVR = std::remove_cvref_t<TMember>;
+			using TValueNoCVR = std::remove_cvref_t<TValue>;
+
+			if constexpr (std::is_same_v<TValueNoCVR, TMemberNoCVR> && std::is_assignable_v<TMemberNoCVR&, TValueNoCVR>)
+			{
+				member = value;
+				return true;
+			}
+			else
+			{
+				return false;
+			}
+		}
+
+	public:
 		template<typename TValue, typename TObj>
 		static constexpr bool SetMemberValue(sizet memberIndex, const TValue& value, TObj&& obj)
 		{
@@ -146,14 +167,7 @@ namespace OloEngine::Core::Reflection {
 			ApplyToMember(memberIndex,
 				[&](auto& memb)
 				{
-					using TMemberNoCVR = std::remove_cvref_t<decltype(memb)>;
-					using TValueNoCVR = std::remove_cvref_t<decltype(value)>;
-
-					if constexpr (std::is_same_v<TValueNoCVR, TMemberNoCVR> && std::is_assignable_v<TMemberNoCVR&, TValueNoCVR>)
-					{
-						memb = value;
-						valueSet = true;
-					}
+					valueSet = TrySetMemberValue(memb, value);
 				}, std::forward<decltype(obj)>(obj));
 
 			return valueSet;
@@ -167,14 +181,7 @@ namespace OloEngine::Core::Reflection {
 			ApplyToMember<MemberIndex>(
 				[&](auto& memb)
 				{
-					using TMemberNoCVR = std::remove_cvref_t<decltype(memb)>;
-					using TValueNoCVR = std::remove_cvref_t<decltype(value)>;
-
-					if constexpr (std::is_same_v<TValueNoCVR, TMemberNoCVR> && std::is_assignable_v<TMemberNoCVR&, TValueNoCVR>)
-					{
-						memb = value;
-						valueSet = true;
-					}
+					valueSet = TrySetMemberValue(memb, value);
 				}, std::forward<decltype(obj)>(obj));
 
 			return valueSet;

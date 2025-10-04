@@ -176,6 +176,8 @@ using f64 = double;
 
 using sizet = size_t;
 
+// TODO(olbu): Consider adding using b8 = bool; ?
+
 static const u64 u64_max = UINT64_MAX;
 static const i64 i64_max = INT64_MAX;
 static const u32 u32_max = UINT32_MAX;

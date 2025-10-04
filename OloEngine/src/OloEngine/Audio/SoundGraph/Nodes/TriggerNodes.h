@@ -54,8 +54,8 @@ namespace OloEngine::Audio::SoundGraph
 				m_Counter += m_FrameTime;
 				
 				// Guard against zero/negative/non-finite period to prevent infinite loop
-				static constexpr float kMinPeriod = 0.001f; // 1ms minimum period (1000 Hz max frequency)
-				float safePeriod;
+				static constexpr f32 kMinPeriod = 0.001f; // 1ms minimum period (1000 Hz max frequency)
+				f32 safePeriod;
 				if (!std::isfinite(*m_InPeriod) || *m_InPeriod < kMinPeriod)
 					safePeriod = kMinPeriod;
 				else
@@ -88,6 +88,8 @@ namespace OloEngine::Audio::SoundGraph
 
 		void StartTrigger()
 		{
+			OLO_PROFILE_FUNCTION();
+			
 			m_Playing = true;
 			m_Counter = 0.0f;
 			m_OutTrigger(1.0f);
@@ -95,6 +97,8 @@ namespace OloEngine::Audio::SoundGraph
 
 		void StopTrigger()
 		{
+			OLO_PROFILE_FUNCTION();
+			
 			m_Playing = false;
 			m_Counter = 0.0f;
 		}
@@ -175,6 +179,8 @@ namespace OloEngine::Audio::SoundGraph
 
 		void ProcessTrigger()
 		{
+			OLO_PROFILE_FUNCTION();
+			
 			++m_OutCount;
 			m_OutValue = (*m_InStepSize) * m_OutCount + (*m_InStartValue);
 
@@ -189,6 +195,8 @@ namespace OloEngine::Audio::SoundGraph
 
 		void ProcessReset()
 		{
+			OLO_PROFILE_FUNCTION();
+			
 			m_OutValue = (*m_InStartValue);
 			m_OutCount = 0;
 			m_OutOnReset(1.0f);
@@ -265,12 +273,16 @@ namespace OloEngine::Audio::SoundGraph
 
 		void StartDelay()
 		{
+			OLO_PROFILE_FUNCTION();
+			
 			m_Waiting = true;
 			m_Counter = 0.0f;
 		}
 
 		void ProcessReset()
 		{
+			OLO_PROFILE_FUNCTION();
+			
 			m_Waiting = false;
 			m_Counter = 0.0f;
 			m_OutOnReset(1.0f);

@@ -95,8 +95,22 @@ namespace OloEngine::Audio::SoundGraph
 		
 		// Start async save worker thread
 		m_SaveWorkerRunning = true;
-		m_SaveWorkerThread = std::thread(&CompilerCache::AsyncSaveWorker, this);
-		OLO_CORE_TRACE("CompilerCache: Async save worker thread started");
+		try
+		{
+			m_SaveWorkerThread = std::thread(&CompilerCache::AsyncSaveWorker, this);
+			OLO_CORE_TRACE("CompilerCache: Async save worker thread started");
+		}
+		catch (const std::system_error& e)
+		{
+			m_SaveWorkerRunning = false;
+			OLO_CORE_ERROR("CompilerCache: Failed to create async save worker thread: {} (error code: {})", 
+						   e.what(), e.code().value());
+		}
+		catch (const std::exception& e)
+		{
+			m_SaveWorkerRunning = false;
+			OLO_CORE_ERROR("CompilerCache: Failed to create async save worker thread: {}", e.what());
+		}
 	}
 	
 	CompilerCache::~CompilerCache()
@@ -146,6 +160,16 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 		++m_HitCount;
+		
+		// Update LRU: move accessed key to back (most recently used)
+		auto orderIt = m_AccessOrderMap.find(key);
+		if (orderIt != m_AccessOrderMap.end())
+		{
+			m_AccessOrder.erase(orderIt->second);
+			m_AccessOrder.push_back(key);
+			m_AccessOrderMap[key] = std::prev(m_AccessOrder.end());
+		}
+		
 		return it->second; // Return shared_ptr for thread-safe access
 	}
     
@@ -161,31 +185,56 @@ namespace OloEngine::Audio::SoundGraph
         if (m_CompiledResults.size() >= m_MaxCacheSize)
         {
             // First, remove any nullptr entries to prevent invalid comparisons
-            std::erase_if(m_CompiledResults, [](const auto& entry) {
-                return entry.second == nullptr;
+            std::erase_if(m_CompiledResults, [this](const auto& entry) {
+                if (entry.second == nullptr)
+                {
+                    // Also remove from LRU tracking
+                    auto orderIt = m_AccessOrderMap.find(entry.first);
+                    if (orderIt != m_AccessOrderMap.end())
+                    {
+                        m_AccessOrder.erase(orderIt->second);
+                        m_AccessOrderMap.erase(orderIt);
+                    }
+                    return true;
+                }
+                return false;
             });
             
-            // If we still need to evict after removing nullptrs, remove the oldest valid entry
-            if (m_CompiledResults.size() >= m_MaxCacheSize)
+            // If we still need to evict after removing nullptrs, remove the LRU entry
+            if (m_CompiledResults.size() >= m_MaxCacheSize && !m_AccessOrder.empty())
             {
-                auto oldestIt = std::min_element(m_CompiledResults.begin(), m_CompiledResults.end(),
-                    [](const auto& a, const auto& b) {
-                        // Both should be non-null after filtering, but double-check for safety
-                        if (!a.second) return false; // a is invalid, b is "less" (comes first)
-                        if (!b.second) return true;  // b is invalid, a is "less" (comes first)
-                        return a.second->m_CompilationTime < b.second->m_CompilationTime;
-                    });
+                // Get the least recently used key (front of the list)
+                const std::string& lruKey = m_AccessOrder.front();
                 
-                if (oldestIt != m_CompiledResults.end())
+                // Look up the entry for logging before erasing
+                auto entryIt = m_CompiledResults.find(lruKey);
+                if (entryIt != m_CompiledResults.end() && entryIt->second)
                 {
-                    OLO_CORE_TRACE("CompilerCache: Evicting oldest entry (source: '{}', compiler: '{}')", 
-                                   oldestIt->second->m_SourcePath, oldestIt->second->m_CompilerVersion);
-                    m_CompiledResults.erase(oldestIt);
+                    OLO_CORE_TRACE("CompilerCache: Evicting LRU entry (source: '{}', compiler: '{}')", 
+                                   entryIt->second->m_SourcePath, entryIt->second->m_CompilerVersion);
                 }
+                
+                // Remove from all tracking structures
+                m_CompiledResults.erase(lruKey);
+                m_AccessOrderMap.erase(lruKey);
+                m_AccessOrder.pop_front();
             }
         }
 
+        // If key already exists, remove it from LRU tracking (will be re-added at back)
+        auto existingOrderIt = m_AccessOrderMap.find(key);
+        if (existingOrderIt != m_AccessOrderMap.end())
+        {
+            m_AccessOrder.erase(existingOrderIt->second);
+            m_AccessOrderMap.erase(existingOrderIt);
+        }
+        
+        // Store the compilation result
         m_CompiledResults[key] = std::make_shared<CompilationResult>(result);
+        
+        // Add to LRU tracking (most recently used = back of list)
+        m_AccessOrder.push_back(key);
+        m_AccessOrderMap[key] = std::prev(m_AccessOrder.end());
         
         if (m_AutoSave)
         {
@@ -240,6 +289,8 @@ namespace OloEngine::Audio::SoundGraph
         
         // Always clear in-memory cache
         m_CompiledResults.clear();
+        m_AccessOrder.clear();
+        m_AccessOrderMap.clear();
         m_HitCount = 0;
         m_MissCount = 0;
         
@@ -377,6 +428,11 @@ namespace OloEngine::Audio::SoundGraph
                     {
                         std::string key = GenerateCacheKey(result.m_SourcePath, result.m_CompilerVersion);
                         m_CompiledResults[key] = std::make_shared<CompilationResult>(result);
+                        
+                        // Initialize LRU tracking for loaded entries
+                        m_AccessOrder.push_back(key);
+                        m_AccessOrderMap[key] = std::prev(m_AccessOrder.end());
+                        
                         ++loadedCount;
                     }
                     else

@@ -541,9 +541,9 @@ namespace OloEngine::Audio::SoundGraph
         if (ec)
             return std::chrono::system_clock::now();
 
-        // Convert to system_clock time_point
-        auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-            ftime - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
+        // Convert file_time_type to system_clock using C++20 clock_cast for accurate conversion
+        // This handles differences between filesystem clock and system clock correctly
+        auto sctp = std::chrono::clock_cast<std::chrono::system_clock>(ftime);
         return sctp;
     }
 

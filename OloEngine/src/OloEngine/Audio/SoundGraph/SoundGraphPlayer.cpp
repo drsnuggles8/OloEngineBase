@@ -83,7 +83,15 @@ namespace OloEngine::Audio::SoundGraph
         u32 sampleRate = ma_engine_get_sample_rate(m_Engine);
         u32 blockSize = 512;
         
-        if (!source->Initialize(m_Engine, sampleRate, blockSize))
+        // Channel count configuration:
+        // Currently defaults to stereo (2). In the future, this could be:
+        // - Read from soundGraph metadata (if Prototype/SoundGraph stores channel info)
+        // - Passed as a parameter to CreateSoundGraphSource()
+        // - Inferred from graph output endpoint count
+        // For now, use stereo as a sensible default for most use cases
+        u32 channelCount = 2;
+        
+        if (!source->Initialize(m_Engine, sampleRate, blockSize, channelCount))
         {
             OLO_CORE_ERROR("[SoundGraphPlayer] Failed to initialize sound graph source");
             return 0;
@@ -94,22 +102,22 @@ namespace OloEngine::Audio::SoundGraph
 
         // Set up event callbacks
         source->SetMessageCallback([this](u64 frameIndex, const char* message) {
-            RtMsg msg;
+            RealtimeMessage msg;
             msg.m_Frame = frameIndex;
             msg.m_IsEvent = false;
             
             // Determine log level based on message prefix
             if (message[0] == '!')
             {
-                msg.m_Level = RtMsg::Error;
+                msg.m_Level = RealtimeMessage::Error;
             }
             else if (message[0] == '*')
             {
-                msg.m_Level = RtMsg::Warn;
+                msg.m_Level = RealtimeMessage::Warn;
             }
             else
             {
-                msg.m_Level = RtMsg::Trace;
+                msg.m_Level = RealtimeMessage::Trace;
             }
             
             // Copy message text (real-time safe)
@@ -125,9 +133,9 @@ namespace OloEngine::Audio::SoundGraph
 
         source->SetEventCallback([this](u64 frameIndex, u32 endpointID, const choc::value::Value& eventData) {
             (void)eventData;
-            RtMsg msg;
+            RealtimeMessage msg;
             msg.m_Frame = frameIndex;
-            msg.m_Level = RtMsg::Trace;
+            msg.m_Level = RealtimeMessage::Trace;
             msg.m_EndpointID = endpointID;
             msg.m_IsEvent = true;
             
@@ -164,6 +172,9 @@ namespace OloEngine::Audio::SoundGraph
             return false;
         }
 
+        // Capture the current processing state before modifying it
+        bool wasSuspended = it->second->IsSuspended();
+
         // Resume processing before sending play event
         it->second->SuspendProcessing(false);
 
@@ -175,8 +186,8 @@ namespace OloEngine::Audio::SoundGraph
         }
         else
         {
-            // Re-suspend processing to restore previous state since play failed
-            it->second->SuspendProcessing(true);
+            // Restore the original processing state since play failed
+            it->second->SuspendProcessing(wasSuspended);
             OLO_CORE_ERROR("[SoundGraphPlayer] Failed to start playback of source {0}", sourceID);
             return false;
         }
@@ -194,7 +205,9 @@ namespace OloEngine::Audio::SoundGraph
             return false;
         }
 
+        // Stop playback: suspend processing and reset playback position
         it->second->SuspendProcessing(true);
+        it->second->ResetPlayback();
         OLO_CORE_TRACE("[SoundGraphPlayer] Stopped playback of source {0}", sourceID);
         return true;
     }
@@ -211,7 +224,8 @@ namespace OloEngine::Audio::SoundGraph
             return false;
         }
 
-        // Pause by suspending processing
+        // Pause by suspending processing while preserving playback position
+        // This allows resuming from the same position with Play()
         it->second->SuspendProcessing(true);
         OLO_CORE_TRACE("[SoundGraphPlayer] Paused playback of source {0}", sourceID);
         return true;
@@ -280,18 +294,18 @@ namespace OloEngine::Audio::SoundGraph
         // Clamp the volume value
         f32 clampedVolume = glm::clamp(volume, 0.0f, 2.0f);
         
-        // Synchronize access to m_MasterVolume to prevent data races with GetMasterVolume()
-        {
-            std::lock_guard<std::mutex> lock(m_Mutex);
-            m_MasterVolume = clampedVolume;
-        }
-        
-        // Apply the master volume to the underlying miniaudio engine
+        // Apply the master volume to the underlying miniaudio engine first
         ma_result result = ma_engine_set_volume(m_Engine, clampedVolume);
         if (result != MA_SUCCESS)
         {
             OLO_CORE_ERROR("[SoundGraphPlayer] Failed to set master volume on audio engine: {}", ma_result_description(result));
             return;
+        }
+        
+        // Only update cached value after successful engine call to maintain consistency
+        {
+            std::lock_guard<std::mutex> lock(m_Mutex);
+            m_MasterVolume = clampedVolume;
         }
 
         OLO_CORE_TRACE("[SoundGraphPlayer] Set master volume to {}", clampedVolume);
@@ -302,7 +316,7 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
         
         // Process real-time messages from audio thread (lock-free)
-        RtMsg msg;
+        RealtimeMessage msg;
         while (m_LogQueue.pop(msg))
         {
             if (msg.m_IsEvent)
@@ -315,13 +329,13 @@ namespace OloEngine::Audio::SoundGraph
                 // Handle log messages
                 switch (msg.m_Level)
                 {
-                    case RtMsg::Error:
+                    case RealtimeMessage::Error:
                         OLO_CORE_ERROR("[SoundGraph] Frame {0}: {1}", msg.m_Frame, msg.m_Text);
                         break;
-                    case RtMsg::Warn:
+                    case RealtimeMessage::Warn:
                         OLO_CORE_WARN("[SoundGraph] Frame {0}: {1}", msg.m_Frame, msg.m_Text);
                         break;
-                    case RtMsg::Trace:
+                    case RealtimeMessage::Trace:
                     default:
                         OLO_CORE_TRACE("[SoundGraph] Frame {0}: {1}", msg.m_Frame, msg.m_Text);
                         break;
@@ -339,25 +353,13 @@ namespace OloEngine::Audio::SoundGraph
             }
         }
 
-        // Remove any finished sources
-        auto it = m_SoundGraphSources.begin();
-        while (it != m_SoundGraphSources.end())
-        {
-            if (!it->second->IsPlaying())
-            {
-                // Check if the sound has actually finished (not just stopped)
-                // For now, we'll keep all sources around until explicitly removed
-                ++it;
-            }
-            else
-            {
-                ++it;
-            }
-        }
+        // Note: Sources are intentionally retained until explicitly removed via RemoveSource()
+        // This allows sources to be reused and provides manual control over lifecycle management
     }
 
     u32 SoundGraphPlayer::GetActiveSourceCount() const
     {
+        OLO_PROFILE_FUNCTION();
         std::lock_guard<std::mutex> lock(m_Mutex);
         u32 count = 0;
         for (const auto& [id, source] : m_SoundGraphSources)
@@ -368,6 +370,42 @@ namespace OloEngine::Audio::SoundGraph
             }
         }
         return count;
+    }
+
+    u32 SoundGraphPlayer::GetNextSourceID()
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        constexpr u32 MaxAttempts = 1000; // Prevent infinite loop if many IDs are in use
+        
+        {
+            OLO_PROFILE_SCOPE("GetNextSourceID - ID Allocation Loop");
+            
+            for (u32 attempt = 0; attempt < MaxAttempts; ++attempt)
+            {
+                u32 id = m_NextSourceID.fetch_add(1, std::memory_order_relaxed);
+                
+                // Skip 0 as it's reserved for error/invalid ID
+                if (id == 0)
+                    continue;
+                
+                // Thread-safe check: is this ID already in use?
+                std::lock_guard<std::mutex> lock(m_Mutex);
+                if (m_SoundGraphSources.find(id) == m_SoundGraphSources.end())
+                {
+                    // ID is available
+                    return id;
+                }
+                
+                // ID collision detected (very rare unless wraparound occurred)
+                // Continue to next candidate
+            }
+        }
+        
+        // All attempts exhausted - this should be extremely rare
+        // Only happens if ~1000+ consecutive IDs are all in use
+        OLO_CORE_ERROR("[SoundGraphPlayer] Failed to allocate unique source ID after {} attempts", MaxAttempts);
+        return 0; // Return 0 to indicate failure
     }
 
 }

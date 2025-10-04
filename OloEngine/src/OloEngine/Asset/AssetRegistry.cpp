@@ -85,6 +85,8 @@ namespace OloEngine
 
     const AssetMetadata& AssetRegistry::GetMetadata(AssetHandle handle) const
     {
+        OLO_PROFILE_FUNCTION();
+        
         std::shared_lock lock(m_Mutex);
         
         auto it = m_AssetMetadata.find(handle);

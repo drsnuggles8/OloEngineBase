@@ -50,8 +50,7 @@ namespace OloEngine::Audio::SoundGraph
     INIT_ENDPOINTS_FUNCS(TriggerCounter);
     INIT_ENDPOINTS_FUNCS(DelayedTrigger);
 
-    // Music nodes with custom conversion logic
-    INIT_ENDPOINTS_FUNCS(BPMToSeconds);
-    INIT_ENDPOINTS_FUNCS(FrequencyToNote);
+    // Music nodes with custom conversion logic - inline definitions in MusicNodes.h
+    // (No out-of-line definitions needed)
 
 } // namespace OloEngine::Audio::SoundGraph

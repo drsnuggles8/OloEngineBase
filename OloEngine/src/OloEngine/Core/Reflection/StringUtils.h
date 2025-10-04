@@ -83,11 +83,11 @@ namespace OloEngine::Core::Reflection::StringUtils {
 
     constexpr std::string_view RemoveNamespace(std::string_view name)
     {
-        const auto pos = name.find_last_of(':');
+        const auto pos = name.rfind("::");
         if (pos == std::string_view::npos)
             return name;
         
-        return name.substr(pos + 1);
+        return name.substr(pos + 2);
     }
 
     template<sizet N>

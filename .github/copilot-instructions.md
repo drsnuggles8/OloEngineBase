@@ -91,7 +91,7 @@ RendererProfiler::GetInstance().IncrementCounter(MetricType::DrawCalls, 1);
 ## Code Style Guidelines
 
 - **C++ Standards:** Target C++23 where supported by current compilers, baseline C++20 across the repo
-- **Development Approach:** Alpha mode - breaking changes are acceptable for better design. We focus on optimal solutions; ensure that breaking changes are fixed promptly
+- **Development Approach:** Alpha mode - breaking changes are acceptable for better design. We focus on optimal solutions; ensure that dependent code is updated promptly
 - **Naming:** PascalCase for classes, `m_PascalCase` for members, `s_PascalCase` for statics
 - **Types:** Custom typedefs (`u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, `f32`, `f64`, `sizet`) defined in `Core/Base.h`
 - **Headers:** Use `#pragma once`, RAII for OpenGL resources, STL containers preferred. Use the OloEnginePCH precompiled header for common includes

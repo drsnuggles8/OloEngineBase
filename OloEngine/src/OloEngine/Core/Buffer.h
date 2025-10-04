@@ -2,7 +2,6 @@
 
 #include "OloEngine/Core/Base.h"
 
-#include <stdint.h>
 #include <cstring>
 #include <span>
 #include <limits>

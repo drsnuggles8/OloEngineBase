@@ -31,7 +31,7 @@ namespace OloEngine
         AnimationGraph = 20,
         Model = 21,
         Environment = 22,
-        SoundGraph = 23
+        SoundGraph = 23,
     };
 
     enum class AssetFlag : u16
@@ -118,8 +118,7 @@ namespace OloEngine
                 case AssetType::Model:               return "Model";
                 case AssetType::Environment:         return "Environment";
                 case AssetType::SoundGraph:          return "SoundGraph";
-            }
-            
+            }            
             OLO_CORE_ASSERT(false, "Unknown Asset Type");
             return "None";
         }

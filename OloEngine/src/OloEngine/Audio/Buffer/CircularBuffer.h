@@ -120,7 +120,7 @@ namespace OloEngine::Audio
             
             ++m_ReadPos;
             --m_Avail;
-            if (m_ReadPos >= GetFrameCapacity())
+            if (m_ReadPos >= static_cast<i32>(GetFrameCapacity()))
                 m_ReadPos = 0;
         }
 
@@ -252,7 +252,7 @@ namespace OloEngine::Audio
             }
 
             // Calculate how much data was overwritten
-            const i32 overwritten = std::max(i32(0), previousAvail + len - bufferSize);
+            const i32 overwritten = std::max(static_cast<i32>(0), previousAvail + len - bufferSize);
             
             // Advance read position by amount overwritten (mod bufferSize)
             if (overwritten > 0)
@@ -274,23 +274,22 @@ namespace OloEngine::Audio
 
             const sizet frameCapacity = GetFrameCapacity();
             const sizet totalSamples = static_cast<sizet>(numFrames) * NumChannels;
-            const sizet totalBytes = totalSamples * sizeof(T);
-            const sizet capacityBytes = m_Buf.size() * sizeof(T);
+            const sizet totalElements = totalSamples;
+            const sizet capacityElements = m_Buf.size();
             
-            // Calculate byte offset for write position
-            const sizet writeByteOffset = static_cast<sizet>(m_WritePos) * NumChannels * sizeof(T);
-            const sizet bytesUntilEnd = capacityBytes - writeByteOffset;
+            // Calculate element offset for write position
+            const sizet writeIndex = static_cast<sizet>(m_WritePos) * NumChannels;
+            const sizet elementsUntilEnd = capacityElements - writeIndex;
             
             // First chunk: copy from write position to end of buffer (or all data if it fits)
-            const sizet firstChunkBytes = std::min(bytesUntilEnd, totalBytes);
-            std::memcpy(&m_Buf[m_WritePos * NumChannels], buf, firstChunkBytes);
+            const sizet firstChunkElements = std::min(elementsUntilEnd, totalElements);
+            std::copy_n(buf, firstChunkElements, &m_Buf[writeIndex]);
             
             // Second chunk: wrap around to beginning if needed
-            const sizet remainingBytes = totalBytes - firstChunkBytes;
-            if (remainingBytes > 0)
+            const sizet remainingElements = totalElements - firstChunkElements;
+            if (remainingElements > 0)
             {
-                const sizet firstChunkSamples = firstChunkBytes / sizeof(T);
-                std::memcpy(&m_Buf[0], &buf[firstChunkSamples], remainingBytes);
+                std::copy_n(buf + firstChunkElements, remainingElements, &m_Buf[0]);
             }
             
             // Calculate how many frames were actually written

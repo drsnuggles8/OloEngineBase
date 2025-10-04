@@ -69,13 +69,9 @@ namespace OloEngine
     u32 Hash::CRC32(const std::string& string)
     {
         OLO_PROFILE_FUNCTION();
-
-        u32 crc = 0xFFFFFFFF;
-        for (char c : string)
-        {
-            crc = s_CRC32_TABLE[(crc ^ c) & 0xFF] ^ (crc >> 8);
-        }
-        return crc ^ 0xFFFFFFFF;
+        
+        // Forward to const char* implementation to avoid code duplication
+        return CRC32(string.c_str());
     }
 
 } // namespace OloEngine

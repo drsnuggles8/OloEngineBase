@@ -94,7 +94,9 @@ namespace OloEngine::Audio::SoundGraph
         std::unordered_map<std::string, SoundGraphCacheEntry> m_CacheEntries;
         
         // LRU tracking - most recent at back for O(1) insertion
-        std::deque<std::string> m_LRUOrder;        // Configuration
+        std::deque<std::string> m_LRUOrder;
+        
+        // Configuration
         sizet m_MaxCacheSize;
         sizet m_MaxMemoryUsage;
         sizet m_CurrentMemoryUsage = 0;

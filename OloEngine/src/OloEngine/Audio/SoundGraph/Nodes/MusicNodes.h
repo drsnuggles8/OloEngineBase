@@ -48,8 +48,17 @@ namespace OloEngine::Audio::SoundGraph
         f32 m_OutSeconds = 1.0f;
 
     private:
-        void RegisterEndpoints();
-        void InitializeInputs();
+        void RegisterEndpoints()
+        {
+            OLO_PROFILE_FUNCTION();
+            EndpointUtilities::RegisterEndpoints(this);
+        }
+
+        void InitializeInputs()
+        {
+            OLO_PROFILE_FUNCTION();
+            EndpointUtilities::InitializeInputs(this);
+        }
 
         void UpdateSeconds()
         {
@@ -171,8 +180,17 @@ namespace OloEngine::Audio::SoundGraph
         f32 m_OutMIDINote = 69.0f;
 
     private:
-        void RegisterEndpoints();
-        void InitializeInputs();
+        void RegisterEndpoints()
+        {
+            OLO_PROFILE_FUNCTION();
+            EndpointUtilities::RegisterEndpoints(this);
+        }
+
+        void InitializeInputs()
+        {
+            OLO_PROFILE_FUNCTION();
+            EndpointUtilities::InitializeInputs(this);
+        }
 
         void CalculateNote()
         {
@@ -187,7 +205,7 @@ namespace OloEngine::Audio::SoundGraph
             }
 
             // Handle non-positive frequencies
-            if (*m_InFrequency <= 0.0f)
+            if (*m_InFrequency <= 0.0f || !std::isfinite(*m_InFrequency))
             {
                 // Set to fallback for invalid frequencies
                 m_OutMIDINote = 0.0f; // MIDI note 0 (C-1)

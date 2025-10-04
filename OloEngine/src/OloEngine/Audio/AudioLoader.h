@@ -52,7 +52,7 @@ namespace OloEngine::Audio
                 return 0.0f;
             
             u64 sampleIndex = frame * m_NumChannels + channel;
-            return m_Samples[sampleIndex];
+            return m_Samples[static_cast<sizet>(sampleIndex)];
         }
         
         /// Get total number of samples (all channels)

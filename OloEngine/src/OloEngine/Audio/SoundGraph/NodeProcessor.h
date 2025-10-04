@@ -92,15 +92,17 @@ namespace OloEngine::Audio::SoundGraph
 
 		struct InputEvent : public Input
 		{
-			using EventFunction = std::function<void(float)>;
+			using EventFunction = std::function<void(f32)>;
 
 			explicit InputEvent(NodeProcessor& owner, EventFunction ev) noexcept
 				: Input(owner), Event(std::move(ev))
 			{
 			}
 
-			inline virtual void operator()(float value) noexcept
+			inline virtual void operator()(f32 value) noexcept
 			{
+				OLO_PROFILE_FUNCTION();
+				
 				if (Event)
 					Event(value);
 			}
@@ -116,8 +118,10 @@ namespace OloEngine::Audio::SoundGraph
 			{
 			}
 
-			inline void operator()(float value) noexcept
+			inline void operator()(f32 value) noexcept
 			{
+				OLO_PROFILE_FUNCTION();
+				
 				// Iterate through weak_ptr connections, cleaning up expired ones
 				auto it = DestinationEvents.begin();
 				while (it != DestinationEvents.end())
@@ -137,6 +141,8 @@ namespace OloEngine::Audio::SoundGraph
 
 			void AddDestination(std::shared_ptr<InputEvent> dest)
 			{
+				OLO_PROFILE_FUNCTION();
+				
 				if (dest)
 					DestinationEvents.push_back(std::weak_ptr<InputEvent>(dest));
 			}
@@ -151,6 +157,8 @@ namespace OloEngine::Audio::SoundGraph
 
 		InputEvent& AddInEvent(Identifier id, InputEvent::EventFunction function = nullptr)
 		{
+			OLO_PROFILE_FUNCTION();
+			
 			auto inputEvent = std::make_shared<InputEvent>(*this, function);
 			const auto& [element, inserted] = InEvents.try_emplace(id, inputEvent);
 			OLO_CORE_ASSERT(inserted, "Input event with this ID already exists");
@@ -159,12 +167,16 @@ namespace OloEngine::Audio::SoundGraph
 
 		void AddOutEvent(Identifier id, OutputEvent& out)
 		{
+			OLO_PROFILE_FUNCTION();
+			
 			const auto& [element, inserted] = OutEvents.insert({ id, std::ref(out) });
 			OLO_CORE_ASSERT(inserted, "Output event with this ID already exists");
 		}
 
 		choc::value::ValueView& AddInStream(Identifier id, choc::value::ValueView* source = nullptr)
 		{
+			OLO_PROFILE_FUNCTION();
+			
 			const auto& [element, inserted] = InputStreams.try_emplace(id);
 			OLO_CORE_ASSERT(inserted, "Input stream with this ID already exists");
 			
@@ -177,6 +189,8 @@ namespace OloEngine::Audio::SoundGraph
 		template<typename T>
 		choc::value::ValueView& AddOutStream(Identifier id, T& memberVariable)
 		{
+			OLO_PROFILE_FUNCTION();
+			
 			const auto& [element, inserted] = OutputStreams.try_emplace(id,
 				choc::value::ValueView(choc::value::Type::createPrimitive<T>(),
 					&memberVariable,
@@ -250,6 +264,8 @@ namespace OloEngine::Audio::SoundGraph
 	template<typename T>
 	std::shared_ptr<ParameterWrapper<T>> GetParameter(const Identifier& id)
 	{
+		OLO_PROFILE_FUNCTION();
+		
 		// First, try to find existing wrapper with shared lock (read-only)
 		{
 			std::shared_lock<std::shared_mutex> lock(m_ParameterMutex);
@@ -305,6 +321,8 @@ namespace OloEngine::Audio::SoundGraph
 	template<typename T>
 	void AddParameter(Identifier id, std::string_view debugName, const T& defaultValue)
 	{
+		OLO_PROFILE_FUNCTION();
+		
 		// Add input stream for this parameter
 		auto& stream = AddInStream(id);
 		
@@ -348,16 +366,19 @@ namespace OloEngine::Audio::SoundGraph
 		StreamWriter(StreamWriter&&) = delete;
 		StreamWriter& operator=(StreamWriter&&) = delete;
 
-		inline void operator<<(float value) noexcept
+		inline void operator<<(f32 value) noexcept
 		{
+			OLO_PROFILE_FUNCTION();
+			
 			OutputValue = choc::value::Value(value);
 			DestinationView = OutputValue;
 		}
 
 		template<typename T>
-		typename std::enable_if_t<!std::is_same_v<std::decay_t<T>, choc::value::Value>>
-		operator<<(T value) noexcept
+		inline void operator<<(T value) noexcept
 		{
+			OLO_PROFILE_FUNCTION();
+			
 			OutputValue = choc::value::Value(value);
 			DestinationView = OutputValue;
 		}
@@ -373,6 +394,8 @@ namespace OloEngine::Audio::SoundGraph
 	template<>
 	inline void StreamWriter::operator<<(const choc::value::ValueView& value) noexcept
 	{
+		OLO_PROFILE_FUNCTION();
+		
 		OutputValue = value;
 		DestinationView = OutputValue;
 	}
@@ -380,6 +403,8 @@ namespace OloEngine::Audio::SoundGraph
 	template<>
 	inline void StreamWriter::operator<<(choc::value::ValueView value) noexcept
 	{
+		OLO_PROFILE_FUNCTION();
+		
 		OutputValue = value;
 		DestinationView = OutputValue;
 	}

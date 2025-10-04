@@ -247,11 +247,15 @@ namespace OloEngine::Audio
 		friend AudioCallbackDeinterleaved<CallbackBindedDeinterleaved>;
 
 		virtual void ReleaseResources() override {}
-		// TODO(olbu): Investigate what this Init() function is even used for? We just set to true, the other stuff is just done for suppressing parameter warnings
-		bool Init(u32 sampleRate, u32 maxBlockSize, const BusConfig& config) { 
-			(void)sampleRate; (void)maxBlockSize; (void)config; // Suppress unreferenced parameter warnings
-			return true; 
+		
+		// CRTP interface requirement: Init() must be implemented to satisfy the base class contract.
+		// Returns true immediately as configuration happens via onAudioCallback member.
+		// Parameters unused because this callback type delegates all processing to the bound function.
+		bool Init([[maybe_unused]] u32 sampleRate, [[maybe_unused]] u32 maxBlockSize, [[maybe_unused]] const BusConfig& config)
+		{
+			return true;
 		}
+		
 		void ProcessBlock(const std::vector<choc::buffer::ChannelArrayBuffer<float>>& inBuffer, 
 			std::vector<choc::buffer::ChannelArrayBuffer<float>>& outBuffer, u32 numFramesRequested)
 		{
@@ -338,7 +342,7 @@ namespace OloEngine::Audio
 						{
 							u32 channelCount = m_BusConfig.m_OutputBuses[busIndex];
 							u32 totalSamples = channelCount * requestedFrames;
-							memset(ppFramesOut[busIndex], 0, totalSamples * sizeof(float));
+							std::memset(ppFramesOut[busIndex], 0, totalSamples * sizeof(float));
 						}
 					}
 				}

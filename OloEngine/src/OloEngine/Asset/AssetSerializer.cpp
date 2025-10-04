@@ -2532,6 +2532,8 @@ namespace OloEngine
 
     void SoundGraphSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
+        OLO_PROFILE_FUNCTION();
+        
         Ref<SoundGraphAsset> soundGraphAsset = asset.As<SoundGraphAsset>();
         if (!soundGraphAsset)
         {
@@ -2553,7 +2555,6 @@ namespace OloEngine
             }
         }
 
-        OLO_PROFILE_SCOPE("SoundGraphSerializer::Serialize");
         if (!Audio::SoundGraph::SoundGraphSerializer::Serialize(*soundGraphAsset, absolutePath))
         {
             OLO_CORE_ERROR("SoundGraphSerializer::Serialize - Failed to serialize sound graph to file: {}", absolutePath.string());

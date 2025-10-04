@@ -29,12 +29,12 @@ namespace OloEngine::Audio::SoundGraph
 		}
 
 		// Input parameters
-		f32* in_Frequency = nullptr;		// Frequency in Hz
-		f32* in_Amplitude = nullptr;		// Amplitude (0.0 to 1.0)
-		f32* in_Phase = nullptr;			// Phase offset in radians
+		f32* m_InFrequency = nullptr;		// Frequency in Hz
+		f32* m_InAmplitude = nullptr;		// Amplitude (0.0 to 1.0)
+		f32* m_InPhase = nullptr;			// Phase offset in radians
 
 		// Output
-		f32 out_Value{ 0.0f };
+		f32 m_OutValue{ 0.0f };
 
 		void RegisterEndpoints();
 		void InitializeInputs();
@@ -52,36 +52,38 @@ namespace OloEngine::Audio::SoundGraph
 		{
 			OLO_PROFILE_FUNCTION();
 			
-			float frequency = glm::max(0.0f, *in_Frequency);
-			float amplitude = glm::clamp(*in_Amplitude, 0.0f, 1.0f);
-			float phaseOffset = *in_Phase;
+			f32 frequency = glm::max(0.0f, *m_InFrequency);
+			f32 amplitude = glm::clamp(*m_InAmplitude, 0.0f, 1.0f);
+			f32 phaseOffset = *m_InPhase;
 
 			// Guard against zero or near-zero sample rate
 			if (m_SampleRate <= 1e-6f)
 			{
 				// Return silence for invalid sample rate
-				out_Value = 0.0f;
+				m_OutValue = 0.0f;
 				return;
 			}
 
 			// Update phase using double precision for higher accuracy
-			double deltaPhase = static_cast<double>(frequency) / static_cast<double>(m_SampleRate);
+			f64 deltaPhase = static_cast<f64>(frequency) / static_cast<f64>(m_SampleRate);
 			m_Phase += deltaPhase;
 			
 			// Robust phase wrapping to keep in [0, 1) - handles negative values correctly
 			m_Phase -= std::floor(m_Phase);
 			
 			// Calculate sine with phase offset
-			float totalPhase = static_cast<float>(m_Phase) + (phaseOffset / (2.0f * std::numbers::pi_v<float>));
+			f32 totalPhase = static_cast<f32>(m_Phase) + (phaseOffset / (2.0f * std::numbers::pi_v<f32>));
 			// Robust wrap to [0, 1) - handles large negative offsets correctly
 			totalPhase = totalPhase - std::floor(totalPhase);
 			
-		out_Value = amplitude * std::sin(2.0f * std::numbers::pi_v<float> * totalPhase);
-	}
+			m_OutValue = amplitude * std::sin(2.0f * std::numbers::pi_v<f32> * totalPhase);
+		}
 
-private:
-	double m_Phase{ 0.0 };
-};	//==============================================================================
+	private:
+		f64 m_Phase{ 0.0 };
+	};
+
+	//==============================================================================
 	// Square Wave Oscillator  
 	//==============================================================================
 	struct SquareOscillator : public NodeProcessor
@@ -92,13 +94,13 @@ private:
 		}
 
 		// Input parameters
-		f32* in_Frequency = nullptr;		// Frequency in Hz
-		f32* in_Amplitude = nullptr;		// Amplitude (0.0 to 1.0)
-		f32* in_Phase = nullptr;			// Phase offset in radians
-		f32* in_PulseWidth = nullptr;		// Pulse width (0.0 to 1.0, 0.5 = square)
+		f32* m_InFrequency = nullptr;		// Frequency in Hz
+		f32* m_InAmplitude = nullptr;		// Amplitude (0.0 to 1.0)
+		f32* m_InPhase = nullptr;			// Phase offset in radians
+		f32* m_InPulseWidth = nullptr;		// Pulse width (0.0 to 1.0, 0.5 = square)
 
 		// Output
-		f32 out_Value{ 0.0f };
+		f32 m_OutValue{ 0.0f };
 
 		void RegisterEndpoints();
 		void InitializeInputs();
@@ -116,38 +118,38 @@ private:
 		{
 			OLO_PROFILE_FUNCTION();
 			
-			float frequency = glm::max(0.0f, *in_Frequency);
-			float amplitude = glm::clamp(*in_Amplitude, 0.0f, 1.0f);
-			float phaseOffset = *in_Phase;
-			float pulseWidth = glm::clamp(*in_PulseWidth, 0.01f, 0.99f);
+			f32 frequency = glm::max(0.0f, *m_InFrequency);
+			f32 amplitude = glm::clamp(*m_InAmplitude, 0.0f, 1.0f);
+			f32 phaseOffset = *m_InPhase;
+			f32 pulseWidth = glm::clamp(*m_InPulseWidth, 0.01f, 0.99f);
 
 			// Guard against zero or near-zero sample rate
 			if (m_SampleRate <= 1e-6f)
 			{
 				// Return silence for invalid sample rate
-				out_Value = 0.0f;
+				m_OutValue = 0.0f;
 				return;
 			}
 
 			// Update phase using double precision for higher accuracy
-			double deltaPhase = static_cast<double>(frequency) / static_cast<double>(m_SampleRate);
+			f64 deltaPhase = static_cast<f64>(frequency) / static_cast<f64>(m_SampleRate);
 			m_Phase += deltaPhase;
 			
 			// Robust phase wrapping to keep in [0, 1) - handles negative values correctly
 			m_Phase -= std::floor(m_Phase);
 			
 			// Calculate square with phase offset and pulse width
-			float totalPhase = static_cast<float>(m_Phase) + (phaseOffset / (2.0f * std::numbers::pi_v<float>));
+			f32 totalPhase = static_cast<f32>(m_Phase) + (phaseOffset / (2.0f * std::numbers::pi_v<f32>));
 			// Robust wrap to [0, 1) - handles large negative offsets correctly
 			totalPhase = std::fmod(totalPhase, 1.0f);
 			if (totalPhase < 0.0f)
 				totalPhase += 1.0f;
 			
-			out_Value = amplitude * (totalPhase < pulseWidth ? 1.0f : -1.0f);
+			m_OutValue = amplitude * (totalPhase < pulseWidth ? 1.0f : -1.0f);
 		}
 
 	private:
-		double m_Phase{ 0.0 };
+		f64 m_Phase{ 0.0 };
 	};
 
 	//==============================================================================
@@ -161,18 +163,20 @@ private:
 		}
 
 		// Input parameters
-		float* in_Frequency = nullptr;		// Frequency in Hz
-		float* in_Amplitude = nullptr;		// Amplitude (0.0 to 1.0)
-		float* in_Phase = nullptr;			// Phase offset in radians
+		f32* m_InFrequency = nullptr;		// Frequency in Hz
+		f32* m_InAmplitude = nullptr;		// Amplitude (0.0 to 1.0)
+		f32* m_InPhase = nullptr;			// Phase offset in radians
 
 		// Output
-		float out_Value{ 0.0f };
+		f32 m_OutValue{ 0.0f };
 
 		void RegisterEndpoints();
 		void InitializeInputs();
 
 		void Init() final
 		{
+			OLO_PROFILE_FUNCTION();
+			
 			InitializeInputs();
 			// Sample rate is now set by NodeProcessor base class
 			m_Phase = 0.0f;
@@ -180,36 +184,38 @@ private:
 
 		void Process() final
 		{
-			float frequency = glm::max(0.0f, *in_Frequency);
-			float amplitude = glm::clamp(*in_Amplitude, 0.0f, 1.0f);
-			float phaseOffset = *in_Phase;
+			OLO_PROFILE_FUNCTION();
+			
+			f32 frequency = glm::max(0.0f, *m_InFrequency);
+			f32 amplitude = glm::clamp(*m_InAmplitude, 0.0f, 1.0f);
+			f32 phaseOffset = *m_InPhase;
 
 			// Guard against zero or near-zero sample rate
 			if (m_SampleRate <= 1e-6f)
 			{
 				// Return silence for invalid sample rate
-				out_Value = 0.0f;
+				m_OutValue = 0.0f;
 				return;
 			}
 
 			// Update phase
-			float deltaPhase = frequency / m_SampleRate;
+			f32 deltaPhase = frequency / m_SampleRate;
 			m_Phase += deltaPhase;
 			
 			// Wrap phase to [0, 1]
 			if (m_Phase >= 1.0f)
-				m_Phase = fmod(m_Phase, 1.0f);
+				m_Phase = std::fmod(m_Phase, 1.0f);
 			
 			// Calculate sawtooth with phase offset
-			float totalPhase = m_Phase + (phaseOffset / (2.0f * std::numbers::pi_v<float>));
-			totalPhase = fmod(totalPhase + 1.0f, 1.0f); // Ensure positive
+			f32 totalPhase = m_Phase + (phaseOffset / (2.0f * std::numbers::pi_v<f32>));
+			totalPhase = std::fmod(totalPhase + 1.0f, 1.0f); // Ensure positive
 			
 			// Convert [0,1] to [-1,1] sawtooth
-			out_Value = amplitude * (2.0f * totalPhase - 1.0f);
+			m_OutValue = amplitude * (2.0f * totalPhase - 1.0f);
 		}
 
 	private:
-		float m_Phase{ 0.0f };
+		f32 m_Phase{ 0.0f };
 	};
 
 	//==============================================================================
@@ -223,18 +229,20 @@ private:
 		}
 
 		// Input parameters
-		float* in_Frequency = nullptr;		// Frequency in Hz
-		float* in_Amplitude = nullptr;		// Amplitude (0.0 to 1.0)
-		float* in_Phase = nullptr;			// Phase offset in radians
+		f32* m_InFrequency = nullptr;		// Frequency in Hz
+		f32* m_InAmplitude = nullptr;		// Amplitude (0.0 to 1.0)
+		f32* m_InPhase = nullptr;			// Phase offset in radians
 
 		// Output
-		float out_Value{ 0.0f };
+		f32 m_OutValue{ 0.0f };
 
 		void RegisterEndpoints();
 		void InitializeInputs();
 
 		void Init() final
 		{
+			OLO_PROFILE_FUNCTION();
+			
 			InitializeInputs();
 			// Sample rate is now set by NodeProcessor base class
 			m_Phase = 0.0f;
@@ -242,42 +250,44 @@ private:
 
 		void Process() final
 		{
-			float frequency = glm::max(0.0f, *in_Frequency);
-			float amplitude = glm::clamp(*in_Amplitude, 0.0f, 1.0f);
-			float phaseOffset = *in_Phase;
+			OLO_PROFILE_FUNCTION();
+			
+			f32 frequency = glm::max(0.0f, *m_InFrequency);
+			f32 amplitude = glm::clamp(*m_InAmplitude, 0.0f, 1.0f);
+			f32 phaseOffset = *m_InPhase;
 
 			// Guard against zero or near-zero sample rate
 			if (m_SampleRate <= 1e-6f)
 			{
 				// Return silence for invalid sample rate
-				out_Value = 0.0f;
+				m_OutValue = 0.0f;
 				return;
 			}
 
 			// Update phase
-			float deltaPhase = frequency / m_SampleRate;
+			f32 deltaPhase = frequency / m_SampleRate;
 			m_Phase += deltaPhase;
 			
 			// Wrap phase to [0, 1]
 			if (m_Phase >= 1.0f)
-				m_Phase = fmod(m_Phase, 1.0f);
+				m_Phase = std::fmod(m_Phase, 1.0f);
 			
 			// Calculate triangle with phase offset
-			float totalPhase = m_Phase + (phaseOffset / (2.0f * std::numbers::pi_v<float>));
-			totalPhase = fmod(totalPhase + 1.0f, 1.0f); // Ensure positive
+			f32 totalPhase = m_Phase + (phaseOffset / (2.0f * std::numbers::pi_v<f32>));
+			totalPhase = std::fmod(totalPhase + 1.0f, 1.0f); // Ensure positive
 			
 			// Convert [0,1] to [-1,1] triangle wave
-			float triangleWave;
+			f32 triangleWave;
 			if (totalPhase < 0.5f)
 				triangleWave = 4.0f * totalPhase - 1.0f; // Rising edge: [0,0.5] -> [-1,1]
 			else
 				triangleWave = 3.0f - 4.0f * totalPhase; // Falling edge: [0.5,1] -> [1,-1]
 			
-			out_Value = amplitude * triangleWave;
+			m_OutValue = amplitude * triangleWave;
 		}
 
 	private:
-		float m_Phase{ 0.0f };
+		f32 m_Phase{ 0.0f };
 	};
 
 	//==============================================================================
@@ -291,12 +301,12 @@ private:
 		}
 
 		// Input parameters
-		i32* in_Seed = nullptr;
-		i32* in_Type = nullptr;			// Noise type (0=White, 1=Pink, 2=Brown)
-		f32* in_Amplitude = nullptr;		// Output amplitude
+		i32* m_InSeed = nullptr;
+		i32* m_InType = nullptr;			// Noise type (0=White, 1=Pink, 2=Brown)
+		f32* m_InAmplitude = nullptr;		// Output amplitude
 
 		// Output
-		f32 out_Value{ 0.0f };
+		f32 m_OutValue{ 0.0f };
 
 		void RegisterEndpoints();
 		void InitializeInputs();
@@ -333,7 +343,7 @@ private:
 			m_FallbackSeed = static_cast<int>(seed64 ^ (seed64 >> 32));
 
 			// Initialize with safe input resolution
-			int resolvedSeed = ResolveSeed();
+			i32 resolvedSeed = ResolveSeed();
 			ENoiseType resolvedType = ResolveType();
 			
 			// Cache the resolved values
@@ -349,7 +359,7 @@ private:
 			OLO_PROFILE_FUNCTION();
 			
 			// Check if seed or type have changed and reinitialize if needed
-			int resolvedSeed = ResolveSeed();
+			i32 resolvedSeed = ResolveSeed();
 			ENoiseType resolvedType = ResolveType();
 			
 			if (resolvedSeed != m_CachedSeed || resolvedType != m_CachedType)
@@ -359,9 +369,9 @@ private:
 				m_Generator.Init(resolvedSeed, resolvedType);
 			}
 			
-			float noiseValue = m_Generator.GetNextValue();
-			float amplitude = in_Amplitude ? *in_Amplitude : 1.0f;
-			out_Value = noiseValue * amplitude;
+			f32 noiseValue = m_Generator.GetNextValue();
+			f32 amplitude = m_InAmplitude ? *m_InAmplitude : 1.0f;
+			m_OutValue = noiseValue * amplitude;
 		}
 
 		enum ENoiseType : int32_t
@@ -373,11 +383,13 @@ private:
 
 	private:
 		// Helper methods for safe input resolution
-		int ResolveSeed() const
+		i32 ResolveSeed() const
 		{
-			if (in_Seed && *in_Seed != -1)
+			OLO_PROFILE_FUNCTION();
+			
+			if (m_InSeed && *m_InSeed != -1)
 			{
-				return *in_Seed;
+				return *m_InSeed;
 			}
 			else
 			{
@@ -388,44 +400,52 @@ private:
 		
 		ENoiseType ResolveType() const
 		{
-			return (in_Type) ? static_cast<ENoiseType>(*in_Type) : WhiteNoise;
+			OLO_PROFILE_FUNCTION();
+			
+			return (m_InType) ? static_cast<ENoiseType>(*m_InType) : WhiteNoise;
 		}
 		
 		// Cached values to detect changes
-		int m_CachedSeed = -1;
+		i32 m_CachedSeed = -1;
 		ENoiseType m_CachedType = WhiteNoise;
 		
 		// Pre-initialized fallback seed for when input seed is unset (-1) - thread-safe
-		std::atomic<int> m_FallbackSeed{0};
+		std::atomic<i32> m_FallbackSeed{0};
 
 		struct Generator
 		{
 		public:
-			void Init(int32_t seed, ENoiseType noiseType)
+			void Init(i32 seed, ENoiseType noiseType)
 			{
+				OLO_PROFILE_FUNCTION();
+				
 				m_Type = noiseType;
 				SetSeed(seed);
 
 				if (m_Type == ENoiseType::PinkNoise)
 				{
 					// bins are already zero-initialized by member initializer (line 478)
-					m_PinkState.accumulation = 0.0f;
-					m_PinkState.counter = 1;
+					m_PinkState.m_Accumulation = 0.0f;
+					m_PinkState.m_Counter = 1;
 				}
 
 				if (m_Type == ENoiseType::BrownNoise)
 				{
-					m_BrownState.accumulation = 0.0f;
+					m_BrownState.m_Accumulation = 0.0f;
 				}
 			}
 
-			void SetSeed(int32_t seed) noexcept
+			void SetSeed(i32 seed) noexcept
 			{
+				OLO_PROFILE_FUNCTION();
+				
 				m_Random.SetSeed(seed);
 			}
 
-			float GetNextValue()
+			f32 GetNextValue()
 			{
+				OLO_PROFILE_FUNCTION();
+				
 				switch (m_Type)
 				{
 					case WhiteNoise: 	return GetNextValueWhite();
@@ -436,45 +456,51 @@ private:
 			}
 
 		private:
-			float GetNextValueWhite()
+			f32 GetNextValueWhite()
 			{
+				OLO_PROFILE_FUNCTION();
+				
 				return m_Random.GetFloat32InRange(-1.0f, 1.0f);
 			}
 
-			float GetNextValuePink()
+			f32 GetNextValuePink()
 			{
+				OLO_PROFILE_FUNCTION();
+				
 				// Paul Kellet's refined pink noise algorithm
-				float white = m_Random.GetFloat32InRange(-1.0f, 1.0f);
+				f32 white = m_Random.GetFloat32InRange(-1.0f, 1.0f);
 				
-				m_PinkState.bins[0] = 0.99886f * m_PinkState.bins[0] + white * 0.0555179f;
-				m_PinkState.bins[1] = 0.99332f * m_PinkState.bins[1] + white * 0.0750759f;
-				m_PinkState.bins[2] = 0.96900f * m_PinkState.bins[2] + white * 0.1538520f;
-				m_PinkState.bins[3] = 0.86650f * m_PinkState.bins[3] + white * 0.3104856f;
-				m_PinkState.bins[4] = 0.55000f * m_PinkState.bins[4] + white * 0.5329522f;
-				m_PinkState.bins[5] = -0.7616f * m_PinkState.bins[5] - white * 0.0168980f;
+				m_PinkState.m_Bins[0] = 0.99886f * m_PinkState.m_Bins[0] + white * 0.0555179f;
+				m_PinkState.m_Bins[1] = 0.99332f * m_PinkState.m_Bins[1] + white * 0.0750759f;
+				m_PinkState.m_Bins[2] = 0.96900f * m_PinkState.m_Bins[2] + white * 0.1538520f;
+				m_PinkState.m_Bins[3] = 0.86650f * m_PinkState.m_Bins[3] + white * 0.3104856f;
+				m_PinkState.m_Bins[4] = 0.55000f * m_PinkState.m_Bins[4] + white * 0.5329522f;
+				m_PinkState.m_Bins[5] = -0.7616f * m_PinkState.m_Bins[5] - white * 0.0168980f;
 				
-				float pink = m_PinkState.bins[0] + m_PinkState.bins[1] + m_PinkState.bins[2] + 
-							m_PinkState.bins[3] + m_PinkState.bins[4] + m_PinkState.bins[5] + 
-							m_PinkState.bins[6] + white * 0.5362f;
+				f32 pink = m_PinkState.m_Bins[0] + m_PinkState.m_Bins[1] + m_PinkState.m_Bins[2] + 
+							m_PinkState.m_Bins[3] + m_PinkState.m_Bins[4] + m_PinkState.m_Bins[5] + 
+							m_PinkState.m_Bins[6] + white * 0.5362f;
 				
-				m_PinkState.bins[6] = white * 0.115926f;
+				m_PinkState.m_Bins[6] = white * 0.115926f;
 				
 				return glm::clamp(pink * 0.11f, -1.0f, 1.0f); // Scale and clamp
 			}
 
-			float GetNextValueBrown()
+			f32 GetNextValueBrown()
 			{
+				OLO_PROFILE_FUNCTION();
+				
 				// Brownian noise (red noise) - integrated white noise
-				float white = m_Random.GetFloat32InRange(-1.0f, 1.0f);
-				m_BrownState.accumulation += white * 0.02f; // Integration step
+				f32 white = m_Random.GetFloat32InRange(-1.0f, 1.0f);
+				m_BrownState.m_Accumulation += white * 0.02f; // Integration step
 				
 				// Prevent DC drift
-				m_BrownState.accumulation *= 0.9999f;
+				m_BrownState.m_Accumulation *= 0.9999f;
 				
 				// Clamp to prevent overflow
-				m_BrownState.accumulation = glm::clamp(m_BrownState.accumulation, -1.0f, 1.0f);
+				m_BrownState.m_Accumulation = glm::clamp(m_BrownState.m_Accumulation, -1.0f, 1.0f);
 				
-				return m_BrownState.accumulation;
+				return m_BrownState.m_Accumulation;
 			}
 
 			ENoiseType m_Type{ WhiteNoise };
@@ -482,14 +508,14 @@ private:
 
 			// Pink noise state
 			struct {
-				f32 bins[7]{ 0.0f };
-				f32 accumulation{ 0.0f };
-				u32 counter{ 1 };
+				f32 m_Bins[7]{ 0.0f };
+				f32 m_Accumulation{ 0.0f };
+				u32 m_Counter{ 1 };
 			} m_PinkState;
 
 			// Brown noise state
 			struct {
-				f32 accumulation{ 0.0f };
+				f32 m_Accumulation{ 0.0f };
 			} m_BrownState;
 		};
 

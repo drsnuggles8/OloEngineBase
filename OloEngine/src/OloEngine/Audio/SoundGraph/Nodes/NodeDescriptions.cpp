@@ -20,17 +20,17 @@ namespace sg = OloEngine::Audio::SoundGraph;
 //==============================================================================
 DESCRIBE_NODE(sg::WavePlayer,
         NODE_INPUTS(
-            &sg::WavePlayer::in_WaveAsset,
-            &sg::WavePlayer::in_StartTime,
-            &sg::WavePlayer::in_Loop,
-            &sg::WavePlayer::in_NumberOfLoops
+            &sg::WavePlayer::m_InWaveAsset,
+            &sg::WavePlayer::m_InStartTime,
+            &sg::WavePlayer::m_InLoop,
+            &sg::WavePlayer::m_InNumberOfLoops
         ),
         NODE_OUTPUTS(
-            &sg::WavePlayer::out_OutLeft,
-            &sg::WavePlayer::out_OutRight,
-            &sg::WavePlayer::out_OnPlay,
-            &sg::WavePlayer::out_OnStop,
-            &sg::WavePlayer::out_OnFinished
+            &sg::WavePlayer::m_OutOutLeft,
+            &sg::WavePlayer::m_OutOutRight,
+            &sg::WavePlayer::m_OutOnPlay,
+            &sg::WavePlayer::m_OutOnStop,
+            &sg::WavePlayer::m_OutOnFinished
         )
     );
 
@@ -39,57 +39,57 @@ DESCRIBE_NODE(sg::WavePlayer,
     //==============================================================================
     DESCRIBE_NODE(sg::SineOscillator,
         NODE_INPUTS(
-            &sg::SineOscillator::in_Frequency,
-            &sg::SineOscillator::in_Amplitude,
-            &sg::SineOscillator::in_Phase
+            &sg::SineOscillator::m_InFrequency,
+            &sg::SineOscillator::m_InAmplitude,
+            &sg::SineOscillator::m_InPhase
         ),
         NODE_OUTPUTS(
-            &sg::SineOscillator::out_Value
+            &sg::SineOscillator::m_OutValue
         )
     );
 
     DESCRIBE_NODE(sg::SquareOscillator,
         NODE_INPUTS(
-            &sg::SquareOscillator::in_Frequency,
-            &sg::SquareOscillator::in_Amplitude,
-            &sg::SquareOscillator::in_Phase,
-            &sg::SquareOscillator::in_PulseWidth
+            &sg::SquareOscillator::m_InFrequency,
+            &sg::SquareOscillator::m_InAmplitude,
+            &sg::SquareOscillator::m_InPhase,
+            &sg::SquareOscillator::m_InPulseWidth
         ),
         NODE_OUTPUTS(
-            &sg::SquareOscillator::out_Value
+            &sg::SquareOscillator::m_OutValue
         )
     );
 
     DESCRIBE_NODE(sg::SawtoothOscillator,
         NODE_INPUTS(
-            &sg::SawtoothOscillator::in_Frequency,
-            &sg::SawtoothOscillator::in_Amplitude,
-            &sg::SawtoothOscillator::in_Phase
+            &sg::SawtoothOscillator::m_InFrequency,
+            &sg::SawtoothOscillator::m_InAmplitude,
+            &sg::SawtoothOscillator::m_InPhase
         ),
         NODE_OUTPUTS(
-            &sg::SawtoothOscillator::out_Value
+            &sg::SawtoothOscillator::m_OutValue
         )
     );
 
     DESCRIBE_NODE(sg::TriangleOscillator,
         NODE_INPUTS(
-            &sg::TriangleOscillator::in_Frequency,
-            &sg::TriangleOscillator::in_Amplitude,
-            &sg::TriangleOscillator::in_Phase
+            &sg::TriangleOscillator::m_InFrequency,
+            &sg::TriangleOscillator::m_InAmplitude,
+            &sg::TriangleOscillator::m_InPhase
         ),
         NODE_OUTPUTS(
-            &sg::TriangleOscillator::out_Value
+            &sg::TriangleOscillator::m_OutValue
         )
     );
 
     DESCRIBE_NODE(sg::Noise,
         NODE_INPUTS(
-            &sg::Noise::in_Seed,
-            &sg::Noise::in_Type,
-            &sg::Noise::in_Amplitude
+            &sg::Noise::m_InSeed,
+            &sg::Noise::m_InType,
+            &sg::Noise::m_InAmplitude
         ),
         NODE_OUTPUTS(
-            &sg::Noise::out_Value
+            &sg::Noise::m_OutValue
         )
     );
 

@@ -451,7 +451,7 @@ namespace OloEngine::Audio::SoundGraph
 			if (it != nodeData.m_Properties.end())
 			{
 				// NOTE: WaveAsset is set through the parameter system, not a dedicated setter
-				// The in_WaveAsset parameter is connected to the graph's parameter inputs
+				// The m_InWaveAsset parameter is connected to the graph's parameter inputs
 				// during graph construction. Properties in the asset are metadata only.
 				// Actual parameter values are set via SoundGraph::SetParameter() at runtime.
 				OLO_CORE_INFO("SoundGraphSerializer: WaveAsset property '{}' will be set via parameter system", it->second);

@@ -16,8 +16,8 @@ namespace OloEngine::Audio
     {
         // Storage for the value data - large enough for most common types
         // Floats, ints, small vectors, etc. will fit inline
-        static constexpr sizet InlineStorageSize = 64;
-        alignas(8) u8 m_Storage[InlineStorageSize];
+        static constexpr sizet s_InlineStorageSize = 64;
+        alignas(8) u8 m_Storage[s_InlineStorageSize];
         
         // Track what type of data we have
         choc::value::Type m_Type;
@@ -28,7 +28,7 @@ namespace OloEngine::Audio
         PreAllocatedValue() 
             : m_Type(choc::value::Type::createVoid())
         {
-            std::memset(m_Storage, 0, InlineStorageSize);
+            std::memset(m_Storage, 0, s_InlineStorageSize);
         }
         
         // Copy constructor
@@ -36,7 +36,7 @@ namespace OloEngine::Audio
             : m_Type(other.m_Type)
             , m_DataSize(other.m_DataSize)
         {
-            std::memcpy(m_Storage, other.m_Storage, std::min(static_cast<sizet>(m_DataSize), InlineStorageSize));
+            std::memcpy(m_Storage, other.m_Storage, std::min(static_cast<sizet>(m_DataSize), s_InlineStorageSize));
         }
         
         // Copy assignment
@@ -46,7 +46,7 @@ namespace OloEngine::Audio
             {
                 m_Type = other.m_Type;
                 m_DataSize = other.m_DataSize;
-                std::memcpy(m_Storage, other.m_Storage, std::min(static_cast<sizet>(m_DataSize), InlineStorageSize));
+                std::memcpy(m_Storage, other.m_Storage, std::min(static_cast<sizet>(m_DataSize), s_InlineStorageSize));
             }
             return *this;
         }
@@ -60,7 +60,7 @@ namespace OloEngine::Audio
             m_DataSize = static_cast<u32>(m_Type.getValueDataSize());
             
             // Check if it fits in our inline storage
-            if (m_DataSize > InlineStorageSize)
+            if (m_DataSize > s_InlineStorageSize)
             {
                 // Data too large - this is a limitation of our pre-allocated approach
                 // In practice, most audio events are small (floats, ints, small structs)
@@ -69,7 +69,7 @@ namespace OloEngine::Audio
             
             // Copy the raw data into our storage
             const void* sourceData = source.getRawData();
-            if (sourceData)
+            if (sourceData && m_DataSize > 0)
             {
                 std::memcpy(m_Storage, sourceData, m_DataSize);
             }
@@ -229,6 +229,7 @@ namespace OloEngine::Audio
         /// Returns true if an item was popped, false if queue is empty
         bool Pop(T& outItem) noexcept
         {
+            OLO_PROFILE_FUNCTION();
             const sizet readIndex = m_ReadIndex.load(std::memory_order_relaxed);
             
             // Check if queue is empty
@@ -240,9 +241,9 @@ namespace OloEngine::Audio
             // Read item from buffer
             outItem = m_Buffer[readIndex];
             
-            // Publish the read (release semantics for potential multi-consumer scenarios)
+            // Publish the read
             const sizet nextReadIndex = (readIndex + 1) & (Capacity - 1);
-            m_ReadIndex.store(nextReadIndex, std::memory_order_release);
+            m_ReadIndex.store(nextReadIndex, std::memory_order_relaxed);
             
             return true;
         }

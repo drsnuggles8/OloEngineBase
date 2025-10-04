@@ -35,12 +35,15 @@ namespace OloEngine
 
         // Use AudioLoader to get audio file information
         u32 numChannels = 0;
-        u32 numFrames = 0; 
         f64 sampleRate = 0.0;
         f64 duration = 0.0;
         u16 bitDepth = 0;
         
-        if (!Audio::AudioLoader::GetAudioFileInfo(filePath, numChannels, numFrames, sampleRate, duration, bitDepth))
+        // Note: numFrames is not retrieved as duration (which is calculated from numFrames in AudioLoader)
+        // provides the same information in a more useful format for the AudioFile asset
+        u32 unusedNumFrames = 0; // Required by AudioLoader API but not used
+        
+        if (!Audio::AudioLoader::GetAudioFileInfo(filePath, numChannels, unusedNumFrames, sampleRate, duration, bitDepth))
         {
             OLO_CORE_ERROR("AudioFileSourceSerializer: Failed to get audio file info for: {}", filePath.string());
             // Create a default AudioFile asset
@@ -56,6 +59,17 @@ namespace OloEngine
         {
             OLO_CORE_WARN("AudioFileSourceSerializer: Could not get file size for: {}", filePath.string());
             fileSize = 0;
+        }
+
+        // Validate channel count is within u16 range before casting
+        if (numChannels > std::numeric_limits<u16>::max())
+        {
+            OLO_CORE_ERROR("AudioFileSourceSerializer: Channel count {} exceeds maximum supported channels ({})", 
+                          numChannels, std::numeric_limits<u16>::max());
+            // Create a default AudioFile asset
+            asset = Ref<AudioFile>::Create();
+            asset->SetHandle(metadata.Handle);
+            return false;
         }
 
         // Create AudioFile asset with loaded metadata

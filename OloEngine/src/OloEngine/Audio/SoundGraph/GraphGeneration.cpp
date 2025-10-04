@@ -69,9 +69,13 @@ namespace OloEngine::Audio::SoundGraph
             // Set up graph inputs and outputs based on channel count
             for (u32 i = 0; i < m_Options.m_NumInChannels; ++i)
             {
-                std::string inputName = "In" + std::to_string(i);
-                if (i == 0) inputName = "InLeft";
-                else if (i == 1) inputName = "InRight";
+                std::string inputName;
+                if (i == 0)
+                    inputName = "InLeft";
+                else if (i == 1)
+                    inputName = "InRight";
+                else
+                    inputName = "In" + std::to_string(i);
                 
                 Prototype::Endpoint input(Identifier(inputName), choc::value::Value(0.0f));
                 m_OutPrototype->m_Inputs.push_back(input);

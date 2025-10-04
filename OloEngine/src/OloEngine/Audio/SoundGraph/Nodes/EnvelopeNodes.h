@@ -40,7 +40,6 @@ namespace OloEngine::Audio::SoundGraph
 			
 			// Initialize state
 			m_Value = 0.0f;
-			m_Target = 0.0f;
 			m_State = Idle;
 		}
 
@@ -116,7 +115,6 @@ namespace OloEngine::Audio::SoundGraph
 
 		State m_State{ Idle };
 		f32 m_Value{ 0.0f };
-		f32 m_Target{ 0.0f };
 
 		// Pre-calculated rates
 		f32 m_AttackRate{ 0.001f };
@@ -158,7 +156,6 @@ namespace OloEngine::Audio::SoundGraph
 		void StartAttack()
 		{
 			m_State = Attack;
-			m_Target = 1.0f;
 			m_AttackProgress = 0.0f; // Reset attack progress
 			m_OutOnTrigger(1.0f);
 		}
@@ -180,7 +177,6 @@ namespace OloEngine::Audio::SoundGraph
 			{
 				m_Value = 1.0f;
 				m_State = Decay;
-				m_Target = 0.0f;
 				m_DecayProgress = 0.0f; // Reset decay progress
 			}
 		}
@@ -244,7 +240,6 @@ namespace OloEngine::Audio::SoundGraph
 			
 			// Initialize state
 			m_Value = 0.0f;
-			m_Target = 0.0f;
 			m_State = Idle;
 		}
 
@@ -344,7 +339,6 @@ namespace OloEngine::Audio::SoundGraph
 
 		State m_State{ Idle };
 		f32 m_Value{ 0.0f };
-		f32 m_Target{ 0.0f };
 		f32 m_SustainStartValue{ 0.0f }; // Value when release started
 
 		// Pre-calculated rates
@@ -398,7 +392,6 @@ namespace OloEngine::Audio::SoundGraph
 		void StartAttack()
 		{
 			m_State = Attack;
-			m_Target = 1.0f;
 			m_AttackProgress = 0.0f; // Reset attack progress
 			m_OutOnTrigger(1.0f);
 		}
@@ -409,7 +402,6 @@ namespace OloEngine::Audio::SoundGraph
 			{
 				m_State = Release;
 				m_SustainStartValue = m_Value;
-				m_Target = 0.0f;
 				m_ReleaseProgress = 0.0f; // Reset release progress
 				m_OutOnRelease(1.0f);
 			}
@@ -432,7 +424,6 @@ namespace OloEngine::Audio::SoundGraph
 			{
 				m_Value = 1.0f;
 				m_State = Decay;
-				m_Target = glm::clamp(*m_InSustainLevel, 0.0f, 1.0f);
 				m_DecayProgress = 0.0f; // Reset decay progress
 			}
 		}

@@ -13,8 +13,6 @@ namespace YAML
 
 namespace OloEngine::Audio::SoundGraph
 {
-    using OloEngine::SoundGraphAsset;
-
     /**
      * @brief Serializer for SoundGraph assets to/from YAML format
      * 
@@ -29,7 +27,7 @@ namespace OloEngine::Audio::SoundGraph
          * @param asset The SoundGraphAsset to serialize
          * @return YAML string representation, or empty string on failure
          */
-        static std::string SerializeToString(const SoundGraphAsset& asset);
+        static std::string SerializeToString(const OloEngine::SoundGraphAsset& asset);
 
         /**
          * @brief Deserialize a SoundGraphAsset from YAML string
@@ -37,7 +35,7 @@ namespace OloEngine::Audio::SoundGraph
          * @param yamlString Input YAML string
          * @return true on success, false on failure
          */
-        static bool DeserializeFromString(SoundGraphAsset& asset, const std::string& yamlString);
+        static bool DeserializeFromString(OloEngine::SoundGraphAsset& asset, const std::string& yamlString);
 
         /**
          * @brief Serialize a SoundGraphAsset to file
@@ -45,7 +43,7 @@ namespace OloEngine::Audio::SoundGraph
          * @param filePath Path to output file
          * @return true on success, false on failure
          */
-        static bool Serialize(const SoundGraphAsset& asset, const std::filesystem::path& filePath);
+        static bool Serialize(const OloEngine::SoundGraphAsset& asset, const std::filesystem::path& filePath);
 
         /**
          * @brief Deserialize a SoundGraphAsset from file
@@ -53,7 +51,7 @@ namespace OloEngine::Audio::SoundGraph
          * @param filePath Path to input file
          * @return true on success, false on failure
          */
-        static bool Deserialize(SoundGraphAsset& asset, const std::filesystem::path& filePath);
+        static bool Deserialize(OloEngine::SoundGraphAsset& asset, const std::filesystem::path& filePath);
 
     private:
         // Forward declare for nested types
