@@ -11,9 +11,9 @@
 // BPM constants for music timing calculations
 namespace
 {
-    static constexpr f32 DEFAULT_BPM = 120.0f;
-    static constexpr f32 MIN_BPM = 1.0f;
-    static constexpr f32 MAX_BPM = 1000.0f;
+    constexpr f32 DEFAULT_BPM = 120.0f;
+    constexpr f32 MIN_BPM = 1.0f;
+    constexpr f32 MAX_BPM = 1000.0f;
 }
 
 namespace OloEngine::Audio::SoundGraph

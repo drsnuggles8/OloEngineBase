@@ -83,7 +83,7 @@ namespace OloEngine::Audio::SoundGraph
 		out << YAML::Key << "Nodes" << YAML::Value;
 		out << YAML::BeginSeq;
 		
-		for (const auto& nodeData : asset.m_Nodes)
+		for (const auto& nodeData : asset.GetNodes())
 		{
 			SerializeNodeData(out, nodeData);
 		}
@@ -146,7 +146,7 @@ namespace OloEngine::Audio::SoundGraph
 			// NOTE: Handle is set by AssetManager when loading the asset, not during YAML deserialization
 			// The asset handle is managed by the asset loading pipeline, not the serializer
 			
-			// Clear existing data
+			// Clear existing data (friend access to private members)
 			asset.m_Nodes.clear();
 			asset.m_Connections.clear();
 			
@@ -345,12 +345,12 @@ namespace OloEngine::Audio::SoundGraph
 		if (s_NodeCreators.empty())
 			InitializeDefaultNodeTypes();
 		
-		auto soundGraph = Ref<SoundGraph>::Create(asset.m_Name, UUID());
+		auto soundGraph = Ref<SoundGraph>::Create(asset.GetName(), UUID());
 		
 		// Create all nodes first
 		std::unordered_map<UUID, NodeProcessor*> nodeMap;
 		
-		for (const auto& nodeData : asset.m_Nodes)
+		for (const auto& nodeData : asset.GetNodes())
 		{
 			// Convert UUID from NodeData to Identifier for CreateNode
 			// Note: Identifier uses u32 hash. To avoid collisions from truncation,
@@ -380,7 +380,7 @@ namespace OloEngine::Audio::SoundGraph
 		}
 		
 		// Connect nodes
-		for (const auto& connection : asset.m_Connections)
+		for (const auto& connection : asset.GetConnections())
 		{
 			auto outputNodeIt = nodeMap.find(connection.m_SourceNodeID);
 			auto inputNodeIt = nodeMap.find(connection.m_TargetNodeID);
@@ -417,7 +417,7 @@ namespace OloEngine::Audio::SoundGraph
 		}
 		
 		OLO_CORE_INFO("Created sound graph '{}' with {} nodes and {} connections", 
-			asset.m_Name, asset.m_Nodes.size(), asset.m_Connections.size());
+			asset.GetName(), asset.GetNodeCount(), asset.GetConnectionCount());
 		
 		return soundGraph;
 	}

@@ -2607,7 +2607,7 @@ namespace OloEngine
         outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
         
         OLO_CORE_TRACE("SoundGraphSerializer::SerializeToAssetPack - Serialized SoundGraph '{}' to pack, Size: {} bytes", 
-                       soundGraphAsset->m_Name, outInfo.Size);
+                       soundGraphAsset->GetName(), outInfo.Size);
         return true;
     }
 
@@ -2634,7 +2634,7 @@ namespace OloEngine
         soundGraphAsset->SetHandle(assetInfo.Handle);
 
         OLO_CORE_TRACE("SoundGraphSerializer::DeserializeFromAssetPack - Deserialized SoundGraph '{}' from pack, Handle: {}", 
-                       soundGraphAsset->m_Name, assetInfo.Handle);
+                       soundGraphAsset->GetName(), assetInfo.Handle);
         return soundGraphAsset;
     }
 

@@ -8,12 +8,12 @@ namespace OloEngine::Audio
         // Assert that the node is valid
         OLO_CORE_ASSERT(pNode != nullptr);
         
-        // Safe cast: processing_node has ma_node_base as first member, making this layout-compatible
-        AudioCallback::processing_node* node = static_cast<AudioCallback::processing_node*>(static_cast<void*>(pNode));
+        // Safe cast: ProcessingNode has ma_node_base as first member, making this layout-compatible
+        AudioCallback::ProcessingNode* node = static_cast<AudioCallback::ProcessingNode*>(static_cast<void*>(pNode));
         
-        // Runtime type validation: verify this is actually a processing_node instance
-        OLO_CORE_ASSERT(node->m_TypeId == AudioCallback::processing_node::s_MagicTypeId, 
-            "Invalid node type! Expected processing_node but got different type. This indicates memory corruption or incorrect node usage.");
+        // Runtime type validation: verify this is actually a ProcessingNode instance
+        OLO_CORE_ASSERT(node->m_TypeId == AudioCallback::ProcessingNode::s_MagicTypeId, 
+            "Invalid node type! Expected ProcessingNode but got different type. This indicates memory corruption or incorrect node usage.");
         
         AudioCallback* callback = node->m_Callback;
         
@@ -73,7 +73,7 @@ namespace OloEngine::Audio
 
         m_Node.m_Callback = this;
         m_Node.m_PEngine = m_Engine;
-        m_Node.m_TypeId = processing_node::s_MagicTypeId; // Set magic ID for runtime type validation
+        m_Node.m_TypeId = ProcessingNode::s_MagicTypeId; // Set magic ID for runtime type validation
 
         // Validate bus counts before casting to ma_uint8 (max 255)
         // This prevents overflow when casting sizet to ma_uint8

@@ -92,6 +92,7 @@ namespace OloEngine
 		i16 GetInt16() noexcept 
 		{
 			OLO_PROFILE_FUNCTION();
+			// Note: Uses lower 16 bits; higher bits have better statistical properties in LCG
 			return static_cast<i16>(GetInt32() & 0xFFFF); 
 		}
 
@@ -111,7 +112,7 @@ namespace OloEngine
 		// Direct cast to u32 is safe and avoids unnecessary branching
 		const i32 value = GetInt32();
 		const u32 unsignedValue = static_cast<u32>(value);
-		return unsignedValue / static_cast<f64>(0x7FFFFFFF); 
+		return unsignedValue / static_cast<f64>(s_LcgM); 
 	}
 
 	f32 GetFloat32() noexcept 

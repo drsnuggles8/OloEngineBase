@@ -42,7 +42,7 @@ namespace OloEngine
         virtual AssetType GetAssetType(AssetHandle assetHandle) const noexcept override;
         virtual Ref<Asset> GetAsset(AssetHandle assetHandle) override;
         virtual AsyncAssetResult<Asset> GetAssetAsync(AssetHandle assetHandle) override;
-        virtual const AssetMetadata& GetAssetMetadata(AssetHandle handle) const noexcept override;
+        virtual AssetMetadata GetAssetMetadata(AssetHandle handle) const noexcept override;
 
         virtual void AddMemoryOnlyAsset(Ref<Asset> asset) override;
         virtual [[nodiscard]] bool ReloadData(AssetHandle assetHandle) override;

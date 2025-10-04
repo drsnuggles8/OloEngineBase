@@ -17,9 +17,16 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         
+        // Debug validation: ensure cache is consistent with vector
+        OLO_CORE_ASSERT(m_NodeIdMap.size() == m_Nodes.size(), 
+                        "Node ID map out of sync with nodes vector - did you modify m_Nodes directly without calling RebuildNodeIdMap()?");
+        
         auto it = m_NodeIdMap.find(nodeId);
         if (it != m_NodeIdMap.end())
+        {
+            OLO_CORE_ASSERT(it->second < m_Nodes.size(), "Node ID map contains invalid index");
             return &m_Nodes[it->second];
+        }
         return nullptr;
     }
 
@@ -27,9 +34,16 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Debug validation: ensure cache is consistent with vector
+        OLO_CORE_ASSERT(m_NodeIdMap.size() == m_Nodes.size(), 
+                        "Node ID map out of sync with nodes vector - did you modify m_Nodes directly without calling RebuildNodeIdMap()?");
+        
         auto it = m_NodeIdMap.find(nodeId);
         if (it != m_NodeIdMap.end())
+        {
+            OLO_CORE_ASSERT(it->second < m_Nodes.size(), "Node ID map contains invalid index");
             return &m_Nodes[it->second];
+        }
         return nullptr;
     }
 
@@ -203,6 +217,16 @@ namespace OloEngine
         {
             m_NodeIdMap[m_Nodes[i].m_ID] = i;
         }
+    }
+
+    const Ref<Audio::SoundGraph::Prototype>& SoundGraphAsset::GetCompiledPrototype() const
+    {
+        return m_CompiledPrototype;
+    }
+
+    void SoundGraphAsset::SetCompiledPrototype(const Ref<Audio::SoundGraph::Prototype>& prototype)
+    {
+        m_CompiledPrototype = prototype;
     }
 
 } // namespace OloEngine

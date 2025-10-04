@@ -273,7 +273,19 @@ namespace OloEngine::Audio
                 return;
 
             const sizet frameCapacity = GetFrameCapacity();
-            const sizet totalSamples = static_cast<sizet>(numFrames) * NumChannels;
+            
+            // Clamp numFrames to buffer capacity to prevent out-of-bounds writes
+            i32 clampedFrames = numFrames;
+            const T* sourcePtr = buf;
+            if (numFrames > static_cast<i32>(frameCapacity))
+            {
+                // If input is larger than buffer, advance source pointer to keep newest frames
+                const i32 framesToSkip = numFrames - static_cast<i32>(frameCapacity);
+                sourcePtr = buf + (framesToSkip * NumChannels);
+                clampedFrames = static_cast<i32>(frameCapacity);
+            }
+            
+            const sizet totalSamples = static_cast<sizet>(clampedFrames) * NumChannels;
             const sizet totalElements = totalSamples;
             const sizet capacityElements = m_Buf.size();
             
@@ -283,18 +295,18 @@ namespace OloEngine::Audio
             
             // First chunk: copy from write position to end of buffer (or all data if it fits)
             const sizet firstChunkElements = std::min(elementsUntilEnd, totalElements);
-            std::copy_n(buf, firstChunkElements, &m_Buf[writeIndex]);
+            std::copy_n(sourcePtr, firstChunkElements, &m_Buf[writeIndex]);
             
             // Second chunk: wrap around to beginning if needed
             const sizet remainingElements = totalElements - firstChunkElements;
             if (remainingElements > 0)
             {
-                std::copy_n(buf + firstChunkElements, remainingElements, &m_Buf[0]);
+                std::copy_n(sourcePtr + firstChunkElements, remainingElements, &m_Buf[0]);
             }
             
             // Calculate how many frames were actually written
             const i32 previousAvail = m_Avail;
-            const i32 framesWritten = numFrames;
+            const i32 framesWritten = clampedFrames;
             
             // Advance write position by total frames, wrapping around
             m_WritePos = (m_WritePos + framesWritten) % static_cast<i32>(frameCapacity);

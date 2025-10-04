@@ -79,19 +79,22 @@ namespace OloEngine::Audio
         
         /// Create a ValueView pointing to our storage
         /// This allows code to access the value without allocation
-        choc::value::ValueView GetView() const noexcept
+        choc::value::ValueView GetView() noexcept
         {
             if (m_Type.isVoid() || m_DataSize == 0)
                 return choc::value::ValueView();
                 
             // Create a view pointing to our inline storage
-            // The const_cast is safe because we control the lifetime
-            return choc::value::ValueView(m_Type, const_cast<void*>(static_cast<const void*>(m_Storage)), nullptr);
+            return choc::value::ValueView(m_Type, static_cast<void*>(m_Storage), nullptr);
         }
         
         /// Create an owned Value (this may allocate, but only when consuming on main thread)
-        choc::value::Value GetValue() const
+        choc::value::Value GetValue() noexcept
         {
+            if (m_Type.isVoid() || m_DataSize == 0)
+                return choc::value::Value();
+                
+            // Create view and copy to Value
             return choc::value::Value(GetView());
         }
         
@@ -145,11 +148,14 @@ namespace OloEngine::Audio
         AudioThreadMessage() = default;
         
         // Copy constructor
+        // Performance-critical: Use fixed-size memcpy instead of strlen+dynamic copy
+        // This is called on every queue Push/Pop operation
         AudioThreadMessage(const AudioThreadMessage& other)
             : m_FrameIndex(other.m_FrameIndex)
         {
-            std::strncpy(m_Text, other.m_Text, s_MaxMessageLength - 1);
-            m_Text[s_MaxMessageLength - 1] = '\0';
+            // Copy entire buffer - simple, fast, cache-friendly
+            // No need for strlen (O(n) scan) since buffer is fixed size
+            std::memcpy(m_Text, other.m_Text, s_MaxMessageLength);
         }
         
         // Copy assignment
@@ -158,8 +164,8 @@ namespace OloEngine::Audio
             if (this != &other)
             {
                 m_FrameIndex = other.m_FrameIndex;
-                std::strncpy(m_Text, other.m_Text, s_MaxMessageLength - 1);
-                m_Text[s_MaxMessageLength - 1] = '\0';
+                // Copy entire buffer - simple, fast, cache-friendly
+                std::memcpy(m_Text, other.m_Text, s_MaxMessageLength);
             }
             return *this;
         }
@@ -168,8 +174,11 @@ namespace OloEngine::Audio
         {
             if (text)
             {
-                std::strncpy(m_Text, text, s_MaxMessageLength - 1);
+                sizet len = std::strlen(text);
+                sizet copyLen = std::min(len, s_MaxMessageLength - 1);
+                std::memcpy(m_Text, text, copyLen);
                 m_Text[s_MaxMessageLength - 1] = '\0';
+                m_Text[copyLen] = '\0';
             }
             else
             {

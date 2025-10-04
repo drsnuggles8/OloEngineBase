@@ -2,6 +2,7 @@
 #include "SoundGraphCache.h"
 #include "SoundGraph.h"
 #include "SoundGraphSerializer.h"
+#include "SoundGraphPrototype.h"  // Must include before SoundGraphAsset.h to complete Prototype type
 #include "GraphGeneration.h"
 #include "OloEngine/Asset/SoundGraphAsset.h"
 

@@ -17,11 +17,11 @@ TEST(AudioEventQueue, BasicPushPop)
     
     // Push an event
     AudioThreadEvent event;
-    event.FrameIndex = 12345;
-    event.EndpointID = 42;
+    event.m_FrameIndex = 12345;
+    event.m_EndpointID = 42;
     
     choc::value::Value value = choc::value::createFloat32(3.14f);
-    ASSERT_TRUE(event.ValueData.CopyFrom(value));
+    ASSERT_TRUE(event.m_ValueData.CopyFrom(value));
     
     ASSERT_TRUE(queue.Push(event));
     ASSERT_FALSE(queue.IsEmpty());
@@ -30,10 +30,10 @@ TEST(AudioEventQueue, BasicPushPop)
     AudioThreadEvent popped;
     ASSERT_TRUE(queue.Pop(popped));
     
-    EXPECT_EQ(popped.FrameIndex, 12345);
-    EXPECT_EQ(popped.EndpointID, 42);
+    EXPECT_EQ(popped.m_FrameIndex, 12345);
+    EXPECT_EQ(popped.m_EndpointID, 42);
     
-    choc::value::ValueView view = popped.ValueData.GetView();
+    choc::value::ValueView view = popped.m_ValueData.GetView();
     EXPECT_TRUE(view.isFloat32());
     EXPECT_FLOAT_EQ(view.getFloat32(), 3.14f);
     
@@ -59,18 +59,18 @@ TEST(AudioEventQueue, QueueFull)
     for (int i = 0; i < 7; ++i)
     {
         AudioThreadEvent event;
-        event.FrameIndex = i;
-        event.EndpointID = i;
+        event.m_FrameIndex = i;
+        event.m_EndpointID = i;
         
         choc::value::Value value = choc::value::createInt32(i);
-        event.ValueData.CopyFrom(value);
+        event.m_ValueData.CopyFrom(value);
         
         ASSERT_TRUE(queue.Push(event)) << "Failed to push event " << i;
     }
     
     // Queue should be full now
     AudioThreadEvent overflow;
-    overflow.FrameIndex = 999;
+    overflow.m_FrameIndex = 999;
     EXPECT_FALSE(queue.Push(overflow)) << "Queue should be full";
     
     // Verify we can pop all items
@@ -78,7 +78,7 @@ TEST(AudioEventQueue, QueueFull)
     {
         AudioThreadEvent popped;
         ASSERT_TRUE(queue.Pop(popped));
-        EXPECT_EQ(popped.FrameIndex, i);
+        EXPECT_EQ(popped.m_FrameIndex, i);
     }
     
     EXPECT_TRUE(queue.IsEmpty());
@@ -90,7 +90,7 @@ TEST(AudioEventQueue, MessageQueue)
     
     // Push a message
     AudioThreadMessage msg;
-    msg.FrameIndex = 54321;
+    msg.m_FrameIndex = 54321;
     msg.SetText("Test message");
     
     ASSERT_TRUE(queue.Push(msg));
@@ -99,8 +99,8 @@ TEST(AudioEventQueue, MessageQueue)
     AudioThreadMessage popped;
     ASSERT_TRUE(queue.Pop(popped));
     
-    EXPECT_EQ(popped.FrameIndex, 54321);
-    EXPECT_STREQ(popped.Text, "Test message");
+    EXPECT_EQ(popped.m_FrameIndex, 54321);
+    EXPECT_STREQ(popped.m_Text, "Test message");
 }
 
 //==============================================================================
@@ -114,36 +114,36 @@ TEST(AudioEventQueue, DifferentValueTypes)
     // Test float32
     {
         AudioThreadEvent event;
-        event.EndpointID = 1;
+        event.m_EndpointID = 1;
         choc::value::Value value = choc::value::createFloat32(1.5f);
-        ASSERT_TRUE(event.ValueData.CopyFrom(value));
+        ASSERT_TRUE(event.m_ValueData.CopyFrom(value));
         ASSERT_TRUE(queue.Push(event));
     }
     
     // Test int32
     {
         AudioThreadEvent event;
-        event.EndpointID = 2;
+        event.m_EndpointID = 2;
         choc::value::Value value = choc::value::createInt32(42);
-        ASSERT_TRUE(event.ValueData.CopyFrom(value));
+        ASSERT_TRUE(event.m_ValueData.CopyFrom(value));
         ASSERT_TRUE(queue.Push(event));
     }
     
     // Test bool
     {
         AudioThreadEvent event;
-        event.EndpointID = 3;
+        event.m_EndpointID = 3;
         choc::value::Value value = choc::value::createBool(true);
-        ASSERT_TRUE(event.ValueData.CopyFrom(value));
+        ASSERT_TRUE(event.m_ValueData.CopyFrom(value));
         ASSERT_TRUE(queue.Push(event));
     }
     
     // Test float64
     {
         AudioThreadEvent event;
-        event.EndpointID = 4;
+        event.m_EndpointID = 4;
         choc::value::Value value = choc::value::createFloat64(2.71828);
-        ASSERT_TRUE(event.ValueData.CopyFrom(value));
+        ASSERT_TRUE(event.m_ValueData.CopyFrom(value));
         ASSERT_TRUE(queue.Push(event));
     }
     
@@ -151,29 +151,29 @@ TEST(AudioEventQueue, DifferentValueTypes)
     {
         AudioThreadEvent event;
         ASSERT_TRUE(queue.Pop(event));
-        EXPECT_EQ(event.EndpointID, 1);
-        EXPECT_FLOAT_EQ(event.ValueData.GetView().getFloat32(), 1.5f);
+        EXPECT_EQ(event.m_EndpointID, 1);
+        EXPECT_FLOAT_EQ(event.m_ValueData.GetView().getFloat32(), 1.5f);
     }
     
     {
         AudioThreadEvent event;
         ASSERT_TRUE(queue.Pop(event));
-        EXPECT_EQ(event.EndpointID, 2);
-        EXPECT_EQ(event.ValueData.GetView().getInt32(), 42);
+        EXPECT_EQ(event.m_EndpointID, 2);
+        EXPECT_EQ(event.m_ValueData.GetView().getInt32(), 42);
     }
     
     {
         AudioThreadEvent event;
         ASSERT_TRUE(queue.Pop(event));
-        EXPECT_EQ(event.EndpointID, 3);
-        EXPECT_TRUE(event.ValueData.GetView().getBool());
+        EXPECT_EQ(event.m_EndpointID, 3);
+        EXPECT_TRUE(event.m_ValueData.GetView().getBool());
     }
     
     {
         AudioThreadEvent event;
         ASSERT_TRUE(queue.Pop(event));
-        EXPECT_EQ(event.EndpointID, 4);
-        EXPECT_DOUBLE_EQ(event.ValueData.GetView().getFloat64(), 2.71828);
+        EXPECT_EQ(event.m_EndpointID, 4);
+        EXPECT_DOUBLE_EQ(event.m_ValueData.GetView().getFloat64(), 2.71828);
     }
 }
 
@@ -193,8 +193,8 @@ TEST(AudioEventQueue, LongMessageTruncation)
     ASSERT_TRUE(queue.Pop(popped));
     
     // Should be truncated to buffer size - 1
-    EXPECT_EQ(std::strlen(popped.Text), AudioThreadMessage::s_MaxMessageLength - 1);
-    EXPECT_EQ(popped.Text[AudioThreadMessage::s_MaxMessageLength - 1], '\0');
+    EXPECT_EQ(std::strlen(popped.m_Text), AudioThreadMessage::s_MaxMessageLength - 1);
+    EXPECT_EQ(popped.m_Text[AudioThreadMessage::s_MaxMessageLength - 1], '\0');
 }
 
 //==============================================================================
@@ -217,11 +217,11 @@ TEST(AudioEventQueue, MultithreadedProducerConsumer)
         while (eventId < targetEvents)
         {
             AudioThreadEvent event;
-            event.FrameIndex = eventId;
-            event.EndpointID = eventId % 10;
+            event.m_FrameIndex = eventId;
+            event.m_EndpointID = eventId % 10;
             
             choc::value::Value value = choc::value::createFloat32(eventId * 0.1f);
-            if (event.ValueData.CopyFrom(value))
+            if (event.m_ValueData.CopyFrom(value))
             {
                 if (queue.Push(event))
                 {
@@ -276,11 +276,11 @@ TEST(AudioEventQueue, MultithreadedStressTest)
         while (std::chrono::steady_clock::now() - startTime < duration)
         {
             AudioThreadEvent event;
-            event.FrameIndex = eventId;
-            event.EndpointID = eventId % 100;
+            event.m_FrameIndex = eventId;
+            event.m_EndpointID = eventId % 100;
             
             choc::value::Value value = choc::value::createInt32(eventId);
-            if (event.ValueData.CopyFrom(value))
+            if (event.m_ValueData.CopyFrom(value))
             {
                 if (queue.Push(event))
                 {
@@ -336,9 +336,9 @@ TEST(AudioEventQueue, ClearQueue)
     for (int i = 0; i < 5; ++i)
     {
         AudioThreadEvent event;
-        event.FrameIndex = i;
+        event.m_FrameIndex = i;
         choc::value::Value value = choc::value::createInt32(i);
-        event.ValueData.CopyFrom(value);
+        event.m_ValueData.CopyFrom(value);
         queue.Push(event);
     }
     
@@ -363,9 +363,9 @@ TEST(AudioEventQueue, WrapAround)
         for (int i = 0; i < 7; ++i)
         {
             AudioThreadEvent event;
-            event.FrameIndex = cycle * 10 + i;
+            event.m_FrameIndex = cycle * 10 + i;
             choc::value::Value value = choc::value::createInt32(i);
-            event.ValueData.CopyFrom(value);
+            event.m_ValueData.CopyFrom(value);
             ASSERT_TRUE(queue.Push(event));
         }
         
@@ -374,7 +374,7 @@ TEST(AudioEventQueue, WrapAround)
         {
             AudioThreadEvent event;
             ASSERT_TRUE(queue.Pop(event));
-            EXPECT_EQ(event.FrameIndex, cycle * 10 + i);
+            EXPECT_EQ(event.m_FrameIndex, cycle * 10 + i);
         }
         
         EXPECT_TRUE(queue.IsEmpty());
@@ -397,11 +397,11 @@ TEST(AudioEventQueue, PerformanceBenchmark)
     for (int i = 0; i < iterations; ++i)
     {
         AudioThreadEvent event;
-        event.FrameIndex = i;
-        event.EndpointID = i % 100;
+        event.m_FrameIndex = i;
+        event.m_EndpointID = i % 100;
         
         choc::value::Value value = choc::value::createFloat32(i * 0.1f);
-        event.ValueData.CopyFrom(value);
+        event.m_ValueData.CopyFrom(value);
         queue.Push(event);
     }
     

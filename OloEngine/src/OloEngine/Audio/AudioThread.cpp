@@ -3,6 +3,12 @@
 
 #include <chrono>
 
+// Platform-specific includes for thread priority
+#if defined(OLO_PLATFORM_LINUX) || defined(OLO_PLATFORM_MACOS)
+    #include <pthread.h>
+    #include <cerrno>
+#endif
+
 namespace OloEngine::Audio
 {
     // Helper function to create a ready future
@@ -230,8 +236,63 @@ namespace OloEngine::Audio
         s_AudioThreadID.store(std::this_thread::get_id(), std::memory_order_release);
         
         // Set thread priority (platform-specific)
-        #ifdef OLO_PLATFORM_WINDOWS
-            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+        #if defined(OLO_PLATFORM_WINDOWS)
+            // Windows: Set to time-critical priority
+            if (!SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL))
+            {
+                OLO_CORE_WARN("AudioThread: Failed to set Windows thread priority to TIME_CRITICAL!");
+            }
+            else
+            {
+                OLO_CORE_TRACE("AudioThread: Set thread priority to TIME_CRITICAL.");
+            }
+        #elif defined(OLO_PLATFORM_LINUX) || defined(OLO_PLATFORM_MACOS)
+            // POSIX (Linux/macOS): Set real-time scheduling policy
+            pthread_t thread = pthread_self();
+            
+            // Get the minimum and maximum priority for SCHED_FIFO
+            i32 minPriority = sched_get_priority_min(SCHED_FIFO);
+            i32 maxPriority = sched_get_priority_max(SCHED_FIFO);
+            
+            if (minPriority == -1 || maxPriority == -1)
+            {
+                OLO_CORE_WARN("AudioThread: Failed to get SCHED_FIFO priority range (errno: {})", errno);
+            }
+            else
+            {
+                // Set to high priority (75% of the range above minimum)
+                sched_param schedParam;
+                schedParam.sched_priority = minPriority + ((maxPriority - minPriority) * 3 / 4);
+                
+                i32 result = pthread_setschedparam(thread, SCHED_FIFO, &schedParam);
+                if (result != 0)
+                {
+                    // Note: This often requires elevated privileges (CAP_SYS_NICE on Linux or running as root)
+                    // Fall back to trying SCHED_RR
+                    schedParam.sched_priority = sched_get_priority_min(SCHED_RR) + 
+                                                ((sched_get_priority_max(SCHED_RR) - sched_get_priority_min(SCHED_RR)) * 3 / 4);
+                    result = pthread_setschedparam(thread, SCHED_RR, &schedParam);
+                    
+                    if (result != 0)
+                    {
+                        OLO_CORE_WARN("AudioThread: Failed to set real-time scheduling (SCHED_FIFO/SCHED_RR). "
+                                      "Error code: {}. Audio thread will use default scheduling. "
+                                      "Note: Real-time priority typically requires elevated privileges.", result);
+                    }
+                    else
+                    {
+                        OLO_CORE_TRACE("AudioThread: Set thread scheduling to SCHED_RR with priority {}", schedParam.sched_priority);
+                    }
+                }
+                else
+                {
+                    OLO_CORE_TRACE("AudioThread: Set thread scheduling to SCHED_FIFO with priority {}", schedParam.sched_priority);
+                }
+            }
+        #else
+            // Unsupported platform - no priority adjustment
+            OLO_CORE_INFO("AudioThread: Real-time thread priority setting not implemented for this platform. "
+                          "Audio thread will use default scheduling priority.");
         #endif
         
         // Signal that thread initialization is complete
@@ -251,8 +312,24 @@ namespace OloEngine::Audio
         t_IsAudioThread = false;
         
         // Thread is exiting - perform final cleanup
-        // This handles the case where Stop() was called from within this thread
-        s_IsRunning.store(false);
+        // Important: Only clear s_IsRunning if we're still the registered audio thread.
+        // If Stop() was called from within this thread (self-stop), another thread may have
+        // already started a new audio thread. We must not overwrite the new thread's state.
+        std::thread::id currentThreadID = std::this_thread::get_id();
+        std::thread::id registeredThreadID = s_AudioThreadID.load(std::memory_order_acquire);
+        
+        if (currentThreadID == registeredThreadID)
+        {
+            // We're still the registered audio thread - safe to clear state
+            s_IsRunning.store(false, std::memory_order_release);
+        }
+        else
+        {
+            // Another thread has already started - don't touch s_IsRunning
+            OLO_CORE_TRACE("AudioThread: Exiting old thread (ID: {}) - new thread already started (ID: {})",
+                           std::hash<std::thread::id>{}(currentThreadID),
+                           std::hash<std::thread::id>{}(registeredThreadID));
+        }
     }
 
     void AudioThread::ProcessTasks()

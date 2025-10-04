@@ -35,7 +35,7 @@
 
 namespace OloEngine::Core::Reflection {
     
-    // Re-export commonly used types for convenience
+    // Re-export commonly used utilities for convenience
     using StringUtils::RemovePrefixAndSuffix;
     
     // Helper alias for easy provider access

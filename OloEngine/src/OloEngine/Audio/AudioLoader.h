@@ -35,8 +35,15 @@ namespace OloEngine::Audio
         
         /// Check if audio data is valid
         bool IsValid() const 
-        { 
+        {
+            OLO_PROFILE_FUNCTION();
+            
             if (m_Samples.empty() || m_NumChannels == 0 || m_NumFrames == 0 || !std::isfinite(m_SampleRate) || m_SampleRate <= 0.0)
+                return false;
+
+            // Validate duration consistency
+            const f64 expectedDuration = static_cast<f64>(m_NumFrames) / m_SampleRate;
+            if (!std::isfinite(m_Duration) || std::abs(m_Duration - expectedDuration) > 0.001)
                 return false;
                 
             const sizet expectedSampleCount = static_cast<sizet>(m_NumFrames) * static_cast<sizet>(m_NumChannels);
@@ -44,15 +51,19 @@ namespace OloEngine::Audio
         }
         
         /// Get sample at specific frame and channel
-        f32 GetSample(u64 frame, u32 channel) const
+        f32 GetSample(u32 frame, u32 channel) const
         {
+            OLO_PROFILE_FUNCTION();
+
             OLO_CORE_ASSERT(IsValid(), "AudioData must be valid before accessing samples");
+            OLO_CORE_ASSERT(frame < m_NumFrames && channel < m_NumChannels, "Frame/channel out of range");
             
             if (frame >= m_NumFrames || channel >= m_NumChannels)
                 return 0.0f;
             
-            u64 sampleIndex = frame * m_NumChannels + channel;
-            return m_Samples[static_cast<sizet>(sampleIndex)];
+            // Compute sample index with explicit casting to avoid overflow on 32-bit builds
+            sizet sampleIndex = static_cast<sizet>(frame) * static_cast<sizet>(m_NumChannels) + static_cast<sizet>(channel);
+            return m_Samples[sampleIndex];
         }
         
         /// Get total number of samples (all channels)
@@ -108,7 +119,7 @@ namespace OloEngine::Audio
         
         /// Get list of supported file extensions
         /// @return Vector of supported extensions (including the dot)
-        static std::vector<std::string> GetSupportedExtensions();
+        static const std::vector<std::string>& GetSupportedExtensions();
 
     private:
         AudioLoader() = delete; // Static utility class

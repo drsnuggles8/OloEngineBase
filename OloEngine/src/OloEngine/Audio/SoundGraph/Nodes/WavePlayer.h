@@ -461,7 +461,8 @@ namespace OloEngine::Audio::SoundGraph
 			{
 				for (u32 channel = 0; channel < m_AudioData.m_NumChannels; ++channel)
 				{
-					f32 sample = m_AudioData.GetSample(frame, channel);
+					// Safe cast: endFrame is already bounded by m_NumFrames (u32)
+					f32 sample = m_AudioData.GetSample(static_cast<u32>(frame), channel);
 					source.m_Channels.Push(sample);
 				}
 			}

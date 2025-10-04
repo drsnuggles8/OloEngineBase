@@ -166,7 +166,7 @@ namespace OloEngine::Audio
 					sourceDescription, totalSamples, maxSamples);
 				return false;
 			}
-			outAudioData.m_Samples.resize(static_cast<size_t>(totalSamples));
+			outAudioData.m_Samples.resize(static_cast<sizet>(totalSamples));
 
 			// Read audio data in one go
 			ma_uint64 framesRead;
@@ -231,7 +231,7 @@ namespace OloEngine::Audio
 					return false;
 				}
 				
-				outAudioData.m_Samples.resize(static_cast<size_t>(newSize));
+				outAudioData.m_Samples.resize(static_cast<sizet>(newSize));
 				std::memcpy(outAudioData.m_Samples.data() + currentSize, chunkBuffer.data(), samplesToAppend * sizeof(f32));
 				
 				totalFramesRead += framesRead;
@@ -369,7 +369,7 @@ namespace OloEngine::Audio
 		return std::find(s_SupportedExtensions.begin(), s_SupportedExtensions.end(), lowerExt) != s_SupportedExtensions.end();
 	}
 
-	std::vector<std::string> AudioLoader::GetSupportedExtensions()
+	const std::vector<std::string>& AudioLoader::GetSupportedExtensions()
 	{
 		return s_SupportedExtensions;
 	}

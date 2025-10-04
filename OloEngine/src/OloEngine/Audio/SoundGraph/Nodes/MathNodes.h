@@ -15,7 +15,6 @@
 #include <glm/gtx/log_base.hpp>
 #undef GLM_ENABLE_EXPERIMENTAL
 
-#define DECLARE_ID(name) static constexpr Identifier name{ #name }
 
 namespace OloEngine::Audio::SoundGraph
 {
@@ -416,7 +415,7 @@ namespace OloEngine::Audio::SoundGraph
             T toMax = *m_InToMax;
 
             // Use wider floating-point type to avoid integer overflow and division truncation
-            using CalcType = std::conditional_t<std::is_integral_v<T>, double, T>;
+            using CalcType = std::conditional_t<std::is_integral_v<T>, f64, T>;
             
             // Cast operands to CalcType before arithmetic to prevent integer overflow
             CalcType fromRange = static_cast<CalcType>(fromMax) - static_cast<CalcType>(fromMin);
@@ -499,7 +498,7 @@ namespace OloEngine::Audio::SoundGraph
             {
                 // For integer types, use safe fast exponentiation with overflow protection
                 T base = *m_InBase;
-                int exponent = static_cast<int>(*m_InExponent);
+                i32 exponent = static_cast<i32>(*m_InExponent);
                 
                 if (exponent == 0)
                 {
@@ -526,7 +525,7 @@ namespace OloEngine::Audio::SoundGraph
                 {
                     // Positive exponent: use binary exponentiation with overflow checking
                     // Clamp exponent to prevent runaway computation
-                    constexpr int maxExponent = 63; // Safe limit for most integer types
+                    constexpr i32 maxExponent = 63; // Safe limit for most integer types
                     if (exponent > maxExponent)
                     {
                         // For very large exponents, result will be 0 (overflow) or ±1/0 for base ±1/0
@@ -544,7 +543,7 @@ namespace OloEngine::Audio::SoundGraph
                     // Binary exponentiation with overflow protection
                     T result = T(1);
                     T currentBase = base;
-                    unsigned int exp = static_cast<unsigned int>(exponent);
+                    u32 exp = static_cast<u32>(exponent);
                     
                     while (exp > 0)
                     {
@@ -569,7 +568,7 @@ namespace OloEngine::Audio::SoundGraph
                             // Check for overflow before squaring base
                             if (currentBase != T(0))
                             {
-                                T maxSqrt = static_cast<T>(std::sqrt(static_cast<double>(std::numeric_limits<T>::max())));
+                                T maxSqrt = static_cast<T>(std::sqrt(static_cast<f64>(std::numeric_limits<T>::max())));
                                 if (detail::sat_abs(currentBase) > maxSqrt)
                                 {
                                     if (result == T(1)) // Only first iteration, so base^1 is still valid
@@ -656,5 +655,3 @@ namespace OloEngine::Audio::SoundGraph
     using PowerInt = Power<i32>;
     using AbsInt = Abs<i32>;
 }
-
-#undef DECLARE_ID

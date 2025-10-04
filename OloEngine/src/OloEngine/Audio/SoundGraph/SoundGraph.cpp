@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "SoundGraph.h"
+#include "SoundGraphPrototype.h"  // Must include before SoundGraphAsset.h to complete Prototype type
 #include "OloEngine/Asset/SoundGraphAsset.h"
 
 namespace OloEngine::Audio::SoundGraph
@@ -28,7 +29,8 @@ namespace OloEngine::Audio::SoundGraph
 	{
 		OLO_PROFILE_FUNCTION();
 
-		// Add event to queue for processing in audio thread
+		// Queue event for processing in audio thread
+		// All events are handled consistently through the event queue to avoid race conditions
 		Audio::AudioThreadEvent event;
 		event.m_FrameIndex = m_CurrentFrame;
 		event.m_EndpointID = static_cast<u32>(Identifier(eventName));
@@ -37,16 +39,9 @@ namespace OloEngine::Audio::SoundGraph
 		event.m_ValueData.CopyFrom(valueData);
 		
 		m_OutgoingEvents.Push(event);
-
-		// Also trigger immediately if it's a graph-level event
-		if (eventName == "play")
-		{
-			Play();
-		}
-		else if (eventName == "stop")
-		{
-			Stop();
-		}
+		
+		// Note: Events are processed by the audio thread through InitializeEndpoints callbacks.
+		// We do NOT call Play()/Stop() directly here to avoid race conditions on m_IsPlaying.
 	}
 
 	void SoundGraph::InitializeEndpoints()

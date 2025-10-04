@@ -10,18 +10,18 @@
 
 namespace OloEngine::Audio::SoundGraph
 {
-	struct GraphGeneratorOptions
-	{
-		std::string m_Name;
-		u32 m_NumInChannels;
-		u32 m_NumOutChannels;
-		Ref<Prototype> m_GraphPrototype;
-		// Note: Editor model and cache dependencies removed for now
-	};
+    struct GraphGeneratorOptions
+    {
+        std::string m_Name;
+        u32 m_NumInChannels;
+        u32 m_NumOutChannels;
+        Ref<Prototype> m_GraphPrototype;
+        // Note: Editor model and cache dependencies removed for now
+    };
 
-	Ref<Prototype> ConstructPrototype(const GraphGeneratorOptions& options, std::vector<UUID>& waveAssetsToLoad);
+    Ref<Prototype> ConstructPrototype(const GraphGeneratorOptions& options, std::vector<UUID>& waveAssetsToLoad);
 
-	/** Create instance of SoundGraph from Prototype for playback */
-	Ref<SoundGraph> CreateInstance(const Ref<Prototype>& prototype);
+    /** Create instance of SoundGraph from Prototype for playback */
+    Ref<SoundGraph> CreateInstance(const Ref<Prototype>& prototype);
 
 } // namespace OloEngine::Audio::SoundGraph

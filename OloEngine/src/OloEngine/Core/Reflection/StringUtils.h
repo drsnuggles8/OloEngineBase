@@ -31,7 +31,7 @@ namespace OloEngine::Core::Reflection::StringUtils {
         
         // Guard against empty delimiter to avoid infinite loops
         if (delimiter.empty())
-            return source.empty() ? 0 : 1;
+            return 1;
             
         sizet count = 1;
         sizet pos = 0;

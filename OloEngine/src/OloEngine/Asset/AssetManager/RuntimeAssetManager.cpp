@@ -11,9 +11,6 @@
 
 namespace OloEngine
 {
-    // Static empty metadata for invalid lookups
-    static const AssetMetadata s_EmptyMetadata{};
-
     RuntimeAssetManager::RuntimeAssetManager()
     {
 #if OLO_ASYNC_ASSETS
@@ -96,13 +93,19 @@ namespace OloEngine
         return GetAssetTypeFromPacks(assetHandle);
     }
 
-    const AssetMetadata& RuntimeAssetManager::GetAssetMetadata(AssetHandle handle) const noexcept
+    AssetMetadata RuntimeAssetManager::GetAssetMetadata(AssetHandle handle) const noexcept
     {
         std::shared_lock lock(m_PacksMutex);
         
-        // Return metadata from the loaded packs storage
+        // Return copy of metadata from the loaded packs storage
         auto it = m_AssetMetadata.find(handle);
-        return (it != m_AssetMetadata.end()) ? it->second : s_EmptyMetadata;
+        if (it != m_AssetMetadata.end())
+        {
+            return it->second; // Return copy
+        }
+        
+        // Return empty metadata if not found
+        return AssetMetadata{};
     }
 
     Ref<Asset> RuntimeAssetManager::GetAsset(AssetHandle assetHandle)
