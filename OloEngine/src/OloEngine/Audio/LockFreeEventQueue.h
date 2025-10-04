@@ -31,22 +31,24 @@ namespace OloEngine::Audio
             std::memset(m_Storage, 0, s_InlineStorageSize);
         }
         
-        // Copy constructor
+        // Copy constructor - always copy full storage for performance
+        // Using constant size allows compiler to optimize with SIMD/unrolling
         PreAllocatedValue(const PreAllocatedValue& other)
             : m_Type(other.m_Type)
             , m_DataSize(other.m_DataSize)
         {
-            std::memcpy(m_Storage, other.m_Storage, std::min(static_cast<sizet>(m_DataSize), s_InlineStorageSize));
+            std::memcpy(m_Storage, other.m_Storage, s_InlineStorageSize);
         }
         
-        // Copy assignment
+        // Copy assignment - always copy full storage for performance  
+        // Using constant size allows compiler to optimize with SIMD/unrolling
         PreAllocatedValue& operator=(const PreAllocatedValue& other)
         {
             if (this != &other)
             {
                 m_Type = other.m_Type;
                 m_DataSize = other.m_DataSize;
-                std::memcpy(m_Storage, other.m_Storage, std::min(static_cast<sizet>(m_DataSize), s_InlineStorageSize));
+                std::memcpy(m_Storage, other.m_Storage, s_InlineStorageSize);
             }
             return *this;
         }
@@ -213,8 +215,6 @@ namespace OloEngine::Audio
         /// This is wait-free and allocation-free
         bool Push(const T& item) noexcept
         {
-            OLO_PROFILE_FUNCTION();
-
             const sizet writeIndex = m_WriteIndex.load(std::memory_order_relaxed);
             const sizet nextWriteIndex = (writeIndex + 1) & (Capacity - 1);
             
@@ -238,7 +238,6 @@ namespace OloEngine::Audio
         /// Returns true if an item was popped, false if queue is empty
         bool Pop(T& outItem) noexcept
         {
-            OLO_PROFILE_FUNCTION();
             const sizet readIndex = m_ReadIndex.load(std::memory_order_relaxed);
             
             // Check if queue is empty
