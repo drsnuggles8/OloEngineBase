@@ -53,10 +53,7 @@ namespace OloEngine::Audio::SoundGraph
          */
         static bool Deserialize(OloEngine::SoundGraphAsset& asset, const std::filesystem::path& filePath);
 
-    private:
-        // Forward declare for nested types
-        class Prototype;
-        
+    private:       
         // Helper serialization methods
         static YAML::Emitter& SerializeNodeData(YAML::Emitter& out, const OloEngine::SoundGraphNodeData& nodeData);
         static YAML::Emitter& SerializeConnection(YAML::Emitter& out, const OloEngine::SoundGraphConnection& connection);

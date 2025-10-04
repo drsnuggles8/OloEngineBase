@@ -164,11 +164,11 @@ namespace OloEngine::Audio::SoundGraph
 
     bool SoundGraphSound::Play()
     {
-    if (!m_IsReadyToPlay)
-            return false;
+        if (!m_IsReadyToPlay)
+                return false;
 
         m_PlayState = SoundPlayState::Playing;
-    m_IsFinished = false;
+        m_IsFinished = false;
         return true;
     }
 
@@ -200,7 +200,7 @@ namespace OloEngine::Audio::SoundGraph
 
     bool SoundGraphSound::IsPlaying() const
     {
-    return m_PlayState == SoundPlayState::Playing && !m_IsFinished;
+        return m_PlayState == SoundPlayState::Playing && !m_IsFinished;
     }
 
     //==============================================================================
@@ -364,12 +364,12 @@ namespace OloEngine::Audio::SoundGraph
         m_Velocity = velocity;
     }
 
-	void SoundGraphSound::SetOrientation(const glm::vec3& forward, const glm::vec3& up)
-	{
+    void SoundGraphSound::SetOrientation(const glm::vec3& forward, const glm::vec3& up)
+    {
         OLO_PROFILE_FUNCTION();
-		(void)up;
-		m_Orientation = forward;
-	}
+        (void)up;
+        m_Orientation = forward;
+    }
     
     //==============================================================================
     /// Status and Update
@@ -474,11 +474,11 @@ namespace OloEngine::Audio::SoundGraph
         if (sampleRate == 0)
             sampleRate = 48000; // Safety fallback if source hasn't been initialized
         
-        // Compute milliseconds using double to avoid overflow
-        double milliseconds = static_cast<double>(numSamples) * 1000.0 / static_cast<double>(sampleRate);
+        // Compute milliseconds using f64 to avoid overflow
+        f64 milliseconds = static_cast<f64>(numSamples) * 1000.0 / static_cast<f64>(sampleRate);
         
         // Clamp to valid i32 range before calling the overload
-        constexpr double maxInt32 = static_cast<double>(INT32_MAX);
+        constexpr f64 maxInt32 = static_cast<f64>(INT32_MAX);
         if (milliseconds > maxInt32)
         {
             milliseconds = maxInt32;

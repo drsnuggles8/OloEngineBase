@@ -15,16 +15,16 @@ namespace OloEngine::Audio::SoundGraph
 	{
 		struct IDs
 		{
-			DECLARE_ID(Start);
-			DECLARE_ID(Stop);
+			DECLARE_ID(s_Start);
+			DECLARE_ID(s_Stop);
 		private:
 			IDs() = delete;
 		};
 
 		explicit RepeatTrigger(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
 		{
-			AddInEvent(IDs::Start, [this](float v) { (void)v; m_StartFlag.SetDirty(); });
-			AddInEvent(IDs::Stop, [this](float v) { (void)v; m_StopFlag.SetDirty(); });
+			AddInEvent(IDs::s_Start, [this](float v) { (void)v; m_StartFlag.SetDirty(); });
+			AddInEvent(IDs::s_Stop, [this](float v) { (void)v; m_StopFlag.SetDirty(); });
 			
 			RegisterEndpoints();
 		}
@@ -111,16 +111,16 @@ namespace OloEngine::Audio::SoundGraph
 	{
 		struct IDs
 		{
-			DECLARE_ID(Trigger);
-			DECLARE_ID(Reset);
+			DECLARE_ID(s_Trigger);
+			DECLARE_ID(s_Reset);
 		private:
 			IDs() = delete;
 		};
 
 		explicit TriggerCounter(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
 		{
-			AddInEvent(IDs::Trigger, [this](float v) { (void)v; m_TriggerFlag.SetDirty(); });
-			AddInEvent(IDs::Reset, [this](float v) { (void)v; m_ResetFlag.SetDirty(); });
+			AddInEvent(IDs::s_Trigger, [this](float v) { (void)v; m_TriggerFlag.SetDirty(); });
+			AddInEvent(IDs::s_Reset, [this](float v) { (void)v; m_ResetFlag.SetDirty(); });
 
 			RegisterEndpoints();
 		}
@@ -211,16 +211,16 @@ namespace OloEngine::Audio::SoundGraph
 	{
 		struct IDs
 		{
-			DECLARE_ID(Trigger);
-			DECLARE_ID(Reset);
+			DECLARE_ID(s_Trigger);
+			DECLARE_ID(s_Reset);
 		private:
 			IDs() = delete;
 		};
 
 		explicit DelayedTrigger(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
 		{
-			AddInEvent(IDs::Trigger, [this](float v) { (void)v; m_TriggerFlag.SetDirty(); });
-			AddInEvent(IDs::Reset, [this](float v) { (void)v; m_ResetFlag.SetDirty(); });
+			AddInEvent(IDs::s_Trigger, [this](float v) { (void)v; m_TriggerFlag.SetDirty(); });
+			AddInEvent(IDs::s_Reset, [this](float v) { (void)v; m_ResetFlag.SetDirty(); });
 
 			RegisterEndpoints();
 		}

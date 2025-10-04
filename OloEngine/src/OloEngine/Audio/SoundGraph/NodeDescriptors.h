@@ -49,45 +49,46 @@ namespace OloEngine::Audio::SoundGraph {
                 
                 if constexpr (IsDescribedNode_v<TNodeType>)
                 {
-                using InputsDescription = typename NodeDescription<std::remove_cvref_t<TNodeType>>::Inputs;
-                
-                return InputsDescription::MemberListType::ApplyToStaticType([node](const auto&... members)
-                {
-                    sizet memberIndex = 0;
-                    auto registerInput = [node, &memberIndex](auto memberPtr)
+                    using InputsDescription = typename NodeDescription<std::remove_cvref_t<TNodeType>>::Inputs;
+                    
+                    return InputsDescription::MemberListType::ApplyToStaticType([node](const auto&... members)
                     {
-                        using TMember = std::remove_reference_t<decltype(memberPtr)>;
-                        constexpr bool isInputEvent = std::is_member_function_pointer_v<TMember>;
-                        
-                        const std::string_view memberName = InputsDescription::MemberNames[memberIndex++];
-                        const std::string cleanName = std::string(Core::Reflection::StringUtils::RemovePrefixAndSuffix(memberName));							if constexpr (isInputEvent)
+                        sizet memberIndex = 0;
+                        auto registerInput = [node, &memberIndex](auto memberPtr)
+                        {
+                            using TMember = std::remove_reference_t<decltype(memberPtr)>;
+                            constexpr bool isInputEvent = std::is_member_function_pointer_v<TMember>;
+                            
+                            const std::string_view memberName = InputsDescription::s_MemberNames[memberIndex++];
+                            const std::string cleanName = std::string(Core::Reflection::StringUtils::RemovePrefixAndSuffix(memberName));                        
+                            if constexpr (isInputEvent)
                             {
                                 // Handle input events (member functions)
                                 // Create an InputEvent and bind it to the member function
                                 using FunctionType = TMember;
-                                
-                            // Create InputEvent bound to the member function
-                            auto inputEvent = std::make_shared<NodeProcessor::InputEvent>(*node, 
-                                [node, memberPtr](float value) {
-                                    // Call the member function with the event value using std::invoke
-                                    if constexpr (std::is_invocable_v<FunctionType, decltype(*node)>)
-                                    {
-                                        // No-parameter event function
-                                        std::invoke(memberPtr, node);
-                                    }
-                                    else if constexpr (std::is_invocable_v<FunctionType, decltype(*node), float>)
-                                    {
-                                        // Single float parameter event function
-                                        std::invoke(memberPtr, node, value);
-                                    }
-                                    // TODO: Add support for other event parameter types as needed
-                                    });
-                                
-                                // Register the input event with the node
-                                // InEvents stores shared_ptr<InputEvent> for shared ownership semantics
-                                node->InEvents[OloEngine::Identifier(cleanName.c_str())] = inputEvent;
-                                
-                                return true;
+                                    
+                                // Create InputEvent bound to the member function
+                                auto inputEvent = std::make_shared<NodeProcessor::InputEvent>(*node, 
+                                    [node, memberPtr](float value) {
+                                        // Call the member function with the event value using std::invoke
+                                        if constexpr (std::is_invocable_v<FunctionType, decltype(*node)>)
+                                        {
+                                            // No-parameter event function
+                                            std::invoke(memberPtr, node);
+                                        }
+                                        else if constexpr (std::is_invocable_v<FunctionType, decltype(*node), float>)
+                                        {
+                                            // Single float parameter event function
+                                            std::invoke(memberPtr, node, value);
+                                        }
+                                        // TODO: Add support for other event parameter types as needed
+                                        });
+                                    
+                                    // Register the input event with the node
+                                    // InEvents stores shared_ptr<InputEvent> for shared ownership semantics
+                                    node->InEvents[OloEngine::Identifier(cleanName.c_str())] = inputEvent;
+                                    
+                                    return true;
                             }
                             else
                             {
@@ -108,10 +109,10 @@ namespace OloEngine::Audio::SoundGraph {
                                     return true;
                                 }
                             }
-                        };
-                        
-                        return (registerInput(members) && ...);
-                    });
+                            };
+                            
+                            return (registerInput(members) && ...);
+                        });
                 }
                 else
                 {
@@ -128,18 +129,20 @@ namespace OloEngine::Audio::SoundGraph {
 
                 if constexpr (IsDescribedNode_v<TNodeType>)
                 {
-                using OutputsDescription = typename NodeDescription<std::remove_cvref_t<TNodeType>>::Outputs;
+                    using OutputsDescription = typename NodeDescription<std::remove_cvref_t<TNodeType>>::Outputs;
                 
-                return OutputsDescription::MemberListType::ApplyToStaticType([node](const auto&... members)
-                {
-                    sizet memberIndex = 0;
-                    auto registerOutput = [node, &memberIndex](auto memberPtr)
+                    return OutputsDescription::MemberListType::ApplyToStaticType([node](const auto&... members)
                     {
-                        using TMember = typename Core::Reflection::MemberPointer::ReturnType<decltype(memberPtr)>::Type;
-                        constexpr bool isOutputEvent = std::is_same_v<TMember, NodeProcessor::OutputEvent>;
-                        
-                        const std::string_view memberName = OutputsDescription::MemberNames[memberIndex++];
-                        const std::string cleanName = std::string(Core::Reflection::StringUtils::RemovePrefixAndSuffix(memberName));							if constexpr (isOutputEvent)
+                        sizet memberIndex = 0;
+                        auto registerOutput = [node, &memberIndex](auto memberPtr)
+                        {
+                            using TMember = typename Core::Reflection::MemberPointer::ReturnType<decltype(memberPtr)>::Type;
+                            constexpr bool isOutputEvent = std::is_same_v<TMember, NodeProcessor::OutputEvent>;
+                            
+                            const std::string_view memberName = OutputsDescription::s_MemberNames[memberIndex++];
+                            const std::string cleanName = std::string(Core::Reflection::StringUtils::RemovePrefixAndSuffix(memberName));
+                            
+                            if constexpr (isOutputEvent)
                             {
                                 // Handle output events
                                 // Output events are OutputEvent members that can trigger other events
@@ -161,9 +164,9 @@ namespace OloEngine::Audio::SoundGraph {
                                 // The processing function will set their values directly
                                 return true;
                             }
-                        };
+                    };
                         
-                        return (registerOutput(members) && ...);
+                    return (registerOutput(members) && ...);
                     });
                 }
                 else
@@ -190,7 +193,7 @@ namespace OloEngine::Audio::SoundGraph {
                             using TMember = std::remove_reference_t<decltype(memberPtr)>;
                             constexpr bool isInputEvent = std::is_member_function_pointer_v<TMember>;
                             
-                            const std::string_view memberName = InputsDescription::MemberNames[memberIndex++];
+                            const std::string_view memberName = InputsDescription::s_MemberNames[memberIndex++];
                             const std::string cleanName = std::string(Core::Reflection::StringUtils::RemovePrefixAndSuffix(memberName));
                             
                             if constexpr (!isInputEvent)

@@ -9,362 +9,373 @@
 #include <type_traits>
 #include <algorithm>
 
+#include <glm/glm.hpp>
+
 #define DECLARE_ID(name) static constexpr Identifier name{ #name }
 
 namespace OloEngine::Audio::SoundGraph
 {
-	//==============================================================================
-	/// GetRandom - Get random item from an array
-	//==============================================================================
-	template<typename T>
-	struct GetRandom : public NodeProcessor
-	{
-		struct IDs
-		{
-			DECLARE_ID(Next);
-			DECLARE_ID(Reset);
-		private:
-			IDs() = delete;
-		};
+    //==============================================================================
+    /// Detail namespace for internal helper functions
+    namespace Detail
+    {
+        /// Helper function to get seed value with safe null checking
+        /// Returns: high-resolution clock value if seedPtr is null or *seedPtr == -1, otherwise the provided seed
+        inline i32 GetRandomSeedValue(const i32* seedPtr)
+        {
+            if (!seedPtr)
+            {
+                // Fallback: use high-resolution clock when seedPtr is null
+                return static_cast<i32>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
+            }
+            return (*seedPtr == -1)
+                ? static_cast<i32>(std::chrono::high_resolution_clock::now().time_since_epoch().count())
+                : *seedPtr;
+        }
+    } // namespace Detail
 
-		explicit GetRandom(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
-		{
-			AddInEvent(IDs::Next, [this](float v) { (void)v; m_NextFlag.SetDirty(); });
-			AddInEvent(IDs::Reset, [this](float v) { (void)v; m_ResetFlag.SetDirty(); });
-			
-			RegisterEndpoints();
-		}
+    //==============================================================================
+    /// GetRandom - Get random item from an array
+    //==============================================================================
+    template<typename T>
+    struct GetRandom : public NodeProcessor
+    {
+        struct IDs
+        {
+            DECLARE_ID(Next);
+            DECLARE_ID(Reset);
+        private:
+            IDs() = delete;
+        };
 
-		void Init() final
-		{
-			InitializeInputs();
+        explicit GetRandom(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
+        {
+            AddInEvent(IDs::Next, [this](float v) { (void)v; m_NextFlag.SetDirty(); });
+            AddInEvent(IDs::Reset, [this](float v) { (void)v; m_ResetFlag.SetDirty(); });
+            
+            RegisterEndpoints();
+        }
 
-			// Initialize random generator with seed
-			m_Random.SetSeed(GetSeedValue());
-			
-			m_OutElement = T{};
-		}
+        void Init() final
+        {
+            InitializeInputs();
 
-		void Process() final
-		{
-			OLO_PROFILE_FUNCTION();
+            // Initialize random generator with seed
+            m_Random.SetSeed(GetSeedValue());
+            
+            m_OutElement = T{};
+        }
 
-			if (m_NextFlag.CheckAndResetIfDirty())
-				ProcessNext();
+        void Process() final
+        {
+            OLO_PROFILE_FUNCTION();
 
-			if (m_ResetFlag.CheckAndResetIfDirty())
-				ProcessReset();
-		}
+            if (m_NextFlag.CheckAndResetIfDirty())
+                ProcessNext();
 
-		//==========================================================================
-		/// NodeProcessor setup
-		std::vector<T>* m_InArray = nullptr;
-		i32* m_InMin = nullptr;
-		i32* m_InMax = nullptr;
-		i32* m_InSeed = nullptr;
+            if (m_ResetFlag.CheckAndResetIfDirty())
+                ProcessReset();
+        }
 
-		OutputEvent m_OutOnNext{ *this };
-		OutputEvent m_OutOnReset{ *this };
-		T m_OutElement{ T{} };
+        //==========================================================================
+        /// NodeProcessor setup
+        std::vector<T>* m_InArray = nullptr;
+        i32* m_InMin = nullptr;
+        i32* m_InMax = nullptr;
+        i32* m_InSeed = nullptr;
 
-	private:
-		Flag m_NextFlag;
-		Flag m_ResetFlag;
-		FastRandom m_Random;
+        OutputEvent m_OutOnNext{ *this };
+        OutputEvent m_OutOnReset{ *this };
+        T m_OutElement{ T{} };
 
-		void RegisterEndpoints();
-		void InitializeInputs();
+    private:
+        Flag m_NextFlag;
+        Flag m_ResetFlag;
+        FastRandom m_Random;
 
-		/// Helper method to get seed value with safe null checking
-		/// Returns: high-resolution clock value if m_InSeed is null or -1, otherwise the provided seed
-		i32 GetSeedValue() const
-		{
-			if (!m_InSeed) {
-				// Fallback: use high-resolution clock when m_InSeed is null
-				return static_cast<i32>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
-			}
-			return (*m_InSeed == -1) 
-				? static_cast<i32>(std::chrono::high_resolution_clock::now().time_since_epoch().count()) 
-				: *m_InSeed;
-		}
+        void RegisterEndpoints();
+        void InitializeInputs();
 
-		void ProcessNext()
-		{
-			// Validate array exists and is not empty
-			if (!m_InArray || m_InArray->size() == 0)
-			{
-				// Handle null/empty array gracefully - set default value and return
-				m_OutElement = T{};
-				OLO_CORE_WARN("GetRandom: Array is null or empty, using default value");
-				return;
-			}
+        /// Helper method to get seed value with safe null checking
+        /// Returns: high-resolution clock value if m_InSeed is null or -1, otherwise the provided seed
+        i32 GetSeedValue() const
+        {
+            return Detail::GetRandomSeedValue(m_InSeed);
+        }
 
-			// Compute valid index range within array bounds
-			i32 arraySize = static_cast<i32>(m_InArray->size());
-			
-			// Clamp both bounds to valid array indices [0, arraySize-1]
-			i32 minIndex = (m_InMin) ? std::clamp(*m_InMin, 0, arraySize - 1) : 0;
-			i32 maxIndex = (m_InMax) ? std::clamp(*m_InMax, 0, arraySize - 1) : arraySize - 1;
-			
-			// Ensure minIndex <= maxIndex by swapping if necessary
-			if (minIndex > maxIndex)
-			{
-				std::swap(minIndex, maxIndex);
-			}
+        void ProcessNext()
+        {
+            // Validate array exists and is not empty
+            if (!m_InArray || m_InArray->size() == 0)
+            {
+                // Handle null/empty array gracefully - set default value and return
+                m_OutElement = T{};
+                OLO_CORE_WARN("GetRandom: Array is null or empty, using default value");
+                return;
+            }
 
-			// Generate random index within valid bounds
-			i32 randomIndex = m_Random.GetInt32InRange(minIndex, maxIndex);
-			
-			// Validate index is within bounds (safety check)
-			if (randomIndex >= 0 && randomIndex < arraySize)
-			{
-				m_OutElement = (*m_InArray)[randomIndex];
-				m_OutOnNext(1.0f);
-			}
-			else
-			{
-				// Out-of-range fallback - should not happen with proper bounds checking
-				m_OutElement = T{};
-				OLO_CORE_ERROR("GetRandom: Generated index {} out of bounds [0, {})", randomIndex, arraySize);
-			}
-		}
+            // Compute valid index range within array bounds
+            i32 arraySize = static_cast<i32>(m_InArray->size());
+            
+            // Clamp both bounds to valid array indices [0, arraySize-1]
+            i32 minIndex = (m_InMin) ? std::clamp(*m_InMin, 0, arraySize - 1) : 0;
+            i32 maxIndex = (m_InMax) ? std::clamp(*m_InMax, 0, arraySize - 1) : arraySize - 1;
+            
+            // Ensure minIndex <= maxIndex by swapping if necessary
+            if (minIndex > maxIndex)
+            {
+                std::swap(minIndex, maxIndex);
+            }
 
-		void ProcessReset()
-		{
-			// Reset random generator with seed
-			m_Random.SetSeed(GetSeedValue());
-			m_OutOnReset(1.0f);
-		}
-	};
+            // Generate random index within valid bounds
+            i32 randomIndex = m_Random.GetInt32InRange(minIndex, maxIndex);
+            
+            // Validate index is within bounds (safety check)
+            if (randomIndex >= 0 && randomIndex < arraySize)
+            {
+                m_OutElement = (*m_InArray)[randomIndex];
+                m_OutOnNext(1.0f);
+            }
+            else
+            {
+                // Out-of-range fallback - should not happen with proper bounds checking
+                m_OutElement = T{};
+                OLO_CORE_ERROR("GetRandom: Generated index {} out of bounds [0, {})", randomIndex, arraySize);
+            }
+        }
 
-	//==============================================================================
-	/// Get - Get item from an array by index
-	//==============================================================================
-	template<typename T>
-	struct Get : public NodeProcessor
-	{
-		struct IDs
-		{
-			DECLARE_ID(Trigger);
-		private:
-			IDs() = delete;
-		};
+        void ProcessReset()
+        {
+            // Reset random generator with seed
+            m_Random.SetSeed(GetSeedValue());
+            m_OutOnReset(1.0f);
+        }
+    };
 
-		explicit Get(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
-		{
-			OLO_PROFILE_FUNCTION();
+    //==============================================================================
+    /// Get - Get item from an array by index
+    //==============================================================================
+    template<typename T>
+    struct Get : public NodeProcessor
+    {
+        struct IDs
+        {
+            DECLARE_ID(Trigger);
+        private:
+            IDs() = delete;
+        };
 
-			AddInEvent(IDs::Trigger, [this](float v) { (void)v; m_TriggerFlag.SetDirty(); });
-			
-			RegisterEndpoints();
-		}
+        explicit Get(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
+        {
+            OLO_PROFILE_FUNCTION();
 
-		void Init() final
-		{
-			OLO_PROFILE_FUNCTION();
+            AddInEvent(IDs::Trigger, [this](float v) { (void)v; m_TriggerFlag.SetDirty(); });
+            
+            RegisterEndpoints();
+        }
 
-			InitializeInputs();
-			m_OutElement = T{};
-		}
+        void Init() final
+        {
+            OLO_PROFILE_FUNCTION();
 
-		void Process() final
-		{
-			OLO_PROFILE_FUNCTION();
+            InitializeInputs();
+            m_OutElement = T{};
+        }
 
-			if (m_TriggerFlag.CheckAndResetIfDirty())
-				ProcessTrigger();
-		}
+        void Process() final
+        {
+            OLO_PROFILE_FUNCTION();
 
-		//==========================================================================
-		/// NodeProcessor setup
-		std::vector<T>* m_InArray = nullptr;
-		i32* m_InIndex = nullptr;
+            if (m_TriggerFlag.CheckAndResetIfDirty())
+                ProcessTrigger();
+        }
 
-		OutputEvent m_OutOnTrigger{ *this };
-		T m_OutElement{ T{} };
+        //==========================================================================
+        /// NodeProcessor setup
+        std::vector<T>* m_InArray = nullptr;
+        i32* m_InIndex = nullptr;
 
-	private:
-		Flag m_TriggerFlag;
+        OutputEvent m_OutOnTrigger{ *this };
+        T m_OutElement{ T{} };
 
-		void RegisterEndpoints();
-		void InitializeInputs();
+    private:
+        Flag m_TriggerFlag;
 
-		void ProcessTrigger()
-		{
-			// Validate array exists and is not empty
-			if (!m_InArray || m_InArray->size() == 0)
-			{
-				// Handle null/empty array gracefully - set default value and return
-				m_OutElement = T{};
-				OLO_CORE_WARN("ArrayGet: Array is null or empty, using default value");
-				return;
-			}
+        void RegisterEndpoints();
+        void InitializeInputs();
 
-			// Validate index pointer exists
-			if (!m_InIndex)
-			{
-				// No index provided - use first element (index 0)
-				m_OutElement = (*m_InArray)[0];
-				if constexpr (std::is_arithmetic_v<T>)
-					m_OutOnTrigger(static_cast<float>(m_OutElement));
-				else
-					m_OutOnTrigger(1.0f);
-				return;
-			}
+        void ProcessTrigger()
+        {
+            // Validate array exists and is not empty
+            if (!m_InArray || m_InArray->size() == 0)
+            {
+                // Handle null/empty array gracefully - set default value and return
+                m_OutElement = T{};
+                OLO_CORE_WARN("ArrayGet: Array is null or empty, using default value");
+                return;
+            }
 
-			// Perform bounds checking against actual array size
-			i32 index = *m_InIndex;
-			i32 arraySize = static_cast<i32>(m_InArray->size());
-			
-			if (index >= 0 && index < arraySize)
-			{
-				// Valid index - get element from array
-				m_OutElement = (*m_InArray)[index];
-				if constexpr (std::is_arithmetic_v<T>)
-					m_OutOnTrigger(static_cast<float>(m_OutElement));
-				else
-					m_OutOnTrigger(1.0f);
-			}
-			else
-			{
-				// Index out of bounds - output default and warn
-				m_OutElement = T{};
-				OLO_CORE_WARN("ArrayGet: Index {} out of bounds for array of size {}", index, arraySize);
-			}
-		}
-	};
+            // Validate index pointer exists
+            if (!m_InIndex)
+            {
+                // No index provided - use first element (index 0)
+                m_OutElement = (*m_InArray)[0];
+                if constexpr (std::is_arithmetic_v<T>)
+                    m_OutOnTrigger(static_cast<float>(m_OutElement));
+                else
+                    m_OutOnTrigger(1.0f);
+                return;
+            }
 
-	//==============================================================================
-	/// Random - Generate random values (simplified version for OloEngine)
-	//==============================================================================
-	template<typename T>
-	struct Random : public NodeProcessor
-	{
-		struct IDs
-		{
-			DECLARE_ID(Next);
-			DECLARE_ID(Reset);
-		private:
-			IDs() = delete;
-		};
+            // Perform bounds checking against actual array size
+            i32 index = *m_InIndex;
+            i32 arraySize = static_cast<i32>(m_InArray->size());
+            
+            if (index >= 0 && index < arraySize)
+            {
+                // Valid index - get element from array
+                m_OutElement = (*m_InArray)[index];
+                if constexpr (std::is_arithmetic_v<T>)
+                    m_OutOnTrigger(static_cast<float>(m_OutElement));
+                else
+                    m_OutOnTrigger(1.0f);
+            }
+            else
+            {
+                // Index out of bounds - output default and warn
+                m_OutElement = T{};
+                OLO_CORE_WARN("ArrayGet: Index {} out of bounds for array of size {}", index, arraySize);
+            }
+        }
+    };
 
-		explicit Random(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
-		{
-			AddInEvent(IDs::Next, [this](float v) { (void)v; m_NextFlag.SetDirty(); });
-			AddInEvent(IDs::Reset, [this](float v) { (void)v; m_ResetFlag.SetDirty(); });
-			
-			RegisterEndpoints();
-		}
+    //==============================================================================
+    /// Random - Generate random values (simplified version for OloEngine)
+    //==============================================================================
+    template<typename T>
+    struct Random : public NodeProcessor
+    {
+        struct IDs
+        {
+            DECLARE_ID(Next);
+            DECLARE_ID(Reset);
+        private:
+            IDs() = delete;
+        };
 
-		void Init() final
-		{
-			InitializeInputs();
+        explicit Random(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
+        {
+            AddInEvent(IDs::Next, [this](float v) { (void)v; m_NextFlag.SetDirty(); });
+            AddInEvent(IDs::Reset, [this](float v) { (void)v; m_ResetFlag.SetDirty(); });
+            
+            RegisterEndpoints();
+        }
 
-			// Initialize random generator with seed
-			m_Random.SetSeed(GetSeedValue());
-			
-			m_OutValue = T{};
-		}
+        void Init() final
+        {
+            InitializeInputs();
 
-		void Process() final
-		{
-			if (m_NextFlag.CheckAndResetIfDirty())
-				ProcessNext();
+            // Initialize random generator with seed
+            m_Random.SetSeed(GetSeedValue());
+            
+            m_OutValue = T{};
+        }
 
-			if (m_ResetFlag.CheckAndResetIfDirty())
-				ProcessReset();
-		}
+        void Process() final
+        {
+            OLO_PROFILE_FUNCTION();
+            
+            if (m_NextFlag.CheckAndResetIfDirty())
+                ProcessNext();
 
-		//==========================================================================
-		/// NodeProcessor setup  
-		T* m_InMin = nullptr;
-		T* m_InMax = nullptr;
-		i32* m_InSeed = nullptr;
+            if (m_ResetFlag.CheckAndResetIfDirty())
+                ProcessReset();
+        }
 
-		OutputEvent m_OutOnNext{ *this };
-		OutputEvent m_OutOnReset{ *this };
-		T m_OutValue{ T{} };
+        //==========================================================================
+        /// NodeProcessor setup  
+        T* m_InMin = nullptr;
+        T* m_InMax = nullptr;
+        i32* m_InSeed = nullptr;
 
-	private:
-		Flag m_NextFlag;
-		Flag m_ResetFlag;
-		FastRandom m_Random;
+        OutputEvent m_OutOnNext{ *this };
+        OutputEvent m_OutOnReset{ *this };
+        T m_OutValue{ T{} };
 
-		void RegisterEndpoints();
-		void InitializeInputs();
+    private:
+        Flag m_NextFlag;
+        Flag m_ResetFlag;
+        FastRandom m_Random;
 
-		/// Helper method to get seed value with safe null checking
-		/// Returns: high-resolution clock value if m_InSeed is null or -1, otherwise the provided seed
-		i32 GetSeedValue() const
-		{
-			if (!m_InSeed) {
-				// Fallback: use high-resolution clock when m_InSeed is null
-				return static_cast<i32>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
-			}
-			return (*m_InSeed == -1) 
-				? static_cast<i32>(std::chrono::high_resolution_clock::now().time_since_epoch().count()) 
-				: *m_InSeed;
-		}
+        void RegisterEndpoints();
+        void InitializeInputs();
 
-		void ProcessNext()
-		{
-			// Validate input pointers before dereferencing
-			if (!m_InMin || !m_InMax)
-			{
-				// Handle null pointers gracefully - set default value and return
-				m_OutValue = T{};
-				OLO_CORE_WARN("Random: m_InMin or m_InMax is null, using default value");
-				m_OutOnNext(1.0f);
-				return;
-			}
+        /// Helper method to get seed value with safe null checking
+        /// Returns: high-resolution clock value if m_InSeed is null or -1, otherwise the provided seed
+        i32 GetSeedValue() const
+        {
+            return Detail::GetRandomSeedValue(m_InSeed);
+        }
 
-			T randomValue;
-			
-			// Get type-appropriate bounds and normalize min/max ordering
-			T minValue, maxValue;
-			
-			if constexpr (std::is_same_v<T, float>)
-			{
-				// For float, clamp to reasonable audio range
-				minValue = glm::clamp(*m_InMin, -1000.0f, 1000.0f);
-				maxValue = glm::clamp(*m_InMax, -1000.0f, 1000.0f);
-				
-				// Ensure min <= max
-				if (minValue > maxValue)
-					std::swap(minValue, maxValue);
-					
-				randomValue = m_Random.GetFloat32InRange(minValue, maxValue);
-			}
-			else if constexpr (std::is_integral_v<T>)
-			{
-				// For integers, clamp to reasonable range
-				constexpr T typeMin = static_cast<T>(-100000);
-				constexpr T typeMax = static_cast<T>(100000);
-				minValue = glm::clamp(*m_InMin, typeMin, typeMax);
-				maxValue = glm::clamp(*m_InMax, typeMin, typeMax);
-				
-				// Ensure min <= max
-				if (minValue > maxValue)
-					std::swap(minValue, maxValue);
-					
-				randomValue = static_cast<T>(m_Random.GetInt32InRange(static_cast<i32>(minValue), static_cast<i32>(maxValue)));
-			}
-			else
-			{
-				randomValue = T{};
-			}
-			
-			m_OutValue = randomValue;
-			m_OutOnNext(1.0f);
-		}
+        void ProcessNext()
+        {
+            // Validate input pointers before dereferencing
+            if (!m_InMin || !m_InMax)
+            {
+                // Handle null pointers gracefully - set default value and return
+                m_OutValue = T{};
+                OLO_CORE_WARN("Random: m_InMin or m_InMax is null, using default value");
+                m_OutOnNext(1.0f);
+                return;
+            }
 
-		void ProcessReset()
-		{
-			// Reset random generator with seed
-			m_Random.SetSeed(GetSeedValue());
-			m_OutOnReset(1.0f);
-		}
-	};
+            T randomValue;
+            
+            // Get type-appropriate bounds and normalize min/max ordering
+            T minValue, maxValue;
+            
+            if constexpr (std::is_same_v<T, float>)
+            {
+                // For float, clamp to reasonable audio range
+                minValue = glm::clamp(*m_InMin, -1000.0f, 1000.0f);
+                maxValue = glm::clamp(*m_InMax, -1000.0f, 1000.0f);
+                
+                // Ensure min <= max
+                if (minValue > maxValue)
+                    std::swap(minValue, maxValue);
+                    
+                randomValue = m_Random.GetFloat32InRange(minValue, maxValue);
+            }
+            else if constexpr (std::is_integral_v<T>)
+            {
+                // For integers, clamp to reasonable range
+                constexpr T typeMin = static_cast<T>(-100000);
+                constexpr T typeMax = static_cast<T>(100000);
+                minValue = glm::clamp(*m_InMin, typeMin, typeMax);
+                maxValue = glm::clamp(*m_InMax, typeMin, typeMax);
+                
+                // Ensure min <= max
+                if (minValue > maxValue)
+                    std::swap(minValue, maxValue);
+                    
+                randomValue = static_cast<T>(m_Random.GetInt32InRange(static_cast<i32>(minValue), static_cast<i32>(maxValue)));
+            }
+            else
+            {
+                randomValue = T{};
+            }
+            
+            m_OutValue = randomValue;
+            m_OutOnNext(1.0f);
+        }
+
+        void ProcessReset()
+        {
+            // Reset random generator with seed
+            m_Random.SetSeed(GetSeedValue());
+            m_OutOnReset(1.0f);
+        }
+    };
 
 } // namespace OloEngine::Audio::SoundGraph
 

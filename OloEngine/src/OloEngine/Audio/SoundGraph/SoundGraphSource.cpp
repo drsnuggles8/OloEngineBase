@@ -89,24 +89,27 @@ namespace OloEngine::Audio::SoundGraph
             else
             {
                 OLO_CORE_ERROR("[SoundGraphSource] Audio file does not exist: {}", filePath.string());
+            
+            }
         }
+    
+        // Insert with try_emplace to construct WaveSource in-place (atomic member prevents move/copy)
+        auto [it, inserted] = m_WaveSources.try_emplace(handle);
+        if (inserted)
+        {
+            // Manually initialize the in-place constructed WaveSource
+            it->second.m_WaveHandle = waveSource.m_WaveHandle;
+            it->second.m_WaveName = waveSource.m_WaveName;
+            it->second.m_TotalFrames = waveSource.m_TotalFrames;
+            it->second.m_StartPosition = waveSource.m_StartPosition;
+            it->second.m_ReadPosition = waveSource.m_ReadPosition;
+            it->second.m_CachedAudioData.store(waveSource.m_CachedAudioData.load(std::memory_order_acquire), std::memory_order_release);
+        }
+        
+        return true;
     }
     
-    // Insert with try_emplace to construct WaveSource in-place (atomic member prevents move/copy)
-    auto [it, inserted] = m_WaveSources.try_emplace(handle);
-    if (inserted)
-    {
-        // Manually initialize the in-place constructed WaveSource
-        it->second.m_WaveHandle = waveSource.m_WaveHandle;
-        it->second.m_WaveName = waveSource.m_WaveName;
-        it->second.m_TotalFrames = waveSource.m_TotalFrames;
-        it->second.m_StartPosition = waveSource.m_StartPosition;
-        it->second.m_ReadPosition = waveSource.m_ReadPosition;
-        it->second.m_CachedAudioData.store(waveSource.m_CachedAudioData.load(std::memory_order_acquire), std::memory_order_release);
-    }
-    
-    return true;
-}	void DataSourceContext::UninitializeWaveSource(AssetHandle handle)
+	void DataSourceContext::UninitializeWaveSource(AssetHandle handle)
     {
         auto it = m_WaveSources.find(handle);
         if (it != m_WaveSources.end())
@@ -199,14 +202,12 @@ namespace OloEngine::Audio::SoundGraph
             // Now work with the stable snapshot without holding the lock
             if (localPreset)
             {
+                outPreset.Clear();
                 // Copy preset data to output
                 outPreset.SetName(localPreset->GetName());
                 outPreset.SetDescription(localPreset->GetDescription());
                 outPreset.SetVersion(localPreset->GetVersion());
                 outPreset.SetAuthor(localPreset->GetAuthor());
-                
-                // Clear existing parameter descriptors and patches in output to prevent stale data
-                outPreset.Clear();
                 
                 // Copy parameter descriptors
                 auto descriptors = localPreset->GetAllParameterDescriptors();
@@ -656,7 +657,7 @@ namespace OloEngine::Audio::SoundGraph
     void SoundGraphSource::SilenceOutputBuffers(float** ppFramesOut, u32 frameCount)
     {
         // Silence each channel independently for planar buffers
-        for (u32 channel = 0; channel < 2; ++channel)
+        for (u32 channel = 0; channel < m_ChannelCount; ++channel)
         {
             if (ppFramesOut[channel])
             {
@@ -725,16 +726,22 @@ namespace OloEngine::Audio::SoundGraph
                 m_Graph->Process();
 
                 // Copy output channels to the output buffer
-                u32 outputChannels = std::min(2u, (u32)m_Graph->m_OutChannels.size());
+                u32 outputChannels = std::min(m_ChannelCount, static_cast<u32>(m_Graph->m_OutChannels.size()));
                 for (u32 channel = 0; channel < outputChannels; ++channel)
                 {
                     ppFramesOut[channel][frame] = m_Graph->m_OutChannels[channel];
                 }
 
                 // Handle mono to stereo conversion if needed
-                if (outputChannels == 1 && ppFramesOut[1])
+                if (outputChannels == 1 && m_ChannelCount > 1)
                 {
-                    ppFramesOut[1][frame] = ppFramesOut[0][frame];
+                    for (u32 channel = 1; channel < m_ChannelCount; ++channel)
+                    {
+                        if (ppFramesOut[channel])
+                        {
+                            ppFramesOut[channel][frame] = ppFramesOut[0][frame];
+                        }
+                    }
                 }
             }
 

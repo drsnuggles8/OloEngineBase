@@ -488,9 +488,10 @@ namespace OloEngine::Audio::SoundGraph
         // WavePlayers vector (raw pointers, minimal overhead)
         totalMemory += graph->m_WavePlayers.capacity() * sizeof(NodeProcessor*);
         
-        // EndpointInputStreams vector
-        totalMemory += graph->m_EndpointInputStreams.capacity() * sizeof(Scope<StreamWriter>);
-        for (const auto& endpoint : graph->m_EndpointInputStreams)
+        // EndpointInputStreams map (changed from vector to unordered_map for O(1) lookups)
+        totalMemory += graph->m_EndpointInputStreams.size() * (sizeof(Identifier) + sizeof(Scope<StreamWriter>));
+        totalMemory += graph->m_EndpointInputStreams.bucket_count() * sizeof(void*); // Hash table overhead
+        for (const auto& [id, endpoint] : graph->m_EndpointInputStreams)
         {
             if (endpoint)
                 totalMemory += sizeof(StreamWriter) + 64; // StreamWriter + estimated choc::value overhead
@@ -500,9 +501,10 @@ namespace OloEngine::Audio::SoundGraph
         totalMemory += graph->m_InterpInputs.size() * (sizeof(Identifier) + sizeof(SoundGraph::InterpolatedValue));
         totalMemory += graph->m_InterpInputs.bucket_count() * sizeof(void*); // Hash table overhead
         
-        // LocalVariables vector
-        totalMemory += graph->m_LocalVariables.capacity() * sizeof(Scope<StreamWriter>);
-        for (const auto& localVar : graph->m_LocalVariables)
+        // LocalVariables map (changed from vector to unordered_map for O(1) lookups)
+        totalMemory += graph->m_LocalVariables.size() * (sizeof(Identifier) + sizeof(Scope<StreamWriter>));
+        totalMemory += graph->m_LocalVariables.bucket_count() * sizeof(void*); // Hash table overhead
+        for (const auto& [id, localVar] : graph->m_LocalVariables)
         {
             if (localVar)
                 totalMemory += sizeof(StreamWriter) + 64; // StreamWriter + estimated overhead

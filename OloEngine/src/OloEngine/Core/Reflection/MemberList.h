@@ -169,13 +169,14 @@ namespace OloEngine::Core::Reflection {
         template<typename TValue, typename TObj>
         static constexpr bool SetMemberValue(sizet memberIndex, const TValue& value, TObj&& obj)
         {
+            OLO_PROFILE_FUNCTION();
             bool valueSet = false;
 
             ApplyToMember(memberIndex,
                 [&](auto& memb)
                 {
                     valueSet = TrySetMemberValue(memb, value);
-                }, std::forward<decltype(obj)>(obj));
+                }, std::forward<TObj>(obj));
 
             return valueSet;
         }
@@ -189,7 +190,7 @@ namespace OloEngine::Core::Reflection {
                 [&](auto& memb)
                 {
                     valueSet = TrySetMemberValue(memb, value);
-                }, std::forward<decltype(obj)>(obj));
+                }, std::forward<TObj>(obj));
 
             return valueSet;
         }
@@ -220,6 +221,7 @@ namespace OloEngine::Core::Reflection {
         template<typename TValue, typename TObj>
         static constexpr std::optional<TValue> GetMemberValueOfType(sizet memberIndex, const TObj& obj)
         {
+            OLO_PROFILE_FUNCTION();
             std::optional<TValue> value{};
 
             if (Count() > memberIndex)
@@ -278,6 +280,7 @@ namespace OloEngine::Core::Reflection {
 
         static constexpr std::optional<sizet> GetMemberSize(sizet memberIndex)
         {
+            OLO_PROFILE_FUNCTION();
             std::optional<sizet> size;
 
             if (Count() > memberIndex)

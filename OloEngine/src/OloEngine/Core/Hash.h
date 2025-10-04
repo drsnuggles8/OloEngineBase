@@ -31,7 +31,7 @@ namespace OloEngine
     /// FNV-1a 64-bit:
     ///   - Extended version of current FNV for better collision resistance
     ///   - Same simplicity, larger hash space
-    ///   - constexpr uint64_t GenerateFNVHash64(std::string_view str)
+    ///   - constexpr u64 GenerateFNVHash64(std::string_view str)
     /// 
     /// Blake2/Blake3:
     ///   - Cryptographically secure but extremely fast
