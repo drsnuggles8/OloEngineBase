@@ -240,109 +240,109 @@ namespace OloEngine::Audio::SoundGraph
 			return it != OutEvents.end() ? &(it->second.get()) : nullptr;
 		}
 
-	inline const char* GetDisplayName() const { return m_DebugName.c_str(); }
-	inline bool HasParameter(const Identifier& id) const { return ParameterInfos.find(id) != ParameterInfos.end(); }
+		inline const char* GetDisplayName() const { return m_DebugName.c_str(); }
+		inline bool HasParameter(const Identifier& id) const { return ParameterInfos.find(id) != ParameterInfos.end(); }
 
-	//==============================================================================
-	/// Parameter access wrapper for InitializeInputs functionality
-	
-	template<typename T>
-	struct ParameterWrapper
-	{
-		T m_Value;
-		Identifier m_ID;
+		//==============================================================================
+		/// Parameter access wrapper for InitializeInputs functionality
 		
-		ParameterWrapper(const T& value, Identifier id) : m_Value(value), m_ID(id) {}
-	};
-	
-	// Storage for parameter wrappers (must persist for pointer stability)
-	std::unordered_map<Identifier, std::shared_ptr<void>> m_ParameterWrappers;
-	
-	// Mutex for thread-safe parameter access
-	mutable std::shared_mutex m_ParameterMutex;
-	
-	template<typename T>
-	std::shared_ptr<ParameterWrapper<T>> GetParameter(const Identifier& id)
-	{
-		OLO_PROFILE_FUNCTION();
-		
-		// First, try to find existing wrapper with shared lock (read-only)
+		template<typename T>
+		struct ParameterWrapper
 		{
-			std::shared_lock<std::shared_mutex> lock(m_ParameterMutex);
+			T m_Value;
+			Identifier m_ID;
+			
+			ParameterWrapper(const T& value, Identifier id) : m_Value(value), m_ID(id) {}
+		};
+		
+		// Storage for parameter wrappers (must persist for pointer stability)
+		std::unordered_map<Identifier, std::shared_ptr<void>> m_ParameterWrappers;
+		
+		// Mutex for thread-safe parameter access
+		mutable std::shared_mutex m_ParameterMutex;
+		
+		template<typename T>
+		std::shared_ptr<ParameterWrapper<T>> GetParameter(const Identifier& id)
+		{
+			OLO_PROFILE_FUNCTION();
+			
+			// First, try to find existing wrapper with shared lock (read-only)
+			{
+				std::shared_lock<std::shared_mutex> lock(m_ParameterMutex);
+				auto wrapperIt = m_ParameterWrappers.find(id);
+				if (wrapperIt != m_ParameterWrappers.end())
+				{
+					return std::static_pointer_cast<ParameterWrapper<T>>(wrapperIt->second);
+				}
+			}
+			
+			// Not found in cache, need to create it - acquire exclusive lock
+			std::unique_lock<std::shared_mutex> lock(m_ParameterMutex);
+			
+			// Double-check: another thread might have created it while we were waiting for the lock
 			auto wrapperIt = m_ParameterWrappers.find(id);
 			if (wrapperIt != m_ParameterWrappers.end())
 			{
 				return std::static_pointer_cast<ParameterWrapper<T>>(wrapperIt->second);
 			}
+			
+			// Find the parameter in the storage
+			auto it = m_ParameterStorage.find(id);
+			if (it == m_ParameterStorage.end())
+				return nullptr;
+			
+			// Try to get the typed value from the any storage
+			try
+			{
+				T value = std::any_cast<T>(it->second);
+				auto wrapper = std::make_shared<ParameterWrapper<T>>(value, id);
+				m_ParameterWrappers[id] = wrapper;
+				return wrapper;
+			}
+			catch (const std::bad_any_cast&)
+			{
+				return nullptr;
+			}
 		}
-		
-		// Not found in cache, need to create it - acquire exclusive lock
-		std::unique_lock<std::shared_mutex> lock(m_ParameterMutex);
-		
-		// Double-check: another thread might have created it while we were waiting for the lock
-		auto wrapperIt = m_ParameterWrappers.find(id);
-		if (wrapperIt != m_ParameterWrappers.end())
-		{
-			return std::static_pointer_cast<ParameterWrapper<T>>(wrapperIt->second);
-		}
-		
-		// Find the parameter in the storage
-		auto it = m_ParameterStorage.find(id);
-		if (it == m_ParameterStorage.end())
-			return nullptr;
-		
-		// Try to get the typed value from the any storage
-		try
-		{
-			T value = std::any_cast<T>(it->second);
-			auto wrapper = std::make_shared<ParameterWrapper<T>>(value, id);
-			m_ParameterWrappers[id] = wrapper;
-			return wrapper;
-		}
-		catch (const std::bad_any_cast&)
-		{
-			return nullptr;
-		}
-	}
 
-	//==============================================================================
-	/// Parameter system	
-	struct ParameterInfo
-	{
-		Identifier m_ID;
-		std::string m_DebugName;
-		std::string m_TypeName;
-	};
-	std::unordered_map<Identifier, ParameterInfo> ParameterInfos;
-	
-	/// Storage for parameter values (for GetParameter access)
-	std::unordered_map<Identifier, std::any> m_ParameterStorage;
-
-	template<typename T>
-	void AddParameter(Identifier id, std::string_view debugName, const T& defaultValue)
-	{
-		OLO_PROFILE_FUNCTION();
-		
-		// Add input stream for this parameter
-		auto& stream = AddInStream(id);
-		
-		// Create default value plug
-		auto defaultPlug = std::make_shared<StreamWriter>(stream, T(defaultValue), id);
-		DefaultValuePlugs.push_back(defaultPlug);
-		
-		// Store parameter value for GetParameter access (thread-safe)
+		//==============================================================================
+		/// Parameter system	
+		struct ParameterInfo
 		{
-			std::unique_lock<std::shared_mutex> lock(m_ParameterMutex);
-			m_ParameterStorage[id] = defaultValue;
-		}
+			Identifier m_ID;
+			std::string m_DebugName;
+			std::string m_TypeName;
+		};
+		std::unordered_map<Identifier, ParameterInfo> ParameterInfos;
 		
-		// Store parameter info for debugging
-		ParameterInfo info;
-		info.m_ID = id;
-		info.m_DebugName = std::string(debugName);
-		info.m_TypeName = typeid(T).name();
-		ParameterInfos[id] = std::move(info);
-	}	private:
+		/// Storage for parameter values (for GetParameter access)
+		std::unordered_map<Identifier, std::any> m_ParameterStorage;
+
+		template<typename T>
+		void AddParameter(Identifier id, std::string_view debugName, const T& defaultValue)
+		{
+			OLO_PROFILE_FUNCTION();
+			
+			// Add input stream for this parameter
+			auto& stream = AddInStream(id);
+			
+			// Create default value plug
+			auto defaultPlug = std::make_shared<StreamWriter>(stream, T(defaultValue), id);
+			DefaultValuePlugs.push_back(defaultPlug);
+			
+			// Store parameter value for GetParameter access (thread-safe)
+			{
+				std::unique_lock<std::shared_mutex> lock(m_ParameterMutex);
+				m_ParameterStorage[id] = defaultValue;
+			}
+			
+			// Store parameter info for debugging
+			ParameterInfo info;
+			info.m_ID = id;
+			info.m_DebugName = std::string(debugName);
+			info.m_TypeName = typeid(T).name();
+			ParameterInfos[id] = std::move(info);
+		};
 	};
 
 	//==============================================================================

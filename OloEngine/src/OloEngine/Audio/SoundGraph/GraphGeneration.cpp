@@ -155,47 +155,49 @@ namespace OloEngine::Audio::SoundGraph
                     continue;
                 }
                 
-            // Validate source and destination nodes exist in prototype (only for node-targeting connections)
+                // Validate source and destination nodes exist in prototype (only for node-targeting connections)
+                
+                // Determine which endpoints require real nodes based on connection type
+                bool sourceRequiresNode = (connection.m_Type == Prototype::Connection::NodeValue_NodeValue ||
+                                        connection.m_Type == Prototype::Connection::NodeEvent_NodeEvent ||
+                                        connection.m_Type == Prototype::Connection::NodeValue_GraphValue ||
+                                        connection.m_Type == Prototype::Connection::NodeEvent_GraphEvent);
+                
+                bool destinationRequiresNode = (connection.m_Type == Prototype::Connection::NodeValue_NodeValue ||
+                                                connection.m_Type == Prototype::Connection::NodeEvent_NodeEvent ||
+                                                connection.m_Type == Prototype::Connection::GraphValue_NodeValue ||
+                                                connection.m_Type == Prototype::Connection::GraphEvent_NodeEvent);
             
-            // Determine which endpoints require real nodes based on connection type
-            bool sourceRequiresNode = (connection.m_Type == Prototype::Connection::NodeValue_NodeValue ||
-                                       connection.m_Type == Prototype::Connection::NodeEvent_NodeEvent ||
-                                       connection.m_Type == Prototype::Connection::NodeValue_GraphValue ||
-                                       connection.m_Type == Prototype::Connection::NodeEvent_GraphEvent);
+                // Only validate node existence for endpoints that actually require nodes
+                bool sourceNodeExists = !sourceRequiresNode;  // Default to true for non-node endpoints
+                bool destinationNodeExists = !destinationRequiresNode;  // Default to true for non-node endpoints
             
-            bool destinationRequiresNode = (connection.m_Type == Prototype::Connection::NodeValue_NodeValue ||
-                                             connection.m_Type == Prototype::Connection::NodeEvent_NodeEvent ||
-                                             connection.m_Type == Prototype::Connection::GraphValue_NodeValue ||
-                                             connection.m_Type == Prototype::Connection::GraphEvent_NodeEvent);
+                // Use O(1) hash set lookup instead of O(n) linear search
+                if (sourceRequiresNode)
+                {
+                    sourceNodeExists = nodeIDs.contains(connection.m_Source.m_NodeID);
+                }
+                
+                if (destinationRequiresNode)
+                {
+                    destinationNodeExists = nodeIDs.contains(connection.m_Destination.m_NodeID);
+                }
+                
+                if (sourceRequiresNode && !sourceNodeExists)
+                {
+                    OLO_CORE_WARN("GraphGenerator: Connection references non-existent source node {}", static_cast<u64>(connection.m_Source.m_NodeID));
+                    invalidConnections++;
+                    continue;
+                }
+                
+                if (destinationRequiresNode && !destinationNodeExists)
+                {
+                    OLO_CORE_WARN("GraphGenerator: Connection references non-existent destination node {}", static_cast<u64>(connection.m_Destination.m_NodeID));
+                    invalidConnections++;
+                    continue;
+                }
             
-            // Only validate node existence for endpoints that actually require nodes
-            bool sourceNodeExists = !sourceRequiresNode;  // Default to true for non-node endpoints
-            bool destinationNodeExists = !destinationRequiresNode;  // Default to true for non-node endpoints
-            
-            // Use O(1) hash set lookup instead of O(n) linear search
-            if (sourceRequiresNode)
-            {
-                sourceNodeExists = nodeIDs.contains(connection.m_Source.m_NodeID);
-            }
-            
-            if (destinationRequiresNode)
-            {
-                destinationNodeExists = nodeIDs.contains(connection.m_Destination.m_NodeID);
-            }
-            
-            if (sourceRequiresNode && !sourceNodeExists)
-            {
-                OLO_CORE_WARN("GraphGenerator: Connection references non-existent source node {}", static_cast<u64>(connection.m_Source.m_NodeID));
-                invalidConnections++;
-                continue;
-            }
-            
-            if (destinationRequiresNode && !destinationNodeExists)
-            {
-                OLO_CORE_WARN("GraphGenerator: Connection references non-existent destination node {}", static_cast<u64>(connection.m_Destination.m_NodeID));
-                invalidConnections++;
-                continue;
-            }				// Validate connection type is valid using explicit allow-list
+                // Validate connection type is valid using explicit allow-list
                 bool isValidConnectionType = false;
                 switch (connection.m_Type)
                 {
@@ -248,7 +250,7 @@ namespace OloEngine::Audio::SoundGraph
                 m_OutPrototype->m_Connections.push_back(connection);
                 validConnections++;
             }
-            
+                        
             OLO_CORE_INFO("GraphGenerator: Validated {} connections ({} valid, {} invalid)", 
                 m_Options.m_GraphPrototype->m_Connections.size(), validConnections, invalidConnections);
         }

@@ -18,7 +18,7 @@ namespace Detail {
 			return std::wstring();
 
 		// Query required buffer size
-		int wideSize = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8Str.c_str(), -1, nullptr, 0);
+		i32 wideSize = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8Str.c_str(), -1, nullptr, 0);
 		if (wideSize <= 0) [[unlikely]]
 		{
 			DWORD lastError = ::GetLastError();

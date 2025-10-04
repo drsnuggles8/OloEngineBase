@@ -27,10 +27,8 @@ namespace OloEngine::Audio
         
         PreAllocatedValue() 
             : m_Type(choc::value::Type::createVoid())
-        {
-            std::memset(m_Storage, 0, s_InlineStorageSize);
-        }
-        
+        {}
+               
         // Copy constructor - always copy full storage for performance
         // Using constant size allows compiler to optimize with SIMD/unrolling
         PreAllocatedValue(const PreAllocatedValue& other)
@@ -179,7 +177,6 @@ namespace OloEngine::Audio
                 sizet len = std::strlen(text);
                 sizet copyLen = std::min(len, s_MaxMessageLength - 1);
                 std::memcpy(m_Text, text, copyLen);
-                m_Text[s_MaxMessageLength - 1] = '\0';
                 m_Text[copyLen] = '\0';
             }
             else

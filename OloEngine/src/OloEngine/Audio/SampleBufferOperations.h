@@ -8,12 +8,21 @@
 #include <choc/audio/choc_SampleBuffers.h>
 
 // SIMD intrinsics support detection and includes
-// Automatically detects and enables SSE/AVX optimizations on x86/x64 platforms
+// Detects and enables SSE/AVX optimizations based on compiler flags and CPU capabilities
 // Falls back to scalar implementations when SIMD is unavailable
+//
+// NOTE: For MSVC, AVX support requires /arch:AVX or /arch:AVX2 compiler flag.
+//       Runtime CPU feature detection via __cpuid is the preferred approach for dynamic SIMD dispatch.
+//       Without proper compiler flags, AVX instructions will cause illegal instruction crashes on older CPUs.
 #if defined(_MSC_VER)
     #include <intrin.h>
-    #if defined(_M_X64) || defined(_M_IX86)
+    // SSE is baseline for x64, optional for x86
+    #if defined(_M_X64) || (defined(_M_IX86) && defined(__SSE__))
         #define OLO_AUDIO_HAS_SSE 1
+    #endif
+    // AVX requires explicit /arch:AVX or /arch:AVX2 flag
+    // MSVC defines __AVX__ when /arch:AVX is used
+    #if defined(__AVX__)
         #define OLO_AUDIO_HAS_AVX 1
     #endif
 #elif defined(__GNUC__) || defined(__clang__)

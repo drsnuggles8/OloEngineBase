@@ -102,11 +102,15 @@ namespace OloEngine::Audio::SoundGraph
 
         // Set up event callbacks
         source->SetMessageCallback([this](u64 frameIndex, const char* message) {
+            // Early return for null or empty messages (realtime-safe)
+            if (!message || message[0] == '\0')
+                return;
+            
             RealtimeMessage msg;
             msg.m_Frame = frameIndex;
             msg.m_IsEvent = false;
             
-            // Determine log level based on message prefix
+            // Determine log level based on first character (safe now that we've checked for null/empty)
             if (message[0] == '!')
             {
                 msg.m_Level = RealtimeMessage::Error;
@@ -120,10 +124,15 @@ namespace OloEngine::Audio::SoundGraph
                 msg.m_Level = RealtimeMessage::Trace;
             }
             
-            // Copy message text (real-time safe)
-            sizet len = strlen(message);
-            if (len >= sizeof(msg.m_Text))
-                len = sizeof(msg.m_Text) - 1;
+            // Copy message text (realtime-safe bounded length computation)
+            // Compute bounded length without strlen (avoid unbounded scan)
+            constexpr sizet maxLen = sizeof(msg.m_Text) - 1;
+            sizet len = 0;
+            while (len < maxLen && message[len] != '\0')
+            {
+                ++len;
+            }
+            
             memcpy(msg.m_Text, message, len);
             msg.m_Text[len] = '\0';
             
@@ -343,14 +352,26 @@ namespace OloEngine::Audio::SoundGraph
             }
         }
 
-        std::lock_guard<std::mutex> lock(m_Mutex);
-        // Update all sound graphs on the main thread
-        for (auto& [id, source] : m_SoundGraphSources)
+        // Reduce mutex contention by copying source references before updating
+        // This allows updates to run without holding the lock
+        std::vector<SoundGraphSource*> sourcesToUpdate;
         {
-            if (source)
+            std::lock_guard<std::mutex> lock(m_Mutex);
+            sourcesToUpdate.reserve(m_SoundGraphSources.size());
+            
+            for (auto& [id, source] : m_SoundGraphSources)
             {
-                source->Update(deltaTime);
+                if (source)
+                {
+                    sourcesToUpdate.push_back(source.get());
+                }
             }
+        }
+        
+        // Update all sound graphs on the main thread (without holding the mutex)
+        for (SoundGraphSource* source : sourcesToUpdate)
+        {
+            source->Update(deltaTime);
         }
 
         // Note: Sources are intentionally retained until explicitly removed via RemoveSource()
@@ -377,28 +398,44 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
         
         constexpr u32 MaxAttempts = 1000; // Prevent infinite loop if many IDs are in use
+        constexpr u32 BatchSize = 16;     // Check this many candidate IDs per lock acquisition
         
         {
             OLO_PROFILE_SCOPE("GetNextSourceID - ID Allocation Loop");
             
-            for (u32 attempt = 0; attempt < MaxAttempts; ++attempt)
+            u32 attempt = 0;
+            while (attempt < MaxAttempts)
             {
-                u32 id = m_NextSourceID.fetch_add(1, std::memory_order_relaxed);
+                // Generate a batch of candidate IDs using atomic operations (lock-free)
+                std::array<u32, BatchSize> candidates;
+                u32 validCandidateCount = 0;
                 
-                // Skip 0 as it's reserved for error/invalid ID
-                if (id == 0)
-                    continue;
-                
-                // Thread-safe check: is this ID already in use?
-                std::lock_guard<std::mutex> lock(m_Mutex);
-                if (m_SoundGraphSources.find(id) == m_SoundGraphSources.end())
+                for (u32 i = 0; i < BatchSize && attempt < MaxAttempts; ++i, ++attempt)
                 {
-                    // ID is available
-                    return id;
+                    u32 id = m_NextSourceID.fetch_add(1, std::memory_order_relaxed);
+                    
+                    // Skip 0 as it's reserved for error/invalid ID
+                    if (id != 0)
+                    {
+                        candidates[validCandidateCount++] = id;
+                    }
                 }
                 
-                // ID collision detected (very rare unless wraparound occurred)
-                // Continue to next candidate
+                // Now check all candidates under a single lock
+                {
+                    std::lock_guard<std::mutex> lock(m_Mutex);
+                    for (u32 i = 0; i < validCandidateCount; ++i)
+                    {
+                        if (m_SoundGraphSources.find(candidates[i]) == m_SoundGraphSources.end())
+                        {
+                            // ID is available
+                            return candidates[i];
+                        }
+                        // ID collision detected - continue checking next candidate in batch
+                    }
+                }
+                
+                // All candidates in this batch were in use, continue to next batch
             }
         }
         

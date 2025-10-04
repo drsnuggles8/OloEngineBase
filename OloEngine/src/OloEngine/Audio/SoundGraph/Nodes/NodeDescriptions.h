@@ -97,137 +97,137 @@ namespace OloEngine::Audio::SoundGraph
     //==============================================================================
     
     // Float specializations
-    DESCRIBE_NODE(Add<float>,
+    DESCRIBE_NODE(Add<f32>,
         NODE_INPUTS(
-            &Add<float>::in_Value1,
-            &Add<float>::in_Value2
+            &Add<f32>::in_Value1,
+            &Add<f32>::in_Value2
         ),
         NODE_OUTPUTS(
-            &Add<float>::out_Out
+            &Add<f32>::out_Out
         )
     );
 
-    DESCRIBE_NODE(Subtract<float>,
+    DESCRIBE_NODE(Subtract<f32>,
         NODE_INPUTS(
-            &Subtract<float>::in_Value1,
-            &Subtract<float>::in_Value2
+            &Subtract<f32>::in_Value1,
+            &Subtract<f32>::in_Value2
         ),
         NODE_OUTPUTS(
-            &Subtract<float>::out_Out
+            &Subtract<f32>::out_Out
         )
     );
 
-    DESCRIBE_NODE(Multiply<float>,
+    DESCRIBE_NODE(Multiply<f32>,
         NODE_INPUTS(
-            &Multiply<float>::in_Value,
-            &Multiply<float>::in_Multiplier
+            &Multiply<f32>::in_Value,
+            &Multiply<f32>::in_Multiplier
         ),
         NODE_OUTPUTS(
-            &Multiply<float>::out_Out
+            &Multiply<f32>::out_Out
         )
     );
 
-    DESCRIBE_NODE(Divide<float>,
+    DESCRIBE_NODE(Divide<f32>,
         NODE_INPUTS(
-            &Divide<float>::in_Value,
-            &Divide<float>::in_Denominator
+            &Divide<f32>::in_Value,
+            &Divide<f32>::in_Denominator
         ),
         NODE_OUTPUTS(
-            &Divide<float>::out_Out
+            &Divide<f32>::out_Out
         )
     );
 
-    DESCRIBE_NODE(Min<float>,
+    DESCRIBE_NODE(Min<f32>,
         NODE_INPUTS(
-            &Min<float>::in_Value1,
-            &Min<float>::in_Value2
+            &Min<f32>::in_Value1,
+            &Min<f32>::in_Value2
         ),
         NODE_OUTPUTS(
-            &Min<float>::out_Out
+            &Min<f32>::out_Out
         )
     );
 
-    DESCRIBE_NODE(Max<float>,
+    DESCRIBE_NODE(Max<f32>,
         NODE_INPUTS(
-            &Max<float>::in_Value1,
-            &Max<float>::in_Value2
+            &Max<f32>::in_Value1,
+            &Max<f32>::in_Value2
         ),
         NODE_OUTPUTS(
-            &Max<float>::out_Out
+            &Max<f32>::out_Out
         )
     );
 
-    DESCRIBE_NODE(Clamp<float>,
+    DESCRIBE_NODE(Clamp<f32>,
         NODE_INPUTS(
-            &Clamp<float>::in_Value,
-            &Clamp<float>::in_MinValue,
-            &Clamp<float>::in_MaxValue
+            &Clamp<f32>::in_Value,
+            &Clamp<f32>::in_MinValue,
+            &Clamp<f32>::in_MaxValue
         ),
         NODE_OUTPUTS(
-            &Clamp<float>::out_Out
+            &Clamp<f32>::out_Out
         )
     );
 
-    DESCRIBE_NODE(MapRange<float>,
+    DESCRIBE_NODE(MapRange<f32>,
         NODE_INPUTS(
-            &MapRange<float>::in_Value,
-            &MapRange<float>::in_FromMin,
-            &MapRange<float>::in_FromMax,
-            &MapRange<float>::in_ToMin,
-            &MapRange<float>::in_ToMax
+            &MapRange<f32>::in_Value,
+            &MapRange<f32>::in_FromMin,
+            &MapRange<f32>::in_FromMax,
+            &MapRange<f32>::in_ToMin,
+            &MapRange<f32>::in_ToMax
         ),
         NODE_OUTPUTS(
-            &MapRange<float>::out_Out
+            &MapRange<f32>::out_Out
         )
     );
 
-    DESCRIBE_NODE(Power<float>,
+    DESCRIBE_NODE(Power<f32>,
         NODE_INPUTS(
-            &Power<float>::in_Base,
-            &Power<float>::in_Exponent
+            &Power<f32>::in_Base,
+            &Power<f32>::in_Exponent
         ),
         NODE_OUTPUTS(
-            &Power<float>::out_Out
+            &Power<f32>::out_Out
         )
     );
 
-    DESCRIBE_NODE(Abs<float>,
+    DESCRIBE_NODE(Abs<f32>,
         NODE_INPUTS(
-            &Abs<float>::in_Value
+            &Abs<f32>::in_Value
         ),
         NODE_OUTPUTS(
-            &Abs<float>::out_Out
+            &Abs<f32>::out_Out
         )
     );
 
     // Integer specializations
-    DESCRIBE_NODE(Add<int>,
+    DESCRIBE_NODE(Add<i32>,
         NODE_INPUTS(
-            &Add<int>::in_Value1,
-            &Add<int>::in_Value2
+            &Add<i32>::in_Value1,
+            &Add<i32>::in_Value2
         ),
         NODE_OUTPUTS(
-            &Add<int>::out_Out
+            &Add<i32>::out_Out
         )
     );
 
-    DESCRIBE_NODE(Subtract<int>,
+    DESCRIBE_NODE(Subtract<i32>,
         NODE_INPUTS(
-            &Subtract<int>::in_Value1,
-            &Subtract<int>::in_Value2
+            &Subtract<i32>::in_Value1,
+            &Subtract<i32>::in_Value2
         ),
         NODE_OUTPUTS(
-            &Subtract<int>::out_Out
+            &Subtract<i32>::out_Out
         )
     );
 
-    DESCRIBE_NODE(Multiply<int>,
+    DESCRIBE_NODE(Multiply<i32>,
         NODE_INPUTS(
-            &Multiply<int>::in_Value,
-            &Multiply<int>::in_Multiplier
+            &Multiply<i32>::in_Value,
+            &Multiply<i32>::in_Multiplier
         ),
         NODE_OUTPUTS(
-            &Multiply<int>::out_Out
+            &Multiply<i32>::out_Out
         )
     );
 
@@ -306,79 +306,79 @@ namespace OloEngine::Audio::SoundGraph
     //==============================================================================
     // Array Nodes Descriptions
     //==============================================================================
-    DESCRIBE_NODE(GetRandom<float>,
+    DESCRIBE_NODE(GetRandom<f32>,
         NODE_INPUTS(
-            &GetRandom<float>::in_Array,
-            &GetRandom<float>::in_Min,
-            &GetRandom<float>::in_Max,
-            &GetRandom<float>::in_Seed
+            &GetRandom<f32>::in_Array,
+            &GetRandom<f32>::in_Min,
+            &GetRandom<f32>::in_Max,
+            &GetRandom<f32>::in_Seed
         ),
         NODE_OUTPUTS(
-            &GetRandom<float>::out_OnNext,
-            &GetRandom<float>::out_OnReset,
-            &GetRandom<float>::out_Element
+            &GetRandom<f32>::out_OnNext,
+            &GetRandom<f32>::out_OnReset,
+            &GetRandom<f32>::out_Element
         )
     );
 
-    DESCRIBE_NODE(GetRandom<int>,
+    DESCRIBE_NODE(GetRandom<i32>,
         NODE_INPUTS(
-            &GetRandom<int>::in_Array,
-            &GetRandom<int>::in_Min,
-            &GetRandom<int>::in_Max,
-            &GetRandom<int>::in_Seed
+            &GetRandom<i32>::in_Array,
+            &GetRandom<i32>::in_Min,
+            &GetRandom<i32>::in_Max,
+            &GetRandom<i32>::in_Seed
         ),
         NODE_OUTPUTS(
-            &GetRandom<int>::out_OnNext,
-            &GetRandom<int>::out_OnReset,
-            &GetRandom<int>::out_Element
+            &GetRandom<i32>::out_OnNext,
+            &GetRandom<i32>::out_OnReset,
+            &GetRandom<i32>::out_Element
         )
     );
 
-    DESCRIBE_NODE(Get<float>,
+    DESCRIBE_NODE(Get<f32>,
         NODE_INPUTS(
-            &Get<float>::in_Array,
-            &Get<float>::in_Index
+            &Get<f32>::in_Array,
+            &Get<f32>::in_Index
         ),
         NODE_OUTPUTS(
-            &Get<float>::out_OnTrigger,
-            &Get<float>::out_Element
+            &Get<f32>::out_OnTrigger,
+            &Get<f32>::out_Element
         )
     );
 
-    DESCRIBE_NODE(Get<int>,
+    DESCRIBE_NODE(Get<i32>,
         NODE_INPUTS(
-            &Get<int>::in_Array,
-            &Get<int>::in_Index
+            &Get<i32>::in_Array,
+            &Get<i32>::in_Index
         ),
         NODE_OUTPUTS(
-            &Get<int>::out_OnTrigger,
-            &Get<int>::out_Element
+            &Get<i32>::out_OnTrigger,
+            &Get<i32>::out_Element
         )
     );
 
-    DESCRIBE_NODE(Random<float>,
+    DESCRIBE_NODE(Random<f32>,
         NODE_INPUTS(
-            &Random<float>::in_Min,
-            &Random<float>::in_Max,
-            &Random<float>::in_Seed
+            &Random<f32>::in_Min,
+            &Random<f32>::in_Max,
+            &Random<f32>::in_Seed
         ),
         NODE_OUTPUTS(
-            &Random<float>::out_OnNext,
-            &Random<float>::out_OnReset,
-            &Random<float>::out_Value
+            &Random<f32>::out_OnNext,
+            &Random<f32>::out_OnReset,
+            &Random<f32>::out_Value
         )
     );
 
-    DESCRIBE_NODE(Random<int>,
+    DESCRIBE_NODE(Random<i32>,
         NODE_INPUTS(
-            &Random<int>::in_Min,
-            &Random<int>::in_Max,
-            &Random<int>::in_Seed
+            &Random<i32>::in_Min,
+            &Random<i32>::in_Max,
+            &Random<i32>::in_Seed
         ),
         NODE_OUTPUTS(
-            &Random<int>::out_OnNext,
-            &Random<int>::out_OnReset,
-            &Random<int>::out_Value
+            &Random<i32>::out_OnNext,
+            &Random<i32>::out_OnReset,
+            &Random<i32>::out_Value
         )
     );
 
@@ -394,21 +394,21 @@ namespace OloEngine::Audio::SoundGraph
         )
     );
 
-    DESCRIBE_NODE(NoteToFrequency<float>,
+    DESCRIBE_NODE(NoteToFrequency<f32>,
         NODE_INPUTS(
-            &NoteToFrequency<float>::in_MIDINote
+            &NoteToFrequency<f32>::in_MIDINote
         ),
         NODE_OUTPUTS(
-            &NoteToFrequency<float>::out_Frequency
+            &NoteToFrequency<f32>::out_Frequency
         )
     );
 
-    DESCRIBE_NODE(NoteToFrequency<int>,
+    DESCRIBE_NODE(NoteToFrequency<i32>,
         NODE_INPUTS(
-            &NoteToFrequency<int>::in_MIDINote
+            &NoteToFrequency<i32>::in_MIDINote
         ),
         NODE_OUTPUTS(
-            &NoteToFrequency<int>::out_Frequency
+            &NoteToFrequency<i32>::out_Frequency
         )
     );
 
