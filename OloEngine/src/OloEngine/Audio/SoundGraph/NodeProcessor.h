@@ -351,12 +351,12 @@ namespace OloEngine::Audio::SoundGraph
         template<typename T>
         explicit StreamWriter(const choc::value::ValueView& destination, T&& externalObjectOrDefaultValue, Identifier destinationID, UUID id = UUID()) noexcept
             : NodeProcessor("Stream Writer", id)
-            , DestinationID(destinationID)
-            , OutputValue(std::forward<T>(externalObjectOrDefaultValue))
-            , DestinationView(destination)
+            , m_DestinationID(destinationID)
+            , m_OutputValue(std::forward<T>(externalObjectOrDefaultValue))
+            , m_DestinationView(destination)
         {
             // Write the default value into the destination immediately
-            DestinationView = OutputValue;
+            m_DestinationView = m_OutputValue;
         }
 
         // Explicitly delete copy and move operations to prevent dangling references

@@ -272,7 +272,7 @@ namespace OloEngine::Audio::SoundGraph
         void AddRoute(InputEvent& source, InputEvent& destination) noexcept
         {
             InputEvent* dest = &destination;
-            source.Event = [dest](float v) { (*dest)(v); };
+            source.m_Event = [dest](float v) { (*dest)(v); };
         }
 
         /// Connect Output Event to Output Event
@@ -343,7 +343,7 @@ namespace OloEngine::Audio::SoundGraph
                 return false;
             }
 
-            AddConnection(endpointIt->second->OutputValue.getViewReference(), destinationNode->InValue(destinationNodeEndpointID));
+            AddConnection(endpointIt->second->m_OutputValue.getViewReference(), destinationNode->InValue(destinationNodeEndpointID));
             return true;
         }
 
@@ -403,7 +403,7 @@ namespace OloEngine::Audio::SoundGraph
                 return false;
             }
 
-            AddConnection(endpointIt->second->OutputValue.getViewReference(), destinationNode->InValue(destinationNodeEndpointID));
+            AddConnection(endpointIt->second->m_OutputValue.getViewReference(), destinationNode->InValue(destinationNodeEndpointID));
             return true;
         }
 
@@ -549,7 +549,7 @@ namespace OloEngine::Audio::SoundGraph
             auto endpointIt = std::find_if(m_EndpointInputStreams.begin(), m_EndpointInputStreams.end(),
                 [endpointID](const auto& pair)
                 {
-                    return (u32)pair.second->DestinationID == endpointID;
+                    return (u32)pair.second->m_DestinationID == endpointID;
                 });
             if (endpointIt == m_EndpointInputStreams.end())
                 return false;
@@ -559,7 +559,7 @@ namespace OloEngine::Audio::SoundGraph
             if (value.isFloat32())
             {
                 // Handle interpolation for float values - use safe lookup
-                auto interpIt = m_InterpInputs.find(endpoint->DestinationID);
+                auto interpIt = m_InterpInputs.find(endpoint->m_DestinationID);
                 if (interpIt != m_InterpInputs.end())
                 {
                     auto& interpInput = interpIt->second;
@@ -591,11 +591,11 @@ namespace OloEngine::Audio::SoundGraph
         {
             auto endpoint = InEvents.find(endpointID);
 
-            if (endpoint == InEvents.end() || !endpoint->second || !endpoint->second->Event)
+            if (endpoint == InEvents.end() || !endpoint->second || !endpoint->second->m_Event)
                 return false;
 
             // Handle float values for events
-            endpoint->second->Event(value.isFloat32() ? value.getFloat32() : 1.0f);
+            endpoint->second->m_Event(value.isFloat32() ? value.getFloat32() : 1.0f);
             return true;
         }
 
