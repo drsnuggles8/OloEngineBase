@@ -9,6 +9,7 @@
 #include "OloEngine/Scripting/Lua/LuaScriptEngine.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
+#include <stdexcept>
 #include <ranges>
 #include <utility>
 
@@ -28,22 +29,50 @@ namespace OloEngine
 			std::filesystem::current_path(m_Specification.WorkingDirectory);
 		}
 
-		m_Window = Window::Create(WindowProps(m_Specification.Name));
-		m_Window->SetEventCallback(OLO_BIND_EVENT_FN(Application::OnEvent));
-		// Initialize debug tools before Renderer to catch all resource creation
-		#ifdef OLO_DEBUG
-			GPUResourceInspector::GetInstance().Initialize();
-			ShaderDebugger::GetInstance().Initialize();
-			OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger initialized before Renderer");
-		#endif
+		try
+		{
+			m_Window = Window::Create(WindowProps(m_Specification.Name));
+			m_Window->SetEventCallback(OLO_BIND_EVENT_FN(Application::OnEvent));
+			// Initialize debug tools before Renderer to catch all resource creation
+			#ifdef OLO_DEBUG
+				GPUResourceInspector::GetInstance().Initialize();
+				ShaderDebugger::GetInstance().Initialize();
+				OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger initialized before Renderer");
+			#endif
 
-		Renderer::Init(m_Specification.PreferredRenderer);
-		AudioEngine::Init();
-		ScriptEngine::Init();
-		LuaScriptEngine::Init();
+			Renderer::Init(m_Specification.PreferredRenderer);
+			
+			if (!AudioEngine::Init())
+			{
+				OLO_CORE_CRITICAL("Failed to initialize AudioEngine! Application cannot continue.");
+				
+				// Cleanup resources in reverse order of initialization
+				Renderer::Shutdown();
+				
+				#ifdef OLO_DEBUG
+					ShaderDebugger::GetInstance().Shutdown();
+					GPUResourceInspector::GetInstance().Shutdown();
+					OLO_CORE_INFO("GPU Resource Inspector and Shader Debugger shutdown after AudioEngine failure");
+				#endif
+				
+				m_Window.reset();
+				s_Instance = nullptr;
+				
+				throw std::runtime_error("AudioEngine initialization failed");
+			}
+			
+			ScriptEngine::Init();
+			LuaScriptEngine::Init();
 
-		m_ImGuiLayer = new ImGuiLayer();
-		PushOverlay(m_ImGuiLayer);
+			m_ImGuiLayer = new ImGuiLayer();
+			PushOverlay(m_ImGuiLayer);
+		}
+		catch (...)
+		{
+			// If any exception occurs during initialization, clean up and reset instance
+			s_Instance = nullptr;
+			throw;
+		}
 	}
 	Application::~Application()
 	{

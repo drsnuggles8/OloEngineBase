@@ -8,6 +8,8 @@
 
 namespace OloEngine
 {
+    // Static empty metadata for invalid lookups
+    static const AssetMetadata s_EmptyMetadata{};
     void AssetRegistry::AddAsset(const AssetMetadata& metadata)
     {
         std::unique_lock lock(m_Mutex);
@@ -83,10 +85,12 @@ namespace OloEngine
 
     AssetMetadata AssetRegistry::GetMetadata(AssetHandle handle) const
     {
+        OLO_PROFILE_FUNCTION();
+        
         std::shared_lock lock(m_Mutex);
         
         auto it = m_AssetMetadata.find(handle);
-        return (it != m_AssetMetadata.end()) ? it->second : AssetMetadata{};
+        return (it != m_AssetMetadata.end()) ? it->second : s_EmptyMetadata;
     }
 
     AssetMetadata AssetRegistry::GetMetadata(const std::filesystem::path& path) const
@@ -101,7 +105,7 @@ namespace OloEngine
                 return metaIt->second;
         }
         
-        return AssetMetadata{};
+        return s_EmptyMetadata;
     }
 
     bool AssetRegistry::Exists(AssetHandle handle) const

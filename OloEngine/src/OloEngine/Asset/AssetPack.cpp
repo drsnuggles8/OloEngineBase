@@ -145,7 +145,6 @@ namespace OloEngine
         }
 
         // Seek to index table and verify the operation succeeded
-        u64 originalPosition = stream.GetStreamPosition();
         stream.SetStreamPosition(m_AssetPackFile.Header.IndexOffset);
         
         // Check if seek was successful by verifying the stream state and position

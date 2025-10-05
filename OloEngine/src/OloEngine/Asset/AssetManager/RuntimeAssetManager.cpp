@@ -95,16 +95,17 @@ namespace OloEngine
 
     AssetMetadata RuntimeAssetManager::GetAssetMetadata(AssetHandle handle) const noexcept
     {
-        // Runtime asset manager has limited metadata compared to editor
-        // Create basic metadata with what we can determine
-        AssetMetadata metadata;
-        metadata.Handle = handle;
-        metadata.Type = GetAssetTypeFromPacks(handle);
+        std::shared_lock lock(m_PacksMutex);
         
-        // Runtime managers don't track file paths or modification times
-        // These are only available in editor asset managers
+        // Return copy of metadata from the loaded packs storage
+        auto it = m_AssetMetadata.find(handle);
+        if (it != m_AssetMetadata.end())
+        {
+            return it->second; // Return copy
+        }
         
-        return metadata;
+        // Return empty metadata if not found
+        return AssetMetadata{};
     }
 
     Ref<Asset> RuntimeAssetManager::GetAsset(AssetHandle assetHandle)

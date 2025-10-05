@@ -9,6 +9,10 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Assert.h"
 
+#include "OloEngine/Core/Hash.h"
+#include "OloEngine/Core/Identifier.h"
+#include "OloEngine/Core/FastRandom.h"
+
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/KeyCodes.h"
@@ -39,4 +43,12 @@
 #include "OloEngine/Renderer/VertexBuffer.h"
 
 #include "OloEngine/Renderer/Camera/OrthographicCamera.h"
+// ------------------------------
+
+// --Audio-----------------------
+#include "OloEngine/Audio/AudioEngine.h"
+#include "OloEngine/Audio/AudioSource.h"
+#include "OloEngine/Audio/AudioListener.h"
+#include "OloEngine/Audio/AudioLoader.h"
+
 // ------------------------------

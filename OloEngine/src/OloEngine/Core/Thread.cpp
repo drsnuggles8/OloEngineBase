@@ -18,7 +18,7 @@ namespace Detail {
 			return std::wstring();
 
 		// Query required buffer size
-		int wideSize = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8Str.c_str(), -1, nullptr, 0);
+		i32 wideSize = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8Str.c_str(), -1, nullptr, 0);
 		if (wideSize <= 0) [[unlikely]]
 		{
 			DWORD lastError = ::GetLastError();
@@ -27,8 +27,8 @@ namespace Detail {
 		}
 
 		// Allocate buffer and perform conversion
-		std::wstring wideStr(static_cast<size_t>(wideSize), L'\0');
-		int result = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8Str.c_str(), -1, wideStr.data(), wideSize);
+		std::wstring wideStr(static_cast<sizet>(wideSize), L'\0');
+		i32 result = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8Str.c_str(), -1, wideStr.data(), wideSize);
 		if (result <= 0) [[unlikely]]
 		{
 			DWORD lastError = ::GetLastError();

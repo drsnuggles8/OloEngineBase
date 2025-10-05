@@ -1,8 +1,10 @@
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <stdexcept>
 #include <type_traits>
+#include <utility>
 #include <cstdint>
 
 #include "OloEngine/Core/PlatformDetection.h"
@@ -11,67 +13,67 @@
 // Use explicit 0/1 numeric macros for safer conditional checks
 
 #if defined(__clang__)
-	// Clang (including clang-cl on Windows)
-	#define OLO_COMPILER_CLANG 1
-	#define OLO_COMPILER_GCC 0
-	#if defined(_MSC_VER)
-		// clang-cl: Clang with MSVC-compatible interface
-		#define OLO_COMPILER_MSVC 1
-		#define OLO_COMPILER_CLANG_CL 1
-	#else
-		// Regular clang
-		#define OLO_COMPILER_MSVC 0
-		#define OLO_COMPILER_CLANG_CL 0
-	#endif
-	#define OLO_COMPILER_UNKNOWN 0
+    // Clang (including clang-cl on Windows)
+    #define OLO_COMPILER_CLANG 1
+    #define OLO_COMPILER_GCC 0
+    #if defined(_MSC_VER)
+        // clang-cl: Clang with MSVC-compatible interface
+        #define OLO_COMPILER_MSVC 1
+        #define OLO_COMPILER_CLANG_CL 1
+    #else
+        // Regular clang
+        #define OLO_COMPILER_MSVC 0
+        #define OLO_COMPILER_CLANG_CL 0
+    #endif
+    #define OLO_COMPILER_UNKNOWN 0
 #elif defined(__GNUC__) || defined(__GNUG__)
-	// GCC
-	#define OLO_COMPILER_CLANG 0
-	#define OLO_COMPILER_GCC 1
-	#define OLO_COMPILER_MSVC 0
-	#define OLO_COMPILER_CLANG_CL 0
-	#define OLO_COMPILER_UNKNOWN 0
+    // GCC
+    #define OLO_COMPILER_CLANG 0
+    #define OLO_COMPILER_GCC 1
+    #define OLO_COMPILER_MSVC 0
+    #define OLO_COMPILER_CLANG_CL 0
+    #define OLO_COMPILER_UNKNOWN 0
 #elif defined(_MSC_VER)
-	// MSVC
-	#define OLO_COMPILER_CLANG 0
-	#define OLO_COMPILER_GCC 0
-	#define OLO_COMPILER_MSVC 1
-	#define OLO_COMPILER_CLANG_CL 0
-	#define OLO_COMPILER_UNKNOWN 0
+    // MSVC
+    #define OLO_COMPILER_CLANG 0
+    #define OLO_COMPILER_GCC 0
+    #define OLO_COMPILER_MSVC 1
+    #define OLO_COMPILER_CLANG_CL 0
+    #define OLO_COMPILER_UNKNOWN 0
 #else
-	// Unknown compiler - fallback
-	#define OLO_COMPILER_CLANG 0
-	#define OLO_COMPILER_GCC 0
-	#define OLO_COMPILER_MSVC 0
-	#define OLO_COMPILER_CLANG_CL 0
-	#define OLO_COMPILER_UNKNOWN 1
+    // Unknown compiler - fallback
+    #define OLO_COMPILER_CLANG 0
+    #define OLO_COMPILER_GCC 0
+    #define OLO_COMPILER_MSVC 0
+    #define OLO_COMPILER_CLANG_CL 0
+    #define OLO_COMPILER_UNKNOWN 1
 #endif
 
 // Macros ////////////////////////////////////////////////////////////////
 
 #ifdef OLO_DEBUG
-	#if defined(OLO_PLATFORM_WINDOWS)
-		#define OLO_DEBUGBREAK() __debugbreak()
-	#elif defined(OLO_PLATFORM_LINUX)
-		#include <signal.h>
-		#define OLO_DEBUGBREAK() raise(SIGTRAP)
-	#else
-		#error "Platform doesn't support debugbreak yet!"
-	#endif
-	#define OLO_ENABLE_ASSERTS
+    #if defined(OLO_PLATFORM_WINDOWS)
+        #define OLO_DEBUGBREAK() __debugbreak()
+    #elif defined(OLO_PLATFORM_LINUX)
+        #include <signal.h>
+        #define OLO_DEBUGBREAK() raise(SIGTRAP)
+    #else
+        #error "Platform doesn't support debugbreak yet!"
+    #endif
+    #define OLO_ENABLE_ASSERTS
 #else
-	#define OLO_DEBUGBREAK()
+    #define OLO_DEBUGBREAK()
 #endif
 
 #if OLO_COMPILER_MSVC
-	#define OLO_INLINE                               inline
-	#define OLO_FINLINE                              __forceinline
-	#define OLO_DISABLE_WARNING(warning_number)      __pragma( warning( disable : warning_number ) )
-	#define OLO_CONCAT_OPERATOR(x, y)                x##y
+    #define OLO_INLINE                               inline
+    #define OLO_FINLINE                              __forceinline
+    #define OLO_DISABLE_WARNING(warning_number)      __pragma( warning( disable : warning_number ) )
+    #define OLO_CONCAT_OPERATOR(x, y)                x##y
 #else
-	#define OLO_INLINE                               inline
-	#define OLO_FINLINE                              always_inline
-	#define OLO_CONCAT_OPERATOR(x, y)                x y
+    #define OLO_INLINE                               inline
+    #define OLO_FINLINE                              always_inline
+    #define OLO_CONCAT_OPERATOR(x, y)                x y
 #endif // MSVC
 
 
@@ -122,39 +124,39 @@ constexpr std::uint64_t OloBit64(int x) { return OloBit<std::uint64_t>(x); }
 
 namespace OloEngine
 {
-	// Type-safe bit mask generator for compile-time usage (C++20 constexpr compatible)
-	template<typename T>
-	constexpr T BitMaskConstexpr(unsigned idx) 
-	{
-		static_assert(std::is_integral_v<T>, "BitMaskConstexpr() requires integral types");
-		static_assert(sizeof(T) <= 8, "BitMaskConstexpr() supports types up to 8 bytes (64-bit)");
-		
-		// Return 0 for out-of-range indices to avoid throwing in constexpr context
-		return (idx >= sizeof(T) * 8) ? T(0) : T(1) << idx;
-	}
+    // Type-safe bit mask generator for compile-time usage (C++20 constexpr compatible)
+    template<typename T>
+    constexpr T BitMaskConstexpr(unsigned idx) 
+    {
+        static_assert(std::is_integral_v<T>, "BitMaskConstexpr() requires integral types");
+        static_assert(sizeof(T) <= 8, "BitMaskConstexpr() supports types up to 8 bytes (64-bit)");
+        
+        // Return 0 for out-of-range indices to avoid throwing in constexpr context
+        return (idx >= sizeof(T) * 8) ? T(0) : T(1) << idx;
+    }
 
-	// Type-safe bit mask generator with runtime bounds checking
-	template<typename T>
-	T BitMask(unsigned idx) 
-	{
-		static_assert(std::is_integral_v<T>, "BitMask() requires integral types");
-		static_assert(sizeof(T) <= 8, "BitMask() supports types up to 8 bytes (64-bit)");
-		
-		// Runtime bounds check with exception for out-of-range indices
-		if (idx >= sizeof(T) * 8) {
-			throw std::out_of_range("Bit index exceeds type width");
-		}
-		
-		return T(1) << idx;
-	}
+    // Type-safe bit mask generator with runtime bounds checking
+    template<typename T>
+    T BitMask(unsigned idx) 
+    {
+        static_assert(std::is_integral_v<T>, "BitMask() requires integral types");
+        static_assert(sizeof(T) <= 8, "BitMask() supports types up to 8 bytes (64-bit)");
+        
+        // Runtime bounds check with exception for out-of-range indices
+        if (idx >= sizeof(T) * 8) {
+            throw std::out_of_range("Bit index exceeds type width");
+        }
+        
+        return T(1) << idx;
+    }
 
-	template<typename T>
-	using Scope = std::unique_ptr<T>;
-	template<typename T, typename ... Args>
-	constexpr Scope<T> CreateScope(Args&& ... args)
-	{
-		return std::make_unique<T>(std::forward<Args>(args)...);
-	}
+    template<typename T>
+    using Scope = std::unique_ptr<T>;
+    template<typename T, typename ... Args>
+    constexpr Scope<T> CreateScope(Args&& ... args)
+    {
+        return std::make_unique<T>(std::forward<Args>(args)...);
+    }
 
 }
 
@@ -174,6 +176,8 @@ using f64 = double;
 
 using sizet = size_t;
 
+// TODO(olbu): Consider adding using b8 = bool; ?
+
 static const u64 u64_max = UINT64_MAX;
 static const i64 i64_max = INT64_MAX;
 static const u32 u32_max = UINT32_MAX;
@@ -182,6 +186,59 @@ static const u16 u16_max = UINT16_MAX;
 static const i16 i16_max = INT16_MAX;
 static const u8 u8_max = UINT8_MAX;
 static const i8 i8_max = INT8_MAX;
+
+//==============================================================================
+/// Flag utilities for state tracking
+namespace OloEngine
+{
+    /**
+     * Thread-safe atomic flag for inter-thread communication
+     * Based on Hazel's AtomicFlag implementation
+     */
+    struct AtomicFlag
+    {
+        OLO_FINLINE void SetDirty() noexcept { m_Flag.store(true, std::memory_order_release); }
+        OLO_FINLINE bool CheckAndResetIfDirty() noexcept { return m_Flag.exchange(false, std::memory_order_acq_rel); }
+
+        // Initialize to "not dirty" state (false)
+        AtomicFlag() noexcept : m_Flag(false) {}
+        AtomicFlag(const AtomicFlag&) = delete;
+        AtomicFlag& operator=(const AtomicFlag&) = delete;
+        AtomicFlag(AtomicFlag&&) = delete;
+        AtomicFlag& operator=(AtomicFlag&&) = delete;
+
+    private:
+        std::atomic<bool> m_Flag;
+    };
+
+    /**
+     * Simple flag for tracking dirty state (single-threaded)
+     * Based on Hazel's Flag implementation
+     */
+    struct Flag
+    {
+        OLO_FINLINE void SetDirty() noexcept { m_Flag = true; }
+        OLO_FINLINE bool CheckAndResetIfDirty() noexcept
+        {
+            return std::exchange(m_Flag, false);
+        }
+
+        OLO_FINLINE bool IsDirty() const noexcept
+        {
+            return m_Flag;
+        }
+
+        // Explicitly delete copy and move operations to avoid accidental copying of dirty state
+        Flag() = default;
+        Flag(const Flag&) = delete;
+        Flag& operator=(const Flag&) = delete;
+        Flag(Flag&&) = delete;
+        Flag& operator=(Flag&&) = delete;
+
+    private:
+        bool m_Flag = false;
+    };
+}
 
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Assert.h"

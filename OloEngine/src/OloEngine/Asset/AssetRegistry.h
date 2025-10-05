@@ -57,14 +57,22 @@ namespace OloEngine
         /**
          * @brief Get asset metadata by handle
          * @param handle Asset handle
-         * @return Asset metadata, or default-constructed metadata if not found
+         * @return Copy of asset metadata, or empty metadata if not found
+         * 
+         * Thread-safe: Returns by value to prevent dangling references after lock release.
+         * The shared_lock is released before returning, so returning a reference would be unsafe
+         * if another thread concurrently removes or modifies the metadata.
          */
         AssetMetadata GetMetadata(AssetHandle handle) const;
 
         /**
          * @brief Get asset metadata by file path
          * @param path File path of the asset
-         * @return Asset metadata, or default-constructed metadata if not found
+         * @return Copy of asset metadata, or empty metadata if not found
+         * 
+         * Thread-safe: Returns by value to prevent dangling references after lock release.
+         * The shared_lock is released before returning, so returning a reference would be unsafe
+         * if another thread concurrently removes or modifies the metadata.
          */
         AssetMetadata GetMetadata(const std::filesystem::path& path) const;
 

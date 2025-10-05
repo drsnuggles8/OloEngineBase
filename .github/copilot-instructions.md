@@ -13,10 +13,12 @@ OloEngine is a multi-layered game engine based on Hazel, supporting both 2D/3D r
 ## Development Workflow
 
 ### Building & Running
-- Use VS Code tasks exclusively: `run-sandbox3d-debug`, `run-oloeditor-release`, etc.
 - Applications must run from `OloEditor/` working directory (assets/mono dependencies)
-- CMake generates solutions in `build/`, binaries in `bin/[Config]/[Target]/`
 - Use `scripts/Win-GenerateProject.bat` for initial setup, `scripts/Win-DeleteStuff.bat` to clean (or manually delete the `build/` folder)
+- **VS Code Tasks**: Run tasks via Command Palette (`Ctrl+Shift+P` → "Tasks: Run Task") or `Terminal` → `Run Task...`
+  - Build: `build-sandbox3d-debug`, `build-oloeditor-debug`, `build-tests-debug`
+  - Run: `run-sandbox3d-debug`, `run-oloeditor-debug`, `run-tests-debug` (auto-builds dependencies)
+  - Configurations available: `debug`, `release`, `dist`
 
 ### Key Patterns
 
@@ -92,21 +94,19 @@ RendererProfiler::GetInstance().IncrementCounter(MetricType::DrawCalls, 1);
 ## Code Style Guidelines
 
 - **C++ Standards:** Target C++23 where supported by current compilers, baseline C++20 across the repo
+- **Development Approach:** Alpha mode - breaking changes are acceptable for better design. We focus on optimal solutions; ensure that dependent code is updated promptly
 - **Naming:** PascalCase for classes, `m_PascalCase` for members, `s_PascalCase` for statics
-- **Types:** Custom typedefs (`u8`, `i16`, `i32`, `f32`, `sizet`) defined in `Core/Base.h`
-- **Headers:** Use `#pragma once`, RAII for OpenGL resources, STL containers preferred
-- **Formatting:** Braces on new lines, 4-space indentation, public before private
+- **Types:** Custom typedefs (`u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, `f32`, `f64`, `sizet`) defined in `Core/Base.h`
+- **Headers:** Use `#pragma once`, RAII for OpenGL resources, STL containers preferred. Use the OloEnginePCH precompiled header for common includes
+- **Includes:** Use quotes for project headers, angle brackets for system/third-party. Include what you use
+- **Smart Pointers:** Use `Ref<T>` defined in `Core/Ref.h`
+- **Formatting:** Braces on new lines except for short/inline/one-line cases, 4-space indentation (not tabs!), public methods, then public members, then protected, then private
 
 ## Critical Build Dependencies
 
-**CMake Functions**: Use `olo_*` functions from `cmake/CommonProperties.cmake`:
-- `olo_set_output_directories()` - Standardized bin paths  
-- `olo_enable_lto()` / `olo_enable_pch()` - Performance optimizations
-- `olo_set_compiler_options()` - Common flags across targets
+**Vendor Management**: Dependencies fetched via CPM / FetchContent, stored in `OloEngine/vendor/`. Never modify vendor code directly.
 
-**Vendor Management**: Dependencies fetched via CPM, stored in `OloEngine/vendor/`. Never modify vendor code directly.
-
-**Renderer Backend**: Currently OpenGL-based. Uses SPIR-V for shader compilation via Vulkan SDK tools.
+**Renderer Backend**: OpenGL-based. Uses SPIR-V for shader compilation via Vulkan SDK tools.
 
 **Debug/Profiling System**: Comprehensive performance tracking with Tracy integration and custom renderer profilers.
 - `RendererProfiler` - Frame timing, draw calls, GPU metrics
@@ -121,6 +121,3 @@ RendererProfiler::GetInstance().IncrementCounter(MetricType::DrawCalls, 1);
 - **Event System**: Custom events inherit `Event`, dispatched through `Application::OnEvent`
 - **Asset Hot-Reload**: Filewatch triggers `AssetReloadedEvent` → update references
 - **ImGui Integration**: `ImGuiLayer` for editor UI, custom panels inherit base classes
-
-## VS Code Tasks Usage
-Always use VS Code tasks for building/running: `build-sandbox3d-debug`, `run-oloeditor-release`, etc. Tasks ensure correct working directories and environment setup.

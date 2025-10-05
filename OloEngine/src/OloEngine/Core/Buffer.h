@@ -1,6 +1,7 @@
 #pragma once
 
-#include <stdint.h>
+#include "OloEngine/Core/Base.h"
+
 #include <cstring>
 #include <span>
 #include <limits>
@@ -43,7 +44,7 @@ namespace OloEngine
 				return Buffer{};
 				
 			// Validate that span size fits in u64 to avoid truncation (only when size_t > u64)
-			if constexpr (sizeof(size_t) > sizeof(u64))
+			if constexpr (sizeof(sizet) > sizeof(u64))
 			{
 				if (data.size() > std::numeric_limits<u64>::max())
 				{
