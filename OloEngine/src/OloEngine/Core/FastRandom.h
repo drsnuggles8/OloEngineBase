@@ -11,123 +11,567 @@
 namespace OloEngine
 {
     //==============================================================================
-    /// High-performance random number generator using Linear Congruential Generator (LCG)
-    /// Optimized for real-time audio applications where std::random_device may be too slow
+    /// Random Number Generator Algorithm Policies
     /// 
-    /// TODO: Future Algorithm Options (as additional classes, not replacements):
+    /// These policy classes implement different RNG algorithms that can be used
+    /// with the FastRandom template. Each algorithm provides:
+    /// - Next() method returning the raw random output
+    /// - Seed() method for initialization
+    /// - Static OutputBits constant indicating output bit width
+    /// - Static IsHighQuality flag for algorithm quality assessment
+    //==============================================================================
+
+    //==============================================================================
+    /// Linear Congruential Generator (LCG) - Lightweight, fast
+    /// Using constants from Numerical Recipes
+    /// Period: 2^31-1, Output: 32-bit
+    /// Best for: Simple use cases, minimal memory footprint
+    struct LCGAlgorithm
+    {
+        static constexpr u32 OutputBits = 32;
+        static constexpr bool IsHighQuality = false;
+        static constexpr const char* Name = "LCG";
+
+        void Seed(u64 seed) noexcept
+        {
+            // Mix upper and lower 32 bits to preserve entropy from full 64-bit seed
+            // This prevents seeds like 0x0000000012345678 and 0xABCDEF0012345678 from colliding
+            u32 mixed = static_cast<u32>(seed ^ (seed >> 32));
+            
+            // Normalize seed to valid range [1, s_LcgM - 1] to prevent degenerate states
+            i32 normalizedSeed = static_cast<i32>(mixed);
+            
+            if (normalizedSeed == 0)
+                normalizedSeed = s_DefaultSeed;
+            
+            if (normalizedSeed < 0)
+            {
+                if (normalizedSeed == std::numeric_limits<i32>::min())
+                    normalizedSeed = s_DefaultSeed;
+                else
+                    normalizedSeed = -normalizedSeed;
+            }
+            
+            if (normalizedSeed >= s_LcgM)
+                normalizedSeed = (normalizedSeed % (s_LcgM - 1)) + 1;
+            
+            m_State = normalizedSeed;
+        }
+
+        u32 Next() noexcept
+        {
+            // LCG: (a * state + c) % m
+            // Use 64-bit arithmetic to avoid 32-bit overflow
+            i64 temp = static_cast<i64>(s_LcgA) * static_cast<i64>(m_State) + static_cast<i64>(s_LcgC);
+            m_State = static_cast<i32>(temp % static_cast<i64>(s_LcgM));
+            return static_cast<u32>(m_State);
+        }
+
+        i32 GetState() const noexcept { return m_State; }
+
+    private:
+        i32 m_State = s_DefaultSeed;
+        
+        static constexpr i32 s_DefaultSeed = 4321;
+        static constexpr i32 s_LcgM = 2147483647;  // 2^31 - 1
+        static constexpr i32 s_LcgA = 48271;       // Multiplier
+        static constexpr i32 s_LcgC = 0;           // Increment
+    };
+
+    //==============================================================================
+    /// PCG32 (Permuted Congruential Generator) - Recommended default
+    /// Excellent statistical properties, passes randomness tests
+    /// Period: 2^64, Output: 32-bit
+    /// Best for: General purpose, high quality with good performance
+    /// Reference: https://www.pcg-random.org/
+    struct PCG32Algorithm
+    {
+        static constexpr u32 OutputBits = 32;
+        static constexpr bool IsHighQuality = true;
+        static constexpr const char* Name = "PCG32";
+
+        void Seed(u64 seed) noexcept
+        {
+            m_State = seed + s_DefaultInc;
+            Next();  // Advance to mix the seed
+            m_State += seed;
+            Next();
+        }
+
+        u32 Next() noexcept
+        {
+            u64 oldState = m_State;
+            // Linear congruential step
+            m_State = oldState * s_Multiplier + s_DefaultInc;
+            
+            // Permutation step (XSH-RR variant)
+            u32 xorshifted = static_cast<u32>(((oldState >> 18u) ^ oldState) >> 27u);
+            u32 rot = static_cast<u32>(oldState >> 59u);
+            return (xorshifted >> rot) | (xorshifted << ((~rot + 1u) & 31));
+        }
+
+        u64 GetState() const noexcept { return m_State; }
+
+    private:
+        u64 m_State = 0x853c49e6748fea9bULL;
+        
+        static constexpr u64 s_Multiplier = 6364136223846793005ULL;
+        static constexpr u64 s_DefaultInc = 1442695040888963407ULL;  // Increment (must be odd)
+    };
+
+    //==============================================================================
+    /// SplitMix64 - Fast, simple 64-bit generator
+    /// Very fast, good distribution, excellent for seeding
+    /// Period: 2^64, Output: 64-bit
+    /// Best for: Seeding other generators, simple 64-bit needs
+    struct SplitMix64Algorithm
+    {
+        static constexpr u32 OutputBits = 64;
+        static constexpr bool IsHighQuality = true;
+        static constexpr const char* Name = "SplitMix64";
+
+        void Seed(u64 seed) noexcept
+        {
+            m_State = seed;
+        }
+
+        u64 Next() noexcept
+        {
+            u64 z = (m_State += 0x9e3779b97f4a7c15ULL);
+            z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+            z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+            return z ^ (z >> 31);
+        }
+
+        u64 GetState() const noexcept { return m_State; }
+
+    private:
+        u64 m_State = 0x123456789abcdef0ULL;
+    };
+
+    //==============================================================================
+    /// Xoshiro256++ - High-quality 64-bit generator
+    /// Excellent statistical properties, very long period
+    /// Period: 2^256-1, Output: 64-bit
+    /// Best for: High-quality randomness, parallel streams (with jump)
+    struct Xoshiro256ppAlgorithm
+    {
+        static constexpr u32 OutputBits = 64;
+        static constexpr bool IsHighQuality = true;
+        static constexpr const char* Name = "Xoshiro256++";
+
+        void Seed(u64 seed) noexcept
+        {
+            // Use SplitMix64 to initialize the state
+            SplitMix64Algorithm splitmix;
+            splitmix.Seed(seed);
+            m_State[0] = splitmix.Next();
+            m_State[1] = splitmix.Next();
+            m_State[2] = splitmix.Next();
+            m_State[3] = splitmix.Next();
+        }
+
+        u64 Next() noexcept
+        {
+            const u64 result = RotL(m_State[0] + m_State[3], 23) + m_State[0];
+            const u64 t = m_State[1] << 17;
+
+            m_State[2] ^= m_State[0];
+            m_State[3] ^= m_State[1];
+            m_State[1] ^= m_State[2];
+            m_State[0] ^= m_State[3];
+            m_State[2] ^= t;
+            m_State[3] = RotL(m_State[3], 45);
+
+            return result;
+        }
+
+        const u64* GetState() const noexcept { return m_State; }
+
+    private:
+        u64 m_State[4] = {
+            0x123456789abcdef0ULL,
+            0xfedcba9876543210ULL,
+            0x0fedcba987654321ULL,
+            0x10fedcba98765432ULL
+        };
+
+        static constexpr u64 RotL(u64 x, int k) noexcept
+        {
+            return (x << k) | (x >> (64 - k));
+        }
+    };
+
+    //==============================================================================
+    /// FastRandom - Policy-based template for random number generation
     /// 
-    /// PCG32 (Permuted Congruential Generator):
-    ///   - Excellent statistical properties, passes most randomness tests
-    ///   - Fast performance comparable to LCG
-    ///   - 8-byte state (vs 4-byte LCG), very long period (2^64)
-    ///   - Used by: NumPy, many modern scientific libraries
-    ///   - Reference: https://www.pcg-random.org/
+    /// Template parameter Algorithm can be:
+    /// - LCGAlgorithm: Lightweight, minimal state (4 bytes)
+    /// - PCG32Algorithm: Recommended default, excellent quality (8 bytes)
+    /// - SplitMix64Algorithm: Fast 64-bit generation (8 bytes)
+    /// - Xoshiro256ppAlgorithm: Highest quality, parallel streams (32 bytes)
     /// 
-    /// Xorshift32:
-    ///   - Faster than LCG with better statistical properties
-    ///   - Same 4-byte state as LCG
-    ///   - Simple implementation: state ^= state << 13; state ^= state >> 17; state ^= state << 5;
-    ///   - Used by: V8 JavaScript engine, many game engines
+    /// Provides complete type support: i8, u8, i16, u16, i32, u32, i64, u64, f32, f64
+    /// Optimized for real-time applications where std::random_device may be too slow
     /// 
-    /// Xorshift64/128:
-    ///   - Even better statistical properties
-    ///   - Larger state (8/16 bytes) but longer periods
-    ///   - Excellent for applications needing high-quality randomness
-    /// 
-    /// Xorshift* / Xorshift+:
-    ///   - Enhanced versions with better distribution
-    ///   - Slight performance cost for improved quality
-    /// 
-    /// SplitMix64:
-    ///   - Excellent for seeding other generators
-    ///   - Very fast, good distribution
-    ///   - Perfect for initializing multiple RNG instances
-    /// 
-    /// Implementation Strategy:
-    ///   - Keep FastRandom (LCG) as the lightweight default
-    ///   - Add FastRandomPCG, FastRandomXorshift classes for specific needs
-    ///   - Template-based approach: FastRandom<Algorithm> for flexibility
-    /// 
+    template<typename Algorithm = PCG32Algorithm>
     class FastRandom
     {
     public:
         //==============================================================================
         /// Constructors
-        FastRandom() noexcept : m_State(NormalizeSeed(s_DefaultSeed)) {}
-        explicit FastRandom(i32 seed) noexcept : m_State(NormalizeSeed(seed)) {}
+        FastRandom() noexcept 
+        { 
+            m_Engine.Seed(s_DefaultSeed);
+        }
+        
+        explicit FastRandom(u64 seed) noexcept 
+        { 
+            m_Engine.Seed(seed);
+        }
 
         //==============================================================================
         /// Seed management
         
-        /// Set the initial seed value (normalized to valid range [1, s_LcgM-1])
-        /// This resets the internal state to the normalized seed value
-        void SetSeed(i32 newSeed) noexcept { m_State = NormalizeSeed(newSeed); }
+        /// Set the initial seed value
+        void SetSeed(u64 newSeed) noexcept 
+        { 
+            m_Engine.Seed(newSeed);
+        }
         
-        /// Get the current internal state (NOT the initial seed)
-        /// This returns the evolving state that changes with each random number generated
-        /// Use this for saving/restoring RNG state, not for retrieving the original seed
-        i32 GetCurrentState() const noexcept { return m_State; }
+        /// Get the current internal state (varies by algorithm)
+        auto GetCurrentState() const noexcept 
+        { 
+            return m_Engine.GetState();
+        }
 
         //==============================================================================
-        /// Core random generation
-        i32 GetInt32() noexcept
+        /// Core random generation - 8-bit types
+        
+        i8 GetInt8() noexcept
         {
             OLO_PROFILE_FUNCTION();
-            
-            // LCG: Linear Congruential Generator
-            // Formula: (a * seed + c) % m
-            // Using constants from Numerical Recipes
-            // Use 64-bit arithmetic to avoid 32-bit overflow
-            i64 temp = static_cast<i64>(s_LcgA) * static_cast<i64>(m_State) + static_cast<i64>(s_LcgC);
-            m_State = static_cast<i32>(temp % static_cast<i64>(s_LcgM));
-            return m_State;
+            // Use high-order bits for better quality (LCG has poor low-order bits)
+            if constexpr (Algorithm::OutputBits == 64)
+                return static_cast<i8>(NextValue() >> 56);
+            else
+                return static_cast<i8>(NextValue() >> 24);
         }
 
-        u32 GetUInt32() noexcept 
+        u8 GetUInt8() noexcept
         {
             OLO_PROFILE_FUNCTION();
-            return static_cast<u32>(GetInt32()); 
+            if constexpr (Algorithm::OutputBits == 64)
+                return static_cast<u8>(NextValue() >> 56);
+            else
+                return static_cast<u8>(NextValue() >> 24);
         }
 
+        //==============================================================================
+        /// Core random generation - 16-bit types
+        
         i16 GetInt16() noexcept 
         {
             OLO_PROFILE_FUNCTION();
-            // Note: Uses lower 16 bits; higher bits have better statistical properties in LCG
-            return static_cast<i16>(GetInt32() & 0xFFFF); 
+            if constexpr (Algorithm::OutputBits == 64)
+                return static_cast<i16>(NextValue() >> 48);
+            else
+                return static_cast<i16>(NextValue() >> 16);
         }
 
         u16 GetUInt16() noexcept 
         {
             OLO_PROFILE_FUNCTION();
-            return static_cast<u16>(GetInt16());
+            if constexpr (Algorithm::OutputBits == 64)
+                return static_cast<u16>(NextValue() >> 48);
+            else
+                return static_cast<u16>(NextValue() >> 16);
+        }
+
+        //==============================================================================
+        /// Core random generation - 32-bit types
+        
+        i32 GetInt32() noexcept
+        {
+            OLO_PROFILE_FUNCTION();
+            if constexpr (Algorithm::OutputBits == 64)
+                return static_cast<i32>(NextValue() >> 32);
+            else
+                return static_cast<i32>(NextValue());
+        }
+
+        u32 GetUInt32() noexcept 
+        {
+            OLO_PROFILE_FUNCTION();
+            if constexpr (Algorithm::OutputBits == 64)
+                return static_cast<u32>(NextValue() >> 32);
+            else
+                return static_cast<u32>(NextValue());
+        }
+
+        //==============================================================================
+        /// Core random generation - 64-bit types
+        
+        i64 GetInt64() noexcept
+        {
+            OLO_PROFILE_FUNCTION();
+            if constexpr (Algorithm::OutputBits == 64)
+            {
+                return static_cast<i64>(NextValue());
+            }
+            else
+            {
+                // Combine two 32-bit calls for 64-bit result
+                u64 high = static_cast<u64>(NextValue()) << 32;
+                u64 low = static_cast<u64>(NextValue());
+                return static_cast<i64>(high | low);
+            }
+        }
+
+        u64 GetUInt64() noexcept 
+        {
+            OLO_PROFILE_FUNCTION();
+            if constexpr (Algorithm::OutputBits == 64)
+            {
+                return NextValue();
+            }
+            else
+            {
+                // Combine two 32-bit calls for 64-bit result
+                u64 high = static_cast<u64>(NextValue()) << 32;
+                u64 low = static_cast<u64>(NextValue());
+                return high | low;
+            }
         }
 
         //==============================================================================
         /// Floating point generation
+        
         f64 GetFloat64() noexcept 
         {
             OLO_PROFILE_FUNCTION();
-            
-            // GetInt32() always returns positive values in [1, s_LcgM-1]
-            // Direct cast to u32 is safe and avoids unnecessary branching
-            const i32 value = GetInt32();
-            const u32 unsignedValue = static_cast<u32>(value);
-            return unsignedValue / static_cast<f64>(s_LcgM); 
+            if constexpr (Algorithm::OutputBits == 64)
+            {
+                // Use upper 53 bits for double precision mantissa
+                constexpr u64 mask = (1ULL << 53) - 1;
+                return (NextValue() & mask) / static_cast<f64>(1ULL << 53);
+            }
+            else
+            {
+                // For 32-bit algorithms, use full 32-bit value
+                return NextValue() / static_cast<f64>(0x100000000ULL);
+            }
         }
 
         f32 GetFloat32() noexcept 
         {
             OLO_PROFILE_FUNCTION();
-            return static_cast<f32>(GetFloat64()); 
+            // Use upper 24 bits for single precision mantissa
+            if constexpr (Algorithm::OutputBits == 64)
+            {
+                return (NextValue() >> 40) / static_cast<f32>(1 << 24);
+            }
+            else
+            {
+                return (NextValue() >> 8) / static_cast<f32>(1 << 24);
+            }
         }
         
         //==============================================================================
-        /// Range-based generation
+        /// Range-based generation - 8-bit types
+        
+        i8 GetInt8InRange(i8 low, i8 high) noexcept
+        {
+            OLO_PROFILE_FUNCTION();
+            if (low >= high) return low;
+            
+            const u32 range = static_cast<u32>(static_cast<i32>(high) - static_cast<i32>(low) + 1);
+            
+            // Use rejection sampling for uniform distribution
+            const u64 maxVal = GetMaxValue();
+            const u64 limit = maxVal - (maxVal % range);
+            
+            u64 value;
+            do {
+                value = NextValue();
+            } while (value >= limit);
+            
+            return low + static_cast<i8>(value % range);
+        }
+
+        u8 GetUInt8InRange(u8 low, u8 high) noexcept
+        {
+            OLO_PROFILE_FUNCTION();
+            if (low >= high) return low;
+            
+            const u32 range = static_cast<u32>(high) - static_cast<u32>(low) + 1;
+            
+            // Use rejection sampling for uniform distribution
+            const u64 maxVal = GetMaxValue();
+            const u64 limit = maxVal - (maxVal % range);
+            
+            u64 value;
+            do {
+                value = NextValue();
+            } while (value >= limit);
+            
+            return low + static_cast<u8>(value % range);
+        }
+
+        //==============================================================================
+        /// Range-based generation - 16-bit types
+        
+        i16 GetInt16InRange(i16 low, i16 high) noexcept
+        {
+            OLO_PROFILE_FUNCTION();
+            if (low >= high) return low;
+            
+            const u32 range = static_cast<u32>(static_cast<i32>(high) - static_cast<i32>(low) + 1);
+            
+            // Use rejection sampling for uniform distribution
+            const u64 maxVal = GetMaxValue();
+            const u64 limit = maxVal - (maxVal % range);
+            
+            u64 value;
+            do {
+                value = NextValue();
+            } while (value >= limit);
+            
+            return low + static_cast<i16>(value % range);
+        }
+
+        u16 GetUInt16InRange(u16 low, u16 high) noexcept
+        {
+            OLO_PROFILE_FUNCTION();
+            if (low >= high) return low;
+            
+            const u32 range = static_cast<u32>(high) - static_cast<u32>(low) + 1;
+            
+            // Use rejection sampling for uniform distribution
+            const u64 maxVal = GetMaxValue();
+            const u64 limit = maxVal - (maxVal % range);
+            
+            u64 value;
+            do {
+                value = NextValue();
+            } while (value >= limit);
+            
+            return low + static_cast<u16>(value % range);
+        }
+
+        //==============================================================================
+        /// Range-based generation - 32-bit types
+        
+        i32 GetInt32InRange(i32 low, i32 high) noexcept
+        {
+            OLO_PROFILE_FUNCTION();
+            if (low >= high) return low;
+            
+            const i64 range = static_cast<i64>(high) - static_cast<i64>(low) + 1;
+            const u64 urange = static_cast<u64>(range);
+            
+            // Use rejection sampling for uniform distribution
+            const u64 maxVal = GetMaxValue();
+            const u64 limit = maxVal - (maxVal % urange);
+            
+            u64 value;
+            do {
+                value = NextValue();
+            } while (value >= limit);
+            
+            return low + static_cast<i32>(value % urange);
+        }
+
+        u32 GetUInt32InRange(u32 low, u32 high) noexcept
+        {
+            OLO_PROFILE_FUNCTION();
+            if (low >= high) return low;
+            
+            const u64 range = static_cast<u64>(high) - static_cast<u64>(low) + 1;
+            
+            // Use rejection sampling for uniform distribution
+            const u64 maxVal = GetMaxValue();
+            const u64 limit = maxVal - (maxVal % range);
+            
+            u64 value;
+            do {
+                value = NextValue();
+            } while (value >= limit);
+            
+            return low + static_cast<u32>(value % range);
+        }
+
+        //==============================================================================
+        /// Range-based generation - 64-bit types
+        
+        i64 GetInt64InRange(i64 low, i64 high) noexcept
+        {
+            OLO_PROFILE_FUNCTION();
+            if (low >= high) return low;
+            
+            // For 32-bit algorithms, combine two calls
+            if constexpr (Algorithm::OutputBits == 32)
+            {
+                const u64 range = static_cast<u64>(high) - static_cast<u64>(low) + 1;
+                u64 value = (static_cast<u64>(NextValue()) << 32) | NextValue();
+                
+                // Simple modulo (bias is negligible for large ranges)
+                return low + static_cast<i64>(value % range);
+            }
+            else
+            {
+                const u64 range = static_cast<u64>(high) - static_cast<u64>(low) + 1;
+                
+                // Use rejection sampling for uniform distribution
+                const u64 maxVal = GetMaxValue();
+                const u64 limit = maxVal - (maxVal % range);
+                
+                u64 value;
+                do {
+                    value = NextValue();
+                } while (value >= limit);
+                
+                return low + static_cast<i64>(value % range);
+            }
+        }
+
+        u64 GetUInt64InRange(u64 low, u64 high) noexcept
+        {
+            OLO_PROFILE_FUNCTION();
+            if (low >= high) return low;
+            
+            // For 32-bit algorithms, combine two calls
+            if constexpr (Algorithm::OutputBits == 32)
+            {
+                const u64 range = high - low + 1;
+                u64 value = (static_cast<u64>(NextValue()) << 32) | NextValue();
+                
+                // Simple modulo (bias is negligible for large ranges)
+                return low + (value % range);
+            }
+            else
+            {
+                const u64 range = high - low + 1;
+                
+                // Use rejection sampling for uniform distribution
+                const u64 maxVal = GetMaxValue();
+                const u64 limit = maxVal - (maxVal % range);
+                
+                u64 value;
+                do {
+                    value = NextValue();
+                } while (value >= limit);
+                
+                return low + (value % range);
+            }
+        }
+
+        //==============================================================================
+        /// Range-based generation - floating point types
+        
         f32 GetFloat32InRange(f32 low, f32 high) noexcept
         {
             OLO_PROFILE_FUNCTION();
-            
-            // Swap parameters if needed for consistency with GetInRange
             if (low > high)
             {
                 f32 temp = low;
@@ -135,7 +579,6 @@ namespace OloEngine
                 high = temp;
             }
             
-            // Handle equal values
             if (low == high) return low;
             
             return low + GetFloat32() * (high - low);
@@ -144,8 +587,6 @@ namespace OloEngine
         f64 GetFloat64InRange(f64 low, f64 high) noexcept
         {
             OLO_PROFILE_FUNCTION();
-            
-            // Swap parameters if needed for consistency with GetInRange
             if (low > high)
             {
                 f64 temp = low;
@@ -153,65 +594,9 @@ namespace OloEngine
                 high = temp;
             }
             
-            // Handle equal values
             if (low == high) return low;
             
             return low + GetFloat64() * (high - low);
-        }
-
-        i32 GetInt32InRange(i32 low, i32 high) noexcept
-        {
-            OLO_PROFILE_FUNCTION();
-            
-            if (low >= high) return low;
-            
-            // Compute span using signed 64-bit arithmetic to handle negative values correctly
-            const i64 spanSigned = static_cast<i64>(high) - static_cast<i64>(low) + 1;
-            OLO_CORE_ASSERT(spanSigned > 0, "FastRandom: span must be positive");
-            const u64 span = static_cast<u64>(spanSigned);
-            OLO_CORE_ASSERT(span <= static_cast<u64>(s_LcgM - 1), "FastRandom: span exceeds generator resolution");
-            
-            // Convert to zero-based domain: GetUInt32() produces [1, s_LcgM-1], we need [0, s_LcgM-2]
-            const u32 spanU32 = static_cast<u32>(span);
-            const u64 domainU64 = static_cast<u64>(s_LcgM - 1);  // Actual domain size: s_LcgM - 1
-            const u64 limit64 = domainU64 - (domainU64 % span);
-            const u32 limit = static_cast<u32>(limit64);
-            
-            u32 valueZero;
-            do {
-                u32 value = GetUInt32();
-                valueZero = value - 1;  // Convert [1, s_LcgM-1] to [0, s_LcgM-2]
-            } while (valueZero >= limit);
-            
-            // Use rejection sampling to ensure uniform distribution across the requested range.
-            // The 64-bit arithmetic prevents 'limit' from becoming zero when span equals the full generator range.
-            return low + static_cast<i32>(valueZero % spanU32);
-        }
-
-        u32 GetUInt32InRange(u32 low, u32 high) noexcept
-        {
-            OLO_PROFILE_FUNCTION();
-            
-            if (low >= high) return low;
-            
-            // Compute span using 64-bit arithmetic to handle the full u32 range
-            const u64 span = static_cast<u64>(high) - static_cast<u64>(low) + 1;
-            OLO_CORE_ASSERT(span <= static_cast<u64>(s_LcgM - 1), "FastRandom: span exceeds generator resolution");
-            
-            // Convert to zero-based domain: GetUInt32() produces [1, s_LcgM-1], we need [0, s_LcgM-2]
-            const u32 spanU32 = static_cast<u32>(span);
-            const u64 domainU64 = static_cast<u64>(s_LcgM - 1);  // Actual domain size: s_LcgM - 1
-            const u64 limit64 = domainU64 - (domainU64 % span);
-            const u32 limit = static_cast<u32>(limit64);
-            
-            u32 valueZero;
-            do {
-                u32 value = GetUInt32();
-                valueZero = value - 1;  // Convert [1, s_LcgM-1] to [0, s_LcgM-2]
-            } while (valueZero >= limit);
-            
-            // Use rejection sampling to ensure uniform distribution across the requested range
-            return low + (valueZero % spanU32);
         }
 
         //==============================================================================
@@ -220,7 +605,6 @@ namespace OloEngine
         T GetInRange(T low, T high) noexcept
         {
             OLO_PROFILE_FUNCTION();
-            
             // Validate range parameters (swap if needed for consistency)
             if (low > high)
             {
@@ -233,80 +617,34 @@ namespace OloEngine
                 return GetFloat32InRange(low, high);
             else if constexpr (std::is_same_v<T, f64>)
                 return GetFloat64InRange(low, high);
-            else if constexpr (std::is_integral_v<T>)
-            {
-                // Safe handling for integral types - separate signed and unsigned paths
-                if constexpr (sizeof(T) <= sizeof(i32))
-                {
-                    if constexpr (std::is_unsigned_v<T>)
-                    {
-                        // Unsigned 32-bit or smaller: use u32 safe path
-                        u32 uLow = static_cast<u32>(low);
-                        u32 uHigh = static_cast<u32>(high);
-                        
-                        // Clamp to generator's effective resolution
-                        uLow = std::min(uLow, static_cast<u32>(s_LcgM - 1));
-                        uHigh = std::min(uHigh, static_cast<u32>(s_LcgM - 1));
-                        
-                        return static_cast<T>(GetUInt32InRange(uLow, uHigh));
-                    }
-                    else
-                    {
-                        // Signed 32-bit or smaller: safe to cast and use existing function
-                        return static_cast<T>(GetInt32InRange(static_cast<i32>(low), static_cast<i32>(high)));
-                    }
-                }
-                else
-                {
-                    // Wider than 32-bit: use 64-bit safe implementation
-                    static_assert(sizeof(T) <= sizeof(i64), "Integral types wider than 64-bit not supported");
-                    
-                    if constexpr (std::is_unsigned_v<T>)
-                    {
-                        // Unsigned 64-bit: clamp to u32 range for now
-                        constexpr u64 u32_max = static_cast<u64>(std::numeric_limits<u32>::max());
-                        
-                        u64 low64 = static_cast<u64>(low);
-                        u64 high64 = static_cast<u64>(high);
-                        
-                        // Clamp to u32 range and generator resolution
-                        low64 = std::min(low64, std::min(u32_max, static_cast<u64>(s_LcgM - 1)));
-                        high64 = std::min(high64, std::min(u32_max, static_cast<u64>(s_LcgM - 1)));
-                        
-                        return static_cast<T>(GetUInt32InRange(static_cast<u32>(low64), static_cast<u32>(high64)));
-                    }
-                    else
-                    {
-                        // Signed 64-bit: clamp to i32 range for now
-                        // TODO: Implement GetInt64InRange for full 64-bit support
-                        constexpr i64 i32_min = static_cast<i64>(std::numeric_limits<i32>::min());
-                        constexpr i64 i32_max = static_cast<i64>(std::numeric_limits<i32>::max());
-                        
-                        i64 low64 = static_cast<i64>(low);
-                        i64 high64 = static_cast<i64>(high);
-                        
-                        // Clamp to i32 range for safe operation
-                        low64 = std::max(low64, i32_min);
-                        high64 = std::min(high64, i32_max);
-                        
-                        return static_cast<T>(GetInt32InRange(static_cast<i32>(low64), static_cast<i32>(high64)));
-                    }
-                }
-            }
+            else if constexpr (std::is_same_v<T, i8>)
+                return GetInt8InRange(low, high);
+            else if constexpr (std::is_same_v<T, u8>)
+                return GetUInt8InRange(low, high);
+            else if constexpr (std::is_same_v<T, i16>)
+                return GetInt16InRange(low, high);
+            else if constexpr (std::is_same_v<T, u16>)
+                return GetUInt16InRange(low, high);
+            else if constexpr (std::is_same_v<T, i32>)
+                return GetInt32InRange(low, high);
+            else if constexpr (std::is_same_v<T, u32>)
+                return GetUInt32InRange(low, high);
+            else if constexpr (std::is_same_v<T, i64>)
+                return GetInt64InRange(low, high);
+            else if constexpr (std::is_same_v<T, u64>)
+                return GetUInt64InRange(low, high);
             else
                 static_assert(kAlwaysFalse<T>, "Unsupported type for GetInRange");
         }
 
         //==============================================================================
         /// Utility functions
+        
         bool GetBool() noexcept
         {
             OLO_PROFILE_FUNCTION();
-            
-            // Prefer higher-order randomness or threshold on [0,1)
-            return GetFloat32() < 0.5f;
-            // Alternatively (faster, still better than LSB):
-            // return (GetUInt32() & 0x40000000u) != 0u;
+            // Use bit test on random value for better distribution
+            return (NextValue() & 1) != 0;
         }
 
         f32 GetNormalizedFloat() noexcept
@@ -319,73 +657,89 @@ namespace OloEngine
         f32 GetBipolarFloat() noexcept
         {
             OLO_PROFILE_FUNCTION();
-            return GetFloat32InRange(-1.0f, 1.0f);
+            return GetFloat32() * 2.0f - 1.0f;
         }
 
     private:
+        Algorithm m_Engine;
+        
+        static constexpr u64 s_DefaultSeed = 0x123456789abcdef0ULL;
+        
         // Template-dependent constant for static_assert in template functions
         template<typename U>
         static inline constexpr bool kAlwaysFalse = false;
 
-        i32 m_State;
-
-        // LCG constants from Numerical Recipes
-        static constexpr i32 s_DefaultSeed = 4321;
-        static constexpr i32 s_LcgM = 2147483647;  // 2^31 - 1
-        static constexpr i32 s_LcgA = 48271;       // Multiplier
-        static constexpr i32 s_LcgC = 0;           // Increment
-
-        // Normalize seed to valid range [1, s_LcgM - 1] to prevent degenerate states
-        static constexpr i32 NormalizeSeed(i32 seed) noexcept
+        // Helper to get maximum value based on algorithm output bits
+        static constexpr u64 GetMaxValue() noexcept
         {
-            // Handle zero seed (degenerate case)
-            if (seed == 0)
-                return s_DefaultSeed;
-            
-            // Handle negative seeds by taking absolute value
-            if (seed < 0)
-            {
-                // Prevent overflow when seed is INT32_MIN
-                if (seed == std::numeric_limits<i32>::min())
-                    return s_DefaultSeed;
-                seed = -seed;
-            }
-            
-            // Ensure seed is within valid LCG range [1, s_LcgM - 1]
-            if (seed >= s_LcgM)
-                seed = (seed % (s_LcgM - 1)) + 1;
-            
-            return seed;
+            if constexpr (Algorithm::OutputBits == 64)
+                return 0xFFFFFFFFFFFFFFFFULL;
+            else
+                return 0xFFFFFFFFULL;
+        }
+
+        // Helper to get next value with proper type based on algorithm output
+        u64 NextValue() noexcept
+        {
+            if constexpr (Algorithm::OutputBits == 64)
+                return m_Engine.Next();
+            else
+                return static_cast<u64>(m_Engine.Next());
         }
     };
+
+    //==============================================================================
+    /// Type aliases for common algorithm choices
+    using FastRandomLCG = FastRandom<LCGAlgorithm>;
+    using FastRandomPCG = FastRandom<PCG32Algorithm>;
+    using FastRandomSplitMix = FastRandom<SplitMix64Algorithm>;
+    using FastRandomXoshiro = FastRandom<Xoshiro256ppAlgorithm>;
 
     //==============================================================================
     /// Utility namespace for random operations
     namespace RandomUtils
     {
         /// Get a random seed from current time (useful for initialization)
-        inline i32 GetTimeBasedSeed() noexcept
+        inline u64 GetTimeBasedSeed() noexcept
         {
             const auto now = std::chrono::high_resolution_clock::now();
             const auto timeSinceEpoch = now.time_since_epoch();
-            const auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(timeSinceEpoch).count();
+            const auto nanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(timeSinceEpoch).count();
             
-            // Return lower 32 bits as seed
-            return static_cast<i32>(microseconds & 0xFFFFFFFF);
+            return static_cast<u64>(nanoseconds);
         }
 
-        /// Global thread-local random generator (for convenience)
-        inline FastRandom& GetGlobalRandom()
+        /// Global thread-local random generator (using PCG32 for quality)
+        inline FastRandomPCG& GetGlobalRandom()
         {
-            thread_local FastRandom s_GlobalRandom(GetTimeBasedSeed());
+            thread_local FastRandomPCG s_GlobalRandom(GetTimeBasedSeed());
             return s_GlobalRandom;
         }
 
         //==============================================================================
-        /// Convenience functions using global generator
+        /// Convenience functions using global generator - 8-bit types
+        inline i8 Int8(i8 low, i8 high) noexcept { return GetGlobalRandom().GetInt8InRange(low, high); }
+        inline u8 UInt8(u8 low, u8 high) noexcept { return GetGlobalRandom().GetUInt8InRange(low, high); }
+        
+        /// Convenience functions using global generator - 16-bit types
+        inline i16 Int16(i16 low, i16 high) noexcept { return GetGlobalRandom().GetInt16InRange(low, high); }
+        inline u16 UInt16(u16 low, u16 high) noexcept { return GetGlobalRandom().GetUInt16InRange(low, high); }
+        
+        /// Convenience functions using global generator - 32-bit types
+        inline i32 Int32(i32 low, i32 high) noexcept { return GetGlobalRandom().GetInt32InRange(low, high); }
+        inline u32 UInt32(u32 low, u32 high) noexcept { return GetGlobalRandom().GetUInt32InRange(low, high); }
+        
+        /// Convenience functions using global generator - 64-bit types
+        inline i64 Int64(i64 low, i64 high) noexcept { return GetGlobalRandom().GetInt64InRange(low, high); }
+        inline u64 UInt64(u64 low, u64 high) noexcept { return GetGlobalRandom().GetUInt64InRange(low, high); }
+        
+        /// Convenience functions using global generator - floating point
         inline f32 Float32() noexcept { return GetGlobalRandom().GetFloat32(); }
         inline f32 Float32(f32 low, f32 high) noexcept { return GetGlobalRandom().GetFloat32InRange(low, high); }
-        inline i32 Int32(i32 low, i32 high) noexcept { return GetGlobalRandom().GetInt32InRange(low, high); }
+        inline f64 Float64() noexcept { return GetGlobalRandom().GetFloat64(); }
+        inline f64 Float64(f64 low, f64 high) noexcept { return GetGlobalRandom().GetFloat64InRange(low, high); }
+        
+        /// Convenience functions using global generator - utility
         inline bool Bool() noexcept { return GetGlobalRandom().GetBool(); }
     }
 
