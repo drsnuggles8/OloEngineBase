@@ -98,137 +98,137 @@ DESCRIBE_NODE(sg::WavePlayer,
     //==============================================================================
     
     // Float specializations
-    DESCRIBE_NODE(sg::Add<float>,
+    DESCRIBE_NODE(sg::Add<f32>,
         NODE_INPUTS(
-            &sg::Add<float>::m_InValue1,
-            &sg::Add<float>::m_InValue2
+            &sg::Add<f32>::m_InValue1,
+            &sg::Add<f32>::m_InValue2
         ),
         NODE_OUTPUTS(
-            &sg::Add<float>::m_OutOut
+            &sg::Add<f32>::m_OutOut
         )
     );
 
-    DESCRIBE_NODE(sg::Subtract<float>,
+    DESCRIBE_NODE(sg::Subtract<f32>,
         NODE_INPUTS(
-            &sg::Subtract<float>::m_InValue1,
-            &sg::Subtract<float>::m_InValue2
+            &sg::Subtract<f32>::m_InValue1,
+            &sg::Subtract<f32>::m_InValue2
         ),
         NODE_OUTPUTS(
-            &sg::Subtract<float>::m_OutOut
+            &sg::Subtract<f32>::m_OutOut
         )
     );
 
-    DESCRIBE_NODE(sg::Multiply<float>,
+    DESCRIBE_NODE(sg::Multiply<f32>,
         NODE_INPUTS(
-            &sg::Multiply<float>::m_InValue,
-            &sg::Multiply<float>::m_InMultiplier
+            &sg::Multiply<f32>::m_InValue,
+            &sg::Multiply<f32>::m_InMultiplier
         ),
         NODE_OUTPUTS(
-            &sg::Multiply<float>::m_OutOut
+            &sg::Multiply<f32>::m_OutOut
         )
     );
 
-    DESCRIBE_NODE(sg::Divide<float>,
+    DESCRIBE_NODE(sg::Divide<f32>,
         NODE_INPUTS(
-            &sg::Divide<float>::m_InValue,
-            &sg::Divide<float>::m_InDenominator
+            &sg::Divide<f32>::m_InValue,
+            &sg::Divide<f32>::m_InDenominator
         ),
         NODE_OUTPUTS(
-            &sg::Divide<float>::m_OutOut
+            &sg::Divide<f32>::m_OutOut
         )
     );
 
-    DESCRIBE_NODE(sg::Min<float>,
+    DESCRIBE_NODE(sg::Min<f32>,
         NODE_INPUTS(
-            &sg::Min<float>::m_InValue1,
-            &sg::Min<float>::m_InValue2
+            &sg::Min<f32>::m_InValue1,
+            &sg::Min<f32>::m_InValue2
         ),
         NODE_OUTPUTS(
-            &sg::Min<float>::m_OutOut
+            &sg::Min<f32>::m_OutOut
         )
     );
 
-    DESCRIBE_NODE(sg::Max<float>,
+    DESCRIBE_NODE(sg::Max<f32>,
         NODE_INPUTS(
-            &sg::Max<float>::m_InValue1,
-            &sg::Max<float>::m_InValue2
+            &sg::Max<f32>::m_InValue1,
+            &sg::Max<f32>::m_InValue2
         ),
         NODE_OUTPUTS(
-            &sg::Max<float>::m_OutOut
+            &sg::Max<f32>::m_OutOut
         )
     );
 
-    DESCRIBE_NODE(sg::Clamp<float>,
+    DESCRIBE_NODE(sg::Clamp<f32>,
         NODE_INPUTS(
-            &sg::Clamp<float>::m_InValue,
-            &sg::Clamp<float>::m_InMinValue,
-            &sg::Clamp<float>::m_InMaxValue
+            &sg::Clamp<f32>::m_InValue,
+            &sg::Clamp<f32>::m_InMinValue,
+            &sg::Clamp<f32>::m_InMaxValue
         ),
         NODE_OUTPUTS(
-            &sg::Clamp<float>::m_OutOut
+            &sg::Clamp<f32>::m_OutOut
         )
     );
 
-    DESCRIBE_NODE(sg::MapRange<float>,
+    DESCRIBE_NODE(sg::MapRange<f32>,
         NODE_INPUTS(
-            &sg::MapRange<float>::m_InValue,
-            &sg::MapRange<float>::m_InFromMin,
-            &sg::MapRange<float>::m_InFromMax,
-            &sg::MapRange<float>::m_InToMin,
-            &sg::MapRange<float>::m_InToMax
+            &sg::MapRange<f32>::m_InValue,
+            &sg::MapRange<f32>::m_InFromMin,
+            &sg::MapRange<f32>::m_InFromMax,
+            &sg::MapRange<f32>::m_InToMin,
+            &sg::MapRange<f32>::m_InToMax
         ),
         NODE_OUTPUTS(
-            &sg::MapRange<float>::m_OutOut
+            &sg::MapRange<f32>::m_OutOut
         )
     );
 
-    DESCRIBE_NODE(sg::Power<float>,
+    DESCRIBE_NODE(sg::Power<f32>,
         NODE_INPUTS(
-            &sg::Power<float>::m_InBase,
-            &sg::Power<float>::m_InExponent
+            &sg::Power<f32>::m_InBase,
+            &sg::Power<f32>::m_InExponent
         ),
         NODE_OUTPUTS(
-            &sg::Power<float>::m_OutOut
+            &sg::Power<f32>::m_OutOut
         )
     );
 
-    DESCRIBE_NODE(sg::Abs<float>,
+    DESCRIBE_NODE(sg::Abs<f32>,
         NODE_INPUTS(
-            &sg::Abs<float>::m_InValue
+            &sg::Abs<f32>::m_InValue
         ),
         NODE_OUTPUTS(
-            &sg::Abs<float>::m_OutOut
+            &sg::Abs<f32>::m_OutOut
         )
     );
 
     // Integer specializations
-    DESCRIBE_NODE(sg::Add<int>,
+    DESCRIBE_NODE(sg::Add<i32>,
         NODE_INPUTS(
-            &sg::Add<int>::m_InValue1,
-            &sg::Add<int>::m_InValue2
+            &sg::Add<i32>::m_InValue1,
+            &sg::Add<i32>::m_InValue2
         ),
         NODE_OUTPUTS(
-            &sg::Add<int>::m_OutOut
+            &sg::Add<i32>::m_OutOut
         )
     );
 
-    DESCRIBE_NODE(sg::Subtract<int>,
+    DESCRIBE_NODE(sg::Subtract<i32>,
         NODE_INPUTS(
-            &sg::Subtract<int>::m_InValue1,
-            &sg::Subtract<int>::m_InValue2
+            &sg::Subtract<i32>::m_InValue1,
+            &sg::Subtract<i32>::m_InValue2
         ),
         NODE_OUTPUTS(
-            &sg::Subtract<int>::m_OutOut
+            &sg::Subtract<i32>::m_OutOut
         )
     );
 
-    DESCRIBE_NODE(sg::Multiply<int>,
+    DESCRIBE_NODE(sg::Multiply<i32>,
         NODE_INPUTS(
-            &sg::Multiply<int>::m_InValue,
-            &sg::Multiply<int>::m_InMultiplier
+            &sg::Multiply<i32>::m_InValue,
+            &sg::Multiply<i32>::m_InMultiplier
         ),
         NODE_OUTPUTS(
-            &sg::Multiply<int>::m_OutOut
+            &sg::Multiply<i32>::m_OutOut
         )
     );
 
@@ -307,79 +307,79 @@ DESCRIBE_NODE(sg::WavePlayer,
     //==============================================================================
     // Array Nodes Descriptions
     //==============================================================================
-    DESCRIBE_NODE(sg::GetRandom<float>,
+    DESCRIBE_NODE(sg::GetRandom<f32>,
         NODE_INPUTS(
-            &sg::GetRandom<float>::m_InArray,
-            &sg::GetRandom<float>::m_InMin,
-            &sg::GetRandom<float>::m_InMax,
-            &sg::GetRandom<float>::m_InSeed
+            &sg::GetRandom<f32>::m_InArray,
+            &sg::GetRandom<f32>::m_InMin,
+            &sg::GetRandom<f32>::m_InMax,
+            &sg::GetRandom<f32>::m_InSeed
         ),
         NODE_OUTPUTS(
-            &sg::GetRandom<float>::m_OutOnNext,
-            &sg::GetRandom<float>::m_OutOnReset,
-            &sg::GetRandom<float>::m_OutElement
+            &sg::GetRandom<f32>::m_OutOnNext,
+            &sg::GetRandom<f32>::m_OutOnReset,
+            &sg::GetRandom<f32>::m_OutElement
         )
     );
 
-    DESCRIBE_NODE(sg::GetRandom<int>,
+    DESCRIBE_NODE(sg::GetRandom<i32>,
         NODE_INPUTS(
-            &sg::GetRandom<int>::m_InArray,
-            &sg::GetRandom<int>::m_InMin,
-            &sg::GetRandom<int>::m_InMax,
-            &sg::GetRandom<int>::m_InSeed
+            &sg::GetRandom<i32>::m_InArray,
+            &sg::GetRandom<i32>::m_InMin,
+            &sg::GetRandom<i32>::m_InMax,
+            &sg::GetRandom<i32>::m_InSeed
         ),
         NODE_OUTPUTS(
-            &sg::GetRandom<int>::m_OutOnNext,
-            &sg::GetRandom<int>::m_OutOnReset,
-            &sg::GetRandom<int>::m_OutElement
+            &sg::GetRandom<i32>::m_OutOnNext,
+            &sg::GetRandom<i32>::m_OutOnReset,
+            &sg::GetRandom<i32>::m_OutElement
         )
     );
 
-    DESCRIBE_NODE(sg::Get<float>,
+    DESCRIBE_NODE(sg::Get<f32>,
         NODE_INPUTS(
-            &sg::Get<float>::m_InArray,
-            &sg::Get<float>::m_InIndex
+            &sg::Get<f32>::m_InArray,
+            &sg::Get<f32>::m_InIndex
         ),
         NODE_OUTPUTS(
-            &sg::Get<float>::m_OutOnTrigger,
-            &sg::Get<float>::m_OutElement
+            &sg::Get<f32>::m_OutOnTrigger,
+            &sg::Get<f32>::m_OutElement
         )
     );
 
-    DESCRIBE_NODE(sg::Get<int>,
+    DESCRIBE_NODE(sg::Get<i32>,
         NODE_INPUTS(
-            &sg::Get<int>::m_InArray,
-            &sg::Get<int>::m_InIndex
+            &sg::Get<i32>::m_InArray,
+            &sg::Get<i32>::m_InIndex
         ),
         NODE_OUTPUTS(
-            &sg::Get<int>::m_OutOnTrigger,
-            &sg::Get<int>::m_OutElement
+            &sg::Get<i32>::m_OutOnTrigger,
+            &sg::Get<i32>::m_OutElement
         )
     );
 
-    DESCRIBE_NODE(sg::Random<float>,
+    DESCRIBE_NODE(sg::Random<f32>,
         NODE_INPUTS(
-            &sg::Random<float>::m_InMin,
-            &sg::Random<float>::m_InMax,
-            &sg::Random<float>::m_InSeed
+            &sg::Random<f32>::m_InMin,
+            &sg::Random<f32>::m_InMax,
+            &sg::Random<f32>::m_InSeed
         ),
         NODE_OUTPUTS(
-            &sg::Random<float>::m_OutOnNext,
-            &sg::Random<float>::m_OutOnReset,
-            &sg::Random<float>::m_OutValue
+            &sg::Random<f32>::m_OutOnNext,
+            &sg::Random<f32>::m_OutOnReset,
+            &sg::Random<f32>::m_OutValue
         )
     );
 
-    DESCRIBE_NODE(sg::Random<int>,
+    DESCRIBE_NODE(sg::Random<i32>,
         NODE_INPUTS(
-            &sg::Random<int>::m_InMin,
-            &sg::Random<int>::m_InMax,
-            &sg::Random<int>::m_InSeed
+            &sg::Random<i32>::m_InMin,
+            &sg::Random<i32>::m_InMax,
+            &sg::Random<i32>::m_InSeed
         ),
         NODE_OUTPUTS(
-            &sg::Random<int>::m_OutOnNext,
-            &sg::Random<int>::m_OutOnReset,
-            &sg::Random<int>::m_OutValue
+            &sg::Random<i32>::m_OutOnNext,
+            &sg::Random<i32>::m_OutOnReset,
+            &sg::Random<i32>::m_OutValue
         )
     );
 
@@ -395,21 +395,21 @@ DESCRIBE_NODE(sg::WavePlayer,
         )
     );
 
-    DESCRIBE_NODE(sg::NoteToFrequency<float>,
+    DESCRIBE_NODE(sg::NoteToFrequency<f32>,
         NODE_INPUTS(
-            &sg::NoteToFrequency<float>::m_InMIDINote
+            &sg::NoteToFrequency<f32>::m_InMIDINote
         ),
         NODE_OUTPUTS(
-            &sg::NoteToFrequency<float>::m_OutFrequency
+            &sg::NoteToFrequency<f32>::m_OutFrequency
         )
     );
 
-    DESCRIBE_NODE(sg::NoteToFrequency<int>,
+    DESCRIBE_NODE(sg::NoteToFrequency<i32>,
         NODE_INPUTS(
-            &sg::NoteToFrequency<int>::m_InMIDINote
+            &sg::NoteToFrequency<i32>::m_InMIDINote
         ),
         NODE_OUTPUTS(
-            &sg::NoteToFrequency<int>::m_OutFrequency
+            &sg::NoteToFrequency<i32>::m_OutFrequency
         )
     );
 

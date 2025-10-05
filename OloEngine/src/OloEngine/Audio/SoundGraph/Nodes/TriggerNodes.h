@@ -8,286 +8,286 @@
 
 namespace OloEngine::Audio::SoundGraph
 {
-	//==========================================================================
-	/// RepeatTrigger - Generates periodic trigger events
-	//==========================================================================
-	struct RepeatTrigger : public NodeProcessor
-	{
-		struct IDs
-		{
-			DECLARE_ID(s_Start);
-			DECLARE_ID(s_Stop);
-		private:
-			IDs() = delete;
-		};
+    //==========================================================================
+    /// RepeatTrigger - Generates periodic trigger events
+    //==========================================================================
+    struct RepeatTrigger : public NodeProcessor
+    {
+        struct IDs
+        {
+            DECLARE_ID(s_Start);
+            DECLARE_ID(s_Stop);
+        private:
+            IDs() = delete;
+        };
 
-		explicit RepeatTrigger(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
-		{
-			AddInEvent(IDs::s_Start, [this](float v) { (void)v; m_StartFlag.SetDirty(); });
-			AddInEvent(IDs::s_Stop, [this](float v) { (void)v; m_StopFlag.SetDirty(); });
-			
-			RegisterEndpoints();
-		}
+        explicit RepeatTrigger(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
+        {
+            AddInEvent(IDs::s_Start, [this](f32 v) { (void)v; m_StartFlag.SetDirty(); });
+            AddInEvent(IDs::s_Stop, [this](f32 v) { (void)v; m_StopFlag.SetDirty(); });
 
-		void Init() final
-		{
-			OLO_PROFILE_FUNCTION();
-			
-			InitializeInputs();
+            RegisterEndpoints();
+        }
 
-			m_FrameTime = 1.0f / m_SampleRate;
-			m_Counter = 0.0f;
-			m_Playing = false;
-		}
+        void Init() final
+        {
+            OLO_PROFILE_FUNCTION();
+            
+            InitializeInputs();
 
-		void Process() final
-		{
-			OLO_PROFILE_FUNCTION();
-			
-			if (m_StartFlag.CheckAndResetIfDirty())
-				StartTrigger();
-			if (m_StopFlag.CheckAndResetIfDirty())
-				StopTrigger();
+            m_FrameTime = 1.0f / m_SampleRate;
+            m_Counter = 0.0f;
+            m_Playing = false;
+        }
 
-			if (m_Playing)
-			{
-				m_Counter += m_FrameTime;
-				
-				// Guard against zero/negative/non-finite period to prevent infinite loop
-				static constexpr f32 kMinPeriod = 0.001f; // 1ms minimum period (1000 Hz max frequency)
-				f32 safePeriod;
-				if (!std::isfinite(*m_InPeriod) || *m_InPeriod < kMinPeriod)
-					safePeriod = kMinPeriod;
-				else
-					safePeriod = *m_InPeriod;
-				
-				// Handle multiple periods if frame time exceeds period, preserving overshoot
-				while (m_Counter >= safePeriod)
-				{
-					m_Counter -= safePeriod;
-					m_OutTrigger(1.0f);
-				}
-			}
-		}
+        void Process() final
+        {
+            OLO_PROFILE_FUNCTION();
+            
+            if (m_StartFlag.CheckAndResetIfDirty())
+                StartTrigger();
+            if (m_StopFlag.CheckAndResetIfDirty())
+                StopTrigger();
 
-		//==========================================================================
-		/// NodeProcessor setup
-		f32* m_InPeriod = nullptr;
-		OutputEvent m_OutTrigger{ *this };
+            if (m_Playing)
+            {
+                m_Counter += m_FrameTime;
+                
+                // Guard against zero/negative/non-finite period to prevent infinite loop
+                static constexpr f32 kMinPeriod = 0.001f; // 1ms minimum period (1000 Hz max frequency)
+                f32 safePeriod;
+                if (!std::isfinite(*m_InPeriod) || *m_InPeriod < kMinPeriod)
+                    safePeriod = kMinPeriod;
+                else
+                    safePeriod = *m_InPeriod;
+                
+                // Handle multiple periods if frame time exceeds period, preserving overshoot
+                while (m_Counter >= safePeriod)
+                {
+                    m_Counter -= safePeriod;
+                    m_OutTrigger(1.0f);
+                }
+            }
+        }
 
-	private:
-		bool m_Playing = false;
-		f32 m_Counter = 0.0f;
-		f32 m_FrameTime = 0.0f;
+        //==========================================================================
+        /// NodeProcessor setup
+        f32* m_InPeriod = nullptr;
+        OutputEvent m_OutTrigger{ *this };
 
-		Flag m_StartFlag;
-		Flag m_StopFlag;
+    private:
+        bool m_Playing = false;
+        f32 m_Counter = 0.0f;
+        f32 m_FrameTime = 0.0f;
 
-		void RegisterEndpoints();
-		void InitializeInputs();
+        Flag m_StartFlag;
+        Flag m_StopFlag;
 
-		void StartTrigger()
-		{
-			OLO_PROFILE_FUNCTION();
-			
-			m_Playing = true;
-			m_Counter = 0.0f;
-			m_OutTrigger(1.0f);
-		}
+        void RegisterEndpoints();
+        void InitializeInputs();
 
-		void StopTrigger()
-		{
-			OLO_PROFILE_FUNCTION();
-			
-			m_Playing = false;
-			m_Counter = 0.0f;
-		}
-	};
+        void StartTrigger()
+        {
+            OLO_PROFILE_FUNCTION();
+            
+            m_Playing = true;
+            m_Counter = 0.0f;
+            m_OutTrigger(1.0f);
+        }
 
-	//==========================================================================
-	/// TriggerCounter - Counts trigger events and generates step values
-	//==========================================================================
-	struct TriggerCounter : public NodeProcessor
-	{
-		struct IDs
-		{
-			DECLARE_ID(s_Trigger);
-			DECLARE_ID(s_Reset);
-		private:
-			IDs() = delete;
-		};
+        void StopTrigger()
+        {
+            OLO_PROFILE_FUNCTION();
+            
+            m_Playing = false;
+            m_Counter = 0.0f;
+        }
+    };
 
-		explicit TriggerCounter(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
-		{
-			AddInEvent(IDs::s_Trigger, [this](float v) { (void)v; m_TriggerFlag.SetDirty(); });
-			AddInEvent(IDs::s_Reset, [this](float v) { (void)v; m_ResetFlag.SetDirty(); });
+    //==========================================================================
+    /// TriggerCounter - Counts trigger events and generates step values
+    //==========================================================================
+    struct TriggerCounter : public NodeProcessor
+    {
+        struct IDs
+        {
+            DECLARE_ID(s_Trigger);
+            DECLARE_ID(s_Reset);
+        private:
+            IDs() = delete;
+        };
 
-			RegisterEndpoints();
-		}
+        explicit TriggerCounter(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
+        {
+            AddInEvent(IDs::s_Trigger, [this](f32 v) { (void)v; m_TriggerFlag.SetDirty(); });
+            AddInEvent(IDs::s_Reset, [this](f32 v) { (void)v; m_ResetFlag.SetDirty(); });
 
-		void Init() final
-		{
-			OLO_PROFILE_FUNCTION();
-			
-			InitializeInputs();
+            RegisterEndpoints();
+        }
 
-			m_OutCount = 0;
-			m_OutValue = (*m_InStartValue);
-		}
+        void Init() final
+        {
+            OLO_PROFILE_FUNCTION();
+            
+            InitializeInputs();
 
-		void Process() final
-		{
-			OLO_PROFILE_FUNCTION();
-			
-			if (m_TriggerFlag.CheckAndResetIfDirty())
-				ProcessTrigger();
+            m_OutCount = 0;
+            m_OutValue = (*m_InStartValue);
+        }
 
-			if (m_ResetFlag.CheckAndResetIfDirty())
-			{
-				// Clear pending auto-reset before manual reset to prevent double-reset
-				m_PendingAutoReset = false;
-				ProcessReset();
-			}
+        void Process() final
+        {
+            OLO_PROFILE_FUNCTION();
+            
+            if (m_TriggerFlag.CheckAndResetIfDirty())
+                ProcessTrigger();
 
-			// Handle deferred auto-reset at end of frame
-			if (m_PendingAutoReset)
-			{
-				ProcessReset();
-				m_PendingAutoReset = false;
-			}
-		}
+            if (m_ResetFlag.CheckAndResetIfDirty())
+            {
+                // Clear pending auto-reset before manual reset to prevent double-reset
+                m_PendingAutoReset = false;
+                ProcessReset();
+            }
 
-		//==========================================================================
-		/// NodeProcessor setup
-		f32* m_InStartValue = nullptr;
-		f32* m_InStepSize = nullptr;
-		i32* m_InResetCount = nullptr;
+            // Handle deferred auto-reset at end of frame
+            if (m_PendingAutoReset)
+            {
+                ProcessReset();
+                m_PendingAutoReset = false;
+            }
+        }
 
-		i32 m_OutCount = 0;
-		f32 m_OutValue = 0.0f;
+        //==========================================================================
+        /// NodeProcessor setup
+        f32* m_InStartValue = nullptr;
+        f32* m_InStepSize = nullptr;
+        i32* m_InResetCount = nullptr;
 
-		OutputEvent m_OutOnTrigger{ *this };
-		OutputEvent m_OutOnReset{ *this };
+        i32 m_OutCount = 0;
+        f32 m_OutValue = 0.0f;
 
-	private:
-		Flag m_TriggerFlag;
-		Flag m_ResetFlag;
-		bool m_PendingAutoReset = false;
+        OutputEvent m_OutOnTrigger{ *this };
+        OutputEvent m_OutOnReset{ *this };
 
-		void RegisterEndpoints();
-		void InitializeInputs();
+    private:
+        Flag m_TriggerFlag;
+        Flag m_ResetFlag;
+        bool m_PendingAutoReset = false;
 
-		void ProcessTrigger()
-		{
-			OLO_PROFILE_FUNCTION();
-			
-			++m_OutCount;
-			m_OutValue = (*m_InStepSize) * m_OutCount + (*m_InStartValue);
+        void RegisterEndpoints();
+        void InitializeInputs();
 
-			m_OutOnTrigger(1.0f);
+        void ProcessTrigger()
+        {
+            OLO_PROFILE_FUNCTION();
+            
+            ++m_OutCount;
+            m_OutValue = (*m_InStepSize) * m_OutCount + (*m_InStartValue);
 
-			// Auto-reset if we've reached the reset count (defer to end of frame)
-			if ((*m_InResetCount) > 0 && m_OutCount >= (*m_InResetCount))
-			{
-				m_PendingAutoReset = true;
-			}
-		}
+            m_OutOnTrigger(1.0f);
 
-		void ProcessReset()
-		{
-			OLO_PROFILE_FUNCTION();
-			
-			m_OutValue = (*m_InStartValue);
-			m_OutCount = 0;
-			m_OutOnReset(1.0f);
-			m_PendingAutoReset = false;
-		}
-	};
+            // Auto-reset if we've reached the reset count (defer to end of frame)
+            if ((*m_InResetCount) > 0 && m_OutCount >= (*m_InResetCount))
+            {
+                m_PendingAutoReset = true;
+            }
+        }
 
-	//==========================================================================
-	/// DelayedTrigger - Delays trigger events by a specified time
-	//==========================================================================
-	struct DelayedTrigger : public NodeProcessor
-	{
-		struct IDs
-		{
-			DECLARE_ID(s_Trigger);
-			DECLARE_ID(s_Reset);
-		private:
-			IDs() = delete;
-		};
+        void ProcessReset()
+        {
+            OLO_PROFILE_FUNCTION();
+            
+            m_OutValue = (*m_InStartValue);
+            m_OutCount = 0;
+            m_OutOnReset(1.0f);
+            m_PendingAutoReset = false;
+        }
+    };
 
-		explicit DelayedTrigger(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
-		{
-			AddInEvent(IDs::s_Trigger, [this](float v) { (void)v; m_TriggerFlag.SetDirty(); });
-			AddInEvent(IDs::s_Reset, [this](float v) { (void)v; m_ResetFlag.SetDirty(); });
+    //==========================================================================
+    /// DelayedTrigger - Delays trigger events by a specified time
+    //==========================================================================
+    struct DelayedTrigger : public NodeProcessor
+    {
+        struct IDs
+        {
+            DECLARE_ID(s_Trigger);
+            DECLARE_ID(s_Reset);
+        private:
+            IDs() = delete;
+        };
 
-			RegisterEndpoints();
-		}
+        explicit DelayedTrigger(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
+        {
+            AddInEvent(IDs::s_Trigger, [this](f32 v) { (void)v; m_TriggerFlag.SetDirty(); });
+            AddInEvent(IDs::s_Reset, [this](f32 v) { (void)v; m_ResetFlag.SetDirty(); });
 
-		void Init() final
-		{
-			OLO_PROFILE_FUNCTION();
-			
-			InitializeInputs();
+            RegisterEndpoints();
+        }
 
-			m_FrameTime = 1.0f / m_SampleRate;
-			m_Counter = 0.0f;
-			m_Waiting = false;
-		}
+        void Init() final
+        {
+            OLO_PROFILE_FUNCTION();
+            
+            InitializeInputs();
 
-		void Process() final
-		{
-			OLO_PROFILE_FUNCTION();
+            m_FrameTime = 1.0f / m_SampleRate;
+            m_Counter = 0.0f;
+            m_Waiting = false;
+        }
 
-			if (m_TriggerFlag.CheckAndResetIfDirty())
-				StartDelay();
+        void Process() final
+        {
+            OLO_PROFILE_FUNCTION();
 
-			if (m_ResetFlag.CheckAndResetIfDirty())
-				ProcessReset();
+            if (m_TriggerFlag.CheckAndResetIfDirty())
+                StartDelay();
 
-			if (m_Waiting && (m_Counter += m_FrameTime) >= (*m_InDelayTime))
-			{
-				m_Waiting = false;
-				m_Counter = 0.0f;
-				m_OutDelayedTrigger(1.0f);
-			}
-		}
+            if (m_ResetFlag.CheckAndResetIfDirty())
+                ProcessReset();
 
-		//==========================================================================
-		/// NodeProcessor setup
-		f32* m_InDelayTime = nullptr;
-		OutputEvent m_OutDelayedTrigger{ *this };
-		OutputEvent m_OutOnReset{ *this };
+            if (m_Waiting && (m_Counter += m_FrameTime) >= (*m_InDelayTime))
+            {
+                m_Waiting = false;
+                m_Counter = 0.0f;
+                m_OutDelayedTrigger(1.0f);
+            }
+        }
 
-	private:
-		bool m_Waiting = false;
-		f32 m_Counter = 0.0f;
-		f32 m_FrameTime = 0.0f;
+        //==========================================================================
+        /// NodeProcessor setup
+        f32* m_InDelayTime = nullptr;
+        OutputEvent m_OutDelayedTrigger{ *this };
+        OutputEvent m_OutOnReset{ *this };
 
-		Flag m_TriggerFlag;
-		Flag m_ResetFlag;
+    private:
+        bool m_Waiting = false;
+        f32 m_Counter = 0.0f;
+        f32 m_FrameTime = 0.0f;
 
-		void RegisterEndpoints();
-		void InitializeInputs();
+        Flag m_TriggerFlag;
+        Flag m_ResetFlag;
 
-		void StartDelay()
-		{
-			OLO_PROFILE_FUNCTION();
-			
-			m_Waiting = true;
-			m_Counter = 0.0f;
-		}
+        void RegisterEndpoints();
+        void InitializeInputs();
 
-		void ProcessReset()
-		{
-			OLO_PROFILE_FUNCTION();
-			
-			m_Waiting = false;
-			m_Counter = 0.0f;
-			m_OutOnReset(1.0f);
-		}
-	};
+        void StartDelay()
+        {
+            OLO_PROFILE_FUNCTION();
+            
+            m_Waiting = true;
+            m_Counter = 0.0f;
+        }
+
+        void ProcessReset()
+        {
+            OLO_PROFILE_FUNCTION();
+            
+            m_Waiting = false;
+            m_Counter = 0.0f;
+            m_OutOnReset(1.0f);
+        }
+    };
 
 } // namespace OloEngine::Audio::SoundGraph
 

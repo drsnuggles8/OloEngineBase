@@ -422,7 +422,7 @@ namespace OloEngine::Audio::SoundGraph
 
                 if (m_Type == ENoiseType::PinkNoise)
                 {
-                    // bins are already zero-initialized by member initializer (line 511)
+                    // bins are already zero-initialized by member initializer (line 509)
                     m_PinkState.m_Accumulation = 0.0f;
                     m_PinkState.m_Counter = 1;
                 }

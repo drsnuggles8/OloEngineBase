@@ -261,7 +261,7 @@ namespace OloEngine::Audio
 
     bool AudioLoader::GetAudioFileInfo(const std::filesystem::path& filePath, u32& outNumChannels, u32& outNumFrames, f64& outSampleRate, f64& outDuration)
     {
-        [[maybe_unused]]u16 bitDepth; // Unused in this overload
+        [[maybe_unused]] u16 bitDepth; // Unused in this overload
         return GetAudioFileInfo(filePath, outNumChannels, outNumFrames, outSampleRate, outDuration, bitDepth);
     }
 
