@@ -34,8 +34,12 @@ namespace OloEngine
 
         void Seed(u64 seed) noexcept
         {
+            // Mix upper and lower 32 bits to preserve entropy from full 64-bit seed
+            // This prevents seeds like 0x0000000012345678 and 0xABCDEF0012345678 from colliding
+            u32 mixed = static_cast<u32>(seed ^ (seed >> 32));
+            
             // Normalize seed to valid range [1, s_LcgM - 1] to prevent degenerate states
-            i32 normalizedSeed = static_cast<i32>(seed);
+            i32 normalizedSeed = static_cast<i32>(mixed);
             
             if (normalizedSeed == 0)
                 normalizedSeed = s_DefaultSeed;
@@ -381,8 +385,18 @@ namespace OloEngine
             OLO_PROFILE_FUNCTION();
             if (low >= high) return low;
             
-            const i32 range = static_cast<i32>(high) - static_cast<i32>(low) + 1;
-            return low + static_cast<i8>(NextValue() % range);
+            const u32 range = static_cast<u32>(static_cast<i32>(high) - static_cast<i32>(low) + 1);
+            
+            // Use rejection sampling for uniform distribution
+            const u64 maxVal = GetMaxValue();
+            const u64 limit = maxVal - (maxVal % range);
+            
+            u64 value;
+            do {
+                value = NextValue();
+            } while (value >= limit);
+            
+            return low + static_cast<i8>(value % range);
         }
 
         u8 GetUInt8InRange(u8 low, u8 high) noexcept
@@ -391,7 +405,17 @@ namespace OloEngine
             if (low >= high) return low;
             
             const u32 range = static_cast<u32>(high) - static_cast<u32>(low) + 1;
-            return low + static_cast<u8>(NextValue() % range);
+            
+            // Use rejection sampling for uniform distribution
+            const u64 maxVal = GetMaxValue();
+            const u64 limit = maxVal - (maxVal % range);
+            
+            u64 value;
+            do {
+                value = NextValue();
+            } while (value >= limit);
+            
+            return low + static_cast<u8>(value % range);
         }
 
         //==============================================================================
@@ -402,8 +426,18 @@ namespace OloEngine
             OLO_PROFILE_FUNCTION();
             if (low >= high) return low;
             
-            const i32 range = static_cast<i32>(high) - static_cast<i32>(low) + 1;
-            return low + static_cast<i16>(NextValue() % range);
+            const u32 range = static_cast<u32>(static_cast<i32>(high) - static_cast<i32>(low) + 1);
+            
+            // Use rejection sampling for uniform distribution
+            const u64 maxVal = GetMaxValue();
+            const u64 limit = maxVal - (maxVal % range);
+            
+            u64 value;
+            do {
+                value = NextValue();
+            } while (value >= limit);
+            
+            return low + static_cast<i16>(value % range);
         }
 
         u16 GetUInt16InRange(u16 low, u16 high) noexcept
@@ -412,7 +446,17 @@ namespace OloEngine
             if (low >= high) return low;
             
             const u32 range = static_cast<u32>(high) - static_cast<u32>(low) + 1;
-            return low + static_cast<u16>(NextValue() % range);
+            
+            // Use rejection sampling for uniform distribution
+            const u64 maxVal = GetMaxValue();
+            const u64 limit = maxVal - (maxVal % range);
+            
+            u64 value;
+            do {
+                value = NextValue();
+            } while (value >= limit);
+            
+            return low + static_cast<u16>(value % range);
         }
 
         //==============================================================================
@@ -427,8 +471,8 @@ namespace OloEngine
             const u64 urange = static_cast<u64>(range);
             
             // Use rejection sampling for uniform distribution
-            const u64 limit = (Algorithm::OutputBits == 64 ? 0xFFFFFFFFFFFFFFFFULL : 0xFFFFFFFFULL) - 
-                              ((Algorithm::OutputBits == 64 ? 0xFFFFFFFFFFFFFFFFULL : 0xFFFFFFFFULL) % urange);
+            const u64 maxVal = GetMaxValue();
+            const u64 limit = maxVal - (maxVal % urange);
             
             u64 value;
             do {
@@ -446,8 +490,8 @@ namespace OloEngine
             const u64 range = static_cast<u64>(high) - static_cast<u64>(low) + 1;
             
             // Use rejection sampling for uniform distribution
-            const u64 limit = (Algorithm::OutputBits == 64 ? 0xFFFFFFFFFFFFFFFFULL : 0xFFFFFFFFULL) - 
-                              ((Algorithm::OutputBits == 64 ? 0xFFFFFFFFFFFFFFFFULL : 0xFFFFFFFFULL) % range);
+            const u64 maxVal = GetMaxValue();
+            const u64 limit = maxVal - (maxVal % range);
             
             u64 value;
             do {
@@ -622,6 +666,15 @@ namespace OloEngine
         // Template-dependent constant for static_assert in template functions
         template<typename U>
         static inline constexpr bool kAlwaysFalse = false;
+
+        // Helper to get maximum value based on algorithm output bits
+        static constexpr u64 GetMaxValue() noexcept
+        {
+            if constexpr (Algorithm::OutputBits == 64)
+                return 0xFFFFFFFFFFFFFFFFULL;
+            else
+                return 0xFFFFFFFFULL;
+        }
 
         // Helper to get next value with proper type based on algorithm output
         u64 NextValue() noexcept
