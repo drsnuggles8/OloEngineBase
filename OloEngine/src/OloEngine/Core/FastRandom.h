@@ -523,7 +523,8 @@ namespace OloEngine
                 const u64 range = static_cast<u64>(high) - static_cast<u64>(low) + 1;
                 
                 // Use rejection sampling for uniform distribution
-                const u64 limit = 0xFFFFFFFFFFFFFFFFULL - (0xFFFFFFFFFFFFFFFFULL % range);
+                const u64 maxVal = GetMaxValue();
+                const u64 limit = maxVal - (maxVal % range);
                 
                 u64 value;
                 do {
@@ -553,7 +554,8 @@ namespace OloEngine
                 const u64 range = high - low + 1;
                 
                 // Use rejection sampling for uniform distribution
-                const u64 limit = 0xFFFFFFFFFFFFFFFFULL - (0xFFFFFFFFFFFFFFFFULL % range);
+                const u64 maxVal = GetMaxValue();
+                const u64 limit = maxVal - (maxVal % range);
                 
                 u64 value;
                 do {
