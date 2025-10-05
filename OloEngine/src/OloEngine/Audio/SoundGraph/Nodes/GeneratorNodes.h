@@ -502,7 +502,7 @@ namespace OloEngine::Audio::SoundGraph
             }
 
             ENoiseType m_Type{ WhiteNoise };
-            FastRandom m_Random;
+            FastRandomPCG m_Random;
 
             // Pink noise state
             struct {

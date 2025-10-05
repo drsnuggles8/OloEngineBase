@@ -92,7 +92,7 @@ namespace OloEngine::Audio::SoundGraph
     private:
         Flag m_NextFlag;
         Flag m_ResetFlag;
-        FastRandom m_Random;
+        FastRandomPCG m_Random;
 
         void RegisterEndpoints();
         void InitializeInputs();
@@ -309,7 +309,7 @@ namespace OloEngine::Audio::SoundGraph
     private:
         Flag m_NextFlag;
         Flag m_ResetFlag;
-        FastRandom m_Random;
+        FastRandomPCG m_Random;
 
         void RegisterEndpoints();
         void InitializeInputs();
