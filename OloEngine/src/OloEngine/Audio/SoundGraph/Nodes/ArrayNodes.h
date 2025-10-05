@@ -58,6 +58,7 @@ namespace OloEngine::Audio::SoundGraph
 
         void Init() final
         {
+            OLO_PROFILE_FUNCTION();
             InitializeInputs();
 
             // Initialize random generator with seed
@@ -204,6 +205,15 @@ namespace OloEngine::Audio::SoundGraph
         void RegisterEndpoints();
         void InitializeInputs();
 
+        void TriggerOutput(const T& element)
+        {
+            m_OutElement = element;
+            if constexpr (std::is_arithmetic_v<T>)
+                m_OutOnTrigger(static_cast<f32>(m_OutElement));
+            else
+                m_OutOnTrigger(1.0f);
+        }
+
         void ProcessTrigger()
         {
             // Validate array exists and is not empty
@@ -219,11 +229,7 @@ namespace OloEngine::Audio::SoundGraph
             if (!m_InIndex)
             {
                 // No index provided - use first element (index 0)
-                m_OutElement = (*m_InArray)[0];
-                if constexpr (std::is_arithmetic_v<T>)
-                    m_OutOnTrigger(static_cast<f32>(m_OutElement));
-                else
-                    m_OutOnTrigger(1.0f);
+                TriggerOutput((*m_InArray)[0]);
                 return;
             }
 
@@ -234,16 +240,12 @@ namespace OloEngine::Audio::SoundGraph
             if (index >= 0 && index < arraySize)
             {
                 // Valid index - get element from array
-                m_OutElement = (*m_InArray)[index];
-                if constexpr (std::is_arithmetic_v<T>)
-                    m_OutOnTrigger(static_cast<f32>(m_OutElement));
-                else
-                    m_OutOnTrigger(1.0f);
+                TriggerOutput((*m_InArray)[index]);
             }
             else
             {
                 // Index out of bounds - output default and warn
-                m_OutElement = T{};
+                TriggerOutput(T{});
                 OLO_CORE_WARN("ArrayGet: Index {} out of bounds for array of size {}", index, arraySize);
             }
         }
@@ -265,6 +267,7 @@ namespace OloEngine::Audio::SoundGraph
 
         explicit Random(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
         {
+            OLO_PROFILE_FUNCTION();
             AddInEvent(IDs::s_Next, [this](float v) { (void)v; m_NextFlag.SetDirty(); });
             AddInEvent(IDs::s_Reset, [this](float v) { (void)v; m_ResetFlag.SetDirty(); });
             
@@ -273,6 +276,7 @@ namespace OloEngine::Audio::SoundGraph
 
         void Init() final
         {
+            OLO_PROFILE_FUNCTION();
             InitializeInputs();
 
             // Initialize random generator with seed
@@ -293,7 +297,7 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         //==========================================================================
-        /// NodeProcessor setup  
+        /// NodeProcessor setup
         T* m_InMin = nullptr;
         T* m_InMax = nullptr;
         i32* m_InSeed = nullptr;

@@ -13,12 +13,6 @@
 namespace OloEngine::Audio::SoundGraph
 {
     //==============================================================================
-    /// Default cache configuration constants
-    
-    constexpr sizet DEFAULT_MAX_CACHE_ITEMS = 50;
-    constexpr sizet DEFAULT_MAX_MEMORY_BYTES = 256 * 1024 * 1024; // 256MB
-    
-    //==============================================================================
     /// SoundGraphCache Implementation
 
     SoundGraphCache::SoundGraphCache(sizet maxCacheSize, sizet maxMemoryUsage)
@@ -28,6 +22,19 @@ namespace OloEngine::Audio::SoundGraph
     {
         // Start async loader thread
         m_LoaderThread.Dispatch([this]() { LoaderThreadFunc(); });
+    }
+
+    SoundGraphCache::SoundGraphCache(const SoundGraphCacheConfig& config)
+        : m_MaxCacheSize(config.m_MaxCacheSize)
+        , m_MaxMemoryUsage(config.m_MaxMemoryUsage)
+        , m_CacheDirectory(config.m_CacheDirectory)
+        , m_LoaderThread("SoundGraphCache Loader")
+    {
+        // Start async loader thread if enabled
+        if (config.m_EnableAsyncLoading)
+        {
+            m_LoaderThread.Dispatch([this]() { LoaderThreadFunc(); });
+        }
     }
 
     SoundGraphCache::~SoundGraphCache()
@@ -860,7 +867,10 @@ namespace OloEngine::Audio::SoundGraph
             
             if (!s_GlobalCache)
             {
-                s_GlobalCache = Ref<SoundGraphCache>::Create(DEFAULT_MAX_CACHE_ITEMS, DEFAULT_MAX_MEMORY_BYTES);
+                // Use default configuration
+                s_GlobalCache = Ref<SoundGraphCache>::Create(
+                    SoundGraphCacheConfig::s_DefaultMaxCacheSize, 
+                    SoundGraphCacheConfig::s_DefaultMaxMemoryUsage);
             }
             
             return s_GlobalCache;

@@ -97,30 +97,21 @@ namespace OloEngine::Audio
             return;
         }
 
-        s_ShouldStop.store(true);
-        s_TaskCondition.notify_all();
-
         // Check if we're trying to stop from within the audio thread itself
         if (std::this_thread::get_id() == s_AudioThreadID.load(std::memory_order_acquire))
         {
-            // We're on the audio thread - cannot join ourselves
-            OLO_CORE_WARN("AudioThread::Stop() called from within audio thread - performing local cleanup only");
-            
-            // Clear any remaining tasks
-            ClearPendingTasks();
-            
-            // Detach the thread so it can clean up on its own, then reset static state
-            if (s_AudioThread && s_AudioThread->joinable())
-            {
-                s_AudioThread->detach();
-            }
-            s_AudioThread.reset();
-            s_AudioThreadID.store(std::thread::id{}, std::memory_order_release);
-            s_IsInitialized.store(false);
-            s_IsRunning.store(false);
-            
+            // CRITICAL: Self-stop creates unsafe state transition. After detaching the thread,
+            // it continues executing but s_IsRunning is set to false, creating a race where
+            // external checks report the thread as stopped while it's still processing tasks.
+            // Another thread could call Start() and potentially create a second audio thread.
+            // Solution: Disallow self-stop entirely.
+            OLO_CORE_ERROR("AudioThread::Stop() called from within audio thread - self-stop is not allowed. "
+                          "The audio thread cannot stop itself safely. Call Stop() from a different thread.");
             return;
         }
+
+        s_ShouldStop.store(true);
+        s_TaskCondition.notify_all();
 
         // Normal case: called from a different thread
         if (s_AudioThread && s_AudioThread->joinable())

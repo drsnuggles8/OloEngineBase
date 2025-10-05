@@ -6,7 +6,7 @@
 
 namespace OloEngine
 {
-    ma_engine* AudioEngine::s_Engine;
+    ma_engine* AudioEngine::s_Engine = nullptr;
 
     bool AudioEngine::Init()
     {

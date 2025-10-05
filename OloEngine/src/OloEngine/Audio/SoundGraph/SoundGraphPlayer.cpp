@@ -148,11 +148,15 @@ namespace OloEngine::Audio::SoundGraph
             msg.m_EndpointID = endpointID;
             msg.m_IsEvent = true;
             
-            // Format event message (real-time safe)
+            // Format event message (real-time safe - use bounded length computation)
             const char* eventMsg = "Event";
-            sizet len = strlen(eventMsg);
-            if (len >= sizeof(msg.m_Text))
-                len = sizeof(msg.m_Text) - 1;
+            // Compute bounded length without strlen (avoid unbounded memory scan)
+            constexpr sizet maxLen = sizeof(msg.m_Text) - 1;
+            sizet len = 0;
+            while (len < maxLen && eventMsg[len] != '\0')
+            {
+                ++len;
+            }
             memcpy(msg.m_Text, eventMsg, len);
             msg.m_Text[len] = '\0';
             
@@ -352,26 +356,19 @@ namespace OloEngine::Audio::SoundGraph
             }
         }
 
-        // Reduce mutex contention by copying source references before updating
-        // This allows updates to run without holding the lock
-        std::vector<SoundGraphSource*> sourcesToUpdate;
+        // Update all sound graphs on the main thread
+        // CRITICAL FIX: Hold mutex during updates to prevent use-after-free.
+        // Previously copied raw pointers then released mutex, creating race where
+        // RemoveSource() could delete a source between unlock and Update() call.
+        // Trade-off: Holding lock during updates reduces concurrency but ensures safety.
+        // Future optimization: Could use shared_ptr if SoundGraphSource inherits RefCounted.
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        for (auto& [id, source] : m_SoundGraphSources)
         {
-            std::lock_guard<std::mutex> lock(m_Mutex);
-            sourcesToUpdate.reserve(m_SoundGraphSources.size());
-            
-            for (auto& [id, source] : m_SoundGraphSources)
+            if (source)
             {
-                if (source)
-                {
-                    sourcesToUpdate.push_back(source.get());
-                }
+                source->Update(deltaTime);
             }
-        }
-        
-        // Update all sound graphs on the main thread (without holding the mutex)
-        for (SoundGraphSource* source : sourcesToUpdate)
-        {
-            source->Update(deltaTime);
         }
 
         // Note: Sources are intentionally retained until explicitly removed via RemoveSource()

@@ -100,6 +100,7 @@ namespace OloEngine::Audio::SoundGraph
         mutable std::mutex m_Mutex;
 
         // Sound graph sources (protected by m_Mutex)
+        // NOTE: Uses unique ownership (Scope) but Update() must carefully avoid use-after-free
         std::unordered_map<u32, Scope<SoundGraphSource>> m_SoundGraphSources;
         std::atomic<u32> m_NextSourceID{1};
 

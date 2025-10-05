@@ -328,7 +328,7 @@ namespace OloEngine::Audio
 
         /// Fast version without checking how many available (single-channel)
         /// Uses safe element-wise copying for non-trivially copyable types
-        template<unsigned int count>
+        template<u32 count>
         void GetMultiple(T* dest)
         {
             OLO_PROFILE_FUNCTION();

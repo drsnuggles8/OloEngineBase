@@ -22,8 +22,8 @@ namespace OloEngine::Audio::SoundGraph
         m_IsReadyToPlay = false;
         m_IsFinished = false;
         m_IsLooping = false;
-        m_Volume = 1.0;
-        m_Pitch = 1.0;
+        m_Volume = 1.0f;
+        m_Pitch = 1.0f;
         m_IsFading = false;
         m_Priority = 128;
     }
@@ -178,8 +178,8 @@ namespace OloEngine::Audio::SoundGraph
         m_IsFading = false;
         m_FadeCurrentTime = 0.0f;
         m_FadeDuration = 0.0f;
-        m_FadeStartVolume = static_cast<f32>(m_Volume);
-        m_FadeTargetVolume = static_cast<f32>(m_Volume);
+        m_FadeStartVolume = m_Volume;
+        m_FadeTargetVolume = m_Volume;
         
         // Set play state and finished flag
         m_PlayState = SoundPlayState::Stopped;
@@ -210,7 +210,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        m_Volume = static_cast<f64>(std::clamp(newVolume, 0.0f, 1.0f));
+        m_Volume = std::clamp(newVolume, 0.0f, 1.0f);
         // Note: Actual volume control would be implemented via SoundGraph parameters
     }
 
@@ -218,7 +218,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        m_Pitch = static_cast<f64>(std::clamp(newPitch, 0.1f, 4.0f));
+        m_Pitch = std::clamp(newPitch, 0.1f, 4.0f);
         // Note: Actual pitch control would be implemented via SoundGraph parameters
     }
 
@@ -234,14 +234,14 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        return static_cast<f32>(m_Volume);
+        return m_Volume;
     }
 
     f32 SoundGraphSound::GetPitch() const
     {
         OLO_PROFILE_FUNCTION();
 
-        return static_cast<f32>(m_Pitch);
+        return m_Pitch;
     }
 
     void SoundGraphSound::SetLowPassFilter(f32 value)
@@ -326,7 +326,7 @@ namespace OloEngine::Audio::SoundGraph
             return false;
 
         m_IsFading = true;
-        m_FadeStartVolume = static_cast<f32>(m_Volume);
+        m_FadeStartVolume = m_Volume;
         m_FadeTargetVolume = std::clamp(targetVolume, 0.0f, 1.0f);
         m_FadeDuration = duration;
         m_FadeCurrentTime = 0.0f;
@@ -341,7 +341,7 @@ namespace OloEngine::Audio::SoundGraph
             return false;
 
         m_IsFading = true;
-        m_FadeStartVolume = static_cast<f32>(m_Volume);
+        m_FadeStartVolume = m_Volume;
         m_FadeTargetVolume = std::clamp(targetVolume, 0.0f, 1.0f);
         m_FadeDuration = duration;
         m_FadeCurrentTime = 0.0f;
@@ -438,7 +438,7 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
         
         f32 basePriority = static_cast<f32>(m_Priority) / 255.0f;
-        f32 volumeMultiplier = static_cast<f32>(m_Volume);
+        f32 volumeMultiplier = m_Volume;
         
         if (m_IsFading && m_FadeDuration > 0.0f)
         {

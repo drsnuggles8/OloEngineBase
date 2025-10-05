@@ -48,12 +48,7 @@ namespace OloEngine::Audio
             {
                 if (other.m_InstanceFunc)
                 {
-                    m_FuncPtr = [](WaveSource& source, void* ctx) noexcept -> bool {
-                        auto* self = static_cast<RefillCallback*>(ctx);
-                        try { return self->m_InstanceFunc(source); }
-                        catch (...) { return false; }
-                    };
-                    m_Context = this;
+                    SetupInstanceTrampoline();
                 }
                 else
                 {
@@ -68,12 +63,7 @@ namespace OloEngine::Audio
             {
                 if (m_InstanceFunc)
                 {
-                    m_FuncPtr = [](WaveSource& source, void* ctx) noexcept -> bool {
-                        auto* self = static_cast<RefillCallback*>(ctx);
-                        try { return self->m_InstanceFunc(source); }
-                        catch (...) { return false; }
-                    };
-                    m_Context = this;
+                    SetupInstanceTrampoline();
                     other.m_FuncPtr = nullptr;
                     other.m_Context = nullptr;
                 }
@@ -94,12 +84,7 @@ namespace OloEngine::Audio
                     m_InstanceFunc = other.m_InstanceFunc;
                     if (m_InstanceFunc)
                     {
-                        m_FuncPtr = [](WaveSource& source, void* ctx) noexcept -> bool {
-                            auto* self = static_cast<RefillCallback*>(ctx);
-                            try { return self->m_InstanceFunc(source); }
-                            catch (...) { return false; }
-                        };
-                        m_Context = this;
+                        SetupInstanceTrampoline();
                     }
                     else
                     {
@@ -118,12 +103,7 @@ namespace OloEngine::Audio
                     m_InstanceFunc = std::move(other.m_InstanceFunc);
                     if (m_InstanceFunc)
                     {
-                        m_FuncPtr = [](WaveSource& source, void* ctx) noexcept -> bool {
-                            auto* self = static_cast<RefillCallback*>(ctx);
-                            try { return self->m_InstanceFunc(source); }
-                            catch (...) { return false; }
-                        };
-                        m_Context = this;
+                        SetupInstanceTrampoline();
                         other.m_FuncPtr = nullptr;
                         other.m_Context = nullptr;
                     }
@@ -142,12 +122,7 @@ namespace OloEngine::Audio
             RefillCallback& operator=(const std::function<bool(WaveSource&)>& func)
             {
                 m_InstanceFunc = func;
-                m_FuncPtr = [](WaveSource& source, void* ctx) noexcept -> bool {
-                    auto* self = static_cast<RefillCallback*>(ctx);
-                    try { return self->m_InstanceFunc(source); }
-                    catch (...) { return false; }
-                };
-                m_Context = this;
+                SetupInstanceTrampoline();
                 return *this;
             }
 
@@ -169,6 +144,18 @@ namespace OloEngine::Audio
             
             // Per-instance storage to avoid cross-instance interference
             std::function<bool(WaveSource&)> m_InstanceFunc;
+            
+            // Helper to set up the trampoline lambda that wraps m_InstanceFunc
+            // Binds the function pointer to this instance's context
+            void SetupInstanceTrampoline() noexcept
+            {
+                m_FuncPtr = [](WaveSource& source, void* ctx) noexcept -> bool {
+                    auto* self = static_cast<RefillCallback*>(ctx);
+                    try { return self->m_InstanceFunc(source); }
+                    catch (...) { return false; }
+                };
+                m_Context = this;
+            }
         };
 
         RefillCallback m_OnRefill;

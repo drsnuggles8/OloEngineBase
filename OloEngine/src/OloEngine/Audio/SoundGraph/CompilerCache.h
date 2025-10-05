@@ -35,7 +35,7 @@ namespace OloEngine::Audio::SoundGraph
         std::string m_ErrorMessage;
         
         // Compilation statistics
-        f64 m_CompilationTimeMs = 0.0;
+        f32 m_CompilationTimeMs = 0.0f;
         sizet m_SourceSizeBytes = 0;
         sizet m_CompiledSizeBytes = 0;
     };

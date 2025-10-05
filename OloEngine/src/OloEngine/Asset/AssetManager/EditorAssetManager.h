@@ -96,9 +96,9 @@ namespace OloEngine
         /**
          * @brief Get asset metadata by handle
          * @param handle Asset handle
-         * @return Const reference to asset metadata
+         * @return Copy of asset metadata (thread-safe - returns by value to prevent dangling reference)
          */
-        const AssetMetadata& GetMetadata(AssetHandle handle) const;
+        AssetMetadata GetMetadata(AssetHandle handle) const;
 
         /**
          * @brief Get asset metadata by handle (base class override)

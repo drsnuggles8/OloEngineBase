@@ -15,7 +15,10 @@ OloEngine is a multi-layered game engine based on Hazel, supporting both 2D/3D r
 ### Building & Running
 - Applications must run from `OloEditor/` working directory (assets/mono dependencies)
 - Use `scripts/Win-GenerateProject.bat` for initial setup, `scripts/Win-DeleteStuff.bat` to clean (or manually delete the `build/` folder)
-- Test projects can be built via `cmake --build <build-dir> --target OloEngine-Tests` and then executed via `<build-dir>\OloEngine\tests\Debug\OloEngine-Tests.exe` or run via CTest
+- **VS Code Tasks**: Run tasks via Command Palette (`Ctrl+Shift+P` → "Tasks: Run Task") or `Terminal` → `Run Task...`
+  - Build: `build-sandbox3d-debug`, `build-oloeditor-debug`, `build-tests-debug`
+  - Run: `run-sandbox3d-debug`, `run-oloeditor-debug`, `run-tests-debug` (auto-builds dependencies)
+  - Configurations available: `debug`, `release`, `dist`
 
 ### Key Patterns
 

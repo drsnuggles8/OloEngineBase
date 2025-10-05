@@ -23,6 +23,26 @@ namespace OloEngine::Audio::SoundGraph
     class SoundGraph;
     class SoundGraphPrototype;
 
+    //==============================================================================
+    /// Cache Configuration Structure
+    
+    struct SoundGraphCacheConfig
+    {
+        // Default configuration constants
+        static constexpr sizet s_DefaultMaxCacheSize = 50;
+        static constexpr sizet s_DefaultMaxMemoryUsage = 256 * 1024 * 1024; // 256MB
+        static constexpr i32 s_DefaultMaintenanceIntervalMinutes = 30;
+        static constexpr f32 s_DefaultEvictionThreshold = 0.9f; // Start evicting when 90% full
+        
+        sizet m_MaxCacheSize = s_DefaultMaxCacheSize;
+        sizet m_MaxMemoryUsage = s_DefaultMaxMemoryUsage;
+        bool m_EnableAsyncLoading = true;
+        bool m_EnablePersistentCache = true;
+        std::string m_CacheDirectory = "cache/soundgraph/";
+        i32 m_MaintenanceIntervalMinutes = s_DefaultMaintenanceIntervalMinutes;
+        f32 m_EvictionThreshold = s_DefaultEvictionThreshold;
+    };
+
     /// Cache entry for compiled sound graphs
     struct SoundGraphCacheEntry
     {
@@ -40,7 +60,13 @@ namespace OloEngine::Audio::SoundGraph
     class SoundGraphCache : public RefCounted
     {
     public:
-        SoundGraphCache(sizet maxCacheSize = 50, sizet maxMemoryUsage = 256 * 1024 * 1024); // 256MB default
+        // Constructor with explicit parameters (uses config defaults)
+        SoundGraphCache(sizet maxCacheSize = 50, 
+                        sizet maxMemoryUsage = 256 * 1024 * 1024);
+        
+        // Constructor with configuration struct
+        explicit SoundGraphCache(const SoundGraphCacheConfig& config);
+        
         ~SoundGraphCache();
 
         /// Cache Management
@@ -155,19 +181,5 @@ namespace OloEngine::Audio::SoundGraph
         void StartMaintenanceScheduler(i32 intervalMinutes = 30);
         void StopMaintenanceScheduler();
     }
-
-    //==============================================================================
-    /// Cache Configuration Structure
-    
-    struct SoundGraphCacheConfig
-    {
-        sizet m_MaxCacheSize = 50;
-        sizet m_MaxMemoryUsage = 256 * 1024 * 1024; // 256MB
-        bool m_EnableAsyncLoading = true;
-        bool m_EnablePersistentCache = true;
-        std::string m_CacheDirectory = "cache/soundgraph/";
-        i32 m_MaintenanceIntervalMinutes = 30;
-        f32 m_EvictionThreshold = 0.9f; // Start evicting when 90% full
-    };
 
 } // namespace OloEngine::Audio::SoundGraph

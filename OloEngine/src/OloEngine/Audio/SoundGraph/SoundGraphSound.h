@@ -31,18 +31,18 @@ namespace OloEngine
 
 	struct SoundConfig
 	{
-		AssetHandle DataSourceAsset = 0;
-		f32 VolumeMultiplier = 1.0f;
-		f32 PitchMultiplier = 1.0f;
-		bool bLooping = false;
-		bool bSpatializationEnabled = false;
+		AssetHandle m_DataSourceAsset = 0;
+		f32 m_VolumeMultiplier = 1.0f;
+		f32 m_PitchMultiplier = 1.0f;
+		bool m_bLooping = false;
+		bool m_bSpatializationEnabled = false;
 		
 		// Filter values (0.0 - 1.0, normalized)
-		f32 LPFilterValue = 1.0f;  // 1.0 = no filtering
-		f32 HPFilterValue = 0.0f;  // 0.0 = no filtering
+		f32 m_LPFilterValue = 1.0f;  // 1.0 = no filtering
+		f32 m_HPFilterValue = 0.0f;  // 0.0 = no filtering
 		
-		bool PlayOnAwake = true;
-		u8 Priority = 128;  // 0 = highest, 255 = lowest
+		bool m_PlayOnAwake = true;
+		u8 m_Priority = 128;  // 0 = highest, 255 = lowest
 	};
 
 	/**
@@ -227,23 +227,21 @@ namespace OloEngine
 				// Effects chain handled internally by SoundGraphSource
 
 				// Playback status
-				u8 m_Priority = 128;  // 0 = highest priority, 255 = lowest
-				
-				/* Stored Fader "resting" value. Used to restore Fader before restarting playback if a fade has occurred. */
-				f32 m_StoredFaderValue = 1.0f;
-				f32 m_LastFadeOutDuration = 0.0f;
-				
-				f64 m_Volume = 1.0;
-				f64 m_Pitch = 1.0;
-				
-				/* Stop-fade counter. Used to stop the sound after "stopping-fade" has finished. */
-				f64 m_StopFadeTime = 0.0;
-				
-				// Filter states
-				f32 m_LowPassValue = 1.0f;   // Normalized filter value
-				f32 m_HighPassValue = 0.0f;  // Normalized filter value
-				
-				// Spatial audio properties
+			u8 m_Priority = 128;  // 0 = highest priority, 255 = lowest
+			
+			/* Stored Fader "resting" value. Used to restore Fader before restarting playback if a fade has occurred. */
+			f32 m_StoredFaderValue = 1.0f;
+			f32 m_LastFadeOutDuration = 0.0f;
+			
+			f32 m_Volume = 1.0f;
+			f32 m_Pitch = 1.0f;
+			
+			/* Stop-fade counter. Used to stop the sound after "stopping-fade" has finished. */
+			f32 m_StopFadeTime = 0.0f;
+			
+			// Filter states
+			f32 m_LowPassValue = 1.0f;   // Normalized filter value
+			f32 m_HighPassValue = 0.0f;  // Normalized filter value				// Spatial audio properties
 				glm::vec3 m_Position{ 0.0f };
 				glm::vec3 m_Orientation{ 0.0f, 0.0f, 1.0f };
 				glm::vec3 m_Velocity{ 0.0f };

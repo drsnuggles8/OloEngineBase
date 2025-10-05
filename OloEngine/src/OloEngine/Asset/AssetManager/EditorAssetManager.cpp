@@ -942,8 +942,15 @@ namespace OloEngine
     }
 #endif
 
-    const AssetMetadata& EditorAssetManager::GetMetadata(AssetHandle handle) const
+    AssetMetadata EditorAssetManager::GetMetadata(AssetHandle handle) const
     {
+        // Return by value to prevent dangling reference after lock is released.
+        // Previously returned const reference while holding shared_lock, but the lock
+        // was released when the function returned (end of scope), creating a race where:
+        // 1. Thread A gets reference to metadata
+        // 2. Lock is released when function returns
+        // 3. Thread B removes the asset
+        // 4. Thread A's reference is now dangling
         std::shared_lock lock(m_RegistryMutex);
         return m_AssetRegistry.GetMetadata(handle);
     }

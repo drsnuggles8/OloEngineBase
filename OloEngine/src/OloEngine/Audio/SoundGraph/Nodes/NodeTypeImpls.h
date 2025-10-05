@@ -9,10 +9,11 @@ namespace OloEngine::Audio::SoundGraph
     // Template implementations for nodes - following Hazel's NodeTypeImpls.h pattern
     //==============================================================================
 
-    //==============================================================================
-    // Macro to reduce boilerplate for standard node template implementations
-    // Generates both constructor and Init() method for a given node type
-    //==============================================================================
+    /// @brief Macro to generate template implementations for node types
+    /// @param NodeType The node type class name (e.g., Add, Multiply)
+    /// Generates:
+    /// - Constructor: NodeType<T>::NodeType(const char* dbgName, UUID id)
+    /// - Init method: void NodeType<T>::Init()
     #define IMPLEMENT_NODE_TYPE(NodeType)                                          \
         template<typename T>                                                       \
         NodeType<T>::NodeType(const char* dbgName, UUID id)                        \

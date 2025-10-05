@@ -9,7 +9,6 @@
 #include "Nodes/ArrayNodes.h"
 #include "Nodes/MusicNodes.h"
 
-#include <memory>
 
 namespace OloEngine::Audio::SoundGraph
 {
@@ -88,7 +87,7 @@ namespace OloEngine::Audio::SoundGraph
     bool Factory::Contains(Identifier nodeTypeID)
     {
         OLO_PROFILE_FUNCTION();
-        return s_NodeProcessors.count(nodeTypeID);
+        return s_NodeProcessors.contains(nodeTypeID);
     }
 
 } // namespace OloEngine::Audio::SoundGraph
