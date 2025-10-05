@@ -217,7 +217,7 @@ namespace OloEngine::Audio::SoundGraph
                 
                 if (!isValidConnectionType)
                 {
-                    OLO_CORE_WARN("GraphGenerator: Connection has invalid connection type {}", static_cast<int>(connection.m_Type));
+                    OLO_CORE_WARN("GraphGenerator: Connection has invalid connection type {}", static_cast<i32>(connection.m_Type));
                     invalidConnections++;
                     continue;
                 }
@@ -454,7 +454,7 @@ namespace OloEngine::Audio::SoundGraph
                         break;
 
                     default:
-                        OLO_CORE_ERROR("Unknown connection type: {}", (int)connection.m_Type);
+                        OLO_CORE_ERROR("Unknown connection type: {}", static_cast<i32>(connection.m_Type));
                         break;
                 }
 

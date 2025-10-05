@@ -83,7 +83,7 @@ namespace OloEngine
         return true;
     }
 
-    const AssetMetadata& AssetRegistry::GetMetadata(AssetHandle handle) const
+    AssetMetadata AssetRegistry::GetMetadata(AssetHandle handle) const
     {
         OLO_PROFILE_FUNCTION();
         
@@ -93,7 +93,7 @@ namespace OloEngine
         return (it != m_AssetMetadata.end()) ? it->second : s_EmptyMetadata;
     }
 
-    const AssetMetadata& AssetRegistry::GetMetadata(const std::filesystem::path& path) const
+    AssetMetadata AssetRegistry::GetMetadata(const std::filesystem::path& path) const
     {
         std::shared_lock lock(m_Mutex);
         

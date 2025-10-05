@@ -177,7 +177,7 @@ namespace OloEngine::Audio::SoundGraph
             
             InitializeInputs();
             // Sample rate is now set by NodeProcessor base class
-            m_Phase = 0.0f;
+            m_Phase = 0.0;
         }
 
         void Process() final
@@ -284,7 +284,7 @@ namespace OloEngine::Audio::SoundGraph
         }
 
     private:
-        f64 m_Phase{ 0.0f };
+        f64 m_Phase{ 0.0 };
     };
 
     //==============================================================================

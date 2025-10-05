@@ -143,7 +143,7 @@ namespace OloEngine::Audio::SoundGraph
                 }
             }
             
-            void Reset(float initialValue) noexcept
+            void Reset(f32 initialValue) noexcept
             {
                 m_Current = initialValue;
                 m_Target = initialValue;

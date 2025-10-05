@@ -33,8 +33,9 @@
 #include "MemberList.h"
 #include "TypeDescriptor.h"
 
-namespace OloEngine::Core::Reflection {
-    
+namespace OloEngine::Core::Reflection
+{
+    // Forward declaration of description template
     // Re-export commonly used utilities for convenience
     using StringUtils::RemovePrefixAndSuffix;
     

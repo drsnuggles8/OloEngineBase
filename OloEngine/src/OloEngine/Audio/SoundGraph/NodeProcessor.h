@@ -76,15 +76,15 @@ namespace OloEngine::Audio::SoundGraph
 		struct Input
 		{
 			Input() = delete;
-			explicit Input(NodeProcessor& owner) noexcept : Node(&owner) {}
-			NodeProcessor* Node = nullptr;
+			explicit Input(NodeProcessor& owner) noexcept : m_Node(&owner) {}
+			NodeProcessor* m_Node = nullptr;
 		};
 
 		struct Output
 		{
 			Output() = delete;
-			explicit Output(NodeProcessor& owner) noexcept : Node(&owner) {}
-			NodeProcessor* Node = nullptr;
+			explicit Output(NodeProcessor& owner) noexcept : m_Node(&owner) {}
+			NodeProcessor* m_Node = nullptr;
 		};
 
 		//==============================================================================

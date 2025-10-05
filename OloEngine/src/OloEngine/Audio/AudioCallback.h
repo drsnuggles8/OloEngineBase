@@ -64,8 +64,8 @@ namespace OloEngine::Audio
             
             ma_node_base m_Base;
             u32 m_TypeId = 0; // Will be set to s_MagicTypeId when properly initialized
-            ma_engine* m_PEngine;
-            bool m_BInitialized = false;
+            ma_engine* m_Engine;
+            bool m_Initialized = false;
             AudioCallback* m_Callback;
         } m_Node;
     };

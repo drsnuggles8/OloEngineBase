@@ -18,7 +18,7 @@ namespace OloEngine::Audio::SoundGraph
     {
         struct IDs
         {
-            DECLARE_ID(Trigger);
+            DECLARE_ID(s_Trigger);
         private:
             IDs() = delete;
         };
@@ -26,7 +26,7 @@ namespace OloEngine::Audio::SoundGraph
         explicit ADEnvelope(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
         {
             // Input events
-            AddInEvent(IDs::Trigger, [this](float v) { (void)v; m_TriggerFlag.SetDirty(); });
+            AddInEvent(IDs::s_Trigger, [this](float v) { (void)v; m_TriggerFlag.SetDirty(); });
 
             RegisterEndpoints();
         }
@@ -221,8 +221,8 @@ namespace OloEngine::Audio::SoundGraph
     {
         struct IDs
         {
-            DECLARE_ID(Trigger);
-            DECLARE_ID(Release);
+            DECLARE_ID(s_Trigger);
+            DECLARE_ID(s_Release);
         private:
             IDs() = delete;
         };
@@ -230,8 +230,8 @@ namespace OloEngine::Audio::SoundGraph
         explicit ADSREnvelope(const char* dbgName, UUID id) : NodeProcessor(dbgName, id)
         {
             // Input events
-            AddInEvent(IDs::Trigger, [this](float v) { (void)v; m_TriggerFlag.SetDirty(); });
-            AddInEvent(IDs::Release, [this](float v) { (void)v; m_ReleaseFlag.SetDirty(); });
+            AddInEvent(IDs::s_Trigger, [this](float v) { (void)v; m_TriggerFlag.SetDirty(); });
+            AddInEvent(IDs::s_Release, [this](float v) { (void)v; m_ReleaseFlag.SetDirty(); });
 
             RegisterEndpoints();
         }

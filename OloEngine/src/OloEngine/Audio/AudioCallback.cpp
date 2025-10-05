@@ -64,15 +64,15 @@ namespace OloEngine::Audio
         for (const auto& bus : busConfig.m_OutputBuses) 
             OLO_CORE_ASSERT(bus > 0, "Output bus channel count must be > 0");
 
-        if (m_Node.m_BInitialized)
+        if (m_Node.m_Initialized)
         {
             ma_node_set_state(&m_Node, ma_node_state_stopped);
             ma_node_uninit(&m_Node, nullptr);
-            m_Node.m_BInitialized = false;
+            m_Node.m_Initialized = false;
         }
 
         m_Node.m_Callback = this;
-        m_Node.m_PEngine = m_Engine;
+        m_Node.m_Engine = m_Engine;
         m_Node.m_TypeId = ProcessingNode::s_MagicTypeId; // Set magic ID for runtime type validation
 
         // Validate bus counts before casting to ma_uint8 (max 255)
@@ -124,13 +124,13 @@ namespace OloEngine::Audio
         {
             // InitBase failed - cleanup and ensure flags remain false
             ma_node_uninit(&m_Node, nullptr);
-            m_Node.m_BInitialized = false;
+            m_Node.m_Initialized = false;
             m_IsInitialized = false;
             return false;
         }
 
         // InitBase succeeded - set flags and return success
-        m_Node.m_BInitialized = true;
+        m_Node.m_Initialized = true;
         m_IsInitialized = true;
         return true;
     }
@@ -139,12 +139,12 @@ namespace OloEngine::Audio
     {
         OLO_PROFILE_FUNCTION();
         
-        if (m_Node.m_BInitialized)
+        if (m_Node.m_Initialized)
         {
             ma_node_set_state(&m_Node, ma_node_state_stopped);
             ma_node_uninit(&m_Node, nullptr);
-            m_Node.m_BInitialized = false;
-            m_Node.m_PEngine = nullptr;
+            m_Node.m_Initialized = false;
+            m_Node.m_Engine = nullptr;
             m_Node.m_Callback = nullptr;
         }
 
@@ -156,10 +156,10 @@ namespace OloEngine::Audio
     {
         OLO_PROFILE_FUNCTION();
 
-        if (m_Node.m_BInitialized)
+        if (m_Node.m_Initialized)
             ma_node_set_state(&m_Node, ma_node_state_started);
 
-        return m_Node.m_BInitialized;
+        return m_Node.m_Initialized;
     }
 
 } // namespace OloEngine::Audio
