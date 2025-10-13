@@ -19,6 +19,7 @@ OloEngine is a multi-layered game engine based on Hazel, supporting both 2D/3D r
   - Build: `build-sandbox3d-debug`, `build-oloeditor-debug`, `build-tests-debug`
   - Run: `run-sandbox3d-debug`, `run-oloeditor-debug`, `run-tests-debug` (auto-builds dependencies)
   - Configurations available: `debug`, `release`, `dist`
+- Do not use gtest_filter for test execution, run all tests and use filtering in the output window
 
 ### Key Patterns
 
