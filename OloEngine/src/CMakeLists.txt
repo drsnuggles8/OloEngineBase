@@ -149,6 +149,11 @@
 		"OloEngine/Core/Identifier.h"
 		"OloEngine/Core/FastRandom.h"
 
+		"OloEngine/Tasks/Task.h"
+		"OloEngine/Tasks/TaskPriority.h"
+		"OloEngine/Tasks/TaskScheduler.h"
+		"OloEngine/Tasks/TaskScheduler.cpp"
+
 		"OloEngine/Debug/Instrumentor.h"
 		"OloEngine/Debug/Profiler.h"
 		"OloEngine/Debug/AllocationTracker.cpp"
