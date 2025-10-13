@@ -150,9 +150,15 @@
 		"OloEngine/Core/FastRandom.h"
 
 		"OloEngine/Tasks/Task.h"
+		"OloEngine/Tasks/Task.cpp"
 		"OloEngine/Tasks/TaskPriority.h"
 		"OloEngine/Tasks/TaskScheduler.h"
 		"OloEngine/Tasks/TaskScheduler.cpp"
+		"OloEngine/Tasks/LocalWorkQueue.h"
+		"OloEngine/Tasks/GlobalWorkQueue.h"
+		"OloEngine/Tasks/GlobalWorkQueue.cpp"
+		"OloEngine/Tasks/LockFreeAllocator.h"
+		"OloEngine/Tasks/LockFreeAllocator.cpp"
 
 		"OloEngine/Debug/Instrumentor.h"
 		"OloEngine/Debug/Profiler.h"
