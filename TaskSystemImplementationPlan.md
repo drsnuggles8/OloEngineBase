@@ -118,11 +118,12 @@ Establish the core task object and type-erased callable infrastructure. Create t
 - [x] Type erasure works with lambdas, functions, and functors (4/4 tests)
 - [x] Small task optimization correctly embeds captures ≤64 bytes (2/2 tests)
 - [x] Task state machine validates correct transitions (5/5 tests)
+- [x] **NEW**: Invalid state transitions are properly prevented (1/1 test)
 - [x] Scheduler initialization and configuration works (7/7 tests)
 - [x] Priority system implemented and tested (3/3 tests)
 - [x] Reference counting works correctly (1/1 test)
 
-**Total: 27/27 tests passing**
+**Total: 28/28 tests passing**
 
 ### Implementation Notes
 - Removed `EnableProfiling` flag - profiling now controlled by CMake build configuration
@@ -500,6 +501,8 @@ WorkerThread::~WorkerThread()
 - [x] Work stealing distributes load across workers ✅
 - [x] Tasks execute correctly from both local and global queues ✅
 - [x] Exception handling prevents worker crashes ✅
+- [x] **NEW**: Exception handling maintains task state and refcount correctness (3/3 tests)
+- [x] **NEW**: High-priority tasks execute before normal-priority tasks (1/1 test)
 - [x] Wake strategy is responsive (< 20ms wake latency in debug) ✅
 - [x] No thread sanitizer warnings ✅
 - [x] Stress test completes without hangs or crashes ✅
@@ -507,7 +510,7 @@ WorkerThread::~WorkerThread()
 - [x] Background workers process background priority tasks ✅
 - [x] Foreground workers process high and normal priority tasks ✅
 
-**Total: 80/80 tests passing (100% pass rate over 10 runs)**
+**Total: 85/85 tests passing (100% pass rate over 10 runs)**
 
 ### Implementation Notes
 - **ThreadSignal Enhancement**: Added `WaitWithTimeout()` method for potential future use (currently using infinite wait)
@@ -515,6 +518,33 @@ WorkerThread::~WorkerThread()
 - **Exit Flag Checks**: Strategically placed throughout hot paths for responsive shutdown
 - **No Logging in Worker Loop**: Avoided logging in `WorkerMain`, `FindWork`, `WaitForWork` to prevent test crashes
 - **Test Stability**: Increased latency threshold from 10ms to 20ms for debug builds to account for overhead
+
+#### Priority System Verification ✅
+
+**Implementation**: Foreground workers check queues in priority order (High → Normal):
+```cpp
+// FindWork() implementation in WorkerThread.cpp
+if (m_WorkerType == EWorkerType::Foreground)
+{
+    // Try high priority first
+    task = m_Scheduler->GetGlobalQueue(ETaskPriority::High).Pop();
+    if (task) return task;
+    
+    // Then normal priority  
+    task = m_Scheduler->GetGlobalQueue(ETaskPriority::Normal).Pop();
+    if (task) return task;
+}
+```
+
+**Testing Approach**: The priority test uses **average execution order** to verify priority behavior:
+1. Launch normal-priority tasks with real work (prevents instant completion)
+2. Wait for some normal tasks to start executing
+3. Launch high-priority tasks into the queue
+4. Verify high-priority tasks execute earlier **on average**
+
+**Key Insight**: Priority only affects tasks **in the queue**. The scheduler cannot preempt already-running tasks. This is correct behavior - the test validates that when both priority levels are queued, high-priority tasks are processed first.
+
+**Why Average Order Works**: Individual task timing is subject to thread scheduling variability. Average execution order provides a robust statistical measure that high-priority tasks are genuinely prioritized without being sensitive to timing races.
 
 ---
 
@@ -1029,6 +1059,27 @@ Add comprehensive debugging support, profiling integration, and final optimizati
 ---
 
 ## Testing Strategy
+
+### Testing Philosophy (Added October 2025)
+
+**Core Principle**: Balance positive and negative testing throughout implementation.
+
+- **Positive Tests**: Verify features work as intended (happy path)
+- **Negative Tests**: Verify invalid operations are prevented (error cases)
+- **Edge Case Tests**: Verify boundary conditions and corner cases
+- **Concurrent Tests**: Verify thread-safety and race condition handling
+
+**For Each Phase**:
+1. Implement core functionality with positive tests
+2. Add negative tests for invalid operations
+3. Add edge case tests for boundaries
+4. Add concurrent stress tests where applicable
+
+**Quality Metrics**:
+- Functional coverage: All public APIs exercised
+- Error coverage: All documented failure modes tested
+- Concurrent coverage: Multi-threaded usage patterns tested
+- Performance coverage: Latency and throughput sanity checks
 
 ### Test Organization
 

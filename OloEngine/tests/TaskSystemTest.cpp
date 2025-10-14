@@ -218,6 +218,66 @@ TEST(TaskSystemTest, SetStateDirectly)
     EXPECT_EQ(task->GetState(), ETaskState::Completed);
 }
 
+TEST(TaskSystemTest, InvalidStateTransitionsPrevented)
+{
+    auto task = CreateTask("StateTest", ETaskPriority::Normal, []() {});
+    
+    // Try to go from Ready directly to Running (should fail - must go through Scheduled)
+    ETaskState expected = ETaskState::Ready;
+    bool success = task->TryTransitionState(expected, ETaskState::Running);
+    EXPECT_FALSE(success) << "Should not be able to transition from Ready to Running";
+    EXPECT_EQ(expected, ETaskState::Ready);  // Expected should not be modified when transition is invalid
+    EXPECT_EQ(task->GetState(), ETaskState::Ready);  // State should be unchanged
+    
+    // Try to go from Ready directly to Completed (should fail)
+    expected = ETaskState::Ready;
+    success = task->TryTransitionState(expected, ETaskState::Completed);
+    EXPECT_FALSE(success) << "Should not be able to transition from Ready to Completed";
+    EXPECT_EQ(task->GetState(), ETaskState::Ready);
+    
+    // Properly transition to Scheduled
+    expected = ETaskState::Ready;
+    success = task->TryTransitionState(expected, ETaskState::Scheduled);
+    EXPECT_TRUE(success);
+    EXPECT_EQ(task->GetState(), ETaskState::Scheduled);
+    
+    // Try to go from Scheduled back to Ready (should fail - no backwards transitions)
+    expected = ETaskState::Scheduled;
+    success = task->TryTransitionState(expected, ETaskState::Ready);
+    EXPECT_FALSE(success) << "Should not be able to transition backwards";
+    EXPECT_EQ(task->GetState(), ETaskState::Scheduled);
+    
+    // Try to skip Running (Scheduled -> Completed should fail)
+    expected = ETaskState::Scheduled;
+    success = task->TryTransitionState(expected, ETaskState::Completed);
+    EXPECT_FALSE(success) << "Should not be able to skip Running state";
+    EXPECT_EQ(task->GetState(), ETaskState::Scheduled);
+    
+    // Properly transition to Running
+    expected = ETaskState::Scheduled;
+    success = task->TryTransitionState(expected, ETaskState::Running);
+    EXPECT_TRUE(success);
+    EXPECT_EQ(task->GetState(), ETaskState::Running);
+    
+    // Properly transition to Completed
+    expected = ETaskState::Running;
+    success = task->TryTransitionState(expected, ETaskState::Completed);
+    EXPECT_TRUE(success);
+    EXPECT_EQ(task->GetState(), ETaskState::Completed);
+    
+    // Try to go from Completed back to Running (should fail)
+    expected = ETaskState::Completed;
+    success = task->TryTransitionState(expected, ETaskState::Running);
+    EXPECT_FALSE(success) << "Should not be able to transition from Completed";
+    EXPECT_EQ(task->GetState(), ETaskState::Completed);
+    
+    // Try to go from Completed back to Ready (should fail)
+    expected = ETaskState::Completed;
+    success = task->TryTransitionState(expected, ETaskState::Ready);
+    EXPECT_FALSE(success) << "Should not be able to transition from Completed";
+    EXPECT_EQ(task->GetState(), ETaskState::Completed);
+}
+
 // ============================================================================
 // Priority Tests
 // ============================================================================

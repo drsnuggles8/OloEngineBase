@@ -92,12 +92,26 @@ namespace OloEngine
 
         /**
          * @brief Attempt to transition task state
+         * 
+         * Validates that the transition follows the state machine:
+         * Ready -> Scheduled -> Running -> Completed
+         * 
+         * Invalid transitions (e.g., Ready->Running, Completed->Running) are rejected.
+         * 
          * @param expected The expected current state (updated on failure)
          * @param desired The desired new state
          * @return True if transition succeeded, false otherwise
          */
         bool TryTransitionState(ETaskState& expected, ETaskState desired)
         {
+            // Validate transition is legal according to state machine
+            if (!IsValidTransition(expected, desired))
+            {
+                // Don't update expected - the caller's expected state is wrong
+                return false;
+            }
+            
+            // Attempt atomic transition
             return m_State.compare_exchange_strong(expected, desired, 
                 std::memory_order_acq_rel, std::memory_order_acquire);
         }
@@ -122,6 +136,41 @@ namespace OloEngine
             , m_Priority(priority)
             , m_State(ETaskState::Ready)
         {
+        }
+
+        /**
+         * @brief Validate state transition follows state machine rules
+         * 
+         * Valid transitions:
+         * - Ready -> Scheduled
+         * - Scheduled -> Running
+         * - Running -> Completed
+         * 
+         * All other transitions are invalid.
+         * 
+         * @param from Current state
+         * @param to Desired state
+         * @return True if transition is valid
+         */
+        static bool IsValidTransition(ETaskState from, ETaskState to)
+        {
+            switch (from)
+            {
+                case ETaskState::Ready:
+                    return to == ETaskState::Scheduled;
+                
+                case ETaskState::Scheduled:
+                    return to == ETaskState::Running;
+                
+                case ETaskState::Running:
+                    return to == ETaskState::Completed;
+                
+                case ETaskState::Completed:
+                    return false;  // Cannot transition from Completed
+                
+                default:
+                    return false;
+            }
         }
 
     protected:

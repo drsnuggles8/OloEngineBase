@@ -203,6 +203,98 @@ TEST_F(WorkerThreadTest, TasksWithDifferentPriorities)
     EXPECT_EQ(backgroundCount.load(), 3u);
 }
 
+TEST_F(WorkerThreadTest, HighPriorityExecutesBeforeNormal)
+{
+    // This test verifies that high-priority tasks are processed preferentially
+    // by checking that when high-priority tasks are added to a system already
+    // processing normal-priority tasks, they get executed promptly
+    
+    std::atomic<u32> executionOrder{0};
+    std::atomic<u32> normalTasksStarted{0};
+    std::atomic<u32> highTasksStarted{0};
+    std::vector<u32> normalExecutionOrders;
+    std::vector<u32> highExecutionOrders;
+    std::mutex ordersMutex;
+    
+    std::vector<Ref<Task>> allTasks;
+    
+    // Launch many normal priority tasks with significant work
+    // This ensures they'll be running when we add high-priority tasks
+    for (u32 i = 0; i < 20; ++i)
+    {
+        auto task = TaskScheduler::Get().Launch("Normal", ETaskPriority::Normal, 
+            [&executionOrder, &normalTasksStarted, &normalExecutionOrders, &ordersMutex]() {
+                normalTasksStarted.fetch_add(1, std::memory_order_relaxed);
+                u32 order = executionOrder.fetch_add(1, std::memory_order_relaxed);
+                
+                {
+                    std::lock_guard<std::mutex> lock(ordersMutex);
+                    normalExecutionOrders.push_back(order);
+                }
+                
+                // Do meaningful work so tasks don't complete instantly
+                volatile u64 sum = 0;
+                for (u32 j = 0; j < 50000; ++j)
+                    sum += j;
+            });
+        allTasks.push_back(task);
+    }
+    
+    // Wait until some normal tasks have started
+    while (normalTasksStarted.load(std::memory_order_relaxed) < 2)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    
+    // Now launch high priority tasks - these should be prioritized
+    for (u32 i = 0; i < 10; ++i)
+    {
+        auto task = TaskScheduler::Get().Launch("High", ETaskPriority::High,
+            [&executionOrder, &highTasksStarted, &highExecutionOrders, &ordersMutex]() {
+                highTasksStarted.fetch_add(1, std::memory_order_relaxed);
+                u32 order = executionOrder.fetch_add(1, std::memory_order_relaxed);
+                
+                {
+                    std::lock_guard<std::mutex> lock(ordersMutex);
+                    highExecutionOrders.push_back(order);
+                }
+            });
+        allTasks.push_back(task);
+    }
+    
+    // Wait for all tasks
+    EXPECT_TRUE(WaitForAllTasks(allTasks, 10000));
+    
+    // Verify all tasks executed
+    EXPECT_EQ(normalTasksStarted.load(), 20u);
+    EXPECT_EQ(highTasksStarted.load(), 10u);
+    
+    // Calculate average execution order for each priority
+    {
+        std::lock_guard<std::mutex> lock(ordersMutex);
+        
+        ASSERT_FALSE(normalExecutionOrders.empty());
+        ASSERT_FALSE(highExecutionOrders.empty());
+        
+        f64 avgNormalOrder = 0;
+        for (u32 order : normalExecutionOrders)
+            avgNormalOrder += order;
+        avgNormalOrder /= normalExecutionOrders.size();
+        
+        f64 avgHighOrder = 0;
+        for (u32 order : highExecutionOrders)
+            avgHighOrder += order;
+        avgHighOrder /= highExecutionOrders.size();
+        
+        // High priority tasks should have lower average execution order
+        // (executed earlier on average than normal priority tasks)
+        // We expect high priority tasks to "jump the queue"
+        EXPECT_LT(avgHighOrder, avgNormalOrder)
+            << "Average execution order for high priority (" << avgHighOrder
+            << ") should be less than normal priority (" << avgNormalOrder << ")";
+    }
+}
+
 // ============================================================================
 // Work Stealing Tests
 // ============================================================================
@@ -306,6 +398,83 @@ TEST_F(WorkerThreadTest, ExceptionDoesNotCrashWorker)
 
     EXPECT_TRUE(WaitForTaskCompletion(normalTask));
     EXPECT_TRUE(executed.load()) << "Worker should still function after exception";
+}
+
+TEST_F(WorkerThreadTest, ExceptionSetsTaskToCompleted)
+{
+    std::atomic<bool> executed{false};
+    
+    auto task = TaskScheduler::Get().Launch("ThrowingTask", [&executed]() {
+        executed.store(true, std::memory_order_release);
+        throw std::runtime_error("Test exception");
+    });
+    
+    ASSERT_NE(task, nullptr);
+    EXPECT_TRUE(WaitForTaskCompletion(task, 2000));
+    
+    // Task should be marked as Completed despite exception
+    EXPECT_TRUE(executed.load()) << "Task body should have executed";
+    EXPECT_EQ(task->GetState(), ETaskState::Completed) 
+        << "Task should be Completed even after throwing exception";
+    EXPECT_TRUE(task->IsCompleted());
+}
+
+TEST_F(WorkerThreadTest, ExceptionDoesNotLeakReferences)
+{
+    auto task = TaskScheduler::Get().Launch("ThrowingTask", []() {
+        throw std::runtime_error("Test exception");
+    });
+    
+    ASSERT_NE(task, nullptr);
+    
+    // Only our reference should exist (scheduler releases its reference after queuing)
+    // Note: The queue holds a reference, so refcount is 2 until task completes
+    i32 refCountBeforeExecution = task->GetRefCount();
+    
+    EXPECT_TRUE(WaitForTaskCompletion(task, 2000));
+    
+    // After completion, queue should have released its reference
+    // Only our reference should remain
+    EXPECT_EQ(task->GetRefCount(), 1) 
+        << "Reference count should be 1 (only test's reference) after task completes with exception";
+}
+
+TEST_F(WorkerThreadTest, MultipleExceptionsInQuickSuccession)
+{
+    // Launch multiple tasks that throw exceptions rapidly
+    // This tests that exception handling doesn't interfere with task system state
+    
+    std::vector<Ref<Task>> tasks;
+    std::atomic<u32> exceptionsThrown{0};
+    
+    for (u32 i = 0; i < 20; ++i)
+    {
+        auto task = TaskScheduler::Get().Launch("ThrowingTask", [&exceptionsThrown]() {
+            exceptionsThrown.fetch_add(1, std::memory_order_relaxed);
+            throw std::runtime_error("Test exception");
+        });
+        tasks.push_back(task);
+    }
+    
+    // All tasks should complete despite exceptions
+    EXPECT_TRUE(WaitForAllTasks(tasks, 5000));
+    EXPECT_EQ(exceptionsThrown.load(), 20u) << "All exception-throwing tasks should have executed";
+    
+    // Verify all tasks are marked as completed
+    for (const auto& task : tasks)
+    {
+        EXPECT_TRUE(task->IsCompleted());
+        EXPECT_EQ(task->GetState(), ETaskState::Completed);
+    }
+    
+    // System should still be functional - launch a normal task
+    std::atomic<bool> normalExecuted{false};
+    auto normalTask = TaskScheduler::Get().Launch("NormalTask", [&normalExecuted]() {
+        normalExecuted.store(true, std::memory_order_release);
+    });
+    
+    EXPECT_TRUE(WaitForTaskCompletion(normalTask));
+    EXPECT_TRUE(normalExecuted.load()) << "Task system should still function after multiple exceptions";
 }
 
 // ============================================================================
