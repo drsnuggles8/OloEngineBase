@@ -139,6 +139,50 @@ namespace OloEngine
         }
 
         /**
+         * @brief Launch a task with prerequisites (Phase 4)
+         * 
+         * The task will not be scheduled until all prerequisites complete.
+         * 
+         * @param debugName Debug name for profiling
+         * @param priority Task priority level
+         * @param func Callable to execute
+         * @param prerequisites Tasks that must complete before this one
+         * @return Reference-counted task handle
+         */
+        template<typename Callable>
+        Ref<Task> Launch(const char* debugName, ETaskPriority priority, Callable&& func,
+                        std::initializer_list<Ref<Task>> prerequisites)
+        {
+            // Create the task
+            auto task = CreateTask(debugName, priority, std::forward<Callable>(func));
+            
+            // Add prerequisites
+            for (const auto& prereq : prerequisites)
+            {
+                task->AddPrerequisite(prereq);
+            }
+            
+            // Launch task if it has no outstanding prerequisites
+            // Otherwise, it will be launched by the last prerequisite when it completes
+            if (task->ArePrerequisitesComplete())
+            {
+                LaunchTask(task);
+            }
+            
+            return task;
+        }
+
+        /**
+         * @brief Internal task launch implementation (made public for Phase 4 dependencies)
+         * 
+         * Queues the task and wakes workers as needed.
+         * This is called by Launch() and also by Task::OnCompleted() when dependencies complete.
+         * 
+         * @param task The task to launch
+         */
+        void LaunchTask(Ref<Task> task);
+
+        /**
          * @brief Get the number of foreground workers
          * @return Worker count
          */
@@ -166,6 +210,8 @@ namespace OloEngine
         GlobalWorkQueue& GetGlobalQueue(ETaskPriority priority);
 
     private:
+
+    private:
         TaskScheduler() = default;
         ~TaskScheduler() = default;
 
@@ -174,16 +220,6 @@ namespace OloEngine
         TaskScheduler& operator=(const TaskScheduler&) = delete;
         TaskScheduler(TaskScheduler&&) = delete;
         TaskScheduler& operator=(TaskScheduler&&) = delete;
-
-        /**
-         * @brief Internal task launch implementation
-         * 
-         * Queues the task and wakes workers as needed.
-         * Full implementation in Phase 3 (worker threads).
-         * 
-         * @param task The task to launch
-         */
-        void LaunchTask(Ref<Task> task);
 
         /**
          * @brief Wake an appropriate worker for a task priority

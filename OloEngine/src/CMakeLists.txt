@@ -161,6 +161,10 @@
 		"OloEngine/Tasks/LockFreeAllocator.cpp"
 		"OloEngine/Tasks/WorkerThread.h"
 		"OloEngine/Tasks/WorkerThread.cpp"
+		"OloEngine/Tasks/TaskEvent.h"
+		"OloEngine/Tasks/TaskEvent.cpp"
+		"OloEngine/Tasks/TaskWait.h"
+		"OloEngine/Tasks/TaskWait.cpp"
 
 		"OloEngine/Debug/Instrumentor.h"
 		"OloEngine/Debug/Profiler.h"

@@ -17,8 +17,8 @@ add_executable(OloEngine-Tests
 	LockFreeQueueTest.cpp
 	# Phase 3: Worker threads
 	WorkerThreadTest.cpp
-		# Phase 4: Synchronization (to be added)
-		# TaskSynchronizationTest.cpp
+	# Phase 4: Synchronization primitives
+	TaskSynchronizationTest.cpp
 		# Phase 5: Advanced features (to be added)
 		# AdvancedTaskTest.cpp
 		# Phase 6: Integration (to be added)

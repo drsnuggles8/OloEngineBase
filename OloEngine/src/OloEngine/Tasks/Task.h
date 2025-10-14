@@ -125,6 +125,42 @@ namespace OloEngine
             m_State.store(state, std::memory_order_release);
         }
 
+        /**
+         * @brief Add a prerequisite task that must complete before this task can run
+         * 
+         * This increments the prerequisite counter. When all prerequisites complete,
+         * they will decrement the counter. When it reaches zero, the task is ready to schedule.
+         * 
+         * @param prerequisite The task that must complete first
+         */
+        void AddPrerequisite(Ref<Task> prerequisite);
+
+        /**
+         * @brief Get the current prerequisite count
+         * @return Number of incomplete prerequisites
+         */
+        i32 GetPrerequisiteCount() const
+        {
+            return m_PrerequisiteCount.load(std::memory_order_acquire);
+        }
+
+        /**
+         * @brief Check if all prerequisites are completed
+         * @return True if no outstanding prerequisites
+         */
+        bool ArePrerequisitesComplete() const
+        {
+            return GetPrerequisiteCount() == 0;
+        }
+
+        /**
+         * @brief Called when this task completes - notifies all subsequent tasks
+         * 
+         * This is called internally after the task Execute() completes.
+         * It decrements prerequisite counters of all dependent tasks.
+         */
+        void OnCompleted();
+
     protected:
         /**
          * @brief Protected constructor - use ExecutableTask to create tasks
@@ -177,6 +213,11 @@ namespace OloEngine
         const char* m_DebugName;                    ///< Debug name (not owned, must be string literal or long-lived)
         ETaskPriority m_Priority;                   ///< Task priority level
         std::atomic<ETaskState> m_State;            ///< Current execution state
+
+        // Dependency tracking (Phase 4)
+        std::atomic<i32> m_PrerequisiteCount{0};    ///< Number of incomplete prerequisites
+        std::vector<Ref<Task>> m_Subsequents;       ///< Tasks that depend on this task
+        std::mutex m_SubsequentsMutex;              ///< Protects m_Subsequents vector
     };
 
     /**

@@ -13,6 +13,24 @@ namespace OloEngine
 {
     // Forward declaration
     class TaskScheduler;
+    class WorkerThread;
+
+    /**
+     * @brief Set the current worker thread (for thread-local tracking)
+     * 
+     * This is called by WorkerThread::WorkerMain() to register the current thread
+     * as a worker thread. Used by TaskWait to detect if we're on a worker thread.
+     * 
+     * @param worker Pointer to current worker, or nullptr to clear
+     */
+    void SetCurrentWorkerThread(WorkerThread* worker);
+
+    /**
+     * @brief Get the current worker thread (if any)
+     * 
+     * @return Pointer to current worker thread, or nullptr if not on a worker thread
+     */
+    WorkerThread* GetCurrentWorkerThread();
 
     /**
      * @brief Worker thread type classification
@@ -112,6 +130,25 @@ namespace OloEngine
          * @return Reference to the Thread object
          */
         Thread& GetThread() { return m_Thread; }
+
+        /**
+         * @brief Find work to execute (public version for TaskWait)
+         * 
+         * This is used by TaskWait::Wait() to allow waiting threads to execute
+         * other tasks while waiting, keeping workers productive.
+         * 
+         * @return Task to execute, or null if no work found
+         */
+        Ref<Task> FindWorkPublic() { return FindWork(); }
+
+        /**
+         * @brief Execute a task (public version for TaskWait)
+         * 
+         * This is used by TaskWait::Wait() to execute tasks on the current thread.
+         * 
+         * @param task The task to execute
+         */
+        void ExecuteTaskPublic(Ref<Task> task) { ExecuteTask(task); }
 
     private:
         /**

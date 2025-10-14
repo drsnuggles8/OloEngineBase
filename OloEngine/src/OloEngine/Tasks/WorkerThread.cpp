@@ -88,6 +88,9 @@ namespace OloEngine
                 WaitForWork();
             }
         }
+
+        // Unregister this worker thread
+        SetCurrentWorkerThread(nullptr);
     }
 
     Ref<Task> WorkerThread::FindWork()
@@ -176,7 +179,8 @@ namespace OloEngine
         // Transition to Completed (even if exception was thrown)
         task->SetState(ETaskState::Completed);
 
-        // TODO Phase 4: Notify dependent tasks (subsequents)
+        // Notify dependent tasks (Phase 4: Dependencies)
+        task->OnCompleted();
     }
 
     void WorkerThread::WaitForWork()
