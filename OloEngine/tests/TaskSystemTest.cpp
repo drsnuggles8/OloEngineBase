@@ -12,6 +12,10 @@
 #include "OloEngine/Tasks/TaskPriority.h"
 #include "OloEngine/Tasks/TaskScheduler.h"
 
+#include <chrono>
+#include <thread>
+#include <atomic>
+
 using namespace OloEngine;
 
 // ============================================================================
@@ -252,11 +256,30 @@ class TaskSchedulerTest : public ::testing::Test
 protected:
     void SetUp() override
     {
+        // Initialize logging system (required by Thread/ThreadSignal)
+        if (!Log::GetCoreLogger())
+        {
+            Log::Init();
+        }
+
         // Ensure scheduler is not initialized before each test
         if (TaskScheduler::IsInitialized())
         {
             TaskScheduler::Shutdown();
         }
+    }
+
+    // Helper: Wait for task completion with timeout
+    bool WaitForCompletion(Ref<Task> task, std::chrono::milliseconds timeout = std::chrono::milliseconds(1000))
+    {
+        auto start = std::chrono::steady_clock::now();
+        while (!task->IsCompleted())
+        {
+            if (std::chrono::steady_clock::now() - start > timeout)
+                return false;  // Timeout
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+        }
+        return true;
     }
 
     void TearDown() override
@@ -317,14 +340,17 @@ TEST_F(TaskSchedulerTest, LaunchTaskBasic)
 {
     TaskScheduler::Initialize();
     
-    bool executed = false;
+    std::atomic<bool> executed{false};
     auto task = TaskScheduler::Get().Launch("BasicLaunch", [&executed]() {
-        executed = true;
+        executed.store(true, std::memory_order_release);
     });
     
     EXPECT_NE(task, nullptr);
-    // In Phase 1, task immediately completes (stub implementation)
+    
+    // Wait for async task to complete
+    EXPECT_TRUE(WaitForCompletion(task));
     EXPECT_TRUE(task->IsCompleted());
+    EXPECT_TRUE(executed.load(std::memory_order_acquire));
 }
 
 TEST_F(TaskSchedulerTest, LaunchTaskWithPriority)
@@ -348,19 +374,26 @@ TEST_F(TaskSchedulerTest, LaunchMultipleTasks)
     std::vector<Ref<Task>> tasks;
     tasks.reserve(numTasks);
     
+    std::atomic<int> executedCount{0};
+    
     for (int i = 0; i < numTasks; ++i)
     {
-        auto task = TaskScheduler::Get().Launch("MultiTask", []() {});
+        auto task = TaskScheduler::Get().Launch("MultiTask", [&executedCount]() {
+            executedCount.fetch_add(1, std::memory_order_relaxed);
+        });
         tasks.push_back(task);
     }
     
     EXPECT_EQ(tasks.size(), numTasks);
     
-    // All should be completed in Phase 1 stub
+    // Wait for all tasks to complete
     for (const auto& task : tasks)
     {
+        EXPECT_TRUE(WaitForCompletion(task));
         EXPECT_TRUE(task->IsCompleted());
     }
+    
+    EXPECT_EQ(executedCount.load(std::memory_order_acquire), numTasks);
 }
 
 // ============================================================================

@@ -4,8 +4,12 @@
 #include "OloEngine/Core/Ref.h"
 #include "Task.h"
 #include "TaskPriority.h"
+#include "GlobalWorkQueue.h"
+#include "WorkerThread.h"
 
 #include <functional>
+#include <vector>
+#include <memory>
 
 namespace OloEngine
 {
@@ -146,6 +150,21 @@ namespace OloEngine
          */
         u32 GetNumBackgroundWorkers() const { return m_NumBackgroundWorkers; }
 
+        /**
+         * @brief Get a worker by type and index
+         * @param workerType The worker type (foreground or background)
+         * @param workerIndex The worker index within that type
+         * @return Pointer to worker, or nullptr if invalid index
+         */
+        WorkerThread* GetWorker(EWorkerType workerType, u32 workerIndex);
+
+        /**
+         * @brief Get the global work queue for a priority level
+         * @param priority The task priority
+         * @return Reference to the appropriate global queue
+         */
+        GlobalWorkQueue& GetGlobalQueue(ETaskPriority priority);
+
     private:
         TaskScheduler() = default;
         ~TaskScheduler() = default;
@@ -166,12 +185,31 @@ namespace OloEngine
          */
         void LaunchTask(Ref<Task> task);
 
+        /**
+         * @brief Wake an appropriate worker for a task priority
+         * @param priority The task priority that was just queued
+         */
+        void WakeWorker(ETaskPriority priority);
+
     private:
         static TaskScheduler* s_Instance;  ///< Singleton instance
 
         u32 m_NumForegroundWorkers = 0;    ///< Number of foreground workers
         u32 m_NumBackgroundWorkers = 0;    ///< Number of background workers
         bool m_IsInitialized = false;      ///< Initialization state
+
+        // Worker thread pools
+        std::vector<std::unique_ptr<WorkerThread>> m_ForegroundWorkers;  ///< Foreground worker threads
+        std::vector<std::unique_ptr<WorkerThread>> m_BackgroundWorkers;  ///< Background worker threads
+
+        // Global work queues (one per priority level)
+        GlobalWorkQueue m_HighPriorityQueue;     ///< High priority global queue
+        GlobalWorkQueue m_NormalPriorityQueue;   ///< Normal priority global queue
+        GlobalWorkQueue m_BackgroundPriorityQueue;  ///< Background priority global queue
+
+        // Round-robin wake index for load distribution
+        std::atomic<u32> m_NextWakeIndexForeground{0};
+        std::atomic<u32> m_NextWakeIndexBackground{0};
     };
 
 } // namespace OloEngine

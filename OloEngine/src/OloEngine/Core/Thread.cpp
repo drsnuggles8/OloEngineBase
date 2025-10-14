@@ -178,6 +178,43 @@ namespace OloEngine {
 		}
 	}
 
+	bool ThreadSignal::WaitWithTimeout(u32 timeoutMs)
+	{
+		// Validate handle before calling WaitForSingleObject
+		if (m_SignalHandle == nullptr || m_SignalHandle == INVALID_HANDLE_VALUE) [[unlikely]]
+		{
+			OLO_CORE_ERROR("ThreadSignal::WaitWithTimeout failed: Invalid handle (m_SignalHandle = {})", reinterpret_cast<uintptr_t>(m_SignalHandle));
+			OLO_CORE_ASSERT(false, "ThreadSignal WaitWithTimeout called with invalid handle");
+			return false;
+		}
+
+		DWORD result = WaitForSingleObject(m_SignalHandle, timeoutMs);
+		if (result == WAIT_OBJECT_0)
+		{
+			// Signaled
+			return true;
+		}
+		else if (result == WAIT_TIMEOUT)
+		{
+			// Timeout - normal condition
+			return false;
+		}
+		else if (result == WAIT_FAILED) [[unlikely]]
+		{
+			DWORD lastError = ::GetLastError();
+			OLO_CORE_ERROR("ThreadSignal::WaitWithTimeout failed: WaitForSingleObject returned WAIT_FAILED ({}), GetLastError() = {}", result, lastError);
+			OLO_CORE_ASSERT(false, "ThreadSignal WaitWithTimeout failed");
+			return false;
+		}
+		else [[unlikely]]
+		{
+			// Unexpected result
+			OLO_CORE_ERROR("ThreadSignal::WaitWithTimeout unexpected result: WaitForSingleObject returned {}", result);
+			OLO_CORE_ASSERT(false, "ThreadSignal WaitWithTimeout returned unexpected result");
+			return false;
+		}
+	}
+
 	void ThreadSignal::Signal()
 	{
 		// Validate handle before calling SetEvent

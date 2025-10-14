@@ -56,6 +56,7 @@ namespace OloEngine {
 		ThreadSignal& operator=(ThreadSignal&& other) noexcept;
 
 		void Wait();
+		bool WaitWithTimeout(u32 timeoutMs); // Returns true if signaled, false if timeout
 		void Signal();
 		void Reset();
 	private:

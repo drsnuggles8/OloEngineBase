@@ -159,6 +159,8 @@
 		"OloEngine/Tasks/GlobalWorkQueue.cpp"
 		"OloEngine/Tasks/LockFreeAllocator.h"
 		"OloEngine/Tasks/LockFreeAllocator.cpp"
+		"OloEngine/Tasks/WorkerThread.h"
+		"OloEngine/Tasks/WorkerThread.cpp"
 
 		"OloEngine/Debug/Instrumentor.h"
 		"OloEngine/Debug/Profiler.h"
