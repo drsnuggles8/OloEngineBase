@@ -12,6 +12,15 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(prerequisite, "Cannot add null prerequisite");
         
+        // Check for circular dependencies - refuse to add if it would create a cycle
+        if (WouldCreateCycle(prerequisite))
+        {
+            OLO_CORE_ERROR("Circular dependency detected! Task '{}' already depends on '{}'. Refusing to add prerequisite.",
+                          prerequisite->GetDebugName() ? prerequisite->GetDebugName() : "unnamed",
+                          GetDebugName() ? GetDebugName() : "unnamed");
+            return;
+        }
+        
         // If prerequisite is already completed, don't add dependency
         if (prerequisite->IsCompleted())
         {
@@ -73,6 +82,51 @@ namespace OloEngine
                 }
             }
         }
+    }
+
+    bool Task::WouldCreateCycle(Ref<Task> prerequisite) const
+    {
+        // Check if there's a path from this task to the prerequisite
+        // If this task already (transitively) depends on prerequisite through its subsequents,
+        // then adding prerequisite as a dependency of this would create a cycle
+        // Example: if A → B → C (A's subsequents lead to C), then trying to add C as prerequisite
+        // of A (C → A) would create cycle: A → B → C → A
+        
+        std::unordered_set<const Task*> visited;
+        return HasPathTo(this, prerequisite.Raw(), visited);
+    }
+
+    bool Task::HasPathTo(const Task* current, const Task* target, std::unordered_set<const Task*>& visited)
+    {
+        // Base case: reached target
+        if (current == target)
+        {
+            return true;
+        }
+
+        // Already visited this task - no cycle through this path
+        if (visited.count(current) > 0)
+        {
+            return false;
+        }
+
+        // Mark as visited
+        visited.insert(current);
+
+        // Check all of current's subsequents (tasks that depend on current)
+        // If any of them have a path to target, then current has a path to target
+        {
+            std::lock_guard<std::mutex> lock(current->m_SubsequentsMutex);
+            for (const auto& subsequent : current->m_Subsequents)
+            {
+                if (HasPathTo(subsequent.Raw(), target, visited))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
 } // namespace OloEngine

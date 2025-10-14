@@ -3,8 +3,15 @@
 #include "TaskScheduler.h"
 #include "TaskEvent.h"
 #include "WorkerThread.h"
+#include "OversubscriptionScope.h"
 
 #include <thread>
+
+#ifdef _MSC_VER
+#include <intrin.h>  // For _mm_pause
+#else
+#include <emmintrin.h>  // For _mm_pause on other compilers
+#endif
 
 namespace OloEngine
 {
@@ -89,6 +96,9 @@ namespace OloEngine
             
             if (currentWorker)
             {
+                // Indicate we're blocking - may spawn standby worker to prevent deadlock
+                OversubscriptionScope oversubScope;
+                
                 // Strategy 2: Execute other tasks while waiting (keep worker productive)
                 u32 spinCount = 0;
                 const u32 maxSpinBeforeWork = 40;

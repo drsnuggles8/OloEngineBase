@@ -70,8 +70,9 @@ namespace OloEngine
          * @param scheduler Pointer to the task scheduler (for accessing global queues)
          * @param workerIndex Unique index for this worker
          * @param workerType Type of worker (foreground or background)
+         * @param isStandby True if this is a temporary standby worker (default: false)
          */
-        WorkerThread(TaskScheduler* scheduler, u32 workerIndex, EWorkerType workerType);
+        WorkerThread(TaskScheduler* scheduler, u32 workerIndex, EWorkerType workerType, bool isStandby = false);
 
         /**
          * @brief Destructor - stops the worker thread
@@ -150,6 +151,14 @@ namespace OloEngine
          */
         void ExecuteTaskPublic(Ref<Task> task) { ExecuteTask(task); }
 
+        /**
+         * @brief Detach thread and run (for standby workers)
+         * 
+         * This is used for standby workers that manage their own lifetime.
+         * The worker will delete itself when it exits.
+         */
+        void DetachAndRun();
+
     private:
         /**
          * @brief Main worker loop (runs on worker thread)
@@ -209,6 +218,9 @@ namespace OloEngine
         std::atomic<bool> m_ShouldExit;          ///< Flag to signal thread exit
         u32 m_WorkerIndex;                       ///< Unique worker index
         EWorkerType m_WorkerType;                ///< Worker type (foreground/background)
+        bool m_IsStandby;                        ///< True if this is a temporary standby worker
+        u32 m_IdleIterations;                    ///< Counter for idle cycles (standby workers only)
+        static constexpr u32 s_StandbyIdleLimit = 100;  ///< Idle iterations before standby worker exits
         
         // Random number generator for work stealing (per-thread, no synchronization needed)
         std::mt19937 m_RandomEngine;             ///< RNG for random steal starting point

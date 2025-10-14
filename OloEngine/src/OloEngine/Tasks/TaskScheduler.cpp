@@ -192,4 +192,47 @@ namespace OloEngine
         }
     }
 
+    void TaskScheduler::IncrementOversubscription()
+    {
+        u32 level = m_OversubscriptionLevel.fetch_add(1, std::memory_order_relaxed) + 1;
+        
+        // If we have too many workers blocked and haven't reached standby limit, spawn a standby worker
+        // We only spawn standby workers if more than 50% of permanent workers are blocked
+        u32 totalWorkers = m_NumForegroundWorkers + m_NumBackgroundWorkers;
+        u32 threshold = totalWorkers / 2;
+        
+        if (level > threshold)
+        {
+            u32 currentStandby = m_StandbyWorkerCount.load(std::memory_order_relaxed);
+            if (currentStandby < s_MaxStandbyWorkers)
+            {
+                // Try to increment standby count
+                if (m_StandbyWorkerCount.compare_exchange_strong(currentStandby, currentStandby + 1,
+                                                                  std::memory_order_relaxed))
+                {
+                    // Successfully claimed a standby slot - spawn a temporary foreground worker
+                    // Note: Standby workers are not tracked in the m_ForegroundWorkers vector
+                    // They will self-destruct after idle timeout
+                    auto standbyWorker = std::make_unique<WorkerThread>(
+                        this, 
+                        m_NumForegroundWorkers + currentStandby,  // Unique index
+                        EWorkerType::Foreground,
+                        true  // isStandby flag
+                    );
+                    
+                    // Detach the thread - it will manage its own lifetime
+                    standbyWorker->DetachAndRun();
+                    
+                    // Worker object will delete itself when done
+                    standbyWorker.release();
+                }
+            }
+        }
+    }
+
+    void TaskScheduler::DecrementOversubscription()
+    {
+        m_OversubscriptionLevel.fetch_sub(1, std::memory_order_relaxed);
+    }
+
 } // namespace OloEngine

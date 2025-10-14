@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <functional>
+#include <unordered_set>
 
 namespace OloEngine
 {
@@ -161,6 +162,27 @@ namespace OloEngine
          */
         void OnCompleted();
 
+    private:
+        /**
+         * @brief Check if adding a prerequisite would create a circular dependency
+         * 
+         * Uses DFS to detect if there's a path from prerequisite back to this task.
+         * Only checks in debug builds for performance reasons.
+         * 
+         * @param prerequisite The task to check
+         * @return True if adding would create a cycle
+         */
+        bool WouldCreateCycle(Ref<Task> prerequisite) const;
+
+        /**
+         * @brief Helper for cycle detection - DFS traversal
+         * @param current Current task being visited
+         * @param target Target task we're looking for
+         * @param visited Set of visited tasks to prevent infinite loops
+         * @return True if path from current to target exists
+         */
+        static bool HasPathTo(const Task* current, const Task* target, std::unordered_set<const Task*>& visited);
+
     protected:
         /**
          * @brief Protected constructor - use ExecutableTask to create tasks
@@ -216,8 +238,8 @@ namespace OloEngine
 
         // Dependency tracking (Phase 4)
         std::atomic<i32> m_PrerequisiteCount{0};    ///< Number of incomplete prerequisites
-        std::vector<Ref<Task>> m_Subsequents;       ///< Tasks that depend on this task
-        std::mutex m_SubsequentsMutex;              ///< Protects m_Subsequents vector
+        std::vector<Ref<Task>> m_Subsequents;          ///< Tasks that depend on this one
+        mutable std::mutex m_SubsequentsMutex;      ///< Protects m_Subsequents vector (mutable for const correctness)
     };
 
     /**

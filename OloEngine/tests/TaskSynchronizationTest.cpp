@@ -592,3 +592,106 @@ TEST_F(TaskSynchronizationTest, ComplexDependencyGraph)
         }
     }
 }
+
+// ============================================================================
+// Circular Dependency Detection Tests (Debug builds only)
+// ============================================================================
+
+// Note: Circular dependency detection is only enabled in debug builds for performance.
+// In debug builds, attempting to create a cycle will trigger an assertion.
+// These tests verify the cycle detection logic works correctly.
+
+TEST_F(TaskSynchronizationTest, CircularDependencyDirectCycle)
+{
+    // Create two tasks with a direct circular dependency: A -> B -> A
+    auto taskA = CreateTask("TaskA", ETaskPriority::Normal, []() {});
+    auto taskB = CreateTask("TaskB", ETaskPriority::Normal, []() {});
+
+    // Add A as prerequisite of B
+    taskB->AddPrerequisite(taskA);
+
+    // Trying to add B as prerequisite of A should be detected as a cycle
+    taskA->AddPrerequisite(taskB);  // Should refuse to add - would create cycle
+    
+    // B should not have been added as a prerequisite to A (cycle detected and refused)
+    EXPECT_EQ(taskA->GetPrerequisiteCount(), 0);
+    EXPECT_EQ(taskB->GetPrerequisiteCount(), 1);
+}
+
+TEST_F(TaskSynchronizationTest, CircularDependencyIndirectCycle)
+{
+    // Create tasks: A -> B -> C, then try C -> A (creates cycle)
+    auto taskA = CreateTask("TaskA", ETaskPriority::Normal, []() {});
+    auto taskB = CreateTask("TaskB", ETaskPriority::Normal, []() {});
+    auto taskC = CreateTask("TaskC", ETaskPriority::Normal, []() {});
+
+    // Build chain: C -> B -> A
+    taskB->AddPrerequisite(taskA);
+    taskC->AddPrerequisite(taskB);
+
+    // Trying to add C as prerequisite of A would create cycle (A -> B -> C -> A)
+    taskA->AddPrerequisite(taskC);  // Should refuse to add - would create cycle
+    
+    // A should not have been added as a prerequisite to C (cycle detected and refused)
+    EXPECT_EQ(taskC->GetPrerequisiteCount(), 1);
+    EXPECT_EQ(taskB->GetPrerequisiteCount(), 1);
+    EXPECT_EQ(taskA->GetPrerequisiteCount(), 0);
+}
+
+TEST_F(TaskSynchronizationTest, CircularDependencySelfCycle)
+{
+    // Create a task that depends on itself
+    auto task = CreateTask("SelfDependent", ETaskPriority::Normal, []() {});
+    // Trying to add itself as prerequisite
+    task->AddPrerequisite(task);  // Should refuse to add - would create self-cycle
+    
+    // Task should not have added itself as a prerequisite (cycle detected and refused)
+    EXPECT_EQ(task->GetPrerequisiteCount(), 0);
+}
+
+TEST_F(TaskSynchronizationTest, CircularDependencyComplexCycle)
+{
+    // Create a more complex cycle: A -> B -> C -> D, then try D -> B (creates cycle)
+    auto taskA = CreateTask("TaskA", ETaskPriority::Normal, []() {});
+    auto taskB = CreateTask("TaskB", ETaskPriority::Normal, []() {});
+    auto taskC = CreateTask("TaskC", ETaskPriority::Normal, []() {});
+    auto taskD = CreateTask("TaskD", ETaskPriority::Normal, []() {});
+
+    // Build chain: D -> C -> B -> A
+    taskB->AddPrerequisite(taskA);
+    taskC->AddPrerequisite(taskB);
+    taskD->AddPrerequisite(taskC);
+
+    // Now try to add D as prerequisite of B (would create cycle: B -> C -> D -> B)
+    taskB->AddPrerequisite(taskD);  // Should refuse to add - would create cycle
+    
+    // B should not have been added as a prerequisite to D (cycle detected and refused)
+    EXPECT_EQ(taskD->GetPrerequisiteCount(), 1);
+    EXPECT_EQ(taskC->GetPrerequisiteCount(), 1);
+    EXPECT_EQ(taskB->GetPrerequisiteCount(), 1);
+    EXPECT_EQ(taskA->GetPrerequisiteCount(), 0);
+}
+
+TEST_F(TaskSynchronizationTest, CircularDependencyNoCycleWithValidDependencies)
+{
+    // Verify that valid (acyclic) dependency graphs don't trigger false positives
+    auto taskA = CreateTask("TaskA", ETaskPriority::Normal, []() {});
+    auto taskB = CreateTask("TaskB", ETaskPriority::Normal, []() {});
+    auto taskC = CreateTask("TaskC", ETaskPriority::Normal, []() {});
+    auto taskD = CreateTask("TaskD", ETaskPriority::Normal, []() {});
+
+    // Build a valid DAG (Directed Acyclic Graph):
+    // A -> B -> D
+    // A -> C -> D
+    taskB->AddPrerequisite(taskA);
+    taskC->AddPrerequisite(taskA);
+    taskD->AddPrerequisite(taskB);
+    taskD->AddPrerequisite(taskC);
+
+    // This should succeed - it's a valid DAG with no cycles
+    EXPECT_EQ(taskD->GetPrerequisiteCount(), 2);
+    EXPECT_EQ(taskC->GetPrerequisiteCount(), 1);
+    EXPECT_EQ(taskB->GetPrerequisiteCount(), 1);
+    EXPECT_EQ(taskA->GetPrerequisiteCount(), 0);
+}
+

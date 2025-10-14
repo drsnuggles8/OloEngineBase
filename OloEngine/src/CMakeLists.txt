@@ -165,6 +165,9 @@
 		"OloEngine/Tasks/TaskEvent.cpp"
 		"OloEngine/Tasks/TaskWait.h"
 		"OloEngine/Tasks/TaskWait.cpp"
+		"OloEngine/Tasks/ParallelFor.h"
+		"OloEngine/Tasks/ParallelFor.cpp"
+		"OloEngine/Tasks/OversubscriptionScope.h"
 
 		"OloEngine/Debug/Instrumentor.h"
 		"OloEngine/Debug/Profiler.h"

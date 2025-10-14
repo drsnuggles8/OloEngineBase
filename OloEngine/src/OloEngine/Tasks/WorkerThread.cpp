@@ -14,13 +14,15 @@
 
 namespace OloEngine
 {
-    WorkerThread::WorkerThread(TaskScheduler* scheduler, u32 workerIndex, EWorkerType workerType)
+    WorkerThread::WorkerThread(TaskScheduler* scheduler, u32 workerIndex, EWorkerType workerType, bool isStandby)
         : m_Scheduler(scheduler)
         , m_Thread(std::string("Worker_") + std::to_string(workerIndex))
         , m_WakeEvent(std::string("WorkerWake_") + std::to_string(workerIndex), false)
         , m_ShouldExit(false)
         , m_WorkerIndex(workerIndex)
         , m_WorkerType(workerType)
+        , m_IsStandby(isStandby)
+        , m_IdleIterations(0)
     {
         OLO_PROFILE_FUNCTION();
         
@@ -28,8 +30,11 @@ namespace OloEngine
         m_RandomEngine.seed(static_cast<u32>(
             std::chrono::steady_clock::now().time_since_epoch().count() + workerIndex));
 
-        // Start the worker thread
-        m_Thread.Dispatch([this]() { WorkerMain(); });
+        // Start the worker thread (only if not standby - standby uses DetachAndRun)
+        if (!m_IsStandby)
+        {
+            m_Thread.Dispatch([this]() { WorkerMain(); });
+        }
     }
 
     WorkerThread::~WorkerThread()
@@ -68,11 +73,23 @@ namespace OloEngine
         m_WakeEvent.Signal();
     }
 
+    void WorkerThread::DetachAndRun()
+    {
+        // Standby workers run on their own thread and manage their own lifetime
+        // We spawn the thread and it will delete itself when done
+        m_Thread.Dispatch([this]() {
+            WorkerMain();
+            // When WorkerMain exits, delete ourselves
+            delete this;
+        });
+    }
+
     void WorkerThread::WorkerMain()
     {
         OLO_PROFILE_FUNCTION();
         
-        // Note: No logging - Log system may not be initialized
+        // Register this thread as a worker thread (for TaskWait detection)
+        SetCurrentWorkerThread(this);
 
         while (!m_ShouldExit.load(std::memory_order_acquire))
         {
@@ -81,10 +98,29 @@ namespace OloEngine
             if (task)
             {
                 ExecuteTask(task);
+                
+                // Reset idle counter when we found work
+                if (m_IsStandby)
+                {
+                    m_IdleIterations = 0;
+                }
             }
             else
             {
-                // No work found - wait for more
+                // No work found
+                if (m_IsStandby)
+                {
+                    // Standby workers exit after being idle too long
+                    ++m_IdleIterations;
+                    if (m_IdleIterations >= s_StandbyIdleLimit)
+                    {
+                        // Decrement standby counter and exit
+                        m_Scheduler->m_StandbyWorkerCount.fetch_sub(1, std::memory_order_relaxed);
+                        break;
+                    }
+                }
+                
+                // Wait for more work
                 WaitForWork();
             }
         }

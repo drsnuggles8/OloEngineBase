@@ -19,8 +19,8 @@ add_executable(OloEngine-Tests
 	WorkerThreadTest.cpp
 	# Phase 4: Synchronization primitives
 	TaskSynchronizationTest.cpp
-		# Phase 5: Advanced features (to be added)
-		# AdvancedTaskTest.cpp
+	# Phase 5: Advanced features
+	AdvancedTaskTest.cpp
 		# Phase 6: Integration (to be added)
 		# IntegrationTest.cpp
 		# Phase 7: Profiling and debugging (to be added)
@@ -30,6 +30,9 @@ add_executable(OloEngine-Tests
 target_link_libraries(OloEngine-Tests
 	OloEngine
 	gtest_main)
+
+# Apply common OloEngine definitions (including OLO_DEBUG for Debug builds)
+olo_set_common_definitions(OloEngine-Tests)
 
 # Fix UTF-8 compilation issue
 if(MSVC)

@@ -70,6 +70,9 @@ namespace OloEngine
      */
     class TaskScheduler
     {
+        // WorkerThread needs access to standby worker count
+        friend class WorkerThread;
+        
     public:
         /**
          * @brief Initialize the task scheduler
@@ -209,6 +212,28 @@ namespace OloEngine
          */
         GlobalWorkQueue& GetGlobalQueue(ETaskPriority priority);
 
+        /**
+         * @brief Increment oversubscription counter
+         * 
+         * When a worker blocks waiting for a task, it should call this to indicate
+         * that the system may be undersubscribed. This may spawn a standby worker
+         * to prevent deadlock scenarios where all workers are blocked.
+         */
+        void IncrementOversubscription();
+
+        /**
+         * @brief Decrement oversubscription counter
+         * 
+         * Called when a blocked worker resumes execution.
+         */
+        void DecrementOversubscription();
+
+        /**
+         * @brief Get current oversubscription level
+         * @return Number of currently blocked workers
+         */
+        u32 GetOversubscriptionLevel() const { return m_OversubscriptionLevel.load(std::memory_order_relaxed); }
+
     private:
 
     private:
@@ -246,6 +271,11 @@ namespace OloEngine
         // Round-robin wake index for load distribution
         std::atomic<u32> m_NextWakeIndexForeground{0};
         std::atomic<u32> m_NextWakeIndexBackground{0};
+
+        // Oversubscription tracking
+        std::atomic<u32> m_OversubscriptionLevel{0};  ///< Number of workers currently blocked
+        std::atomic<u32> m_StandbyWorkerCount{0};     ///< Number of active standby workers
+        static constexpr u32 s_MaxStandbyWorkers = 8;  ///< Maximum standby workers to spawn
     };
 
 } // namespace OloEngine
