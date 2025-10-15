@@ -17,13 +17,16 @@ namespace OloEngine
      * Ready -> Scheduled -> Running -> Completed
      * 
      * Retraction optimization allows: Scheduled -> Ready -> Running -> Completed
+     * Cancellation paths: Ready -> Cancelled, Scheduled -> Cancelled
+     * Tasks cannot be cancelled once Running (will complete normally)
      */
     enum class ETaskState : u8
     {
         Ready,      ///< Task created, ready to launch
         Scheduled,  ///< Task queued for execution (in local or global queue)
         Running,    ///< Task currently executing
-        Completed   ///< Task finished execution
+        Completed,  ///< Task finished execution
+        Cancelled   ///< Task was cancelled before execution
     };
 
     /**
@@ -71,6 +74,25 @@ namespace OloEngine
         bool IsCompleted() const 
         { 
             return GetState() == ETaskState::Completed; 
+        }
+
+        /**
+         * @brief Check if the task has been cancelled
+         * @return True if task is in Cancelled state
+         */
+        bool IsCancelled() const
+        {
+            return GetState() == ETaskState::Cancelled;
+        }
+
+        /**
+         * @brief Check if the task is done (completed or cancelled)
+         * @return True if task is in Completed or Cancelled state
+         */
+        bool IsDone() const
+        {
+            ETaskState state = GetState();
+            return state == ETaskState::Completed || state == ETaskState::Cancelled;
         }
 
         /**
@@ -162,6 +184,23 @@ namespace OloEngine
          */
         void OnCompleted();
 
+        /**
+         * @brief Cancel the task if not yet running
+         * 
+         * Attempts to cancel the task. Tasks can only be cancelled if they are in
+         * Ready or Scheduled state. Once a task is Running, it cannot be cancelled
+         * and will complete normally.
+         * 
+         * When a task is cancelled:
+         * - Its state transitions to Cancelled
+         * - Dependent tasks (subsequents) are notified (prerequisites decremented)
+         * - The task is treated as "done" (IsDone() returns true)
+         * - Execute() will never be called
+         * 
+         * @return True if task was successfully cancelled, false if already running/completed
+         */
+        bool Cancel();
+
     private:
         /**
          * @brief Check if adding a prerequisite would create a circular dependency
@@ -201,7 +240,10 @@ namespace OloEngine
          * 
          * Valid transitions:
          * - Ready -> Scheduled
+         * - Ready -> Cancelled (cancellation)
          * - Scheduled -> Running
+         * - Scheduled -> Cancelled (cancellation)
+         * - Scheduled -> Ready (retraction)
          * - Running -> Completed
          * 
          * All other transitions are invalid.
@@ -215,16 +257,17 @@ namespace OloEngine
             switch (from)
             {
                 case ETaskState::Ready:
-                    return to == ETaskState::Scheduled;
+                    return to == ETaskState::Scheduled || to == ETaskState::Cancelled;
                 
                 case ETaskState::Scheduled:
-                    return to == ETaskState::Running;
+                    return to == ETaskState::Running || to == ETaskState::Cancelled || to == ETaskState::Ready;
                 
                 case ETaskState::Running:
                     return to == ETaskState::Completed;
                 
                 case ETaskState::Completed:
-                    return false;  // Cannot transition from Completed
+                case ETaskState::Cancelled:
+                    return false;  // Cannot transition from terminal states
                 
                 default:
                     return false;

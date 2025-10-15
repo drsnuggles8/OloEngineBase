@@ -38,9 +38,11 @@ namespace OloEngine
             if (!task)
                 return false;
 
-            // If already completed, nothing to do
-            if (task->IsCompleted())
+            // If already done (completed or cancelled), nothing to do
+            if (task->IsDone())
+            {
                 return true;
+            }
 
             // Try to transition from Scheduled back to Ready
             // This prevents the worker thread from executing it
@@ -53,11 +55,18 @@ namespace OloEngine
             }
 
             // Successfully retracted - now execute inline
-            // Transition Ready -> Running
+            // Must follow state machine: Ready -> Scheduled -> Running
             expected = ETaskState::Ready;
-            if (!task->TryTransitionState(expected, ETaskState::Running))
+            if (!task->TryTransitionState(expected, ETaskState::Scheduled))
             {
                 // State changed between our retraction and now - shouldn't happen
+                return false;
+            }
+
+            expected = ETaskState::Scheduled;
+            if (!task->TryTransitionState(expected, ETaskState::Running))
+            {
+                // State changed - shouldn't happen
                 return false;
             }
 
@@ -74,6 +83,12 @@ namespace OloEngine
             // Mark as completed
             task->SetState(ETaskState::Completed);
 
+            // Notify scheduler for statistics
+            if (TaskScheduler::IsInitialized())
+            {
+                TaskScheduler::Get().OnTaskCompleted();
+            }
+
             // Notify dependent tasks
             task->OnCompleted();
 
@@ -89,7 +104,9 @@ namespace OloEngine
 
             // Strategy 1: Try retraction first (best case - no wait at all)
             if (TryRetractAndExecute(task))
+            {
                 return;
+            }
 
             // Check if we're on a worker thread
             WorkerThread* currentWorker = GetCurrentWorkerThread();
@@ -103,7 +120,7 @@ namespace OloEngine
                 u32 spinCount = 0;
                 const u32 maxSpinBeforeWork = 40;
                 
-                while (!task->IsCompleted())
+                while (!task->IsDone())
                 {
                     // Try to find other work to do
                     Ref<Task> otherTask = currentWorker->FindWorkPublic();
@@ -130,16 +147,16 @@ namespace OloEngine
             }
 
             // Strategy 3: Fall back to spin-then-sleep wait
-            if (!task->IsCompleted())
+            if (!task->IsDone())
             {
                 // Brief spin
-                for (u32 i = 0; i < 40 && !task->IsCompleted(); ++i)
+                for (u32 i = 0; i < 40 && !task->IsDone(); ++i)
                 {
                     _mm_pause();
                 }
                 
                 // Yield if still not done
-                while (!task->IsCompleted())
+                while (!task->IsDone())
                 {
                     std::this_thread::yield();
                 }

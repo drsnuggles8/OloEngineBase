@@ -11,6 +11,7 @@
 #include "OloEngine/Tasks/Task.h"
 #include "OloEngine/Tasks/TaskPriority.h"
 #include "OloEngine/Tasks/TaskScheduler.h"
+#include "OloEngine/Tasks/TaskWait.h"
 
 #include <chrono>
 #include <thread>
@@ -241,10 +242,16 @@ TEST(TaskSystemTest, InvalidStateTransitionsPrevented)
     EXPECT_TRUE(success);
     EXPECT_EQ(task->GetState(), ETaskState::Scheduled);
     
-    // Try to go from Scheduled back to Ready (should fail - no backwards transitions)
+    // NEW: Scheduled -> Ready IS allowed (for retraction)
     expected = ETaskState::Scheduled;
     success = task->TryTransitionState(expected, ETaskState::Ready);
-    EXPECT_FALSE(success) << "Should not be able to transition backwards";
+    EXPECT_TRUE(success) << "Scheduled -> Ready should be allowed for retraction";
+    EXPECT_EQ(task->GetState(), ETaskState::Ready);
+    
+    // Transition back to Scheduled for further testing
+    expected = ETaskState::Ready;
+    success = task->TryTransitionState(expected, ETaskState::Scheduled);
+    EXPECT_TRUE(success);
     EXPECT_EQ(task->GetState(), ETaskState::Scheduled);
     
     // Try to skip Running (Scheduled -> Completed should fail)
@@ -495,3 +502,452 @@ TEST(TaskSystemTest, TaskReferenceCountingWorks)
     // task2 destroyed
     EXPECT_EQ(task1->GetRefCount(), 1);
 }
+
+// ============================================================================
+// Task Cancellation Tests (Priority 1.1)
+// ============================================================================
+
+TEST(TaskSystemTest, CancelTaskInReadyState)
+{
+    bool executed = false;
+    auto task = CreateTask("CancelReady", ETaskPriority::Normal, [&executed]() {
+        executed = true;
+    });
+
+    EXPECT_EQ(task->GetState(), ETaskState::Ready);
+    EXPECT_FALSE(task->IsCancelled());
+    EXPECT_FALSE(task->IsDone());
+
+    // Cancel the task
+    bool cancelled = task->Cancel();
+    
+    EXPECT_TRUE(cancelled);
+    EXPECT_EQ(task->GetState(), ETaskState::Cancelled);
+    EXPECT_TRUE(task->IsCancelled());
+    EXPECT_TRUE(task->IsDone());
+    EXPECT_FALSE(task->IsCompleted());
+    
+    // Verify task was never executed
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    EXPECT_FALSE(executed);
+}
+
+TEST(TaskSystemTest, CancelTaskInScheduledState)
+{
+    // Initialize scheduler for this test
+    if (!TaskScheduler::IsInitialized())
+    {
+        TaskSchedulerConfig config;
+        config.NumForegroundWorkers = 2;
+        config.NumBackgroundWorkers = 1;
+        TaskScheduler::Initialize(config);
+    }
+
+    std::atomic<bool> executed{false};
+    auto task = TaskScheduler::Get().Launch("CancelScheduled", ETaskPriority::Normal, [&executed]() {
+        executed.store(true, std::memory_order_release);
+    });
+
+    // Give it a moment to potentially be scheduled (but likely not executed yet)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+    // Try to cancel - may succeed if still scheduled, or fail if already running
+    bool cancelled = task->Cancel();
+    
+    // Wait a bit to see if it executes
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    
+    if (cancelled)
+    {
+        // Successfully cancelled - should not have executed
+        EXPECT_TRUE(task->IsCancelled());
+        EXPECT_FALSE(executed.load(std::memory_order_acquire));
+    }
+    else
+    {
+        // Was already running or completed - should have executed
+        EXPECT_TRUE(task->IsCompleted() || task->GetState() == ETaskState::Running);
+    }
+
+    TaskScheduler::Shutdown();
+}
+
+TEST(TaskSystemTest, CannotCancelRunningTask)
+{
+    // Initialize scheduler
+    if (!TaskScheduler::IsInitialized())
+    {
+        TaskSchedulerConfig config;
+        config.NumForegroundWorkers = 2;
+        config.NumBackgroundWorkers = 1;
+        TaskScheduler::Initialize(config);
+    }
+
+    std::atomic<bool> taskStarted{false};
+    std::atomic<bool> allowTaskToComplete{false};
+    
+    auto task = TaskScheduler::Get().Launch("CannotCancelRunning", ETaskPriority::High, [&]() {
+        taskStarted.store(true, std::memory_order_release);
+        // Wait until we're allowed to complete
+        while (!allowTaskToComplete.load(std::memory_order_acquire))
+        {
+            std::this_thread::yield();
+        }
+    });
+
+    // Wait for task to start running
+    while (!taskStarted.load(std::memory_order_acquire))
+    {
+        std::this_thread::yield();
+    }
+
+    // Try to cancel while running - should fail
+    bool cancelled = task->Cancel();
+    EXPECT_FALSE(cancelled);
+    EXPECT_EQ(task->GetState(), ETaskState::Running);
+
+    // Allow task to complete
+    allowTaskToComplete.store(true, std::memory_order_release);
+    
+    // Wait for completion
+    while (!task->IsCompleted())
+    {
+        std::this_thread::yield();
+    }
+
+    EXPECT_TRUE(task->IsCompleted());
+    EXPECT_FALSE(task->IsCancelled());
+
+    TaskScheduler::Shutdown();
+}
+
+TEST(TaskSystemTest, CannotCancelCompletedTask)
+{
+    bool executed = false;
+    auto task = CreateTask("CannotCancelCompleted", ETaskPriority::Normal, [&executed]() {
+        executed = true;
+    });
+
+    // Execute the task
+    task->SetState(ETaskState::Running);
+    task->Execute();
+    task->SetState(ETaskState::Completed);
+
+    EXPECT_TRUE(task->IsCompleted());
+    EXPECT_TRUE(executed);
+
+    // Try to cancel - should fail
+    bool cancelled = task->Cancel();
+    EXPECT_FALSE(cancelled);
+    EXPECT_TRUE(task->IsCompleted());
+    EXPECT_FALSE(task->IsCancelled());
+}
+
+TEST(TaskSystemTest, CancelledTaskNotifiesSubsequents)
+{
+    // Initialize scheduler
+    if (!TaskScheduler::IsInitialized())
+    {
+        TaskSchedulerConfig config;
+        config.NumForegroundWorkers = 2;
+        config.NumBackgroundWorkers = 1;
+        TaskScheduler::Initialize(config);
+    }
+
+    std::atomic<bool> task1Executed{false};
+    std::atomic<bool> task2Executed{false};
+
+    auto task1 = CreateTask("Task1", ETaskPriority::Normal, [&task1Executed]() {
+        task1Executed.store(true, std::memory_order_release);
+    });
+
+    auto task2 = CreateTask("Task2", ETaskPriority::Normal, [&task2Executed]() {
+        task2Executed.store(true, std::memory_order_release);
+    });
+
+    // Task2 depends on Task1
+    task2->AddPrerequisite(task1);
+    EXPECT_EQ(task2->GetPrerequisiteCount(), 1);
+
+    // Cancel task1 before launching
+    bool cancelled = task1->Cancel();
+    EXPECT_TRUE(cancelled);
+    EXPECT_TRUE(task1->IsCancelled());
+
+    // Task2's prerequisite count should have been decremented
+    EXPECT_EQ(task2->GetPrerequisiteCount(), 0);
+    
+    // Task2 should now be launchable
+    TaskScheduler::Get().LaunchTask(task2);
+    
+    // Wait for task2 to complete
+    while (!task2->IsDone())
+    {
+        std::this_thread::yield();
+    }
+
+    // Task1 should not have executed, but Task2 should have
+    EXPECT_FALSE(task1Executed.load(std::memory_order_acquire));
+    EXPECT_TRUE(task2Executed.load(std::memory_order_acquire));
+    EXPECT_TRUE(task2->IsCompleted());
+
+    TaskScheduler::Shutdown();
+}
+
+TEST(TaskSystemTest, WaitForCancelledTaskReturnsImmediately)
+{
+    auto task = CreateTask("WaitCancelled", ETaskPriority::Normal, []() {
+        // Should never execute
+    });
+
+    // Cancel the task
+    task->Cancel();
+    EXPECT_TRUE(task->IsCancelled());
+
+    // Wait should return immediately
+    auto startTime = std::chrono::steady_clock::now();
+    TaskWait::Wait(task);
+    auto endTime = std::chrono::steady_clock::now();
+    
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
+    
+    // Should take very little time (< 10ms)
+    EXPECT_LT(elapsed.count(), 10);
+}
+
+TEST(TaskSystemTest, IsDoneReturnsTrueForCancelledAndCompleted)
+{
+    auto task1 = CreateTask("Task1", ETaskPriority::Normal, []() {});
+    auto task2 = CreateTask("Task2", ETaskPriority::Normal, []() {});
+
+    // Cancel task1
+    task1->Cancel();
+    EXPECT_TRUE(task1->IsDone());
+    EXPECT_TRUE(task1->IsCancelled());
+    EXPECT_FALSE(task1->IsCompleted());
+
+    // Complete task2
+    task2->SetState(ETaskState::Running);
+    task2->Execute();
+    task2->SetState(ETaskState::Completed);
+    
+    EXPECT_TRUE(task2->IsDone());
+    EXPECT_FALSE(task2->IsCancelled());
+    EXPECT_TRUE(task2->IsCompleted());
+}
+
+// ============================================================================
+// Task Scheduler Statistics Tests (Priority 1.2)
+// ============================================================================
+
+TEST(TaskSystemTest, GetStatisticsBasic)
+{
+    // Initialize scheduler
+    if (!TaskScheduler::IsInitialized())
+    {
+        TaskSchedulerConfig config;
+        config.NumForegroundWorkers = 2;
+        config.NumBackgroundWorkers = 1;
+        TaskScheduler::Initialize(config);
+    }
+
+    auto stats = TaskScheduler::Get().GetStatistics();
+    
+    // Check worker counts
+    EXPECT_EQ(stats.NumForegroundWorkers, 2);
+    EXPECT_EQ(stats.NumBackgroundWorkers, 1);
+
+    TaskScheduler::Shutdown();
+}
+
+TEST(TaskSystemTest, GetStatisticsTracksLaunchedTasks)
+{
+    // Initialize scheduler
+    if (!TaskScheduler::IsInitialized())
+    {
+        TaskSchedulerConfig config;
+        config.NumForegroundWorkers = 2;
+        config.NumBackgroundWorkers = 1;
+        TaskScheduler::Initialize(config);
+    }
+
+    auto statsBefore = TaskScheduler::Get().GetStatistics();
+    u64 launchedBefore = statsBefore.TotalTasksLaunched;
+
+    // Launch some tasks
+    std::atomic<int> counter{0};
+    for (int i = 0; i < 10; ++i)
+    {
+        TaskScheduler::Get().Launch("TestTask", [&counter]() {
+            counter.fetch_add(1, std::memory_order_relaxed);
+        });
+    }
+
+    // Wait for tasks to complete
+    while (counter.load(std::memory_order_relaxed) < 10)
+    {
+        std::this_thread::yield();
+    }
+
+    auto statsAfter = TaskScheduler::Get().GetStatistics();
+    
+    // Should have launched 10 tasks
+    EXPECT_EQ(statsAfter.TotalTasksLaunched - launchedBefore, 10);
+
+    TaskScheduler::Shutdown();
+}
+
+TEST(TaskSystemTest, GetStatisticsTracksCompletedTasks)
+{
+    // Initialize scheduler
+    if (!TaskScheduler::IsInitialized())
+    {
+        TaskSchedulerConfig config;
+        config.NumForegroundWorkers = 2;
+        config.NumBackgroundWorkers = 1;
+        TaskScheduler::Initialize(config);
+    }
+
+    auto statsBefore = TaskScheduler::Get().GetStatistics();
+    u64 completedBefore = statsBefore.TotalTasksCompleted;
+
+    // Launch and complete tasks
+    std::atomic<int> counter{0};
+    for (int i = 0; i < 5; ++i)
+    {
+        TaskScheduler::Get().Launch("TestTask", [&counter]() {
+            counter.fetch_add(1, std::memory_order_relaxed);
+        });
+    }
+
+    // Wait for all tasks to complete
+    while (counter.load(std::memory_order_relaxed) < 5)
+    {
+        std::this_thread::yield();
+    }
+
+    // Give scheduler a moment to update stats
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    auto statsAfter = TaskScheduler::Get().GetStatistics();
+    
+    // All 5 tasks should be completed
+    EXPECT_EQ(statsAfter.TotalTasksCompleted - completedBefore, 5);
+
+    TaskScheduler::Shutdown();
+}
+
+TEST(TaskSystemTest, GetStatisticsTracksCancelledTasks)
+{
+    // Initialize scheduler
+    if (!TaskScheduler::IsInitialized())
+    {
+        TaskSchedulerConfig config;
+        config.NumForegroundWorkers = 2;
+        config.NumBackgroundWorkers = 1;
+        TaskScheduler::Initialize(config);
+    }
+
+    auto statsBefore = TaskScheduler::Get().GetStatistics();
+    u64 cancelledBefore = statsBefore.TotalTasksCancelled;
+
+    // Create and cancel tasks
+    for (int i = 0; i < 3; ++i)
+    {
+        auto task = CreateTask("CancelTest", ETaskPriority::Normal, []() {});
+        task->Cancel();
+    }
+
+    auto statsAfter = TaskScheduler::Get().GetStatistics();
+    
+    // Should have 3 cancelled tasks
+    EXPECT_EQ(statsAfter.TotalTasksCancelled - cancelledBefore, 3);
+
+    TaskScheduler::Shutdown();
+}
+
+TEST(TaskSystemTest, GetStatisticsTotalTasksPending)
+{
+    // Initialize scheduler
+    if (!TaskScheduler::IsInitialized())
+    {
+        TaskSchedulerConfig config;
+        config.NumForegroundWorkers = 2;
+        config.NumBackgroundWorkers = 1;
+        TaskScheduler::Initialize(config);
+    }
+
+    // Launch some tasks that will block
+    std::atomic<bool> blockTasks{true};
+    std::vector<Ref<Task>> tasks;
+    
+    for (int i = 0; i < 5; ++i)
+    {
+        tasks.push_back(TaskScheduler::Get().Launch("BlockedTask", [&blockTasks]() {
+            while (blockTasks.load(std::memory_order_acquire))
+            {
+                std::this_thread::yield();
+            }
+        }));
+    }
+
+    // Give tasks time to start
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    auto stats = TaskScheduler::Get().GetStatistics();
+    
+    // Some tasks should be pending (launched but not completed/cancelled)
+    EXPECT_GT(stats.TotalTasksPending(), 0);
+
+    // Unblock and wait for completion
+    blockTasks.store(false, std::memory_order_release);
+    for (auto& task : tasks)
+    {
+        while (!task->IsDone())
+        {
+            std::this_thread::yield();
+        }
+    }
+
+    TaskScheduler::Shutdown();
+}
+
+// ============================================================================
+// Configuration Tests
+// ============================================================================
+
+TEST(TaskSystemTest, CustomMaxQueueNodesConfiguration)
+{
+    // Test that we can configure custom queue sizes
+    TaskSchedulerConfig config;
+    config.NumForegroundWorkers = 2;
+    config.NumBackgroundWorkers = 1;
+    config.MaxQueueNodes = 1000;
+
+    TaskScheduler::Initialize(config);
+
+    // Launch tasks to verify the configured size works
+    std::vector<Ref<Task>> tasks;
+    for (u32 i = 0; i < 100; ++i)
+    {
+        tasks.push_back(TaskScheduler::Get().Launch("ConfigTest", []() {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }));
+    }
+
+    // All tasks should launch successfully
+    EXPECT_EQ(tasks.size(), 100);
+
+    // Wait for completion
+    for (auto& task : tasks)
+    {
+        while (!task->IsDone())
+        {
+            std::this_thread::yield();
+        }
+    }
+
+    TaskScheduler::Shutdown();
+}
+
+

@@ -40,7 +40,11 @@ namespace OloEngine
             explicit Node(Task* task) : TaskPtr(task) {}
         };
 
-        GlobalWorkQueue();
+        /**
+         * @brief Construct a global work queue with specified capacity
+         * @param maxNodes Maximum number of nodes in the queue (default: 4096)
+         */
+        explicit GlobalWorkQueue(u32 maxNodes = 4096);
         ~GlobalWorkQueue();
 
         /**
@@ -91,7 +95,7 @@ namespace OloEngine
         alignas(128) std::atomic<u32> m_ApproximateCount{0};
 
         // Node pool for lock-free allocation
-        static constexpr u32 MaxNodes = 4096;
+        u32 m_MaxNodes;                                       ///< Maximum nodes in pool
         Node* m_NodePool{nullptr};
         alignas(128) std::atomic<Node*> m_FreeList{nullptr};
         

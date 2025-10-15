@@ -80,7 +80,7 @@ namespace OloEngine
          */
         bool IsTriggered() const
         {
-            return m_EventTask && m_EventTask->IsCompleted();
+            return m_EventTask && m_EventTask->IsDone();
         }
 
         /**

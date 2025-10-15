@@ -21,8 +21,8 @@ namespace OloEngine
             return;
         }
         
-        // If prerequisite is already completed, don't add dependency
-        if (prerequisite->IsCompleted())
+        // If prerequisite is already done (completed or cancelled), don't add dependency
+        if (prerequisite->IsDone())
         {
             return;
         }
@@ -36,11 +36,34 @@ namespace OloEngine
             prerequisite->m_Subsequents.push_back(Ref<Task>(this));
         }
 
+        // IMPORTANT: Race condition handling (TOCTOU - Time Of Check, Time Of Use)
+        // ------------------------------------------------------------------------
+        // There's a potential race between the initial IsDone() check above and
+        // adding ourselves to the subsequents list. The prerequisite might complete
+        // in this window:
+        //
+        // Timeline of race:
+        //   Thread A (this task)              Thread B (prerequisite task)
+        //   --------------------              ----------------------------
+        //   1. Check IsDone() -> false
+        //   2. Increment count
+        //   3. Lock mutex
+        //   4. Add to subsequents              (Task completes here!)
+        //   5. Unlock mutex                    (OnCompleted() runs)
+        //                                      (Sees empty subsequents - we're not added yet!)
+        //                                      (Doesn't decrement our count!)
+        //   6. Check IsDone() again
+        //
+        // Solution: Double-check after adding to subsequents. If the prerequisite
+        // completed between our first check and adding ourselves to the list, we
+        // manually decrement our counter (since OnCompleted() already ran and won't
+        // do it). This ensures our counter stays accurate.
+        //
         // Race condition check: prerequisite might have completed between the initial
-        // IsCompleted() check and adding ourselves to the subsequents list. If so,
+        // IsDone() check and adding ourselves to the subsequents list. If so,
         // OnCompleted() has already run and won't decrement our count, so we need to
         // manually decrement it and potentially launch ourselves.
-        if (prerequisite->IsCompleted())
+        if (prerequisite->IsDone())
         {
             i32 prevCount = m_PrerequisiteCount.fetch_sub(1, std::memory_order_acq_rel);
             
@@ -82,6 +105,45 @@ namespace OloEngine
                 }
             }
         }
+    }
+
+    bool Task::Cancel()
+    {
+        // Try to transition from Ready to Cancelled
+        ETaskState expected = ETaskState::Ready;
+        if (m_State.compare_exchange_strong(expected, ETaskState::Cancelled,
+            std::memory_order_acq_rel, std::memory_order_acquire))
+        {
+            // Successfully cancelled from Ready state
+            // Notify scheduler for statistics
+            if (TaskScheduler::IsInitialized())
+            {
+                TaskScheduler::Get().OnTaskCancelled();
+            }
+            // Notify subsequents (same as OnCompleted)
+            OnCompleted();
+            return true;
+        }
+
+        // Try to transition from Scheduled to Cancelled
+        expected = ETaskState::Scheduled;
+        if (m_State.compare_exchange_strong(expected, ETaskState::Cancelled,
+            std::memory_order_acq_rel, std::memory_order_acquire))
+        {
+            // Successfully cancelled from Scheduled state
+            // Note: Task may still be in a queue, but workers will skip it when they see Cancelled state
+            // Notify scheduler for statistics
+            if (TaskScheduler::IsInitialized())
+            {
+                TaskScheduler::Get().OnTaskCancelled();
+            }
+            // Notify subsequents (same as OnCompleted)
+            OnCompleted();
+            return true;
+        }
+
+        // Task is already Running, Completed, or Cancelled - cannot cancel
+        return false;
     }
 
     bool Task::WouldCreateCycle(Ref<Task> prerequisite) const

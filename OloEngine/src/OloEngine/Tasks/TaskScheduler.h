@@ -14,6 +14,42 @@
 namespace OloEngine
 {
     /**
+     * @brief Task scheduler statistics for monitoring and debugging
+     * 
+     * Provides insights into task system health and performance.
+     * All counts are cumulative except queue depths which are current state.
+     */
+    struct TaskSchedulerStatistics
+    {
+        // Task counts
+        u64 TotalTasksLaunched = 0;          ///< Total number of tasks launched since initialization
+        u64 TotalTasksCompleted = 0;         ///< Total number of tasks completed
+        u64 TotalTasksCancelled = 0;         ///< Total number of tasks cancelled
+        
+        // Current queue depths
+        u32 HighPriorityQueueDepth = 0;      ///< Current tasks in high priority queue
+        u32 NormalPriorityQueueDepth = 0;    ///< Current tasks in normal priority queue
+        u32 BackgroundPriorityQueueDepth = 0;///< Current tasks in background priority queue
+        
+        // Worker statistics
+        u32 NumForegroundWorkers = 0;        ///< Number of foreground worker threads
+        u32 NumBackgroundWorkers = 0;        ///< Number of background worker threads
+        u32 NumStandbyWorkers = 0;           ///< Number of currently active standby workers
+        u32 OversubscriptionLevel = 0;       ///< Number of workers currently blocked
+        
+        // Computed metrics
+        u64 TotalTasksPending() const
+        {
+            return TotalTasksLaunched - TotalTasksCompleted - TotalTasksCancelled;
+        }
+        
+        u32 TotalQueueDepth() const
+        {
+            return HighPriorityQueueDepth + NormalPriorityQueueDepth + BackgroundPriorityQueueDepth;
+        }
+    };
+
+    /**
      * @brief Configuration for the task scheduler
      * 
      * Controls worker thread pool sizes and behavior.
@@ -38,6 +74,16 @@ namespace OloEngine
          * Typically ~25% of available cores.
          */
         u32 NumBackgroundWorkers = 0;
+
+        /**
+         * @brief Maximum nodes in each global work queue
+         * 
+         * Default: 4096
+         * Each priority level (High, Normal, Background) has its own queue.
+         * Increase this if you expect to queue thousands of tasks simultaneously.
+         * Note: This is per-queue, so total memory is 3 * MaxQueueNodes * sizeof(Node)
+         */
+        u32 MaxQueueNodes = 4096;
 
         /**
          * @brief Auto-detect worker counts based on CPU
@@ -234,6 +280,38 @@ namespace OloEngine
          */
         u32 GetOversubscriptionLevel() const { return m_OversubscriptionLevel.load(std::memory_order_relaxed); }
 
+        /**
+         * @brief Get current task system statistics
+         * 
+         * Provides metrics for monitoring task system health and performance.
+         * Statistics are gathered atomically but represent a snapshot in time.
+         * 
+         * @return Current statistics snapshot
+         */
+        TaskSchedulerStatistics GetStatistics() const;
+
+        /**
+         * @brief Notify scheduler that a task was completed
+         * 
+         * Called by WorkerThread when a task execution finishes.
+         * Updates statistics counters.
+         */
+        void OnTaskCompleted()
+        {
+            m_TotalTasksCompleted.fetch_add(1, std::memory_order_relaxed);
+        }
+
+        /**
+         * @brief Notify scheduler that a task was cancelled
+         * 
+         * Called by Task::Cancel() when a task is successfully cancelled.
+         * Updates statistics counters.
+         */
+        void OnTaskCancelled()
+        {
+            m_TotalTasksCancelled.fetch_add(1, std::memory_order_relaxed);
+        }
+
     private:
 
     private:
@@ -264,9 +342,9 @@ namespace OloEngine
         std::vector<std::unique_ptr<WorkerThread>> m_BackgroundWorkers;  ///< Background worker threads
 
         // Global work queues (one per priority level)
-        GlobalWorkQueue m_HighPriorityQueue;     ///< High priority global queue
-        GlobalWorkQueue m_NormalPriorityQueue;   ///< Normal priority global queue
-        GlobalWorkQueue m_BackgroundPriorityQueue;  ///< Background priority global queue
+        std::unique_ptr<GlobalWorkQueue> m_HighPriorityQueue;     ///< High priority global queue
+        std::unique_ptr<GlobalWorkQueue> m_NormalPriorityQueue;   ///< Normal priority global queue
+        std::unique_ptr<GlobalWorkQueue> m_BackgroundPriorityQueue;  ///< Background priority global queue
 
         // Round-robin wake index for load distribution
         std::atomic<u32> m_NextWakeIndexForeground{0};
@@ -276,6 +354,11 @@ namespace OloEngine
         std::atomic<u32> m_OversubscriptionLevel{0};  ///< Number of workers currently blocked
         std::atomic<u32> m_StandbyWorkerCount{0};     ///< Number of active standby workers
         static constexpr u32 s_MaxStandbyWorkers = 8;  ///< Maximum standby workers to spawn
+        
+        // Statistics tracking
+        std::atomic<u64> m_TotalTasksLaunched{0};     ///< Total tasks launched
+        std::atomic<u64> m_TotalTasksCompleted{0};    ///< Total tasks completed
+        std::atomic<u64> m_TotalTasksCancelled{0};    ///< Total tasks cancelled
     };
 
 } // namespace OloEngine

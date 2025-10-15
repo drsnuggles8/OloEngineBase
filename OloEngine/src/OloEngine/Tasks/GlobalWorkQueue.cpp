@@ -3,12 +3,13 @@
 
 namespace OloEngine
 {
-    GlobalWorkQueue::GlobalWorkQueue()
+    GlobalWorkQueue::GlobalWorkQueue(u32 maxNodes)
+        : m_MaxNodes(maxNodes)
     {
         OLO_PROFILE_FUNCTION();
 
         // Allocate node pool
-        m_NodePool = new Node[MaxNodes];
+        m_NodePool = new Node[m_MaxNodes];
         
         // Allocate dummy node (not from pool)
         m_DummyNode = new Node();
@@ -16,11 +17,11 @@ namespace OloEngine
         m_DummyNode->Next.store(nullptr, std::memory_order_relaxed);
         
         // Build free list
-        for (u32 i = 0; i < MaxNodes - 1; ++i)
+        for (u32 i = 0; i < m_MaxNodes - 1; ++i)
         {
             m_NodePool[i].Next.store(&m_NodePool[i + 1], std::memory_order_relaxed);
         }
-        m_NodePool[MaxNodes - 1].Next.store(nullptr, std::memory_order_relaxed);
+        m_NodePool[m_MaxNodes - 1].Next.store(nullptr, std::memory_order_relaxed);
         
         m_FreeList.store(&m_NodePool[0], std::memory_order_release);
         

@@ -187,11 +187,18 @@ namespace OloEngine
             return;
         }
 
+        // Check if task was cancelled before we got to it
+        if (task->IsCancelled())
+        {
+            // Task was cancelled while in queue - skip execution
+            return;
+        }
+
         // Transition from Scheduled to Running
         ETaskState expected = ETaskState::Scheduled;
         if (!task->TryTransitionState(expected, ETaskState::Running))
         {
-            // State transition failed - task might have been retracted or is in wrong state
+            // State transition failed - task might have been retracted, cancelled, or is in wrong state
             // Fail silently (no logging)
             return;
         }
@@ -214,6 +221,9 @@ namespace OloEngine
 
         // Transition to Completed (even if exception was thrown)
         task->SetState(ETaskState::Completed);
+
+        // Notify scheduler for statistics
+        m_Scheduler->OnTaskCompleted();
 
         // Notify dependent tasks (Phase 4: Dependencies)
         task->OnCompleted();

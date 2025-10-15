@@ -42,9 +42,16 @@ namespace OloEngine
 
         s_Instance->m_NumForegroundWorkers = finalConfig.NumForegroundWorkers;
         s_Instance->m_NumBackgroundWorkers = finalConfig.NumBackgroundWorkers;
+
+        // Create global work queues with configured size BEFORE starting workers
+        s_Instance->m_HighPriorityQueue = std::make_unique<GlobalWorkQueue>(finalConfig.MaxQueueNodes);
+        s_Instance->m_NormalPriorityQueue = std::make_unique<GlobalWorkQueue>(finalConfig.MaxQueueNodes);
+        s_Instance->m_BackgroundPriorityQueue = std::make_unique<GlobalWorkQueue>(finalConfig.MaxQueueNodes);
+
+        // Mark as initialized AFTER queues are created but BEFORE workers start
         s_Instance->m_IsInitialized = true;
 
-        // Create foreground worker pool
+        // Create foreground worker pool (threads will start immediately)
         // Note: No logging here - Log system may not be initialized in test contexts
         s_Instance->m_ForegroundWorkers.reserve(finalConfig.NumForegroundWorkers);
         for (u32 i = 0; i < finalConfig.NumForegroundWorkers; ++i)
@@ -109,6 +116,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         
+        // Increment launched counter
+        m_TotalTasksLaunched.fetch_add(1, std::memory_order_relaxed);
+        
         // Transition from Ready to Scheduled
         ETaskState expected = ETaskState::Ready;
         if (!task->TryTransitionState(expected, ETaskState::Scheduled))
@@ -156,14 +166,14 @@ namespace OloEngine
         switch (priority)
         {
         case ETaskPriority::High:
-            return m_HighPriorityQueue;
+            return *m_HighPriorityQueue;
         case ETaskPriority::Normal:
-            return m_NormalPriorityQueue;
+            return *m_NormalPriorityQueue;
         case ETaskPriority::Background:
-            return m_BackgroundPriorityQueue;
+            return *m_BackgroundPriorityQueue;
         default:
             OLO_CORE_ASSERT(false, "Invalid task priority");
-            return m_NormalPriorityQueue;
+            return *m_NormalPriorityQueue;
         }
     }
 
@@ -233,6 +243,29 @@ namespace OloEngine
     void TaskScheduler::DecrementOversubscription()
     {
         m_OversubscriptionLevel.fetch_sub(1, std::memory_order_relaxed);
+    }
+
+    TaskSchedulerStatistics TaskScheduler::GetStatistics() const
+    {
+        TaskSchedulerStatistics stats;
+        
+        // Task counts
+        stats.TotalTasksLaunched = m_TotalTasksLaunched.load(std::memory_order_relaxed);
+        stats.TotalTasksCompleted = m_TotalTasksCompleted.load(std::memory_order_relaxed);
+        stats.TotalTasksCancelled = m_TotalTasksCancelled.load(std::memory_order_relaxed);
+        
+        // Queue depths
+        stats.HighPriorityQueueDepth = m_HighPriorityQueue->ApproximateSize();
+        stats.NormalPriorityQueueDepth = m_NormalPriorityQueue->ApproximateSize();
+        stats.BackgroundPriorityQueueDepth = m_BackgroundPriorityQueue->ApproximateSize();
+        
+        // Worker statistics
+        stats.NumForegroundWorkers = m_NumForegroundWorkers;
+        stats.NumBackgroundWorkers = m_NumBackgroundWorkers;
+        stats.NumStandbyWorkers = m_StandbyWorkerCount.load(std::memory_order_relaxed);
+        stats.OversubscriptionLevel = m_OversubscriptionLevel.load(std::memory_order_relaxed);
+        
+        return stats;
     }
 
 } // namespace OloEngine
