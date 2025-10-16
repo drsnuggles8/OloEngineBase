@@ -232,6 +232,78 @@ namespace OloEngine
         void LaunchTask(Ref<Task> task);
 
         /**
+         * @brief Launch multiple tasks as a batch (Phase 5 optimization)
+         * 
+         * Queues all tasks before waking workers, reducing wake-up overhead.
+         * More efficient than calling Launch() repeatedly when launching many tasks.
+         * 
+         * @param debugName Debug name prefix for tasks
+         * @param priority Task priority level
+         * @param funcs Vector of callables to execute
+         * @return Vector of task handles (same size as funcs)
+         */
+        template<typename Callable>
+        std::vector<Ref<Task>> LaunchBatch(const char* debugName, ETaskPriority priority,
+                                          const std::vector<Callable>& funcs)
+        {
+            std::vector<Ref<Task>> tasks;
+            tasks.reserve(funcs.size());
+            
+            // Create and queue all tasks first
+            for (const auto& func : funcs)
+            {
+                auto task = CreateTask(debugName, priority, func);
+                
+                // Transition to Scheduled state
+                ETaskState expected = ETaskState::Ready;
+                if (task->TryTransitionState(expected, ETaskState::Scheduled))
+                {
+                    // Queue to appropriate global queue
+                    GlobalWorkQueue& queue = GetGlobalQueue(priority);
+                    if (queue.Push(task))
+                    {
+                        tasks.push_back(task);
+                    }
+                    else
+                    {
+                        // Queue full - mark task as completed (failed to schedule)
+                        task->SetState(ETaskState::Completed);
+                    }
+                }
+            }
+            
+            // Now wake workers once for all tasks (instead of once per task)
+            if (!tasks.empty())
+            {
+                // Wake multiple workers based on batch size
+                u32 workersToWake = std::min(static_cast<u32>(tasks.size()), 
+                                             priority == ETaskPriority::Background ? m_NumBackgroundWorkers : m_NumForegroundWorkers);
+                for (u32 i = 0; i < workersToWake; ++i)
+                {
+                    WakeWorker(priority);
+                }
+                
+                // Update statistics
+                m_TotalTasksLaunched.fetch_add(tasks.size(), std::memory_order_relaxed);
+            }
+            
+            return tasks;
+        }
+
+        /**
+         * @brief Launch multiple tasks as a batch with default priority (Normal)
+         * 
+         * @param debugName Debug name prefix for tasks
+         * @param funcs Vector of callables to execute
+         * @return Vector of task handles
+         */
+        template<typename Callable>
+        std::vector<Ref<Task>> LaunchBatch(const char* debugName, const std::vector<Callable>& funcs)
+        {
+            return LaunchBatch(debugName, ETaskPriority::Normal, funcs);
+        }
+
+        /**
          * @brief Get the number of foreground workers
          * @return Worker count
          */

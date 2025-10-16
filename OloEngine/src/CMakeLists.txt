@@ -168,6 +168,8 @@
 		"OloEngine/Tasks/ParallelFor.h"
 		"OloEngine/Tasks/ParallelFor.cpp"
 		"OloEngine/Tasks/OversubscriptionScope.h"
+		"OloEngine/Tasks/TaskPipe.h"
+		"OloEngine/Tasks/TaskPipe.cpp"
 
 		"OloEngine/Debug/Instrumentor.h"
 		"OloEngine/Debug/Profiler.h"

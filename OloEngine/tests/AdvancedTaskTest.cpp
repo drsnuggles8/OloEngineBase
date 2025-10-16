@@ -4,6 +4,7 @@
 // - ParallelFor correctness and performance
 // - Batch sizing logic
 // - Oversubscription (preventing deadlock)
+// - Task pipes (named threads with serialized execution)
 
 #include <gtest/gtest.h>
 #include "OloEngine/Tasks/Task.h"
@@ -12,6 +13,7 @@
 #include "OloEngine/Tasks/ParallelFor.h"
 #include "OloEngine/Tasks/OversubscriptionScope.h"
 #include "OloEngine/Tasks/TaskWait.h"
+#include "OloEngine/Tasks/TaskPipe.h"
 
 #include <atomic>
 #include <chrono>
@@ -310,6 +312,158 @@ TEST_F(AdvancedTaskTest, ParallelForSmallWorkInline)
 }
 
 // ============================================================================
+// Adaptive Batch Sizing Tests
+// ============================================================================
+
+TEST_F(AdvancedTaskTest, ParallelForAdaptiveSizingBasic)
+{
+    // Verify adaptive sizing (batchSize = -1) produces correct results
+    const i32 count = 10000;
+    std::atomic<i64> sum{0};
+
+    ParallelFor(count, [&](i32 i) {
+        sum.fetch_add(static_cast<i64>(i), std::memory_order_relaxed);
+    }, -1);  // Enable adaptive sizing
+
+    i64 expected = static_cast<i64>(count - 1) * static_cast<i64>(count) / 2;
+    EXPECT_EQ(sum.load(), expected);
+}
+
+TEST_F(AdvancedTaskTest, ParallelForAdaptiveSizingWithLightWork)
+{
+    // Light work: adaptive should choose larger batch sizes
+    const i32 count = 50000;
+    std::vector<i32> data(count);
+
+    auto startTime = std::chrono::high_resolution_clock::now();
+    
+    ParallelFor(count, [&](i32 i) {
+        data[i] = i * 2;  // Very light work
+    }, -1);  // Adaptive sizing
+
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::high_resolution_clock::now() - startTime
+    ).count();
+
+    // Verify correctness
+    for (i32 i = 0; i < count; ++i)
+    {
+        EXPECT_EQ(data[i], i * 2);
+    }
+
+    // Should complete reasonably fast (< 100ms)
+    EXPECT_LT(duration, 100000);
+}
+
+TEST_F(AdvancedTaskTest, ParallelForAdaptiveSizingWithHeavyWork)
+{
+    // Heavy work: adaptive should choose smaller batch sizes for better load balancing
+    const i32 count = 1000;
+    std::vector<i64> results(count);
+
+    ParallelFor(count, [&](i32 i) {
+        // Simulate heavy computation
+        i64 result = 0;
+        for (i32 j = 0; j < 1000; ++j)
+        {
+            result += (i * j) % 997;  // Prime modulo to avoid compiler optimization
+        }
+        results[i] = result;
+    }, -1);  // Adaptive sizing
+
+    // Verify all results were computed
+    for (i32 i = 0; i < count; ++i)
+    {
+        i64 expected = 0;
+        for (i32 j = 0; j < 1000; ++j)
+        {
+            expected += (i * j) % 997;
+        }
+        EXPECT_EQ(results[i], expected);
+    }
+}
+
+TEST_F(AdvancedTaskTest, ParallelForAdaptiveSizingVsAutoDetect)
+{
+    // Compare adaptive sizing (-1) vs auto-detect (0)
+    const i32 count = 20000;
+    
+    // Test with auto-detect (static batch sizing)
+    std::vector<i32> dataAuto(count);
+    auto startAuto = std::chrono::high_resolution_clock::now();
+    
+    ParallelFor(count, [&](i32 i) {
+        dataAuto[i] = i * 3 + 7;
+    }, 0);  // Auto-detect (static)
+    
+    auto durationAuto = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::high_resolution_clock::now() - startAuto
+    ).count();
+
+    // Test with adaptive sizing
+    std::vector<i32> dataAdaptive(count);
+    auto startAdaptive = std::chrono::high_resolution_clock::now();
+    
+    ParallelFor(count, [&](i32 i) {
+        dataAdaptive[i] = i * 3 + 7;
+    }, -1);  // Adaptive
+    
+    auto durationAdaptive = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::high_resolution_clock::now() - startAdaptive
+    ).count();
+
+    // Both should produce correct results
+    EXPECT_EQ(dataAuto, dataAdaptive);
+
+    // Both should complete in reasonable time (< 50ms each)
+    EXPECT_LT(durationAuto, 50000);
+    EXPECT_LT(durationAdaptive, 50000);
+}
+
+TEST_F(AdvancedTaskTest, ParallelForAdaptiveSizingSmallCount)
+{
+    // Adaptive sizing should handle small counts gracefully
+    const i32 count = 100;
+    std::atomic<i32> counter{0};
+
+    ParallelFor(count, [&](i32 i) {
+        counter.fetch_add(1, std::memory_order_relaxed);
+    }, -1);  // Adaptive sizing
+
+    EXPECT_EQ(counter.load(), count);
+}
+
+TEST_F(AdvancedTaskTest, ParallelForAdaptiveSizingVaryingWorkload)
+{
+    // Test adaptive sizing with varying work complexity per iteration
+    const i32 count = 5000;
+    std::vector<i64> results(count);
+
+    ParallelFor(count, [&](i32 i) {
+        // Work complexity varies with index
+        i32 iterations = (i % 100) * 10;  // 0 to 990 iterations
+        i64 result = 0;
+        for (i32 j = 0; j < iterations; ++j)
+        {
+            result += (i + j) % 7;
+        }
+        results[i] = result;
+    }, -1);  // Adaptive sizing
+
+    // Verify results (spot check)
+    for (i32 i = 0; i < std::min(100, count); ++i)
+    {
+        i32 iterations = (i % 100) * 10;
+        i64 expected = 0;
+        for (i32 j = 0; j < iterations; ++j)
+        {
+            expected += (i + j) % 7;
+        }
+        EXPECT_EQ(results[i], expected);
+    }
+}
+
+// ============================================================================
 // Stress Tests
 // ============================================================================
 
@@ -446,6 +600,345 @@ TEST_F(AdvancedTaskTest, OversubscriptionPreventDeadlock)
 }
 
 // ============================================================================
+// Task Pipe Tests
+// ============================================================================
+
+TEST_F(AdvancedTaskTest, TaskPipeBasic)
+{
+    // Test basic task pipe creation and execution
+    Ref<TaskPipe> pipe = Ref<TaskPipe>::Create("TestPipe");
+    
+    EXPECT_TRUE(pipe->IsRunning());
+    EXPECT_EQ(pipe->GetName(), "TestPipe");
+    
+    std::atomic<bool> executed{false};
+    auto task = pipe->Launch("PipeTask", [&]() {
+        executed.store(true, std::memory_order_release);
+    });
+    
+    EXPECT_TRUE(WaitForTaskCompletion(task));
+    EXPECT_TRUE(executed.load());
+}
+
+TEST_F(AdvancedTaskTest, TaskPipeSerializedExecution)
+{
+    // Test that tasks execute in FIFO order on the pipe
+    Ref<TaskPipe> pipe = Ref<TaskPipe>::Create("SerialPipe");
+    
+    const i32 numTasks = 100;
+    std::atomic<i32> counter{0};
+    std::vector<i32> executionOrder;
+    std::mutex orderMutex;
+    std::vector<Ref<Task>> tasks;
+    
+    // Launch tasks that record their execution order
+    for (i32 i = 0; i < numTasks; ++i)
+    {
+        auto task = pipe->Launch("OrderedTask", [i, &counter, &executionOrder, &orderMutex]() {
+            i32 order = counter.fetch_add(1, std::memory_order_relaxed);
+            
+            std::lock_guard<std::mutex> lock(orderMutex);
+            executionOrder.push_back(i);
+        });
+        tasks.push_back(task);
+    }
+    
+    // Wait for all tasks
+    TaskWait::WaitForAll(tasks);
+    
+    // Verify execution order matches submission order
+    EXPECT_EQ(executionOrder.size(), static_cast<size_t>(numTasks));
+    for (i32 i = 0; i < numTasks; ++i)
+    {
+        EXPECT_EQ(executionOrder[i], i) << "Task " << i << " executed out of order";
+    }
+}
+
+TEST_F(AdvancedTaskTest, TaskPipeThreadIdentity)
+{
+    // Test that tasks run on the pipe's dedicated thread
+    Ref<TaskPipe> pipe = Ref<TaskPipe>::Create("ThreadTest");
+    
+    std::atomic<std::thread::id> taskThreadId;
+    auto task = pipe->Launch("ThreadIdTask", [&pipe, &taskThreadId]() {
+        taskThreadId.store(std::this_thread::get_id(), std::memory_order_release);
+        
+        // Verify IsOnPipeThread() returns true
+        EXPECT_TRUE(pipe->IsOnPipeThread());
+    });
+    
+    EXPECT_TRUE(WaitForTaskCompletion(task));
+    
+    // Verify task ran on pipe's thread
+    EXPECT_EQ(taskThreadId.load(), pipe->GetThreadID());
+    
+    // Verify main thread is NOT on pipe thread
+    EXPECT_FALSE(pipe->IsOnPipeThread());
+}
+
+TEST_F(AdvancedTaskTest, TaskPipeMultiplePipes)
+{
+    // Test multiple independent pipes running simultaneously
+    Ref<TaskPipe> pipe1 = Ref<TaskPipe>::Create("Pipe1");
+    Ref<TaskPipe> pipe2 = Ref<TaskPipe>::Create("Pipe2");
+    
+    std::atomic<i32> pipe1Count{0};
+    std::atomic<i32> pipe2Count{0};
+    std::vector<Ref<Task>> allTasks;
+    
+    // Launch tasks on both pipes
+    for (i32 i = 0; i < 50; ++i)
+    {
+        auto task1 = pipe1->Launch("Pipe1Task", [&pipe1Count]() {
+            pipe1Count.fetch_add(1, std::memory_order_relaxed);
+            std::this_thread::sleep_for(std::chrono::microseconds(10));
+        });
+        
+        auto task2 = pipe2->Launch("Pipe2Task", [&pipe2Count]() {
+            pipe2Count.fetch_add(1, std::memory_order_relaxed);
+            std::this_thread::sleep_for(std::chrono::microseconds(10));
+        });
+        
+        allTasks.push_back(task1);
+        allTasks.push_back(task2);
+    }
+    
+    // Wait for all tasks
+    TaskWait::WaitForAll(allTasks);
+    
+    EXPECT_EQ(pipe1Count.load(), 50);
+    EXPECT_EQ(pipe2Count.load(), 50);
+}
+
+TEST_F(AdvancedTaskTest, TaskPipeShutdown)
+{
+    // Test that pipe shuts down cleanly and processes all queued tasks
+    std::atomic<i32> completedCount{0};
+    std::vector<Ref<Task>> tasks;
+    
+    {
+        Ref<TaskPipe> pipe = Ref<TaskPipe>::Create("ShutdownPipe");
+        
+        // Launch many tasks
+        for (i32 i = 0; i < 100; ++i)
+        {
+            auto task = pipe->Launch("ShutdownTask", [&completedCount]() {
+                completedCount.fetch_add(1, std::memory_order_relaxed);
+            });
+            tasks.push_back(task);
+        }
+        
+        // Pipe will be destroyed here - should wait for all tasks
+    }
+    
+    // Verify all tasks completed
+    EXPECT_EQ(completedCount.load(), 100);
+    
+    // Verify all task handles show completed
+    for (auto& task : tasks)
+    {
+        EXPECT_TRUE(task->IsCompleted());
+    }
+}
+
+TEST_F(AdvancedTaskTest, TaskPipeWithWork)
+{
+    // Test pipe with actual computational work
+    Ref<TaskPipe> pipe = Ref<TaskPipe>::Create("WorkPipe");
+    
+    const i32 numTasks = 50;
+    std::vector<std::atomic<i32>> results(numTasks);
+    std::vector<Ref<Task>> tasks;
+    
+    for (i32 i = 0; i < numTasks; ++i)
+    {
+        results[i].store(0, std::memory_order_relaxed);
+        
+        auto task = pipe->Launch("ComputeTask", [i, &results]() {
+            // Do some work
+            i32 sum = 0;
+            for (i32 j = 0; j < 1000; ++j)
+            {
+                sum += j;
+            }
+            results[i].store(sum, std::memory_order_release);
+        });
+        tasks.push_back(task);
+    }
+    
+    TaskWait::WaitForAll(tasks);
+    
+    // Verify all results
+    const i32 expected = 499500;  // Sum of 0..999
+    for (i32 i = 0; i < numTasks; ++i)
+    {
+        EXPECT_EQ(results[i].load(), expected);
+    }
+}
+
+// ============================================================================
+// Batch Task Launching Tests
+// ============================================================================
+
+TEST_F(AdvancedTaskTest, LaunchBatchBasic)
+{
+    // Test basic batch launching
+    const i32 numTasks = 100;
+    std::atomic<i32> executionCount{0};
+    
+    std::vector<std::function<void()>> funcs;
+    for (i32 i = 0; i < numTasks; ++i)
+    {
+        funcs.push_back([&executionCount]() {
+            executionCount.fetch_add(1, std::memory_order_relaxed);
+        });
+    }
+    
+    auto tasks = TaskScheduler::Get().LaunchBatch("BatchTask", funcs);
+    
+    EXPECT_EQ(tasks.size(), static_cast<size_t>(numTasks));
+    
+    TaskWait::WaitForAll(tasks);
+    
+    EXPECT_EQ(executionCount.load(), numTasks);
+}
+
+TEST_F(AdvancedTaskTest, LaunchBatchWithPriority)
+{
+    // Test batch launching with different priorities
+    const i32 numTasks = 50;
+    std::atomic<i32> highCount{0};
+    std::atomic<i32> normalCount{0};
+    std::atomic<i32> backgroundCount{0};
+    
+    std::vector<std::function<void()>> funcs;
+    for (i32 i = 0; i < numTasks; ++i)
+    {
+        funcs.push_back([&highCount]() {
+            highCount.fetch_add(1, std::memory_order_relaxed);
+        });
+    }
+    
+    auto highTasks = TaskScheduler::Get().LaunchBatch("HighBatch", ETaskPriority::High, funcs);
+    
+    funcs.clear();
+    for (i32 i = 0; i < numTasks; ++i)
+    {
+        funcs.push_back([&normalCount]() {
+            normalCount.fetch_add(1, std::memory_order_relaxed);
+        });
+    }
+    
+    auto normalTasks = TaskScheduler::Get().LaunchBatch("NormalBatch", ETaskPriority::Normal, funcs);
+    
+    funcs.clear();
+    for (i32 i = 0; i < numTasks; ++i)
+    {
+        funcs.push_back([&backgroundCount]() {
+            backgroundCount.fetch_add(1, std::memory_order_relaxed);
+        });
+    }
+    
+    auto backgroundTasks = TaskScheduler::Get().LaunchBatch("BackgroundBatch", ETaskPriority::Background, funcs);
+    
+    // Wait for all
+    TaskWait::WaitForAll(highTasks);
+    TaskWait::WaitForAll(normalTasks);
+    TaskWait::WaitForAll(backgroundTasks);
+    
+    EXPECT_EQ(highCount.load(), numTasks);
+    EXPECT_EQ(normalCount.load(), numTasks);
+    EXPECT_EQ(backgroundCount.load(), numTasks);
+}
+
+TEST_F(AdvancedTaskTest, LaunchBatchEmptyVector)
+{
+    // Test batch launching with empty vector
+    std::vector<std::function<void()>> funcs;
+    
+    auto tasks = TaskScheduler::Get().LaunchBatch("EmptyBatch", funcs);
+    
+    EXPECT_TRUE(tasks.empty());
+}
+
+TEST_F(AdvancedTaskTest, LaunchBatchLarge)
+{
+    // Test batch launching with many tasks
+    // Note: Keep under queue limit (4096)
+    const i32 numTasks = 1000;
+    std::atomic<i32> sum{0};
+    
+    std::vector<std::function<void()>> funcs;
+    for (i32 i = 0; i < numTasks; ++i)
+    {
+        funcs.push_back([i, &sum]() {
+            sum.fetch_add(i, std::memory_order_relaxed);
+        });
+    }
+    
+    auto tasks = TaskScheduler::Get().LaunchBatch("LargeBatch", funcs);
+    
+    EXPECT_EQ(tasks.size(), static_cast<size_t>(numTasks));
+    
+    TaskWait::WaitForAll(tasks);
+    
+    // Sum of 0..999 = 999 * 1000 / 2 = 499500
+    i32 expected = (numTasks - 1) * numTasks / 2;
+    EXPECT_EQ(sum.load(), expected);
+}
+
+TEST_F(AdvancedTaskTest, LaunchBatchPerformanceComparison)
+{
+    // Compare batch launching vs individual launching
+    // Batch should have lower overhead (fewer wake calls)
+    const i32 numTasks = 500;
+    std::atomic<i32> counter{0};
+    
+    // Test 1: Individual launches
+    auto individualStart = std::chrono::high_resolution_clock::now();
+    std::vector<Ref<Task>> individualTasks;
+    for (i32 i = 0; i < numTasks; ++i)
+    {
+        auto task = TaskScheduler::Get().Launch("IndividualTask", [&counter]() {
+            counter.fetch_add(1, std::memory_order_relaxed);
+        });
+        individualTasks.push_back(task);
+    }
+    TaskWait::WaitForAll(individualTasks);
+    auto individualEnd = std::chrono::high_resolution_clock::now();
+    auto individualMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        individualEnd - individualStart).count();
+    
+    EXPECT_EQ(counter.load(), numTasks);
+    counter.store(0);
+    
+    // Test 2: Batch launch
+    auto batchStart = std::chrono::high_resolution_clock::now();
+    std::vector<std::function<void()>> funcs;
+    for (i32 i = 0; i < numTasks; ++i)
+    {
+        funcs.push_back([&counter]() {
+            counter.fetch_add(1, std::memory_order_relaxed);
+        });
+    }
+    auto batchTasks = TaskScheduler::Get().LaunchBatch("BatchTask", funcs);
+    TaskWait::WaitForAll(batchTasks);
+    auto batchEnd = std::chrono::high_resolution_clock::now();
+    auto batchMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        batchEnd - batchStart).count();
+    
+    EXPECT_EQ(counter.load(), numTasks);
+    
+    // Log results
+    std::cout << "  Individual Launch: " << individualMs << " ms" << std::endl;
+    std::cout << "  Batch Launch: " << batchMs << " ms" << std::endl;
+    
+    // Batch should be at least as fast as individual (may be faster or similar)
+    // In practice, benefit is most visible in release builds
+    EXPECT_LE(batchMs, individualMs * 2) << "Batch launching significantly slower than expected";
+}
+
+// ============================================================================
 // Performance Benchmark Tests (Release Build Targets)
 // ============================================================================
 
@@ -499,211 +992,3 @@ TEST_F(AdvancedTaskTest, BenchmarkTaskThroughput)
     EXPECT_GT(tasksPerSecond, 10000.0) << "Throughput below minimum for debug build";
 #endif
 }
-
-// NOTE: BenchmarkTaskLatency and BenchmarkParallelForScaling tests disabled
-// due to intermittent hangs in Debug builds. The core functionality is tested
-// in other tests. These benchmarks are more meaningful in Release builds anyway.
-
-/*
-TEST_F(AdvancedTaskTest, BenchmarkTaskLatency)
-{
-    // Benchmark: Measure time from launch to execution start
-    // Target (Release): < 20μs for high priority
-    // Acceptable (Debug): < 100μs for high priority
-    
-    constexpr i32 numSamples = 10;  // Reduced to avoid potential issues
-    std::vector<i64> latencies;
-    latencies.reserve(numSamples);
-    
-    for (i32 i = 0; i < numSamples; ++i)
-    {
-        std::atomic<bool> taskStarted{false};
-        std::atomic<i64> latencyResult{-1};
-        auto launchTime = std::chrono::high_resolution_clock::now();
-        
-        // Launch task
-        auto task = TaskScheduler::Get().Launch("LatencyTest", ETaskPriority::High, 
-            [&taskStarted, &latencyResult, launchTime]() {
-                // Record latency immediately
-                auto startTime = std::chrono::high_resolution_clock::now();
-                auto latency = std::chrono::duration_cast<std::chrono::microseconds>(
-                    startTime - launchTime).count();
-                latencyResult.store(latency, std::memory_order_release);
-                taskStarted.store(true, std::memory_order_release);
-            });
-        
-        // Wait for task to start with timeout
-        auto waitStart = std::chrono::high_resolution_clock::now();
-        while (!taskStarted.load(std::memory_order_acquire))
-        {
-            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::high_resolution_clock::now() - waitStart).count();
-            if (elapsed > 5000)
-            {
-                FAIL() << "Latency test task " << i << " did not start within 5 seconds";
-            }
-            std::this_thread::yield();
-        }
-        
-        // Get the latency result
-        i64 latency = latencyResult.load(std::memory_order_acquire);
-        ASSERT_GE(latency, 0) << "Task did not record latency";
-        latencies.push_back(latency);
-        
-        // Wait for task to fully complete
-        TaskWait::Wait(task);
-        
-        // Small delay between samples
-        std::this_thread::sleep_for(std::chrono::microseconds(100));
-    }
-    
-    // Calculate statistics
-    i64 totalLatency = 0;
-    i64 minLatency = std::numeric_limits<i64>::max();
-    i64 maxLatency = 0;
-    
-    for (i64 latency : latencies)
-    {
-        totalLatency += latency;
-        minLatency = std::min(minLatency, latency);
-        maxLatency = std::max(maxLatency, latency);
-    }
-    
-    f64 avgLatency = static_cast<f64>(totalLatency) / static_cast<f64>(numSamples);
-    
-    // Log results
-    std::cout << "  Latency Stats (μs): " << std::endl;
-    std::cout << "    Average: " << avgLatency << std::endl;
-    std::cout << "    Min: " << minLatency << std::endl;
-    std::cout << "    Max: " << maxLatency << std::endl;
-    
-#ifdef OLO_DIST
-    // Dist build - strictest requirements
-    EXPECT_LT(avgLatency, 20.0) << "Average latency too high for dist build";
-#elif defined(OLO_RELEASE)
-    // Release build - moderate requirements
-    EXPECT_LT(avgLatency, 50.0) << "Average latency too high for release build";
-#else
-    // Debug build - very relaxed (lots of overhead)
-    EXPECT_LT(avgLatency, 100.0) << "Average latency too high even for debug build";
-#endif
-}
-
-/*
-TEST_F(AdvancedTaskTest, BenchmarkParallelForScaling)
-{
-    // Benchmark: Verify ParallelFor scales with worker count
-    // We expect near-linear speedup up to worker count
-    
-    constexpr i32 workSize = 100000;
-    constexpr i32 workPerItem = 1000;  // Iterations of busy work
-    
-    // Measure serial execution time
-    auto serialStart = std::chrono::high_resolution_clock::now();
-    for (i32 i = 0; i < workSize; ++i)
-    {
-        volatile i64 sum = 0;
-        for (i32 j = 0; j < workPerItem; ++j)
-        {
-            sum += (i * j);
-        }
-    }
-    auto serialEnd = std::chrono::high_resolution_clock::now();
-    auto serialTimeMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-        serialEnd - serialStart).count();
-    
-    // Measure parallel execution time
-    auto parallelStart = std::chrono::high_resolution_clock::now();
-    ParallelFor(workSize, [workPerItem](i32 i) {
-        volatile i64 sum = 0;
-        for (i32 j = 0; j < workPerItem; ++j)
-        {
-            sum += (i * j);
-        }
-    }, ETaskPriority::Normal, 0);  // Auto batch size
-    auto parallelEnd = std::chrono::high_resolution_clock::now();
-    auto parallelTimeMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-        parallelEnd - parallelStart).count();
-    
-    // Calculate speedup
-    f64 speedup = static_cast<f64>(serialTimeMs) / static_cast<f64>(parallelTimeMs);
-    u32 numWorkers = TaskScheduler::Get().GetNumForegroundWorkers();
-    f64 efficiency = (speedup / static_cast<f64>(numWorkers)) * 100.0;
-    
-    // Log results
-    std::cout << "  Serial Time: " << serialTimeMs << " ms" << std::endl;
-    std::cout << "  Parallel Time: " << parallelTimeMs << " ms" << std::endl;
-    std::cout << "  Speedup: " << speedup << "x" << std::endl;
-    std::cout << "  Efficiency: " << efficiency << "% (workers: " << numWorkers << ")" << std::endl;
-    
-    // Should get at least 2x speedup on any multi-core system
-    EXPECT_GT(speedup, 2.0) << "ParallelFor not achieving meaningful speedup";
-    
-    // Efficiency should be reasonable (> 50% in debug, > 70% in release)
-#ifdef OLO_DEBUG
-    EXPECT_GT(efficiency, 50.0) << "Parallel efficiency too low";
-#else
-    EXPECT_GT(efficiency, 70.0) << "Parallel efficiency too low for release build";
-#endif
-}
-*/
-
-// NOTE: Benchmark tests (TaskLatency, ParallelForScaling, OversubscriptionOverhead)
-// disabled due to intermittent hangs when using TaskWait in tight loops in Debug builds.
-// Core functionality is verified in the functional tests above. Benchmarks should be
-// run separately in Release builds for meaningful performance metrics.
-
-/*
-TEST_F(AdvancedTaskTest, BenchmarkOversubscriptionOverhead)
-{
-    // Benchmark: Measure overhead of oversubscription tracking
-    // Should be negligible (< 5% overhead)
-    
-    constexpr i32 numIterations = 10000;
-    
-    // Test 1: Launch tasks WITHOUT triggering oversubscription
-    auto noOversubStart = std::chrono::high_resolution_clock::now();
-    for (i32 i = 0; i < numIterations; ++i)
-    {
-        auto task = TaskScheduler::Get().Launch("NoOversub", ETaskPriority::Normal, []() {
-            volatile i32 x = 42;
-            (void)x;
-        });
-        TaskWait::Wait(task);
-    }
-    auto noOversubEnd = std::chrono::high_resolution_clock::now();
-    auto noOversubMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-        noOversubEnd - noOversubStart).count();
-    
-    // Test 2: Same test but WITH oversubscription scope (tracking overhead)
-    auto withOversubStart = std::chrono::high_resolution_clock::now();
-    for (i32 i = 0; i < numIterations; ++i)
-    {
-        auto task = TaskScheduler::Get().Launch("WithOversub", ETaskPriority::Normal, []() {
-            volatile i32 x = 42;
-            (void)x;
-        });
-        
-        {
-            OversubscriptionScope scope;
-            TaskWait::Wait(task);
-        }
-    }
-    auto withOversubEnd = std::chrono::high_resolution_clock::now();
-    auto withOversubMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-        withOversubEnd - withOversubStart).count();
-    
-    // Calculate overhead
-    f64 overhead = ((static_cast<f64>(withOversubMs) - static_cast<f64>(noOversubMs)) 
-                    / static_cast<f64>(noOversubMs)) * 100.0;
-    
-    // Log results
-    std::cout << "  Without Oversubscription: " << noOversubMs << " ms" << std::endl;
-    std::cout << "  With Oversubscription: " << withOversubMs << " ms" << std::endl;
-    std::cout << "  Overhead: " << overhead << "%" << std::endl;
-    
-    // Overhead should be minimal (< 10% even in debug)
-    EXPECT_LT(overhead, 10.0) << "Oversubscription tracking overhead too high";
-}
-*/
-

@@ -16,7 +16,7 @@ namespace OloEngine
      * 
      * @param count Total number of iterations
      * @param func Function to execute for each index: void(i32 index)
-     * @param batchSize Number of iterations per task (0 = auto-detect)
+     * @param batchSize Number of iterations per task (0 = auto-detect, -1 = adaptive)
      * 
      * Usage:
      * @code
@@ -35,7 +35,7 @@ namespace OloEngine
      * @param count Total number of iterations
      * @param func Function to execute for each index
      * @param priority Task priority for parallel work
-     * @param batchSize Number of iterations per task (0 = auto-detect)
+     * @param batchSize Number of iterations per task (0 = auto-detect, -1 = adaptive)
      */
     void ParallelFor(i32 count, std::function<void(i32)>&& func, 
                      ETaskPriority priority, i32 batchSize = 0);
