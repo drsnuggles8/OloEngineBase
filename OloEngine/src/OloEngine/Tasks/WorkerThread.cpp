@@ -255,7 +255,8 @@ namespace OloEngine
         for (u32 i = 0; i < 40; ++i)
         {
             // Check for work or exit request
-            if (!m_LocalQueue.IsEmpty() || m_ShouldExit.load(std::memory_order_acquire))
+            // CRITICAL: Check ALL queues, not just local!
+            if (HasWorkAvailable() || m_ShouldExit.load(std::memory_order_acquire))
                 return;
 
             // CPU pause instruction (reduces power and allows hyperthreading)
@@ -266,13 +267,19 @@ namespace OloEngine
         // Let other threads run while we wait
         for (u32 i = 0; i < 10; ++i)
         {
-            if (!m_LocalQueue.IsEmpty() || m_ShouldExit.load(std::memory_order_acquire))
+            // CRITICAL: Check ALL queues, not just local!
+            if (HasWorkAvailable() || m_ShouldExit.load(std::memory_order_acquire))
                 return;
 
             std::this_thread::yield();
         }
 
         // Phase 3: Event wait
+        // Before sleeping, do one final check with memory fence to ensure visibility
+        std::atomic_thread_fence(std::memory_order_seq_cst);
+        if (HasWorkAvailable() || m_ShouldExit.load(std::memory_order_acquire))
+            return;
+
         // Use infinite wait - wake will be called on new work or shutdown
         // The WorkerMain loop checks exit flag on every iteration, so even if
         // we somehow miss a wake signal, we'll check exit flag next time around
@@ -327,6 +334,35 @@ namespace OloEngine
 
         // No work stolen
         return nullptr;
+    }
+
+    bool WorkerThread::HasWorkAvailable() const
+    {
+        OLO_PROFILE_FUNCTION();
+        
+        // Check local queue first (fastest check)
+        if (!m_LocalQueue.IsEmpty())
+            return true;
+
+        // Check global queues based on worker type
+        if (m_WorkerType == EWorkerType::Foreground)
+        {
+            // Foreground workers can access High and Normal priority queues
+            if (!m_Scheduler->GetGlobalQueue(ETaskPriority::High).IsEmpty())
+                return true;
+            
+            if (!m_Scheduler->GetGlobalQueue(ETaskPriority::Normal).IsEmpty())
+                return true;
+        }
+        else  // Background worker
+        {
+            // Background workers only access Background priority queue
+            if (!m_Scheduler->GetGlobalQueue(ETaskPriority::Background).IsEmpty())
+                return true;
+        }
+
+        // No work available
+        return false;
     }
 
 } // namespace OloEngine

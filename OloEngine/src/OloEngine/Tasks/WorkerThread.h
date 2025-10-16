@@ -209,6 +209,19 @@ namespace OloEngine
          */
         Ref<Task> StealFromOtherWorkers();
 
+        /**
+         * @brief Check if work is available in any queue this worker can access
+         * 
+         * This checks:
+         * - Local queue
+         * - Global queues appropriate for this worker type
+         * 
+         * Used by WaitForWork to avoid sleeping when work exists.
+         * 
+         * @return True if work is available, false otherwise
+         */
+        bool HasWorkAvailable() const;
+
     private:
         TaskScheduler* m_Scheduler;              ///< Pointer to scheduler (for global queues)
         Thread m_Thread;                         ///< OS thread wrapper
