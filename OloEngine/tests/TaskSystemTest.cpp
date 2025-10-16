@@ -223,12 +223,15 @@ TEST(TaskSystemTest, InvalidStateTransitionsPrevented)
 {
     auto task = CreateTask("StateTest", ETaskPriority::Normal, []() {});
     
-    // Try to go from Ready directly to Running (should fail - must go through Scheduled)
+    // NEW: Ready -> Running IS NOW VALID (for retraction fast-path)
+    // After retracting a task from Scheduled->Ready, we execute it inline: Ready->Running
     ETaskState expected = ETaskState::Ready;
     bool success = task->TryTransitionState(expected, ETaskState::Running);
-    EXPECT_FALSE(success) << "Should not be able to transition from Ready to Running";
-    EXPECT_EQ(expected, ETaskState::Ready);  // Expected should not be modified when transition is invalid
-    EXPECT_EQ(task->GetState(), ETaskState::Ready);  // State should be unchanged
+    EXPECT_TRUE(success) << "Ready -> Running should be allowed for retraction fast-path";
+    EXPECT_EQ(task->GetState(), ETaskState::Running);
+    
+    // Reset for further testing
+    task->SetState(ETaskState::Ready);
     
     // Try to go from Ready directly to Completed (should fail)
     expected = ETaskState::Ready;

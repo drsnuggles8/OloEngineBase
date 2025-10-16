@@ -21,60 +21,67 @@ namespace OloEngine
             return;
         }
         
-        // If prerequisite is already done (completed or cancelled), don't add dependency
-        if (prerequisite->IsDone())
-        {
-            return;
-        }
-
-        // Increment our prerequisite counter
-        m_PrerequisiteCount.fetch_add(1, std::memory_order_release);
-
-        // Add this task to the prerequisite's subsequent list
+        // CRITICAL FIX: Do the IsDone check and adding to list atomically under the same lock
+        // This prevents ALL TOCTOU races between the check and the add operation
+        bool prerequisiteAlreadyDone = false;
         {
             std::lock_guard<std::mutex> lock(prerequisite->m_SubsequentsMutex);
-            prerequisite->m_Subsequents.push_back(Ref<Task>(this));
+            
+            if (prerequisite->IsDone())
+            {
+                // Task is already done - don't add dependency at all
+                prerequisiteAlreadyDone = true;
+            }
+            else
+            {
+                // Task not done - increment counter and add to list atomically
+                m_PrerequisiteCount.fetch_add(1, std::memory_order_release);
+                prerequisite->m_Subsequents.push_back(Ref<Task>(this));
+            }
+        }
+        
+        if (prerequisiteAlreadyDone)
+        {
+            // Prerequisite was already done - nothing to do
+            return;
         }
 
         // IMPORTANT: Race condition handling (TOCTOU - Time Of Check, Time Of Use)
         // ------------------------------------------------------------------------
-        // There's a potential race between the initial IsDone() check above and
-        // adding ourselves to the subsequents list. The prerequisite might complete
-        // in this window:
+        // Even though we checked IsDone() while holding the lock, the task might complete
+        // RIGHT AFTER we release the lock. In this case:
+        // - We've incremented our count
+        // - We've added ourselves to the subsequents list
+        // - OnCompleted() will run, move us out of the list, and decrement our count
         //
-        // Timeline of race:
-        //   Thread A (this task)              Thread B (prerequisite task)
-        //   --------------------              ----------------------------
-        //   1. Check IsDone() -> false
-        //   2. Increment count
-        //   3. Lock mutex
-        //   4. Add to subsequents              (Task completes here!)
-        //   5. Unlock mutex                    (OnCompleted() runs)
-        //                                      (Sees empty subsequents - we're not added yet!)
-        //                                      (Doesn't decrement our count!)
-        //   6. Check IsDone() again
-        //
-        // Solution: Double-check after adding to subsequents. If the prerequisite
-        // completed between our first check and adding ourselves to the list, we
-        // manually decrement our counter (since OnCompleted() already ran and won't
-        // do it). This ensures our counter stays accurate.
-        //
-        // Race condition check: prerequisite might have completed between the initial
-        // IsDone() check and adding ourselves to the subsequents list. If so,
-        // OnCompleted() has already run and won't decrement our count, so we need to
-        // manually decrement it and potentially launch ourselves.
+        // We must verify this happened by checking if we're still in the list.
         if (prerequisite->IsDone())
         {
-            i32 prevCount = m_PrerequisiteCount.fetch_sub(1, std::memory_order_acq_rel);
+            std::lock_guard<std::mutex> lock(prerequisite->m_SubsequentsMutex);
             
-            // If this was the last prerequisite, we're ready to launch
-            if (prevCount == 1 && GetState() == ETaskState::Ready)
+            // Try to find and remove ourselves from the list
+            auto it = std::find_if(prerequisite->m_Subsequents.begin(), 
+                                  prerequisite->m_Subsequents.end(),
+                                  [this](const Ref<Task>& t) { return t.Raw() == this; });
+            
+            if (it != prerequisite->m_Subsequents.end())
             {
-                if (TaskScheduler::IsInitialized())
+                // We're still in the list - OnCompleted() hasn't run yet
+                // Remove ourselves and decrement manually
+                prerequisite->m_Subsequents.erase(it);
+                
+                i32 prevCount = m_PrerequisiteCount.fetch_sub(1, std::memory_order_acq_rel);
+                
+                // If this was the last prerequisite, we're ready to launch
+                if (prevCount == 1 && GetState() == ETaskState::Ready)
                 {
-                    TaskScheduler::Get().LaunchTask(Ref<Task>(this));
+                    if (TaskScheduler::IsInitialized())
+                    {
+                        TaskScheduler::Get().LaunchTask(Ref<Task>(this));
+                    }
                 }
             }
+            // else: OnCompleted() already moved us out and will/did decrement our count
         }
     }
 

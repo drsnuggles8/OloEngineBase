@@ -695,3 +695,193 @@ TEST_F(TaskSynchronizationTest, CircularDependencyNoCycleWithValidDependencies)
     EXPECT_EQ(taskA->GetPrerequisiteCount(), 0);
 }
 
+// ============================================================================
+// WaitForAny Tests
+// ============================================================================
+
+TEST_F(TaskSynchronizationTest, WaitForAnyBasic)
+{
+    // Create multiple tasks with varying delays
+    std::atomic<bool> executed1{false};
+    std::atomic<bool> executed2{false};
+    std::atomic<bool> executed3{false};
+
+    auto task1 = CreateTask("Task1", ETaskPriority::Normal, [&]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        executed1.store(true, std::memory_order_release);
+    });
+
+    auto task2 = CreateTask("Task2", ETaskPriority::Normal, [&]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));  // Fastest
+        executed2.store(true, std::memory_order_release);
+    });
+
+    auto task3 = CreateTask("Task3", ETaskPriority::Normal, [&]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        executed3.store(true, std::memory_order_release);
+    });
+
+    // Launch all tasks
+    TaskScheduler::Get().LaunchTask(task1);
+    TaskScheduler::Get().LaunchTask(task2);
+    TaskScheduler::Get().LaunchTask(task3);
+
+    // Wait for any to complete
+    std::vector<Ref<Task>> tasks = {task1, task2, task3};
+    i32 completedIndex = TaskWait::WaitForAny(tasks);
+
+    // Should return a valid index
+    EXPECT_GE(completedIndex, 0);
+    EXPECT_LT(completedIndex, 3);
+
+    // The task at the returned index should be done
+    EXPECT_TRUE(tasks[completedIndex]->IsDone());
+
+    // Task 2 is the fastest, so it's likely (but not guaranteed) to finish first
+    // We don't assert which one finished first due to race conditions
+}
+
+TEST_F(TaskSynchronizationTest, WaitForAnyEmptyVector)
+{
+    // Empty vector should return -1
+    std::vector<Ref<Task>> tasks;
+    i32 result = TaskWait::WaitForAny(tasks);
+    EXPECT_EQ(result, -1);
+}
+
+TEST_F(TaskSynchronizationTest, WaitForAnyAlreadyComplete)
+{
+    // Create tasks, complete one immediately
+    auto task1 = CreateTask("Task1", ETaskPriority::Normal, []() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    });
+
+    auto task2 = CreateTask("Task2", ETaskPriority::Normal, []() {});  // Fast
+
+    auto task3 = CreateTask("Task3", ETaskPriority::Normal, []() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    });
+
+    // Launch task2 first and wait for it to complete
+    TaskScheduler::Get().LaunchTask(task2);
+    TaskWait::Wait(task2);
+    EXPECT_TRUE(task2->IsCompleted());
+
+    // Now launch the others
+    TaskScheduler::Get().LaunchTask(task1);
+    TaskScheduler::Get().LaunchTask(task3);
+
+    // WaitForAny should immediately return index 1 (task2)
+    std::vector<Ref<Task>> tasks = {task1, task2, task3};
+    i32 completedIndex = TaskWait::WaitForAny(tasks);
+
+    EXPECT_EQ(completedIndex, 1);
+    EXPECT_TRUE(task2->IsCompleted());
+}
+
+TEST_F(TaskSynchronizationTest, WaitForAnyInitializerList)
+{
+    auto task1 = CreateTask("Task1", ETaskPriority::Normal, []() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    });
+
+    auto task2 = CreateTask("Task2", ETaskPriority::Normal, []() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    });
+
+    TaskScheduler::Get().LaunchTask(task1);
+    TaskScheduler::Get().LaunchTask(task2);
+
+    // Test initializer list version
+    i32 completedIndex = TaskWait::WaitForAny({task1, task2});
+
+    EXPECT_GE(completedIndex, 0);
+    EXPECT_LT(completedIndex, 2);
+}
+
+TEST_F(TaskSynchronizationTest, WaitForAnyTimeoutPattern)
+{
+    // Common pattern: race a task against a timeout
+    std::atomic<bool> workExecuted{false};
+
+    auto workTask = CreateTask("Work", ETaskPriority::Normal, [&]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));  // Slow work
+        workExecuted.store(true, std::memory_order_release);
+    });
+
+    auto timeoutTask = CreateTask("Timeout", ETaskPriority::Normal, [&]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));  // Fast timeout
+    });
+
+    TaskScheduler::Get().LaunchTask(workTask);
+    TaskScheduler::Get().LaunchTask(timeoutTask);
+
+    i32 completedIndex = TaskWait::WaitForAny({workTask, timeoutTask});
+
+    // Timeout should complete first (index 1)
+    EXPECT_EQ(completedIndex, 1);
+    EXPECT_TRUE(timeoutTask->IsCompleted());
+    
+    // Work task may or may not have completed yet
+    // We can optionally cancel it if we want
+    if (!workTask->IsDone())
+    {
+        workTask->Cancel();
+    }
+}
+
+TEST_F(TaskSynchronizationTest, WaitForAnySingleTask)
+{
+    auto task = CreateTask("SingleTask", ETaskPriority::Normal, []() {});
+    
+    TaskScheduler::Get().LaunchTask(task);
+    
+    i32 completedIndex = TaskWait::WaitForAny({task});
+    
+    EXPECT_EQ(completedIndex, 0);
+    EXPECT_TRUE(task->IsCompleted());
+}
+
+TEST_F(TaskSynchronizationTest, WaitForAnyWithNullTasks)
+{
+    auto task1 = CreateTask("Task1", ETaskPriority::Normal, []() {});
+    Ref<Task> task2 = nullptr;
+    auto task3 = CreateTask("Task3", ETaskPriority::Normal, []() {});
+    
+    TaskScheduler::Get().LaunchTask(task1);
+    TaskScheduler::Get().LaunchTask(task3);
+    
+    // Should handle null task gracefully
+    std::vector<Ref<Task>> tasks = {task1, task2, task3};
+    i32 completedIndex = TaskWait::WaitForAny(tasks);
+    
+    // Should return either 0 or 2 (not 1, since task2 is null)
+    EXPECT_TRUE(completedIndex == 0 || completedIndex == 2);
+    EXPECT_TRUE(tasks[completedIndex]->IsDone());
+}
+
+TEST_F(TaskSynchronizationTest, WaitForAnyMultipleAlreadyComplete)
+{
+    // Multiple tasks already complete - should return first found
+    auto task1 = CreateTask("Task1", ETaskPriority::Normal, []() {});
+    auto task2 = CreateTask("Task2", ETaskPriority::Normal, []() {});
+    auto task3 = CreateTask("Task3", ETaskPriority::Normal, []() {});
+    
+    TaskScheduler::Get().LaunchTask(task1);
+    TaskScheduler::Get().LaunchTask(task2);
+    TaskScheduler::Get().LaunchTask(task3);
+    
+    TaskWait::Wait(task1);
+    TaskWait::Wait(task2);
+    TaskWait::Wait(task3);
+    
+    EXPECT_TRUE(task1->IsCompleted());
+    EXPECT_TRUE(task2->IsCompleted());
+    EXPECT_TRUE(task3->IsCompleted());
+    
+    // Should return 0 (first task checked that's complete)
+    i32 completedIndex = TaskWait::WaitForAny({task1, task2, task3});
+    EXPECT_EQ(completedIndex, 0);
+}
+
+

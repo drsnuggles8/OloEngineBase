@@ -41,7 +41,24 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         
-        // Ensure exit flag is set
+        // Standby workers manage their own lifetime and will self-destruct
+        // when idle. The destructor should NOT be called on standby workers
+        // from external code - they call 'delete this' from their own thread.
+        if (m_IsStandby)
+        {
+            // CRITICAL: Standby workers must only be deleted from their own thread
+            // If this assertion fires, it means someone is incorrectly deleting
+            // a standby worker from another thread, which will cause use-after-free
+            OLO_CORE_ASSERT(std::this_thread::get_id() == m_Thread.GetID(),
+                "Standby worker destructor called from wrong thread! "
+                "Standby workers self-destruct and must not be deleted externally.");
+            
+            // If we somehow got here for a standby worker, just exit immediately
+            // to avoid use-after-free. The thread will clean itself up.
+            return;
+        }
+        
+        // For normal workers: ensure exit flag is set
         m_ShouldExit.store(true, std::memory_order_release);
         
         // Wake the thread multiple times to ensure it sees the exit flag

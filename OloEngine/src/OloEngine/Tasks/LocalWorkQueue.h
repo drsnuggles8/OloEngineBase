@@ -205,8 +205,27 @@ namespace OloEngine
             }
             else
             {
-                // Not the last item, no race possible - just take it
-                Task* taskPtr = GetSlotTask(slotValue);
+                // Not the last item, BUT stealers can still race with us!
+                // Multiple stealers could rapidly advance the tail up to our position.
+                // We need to use CAS to safely claim this item.
+                
+                uintptr_t expected = slotValue;
+                uintptr_t desired = EncodeSlot(nullptr, ESlotState::Taken);
+                
+                bool success = m_ItemSlots[slotIndex].Value.compare_exchange_strong(
+                    expected, desired,
+                    std::memory_order_acquire,
+                    std::memory_order_relaxed);
+                
+                if (!success)
+                {
+                    // A stealer got this item, restore head and return null
+                    m_Head = currentHead;
+                    return nullptr;
+                }
+                
+                // We got it - extract task pointer
+                Task* taskPtr = GetSlotTask(expected);
                 
                 // Mark as free
                 m_ItemSlots[slotIndex].Value.store(
@@ -287,10 +306,25 @@ namespace OloEngine
 
             if (!tailSuccess)
             {
-                // Another stealer updated tail, put the item back and retry
+                // Lost the race to update tail (another thread stole from a different slot
+                // and moved tail forward). We successfully marked this slot as Taken and
+                // extracted the task pointer, but we cannot complete the steal.
+                // 
+                // We must:
+                // 1. Free the slot (not restore to Item - that would leave stale data)
+                // 2. Release the reference count (we're not returning the task)
+                //
+                // This prevents queue corruption when the buffer wraps around.
+                Task* taskPtr = GetSlotTask(expected);
+                
                 m_ItemSlots[slotIndex].Value.store(
-                    expected,  // Restore the original value
+                    EncodeSlot(nullptr, ESlotState::Free),
                     std::memory_order_release);
+                
+                // Release the reference since we're abandoning this task
+                if (taskPtr)
+                    taskPtr->DecRefCount();
+                
                 return nullptr;
             }
 
@@ -393,8 +427,8 @@ namespace OloEngine
         };
 
         // Cache-line align head and tail to prevent false sharing
-        alignas(128) u32 m_Head;                    ///< Owner thread only (FIFO push/pop)
-        alignas(128) std::atomic<u32> m_Tail;       ///< Shared (stealers increment this)
+        alignas(128) u32 m_Head;                    ///< Owner thread only (push/pop from head - LIFO for owner, stealers get oldest work)
+        alignas(128) std::atomic<u32> m_Tail;       ///< Shared (stealers steal from tail and increment this)
         
         AlignedElement m_ItemSlots[NumItems];       ///< Ring buffer of slots
     };

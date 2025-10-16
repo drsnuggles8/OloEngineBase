@@ -240,6 +240,7 @@ namespace OloEngine
          * 
          * Valid transitions:
          * - Ready -> Scheduled
+         * - Ready -> Running (retraction fast-path - task pulled from queue and executed inline)
          * - Ready -> Cancelled (cancellation)
          * - Scheduled -> Running
          * - Scheduled -> Cancelled (cancellation)
@@ -257,10 +258,14 @@ namespace OloEngine
             switch (from)
             {
                 case ETaskState::Ready:
-                    return to == ETaskState::Scheduled || to == ETaskState::Cancelled;
+                    return to == ETaskState::Scheduled 
+                        || to == ETaskState::Running      // Retraction fast-path
+                        || to == ETaskState::Cancelled;
                 
                 case ETaskState::Scheduled:
-                    return to == ETaskState::Running || to == ETaskState::Cancelled || to == ETaskState::Ready;
+                    return to == ETaskState::Running 
+                        || to == ETaskState::Cancelled 
+                        || to == ETaskState::Ready;
                 
                 case ETaskState::Running:
                     return to == ETaskState::Completed;

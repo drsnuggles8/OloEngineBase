@@ -26,8 +26,10 @@ namespace OloEngine
         m_FreeList.store(&m_NodePool[0], std::memory_order_release);
         
         // Queue starts with dummy node (head and tail point to dummy)
-        m_Head.store(m_DummyNode, std::memory_order_release);
-        m_Tail.store(m_DummyNode, std::memory_order_release);
+        // Initialize with tag = 0
+        TaggedPtr initialPtr(m_DummyNode, 0);
+        m_Head.store(initialPtr.Value, std::memory_order_release);
+        m_Tail.store(initialPtr.Value, std::memory_order_release);
         m_ApproximateCount.store(0, std::memory_order_relaxed);
     }
 
@@ -120,18 +122,20 @@ namespace OloEngine
         // Increment reference count - queue now holds a reference
         task->IncRefCount();
 
-        // Michael-Scott queue push algorithm (with dummy node)
+        // Michael-Scott queue push algorithm (with dummy node and tagged pointers for ABA prevention)
         while (true)
         {
-            Node* tail = m_Tail.load(std::memory_order_acquire);
+            TaggedPtr tailTagged(m_Tail.load(std::memory_order_acquire));
+            Node* tail = tailTagged.GetPtr();
             Node* next = tail->Next.load(std::memory_order_acquire);
             
             // Check if tail is still the last node
             if (next != nullptr)
             {
                 // Tail is not the last node - help advance it
+                TaggedPtr newTail(next, tailTagged.GetNextTag());
                 m_Tail.compare_exchange_weak(
-                    tail, next,
+                    tailTagged.Value, newTail.Value,
                     std::memory_order_release,
                     std::memory_order_acquire);
                 continue;
@@ -145,8 +149,10 @@ namespace OloEngine
                 std::memory_order_acquire))
             {
                 // Successfully linked - try to advance tail (not critical if this fails)
+                // Increment tag to prevent ABA problem
+                TaggedPtr newTail(node, tailTagged.GetNextTag());
                 m_Tail.compare_exchange_weak(
-                    tail, node,
+                    tailTagged.Value, newTail.Value,
                     std::memory_order_release,
                     std::memory_order_relaxed);
                 
@@ -162,16 +168,19 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Michael-Scott queue pop algorithm (with dummy node)
+        // Michael-Scott queue pop algorithm (with dummy node and tagged pointers for ABA prevention)
         while (true)
         {
-            Node* head = m_Head.load(std::memory_order_acquire);
-            Node* tail = m_Tail.load(std::memory_order_acquire);
+            TaggedPtr headTagged(m_Head.load(std::memory_order_acquire));
+            TaggedPtr tailTagged(m_Tail.load(std::memory_order_acquire));
+            
+            Node* head = headTagged.GetPtr();
+            Node* tail = tailTagged.GetPtr();
             Node* next = head->Next.load(std::memory_order_acquire);
 
-            // Check if head is consistent
-            Node* currentHead = m_Head.load(std::memory_order_acquire);
-            if (head != currentHead)
+            // Check if head is consistent (re-read to avoid ABA with tagged pointers)
+            TaggedPtr currentHead(m_Head.load(std::memory_order_acquire));
+            if (headTagged.Value != currentHead.Value)
             {
                 continue;  // Head changed, retry
             }
@@ -186,8 +195,9 @@ namespace OloEngine
                 }
                 
                 // Tail is falling behind - help advance it
+                TaggedPtr newTail(next, tailTagged.GetNextTag());
                 m_Tail.compare_exchange_weak(
-                    tail, next,
+                    tailTagged.Value, newTail.Value,
                     std::memory_order_release,
                     std::memory_order_acquire);
                 
@@ -203,13 +213,24 @@ namespace OloEngine
             }
 
             // Try to swing head to next node (makes next the new dummy)
+            // Increment tag to prevent ABA problem
+            TaggedPtr newHead(next, headTagged.GetNextTag());
             if (m_Head.compare_exchange_strong(
-                head, next,
+                headTagged.Value, newHead.Value,
                 std::memory_order_release,
                 std::memory_order_acquire))
             {
                 // Successfully dequeued - extract task from next (not head, which is the old dummy)
                 Task* taskPtr = next->TaskPtr;
+                
+                // CRITICAL: taskPtr should NEVER be null here!
+                // If it is, we have a serious bug in the queue logic
+                if (!taskPtr)
+                {
+                    OLO_CORE_ERROR("GlobalWorkQueue::Pop() - Extracted null task! This should never happen!");
+                    OLO_CORE_ERROR("  head={0}, next={1}, tail={2}", (void*)head, (void*)next, (void*)tail);
+                    OLO_CORE_ERROR("  headTag={0}, tailTag={1}", headTagged.GetTag(), tailTagged.GetTag());
+                }
                 
                 // Clear next's task pointer since it's now the new dummy node
                 next->TaskPtr = nullptr;
@@ -234,8 +255,11 @@ namespace OloEngine
 
     bool GlobalWorkQueue::IsEmpty() const
     {
-        Node* head = m_Head.load(std::memory_order_relaxed);
-        Node* tail = m_Tail.load(std::memory_order_relaxed);
+        TaggedPtr headTagged(m_Head.load(std::memory_order_relaxed));
+        TaggedPtr tailTagged(m_Tail.load(std::memory_order_relaxed));
+        
+        Node* head = headTagged.GetPtr();
+        Node* tail = tailTagged.GetPtr();
         
         // Empty if head == tail (only dummy node present)
         return head == tail;

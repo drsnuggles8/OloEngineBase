@@ -220,7 +220,10 @@ namespace OloEngine
         EWorkerType m_WorkerType;                ///< Worker type (foreground/background)
         bool m_IsStandby;                        ///< True if this is a temporary standby worker
         u32 m_IdleIterations;                    ///< Counter for idle cycles (standby workers only)
-        static constexpr u32 s_StandbyIdleLimit = 100;  ///< Idle iterations before standby worker exits
+        
+        /// Idle iterations before standby worker exits (~10-100ms depending on workload)
+        /// Increased from 100 to allow standby workers to do useful work before exiting
+        static constexpr u32 s_StandbyIdleLimit = 10000;
         
         // Random number generator for work stealing (per-thread, no synchronization needed)
         std::mt19937 m_RandomEngine;             ///< RNG for random steal starting point

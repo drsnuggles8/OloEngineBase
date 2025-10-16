@@ -136,8 +136,16 @@ namespace OloEngine
         
         if (!queued)
         {
-            // Queue full - mark as completed to prevent task from being stuck
+            // Queue full - mark as completed and notify dependents
+            // This prevents deadlock when tasks wait for a task that couldn't be queued
             task->SetState(ETaskState::Completed);
+            
+            // CRITICAL: Notify scheduler statistics
+            OnTaskCompleted();
+            
+            // CRITICAL: Notify dependent tasks so they can proceed
+            task->OnCompleted();
+            
             return;
         }
 
@@ -230,11 +238,12 @@ namespace OloEngine
                         true  // isStandby flag
                     );
                     
-                    // Detach the thread - it will manage its own lifetime
-                    standbyWorker->DetachAndRun();
+                    // Release ownership BEFORE starting the thread to prevent double-delete
+                    // if the thread self-destructs quickly
+                    WorkerThread* rawWorker = standbyWorker.release();
                     
-                    // Worker object will delete itself when done
-                    standbyWorker.release();
+                    // Detach the thread - it will manage its own lifetime
+                    rawWorker->DetachAndRun();
                 }
             }
         }

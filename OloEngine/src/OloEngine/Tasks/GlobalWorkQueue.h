@@ -89,9 +89,31 @@ namespace OloEngine
         u32 ApproximateSize() const;
 
     private:
+        /**
+         * @brief Tagged pointer for ABA prevention
+         * 
+         * Packs a 48-bit pointer and 16-bit generation counter into 64 bits:
+         * - Bits 0-47: Node pointer (48 bits sufficient for x64 user-space addresses)
+         * - Bits 48-63: Generation counter (16 bits, wraps around after 65536 operations)
+         */
+        struct TaggedPtr
+        {
+            u64 Value;
+            
+            TaggedPtr() : Value(0) {}
+            explicit TaggedPtr(u64 value) : Value(value) {}
+            TaggedPtr(Node* ptr, u16 tag) 
+                : Value((static_cast<u64>(tag) << 48) | (reinterpret_cast<uintptr_t>(ptr) & 0xFFFFFFFFFFFFULL)) {}
+            
+            Node* GetPtr() const { return reinterpret_cast<Node*>(Value & 0xFFFFFFFFFFFFULL); }
+            u16 GetTag() const { return static_cast<u16>(Value >> 48); }
+            u16 GetNextTag() const { return static_cast<u16>((Value >> 48) + 1); }
+        };
+
         // Cache-line aligned head and tail to prevent false sharing
-        alignas(128) std::atomic<Node*> m_Head{nullptr};
-        alignas(128) std::atomic<Node*> m_Tail{nullptr};
+        // Now using tagged pointers (64-bit) instead of raw pointers for ABA protection
+        alignas(128) std::atomic<u64> m_Head{0};
+        alignas(128) std::atomic<u64> m_Tail{0};
         alignas(128) std::atomic<u32> m_ApproximateCount{0};
 
         // Node pool for lock-free allocation

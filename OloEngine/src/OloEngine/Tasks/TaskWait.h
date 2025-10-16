@@ -62,6 +62,30 @@ namespace OloEngine
          */
         void WaitForAll(std::initializer_list<Ref<Task>> tasks);
 
+        /**
+         * @brief Wait for ANY task in a collection to complete
+         * 
+         * Returns immediately when the first task completes. This is useful for:
+         * - Timeout patterns (race a task against a timer)
+         * - First-responder scenarios (take the first result available)
+         * - Cancellation patterns (wait for work or cancel signal)
+         * 
+         * If multiple tasks are already complete, returns the index of the first
+         * completed task found (not guaranteed to be the first chronologically).
+         * 
+         * @param tasks Vector of tasks to wait for
+         * @return Index of the first completed task, or -1 if tasks vector is empty
+         */
+        i32 WaitForAny(const std::vector<Ref<Task>>& tasks);
+
+        /**
+         * @brief Wait for ANY task in an initializer list to complete
+         * 
+         * @param tasks Initializer list of tasks to wait for
+         * @return Index of the first completed task, or -1 if tasks list is empty
+         */
+        i32 WaitForAny(std::initializer_list<Ref<Task>> tasks);
+
     } // namespace TaskWait
 
 } // namespace OloEngine
