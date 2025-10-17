@@ -251,38 +251,49 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         
-        // Phase 1: Spin briefly (40 iterations)
-        // This is the fastest path for short waits
-        for (u32 i = 0; i < 40; ++i)
+        // Phase 1: Adaptive spin
+        // Spin count adjusts based on how often we find work during this phase
+        const u32 spinCount = m_Backoff.SpinCount;
+        for (u32 i = 0; i < spinCount; ++i)
         {
             // Check for work or exit request
             // CRITICAL: Check ALL queues, not just local!
-            if (HasWorkAvailable() || m_ShouldExit.load(std::memory_order_acquire))
+            if (HasWorkAvailable() || m_ShouldExit.load(std::memory_order_acquire)) [[unlikely]]
+            {
+                m_Backoff.RecordSuccess();
                 return;
+            }
 
             // CPU pause instruction (reduces power and allows hyperthreading)
             _mm_pause();
         }
 
-        // Phase 2: Yield to OS scheduler (10 iterations)
-        // Let other threads run while we wait
-        for (u32 i = 0; i < 10; ++i)
+        // Phase 2: Adaptive yield
+        // Yield count adjusts based on how often we find work during this phase
+        const u32 yieldCount = m_Backoff.YieldCount;
+        for (u32 i = 0; i < yieldCount; ++i)
         {
             // CRITICAL: Check ALL queues, not just local!
-            if (HasWorkAvailable() || m_ShouldExit.load(std::memory_order_acquire))
+            if (HasWorkAvailable() || m_ShouldExit.load(std::memory_order_acquire)) [[unlikely]]
+            {
+                m_Backoff.RecordSuccess();
                 return;
+            }
 
             std::this_thread::yield();
         }
 
         // Phase 3: C++20 atomic wait
+        // If we get here, work is rare - record failure to decrease spin counts next time
+        m_Backoff.RecordFailure();
+        
         // More efficient than event objects - uses hardware-level wait (WFE on ARM, MONITOR/MWAIT on x86)
         // Loop to handle spurious wakeups
         while (true)
         {
             // Before sleeping, do one final check with memory fence to ensure visibility
             std::atomic_thread_fence(std::memory_order_seq_cst);
-            if (HasWorkAvailable() || m_ShouldExit.load(std::memory_order_acquire))
+            if (HasWorkAvailable() || m_ShouldExit.load(std::memory_order_acquire)) [[unlikely]]
                 return;
 
             // Wait for wake flag to become true
@@ -293,7 +304,7 @@ namespace OloEngine
             m_WakeFlag.store(false, std::memory_order_relaxed);
             
             // Check again after waking (handles spurious wakeups and ensures we see new work)
-            if (HasWorkAvailable() || m_ShouldExit.load(std::memory_order_acquire))
+            if (HasWorkAvailable() || m_ShouldExit.load(std::memory_order_acquire)) [[unlikely]]
                 return;
         }
     }

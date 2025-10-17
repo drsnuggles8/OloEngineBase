@@ -223,6 +223,98 @@ namespace OloEngine
         bool HasWorkAvailable() const;
 
     private:
+        /**
+         * @brief Adaptive backoff controller for wait loops
+         * 
+         * Dynamically adjusts spin and yield counts based on success/failure patterns.
+         * Tracks recent history to adapt to workload changes.
+         */
+        struct AdaptiveBackoff
+        {
+            u32 SpinCount = 40;      ///< Current spin iterations (range: 10-100)
+            u32 YieldCount = 10;     ///< Current yield iterations (range: 5-50)
+            
+            u32 SuccessCount = 0;    ///< Number of times work was found during spin/yield
+            u32 FailureCount = 0;    ///< Number of times we had to go to sleep
+            
+            static constexpr u32 MinSpinCount = 10;
+            static constexpr u32 MaxSpinCount = 100;
+            static constexpr u32 MinYieldCount = 5;
+            static constexpr u32 MaxYieldCount = 50;
+            static constexpr u32 AdaptInterval = 16;  ///< Adapt every N wait attempts
+            
+            /**
+             * @brief Record that work was found during spin/yield phase
+             */
+            void RecordSuccess()
+            {
+                ++SuccessCount;
+                if ((SuccessCount + FailureCount) >= AdaptInterval) [[unlikely]]
+                {
+                    Adapt();
+                }
+            }
+            
+            /**
+             * @brief Record that we had to go to sleep (no work found)
+             */
+            void RecordFailure()
+            {
+                ++FailureCount;
+                if ((SuccessCount + FailureCount) >= AdaptInterval) [[unlikely]]
+                {
+                    Adapt();
+                }
+            }
+            
+            /**
+             * @brief Adjust spin/yield counts based on recent history
+             * 
+             * High success rate → Increase spin/yield (work available quickly)
+             * Low success rate → Decrease spin/yield (save CPU, go to sleep faster)
+             */
+            void Adapt()
+            {
+                const u32 total = SuccessCount + FailureCount;
+                if (total == 0) [[unlikely]]
+                    return;
+                
+                // Calculate success percentage (0-100)
+                const u32 successPercent = (SuccessCount * 100) / total;
+                
+                // High success rate (>75%) - work is available quickly, spin more
+                if (successPercent > 75) [[unlikely]]
+                {
+                    SpinCount = std::min(SpinCount + 10, MaxSpinCount);
+                    YieldCount = std::min(YieldCount + 5, MaxYieldCount);
+                }
+                // Medium success rate (25-75%) - maintain current strategy
+                else if (successPercent >= 25) [[likely]]
+                {
+                    // Gentle drift towards middle values
+                    if (SpinCount > 40)
+                        SpinCount = std::max(SpinCount - 5, 40u);
+                    else if (SpinCount < 40)
+                        SpinCount = std::min(SpinCount + 5, 40u);
+                    
+                    if (YieldCount > 10)
+                        YieldCount = std::max(YieldCount - 2, 10u);
+                    else if (YieldCount < 10)
+                        YieldCount = std::min(YieldCount + 2, 10u);
+                }
+                // Low success rate (<25%) - work is rare, go to sleep faster
+                else [[unlikely]]
+                {
+                    SpinCount = std::max(SpinCount - 10, MinSpinCount);
+                    YieldCount = std::max(YieldCount - 5, MinYieldCount);
+                }
+                
+                // Reset counters for next interval
+                SuccessCount = 0;
+                FailureCount = 0;
+            }
+        };
+
         TaskScheduler* m_Scheduler;              ///< Pointer to scheduler (for global queues)
         Thread m_Thread;                         ///< OS thread wrapper
         std::atomic<bool> m_WakeFlag;            ///< Atomic flag for C++20 wait/notify (replaces ThreadSignal)
@@ -233,6 +325,8 @@ namespace OloEngine
         EWorkerType m_WorkerType;                ///< Worker type (foreground/background)
         bool m_IsStandby;                        ///< True if this is a temporary standby worker
         u32 m_IdleIterations;                    ///< Counter for idle cycles (standby workers only)
+        
+        AdaptiveBackoff m_Backoff;               ///< Adaptive backoff controller
         
         /// Idle iterations before standby worker exits (~10-100ms depending on workload)
         /// Increased from 100 to allow standby workers to do useful work before exiting
