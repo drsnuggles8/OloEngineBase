@@ -157,11 +157,13 @@ namespace OloEngine
         /**
          * @brief Launch a task with default priority (Normal)
          * 
+         * The callable must satisfy the TaskCallable concept (invocable, returns void, move-constructible).
+         * 
          * @param debugName Debug name for profiling (must be string literal or long-lived)
          * @param func Callable to execute (lambda, function, functor)
          * @return Reference-counted task handle
          */
-        template<typename Callable>
+        template<TaskCallable Callable>
         Ref<Task> Launch(const char* debugName, Callable&& func)
         {
             return Launch(debugName, ETaskPriority::Normal, std::forward<Callable>(func));
@@ -170,12 +172,14 @@ namespace OloEngine
         /**
          * @brief Launch a task with specified priority
          * 
+         * The callable must satisfy the TaskCallable concept (invocable, returns void, move-constructible).
+         * 
          * @param debugName Debug name for profiling
          * @param priority Task priority level
          * @param func Callable to execute
          * @return Reference-counted task handle
          */
-        template<typename Callable>
+        template<TaskCallable Callable>
         Ref<Task> Launch(const char* debugName, ETaskPriority priority, Callable&& func)
         {
             // Create the task
@@ -191,6 +195,7 @@ namespace OloEngine
          * @brief Launch a task with prerequisites (Phase 4)
          * 
          * The task will not be scheduled until all prerequisites complete.
+         * The callable must satisfy the TaskCallable concept (invocable, returns void, move-constructible).
          * 
          * @param debugName Debug name for profiling
          * @param priority Task priority level
@@ -198,7 +203,7 @@ namespace OloEngine
          * @param prerequisites Tasks that must complete before this one
          * @return Reference-counted task handle
          */
-        template<typename Callable>
+        template<TaskCallable Callable>
         Ref<Task> Launch(const char* debugName, ETaskPriority priority, Callable&& func,
                         std::initializer_list<Ref<Task>> prerequisites)
         {
@@ -236,13 +241,14 @@ namespace OloEngine
          * 
          * Queues all tasks before waking workers, reducing wake-up overhead.
          * More efficient than calling Launch() repeatedly when launching many tasks.
+         * The callable must satisfy the TaskCallable concept (invocable, returns void, move-constructible).
          * 
          * @param debugName Debug name prefix for tasks
          * @param priority Task priority level
          * @param funcs Vector of callables to execute
          * @return Vector of task handles (same size as funcs)
          */
-        template<typename Callable>
+        template<TaskCallable Callable>
         std::vector<Ref<Task>> LaunchBatch(const char* debugName, ETaskPriority priority,
                                           const std::vector<Callable>& funcs)
         {
@@ -293,11 +299,13 @@ namespace OloEngine
         /**
          * @brief Launch multiple tasks as a batch with default priority (Normal)
          * 
+         * The callable must satisfy the TaskCallable concept (invocable, returns void, move-constructible).
+         * 
          * @param debugName Debug name prefix for tasks
          * @param funcs Vector of callables to execute
          * @return Vector of task handles
          */
-        template<typename Callable>
+        template<TaskCallable Callable>
         std::vector<Ref<Task>> LaunchBatch(const char* debugName, const std::vector<Callable>& funcs)
         {
             return LaunchBatch(debugName, ETaskPriority::Normal, funcs);

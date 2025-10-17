@@ -7,9 +7,32 @@
 #include <atomic>
 #include <functional>
 #include <unordered_set>
+#include <concepts>
 
 namespace OloEngine
 {
+    /**
+     * @brief Concept for valid task callables
+     * 
+     * A task callable must be:
+     * - Invocable with no arguments
+     * - Return void (tasks don't return values, use shared state instead)
+     * - Move-constructible (to be stored in the task)
+     * 
+     * This provides clear compile-time errors when users pass invalid callables.
+     * 
+     * Examples:
+     * - Valid:   []() { DoWork(); }
+     * - Valid:   void MyFunction() { }
+     * - Invalid: []() { return 42; }  // Must return void
+     * - Invalid: [](int x) { }        // Must take no arguments
+     */
+    template<typename Func>
+    concept TaskCallable = requires {
+        requires std::invocable<Func>;                           // Can be called with no args
+        requires std::same_as<std::invoke_result_t<Func>, void>; // Must return void
+        requires std::move_constructible<Func>;                   // Can be moved into task
+    };
     /**
      * @brief Task execution state
      * 
@@ -296,9 +319,11 @@ namespace OloEngine
      * This template wraps any callable (lambda, function, functor) and provides
      * small task optimization to avoid heap allocations for small captures.
      * 
+     * The callable must satisfy the TaskCallable concept (invocable, returns void, move-constructible).
+     * 
      * @tparam Callable The callable type (lambda, std::function, etc.)
      */
-    template<typename Callable>
+    template<TaskCallable Callable>
     class ExecutableTask : public Task
     {
     public:
@@ -390,13 +415,29 @@ namespace OloEngine
      * This is a convenience factory function that deduces the callable type
      * and creates the appropriate ExecutableTask.
      * 
-     * @tparam Callable The callable type (deduced)
+     * The callable must satisfy the TaskCallable concept:
+     * - Invocable with no arguments
+     * - Returns void (not int, bool, etc.)
+     * - Move-constructible
+     * 
+     * @tparam Callable The callable type (deduced, must satisfy TaskCallable)
      * @param debugName Debug name for profiling and logging
      * @param priority Task priority level
      * @param func The callable to execute
      * @return Reference-counted task pointer
+     * 
+     * Example usage:
+     * @code
+     * // Valid:
+     * auto task1 = CreateTask("MyTask", ETaskPriority::Normal, []() { DoWork(); });
+     * auto task2 = CreateTask("MyTask", ETaskPriority::High, &MyFunction);
+     * 
+     * // Invalid (compile error with clear message):
+     * auto task3 = CreateTask("Bad", ETaskPriority::Normal, []() { return 42; });  // Must return void
+     * auto task4 = CreateTask("Bad", ETaskPriority::Normal, [](int x) { });        // Must take no args
+     * @endcode
      */
-    template<typename Callable>
+    template<TaskCallable Callable>
     Ref<Task> CreateTask(const char* debugName, ETaskPriority priority, Callable&& func)
     {
         using DecayedCallable = std::decay_t<Callable>;
