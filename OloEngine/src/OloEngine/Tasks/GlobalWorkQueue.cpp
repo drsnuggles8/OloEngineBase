@@ -125,19 +125,21 @@ namespace OloEngine
         // Michael-Scott queue push algorithm (with dummy node and tagged pointers for ABA prevention)
         while (true)
         {
-            TaggedPtr tailTagged(m_Tail.load(std::memory_order_acquire));
+            TaggedPtr tailTagged(m_Tail.load(std::memory_order_relaxed));
             Node* tail = tailTagged.GetPtr();
-            Node* next = tail->Next.load(std::memory_order_acquire);
+                        Node* next = tail->Next.load(std::memory_order_relaxed);
             
             // Check if tail is still the last node
             if (next != nullptr)
             {
                 // Tail is not the last node - help advance it
-                TaggedPtr newTail(next, tailTagged.GetNextTag());
+                // Re-read tail with acquire before CAS to ensure we see consistent state
+                TaggedPtr currentTail(m_Tail.load(std::memory_order_acquire));
+                TaggedPtr newTail(next, currentTail.GetNextTag());
                 m_Tail.compare_exchange_weak(
-                    tailTagged.Value, newTail.Value,
+                    currentTail.Value, newTail.Value,
                     std::memory_order_release,
-                    std::memory_order_acquire);
+                    std::memory_order_relaxed);  // Failure can be relaxed - just retry
                 continue;
             }
 
@@ -145,8 +147,8 @@ namespace OloEngine
             Node* expectedNext = nullptr;
             if (tail->Next.compare_exchange_strong(
                 expectedNext, node,
-                std::memory_order_release,
-                std::memory_order_acquire))
+                std::memory_order_release,  // Success: publish new node
+                std::memory_order_relaxed))  // Failure: just retry, no sync needed
             {
                 // Successfully linked - try to advance tail (not critical if this fails)
                 // Increment tag to prevent ABA problem
@@ -171,19 +173,23 @@ namespace OloEngine
         // Michael-Scott queue pop algorithm (with dummy node and tagged pointers for ABA prevention)
         while (true)
         {
-            TaggedPtr headTagged(m_Head.load(std::memory_order_acquire));
-            TaggedPtr tailTagged(m_Tail.load(std::memory_order_acquire));
+            TaggedPtr headTagged(m_Head.load(std::memory_order_relaxed));
+            TaggedPtr tailTagged(m_Tail.load(std::memory_order_relaxed));
             
             Node* head = headTagged.GetPtr();
             Node* tail = tailTagged.GetPtr();
-            Node* next = head->Next.load(std::memory_order_acquire);
 
-            // Check if head is consistent (re-read to avoid ABA with tagged pointers)
+            // Re-read head with acquire to ensure consistency before proceeding
+            // This is the critical synchronization point
             TaggedPtr currentHead(m_Head.load(std::memory_order_acquire));
             if (headTagged.Value != currentHead.Value)
             {
                 continue;  // Head changed, retry
             }
+            
+            // CRITICAL: Read next AFTER validating head with acquire
+            // This ensures we see all writes that happened-before the tail->Next store
+            Node* next = head->Next.load(std::memory_order_acquire);
 
             // Check if queue is empty (head == tail means only dummy node present)
             if (head == tail)
@@ -199,7 +205,7 @@ namespace OloEngine
                 m_Tail.compare_exchange_weak(
                     tailTagged.Value, newTail.Value,
                     std::memory_order_release,
-                    std::memory_order_acquire);
+                    std::memory_order_relaxed);  // Failure can be relaxed
                 
                 continue;  // Retry
             }
@@ -217,14 +223,12 @@ namespace OloEngine
             TaggedPtr newHead(next, headTagged.GetNextTag());
             if (m_Head.compare_exchange_strong(
                 headTagged.Value, newHead.Value,
-                std::memory_order_release,
-                std::memory_order_acquire))
+                std::memory_order_release,  // Success: publish new head
+                std::memory_order_relaxed))  // Failure: just retry
             {
                 // Successfully dequeued - extract task from next (not head, which is the old dummy)
                 Task* taskPtr = next->TaskPtr;
                 
-                // CRITICAL: taskPtr should NEVER be null here!
-                // If it is, we have a serious bug in the queue logic
                 if (!taskPtr)
                 {
                     OLO_CORE_ERROR("GlobalWorkQueue::Pop() - Extracted null task! This should never happen!");

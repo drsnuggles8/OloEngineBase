@@ -77,17 +77,20 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Lock-free pop from free list (Treiber stack)
-        FreeNode* node = m_FreeList.load(std::memory_order_acquire);
+        // OPTIMIZATION: Initial read can be relaxed - CAS will re-validate
+        FreeNode* node = m_FreeList.load(std::memory_order_relaxed);
         
         while (node != nullptr)
         {
             FreeNode* next = node->Next;
             
             // Try to CAS the head of the free list
+            // OPTIMIZATION: On CAS failure, we don't need acquire - just retry with new value
+            // The successful CAS provides acquire semantics automatically
             if (m_FreeList.compare_exchange_weak(
                 node, next,
-                std::memory_order_release,
-                std::memory_order_acquire))
+                std::memory_order_acquire,  // Success: acquire ownership of node
+                std::memory_order_relaxed))  // Failure: just reload and retry
             {
                 // Successfully allocated
                 m_FreeCount.fetch_sub(1, std::memory_order_relaxed);
@@ -95,6 +98,7 @@ namespace OloEngine
             }
             
             // CAS failed, node was updated by another thread, retry
+            // Note: compare_exchange_weak updates 'node' with current value on failure
         }
         
         // Free list is empty
