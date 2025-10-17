@@ -110,6 +110,36 @@ namespace OloEngine
          * Packs a 48-bit pointer and 16-bit generation counter into 64 bits:
          * - Bits 0-47: Node pointer (48 bits sufficient for x64 user-space addresses)
          * - Bits 48-63: Generation counter (16 bits, wraps around after 65536 operations)
+         * 
+         * CURRENT IMPLEMENTATION: 64-bit CAS with tagged pointers
+         * - Advantages: Portable, fast, standard C++ atomics
+         * - Limitation: 16-bit tag can wrap after 65,536 operations (potential ABA if sustained > 10M ops/sec)
+         * 
+         * TODO: Future optimization for extreme high-throughput scenarios (optional):
+         * Consider implementing DWCAS (Double-Width Compare-And-Swap) as a compile-time option:
+         * 
+         * DWCAS Approach (128-bit atomic operation):
+         * - Use CMPXCHG16B on x86-64 (available since Core 2 Duo, ~2006)
+         * - Use CASP on ARM64 (ARMv8.1+)
+         * - Full 64-bit pointer + 64-bit counter (effectively infinite ABA protection)
+         * - ~20-30% slower than 64-bit CAS but mathematically ABA-proof
+         * - Requires 16-byte alignment and platform-specific intrinsics
+         * 
+         * Implementation strategy:
+         * 1. Add #define OLO_USE_DWCAS_FOR_QUEUES in Base.h or CMake option
+         * 2. Create TaggedPtr128 struct with alignas(16) and platform checks
+         * 3. Use _InterlockedCompareExchange128() on MSVC
+         * 4. Use __sync_bool_compare_and_swap() with __int128 on GCC/Clang
+         * 5. Add runtime detection for CPU support (CPUID bit 13 for CMPXCHG16B)
+         * 
+         * Reference: Unreal Engine 5.7's TLockFreePointerListUnordered implementation
+         * 
+         * Decision criteria for implementation:
+         * - Profile shows sustained queue throughput > 10M operations/second
+         * - Targeting 64+ core systems with extreme contention
+         * - Need mathematical guarantee of ABA-freedom
+         * 
+         * Current 16-bit tag is SUFFICIENT for typical game engine workloads.
          */
         struct TaggedPtr
         {
