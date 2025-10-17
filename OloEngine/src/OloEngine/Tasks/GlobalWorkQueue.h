@@ -5,6 +5,7 @@
 #include "Task.h"
 
 #include <atomic>
+#include <bit>
 
 namespace OloEngine
 {
@@ -103,9 +104,9 @@ namespace OloEngine
             TaggedPtr() : Value(0) {}
             explicit TaggedPtr(u64 value) : Value(value) {}
             TaggedPtr(Node* ptr, u16 tag) 
-                : Value((static_cast<u64>(tag) << 48) | (reinterpret_cast<uintptr_t>(ptr) & 0xFFFFFFFFFFFFULL)) {}
+                : Value((static_cast<u64>(tag) << 48) | (std::bit_cast<uintptr_t>(ptr) & 0xFFFFFFFFFFFFULL)) {}
             
-            Node* GetPtr() const { return reinterpret_cast<Node*>(Value & 0xFFFFFFFFFFFFULL); }
+            Node* GetPtr() const { return std::bit_cast<Node*>(Value & 0xFFFFFFFFFFFFULL); }
             u16 GetTag() const { return static_cast<u16>(Value >> 48); }
             u16 GetNextTag() const { return static_cast<u16>((Value >> 48) + 1); }
         };

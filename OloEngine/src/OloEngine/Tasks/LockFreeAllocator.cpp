@@ -86,7 +86,7 @@ namespace OloEngine
             FreeNode* node = GetPointer(oldHead);
             
             // Check if list is empty
-            if (node == nullptr)
+            if (node == nullptr) [[unlikely]]
             {
                 // Free list is empty
                 // OLO_CORE_WARN("LockFreeAllocator: Free list exhausted (capacity: {0}, block size: {1})", 
@@ -108,7 +108,7 @@ namespace OloEngine
             if (m_FreeList.compare_exchange_weak(
                 oldHead, newHead,
                 std::memory_order_acquire,  // Success: acquire ownership of node
-                std::memory_order_relaxed)) // Failure: just reload and retry
+                std::memory_order_relaxed)) [[likely]] // Failure: just reload and retry
             {
                 // Successfully allocated
                 m_FreeCount.fetch_sub(1, std::memory_order_relaxed);
@@ -150,7 +150,7 @@ namespace OloEngine
         while (!m_FreeList.compare_exchange_weak(
             oldHead, newHead,
             std::memory_order_release,  // Success: make node visible to other threads
-            std::memory_order_relaxed)); // Failure: reload and retry
+            std::memory_order_relaxed)); // Failure: reload and retry (loop unlikely to repeat)
 
         m_FreeCount.fetch_add(1, std::memory_order_relaxed);
     }

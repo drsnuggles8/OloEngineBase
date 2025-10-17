@@ -130,7 +130,7 @@ namespace OloEngine
                         Node* next = tail->Next.load(std::memory_order_relaxed);
             
             // Check if tail is still the last node
-            if (next != nullptr)
+            if (next != nullptr) [[unlikely]]
             {
                 // Tail is not the last node - help advance it
                 // Re-read tail with acquire before CAS to ensure we see consistent state
@@ -148,7 +148,7 @@ namespace OloEngine
             if (tail->Next.compare_exchange_strong(
                 expectedNext, node,
                 std::memory_order_release,  // Success: publish new node
-                std::memory_order_relaxed))  // Failure: just retry, no sync needed
+                std::memory_order_relaxed)) [[likely]]  // Failure: just retry, no sync needed
             {
                 // Successfully linked - try to advance tail (not critical if this fails)
                 // Increment tag to prevent ABA problem
@@ -182,7 +182,7 @@ namespace OloEngine
             // Re-read head with acquire to ensure consistency before proceeding
             // This is the critical synchronization point
             TaggedPtr currentHead(m_Head.load(std::memory_order_acquire));
-            if (headTagged.Value != currentHead.Value)
+            if (headTagged.Value != currentHead.Value) [[unlikely]]
             {
                 continue;  // Head changed, retry
             }
@@ -192,10 +192,10 @@ namespace OloEngine
             Node* next = head->Next.load(std::memory_order_acquire);
 
             // Check if queue is empty (head == tail means only dummy node present)
-            if (head == tail)
+            if (head == tail) [[unlikely]]
             {
                 // Queue is empty (only dummy node)
-                if (next == nullptr)
+                if (next == nullptr) [[likely]]
                 {
                     return nullptr;
                 }
@@ -212,7 +212,7 @@ namespace OloEngine
 
             // Queue has items - next points to the actual task node
             // (head is dummy or a previous node, next is the node to dequeue)
-            if (next == nullptr)
+            if (next == nullptr) [[unlikely]]
             {
                 // Inconsistent state, retry
                 continue;
@@ -224,12 +224,12 @@ namespace OloEngine
             if (m_Head.compare_exchange_strong(
                 headTagged.Value, newHead.Value,
                 std::memory_order_release,  // Success: publish new head
-                std::memory_order_relaxed))  // Failure: just retry
+                std::memory_order_relaxed)) [[likely]]  // Failure: just retry
             {
                 // Successfully dequeued - extract task from next (not head, which is the old dummy)
                 Task* taskPtr = next->TaskPtr;
                 
-                if (!taskPtr)
+                if (!taskPtr) [[unlikely]]
                 {
                     OLO_CORE_ERROR("GlobalWorkQueue::Pop() - Extracted null task! This should never happen!");
                     OLO_CORE_ERROR("  head={0}, next={1}, tail={2}", (void*)head, (void*)next, (void*)tail);

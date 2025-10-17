@@ -4,6 +4,7 @@
 #include "OloEngine/Debug/Profiler.h"
 
 #include <atomic>
+#include <bit>
 #include <memory>
 
 namespace OloEngine
@@ -201,7 +202,7 @@ namespace OloEngine
         static inline TaggedPointer Pack(FreeNode* ptr, u16 counter) noexcept
         {
             // Mask pointer to 48 bits (x64 canonical address)
-            const u64 ptrBits = reinterpret_cast<u64>(ptr) & 0x0000'FFFF'FFFF'FFFF;
+            const u64 ptrBits = std::bit_cast<u64>(ptr) & 0x0000'FFFF'FFFF'FFFF;
             const u64 counterBits = static_cast<u64>(counter) << 48;
             return ptrBits | counterBits;
         }
@@ -216,7 +217,7 @@ namespace OloEngine
         {
             // Extract lower 48 bits and cast to pointer
             const u64 ptrBits = tagged & 0x0000'FFFF'FFFF'FFFF;
-            return reinterpret_cast<FreeNode*>(ptrBits);
+            return std::bit_cast<FreeNode*>(ptrBits);
         }
 
         /**

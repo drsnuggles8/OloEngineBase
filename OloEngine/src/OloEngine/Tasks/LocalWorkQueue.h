@@ -5,6 +5,7 @@
 #include "Task.h"
 
 #include <atomic>
+#include <bit>
 
 namespace OloEngine
 {
@@ -94,7 +95,7 @@ namespace OloEngine
                 (NumItems - currentTail + currentHead);
             
             // Check if queue is full (leave one slot empty to distinguish full from empty)
-            if (size >= NumItems - 1)
+            if (size >= NumItems - 1) [[unlikely]]
             {
                 return false;
             }
@@ -111,7 +112,7 @@ namespace OloEngine
                 std::memory_order_acquire,
                 std::memory_order_relaxed);
 
-            if (!success)
+            if (!success) [[unlikely]]
             {
                 // Slot wasn't free (shouldn't happen)
                 return false;
@@ -148,7 +149,7 @@ namespace OloEngine
             const u32 currentTail = m_Tail.load(std::memory_order_acquire);
 
             // Check if queue is empty
-            if (currentHead == currentTail)
+            if (currentHead == currentTail) [[unlikely]]
             {
                 return nullptr;
             }
@@ -163,7 +164,7 @@ namespace OloEngine
             uintptr_t slotValue = m_ItemSlots[slotIndex].Value.load(std::memory_order_acquire);
             ESlotState state = GetSlotState(slotValue);
 
-            if (state != ESlotState::Item)
+            if (state != ESlotState::Item) [[unlikely]]
             {
                 // Slot is empty or being stolen, restore head
                 m_Head = currentHead;
@@ -171,7 +172,7 @@ namespace OloEngine
             }
 
             // Check if this is the last item (might race with stealer)
-            if (newHead == currentTail)
+            if (newHead == currentTail) [[unlikely]]
             {
                 // Potential race with stealer - use CAS to claim it
                 uintptr_t expected = slotValue;
@@ -182,7 +183,7 @@ namespace OloEngine
                     std::memory_order_acquire,
                     std::memory_order_relaxed);
                 
-                if (!success)
+                if (!success) [[unlikely]]
                 {
                     // Stealer got it, restore head
                     m_Head = currentHead;
@@ -262,7 +263,7 @@ namespace OloEngine
             u32 currentHead = m_Head;  // Relaxed read OK, we'll verify with CAS
 
             // Quick empty check
-            if (currentTail >= currentHead)
+            if (currentTail >= currentHead) [[unlikely]]
             {
                 return nullptr;
             }
@@ -273,7 +274,7 @@ namespace OloEngine
             uintptr_t slotValue = m_ItemSlots[slotIndex].Value.load(std::memory_order_acquire);
             ESlotState state = GetSlotState(slotValue);
 
-            if (state != ESlotState::Item)
+            if (state != ESlotState::Item) [[unlikely]]
             {
                 // Slot is empty, taken, or being modified
                 return nullptr;
@@ -288,7 +289,7 @@ namespace OloEngine
                 std::memory_order_acquire,
                 std::memory_order_relaxed);
 
-            if (!success)
+            if (!success) [[unlikely]]
             {
                 // Another stealer or owner got it
                 return nullptr;
@@ -304,7 +305,7 @@ namespace OloEngine
                 std::memory_order_release,
                 std::memory_order_relaxed);
 
-            if (!tailSuccess)
+            if (!tailSuccess) [[unlikely]]
             {
                 // Lost the race to update tail (another thread stole from a different slot
                 // and moved tail forward). We successfully marked this slot as Taken and
@@ -322,7 +323,7 @@ namespace OloEngine
                     std::memory_order_release);
                 
                 // Release the reference since we're abandoning this task
-                if (taskPtr)
+                if (taskPtr) [[likely]]
                     taskPtr->DecRefCount();
                 
                 return nullptr;
@@ -390,7 +391,7 @@ namespace OloEngine
          */
         static uintptr_t EncodeSlot(Task* task, ESlotState state)
         {
-            uintptr_t ptr = reinterpret_cast<uintptr_t>(task);
+            uintptr_t ptr = std::bit_cast<uintptr_t>(task);
             OLO_CORE_ASSERT((ptr & 0x3) == 0, "Task pointer must be 4-byte aligned");
             return ptr | static_cast<uintptr_t>(state);
         }
@@ -403,7 +404,7 @@ namespace OloEngine
          */
         static Task* GetSlotTask(uintptr_t encoded)
         {
-            return reinterpret_cast<Task*>(encoded & ~uintptr_t(0x3));
+            return std::bit_cast<Task*>(encoded & ~uintptr_t(0x3));
         }
 
         /**
