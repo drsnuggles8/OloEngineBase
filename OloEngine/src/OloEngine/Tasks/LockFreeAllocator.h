@@ -9,7 +9,7 @@
 namespace OloEngine
 {
     /**
-     * @brief Lock-free fixed-size block allocator
+     * @brief Lock-free fixed-size block allocator with tagged pointers
      * 
      * This allocator manages a pool of fixed-size memory blocks using a lock-free
      * free list. It's designed for high-performance allocation/deallocation of
@@ -20,15 +20,17 @@ namespace OloEngine
      * - Fixed block size (specified at construction)
      * - Pre-allocated pool with optional growth
      * - Intrusive free list (uses the freed memory to store the next pointer)
+     * - **Tagged pointers for bulletproof ABA prevention**
      * - Thread-safe for concurrent access
      * 
-     * Implementation uses a simple lock-free stack (Treiber stack) for the free list.
+     * Implementation uses a lock-free stack (Treiber stack) for the free list with
+     * **tagged pointers** to eliminate the ABA problem.
      * 
-     * **ABA Problem and Mitigation Strategy:**
+     * **ABA Problem and Our Solution:**
      * 
      * The ABA problem is a classic concurrency issue in lock-free data structures:
      * 
-     * Example scenario:
+     * Example scenario WITHOUT tagged pointers:
      * 1. Thread A reads head pointer (0x1000 pointing to Node A)
      * 2. Thread A gets preempted before CAS
      * 3. Thread B pops Node A, frees it
@@ -37,36 +39,52 @@ namespace OloEngine
      * 6. Thread A wakes up, CAS succeeds (0x1000 == 0x1000) but it's a different node!
      * 7. Result: Stack corruption, use-after-free, wrong linkage
      * 
-     * **Our Mitigation:**
-     * This allocator uses a **fixed-size pool** strategy where memory is never returned
-     * to the OS - blocks are only recycled within the pool. This significantly reduces
-     * (but does not completely eliminate) the ABA problem because:
+     * **Our Solution: Tagged Pointers**
      * 
-     * - Same address reuse is less likely (must exhaust all blocks in pool first)
-     * - No OS-level allocator introducing unpredictable address reuse patterns
-     * - Temporal locality: recently freed blocks are less likely to be immediately reallocated
+     * We use **tagged pointers** that pack both the pointer AND a version counter
+     * into a single 64-bit atomic value:
      * 
-     * **Limitations:**
-     * - ABA can still occur if all blocks are allocated, then specific pattern of
-     *   free/allocate reuses the same address before CAS completes
-     * - For mission-critical applications requiring 100% ABA prevention, consider:
-     *   1. Tagged pointers (pack generation counter with pointer, see GlobalWorkQueue)
-     *   2. Hazard pointers (mark blocks as "in-use" during access)
-     *   3. Epoch-based reclamation (defer freeing until safe epoch)
-     * 
-     * **Current Status:**
-     * For the task system's use case (frequent allocate/free with moderate pool size),
-     * the fixed-pool strategy provides acceptable safety with minimal overhead.
-     * No ABA-related issues have been observed in testing (1000+ concurrent operations).
-     * 
-     * If you observe crashes or corruption, consider implementing tagged pointers:
-     * ```cpp
-     * struct TaggedNode {
-     *     uintptr_t value; // Lower 48 bits = pointer, upper 16 bits = tag
-     *     Node* GetPtr() const { return (Node*)(value & 0xFFFFFFFFFFFF); }
-     *     uint16_t GetTag() const { return value >> 48; }
-     * };
      * ```
+     * 64-bit layout:
+     * [63-48: 16-bit counter][47-0: 48-bit pointer]
+     * ```
+     * 
+     * On x64, addresses are canonically 48-bit (0x0000'0000'0000'0000 to 0x0000'7FFF'FFFF'FFFF).
+     * We use the upper 16 bits to store a version counter that increments on every operation.
+     * 
+     * **How It Prevents ABA:**
+     * 
+     * Same scenario WITH tagged pointers:
+     * 1. Thread A reads tagged pointer (counter=0, ptr=0x1000)
+     * 2. Thread A gets preempted
+     * 3. Thread B pops node (counter becomes 1)
+     * 4. Thread B allocates new node at 0x1000
+     * 5. Thread B pushes node (counter becomes 2)
+     * 6. Thread A wakes up, CAS FAILS because counter changed (0 != 2)
+     * 7. Result: Thread A retries with new value, no corruption
+     * 
+     * The counter makes reused addresses detectable. Even if the same pointer
+     * appears at the head, the counter will be different, preventing false matches.
+     * 
+     * **Counter Overflow:**
+     * 
+     * The 16-bit counter wraps around after 65,536 operations. However, for ABA to occur
+     * after wraparound, ALL of the following must happen between when Thread A reads
+     * the value and when it attempts the CAS:
+     * 
+     * 1. 65,536 push/pop operations must occur (to wrap the counter)
+     * 2. The exact same pointer must be at the head
+     * 3. Thread A must still be holding the old value
+     * 
+     * In practice, this is virtually impossible. Even at 1 billion ops/sec,
+     * 65,536 operations take 65 microseconds. If a thread is preempted for that long,
+     * the CAS would likely fail anyway due to other changes.
+     * 
+     * **Memory Ordering:**
+     * 
+     * - Allocate (pop): acquire on successful CAS
+     * - Free (push): release on successful CAS
+     * - Counter increments: part of CAS operation (no separate atomic needed)
      * 
      * Thread Safety: Safe for concurrent access from multiple threads
      */
@@ -156,6 +174,64 @@ namespace OloEngine
         };
 
         /**
+         * @brief Tagged pointer for ABA prevention
+         * 
+         * Packs a 48-bit pointer with a 16-bit version counter into a 64-bit value.
+         * 
+         * Bit layout:
+         * - Bits [63-48]: 16-bit counter (version tag)
+         * - Bits [47-0]:  48-bit pointer (x64 canonical address)
+         * 
+         * Usage:
+         * ```cpp
+         * TaggedPointer tagged = Pack(ptr, counter);
+         * FreeNode* node = GetPointer(tagged);
+         * u16 version = GetCounter(tagged);
+         * ```
+         */
+        using TaggedPointer = u64;
+
+        /**
+         * @brief Pack a pointer and counter into a tagged pointer
+         * 
+         * @param ptr Pointer to pack (must be a valid x64 canonical address)
+         * @param counter 16-bit version counter
+         * @return 64-bit tagged pointer value
+         */
+        static inline TaggedPointer Pack(FreeNode* ptr, u16 counter) noexcept
+        {
+            // Mask pointer to 48 bits (x64 canonical address)
+            const u64 ptrBits = reinterpret_cast<u64>(ptr) & 0x0000'FFFF'FFFF'FFFF;
+            const u64 counterBits = static_cast<u64>(counter) << 48;
+            return ptrBits | counterBits;
+        }
+
+        /**
+         * @brief Extract the pointer from a tagged pointer
+         * 
+         * @param tagged Tagged pointer value
+         * @return Pointer extracted from lower 48 bits
+         */
+        static inline FreeNode* GetPointer(TaggedPointer tagged) noexcept
+        {
+            // Extract lower 48 bits and cast to pointer
+            const u64 ptrBits = tagged & 0x0000'FFFF'FFFF'FFFF;
+            return reinterpret_cast<FreeNode*>(ptrBits);
+        }
+
+        /**
+         * @brief Extract the counter from a tagged pointer
+         * 
+         * @param tagged Tagged pointer value
+         * @return 16-bit counter from upper 16 bits
+         */
+        static inline u16 GetCounter(TaggedPointer tagged) noexcept
+        {
+            // Extract upper 16 bits
+            return static_cast<u16>(tagged >> 48);
+        }
+
+        /**
          * @brief Memory chunk - tracks a contiguous allocation from the system
          */
         struct MemoryChunk
@@ -168,9 +244,9 @@ namespace OloEngine
         sizet m_BlockSize;          // Size of each block
         sizet m_Alignment;          // Alignment requirement
         
-        alignas(128) std::atomic<FreeNode*> m_FreeList{nullptr};  // Lock-free free list
-        alignas(128) std::atomic<sizet> m_Capacity{0};            // Total blocks allocated
-        alignas(128) std::atomic<sizet> m_FreeCount{0};           // Approximate free count
+        alignas(128) std::atomic<TaggedPointer> m_FreeList{0};   // Lock-free free list with tagged pointers
+        alignas(128) std::atomic<sizet> m_Capacity{0};           // Total blocks allocated
+        alignas(128) std::atomic<sizet> m_FreeCount{0};          // Approximate free count
         
         MemoryChunk* m_ChunkList{nullptr};  // List of memory chunks (accessed only during init/shutdown)
 

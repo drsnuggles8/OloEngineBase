@@ -41,8 +41,8 @@ namespace OloEngine
         m_Capacity.store(other.m_Capacity.load(std::memory_order_relaxed), std::memory_order_relaxed);
         m_FreeCount.store(other.m_FreeCount.load(std::memory_order_relaxed), std::memory_order_relaxed);
         
-        // Clear other's state
-        other.m_FreeList.store(nullptr, std::memory_order_relaxed);
+        // Clear other's state (tagged pointer with null and counter 0)
+        other.m_FreeList.store(0, std::memory_order_relaxed);
         other.m_Capacity.store(0, std::memory_order_relaxed);
         other.m_FreeCount.store(0, std::memory_order_relaxed);
         other.m_ChunkList = nullptr;
@@ -63,8 +63,8 @@ namespace OloEngine
             m_Capacity.store(other.m_Capacity.load(std::memory_order_relaxed), std::memory_order_relaxed);
             m_FreeCount.store(other.m_FreeCount.load(std::memory_order_relaxed), std::memory_order_relaxed);
 
-            // Clear other's state
-            other.m_FreeList.store(nullptr, std::memory_order_relaxed);
+            // Clear other's state (tagged pointer with null and counter 0)
+            other.m_FreeList.store(0, std::memory_order_relaxed);
             other.m_Capacity.store(0, std::memory_order_relaxed);
             other.m_FreeCount.store(0, std::memory_order_relaxed);
             other.m_ChunkList = nullptr;
@@ -76,35 +76,48 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Lock-free pop from free list (Treiber stack)
+        // Lock-free pop from free list (Treiber stack) with tagged pointers
         // OPTIMIZATION: Initial read can be relaxed - CAS will re-validate
-        FreeNode* node = m_FreeList.load(std::memory_order_relaxed);
+        TaggedPointer oldHead = m_FreeList.load(std::memory_order_relaxed);
         
-        while (node != nullptr)
+        while (true)
         {
+            // Extract pointer and counter from tagged pointer
+            FreeNode* node = GetPointer(oldHead);
+            
+            // Check if list is empty
+            if (node == nullptr)
+            {
+                // Free list is empty
+                // OLO_CORE_WARN("LockFreeAllocator: Free list exhausted (capacity: {0}, block size: {1})", 
+                //     m_Capacity.load(std::memory_order_relaxed), m_BlockSize);
+                return nullptr;
+            }
+            
+            // Read the next pointer
             FreeNode* next = node->Next;
+            
+            // Increment counter for new head (prevents ABA)
+            u16 oldCounter = GetCounter(oldHead);
+            u16 newCounter = oldCounter + 1;  // Wraps around automatically at 65536
+            TaggedPointer newHead = Pack(next, newCounter);
             
             // Try to CAS the head of the free list
             // OPTIMIZATION: On CAS failure, we don't need acquire - just retry with new value
             // The successful CAS provides acquire semantics automatically
             if (m_FreeList.compare_exchange_weak(
-                node, next,
+                oldHead, newHead,
                 std::memory_order_acquire,  // Success: acquire ownership of node
-                std::memory_order_relaxed))  // Failure: just reload and retry
+                std::memory_order_relaxed)) // Failure: just reload and retry
             {
                 // Successfully allocated
                 m_FreeCount.fetch_sub(1, std::memory_order_relaxed);
                 return node;
             }
             
-            // CAS failed, node was updated by another thread, retry
-            // Note: compare_exchange_weak updates 'node' with current value on failure
+            // CAS failed, oldHead was updated by compare_exchange_weak with current value
+            // Loop will retry with new tagged pointer value
         }
-        
-        // Free list is empty
-        // OLO_CORE_WARN("LockFreeAllocator: Free list exhausted (capacity: {0}, block size: {1})", 
-        //     m_Capacity.load(std::memory_order_relaxed), m_BlockSize);
-        return nullptr;
     }
 
     void LockFreeAllocator::Free(void* ptr)
@@ -117,18 +130,27 @@ namespace OloEngine
             return;
         }
 
-        // Lock-free push onto free list (Treiber stack)
+        // Lock-free push onto free list (Treiber stack) with tagged pointers
         FreeNode* node = static_cast<FreeNode*>(ptr);
-        FreeNode* oldHead = m_FreeList.load(std::memory_order_relaxed);
+        TaggedPointer oldHead = m_FreeList.load(std::memory_order_relaxed);
+        TaggedPointer newHead;
         
         do
         {
-            node->Next = oldHead;
+            // Extract pointer from tagged pointer to link the node
+            node->Next = GetPointer(oldHead);
+            
+            // Increment counter for new head (prevents ABA)
+            u16 oldCounter = GetCounter(oldHead);
+            u16 newCounter = oldCounter + 1;  // Wraps around automatically at 65536
+            newHead = Pack(node, newCounter);
+            
+            // Try to CAS the new node as the head
         }
         while (!m_FreeList.compare_exchange_weak(
-            oldHead, node,
-            std::memory_order_release,
-            std::memory_order_relaxed));
+            oldHead, newHead,
+            std::memory_order_release,  // Success: make node visible to other threads
+            std::memory_order_relaxed)); // Failure: reload and retry
 
         m_FreeCount.fetch_add(1, std::memory_order_relaxed);
     }
@@ -179,16 +201,22 @@ namespace OloEngine
         }
 
         // Now we have a chain: firstNode -> ... -> prevNode
-        // We need to atomically prepend this chain to the free list
-        FreeNode* oldHead = m_FreeList.load(std::memory_order_relaxed);
+        // We need to atomically prepend this chain to the free list with tagged pointers
+        TaggedPointer oldHead = m_FreeList.load(std::memory_order_relaxed);
+        TaggedPointer newHead;
         
         do
         {
-            // Link the last node in our chain to the old head
-            prevNode->Next = oldHead;
+            // Link the last node in our chain to the old head pointer
+            prevNode->Next = GetPointer(oldHead);
+            
+            // Increment counter for new head (prevents ABA)
+            u16 oldCounter = GetCounter(oldHead);
+            u16 newCounter = oldCounter + 1;  // Wraps around automatically at 65536
+            newHead = Pack(firstNode, newCounter);
         }
         while (!m_FreeList.compare_exchange_weak(
-            oldHead, firstNode,
+            oldHead, newHead,
             std::memory_order_release,
             std::memory_order_relaxed));
 
@@ -220,7 +248,7 @@ namespace OloEngine
         }
 
         m_ChunkList = nullptr;
-        m_FreeList.store(nullptr, std::memory_order_relaxed);
+        m_FreeList.store(0, std::memory_order_relaxed);  // Tagged pointer with null pointer and counter 0
         m_Capacity.store(0, std::memory_order_relaxed);
         m_FreeCount.store(0, std::memory_order_relaxed);
     }
