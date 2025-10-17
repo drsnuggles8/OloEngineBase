@@ -102,21 +102,20 @@ namespace OloEngine
             std::memory_order_relaxed));
     }
 
-    bool GlobalWorkQueue::Push(Ref<Task> task)
+    std::expected<void, QueueError> GlobalWorkQueue::Push(Ref<Task> task)
     {
         OLO_PROFILE_FUNCTION();
 
         if (!task)
         {
-            OLO_CORE_WARN("GlobalWorkQueue::Push called with null task");
-            return false;
+            return std::unexpected(QueueError::NullTask);
         }
 
         // Allocate a node
         Node* node = AllocateNode(task.Raw());
         if (!node)
         {
-            return false;  // Pool exhausted
+            return std::unexpected(QueueError::AllocationFailed);
         }
 
         // Increment reference count - queue now holds a reference
@@ -159,7 +158,7 @@ namespace OloEngine
                     std::memory_order_relaxed);
                 
                 m_ApproximateCount.fetch_add(1, std::memory_order_relaxed);
-                return true;
+                return {};  // Success - return void in std::expected
             }
 
             // Failed to link - another thread modified tail->Next, retry

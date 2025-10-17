@@ -86,8 +86,14 @@ namespace OloEngine
             worker->RequestStop();
         }
 
-        // Memory fence to ensure exit flags are visible to all threads
-        std::atomic_thread_fence(std::memory_order_seq_cst);
+        // SYNCHRONIZATION ANALYSIS:
+        // No seq_cst fence needed here because:
+        // 1. RequestStop() stores to m_ShouldExit with memory_order_release
+        // 2. Worker threads load m_ShouldExit with memory_order_acquire
+        // 3. This forms a proper release-acquire synchronization pair
+        // 4. RequestStop() also calls Wake() which does store-release + notify
+        // The release-acquire pair ensures all writes before RequestStop are visible
+        // to workers when they read m_ShouldExit with acquire ordering.
 
         // Phase 2: Join all workers (destructor wakes again and joins)
         // The WorkerThread destructor will wake the thread again before joining,
@@ -132,13 +138,18 @@ namespace OloEngine
 
         // Queue the task in the appropriate global queue
         ETaskPriority priority = task->GetPriority();
-        bool queued = GetGlobalQueue(priority).Push(task);
+        auto result = GetGlobalQueue(priority).Push(task);
         
-        if (!queued)
+        if (!result)
         {
             // Queue full - mark as completed and notify dependents
             // This prevents deadlock when tasks wait for a task that couldn't be queued
             task->SetState(ETaskState::Completed);
+            
+            // Log the error with details
+            OLO_CORE_ERROR("Failed to queue task '{}': {}", 
+                          task->GetDebugName() ? task->GetDebugName() : "unnamed",
+                          QueueErrorToString(result.error()));
             
             // CRITICAL: Notify scheduler statistics
             OnTaskCompleted();

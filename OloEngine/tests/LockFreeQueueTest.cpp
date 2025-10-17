@@ -32,9 +32,9 @@ TEST(LocalWorkQueueTest, PushSingleTask)
     
     auto task = CreateTask("Test", ETaskPriority::Normal, []() {});
     
-    bool pushed = queue.Push(task);
+    auto result = queue.Push(task);
     
-    EXPECT_TRUE(pushed);
+    EXPECT_TRUE(result.has_value());
     EXPECT_FALSE(queue.IsEmpty());
     EXPECT_EQ(queue.ApproximateSize(), 1u);
 }
@@ -71,8 +71,8 @@ TEST(LocalWorkQueueTest, PushMultipleTasks)
     for (u32 i = 0; i < numTasks; ++i)
     {
         tasks.push_back(CreateTask("Task", ETaskPriority::Normal, []() {}));
-        bool pushed = queue.Push(tasks[i]);
-        EXPECT_TRUE(pushed);
+        auto result = queue.Push(tasks[i]);
+        EXPECT_TRUE(result.has_value());
     }
     
     EXPECT_EQ(queue.ApproximateSize(), numTasks);

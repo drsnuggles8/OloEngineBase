@@ -291,13 +291,19 @@ namespace OloEngine
         // Loop to handle spurious wakeups
         while (true)
         {
-            // Before sleeping, do one final check with memory fence to ensure visibility
-            std::atomic_thread_fence(std::memory_order_seq_cst);
+            // SYNCHRONIZATION ANALYSIS:
+            // No seq_cst fence needed here because:
+            // 1. HasWorkAvailable() reads queue atomics with acquire semantics
+            // 2. m_ShouldExit.load(acquire) establishes happens-before with RequestStop's release
+            // 3. atomic::wait(acquire) will see all writes that happened-before Wake's release
+            // 4. Lost wakeup is prevented by the while(true) loop and the check before wait
+            // The combination of acquire loads + acquire wait provides all necessary synchronization.
             if (HasWorkAvailable() || m_ShouldExit.load(std::memory_order_acquire)) [[unlikely]]
                 return;
 
             // Wait for wake flag to become true
             // This is a hardware-efficient wait that puts the CPU into a low-power state
+            // acquire ordering ensures we see all writes that happened-before the notify
             m_WakeFlag.wait(false, std::memory_order_acquire);
             
             // Reset the wake flag for next wait

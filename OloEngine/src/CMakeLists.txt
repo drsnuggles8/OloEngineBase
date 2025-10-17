@@ -152,6 +152,7 @@
 		"OloEngine/Tasks/Task.h"
 		"OloEngine/Tasks/Task.cpp"
 		"OloEngine/Tasks/TaskPriority.h"
+		"OloEngine/Tasks/QueueError.h"
 		"OloEngine/Tasks/TaskScheduler.h"
 		"OloEngine/Tasks/TaskScheduler.cpp"
 		"OloEngine/Tasks/LocalWorkQueue.h"

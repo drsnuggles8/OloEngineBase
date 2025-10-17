@@ -266,7 +266,8 @@ namespace OloEngine
                 {
                     // Queue to appropriate global queue
                     GlobalWorkQueue& queue = GetGlobalQueue(priority);
-                    if (queue.Push(task))
+                    auto result = queue.Push(task);
+                    if (result)
                     {
                         tasks.push_back(task);
                     }
@@ -274,6 +275,8 @@ namespace OloEngine
                     {
                         // Queue full - mark task as completed (failed to schedule)
                         task->SetState(ETaskState::Completed);
+                        OLO_CORE_ERROR("Failed to queue task '{}': {}",
+                                      debugName, QueueErrorToString(result.error()));
                     }
                 }
             }

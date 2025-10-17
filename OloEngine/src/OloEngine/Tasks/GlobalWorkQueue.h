@@ -3,9 +3,11 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Debug/Profiler.h"
 #include "Task.h"
+#include "QueueError.h"
 
 #include <atomic>
 #include <bit>
+#include <expected>
 
 namespace OloEngine
 {
@@ -55,9 +57,21 @@ namespace OloEngine
          * Tasks are pushed to the tail and will be popped from the head (FIFO).
          * 
          * @param task Task to push (must not be null)
-         * @return True if push succeeded, false if queue is full or task is null
+         * @return void on success, QueueError on failure
+         * 
+         * Error codes:
+         * - QueueError::NullTask: task parameter is null
+         * - QueueError::AllocationFailed: node pool is exhausted
+         * 
+         * Example usage:
+         * @code
+         * auto result = queue.Push(myTask);
+         * if (!result) {
+         *     OLO_CORE_ERROR("Failed to push task: {}", QueueErrorToString(result.error()));
+         * }
+         * @endcode
          */
-        bool Push(Ref<Task> task);
+        std::expected<void, QueueError> Push(Ref<Task> task);
 
         /**
          * @brief Pop a task from the head of the queue (consumer operation)

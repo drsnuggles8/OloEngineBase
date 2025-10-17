@@ -3,9 +3,11 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "Task.h"
+#include "QueueError.h"
 
 #include <atomic>
 #include <bit>
+#include <expected>
 
 namespace OloEngine
 {
@@ -75,13 +77,20 @@ namespace OloEngine
          * This is a wait-free operation for the owner thread.
          * 
          * @param task Task to push (must not be nullptr)
-         * @return True if pushed successfully, false if queue is full
+         * @return void on success, QueueError on failure
+         * 
+         * Error codes:
+         * - QueueError::NullTask: task parameter is null
+         * - QueueError::QueueFull: queue has reached capacity
          */
-        bool Push(Ref<Task> task)
+        std::expected<void, QueueError> Push(Ref<Task> task)
         {
             OLO_PROFILE_FUNCTION();
             
-            OLO_CORE_ASSERT(task, "Cannot push null task");
+            if (!task)
+            {
+                return std::unexpected(QueueError::NullTask);
+            }
 
             // Read current head (owner thread only, no synchronization)
             const u32 currentHead = m_Head;
@@ -97,7 +106,7 @@ namespace OloEngine
             // Check if queue is full (leave one slot empty to distinguish full from empty)
             if (size >= NumItems - 1) [[unlikely]]
             {
-                return false;
+                return std::unexpected(QueueError::QueueFull);
             }
 
             // Push at current head position
@@ -115,7 +124,7 @@ namespace OloEngine
             if (!success) [[unlikely]]
             {
                 // Slot wasn't free (shouldn't happen)
-                return false;
+                return std::unexpected(QueueError::QueueFull);
             }
 
             // Increment reference count (task will be held by queue)
@@ -130,7 +139,7 @@ namespace OloEngine
             // Update head (owner thread only, no synchronization needed)
             m_Head = currentHead + 1;
 
-            return true;
+            return {};  // Success
         }
 
         /**
