@@ -326,7 +326,7 @@ class TaskSchedulerTest : public ::testing::Test
 protected:
     void SetUp() override
     {
-        // Initialize logging system (required by Thread/ThreadSignal)
+        // Initialize logging system (required by Thread for debugging)
         if (!Log::GetCoreLogger())
         {
             Log::Init();

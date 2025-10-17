@@ -7,7 +7,7 @@ namespace OloEngine {
 	TaskPipe::TaskPipe(const std::string& name)
 		: m_Name(name)
 		, m_Thread(name)
-		, m_WakeEvent(name + "_Event", false)  // Auto-reset event
+		, m_WakeFlag(false)  // C++20 atomic for wait/notify
 	{
 		// Start the pipe thread
 		m_Running.store(true, std::memory_order_release);
@@ -20,9 +20,11 @@ namespace OloEngine {
 		m_ShouldExit.store(true, std::memory_order_release);
 		
 		// Signal thread multiple times to ensure it catches the signal
+		// C++20 atomic notify is more reliable than event signaling
 		for (int i = 0; i < 3; ++i)
 		{
-			m_WakeEvent.Signal();
+			m_WakeFlag.store(true, std::memory_order_release);
+			m_WakeFlag.notify_one();
 			std::this_thread::yield();
 		}
 		
@@ -50,8 +52,9 @@ namespace OloEngine {
 			m_Queue.push(task);
 		}
 		
-		// Signal the pipe thread
-		m_WakeEvent.Signal();
+		// Signal the pipe thread using C++20 atomic notify
+		m_WakeFlag.store(true, std::memory_order_release);
+		m_WakeFlag.notify_one();
 		
 		return task;
 	}
@@ -89,12 +92,16 @@ namespace OloEngine {
 			}
 			else
 			{
-				// No work - wait for signal
+				// No work - wait using C++20 atomic wait
 				// Check exit flag before waiting
 				if (m_ShouldExit.load(std::memory_order_acquire))
 					break;
 				
-				m_WakeEvent.Wait();
+				// Wait for wake flag to become true
+				m_WakeFlag.wait(false, std::memory_order_acquire);
+				
+				// Reset the wake flag for next wait
+				m_WakeFlag.store(false, std::memory_order_relaxed);
 			}
 		}
 		

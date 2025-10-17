@@ -17,7 +17,7 @@ namespace OloEngine
     WorkerThread::WorkerThread(TaskScheduler* scheduler, u32 workerIndex, EWorkerType workerType, bool isStandby)
         : m_Scheduler(scheduler)
         , m_Thread(std::string("Worker_") + std::to_string(workerIndex))
-        , m_WakeEvent(std::string("WorkerWake_") + std::to_string(workerIndex), false)
+        , m_WakeFlag(false)  // C++20 atomic for wait/notify
         , m_ShouldExit(false)
         , m_WorkerIndex(workerIndex)
         , m_WorkerType(workerType)
@@ -62,8 +62,7 @@ namespace OloEngine
         m_ShouldExit.store(true, std::memory_order_release);
         
         // Wake the thread multiple times to ensure it sees the exit flag
-        // This handles race conditions where the thread might miss the first wake signal
-        // because it was between checking the flag and calling Wait()
+        // C++20 atomic notify is more reliable than event signaling
         for (int i = 0; i < 3; ++i)
         {
             Wake();
@@ -87,7 +86,9 @@ namespace OloEngine
 
     void WorkerThread::Wake()
     {
-        m_WakeEvent.Signal();
+        // C++20 atomic notify: Set flag and notify waiting thread
+        m_WakeFlag.store(true, std::memory_order_release);
+        m_WakeFlag.notify_one();
     }
 
     void WorkerThread::DetachAndRun()
@@ -274,16 +275,27 @@ namespace OloEngine
             std::this_thread::yield();
         }
 
-        // Phase 3: Event wait
-        // Before sleeping, do one final check with memory fence to ensure visibility
-        std::atomic_thread_fence(std::memory_order_seq_cst);
-        if (HasWorkAvailable() || m_ShouldExit.load(std::memory_order_acquire))
-            return;
+        // Phase 3: C++20 atomic wait
+        // More efficient than event objects - uses hardware-level wait (WFE on ARM, MONITOR/MWAIT on x86)
+        // Loop to handle spurious wakeups
+        while (true)
+        {
+            // Before sleeping, do one final check with memory fence to ensure visibility
+            std::atomic_thread_fence(std::memory_order_seq_cst);
+            if (HasWorkAvailable() || m_ShouldExit.load(std::memory_order_acquire))
+                return;
 
-        // Use infinite wait - wake will be called on new work or shutdown
-        // The WorkerMain loop checks exit flag on every iteration, so even if
-        // we somehow miss a wake signal, we'll check exit flag next time around
-        m_WakeEvent.Wait();
+            // Wait for wake flag to become true
+            // This is a hardware-efficient wait that puts the CPU into a low-power state
+            m_WakeFlag.wait(false, std::memory_order_acquire);
+            
+            // Reset the wake flag for next wait
+            m_WakeFlag.store(false, std::memory_order_relaxed);
+            
+            // Check again after waking (handles spurious wakeups and ensures we see new work)
+            if (HasWorkAvailable() || m_ShouldExit.load(std::memory_order_acquire))
+                return;
+        }
     }
 
     Ref<Task> WorkerThread::StealFromOtherWorkers()

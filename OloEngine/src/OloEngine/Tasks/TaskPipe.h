@@ -70,7 +70,7 @@ namespace OloEngine {
 
 		std::string m_Name;
 		Thread m_Thread;
-		ThreadSignal m_WakeEvent;
+		std::atomic<bool> m_WakeFlag{false};  ///< C++20 atomic for wait/notify (replaces ThreadSignal)
 		
 		// Simple FIFO queue with mutex protection (no work stealing)
 		std::queue<Ref<Task>> m_Queue;

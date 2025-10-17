@@ -225,7 +225,7 @@ namespace OloEngine
     private:
         TaskScheduler* m_Scheduler;              ///< Pointer to scheduler (for global queues)
         Thread m_Thread;                         ///< OS thread wrapper
-        ThreadSignal m_WakeEvent;                ///< Event for waking sleeping worker
+        std::atomic<bool> m_WakeFlag;            ///< Atomic flag for C++20 wait/notify (replaces ThreadSignal)
         LocalWorkQueue<1024> m_LocalQueue;       ///< Worker's local work queue
         
         std::atomic<bool> m_ShouldExit;          ///< Flag to signal thread exit
