@@ -439,7 +439,7 @@ namespace OloEngine
                 // Create unique ID for each selectable
                 char selectableId[64];
                 snprintf(selectableId, sizeof(selectableId), "##selectable_%p", address);
-                if (ImGui::Selectable(selectableId, isSelected, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowItemOverlap))
+                if (ImGui::Selectable(selectableId, isSelected, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap))
                 {
                     s_SelectedAllocation = (s_SelectedAllocation == address) ? nullptr : address;
                 }

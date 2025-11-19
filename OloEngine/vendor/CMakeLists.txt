@@ -67,7 +67,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	joltphysics
 	GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
-	GIT_TAG v5.3.0
+	GIT_TAG master
 	GIT_SHALLOW		TRUE
 	SOURCE_SUBDIR Build
 )
