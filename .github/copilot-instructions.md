@@ -1,123 +1,34 @@
-# GitHub Copilot Instructions
+# OloEngine AI Agent Guide
 
-## Architecture Overview
+## 1. Big Picture
+C++ based engine using modern OpenGL (4.6 with DSA). Core library in `OloEngine/` (Rendering, Scene/ECS, Physics 2D/3D, Asset, Scripting). Tooling/editor in `OloEditor/` (ImGui panels, content browser, gizmos). Example applications: `Sandbox3D/`, `Sandbox2D/`. Dual scripting runtimes: `OloEngine-ScriptCore/` (C# via Mono) + `OloEngine-LuaScriptCore/` (Lua via Sol2). Run-time asset + mono dependencies expect working directory = `OloEditor/`.
 
-OloEngine is a multi-layered game engine based on Hazel, supporting both 2D/3D rendering, physics simulation, and dual scripting (C# + Lua). Key components:
+## 2. Build & Run Workflow
+Generate VS solutions with `scripts/Win-GenerateProject*.bat`. Clean by deleting `build/` or using `scripts/Win-DeleteStuff.bat`.
+Use VS Code tasks (e.g. `build-oloeditor-debug`, `run-oloeditor-debug`, `run-tests-debug`).
+Always run samples/editor from `OloEditor/` cwd or assets won't resolve. Dependencies fetched automatically (FetchContent + CPM) into `OloEngine/vendor/`; never edit vendor code.
 
-- **OloEngine/**: Core engine library with modular subsystems (Renderer, Physics3D, Scene, Scripting, Asset)
-- **OloEditor/**: Full-featured editor application with ImGui panels and asset management
-- **Sandbox3D/Sandbox2D/**: Example applications demonstrating engine capabilities
-- **OloEngine-ScriptCore/**: C# scripting runtime via Mono
-- **OloEngine-LuaScriptCore/**: Lua scripting integration via Sol2
+## 3. Core Patterns
+ECS: EnTT + `Entity` wrapper (UUID). Add components via `entity.AddComponent<TransformComponent>()`. Keep component headers minimal; serialization hooks live in YAML converters (see `Core/YAMLConverters.h`). Assets: `AssetManager::LoadAssetFromFile()` returns handle, retrieve typed asset with `GetAsset<T>()`; hot-reload triggers `AssetReloadedEvent`. Rendering: stateless layered command queue; queue population separated from execution (inspired by Molecular Matters). Physics: Jolt (3D) + Box2D (2D) with custom collision layers; access 3D via `scene->GetPhysicsScene()`. Profiling: Wrap functions/blocks with `OLO_PROFILE_FUNCTION()` / `OLO_PROFILE_SCOPE(name)`; increment metrics via `RendererProfiler` & track memory with `RendererMemoryTracker`.
 
-## Development Workflow
+## 4. Scripting Integration
+C#: Classes inherit `Entity` base; override `OnUpdate(float dt)`, access components through helpers. Lua: Functions operate on an entity binding (`entity:GetComponent("TransformComponent")`). Keep API surface mirrored where possible. When adding new components, ensure binding layer updates both C# (ScriptCore) and Lua (LuaScriptCore) plus serialization.
 
-### Building & Running
-- Applications must run from `OloEditor/` working directory (assets/mono dependencies)
-- Use `scripts/Win-GenerateProject.bat` for initial setup, `scripts/Win-DeleteStuff.bat` to clean (or manually delete the `build/` folder)
-- **VS Code Tasks**: Run tasks via Command Palette (`Ctrl+Shift+P` → "Tasks: Run Task") or `Terminal` → `Run Task...`
-  - Build: `build-sandbox3d-debug`, `build-oloeditor-debug`, `build-tests-debug`
-  - Run: `run-sandbox3d-debug`, `run-oloeditor-debug`, `run-tests-debug` (auto-builds dependencies)
-  - Configurations available: `debug`, `release`, `dist`
+## 5. Conventions & Style
+C++20 baseline (aim C++23 or even C++26). 4-space indent. Classes PascalCase; members `m_PascalCase`; statics `s_PascalCase`. Primitive typedefs in `Core/Base.h` (`u32`, `f32`, etc.). Use `Ref<T>` smart pointer (`Core/Ref.h`). Headers use `#pragma once`. Prefer RAII for GL resources. Include what you use (project headers in quotes, third-party/system in angle brackets). Braces on new lines except trivial cases.
 
-### Key Patterns
+## 6. Adding/Modifying Systems
+Place engine code under `OloEngine/src/<Subsystem>/`. Add public API to clearly named headers; update editor integration (panel or gizmo) in `OloEditor/src/` if user-facing. For new asset types: implement loader, register with `AssetManager`, extend YAML serialization & hot-reload handling.
 
-**Entity-Component-System**: Uses EnTT for scene management. Entities are UUID-based handles, components stored in registries.
-```cpp
-Entity entity = scene->CreateEntity("MyEntity");
-entity.AddComponent<TransformComponent>();
-entity.GetComponent<RigidBody3DComponent>().Mass = 5.0f;
-```
+## 7. Testing & Debugging
+Tests live in `OloEngine/tests/` (GoogleTest). Use `run-tests-debug` task after changes. Use asset hot-reload for iteration—modify files under `OloEditor/assets/` and rely on filewatch events.
 
-**Asset System**: UUID-based asset handles with async loading and hot-reloading via filewatch.
-```cpp
-AssetHandle texHandle = AssetManager::LoadAssetFromFile("texture.png");
-Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(texHandle);
-```
+## 8. Common Pitfalls
+Wrong working dir → missing shaders/mono assemblies.
+Editing vendor code → lost on next configure.
+Forgetting serialization/component binding leads to scenes not persisting or scripts failing.
 
-**Physics Integration**: Jolt Physics wrapped in `JoltScene` with custom collision layers and filtering.
-```cpp
-JoltScene* physics = scene->GetPhysicsScene();
-physics->AddRigidBody(entity, colliderShape, bodyType);
-```
+## 9. Update Policy
+Keep this file synced with major architecture shifts (render backend changes, scripting API additions, asset pipeline adjustments). Remove stale sections; avoid aspirational features.
 
-**Scripting Dual-Runtime**: C# entities inherit `Entity` base class, Lua scripts use component binding.
-
-```csharp
-// C# Entity example - inherits from Entity base class
-public class Player : Entity
-{
-    private float speed = 5.0f;
-    
-    protected override void OnUpdate(float deltaTime)
-    {
-        // Access components through Entity base class
-        var transform = GetComponent<TransformComponent>();
-        var input = Input.GetAxis("Horizontal");
-        transform.Translation.x += input * speed * deltaTime;
-    }
-}
-```
-
-```lua
--- Lua script example - component binding approach
-function OnUpdate(entity, deltaTime)
-    -- Get component through binding system
-    local transform = entity:GetComponent("TransformComponent")
-    local input = Input.GetAxis("Horizontal")
-    
-    -- Modify component properties directly
-    transform.Translation.x = transform.Translation.x + input * 5.0 * deltaTime
-end
-```
-
-**YAML Serialization**: Comprehensive scene/entity serialization with custom converters in `Core/YAMLConverters.h`.
-```cpp
-SceneSerializer serializer(scene);
-std::string yamlData = serializer.SerializeToYAML();
-serializer.DeserializeFromYAML(yamlData);
-```
-
-**Threading & Async**: Asset loading uses dedicated worker threads with mutex/condition_variable patterns.
-```cpp
-Thread m_Thread("Asset Thread");
-m_Thread.Dispatch([this]() { AssetThreadFunc(); });
-```
-
-**Profiling Integration**: Tracy + custom renderer profilers. Use `OLO_PROFILE_FUNCTION()` and `OLO_PROFILE_SCOPE(name)`.
-```cpp
-OLO_PROFILE_FUNCTION(); // Profiles entire function
-OLO_PROFILE_SCOPE("Custom Section"); // Profiles code block
-RendererProfiler::GetInstance().IncrementCounter(MetricType::DrawCalls, 1);
-```
-
-## Code Style Guidelines
-
-- **C++ Standards:** Target C++23 where supported by current compilers, baseline C++20 across the repo
-- **Development Approach:** Alpha mode - breaking changes are acceptable for better design. We focus on optimal solutions; ensure that dependent code is updated promptly
-- **Naming:** PascalCase for classes, `m_PascalCase` for members, `s_PascalCase` for statics
-- **Types:** Custom typedefs (`u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, `f32`, `f64`, `sizet`) defined in `Core/Base.h`
-- **Headers:** Use `#pragma once`, RAII for OpenGL resources, STL containers preferred. Use the OloEnginePCH precompiled header for common includes
-- **Includes:** Use quotes for project headers, angle brackets for system/third-party. Include what you use
-- **Smart Pointers:** Use `Ref<T>` defined in `Core/Ref.h`
-- **Formatting:** Braces on new lines except for short/inline/one-line cases, 4-space indentation (not tabs!), public methods, then public members, then protected, then private
-
-## Critical Build Dependencies
-
-**Vendor Management**: Dependencies fetched via CPM / FetchContent, stored in `OloEngine/vendor/`. Never modify vendor code directly.
-
-**Renderer Backend**: OpenGL-based. Uses SPIR-V for shader compilation via Vulkan SDK tools.
-
-**Debug/Profiling System**: Comprehensive performance tracking with Tracy integration and custom renderer profilers.
-- `RendererProfiler` - Frame timing, draw calls, GPU metrics
-- `RendererMemoryTracker` - GPU/CPU memory allocation tracking
-- `OLO_PROFILE_*` macros for Tracy integration
-- Custom debug panels in Sandbox3D demonstrate usage patterns
-
-## Common Integration Points
-
-- **Scene System**: `Scene` owns entities, `SceneCamera`/`EditorCamera` for viewports
-- **Layer Stack**: Applications inherit `Layer`, pushed to `Application::LayerStack`  
-- **Event System**: Custom events inherit `Event`, dispatched through `Application::OnEvent`
-- **Asset Hot-Reload**: Filewatch triggers `AssetReloadedEvent` → update references
-- **ImGui Integration**: `ImGuiLayer` for editor UI, custom panels inherit base classes
+> If any subsystem description is unclear or missing (audio, animation, command queue nuances) ask for expansion.

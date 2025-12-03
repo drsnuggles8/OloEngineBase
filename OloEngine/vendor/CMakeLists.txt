@@ -24,7 +24,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	entt
 	GIT_REPOSITORY	https://github.com/skypjack/entt.git
-	GIT_TAG			master
+	GIT_TAG			main
 	GIT_SHALLOW		TRUE
 )
 FetchContent_Declare(
