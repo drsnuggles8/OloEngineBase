@@ -137,11 +137,11 @@ namespace OloEngine
         /**
          * @brief Get asset metadata by handle
          * @param assetHandle Handle of the asset
-         * @return Const reference to AssetMetadata for the asset, or empty metadata if not found
+         * @return Copy of AssetMetadata for the asset, or empty metadata if not found
          * 
-         * The returned reference remains valid as long as the asset manager exists and the asset is not removed.
+         * Returns by value for thread-safety since underlying managers may return copies.
          */
-        static const AssetMetadata& GetAssetMetadata(AssetHandle assetHandle)
+        static AssetMetadata GetAssetMetadata(AssetHandle assetHandle)
         {
             return GetActiveManager()->GetAssetMetadata(assetHandle);
         }

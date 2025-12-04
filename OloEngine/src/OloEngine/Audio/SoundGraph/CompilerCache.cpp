@@ -969,7 +969,7 @@ namespace OloEngine::Audio::SoundGraph
                 result.m_ErrorMessage = readString();
                 
                 result.m_IsValid = read_bool();
-                result.m_CompilationTimeMs = read_f64();
+                result.m_CompilationTimeMs = static_cast<f32>(read_f64());
                 result.m_SourceSizeBytes = read_u64();
                 result.m_CompiledSizeBytes = read_u64();
             }
@@ -1133,7 +1133,7 @@ namespace OloEngine::Audio::SoundGraph
             result.m_CompiledData = { 0x42, 0x43, 0x44, 0x45 }; // Placeholder bytecode
             
             auto endTime = std::chrono::high_resolution_clock::now();
-            result.m_CompilationTimeMs = std::chrono::duration<f64, std::milli>(endTime - startTime).count();
+            result.m_CompilationTimeMs = static_cast<f32>(std::chrono::duration<f64, std::milli>(endTime - startTime).count());
             result.m_SourceSizeBytes = cache->GetFileSize(sourcePath);
             result.m_CompiledSizeBytes = result.m_CompiledData.size();
             

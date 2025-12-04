@@ -202,8 +202,9 @@ namespace OloEngine
             m_Materials = Ref<MaterialTable>::Create(1);
         }
 
-        // Copy materials from mesh source
-        const auto& sourceMaterials = meshSourceAsset->GetMaterials();
+        // Copy materials from mesh source (use const reference to access const GetMaterials())
+        const MeshSource& meshSourceRef = *meshSourceAsset;
+        const auto& sourceMaterials = meshSourceRef.GetMaterials();
         
         // Copy materials from the mesh source map
         for (const auto& [materialIndex, materialHandle] : sourceMaterials)
