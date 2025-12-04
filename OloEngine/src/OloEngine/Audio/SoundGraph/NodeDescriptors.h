@@ -99,13 +99,13 @@ namespace OloEngine::Audio::SoundGraph {
                                 {
                                     // Pointer members - these will be connected to input streams
                                     using UnderlyingType = std::remove_pointer_t<ValueType>;
-                                    node->AddParameter<UnderlyingType>(OloEngine::Identifier(cleanName.c_str()), cleanName, UnderlyingType{});
+                                    node->template AddParameter<UnderlyingType>(OloEngine::Identifier(cleanName.c_str()), cleanName, UnderlyingType{});
                                     return true;
                                 }
                                 else
                                 {
                                     // Direct value members
-                                    node->AddParameter<ValueType>(OloEngine::Identifier(cleanName.c_str()), cleanName, node->*memberPtr);
+                                    node->template AddParameter<ValueType>(OloEngine::Identifier(cleanName.c_str()), cleanName, node->*memberPtr);
                                     return true;
                                 }
                             }

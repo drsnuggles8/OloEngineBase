@@ -106,4 +106,18 @@ namespace OloEngine::Audio::SoundGraph
 		OLO_CORE_INFO("Updated sound graph from asset data");
 	}
 
+	bool SoundGraph::AddValueConnection(UUID sourceNodeID, const std::string& sourceEndpoint,
+	                                    UUID targetNodeID, const std::string& targetEndpoint)
+	{
+		return AddValueConnection(sourceNodeID, Identifier(sourceEndpoint),
+		                          targetNodeID, Identifier(targetEndpoint));
+	}
+
+	bool SoundGraph::AddEventConnection(UUID sourceNodeID, const std::string& sourceEndpoint,
+	                                    UUID targetNodeID, const std::string& targetEndpoint)
+	{
+		return AddEventConnection(sourceNodeID, Identifier(sourceEndpoint),
+		                          targetNodeID, Identifier(targetEndpoint));
+	}
+
 } // namespace OloEngine::Audio::SoundGraph

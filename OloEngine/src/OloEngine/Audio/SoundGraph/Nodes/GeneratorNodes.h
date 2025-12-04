@@ -204,7 +204,7 @@ namespace OloEngine::Audio::SoundGraph
             m_Phase = m_Phase - std::floor(m_Phase);
             
             // Calculate sawtooth with phase offset
-            f32 totalPhase = m_Phase + (phaseOffset / (2.0f * std::numbers::pi_v<f32>));
+            f32 totalPhase = static_cast<f32>(m_Phase) + (phaseOffset / (2.0f * std::numbers::pi_v<f32>));
             totalPhase = std::fmod(totalPhase + 1.0f, 1.0f); // Ensure positive
             
             // Convert [0,1] to [-1,1] sawtooth
@@ -266,11 +266,11 @@ namespace OloEngine::Audio::SoundGraph
             m_Phase += deltaPhase;
             
             // Wrap phase to [0, 1]
-            if (m_Phase >= 1.0f)
-                m_Phase = std::fmod(m_Phase, 1.0f);
+            if (m_Phase >= 1.0)
+                m_Phase = std::fmod(m_Phase, 1.0);
             
             // Calculate triangle with phase offset
-            f32 totalPhase = m_Phase + (phaseOffset / (2.0f * std::numbers::pi_v<f32>));
+            f32 totalPhase = static_cast<f32>(m_Phase) + (phaseOffset / (2.0f * std::numbers::pi_v<f32>));
             totalPhase = std::fmod(totalPhase + 1.0f, 1.0f); // Ensure positive
             
             // Convert [0,1] to [-1,1] triangle wave
