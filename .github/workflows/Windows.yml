@@ -27,7 +27,10 @@ jobs:
        python-version: '3.10'
 
     - name: Install python dependencies
-      run: pip install jinja2
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install jinja2
+        python -c "import jinja2; print(f'jinja2 {jinja2.__version__} installed at {jinja2.__file__}')"
     
     - name: Setup Vulkan SDK
       uses: ./.github/actions/setup-vulkan
@@ -35,7 +38,7 @@ jobs:
     - name: Configure CMake
       # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
       # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
-      run: cmake -B ${{github.workspace}}/build
+      run: cmake -B ${{github.workspace}}/build -DPython_EXECUTABLE="${{ env.pythonLocation }}/python.exe"
 
     - name: Build with CMake
       # Build your program with the given configuration
