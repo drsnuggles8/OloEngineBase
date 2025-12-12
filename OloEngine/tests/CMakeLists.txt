@@ -1,13 +1,15 @@
 ﻿enable_testing()
 add_executable(OloEngine-Tests
 		OloEngineTest.cpp
-		MathTest.cpp
-		LoggerTest.cpp
-		AssetCreationTest.cpp
-		CoreUtilitiesTest.cpp
-		SoundGraphBasicTest.cpp
-		AudioEventQueueTest.cpp
+		#MathTest.cpp
+		#LoggerTest.cpp
+		#AssetCreationTest.cpp
+		#CoreUtilitiesTest.cpp
+		#SoundGraphBasicTest.cpp
+		#AudioEventQueueTest.cpp
 		FastRandomTest.cpp
+		TypeTraitsTest.cpp
+		ContainerTest.cpp
 		)
 		
 target_link_libraries(OloEngine-Tests

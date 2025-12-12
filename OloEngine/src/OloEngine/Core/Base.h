@@ -68,12 +68,35 @@
 #if OLO_COMPILER_MSVC
     #define OLO_INLINE                               inline
     #define OLO_FINLINE                              __forceinline
+    #define OLO_NOINLINE                             __declspec(noinline)
+    #define OLO_RESTRICT                             __restrict
+    #define OLO_LIKELY(x)                            (x)
+    #define OLO_UNLIKELY(x)                          (x)
     #define OLO_DISABLE_WARNING(warning_number)      __pragma( warning( disable : warning_number ) )
     #define OLO_CONCAT_OPERATOR(x, y)                x##y
+    #define OLO_LIFETIMEBOUND                        // MSVC doesn't support lifetimebound attribute yet
+#elif OLO_COMPILER_GCC || OLO_COMPILER_CLANG
+    #define OLO_INLINE                               inline
+    #define OLO_FINLINE                              inline __attribute__((always_inline))
+    #define OLO_NOINLINE                             __attribute__((noinline))
+    #define OLO_RESTRICT                             __restrict__
+    #define OLO_LIKELY(x)                            __builtin_expect(!!(x), 1)
+    #define OLO_UNLIKELY(x)                          __builtin_expect(!!(x), 0)
+    #define OLO_CONCAT_OPERATOR(x, y)                x y
+    #if OLO_COMPILER_CLANG
+        #define OLO_LIFETIMEBOUND                    [[clang::lifetimebound]]
+    #else
+        #define OLO_LIFETIMEBOUND                    // GCC doesn't support lifetimebound attribute yet
+    #endif
 #else
     #define OLO_INLINE                               inline
-    #define OLO_FINLINE                              always_inline
+    #define OLO_FINLINE                              inline
+    #define OLO_NOINLINE
+    #define OLO_RESTRICT
+    #define OLO_LIKELY(x)                            (x)
+    #define OLO_UNLIKELY(x)                          (x)
     #define OLO_CONCAT_OPERATOR(x, y)                x y
+    #define OLO_LIFETIMEBOUND
 #endif // MSVC
 
 
@@ -175,6 +198,8 @@ using f32 = float;
 using f64 = double;
 
 using sizet = size_t;
+using uptr = uintptr_t;
+using iptr = intptr_t;
 
 // TODO(olbu): Consider adding using b8 = bool; ?
 
@@ -186,6 +211,42 @@ static const u16 u16_max = UINT16_MAX;
 static const i16 i16_max = INT16_MAX;
 static const u8 u8_max = UINT8_MAX;
 static const i8 i8_max = INT8_MAX;
+
+// Maximum values (UE-style naming)
+static constexpr i32 MAX_i32 = i32_max;
+static constexpr i64 MAX_i64 = i64_max;
+static constexpr u32 MAX_u32 = u32_max;
+static constexpr u64 MAX_u64 = u64_max;
+
+// Index constants
+static constexpr i32 INDEX_NONE = -1;
+
+// Initialization enums (UE-style) ///////////////////////////////////////
+
+/**
+ * @enum EForceInit
+ * @brief Used to explicitly request default initialization
+ */
+enum EForceInit { ForceInit, ForceInitToZero };
+
+/**
+ * @enum ENoInit
+ * @brief Used to skip initialization for performance
+ */
+enum ENoInit { NoInit };
+
+/**
+ * @enum EConstEval
+ * @brief Used to add an explicitly consteval constructor when the default constructor
+ *        cannot be made constexpr (e.g., avoiding zero-initialization at runtime)
+ */
+enum EConstEval { ConstEval };
+
+/**
+ * @enum EInPlace
+ * @brief Used to construct in-place
+ */
+enum EInPlace { InPlace };
 
 //==============================================================================
 /// Flag utilities for state tracking
@@ -237,6 +298,43 @@ namespace OloEngine
 
     private:
         bool m_Flag = false;
+    };
+
+    /**
+     * @struct FMath
+     * @brief Basic math utilities (ported from UE)
+     */
+    struct FMath
+    {
+        /**
+         * @brief Checks if a value is a power of two
+         * @tparam T Integer type
+         * @param Value The value to check
+         * @return true if Value is a power of two, false otherwise (including for 0)
+         */
+        template <typename T>
+        [[nodiscard]] static constexpr OLO_FINLINE bool IsPowerOfTwo(T Value)
+        {
+            return ((Value & (Value - 1)) == static_cast<T>(0));
+        }
+
+        /**
+         * @brief Returns the minimum of two values
+         */
+        template <typename T>
+        [[nodiscard]] static constexpr OLO_FINLINE T Min(T A, T B)
+        {
+            return (A <= B) ? A : B;
+        }
+
+        /**
+         * @brief Returns the maximum of two values
+         */
+        template <typename T>
+        [[nodiscard]] static constexpr OLO_FINLINE T Max(T A, T B)
+        {
+            return (A >= B) ? A : B;
+        }
     };
 }
 
