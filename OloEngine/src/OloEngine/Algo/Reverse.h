@@ -57,7 +57,7 @@ namespace OloEngine
         template <typename ContainerType>
         void Reverse(ContainerType&& Container)
         {
-            return AlgoImpl::Reverse(Container.GetData(), Container.Num());
+            return AlgoImpl::Reverse(GetData(Container), GetNum(Container));
         }
     }
 

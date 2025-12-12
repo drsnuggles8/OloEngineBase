@@ -128,7 +128,7 @@ namespace OloEngine
                 {
                     if( Current.Max>Inner.Min )
                     {
-                        StackTop->Min = Inner  .Min;
+                        StackTop->Min = Inner.Min;
                         StackTop->Max = Current.Max;
                         StackTop->MaxDepth = Current.MaxDepth;
                         StackTop++;

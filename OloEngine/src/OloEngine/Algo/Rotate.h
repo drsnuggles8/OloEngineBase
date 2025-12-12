@@ -55,7 +55,7 @@ namespace OloEngine
          * Rotates a given amount of elements from the front of the range to the end of the range.
          *
          * @param  Range  The range to rotate.
-         * @param  Num    The number of elements to rotate from the front of the range.
+         * @param  Count  The number of elements to rotate from the front of the range.
          *
          * @return The new index of the element that was previously at the start of the range.
          */

@@ -171,9 +171,13 @@
 		"OloEngine/Math/GLMFormatter.h"
 
 		"OloEngine/Algo/BinaryHeap.h"
+		"OloEngine/Algo/BinarySearch.h"
 		"OloEngine/Algo/Heapify.h"
 		"OloEngine/Algo/HeapSort.h"
+		"OloEngine/Algo/IntroSort.h"
 		"OloEngine/Algo/IsHeap.h"
+		"OloEngine/Algo/Reverse.h"
+		"OloEngine/Algo/Rotate.h"
 		"OloEngine/Algo/Sort.h"
 		"OloEngine/Algo/StableSort.h"
 

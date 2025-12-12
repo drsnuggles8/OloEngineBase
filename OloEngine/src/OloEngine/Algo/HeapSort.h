@@ -48,7 +48,7 @@ namespace OloEngine
         template <typename RangeType, typename ProjectionType>
         OLO_FINLINE void HeapSortBy(RangeType&& Range, ProjectionType Projection)
         {
-            HeapSortInternal(GetData(Range), GetNum(Range), Projection, TLess<>());
+            HeapSortInternal(GetData(Range), GetNum(Range), MoveTemp(Projection), TLess<>());
         }
 
         /**

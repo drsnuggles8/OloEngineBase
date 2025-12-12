@@ -48,7 +48,7 @@ namespace OloEngine
          * @param Range			The range to heapify.
          * @param Projection	The projection to apply to the elements.
          */
-        template <typename RangeType, typename ProjectionType, typename PredicateType>
+        template <typename RangeType, typename ProjectionType>
         OLO_FINLINE void HeapifyBy(RangeType&& Range, ProjectionType Projection)
         {
             HeapifyInternal(GetData(Range), GetNum(Range), Projection, TLess<>());
