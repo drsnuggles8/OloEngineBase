@@ -47,25 +47,85 @@ namespace OloEngine
     namespace ArrayView::Private
     {
         /**
-         * @brief Helper to detect if a type has GetData() and GetNum() functions
+         * @brief Type trait testing whether a type is compatible with the view type
+         * 
+         * The extra stars here are *IMPORTANT*
+         * They prevent TArrayView<Base>(TArray<Derived>&) from compiling!
+         */
+        template <typename T, typename ElementType>
+        constexpr bool TIsCompatibleElementType_V = std::is_convertible_v<T**, ElementType* const*>;
+
+        /**
+         * @brief Helper to forward to an unqualified GetData()
+         * 
+         * Can be called from within TArrayView where GetData() is already a member
+         * and so hides any others.
          */
         template <typename T>
-        constexpr auto GetDataHelper(T& Container) -> decltype(GetData(Container))
+        OLO_FINLINE constexpr auto GetDataHelper(T&& Arg) -> decltype(GetData(std::forward<T>(Arg)))
         {
-            return GetData(Container);
+            return GetData(std::forward<T>(Arg));
         }
 
+        /**
+         * @brief Gets the data from the passed argument and proceeds to reinterpret the resulting elements
+         * 
+         * This is used for containers that need element type reinterpretation (e.g., object pointers).
+         */
         template <typename T>
-        constexpr auto GetDataHelper(T& Container) -> decltype(Container.GetData())
+        inline decltype(auto) GetReinterpretedDataHelper(T&& Arg)
         {
-            return Container.GetData();
+            auto NaturalPtr = GetData(std::forward<T>(Arg));
+            using NaturalElementType = std::remove_pointer_t<decltype(NaturalPtr)>;
+
+            auto Size = GetNum(Arg);
+            auto EndPtr = NaturalPtr + Size;
+            // Note: TContainerElementTypeCompatibility is expected to be defined in the engine
+            // For now, this is a placeholder that will need proper implementation
+            // TContainerElementTypeCompatibility<NaturalElementType>::ReinterpretRangeContiguous(NaturalPtr, EndPtr, Size);
+
+            return reinterpret_cast<typename std::conditional_t<
+                std::is_same_v<NaturalElementType, NaturalElementType>,
+                std::type_identity<NaturalElementType>
+            >::type*>(NaturalPtr);
         }
 
-        template <typename T, sizet N>
-        constexpr T* GetDataHelper(T (&Array)[N])
+        /**
+         * @brief Trait testing whether a type is compatible with the view type
+         */
+        template <typename RangeType, typename ElementType>
+        struct TIsCompatibleRangeType
         {
-            return Array;
-        }
+            static constexpr bool Value = TIsCompatibleElementType_V<
+                std::remove_pointer_t<decltype(GetData(std::declval<RangeType&>()))>,
+                ElementType
+            >;
+
+            template <typename T>
+            static constexpr decltype(auto) GetData(T&& Arg)
+            {
+                return ArrayView::Private::GetDataHelper(std::forward<T>(Arg));
+            }
+        };
+
+        /**
+         * @brief Trait testing whether a type is reinterpretable in a way that permits use with the view type
+         */
+        template <typename RangeType, typename ElementType>
+        struct TIsReinterpretableRangeType
+        {
+        private:
+            using NaturalElementType = std::remove_pointer_t<decltype(GetData(std::declval<RangeType&>()))>;
+
+        public:
+            static constexpr bool Value = false;  // Simplified - full implementation requires TContainerElementTypeCompatibility
+
+            template <typename T>
+            static decltype(auto) GetData(T&& Arg)
+            {
+                return ArrayView::Private::GetReinterpretedDataHelper(std::forward<T>(Arg));
+            }
+        };
     }
 
     /**
@@ -89,81 +149,6 @@ namespace OloEngine
         static constexpr bool Value = TIsTArrayView_V<T>;
         static constexpr bool value = TIsTArrayView_V<T>;  // STL compatibility
     };
-
-    /**
-     * @brief Type trait to detect if an element type is compatible
-     * 
-     * Compatible means the pointer types are convertible - e.g., T* to const T*
-     */
-    template <typename From, typename To>
-    struct TIsCompatibleElementType
-    {
-        static constexpr bool Value = std::is_convertible_v<From*, To*>;
-    };
-
-    template <typename From, typename To>
-    inline constexpr bool TIsCompatibleElementType_V = TIsCompatibleElementType<From, To>::Value;
-
-    /**
-     * @brief Type trait to check if a range type is compatible with TArrayView
-     * 
-     * A range is compatible if its data pointer can be converted to the element type pointer
-     */
-    template <typename RangeType, typename ElementType, typename = void>
-    struct TIsCompatibleRangeType
-    {
-        static constexpr bool Value = false;
-    };
-
-    template <typename RangeType, typename ElementType>
-    struct TIsCompatibleRangeType<
-        RangeType,
-        ElementType,
-        std::void_t<
-            decltype(GetData(std::declval<RangeType&>())),
-            decltype(GetNum(std::declval<RangeType&>()))
-        >
-    >
-    {
-        static constexpr bool Value = 
-            TIsCompatibleElementType_V<
-                std::remove_pointer_t<decltype(GetData(std::declval<RangeType&>()))>,
-                ElementType
-            >;
-    };
-
-    template <typename RangeType, typename ElementType>
-    inline constexpr bool TIsCompatibleRangeType_V = TIsCompatibleRangeType<RangeType, ElementType>::Value;
-
-    /**
-     * @brief Type trait to check if a range can be reinterpreted as an array view
-     */
-    template <typename RangeType, typename ElementType, typename = void>
-    struct TIsReinterpretableRangeType
-    {
-        static constexpr bool Value = false;
-    };
-
-    template <typename RangeType, typename ElementType>
-    struct TIsReinterpretableRangeType<
-        RangeType,
-        ElementType,
-        std::void_t<
-            decltype(GetData(std::declval<RangeType&>())),
-            decltype(GetNum(std::declval<RangeType&>()))
-        >
-    >
-    {
-    private:
-        using RangeElementType = std::remove_pointer_t<decltype(GetData(std::declval<RangeType&>()))>;
-    public:
-        static constexpr bool Value = 
-            sizeof(RangeElementType) == sizeof(ElementType) &&
-            alignof(RangeElementType) == alignof(ElementType);
-    };
-
-    template <typename RangeType, typename ElementType>
-    inline constexpr bool TIsReinterpretableRangeType_V = TIsReinterpretableRangeType<RangeType, ElementType>::Value;
 
     // ============================================================================
     // TArrayView
@@ -197,15 +182,21 @@ namespace OloEngine
 
     private:
         // Traits for checking compatible types
+        template <typename T>
+        using TIsCompatibleRangeType = ArrayView::Private::TIsCompatibleRangeType<T, ElementType>;
+
+        template <typename T>
+        using TIsReinterpretableRangeType = ArrayView::Private::TIsReinterpretableRangeType<T, ElementType>;
+
         template <typename OtherRangeType>
         using TIsCompatibleRange = std::bool_constant<
-            TIsCompatibleRangeType_V<OtherRangeType, ElementType> &&
+            TIsCompatibleRangeType<OtherRangeType>::Value &&
             !TIsTArrayView_V<std::remove_cv_t<std::remove_reference_t<OtherRangeType>>>
         >;
 
         template <typename OtherRangeType>
         using TIsCompatibleArrayViewRange = std::bool_constant<
-            TIsCompatibleRangeType_V<OtherRangeType, ElementType> &&
+            TIsCompatibleRangeType<OtherRangeType>::Value &&
             TIsTArrayView_V<std::remove_cv_t<std::remove_reference_t<OtherRangeType>>>
         >;
 
@@ -232,7 +223,7 @@ namespace OloEngine
          * @param InCount Number of elements
          */
         template <typename OtherElementType>
-            requires (TIsCompatibleElementType_V<OtherElementType, ElementType>)
+            requires (ArrayView::Private::TIsCompatibleElementType_V<OtherElementType, ElementType>)
         [[nodiscard]] constexpr TArrayView(OtherElementType* InData OLO_LIFETIMEBOUND, SizeType InCount)
             : DataPtr(InData)
             , ArrayNum(InCount)
@@ -248,8 +239,18 @@ namespace OloEngine
             requires (TIsCompatibleRange<OtherRangeType>::value)
         constexpr TArrayView(OtherRangeType&& Other OLO_LIFETIMEBOUND)
             : DataPtr(GetData(Other))
-            , ArrayNum(static_cast<SizeType>(GetNum(Other)))
         {
+            const auto InCount = GetNum(std::forward<OtherRangeType>(Other));
+            using InCountType = decltype(InCount);
+            if constexpr (sizeof(InCountType) > sizeof(SizeType) || (sizeof(InCountType) == sizeof(SizeType) && std::is_unsigned_v<InCountType>))
+            {
+                OLO_CORE_ASSERT(InCount >= 0 && InCount <= static_cast<InCountType>(TNumericLimits<SizeType>::Max()), "TArrayView count overflow");
+            }
+            else
+            {
+                OLO_CORE_ASSERT(InCount >= 0, "TArrayView count must be non-negative");
+            }
+            ArrayNum = static_cast<SizeType>(InCount);
         }
 
         /**
@@ -257,22 +258,30 @@ namespace OloEngine
          * @param Other The array view to copy
          */
         template <typename OtherElementType, typename OtherSizeType>
-            requires (TIsCompatibleElementType_V<OtherElementType, ElementType>)
+            requires (ArrayView::Private::TIsCompatibleElementType_V<OtherElementType, ElementType>)
         constexpr TArrayView(const TArrayView<OtherElementType, OtherSizeType>& Other)
             : DataPtr(Other.GetData())
-            , ArrayNum(static_cast<SizeType>(Other.Num()))
         {
+            const auto InCount = Other.Num();
+            using InCountType = decltype(InCount);
+            // Unlike the range constructor, we don't need to check(InCount >= 0), because it's coming from a TArrayView which guarantees that
+            if constexpr (sizeof(InCountType) > sizeof(SizeType) || (sizeof(InCountType) == sizeof(SizeType) && std::is_unsigned_v<InCountType>))
+            {
+                OLO_CORE_ASSERT(InCount <= static_cast<InCountType>(TNumericLimits<SizeType>::Max()), "TArrayView count overflow");
+            }
+            ArrayNum = static_cast<SizeType>(InCount);
         }
 
         /**
-         * @brief Construct from an initializer list (const elements only)
-         * @param List The initializer list
+         * @brief Construct a view of an initializer list.
+         *
+         * The caller is responsible for ensuring that the view does not outlive the initializer list.
          */
-        [[nodiscard]] constexpr TArrayView(std::initializer_list<std::remove_const_t<ElementType>> List OLO_LIFETIMEBOUND)
-            requires (std::is_const_v<ElementType>)
-            : DataPtr(List.begin())
-            , ArrayNum(static_cast<SizeType>(List.size()))
+        [[nodiscard]] constexpr TArrayView(std::initializer_list<ElementType> List OLO_LIFETIMEBOUND)
+            : DataPtr(ArrayView::Private::GetDataHelper(List))
+            , ArrayNum(GetNum(List))
         {
+            static_assert(std::is_const_v<ElementType>, "Only views of const elements can bind to initializer lists");
         }
 
         ///////////////////////////////////////////////////
@@ -286,7 +295,7 @@ namespace OloEngine
             , ArrayNum(-1)
         {
         }
-        [[nodiscard]] constexpr bool operator==(FIntrusiveUnsetOptionalState) const
+        [[nodiscard]] constexpr bool UEOpEquals(FIntrusiveUnsetOptionalState) const
         {
             return ArrayNum == -1;
         }
@@ -888,7 +897,7 @@ namespace OloEngine
          * pointer and size, or to compare the objects being pointed to.
          */
         template <typename OtherElementType, typename OtherSizeType>
-        bool operator==(TArrayView<OtherElementType, OtherSizeType>) const = delete;
+        bool UEOpEquals(TArrayView<OtherElementType, OtherSizeType>) const = delete;
 
         /**
          * @brief Equality operator
@@ -897,7 +906,7 @@ namespace OloEngine
          */
         template <typename RangeType>
             requires (std::is_convertible_v<decltype(ArrayView::Private::GetDataHelper(std::declval<RangeType&>())), const ElementType*>)
-        [[nodiscard]] bool operator==(RangeType&& Rhs) const
+        [[nodiscard]] bool UEOpEquals(RangeType&& Rhs) const
         {
             auto Count = GetNum(Rhs);
             return Count == ArrayNum && CompareItems(DataPtr, ArrayView::Private::GetDataHelper(Rhs), Count);

@@ -22,8 +22,10 @@
  */
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Algo/Reverse.h"
 #include "OloEngine/Containers/Set.h"
 #include "OloEngine/Serialization/Archive.h"
+#include "OloEngine/Templates/Sorting.h"
 #include <initializer_list>
 #include <type_traits>
 #include <utility>
@@ -300,7 +302,12 @@ namespace OloEngine
         {
         }
 
-        ~TMapBase() = default;
+        ~TMapBase()
+        {
+            // Warn if used with non-trivially-relocatable types
+            static_assert(TIsTriviallyRelocatable_V<KeyType> && TIsTriviallyRelocatable_V<ValueType>,
+                "TMapBase can only be used with trivially relocatable types");
+        }
 
         // ========================================================================
         // Intrusive TOptional<TMapBase> state
@@ -1458,7 +1465,7 @@ namespace OloEngine
         template <typename PREDICATE_CLASS>
         class FKeyComparisonClass
         {
-            PREDICATE_CLASS Predicate;
+            TDereferenceWrapper<KeyType, PREDICATE_CLASS> Predicate;
 
         public:
             [[nodiscard]] OLO_FINLINE FKeyComparisonClass(const PREDICATE_CLASS& InPredicate)
@@ -1476,7 +1483,7 @@ namespace OloEngine
         template <typename PREDICATE_CLASS>
         class FValueComparisonClass
         {
-            PREDICATE_CLASS Predicate;
+            TDereferenceWrapper<ValueType, PREDICATE_CLASS> Predicate;
 
         public:
             [[nodiscard]] OLO_FINLINE FValueComparisonClass(const PREDICATE_CLASS& InPredicate)
@@ -1845,21 +1852,17 @@ namespace OloEngine
          * @param OutValues  Will contain all values for the key
          * @param bMaintainOrder  If true, maintain insertion order
          */
-        void MultiFind(KeyInitType Key, TArray<ValueType>& OutValues, bool bMaintainOrder = false) const
+        template <typename Allocator>
+        void MultiFind(KeyInitType Key, TArray<ValueType, Allocator>& OutValues, bool bMaintainOrder = false) const
         {
-            for (auto It = Super::Pairs.CreateConstIterator(); It; ++It)
+            for (typename Super::ElementSetType::TConstKeyIterator It(Super::Pairs, Key); It; ++It)
             {
-                if ((*It).Key == Key)
-                {
-                    if (bMaintainOrder)
-                    {
-                        OutValues.Insert((*It).Value, 0);
-                    }
-                    else
-                    {
-                        OutValues.Add((*It).Value);
-                    }
-                }
+                OutValues.Add(It->Value);
+            }
+
+            if (bMaintainOrder)
+            {
+                Algo::Reverse(OutValues);
             }
         }
 
@@ -1869,66 +1872,133 @@ namespace OloEngine
          * @param OutValues  Will contain pointers to all values for the key
          * @param bMaintainOrder  If true, maintain insertion order
          */
-        void MultiFindPointer(KeyInitType Key, TArray<const ValueType*>& OutValues, bool bMaintainOrder = false) const
+        template <typename Allocator>
+        void MultiFindPointer(KeyInitType Key, TArray<const ValueType*, Allocator>& OutValues, bool bMaintainOrder = false) const
         {
-            for (auto It = Super::Pairs.CreateConstIterator(); It; ++It)
+            for (typename Super::ElementSetType::TConstKeyIterator It(Super::Pairs, Key); It; ++It)
             {
-                if ((*It).Key == Key)
-                {
-                    if (bMaintainOrder)
-                    {
-                        OutValues.Insert(&(*It).Value, 0);
-                    }
-                    else
-                    {
-                        OutValues.Add(&(*It).Value);
-                    }
-                }
+                OutValues.Add(&It->Value);
+            }
+
+            if (bMaintainOrder)
+            {
+                Algo::Reverse(OutValues);
             }
         }
 
-        void MultiFindPointer(KeyInitType Key, TArray<ValueType*>& OutValues, bool bMaintainOrder = false)
+        template <typename Allocator>
+        void MultiFindPointer(KeyInitType Key, TArray<ValueType*, Allocator>& OutValues, bool bMaintainOrder = false)
         {
-            for (auto It = Super::Pairs.CreateIterator(); It; ++It)
+            for (typename Super::ElementSetType::TKeyIterator It(Super::Pairs, Key); It; ++It)
             {
-                if ((*It).Key == Key)
-                {
-                    if (bMaintainOrder)
-                    {
-                        OutValues.Insert(&(*It).Value, 0);
-                    }
-                    else
-                    {
-                        OutValues.Add(&(*It).Value);
-                    }
-                }
+                OutValues.Add(&It->Value);
+            }
+
+            if (bMaintainOrder)
+            {
+                Algo::Reverse(OutValues);
             }
         }
 
         /**
-         * @brief Add a key-value pair (always adds, even for duplicate keys)
+         * @brief Add a key-value pair only if it doesn't already exist
+         * 
+         * If both the key and value match an existing association in the map,
+         * no new association is made and the existing association's value is returned.
+         * 
          * @param InKey    The key
          * @param InValue  The value
-         * @return Reference to the added value
+         * @return Reference to the value (existing or newly added)
          */
         OLO_FINLINE ValueType& AddUnique(const KeyType& InKey, const ValueType& InValue)
         {
-            return this->Add(InKey, InValue);
+            return EmplaceUnique(InKey, InValue);
         }
 
         OLO_FINLINE ValueType& AddUnique(const KeyType& InKey, ValueType&& InValue)
         {
-            return this->Add(InKey, MoveTemp(InValue));
+            return EmplaceUnique(InKey, MoveTemp(InValue));
         }
 
         OLO_FINLINE ValueType& AddUnique(KeyType&& InKey, const ValueType& InValue)
         {
-            return this->Add(MoveTemp(InKey), InValue);
+            return EmplaceUnique(MoveTemp(InKey), InValue);
         }
 
         OLO_FINLINE ValueType& AddUnique(KeyType&& InKey, ValueType&& InValue)
         {
-            return this->Add(MoveTemp(InKey), MoveTemp(InValue));
+            return EmplaceUnique(MoveTemp(InKey), MoveTemp(InValue));
+        }
+
+        /**
+         * @brief Emplace a key-value pair only if it doesn't already exist
+         * 
+         * If both the key and value match an existing association in the map,
+         * no new association is made and the existing association's value is returned.
+         * 
+         * @param InKey    The key to associate
+         * @param InValue  The value to associate
+         * @return Reference to the value as stored in the map
+         */
+        template <typename InitKeyType, typename InitValueType>
+        ValueType& EmplaceUnique(InitKeyType&& InKey, InitValueType&& InValue)
+        {
+            if (ValueType* Found = FindPair(InKey, InValue))
+            {
+                return *Found;
+            }
+            return Super::Add(Forward<InitKeyType>(InKey), Forward<InitValueType>(InValue));
+        }
+
+        /**
+         * @brief Find an association between a specified key and value (const)
+         * @param Key    The key to find
+         * @param Value  The value to find
+         * @return Pointer to the value if found, nullptr otherwise
+         */
+        [[nodiscard]] OLO_FINLINE const ValueType* FindPair(KeyInitType Key, ValueInitType Value) const
+        {
+            return const_cast<TMultiMap*>(this)->FindPair(Key, Value);
+        }
+
+        /**
+         * @brief Find an association between a specified key and value
+         * @param Key    The key to find
+         * @param Value  The value to find
+         * @return Pointer to the value if found, nullptr otherwise
+         */
+        [[nodiscard]] ValueType* FindPair(KeyInitType Key, ValueInitType Value)
+        {
+            // Iterate over pairs with a matching key
+            for (typename Super::ElementSetType::TKeyIterator It(Super::Pairs, Key); It; ++It)
+            {
+                // If the pair's value matches, return a pointer to it
+                if (It->Value == Value)
+                {
+                    return &It->Value;
+                }
+            }
+            return nullptr;
+        }
+
+        /**
+         * @brief Remove all associations between a key and value
+         * @param InKey    The key
+         * @param InValue  The value to match
+         * @return Number of pairs removed
+         */
+        i32 Remove(KeyInitType InKey, ValueInitType InValue)
+        {
+            i32 NumRemovedPairs = 0;
+            for (typename Super::ElementSetType::TKeyIterator It(Super::Pairs, InKey); It; ++It)
+            {
+                if (It->Value == InValue)
+                {
+                    It.RemoveCurrent();
+                    ++NumRemovedPairs;
+                }
+            }
+            return NumRemovedPairs;
         }
 
         /**
@@ -1939,9 +2009,9 @@ namespace OloEngine
          */
         i32 RemoveSingle(KeyInitType InKey, ValueInitType InValue)
         {
-            for (auto It = Super::Pairs.CreateIterator(); It; ++It)
+            for (typename Super::ElementSetType::TKeyIterator It(Super::Pairs, InKey); It; ++It)
             {
-                if ((*It).Key == InKey && (*It).Value == InValue)
+                if (It->Value == InValue)
                 {
                     It.RemoveCurrent();
                     return 1;
@@ -1951,21 +2021,37 @@ namespace OloEngine
         }
 
         /**
+         * @brief Remove first association between key and value, preserving order
+         * @param InKey    The key
+         * @param InValue  The value to match
+         * @return true if a pair was removed
+         */
+        bool RemoveSingleStable(KeyInitType InKey, ValueInitType InValue)
+        {
+            for (typename Super::ElementSetType::TKeyIterator It(Super::Pairs, InKey); It; ++It)
+            {
+                if (It->Value == InValue)
+                {
+                    Super::Pairs.RemoveStable(It.GetId());
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /**
          * @brief Count how many values are associated with a key
          * @param Key  The key to count values for
          * @return Number of values for the key
          */
         [[nodiscard]] i32 Num(KeyInitType Key) const
         {
-            i32 Count = 0;
-            for (auto It = Super::Pairs.CreateConstIterator(); It; ++It)
+            i32 NumMatchingPairs = 0;
+            for (typename Super::ElementSetType::TConstKeyIterator It(Super::Pairs, Key); It; ++It)
             {
-                if ((*It).Key == Key)
-                {
-                    ++Count;
-                }
+                ++NumMatchingPairs;
             }
-            return Count;
+            return NumMatchingPairs;
         }
     };
 

@@ -8,6 +8,7 @@
  */
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Templates/Invoke.h"
 
 namespace OloEngine
 {
@@ -29,7 +30,7 @@ namespace OloEngine
         template <typename T>
         OLO_FINLINE bool operator()(T&& A, T&& B) const
         {
-            return Predicate(std::forward<T>(B), std::forward<T>(A));
+            return ::Invoke(Predicate, Forward<T>(B), Forward<T>(A));
         }
     };
 

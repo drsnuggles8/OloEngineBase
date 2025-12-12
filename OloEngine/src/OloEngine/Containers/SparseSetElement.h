@@ -31,7 +31,7 @@ namespace OloEngine
         using ElementType = InElementType;
 
         /** Default constructor */
-        [[nodiscard]] TSparseSetElement() = default;
+       TSparseSetElement() = default;
 
         /** Initialization constructor */
         template <
@@ -46,8 +46,8 @@ namespace OloEngine
         {
         }
 
-        [[nodiscard]] TSparseSetElement(TSparseSetElement&&) = default;
-        [[nodiscard]] TSparseSetElement(const TSparseSetElement&) = default;
+        TSparseSetElement(TSparseSetElement&&) = default;
+        TSparseSetElement(const TSparseSetElement&) = default;
         TSparseSetElement& operator=(TSparseSetElement&&) = default;
         TSparseSetElement& operator=(const TSparseSetElement&) = default;
 

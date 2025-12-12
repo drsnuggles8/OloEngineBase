@@ -30,7 +30,7 @@
  *
  * FThing Thing(...);
  * FRaiiType Raii1(Thing);       // Compiles
- * Raii.DoSomething();           // Fine
+ * Raii1.DoSomething();           // Fine
  *
  * FRaiiType Raii2(FThing(...)); // Compile error!
  * @endcode

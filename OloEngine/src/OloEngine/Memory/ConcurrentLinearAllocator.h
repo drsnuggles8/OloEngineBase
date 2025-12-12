@@ -45,14 +45,19 @@
 #include <cstring>
 #include <limits>
 
+// Tracy integration for memory profiling
+#if TRACY_ENABLE
+    #include <tracy/Tracy.hpp>
+#endif
+
 namespace OloEngine
 {
     // ========================================================================
-    // Memory Trace Stubs (for future profiling integration)
+    // Memory Tracing via Tracy
     // ========================================================================
-    // These are no-op stubs matching UE's MemoryTrace_* API.
-    // When proper memory profiling is added, these should be replaced with
-    // actual implementations.
+    // Memory tracing is integrated with Tracy profiler when TRACY_ENABLE is set.
+    // This provides allocation tracking, heap visualization, and memory leak
+    // detection in the Tracy profiler UI.
 
     /**
      * @brief Root heap identifiers for memory tracing
@@ -63,27 +68,71 @@ namespace OloEngine
         VideoMemory = 1,
     };
 
-    // No-op memory trace functions (match UE's disabled configuration)
+#if TRACY_ENABLE
+    // Tracy-based memory trace functions with named heap pools
+    // TracyAllocN/TracyFreeN allow tracking allocations in named memory pools
+
+    /**
+     * @brief Mark an allocation as a heap/pool for Tracy tracking
+     * @param Address The address of the allocation
+     * @param Heap The heap type (used to select pool name)
+     */
+    inline void MemoryTrace_MarkAllocAsHeap(u64 Address, EMemoryTraceRootHeap Heap)
+    {
+        const char* PoolName = (Heap == EMemoryTraceRootHeap::VideoMemory) ? "LinearAllocator-GPU" : "LinearAllocator";
+        // Mark the block header allocation in Tracy
+        TracyAllocN(reinterpret_cast<void*>(Address), 0, PoolName);
+    }
+
+    /**
+     * @brief Unmark a heap allocation in Tracy
+     * @param Address The address of the allocation being freed
+     * @param Heap The heap type (used to select pool name)
+     */
+    inline void MemoryTrace_UnmarkAllocAsHeap(u64 Address, EMemoryTraceRootHeap Heap)
+    {
+        const char* PoolName = (Heap == EMemoryTraceRootHeap::VideoMemory) ? "LinearAllocator-GPU" : "LinearAllocator";
+        TracyFreeN(reinterpret_cast<void*>(Address), PoolName);
+    }
+
+    /**
+     * @brief Trace a memory allocation in Tracy
+     * @param Address The address of the allocation
+     * @param Size The size of the allocation
+     * @param Alignment The alignment of the allocation (unused by Tracy)
+     * @param RootHeap The heap type (used to select pool name)
+     */
+    inline void MemoryTrace_Alloc(u64 Address, u64 Size, [[maybe_unused]] u32 Alignment, EMemoryTraceRootHeap RootHeap = EMemoryTraceRootHeap::SystemMemory)
+    {
+        const char* PoolName = (RootHeap == EMemoryTraceRootHeap::VideoMemory) ? "LinearAllocator-GPU" : "LinearAllocator";
+        TracyAllocN(reinterpret_cast<void*>(Address), Size, PoolName);
+    }
+
+    /**
+     * @brief Trace a memory free in Tracy
+     * @param Address The address being freed
+     * @param RootHeap The heap type (used to select pool name)
+     */
+    inline void MemoryTrace_Free(u64 Address, EMemoryTraceRootHeap RootHeap = EMemoryTraceRootHeap::SystemMemory)
+    {
+        const char* PoolName = (RootHeap == EMemoryTraceRootHeap::VideoMemory) ? "LinearAllocator-GPU" : "LinearAllocator";
+        TracyFreeN(reinterpret_cast<void*>(Address), PoolName);
+    }
+#else
+    // No-op memory trace functions when Tracy is disabled
     inline void MemoryTrace_MarkAllocAsHeap([[maybe_unused]] u64 Address, [[maybe_unused]] EMemoryTraceRootHeap Heap) {}
     inline void MemoryTrace_UnmarkAllocAsHeap([[maybe_unused]] u64 Address, [[maybe_unused]] EMemoryTraceRootHeap Heap) {}
     inline void MemoryTrace_Alloc([[maybe_unused]] u64 Address, [[maybe_unused]] u64 Size, [[maybe_unused]] u32 Alignment, [[maybe_unused]] EMemoryTraceRootHeap RootHeap = EMemoryTraceRootHeap::SystemMemory) {}
     inline void MemoryTrace_Free([[maybe_unused]] u64 Address, [[maybe_unused]] EMemoryTraceRootHeap RootHeap = EMemoryTraceRootHeap::SystemMemory) {}
+#endif
 
     // ========================================================================
-    // LLM (Low Level Memory Tracker) Stubs
+    // LLM (Low Level Memory Tracker) - Disabled
     // ========================================================================
-    // LLM tracking is disabled by default. When enabled, these would track
-    // memory allocations for profiling. Currently implemented as no-ops.
+    // OloEngine uses Tracy for memory profiling instead of UE's LLM system.
+    // These macros are defined for API compatibility but expand to nothing.
 
-    #ifndef OLO_LLM_ENABLED
-    #   define OLO_LLM_ENABLED 0
-    #endif
-
-    #if OLO_LLM_ENABLED
-    #   define LLM_IF_ENABLED(x) x
-    #else
-    #   define LLM_IF_ENABLED(x)
-    #endif
+    #define LLM_IF_ENABLED(x)
 
     // Forward declarations
     template<typename BlockAllocationTag, ELinearAllocatorThreadPolicy ThreadPolicy>

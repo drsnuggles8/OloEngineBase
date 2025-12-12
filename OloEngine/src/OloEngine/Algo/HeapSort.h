@@ -7,10 +7,9 @@
  * Ported from Unreal Engine's Algo/HeapSort.h
  */
 
-#include "OloEngine/Core/Base.h"
 #include "OloEngine/Algo/BinaryHeap.h"
 #include "OloEngine/Templates/IdentityFunctor.h"
-#include "OloEngine/Templates/UnrealTypeTraits.h"
+#include "OloEngine/Templates/Less.h"
 #include "OloEngine/Templates/UnrealTemplate.h"
 
 namespace OloEngine
@@ -18,27 +17,51 @@ namespace OloEngine
     namespace Algo
     {
         /**
-         * Performs heap sort on a range of elements.
+         * Performs heap sort on the elements. Assumes < operator is defined for the element type.
          *
-         * @param Range The range to sort.
-         * @param Predicate A binary predicate which returns true if the first argument should precede the second.
-         */
-        template <typename RangeType, typename PredicateType>
-        OLO_FINLINE void HeapSort(RangeType&& Range, PredicateType Predicate)
-        {
-            AlgoImpl::HeapSortInternal(GetData(Range), GetNum(Range), FIdentityFunctor(), Predicate);
-        }
-
-        /**
-         * Performs heap sort on a range of elements using default comparison.
-         *
-         * @param Range The range to sort.
+         * @param Range		The range to sort.
          */
         template <typename RangeType>
         OLO_FINLINE void HeapSort(RangeType&& Range)
         {
-            using ElementType = std::remove_reference_t<decltype(*GetData(Range))>;
-            HeapSort(std::forward<RangeType>(Range), TLess<ElementType>());
+            HeapSortInternal(GetData(Range), GetNum(Range), FIdentityFunctor(), TLess<>());
+        }
+
+        /**
+         * Performs heap sort on the elements.
+         *
+         * @param Range		The range to sort.
+         * @param Predicate	A binary predicate object used to specify if one element should precede another.
+         */
+        template <typename RangeType, typename PredicateType>
+        OLO_FINLINE void HeapSort(RangeType&& Range, PredicateType Predicate)
+        {
+            HeapSortInternal(GetData(Range), GetNum(Range), FIdentityFunctor(), MoveTemp(Predicate));
+        }
+
+        /**
+         * Performs heap sort on the elements. Assumes < operator is defined for the projected element type.
+         *
+         * @param Range		The range to sort.
+         * @param Projection	The projection to sort by when applied to the element.
+         */
+        template <typename RangeType, typename ProjectionType>
+        OLO_FINLINE void HeapSortBy(RangeType&& Range, ProjectionType Projection)
+        {
+            HeapSortInternal(GetData(Range), GetNum(Range), Projection, TLess<>());
+        }
+
+        /**
+         * Performs heap sort on the elements.
+         *
+         * @param Range		The range to sort.
+         * @param Projection	The projection to sort by when applied to the element.
+         * @param Predicate	A binary predicate object, applied to the projection, used to specify if one element should precede another.
+         */
+        template <typename RangeType, typename ProjectionType, typename PredicateType>
+        OLO_FINLINE void HeapSortBy(RangeType&& Range, ProjectionType Projection, PredicateType Predicate)
+        {
+            HeapSortInternal(GetData(Range), GetNum(Range), MoveTemp(Projection), MoveTemp(Predicate));
         }
 
     } // namespace Algo

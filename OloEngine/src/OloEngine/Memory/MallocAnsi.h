@@ -40,7 +40,7 @@ public:
 
     /**
      * Returns if the allocator is guaranteed to be thread-safe and therefore
-     * doesn't need a unnecessary thread-safety wrapper around it.
+     * doesn't need an unnecessary thread-safety wrapper around it.
      *
      * @return true as we're using system allocator
      */

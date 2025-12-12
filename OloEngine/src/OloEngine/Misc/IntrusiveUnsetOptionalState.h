@@ -27,6 +27,9 @@
  * {
  *     // This static member should be constexpr, public and equal to true.
  *     static constexpr bool bHasIntrusiveUnsetOptionalState = true;
+ * 
+ *     // This typedef must match the type itself
+ *     using IntrusiveUnsetOptionalStateType = FMyType;
  *
  *     explicit FMyType(int32 InIndex)
  *     {

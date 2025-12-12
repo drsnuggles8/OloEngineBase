@@ -7,49 +7,58 @@
  * Ported from Unreal Engine's Algo/Sort.h
  */
 
-#include "OloEngine/Core/Base.h"
-#include "OloEngine/Templates/UnrealTypeTraits.h"
-#include "OloEngine/Templates/UnrealTemplate.h"
-#include <algorithm>
+#include "OloEngine/Algo/IntroSort.h"
 
 namespace OloEngine
 {
     namespace Algo
     {
         /**
-         * Sort a range of elements using the default comparison (operator<).
+         * Sort a range of elements using its operator<.  The sort is unstable.
          *
-         * @param Range The range to sort.
+         * @param  Range  The range to sort.
          */
         template <typename RangeType>
         OLO_FINLINE void Sort(RangeType&& Range)
         {
-            std::sort(GetData(Range), GetData(Range) + GetNum(Range));
+            IntroSort(Forward<RangeType>(Range));
         }
 
         /**
-         * Sort a range of elements using a custom predicate.
+         * Sort a range of elements using a user-defined predicate class.  The sort is unstable.
          *
-         * @param Range The range to sort.
-         * @param Predicate A binary predicate which returns true if the first argument should precede the second.
+         * @param  Range      The range to sort.
+         * @param  Predicate  A binary predicate object used to specify if one element should precede another.
          */
         template <typename RangeType, typename PredicateType>
-        OLO_FINLINE void Sort(RangeType&& Range, PredicateType Predicate)
+        OLO_FINLINE void Sort(RangeType&& Range, PredicateType Pred)
         {
-            std::sort(GetData(Range), GetData(Range) + GetNum(Range), Predicate);
+            IntroSort(Forward<RangeType>(Range), MoveTemp(Pred));
         }
 
         /**
-         * Sort elements using pointers and count with custom predicate.
+         * Sort a range of elements by a projection using the projection's operator<.  The sort is unstable.
          *
-         * @param First Pointer to the first element.
-         * @param Num Number of elements.
-         * @param Predicate A binary predicate.
+         * @param  Range  The range to sort.
+         * @param  Proj   The projection to sort by when applied to the element.
          */
-        template <typename T, typename PredicateType>
-        OLO_FINLINE void Sort(T* First, i32 Num, PredicateType Predicate)
+        template <typename RangeType, typename ProjectionType>
+        OLO_FINLINE void SortBy(RangeType&& Range, ProjectionType Proj)
         {
-            std::sort(First, First + Num, Predicate);
+            IntroSortBy(Forward<RangeType>(Range), MoveTemp(Proj));
+        }
+
+        /**
+         * Sort a range of elements by a projection using a user-defined predicate class.  The sort is unstable.
+         *
+         * @param  Range      The range to sort.
+         * @param  Proj       The projection to sort by when applied to the element.
+         * @param  Predicate  A binary predicate object, applied to the projection, used to specify if one element should precede another.
+         */
+        template <typename RangeType, typename ProjectionType, typename PredicateType>
+        OLO_FINLINE void SortBy(RangeType&& Range, ProjectionType Proj, PredicateType Pred)
+        {
+            IntroSortBy(Forward<RangeType>(Range), MoveTemp(Proj), MoveTemp(Pred));
         }
 
     } // namespace Algo

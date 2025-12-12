@@ -7,50 +7,96 @@
  * Ported from Unreal Engine's Algo/IsHeap.h
  */
 
-#include "OloEngine/Core/Base.h"
 #include "OloEngine/Algo/BinaryHeap.h"
-#include "OloEngine/Templates/UnrealTypeTraits.h"
+#include "OloEngine/Templates/IdentityFunctor.h"
+#include "OloEngine/Templates/Invoke.h"
+#include "OloEngine/Templates/Less.h"
 #include "OloEngine/Templates/UnrealTemplate.h"
 
 namespace OloEngine
 {
+    /**
+     * Verifies that the range is a min-heap (parent <= child)
+     * This is the internal function used by IsHeap overrides.
+     *
+     * @param	Heap		Pointer to the first element of a binary heap.
+     * @param	Num			the number of items in the heap.
+     * @param	Projection	The projection to apply to the elements.
+     * @param	Predicate	A binary predicate object used to specify if one element should precede another.
+     *
+     * @return	returns		true if the range is a min-heap
+     */
+    template <typename RangeValueType, typename IndexType, typename ProjectionType, typename PredicateType>
+    bool IsHeapInternal(const RangeValueType* Heap, IndexType Num, ProjectionType Projection, PredicateType Predicate)
+    {
+        for (IndexType Index = 1; Index < Num; Index++)
+        {
+            IndexType ParentIndex = HeapGetParentIndex(Index);
+            if (Predicate( Invoke(Projection, Heap[Index]), Invoke(Projection, Heap[ParentIndex]) ))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     namespace Algo
     {
         /**
-         * Checks if a range is a valid heap.
+         * Verifies that the range is a min-heap (parent <= child). Assumes < operator is defined for the element type.
          *
-         * @param Range The range to check.
-         * @param Predicate A binary predicate which returns true if the first argument should precede the second.
-         * @return true if the range satisfies the heap property.
+         * @param	Range	The range to verify.
+         *
+         * @return	returns	true if the range is a min-heap
          */
-        template <typename RangeType, typename PredicateType>
-        [[nodiscard]] bool IsHeap(RangeType&& Range, PredicateType Predicate)
+        template <typename RangeType>
+        [[nodiscard]] OLO_FINLINE bool IsHeap(const RangeType& Range)
         {
-            auto* Data = GetData(Range);
-            auto Num = GetNum(Range);
-
-            for (decltype(Num) Index = 1; Index < Num; ++Index)
-            {
-                auto ParentIndex = AlgoImpl::HeapGetParentIndex(Index);
-                if (Predicate(Data[Index], Data[ParentIndex]))
-                {
-                    return false;
-                }
-            }
-            return true;
+            return IsHeapInternal(GetData(Range), GetNum(Range), FIdentityFunctor(), TLess<>());
         }
 
         /**
-         * Checks if a range is a valid heap using default comparison.
+         * Verifies that the range is a min-heap (parent <= child)
          *
-         * @param Range The range to check.
-         * @return true if the range satisfies the heap property.
+         * @param	Range		The range to verify.
+         * @param	Predicate	A binary predicate object used to specify if one element should precede another.
+         *
+         * @return	returns		true if the range is a min-heap
          */
-        template <typename RangeType>
-        [[nodiscard]] bool IsHeap(RangeType&& Range)
+        template <typename RangeType, typename PredicateType>
+        [[nodiscard]] OLO_FINLINE bool IsHeap(const RangeType& Range, PredicateType Predicate)
         {
-            using ElementType = std::remove_reference_t<decltype(*GetData(Range))>;
-            return IsHeap(std::forward<RangeType>(Range), TLess<ElementType>());
+            return IsHeapInternal(GetData(Range), GetNum(Range), FIdentityFunctor(), MoveTemp(Predicate));
+        }
+
+        /**
+         * Verifies that the range is a min-heap (parent <= child). Assumes < operator is defined for the projected element type.
+         *
+         * @param	Range		The range to verify.
+         * @param	Projection	The projection to apply to the elements.
+         *
+         * @return	returns		true if the range is a min-heap
+         */
+        template <typename RangeType, typename ProjectionType>
+        [[nodiscard]] OLO_FINLINE bool IsHeapBy(const RangeType& Range, ProjectionType Projection)
+        {
+            return IsHeapInternal(GetData(Range), GetNum(Range), MoveTemp(Projection), TLess<>());
+        }
+
+        /**
+         * Verifies that the range is a min-heap (parent <= child)
+         *
+         * @param	Range		The range to verify.
+         * @param	Projection	The projection to apply to the elements.
+         * @param	Predicate	A binary predicate object used to specify if one element should precede another.
+         *
+         * @return	returns		true if the range is a min-heap
+         */
+        template <typename RangeType, typename ProjectionType, typename PredicateType>
+        [[nodiscard]] OLO_FINLINE bool IsHeapBy(const RangeType& Range, ProjectionType Projection, PredicateType Predicate)
+        {
+            return IsHeapInternal(GetData(Range), GetNum(Range), MoveTemp(Projection), MoveTemp(Predicate));
         }
 
     } // namespace Algo

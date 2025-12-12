@@ -13,9 +13,9 @@ namespace OloEngine
 
     static std::mutex g_SlackTrackingMutex;
     static FArraySlackTrackingHeader* g_TrackingListHead = nullptr;
-    static std::atomic<u64> g_TotalSlackBytes{0};
     static std::atomic<u32> g_TrackedAllocationCount{0};
     static std::atomic<u8> g_ActiveTag{0};
+    static bool g_ArraySlackInit = false;
 
     // ============================================================================
     // Implementation
@@ -23,10 +23,10 @@ namespace OloEngine
 
     void ArraySlackTrackInit()
     {
-        std::lock_guard<std::mutex> Lock(g_SlackTrackingMutex);
-        g_TrackingListHead = nullptr;
-        g_TotalSlackBytes.store(0);
-        g_TrackedAllocationCount.store(0);
+        // Any array allocations before this is called won't have array slack tracking,
+        // although subsequent reallocations of existing arrays will gain tracking if that occurs.
+        // The goal is to filter out startup constructors which run before Main.
+        g_ArraySlackInit = true;
     }
 
     void ArraySlackTrackGenerateReport(const char* Cmd)
@@ -35,31 +35,47 @@ namespace OloEngine
         
         OLO_CORE_INFO("=== Array Slack Tracking Report ===");
         OLO_CORE_INFO("Tracked allocations: {}", g_TrackedAllocationCount.load());
-        OLO_CORE_INFO("Total slack bytes: {}", g_TotalSlackBytes.load());
+        
+        // Calculate total slack on-demand
+        u64 totalSlack = 0;
+        u32 count = 0;
+        FArraySlackTrackingHeader* Current = g_TrackingListHead;
+        
+        while (Current)
+        {
+            if (Current->ArrayNum != INDEX_NONE)
+            {
+                i64 slack = Current->SlackSizeInBytes();
+                if (slack > 0)
+                {
+                    totalSlack += static_cast<u64>(slack);
+                }
+                count++;
+            }
+            Current = Current->Next;
+        }
+        
+        OLO_CORE_INFO("Total slack bytes: {}", totalSlack);
         
         // Walk the list and report per-allocation details if verbose
         if (Cmd && std::string(Cmd).find("verbose") != std::string::npos)
         {
-            u64 totalSlack = 0;
-            u32 count = 0;
-            FArraySlackTrackingHeader* Current = g_TrackingListHead;
+            Current = g_TrackingListHead;
+            u32 itemNum = 0;
             
             while (Current)
             {
                 if (Current->ArrayNum != INDEX_NONE)
                 {
                     i64 slack = Current->SlackSizeInBytes();
-                    totalSlack += slack > 0 ? static_cast<u64>(slack) : 0;
                     
                     OLO_CORE_INFO("  Allocation #{}: Num={}, Max={}, ElemSize={}, Slack={} bytes, Reallocs={}",
-                        count, Current->ArrayNum, Current->ArrayMax, Current->ElemSize,
+                        itemNum, Current->ArrayNum, Current->ArrayMax, Current->ElemSize,
                         slack, Current->ReallocCount);
-                    count++;
+                    itemNum++;
                 }
                 Current = Current->Next;
             }
-            
-            OLO_CORE_INFO("Calculated total slack: {} bytes", totalSlack);
         }
         
         OLO_CORE_INFO("=================================");
@@ -72,159 +88,135 @@ namespace OloEngine
 
     void FArraySlackTrackingHeader::AddAllocation()
     {
-        std::lock_guard<std::mutex> Lock(g_SlackTrackingMutex);
-        
-        // Insert at head of list
-        Next = g_TrackingListHead;
-        Prev = &g_TrackingListHead;
-        
-        if (g_TrackingListHead)
+        // This code is only reached for reallocations if ArrayNum is set,
+        // since during the initial allocation, ArrayNum won't have been set yet.
+        if (ArrayNum != INDEX_NONE)
         {
-            g_TrackingListHead->Prev = &Next;
+            ReallocCount++;
         }
         
-        g_TrackingListHead = this;
-        g_TrackedAllocationCount.fetch_add(1);
+        // Add to linked list if tracking is enabled
+        if (g_ArraySlackInit)
+        {
+            std::lock_guard<std::mutex> Lock(g_SlackTrackingMutex);
+            
+            if (g_TrackingListHead)
+            {
+                g_TrackingListHead->Prev = &Next;
+            }
+            Next = g_TrackingListHead;
+            Prev = &g_TrackingListHead;
+            g_TrackingListHead = this;
+            
+            g_TrackedAllocationCount.fetch_add(1);
+        }
     }
 
     void FArraySlackTrackingHeader::RemoveAllocation()
     {
-        std::lock_guard<std::mutex> Lock(g_SlackTrackingMutex);
-        
-        // Remove from linked list
-        if (Next)
+        // Only remove from list if Prev is set (meaning it was added to the list)
+        if (Prev)
         {
-            Next->Prev = Prev;
-        }
-        *Prev = Next;
-        
-        g_TrackedAllocationCount.fetch_sub(1);
-        
-        // Update slack tracking
-        if (ArrayNum != INDEX_NONE && ArrayMax > ArrayNum)
-        {
-            g_TotalSlackBytes.fetch_sub(static_cast<u64>((ArrayMax - ArrayNum) * ElemSize));
+            std::lock_guard<std::mutex> Lock(g_SlackTrackingMutex);
+            
+            if (Next)
+            {
+                Next->Prev = Prev;
+            }
+            *Prev = Next;
+            
+            Next = nullptr;
+            Prev = nullptr;
+            
+            g_TrackedAllocationCount.fetch_sub(1);
         }
     }
 
     void FArraySlackTrackingHeader::UpdateNumUsed(i64 NewNumUsed)
     {
-        i64 OldSlack = (ArrayNum != INDEX_NONE && ArrayMax > ArrayNum) 
-            ? (ArrayMax - ArrayNum) * static_cast<i64>(ElemSize) : 0;
+        OLO_CORE_ASSERT(NewNumUsed <= ArrayMax, "NewNumUsed exceeds ArrayMax");
         
+        // Track the allocation in our totals when ArrayNum is first set to something other than INDEX_NONE.
+        // This allows us to factor out container allocations that aren't arrays (mainly hash tables),
+        // which won't ever call "UpdateNumUsed".
+        if (ArrayNum == INDEX_NONE)
+        {
+            // On first update, initialize ArrayNum to 0
+            ArrayNum = 0;
+            FirstAllocFrame = 0; // Frame counter not implemented yet
+        }
+        
+        // Update ArrayNum
         ArrayNum = NewNumUsed;
         
-        // Update peak
-        if (NewNumUsed > static_cast<i64>(ArrayPeak))
+        // Update peak - clamp to UINT32_MAX to avoid truncation
+        u32 ClampedNewNum = static_cast<u32>(NewNumUsed < 0xFFFFFFFFLL ? NewNumUsed : 0xFFFFFFFFLL);
+        if (ClampedNewNum > ArrayPeak)
         {
-            ArrayPeak = static_cast<u32>(NewNumUsed);
-        }
-        
-        // Update global slack tracking
-        i64 NewSlack = (ArrayMax > ArrayNum) 
-            ? (ArrayMax - ArrayNum) * static_cast<i64>(ElemSize) : 0;
-        
-        i64 SlackDelta = NewSlack - OldSlack;
-        if (SlackDelta > 0)
-        {
-            g_TotalSlackBytes.fetch_add(static_cast<u64>(SlackDelta));
-        }
-        else if (SlackDelta < 0)
-        {
-            g_TotalSlackBytes.fetch_sub(static_cast<u64>(-SlackDelta));
+            ArrayPeak = ClampedNewNum;
         }
     }
 
-    OLO_NOINLINE void* FArraySlackTrackingHeader::Realloc(void* Ptr, i64 Count, u64 InElemSize, i32 Alignment)
+    OLO_NOINLINE void* FArraySlackTrackingHeader::Realloc(void* Ptr, i64 Count, u64 ElemSize, i32 Alignment)
     {
-        // Calculate required alignment for header
-        i32 HeaderAlignment = static_cast<i32>(alignof(FArraySlackTrackingHeader));
-        if (Alignment < HeaderAlignment)
+        // Figure out how much padding we need under the allocation
+        // Round up header size to next power of two for alignment
+        i32 HeaderAlign = 16; // sizeof(FArraySlackTrackingHeader) is typically 96, round to 16
+        i32 temp = static_cast<i32>(sizeof(FArraySlackTrackingHeader));
+        HeaderAlign = 1;
+        while (HeaderAlign < temp)
         {
-            Alignment = HeaderAlignment;
+            HeaderAlign <<= 1;
         }
+        i32 PaddingRequired = HeaderAlign > Alignment ? HeaderAlign : Alignment;
         
-        FArraySlackTrackingHeader* OldHeader = nullptr;
-        i64 OldArrayNum = INDEX_NONE;
-        
+        // Get the base pointer of the original allocation, and remove tracking for it
         if (Ptr)
         {
-            OldHeader = reinterpret_cast<FArraySlackTrackingHeader*>(
+            FArraySlackTrackingHeader* TrackingHeader = reinterpret_cast<FArraySlackTrackingHeader*>(
                 reinterpret_cast<u8*>(Ptr) - sizeof(FArraySlackTrackingHeader));
-            OldArrayNum = OldHeader->ArrayNum;
-            OldHeader->RemoveAllocation();
-        }
-        
-        if (Count == 0)
-        {
-            if (Ptr)
-            {
-                void* ActualPtr = reinterpret_cast<u8*>(OldHeader) - OldHeader->AllocOffset;
-                FMemory::Free(ActualPtr);
-            }
-            return nullptr;
-        }
-        
-        // Calculate total size needed
-        sizet DataSize = static_cast<sizet>(Count) * static_cast<sizet>(InElemSize);
-        sizet TotalSize = sizeof(FArraySlackTrackingHeader) + DataSize + Alignment;
-        
-        // Allocate new memory
-        void* RawPtr = FMemory::Malloc(TotalSize, Alignment);
-        if (!RawPtr)
-        {
-            return nullptr;
-        }
-        
-        // Calculate aligned position for header
-        uptr RawAddr = reinterpret_cast<uptr>(RawPtr);
-        uptr AlignedAddr = (RawAddr + Alignment - 1) & ~(Alignment - 1);
-        u16 AllocOffset = static_cast<u16>(AlignedAddr - RawAddr);
-        
-        // Position header
-        FArraySlackTrackingHeader* NewHeader = reinterpret_cast<FArraySlackTrackingHeader*>(
-            reinterpret_cast<u8*>(RawPtr) + AllocOffset);
-        
-        // Initialize header
-        NewHeader->AllocOffset = AllocOffset;
-        NewHeader->Tag = LlmGetActiveTag();
-        NewHeader->NumStackFrames = 0; // Stack capture not implemented yet
-        NewHeader->ElemSize = InElemSize;
-        NewHeader->ArrayMax = Count;
-        NewHeader->ArrayNum = OldArrayNum; // Preserve old ArrayNum
-        
-        if (OldHeader)
-        {
-            NewHeader->FirstAllocFrame = OldHeader->FirstAllocFrame;
-            NewHeader->ReallocCount = OldHeader->ReallocCount + 1;
-            NewHeader->ArrayPeak = OldHeader->ArrayPeak;
+            TrackingHeader->RemoveAllocation();
             
-            // Copy old data
-            void* OldData = reinterpret_cast<u8*>(OldHeader) + sizeof(FArraySlackTrackingHeader);
-            void* NewData = reinterpret_cast<u8*>(NewHeader) + sizeof(FArraySlackTrackingHeader);
-            sizet CopySize = static_cast<sizet>(OldHeader->ArrayMax) * static_cast<sizet>(OldHeader->ElemSize);
-            if (CopySize > DataSize)
-            {
-                CopySize = DataSize;
-            }
-            FMemory::Memcpy(NewData, OldData, CopySize);
+            Ptr = reinterpret_cast<u8*>(TrackingHeader) - TrackingHeader->AllocOffset;
+        }
+        
+        u8* ResultPtr = nullptr;
+        if (Count)
+        {
+            ResultPtr = reinterpret_cast<u8*>(FMemory::Realloc(Ptr, Count * ElemSize + PaddingRequired, Alignment));
+            ResultPtr += PaddingRequired;
+            FArraySlackTrackingHeader* TrackingHeader = reinterpret_cast<FArraySlackTrackingHeader*>(
+                ResultPtr - sizeof(FArraySlackTrackingHeader));
             
-            // Free old allocation
-            void* OldActualPtr = reinterpret_cast<u8*>(OldHeader) - OldHeader->AllocOffset;
-            FMemory::Free(OldActualPtr);
+            // Set the tag and other default information in the allocation if it's newly created
+            if (!Ptr)
+            {
+                // Note that we initially set the slack tracking ArrayNum to INDEX_NONE. The container
+                // allocator is used by both arrays and other containers (Set / Map / Hash), and we
+                // don't know it's actually an array until "UpdateNumUsed" is called on it.
+                OLO_CORE_ASSERT(PaddingRequired <= 65536, "Padding too large");
+                TrackingHeader->Next = nullptr;
+                TrackingHeader->Prev = nullptr;
+                TrackingHeader->AllocOffset = static_cast<u16>(PaddingRequired - sizeof(FArraySlackTrackingHeader));
+                TrackingHeader->Tag = LlmGetActiveTag();
+                TrackingHeader->NumStackFrames = 0;
+                TrackingHeader->FirstAllocFrame = 0;
+                TrackingHeader->ReallocCount = 0;
+                TrackingHeader->ArrayPeak = 0;
+                TrackingHeader->ElemSize = ElemSize;
+                TrackingHeader->ArrayNum = INDEX_NONE;
+            }
+            
+            // Update ArrayMax and re-register the allocation
+            TrackingHeader->ArrayMax = Count;
+            TrackingHeader->AddAllocation();
         }
         else
         {
-            NewHeader->FirstAllocFrame = 0; // Frame counter not implemented
-            NewHeader->ReallocCount = 0;
-            NewHeader->ArrayPeak = 0;
+            FMemory::Free(Ptr);
         }
         
-        // Add to tracking list
-        NewHeader->AddAllocation();
-        
-        // Return pointer past header
-        return reinterpret_cast<u8*>(NewHeader) + sizeof(FArraySlackTrackingHeader);
+        return ResultPtr;
     }
 
 } // namespace OloEngine

@@ -12,7 +12,7 @@
  * It's the users responsibility to maintain correct item count
  * !!Important!! It's also the users responsibility to move items from the end of the list into their new spots when removing items.
  * 
- * You are be able to maintain different views (hashes) of the same data since hole patching is deterministic between two tables.
+ * You will be able to maintain different views (hashes) of the same data since hole patching is deterministic between two tables.
  * This can be used to allow searching against the same data using different fields as names
  * 
  * Ported from Unreal Engine's Containers/CompactHashTable.h

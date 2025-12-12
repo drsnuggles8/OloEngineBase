@@ -46,7 +46,7 @@ namespace OloEngine
         /**
          * @brief Construct an empty queue
          */
-        [[nodiscard]] TMpscQueue()
+        TMpscQueue()
         {
             FNode* Sentinel = ::new(AllocatorType::Malloc(sizeof(FNode), alignof(FNode))) FNode;
             m_Head.store(Sentinel, std::memory_order_relaxed);

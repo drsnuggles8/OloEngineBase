@@ -193,7 +193,7 @@ namespace OloEngine
         i32 Index = INDEX_NONE;
 
         /** Private constructor from integer */
-        [[nodiscard]] OLO_FINLINE explicit FSetElementId(i32 InIndex)
+        OLO_FINLINE explicit FSetElementId(i32 InIndex)
             : Index(InIndex)
         {
         }

@@ -17,10 +17,8 @@
 
 namespace OloEngine
 {
-    namespace AlgoImpl
-    {
-        /**
-         * Gets the index of the left child of node at Index.
+    /**
+     * Gets the index of the left child of node at Index.
          *
          * @param	Index Node for which the left child index is to be returned.
          * @returns	Index of the left child.
@@ -185,6 +183,6 @@ namespace OloEngine
             }
         }
 
-    } // namespace AlgoImpl
-
 } // namespace OloEngine
+
+

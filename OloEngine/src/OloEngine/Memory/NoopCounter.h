@@ -12,6 +12,7 @@
  */
 
 #include "OloEngine/Core/Base.h"
+#include <atomic>
 
 namespace OloEngine
 {

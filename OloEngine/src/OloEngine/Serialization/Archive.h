@@ -603,80 +603,113 @@ namespace OloEngine
         {
             if (IsLoading())
             {
-                Value = 0;
+                // Set the byte cap to 10 in order to handle serialized 64-bit integers whose type changed to 32-bit.
+                constexpr sizet MaxBytes = 10;
+
+                u32 TempValue = 0;
                 u8 Count = 0;
                 u8 More = 1;
                 while (More)
                 {
+                    if (Count >= MaxBytes)
+                    {
+                        // Too many bytes - corrupted data
+                        SetError();
+                        Value = 0;
+                        return;
+                    }
+
                     u8 NextByte;
-                    Serialize(&NextByte, 1);
-                    More = NextByte & 1;             // Check 1 bit to see if there's more after this
-                    NextByte = NextByte >> 1;       // Shift to get actual 7 bit value
-                    Value += static_cast<u32>(NextByte) << (7 * Count++);    // Add to total value
+                    Serialize(&NextByte, 1);             // Read next byte
+                    More = NextByte & 1;                 // Check 1 bit to see if there's more after this
+                    NextByte = NextByte >> 1;            // Shift to get actual 7 bit value
+                    TempValue += static_cast<u32>(NextByte) << (7 * Count++);
                 }
+
+                Value = TempValue;
             }
             else
             {
+                constexpr sizet MaxBytes = 5;
+
+                u8 PackedBytes[MaxBytes];
+                i32 PackedByteCount = 0;
                 u32 Remaining = Value;
                 while (true)
                 {
-                    u8 NextByte = static_cast<u8>(Remaining & 0x7f);  // Get next 7 bits to write
+                    u8 NextByte = Remaining & 0x7f;      // Get next 7 bits to write
                     Remaining = Remaining >> 7;          // Update remaining
-                    NextByte = NextByte << 1;           // Make room for 'more' bit
+                    NextByte = NextByte << 1;            // Make room for 'more' bit
                     if (Remaining > 0)
                     {
-                        NextByte |= 1;                  // Set the 'more' bit
-                        Serialize(&NextByte, 1);
+                        NextByte |= 1;                   // Set more bit
+                        PackedBytes[PackedByteCount++] = NextByte;
                     }
                     else
                     {
-                        Serialize(&NextByte, 1);
+                        PackedBytes[PackedByteCount++] = NextByte;
                         break;
                     }
                 }
+                Serialize(PackedBytes, PackedByteCount); // Actually serialize the bytes we made
             }
         }
 
-        /** Packs 64-bit int value into bytes of 7 bits with 8th bit for 'more' */
-        virtual void SerializeIntPacked64(u64& Value)
+    /** Packs 64-bit int value into bytes of 7 bits with 8th bit for 'more' */
+    virtual void SerializeIntPacked64(u64& Value)
+    {
+        constexpr sizet MaxBytes = 10;
+
+        if (IsLoading())
         {
-            if (IsLoading())
+            u64 TempValue = 0;
+            u8 Count = 0;
+            u8 More = 1;
+            while (More)
             {
-                Value = 0;
-                u8 Count = 0;
-                u8 More = 1;
-                while (More)
+                if (Count >= MaxBytes)
                 {
-                    u8 NextByte;
-                    Serialize(&NextByte, 1);
-                    More = NextByte & 1;
-                    NextByte = NextByte >> 1;
-                    Value += static_cast<u64>(NextByte) << (7 * Count++);
+                    // Too many bytes - corrupted data
+                    SetError();
+                    Value = 0;
+                    return;
                 }
-            }
-            else
-            {
-                u64 Remaining = Value;
-                while (true)
-                {
-                    u8 NextByte = static_cast<u8>(Remaining & 0x7f);
-                    Remaining = Remaining >> 7;
-                    NextByte = NextByte << 1;
-                    if (Remaining > 0)
-                    {
-                        NextByte |= 1;
-                        Serialize(&NextByte, 1);
-                    }
-                    else
-                    {
-                        Serialize(&NextByte, 1);
-                        break;
-                    }
-                }
-            }
-        }
 
-        /** Sets a flag indicating that this archive is currently serializing class/struct defaults. */
+                u8 NextByte;
+                Serialize(&NextByte, 1);             // Read next byte
+                More = NextByte & 1;                 // Check 1 bit to see if there's more after this
+                NextByte = NextByte >> 1;            // Shift to get actual 7 bit value
+                TempValue += static_cast<u64>(NextByte) << (7 * Count++);
+            }
+
+            Value = TempValue;
+        }
+        else
+        {
+            u8 PackedBytes[MaxBytes];
+            i32 PackedByteCount = 0;
+            u64 Remaining = Value;
+            while (true)
+            {
+                u8 NextByte = Remaining & 0x7f;      // Get next 7 bits to write
+                Remaining = Remaining >> 7;          // Update remaining
+                NextByte = NextByte << 1;            // Make room for 'more' bit
+                if (Remaining > 0)
+                {
+                    NextByte |= 1;                   // Set more bit
+                    PackedBytes[PackedByteCount++] = NextByte;
+                }
+                else
+                {
+                    PackedBytes[PackedByteCount++] = NextByte;
+                    break;
+                }
+            }
+            Serialize(PackedBytes, PackedByteCount); // Actually serialize the bytes we made
+        }
+    }
+
+    /** Sets a flag indicating that this archive is currently serializing class/struct defaults. */
         void StartSerializingDefaults() { ArSerializingDefaults++; }
 
         /** Indicate that this archive is no longer serializing class/struct defaults. */
@@ -832,6 +865,14 @@ namespace OloEngine
             
             if (Ar.IsLoading())
             {
+                // Validate length to prevent corrupted/malicious data from causing issues
+                if (Length < 0)
+                {
+                    Ar.SetError();
+                    Value.clear();
+                    return Ar;
+                }
+                
                 Value.resize(Length);
             }
             
@@ -982,32 +1023,6 @@ namespace OloEngine
             return Offset;
         }
 
-        /**
-         * Serialize a string as a null-terminated string
-         */
-        FArchive& operator<<(std::string& Value)
-        {
-            if (IsLoading())
-            {
-                // Read null-terminated string
-                Value.clear();
-                char C;
-                while (Tell() < TotalSize())
-                {
-                    Serialize(&C, 1);
-                    if (C == '\0')
-                        break;
-                    Value += C;
-                }
-            }
-            else
-            {
-                // Write string including null terminator
-                Serialize(const_cast<char*>(Value.c_str()), static_cast<i64>(Value.length() + 1));
-            }
-            return *this;
-        }
-
     protected:
         /** Current offset into the data */
         i64 Offset = 0;
@@ -1031,6 +1046,9 @@ namespace OloEngine
          * 
          * @param InBytes The buffer to read from
          * @param bIsPersistent Whether this archive is persistent
+         * 
+         * @note The caller must guarantee that InBytes remains valid for the lifetime of this FMemoryReader.
+         *       This archive stores a pointer to the data and does not take ownership.
          */
         explicit FMemoryReader(const std::vector<u8>& InBytes, bool bIsPersistent = false)
             : Bytes(InBytes.data())
@@ -1047,6 +1065,8 @@ namespace OloEngine
          * @param InBytes Pointer to buffer
          * @param InNumBytes Size of buffer
          * @param bIsPersistent Whether this archive is persistent
+         * 
+         * @note The caller must guarantee that the buffer at InBytes remains valid for the lifetime of this FMemoryReader.
          */
         FMemoryReader(const u8* InBytes, i64 InNumBytes, bool bIsPersistent = false)
             : Bytes(InBytes)
@@ -1267,7 +1287,6 @@ namespace OloEngine
             /** Enter an element slot */
             [[nodiscard]] FSlot EnterElement()
             {
-                OLO_CORE_ASSERT(CurrentIndex < NumElements, "Array index out of bounds");
                 ++CurrentIndex;
                 return FSlot(Archive);
             }

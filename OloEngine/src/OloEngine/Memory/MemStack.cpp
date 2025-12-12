@@ -56,7 +56,7 @@ namespace OloEngine
             else
             {
                 Chunk = static_cast<FTaggedMemory*>(FMemory::Malloc(AllocSize));
-                // Note: UE tracks this with STAT_MemStackLargeBLock - we skip stats for now
+                // Note: UE tracks this with STAT_MemStackLargeBlock - we skip stats for now
             }
             OLO_CORE_ASSERT(AllocSize != FPageAllocator::SmallPageSize, "Unexpected allocation size!");
         }

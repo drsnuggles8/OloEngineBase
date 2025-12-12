@@ -26,6 +26,7 @@
 #include "OloEngine/Containers/Array.h" // For EAllowShrinking
 #include "OloEngine/Serialization/Archive.h"
 #include "OloEngine/Templates/TypeHash.h"
+#include "OloEngine/Templates/RetainedRef.h"
 #include "OloEngine/Memory/MemoryOps.h"
 #include <algorithm>
 #include <initializer_list>
@@ -135,6 +136,9 @@ namespace OloEngine
 
             [[nodiscard]] inline bool operator==(const TBaseIterator& Rhs) const
             {
+#if !OLO_BUILD_SHIPPING
+                OLO_CORE_ASSERT(&Set == &Rhs.Set, "Comparing iterators from different sets");
+#endif
                 return Index == Rhs.Index;
             }
 
@@ -192,16 +196,21 @@ namespace OloEngine
         private:
             using SetType = std::conditional_t<bConst, const TCompactSet, TCompactSet>;
             using ItElementType = std::conditional_t<bConst, const ElementType, ElementType>;
-            using ReferenceOrValueType = typename std::add_lvalue_reference_t<typename std::add_const_t<typename KeyFuncs::KeyType>>;
+            using ReferenceOrValueType = typename TTypeTraits<typename KeyFuncs::KeyType>::ConstPointerType;
 
         public:
-            using KeyArgumentType = KeyInitType;
+            // Use TRetainedRef for reference types to avoid dangling references
+            using KeyArgumentType = std::conditional_t<
+                std::is_reference_v<ReferenceOrValueType>,
+                TRetainedRef<std::remove_reference_t<ReferenceOrValueType>>,
+                KeyInitType
+            >;
 
             /** Initialization constructor */
             [[nodiscard]] inline TBaseKeyIterator(SetType& InSet, KeyArgumentType InKey)
                 : Set(InSet)
                 , Key(InKey)
-                , HashTable(InSet.Num() ? InSet.GetConstHashTableView() : FConstCompactHashTableView())
+                , HashTable(InSet.Num() ? Set.GetConstHashTableView() : FConstCompactHashTableView())
                 , Index(INDEX_NONE)
                 , NextIndex(InSet.Num() ? HashTable.GetFirst(KeyFuncs::GetKeyHash(Key)) : INDEX_NONE)
 #if !OLO_BUILD_SHIPPING
@@ -261,7 +270,7 @@ namespace OloEngine
 
         protected:
             SetType& Set;
-            KeyArgumentType Key;
+            ReferenceOrValueType Key;
             FConstCompactHashTableView HashTable;
             SizeType Index;
             SizeType NextIndex;
@@ -320,7 +329,10 @@ namespace OloEngine
         /** Destructor */
         ~TCompactSet()
         {
-            Empty();
+            // TCompactSet can only be used with trivially relocatable types
+            static_assert(TIsTriviallyRelocatable_V<InElementType>, 
+                "TCompactSet can only be used with trivially relocatable types");
+            Empty(0);
         }
 
         /** Copy constructor */
@@ -390,8 +402,22 @@ namespace OloEngine
         {
             if (this != &Other)
             {
-                Empty(Other.Num());
-                Append(Other);
+                // This could either take the full memory size of the Copy and prevent a rehash or
+                // only allocate the required set but have to hash everything again (i.e. perf vs memory)
+                // Could try a middle ground of allowing extra memory if it's within slack margins.
+                // Going for memory savings for now
+
+                // Not using Empty(NumElements) to avoid clearing the hash memory since we'll rebuild it anyway
+                // We need to make sure the relevant parts are cleared so ResizeAllocation can run safely and with minimal cost
+                DestructItems(GetData(), this->NumElements);
+                this->NumElements = 0;
+
+                ResizeAllocation(Other.NumElements);
+
+                this->NumElements = Other.NumElements;
+                ConstructItems<ElementType>(GetData(), Other.GetData(), this->NumElements);
+
+                Rehash();
             }
             return *this;
         }
@@ -470,9 +496,17 @@ namespace OloEngine
          */
         void Reserve(i32 Number)
         {
+            // Makes sense only when Number > Elements.Num() since we
+            // do work only if that's the case
             if (static_cast<USizeType>(Number) > static_cast<USizeType>(this->MaxElements))
             {
-                OLO_CORE_ASSERT(Number >= 0, "Negative reserve");
+                // Trap negative reserves
+                if (Number < 0)
+                {
+                    OLO_CORE_ASSERT(false, "Invalid negative reserve: %d", Number);
+                    return;
+                }
+
                 if (ResizeAllocationPreserveData(Number))
                 {
                     Rehash();
@@ -498,6 +532,25 @@ namespace OloEngine
         }
 
         /**
+         * @brief Helper function to return the amount of memory allocated by this container
+         * Only returns the size of allocations made directly by the container, not the elements themselves.
+         * @return Number of bytes allocated by this container
+         */
+        [[nodiscard]] OLO_FINLINE sizet GetAllocatedSize() const
+        {
+            return Super::GetAllocatedSize(GetSetLayout());
+        }
+
+        /**
+         * @brief Calculate the size of the hash table from the number of elements in the set
+         * assuming the default number of hash elements
+         */
+        [[nodiscard]] OLO_FINLINE static constexpr sizet GetTotalMemoryRequiredInBytes(u32 NumElements)
+        {
+            return Super::GetTotalMemoryRequiredInBytes(NumElements, GetSetLayout());
+        }
+
+        /**
          * @brief Checks if an element ID is valid
          */
         [[nodiscard]] OLO_FINLINE bool IsValidId(FSetElementId Id) const
@@ -506,31 +559,31 @@ namespace OloEngine
         }
 
         /**
-         * @brief Accesses element by ID
+         * @brief Accesses element by ID. Element must be valid (see @IsValidId).
          */
         [[nodiscard]] inline ElementType& operator[](FSetElementId Id)
         {
-            OLO_CORE_ASSERT(IsValidId(Id), "Invalid set element ID");
+            RangeCheck(Id);
             return GetData()[Id.AsInteger()];
         }
 
         [[nodiscard]] inline const ElementType& operator[](FSetElementId Id) const
         {
-            OLO_CORE_ASSERT(IsValidId(Id), "Invalid set element ID");
+            RangeCheck(Id);
             return GetData()[Id.AsInteger()];
         }
 
         /** Accesses the identified element's value. Element must be valid (see @IsValidId). */
-        [[nodiscard]] OLO_FINLINE ElementType& Get(FSetElementId Id)
+        [[nodiscard]] inline ElementType& Get(FSetElementId Id)
         {
-            OLO_CORE_ASSERT(IsValidId(Id), "Invalid set element ID");
+            RangeCheck(Id);
             return GetData()[Id.AsInteger()];
         }
 
         /** Accesses the identified element's value. Element must be valid (see @IsValidId). */
-        [[nodiscard]] OLO_FINLINE const ElementType& Get(FSetElementId Id) const
+        [[nodiscard]] inline const ElementType& Get(FSetElementId Id) const
         {
-            OLO_CORE_ASSERT(IsValidId(Id), "Invalid set element ID");
+            RangeCheck(Id);
             return GetData()[Id.AsInteger()];
         }
 
@@ -571,12 +624,21 @@ namespace OloEngine
 
         /**
          * @brief Constructs an element in-place
+         * @param Arg The argument(s) to be forwarded to the set element's constructor
+         * @param bIsAlreadyInSetPtr Optional output: true if element was already present
+         * @return A handle to the element stored in the set
          */
-        template <typename... ArgsType>
-        FSetElementId Emplace(ArgsType&&... Args)
+        template <typename ArgType = ElementType>
+        OLO_FINLINE FSetElementId Emplace(ArgType&& Arg, bool* bIsAlreadyInSetPtr = nullptr)
         {
-            ElementType TempElement(Forward<ArgsType>(Args)...);
-            return Add(MoveTemp(TempElement));
+            TPair<FSetElementId, bool> Result = Emplace(InPlace, Forward<ArgType>(Arg));
+
+            if (bIsAlreadyInSetPtr)
+            {
+                *bIsAlreadyInSetPtr = Result.Value;
+            }
+
+            return Result.Key;
         }
 
         /**
@@ -591,22 +653,50 @@ namespace OloEngine
         {
             alignas(alignof(ElementType)) char StackElement[sizeof(ElementType)];
             ElementType& TempElement = *new (StackElement) ElementType(Forward<ArgTypes>(InArgs)...);
-            bool bIsAlreadyInSet = false;
             
             const u32 KeyHash = KeyFuncs::GetKeyHash(KeyFuncs::GetSetKey(TempElement));
-            FSetElementId Id = EmplaceByHashImpl(KeyHash, MoveTemp(TempElement), &bIsAlreadyInSet);
-            TempElement.~ElementType();
+            i32 ExistingIndex = INDEX_NONE;
             
-            return TPair<FSetElementId, bool>(Id, bIsAlreadyInSet);
+            if constexpr (!KeyFuncs::bAllowDuplicateKeys)
+            {
+                ExistingIndex = FindIndexByHash(KeyHash, KeyFuncs::GetSetKey(TempElement));
+            }
+            
+            const bool bAlreadyInSet = ExistingIndex != INDEX_NONE;
+            
+            if (!bAlreadyInSet)
+            {
+                ExistingIndex = this->NumElements;
+                ElementType& NewElement = AddUninitialized(KeyHash);
+                RelocateConstructItem<ElementType, ElementType>(&NewElement, &TempElement);
+            }
+            else
+            {
+                ElementType& ExistingElement = GetData()[ExistingIndex];
+                MoveByRelocate(ExistingElement, TempElement);
+            }
+            
+            return TPair<FSetElementId, bool>(FSetElementId::FromInteger(ExistingIndex), bAlreadyInSet);
         }
 
         /**
-         * @brief Constructs an element in-place with precomputed hash (no duplicate check output)
+         * @brief Constructs an element in-place with precomputed hash
+         * @param KeyHash A precomputed hash value, calculated in the same way as ElementType is hashed
+         * @param Arg The argument(s) to be forwarded to the set element's constructor
+         * @param bIsAlreadyInSetPtr Optional output: true if element was already present
+         * @return A handle to the element stored in the set
          */
-        template <typename ElementArg>
-        FSetElementId EmplaceByHash(u32 KeyHash, ElementArg&& InElement)
+        template <typename ArgType = ElementType>
+        OLO_FINLINE FSetElementId EmplaceByHash(u32 KeyHash, ArgType&& Arg, bool* bIsAlreadyInSetPtr = nullptr)
         {
-            return EmplaceByHashImpl(KeyHash, Forward<ElementArg>(InElement), nullptr);
+            TPair<FSetElementId, bool> Result = EmplaceByHash(InPlace, KeyHash, Forward<ArgType>(Arg));
+
+            if (bIsAlreadyInSetPtr)
+            {
+                *bIsAlreadyInSetPtr = Result.Value;
+            }
+
+            return Result.Key;
         }
 
         /**
@@ -624,15 +714,32 @@ namespace OloEngine
         {
             alignas(alignof(ElementType)) char StackElement[sizeof(ElementType)];
             ElementType& TempElement = *new (StackElement) ElementType(Forward<ArgTypes>(InArgs)...);
-            bool bIsAlreadyInSet = false;
             
             OLO_CORE_ASSERT(KeyHash == KeyFuncs::GetKeyHash(KeyFuncs::GetSetKey(TempElement)), 
                 "Hash mismatch in EmplaceByHash(InPlace, ...)");
             
-            FSetElementId Id = EmplaceByHashImpl(KeyHash, MoveTemp(TempElement), &bIsAlreadyInSet);
-            TempElement.~ElementType();
+            i32 ExistingIndex = INDEX_NONE;
             
-            return TPair<FSetElementId, bool>(Id, bIsAlreadyInSet);
+            if constexpr (!KeyFuncs::bAllowDuplicateKeys)
+            {
+                ExistingIndex = FindIndexByHash(KeyHash, KeyFuncs::GetSetKey(TempElement));
+            }
+            
+            const bool bAlreadyInSet = ExistingIndex != INDEX_NONE;
+            
+            if (!bAlreadyInSet)
+            {
+                ExistingIndex = this->NumElements;
+                ElementType& NewElement = AddUninitialized(KeyHash);
+                RelocateConstructItem<ElementType, ElementType>(&NewElement, &TempElement);
+            }
+            else
+            {
+                ElementType& ExistingElement = GetData()[ExistingIndex];
+                MoveByRelocate(ExistingElement, TempElement);
+            }
+            
+            return TPair<FSetElementId, bool>(FSetElementId::FromInteger(ExistingIndex), bAlreadyInSet);
         }
 
         /**
@@ -671,54 +778,47 @@ namespace OloEngine
 
         /**
          * @brief Finds an element by key
-         * @return Pointer to element, or nullptr if not found
+         * @param Key The key to search for
+         * @return A pointer to an element with the given key, or nullptr if not found
          */
-        [[nodiscard]] ElementType* Find(KeyInitType Key)
+        [[nodiscard]] inline ElementType* Find(KeyInitType Key)
         {
-            FSetElementId Id = FindId(Key);
-            return Id.IsValidId() ? &GetData()[Id.AsInteger()] : nullptr;
+            SizeType ElementIndex = FindIndexByHash(KeyFuncs::GetKeyHash(Key), Key);
+            if (ElementIndex != INDEX_NONE)
+            {
+                return GetData() + ElementIndex;
+            }
+            else
+            {
+                return nullptr;
+            }
         }
 
-        [[nodiscard]] const ElementType* Find(KeyInitType Key) const
+        [[nodiscard]] OLO_FINLINE const ElementType* Find(KeyInitType Key) const
         {
             return const_cast<TCompactSet*>(this)->Find(Key);
         }
 
         /**
          * @brief Finds element ID by key
+         * @param Key The key to search for
+         * @return The id of the set element matching the given key, or the NULL id if none matches
          */
         [[nodiscard]] FSetElementId FindId(KeyInitType Key) const
         {
-            if (this->NumElements == 0)
-            {
-                return FSetElementId();
-            }
-            return FindIdByHash(KeyFuncs::GetKeyHash(Key), Key);
+            return FSetElementId::FromInteger(FindIndexByHash(KeyFuncs::GetKeyHash(Key), Key));
         }
 
         /**
          * @brief Finds element ID with precomputed hash
+         * @see Class documentation section on ByHash() functions
+         * @return The element id that matches the key and hash or an invalid element id
          */
-        [[nodiscard]] FSetElementId FindIdByHash(u32 KeyHash, KeyInitType Key) const
+        template <typename ComparableKey>
+        [[nodiscard]] FSetElementId FindIdByHash(u32 KeyHash, const ComparableKey& Key) const
         {
-            if (this->NumElements == 0)
-            {
-                return FSetElementId();
-            }
-
-            const FConstCompactHashTableView HashTable = GetConstHashTableView();
-            
-            for (u32 Index = HashTable.GetFirst(KeyHash); 
-                 Index != INDEX_NONE; 
-                 Index = HashTable.GetNext(Index, this->NumElements))
-            {
-                if (KeyFuncs::Matches(KeyFuncs::GetSetKey(GetData()[Index]), Key))
-                {
-                    return FSetElementId::FromInteger(Index);
-                }
-            }
-
-            return FSetElementId();
+            OLO_CORE_ASSERT(KeyHash == KeyFuncs::GetKeyHash(Key), "Hash mismatch in FindIdByHash");
+            return FSetElementId::FromInteger(FindIndexByHash(KeyHash, Key));
         }
 
         /**
@@ -772,27 +872,27 @@ namespace OloEngine
         }
 
         /**
-         * @brief Checks if element exists
+         * @brief Checks if the element contains an element with the given key
+         * @param Key The key to check for
+         * @return True if the set contains an element with the given key
          */
-        [[nodiscard]] bool Contains(KeyInitType Key) const
+        [[nodiscard]] OLO_FINLINE bool Contains(KeyInitType Key) const
         {
-            return FindId(Key).IsValidId();
+            return FindIndexByHash(KeyFuncs::GetKeyHash(Key), Key) != INDEX_NONE;
         }
 
         /**
-         * @brief Checks if element exists using precomputed hash
-         * 
+         * @brief Checks if the element contains an element with the given key using precomputed hash
+         * @see Class documentation section on ByHash() functions
          * @param KeyHash Precomputed hash of the key
          * @param Key Key to search for
          * @return True if the element exists
-         * 
-         * @see Class documentation section on ByHash() functions
          */
         template <typename ComparableKey>
-        [[nodiscard]] bool ContainsByHash(u32 KeyHash, const ComparableKey& Key) const
+        [[nodiscard]] inline bool ContainsByHash(u32 KeyHash, const ComparableKey& Key) const
         {
             OLO_CORE_ASSERT(KeyHash == KeyFuncs::GetKeyHash(Key), "Hash mismatch in ContainsByHash");
-            return FindIdByHash(KeyHash, Key).IsValidId();
+            return FindIndexByHash(KeyHash, Key) != INDEX_NONE;
         }
 
         /**
@@ -813,12 +913,17 @@ namespace OloEngine
 
         /**
          * @brief FindOrAdd with precomputed hash
+         * @see Class documentation section on ByHash() functions
+         * @param KeyHash A precomputed hash value, calculated in the same way as ElementType is hashed
+         * @param InElement Element to add to set
+         * @param bIsAlreadyInSetPtr Optional output: true if element was already present
+         * @return A reference to the element stored in the set
          */
-        template <typename ElementArg>
-        ElementType& FindOrAddByHash(u32 KeyHash, ElementArg&& InElement, bool* bIsAlreadyInSetPtr = nullptr)
+        template <typename ElementReferenceType>
+        ElementType& FindOrAddByHash(u32 KeyHash, ElementReferenceType&& InElement, bool* bIsAlreadyInSetPtr = nullptr)
         {
-            const i32 ExistingIndex = FindIdByHash(KeyHash, KeyFuncs::GetSetKey(InElement)).AsInteger();
-            const bool bIsAlreadyInSet = ExistingIndex >= 0;
+            const SizeType ExistingIndex = FindIndexByHash(KeyHash, KeyFuncs::GetSetKey(InElement));
+            const bool bIsAlreadyInSet = ExistingIndex != INDEX_NONE;
             if (bIsAlreadyInSetPtr)
             {
                 *bIsAlreadyInSetPtr = bIsAlreadyInSet;
@@ -828,8 +933,8 @@ namespace OloEngine
                 return GetData()[ExistingIndex];
             }
 
-            FSetElementId NewId = EmplaceByHashImpl(KeyHash, Forward<ElementArg>(InElement), nullptr);
-            return GetData()[NewId.AsInteger()];
+            ElementType& NewElement = AddUninitialized(KeyHash);
+            return *(new (static_cast<void*>(&NewElement)) ElementType(Forward<ElementReferenceType>(InElement)));
         }
 
         // ====================================================================
@@ -837,70 +942,50 @@ namespace OloEngine
         // ====================================================================
 
         /**
-         * @brief Removes an element by key
-         * @return Number of elements removed (0 or 1)
+         * @brief Removes all elements from the set matching the specified key
+         * @param Key The key to match elements against
+         * @return The number of elements removed
          */
         i32 Remove(KeyInitType Key)
         {
-            FSetElementId Id = FindId(Key);
-            if (Id.IsValidId())
+            if (this->NumElements)
             {
-                RemoveById(Id);
-                return 1;
+                return RemoveImpl(KeyFuncs::GetKeyHash(Key), Key);
             }
             return 0;
         }
 
         /**
-         * @brief Removes element by ID
-         * @note Provided for API compatibility with TSparseSet
+         * @brief Removes an element from the set
+         * @param ElementId A pointer to the element in the set, as returned by Add or Find
          */
-        void Remove(FSetElementId Id)
+        void Remove(FSetElementId ElementId)
         {
-            RemoveById(Id);
+            RemoveByIndex(ElementId.AsInteger());
         }
 
         /**
          * @brief Removes element by ID (swaps with last element)
+         * @deprecated Use Remove(FSetElementId) instead. This is kept for backwards compatibility.
          */
         void RemoveById(FSetElementId Id)
         {
-            OLO_CORE_ASSERT(IsValidId(Id), "Invalid ID");
-
-            const i32 Index = Id.AsInteger();
-            const i32 LastIndex = this->NumElements - 1;
-
-            ElementType* Data = GetData();
-            const u32 RemovedHash = KeyFuncs::GetKeyHash(KeyFuncs::GetSetKey(Data[Index]));
-            const u32 LastHash = (Index != LastIndex) ? 
-                KeyFuncs::GetKeyHash(KeyFuncs::GetSetKey(Data[LastIndex])) : 0;
-
-            // Remove from hash table
-            RemoveFromHashTable(Index, RemovedHash, LastIndex, LastHash);
-
-            // Destruct removed element
-            DestructItem(&Data[Index]);
-
-            // Move last element to fill hole (if not already last)
-            if (Index != LastIndex)
-            {
-                RelocateConstructItems<ElementType>(&Data[Index], &Data[LastIndex], 1);
-            }
-
-            --this->NumElements;
+            Remove(Id);
         }
 
         /**
-         * @brief Removes element by ID while preserving order (expensive)
+         * @brief Removes an element from the set while maintaining set order
+         * @param ElementId A pointer to the element in the set, as returned by Add or Find
          */
-        void RemoveStable(FSetElementId Id)
+        void RemoveStable(FSetElementId ElementId)
         {
-            RemoveByIndexStable(Id.AsInteger());
+            RemoveByIndex<true>(ElementId.AsInteger());
         }
 
         /**
-         * @brief Removes element by key while preserving order (expensive)
-         * @return Number of elements removed (0 or 1)
+         * @brief Removes all elements from the set matching the specified key while maintaining order
+         * @param Key The key to match elements against
+         * @return The number of elements removed
          */
         i32 RemoveStable(KeyInitType Key)
         {
@@ -940,11 +1025,22 @@ namespace OloEngine
             return TConstIterator(*this);
         }
 
-        // Range-for support (return iterators for compatibility with TSparseSet)
-        [[nodiscard]] TIterator begin() { return TIterator(*this, 0); }
-        [[nodiscard]] TConstIterator begin() const { return TConstIterator(*this, 0); }
-        [[nodiscard]] TIterator end() { return TIterator(*this, this->NumElements); }
-        [[nodiscard]] TConstIterator end() const { return TConstIterator(*this, this->NumElements); }
+        // ====================================================================
+        // Range-based For Support
+        // ====================================================================
+
+        /**
+         * DO NOT USE DIRECTLY
+         * STL-like iterators to enable range-based for loop support.
+         * Uses raw pointers for maximum performance in release builds.
+         */
+        using TRangedForIterator = ElementType*;
+        using TRangedForConstIterator = const ElementType*;
+
+        [[nodiscard]] OLO_FINLINE ElementType* begin() { return GetData(); }
+        [[nodiscard]] OLO_FINLINE const ElementType* begin() const { return GetData(); }
+        [[nodiscard]] OLO_FINLINE ElementType* end() { return GetData() + this->NumElements; }
+        [[nodiscard]] OLO_FINLINE const ElementType* end() const { return GetData() + this->NumElements; }
 
         // Sets are deliberately prevented from being hashed or compared, because this would hide
         // potentially major performance problems behind default operations.
@@ -1055,12 +1151,31 @@ namespace OloEngine
         }
 
         /**
-         * @brief Compacts the set while preserving order (no-op for TCompactSet)
-         * @note Provided for API compatibility with TSparseSet
+         * @brief Deprecated - use sparse array if this behavior is required
+         * @note Keeping this here so TCompactSet can be swapped with TSet without changing code
          */
         void CompactStable()
         {
-            // TCompactSet is always compact - no holes possible
+            OLO_CORE_ASSERT(false, "Compact sets are always compact so CompactStable will not do anything. "
+                "If you hit this then you likely need to use a different pattern to maintain order, see RemoveStable");
+        }
+
+        /**
+         * @brief Deprecated - unnecessary
+         * @note Keeping this here so TCompactSet can be swapped with TSet without changing code
+         */
+        void SortFreeList()
+        {
+            // No-op for TCompactSet
+        }
+
+        /**
+         * @brief Deprecated - default behavior now
+         * @note Keeping this here so TCompactSet can be swapped with TSet without changing code
+         */
+        void Relax()
+        {
+            // No-op for TCompactSet
         }
 
         /**
@@ -1128,36 +1243,24 @@ namespace OloEngine
         }
 
         /**
-         * @brief Validates internal invariants (debug only)
+         * @brief Checks array invariants: if array size is greater than or equal to zero
+         * and less than or equal to the maximum.
          */
-        void CheckInvariants() const
+        OLO_FINLINE void CheckInvariants() const
         {
-#if !OLO_BUILD_SHIPPING
-            OLO_CORE_ASSERT(this->NumElements >= 0, "NumElements cannot be negative");
-            OLO_CORE_ASSERT(this->MaxElements >= 0 || this->MaxElements == INDEX_NONE, "Invalid MaxElements");
-            OLO_CORE_ASSERT(this->NumElements <= this->MaxElements || this->MaxElements == INDEX_NONE, "NumElements exceeds MaxElements");
-            
-            // Verify hash table integrity
-            if (this->NumElements > 0)
-            {
-                const ElementType* Data = GetData();
-                for (i32 i = 0; i < this->NumElements; ++i)
-                {
-                    const u32 Hash = KeyFuncs::GetKeyHash(KeyFuncs::GetSetKey(Data[i]));
-                    FSetElementId FoundId = FindIdByHash(Hash, KeyFuncs::GetSetKey(Data[i]));
-                    OLO_CORE_ASSERT(FoundId.IsValidId(), "Element not found in hash table");
-                }
-            }
-#endif
+            OLO_CORE_ASSERT((this->NumElements >= 0) & (this->MaxElements >= this->NumElements), 
+                "Set invariant violated: NumElements=%d, MaxElements=%d", this->NumElements, this->MaxElements);
         }
 
         /**
-         * @brief Range check an index (asserts in debug)
+         * @brief Checks if index is in array range
+         * @param Id Element ID to check
          */
-        OLO_FINLINE void RangeCheck(i32 Index) const
+        inline void RangeCheck(FSetElementId Id) const
         {
-            OLO_CORE_ASSERT(Index >= 0 && Index < this->NumElements, 
-                "Set index out of range: %d (Num=%d)", Index, this->NumElements);
+            CheckInvariants();
+            OLO_CORE_ASSERT(IsValidId(Id), "Set index out of bounds: %d into a set of size %d", 
+                Id.AsInteger(), this->NumElements);
         }
 
         // ====================================================================
@@ -1391,6 +1494,52 @@ namespace OloEngine
             }
         }
 
+        /**
+         * @brief Adds an uninitialized element and returns reference to it
+         * @param KeyHash The precomputed hash of the key
+         * @return Reference to the newly added uninitialized element
+         */
+        [[nodiscard]] ElementType& AddUninitialized(u32 KeyHash)
+        {
+            OLO_CORE_ASSERT(this->MaxElements >= 0, "Invalid MaxElements");
+            if (this->NumElements == this->MaxElements)
+            {
+                Reserve(this->AllocatorCalculateSlackGrow(this->NumElements + 1, GetSetLayout()));
+            }
+            GetHashTableView().Add(this->NumElements, KeyHash);
+            return GetData()[this->NumElements++];
+        }
+
+        /**
+         * @brief Finds element index by hash and key
+         * @param KeyHash Precomputed hash value
+         * @param Key The key to search for
+         * @return Index of the element, or INDEX_NONE if not found
+         */
+        template <typename ComparableKey>
+        [[nodiscard]] i32 FindIndexByHash(u32 KeyHash, const ComparableKey& Key) const
+        {
+            if (this->NumElements == 0)
+            {
+                return INDEX_NONE;
+            }
+
+            const FConstCompactHashTableView HashTable = GetConstHashTableView();
+            const ElementType* Data = GetData();
+            
+            for (u32 Index = HashTable.GetFirst(KeyHash); 
+                 Index != INDEX_NONE; 
+                 Index = HashTable.GetNext(Index, this->NumElements))
+            {
+                if (KeyFuncs::Matches(KeyFuncs::GetSetKey(Data[Index]), Key))
+                {
+                    return static_cast<i32>(Index);
+                }
+            }
+
+            return INDEX_NONE;
+        }
+
         template <typename ElementArg>
         FSetElementId EmplaceByHashImpl(u32 KeyHash, ElementArg&& InElement, bool* bIsAlreadyInSetPtr)
         {
@@ -1468,99 +1617,95 @@ namespace OloEngine
             GetHashTableView().RemoveStable(Index, RemovedHash);
         }
 
-        void RemoveByIndex(i32 ElementIndex)
+        template <bool IsStable = false>
+        void RemoveByIndex(const SizeType ElementIndex)
         {
-            OLO_CORE_ASSERT(ElementIndex >= 0 && ElementIndex < this->NumElements, "Invalid ElementIndex");
-            RemoveByIndexAndHash(ElementIndex, KeyFuncs::GetKeyHash(KeyFuncs::GetSetKey(GetData()[ElementIndex])));
+            OLO_CORE_ASSERT(ElementIndex >= 0 && ElementIndex < this->NumElements, 
+                "Invalid ElementIndex passed to TCompactSet::RemoveByIndex");
+            RemoveByIndexAndHash<IsStable>(ElementIndex, KeyFuncs::GetKeyHash(KeyFuncs::GetSetKey(GetData()[ElementIndex])));
         }
 
-        void RemoveByIndexAndHash(i32 ElementIndex, u32 KeyHash)
+        template <bool IsStable = false>
+        void RemoveByIndexAndHash(const SizeType ElementIndex, const u32 KeyHash)
         {
-            OLO_CORE_ASSERT(ElementIndex >= 0 && ElementIndex < this->NumElements, "Invalid ElementIndex");
+            OLO_CORE_ASSERT(ElementIndex >= 0 && ElementIndex < this->NumElements, 
+                "Invalid ElementIndex passed to TCompactSet::RemoveByIndex");
 
-            ElementType* Data = GetData();
-            const i32 LastIndex = this->NumElements - 1;
+            ElementType* ElementsData = GetData();
+            FCompactHashTableView HashTable = GetHashTableView();
 
-            if (ElementIndex == LastIndex)
+            const SizeType LastElementIndex = this->NumElements - 1;
+            if (ElementIndex == LastElementIndex)
             {
-                RemoveFromHashTable(ElementIndex, KeyHash, ElementIndex, KeyHash);
-                DestructItem(&Data[LastIndex]);
+                HashTable.Remove(ElementIndex, KeyHash, ElementIndex, KeyHash);
+                ElementsData[LastElementIndex].~ElementType();
             }
             else
             {
-                const u32 LastHash = KeyFuncs::GetKeyHash(KeyFuncs::GetSetKey(Data[LastIndex]));
-                RemoveFromHashTable(ElementIndex, KeyHash, LastIndex, LastHash);
-                DestructItem(&Data[ElementIndex]);
-                RelocateConstructItems<ElementType>(&Data[ElementIndex], &Data[LastIndex], 1);
+                if constexpr (IsStable)
+                {
+                    HashTable.RemoveStable(ElementIndex, KeyHash);
+
+                    ElementsData[ElementIndex].~ElementType();
+                    RelocateConstructItems<ElementType>(ElementsData + ElementIndex, ElementsData + ElementIndex + 1, LastElementIndex - ElementIndex);
+                }
+                else
+                {
+                    const u32 LastElementHash = KeyFuncs::GetKeyHash(KeyFuncs::GetSetKey(ElementsData[LastElementIndex]));
+                    HashTable.Remove(ElementIndex, KeyHash, LastElementIndex, LastElementHash);
+
+                    MoveByRelocate(ElementsData[ElementIndex], ElementsData[LastElementIndex]);
+                }
             }
 
             --this->NumElements;
         }
 
-        void RemoveByIndexStable(i32 ElementIndex)
-        {
-            OLO_CORE_ASSERT(ElementIndex >= 0 && ElementIndex < this->NumElements, "Invalid ElementIndex");
-
-            ElementType* Data = GetData();
-            const u32 KeyHash = KeyFuncs::GetKeyHash(KeyFuncs::GetSetKey(Data[ElementIndex]));
-            const i32 LastIndex = this->NumElements - 1;
-
-            RemoveFromHashTableStable(ElementIndex, KeyHash);
-            DestructItem(&Data[ElementIndex]);
-
-            // Shift all elements after the removed one
-            if (ElementIndex != LastIndex)
-            {
-                RelocateConstructItems<ElementType>(&Data[ElementIndex], &Data[ElementIndex + 1], LastIndex - ElementIndex);
-            }
-
-            --this->NumElements;
-        }
-
-        template <typename ComparableKey>
+        template <typename ComparableKey, bool IsStable = false>
         i32 RemoveImpl(u32 KeyHash, const ComparableKey& Key)
         {
             OLO_CORE_ASSERT(this->NumElements > 0, "Cannot remove from empty set");
             i32 NumRemovedElements = 0;
 
-            ElementType* Data = GetData();
+            const ElementType* ElementsData = GetData();
             FCompactHashTableView HashTable = GetHashTableView();
 
-            i32 LastElementIndex = INDEX_NONE;
-            i32 ElementIndex = static_cast<i32>(HashTable.GetFirst(KeyHash));
+            SizeType LastElementIndex = INDEX_NONE;
+            SizeType ElementIndex = HashTable.GetFirst(KeyHash);
 
             while (ElementIndex != INDEX_NONE)
             {
-                if (KeyFuncs::Matches(KeyFuncs::GetSetKey(Data[ElementIndex]), Key))
+                if (KeyFuncs::Matches(KeyFuncs::GetSetKey(ElementsData[ElementIndex]), Key))
                 {
-                    RemoveByIndexAndHash(ElementIndex, KeyHash);
+                    RemoveByIndexAndHash<IsStable>(ElementIndex, KeyHash);
                     NumRemovedElements++;
 
                     if constexpr (!KeyFuncs::bAllowDuplicateKeys)
                     {
+                        // If the hash disallows duplicate keys, we're done removing after the first matched key.
                         break;
                     }
                     else
                     {
-                        // Re-fetch since removal may have changed indices
                         if (LastElementIndex == INDEX_NONE)
                         {
-                            ElementIndex = static_cast<i32>(HashTable.GetFirst(KeyHash));
+                            ElementIndex = HashTable.GetFirst(KeyHash);
                         }
                         else
                         {
-                            if (LastElementIndex == this->NumElements)
+                            if (LastElementIndex == this->NumElements) // Would have been remapped to ElementIndex
                             {
                                 LastElementIndex = ElementIndex;
                             }
-                            ElementIndex = static_cast<i32>(HashTable.GetNext(LastElementIndex));
+
+                            ElementIndex = HashTable.GetNext(LastElementIndex, this->NumElements);
                         }
                     }
                 }
                 else
                 {
                     LastElementIndex = ElementIndex;
-                    ElementIndex = static_cast<i32>(HashTable.GetNext(LastElementIndex));
+                    ElementIndex = HashTable.GetNext(LastElementIndex, this->NumElements);
                 }
             }
 
@@ -1568,30 +1713,9 @@ namespace OloEngine
         }
 
         template <typename ComparableKey>
-        i32 RemoveImplStable(u32 KeyHash, const ComparableKey& Key)
+        OLO_FINLINE i32 RemoveImplStable(u32 KeyHash, const ComparableKey& Key)
         {
-            OLO_CORE_ASSERT(this->NumElements > 0, "Cannot remove from empty set");
-            i32 NumRemovedElements = 0;
-
-            // For stable removal, find and remove one at a time
-            while (true)
-            {
-                FSetElementId Id = FindIdByHash(KeyHash, Key);
-                if (!Id.IsValidId())
-                {
-                    break;
-                }
-
-                RemoveByIndexStable(Id.AsInteger());
-                NumRemovedElements++;
-
-                if constexpr (!KeyFuncs::bAllowDuplicateKeys)
-                {
-                    break;
-                }
-            }
-
-            return NumRemovedElements;
+            return RemoveImpl<ComparableKey, true>(KeyHash, Key);
         }
     };
 

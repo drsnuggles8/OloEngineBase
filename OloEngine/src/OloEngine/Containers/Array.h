@@ -685,8 +685,13 @@ namespace OloEngine
 
             ArrayNum = NewNum;
 
-            // Check if we need to reallocate (handles negative counts via unsigned comparison)
+#if DO_GUARD_SLOW
+            if (UNewNum > UOldMax)
+#else
+            // SECURITY - This check will guard against negative counts too, in case the checkSlow above is compiled out.
+            // However, it results in slightly worse code generation.
             if (UCount > UOldMax - UOldNum)
+#endif
             {
                 // This should only happen when we've underflowed or overflowed SizeType
                 if (NewNum < OldNum)
@@ -765,6 +770,115 @@ namespace OloEngine
             }
         }
 
+        /**
+         * @brief Set allocation to a specific size
+         * 
+         * Precondition: NewMax >= ArrayNum
+         * 
+         * @tparam Flags Allocator capability flags
+         * @tparam AllocatorInstanceType The allocator instance type
+         * @param ElementSize Size of each element
+         * @param ElementAlignment Alignment of elements
+         * @param NewMax Desired allocation capacity
+         * @param AllocatorInstance Reference to the allocator instance
+         * @param ArrayNum Current number of elements
+         * @param ArrayMax Reference to the array max capacity (updated)
+         */
+        template <u32 Flags, typename AllocatorInstanceType>
+        OLO_NOINLINE void ReallocTo(
+            u32                                          ElementSize,
+            u32                                          ElementAlignment,
+            TAllocatorSizeType_T<AllocatorInstanceType>  NewMax,
+            AllocatorInstanceType&                       AllocatorInstance,
+            TAllocatorSizeType_T<AllocatorInstanceType>  ArrayNum,
+            TAllocatorSizeType_T<AllocatorInstanceType>& ArrayMax
+        )
+        {
+            if constexpr (!!(Flags & 1)) // SupportsElementAlignment
+            {
+                if (NewMax)
+                {
+                    NewMax = AllocatorInstance.CalculateSlackReserve(NewMax, ElementSize, ElementAlignment);
+                }
+                if (NewMax != ArrayMax)
+                {
+                    ArrayMax = NewMax;
+                    AllocatorInstance.ResizeAllocation(ArrayNum, NewMax, ElementSize, ElementAlignment);
+                }
+            }
+            else
+            {
+                if (NewMax)
+                {
+                    NewMax = AllocatorInstance.CalculateSlackReserve(NewMax, ElementSize);
+                }
+                if (NewMax != ArrayMax)
+                {
+                    ArrayMax = NewMax;
+                    AllocatorInstance.ResizeAllocation(ArrayNum, NewMax, ElementSize);
+                }
+            }
+        }
+
+        /**
+         * @brief Specialized copy allocation
+         * 
+         * Used for copy operations where we're allocating fresh memory for a copy.
+         * 
+         * @tparam Flags Allocator capability flags
+         * @tparam AllocatorInstanceType The allocator instance type
+         * @param ElementSize Size of each element
+         * @param ElementAlignment Alignment of elements
+         * @param NewMax Desired allocation capacity
+         * @param PrevMax Previous allocation capacity
+         * @param AllocatorInstance Reference to the allocator instance
+         * @param ArrayNum Current number of elements
+         * @param ArrayMax Reference to the array max capacity (updated)
+         */
+        template <u32 Flags, typename AllocatorInstanceType>
+        OLO_NOINLINE void ReallocForCopy(
+            u32                                          ElementSize,
+            u32                                          ElementAlignment,
+            TAllocatorSizeType_T<AllocatorInstanceType>  NewMax,
+            TAllocatorSizeType_T<AllocatorInstanceType>  PrevMax,
+            AllocatorInstanceType&                       AllocatorInstance,
+            TAllocatorSizeType_T<AllocatorInstanceType>  ArrayNum,
+            TAllocatorSizeType_T<AllocatorInstanceType>& ArrayMax
+        )
+        {
+            if constexpr (!!(Flags & 1)) // SupportsElementAlignment
+            {
+                if (NewMax)
+                {
+                    NewMax = AllocatorInstance.CalculateSlackReserve(NewMax, ElementSize, ElementAlignment);
+                }
+                if (NewMax > PrevMax)
+                {
+                    AllocatorInstance.ResizeAllocation(0, NewMax, ElementSize, ElementAlignment);
+                }
+                else
+                {
+                    NewMax = PrevMax;
+                }
+            }
+            else
+            {
+                if (NewMax)
+                {
+                    NewMax = AllocatorInstance.CalculateSlackReserve(NewMax, ElementSize);
+                }
+                if (NewMax > PrevMax)
+                {
+                    AllocatorInstance.ResizeAllocation(0, NewMax, ElementSize);
+                }
+                else
+                {
+                    NewMax = PrevMax;
+                }
+            }
+            ArrayMax = NewMax;
+        }
+
     } // namespace Private
 
     // ============================================================================
@@ -829,6 +943,8 @@ namespace OloEngine
 
         /** Constructor with initial size */
         explicit TArray(SizeType InitialSize)
+            : m_ArrayNum(0)
+            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
         {
             AddUninitialized(InitialSize);
             DefaultConstructItems<ElementType>(GetData(), InitialSize);
@@ -836,6 +952,8 @@ namespace OloEngine
 
         /** Constructor with initial size and default value */
         TArray(SizeType InitialSize, const ElementType& DefaultValue)
+            : m_ArrayNum(0)
+            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
         {
             Reserve(InitialSize);
             for (SizeType i = 0; i < InitialSize; ++i)
@@ -846,6 +964,8 @@ namespace OloEngine
 
         /** Initializer list constructor */
         TArray(std::initializer_list<ElementType> InitList)
+            : m_ArrayNum(0)
+            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
         {
             Reserve(static_cast<SizeType>(InitList.size()));
             for (const auto& Item : InitList)
@@ -860,7 +980,9 @@ namespace OloEngine
          * @param Ptr   A pointer to an array of elements to copy.
          * @param Count The number of elements to copy from Ptr.
          */
-        [[nodiscard]] OLO_FINLINE TArray(const ElementType* Ptr, SizeType Count)
+        OLO_FINLINE TArray(const ElementType* Ptr, SizeType Count)
+            : m_ArrayNum(0)
+            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
         {
             if (Count < 0)
             {
@@ -873,8 +995,19 @@ namespace OloEngine
             CopyToEmpty(Ptr, Count, 0);
         }
 
+        /** Constructor from TArrayView */
+        template <typename OtherElementType, typename OtherSizeType>
+        [[nodiscard]] explicit TArray(const TArrayView<OtherElementType, OtherSizeType>& Other)
+            : m_ArrayNum(0)
+            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
+        {
+            CopyToEmpty(Other.GetData(), static_cast<SizeType>(Other.Num()), 0);
+        }
+
         /** Copy constructor */
         TArray(const TArray& Other)
+            : m_ArrayNum(0)
+            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
         {
             CopyToEmpty(Other.GetData(), Other.Num(), 0);
         }
@@ -885,7 +1018,9 @@ namespace OloEngine
          * @param Other The source array to copy.
          * @param ExtraSlack Additional memory to preallocate at the end.
          */
-        [[nodiscard]] OLO_FINLINE TArray(const TArray& Other, SizeType ExtraSlack)
+        OLO_FINLINE TArray(const TArray& Other, SizeType ExtraSlack)
+            : m_ArrayNum(0)
+            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
         {
             CopyToEmptyWithSlack(Other.GetData(), Other.Num(), 0, ExtraSlack);
         }
@@ -897,13 +1032,17 @@ namespace OloEngine
          */
         template <typename OtherElementType, typename OtherAllocator>
             requires (std::is_convertible_v<const OtherElementType&, ElementType>)
-        [[nodiscard]] OLO_FINLINE explicit TArray(const TArray<OtherElementType, OtherAllocator>& Other)
+        OLO_FINLINE explicit TArray(const TArray<OtherElementType, OtherAllocator>& Other)
+            : m_ArrayNum(0)
+            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
         {
             CopyToEmpty(Other.GetData(), Other.Num(), 0);
         }
 
         /** Move constructor */
         TArray(TArray&& Other) noexcept
+            : m_ArrayNum(0)
+            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
         {
             MoveOrCopy(*this, Other);
         }
@@ -916,7 +1055,9 @@ namespace OloEngine
          */
         template <typename OtherElementType>
             requires (Private::TArrayElementsAreCompatible_V<ElementType, OtherElementType&&>)
-        [[nodiscard]] TArray(TArray<OtherElementType, AllocatorType>&& Other, SizeType ExtraSlack)
+        TArray(TArray<OtherElementType, AllocatorType>&& Other, SizeType ExtraSlack)
+            : m_ArrayNum(0)
+            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
         {
             MoveOrCopyWithSlack(*this, Other, 0, ExtraSlack);
         }
@@ -928,6 +1069,8 @@ namespace OloEngine
         template <typename OtherElementType, typename OtherSizeType>
             requires (std::is_convertible_v<OtherElementType*, ElementType*>)
         explicit TArray(TArrayView<OtherElementType, OtherSizeType> Other)
+            : m_ArrayNum(0)
+            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
         {
             CopyToEmpty(Other.GetData(), static_cast<SizeType>(Other.Num()), 0);
         }
@@ -978,6 +1121,15 @@ namespace OloEngine
             {
                 Add(Item);
             }
+            return *this;
+        }
+
+        /** Assignment from TArrayView */
+        template <typename OtherElementType, typename OtherSizeType>
+        TArray& operator=(const TArrayView<OtherElementType, OtherSizeType>& Other)
+        {
+            DestructItems(GetData(), m_ArrayNum);
+            CopyToEmpty(Other.GetData(), static_cast<SizeType>(Other.Num()), m_ArrayMax);
             return *this;
         }
 
@@ -2702,7 +2854,7 @@ namespace OloEngine
             // Add at the end, then sift up
             Add(std::move(InItem));
             TDereferenceWrapper<ElementType, PREDICATE_CLASS> PredicateWrapper(Predicate);
-            SizeType Result = AlgoImpl::HeapSiftUp(GetData(), static_cast<SizeType>(0), Num() - 1, FIdentityFunctor(), PredicateWrapper);
+            SizeType Result = HeapSiftUp(GetData(), static_cast<SizeType>(0), Num() - 1, FIdentityFunctor(), PredicateWrapper);
 
             return Result;
         }
@@ -2724,7 +2876,7 @@ namespace OloEngine
             // Add at the end, then sift up
             Add(InItem);
             TDereferenceWrapper<ElementType, PREDICATE_CLASS> PredicateWrapper(Predicate);
-            SizeType Result = AlgoImpl::HeapSiftUp(GetData(), static_cast<SizeType>(0), Num() - 1, FIdentityFunctor(), PredicateWrapper);
+            SizeType Result = HeapSiftUp(GetData(), static_cast<SizeType>(0), Num() - 1, FIdentityFunctor(), PredicateWrapper);
 
             return Result;
         }
@@ -2779,7 +2931,7 @@ namespace OloEngine
             RemoveAtSwap(0, 1, AllowShrinking);
 
             TDereferenceWrapper<ElementType, PREDICATE_CLASS> PredicateWrapper(Predicate);
-            AlgoImpl::HeapSiftDown(GetData(), static_cast<SizeType>(0), Num(), FIdentityFunctor(), PredicateWrapper);
+            HeapSiftDown(GetData(), static_cast<SizeType>(0), Num(), FIdentityFunctor(), PredicateWrapper);
         }
 
         /**
@@ -2813,7 +2965,7 @@ namespace OloEngine
         {
             RemoveAtSwap(0, 1, AllowShrinking);
             TDereferenceWrapper<ElementType, PREDICATE_CLASS> PredicateWrapper(Predicate);
-            AlgoImpl::HeapSiftDown(GetData(), static_cast<SizeType>(0), Num(), FIdentityFunctor(), PredicateWrapper);
+            HeapSiftDown(GetData(), static_cast<SizeType>(0), Num(), FIdentityFunctor(), PredicateWrapper);
         }
 
         /**
@@ -2874,8 +3026,13 @@ namespace OloEngine
             RemoveAtSwap(Index, 1, AllowShrinking);
 
             TDereferenceWrapper<ElementType, PREDICATE_CLASS> PredicateWrapper(Predicate);
-            AlgoImpl::HeapSiftDown(GetData(), Index, Num(), FIdentityFunctor(), PredicateWrapper);
-            AlgoImpl::HeapSiftUp(GetData(), static_cast<SizeType>(0), std::min(Index, Num() - 1), FIdentityFunctor(), PredicateWrapper);
+            HeapSiftDown(GetData(), Index, Num(), FIdentityFunctor(), PredicateWrapper);
+            
+            // Only sift up if the array is not empty
+            if (Num() > 0)
+            {
+                HeapSiftUp(GetData(), static_cast<SizeType>(0), std::min(Index, Num() - 1), FIdentityFunctor(), PredicateWrapper);
+            }
         }
 
         /**
@@ -3187,7 +3344,7 @@ namespace OloEngine
             if constexpr (Private::CanMoveTArrayPointersBetweenArrayTypes<FromArrayType, ToArrayType>())
             {
                 // Move
-                MoveOrCopy(ToArray, FromArray, PrevMax);
+                MoveOrCopy(ToArray, FromArray);
 
                 USizeType LocalArrayNum = static_cast<USizeType>(ToArray.m_ArrayNum);
                 USizeType NewMax        = static_cast<USizeType>(LocalArrayNum) + static_cast<USizeType>(ExtraSlack);

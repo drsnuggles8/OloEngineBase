@@ -185,6 +185,13 @@ namespace OloEngine
         {
             return (A >= B) ? A : B;
         }
+
+        /** Min of two values */
+        template <typename T>
+        [[nodiscard]] constexpr T Min(T A, T B)
+        {
+            return (A <= B) ? A : B;
+        }
     }
 
     // ============================================================================
@@ -577,10 +584,11 @@ namespace OloEngine
         // ========================================================================
 
         /** Default constructor - creates an empty bit array */
-        [[nodiscard]] TBitArray()
+        [[nodiscard]] constexpr TBitArray()
             : NumBits(0)
-            , MaxBits(0)
+            , MaxBits(AllocatorInstance.GetInitialCapacity() * NumBitsPerDWORD)
         {
+            // ClearPartialSlackBits is already satisfied since final word does not exist when NumBits == 0
         }
 
         /** Explicitly consteval constructor for compile-time constant arrays */
@@ -787,10 +795,28 @@ namespace OloEngine
             );
         }
 
-        /** Access the bit at an index directly (no bounds check) */
-        [[nodiscard]] OLO_FINLINE bool AccessCorrespondingBit(const FRelativeBitReference& Reference) const
+        /** Access the bit at an index directly (no bounds check, mutable) */
+        [[nodiscard]] OLO_FINLINE FBitReference AccessCorrespondingBit(const FRelativeBitReference& RelativeReference)
         {
-            return (GetData()[Reference.WordIndex] & Reference.Mask) != 0;
+            OLO_CORE_ASSERT(RelativeReference.Mask, "Invalid mask");
+            OLO_CORE_ASSERT(RelativeReference.WordIndex >= 0, "Invalid word index");
+            OLO_CORE_ASSERT(static_cast<u32>(RelativeReference.WordIndex + 1) * NumBitsPerDWORD - 1 - BitArrayMath::CountLeadingZeros(RelativeReference.Mask) < static_cast<u32>(NumBits), "Reference out of bounds");
+            return FBitReference(
+                GetData()[RelativeReference.WordIndex],
+                RelativeReference.Mask
+            );
+        }
+
+        /** Access the bit at an index directly (no bounds check, const) */
+        [[nodiscard]] OLO_FINLINE FConstBitReference AccessCorrespondingBit(const FRelativeBitReference& RelativeReference) const
+        {
+            OLO_CORE_ASSERT(RelativeReference.Mask, "Invalid mask");
+            OLO_CORE_ASSERT(RelativeReference.WordIndex >= 0, "Invalid word index");
+            OLO_CORE_ASSERT(static_cast<u32>(RelativeReference.WordIndex + 1) * NumBitsPerDWORD - 1 - BitArrayMath::CountLeadingZeros(RelativeReference.Mask) < static_cast<u32>(NumBits), "Reference out of bounds");
+            return FConstBitReference(
+                GetData()[RelativeReference.WordIndex],
+                RelativeReference.Mask
+            );
         }
 
         // ========================================================================
@@ -915,6 +941,37 @@ namespace OloEngine
         }
 
         /**
+         * @brief Add multiple bits read from a pointer
+         * @param ReadBits  The address of sized integers to read bits from
+         * @param NumBitsToAdd  The number of bits to add (must be >= 0)
+         * @param ReadOffsetBits  Number of bits into ReadBits at which to start reading (must be >= 0)
+         * @return The index of the first added bit
+         */
+        template <typename InWordType>
+        i32 AddRange(const InWordType* ReadBits, i32 NumBitsToAdd, i32 ReadOffsetBits = 0)
+        {
+            const i32 Index = AddUninitialized(NumBitsToAdd);
+            SetRangeFromRange(Index, NumBitsToAdd, ReadBits, ReadOffsetBits);
+            return Index;
+        }
+
+        /**
+         * @brief Add multiple bits read from another TBitArray
+         * @param ReadBits  The bit array to read from
+         * @param NumBitsToAdd  The number of bits to add (must be >= 0)
+         * @param ReadOffsetBits  Number of bits into ReadBits at which to start reading (must be >= 0)
+         * @return The index of the first added bit
+         */
+        template <typename OtherAllocator>
+        i32 AddRange(const TBitArray<OtherAllocator>& ReadBits, i32 NumBitsToAdd, i32 ReadOffsetBits = 0)
+        {
+            OLO_CORE_ASSERT(ReadOffsetBits >= 0 && ReadOffsetBits + NumBitsToAdd <= ReadBits.NumBits, "ReadOffsetBits out of bounds");
+            const i32 Index = AddUninitialized(NumBitsToAdd);
+            SetRangeFromRange(Index, NumBitsToAdd, ReadBits, ReadOffsetBits);
+            return Index;
+        }
+
+        /**
          * @brief Add space for bits without initializing them
          * @param NumBitsToAdd  Number of bits to add
          * @return Index of the first added bit
@@ -966,6 +1023,35 @@ namespace OloEngine
         }
 
         /**
+         * @brief Insert multiple bits read from a pointer
+         * @param ReadBits  The address of sized integers to read bits from
+         * @param Index  The index at which to insert
+         * @param NumBitsToAdd  The number of bits to insert (must be >= 0)
+         * @param ReadOffsetBits  Number of bits into ReadBits at which to start reading
+         */
+        template <typename InWordType>
+        void InsertRange(const InWordType* ReadBits, i32 Index, i32 NumBitsToAdd, i32 ReadOffsetBits = 0)
+        {
+            InsertUninitialized(Index, NumBitsToAdd);
+            SetRangeFromRange(Index, NumBitsToAdd, ReadBits, ReadOffsetBits);
+        }
+
+        /**
+         * @brief Insert multiple bits read from another TBitArray
+         * @param ReadBits  The bit array to read from
+         * @param Index  The index at which to insert
+         * @param NumBitsToAdd  The number of bits to insert (must be >= 0)
+         * @param ReadOffsetBits  Number of bits into ReadBits at which to start reading
+         */
+        template <typename OtherAllocator>
+        void InsertRange(const TBitArray<OtherAllocator>& ReadBits, i32 Index, i32 NumBitsToAdd, i32 ReadOffsetBits = 0)
+        {
+            OLO_CORE_ASSERT(ReadOffsetBits >= 0 && ReadOffsetBits + NumBitsToAdd <= ReadBits.NumBits, "ReadOffsetBits out of bounds");
+            InsertUninitialized(Index, NumBitsToAdd);
+            SetRangeFromRange(Index, NumBitsToAdd, ReadBits, ReadOffsetBits);
+        }
+
+        /**
          * @brief Insert space for bits without initializing them
          * @param Index  The index at which to insert
          * @param NumBitsToAdd  Number of bits to insert
@@ -982,11 +1068,8 @@ namespace OloEngine
                 u32 NumToShift = OldNumBits - Index;
                 if (NumToShift > 0)
                 {
-                    // Shift bits from end to beginning to handle overlap
-                    for (i32 i = static_cast<i32>(OldNumBits) - 1; i >= Index; --i)
-                    {
-                        (*this)[i + NumBitsToAdd] = static_cast<bool>((*this)[i]);
-                    }
+                    // MemmoveBitsWordOrder handles overlapping source and dest
+                    FBitArrayMemory::MemmoveBitsWordOrder(GetData(), Index + NumBitsToAdd, GetData(), Index, NumToShift);
                 }
             }
         }
@@ -1003,16 +1086,15 @@ namespace OloEngine
 
             if (BaseIndex + NumBitsToRemove != NumBits)
             {
-                // Shift bits
+                // MemmoveBitsWordOrder handles overlapping source and dest
                 u32 NumToShift = NumBits - (BaseIndex + NumBitsToRemove);
-                for (u32 i = 0; i < NumToShift; ++i)
-                {
-                    (*this)[BaseIndex + i] = static_cast<bool>((*this)[BaseIndex + NumBitsToRemove + i]);
-                }
+                FBitArrayMemory::MemmoveBitsWordOrder(GetData(), BaseIndex, GetData(), BaseIndex + NumBitsToRemove, NumToShift);
             }
 
             NumBits -= NumBitsToRemove;
+
             ClearPartialSlackBits();
+            CheckInvariants();
         }
 
         /**
@@ -1036,6 +1118,7 @@ namespace OloEngine
 
             NumBits -= NumBitsToRemove;
             ClearPartialSlackBits();
+            CheckInvariants();
         }
 
         // ========================================================================
@@ -1103,6 +1186,58 @@ namespace OloEngine
                     *Data &= ~EndMask;
                 }
             }
+
+            CheckInvariants();
+        }
+
+        /**
+         * @brief Set range of bits from a pointer
+         * @param Index  The index of the first bit to set
+         * @param NumBitsToSet  The number of bits to set
+         * @param ReadBits  The address of sized integers to read bits from
+         * @param ReadOffsetBits  Number of bits into ReadBits at which to start reading
+         */
+        template <typename InWordType>
+        void SetRangeFromRange(i32 Index, i32 NumBitsToSet, const InWordType* ReadBits, i32 ReadOffsetBits = 0)
+        {
+            OLO_CORE_ASSERT(Index >= 0 && NumBitsToSet >= 0 && Index + NumBitsToSet <= NumBits, "SetRangeFromRange: invalid index/count");
+            OLO_CORE_ASSERT(NumBitsToSet == 0 || ReadBits != nullptr, "ReadBits cannot be null");
+
+            // Note: Big endian support would require iterating over each InWordType and upcasting
+            static_assert(std::endian::native == std::endian::little, "SetRangeFromRange does not yet support big endian platforms");
+            FBitArrayMemory::MemmoveBitsWordOrder(GetData(), Index, ReadBits, ReadOffsetBits, NumBitsToSet);
+        }
+
+        /**
+         * @brief Set range of bits from another TBitArray
+         * @param Index  The index of the first bit to set
+         * @param NumBitsToSet  The number of bits to set
+         * @param ReadBits  The bit array to read from
+         * @param ReadOffsetBits  Number of bits into ReadBits at which to start reading
+         */
+        template <typename OtherAllocator>
+        OLO_FINLINE void SetRangeFromRange(i32 Index, i32 NumBitsToSet, const TBitArray<OtherAllocator>& ReadBits, i32 ReadOffsetBits = 0)
+        {
+            OLO_CORE_ASSERT(Index >= 0 && NumBitsToSet >= 0 && Index + NumBitsToSet <= NumBits, "SetRangeFromRange: invalid index/count");
+            OLO_CORE_ASSERT(ReadOffsetBits >= 0 && ReadOffsetBits + NumBitsToSet <= ReadBits.NumBits, "ReadOffsetBits out of bounds");
+            FBitArrayMemory::MemmoveBitsWordOrder(GetData(), Index, ReadBits.GetData(), ReadOffsetBits, NumBitsToSet);
+        }
+
+        /**
+         * @brief Read a range of bits and write to a pointer
+         * @param Index  The index of the first bit to read
+         * @param NumBitsToGet  The number of bits to read
+         * @param WriteBits  The address of sized integers to write bits to
+         * @param WriteOffsetBits  Number of bits into WriteBits at which to start writing
+         */
+        template <typename InWordType>
+        OLO_FINLINE void GetRange(i32 Index, i32 NumBitsToGet, InWordType* WriteBits, i32 WriteOffsetBits = 0) const
+        {
+            OLO_CORE_ASSERT(Index >= 0 && NumBitsToGet >= 0 && Index + NumBitsToGet <= NumBits, "GetRange: invalid index/count");
+            OLO_CORE_ASSERT(NumBitsToGet == 0 || WriteBits != nullptr, "WriteBits cannot be null");
+
+            static_assert(std::endian::native == std::endian::little, "GetRange does not yet support big endian platforms");
+            FBitArrayMemory::MemmoveBitsWordOrder(WriteBits, WriteOffsetBits, GetData(), Index, NumBitsToGet);
         }
 
         /** Set number of bits without initializing new bits */
@@ -1167,6 +1302,22 @@ namespace OloEngine
         }
 
         /**
+         * @brief Find from a starting index to an ending index
+         * @param bValue  The value to search for
+         * @param StartIndex  Where to start searching
+         * @param EndIndexExclusive  Where to stop searching (exclusive)
+         * @return Index of first occurrence from StartIndex to EndIndexExclusive, or INDEX_NONE if not found
+         */
+        template <typename IndexType>
+        [[nodiscard]] OLO_FINLINE i32 FindFrom(bool bValue, IndexType StartIndex, IndexType EndIndexExclusive) const
+        {
+            static_assert(!std::is_same_v<IndexType, bool>, "TBitArray::FindFrom: unexpected bool passed as StartIndex");
+            OLO_CORE_ASSERT(StartIndex >= 0 && StartIndex <= NumBits, "StartIndex out of bounds");
+            OLO_CORE_ASSERT(EndIndexExclusive >= 0 && EndIndexExclusive <= NumBits, "EndIndexExclusive out of bounds");
+            return FindFromImpl(bValue, static_cast<i32>(StartIndex), static_cast<i32>(EndIndexExclusive));
+        }
+
+        /**
          * @brief Find the last occurrence of a value
          * @param bValue  The value to search for
          * @return Index of last occurrence, or INDEX_NONE if not found
@@ -1174,6 +1325,21 @@ namespace OloEngine
         [[nodiscard]] i32 FindLast(bool bValue) const
         {
             return FindLastFromImpl(bValue, NumBits);
+        }
+
+        /**
+         * @brief Find the last occurrence of a value starting from a given index
+         * @param bValue  The value to search for
+         * @param EndIndexInclusive  The index to start the (reverse) search from
+         * @return Index of last occurrence from EndIndexInclusive, or INDEX_NONE if not found
+         */
+        template <typename IndexType>
+        [[nodiscard]] i32 FindLastFrom(bool bValue, IndexType EndIndexInclusive) const
+        {
+            static_assert(!std::is_same_v<IndexType, bool>, "TBitArray::FindLastFrom: unexpected bool passed as EndIndexInclusive");
+            // Range check: [-1, NumBits) because end index is inclusive and this is reverse logic of FindFrom [0, NumBits]
+            OLO_CORE_ASSERT(EndIndexInclusive >= -1 && EndIndexInclusive < NumBits, "EndIndexInclusive out of bounds");
+            return FindLastFromImpl(bValue, static_cast<i32>(EndIndexInclusive) + 1);
         }
 
         /**
@@ -1197,6 +1363,7 @@ namespace OloEngine
             if (FirstZeroBitIndex != INDEX_NONE)
             {
                 (*this)[FirstZeroBitIndex] = true;
+                CheckInvariants();
             }
             return FirstZeroBitIndex;
         }
@@ -1211,6 +1378,7 @@ namespace OloEngine
             if (LastZeroBitIndex != INDEX_NONE)
             {
                 (*this)[LastZeroBitIndex] = true;
+                CheckInvariants();
             }
             return LastZeroBitIndex;
         }
@@ -1271,226 +1439,172 @@ namespace OloEngine
             return NumSetBits;
         }
 
+        /**
+         * @brief Compare set bits with another array, with optional missing bit fill value
+         * @param Other  The array to compare against
+         * @param bMissingBitValue  The value to use for missing bits when considering bits outside either array's range
+         * @return true if this array matches Other, including any missing bits, false otherwise
+         */
+        template <typename OtherAllocator>
+        [[nodiscard]] bool CompareSetBits(const TBitArray<OtherAllocator>& Other, bool bMissingBitValue) const
+        {
+            const u32 MissingBitsFill = bMissingBitValue ? ~0u : 0;
+
+            FConstWordIterator ThisIterator(*this);
+            typename TBitArray<OtherAllocator>::FConstWordIterator OtherIterator(Other);
+
+            ThisIterator.FillMissingBits(MissingBitsFill);
+            OtherIterator.FillMissingBits(MissingBitsFill);
+
+            while (ThisIterator || OtherIterator)
+            {
+                const u32 A = ThisIterator  ? ThisIterator.GetWord()  : MissingBitsFill;
+                const u32 B = OtherIterator ? OtherIterator.GetWord() : MissingBitsFill;
+                if (A != B)
+                {
+                    return false;
+                }
+
+                ++ThisIterator;
+                ++OtherIterator;
+            }
+
+            return true;
+        }
+
+        /**
+         * @brief Pad this bit array to ensure it is at least the specified length
+         * @param DesiredNum  The desired number of bits
+         * @param bPadValue  The value to pad with (false or true)
+         * @return The number of bits that were added, or 0 if Num() >= DesiredNum
+         */
+        i32 PadToNum(i32 DesiredNum, bool bPadValue)
+        {
+            const i32 NumToAdd = DesiredNum - Num();
+            if (NumToAdd > 0)
+            {
+                Add(bPadValue, NumToAdd);
+                return NumToAdd;
+            }
+            return 0;
+        }
+
         // ========================================================================
         // Bitwise Operations
         // ========================================================================
 
         /**
-         * @brief Combine this bit array with another using bitwise AND
-         * @param Other  The other bit array
-         * 
-         * Result size is min of both arrays. Missing bits treated as 0.
+         * @brief Perform a custom bitwise operation on this bit array with another
+         * @param InOther  The other bit array
+         * @param InFlags  Flags controlling the operation
+         * @param InBinaryOp  The binary operation to perform
+         * @return Reference to this array
          */
-        void CombineWithBitwiseAND(const TBitArray& Other)
+        template <typename OtherAllocator, typename BinaryOpType>
+        TBitArray& CombineWithBinaryOp(const TBitArray<OtherAllocator>& InOther, EBitwiseOperatorFlags InFlags, BinaryOpType&& InBinaryOp)
         {
-            if (Num() == 0)
-            {
-                return;
-            }
+            BitwiseOperatorImpl(InOther, *this, InFlags, std::forward<BinaryOpType>(InBinaryOp));
+            return *this;
+        }
 
-            u32* Data = GetData();
-            const u32* OtherData = Other.GetData();
-            const i32 MinWords = static_cast<i32>((Num() < Other.Num() ? FBitSet::CalculateNumWords(Num()) : FBitSet::CalculateNumWords(Other.Num())));
-            const i32 ThisWords = static_cast<i32>(GetNumWords());
-
-            for (i32 i = 0; i < MinWords; ++i)
-            {
-                Data[i] &= OtherData[i];
-            }
-
-            // AND with 0 for any bits beyond Other's size
-            for (i32 i = MinWords; i < ThisWords; ++i)
-            {
-                Data[i] = 0;
-            }
+        /**
+         * @brief Combine this bit array with another using bitwise AND
+         * @param InOther  The other bit array
+         * @param InFlags  Flags controlling the operation
+         * @return Reference to this array
+         */
+        template <typename OtherAllocator>
+        TBitArray& CombineWithBitwiseAND(const TBitArray<OtherAllocator>& InOther, EBitwiseOperatorFlags InFlags)
+        {
+            BitwiseOperatorImpl(InOther, *this, InFlags, [](u32 InA, u32 InB) { return InA & InB; });
+            return *this;
         }
 
         /**
          * @brief Combine this bit array with another using bitwise OR
-         * @param Other  The other bit array
-         * 
-         * Result size is max of both arrays.
+         * @param InOther  The other bit array
+         * @param InFlags  Flags controlling the operation
+         * @return Reference to this array
          */
-        void CombineWithBitwiseOR(const TBitArray& Other)
+        template <typename OtherAllocator>
+        TBitArray& CombineWithBitwiseOR(const TBitArray<OtherAllocator>& InOther, EBitwiseOperatorFlags InFlags)
         {
-            if (Other.Num() == 0)
-            {
-                return;
-            }
-
-            if (NumBits < Other.Num())
-            {
-                Add(false, Other.Num() - NumBits);
-            }
-
-            u32* Data = GetData();
-            const u32* OtherData = Other.GetData();
-            const i32 OtherWords = static_cast<i32>(FBitSet::CalculateNumWords(Other.Num()));
-
-            for (i32 i = 0; i < OtherWords; ++i)
-            {
-                Data[i] |= OtherData[i];
-            }
+            BitwiseOperatorImpl(InOther, *this, InFlags, [](u32 InA, u32 InB) { return InA | InB; });
+            return *this;
         }
 
         /**
          * @brief Combine this bit array with another using bitwise XOR
-         * @param Other  The other bit array
-         * 
-         * Result size is max of both arrays. Missing bits treated as 0.
+         * @param InOther  The other bit array
+         * @param InFlags  Flags controlling the operation
+         * @return Reference to this array
          */
-        void CombineWithBitwiseXOR(const TBitArray& Other)
+        template <typename OtherAllocator>
+        TBitArray& CombineWithBitwiseXOR(const TBitArray<OtherAllocator>& InOther, EBitwiseOperatorFlags InFlags)
         {
-            if (Other.Num() == 0)
-            {
-                return;
-            }
-
-            if (NumBits < Other.Num())
-            {
-                Add(false, Other.Num() - NumBits);
-            }
-
-            u32* Data = GetData();
-            const u32* OtherData = Other.GetData();
-            const i32 OtherWords = static_cast<i32>(FBitSet::CalculateNumWords(Other.Num()));
-
-            for (i32 i = 0; i < OtherWords; ++i)
-            {
-                Data[i] ^= OtherData[i];
-            }
+            BitwiseOperatorImpl(InOther, *this, InFlags, [](u32 InA, u32 InB) { return InA ^ InB; });
+            return *this;
         }
 
         /**
-         * @brief Create a new bit array from bitwise AND of two arrays
+         * @brief Return the bitwise AND of two bit arrays
          * @param A  First bit array
          * @param B  Second bit array
+         * @param InFlags  Flags controlling the operation
          * @return New bit array containing A AND B
          */
-        [[nodiscard]] static TBitArray BitwiseAND(const TBitArray& A, const TBitArray& B)
+        template <typename AllocatorA, typename AllocatorB>
+        [[nodiscard]] static TBitArray BitwiseAND(const TBitArray<AllocatorA>& A, const TBitArray<AllocatorB>& B, EBitwiseOperatorFlags InFlags)
         {
-            const i32 MinNum = (A.Num() < B.Num()) ? A.Num() : B.Num();
-            if (MinNum == 0)
-            {
-                return TBitArray();
-            }
-
-            TBitArray Result(false, MinNum);
-            u32* ResultData = Result.GetData();
-            const u32* DataA = A.GetData();
-            const u32* DataB = B.GetData();
-            const i32 NumWords = static_cast<i32>(FBitSet::CalculateNumWords(MinNum));
-
-            for (i32 i = 0; i < NumWords; ++i)
-            {
-                ResultData[i] = DataA[i] & DataB[i];
-            }
-
-            Result.ClearPartialSlackBits();
+            TBitArray Result;
+            BitwiseBinaryOperatorImpl(A, B, Result, InFlags, [](u32 InA, u32 InB) { return InA & InB; });
             return Result;
         }
 
         /**
-         * @brief Create a new bit array from bitwise OR of two arrays
+         * @brief Return the bitwise OR of two bit arrays
          * @param A  First bit array
          * @param B  Second bit array
+         * @param InFlags  Flags controlling the operation
          * @return New bit array containing A OR B
          */
-        [[nodiscard]] static TBitArray BitwiseOR(const TBitArray& A, const TBitArray& B)
+        template <typename AllocatorA, typename AllocatorB>
+        [[nodiscard]] static TBitArray BitwiseOR(const TBitArray<AllocatorA>& A, const TBitArray<AllocatorB>& B, EBitwiseOperatorFlags InFlags)
         {
-            const i32 MaxNum = (A.Num() > B.Num()) ? A.Num() : B.Num();
-            if (MaxNum == 0)
+            if constexpr (std::is_same_v<AllocatorA, AllocatorB>)
             {
-                return TBitArray();
+                OLO_CORE_ASSERT(&A != &B, "Cannot BitwiseOR with self");
             }
 
-            TBitArray Result(false, MaxNum);
-            u32* ResultData = Result.GetData();
-            const u32* DataA = A.GetData();
-            const u32* DataB = B.GetData();
-            const i32 WordsA = static_cast<i32>(FBitSet::CalculateNumWords(A.Num()));
-            const i32 WordsB = static_cast<i32>(FBitSet::CalculateNumWords(B.Num()));
-            const i32 MinWords = (WordsA < WordsB) ? WordsA : WordsB;
-            const i32 MaxWords = (WordsA > WordsB) ? WordsA : WordsB;
-
-            for (i32 i = 0; i < MinWords; ++i)
-            {
-                ResultData[i] = DataA[i] | DataB[i];
-            }
-
-            // Copy remaining bits from the larger array
-            const u32* LargerData = (WordsA > WordsB) ? DataA : DataB;
-            for (i32 i = MinWords; i < MaxWords; ++i)
-            {
-                ResultData[i] = LargerData[i];
-            }
-
-            Result.ClearPartialSlackBits();
+            TBitArray Result;
+            BitwiseBinaryOperatorImpl(A, B, Result, InFlags, [](u32 InA, u32 InB) { return InA | InB; });
             return Result;
         }
 
         /**
-         * @brief Create a new bit array from bitwise XOR of two arrays
+         * @brief Return the bitwise XOR of two bit arrays
          * @param A  First bit array
          * @param B  Second bit array
+         * @param InFlags  Flags controlling the operation
          * @return New bit array containing A XOR B
          */
-        [[nodiscard]] static TBitArray BitwiseXOR(const TBitArray& A, const TBitArray& B)
+        template <typename AllocatorA, typename AllocatorB>
+        [[nodiscard]] static TBitArray BitwiseXOR(const TBitArray<AllocatorA>& A, const TBitArray<AllocatorB>& B, EBitwiseOperatorFlags InFlags)
         {
-            const i32 MaxNum = (A.Num() > B.Num()) ? A.Num() : B.Num();
-            if (MaxNum == 0)
-            {
-                return TBitArray();
-            }
-
-            TBitArray Result(false, MaxNum);
-            u32* ResultData = Result.GetData();
-            const u32* DataA = A.GetData();
-            const u32* DataB = B.GetData();
-            const i32 WordsA = static_cast<i32>(FBitSet::CalculateNumWords(A.Num()));
-            const i32 WordsB = static_cast<i32>(FBitSet::CalculateNumWords(B.Num()));
-            const i32 MinWords = (WordsA < WordsB) ? WordsA : WordsB;
-            const i32 MaxWords = (WordsA > WordsB) ? WordsA : WordsB;
-
-            for (i32 i = 0; i < MinWords; ++i)
-            {
-                ResultData[i] = DataA[i] ^ DataB[i];
-            }
-
-            // Copy remaining bits from the larger array (XOR with 0)
-            const u32* LargerData = (WordsA > WordsB) ? DataA : DataB;
-            for (i32 i = MinWords; i < MaxWords; ++i)
-            {
-                ResultData[i] = LargerData[i];
-            }
-
-            Result.ClearPartialSlackBits();
+            TBitArray Result;
+            BitwiseBinaryOperatorImpl(A, B, Result, InFlags, [](u32 InA, u32 InB) { return InA ^ InB; });
             return Result;
         }
 
         /**
-         * @brief Create a new bit array with all bits inverted (NOT)
-         * @return New bit array with all bits flipped
+         * @brief Perform a bitwise NOT on all bits in this array (in-place)
          */
-        [[nodiscard]] TBitArray BitwiseNOT() const
+        void BitwiseNOT()
         {
-            if (NumBits == 0)
+            for (FWordIterator It(*this); It; ++It)
             {
-                return TBitArray();
+                It.SetWord(~It.GetWord());
             }
-
-            TBitArray Result(false, NumBits);
-            u32* ResultData = Result.GetData();
-            const u32* Data = GetData();
-            const i32 NumWords = static_cast<i32>(GetNumWords());
-
-            for (i32 i = 0; i < NumWords; ++i)
-            {
-                ResultData[i] = ~Data[i];
-            }
-
-            Result.ClearPartialSlackBits();
-            return Result;
         }
 
         // ========================================================================
@@ -1640,6 +1754,242 @@ namespace OloEngine
                 }
             }
         };
+
+        // ========================================================================
+        // Bit Iterators
+        // ========================================================================
+
+        /**
+         * @brief Mutable bit-by-bit iterator
+         */
+        class FIterator : public FRelativeBitReference
+        {
+        public:
+            [[nodiscard]] OLO_FINLINE explicit FIterator(TBitArray& InArray, i32 StartIndex = 0)
+                : FRelativeBitReference(StartIndex)
+                , Array(InArray)
+                , Index(StartIndex)
+            {
+            }
+
+            OLO_FINLINE FIterator& operator++()
+            {
+                ++Index;
+                this->Mask <<= 1;
+                if (!this->Mask)
+                {
+                    // Advance to the next uint32
+                    this->Mask = 1;
+                    ++this->WordIndex;
+                }
+                return *this;
+            }
+
+            [[nodiscard]] OLO_FINLINE FBitReference operator*() const
+            {
+                return GetValue();
+            }
+
+            /** Conversion to bool returning true if the iterator is valid */
+            [[nodiscard]] OLO_FINLINE explicit operator bool() const
+            {
+                return Index < Array.Num();
+            }
+
+            /** Inverse of the bool operator */
+            [[nodiscard]] OLO_FINLINE bool operator!() const
+            {
+                return !(bool)*this;
+            }
+
+            [[nodiscard]] OLO_FINLINE FBitReference GetValue() const { return FBitReference(Array.GetData()[this->WordIndex], this->Mask); }
+            [[nodiscard]] OLO_FINLINE i32 GetIndex() const { return Index; }
+
+        private:
+            TBitArray& Array;
+            i32 Index;
+        };
+
+        /**
+         * @brief Const bit-by-bit iterator
+         */
+        class FConstIterator : public FRelativeBitReference
+        {
+        public:
+            [[nodiscard]] OLO_FINLINE explicit FConstIterator(const TBitArray& InArray, i32 StartIndex = 0)
+                : FRelativeBitReference(StartIndex)
+                , Array(InArray)
+                , Index(StartIndex)
+            {
+            }
+
+            OLO_FINLINE FConstIterator& operator++()
+            {
+                ++Index;
+                this->Mask <<= 1;
+                if (!this->Mask)
+                {
+                    // Advance to the next uint32
+                    this->Mask = 1;
+                    ++this->WordIndex;
+                }
+                return *this;
+            }
+
+            [[nodiscard]] OLO_FINLINE FConstBitReference operator*() const
+            {
+                return GetValue();
+            }
+
+            /** Conversion to bool returning true if the iterator is valid */
+            [[nodiscard]] OLO_FINLINE explicit operator bool() const
+            {
+                return Index < Array.Num();
+            }
+
+            /** Inverse of the bool operator */
+            [[nodiscard]] OLO_FINLINE bool operator!() const
+            {
+                return !(bool)*this;
+            }
+
+            [[nodiscard]] OLO_FINLINE FConstBitReference GetValue() const { return FConstBitReference(Array.GetData()[this->WordIndex], this->Mask); }
+            [[nodiscard]] OLO_FINLINE i32 GetIndex() const { return Index; }
+
+        private:
+            const TBitArray& Array;
+            i32 Index;
+        };
+
+        /**
+         * @brief Mutable reverse bit iterator
+         */
+        class FReverseIterator : public FRelativeBitReference
+        {
+        public:
+            [[nodiscard]] OLO_FINLINE explicit FReverseIterator(TBitArray& InArray)
+                : FRelativeBitReference(InArray.Num() - 1)
+                , Array(InArray)
+                , Index(InArray.Num() - 1)
+            {
+            }
+
+            [[nodiscard]] OLO_FINLINE explicit FReverseIterator(TBitArray& InArray, i32 StartIndex)
+                : FRelativeBitReference(-1)
+                , Array(InArray)
+                , Index(-1)
+            {
+            }
+
+            OLO_FINLINE FReverseIterator& operator++()
+            {
+                --Index;
+                this->Mask >>= 1;
+                if (!this->Mask)
+                {
+                    // Advance to the previous uint32
+                    this->Mask = (1u << (NumBitsPerDWORD - 1u));
+                    --this->WordIndex;
+                }
+                return *this;
+            }
+
+            [[nodiscard]] OLO_FINLINE FBitReference operator*() const
+            {
+                return GetValue();
+            }
+
+            /** Conversion to bool returning true if the iterator is valid */
+            [[nodiscard]] OLO_FINLINE explicit operator bool() const
+            {
+                return Index >= 0;
+            }
+
+            /** Inverse of the bool operator */
+            [[nodiscard]] OLO_FINLINE bool operator!() const
+            {
+                return !(bool)*this;
+            }
+
+            [[nodiscard]] OLO_FINLINE FBitReference GetValue() const { return FBitReference(Array.GetData()[this->WordIndex], this->Mask); }
+            [[nodiscard]] OLO_FINLINE i32 GetIndex() const { return Index; }
+
+        private:
+            TBitArray& Array;
+            i32 Index;
+        };
+
+        /**
+         * @brief Const reverse bit iterator
+         */
+        class FConstReverseIterator : public FRelativeBitReference
+        {
+        public:
+            [[nodiscard]] OLO_FINLINE explicit FConstReverseIterator(const TBitArray& InArray)
+                : FRelativeBitReference(InArray.Num() - 1)
+                , Array(InArray)
+                , Index(InArray.Num() - 1)
+            {
+            }
+
+            [[nodiscard]] OLO_FINLINE explicit FConstReverseIterator(const TBitArray& InArray, i32 StartIndex)
+                : FRelativeBitReference(-1)
+                , Array(InArray)
+                , Index(-1)
+            {
+            }
+
+            OLO_FINLINE FConstReverseIterator& operator++()
+            {
+                --Index;
+                this->Mask >>= 1u;
+                if (!this->Mask)
+                {
+                    // Advance to the previous uint32
+                    this->Mask = (1u << (NumBitsPerDWORD - 1u));
+                    --this->WordIndex;
+                }
+                return *this;
+            }
+
+            [[nodiscard]] OLO_FINLINE FConstBitReference operator*() const
+            {
+                return GetValue();
+            }
+
+            /** Conversion to bool returning true if the iterator is valid */
+            [[nodiscard]] OLO_FINLINE explicit operator bool() const
+            {
+                return Index >= 0;
+            }
+
+            /** Inverse of the bool operator */
+            [[nodiscard]] OLO_FINLINE bool operator!() const
+            {
+                return !(bool)*this;
+            }
+
+            [[nodiscard]] OLO_FINLINE FConstBitReference GetValue() const { return FConstBitReference(Array.GetData()[this->WordIndex], this->Mask); }
+            [[nodiscard]] OLO_FINLINE i32 GetIndex() const { return Index; }
+
+        private:
+            const TBitArray& Array;
+            i32 Index;
+        };
+
+        // ========================================================================
+        // Range-based for loop support
+        // ========================================================================
+
+        [[nodiscard]] OLO_FINLINE FIterator      begin()       { return FIterator(*this); }
+        [[nodiscard]] OLO_FINLINE FConstIterator begin() const { return FConstIterator(*this); }
+        [[nodiscard]] OLO_FINLINE FIterator      end()         { return FIterator(*this, NumBits); }
+        [[nodiscard]] OLO_FINLINE FConstIterator end()   const { return FConstIterator(*this, NumBits); }
+
+        [[nodiscard]] OLO_FINLINE FReverseIterator      rbegin()       { return FReverseIterator(*this); }
+        [[nodiscard]] OLO_FINLINE FConstReverseIterator rbegin() const { return FConstReverseIterator(*this); }
+        [[nodiscard]] OLO_FINLINE FReverseIterator      rend()         { return FReverseIterator(*this, 0); }
+        [[nodiscard]] OLO_FINLINE FConstReverseIterator rend()   const { return FConstReverseIterator(*this, 0); }
 
         // ========================================================================
         // AddRange
@@ -1840,6 +2190,122 @@ namespace OloEngine
 
             i32 Result = static_cast<i32>(BitIndex + (DwordIndex << NumBitsPerDWORDLogTwo));
             return Result;
+        }
+
+        /**
+         * @brief Helper for binary bitwise operations between two bit arrays
+         */
+        template <typename AllocatorA, typename AllocatorB, typename OutAllocator, typename ProjectionType>
+        static void BitwiseBinaryOperatorImpl(const TBitArray<AllocatorA>& InA, const TBitArray<AllocatorB>& InB, TBitArray<OutAllocator>& OutResult, EBitwiseOperatorFlags InFlags, ProjectionType&& InProjection)
+        {
+            OLO_CORE_ASSERT(reinterpret_cast<const void*>(&InA) != reinterpret_cast<const void*>(&InB) && 
+                           reinterpret_cast<const void*>(&InA) != reinterpret_cast<const void*>(&OutResult) && 
+                           reinterpret_cast<const void*>(&InB) != reinterpret_cast<const void*>(&OutResult),
+                           "BitwiseBinaryOperatorImpl: operands must not alias");
+
+            if (EnumHasAnyFlags(InFlags, EBitwiseOperatorFlags::MinSize))
+            {
+                const i32 MinNumBits = BitArrayMath::Min(InA.Num(), InB.Num());
+                if (MinNumBits > 0)
+                {
+                    OutResult.Reserve(MinNumBits);
+                    OutResult.NumBits = MinNumBits;
+
+                    typename TBitArray<AllocatorA>::FConstWordIterator IteratorA(InA);
+                    typename TBitArray<AllocatorB>::FConstWordIterator IteratorB(InB);
+                    typename TBitArray<OutAllocator>::FWordIterator IteratorResult(OutResult);
+
+                    for ( ; IteratorResult; ++IteratorResult, ++IteratorA, ++IteratorB)
+                    {
+                        const u32 NewValue = InProjection(IteratorA.GetWord(), IteratorB.GetWord());
+                        IteratorResult.SetWord(NewValue);
+                    }
+                }
+            }
+            else if (EnumHasAnyFlags(InFlags, EBitwiseOperatorFlags::MaxSize))
+            {
+                const i32 MaxNumBits = BitArrayMath::Max(InA.Num(), InB.Num());
+                const u32 MissingBitsFill = EnumHasAnyFlags(InFlags, EBitwiseOperatorFlags::OneFillMissingBits) ? ~0u : 0;
+
+                if (MaxNumBits)
+                {
+                    OutResult.Reserve(MaxNumBits);
+                    OutResult.NumBits = MaxNumBits;
+
+                    typename TBitArray<AllocatorA>::FConstWordIterator IteratorA(InA);
+                    typename TBitArray<AllocatorB>::FConstWordIterator IteratorB(InB);
+
+                    IteratorA.FillMissingBits(MissingBitsFill);
+                    IteratorB.FillMissingBits(MissingBitsFill);
+
+                    typename TBitArray<OutAllocator>::FWordIterator IteratorResult(OutResult);
+
+                    for ( ; IteratorResult; ++IteratorResult, ++IteratorA, ++IteratorB)
+                    {
+                        u32 A = IteratorA ? IteratorA.GetWord() : MissingBitsFill;
+                        u32 B = IteratorB ? IteratorB.GetWord() : MissingBitsFill;
+
+                        IteratorResult.SetWord(InProjection(A, B));
+                    }
+                }
+            }
+            else
+            {
+                OLO_CORE_ASSERT(false, "Invalid size flag specified for binary bitwise operation");
+            }
+
+            OutResult.CheckInvariants();
+        }
+
+        /**
+         * @brief Helper for bitwise operation on this array with another
+         */
+        template<typename OtherAllocator, typename OutAllocator, typename ProjectionType>
+        static void BitwiseOperatorImpl(const TBitArray<OtherAllocator>& InOther, TBitArray<OutAllocator>& OutResult, EBitwiseOperatorFlags InFlags, ProjectionType&& InProjection)
+        {
+            if constexpr (std::is_same_v<OtherAllocator, OutAllocator>)
+            {
+                OLO_CORE_ASSERT(&InOther != &OutResult, "BitwiseOperatorImpl: operands must not alias");
+            }
+
+            i32 NewNumBits = OutResult.NumBits;
+            if (EnumHasAnyFlags(InFlags, EBitwiseOperatorFlags::MinSize))
+            {
+                NewNumBits = BitArrayMath::Min(InOther.Num(), OutResult.Num());
+            }
+            else if (EnumHasAnyFlags(InFlags, EBitwiseOperatorFlags::MaxSize))
+            {
+                NewNumBits = BitArrayMath::Max(InOther.Num(), OutResult.Num());
+            }
+
+            const i32 SizeDifference = NewNumBits - OutResult.NumBits;
+            if (SizeDifference < 0)
+            {
+                OutResult.NumBits = NewNumBits;
+                OutResult.ClearPartialSlackBits();
+            }
+            else if (SizeDifference > 0)
+            {
+                const bool bPadValue = EnumHasAnyFlags(InFlags, EBitwiseOperatorFlags::OneFillMissingBits);
+                OutResult.Add(bPadValue, SizeDifference);
+            }
+
+            const u32 MissingBitsFill = EnumHasAnyFlags(InFlags, EBitwiseOperatorFlags::OneFillMissingBits) ? ~0u : 0;
+            if (OutResult.NumBits != 0)
+            {
+                typename TBitArray<OtherAllocator>::FConstWordIterator IteratorOther(InOther);
+                IteratorOther.FillMissingBits(MissingBitsFill);
+
+                typename TBitArray<OutAllocator>::FWordIterator IteratorResult(OutResult);
+
+                for ( ; IteratorResult; ++IteratorResult, ++IteratorOther)
+                {
+                    const u32 OtherValue = IteratorOther ? IteratorOther.GetWord() : MissingBitsFill;
+                    IteratorResult.SetWord(InProjection(IteratorResult.GetWord(), OtherValue));
+                }
+            }
+
+            OutResult.CheckInvariants();
         }
 
         // ========================================================================

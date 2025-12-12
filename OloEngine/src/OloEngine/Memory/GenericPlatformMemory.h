@@ -116,7 +116,7 @@ struct FGenericPlatformMemoryConstants
      */
     u64 AddressLimit = static_cast<u64>(0xffffffff) + 1;
 
-    /** Approximate physical RAM in GB; 1 on everything except PC. Used for "course tuning", like FPlatformMisc::NumberOfCores(). */
+    /** Approximate physical RAM in GB; 1 on everything except PC. Used for "coarse tuning", like FPlatformMisc::NumberOfCores(). */
     u32 TotalPhysicalGB = 1;
 };
 
