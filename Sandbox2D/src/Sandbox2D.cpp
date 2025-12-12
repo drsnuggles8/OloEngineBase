@@ -49,8 +49,9 @@ void Sandbox2D::OnUpdate(const OloEngine::Timestep ts)
 		m_Scene = (m_Scene + 1) % 4; // We have 4 scenes
 	}
 
-	OLO_PROFILE_SCOPE("Renderer Draw");
-	OloEngine::Renderer2D::BeginScene(m_CameraController.GetCamera());
+	{
+		OLO_PROFILE_SCOPE("Renderer Draw");
+		OloEngine::Renderer2D::BeginScene(m_CameraController.GetCamera());
 
 	switch (m_Scene)
 	{
@@ -116,6 +117,7 @@ void Sandbox2D::OnUpdate(const OloEngine::Timestep ts)
 	}
 
 	OloEngine::Renderer2D::EndScene();
+	}
 }
 
 void Sandbox2D::OnImGuiRender()
