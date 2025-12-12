@@ -17,10 +17,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [ 'cpp', 'csharp' ]
-        compiler:
-          - msvc
-          - llvm
+        include:
+          # Analyze C++ with manual build for most accurate results
+          - language: c-cpp
+            build-mode: manual
+          # Analyze C# without build (faster, still accurate)
+          - language: csharp
+            build-mode: none
           
     steps:
     - uses: actions/checkout@v6
@@ -47,8 +50,10 @@ jobs:
       uses: github/codeql-action/init@v4
       with:
         languages: ${{ matrix.language }}
+        build-mode: ${{ matrix.build-mode }}
 
-    - name: Build with CMake
+    - if: matrix.build-mode == 'manual'
+      name: Build with CMake
       # Build your program with the given configuration
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
 
