@@ -39,11 +39,13 @@ jobs:
         python -m pip install jinja2
         python -c "import jinja2; print(f'jinja2 {jinja2.__version__} installed at {jinja2.__file__}')"
       
-    - name: Setup Vulkan SDK
+    - if: matrix.build-mode == 'manual'
+      name: Setup Vulkan SDK
       uses: ./.github/actions/setup-vulkan
 
-    - name: Configure CMake
-      run: cmake -B ${{github.workspace}}/build -DPython_EXECUTABLE="${{ env.pythonLocation }}/python.exe"
+    - if: matrix.build-mode == 'manual'
+      name: Configure CMake
+      run: cmake -S . -B ${{github.workspace}}/build -DPython_EXECUTABLE="${{ env.pythonLocation }}/python.exe" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
         
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL

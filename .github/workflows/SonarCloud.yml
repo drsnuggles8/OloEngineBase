@@ -38,14 +38,14 @@ jobs:
       - name: Run build-wrapper
         run: |
           New-Item -ItemType directory -Path build
-          cmake -S . -B build -DPython_EXECUTABLE="${{ env.pythonLocation }}/python.exe"
+          cmake -S . -B build -DPython_EXECUTABLE="${{ env.pythonLocation }}/python.exe" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
           build-wrapper-win-x86-64 --out-dir ${{ env.BUILD_WRAPPER_OUT_DIR }} cmake --build build/ --config Release
 
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v7.0.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
         with:
           args: >
-            --define sonar.cfamily.compile-commands=${{ env.BUILD_WRAPPER_OUT_DIR }}/compile_commands.json
+            --define sonar.cfamily.build-wrapper-output=${{ env.BUILD_WRAPPER_OUT_DIR }}

@@ -22,6 +22,7 @@ jobs:
     - uses: actions/checkout@v6
 
     - name: Install Python 3.10
+      id: py
       uses: actions/setup-python@v6
       with:
        python-version: '3.10'
@@ -38,7 +39,7 @@ jobs:
     - name: Configure CMake
       # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
       # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
-      run: cmake -B ${{github.workspace}}/build -DPython_EXECUTABLE="${{ env.pythonLocation }}/python.exe"
+      run: cmake -S . -B ${{github.workspace}}/build -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
 
     - name: Build with CMake
       # Build your program with the given configuration
