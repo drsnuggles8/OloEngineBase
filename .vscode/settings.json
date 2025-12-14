@@ -101,5 +101,9 @@
         "resumable": "cpp",
         "numbers": "cpp"
     },
-    "dotnet.defaultSolution": "disable"
+    "dotnet.defaultSolution": "disable",
+    "sonarlint.connectedMode.project": {
+        "connectionId": "drsnuggles8",
+        "projectKey": "drsnuggles8_OloEngineBase"
+    }
 }
