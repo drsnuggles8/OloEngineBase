@@ -24,23 +24,28 @@ jobs:
           python-version: '3.10'
           
       - name: Install python dependencies
-        run: pip install jinja2
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install jinja2
+          python -c "import jinja2; print(f'jinja2 {jinja2.__version__} installed at {jinja2.__file__}')"
 
       - name: Setup Vulkan SDK
         uses: ./.github/actions/setup-vulkan
-          
-      - name: Install sonar-scanner and build-wrapper
-        uses: SonarSource/sonarcloud-github-c-cpp@v2
-          
+      
+      - name: Install Build Wrapper
+        uses: SonarSource/sonarqube-scan-action/install-build-wrapper@v7.0.0
+
       - name: Run build-wrapper
         run: |
           New-Item -ItemType directory -Path build
-          cmake -S . -B build
+          cmake -S . -B build -DPython_EXECUTABLE="${{ env.pythonLocation }}/python.exe" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
           build-wrapper-win-x86-64 --out-dir ${{ env.BUILD_WRAPPER_OUT_DIR }} cmake --build build/ --config Release
-          
-      - name: Run sonar-scanner
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v7.0.0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          sonar-scanner --define sonar.cfamily.build-wrapper-output="${{ env.BUILD_WRAPPER_OUT_DIR }}"
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          args: >
+            --define sonar.cfamily.build-wrapper-output=${{ env.BUILD_WRAPPER_OUT_DIR }}

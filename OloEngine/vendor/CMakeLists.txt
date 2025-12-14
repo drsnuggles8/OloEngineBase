@@ -181,6 +181,12 @@ set(tinyxml2_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(freetype tinyxml2)
 add_library(Freetype::Freetype ALIAS freetype)
 
+# Ensure libpng generated headers are available before freetype builds
+if(TARGET freetype AND TARGET png_genfiles)
+	add_dependencies(freetype png_genfiles)
+	target_include_directories(freetype PRIVATE ${libpng_BINARY_DIR})
+endif()
+
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_INJECT_DEBUG_POSTFIX OFF CACHE BOOL "" FORCE)
