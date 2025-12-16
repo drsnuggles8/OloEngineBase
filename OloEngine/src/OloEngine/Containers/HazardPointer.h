@@ -21,12 +21,17 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/CriticalSection.h"
 #include "OloEngine/Core/PlatformTLS.h"
+#include "OloEngine/Algo/Sort.h"
 #include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/ContainerAllocationPolicies.h"
 #include "OloEngine/Memory/UnrealMemory.h"
 #include "OloEngine/Memory/Platform.h"
+#include "OloEngine/Templates/Sorting.h"
 #include "OloEngine/Templates/UnrealTemplate.h"
+#include "OloEngine/Templates/UnrealTypeTraits.h"
 
 #include <atomic>
+#include <chrono>
 
 namespace OloEngine
 {
@@ -334,37 +339,37 @@ public:
 template<bool Cached>
 FHazardPointerCollection::FHazardRecord* FHazardPointerCollection::Grow()
 {
-    FHazardRecordChunk* NewChunk = new FHazardRecordChunk();
+    // Check total before taking lock to enable re-check optimization
+    u32 TotalNumBeforeLock = m_TotalNumHazardRecords.load(std::memory_order_relaxed);
     
+    // No empty Entry found: create new under lock
+    FScopeLock Lock(&m_HazardRecordBlocksCS);
+    
+    // Re-check: another thread may have grown the pool while we waited for the lock
+    if (m_TotalNumHazardRecords.load(std::memory_order_relaxed) != TotalNumBeforeLock)
     {
-        FScopeLock Lock(&m_HazardRecordBlocksCS);
-        m_HazardRecordBlocks.Add(NewChunk);
+        return Acquire<Cached>();
     }
     
+    // Find the end of the list
+    FHazardRecordChunk* lst = &m_Head;
+    while (lst->Next.load(std::memory_order_relaxed) != nullptr)
+    {
+        lst = lst->Next.load(std::memory_order_relaxed);
+    }
+    
+    FHazardRecordChunk* NewChunk = new FHazardRecordChunk();
+    NewChunk->Records[0].Retire();  // Mark first slot as acquired (value = 0)
+    
+    OLO_CORE_ASSERT(lst->Next.load(std::memory_order_acquire) == nullptr, "List end should be null");
+    lst->Next.store(NewChunk, std::memory_order_release);
+    
+    // Keep count of HazardPointers, there should not be too many (maybe 2 per thread)
     m_TotalNumHazardRecords.fetch_add(HazardChunkSize, std::memory_order_relaxed);
     
-    // Link it into the list
-    FHazardRecordChunk* Expected = nullptr;
-    FHazardRecordChunk* Current = &m_Head;
+    m_HazardRecordBlocks.Add(NewChunk);
     
-    while (true)
-    {
-        Expected = Current->Next.load(std::memory_order_relaxed);
-        if (Expected == nullptr)
-        {
-            if (Current->Next.compare_exchange_weak(Expected, NewChunk, std::memory_order_release))
-            {
-                break;
-            }
-        }
-        else
-        {
-            Current = Expected;
-        }
-    }
-    
-    // Acquire from the new chunk
-    NewChunk->Records[0].Hazard.store(0, std::memory_order_relaxed);
+    OLO_CORE_ASSERT(NewChunk->Records[0].GetHazard() == nullptr, "First record should be null after Retire");
     return &NewChunk->Records[0];
 }
 
@@ -375,68 +380,119 @@ inline void FHazardPointerCollection::Delete(const HazardPointer_Impl::FHazardDe
     
     if (TlsData == nullptr)
     {
-        TlsData = new FTlsData();
-        FPlatformTLS::SetTlsValue(m_CollectablesTlsSlot, TlsData);
-        
         FScopeLock Lock(&m_AllTlsVariablesCS);
+        TlsData = new FTlsData();
         m_AllTlsVariables.Add(TlsData);
+        FPlatformTLS::SetTlsValue(m_CollectablesTlsSlot, TlsData);
     }
     
+    OLO_CORE_ASSERT(!TlsData->ReclamationList.Contains(Deleter), "Deleter already in reclamation list");
+    
+    // Add to-be-deleted pointer to thread local list
     TlsData->ReclamationList.Add(Deleter);
     
-    // Trigger collection if we have enough items
-    i32 Limit = CollectLimit >= 0 ? CollectLimit : static_cast<i32>(m_TotalNumHazardRecords.load(std::memory_order_relaxed) * 2);
-    if (TlsData->ReclamationList.Num() >= Limit)
+    // Maybe scan the list - use time and count based triggers (matches UE5.7)
+    // Note: Using a simple time approximation since we don't have FApp::GetGameTime()
+    static thread_local double s_LastCollectionTime = 0.0;
+    const double CurrentTime = static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count()) / 1000.0;
+    const bool bTimeLimit = (CurrentTime - TlsData->TimeOfLastCollection) > 1.0;
+    const i32 DeleteMetric = CollectLimit <= 0 ? ((5 * static_cast<i32>(m_TotalNumHazardRecords.load(std::memory_order_relaxed))) / 4) : CollectLimit;
+    
+    if (bTimeLimit || TlsData->ReclamationList.Num() >= DeleteMetric)
     {
+        TlsData->TimeOfLastCollection = CurrentTime;
         Collect(TlsData->ReclamationList);
     }
 }
 
+/**
+ * @brief Binary search for a pointer in a sorted array of hazard pointers
+ * @param Hazards Sorted array of hazard pointers
+ * @param Pointer Pointer to search for
+ * @return Index of the pointer if found, ~0u otherwise
+ */
+static inline u32 BinarySearchHazard(const TArray<void*, TInlineAllocator<64>>& Hazards, void* Pointer)
+{
+    i32 Index = 0;
+    i32 Size = Hazards.Num();
+
+    // Start with binary search for larger lists
+    while (Size > 32)
+    {
+        const i32 LeftoverSize = Size % 2;
+        Size = Size / 2;
+
+        const i32 CheckIndex = Index + Size;
+        const i32 IndexIfLess = CheckIndex + LeftoverSize;
+
+        Index = Hazards[CheckIndex] < Pointer ? IndexIfLess : Index;
+    }
+
+    // Small size array optimization - linear search for remainder
+    i32 ArrayEnd = (Index + Size + 1 < Hazards.Num()) ? Index + Size + 1 : Hazards.Num();
+    while (Index < ArrayEnd)
+    {
+        if (Hazards[Index] == Pointer)
+        {
+            return static_cast<u32>(Index);
+        }
+        Index++;
+    }
+
+    return ~0u;
+}
+
 inline void FHazardPointerCollection::Collect(TArray<HazardPointer_Impl::FHazardDeleter>& Collectables)
 {
-    // Build a set of all currently protected pointers
-    TArray<void*> ProtectedPointers;
-    ProtectedPointers.Reserve(m_TotalNumHazardRecords.load(std::memory_order_relaxed));
+    // Collect all global Hazards in the system using inline allocator for performance
+    TArray<void*, TInlineAllocator<64>> Hazards;
     
-    FHazardRecordChunk* Chunk = &m_Head;
-    while (Chunk)
+    FHazardRecordChunk* p = &m_Head;
+    do
     {
-        for (u32 i = 0; i < HazardChunkSize; ++i)
+        for (u32 i = 0; i < HazardChunkSize; i++)
         {
-            void* Hazard = Chunk->Records[i].GetHazard();
-            if (Hazard != nullptr && Hazard != reinterpret_cast<void*>(FHazardRecord::FreeHazardEntry))
+            void* h = p->Records[i].GetHazard();
+            if (h && h != reinterpret_cast<void*>(FHazardRecord::FreeHazardEntry))
             {
-                ProtectedPointers.Add(Hazard);
+                Hazards.Add(h);
             }
         }
-        Chunk = Chunk->Next.load(std::memory_order_acquire);
-    }
+        p = p->Next.load(std::memory_order_acquire);
+    } while (p);
     
-    // Delete items that are not protected
-    TArray<HazardPointer_Impl::FHazardDeleter> StillInUse;
-    for (HazardPointer_Impl::FHazardDeleter& Deleter : Collectables)
+    // Sort the pointers for binary search
+    if (Hazards.Num() > 1)
     {
-        bool bIsProtected = false;
-        for (void* Protected : ProtectedPointers)
-        {
-            if (Protected == Deleter.Pointer)
-            {
-                bIsProtected = true;
-                break;
-            }
-        }
-        
-        if (bIsProtected)
-        {
-            StillInUse.Add(Deleter);
-        }
-        else
-        {
-            Deleter.Delete();
-        }
+        TArrayRange<void*> ArrayRange(&Hazards[0], Hazards.Num());
+        Algo::Sort(ArrayRange, TLess<void*>());
     }
     
-    Collectables = MoveTemp(StillInUse);
+    // Use inline allocator for deleted collectables too
+    TArray<HazardPointer_Impl::FHazardDeleter, TInlineAllocator<64>> DeletedCollectables;
+    
+    // Check all thread local to-be-deleted pointers if they are NOT in the hazard list
+    for (i32 c = 0; c < Collectables.Num(); c++)
+    {
+        const HazardPointer_Impl::FHazardDeleter& Collectable = Collectables[c];
+        u32 Index = BinarySearchHazard(Hazards, Collectable.Pointer);
+
+        // Potentially delete and remove item from thread local list
+        if (Index == ~0u)
+        {
+            DeletedCollectables.Add(Collectable);
+            Collectables[c] = Collectables.Last();
+            Collectables.Pop(EAllowShrinking::No);
+            c--;
+        }
+    }
+
+    // Actually delete the collectables that are safe to delete
+    for (HazardPointer_Impl::FHazardDeleter& DeletedCollectable : DeletedCollectables)
+    {
+        DeletedCollectable.Delete();
+    }
 }
 
 /**

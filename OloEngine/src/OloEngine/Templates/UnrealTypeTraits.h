@@ -460,15 +460,81 @@ namespace OloEngine
      * @struct TTypeCompatibleBytes
      * @brief Provides storage suitable for holding a type T, with proper alignment
      * 
+     * Ported from UE5.7 Templates/TypeCompatibleBytes.h
+     * 
+     * Trivially constructible and destructible - users are responsible for 
+     * managing the lifetime of the inner element.
+     * 
      * Useful for placement new and type-erased storage.
      */
     template<typename T>
     struct alignas(alignof(T)) TTypeCompatibleBytes
     {
-        u8 Bytes[sizeof(T)];
-        
-        T* GetTypedPtr() { return reinterpret_cast<T*>(Bytes); }
-        const T* GetTypedPtr() const { return reinterpret_cast<const T*>(Bytes); }
+        using ElementTypeAlias_NatVisHelper = T;
+
+        // Trivially constructible and destructible
+        TTypeCompatibleBytes() = default;
+        ~TTypeCompatibleBytes() = default;
+
+        // Non-copyable
+        TTypeCompatibleBytes(TTypeCompatibleBytes&&) = delete;
+        TTypeCompatibleBytes(const TTypeCompatibleBytes&) = delete;
+        TTypeCompatibleBytes& operator=(TTypeCompatibleBytes&&) = delete;
+        TTypeCompatibleBytes& operator=(const TTypeCompatibleBytes&) = delete;
+
+        // Legacy accessor for backwards compatibility
+        T* GetTypedPtr() { return reinterpret_cast<T*>(Pad); }
+        const T* GetTypedPtr() const { return reinterpret_cast<const T*>(Pad); }
+
+        using MutableGetType = T&;       // The type returned by Bytes.Get() where Bytes is a non-const lvalue
+        using ConstGetType   = const T&; // The type returned by Bytes.Get() where Bytes is a const lvalue
+        using RvalueGetType  = T&&;      // The type returned by Bytes.Get() where Bytes is an rvalue (non-const)
+
+        // Gets the inner element - no checks are performed to ensure an element is present.
+        T& GetUnchecked() & { return *reinterpret_cast<T*>(Pad); }
+        const T& GetUnchecked() const& { return *reinterpret_cast<const T*>(Pad); }
+        T&& GetUnchecked() && { return static_cast<T&&>(*reinterpret_cast<T*>(Pad)); }
+
+        // Emplaces an inner element.
+        // Note: no checks are possible to ensure that an element isn't already present.
+        // DestroyUnchecked() must be called to end the element's lifetime.
+        template <typename... ArgTypes>
+        void EmplaceUnchecked(ArgTypes&&... Args)
+        {
+            new (static_cast<void*>(Pad)) T(Forward<ArgTypes>(Args)...);
+        }
+
+        // Destroys the inner element.
+        // Note: no checks are possible to ensure that there is an element already present.
+        void DestroyUnchecked()
+        {
+            reinterpret_cast<T*>(Pad)->~T();
+        }
+
+        u8 Pad[sizeof(T)];
+    };
+
+    // Specialization for void
+    template<>
+    struct TTypeCompatibleBytes<void>
+    {
+        using ElementTypeAlias_NatVisHelper = void;
+
+        TTypeCompatibleBytes() = default;
+        ~TTypeCompatibleBytes() = default;
+
+        TTypeCompatibleBytes(TTypeCompatibleBytes&&) = delete;
+        TTypeCompatibleBytes(const TTypeCompatibleBytes&) = delete;
+        TTypeCompatibleBytes& operator=(TTypeCompatibleBytes&&) = delete;
+        TTypeCompatibleBytes& operator=(const TTypeCompatibleBytes&) = delete;
+
+        using MutableGetType = void;
+        using ConstGetType   = void;
+        using RvalueGetType  = void;
+
+        void GetUnchecked() const {}
+        void EmplaceUnchecked() {}
+        void DestroyUnchecked() {}
     };
 
     /**

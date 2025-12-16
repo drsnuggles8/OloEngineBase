@@ -53,15 +53,9 @@ Method translations:
 ## Task System Specific Notes
 
 - UE5's task system uses `FTask`, `FTaskEvent`, `TTask<T>` - port these as needed
-- Thread pools: Consider using OloEngine's existing threading if available, or port UE5's `FQueuedThreadPool`
+- Thread pools: Port UE5's `FQueuedThreadPool`
 - Task priorities map to thread priorities
 - `FGraphEvent` is used for task dependencies
-
-## Features NOT Being Ported (initially)
-
-- Named threads system (GGameThread, GRenderThread identifiers)
-- Task tracing/profiling hooks - integrate with OloEngine's Tracy profiling
-- Platform-specific thread affinity beyond Windows
 
 ## Code Style
 

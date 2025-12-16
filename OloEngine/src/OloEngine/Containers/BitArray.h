@@ -20,6 +20,8 @@
 #include "OloEngine/Containers/ContainerAllocationPolicies.h"
 #include "OloEngine/Memory/MemoryOps.h"
 #include "OloEngine/Memory/UnrealMemory.h"
+#include "OloEngine/Serialization/Archive.h"
+#include "OloEngine/Serialization/MemoryLayout.h"
 #include <cstring>
 #include <type_traits>
 #if defined(_MSC_VER)
@@ -1608,13 +1610,70 @@ namespace OloEngine
         }
 
         // ========================================================================
-        // Memory
+        // Memory / Serialization
         // ========================================================================
 
         /** Returns the amount of memory allocated by this container */
         [[nodiscard]] u32 GetAllocatedSize() const
         {
             return FBitSet::CalculateNumWords(MaxBits) * sizeof(u32);
+        }
+
+        /** Tracks the container's memory use through an archive */
+        void CountBytes(FArchive& Ar) const
+        {
+            Ar.CountBytes(
+                GetNumWords() * sizeof(u32),
+                GetMaxWords() * sizeof(u32)
+            );
+        }
+
+        /**
+         * @brief Serializer for bit arrays
+         * @param Ar  The archive to serialize to/from
+         */
+        void Serialize(FArchive& Ar)
+        {
+            // Serialize number of bits
+            Ar << NumBits;
+
+            if (Ar.IsLoading())
+            {
+                // No need for slop when reading; set MaxBits to the smallest legal value that is >= NumBits
+                MaxBits = NumBitsPerDWORD * static_cast<i32>(BitArrayMath::Max(FBitSet::CalculateNumWords(NumBits), static_cast<u32>(AllocatorInstance.GetInitialCapacity())));
+
+                // Allocate room for new bits
+                Realloc(0);
+            }
+
+            // Serialize the data as one big chunk
+            Ar.Serialize(GetData(), GetNumWords() * sizeof(u32));
+
+            if (Ar.IsLoading() && !Ar.IsObjectReferenceCollector() && !Ar.IsCountingMemory())
+            {
+                // Clear slack bits in case they were serialized non-null
+                ClearPartialSlackBits();
+            }
+        }
+
+        /**
+         * @brief Write memory image for frozen data support
+         * @param Writer  The memory image writer
+         */
+        void WriteMemoryImage(FMemoryImageWriter& Writer) const
+        {
+            // Check if allocator supports freeze memory image
+            if constexpr (TAllocatorTraits<Allocator>::SupportsFreezeMemoryImage)
+            {
+                const i32 NumWords = static_cast<i32>(FBitSet::CalculateNumWords(NumBits));
+                AllocatorInstance.WriteMemoryImage(Writer, StaticGetTypeLayoutDesc<u32>(), NumWords);
+                Writer.WriteBytes(NumBits);
+                Writer.WriteBytes(NumBits); // MaxBits gets set to NumBits when frozen
+            }
+            else
+            {
+                Writer.WriteBytes(TBitArray());
+            }
         }
 
         // ========================================================================
@@ -2451,32 +2510,30 @@ namespace OloEngine
 
     /**
      * @class TConstDualSetBitIterator
-     * @brief Iterator over bits set in BOTH of two bit arrays (intersection)
+     * @brief Iterator over bits set in both or either of two bit arrays
      * 
-     * Used to efficiently iterate over the intersection of two sets' allocation flags.
+     * When Both=true: Iterates over intersection (bits set in BOTH arrays)
+     * When Both=false: Iterates over union (bits set in EITHER array)
+     * 
+     * Used to efficiently iterate over set allocation flags.
      */
-    template <typename Allocator = FDefaultAllocator, typename OtherAllocator = FDefaultAllocator>
+    template <typename Allocator = FDefaultAllocator, typename OtherAllocator = FDefaultAllocator, bool Both = true>
     class TConstDualSetBitIterator : public FRelativeBitReference
     {
     public:
         [[nodiscard]] TConstDualSetBitIterator(
             const TBitArray<Allocator>& InArrayA,
-            const TBitArray<OtherAllocator>& InArrayB)
-            : FRelativeBitReference(0)
+            const TBitArray<OtherAllocator>& InArrayB,
+            i32 StartIndex = 0)
+            : FRelativeBitReference(StartIndex)
             , ArrayA(InArrayA)
             , ArrayB(InArrayB)
-            , UnvisitedBitMask(~0u)
-            , CurrentBitIndex(0)
-            , BaseBitIndex(0)
+            , UnvisitedBitMask((~0u) << (StartIndex & (NumBitsPerDWORD - 1)))
+            , CurrentBitIndex(StartIndex)
+            , BaseBitIndex(StartIndex & ~(NumBitsPerDWORD - 1))
         {
-            if (ArrayA.Num() && ArrayB.Num())
-            {
-                FindFirstSetBit();
-            }
-            else
-            {
-                CurrentBitIndex = 0;
-            }
+            OLO_CORE_ASSERT(ArrayA.Num() == ArrayB.Num(), "Arrays must be same size");
+            FindFirstSetBit();
         }
 
         /** Advance to the next bit set in both arrays */
@@ -2512,38 +2569,59 @@ namespace OloEngine
         }
 
     private:
-        /** Find the first bit that's set in both arrays */
+        /** Find the first bit that's set according to the Both template parameter */
         void FindFirstSetBit()
         {
-            const i32 ArrayANum = ArrayA.Num();
-            const i32 ArrayBNum = ArrayB.Num();
-            const i32 MinNum = (ArrayANum < ArrayBNum) ? ArrayANum : ArrayBNum;
-            
-            if (MinNum == 0)
+            static constexpr u32 EmptyArrayData = 0;
+            const u32* ArrayDataA = ArrayA.GetData();
+            if (!ArrayDataA)
             {
-                CurrentBitIndex = 0;
-                return;
+                ArrayDataA = &EmptyArrayData;
+            }
+            const u32* ArrayDataB = ArrayB.GetData();
+            if (!ArrayDataB)
+            {
+                ArrayDataB = &EmptyArrayData;
             }
 
-            const u32* ArrayDataA = ArrayA.GetData();
-            const u32* ArrayDataB = ArrayB.GetData();
-            const i32 LastWordIndex = (MinNum - 1) / NumBitsPerDWORD;
+            // Advance to the next non-zero uint32
+            u32 RemainingBitMask;
+            if constexpr (Both)
+            {
+                RemainingBitMask = ArrayDataA[this->WordIndex] & ArrayDataB[this->WordIndex] & UnvisitedBitMask;
+            }
+            else
+            {
+                RemainingBitMask = (ArrayDataA[this->WordIndex] | ArrayDataB[this->WordIndex]) & UnvisitedBitMask;
+            }
 
-            // Find the intersection of both arrays
-            u32 RemainingBitMask = ArrayDataA[this->WordIndex] & ArrayDataB[this->WordIndex] & UnvisitedBitMask;
             while (!RemainingBitMask)
             {
                 ++this->WordIndex;
                 BaseBitIndex += NumBitsPerDWORD;
-                if (this->WordIndex > LastWordIndex)
+                const i32 LastWordIndex = (ArrayA.Num() - 1) / NumBitsPerDWORD;
+                if (this->WordIndex <= LastWordIndex)
                 {
-                    CurrentBitIndex = MinNum;
+                    if constexpr (Both)
+                    {
+                        RemainingBitMask = ArrayDataA[this->WordIndex] & ArrayDataB[this->WordIndex];
+                    }
+                    else
+                    {
+                        RemainingBitMask = ArrayDataA[this->WordIndex] | ArrayDataB[this->WordIndex];
+                    }
+                    UnvisitedBitMask = ~0u;
+                }
+                else
+                {
+                    // We've advanced past the end of the array
+                    CurrentBitIndex = ArrayA.Num();
                     return;
                 }
-
-                RemainingBitMask = ArrayDataA[this->WordIndex] & ArrayDataB[this->WordIndex];
-                UnvisitedBitMask = ~0u;
             }
+
+            // We can assume that RemainingBitMask != 0 here
+            OLO_CORE_ASSERT(RemainingBitMask != 0, "Expected non-zero remaining bit mask");
 
             // Isolate the lowest set bit
             const u32 NewRemainingBitMask = RemainingBitMask & (RemainingBitMask - 1);
@@ -2551,12 +2629,6 @@ namespace OloEngine
 
             // Calculate the bit index
             CurrentBitIndex = BaseBitIndex + NumBitsPerDWORD - 1 - BitArrayMath::CountLeadingZeros(this->Mask);
-
-            // Handle iteration past the end
-            if (CurrentBitIndex >= MinNum)
-            {
-                CurrentBitIndex = MinNum;
-            }
         }
 
         const TBitArray<Allocator>& ArrayA;
@@ -2565,6 +2637,15 @@ namespace OloEngine
         i32 CurrentBitIndex;
         i32 BaseBitIndex;
     };
+
+    // Type aliases for TConstDualSetBitIterator
+    // A specialization for iterating when bits in both arrays are set (intersection)
+    template <typename Allocator, typename OtherAllocator>
+    using TConstDualBothSetBitIterator = TConstDualSetBitIterator<Allocator, OtherAllocator, true>;
+
+    // A specialization for iterating when either or both bits are set (union)
+    template <typename Allocator, typename OtherAllocator>
+    using TConstDualEitherSetBitIterator = TConstDualSetBitIterator<Allocator, OtherAllocator, false>;
 
     // ============================================================================
     // Hash Function
@@ -2582,5 +2663,33 @@ namespace OloEngine
         }
         return Hash;
     }
+
+    // ============================================================================
+    // Serialization Operators
+    // ============================================================================
+
+    /** Archive serialization operator for TBitArray */
+    template <typename Allocator>
+    FArchive& operator<<(FArchive& Ar, TBitArray<Allocator>& BitArray)
+    {
+        BitArray.Serialize(Ar);
+        return Ar;
+    }
+
+    // ============================================================================
+    // Memory Image Support
+    // ============================================================================
+
+    namespace Freeze
+    {
+        template <typename Allocator>
+        void IntrinsicWriteMemoryImage(FMemoryImageWriter& Writer, const TBitArray<Allocator>& Object, const FTypeLayoutDesc&)
+        {
+            Object.WriteMemoryImage(Writer);
+        }
+    }
+
+    /** Declare intrinsic type layout for TBitArray */
+    DECLARE_TEMPLATE_INTRINSIC_TYPE_LAYOUT(template<typename Allocator>, TBitArray<Allocator>);
 
 } // namespace OloEngine

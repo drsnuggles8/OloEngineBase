@@ -18,6 +18,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Containers/ContainerAllocationPolicies.h"
+#include "OloEngine/Containers/ContainerElementTypeCompatibility.h"
 #include "OloEngine/Containers/ReverseIterate.h"
 #include "OloEngine/Memory/MemoryOps.h"
 #include "OloEngine/Misc/IntrusiveUnsetOptionalState.h"
@@ -80,14 +81,9 @@ namespace OloEngine
 
             auto Size = GetNum(Arg);
             auto EndPtr = NaturalPtr + Size;
-            // Note: TContainerElementTypeCompatibility is expected to be defined in the engine
-            // For now, this is a placeholder that will need proper implementation
-            // TContainerElementTypeCompatibility<NaturalElementType>::ReinterpretRangeContiguous(NaturalPtr, EndPtr, Size);
+            TContainerElementTypeCompatibility<NaturalElementType>::ReinterpretRangeContiguous(NaturalPtr, EndPtr, Size);
 
-            return reinterpret_cast<typename std::conditional_t<
-                std::is_same_v<NaturalElementType, NaturalElementType>,
-                std::type_identity<NaturalElementType>
-            >::type*>(NaturalPtr);
+            return reinterpret_cast<typename TContainerElementTypeCompatibility<NaturalElementType>::ReinterpretType*>(NaturalPtr);
         }
 
         /**
@@ -116,9 +112,13 @@ namespace OloEngine
         {
         private:
             using NaturalElementType = std::remove_pointer_t<decltype(GetData(std::declval<RangeType&>()))>;
+            using TypeCompat = TContainerElementTypeCompatibility<NaturalElementType>;
 
         public:
-            static constexpr bool Value = false;  // Simplified - full implementation requires TContainerElementTypeCompatibility
+            static constexpr bool Value = 
+                !std::is_same_v<typename TypeCompat::ReinterpretType, NaturalElementType>
+                &&
+                TIsCompatibleElementType_V<typename TypeCompat::ReinterpretType, ElementType>;
 
             template <typename T>
             static decltype(auto) GetData(T&& Arg)

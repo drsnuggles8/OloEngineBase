@@ -18,39 +18,21 @@
 #include "OloEngine/Containers/ContainerAllocationPolicies.h"
 #include "OloEngine/Containers/ContainerFwd.h"
 #include "OloEngine/Containers/ReverseIterate.h"
-#include "OloEngine/Misc/IntrusiveUnsetOptionalState.h"
 #include "OloEngine/Memory/MemoryOps.h"
+#include "OloEngine/Misc/IntrusiveUnsetOptionalState.h"
 #include "OloEngine/Serialization/Archive.h"
 #include "OloEngine/Templates/TypeHash.h"
 #include "OloEngine/Templates/UnrealTypeTraits.h"
-#include "OloEngine/Templates/Sorting.h"
-#include "OloEngine/Templates/IdentityFunctor.h"
-#include "OloEngine/Algo/BinaryHeap.h"
-#include "OloEngine/Algo/Sort.h"
-#include "OloEngine/Algo/StableSort.h"
-#include "OloEngine/Algo/Heapify.h"
-#include "OloEngine/Algo/HeapSort.h"
-#include "OloEngine/Algo/IsHeap.h"
 #include <algorithm>
 #include <initializer_list>
 #include <iterator>
 #include <type_traits>
-#include <limits>
 
 namespace OloEngine
 {
     // Forward declaration
     template <typename T, typename AllocatorType>
     class TArray;
-
-} // namespace OloEngine
-
-// Forward declarations for placement new operators (must be at global scope)
-template <typename T, typename AllocatorType> void* operator new(size_t Size, OloEngine::TArray<T, AllocatorType>& Array);
-template <typename T, typename AllocatorType> void* operator new(size_t Size, OloEngine::TArray<T, AllocatorType>& Array, typename OloEngine::TArray<T, AllocatorType>::SizeType Index);
-
-namespace OloEngine
-{
 
     // ============================================================================
     // Array Debug Configuration
@@ -395,55 +377,6 @@ namespace OloEngine
         template <typename T>
         inline constexpr bool TIsTArrayOrDerivedFromTArray_V = sizeof(ResolveIsTArrayPtr(static_cast<T*>(nullptr))) == 2;
 
-        /**
-         * @brief Check if we can move TArray pointers between two array types
-         * 
-         * This is true when:
-         * - The allocators are the same or move-compatible
-         * - The element types are bitwise compatible (no qualifier loss, same underlying type)
-         * 
-         * @tparam FromArrayType Source array type
-         * @tparam ToArrayType Destination array type
-         * @return true if pointer movement is safe between the array types
-         */
-        template <typename FromArrayType, typename ToArrayType>
-        [[nodiscard]] constexpr bool CanMoveTArrayPointersBetweenArrayTypes()
-        {
-            using FromAllocatorType          = typename FromArrayType::AllocatorType;
-            using ToAllocatorType            = typename ToArrayType::AllocatorType;
-            using FromElementType            = typename FromArrayType::ElementType;
-            using ToElementType              = typename ToArrayType::ElementType;
-            using UnqualifiedFromElementType = std::remove_cv_t<FromElementType>;
-            using UnqualifiedToElementType   = std::remove_cv_t<ToElementType>;
-
-            // Allocators must be equal or move-compatible
-            if constexpr (std::is_same_v<FromAllocatorType, ToAllocatorType> || TCanMoveBetweenAllocators<FromAllocatorType, ToAllocatorType>::Value)
-            {
-                return
-                    !TLosesQualifiersFromTo_V<FromElementType, ToElementType> &&
-                    (
-                        std::is_same_v         <const ToElementType, const FromElementType> ||               // The element type of the container must be the same, or...
-                        TIsBitwiseConstructible<UnqualifiedToElementType, UnqualifiedFromElementType>::Value // ... the element type of the source container must be bitwise constructible from the element type in the destination container
-                    );
-            }
-            else
-            {
-                return false;
-            }
-        }
-
-        /**
-         * @brief Called when an invalid array size is detected
-         * 
-         * This is called when we detect overflow or underflow in array size calculations.
-         * In debug builds it asserts; in release builds it terminates.
-         */
-        [[noreturn]] inline void OnInvalidArrayNum(unsigned long long NewNum)
-        {
-            OLO_CORE_ASSERT(false, "Invalid array num: {}", NewNum);
-            std::terminate();
-        }
-
     } // namespace Private
 
     // ============================================================================
@@ -453,433 +386,12 @@ namespace OloEngine
     /**
      * @enum EAllowShrinking
      * @brief Controls whether operations are allowed to shrink the array allocation
-     * 
-     * - No: Never shrink
-     * - Yes: Always try to shrink
-     * - Default: Use allocator's ShrinkByDefault setting (prefer AllowShrinkingByDefault<>() in new code)
      */
-    enum class EAllowShrinking : u8
+    enum class EAllowShrinking
     {
         No,
-        Yes,
-
-        Default = Yes // For backwards compatibility when allocator doesn't specify
+        Yes
     };
-
-    namespace Private
-    {
-        /**
-         * @brief Returns EAllowShrinking::Yes or No based on the allocator's ShrinkByDefault setting
-         * 
-         * This is a helper to determine the appropriate shrinking behavior for a given
-         * allocator type at compile time.
-         * 
-         * @tparam AllocatorType The allocator policy to query
-         * @return EAllowShrinking::Yes if allocator shrinks by default, No otherwise
-         */
-        template <typename AllocatorType>
-        consteval EAllowShrinking AllowShrinkingByDefault()
-        {
-            // Convert the ShrinkByDefault enum into an EAllowShrinking.
-            // For backwards compatibility, failure to specify `ShrinkByDefault` means Yes.
-            return Detail::ShrinkByDefaultOr<true, AllocatorType>()
-                ? EAllowShrinking::Yes
-                : EAllowShrinking::No;
-        }
-
-        /**
-         * @brief Returns a bitmask of allocator capability flags
-         * 
-         * Used to reduce template instantiation code bloat by encoding allocator
-         * capabilities into a single value for conditional branching.
-         * 
-         * Flags:
-         * - Bit 0 (1): TAllocatorTraits<>::SupportsElementAlignment
-         * - Bit 1 (2): TAllocatorTraits<>::SupportsSlackTracking
-         * 
-         * @tparam AllocatorType The allocator policy to query
-         * @return Bitmask of capability flags
-         */
-        template <typename AllocatorType>
-        [[nodiscard]] constexpr u32 GetAllocatorFlags()
-        {
-            u32 Result = 0;
-            if constexpr (TAllocatorTraits<AllocatorType>::SupportsElementAlignment)
-            {
-                Result |= 1;
-            }
-            if constexpr (TAllocatorTraits<AllocatorType>::SupportsSlackTracking)
-            {
-                Result |= 2;
-            }
-            return Result;
-        }
-
-        // ====================================================================
-        // Optimized Reallocation Functions
-        // ====================================================================
-        // These functions are templated ONLY on allocator flags (not element type)
-        // to minimize code bloat. The flags encode allocator capabilities:
-        //   Bit 0 (1): SupportsElementAlignment
-        //   Bit 1 (2): SupportsSlackTracking
-
-        /**
-         * @brief Helper type to extract SizeType from allocator instance
-         */
-        template <typename AllocatorInstanceType>
-        using TAllocatorSizeType_T = decltype(std::declval<AllocatorInstanceType&>().GetInitialCapacity());
-
-        /**
-         * @brief Core implementation for single-element growth reallocation
-         * 
-         * Called only when we KNOW we are going to do a realloc increasing by 1.
-         * In this case, we know that max == num and can simplify things in a
-         * very hot location in the code.
-         * 
-         * @tparam Flags Allocator capability flags from GetAllocatorFlags<>()
-         * @tparam AllocatorInstanceType The allocator instance type
-         * @param ElementSize Size of each element in bytes
-         * @param ElementAlignment Alignment requirement of elements
-         * @param AllocatorInstance Reference to the allocator instance
-         * @param ArrayMax Reference to the array max capacity (updated)
-         * @return The old ArrayMax value (saves a register clobber/reload)
-         */
-        template <u32 Flags, typename AllocatorInstanceType>
-        OLO_FINLINE TAllocatorSizeType_T<AllocatorInstanceType> ReallocGrow1_DoAlloc_Impl(
-            u32                                          ElementSize,
-            u32                                          ElementAlignment,
-            AllocatorInstanceType&                       AllocatorInstance,
-            TAllocatorSizeType_T<AllocatorInstanceType>& ArrayMax
-        )
-        {
-            using SizeType  = TAllocatorSizeType_T<AllocatorInstanceType>;
-            using USizeType = std::make_unsigned_t<SizeType>;
-
-            const USizeType UOldMax = static_cast<USizeType>(ArrayMax);
-            const USizeType UNewNum = UOldMax + 1U;
-            const SizeType  OldMax  = static_cast<SizeType>(UOldMax);
-            const SizeType  NewNum  = static_cast<SizeType>(UNewNum);
-
-            // This should only happen when we've underflowed or overflowed SizeType
-            if (NewNum < OldMax)
-            {
-                OnInvalidArrayNum(static_cast<unsigned long long>(UNewNum));
-            }
-
-            SizeType NewMax;
-            if constexpr (!!(Flags & 1)) // SupportsElementAlignment
-            {
-                NewMax = AllocatorInstance.CalculateSlackGrow(NewNum, OldMax, ElementSize, ElementAlignment);
-                AllocatorInstance.ResizeAllocation(UOldMax, NewMax, ElementSize, ElementAlignment);
-            }
-            else
-            {
-                NewMax = AllocatorInstance.CalculateSlackGrow(NewNum, OldMax, ElementSize);
-                AllocatorInstance.ResizeAllocation(UOldMax, NewMax, ElementSize);
-            }
-            ArrayMax = NewMax;
-
-            #if OLO_ENABLE_ARRAY_SLACK_TRACKING
-            if constexpr (!!(Flags & 2)) // SupportsSlackTracking
-            {
-                AllocatorInstance.SlackTrackerLogNum(NewNum);
-            }
-            #endif
-
-            return OldMax;
-        }
-
-        /**
-         * @brief Single-element growth for small types (size and alignment <= 255)
-         * 
-         * This version packs size and alignment into a single 16-bit parameter,
-         * saving a parameter setup instruction on the function call.
-         * 
-         * @tparam Flags Allocator capability flags
-         * @tparam AllocatorInstanceType The allocator instance type
-         * @param ElementSizeAndAlignment Low 8 bits = size, high 8 bits = alignment
-         * @param AllocatorInstance Reference to the allocator instance
-         * @param ArrayMax Reference to the array max capacity
-         * @return The old ArrayMax value
-         */
-        template <u32 Flags, typename AllocatorInstanceType>
-        OLO_NOINLINE TAllocatorSizeType_T<AllocatorInstanceType> ReallocGrow1_DoAlloc_Tiny(
-            u16                                          ElementSizeAndAlignment,
-            AllocatorInstanceType&                       AllocatorInstance,
-            TAllocatorSizeType_T<AllocatorInstanceType>& ArrayMax
-        )
-        {
-            return ReallocGrow1_DoAlloc_Impl<Flags, AllocatorInstanceType>(
-                ElementSizeAndAlignment & 0xff,
-                ElementSizeAndAlignment >> 8,
-                AllocatorInstance,
-                ArrayMax
-            );
-        }
-
-        /**
-         * @brief Single-element growth for larger types
-         * 
-         * @tparam Flags Allocator capability flags
-         * @tparam AllocatorInstanceType The allocator instance type
-         * @param ElementSize Size of each element
-         * @param ElementAlignment Alignment of elements
-         * @param AllocatorInstance Reference to the allocator instance
-         * @param ArrayMax Reference to the array max capacity
-         * @return The old ArrayMax value
-         */
-        template <u32 Flags, typename AllocatorInstanceType>
-        OLO_NOINLINE TAllocatorSizeType_T<AllocatorInstanceType> ReallocGrow1_DoAlloc(
-            u32                                          ElementSize,
-            u32                                          ElementAlignment,
-            AllocatorInstanceType&                       AllocatorInstance,
-            TAllocatorSizeType_T<AllocatorInstanceType>& ArrayMax
-        )
-        {
-            return ReallocGrow1_DoAlloc_Impl<Flags, AllocatorInstanceType>(
-                ElementSize,
-                ElementAlignment,
-                AllocatorInstance,
-                ArrayMax
-            );
-        }
-
-        /**
-         * @brief Multi-element growth reallocation with amortization
-         * 
-         * Used for repeated growing operations when reallocations should be
-         * amortized over multiple inserts.
-         * 
-         * @tparam Flags Allocator capability flags
-         * @tparam AllocatorInstanceType The allocator instance type
-         * @param ElementSize Size of each element
-         * @param ElementAlignment Alignment of elements
-         * @param Count Number of elements to add
-         * @param AllocatorInstance Reference to the allocator instance
-         * @param ArrayNum Reference to the array element count (updated)
-         * @param ArrayMax Reference to the array max capacity (updated)
-         * @return The old ArrayNum value
-         */
-        template <u32 Flags, typename AllocatorInstanceType>
-        OLO_NOINLINE TAllocatorSizeType_T<AllocatorInstanceType> ReallocGrow(
-            u32                                          ElementSize,
-            u32                                          ElementAlignment,
-            TAllocatorSizeType_T<AllocatorInstanceType>  Count,
-            AllocatorInstanceType&                       AllocatorInstance,
-            TAllocatorSizeType_T<AllocatorInstanceType>& ArrayNum,
-            TAllocatorSizeType_T<AllocatorInstanceType>& ArrayMax
-        )
-        {
-            using SizeType  = TAllocatorSizeType_T<AllocatorInstanceType>;
-            using USizeType = std::make_unsigned_t<SizeType>;
-
-            const USizeType UCount  = static_cast<USizeType>(Count);
-            const USizeType UOldNum = static_cast<USizeType>(ArrayNum);
-            const USizeType UOldMax = static_cast<USizeType>(ArrayMax);
-            const USizeType UNewNum = UOldNum + UCount;
-            const SizeType  OldNum  = static_cast<SizeType>(UOldNum);
-            const SizeType  OldMax  = static_cast<SizeType>(UOldMax);
-            const SizeType  NewNum  = static_cast<SizeType>(UNewNum);
-
-            OLO_CORE_ASSERT((OldNum >= 0) & (OldMax >= OldNum) & (Count >= 0), "ReallocGrow: invalid state");
-
-            ArrayNum = NewNum;
-
-#if DO_GUARD_SLOW
-            if (UNewNum > UOldMax)
-#else
-            // SECURITY - This check will guard against negative counts too, in case the checkSlow above is compiled out.
-            // However, it results in slightly worse code generation.
-            if (UCount > UOldMax - UOldNum)
-#endif
-            {
-                // This should only happen when we've underflowed or overflowed SizeType
-                if (NewNum < OldNum)
-                {
-                    OnInvalidArrayNum(static_cast<unsigned long long>(UNewNum));
-                }
-
-                SizeType NewMax;
-                if constexpr (!!(Flags & 1)) // SupportsElementAlignment
-                {
-                    NewMax = AllocatorInstance.CalculateSlackGrow(NewNum, OldMax, ElementSize, ElementAlignment);
-                    AllocatorInstance.ResizeAllocation(UOldNum, NewMax, ElementSize, ElementAlignment);
-                }
-                else
-                {
-                    NewMax = AllocatorInstance.CalculateSlackGrow(NewNum, OldMax, ElementSize);
-                    AllocatorInstance.ResizeAllocation(UOldNum, NewMax, ElementSize);
-                }
-                ArrayMax = NewMax;
-
-                #if OLO_ENABLE_ARRAY_SLACK_TRACKING
-                if constexpr (!!(Flags & 2)) // SupportsSlackTracking
-                {
-                    AllocatorInstance.SlackTrackerLogNum(NewNum);
-                }
-                #endif
-            }
-
-            return OldNum;
-        }
-
-        /**
-         * @brief Shrink reallocation for removal operations
-         * 
-         * Used for repeated shrinking operations when reallocations should be
-         * amortized over multiple removals.
-         * 
-         * @tparam Flags Allocator capability flags
-         * @tparam AllocatorInstanceType The allocator instance type
-         * @param ElementSize Size of each element
-         * @param ElementAlignment Alignment of elements
-         * @param AllocatorInstance Reference to the allocator instance
-         * @param ArrayNum Current number of elements
-         * @param ArrayMax Reference to the array max capacity (updated)
-         */
-        template <u32 Flags, typename AllocatorInstanceType>
-        OLO_NOINLINE void ReallocShrink(
-            u32                                          ElementSize,
-            u32                                          ElementAlignment,
-            AllocatorInstanceType&                       AllocatorInstance,
-            TAllocatorSizeType_T<AllocatorInstanceType>  ArrayNum,
-            TAllocatorSizeType_T<AllocatorInstanceType>& ArrayMax
-        )
-        {
-            using SizeType = TAllocatorSizeType_T<AllocatorInstanceType>;
-
-            SizeType OldArrayMax = ArrayMax;
-
-            if constexpr (!!(Flags & 1)) // SupportsElementAlignment
-            {
-                SizeType NewArrayMax = AllocatorInstance.CalculateSlackShrink(ArrayNum, OldArrayMax, ElementSize, ElementAlignment);
-                if (NewArrayMax != OldArrayMax)
-                {
-                    ArrayMax = NewArrayMax;
-                    AllocatorInstance.ResizeAllocation(ArrayNum, NewArrayMax, ElementSize, ElementAlignment);
-                }
-            }
-            else
-            {
-                SizeType NewArrayMax = AllocatorInstance.CalculateSlackShrink(ArrayNum, OldArrayMax, ElementSize);
-                if (NewArrayMax != OldArrayMax)
-                {
-                    ArrayMax = NewArrayMax;
-                    AllocatorInstance.ResizeAllocation(ArrayNum, NewArrayMax, ElementSize);
-                }
-            }
-        }
-
-        /**
-         * @brief Set allocation to a specific size
-         * 
-         * Precondition: NewMax >= ArrayNum
-         * 
-         * @tparam Flags Allocator capability flags
-         * @tparam AllocatorInstanceType The allocator instance type
-         * @param ElementSize Size of each element
-         * @param ElementAlignment Alignment of elements
-         * @param NewMax Desired allocation capacity
-         * @param AllocatorInstance Reference to the allocator instance
-         * @param ArrayNum Current number of elements
-         * @param ArrayMax Reference to the array max capacity (updated)
-         */
-        template <u32 Flags, typename AllocatorInstanceType>
-        OLO_NOINLINE void ReallocTo(
-            u32                                          ElementSize,
-            u32                                          ElementAlignment,
-            TAllocatorSizeType_T<AllocatorInstanceType>  NewMax,
-            AllocatorInstanceType&                       AllocatorInstance,
-            TAllocatorSizeType_T<AllocatorInstanceType>  ArrayNum,
-            TAllocatorSizeType_T<AllocatorInstanceType>& ArrayMax
-        )
-        {
-            if constexpr (!!(Flags & 1)) // SupportsElementAlignment
-            {
-                if (NewMax)
-                {
-                    NewMax = AllocatorInstance.CalculateSlackReserve(NewMax, ElementSize, ElementAlignment);
-                }
-                if (NewMax != ArrayMax)
-                {
-                    ArrayMax = NewMax;
-                    AllocatorInstance.ResizeAllocation(ArrayNum, NewMax, ElementSize, ElementAlignment);
-                }
-            }
-            else
-            {
-                if (NewMax)
-                {
-                    NewMax = AllocatorInstance.CalculateSlackReserve(NewMax, ElementSize);
-                }
-                if (NewMax != ArrayMax)
-                {
-                    ArrayMax = NewMax;
-                    AllocatorInstance.ResizeAllocation(ArrayNum, NewMax, ElementSize);
-                }
-            }
-        }
-
-        /**
-         * @brief Specialized copy allocation
-         * 
-         * Used for copy operations where we're allocating fresh memory for a copy.
-         * 
-         * @tparam Flags Allocator capability flags
-         * @tparam AllocatorInstanceType The allocator instance type
-         * @param ElementSize Size of each element
-         * @param ElementAlignment Alignment of elements
-         * @param NewMax Desired allocation capacity
-         * @param PrevMax Previous allocation capacity
-         * @param AllocatorInstance Reference to the allocator instance
-         * @param ArrayNum Current number of elements
-         * @param ArrayMax Reference to the array max capacity (updated)
-         */
-        template <u32 Flags, typename AllocatorInstanceType>
-        OLO_NOINLINE void ReallocForCopy(
-            u32                                          ElementSize,
-            u32                                          ElementAlignment,
-            TAllocatorSizeType_T<AllocatorInstanceType>  NewMax,
-            TAllocatorSizeType_T<AllocatorInstanceType>  PrevMax,
-            AllocatorInstanceType&                       AllocatorInstance,
-            TAllocatorSizeType_T<AllocatorInstanceType>  ArrayNum,
-            TAllocatorSizeType_T<AllocatorInstanceType>& ArrayMax
-        )
-        {
-            if constexpr (!!(Flags & 1)) // SupportsElementAlignment
-            {
-                if (NewMax)
-                {
-                    NewMax = AllocatorInstance.CalculateSlackReserve(NewMax, ElementSize, ElementAlignment);
-                }
-                if (NewMax > PrevMax)
-                {
-                    AllocatorInstance.ResizeAllocation(0, NewMax, ElementSize, ElementAlignment);
-                }
-                else
-                {
-                    NewMax = PrevMax;
-                }
-            }
-            else
-            {
-                if (NewMax)
-                {
-                    NewMax = AllocatorInstance.CalculateSlackReserve(NewMax, ElementSize);
-                }
-                if (NewMax > PrevMax)
-                {
-                    AllocatorInstance.ResizeAllocation(0, NewMax, ElementSize);
-                }
-                else
-                {
-                    NewMax = PrevMax;
-                }
-            }
-            ArrayMax = NewMax;
-        }
-
-    } // namespace Private
 
     // ============================================================================
     // TArray
@@ -904,7 +416,6 @@ namespace OloEngine
         using ElementType = InElementType;
         using AllocatorType = InAllocatorType;
         using SizeType = typename InAllocatorType::SizeType;
-        using USizeType = std::make_unsigned_t<SizeType>;
 
         using ElementAllocatorType = typename TChooseClass<
             AllocatorType::NeedsElementType,
@@ -943,8 +454,6 @@ namespace OloEngine
 
         /** Constructor with initial size */
         explicit TArray(SizeType InitialSize)
-            : m_ArrayNum(0)
-            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
         {
             AddUninitialized(InitialSize);
             DefaultConstructItems<ElementType>(GetData(), InitialSize);
@@ -952,8 +461,6 @@ namespace OloEngine
 
         /** Constructor with initial size and default value */
         TArray(SizeType InitialSize, const ElementType& DefaultValue)
-            : m_ArrayNum(0)
-            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
         {
             Reserve(InitialSize);
             for (SizeType i = 0; i < InitialSize; ++i)
@@ -964,8 +471,6 @@ namespace OloEngine
 
         /** Initializer list constructor */
         TArray(std::initializer_list<ElementType> InitList)
-            : m_ArrayNum(0)
-            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
         {
             Reserve(static_cast<SizeType>(InitList.size()));
             for (const auto& Item : InitList)
@@ -974,92 +479,48 @@ namespace OloEngine
             }
         }
 
-        /**
-         * Construct from a raw pointer and count.
-         *
-         * @param Ptr   A pointer to an array of elements to copy.
-         * @param Count The number of elements to copy from Ptr.
-         */
-        OLO_FINLINE TArray(const ElementType* Ptr, SizeType Count)
-            : m_ArrayNum(0)
-            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
-        {
-            if (Count < 0)
-            {
-                // Cast to USizeType first to prevent sign extension on negative sizes
-                Private::OnInvalidArrayNum(static_cast<unsigned long long>(static_cast<USizeType>(Count)));
-            }
-
-            OLO_CORE_ASSERT(Ptr != nullptr || Count == 0, "TArray: null pointer with non-zero count");
-
-            CopyToEmpty(Ptr, Count, 0);
-        }
-
-        /** Constructor from TArrayView */
-        template <typename OtherElementType, typename OtherSizeType>
-        [[nodiscard]] explicit TArray(const TArrayView<OtherElementType, OtherSizeType>& Other)
-            : m_ArrayNum(0)
-            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
-        {
-            CopyToEmpty(Other.GetData(), static_cast<SizeType>(Other.Num()), 0);
-        }
-
         /** Copy constructor */
         TArray(const TArray& Other)
-            : m_ArrayNum(0)
-            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
         {
             CopyToEmpty(Other.GetData(), Other.Num(), 0);
         }
 
         /**
-         * Copy constructor with extra slack.
-         *
-         * @param Other The source array to copy.
-         * @param ExtraSlack Additional memory to preallocate at the end.
+         * @brief Copy constructor with extra slack
+         * @param Other      Array to copy from
+         * @param ExtraSlack Additional capacity to reserve beyond copied elements
          */
-        OLO_FINLINE TArray(const TArray& Other, SizeType ExtraSlack)
-            : m_ArrayNum(0)
-            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
+        TArray(const TArray& Other, SizeType ExtraSlack)
         {
-            CopyToEmptyWithSlack(Other.GetData(), Other.Num(), 0, ExtraSlack);
-        }
-
-        /**
-         * Copy constructor with changed allocator.
-         *
-         * @param Other The source array to copy.
-         */
-        template <typename OtherElementType, typename OtherAllocator>
-            requires (std::is_convertible_v<const OtherElementType&, ElementType>)
-        OLO_FINLINE explicit TArray(const TArray<OtherElementType, OtherAllocator>& Other)
-            : m_ArrayNum(0)
-            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
-        {
-            CopyToEmpty(Other.GetData(), Other.Num(), 0);
+            CopyToEmpty(Other.GetData(), Other.Num(), ExtraSlack);
         }
 
         /** Move constructor */
         TArray(TArray&& Other) noexcept
-            : m_ArrayNum(0)
-            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
         {
             MoveOrCopy(*this, Other);
         }
 
         /**
-         * Move constructor with extra slack.
-         *
-         * @param Other Array to move from.
-         * @param ExtraSlack Additional memory to preallocate at the end.
+         * @brief Move constructor with extra slack
+         * @param Other      Array to move from  
+         * @param ExtraSlack Additional capacity to reserve
+         * 
+         * If ExtraSlack is 0, this is equivalent to a normal move.
+         * Otherwise, the array is copied and extra space is reserved.
          */
-        template <typename OtherElementType>
-            requires (Private::TArrayElementsAreCompatible_V<ElementType, OtherElementType&&>)
-        TArray(TArray<OtherElementType, AllocatorType>&& Other, SizeType ExtraSlack)
-            : m_ArrayNum(0)
-            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
+        TArray(TArray&& Other, SizeType ExtraSlack)
         {
-            MoveOrCopyWithSlack(*this, Other, 0, ExtraSlack);
+            if (ExtraSlack == 0)
+            {
+                MoveOrCopy(*this, Other);
+            }
+            else
+            {
+                CopyToEmpty(Other.GetData(), Other.Num(), ExtraSlack);
+                // Clear the source array
+                Other.Empty();
+            }
         }
 
         /** 
@@ -1069,10 +530,19 @@ namespace OloEngine
         template <typename OtherElementType, typename OtherSizeType>
             requires (std::is_convertible_v<OtherElementType*, ElementType*>)
         explicit TArray(TArrayView<OtherElementType, OtherSizeType> Other)
-            : m_ArrayNum(0)
-            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
         {
             CopyToEmpty(Other.GetData(), static_cast<SizeType>(Other.Num()), 0);
+        }
+
+        /**
+         * @brief Constructor from raw pointer and count
+         * @param Ptr    Pointer to array of elements to copy
+         * @param Count  Number of elements to copy
+         */
+        TArray(const ElementType* Ptr, SizeType Count)
+        {
+            OLO_CORE_ASSERT(Ptr != nullptr || Count == 0, "TArray: Null pointer with non-zero count");
+            CopyToEmpty(Ptr, Count, 0);
         }
 
         /** Destructor */
@@ -1113,9 +583,6 @@ namespace OloEngine
         {
             DestructItems(GetData(), m_ArrayNum);
             m_ArrayNum = 0;
-
-            SlackTrackerNumChanged();
-
             Reserve(static_cast<SizeType>(InitList.size()));
             for (const auto& Item : InitList)
             {
@@ -1124,13 +591,45 @@ namespace OloEngine
             return *this;
         }
 
-        /** Assignment from TArrayView */
-        template <typename OtherElementType, typename OtherSizeType>
-        TArray& operator=(const TArrayView<OtherElementType, OtherSizeType>& Other)
+        // ====================================================================
+        // Intrusive TOptional<TArray> State
+        // ====================================================================
+
+        /**
+         * @brief Enable intrusive TOptional optimization
+         * 
+         * When TOptional<TArray> is used, this allows TOptional to use the
+         * array's own state (ArrayMax == -1) to represent the "unset" state,
+         * eliminating the need for a separate bool and saving memory.
+         */
+        static constexpr bool bHasIntrusiveUnsetOptionalState = true;
+        using IntrusiveUnsetOptionalStateType = TArray;
+
+        /**
+         * @brief Constructor for intrusive unset optional state
+         * @param Tag  Tag type to distinguish this constructor
+         * 
+         * Only callable by TOptional. Creates an array in the "unset" state
+         * using ArrayMax == -1 as a sentinel value.
+         */
+        [[nodiscard]] explicit TArray(FIntrusiveUnsetOptionalState Tag)
+            : m_ArrayNum(0)
+            , m_ArrayMax(-1)
         {
-            DestructItems(GetData(), m_ArrayNum);
-            CopyToEmpty(Other.GetData(), static_cast<SizeType>(Other.Num()), m_ArrayMax);
-            return *this;
+            // Use ArrayMax == -1 as our intrusive state.
+            // The destructor still works without change, as it doesn't use ArrayMax.
+        }
+
+        /**
+         * @brief Check if array is in intrusive unset optional state
+         * @param Tag  Tag type for comparison
+         * @returns true if array is in the unset state (ArrayMax == -1)
+         * 
+         * Only used by TOptional to check if the optional is set.
+         */
+        [[nodiscard]] bool operator==(FIntrusiveUnsetOptionalState Tag) const
+        {
+            return m_ArrayMax == -1;
         }
 
         // ====================================================================
@@ -1163,16 +662,6 @@ namespace OloEngine
             return reinterpret_cast<const ElementType*>(m_AllocatorInstance.GetAllocation());
         }
 
-        /**
-         * Helper function returning the size of the inner type.
-         *
-         * @returns Size in bytes of array type.
-         */
-        [[nodiscard]] OLO_FINLINE static constexpr u32 GetTypeSize()
-        {
-            return sizeof(ElementType);
-        }
-
         /** Get first element */
         [[nodiscard]] OLO_FINLINE ElementType& First()
         {
@@ -1187,27 +676,40 @@ namespace OloEngine
             return GetData()[0];
         }
 
+        /** Get last element */
+        [[nodiscard]] OLO_FINLINE ElementType& Last()
+        {
+            OLO_CORE_ASSERT(m_ArrayNum > 0, "TArray::Last called on empty array");
+            return GetData()[m_ArrayNum - 1];
+        }
+
+        /** Get last element (const) */
+        [[nodiscard]] OLO_FINLINE const ElementType& Last() const
+        {
+            OLO_CORE_ASSERT(m_ArrayNum > 0, "TArray::Last called on empty array");
+            return GetData()[m_ArrayNum - 1];
+        }
+
         /**
-         * Returns n-th last element from the array.
-         *
-         * @param IndexFromTheEnd (Optional) Index from the end of array (default = 0).
-         * @returns Reference to n-th last element from the array.
+         * @brief Get element at index from end
+         * @param IndexFromTheEnd  Index from end (0 = last element, 1 = second-to-last, etc.)
+         * @returns Reference to the element
          */
-        [[nodiscard]] OLO_FINLINE ElementType& Last(SizeType IndexFromTheEnd = 0)
+        [[nodiscard]] OLO_FINLINE ElementType& Last(SizeType IndexFromTheEnd)
         {
             RangeCheck(m_ArrayNum - IndexFromTheEnd - 1);
             return GetData()[m_ArrayNum - IndexFromTheEnd - 1];
         }
 
         /**
-         * Returns n-th last element from the array (const).
-         *
-         * @param IndexFromTheEnd (Optional) Index from the end of array (default = 0).
-         * @returns Reference to n-th last element from the array.
+         * @brief Get element at index from end (const)
+         * @param IndexFromTheEnd  Index from end (0 = last element, 1 = second-to-last, etc.)
+         * @returns Const reference to the element
          */
-        [[nodiscard]] OLO_FINLINE const ElementType& Last(SizeType IndexFromTheEnd = 0) const
+        [[nodiscard]] OLO_FINLINE const ElementType& Last(SizeType IndexFromTheEnd) const
         {
-            return const_cast<TArray*>(this)->Last(IndexFromTheEnd);
+            RangeCheck(m_ArrayNum - IndexFromTheEnd - 1);
+            return GetData()[m_ArrayNum - IndexFromTheEnd - 1];
         }
 
         /** Get element at index from end (0 = last element) */
@@ -1232,16 +734,19 @@ namespace OloEngine
             return m_ArrayNum;
         }
 
-        /** Get number of bytes used (excluding slack) */
-        [[nodiscard]] OLO_FINLINE sizet NumBytes() const
-        {
-            return static_cast<sizet>(m_ArrayNum) * sizeof(ElementType);
-        }
-
         /** Get allocated capacity */
         [[nodiscard]] OLO_FINLINE SizeType Max() const
         {
             return m_ArrayMax;
+        }
+
+        /**
+         * @brief Get the size of each element in bytes
+         * @returns sizeof(ElementType)
+         */
+        [[nodiscard]] static constexpr sizet GetTypeSize()
+        {
+            return sizeof(ElementType);
         }
 
         /** Check if empty */
@@ -1269,54 +774,6 @@ namespace OloEngine
                 "TArray invariant violation: ArrayNum={}, ArrayMax={}", m_ArrayNum, m_ArrayMax);
         }
 
-        /**
-         * Checks that the specified address is not part of an element within the container.
-         * Used to verify that elements aren't being invalidated by reallocation.
-         *
-         * @param Addr The address to check.
-         */
-        OLO_FINLINE void CheckAddress(const ElementType* Addr) const
-        {
-            OLO_CORE_ASSERT(Addr < GetData() || Addr >= (GetData() + m_ArrayMax),
-                "Attempting to use a container element ({}) which already comes from the container being modified ({}, ArrayMax: {}, ArrayNum: {}, SizeofElement: {})!",
-                static_cast<const void*>(Addr), static_cast<const void*>(GetData()), m_ArrayMax, m_ArrayNum, sizeof(ElementType));
-        }
-
-        /**
-         * Checks if index is in array range.
-         *
-         * @param Index Index to check.
-         */
-        OLO_FINLINE void RangeCheck(SizeType Index) const
-        {
-            CheckInvariants();
-
-            // Template property, branch will be optimized out
-            if constexpr (AllocatorType::RequireRangeCheck)
-            {
-                OLO_CORE_ASSERT((Index >= 0) & (Index < m_ArrayNum),
-                    "Array index out of bounds: {} into an array of size {}", Index, m_ArrayNum);
-            }
-        }
-
-        /**
-         * Checks if a range of indices are in the array range.
-         *
-         * @param Index Index of the start of the range to check.
-         * @param Count Number of elements in the range.
-         */
-        OLO_FINLINE void RangeCheck(SizeType Index, SizeType Count) const
-        {
-            CheckInvariants();
-
-            // Template property, branch will be optimized out
-            if constexpr (AllocatorType::RequireRangeCheck)
-            {
-                OLO_CORE_ASSERT((Count >= 0) & (Index >= 0) & (Index + Count <= m_ArrayNum),
-                    "Array range out of bounds: index {} and length {} into an array of size {}", Index, Count, m_ArrayNum);
-            }
-        }
-
         /** Get size in bytes */
         [[nodiscard]] sizet GetAllocatedSize() const
         {
@@ -1327,6 +784,42 @@ namespace OloEngine
         [[nodiscard]] OLO_FINLINE SizeType GetSlack() const
         {
             return m_ArrayMax - m_ArrayNum;
+        }
+
+        /**
+         * @brief Get the total size in bytes of all elements
+         * @returns Num() * sizeof(ElementType)
+         */
+        [[nodiscard]] OLO_FINLINE sizet NumBytes() const
+        {
+            return static_cast<sizet>(m_ArrayNum) * sizeof(ElementType);
+        }
+
+        /**
+         * @brief Debug helper to check that a pointer is within the array bounds
+         * @param Addr  Address to check
+         * 
+         * In debug builds, asserts if Addr points within the current allocation.
+         * This catches cases where you're about to Add() an element that's already
+         * in the array, which could be invalidated by reallocation.
+         */
+        OLO_FINLINE void CheckAddress(const ElementType* Addr) const
+        {
+            OLO_CORE_ASSERT(Addr < GetData() || Addr >= (GetData() + m_ArrayMax),
+                "Passed address is from within the array - this will be invalidated if the array reallocates");
+        }
+
+        /**
+         * @brief Checks if index is in range [0, ArrayNum)
+         * @param Index  Index to check
+         * 
+         * Asserts in debug builds if index is out of range.
+         */
+        OLO_FINLINE void RangeCheck(SizeType Index) const
+        {
+            CheckInvariants();
+            OLO_CORE_ASSERT((Index >= 0) && (Index < m_ArrayNum),
+                "Array index out of bounds: %d from an array of size %d", Index, m_ArrayNum);
         }
 
         /**
@@ -1348,227 +841,74 @@ namespace OloEngine
         }
 
         // ====================================================================
-        // Intrusive TOptional<TArray> State
-        // ====================================================================
-
-        /**
-         * Static member indicating that TArray supports intrusive unset optional state.
-         * This allows TOptional<TArray> to use an empty array with ArrayMax == -1
-         * as the "unset" state, avoiding the need for a separate bool flag.
-         */
-        constexpr static bool bHasIntrusiveUnsetOptionalState = true;
-
-        /** Type alias required for intrusive optional state support */
-        using IntrusiveUnsetOptionalStateType = TArray;
-
-        /**
-         * Constructor for intrusive unset optional state.
-         * Only TOptional can call this constructor.
-         * Uses ArrayMax == -1 as the intrusive state so that the destructor
-         * still works without change, as it doesn't use ArrayMax.
-         */
-        [[nodiscard]] explicit TArray(FIntrusiveUnsetOptionalState)
-            : m_ArrayNum(0)
-            , m_ArrayMax(-1)
-        {
-        }
-
-        /**
-         * Comparison operator for intrusive unset optional state.
-         * Only TOptional should call this to check if the array is in the unset state.
-         */
-        [[nodiscard]] bool operator==(FIntrusiveUnsetOptionalState) const
-        {
-            return m_ArrayMax == -1;
-        }
-
-        // ====================================================================
         // Adding Elements
         // ====================================================================
 
-        /**
-         * Adds a new item to the end of the array, possibly reallocating the whole array to fit.
-         * Move semantics version.
-         *
-         * @param Item The item to add
-         * @return Index to the new item
-         */
-        SizeType Add(ElementType&& Item)
-        {
-            CheckAddress(&Item);
-            return Emplace(std::move(Item));
-        }
-
-        /**
-         * Adds a new item to the end of the array, possibly reallocating the whole array to fit.
-         *
-         * @param Item The item to add
-         * @return Index to the new item
-         */
+        /** Add element by copy, return index */
         SizeType Add(const ElementType& Item)
         {
-            CheckAddress(&Item);
-            return Emplace(Item);
-        }
-
-        /**
-         * Adds a new item to the end of the array, possibly reallocating the whole array to fit.
-         * Move semantics version.
-         *
-         * @param Item The item to add
-         * @return A reference to the newly-inserted element.
-         */
-        [[nodiscard]] OLO_FINLINE ElementType& Add_GetRef(ElementType&& Item)
-        {
-            CheckAddress(&Item);
-            return Emplace_GetRef(std::move(Item));
-        }
-
-        /**
-         * Adds a new item to the end of the array, possibly reallocating the whole array to fit.
-         *
-         * @param Item The item to add
-         * @return A reference to the newly-inserted element.
-         */
-        [[nodiscard]] OLO_FINLINE ElementType& Add_GetRef(const ElementType& Item)
-        {
-            CheckAddress(&Item);
-            return Emplace_GetRef(Item);
-        }
-
-        /**
-         * Adds new items to the end of the array, possibly reallocating the whole
-         * array to fit. The new items will be zeroed.
-         *
-         * @return Index to the first of the new items.
-         */
-        SizeType AddZeroed()
-        {
-            const SizeType Index = AddUninitialized();
-            FMemory::Memzero(reinterpret_cast<u8*>(m_AllocatorInstance.GetAllocation()) + Index * sizeof(ElementType), sizeof(ElementType));
+            const SizeType Index = AddUninitialized(1);
+            ::new (GetData() + Index) ElementType(Item);
             return Index;
         }
 
-        /**
-         * Adds new items to the end of the array, possibly reallocating the whole
-         * array to fit. The new items will be zeroed.
-         *
-         * @param Count The number of new items to add.
-         * @return Index to the first of the new items.
-         */
-        SizeType AddZeroed(SizeType Count)
+        /** Add element by move, return index */
+        SizeType Add(ElementType&& Item)
+        {
+            const SizeType Index = AddUninitialized(1);
+            ::new (GetData() + Index) ElementType(std::move(Item));
+            return Index;
+        }
+
+        /** Add default-constructed element, return reference */
+        ElementType& AddDefaulted()
+        {
+            const SizeType Index = AddUninitialized(1);
+            ElementType* Ptr = GetData() + Index;
+            ::new (Ptr) ElementType();
+            return *Ptr;
+        }
+
+        /** Add N default-constructed elements, return index of first */
+        SizeType AddDefaulted(SizeType Count)
         {
             const SizeType Index = AddUninitialized(Count);
-            FMemory::Memzero(reinterpret_cast<u8*>(m_AllocatorInstance.GetAllocation()) + Index * sizeof(ElementType), Count * sizeof(ElementType));
+            DefaultConstructItems<ElementType>(GetData() + Index, Count);
             return Index;
         }
 
-        /**
-         * Adds a new item to the end of the array, possibly reallocating the whole
-         * array to fit. The new item will be zeroed.
-         *
-         * @return A reference to the newly-inserted element.
-         */
-        [[nodiscard]] ElementType& AddZeroed_GetRef()
+        /** Add zero-initialized element, return reference */
+        ElementType& AddZeroed()
         {
-            const SizeType Index = AddUninitialized();
+            const SizeType Index = AddUninitialized(1);
             ElementType* Ptr = GetData() + Index;
             FMemory::Memzero(Ptr, sizeof(ElementType));
             return *Ptr;
         }
 
-        /**
-         * Adds new items to the end of the array, possibly reallocating the whole
-         * array to fit. The new items will be default-constructed.
-         *
-         * @return Index to the first of the new items.
-         */
-        SizeType AddDefaulted()
-        {
-            const SizeType Index = AddUninitialized();
-            DefaultConstructItems<ElementType>(reinterpret_cast<void*>(reinterpret_cast<u8*>(m_AllocatorInstance.GetAllocation()) + Index * sizeof(ElementType)), 1);
-            return Index;
-        }
-
-        /**
-         * Adds new items to the end of the array, possibly reallocating the whole
-         * array to fit. The new items will be default-constructed.
-         *
-         * @param Count The number of new items to add.
-         * @return Index to the first of the new items.
-         */
-        SizeType AddDefaulted(SizeType Count)
+        /** Add N zero-initialized elements, return index of first */
+        SizeType AddZeroed(SizeType Count)
         {
             const SizeType Index = AddUninitialized(Count);
-            DefaultConstructItems<ElementType>(reinterpret_cast<void*>(reinterpret_cast<u8*>(m_AllocatorInstance.GetAllocation()) + Index * sizeof(ElementType)), Count);
+            FMemory::Memzero(GetData() + Index, Count * sizeof(ElementType));
             return Index;
-        }
-
-        /**
-         * Add a new item to the end of the array, possibly reallocating the whole
-         * array to fit. The new item will be default-constructed.
-         *
-         * @return A reference to the newly-inserted element.
-         */
-        [[nodiscard]] ElementType& AddDefaulted_GetRef()
-        {
-            const SizeType Index = AddUninitialized();
-            ElementType* Ptr = GetData() + Index;
-            DefaultConstructItems<ElementType>(static_cast<void*>(Ptr), 1);
-            return *Ptr;
-        }
-
-        /** Add uninitialized space for one element, return index */
-        OLO_FINLINE SizeType AddUninitialized()
-        {
-            // Begin sensitive code!
-            // Both branches write the return into m_ArrayNum. This is because the function call
-            // clobbers the registers and if we assign as part of the return into something we need,
-            // the compiler doesn't have to reload the data into the clobbered register.
-            if (m_ArrayNum == m_ArrayMax)
-            {
-                // When we can pack size and alignment into a single 16-bit load, we save a parameter
-                // setup instruction for the function call.
-                if constexpr (sizeof(ElementType) <= 255 && alignof(ElementType) <= 255)
-                {
-                    // Note: realloc functions are templated ONLY on allocator instance so they are
-                    // not duplicated in the code for every element type!
-                    m_ArrayNum = Private::ReallocGrow1_DoAlloc_Tiny<Private::GetAllocatorFlags<AllocatorType>()>(
-                        static_cast<u16>(sizeof(ElementType) | (alignof(ElementType) << 8)),
-                        m_AllocatorInstance,
-                        m_ArrayMax
-                    );
-                }
-                else
-                {
-                    m_ArrayNum = Private::ReallocGrow1_DoAlloc<Private::GetAllocatorFlags<AllocatorType>()>(
-                        static_cast<u32>(sizeof(ElementType)),
-                        static_cast<u32>(alignof(ElementType)),
-                        m_AllocatorInstance,
-                        m_ArrayMax
-                    );
-                }
-            }
-            // End sensitive code!
-
-            SizeType OldArrayNum = m_ArrayNum;
-            ++m_ArrayNum;
-            return OldArrayNum;
         }
 
         /** Add uninitialized space for N elements, return index of first */
-        OLO_FINLINE SizeType AddUninitialized(SizeType Count)
+        SizeType AddUninitialized(SizeType Count = 1)
         {
             OLO_CORE_ASSERT(Count >= 0, "AddUninitialized: Count must be non-negative");
 
-            return Private::ReallocGrow<Private::GetAllocatorFlags<AllocatorType>()>(
-                static_cast<u32>(sizeof(ElementType)),
-                static_cast<u32>(alignof(ElementType)),
-                Count,
-                m_AllocatorInstance,
-                m_ArrayNum,
-                m_ArrayMax
-            );
+            const SizeType OldNum = m_ArrayNum;
+            const SizeType NewNum = OldNum + Count;
+
+            if (NewNum > m_ArrayMax)
+            {
+                ResizeGrow(NewNum);
+            }
+            m_ArrayNum = NewNum;
+
+            return OldNum;
         }
 
         /** Add unique element (only if not already present), return index */
@@ -1582,33 +922,107 @@ namespace OloEngine
             return Index;
         }
 
-        /**
-         * Constructs a new item at the end of the array, possibly reallocating the whole array to fit.
-         *
-         * @param Args The arguments to forward to the constructor of the new item.
-         * @return Index to the new item
-         */
+        /** Emplace element in-place, return reference */
         template <typename... ArgsType>
-        SizeType Emplace(ArgsType&&... Args)
-        {
-            const SizeType Index = AddUninitialized(1);
-            ::new (static_cast<void*>(GetData() + Index)) ElementType(std::forward<ArgsType>(Args)...);
-            return Index;
-        }
-
-        /**
-         * Constructs a new item at the end of the array, possibly reallocating the whole array to fit.
-         *
-         * @param Args The arguments to forward to the constructor of the new item.
-         * @return A reference to the newly-inserted element.
-         */
-        template <typename... ArgsType>
-        [[nodiscard]] OLO_FINLINE ElementType& Emplace_GetRef(ArgsType&&... Args)
+        ElementType& Emplace(ArgsType&&... Args)
         {
             const SizeType Index = AddUninitialized(1);
             ElementType* Ptr = GetData() + Index;
-            ::new (static_cast<void*>(Ptr)) ElementType(std::forward<ArgsType>(Args)...);
+            ::new (Ptr) ElementType(std::forward<ArgsType>(Args)...);
             return *Ptr;
+        }
+
+        /**
+         * @brief Add element by copy and return reference to it
+         * @param Item  Element to add
+         * @returns Reference to the newly added element
+         */
+        ElementType& Add_GetRef(const ElementType& Item)
+        {
+            const SizeType Index = AddUninitialized(1);
+            ElementType* Ptr = GetData() + Index;
+            ::new (Ptr) ElementType(Item);
+            return *Ptr;
+        }
+
+        /**
+         * @brief Add element by move and return reference to it
+         * @param Item  Element to add
+         * @returns Reference to the newly added element
+         */
+        ElementType& Add_GetRef(ElementType&& Item)
+        {
+            const SizeType Index = AddUninitialized(1);
+            ElementType* Ptr = GetData() + Index;
+            ::new (Ptr) ElementType(std::move(Item));
+            return *Ptr;
+        }
+
+        /**
+         * @brief Add default-constructed element and return reference
+         * @returns Reference to the newly added element
+         */
+        ElementType& AddDefaulted_GetRef()
+        {
+            const SizeType Index = AddUninitialized(1);
+            ElementType* Ptr = GetData() + Index;
+            ::new (Ptr) ElementType();
+            return *Ptr;
+        }
+
+        /**
+         * @brief Add zero-initialized element and return reference
+         * @returns Reference to the newly added element
+         */
+        ElementType& AddZeroed_GetRef()
+        {
+            const SizeType Index = AddUninitialized(1);
+            ElementType* Ptr = GetData() + Index;
+            FMemory::Memzero(Ptr, sizeof(ElementType));
+            return *Ptr;
+        }
+
+        /**
+         * @brief Add uninitialized element and return reference
+         * @returns Reference to the newly added (uninitialized) element
+         * 
+         * @warning The returned reference points to uninitialized memory.
+         *          You must construct an object at this location before use.
+         */
+        ElementType& AddUninitialized_GetRef()
+        {
+            const SizeType Index = AddUninitialized(1);
+            return GetData()[Index];
+        }
+
+        /**
+         * @brief Emplace element in-place and return reference
+         * @param Args  Arguments forwarded to element constructor
+         * @returns Reference to the newly constructed element
+         */
+        template <typename... ArgsType>
+        ElementType& Emplace_GetRef(ArgsType&&... Args)
+        {
+            const SizeType Index = AddUninitialized(1);
+            ElementType* Ptr = GetData() + Index;
+            ::new (Ptr) ElementType(std::forward<ArgsType>(Args)...);
+            return *Ptr;
+        }
+
+        /**
+         * @brief Initialize array with Count copies of Element
+         * @param Element  The element to copy
+         * @param Count    Number of copies to add
+         * 
+         * Clears the array and fills it with Count copies of Element.
+         */
+        void Init(const ElementType& Element, SizeType Count)
+        {
+            Empty(Count);
+            for (SizeType i = 0; i < Count; ++i)
+            {
+                Add(Element);
+            }
         }
 
         /** Push element (alias for Add) */
@@ -1626,98 +1040,45 @@ namespace OloEngine
         // Inserting Elements
         // ====================================================================
 
-        /**
-         * Inserts a given element into the array at given location. Move semantics version.
-         *
-         * @param Item The element to insert.
-         * @param Index Tells where to insert the new elements.
-         * @returns Location at which the insert was done.
-         */
-        SizeType Insert(ElementType&& Item, SizeType Index)
+        /** Insert element at index */
+        void Insert(const ElementType& Item, SizeType Index)
         {
-            CheckAddress(&Item);
-
             InsertUninitialized(Index, 1);
-            ::new (static_cast<void*>(GetData() + Index)) ElementType(std::move(Item));
-            return Index;
+            ::new (GetData() + Index) ElementType(Item);
+        }
+
+        /** Insert element at index by move */
+        void Insert(ElementType&& Item, SizeType Index)
+        {
+            InsertUninitialized(Index, 1);
+            ::new (GetData() + Index) ElementType(std::move(Item));
         }
 
         /**
-         * Inserts a given element into the array at given location.
-         *
-         * @param Item The element to insert.
-         * @param Index Tells where to insert the new elements.
-         * @returns Location at which the insert was done.
+         * @brief Insert element at index and return reference
+         * @param Item  Element to insert (copied)
+         * @param Index Position to insert at
+         * @returns Reference to the inserted element
          */
-        SizeType Insert(const ElementType& Item, SizeType Index)
+        ElementType& Insert_GetRef(const ElementType& Item, SizeType Index)
         {
-            CheckAddress(&Item);
-
-            InsertUninitialized(Index, 1);
-            ::new (static_cast<void*>(GetData() + Index)) ElementType(Item);
-            return Index;
-        }
-
-        /**
-         * Inserts a given element into the array at given location. Move semantics version.
-         *
-         * @param Item The element to insert.
-         * @param Index Tells where to insert the new element.
-         * @return A reference to the newly-inserted element.
-         */
-        [[nodiscard]] ElementType& Insert_GetRef(ElementType&& Item, SizeType Index)
-        {
-            CheckAddress(&Item);
-
             InsertUninitialized(Index, 1);
             ElementType* Ptr = GetData() + Index;
-            ::new (static_cast<void*>(Ptr)) ElementType(std::move(Item));
+            ::new (Ptr) ElementType(Item);
             return *Ptr;
         }
 
         /**
-         * Inserts a given element into the array at given location.
-         *
-         * @param Item The element to insert.
-         * @param Index Tells where to insert the new element.
-         * @return A reference to the newly-inserted element.
+         * @brief Insert element at index and return reference
+         * @param Item  Element to insert (moved)
+         * @param Index Position to insert at
+         * @returns Reference to the inserted element
          */
-        [[nodiscard]] ElementType& Insert_GetRef(const ElementType& Item, SizeType Index)
-        {
-            CheckAddress(&Item);
-
-            InsertUninitialized(Index, 1);
-            ElementType* Ptr = GetData() + Index;
-            ::new (static_cast<void*>(Ptr)) ElementType(Item);
-            return *Ptr;
-        }
-
-        /**
-         * Constructs a new item at a specified index, possibly reallocating the whole array to fit.
-         *
-         * @param Index The index to add the item at.
-         * @param Args The arguments to forward to the constructor of the new item.
-         */
-        template <typename... ArgsType>
-        OLO_FINLINE void EmplaceAt(SizeType Index, ArgsType&&... Args)
-        {
-            InsertUninitialized(Index, 1);
-            ::new (static_cast<void*>(GetData() + Index)) ElementType(std::forward<ArgsType>(Args)...);
-        }
-
-        /**
-         * Constructs a new item at a specified index, possibly reallocating the whole array to fit.
-         *
-         * @param Index The index to add the item at.
-         * @param Args The arguments to forward to the constructor of the new item.
-         * @return A reference to the newly-inserted element.
-         */
-        template <typename... ArgsType>
-        [[nodiscard]] OLO_FINLINE ElementType& EmplaceAt_GetRef(SizeType Index, ArgsType&&... Args)
+        ElementType& Insert_GetRef(ElementType&& Item, SizeType Index)
         {
             InsertUninitialized(Index, 1);
             ElementType* Ptr = GetData() + Index;
-            ::new (static_cast<void*>(Ptr)) ElementType(std::forward<ArgsType>(Args)...);
+            ::new (Ptr) ElementType(std::move(Item));
             return *Ptr;
         }
 
@@ -1727,14 +1088,13 @@ namespace OloEngine
             OLO_CORE_ASSERT(Index >= 0 && Index <= m_ArrayNum, "InsertUninitialized: Index out of bounds");
             OLO_CORE_ASSERT(Count >= 0, "InsertUninitialized: Count must be non-negative");
 
-            const SizeType OldNum = Private::ReallocGrow<Private::GetAllocatorFlags<AllocatorType>()>(
-                static_cast<u32>(sizeof(ElementType)),
-                static_cast<u32>(alignof(ElementType)),
-                Count,
-                m_AllocatorInstance,
-                m_ArrayNum,
-                m_ArrayMax
-            );
+            const SizeType OldNum = m_ArrayNum;
+            const SizeType NewNum = OldNum + Count;
+
+            if (NewNum > m_ArrayMax)
+            {
+                ResizeGrow(NewNum);
+            }
 
             // Move existing elements to make room
             ElementType* Data = GetData();
@@ -1742,6 +1102,8 @@ namespace OloEngine
             {
                 RelocateConstructItems<ElementType>(Data + Index + Count, Data + Index, OldNum - Index);
             }
+
+            m_ArrayNum = NewNum;
         }
 
         /** Insert default-constructed elements at index */
@@ -1759,10 +1121,36 @@ namespace OloEngine
         }
 
         /**
-         * Inserts a zeroed element into the array at given location.
-         *
-         * @param Index Tells where to insert the new element.
-         * @return A reference to the newly-inserted element.
+         * @brief Insert uninitialized element at index and return reference
+         * @param Index  Position to insert at
+         * @returns Reference to the inserted (uninitialized) element
+         * 
+         * @warning The returned reference points to uninitialized memory.
+         *          You must construct an object at this location before use.
+         */
+        ElementType& InsertUninitialized_GetRef(SizeType Index)
+        {
+            InsertUninitialized(Index, 1);
+            return GetData()[Index];
+        }
+
+        /**
+         * @brief Insert default-constructed element at index and return reference
+         * @param Index  Position to insert at
+         * @returns Reference to the inserted element
+         */
+        ElementType& InsertDefaulted_GetRef(SizeType Index)
+        {
+            InsertUninitialized(Index, 1);
+            ElementType* Ptr = GetData() + Index;
+            ::new (Ptr) ElementType();
+            return *Ptr;
+        }
+
+        /**
+         * @brief Insert zero-initialized element at index and return reference
+         * @param Index  Position to insert at
+         * @returns Reference to the inserted element
          */
         ElementType& InsertZeroed_GetRef(SizeType Index)
         {
@@ -1773,93 +1161,30 @@ namespace OloEngine
         }
 
         /**
-         * Inserts a default-constructed element into the array at a given location.
-         *
-         * @param Index Tells where to insert the new element.
-         * @return A reference to the newly-inserted element.
+         * @brief Construct element in-place at specific index
+         * @param Index  Position to insert at
+         * @param Args   Arguments forwarded to element constructor
+         * @returns Reference to the newly constructed element
          */
-        ElementType& InsertDefaulted_GetRef(SizeType Index)
+        template <typename... ArgsType>
+        ElementType& EmplaceAt(SizeType Index, ArgsType&&... Args)
         {
             InsertUninitialized(Index, 1);
             ElementType* Ptr = GetData() + Index;
-            DefaultConstructItems<ElementType>(static_cast<void*>(Ptr), 1);
+            ::new (Ptr) ElementType(std::forward<ArgsType>(Args)...);
             return *Ptr;
         }
 
         /**
-         * Inserts given elements into the array at given location.
-         *
-         * @param InitList Array of elements to insert.
-         * @param InIndex Tells where to insert the new elements.
-         * @returns Location at which the item was inserted.
+         * @brief Construct element in-place at specific index and return reference
+         * @param Index  Position to insert at
+         * @param Args   Arguments forwarded to element constructor
+         * @returns Reference to the newly constructed element
          */
-        SizeType Insert(std::initializer_list<ElementType> InitList, const SizeType InIndex)
+        template <typename... ArgsType>
+        ElementType& EmplaceAt_GetRef(SizeType Index, ArgsType&&... Args)
         {
-            SizeType NumNewElements = static_cast<SizeType>(InitList.size());
-
-            InsertUninitialized(InIndex, NumNewElements);
-            ConstructItems<ElementType>(static_cast<void*>(GetData() + InIndex), InitList.begin(), NumNewElements);
-
-            return InIndex;
-        }
-
-        /**
-         * Inserts given elements into the array at given location.
-         *
-         * @param Items Array of elements to insert.
-         * @param InIndex Tells where to insert the new elements.
-         * @returns Location at which the item was inserted.
-         */
-        template <typename OtherAllocator>
-        SizeType Insert(const TArray<ElementType, OtherAllocator>& Items, const SizeType InIndex)
-        {
-            OLO_CORE_ASSERT(static_cast<const void*>(this) != static_cast<const void*>(&Items), "Insert: Cannot insert array into itself");
-
-            auto NumNewElements = Items.Num();
-
-            InsertUninitialized(InIndex, NumNewElements);
-            ConstructItems<ElementType>(static_cast<void*>(GetData() + InIndex), Items.GetData(), NumNewElements);
-
-            return InIndex;
-        }
-
-        /**
-         * Inserts given elements into the array at given location.
-         *
-         * @param Items Array of elements to insert.
-         * @param InIndex Tells where to insert the new elements.
-         * @returns Location at which the item was inserted.
-         */
-        template <typename OtherAllocator>
-        SizeType Insert(TArray<ElementType, OtherAllocator>&& Items, const SizeType InIndex)
-        {
-            OLO_CORE_ASSERT(static_cast<const void*>(this) != static_cast<const void*>(&Items), "Insert: Cannot insert array into itself");
-
-            auto NumNewElements = Items.Num();
-
-            InsertUninitialized(InIndex, NumNewElements);
-            RelocateConstructItems<ElementType>(static_cast<void*>(GetData() + InIndex), Items.GetData(), NumNewElements);
-            Items.m_ArrayNum = 0;
-
-            return InIndex;
-        }
-
-        /**
-         * Inserts a raw array of elements at a particular index in the TArray.
-         *
-         * @param Ptr A pointer to an array of elements to add.
-         * @param Count The number of elements to insert from Ptr.
-         * @param Index The index to insert the elements at.
-         * @return The index of the first element inserted.
-         */
-        SizeType Insert(const ElementType* Ptr, SizeType Count, SizeType Index)
-        {
-            OLO_CORE_ASSERT(Ptr != nullptr, "Insert: null pointer");
-
-            InsertUninitialized(Index, Count);
-            ConstructItems<ElementType>(static_cast<void*>(GetData() + Index), Ptr, Count);
-
-            return Index;
+            return EmplaceAt(Index, std::forward<ArgsType>(Args)...);
         }
 
         // ====================================================================
@@ -1867,7 +1192,7 @@ namespace OloEngine
         // ====================================================================
 
         /** Remove element at index */
-        void RemoveAt(SizeType Index, SizeType Count = 1, EAllowShrinking AllowShrinking = Private::AllowShrinkingByDefault<AllocatorType>())
+        void RemoveAt(SizeType Index, SizeType Count = 1, EAllowShrinking AllowShrinking = EAllowShrinking::Yes)
         {
             OLO_CORE_ASSERT(Index >= 0 && Index + Count <= m_ArrayNum, "RemoveAt: Index out of bounds");
             OLO_CORE_ASSERT(Count >= 0, "RemoveAt: Count must be non-negative");
@@ -1890,19 +1215,13 @@ namespace OloEngine
 
                 if (AllowShrinking == EAllowShrinking::Yes)
                 {
-                    Private::ReallocShrink<Private::GetAllocatorFlags<AllocatorType>()>(
-                        static_cast<u32>(sizeof(ElementType)),
-                        static_cast<u32>(alignof(ElementType)),
-                        m_AllocatorInstance,
-                        m_ArrayNum,
-                        m_ArrayMax
-                    );
+                    ResizeShrink();
                 }
             }
         }
 
         /** Remove element at index by swapping with last element (faster, changes order) */
-        void RemoveAtSwap(SizeType Index, SizeType Count = 1, EAllowShrinking AllowShrinking = Private::AllowShrinkingByDefault<AllocatorType>())
+        void RemoveAtSwap(SizeType Index, SizeType Count = 1, EAllowShrinking AllowShrinking = EAllowShrinking::Yes)
         {
             OLO_CORE_ASSERT(Index >= 0 && Index + Count <= m_ArrayNum, "RemoveAtSwap: Index out of bounds");
             OLO_CORE_ASSERT(Count >= 0, "RemoveAtSwap: Count must be non-negative");
@@ -1925,28 +1244,16 @@ namespace OloEngine
 
                 if (AllowShrinking == EAllowShrinking::Yes)
                 {
-                    Private::ReallocShrink<Private::GetAllocatorFlags<AllocatorType>()>(
-                        static_cast<u32>(sizeof(ElementType)),
-                        static_cast<u32>(alignof(ElementType)),
-                        m_AllocatorInstance,
-                        m_ArrayNum,
-                        m_ArrayMax
-                    );
+                    ResizeShrink();
                 }
             }
         }
 
-        /** 
-         * Remove and return the last element
-         * @param AllowShrinking Whether to allow shrinking the allocation
-         * @return The removed element (moved)
-         */
-        ElementType Pop(EAllowShrinking AllowShrinking = Private::AllowShrinkingByDefault<AllocatorType>())
+        /** Remove last element */
+        void Pop(EAllowShrinking AllowShrinking = EAllowShrinking::Yes)
         {
             OLO_CORE_ASSERT(m_ArrayNum > 0, "Pop: Array is empty");
-            ElementType Result = std::move(GetData()[m_ArrayNum - 1]);
             RemoveAt(m_ArrayNum - 1, 1, AllowShrinking);
-            return Result;
         }
 
         /** Remove all elements */
@@ -1954,8 +1261,6 @@ namespace OloEngine
         {
             DestructItems(GetData(), m_ArrayNum);
             m_ArrayNum = 0;
-
-            SlackTrackerNumChanged();
 
             if (ExpectedNumElements > m_ArrayMax)
             {
@@ -1968,14 +1273,11 @@ namespace OloEngine
         {
             DestructItems(GetData(), m_ArrayNum);
             m_ArrayNum = 0;
-
-            SlackTrackerNumChanged();
-
             ResizeAllocation(NewSize);
         }
 
         /** Set number of elements (destructs extra or default-constructs new) */
-        void SetNum(SizeType NewNum, EAllowShrinking AllowShrinking = Private::AllowShrinkingByDefault<AllocatorType>())
+        void SetNum(SizeType NewNum, EAllowShrinking AllowShrinking = EAllowShrinking::Yes)
         {
             OLO_CORE_ASSERT(NewNum >= 0, "SetNum: NewNum must be non-negative");
 
@@ -1991,7 +1293,7 @@ namespace OloEngine
         }
 
         /** Set number of elements with uninitialized new elements */
-        void SetNumUninitialized(SizeType NewNum, EAllowShrinking AllowShrinking = Private::AllowShrinkingByDefault<AllocatorType>())
+        void SetNumUninitialized(SizeType NewNum, EAllowShrinking AllowShrinking = EAllowShrinking::Yes)
         {
             OLO_CORE_ASSERT(NewNum >= 0, "SetNumUninitialized: NewNum must be non-negative");
 
@@ -2006,7 +1308,7 @@ namespace OloEngine
         }
 
         /** Set number of elements with zeroed new elements */
-        void SetNumZeroed(SizeType NewNum, EAllowShrinking AllowShrinking = Private::AllowShrinkingByDefault<AllocatorType>())
+        void SetNumZeroed(SizeType NewNum, EAllowShrinking AllowShrinking = EAllowShrinking::Yes)
         {
             OLO_CORE_ASSERT(NewNum >= 0, "SetNumZeroed: NewNum must be non-negative");
 
@@ -2021,82 +1323,18 @@ namespace OloEngine
         }
 
         /**
-         * Does nothing except setting the new number of elements in the array.
-         * Does not destruct items, does not de-allocate memory.
-         * @param NewNum New number of elements in the array, must be <= the current number of elements in the array.
+         * @brief Set the number of elements without construction/destruction
+         * @param NewNum  New number of elements (must be <= current Num())
+         * 
+         * This is an unsafe internal method that only updates ArrayNum.
+         * Does not destruct items, does not deallocate memory.
+         * NewNum must be <= current Num() and >= 0.
          */
         void SetNumUnsafeInternal(SizeType NewNum)
         {
-            OLO_CORE_ASSERT(NewNum <= m_ArrayNum && NewNum >= 0, "SetNumUnsafeInternal: NewNum out of bounds");
+            OLO_CORE_ASSERT(NewNum >= 0 && NewNum <= m_ArrayNum, 
+                "SetNumUnsafeInternal: NewNum must be in range [0, %d]", m_ArrayNum);
             m_ArrayNum = NewNum;
-
-            SlackTrackerNumChanged();
-        }
-
-        /**
-         * Sets the size of the array, filling it with the given element.
-         *
-         * @param Element The element to fill array with.
-         * @param Number The number of elements that the array should be able to contain after allocation.
-         */
-        void Init(const ElementType& Element, SizeType Number)
-        {
-            Empty(Number);
-            for (SizeType Index = 0; Index < Number; ++Index)
-            {
-                Add(Element);
-            }
-        }
-
-        /**
-         * Removes the first occurrence of the specified item in the array,
-         * maintaining order but not indices.
-         *
-         * @param Item The item to remove.
-         * @returns The number of items removed. For RemoveSingleItem, this is always either 0 or 1.
-         */
-        SizeType RemoveSingle(const ElementType& Item)
-        {
-            SizeType Index = Find(Item);
-            if (Index == INDEX_NONE)
-            {
-                return 0;
-            }
-
-            auto* RemovePtr = GetData() + Index;
-
-            // Destruct items that match the specified Item.
-            DestructItems(RemovePtr, 1);
-            RelocateConstructItems<ElementType>(static_cast<void*>(RemovePtr), RemovePtr + 1, m_ArrayNum - (Index + 1));
-
-            // Update the array count
-            --m_ArrayNum;
-
-            // Removed one item
-            return 1;
-        }
-
-        /**
-         * Removes the first occurrence of the specified item in the array.
-         * This version is much more efficient O(Count) than RemoveSingle O(ArrayNum),
-         * but does not preserve the order.
-         *
-         * @param Item Item to remove from array.
-         * @param AllowShrinking By default, arrays with large amounts of slack will automatically shrink.
-         * @returns The number of items removed. For RemoveSingleItem, this is always either 0 or 1.
-         */
-        SizeType RemoveSingleSwap(const ElementType& Item, EAllowShrinking AllowShrinking = Private::AllowShrinkingByDefault<AllocatorType>())
-        {
-            SizeType Index = Find(Item);
-            if (Index == INDEX_NONE)
-            {
-                return 0;
-            }
-
-            RemoveAtSwap(Index, 1, AllowShrinking);
-
-            // Removed one item
-            return 1;
         }
 
         // ====================================================================
@@ -2339,8 +1577,13 @@ namespace OloEngine
         // Removing by Value
         // ====================================================================
 
-        /** Remove first occurrence of element */
-        SizeType Remove(const ElementType& Item)
+        /**
+         * @brief Removes the first occurrence of the specified item, maintaining order
+         * @param Item  The item to remove
+         * @returns Number of items removed (0 or 1)
+         * @see Remove, RemoveAll, RemoveSingleSwap
+         */
+        SizeType RemoveSingle(const ElementType& Item)
         {
             const SizeType Index = Find(Item);
             if (Index != INDEX_NONE)
@@ -2352,133 +1595,139 @@ namespace OloEngine
         }
 
         /**
-         * Removes as many instances of Item as there are in the array, maintaining
-         * order but not indices.
-         *
-         * @param Item Item to remove from array.
-         * @returns Number of removed elements.
+         * @brief Removes all instances of Item, maintaining order
+         * @param Item  Item to remove from array
+         * @returns Number of removed elements
+         * @see RemoveAll, RemoveSingle, RemoveSwap
          */
-        SizeType RemoveAll(const ElementType& Item)
+        SizeType Remove(const ElementType& Item)
         {
-            CheckAddress(&Item);
-
-            // Element is non-const to preserve compatibility with existing code with a non-const operator==() member function
-            return RemoveAll([&Item](ElementType& Element) { return Element == Item; });
+            return RemoveAll([&Item](const ElementType& Element) { return Element == Item; });
         }
 
         /**
-         * Remove all instances that match the predicate, maintaining order but not indices.
-         * Optimized to work with runs of matches/non-matches.
-         *
-         * @param Predicate Predicate class instance
-         * @returns Number of removed elements.
+         * @brief Remove all instances that match the predicate, maintaining order
+         * @param Predicate  Predicate returning true for elements to remove
+         * @returns Number of removed elements
+         * @see Remove, RemoveAllSwap, RemoveSingle
          */
-        template <class PREDICATE_CLASS>
-        SizeType RemoveAll(const PREDICATE_CLASS& Predicate)
+        template <typename Predicate>
+        SizeType RemoveAll(Predicate Pred)
         {
             const SizeType OriginalNum = m_ArrayNum;
-            if (!OriginalNum)
+            if (OriginalNum == 0)
             {
-                return 0; // nothing to do, loop assumes one item so need to deal with this edge case here
+                return 0;
             }
 
             ElementType* Data = GetData();
-
             SizeType WriteIndex = 0;
             SizeType ReadIndex = 0;
-            bool bNotMatch = !Predicate(Data[ReadIndex]); // use a ! to guarantee it can't be anything other than zero or one
+
+            // Optimized removal that works with runs of matches/non-matches
+            bool bNotMatch = !Pred(Data[ReadIndex]);
             do
             {
                 SizeType RunStartIndex = ReadIndex++;
-                while (ReadIndex < OriginalNum && bNotMatch == !Predicate(Data[ReadIndex]))
+                while (ReadIndex < OriginalNum && bNotMatch == !Pred(Data[ReadIndex]))
                 {
-                    ReadIndex++;
+                    ++ReadIndex;
                 }
                 SizeType RunLength = ReadIndex - RunStartIndex;
-                OLO_CORE_ASSERT(RunLength > 0, "RemoveAll: RunLength must be positive");
+
                 if (bNotMatch)
                 {
-                    // this was a non-matching run, we need to move it
+                    // Non-matching run - relocate it
                     if (WriteIndex != RunStartIndex)
                     {
-                        RelocateConstructItems<ElementType>(static_cast<void*>(Data + WriteIndex), Data + RunStartIndex, RunLength);
+                        RelocateConstructItems<ElementType>(Data + WriteIndex, Data + RunStartIndex, RunLength);
                     }
                     WriteIndex += RunLength;
                 }
                 else
                 {
-                    // this was a matching run, delete it
+                    // Matching run - destruct it
                     DestructItems(Data + RunStartIndex, RunLength);
                 }
                 bNotMatch = !bNotMatch;
             } while (ReadIndex < OriginalNum);
 
             m_ArrayNum = WriteIndex;
-
-            SlackTrackerNumChanged();
-
             return OriginalNum - m_ArrayNum;
         }
 
-        /** Remove first occurrence by swapping with last */
-        SizeType RemoveSwap(const ElementType& Item)
+        /**
+         * @brief Removes the first occurrence using swap (O(1), does not preserve order)
+         * @param Item  The item to remove
+         * @param AllowShrinking  Whether to allow shrinking the allocation
+         * @returns Number of items removed (0 or 1)
+         * @see RemoveSingle, RemoveSwap, RemoveAllSwap
+         */
+        SizeType RemoveSingleSwap(const ElementType& Item, EAllowShrinking AllowShrinking = EAllowShrinking::Yes)
         {
             const SizeType Index = Find(Item);
             if (Index != INDEX_NONE)
             {
-                RemoveAtSwap(Index);
+                RemoveAtSwap(Index, 1, AllowShrinking);
                 return 1;
             }
             return 0;
         }
 
-        /** Remove all matching predicate (alias for RemoveAll with predicate) */
-        template <typename Predicate>
-        SizeType RemoveAllByPredicate(Predicate Pred)
-        {
-            return RemoveAll(Pred);
-        }
-
         /**
-         * Remove all instances that match the predicate.
-         *
-         * This version is much more efficient than RemoveAll O(ArrayNum^2) because it uses
-         * RemoveAtSwap internally which is O(Count) instead of RemoveAt which is O(ArrayNum),
-         * but does not preserve the order.
-         *
-         * @param Predicate Predicate to use
-         * @param AllowShrinking By default, arrays with large amounts of slack will automatically shrink.
-         * @returns Number of elements removed.
+         * @brief Removes all instances of Item using swap (O(Count), does not preserve order)
+         * @param Item  Item to remove from array
+         * @param AllowShrinking  Whether to allow shrinking the allocation
+         * @returns Number of removed elements
+         * @see Remove, RemoveSingleSwap, RemoveAllSwap
          */
-        template <class PREDICATE_CLASS>
-        SizeType RemoveAllSwap(const PREDICATE_CLASS& Predicate, EAllowShrinking AllowShrinking = Private::AllowShrinkingByDefault<AllocatorType>())
+        SizeType RemoveSwap(const ElementType& Item, EAllowShrinking AllowShrinking = EAllowShrinking::Yes)
         {
-            bool bRemoved = false;
             const SizeType OriginalNum = m_ArrayNum;
-            for (SizeType ItemIndex = 0; ItemIndex < Num();)
+            for (SizeType Index = 0; Index < m_ArrayNum; )
             {
-                if (Predicate((*this)[ItemIndex]))
+                if (GetData()[Index] == Item)
                 {
-                    bRemoved = true;
-                    RemoveAtSwap(ItemIndex, 1, EAllowShrinking::No);
+                    RemoveAtSwap(Index, 1, EAllowShrinking::No);
                 }
                 else
                 {
-                    ++ItemIndex;
+                    ++Index;
                 }
             }
-
-            if (bRemoved && AllowShrinking == EAllowShrinking::Yes)
+            if (AllowShrinking == EAllowShrinking::Yes && m_ArrayNum < OriginalNum)
             {
-                Private::ReallocShrink<Private::GetAllocatorFlags<AllocatorType>()>(
-                    static_cast<u32>(sizeof(ElementType)),
-                    static_cast<u32>(alignof(ElementType)),
-                    m_AllocatorInstance,
-                    m_ArrayNum,
-                    m_ArrayMax
-                );
+                ResizeShrink();
             }
+            return OriginalNum - m_ArrayNum;
+        }
 
+        /**
+         * @brief Remove all instances matching predicate using swap (does not preserve order)
+         * @param Predicate  Predicate returning true for elements to remove
+         * @param AllowShrinking  Whether to allow shrinking the allocation
+         * @returns Number of removed elements
+         * @see RemoveAll, RemoveSwap, RemoveSingleSwap
+         */
+        template <typename Predicate>
+        SizeType RemoveAllSwap(Predicate Pred, EAllowShrinking AllowShrinking = EAllowShrinking::Yes)
+        {
+            const SizeType OriginalNum = m_ArrayNum;
+            for (SizeType Index = 0; Index < m_ArrayNum; )
+            {
+                if (Pred(GetData()[Index]))
+                {
+                    RemoveAtSwap(Index, 1, EAllowShrinking::No);
+                }
+                else
+                {
+                    ++Index;
+                }
+            }
+            if (AllowShrinking == EAllowShrinking::Yes && m_ArrayNum < OriginalNum)
+            {
+                ResizeShrink();
+            }
             return OriginalNum - m_ArrayNum;
         }
 
@@ -2576,17 +1825,6 @@ namespace OloEngine
             return *this;
         }
 
-        /**
-         * Appends the specified initializer list to this array.
-         *
-         * @param InitList The initializer list to append.
-         */
-        TArray& operator+=(std::initializer_list<ElementType> InitList)
-        {
-            Append(InitList);
-            return *this;
-        }
-
         // ====================================================================
         // Comparison
         // ====================================================================
@@ -2603,85 +1841,6 @@ namespace OloEngine
         [[nodiscard]] bool operator!=(const TArray& Other) const
         {
             return !(*this == Other);
-        }
-
-        // ====================================================================
-        // Serialization
-        // ====================================================================
-
-        /**
-         * Bulk serialize array as a single memory blob when loading. Uses regular serialization code for saving
-         * and doesn't serialize at all otherwise (e.g. transient, garbage collection, ...).
-         *
-         * Requirements:
-         *   - T's << operator needs to serialize ALL member variables in the SAME order they are layed out in memory.
-         *   - T's << operator can NOT perform any fixup operations.
-         *   - T can NOT contain any member variables requiring constructor calls or pointers
-         *   - sizeof(ElementType) must be equal to the sum of sizes of it's member variables.
-         *   - Code can not rely on serialization of T if neither IsLoading() nor IsSaving() is true.
-         *   - Can only be called on platforms that either have the same endianness as the one the content was saved with
-         *     or had the endian conversion occur in a cooking process.
-         *
-         * @param Ar FArchive to bulk serialize this TArray to/from
-         * @param bForcePerElementSerialization If true, always use per-element serialization
-         */
-        void BulkSerialize(FArchive& Ar, bool bForcePerElementSerialization = false)
-        {
-            constexpr i32 ElementSize = sizeof(ElementType);
-            // Serialize element size to detect mismatch across platforms.
-            i32 SerializedElementSize = ElementSize;
-            Ar << SerializedElementSize;
-
-            if (bForcePerElementSerialization
-                || (Ar.IsSaving()           // if we are saving, we always do the ordinary serialize as a way to make sure it matches up with bulk serialization
-                && !Ar.IsTransacting())     // but transacting is performance critical, so we skip that
-                || Ar.IsByteSwapping()      // if we are byteswapping, we need to do that per-element
-                )
-            {
-                Ar << *this;
-            }
-            else
-            {
-                CountBytes(Ar);
-                if (Ar.IsLoading())
-                {
-                    // Basic sanity checking to ensure that sizes match.
-                    if (SerializedElementSize != ElementSize)
-                    {
-                        Ar.SetError();
-                        return;
-                    }
-
-                    // Serialize the number of elements, block allocate the right amount of memory and deserialize
-                    // the data as a giant memory blob in a single call to Serialize.
-                    SizeType NewArrayNum = 0;
-                    Ar << NewArrayNum;
-                    if (NewArrayNum < 0 || (std::numeric_limits<SizeType>::max() / static_cast<SizeType>(ElementSize) < NewArrayNum))
-                    {
-                        Ar.SetError();
-                        return;
-                    }
-                    Empty(NewArrayNum);
-                    AddUninitialized(NewArrayNum);
-                    Ar.Serialize(GetData(), static_cast<i64>(NewArrayNum) * static_cast<i64>(ElementSize));
-                }
-                else if (Ar.IsSaving())
-                {
-                    SizeType ArrayCount = Num();
-                    Ar << ArrayCount;
-                    Ar.Serialize(GetData(), static_cast<i64>(ArrayCount) * static_cast<i64>(ElementSize));
-                }
-            }
-        }
-
-        /**
-         * Count bytes needed to serialize this array.
-         *
-         * @param Ar Archive to count for.
-         */
-        void CountBytes(FArchive& Ar) const
-        {
-            Ar.CountBytes(m_ArrayNum * sizeof(ElementType), m_ArrayMax * sizeof(ElementType));
         }
 
         // ====================================================================
@@ -2740,68 +1899,30 @@ namespace OloEngine
         // Sorting
         // ====================================================================
 
-        /**
-         * Sorts the array assuming < operator is defined for the item type.
-         *
-         * @note: If your array contains raw pointers, they will be automatically dereferenced during sorting.
-         *        Therefore, your array will be sorted by the values being pointed to, rather than the pointers' values.
-         *        If this is not desirable, please use Algo::Sort(MyArray) directly instead.
-         *        The auto-dereferencing behavior does not occur with smart pointers.
-         */
+        /** Sort using operator< */
         void Sort()
         {
-            Algo::Sort(*this, TDereferenceWrapper<ElementType, TLess<>>(TLess<>()));
+            std::sort(begin(), end());
         }
 
-        /**
-         * Sorts the array using user defined predicate class.
-         *
-         * @param Predicate Predicate class instance.
-         *
-         * @note: If your array contains raw pointers, they will be automatically dereferenced during sorting.
-         *        Therefore, your predicate will be passed references rather than pointers.
-         *        If this is not desirable, please use Algo::Sort(MyArray, Predicate) directly instead.
-         *        The auto-dereferencing behavior does not occur with smart pointers.
-         */
-        template <class PREDICATE_CLASS>
-        void Sort(const PREDICATE_CLASS& Predicate)
+        /** Sort using custom predicate */
+        template <typename Predicate>
+        void Sort(Predicate Pred)
         {
-            TDereferenceWrapper<ElementType, PREDICATE_CLASS> PredicateWrapper(Predicate);
-            Algo::Sort(*this, PredicateWrapper);
+            std::sort(begin(), end(), Pred);
         }
 
-        /**
-         * Stable sorts the array assuming < operator is defined for the item type.
-         *
-         * Stable sort is slower than non-stable algorithm.
-         *
-         * @note: If your array contains raw pointers, they will be automatically dereferenced during sorting.
-         *        Therefore, your array will be sorted by the values being pointed to, rather than the pointers' values.
-         *        If this is not desirable, please use Algo::StableSort(MyArray) directly instead.
-         *        The auto-dereferencing behavior does not occur with smart pointers.
-         */
+        /** Stable sort using operator< */
         void StableSort()
         {
-            Algo::StableSort(*this, TDereferenceWrapper<ElementType, TLess<>>(TLess<>()));
+            std::stable_sort(begin(), end());
         }
 
-        /**
-         * Stable sorts the array using user defined predicate class.
-         *
-         * Stable sort is slower than non-stable algorithm.
-         *
-         * @param Predicate Predicate class instance
-         *
-         * @note: If your array contains raw pointers, they will be automatically dereferenced during sorting.
-         *        Therefore, your predicate will be passed references rather than pointers.
-         *        If this is not desirable, please use Algo::StableSort(MyArray, Predicate) directly instead.
-         *        The auto-dereferencing behavior does not occur with smart pointers.
-         */
-        template <class PREDICATE_CLASS>
-        void StableSort(const PREDICATE_CLASS& Predicate)
+        /** Stable sort using custom predicate */
+        template <typename Predicate>
+        void StableSort(Predicate Pred)
         {
-            TDereferenceWrapper<ElementType, PREDICATE_CLASS> PredicateWrapper(Predicate);
-            Algo::StableSort(*this, PredicateWrapper);
+            std::stable_sort(begin(), end(), Pred);
         }
 
         // ====================================================================
@@ -2809,28 +1930,8 @@ namespace OloEngine
         // ====================================================================
 
         /**
-         * Builds an implicit heap from the array.
-         *
-         * @param Predicate Predicate class instance.
-         *
-         * @note: If your array contains raw pointers, they will be automatically dereferenced during heapification.
-         *        Therefore, your predicate will be passed references rather than pointers.
-         *        The auto-dereferencing behavior does not occur with smart pointers.
-         */
-        template <class PREDICATE_CLASS>
-        OLO_FINLINE void Heapify(const PREDICATE_CLASS& Predicate)
-        {
-            TDereferenceWrapper<ElementType, PREDICATE_CLASS> PredicateWrapper(Predicate);
-            Algo::Heapify(*this, PredicateWrapper);
-        }
-
-        /**
-         * Builds an implicit heap from the array. Assumes < operator is defined
-         * for the template type.
-         *
-         * @note: If your array contains raw pointers, they will be automatically dereferenced during heapification.
-         *        Therefore, your array will be heapified by the values being pointed to, rather than the pointers' values.
-         *        The auto-dereferencing behavior does not occur with smart pointers.
+         * Builds a valid heap from the array using operator<.
+         * The predicate defines a min-heap: smaller elements are parents of larger ones.
          */
         void Heapify()
         {
@@ -2838,148 +1939,141 @@ namespace OloEngine
         }
 
         /**
-         * Adds a new element to the heap.
-         *
-         * @param InItem Item to be added.
-         * @param Predicate Predicate class instance.
-         * @return The index of the new element.
-         *
-         * @note: If your array contains raw pointers, they will be automatically dereferenced during heapification.
-         *        Therefore, your predicate will be passed references rather than pointers.
-         *        The auto-dereferencing behavior does not occur with smart pointers.
+         * Builds a valid heap from the array using a custom predicate.
+         * @param Predicate Binary predicate - returns true if first argument should precede second
          */
-        template <class PREDICATE_CLASS>
-        SizeType HeapPush(ElementType&& InItem, const PREDICATE_CLASS& Predicate)
+        template <typename Predicate>
+        void Heapify(Predicate Pred)
         {
-            // Add at the end, then sift up
-            Add(std::move(InItem));
-            TDereferenceWrapper<ElementType, PREDICATE_CLASS> PredicateWrapper(Predicate);
-            SizeType Result = HeapSiftUp(GetData(), static_cast<SizeType>(0), Num() - 1, FIdentityFunctor(), PredicateWrapper);
+            if (m_ArrayNum <= 1)
+            {
+                return;
+            }
 
-            return Result;
+            ElementType* Data = GetData();
+            SizeType Index = HeapGetParentIndex(m_ArrayNum - 1);
+            for (;;)
+            {
+                HeapSiftDown(Index, m_ArrayNum, Pred);
+                if (Index == 0)
+                {
+                    return;
+                }
+                --Index;
+            }
         }
 
         /**
          * Adds a new element to the heap.
-         *
-         * @param InItem Item to be added.
-         * @param Predicate Predicate class instance.
-         * @return The index of the new element.
-         *
-         * @note: If your array contains raw pointers, they will be automatically dereferenced during heapification.
-         *        Therefore, your predicate will be passed references rather than pointers.
-         *        The auto-dereferencing behavior does not occur with smart pointers.
+         * @param Item The element to add
+         * @returns The index of the new element
          */
-        template <class PREDICATE_CLASS>
-        SizeType HeapPush(const ElementType& InItem, const PREDICATE_CLASS& Predicate)
+        SizeType HeapPush(const ElementType& Item)
         {
-            // Add at the end, then sift up
-            Add(InItem);
-            TDereferenceWrapper<ElementType, PREDICATE_CLASS> PredicateWrapper(Predicate);
-            SizeType Result = HeapSiftUp(GetData(), static_cast<SizeType>(0), Num() - 1, FIdentityFunctor(), PredicateWrapper);
-
-            return Result;
+            return HeapPush(Item, TLess<ElementType>());
         }
 
         /**
-         * Adds a new element to the heap. Assumes < operator is defined for the
-         * template type.
-         *
-         * @param InItem Item to be added.
-         * @return The index of the new element.
-         *
-         * @note: If your array contains raw pointers, they will be automatically dereferenced during heapification.
-         *        Therefore, your array will be heapified by the values being pointed to, rather than the pointers' values.
-         *        The auto-dereferencing behavior does not occur with smart pointers.
+         * Adds a new element to the heap.
+         * @param Item The element to add (moved)
+         * @returns The index of the new element
          */
-        SizeType HeapPush(ElementType&& InItem)
+        SizeType HeapPush(ElementType&& Item)
         {
-            return HeapPush(std::move(InItem), TLess<ElementType>());
+            return HeapPush(std::move(Item), TLess<ElementType>());
         }
 
         /**
-         * Adds a new element to the heap. Assumes < operator is defined for the
-         * template type.
-         *
-         * @param InItem Item to be added.
-         * @return The index of the new element.
-         *
-         * @note: If your array contains raw pointers, they will be automatically dereferenced during heapification.
-         *        Therefore, your array will be heapified by the values being pointed to, rather than the pointers' values.
-         *        The auto-dereferencing behavior does not occur with smart pointers.
+         * Adds a new element to the heap using a custom predicate.
+         * @param Item The element to add
+         * @param Predicate Binary predicate for heap ordering
+         * @returns The index of the new element
          */
-        SizeType HeapPush(const ElementType& InItem)
+        template <typename Predicate>
+        SizeType HeapPush(const ElementType& Item, Predicate Pred)
         {
-            return HeapPush(InItem, TLess<ElementType>());
+            const SizeType Index = Add(Item);
+            return HeapSiftUp(0, Index, Pred);
+        }
+
+        /**
+         * Adds a new element to the heap using a custom predicate.
+         * @param Item The element to add (moved)
+         * @param Predicate Binary predicate for heap ordering
+         * @returns The index of the new element
+         */
+        template <typename Predicate>
+        SizeType HeapPush(ElementType&& Item, Predicate Pred)
+        {
+            const SizeType Index = Add(std::move(Item));
+            return HeapSiftUp(0, Index, Pred);
         }
 
         /**
          * Removes the top element from the heap.
-         *
-         * @param OutItem The removed item.
-         * @param Predicate Predicate class instance.
-         * @param AllowShrinking By default, arrays with large amounts of slack will automatically shrink.
-         *
-         * @note: If your array contains raw pointers, they will be automatically dereferenced during heapification.
-         *        Therefore, your predicate will be passed references rather than pointers.
-         *        The auto-dereferencing behavior does not occur with smart pointers.
+         * @param OutItem Receives the removed element
+         * @param AllowShrinking Whether to allow shrinking the allocation
          */
-        template <class PREDICATE_CLASS>
-        void HeapPop(ElementType& OutItem, const PREDICATE_CLASS& Predicate, EAllowShrinking AllowShrinking = Private::AllowShrinkingByDefault<AllocatorType>())
-        {
-            OutItem = std::move((*this)[0]);
-            RemoveAtSwap(0, 1, AllowShrinking);
-
-            TDereferenceWrapper<ElementType, PREDICATE_CLASS> PredicateWrapper(Predicate);
-            HeapSiftDown(GetData(), static_cast<SizeType>(0), Num(), FIdentityFunctor(), PredicateWrapper);
-        }
-
-        /**
-         * Removes the top element from the heap. Assumes < operator is defined for
-         * the template type.
-         *
-         * @param OutItem The removed item.
-         * @param AllowShrinking By default, arrays with large amounts of slack will automatically shrink.
-         *
-         * @note: If your array contains raw pointers, they will be automatically dereferenced during heapification.
-         *        Therefore, your array will be heapified by the values being pointed to, rather than the pointers' values.
-         *        The auto-dereferencing behavior does not occur with smart pointers.
-         */
-        void HeapPop(ElementType& OutItem, EAllowShrinking AllowShrinking = Private::AllowShrinkingByDefault<AllocatorType>())
+        void HeapPop(ElementType& OutItem, EAllowShrinking AllowShrinking = EAllowShrinking::Yes)
         {
             HeapPop(OutItem, TLess<ElementType>(), AllowShrinking);
         }
 
         /**
-         * Removes the top element from the heap.
-         *
-         * @param Predicate Predicate class instance.
-         * @param AllowShrinking By default, arrays with large amounts of slack will automatically shrink.
-         *
-         * @note: If your array contains raw pointers, they will be automatically dereferenced during heapification.
-         *        Therefore, your predicate will be passed references rather than pointers.
-         *        The auto-dereferencing behavior does not occur with smart pointers.
+         * Removes the top element from the heap using a custom predicate.
+         * @param OutItem Receives the removed element
+         * @param Predicate Binary predicate for heap ordering
+         * @param AllowShrinking Whether to allow shrinking the allocation
          */
-        template <class PREDICATE_CLASS>
-        void HeapPopDiscard(const PREDICATE_CLASS& Predicate, EAllowShrinking AllowShrinking = Private::AllowShrinkingByDefault<AllocatorType>())
+        template <typename Predicate>
+        void HeapPop(ElementType& OutItem, Predicate Pred, EAllowShrinking AllowShrinking = EAllowShrinking::Yes)
         {
-            RemoveAtSwap(0, 1, AllowShrinking);
-            TDereferenceWrapper<ElementType, PREDICATE_CLASS> PredicateWrapper(Predicate);
-            HeapSiftDown(GetData(), static_cast<SizeType>(0), Num(), FIdentityFunctor(), PredicateWrapper);
+            OLO_CORE_ASSERT(m_ArrayNum > 0, "HeapPop: Array is empty");
+
+            OutItem = std::move(GetData()[0]);
+            RemoveAtSwap(0, 1, EAllowShrinking::No);
+
+            if (m_ArrayNum > 0)
+            {
+                HeapSiftDown(0, m_ArrayNum, Pred);
+            }
+
+            if (AllowShrinking == EAllowShrinking::Yes)
+            {
+                ResizeShrink();
+            }
         }
 
         /**
-         * Removes the top element from the heap. Assumes < operator is defined for the template type.
-         *
-         * @param AllowShrinking By default, arrays with large amounts of slack will automatically shrink.
-         *
-         * @note: If your array contains raw pointers, they will be automatically dereferenced during heapification.
-         *        Therefore, your array will be heapified by the values being pointed to, rather than the pointers' values.
-         *        The auto-dereferencing behavior does not occur with smart pointers.
+         * Removes the top element from the heap, discarding it.
+         * @param AllowShrinking Whether to allow shrinking the allocation
          */
-        void HeapPopDiscard(EAllowShrinking AllowShrinking = Private::AllowShrinkingByDefault<AllocatorType>())
+        void HeapPopDiscard(EAllowShrinking AllowShrinking = EAllowShrinking::Yes)
         {
             HeapPopDiscard(TLess<ElementType>(), AllowShrinking);
+        }
+
+        /**
+         * Removes the top element from the heap using a custom predicate, discarding it.
+         * @param Predicate Binary predicate for heap ordering
+         * @param AllowShrinking Whether to allow shrinking the allocation
+         */
+        template <typename Predicate>
+        void HeapPopDiscard(Predicate Pred, EAllowShrinking AllowShrinking = EAllowShrinking::Yes)
+        {
+            OLO_CORE_ASSERT(m_ArrayNum > 0, "HeapPopDiscard: Array is empty");
+
+            RemoveAtSwap(0, 1, EAllowShrinking::No);
+
+            if (m_ArrayNum > 0)
+            {
+                HeapSiftDown(0, m_ArrayNum, Pred);
+            }
+
+            if (AllowShrinking == EAllowShrinking::Yes)
+            {
+                ResizeShrink();
+            }
         }
 
         /**
@@ -2999,80 +2093,38 @@ namespace OloEngine
         }
 
         /**
-         * Verifies the heap.
-         *
-         * @param Predicate Predicate class instance.
+         * Removes an element at a specific index from the heap, maintaining heap property.
+         * @param Index The index of the element to remove
+         * @param Predicate Binary predicate for heap ordering
+         * @param AllowShrinking Whether to allow shrinking the allocation
          */
-        template <class PREDICATE_CLASS>
-        void VerifyHeap(const PREDICATE_CLASS& Predicate)
+        template <typename Predicate>
+        void HeapRemoveAt(SizeType Index, Predicate Pred, EAllowShrinking AllowShrinking = EAllowShrinking::Yes)
         {
-            OLO_CORE_ASSERT(Algo::IsHeap(*this, Predicate), "VerifyHeap: Heap property violated");
-        }
+            OLO_CORE_ASSERT(IsValidIndex(Index), "HeapRemoveAt: Invalid index");
 
-        /**
-         * Removes an element from the heap.
-         *
-         * @param Index Position at which to remove item.
-         * @param Predicate Predicate class instance.
-         * @param AllowShrinking By default, arrays with large amounts of slack will automatically shrink.
-         *
-         * @note: If your array contains raw pointers, they will be automatically dereferenced during heapification.
-         *        Therefore, your predicate will be passed references rather than pointers.
-         *        The auto-dereferencing behavior does not occur with smart pointers.
-         */
-        template <class PREDICATE_CLASS>
-        void HeapRemoveAt(SizeType Index, const PREDICATE_CLASS& Predicate, EAllowShrinking AllowShrinking = Private::AllowShrinkingByDefault<AllocatorType>())
-        {
-            RemoveAtSwap(Index, 1, AllowShrinking);
+            RemoveAtSwap(Index, 1, EAllowShrinking::No);
 
-            TDereferenceWrapper<ElementType, PREDICATE_CLASS> PredicateWrapper(Predicate);
-            HeapSiftDown(GetData(), Index, Num(), FIdentityFunctor(), PredicateWrapper);
-            
-            // Only sift up if the array is not empty
-            if (Num() > 0)
+            if (Index < m_ArrayNum)
             {
-                HeapSiftUp(GetData(), static_cast<SizeType>(0), std::min(Index, Num() - 1), FIdentityFunctor(), PredicateWrapper);
+                // Sift down, then sift up to restore heap property
+                HeapSiftDown(Index, m_ArrayNum, Pred);
+                HeapSiftUp(0, Index, Pred);
+            }
+
+            if (AllowShrinking == EAllowShrinking::Yes)
+            {
+                ResizeShrink();
             }
         }
 
-        /**
-         * Removes an element from the heap. Assumes < operator is defined for the template type.
-         *
-         * @param Index Position at which to remove item.
-         * @param AllowShrinking By default, arrays with large amounts of slack will automatically shrink.
-         *
-         * @note: If your array contains raw pointers, they will be automatically dereferenced during heapification.
-         *        Therefore, your array will be heapified by the values being pointed to, rather than the pointers' values.
-         *        The auto-dereferencing behavior does not occur with smart pointers.
-         */
-        void HeapRemoveAt(SizeType Index, EAllowShrinking AllowShrinking = Private::AllowShrinkingByDefault<AllocatorType>())
+        void HeapRemoveAt(SizeType Index, EAllowShrinking AllowShrinking = EAllowShrinking::Yes)
         {
             HeapRemoveAt(Index, TLess<ElementType>(), AllowShrinking);
         }
 
         /**
-         * Performs heap sort on the array.
-         *
-         * @param Predicate Predicate class instance.
-         *
-         * @note: If your array contains raw pointers, they will be automatically dereferenced during heapification.
-         *        Therefore, your predicate will be passed references rather than pointers.
-         *        The auto-dereferencing behavior does not occur with smart pointers.
-         */
-        template <class PREDICATE_CLASS>
-        void HeapSort(const PREDICATE_CLASS& Predicate)
-        {
-            TDereferenceWrapper<ElementType, PREDICATE_CLASS> PredicateWrapper(Predicate);
-            Algo::HeapSort(*this, PredicateWrapper);
-        }
-
-        /**
-         * Performs heap sort on the array. Assumes < operator is defined for the
-         * template type.
-         *
-         * @note: If your array contains raw pointers, they will be automatically dereferenced during heapification.
-         *        Therefore, your array will be heapified by the values being pointed to, rather than the pointers' values.
-         *        The auto-dereferencing behavior does not occur with smart pointers.
+         * Sort the array using heap sort algorithm using operator<.
          */
         void HeapSort()
         {
@@ -3080,14 +2132,39 @@ namespace OloEngine
         }
 
         /**
-         * Check if the array satisfies the heap property using a custom predicate.
-         * @param Predicate Binary predicate for heap ordering
-         * @returns true if the array is a valid heap
+         * Sort the array using heap sort algorithm using a custom predicate.
+         * @param Predicate Binary predicate for ordering
          */
         template <typename Predicate>
-        [[nodiscard]] bool IsHeap(Predicate Pred) const
+        void HeapSort(Predicate Pred)
         {
-            return Algo::IsHeap(*this, Pred);
+            if (m_ArrayNum <= 1)
+            {
+                return;
+            }
+
+            // Use reverse predicate to build a max-heap for ascending sort
+            auto ReversePred = [&Pred](const ElementType& A, const ElementType& B) { return Pred(B, A); };
+
+            // Build max-heap
+            ElementType* Data = GetData();
+            SizeType Index = HeapGetParentIndex(m_ArrayNum - 1);
+            for (;;)
+            {
+                HeapSiftDownInternal(Data, Index, m_ArrayNum, ReversePred);
+                if (Index == 0)
+                {
+                    break;
+                }
+                --Index;
+            }
+
+            // Extract elements from max-heap
+            for (SizeType i = m_ArrayNum - 1; i > 0; --i)
+            {
+                std::swap(Data[0], Data[i]);
+                HeapSiftDownInternal(Data, 0, i, ReversePred);
+            }
         }
 
         /**
@@ -3099,39 +2176,78 @@ namespace OloEngine
             return IsHeap(TLess<ElementType>());
         }
 
+        /**
+         * Check if the array satisfies the heap property using a custom predicate.
+         * @param Predicate Binary predicate for heap ordering
+         * @returns true if the array is a valid heap
+         */
+        template <typename Predicate>
+        [[nodiscard]] bool IsHeap(Predicate Pred) const
+        {
+            const ElementType* Data = GetData();
+            for (SizeType i = 1; i < m_ArrayNum; ++i)
+            {
+                const SizeType ParentIndex = HeapGetParentIndex(i);
+                if (Pred(Data[i], Data[ParentIndex]))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /**
+         * @brief Verify heap property and assert if invalid
+         * 
+         * Debug helper that asserts if the array does not satisfy heap property.
+         * Uses operator< for comparison.
+         */
+        void VerifyHeap() const
+        {
+            VerifyHeap(TLess<ElementType>());
+        }
+
+        /**
+         * @brief Verify heap property with custom predicate and assert if invalid
+         * @param Predicate Binary predicate for heap ordering
+         */
+        template <typename Predicate>
+        void VerifyHeap(Predicate Pred) const
+        {
+            OLO_CORE_ASSERT(IsHeap(Pred), "TArray::VerifyHeap - Heap property violated");
+        }
+
         // ====================================================================
         // Swap
         // ====================================================================
 
-        /**
-         * Element-wise array element swap. No bounds checking.
-         *
-         * @param FirstIndexToSwap Position of the first element to swap.
-         * @param SecondIndexToSwap Position of the second element to swap.
-         */
-        OLO_FINLINE void SwapMemory(SizeType FirstIndexToSwap, SizeType SecondIndexToSwap)
+        /** Swap contents with another array */
+        void Swap(SizeType FirstIndex, SizeType SecondIndex)
         {
-            ::Swap(
-                *reinterpret_cast<ElementType*>(reinterpret_cast<u8*>(m_AllocatorInstance.GetAllocation()) + (sizeof(ElementType) * FirstIndexToSwap)),
-                *reinterpret_cast<ElementType*>(reinterpret_cast<u8*>(m_AllocatorInstance.GetAllocation()) + (sizeof(ElementType) * SecondIndexToSwap))
-            );
+            OLO_CORE_ASSERT(IsValidIndex(FirstIndex) && IsValidIndex(SecondIndex), "Swap: Invalid index");
+            if (FirstIndex != SecondIndex)
+            {
+                std::swap(GetData()[FirstIndex], GetData()[SecondIndex]);
+            }
         }
 
         /**
-         * Element-wise array element swap.
-         * This version is doing more sanity checks than SwapMemory.
-         *
-         * @param FirstIndexToSwap Position of the first element to swap.
-         * @param SecondIndexToSwap Position of the second element to swap.
+         * @brief Swap the memory of two elements by index using direct memory swap
+         * @param FirstIndexToSwap   Index of first element
+         * @param SecondIndexToSwap  Index of second element
+         * 
+         * Uses bitwise memory swap rather than using move semantics.
+         * More efficient for types where move is expensive or not available.
          */
-        OLO_FINLINE void Swap(SizeType FirstIndexToSwap, SizeType SecondIndexToSwap)
+        void SwapMemory(SizeType FirstIndexToSwap, SizeType SecondIndexToSwap)
         {
-            OLO_CORE_ASSERT((FirstIndexToSwap >= 0) && (SecondIndexToSwap >= 0), "Swap: indices must be non-negative");
-            OLO_CORE_ASSERT((m_ArrayNum > FirstIndexToSwap) && (m_ArrayNum > SecondIndexToSwap), "Swap: indices out of bounds");
-            if (FirstIndexToSwap != SecondIndexToSwap)
-            {
-                SwapMemory(FirstIndexToSwap, SecondIndexToSwap);
-            }
+            RangeCheck(FirstIndexToSwap);
+            RangeCheck(SecondIndexToSwap);
+            FMemory::Memswap(
+                GetData() + FirstIndexToSwap,
+                GetData() + SecondIndexToSwap,
+                sizeof(ElementType)
+            );
         }
 
     private:
@@ -3215,21 +2331,6 @@ namespace OloEngine
         // Internal Helpers
         // ====================================================================
 
-        /**
-         * Notify slack tracking system that ArrayNum has changed.
-         * Should be called whenever m_ArrayNum is modified outside of
-         * the ReallocGrow/ReallocShrink paths.
-         */
-        OLO_FINLINE void SlackTrackerNumChanged()
-        {
-#if OLO_ENABLE_ARRAY_SLACK_TRACKING
-            if constexpr (TAllocatorTraits<AllocatorType>::SupportsSlackTracking)
-            {
-                m_AllocatorInstance.SlackTrackerLogNum(m_ArrayNum);
-            }
-#endif
-        }
-
         /** Resize allocation to fit at least NewMax elements */
         void ResizeAllocation(SizeType NewMax)
         {
@@ -3272,44 +2373,6 @@ namespace OloEngine
                 ConstructItems<ElementType>(GetData(), Source, Count);
                 m_ArrayNum = Count;
             }
-
-            SlackTrackerNumChanged();
-        }
-
-        /**
-         * Copy from raw pointer to empty array with extra slack.
-         *
-         * @param OtherData Pointer to source data.
-         * @param OtherNum Number of elements to copy.
-         * @param PrevMax Previous allocation max (used for efficient reallocation).
-         * @param ExtraSlack Additional memory to allocate at the end.
-         */
-        template <typename OtherElementType, typename OtherSizeType>
-        void CopyToEmptyWithSlack(const OtherElementType* OtherData, OtherSizeType OtherNum, SizeType PrevMax, SizeType ExtraSlack)
-        {
-            SizeType NewNum = static_cast<SizeType>(OtherNum);
-            OLO_CORE_ASSERT(static_cast<OtherSizeType>(NewNum) == OtherNum, "CopyToEmptyWithSlack: Invalid number of elements");
-
-            m_ArrayNum = NewNum;
-            if (OtherNum || ExtraSlack || PrevMax)
-            {
-                USizeType NewMax = static_cast<USizeType>(NewNum) + static_cast<USizeType>(ExtraSlack);
-
-                // This should only happen when we've underflowed or overflowed SizeType
-                if (static_cast<SizeType>(NewMax) < NewNum)
-                {
-                    Private::OnInvalidArrayNum(static_cast<unsigned long long>(NewMax));
-                }
-
-                ResizeAllocation(m_AllocatorInstance.CalculateSlackReserve(NewNum + ExtraSlack, sizeof(ElementType)));
-                ConstructItems<ElementType>(GetData(), OtherData, OtherNum);
-            }
-            else
-            {
-                m_ArrayMax = m_AllocatorInstance.GetInitialCapacity();
-            }
-
-            SlackTrackerNumChanged();
         }
 
         /** Move or copy helper */
@@ -3323,46 +2386,80 @@ namespace OloEngine
             ToArray.m_ArrayMax = FromArray.m_ArrayMax;
             FromArray.m_ArrayNum = 0;
             FromArray.m_ArrayMax = 0;
+        }
 
-            // Notify slack tracking for both arrays
-            FromArray.SlackTrackerNumChanged();
-            ToArray.SlackTrackerNumChanged();
+    public:
+        // ====================================================================
+        // Serialization Support
+        // ====================================================================
+
+        /**
+         * Count bytes needed to serialize this array.
+         * @param Ar Archive to count for.
+         */
+        void CountBytes(FArchive& Ar) const
+        {
+            Ar.CountBytes(m_ArrayNum * sizeof(ElementType), m_ArrayMax * sizeof(ElementType));
         }
 
         /**
-         * Move or copy with extra slack helper.
+         * Bulk serialize array as a single memory block.
          *
-         * @param ToArray Array to move into.
-         * @param FromArray Array to move from.
-         * @param PrevMax The previous allocated size.
-         * @param ExtraSlack Tells how much extra memory should be preallocated
-         *                   at the end of the array in the number of elements.
+         * IMPORTANT:
+         * - T's << operator can NOT perform any fixup operations
+         * - T can NOT contain any member variables requiring constructor calls or pointers
+         * - sizeof(ElementType) must equal the sum of sizes of its member variables
+         * - Can only be called on platforms with same endianness as saved content
+         *
+         * @param Ar FArchive to bulk serialize this TArray to/from
+         * @param bForcePerElementSerialization If true, always serialize per-element
          */
-        template <typename FromArrayType, typename ToArrayType>
-        static OLO_FINLINE void MoveOrCopyWithSlack(ToArrayType& ToArray, FromArrayType& FromArray, SizeType PrevMax, SizeType ExtraSlack)
+        void BulkSerialize(FArchive& Ar, bool bForcePerElementSerialization = false)
         {
-            if constexpr (Private::CanMoveTArrayPointersBetweenArrayTypes<FromArrayType, ToArrayType>())
+            constexpr i32 ElementSize = sizeof(ElementType);
+            i32 SerializedElementSize = ElementSize;
+            Ar << SerializedElementSize;
+
+            if (bForcePerElementSerialization
+                || (Ar.IsSaving() && !Ar.IsTransacting())
+                || Ar.IsByteSwapping())
             {
-                // Move
-                MoveOrCopy(ToArray, FromArray);
-
-                USizeType LocalArrayNum = static_cast<USizeType>(ToArray.m_ArrayNum);
-                USizeType NewMax        = static_cast<USizeType>(LocalArrayNum) + static_cast<USizeType>(ExtraSlack);
-
-                // This should only happen when we've underflowed or overflowed SizeType
-                if (static_cast<SizeType>(NewMax) < static_cast<SizeType>(LocalArrayNum))
-                {
-                    Private::OnInvalidArrayNum(static_cast<unsigned long long>(ExtraSlack));
-                }
-
-                ToArray.Reserve(NewMax);
+                Ar << *this;
             }
             else
             {
-                // Copy
-                ToArray.CopyToEmptyWithSlack(FromArray.GetData(), FromArray.Num(), PrevMax, ExtraSlack);
+                CountBytes(Ar);
+                if (Ar.IsLoading())
+                {
+                    if (SerializedElementSize != ElementSize)
+                    {
+                        Ar.SetError();
+                        return;
+                    }
+
+                    SizeType NewArrayNum = 0;
+                    Ar << NewArrayNum;
+                    if (NewArrayNum < 0)
+                    {
+                        Ar.SetError();
+                        return;
+                    }
+                    Empty(NewArrayNum);
+                    AddUninitialized(NewArrayNum);
+                    Ar.Serialize(GetData(), static_cast<i64>(NewArrayNum) * static_cast<i64>(ElementSize));
+                }
+                else if (Ar.IsSaving())
+                {
+                    SizeType ArrayCount = Num();
+                    Ar << ArrayCount;
+                    Ar.Serialize(GetData(), static_cast<i64>(ArrayCount) * static_cast<i64>(ElementSize));
+                }
             }
         }
+
+        // Friend declarations for serialization
+        template<typename T, typename Alloc>
+        friend struct TArrayPrivateFriend;
     };
 
     // ============================================================================
@@ -3382,19 +2479,6 @@ namespace OloEngine
     struct TIsContiguousContainer<TArray<T, AllocatorType>>
     {
         static constexpr bool Value = true;
-    };
-
-    /**
-     * @brief TArray can be zero-constructed
-     *
-     * An empty TArray (ArrayNum=0, ArrayMax=0, no allocation) is a valid state,
-     * and zero-initialization produces this state for most allocators.
-     */
-    template <typename T, typename AllocatorType>
-    struct TIsZeroConstructType<TArray<T, AllocatorType>>
-    {
-        static constexpr bool Value = true;
-        enum { value = true };
     };
 
     /**
@@ -3420,95 +2504,125 @@ namespace OloEngine
         static constexpr bool Value = TIsTArray_V<T>;
     };
 
-    // ============================================================================
-    // TArray Serialization
-    // ============================================================================
+} // namespace OloEngine
 
+// ============================================================================
+// TArrayPrivateFriend - Serialization Helper
+// ============================================================================
+
+namespace OloEngine
+{
     /**
-     * @brief Serializes a TArray to/from an archive
-     * 
-     * Uses bulk serialization for types that support it (TCanBulkSerialize),
-     * otherwise serializes each element individually.
-     *
-     * @param Ar The archive to serialize to/from
-     * @param A The array to serialize
-     * @return Reference to the archive
+     * @struct TArrayPrivateFriend
+     * @brief Friend struct for TArray serialization access
      */
     template<typename ElementType, typename AllocatorType>
-    FArchive& operator<<(FArchive& Ar, TArray<ElementType, AllocatorType>& A)
+    struct TArrayPrivateFriend
     {
-        using SizeType = typename TArray<ElementType, AllocatorType>::SizeType;
-
-        // Serialize the number of elements
-        SizeType SerializeNum = A.Num();
-        Ar << SerializeNum;
-
-        if (SerializeNum == 0)
+        /**
+         * Serialization operator implementation.
+         * @param Ar Archive to serialize the array with
+         * @param A Array to serialize
+         * @returns The archive
+         */
+        static FArchive& Serialize(FArchive& Ar, TArray<ElementType, AllocatorType>& A)
         {
-            // if we are loading, then we have to reset the size to 0, in case it isn't currently 0
-            if (Ar.IsLoading())
+            using SizeType = typename TArray<ElementType, AllocatorType>::SizeType;
+
+            A.CountBytes(Ar);
+
+            // For net archives, limit serialization to 16MB to protect against excessive allocation
+            constexpr SizeType MaxNetArraySerialize = (16 * 1024 * 1024) / sizeof(ElementType);
+            SizeType SerializeNum = Ar.IsLoading() ? 0 : A.m_ArrayNum;
+
+            Ar << SerializeNum;
+
+            if (SerializeNum == 0)
             {
-                A.Empty();
+                if (Ar.IsLoading())
+                {
+                    A.Empty();
+                }
+                return Ar;
             }
-            return Ar;
-        }
 
-        if (Ar.IsError() || SerializeNum < 0)
-        {
-            Ar.SetError();
-            return Ar;
-        }
+            if (Ar.IsError() || SerializeNum < 0 || (Ar.IsNetArchive() && SerializeNum > MaxNetArraySerialize))
+            {
+                Ar.SetError();
+                return Ar;
+            }
 
-        // if we don't need to perform per-item serialization, just read it in bulk
-        if constexpr (sizeof(ElementType) == 1 || TCanBulkSerialize_V<ElementType>)
-        {
-            // Serialize simple bytes which require no construction or destruction.
-            if ((SerializeNum || A.Max()) && Ar.IsLoading())
+            // If we can bulk serialize, do it
+            if constexpr (sizeof(ElementType) == 1 || TCanBulkSerialize<ElementType>::Value)
+            {
+                A.m_ArrayNum = SerializeNum;
+
+                if ((A.m_ArrayNum || A.m_ArrayMax) && Ar.IsLoading())
+                {
+                    A.ResizeAllocation(A.m_AllocatorInstance.CalculateSlackReserve(SerializeNum, sizeof(ElementType)));
+                }
+
+                Ar.Serialize(A.GetData(), A.Num() * sizeof(ElementType));
+            }
+            else if (Ar.IsLoading())
             {
                 A.Empty(SerializeNum);
-                A.AddUninitialized(SerializeNum);
+                for (SizeType i = 0; i < SerializeNum; i++)
+                {
+                    Ar << A.AddDefaulted_GetRef();
+                }
             }
-
-            Ar.Serialize(A.GetData(), A.Num() * sizeof(ElementType));
-        }
-        else if (Ar.IsLoading())
-        {
-            // Required for resetting ArrayNum
-            A.Empty(SerializeNum);
-
-            for (SizeType i = 0; i < SerializeNum; i++)
+            else
             {
-                Ar << A.AddDefaulted_GetRef();
+                A.m_ArrayNum = SerializeNum;
+                for (SizeType i = 0; i < A.m_ArrayNum; i++)
+                {
+                    Ar << A[i];
+                }
             }
+
+            return Ar;
         }
-        else
-        {
-            for (SizeType i = 0; i < A.Num(); i++)
-            {
-                Ar << A[i];
-            }
-        }
-
-        return Ar;
-    }
-
-    // ============================================================================
-    // TArray Hash Function
-    // ============================================================================
-
-    /** Returns a unique hash by combining those of each array element. */
-    template<typename InElementType, typename InAllocatorType>
-    [[nodiscard]] u32 GetTypeHash(const TArray<InElementType, InAllocatorType>& A)
-    {
-        u32 Hash = 0;
-        for (const InElementType& V : A)
-        {
-            Hash = HashCombineFast(Hash, GetTypeHash(V));
-        }
-        return Hash;
-    }
-
+    };
 } // namespace OloEngine
+
+// ============================================================================
+// FArchive Serialization Operator
+// ============================================================================
+
+/**
+ * @brief Serialization operator for TArray
+ * @param Ar Archive to serialize with
+ * @param A Array to serialize
+ * @returns The archive
+ */
+template<typename ElementType, typename AllocatorType>
+OloEngine::FArchive& operator<<(OloEngine::FArchive& Ar, OloEngine::TArray<ElementType, AllocatorType>& A)
+{
+    return OloEngine::TArrayPrivateFriend<ElementType, AllocatorType>::Serialize(Ar, A);
+}
+
+// ============================================================================
+// GetTypeHash for TArray
+// ============================================================================
+
+/**
+ * @brief Calculate hash for TArray
+ * @param Array  Array to hash
+ * @returns Combined hash of all elements
+ * 
+ * Requires that elements support GetTypeHash().
+ */
+template <typename ElementType, typename AllocatorType>
+[[nodiscard]] inline u32 GetTypeHash(const OloEngine::TArray<ElementType, AllocatorType>& Array)
+{
+    u32 Hash = 0;
+    for (const auto& V : Array)
+    {
+        Hash = OloEngine::HashCombineFast(Hash, GetTypeHash(V));
+    }
+    return Hash;
+}
 
 // ============================================================================
 // Placement new for TArray

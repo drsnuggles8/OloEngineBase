@@ -4,6 +4,9 @@
 #include "OloEngine/Memory/UnrealMemory.h"
 #include "OloEngine/Memory/Memory.h"
 #include "OloEngine/Memory/GenericPlatformMemory.h"
+#include "OloEngine/HAL/MallocPoisonProxy.h"
+#include "OloEngine/HAL/MallocPurgatoryProxy.h"
+#include "OloEngine/HAL/MallocVerifyProxy.h"
 
 #include <atomic>
 #include <cstdlib>
@@ -62,14 +65,60 @@ void FScopedMallocTimer::Spew()
 
 void FMemory::EnablePurgatoryTests()
 {
-    // Simplified - would need malloc proxy infrastructure
-    OLO_CORE_WARN("Purgatory proxy not implemented");
+#if OLO_MALLOC_PURGATORY
+    static bool bOnce = false;
+    if (bOnce)
+    {
+        OLO_CORE_ERROR("Purgatory proxy was already turned on.");
+        return;
+    }
+    bOnce = true;
+    
+    // Atomically swap GMalloc to point to the purgatory proxy
+    while (true)
+    {
+        FMalloc* LocalGMalloc = Private::GMalloc;
+        FMalloc* Proxy = new FMallocPurgatoryProxy(LocalGMalloc);
+        
+        // Atomic compare-exchange to swap in the proxy
+        FMalloc* Expected = LocalGMalloc;
+        if (std::atomic_ref(Private::GMalloc).compare_exchange_strong(Expected, Proxy))
+        {
+            OLO_CORE_INFO("Purgatory proxy is now on - use-after-free detection enabled.");
+            return;
+        }
+        delete Proxy;
+    }
+#else
+    OLO_CORE_WARN("Purgatory proxy not compiled in (OLO_MALLOC_PURGATORY=0)");
+#endif
 }
 
 void FMemory::EnablePoisonTests()
 {
-    // Simplified - would need malloc proxy infrastructure
-    OLO_CORE_WARN("Poison proxy not implemented");
+    static bool bOnce = false;
+    if (bOnce)
+    {
+        OLO_CORE_ERROR("Poison proxy was already turned on.");
+        return;
+    }
+    bOnce = true;
+    
+    // Atomically swap GMalloc to point to the poison proxy
+    while (true)
+    {
+        FMalloc* LocalGMalloc = Private::GMalloc;
+        FMalloc* Proxy = new FMallocPoisonProxy(LocalGMalloc);
+        
+        // Atomic compare-exchange to swap in the proxy
+        FMalloc* Expected = LocalGMalloc;
+        if (std::atomic_ref(Private::GMalloc).compare_exchange_strong(Expected, Proxy))
+        {
+            OLO_CORE_INFO("Poison proxy is now on - memory poisoning enabled (0xCD=new, 0xDD=freed).");
+            return;
+        }
+        delete Proxy;
+    }
 }
 
 /** Helper function called on first allocation to create and initialize GMalloc */

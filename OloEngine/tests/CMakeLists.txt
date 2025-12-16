@@ -10,6 +10,7 @@ add_executable(OloEngine-Tests
 		FastRandomTest.cpp
 		TypeTraitsTest.cpp
 		ContainerTest.cpp
+		FunctionWithContextTest.cpp
 		)
 		
 target_link_libraries(OloEngine-Tests

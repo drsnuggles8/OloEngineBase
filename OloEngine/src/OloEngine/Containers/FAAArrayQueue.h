@@ -42,11 +42,11 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Containers/HazardPointer.h"
+#include "OloEngine/HAL/PlatformProcess.h"
 #include "OloEngine/Memory/Platform.h"
 #include "OloEngine/Templates/UnrealTemplate.h"
 
 #include <atomic>
-#include <thread>
 
 namespace OloEngine
 {
@@ -298,7 +298,7 @@ namespace OloEngine
                 {
                     for (i32 Try = 0; LocalHead->Items[Idx].load() == nullptr && Try < 10; ++Try)
                     {
-                        std::this_thread::yield();
+                        FPlatformProcess::YieldThread();
                     }
                 }
 

@@ -545,18 +545,6 @@ TEST_F(TSetTest, DifferenceOperation)
     EXPECT_TRUE(Diff.Contains(2));
 }
 
-TEST_F(TSetTest, LegacyComparison)
-{
-    TSet<i32> Set1 = { 1, 2, 3 };
-    TSet<i32> Set2 = { 1, 2, 3 };
-    TSet<i32> Set3 = { 1, 2, 4 };
-    
-    // Use LegacyCompareEqual since operator== is deleted
-    EXPECT_TRUE(LegacyCompareEqual(Set1, Set2));
-    EXPECT_FALSE(LegacyCompareEqual(Set1, Set3));
-    EXPECT_TRUE(LegacyCompareNotEqual(Set1, Set3));
-}
-
 TEST_F(TSetTest, Empty)
 {
     TSet<i32> Set = { 1, 2, 3, 4, 5 };

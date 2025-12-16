@@ -53,7 +53,7 @@ namespace OloEngine
      * @param Count     The number of elements to construct
      */
     template <typename ElementType, typename SizeType>
-        requires (sizeof(ElementType) > 0 && TIsZeroConstructType<ElementType>::Value)
+        requires (sizeof(ElementType) > 0 && TIsZeroConstructType<ElementType>::value)
     OLO_FINLINE void DefaultConstructItems(void* Address, SizeType Count)
     {
         FMemory::Memset(Address, 0, sizeof(ElementType) * Count);
@@ -68,7 +68,7 @@ namespace OloEngine
      * @param Count     The number of elements to construct
      */
     template <typename ElementType, typename SizeType>
-        requires (sizeof(ElementType) > 0 && !TIsZeroConstructType<ElementType>::Value)
+        requires (sizeof(ElementType) > 0 && !TIsZeroConstructType<ElementType>::value)
     OLO_NOINLINE void DefaultConstructItems(void* Address, SizeType Count)
     {
         ElementType* Element = static_cast<ElementType*>(Address);

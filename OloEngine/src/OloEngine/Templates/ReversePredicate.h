@@ -30,7 +30,7 @@ namespace OloEngine
         template <typename T>
         OLO_FINLINE bool operator()(T&& A, T&& B) const
         {
-            return ::Invoke(Predicate, Forward<T>(B), Forward<T>(A));
+            return Invoke(Predicate, Forward<T>(B), Forward<T>(A));
         }
     };
 

@@ -23,4 +23,10 @@ namespace OloEngine
         return std::invoke(std::forward<CallableType>(Callable), std::forward<ArgTypes>(Args)...);
     }
 
+    /**
+     * Gets the result type of invoking a callable with the given arguments.
+     */
+    template <typename CallableType, typename... ArgTypes>
+    using TInvokeResult_T = std::invoke_result_t<CallableType, ArgTypes...>;
+
 } // namespace OloEngine

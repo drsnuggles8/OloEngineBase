@@ -75,6 +75,9 @@
     #define OLO_DISABLE_WARNING(warning_number)      __pragma( warning( disable : warning_number ) )
     #define OLO_CONCAT_OPERATOR(x, y)                x##y
     #define OLO_LIFETIMEBOUND                        // MSVC doesn't support lifetimebound attribute yet
+    // Deprecation warning control
+    #define OLO_DISABLE_DEPRECATION_WARNINGS         __pragma(warning(push)) __pragma(warning(disable: 4996))
+    #define OLO_RESTORE_DEPRECATION_WARNINGS         __pragma(warning(pop))
 #elif OLO_COMPILER_GCC || OLO_COMPILER_CLANG
     #define OLO_INLINE                               inline
     #define OLO_FINLINE                              inline __attribute__((always_inline))
@@ -88,6 +91,9 @@
     #else
         #define OLO_LIFETIMEBOUND                    // GCC doesn't support lifetimebound attribute yet
     #endif
+    // Deprecation warning control
+    #define OLO_DISABLE_DEPRECATION_WARNINGS         _Pragma("GCC diagnostic push") _Pragma("GCC diagnostic ignored \"-Wdeprecated-declarations\"")
+    #define OLO_RESTORE_DEPRECATION_WARNINGS         _Pragma("GCC diagnostic pop")
 #else
     #define OLO_INLINE                               inline
     #define OLO_FINLINE                              inline
@@ -97,7 +103,18 @@
     #define OLO_UNLIKELY(x)                          (x)
     #define OLO_CONCAT_OPERATOR(x, y)                x y
     #define OLO_LIFETIMEBOUND
+    // Deprecation warning control (no-op fallback)
+    #define OLO_DISABLE_DEPRECATION_WARNINGS
+    #define OLO_RESTORE_DEPRECATION_WARNINGS
 #endif // MSVC
+
+// Non-copyable macro - deletes copy and move constructors/assignment operators
+// Usage: OLO_NONCOPYABLE(ClassName);
+#define OLO_NONCOPYABLE(ClassName) \
+    ClassName(const ClassName&) = delete; \
+    ClassName& operator=(const ClassName&) = delete; \
+    ClassName(ClassName&&) = delete; \
+    ClassName& operator=(ClassName&&) = delete
 
 
 template<typename T>
