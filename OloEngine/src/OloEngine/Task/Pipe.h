@@ -10,6 +10,7 @@
 #include "OloEngine/Containers/Array.h"
 
 #include <atomic>
+#include <memory>
 
 namespace OloEngine::Tasks
 {
@@ -32,7 +33,7 @@ namespace OloEngine::Tasks
 		{
 			OLO_CORE_ASSERT(s_CallStack.Num() > 0 && s_CallStack.Last() == &Pipe, 
 				"Pipe call stack mismatch");
-			s_CallStack.Pop(false);
+			s_CallStack.Pop(EAllowShrinking::No);
 		}
 
 		/**
@@ -83,7 +84,7 @@ namespace OloEngine::Tasks
 		 * @brief Construct a pipe with a debug name
 		 */
 		explicit FPipe(const char* InDebugName)
-			: m_EmptyEventRef(MakeShared<FEventCount>())
+			: m_EmptyEventRef(std::make_shared<FEventCount>())
 			, m_DebugName(InDebugName)
 		{
 		}
@@ -133,7 +134,7 @@ namespace OloEngine::Tasks
 					return true;
 				}
 
-				FMonotonicTimeSpan WaitTime = Timeout.IsInfinite() ? 
+				FMonotonicTimeSpan WaitTime = Timeout.WillNeverExpire() ? 
 					FMonotonicTimeSpan::Infinity() : 
 					Timeout.GetRemainingTime();
 
@@ -267,7 +268,7 @@ namespace OloEngine::Tasks
 			}
 
 			// Take ref on event before decrementing to avoid use-after-free
-			TSharedRef<FEventCount> LocalEmptyEvent = m_EmptyEventRef;
+			std::shared_ptr<FEventCount> LocalEmptyEvent = m_EmptyEventRef;
 			if (m_TaskCount.fetch_sub(1, std::memory_order_release) == 1)
 			{
 				LocalEmptyEvent->Notify();
@@ -287,7 +288,7 @@ namespace OloEngine::Tasks
 	private:
 		std::atomic<Private::FTaskBase*> m_LastTask{ nullptr };
 		std::atomic<u64> m_TaskCount{ 0 };
-		TSharedRef<FEventCount> m_EmptyEventRef;
+		std::shared_ptr<FEventCount> m_EmptyEventRef;
 		const char* const m_DebugName;
 	};
 

@@ -47,6 +47,11 @@ namespace OloEngine
             {
                 Event = CreateSynchEvent(Mode);
             }
+            else
+            {
+                // Ensure event is reset when retrieved from pool
+                Event->Reset();
+            }
 
             return Event;
         }

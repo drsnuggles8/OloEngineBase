@@ -42,7 +42,7 @@ namespace OloEngine::Tasks
 			friend bool TryRetractAndExecute(const TaskCollectionType& Tasks, FTimeout Timeout);
 
 			template<typename TaskCollectionType>
-			friend bool UE::Tasks::Wait(const TaskCollectionType& Tasks, FMonotonicTimeSpan InTimeout);
+			friend bool OloEngine::Tasks::Wait(const TaskCollectionType& Tasks, FMonotonicTimeSpan InTimeout);
 
 			template<typename TaskType>
 			friend void OloEngine::Tasks::AddNested(const TaskType& Nested);

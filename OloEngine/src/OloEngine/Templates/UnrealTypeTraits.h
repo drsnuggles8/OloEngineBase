@@ -407,11 +407,20 @@ namespace OloEngine
     /**
      * @struct TEnableIf
      * @brief SFINAE helper - type only valid if condition is true
+     * 
+     * Primary template for false case - no Type member (causes substitution failure)
      */
     template<bool Condition, typename T = void>
     struct TEnableIf
+    {};
+
+    /**
+     * Specialization for true case - provides Type member
+     */
+    template<typename T>
+    struct TEnableIf<true, T>
     {
-        using Type = std::enable_if_t<Condition, T>;
+        using Type = T;
     };
 
     template<bool Condition, typename T = void>
@@ -1233,6 +1242,44 @@ namespace OloEngine
 
     template <typename T>
     inline constexpr bool TIsContiguousContainer_V = TIsContiguousContainer<T>::Value;
+
+} // namespace OloEngine
+
+// STL container specializations (must be outside namespace for ADL to work)
+#include <vector>
+#include <array>
+#include <string>
+#include <string_view>
+
+namespace OloEngine
+{
+    // std::vector specialization (always contiguous)
+    template <typename T, typename Allocator>
+    struct TIsContiguousContainer<std::vector<T, Allocator>>
+    {
+        static constexpr bool Value = true;
+    };
+
+    // std::array specialization (always contiguous)
+    template <typename T, std::size_t N>
+    struct TIsContiguousContainer<std::array<T, N>>
+    {
+        static constexpr bool Value = true;
+    };
+
+    // std::basic_string specialization (always contiguous)
+    template <typename CharT, typename Traits, typename Allocator>
+    struct TIsContiguousContainer<std::basic_string<CharT, Traits, Allocator>>
+    {
+        static constexpr bool Value = true;
+    };
+
+    // std::basic_string_view specialization (always contiguous)
+    template <typename CharT, typename Traits>
+    struct TIsContiguousContainer<std::basic_string_view<CharT, Traits>>
+    {
+        static constexpr bool Value = true;
+    };
 
     // ========================================================================
     // Comparison Functors

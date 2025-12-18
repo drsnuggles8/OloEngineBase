@@ -2,6 +2,7 @@
 // Ported 1:1 from UE5.7 FRecursiveMutex
 
 #include "OloEngine/Threading/RecursiveMutex.h"
+#include "OloEngine/Core/Assert.h"
 #include "OloEngine/Core/PlatformTLS.h"
 #include "OloEngine/HAL/ParkingLot.h"
 #include "OloEngine/HAL/PlatformProcess.h"
@@ -21,7 +22,7 @@ namespace OloEngine
 			if (OLO_LIKELY(m_State.compare_exchange_strong(CurrentState, CurrentState | (1 << LockCountShift), 
 				std::memory_order_acquire, std::memory_order_relaxed)))
 			{
-				OLO_CORE_ASSERT_SLOW(m_ThreadId.load(std::memory_order_relaxed) == 0, "ThreadId should be 0 when uncontended lock is acquired");
+				OLO_CORE_CHECK_SLOW(m_ThreadId.load(std::memory_order_relaxed) == 0, "ThreadId should be 0 when uncontended lock is acquired");
 				m_ThreadId.store(CurrentThreadId, std::memory_order_relaxed);
 				return true;
 			}
@@ -49,7 +50,7 @@ namespace OloEngine
 			if (OLO_LIKELY(m_State.compare_exchange_weak(CurrentState, CurrentState | (1 << LockCountShift),
 				std::memory_order_acquire, std::memory_order_relaxed)))
 			{
-				OLO_CORE_ASSERT_SLOW(m_ThreadId.load(std::memory_order_relaxed) == 0, "ThreadId should be 0 when uncontended lock is acquired");
+				OLO_CORE_CHECK_SLOW(m_ThreadId.load(std::memory_order_relaxed) == 0, "ThreadId should be 0 when uncontended lock is acquired");
 				m_ThreadId.store(CurrentThreadId, std::memory_order_relaxed);
 				return;
 			}
@@ -68,8 +69,8 @@ namespace OloEngine
 	void FRecursiveMutex::Unlock()
 	{
 		u32 CurrentState = m_State.load(std::memory_order_relaxed);
-		OLO_CORE_ASSERT_SLOW(CurrentState & LockCountMask, "FRecursiveMutex::Unlock called without matching Lock");
-		OLO_CORE_ASSERT_SLOW(m_ThreadId.load(std::memory_order_relaxed) == FPlatformTLS::GetCurrentThreadId(), 
+		OLO_CORE_CHECK_SLOW(CurrentState & LockCountMask, "FRecursiveMutex::Unlock called without matching Lock");
+		OLO_CORE_CHECK_SLOW(m_ThreadId.load(std::memory_order_relaxed) == FPlatformTLS::GetCurrentThreadId(), 
 			"FRecursiveMutex::Unlock called from wrong thread");
 
 		if (OLO_LIKELY((CurrentState & LockCountMask) == (1 << LockCountShift)))
@@ -107,7 +108,7 @@ namespace OloEngine
 				if (OLO_LIKELY(m_State.compare_exchange_weak(CurrentState, CurrentState | (1 << LockCountShift),
 					std::memory_order_acquire, std::memory_order_relaxed)))
 				{
-					OLO_CORE_ASSERT_SLOW(m_ThreadId.load(std::memory_order_relaxed) == 0, "ThreadId should be 0 when lock is acquired");
+					OLO_CORE_CHECK_SLOW(m_ThreadId.load(std::memory_order_relaxed) == 0, "ThreadId should be 0 when lock is acquired");
 					m_ThreadId.store(InThreadId, std::memory_order_relaxed);
 					return;
 				}

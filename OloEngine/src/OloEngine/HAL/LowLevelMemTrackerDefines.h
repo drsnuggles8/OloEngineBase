@@ -74,4 +74,11 @@
 // Enable stat tags if: (1) Stats or (2) Asset tags are allowed
 #define LLM_ENABLED_STAT_TAGS (LLM_ALLOW_STATS || LLM_ALLOW_ASSETS_TAGS)
 
+#else // !ENABLE_LOW_LEVEL_MEM_TRACKER
+
+// Define macros to 0 when LLM is disabled to prevent undefined symbol errors
+#define LLM_ALLOW_ASSETS_TAGS 0
+#define LLM_ALLOW_STATS 0
+#define LLM_ENABLED_STAT_TAGS 0
+
 #endif // ENABLE_LOW_LEVEL_MEM_TRACKER

@@ -454,6 +454,8 @@ namespace OloEngine
 
         /** Constructor with initial size */
         explicit TArray(SizeType InitialSize)
+            : m_ArrayNum(0)
+            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
         {
             AddUninitialized(InitialSize);
             DefaultConstructItems<ElementType>(GetData(), InitialSize);
@@ -461,6 +463,8 @@ namespace OloEngine
 
         /** Constructor with initial size and default value */
         TArray(SizeType InitialSize, const ElementType& DefaultValue)
+            : m_ArrayNum(0)
+            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
         {
             Reserve(InitialSize);
             for (SizeType i = 0; i < InitialSize; ++i)
@@ -471,6 +475,8 @@ namespace OloEngine
 
         /** Initializer list constructor */
         TArray(std::initializer_list<ElementType> InitList)
+            : m_ArrayNum(0)
+            , m_ArrayMax(m_AllocatorInstance.GetInitialCapacity())
         {
             Reserve(static_cast<SizeType>(InitList.size()));
             for (const auto& Item : InitList)

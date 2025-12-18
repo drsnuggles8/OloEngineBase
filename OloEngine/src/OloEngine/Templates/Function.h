@@ -645,10 +645,14 @@ namespace OloEngine
 
 		friend void Swap(TFunction& A, TFunction& B)
 		{
-			// Manual swap implementation
-			TFunction Temp = MoveTemp(A);
-			A = MoveTemp(B);
-			B = MoveTemp(Temp);
+			// Use bitwise swap like UE5.7 for maximum performance.
+			// TFunction is trivially relocatable (its storage is just bytes + a pointer),
+			// so we can safely memcpy the raw bytes without calling constructors/destructors.
+			// This avoids 3 move constructions + 3 destructor calls in favor of 3 memcpy operations.
+			alignas(TFunction) u8 TempStorage[sizeof(TFunction)];
+			FMemory::Memcpy(TempStorage, &A, sizeof(TFunction));
+			FMemory::Memcpy(&A, &B, sizeof(TFunction));
+			FMemory::Memcpy(&B, TempStorage, sizeof(TFunction));
 		}
 	};
 
@@ -693,9 +697,13 @@ namespace OloEngine
 
 		TUniqueFunction& operator=(TUniqueFunction&& Other)
 		{
-			TUniqueFunction Temp = MoveTemp(Other);
-			// Manually swap
-			std::swap(*this, Temp);
+			if (this != &Other)
+			{
+				// Destroy current contents
+				Super::Reset();
+				// Move-construct in place from Other
+				new (this) TUniqueFunction(MoveTemp(Other));
+			}
 			return *this;
 		}
 
@@ -704,7 +712,7 @@ namespace OloEngine
 		TUniqueFunction& operator=(const TUniqueFunction& Other) = delete;
 		~TUniqueFunction() = default;
 
-		void Reset() { *this = nullptr; }
+		void Reset() { Super::Reset(); }
 
 		OLO_FINLINE explicit operator bool() const { return Super::IsSet(); }
 		OLO_FINLINE bool IsSet() const { return Super::IsSet(); }

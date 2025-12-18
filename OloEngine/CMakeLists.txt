@@ -64,6 +64,7 @@ olo_set_common_definitions(OloEngine)
 target_include_directories(OloEngine PRIVATE
 	src
 	vendor/assimp-src/include
+	vendor/atomic_queue-src/include
 	vendor/box2d-src/include/box2d
 	vendor/box2d-src/src
 	vendor/entt-src/single_include/entt
@@ -114,6 +115,7 @@ target_link_libraries(OloEngine
 	debug ${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Debug/libmono-static-sgen.lib
 	optimized ${CMAKE_CURRENT_SOURCE_DIR}/mono/lib/Release/libmono-static-sgen.lib
 	BCrypt
+	Synchronization
 	Version
 	ws2_32
 	WinMM

@@ -69,10 +69,10 @@ namespace OloEngine
         }
 
         // Accessors.
-        OLO_FINLINE ElementType& operator->() const
+        OLO_FINLINE ElementType* operator->() const
         {
             OLO_CORE_ASSERT(this->m_CurrentLink, "Invalid linked list iterator");
-            return *(this->m_CurrentLink);
+            return this->m_CurrentLink;
         }
 
         OLO_FINLINE ElementType& operator*() const

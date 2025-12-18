@@ -169,6 +169,19 @@ namespace OloEngine::ParkingLot
 	}
 
 	/**
+	 * Queue the calling thread to wait if CanWait returns true (callable version).
+	 * This is a convenience overload that converts callables to TFunctionWithContext.
+	 *
+	 * @param Address      Address to use as the key for the queue. The same address is used to wake the thread.
+	 * @param CanWait      Callable returning true if the thread should wait. Called with bucket locked.
+	 */
+	template<typename CanWaitFunc>
+	inline FWaitState Wait(const void* Address, CanWaitFunc&& CanWait)
+	{
+		return Wait(Address, TFunctionWithContext<bool()>(std::forward<CanWaitFunc>(CanWait)), TFunctionWithContext<void()>(nullptr));
+	}
+
+	/**
 	 * Wake one thread from the queue of threads waiting on the address.
 	 *
 	 * @param Address       Address to use as the key for the queue. Must match the address used in Wait.

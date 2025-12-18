@@ -27,12 +27,22 @@ namespace OloEngine
     namespace Private
     {
         /**
-         * @brief Implementation for GetData - containers with .GetData() member
+         * @brief Implementation for GetData - containers with .GetData() member (UE-style)
          */
         template <typename T>
         [[nodiscard]] constexpr auto GetDataImpl(T&& Container) -> decltype(Container.GetData())
         {
             return Container.GetData();
+        }
+
+        /**
+         * @brief Implementation for GetData - containers with .data() member (STL-style)
+         */
+        template <typename T>
+            requires requires(T& c) { c.data(); } && (!requires(T& c) { c.GetData(); })
+        [[nodiscard]] constexpr auto GetDataImpl(T&& Container) -> decltype(Container.data())
+        {
+            return Container.data();
         }
 
         /**
@@ -46,12 +56,22 @@ namespace OloEngine
         }
 
         /**
-         * @brief Implementation for GetNum - containers with .Num() member
+         * @brief Implementation for GetNum - containers with .Num() member (UE-style)
          */
         template <typename T>
         [[nodiscard]] constexpr auto GetNumImpl(const T& Container) -> decltype(Container.Num())
         {
             return Container.Num();
+        }
+
+        /**
+         * @brief Implementation for GetNum - containers with .size() member (STL-style)
+         */
+        template <typename T>
+            requires requires(const T& c) { c.size(); } && (!requires(const T& c) { c.Num(); })
+        [[nodiscard]] constexpr auto GetNumImpl(const T& Container) -> decltype(static_cast<sizet>(Container.size()))
+        {
+            return static_cast<sizet>(Container.size());
         }
 
         /**

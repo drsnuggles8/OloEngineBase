@@ -1078,7 +1078,7 @@ ALIAS_TEMPLATE_TYPE_LAYOUT(template <typename T>, T*, void*);
 #define REGISTER_INLINE_TYPE_LAYOUT(T) \
     static struct ANONYMOUS_VARIABLE(RegisterTypeLayout) { \
         ANONYMOUS_VARIABLE(RegisterTypeLayout)() { \
-            T::StaticGetTypeLayout().Name = TEXT(#T); \
+            T::StaticGetTypeLayout().Name = #T; \
             OloEngine::FTypeLayoutDesc::Register(T::StaticGetTypeLayout()); \
         } \
     } ANONYMOUS_VARIABLE(RegisterTypeLayoutInstance)

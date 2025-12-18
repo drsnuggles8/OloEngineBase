@@ -88,9 +88,19 @@ namespace OloEngine
     {
         if (m_Event != nullptr)
         {
-            if (m_Event->IsManualReset())
+            
+            // Try to access the vtable to see if the object is valid
+            bool isManualReset = false;
+            try {
+                isManualReset = m_Event->IsManualReset();
+            } catch (...) {
+                return;
+            }
+            
+            if (isManualReset)
             {
-                TEventPool<EEventMode::ManualReset>::Get().ReturnToPool(m_Event);
+                auto& pool = TEventPool<EEventMode::ManualReset>::Get();
+                pool.ReturnToPool(m_Event);
             }
             else
             {

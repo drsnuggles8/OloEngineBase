@@ -16,6 +16,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Threading/IntrusiveMutex.h"
+#include "OloEngine/Threading/SharedLock.h"
 #include "OloEngine/HAL/ParkingLot.h"
 #include "OloEngine/HAL/PlatformProcess.h"
 #include "OloEngine/Task/Oversubscription.h"
@@ -163,6 +164,13 @@ namespace OloEngine
         }
 
     private:
+        // State bit layout - must be defined BEFORE FParams since FParams references these
+        static constexpr u32 IsLockedFlag = 1 << 0;
+        static constexpr u32 MayHaveWaitingLockFlag = 1 << 1;
+        static constexpr u32 MayHaveWaitingSharedLockFlag = 1 << 2;
+        static constexpr u32 SharedLockCountShift = 3;
+        static constexpr u32 SharedLockCountMask = 0xffff'fff8;
+
         // Params for TIntrusiveMutex integration
         struct FParams
         {
@@ -235,7 +243,7 @@ namespace OloEngine
                 ParkingLot::Wait(GetSharedLockAddress(), [this, CurrentState]() -> bool
                 {
                     return m_State.load(std::memory_order_relaxed) == CurrentState;
-                }, nullptr, nullptr);
+                });
                 CurrentState = m_State.load(std::memory_order_relaxed);
             }
         }
@@ -274,74 +282,7 @@ namespace OloEngine
             }
         }
 
-        // State bit layout
-        static constexpr u32 IsLockedFlag = 1 << 0;
-        static constexpr u32 MayHaveWaitingLockFlag = 1 << 1;
-        static constexpr u32 MayHaveWaitingSharedLockFlag = 1 << 2;
-        static constexpr u32 SharedLockCountShift = 3;
-        static constexpr u32 SharedLockCountMask = 0xffff'fff8;
-
         std::atomic<u32> m_State{0};
-    };
-
-    // ============================================================================
-    // RAII Lock Guards
-    // ============================================================================
-
-    /**
-     * @class TSharedLock
-     * @brief RAII shared (read) lock guard
-     */
-    template<typename MutexType>
-    class TSharedLock
-    {
-    public:
-        explicit TSharedLock(MutexType& Mutex) : m_Mutex(&Mutex)
-        {
-            m_Mutex->LockShared();
-        }
-
-        ~TSharedLock()
-        {
-            if (m_Mutex)
-            {
-                m_Mutex->UnlockShared();
-            }
-        }
-
-        TSharedLock(const TSharedLock&) = delete;
-        TSharedLock& operator=(const TSharedLock&) = delete;
-
-        TSharedLock(TSharedLock&& Other) noexcept : m_Mutex(Other.m_Mutex)
-        {
-            Other.m_Mutex = nullptr;
-        }
-
-        TSharedLock& operator=(TSharedLock&& Other) noexcept
-        {
-            if (this != &Other)
-            {
-                if (m_Mutex)
-                {
-                    m_Mutex->UnlockShared();
-                }
-                m_Mutex = Other.m_Mutex;
-                Other.m_Mutex = nullptr;
-            }
-            return *this;
-        }
-
-        void Unlock()
-        {
-            if (m_Mutex)
-            {
-                m_Mutex->UnlockShared();
-                m_Mutex = nullptr;
-            }
-        }
-
-    private:
-        MutexType* m_Mutex;
     };
 
 } // namespace OloEngine

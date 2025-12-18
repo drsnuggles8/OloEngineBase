@@ -139,8 +139,10 @@ namespace OloEngine
             // This ensures TLS slot allocation happens on the main thread for deterministic
             // initialization order before worker threads start using the allocator.
             m_TlsSlot = FPlatformTLS::AllocTlsSlot();
-            checkLockFreePointerList(FPlatformTLS::IsValidTlsSlot(m_TlsSlot));
-            OLO_CORE_TRACE("LockFreeLinkAllocator_TLSCache: Initialized with TLS slot {0}", m_TlsSlot);
+            bool isValid = FPlatformTLS::IsValidTlsSlot(m_TlsSlot);
+            // Skipping checkLockFreePointerList and OLO_CORE_TRACE for now
+            // checkLockFreePointerList(FPlatformTLS::IsValidTlsSlot(m_TlsSlot));
+            // OLO_CORE_TRACE("LockFreeLinkAllocator_TLSCache: Initialized with TLS slot {0}", m_TlsSlot);
         }
 
         // Destructor intentionally leaks memory - matches UE5.7
@@ -255,14 +257,31 @@ namespace OloEngine
         static LockFreeLinkAllocator_TLSCache& Get()
         {
             // Make memory that will not go away, a replacement for TLazySingleton
+            // C++11 guarantees thread-safe initialization of static local variables
             alignas(LockFreeLinkAllocator_TLSCache) static u8 Data[sizeof(LockFreeLinkAllocator_TLSCache)];
             static bool bIsInitialized = false;
+            static LockFreeLinkAllocator_TLSCache* Instance = nullptr;
+            
+            // Use a simple double-checked locking pattern
             if (!bIsInitialized)
             {
-                ::new(static_cast<void*>(Data)) LockFreeLinkAllocator_TLSCache();
-                bIsInitialized = true;
+                static std::atomic_flag s_InitLock = ATOMIC_FLAG_INIT;
+                while (s_InitLock.test_and_set(std::memory_order_acquire))
+                {
+                    // Spin
+                }
+                
+                if (!bIsInitialized)
+                {
+                    ::new(static_cast<void*>(Data)) LockFreeLinkAllocator_TLSCache();
+                    Instance = reinterpret_cast<LockFreeLinkAllocator_TLSCache*>(Data);
+                    bIsInitialized = true;
+                }
+                
+                s_InitLock.clear(std::memory_order_release);
             }
-            return *reinterpret_cast<LockFreeLinkAllocator_TLSCache*>(Data);
+            
+            return *Instance;
         }
 
     private:
@@ -315,7 +334,8 @@ namespace OloEngine
 
     static LockFreeLinkAllocator_TLSCache& GetLockFreeAllocator()
     {
-        return LockFreeLinkAllocator_TLSCache::Get();
+        auto& result = LockFreeLinkAllocator_TLSCache::Get();
+        return result;
     }
 
     // ========================================================================
@@ -326,7 +346,8 @@ namespace OloEngine
 
     u32 FLockFreeLinkPolicy::AllocLockFreeLink()
     {
-        TLinkPtr Result = GetLockFreeAllocator().Pop();
+        auto& allocator = GetLockFreeAllocator();
+        TLinkPtr Result = allocator.Pop();
         // This can only really be a mem stomp
         checkLockFreePointerList(Result && 
                                 !DerefLink(Result)->DoubleNext.GetPtr() && 

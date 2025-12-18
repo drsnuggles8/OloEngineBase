@@ -154,12 +154,12 @@ namespace OloEngine
 				LowLevelTasks::Private::FOversubscriptionAllowedScope _(false);
 
 				// Wait if the state has not changed. Either way, loop back and try to acquire the lock after trying to wait.
-				ParkingLot::Wait(GetWaitAddress(State), [](void* Context) -> bool
+				// Match UE5.7: use lambda capture by reference
+				ParkingLot::Wait(GetWaitAddress(State), [&State]
 				{
-					auto& StateRef = *static_cast<std::atomic<StateType>*>(Context);
-					const StateType NewState = StateRef.load(std::memory_order_relaxed);
+					const StateType NewState = State.load(std::memory_order_relaxed);
 					return (NewState & IsLockedMask) && (NewState & MayHaveWaitingLockFlag);
-				}, &State, nullptr, nullptr);
+				}, nullptr);
 				CurrentState = State.load(std::memory_order_relaxed);
 			}
 		}
@@ -177,51 +177,44 @@ namespace OloEngine
 
 		OLO_FINLINE static void WakeWaitingThread(std::atomic<StateType>& State)
 		{
-			ParkingLot::WakeOne(GetWaitAddress(State), [](void* Context, ParkingLot::FWakeState WakeState) -> u64
+			// Match UE5.7: use lambda capture by reference
+			ParkingLot::WakeOne(GetWaitAddress(State), [&State](ParkingLot::FWakeState WakeState) -> u64
 			{
-				auto& StateRef = *static_cast<std::atomic<StateType>*>(Context);
 				if (!WakeState.bDidWake)
 				{
 					// Keep the flag until no thread wakes, otherwise shared locks may win before
 					// an exclusive lock has a chance.
-					StateRef.fetch_and(~MayHaveWaitingLockFlag, std::memory_order_relaxed);
+					State.fetch_and(~MayHaveWaitingLockFlag, std::memory_order_relaxed);
 				}
 				return 0;
-			}, &State);
+			});
 		}
 
 		[[nodiscard]] OLO_FINLINE static bool TryWakeWaitingThread(std::atomic<StateType>& State)
 		{
 			bool bDidWake = false;
-			struct WakeContext
+			// Match UE5.7: use lambda capture by reference
+			ParkingLot::WakeOne(GetWaitAddress(State), [&State, &bDidWake](ParkingLot::FWakeState WakeState) -> u64
 			{
-				std::atomic<StateType>* StatePtr;
-				bool* bDidWakePtr;
-			};
-			WakeContext Ctx{ &State, &bDidWake };
-
-			ParkingLot::WakeOne(GetWaitAddress(State), [](void* Context, ParkingLot::FWakeState WakeState) -> u64
-			{
-				auto& Ctx = *static_cast<WakeContext*>(Context);
 				if (!WakeState.bDidWake)
 				{
 					// Keep the flag until no thread wakes, otherwise shared locks may win before
 					// an exclusive lock has a chance.
-					Ctx.StatePtr->fetch_and(~MayHaveWaitingLockFlag, std::memory_order_relaxed);
+					State.fetch_and(~MayHaveWaitingLockFlag, std::memory_order_relaxed);
 				}
-				*Ctx.bDidWakePtr = WakeState.bDidWake;
+				bDidWake = WakeState.bDidWake;
 				return 0;
-			}, &Ctx);
+			});
 			return bDidWake;
 		}
 
 	private:
-		static void LockSlow(std::atomic<StateType>& State)
+		OLO_NOINLINE static void LockSlow(std::atomic<StateType>& State)
 		{
 			LockLoop(State);
 		}
 
-		static void UnlockSlow(std::atomic<StateType>& State)
+		OLO_NOINLINE static void UnlockSlow(std::atomic<StateType>& State)
 		{
 			WakeWaitingThread(State);
 		}

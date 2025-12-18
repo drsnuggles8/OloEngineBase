@@ -276,12 +276,16 @@ namespace OloEngine::LowLevelTasks
         friend class FOversubscriptionScope;
 
     private:
+        // NOTE: Member ordering matters! m_WorkerEvents and m_OversubscriptionLimitReachedEvent
+        // MUST be declared before m_WaitingQueue because m_WaitingQueue takes references to them
+        // in its initializer. C++ initializes members in declaration order, not initializer order.
+        TAlignedArray<Private::FWaitEvent>                        m_WorkerEvents;
+        FOversubscriptionLimitReached                             m_OversubscriptionLimitReachedEvent;
         Private::FWaitingQueue                                    m_WaitingQueue[2] = { { m_WorkerEvents, m_OversubscriptionLimitReachedEvent }, { m_WorkerEvents, m_OversubscriptionLimitReachedEvent } };
         FSchedulerTls::FQueueRegistry                             m_QueueRegistry;
         FRecursiveMutex                                           m_WorkerThreadsCS;
         std::unique_ptr<std::atomic<OloEngine::FThread*>[]>      m_WorkerThreads;
         TAlignedArray<FSchedulerTls::FLocalQueueType>             m_WorkerLocalQueues;
-        TAlignedArray<Private::FWaitEvent>                        m_WorkerEvents;
         std::unique_ptr<FSchedulerTls::FLocalQueueType>           m_GameThreadLocalQueue;
         std::atomic_uint                                          m_ActiveWorkers { 0 };
         std::atomic_uint                                          m_NextWorkerId { 0 };
@@ -292,7 +296,6 @@ namespace OloEngine::LowLevelTasks
         EThreadPriority                                           m_WorkerPriority = EThreadPriority::TPri_Normal;
         EThreadPriority                                           m_BackgroundPriority = EThreadPriority::TPri_BelowNormal;
         std::atomic_bool                                          m_TemporaryShutdown{ false };
-        FOversubscriptionLimitReached                             m_OversubscriptionLimitReachedEvent;
     };
 
     /**

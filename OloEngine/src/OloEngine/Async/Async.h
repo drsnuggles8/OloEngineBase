@@ -175,14 +175,6 @@ namespace OloEngine
         using ResultType = decltype(Forward<CallableType>(Callable)());
         TUniqueFunction<ResultType()> Function(Forward<CallableType>(Callable));
         TPromise<ResultType> Promise;
-        
-        if (CompletionCallback)
-        {
-            // Wrap the completion callback
-            auto State = Promise.GetFuture();
-            // Note: We need to set continuation before getting the future
-        }
-        
         TFuture<ResultType> Future = Promise.GetFuture();
 
         switch (Execution)
@@ -195,18 +187,14 @@ namespace OloEngine
                     "AsyncTask",
                     LowLevelTasks::ETaskPriority::Normal,
                     [Function = MoveTemp(Function), Promise = MoveTemp(Promise), 
-                     Callback = MoveTemp(CompletionCallback), Task](bool bNotCanceled) mutable -> LowLevelTasks::FTask*
+                     Callback = MoveTemp(CompletionCallback), Task]() mutable
                     {
-                        if (bNotCanceled)
-                        {
-                            SetPromise(Promise, Function);
-                        }
+                        SetPromise(Promise, Function);
                         if (Callback)
                         {
                             Callback();
                         }
                         delete Task;
-                        return nullptr;
                     },
                     LowLevelTasks::ETaskFlags::DefaultFlags
                 );
@@ -240,7 +228,7 @@ namespace OloEngine
                     CleanupTask->Init(
                         "AsyncCleanup",
                         LowLevelTasks::ETaskPriority::BackgroundLow,
-                        [Runnable, Thread, Callback = MoveTemp(CompletionCallback), CleanupTask](bool) mutable -> LowLevelTasks::FTask*
+                        [Runnable, Thread, Callback = MoveTemp(CompletionCallback), CleanupTask]() mutable
                         {
                             // Wait for completion and clean up
                             Thread->WaitForCompletion();
@@ -251,7 +239,6 @@ namespace OloEngine
                                 Callback();
                             }
                             delete CleanupTask;
-                            return nullptr;
                         },
                         LowLevelTasks::ETaskFlags::DefaultFlags
                     );
@@ -291,18 +278,14 @@ namespace OloEngine
                     "AsyncPoolTask",
                     LowLevelTasks::ETaskPriority::BackgroundNormal,
                     [Function = MoveTemp(Function), Promise = MoveTemp(Promise), 
-                     Callback = MoveTemp(CompletionCallback), Task](bool bNotCanceled) mutable -> LowLevelTasks::FTask*
+                     Callback = MoveTemp(CompletionCallback), Task]() mutable
                     {
-                        if (bNotCanceled)
-                        {
-                            SetPromise(Promise, Function);
-                        }
+                        SetPromise(Promise, Function);
                         if (Callback)
                         {
                             Callback();
                         }
                         delete Task;
-                        return nullptr;
                     },
                     LowLevelTasks::ETaskFlags::DefaultFlags
                 );
@@ -358,7 +341,7 @@ namespace OloEngine
                 CleanupTask->Init(
                     "AsyncThreadCleanup",
                     LowLevelTasks::ETaskPriority::BackgroundLow,
-                    [Runnable, Thread, Callback = MoveTemp(CompletionCallback), CleanupTask](bool) mutable -> LowLevelTasks::FTask*
+                    [Runnable, Thread, Callback = MoveTemp(CompletionCallback), CleanupTask]() mutable
                     {
                         Thread->WaitForCompletion();
                         delete Thread;
@@ -368,7 +351,6 @@ namespace OloEngine
                             Callback();
                         }
                         delete CleanupTask;
-                        return nullptr;
                     },
                     LowLevelTasks::ETaskFlags::DefaultFlags
                 );
@@ -414,14 +396,10 @@ namespace OloEngine
         Task->Init(
             "AsyncTask",
             Priority,
-            [Function = MoveTemp(Function), Task](bool bNotCanceled) mutable -> LowLevelTasks::FTask*
+            [Function = MoveTemp(Function), Task]() mutable
             {
-                if (bNotCanceled)
-                {
-                    Function();
-                }
+                Function();
                 delete Task;
-                return nullptr;
             },
             LowLevelTasks::ETaskFlags::DefaultFlags
         );

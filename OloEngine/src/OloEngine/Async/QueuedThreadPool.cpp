@@ -61,7 +61,7 @@ namespace OLO
 	{
 		m_bIsExiting.store(true, std::memory_order_release);
 
-		// Launch all pending work so it can complete
+		// Process all pending work - try to cancel, otherwise let it run
 		while (true)
 		{
 			FWorkInternalData* work = Dequeue();
@@ -79,9 +79,8 @@ namespace OLO
 			}
 			else
 			{
-				// Successfully retracted - still need to count it for completion
-				m_TaskCount.fetch_add(1, std::memory_order_acquire);
-				m_Scheduler->TryLaunch(work->Task, LowLevelTasks::EQueuePreference::GlobalQueuePreference);
+				// Successfully retracted - just delete the internal data
+				delete work;
 			}
 		}
 

@@ -364,19 +364,23 @@ namespace OloEngine::LowLevelTasks
                                   u64 InWorkerAffinity, u64 InBackgroundAffinity)
     {
         OLO_PROFILE_FUNCTION();
+        
         // Validation: Only the game thread should start workers (matches UE5.7 check(IsInGameThread()))
         OLO_CORE_ASSERT(IsInGameThread() || !g_GameThreadIdInitialized.load(std::memory_order_acquire), 
                         "StartWorkers should only be called from the game thread");
 
+        
         // Initialize configuration from command-line/environment variables (matches UE5.7 FParse::Value calls)
         InitializeTaskGraphConfiguration();
 
+        
         if (NumForegroundWorkers == 0 && NumBackgroundWorkers == 0)
         {
             u32 TotalWorkers = NumberOfWorkerThreadsToSpawn();
             NumForegroundWorkers = std::max<u32>(1, std::min<u32>(2, TotalWorkers - 1));
             NumBackgroundWorkers = std::max<u32>(1, TotalWorkers - NumForegroundWorkers);
         }
+
 
         m_WorkerPriority = InWorkerPriority;
         m_BackgroundPriority = InBackgroundPriority;
@@ -390,18 +394,23 @@ namespace OloEngine::LowLevelTasks
             m_BackgroundAffinity = InBackgroundAffinity;
         }
 
+
         // Check if multithreading is supported
         // UE5.7 logic: enable multithreading if platform supports it OR we're a forked multithread instance
         const bool bSupportsMultithreading = FPlatformProcess::SupportsMultithreading() || FForkProcessHelper::IsForkedMultithreadInstance();
 
+
         u32 OldActiveWorkers = m_ActiveWorkers.load(std::memory_order_relaxed);
+        
         if (OldActiveWorkers == 0 && bSupportsMultithreading && m_ActiveWorkers.compare_exchange_strong(OldActiveWorkers, NumForegroundWorkers + NumBackgroundWorkers, std::memory_order_relaxed))
         {
             TUniqueLock<FRecursiveMutex> Lock(m_WorkerThreadsCS);
+            
             OLO_CORE_ASSERT(!m_WorkerThreads, "WorkerThreads should be null");
             OLO_CORE_ASSERT(m_WorkerLocalQueues.IsEmpty(), "WorkerLocalQueues should be empty");
             OLO_CORE_ASSERT(m_WorkerEvents.IsEmpty(), "WorkerEvents should be empty");
             OLO_CORE_ASSERT(m_NextWorkerId == 0, "NextWorkerId should be 0");
+            
 
             m_ForegroundCreationIndex = 0;
             m_BackgroundCreationIndex = 0;
@@ -473,7 +482,8 @@ namespace OloEngine::LowLevelTasks
             // Initialize waiting queues FIRST (before thread creation) to prevent race conditions
             // where threads start running before the queues are ready to accept them.
             // This matches UE5.7's ordering.
-            m_WaitingQueue[0].Init(NumForegroundWorkers, static_cast<u32>(MaxForegroundWorkers), TFunction<void()>(ForegroundCreateThreadFn), 
+            TFunction<void()> fgFunc(ForegroundCreateThreadFn);
+            m_WaitingQueue[0].Init(NumForegroundWorkers, static_cast<u32>(MaxForegroundWorkers), MoveTemp(fgFunc), 
                                    g_TaskGraphUseDynamicThreadCreation ? 0 : static_cast<u32>(MaxForegroundWorkers));
             m_WaitingQueue[1].Init(NumBackgroundWorkers, static_cast<u32>(MaxBackgroundWorkers), TFunction<void()>(BackgroundCreateThreadFn), 
                                    g_TaskGraphUseDynamicThreadCreation ? 0 : static_cast<u32>(MaxBackgroundWorkers));
@@ -574,6 +584,7 @@ namespace OloEngine::LowLevelTasks
         OLO_CORE_ASSERT(IsInGameThread() || !g_GameThreadIdInitialized.load(std::memory_order_acquire), 
                         "StopWorkers should only be called from the game thread");
 
+
         u32 OldActiveWorkers = m_ActiveWorkers.load(std::memory_order_relaxed);
         if (OldActiveWorkers != 0 && m_ActiveWorkers.compare_exchange_strong(OldActiveWorkers, 0, std::memory_order_relaxed))
         {
@@ -605,6 +616,9 @@ namespace OloEngine::LowLevelTasks
             m_NextWorkerId = 0;
             m_WorkerThreads.reset();
             m_WorkerLocalQueues.Reset();
+            for (i32 i = 0; i < m_WorkerEvents.Num(); ++i)
+            {
+            }
             m_WorkerEvents.Reset();
 
             if (bDrainGlobalQueue)
@@ -931,13 +945,19 @@ namespace OloEngine::LowLevelTasks
     void FScheduler::WorkerMain(Private::FWaitEvent* WorkerEvent, FSchedulerTls::FLocalQueueType* WorkerLocalQueue, 
                                  u32 WaitCycles, bool bPermitBackgroundWork)
     {
+        
         OLO_PROFILE_FUNCTION();
         
         FTlsValues& LocalTlsValues = GetTlsValuesRef();
 
+
         OLO_CORE_ASSERT(LocalTlsValues.LocalQueue == nullptr, "LocalQueue should be null");
         OLO_CORE_ASSERT(WorkerLocalQueue != nullptr, "WorkerLocalQueue should not be null");
         OLO_CORE_ASSERT(WorkerEvent != nullptr, "WorkerEvent should not be null");
+
+        // Clear the EStaticInit tag that new threads inherit from their thread_local default
+        // This allows worker threads to be tagged with EWorkerThread
+        OLO::FTaskTagScope::SetTagNone();
 
         // Mark this thread as a worker thread (matches UE5.7's FTaskTagScope)
         OLO::FTaskTagScope WorkerScope(OLO::ETaskTag::EWorkerThread);

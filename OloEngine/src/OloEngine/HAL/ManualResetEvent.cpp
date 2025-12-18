@@ -84,7 +84,8 @@ namespace OloEngine
 	void FPlatformManualResetEvent::Notify()
 	{
 		m_bWait.store(false, std::memory_order_release);
-		::WakeByAddressSingle(reinterpret_cast<void*>(&m_bWait));
+		// Wake ALL waiters - this is a manual reset event
+		::WakeByAddressAll(reinterpret_cast<void*>(&m_bWait));
 	}
 
 #elif defined(OLO_PLATFORM_LINUX)

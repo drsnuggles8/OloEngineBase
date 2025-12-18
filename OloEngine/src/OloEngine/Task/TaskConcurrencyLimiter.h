@@ -7,11 +7,13 @@
 #include "OloEngine/Core/MonotonicTime.h"
 #include "OloEngine/Task/LowLevelTask.h"
 #include "OloEngine/Task/Scheduler.h"
-#include "OloEngine/HAL/ManualResetEvent.h"
+#include "OloEngine/HAL/EventPool.h"
 #include "OloEngine/Memory/LockFreeList.h"
 #include "OloEngine/Templates/SharedPointer.h"
 #include "OloEngine/Templates/FunctionRef.h"
 #include "OloEngine/Containers/Array.h"
+
+#include <atomic_queue/atomic_queue.h>
 
 #include <atomic>
 #include <memory>
@@ -24,8 +26,7 @@ namespace OloEngine::Tasks
          * @class FConcurrencySlots
          * @brief A bounded lock-free FIFO queue of free slots in range [0 .. max_concurrency)
          * 
-         * This matches UE5.7's atomic_queue::AtomicQueueB<uint32> implementation.
-         * Uses a bounded circular buffer with atomic head/tail pointers for FIFO ordering.
+         * This uses atomic_queue::AtomicQueueB<uint32> matching UE5.7's implementation.
          * FIFO ordering ensures fair slot acquisition under contention (unlike LIFO which
          * can cause starvation).
          * 
@@ -36,22 +37,12 @@ namespace OloEngine::Tasks
         {
         public:
             explicit FConcurrencySlots(u32 MaxConcurrency)
-                : m_Capacity(MaxConcurrency + 1) // +1 for distinguishing full vs empty
+                : FreeSlots(MaxConcurrency)
             {
-                // Allocate buffer for slots
-                // We store values shifted by IndexOffset to use 0 as "empty" sentinel
-                m_Buffer.SetNum(m_Capacity);
-                for (u32 i = 0; i < m_Capacity; ++i)
+                // Initialize with all slots - offset by IndexOffset since queue uses 0 as null
+                for (u32 Index = IndexOffset; Index < MaxConcurrency + IndexOffset; ++Index)
                 {
-                    m_Buffer[i].store(0, std::memory_order_relaxed);
-                }
-
-                // Initialize with all slots in FIFO order
-                for (u32 Index = 0; Index < MaxConcurrency; ++Index)
-                {
-                    u32 Pos = m_Tail.load(std::memory_order_relaxed);
-                    m_Buffer[Pos].store(Index + IndexOffset, std::memory_order_relaxed);
-                    m_Tail.store((Pos + 1) % m_Capacity, std::memory_order_relaxed);
+                    FreeSlots.push(Index);
                 }
             }
 
@@ -62,39 +53,12 @@ namespace OloEngine::Tasks
              */
             bool Alloc(u32& OutSlot)
             {
-                u32 Head = m_Head.load(std::memory_order_relaxed);
-                
-                for (;;)
+                if (FreeSlots.try_pop(OutSlot))
                 {
-                    u32 Tail = m_Tail.load(std::memory_order_acquire);
-                    
-                    // Check if queue is empty
-                    if (Head == Tail)
-                    {
-                        return false;
-                    }
-
-                    // Try to read the value at head
-                    u32 Value = m_Buffer[Head].load(std::memory_order_relaxed);
-                    if (Value == 0)
-                    {
-                        // Slot is empty (being written by producer), try again
-                        Head = m_Head.load(std::memory_order_relaxed);
-                        continue;
-                    }
-
-                    // Try to advance head
-                    u32 NextHead = (Head + 1) % m_Capacity;
-                    if (m_Head.compare_exchange_weak(Head, NextHead, 
-                        std::memory_order_acq_rel, std::memory_order_relaxed))
-                    {
-                        // Successfully claimed this slot, clear it for reuse
-                        m_Buffer[Head].store(0, std::memory_order_relaxed);
-                        OutSlot = Value - IndexOffset;
-                        return true;
-                    }
-                    // CAS failed, Head was updated, retry
+                    OutSlot -= IndexOffset;
+                    return true;
                 }
+                return false;
             }
 
             /**
@@ -102,23 +66,7 @@ namespace OloEngine::Tasks
              */
             void Release(u32 Slot)
             {
-                u32 Value = Slot + IndexOffset;
-                
-                for (;;)
-                {
-                    u32 Tail = m_Tail.load(std::memory_order_relaxed);
-                    u32 NextTail = (Tail + 1) % m_Capacity;
-                    
-                    // Try to reserve the tail position
-                    if (m_Tail.compare_exchange_weak(Tail, NextTail,
-                        std::memory_order_acq_rel, std::memory_order_relaxed))
-                    {
-                        // Successfully reserved, write the value
-                        m_Buffer[Tail].store(Value, std::memory_order_release);
-                        return;
-                    }
-                    // CAS failed, retry
-                }
+                FreeSlots.push(Slot + IndexOffset);
             }
 
         private:
@@ -126,10 +74,8 @@ namespace OloEngine::Tasks
             // slots are shifted by one for storage, ending up in [1 .. max_concurrency] range
             static constexpr u32 IndexOffset = 1;
 
-            alignas(OLO_PLATFORM_CACHE_LINE_SIZE) std::atomic<u32> m_Head{0};
-            alignas(OLO_PLATFORM_CACHE_LINE_SIZE) std::atomic<u32> m_Tail{0};
-            u32 m_Capacity;
-            TArray<std::atomic<u32>> m_Buffer;
+            // Bounded lock-free FIFO queue (matching UE5.7's atomic_queue usage)
+            atomic_queue::AtomicQueueB<u32> FreeSlots;
         };
 
         /**
@@ -157,7 +103,7 @@ namespace OloEngine::Tasks
                 // Clean up any leftover completion event
                 if (FEvent* Event = m_CompletionEvent.exchange(nullptr, std::memory_order_relaxed))
                 {
-                    FPlatformProcess::ReturnSynchEventToPool(Event);
+                    TEventPool<EEventMode::ManualReset>::Get().ReturnToPool(Event);
                 }
             }
 
@@ -200,6 +146,8 @@ namespace OloEngine::Tasks
              */
             bool Wait(FMonotonicTimeSpan Timeout)
             {
+                // Relaxed ordering is sufficient here since we're just checking if work is pending.
+                // The actual synchronization happens through the event mechanism.
                 if (m_NumWorkItems.load(std::memory_order_relaxed) == 0)
                 {
                     return true;
@@ -209,12 +157,12 @@ namespace OloEngine::Tasks
                 FEvent* LocalCompletionEvent = m_CompletionEvent.load(std::memory_order_acquire);
                 if (LocalCompletionEvent == nullptr)
                 {
-                    FEvent* NewEvent = FPlatformProcess::GetSynchEventFromPool(true);
+                    FEvent* NewEvent = TEventPool<EEventMode::ManualReset>::Get().GetEventFromPool();
                     if (!m_CompletionEvent.compare_exchange_strong(LocalCompletionEvent, NewEvent, 
                         std::memory_order_acq_rel, std::memory_order_acquire))
                     {
                         // Another thread beat us - discard our event
-                        FPlatformProcess::ReturnSynchEventToPool(NewEvent);
+                        TEventPool<EEventMode::ManualReset>::Get().ReturnToPool(NewEvent);
                     }
                     else
                     {
@@ -228,13 +176,14 @@ namespace OloEngine::Tasks
                     return true;
                 }
 
-                // Convert timeout to FTimespan for event wait
+                // Wait on the event
                 if (Timeout == FMonotonicTimeSpan::Infinity())
                 {
-                    return LocalCompletionEvent->Wait(FTimespan::MaxValue());
+                    return LocalCompletionEvent->Wait();  // Infinite wait
                 }
-                return LocalCompletionEvent->Wait(FTimespan::FromMilliseconds(
-                    static_cast<f64>(Timeout.GetTotalMilliseconds())));
+                // Convert timeout to milliseconds for FEvent::Wait
+                return LocalCompletionEvent->Wait(
+                    static_cast<u32>(Timeout.ToMilliseconds()));
             }
 
         private:
@@ -301,6 +250,7 @@ namespace OloEngine::Tasks
             {
                 if (m_NumWorkItems.fetch_sub(1, std::memory_order_release) == 1)
                 {
+                    // Count went from 1 to 0 - signal completion
                     if (FEvent* LocalCompletionEvent = m_CompletionEvent.load(std::memory_order_acquire))
                     {
                         LocalCompletionEvent->Trigger();
