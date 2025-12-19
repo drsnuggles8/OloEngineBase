@@ -4,3 +4,10 @@ UseTab: Never
 ColumnLimit: 0
 BreakBeforeBraces: Allman
 SortIncludes: false
+
+# Preserve pointer/reference attached to the type (e.g. `T& var` not `T &var`)
+PointerAlignment: Left
+
+# Keep `template<typename T>` (no space after the `template` keyword)
+SpaceAfterTemplateKeyword: false
+
